@@ -28,8 +28,8 @@ export type ModeDeckActions = {
     choices: AgentConfigurationChoices & AgentLaunchContextValue,
     position: { readonly x: number; readonly y: number },
   ) => void;
-  readonly addWatcher: () => void;
-  readonly addTimer: () => void;
+  readonly addGauge: () => void;
+  readonly addCron: () => void;
   readonly addTasks: () => void;
   readonly addRequests: () => void;
   readonly addArtifacts: () => void;
@@ -64,8 +64,8 @@ const catalogAction = (actions: ModeDeckActions, entry: NodeCatalogEntry): void 
     case "artifacts": actions.addArtifacts(); break;
     case "board": actions.addBoard(); break;
     case "page": actions.addPage(); break;
-    case "watcher": actions.addWatcher(); break;
-    case "timer": actions.addTimer(); break;
+    case "watcher": actions.addGauge(); break;
+    case "timer": actions.addCron(); break;
     case "note": actions.create("text"); break;
     case "file": actions.create("file"); break;
     case "link": actions.create("link"); break;

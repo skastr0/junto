@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Background,
@@ -19,8 +19,7 @@ import type { Connection, FinalConnectionState, Node, OnNodeDrag } from "@xyflow
 import { use$ } from "@legendapp/state/react";
 import type { EtherEdgeKind, EtherFlag, TextNode } from "@shared/canvas";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
-import { Ban, Boxes, Expand, Eye, FileText, Globe, Link2, ListChecks, Plus, ScanLine, SquareDashed, Terminal, Timer, Trash2 } from "lucide-react";
-import { allTemplates, type HarnessId } from "@shared/managed-terminal-templates";
+import { Ban, Boxes, Expand, Link2, Plus, ScanLine, SquareDashed, Trash2 } from "lucide-react";
 import { state$ } from "../lib/state";
 import { kernel$ } from "../lib/kernel-view";
 import type { FlowEdge, FlowNode } from "../lib/convert";
@@ -54,7 +53,6 @@ import {
 } from "../lib/node-factories";
 import { openHerdrWizard } from "../lib/herdr-state";
 import { describeConnectPreview } from "../lib/connect-preview";
-import { resolveSpec, roleOf, type FactoryRoleName } from "@shared/physics";
 import { GROUND, HUE } from "../lib/theme";
 import type { MemberSeverity } from "@shared/region-rollup";
 import { minimapFill, signalMark } from "../lib/signal-mark";
@@ -62,17 +60,7 @@ import { nodeTypes } from "./nodes";
 import { edgeTypes } from "./edges/EtherEdge";
 import { RtsBottomBar } from "./rts/RtsBottomBar";
 import { TerminalWizard } from "./terminal/TerminalWizard";
-import {
-  AgentCascadeMenu,
-  cascadeEnterKey,
-  cascadeSideFor,
-  type AgentConfigurationChoices,
-} from "./terminal/AgentCascadeMenu";
-import {
-  AgentLocationModal,
-  type AgentLocationRequest,
-} from "./terminal/AgentLocationModal";
-import { HarnessMark } from "./herdr/HarnessMark";
+import { type AgentConfigurationChoices } from "./terminal/AgentCascadeMenu";
 import { CanvasMagnifier } from "./CanvasMagnifier";
 import { NodePaletteModeDeck, type ModeDeckActions } from "./node-palette/NodePaletteModeDeck";
 import type { AgentLaunchContextValue } from "./node-palette/AgentLaunchContext";
@@ -588,10 +576,8 @@ function useCanvasInteractions(
 
 interface AddActions extends ModeDeckActions {
   readonly create: (kind: "text" | "file" | "link" | "group") => void;
-  /** Legacy compact-menu path; the Mode Deck always uses addConfiguredAgent. */
-  readonly addAgent: (choices: AgentConfigurationChoices) => void;
-  readonly addWatcher: () => void;
-  readonly addTimer: () => void;
+  readonly addGauge: () => void;
+  readonly addCron: () => void;
   readonly addTasks: () => void;
   readonly addRequests: () => void;
   readonly addArtifacts: () => void;
@@ -650,26 +636,13 @@ const makeAddActions = (
     state$.focusNodeId.set(node.id);
     dismiss();
   },
-  addAgent: (choices) => {
-    const size = { width: 260, height: 110 };
-    const position = positionFor(size);
-    dismiss();
-    window.dispatchEvent(
-      new CustomEvent<AgentLocationRequest>("vellum:configure-agent-location", {
-        detail: { choices, position },
-      }),
-    );
-  },
   addConfiguredAgent: (choices, position) => {
+    const node = makeManagedAgentNode(position.x, position.y, choices);
+    addNode(node, { edit: false });
+    state$.focusNodeId.set(node.id);
     dismiss();
-    window.dispatchEvent(
-      new CustomEvent<{
-        readonly choices: AgentConfigurationChoices & AgentLaunchContextValue;
-        readonly position: { readonly x: number; readonly y: number };
-      }>("vellum:create-configured-agent", { detail: { choices, position } }),
-    );
   },
-  addWatcher: () => {
+  addGauge: () => {
     const position = positionFor({ width: 240, height: 96 });
     const stationHost = state$.settings.station.hostId.peek() || "local";
     const node = {
@@ -684,7 +657,7 @@ const makeAddActions = (
     state$.focusNodeId.set(node.id);
     dismiss();
   },
-  addTimer: () => {
+  addCron: () => {
     const position = positionFor({ width: 240, height: 96 });
     const stationHost = state$.settings.station.hostId.peek() || "local";
     const node = {
@@ -774,7 +747,10 @@ const useMenuDismiss = (active: boolean, dismiss: () => void) => {
     };
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target;
-      if (target instanceof Element && target.closest(".node-palette")) return;
+      if (
+        target instanceof Element &&
+        target.closest(".node-palette, [data-node-palette-portal]")
+      ) return;
       dismiss();
     };
     window.addEventListener("keydown", onKeyDown);
@@ -786,326 +762,9 @@ const useMenuDismiss = (active: boolean, dismiss: () => void) => {
   }, [active, dismiss]);
 };
 
-// Auto-focused filter + arrow/Enter selection. Typing narrows by label+sub;
-// Enter commits the highlighted row. Managed agents are direct rows whose
-// pointer/focus cascade progressively exposes model and effort overrides.
-// Keyboard path: ↑/↓ highlight → Enter/→ open cascade with focus → cascade
-// arrows/Enter → Esc steps back column-by-column then to the filter.
-function AddMenu({ actions }: { readonly actions: AddActions }) {
-  const [query, setQuery] = useState("");
-  const [highlighted, setHighlighted] = useState(0);
-  const [agentCascade, setAgentCascade] = useState<{
-    readonly harness: HarnessId;
-    readonly anchor: HTMLButtonElement;
-    readonly focusOnOpen: boolean;
-  } | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const cascadeCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    inputRef.current?.focus();
-    return () => {
-      if (cascadeCloseTimer.current) clearTimeout(cascadeCloseTimer.current);
-    };
-  }, []);
-
-  const keepCascadeOpen = useCallback(() => {
-    if (!cascadeCloseTimer.current) return;
-    clearTimeout(cascadeCloseTimer.current);
-    cascadeCloseTimer.current = null;
-  }, []);
-
-  const closeCascade = useCallback(() => {
-    keepCascadeOpen();
-    setAgentCascade(null);
-  }, [keepCascadeOpen]);
-
-  const closeCascadeSoon = useCallback(() => {
-    keepCascadeOpen();
-    // Pointer gap + keyboard focus handoff both race this timer. Keep the
-    // cascade if focus landed inside it (or the palette) before the delay.
-    cascadeCloseTimer.current = setTimeout(() => {
-      const active = document.activeElement;
-      if (
-        active instanceof Element &&
-        active.closest(".agent-cascade, .node-palette__menu")
-      ) {
-        return;
-      }
-      setAgentCascade(null);
-    }, 140);
-  }, [keepCascadeOpen]);
-
-  const openCascade = useCallback(
-    (
-      harness: HarnessId,
-      anchor: HTMLButtonElement,
-      focusOnOpen = false,
-    ) => {
-      keepCascadeOpen();
-      setAgentCascade((current) => {
-        if (
-          current?.harness === harness &&
-          current.anchor === anchor &&
-          current.focusOnOpen === focusOnOpen
-        ) {
-          return current;
-        }
-        return { harness, anchor, focusOnOpen };
-      });
-    },
-    [keepCascadeOpen],
-  );
-
-  const exitCascadeToPalette = useCallback(() => {
-    const anchor = agentCascade?.anchor;
-    closeCascade();
-    // Prefer the agent row so → can re-enter; fall back to the filter.
-    requestAnimationFrame(() => {
-      if (anchor?.isConnected) {
-        anchor.focus();
-        return;
-      }
-      inputRef.current?.focus();
-    });
-  }, [agentCascade?.anchor, closeCascade]);
-
-  // Grouped Actors / Sinks / Schedulers / Geography — group membership is
-  // paletteGroupFor(kind, isGroup). Harnesses are first-class actor choices.
-  const entries: ReadonlyArray<MenuEntry> = [
-    ...allTemplates().map((template) => ({
-      key: `agent-${template.harness}`,
-      label: template.displayName,
-      sub: "",
-      icon: <HarnessMark agent={template.harness} size={20} />,
-      ariaLabel: `Configure ${template.displayName} agent`,
-      group: paletteGroupFor("agent", false),
-      harness: template.harness,
-    })),
-    { key: "terminal", label: "terminal", sub: "native shell · geography", icon: <Terminal size={14} />, ariaLabel: "Add native terminal work surface", group: paletteGroupFor("terminal", false), onSelect: () => actions.addTerminal() },
-    { key: "herdr", label: "herdr", sub: "attach an existing pane", icon: <Terminal size={14} />, ariaLabel: "Add herdr work surface", group: paletteGroupFor("herdr", false), onSelect: () => actions.addHerdr() },
-    { key: "tasks", label: "tasks", sub: "task list · blocks when edged", icon: <ListChecks size={14} />, ariaLabel: "Add tasks", group: paletteGroupFor("task", false), onSelect: () => actions.addTasks() },
-    { key: "requests", label: "requests", sub: "input-required · blocks when edged", icon: <ListChecks size={14} />, ariaLabel: "Add requests", group: paletteGroupFor("requests", false), onSelect: () => actions.addRequests() },
-    { key: "artifacts", label: "artifacts", sub: "published parts shelf", icon: <FileText size={14} />, ariaLabel: "Add artifacts", group: paletteGroupFor("artifacts", false), onSelect: () => actions.addArtifacts() },
-    { key: "board", label: "board", sub: "bulletin · topics + posts", icon: <FileText size={14} />, ariaLabel: "Add bulletin board", group: paletteGroupFor("board", false), onSelect: () => actions.addBoard() },
-    { key: "page", label: "page", sub: "work surface · browser session", icon: <Globe size={14} />, ariaLabel: "Add browser page work surface", group: paletteGroupFor("page", false), onSelect: () => actions.addPage() },
-    { key: "watcher", label: "gauge", sub: "condition over live data", icon: <Eye size={14} />, ariaLabel: "Add gauge", group: paletteGroupFor("watcher", false), onSelect: () => actions.addWatcher() },
-    { key: "timer", label: "cron", sub: "schedule on an interval", icon: <Timer size={14} />, ariaLabel: "Add cron", group: paletteGroupFor("timer", false), onSelect: () => actions.addTimer() },
-    { key: "text", label: "note", sub: "freeform text", icon: <FileText size={14} />, ariaLabel: "Add note", group: paletteGroupFor(undefined, false), onSelect: () => actions.create("text") },
-    { key: "file", label: "file", sub: "workspace path", icon: <FileText size={14} />, ariaLabel: "Add file", group: paletteGroupFor(undefined, false), onSelect: () => actions.create("file") },
-    { key: "link", label: "link", sub: "web reference", icon: <Link2 size={14} />, ariaLabel: "Add link", group: paletteGroupFor(undefined, false), onSelect: () => actions.create("link") },
-    { key: "group", label: "region", sub: "spatial container", icon: <SquareDashed size={14} />, ariaLabel: "Add region", group: paletteGroupFor(undefined, true), onSelect: () => actions.create("group") },
-  ];
-
-  const needle = query.trim().toLowerCase();
-  const filtered = needle
-    ? entries.filter((entry) => entry.label.toLowerCase().includes(needle) || entry.sub.toLowerCase().includes(needle))
-    : entries;
-  const activeIndex = Math.min(highlighted, Math.max(filtered.length - 1, 0));
-
-  const activateEntry = (
-    entry: MenuEntry,
-    suppliedAnchor?: HTMLButtonElement,
-    opts: { readonly keyboard?: boolean } = {},
-  ): void => {
-    if (entry.harness) {
-      const anchor =
-        suppliedAnchor ??
-        document.querySelector<HTMLButtonElement>(
-          `[data-palette-entry="${entry.key}"]`,
-        );
-      if (!anchor) return;
-      if (opts.keyboard) {
-        // Keyboard commit enters the cascade with focus; click keeps filter focus.
-        openCascade(entry.harness, anchor, true);
-        return;
-      }
-      openCascade(entry.harness, anchor, false);
-      return;
-    }
-    entry.onSelect();
-  };
-
-  const enterCascadeFromHighlight = (): boolean => {
-    const entry = filtered[activeIndex];
-    if (!entry?.harness) return false;
-    const anchor = document.querySelector<HTMLButtonElement>(
-      `[data-palette-entry="${entry.key}"]`,
-    );
-    if (!anchor) return false;
-    openCascade(entry.harness, anchor, true);
-    return true;
-  };
-
-  const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      setHighlighted((value) => Math.min(value + 1, filtered.length - 1));
-    } else if (event.key === "ArrowUp") {
-      event.preventDefault();
-      setHighlighted((value) => Math.max(value - 1, 0));
-    } else if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
-      // Horizontal entry follows cascade side: mirrored menus open leftward,
-      // so ← (not →) steps into the first column.
-      const entry = filtered[activeIndex];
-      if (!entry?.harness) return;
-      const anchor = document.querySelector<HTMLButtonElement>(
-        `[data-palette-entry="${entry.key}"]`,
-      );
-      if (!anchor) return;
-      if (event.key !== cascadeEnterKey(cascadeSideFor(anchor))) return;
-      if (enterCascadeFromHighlight()) {
-        event.preventDefault();
-      }
-    } else if (event.key === "Enter") {
-      event.preventDefault();
-      const entry = filtered[activeIndex];
-      if (entry) activateEntry(entry, undefined, { keyboard: true });
-    } else if (event.key === "Escape" && agentCascade) {
-      // Cascade owns layered Escape when focus is inside it; when focus is still
-      // on the filter, the first Escape closes only the open cascade.
-      event.preventDefault();
-      event.stopPropagation();
-      closeCascade();
-    }
-  };
-
-  return <div className="node-palette__menu" onWheel={(event) => event.stopPropagation()}>
-    <input
-      ref={inputRef}
-      autoFocus
-      type="text"
-      className="node-palette__filter"
-      placeholder="filter…"
-      aria-label="Filter add menu"
-      value={query}
-      onChange={(event) => { setQuery(event.target.value); setHighlighted(0); }}
-      onKeyDown={onKeyDown}
-    />
-    {filtered.length === 0 ? <div className="node-palette__picker-empty">No matches.</div>
-        : (() => {
-            // Root menu is already group-major order — a header renders once
-            // per group boundary crossed while walking the filtered list.
-            let lastGroup: PaletteGroup | null = null;
-            return filtered.map((entry, index) => {
-              const showHeader = entry.group !== lastGroup;
-              lastGroup = entry.group;
-              return (
-                <Fragment key={entry.key}>
-                  {showHeader ? <div className="node-palette__group-label">{entry.group}</div> : null}
-                  <button
-                    data-palette-entry={entry.key}
-                    aria-label={entry.ariaLabel}
-                    aria-haspopup={entry.harness ? "menu" : undefined}
-                    aria-expanded={
-                      entry.harness ? agentCascade?.harness === entry.harness : undefined
-                    }
-                    data-tooltip=""
-                    className={[
-                      index === activeIndex ? "is-active" : "",
-                      entry.harness ? "node-palette__agent-row" : "",
-                    ].filter(Boolean).join(" ") || undefined}
-                    onFocus={(event) => {
-                      setHighlighted(index);
-                      if (entry.harness) {
-                        openCascade(entry.harness, event.currentTarget, false);
-                      }
-                    }}
-                    onBlur={() => {
-                      if (entry.harness) closeCascadeSoon();
-                    }}
-                    onMouseEnter={(event) => {
-                      setHighlighted(index);
-                      if (entry.harness) {
-                        openCascade(entry.harness, event.currentTarget, false);
-                      } else {
-                        setAgentCascade(null);
-                      }
-                    }}
-                    onMouseLeave={() => {
-                      if (entry.harness) closeCascadeSoon();
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === "ArrowDown") {
-                        event.preventDefault();
-                        const next = Math.min(index + 1, filtered.length - 1);
-                        setHighlighted(next);
-                        document
-                          .querySelector<HTMLButtonElement>(
-                            `[data-palette-entry="${filtered[next]?.key}"]`,
-                          )
-                          ?.focus();
-                        return;
-                      }
-                      if (event.key === "ArrowUp") {
-                        event.preventDefault();
-                        if (index === 0) {
-                          inputRef.current?.focus();
-                          return;
-                        }
-                        const next = index - 1;
-                        setHighlighted(next);
-                        document
-                          .querySelector<HTMLButtonElement>(
-                            `[data-palette-entry="${filtered[next]?.key}"]`,
-                          )
-                          ?.focus();
-                        return;
-                      }
-                      if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
-                        if (!entry.harness) {
-                          if (event.key === "ArrowLeft") {
-                            event.preventDefault();
-                            inputRef.current?.focus();
-                          }
-                          return;
-                        }
-                        const side = cascadeSideFor(event.currentTarget);
-                        if (event.key === cascadeEnterKey(side)) {
-                          event.preventDefault();
-                          openCascade(entry.harness, event.currentTarget, true);
-                          return;
-                        }
-                        // Retreat key on the actor row returns to the filter.
-                        event.preventDefault();
-                        inputRef.current?.focus();
-                        return;
-                      }
-                      if (!entry.harness) return;
-                      if (event.key === "Enter") {
-                        event.preventDefault();
-                        openCascade(entry.harness, event.currentTarget, true);
-                      }
-                    }}
-                    onClick={(event) =>
-                      activateEntry(entry, event.currentTarget)
-                    }
-                  >
-                    <span className="node-palette__icon" aria-hidden>{entry.icon}</span>
-                    <span><strong>{entry.label}</strong>{entry.sub ? <small>{entry.sub}</small> : null}</span>
-                  </button>
-                </Fragment>
-              );
-            });
-          })()}
-    {agentCascade ? (
-      <AgentCascadeMenu
-        key={agentCascade.harness}
-        harness={agentCascade.harness}
-        anchor={agentCascade.anchor}
-        focusOnOpen={agentCascade.focusOnOpen}
-        onConfigure={actions.addAgent}
-        onPointerEnter={keepCascadeOpen}
-        onPointerLeave={closeCascadeSoon}
-        onExit={exitCascadeToPalette}
-      />
-    ) : null}
-  </div>;
-}
-
 // Canvas chrome insets for palette placement — stay between station top bar
 // and the docked field tools / RTS bottom chrome, never over either.
-const NODE_PALETTE_WIDTH = 268;
+const NODE_DECK_MAX_WIDTH = 1120;
 const NODE_PALETTE_MARGIN = 8;
 
 const stationBarBottom = (): number => {
@@ -1136,12 +795,16 @@ function CanvasFieldTools() {
     const place = () => {
       const rect = triggerRef.current?.getBoundingClientRect();
       if (!rect) return;
+      const deckWidth = Math.min(
+        NODE_DECK_MAX_WIDTH,
+        window.innerWidth - NODE_PALETTE_MARGIN * 2,
+      );
       // Anchor above the trigger; clamp height under the station top bar.
       const topLimit = stationBarBottom();
       setMenuBox({
         left: Math.min(
           Math.max(NODE_PALETTE_MARGIN, rect.left),
-          window.innerWidth - NODE_PALETTE_WIDTH - NODE_PALETTE_MARGIN,
+          window.innerWidth - deckWidth - NODE_PALETTE_MARGIN,
         ),
         bottom: Math.max(NODE_PALETTE_MARGIN, window.innerHeight - rect.top + 6),
         maxHeight: Math.max(140, rect.top - topLimit),
@@ -1553,29 +1216,12 @@ function CanvasGraph() {
   const connecting = useConnection((connection) => connection.inProgress);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [terminalAnchor, setTerminalAnchor] = useState<{ x: number; y: number } | null>(null);
-  const [agentLocation, setAgentLocation] = useState<AgentLocationRequest | null>(null);
   useEffect(() => {
     const openTerminal = (event: Event) =>
       setTerminalAnchor((event as CustomEvent<{ x: number; y: number }>).detail);
-    const configureAgent = (event: Event) =>
-      setAgentLocation((event as CustomEvent<AgentLocationRequest>).detail);
-    const createConfiguredAgent = (event: Event) => {
-      const detail = (event as CustomEvent<{
-        readonly choices: AgentConfigurationChoices & AgentLaunchContextValue;
-        readonly position: { readonly x: number; readonly y: number };
-      }>).detail;
-      if (!detail) return;
-      const node = makeManagedAgentNode(detail.position.x, detail.position.y, detail.choices);
-      addNode(node, { edit: false });
-      state$.focusNodeId.set(node.id);
-    };
     window.addEventListener("vellum:new-terminal", openTerminal);
-    window.addEventListener("vellum:configure-agent-location", configureAgent);
-    window.addEventListener("vellum:create-configured-agent", createConfiguredAgent);
     return () => {
       window.removeEventListener("vellum:new-terminal", openTerminal);
-      window.removeEventListener("vellum:configure-agent-location", configureAgent);
-      window.removeEventListener("vellum:create-configured-agent", createConfiguredAgent);
     };
   }, []);
   const [multiMenu, setMultiMenu] = useState<{ x: number; y: number } | null>(null);
@@ -1675,26 +1321,6 @@ function CanvasGraph() {
 
   return <>
     {terminalAnchor ? <TerminalWizard anchor={terminalAnchor} onClose={() => setTerminalAnchor(null)} /> : null}
-    {agentLocation ? (
-      <AgentLocationModal
-        request={agentLocation}
-        onClose={() => setAgentLocation(null)}
-        onCreate={(choices) => {
-          const node = makeManagedAgentNode(
-            agentLocation.position.x,
-            agentLocation.position.y,
-            choices,
-          );
-          addNode(node, { edit: false });
-          state$.focusNodeId.set(node.id);
-          setAgentLocation(null);
-          // A new actor is lazy: it lands as a node and nothing else. Its
-          // process starts when the operator activates it (double-click) or
-          // when the factory hands it a task — authoring a region should not
-          // charge a harness launch per card.
-        }}
-      />
-    ) : null}
     <ReactFlow
       className={[
         connecting ? "is-connecting" : "",
