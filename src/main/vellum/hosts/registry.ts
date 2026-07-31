@@ -575,6 +575,17 @@ export const makeHostsRegistry = (
                 `unknown host: ${id}`,
               );
             }
+            // Dependent product rows that RESTRICT host_registry deletion.
+            for (const sql of [
+              "DELETE FROM box_resources WHERE host_id = ?",
+              "DELETE FROM station_fleet_targets WHERE host_id = ?",
+            ] as const) {
+              try {
+                writer.run(sql, [id]);
+              } catch {
+                // Table may be absent on older isolated fixtures; continue.
+              }
+            }
             writer.run("DELETE FROM host_registry WHERE id = ?", [id]);
             return readStoredDocument(writer);
           })

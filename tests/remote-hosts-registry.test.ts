@@ -335,58 +335,61 @@ describe("remote hosts registry", () => {
       await setupRuntime.dispose();
     }
     resetDefaultHostsRegistryForTests();
+    // Stale local-only snapshot — route must not appear until SQLite hydrates.
     setHostsSnapshot(defaultRemoteHostsDocument().hosts);
+    expect(isKnownHerdrHost("studio")).toBe(false);
 
-    const observed = await Effect.runPromise(
-      Effect.gen(function* () {
-        const herdr = yield* HerdrPlane;
-        const hosts = yield* HostsService;
-        const firstRoute = herdr.mirrors.mirrorFor("studio") !== undefined;
-
-        yield* hosts.remove("studio");
-        yield* hosts.upsert({
+    const reopen = ManagedRuntime.make(makeStateEngineLive(databasePath));
+    try {
+      const state = await reopen.runPromise(StateEngine);
+      const registry = makeHostsRegistry(state);
+      const service = makeHostsService(
+        registry,
+        {} as Context.Tag.Service<typeof SshTransport>,
+        unusedFleet,
+      );
+      const listed = await Effect.runPromise(service.list);
+      const firstRoute = isKnownHerdrHost("studio");
+      await Effect.runPromise(service.remove("studio"));
+      await Effect.runPromise(
+        service.upsert({
           id: "render",
           label: "Render",
           kind: "remote",
           sshEndpoint: "render-ssh",
           capabilities: ["herdr"],
-        });
-        const rejected = yield* Effect.either(
-          hosts.upsert({
+        }),
+      );
+      const rejected = await Effect.runPromise(
+        Effect.either(
+          service.upsert({
             id: "duplicate",
             label: "Duplicate",
             kind: "remote",
             sshEndpoint: "render-ssh",
             capabilities: ["herdr"],
           }),
-        );
-        const reloaded = yield* hosts.list;
-
-        return {
-          firstRoute,
-          rejected: rejected._tag,
-          reloadedIds: reloaded.map((host) => host.id),
-          oldRoute: isKnownHerdrHost("studio"),
-          newRoute: herdr.mirrors.mirrorFor("render") !== undefined,
-        };
-      }).pipe(
-        Effect.provide(
-          Layer.provideMerge(
-            ProductPlanesLive,
-            makeStateEngineLive(databasePath),
-          ),
         ),
-        Effect.scoped,
-      ),
-    );
-
-    expect(observed).toEqual({
-      firstRoute: true,
-      rejected: "Left",
-      reloadedIds: ["local", "render"],
-      oldRoute: false,
-      newRoute: true,
-    });
+      );
+      const reloaded = await Effect.runPromise(service.list);
+      expect({
+        firstRoute,
+        listedIds: listed.map((host) => host.id).sort(),
+        rejected: rejected._tag,
+        reloadedIds: reloaded.map((host) => host.id).sort(),
+        oldRoute: isKnownHerdrHost("studio"),
+        newRoute: isKnownHerdrHost("render"),
+      }).toEqual({
+        firstRoute: true,
+        listedIds: ["local", "studio"],
+        rejected: "Left",
+        reloadedIds: ["local", "render"],
+        oldRoute: false,
+        newRoute: true,
+      });
+    } finally {
+      await reopen.dispose();
+    }
   });
 
   it("publishes a committed mutation even when its caller is interrupted", async () => {
