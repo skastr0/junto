@@ -4,8 +4,8 @@
  * kind is carried by the outlined icon, never a coloured slab or side stripe.
  */
 .focus-surface__panel.node-deck-focus-panel {
-  width: min(820px, calc(100vw - 32px));
-  height: min(820px, calc(100vh - 96px));
+  width: min(1120px, calc(100vw - 32px));
+  height: min(640px, calc(100vh - 96px));
   max-height: calc(100vh - 96px);
   box-shadow: none;
 }
@@ -189,7 +189,7 @@
 .node-deck-catalog {
   display: grid;
   flex: 1 1 0;
-  grid-template-rows: minmax(0, 1fr) minmax(124px, 42%);
+  grid-template-rows: minmax(0, 1fr) auto;
   min-height: 0;
   overflow: hidden;
   overscroll-behavior: contain;
@@ -209,7 +209,7 @@
 
 .node-deck-catalog__detail {
   display: grid;
-  grid-template-columns: minmax(220px, .8fr) minmax(300px, 1.2fr);
+  grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr);
   gap: 18px;
   min-height: 0;
   margin-top: 10px;
