@@ -7,6 +7,7 @@ import {
   makeHostsOperatorCoordinator,
   makeOperatorCoordinator,
   operatorArtifactSource,
+  projectOperatorFleetTestResult,
 } from "../src/main/vellum/hosts/operator-coordinator";
 import { getDeployJob } from "../src/main/vellum/hosts/deploy-job-registry";
 import { HostsService } from "../src/main/vellum/hosts/service";
@@ -24,6 +25,7 @@ import {
   OPERATOR_PROTOCOL_VERSION,
   type OperatorRequestEnvelope,
 } from "../src/shared/operator-control";
+import type { LinuxHostCapabilityObservation } from "../src/shared/linux-host-capabilities";
 
 const stub = <Tag extends Context.Tag<any, any>>(
   tag: Tag,
@@ -145,6 +147,27 @@ describe("operator deployment coordinator", () => {
       operatorArtifactSource(deploy("stable")),
       operatorArtifactSource(deploy("cached")),
     ]).not.toContain("qualification-candidate");
+  });
+
+  it("does not discard Linux Doctor evidence from fleet.test", () => {
+    const linuxCapabilities = {
+      status: "ready",
+      marker: "opaque-observation",
+    } as unknown as LinuxHostCapabilityObservation;
+    const projected = projectOperatorFleetTestResult("station-1", {
+      ok: true,
+      detail: "reachable",
+      reachability: "reachable",
+      linuxCapabilities,
+    });
+
+    expect(projected.linuxCapabilities).toBe(linuxCapabilities);
+    expect(projected).toMatchObject({
+      hostId: "station-1",
+      ok: true,
+      detail: "reachable",
+      reachability: "reachable",
+    });
   });
 
   it("keeps every fleet verb unavailable in bootstrap-only mode", async () => {

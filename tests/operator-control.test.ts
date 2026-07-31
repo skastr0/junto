@@ -1,13 +1,54 @@
 import { Either } from "effect";
 import { describe, expect, it } from "vitest";
+import { observeLinuxHostCapabilityDoctor } from "../src/shared/linux-host-capability-doctor";
 import {
   OPERATOR_MAX_REQUEST_BYTES,
   OPERATOR_PROTOCOL_VERSION,
   decodeOperatorRequest,
+  decodeOperatorResponse,
   encodeOperatorFrame,
   operatorControlSocketPath,
   redactOperatorRequestForLog,
 } from "../src/shared/operator-control";
+
+const linuxCapabilities = () => {
+  const values: ReadonlyArray<readonly [string, string]> = [
+    ["probe_version", "1"],
+    ["platform", "linux"],
+    ["architecture", "x86_64"],
+    ["os_id", "ubuntu"],
+    ["os_version", "24.04"],
+    ["glibc_version", "2.39"],
+    ["home", "safe-writable"],
+    ["home_exec", "ready"],
+    ["disk_free_mib", "16384"],
+    ["core_userland", "ready"],
+    ["missing_binaries", "xvfb,xauth,mcookie"],
+    ["runtime_libraries", "ready"],
+    ["missing_libraries", "none"],
+    ["user_systemd", "ready"],
+    ["remote_service", "active"],
+    ["linger", "disabled"],
+    ["ptmx", "ready"],
+    ["devpts", "ready"],
+    ["native_pty", "ready"],
+    ["xvfb", "missing"],
+    ["xauth", "missing"],
+    ["mcookie", "missing"],
+    ["apparmor", "unavailable"],
+    ["apparmor_profile", "not-required"],
+    ["userns", "unavailable"],
+    ["sandbox", "unavailable"],
+    ["secret_storage", "unavailable"],
+  ];
+  const observation = observeLinuxHostCapabilityDoctor(
+    `${values.map(([key, value]) => `${key}=${value}`).join("\n")}\n`,
+  );
+  if (observation === null) {
+    throw new Error("invalid Linux capability fixture");
+  }
+  return observation;
+};
 
 describe("operator control contract", () => {
   it("uses a dedicated owner-local socket without a token path", () => {
@@ -77,6 +118,53 @@ describe("operator control contract", () => {
       args: { id: "station-1" },
     });
     expect(Either.isLeft(deployWithoutSource)).toBe(true);
+  });
+
+  it("preserves the exact Linux capability observation on fleet.test", () => {
+    const observation = linuxCapabilities();
+    const decoded = decodeOperatorResponse({
+      protocol: OPERATOR_PROTOCOL_VERSION,
+      id: "test-linux",
+      ok: true,
+      op: "fleet.test",
+      data: {
+        hostId: "station-1",
+        ok: true,
+        detail: "Station reachable · core ready",
+        reachability: "reachable",
+        linuxCapabilities: observation,
+      },
+    });
+    if (Either.isLeft(decoded)) {
+      throw new Error("fleet.test Linux observation did not decode");
+    }
+    expect(decoded.right).toMatchObject({
+      ok: true,
+      op: "fleet.test",
+      data: {
+        linuxCapabilities: observation,
+      },
+    });
+
+    const malformed = decodeOperatorResponse({
+      protocol: OPERATOR_PROTOCOL_VERSION,
+      id: "test-linux-malformed",
+      ok: true,
+      op: "fleet.test",
+      data: {
+        hostId: "station-1",
+        ok: true,
+        detail: "Station reachable · core ready",
+        linuxCapabilities: {
+          ...observation,
+          browser: {
+            ...observation.browser,
+            hiddenSudoPath: "/usr/bin/sudo",
+          },
+        },
+      },
+    });
+    expect(Either.isLeft(malformed)).toBe(true);
   });
 
   it("rejects retired administrator-password authorization payloads", () => {

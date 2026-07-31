@@ -5,6 +5,7 @@ import {
   HostLabel,
   HostSshEndpoint,
 } from "./remote-hosts";
+import { LinuxHostCapabilityObservation } from "./linux-host-capabilities";
 import {
   DisplayTimestamp,
   InstallationId,
@@ -202,6 +203,9 @@ export const OperatorFleetTestData = Schema.Struct({
     { exact: true },
   ),
   protocol: Schema.optionalWith(OperatorProtocolObservation, { exact: true }),
+  linuxCapabilities: Schema.optionalWith(LinuxHostCapabilityObservation, {
+    exact: true,
+  }),
   code: OptionalCode,
 });
 export type OperatorFleetTestData = typeof OperatorFleetTestData.Type;

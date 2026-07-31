@@ -40,6 +40,7 @@ import {
   STATION_QUALIFICATION_RECEIPT_FILE,
   STATION_QUALIFICATION_SCHEMA,
 } from "../src/shared/station-qualification";
+import { observeLinuxHostCapabilityDoctor } from "../src/shared/linux-host-capability-doctor";
 import {
   CURRENT_STATION_PROTOCOL_SUPPORT,
   type StationProtocolSupport,
@@ -55,6 +56,44 @@ const EXPIRES_AT = "2026-08-01T12:00:00.000Z";
 const QUALIFICATION_EXPIRES_AT = "2026-07-24T11:55:00.000Z";
 const KEY_ID = "vellum-linux-2026a";
 const PACKAGE = `vellum-runtime-${VERSION}-linux-x64.tar.gz`;
+const qualificationDoctorObservation = () => {
+  const values: ReadonlyArray<readonly [string, string]> = [
+    ["probe_version", "1"],
+    ["platform", "linux"],
+    ["architecture", "x86_64"],
+    ["os_id", "ubuntu"],
+    ["os_version", "24.04"],
+    ["glibc_version", "2.39"],
+    ["home", "safe-writable"],
+    ["home_exec", "ready"],
+    ["disk_free_mib", "16384"],
+    ["core_userland", "ready"],
+    ["missing_binaries", "xvfb,xauth,mcookie"],
+    ["runtime_libraries", "ready"],
+    ["missing_libraries", "none"],
+    ["user_systemd", "ready"],
+    ["remote_service", "active"],
+    ["linger", "disabled"],
+    ["ptmx", "ready"],
+    ["devpts", "ready"],
+    ["native_pty", "ready"],
+    ["xvfb", "missing"],
+    ["xauth", "missing"],
+    ["mcookie", "missing"],
+    ["apparmor", "unavailable"],
+    ["apparmor_profile", "not-required"],
+    ["userns", "unavailable"],
+    ["sandbox", "unavailable"],
+    ["secret_storage", "unavailable"],
+  ];
+  const observation = observeLinuxHostCapabilityDoctor(
+    `${values.map(([key, value]) => `${key}=${value}`).join("\n")}\n`,
+  );
+  if (observation === null) {
+    throw new Error("invalid Linux qualification Doctor fixture");
+  }
+  return observation;
+};
 const ciTarget = {
   runner: "ubuntu-24.04",
   os: "linux",
@@ -442,6 +481,21 @@ const createFixture = async (options: {
   if (options.stationQualificationIncomplete === true) {
     delete qualificationPhases.workRoundTrip;
   }
+  const qualificationPackageBytes =
+    options.stationQualificationPackageBytes ??
+      Buffer.byteLength(payloads[PACKAGE], "utf8");
+  const qualificationPackageSha256 =
+    options.stationQualificationPackageSha256 ??
+      sha256(payloads[PACKAGE]);
+  const qualificationGeneration =
+    `${VERSION}-${qualificationPackageSha256}`;
+  const qualificationReleaseRoot =
+    `/home/operator/.vellum/runtime/releases/${qualificationGeneration}`;
+  const generationState = (invocationCharacter: string) => ({
+    generation: qualificationGeneration,
+    installationId: "fixture-remote",
+    invocationId: invocationCharacter.repeat(32),
+  });
   const commandCenterHealth = {
     appProcess: "running",
     station: "ready",
@@ -461,11 +515,14 @@ const createFixture = async (options: {
   };
   const remoteQualificationSecurity = {
     runtime: "displayless-node",
+    mainExecutable: `${qualificationReleaseRoot}/resources/bin/node`,
     electronProcesses: 0,
     chromiumRendererProcesses: 0,
+    xvfbProcesses: 0,
     displayEnvironment: "unset",
     controlMaterialOwnerOnly: true,
     vellumTcpListeners: 0,
+    cdpListeners: 0,
   };
   const manifestBinding = {
     file: STATION_QUALIFICATION_MANIFEST_FILE,
@@ -481,12 +538,8 @@ const createFixture = async (options: {
       manifest: manifestBinding,
       package: {
         file: PACKAGE,
-        bytes:
-          options.stationQualificationPackageBytes ??
-            Buffer.byteLength(payloads[PACKAGE], "utf8"),
-        sha256:
-          options.stationQualificationPackageSha256 ??
-            sha256(payloads[PACKAGE]),
+        bytes: qualificationPackageBytes,
+        sha256: qualificationPackageSha256,
       },
       stationProtocol: CURRENT_STATION_PROTOCOL_SUPPORT.preferred,
     }
@@ -497,12 +550,8 @@ const createFixture = async (options: {
       manifest: manifestBinding,
       package: {
         file: PACKAGE,
-        bytes:
-          options.stationQualificationPackageBytes ??
-            Buffer.byteLength(payloads[PACKAGE], "utf8"),
-        sha256:
-          options.stationQualificationPackageSha256 ??
-            sha256(payloads[PACKAGE]),
+        bytes: qualificationPackageBytes,
+        sha256: qualificationPackageSha256,
       },
       stationProtocol: CURRENT_STATION_PROTOCOL_SUPPORT.preferred,
       installations: {
@@ -526,6 +575,56 @@ const createFixture = async (options: {
       health: {
         commandCenter: commandCenterHealth,
         remote: remoteHealth,
+      },
+      doctor: {
+        observation: qualificationDoctorObservation(),
+        browserPolicy: "intentionally-unavailable-linux-beta",
+      },
+      stationVerbs: {
+        pair: "request-response-observed",
+        configure: "request-response-observed",
+        project: "request-response-observed",
+        report: "request-response-observed",
+        status: "request-response-observed",
+      },
+      pty: {
+        echo: "live-packaged-runtime-observed",
+        utf8: "live-packaged-runtime-observed",
+        resize: "live-packaged-runtime-observed",
+        exit: "live-packaged-runtime-observed",
+        shutdown: "live-packaged-runtime-observed",
+      },
+      deployment: {
+        activation: {
+          generation: qualificationGeneration,
+          unitExecStart:
+            `${qualificationReleaseRoot}/resources/systemd/vellum-remote-launch`,
+          conditionExecutable:
+            `${qualificationReleaseRoot}/resources/bin/vellum-remote`,
+        },
+        corruptCandidate: {
+          candidateSha256:
+            qualificationPackageSha256 === "f".repeat(64)
+              ? "e".repeat(64)
+              : "f".repeat(64),
+          outcome: "rejected-before-activation",
+          before: generationState("1"),
+          after: generationState("1"),
+        },
+        restart: {
+          before: generationState("1"),
+          after: generationState("2"),
+        },
+        idempotentRedeploy: {
+          outcome: "already-active",
+          before: generationState("2"),
+          after: generationState("2"),
+        },
+        hostMutation: {
+          sudoInvocations: 0,
+          privilegedInstallInvocations: 0,
+          systemPathMutations: 0,
+        },
       },
       security: {
         commandCenter: commandCenterQualificationSecurity,

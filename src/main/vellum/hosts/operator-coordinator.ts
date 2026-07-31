@@ -8,6 +8,7 @@ import {
   type OperatorFleetFailure,
   type OperatorFleetPeerStatus,
   type OperatorFleetSyncResult,
+  type OperatorFleetTestData,
   type OperatorPublicHost,
   type OperatorRequestEnvelope,
   type OperatorResponseEnvelope,
@@ -799,6 +800,29 @@ export const projectOperatorDeployResult = (
   };
 };
 
+type OperatorFleetTestObservation = Pick<
+  OperatorFleetTestData,
+  "ok" | "reachability" | "protocol" | "linuxCapabilities"
+> & {
+  readonly detail: string;
+};
+
+export const projectOperatorFleetTestResult = (
+  hostId: OperatorFleetTestData["hostId"],
+  result: OperatorFleetTestObservation,
+): OperatorFleetTestData => ({
+  hostId,
+  ok: result.ok,
+  detail: operatorDiagnostic(result.detail),
+  ...(result.reachability === undefined
+    ? {}
+    : { reachability: result.reachability }),
+  ...(result.protocol === undefined ? {} : { protocol: result.protocol }),
+  ...(result.linuxCapabilities === undefined
+    ? {}
+    : { linuxCapabilities: result.linuxCapabilities }),
+});
+
 export interface OperatorCoordinatorOptions {
   readonly fleetReady: () => boolean;
   readonly readiness: () => StationReadiness;
@@ -940,17 +964,10 @@ export const makeOperatorCoordinator = (
           code: result.left.code,
         });
       }
-      return operatorSuccess(request, {
-        hostId: request.args.id,
-        ok: result.right.ok,
-        detail: operatorDiagnostic(result.right.detail),
-        ...(result.right.reachability === undefined
-          ? {}
-          : { reachability: result.right.reachability }),
-        ...(result.right.protocol === undefined
-          ? {}
-          : { protocol: result.right.protocol }),
-      });
+      return operatorSuccess(
+        request,
+        projectOperatorFleetTestResult(request.args.id, result.right),
+      );
     }
 
     if (request.op === "fleet.enable-managed-installs") {

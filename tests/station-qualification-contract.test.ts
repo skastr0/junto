@@ -1,5 +1,6 @@
 import { Either, Schema } from "effect";
 import { describe, expect, it } from "vitest";
+import { observeLinuxHostCapabilityDoctor } from "../src/shared/linux-host-capability-doctor";
 import {
   STATION_QUALIFICATION_EVIDENCE_FILE,
   STATION_QUALIFICATION_MANIFEST_FILE,
@@ -12,6 +13,45 @@ import {
 } from "../src/shared/station-qualification";
 
 const hash = (character: string) => character.repeat(64);
+const invocationId = (character: string) => character.repeat(32);
+const doctorObservation = () => {
+  const stdout = [
+    ["probe_version", "1"],
+    ["platform", "linux"],
+    ["architecture", "x86_64"],
+    ["os_id", "ubuntu"],
+    ["os_version", "24.04"],
+    ["glibc_version", "2.39"],
+    ["home", "safe-writable"],
+    ["home_exec", "ready"],
+    ["disk_free_mib", "16384"],
+    ["core_userland", "ready"],
+    ["missing_binaries", "xvfb,xauth,mcookie"],
+    ["runtime_libraries", "ready"],
+    ["missing_libraries", "none"],
+    ["user_systemd", "ready"],
+    ["remote_service", "active"],
+    ["linger", "disabled"],
+    ["ptmx", "ready"],
+    ["devpts", "ready"],
+    ["native_pty", "ready"],
+    ["xvfb", "missing"],
+    ["xauth", "missing"],
+    ["mcookie", "missing"],
+    ["apparmor", "unavailable"],
+    ["apparmor_profile", "not-required"],
+    ["userns", "unavailable"],
+    ["sandbox", "unavailable"],
+    ["secret_storage", "unavailable"],
+  ]
+    .map(([key, value]) => `${key}=${value}`)
+    .join("\n");
+  const observation = observeLinuxHostCapabilityDoctor(`${stdout}\n`);
+  if (observation === null) {
+    throw new Error("invalid Linux Doctor fixture");
+  }
+  return observation;
+};
 const nativePlatform = (
   virtualization: "orbstack" | "box" = "orbstack",
 ) => ({
@@ -40,11 +80,15 @@ const commandCenterSecurity = () => ({
 });
 const remoteSecurity = () => ({
   runtime: "displayless-node" as const,
+  mainExecutable:
+    `/home/operator/.vellum/runtime/releases/0.1.5-${hash("2")}/resources/bin/node`,
   electronProcesses: 0 as const,
   chromiumRendererProcesses: 0 as const,
+  xvfbProcesses: 0 as const,
   displayEnvironment: "unset" as const,
   controlMaterialOwnerOnly: true as const,
   vellumTcpListeners: 0 as const,
+  cdpListeners: 0 as const,
 });
 
 const qualified = (
@@ -87,6 +131,77 @@ const qualified = (
     commandCenter: commandCenterHealth(),
     remote: remoteHealth(),
   },
+  doctor: {
+    observation: doctorObservation(),
+    browserPolicy: "intentionally-unavailable-linux-beta" as const,
+  },
+  stationVerbs: {
+    pair: "request-response-observed" as const,
+    configure: "request-response-observed" as const,
+    project: "request-response-observed" as const,
+    report: "request-response-observed" as const,
+    status: "request-response-observed" as const,
+  },
+  pty: {
+    echo: "live-packaged-runtime-observed" as const,
+    utf8: "live-packaged-runtime-observed" as const,
+    resize: "live-packaged-runtime-observed" as const,
+    exit: "live-packaged-runtime-observed" as const,
+    shutdown: "live-packaged-runtime-observed" as const,
+  },
+  deployment: {
+    activation: {
+      generation: `0.1.5-${hash("2")}`,
+      unitExecStart:
+        `/home/operator/.vellum/runtime/releases/0.1.5-${hash("2")}/resources/systemd/vellum-remote-launch`,
+      conditionExecutable:
+        `/home/operator/.vellum/runtime/releases/0.1.5-${hash("2")}/resources/bin/vellum-remote`,
+    },
+    corruptCandidate: {
+      candidateSha256: hash("4"),
+      outcome: "rejected-before-activation" as const,
+      before: {
+        generation: `0.1.5-${hash("2")}`,
+        installationId: "remote-01",
+        invocationId: invocationId("5"),
+      },
+      after: {
+        generation: `0.1.5-${hash("2")}`,
+        installationId: "remote-01",
+        invocationId: invocationId("5"),
+      },
+    },
+    restart: {
+      before: {
+        generation: `0.1.5-${hash("2")}`,
+        installationId: "remote-01",
+        invocationId: invocationId("5"),
+      },
+      after: {
+        generation: `0.1.5-${hash("2")}`,
+        installationId: "remote-01",
+        invocationId: invocationId("6"),
+      },
+    },
+    idempotentRedeploy: {
+      outcome: "already-active" as const,
+      before: {
+        generation: `0.1.5-${hash("2")}`,
+        installationId: "remote-01",
+        invocationId: invocationId("6"),
+      },
+      after: {
+        generation: `0.1.5-${hash("2")}`,
+        installationId: "remote-01",
+        invocationId: invocationId("6"),
+      },
+    },
+    hostMutation: {
+      sudoInvocations: 0 as const,
+      privilegedInstallInvocations: 0 as const,
+      systemPathMutations: 0 as const,
+    },
+  },
   security: {
     commandCenter: commandCenterSecurity(),
     remote: remoteSecurity(),
@@ -99,7 +214,7 @@ const qualified = (
 });
 
 describe("two-installation Station qualification contract", () => {
-  it("accepts the strict v2 receipt for the exact exercised release", () => {
+  it("accepts the strict v3 receipt for the exact exercised release", () => {
     expect(Either.isRight(decodeStationQualification(qualified()))).toBe(true);
   });
 
@@ -146,6 +261,109 @@ describe("two-installation Station qualification contract", () => {
     ).toBe(true);
   });
 
+  it("requires the full Doctor observation with core and terminal ready and browser unavailable by beta policy", () => {
+    const absent = qualified();
+    const { doctor: _doctor, ...withoutDoctor } = absent;
+    expect(Either.isLeft(decodeStationQualification(withoutDoctor))).toBe(true);
+
+    const coreNotReady = qualified();
+    (
+      coreNotReady.doctor.observation as { status: string }
+    ).status = "unavailable";
+    expect(Either.isLeft(decodeStationQualification(coreNotReady))).toBe(true);
+
+    const browserReady = qualified();
+    (
+      browserReady.doctor.observation.browser as { status: string }
+    ).status = "ready";
+    expect(Either.isLeft(decodeStationQualification(browserReady))).toBe(true);
+
+    const unintentional = qualified();
+    (
+      unintentional.doctor as { browserPolicy: string }
+    ).browserPolicy = "host-missing-display";
+    expect(Either.isLeft(decodeStationQualification(unintentional))).toBe(true);
+  });
+
+  it.each([
+    "pair",
+    "configure",
+    "project",
+    "report",
+    "status",
+  ] as const)("requires a real %s Station request/response", (verb) => {
+    const receipt = qualified();
+    const stationVerbs = {
+      ...receipt.stationVerbs,
+    } as Record<string, unknown>;
+    delete stationVerbs[verb];
+    expect(
+      Either.isLeft(
+        decodeStationQualification({ ...receipt, stationVerbs }),
+      ),
+    ).toBe(true);
+  });
+
+  it.each(["echo", "utf8", "resize", "exit", "shutdown"] as const)(
+    "requires live packaged PTY %s proof",
+    (operation) => {
+      const receipt = qualified();
+      const pty = { ...receipt.pty } as Record<string, unknown>;
+      delete pty[operation];
+      expect(
+        Either.isLeft(decodeStationQualification({ ...receipt, pty })),
+      ).toBe(true);
+    },
+  );
+
+  it("binds activation, rejection, restart, and idempotence to the exact active generation", () => {
+    const wrongGeneration = qualified();
+    wrongGeneration.deployment.activation.generation =
+      `0.1.5-${hash("9")}`;
+    expect(Either.isLeft(decodeStationQualification(wrongGeneration))).toBe(
+      true,
+    );
+
+    const corruptMutated = qualified();
+    corruptMutated.deployment.corruptCandidate.after.invocationId =
+      invocationId("7");
+    expect(Either.isLeft(decodeStationQualification(corruptMutated))).toBe(
+      true,
+    );
+
+    const restartReused = qualified();
+    restartReused.deployment.restart.after.invocationId =
+      restartReused.deployment.restart.before.invocationId;
+    expect(Either.isLeft(decodeStationQualification(restartReused))).toBe(
+      true,
+    );
+
+    const identityChanged = qualified();
+    identityChanged.deployment.restart.after.installationId = "remote-02";
+    expect(Either.isLeft(decodeStationQualification(identityChanged))).toBe(
+      true,
+    );
+
+    const redeployRestarted = qualified();
+    redeployRestarted.deployment.idempotentRedeploy.after.invocationId =
+      invocationId("8");
+    expect(Either.isLeft(decodeStationQualification(redeployRestarted))).toBe(
+      true,
+    );
+  });
+
+  it("requires no privileged or system-path mutation", () => {
+    for (const field of [
+      "sudoInvocations",
+      "privilegedInstallInvocations",
+      "systemPathMutations",
+    ] as const) {
+      const receipt = qualified();
+      receipt.deployment.hostMutation[field] = 1 as never;
+      expect(Either.isLeft(decodeStationQualification(receipt))).toBe(true);
+    }
+  });
+
   it("requires exact health and runtime-security results for both installations", () => {
     const unhealthy = qualified();
     (
@@ -181,6 +399,14 @@ describe("two-installation Station qualification contract", () => {
       true,
     );
 
+    const xvfbRemote = qualified();
+    (
+      xvfbRemote.security.remote as {
+        xvfbProcesses: number;
+      }
+    ).xvfbProcesses = 1;
+    expect(Either.isLeft(decodeStationQualification(xvfbRemote))).toBe(true);
+
     const displayRemote = qualified();
     (
       displayRemote.security.remote as {
@@ -206,6 +432,14 @@ describe("two-installation Station qualification contract", () => {
       }
     ).vellumTcpListeners = 1;
     expect(Either.isLeft(decodeStationQualification(listening))).toBe(true);
+
+    const cdpListening = qualified();
+    (
+      cdpListening.security.remote as {
+        cdpListeners: number;
+      }
+    ).cdpListeners = 1;
+    expect(Either.isLeft(decodeStationQualification(cdpListening))).toBe(true);
   });
 
   it("binds the exact positive safe-integer package size", () => {
@@ -276,12 +510,21 @@ describe("two-installation Station qualification contract", () => {
     }
   });
 
-  it("rejects v1, removed theater fields, and all excess properties", () => {
+  it("rejects earlier schemas, removed theater fields, and all excess properties", () => {
     expect(
       Either.isLeft(
         decodeStationQualification({
           ...qualified(),
           schema: "vellum/station-two-installation-qualification/v1",
+        }),
+      ),
+    ).toBe(true);
+
+    expect(
+      Either.isLeft(
+        decodeStationQualification({
+          ...qualified(),
+          schema: "vellum/station-two-installation-qualification/v2",
         }),
       ),
     ).toBe(true);

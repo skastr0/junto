@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import { InstallationId } from "./installation-id";
+import { LinuxHostCapabilityObservation } from "./linux-host-capabilities";
 import {
   STATION_PROTOCOL_BASELINE,
   StationAppVersion,
@@ -14,7 +15,7 @@ import { DisplayTimestamp } from "./work-protocol";
  * in that log, not in repeated per-phase witness wrappers.
  */
 export const STATION_QUALIFICATION_SCHEMA =
-  "vellum/station-two-installation-qualification/v2" as const;
+  "vellum/station-two-installation-qualification/v3" as const;
 export const STATION_QUALIFICATION_RECEIPT_FILE =
   "station-qualification-receipt.json" as const;
 export const STATION_QUALIFICATION_MANIFEST_FILE =
@@ -151,6 +152,145 @@ const QualificationHealth = Schema.Struct({
 });
 export type StationQualificationHealth = typeof QualificationHealth.Type;
 
+/**
+ * The exact host Doctor observation used to admit the Remote. The full closed
+ * observation stays in the signed receipt so a release cannot replace a real
+ * capability probe with an ungrounded boolean.
+ */
+export const StationQualificationRemoteDoctorResult = Schema.Struct({
+  observation: LinuxHostCapabilityObservation,
+  browserPolicy: Schema.Literal("intentionally-unavailable-linux-beta"),
+}).pipe(
+  Schema.filter(
+    ({ observation }) =>
+      observation.status === "ready" &&
+      observation.terminal.status === "ready" &&
+      observation.browser.status === "unavailable",
+    {
+      message: () =>
+        "qualification requires Doctor core and terminal ready with the beta browser intentionally unavailable",
+    },
+  ),
+);
+export type StationQualificationRemoteDoctorResult =
+  typeof StationQualificationRemoteDoctorResult.Type;
+
+export const StationQualificationStationVerbResult = Schema.Literal(
+  "request-response-observed",
+);
+export type StationQualificationStationVerbResult =
+  typeof StationQualificationStationVerbResult.Type;
+
+/** Every current Station verb must complete over the packaged peer session. */
+export const StationQualificationStationVerbs = Schema.Struct({
+  pair: StationQualificationStationVerbResult,
+  configure: StationQualificationStationVerbResult,
+  project: StationQualificationStationVerbResult,
+  report: StationQualificationStationVerbResult,
+  status: StationQualificationStationVerbResult,
+});
+export type StationQualificationStationVerbs =
+  typeof StationQualificationStationVerbs.Type;
+
+export const StationQualificationPtyResult = Schema.Literal(
+  "live-packaged-runtime-observed",
+);
+export type StationQualificationPtyResult =
+  typeof StationQualificationPtyResult.Type;
+
+/** Real PTY behavior through the installed Remote, including bounded closure. */
+export const StationQualificationPtyProof = Schema.Struct({
+  echo: StationQualificationPtyResult,
+  utf8: StationQualificationPtyResult,
+  resize: StationQualificationPtyResult,
+  exit: StationQualificationPtyResult,
+  shutdown: StationQualificationPtyResult,
+});
+export type StationQualificationPtyProof =
+  typeof StationQualificationPtyProof.Type;
+
+const NUMERIC_SEMVER_SOURCE =
+  "(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)";
+const SHA256_SOURCE = "[a-f0-9]{64}";
+const GENERATION_SOURCE = `${NUMERIC_SEMVER_SOURCE}-${SHA256_SOURCE}`;
+const SAFE_ABSOLUTE_PREFIX_SOURCE =
+  "/(?:[A-Za-z0-9][A-Za-z0-9._-]*/)+";
+
+export const StationQualificationGeneration = Schema.String.pipe(
+  Schema.pattern(new RegExp(`^${GENERATION_SOURCE}$`, "u")),
+  Schema.brand("StationQualificationGeneration"),
+);
+export type StationQualificationGeneration =
+  typeof StationQualificationGeneration.Type;
+
+export const StationQualificationInvocationId = Schema.String.pipe(
+  Schema.pattern(/^[a-f0-9]{32}$/u),
+  Schema.brand("StationQualificationInvocationId"),
+);
+export type StationQualificationInvocationId =
+  typeof StationQualificationInvocationId.Type;
+
+const StationQualificationRemoteLauncherPath = Schema.String.pipe(
+  Schema.pattern(
+    new RegExp(
+      `^${SAFE_ABSOLUTE_PREFIX_SOURCE}\\.vellum/runtime/releases/${GENERATION_SOURCE}/resources/systemd/vellum-remote-launch$`,
+      "u",
+    ),
+  ),
+);
+const StationQualificationRemoteExecutablePath = Schema.String.pipe(
+  Schema.pattern(
+    new RegExp(
+      `^${SAFE_ABSOLUTE_PREFIX_SOURCE}\\.vellum/runtime/releases/${GENERATION_SOURCE}/resources/bin/vellum-remote$`,
+      "u",
+    ),
+  ),
+);
+const StationQualificationRemoteNodePath = Schema.String.pipe(
+  Schema.pattern(
+    new RegExp(
+      `^${SAFE_ABSOLUTE_PREFIX_SOURCE}\\.vellum/runtime/releases/${GENERATION_SOURCE}/resources/bin/node$`,
+      "u",
+    ),
+  ),
+);
+
+const QualifiedGenerationState = Schema.Struct({
+  generation: StationQualificationGeneration,
+  installationId: InstallationId,
+  invocationId: StationQualificationInvocationId,
+});
+
+export const StationQualificationDeploymentProof = Schema.Struct({
+  activation: Schema.Struct({
+    generation: StationQualificationGeneration,
+    unitExecStart: StationQualificationRemoteLauncherPath,
+    conditionExecutable: StationQualificationRemoteExecutablePath,
+  }),
+  corruptCandidate: Schema.Struct({
+    candidateSha256: StationQualificationSha256,
+    outcome: Schema.Literal("rejected-before-activation"),
+    before: QualifiedGenerationState,
+    after: QualifiedGenerationState,
+  }),
+  restart: Schema.Struct({
+    before: QualifiedGenerationState,
+    after: QualifiedGenerationState,
+  }),
+  idempotentRedeploy: Schema.Struct({
+    outcome: Schema.Literal("already-active"),
+    before: QualifiedGenerationState,
+    after: QualifiedGenerationState,
+  }),
+  hostMutation: Schema.Struct({
+    sudoInvocations: Schema.Literal(0),
+    privilegedInstallInvocations: Schema.Literal(0),
+    systemPathMutations: Schema.Literal(0),
+  }),
+});
+export type StationQualificationDeploymentProof =
+  typeof StationQualificationDeploymentProof.Type;
+
 /** Trusted-renderer Command Center security observations. */
 export const StationQualificationCommandCenterSecurityResult = Schema.Struct({
   rendererSandbox: Schema.Literal("active"),
@@ -169,11 +309,14 @@ export type StationQualificationCommandCenterSecurityResult =
  */
 export const StationQualificationRemoteSecurityResult = Schema.Struct({
   runtime: Schema.Literal("displayless-node"),
+  mainExecutable: StationQualificationRemoteNodePath,
   electronProcesses: Schema.Literal(0),
   chromiumRendererProcesses: Schema.Literal(0),
+  xvfbProcesses: Schema.Literal(0),
   displayEnvironment: Schema.Literal("unset"),
   controlMaterialOwnerOnly: Schema.Literal(true),
   vellumTcpListeners: Schema.Literal(0),
+  cdpListeners: Schema.Literal(0),
 });
 export type StationQualificationRemoteSecurityResult =
   typeof StationQualificationRemoteSecurityResult.Type;
@@ -194,10 +337,80 @@ const PassedQualification = Schema.Struct({
   installations: QualifiedInstallations,
   phases: QualificationPhases,
   health: QualificationHealth,
+  doctor: StationQualificationRemoteDoctorResult,
+  stationVerbs: StationQualificationStationVerbs,
+  pty: StationQualificationPtyProof,
+  deployment: StationQualificationDeploymentProof,
   security: QualificationSecurity,
   evidence: EvidenceBinding,
   completedAt: DisplayTimestamp,
-});
+}).pipe(
+  Schema.filter(
+    (receipt) => {
+      const packageVersion =
+        /^vellum-runtime-([0-9]+\.[0-9]+\.[0-9]+)-linux-x64\.tar\.gz$/u.exec(
+          receipt.package.file,
+        )?.[1];
+      if (packageVersion === undefined) return false;
+      const expectedGeneration =
+        `${packageVersion}-${receipt.package.sha256}`;
+      const remoteInstallationId =
+        receipt.installations.remote.installationId;
+      if (
+        receipt.installations.commandCenter.appVersion !== packageVersion ||
+        receipt.installations.remote.appVersion !== packageVersion ||
+        receipt.deployment.activation.generation !== expectedGeneration
+      ) {
+        return false;
+      }
+
+      const launcherSuffix =
+        `/${expectedGeneration}/resources/systemd/vellum-remote-launch`;
+      if (!receipt.deployment.activation.unitExecStart.endsWith(launcherSuffix)) {
+        return false;
+      }
+      const releasesRoot =
+        receipt.deployment.activation.unitExecStart.slice(
+          0,
+          -launcherSuffix.length,
+        );
+      if (
+        receipt.deployment.activation.conditionExecutable !==
+          `${releasesRoot}/${expectedGeneration}/resources/bin/vellum-remote` ||
+        receipt.security.remote.mainExecutable !==
+          `${releasesRoot}/${expectedGeneration}/resources/bin/node`
+      ) {
+        return false;
+      }
+
+      const stateMatchesRelease = (
+        state: typeof QualifiedGenerationState.Type,
+      ): boolean =>
+        state.generation === expectedGeneration &&
+        state.installationId === remoteInstallationId;
+      const { corruptCandidate, restart, idempotentRedeploy } =
+        receipt.deployment;
+      return (
+        corruptCandidate.candidateSha256 !== receipt.package.sha256 &&
+        stateMatchesRelease(corruptCandidate.before) &&
+        stateMatchesRelease(corruptCandidate.after) &&
+        corruptCandidate.before.invocationId ===
+          corruptCandidate.after.invocationId &&
+        stateMatchesRelease(restart.before) &&
+        stateMatchesRelease(restart.after) &&
+        restart.before.invocationId !== restart.after.invocationId &&
+        stateMatchesRelease(idempotentRedeploy.before) &&
+        stateMatchesRelease(idempotentRedeploy.after) &&
+        idempotentRedeploy.before.invocationId ===
+          idempotentRedeploy.after.invocationId
+      );
+    },
+    {
+      message: () =>
+        "qualification proof must bind the exact package generation, Remote identity, and mutation-free deploy observations",
+    },
+  ),
+);
 export type PassedStationQualification = typeof PassedQualification.Type;
 
 /** A coordinator may mint only this non-passing binding before the real run. */
