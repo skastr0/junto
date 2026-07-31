@@ -48,6 +48,7 @@ import { hostHasCapability } from "@shared/remote-hosts";
 import { HerdrPlane } from "./vellum/herdr/plane";
 import { HermesPlane } from "./vellum/hermes/plane";
 import { termPlane, termPlaneBlocksAppExit } from "./vellum/term/plane";
+import { configureTerminalRouterLayeredRunner } from "./vellum/term/router";
 import { ChatServiceContext } from "./vellum/chat/service";
 import { resolveBrowserPageTarget } from "./vellum/browser/ipc";
 import { developmentElectronSecurityPolicyPath, electronSecurityPolicyHealthy, packagedElectronObservationHighWaterPath, packagedElectronObservationPath, packagedElectronSecurityPolicyPath } from "./vellum/electron-security-health";
@@ -150,6 +151,12 @@ import {
   e2eMainWindowOptions,
   e2ePresentationFromEnv,
 } from "./vellum/e2e-presentation";
+
+// TerminalRouter SSH dials need the process RootLayer; bind AppRuntime once
+// so term/router never imports the Electron runtime graph itself.
+configureTerminalRouterLayeredRunner((effect) =>
+  AppRuntime.runPromise(effect as never),
+);
 
 // Browser sessions must resolve and connect directly. An inherited system
 // proxy can perform independent DNS resolution and bypass Vellum's URL/DNS

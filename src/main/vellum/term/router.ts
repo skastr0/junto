@@ -53,10 +53,36 @@ const runScopePromise = <A>(
 ): Promise<A> =>
   Effect.runPromise(effect as Effect.Effect<A, unknown, never>);
 
-// Effects that need SshTransport / Scope from RootLayer.
-const runLayered = async <A, E, R>(effect: Effect.Effect<A, E, R>): Promise<A> => {
-  const { AppRuntime } = await import("../../runtime");
-  return AppRuntime.runPromise(effect as Effect.Effect<A, E, never>);
+/**
+ * Layered Effect runner for SSH/Scope work. Configured once by the process
+ * entry (Electron `AppRuntime` or Node `RemoteRuntime`) so this module never
+ * imports Electron's runtime graph.
+ */
+export type TerminalRouterLayeredRunner = <A, E, R>(
+  effect: Effect.Effect<A, E, R>,
+) => Promise<A>;
+
+let configuredLayeredRunner: TerminalRouterLayeredRunner | undefined;
+
+export const configureTerminalRouterLayeredRunner = (
+  runner: TerminalRouterLayeredRunner,
+): void => {
+  configuredLayeredRunner = runner;
+};
+
+export const resetTerminalRouterLayeredRunnerForTests = (): void => {
+  configuredLayeredRunner = undefined;
+};
+
+// Effects that need SshTransport / Scope from the process RootLayer.
+const runLayered = async <A, E, R>(
+  effect: Effect.Effect<A, E, R>,
+): Promise<A> => {
+  const runner = configuredLayeredRunner;
+  if (runner === undefined) {
+    throw new Error("terminal router layered runner is not configured");
+  }
+  return runner(effect);
 };
 
 type RemoteEntry = {

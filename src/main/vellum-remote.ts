@@ -11,7 +11,6 @@ import { realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
-import productMetadata from "../../package.json";
 import {
   isRemotePackaged,
   remoteAppVersion,
@@ -51,6 +50,7 @@ import { KernelService } from "./vellum/kernel/service";
 import { HerdrPlane } from "./vellum/herdr/plane";
 import { HermesPlane } from "./vellum/hermes/plane";
 import { termPlane } from "./vellum/term/plane";
+import { configureTerminalRouterLayeredRunner } from "./vellum/term/router";
 import { compiledLicenseBuildConfig } from "./vellum/license/compiled-config";
 import {
   makeLicenseCoordinator,
@@ -67,7 +67,13 @@ const failExit = (code: number, message: string): never => {
 };
 
 const resolveBinaryPath = (): string => {
-  const raw = process.argv[1] ?? process.execPath;
+  // Wrapper exports VELLUM_REMOTE_BINARY so install/preflight see the
+  // generation-pinned shell path after exec replaces argv0 with bundled node.
+  const fromEnv = process.env.VELLUM_REMOTE_BINARY?.trim();
+  const raw =
+    fromEnv && fromEnv.length > 0
+      ? fromEnv
+      : (process.argv[1] ?? process.execPath);
   try {
     return realpathSync(resolve(raw));
   } catch {
@@ -157,6 +163,11 @@ const runProductBoot = async (): Promise<void> => {
   void process.env.DISPLAY;
   void process.env.WAYLAND_DISPLAY;
   void process.env.XAUTHORITY;
+
+  // Bind RemoteRuntime before any term dial can need SshTransport/Scope.
+  configureTerminalRouterLayeredRunner((effect) =>
+    RemoteRuntime.runPromise(effect as never),
+  );
 
   const handles: Handles = { shuttingDown: false };
 
@@ -336,7 +347,7 @@ const runProductBoot = async (): Promise<void> => {
 
   try {
     handles.workControl = await startWorkControlServer({
-      version: remoteAppVersion() || productMetadata.version,
+      version: remoteAppVersion(),
       run: (effect) => RemoteRuntime.runPromise(effect),
     });
   } catch (error) {

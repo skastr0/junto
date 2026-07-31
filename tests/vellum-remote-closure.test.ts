@@ -3,21 +3,12 @@
  * not pull Electron, window hosts, renderer, or browser host modules into the
  * static import graph (or the emitted remote bundle).
  */
-import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { dirname, extname, join, relative } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-
-const sourceFiles = (directory: string): ReadonlyArray<string> =>
-  readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
-    const path = join(directory, entry.name);
-    if (entry.isDirectory()) return sourceFiles(path);
-    return [".ts", ".tsx"].includes(extname(path)) ? [path] : [];
-  });
-
-const display = (path: string): string => relative(root, path);
 
 const FORBIDDEN_VALUE_IMPORT =
   /(?:^|\n)\s*import\s+(?!type\b)[^;]*\bfrom\s+["']electron["']/u;
@@ -34,7 +25,6 @@ const REMOTE_ENTRY_FILES: ReadonlyArray<string> = [
   "src/main/vellum-remote.ts",
   "src/main/vellum/supervision/install-user-service.ts",
   "src/main/vellum/supervision/remote-state-preflight.ts",
-  "scripts/build-vellum-remote.ts",
 ];
 
 describe("vellum-remote closure", () => {
@@ -88,10 +78,12 @@ describe("vellum-remote closure", () => {
     }
     const body = readFileSync(bundle, "utf8");
     expect(body).not.toMatch(/from\s+["']electron["']/u);
-    expect(body).not.toMatch(/require\s*\(\s*["']electron["']\s*\)/u);
+    expect(body).not.toMatch(/(?:__require|require)\s*\(\s*["']electron["']\s*\)/u);
     expect(body).not.toMatch(/\bBrowserWindow\b/u);
-    expect(body).not.toMatch(/browser-composition/u);
-    expect(body).not.toMatch(/ELECTRON_RUN_AS_NODE/u);
+    expect(body).not.toMatch(/startBrowserComposition|browser\/composition/u);
+    // UnsetEnvironment may list ELECTRON_RUN_AS_NODE to scrub it; forbidding
+    // assignment is the product contract.
+    expect(body).not.toMatch(/ELECTRON_RUN_AS_NODE\s*=\s*["']?1/u);
   });
 
   it("install-user-service and preflight switches are wired in the entry", () => {

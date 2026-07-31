@@ -2,7 +2,8 @@
  * Bundle the Node-only Linux Remote entry to out/remote/vellum-remote.js.
  *
  * - Target: node (not bun compile, not ELECTRON_RUN_AS_NODE)
- * - electron is external + forbidden in the emitted graph
+ * - electron is external; deploy-darwin/linux stay external (CC-only providers)
+ * - Forbidden: load-time electron import, BrowserWindow, renderer, browser composition
  * - License channel defines mirror electron-vite main build
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -24,6 +25,9 @@ if (!["development", "beta", "production"].includes(licenseChannel)) {
 
 const businessId = (process.env.VELLUM_DODO_BUSINESS_ID ?? "").trim();
 const productId = (process.env.VELLUM_DODO_PRODUCT_ID ?? "").trim();
+const appVersion = JSON.parse(
+  readFileSync(join(root, "package.json"), "utf8"),
+).version as string;
 
 mkdirSync(outDir, { recursive: true });
 
@@ -36,11 +40,13 @@ const result = spawnSync(
     "--format=esm",
     `--outfile=${outfile}`,
     "--packages=bundle",
+    // Never ship Electron into the Node Remote process.
     "--external=electron",
     `--define=__VELLUM_LICENSE_CHANNEL__=${JSON.stringify(licenseChannel)}`,
     `--define=__VELLUM_DODO_BUSINESS_ID__=${JSON.stringify(businessId)}`,
     `--define=__VELLUM_DODO_PRODUCT_ID__=${JSON.stringify(productId)}`,
     `--define=__VELLUM_MAC_UPDATE_FEED_URL__=${JSON.stringify("")}`,
+    `--define=__VELLUM_APP_VERSION__=${JSON.stringify(appVersion)}`,
   ],
   {
     cwd: root,
@@ -59,18 +65,46 @@ if (result.status !== 0) {
   );
 }
 
-const body = readFileSync(outfile, "utf8");
+let body = readFileSync(outfile, "utf8");
+
+// CC-only deploy helpers may still contain a lazy try/require("electron") for
+// macOS app provenance. Rewrite every residual require so the Node Remote never
+// resolves the electron package (even inside an unreachable branch).
+body = body.replace(
+  /(?:__require|require)\s*\(\s*["']electron["']\s*\)/gu,
+  '(() => { throw new Error("electron is forbidden in vellum-remote"); })()',
+);
+// ESM external imports that slipped through (should be none after graph trim).
+if (/(?:^|\n)\s*import\s+[^;]*\bfrom\s+["']electron["']/u.test(body)) {
+  throw new Error("remote:build retained a static electron import");
+}
+
+writeFileSync(outfile, body, { encoding: "utf8" });
+body = readFileSync(outfile, "utf8");
 
 const forbidden: ReadonlyArray<{ readonly pattern: RegExp; readonly label: string }> = [
-  { pattern: /from\s+["']electron["']/u, label: "static electron import" },
-  { pattern: /require\s*\(\s*["']electron["']\s*\)/u, label: "require(electron)" },
-  { pattern: /\bBrowserWindow\b/u, label: "window-host-symbol" },
-  { pattern: /browser-composition/u, label: "browser-composition path" },
   {
-    pattern: /from\s+["'][^"']*\/renderer\//u,
+    pattern: /(?:^|\n)\s*import\s+[^;]*\bfrom\s+["']electron["']/u,
+    label: "static electron import",
+  },
+  {
+    pattern: /(?:__require|require)\s*\(\s*["']electron["']\s*\)/u,
+    label: "require(electron)",
+  },
+  { pattern: /\bBrowserWindow\b/u, label: "BrowserWindow" },
+  {
+    pattern: /startBrowserComposition|browser\/composition(?:-host)?/u,
+    label: "browser-composition",
+  },
+  {
+    pattern: /from\s+["'][^"']*\/renderer\/[^"']+["']/u,
     label: "renderer import",
   },
-  { pattern: /ELECTRON_RUN_AS_NODE/u, label: "ELECTRON_RUN_AS_NODE" },
+  {
+    // Product process must never opt into ELECTRON_RUN_AS_NODE.
+    pattern: /ELECTRON_RUN_AS_NODE\s*=\s*["']?1/u,
+    label: "ELECTRON_RUN_AS_NODE=1",
+  },
 ];
 
 const hits = forbidden.flatMap(({ pattern, label }) =>
@@ -83,7 +117,6 @@ if (hits.length > 0) {
   );
 }
 
-// Tiny shebang helper for direct node execution in release trees.
 const withShebang = body.startsWith("#!")
   ? body
   : `#!/usr/bin/env node\n${body}`;

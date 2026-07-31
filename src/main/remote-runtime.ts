@@ -6,7 +6,6 @@
  * isPackaged is derived from env / release-tree placement — never app.isPackaged.
  */
 import { Effect, Layer, ManagedRuntime } from "effect";
-import productMetadata from "../../package.json";
 import { CURRENT_STATION_PROTOCOL_SUPPORT } from "@shared/station-protocol";
 import { assessSupervisedRuntime } from "@shared/station";
 import { CanvasesLive } from "./vellum/canvases";
@@ -91,11 +90,27 @@ export const isRemotePackaged = (
   }
 };
 
-export const remoteAppVersion = (): string =>
-  (typeof process.env.VELLUM_APP_VERSION === "string" &&
-  process.env.VELLUM_APP_VERSION.trim().length > 0
-    ? process.env.VELLUM_APP_VERSION.trim()
-    : productMetadata.version) || "0.0.0";
+/**
+ * Product version for protocol/station advertisements. Build injects
+ * `__VELLUM_APP_VERSION__`; env override is for tests only.
+ */
+declare const __VELLUM_APP_VERSION__: string | undefined;
+
+export const remoteAppVersion = (): string => {
+  if (
+    typeof process.env.VELLUM_APP_VERSION === "string" &&
+    process.env.VELLUM_APP_VERSION.trim().length > 0
+  ) {
+    return process.env.VELLUM_APP_VERSION.trim();
+  }
+  if (
+    typeof __VELLUM_APP_VERSION__ === "string" &&
+    __VELLUM_APP_VERSION__.trim().length > 0
+  ) {
+    return __VELLUM_APP_VERSION__.trim();
+  }
+  return "0.0.0";
+};
 
 // ---------------------------------------------------------------------------
 // Memoized StateEngine owner — same reference for every repository plane
