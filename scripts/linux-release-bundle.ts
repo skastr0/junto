@@ -28,6 +28,10 @@ import {
   STATION_QUALIFICATION_RECEIPT_FILE,
 } from "../src/shared/station-qualification";
 import { validateLinuxRemoteRuntimeAuditReceipt } from "./linux-remote-runtime-contract";
+import {
+  linuxRuntimeArchiveName,
+  linuxRuntimeArtifactName,
+} from "./finalize-linux-package";
 import { isRecognizedSpdxExpression } from "./spdx-license";
 
 export const LINUX_RELEASE_MANIFEST = "release-manifest.json";
@@ -357,7 +361,10 @@ const MAX_PACKAGE_BYTES = 2 * 1024 * 1024 * 1024;
 const MAX_VERIFIER_BYTES = 256 * 1024 * 1024;
 
 export const linuxUserlandRuntimeArchiveName = (version: string): string =>
-  `vellum-runtime-${requireSemver(version, "release version")}-linux-x64.tar.gz`;
+  linuxRuntimeArchiveName({
+    version: requireSemver(version, "release version"),
+    arch: "x64",
+  });
 
 const record = (value: unknown, label: string): Record<string, unknown> => {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -1932,6 +1939,10 @@ const validateEvidenceReceipt = (
     return;
   }
   if (file === "package-audit.json") {
+    const expectedArtifact = linuxRuntimeArtifactName({
+      version: manifest.release.version,
+      arch: "x64",
+    });
     let remoteRuntimeValid = true;
     try {
       validateLinuxRemoteRuntimeAuditReceipt(receipt.remoteRuntime);
@@ -1940,7 +1951,7 @@ const validateEvidenceReceipt = (
     }
     if (
       receipt.ok !== true ||
-      receipt.artifact !== manifest.package.file ||
+      receipt.artifact !== expectedArtifact ||
       receipt.cliVersion !== manifest.release.version ||
       !remoteRuntimeValid ||
       !Array.isArray(receipt.nativeObjects) ||

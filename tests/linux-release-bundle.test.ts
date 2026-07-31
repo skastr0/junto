@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { LINUX_REMOTE_RUNTIME_AUDIT_EXPECTED } from "../scripts/audit-linux-package";
+import { linuxRuntimeArtifactName } from "../scripts/finalize-linux-package";
 import {
   LINUX_RELEASE_CHECKSUMS,
   LINUX_RELEASE_KEYRING,
@@ -157,6 +158,7 @@ const createFixture = async (options: {
     | "unresolved";
   readonly sbomLicense?: string;
   readonly ciEvidencePackageSha256?: string;
+  readonly packageAuditArtifact?: string;
   readonly stationQualificationPackageBytes?: number;
   readonly stationQualificationPackageSha256?: string;
   readonly stationQualificationSourceCommit?: string;
@@ -225,7 +227,9 @@ const createFixture = async (options: {
     }),
     "package-audit.json": canonical({
       ok: true,
-      artifact: PACKAGE,
+      artifact:
+        options.packageAuditArtifact ??
+        linuxRuntimeArtifactName({ version: VERSION, arch: "x64" }),
       cliVersion: VERSION,
       ...(options.omitRemoteRuntimeAudit === true
         ? {}
@@ -1138,6 +1142,20 @@ describe("signed Linux release bundle", () => {
     ).rejects.toThrow(/package audit receipt/u);
     await expect(
       createFixture({ remoteRuntimeNodeVersion: "v22.18.0" }),
+    ).rejects.toThrow(/package audit receipt/u);
+  });
+
+  it("requires the package audit to name the exact extracted runtime", async () => {
+    await expect(
+      createFixture({ packageAuditArtifact: PACKAGE }),
+    ).rejects.toThrow(/package audit receipt/u);
+    await expect(
+      createFixture({
+        packageAuditArtifact: linuxRuntimeArtifactName({
+          version: "9.9.9",
+          arch: "x64",
+        }),
+      }),
     ).rejects.toThrow(/package audit receipt/u);
   });
 
