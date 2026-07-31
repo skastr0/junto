@@ -462,7 +462,7 @@ const vellumApi: VellumApi = {
     invoke<void>(IPC_CHANNELS.pulseRegion, IPC_TIMEOUT_MS, canvasName, regionId, opts),
   regionRollups: (name) =>
     invoke(IPC_CHANNELS.regionRollups, IPC_TIMEOUT_MS, name),
-  workTaskCreate: (canvas, nodeId, brief, metadata, reason, media, dependsOn) =>
+  workTaskCreate: (canvas, nodeId, brief, metadata, reason, media, dependsOn, finishCriteria) =>
     invoke(
       IPC_CHANNELS.workTaskCreate,
       IPC_TIMEOUT_MS,
@@ -473,13 +473,23 @@ const vellumApi: VellumApi = {
       reason,
       media,
       dependsOn,
+      finishCriteria,
     ),
   workTaskApproveProposal: (canvas, nodeId, taskId) =>
     invoke(IPC_CHANNELS.workTaskApproveProposal, IPC_TIMEOUT_MS, canvas, nodeId, taskId),
   workTaskDescribe: (canvas, nodeId, taskId, brief) =>
     invoke(IPC_CHANNELS.workTaskDescribe, IPC_TIMEOUT_MS, canvas, nodeId, taskId, brief),
-  workTaskTransition: (canvas, nodeId, taskId, state, note) =>
-    invoke(IPC_CHANNELS.workTaskTransition, IPC_TIMEOUT_MS, canvas, nodeId, taskId, state, note),
+  workTaskTransition: (canvas, nodeId, taskId, state, note, completionEvidence) =>
+    invoke(
+      IPC_CHANNELS.workTaskTransition,
+      IPC_TIMEOUT_MS,
+      canvas,
+      nodeId,
+      taskId,
+      state,
+      note,
+      completionEvidence,
+    ),
   workTaskRespond: (canvas, nodeId, taskId, responseText, disposition) =>
     invoke(
       IPC_CHANNELS.workTaskRespond,

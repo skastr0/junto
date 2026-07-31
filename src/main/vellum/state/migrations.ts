@@ -22,6 +22,7 @@ import {
 import {
   WORK_PROPOSAL_STATE_SCHEMA_SQL,
   WORK_TASK_DEPENDENCIES_STATE_SCHEMA_SQL,
+  WORK_TASK_FINISH_STATE_SCHEMA_SQL,
 } from "../work/state-schema";
 import { ENTITIES_STATE_SCHEMA_SQL } from "../entities/state-schema";
 
@@ -101,7 +102,13 @@ export const STATE_SCHEMA_V6_IDENTITY = {
     "f097722579ffcaad121b0e5eb62076a8ab70cb9c5d66a78978d572612703be53",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 7;
+/** Exact witness of schema version 7 (task dependencies). */
+export const STATE_SCHEMA_V7_IDENTITY = {
+  actualSchemaSha256:
+    "9f2aace6eaefaa20c1141304d5d4d62544a0500ff3bc7f30acda94d4099006bc",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 8;
 
 export const STATE_SCHEMA_MIGRATIONS =
   [
@@ -182,6 +189,16 @@ export const STATE_SCHEMA_MIGRATIONS =
       fromIdentity: STATE_SCHEMA_V6_IDENTITY,
       migrate: (database) => {
         database.exec(WORK_TASK_DEPENDENCIES_STATE_SCHEMA_SQL);
+      },
+    },
+    {
+      fromVersion: 7,
+      toVersion: 8,
+      name: "add-work-task-finish-criteria",
+      safety: STATE_SCHEMA_MIGRATION_SAFETY,
+      fromIdentity: STATE_SCHEMA_V7_IDENTITY,
+      migrate: (database) => {
+        database.exec(WORK_TASK_FINISH_STATE_SCHEMA_SQL);
       },
     },
   ] as const satisfies ReadonlyArray<StateSchemaMigration>;

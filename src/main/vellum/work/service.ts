@@ -13,7 +13,11 @@ import type {
   TaskState,
   WorkMetadata,
 } from "@shared/canvas";
-import type { TaskProposal } from "@shared/work-model";
+import type {
+  CompletionEvidence,
+  FinishCriteria,
+  TaskProposal,
+} from "@shared/work-model";
 import type {
   CanvasReadResult,
   WorkOpResult,
@@ -241,6 +245,7 @@ export class WorkService extends Context.Tag("@vellum/WorkService")<
       reason?: string,
       media?: ReadonlyArray<Part>,
       dependsOn?: ReadonlyArray<string>,
+      finishCriteria?: FinishCriteria,
     ) => Effect.Effect<WorkOpResult<Task>>;
     readonly workTaskPropose: (
       canvas: string,
@@ -267,6 +272,7 @@ export class WorkService extends Context.Tag("@vellum/WorkService")<
       taskId: string,
       state: TaskState,
       note?: string,
+      completionEvidence?: CompletionEvidence,
     ) => Effect.Effect<WorkOpResult<Task>>;
     readonly workTaskRespond: (
       canvas: string,
@@ -682,7 +688,7 @@ export const WorkLive = Layer.effect(
     return WorkService.of({
       workTaskHome: (canvas, nodeId, taskId) =>
         itemHome("task", canvas, nodeId, taskId),
-      workTaskCreate: (canvas, nodeId, brief, metadata, reason, media, dependsOn) =>
+      workTaskCreate: (canvas, nodeId, brief, metadata, reason, media, dependsOn, finishCriteria) =>
         asResult(
           Effect.gen(function* () {
             const [context, read] = yield* Effect.all([
@@ -701,6 +707,7 @@ export const WorkLive = Layer.effect(
                 reason,
                 media,
                 dependsOn,
+                finishCriteria,
               )
             );
             const home = yield* homeForNode(node, context);
@@ -869,7 +876,7 @@ export const WorkLive = Layer.effect(
           }),
         ),
 
-      workTaskTransition: (canvas, nodeId, taskId, state, note) =>
+      workTaskTransition: (canvas, nodeId, taskId, state, note, completionEvidence) =>
         asResult(
           Effect.gen(function* () {
             const [context, read, home] = yield* Effect.all([
@@ -888,6 +895,7 @@ export const WorkLive = Layer.effect(
                 state,
                 note,
                 ids,
+                completionEvidence,
               )
             );
             const message =
@@ -900,6 +908,9 @@ export const WorkLive = Layer.effect(
               taskId,
               state,
               ...(message === undefined ? {} : { message }),
+              ...(completionEvidence !== undefined
+                ? { completionEvidence }
+                : {}),
             };
             const outcome = home === context.localInstallationId
               ? yield* local(
@@ -909,6 +920,9 @@ export const WorkLive = Layer.effect(
                   taskId,
                   state,
                   ...(message === undefined ? {} : { message }),
+                  ...(completionEvidence !== undefined
+                    ? { completionEvidence }
+                    : {}),
                 }),
               )
               : yield* enqueue(

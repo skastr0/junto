@@ -503,6 +503,7 @@ export const registerVellumIpc = (): void => {
       reason?: string,
       media?: ReadonlyArray<Part>,
       dependsOn?: ReadonlyArray<string>,
+      finishCriteria?: import("@shared/work-model").FinishCriteria,
     ) =>
       runRendererWorkAuthoring(
         "ipc.work.task-create",
@@ -519,6 +520,7 @@ export const registerVellumIpc = (): void => {
               reason,
               media,
               dependsOn,
+              finishCriteria,
             );
           }),
         ),
@@ -563,6 +565,7 @@ export const registerVellumIpc = (): void => {
       taskId: string,
       state: TaskState,
       note?: string,
+      completionEvidence?: import("@shared/work-model").CompletionEvidence,
     ) =>
       runRendererWorkAuthoring(
         "ipc.work.task-transition",
@@ -571,7 +574,14 @@ export const registerVellumIpc = (): void => {
             const denied = yield* denyRemoteWork;
             if (denied) return denied;
             const work = yield* WorkService;
-            return yield* work.workTaskTransition(canvas, nodeId, taskId, state, note);
+            return yield* work.workTaskTransition(
+              canvas,
+              nodeId,
+              taskId,
+              state,
+              note,
+              completionEvidence,
+            );
           }),
         ),
       ),

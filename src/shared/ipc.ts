@@ -16,6 +16,8 @@ import type {
   CanvasDoc,
   Part,
   TaskState,
+  FinishCriteria,
+  CompletionEvidence,
 } from "./canvas";
 import type {
   DemoCommand,
@@ -597,6 +599,7 @@ export interface VellumApi extends LicenseApi, UpdateApi {
     media?: ReadonlyArray<Part>,
     /** Same-sink hard prerequisites (task ids). */
     dependsOn?: ReadonlyArray<string>,
+    finishCriteria?: FinishCriteria,
   ) => Promise<WorkOpResult<Task>>;
   readonly workTaskApproveProposal: (
     canvas: string,
@@ -615,6 +618,7 @@ export interface VellumApi extends LicenseApi, UpdateApi {
     taskId: string,
     state: TaskState,
     note?: string,
+    completionEvidence?: CompletionEvidence,
   ) => Promise<WorkOpResult<Task>>;
   readonly workTaskRespond: (
     canvas: string,

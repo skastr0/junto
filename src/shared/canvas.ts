@@ -10,11 +10,13 @@ import {
 
 export {
   Artifact,
+  CompletionEvidence,
   DataPart,
   EtherArtifacts,
   EtherMessages,
   EtherRequests,
   EtherTasks,
+  FinishCriteria,
   Message,
   MessageRole,
   Part,

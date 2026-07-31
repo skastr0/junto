@@ -1,0 +1,133 @@
+import { describe, expect, it } from "vitest";
+import {
+  evaluateFinishCriteria,
+  normalizeCompletionEvidence,
+  normalizeFinishCriteria,
+} from "../src/shared/finish-criteria";
+import type { Artifact, Task } from "../src/shared/work-model";
+
+const baseTask = (over: Partial<Task> = {}): Task =>
+  ({
+    id: "t1",
+    state: "working",
+    claimedBy: "seat_" + "a".repeat(64),
+    history: [
+      {
+        messageId: "m1",
+        role: "user",
+        parts: [{ kind: "text", text: "do it" }],
+      },
+    ],
+    ...over,
+  }) as Task;
+
+const artifact = (over: Partial<Artifact> = {}): Artifact => ({
+  artifactId: "a1",
+  name: "report",
+  parts: [{ kind: "text", text: "body" }],
+  task: {
+    kind: "task",
+    itemId: "t1",
+    sink: { canvasName: "board", nodeId: "tasks" },
+  },
+  ...over,
+});
+
+describe("finish criteria", () => {
+  it("normalizes empty criteria to undefined", () => {
+    expect(normalizeFinishCriteria({})).toBeUndefined();
+    expect(normalizeFinishCriteria(undefined)).toBeUndefined();
+  });
+
+  it("normalizes git minCommits and artifacts", () => {
+    expect(
+      normalizeFinishCriteria({
+        description: " ship it ",
+        artifacts: {
+          nodeId: " art1 ",
+          names: [" report ", "report", ""],
+        },
+        git: { minCommits: 2.9 },
+      }),
+    ).toEqual({
+      description: "ship it",
+      artifacts: { nodeId: "art1", names: ["report"] },
+      git: { minCommits: 2 },
+    });
+  });
+
+  it("passes when no criteria", () => {
+    expect(
+      evaluateFinishCriteria({
+        task: baseTask(),
+        taskNodeId: "tasks",
+        canvasName: "board",
+        evidence: undefined,
+        artifactsByNode: new Map(),
+      }),
+    ).toBeUndefined();
+  });
+
+  it("rejects complete without artifacts when required", () => {
+    const fail = evaluateFinishCriteria({
+      task: baseTask({
+        finishCriteria: { artifacts: { nodeId: "art1" } },
+      }),
+      taskNodeId: "tasks",
+      canvasName: "board",
+      evidence: { artifacts: [] },
+      artifactsByNode: new Map(),
+    });
+    expect(fail?.missing).toBe("artifacts");
+  });
+
+  it("accepts linked artifact citation + git", () => {
+    const art = artifact();
+    const fail = evaluateFinishCriteria({
+      task: baseTask({
+        finishCriteria: {
+          artifacts: { nodeId: "art1", names: ["report"] },
+          git: { minCommits: 1 },
+        },
+      }),
+      taskNodeId: "tasks",
+      canvasName: "board",
+      evidence: normalizeCompletionEvidence({
+        artifacts: [{ artifactId: "a1", nodeId: "art1" }],
+        git: { commits: ["abc123"] },
+      }),
+      artifactsByNode: new Map([["art1", [art]]]),
+    });
+    expect(fail).toBeUndefined();
+  });
+
+  it("rejects unlinked artifact", () => {
+    const fail = evaluateFinishCriteria({
+      task: baseTask({
+        finishCriteria: { artifacts: { nodeId: "art1" } },
+      }),
+      taskNodeId: "tasks",
+      canvasName: "board",
+      evidence: {
+        artifacts: [{ artifactId: "a1", nodeId: "art1" }],
+      },
+      artifactsByNode: new Map([
+        ["art1", [artifact({ task: undefined })]],
+      ]),
+    });
+    expect(fail?.missing).toBe("artifacts.taskLink");
+  });
+
+  it("rejects missing git commits", () => {
+    const fail = evaluateFinishCriteria({
+      task: baseTask({
+        finishCriteria: { git: { minCommits: 1 } },
+      }),
+      taskNodeId: "tasks",
+      canvasName: "board",
+      evidence: { artifacts: [], git: { commits: [] } },
+      artifactsByNode: new Map(),
+    });
+    expect(fail?.missing).toBe("git.commits");
+  });
+});

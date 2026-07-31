@@ -147,8 +147,9 @@ export const tasksCreateSchema: CommandSchemaContract = {
 export const tasksUpdateSchema: CommandSchemaContract = {
   command_id: "tasks.update",
   command: "tasks update",
-  schema_id: "tasks.update.input/v1",
-  description: "Transition a task to a new task state.",
+  schema_id: "tasks.update.input/v2",
+  description:
+    "Transition a task to a new task state. On completed, optional completionEvidence supplies artifacts + git commits for finish-criteria gates.",
   schema: TasksUpdateArgs,
   accepts_batch: true,
   input_modes: inputModes,
@@ -338,6 +339,26 @@ export const allExamples: ReadonlyArray<CommandExample> = [
       "tasks",
       "update",
       '{"target":"n7","task":"t1","state":"completed","note":"done"}',
+    ],
+  },
+  {
+    command_id: "tasks.update",
+    command: "tasks update",
+    name: "complete with evidence",
+    input: {
+      target: "n7",
+      task: "t1",
+      state: "completed",
+      note: "done",
+      completionEvidence: {
+        artifacts: [{ artifactId: "a1", nodeId: "art1" }],
+        git: { commits: ["abc123"] },
+      },
+    },
+    args: [
+      "tasks",
+      "update",
+      '{"target":"n7","task":"t1","state":"completed","completionEvidence":{"artifacts":[{"artifactId":"a1","nodeId":"art1"}],"git":{"commits":["abc123"]}}}',
     ],
   },
   {

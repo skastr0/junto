@@ -78,6 +78,51 @@ export const TaskState = Schema.Literal(
 );
 export type TaskState = typeof TaskState.Type;
 
+/**
+ * Operator-authored done-definition. Optional whole object.
+ * Nested presence of artifacts/git arms the corresponding hard gate.
+ */
+export const FinishCriteria = Schema.Struct({
+  description: Schema.optionalWith(Schema.String, { exact: true }),
+  artifacts: Schema.optionalWith(
+    Schema.Struct({
+      /** Artifacts sink node id (same canvas ambient). */
+      nodeId: Schema.String.pipe(Schema.minLength(1)),
+      instruction: Schema.optionalWith(Schema.String, { exact: true }),
+      /** When set, every name must match an evidence artifact.name exactly. */
+      names: Schema.optionalWith(Schema.Array(Schema.String), { exact: true }),
+    }),
+    { exact: true },
+  ),
+  git: Schema.optionalWith(
+    Schema.Struct({
+      minCommits: Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1)),
+    }),
+    { exact: true },
+  ),
+});
+export type FinishCriteria = typeof FinishCriteria.Type;
+
+/**
+ * Agent-supplied proof at complete. Artifacts are explicit citations (no
+ * auto-append on publish). Git is expandable (commits first; later repo, etc.).
+ */
+export const CompletionEvidence = Schema.Struct({
+  artifacts: Schema.Array(
+    Schema.Struct({
+      artifactId: Schema.String.pipe(Schema.minLength(1)),
+      nodeId: Schema.String.pipe(Schema.minLength(1)),
+    }),
+  ),
+  git: Schema.optionalWith(
+    Schema.Struct({
+      commits: Schema.Array(Schema.String),
+    }),
+    { exact: true },
+  ),
+});
+export type CompletionEvidence = typeof CompletionEvidence.Type;
+
 export const Task = Schema.Struct({
   id: Schema.String,
   state: TaskState,
@@ -98,6 +143,10 @@ export const Task = Schema.Struct({
   dependsOn: Schema.optionalWith(Schema.Array(Schema.String), {
     exact: true,
   }),
+  /** Operator done-definition; immutable on generic transition. */
+  finishCriteria: Schema.optionalWith(FinishCriteria, { exact: true }),
+  /** Stamped only on successful → completed. */
+  completionEvidence: Schema.optionalWith(CompletionEvidence, { exact: true }),
   metadata: Schema.optionalWith(WorkMetadata, { exact: true }),
   /** Why the raiser raised this (first-class, set at creation). */
   reason: Schema.optionalWith(Schema.String, { exact: true }),

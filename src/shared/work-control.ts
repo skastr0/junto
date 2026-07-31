@@ -1,5 +1,6 @@
 import { Either, Schema } from "effect";
 import { TaskState, WorkMetadata } from "./canvas";
+import { CompletionEvidence } from "./work-model";
 
 // Work control-plane wire contract: NDJSON frames over a local Unix domain
 // socket at ~/.vellum/work/control.sock. Pure module — no Node imports — so
@@ -196,6 +197,9 @@ export const TasksUpdateArgs = Schema.Struct({
   task: Schema.String,
   state: TaskState,
   note: Schema.optionalWith(Schema.String, { exact: true }),
+  completionEvidence: Schema.optionalWith(CompletionEvidence, { exact: true }),
+}).annotations({
+  parseOptions: { onExcessProperty: "error" },
 });
 export type TasksUpdateArgs = typeof TasksUpdateArgs.Type;
 

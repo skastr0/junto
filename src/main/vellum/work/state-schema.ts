@@ -1618,6 +1618,30 @@ export const WORK_TASK_DEPENDENCIES_STATE_SCHEMA_SQL = `
 `;
 
 /**
+ * Finish criteria + completion evidence (expand-only side table).
+ * Kept off work_tasks CREATE so v1–v7 historical witnesses stay frozen.
+ */
+export const WORK_TASK_FINISH_STATE_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS work_task_finish (
+    canvas_name TEXT NOT NULL CHECK (length(canvas_name) BETWEEN 1 AND 256),
+    node_id TEXT NOT NULL CHECK (length(node_id) BETWEEN 1 AND 256),
+    task_id TEXT NOT NULL CHECK (length(task_id) BETWEEN 1 AND 256),
+    finish_criteria_json TEXT
+      CHECK (finish_criteria_json IS NULL OR json_valid(finish_criteria_json)),
+    completion_evidence_json TEXT
+      CHECK (
+        completion_evidence_json IS NULL
+        OR json_valid(completion_evidence_json)
+      ),
+    PRIMARY KEY (canvas_name, node_id, task_id),
+    FOREIGN KEY (canvas_name, node_id, task_id)
+      REFERENCES work_tasks(canvas_name, node_id, task_id)
+      ON DELETE CASCADE
+      ON UPDATE RESTRICT
+  ) STRICT, WITHOUT ROWID;
+`;
+
+/**
  * Historical Work schema embedded in state schema versions 1–3.
  * Kept as an exact forward-migration witness; fresh installs use the current
  * trigger above. This avoids duplicating the rest of the large Work schema.

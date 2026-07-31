@@ -820,6 +820,7 @@ function TaskCreateDialog({
     role: string,
     media: ReadonlyArray<Extract<Part, { kind: "raw" }>>,
     dependsOn: ReadonlyArray<string>,
+    finishCriteria: import("@shared/work-model").FinishCriteria | undefined,
   ) => void;
 }) {
   const roleListId = `task-role-options-${useId().replaceAll(":", "")}`;
@@ -828,6 +829,12 @@ function TaskCreateDialog({
   const [details, setDetails] = useState("");
   const [role, setRole] = useState("");
   const [dependsOnText, setDependsOnText] = useState("");
+  const [criteriaText, setCriteriaText] = useState("");
+  const [requireArtifacts, setRequireArtifacts] = useState(false);
+  const [artifactsNodeId, setArtifactsNodeId] = useState("");
+  const [artifactsInstruction, setArtifactsInstruction] = useState("");
+  const [artifactNamesText, setArtifactNamesText] = useState("");
+  const [requireGit, setRequireGit] = useState(false);
   const [media, setMedia] = useState<TaskMediaDraft[]>([]);
   const [mediaError, setMediaError] = useState("");
   const [dragOver, setDragOver] = useState(false);
@@ -905,7 +912,47 @@ function TaskCreateDialog({
             .split(/[,\s]+/)
             .map((id) => id.trim())
             .filter(Boolean);
-          onCreate(title.trim(), details.trim(), role.trim(), parts, dependsOn);
+          const names = artifactNamesText
+            .split(/[\n,]+/)
+            .map((n) => n.trim())
+            .filter(Boolean);
+          const finishCriteria: import("@shared/work-model").FinishCriteria | undefined = (() => {
+            const description = criteriaText.trim();
+            const artifacts = requireArtifacts
+              ? {
+                  nodeId: artifactsNodeId.trim(),
+                  ...(artifactsInstruction.trim()
+                    ? { instruction: artifactsInstruction.trim() }
+                    : {}),
+                  ...(names.length > 0 ? { names } : {}),
+                }
+              : undefined;
+            const git = requireGit ? { minCommits: 1 } : undefined;
+            if (!description && !artifacts && !git) return undefined;
+            if (artifacts && !artifacts.nodeId) {
+              setMediaError("Artifacts node id is required when requiring artifacts.");
+              return undefined;
+            }
+            return {
+              ...(description ? { description } : {}),
+              ...(artifacts ? { artifacts } : {}),
+              ...(git ? { git } : {}),
+            };
+          })();
+          if (
+            requireArtifacts &&
+            !artifactsNodeId.trim()
+          ) {
+            return;
+          }
+          onCreate(
+            title.trim(),
+            details.trim(),
+            role.trim(),
+            parts,
+            dependsOn,
+            finishCriteria,
+          );
         }}
         onPaste={(event) => {
           void ingestClipboardOrFiles(event.clipboardData).then((handled) => {
@@ -959,6 +1006,62 @@ function TaskCreateDialog({
             rows={6}
           />
           <small>Long-form is welcome. Line breaks and detailed acceptance notes are preserved.</small>
+        </label>
+        <label>
+          <span>Finish criteria (optional)</span>
+          <Textarea
+            value={criteriaText}
+            onChange={(event) => setCriteriaText(event.target.value)}
+            placeholder="North star: what must be true for this task to be complete…"
+            rows={3}
+          />
+          <small>Soft guidance for the agent. Hard gates are the checkboxes below.</small>
+        </label>
+        <label className="task-create-dialog__check">
+          <input
+            type="checkbox"
+            checked={requireArtifacts}
+            onChange={(event) => setRequireArtifacts(event.target.checked)}
+          />
+          <span>Require artifact(s)</span>
+        </label>
+        {requireArtifacts ? (
+          <>
+            <label>
+              <span>Artifacts node id</span>
+              <Input
+                value={artifactsNodeId}
+                onChange={(event) => setArtifactsNodeId(event.target.value)}
+                placeholder="artifacts sink node id"
+              />
+            </label>
+            <label>
+              <span>Artifact instruction</span>
+              <Textarea
+                value={artifactsInstruction}
+                onChange={(event) => setArtifactsInstruction(event.target.value)}
+                placeholder="What artifacts should the agent publish…"
+                rows={2}
+              />
+            </label>
+            <label>
+              <span>Required artifact names (optional)</span>
+              <Input
+                value={artifactNamesText}
+                onChange={(event) => setArtifactNamesText(event.target.value)}
+                placeholder="exact names, comma or newline separated"
+              />
+              <small>When set, every name must match exactly on complete.</small>
+            </label>
+          </>
+        ) : null}
+        <label className="task-create-dialog__check">
+          <input
+            type="checkbox"
+            checked={requireGit}
+            onChange={(event) => setRequireGit(event.target.checked)}
+          />
+          <span>Require at least one git commit</span>
         </label>
         <div
           className={`task-create-dialog__media${dragOver ? " is-dragover" : ""}`}
@@ -1278,6 +1381,53 @@ function TaskDetailPanel({
           )}
         </section>
 
+        {task.finishCriteria ? (
+          <section className="task-detail-panel__section">
+            <h3>Finish criteria</h3>
+            {task.finishCriteria.description ? (
+              <p className="task-detail-panel__description">{task.finishCriteria.description}</p>
+            ) : null}
+            {task.finishCriteria.artifacts ? (
+              <p className="task-detail-panel__description">
+                Artifacts required on node{" "}
+                <code>{task.finishCriteria.artifacts.nodeId}</code>
+                {task.finishCriteria.artifacts.instruction
+                  ? ` — ${task.finishCriteria.artifacts.instruction}`
+                  : ""}
+                {task.finishCriteria.artifacts.names &&
+                task.finishCriteria.artifacts.names.length > 0
+                  ? ` · names: ${task.finishCriteria.artifacts.names.join(", ")}`
+                  : ""}
+              </p>
+            ) : null}
+            {task.finishCriteria.git ? (
+              <p className="task-detail-panel__description">
+                Git: ≥ {task.finishCriteria.git.minCommits} commit(s)
+              </p>
+            ) : null}
+          </section>
+        ) : null}
+
+        {task.completionEvidence ? (
+          <section className="task-detail-panel__section">
+            <h3>Completion evidence</h3>
+            {task.completionEvidence.artifacts.length > 0 ? (
+              <p className="task-detail-panel__description">
+                Artifacts:{" "}
+                {task.completionEvidence.artifacts
+                  .map((a) => `${a.artifactId} @ ${a.nodeId}`)
+                  .join("; ")}
+              </p>
+            ) : null}
+            {task.completionEvidence.git?.commits &&
+            task.completionEvidence.git.commits.length > 0 ? (
+              <p className="task-detail-panel__description">
+                Commits: {task.completionEvidence.git.commits.join(", ")}
+              </p>
+            ) : null}
+          </section>
+        ) : null}
+
         {media.length > 0 ? (
           <section className="task-detail-panel__section">
             <h3>
@@ -1466,6 +1616,7 @@ export function TaskBoard({
     role: string,
     media: ReadonlyArray<Extract<Part, { kind: "raw" }>>,
     dependsOn: ReadonlyArray<string> = [],
+    finishCriteria?: import("@shared/work-model").FinishCriteria,
   ) => {
     if (!api || !title.trim()) return;
     setError("");
@@ -1485,6 +1636,7 @@ export function TaskBoard({
           undefined,
           media.length > 0 ? media : undefined,
           dependsOn.length > 0 ? dependsOn : undefined,
+          finishCriteria,
         ),
       );
       if (result === undefined) return;
@@ -1750,8 +1902,8 @@ export function TaskBoard({
             onClose={() => {
               if (!creatingPending) setCreating(false);
             }}
-            onCreate={(title, details, role, media, dependsOn) =>
-              void createTask(title, details, role, media, dependsOn)
+            onCreate={(title, details, role, media, dependsOn, finishCriteria) =>
+              void createTask(title, details, role, media, dependsOn, finishCriteria)
             }
           />
         ) : null}

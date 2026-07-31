@@ -3,6 +3,7 @@ import { ActorSeatId } from "./actor-seat";
 import { InstallationId } from "./installation-id";
 import {
   Artifact,
+  CompletionEvidence,
   Message,
   Task,
   TaskProposal,
@@ -237,6 +238,8 @@ export const TaskTransitionAction = Schema.Struct({
   taskId: BoundedWorkId,
   state: TaskState,
   message: Schema.optionalWith(Message, { exact: true }),
+  /** Set on → completed when finish criteria require proof. */
+  completionEvidence: Schema.optionalWith(CompletionEvidence, { exact: true }),
 });
 export type TaskTransitionAction = typeof TaskTransitionAction.Type;
 

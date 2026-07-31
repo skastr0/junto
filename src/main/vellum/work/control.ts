@@ -665,6 +665,7 @@ const dispatchOp = (
         decoded.right.task,
         decoded.right.state,
         decoded.right.note,
+        decoded.right.completionEvidence,
       );
       const mapped = fromWorkResult(result);
       if (Either.isLeft(mapped)) return yield* Effect.fail(mapped.left);

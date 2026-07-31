@@ -17,6 +17,7 @@ import {
   WORK_STATE_SCHEMA_SQL,
   WORK_STATE_SCHEMA_V3_SQL,
   WORK_TASK_DEPENDENCIES_STATE_SCHEMA_SQL,
+  WORK_TASK_FINISH_STATE_SCHEMA_SQL,
 } from "../work/state-schema";
 
 /**
@@ -136,9 +137,17 @@ export const STATE_SCHEMA_V6_FRAGMENTS = [
 
 export const STATE_SCHEMA_V6_SQL = STATE_SCHEMA_V6_FRAGMENTS.join("\n");
 
-export const STATE_SCHEMA_FRAGMENTS = [
+/** Schema composition at version 7 (task dependencies; no finish criteria). */
+export const STATE_SCHEMA_V7_FRAGMENTS = [
   ...STATE_SCHEMA_V6_FRAGMENTS,
   WORK_TASK_DEPENDENCIES_STATE_SCHEMA_SQL,
+] as const;
+
+export const STATE_SCHEMA_V7_SQL = STATE_SCHEMA_V7_FRAGMENTS.join("\n");
+
+export const STATE_SCHEMA_FRAGMENTS = [
+  ...STATE_SCHEMA_V7_FRAGMENTS,
+  WORK_TASK_FINISH_STATE_SCHEMA_SQL,
 ] as const;
 
 /**

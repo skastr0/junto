@@ -11,6 +11,8 @@ import type {
   Part,
   TaskProposal,
   TaskState,
+  FinishCriteria,
+  CompletionEvidence,
 } from "./work-model";
 import type { ActorRef } from "./work-protocol";
 import {
@@ -32,6 +34,12 @@ import {
   taskIsClaimReady,
   validateTaskDependsOn,
 } from "./task-deps";
+import {
+  artifactsByNodeFromDoc,
+  evaluateFinishCriteria,
+  normalizeCompletionEvidence,
+  normalizeFinishCriteria,
+} from "./finish-criteria";
 import { groupMembers, isGroup } from "./graph";
 import {
   ACTOR_ACTOR_INBOX_PORTS,
@@ -294,6 +302,7 @@ export const workTaskCreate = (
   media?: ReadonlyArray<Part>,
   /** Same-sink hard prerequisites (task ids). Empty / omitted = free. */
   dependsOn?: ReadonlyArray<string>,
+  finishCriteria?: FinishCriteria,
 ): WorkTaskCreateResult => {
   const node = requireNode(doc, nodeId);
   requireSink(node, ["task"]);
@@ -311,6 +320,15 @@ export const workTaskCreate = (
     byId: taskIndexById(existing),
   });
   if (depError) throw new WorkError("invalid", depError);
+  let criteria: FinishCriteria | undefined;
+  try {
+    criteria = normalizeFinishCriteria(finishCriteria);
+  } catch (cause) {
+    throw new WorkError(
+      "invalid",
+      cause instanceof Error ? cause.message : String(cause),
+    );
+  }
   const contextId = regionContextId(doc, nodeId, canvasName);
   const briefMessage = makeUserMessage({
     messageId: ids.messageId(),
@@ -327,9 +345,50 @@ export const workTaskCreate = (
     ...(metadata ? { metadata } : {}),
     ...(why ? { reason: why } : {}),
     ...(normalizedDeps ? { dependsOn: normalizedDeps } : {}),
+    ...(criteria !== undefined ? { finishCriteria: criteria } : {}),
   };
   const items = [...existing, task];
   return { doc: withTasks(doc, nodeId, items), task };
+};
+
+/**
+ * Operator rewrite of finish criteria. Cleared by passing undefined.
+ * Terminal tasks cannot change criteria.
+ */
+export const workTaskSetFinishCriteria = (
+  doc: CanvasDoc,
+  canvasName: string,
+  nodeId: string,
+  taskId: string,
+  finishCriteria: FinishCriteria | undefined,
+): WorkTaskResult => {
+  const node = requireNode(doc, nodeId);
+  requireSink(node, ["task"]);
+  const items = node.ether?.tasks?.items ?? [];
+  let criteria: FinishCriteria | undefined;
+  try {
+    criteria = normalizeFinishCriteria(finishCriteria);
+  } catch (cause) {
+    throw new WorkError(
+      "invalid",
+      cause instanceof Error ? cause.message : String(cause),
+    );
+  }
+  const { items: nextItems, task } = patchTaskInList(items, taskId, (current) => {
+    if (isTerminalTaskState(current.state)) {
+      throw new WorkError(
+        "illegal_transition",
+        `cannot change finish criteria of task "${taskId}" in terminal state ${current.state}`,
+      );
+    }
+    const { finishCriteria: _prev, completionEvidence: _ev, ...rest } = current;
+    return {
+      ...rest,
+      ...(criteria !== undefined ? { finishCriteria: criteria } : {}),
+    };
+  });
+  void canvasName;
+  return { doc: withTasks(doc, nodeId, nextItems), task };
 };
 
 export const workTaskPropose = (
@@ -470,17 +529,34 @@ export const workTaskTransition = (
   state: TaskState,
   note: string | undefined,
   ids: WorkIds,
+  completionEvidence?: CompletionEvidence,
 ): WorkTaskResult => {
   const node = requireNode(doc, nodeId);
   requireSink(node, ["task"]);
   const items = node.ether?.tasks?.items ?? [];
   const contextId = regionContextId(doc, nodeId, canvasName);
+  const evidence =
+    state === "completed"
+      ? normalizeCompletionEvidence(completionEvidence)
+      : undefined;
   const { items: nextItems, task } = patchTaskInList(items, taskId, (current) => {
     if (!canTransitionTaskState(current.state, state)) {
       throw new WorkError(
         "illegal_transition",
         `cannot transition task "${taskId}" from ${current.state} to ${state}`,
       );
+    }
+    if (state === "completed") {
+      const gate = evaluateFinishCriteria({
+        task: current,
+        taskNodeId: nodeId,
+        canvasName,
+        evidence,
+        artifactsByNode: artifactsByNodeFromDoc(doc.nodes),
+      });
+      if (gate !== undefined) {
+        throw new WorkError("illegal_transition", gate.message);
+      }
     }
     let history = current.history;
     if (state === "submitted") {
@@ -505,7 +581,15 @@ export const workTaskTransition = (
         }),
       ];
     }
-    return { ...taskWithTransitionState(current, state), history };
+    const next = { ...taskWithTransitionState(current, state), history };
+    if (state === "completed" && evidence !== undefined) {
+      return { ...next, completionEvidence: evidence };
+    }
+    if (state !== "completed") {
+      const { completionEvidence: _cleared, ...rest } = next;
+      return rest;
+    }
+    return next;
   });
   return { doc: withTasks(doc, nodeId, nextItems), task };
 };

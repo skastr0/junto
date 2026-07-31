@@ -71,6 +71,10 @@ import {
   validateTaskDependsOn,
 } from "@shared/task-deps";
 import {
+  evaluateFinishCriteria,
+  normalizeCompletionEvidence,
+} from "@shared/finish-criteria";
+import {
   StateEngine,
   type StateReader,
   type StateRow,
@@ -276,6 +280,7 @@ export type TransitionTaskInput = LocalWorkInput & {
   readonly taskId: string;
   readonly state: TaskState;
   readonly message?: MessageValue;
+  readonly completionEvidence?: TaskValue["completionEvidence"];
 };
 
 export type ClaimLocalTaskInput = LocalWorkInput & {
@@ -810,6 +815,207 @@ const loadTaskDependsOn = (
   return rows.map((row) => row.depends_on_task_id);
 };
 
+const loadTaskFinish = (
+  reader: StateReader,
+  sink: SinkRefValue,
+  taskId: string,
+): {
+  readonly finishCriteria?: TaskValue["finishCriteria"];
+  readonly completionEvidence?: TaskValue["completionEvidence"];
+} => {
+  const row = reader.get<
+    StateRow & {
+      readonly finish_criteria_json: string | null;
+      readonly completion_evidence_json: string | null;
+    }
+  >(
+    `
+      SELECT finish_criteria_json, completion_evidence_json
+      FROM work_task_finish
+      WHERE canvas_name = ? AND node_id = ? AND task_id = ?
+    `,
+    [sink.canvasName, sink.nodeId, taskId],
+  );
+  if (row === undefined) return {};
+  return {
+    ...(row.finish_criteria_json === null
+      ? {}
+      : {
+          finishCriteria: parseJson(
+            row.finish_criteria_json,
+          ) as TaskValue["finishCriteria"],
+        }),
+    ...(row.completion_evidence_json === null
+      ? {}
+      : {
+          completionEvidence: parseJson(
+            row.completion_evidence_json,
+          ) as TaskValue["completionEvidence"],
+        }),
+  };
+};
+
+const loadTaskFinishMap = (
+  reader: StateReader,
+  sink: SinkRefValue,
+): Map<
+  string,
+  {
+    readonly finishCriteria?: TaskValue["finishCriteria"];
+    readonly completionEvidence?: TaskValue["completionEvidence"];
+  }
+> => {
+  const rows = reader.all<
+    StateRow & {
+      readonly task_id: string;
+      readonly finish_criteria_json: string | null;
+      readonly completion_evidence_json: string | null;
+    }
+  >(
+    `
+      SELECT task_id, finish_criteria_json, completion_evidence_json
+      FROM work_task_finish
+      WHERE canvas_name = ? AND node_id = ?
+    `,
+    [sink.canvasName, sink.nodeId],
+  );
+  const map = new Map<
+    string,
+    {
+      readonly finishCriteria?: TaskValue["finishCriteria"];
+      readonly completionEvidence?: TaskValue["completionEvidence"];
+    }
+  >();
+  for (const row of rows) {
+    map.set(row.task_id, {
+      ...(row.finish_criteria_json === null
+        ? {}
+        : {
+            finishCriteria: parseJson(
+              row.finish_criteria_json,
+            ) as TaskValue["finishCriteria"],
+          }),
+      ...(row.completion_evidence_json === null
+        ? {}
+        : {
+            completionEvidence: parseJson(
+              row.completion_evidence_json,
+            ) as TaskValue["completionEvidence"],
+          }),
+    });
+  }
+  return map;
+};
+
+/** All artifacts on a canvas, keyed by sink node id (for finish-criteria gate). */
+const loadAllArtifactsByNode = (
+  reader: StateReader,
+  canvasName: string,
+): Map<string, ReadonlyArray<ArtifactValue>> => {
+  const rows = reader.all<
+    StateRow & {
+      readonly node_id: string;
+      readonly artifact_id: string;
+      readonly name: string | null;
+      readonly parts_json: string;
+      readonly task_canvas_name: string | null;
+      readonly task_node_id: string | null;
+      readonly task_id: string | null;
+      readonly metadata_json: string | null;
+    }
+  >(
+    `
+      SELECT
+        node_id,
+        artifact_id,
+        name,
+        parts_json,
+        task_canvas_name,
+        task_node_id,
+        task_id,
+        metadata_json
+      FROM work_artifacts
+      WHERE canvas_name = ?
+      ORDER BY node_id, artifact_id
+    `,
+    [canvasName],
+  );
+  const map = new Map<string, ArtifactValue[]>();
+  for (const row of rows) {
+    const artifact = Schema.decodeUnknownSync(Artifact, strictDecode)({
+      artifactId: row.artifact_id,
+      parts: parseJson(row.parts_json),
+      ...(row.name === null ? {} : { name: row.name }),
+      ...(row.task_id === null
+        ? {}
+        : {
+            task: {
+              kind: "task",
+              itemId: row.task_id,
+              sink: {
+                canvasName: row.task_canvas_name!,
+                nodeId: row.task_node_id!,
+              },
+            },
+          }),
+      ...(row.metadata_json === null
+        ? {}
+        : { metadata: parseJson(row.metadata_json) }),
+    });
+    const list = map.get(row.node_id);
+    if (list === undefined) map.set(row.node_id, [artifact]);
+    else list.push(artifact);
+  }
+  return map;
+};
+
+const writeTaskFinish = (
+  writer: StateWriter,
+  sink: SinkRefValue,
+  task: TaskValue,
+): void => {
+  // undefined on both = snapshot omitted finish fields; keep durable row
+  // (mirrors dependsOn preserve semantics).
+  if (
+    task.finishCriteria === undefined &&
+    task.completionEvidence === undefined
+  ) {
+    return;
+  }
+  // When one field is present, merge: keep the other from existing row if
+  // the snapshot omitted it.
+  const existing = loadTaskFinish(writer, sink, task.id);
+  const criteria =
+    task.finishCriteria !== undefined
+      ? task.finishCriteria
+      : existing.finishCriteria;
+  const evidence =
+    task.completionEvidence !== undefined
+      ? task.completionEvidence
+      : existing.completionEvidence;
+  writer.run(
+    `
+      INSERT INTO work_task_finish(
+        canvas_name,
+        node_id,
+        task_id,
+        finish_criteria_json,
+        completion_evidence_json
+      ) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(canvas_name, node_id, task_id) DO UPDATE SET
+        finish_criteria_json = excluded.finish_criteria_json,
+        completion_evidence_json = excluded.completion_evidence_json
+    `,
+    [
+      sink.canvasName,
+      sink.nodeId,
+      task.id,
+      criteria === undefined ? null : canonicalJson(criteria),
+      evidence === undefined ? null : canonicalJson(evidence),
+    ],
+  );
+};
+
 const writeTaskDependsOn = (
   writer: StateWriter,
   sink: SinkRefValue,
@@ -854,6 +1060,10 @@ const taskFromRow = (
   lane: "task" | "request",
   row: TaskRow,
   dependsOn?: ReadonlyArray<string>,
+  finish?: {
+    readonly finishCriteria?: TaskValue["finishCriteria"];
+    readonly completionEvidence?: TaskValue["completionEvidence"];
+  },
 ): TaskValue =>
   Schema.decodeUnknownSync(Task, strictDecode)({
     id: row.item_id,
@@ -873,6 +1083,12 @@ const taskFromRow = (
     ...(lane === "task" && dependsOn !== undefined && dependsOn.length > 0
       ? { dependsOn: [...dependsOn] }
       : {}),
+    ...(lane === "task" && finish?.finishCriteria !== undefined
+      ? { finishCriteria: finish.finishCriteria }
+      : {}),
+    ...(lane === "task" && finish?.completionEvidence !== undefined
+      ? { completionEvidence: finish.completionEvidence }
+      : {}),
   });
 
 const loadLaneTasks = (
@@ -884,6 +1100,8 @@ const loadLaneTasks = (
   const id = lane === "task" ? "task_id" : "request_id";
   const dependsMap =
     lane === "task" ? loadTaskDependsOnMap(reader, sink) : undefined;
+  const finishMap =
+    lane === "task" ? loadTaskFinishMap(reader, sink) : undefined;
   return reader
     .all<TaskRow>(
       `
@@ -915,6 +1133,7 @@ const loadLaneTasks = (
         lane,
         row,
         dependsMap?.get(row.item_id),
+        finishMap?.get(row.item_id),
       ),
     );
 };
@@ -1257,9 +1476,11 @@ const loadTask = (
     lane === "task"
       ? loadTaskDependsOn(reader, sink, itemId)
       : undefined;
+  const finish =
+    lane === "task" ? loadTaskFinish(reader, sink, itemId) : undefined;
   return {
     row,
-    task: taskFromRow(reader, sink, lane, detail, dependsOn),
+    task: taskFromRow(reader, sink, lane, detail, dependsOn, finish),
   };
 };
 
@@ -2206,6 +2427,7 @@ const writeTask = (
   );
   if (lane === "task") {
     writeTaskDependsOn(writer, sink, task.id, task.dependsOn);
+    writeTaskFinish(writer, sink, task);
   }
   writeTaskMessages(writer, lane, sink, task, fact, receivedAt);
   writeTransition(
@@ -3056,6 +3278,25 @@ const resultForCommand = (
           `cannot transition task "${action.taskId}" from ${current!.task.state} to ${action.state}`,
         );
       }
+      const evidence =
+        action.state === "completed"
+          ? normalizeCompletionEvidence(action.completionEvidence)
+          : undefined;
+      if (action.state === "completed") {
+        const gate = evaluateFinishCriteria({
+          task: current!.task,
+          taskNodeId: command.item.sink.nodeId,
+          canvasName: command.item.sink.canvasName,
+          evidence,
+          artifactsByNode: loadAllArtifactsByNode(
+            writer,
+            command.item.sink.canvasName,
+          ),
+        });
+        if (gate !== undefined) {
+          throw authorityError("invalid-transition", gate.message);
+        }
+      }
       return {
         body: {
           operation: "task.transition",
@@ -3065,6 +3306,9 @@ const resultForCommand = (
               action.message === undefined
                 ? current!.task.history
                 : [...current!.task.history, action.message],
+            ...(action.state === "completed" && evidence !== undefined
+              ? { completionEvidence: evidence }
+              : {}),
           },
         },
       };
@@ -3888,6 +4132,7 @@ const taskWithoutTransitionFields = (task: TaskValue): unknown => {
     claimedBy: _claimedBy,
     history: _history,
     response: _response,
+    completionEvidence: _completionEvidence,
     ...rest
   } = task;
   return rest;
@@ -4958,12 +5203,35 @@ export const WorkRepositoryLive = Layer.effect(
             `cannot transition task "${input.taskId}" from ${current.task.state} to ${input.state}`,
           );
         }
+        const evidence =
+          input.state === "completed"
+            ? normalizeCompletionEvidence(input.completionEvidence)
+            : undefined;
+        if (input.state === "completed") {
+          const artifactsByNode = loadAllArtifactsByNode(
+            writer,
+            input.sink.canvasName,
+          );
+          const gate = evaluateFinishCriteria({
+            task: current.task,
+            taskNodeId: input.sink.nodeId,
+            canvasName: input.sink.canvasName,
+            evidence,
+            artifactsByNode,
+          });
+          if (gate !== undefined) {
+            throw authorityError("invalid-transition", gate.message);
+          }
+        }
         const task = Schema.decodeUnknownSync(Task, strictDecode)({
           ...taskWithTransitionState(current.task, input.state),
           history:
             message === undefined
               ? current.task.history
               : [...current.task.history, message],
+          ...(input.state === "completed" && evidence !== undefined
+            ? { completionEvidence: evidence }
+            : {}),
         });
         return commitLocalFact(writer, {
           localInstallationId,
