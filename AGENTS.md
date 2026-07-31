@@ -9,10 +9,10 @@ geography. The current canvas serialization is a
 
 ## Product brand — hard invariant
 
-**The product name is Vellum Command. Never bare "Vellum Command".**
+**The product name is Vellum Command. Never the short form without Command.**
 
-There is another product called Vellum Command. This app, brand, and every public or
-user-facing string is **Vellum Command** only.
+A different product owns the short one-word name. This app, brand, and every
+public or user-facing string must use the full name **Vellum Command** only.
 
 | Surface | Rule |
 |---|---|
@@ -28,12 +28,12 @@ user-facing string is **Vellum Command** only.
 `vellum.db`, `dist/vellum`, `vellum://`, `VELLUM_*` env keys, npm package name,
 appId.
 
-**Enforcement:** `bun run lint:product-name` — capital-V word `Vellum Command` not
+**Enforcement:** `bun run lint:product-name` — capital-V product token not
 followed by ` Command` or `-Command` is a lint error. Wired into `bun run verify`.
 Constant: `src/shared/product-name.ts` (`PRODUCT_NAME`).
 
-**PR test:** would a stranger reading only this string think the product is
-called "Vellum Command"? If yes, rewrite to **Vellum Command**.
+**PR test:** would a stranger reading only this string think the product is the
+short one-word name? If yes, rewrite to **Vellum Command**.
 
 ## Security doctrine — read first
 

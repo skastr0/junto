@@ -1246,6 +1246,50 @@ html[data-surface-motion="paused"] *::after {
 .node-palette { position: relative; }
 .node-palette__trigger { display: inline-flex; align-items: center; gap: 7px; border: 1px solid rgba(232,163,61,.34); border-radius: 6px; background: rgba(19,17,16,.9); color: var(--color-amber); padding: 8px 10px; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; backdrop-filter: blur(12px); transition: border-color .18s ease, background .18s ease; cursor: pointer; }
 .node-palette__trigger:hover { border-color: rgba(232,163,61,.72); background: rgba(44,34,23,.94); }
+
+/* Canvas context actions are intentionally separate from the Mode Deck. */
+.canvas-action-menu {
+  display: grid;
+  width: 230px;
+  gap: 2px;
+  border: 1px solid var(--color-stroke-hi);
+  border-radius: 7px;
+  background: var(--color-raise);
+  padding: 5px;
+  box-shadow: 0 14px 34px rgb(0 0 0 / 0.48);
+}
+.canvas-action-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-dim);
+  padding: 5px 6px;
+  text-align: left;
+  transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+.canvas-action-menu button:hover,
+.canvas-action-menu button:focus-visible {
+  border-color: var(--color-stroke);
+  background: rgb(237 230 218 / 0.055);
+  color: var(--color-ink);
+  outline: none;
+}
+.canvas-action-menu__icon {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  place-items: center;
+  color: var(--color-cyan);
+}
+.canvas-action-menu__icon > svg { display: block; }
+.canvas-action-menu button > span:not(.canvas-action-menu__icon) { display: grid; min-width: 0; gap: 1px; }
+.canvas-action-menu strong { color: inherit; font-size: 10px; font-weight: 500; letter-spacing: .11em; text-transform: uppercase; }
+.canvas-action-menu small { color: var(--color-faint); font-size: 9px; line-height: 1.25; }
 /* Horizontal padding + negative margin expand the hover hit box toward the
    parent palette so the pointer can cross the gap without closing the cascade. */
 .agent-cascade {

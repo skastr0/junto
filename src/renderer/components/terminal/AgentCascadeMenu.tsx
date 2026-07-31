@@ -498,7 +498,8 @@ export function AgentCascadeMenu({
   return createPortal(
     <div
       ref={rootRef}
-      className="agent-cascade node-palette"
+      className="agent-cascade"
+      data-node-palette-portal
       style={{ position: "fixed", zIndex: 70, ...position } as CSSProperties}
       onMouseEnter={onPointerEnter}
       onMouseLeave={onPointerLeave}
