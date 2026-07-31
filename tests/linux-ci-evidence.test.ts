@@ -8,6 +8,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { LINUX_REMOTE_RUNTIME_AUDIT_EXPECTED } from "../scripts/audit-linux-package";
 import {
   LINUX_CI_REQUIRED_GATES,
   createLinuxCiReleaseManifest,
@@ -229,15 +230,17 @@ describe("Linux release artifact identity", () => {
         },
       }),
     );
+    const packageAudit = {
+      ok: true,
+      artifact: archive,
+      cliVersion: packageVersion,
+      remoteRuntime: LINUX_REMOTE_RUNTIME_AUDIT_EXPECTED,
+      nativeObjects: [],
+      chromeSandbox: "absent",
+    };
     await writeFile(
       path.join(evidence, "package-audit.json"),
-      JSON.stringify({
-        ok: true,
-        artifact: archive,
-        cliVersion: packageVersion,
-        nativeObjects: [],
-        chromeSandbox: "absent",
-      }),
+      JSON.stringify(packageAudit),
     );
     await writeFile(
       path.join(evidence, "packaged-pty-smoke.json"),
@@ -274,6 +277,21 @@ describe("Linux release artifact identity", () => {
       JSON.stringify(createLinuxCiTestReceipt([...LINUX_CI_REQUIRED_GATES])),
     );
     await writeFile(path.join(logs, "unit.log"), "passed\n");
+
+    await writeFile(
+      path.join(evidence, "package-audit.json"),
+      JSON.stringify({ ...packageAudit, remoteRuntime: undefined }),
+    );
+    await expect(createLinuxCiReleaseManifest({
+      releaseDirectory: release,
+      evidenceDirectory: evidence,
+      commit: "a".repeat(40),
+      sourceDateEpoch: "1780000000",
+    })).rejects.toThrow(/package audit mismatch/u);
+    await writeFile(
+      path.join(evidence, "package-audit.json"),
+      JSON.stringify(packageAudit),
+    );
 
     const manifest = await createLinuxCiReleaseManifest({
       releaseDirectory: release,

@@ -11,6 +11,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { validateLinuxRemoteRuntimeAuditReceipt } from "./audit-linux-package";
 import { linuxUserlandRuntimeArchiveName } from "./linux-release-bundle";
 
 export const LINUX_CI_TARGET = Object.freeze({
@@ -429,13 +430,21 @@ const validateLinuxCiReceipts = async (input: {
     readonly ok?: unknown;
     readonly artifact?: unknown;
     readonly cliVersion?: unknown;
+    readonly remoteRuntime?: unknown;
     readonly nativeObjects?: unknown;
     readonly chromeSandbox?: unknown;
   };
+  let remoteRuntimeValid = true;
+  try {
+    validateLinuxRemoteRuntimeAuditReceipt(packageAudit.remoteRuntime);
+  } catch {
+    remoteRuntimeValid = false;
+  }
   if (
     packageAudit.ok !== true ||
     typeof packageAudit.artifact !== "string" ||
     packageAudit.cliVersion !== (await readPackageIdentity()).version ||
+    !remoteRuntimeValid ||
     !Array.isArray(packageAudit.nativeObjects) ||
     packageAudit.chromeSandbox !== "absent"
   ) {

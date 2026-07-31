@@ -31,30 +31,54 @@ import {
 const readRepo = (relative: string) =>
   readFile(new URL(`../${relative}`, import.meta.url), "utf8");
 
+const writeRemoteJsPackageFixture = async (
+  repoRoot: string,
+  packageName: "@xterm/headless" | "@xterm/addon-serialize",
+): Promise<void> => {
+  const packageRoot = path.join(
+    repoRoot,
+    "node_modules",
+    ...packageName.split("/"),
+  );
+  await mkdir(packageRoot, { recursive: true });
+  await Promise.all([
+    writeFile(
+      path.join(packageRoot, "package.json"),
+      `${JSON.stringify({ name: packageName, version: "0.0.0-test", main: "index.js" })}\n`,
+    ),
+    writeFile(path.join(packageRoot, "index.js"), "module.exports = {};\n"),
+  ]);
+};
+
 describe("Linux remote displayless packaging helpers", () => {
-  it("pins Node 22 LTS and names the official linux-x64 archive", () => {
-    expect(DEFAULT_NODE_REMOTE_VERSION).toMatch(/^22\./u);
-    expect(requireNodeRemoteVersion("22.18.0")).toBe("22.18.0");
-    expect(() => requireNodeRemoteVersion("20.18.0")).toThrow(/22/u);
+  it("pins Node 24 LTS with the SQLite authorizer API floor", () => {
+    expect(DEFAULT_NODE_REMOTE_VERSION).toBe("24.18.0");
+    expect(requireNodeRemoteVersion("24.18.0")).toBe("24.18.0");
+    expect(requireNodeRemoteVersion("24.10.0")).toBe("24.10.0");
+    expect(() => requireNodeRemoteVersion("24.9.0")).toThrow(/24\.10/u);
+    expect(() => requireNodeRemoteVersion("22.18.0")).toThrow(/Node 24/u);
+    expect(() => requireNodeRemoteVersion("25.0.0")).toThrow(/Node 24/u);
     expect(() => requireNodeRemoteVersion("not-a-version")).toThrow(/semver/u);
-    expect(nodeLinuxX64ArchiveName("22.18.0")).toBe(
-      "node-v22.18.0-linux-x64.tar.gz",
+    expect(nodeLinuxX64ArchiveName("24.18.0")).toBe(
+      "node-v24.18.0-linux-x64.tar.gz",
     );
-    expect(nodeLinuxX64ArchiveUrl("22.18.0")).toBe(
-      "https://nodejs.org/dist/v22.18.0/node-v22.18.0-linux-x64.tar.gz",
+    expect(nodeLinuxX64ArchiveUrl("24.18.0")).toBe(
+      "https://nodejs.org/dist/v24.18.0/node-v24.18.0-linux-x64.tar.gz",
     );
     expect(resolveNodeRemoteVersion({})).toBe(DEFAULT_NODE_REMOTE_VERSION);
-    expect(resolveNodeRemoteVersion({ NODE_REMOTE_VERSION: "22.17.1" })).toBe(
-      "22.17.1",
+    expect(resolveNodeRemoteVersion({ NODE_REMOTE_VERSION: "24.10.0" })).toBe(
+      "24.10.0",
     );
   });
 
   it("refuses Node archives without the reviewed linux-x64 digest pin", () => {
-    expect(pinnedNodeLinuxX64ArchiveSha256("22.18.0")).toBe(
-      PINNED_NODE_LINUX_X64_ARCHIVE_SHA256["22.18.0"],
+    expect(pinnedNodeLinuxX64ArchiveSha256("24.18.0")).toBe(
+      PINNED_NODE_LINUX_X64_ARCHIVE_SHA256["24.18.0"],
     );
-    expect(pinnedNodeLinuxX64ArchiveSha256("22.18.0")).toMatch(/^[0-9a-f]{64}$/u);
-    expect(() => pinnedNodeLinuxX64ArchiveSha256("22.17.1")).toThrow(
+    expect(pinnedNodeLinuxX64ArchiveSha256("24.18.0")).toBe(
+      "783130984963db7ba9cbd01089eaf2c2efb055c7c1693c943174b967b3050cb8",
+    );
+    expect(() => pinnedNodeLinuxX64ArchiveSha256("24.17.0")).toThrow(
       /no reviewed Node linux-x64 archive digest/u,
     );
   });
@@ -107,21 +131,59 @@ describe("Linux remote displayless packaging helpers", () => {
         'console.log("remote-placeholder");\n',
         { mode: 0o644 },
       );
+      await Promise.all([
+        writeRemoteJsPackageFixture(root, "@xterm/headless"),
+        writeRemoteJsPackageFixture(root, "@xterm/addon-serialize"),
+      ]);
+      let downloadCalls = 0;
       const receipt = await installLinuxRemoteRuntime({
         repoRoot: root,
         runtimeRoot: runtime,
         requireEntry: true,
         skipNativeRebuild: true,
+        download: async () => {
+          downloadCalls += 1;
+          throw new Error("test-only skip attempted a download");
+        },
       });
       expect(receipt.ok).toBe(true);
+      expect(receipt.archiveSha256).toBe("skipped-test-only");
+      expect(downloadCalls).toBe(0);
       expect(receipt.wrapperPath).toBe(
         path.join(runtime, REMOTE_WRAPPER_RELATIVE),
       );
       expect(receipt.entryPath).toBe(path.join(runtime, REMOTE_ENTRY_RELATIVE));
+      await expect(readFile(receipt.nodePath)).rejects.toMatchObject({
+        code: "ENOENT",
+      });
       const wrapper = await readFile(receipt.wrapperPath, "utf8");
       expect(wrapper).toContain("unset ELECTRON_RUN_AS_NODE");
       const entry = await readFile(receipt.entryPath, "utf8");
       expect(entry).toContain("remote-placeholder");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed when a required packaged xterm module is missing", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "vellum-remote-xterm-"));
+    try {
+      const runtime = path.join(root, "runtime");
+      await mkdir(runtime, { recursive: true });
+      await mkdir(path.join(root, "out", "remote"), { recursive: true });
+      await writeFile(
+        path.join(root, REMOTE_ENTRY_SOURCE_RELATIVE),
+        'console.log("remote-placeholder");\n',
+      );
+      await writeRemoteJsPackageFixture(root, "@xterm/headless");
+      await expect(
+        installLinuxRemoteRuntime({
+          repoRoot: root,
+          runtimeRoot: runtime,
+          requireEntry: true,
+          skipNativeRebuild: true,
+        }),
+      ).rejects.toThrow(/@xterm\/addon-serialize/u);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -160,6 +222,8 @@ describe("Linux remote displayless product contracts", () => {
     expect(buildRemote).toContain("node-gyp");
     expect(buildRemote).toContain("npm_config_build_from_source");
     expect(buildRemote).toContain("--entry-only");
+    expect(buildRemote).toContain("mkdtempSync");
+    expect(buildRemote).not.toContain('run("/usr/bin/rm"');
     expect(buildRemote).not.toMatch(/ELECTRON_RUN_AS_NODE\s*=\s*["']?1/u);
     expect(buildRemote).not.toMatch(/bun build --compile/u);
   });

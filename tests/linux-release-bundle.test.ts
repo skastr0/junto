@@ -13,6 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { LINUX_REMOTE_RUNTIME_AUDIT_EXPECTED } from "../scripts/audit-linux-package";
 import {
   LINUX_RELEASE_CHECKSUMS,
   LINUX_RELEASE_KEYRING,
@@ -135,6 +136,8 @@ const createFixture = async (options: {
   readonly qualificationExpiresAt?: string;
   readonly chromeSandboxClaim?: "absent" | "present";
   readonly includeRetiredChromeSandboxMode?: boolean;
+  readonly omitRemoteRuntimeAudit?: boolean;
+  readonly remoteRuntimeNodeVersion?: string;
 } = {}) => {
   const directory = await mkdtemp(
     path.join(tmpdir(), "vellum-linux-release-bundle-"),
@@ -187,6 +190,16 @@ const createFixture = async (options: {
       ok: true,
       artifact: PACKAGE,
       cliVersion: VERSION,
+      ...(options.omitRemoteRuntimeAudit === true
+        ? {}
+        : {
+          remoteRuntime: {
+            ...LINUX_REMOTE_RUNTIME_AUDIT_EXPECTED,
+            nodeVersion:
+              options.remoteRuntimeNodeVersion ??
+              LINUX_REMOTE_RUNTIME_AUDIT_EXPECTED.nodeVersion,
+          },
+        }),
       nativeObjects: [],
       chromeSandbox: options.chromeSandboxClaim ?? "absent",
       ...(options.includeRetiredChromeSandboxMode
@@ -1045,6 +1058,15 @@ describe("signed Linux release bundle", () => {
     ).rejects.toThrow(/package audit receipt/u);
     await expect(
       createFixture({ includeRetiredChromeSandboxMode: true }),
+    ).rejects.toThrow(/package audit receipt/u);
+  });
+
+  it("requires the package receipt to prove the exact bundled Remote runtime", async () => {
+    await expect(
+      createFixture({ omitRemoteRuntimeAudit: true }),
+    ).rejects.toThrow(/package audit receipt/u);
+    await expect(
+      createFixture({ remoteRuntimeNodeVersion: "v22.18.0" }),
     ).rejects.toThrow(/package audit receipt/u);
   });
 

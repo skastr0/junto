@@ -6,6 +6,10 @@ import {
   auditPackagedLicenseBinding,
   type LicenseBuildAuditReceipt,
 } from "./audit-license-build";
+import {
+  DEFAULT_NODE_REMOTE_VERSION,
+  pinnedNodeLinuxX64ArchiveSha256,
+} from "./build-linux-remote-runtime";
 import { linuxRuntimeArtifactName } from "./finalize-linux-package";
 
 export const LINUX_RUNTIME_REQUIRED_FILES = [
@@ -22,6 +26,170 @@ export const LINUX_RUNTIME_REQUIRED_FILES = [
   "resources/systemd/vellum-remote.service.template",
 ] as const;
 const FORBIDDEN_SEGMENTS = new Set(["chrome-sandbox", "apparmor-profile", "vellum-release-installer", "vellum-release-bridge", "sudoers", "before-install.sh", "after-install.sh", "before-remove.sh", "after-remove.sh"]);
+
+export const LINUX_REMOTE_RUNTIME_AUDIT_SCHEMA =
+  "vellum/linux-remote-runtime-audit/v1" as const;
+
+export const LINUX_REMOTE_RUNTIME_AUDIT_EXPECTED = Object.freeze({
+  schema: LINUX_REMOTE_RUNTIME_AUDIT_SCHEMA,
+  nodeVersion: `v${DEFAULT_NODE_REMOTE_VERSION}`,
+  nodeArchiveSha256:
+    pinnedNodeLinuxX64ArchiveSha256(DEFAULT_NODE_REMOTE_VERSION),
+  nodeSqlite: "exercised",
+  sqliteAuthorizer: "exercised",
+  xtermHeadless: "exercised",
+  xtermSerialize: "exercised",
+} as const);
+
+export type LinuxRemoteRuntimeAuditReceipt =
+  typeof LINUX_REMOTE_RUNTIME_AUDIT_EXPECTED;
+
+const record = (
+  value: unknown,
+): Readonly<Record<string, unknown>> | undefined =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Readonly<Record<string, unknown>>
+    : undefined;
+
+export const validateLinuxRemoteRuntimeAuditReceipt = (
+  value: unknown,
+): LinuxRemoteRuntimeAuditReceipt => {
+  const receipt = record(value);
+  if (
+    receipt === undefined ||
+    JSON.stringify(Object.keys(receipt).sort()) !==
+      JSON.stringify(Object.keys(LINUX_REMOTE_RUNTIME_AUDIT_EXPECTED).sort())
+  ) {
+    throw new Error("packaged Remote runtime audit receipt is malformed");
+  }
+  for (const [key, expected] of Object.entries(
+    LINUX_REMOTE_RUNTIME_AUDIT_EXPECTED,
+  )) {
+    if (receipt[key] !== expected) {
+      throw new Error(
+        `packaged Remote runtime audit mismatch: ${key}`,
+      );
+    }
+  }
+  return LINUX_REMOTE_RUNTIME_AUDIT_EXPECTED;
+};
+
+const REMOTE_RUNTIME_PROBE = String.raw`
+"use strict";
+const { createRequire } = require("node:module");
+const path = require("node:path");
+
+void (async () => {
+  const appRemote = process.argv[1];
+  if (typeof appRemote !== "string" || !path.isAbsolute(appRemote)) {
+    throw new Error("app-remote path is invalid");
+  }
+
+  const { DatabaseSync, constants } = require("node:sqlite");
+  const database = new DatabaseSync(":memory:");
+  let authorizerCalls = 0;
+  try {
+    if (typeof database.setAuthorizer !== "function") {
+      throw new Error("DatabaseSync.setAuthorizer is unavailable");
+    }
+    database.setAuthorizer(() => {
+      authorizerCalls += 1;
+      return constants.SQLITE_OK;
+    });
+    database.exec(
+      "CREATE TABLE runtime_probe(value TEXT NOT NULL); " +
+      "INSERT INTO runtime_probe(value) VALUES ('node:sqlite');",
+    );
+    const row = database
+      .prepare("SELECT value FROM runtime_probe")
+      .get();
+    if (row?.value !== "node:sqlite" || authorizerCalls < 1) {
+      throw new Error("node:sqlite authorizer was not exercised");
+    }
+  } finally {
+    if (typeof database.setAuthorizer === "function") {
+      database.setAuthorizer(null);
+    }
+    database.close();
+  }
+
+  const requireRemote = createRequire(path.join(appRemote, "package.json"));
+  const { Terminal } = requireRemote("@xterm/headless");
+  const { SerializeAddon } = requireRemote("@xterm/addon-serialize");
+  if (typeof Terminal !== "function" || typeof SerializeAddon !== "function") {
+    throw new Error("packaged xterm constructors are unavailable");
+  }
+  const terminal = new Terminal({
+    cols: 80,
+    rows: 24,
+    allowProposedApi: true,
+  });
+  const serialize = new SerializeAddon();
+  try {
+    terminal.loadAddon(serialize);
+    await new Promise((resolve) => {
+      terminal.write("vellum-runtime-probe", resolve);
+    });
+    if (!serialize.serialize().includes("vellum-runtime-probe")) {
+      throw new Error("packaged xterm serialization failed");
+    }
+  } finally {
+    terminal.dispose();
+  }
+
+  process.stdout.write(JSON.stringify({
+    schema: "vellum/linux-remote-runtime-audit/v1",
+    nodeVersion: process.version,
+    nodeArchiveSha256: "${pinnedNodeLinuxX64ArchiveSha256(DEFAULT_NODE_REMOTE_VERSION)}",
+    nodeSqlite: "exercised",
+    sqliteAuthorizer: "exercised",
+    xtermHeadless: "exercised",
+    xtermSerialize: "exercised",
+  }) + "\n");
+})().catch((error) => {
+  process.stderr.write(
+    "packaged Remote runtime probe failed: " +
+      (error instanceof Error ? error.message : String(error)) +
+      "\n",
+  );
+  process.exitCode = 1;
+});
+`;
+
+export const auditBundledRemoteRuntime = (
+  runtimeRoot: string,
+): LinuxRemoteRuntimeAuditReceipt => {
+  const root = path.resolve(runtimeRoot);
+  const executable = path.join(root, "resources/bin/node");
+  const appRemote = path.join(root, "resources/app-remote");
+  const result = spawnSync(
+    executable,
+    ["-e", REMOTE_RUNTIME_PROBE, appRemote],
+    {
+      cwd: root,
+      encoding: "utf8",
+      shell: false,
+      timeout: 30_000,
+      maxBuffer: 256 * 1024,
+      env: {
+        HOME: "/nonexistent",
+        LANG: "C.UTF-8",
+        LC_ALL: "C.UTF-8",
+        PATH: "/usr/bin:/bin",
+      },
+    },
+  );
+  if (result.error !== undefined || result.status !== 0) {
+    throw new Error("packaged Remote runtime probe did not execute");
+  }
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse((result.stdout ?? "").trim());
+  } catch {
+    throw new Error("packaged Remote runtime probe emitted malformed JSON");
+  }
+  return validateLinuxRemoteRuntimeAuditReceipt(decoded);
+};
 
 export const validateElfX64 = (header: Uint8Array, label: string): void => {
   if (header.length < 20 || header[0] !== 0x7f || header[1] !== 0x45 || header[2] !== 0x4c || header[3] !== 0x46 || header[4] !== 2 || header[5] !== 1 || header[18] !== 0x3e || header[19] !== 0) throw new Error(`${label} is not little-endian x86-64 ELF`);
@@ -88,7 +256,7 @@ const requireLoadable = (file: string, relative: string): void => {
   if (result.status !== 0 || /not found/u.test(`${result.stdout}\n${result.stderr}`)) throw new Error(`native runtime dependency is unavailable: ${file}`);
 };
 
-export const auditLinuxRuntime = async ({ runtimePath, version }: { readonly runtimePath: string; readonly version: string }): Promise<{ readonly ok: true; readonly artifact: string; readonly cliVersion: string; readonly nativeObjects: ReadonlyArray<string>; readonly chromeSandbox: "absent"; readonly license: LicenseBuildAuditReceipt }> => {
+export const auditLinuxRuntime = async ({ runtimePath, version }: { readonly runtimePath: string; readonly version: string }): Promise<{ readonly ok: true; readonly artifact: string; readonly cliVersion: string; readonly remoteRuntime: LinuxRemoteRuntimeAuditReceipt; readonly nativeObjects: ReadonlyArray<string>; readonly chromeSandbox: "absent"; readonly license: LicenseBuildAuditReceipt }> => {
   const root = path.resolve(runtimePath);
   if (path.basename(root) !== linuxRuntimeArtifactName({ version, arch: "x64" })) throw new Error("runtime artifact name mismatch");
   const files = await walk(root);
@@ -97,6 +265,7 @@ export const auditLinuxRuntime = async ({ runtimePath, version }: { readonly run
     path.join(root, "resources/bin/vellum"),
     version,
   );
+  const remoteRuntime = auditBundledRemoteRuntime(root);
   // Final packaged ASAR license binding — malformed binding must fail the audit.
   const appAsarPath = path.join(root, "resources/app.asar");
   const license = auditPackagedLicenseBinding(appAsarPath);
@@ -115,7 +284,7 @@ export const auditLinuxRuntime = async ({ runtimePath, version }: { readonly run
     }
   }
   validateUserServiceTemplate(await readFile(path.join(root, "resources/systemd/vellum-remote.service.template"), "utf8"));
-  return { ok: true, artifact: path.basename(root), cliVersion, nativeObjects, chromeSandbox: "absent", license };
+  return { ok: true, artifact: path.basename(root), cliVersion, remoteRuntime, nativeObjects, chromeSandbox: "absent", license };
 };
 
 if (fileURLToPath(import.meta.url) === path.resolve(process.argv[1] ?? "")) {

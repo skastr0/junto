@@ -3,14 +3,53 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  LINUX_REMOTE_RUNTIME_AUDIT_EXPECTED,
   auditLinuxRuntime,
   validateElfX64,
+  validateLinuxRemoteRuntimeAuditReceipt,
   validatePackagedCliVersion,
   validateUserServiceTemplate,
 } from "../scripts/audit-linux-package";
 import { linuxRuntimeArtifactName } from "../scripts/finalize-linux-package";
 
 describe("Linux userland runtime audit", () => {
+  it("accepts only the exact exercised bundled Remote runtime receipt", () => {
+    expect(
+      validateLinuxRemoteRuntimeAuditReceipt(
+        LINUX_REMOTE_RUNTIME_AUDIT_EXPECTED,
+      ),
+    ).toEqual(LINUX_REMOTE_RUNTIME_AUDIT_EXPECTED);
+
+    const malformed: ReadonlyArray<unknown> = [
+      undefined,
+      {
+        ...LINUX_REMOTE_RUNTIME_AUDIT_EXPECTED,
+        nodeVersion: "v22.18.0",
+      },
+      {
+        ...LINUX_REMOTE_RUNTIME_AUDIT_EXPECTED,
+        nodeArchiveSha256: "0".repeat(64),
+      },
+      {
+        ...LINUX_REMOTE_RUNTIME_AUDIT_EXPECTED,
+        sqliteAuthorizer: "available",
+      },
+      {
+        ...LINUX_REMOTE_RUNTIME_AUDIT_EXPECTED,
+        xtermSerialize: undefined,
+      },
+      {
+        ...LINUX_REMOTE_RUNTIME_AUDIT_EXPECTED,
+        unexpected: true,
+      },
+    ];
+    for (const receipt of malformed) {
+      expect(() =>
+        validateLinuxRemoteRuntimeAuditReceipt(receipt)
+      ).toThrow(/runtime audit/u);
+    }
+  });
+
   it("rejects non-x64 native binaries", () => {
     const elf = new Uint8Array(20); elf.set([0x7f, 0x45, 0x4c, 0x46, 2, 1]); elf[18] = 0xb7;
     expect(() => validateElfX64(elf, "native")).toThrow(/x86-64/u);

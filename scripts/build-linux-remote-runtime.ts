@@ -11,7 +11,7 @@
  * --entry-only JS bundle are OS-portable.
  */
 import { createHash } from "node:crypto";
-import { createWriteStream } from "node:fs";
+import { createWriteStream, mkdtempSync, rmSync } from "node:fs";
 import {
   chmod,
   copyFile,
@@ -22,13 +22,14 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 /** Pinned Node for the product Remote. Override with NODE_REMOTE_VERSION. */
-export const DEFAULT_NODE_REMOTE_VERSION = "22.18.0";
+export const DEFAULT_NODE_REMOTE_VERSION = "24.18.0";
 
 /**
  * Reviewed official Node linux-x64 tarball digests keyed by exact version.
@@ -38,8 +39,8 @@ export const DEFAULT_NODE_REMOTE_VERSION = "22.18.0";
 export const PINNED_NODE_LINUX_X64_ARCHIVE_SHA256: Readonly<
   Record<string, string>
 > = Object.freeze({
-  "22.18.0":
-    "a2e703725d8683be86bb5da967bf8272f4518bdaf10f21389e2b2c9eaeae8c8a",
+  "24.18.0":
+    "783130984963db7ba9cbd01089eaf2c2efb055c7c1693c943174b967b3050cb8",
 });
 
 export const pinnedNodeLinuxX64ArchiveSha256 = (
@@ -77,10 +78,12 @@ export const requireNodeRemoteVersion = (value: unknown): string => {
       `invalid NODE_REMOTE_VERSION (need semver x.y.z): ${String(value)}`,
     );
   }
-  const major = Number(value.split(".")[0]);
-  if (major !== 22) {
+  const [majorText, minorText] = value.split(".");
+  const major = Number(majorText);
+  const minor = Number(minorText);
+  if (major !== 24 || minor < 10) {
     throw new Error(
-      `NODE_REMOTE_VERSION must be Node 22 LTS (got ${value}); remote ABI is pinned to 22.x`,
+      `NODE_REMOTE_VERSION must be Node 24 LTS >=24.10 (got ${value}); Remote requires DatabaseSync.setAuthorizer`,
     );
   }
   return value;
@@ -271,13 +274,9 @@ export const extractNodeBinaryFromArchive = ({
   readonly version: string;
 }): void => {
   const member = `node-v${requireNodeRemoteVersion(version)}-linux-x64/bin/node`;
-  const stagingParent = path.dirname(destinationNode);
-  const extractRoot = path.join(
-    stagingParent,
-    `.node-extract-${requireNodeRemoteVersion(version)}`,
+  const extractRoot = mkdtempSync(
+    path.join(tmpdir(), "vellum-node-extract-"),
   );
-  run("/usr/bin/rm", ["-rf", extractRoot]);
-  run("/usr/bin/mkdir", ["-p", extractRoot]);
   try {
     run("/usr/bin/tar", [
       "--extract",
@@ -293,7 +292,7 @@ export const extractNodeBinaryFromArchive = ({
     run("/usr/bin/cp", ["-f", extracted, destinationNode]);
     run("/usr/bin/chmod", ["0755", destinationNode]);
   } finally {
-    run("/usr/bin/rm", ["-rf", extractRoot]);
+    rmSync(extractRoot, { recursive: true, force: false });
   }
 };
 
@@ -541,7 +540,10 @@ export const installLinuxRemoteRuntime = async (input: {
   readonly requireEntry?: boolean;
   readonly buildIfMissing?: boolean;
   readonly download?: (url: string, destination: string) => Promise<void>;
-  /** Skip native rebuild — only for pure-layout unit tests, never packaging. */
+  /**
+   * Skip every native/download operation. Pure-layout unit tests only; real
+   * packaging must stage the pinned Node archive and rebuild node-pty.
+   */
   readonly skipNativeRebuild?: boolean;
 }): Promise<LinuxRemoteRuntimeReceipt> => {
   const repoRoot = path.resolve(input.repoRoot);
@@ -568,25 +570,26 @@ export const installLinuxRemoteRuntime = async (input: {
     await mkdir(path.dirname(entryPath), { recursive: true, mode: 0o755 });
   }
 
+  if (input.skipNativeRebuild === true) {
+    return {
+      ok: true,
+      nodeVersion,
+      nodePath: path.join(runtimeRoot, REMOTE_NODE_RELATIVE),
+      wrapperPath,
+      entryPath,
+      nodePtyRoot: path.join(runtimeRoot, REMOTE_NODE_PTY_RELATIVE),
+      nativeModule: path.join(
+        runtimeRoot,
+        REMOTE_NODE_PTY_RELATIVE,
+        "build",
+        "Release",
+        "pty.node",
+      ),
+      archiveSha256: "skipped-test-only",
+    };
+  }
+
   if (process.platform !== "linux" || process.arch !== "x64") {
-    if (input.skipNativeRebuild === true) {
-      return {
-        ok: true,
-        nodeVersion,
-        nodePath: path.join(runtimeRoot, REMOTE_NODE_RELATIVE),
-        wrapperPath,
-        entryPath,
-        nodePtyRoot: path.join(runtimeRoot, REMOTE_NODE_PTY_RELATIVE),
-        nativeModule: path.join(
-          runtimeRoot,
-          REMOTE_NODE_PTY_RELATIVE,
-          "build",
-          "Release",
-          "pty.node",
-        ),
-        archiveSha256: "skipped-non-linux",
-      };
-    }
     throw new Error(
       "installLinuxRemoteRuntime native stage requires Linux x64 (set skipNativeRebuild for layout-only tests)",
     );
@@ -599,25 +602,6 @@ export const installLinuxRemoteRuntime = async (input: {
     cacheRoot: input.cacheRoot,
     download: input.download,
   });
-
-  if (input.skipNativeRebuild === true) {
-    return {
-      ok: true,
-      nodeVersion,
-      nodePath: stagedNode.nodePath,
-      wrapperPath,
-      entryPath,
-      nodePtyRoot: path.join(runtimeRoot, REMOTE_NODE_PTY_RELATIVE),
-      nativeModule: path.join(
-        runtimeRoot,
-        REMOTE_NODE_PTY_RELATIVE,
-        "build",
-        "Release",
-        "pty.node",
-      ),
-      archiveSha256: stagedNode.archiveSha256,
-    };
-  }
 
   const pty = await stageNodePtyForBundledNode({
     repoRoot,
