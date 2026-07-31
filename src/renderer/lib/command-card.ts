@@ -63,13 +63,13 @@ export function primaryCommandActions(
       // live as individual kind-strip keys, not this card.
       return ["arm-region", "pulse-region", "dry-pulse-region", "hold-region", "slot-cue"];
     case "link":
-      return ["open-link"];
+      return ["open-link", "slot-cue"];
     case "default":
-      return [];
+      return ["slot-cue"];
   }
 }
 
-/** 1-based slot label for region chips (empty → cue to Ctrl+N). */
+/** 1-based slot label for hotbar chips (empty → cue to Ctrl/⌘+N). */
 export function regionSlotCueLabel(slotIndex: number | null | undefined): string {
   if (slotIndex === null || slotIndex === undefined || slotIndex < 0 || slotIndex > 8) {
     return "slot · Ctrl+1–9";
@@ -77,11 +77,11 @@ export function regionSlotCueLabel(slotIndex: number | null | undefined): string
   return `slot ${slotIndex + 1}`;
 }
 
-/** Index of regionId in presentational slot order, or null if not assigned. */
+/** Index of nodeId in presentational slot order, or null if not assigned. */
 export function slotIndexOf(
   order: ReadonlyArray<string>,
-  regionId: string,
+  nodeId: string,
 ): number | null {
-  const index = order.indexOf(regionId);
+  const index = order.indexOf(nodeId);
   return index >= 0 && index <= 8 ? index : null;
 }

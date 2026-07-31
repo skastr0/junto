@@ -30,7 +30,8 @@ export const state$ = observable({
   selectedNodeIds: [] as ReadonlyArray<string>,
   selectedEdgeId: "",
   focusNodeId: "",
-  // Presentational hotbar order of region (group) ids for slots 1–9.
+  // Presentational hotbar order of any node ids for slots 1–9.
+  // Fully controlled: empty until operator assigns (⌘1–9 / slot cue).
   // App-local only — never written into the authorial canvas document.
   regionSlotOrder: [] as ReadonlyArray<string>,
   // Per-node severity for minimap dots (from region rollups). App-local.

@@ -116,10 +116,10 @@ test("rts shell: role left, kind middle, region strip, pause everywhere", async 
   await expect(kindStrip.getByRole("button", { name: "Open chat" })).toHaveCount(0);
   await expect(kindStrip.getByRole("button", { name: "Open fields" })).toBeVisible();
 
-  // Permanent region strip above command+kind (slot + name chips).
+  // Hotbar strip above command+kind — empty until operator assigns a slot.
   const regionStrip = page.locator(".rts-region-strip");
   await expect(regionStrip).toBeVisible();
-  await expect(regionStrip.locator(".rts-chip--strip").first()).toBeVisible();
+  await expect(regionStrip.locator(".rts-region-strip__empty")).toBeVisible();
 
   // Floating node toolbar carries the same pause toggle.
   const toolbarPause = page.getByTestId("node-toolbar-pause");
@@ -161,9 +161,12 @@ test("rts shell: role left, kind middle, region strip, pause everywhere", async 
     page.locator(".react-flow__node", { hasText: "wire the loop" }).first(),
   ).toBeVisible();
 
-  // Region strip chip: select region → left command pause toggles pause surface.
+  // Assign region to slot 1 (⌘/Ctrl+1), then pause via command card.
+  await page.locator(".react-flow__node", { hasText: "ops" }).first().click();
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+1" : "Control+1");
   const regionChip = regionStrip.locator(".rts-chip--strip").first();
   await expect(regionChip).toBeVisible();
+  await expect(regionChip).toContainText("ops");
   await regionChip.click();
   const regionPause = page.getByTestId("rts-pause-region");
   await expect(regionPause).toBeVisible();
@@ -174,4 +177,11 @@ test("rts shell: role left, kind middle, region strip, pause everywhere", async 
   await page.screenshot({ path: join(SHOTS, "04-region-paused.png"), fullPage: false });
   await regionPause.click();
   await expect(regionPause).toHaveAttribute("data-paused", "false");
+
+  // Any node: assign the tasks sink to slot 2.
+  await page.locator(".react-flow__node", { hasText: "tasks" }).first().click();
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+2" : "Control+2");
+  const tasksChip = regionStrip.locator('.rts-chip--strip[data-node-id="tasks"]');
+  await expect(tasksChip).toBeVisible();
+  await page.screenshot({ path: join(SHOTS, "05-tasks-slotted.png"), fullPage: false });
 });

@@ -35,12 +35,13 @@ import type { MemberSeverity, RegionRollup } from "@shared/region-rollup";
 import { formatNodeRef } from "@shared/node-ref";
 import { state$, toggleFlagFilter } from "../../lib/state";
 import { viewportBusy$ } from "../../lib/viewport-busy";
-import { assignSlot, mergeSlotOrder, useRegionRollups } from "../../lib/region-rollups";
+import { assignSlot, pruneSlotOrder, useRegionRollups } from "../../lib/region-rollups";
 import {
   membersInDocumentOrder,
   regionDigitVerdict,
   type RegionRetapMemory,
 } from "../../lib/region-retap";
+import { hotbarNodeSeverity } from "../../lib/hotbar-signal";
 import { signalMark, signalMarkForMember } from "../../lib/signal-mark";
 import {
   deleteNode,
@@ -48,10 +49,8 @@ import {
   setNodeColor,
   toggleFlag,
   setFlagForNodes,
-  addNode,
   setRegionHold,
 } from "../../lib/mutations";
-import { makeGroupNode } from "../../lib/node-factories";
 import { nodeTitle, nodeTypeLabel } from "../../lib/presentation";
 import { herdr$ } from "../../lib/herdr-state";
 import {
@@ -146,17 +145,22 @@ const ICON = 12;
 const isTextEditing = (target: EventTarget | null): boolean =>
   target instanceof Element && Boolean(target.closest("input, textarea, [contenteditable='true']"));
 
-const createRegionFromIds = (ids: ReadonlyArray<string>): string | undefined => {
-  const targets = state$.doc.peek().nodes.filter((node) => ids.includes(node.id) && node.type !== "group");
-  if (targets.length === 0) return undefined;
-  const pad = 48;
-  const minX = Math.min(...targets.map((node) => node.x)) - pad;
-  const minY = Math.min(...targets.map((node) => node.y)) - pad;
-  const maxX = Math.max(...targets.map((node) => node.x + node.width)) + pad;
-  const maxY = Math.max(...targets.map((node) => node.y + node.height)) + pad;
-  const region = makeGroupNode(minX, minY, { width: maxX - minX, height: maxY - minY });
-  addNode(region, { edit: false, focus: false });
-  return region.id;
+/** Live node ids for prune (document presence only). */
+const liveNodeIds = (doc: { readonly nodes: ReadonlyArray<{ readonly id: string }> }): string[] =>
+  doc.nodes.map((n) => n.id);
+
+/** Assign node to first free slot 0–8 (or end if full). No-op if already slotted. */
+const assignToFirstFreeSlot = (nodeId: string): void => {
+  const order = pruneSlotOrder(state$.regionSlotOrder.peek(), liveNodeIds(state$.doc.peek()));
+  if (slotIndexOf(order, nodeId) !== null) return;
+  let target = Math.min(order.length, 8);
+  for (let i = 0; i < 9; i++) {
+    if (!order[i]) {
+      target = i;
+      break;
+    }
+  }
+  state$.regionSlotOrder.set(assignSlot(order, nodeId, target));
 };
 
 function CommandCard({ regionRollup }: { readonly regionRollup?: RegionRollup }) {
@@ -265,26 +269,6 @@ function RegionCommandCard({
     void pulseRegion(node.id, dry ? { dry: true } : undefined).catch(() => undefined);
   };
 
-  const assignToFirstFree = () => {
-    const order = mergeSlotOrder(
-      state$.regionSlotOrder.peek(),
-      state$.doc.peek().nodes.filter((n) => n.type === "group").map((n) => n.id),
-    );
-    if (slotIndexOf(order, node.id) !== null) {
-      // Already slotted — keep order; chip already shows the index.
-      return;
-    }
-    // First free index 0–8, else append (assignSlot clamps to 0–8).
-    let target = Math.min(order.length, 8);
-    for (let i = 0; i < 9; i++) {
-      if (!order[i]) {
-        target = i;
-        break;
-      }
-    }
-    state$.regionSlotOrder.set(assignSlot(order, node.id, target));
-  };
-
   const primaryKey = (action: PrimaryCommandAction) => {
     switch (action) {
       case "arm-region":
@@ -336,10 +320,10 @@ function RegionCommandCard({
           <CmdKey
             key={action}
             label={regionSlotCueLabel(slot)}
-            title={slot !== null ? `hotkey slot ${slot + 1}` : "assign to next free slot (or Ctrl+1–9)"}
+            title={slot !== null ? `hotkey slot ${slot + 1}` : "assign to next free slot (or ⌘/Ctrl+1–9)"}
             active={slot !== null}
             style={slot !== null ? { color: HUE.cyan } : undefined}
-            onClick={assignToFirstFree}
+            onClick={() => assignToFirstFreeSlot(node.id)}
           >
             <Hash size={ICON} />
           </CmdKey>
@@ -495,8 +479,8 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
   const role = roleOf(specOf(node));
   const executableRole = role === "actor" || role === "sink" || role === "scheduler";
   // Kind-specific actions (herdr open/mark-seen/kill etc.) live in the
-  // middle-bar kind strip now; the left card keeps type/base actions only.
-  const primary = kind === "herdr" ? [] : primaryCommandActions(kind);
+  // middle-bar kind strip now; the left card keeps type/base + slot cue.
+  const primary = kind === "herdr" ? (["slot-cue"] as const) : primaryCommandActions(kind);
 
   const metaLine = (() => {
     if (kind === "herdr" && herdr) {
@@ -538,15 +522,34 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
     }
   };
 
-  // Only the link type action renders here now — every entity-kind action
-  // (herdr open/mark-seen/kill, agent chat, …) lives in the middle-bar strip,
-  // and region actions render in RegionCommandCard.
-  const renderPrimary = (action: PrimaryCommandAction) =>
-    action === "open-link" && node.type === "link" ? (
-      <CmdKey key={action} label="Open link" onClick={() => window.open(node.url, "_blank")}>
-        <ExternalLink size={ICON} />
-      </CmdKey>
-    ) : null;
+  const slotOrder = use$(state$.regionSlotOrder);
+  const slot = slotIndexOf(slotOrder, node.id);
+
+  // Kind-specific primaries + slot cue (any node). Entity actions live mid-strip.
+  const renderPrimary = (action: PrimaryCommandAction) => {
+    if (action === "open-link" && node.type === "link") {
+      return (
+        <CmdKey key={action} label="Open link" onClick={() => window.open(node.url, "_blank")}>
+          <ExternalLink size={ICON} />
+        </CmdKey>
+      );
+    }
+    if (action === "slot-cue") {
+      return (
+        <CmdKey
+          key={action}
+          label={regionSlotCueLabel(slot)}
+          title={slot !== null ? `hotkey slot ${slot + 1}` : "assign to next free slot (or ⌘/Ctrl+1–9)"}
+          active={slot !== null}
+          style={slot !== null ? { color: HUE.cyan } : undefined}
+          onClick={() => assignToFirstFreeSlot(node.id)}
+        >
+          <Hash size={ICON} />
+        </CmdKey>
+      );
+    }
+    return null;
+  };
 
   return (
     <div className="rts-panel rts-panel--cmd">
@@ -759,29 +762,35 @@ function IdleHerdrButton({ queue }: { readonly queue: ReadonlyArray<IdleHerdrEnt
 }
 
 /**
- * Region hotbar chip: slot digit + name only.
- * Severity/pause live in surface language (wash, pulse, moving border) +
- * house ActivityMark for live states — never count badges or pause glyphs.
+ * Hotbar chip: slot digit + name + signal motion.
+ * Any node id (region or free). Severity from rollup / member map / flags / sinks.
  */
-function RegionChip({
+function HotbarChip({
   index,
-  rollup,
+  nodeId,
+  label,
+  severity,
+  isRegion,
   selected,
   onDragStart,
   onDragOver,
   onDrop,
 }: {
   readonly index: number;
-  readonly rollup: RegionRollup;
+  readonly nodeId: string;
+  readonly label: string;
+  readonly severity: MemberSeverity;
+  readonly isRegion: boolean;
   readonly selected: boolean;
   readonly onDragStart: () => void;
   readonly onDragOver: (event: DragEvent) => void;
   readonly onDrop: () => void;
 }) {
-  const mark = signalMark(rollup.severity);
-  const paused = use$(() => regionPausedIn(pause$.state.get(), rollup.regionId));
+  const mark = signalMark(severity);
+  const paused = use$(() =>
+    isRegion ? regionPausedIn(pause$.state.get(), nodeId) : false,
+  );
   const live = mark.mode === "wave" && !paused;
-  // Parked severity or explicit pause scope both dim the chip; pause wins for motion.
   const sev = paused ? "paused" : mark.kind;
 
   const chipStyle = {
@@ -803,15 +812,16 @@ function RegionChip({
         .filter(Boolean)
         .join(" ")}
       data-severity={sev}
+      data-node-id={nodeId}
       style={chipStyle}
       draggable
-      aria-label={`Region slot ${index + 1}: ${rollup.label}, ${paused ? "paused" : mark.label}`}
+      aria-label={`Slot ${index + 1}: ${label}, ${paused ? "paused" : mark.label}`}
       aria-pressed={selected}
       onDragStart={onDragStart}
       onDragOver={onDragOver}
       onDrop={onDrop}
-      onClick={() => focusNode(rollup.regionId)}
-      title={`${rollup.label} — ${paused ? "paused" : mark.label}`}
+      onClick={() => focusNode(nodeId)}
+      title={`${label} — ${paused ? "paused" : mark.label}`}
     >
       <span className="rts-chip__slot" aria-hidden>
         {index + 1}
@@ -825,84 +835,106 @@ function RegionChip({
           className="rts-chip__activity"
         />
       ) : null}
-      <span className="rts-chip__label">{rollup.label}</span>
+      <span className="rts-chip__label">{label}</span>
     </button>
   );
 }
 
 /**
- * Permanent thin hotbar above command + kind: region slots 1–9.
- * Always visible; never competes with the kind middle for vertical space.
+ * Permanent thin hotbar above command + kind: slots 1–9 (any node).
+ * Fully controlled — empty until operator assigns.
  */
-function RegionStrip({
-  rollups,
+function HotbarStrip({
   byId,
   idleQueue,
+  severityByNodeId,
 }: {
-  readonly rollups: ReadonlyArray<RegionRollup>;
   readonly byId: ReadonlyMap<string, RegionRollup>;
   readonly idleQueue: ReadonlyArray<IdleHerdrEntry>;
+  readonly severityByNodeId: ReadonlyMap<string, MemberSeverity>;
 }) {
   const selectedNodeId = use$(state$.selectedNodeId);
   const slotOrder = use$(state$.regionSlotOrder);
+  const doc = use$(state$.doc);
   const canvasName = use$(state$.canvasName);
   const dragFrom = useRef<number | null>(null);
 
-  // Pause wash on chips needs the pause plane; refresh when canvas opens.
   useEffect(() => {
     if (canvasName) ensurePauseState(canvasName);
   }, [canvasName]);
 
-  // Chips from rollups (cold shell always includes every group on the open
-  // document — never gate the strip on IPC alone).
-  const slots = useMemo(() => {
-    const ids = mergeSlotOrder(slotOrder, rollups.map((r) => r.regionId));
-    return ids
-      .map((id, index) => {
-        const rollup = byId.get(id);
-        return rollup ? { index, rollup } : undefined;
-      })
-      .filter((s): s is { index: number; rollup: RegionRollup } => s !== undefined)
-      .slice(0, 9);
-  }, [slotOrder, rollups, byId]);
-
-  // Keep slot order in sync with rollup region ids (presentational only).
+  // Prune deleted nodes only — never auto-fill from regions.
   useEffect(() => {
-    const liveIds = rollups.map((r) => r.regionId);
-    if (liveIds.length === 0) return;
-    const next = mergeSlotOrder(state$.regionSlotOrder.peek(), liveIds);
+    const live = liveNodeIds(doc);
     const prev = state$.regionSlotOrder.peek();
+    const next = pruneSlotOrder(prev, live);
     if (next.length !== prev.length || next.some((id, i) => id !== prev[i])) {
       state$.regionSlotOrder.set(next);
     }
-  }, [rollups]);
+  }, [doc]);
+
+  const slots = useMemo(() => {
+    const ids = pruneSlotOrder(slotOrder, liveNodeIds(doc));
+    const nodeById = new Map(doc.nodes.map((n) => [n.id, n] as const));
+    return ids
+      .map((id, index) => {
+        const node = nodeById.get(id);
+        if (!node) return undefined;
+        const isRegion = node.type === "group";
+        const rollup = byId.get(id);
+        const severity = hotbarNodeSeverity(node, {
+          regionSeverity: rollup?.severity,
+          memberSeverity: severityByNodeId.get(id),
+        });
+        return {
+          index,
+          nodeId: id,
+          label: isRegion ? (rollup?.label ?? nodeTitle(node)) : nodeTitle(node),
+          severity,
+          isRegion,
+        };
+      })
+      .filter(
+        (s): s is {
+          index: number;
+          nodeId: string;
+          label: string;
+          severity: MemberSeverity;
+          isRegion: boolean;
+        } => s !== undefined,
+      )
+      .slice(0, 9);
+  }, [slotOrder, doc, byId, severityByNodeId]);
 
   return (
-    <div className="rts-region-strip" role="region" aria-label="Region slots 1 to 9">
+    <div className="rts-region-strip" role="region" aria-label="Hotkey slots 1 to 9">
       {slots.length === 0 ? (
         <div className="rts-region-strip__empty">
-          No regions yet — group nodes, or Ctrl+1–9 on a selection
+          No slots — select a node, then ⌘/Ctrl+1–9
         </div>
       ) : (
-        <div className="rts-region-strip__chips" role="toolbar" aria-label="Region hotbar">
-          {slots.map(({ index, rollup }) => (
-            <RegionChip
-              key={rollup.regionId}
-              index={index}
-              rollup={rollup}
-              selected={selectedNodeId === rollup.regionId}
+        <div className="rts-region-strip__chips" role="toolbar" aria-label="Node hotbar">
+          {slots.map((slot) => (
+            <HotbarChip
+              key={slot.nodeId}
+              index={slot.index}
+              nodeId={slot.nodeId}
+              label={slot.label}
+              severity={slot.severity}
+              isRegion={slot.isRegion}
+              selected={selectedNodeId === slot.nodeId}
               onDragStart={() => {
-                dragFrom.current = index;
+                dragFrom.current = slot.index;
               }}
               onDragOver={(event) => event.preventDefault()}
               onDrop={() => {
                 const from = dragFrom.current;
                 dragFrom.current = null;
-                if (from === null || from === index) return;
-                const order = slots.map((s) => s.rollup.regionId);
+                if (from === null || from === slot.index) return;
+                const order = slots.map((s) => s.nodeId);
                 const [moved] = order.splice(from, 1);
                 if (!moved) return;
-                order.splice(index, 0, moved);
+                order.splice(slot.index, 0, moved);
                 state$.regionSlotOrder.set(order.slice(0, 9));
               }}
             />
@@ -1002,7 +1034,7 @@ function NotifyStrip() {
   );
 }
 
-function useRegionHotkeys(idleQueue: ReadonlyArray<IdleHerdrEntry>): void {
+function useHotbarHotkeys(idleQueue: ReadonlyArray<IdleHerdrEntry>): void {
   // Keep latest queue without rebinding the listener every meta tick.
   const idleQueueRef = useRef(idleQueue);
   idleQueueRef.current = idleQueue;
@@ -1030,53 +1062,59 @@ function useRegionHotkeys(idleQueue: ReadonlyArray<IdleHerdrEntry>): void {
       if (digit === null) return;
       const slotIndex = digit - 1;
       const doc = state$.doc.peek();
-      const order = mergeSlotOrder(
-        state$.regionSlotOrder.peek(),
-        doc.nodes.filter((n) => n.type === "group").map((n) => n.id),
-      );
+      const order = pruneSlotOrder(state$.regionSlotOrder.peek(), liveNodeIds(doc));
 
+      // ⌘/Ctrl+1–9: assign the single selected node (any type) into the slot.
       if (event.metaKey || event.ctrlKey) {
+        if (event.altKey || event.shiftKey) return;
         event.preventDefault();
         const selection = state$.selectedNodeIds.peek();
         const single = state$.selectedNodeId.peek();
-        const ids = selection.length > 0 ? selection : single ? [single] : [];
-        // Prefer assigning an already-selected region into the slot.
-        const selectedRegion = ids.find((id) => doc.nodes.some((n) => n.id === id && n.type === "group"));
-        const regionId = selectedRegion ?? createRegionFromIds(ids);
-        if (!regionId) return;
-        state$.regionSlotOrder.set(assignSlot(order, regionId, slotIndex));
-        focusNode(regionId);
+        const nodeId =
+          selection.length === 1
+            ? selection[0]
+            : selection.length === 0 && single
+              ? single
+              : undefined;
+        if (!nodeId || !doc.nodes.some((n) => n.id === nodeId)) return;
+        state$.regionSlotOrder.set(assignSlot(order, nodeId, slotIndex));
+        focusNode(nodeId);
         retap = null;
         return;
       }
 
-      if (event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return;
-      const regionId = order[slotIndex];
-      if (!regionId) return;
+      if (event.altKey || event.shiftKey) return;
+      const nodeId = order[slotIndex];
+      if (!nodeId) return;
       event.preventDefault();
 
-      // Membership matches region rollups (groupMembers); cycle in document order.
-      const memberIds = membersInDocumentOrder(
-        groupMembers(doc).get(regionId) ?? [],
-        doc.nodes.map((n) => n.id),
-      );
-      const { verdict, memory } = regionDigitVerdict(
-        retap,
-        slotIndex,
-        performance.now(),
-        memberIds.length,
-      );
-      retap = memory;
+      const node = doc.nodes.find((n) => n.id === nodeId);
+      // Region re-tap cycles members; free nodes just focus.
+      if (node?.type === "group") {
+        const memberIds = membersInDocumentOrder(
+          groupMembers(doc).get(nodeId) ?? [],
+          doc.nodes.map((n) => n.id),
+        );
+        const { verdict, memory } = regionDigitVerdict(
+          retap,
+          slotIndex,
+          performance.now(),
+          memberIds.length,
+        );
+        retap = memory;
 
-      if (verdict.kind === "select-member") {
-        const memberId = memberIds[verdict.index];
-        if (memberId) {
-          focusNode(memberId);
-          return;
+        if (verdict.kind === "select-member") {
+          const memberId = memberIds[verdict.index];
+          if (memberId) {
+            focusNode(memberId);
+            return;
+          }
         }
+      } else {
+        retap = null;
       }
 
-      focusNode(regionId);
+      focusNode(nodeId);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -1105,7 +1143,7 @@ const severityRank = (s: MemberSeverity): number =>
 
 export function RtsBottomBar({ minimap, tools }: { readonly minimap: ReactNode; readonly tools?: ReactNode }) {
   const idleQueue = useIdleHerdrQueue();
-  useRegionHotkeys(idleQueue);
+  useHotbarHotkeys(idleQueue);
   const rollups = useRegionRollups();
   useAlertAttention(rollups);
   const byId = useMemo(() => new Map(rollups.map((r) => [r.regionId, r])), [rollups]);
@@ -1135,7 +1173,11 @@ export function RtsBottomBar({ minimap, tools }: { readonly minimap: ReactNode; 
   return (
     <div className="rts-shell" role="region" aria-label="RTS bottom bar">
       {/* Top row: ops strip spans command+kind; notify strip sits over minimap. */}
-      <RegionStrip rollups={rollups} byId={byId} idleQueue={idleQueue} />
+      <HotbarStrip
+        byId={byId}
+        idleQueue={idleQueue}
+        severityByNodeId={severityMap}
+      />
       <NotifyStrip />
       <CommandCard regionRollup={selectedRegion} />
       <KindMiddle />

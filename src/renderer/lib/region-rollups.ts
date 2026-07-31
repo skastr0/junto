@@ -253,26 +253,35 @@ export function useRegionRollups(): ReadonlyArray<RegionRollup> {
   );
 }
 
-/** Merge live region ids into a presentational 1–9 slot order. */
-export function mergeSlotOrder(
+/**
+ * Fully controlled hotbar: keep only assigned ids that still exist.
+ * Never auto-appends regions or other nodes — empty default stays empty
+ * until the operator assigns via ⌘1–9 or the slot cue.
+ */
+export function pruneSlotOrder(
   order: ReadonlyArray<string>,
-  regionIds: ReadonlyArray<string>,
+  liveNodeIds: ReadonlyArray<string>,
 ): string[] {
-  const live = new Set(regionIds);
-  const kept = order.filter((id) => live.has(id));
-  const keptSet = new Set(kept);
-  const appended = regionIds.filter((id) => !keptSet.has(id));
-  return [...kept, ...appended].slice(0, 9);
+  const live = new Set(liveNodeIds);
+  return order.filter((id) => live.has(id)).slice(0, 9);
 }
 
-/** Place `regionId` into slot index (0–8), shifting others. */
+/** @deprecated Use pruneSlotOrder — kept name for a short migration window. */
+export function mergeSlotOrder(
+  order: ReadonlyArray<string>,
+  liveNodeIds: ReadonlyArray<string>,
+): string[] {
+  return pruneSlotOrder(order, liveNodeIds);
+}
+
+/** Place `nodeId` into slot index (0–8), shifting others. Any canvas node. */
 export function assignSlot(
   order: ReadonlyArray<string>,
-  regionId: string,
+  nodeId: string,
   slotIndex: number,
 ): string[] {
-  const next = order.filter((id) => id !== regionId);
+  const next = order.filter((id) => id !== nodeId);
   const clamped = Math.max(0, Math.min(8, slotIndex));
-  next.splice(clamped, 0, regionId);
+  next.splice(clamped, 0, nodeId);
   return next.slice(0, 9);
 }

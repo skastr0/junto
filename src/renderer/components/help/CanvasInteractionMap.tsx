@@ -34,8 +34,8 @@ export const CANVAS_HELP_KEYS: ReadonlyArray<HelpMapKeyRow> = [
   { keys: "Escape", action: "close overlays / clear selection" },
   { keys: "⌘Z · ⌘⇧Z", action: "undo · redo" },
   { keys: "⌫ · Del", action: "delete selection" },
-  { keys: "1–9", action: "focus region slot · re-tap cycles members" },
-  { keys: "⌘1–9", action: "assign selection as region → slot" },
+  { keys: "1–9", action: "focus hotbar slot · re-tap cycles region members" },
+  { keys: "⌘1–9", action: "assign selected node → slot (any node)" },
   { keys: "F1 · .", action: "cycle idle herdr workers needing you" },
 ];
 
