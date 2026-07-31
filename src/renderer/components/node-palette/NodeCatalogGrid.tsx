@@ -22,6 +22,17 @@ import {
 
 export type NodeCatalogCategory = "shell" | "sinks" | "schedule" | "canvas";
 
+/**
+ * Catalog color is semantic: every node inherits the hue of its category.
+ * Keep crimson out of this map; it is reserved for live blocker attention.
+ */
+export const NODE_CATALOG_CATEGORY_ACCENT: Readonly<Record<NodeCatalogCategory, string>> = {
+  shell: "text-cyan",
+  sinks: "text-amber",
+  schedule: "text-violet",
+  canvas: "text-indigo",
+};
+
 export type NodeCatalogConnection = {
   readonly source: string;
   /** The kind of node at the other end of a useful edge. */
@@ -45,8 +56,6 @@ export type NodeCatalogEntry = {
   readonly label: string;
   readonly subtitle: string;
   readonly icon: LucideIcon;
-  /** A text utility, deliberately applied to the icon stroke only. */
-  readonly accentClass: string;
   readonly purpose: string;
   /** Short operational constraint; never a re-derived live attention state. */
   readonly behavior?: string;
@@ -56,19 +65,19 @@ export type NodeCatalogEntry = {
 export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
   {
     id: "terminal", category: "shell", label: "Terminal", subtitle: "native shell",
-    icon: SquareTerminal, accentClass: "text-cyan",
+    icon: SquareTerminal,
     purpose: "A managed shell on the selected host for commands, logs, and hands-on operator work.",
     connections: [{ source: "Terminal", target: "Any node", direction: "relation", relationship: "keeps shell work spatially adjacent as display context", mode: "context", ports: [] }],
   },
   {
     id: "herdr", category: "shell", label: "Herdr", subtitle: "attach an existing pane",
-    icon: PanelTop, accentClass: "text-indigo",
+    icon: PanelTop,
     purpose: "A bridge to an existing terminal pane without taking ownership of the underlying process.",
     connections: [{ source: "Herdr", target: "Any node", direction: "relation", relationship: "keeps an existing pane visible as display context", mode: "context", ports: [] }],
   },
   {
     id: "tasks", category: "sinks", label: "Tasks", subtitle: "shared claim queue",
-    icon: Blocks, accentClass: "text-gold",
+    icon: Blocks,
     purpose: "A durable work sink where connected agents inspect, claim, and submit discrete tasks.",
     behavior: "Submitted and working tasks stay calm. A tasks-criteria edge blocks only the claimant actor while a scoped item is input-required or auth-required.",
     connections: [
@@ -79,7 +88,7 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
   },
   {
     id: "requests", category: "sinks", label: "Requests", subtitle: "operator input required",
-    icon: Inbox, accentClass: "text-orange",
+    icon: Inbox,
     purpose: "An operator-facing inbox for decisions and missing information surfaced by connected work.",
     behavior: "A tasks-criteria edge blocks only the claimant actor while its request is input-required or auth-required.",
     connections: [
@@ -90,7 +99,7 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
   },
   {
     id: "artifacts", category: "sinks", label: "Artifacts", subtitle: "published parts shelf",
-    icon: Archive, accentClass: "text-green",
+    icon: Archive,
     purpose: "A durable shelf for named outputs produced as work becomes real.",
     connections: [
       { source: "Agent", target: "Artifacts", direction: "directed", relationship: "records produced files and proof", mode: "capability", ports: ["artifact.publish"] },
@@ -99,7 +108,7 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
   },
   {
     id: "board", category: "sinks", label: "Board", subtitle: "topics and posts",
-    icon: Braces, accentClass: "text-amber",
+    icon: Braces,
     purpose: "A shared Command Center discussion surface for durable topics, updates, and decisions.",
     connections: [
       { source: "Agent", target: "Board", direction: "directed", relationship: "creates topics and posts updates", mode: "capability", ports: ["board.create_topic", "board.post"] },
@@ -108,13 +117,13 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
   },
   {
     id: "page", category: "canvas", label: "Page", subtitle: "browser work surface",
-    icon: Globe2, accentClass: "text-cyan",
+    icon: Globe2,
     purpose: "A browser-backed work surface for a specific web context on the canvas.",
     connections: [{ source: "Agent", target: "Page", direction: "directed", relationship: "shares bounded browser context", mode: "capability", ports: ["browser.automate"] }],
   },
   {
     id: "cron", category: "schedule", label: "Cron", subtitle: "schedule on an interval",
-    icon: Clock3, accentClass: "text-violet",
+    icon: Clock3,
     purpose: "A durable, home-scoped schedule that fires authored edge effects (enqueue tasks, set flags).",
     behavior: "Automation runs only with a configured station role while this canvas is playing. Pausing preserves the next due firing.",
     connections: [
@@ -124,7 +133,7 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
   },
   {
     id: "gauge", category: "schedule", label: "Gauge", subtitle: "live data condition",
-    icon: Eye, accentClass: "text-violet",
+    icon: Eye,
     purpose: "A hermes roster predicate (e.g. running). Rising edge can fire the same edge effects as cron.",
     behavior: "Rising-edge memory advances only while automation is enabled, so pausing cannot consume the next match.",
     connections: [
@@ -135,7 +144,7 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
   },
   {
     id: "relay", category: "schedule", label: "Relay", subtitle: "watch a node projection",
-    icon: Workflow, accentClass: "text-cyan",
+    icon: Workflow,
     purpose: "A scheduler that watches another node's typed projection and fires edge effects on a rising match.",
     behavior: "Rising-edge memory advances only while automation is enabled, so pausing cannot consume the next match.",
     connections: [
@@ -146,25 +155,25 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
   },
   {
     id: "note", category: "canvas", label: "Note", subtitle: "freeform text",
-    icon: FileText, accentClass: "text-gold",
+    icon: FileText,
     purpose: "Freeform operator-authored context placed directly beside the work it explains.",
     connections: [{ source: "Note", target: "Any node", direction: "relation", relationship: "adds human-readable context to the map", mode: "context", ports: [] }],
   },
   {
     id: "file", category: "canvas", label: "File", subtitle: "workspace path",
-    icon: Folder, accentClass: "text-indigo",
+    icon: Folder,
     purpose: "A workspace path pinned into the map so collaborators can see the durable source of a thing.",
     connections: [{ source: "File", target: "Agent", direction: "relation", relationship: "anchors the working source in context", mode: "context", ports: [] }],
   },
   {
     id: "link", category: "canvas", label: "Link", subtitle: "web reference",
-    icon: Link2, accentClass: "text-cyan",
+    icon: Link2,
     purpose: "A web reference kept on the canvas as shared, human-authored context.",
     connections: [{ source: "Link", target: "Agent", direction: "relation", relationship: "offers an explicit reference", mode: "context", ports: [] }],
   },
   {
     id: "region", category: "canvas", label: "Region", subtitle: "spatial container",
-    icon: SquareDashed, accentClass: "text-green",
+    icon: SquareDashed,
     purpose: "Named geography that groups related work and can carry an operator briefing.",
     connections: [{ source: "Region", target: "Any node", direction: "relation", relationship: "contains and frames related work", mode: "context", ports: [] }],
   },
@@ -212,6 +221,7 @@ export function NodeCatalogGrid({
           <ul className="node-deck-catalog__grid grid grid-cols-1 gap-2 p-1 sm:grid-cols-2" role="list">
             {visibleEntries.map((entry) => {
               const Icon = entry.icon;
+              const accentClass = NODE_CATALOG_CATEGORY_ACCENT[entry.category];
               const isActive = activeEntry?.id === entry.id;
               return (
                 <li key={entry.id} className="node-deck-catalog__item min-w-0">
@@ -224,9 +234,9 @@ export function NodeCatalogGrid({
                     onMouseEnter={() => setActiveId(entry.id)}
                     onFocus={() => setActiveId(entry.id)}
                   >
-                    <Icon aria-hidden="true" size={23} strokeWidth={1.7} className={`node-deck-catalog__icon mt-0.5 shrink-0 ${entry.accentClass}`} />
+                    <Icon aria-hidden="true" size={23} strokeWidth={1.7} className={`node-deck-catalog__icon mt-0.5 shrink-0 ${accentClass}`} />
                     <span className="node-deck-catalog__summary min-w-0">
-                      <span className="node-deck-catalog__label block font-display text-[16px] font-semibold leading-none text-ink">
+                      <span className="node-deck-catalog__label block font-mono text-[15px] font-semibold leading-none text-ink">
                         {entry.label}
                       </span>
                       <span className="node-deck-catalog__subtitle mt-1.5 block truncate font-mono text-[10px] leading-4 text-dim">
@@ -266,7 +276,7 @@ function ConnectionMap({
   readonly accentClass: string;
 }) {
   return (
-    <span className="node-deck-catalog__connection-map flex min-w-0 items-center gap-2 font-display text-[12px] font-medium text-ink">
+    <span className="node-deck-catalog__connection-map flex min-w-0 items-center gap-2 font-mono text-[12px] font-medium text-ink">
       <span className="node-deck-catalog__endpoint truncate">{connection.source}</span>
       <span aria-hidden="true" className={`node-deck-catalog__arrow shrink-0 ${accentClass}`}>
         <ConnectionArrow direction={connection.direction} />
@@ -278,6 +288,7 @@ function ConnectionMap({
 
 function CatalogDetail({ entry, id }: { readonly entry: NodeCatalogEntry; readonly id: string }) {
   const Icon = entry.icon;
+  const accentClass = NODE_CATALOG_CATEGORY_ACCENT[entry.category];
   const [primaryConnection, ...secondaryConnections] = entry.connections;
   return (
     <aside
@@ -286,11 +297,11 @@ function CatalogDetail({ entry, id }: { readonly entry: NodeCatalogEntry; readon
       className="node-deck-catalog__detail"
     >
       <div className="node-deck-catalog__detail-copy">
-        <span className={`node-deck-catalog__detail-icon shrink-0 ${entry.accentClass}`} aria-hidden="true">
+        <span className={`node-deck-catalog__detail-icon shrink-0 ${accentClass}`} aria-hidden="true">
           <Icon size={21} strokeWidth={1.7} />
         </span>
         <div className="min-w-0">
-          <strong className="block font-display text-[14px] font-semibold text-ink">{entry.label}</strong>
+          <strong className="block font-mono text-[14px] font-semibold text-ink">{entry.label}</strong>
           <p className="node-deck-catalog__purpose">{entry.purpose}</p>
           {entry.behavior ? <p className="node-deck-catalog__behavior"><span>Behavior:</span> {entry.behavior}</p> : null}
         </div>
@@ -299,7 +310,7 @@ function CatalogDetail({ entry, id }: { readonly entry: NodeCatalogEntry; readon
       {primaryConnection ? (
         <div className="node-deck-catalog__relationships">
           <div className="node-deck-catalog__connection node-deck-catalog__connection--primary">
-            <ConnectionMap connection={primaryConnection} accentClass={entry.accentClass} />
+            <ConnectionMap connection={primaryConnection} accentClass={accentClass} />
             <span className="node-deck-catalog__relationship">{primaryConnection.relationship}</span>
             {primaryConnection.ports.length > 0 ? (
               <span className="node-deck-catalog__ports">
@@ -315,7 +326,7 @@ function CatalogDetail({ entry, id }: { readonly entry: NodeCatalogEntry; readon
             <div className="node-deck-catalog__secondary-list" aria-label="Other useful connections">
               {secondaryConnections.map((connection) => (
                 <div key={`${connection.source}-${connection.target}-${connection.relationship}`} className="node-deck-catalog__connection node-deck-catalog__connection--secondary">
-                  <ConnectionMap connection={connection} accentClass={entry.accentClass} />
+                  <ConnectionMap connection={connection} accentClass={accentClass} />
                   <span className="node-deck-catalog__relationship">{connection.relationship}</span>
                   {connection.ports.length > 0 ? (
                     <span className="node-deck-catalog__ports">

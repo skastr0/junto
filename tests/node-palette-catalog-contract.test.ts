@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_NODE_CATALOG_ENTRIES } from "../src/renderer/components/node-palette/NodeCatalogGrid";
+import {
+  DEFAULT_NODE_CATALOG_ENTRIES,
+  NODE_CATALOG_CATEGORY_ACCENT,
+} from "../src/renderer/components/node-palette/NodeCatalogGrid";
 
 const entry = (id: string) => {
   const match = DEFAULT_NODE_CATALOG_ENTRIES.find((candidate) => candidate.id === id);
@@ -8,6 +11,17 @@ const entry = (id: string) => {
 };
 
 describe("node palette catalog contract", () => {
+  it("assigns one non-blocker accent per node category", () => {
+    expect(NODE_CATALOG_CATEGORY_ACCENT).toEqual({
+      shell: "text-cyan",
+      sinks: "text-amber",
+      schedule: "text-violet",
+      canvas: "text-indigo",
+    });
+    expect(Object.values(NODE_CATALOG_CATEGORY_ACCENT)).not.toContain("text-crimson");
+    expect(DEFAULT_NODE_CATALOG_ENTRIES.every((candidate) => !("accentClass" in candidate))).toBe(true);
+  });
+
   it.each(["tasks", "requests"])("shows claimant-scoped attention for %s", (id) => {
     const sink = entry(id);
     expect(sink.behavior).toContain("claimant actor");
