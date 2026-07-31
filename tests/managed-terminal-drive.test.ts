@@ -214,9 +214,7 @@ describe("ManagedTerminalDrive", () => {
 
     await expect(pulse("b1", "first")).resolves.toBe(true);
     ready = true;
-    await expect(
-      pulse("b1", "second", { acknowledgement: "write" }),
-    ).resolves.toBe(true);
+    await expect(pulse("b1", "second")).resolves.toBe(true);
 
     expect(calls).toEqual([
       {
@@ -227,11 +225,7 @@ describe("ManagedTerminalDrive", () => {
       {
         bindingId: "b1",
         text: "second",
-        options: {
-          ready: true,
-          queueIfBusy: false,
-          acknowledgement: "write",
-        },
+        options: { ready: true, queueIfBusy: false },
       },
     ]);
   });
@@ -383,28 +377,6 @@ describe("ManagedTerminalDrive", () => {
     vi.advanceTimersByTime(10_000);
     await flushMicrotasks();
     expect(writes).toHaveLength(2);
-    expect(attention).toEqual([]);
-    vi.useRealTimers();
-  });
-
-  it("accepts a harness control command on successful write without a turn-start signal", async () => {
-    vi.useFakeTimers();
-    const attention: string[] = [];
-    drive = makeDrive({
-      stallWatch: true,
-      stallTimeoutMs: 5_000,
-      onAttention: (_id, reason) => attention.push(reason),
-    });
-
-    await expect(
-      drive.writePrompt("b1", "/compact", { acknowledgement: "write" }),
-    ).resolves.toBe(true);
-    expect(writes).toEqual([
-      { bindingId: "b1", data: encodeBracketedPaste("/compact") },
-      { bindingId: "b1", data: CR },
-    ]);
-
-    await vi.advanceTimersByTimeAsync(5_000);
     expect(attention).toEqual([]);
     vi.useRealTimers();
   });

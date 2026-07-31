@@ -78,12 +78,6 @@ export type WritePromptOptions = {
    * the seat reports idle so a mail burst cannot double-tap Ctrl+C.
    */
   readonly interruptIfBusy?: boolean;
-  /**
-   * Receipt boundary for this input. Normal prompts require an observed turn
-   * start. Harness control commands may finish without emitting that signal,
-   * so their one-shot receipt is the successful paste + CR write itself.
-   */
-  readonly acknowledgement?: "turn-start" | "write";
 };
 
 /** Grok TUI trap: paste before ~1.5s post-spawn is swallowed. */
@@ -91,7 +85,6 @@ export const GROK_MIN_POST_SPAWN_MS = 1_500;
 
 type QueuedPrompt = {
   readonly text: string;
-  readonly acknowledgement: "turn-start" | "write";
   readonly resolve: (ok: boolean) => void;
   timer: ReturnType<typeof setTimeout> | undefined;
 };
@@ -322,7 +315,6 @@ export class ManagedTerminalDrive {
           text,
           generation,
           bindingGeneration,
-          opts.acknowledgement,
         );
       }
       const timeoutMs = opts.queueTimeoutMs ?? this.queueTimeoutMs;
@@ -333,7 +325,6 @@ export class ManagedTerminalDrive {
         }
         const entry: QueuedPrompt = {
           text,
-          acknowledgement: opts.acknowledgement ?? "turn-start",
           resolve: (ok) => {
             if (entry.timer !== undefined) clearTimeout(entry.timer);
             entry.timer = undefined;
@@ -372,7 +363,6 @@ export class ManagedTerminalDrive {
       text,
       generation,
       bindingGeneration,
-      opts.acknowledgement,
     );
   }
 
@@ -497,7 +487,6 @@ export class ManagedTerminalDrive {
       next.text,
       generation,
       bindingGeneration,
-      next.acknowledgement,
     );
     next.resolve(ok);
   }
@@ -507,7 +496,6 @@ export class ManagedTerminalDrive {
     text: string,
     generation: number,
     bindingGeneration: number,
-    acknowledgement: "turn-start" | "write" = "turn-start",
   ): Promise<boolean> {
     if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
       return false;
@@ -528,7 +516,7 @@ export class ManagedTerminalDrive {
         this.onAttention?.(bindingId, "write-failed");
         return false;
       }
-      if (this.stallWatch && acknowledgement === "turn-start") {
+      if (this.stallWatch) {
         // Observer delivery can race the CR writer's promise resolution.
         // Preserve a turn-start seen anywhere during the physical sequence.
         if ((this.turnStartCounts.get(bindingId) ?? 0) !== turnStartCount) {
