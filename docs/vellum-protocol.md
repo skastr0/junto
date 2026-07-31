@@ -886,6 +886,94 @@ strongest honest revocation available on that reachable Remote.
 
 ## Work events
 
+### Binary content data plane
+
+Content-capable Work records are control-plane records. They carry intent,
+metadata, and references; they never carry binary media bytes. A binary part
+in the next content-capable Station codec is represented as:
+
+```text
+ContentIdentity {
+  sha256: lower-case SHA-256 hex
+  byteLength: non-negative JSON-safe integer
+}
+
+ContentRef {
+  sha256: lower-case SHA-256 hex
+  byteLength: non-negative JSON-safe integer
+  mediaType: non-empty media type metadata
+  displayName?: display-only name metadata
+}
+
+ContentPart {
+  kind: "content"
+  ref: ContentRef
+}
+```
+
+For example, the content-capable task/message/artifact snapshots keep the
+text and the reference together while the bytes remain out of the envelope:
+
+```json
+{
+  "task": {
+    "history": [{
+      "role": "user",
+      "parts": [
+        { "kind": "text", "text": "Review this recording" },
+        { "kind": "content", "ref": {
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "byteLength": 1073741824,
+          "mediaType": "video/mp4",
+          "displayName": "recording.mp4"
+        }}
+      ]
+    }]
+  },
+  "message": { "parts": [{ "kind": "content", "ref": { "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "byteLength": 1073741824, "mediaType": "video/mp4" } }] },
+  "artifact": { "parts": [{ "kind": "content", "ref": { "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "byteLength": 1073741824, "mediaType": "video/mp4" } }] }
+}
+```
+
+`sha256` plus `byteLength` is the immutable object identity and verification
+contract. `mediaType` and `displayName` are descriptive metadata; neither is
+authority, a path, or a storage locator. `ContentRef` has no host path, URL,
+Station id, or Base64 field. A local store may derive a tagged
+`ContentLocalPathProjection { kind: "local-path", ref, path }` for an admitted
+consumer, but that projection is local-only and is never persisted in a Work
+record or sent across a Station boundary.
+
+Content availability is explicit and fail-closed:
+
+```text
+{ ref, state: "verified",   verifiedSha256, verifiedByteLength, verifiedAt }
+{ ref, state: "missing",    reason }
+{ ref, state: "corrupt",    reason, observedSha256?, observedByteLength? }
+{ ref, state: "unavailable", reason }
+```
+
+Only `verified` permits a consumer to open bytes. Missing, corrupt, and
+unavailable are not empty-file successes and must keep dependent work pending
+or otherwise non-runnable until a matching receipt exists. A verified receipt
+is valid only when both observed identity fields equal the referenced
+`ContentRef`; a media-type or display-name mismatch never makes bytes valid.
+
+The existing `WORK_PROTOCOL_MAX_RECORD_BYTES` bound remains a control-record
+bound, not a media-size limit. Because a content-capable record carries only
+bounded reference metadata, the size of the referenced object is governed by
+the content store, disk admission, and resumable transfer backpressure rather
+than JSON/Base64 expansion. The current protocol-3 `Part`/Work codec remains
+closed while this contract is introduced; its legacy inline `RawPart` values
+are not reinterpreted as refs.
+
+Moving this part into the complete Station wire bundle requires the next exact
+Station protocol codec (the next integer after the current baseline). Protocol
+3 peers must not receive a widened record, a guessed field, or a Base64
+down-conversion.
+With no common exact codec, negotiation returns `update-required`; the older
+peer continues local work under its last valid projection and no content
+reference is applied remotely until both installations share the new codec.
+
 ### Canonical event
 
 The shared contract first names a complete route and identity:

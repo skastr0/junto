@@ -2,6 +2,31 @@ import { Schema } from "effect";
 import { ActorSeatId } from "./actor-seat";
 import { ActorRef, TaskRef } from "./work-reference";
 
+// ContentRef is the portable binary-media contract.  The current protocol-3
+// Part union remains frozen on RawPart until the complete next Station codec
+// lands; exporting the contract here lets the migration share one schema.
+export {
+  ContentAvailability,
+  ContentByteLength,
+  ContentCorrupt,
+  ContentDisplayName,
+  ContentIdentity,
+  ContentLocalPathProjection,
+  ContentMediaType,
+  ContentMissing,
+  ContentObject,
+  ContentPart,
+  ContentPathProjection,
+  ContentReceipt,
+  ContentRef,
+  ContentSha256,
+  ContentUnavailable,
+  ContentTimestamp,
+  decodeContentRef,
+  hasInlineBinaryPayload,
+  validateNoInlineBinaryPayload,
+} from "./content";
+
 /**
  * Durable work-domain contracts.
  *
