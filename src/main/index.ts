@@ -81,6 +81,7 @@ import { makeEdgeGrantService } from "./vellum/browser/edge-grant";
 import { prepareDefaultBrowserStationAdmissionAuthority } from "./vellum/browser/station-admission";
 import { configurePeerPidHelperRoots } from "./vellum/process-identity";
 import { evaluateSchemaCompatibility } from "./vellum/state/schema-version-probe";
+import { runStartupStateFailureDialog } from "./vellum/state/startup-state-failure-dialog";
 import { ensureSchemaCompatibleOrRecover } from "./vellum/update/startup-schema-recovery";
 import { isManagedBrowserWebContents } from "./vellum/browser/web-policy";
 import {
@@ -1777,8 +1778,16 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     rendererWindowAdmissionReady = true;
     if (!headless) createWindow();
   })
-    .catch((error) => {
+    .catch(async (error) => {
       console.error("[startup] initialization failed:", error);
+      // GUI: native dialog with data-safe next step. Headless: log only.
+      // Schema-too-new is handled earlier; this covers StateEngine open and
+      // other pre-window product startup failures.
+      try {
+        await runStartupStateFailureDialog({ error, headless });
+      } catch (dialogError) {
+        console.error("[startup] failure dialog failed:", dialogError);
+      }
       exitAfterDetach(1, "startup-failure");
     });
 }
