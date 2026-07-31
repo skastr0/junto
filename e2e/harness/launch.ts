@@ -346,10 +346,18 @@ const dismissStationRoleGate = async (page: Page): Promise<void> => {
   } catch {
     return; // no gate this run — fine.
   }
-  await page
-    .getByRole("button", { name: /Set up as Command Center/ })
-    .first()
-    .click();
+  try {
+    await gate
+      .getByRole("button", { name: /Set up as Command Center/ })
+      .first()
+      .click({ timeout: 5_000 });
+  } catch (error) {
+    // Role state can settle between the visibility observation and the click.
+    // A gate that already closed reached the same desired state; only surface
+    // the click failure while the dialog is still present.
+    if (await gate.isHidden()) return;
+    throw error;
+  }
   await gate.waitFor({ state: "hidden", timeout: 20_000 });
 };
 
