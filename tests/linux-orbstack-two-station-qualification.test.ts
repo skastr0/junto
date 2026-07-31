@@ -158,6 +158,8 @@ describe("Linux OrbStack two-station qualification (userland archive)", () => {
     // Command Center may still use Xvfb for trusted-renderer activation.
     expect(source).toContain("xvfb-run");
     expect(source).toContain("--vellum-operator-control");
+    expect(source).toContain("-executable");
+    expect(source).not.toContain("-perm -111");
   });
 
   it("observes Remote as displayless Node without renderer/CDP/Xvfb gates", () => {

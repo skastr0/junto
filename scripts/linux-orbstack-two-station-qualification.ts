@@ -1874,8 +1874,8 @@ const launchCommandCenterActivation = async (
       ]
     : [];
   const launch = isBoxCliPath(orbctlPath)
-    ? 'set -eu; APP=$(/usr/bin/find "$HOME/.vellum/runtime/releases" -mindepth 2 -maxdepth 2 -type f -name vellum -perm -111 | /usr/bin/head -n 1); test -n "$APP"; exec "$APP" --ozone-platform=x11 --vellum-operator-control'
-    : 'set -eu; APP=$(/usr/bin/find "$HOME/.vellum/runtime/releases" -mindepth 2 -maxdepth 2 -type f -name vellum -perm -111 | /usr/bin/head -n 1); test -n "$APP"; exec /usr/bin/xvfb-run -a -s "-screen 0 1280x1024x24 -nolisten tcp" "$APP" --ozone-platform=x11 --vellum-operator-control';
+    ? 'set -eu; APP=$(/usr/bin/find "$HOME/.vellum/runtime/releases" -mindepth 2 -maxdepth 2 -type f -name vellum -executable | /usr/bin/head -n 1); test -n "$APP"; exec "$APP" --ozone-platform=x11 --vellum-operator-control'
+    : 'set -eu; APP=$(/usr/bin/find "$HOME/.vellum/runtime/releases" -mindepth 2 -maxdepth 2 -type f -name vellum -executable | /usr/bin/head -n 1); test -n "$APP"; exec /usr/bin/xvfb-run -a -s "-screen 0 1280x1024x24 -nolisten tcp" "$APP" --ozone-platform=x11 --vellum-operator-control';
   await runGuest(
     executor,
     orbctlPath,
