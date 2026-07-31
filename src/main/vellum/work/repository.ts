@@ -65,6 +65,7 @@ import {
   mirrorTasksText,
   taskWithTransitionState,
 } from "@shared/task";
+import { taskIndexById, taskIsClaimReady } from "@shared/task-deps";
 import {
   StateEngine,
   type StateReader,
@@ -760,11 +761,93 @@ const loadThread = (
     )
     .map((row) => messageFromRow(row, itemId));
 
+const loadTaskDependsOnMap = (
+  reader: StateReader,
+  sink: SinkRefValue,
+): Map<string, string[]> => {
+  const map = new Map<string, string[]>();
+  const rows = reader.all<
+    StateRow & {
+      readonly task_id: string;
+      readonly depends_on_task_id: string;
+    }
+  >(
+    `
+      SELECT task_id, depends_on_task_id
+      FROM work_task_dependencies
+      WHERE canvas_name = ? AND node_id = ?
+      ORDER BY task_id, position, depends_on_task_id
+    `,
+    [sink.canvasName, sink.nodeId],
+  );
+  for (const row of rows) {
+    const list = map.get(row.task_id);
+    if (list === undefined) map.set(row.task_id, [row.depends_on_task_id]);
+    else list.push(row.depends_on_task_id);
+  }
+  return map;
+};
+
+const loadTaskDependsOn = (
+  reader: StateReader,
+  sink: SinkRefValue,
+  taskId: string,
+): string[] | undefined => {
+  const rows = reader.all<StateRow & { readonly depends_on_task_id: string }>(
+    `
+      SELECT depends_on_task_id
+      FROM work_task_dependencies
+      WHERE canvas_name = ? AND node_id = ? AND task_id = ?
+      ORDER BY position, depends_on_task_id
+    `,
+    [sink.canvasName, sink.nodeId, taskId],
+  );
+  if (rows.length === 0) return undefined;
+  return rows.map((row) => row.depends_on_task_id);
+};
+
+const writeTaskDependsOn = (
+  writer: StateWriter,
+  sink: SinkRefValue,
+  taskId: string,
+  dependsOn: ReadonlyArray<string> | undefined,
+): void => {
+  writer.run(
+    `
+      DELETE FROM work_task_dependencies
+      WHERE canvas_name = ? AND node_id = ? AND task_id = ?
+    `,
+    [sink.canvasName, sink.nodeId, taskId],
+  );
+  if (dependsOn === undefined || dependsOn.length === 0) return;
+  for (let position = 0; position < dependsOn.length; position += 1) {
+    writer.run(
+      `
+        INSERT INTO work_task_dependencies(
+          canvas_name,
+          node_id,
+          task_id,
+          depends_on_task_id,
+          position
+        ) VALUES (?, ?, ?, ?, ?)
+      `,
+      [
+        sink.canvasName,
+        sink.nodeId,
+        taskId,
+        dependsOn[position]!,
+        position,
+      ],
+    );
+  }
+};
+
 const taskFromRow = (
   reader: StateReader,
   sink: SinkRefValue,
   lane: "task" | "request",
   row: TaskRow,
+  dependsOn?: ReadonlyArray<string>,
 ): TaskValue =>
   Schema.decodeUnknownSync(Task, strictDecode)({
     id: row.item_id,
@@ -781,6 +864,9 @@ const taskFromRow = (
       : { metadata: parseJson(row.metadata_json) }),
     ...(row.reason === null ? {} : { reason: row.reason }),
     ...(row.response === null ? {} : { response: row.response }),
+    ...(lane === "task" && dependsOn !== undefined && dependsOn.length > 0
+      ? { dependsOn: [...dependsOn] }
+      : {}),
   });
 
 const loadLaneTasks = (
@@ -790,6 +876,8 @@ const loadLaneTasks = (
 ): ReadonlyArray<TaskValue> => {
   const table = lane === "task" ? "work_tasks" : "work_requests";
   const id = lane === "task" ? "task_id" : "request_id";
+  const dependsMap =
+    lane === "task" ? loadTaskDependsOnMap(reader, sink) : undefined;
   return reader
     .all<TaskRow>(
       `
@@ -814,7 +902,15 @@ const loadLaneTasks = (
       `,
       [sink.canvasName, sink.nodeId],
     )
-    .map((row) => taskFromRow(reader, sink, lane, row));
+    .map((row) =>
+      taskFromRow(
+        reader,
+        sink,
+        lane,
+        row,
+        dependsMap?.get(row.item_id),
+      ),
+    );
 };
 
 const loadProposals = (
@@ -1151,7 +1247,14 @@ const loadTask = (
     [sink.canvasName, sink.nodeId, itemId],
   );
   if (detail === undefined) return undefined;
-  return { row, task: taskFromRow(reader, sink, lane, detail) };
+  const dependsOn =
+    lane === "task"
+      ? loadTaskDependsOn(reader, sink, itemId)
+      : undefined;
+  return {
+    row,
+    task: taskFromRow(reader, sink, lane, detail, dependsOn),
+  };
 };
 
 const authorityError = (
@@ -2095,6 +2198,9 @@ const writeTask = (
     `,
     common,
   );
+  if (lane === "task") {
+    writeTaskDependsOn(writer, sink, task.id, task.dependsOn);
+  }
   writeTaskMessages(writer, lane, sink, task, fact, receivedAt);
   writeTransition(
     writer,
@@ -4882,6 +4988,15 @@ export const WorkRepositoryLive = Layer.effect(
             "claim-contention",
             `task "${input.taskId}" is not available to start`,
           );
+        }
+        {
+          const siblings = loadLaneTasks(writer, input.sink, "task");
+          if (!taskIsClaimReady(current.task, taskIndexById(siblings))) {
+            throw authorityError(
+              "invalid-transition",
+              `task "${input.taskId}" is not claim-ready (unsatisfied dependsOn)`,
+            );
+          }
         }
         assertActorAvailable(writer, input.actor.seatId);
         const task = Schema.decodeUnknownSync(Task, strictDecode)({

@@ -8,6 +8,7 @@ import type {
 } from "./canvas";
 import type { ActorSeatId } from "./actor-seat";
 import { claimedByOf, isTerminalTaskState, taskBrief } from "./task";
+import { taskDepStatus, taskIndexById } from "./task-deps";
 import {
   resolveCompiledActorRef,
   type ActorRefResolver,
@@ -431,8 +432,24 @@ export const composeRegionExecutionContext = (
       taskLines.push(`${titleOf(node, id)} :: ${pending}/${items.length} pending · ${preview}`);
     } else {
       const open = items.filter((item) => !isTerminalTaskState(item.state)).length;
+      const byId = taskIndexById(items);
       const preview = items
-        .map((item) => `${isTerminalTaskState(item.state) ? "[x]" : "[ ]"} ${taskBrief(item)}`)
+        .map((item) => {
+          const mark = isTerminalTaskState(item.state) ? "[x]" : "[ ]";
+          const brief = taskBrief(item);
+          if (item.state !== "submitted" || claimedByOf(item)) {
+            return `${mark} ${brief}`;
+          }
+          const dep = taskDepStatus(item, byId);
+          if (dep.kind === "ready") return `${mark} ${brief}`;
+          if (dep.kind === "waiting") {
+            return `${mark} ${brief} (waiting: ${dep.frontier.join(",")})`;
+          }
+          if (dep.kind === "blocked") {
+            return `${mark} ${brief} (blocked: ${dep.roots.join(",")})`;
+          }
+          return `${mark} ${brief} (orphan: ${dep.missing.join(",")})`;
+        })
         .join("; ");
       taskLines.push(
         `${titleOf(node, id)} :: ${items.length - open}/${items.length} settled · ${preview}`,

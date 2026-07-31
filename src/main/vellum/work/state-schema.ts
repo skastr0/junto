@@ -1594,6 +1594,30 @@ export const WORK_STATE_SCHEMA_SQL = `
 `;
 
 /**
+ * Same-sink hard task prerequisites (expand-only side table).
+ * Does not alter work_tasks columns so historical schema witnesses stay frozen.
+ * Empty set ⇒ no rows; claim readiness is derived in shared/task-deps.
+ */
+export const WORK_TASK_DEPENDENCIES_STATE_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS work_task_dependencies (
+    canvas_name TEXT NOT NULL CHECK (length(canvas_name) BETWEEN 1 AND 256),
+    node_id TEXT NOT NULL CHECK (length(node_id) BETWEEN 1 AND 256),
+    task_id TEXT NOT NULL CHECK (length(task_id) BETWEEN 1 AND 256),
+    depends_on_task_id TEXT NOT NULL
+      CHECK (length(depends_on_task_id) BETWEEN 1 AND 256),
+    position INTEGER NOT NULL CHECK (position >= 0),
+    PRIMARY KEY (canvas_name, node_id, task_id, depends_on_task_id),
+    FOREIGN KEY (canvas_name, node_id, task_id)
+      REFERENCES work_tasks(canvas_name, node_id, task_id)
+      ON DELETE CASCADE
+      ON UPDATE RESTRICT
+  ) STRICT, WITHOUT ROWID;
+
+  CREATE INDEX IF NOT EXISTS work_task_dependencies_dep
+    ON work_task_dependencies(canvas_name, node_id, depends_on_task_id);
+`;
+
+/**
  * Historical Work schema embedded in state schema versions 1–3.
  * Kept as an exact forward-migration witness; fresh installs use the current
  * trigger above. This avoids duplicating the rest of the large Work schema.

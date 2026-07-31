@@ -502,6 +502,7 @@ export const registerVellumIpc = (): void => {
       metadata?: WorkMetadata,
       reason?: string,
       media?: ReadonlyArray<Part>,
+      dependsOn?: ReadonlyArray<string>,
     ) =>
       runRendererWorkAuthoring(
         "ipc.work.task-create",
@@ -510,7 +511,15 @@ export const registerVellumIpc = (): void => {
             const denied = yield* denyRemoteWork;
             if (denied) return denied;
             const work = yield* WorkService;
-            return yield* work.workTaskCreate(canvas, nodeId, brief, metadata, reason, media);
+            return yield* work.workTaskCreate(
+              canvas,
+              nodeId,
+              brief,
+              metadata,
+              reason,
+              media,
+              dependsOn,
+            );
           }),
         ),
       ),

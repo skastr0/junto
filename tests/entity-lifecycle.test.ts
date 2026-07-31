@@ -24,10 +24,11 @@ import {
 import {
   CURRENT_STATE_SCHEMA_VERSION,
   STATE_SCHEMA_V5_IDENTITY,
+  STATE_SCHEMA_V6_IDENTITY,
 } from "../src/main/vellum/state/migrations";
 import {
-  STATE_SCHEMA_SQL,
   STATE_SCHEMA_V5_SQL,
+  STATE_SCHEMA_V6_SQL,
 } from "../src/main/vellum/state/schema";
 import {
   expectedStateSchemaIdentity,
@@ -98,16 +99,14 @@ describe("entity identity laws", () => {
 });
 
 describe("canvas entity registry", () => {
-  it("freezes v5 identity and opens at schema version 6", async () => {
+  it("freezes v5/v6 identities and opens at schema version 7", async () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V5_SQL)).toEqual(
       STATE_SCHEMA_V5_IDENTITY,
     );
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual({
-      actualSchemaSha256:
-        "f097722579ffcaad121b0e5eb62076a8ab70cb9c5d66a78978d572612703be53",
-      sourceSchemaSha256:
-        "2468a976c922293edfb34ea8106f4817bd445368100cf13129466adf1532a3c2",
-    });
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_V6_SQL)).toEqual(
+      STATE_SCHEMA_V6_IDENTITY,
+    );
+    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(7);
 
     const root = await mkdtemp(join(tmpdir(), "vellum-entity-fresh-"));
     roots.push(root);
@@ -118,7 +117,6 @@ describe("canvas entity registry", () => {
     const runtime = await openEngine(path);
     const state = await runtime.runPromise(StateEngine);
     expect(state.info.schemaVersion).toBe(CURRENT_STATE_SCHEMA_VERSION);
-    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(6);
   });
 
   it("migrates v5 → v6 and backfills active entities from head", async () => {
@@ -180,7 +178,7 @@ describe("canvas entity registry", () => {
 
     const runtime = await openEngine(path);
     const state = await runtime.runPromise(StateEngine);
-    expect(state.info.schemaVersion).toBe(6);
+    expect(state.info.schemaVersion).toBe(CURRENT_STATE_SCHEMA_VERSION);
 
     const row = await runtime.runPromise(
       state.read("entity.backfill", (reader) =>

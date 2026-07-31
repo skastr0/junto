@@ -595,6 +595,8 @@ export interface VellumApi extends LicenseApi, UpdateApi {
     reason?: string,
     /** First-class task media (raw image parts) projected into remote claims. */
     media?: ReadonlyArray<Part>,
+    /** Same-sink hard prerequisites (task ids). */
+    dependsOn?: ReadonlyArray<string>,
   ) => Promise<WorkOpResult<Task>>;
   readonly workTaskApproveProposal: (
     canvas: string,

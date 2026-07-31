@@ -16,12 +16,18 @@ import { USAGE_STATE_SCHEMA_SQL } from "../usage/state-schema";
 import {
   WORK_STATE_SCHEMA_SQL,
   WORK_STATE_SCHEMA_V3_SQL,
+  WORK_TASK_DEPENDENCIES_STATE_SCHEMA_SQL,
 } from "../work/state-schema";
 
 /**
  * Exact proof of whichever recognized schema version is currently committed.
  * This is not a generic metadata bag: migrations verify the prior witness
  * before writing and stamp the current witness only after the full chain.
+ */
+/**
+ * `actual_schema_sha256` is the sole schema identity witness (live DDL shape).
+ * `source_schema_sha256` is expand-only retained storage: never admitted on,
+ * always stamped to a fixed retired sentinel by current code.
  */
 export const STATE_SCHEMA_IDENTITY_SQL = `
   CREATE TABLE IF NOT EXISTS state_schema_identity (
@@ -127,9 +133,17 @@ export const STATE_SCHEMA_V5_FRAGMENTS = STATE_SCHEMA_V3_FRAGMENTS.map(
 
 export const STATE_SCHEMA_V5_SQL = STATE_SCHEMA_V5_FRAGMENTS.join("\n");
 
-export const STATE_SCHEMA_FRAGMENTS = [
+/** Schema composition at version 6 (entity registry; no task dependencies). */
+export const STATE_SCHEMA_V6_FRAGMENTS = [
   ...STATE_SCHEMA_V5_FRAGMENTS,
   ENTITIES_STATE_SCHEMA_SQL,
+] as const;
+
+export const STATE_SCHEMA_V6_SQL = STATE_SCHEMA_V6_FRAGMENTS.join("\n");
+
+export const STATE_SCHEMA_FRAGMENTS = [
+  ...STATE_SCHEMA_V6_FRAGMENTS,
+  WORK_TASK_DEPENDENCIES_STATE_SCHEMA_SQL,
 ] as const;
 
 /**

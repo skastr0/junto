@@ -26,6 +26,12 @@ import {
   taskWithTransitionState,
   validateTaskMediaParts,
 } from "./task";
+import {
+  normalizeDependsOn,
+  taskIndexById,
+  taskIsClaimReady,
+  validateTaskDependsOn,
+} from "./task-deps";
 import { groupMembers, isGroup } from "./graph";
 import {
   ACTOR_ACTOR_INBOX_PORTS,
@@ -286,6 +292,8 @@ export const workTaskCreate = (
    * paths.
    */
   media?: ReadonlyArray<Part>,
+  /** Same-sink hard prerequisites (task ids). Empty / omitted = free. */
+  dependsOn?: ReadonlyArray<string>,
 ): WorkTaskCreateResult => {
   const node = requireNode(doc, nodeId);
   requireSink(node, ["task"]);
@@ -295,6 +303,14 @@ export const workTaskCreate = (
   const mediaError = validateTaskMediaParts(media);
   if (mediaError) throw new WorkError("invalid", mediaError);
   const taskId = ids.id();
+  const existing = node.ether?.tasks?.items ?? [];
+  const normalizedDeps = normalizeDependsOn(dependsOn);
+  const depError = validateTaskDependsOn({
+    taskId,
+    dependsOn: normalizedDeps,
+    byId: taskIndexById(existing),
+  });
+  if (depError) throw new WorkError("invalid", depError);
   const contextId = regionContextId(doc, nodeId, canvasName);
   const briefMessage = makeUserMessage({
     messageId: ids.messageId(),
@@ -310,8 +326,9 @@ export const workTaskCreate = (
     history: [briefMessage],
     ...(metadata ? { metadata } : {}),
     ...(why ? { reason: why } : {}),
+    ...(normalizedDeps ? { dependsOn: normalizedDeps } : {}),
   };
-  const items = [...(node.ether?.tasks?.items ?? []), task];
+  const items = [...existing, task];
   return { doc: withTasks(doc, nodeId, items), task };
 };
 
@@ -576,6 +593,16 @@ export const workTaskClaim = (
     // executable seat. Idempotency keys on ActorSeatId, never node identity.
     if (current.state === "working" && existing === actor.seatId) {
       return current;
+    }
+    // Hard prereqs: first claim only when every dependsOn is completed.
+    if (current.state === "submitted") {
+      const byId = taskIndexById(items);
+      if (!taskIsClaimReady(current, byId)) {
+        throw new WorkError(
+          "invalid",
+          `task "${taskId}" is not claim-ready (unsatisfied dependsOn)`,
+        );
+      }
     }
     const history = [
       ...current.history,

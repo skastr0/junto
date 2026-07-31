@@ -90,13 +90,21 @@ export const Task = Schema.Struct({
   artifactIds: Schema.optionalWith(Schema.Array(Schema.String), {
     exact: true,
   }),
+  /**
+   * Same-sink hard prerequisites (task ids). Empty / omitted = free to claim
+   * when submitted. Join is ALL; only `completed` satisfies. Soft relates are
+   * not modeled here — use history / artifacts for context links.
+   */
+  dependsOn: Schema.optionalWith(Schema.Array(Schema.String), {
+    exact: true,
+  }),
   metadata: Schema.optionalWith(WorkMetadata, { exact: true }),
   /** Why the raiser raised this (first-class, set at creation). */
   reason: Schema.optionalWith(Schema.String, { exact: true }),
   /** The operator's answer (first-class, stamped on resolve). */
   response: Schema.optionalWith(Schema.String, { exact: true }),
 }).pipe(
-  Schema.filter(({ state, claimedBy, metadata }) => {
+  Schema.filter(({ id, state, claimedBy, metadata, dependsOn }) => {
     if (
       metadata !== undefined &&
       Object.prototype.hasOwnProperty.call(metadata, "claimedBy")
@@ -113,6 +121,17 @@ export const Task = Schema.Struct({
       claimedBy === undefined
     ) {
       return `${state} tasks require claimedBy`;
+    }
+    if (dependsOn !== undefined) {
+      const seen = new Set<string>();
+      for (const dep of dependsOn) {
+        if (typeof dep !== "string" || dep.trim().length === 0) {
+          return "dependsOn entries must be non-empty task ids";
+        }
+        if (dep === id) return "dependsOn cannot include the task itself";
+        if (seen.has(dep)) return "dependsOn must not contain duplicates";
+        seen.add(dep);
+      }
     }
     return true;
   }),

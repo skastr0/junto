@@ -19,7 +19,10 @@ import {
   LICENSE_STATE_V1_SCHEMA_SQL,
   LICENSE_STATE_V2_SCHEMA_SQL,
 } from "../license/state-schema";
-import { WORK_PROPOSAL_STATE_SCHEMA_SQL } from "../work/state-schema";
+import {
+  WORK_PROPOSAL_STATE_SCHEMA_SQL,
+  WORK_TASK_DEPENDENCIES_STATE_SCHEMA_SQL,
+} from "../work/state-schema";
 import { ENTITIES_STATE_SCHEMA_SQL } from "../entities/state-schema";
 
 export type StateSchemaMigrationDatabase = Pick<
@@ -69,40 +72,36 @@ export type StateSchemaMigrationResult =
 export const STATE_SCHEMA_V1_IDENTITY = {
   actualSchemaSha256:
     "376d0448e43bda8373930f74140ff2f11c315bcf9c9382daf25bd4cb7b910195",
-  sourceSchemaSha256:
-    "eced07754950232548eae3015fb9deeb0f2d5829d6f588ef6a45d0763356153d",
 } as const satisfies VerifiedStateSchemaIdentity;
 
 export const STATE_SCHEMA_V2_IDENTITY = {
   actualSchemaSha256:
     "c7050c73efcea27e7ccb6e7c687f213cae8d2c32e8903d1ab7c7f1e8aeb953c3",
-  sourceSchemaSha256:
-    "85dfa3a5cd4d6623ab197c18e40c0c7ca1d15c63ac049410f00da53b5fbf1658",
 } as const satisfies VerifiedStateSchemaIdentity;
 
 export const STATE_SCHEMA_V3_IDENTITY = {
   actualSchemaSha256:
     "4a8d0fd0545e2108c79c611fc4f56acb1ce96a1972cae13cbf7e716b241bc941",
-  sourceSchemaSha256:
-    "8592d391d2a11d0602e853dfb9969cfead60e655ac96a2c893faaa81dd841114",
 } as const satisfies VerifiedStateSchemaIdentity;
 
 export const STATE_SCHEMA_V4_IDENTITY = {
   actualSchemaSha256:
     "8870c6e4b932ee4a2895bfc9926e2be97f0baa3c538bdfa1e9e8cca5eb354d7f",
-  sourceSchemaSha256:
-    "949256a2cbfb7b07a360a772605bd3fa2ea85e70bdcbfed505611b820474a41a",
 } as const satisfies VerifiedStateSchemaIdentity;
 
 /** Exact witness of schema version 5 (task proposals; no entity registry). */
 export const STATE_SCHEMA_V5_IDENTITY = {
   actualSchemaSha256:
     "4c0fd324cb37c9c609acdeade50a10325b2bffddaae40c0ee8fa464d6cfc6b6f",
-  sourceSchemaSha256:
-    "15d60080de137892b502197d65a2042c306c6e455c919ed113a7ee599aaaee53",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 6;
+/** Exact witness of schema version 6 (canvas entity registry). */
+export const STATE_SCHEMA_V6_IDENTITY = {
+  actualSchemaSha256:
+    "f097722579ffcaad121b0e5eb62076a8ab70cb9c5d66a78978d572612703be53",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 7;
 
 export const STATE_SCHEMA_MIGRATIONS =
   [
@@ -173,6 +172,16 @@ export const STATE_SCHEMA_MIGRATIONS =
       migrate: (database) => {
         database.exec(ENTITIES_STATE_SCHEMA_SQL);
         backfillCanvasEntitiesFromHead(database);
+      },
+    },
+    {
+      fromVersion: 6,
+      toVersion: 7,
+      name: "add-work-task-dependencies",
+      safety: STATE_SCHEMA_MIGRATION_SAFETY,
+      fromIdentity: STATE_SCHEMA_V6_IDENTITY,
+      migrate: (database) => {
+        database.exec(WORK_TASK_DEPENDENCIES_STATE_SCHEMA_SQL);
       },
     },
   ] as const satisfies ReadonlyArray<StateSchemaMigration>;
@@ -326,9 +335,7 @@ const setUserVersion = (
 const sameIdentity = (
   left: VerifiedStateSchemaIdentity,
   right: VerifiedStateSchemaIdentity,
-): boolean =>
-  left.actualSchemaSha256 === right.actualSchemaSha256 &&
-  left.sourceSchemaSha256 === right.sourceSchemaSha256;
+): boolean => left.actualSchemaSha256 === right.actualSchemaSha256;
 
 const requireIdentity = (
   label: string,
@@ -824,11 +831,7 @@ export const migrateStateSchema = (
             actualStateSchemaSha256(database);
           requireIdentity(
             `migrated state schema version ${version}`,
-            {
-              actualSchemaSha256,
-              sourceSchemaSha256:
-                next.fromIdentity.sourceSchemaSha256,
-            },
+            { actualSchemaSha256 },
             next.fromIdentity,
           );
           stampStateSchemaIdentity(database, next.fromIdentity);
