@@ -136,6 +136,12 @@ import {
 } from "./vellum/license/coordinator";
 import { LicenseService } from "./vellum/license/service";
 import { hostOperationsShutdown } from "./vellum/hosts/shutdown";
+import { makeOperatorCoordinator } from "./vellum/hosts/operator-coordinator";
+import {
+  operatorControlEnabledFromInitialArgv,
+  startOperatorControlServer,
+  type OperatorControlServer,
+} from "./vellum/operator-control";
 import { findPackagedSandboxDisablingSwitch } from "./vellum/packaged-sandbox-policy";
 import {
   applyE2eMacOsFocusIsolation,
@@ -262,6 +268,10 @@ const stateUpdatePreflight = process.argv.includes(
 );
 const headless =
   stateUpdatePreflight || process.argv.includes("--vellum-headless");
+// Freeze this privileged ingress decision from the original process argv.
+// A later second-instance event cannot enable it in the running singleton.
+const operatorControlEnabledAtLaunch =
+  operatorControlEnabledFromInitialArgv(process.argv, stateUpdatePreflight);
 
 // Playwright E2E needs a real authoring renderer (not --vellum-headless), but
 // must never steal macOS focus or plant Dock icons. VELLUM_E2E_SHOW=1 opts out
@@ -301,6 +311,7 @@ let workControl: WorkControlServer | undefined;
 let stationControl: StationControlServer | undefined;
 let stationRemoteReportPump: StationRemoteReportPump | undefined;
 let canvasControl: CanvasControlServer | undefined;
+let operatorControl: OperatorControlServer | undefined;
 type HerdrPlaneService = Context.Tag.Service<typeof HerdrPlane>;
 type HermesPlaneService = Context.Tag.Service<typeof HermesPlane>;
 let herdrPlaneService: HerdrPlaneService | undefined;
@@ -320,6 +331,7 @@ let licenseClockChangeSubscription: number | undefined;
 let rendererWindowAdmissionReady = false;
 let productRuntimeStarted = false;
 let productRuntimeSuspended = false;
+let operatorFleetReady = false;
 let shutdownAdmissionClosed = false;
 let shutdownReason = "app_quit";
 let browserShutdown: Promise<Awaited<ReturnType<BrowserComposition["drainOnQuit"]>>> | undefined;
@@ -330,6 +342,9 @@ let stationControlShutdown:
 let stationRemoteReportPumpShutdown: Promise<void> | undefined;
 let canvasControlShutdown:
   | Promise<Awaited<ReturnType<CanvasControlServer["close"]>>>
+  | undefined;
+let operatorControlShutdown:
+  | Promise<Awaited<ReturnType<OperatorControlServer["close"]>>>
   | undefined;
 let hostOperationsDrain:
   | Promise<Awaited<ReturnType<typeof hostOperationsShutdown.drainOnQuit>>>
@@ -391,6 +406,8 @@ const beginStationFleetPropagationShutdown = (): void => {
 const suspendProductRuntimeForLicenseRevocation = (): void => {
   if (productRuntimeSuspended) return;
   productRuntimeSuspended = true;
+  operatorFleetReady = false;
+  operatorControl?.beginShutdown();
   nodeRefOwnerReady = false;
   pendingNodeRefUri = undefined;
   activeNodeRefDelivery = undefined;
@@ -1305,6 +1322,32 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       stations.configuration,
     );
 
+    if (operatorControlEnabledAtLaunch) {
+      try {
+        const coordinator = makeOperatorCoordinator({
+          fleetReady: () =>
+            operatorFleetReady &&
+            !productRuntimeSuspended &&
+            !shutdownAdmissionClosed,
+          readiness: () => ({
+            database: true,
+            workControl: workControlReadiness.ready(),
+            simulation: kernelService !== undefined,
+            session: stationControl?.ready() ?? false,
+          }),
+        });
+        operatorControl = await startOperatorControlServer({
+          home: termControlHome,
+          dispatch: coordinator.dispatch,
+        });
+        if (shutdownAdmissionClosed) operatorControl.beginShutdown();
+      } catch {
+        console.error("[operator-control] failed to start");
+        exitAfterDetach(1, "operator-control-startup-failure");
+        return;
+      }
+    }
+
     // A newly installed packaged headless process has no renderer in which to
     // select its role. Keep exactly the owner-local Station enrollment verbs
     // alive so it can become a configured Remote, then require a restart. No
@@ -1717,6 +1760,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     }
 
     productRuntimeStarted = true;
+    operatorFleetReady = true;
     await coordinator.startMonitoring();
     if (!productRuntimeSuspended) {
       nodeRefOwnerReady = true;
@@ -1754,6 +1798,7 @@ const beginShutdownAdmission = (reason: string): void => {
   shutdownReason = reason;
   if (shutdownAdmissionClosed) return;
   shutdownAdmissionClosed = true;
+  operatorFleetReady = false;
   // Close kernel scheduling at the same synchronous, one-way admission cut.
   // No product teardown may strand work claimed by a later kernel cycle.
   kernelService?.suspend();
@@ -1780,6 +1825,7 @@ const beginShutdownAdmission = (reason: string): void => {
   beginBoxProcessShutdown();
   beginStationFleetPropagationShutdown();
 
+  operatorControl?.beginShutdown();
   workControl?.beginShutdown();
   stationRemoteReportPumpShutdown ??= stationRemoteReportPump?.close();
   stationControl?.beginShutdown();
@@ -1888,6 +1934,21 @@ const requireCleanWorkControlShutdown = async (): Promise<void> => {
     );
   }
   workControl = undefined;
+};
+
+const requireCleanOperatorControlShutdown = async (): Promise<void> => {
+  if (operatorControl === undefined && operatorControlShutdown === undefined) {
+    return;
+  }
+  const receipt = await (operatorControlShutdown ??= operatorControl?.close());
+  if (receipt === undefined) return;
+  if (!receipt.clean) {
+    operatorControlShutdown = undefined;
+    throw new Error(
+      `operator control shutdown retained ${receipt.retainedLabels.join(", ") || "transport state"}`,
+    );
+  }
+  operatorControl = undefined;
 };
 
 const requireCleanStationControlShutdown = async (): Promise<void> => {
@@ -2046,6 +2107,7 @@ const requireCleanAppProcessShutdown = async (): Promise<void> => {
 };
 
 const drainRuntimeOnQuit = async (reason: string): Promise<void> => {
+  await requireCleanOperatorControlShutdown();
   await requireCleanTermPlaneShutdown(reason);
   await requireCleanCanvasControlShutdown();
   await requireCleanStationRemoteReportPumpShutdown();

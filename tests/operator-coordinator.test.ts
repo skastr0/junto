@@ -5,6 +5,8 @@ import { BoxFleetService } from "../src/main/vellum/box";
 import {
   deployRemoteEffect,
   makeHostsOperatorCoordinator,
+  makeOperatorCoordinator,
+  operatorArtifactSource,
 } from "../src/main/vellum/hosts/operator-coordinator";
 import { getDeployJob } from "../src/main/vellum/hosts/deploy-job-registry";
 import { HostsService } from "../src/main/vellum/hosts/service";
@@ -18,6 +20,10 @@ import {
   HostOperationShutdownRefused,
   type HostOperationGate,
 } from "../src/main/vellum/hosts/shutdown";
+import {
+  OPERATOR_PROTOCOL_VERSION,
+  type OperatorRequestEnvelope,
+} from "../src/shared/operator-control";
 
 const stub = <Tag extends Context.Tag<any, any>>(
   tag: Tag,
@@ -111,5 +117,57 @@ describe("operator deployment coordinator", () => {
       code: "shutdown",
     });
     expect(getDeployJob(hostId)).toBeUndefined();
+  });
+
+  it("keeps final-release and qualification artifact sources disjoint", () => {
+    const deploy = (
+      source: "stable" | "cached",
+    ): Extract<OperatorRequestEnvelope, { readonly op: "fleet.deploy" }> => ({
+      protocol: OPERATOR_PROTOCOL_VERSION,
+      id: `deploy-${source}`,
+      op: "fleet.deploy",
+      args: { id: "station-1", source },
+    });
+    const qualify: Extract<
+      OperatorRequestEnvelope,
+      { readonly op: "fleet.qualify" }
+    > = {
+      protocol: OPERATOR_PROTOCOL_VERSION,
+      id: "qualify",
+      op: "fleet.qualify",
+      args: { id: "station-1" },
+    };
+
+    expect(operatorArtifactSource(deploy("stable"))).toBe("stable-feed");
+    expect(operatorArtifactSource(deploy("cached"))).toBe("verified-cache");
+    expect(operatorArtifactSource(qualify)).toBe("qualification-candidate");
+    expect([
+      operatorArtifactSource(deploy("stable")),
+      operatorArtifactSource(deploy("cached")),
+    ]).not.toContain("qualification-candidate");
+  });
+
+  it("keeps every fleet verb unavailable in bootstrap-only mode", async () => {
+    const coordinator = makeOperatorCoordinator({
+      fleetReady: () => false,
+      readiness: () => ({
+        database: true,
+        workControl: false,
+        simulation: false,
+        session: false,
+      }),
+    });
+    const response = await coordinator.dispatch({
+      protocol: OPERATOR_PROTOCOL_VERSION,
+      id: "bootstrap-fleet",
+      op: "fleet.list",
+      args: {},
+    });
+
+    expect(response).toMatchObject({
+      ok: false,
+      op: "fleet.list",
+      error: { type: "runtime_down" },
+    });
   });
 });

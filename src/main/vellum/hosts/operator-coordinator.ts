@@ -1,4 +1,17 @@
 import { Context, Effect } from "effect";
+import {
+  OPERATOR_PROTOCOL_VERSION,
+  type OperatorDataByOp,
+  type OperatorErrorResponse,
+  type OperatorErrorType,
+  type OperatorFleetDeployData,
+  type OperatorFleetFailure,
+  type OperatorFleetPeerStatus,
+  type OperatorFleetSyncResult,
+  type OperatorPublicHost,
+  type OperatorRequestEnvelope,
+  type OperatorResponseEnvelope,
+} from "@shared/operator-control";
 import type {
   HostsConfigureRemoteResult,
   HostsDeployRemoteAuthorizationRequest,
@@ -42,7 +55,19 @@ import {
   RELEASE_CAPABILITIES,
 } from "@shared/release-capabilities";
 import { computeDeployCapabilities } from "@shared/deploy-capabilities";
-import { RemoteHostsError } from "@shared/remote-hosts";
+import { RemoteHostsError, type RemoteHost } from "@shared/remote-hosts";
+import { DEFAULT_STATION_HOST_ID } from "@shared/station";
+import {
+  STATION_API_PROTOCOL,
+  StatusResponse,
+  type StationReadiness,
+} from "@shared/station-api";
+import type {
+  StationFleetPeerStatus,
+  StationFleetPeerUnavailable,
+  StationFleetPropagationResult,
+} from "../station/fleet-propagation";
+import { StationFleetPropagation } from "../station/fleet-propagation";
 
 type Hosts = Context.Tag.Service<typeof HostsService>;
 
@@ -703,3 +728,425 @@ export const makeHostsOperatorCoordinator = (
 
 /** One app-main coordinator shared by renderer IPC and operator control. */
 export const hostsOperatorCoordinator = makeHostsOperatorCoordinator();
+
+class OperatorCoordinatorError extends Error {
+  constructor(
+    readonly type: OperatorErrorType,
+    message: string,
+  ) {
+    super(message);
+    this.name = "OperatorCoordinatorError";
+  }
+}
+
+const operatorDiagnostic = (value: string): string => {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return "operator request failed";
+  return trimmed.slice(0, 4_096);
+};
+
+const operatorErrorResponse = (
+  request: Pick<OperatorRequestEnvelope, "id" | "op">,
+  type: OperatorErrorType,
+  message: string,
+): OperatorErrorResponse => ({
+  protocol: OPERATOR_PROTOCOL_VERSION,
+  id: request.id,
+  ok: false,
+  op: request.op,
+  error: {
+    type,
+    message: operatorDiagnostic(message),
+  },
+});
+
+const operatorSuccess = <Op extends keyof OperatorDataByOp>(
+  request: Pick<OperatorRequestEnvelope, "id"> & { readonly op: Op },
+  data: OperatorDataByOp[Op],
+): OperatorResponseEnvelope =>
+  ({
+    protocol: OPERATOR_PROTOCOL_VERSION,
+    id: request.id,
+    ok: true,
+    op: request.op,
+    data,
+  }) as OperatorResponseEnvelope;
+
+const requireCommandCenterEffect = Effect.gen(function* () {
+  const settings = yield* SettingsService;
+  const current = yield* settings.get;
+  if (current.station.role !== "command-center") {
+    return yield* Effect.fail(
+      new OperatorCoordinatorError(
+        "forbidden",
+        "fleet operations require a configured Command Center",
+      ),
+    );
+  }
+  return current;
+});
+
+const localStatusEffect = (readiness: StationReadiness) =>
+  Effect.gen(function* () {
+    const stations = yield* StationRepository;
+    const facts = yield* stations.statusFacts;
+    const state =
+      facts.configuration === undefined
+        ? facts.pairing === undefined
+          ? "unenrolled"
+          : "paired"
+        : facts.configuration.role !== "command-center" &&
+            facts.projection === undefined
+          ? "configured"
+          : readiness.database &&
+              readiness.workControl &&
+              readiness.simulation &&
+              readiness.session
+            ? "ready"
+            : "degraded";
+    return StatusResponse.make({
+      protocol: STATION_API_PROTOCOL,
+      op: "status",
+      installationId: facts.installationId,
+      state,
+      ...(facts.configuration === undefined
+        ? {}
+        : { configuration: facts.configuration }),
+      ...(facts.configuredAt === undefined
+        ? {}
+        : { configuredAt: facts.configuredAt }),
+      ...(facts.projection === undefined
+        ? {}
+        : { projection: facts.projection }),
+      receivedThrough: facts.receivedThrough,
+      peerAcknowledgedThrough: [],
+      readiness,
+      observedAt: new Date().toISOString(),
+    });
+  });
+
+const projectHosts = (
+  hosts: ReadonlyArray<RemoteHost>,
+): ReadonlyArray<OperatorPublicHost> =>
+  hosts.map((host) => ({
+    id: host.id as OperatorPublicHost["id"],
+    label: host.label,
+    kind: host.kind,
+    ...(host.sshEndpoint === undefined
+      ? {}
+      : { sshEndpoint: host.sshEndpoint }),
+    capabilities: [...host.capabilities],
+    ...(host.hermesId === undefined ? {} : { hermesId: host.hermesId }),
+  }));
+
+const projectFleetFailure = (
+  failure: StationFleetPeerUnavailable,
+): OperatorFleetFailure => ({
+  hostId: failure.hostId,
+  ...(failure.stationInstallationId === undefined
+    ? {}
+    : { stationInstallationId: failure.stationInstallationId }),
+  reason: failure.reason,
+  ...(failure.causeTag === undefined
+    ? {}
+    : { causeTag: failure.causeTag.slice(0, 128) }),
+  message: operatorDiagnostic(failure.message),
+});
+
+const projectPeerStatus = (
+  status: StationFleetPeerStatus,
+): OperatorFleetPeerStatus => ({
+  hostId: status.hostId,
+  stationInstallationId: status.stationInstallationId,
+  phase: status.phase,
+  sessionOpen: status.sessionOpen,
+  attempt: status.attempt,
+  updatedAt: status.updatedAt,
+  ...(status.nextRetryAt === undefined
+    ? {}
+    : { nextRetryAt: status.nextRetryAt }),
+  ...(status.protocol === undefined ? {} : { protocol: status.protocol }),
+  ...(status.lastReceipt === undefined
+    ? {}
+    : { lastReceipt: status.lastReceipt }),
+  ...(status.lastFailure === undefined
+    ? {}
+    : { lastFailure: projectFleetFailure(status.lastFailure) }),
+});
+
+const projectSyncResult = (
+  result: StationFleetPropagationResult,
+): OperatorFleetSyncResult =>
+  result.ok
+    ? {
+        ok: true,
+        hostId: result.hostId,
+        stationInstallationId: result.stationInstallationId,
+        receipt: result.receipt,
+        status: projectPeerStatus(result.status),
+      }
+    : {
+        ok: false,
+        hostId: result.hostId,
+        ...(result.stationInstallationId === undefined
+          ? {}
+          : { stationInstallationId: result.stationInstallationId }),
+        error: projectFleetFailure(result.error),
+        ...(result.status === undefined
+          ? {}
+          : { status: projectPeerStatus(result.status) }),
+      };
+
+export const projectOperatorDeployResult = (
+  result: HostsDeployRemoteResult,
+): OperatorFleetDeployData => {
+  const common = {
+    ok: result.ok,
+    detail: operatorDiagnostic(result.detail),
+    ...(result.code === undefined ? {} : { code: result.code }),
+    stages: [...(result.stages ?? [])].slice(0, 128),
+    ...(result.version === undefined ? {} : { version: result.version }),
+  };
+  if (result.authorizationRequest !== undefined) {
+    return {
+      ...common,
+      status: "authorization-required",
+      ok: false,
+      authorizationRequest: result.authorizationRequest,
+    };
+  }
+  return {
+    ...common,
+    status:
+      result.ok && result.outcome === "ready"
+        ? "ready"
+        : result.outcome === "indeterminate"
+          ? "indeterminate"
+          : "failed",
+    ...(result.outcome === undefined ? {} : { outcome: result.outcome }),
+    ...(result.packageState === undefined
+      ? {}
+      : { packageState: result.packageState }),
+    ...(result.role === undefined ? {} : { role: result.role }),
+    ...(result.lastSeen === undefined ? {} : { lastSeen: result.lastSeen }),
+    ...(result.statusRecorded === undefined
+      ? {}
+      : { statusRecorded: result.statusRecorded }),
+    ...(result.recoveryAction === undefined
+      ? {}
+      : { recoveryAction: result.recoveryAction }),
+  };
+};
+
+export interface OperatorCoordinatorOptions {
+  readonly fleetReady: () => boolean;
+  readonly readiness: () => StationReadiness;
+  readonly hosts?: HostsOperatorCoordinator;
+}
+
+export interface OperatorCoordinator {
+  readonly dispatch: (
+    request: OperatorRequestEnvelope,
+  ) => Promise<OperatorResponseEnvelope>;
+}
+
+export const operatorArtifactSource = (
+  request:
+    | Extract<OperatorRequestEnvelope, { readonly op: "fleet.deploy" }>
+    | Extract<OperatorRequestEnvelope, { readonly op: "fleet.qualify" }>,
+): LinuxReleaseCacheSource =>
+  request.op === "fleet.qualify"
+    ? "qualification-candidate"
+    : request.args.source === "stable"
+      ? "stable-feed"
+      : "verified-cache";
+
+export const makeOperatorCoordinator = (
+  options: OperatorCoordinatorOptions,
+): OperatorCoordinator => {
+  const hostCoordinator = options.hosts ?? hostsOperatorCoordinator;
+
+  const run = async (
+    request: OperatorRequestEnvelope,
+  ): Promise<OperatorResponseEnvelope> => {
+    if (request.op === "station.status") {
+      const status = await AppRuntime.runPromise(
+        localStatusEffect(options.readiness()),
+      );
+      return operatorSuccess(request, status);
+    }
+
+    if (request.op === "station.configure-command-center") {
+      const status = await AppRuntime.runPromise(
+        Effect.gen(function* () {
+          const settings = yield* SettingsService;
+          const current = yield* settings.get;
+          yield* settings.setStationTopology({
+            role: "command-center",
+            hostId: DEFAULT_STATION_HOST_ID,
+            supervisedPreferred: current.station.supervisedPreferred,
+          });
+          return yield* localStatusEffect(options.readiness());
+        }),
+      );
+      return operatorSuccess(request, status);
+    }
+
+    if (!options.fleetReady()) {
+      throw new OperatorCoordinatorError(
+        "runtime_down",
+        "fleet operations are unavailable until licensed product startup completes",
+      );
+    }
+
+    if (request.op === "fleet.list") {
+      const hosts = await AppRuntime.runPromise(
+        Effect.gen(function* () {
+          yield* requireCommandCenterEffect;
+          const service = yield* HostsService;
+          return yield* service.list;
+        }),
+      );
+      return operatorSuccess(request, { hosts: projectHosts(hosts) });
+    }
+
+    if (request.op === "fleet.add") {
+      const hosts = await AppRuntime.runPromise(
+        Effect.gen(function* () {
+          yield* requireCommandCenterEffect;
+          const service = yield* HostsService;
+          const existing = yield* service.get(request.args.id);
+          if (existing !== undefined) {
+            return yield* Effect.fail(
+              new OperatorCoordinatorError(
+                "conflict",
+                "fleet host already exists",
+              ),
+            );
+          }
+          return yield* service.upsert({
+            id: request.args.id,
+            label: request.args.label,
+            kind: "remote",
+            sshEndpoint: request.args.sshEndpoint,
+            capabilities: [...request.args.capabilities],
+          });
+        }),
+      );
+      return operatorSuccess(request, { hosts: projectHosts(hosts) });
+    }
+
+    if (request.op === "fleet.test") {
+      const result = await AppRuntime.runPromise(
+        Effect.gen(function* () {
+          yield* requireCommandCenterEffect;
+          const boxes = yield* BoxFleetService;
+          yield* boxes.ensureHostAvailable(request.args.id).pipe(Effect.ignore);
+          const hosts = yield* HostsService;
+          return yield* Effect.either(hosts.test(request.args.id));
+        }),
+      );
+      if (result._tag === "Left") {
+        return operatorSuccess(request, {
+          hostId: request.args.id,
+          ok: false,
+          detail: operatorDiagnostic(result.left.message),
+          code: result.left.code,
+        });
+      }
+      return operatorSuccess(request, {
+        hostId: request.args.id,
+        ok: result.right.ok,
+        detail: operatorDiagnostic(result.right.detail),
+        ...(result.right.reachability === undefined
+          ? {}
+          : { reachability: result.right.reachability }),
+        ...(result.right.protocol === undefined
+          ? {}
+          : { protocol: result.right.protocol }),
+      });
+    }
+
+    if (request.op === "fleet.enable-managed-installs") {
+      await AppRuntime.runPromise(
+        Effect.gen(function* () {
+          yield* requireCommandCenterEffect;
+          const settings = yield* SettingsService;
+          yield* settings.patch({
+            fleet: { remoteManagedInstalls: true },
+          });
+        }),
+      );
+      return operatorSuccess(request, { remoteManagedInstalls: true });
+    }
+
+    if (request.op === "fleet.deploy" || request.op === "fleet.qualify") {
+      await AppRuntime.runPromise(requireCommandCenterEffect);
+      const source = operatorArtifactSource(request);
+      const authorization = request.args.authorization;
+      const result = await hostCoordinator.deployRemote(
+        {
+          id: request.args.id,
+          ...(authorization === undefined ? {} : { authorization }),
+        },
+        source,
+      );
+      return operatorSuccess(request, projectOperatorDeployResult(result));
+    }
+
+    if (request.op === "fleet.sync") {
+      const results = await AppRuntime.runPromise(
+        Effect.gen(function* () {
+          yield* requireCommandCenterEffect;
+          const fleet = yield* StationFleetPropagation;
+          yield* fleet.start();
+          return yield* fleet.synchronize(request.args.id);
+        }),
+      );
+      return operatorSuccess(request, {
+        results: results.map(projectSyncResult),
+      });
+    }
+
+    const peers = await AppRuntime.runPromise(
+      Effect.gen(function* () {
+        yield* requireCommandCenterEffect;
+        const fleet = yield* StationFleetPropagation;
+        if (request.args.id === undefined) return yield* fleet.statuses;
+        const status = yield* fleet.status(request.args.id);
+        return status === undefined ? [] : [status];
+      }),
+    );
+    return operatorSuccess(request, {
+      peers: peers.map(projectPeerStatus),
+    });
+  };
+
+  return {
+    dispatch: async (request) => {
+      try {
+        return await run(request);
+      } catch (error) {
+        if (error instanceof OperatorCoordinatorError) {
+          return operatorErrorResponse(request, error.type, error.message);
+        }
+        if (error instanceof RemoteHostsError) {
+          const type: OperatorErrorType =
+            error.code === "not_found"
+              ? "not_found"
+              : error.code === "conflict"
+                ? "conflict"
+                : error.code === "validation"
+                  ? "validation"
+                  : "io";
+          return operatorErrorResponse(request, type, error.message);
+        }
+        return operatorErrorResponse(
+          request,
+          "internal_error",
+          "operator request failed",
+        );
+      }
+    },
+  };
+};
