@@ -184,7 +184,7 @@ Center or another Remote. Tailscale may provide reachability; it grants no
 Vellum Command authority. Browser and actor control remain host-local.
 
 Installed version skew uses the one Station protocol descriptor. Current
-policy is protocol 3 with `3/3/3`. No overlap means `update required`; it does
+policy is protocol 4 with `4/4/4`. No overlap means `update required`; it does
 not authorize a privileged fallback or partial down-conversion.
 
 ## Production exit gates

@@ -22,6 +22,7 @@ import {
 } from "../src/shared/station-session";
 import {
   CURRENT_STATION_PROTOCOL_SUPPORT,
+  STATION_PROTOCOL_BASELINE,
   STATION_PROTOCOL_PREFACE,
   StationProtocolAccept,
 } from "../src/shared/station-protocol";
@@ -161,7 +162,7 @@ const makeSsh = (
                       appVersion: "0.1.0",
                       stateSchemaVersion: 1,
                       support: CURRENT_STATION_PROTOCOL_SUPPORT,
-                      selected: 3,
+                      selected: STATION_PROTOCOL_BASELINE,
                     }),
                   )}\n`,
                 ),

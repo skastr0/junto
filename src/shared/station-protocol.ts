@@ -7,7 +7,12 @@ import { Either, Schema } from "effect";
  * schema versions. A peer advertises one contiguous supported range, then a
  * connection selects one exact wire version from the overlap.
  */
-export const STATION_PROTOCOL_BASELINE = 3 as const;
+/**
+ * Station protocol 4 is the content-capable wire cut: Work records carry
+ * ContentRef parts, control frames stay bounded, and media bytes never ride
+ * Station NDJSON. Protocol 3 is retired with no partial down-conversion.
+ */
+export const STATION_PROTOCOL_BASELINE = 4 as const;
 
 export const StationProtocolVersion = Schema.Int.pipe(
   Schema.positive(),

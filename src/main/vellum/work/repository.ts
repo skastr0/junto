@@ -70,7 +70,11 @@ import {
   mirrorTasksText,
   taskWithTransitionState,
 } from "@shared/task";
-import { validateNoInlineBinaryPayload } from "@shared/content";
+import {
+  taskContentPendingMessage,
+  taskContentReadiness,
+  validateNoInlineBinaryPayload,
+} from "@shared/content";
 import {
   taskIndexById,
   taskIsClaimReady,
@@ -86,6 +90,7 @@ import {
   type StateRow,
   type StateWriter,
 } from "../state/service";
+import { manifestAvailability } from "../content/manifest";
 import {
   mailboxMessageDeliveryId,
   mailboxMessageReadId,
@@ -98,6 +103,32 @@ const strictDecode = { onExcessProperty: "error" } as const;
 
 const now = (): DisplayTimestampValue =>
   Schema.decodeUnknownSync(DisplayTimestamp)(new Date().toISOString());
+
+/**
+ * DependsOn + verified content receipts. Media bytes are not in Work rows;
+ * claimability requires a local verified receipt for every ContentRef.
+ */
+const assertTaskClaimReady = (
+  reader: StateReader,
+  task: TaskValue,
+  siblings: ReadonlyArray<TaskValue>,
+): void => {
+  if (!taskIsClaimReady(task, taskIndexById(siblings))) {
+    throw authorityError(
+      "invalid-transition",
+      `task "${task.id}" is not claim-ready (unsatisfied dependsOn)`,
+    );
+  }
+  const content = taskContentReadiness(task, (ref) =>
+    manifestAvailability(reader, ref),
+  );
+  if (content.kind === "pending") {
+    throw authorityError(
+      "invalid-transition",
+      taskContentPendingMessage(task.id, content),
+    );
+  }
+};
 
 const timestamp = (
   value: string | undefined,
@@ -4885,12 +4916,7 @@ const validateIncomingFact = (
         }
         {
           const siblings = loadLaneTasks(writer, fact.item.sink, "task");
-          if (!taskIsClaimReady(current.task, taskIndexById(siblings))) {
-            throw authorityError(
-              "invalid-transition",
-              `task "${fact.item.itemId}" is not claim-ready (unsatisfied dependsOn)`,
-            );
-          }
+          assertTaskClaimReady(writer, current.task, siblings);
         }
         return;
       }
@@ -6044,12 +6070,7 @@ export const WorkRepositoryLive = Layer.effect(
         }
         {
           const siblings = loadLaneTasks(writer, input.sink, "task");
-          if (!taskIsClaimReady(current.task, taskIndexById(siblings))) {
-            throw authorityError(
-              "invalid-transition",
-              `task "${input.taskId}" is not claim-ready (unsatisfied dependsOn)`,
-            );
-          }
+          assertTaskClaimReady(writer, current.task, siblings);
         }
         assertActorAvailable(writer, input.actor.seatId);
         const task = Schema.decodeUnknownSync(Task, strictDecode)({
@@ -6586,12 +6607,7 @@ export const WorkRepositoryLive = Layer.effect(
           }
           {
             const siblings = loadLaneTasks(writer, input.sink, "task");
-            if (!taskIsClaimReady(current.task, taskIndexById(siblings))) {
-              throw authorityError(
-                "invalid-transition",
-                `task "${input.taskId}" is not claim-ready (unsatisfied dependsOn)`,
-              );
-            }
+            assertTaskClaimReady(writer, current.task, siblings);
           }
           assertActorAvailable(writer, input.actor.seatId);
           const action = Schema.decodeUnknownSync(

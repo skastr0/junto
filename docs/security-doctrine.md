@@ -687,23 +687,25 @@ in the overlap of their support intervals and bind that one protocol before
 domain traffic. Selection below either warning threshold remains operational
 with an explicit upgrade warning.
 
-The current baseline and installed floor is Station protocol 3 with policy
-`{ preferred: 3, compatibleFrom: 3, warnBelow: 3 }`. Protocol 3 adds typed
-task proposals and operator promotion; a protocol-2 peer cannot represent
-that authority boundary and therefore has no compatibility overlap. One Station protocol
-number selects one complete closed bundle: framing, control envelope, the five
-verbs, Work records, projection encoding, bounds, and failure semantics. The
-exact discriminators inside that bundle are not separately negotiated
-versions. There are no session/API/Work/projection version arrays, capability
-arrays, or fallback-protocol number. Negotiation itself does not invent
-down-conversion for protocol 2.
+The current baseline and installed floor is Station protocol 4 with policy
+`{ preferred: 4, compatibleFrom: 4, warnBelow: 4 }`. Protocol 4 is the
+content-capable cut: Work carries ContentRef metadata only, claim readiness
+requires verified local content receipts, and media bytes never enter Station
+NDJSON. A protocol-3 peer cannot represent that media boundary without partial
+down-conversion and therefore has no compatibility overlap. One Station
+protocol number selects one complete closed bundle: framing, control envelope,
+the five verbs, Work records, projection encoding, bounds, and failure
+semantics. The exact discriminators inside that bundle are not separately
+negotiated versions. There are no session/API/Work/projection version arrays,
+capability arrays, or fallback-protocol number. Negotiation itself does not
+invent Base64 down-conversion for older peers.
 
 A release retains an older codec only while an enrolled, non-retired Station
-or unreconciled route proves that compatibility obligation. This protocol-3
-cut has no deployed Station obligation, so protocol 2 is deliberately retired
-instead of becoming a permanent fallback. Compatibility lives only at the
-transport/domain boundary and normalizes immediately into the one current
-internal model.
+or unreconciled route proves that compatibility obligation. This protocol-4
+cut has no deployed Station obligation for protocol 2 or 3, so both are
+deliberately retired instead of becoming permanent fallbacks. Compatibility
+lives only at the transport/domain boundary and normalizes immediately into
+the one current internal model.
 
 If no compatible Station protocol exists:
 

@@ -606,9 +606,9 @@ describe("persistent Station control stream", () => {
           appVersion: "future-command-center",
           stateSchemaVersion: 4,
           support: StationProtocolSupport.make({
-            preferred: 4,
-            compatibleFrom: 4,
-            warnBelow: 4,
+            preferred: 5,
+            compatibleFrom: 5,
+            warnBelow: 5,
           }),
         }),
       ),

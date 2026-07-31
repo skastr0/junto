@@ -258,3 +258,18 @@ export const validateDurableParts = (
 export const decodeContentRef = Schema.decodeUnknownEither(ContentRef, {
   onExcessProperty: "error",
 });
+
+export {
+  asContentParts,
+  collectContentRefsFromArtifact,
+  collectContentRefsFromMessage,
+  collectContentRefsFromParts,
+  collectContentRefsFromTask,
+  isVerifiedContentReceipt,
+  taskContentIsRunnable,
+  taskContentPendingMessage,
+  taskContentReadiness,
+  unavailableContentResolver,
+  type ContentAvailabilityResolver,
+  type TaskContentReadiness,
+} from "./content-readiness";

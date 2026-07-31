@@ -97,19 +97,21 @@ prefers. `compatibleFrom` is the oldest exact codec it will accept.
 peer's threshold remains compatible but produces an operator-visible upgrade
 warning.
 
-The current baseline is Station protocol **2**, with support policy:
+The current baseline is Station protocol **4**, with support policy:
 
 ```text
-{ preferred: 2, compatibleFrom: 2, warnBelow: 2 }
+{ preferred: 4, compatibleFrom: 4, warnBelow: 4 }
 ```
 
-This negotiation work does not invent protocol 3. A new Station protocol
-number exists only when the actual closed wire bundle changes.
+A new Station protocol number exists only when the actual closed wire bundle
+changes. Protocol 4 is the content-capable cut (ContentRef Work parts,
+verified receipt claim gates, no media in Station NDJSON).
 
 One negotiated integer selects the complete strict bundle: session framing,
 control envelope, five Station API operations, Work records, projection
-encoding, bounds, and failure semantics. Their current `.../v2` discriminators
-are members of Station protocol 3, not independently negotiated versions.
+encoding, bounds, and failure semantics. Discriminators such as
+`vellum/work/v2` are members of the selected Station protocol integer, not
+independently negotiated versions.
 There is no session-version array, Station-API-version array,
 Work-version array, projection-version array, fallback-protocol number, or
 capability array.
@@ -962,17 +964,35 @@ The existing `WORK_PROTOCOL_MAX_RECORD_BYTES` bound remains a control-record
 bound, not a media-size limit. Because a content-capable record carries only
 bounded reference metadata, the size of the referenced object is governed by
 the content store, disk admission, and resumable transfer backpressure rather
-than JSON/Base64 expansion. The current protocol-3 `Part`/Work codec remains
-closed while this contract is introduced; its legacy inline `RawPart` values
-are not reinterpreted as refs.
+than JSON/Base64 expansion. Station protocol **4** is the content-capable
+codec cut: Work records admit `ContentPart` references, reject inline Base64
+media on the wire, and keep control frames bounded regardless of object size.
+Legacy installed `RawPart` history remains decodable in local SQLite but is
+not a legal Station report body.
 
-Moving this part into the complete Station wire bundle requires the next exact
-Station protocol codec (the next integer after the current baseline). Protocol
-3 peers must not receive a widened record, a guessed field, or a Base64
-down-conversion.
-With no common exact codec, negotiation returns `update-required`; the older
-peer continues local work under its last valid projection and no content
-reference is applied remotely until both installations share the new codec.
+### Content-capable ordering (protocol 4)
+
+Media availability is explicit and route-local. The ordered path is:
+
+1. **project** — Command Center replaces authorial canvas projection only
+   (no media bytes, no Work rows, no local paths).
+2. **report Work with ContentRefs** — tasks/messages/artifacts carry bounded
+   `ContentPart` metadata; Work identities stay `(eventHome, entityHome, seq)`.
+3. **transfer** — missing digests move on the out-of-band content channel
+   (fixed helper / SSH dedicated stream), never Station NDJSON.
+4. **receipt** — receiver verifies sha256+byteLength and mints a local
+   verified `ContentReceipt` before any open-for-read.
+5. **claim / execute** — a task referencing ContentRefs is not claim-ready
+   until every required receipt is verified on the executing installation.
+6. **acknowledge** — Work record ACKs advance route cursors only; they never
+   imply media availability.
+
+A task with missing, corrupt, unavailable, or unknown content remains
+non-runnable (claim rejected / visibly pending). Protocol-3 peers share no
+overlap with protocol-4 support `{ preferred: 4, compatibleFrom: 4,
+warnBelow: 4 }`; negotiation returns non-retryable `update-required`. The
+older peer retains local work under its last valid projection. There is no
+partial down-conversion of ContentRefs into Base64 to satisfy an older peer.
 
 ### Canonical event
 
@@ -1315,7 +1335,7 @@ ReportBatch {
 }
 
 ReportRequest {
-  protocol: "vellum/station-api/v3"
+  protocol: "vellum/station-api/v4"
   op: "report"
   senderInstallationId: InstallationId
   targetInstallationId: InstallationId
@@ -1323,7 +1343,7 @@ ReportRequest {
 }
 
 ReportResponse {
-  protocol: "vellum/station-api/v3"
+  protocol: "vellum/station-api/v4"
   op: "report"
   senderInstallationId: InstallationId
   targetInstallationId: InstallationId
@@ -1440,7 +1460,7 @@ Status includes:
 Cached status must be labelled last-observed. An unreachable Remote is
 `unknown/unreachable`, never optimistically healthy.
 
-These compatibility facts belong to the protocol-3 `StatusResponse`, session
+These compatibility facts belong to the protocol-4 `StatusResponse`, session
 supervisor, and operator status surfaces. They do not widen any retired codec:
 a protocol-2 peer has no installed decoder and fails compatibility before
 domain traffic.
@@ -1539,12 +1559,12 @@ Command Center and Remotes are installed applications and cannot be updated
 atomically. That is a proven runtime-skew constraint, not speculative backward
 compatibility.
 
-The exact Station protocol 3 bundle is the installed compatibility floor. Its
+The exact Station protocol 4 bundle is the installed compatibility floor. Its
 session, Station API, control, Work, and projection codecs are closed and are
-never widened in place. Protocol 3 adds typed task proposals and operator
-promotion. Protocol 2 cannot represent that authority boundary and is retired
-because no deployed Station or unreconciled route establishes an obligation
-to retain it.
+never widened in place. Protocol 4 adds content-capable Work parts and
+receipt-gated claim readiness. Protocol 3 cannot represent that media
+boundary without partial down-conversion and is retired because no deployed
+Station or unreconciled route establishes an obligation to retain it.
 
 The committed protocol-2 corpus is rejection evidence: a current installation
 must fail closed before interpreting those legacy domain frames. A future
@@ -1623,13 +1643,13 @@ Rules:
 9. No-common-protocol is a typed, non-retryable software state, not network
    unavailability.
 
-#### Retired protocol-2 boundary
+#### Retired protocol-2 and protocol-3 boundary
 
-There is no pre-negotiation protocol-2 fallback in the protocol-3 cut. A
-protocol-2 preface or domain frame is rejected before interpretation, no
-fresh compatibility-mode connection is opened, and no mutation or
-acknowledgement is attempted. Coordination resumes only after the incompatible
-installation updates into the protocol-3 support interval.
+There is no pre-negotiation protocol-2 or protocol-3 fallback in the
+protocol-4 cut. A legacy preface or domain frame is rejected before
+interpretation, no fresh compatibility-mode connection is opened, and no
+mutation or acknowledgement is attempted. Coordination resumes only after the
+incompatible installation updates into the protocol-4 support interval.
 
 This is an intentional coordination lockdown, not a request to stop the
 Remote's host-local factory. The Remote continues already-homed work under its
@@ -2072,7 +2092,7 @@ The canonical protocol blocks release while any live path preserves:
 
 ## Implementation status
 
-Station protocol 3 is the sole live Station contract in source. Its
+Station protocol 4 is the sole live Station contract in source. Its
 implementation cut is closed:
 
 - the wire has exactly `pair | configure | project | report | status`;

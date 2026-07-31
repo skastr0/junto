@@ -1,0 +1,207 @@
+{
+  "protocol": {
+    "baseline": 4,
+    "support": {
+      "preferred": 4,
+      "compatibleFrom": 4,
+      "warnBelow": 4
+    },
+    "retired": [
+      2,
+      3
+    ],
+    "noCommonWithProtocol3": {
+      "local": {
+        "preferred": 4,
+        "compatibleFrom": 4,
+        "warnBelow": 4
+      },
+      "peer": {
+        "preferred": 3,
+        "compatibleFrom": 3,
+        "warnBelow": 3
+      },
+      "outcome": "update-required"
+    }
+  },
+  "ordering": [
+    "project-authorial-canvas",
+    "report-work-with-content-refs",
+    "transfer-bytes-out-of-band",
+    "verify-and-mint-receipt",
+    "claim-and-execute-task",
+    "acknowledge-work-records"
+  ],
+  "ref": {
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "byteLength": 1073741824,
+    "mediaType": "video/mp4",
+    "displayName": "recording.mp4"
+  },
+  "cases": {
+    "content-present": {
+      "availability": {
+        "ref": {
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "byteLength": 1073741824,
+          "mediaType": "video/mp4",
+          "displayName": "recording.mp4"
+        },
+        "state": "verified",
+        "verifiedSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "verifiedByteLength": 1073741824,
+        "verifiedAt": "2026-07-31T18:00:00.000Z"
+      },
+      "runnable": true
+    },
+    "content-missing": {
+      "availability": {
+        "ref": {
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "byteLength": 1073741824,
+          "mediaType": "video/mp4",
+          "displayName": "recording.mp4"
+        },
+        "state": "missing",
+        "reason": "content object is not in the local manifest"
+      },
+      "runnable": false
+    },
+    "retry": {
+      "availability": {
+        "ref": {
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "byteLength": 1073741824,
+          "mediaType": "video/mp4",
+          "displayName": "recording.mp4"
+        },
+        "state": "unavailable",
+        "reason": "content transfer incomplete; partial retained for resume"
+      },
+      "runnable": false
+    },
+    "corrupt": {
+      "availability": {
+        "ref": {
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "byteLength": 1073741824,
+          "mediaType": "video/mp4",
+          "displayName": "recording.mp4"
+        },
+        "state": "corrupt",
+        "reason": "content object digest or length mismatch",
+        "observedSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "observedByteLength": 1073741824
+      },
+      "runnable": false
+    }
+  },
+  "taskCreateFact": {
+    "protocol": "vellum/work/v2",
+    "recordType": "fact",
+    "operation": "task.create",
+    "id": {
+      "route": {
+        "eventHome": "remote-installation",
+        "entityHome": "remote-installation"
+      },
+      "seq": "1"
+    },
+    "item": {
+      "kind": "task",
+      "itemId": "task-media-1",
+      "sink": {
+        "canvasName": "factory",
+        "nodeId": "tasks"
+      }
+    },
+    "basis": {
+      "kind": "authorial-intent",
+      "generation": "1",
+      "contentSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    "predecessor": null,
+    "originAt": "2026-07-31T18:00:00.000Z",
+    "contentSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "body": {
+      "operation": "task.create",
+      "task": {
+        "id": "task-media-1",
+        "state": "submitted",
+        "history": [
+          {
+            "messageId": "msg-1",
+            "role": "user",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Review this recording"
+              },
+              {
+                "kind": "content",
+                "ref": {
+                  "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "byteLength": 1073741824,
+                  "mediaType": "video/mp4",
+                  "displayName": "recording.mp4"
+                }
+              }
+            ],
+            "taskId": "task-media-1",
+            "contextId": "Vellum"
+          }
+        ]
+      }
+    }
+  },
+  "inlineBinaryDownConvertRejected": {
+    "protocol": "vellum/work/v2",
+    "recordType": "fact",
+    "operation": "task.create",
+    "id": {
+      "route": {
+        "eventHome": "remote-installation",
+        "entityHome": "remote-installation"
+      },
+      "seq": "2"
+    },
+    "item": {
+      "kind": "task",
+      "itemId": "task-media-legacy",
+      "sink": {
+        "canvasName": "factory",
+        "nodeId": "tasks"
+      }
+    },
+    "basis": {
+      "kind": "authorial-intent",
+      "generation": "1",
+      "contentSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    "predecessor": null,
+    "originAt": "2026-07-31T18:00:00.000Z",
+    "contentSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "body": {
+      "operation": "task.create",
+      "task": {
+        "id": "task-media-legacy",
+        "state": "submitted",
+        "history": [
+          {
+            "messageId": "msg-legacy",
+            "role": "user",
+            "parts": [
+              {
+                "kind": "raw",
+                "bytesBase64": "AAAA",
+                "mediaType": "video/mp4"
+              }
+            ],
+            "taskId": "task-media-legacy",
+            "contextId": "Vellum"
+          }
+        ]
+      }
+    }
+  }
+}

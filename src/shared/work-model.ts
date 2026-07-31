@@ -25,12 +25,23 @@ export {
   ContentSha256,
   ContentUnavailable,
   ContentTimestamp,
+  collectContentRefsFromArtifact,
+  collectContentRefsFromMessage,
+  collectContentRefsFromParts,
+  collectContentRefsFromTask,
   decodeContentPart,
   decodeContentRef,
   hasInlineBinaryPayload,
   isContentPart,
+  isVerifiedContentReceipt,
+  taskContentIsRunnable,
+  taskContentPendingMessage,
+  taskContentReadiness,
+  unavailableContentResolver,
   validateDurableParts,
   validateNoInlineBinaryPayload,
+  type ContentAvailabilityResolver,
+  type TaskContentReadiness,
 } from "./content";
 
 /**

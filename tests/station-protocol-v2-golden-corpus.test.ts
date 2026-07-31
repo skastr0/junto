@@ -34,8 +34,11 @@ const legacy = JSON.parse(
 ) as LegacyCorpus;
 
 describe("retired Station protocol v2 golden wire corpus", () => {
-  it("has no installed codec after the protocol-3 proposal cut", () => {
+  it("has no installed codec after the protocol-4 content cut", () => {
     expect(selectStationProtocolCodec(2)).toEqual(
+      Either.left("unsupported-station-protocol"),
+    );
+    expect(selectStationProtocolCodec(3)).toEqual(
       Either.left("unsupported-station-protocol"),
     );
   });

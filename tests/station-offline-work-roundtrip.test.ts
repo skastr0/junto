@@ -42,6 +42,7 @@ import type {
 } from "../src/shared/station-session";
 import {
   CURRENT_STATION_PROTOCOL_SUPPORT,
+  STATION_PROTOCOL_BASELINE,
   StationAppVersion,
   StationStateSchemaVersion,
 } from "../src/shared/station-protocol";
@@ -123,7 +124,7 @@ const PROTOCOL_DIAGNOSTICS = {
   support: CURRENT_STATION_PROTOCOL_SUPPORT,
 };
 const PROTOCOL = bindNegotiatedStationProtocol({
-  negotiatedProtocol: 3,
+  negotiatedProtocol: STATION_PROTOCOL_BASELINE,
   local: PROTOCOL_DIAGNOSTICS,
   peer: PROTOCOL_DIAGNOSTICS,
 });

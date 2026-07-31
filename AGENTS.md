@@ -105,7 +105,7 @@ are distinct facts. Only the one Station protocol integer selects wire
 behavior. Each release advertises
 `{ preferred, compatibleFrom, warnBelow }`; peers choose the highest common
 exact codec and warn when the result is below either threshold. Current policy
-is protocol 2 with `2/2/2`. No overlap means explicit `update required` while
+is protocol 4 with `4/4/4`. No overlap means explicit `update required` while
 the Remote continues locally under its last projection; it never means partial
 down-conversion. Do not add separate session/API/Work/projection version
 negotiation or capability arrays. A codec retires only after every enrolled

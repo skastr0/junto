@@ -30,6 +30,7 @@ import {
 } from "../src/shared/station-session";
 import {
   CURRENT_STATION_PROTOCOL_SUPPORT,
+  STATION_PROTOCOL_BASELINE,
   STATION_PROTOCOL_PREFACE,
   StationAppVersion,
   StationProtocolAccept,
@@ -581,7 +582,7 @@ describe("OpenSSH Station peer exchange", () => {
       ),
     ).pipe(Effect.either);
 
-  it("negotiates v3 on the persistent connection before domain traffic", async () => {
+  it("negotiates v4 on the persistent connection before domain traffic", async () => {
     const scripted = await liveLease((frame, stdout) => {
       const record = frame as Record<string, unknown>;
       if (record.frame === "offer") {
@@ -589,7 +590,7 @@ describe("OpenSSH Station peer exchange", () => {
           protocol: STATION_PROTOCOL_PREFACE,
           frame: "accept",
           ...peerDiagnostics,
-          selected: 3,
+          selected: STATION_PROTOCOL_BASELINE,
         });
         return Queue.offer(
           stdout,
@@ -616,7 +617,7 @@ describe("OpenSSH Station peer exchange", () => {
           );
           expect(session.protocol).toMatchObject({
             _tag: "negotiated",
-            negotiatedProtocol: 3,
+            negotiatedProtocol: STATION_PROTOCOL_BASELINE,
             compatibility: "compatible",
             peer: peerDiagnostics,
           });
@@ -660,7 +661,7 @@ describe("OpenSSH Station peer exchange", () => {
           protocol: STATION_PROTOCOL_PREFACE,
           frame: "accept",
           ...peerDiagnostics,
-          selected: 3,
+          selected: STATION_PROTOCOL_BASELINE,
         });
         return Effect.forEach(
           [accept, reportFrame],
@@ -777,7 +778,7 @@ describe("OpenSSH Station peer exchange", () => {
           protocol: STATION_PROTOCOL_PREFACE,
           frame: "accept",
           ...peerDiagnostics,
-          selected: 3,
+          selected: STATION_PROTOCOL_BASELINE,
         });
         return Effect.forEach(
           [accept, reportFrame],
@@ -906,9 +907,9 @@ describe("OpenSSH Station peer exchange", () => {
         appVersion: peerDiagnostics.appVersion,
         stateSchemaVersion: peerDiagnostics.stateSchemaVersion,
         support: {
-          preferred: 4,
-          compatibleFrom: 4,
-          warnBelow: 4,
+          preferred: 3,
+          compatibleFrom: 3,
+          warnBelow: 3,
         },
         reason: "no-common-version",
         retryable: false,
@@ -931,7 +932,7 @@ describe("OpenSSH Station peer exchange", () => {
         localProtocol: localDiagnostics,
         peerProtocol: {
           appVersion: peerDiagnostics.appVersion,
-          support: { compatibleFrom: 4, preferred: 4 },
+          support: { compatibleFrom: 3, preferred: 3 },
         },
       });
     }

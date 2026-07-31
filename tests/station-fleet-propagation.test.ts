@@ -49,6 +49,7 @@ import {
 } from "../src/main/vellum/station/peer-exchange";
 import {
   CURRENT_STATION_PROTOCOL_SUPPORT,
+  STATION_PROTOCOL_BASELINE,
   StationAppVersion,
   StationProtocolSupport,
   StationStateSchemaVersion,
@@ -81,7 +82,7 @@ const PROTOCOL_DIAGNOSTICS = {
   support: CURRENT_STATION_PROTOCOL_SUPPORT,
 };
 const PROTOCOL = bindNegotiatedStationProtocol({
-  negotiatedProtocol: 3,
+  negotiatedProtocol: STATION_PROTOCOL_BASELINE,
   local: PROTOCOL_DIAGNOSTICS,
   peer: PROTOCOL_DIAGNOSTICS,
 });
@@ -89,20 +90,20 @@ const INCOMPATIBLE_PEER_DIAGNOSTICS = {
   appVersion: StationAppVersion.make("future-remote"),
   stateSchemaVersion: StationStateSchemaVersion.make(3),
   support: StationProtocolSupport.make({
-    preferred: 4,
-    compatibleFrom: 4,
-    warnBelow: 4,
+    preferred: 5,
+    compatibleFrom: 5,
+    warnBelow: 5,
   }),
 };
 const DEPRECATED_PROTOCOL = bindNegotiatedStationProtocol({
-  negotiatedProtocol: 3,
+  negotiatedProtocol: STATION_PROTOCOL_BASELINE,
   local: {
     appVersion: StationAppVersion.make("future-command-center"),
     stateSchemaVersion: StationStateSchemaVersion.make(3),
     support: StationProtocolSupport.make({
-      preferred: 4,
-      compatibleFrom: 2,
-      warnBelow: 4,
+      preferred: 5,
+      compatibleFrom: 4,
+      warnBelow: 5,
     }),
   },
   peer: PROTOCOL_DIAGNOSTICS,
@@ -615,7 +616,7 @@ describe("StationFleetPropagation persistent supervisor", () => {
           sessionOpen: true,
           protocol: {
             compatibility: "deprecated",
-            negotiatedProtocol: 3,
+            negotiatedProtocol: STATION_PROTOCOL_BASELINE,
           },
         });
       }

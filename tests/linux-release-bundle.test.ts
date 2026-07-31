@@ -732,9 +732,9 @@ describe("signed Linux release bundle", () => {
       ]),
     );
     expect(manifest.stationProtocol).toEqual({
-      preferred: 3,
-      compatibleFrom: 3,
-      warnBelow: 3,
+      preferred: 4,
+      compatibleFrom: 4,
+      warnBelow: 4,
     });
     await expect(verifyFixture(fixture.directory)).resolves.toEqual({
       schema: "vellum/linux-release-verification-receipt/v1",
@@ -930,9 +930,9 @@ describe("signed Linux release bundle", () => {
     await expect(
       verifyFixture(fixture.directory, {
         peerStationProtocol: {
-          preferred: 4,
-          compatibleFrom: 2,
-          warnBelow: 4,
+          preferred: 5,
+          compatibleFrom: 4,
+          warnBelow: 5,
         },
       }),
     ).resolves.toMatchObject({ ok: true, version: VERSION });

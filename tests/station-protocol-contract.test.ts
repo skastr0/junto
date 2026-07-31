@@ -33,16 +33,16 @@ const offer = (peerSupport = CURRENT_STATION_PROTOCOL_SUPPORT) =>
   });
 
 describe("Station protocol compatibility contract", () => {
-  it("starts with one exact v3 protocol and selects the highest intersection", () => {
-    expect(STATION_PROTOCOL_BASELINE).toBe(3);
+  it("starts with one exact v4 content-capable protocol and selects the highest intersection", () => {
+    expect(STATION_PROTOCOL_BASELINE).toBe(4);
     expect(CURRENT_STATION_PROTOCOL_SUPPORT).toEqual({
-      preferred: 3,
-      compatibleFrom: 3,
-      warnBelow: 3,
+      preferred: 4,
+      compatibleFrom: 4,
+      warnBelow: 4,
     });
-    expect(negotiateStationProtocol(support(4, 2, 3), support(3, 1, 2))).toEqual({
+    expect(negotiateStationProtocol(support(5, 3, 4), support(4, 2, 3))).toEqual({
       _tag: "selected",
-      selected: 3,
+      selected: 4,
       deprecatedForLocal: false,
       deprecatedForPeer: false,
       warning: false,
@@ -76,33 +76,33 @@ describe("Station protocol compatibility contract", () => {
   });
 
   it("accepts only the exact recomputed selection", () => {
-    const initial = offer(support(4, 2, 3));
+    const initial = offer(support(5, 3, 4));
     const accepted = stationProtocolAccept(initial, {
       appVersion: "0.2.0",
       stateSchemaVersion: 2,
-      support: support(3, 1, 2),
+      support: support(4, 2, 3),
     });
     expect(decideStationProtocolPreface(initial, accepted)).toEqual({
       _tag: "accepted",
-      selected: 3,
+      selected: 4,
       warning: false,
       deprecatedForOfferer: false,
       deprecatedForAcceptor: false,
     });
-    const invalid = StationProtocolAccept.make({ ...accepted, selected: 2 });
+    const invalid = StationProtocolAccept.make({ ...accepted, selected: 3 });
     expect(decideStationProtocolPreface(initial, invalid)).toEqual({
       _tag: "invalid-accept",
-      expected: 3,
-      received: 2,
+      expected: 4,
+      received: 3,
     });
   });
 
   it("makes a no-common rejection explicitly nonretryable", () => {
-    const initial = offer(support(4, 3, 3));
+    const initial = offer(support(5, 4, 4));
     const rejected = stationProtocolReject({
       appVersion: "0.1.0",
       stateSchemaVersion: 1,
-      support: support(2, 1, 1),
+      support: support(3, 2, 2),
     });
     expect(rejected.retryable).toBe(false);
     expect(decideStationProtocolPreface(initial, rejected)).toEqual({ _tag: "no-common" });
@@ -116,6 +116,7 @@ describe("Station protocol compatibility contract", () => {
 
   it("selects only an installed exact codec", () => {
     expect(selectStationProtocolCodec(2)).toEqual(Either.left("unsupported-station-protocol"));
-    expect(selectStationProtocolCodec(3)).toEqual(Either.right(3));
+    expect(selectStationProtocolCodec(3)).toEqual(Either.left("unsupported-station-protocol"));
+    expect(selectStationProtocolCodec(4)).toEqual(Either.right(4));
   });
 });

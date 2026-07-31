@@ -1,5 +1,9 @@
 import { Schema } from "effect";
 import { ActorSeatId } from "./actor-seat";
+import {
+  hasInlineBinaryPayload,
+  validateNoInlineBinaryPayload,
+} from "./content";
 import { InstallationId } from "./installation-id";
 import {
   Artifact,
@@ -48,8 +52,9 @@ export {
  */
 /**
  * Existing task/request/message records retain their frozen v2 envelope.
- * Station protocol 3 adds proposal records but does not rewrite prior Work
- * history or its durable representation.
+ * Station protocol 4 admits ContentRef parts inside that envelope but never
+ * rewrites prior Work history or its durable representation. Media bytes stay
+ * off the wire; only bounded reference metadata is carried.
  */
 export const WORK_PROTOCOL = "vellum/work/v2" as const;
 
@@ -722,6 +727,20 @@ const withinRecordBound = (record: unknown): boolean | string => {
   );
 };
 
+/**
+ * Station control plane bound: never admit inline Base64 media on a Work
+ * record. Content-capable peers carry ContentRef only; older peers must
+ * negotiate a common codec rather than receive a down-converted payload.
+ */
+const withoutInlineBinary = (record: unknown): boolean | string => {
+  const message = validateNoInlineBinaryPayload(record);
+  return message === undefined ? true : message;
+};
+
+// Keep the pure helper available for fixture tests and callers that need to
+// assert the same rule without going through Schema decode.
+export { hasInlineBinaryPayload, validateNoInlineBinaryPayload };
+
 const WorkCommandShape = Schema.Struct({
   ...WorkRecordCommon.fields,
   recordType: Schema.Literal("command"),
@@ -760,6 +779,7 @@ export const WorkCommand = WorkCommandShape.pipe(
       "Mutation command must name its predecessor"
     );
   }),
+  Schema.filter(withoutInlineBinary),
   Schema.filter(withinRecordBound),
 );
 export type WorkCommand = typeof WorkCommand.Type;
@@ -813,6 +833,7 @@ export const WorkFact = WorkFactShape.pipe(
       record.predecessor !== null || "Mutation fact must name its predecessor"
     );
   }),
+  Schema.filter(withoutInlineBinary),
   Schema.filter(withinRecordBound),
 );
 export type WorkFact = typeof WorkFact.Type;
@@ -846,6 +867,7 @@ export const WorkDisposition = WorkDispositionShape.pipe(
     }
     return true;
   }),
+  Schema.filter(withoutInlineBinary),
   Schema.filter(withinRecordBound),
 );
 export type WorkDisposition = typeof WorkDisposition.Type;

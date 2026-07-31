@@ -45,6 +45,11 @@ import {
   workTaskTransition,
   type WorkIds,
 } from "@shared/work";
+import {
+  collectContentRefsFromTask,
+  taskContentPendingMessage,
+  taskContentReadiness,
+} from "@shared/content";
 import { taskIndexById, taskIsClaimReady } from "@shared/task-deps";
 import { operatorPlanningActorRef } from "@shared/work-reference";
 import type {
@@ -1266,6 +1271,50 @@ export const WorkLive = Layer.effect(
                 code: "invalid",
                 message: `task "${taskId}" is not claim-ready (unsatisfied dependsOn)`,
               });
+            }
+            // Content receipts: required media must be verified before claim.
+            if (
+              sourceTask.state === "submitted" &&
+              collectContentRefsFromTask(sourceTask).length > 0
+            ) {
+              const contentService = yield* Effect.serviceOption(ContentService);
+              if (Option.isNone(contentService)) {
+                return yield* new WorkServiceError({
+                  code: "invalid",
+                  message: `task "${taskId}" is not claim-ready (content service unavailable)`,
+                });
+              }
+              const statuses = yield* Effect.forEach(
+                collectContentRefsFromTask(sourceTask),
+                (ref) =>
+                  contentService.value.availability(ref).pipe(
+                    Effect.mapError(
+                      (error) =>
+                        new WorkServiceError({
+                          code: "invalid",
+                          message: `task "${taskId}" content availability failed: ${error.message}`,
+                        }),
+                    ),
+                  ),
+              );
+              const bySha = new Map(
+                statuses.map((status) => [status.ref.sha256, status] as const),
+              );
+              const content = taskContentReadiness(
+                sourceTask,
+                (ref) =>
+                  bySha.get(ref.sha256) ?? {
+                    ref,
+                    state: "unavailable" as const,
+                    reason: "content availability not resolved" as never,
+                  },
+              );
+              if (content.kind === "pending") {
+                return yield* new WorkServiceError({
+                  code: "invalid",
+                  message: taskContentPendingMessage(taskId, content),
+                });
+              }
             }
             let outcome: WorkMutationOutcome<Task>;
             if (actorHome === context.localInstallationId) {
