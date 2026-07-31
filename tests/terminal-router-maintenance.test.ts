@@ -2,10 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Effect, Scope } from "effect";
 import { hostsSnapshot, setHostsSnapshot } from "../src/main/vellum/hosts/snapshot";
 import { LocalSessionHost } from "../src/main/vellum/term/local-host";
-import {
-  TerminalRouter,
-  type TerminalRouterBootstrapAbsenceAuthority,
-} from "../src/main/vellum/term/router";
+import { TerminalRouter } from "../src/main/vellum/term/router";
 import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 
 const initialHosts = hostsSnapshot();
@@ -137,7 +134,6 @@ describe("TerminalRouter host maintenance", () => {
     expect(acquired).toMatchObject({
       acquired: true,
       evidence: {
-        kind: "remote-zero-work",
         activeTerminalSessions: 0,
         observationId: "tm_0123456789abcdef",
       },
@@ -245,89 +241,6 @@ describe("TerminalRouter host maintenance", () => {
       router.create({ bindingId: "after-release", hostId: "studio" }),
     ).rejects.toThrow(/replacement dial/);
     expect(connect.mock.calls[0]?.[1]).toBe("replacement.example");
-  });
-
-  it("reserves before a bootstrap proof and never dials an absent installation", async () => {
-    const router = makeRouter();
-    const connect = replaceConnectRemote(router, async () => {
-      throw new Error("bootstrap must not dial");
-    });
-    const proof: TerminalRouterBootstrapAbsenceAuthority = {
-      prove: vi.fn(async (target) => {
-        await expect(
-          router.create({ bindingId: "proof-race", hostId: target.hostId }),
-        ).rejects.toThrow(/admission closed for maintenance/);
-        return {
-          hostId: target.hostId,
-          endpoint: target.endpoint,
-          packageState: "absent",
-          unitState: "not-found",
-        };
-      }),
-    };
-
-    const lease = await router.acquireRemoteHostBootstrapMaintenance(
-      "studio",
-      proof,
-    );
-
-    expect(proof.prove).toHaveBeenCalledWith({
-      hostId: "studio",
-      endpoint: "studio.example",
-    });
-    expect(lease.evidence).toEqual({
-      kind: "bootstrap-package-absent",
-      packageState: "absent",
-      unitState: "not-found",
-    });
-    expect(connect).not.toHaveBeenCalled();
-    await expect(
-      router.create({ bindingId: "package-installing", hostId: "studio" }),
-    ).rejects.toThrow(/admission closed for maintenance/);
-    expect(lease.release()).toBe(true);
-  });
-
-  it("rejects malformed or target-stale bootstrap proof and reopens only after denial", async () => {
-    const router = makeRouter();
-    const connect = replaceConnectRemote(router, async () => {
-      throw new Error("dial after denied proof");
-    });
-
-    await expect(
-      router.acquireRemoteHostBootstrapMaintenance("studio", {
-        prove: async (target) => ({
-          hostId: target.hostId,
-          endpoint: target.endpoint,
-          packageState: "absent",
-          unitState: "not-found",
-          untrustedExtra: true,
-        }),
-      }),
-    ).rejects.toThrow(/cut proof was denied/);
-    await expect(
-      router.create({ bindingId: "after-malformed", hostId: "studio" }),
-    ).rejects.toThrow(/dial after denied proof/);
-
-    setHostsSnapshot([...initialHosts, remoteHost()]);
-    await expect(
-      router.acquireRemoteHostBootstrapMaintenance("studio", {
-        prove: async (target) => {
-          setHostsSnapshot([
-            ...initialHosts,
-            remoteHost("replacement.example"),
-          ]);
-          return {
-            hostId: target.hostId,
-            endpoint: target.endpoint,
-            packageState: "absent",
-            unitState: "not-found",
-          };
-        },
-      }),
-    ).rejects.toThrow(/target changed/);
-    await expect(
-      router.create({ bindingId: "after-target-change", hostId: "studio" }),
-    ).rejects.toThrow(/dial after denied proof/);
   });
 
   it("fails closed within a bound when an acquired target route cannot retire", async () => {

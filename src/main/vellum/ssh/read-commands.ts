@@ -33,6 +33,8 @@ export const DARWIN_PACKAGED_BROWSER_EXECUTABLE =
   "/Applications/Vellum Command.app/Contents/Resources/bin/vellum-browser";
 export const DARWIN_PACKAGED_CONTENT_EXECUTABLE =
   "/Applications/Vellum Command.app/Contents/Resources/bin/vellum-content";
+export const DARWIN_PACKAGED_APP_EXECUTABLE =
+  "/Applications/Vellum Command.app/Contents/MacOS/Vellum Command";
 export { STATION_PROTOCOL_NEGOTIATION_ARG };
 
 const SAFE_REMOTE_HOME = /^\/(?:[^/\u0000-\u001f\u007f]+\/)*[^/\u0000-\u001f\u007f]+$/u;
@@ -229,6 +231,13 @@ export const remoteTestFileExists = (
   admitReadPath(path).pipe(
     Effect.flatMap((safe) => makeRemoteCommand("/bin/test", ["-f", safe])),
   );
+
+/** Fixed package-presence probe; callers cannot redirect it to a host path. */
+export const remoteDarwinPackageExists = (): Effect.Effect<
+  RemoteCommand,
+  SshInputError
+> =>
+  makeRemoteCommand("/bin/test", ["-f", DARWIN_PACKAGED_APP_EXECUTABLE]);
 
 /**
  * Product Hermes CLI on the remote PATH.

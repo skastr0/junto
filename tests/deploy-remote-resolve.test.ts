@@ -173,6 +173,7 @@ describe("buildRemoteDeployScript", () => {
   const script = buildRemoteDeployScript(
     "/Users/remote station",
     TEST_CDHASH,
+    { kind: "app-tar", expectedPackageState: "present" },
   );
 
   it("keeps every destructive remote target fixed to Vellum Command paths", () => {
@@ -433,6 +434,7 @@ describe("buildRemoteDeployScript", () => {
     const shellActive = buildRemoteDeployScript(
       "/Users/remote$(touch should-not-run)",
       TEST_CDHASH,
+      { kind: "app-tar", expectedPackageState: "present" },
     );
     expect(shellActive).toContain(
       "TERM_SOCK='/Users/remote$(touch should-not-run)/.vellum/term/control.sock'",
@@ -440,6 +442,7 @@ describe("buildRemoteDeployScript", () => {
     const apostrophe = buildRemoteDeployScript(
       "/Users/o'malley",
       TEST_CDHASH,
+      { kind: "app-tar", expectedPackageState: "present" },
     );
     expect(apostrophe).toContain(
       `TERM_SOCK='/Users/o'"'"'malley/.vellum/term/control.sock'`,
@@ -457,9 +460,12 @@ describe("buildRemoteDeployScript", () => {
       "/Users/remote\nnext",
     ]) {
       expect(isSafeRemoteHomePath(home)).toBe(false);
-      expect(() => buildRemoteDeployScript(home, TEST_CDHASH)).toThrow(
-        "canonical absolute path",
-      );
+      expect(() =>
+        buildRemoteDeployScript(home, TEST_CDHASH, {
+          kind: "app-tar",
+          expectedPackageState: "present",
+        }),
+      ).toThrow("canonical absolute path");
     }
   });
 
@@ -733,6 +739,7 @@ describe("remote deploy transaction behavior", () => {
       remoteHome,
       TEST_CDHASH,
       runtime,
+      { kind: "app-tar", expectedPackageState: "present" },
     );
     const run = (overrides: NodeJS.ProcessEnv = {}) =>
       spawnSync("/bin/bash", ["-lc", script], {

@@ -6,6 +6,7 @@ import {
 } from "../src/main/vellum/ssh/domain";
 import {
   DARWIN_PACKAGED_STATION_EXECUTABLE,
+  DARWIN_PACKAGED_APP_EXECUTABLE,
   RemotePlatformProbeError,
   STATION_PROTOCOL_NEGOTIATION_ARG,
   bindLinuxRemoteUserland,
@@ -15,6 +16,7 @@ import {
   remoteHostProbe,
   remoteProductVersion,
   remoteTestFileExists,
+  remoteDarwinPackageExists,
   remoteUname,
   remoteVellumStation,
   remoteVellumStationNegotiation,
@@ -76,6 +78,10 @@ describe("ssh read-commands product constructors", () => {
     expect(test).toEqual({
       executable: "/bin/test",
       args: ["-f", "/Users/alice/.vellum/term/token"],
+    });
+    expect(inspectRemoteCommand(run(remoteDarwinPackageExists()))).toEqual({
+      executable: "/bin/test",
+      args: ["-f", DARWIN_PACKAGED_APP_EXECUTABLE],
     });
 
     for (const bad of [

@@ -33,12 +33,12 @@ import {
 } from "@shared/release-capabilities";
 import { REMOTE_UPDATE_IDLE_PRODUCT_COPY } from "@shared/remote-update-status";
 import { TERM_REMOTE_SOCK_REL } from "@shared/term-control";
-import type { SshTarget } from "../ssh/domain";
+import { SshExitError, type SshTarget } from "../ssh/domain";
 import { homeDirectoryLookup, oneShot, sharedStream } from "../ssh/program";
 import {
   DARWIN_PACKAGED_BROWSER_EXECUTABLE,
   DARWIN_PACKAGED_STATION_EXECUTABLE,
-  remoteTestFileExists,
+  remoteDarwinPackageExists,
 } from "../ssh/read-commands";
 import { compileDarwinRemoteDeployScript } from "../ssh/remote-plan";
 import { SshTransferExitError, SshTransport } from "../ssh/service";
@@ -163,8 +163,6 @@ export type DarwinRemoteLiveWorkAdmission =
 export type DarwinRemoteLiveWorkAuthority = {
   readonly acquire: (
     input: RemoteDeploymentProviderInput,
-    installedPresent: boolean,
-    proveBootstrapAbsence: () => Promise<boolean>,
   ) => Effect.Effect<DarwinRemoteLiveWorkAdmission, Error>;
 };
 
@@ -345,52 +343,16 @@ export const makeProductionDarwinArtifactAuthority = (
 
 /**
  * Terminal-session idle gate for Darwin Remote package activation.
- * Same plane as Linux: only `acquireRemoteHostMaintenance` / bootstrap.
+ * Existing installations only: first install has no Remote terminal plane to
+ * quiesce, while updates must prove zero active sessions before replacement.
  */
 export const makeProductionDarwinLiveWorkAuthority =
   (): DarwinRemoteLiveWorkAuthority =>
     Object.freeze({
-      acquire: (providerInput, installedPresent, proveBootstrapAbsence) =>
+      acquire: (providerInput) =>
         Effect.tryPromise({
           try: async () => {
             const { termPlane } = await import("../term/plane");
-            if (!installedPresent) {
-              const lease =
-                await termPlane.router.acquireRemoteHostBootstrapMaintenance(
-                  providerInput.target.host.id,
-                  {
-                    prove: async (target) => {
-                      if (
-                        target.endpoint !==
-                        String(providerInput.target.endpoint)
-                      ) {
-                        throw new Error("terminal bootstrap target changed");
-                      }
-                      if (!(await proveBootstrapAbsence())) {
-                        throw new Error(
-                          "remote bootstrap absence proof was denied",
-                        );
-                      }
-                      return {
-                        hostId: target.hostId,
-                        endpoint: target.endpoint,
-                        packageState: "absent" as const,
-                        unitState: "not-found" as const,
-                      };
-                    },
-                  },
-                );
-              return {
-                acquired: true as const,
-                evidence: {
-                  activeTerminalSessions: 0 as const,
-                  observationId: `bootstrap-${providerInput.target.host.id}`,
-                },
-                release: Effect.sync(() => {
-                  lease.release();
-                }),
-              };
-            }
             const admission =
               await termPlane.router.acquireRemoteHostMaintenance(
                 providerInput.target.host.id,
@@ -898,10 +860,14 @@ type RemoteDeployScriptCommands = {
 
 /** Transfer encoding: app-directory tar (live-app) or notarized release ZIP. */
 export type DarwinRemoteArtifactTransfer =
-  | { readonly kind: "app-tar" }
+  | {
+      readonly kind: "app-tar";
+      readonly expectedPackageState: "absent" | "present";
+    }
   | {
       readonly kind: "release-zip";
       readonly expectedArchiveSha256: string;
+      readonly expectedPackageState: "absent" | "present";
     };
 
 type RemoteDeployScriptRuntime = {
@@ -941,7 +907,7 @@ const buildRemoteDeployScriptWithRuntime = (
   remoteHome: string,
   expectedCdHash: string,
   runtime: RemoteDeployScriptRuntime,
-  transfer: DarwinRemoteArtifactTransfer = { kind: "app-tar" },
+  transfer: DarwinRemoteArtifactTransfer,
 ): string => {
   if (!isSafeRemoteHomePath(remoteHome)) {
     throw new Error("remote home must be a canonical absolute path");
@@ -1032,6 +998,7 @@ RETIRED_PLIST=${shellLiteral(`${runtime.lockPath}/retired-plist`)}
 RETIRED_TERM_SOCKET=${shellLiteral(`${runtime.lockPath}/retired-term-socket`)}
 RETIRED_BROWSER_SOCKET=${shellLiteral(`${runtime.lockPath}/retired-browser-socket`)}
 EXPECTED_CDHASH=${shellLiteral(expectedCdHash.toLowerCase())}
+EXPECTED_PACKAGE_STATE=${shellLiteral(transfer.expectedPackageState)}
 ${
   transfer.kind === "release-zip"
     ? `ARTIFACT_KIND=release-zip
@@ -1645,6 +1612,15 @@ same_file_identity "$DEPLOY_LOCK_OWNER" "$LOCK_OWNER_ID" || {
   exit 8
 }
 
+# Bind the preflight decision to the serialized transaction. If another deploy
+# published an app after an exact absence observation, retry through the update
+# path so terminal-session maintenance is acquired before replacement.
+if [ "$EXPECTED_PACKAGE_STATE" = "absent" ] &&
+  { [ -e "$APP" ] || [ -L "$APP" ]; }; then
+  echo "PACKAGE_STATE_CHANGED_BEFORE_DEPLOY $APP" >&2
+  exit ${String(DARWIN_DEPLOY_NOT_STARTED_EXIT)}
+fi
+
 for UNBOUND_PATH in \
   "$IN" \
   "$PLIST_IN" \
@@ -2165,7 +2141,7 @@ exit 2
 export const buildRemoteDeployScript = (
   remoteHome: string,
   expectedCdHash: string,
-  transfer: DarwinRemoteArtifactTransfer = { kind: "app-tar" },
+  transfer: DarwinRemoteArtifactTransfer,
 ): string =>
   buildRemoteDeployScriptWithRuntime(
     remoteHome,
@@ -2178,7 +2154,7 @@ export const buildRemoteDeployScriptForTest = (
   remoteHome: string,
   expectedCdHash: string,
   runtime: RemoteDeployScriptTestRuntime,
-  transfer: DarwinRemoteArtifactTransfer = { kind: "app-tar" },
+  transfer: DarwinRemoteArtifactTransfer,
 ): string => {
   if (process.env.NODE_ENV !== "test" || runtime.testOnly !== true) {
     throw new Error("remote deploy runtime overrides are test-only");
@@ -2205,6 +2181,7 @@ const streamArtifactToRemote = (
   input: {
     readonly admission: DarwinDeployArtifactAdmission;
     readonly remoteHome: string;
+    readonly expectedPackageState: "absent" | "present";
   },
 ): Effect.Effect<
   { readonly ok: boolean; readonly detail: string },
@@ -2217,8 +2194,12 @@ const streamArtifactToRemote = (
           ? {
               kind: "release-zip",
               expectedArchiveSha256: input.admission.archive.sha256,
+              expectedPackageState: input.expectedPackageState,
             }
-          : { kind: "app-tar" };
+          : {
+              kind: "app-tar",
+              expectedPackageState: input.expectedPackageState,
+            };
       const remoteScript = buildRemoteDeployScript(
         input.remoteHome,
         input.admission.localApp.cdHash,
@@ -2308,6 +2289,8 @@ const streamArtifactToRemote = (
 export const makeDarwinRemoteDeploymentProvider = (deps: {
   readonly artifactAuthority: DarwinRemoteArtifactAuthority;
   readonly liveWorkAuthority: DarwinRemoteLiveWorkAuthority;
+  readonly streamArtifact?: typeof streamArtifactToRemote;
+  readonly localPlatform?: NodeJS.Platform;
 }): RemoteDeploymentProvider => ({
   platform: "darwin",
   supportsBrowser: true,
@@ -2346,7 +2329,7 @@ export const makeDarwinRemoteDeploymentProvider = (deps: {
             },
           };
         }
-        if (process.platform !== "darwin") {
+        if ((deps.localPlatform ?? process.platform) !== "darwin") {
           return {
             ok: false,
             detail:
@@ -2416,98 +2399,120 @@ export const makeDarwinRemoteDeploymentProvider = (deps: {
         }
         push(stages, `remote home ${home}`);
 
-        // Terminal-session idle only — never force-close active Remote sessions.
-        const installedProbeCmd = yield* remoteTestFileExists(
-          join(REMOTE_APP_PATH, "Contents", "MacOS", PRODUCT_NAME),
-        ).pipe(Effect.either);
-        let installedPresent = false;
-        if (installedProbeCmd._tag === "Right") {
-          const installedProbe = yield* ssh
-            .run(
-              oneShot(target.sshTarget, installedProbeCmd.right, {
-                budget: "short",
-              }),
-            )
-            .pipe(Effect.either);
-          installedPresent = installedProbe._tag === "Right";
-        }
-        const proveBootstrapAbsence = async (): Promise<boolean> => {
-          if (installedProbeCmd._tag === "Left") return false;
-          const rerun = await Effect.runPromise(
-            ssh.run(
-              oneShot(target.sshTarget, installedProbeCmd.right, {
-                budget: "short",
-              }),
-            ),
-          ).then(
-            () => false,
-            () => true,
-          );
-          return rerun;
-        };
-        const maintenance = yield* Effect.acquireRelease(
-          deps.liveWorkAuthority.acquire(
-            providerInput,
-            installedPresent,
-            proveBootstrapAbsence,
-          ),
-          (lease) => (lease.acquired ? lease.release : Effect.void),
-        ).pipe(Effect.either);
-        if (maintenance._tag === "Left") {
-          return {
-            ok: false,
-            detail: `${host.label}: the Command Center could not hold the Remote terminal route closed for package activation`,
-            code: "conflict" as const,
-            stages,
-            disposition: "not-started" as const,
-            version: admission.localApp.version,
-            recoveryAction: {
-              kind: "restore-terminal-live-work-observation" as const,
-            },
-          };
-        }
-        const liveWork = maintenance.right;
-        if (
-          !Number.isSafeInteger(liveWork.evidence.activeTerminalSessions) ||
-          liveWork.evidence.activeTerminalSessions < 0 ||
-          liveWork.evidence.activeTerminalSessions >
-            MAX_ACTIVE_TERMINAL_SESSIONS ||
-          !OBSERVATION.test(liveWork.evidence.observationId) ||
-          (liveWork.acquired &&
-            liveWork.evidence.activeTerminalSessions !== 0) ||
-          (!liveWork.acquired &&
-            liveWork.reason === "active-terminal-sessions" &&
-            liveWork.evidence.activeTerminalSessions === 0)
-        ) {
-          return {
-            ok: false,
-            detail: `${host.label}: the Remote terminal maintenance receipt was malformed`,
-            code: "conflict" as const,
-            stages,
-            disposition: "not-started" as const,
-            version: admission.localApp.version,
-            recoveryAction: {
-              kind: "restore-terminal-live-work-observation" as const,
-            },
-          };
-        }
-        if (!liveWork.acquired) {
-          return darwinLiveWorkRefusalResult({
-            hostLabel: host.label,
-            stages,
-            version: admission.localApp.version,
-            refusal: liveWork,
-          });
-        }
-        push(
-          stages,
-          `terminal route cut held observation=${liveWork.evidence.observationId}`,
+        // Only an exact not-found exit selects first install. Transport,
+        // timeout, authentication, and command-construction failures are not
+        // evidence that an installed Remote is absent.
+        const installedProbeCmd = yield* remoteDarwinPackageExists().pipe(
+          Effect.either,
         );
+        if (installedProbeCmd._tag === "Left") {
+          return {
+            ok: false,
+            detail: `${host.label}: could not construct the fixed installed-package probe — ${installedProbeCmd.left.message}`,
+            code: "io" as const,
+            message: installedProbeCmd.left.message,
+            stages,
+            disposition: "not-started" as const,
+            version: admission.localApp.version,
+          };
+        }
+        const installedProbe = yield* ssh
+          .run(
+            oneShot(target.sshTarget, installedProbeCmd.right, {
+              budget: "short",
+            }),
+          )
+          .pipe(Effect.either);
+        const installedPresent = installedProbe._tag === "Right";
+        const firstInstall =
+          installedProbe._tag === "Left" &&
+          installedProbe.left instanceof SshExitError &&
+          installedProbe.left.code === 1;
+        if (!installedPresent && !firstInstall) {
+          const message =
+            installedProbe._tag === "Left"
+              ? installedProbe.left.message
+              : "installed-package probe returned an unknown result";
+          return {
+            ok: false,
+            detail: `${host.label}: could not determine whether Vellum Command is installed — ${message}`,
+            code: "io" as const,
+            message,
+            stages,
+            disposition: "not-started" as const,
+            version: admission.localApp.version,
+          };
+        }
+        if (installedPresent) {
+          // Updates only: never force-close active Remote sessions.
+          const maintenance = yield* Effect.acquireRelease(
+            deps.liveWorkAuthority.acquire(providerInput),
+            (lease) => (lease.acquired ? lease.release : Effect.void),
+          ).pipe(Effect.either);
+          if (maintenance._tag === "Left") {
+            return {
+              ok: false,
+              detail: `${host.label}: could not acquire Remote terminal maintenance — ${maintenance.left.message}`,
+              code: "conflict" as const,
+              message: maintenance.left.message,
+              stages,
+              disposition: "not-started" as const,
+              version: admission.localApp.version,
+              recoveryAction: {
+                kind: "restore-terminal-live-work-observation" as const,
+              },
+            };
+          }
+          const liveWork = maintenance.right;
+          if (
+            !Number.isSafeInteger(liveWork.evidence.activeTerminalSessions) ||
+            liveWork.evidence.activeTerminalSessions < 0 ||
+            liveWork.evidence.activeTerminalSessions >
+              MAX_ACTIVE_TERMINAL_SESSIONS ||
+            !OBSERVATION.test(liveWork.evidence.observationId) ||
+            (liveWork.acquired &&
+              liveWork.evidence.activeTerminalSessions !== 0) ||
+            (!liveWork.acquired &&
+              liveWork.reason === "active-terminal-sessions" &&
+              liveWork.evidence.activeTerminalSessions === 0)
+          ) {
+            return {
+              ok: false,
+              detail: `${host.label}: the Remote terminal maintenance receipt was malformed`,
+              code: "conflict" as const,
+              stages,
+              disposition: "not-started" as const,
+              version: admission.localApp.version,
+              recoveryAction: {
+                kind: "restore-terminal-live-work-observation" as const,
+              },
+            };
+          }
+          if (!liveWork.acquired) {
+            return darwinLiveWorkRefusalResult({
+              hostLabel: host.label,
+              stages,
+              version: admission.localApp.version,
+              refusal: liveWork,
+            });
+          }
+          push(
+            stages,
+            `terminal route cut held observation=${liveWork.evidence.observationId}`,
+          );
+        } else {
+          push(stages, "remote package absent; first install admitted");
+        }
 
-        const streamed = yield* streamArtifactToRemote(ssh, target.sshTarget, {
-          admission,
-          remoteHome: home,
-        }).pipe(Effect.either);
+        const streamed = yield* (deps.streamArtifact ?? streamArtifactToRemote)(
+          ssh,
+          target.sshTarget,
+          {
+            admission,
+            remoteHome: home,
+            expectedPackageState: installedPresent ? "present" : "absent",
+          },
+        ).pipe(Effect.either);
 
         if (streamed._tag === "Left") {
           const disposition = classifyDeployTransferDisposition(streamed.left);
@@ -2532,21 +2537,6 @@ export const makeDarwinRemoteDeploymentProvider = (deps: {
             disposition: "indeterminate" as const,
             version: admission.localApp.version,
           };
-        }
-
-        const tokenPath = join(home, ".vellum", "term", "token");
-        const tokenCmd = yield* remoteTestFileExists(tokenPath).pipe(
-          Effect.either,
-        );
-        if (tokenCmd._tag === "Right") {
-          const tokenProbe = yield* ssh
-            .run(
-              oneShot(target.sshTarget, tokenCmd.right, { budget: "short" }),
-            )
-            .pipe(Effect.either);
-          if (tokenProbe._tag === "Right")
-            push(stages, "term control token present");
-          else push(stages, "term control token not yet visible");
         }
 
         return {
