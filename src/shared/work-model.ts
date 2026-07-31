@@ -128,6 +128,29 @@ export const CompletionEvidence = Schema.Struct({
 });
 export type CompletionEvidence = typeof CompletionEvidence.Type;
 
+/**
+ * Shared authoring fields on Task and TaskProposal.
+ *
+ * Brief/media live on Task.history[0].parts vs TaskProposal.brief.parts;
+ * proposal-only extras are proposedBy / approvedTaskId / proposal state
+ * (disjoint from executable task state/claim/evidence).
+ */
+export const TaskAuthoringFields = {
+  /**
+   * Same-sink hard prerequisites (task ids). Empty / omitted = free to claim
+   * when submitted (or free once approved for proposals). Join is ALL; only
+   * `completed` satisfies. Soft relates are not modeled here.
+   */
+  dependsOn: Schema.optionalWith(Schema.Array(Schema.String), {
+    exact: true,
+  }),
+  /** Operator done-definition; immutable on generic task transition. */
+  finishCriteria: Schema.optionalWith(FinishCriteria, { exact: true }),
+  metadata: Schema.optionalWith(WorkMetadata, { exact: true }),
+  /** Why the raiser raised this (first-class, set at creation). */
+  reason: Schema.optionalWith(Schema.String, { exact: true }),
+} as const;
+
 export const Task = Schema.Struct({
   id: Schema.String,
   state: TaskState,
@@ -140,21 +163,12 @@ export const Task = Schema.Struct({
   artifactIds: Schema.optionalWith(Schema.Array(Schema.String), {
     exact: true,
   }),
-  /**
-   * Same-sink hard prerequisites (task ids). Empty / omitted = free to claim
-   * when submitted. Join is ALL; only `completed` satisfies. Soft relates are
-   * not modeled here — use history / artifacts for context links.
-   */
-  dependsOn: Schema.optionalWith(Schema.Array(Schema.String), {
-    exact: true,
-  }),
-  /** Operator done-definition; immutable on generic transition. */
-  finishCriteria: Schema.optionalWith(FinishCriteria, { exact: true }),
+  dependsOn: TaskAuthoringFields.dependsOn,
+  finishCriteria: TaskAuthoringFields.finishCriteria,
   /** Stamped only on successful → completed. */
   completionEvidence: Schema.optionalWith(CompletionEvidence, { exact: true }),
-  metadata: Schema.optionalWith(WorkMetadata, { exact: true }),
-  /** Why the raiser raised this (first-class, set at creation). */
-  reason: Schema.optionalWith(Schema.String, { exact: true }),
+  metadata: TaskAuthoringFields.metadata,
+  reason: TaskAuthoringFields.reason,
   /** The operator's answer (first-class, stamped on resolve). */
   response: Schema.optionalWith(Schema.String, { exact: true }),
 }).pipe(
@@ -213,17 +227,10 @@ export const TaskProposal = Schema.Struct({
   brief: Message,
   proposedBy: ActorRef,
   approvedTaskId: Schema.optionalWith(Schema.String, { exact: true }),
-  /**
-   * Same-sink hard prerequisites (task ids). Carried onto the minted task
-   * on approve. Empty / omitted = free once approved.
-   */
-  dependsOn: Schema.optionalWith(Schema.Array(Schema.String), {
-    exact: true,
-  }),
-  /** Operator done-definition; carried onto the minted task on approve. */
-  finishCriteria: Schema.optionalWith(FinishCriteria, { exact: true }),
-  metadata: Schema.optionalWith(WorkMetadata, { exact: true }),
-  reason: Schema.optionalWith(Schema.String, { exact: true }),
+  dependsOn: TaskAuthoringFields.dependsOn,
+  finishCriteria: TaskAuthoringFields.finishCriteria,
+  metadata: TaskAuthoringFields.metadata,
+  reason: TaskAuthoringFields.reason,
 }).pipe(
   Schema.filter(({ state, approvedTaskId }) =>
     (state === "approved") === (approvedTaskId !== undefined) ||

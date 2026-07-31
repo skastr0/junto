@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Effect, Either, Schema } from "effect";
 import {
   TasksClaimArgs,
+  TasksCreateArgs,
   TasksUpdateArgs,
   ArtifactPublishCliArgs,
 } from "../src/shared/work-control";
@@ -73,6 +74,49 @@ describe("work CLI json input modes", () => {
       loadBatchJsonInput('[{"target":"n7","task":"t1"},{"target":"n7","task":"t2"}]'),
     );
     expect(batch).toHaveLength(2);
+  });
+
+  it("tasks.create accepts the same authoring fields as task/proposal domain", async () => {
+    const created = await Effect.runPromise(
+      loadJsonInput(
+        TasksCreateArgs,
+        JSON.stringify({
+          target: "n7",
+          brief: "Ship media migration graph",
+          reason: "needs prior content-ref work complete",
+          dependsOn: ["t_prereq"],
+          finishCriteria: {
+            description: "graph claimable",
+            git: { minCommits: 1 },
+          },
+          media: [
+            {
+              kind: "raw",
+              bytesBase64: Buffer.from("png").toString("base64"),
+              mediaType: "image/png",
+            },
+          ],
+          metadata: { title: "Media migration graph" },
+        }),
+      ),
+    );
+    expect(created.dependsOn).toEqual(["t_prereq"]);
+    expect(created.finishCriteria).toEqual({
+      description: "graph claimable",
+      git: { minCommits: 1 },
+    });
+    expect(created.media).toHaveLength(1);
+    expect(created.media?.[0]?.kind).toBe("raw");
+
+    // excess properties still rejected
+    await expect(
+      Effect.runPromise(
+        loadJsonInput(
+          TasksCreateArgs,
+          '{"target":"n7","brief":"x","approvedTaskId":"t1"}',
+        ),
+      ),
+    ).rejects.toThrow(/approvedTaskId|unexpected/i);
   });
 });
 

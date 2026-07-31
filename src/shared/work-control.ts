@@ -1,6 +1,6 @@
 import { Either, Schema } from "effect";
 import { TaskState, WorkMetadata } from "./canvas";
-import { CompletionEvidence } from "./work-model";
+import { CompletionEvidence, FinishCriteria, RawPart } from "./work-model";
 
 // Work control-plane wire contract: NDJSON frames over a local Unix domain
 // socket at ~/.vellum/work/control.sock. Pure module — no Node imports — so
@@ -178,11 +178,27 @@ export const TasksListArgs = Schema.Struct({
 });
 export type TasksListArgs = typeof TasksListArgs.Type;
 
+/**
+ * Author a pending proposal for operator review.
+ *
+ * Same authoring contract as executable task creation (`workTaskCreate` /
+ * `workTaskPropose`): brief + optional reason/metadata/media/dependsOn/
+ * finishCriteria. Only approval mints a submitted Task; proposal-only fields
+ * (`proposedBy`, `approvedTaskId`, proposal state) are server-owned.
+ */
 export const TasksCreateArgs = Schema.Struct({
   target: Schema.String,
   brief: Schema.String,
   reason: Schema.optionalWith(Schema.String, { exact: true }),
   metadata: Schema.optionalWith(WorkMetadata, { exact: true }),
+  /** First-class media on the brief (raw image parts; same as Task history[0]). */
+  media: Schema.optionalWith(Schema.Array(RawPart), { exact: true }),
+  /** Same-sink hard prerequisites (task ids). Carried onto minted Task on approve. */
+  dependsOn: Schema.optionalWith(Schema.Array(Schema.String), {
+    exact: true,
+  }),
+  /** Operator done-definition; carried onto minted Task on approve. */
+  finishCriteria: Schema.optionalWith(FinishCriteria, { exact: true }),
 }).annotations({
   parseOptions: { onExcessProperty: "error" },
 });

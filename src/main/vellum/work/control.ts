@@ -623,6 +623,9 @@ const dispatchOp = (
         decoded.right.metadata,
         actor.right,
         decoded.right.reason,
+        decoded.right.media,
+        decoded.right.dependsOn,
+        decoded.right.finishCriteria,
       );
       const mapped = fromWorkResult(result);
       if (Either.isLeft(mapped)) return yield* Effect.fail(mapped.left);

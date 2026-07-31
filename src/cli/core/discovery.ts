@@ -137,8 +137,9 @@ export const tasksClaimSchema: CommandSchemaContract = {
 export const tasksCreateSchema: CommandSchemaContract = {
   command_id: "tasks.create",
   command: "tasks create",
-  schema_id: "tasks.create.input/v1",
-  description: "Create a proposal on a connected task node for operator review.",
+  schema_id: "tasks.create.input/v2",
+  description:
+    "Create a proposal on a connected task node for operator review. Same authoring fields as executable tasks (brief, reason, metadata, media, dependsOn, finishCriteria); approval mints a submitted Task.",
   schema: TasksCreateArgs,
   accepts_batch: true,
   input_modes: inputModes,
@@ -309,6 +310,29 @@ export const allExamples: ReadonlyArray<CommandExample> = [
       "tasks",
       "create",
       '{"target":"n7","brief":"Add keyboard navigation","metadata":{"title":"Keyboard navigation","details":"Cover the task board first."}}',
+    ],
+  },
+  {
+    command_id: "tasks.create",
+    command: "tasks create",
+    name: "propose with deps and finish criteria",
+    description:
+      "Same authoring contract as task create: dependsOn + finishCriteria carry onto the minted Task on approve.",
+    input: {
+      target: "n7",
+      brief: "Ship media migration graph",
+      reason: "needs prior content-ref work complete",
+      dependsOn: ["t_prereq"],
+      finishCriteria: {
+        description: "graph claimable and media uses ContentRef",
+        git: { minCommits: 1 },
+      },
+      metadata: { title: "Media migration graph" },
+    },
+    args: [
+      "tasks",
+      "create",
+      '{"target":"n7","brief":"Ship media migration graph","reason":"needs prior content-ref work complete","dependsOn":["t_prereq"],"finishCriteria":{"description":"graph claimable and media uses ContentRef","git":{"minCommits":1}},"metadata":{"title":"Media migration graph"}}',
     ],
   },
   {
