@@ -92,6 +92,7 @@ type QueuedPrompt = {
 type PendingTurn = {
   readonly generation: number;
   readonly bindingGeneration: number;
+  readonly text: string;
   readonly resolve: (ok: boolean) => void;
   timer: ReturnType<typeof setTimeout> | undefined;
 };
@@ -130,6 +131,7 @@ export class ManagedTerminalDrive {
   private readonly lastIdleInterruptAt = new Map<string, number>();
   private readonly pendingTurns = new Map<string, PendingTurn>();
   private readonly turnStartCounts = new Map<string, number>();
+  private readonly compactNoopCounts = new Map<string, number>();
   /** bindingId → earliest write time (Grok post-spawn, etc.). */
   private readonly readyAfter = new Map<string, number>();
   /** Per-binding generation cut: terminal epoch changes invalidate old writes. */
@@ -420,6 +422,18 @@ export class ManagedTerminalDrive {
     this.resolvePendingTurn(bindingId, true);
   }
 
+  /** Claude accepted `/compact` but the session was already too fresh to compact. */
+  onCompactNoop(bindingId: string): void {
+    if (this.suspended) return;
+    this.compactNoopCounts.set(
+      bindingId,
+      (this.compactNoopCounts.get(bindingId) ?? 0) + 1,
+    );
+    if (this.pendingTurns.get(bindingId)?.text === "/compact") {
+      this.resolvePendingTurn(bindingId, true);
+    }
+  }
+
   private clearTransientState(): void {
     for (const [bindingId] of this.pendingTurns) {
       this.resolvePendingTurn(bindingId, false);
@@ -434,6 +448,7 @@ export class ManagedTerminalDrive {
     this.writing.clear();
     this.lastIdleInterruptAt.clear();
     this.turnStartCounts.clear();
+    this.compactNoopCounts.clear();
     this.readyAfter.clear();
     this.mailInterrupts.clear();
     this.bindingGenerations.clear();
@@ -453,6 +468,7 @@ export class ManagedTerminalDrive {
     this.lastIdleInterruptAt.delete(bindingId);
     this.mailInterrupts.delete(bindingId);
     this.turnStartCounts.delete(bindingId);
+    this.compactNoopCounts.delete(bindingId);
     this.readyAfter.delete(bindingId);
   }
 
@@ -503,6 +519,7 @@ export class ManagedTerminalDrive {
     this.writing.add(bindingId);
     try {
       const turnStartCount = this.turnStartCounts.get(bindingId) ?? 0;
+      const compactNoopCount = this.compactNoopCounts.get(bindingId) ?? 0;
       const ok = await this.writePasteAndCr(
         bindingId,
         text,
@@ -522,8 +539,15 @@ export class ManagedTerminalDrive {
         if ((this.turnStartCounts.get(bindingId) ?? 0) !== turnStartCount) {
           return true;
         }
+        if (
+          text === "/compact" &&
+          (this.compactNoopCounts.get(bindingId) ?? 0) !== compactNoopCount
+        ) {
+          return true;
+        }
         return await this.awaitTurnStart(
           bindingId,
+          text,
           generation,
           bindingGeneration,
         );
@@ -556,6 +580,7 @@ export class ManagedTerminalDrive {
 
   private awaitTurnStart(
     bindingId: string,
+    text: string,
     generation: number,
     bindingGeneration: number,
   ): Promise<boolean> {
@@ -566,6 +591,7 @@ export class ManagedTerminalDrive {
       const pending: PendingTurn = {
         generation,
         bindingGeneration,
+        text,
         resolve,
         timer: undefined,
       };

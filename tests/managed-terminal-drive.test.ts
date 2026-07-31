@@ -395,6 +395,41 @@ describe("ManagedTerminalDrive", () => {
     expect(writes).toHaveLength(2);
   });
 
+  it("accepts Claude's fresh-session compact no-op without acknowledging other prompts", async () => {
+    drive = makeDrive({ stallWatch: true });
+
+    const compact = drive.writePrompt("b1", "/compact");
+    await flushMicrotasks();
+    drive.onCompactNoop("b1");
+    await expect(compact).resolves.toBe(true);
+
+    const task = drive.writePrompt("b1", "[factory claim] task-1");
+    await flushMicrotasks();
+    drive.onCompactNoop("b1");
+    let settled = false;
+    void task.then(() => {
+      settled = true;
+    });
+    await flushMicrotasks();
+    expect(settled).toBe(false);
+    drive.onTurnStart("b1");
+    await expect(task).resolves.toBe(true);
+  });
+
+  it("does not lose a compact no-op that races the CR writer completion", async () => {
+    drive = makeDrive({
+      stallWatch: true,
+      write: (bindingId, data) => {
+        writes.push({ bindingId, data });
+        if (data === CR) drive.onCompactNoop(bindingId);
+        return true;
+      },
+    });
+
+    await expect(drive.writePrompt("b1", "/compact")).resolves.toBe(true);
+    expect(writes).toHaveLength(2);
+  });
+
   it("managed pulse reports a stalled prompt as refused for durable receipt logic", async () => {
     vi.useFakeTimers();
     try {

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { isClaudeResumeSummaryChoice } from "../src/main/vellum/term/drive/claude-startup";
+import {
+  isClaudeCompactNoop,
+  isClaudeResumeSummaryChoice,
+} from "../src/main/vellum/term/drive/claude-startup";
 
 describe("Claude managed startup recovery", () => {
   it("recognizes only the long-session summary selector", () => {
@@ -19,5 +22,15 @@ describe("Claude managed startup recovery", () => {
     "Resume full session as-is · Enter to confirm",
   ])("does not match another interactive prompt: %s", (text) => {
     expect(isClaudeResumeSummaryChoice(text)).toBe(false);
+  });
+});
+
+describe("Claude compact acknowledgement", () => {
+  it("recognizes the fresh-session no-op response", () => {
+    expect(isClaudeCompactNoop("  └ Not enough messages to compact.")).toBe(true);
+  });
+
+  it("does not classify ordinary prompt text as a compact receipt", () => {
+    expect(isClaudeCompactNoop("❯ explain compaction")).toBe(false);
   });
 });

@@ -13,3 +13,7 @@ export const isClaudeResumeSummaryChoice = (text: string): boolean => {
     normalized.includes("esc to cancel")
   );
 };
+
+/** Claude accepted `/compact`, but a fresh session had nothing to summarize. */
+export const isClaudeCompactNoop = (text: string): boolean =>
+  text.toLowerCase().includes("not enough messages to compact");

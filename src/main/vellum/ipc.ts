@@ -44,7 +44,10 @@ import { HerdrPlane } from "./herdr/plane";
 import { registerTerminalIpc } from "./term/ipc";
 import { GROK_MIN_POST_SPAWN_MS, ManagedTerminalDrive } from "./term/drive";
 import { clipboardFormatsAreSafeForGrok } from "./term/drive/clipboard-safe";
-import { isClaudeResumeSummaryChoice } from "./term/drive/claude-startup";
+import {
+  isClaudeCompactNoop,
+  isClaudeResumeSummaryChoice,
+} from "./term/drive/claude-startup";
 import { isManagedTerminalReady } from "./term/drive/readiness";
 import { seatStateRuntime } from "./term/agent-state";
 import {
@@ -992,6 +995,18 @@ export const registerVellumIpc = (): void => {
       );
       // Grok ≥1.5s post-spawn before first paste (verified trap).
       termPlane.host.subscribeEvents((payload) => {
+        if (payload.type === "output") {
+          if (
+            seatStateRuntime.machine.getSlot(payload.bindingId)?.harness ===
+              "claude" &&
+            isClaudeCompactNoop(
+              terminalObserverPlane.snapshot(payload.bindingId)?.text ?? "",
+            )
+          ) {
+            managedDrive.onCompactNoop(payload.bindingId);
+          }
+          return;
+        }
         if (payload.type !== "session") return;
         const bindingId = payload.bindingId;
         const epoch = payload.epoch;
