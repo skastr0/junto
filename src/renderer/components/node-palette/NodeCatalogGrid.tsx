@@ -14,6 +14,7 @@ import {
   PanelTop,
   SquareDashed,
   SquareTerminal,
+  Workflow,
   type LucideIcon,
 } from "lucide-react";
 
@@ -108,6 +109,13 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     purpose: "A hermes roster predicate (e.g. running). Rising edge can fire the same edge effects as cron.",
     attention: "Hermes roster stats are thin today (running 0/1). Effects need an outbound edge.",
     connections: [{ source: "Gauge", target: "Task", direction: "directed", relationship: "enqueues work when condition trips", mode: "effect", ports: [] }],
+  },
+  {
+    id: "relay", category: "schedule", label: "Relay", subtitle: "watch a node projection",
+    icon: Workflow, accentClass: "text-cyan",
+    purpose: "A scheduler that watches another node's typed projection and fires edge effects on a rising match.",
+    attention: "Choose the source node and predicate in the inspector, then connect Relay to the effect target.",
+    connections: [{ source: "Relay", target: "Task", direction: "directed", relationship: "enqueues work when the watched projection matches", mode: "effect", ports: [] }],
   },
   {
     id: "note", category: "canvas", label: "Note", subtitle: "freeform text",

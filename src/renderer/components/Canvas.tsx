@@ -17,7 +17,7 @@ import {
 } from "@xyflow/react";
 import type { Connection, FinalConnectionState, Node, OnNodeDrag } from "@xyflow/react";
 import { use$ } from "@legendapp/state/react";
-import type { EtherEdgeKind, EtherFlag, TextNode } from "@shared/canvas";
+import type { EtherEdgeKind, EtherFlag } from "@shared/canvas";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
 import { Ban, Boxes, Expand, Link2, Plus, ScanLine, SquareDashed, Trash2 } from "lucide-react";
 import { state$ } from "../lib/state";
@@ -42,11 +42,14 @@ import { resolveAuthoredPageHost } from "../lib/page-authoring";
 import {
   makeArtifactsNode,
   makeBoardNode,
+  makeCronNode,
   makeFileNode,
+  makeGaugeNode,
   makeGroupNode,
   makeLinkNode,
   makeManagedAgentNode,
   makePageNode,
+  makeRelayNode,
   makeRequestsNode,
   makeTasksNode,
   makeTextNode,
@@ -572,31 +575,6 @@ function useCanvasInteractions(
   return { onConnect, onConnectEnd, onNodeDragStart, onNodeDrag, onNodeDragStop, onNodesDelete, onEdgesDelete, onSelectionChange, onPaneClick };
 }
 
-// Scheduler nodes: gauge (watcher), cron, relay — host-scoped kernel fire.
-const makeGaugeNode = (x: number, y: number): TextNode => ({
-  ...makeTextNode(x, y),
-  text: "gauge",
-  width: 240,
-  height: 96,
-  ether: {
-    entity: { kind: "watcher" },
-    host: "local",
-    watch: { kind: "stat_threshold", source: "hermes" },
-  },
-});
-
-const makeCronNode = (x: number, y: number): TextNode => ({
-  ...makeTextNode(x, y),
-  text: "cron",
-  width: 240,
-  height: 96,
-  ether: {
-    entity: { kind: "cron" },
-    host: "local",
-    timer: { everyMinutes: 30 },
-  },
-});
-
 // Node creation against a caller-supplied placement strategy — the toolbar
 // places near the viewport center, the context menu at the click point.
 const makeAddActions = (
@@ -653,6 +631,14 @@ const makeAddActions = (
         timer: { everyMinutes: 30 },
       },
     };
+    addNode(node, { edit: false });
+    state$.focusNodeId.set(node.id);
+    dismiss();
+  },
+  addRelay: () => {
+    const position = positionFor({ width: 220, height: 96 });
+    const stationHost = state$.settings.station.hostId.peek() || "local";
+    const node = makeRelayNode(position.x, position.y, "", stationHost);
     addNode(node, { edit: false });
     state$.focusNodeId.set(node.id);
     dismiss();

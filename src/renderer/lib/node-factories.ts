@@ -319,7 +319,7 @@ export const makePageNode = (
 };
 
 /** Gauge (watcher) predicate node — hermes stat threshold. */
-export const makeWatcherNode = (
+export const makeGaugeNode = (
   x: number,
   y: number,
   host = "local",
@@ -339,7 +339,7 @@ export const makeWatcherNode = (
 });
 
 /** Cron schedule node — durable interval; fires edge effects on due. */
-export const makeTimerNode = (
+export const makeCronNode = (
   x: number,
   y: number,
   everyMinutes = 30,

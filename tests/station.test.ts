@@ -14,7 +14,7 @@ import {
   makeManagedAgentNode,
   makePageNode,
   makeTasksNode,
-  makeWatcherNode,
+  makeGaugeNode,
 } from "../src/renderer/lib/node-factories";
 
 describe("station role settings", () => {
@@ -44,7 +44,7 @@ describe("node host assignment", () => {
     });
     const page = makePageNode(0, 0, "https://example.com");
     const tasks = makeTasksNode(0, 0, "remote-a");
-    const watcher = makeWatcherNode(0, 0, "remote-a");
+    const watcher = makeGaugeNode(0, 0, "remote-a");
     const herdr = makeHerdrNode(0, 0, {
       host: "remote-a",
       paneId: "w1:p1",

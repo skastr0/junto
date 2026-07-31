@@ -29,6 +29,7 @@ export type ModeDeckActions = {
   ) => void;
   readonly addGauge: () => void;
   readonly addCron: () => void;
+  readonly addRelay: () => void;
   readonly addTasks: () => void;
   readonly addRequests: () => void;
   readonly addArtifacts: () => void;
@@ -65,6 +66,7 @@ const catalogAction = (actions: ModeDeckActions, entry: NodeCatalogEntry): void 
     case "page": actions.addPage(); break;
     case "gauge": actions.addGauge(); break;
     case "cron": actions.addCron(); break;
+    case "relay": actions.addRelay(); break;
     case "note": actions.create("text"); break;
     case "file": actions.create("file"); break;
     case "link": actions.create("link"); break;
