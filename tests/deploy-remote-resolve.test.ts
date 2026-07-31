@@ -711,7 +711,7 @@ describe("remote deploy transaction behavior", () => {
           'kind="${raw##*:}"',
           'case "$kind" in',
           '  directory) kind="Directory" ;;',
-          '  "regular file") kind="Regular File" ;;',
+          '  "regular file"|"regular empty file") kind="Regular File" ;;',
           '  socket) kind="Socket" ;;',
           '  *) kind="Unsupported" ;;',
           "esac",
@@ -737,35 +737,43 @@ describe("remote deploy transaction behavior", () => {
       runtime,
     );
     const run = (overrides: NodeJS.ProcessEnv = {}) =>
-      spawnSync("/bin/bash", ["-lc", script], {
-        encoding: "utf8",
-        // Pure hang-safety net (the script's own retry bound is iteration-count,
-        // not wall-clock — `sleep` is stubbed to exit 0). 30s gives headroom
-        // under full-suite subprocess contention over the prior 15s, which
-        // raced the surrounding vitest test timeout.
-        timeout: 30_000,
-        maxBuffer: 1024 * 1024,
-        env: {
-          ...process.env,
-          FAKE_STATE: state,
-          FAKE_EXE: executablePath,
-          FAKE_INCOMING_APP: `${appPath}.incoming/Vellum Command.app`,
-          FAKE_CODESIGN_FAIL: "0",
-          FAKE_REMOTE_CDHASH: TEST_CDHASH,
-          FAKE_LSOF_GLOBAL_ERROR: "0",
-          FAKE_CANDIDATE_KICKSTART_FAIL: "0",
-          FAKE_MISSING_CONTROL_HELPER: "none",
-          FAKE_EXISTING_APP_INVALID: "0",
-          FAKE_EXISTING_PLIST_INVALID: "0",
-          FAKE_LIVE_SOCKET: "",
-          FAKE_SWAP_APP_CONTENTS: "0",
-          FAKE_PREFLIGHT_MODE: "success",
-          FAKE_UNSUPERVISED_PID: "",
-          FAKE_APP: appPath,
-          FAKE_PLIST: plistPath,
-          ...overrides,
+      spawnSync(
+        "/bin/bash",
+        // Production invokes this Darwin-only program as `bash -lc`. Keep
+        // that exact behavior on Darwin; Linux's supplemental lifecycle
+        // coverage uses `-c` so host login/logout profiles cannot rewrite
+        // the transaction's exit receipt.
+        [process.platform === "darwin" ? "-lc" : "-c", script],
+        {
+          encoding: "utf8",
+          // Pure hang-safety net (the script's own retry bound is iteration-count,
+          // not wall-clock — `sleep` is stubbed to exit 0). 30s gives headroom
+          // under full-suite subprocess contention over the prior 15s, which
+          // raced the surrounding vitest test timeout.
+          timeout: 30_000,
+          maxBuffer: 1024 * 1024,
+          env: {
+            ...process.env,
+            FAKE_STATE: state,
+            FAKE_EXE: executablePath,
+            FAKE_INCOMING_APP: `${appPath}.incoming/Vellum Command.app`,
+            FAKE_CODESIGN_FAIL: "0",
+            FAKE_REMOTE_CDHASH: TEST_CDHASH,
+            FAKE_LSOF_GLOBAL_ERROR: "0",
+            FAKE_CANDIDATE_KICKSTART_FAIL: "0",
+            FAKE_MISSING_CONTROL_HELPER: "none",
+            FAKE_EXISTING_APP_INVALID: "0",
+            FAKE_EXISTING_PLIST_INVALID: "0",
+            FAKE_LIVE_SOCKET: "",
+            FAKE_SWAP_APP_CONTENTS: "0",
+            FAKE_PREFLIGHT_MODE: "success",
+            FAKE_UNSUPERVISED_PID: "",
+            FAKE_APP: appPath,
+            FAKE_PLIST: plistPath,
+            ...overrides,
+          },
         },
-      });
+      );
     return {
       root,
       state,
@@ -882,7 +890,7 @@ describe("remote deploy transaction behavior", () => {
       try {
         mkdirSync(harness.runtime.lockPath);
         const result = harness.run();
-        expect(result.status).toBe(8);
+        expect(result.status, result.stderr).toBe(8);
         expect(result.stderr).toContain("DEPLOY_ALREADY_IN_PROGRESS");
         expect(existsSync(join(harness.state, "tar-ran"))).toBe(false);
         expect(readFileSync(harness.executablePath, "utf8")).toBe(
@@ -1001,7 +1009,10 @@ describe("remote deploy transaction behavior", () => {
     35_000,
   );
 
-  it(
+  // Post-preflight cutover is a Darwin contract: its receipt gate is parsed
+  // by the platform Bash/ERE implementation. Linux still runs every
+  // pre-cutover refusal and platform-neutral lifecycle assertion above.
+  it.runIf(process.platform === "darwin")(
     "refuses to delete a substituted child beneath the admitted app root",
     () => {
       const harness = makeHarness();
@@ -1013,7 +1024,7 @@ describe("remote deploy transaction behavior", () => {
           "foreign-marker",
         );
 
-        expect(result.status).toBe(13);
+        expect(result.status, result.stderr).toBe(13);
         expect(result.stderr).toContain(
           "EXISTING_APP_CONTENTS_CHANGED_BEFORE_RETIREMENT",
         );
@@ -1152,13 +1163,13 @@ describe("remote deploy transaction behavior", () => {
     35_000,
   );
 
-  it(
+  it.runIf(process.platform === "darwin")(
     "retains the candidate and never relaunches the old bundle after readiness failure",
     () => {
       const harness = makeHarness();
       try {
         const result = harness.run();
-        expect(result.status).toBe(13);
+        expect(result.status, result.stderr).toBe(13);
         expect(result.stderr).toContain("CONTROL_SOCKET_TIMEOUT");
         expect(result.stderr).toContain("DEPLOY_FORWARD_REPAIR_REQUIRED");
         expect(readFileSync(harness.executablePath, "utf8")).toBe(
@@ -1190,7 +1201,7 @@ describe("remote deploy transaction behavior", () => {
     35_000,
   );
 
-  it(
+  it.runIf(process.platform === "darwin")(
     "cannot restore or launch the old bundle when candidate kickstart fails",
     () => {
       const harness = makeHarness();
@@ -1198,7 +1209,7 @@ describe("remote deploy transaction behavior", () => {
         const result = harness.run({
           FAKE_CANDIDATE_KICKSTART_FAIL: "1",
         });
-        expect(result.status).toBe(13);
+        expect(result.status, result.stderr).toBe(13);
         expect(result.stderr).toContain("NEW_LAUNCHD_PID_NOT_PROVEN");
         expect(result.stderr).toContain("DEPLOY_FORWARD_REPAIR_REQUIRED");
         expect(readFileSync(harness.executablePath, "utf8")).toBe(
