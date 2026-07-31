@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { createReadStream } from "node:fs";
 import { access, chmod, lstat, readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -5,28 +7,45 @@ import { fileURLToPath } from "node:url";
 
 const packagePath = fileURLToPath(new URL("../package.json", import.meta.url));
 
-const safeSegment = (value: unknown, label: string): string => {
-  if (typeof value !== "string" || value.length === 0 || /[\\/\0]/u.test(value)) {
-    throw new Error(`invalid Linux runtime ${label}`);
-  }
+const SEMVER = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
+
+const requireSemver = (value: unknown): string => {
+  if (typeof value !== "string" || !SEMVER.test(value)) throw new Error("invalid Linux runtime version");
   return value;
 };
 
 export const linuxRuntimeArtifactName = ({ version, arch }: { readonly version: unknown; readonly arch: unknown }): string => {
-  const resolvedArch = safeSegment(arch, "architecture");
+  const resolvedArch = arch;
   if (resolvedArch !== "x64") throw new Error(`Linux runtime requires x64, got ${resolvedArch}`);
-  return `vellum-runtime-${safeSegment(version, "version")}-linux-${resolvedArch}`;
+  return `vellum-runtime-${requireSemver(version)}-linux-${resolvedArch}`;
 };
 
 export const linuxRuntimeArchiveName = (input: { readonly version: unknown; readonly arch: unknown }): string =>
   `${linuxRuntimeArtifactName(input)}.tar.gz`;
 
+export const linuxRuntimeTarArguments = (platform: NodeJS.Platform): ReadonlyArray<string> =>
+  platform === "linux"
+    ? ["--sort=name", "--mtime=@0", "--format=gnu", "--numeric-owner", "--owner=1000", "--group=1000"]
+    : [];
+
 export const validateLinuxRuntimeArchive = ({ archive, artifactName }: { readonly archive: string; readonly artifactName: string }): void => {
   const result = spawnSync("/usr/bin/tar", ["--list", "--verbose", "--gzip", "--file", archive], { encoding: "utf8", shell: false });
   if (result.status !== 0) throw new Error(`tar archive inspection failed: ${result.stderr.trim()}`);
-  const lines = result.stdout.trimEnd().split("\n");
-  if (lines.length === 0 || lines.some((line) => !line.endsWith(` ${artifactName}/`) && !line.includes(` ${artifactName}/`))) throw new Error("runtime archive has an unexpected root");
-  if (lines.some((line) => /\broot\/root\b/u.test(line))) throw new Error("runtime archive records root ownership");
+  const lines = result.stdout.trimEnd().split("\n").filter(Boolean);
+  if (lines.length === 0) throw new Error("runtime archive is empty");
+  let rootDirectory = false;
+  for (const line of lines) {
+    const type = line[0];
+    if (type !== "-" && type !== "d") throw new Error("runtime archive contains a link or special entry");
+    const fields = line.trim().split(/\s+/u);
+    const entry = fields.at(-1);
+    if (entry === undefined || entry.startsWith("/") || entry.includes("//") || entry.split("/").some((part) => part === ".." || part === ".")) throw new Error("runtime archive contains an unsafe path");
+    const isRoot = entry === artifactName || entry === `${artifactName}/`;
+    if (!isRoot && !entry.startsWith(`${artifactName}/`)) throw new Error("runtime archive has an unexpected root");
+    if (isRoot && type === "d") rootDirectory = true;
+    if (/\b(?:root\/root|0\/0)\b/u.test(line)) throw new Error("runtime archive records root ownership");
+  }
+  if (!rootDirectory) throw new Error("runtime archive has no root directory");
 };
 
 const executableNames = new Set([
@@ -56,8 +75,11 @@ const normalizeModes = async (root: string, relative = ""): Promise<void> => {
   }
 };
 
-const sha256 = async (value: Uint8Array): Promise<string> =>
-  Buffer.from(await crypto.subtle.digest("SHA-256", value as unknown as BufferSource)).toString("hex");
+const sha256File = async (file: string): Promise<string> => {
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(file)) hash.update(chunk);
+  return hash.digest("hex");
+};
 
 export const finalizeLinuxRuntimeArtifact = async ({ releaseDirectory, version, arch }: {
   readonly releaseDirectory: string;
@@ -71,6 +93,10 @@ export const finalizeLinuxRuntimeArtifact = async ({ releaseDirectory, version, 
   const archive = path.join(release, linuxRuntimeArchiveName({ version, arch }));
   const manifest = path.join(release, `${artifactName}.manifest.json`);
   await access(source);
+  const sourceMetadata = await lstat(source);
+  if (!sourceMetadata.isDirectory() || sourceMetadata.isSymbolicLink()) {
+    throw new Error("Linux runtime source must be a non-symlink directory");
+  }
   for (const candidate of [artifact, archive, manifest]) {
     await stat(candidate).then(() => { throw new Error(`runtime artifact already exists: ${candidate}`); }, (error: unknown) => {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
@@ -79,12 +105,13 @@ export const finalizeLinuxRuntimeArtifact = async ({ releaseDirectory, version, 
   await rename(source, artifact);
   await chmod(artifact, 0o755);
   await normalizeModes(artifact);
-  // Archive ownership is deliberately non-root metadata. Extraction as the
-  // operator produces an operator-owned release without package-manager help.
-  const tar = spawnSync("/usr/bin/tar", ["--create", "--gzip", "--file", archive, "--owner=vellum", "--group=vellum", artifactName], { cwd: release, encoding: "utf8", shell: false });
+  // Linux is the only supported builder. Numeric archive metadata is portable
+  // across builders and cannot require an account named after the product.
+  const reproducibleArguments = linuxRuntimeTarArguments(process.platform);
+  const tar = spawnSync("/usr/bin/tar", ["--create", "--gzip", "--file", archive, ...reproducibleArguments, artifactName], { cwd: release, encoding: "utf8", shell: false });
   if (tar.status !== 0) throw new Error(`tar archive creation failed: ${tar.stderr.trim()}`);
   validateLinuxRuntimeArchive({ archive, artifactName });
-  const digest = await sha256(await readFile(archive));
+  const digest = await sha256File(archive);
   await writeFile(manifest, `${JSON.stringify({ schema: "vellum/linux-userland-runtime/v1", version, arch: "x64", artifact: artifactName, archive: path.basename(archive), sha256: digest }, null, 2)}\n`, { encoding: "utf8", flag: "wx", mode: 0o644 });
   return { artifact, archive, manifest, digest };
 };
