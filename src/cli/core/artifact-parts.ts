@@ -1,9 +1,15 @@
-import { readFile } from "node:fs/promises";
 import { Effect } from "effect";
 import type { ArtifactPublishCliArgs } from "../../shared/work-control";
+import type { ContentPart } from "../../shared/work-model";
 import { InputError } from "./errors";
 
-/** CLI boundary: read path-based raw parts into bytesBase64. Never sent as path on the wire. */
+/**
+ * CLI boundary for artifact parts.
+ *
+ * Binary bytes are no longer read and Base64-encoded into the work socket.
+ * The content service/CLI ingest surface must produce a ContentRef first;
+ * this adapter only passes ref-only parts through to artifact.publish.
+ */
 export const materializeArtifactParts = (
   input: ArtifactPublishCliArgs,
 ): Effect.Effect<
@@ -20,7 +26,7 @@ export const materializeArtifactParts = (
       | { kind: "text"; text: string }
       | { kind: "url"; url: string; mediaType?: string }
       | { kind: "data"; data: unknown }
-      | { kind: "raw"; bytesBase64: string; mediaType?: string }
+      | ContentPart
     >;
   },
   InputError
@@ -28,38 +34,22 @@ export const materializeArtifactParts = (
   Effect.gen(function* () {
     const parts = yield* Effect.forEach(input.parts, (part, index) =>
       Effect.gen(function* () {
-        if (part.kind === "text" || part.kind === "url" || part.kind === "data") {
+        if (
+          part.kind === "text" ||
+          part.kind === "url" ||
+          part.kind === "data" ||
+          part.kind === "content"
+        ) {
           return part;
         }
-        // raw
-        if (part.bytesBase64 && part.bytesBase64.length > 0) {
-          return {
-            kind: "raw" as const,
-            bytesBase64: part.bytesBase64,
-            ...(part.mediaType !== undefined ? { mediaType: part.mediaType } : {}),
-          };
-        }
-        if (!part.path) {
-          return yield* Effect.fail(
-            new InputError({
-              message: "raw part requires path or bytesBase64",
-              path: `parts[${index}]`,
-            }),
-          );
-        }
-        const bytes = yield* Effect.tryPromise({
-          try: () => readFile(part.path!),
-          catch: (cause) =>
-            new InputError({
-              message: cause instanceof Error ? cause.message : "failed to read artifact path",
-              path: part.path,
-            }),
-        });
-        return {
-          kind: "raw" as const,
-          bytesBase64: bytes.toString("base64"),
-          ...(part.mediaType !== undefined ? { mediaType: part.mediaType } : {}),
-        };
+        return yield* Effect.fail(
+          new InputError({
+            message:
+              "inline binary artifact parts are retired; ingest the file through the content service and pass a ContentRef part",
+            path: `parts[${index}]`,
+            hint: "use {kind: \"content\", ref: {sha256, byteLength, mediaType}}",
+          }),
+        );
       }),
     );
 

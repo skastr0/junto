@@ -12,6 +12,7 @@ import {
   ContentUnavailable,
   decodeContentRef,
   hasInlineBinaryPayload,
+  validateDurableParts,
 } from "../src/shared/content";
 
 const sha256 = "a".repeat(64);
@@ -111,6 +112,23 @@ describe("content object contract", () => {
     expect(hasInlineBinaryPayload({ parts: [{ kind: "content", ref }] })).toBe(false);
     expect(hasInlineBinaryPayload({ parts: [{ kind: "raw", bytesBase64: "aA==" }] })).toBe(true);
     expect(hasInlineBinaryPayload({ nested: [{ dataBase64: "aA==" }] })).toBe(true);
+  });
+
+  it("admits content parts but rejects inline bytes at the durable parts boundary", () => {
+    expect(
+      validateDurableParts([
+        { kind: "text", text: "caption" },
+        { kind: "content", ref },
+      ]),
+    ).toBeUndefined();
+    expect(validateDurableParts([{ kind: "raw", bytesBase64: "aA==" }])).toMatch(
+      /ContentRef.*Base64/,
+    );
+    expect(
+      validateDurableParts([
+        { kind: "content", ref, extra: true },
+      ]),
+    ).toMatch(/valid ContentRef part/);
   });
 
   it("does not cap content at the old media attachment size", () => {

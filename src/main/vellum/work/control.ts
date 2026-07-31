@@ -73,6 +73,7 @@ import {
 } from "./blocked-seat";
 import { PausePlane } from "../pause-plane";
 import { seatPaused } from "@shared/pause";
+import { validateNoInlineBinaryPayload } from "@shared/content";
 
 /** Ops that act on the factory — refused for paused seats. Reads stay open. */
 const MUTATING_OPS: ReadonlySet<string> = new Set([
@@ -391,6 +392,24 @@ const decodeArgs = <A, I>(
   return Either.right(decoded.right);
 };
 
+const rejectInlineBinaryArgs = (
+  value: unknown,
+  path: string,
+): WorkErrorBody | undefined => {
+  const violation = validateNoInlineBinaryPayload(value);
+  return violation === undefined
+    ? undefined
+    : {
+        type: "InputError",
+        message: violation,
+        details: {
+          path,
+          hint: "ingest the bytes through the content service and pass a ContentRef part",
+          retryable: false,
+        },
+      };
+};
+
 // ---------------------------------------------------------------------------
 // Dispatch
 
@@ -659,6 +678,8 @@ const dispatchOp = (
     if (op === "tasks.create") {
       const decoded = decodeArgs(TasksCreateArgs, args);
       if (Either.isLeft(decoded)) return yield* Effect.fail(decoded.left);
+      const inlineBinaryError = rejectInlineBinaryArgs(decoded.right.media, "args.media");
+      if (inlineBinaryError !== undefined) return yield* Effect.fail(inlineBinaryError);
       const gate = requireTarget(board, caller.nodeId, decoded.right.target, op);
       if ("type" in gate) return yield* Effect.fail(gate);
       const actor = resolveProcessBoundActorRef(read.actorRefs, caller);
@@ -958,6 +979,8 @@ const dispatchOp = (
     if (op === "artifact.publish") {
       const decoded = decodeArgs(ArtifactPublishArgs, args);
       if (Either.isLeft(decoded)) return yield* Effect.fail(decoded.left);
+      const inlineBinaryError = rejectInlineBinaryArgs(decoded.right.parts, "args.parts");
+      if (inlineBinaryError !== undefined) return yield* Effect.fail(inlineBinaryError);
       const gate = requireTarget(board, caller.nodeId, decoded.right.target, op);
       if ("type" in gate) return yield* Effect.fail(gate);
       const parts = decoded.right.parts as Part[];

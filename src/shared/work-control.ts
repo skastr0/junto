@@ -1,6 +1,11 @@
 import { Either, Schema } from "effect";
 import { TaskState, WorkMetadata } from "./canvas";
-import { CompletionEvidence, FinishCriteria, RawPart } from "./work-model";
+import {
+  CompletionEvidence,
+  ContentPart,
+  FinishCriteria,
+  RawPart,
+} from "./work-model";
 
 // Work control-plane wire contract: NDJSON frames over a local Unix domain
 // socket at ~/.vellum/work/control.sock. Pure module — no Node imports — so
@@ -192,8 +197,10 @@ export const TasksCreateArgs = Schema.Struct({
   brief: Schema.String,
   reason: Schema.optionalWith(Schema.String, { exact: true }),
   metadata: Schema.optionalWith(WorkMetadata, { exact: true }),
-  /** First-class media on the brief (raw image parts; same as Task history[0]). */
-  media: Schema.optionalWith(Schema.Array(RawPart), { exact: true }),
+  /** First-class media on the brief. RawPart decodes for legacy clients but is rejected at durable write. */
+  media: Schema.optionalWith(Schema.Array(Schema.Union(RawPart, ContentPart)), {
+    exact: true,
+  }),
   /** Same-sink hard prerequisites (task ids). Carried onto minted Task on approve. */
   dependsOn: Schema.optionalWith(Schema.Array(Schema.String), {
     exact: true,
@@ -308,7 +315,7 @@ export const makeStopDirective = (input: {
     "Wait for the operator to answer the request on the canvas, then retry work ops (or call vellum onboard).",
 });
 
-/** Wire form after CLI has inlined file bytes as base64 raw parts. */
+/** Artifact wire parts: text/data stay inline; binary media is a ContentRef. */
 export const ArtifactPartWire = Schema.Union(
   Schema.Struct({ kind: Schema.Literal("text"), text: Schema.String }),
   Schema.Struct({
@@ -322,6 +329,7 @@ export const ArtifactPartWire = Schema.Union(
     bytesBase64: Schema.String,
     mediaType: Schema.optionalWith(Schema.String, { exact: true }),
   }),
+  ContentPart,
 );
 
 export const ArtifactTaskArgs = Schema.Struct({
@@ -343,7 +351,7 @@ export const ArtifactPublishArgs = Schema.Struct({
 });
 export type ArtifactPublishArgs = typeof ArtifactPublishArgs.Type;
 
-/** CLI-only: raw parts may carry a filesystem path; CLI reads + b64s. */
+/** CLI-only input: legacy raw path/bytes forms decode for a fail-closed migration error. */
 export const ArtifactPartCli = Schema.Union(
   Schema.Struct({ kind: Schema.Literal("text"), text: Schema.String }),
   Schema.Struct({
@@ -358,6 +366,7 @@ export const ArtifactPartCli = Schema.Union(
     path: Schema.optionalWith(Schema.String, { exact: true }),
     mediaType: Schema.optionalWith(Schema.String, { exact: true }),
   }),
+  ContentPart,
 );
 
 export const ArtifactPublishCliArgs = Schema.Struct({

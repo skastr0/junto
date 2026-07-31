@@ -12,6 +12,7 @@ import {
 } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ActorSeatId } from "../src/shared/actor-seat";
+import { ContentRef } from "../src/shared/content";
 import {
   InstallationId,
   type InstallationId as InstallationIdValue,
@@ -108,8 +109,9 @@ const message = (
 const seedInstallations = (
   installations: ReadonlyArray<InstallationIdValue>,
   local: InstallationIdValue,
+  engine: Context.Tag.Service<typeof StateEngine> = state,
 ) =>
-  state.transaction("test.seed-installations", (writer) => {
+  engine.transaction("test.seed-installations", (writer) => {
     for (const installation of installations) {
       writer.run(
         `
@@ -194,6 +196,192 @@ afterAll(async () => {
 });
 
 describe("WorkRepository v2 local authority", () => {
+  it("persists ContentRef parts and rejects inline binary on new work writes", async () => {
+    const isolatedRoot = join(tmpdir(), `vellum-content-contract-${randomUUID()}`);
+    const isolatedRuntime = ManagedRuntime.make(
+      Layer.provideMerge(
+        WorkRepositoryLive,
+        makeStateEngineLive(join(isolatedRoot, "vellum.db")),
+      ),
+    );
+    try {
+      const isolatedRepository = await isolatedRuntime.runPromise(WorkRepository);
+      const isolatedState = await isolatedRuntime.runPromise(StateEngine);
+      const isolatedInstallation = Schema.decodeUnknownSync(InstallationId)(
+        "content-contract-cc",
+      );
+      await isolatedRuntime.runPromise(
+        seedInstallations([isolatedInstallation], isolatedInstallation, isolatedState),
+      );
+      const contentRef = Schema.decodeUnknownSync(ContentRef)({
+        sha256: "1".repeat(64),
+        byteLength: 12_345,
+        mediaType: "video/mp4",
+        displayName: "clip.mp4",
+      });
+      const taskSink = { canvasName: "factory", nodeId: "content-task-sink" };
+      const task = {
+        id: "content-task-1",
+        state: "submitted" as const,
+        history: [
+          {
+            messageId: "content-task-brief",
+            role: "user" as const,
+            taskId: "content-task-1",
+            contextId: "factory",
+            parts: [
+              { kind: "text" as const, text: "Review the clip" },
+              { kind: "content" as const, ref: contentRef },
+            ],
+          },
+        ],
+      };
+      await isolatedRuntime.runPromise(
+        isolatedRepository.createTask({
+          sink: taskSink,
+          basis: authorialBasis,
+          task,
+          originAt: observedAt,
+          receivedAt: observedAt,
+        }),
+      );
+      const snapshot = await isolatedRuntime.runPromise(
+        isolatedRepository.readSnapshot(taskSink.canvasName, taskSink.nodeId),
+      );
+      expect(snapshot.tasks.items[0]?.history[0]?.parts).toEqual(task.history[0].parts);
+      const storedTaskParts = await isolatedRuntime.runPromise(
+        isolatedState.read("test.read-content-task-parts", (reader) =>
+          reader.get<{ readonly parts_json: string }>(
+            `SELECT parts_json FROM work_task_messages
+             WHERE canvas_name = ? AND node_id = ? AND item_id = ?`,
+            [taskSink.canvasName, taskSink.nodeId, task.id],
+          )?.parts_json,
+        ),
+      );
+      expect(storedTaskParts).toContain('"kind":"content"');
+      expect(storedTaskParts).not.toContain("bytesBase64");
+      const storedTaskFact = await isolatedRuntime.runPromise(
+        isolatedState.read("test.read-content-task-fact", (reader) =>
+          reader.get<{ readonly result_json: string }>(
+            `SELECT facts.result_json
+             FROM work_facts AS facts
+             JOIN work_events AS events
+               ON events.event_home = facts.event_home
+              AND events.entity_home = facts.entity_home
+              AND events.seq = facts.seq
+             WHERE events.operation = 'task.create'
+               AND events.item_id = ?`,
+            [task.id],
+          )?.result_json,
+        ),
+      );
+      expect(storedTaskFact).toContain('"kind":"content"');
+      expect(storedTaskFact).not.toContain("bytesBase64");
+
+      const mailbox = { canvasName: "factory", nodeId: "content-mailbox" };
+      const contentMessage = {
+        messageId: "content-message-1",
+        role: "agent" as const,
+        parts: [{ kind: "content" as const, ref: contentRef }],
+        contextId: "factory",
+      };
+      await isolatedRuntime.runPromise(
+        isolatedRepository.appendMessage({
+          sink: mailbox,
+          basis: authorialBasis,
+          message: contentMessage,
+          sentBy: actor,
+          destination: { kind: "mailbox" },
+          originAt: observedAt,
+          receivedAt: observedAt,
+        }),
+      );
+      const storedMessageParts = await isolatedRuntime.runPromise(
+        isolatedState.read("test.read-content-message-parts", (reader) =>
+          reader.get<{ readonly parts_json: string }>(
+            `SELECT parts_json FROM work_messages
+             WHERE canvas_name = ? AND node_id = ? AND message_id = ?`,
+            [mailbox.canvasName, mailbox.nodeId, contentMessage.messageId],
+          )?.parts_json,
+        ),
+      );
+      expect(storedMessageParts).toContain('"kind":"content"');
+      expect(storedMessageParts).not.toContain("bytesBase64");
+
+      const artifactSink = { canvasName: "factory", nodeId: "content-artifacts" };
+      const artifact = {
+        artifactId: "content-artifact-1",
+        parts: [{ kind: "content" as const, ref: contentRef }],
+      };
+      await isolatedRuntime.runPromise(
+        isolatedRepository.publishArtifact({
+          sink: artifactSink,
+          basis: authorialBasis,
+          artifact,
+          publishedBy: actor,
+          originAt: observedAt,
+          receivedAt: observedAt,
+        }),
+      );
+      const storedArtifactParts = await isolatedRuntime.runPromise(
+        isolatedState.read("test.read-content-artifact-parts", (reader) =>
+          reader.get<{ readonly parts_json: string }>(
+            `SELECT parts_json FROM work_artifacts
+             WHERE canvas_name = ? AND node_id = ? AND artifact_id = ?`,
+            [artifactSink.canvasName, artifactSink.nodeId, artifact.artifactId],
+          )?.parts_json,
+        ),
+      );
+      expect(storedArtifactParts).toContain('"kind":"content"');
+      expect(storedArtifactParts).not.toContain("bytesBase64");
+
+      const rawMessageResult = await isolatedRuntime.runPromise(
+        isolatedRepository
+          .appendMessage({
+            sink: mailbox,
+            basis: authorialBasis,
+            message: {
+              messageId: "inline-message-rejected",
+              role: "agent",
+              parts: [{ kind: "raw", bytesBase64: "aA==" }],
+              contextId: "factory",
+            },
+            sentBy: actor,
+            destination: { kind: "mailbox" },
+            originAt: observedAt,
+            receivedAt: observedAt,
+          })
+          .pipe(Effect.either),
+      );
+      expect(Either.isLeft(rawMessageResult)).toBe(true);
+      if (Either.isLeft(rawMessageResult)) {
+        expect(rawMessageResult.left).toMatchObject({
+          message: expect.stringMatching(/ContentRef.*Base64/),
+        });
+      }
+
+      const rawArtifactResult = await isolatedRuntime.runPromise(
+        isolatedRepository
+          .publishArtifact({
+            sink: artifactSink,
+            basis: authorialBasis,
+            artifact: {
+              artifactId: "inline-artifact-rejected",
+              parts: [{ kind: "raw", bytesBase64: "aA==" }],
+            },
+            publishedBy: actor,
+            originAt: observedAt,
+            receivedAt: observedAt,
+          })
+          .pipe(Effect.either),
+      );
+      expect(Either.isLeft(rawArtifactResult)).toBe(true);
+    } finally {
+      await isolatedRuntime.dispose();
+      await rm(isolatedRoot, { recursive: true, force: true });
+    }
+  });
+
   it("rejects unconfigured local mutation without writing any Work row", async () => {
     const unconfiguredRoot = join(
       tmpdir(),

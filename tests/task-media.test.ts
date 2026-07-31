@@ -1,7 +1,10 @@
+import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
+import { ContentRef } from "../src/shared/content";
 import {
   base64DecodedByteLength,
   isTaskMediaPart,
+  taskContentParts,
   taskMediaParts,
   validateTaskMediaParts,
 } from "../src/shared/task";
@@ -11,6 +14,33 @@ const PNG =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
 describe("task media helpers", () => {
+  it("accepts ref-only content media without an inline size budget", () => {
+    const contentRef = Schema.decodeUnknownSync(ContentRef)({
+      sha256: "a".repeat(64),
+      byteLength: 900_000_000,
+      mediaType: "video/mp4",
+    });
+    const task: Task = {
+      id: "content-task",
+      state: "submitted",
+      history: [
+        {
+          messageId: "content-brief",
+          role: "user",
+          parts: [
+            { kind: "text", text: "inspect" },
+            {
+              kind: "content",
+              ref: contentRef,
+            },
+          ],
+        },
+      ],
+    };
+    expect(validateTaskMediaParts(task.history[0]?.parts.slice(1))).toBeUndefined();
+    expect(taskContentParts(task)).toHaveLength(1);
+  });
+
   it("accepts raw image parts and rejects disallowed types", () => {
     expect(
       validateTaskMediaParts([

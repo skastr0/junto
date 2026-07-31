@@ -218,6 +218,18 @@ function PartView({
       </div>
     );
   }
+  if (part.kind === "content") {
+    return (
+      <div className="work-ledger-part work-ledger-part--raw">
+        <FileBox size={18} />
+        <div>
+          <strong>{part.ref.mediaType}</strong>
+          <span>{formatBytes(part.ref.byteLength)}</span>
+          <small>Content unavailable in this projection</small>
+        </div>
+      </div>
+    );
+  }
   return (
     <pre className="work-ledger-part work-ledger-part--data">
       {JSON.stringify(part.data, null, 2)}

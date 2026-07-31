@@ -1,10 +1,13 @@
 import { Schema } from "effect";
 import { ActorSeatId } from "./actor-seat";
 import { ActorRef, TaskRef } from "./work-reference";
+import { ContentPart } from "./content";
 
-// ContentRef is the portable binary-media contract.  The current protocol-3
-// Part union remains frozen on RawPart until the complete next Station codec
-// lands; exporting the contract here lets the migration share one schema.
+// ContentRef is the portable binary-media contract. RawPart remains in the
+// union for decoding installed history and old Station records, but new
+// durable writes reject it at the repository boundary. Keeping both shapes
+// readable lets the domain migrate without fabricating identity for bytes
+// already stored in an installed database.
 export {
   ContentAvailability,
   ContentByteLength,
@@ -22,8 +25,11 @@ export {
   ContentSha256,
   ContentUnavailable,
   ContentTimestamp,
+  decodeContentPart,
   decodeContentRef,
   hasInlineBinaryPayload,
+  isContentPart,
+  validateDurableParts,
   validateNoInlineBinaryPayload,
 } from "./content";
 
@@ -61,7 +67,13 @@ export const RawPart = Schema.Struct({
 });
 export type RawPart = typeof RawPart.Type;
 
-export const Part = Schema.Union(TextPart, UrlPart, DataPart, RawPart);
+export const Part = Schema.Union(
+  TextPart,
+  UrlPart,
+  DataPart,
+  RawPart,
+  ContentPart,
+);
 export type Part = typeof Part.Type;
 
 export const MessageRole = Schema.Literal("user", "agent");

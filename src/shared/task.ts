@@ -4,6 +4,7 @@ import type {
   Artifact,
   Message,
   Part,
+  ContentPart,
   TaskState,
 } from "./work-model";
 import type { ActorSeatId } from "./actor-seat";
@@ -128,9 +129,12 @@ export const countByTaskState = (
 
 export const makeTextParts = (text: string): Part[] => [{ kind: "text", text }];
 
-/** Per-attachment cap for first-class task media (raw bytes after base64 decode). */
+/**
+ * Legacy inline-media limits retained only for old callers that still build
+ * RawPart values in memory. ContentPart references have no attachment-size
+ * ceiling here; storage and transfer planes own admission/backpressure.
+ */
 export const TASK_MEDIA_MAX_BYTES = 4 * 1024 * 1024;
-/** Aggregate raw-byte budget across all media parts on one brief. */
 export const TASK_MEDIA_MAX_TOTAL_BYTES = 6 * 1024 * 1024;
 
 const TASK_MEDIA_TYPES = new Set([
@@ -146,13 +150,24 @@ export const isTaskMediaPart = (
   part: Part,
 ): part is Extract<Part, { kind: "raw" }> =>
   part.kind === "raw" &&
-  typeof part.mediaType === "string" &&
-  TASK_MEDIA_TYPES.has(part.mediaType.trim().toLowerCase().split(";")[0]?.trim() ?? "");
+    typeof part.mediaType === "string" &&
+    TASK_MEDIA_TYPES.has(part.mediaType.trim().toLowerCase().split(";")[0]?.trim() ?? "");
 
-export const taskMediaParts = (task: Task): ReadonlyArray<Extract<Part, { kind: "raw" }>> => {
+export const taskMediaParts = (
+  task: Task,
+): ReadonlyArray<Extract<Part, { kind: "raw" }>> => {
   const first = task.history[0];
   if (!first) return [];
   return first.parts.filter(isTaskMediaPart);
+};
+
+/** Ref-only media in the brief; unlike legacy taskMediaParts this has no size cap. */
+export const taskContentParts = (task: Task): ReadonlyArray<ContentPart> => {
+  const first = task.history[0];
+  if (!first) return [];
+  return first.parts.filter(
+    (part): part is ContentPart => part.kind === "content",
+  );
 };
 
 /** Approximate decoded size of a base64 payload (ignores padding edge cases by ~3 bytes). */
@@ -164,8 +179,11 @@ export const base64DecodedByteLength = (bytesBase64: string): number => {
 };
 
 /**
- * Validate operator-supplied task media parts before they enter durable history.
- * Rejects non-raw shapes, unknown media types, empty payloads, and size breaches.
+ * Validate operator-supplied task media parts before they enter the task
+ * authoring projection. ContentPart is the durable binary form and is not
+ * size-limited here. RawPart remains accepted by this pure legacy helper so
+ * installed callers can be migrated without changing the canvas transform;
+ * repository writes apply the stricter no-inline guard.
  */
 export const validateTaskMediaParts = (
   media: ReadonlyArray<Part> | undefined,
@@ -174,8 +192,11 @@ export const validateTaskMediaParts = (
   let total = 0;
   for (let index = 0; index < media.length; index += 1) {
     const part = media[index]!;
+    if (part.kind === "content") {
+      continue;
+    }
     if (part.kind !== "raw") {
-      return `media[${index}] must be a raw part`;
+      return `media[${index}] must be a raw part or ContentRef part`;
     }
     const mediaType = part.mediaType?.trim().toLowerCase().split(";")[0]?.trim() ?? "";
     if (!TASK_MEDIA_TYPES.has(mediaType)) {

@@ -164,15 +164,29 @@ export const ContentAvailability = Schema.Union(
 export type ContentAvailability = typeof ContentAvailability.Type;
 
 /**
- * Next-codec work part.  It is deliberately not added to the closed current
- * protocol-3 `Part` union here; the protocol bump and domain migration must be
- * one exact Station codec cut, with no v3 down-conversion to Base64.
+ * Ref-only work part. RawPart remains readable as a legacy union member, but
+ * new durable task/message/artifact writes must use this shape.
  */
 export const ContentPart = Schema.Struct({
   kind: Schema.Literal("content"),
   ref: ContentRef,
 });
 export type ContentPart = typeof ContentPart.Type;
+
+/** Strict decoder used by ingress adapters that accept only a ref part. */
+export const decodeContentPart = Schema.decodeUnknownEither(ContentPart, {
+  onExcessProperty: "error",
+});
+
+/** Runtime narrowing helper for mixed legacy/new Part arrays. */
+export const isContentPart = (value: unknown): value is ContentPart => {
+  try {
+    Schema.decodeUnknownSync(ContentPart, { onExcessProperty: "error" })(value);
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 const INLINE_BINARY_KEYS = new Set(["bytesBase64", "dataBase64"]);
 
@@ -204,6 +218,42 @@ export const validateNoInlineBinaryPayload = (
   hasInlineBinaryPayload(value)
     ? "binary media must be carried by ContentRef, never inline Base64"
     : undefined;
+
+/**
+ * Admission guard for new durable part arrays.
+ *
+ * RawPart is intentionally still decodable for installed history, but it is
+ * not an admissible representation for a new task/message/artifact write.
+ * ContentPart carries only immutable identity and descriptive metadata; the
+ * bytes remain in the content service/data plane.
+ */
+export const validateDurableParts = (
+  parts: ReadonlyArray<unknown>,
+  field = "parts",
+): string | undefined => {
+  if (!Array.isArray(parts)) return `${field} must be an array`;
+  for (let index = 0; index < parts.length; index += 1) {
+    const part = parts[index];
+    if (hasInlineBinaryPayload(part)) {
+      return `${field}[${index}] binary media must be carried by ContentRef, never inline Base64`;
+    }
+    if (
+      part !== null &&
+      typeof part === "object" &&
+      !Array.isArray(part) &&
+      (part as { readonly kind?: unknown }).kind === "content"
+    ) {
+      try {
+        Schema.decodeUnknownSync(ContentPart, {
+          onExcessProperty: "error",
+        })(part);
+      } catch {
+        return `${field}[${index}] is not a valid ContentRef part`;
+      }
+    }
+  }
+  return undefined;
+};
 
 export const decodeContentRef = Schema.decodeUnknownEither(ContentRef, {
   onExcessProperty: "error",

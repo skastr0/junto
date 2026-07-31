@@ -244,25 +244,21 @@ describe("schema/examples from validating schemas", () => {
   });
 });
 
-describe("artifact path materialization", () => {
-  it("reads path parts to base64 raw parts", async () => {
+describe("artifact content admission", () => {
+  it("rejects path parts instead of Base64-encoding them", async () => {
     const dir = mkdtempSync(join(tmpdir(), "vellum-art-"));
     const path = join(dir, "x.bin");
     writeFileSync(path, Buffer.from([1, 2, 3, 4]));
-    const wire = await Effect.runPromise(
-      materializeArtifactParts({
-        target: "art1",
-        name: "report",
-        task: { target: "tasks", id: "task-1" },
-        parts: [{ kind: "raw", path }],
-      } satisfies Schema.Schema.Type<typeof ArtifactPublishCliArgs>),
-    );
-    expect(wire.parts[0]).toEqual({
-      kind: "raw",
-      bytesBase64: Buffer.from([1, 2, 3, 4]).toString("base64"),
-    });
-    expect("path" in (wire.parts[0] as object)).toBe(false);
-    expect(wire.task).toEqual({ target: "tasks", id: "task-1" });
+    await expect(
+      Effect.runPromise(
+        materializeArtifactParts({
+          target: "art1",
+          name: "report",
+          task: { target: "tasks", id: "task-1" },
+          parts: [{ kind: "raw", path }],
+        } satisfies Schema.Schema.Type<typeof ArtifactPublishCliArgs>),
+      ),
+    ).rejects.toThrow(/ContentRef/);
   });
 
   it("exposes only the exact task reference in artifact publish v2", () => {
