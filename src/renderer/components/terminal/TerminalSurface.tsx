@@ -493,7 +493,7 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
       alive = false;
       // Only bookmark a fully attached surface. Mid-attach store would overwrite
       // a good pin bookmark with empty-buffer state and lose scroll position.
-      if (attachDone) {
+      if (attachDone && termRef.current === term) {
         const epoch = epochRef.current;
         if (epoch && bindingId) {
           try {
