@@ -31,7 +31,7 @@
 - [Work plane & CLI](#work-plane--cli)
 - [Browser automation](#browser-automation)
 - [Herdr terminals](#herdr-terminals)
-- [Kernel: regions, pulse, watchers, timers](#kernel-regions-pulse-watchers-timers)
+- [Kernel: regions, watchers, timers](#kernel-regions-watchers-timers)
 - [Station roles & multi-host fleet](#station-roles--multi-host-fleet)
 - [Settings & install](#settings--install)
 - [Headless tools](#headless-tools)
@@ -63,7 +63,7 @@ Managing agents is overwhelming.
 - **A2A work plane** — tasks, requests, input-required, messages, and artifacts with protocol, not chat chaos
 - **Vellum CLI** — control surface agents use so work happens without freeform canvas thrash
 - **Browser pages as first-class nodes** — same plane as agents and terminals
-- **Regions, pulse, and watchers** — operational geography; the document is the product (portable JSON Canvas)
+- **Regions and watchers** — operational geography; the document is the product (portable JSON Canvas)
 
 ### Is / is not
 
@@ -133,21 +133,21 @@ Derived state (blocked seats, region membership, binding health, live phase) is 
 | **Text** | Free note; also the carrier for many ether entity kinds | Notes and typed entities share one geometry |
 | **File** | Points at a filesystem path (`file`, optional `subpath`) | Board links to docs without embedding blobs |
 | **Link** | URL card; becomes a **page** when browser binding is set | Same geometry for bookmarks vs live browser |
-| **Group (region)** | Named geography; optional label/background | Operational regions that hold and pulse children |
+| **Group (region)** | Named geography; optional label/background | Operational geography containers |
 
 ### Entity kinds (open vocabulary, richer UI)
 
 | Kind | Base | What it is | Why it matters |
 |---|---|---|---|
-| **agent** | text | Hermes profile card; key `<host>:<profile>`; ACP chat | Live agent presence, chat, and pulse target |
+| **agent** | text | Hermes profile card; key `<host>:<profile>`; ACP chat | Live agent presence and managed-terminal seat |
 | **terminal** | text | Native Vellum PTY session (`ether.terminal`) | Default local terminal work surface |
 | **herdr** | text | Optional legacy bound PTY pane | Compatibility with existing herdr fleets |
 | **page** | link | Bound browser page + profile name | Browser as a first-class fleet surface |
 | **task** | text | Address for a normalized SQLite task sink | Protocol tasks, not chat chaos |
 | **requests** | text | Address for a normalized input-required shelf | Operator attention queue |
 | **artifacts** | text | Address for a normalized artifact shelf | Shareable outputs on the board |
-| **watcher** | text | Predicate over live data (`ether.watch`) | Edge-routed pulse when conditions hit |
-| **timer** | text | Interval clock (`ether.timer.everyMinutes`) | Periodic edge-routed pulse |
+| **watcher** | text | Predicate over live data (`ether.watch`) | Hermes stat threshold status (sensor only) |
+| **timer** | text | Interval clock (`ether.timer.everyMinutes`) | Interval clock (`nextFire` UI only) |
 | **project / orbit / plugin / station / skill** | text | Inert open-vocabulary labels | Portfolio geography without invented runtime authority |
 
 ### Structural stamps
@@ -275,19 +275,19 @@ Connection states: connected · degraded · lost · failed · reconnect. Clipboa
 
 ---
 
-## Kernel: regions, pulse, watchers, timers
+## Kernel: regions, watchers, timers
 
 | Piece | What it does |
 |---|---|
 | **Region** | Group node + `ether.region` — operational geography |
 | **Membership** | Center-in-rect geometry (flat; no nested groups) — derived, never stored |
-| **Watcher** | Predicate → pulse (`stat_threshold`) |
-| **Timer** | `everyMinutes` pulse |
+| **Watcher** | Predicate → status (`stat_threshold`) |
+| **Timer** | `everyMinutes` schedule |
 | **Arming** | Per canvas::region switch in app-owned SQLite runtime state — **not in the document** |
-| **Pulse** | Watcher/timer → edge-connected eligible agents; manual region pulse may target eligible members |
+| **Agent turns** | Factory claim, work messages, board notify, managed-terminal UI — not region broadcast |
 | **Host-scoped fire** | Remote stations only fire nodes on their hostId |
 
-Settings → Kernel: pulse log retention, verbose debug. Arming faults and orphan armed keys surface in station chrome.
+Settings → Kernel: verbose debug only. Region pulse/arming product is retired.
 
 ---
 
@@ -396,16 +396,16 @@ Quit detaches control streams only. Hosts are enrolled through Settings.
 
 ---
 
-## Kernel: regions, pulse, watchers, timers
+## Kernel: regions, watchers, timers
 
 | Piece | Role |
 |---|---|
 | **Region** | Group + operational geography |
 | **Membership** | Center-in-rect geometry (flat) — derived |
-| **Watcher** | `stat_threshold` → pulse |
-| **Timer** | `everyMinutes` pulse |
+| **Watcher** | `stat_threshold` status |
+| **Timer** | `everyMinutes` schedule |
 | **Arming** | Per region switch in the app — **not stored in the document** |
-| **Pulse** | Watcher/timer → edge-connected eligible agents; manual region pulse may target eligible members |
+| **Agent turns** | Factory claim, work messages, board notify, managed-terminal UI — not region broadcast |
 | **Host-scoped fire** | Remotes only fire nodes on their hostId |
 
 ---
@@ -501,16 +501,16 @@ only. Hosts are enrolled through Settings.
 
 ---
 
-## Kernel: regions, pulse, watchers, timers
+## Kernel: regions, watchers, timers
 
 | Piece | Role |
 |---|---|
 | **Region** | Operational geography |
 | **Membership** | Center-in-rect (flat) — derived |
-| **Watcher** | `stat_threshold` → pulse |
-| **Timer** | `everyMinutes` pulse |
+| **Watcher** | `stat_threshold` status |
+| **Timer** | `everyMinutes` schedule |
 | **Arming** | App-owned SQLite runtime-state switch — **not in the document** |
-| **Pulse** | Edge-routed watcher/timer delivery; manual region pulse may target eligible members |
+| **Agent turns** | Factory claim, work messages, board notify, managed-terminal UI — not region broadcast |
 | **Host-scoped fire** | Remotes fire only their hostId |
 
 ---
@@ -549,12 +549,12 @@ serve catalog lives in Settings.
 | **text / note** | Free note or entity carrier |
 | **file** | Filesystem path card |
 | **link / page** | URL; page = live browser binding |
-| **group / region** | Operational geography + pulse |
+| **group / region** | Operational geography |
 | **agent** | Hermes profile + ACP chat |
 | **terminal** | Native PTY session; local sessions end on app quit |
 | **herdr** | Optional legacy bound PTY pane |
 | **task / requests / artifacts** | A2A work stores |
-| **watcher / timer** | Kernel pulse sources |
+| **watcher / timer** | Kernel sensors / clocks |
 
 See [Node types](#node-types) detail in prior sections of this README (native types, entity kinds, flags, host stamps, region defaults).
 
@@ -573,7 +573,7 @@ See [Node types](#node-types) detail in prior sections of this README (native ty
 
 | Kind | Role |
 |---|---|
-| **agent** | Hermes `<host>:<profile>` + ACP chat + pulse target |
+| **agent** | Hermes / managed agent seat |
 | **terminal** | Native PTY binding; default terminal surface; onDelete detach \| kill |
 | **herdr** | Legacy PTY pane binding; onDelete detach \| kill-pane |
 | **page** | Browser page + profile; cookies persist |
@@ -581,7 +581,7 @@ See [Node types](#node-types) detail in prior sections of this README (native ty
 | **requests** | Input-required shelf |
 | **artifacts** | Published artifact shelf |
 | **watcher** | `stat_threshold` |
-| **timer** | `everyMinutes` pulse |
+| **timer** | `everyMinutes` schedule |
 | **project / orbit / plugin / station / skill** | Document vocabulary labels |
 
 #### Edges
@@ -641,7 +641,7 @@ vellum-browser goto | eval | shot | close | stop
 ## Herdr · Kernel · Stations · Hosts
 
 - **Herdr** — canvas cards bound to PTY panes; wizard bind; detach-on-quit; multi-host registry
-- **Kernel** — regions, watchers, timers, arming (app-local, not in document), host-scoped pulse
+- **Kernel** — regions, watchers, timers (status/clock only; no region pulse inject)
 - **Stations** — Command Center vs Remote (never inferred); complete Station API projections
 - **Hosts** — app-owned SQLite registry; optional Tailscale serve catalog
 
