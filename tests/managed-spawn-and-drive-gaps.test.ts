@@ -16,12 +16,19 @@ import {
 import {
   nodeHasActionableFactoryEdge,
   launchForManagedSpawn,
+  shouldAvoidSharedHarnessResume,
 } from "../src/main/vellum/term/managed-spawn-plan";
 import { __setSessionExistenceHomeForTest } from "../src/main/vellum/term/session-existence";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
+
+const originalVellumHome = process.env.VELLUM_HOME;
+afterEach(() => {
+  if (originalVellumHome === undefined) delete process.env.VELLUM_HOME;
+  else process.env.VELLUM_HOME = originalVellumHome;
+});
 
 describe("CJS headless interop (boot gate)", () => {
   it("require('@xterm/headless') exposes Terminal constructor", () => {
@@ -259,6 +266,8 @@ describe("managed spawn plan", () => {
   });
 
   it("re-passes Codex model, effort, and approval on resume", () => {
+    // Isolation (VELLUM_HOME) forces resume off; this case is production path.
+    delete process.env.VELLUM_HOME;
     const home = mkdtempSync(join(tmpdir(), "vellum-codex-resume-"));
     __setSessionExistenceHomeForTest(home);
     try {
@@ -286,6 +295,78 @@ describe("managed spawn plan", () => {
         "resume", "thread_123", "-m", "gpt-5", "-c",
         'model_reasoning_effort="high"', "-a", "never",
       ]));
+    } finally {
+      __setSessionExistenceHomeForTest(undefined);
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("isolated VELLUM_HOME refuses shared pin resume and mints a fresh session", () => {
+    process.env.VELLUM_HOME = "/tmp/vellum-dev-isolated-home";
+    expect(shouldAvoidSharedHarnessResume()).toBe(true);
+    const prodSession = "0c813489-ff73-4f9d-af00-96adc0d63d94";
+    const { launch } = launchForManagedSpawn({
+      doc: baseDoc(true),
+      nodeId: "worker",
+      harness: "grok",
+      sessionId: prodSession,
+      resume: true,
+      documentLaunch: {
+        kind: "harness",
+        argv: [
+          "grok",
+          "-r",
+          prodSession,
+          "-m",
+          "grok-4.5",
+          "--permission-mode",
+          "default",
+        ],
+        cwd: "/Users/op/Projects/vellum",
+      },
+    });
+    expect(launch?.argv).toBeDefined();
+    expect(launch?.argv).not.toContain("-r");
+    expect(launch?.argv).not.toContain(prodSession);
+    expect(launch?.argv).toEqual(
+      expect.arrayContaining(["--session-id"]),
+    );
+    const sidIdx = launch!.argv!.indexOf("--session-id");
+    const fresh = launch!.argv![sidIdx + 1];
+    expect(fresh).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
+    expect(fresh).not.toBe(prodSession);
+  });
+
+  it("production (no VELLUM_HOME) still resumes a proven Grok pin", () => {
+    delete process.env.VELLUM_HOME;
+    const home = mkdtempSync(join(tmpdir(), "vellum-grok-resume-"));
+    __setSessionExistenceHomeForTest(home);
+    try {
+      const sid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+      const sessionDir = join(
+        home,
+        ".grok",
+        "sessions",
+        encodeURIComponent("/work"),
+        sid,
+      );
+      mkdirSync(sessionDir, { recursive: true });
+      const { launch } = launchForManagedSpawn({
+        harness: "grok",
+        sessionId: sid,
+        resume: true,
+        cwd: "/work",
+        documentLaunch: {
+          kind: "harness",
+          argv: ["grok", "--session-id", sid],
+          cwd: "/work",
+        },
+      });
+      expect(launch?.argv).toEqual(
+        expect.arrayContaining(["-r", sid]),
+      );
     } finally {
       __setSessionExistenceHomeForTest(undefined);
       rmSync(home, { recursive: true, force: true });
