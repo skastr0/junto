@@ -150,8 +150,10 @@ export function EtherEdge({
         obstacles,
         padding: 14,
         borderRadius: 8,
+        sourceDirection: sourcePosition,
+        targetDirection: targetPosition,
       }),
-    [sourceX, sourceY, targetX, targetY, obstacles],
+    [sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, obstacles],
   );
 
   const path = routed?.path ?? fallbackPath;

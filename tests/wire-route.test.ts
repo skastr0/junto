@@ -126,4 +126,48 @@ describe("routeWire", () => {
     // detoured may be false for early L/Z candidates.
     expect(typeof routed!.path).toBe("string");
   });
+
+  it("finds a corner route through a dense obstacle layout", () => {
+    // The old global-union candidates all collided here even though a clear
+    // path exists through the individual obstacle corners. This is the shape
+    // that previously sent EtherEdge to the awkward smooth-step fallback.
+    const routed = routeWire({
+      source: { x: 0, y: 0 },
+      target: { x: 400, y: 300 },
+      obstacles: [
+        { x: 10, y: 300, width: 70, height: 50 },
+        { x: 320, y: 130, width: 80, height: 20 },
+        { x: 190, y: -10, width: 20, height: 60 },
+      ],
+      padding: 14,
+      borderRadius: 8,
+      sourceDirection: "bottom",
+      targetDirection: "left",
+    });
+
+    expect(routed).not.toBeNull();
+    expect(routed!.detoured).toBe(true);
+    expect(routed!.path).toContain("Q ");
+  });
+
+  it("relaxes clearance before falling back when adjacent cards leave a narrow gap", () => {
+    const routed = routeWire({
+      source: { x: 82, y: 0 },
+      target: { x: 228, y: 300 },
+      obstacles: [
+        { x: 0, y: 27, width: 80, height: 550 },
+        { x: 90, y: 300, width: 500, height: 290 },
+      ],
+      padding: 14,
+      borderRadius: 8,
+      sourceDirection: "bottom",
+      targetDirection: "left",
+    });
+
+    expect(routed).not.toBeNull();
+    // The route exits above the cards rather than following the lower card's
+    // top border, which is the visual regression captured in the attachment.
+    expect(routed!.path).toContain("M 82,0 L 82,12");
+    expect(routed!.path).not.toContain("M 82,0 L 82,292");
+  });
 });
