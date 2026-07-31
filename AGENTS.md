@@ -158,23 +158,23 @@ kinds are inert furniture. Watch sources are closed to `hermes`; retired
 private-source bindings and excess document fields fail strict decode rather
 than being rewritten.
 
-## Kernel: watchers, timers, region pulse
+## Kernel: watchers and timers
 
-Region activation gated by three structures (`src/shared/canvas.ts`):
+Region pulse product is **retired** (no arm/pulse UI, no prompt inject from
+watchers/timers/manual). Agent turns come from factory claim, work messages,
+board notify, and the managed-terminal seat UI — not geometry broadcasts.
 
-**EtherWatch**: `{ kind: "stat_threshold", source, key, stat, op, value, flagOnUnsatisfied }`. Predicate on live hermes data only. Rising edge into `satisfied` fires a pulse; first observation is always baseline.
+**EtherWatch**: `{ kind: "stat_threshold", source, key, stat, op, value, flagOnUnsatisfied }`. Predicate on live hermes data only. Rising edge into `satisfied` updates derived watcher status; first observation is always baseline. Does **not** inject into agent seats.
 
-**EtherTimer** (123–126): `{ everyMinutes }`. Bare pulse on interval.
+**EtherTimer**: `{ everyMinutes }`. Durable home-scoped schedule; projects `nextFire` for UI. Does **not** inject into agent seats.
 
-**EtherRegion** (88–92): `{ hold, instruction }` on group nodes. `hold: true` = structural container. `instruction` is briefing context appended to a pulse. Watchers/timers deliver only to edge-connected eligible agents; a manual region pulse may target eligible agents inside.
+**EtherRegion**: `{ hold, instruction }` on group nodes. Geography + optional operator briefing text (document furniture). Not a delivery fan-out.
 
 **Scheduler laws**: (1) Watcher truth is derived, never authorial document
-state. (2) A watcher or timer executes only on its single home installation.
-(3) `everyMinutes` catch-up coalesces missed intervals into at most one firing;
-future timer kinds must declare a catch-up policy explicitly. (4) Arming is
-runtime control, not authored canvas intent. Wall-clock timestamps are display
-and due-time metadata only; fleet ordering uses route-local
-`(event_home, entity_home, seq)` Work identities.
+state. (2) A watcher or timer evaluates only on its single home installation.
+(3) `everyMinutes` catch-up coalesces missed intervals into at most one due
+tick. Wall-clock timestamps are display and due-time metadata only; fleet
+ordering uses route-local `(event_home, entity_home, seq)` Work identities.
 
 ## Sources (read-only adapters)
 

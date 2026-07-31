@@ -12,7 +12,7 @@ Authority, work phase, and operator attention are three distinct planes. Edges
 are object capabilities. Roles are derived from entity kind. Occupancy is live
 state of a seat, never authored as a permanent grant.
 
-This document is the north star for agent authz, work control, region pulse,
+This document is the north star for agent authz, work control, region geography,
 and any surface that lets a process act on host-adjacent resources through
 Vellum.
 
@@ -74,8 +74,8 @@ process on that installation to exercise host-adjacent ops.
 |------|---------------|------------------|
 | **Actor** | `agent` only | Vellum-spawned template terminal; occupies one host-local seat and wields outbound edges under process-bind |
 | **Sink** | `task`, `requests`, `artifacts`, `page` | Receives ops; target of inbound capability |
-| **Scheduler** | `watcher`, `timer` | Pulses regions; does not hold user-facing seats |
-| **Region** | group + `ether.region` | Geography + pulse briefing container |
+| **Scheduler** | `watcher`, `timer` | Status/clock sensors; does not hold seats or inject prompts |
+| **Region** | group + `ether.region` | Geography + optional briefing text |
 | **Geography / furniture** | raw `terminal`, notes, labels, unknown/open-vocab kinds (incl. retired `project` strings) | Spatial or operator surface; no actor seat, inbox, work claim, or ocap wield |
 
 **Forbidden:** `ether.role` (or any authorial role field) as the source of truth.
@@ -195,7 +195,7 @@ placement, or network reach alone authorizes nothing.
 | Signal | Owner | Scope | Does it grant edges? |
 |--------|-------|-------|----------------------|
 | **Trust** | Org / station policy | Who may run as which profile, which hosts exist | No — only who can occupy seats that already have edges |
-| **Attention** | Operator | Where the human is looking / what needs them | No — only prioritizes UI and pulse delivery |
+| **Attention** | Operator | Where the human is looking / what needs them | No — only prioritizes UI |
 
 Trust admits *people and hosts* into the factory. Attention routes *human
 scarce time*. Neither rewrites the ocap graph.
@@ -211,9 +211,9 @@ current capabilities and whose phase or occupancy will change.
   (no multi-hop relay cascade).
 - Cone never includes “everything in the region” without edges.
 
-Region `instruction` supplies briefing context. Watcher/timer pulses deliver
-only to edge-connected eligible agents; geometry does not mint a route. A
-manual region pulse remains an explicit operator action over eligible members.
+Region `instruction` is optional operator briefing text on geography.
+Region pulse inject is retired; agents receive turns via factory claim, work
+messages, board notify, and the managed-terminal seat UI.
 
 ### 7. Fail closed (authz)
 
@@ -249,7 +249,7 @@ the act can touch the OS.
 | Non-goal | Why |
 |----------|-----|
 | **ACL matrix** (principal × resource × verb tables) | Ocaps + edges scale with the drawn factory; matrices diverge from the document |
-| **Ambient region grants** | Region is geography + pulse, not a security domain |
+| **Ambient region grants** | Region is geography, not a security domain |
 | **Authorial `ether.role`** | Role is derived from kind; mirrors stay derived |
 | **Client-supplied identity** | Process-bind only; no `VELLUM_NODE_REF` claims |
 | **Encoding occupancy in the authorial document as authority** | Occupancy is live; restart re-baselines seats |
@@ -268,7 +268,7 @@ the act can touch the OS.
 | Process-bind (peer PID) | Occupant admission to seat |
 | `authz` / `ScopeError` | Capability plane enforcement |
 | Derived `blocks` / `relates` | Phase plane (stoppage vs soft relate; no depends) |
-| Region `instruction` + watchers/timers | Briefing context + edge-routed scheduler pulse |
+| Region `instruction` + watchers/timers | Briefing text + status/clock sensors (no inject) |
 | Digest / render | Read-only projections; no capability mint |
 
 Vocabulary note: the live source plane and watcher source schema are
@@ -287,7 +287,7 @@ they are not degraded through a compatibility rewrite. Unknown
 | Work control authz | `src/main/vellum/work/authz.ts` |
 | Control socket + ScopeError | `src/main/vellum/work/control.ts` |
 | Process-bind identity | `src/main/vellum/process-identity.ts` |
-| Kernel pulse / watchers | `src/main/vellum/kernel/` |
+| Kernel watchers / timers | `src/main/vellum/kernel/` |
 | Machine safety (host seal) | `docs/architecture-machine-safety.md` |
 
 ---
