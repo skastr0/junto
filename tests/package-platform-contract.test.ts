@@ -282,6 +282,14 @@ describe("native package pipeline contract", () => {
     );
     expect(afterPack).toContain("file.handle.chmod(file.mode)");
     expect(afterPack).toContain("(metadata.mode & 0o7777) !== file.mode");
+    expect(afterPack).toMatch(
+      /procDescriptorPath\(\s*artifact\.root\.handle,\s*"chrome-sandbox",?\s*\)/u,
+    );
+    expect(afterPack).toContain("await unlink(chromeSandboxPath)");
+    expect(afterPack).toContain("chromeSandboxHandleMetadata.nlink !== 0");
+    expect(afterPack).toContain(
+      "Linux package artifact still contains chrome-sandbox",
+    );
     expect(afterPack).toContain(
       "artifact.fixedFiles.values()].map((file) => file.handle.close())",
     );
@@ -313,7 +321,8 @@ describe("native package pipeline contract", () => {
     expect(profile).toContain('profile vellum "/opt/Vellum Command/vellum" flags=(unconfined)');
     expect(profile.match(/\buserns,/gu)).toHaveLength(1);
     expect(profile).not.toMatch(/network,|capability,|mount,|ptrace,|signal,/u);
-    expect(afterInstall).toContain("chmod 0755 \"$CHROME_SANDBOX\"");
+    expect(afterInstall).not.toContain("CHROME_SANDBOX");
+    expect(afterInstall).not.toContain("--disable-setuid-sandbox");
     expect(afterInstall).toContain("detect_sandbox_capability()");
     expect(afterInstall).toContain(
       "/usr/sbin/runuser -u nobody -- /usr/bin/unshare --user --map-root-user /usr/bin/true",

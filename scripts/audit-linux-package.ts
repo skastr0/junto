@@ -501,6 +501,9 @@ export const validateDebArchive = (
     ["./usr/share/icons/hicolor/1024x1024/apps/", "drwxr-xr-x"],
     ["./usr/share/icons/hicolor/1024x1024/apps/vellum.png", "-rw-r--r--"],
   ]);
+  const chromeSandboxArchivePath = path.posix.normalize(
+    `${installPrefix}chrome-sandbox`,
+  );
   const installed = entries.filter(
     (entry) =>
       entry.path === `.${LINUX_INSTALL_DIRECTORY}` ||
@@ -527,6 +530,11 @@ export const validateDebArchive = (
       if (entry.mode !== expectedMode || entry.linkTarget !== undefined) {
         throw new Error(`deb system destination type or mode mismatch: ${entry.path}`);
       }
+    }
+    if (path.posix.normalize(entry.path) === chromeSandboxArchivePath) {
+      throw new Error(
+        "deb must not package Chromium's setuid sandbox helper",
+      );
     }
     if (entry.mode[0] !== "l" && (entry.mode[5] === "w" || entry.mode[8] === "w")) {
       throw new Error(`deb archive path is group/world writable: ${entry.path}`);
@@ -561,7 +569,6 @@ export const validateDebArchive = (
   }
   const requiredModes = new Map([
     [`${installPrefix}vellum`, "-rwxr-xr-x"],
-    [`${installPrefix}chrome-sandbox`, "-rwxr-xr-x"],
     [`${installPrefix}resources/bin/vellum`, "-rwxr-xr-x"],
     [`${installPrefix}resources/bin/vellum-browser`, "-rwxr-xr-x"],
     [`${installPrefix}resources/bin/vellum-station`, "-rwxr-xr-x"],
@@ -827,6 +834,25 @@ const requireRegularMode = async (
   if (!metadata.isFile() || (metadata.mode & 0o7777) !== mode) {
     throw new Error(`Linux package file mode mismatch: ${path.basename(filePath)}`);
   }
+};
+
+const requireAbsent = async (
+  filePath: string,
+  label: string,
+): Promise<void> => {
+  try {
+    await lstat(filePath);
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      error.code === "ENOENT"
+    ) {
+      return;
+    }
+    throw error;
+  }
+  throw new Error(`${label} must be absent`);
 };
 
 const requireElfX64 = async (filePath: string): Promise<void> => {
@@ -1163,7 +1189,7 @@ export const auditLinuxPackage = async ({
 
     await Promise.all([
       requireRegularMode(mainExecutable, 0o755),
-      requireRegularMode(chromeSandbox, 0o755),
+      requireAbsent(chromeSandbox, "deb chrome-sandbox"),
       requireRegularMode(workCli, 0o755),
       requireRegularMode(browserCli, 0o755),
       requireRegularMode(stationCli, 0o755),

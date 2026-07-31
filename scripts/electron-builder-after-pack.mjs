@@ -5,6 +5,7 @@ import {
   lstat,
   open,
   readFile,
+  unlink,
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
@@ -121,6 +122,21 @@ const sameIdentity = (left, right) =>
 const procDescriptorPath = (handle, relativePath = "") =>
   path.posix.join("/proc/self/fd", String(handle.fd), relativePath);
 
+const lstatIfPresent = async (candidate) => {
+  try {
+    return await lstat(candidate);
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      error.code === "ENOENT"
+    ) {
+      return undefined;
+    }
+    throw error;
+  }
+};
+
 const fixedRelativePath = (candidate) => {
   if (
     typeof candidate !== "string" ||
@@ -177,6 +193,7 @@ const admitLinuxArtifact = async (candidate) => {
   );
   let rootHandle;
   let executableHandle;
+  let chromeSandboxHandle;
   const fixedDirectories = new Map();
   const fixedFiles = new Map();
   try {
@@ -215,6 +232,9 @@ const admitLinuxArtifact = async (candidate) => {
       );
     }
     const artifact = {
+      chromeSandbox: {
+        state: "absent",
+      },
       executable: undefined,
       fixedDirectories,
       fixedFiles,
@@ -233,6 +253,49 @@ const admitLinuxArtifact = async (candidate) => {
         },
       },
     };
+    const chromeSandboxPath = procDescriptorPath(
+      artifact.root.handle,
+      "chrome-sandbox",
+    );
+    const chromeSandboxPathMetadata =
+      await lstatIfPresent(chromeSandboxPath);
+    if (chromeSandboxPathMetadata !== undefined) {
+      if (
+        chromeSandboxPathMetadata.isSymbolicLink() ||
+        !chromeSandboxPathMetadata.isFile() ||
+        chromeSandboxPathMetadata.nlink !== 1
+      ) {
+        throw new Error(
+          "Linux package chrome-sandbox must be a privately owned regular file",
+        );
+      }
+      chromeSandboxHandle = await open(
+        chromeSandboxPath,
+        fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW,
+      );
+      const chromeSandboxHandleMetadata =
+        await chromeSandboxHandle.stat();
+      if (
+        !chromeSandboxHandleMetadata.isFile() ||
+        chromeSandboxHandleMetadata.nlink !== 1 ||
+        !sameIdentity(
+          chromeSandboxPathMetadata,
+          chromeSandboxHandleMetadata,
+        )
+      ) {
+        throw new Error(
+          "Linux package chrome-sandbox identity changed during admission",
+        );
+      }
+      artifact.chromeSandbox = {
+        handle: chromeSandboxHandle,
+        identity: {
+          dev: chromeSandboxHandleMetadata.dev,
+          ino: chromeSandboxHandleMetadata.ino,
+        },
+        state: "linked",
+      };
+    }
     for (const relativePath of LINUX_FIXED_MODE_DIRECTORIES) {
       const admittedPath = fixedRelativePath(relativePath);
       const candidatePath = procDescriptorPath(
@@ -351,6 +414,7 @@ const admitLinuxArtifact = async (candidate) => {
       ...[...fixedDirectories.values()].map((directory) =>
         directory.handle.close(),
       ),
+      chromeSandboxHandle?.close(),
       executableHandle?.close(),
       rootHandle?.close(),
       releaseHandle.close(),
@@ -385,6 +449,59 @@ const assertLinuxArtifactIdentity = async (artifact) => {
     !sameIdentity(rootHandleMetadata, artifact.root.identity)
   ) {
     throw new Error("Linux package artifact root identity changed");
+  }
+  const chromeSandboxPath = procDescriptorPath(
+    artifact.root.handle,
+    "chrome-sandbox",
+  );
+  const chromeSandboxPathMetadata =
+    await lstatIfPresent(chromeSandboxPath);
+  if (artifact.chromeSandbox.state === "absent") {
+    if (chromeSandboxPathMetadata !== undefined) {
+      throw new Error(
+        "Linux package artifact still contains chrome-sandbox",
+      );
+    }
+  } else {
+    const chromeSandboxHandleMetadata =
+      await artifact.chromeSandbox.handle.stat();
+    if (
+      !chromeSandboxHandleMetadata.isFile() ||
+      !sameIdentity(
+        chromeSandboxHandleMetadata,
+        artifact.chromeSandbox.identity,
+      )
+    ) {
+      throw new Error("Linux package chrome-sandbox identity changed");
+    }
+    if (artifact.chromeSandbox.state === "linked") {
+      if (
+        chromeSandboxPathMetadata === undefined ||
+        chromeSandboxPathMetadata.isSymbolicLink() ||
+        !chromeSandboxPathMetadata.isFile() ||
+        chromeSandboxPathMetadata.nlink !== 1 ||
+        chromeSandboxHandleMetadata.nlink !== 1 ||
+        !sameIdentity(
+          chromeSandboxPathMetadata,
+          artifact.chromeSandbox.identity,
+        )
+      ) {
+        throw new Error("Linux package chrome-sandbox identity changed");
+      }
+    } else if (artifact.chromeSandbox.state === "retired") {
+      if (chromeSandboxPathMetadata !== undefined) {
+        throw new Error(
+          "Linux package artifact still contains chrome-sandbox",
+        );
+      }
+      if (chromeSandboxHandleMetadata.nlink !== 0) {
+        throw new Error(
+          "Linux package chrome-sandbox removal was not stable",
+        );
+      }
+    } else {
+      throw new Error("invalid Linux package chrome-sandbox state");
+    }
   }
   for (const [relativePath, directory] of artifact.fixedDirectories) {
     const [pathMetadata, handleMetadata] = await Promise.all([
@@ -449,6 +566,34 @@ const assertLinuxArtifactIdentity = async (artifact) => {
   }
 };
 
+const omitLinuxChromeSandbox = async (artifact) => {
+  await assertLinuxArtifactIdentity(artifact);
+  if (artifact.chromeSandbox.state === "absent") return;
+  if (artifact.chromeSandbox.state !== "linked") {
+    throw new Error("Linux package chrome-sandbox was already retired");
+  }
+  const chromeSandbox = artifact.chromeSandbox;
+  const chromeSandboxPath = procDescriptorPath(
+    artifact.root.handle,
+    "chrome-sandbox",
+  );
+  await unlink(chromeSandboxPath);
+  artifact.chromeSandbox = {
+    ...chromeSandbox,
+    state: "retired",
+  };
+  const chromeSandboxHandleMetadata =
+    await chromeSandbox.handle.stat();
+  if (
+    !chromeSandboxHandleMetadata.isFile() ||
+    chromeSandboxHandleMetadata.nlink !== 0 ||
+    !sameIdentity(chromeSandboxHandleMetadata, chromeSandbox.identity)
+  ) {
+    throw new Error("Linux package chrome-sandbox removal was not stable");
+  }
+  await assertLinuxArtifactIdentity(artifact);
+};
+
 const applyFixedLinuxArtifactModes = async (artifact) => {
   await assertLinuxArtifactIdentity(artifact);
   for (const [relativePath, file] of artifact.fixedFiles) {
@@ -474,6 +619,9 @@ const closeLinuxArtifact = async (artifact) => {
     ...[...artifact.fixedDirectories.values()].map((directory) =>
       directory.handle.close(),
     ),
+    ...(artifact.chromeSandbox.handle === undefined
+      ? []
+      : [artifact.chromeSandbox.handle.close()]),
     artifact.executable.handle.close(),
     artifact.root.handle.close(),
     artifact.release.handle.close(),
@@ -525,7 +673,7 @@ export default async function afterPack(context) {
         await chmod(resource, 0o755);
       }
     } else {
-      await assertLinuxArtifactIdentity(linuxArtifact);
+      await omitLinuxChromeSandbox(linuxArtifact);
       const runtimeVersion = await readFile(
         ELECTRON_RUNTIME_VERSION_PATH,
         "utf8",

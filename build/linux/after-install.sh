@@ -5,7 +5,6 @@ set -f
 
 APP_DIR='/opt/Vellum Command'
 EXECUTABLE="$APP_DIR/vellum"
-CHROME_SANDBOX="$APP_DIR/chrome-sandbox"
 WORK_CLI="$APP_DIR/resources/bin/vellum"
 BROWSER_CLI="$APP_DIR/resources/bin/vellum-browser"
 STATION_CLI="$APP_DIR/resources/bin/vellum-station"
@@ -38,7 +37,6 @@ require_regular_file() {
 
 for packaged_file in \
   "$EXECUTABLE" \
-  "$CHROME_SANDBOX" \
   "$WORK_CLI" \
   "$BROWSER_CLI" \
   "$STATION_CLI" \
@@ -143,9 +141,7 @@ else
 fi
 
 # The qualified sandbox capability is either the exact enabled AppArmor profile
-# or the unavailable-only userns probe. Keep Chromium's setuid helper inert.
-chown root:root "$CHROME_SANDBOX"
-chmod 0755 "$CHROME_SANDBOX"
+# or the unavailable-only userns probe. The package omits Chromium's setuid helper.
 chmod 0755 "$EXECUTABLE" "$WORK_CLI" "$BROWSER_CLI" "$STATION_CLI" "$PEER_PID_HELPER"
 chmod 0755 "$RELEASE_INSTALLER_SOURCE"
 chmod 0755 "$RELEASE_BRIDGE_SOURCE"

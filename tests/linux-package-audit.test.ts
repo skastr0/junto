@@ -98,7 +98,6 @@ drwxr-xr-x root/root 0 2026-07-22 00:00 ./usr/share/icons/hicolor/1024x1024/
 drwxr-xr-x root/root 0 2026-07-22 00:00 ./usr/share/icons/hicolor/1024x1024/apps/
 -rw-r--r-- root/root 1 2026-07-22 00:00 ./usr/share/icons/hicolor/1024x1024/apps/vellum.png
 -rwxr-xr-x root/root 1 2026-07-22 00:00 ./opt/Vellum Command/vellum
--rwxr-xr-x root/root 1 2026-07-22 00:00 ./opt/Vellum Command/chrome-sandbox
 drwxr-xr-x root/root 0 2026-07-22 00:00 ./opt/Vellum Command/resources/
 drwxr-xr-x root/root 0 2026-07-22 00:00 ./opt/Vellum Command/resources/bin/
 -rwxr-xr-x root/root 1 2026-07-22 00:00 ./opt/Vellum Command/resources/bin/vellum
@@ -255,7 +254,7 @@ describe("deb payload authority and modes", () => {
     expect(validateDebArchive(numericOwnerEntries).length).toBeGreaterThan(0);
   });
 
-  it("requires a root-owned immutable install tree and inert setuid helper", () => {
+  it("requires a root-owned immutable install tree without a setuid helper", () => {
     const entries = parseDebArchiveListing(
       archiveListing(
         "lrwxrwxrwx root/root 0 2026-07-22 00:00 ./opt/Vellum Command/resources/internal -> bin/vellum",
@@ -277,12 +276,25 @@ describe("deb payload authority and modes", () => {
     expect(() => validateDebArchive(parseDebArchiveListing(listing))).toThrow();
   });
 
-  it("rejects a setuid chrome-sandbox even when the rest of the archive is safe", () => {
-    const listing = archiveListing().replace(
-      "-rwxr-xr-x root/root 1 2026-07-22 00:00 ./opt/Vellum Command/chrome-sandbox",
-      "-rwsr-xr-x root/root 1 2026-07-22 00:00 ./opt/Vellum Command/chrome-sandbox",
+  it.each(["-rwxr-xr-x", "-rwsr-xr-x"])(
+    "rejects chrome-sandbox entirely at mode %s",
+    (mode) => {
+      const listing = archiveListing(
+        `${mode} root/root 1 2026-07-22 00:00 ./opt/Vellum Command/chrome-sandbox`,
+      );
+      expect(() =>
+        validateDebArchive(parseDebArchiveListing(listing)),
+      ).toThrow(/must not package Chromium's setuid sandbox helper/u);
+    },
+  );
+
+  it("rejects a normalized archive alias for chrome-sandbox", () => {
+    const listing = archiveListing(
+      "-rwxr-xr-x root/root 1 2026-07-22 00:00 ./opt/Vellum Command/./chrome-sandbox",
     );
-    expect(() => validateDebArchive(parseDebArchiveListing(listing))).toThrow(/elevated mode/u);
+    expect(() =>
+      validateDebArchive(parseDebArchiveListing(listing)),
+    ).toThrow(/must not package Chromium's setuid sandbox helper/u);
   });
 
   it("rejects the retired passwordless installer policy from the package tree", () => {
