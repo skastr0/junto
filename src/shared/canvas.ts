@@ -28,6 +28,7 @@ export {
   Part,
   RawPart,
   Task,
+  TaskProposal,
   TaskState,
   TextPart,
   UrlPart,

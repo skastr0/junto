@@ -45,6 +45,7 @@ import {
   type WorkIds,
 } from "@shared/work";
 import { taskIndexById, taskIsClaimReady } from "@shared/task-deps";
+import { operatorPlanningActorRef } from "@shared/work-reference";
 import type {
   ActorRef,
   IntentFactBasis as IntentFactBasisValue,
@@ -253,6 +254,17 @@ export class WorkService extends Context.Tag("@vellum/WorkService")<
       brief: string,
       metadata: WorkMetadata | undefined,
       proposedBy: ActorRef,
+      reason?: string,
+    ) => Effect.Effect<WorkOpResult<TaskProposal>>;
+    /**
+     * Command Center operator planning: mint a pending proposal without an
+     * agent seat (uses operatorPlanningActorRef). Not claimable until approve.
+     */
+    readonly workTaskProposeOperator: (
+      canvas: string,
+      nodeId: string,
+      brief: string,
+      metadata?: WorkMetadata,
       reason?: string,
     ) => Effect.Effect<WorkOpResult<TaskProposal>>;
     readonly workTaskApproveProposal: (
@@ -779,6 +791,56 @@ export const WorkLive = Layer.effect(
               context,
             );
             const node = yield* requireNode(read.doc, nodeId);
+            const policy = yield* runPolicy(() =>
+              workTaskPropose(
+                read.doc,
+                canvas,
+                nodeId,
+                brief,
+                metadata,
+                ids,
+                proposedBy,
+                reason,
+              )
+            );
+            const home = yield* homeForNode(node, context);
+            const outcome = home === context.localInstallationId
+              ? yield* local(
+                repository.createProposal({
+                  sink: sinkRef(canvas, nodeId),
+                  basis: intentBasis(context, read.intentWitness),
+                  proposal: policy.proposal,
+                }),
+              )
+              : yield* enqueue(
+                context,
+                home,
+                workItem("proposal", policy.proposal.id, canvas, nodeId),
+                { operation: "proposal.create", proposal: policy.proposal },
+                policy.proposal,
+              );
+            return yield* complete(canvas, outcome);
+          }),
+        ),
+
+      workTaskProposeOperator: (canvas, nodeId, brief, metadata, reason) =>
+        asResult(
+          Effect.gen(function* () {
+            const [context, read] = yield* Effect.all([
+              stationContext,
+              readCanvas(canvas),
+            ]);
+            if (context.configuration.role !== "command-center") {
+              return yield* Effect.fail(
+                new WorkServiceError({
+                  code: "invalid",
+                  message:
+                    "only the Command Center operator may author planning proposals",
+                }),
+              );
+            }
+            const node = yield* requireNode(read.doc, nodeId);
+            const proposedBy = operatorPlanningActorRef(canvas);
             const policy = yield* runPolicy(() =>
               workTaskPropose(
                 read.doc,

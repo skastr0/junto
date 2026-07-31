@@ -42,6 +42,21 @@ export const ActorRef = Schema.Struct({
 });
 export type ActorRef = typeof ActorRef.Type;
 
+/**
+ * Non-executable seat used when the Command Center operator authors a
+ * planning proposal. Not an actor principal — display only on the board
+ * (`Proposed by operator`). Never claim-capable.
+ */
+export const OPERATOR_PLANNING_SEAT_ID = Schema.decodeUnknownSync(ActorSeatId)(
+  `seat_${"c".repeat(64)}`,
+);
+
+export const operatorPlanningActorRef = (canvasName: string): ActorRef => ({
+  seatId: OPERATOR_PLANNING_SEAT_ID,
+  canvasName,
+  nodeId: "operator",
+});
+
 export const WorkItemKind = Schema.Literal(
   "task",
   "proposal",

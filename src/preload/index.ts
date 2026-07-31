@@ -475,6 +475,8 @@ const vellumApi: VellumApi = {
       dependsOn,
       finishCriteria,
     ),
+  workTaskPropose: (canvas, nodeId, brief, metadata, reason) =>
+    invoke(IPC_CHANNELS.workTaskPropose, IPC_TIMEOUT_MS, canvas, nodeId, brief, metadata, reason),
   workTaskApproveProposal: (canvas, nodeId, taskId) =>
     invoke(IPC_CHANNELS.workTaskApproveProposal, IPC_TIMEOUT_MS, canvas, nodeId, taskId),
   workTaskDescribe: (canvas, nodeId, taskId, brief) =>

@@ -17,6 +17,7 @@ export const MAIN_AUTHORING_LABELS = [
   "kernel.claim-tick",
   "startup.canvas.ensure-seed",
   "ipc.work.task-create",
+  "ipc.work.task-propose",
   "ipc.work.task-approve-proposal",
   "ipc.work.task-describe",
   "ipc.work.task-transition",

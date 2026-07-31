@@ -228,6 +228,7 @@ const makeKernelRuntime = (
         workTaskHome: () => Effect.dieMessage("unused work service"),
         workTaskCreate: () => Effect.dieMessage("unused work service"),
         workTaskPropose: () => Effect.dieMessage("unused work service"),
+        workTaskProposeOperator: () => Effect.dieMessage("unused work service"),
         workTaskApproveProposal: () => Effect.dieMessage("unused work service"),
         workTaskDescribe: () => Effect.dieMessage("unused work service"),
         workTaskTransition: () => Effect.dieMessage("unused work service"),

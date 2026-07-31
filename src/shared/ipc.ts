@@ -18,6 +18,7 @@ import type {
   TaskState,
   FinishCriteria,
   CompletionEvidence,
+  TaskProposal,
 } from "./canvas";
 import type {
   DemoCommand,
@@ -90,6 +91,7 @@ export const IPC_CHANNELS = {
   regionRollups: "vellum:region-rollups",
   // work plane (serialized canvas mutations)
   workTaskCreate: "vellum:work-task-create",
+  workTaskPropose: "vellum:work-task-propose",
   workTaskApproveProposal: "vellum:work-task-approve-proposal",
   workTaskDescribe: "vellum:work-task-describe",
   workTaskTransition: "vellum:work-task-transition",
@@ -605,6 +607,14 @@ export interface VellumApi extends LicenseApi, UpdateApi {
     dependsOn?: ReadonlyArray<string>,
     finishCriteria?: FinishCriteria,
   ) => Promise<WorkOpResult<Task>>;
+  /** Operator planning proposal — pending until Approve to Queue. */
+  readonly workTaskPropose: (
+    canvas: string,
+    nodeId: string,
+    brief: string,
+    metadata?: WorkMetadata,
+    reason?: string,
+  ) => Promise<WorkOpResult<TaskProposal>>;
   readonly workTaskApproveProposal: (
     canvas: string,
     nodeId: string,
