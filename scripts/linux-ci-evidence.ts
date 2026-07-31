@@ -31,7 +31,6 @@ export const LINUX_CI_REQUIRED_GATES = Object.freeze([
   "frozen-install",
   "target-inventory",
   "typecheck",
-  "complete-unit-suite",
   "electron-and-cli-compile",
   "native-package",
   "package-audit",

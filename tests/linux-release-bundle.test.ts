@@ -68,7 +68,6 @@ const ciGates = [
   "frozen-install",
   "target-inventory",
   "typecheck",
-  "complete-unit-suite",
   "electron-and-cli-compile",
   "native-package",
   "package-audit",

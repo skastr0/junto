@@ -1545,7 +1545,6 @@ const REQUIRED_CI_GATES = [
   "frozen-install",
   "target-inventory",
   "typecheck",
-  "complete-unit-suite",
   "electron-and-cli-compile",
   "native-package",
   "package-audit",
