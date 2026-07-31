@@ -131,16 +131,7 @@ describe("settings state architecture", () => {
 
     expect(offenders).toEqual([]);
 
-    // The sole remaining reference is a DEV-gated render profiler switch,
-    // never a product preference or production write path.
     const mainSource = await readFile(main, "utf8");
-    const executableMain = mainSource
-      .split("\n")
-      .filter((line) => !line.trimStart().startsWith("//"))
-      .join("\n");
-    expect(mainSource).toContain("import.meta.env.DEV");
-    expect(mainSource.match(/\blocalStorage\b/gu)).toHaveLength(2);
-    expect(executableMain.match(/\blocalStorage\b/gu)).toHaveLength(1);
-    expect(executableMain).not.toContain("localStorage.setItem(");
+    expect(mainSource).not.toMatch(/\blocalStorage\b/u);
   });
 });
