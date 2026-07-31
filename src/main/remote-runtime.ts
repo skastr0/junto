@@ -56,7 +56,10 @@ import {
   LicenseService,
   makeLicenseService,
 } from "./vellum/license/service";
-import { resolveReleaseDirectoryFromRemoteBinary } from "./vellum/supervision/install-user-service";
+import {
+  resolveCandidateRuntimeRootFromRemoteBinary,
+  resolveReleaseDirectoryFromRemoteBinary,
+} from "./vellum/supervision/install-user-service";
 import { resolve } from "node:path";
 
 // ---------------------------------------------------------------------------
@@ -66,13 +69,22 @@ import { resolve } from "node:path";
 /**
  * True when this process is a release-tree candidate or forced via env.
  * Used for sealed preflight admission and license build config.
+ * Staging extracts under ~/.vellum/runtime/staging/… count as packaged
+ * candidates so --vellum-state-preflight can run before activation.
  */
 export const isRemotePackaged = (
   binaryPath: string = process.argv[1] ?? process.execPath,
 ): boolean => {
   if (process.env.VELLUM_PACKAGED === "1") return true;
+  const absolute = resolve(binaryPath);
   try {
-    resolveReleaseDirectoryFromRemoteBinary(resolve(binaryPath));
+    resolveReleaseDirectoryFromRemoteBinary(absolute);
+    return true;
+  } catch {
+    // fall through to staging candidate
+  }
+  try {
+    resolveCandidateRuntimeRootFromRemoteBinary(absolute);
     return true;
   } catch {
     return false;

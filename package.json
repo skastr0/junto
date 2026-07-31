@@ -77,7 +77,7 @@
     "cli": "bun src/cli/main.ts",
     "cli:build": "bun build --compile --outfile dist/vellum src/cli/main.ts",
     "station:build": "bun build --compile --outfile dist/vellum-station scripts/station-cli.ts",
-    "remote:build": "bun scripts/build-linux-remote-runtime.ts --entry-only",
+    "remote:build": "bun scripts/build-vellum-remote.ts",
     "plugin:precompile": "bun scripts/precompile-vellum-plugin.ts"
   },
   "dependencies": {
@@ -171,10 +171,6 @@
       {
         "from": "dist/vellum-station",
         "to": "bin/vellum-station"
-      },
-      {
-        "from": "dist/vellum-remote",
-        "to": "bin/vellum-remote"
       },
       {
         "from": "scripts/unix-peer-pid.py",

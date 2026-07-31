@@ -25,7 +25,10 @@ import {
 
 export const INSTALL_USER_SERVICE_SWITCH = "--install-user-service" as const;
 
-const RELEASE_MARKER = "/resources/bin/vellum-remote" as const;
+/** Shell wrapper path (preferred product argv0 under a release). */
+const RELEASE_WRAPPER_MARKER = "/resources/bin/vellum-remote" as const;
+/** Bundled Node entry (wrapper execs node on this path). */
+const RELEASE_ENTRY_MARKER = "/resources/app-remote/vellum-remote.js" as const;
 const STATION_RELATIVE = "resources/bin/vellum-station" as const;
 const HELPER_RELATIVE = ".local/bin/vellum-station" as const;
 
@@ -81,13 +84,23 @@ const resolveRemoteBinaryRoot = (
   } catch {
     throw new Error("vellum-remote binary path is not resolvable");
   }
-  if (!isOwnedNonLinkFile(real, true)) {
-    throw new Error("vellum-remote binary must be an owned non-symlink executable");
+  const isWrapper = real.endsWith(RELEASE_WRAPPER_MARKER);
+  const isEntry = real.endsWith(RELEASE_ENTRY_MARKER);
+  if (!isWrapper && !isEntry) {
+    throw new Error(
+      "vellum-remote is not at resources/bin/vellum-remote or resources/app-remote/vellum-remote.js under a release",
+    );
   }
-  if (!real.endsWith(RELEASE_MARKER)) {
-    throw new Error("vellum-remote is not at resources/bin/vellum-remote under a release");
+  // Wrapper must be executable; the JS entry is loaded by bundled Node (may be 0644).
+  if (!isOwnedNonLinkFile(real, isWrapper)) {
+    throw new Error(
+      isWrapper
+        ? "vellum-remote binary must be an owned non-symlink executable"
+        : "vellum-remote entry must be an owned non-symlink file",
+    );
   }
-  const root = real.slice(0, -RELEASE_MARKER.length);
+  const marker = isWrapper ? RELEASE_WRAPPER_MARKER : RELEASE_ENTRY_MARKER;
+  const root = real.slice(0, -marker.length);
   if (!admit(root)) {
     throw new Error(`${label} is not under the owner-local userland runtime layout`);
   }

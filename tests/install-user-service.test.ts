@@ -68,6 +68,12 @@ describe("install-user-service path resolution", () => {
     expect(() => resolveReleaseDirectoryFromRemoteBinary(remote)).toThrow(
       /canonical immutable|userland runtime layout/u,
     );
+
+    const entryDir = join(stage, "resources", "app-remote");
+    mkdirSync(entryDir, { recursive: true, mode: 0o700 });
+    const entry = join(entryDir, "vellum-remote.js");
+    writeFileSync(entry, "export {};\n", { mode: 0o644 });
+    expect(resolveCandidateRuntimeRootFromRemoteBinary(entry)).toBe(stage);
   });
 
   it("rejects free-form paths outside userland runtime", () => {

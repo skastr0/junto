@@ -170,9 +170,6 @@ printf 'vellum: standalone browser CLI → dist/vellum-browser …\n'
 build_compiled_cli "$REPO_ROOT/dist/vellum-browser" scripts/browser-cli.ts
 printf 'vellum: standalone station CLI → dist/vellum-station …\n'
 build_compiled_cli "$REPO_ROOT/dist/vellum-station" scripts/station-cli.ts
-printf 'vellum: standalone remote CLI → dist/vellum-remote …\n'
-build_compiled_cli "$REPO_ROOT/dist/vellum-remote" scripts/vellum-remote-cli.ts
-
 if [[ "$COMPILE_ONLY" -eq 1 ]]; then
   printf 'vellum: compile-only done (out/ + standalone controls). Skip packaging.\n'
   exit 0
