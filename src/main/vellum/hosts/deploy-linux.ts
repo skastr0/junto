@@ -56,27 +56,119 @@ export const makeLinuxRemoteDeploymentProvider = (input: { readonly artifactAuth
   // (not a core failure). Explicit browser host requests fail closed upstream
   // before upload/activation — never offer sudo/Xvfb/Electron remediation.
   platform: "linux", supportsBrowser: false,
-  deploy: (request) => Effect.scoped(Effect.gen(function* () {
-    if (request.target.platform.platform !== "linux" || request.stationConfiguration.state !== "applied") return failure(request, "a configured Linux Remote is required", "validation");
-    const candidate = yield* Effect.tryPromise({ try: () => (input.artifactAuthorityBySource?.(request.artifactSource) ?? input.artifactAuthority).resolve(), catch: () => new Error("signed userland runtime archive unavailable") }).pipe(Effect.either);
-    if (candidate._tag === "Left" || !SEMVER.test(candidate.right.version) || !SHA256.test(candidate.right.sha256)) return failure(request, "signed userland runtime archive is invalid", "validation");
-    const preflight = yield* runPreflight(request).pipe(Effect.either);
-    if (preflight._tag === "Left" || !preflight.right.ok) return failure(request, "owner-local systemd user service is unavailable", "validation");
-    const cut = yield* input.liveWorkAuthority.acquire(request, false, async () => null);
-    if (!cut.acquired) return failure(request, "active Remote work prevents deployment", "conflict");
-    const archive = candidate.right.authorize();
-    const outcome = yield* request.ssh.transact(deploymentStream(request.target.sshTarget, yield* compileLinuxUserlandDeploy()), (lease) => Effect.scoped(Effect.gen(function* () {
-      yield* lease.write(Buffer.from(`LINUX_USERLAND_DEPLOY_V1 version=${archive.version} sha256=${archive.sha256} bytes=${archive.bytes}\n`));
-      yield* Stream.runForEach(Stream.fromAsyncIterable(yield* Effect.promise(archive.open), (e) => e instanceof Error ? e : new Error(String(e))), (chunk) => lease.write(chunk));
-      yield* lease.closeInput;
-      const stdout = yield* Stream.runCollect(lease.stdout).pipe(Effect.map((chunks) => Buffer.concat(Array.from(chunks).map(Buffer.from)).toString("utf8")));
-      return stdout;
-    }))).pipe(Effect.either);
-    yield* (cut.release ?? Effect.void);
-    if (outcome._tag === "Left") return failure(request, "userland runtime transfer failed");
-    const ready = DEPLOY.exec(outcome.right.trim());
-    return ready && ready[2] === `${archive.version}-${archive.sha256}` ? { ok: true, detail: `${request.target.host.label}: userland runtime ${ready[1]}`, stages: request.target.progress, disposition: "ready", version: archive.version } : failure(request, "candidate failed before activation");
-  })),
+  deploy: (request) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        if (
+          request.target.platform.platform !== "linux" ||
+          request.stationConfiguration.state !== "applied"
+        ) {
+          return failure(
+            request,
+            "a configured Linux Remote is required",
+            "validation",
+          );
+        }
+        const candidate = yield* Effect.tryPromise({
+          try: () =>
+            (
+              input.artifactAuthorityBySource?.(request.artifactSource) ??
+              input.artifactAuthority
+            ).resolve(),
+          catch: () => new Error("signed userland runtime archive unavailable"),
+        }).pipe(Effect.either);
+        if (
+          candidate._tag === "Left" ||
+          !SEMVER.test(candidate.right.version) ||
+          !SHA256.test(candidate.right.sha256)
+        ) {
+          return failure(
+            request,
+            "signed userland runtime archive is invalid",
+            "validation",
+          );
+        }
+        const preflight = yield* runPreflight(request).pipe(Effect.either);
+        if (preflight._tag === "Left" || !preflight.right.ok) {
+          return failure(
+            request,
+            "owner-local systemd user service is unavailable",
+            "validation",
+          );
+        }
+        const cut = yield* input.liveWorkAuthority
+          .acquire(request, false, async () => null)
+          .pipe(Effect.either);
+        if (cut._tag === "Left" || !cut.right.acquired) {
+          return failure(
+            request,
+            "active Remote work prevents deployment",
+            "conflict",
+          );
+        }
+        const archive = candidate.right.authorize();
+        const command = yield* compileLinuxUserlandDeploy().pipe(Effect.either);
+        if (command._tag === "Left") {
+          yield* (cut.right.release ?? Effect.void);
+          return failure(request, "userland deploy program is unavailable");
+        }
+        const outcome = yield* request.ssh
+          .transact(
+            deploymentStream(request.target.sshTarget, command.right),
+            (lease) =>
+              Effect.scoped(
+                Effect.gen(function* () {
+                  yield* lease.write(
+                    Buffer.from(
+                      `LINUX_USERLAND_DEPLOY_V1 version=${archive.version} sha256=${archive.sha256} bytes=${archive.bytes}\n`,
+                    ),
+                  );
+                  yield* Stream.runForEach(
+                    Stream.fromAsyncIterable(
+                      yield* Effect.promise(archive.open),
+                      (e) =>
+                        e instanceof Error ? e : new Error(String(e)),
+                    ),
+                    (chunk) => lease.write(chunk),
+                  );
+                  yield* lease.closeInput;
+                  const stdout = yield* Stream.runCollect(lease.stdout).pipe(
+                    Effect.map((chunks) =>
+                      Buffer.concat(
+                        Array.from(chunks).map(Buffer.from),
+                      ).toString("utf8"),
+                    ),
+                  );
+                  return stdout;
+                }),
+              ),
+          )
+          .pipe(Effect.either);
+        yield* (cut.right.release ?? Effect.void);
+        if (outcome._tag === "Left") {
+          return failure(request, "userland runtime transfer failed");
+        }
+        const ready = DEPLOY.exec(outcome.right.trim());
+        return ready && ready[2] === `${archive.version}-${archive.sha256}`
+          ? {
+              ok: true,
+              detail: `${request.target.host.label}: userland runtime ${ready[1]}`,
+              stages: request.target.progress,
+              disposition: "ready" as const,
+              version: archive.version,
+            }
+          : failure(request, "candidate failed before activation");
+      }),
+    ).pipe(
+      Effect.catchAll((error) =>
+        Effect.succeed(
+          failure(
+            request,
+            error instanceof Error ? error.message : String(error),
+          ),
+        ),
+      ),
+    ),
 });
 
 export const linuxRemoteDeploymentProvider = makeLinuxRemoteDeploymentProvider({ artifactAuthority: makeProductionLinuxArtifactAuthority(), liveWorkAuthority: makeProductionLinuxLiveWorkAuthority() });
