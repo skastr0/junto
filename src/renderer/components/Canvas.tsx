@@ -572,21 +572,8 @@ function useCanvasInteractions(
   return { onConnect, onConnectEnd, onNodeDragStart, onNodeDrag, onNodeDragStop, onNodesDelete, onEdgesDelete, onSelectionChange, onPaneClick };
 }
 
-interface AddActions extends ModeDeckActions {
-  readonly create: (kind: "text" | "file" | "link" | "group") => void;
-  readonly addGauge: () => void;
-  readonly addCron: () => void;
-  readonly addTasks: () => void;
-  readonly addRequests: () => void;
-  readonly addArtifacts: () => void;
-  readonly addBoard: () => void;
-  readonly addTerminal: () => void;
-  readonly addHerdr: () => void;
-  readonly addPage: () => void;
-}
-
 // Scheduler nodes: gauge (watcher), cron, relay — host-scoped kernel fire.
-const makeWatcherNode = (x: number, y: number): TextNode => ({
+const makeGaugeNode = (x: number, y: number): TextNode => ({
   ...makeTextNode(x, y),
   text: "gauge",
   width: 240,
@@ -598,7 +585,7 @@ const makeWatcherNode = (x: number, y: number): TextNode => ({
   },
 });
 
-const makeTimerNode = (x: number, y: number): TextNode => ({
+const makeCronNode = (x: number, y: number): TextNode => ({
   ...makeTextNode(x, y),
   text: "cron",
   width: 240,
@@ -615,7 +602,7 @@ const makeTimerNode = (x: number, y: number): TextNode => ({
 const makeAddActions = (
   positionFor: (size: { width: number; height: number }) => { x: number; y: number },
   dismiss: () => void,
-): AddActions => ({
+): ModeDeckActions => ({
   create: (kind) => {
     const size = kind === "text"
       ? { width: 240, height: 100 }
@@ -644,7 +631,7 @@ const makeAddActions = (
     const position = positionFor({ width: 240, height: 96 });
     const stationHost = state$.settings.station.hostId.peek() || "local";
     const node = {
-      ...makeWatcherNode(position.x, position.y),
+      ...makeGaugeNode(position.x, position.y),
       ether: {
         entity: { kind: "watcher" as const },
         host: stationHost,
@@ -659,7 +646,7 @@ const makeAddActions = (
     const position = positionFor({ width: 240, height: 96 });
     const stationHost = state$.settings.station.hostId.peek() || "local";
     const node = {
-      ...makeTimerNode(position.x, position.y),
+      ...makeCronNode(position.x, position.y),
       ether: {
         entity: { kind: "cron" as const },
         host: stationHost,
@@ -747,7 +734,7 @@ const useMenuDismiss = (active: boolean, dismiss: () => void) => {
       const target = event.target;
       if (
         target instanceof Element &&
-        target.closest(".node-palette, [data-node-palette-portal]")
+        target.closest("[data-canvas-menu-surface]")
       ) return;
       dismiss();
     };
@@ -763,12 +750,12 @@ const useMenuDismiss = (active: boolean, dismiss: () => void) => {
 // Canvas chrome insets for palette placement — stay between station top bar
 // and the docked field tools / RTS bottom chrome, never over either.
 const NODE_DECK_MAX_WIDTH = 1120;
-const NODE_PALETTE_MARGIN = 8;
+const NODE_DECK_MARGIN = 8;
 
 const stationBarBottom = (): number => {
   const bar = document.querySelector(".station-bar");
   if (!(bar instanceof HTMLElement)) return 72;
-  return bar.getBoundingClientRect().bottom + NODE_PALETTE_MARGIN;
+  return bar.getBoundingClientRect().bottom + NODE_DECK_MARGIN;
 };
 
 // Docked above the bottom-right minimap with fit-all — not scattered top chrome.
@@ -795,16 +782,16 @@ function CanvasFieldTools() {
       if (!rect) return;
       const deckWidth = Math.min(
         NODE_DECK_MAX_WIDTH,
-        window.innerWidth - NODE_PALETTE_MARGIN * 2,
+        window.innerWidth - NODE_DECK_MARGIN * 2,
       );
       // Anchor above the trigger; clamp height under the station top bar.
       const topLimit = stationBarBottom();
       setMenuBox({
         left: Math.min(
-          Math.max(NODE_PALETTE_MARGIN, rect.left),
-          window.innerWidth - deckWidth - NODE_PALETTE_MARGIN,
+          Math.max(NODE_DECK_MARGIN, rect.left),
+          window.innerWidth - deckWidth - NODE_DECK_MARGIN,
         ),
-        bottom: Math.max(NODE_PALETTE_MARGIN, window.innerHeight - rect.top + 6),
+        bottom: Math.max(NODE_DECK_MARGIN, window.innerHeight - rect.top + 6),
         maxHeight: Math.max(140, rect.top - topLimit),
       });
     };
@@ -838,11 +825,11 @@ function CanvasFieldTools() {
 
   return (
     <div className="rts-field-tools" aria-label="Canvas field tools">
-      <div className="node-palette node-palette--docked">
+      <div className="node-deck-host node-deck-host--docked" data-canvas-menu-surface>
         <button
           ref={triggerRef}
           type="button"
-          className="node-palette__trigger"
+          className="node-deck-trigger"
           aria-label="Add canvas item"
           aria-expanded={open}
           onClick={() => { setOpen((value) => !value); }}
@@ -852,13 +839,14 @@ function CanvasFieldTools() {
         {open && menuBox
           ? createPortal(
               <div
-                className="node-palette node-palette--context"
+                className="node-deck-host node-deck-host--context"
+                data-canvas-menu-surface
                 style={{
                   position: "fixed",
                   left: menuBox.left,
                   bottom: menuBox.bottom,
                   zIndex: 60,
-                  "--node-palette-max-height": `${menuBox.maxHeight}px`,
+                  "--node-deck-max-height": `${menuBox.maxHeight}px`,
                 } as React.CSSProperties}
               >
                 <NodePaletteModeDeck actions={actions} agentPosition={agentPosition} />
@@ -880,9 +868,9 @@ function CanvasFieldTools() {
   );
 }
 
-// Right-click on empty canvas: the same add menu, anchored at the cursor,
+// Right-click on empty canvas: the same Mode Deck, anchored at the cursor,
 // creating the node exactly where you clicked.
-function ContextAddMenu({ at, onClose }: { readonly at: { x: number; y: number }; readonly onClose: () => void }) {
+function ContextModeDeck({ at, onClose }: { readonly at: { x: number; y: number }; readonly onClose: () => void }) {
   const rf = useReactFlow<FlowNode, FlowEdge>();
   const menuRef = useRef<HTMLDivElement>(null);
   const [placement, setPlacement] = useState({
@@ -896,7 +884,7 @@ function ContextAddMenu({ at, onClose }: { readonly at: { x: number; y: number }
       const rect = menuRef.current?.getBoundingClientRect();
       if (!rect) return;
       const gap = 5;
-      const margin = NODE_PALETTE_MARGIN;
+      const margin = NODE_DECK_MARGIN;
       const topLimit = stationBarBottom();
       const left =
         at.x + rect.width + gap <= window.innerWidth - margin
@@ -925,13 +913,14 @@ function ContextAddMenu({ at, onClose }: { readonly at: { x: number; y: number }
   return (
     <div
       ref={menuRef}
-      className="node-palette node-palette--context"
+      className="node-deck-host node-deck-host--context"
+      data-canvas-menu-surface
       style={{
         position: "fixed",
         left: placement.left,
         top: placement.top,
         zIndex: 40,
-        "--node-palette-max-height": `${placement.maxHeight}px`,
+        "--node-deck-max-height": `${placement.maxHeight}px`,
       } as React.CSSProperties}
     >
       <NodePaletteModeDeck actions={actions} agentPosition={agentPosition} />
@@ -968,7 +957,7 @@ function MultiSelectMenu({ at, onClose }: { readonly at: { x: number; y: number 
   };
 
   return (
-    <div className="node-palette node-palette--context" style={{ position: "fixed", left: Math.min(at.x, window.innerWidth - 210), top: Math.min(at.y, window.innerHeight - 200), zIndex: 40 }}>
+    <div className="canvas-action-menu-host" data-canvas-menu-surface style={{ position: "fixed", left: Math.min(at.x, window.innerWidth - 210), top: Math.min(at.y, window.innerHeight - 200), zIndex: 40 }}>
       <div className="canvas-action-menu">
         <button aria-label="Create region from selection" onClick={() => run(createRegionFromSelection)}><span className="canvas-action-menu__icon" aria-hidden><SquareDashed size={14} /></span><span><strong>create region</strong><small>from selection</small></span></button>
         <button aria-label="Flag blocker" onClick={() => run((ids) => setFlagForNodes(ids, "blocker"))}><span className="canvas-action-menu__icon" aria-hidden><Ban size={14} /></span><span><strong>flag blocker</strong><small>{count} node{count === 1 ? "" : "s"}</small></span></button>
@@ -999,7 +988,7 @@ function TargetConnectMenu({
   const label = count === 1 ? "Connect → target" : "Connect all → target";
 
   return (
-    <div className="node-palette node-palette--context" style={{ position: "fixed", left: Math.min(at.x, window.innerWidth - 210), top: Math.min(at.y, window.innerHeight - 120), zIndex: 40 }}>
+    <div className="canvas-action-menu-host" data-canvas-menu-surface style={{ position: "fixed", left: Math.min(at.x, window.innerWidth - 210), top: Math.min(at.y, window.innerHeight - 120), zIndex: 40 }}>
       <div className="canvas-action-menu">
         <button
           aria-label={`${label}: ${count} source${count === 1 ? "" : "s"} to ${title}`}
@@ -1373,7 +1362,7 @@ function CanvasGraph() {
         <RtsBottomBar tools={<CanvasFieldTools />} minimap={<RtsMinimapStack />} />
       </Panel>
     </ReactFlow>
-    {ctxMenu ? <ContextAddMenu at={ctxMenu} onClose={() => setCtxMenu(null)} /> : null}
+    {ctxMenu ? <ContextModeDeck at={ctxMenu} onClose={() => setCtxMenu(null)} /> : null}
     {multiMenu ? <MultiSelectMenu at={multiMenu} onClose={() => setMultiMenu(null)} /> : null}
     {connectMenu ? (
       <TargetConnectMenu
