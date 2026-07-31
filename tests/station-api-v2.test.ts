@@ -146,6 +146,19 @@ const document = (connected: boolean) =>
           host: "local",
         },
       },
+      {
+        id: "board",
+        type: "text",
+        x: 600,
+        y: 140,
+        width: 240,
+        height: 100,
+        text: "Board",
+        ether: {
+          entity: { kind: "board" },
+          host: "local",
+        },
+      },
     ],
     edges: connected
       ? [
@@ -164,6 +177,14 @@ const document = (connected: boolean) =>
             id: "actor-artifacts",
             fromNode: remoteActor.nodeId,
             toNode: "artifacts",
+          },
+          {
+            id: "actor-board",
+            fromNode: remoteActor.nodeId,
+            toNode: "board",
+            ether: {
+              ports: ["board.create_topic", "board.post", "board.list"],
+            },
           },
           {
             id: "cc-actor-tasks",
@@ -672,6 +693,141 @@ describe("Station API v2 work routing", () => {
     ).toMatchObject({
       _tag: "rejected",
       reason: "capability-denied",
+    });
+  });
+
+  const boardAuthor = {
+    kind: "actor" as const,
+    seatId: remoteActor.seatId,
+    nodeId: remoteActor.nodeId,
+    label: remoteActor.nodeId,
+  };
+
+  const boardTopicCommand = (): WorkCommandValue =>
+    Schema.decodeUnknownSync(WorkCommand, strictDecode)({
+      protocol: "vellum/work/v2",
+      id: {
+        route: { eventHome: remote, entityHome: cc },
+        seq: "11",
+      },
+      recordType: "command",
+      item: {
+        kind: "topic",
+        itemId: "topic-1",
+        sink: { canvasName: "factory", nodeId: "board" },
+      },
+      operation: "board.topic.create",
+      contentSha256,
+      originAt: observedAt,
+      predecessor: null,
+      body: {
+        operation: "board.topic.create",
+        createdBy: boardAuthor,
+        topic: {
+          topicId: "topic-1",
+          title: "fleet note",
+          state: "open",
+          openedBy: boardAuthor,
+          openedAt: observedAt,
+          postCount: 0,
+          lastActivityAt: observedAt,
+        },
+      },
+    });
+
+  const boardPostCommand = (): WorkCommandValue =>
+    Schema.decodeUnknownSync(WorkCommand, strictDecode)({
+      protocol: "vellum/work/v2",
+      id: {
+        route: { eventHome: remote, entityHome: cc },
+        seq: "12",
+      },
+      recordType: "command",
+      item: {
+        kind: "post",
+        itemId: "post-1",
+        sink: { canvasName: "factory", nodeId: "board" },
+      },
+      operation: "board.post.append",
+      contentSha256,
+      originAt: observedAt,
+      predecessor: null,
+      body: {
+        operation: "board.post.append",
+        createdBy: boardAuthor,
+        post: {
+          postId: "post-1",
+          topicId: "topic-1",
+          author: boardAuthor,
+          parts: [{ kind: "text", text: "hello board" }],
+          position: 0,
+          createdAt: observedAt,
+        },
+      },
+    });
+
+  it("admits Remote board create/post only with the matching board port", () => {
+    const full = makeStationWorkAdmission(topology("command-center"));
+    expect(full.authorizeCommand(boardTopicCommand())).toEqual({
+      _tag: "admitted",
+    });
+    expect(full.authorizeCommand(boardPostCommand())).toEqual({
+      _tag: "admitted",
+    });
+
+    const operatorAuthored = Schema.decodeUnknownSync(
+      WorkCommand,
+      strictDecode,
+    )({
+      ...boardTopicCommand(),
+      body: {
+        ...boardTopicCommand().body,
+        createdBy: { kind: "operator", label: "operator" },
+        topic: {
+          ...boardTopicCommand().body.topic,
+          openedBy: { kind: "operator", label: "operator" },
+        },
+      },
+    });
+    expect(full.authorizeCommand(operatorAuthored)).toMatchObject({
+      _tag: "rejected",
+      reason: "authority-mismatch",
+    });
+
+    // Attenuated edge: post only — create must fail, post must pass.
+    const postOnlyDoc = Schema.decodeUnknownSync(CanvasDoc, strictDecode)({
+      ...document(true),
+      edges: document(true).edges.map((edge) =>
+        edge.id === "actor-board"
+          ? { ...edge, ether: { ports: ["board.post"] } }
+          : edge
+      ),
+    });
+    const postOnly = makeStationWorkAdmission({
+      ...topology("command-center"),
+      documents: new Map([["factory", postOnlyDoc]]),
+    });
+    expect(postOnly.authorizeCommand(boardTopicCommand())).toMatchObject({
+      _tag: "rejected",
+      reason: "capability-denied",
+    });
+    expect(postOnly.authorizeCommand(boardPostCommand())).toEqual({
+      _tag: "admitted",
+    });
+
+    const disconnected = makeStationWorkAdmission(
+      topology("command-center", false),
+    );
+    expect(disconnected.authorizeCommand(boardPostCommand())).toMatchObject({
+      _tag: "rejected",
+      reason: "capability-denied",
+    });
+
+    // Remote cannot apply board commands: route is Remote→CC (not peer→local).
+    const remoteHome = makeStationWorkAdmission(topology("remote"));
+    expect(remoteHome.authorizeCommand(boardTopicCommand())).toMatchObject({
+      _tag: "rejected",
+      reason: "authority-mismatch",
     });
   });
 

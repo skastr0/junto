@@ -607,6 +607,7 @@ export const makeStationWorkAdmission = (
       ) {
         // Multi-reader bulletin is CC-homed; Remote agents enqueue actor-authored
         // writes. Operator megaphone stays CC-local (IPC denyRemote).
+        // Ports stay distinct: create_topic vs post (attenuation must hold).
         const author = command.body.createdBy;
         if (
           author.kind !== "actor" ||
@@ -627,7 +628,9 @@ export const makeStationWorkAdmission = (
           },
           topology.peerInstallationId,
           command.item.sink,
-          "board.post",
+          command.body.operation === "board.topic.create"
+            ? "board.create_topic"
+            : "board.post",
         );
       }
       return rejected(
@@ -742,6 +745,10 @@ export const makeStationWorkAdmission = (
             "msg.send",
           );
       }
+      // Board multi-reader material state is CC-homed. Remotes only accept
+      // command-correlated board facts (self-echo of their own enqueues).
+      // Full fleet board read is Command Center-local; CC does not broadcast
+      // its (CC,CC) fact lane (selectStationReportRoutes.facts is unset).
       return fact.basis.kind === "command"
         ? admitted()
         : rejected(

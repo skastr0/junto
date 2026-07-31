@@ -101,10 +101,10 @@ to an exported document or the database:
 
 | surface | detail |
 |---|---|
-| CLI | `dist/vellum` (`bun run cli:build`) — `ping`, `doctor`, `capabilities`, `onboard`, `tasks`, `msg`, `request`, `artifact` |
+| CLI | `dist/vellum` (`bun run cli:build`) — `ping`, `doctor`, `capabilities`, `onboard`, `tasks`, `msg`, `request`, `artifact`, board ops |
 | Socket | `~/.vellum/work/control.sock` + bearer token `~/.vellum/work/token` |
 | Identity | **process-bind** — CLI must run as a descendant of a live Vellum agent (ACP) or herdr pane process. Main registers those PIDs; control admits via Unix peer PID (+ PPID walk). No client-supplied nodeRef / `VELLUM_NODE_REF` identity claim. |
-| Authz | **edges** — agent only acts on connected nodes (kernel-enforced ScopeError otherwise) |
+| Authz | **edges** — agent only acts on connected nodes (kernel-enforced ScopeError otherwise); board ports are distinct (`board.create_topic` vs `board.post`) |
 
 **How to use:** open the agent chat (or refresh local herdr pane meta) in Vellum so the process is registered, then run `dist/vellum` from that agent/tooling tree. `onboard` / `capabilities` report the live edge contract for the admitted principal.
 
@@ -114,7 +114,9 @@ on protected routes. There is **no enable-grant ceremony** and no client
 capability secret — only a live registered process + human-drawn edges to page
 nodes.
 
-Ops go through WorkService (tasks/messages/requests/artifacts). That is the agent write path; freeform canvas authoring remains human/Command Center.
+Ops go through WorkService (tasks/messages/requests/artifacts/board). That is the agent write path; freeform canvas authoring remains human/Command Center.
+
+**Board residency:** multi-reader bulletin is **Command Center-homed** (like actor mailboxes). Remote agents enqueue `board.topic.create` / `board.post.append` to CC; only command-correlated self-echo facts rematerialize on the commanding Remote. Full topic list is CC-local — CC does not broadcast its `(CC,CC)` fact lane. `board.mark_read` stays install-local. Operator megaphone / edge `notify` is CC UI only; agent posts never wake.
 
 ### Station roles
 
