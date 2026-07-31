@@ -22,6 +22,7 @@ import {
 import {
   WORK_BOARD_STATE_SCHEMA_SQL,
   WORK_PROPOSAL_STATE_SCHEMA_SQL,
+  WORK_STATE_SCHEMA_BOARD_VOCAB_SQL,
   WORK_TASK_DEPENDENCIES_STATE_SCHEMA_SQL,
   WORK_TASK_FINISH_STATE_SCHEMA_SQL,
 } from "../work/state-schema";
@@ -42,6 +43,13 @@ export type StateSchemaMigration = {
   readonly fromIdentity: VerifiedStateSchemaIdentity;
   /** Exact non-table schema objects this step is authorized to replace. */
   readonly replacesObjects?: ReadonlyArray<`trigger:${string}`>;
+  /**
+   * Durable tables this step may DROP and recreate with identical columns
+   * (CHECK-domain expand). Rows must be copy-forwarded; final column set must
+   * match expand-only preservation. Prefer CREATE…AS SELECT backup → DROP →
+   * CREATE exact DDL → INSERT → DROP backup.
+   */
+  readonly replacesTables?: ReadonlyArray<string>;
   /**
    * Runs synchronously inside StateEngine's startup BEGIN IMMEDIATE. Throwing
    * rolls back DDL, copied-forward data, schema identity, and user_version.
@@ -115,7 +123,13 @@ export const STATE_SCHEMA_V8_IDENTITY = {
     "8239ad37bd9fb890d585f5fedef69086890a75b1c01b5fb257bb4573c2809e71",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 9;
+/** Exact witness of schema version 9 (board tables; pre board event vocab). */
+export const STATE_SCHEMA_V9_IDENTITY = {
+  actualSchemaSha256:
+    "00777be6fb3361c057a799d0f58c86d364518d24a1eb2d8a08b6f32c58d7bcef",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 10;
 
 export const STATE_SCHEMA_MIGRATIONS =
   [
@@ -218,6 +232,43 @@ export const STATE_SCHEMA_MIGRATIONS =
         database.exec(WORK_BOARD_STATE_SCHEMA_SQL);
       },
     },
+    {
+      fromVersion: 9,
+      toVersion: 10,
+      name: "board-event-vocabulary",
+      safety: STATE_SCHEMA_MIGRATION_SAFETY,
+      fromIdentity: STATE_SCHEMA_V9_IDENTITY,
+      replacesTables: ["work_events", "work_pending_commands"],
+      migrate: (database) => {
+        // Expand CHECK vocab for board topic/post kinds + board ops.
+        // node:sqlite forbids writable_schema rewrites; expand-only allows an
+        // authorized same-column rebuild with full row copy-forward.
+        database.exec(`
+          PRAGMA foreign_keys = OFF;
+
+          CREATE TABLE work_events__migrate_bak AS SELECT * FROM work_events;
+          CREATE TABLE work_pending_commands__migrate_bak AS
+            SELECT * FROM work_pending_commands;
+
+          DROP TABLE work_pending_commands;
+          DROP TABLE work_events;
+        `);
+
+        // Recreate exact current work schema objects (IF NOT EXISTS): only the
+        // two dropped tables + their indexes/triggers are missing.
+        database.exec(WORK_STATE_SCHEMA_BOARD_VOCAB_SQL);
+
+        database.exec(`
+          INSERT INTO work_events SELECT * FROM work_events__migrate_bak;
+          INSERT INTO work_pending_commands
+            SELECT * FROM work_pending_commands__migrate_bak;
+          DROP TABLE work_events__migrate_bak;
+          DROP TABLE work_pending_commands__migrate_bak;
+          PRAGMA foreign_keys = ON;
+        `);
+      },
+    },
+
   ] as const satisfies ReadonlyArray<StateSchemaMigration>;
 
 /**
@@ -599,6 +650,7 @@ const runMigrationStep = (
 ): void => {
   const before = expandSchemaSnapshot(database);
   const replacesObjects = new Set<string>(migration.replacesObjects ?? []);
+  const replacesTables = new Set<string>(migration.replacesTables ?? []);
   const connection: StateSchemaMigrationDatabase = {
     exec: (sql) => {
       assertExpandOnlyMigrationSql(sql);
@@ -609,15 +661,26 @@ const runMigrationStep = (
       return database.prepare(sql, options);
     },
   };
-  database.setAuthorizer((actionCode, arg1, arg2) =>
-    actionCode === constants.SQLITE_TRANSACTION ||
+  database.setAuthorizer((actionCode, arg1, arg2) => {
+    const pragmaName = arg1 === null ? "" : arg1.toLowerCase();
+    const isSchemaCatalog =
+      arg1 === "sqlite_schema" || arg1 === "sqlite_master";
+    const isReplacedTable = arg1 !== null && replacesTables.has(arg1);
+    const isMigrateBackup =
+      arg1 !== null && arg1.endsWith("__migrate_bak");
+
+    const deny =
+      actionCode === constants.SQLITE_TRANSACTION ||
       actionCode === constants.SQLITE_SAVEPOINT ||
       (
         destructiveMigrationActions.has(actionCode) &&
         !(
           actionCode === constants.SQLITE_REINDEX &&
           arg1 !== null &&
-          !before.retainedObjects.has(`index:${arg1}`)
+          (
+            !before.retainedObjects.has(`index:${arg1}`) ||
+            replacesTables.size > 0
+          )
         ) &&
         !(
           actionCode === constants.SQLITE_DROP_TRIGGER &&
@@ -626,14 +689,35 @@ const runMigrationStep = (
         ) &&
         !(
           actionCode === constants.SQLITE_DELETE &&
-          (arg1 === "sqlite_master" || arg1 === "sqlite_schema") &&
-          replacesObjects.size > 0
+          (
+            // Catalog rewrites during DROP/recreate of authorized objects.
+            (
+              isSchemaCatalog &&
+              (replacesObjects.size > 0 || replacesTables.size > 0)
+            ) ||
+            // DROP TABLE also emits DELETE against the table body.
+            isReplacedTable ||
+            isMigrateBackup
+          )
+        ) &&
+        !(
+          actionCode === constants.SQLITE_DROP_TABLE &&
+          (isReplacedTable || isMigrateBackup)
+        ) &&
+        !(
+          actionCode === constants.SQLITE_DROP_INDEX &&
+          replacesTables.size > 0
+        ) &&
+        !(
+          actionCode === constants.SQLITE_DROP_TRIGGER &&
+          replacesTables.size > 0
         )
       ) ||
       (
         actionCode === constants.SQLITE_INSERT &&
         arg1 !== null &&
-        before.tables.has(arg1)
+        before.tables.has(arg1) &&
+        !replacesTables.has(arg1)
       ) ||
       (
         actionCode === constants.SQLITE_UPDATE &&
@@ -644,11 +728,10 @@ const runMigrationStep = (
       (
         actionCode === constants.SQLITE_PRAGMA &&
         arg1 !== null &&
-        migrationOwnedPragmas.has(arg1.toLowerCase())
-      )
-      ? constants.SQLITE_DENY
-      : constants.SQLITE_OK
-  );
+        migrationOwnedPragmas.has(pragmaName)
+      );
+    return deny ? constants.SQLITE_DENY : constants.SQLITE_OK;
+  });
   try {
     migration.migrate(connection);
     assertExpandSchemaPreserved(before, database, replacesObjects);

@@ -3,6 +3,9 @@ import { ActorSeatId } from "./actor-seat";
 import { InstallationId } from "./installation-id";
 import {
   Artifact,
+  BoardAuthor,
+  BoardPost,
+  BoardTopic,
   CompletionEvidence,
   Message,
   Task,
@@ -178,6 +181,8 @@ export const WorkOperation = Schema.Literal(
   "message.append",
   "artifact.publish",
   "delivery.accepted",
+  "board.topic.create",
+  "board.post.append",
 );
 export type WorkOperation = typeof WorkOperation.Type;
 
@@ -367,6 +372,21 @@ export const DeliveryAcceptedAction = Schema.Struct({
 });
 export type DeliveryAcceptedAction = typeof DeliveryAcceptedAction.Type;
 
+/** CC-homed multi-reader bulletin topic create (OP + optional seed posts). */
+export const BoardTopicCreateAction = Schema.Struct({
+  operation: Schema.Literal("board.topic.create"),
+  topic: BoardTopic,
+  createdBy: BoardAuthor,
+});
+export type BoardTopicCreateAction = typeof BoardTopicCreateAction.Type;
+
+export const BoardPostAppendAction = Schema.Struct({
+  operation: Schema.Literal("board.post.append"),
+  post: BoardPost,
+  createdBy: BoardAuthor,
+});
+export type BoardPostAppendAction = typeof BoardPostAppendAction.Type;
+
 export const WorkAction = Schema.Union(
   ProposalCreateAction,
   ProposalApproveAction,
@@ -379,6 +399,8 @@ export const WorkAction = Schema.Union(
   MessageAppendAction,
   ArtifactPublishAction,
   DeliveryAcceptedAction,
+  BoardTopicCreateAction,
+  BoardPostAppendAction,
 );
 export type WorkAction = typeof WorkAction.Type;
 
@@ -487,6 +509,20 @@ export const DeliveryAcceptedResult = Schema.Struct({
 });
 export type DeliveryAcceptedResult = typeof DeliveryAcceptedResult.Type;
 
+export const BoardTopicCreateResult = Schema.Struct({
+  operation: Schema.Literal("board.topic.create"),
+  topic: BoardTopic,
+  createdBy: BoardAuthor,
+});
+export type BoardTopicCreateResult = typeof BoardTopicCreateResult.Type;
+
+export const BoardPostAppendResult = Schema.Struct({
+  operation: Schema.Literal("board.post.append"),
+  post: BoardPost,
+  createdBy: BoardAuthor,
+});
+export type BoardPostAppendResult = typeof BoardPostAppendResult.Type;
+
 export const WorkResult = Schema.Union(
   ProposalCreateResult,
   ProposalApproveResult,
@@ -497,6 +533,8 @@ export const WorkResult = Schema.Union(
   MessageAppendResult,
   ArtifactPublishResult,
   DeliveryAcceptedResult,
+  BoardTopicCreateResult,
+  BoardPostAppendResult,
 );
 export type WorkResult = typeof WorkResult.Type;
 
@@ -602,6 +640,10 @@ const itemMatchesAction = (
         item.kind === "delivery" &&
         item.itemId === action.receipt.deliveryId
       );
+    case "board.topic.create":
+      return item.kind === "topic" && item.itemId === action.topic.topicId;
+    case "board.post.append":
+      return item.kind === "post" && item.itemId === action.post.postId;
   }
 };
 
@@ -636,6 +678,10 @@ const itemMatchesResult = (
         item.kind === "delivery" &&
         item.itemId === result.receipt.deliveryId
       );
+    case "board.topic.create":
+      return item.kind === "topic" && item.itemId === result.topic.topicId;
+    case "board.post.append":
+      return item.kind === "post" && item.itemId === result.post.postId;
   }
 };
 
@@ -646,7 +692,9 @@ const noPriorMaterialFact = (operation: WorkOperation): boolean =>
   operation === "request.create" ||
   operation === "message.append" ||
   operation === "artifact.publish" ||
-  operation === "delivery.accepted";
+  operation === "delivery.accepted" ||
+  operation === "board.topic.create" ||
+  operation === "board.post.append";
 
 const recordByteLength = (record: unknown): number | undefined => {
   try {

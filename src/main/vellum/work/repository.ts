@@ -320,6 +320,16 @@ export type AcceptDeliveryInput = LocalWorkInput & {
   readonly receipt: DeliveryReceipt;
 };
 
+export type CreateBoardTopicInput = LocalWorkInput & {
+  readonly topic: BoardTopicValue;
+  readonly createdBy: BoardAuthorValue;
+};
+
+export type AppendBoardPostInput = LocalWorkInput & {
+  readonly post: BoardPostValue;
+  readonly createdBy: BoardAuthorValue;
+};
+
 export type ReserveRemoteTaskClaimInput = WorkRepositoryInput & {
   readonly taskId: string;
   readonly actor: ActorRef;
@@ -2992,6 +3002,123 @@ const materializeFact = (
     case "delivery.accepted":
       writeDelivery(writer, fact.body.receipt, fact, receivedAt);
       return;
+    case "board.topic.create": {
+      const topic = fact.body.topic;
+      const createdBy = fact.body.createdBy;
+      writer.run(
+        `
+          INSERT INTO work_board_topics(
+            canvas_name, node_id, topic_id, title, state,
+            author_kind, author_seat_id, author_node_id, author_label,
+            parts_json, post_count, last_activity_at, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(canvas_name, node_id, topic_id) DO UPDATE SET
+            title = excluded.title,
+            state = excluded.state,
+            parts_json = excluded.parts_json,
+            post_count = excluded.post_count,
+            last_activity_at = excluded.last_activity_at,
+            updated_at = excluded.updated_at
+        `,
+        [
+          fact.item.sink.canvasName,
+          fact.item.sink.nodeId,
+          topic.topicId,
+          topic.title,
+          topic.state,
+          createdBy.kind,
+          createdBy.seatId ?? null,
+          createdBy.nodeId ?? null,
+          createdBy.label ?? null,
+          JSON.stringify(topic.parts ?? []),
+          topic.postCount,
+          topic.lastActivityAt,
+          topic.openedAt,
+          topic.lastActivityAt,
+        ],
+      );
+      for (const post of topic.posts ?? []) {
+        writer.run(
+          `
+            INSERT INTO work_board_posts(
+              canvas_name, node_id, topic_id, post_id, position,
+              author_kind, author_seat_id, author_node_id, author_label,
+              parts_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(canvas_name, node_id, topic_id, post_id) DO NOTHING
+          `,
+          [
+            fact.item.sink.canvasName,
+            fact.item.sink.nodeId,
+            post.topicId,
+            post.postId,
+            post.position,
+            post.author.kind,
+            post.author.seatId ?? null,
+            post.author.nodeId ?? null,
+            post.author.label ?? null,
+            JSON.stringify(post.parts),
+            post.createdAt,
+          ],
+        );
+      }
+      return;
+    }
+    case "board.post.append": {
+      const post = fact.body.post;
+      const createdBy = fact.body.createdBy;
+      const maxPos = writer.get<StateRow & { readonly m: number | null }>(
+        `
+          SELECT MAX(position) AS m FROM work_board_posts
+          WHERE canvas_name = ? AND node_id = ? AND topic_id = ?
+        `,
+        [fact.item.sink.canvasName, fact.item.sink.nodeId, post.topicId],
+      );
+      const position =
+        typeof maxPos?.m === "number" && Number.isFinite(maxPos.m)
+          ? maxPos.m + 1
+          : 0;
+      writer.run(
+        `
+          INSERT INTO work_board_posts(
+            canvas_name, node_id, topic_id, post_id, position,
+            author_kind, author_seat_id, author_node_id, author_label,
+            parts_json, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(canvas_name, node_id, topic_id, post_id) DO NOTHING
+        `,
+        [
+          fact.item.sink.canvasName,
+          fact.item.sink.nodeId,
+          post.topicId,
+          post.postId,
+          position,
+          createdBy.kind,
+          createdBy.seatId ?? null,
+          createdBy.nodeId ?? null,
+          createdBy.label ?? null,
+          JSON.stringify(post.parts),
+          post.createdAt,
+        ],
+      );
+      writer.run(
+        `
+          UPDATE work_board_topics
+          SET post_count = post_count + 1,
+              last_activity_at = ?,
+              updated_at = ?
+          WHERE canvas_name = ? AND node_id = ? AND topic_id = ?
+        `,
+        [
+          post.createdAt,
+          post.createdAt,
+          fact.item.sink.canvasName,
+          fact.item.sink.nodeId,
+          post.topicId,
+        ],
+      );
+      return;
+    }
   }
 };
 
@@ -3245,6 +3372,8 @@ const predecessorForAction = (
     case "message.append":
     case "artifact.publish":
     case "delivery.accepted":
+    case "board.topic.create":
+    case "board.post.append":
       return null;
     case "proposal.approve": {
       const current = selectProposalIdentity(
@@ -3653,6 +3782,64 @@ const resultForCommand = (
           operation: "artifact.publish",
           artifact: action.artifact,
           publishedBy: action.publishedBy,
+        },
+      };
+    }
+    case "board.topic.create": {
+      const exists = writer.get<StateRow>(
+        `
+          SELECT 1 FROM work_board_topics
+          WHERE canvas_name = ? AND node_id = ? AND topic_id = ?
+        `,
+        [
+          command.item.sink.canvasName,
+          command.item.sink.nodeId,
+          action.topic.topicId,
+        ],
+      );
+      if (exists !== undefined) {
+        throw authorityError(
+          "identity-conflict",
+          `topic "${action.topic.topicId}" already exists`,
+        );
+      }
+      return {
+        body: {
+          operation: "board.topic.create",
+          topic: action.topic,
+          createdBy: action.createdBy,
+        },
+      };
+    }
+    case "board.post.append": {
+      const topic = writer.get<StateRow & { readonly state: string }>(
+        `
+          SELECT state FROM work_board_topics
+          WHERE canvas_name = ? AND node_id = ? AND topic_id = ?
+        `,
+        [
+          command.item.sink.canvasName,
+          command.item.sink.nodeId,
+          action.post.topicId,
+        ],
+      );
+      if (topic === undefined) {
+        throw authorityError(
+          "missing-entity",
+          `topic "${action.post.topicId}" does not exist`,
+        );
+      }
+      if (topic.state === "archived") {
+        throw authorityError(
+          "invalid-transition",
+          `topic "${action.post.topicId}" is archived`,
+        );
+      }
+      return {
+        body: {
+          operation: "board.post.append",
+          post: action.post,
+          createdBy: action.createdBy,
         },
       };
     }
@@ -4309,6 +4496,28 @@ const assertCorrelatedCommandFact = (
         );
       }
       return;
+    case "board.topic.create":
+      if (
+        fact.body.operation !== "board.topic.create" ||
+        canonicalJson(action.topic) !== canonicalJson(fact.body.topic)
+      ) {
+        throw authorityError(
+          "causal-conflict",
+          "board topic fact differs from the exact pending command",
+        );
+      }
+      return;
+    case "board.post.append":
+      if (
+        fact.body.operation !== "board.post.append" ||
+        canonicalJson(action.post) !== canonicalJson(fact.body.post)
+      ) {
+        throw authorityError(
+          "causal-conflict",
+          "board post fact differs from the exact pending command",
+        );
+      }
+      return;
   }
 };
 
@@ -4825,6 +5034,10 @@ const validateIncomingFact = (
       }
       return;
     }
+    case "board.topic.create":
+    case "board.post.append":
+      // Append-only bulletin facts; materializeFact applies identity checks.
+      return;
   }
 };
 
@@ -5003,15 +5216,13 @@ export class WorkRepository extends Context.Tag("@vellum/WorkRepository")<
     readonly acceptDelivery: (
       input: AcceptDeliveryInput,
     ) => Effect.Effect<LocalFactResult<DeliveryReceipt>, RepositoryFailure>;
-    /** Local-only bulletin board mutations (no work_events protocol in P0). */
-    readonly createBoardTopic: (input: {
-      readonly sink: SinkRefValue;
-      readonly topic: BoardTopicValue;
-    }) => Effect.Effect<BoardTopicValue, RepositoryFailure>;
-    readonly appendBoardPost: (input: {
-      readonly sink: SinkRefValue;
-      readonly post: BoardPostValue;
-    }) => Effect.Effect<BoardPostValue, RepositoryFailure>;
+    /** CC-homed bulletin board mutations (work_events facts for fleet report). */
+    readonly createBoardTopic: (
+      input: CreateBoardTopicInput,
+    ) => Effect.Effect<LocalFactResult<BoardTopicValue>, RepositoryFailure>;
+    readonly appendBoardPost: (
+      input: AppendBoardPostInput,
+    ) => Effect.Effect<LocalFactResult<BoardPostValue>, RepositoryFailure>;
     readonly markBoardRead: (input: {
       readonly sink: SinkRefValue;
       readonly topicId: string;
@@ -5860,14 +6071,23 @@ export const WorkRepositoryLive = Layer.effect(
       });
     };
 
-    const createBoardTopic = (input: {
-      readonly sink: SinkRefValue;
-      readonly topic: BoardTopicValue;
-    }): Effect.Effect<BoardTopicValue, RepositoryFailure> => {
+    const createBoardTopic = (
+      input: CreateBoardTopicInput,
+    ): Effect.Effect<LocalFactResult<BoardTopicValue>, RepositoryFailure> => {
+      const originAt = timestamp(input.originAt);
+      const receivedAt = timestamp(input.receivedAt);
       const topic = Schema.decodeUnknownSync(BoardTopic, strictDecode)(
         input.topic,
       );
+      const createdBy = input.createdBy;
       return transaction("work.board.topic.create", input.sink, (writer) => {
+        const authority = canonicalLocalWorkAuthority(writer);
+        if (authority.role !== "command-center") {
+          throw authorityError(
+            "authority-mismatch",
+            "board topics are Command Center-homed",
+          );
+        }
         if (
           writer.get<StateRow>(
             `
@@ -5882,68 +6102,42 @@ export const WorkRepositoryLive = Layer.effect(
             `topic "${topic.topicId}" already exists`,
           );
         }
-        const partsJson = JSON.stringify(topic.parts ?? []);
-        writer.run(
-          `
-            INSERT INTO work_board_topics(
-              canvas_name, node_id, topic_id, title, state,
-              author_kind, author_seat_id, author_node_id, author_label,
-              parts_json, post_count, last_activity_at, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `,
-          [
-            input.sink.canvasName,
-            input.sink.nodeId,
-            topic.topicId,
-            topic.title,
-            topic.state,
-            topic.openedBy.kind,
-            topic.openedBy.seatId ?? null,
-            topic.openedBy.nodeId ?? null,
-            topic.openedBy.label ?? null,
-            partsJson,
-            topic.postCount,
-            topic.lastActivityAt,
-            topic.openedAt,
-            topic.lastActivityAt,
-          ],
-        );
-        for (const post of topic.posts ?? []) {
-          writer.run(
-            `
-              INSERT INTO work_board_posts(
-                canvas_name, node_id, topic_id, post_id, position,
-                author_kind, author_seat_id, author_node_id, author_label,
-                parts_json, created_at
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `,
-            [
-              input.sink.canvasName,
-              input.sink.nodeId,
-              post.topicId,
-              post.postId,
-              post.position,
-              post.author.kind,
-              post.author.seatId ?? null,
-              post.author.nodeId ?? null,
-              post.author.label ?? null,
-              JSON.stringify(post.parts),
-              post.createdAt,
-            ],
-          );
-        }
-        return topic;
+        return commitLocalFact(writer, {
+          localInstallationId: authority.installationId,
+          sink: input.sink,
+          basis: input.basis,
+          item: item("topic", topic.topicId, input.sink),
+          operation: "board.topic.create",
+          predecessor: null,
+          body: {
+            operation: "board.topic.create",
+            topic,
+            createdBy,
+          },
+          value: topic,
+          originAt,
+          receivedAt,
+        });
       });
     };
 
-    const appendBoardPost = (input: {
-      readonly sink: SinkRefValue;
-      readonly post: BoardPostValue;
-    }): Effect.Effect<BoardPostValue, RepositoryFailure> => {
+    const appendBoardPost = (
+      input: AppendBoardPostInput,
+    ): Effect.Effect<LocalFactResult<BoardPostValue>, RepositoryFailure> => {
+      const originAt = timestamp(input.originAt);
+      const receivedAt = timestamp(input.receivedAt);
       const post = Schema.decodeUnknownSync(BoardPost, strictDecode)(
         input.post,
       );
+      const createdBy = input.createdBy;
       return transaction("work.board.post.append", input.sink, (writer) => {
+        const authority = canonicalLocalWorkAuthority(writer);
+        if (authority.role !== "command-center") {
+          throw authorityError(
+            "authority-mismatch",
+            "board posts are Command Center-homed",
+          );
+        }
         const topic = writer.get<StateRow & { readonly state: string }>(
           `
             SELECT state FROM work_board_topics
@@ -5975,45 +6169,22 @@ export const WorkRepositoryLive = Layer.effect(
             ? maxPos.m + 1
             : 0;
         const stored = { ...post, position };
-        writer.run(
-          `
-            INSERT INTO work_board_posts(
-              canvas_name, node_id, topic_id, post_id, position,
-              author_kind, author_seat_id, author_node_id, author_label,
-              parts_json, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `,
-          [
-            input.sink.canvasName,
-            input.sink.nodeId,
-            stored.topicId,
-            stored.postId,
-            stored.position,
-            stored.author.kind,
-            stored.author.seatId ?? null,
-            stored.author.nodeId ?? null,
-            stored.author.label ?? null,
-            JSON.stringify(stored.parts),
-            stored.createdAt,
-          ],
-        );
-        writer.run(
-          `
-            UPDATE work_board_topics
-            SET post_count = post_count + 1,
-                last_activity_at = ?,
-                updated_at = ?
-            WHERE canvas_name = ? AND node_id = ? AND topic_id = ?
-          `,
-          [
-            stored.createdAt,
-            stored.createdAt,
-            input.sink.canvasName,
-            input.sink.nodeId,
-            stored.topicId,
-          ],
-        );
-        return stored;
+        return commitLocalFact(writer, {
+          localInstallationId: authority.installationId,
+          sink: input.sink,
+          basis: input.basis,
+          item: item("post", stored.postId, input.sink),
+          operation: "board.post.append",
+          predecessor: null,
+          body: {
+            operation: "board.post.append",
+            post: stored,
+            createdBy,
+          },
+          value: stored,
+          originAt,
+          receivedAt,
+        });
       });
     };
 

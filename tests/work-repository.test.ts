@@ -1172,3 +1172,170 @@ describe("WorkRepository v2 local authority", () => {
     ).toBe(cc);
   });
 });
+
+describe("WorkRepository board CC-homed facts", () => {
+  const boardSink = { canvasName: "factory", nodeId: "board-1" };
+  const operator = { kind: "operator" as const, label: "operator" };
+
+  it("createBoardTopic commits work_events and materializes topics", async () => {
+    const topic = {
+      topicId: "topic-board-1",
+      title: "Fleet bulletin",
+      state: "open" as const,
+      openedBy: operator,
+      openedAt: observedAt,
+      postCount: 0,
+      lastActivityAt: observedAt,
+    };
+    const created = await runtime.runPromise(
+      repository.createBoardTopic({
+        sink: boardSink,
+        basis: authorialBasis,
+        topic,
+        createdBy: operator,
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    expect(created.value.topicId).toBe("topic-board-1");
+    expect(created.record.operation).toBe("board.topic.create");
+    expect(created.record.item.kind).toBe("topic");
+    expect(created.record.id.route).toEqual({
+      eventHome: cc,
+      entityHome: cc,
+    });
+    const snap = await runtime.runPromise(
+      repository.readSnapshot(boardSink.canvasName, boardSink.nodeId),
+    );
+    expect(snap.board.topics.map((t) => t.topicId)).toContain("topic-board-1");
+  });
+
+  it("appendBoardPost commits work_events and increments post_count", async () => {
+    const post = {
+      postId: "post-board-1",
+      topicId: "topic-board-1",
+      author: operator,
+      parts: [{ kind: "text" as const, text: "hello fleet" }],
+      position: 0,
+      createdAt: observedAt,
+    };
+    const appended = await runtime.runPromise(
+      repository.appendBoardPost({
+        sink: boardSink,
+        basis: authorialBasis,
+        post,
+        createdBy: operator,
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    expect(appended.value.postId).toBe("post-board-1");
+    expect(appended.record.operation).toBe("board.post.append");
+    expect(appended.record.item.kind).toBe("post");
+    const snap = await runtime.runPromise(
+      repository.readSnapshot(boardSink.canvasName, boardSink.nodeId),
+    );
+    const topic = snap.board.topics.find((t) => t.topicId === "topic-board-1");
+    expect(topic?.postCount).toBe(1);
+    expect(topic?.posts?.some((p) => p.postId === "post-board-1")).toBe(true);
+  });
+
+  it("rejects board writes when local authority is Remote", async () => {
+    const remoteRoot = join(
+      tmpdir(),
+      `vellum-work-board-remote-${randomUUID()}`,
+    );
+    const remoteRuntime = ManagedRuntime.make(
+      Layer.provideMerge(
+        WorkRepositoryLive,
+        makeStateEngineLive(join(remoteRoot, "vellum.db")),
+      ),
+    );
+    try {
+      const remoteRepository =
+        await remoteRuntime.runPromise(WorkRepository);
+      const remoteState = await remoteRuntime.runPromise(StateEngine);
+      await remoteRuntime.runPromise(
+        remoteState.transaction("test.seed-remote", (writer) => {
+          for (const installation of [cc, remote]) {
+            writer.run(
+              `
+                INSERT INTO station_known_installations(
+                  installation_id, registered_at
+                ) VALUES (?, ?)
+              `,
+              [installation, observedAt],
+            );
+          }
+          writer.run(
+            `
+              INSERT INTO station_installation(
+                singleton, installation_id, created_at
+              ) VALUES (1, ?, ?)
+            `,
+            [remote, observedAt],
+          );
+          writer.run(
+            `
+              INSERT INTO station_configuration(
+                singleton, role, host_id, agent_host_id,
+                command_center_installation_id, supervised_preferred,
+                configured_at
+              ) VALUES (1, 'remote', 'remote-host', 'remote-agent-host', ?, 1, ?)
+            `,
+            [cc, observedAt],
+          );
+          writer.run(
+            `
+              INSERT INTO canvas_generations(
+                generation, created_at, cause, intent_sha256, document_count
+              ) VALUES ('1', ?, 'test', ?, 1)
+            `,
+            [observedAt, currentIntentSha256],
+          );
+          writer.run(
+            `
+              INSERT INTO canvas_generation_documents(
+                generation, name, body, sha256, modified_at
+              ) VALUES ('1', 'factory', '{}', ?, ?)
+            `,
+            ["1".repeat(64), observedAt],
+          );
+          writer.run(
+            `INSERT INTO canvas_head(singleton, generation) VALUES (1, '1')`,
+          );
+        }),
+      );
+      const denied = await remoteRuntime.runPromise(
+        remoteRepository
+          .createBoardTopic({
+            sink: boardSink,
+            basis: projectedBasis,
+            topic: {
+              topicId: "remote-denied",
+              title: "nope",
+              state: "open",
+              openedBy: operator,
+              openedAt: observedAt,
+              postCount: 0,
+              lastActivityAt: observedAt,
+            },
+            createdBy: operator,
+            originAt: observedAt,
+            receivedAt: observedAt,
+          })
+          .pipe(Effect.either),
+      );
+      expect(denied).toMatchObject({
+        _tag: "Left",
+        left: {
+          _tag: "WorkAuthorityError",
+          reason: "authority-mismatch",
+        },
+      });
+    } finally {
+      await remoteRuntime.dispose();
+      await rm(remoteRoot, { recursive: true, force: true });
+    }
+  });
+});

@@ -22,7 +22,12 @@ import {
   type PortName,
   type NodeSpecValue,
 } from "@shared/physics";
-import { addEdge, setEdgeCriteria, setEdgePorts } from "../lib/edge-mutations";
+import {
+  addEdge,
+  setEdgeCriteria,
+  setEdgeNotify,
+  setEdgePorts,
+} from "../lib/edge-mutations";
 import { specOf } from "../lib/node-spec";
 import { commitDoc, editFileDetails, editGroupBackground, editLink, editText, renameGroup, setNodeHost, setNodeTimer, setNodeView, setNodeWatch, setNodeWorkRole, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag } from "../lib/mutations";
 import { AgentMessagesPane } from "./work/WorkSurfaces";
@@ -134,6 +139,39 @@ export function EdgeCapabilitySection({
  * write `ports: []`, which would (under attenuation) grant nothing at all
  * instead of restoring the full default.
  */
+/** Operator megaphone eligibility for agent↔board edges. */
+export function EdgeBoardNotifyToggle({ edge }: { readonly edge: CanvasEdge }) {
+  const doc = use$(state$.doc);
+  const from = doc.nodes.find((n) => n.id === edge.fromNode);
+  const to = doc.nodes.find((n) => n.id === edge.toNode);
+  const touchesBoard =
+    from?.ether?.entity?.kind === "board" || to?.ether?.entity?.kind === "board";
+  if (!touchesBoard) return null;
+  const on = edge.ether?.notify === true;
+  return (
+    <div className="inspector-section">
+      <div className="inspector-section__label">board wake</div>
+      <div className="inspector-detail" style={{ marginBottom: 8 }}>
+        When ON, this seat is in the board megaphone set (operator Post topic /
+        Notify all). Not a capability port.
+      </div>
+      <button
+        type="button"
+        className="inspector-flag-toggle"
+        aria-pressed={on}
+        style={{
+          color: on ? HUE.amber : "#68604a",
+          borderColor: on ? withAlpha(HUE.amber, 0.5) : "rgba(237,230,218,.12)",
+          background: on ? withAlpha(HUE.amber, 0.1) : "rgba(255,255,255,.02)",
+        }}
+        onClick={() => setEdgeNotify(edge.id, !on)}
+      >
+        Notify {on ? "ON" : "OFF"}
+      </button>
+    </div>
+  );
+}
+
 export function EdgePortsAttenuator({ edge }: { readonly edge: CanvasEdge }) {
   const mask = readEdgePortMask(edge);
   const active = mask ?? HashSet.empty<PortName>();
@@ -152,6 +190,7 @@ export function EdgePortsAttenuator({ edge }: { readonly edge: CanvasEdge }) {
 
   return (
     <div className="inspector-section">
+      <EdgeBoardNotifyToggle edge={edge} />
       <div className="inspector-section__label">limit this key</div>
       <div className="inspector-detail" style={{ marginBottom: 8 }}>
         {mask === undefined

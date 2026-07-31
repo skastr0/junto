@@ -701,7 +701,11 @@ export const registerVellumIpc = (): void => {
                 { kind: "operator", label: "operator" },
                 notify === true,
               );
-              if (result.ok && result.data.notify) {
+              if (
+                result.ok &&
+                result.data.notify &&
+                result.disposition === "applied"
+              ) {
                 const { deliverBoardWake } = yield* Effect.promise(
                   () => import("./work/board-delivery"),
                 );

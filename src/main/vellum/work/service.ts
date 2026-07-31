@@ -1517,7 +1517,10 @@ export const WorkLive = Layer.effect(
       workBoardCreateTopic: (canvas, nodeId, title, body, author, notify) =>
         asResult(
           Effect.gen(function* () {
-            const read = yield* readCanvas(canvas);
+            const [context, read] = yield* Effect.all([
+              stationContext,
+              readCanvas(canvas),
+            ]);
             const node = read.doc.nodes.find((n) => n.id === nodeId);
             if (node?.ether?.entity?.kind !== "board") {
               return yield* Effect.fail(
@@ -1555,18 +1558,38 @@ export const WorkLive = Layer.effect(
               ...(parts.length > 0 ? { parts } : {}),
               ...(seedPost ? { posts: [seedPost] } : {}),
             };
-            const outcome = yield* local(
-              repository
-                .createBoardTopic({
-                  sink: sinkRef(canvas, nodeId),
-                  topic,
-                })
-                .pipe(
-                  Effect.map((saved) => ({
-                    value: { topic: saved, notify },
-                  })),
-                ),
-            );
+            // Multi-reader bulletin: always Command Center-homed.
+            const home =
+              context.configuration.role === "command-center"
+                ? context.localInstallationId
+                : context.configuration.commandCenterInstallationId;
+            const outcome =
+              home === context.localInstallationId
+                ? yield* local(
+                  repository
+                    .createBoardTopic({
+                      sink: sinkRef(canvas, nodeId),
+                      basis: intentBasis(context, read.intentWitness),
+                      topic,
+                      createdBy: author,
+                    })
+                    .pipe(
+                      Effect.map((result) => ({
+                        value: { topic: result.value, notify },
+                      })),
+                    ),
+                )
+                : yield* enqueue(
+                  context,
+                  home,
+                  workItem("topic", topic.topicId, canvas, nodeId),
+                  {
+                    operation: "board.topic.create",
+                    topic,
+                    createdBy: author,
+                  },
+                  { topic, notify },
+                );
             return yield* complete(canvas, outcome);
           }),
         ),
@@ -1574,7 +1597,10 @@ export const WorkLive = Layer.effect(
       workBoardPost: (canvas, nodeId, topicId, text, author) =>
         asResult(
           Effect.gen(function* () {
-            const read = yield* readCanvas(canvas);
+            const [context, read] = yield* Effect.all([
+              stationContext,
+              readCanvas(canvas),
+            ]);
             if (
               read.doc.nodes.find((n) => n.id === nodeId)?.ether?.entity
                 ?.kind !== "board"
@@ -1595,14 +1621,37 @@ export const WorkLive = Layer.effect(
               position: 0,
               createdAt: now,
             };
-            const outcome = yield* local(
-              repository
-                .appendBoardPost({
-                  sink: sinkRef(canvas, nodeId),
-                  post,
-                })
-                .pipe(Effect.map((saved) => ({ value: { post: saved } }))),
-            );
+            const home =
+              context.configuration.role === "command-center"
+                ? context.localInstallationId
+                : context.configuration.commandCenterInstallationId;
+            const outcome =
+              home === context.localInstallationId
+                ? yield* local(
+                  repository
+                    .appendBoardPost({
+                      sink: sinkRef(canvas, nodeId),
+                      basis: intentBasis(context, read.intentWitness),
+                      post,
+                      createdBy: author,
+                    })
+                    .pipe(
+                      Effect.map((result) => ({
+                        value: { post: result.value },
+                      })),
+                    ),
+                )
+                : yield* enqueue(
+                  context,
+                  home,
+                  workItem("post", post.postId, canvas, nodeId),
+                  {
+                    operation: "board.post.append",
+                    post,
+                    createdBy: author,
+                  },
+                  { post },
+                );
             return yield* complete(canvas, outcome);
           }),
         ),

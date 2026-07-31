@@ -278,6 +278,9 @@ const expectedSinkKind = (
       return "artifacts";
     case "delivery":
       return undefined;
+    case "topic":
+    case "post":
+      return "board";
   }
 };
 
@@ -312,6 +315,8 @@ const operationForActor = (
               : undefined;
     case "task.create":
     case "message.append":
+    case "board.topic.create":
+    case "board.post.append":
       return undefined;
   }
 };
@@ -522,6 +527,8 @@ const actorFromFact = (
       return fact.body.receipt.actor;
     case "task.create":
     case "message.append":
+    case "board.topic.create":
+    case "board.post.append":
       return undefined;
   }
 };
@@ -571,31 +578,62 @@ export const makeStationWorkAdmission = (
     }
 
     if (topology.localRole === "command-center") {
-      return command.body.operation === "message.append"
-        ? authorizeActor(
-            topology,
-            command.body.sentBy,
-            topology.peerInstallationId,
-            command.item.sink,
-            "msg.send",
-          )
-        : command.body.operation === "proposal.create"
-          ? sinkAuthority(topology, sink) !== topology.localInstallationId
-            ? rejected(
-                "locality-mismatch",
-                "proposal command targets a queue not homed on Command Center",
-              )
-            : authorizeActor(
-                topology,
-                command.body.proposal.proposedBy,
-                topology.peerInstallationId,
-                command.item.sink,
-                "tasks.create",
-              )
-        : rejected(
+      if (command.body.operation === "message.append") {
+        return authorizeActor(
+          topology,
+          command.body.sentBy,
+          topology.peerInstallationId,
+          command.item.sink,
+          "msg.send",
+        );
+      }
+      if (command.body.operation === "proposal.create") {
+        return sinkAuthority(topology, sink) !== topology.localInstallationId
+          ? rejected(
+              "locality-mismatch",
+              "proposal command targets a queue not homed on Command Center",
+            )
+          : authorizeActor(
+              topology,
+              command.body.proposal.proposedBy,
+              topology.peerInstallationId,
+              command.item.sink,
+              "tasks.create",
+            );
+      }
+      if (
+        command.body.operation === "board.topic.create" ||
+        command.body.operation === "board.post.append"
+      ) {
+        // Multi-reader bulletin is CC-homed; Remote agents enqueue actor-authored
+        // writes. Operator megaphone stays CC-local (IPC denyRemote).
+        const author = command.body.createdBy;
+        if (
+          author.kind !== "actor" ||
+          author.seatId === undefined ||
+          author.nodeId === undefined
+        ) {
+          return rejected(
             "authority-mismatch",
-            `${command.body.operation} is Command Center intent and cannot be commanded by a Remote`,
+            "remote board writes require an actor author with seat and node",
           );
+        }
+        return authorizeActor(
+          topology,
+          {
+            seatId: author.seatId,
+            canvasName: command.item.sink.canvasName,
+            nodeId: author.nodeId,
+          },
+          topology.peerInstallationId,
+          command.item.sink,
+          "board.post",
+        );
+      }
+      return rejected(
+        "authority-mismatch",
+        `${command.body.operation} is Command Center intent and cannot be commanded by a Remote`,
+      );
     }
 
     switch (command.body.operation) {
@@ -649,9 +687,11 @@ export const makeStationWorkAdmission = (
       case "request.create":
       case "artifact.publish":
       case "delivery.accepted":
+      case "board.topic.create":
+      case "board.post.append":
         return rejected(
           "locality-mismatch",
-          `${command.body.operation} must originate as a local actor fact`,
+          `${command.body.operation} must originate as a local actor fact or CC-homed command`,
         );
       case "message.append": {
         if (command.body.destination.kind === "mailbox") {

@@ -1721,6 +1721,24 @@ export const WORK_BOARD_STATE_SCHEMA_SQL = `
 `;
 
 /**
+ * Work schema with board event vocabulary (topic/post kinds + board ops).
+ * Used only at CURRENT composition so V5–V9 frozen identities stay immutable.
+ */
+export const WORK_STATE_SCHEMA_BOARD_VOCAB_SQL = WORK_STATE_SCHEMA_SQL
+  .replaceAll(
+    "item_kind IN ('task', 'request', 'message', 'artifact', 'delivery')",
+    "item_kind IN ('task', 'request', 'message', 'artifact', 'delivery', 'topic', 'post')",
+  )
+  .replaceAll(
+    `'delivery.accepted'
+        )`,
+    `'delivery.accepted',
+          'board.topic.create',
+          'board.post.append'
+        )`,
+  );
+
+/**
  * Historical Work schema embedded in state schema versions 1–3.
  * Kept as an exact forward-migration witness; fresh installs use the current
  * trigger above. This avoids duplicating the rest of the large Work schema.

@@ -15,6 +15,7 @@ import { STATION_STATUS_STATE_SCHEMA_SQL } from "../station-status-state-schema"
 import { USAGE_STATE_SCHEMA_SQL } from "../usage/state-schema";
 import {
   WORK_BOARD_STATE_SCHEMA_SQL,
+  WORK_STATE_SCHEMA_BOARD_VOCAB_SQL,
   WORK_STATE_SCHEMA_SQL,
   WORK_STATE_SCHEMA_V3_SQL,
   WORK_TASK_DEPENDENCIES_STATE_SCHEMA_SQL,
@@ -154,10 +155,20 @@ export const STATE_SCHEMA_V8_FRAGMENTS = [
 
 export const STATE_SCHEMA_V8_SQL = STATE_SCHEMA_V8_FRAGMENTS.join("\n");
 
-export const STATE_SCHEMA_FRAGMENTS = [
+/** Schema at version 9: board tables, pre board event vocabulary. */
+export const STATE_SCHEMA_V9_FRAGMENTS = [
   ...STATE_SCHEMA_V8_FRAGMENTS,
   WORK_BOARD_STATE_SCHEMA_SQL,
 ] as const;
+
+export const STATE_SCHEMA_V9_SQL = STATE_SCHEMA_V9_FRAGMENTS.join("\n");
+
+/** Current: board tables + board work-event vocabulary (expanded CHECKs). */
+export const STATE_SCHEMA_FRAGMENTS = STATE_SCHEMA_V9_FRAGMENTS.map((fragment) =>
+  fragment === WORK_STATE_SCHEMA_SQL
+    ? WORK_STATE_SCHEMA_BOARD_VOCAB_SQL
+    : fragment,
+) as unknown as typeof STATE_SCHEMA_V9_FRAGMENTS;
 
 /**
  * Fresh-install and final-verification target for the current version.

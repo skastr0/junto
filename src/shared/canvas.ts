@@ -482,6 +482,7 @@ const WORK_PROJECTION_KEYS = [
   "requests",
   "messages",
   "artifacts",
+  "board",
 ] as const;
 
 /**

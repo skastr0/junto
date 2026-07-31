@@ -49,6 +49,8 @@ export const WorkItemKind = Schema.Literal(
   "message",
   "artifact",
   "delivery",
+  "topic",
+  "post",
 );
 export type WorkItemKind = typeof WorkItemKind.Type;
 
