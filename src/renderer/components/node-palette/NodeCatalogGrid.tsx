@@ -85,7 +85,7 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     connections: [
       { source: "Agent", target: "Requests", direction: "directed", relationship: "surfaces an answerable operator request", mode: "capability", ports: ["request.escalate", "msg.list", "msg.send"] },
       { source: "Requests", target: "Actor", direction: "directed", relationship: "blocks only its claimant during a human wait", mode: "criteria", ports: [] },
-      { source: "Scheduler", target: "Requests", direction: "directed", relationship: "sets an authored flag on Command Center", mode: "effect", ports: [] },
+      { source: "Scheduler", target: "Requests", direction: "directed", relationship: "projects the selected runtime flag on Command Center", mode: "effect", ports: [] },
     ],
   },
   {
@@ -94,7 +94,7 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     purpose: "A durable shelf for named outputs produced as work becomes real.",
     connections: [
       { source: "Agent", target: "Artifacts", direction: "directed", relationship: "records produced files and proof", mode: "capability", ports: ["artifact.publish"] },
-      { source: "Scheduler", target: "Artifacts", direction: "directed", relationship: "sets an authored flag on Command Center", mode: "effect", ports: [] },
+      { source: "Scheduler", target: "Artifacts", direction: "directed", relationship: "projects the selected runtime flag on Command Center", mode: "effect", ports: [] },
     ],
   },
   {
@@ -103,7 +103,7 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     purpose: "A shared Command Center discussion surface for durable topics, updates, and decisions.",
     connections: [
       { source: "Agent", target: "Board", direction: "directed", relationship: "creates topics and posts updates", mode: "capability", ports: ["board.create_topic", "board.post"] },
-      { source: "Scheduler", target: "Board", direction: "directed", relationship: "sets an authored flag on Command Center", mode: "effect", ports: [] },
+      { source: "Scheduler", target: "Board", direction: "directed", relationship: "projects the selected runtime flag on Command Center", mode: "effect", ports: [] },
     ],
   },
   {
@@ -119,7 +119,7 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     behavior: "Automation runs only with a configured station role while this canvas is playing. Pausing preserves the next due firing.",
     connections: [
       { source: "Cron", target: "Tasks", direction: "directed", relationship: "enqueues work when the interval is due", mode: "effect", ports: [] },
-      { source: "Cron", target: "Non-region node", direction: "directed", relationship: "sets or clears an authored flag on Command Center", mode: "effect", ports: [] },
+      { source: "Cron", target: "Non-region node", direction: "directed", relationship: "projects the selected runtime flag on Command Center", mode: "effect", ports: [] },
     ],
   },
   {
@@ -130,7 +130,7 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     connections: [
       { source: "Hermes stats", target: "Gauge", direction: "directed", relationship: "supplies the live value evaluated by the predicate", mode: "context", ports: [] },
       { source: "Gauge", target: "Tasks", direction: "directed", relationship: "enqueues work on a rising match", mode: "effect", ports: [] },
-      { source: "Gauge", target: "Non-region node", direction: "directed", relationship: "sets or clears an authored flag on Command Center", mode: "effect", ports: [] },
+      { source: "Gauge", target: "Non-region node", direction: "directed", relationship: "projects the selected runtime flag on Command Center", mode: "effect", ports: [] },
     ],
   },
   {
@@ -141,7 +141,7 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     connections: [
       { source: "Watched node", target: "Relay", direction: "directed", relationship: "supplies the typed projection evaluated by the predicate", mode: "context", ports: [] },
       { source: "Relay", target: "Tasks", direction: "directed", relationship: "enqueues work on a rising match", mode: "effect", ports: [] },
-      { source: "Relay", target: "Non-region node", direction: "directed", relationship: "sets or clears an authored flag on Command Center", mode: "effect", ports: [] },
+      { source: "Relay", target: "Non-region node", direction: "directed", relationship: "projects the selected runtime flag on Command Center", mode: "effect", ports: [] },
     ],
   },
   {

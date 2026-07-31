@@ -43,9 +43,8 @@ export type ModeDeckActions = {
   readonly addPage: () => void;
 };
 
-const CATEGORIES: ReadonlyArray<{ readonly id: NodeCatalogCategory | "all" | "agents"; readonly label: string }> = [
+const CATEGORIES: ReadonlyArray<{ readonly id: NodeCatalogCategory | "all"; readonly label: string }> = [
   { id: "all", label: "All" },
-  { id: "agents", label: "Agents" },
   { id: "shell", label: "Shell" },
   { id: "sinks", label: "Sinks" },
   { id: "schedule", label: "Schedule" },
@@ -91,7 +90,7 @@ export function NodePaletteModeDeck({
   readonly agentPosition: { readonly x: number; readonly y: number };
 }) {
   const [query, setQuery] = useState("");
-  const [category, setCategory] = useState<NodeCatalogCategory | "all" | "agents">("all");
+  const [category, setCategory] = useState<NodeCatalogCategory | "all">("all");
   const [launchContext, setLaunchContext] = useState<AgentLaunchContextValue>(
     defaultAgentLaunchContext,
   );
@@ -232,7 +231,7 @@ export function NodePaletteModeDeck({
             <div className="node-deck__agent-secondary">
               <span>Also connects to Requests and Artifacts.</span>
               <span>Human-wait items block only their claimant actor.</span>
-              <span><Zap size={11} aria-hidden /> Schedulers enqueue at Tasks; Command Center can set an actor flag.</span>
+              <span><Zap size={11} aria-hidden /> Schedulers enqueue at Tasks or project a runtime flag on Command Center.</span>
             </div>
           </section>
           <div className="node-deck__launch-slot">
@@ -245,16 +244,12 @@ export function NodePaletteModeDeck({
         </aside>
         <div className="node-deck__catalog">
           <div className="node-deck__pane-label"><span>Node catalog</span></div>
-          {category === "agents" ? (
-            <div className="node-deck__catalog-empty">Choose an agent from the adjacent list.</div>
-          ) : (
-            <NodeCatalogGrid
-              className="node-deck__catalog-grid"
-              query={query}
-              category={category}
-              onSelect={(entry) => catalogAction(actions, entry)}
-            />
-          )}
+          <NodeCatalogGrid
+            className="node-deck__catalog-grid"
+            query={query}
+            category={category}
+            onSelect={(entry) => catalogAction(actions, entry)}
+          />
         </div>
       </div>
       {agentCascade ? (

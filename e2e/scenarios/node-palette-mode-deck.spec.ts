@@ -64,7 +64,7 @@ test("Mode Deck exposes the searchable catalog and keeps launch context dense at
     const { page } = vellum;
     const deck = await openModeDeck(page);
 
-    for (const category of ["All", "Agents", "Shell"]) {
+    for (const category of ["All", "Shell"]) {
       await expect(deck.getByRole("tab", { name: category, exact: true }))
         .toBeVisible();
     }
@@ -82,7 +82,6 @@ test("Mode Deck exposes the searchable catalog and keeps launch context dense at
       ).toBeVisible();
     }
 
-    await deck.getByRole("tab", { name: "Agents", exact: true }).click();
     const agentPane = deck.locator('aside[aria-label="Agents"]');
     const launchContext = agentPane.getByRole("region", {
       name: "Launch context",
@@ -146,8 +145,6 @@ test("model and effort choices remain visually attached to the active agent row"
   try {
     const { page } = vellum;
     const deck = await openModeDeck(page);
-    await deck.getByRole("tab", { name: "Agents", exact: true }).click();
-
     const agent = deck.getByRole("button", { name: "Add Claude Code agent" });
     await agent.hover();
 

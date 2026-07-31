@@ -28,7 +28,7 @@ describe("node palette catalog contract", () => {
     expect(scheduler.connections).toContainEqual(
       expect.objectContaining({
         target: "Non-region node",
-        relationship: expect.stringContaining("Command Center"),
+        relationship: expect.stringContaining("runtime flag on Command Center"),
         mode: "effect",
       }),
     );
