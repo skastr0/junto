@@ -1,6 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
-import { access, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  access,
+  lstat,
+  mkdir,
+  readFile,
+  readlink,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context, Effect, Layer, ManagedRuntime } from "effect";
@@ -33,6 +42,7 @@ const runtime = ManagedRuntime.make(
   canvasesLive,
 );
 let canvases: Context.Tag.Service<typeof CanvasesService>;
+const previousCanvasesDirectory = process.env.VELLUM_CANVASES_DIR;
 
 const emptyDoc = { nodes: [], edges: [] } as const;
 const rejected = async (effect: Effect.Effect<unknown, unknown>): Promise<void> => {
@@ -62,11 +72,21 @@ const runHeadless = async (script: "digest.ts" | "render.ts", name: string) => {
 };
 
 beforeAll(async () => {
+  process.env.VELLUM_CANVASES_DIR = join(
+    mockCanvasesHome,
+    ".vellum",
+    "canvases",
+  );
   canvases = await runtime.runPromise(CanvasesService);
 });
 
 afterAll(async () => {
   await runtime.dispose();
+  if (previousCanvasesDirectory === undefined) {
+    delete process.env.VELLUM_CANVASES_DIR;
+  } else {
+    process.env.VELLUM_CANVASES_DIR = previousCanvasesDirectory;
+  }
   await rm(mockCanvasesHome, { recursive: true, force: true });
 });
 
@@ -180,13 +200,16 @@ describe("canvas path capability boundary", () => {
   it("does not follow projection symlinks outside the output root", async () => {
     const root = join(mockCanvasesHome, ".vellum", "canvases");
     const outsideProjection = join(mockCanvasesHome, "outside.digest.txt");
+    const projectionPath = join(root, "safe.digest.txt");
     await runtime.runPromise(canvases.create("safe"));
     await mkdir(root, { recursive: true });
     await writeFile(outsideProjection, "outside projection", "utf8");
-    await symlink(outsideProjection, join(root, "safe.digest.txt"));
+    await symlink(outsideProjection, projectionPath);
 
     await rejected(canvases.writeSidecar("safe", "digest.txt", "replacement"));
 
+    expect((await lstat(projectionPath)).isSymbolicLink()).toBe(true);
+    expect(await readlink(projectionPath)).toBe(outsideProjection);
     expect(await readFile(outsideProjection, "utf8")).toBe(
       "outside projection",
     );
