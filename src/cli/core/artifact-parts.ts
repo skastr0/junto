@@ -1,14 +1,15 @@
 import { Effect } from "effect";
 import type { ArtifactPublishCliArgs } from "../../shared/work-control";
-import type { ContentPart } from "../../shared/work-model";
+import type { ContentPart, RawPart } from "../../shared/work-model";
 import { InputError } from "./errors";
 
 /**
  * CLI boundary for artifact parts.
  *
- * Binary bytes are no longer read and Base64-encoded into the work socket.
- * The content service/CLI ingest surface must produce a ContentRef first;
- * this adapter only passes ref-only parts through to artifact.publish.
+ * ContentRefs pass through directly. A legacy bytesBase64 input is admitted
+ * only as an ingress form; WorkService externalizes it through ContentService
+ * before any task/artifact fact or parts_json value is written. File paths are
+ * not portable ingress and must be ingested through the content surface first.
  */
 export const materializeArtifactParts = (
   input: ArtifactPublishCliArgs,
@@ -26,6 +27,7 @@ export const materializeArtifactParts = (
       | { kind: "text"; text: string }
       | { kind: "url"; url: string; mediaType?: string }
       | { kind: "data"; data: unknown }
+      | RawPart
       | ContentPart
     >;
   },
@@ -42,10 +44,17 @@ export const materializeArtifactParts = (
         ) {
           return part;
         }
+        if (part.bytesBase64 !== undefined) {
+          return {
+            kind: "raw" as const,
+            bytesBase64: part.bytesBase64,
+            ...(part.mediaType === undefined ? {} : { mediaType: part.mediaType }),
+          };
+        }
         return yield* Effect.fail(
           new InputError({
             message:
-              "inline binary artifact parts are retired; ingest the file through the content service and pass a ContentRef part",
+              "artifact file paths require content ingest; pass bytesBase64 only for the local ContentService adapter or pass a ContentRef part",
             path: `parts[${index}]`,
             hint: "use {kind: \"content\", ref: {sha256, byteLength, mediaType}}",
           }),

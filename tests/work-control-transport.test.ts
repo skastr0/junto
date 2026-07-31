@@ -27,6 +27,10 @@ import {
 } from "../src/main/vellum/work/control";
 import { WorkLive, WorkService } from "../src/main/vellum/work/service";
 import {
+  ContentService,
+  makeContentServiceLive,
+} from "../src/main/vellum/content/service";
+import {
   WorkRepository,
   WorkRepositoryLive,
 } from "../src/main/vellum/work/repository";
@@ -46,6 +50,7 @@ import { PausePlane, PausePlaneAllPlaying } from "../src/main/vellum/pause-plane
 import { makeProcessIdentityMap } from "../src/main/vellum/process-identity";
 import { resetSeatBlocks } from "../src/main/vellum/work/blocked-seat";
 import type { CanvasDoc } from "../src/shared/canvas";
+import type { ContentRef } from "../src/shared/content";
 import {
   createMainAuthoringGate,
   type MainAuthoringGate,
@@ -70,6 +75,7 @@ const makeWorkTestRuntime = (root: string) => {
       StationRepositoryLive,
       StationFleetTargetRepositoryLive,
       SettingsLive,
+      makeContentServiceLive({ root: join(root, "content") }),
     ),
     stateLive,
   );
@@ -839,6 +845,59 @@ describe("work control transport", () => {
       args: { target: "tasks", task: approved.data.id },
     })) as { ok: true };
     expect(claimed.ok).toBe(true);
+  });
+
+  it("externalizes inline task media before it crosses the work boundary", async () => {
+    const server = servers[0]!;
+    const created = (await call(server.socketPath, {
+      token: token(),
+      op: "tasks.create",
+      args: {
+        target: "tasks",
+        brief: "attach a screenshot",
+        media: [
+          {
+            kind: "raw",
+            bytesBase64: Buffer.from("vellum-media").toString("base64"),
+            mediaType: "image/png",
+          },
+        ],
+      },
+    })) as {
+      ok: true;
+      data: {
+        brief: {
+          parts: ReadonlyArray<
+            | { kind: "text"; text: string }
+            | { kind: "content"; ref: ContentRef }
+            | { kind: "raw"; bytesBase64: string; mediaType?: string }
+          >;
+        };
+      };
+    };
+    expect(created.ok).toBe(true);
+    const media = created.data.brief.parts.find(
+      (part) => part.kind === "content" || part.kind === "raw",
+    );
+    expect(media).toMatchObject({
+      kind: "content",
+      ref: {
+        byteLength: Buffer.byteLength("vellum-media"),
+        mediaType: "image/png",
+      },
+    });
+    expect(media).not.toHaveProperty("bytesBase64");
+    if (media?.kind !== "content") throw new Error("expected ContentRef part");
+
+    const runtime = runtimes.at(-1);
+    if (runtime === undefined) throw new Error("missing work-control runtime");
+    const content = await runtime.runPromise(ContentService);
+    const availability = await runtime.runPromise(content.availability(media.ref));
+    expect(availability).toMatchObject({
+      state: "verified",
+      verifiedSha256: media.ref.sha256,
+      verifiedByteLength: media.ref.byteLength,
+    });
   });
 
   it("keeps reads available while returning typed RuntimeDown for authorial ops", async () => {

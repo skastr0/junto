@@ -2,7 +2,7 @@
 // plane. Canvas documents are read-only topology plus runtime projections;
 // every durable mutation goes through a specific WorkRepository verb.
 
-import { Context, Effect, Either, Layer, Match, Schema } from "effect";
+import { Context, Effect, Either, Layer, Match, Option, Schema } from "effect";
 import type {
   Artifact,
   CanvasDoc,
@@ -18,6 +18,7 @@ import type {
   FinishCriteria,
   TaskProposal,
 } from "@shared/work-model";
+import type { ContentPart } from "@shared/content";
 import type {
   CanvasReadResult,
   WorkOpResult,
@@ -65,6 +66,8 @@ import { StationRepository } from "../station/repository";
 import {
   StationLivePeerRegistry,
 } from "../station/session-registry";
+import { ContentService } from "../content/service";
+import type { ContentOwner } from "../content/manifest";
 import { admitWorkTarget } from "./authz";
 import { clearSeatBlockedByRequest } from "./blocked-seat";
 import { mailboxMessageReadId } from "./mailbox-receipts";
@@ -462,6 +465,89 @@ export const WorkLive = Layer.effect(
         catch: toWorkServiceError,
       });
 
+    const decodeRawBytes = (encoded: string): Buffer => {
+      const normalized = encoded.replace(/\s+/g, "");
+      if (
+        normalized.length % 4 === 1 ||
+        !/^[A-Za-z0-9+/]*={0,2}$/u.test(normalized)
+      ) {
+        throw new Error("raw media bytesBase64 is not valid Base64");
+      }
+      const bytes = Buffer.from(normalized, "base64");
+      const withoutPadding = normalized.replace(/=+$/u, "");
+      if (bytes.toString("base64").replace(/=+$/u, "") !== withoutPadding) {
+        throw new Error("raw media bytesBase64 is not canonical Base64");
+      }
+      if (bytes.length === 0) {
+        throw new Error("raw media part is empty");
+      }
+      return bytes;
+    };
+
+    const externalizeParts = (
+      parts: ReadonlyArray<Part>,
+      owner?: ContentOwner,
+    ): Effect.Effect<ReadonlyArray<Part>, WorkServiceError> => {
+      if (!parts.some((part) => part.kind === "raw")) {
+        return Effect.succeed(parts);
+      }
+      return Effect.gen(function* () {
+        const service = yield* Effect.serviceOption(ContentService);
+        if (Option.isNone(service)) {
+          return yield* Effect.fail(
+            new WorkServiceError({
+              code: "invalid",
+              message:
+                "content service is unavailable; binary media cannot be written as inline Base64",
+            }),
+          );
+        }
+        return yield* Effect.forEach(parts, (part) => {
+          if (part.kind !== "raw") return Effect.succeed(part);
+          return Effect.try({
+            try: () => decodeRawBytes(part.bytesBase64),
+            catch: toWorkServiceError,
+          }).pipe(
+            Effect.flatMap((source) =>
+              service.value.put({
+                source,
+                mediaType: part.mediaType ?? "application/octet-stream",
+                ...(owner === undefined ? {} : { owner }),
+              }),
+            ),
+            Effect.map((result): ContentPart => ({
+              kind: "content",
+              ref: result.ref,
+            })),
+            Effect.mapError(toWorkServiceError),
+          );
+        });
+      });
+    };
+
+    const externalizeMessage = (
+      message: Message,
+      owner?: ContentOwner,
+    ): Effect.Effect<Message, WorkServiceError> =>
+      externalizeParts(message.parts, owner).pipe(
+        Effect.map((parts) => ({ ...message, parts })),
+      );
+
+    const externalizeTask = (
+      task: Task,
+      owner?: ContentOwner,
+    ): Effect.Effect<Task, WorkServiceError> =>
+      Effect.forEach(task.history, (message) =>
+        externalizeMessage(message, owner),
+      ).pipe(Effect.map((history) => ({ ...task, history })));
+
+    const externalizeProposal = (
+      proposal: TaskProposal,
+    ): Effect.Effect<TaskProposal, WorkServiceError> =>
+      externalizeMessage(proposal.brief).pipe(
+        Effect.map((brief) => ({ ...proposal, brief })),
+      );
+
     const complete = <T>(
       canvasName: string,
       outcome: WorkMutationOutcome<T>,
@@ -773,21 +859,27 @@ export const WorkLive = Layer.effect(
                 finishCriteria,
               )
             );
+            const task = yield* externalizeTask(policy.task, {
+              kind: "task",
+              canvasName: canvas,
+              nodeId,
+              recordId: policy.task.id,
+            });
             const home = yield* homeForNode(node, context);
             const outcome = home === context.localInstallationId
               ? yield* local(
                 repository.createTask({
                   sink: sinkRef(canvas, nodeId),
                   basis: intentBasis(context, read.intentWitness),
-                  task: policy.task,
+                  task,
                 }),
               )
               : yield* enqueue(
                 context,
                 home,
-                workItem("task", policy.task.id, canvas, nodeId),
-                { operation: "task.create", task: policy.task },
-                policy.task,
+                workItem("task", task.id, canvas, nodeId),
+                { operation: "task.create", task },
+                task,
               );
             return yield* complete(canvas, outcome);
           }),
@@ -833,21 +925,22 @@ export const WorkLive = Layer.effect(
                 finishCriteria,
               )
             );
+            const proposal = yield* externalizeProposal(policy.proposal);
             const home = yield* homeForNode(node, context);
             const outcome = home === context.localInstallationId
               ? yield* local(
                 repository.createProposal({
                   sink: sinkRef(canvas, nodeId),
                   basis: intentBasis(context, read.intentWitness),
-                  proposal: policy.proposal,
+                  proposal,
                 }),
               )
               : yield* enqueue(
                 context,
                 home,
-                workItem("proposal", policy.proposal.id, canvas, nodeId),
-                { operation: "proposal.create", proposal: policy.proposal },
-                policy.proposal,
+                workItem("proposal", proposal.id, canvas, nodeId),
+                { operation: "proposal.create", proposal },
+                proposal,
               );
             return yield* complete(canvas, outcome);
           }),
@@ -895,21 +988,22 @@ export const WorkLive = Layer.effect(
                 finishCriteria,
               )
             );
+            const proposal = yield* externalizeProposal(policy.proposal);
             const home = yield* homeForNode(node, context);
             const outcome = home === context.localInstallationId
               ? yield* local(
                 repository.createProposal({
                   sink: sinkRef(canvas, nodeId),
                   basis: intentBasis(context, read.intentWitness),
-                  proposal: policy.proposal,
+                  proposal,
                 }),
               )
               : yield* enqueue(
                 context,
                 home,
-                workItem("proposal", policy.proposal.id, canvas, nodeId),
-                { operation: "proposal.create", proposal: policy.proposal },
-                policy.proposal,
+                workItem("proposal", proposal.id, canvas, nodeId),
+                { operation: "proposal.create", proposal },
+                proposal,
               );
             return yield* complete(canvas, outcome);
           }),
@@ -1256,6 +1350,12 @@ export const WorkLive = Layer.effect(
                 message,
               )
             );
+            const materializedMessage = yield* externalizeMessage(policy.message, {
+              kind: "message",
+              canvasName: canvas,
+              nodeId,
+              recordId: policy.message.messageId,
+            });
             const targetSpec = resolveSpec({
               isGroup: false,
               kind: targetNode.ether?.entity?.kind,
@@ -1292,7 +1392,7 @@ export const WorkLive = Layer.effect(
                 repository.appendMessage({
                   sink: sinkRef(canvas, nodeId),
                   basis: intentBasis(context, read.intentWitness),
-                  message: policy.message,
+                  message: materializedMessage,
                   sentBy,
                   destination,
                 }),
@@ -1302,17 +1402,17 @@ export const WorkLive = Layer.effect(
                 home,
                 workItem(
                   "message",
-                  policy.message.messageId,
+                  materializedMessage.messageId,
                   canvas,
                   nodeId,
                 ),
                 {
                   operation: "message.append",
-                  message: policy.message,
+                  message: materializedMessage,
                   sentBy,
                   destination,
                 },
-                policy.message,
+                materializedMessage,
               );
             if (outcome.disposition === "applied" && taskId === null) {
               messageDelivery.notifyAppended(
@@ -1368,12 +1468,18 @@ export const WorkLive = Layer.effect(
                 }),
               );
             }
+            const materializedMessage = yield* externalizeMessage(message, {
+              kind: "message",
+              canvasName: canvas,
+              nodeId,
+              recordId: message.messageId,
+            });
             const sentBy = operatorPlanningActorRef(canvas);
             const outcome = yield* local(
               repository.appendMessage({
                 sink: sinkRef(canvas, nodeId),
                 basis: intentBasis(context, read.intentWitness),
-                message,
+                message: materializedMessage,
                 sentBy,
                 destination: { kind: "mailbox" },
               }),
@@ -1653,11 +1759,22 @@ export const WorkLive = Layer.effect(
                 artifact,
               )
             );
+            const materializedArtifact = yield* externalizeParts(
+              policy.artifact.parts,
+              {
+                kind: "artifact",
+                canvasName: canvas,
+                nodeId,
+                recordId: policy.artifact.artifactId,
+              },
+            ).pipe(
+              Effect.map((parts) => ({ ...policy.artifact, parts })),
+            );
             const outcome = yield* local(
               repository.publishArtifact({
                 sink: sinkRef(canvas, nodeId),
                 basis: intentBasis(context, read.intentWitness),
-                artifact: policy.artifact,
+                artifact: materializedArtifact,
                 publishedBy,
               }),
             );
