@@ -87,6 +87,7 @@ import {
   LicenseRepository,
   LicenseRepositoryLive,
 } from "./vellum/license/repository";
+import { CanvasEntityRepositoryLive } from "./vellum/entities/repository";
 import {
   LicenseService,
   makeLicenseService,
@@ -116,6 +117,7 @@ const StateRepositoriesLive = Layer.provideMerge(
     StationFleetTargetRepositoryLive,
     BoxOwnershipRepositoryLive,
     LicenseRepositoryLive,
+    CanvasEntityRepositoryLive,
   ),
   StateEngineLive,
 );

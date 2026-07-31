@@ -20,6 +20,7 @@ import {
   LICENSE_STATE_V2_SCHEMA_SQL,
 } from "../license/state-schema";
 import { WORK_PROPOSAL_STATE_SCHEMA_SQL } from "../work/state-schema";
+import { ENTITIES_STATE_SCHEMA_SQL } from "../entities/state-schema";
 
 export type StateSchemaMigrationDatabase = Pick<
   DatabaseSync,
@@ -93,7 +94,15 @@ export const STATE_SCHEMA_V4_IDENTITY = {
     "949256a2cbfb7b07a360a772605bd3fa2ea85e70bdcbfed505611b820474a41a",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 5;
+/** Exact witness of schema version 5 (task proposals; no entity registry). */
+export const STATE_SCHEMA_V5_IDENTITY = {
+  actualSchemaSha256:
+    "4c0fd324cb37c9c609acdeade50a10325b2bffddaae40c0ee8fa464d6cfc6b6f",
+  sourceSchemaSha256:
+    "15d60080de137892b502197d65a2042c306c6e455c919ed113a7ee599aaaee53",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 6;
 
 export const STATE_SCHEMA_MIGRATIONS =
   [
@@ -155,7 +164,125 @@ export const STATE_SCHEMA_MIGRATIONS =
         database.exec(WORK_PROPOSAL_STATE_SCHEMA_SQL);
       },
     },
+    {
+      fromVersion: 5,
+      toVersion: 6,
+      name: "add-canvas-entities",
+      safety: STATE_SCHEMA_MIGRATION_SAFETY,
+      fromIdentity: STATE_SCHEMA_V5_IDENTITY,
+      migrate: (database) => {
+        database.exec(ENTITIES_STATE_SCHEMA_SQL);
+        backfillCanvasEntitiesFromHead(database);
+      },
+    },
   ] as const satisfies ReadonlyArray<StateSchemaMigration>;
+
+/**
+ * Seed the entity registry from the current authorial head so active nodes
+ * already on disk become active entities without rewriting canvas bodies.
+ */
+const backfillCanvasEntitiesFromHead = (
+  database: StateSchemaMigrationDatabase,
+): void => {
+  const head = database
+    .prepare(
+      "SELECT generation FROM canvas_head WHERE singleton = 1",
+    )
+    .get() as { readonly generation: string } | undefined;
+  if (head === undefined) return;
+
+  const documents = database
+    .prepare(
+      `
+        SELECT name, body
+        FROM canvas_generation_documents
+        WHERE generation = ?
+      `,
+    )
+    .all(head.generation) as unknown as ReadonlyArray<{
+    readonly name: string;
+    readonly body: string;
+  }>;
+
+  const now = new Date().toISOString();
+  const insert = database.prepare(
+    `
+      INSERT INTO canvas_entities(
+        canvas_name,
+        entity_id,
+        kind,
+        binding_id,
+        lifecycle,
+        created_at,
+        updated_at,
+        archived_at,
+        soft_deleted_at
+      ) VALUES (?, ?, ?, ?, 'active', ?, ?, NULL, NULL)
+      ON CONFLICT(canvas_name, entity_id) DO NOTHING
+    `,
+  );
+
+  for (const document of documents) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(document.body);
+    } catch {
+      continue;
+    }
+    if (
+      parsed === null ||
+      typeof parsed !== "object" ||
+      !("nodes" in parsed) ||
+      !Array.isArray((parsed as { nodes: unknown }).nodes)
+    ) {
+      continue;
+    }
+    for (const node of (parsed as { nodes: ReadonlyArray<unknown> }).nodes) {
+      if (
+        node === null ||
+        typeof node !== "object" ||
+        !("id" in node) ||
+        typeof (node as { id: unknown }).id !== "string"
+      ) {
+        continue;
+      }
+      const entityId = (node as { id: string }).id;
+      if (entityId.length === 0 || entityId.length > 256) continue;
+
+      let kind: string | null = null;
+      let bindingId: string | null = null;
+      const ether = (node as { ether?: unknown }).ether;
+      if (ether !== null && typeof ether === "object") {
+        const entity = (ether as { entity?: unknown }).entity;
+        if (
+          entity !== null &&
+          typeof entity === "object" &&
+          typeof (entity as { kind?: unknown }).kind === "string"
+        ) {
+          const k = (entity as { kind: string }).kind;
+          if (k.length > 0 && k.length <= 128) kind = k;
+        }
+        const terminal = (ether as { terminal?: unknown }).terminal;
+        if (
+          terminal !== null &&
+          typeof terminal === "object" &&
+          typeof (terminal as { bindingId?: unknown }).bindingId === "string"
+        ) {
+          const b = (terminal as { bindingId: string }).bindingId;
+          if (b.length > 0 && b.length <= 256) bindingId = b;
+        }
+      }
+      if (kind === null) {
+        const nodeType = (node as { type?: unknown }).type;
+        if (typeof nodeType === "string" && nodeType.length > 0 && nodeType.length <= 128) {
+          kind = nodeType;
+        }
+      }
+
+      insert.run(document.name, entityId, kind, bindingId, now, now);
+    }
+  }
+};
 
 export const STATE_SCHEMA_MIGRATION_PLAN: StateSchemaMigrationPlan = {
   baselineVersion: 1,

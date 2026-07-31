@@ -46,6 +46,10 @@ import {
   removeCanvasProjectionSidecars,
   writeCanvasProjectionSidecar,
 } from "./canvas-control/sidecars";
+import {
+  archiveAllCanvasEntities,
+  syncCanvasEntities,
+} from "./entities/sync";
 
 export class CanvasError extends Schema.TaggedError<CanvasError>()("CanvasError", {
   message: Schema.String,
@@ -902,6 +906,14 @@ export const CanvasesLive = Layer.effect(
           documents,
           "write",
         );
+        if (commit.changed || previous === undefined) {
+          syncCanvasEntities(
+            writer,
+            canonicalName,
+            nextEntry.doc,
+            nextEntry.modifiedAt,
+          );
+        }
         return { commit, previous, nextEntry };
       });
       if (outcome.commit.changed) {
@@ -951,6 +963,14 @@ export const CanvasesLive = Layer.effect(
           documents,
           "mutate",
         );
+        if (commit.changed) {
+          syncCanvasEntities(
+            writer,
+            canonicalName,
+            nextEntry.doc,
+            nextEntry.modifiedAt,
+          );
+        }
         return { commit, previous, nextEntry };
       });
       if (outcome.commit.changed) {
@@ -985,6 +1005,12 @@ export const CanvasesLive = Layer.effect(
         const documents = new Map(current.documents);
         documents.set(canonicalName, entry);
         commitFullGeneration(writer, current, documents, "create");
+        syncCanvasEntities(
+          writer,
+          canonicalName,
+          entry.doc,
+          entry.modifiedAt,
+        );
         return entry;
       });
       yield* Effect.sync(() =>
@@ -1013,6 +1039,11 @@ export const CanvasesLive = Layer.effect(
         const documents = new Map(current.documents);
         documents.delete(canonicalName);
         commitFullGeneration(writer, current, documents, "remove");
+        archiveAllCanvasEntities(
+          writer,
+          canonicalName,
+          new Date().toISOString(),
+        );
         return entry;
       });
       yield* Effect.tryPromise({
@@ -1049,6 +1080,9 @@ export const CanvasesLive = Layer.effect(
         documents,
         "seed",
       );
+      if (commit.changed) {
+        syncCanvasEntities(writer, name, entry.doc, entry.modifiedAt);
+      }
       return commit.changed ? { name, entry } : undefined;
     },
   ).pipe(

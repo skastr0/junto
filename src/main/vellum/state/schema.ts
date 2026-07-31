@@ -1,5 +1,6 @@
 import { BROWSER_PROFILES_STATE_SCHEMA_SQL } from "../browser/state-schema";
 import { BOX_STATE_SCHEMA_SQL } from "../box/state-schema";
+import { ENTITIES_STATE_SCHEMA_SQL } from "../entities/state-schema";
 import { HOSTS_STATE_SCHEMA_SQL } from "../hosts/state-schema";
 import { KERNEL_STATE_SCHEMA_SQL } from "../kernel/state-schema";
 import {
@@ -116,12 +117,20 @@ export const STATE_SCHEMA_V3_FRAGMENTS = [
   LICENSE_STATE_V2_SCHEMA_SQL,
 ] as const;
 
-export const STATE_SCHEMA_FRAGMENTS = STATE_SCHEMA_V3_FRAGMENTS.map(
+/** Schema composition at version 5 (before canvas entity registry). */
+export const STATE_SCHEMA_V5_FRAGMENTS = STATE_SCHEMA_V3_FRAGMENTS.map(
   (fragment) =>
     fragment === WORK_STATE_SCHEMA_V3_SQL
       ? WORK_STATE_SCHEMA_SQL
       : fragment,
 );
+
+export const STATE_SCHEMA_V5_SQL = STATE_SCHEMA_V5_FRAGMENTS.join("\n");
+
+export const STATE_SCHEMA_FRAGMENTS = [
+  ...STATE_SCHEMA_V5_FRAGMENTS,
+  ENTITIES_STATE_SCHEMA_SQL,
+] as const;
 
 /**
  * Fresh-install and final-verification target for the current version.
