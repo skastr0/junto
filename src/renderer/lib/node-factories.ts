@@ -32,6 +32,23 @@ export const makeTextNode = (x: number, y: number): TextNode => ({
   height: 100,
 });
 
+/**
+ * Geography label — bare map text (no card chrome, no connectors).
+ * Settings surface: text + optional color + size. Not a factory seat.
+ */
+export const makeLabelNode = (x: number, y: number): TextNode => ({
+  id: `label-${ulid()}`,
+  type: "text",
+  text: "Label",
+  x: Math.round(x),
+  y: Math.round(y),
+  width: 160,
+  height: 40,
+  ether: {
+    entity: { kind: "label" },
+  },
+});
+
 export const makeFileNode = (x: number, y: number): FileNode => ({
   id: `node-${ulid()}`,
   type: "file",

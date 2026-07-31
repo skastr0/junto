@@ -11,6 +11,10 @@ export const hostOf = (url: string): string => {
   }
 };
 
+/** Bare map text (geography). No connectors, ports, or factory seat. */
+export const isLabelNode = (node: CanvasNode): boolean =>
+  node.ether?.entity?.kind === "label";
+
 export const searchText = (node: CanvasNode): string => [
   node.type,
   node.type === "text" ? node.text : "",

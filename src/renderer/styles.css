@@ -1012,7 +1012,9 @@ html[data-vellum-platform="darwin"] .station-bar [role="listbox"] {
 /* Cards drag from anywhere; keep motion quiet and physical. */
 .vellum-node { transition: border-color .18s ease, box-shadow .18s ease, transform .16s ease; }
 .react-flow__node:hover .vellum-node { transform: translateY(-1px); }
+.react-flow__node:hover .vellum-node--bare { transform: none; }
 .react-flow__node.dragging .vellum-node { transform: none; }
+.vellum-node--bare .vellum-node__body { overflow: visible; }
 
 @keyframes vellum-dot-pulse {
   0%, 100% { opacity: 1; }

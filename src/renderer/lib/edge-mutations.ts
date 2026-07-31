@@ -8,6 +8,7 @@ import type {
 } from "@shared/canvas";
 import type { Port } from "@shared/physics";
 import { inferSchedulerEdgeEffect } from "@shared/scheduler-effects";
+import { isLabelNode } from "./presentation";
 import { state$ } from "./state";
 import { commitDoc, parseSide } from "./mutations";
 
@@ -184,6 +185,13 @@ export const addEdge = (params: {
   }
   const fromNode = doc.nodes.find((node) => node.id === params.source);
   const toNode = doc.nodes.find((node) => node.id === params.target);
+  if (
+    (fromNode && isLabelNode(fromNode)) ||
+    (toNode && isLabelNode(toNode))
+  ) {
+    state$.error.set("Labels cannot take connections.");
+    return;
+  }
   const criteria = params.criteria ?? inferEdgeCriteria(fromNode);
   const effect = inferSchedulerEdgeEffect(fromNode, toNode);
   const fromSide = parseSide(params.sourceHandle);
@@ -219,6 +227,7 @@ export type EdgeBatchSkipReason =
   | "duplicate"
   | "missing-source"
   | "group-source"
+  | "label-source"
   | "invalid-target";
 
 export type EdgeBatchCandidate = {
@@ -251,7 +260,7 @@ export const planConnectToTarget = (
 ): EdgeBatchPlan => {
   const nodeById = new Map(nodes.map((node) => [node.id, node] as const));
   const target = nodeById.get(targetId);
-  if (!target || target.type === "group") {
+  if (!target || target.type === "group" || isLabelNode(target)) {
     return {
       toAdd: [],
       skipped: sourceIds.map((source) => ({ source, reason: "invalid-target" as const })),
@@ -275,6 +284,10 @@ export const planConnectToTarget = (
     }
     if (source.type === "group") {
       skipped.push({ source: sourceId, reason: "group-source" });
+      continue;
+    }
+    if (isLabelNode(source)) {
+      skipped.push({ source: sourceId, reason: "label-source" });
       continue;
     }
     const key = `${sourceId}->${targetId}`;

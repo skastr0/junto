@@ -241,6 +241,15 @@ export function NodeShell({
   toolbarExtras,
   inlineEdit = true,
   resizable = true,
+  /** When false, no source/target handles (labels). */
+  showHandles = true,
+  /**
+   * Bare map furniture: no fill, no card border; selection is a light outline.
+   * Used by geography labels so they read as free text on the field.
+   */
+  bare = false,
+  /** Full factory toolbar vs edit+delete only (labels). */
+  toolbar = "full",
   children,
 }: {
   readonly node: CanvasNode;
@@ -258,6 +267,9 @@ export function NodeShell({
   readonly inlineEdit?: boolean;
   /** Fixed-geometry instruments (actors) do not expose meaningless resizing. */
   readonly resizable?: boolean;
+  readonly showHandles?: boolean;
+  readonly bare?: boolean;
+  readonly toolbar?: "full" | "minimal";
   readonly children: ReactNode;
 }) {
   // Live herdr meta: agent_status blocked paints shell chrome without a doc flag.
@@ -327,40 +339,51 @@ export function NodeShell({
         : undefined;
   const primaryHue = primaryFlag ? FLAG_HUES[primaryFlag] : undefined;
   const accent = accentColor(node.color);
-  const border = shellBlocked
-    ? HUE.crimson
-    : primaryHue
-      ? withAlpha(primaryHue, 0.52)
-      : borderColor(node.color, selected);
-  const background = shellBlocked
-    ? `linear-gradient(135deg, ${withAlpha(HUE.crimson, 0.12)}, rgba(18,15,13,0.92))`
-    : primaryFlag === "attention"
-      ? `linear-gradient(135deg, ${withAlpha(HUE.amber, 0.09)}, rgba(14,13,12,0.96))`
-      : primaryFlag === "parked"
-        ? `linear-gradient(135deg, ${withAlpha(HUE.violet, 0.09)}, rgba(14,13,12,0.96))`
-        : "linear-gradient(135deg, rgba(30,25,20,0.94), rgba(14,13,12,0.96))";
-  const shadow = selected
-    ? `0 0 0 1px ${withAlpha(shellBlocked ? HUE.crimson : accent, 0.25)}, 0 12px 30px rgba(0,0,0,0.22)`
+  const border = bare
+    ? selected
+      ? withAlpha(accent, 0.55)
+      : "transparent"
     : shellBlocked
-      ? `0 0 0 1px ${withAlpha(HUE.crimson, 0.18)}, 0 10px 28px rgba(0,0,0,0.18)`
+      ? HUE.crimson
+      : primaryHue
+        ? withAlpha(primaryHue, 0.52)
+        : borderColor(node.color, selected);
+  const background = bare
+    ? "transparent"
+    : shellBlocked
+      ? `linear-gradient(135deg, ${withAlpha(HUE.crimson, 0.12)}, rgba(18,15,13,0.92))`
       : primaryFlag === "attention"
-        ? `0 0 0 1px ${withAlpha(HUE.amber, 0.14)}, 0 10px 28px rgba(0,0,0,0.18)`
+        ? `linear-gradient(135deg, ${withAlpha(HUE.amber, 0.09)}, rgba(14,13,12,0.96))`
         : primaryFlag === "parked"
-          ? `0 0 0 1px ${withAlpha(HUE.violet, 0.14)}, 0 10px 28px rgba(0,0,0,0.18)`
-          : "0 10px 28px rgba(0,0,0,0.18)";
+          ? `linear-gradient(135deg, ${withAlpha(HUE.violet, 0.09)}, rgba(14,13,12,0.96))`
+          : "linear-gradient(135deg, rgba(30,25,20,0.94), rgba(14,13,12,0.96))";
+  const shadow = bare
+    ? selected
+      ? `0 0 0 1px ${withAlpha(accent, 0.35)}`
+      : "none"
+    : selected
+      ? `0 0 0 1px ${withAlpha(shellBlocked ? HUE.crimson : accent, 0.25)}, 0 12px 30px rgba(0,0,0,0.22)`
+      : shellBlocked
+        ? `0 0 0 1px ${withAlpha(HUE.crimson, 0.18)}, 0 10px 28px rgba(0,0,0,0.18)`
+        : primaryFlag === "attention"
+          ? `0 0 0 1px ${withAlpha(HUE.amber, 0.14)}, 0 10px 28px rgba(0,0,0,0.18)`
+          : primaryFlag === "parked"
+            ? `0 0 0 1px ${withAlpha(HUE.violet, 0.14)}, 0 10px 28px rgba(0,0,0,0.18)`
+            : "0 10px 28px rgba(0,0,0,0.18)";
   // Pulse + corner spin for any stoppage chrome (graph blocked, flag, herdr).
   // isBlocker alone used to skip actors blocked only by upstream criteria.
   return (
     <div
-      className={`vellum-node group relative flex h-full w-full flex-col overflow-visible rounded-[10px] px-3.5 py-3 ${shellBlocked ? "vellum-blocker" : ""}`}
+      className={`vellum-node group relative flex h-full w-full flex-col overflow-visible ${bare ? "vellum-node--bare rounded-sm px-1 py-0.5" : "rounded-[10px] px-3.5 py-3"} ${shellBlocked ? "vellum-blocker" : ""}`}
       data-node-kind={node.ether?.entity?.kind ?? node.type}
+      data-bare={bare ? "true" : undefined}
       data-blocked={shellBlocked ? "true" : undefined}
       data-herdr-blocked={liveHerdrBlocked ? "true" : undefined}
       data-seat-attention={liveSeatAttention ? "true" : undefined}
       data-occupancy={occupancyState}
       data-attention={attention === "idle" && liveSeatAttention ? "fire" : attention}
       style={{
-        border: `1px solid ${selected ? withAlpha(isBlocker || shellBlocked ? HUE.crimson : accent, 0.75) : border}`,
+        border: `1px solid ${bare ? border : selected ? withAlpha(isBlocker || shellBlocked ? HUE.crimson : accent, 0.75) : border}`,
         background,
         boxShadow: shadow,
       }}
@@ -368,15 +391,15 @@ export function NodeShell({
       {resizable ? (
         <NodeResizer
           isVisible={selected}
-          minWidth={170}
-          minHeight={72}
+          minWidth={bare ? 48 : 170}
+          minHeight={bare ? 24 : 72}
           color={accent}
           handleClassName="vellum-resize-handle"
           lineClassName="vellum-resize-line"
           onResizeEnd={(_event, params) => resizeNode(node.id, params)}
         />
       ) : null}
-      {onEdit && inlineEdit ? (
+      {onEdit && inlineEdit && toolbar === "full" ? (
         <button
           className="vellum-node__edit nodrag nopan absolute right-2 top-2 z-10 grid size-6 place-items-center rounded text-dim transition hover:bg-white/10 hover:text-ink"
           aria-label="Edit item"
@@ -404,19 +427,53 @@ export function NodeShell({
           {openIcon ?? <ExternalLink size={12} />}
         </button>
       ) : null}
-      <ConnectionHandles />
-      <NodeActions
-        node={node}
-        selected={selected}
-        onEdit={onEdit}
-        onMaximize={onMaximize}
-        toolbarExtras={toolbarExtras}
-        flagBlocker={flagBlocker}
-        liveHerdrBlocked={liveHerdrBlocked}
-        shellBlocked={shellBlocked}
-        nodePaused={executable ? nodePaused : undefined}
-      />
-      {flags.length > 0 || liveHerdrBlocked || liveSeatAttention || (shellBlocked && !flagBlocker && !liveHerdrBlocked) ? (
+      {showHandles ? <ConnectionHandles /> : null}
+      {toolbar === "minimal" ? (
+        <NodeToolbar isVisible={selected} position={Position.Top} offset={8}>
+          <ToolbarPill>
+            {onEdit ? (
+              <IconButton
+                className="nodrag nopan"
+                aria-label="Edit label"
+                title="edit label"
+                onPointerDown={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onEdit();
+                }}
+              >
+                <Pencil size={14} />
+              </IconButton>
+            ) : null}
+            <IconButton
+              className="nodrag nopan"
+              tone="danger"
+              aria-label="Delete label"
+              title="delete"
+              onPointerDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                deleteNode(node.id);
+              }}
+            >
+              <Trash2 size={14} />
+            </IconButton>
+          </ToolbarPill>
+        </NodeToolbar>
+      ) : (
+        <NodeActions
+          node={node}
+          selected={selected}
+          onEdit={onEdit}
+          onMaximize={onMaximize}
+          toolbarExtras={toolbarExtras}
+          flagBlocker={flagBlocker}
+          liveHerdrBlocked={liveHerdrBlocked}
+          shellBlocked={shellBlocked}
+          nodePaused={executable ? nodePaused : undefined}
+        />
+      )}
+      {!bare && (flags.length > 0 || liveHerdrBlocked || liveSeatAttention || (shellBlocked && !flagBlocker && !liveHerdrBlocked)) ? (
         <div className="vellum-node__flag-rail">
           {shellBlocked && !flagBlocker && !liveHerdrBlocked ? (
             <span

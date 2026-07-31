@@ -48,6 +48,7 @@ import {
   makeFileNode,
   makeGaugeNode,
   makeGroupNode,
+  makeLabelNode,
   makeLinkNode,
   makeManagedAgentNode,
   makePageNode,
@@ -753,6 +754,14 @@ const makeAddActions = (
     addNode(node);
     dismiss();
   },
+  addLabel: () => {
+    const size = { width: 160, height: 40 };
+    const position = positionFor(size);
+    const node = makeLabelNode(position.x, position.y);
+    addNode(node);
+    state$.focusNodeId.set(node.id);
+    dismiss();
+  },
 });
 
 // Escape / outside-pointerdown dismissal shared by both menu hosts.
@@ -963,13 +972,17 @@ function TargetConnectMenu({
   );
 }
 
-/** Selected RF nodes that can act as edge sources (non-group, not the target). */
+/** Selected RF nodes that can act as edge sources (non-group, non-label, not the target). */
 const connectableSourceIds = (
   nodes: ReadonlyArray<CanvasNodeRef>,
   targetId: string,
 ): string[] =>
   nodes
-    .filter((node) => node.selected && node.id !== targetId && node.type !== "group")
+    .filter((node) => {
+      if (!node.selected || node.id === targetId || node.type === "group") return false;
+      const canvasNode = (node.data as { node?: { ether?: { entity?: { kind?: string } } } } | undefined)?.node;
+      return canvasNode?.ether?.entity?.kind !== "label";
+    })
     .map((node) => node.id);
 
 function FieldControls() {

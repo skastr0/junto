@@ -40,6 +40,7 @@ export type ModeDeckActions = {
   readonly addTerminal: () => void;
   readonly addHerdr: () => void;
   readonly addPage: () => void;
+  readonly addLabel: () => void;
 };
 
 const CATEGORIES: ReadonlyArray<{ readonly id: NodeCatalogCategory | "all"; readonly label: string }> = [
@@ -63,6 +64,7 @@ const catalogAction = (actions: ModeDeckActions, entry: NodeCatalogEntry): void 
     case "cron": actions.addCron(); break;
     case "relay": actions.addRelay(); break;
     case "note": actions.create("text"); break;
+    case "label": actions.addLabel(); break;
     case "file": actions.create("file"); break;
     case "link": actions.create("link"); break;
     case "region": actions.create("group"); break;

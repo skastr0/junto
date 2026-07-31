@@ -7,7 +7,7 @@ import {
 } from "@shared/execution-graph";
 import type { ExecutionSnapshot } from "@shared/ipc";
 import { AGENT_NODE_SIZE } from "./node-geometry";
-import { nodeTitle, searchText } from "./presentation";
+import { isLabelNode, nodeTitle, searchText } from "./presentation";
 
 export type NodeData = {
   node: CanvasNode;
@@ -136,6 +136,7 @@ export const toFlow = (
       return cached;
     }
     const isGroup = node.type === "group";
+    const label = isLabelNode(node);
     const visualSize = entityKind(node) === "agent"
       ? AGENT_NODE_SIZE
       : { width: node.width, height: node.height };
@@ -147,7 +148,8 @@ export const toFlow = (
       style: visualSize,
       // Groups behind wires; furniture above edges so strokes never cover faces.
       zIndex: isGroup ? 0 : 2,
-      connectable: !isGroup,
+      // Regions and bare labels never grow connectors.
+      connectable: !isGroup && !label,
       ariaLabel: nodeTitle(node),
       focusable: true,
       selectable: true,

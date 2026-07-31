@@ -16,6 +16,7 @@ import {
   PanelTop,
   SquareDashed,
   SquareTerminal,
+  Type,
   Workflow,
   type LucideIcon,
 } from "lucide-react";
@@ -158,6 +159,13 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     icon: FileText,
     purpose: "Freeform operator-authored context placed directly beside the work it explains.",
     connections: [{ source: "Note", target: "Any node", direction: "relation", relationship: "adds human-readable context to the map", mode: "context", ports: [] }],
+  },
+  {
+    id: "label", category: "canvas", label: "Label", subtitle: "bare map text",
+    icon: Type,
+    purpose: "Geography-only text on the field — name a pocket inside a region without a card, box, or connectors.",
+    behavior: "No handles, ports, or edges. Settings are text, optional accent color, and size.",
+    connections: [],
   },
   {
     id: "file", category: "canvas", label: "File", subtitle: "workspace path",

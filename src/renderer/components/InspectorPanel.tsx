@@ -174,13 +174,16 @@ function AgentSections({ node }: { readonly node: CanvasNode }) {
 const NodeInspector = memo(function NodeInspector({ node, onClose }: { readonly node: CanvasNode; readonly onClose: () => void }) {
   const isEntity = Boolean(node.ether?.entity);
   const isAgent = isEntity && node.ether?.entity?.kind === "agent";
+  const isLabel = node.ether?.entity?.kind === "label";
   const detail =
     nodeDetail(node) || "";
 
   return <aside className="inspector-panel">
     <InspectorHeader eyebrow={nodeTypeLabel(node)} title={nodeTitle(node)} onClose={onClose} />
     <div className="inspector-body">
-      {isEntity && node.ether?.entity?.kind === "herdr" ? (
+      {isLabel ? (
+        <div className="inspector-detail">Bare map text · color and size from the canvas controls</div>
+      ) : isEntity && node.ether?.entity?.kind === "herdr" ? (
         <HerdrSections key={node.id} node={node} />
       ) : isEntity && node.ether?.entity?.kind === "agent" ? (
         <LiveReadout node={node} />
@@ -192,9 +195,9 @@ const NodeInspector = memo(function NodeInspector({ node, onClose }: { readonly 
         <div className="inspector-detail">{detail}</div>
       ) : null}
       {isAgent ? <AgentSections key={node.id} node={node} /> : null}
-      <WaitingOnSection key={`waiting:${node.id}`} nodeId={node.id} />
-      <NodePlacementSection key={`place:${node.id}`} node={node} />
-      <NodeCapabilityInventory key={`cap:${node.id}`} node={node} />
+      {!isLabel ? <WaitingOnSection key={`waiting:${node.id}`} nodeId={node.id} /> : null}
+      {!isLabel ? <NodePlacementSection key={`place:${node.id}`} node={node} /> : null}
+      {!isLabel ? <NodeCapabilityInventory key={`cap:${node.id}`} node={node} /> : null}
       <NodeFieldEditors node={node} />
     </div>
   </aside>;

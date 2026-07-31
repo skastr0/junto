@@ -47,4 +47,11 @@ describe("node palette catalog contract", () => {
       }),
     );
   });
+
+  it("lists Label as bare geography with no connector map", () => {
+    const label = entry("label");
+    expect(label.category).toBe("canvas");
+    expect(label.connections).toEqual([]);
+    expect(label.behavior).toMatch(/no handles|No handles/i);
+  });
 });

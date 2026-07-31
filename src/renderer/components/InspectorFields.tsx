@@ -379,7 +379,8 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
   const [subpathDraft, setSubpathDraft] = useState(subpathValue);
   const workRoleValue = node.ether?.workRole ?? "";
   const [workRoleDraft, setWorkRoleDraft] = useState(workRoleValue);
-  const showWorkRole = Boolean(node.ether?.entity);
+  const showWorkRole =
+    Boolean(node.ether?.entity) && node.ether?.entity?.kind !== "label";
   const knownWorkRoles = use$(() => workRolesInDoc(state$.doc.get()));
 
   useEffect(() => {

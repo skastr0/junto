@@ -160,6 +160,7 @@ function NodeFormFocus({
   readonly onClose: () => void;
 }) {
   const kind = node.ether?.entity?.kind;
+  const isLabel = kind === "label";
   return (
     <FocusSurface
       measure="form"
@@ -182,16 +183,19 @@ function NodeFormFocus({
         }
       />
       <div className="rts-kind-form-body inspector-body">
-        <WaitingOnSection nodeId={node.id} />
-        <NodePlacementSection node={node} />
-        <NodeCapabilityInventory node={node} />
+        {!isLabel ? <WaitingOnSection nodeId={node.id} /> : null}
+        {!isLabel ? <NodePlacementSection node={node} /> : null}
+        {!isLabel ? <NodeCapabilityInventory node={node} /> : null}
         {!node.ether?.entity && node.type === "text" ? (
           <div className="inspector-detail note-surface">
             <NoteMarkdown source={node.text.split("\n").slice(1).join("\n").trim()} />
           </div>
         ) : null}
-        {node.ether?.entity && nodeDetail(node) ? (
+        {node.ether?.entity && !isLabel && nodeDetail(node) ? (
           <div className="inspector-detail">{nodeDetail(node)}</div>
+        ) : null}
+        {isLabel ? (
+          <div className="inspector-detail">Bare map text · color and size from the canvas controls</div>
         ) : null}
         <NodeFieldEditors node={node} />
       </div>

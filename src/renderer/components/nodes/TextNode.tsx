@@ -9,6 +9,7 @@ import { getAgentAvatar, getAgentIdentity } from "../../lib/agent";
 import { registerCanvasDraftCommit } from "../../lib/canvas-editor-flush";
 import { editText } from "../../lib/mutations";
 import { NoteMarkdown } from "../../lib/note-markdown";
+import { isLabelNode } from "../../lib/presentation";
 import { state$ } from "../../lib/state";
 import { findEntity } from "@shared/entities";
 import { workRoleOf } from "@shared/attention";
@@ -477,6 +478,7 @@ function NoteEditModal({
 export function TextNode({ data, selected }: NodeProps<FlowNode>) {
   const node = data.node;
   const text = node.type === "text" ? node.text : "";
+  const isLabel = isLabelNode(node);
   const isFreeNote = !node.ether?.entity;
   const isHerdr = node.ether?.entity?.kind === "herdr";
   const isTerminal = node.ether?.entity?.kind === "terminal";
@@ -511,11 +513,12 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
   useEffect(() => {
     if (!isEditTarget) return;
     setDraft(text);
-    if (isFreeNote) setMaximized(true);
+    if (isLabel) setEditing(true);
+    else if (isFreeNote) setMaximized(true);
     else if (isHerdr) setRenaming(true);
     else setEditing(true);
     state$.editNodeId.set("");
-  }, [isEditTarget, node.id, isFreeNote, isHerdr, text]);
+  }, [isEditTarget, node.id, isFreeNote, isHerdr, isLabel, text]);
 
   // Cross-surface open trigger (RTS bars / jump-to-cause): mirrors editNodeId —
   // consume the target (+ optional item id), open the work-plane detail, clear.
@@ -560,6 +563,8 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
     if (herdrBinding) openHerdrTerminal(node.id, herdrBinding, title);
   };
 
+  const labelHue = node.color ? accentColor(node.color) : INK;
+
   return (
     <NodeShell
       node={node}
@@ -572,9 +577,12 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
             ? undefined
             : openInline
       }
-      onMaximize={isFreeNote ? openMaximized : undefined}
-      inlineEdit={!isHerdr && !managedTerminal}
+      onMaximize={isFreeNote && !isLabel ? openMaximized : undefined}
+      inlineEdit={!isHerdr && !managedTerminal && !isLabel}
       resizable={!isAgent}
+      showHandles={!isLabel}
+      bare={isLabel}
+      toolbar={isLabel ? "minimal" : "full"}
       toolbarExtras={
         isHerdr ? (
           <HerdrToolbarActions node={node} />
@@ -585,7 +593,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
         ) : undefined
       }
     >
-      {maximized ? (
+      {maximized && !isLabel ? (
         <NoteEditModal
           draft={draft}
           onChange={setDraft}
@@ -625,11 +633,63 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
           }}
         />
       ) : null}
-      {editing &&
-      !maximized &&
-      !isHerdr &&
-      !managedTerminal &&
-      !isWorkSurface ? (
+      {isLabel ? (
+        editing ? (
+          <textarea
+            ref={ref}
+            autoFocus
+            aria-label="Edit label"
+            className="label-edit-inline nodrag nowheel h-full w-full resize-none bg-transparent font-display outline-none"
+            style={{ color: labelHue, fontSize: "15px", fontWeight: 650, letterSpacing: "0.02em", lineHeight: 1.25 }}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                commit();
+              }
+              if (e.key === "Escape") {
+                e.preventDefault();
+                discard();
+              }
+            }}
+          />
+        ) : (
+          <div
+            role="button"
+            tabIndex={0}
+            className="label-surface nopan flex h-full w-full cursor-text items-center overflow-hidden border-0 bg-transparent p-0 text-left font-display"
+            style={{ color: labelHue, fontSize: "15px", fontWeight: 650, letterSpacing: "0.02em", lineHeight: 1.25 }}
+            onClick={(event) => {
+              if (!selected) return;
+              event.stopPropagation();
+              openInline();
+            }}
+            onDoubleClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              openInline();
+            }}
+            onKeyDown={(event) => {
+              if (!selected) return;
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                event.stopPropagation();
+                openInline();
+              }
+            }}
+          >
+            <span className="block w-full truncate" title={text}>
+              {text || "Label"}
+            </span>
+          </div>
+        )
+      ) : editing &&
+        !maximized &&
+        !isHerdr &&
+        !managedTerminal &&
+        !isWorkSurface ? (
         <textarea
           ref={ref}
           autoFocus

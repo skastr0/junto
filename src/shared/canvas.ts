@@ -85,6 +85,9 @@ export const WELL_KNOWN_ENTITY_KINDS = [
   "timer",
   "cron",
   "relay",
+  // Geography furniture: bare map text. Not a physics KindSpecs key — role
+  // stays geography via open-vocab resolveSpec (same as notes / unknown kinds).
+  "label",
 ] as const;
 
 // Bound herdr work surface (PTY pane on a host). Not a hermes agent binding;
