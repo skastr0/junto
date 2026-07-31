@@ -93,8 +93,10 @@ const run = async (): Promise<void> => {
     const browserRoot = join(root, "browser");
     const downloadPath = join(root, "downloads");
     const reportPath = join(root, "report.json");
+    const stateDatabasePath = join(root, "state", "vellum.db");
     const home = join(root, "home");
     await mkdir(home, { recursive: true });
+    await mkdir(join(root, "state"), { recursive: true });
     const { ELECTRON_RUN_AS_NODE: _electronRunAsNode, ...electronEnv } = process.env;
     const child = probeSupervisor.spawnGroup({
       source: "browser-electron-renderer-crash-recovery-probe",
@@ -105,6 +107,7 @@ const run = async (): Promise<void> => {
         `--browser-root=${browserRoot}`,
         `--download-path=${downloadPath}`,
         `--report-path=${reportPath}`,
+        `--state-db-path=${stateDatabasePath}`,
       ],
       cwd: repoRoot,
       env: { ...electronEnv, HOME: home },

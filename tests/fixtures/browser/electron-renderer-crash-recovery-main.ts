@@ -30,10 +30,12 @@ const requiredArgument = (name: string): string => {
 const browserRoot = requiredArgument("browser-root");
 const downloadPath = requiredArgument("download-path");
 const reportPath = requiredArgument("report-path");
+const stateDatabasePath = requiredArgument("state-db-path");
 for (const [name, path] of [
   ["browser-root", browserRoot],
   ["download-path", downloadPath],
   ["report-path", reportPath],
+  ["state-db-path", stateDatabasePath],
 ] as const) {
   if (!isAbsolute(path)) throw new Error(`${name} must be absolute`);
 }
@@ -96,7 +98,8 @@ app.on("web-contents-created", (_event, contents) => {
 
 let fixtureServer: Server | undefined;
 let sessions: BrowserSessionService | undefined;
-const makeStateRuntime = () => ManagedRuntime.make(makeStateEngineLive());
+const makeStateRuntime = () =>
+  ManagedRuntime.make(makeStateEngineLive(stateDatabasePath));
 let stateRuntime: ReturnType<typeof makeStateRuntime> | undefined;
 let shutdownFlight: Promise<void> | undefined;
 

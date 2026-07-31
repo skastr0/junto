@@ -138,10 +138,14 @@ describe("demo runtime isolation", () => {
     const { stateDatabasePath } = await import(
       "../src/main/vellum/state/engine"
     );
+    const { resolveVellumHome } = await import("../src/shared/vellum-home");
 
+    // VELLUM_HOME is the only product redirect (test setup / dev use it).
+    // Retired flags like VELLUM_STATE_DB must not open a second store.
     expect(stateDatabasePath()).toBe(
-      join(homedir(), ".vellum", "state", "vellum.db"),
+      join(resolveVellumHome(), ".vellum", "state", "vellum.db"),
     );
+    expect(stateDatabasePath()).not.toBe("/tmp/untrusted-second-home.db");
   });
 
   it("keeps database override vocabulary out of every shipped main source", () => {

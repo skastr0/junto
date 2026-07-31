@@ -17,6 +17,9 @@ export default defineConfig({
     // infra/ owns its own package, lockfile, dependencies, and deployment
     // lifecycle. It is not part of the application test surface.
     exclude: [...configDefaults.exclude, "e2e/**", "infra/**"],
+    // Unbound StateEngineLive / stateDatabasePath() must never resolve to
+    // the operator's ~/.vellum production tree during unit tests.
+    setupFiles: [resolve(__dirname, "tests/vitest-setup-vellum-home.ts")],
   },
   resolve: {
     alias: {
