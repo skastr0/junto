@@ -28,6 +28,7 @@ import {
   access,
   appendFile,
   chmod,
+  copyFile,
   lstat,
   mkdir,
   readFile,
@@ -1677,21 +1678,24 @@ export const stageManagedBundle = async (
       "/usr/bin/install",
       ["-d", "-m", "0700", stagingDirectory],
     );
-    await runOrb(
-      executor,
-      orbctlPath,
-      "push complete signed Linux bundle",
-      [
-        "push",
-        "--machine",
-        machine.name,
-        ...artifact.bundleFiles.map((name) =>
-          path.join(artifact.canonicalBundleDirectory, name)
-        ),
-        relativeStagingDirectory,
-      ],
-      { timeoutMs: DEPLOY_COMMAND_TIMEOUT_MS },
+    // orbctl push currently resolves into OrbStack's read-only container view
+    // (/containers/ro/...) and fails. Stage via the host-mounted guest home
+    // (~/OrbStack/<machine>/home/<user>/), which is the documented equivalent.
+    const hostStagingDirectory = path.join(
+      homedir(),
+      "OrbStack",
+      machine.name,
+      "home",
+      machine.username,
+      ...relativeStagingDirectory.split("/").filter(Boolean),
     );
+    await mkdir(hostStagingDirectory, { recursive: true, mode: 0o700 });
+    for (const name of artifact.bundleFiles) {
+      await copyFile(
+        path.join(artifact.canonicalBundleDirectory, name),
+        path.join(hostStagingDirectory, name),
+      );
+    }
   }
   await verifyGuestBundleDirectory(
     executor,
