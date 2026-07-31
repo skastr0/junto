@@ -1,12 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Check, ChevronDown, FolderOpen, X } from "lucide-react";
+import { ChevronDown, FolderOpen, X } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
 import { LOCAL_HOST_ID } from "@shared/remote-hosts";
-import { findContainingRegion, resolveRegionCwd, stripEmptyRegionPaths } from "@shared/region-defaults";
-import type { EtherRegionDefaults } from "@shared/canvas";
+import { findContainingRegion, resolveRegionCwd } from "@shared/region-defaults";
 import { state$ } from "../../lib/state";
-import { setRegionDefaults } from "../../lib/mutations";
 import { getVellumApi } from "../../lib/vellum-api";
 import {
   actorHostChoicesFromEnrollment,
@@ -14,6 +12,10 @@ import {
 } from "./agent-launch-model";
 import { HostDirectoryPicker } from "./HostDirectoryPicker";
 import { Button, IconButton, Select } from "../ui";
+import {
+  RegionDefaultFolderOption,
+  savePathAsRegionDefault,
+} from "./RegionDefaultFolderOption";
 
 const AGENT_SIZE = { width: 260, height: 110 } as const;
 
@@ -54,25 +56,6 @@ const centerOf = (position: AgentLaunchContextProps["position"]) => ({
   x: position.x + AGENT_SIZE.width / 2,
   y: position.y + AGENT_SIZE.height / 2,
 });
-
-const savePathAsRegionDefault = (
-  regionId: string,
-  defaults: EtherRegionDefaults | undefined,
-  host: string,
-  path: string | undefined,
-) => {
-  const existing = defaults?.paths ?? {};
-  const paths = { ...existing } as Record<string, string>;
-  if (path?.trim()) paths[host] = path.trim();
-  else delete paths[host];
-  const cleanedPaths = stripEmptyRegionPaths(paths);
-  const next: EtherRegionDefaults = {
-    ...(defaults?.herdr ? { herdr: defaults.herdr } : {}),
-    ...(defaults?.page ? { page: defaults.page } : {}),
-    ...(cleanedPaths ? { paths: cleanedPaths } : {}),
-  };
-  setRegionDefaults(regionId, Object.keys(next).length > 0 ? next : undefined);
-};
 
 /**
  * Persistent launch settings for the next agent in the palette. Folder browsing
@@ -141,7 +124,10 @@ export function AgentLaunchContext({
   }, [folderOpen]);
 
   const selectHost = (nextHostId: string) => {
+    const nextSeed = resolveRegionCwd(doc, center.x, center.y, nextHostId) ?? "~";
     setHostId(nextHostId);
+    setCwd(nextSeed === "~" ? "" : nextSeed);
+    setFolderSeed(nextSeed);
     setFolderOpen(false);
   };
 
@@ -191,36 +177,16 @@ export function AgentLaunchContext({
             <HostDirectoryPicker
               hostId={hostId}
               initialPath={folderSeed}
+              resetKey={folderSeed}
               onSelect={saveSelectedFolder}
             />
-            <label
-              title={region ? undefined : "Add a region to set up defaults and shared context"}
-              className={[
-                "mt-3 flex cursor-pointer items-start gap-2 border-t border-stroke pt-3 text-[11px] leading-snug text-dim",
-                region ? "" : "cursor-not-allowed opacity-55",
-              ].join(" ")}
-            >
-              <input
-                type="checkbox"
-                className="sr-only"
-                checked={useRegionDefault}
-                disabled={!region || !cwd}
-                onChange={(event) => toggleRegionDefault(event.target.checked)}
-              />
-              <span
-                aria-hidden="true"
-                className={[
-                  "mt-px grid h-4 w-4 shrink-0 place-items-center rounded-[3px] border",
-                  useRegionDefault && region ? "border-amber bg-amber/15 text-amber" : "border-stroke bg-inset text-transparent",
-                ].join(" ")}
-              >
-                <Check size={11} strokeWidth={2.6} />
-              </span>
-              <span>
-                <span className="block text-ink">Use this folder as region default for this host</span>
-                {!region ? <span className="block pt-0.5 text-[10px]">Add a region to set up defaults and shared context</span> : null}
-              </span>
-            </label>
+            <RegionDefaultFolderOption
+              checked={useRegionDefault}
+              disabled={!region || !cwd}
+              showRegionHint={!region}
+              onToggle={toggleRegionDefault}
+              className="mt-0"
+            />
           </div>,
           document.body,
         );
