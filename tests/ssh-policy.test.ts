@@ -286,7 +286,7 @@ describe("SSH policy surface", () => {
         Effect.gen(function* () {
           const hermes = yield* HermesTransport;
           yield* hermes.profiles("studio");
-          yield* hermes.avatar("studio", profile);
+          yield* hermes.version("studio");
           yield* hermes.connectAcp("studio", profile, (_lease, confirm) =>
             Effect.succeed(confirm("ready")),
           );
@@ -296,13 +296,11 @@ describe("SSH policy surface", () => {
 
     const remoteCalls = calls.map(sshArgs).filter((args) => !args.includes("-O"));
     const profiles = remoteCalls.find((args) => args.at(-1)?.includes("'profile' 'list'"));
-    const avatar = remoteCalls.find((args) =>
-      args.at(-1)?.includes("vellum-plan:hermes-avatar"),
-    );
+    const version = remoteCalls.find((args) => args.at(-1)?.includes("'version'"));
     const acp = remoteCalls.find((args) => args.at(-1)?.includes("'acp'"));
 
     expect(profiles).toContain("ControlMaster=auto");
-    expect(avatar?.at(-1)).toContain("'profile-13'");
+    expect(version).toContain("ControlMaster=auto");
     expect(acp).toContain("ControlMaster=no");
     expect(acp).toContain("ControlPath=none");
   });

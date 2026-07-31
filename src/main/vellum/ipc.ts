@@ -401,14 +401,6 @@ export const registerVellumIpc = (): void => {
   );
 
 
-  privilegedIpc.handle(IPC_CHANNELS.agentIdentity, (_event, key: string) =>
-    AppRuntime.runPromise(HermesPlane).then((plane) => plane.fetchAgentIdentity(key)),
-  );
-
-  privilegedIpc.handle(IPC_CHANNELS.agentAvatar, (_event, key: string) =>
-    AppRuntime.runPromise(HermesPlane).then((plane) => plane.fetchAgentAvatar(key)),
-  );
-
   privilegedIpc.handle(IPC_CHANNELS.agentMessage, (_event, key: string, text: string) =>
     AppRuntime.runPromise(HermesPlane).then((plane) => plane.fetchAgentMessage(key, text)),
   );

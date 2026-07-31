@@ -2,17 +2,15 @@ import { memo, useEffect, useState } from "react";
 import { ArrowLeft, ArrowRight, Trash2, X } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
 import type { CanvasNode } from "@shared/canvas";
-import type { AgentIdentity } from "@shared/ipc";
+import { isHarnessId } from "@shared/managed-terminal-templates";
 import { deriveExecutionGraph } from "@shared/execution-graph";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
 import { deleteEdges, editEdgeLabel, setEdgeColor, setEdgeCriteria, toggleEdgeArrow } from "../lib/edge-mutations";
 import { EdgeCapabilitySection, EdgeCriteriaEditor, EdgePortsAttenuator, NodeCapabilityInventory, NodeFieldEditors, NodePlacementSection } from "./InspectorFields";
 import { clearSelection, state$ } from "../lib/state";
 import { kernel$ } from "../lib/kernel-view";
-import { DIM, GREEN, HUE, INK, SOURCE_HUE, withAlpha } from "../lib/theme";
-import { resolveNodeConnections } from "../../shared/connections";
+import { DIM, GREEN, HUE, INK, withAlpha } from "../lib/theme";
 import { nodeDetail, nodeTitle, nodeTypeLabel } from "../lib/presentation";
-import { getAgentAvatar, getAgentIdentity } from "../lib/agent";
 import { connectionStateOf, herdr$, refreshHerdrMeta } from "../lib/herdr-state";
 import { HarnessMark } from "./herdr/HarnessMark";
 import { NoteMarkdown } from "../lib/note-markdown";
@@ -36,34 +34,29 @@ function AccentControls({ value, onChange }: { readonly value?: string; readonly
   return <div className="inspector-section"><div className="inspector-section__label"><span className="inspector-color-dot" style={{ background: value ? undefined : HUE.amber }} /> accent</div><div className="inspector-colors"><button type="button" className="inspector-color-toggle inspector-color-toggle--default" aria-label="Use default accent" aria-pressed={!value} title="default accent" onClick={() => onChange()}><span /></button>{COLOR_OPTIONS.map(({ value: optionValue, label, hue }) => <button key={optionValue} type="button" className="inspector-color-toggle" aria-label={`Set ${label} accent`} aria-pressed={value === optionValue} title={`${label} accent`} style={{ color: hue, borderColor: value === optionValue ? withAlpha(hue, 0.65) : withAlpha(hue, 0.22), background: withAlpha(hue, value === optionValue ? 0.18 : 0.07) }} onClick={() => onChange(optionValue)}><span style={{ background: hue }} /></button>)}</div></div>;
 }
 
-// The entity readout, inspector-sized: one plain stat line plus a freshness
-// row per connector — the same truth the card wears, with room to breathe.
-function LiveReadout({ node }: { readonly node: CanvasNode }) {
-  const snapshots = use$(state$.snapshots);
-  const connections = resolveNodeConnections(node.ether?.entity, snapshots).filter((c) => c.source === "hermes");
-  const hermes = connections[0]?.entity;
-  const segments: string[] = [];
-  if (hermes) {
-    const status = hermes.stats.status;
-    if (typeof status === "string" && status) segments.push(status);
-    const model = hermes.stats.model;
-    if (typeof model === "string" && model) segments.push(model);
-  }
-  return <div className="inspector-section">
-    <div className="inspector-section__label">live readout</div>
-    <div className="text-[13px] tabular-nums" style={{ color: "#EDE6DA" }}>{segments.join(" · ") || <span style={{ color: DIM }}>no live data</span>}</div>
-    <div className="inspector-bindings mt-2">{connections.map((connection) => {
-      const ok = connection.entity !== undefined;
-      return <div className="inspector-binding" key={`${connection.source}:${connection.key}`}>
-        <span className="inspector-binding__source" style={{ color: SOURCE_HUE[connection.source] }}>
-          <i className="mr-1.5 inline-block size-[5px] rounded-full align-middle" style={{ background: SOURCE_HUE[connection.source], opacity: ok ? 1 : 0.3 }} />
-          {connection.source}
-        </span>
-        <span>{connection.key}</span>
-        <span style={{ color: ok ? SOURCE_HUE[connection.source] : DIM }}>{ok ? "fresh" : "stale"}</span>
-      </div>;
-    })}</div>
-  </div>;
+/** Seat-native agent readout — harness + document label only. */
+function AgentSeatSection({ node }: { readonly node: CanvasNode }) {
+  const harness =
+    typeof node.ether?.terminal?.harness === "string"
+      ? node.ether.terminal.harness
+      : undefined;
+  const managed = harness !== undefined && isHarnessId(harness);
+  return (
+    <div className="inspector-section">
+      <div className="inspector-section__label">seat</div>
+      <div className="mt-2 flex items-center gap-2.5">
+        <HarnessMark agent={managed ? harness : undefined} size={28} />
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[12px]" style={{ color: INK }} title={nodeTitle(node)}>
+            {nodeTitle(node)}
+          </div>
+          <div className="mt-0.5 truncate text-[9px]" style={{ color: DIM }}>
+            {managed ? harness : "agent seat"}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // Herdr inspector: glance essentials only (host + status + agent).
@@ -127,46 +120,6 @@ function HerdrSections({ node }: { readonly node: CanvasNode }) {
   </div>;
 }
 
-// Agent details stay inspectorial. Conversation belongs to the ACP work
-// surface, so this section intentionally stops at identity.
-function AgentSections({ node }: { readonly node: CanvasNode }) {
-  const entity = node.ether?.entity;
-  const hermesKey = entity?.kind === "agent" ? entity.name : undefined;
-  const rawName = (node.type === "text" ? node.text : "").split("\n")[0] ?? "";
-  const [avatar, setAvatar] = useState<string | null>(null);
-  const [identity, setIdentity] = useState<AgentIdentity | null>(null);
-
-  useEffect(() => {
-    if (!hermesKey) return;
-    let cancelled = false;
-    // getAgentAvatar/getAgentIdentity never reject (lib/agent.ts resolves a
-    // miss to null) — the .catch is a floor against a future change to that.
-    void getAgentAvatar(hermesKey).then((value) => { if (!cancelled) setAvatar(value); }).catch(() => undefined);
-    void getAgentIdentity(hermesKey).then((value) => { if (!cancelled) setIdentity(value); }).catch(() => undefined);
-    return () => { cancelled = true; };
-  }, [hermesKey]);
-
-  if (!hermesKey) return null;
-
-  const displayName = identity?.displayName;
-
-  return (
-    <div className="inspector-section">
-      <div className="inspector-section__label">identity</div>
-      <div className="mt-2 flex items-center gap-2.5">
-        <span className="shrink-0 overflow-hidden rounded-full" style={{ width: 36, height: 36, background: "rgba(255,255,255,.04)", border: "1px solid rgba(237,230,218,.12)" }}>
-          {avatar ? <img src={avatar} alt="" className="size-full object-cover" /> : null}
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-[12px]" style={{ color: INK }} title={rawName}>{displayName ?? rawName}</div>
-          {identity?.matrixUserId ? <div className="mt-0.5 truncate text-[9px]" style={{ color: DIM }}>{identity.matrixUserId}</div> : null}
-          {identity?.homeRoomName ? <div className="mt-0.5 truncate text-[9px]" style={{ color: DIM }}>{identity.homeRoomName}</div> : null}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // Node accent / flags / focus / connect / delete / copy-ref live in the RTS
 // command bar (lower-left). This panel keeps surface-specific detail only.
 // Memoized so parent re-renders from unrelated doc churn (other-node drag stops
@@ -185,8 +138,8 @@ const NodeInspector = memo(function NodeInspector({ node, onClose }: { readonly 
         <div className="inspector-detail">Bare map text · color and size from the canvas controls</div>
       ) : isEntity && node.ether?.entity?.kind === "herdr" ? (
         <HerdrSections key={node.id} node={node} />
-      ) : isEntity && node.ether?.entity?.kind === "agent" ? (
-        <LiveReadout node={node} />
+      ) : isAgent ? (
+        <AgentSeatSection key={node.id} node={node} />
       ) : !isEntity && node.type === "text" ? (
         <div className="inspector-detail note-surface">
           <NoteMarkdown source={node.text.split("\n").slice(1).join("\n").trim()} />
@@ -194,7 +147,6 @@ const NodeInspector = memo(function NodeInspector({ node, onClose }: { readonly 
       ) : detail ? (
         <div className="inspector-detail">{detail}</div>
       ) : null}
-      {isAgent ? <AgentSections key={node.id} node={node} /> : null}
       {!isLabel ? <WaitingOnSection key={`waiting:${node.id}`} nodeId={node.id} /> : null}
       {!isLabel ? <NodePlacementSection key={`place:${node.id}`} node={node} /> : null}
       {!isLabel ? <NodeCapabilityInventory key={`cap:${node.id}`} node={node} /> : null}

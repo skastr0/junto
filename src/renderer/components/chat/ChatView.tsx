@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
 import { ThinkingOrb, type OrbState } from "thinking-orbs";
 import {
@@ -12,7 +12,6 @@ import {
   type AgentChatState,
   type ChatItem,
 } from "../../lib/chat-state";
-import { getAgentIdentity } from "../../lib/agent";
 import { chatActivity } from "../../lib/activity";
 import { ActivityMarkFromSpec } from "../ActivityMark";
 import { Dropdown, OverlayHeader } from "../ui";
@@ -159,7 +158,7 @@ export function ChatView({
   const sessionId = use$(agent$.sessionId);
   const transcript = use$(agent$.transcript) ?? [];
 
-  const [displayName, setDisplayName] = useState(displayNameProp);
+  const displayName = displayNameProp ?? agentKey;
 
   const onAnswerPermission = useCallback(
     (requestId: string, optionId: string) => {
@@ -174,18 +173,6 @@ export function ChatView({
   useEffect(() => {
     markRead(agentKey);
   }, [agentKey, transcript.length]);
-  useEffect(() => {
-    let cancelled = false;
-    void getAgentIdentity(agentKey)
-      .then((identity) => {
-        if (cancelled) return;
-        setDisplayName(identity?.displayName ?? displayNameProp ?? agentKey);
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [agentKey, displayNameProp]);
 
   const isLive = status === "live";
   const usageText = formatUsage(usage);

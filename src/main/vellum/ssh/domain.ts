@@ -218,7 +218,7 @@ const remoteCommandBytes = (executable: string, args: ReadonlyArray<string>): nu
  * **@internal** — not a product safety boundary and **not** on the public
  * `ssh` barrel (`ssh/index.ts`). Brand means “created inside Vellum Command’s SSH
  * kernel,” not “safe product operation.” Only:
- * - `ssh/remote-plan.ts` / `ssh/hermes-remote-plan.ts` (named plan compilers)
+ * - `ssh/remote-plan.ts` (named plan compilers)
  * - `ssh/read-commands.ts` (closed allowlisted read constructors)
  * - SSH kernel tests (deep-import this module)
  * may call this. Product modules under hosts/, hermes/, herdr/,

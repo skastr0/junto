@@ -23,13 +23,11 @@ import {
   X,
 } from "lucide-react";
 import type { CanvasEdge, CanvasNode } from "@shared/canvas";
-import type { AgentIdentity } from "@shared/ipc";
+import { isHarnessId } from "@shared/managed-terminal-templates";
 import { state$ } from "../../lib/state";
 import { kernel$ } from "../../lib/kernel-view";
-import { getAgentAvatar, getAgentIdentity } from "../../lib/agent";
-import { resolveNodeConnections } from "../../../shared/connections";
 import { nodeDetail, nodeTitle, nodeTypeLabel } from "../../lib/presentation";
-import { DIM, HUE, SOURCE_HUE } from "../../lib/theme";
+import { HUE } from "../../lib/theme";
 import { connectionStateOf, herdr$, refreshHerdrMeta } from "../../lib/herdr-state";
 import { FocusSurface } from "../FocusSurface";
 import { OverlayHeader, IconButton } from "../ui";
@@ -61,56 +59,24 @@ const ICON = 12;
 
 type RegionFormKey = "briefing" | "defaults" | "background" | "placement";
 
-function AgentIdentityRow({ node }: { readonly node: CanvasNode }) {
-  const entity = node.ether?.entity;
-  const hermesKey = entity?.kind === "agent" ? entity.name : undefined;
-  const rawName = (node.type === "text" ? node.text : "").split("\n")[0] ?? "";
-  const [avatar, setAvatar] = useState<string | null>(null);
-  const [identity, setIdentity] = useState<AgentIdentity | null>(null);
-  const snapshots = use$(state$.snapshots);
-
-  useEffect(() => {
-    if (!hermesKey) return;
-    let cancelled = false;
-    void getAgentAvatar(hermesKey)
-      .then((value) => {
-        if (!cancelled) setAvatar(value);
-      })
-      .catch(() => undefined);
-    void getAgentIdentity(hermesKey)
-      .then((value) => {
-        if (!cancelled) setIdentity(value);
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [hermesKey]);
-
-  if (!hermesKey) return null;
-
-  const connections = resolveNodeConnections(entity, snapshots).filter((c) => c.source === "hermes");
-  const hermes = connections[0]?.entity;
-  const liveBits: string[] = [];
-  if (hermes) {
-    const status = hermes.stats.status;
-    if (typeof status === "string" && status) liveBits.push(status);
-    const model = hermes.stats.model;
-    if (typeof model === "string" && model) liveBits.push(model);
-  }
-  const live = liveBits.join(" · ") || "no live data";
-  const stale = connections.length > 0 && !connections[0]?.entity;
-
+/**
+ * Seat-native agent glance — harness mark + document label.
+ * No hermes corpus join, no matrix/avatar IPC, no adapter freshness copy.
+ */
+function AgentSeatGlance({ node }: { readonly node: CanvasNode }) {
+  const harness =
+    typeof node.ether?.terminal?.harness === "string"
+      ? node.ether.terminal.harness
+      : undefined;
+  const managed = harness !== undefined && isHarnessId(harness);
   return (
-    <div className="rts-kind-id" title={identity?.matrixUserId ?? hermesKey}>
-      <span className="rts-kind-id__avatar" aria-hidden>
-        {avatar ? <img src={avatar} alt="" /> : null}
+    <div className="rts-kind-id" title={nodeTitle(node)}>
+      <span className="rts-kind-id__avatar rts-kind-id__avatar--mark" aria-hidden>
+        <HarnessMark agent={managed ? harness : undefined} size={22} />
       </span>
       <div className="rts-kind-id__text">
-        <div className="rts-kind-id__name">{identity?.displayName ?? (rawName || nodeTitle(node))}</div>
-        <div className="rts-kind-id__live" style={{ color: stale ? DIM : SOURCE_HUE.hermes }}>
-          {stale ? "hermes · stale" : live}
-        </div>
+        <div className="rts-kind-id__name">{nodeTitle(node)}</div>
+        <div className="rts-kind-id__live">{managed ? harness : "agent seat"}</div>
       </div>
     </div>
   );
@@ -551,7 +517,7 @@ export function KindSurface() {
 
   return (
     <div className="rts-kind-surface">
-      {kind === "agent" ? <AgentIdentityRow node={node} /> : null}
+      {kind === "agent" ? <AgentSeatGlance node={node} /> : null}
       {kind === "herdr" ? <HerdrGlance node={node} /> : null}
       {kind && kind !== "agent" && kind !== "herdr" ? (
         <div className="rts-kind-id rts-kind-id--compact">

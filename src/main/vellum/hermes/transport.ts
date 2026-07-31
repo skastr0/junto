@@ -8,14 +8,9 @@ import {
 import {
   parseHostSshRoute,
   SshInputError,
-  type RemoteCommand,
   type SshError,
   type SshTarget,
 } from "../ssh/domain";
-import {
-  compileHermesAvatar,
-  compileHermesIdentityBatch,
-} from "../ssh/hermes-remote-plan";
 import { remoteHermesCli } from "../ssh/read-commands";
 import {
   dedicatedStream,
@@ -74,11 +69,6 @@ export class HermesTransport extends Context.Tag("@vellum/HermesTransport")<
   {
     readonly profiles: (host: HermesHostId) => Effect.Effect<CliResult>;
     readonly version: (host: HermesHostId) => Effect.Effect<CliResult>;
-    readonly identityBatch: (host: HermesHostId) => Effect.Effect<CliResult>;
-    readonly avatar: (
-      host: HermesHostId,
-      profile: HermesProfileName,
-    ) => Effect.Effect<CliResult>;
     readonly connectAcp: <A, E, R>(
       host: HermesHostId,
       profile: HermesProfileName,
@@ -154,39 +144,6 @@ export const HermesTransportLive = Layer.effect(
       );
     };
 
-    /**
-     * Run a branded RemoteCommand on a remote hermes host.
-     * Compilers live in hermes-remote-plan — never hand-built shell here.
-     */
-    const remoteCompiled = (
-      host: HermesHostId,
-      command: Effect.Effect<RemoteCommand, SshInputError>,
-      budget: OneShotBudget,
-    ): Effect.Effect<CliResult> => {
-      if (host === "local") {
-        return Effect.succeed({
-          ok: false,
-          stdout: "",
-          error: "remote hermes program requires a remote host",
-        });
-      }
-      return resolveHermesEndpoint(host).pipe(
-        Effect.flatMap((endpoint) =>
-          command.pipe(
-            Effect.flatMap((cmd) => ssh.run(oneShot(endpoint, cmd, { budget }))),
-            Effect.map((result): CliResult => ({ ok: true, stdout: result.stdout })),
-          ),
-        ),
-        Effect.catchAll((error) =>
-          Effect.succeed({
-            ok: false,
-            stdout: "",
-            error: describeSshFailure(error),
-          }),
-        ),
-      );
-    };
-
     const connectAcp: Context.Tag.Service<typeof HermesTransport>["connectAcp"] = (
       host,
       profile,
@@ -213,10 +170,6 @@ export const HermesTransportLive = Layer.effect(
     return HermesTransport.of({
       profiles: (host) => onHost(host, ["profile", "list"], "standard", 12_000),
       version: (host) => onHost(host, ["version"], "standard", 12_000),
-      identityBatch: (host) =>
-        remoteCompiled(host, compileHermesIdentityBatch(), "bulk"),
-      avatar: (host, profile) =>
-        remoteCompiled(host, compileHermesAvatar(profile), "bulk"),
       connectAcp,
     });
   }),

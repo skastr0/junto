@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import type { AgentIdentity, AgentReply } from "@shared/ipc";
+import type { AgentReply } from "@shared/ipc";
 import type { SnapshotBundle } from "@shared/entities";
 import {
   Context,
@@ -17,12 +17,6 @@ import {
   fetchHermesBundle,
   type HermesFleetOperations,
 } from "../adapters/hermes";
-import {
-  fetchAgentAvatar,
-  fetchAgentIdentity,
-  invalidateHermesIdentityHost,
-  type HermesIdentityOperations,
-} from "../adapters/hermes-identity";
 import { appProcessPlane } from "../app-process-plane";
 import type { AppProcessLease, AppProcessPlane } from "../app-process-plane";
 import type { AcpChildLike, SpawnFn } from "../chat/acp-client";
@@ -320,8 +314,6 @@ export class HermesPlane extends Context.Tag("@vellum/HermesPlane")<
     readonly chat: ChatService;
     readonly shutdown: HermesShutdownPort;
     readonly fetchBundle: () => Promise<SnapshotBundle>;
-    readonly fetchAgentIdentity: (key: string) => Promise<AgentIdentity | null>;
-    readonly fetchAgentAvatar: (key: string) => Promise<string | null>;
     readonly fetchAgentMessage: (
       key: string,
       text: string,
@@ -438,11 +430,9 @@ export const HermesPlaneLive = Layer.scoped(
         ? observedIdentity
         : resolveHermesStationIdentity(initialSettings.station);
 
-    const operations: HermesIdentityOperations & HermesFleetOperations = {
+    const operations: HermesFleetOperations = {
       profiles: (host) => runOwned(transport.profiles(host)),
       version: (host) => runOwned(transport.version(host)),
-      identityBatch: (host) => runOwned(transport.identityBatch(host)),
-      avatar: (host, profile) => runOwned(transport.avatar(host, profile)),
     };
 
     const spawnAcp: SpawnFn = (target: AcpSpawnTarget) => {
@@ -489,8 +479,6 @@ export const HermesPlaneLive = Layer.scoped(
       ) {
         return;
       }
-      invalidateHermesIdentityHost(previousIdentity.agentHostId);
-      invalidateHermesIdentityHost(nextIdentity.agentHostId);
       stationIdentity = nextIdentity;
       chat.reconcileHostLocality((host) =>
         isLocalHermesHost(host, previousIdentity),
@@ -503,10 +491,6 @@ export const HermesPlaneLive = Layer.scoped(
       chat,
       shutdown,
       fetchBundle: () => fetchHermesBundle(operations, stationIdentity),
-      fetchAgentIdentity: (key) =>
-        fetchAgentIdentity(operations, key, stationIdentity.agentHostId),
-      fetchAgentAvatar: (key) =>
-        fetchAgentAvatar(operations, key, stationIdentity.agentHostId),
       fetchAgentMessage: (key, text) => chat.agentMessage(key, text),
     });
   }),

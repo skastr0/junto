@@ -3,7 +3,7 @@
  *
  * Product code (hosts/, hermes/, herdr/, term/, browser/) must
  * mint RemoteCommands only through these factories or named plan compilers in
- * remote-plan.ts / hermes-remote-plan.ts. Free-form executable+args (including
+ * remote-plan.ts. Free-form executable+args (including
  * `/bin/sh -c …`) is unrepresentable here — that is the seal.
  *
  * Doctrine: brand means “safe product operation,” not merely “created by Vellum Command.”

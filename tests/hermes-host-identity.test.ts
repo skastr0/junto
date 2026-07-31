@@ -167,10 +167,6 @@ describe("canonical Hermes station identity", () => {
       join(process.cwd(), "src/main/vellum/hermes/plane.ts"),
       "utf8",
     );
-    const identityAdapter = readFileSync(
-      join(process.cwd(), "src/main/vellum/adapters/hermes-identity.ts"),
-      "utf8",
-    );
     const chat = readFileSync(
       join(process.cwd(), "src/main/vellum/chat/service.ts"),
       "utf8",
@@ -178,8 +174,6 @@ describe("canonical Hermes station identity", () => {
 
     expect(domain).not.toContain("localAdapterAgentKey");
     expect(plane).not.toContain("localAdapterAgentKey");
-    expect(identityAdapter).not.toMatch(/host\s*===\s*["']local["']/u);
-    expect(identityAdapter).not.toMatch(/key:\s*`local:/u);
     expect(chat).not.toContain("defaultHermesHostLocality");
     expect(domain).not.toMatch(
       /host\s*===\s*["']local["']\s*\|\|\s*host\s*===\s*station\.agentHostId/u,

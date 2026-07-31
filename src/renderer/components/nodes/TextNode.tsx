@@ -3,23 +3,18 @@ import { use$ } from "@legendapp/state/react";
 import type { NodeProps } from "@xyflow/react";
 import { X } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
-import type { AgentIdentity } from "@shared/ipc";
 import type { FlowNode } from "../../lib/convert";
-import { getAgentAvatar, getAgentIdentity } from "../../lib/agent";
 import { registerCanvasDraftCommit } from "../../lib/canvas-editor-flush";
 import { editText } from "../../lib/mutations";
 import { NoteMarkdown } from "../../lib/note-markdown";
 import { isLabelNode } from "../../lib/presentation";
 import { state$ } from "../../lib/state";
-import { findEntity } from "@shared/entities";
 import { workRoleOf } from "@shared/attention";
 import {
-  chatActivity,
   terminalActivity,
   timerActivity,
   watcherActivity,
 } from "../../lib/activity";
-import { chatCoarse$ } from "../../lib/chat-state";
 import { accentColor, HUE, INK, DIM } from "../../lib/theme";
 import { kernel$ } from "../../lib/kernel-view";
 import type { WatcherRuntimeState } from "../../lib/kernel-view";
@@ -187,12 +182,8 @@ function TimerCard({ node }: { readonly node: CanvasNode }) {
   );
 }
 
-// An entity card (project / agent) is ONE node: its name, one line of live
-// stats hydrated from its connectors, and a quiet dot per connector. Never a
-// wall of chips, never exploded into child nodes.
-//
-// Subscribes to this agent's hermes entity only (primitive-derived selectors)
-// so unrelated snapshot churn does not re-render every agent card.
+// Actor seat card — document label + harness mark + terminal seat activity.
+// No hermes corpus join, matrix identity, or profile avatar IPC.
 function EntityCard({
   node,
   kind,
@@ -206,7 +197,6 @@ function EntityCard({
   const rawName = (node.type === "text" ? node.text : "").split("\n")[0] ?? "";
   const nameHue = node.color ? accentColor(node.color) : INK;
   const workRole = workRoleOf(node);
-  const hermesKey = kind === "agent" ? node.ether?.entity?.name : undefined;
   const managedHarness =
     kind === "agent" && typeof node.ether?.terminal?.harness === "string"
       ? node.ether.terminal.harness
@@ -229,39 +219,6 @@ function EntityCard({
       bindingId ?? "__vellum-entity-card-no-binding__"
     ],
   );
-  const coarse = use$(
-    chatCoarse$[hermesKey ?? "__vellum-entity-card-no-agent__"],
-  );
-  const line = use$(() => {
-    if (!hermesKey) return "";
-    const hermes = findEntity(state$.snapshots.get(), "hermes", hermesKey);
-    if (!hermes) return "";
-    const segments: string[] = [];
-    const status = hermes.stats.status;
-    if (typeof status === "string" && status) segments.push(status);
-    const model = hermes.stats.model;
-    if (typeof model === "string" && model) segments.push(model);
-    return segments.join(" · ");
-  });
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
-  const [identity, setIdentity] = useState<AgentIdentity | null>(null);
-  useEffect(() => {
-    if (!hermesKey) return;
-    let cancelled = false;
-    void getAgentAvatar(hermesKey)
-      .then((url) => {
-        if (!cancelled) setAvatarUrl(url);
-      })
-      .catch(() => undefined);
-    void getAgentIdentity(hermesKey)
-      .then((value) => {
-        if (!cancelled) setIdentity(value);
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [hermesKey]);
   // Hydrate session cache so pre-ownership failures (cli-missing) paint on the card.
   useEffect(() => {
     if (!bindingId) return;
@@ -280,10 +237,6 @@ function EntityCard({
     });
     return () => off?.();
   }, [bindingId, hostId]);
-  const displayName =
-    hermesKey && identity?.displayName && identity.displayName !== rawName
-      ? identity.displayName
-      : rawName;
   const managed = managedHarness !== undefined && isHarnessId(managedHarness);
   const exitReason = session?.exitReason;
   const exitMessage = session?.exitMessage;
@@ -304,12 +257,7 @@ function EntityCard({
           pattern: "arrow-up" as const,
           label: "blocked",
         }
-      : chatActivity({
-          status: coarse?.status ?? "idle",
-          pendingPermission: Boolean(coarse?.pendingPermissionId),
-          tools: coarse?.hasBusyTools ? [{ status: "in_progress" as const }] : [],
-          sending: coarse?.turnBusy ?? false,
-        });
+      : { mode: "static" as const, tone: "steel" as const, label: "idle" };
   // Host is deliberately absent: which machine a seat sits on is not what the
   // operator reads an agent node for, and it crowded out the claimed task.
   // Spawn failures surface as a context line so the mark + copy both land.
@@ -325,28 +273,14 @@ function EntityCard({
     >
       <div>
         <ExecutionCardHeader
-          decal={
-            managed ? (
-              <HarnessMark agent={managedHarness} size={28} />
-            ) : avatarUrl ? (
-              <span className="size-7 shrink-0 overflow-hidden rounded-md">
-                <img
-                  src={avatarUrl}
-                  alt=""
-                  className="size-full object-cover"
-                />
-              </span>
-            ) : (
-              <HarnessMark size={28} />
-            )
-          }
+          decal={<HarnessMark agent={managed ? managedHarness : undefined} size={28} />}
           title={
             <div
               className="truncate font-mono text-[14px] font-semibold leading-snug"
               style={{ color: nameHue }}
               title={rawName}
             >
-              {displayName}
+              {rawName}
             </div>
           }
           activity={
@@ -373,15 +307,6 @@ function EntityCard({
           </div>
         ) : null}
       </div>
-      {!managed ? (
-        <div
-          className="line-clamp-2 text-[10px] leading-snug tabular-nums"
-          style={{ color: DIM }}
-          title={line}
-        >
-          {line || "no live data"}
-        </div>
-      ) : null}
       {kind === "agent" ? <ClaimedTaskStrip node={node} /> : null}
     </div>
   );

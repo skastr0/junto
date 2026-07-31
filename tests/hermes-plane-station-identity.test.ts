@@ -64,16 +64,15 @@ describe("HermesPlane station identity hydration", () => {
         return () => listeners.delete(listener);
       },
     });
-    const identityBatch = vi.fn(() => Effect.succeed({ ok: true, stdout: "" }));
-    const avatar = vi.fn(() => Effect.succeed({ ok: false, stdout: "" }));
+    const profiles = vi.fn(() =>
+      Effect.succeed({ ok: true, stdout: PROFILE_TABLE }),
+    );
     const transport = HermesTransport.of({
-      profiles: () => Effect.succeed({ ok: true, stdout: PROFILE_TABLE }),
+      profiles,
       version: () => Effect.succeed({
         ok: true,
         stdout: "Hermes Agent v0.18.2",
       }),
-      identityBatch,
-      avatar,
       connectAcp: () => Effect.die("unexpected ACP connection"),
     });
     const dependencies = Layer.merge(
@@ -85,27 +84,17 @@ describe("HermesPlane station identity hydration", () => {
     const result = await Effect.runPromise(
       Effect.gen(function* () {
         const plane = yield* HermesPlane;
-        return yield* Effect.promise(async () => ({
-          bundle: await plane.fetchBundle(),
-          canonicalIdentity:
-            await plane.fetchAgentIdentity("fleet-new:default"),
-          aliasIdentity: await plane.fetchAgentIdentity("local:default"),
-          aliasAvatar: await plane.fetchAgentAvatar("local:default"),
-        }));
+        return yield* Effect.promise(async () => plane.fetchBundle());
       }).pipe(
         Effect.provide(layer),
         Effect.scoped,
       ),
     );
 
-    expect(result.bundle.entities.map((entity) => entity.key))
-      .toEqual(["fleet-new:default"]);
-    expect(result.canonicalIdentity).toMatchObject({
-      key: "fleet-new:default",
-    });
-    expect(result.aliasIdentity).toBeNull();
-    expect(result.aliasAvatar).toBeNull();
-    expect(identityBatch).not.toHaveBeenCalled();
-    expect(avatar).not.toHaveBeenCalled();
+    // Concurrent settings publish wins: bundle keys use fleet-new, not fleet-old.
+    expect(result.entities.map((entity) => entity.key)).toEqual([
+      "fleet-new:default",
+    ]);
+    expect(profiles).toHaveBeenCalled();
   });
 });

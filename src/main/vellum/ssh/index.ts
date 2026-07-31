@@ -52,12 +52,6 @@ export {
   HERDR_IMAGE_STAGE_DIR,
 } from "./remote-plan";
 export {
-  compileHermesAvatar,
-  compileHermesIdentityBatch,
-  hermesAvatarSource,
-  hermesIdentityBatchSource,
-} from "./hermes-remote-plan";
-export {
   remoteCat,
   remoteHermesCli,
   remoteHerdrCli,

@@ -197,7 +197,6 @@ describe("SSH architecture", () => {
       "src/main/vellum/ssh/domain.ts",
       "src/main/vellum/ssh/read-commands.ts",
       "src/main/vellum/ssh/remote-plan.ts",
-      "src/main/vellum/ssh/hermes-remote-plan.ts",
     ]);
     const violations = files.flatMap((path) => {
       const name = display(path);
