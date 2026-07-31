@@ -507,7 +507,7 @@ const requireDownloadLocator = (
     parsed.hash.length > 0 ||
     parsed.hostname.length === 0 ||
     !parsed.pathname.endsWith(
-      `/vellum-${version}-ubuntu-24.04-x64-release.tar.gz`,
+      `/vellum-runtime-${version}-linux-x64.tar.gz`,
     )
   ) {
     throw new Error("download locator must name the exact HTTPS release bundle");

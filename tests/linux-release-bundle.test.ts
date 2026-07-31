@@ -538,7 +538,7 @@ const createFixture = async (options: {
     createdAt: CREATED_AT,
     expiresAt: EXPIRES_AT,
     downloadLocator:
-      `https://releases.example.test/vellum-${VERSION}-ubuntu-24.04-x64-release.tar.gz`,
+      `https://releases.example.test/vellum-runtime-${VERSION}-linux-x64.tar.gz`,
     keyId: KEY_ID,
     qualification: {
       candidateBundleDirectory: candidateDirectory,
