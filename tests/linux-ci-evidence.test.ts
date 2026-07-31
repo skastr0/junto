@@ -81,7 +81,6 @@ describe("Linux CI gate receipt", () => {
         os: "linux",
         architecture: "x64",
         machine: "x86_64",
-        debArchitecture: "amd64",
         distribution: "ubuntu",
         distributionVersion: "24.04",
         libc: "glibc",
@@ -141,34 +140,28 @@ describe("Linux CI log safety", () => {
 });
 
 describe("Linux release artifact identity", () => {
-  it("admits one target-specific deb and diagnostic archive", () => {
+  it("admits one target-specific userland runtime archive", () => {
     expect(() => validateLinuxReleaseArtifactNames({
       names: [
-        "Vellum Command-0.1.0-x64-linux.deb",
-        "Vellum Command-0.1.0-x64-linux.unpacked.tar.gz",
+        "vellum-runtime-0.1.0-linux-x64.tar.gz",
       ],
-      expectedDeb: "Vellum Command-0.1.0-x64-linux.deb",
-      expectedDiagnostic:
-        "Vellum Command-0.1.0-x64-linux.unpacked.tar.gz",
+      expectedArchive: "vellum-runtime-0.1.0-linux-x64.tar.gz",
     })).not.toThrow();
   });
 
   it.each([
-    "Vellum Command-0.1.0-arm64-linux.deb",
+    "vellum-runtime-0.1.0-linux-arm64.tar.gz",
     "Vellum Command-0.1.0-x64-linux.AppImage",
-    "vellum-linux-generic.deb",
+    "vellum-linux-generic.tar.gz",
     "vellum-0.1.0.rpm",
     "vellum-0.1.0.flatpak",
   ])("rejects unsupported artifact %s", (unsupported) => {
     expect(() => validateLinuxReleaseArtifactNames({
       names: [
-        "Vellum Command-0.1.0-x64-linux.deb",
-        "Vellum Command-0.1.0-x64-linux.unpacked.tar.gz",
+        "vellum-runtime-0.1.0-linux-x64.tar.gz",
         unsupported,
       ],
-      expectedDeb: "Vellum Command-0.1.0-x64-linux.deb",
-      expectedDiagnostic:
-        "Vellum Command-0.1.0-x64-linux.unpacked.tar.gz",
+      expectedArchive: "vellum-runtime-0.1.0-linux-x64.tar.gz",
     })).toThrow(/unsupported|one exact/u);
   });
 
@@ -187,13 +180,9 @@ describe("Linux release artifact identity", () => {
         "utf8",
       ),
     ).version as string;
-    const deb = `Vellum Command-${packageVersion}-x64-linux.deb`;
-    const diagnostic =
-      `Vellum Command-${packageVersion}-x64-linux.unpacked.tar.gz`;
-    const evidenceNames = [
-      diagnostic,
-    ];
-    await writeFile(path.join(release, deb), "deb");
+    const archive = `vellum-runtime-${packageVersion}-linux-x64.tar.gz`;
+    const evidenceNames: string[] = [];
+    await writeFile(path.join(release, archive), "runtime archive");
     await Promise.all(
       evidenceNames.map((name) => writeFile(path.join(evidence, name), name)),
     );
@@ -206,7 +195,6 @@ describe("Linux release artifact identity", () => {
           os: "linux",
           architecture: "x64",
           machine: "x86_64",
-          debArchitecture: "amd64",
           distribution: "ubuntu",
           distributionVersion: "24.04",
           libc: "glibc",
@@ -219,7 +207,7 @@ describe("Linux release artifact identity", () => {
     );
     await writeFile(
       path.join(evidence, "package-audit.json"),
-      JSON.stringify({ ok: true, architecture: "amd64" }),
+      JSON.stringify({ ok: true, artifact: archive, nativeObjects: [], chromeSandbox: "absent" }),
     );
     await writeFile(
       path.join(evidence, "packaged-pty-smoke.json"),
@@ -264,12 +252,8 @@ describe("Linux release artifact identity", () => {
       sourceDateEpoch: "1780000000",
     });
 
-    expect(manifest.publishable).toEqual({ format: "deb", file: deb });
-    expect(manifest.diagnostic).toEqual({
-      format: "tar.gz",
-      file: diagnostic,
-    });
-    expect(manifest.evidence).toHaveLength(8);
+    expect(manifest.publishable).toEqual({ format: "userland-runtime-archive", file: archive });
+    expect(manifest.evidence).toHaveLength(7);
     expect(manifest.evidence.every((entry) =>
       (entry.scope === "release" || entry.scope === "evidence") &&
       !entry.file.startsWith("/") &&
@@ -279,7 +263,7 @@ describe("Linux release artifact identity", () => {
     expect(JSON.stringify(manifest)).not.toContain(root);
     expect(await readFile(path.join(logs, "unit.log"), "utf8")).toBe("passed\n");
     expect(linuxCiChecksumLines(manifest)).toContain(
-      `release/Vellum Command-${packageVersion}-x64-linux.deb`,
+      `release/vellum-runtime-${packageVersion}-linux-x64.tar.gz`,
     );
     await expect(verifyLinuxCiReleaseManifest({
       manifest,

@@ -36,9 +36,7 @@ export const StationQualificationSha256 = Schema.String.pipe(
 export type StationQualificationSha256 = typeof StationQualificationSha256.Type;
 
 export const StationQualificationPackageFile = Schema.String.pipe(
-  Schema.minLength(5),
-  Schema.maxLength(180),
-  Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9 ._+-]*\.deb$/u),
+  Schema.pattern(/^vellum-runtime-(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-linux-x64\.tar\.gz$/u),
   Schema.brand("StationQualificationPackageFile"),
 );
 export type StationQualificationPackageFile =

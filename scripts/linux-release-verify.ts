@@ -1,11 +1,10 @@
 import { spawnSync } from "node:child_process";
-import { readFile, readdir } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import {
   readLinuxReleaseKeyringFile,
   verifyLinuxReleaseBundle,
   type LinuxReleaseHostFacts,
-  type LinuxReleasePackageIdentity,
 } from "./linux-release-bundle";
 import type { StationProtocolSupport } from "../src/shared/station-protocol";
 
@@ -164,50 +163,18 @@ export const inspectLinuxReleaseHost = async (): Promise<
   };
 };
 
-const findDeb = async (bundleDirectory: string): Promise<string> => {
-  const matches = (await readdir(bundleDirectory)).filter((name) =>
-    /^Vellum Command-(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)-x64-linux\.deb$/u
-      .test(name)
-  );
-  if (matches.length !== 1) {
-    throw new Error("release bundle must contain one exact Vellum deb");
-  }
-  return path.join(bundleDirectory, matches[0]);
-};
-
-export const inspectLinuxDeb = async (
-  bundleDirectory: string,
-): Promise<LinuxReleasePackageIdentity> => {
-  const deb = await findDeb(bundleDirectory);
-  const fields = runFixed(
-    "/usr/bin/dpkg-deb",
-    ["--field", deb, "Package", "Version", "Architecture"],
-    "deb metadata",
-  ).split(/\r?\n/u);
-  if (fields.length !== 3 || fields.some((value) => value.length === 0)) {
-    throw new Error("deb metadata is incomplete");
-  }
-  return {
-    packageName: fields[0],
-    version: fields[1],
-    architecture: fields[2],
-  };
-};
-
 export const linuxReleaseVerifyMain = async (
   args: ReadonlyArray<string>,
 ): Promise<void> => {
   const options = parseOptions(args);
   const bundleDirectory = path.resolve(options.bundle);
-  const [host, packageIdentity, trustedKeyring] = await Promise.all([
+  const [host, trustedKeyring] = await Promise.all([
     inspectLinuxReleaseHost(),
-    inspectLinuxDeb(bundleDirectory),
     readLinuxReleaseKeyringFile(options.keyring),
   ]);
   const receipt = await verifyLinuxReleaseBundle({
     bundleDirectory,
     host,
-    packageIdentity,
     peerStationProtocol: options.peerStationProtocol,
     trustedKeyring,
     trustedKeyringRevision: options.trustedKeyringRevision,

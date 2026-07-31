@@ -46,7 +46,7 @@ const qualified = () => ({
     sha256: hash("1"),
   },
   package: {
-    file: "Vellum Command-0.1.5-x64-linux.deb",
+    file: "vellum-runtime-0.1.5-linux-x64.tar.gz",
     bytes: 252_000_000,
     sha256: hash("2"),
   },
@@ -102,7 +102,7 @@ describe("two-installation Station qualification contract", () => {
       },
       package: {
         file: Schema.decodeUnknownSync(StationQualificationPackageFile)(
-          "Vellum Command-0.1.5-x64-linux.deb",
+          "vellum-runtime-0.1.5-linux-x64.tar.gz",
         ),
         bytes: 252_000_000,
         sha256: Schema.decodeUnknownSync(StationQualificationSha256)(hash("2")),
@@ -229,7 +229,7 @@ describe("two-installation Station qualification contract", () => {
     }
   });
 
-  it("binds one signed manifest, one deb, and one root evidence log", () => {
+  it("binds one signed manifest, one userland runtime archive, and one root evidence log", () => {
     const wrongManifest = qualified();
     (wrongManifest.manifest as { file: string }).file = "other.json";
     expect(Either.isLeft(decodeStationQualification(wrongManifest))).toBe(true);
@@ -241,11 +241,11 @@ describe("two-installation Station qualification contract", () => {
     for (const file of [
       ".",
       "..",
-      "-option.deb",
-      "../vellum.deb",
-      "nested/vellum.deb",
+      "-option.tar.gz",
+      "../vellum-runtime-0.1.5-linux-x64.tar.gz",
+      "nested/vellum-runtime-0.1.5-linux-x64.tar.gz",
       "vellum",
-      "bad\0.deb",
+      "vellum-runtime-0.1.5-linux-x64.tar.gz\0",
     ]) {
       const receipt = qualified();
       receipt.package.file = file;

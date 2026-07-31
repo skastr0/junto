@@ -50,12 +50,11 @@ export const LINUX_RELEASE_TARGET = Object.freeze({
   distributionVersion: "24.04",
   architecture: "x64",
   machine: "x86_64",
-  debArchitecture: "amd64",
   libc: {
     family: "glibc",
     minimumVersion: "2.39",
   },
-  packageKind: "deb",
+  packageKind: "userland-runtime-archive",
 } as const);
 
 export const LINUX_RELEASE_UNSUPPORTED = Object.freeze([
@@ -92,7 +91,7 @@ export interface LinuxReleaseFile {
 }
 
 export interface LinuxReleaseManifest {
-  readonly schema: "vellum/linux-release-manifest/v6";
+  readonly schema: "vellum/linux-release-manifest/v7";
   readonly release: {
     readonly product: "Vellum Command";
     readonly version: string;
@@ -108,7 +107,7 @@ export interface LinuxReleaseManifest {
   readonly target: typeof LINUX_RELEASE_TARGET;
   readonly package: {
     readonly name: "vellum";
-    readonly kind: "deb";
+    readonly kind: "userland-runtime-archive";
     readonly file: string;
     readonly bytes: number;
     readonly sha256: string;
@@ -162,7 +161,7 @@ export interface LinuxQualificationCandidateManifest {
   readonly target: typeof LINUX_RELEASE_TARGET;
   readonly package: {
     readonly name: "vellum";
-    readonly kind: "deb";
+    readonly kind: "userland-runtime-archive";
     readonly file: string;
     readonly bytes: number;
     readonly sha256: string;
@@ -224,16 +223,9 @@ export interface LinuxReleaseHostFacts {
   readonly libcVersion: string;
 }
 
-export interface LinuxReleasePackageIdentity {
-  readonly packageName: string;
-  readonly version: string;
-  readonly architecture: string;
-}
-
 export interface LinuxReleaseVerificationInput {
   readonly bundleDirectory: string;
   readonly host: LinuxReleaseHostFacts;
-  readonly packageIdentity: LinuxReleasePackageIdentity;
   readonly peerStationProtocol: StationProtocolSupport;
   readonly installedVersion?: string;
   readonly trustedKeyring: LinuxReleaseKeyring;
@@ -364,6 +356,9 @@ const MAX_METADATA_BYTES = 512 * 1024;
 const MAX_TEXT_EVIDENCE_BYTES = 32 * 1024 * 1024;
 const MAX_PACKAGE_BYTES = 2 * 1024 * 1024 * 1024;
 const MAX_VERIFIER_BYTES = 256 * 1024 * 1024;
+
+export const linuxUserlandRuntimeArchiveName = (version: string): string =>
+  `vellum-runtime-${requireSemver(version, "release version")}-linux-x64.tar.gz`;
 
 const record = (value: unknown, label: string): Record<string, unknown> => {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -838,7 +833,7 @@ const validateExactPayloadInventory = (
   version: string,
   files: ReadonlyArray<LinuxReleaseFile>,
 ): void => {
-  const expectedPackage = `Vellum Command-${version}-x64-linux.deb`;
+  const expectedPackage = linuxUserlandRuntimeArchiveName(version);
   const expected = new Map<string, LinuxReleaseFileKind>([
     [expectedPackage, "package"],
     ...REQUIRED_FIXED_FILES.map(([kind, file]) => [file, kind] as const),
@@ -860,7 +855,7 @@ const validateExactQualificationCandidatePayloadInventory = (
   version: string,
   files: ReadonlyArray<LinuxReleaseFile>,
 ): void => {
-  const expectedPackage = `Vellum Command-${version}-x64-linux.deb`;
+  const expectedPackage = linuxUserlandRuntimeArchiveName(version);
   const expected = new Map<string, LinuxReleaseFileKind>([
     [expectedPackage, "package"],
     ...QUALIFICATION_REQUIRED_FIXED_FILES.map(
@@ -906,7 +901,7 @@ export const decodeLinuxReleaseManifest = (
     ],
     "Linux release manifest",
   );
-  if (manifest.schema !== "vellum/linux-release-manifest/v6") {
+  if (manifest.schema !== "vellum/linux-release-manifest/v7") {
     throw new Error("unsupported Linux release manifest");
   }
 
@@ -955,10 +950,10 @@ export const decodeLinuxReleaseManifest = (
     ["name", "kind", "file", "bytes", "sha256"],
     "Linux release package",
   );
-  const expectedPackage = `Vellum Command-${version}-x64-linux.deb`;
+  const expectedPackage = linuxUserlandRuntimeArchiveName(version);
   if (
     packageEntry.name !== "vellum" ||
-    packageEntry.kind !== "deb" ||
+    packageEntry.kind !== "userland-runtime-archive" ||
     packageEntry.file !== expectedPackage
   ) {
     throw new Error("Linux release package identity mismatch");
@@ -1024,7 +1019,7 @@ export const decodeLinuxReleaseManifest = (
   }
 
   return {
-    schema: "vellum/linux-release-manifest/v6",
+    schema: "vellum/linux-release-manifest/v7",
     release: {
       product: "Vellum Command",
       version,
@@ -1040,7 +1035,7 @@ export const decodeLinuxReleaseManifest = (
     target: LINUX_RELEASE_TARGET,
     package: {
       name: "vellum",
-      kind: "deb",
+      kind: "userland-runtime-archive",
       file: expectedPackage,
       bytes: packageBytes,
       sha256: packageSha256,
@@ -1163,10 +1158,10 @@ export const decodeLinuxQualificationCandidateManifest = (
     ["name", "kind", "file", "bytes", "sha256"],
     "Linux qualification candidate package",
   );
-  const expectedPackage = `Vellum Command-${version}-x64-linux.deb`;
+  const expectedPackage = linuxUserlandRuntimeArchiveName(version);
   if (
     packageEntry.name !== "vellum" ||
-    packageEntry.kind !== "deb" ||
+    packageEntry.kind !== "userland-runtime-archive" ||
     packageEntry.file !== expectedPackage
   ) {
     throw new Error("Linux qualification candidate package identity mismatch");
@@ -1261,7 +1256,7 @@ export const decodeLinuxQualificationCandidateManifest = (
     target: LINUX_RELEASE_TARGET,
     package: {
       name: "vellum",
-      kind: "deb",
+      kind: "userland-runtime-archive",
       file: expectedPackage,
       bytes: packageBytes,
       sha256: packageSha256,
@@ -1534,7 +1529,6 @@ const hasReleaseTarget = (value: unknown): boolean => {
     target.os === "linux" &&
     target.architecture === "x64" &&
     target.machine === "x86_64" &&
-    target.debArchitecture === "amd64" &&
     target.distribution === "ubuntu" &&
     target.distributionVersion === "24.04" &&
     target.libc === "glibc"
@@ -1548,7 +1542,7 @@ const REQUIRED_CI_GATES = [
   "electron-and-cli-compile",
   "native-package",
   "package-audit",
-  "deb-install",
+  "userland-runtime-archive",
   "packaged-pty-smoke",
   "packaged-runtime-smoke",
 ] as const;
@@ -1748,7 +1742,6 @@ const LINUX_CI_EVIDENCE_TARGET = Object.freeze({
   os: "linux",
   architecture: "x64",
   machine: "x86_64",
-  debArchitecture: "amd64",
   distribution: "ubuntu",
   distributionVersion: "24.04",
   libc: "glibc",
@@ -1793,7 +1786,6 @@ const validateCiEvidenceManifest = (
       "target",
       "source",
       "publishable",
-      "diagnostic",
       "evidence",
       "unsupported",
     ],
@@ -1810,15 +1802,6 @@ const validateCiEvidenceManifest = (
     ["format", "file"],
     "CI evidence publishable artifact",
   );
-  const diagnostic = record(
-    receipt.diagnostic,
-    "CI evidence diagnostic artifact",
-  );
-  exactKeys(
-    diagnostic,
-    ["format", "file"],
-    "CI evidence diagnostic artifact",
-  );
   if (
     receipt.schema !== "vellum/linux-release-evidence/v1" ||
     JSON.stringify(receipt.target) !==
@@ -1830,9 +1813,8 @@ const validateCiEvidenceManifest = (
       1,
       Number.MAX_SAFE_INTEGER,
     ) < 1 ||
-    publishable.format !== "deb" ||
+    publishable.format !== "userland-runtime-archive" ||
     publishable.file !== manifest.package.file ||
-    diagnostic.format !== "tar.gz" ||
     !Array.isArray(receipt.evidence) ||
     JSON.stringify(receipt.unsupported) !==
       JSON.stringify([
@@ -1846,7 +1828,6 @@ const validateCiEvidenceManifest = (
   ) {
     throw new Error("CI evidence manifest does not match the signed release");
   }
-  const diagnosticFile = requireSafeEvidencePath(diagnostic.file);
   const entries = new Map<string, {
     readonly bytes: number;
     readonly sha256: string;
@@ -1921,9 +1902,6 @@ const validateCiEvidenceManifest = (
       );
     }
   }
-  if (!entries.has(`evidence:${diagnosticFile}`)) {
-    throw new Error("CI evidence manifest omits its diagnostic artifact");
-  }
 };
 
 const validateEvidenceReceipt = (
@@ -1969,14 +1947,12 @@ const validateEvidenceReceipt = (
   if (file === "package-audit.json") {
     if (
       receipt.ok !== true ||
-      receipt.package !== "vellum" ||
-      receipt.version !== manifest.release.version ||
-      receipt.architecture !== "amd64" ||
+      receipt.artifact !== manifest.package.file ||
+      !Array.isArray(receipt.nativeObjects) ||
       receipt.chromeSandbox !== "absent" ||
-      "chromeSandboxMode" in receipt ||
-      receipt.appArmor !== "userns"
+      "chromeSandboxMode" in receipt
     ) {
-      throw new Error("package audit receipt does not match the signed deb");
+      throw new Error("package audit receipt does not match the signed userland runtime archive");
     }
     return;
   }
@@ -2156,14 +2132,6 @@ const validateCompatibility = (
   input: LinuxReleaseVerificationInput,
 ): void => {
   validateHost(input.host);
-  if (
-    input.packageIdentity.packageName !== manifest.package.name ||
-    input.packageIdentity.version !== manifest.release.version ||
-    input.packageIdentity.architecture !==
-      LINUX_RELEASE_TARGET.debArchitecture
-  ) {
-    throw new Error("deb metadata does not match the signed release manifest");
-  }
   const peerStationProtocol = decodeStationProtocolSupport(
     input.peerStationProtocol,
     "peer Station protocol support",
@@ -2620,11 +2588,6 @@ const validateExternalLinuxQualification = async (
       libcFamily: LINUX_RELEASE_TARGET.libc.family,
       libcVersion: LINUX_RELEASE_TARGET.libc.minimumVersion,
     },
-    packageIdentity: {
-      packageName: manifest.package.name,
-      version: manifest.release.version,
-      architecture: manifest.target.debArchitecture,
-    },
     peerStationProtocol: manifest.stationProtocol,
     trustedKeyring: keyring,
     trustedKeyringRevision: keyring.revision,
@@ -2748,7 +2711,7 @@ export const createLinuxQualificationCandidateManifest = async (input: {
       "qualification candidate creation requires an active release key",
     );
   }
-  const packageName = `Vellum Command-${version}-x64-linux.deb`;
+  const packageName = linuxUserlandRuntimeArchiveName(version);
   const expected = [
     { kind: "package" as const, file: packageName },
     ...QUALIFICATION_REQUIRED_FIXED_FILES.map(([kind, file]) => ({
@@ -2791,7 +2754,7 @@ export const createLinuxQualificationCandidateManifest = async (input: {
     ciEvidence?.kind !== "ci-evidence-manifest"
   ) {
     throw new Error(
-      "Linux qualification candidate is missing its deb or CI evidence",
+      "Linux qualification candidate is missing its userland runtime archive or CI evidence",
     );
   }
   const manifest: LinuxQualificationCandidateManifest = {
@@ -2815,7 +2778,7 @@ export const createLinuxQualificationCandidateManifest = async (input: {
     target: LINUX_RELEASE_TARGET,
     package: {
       name: "vellum",
-      kind: "deb",
+      kind: "userland-runtime-archive",
       file: packageReceipt.file,
       bytes: packageReceipt.bytes,
       sha256: packageReceipt.sha256,
@@ -2876,7 +2839,7 @@ export const createLinuxReleaseManifest = async (input: {
   if (key === undefined || key.status !== "active") {
     throw new Error("manifest creation requires an active release key");
   }
-  const packageName = `Vellum Command-${version}-x64-linux.deb`;
+  const packageName = linuxUserlandRuntimeArchiveName(version);
   const expected = [
     { kind: "package" as const, file: packageName },
     ...REQUIRED_FIXED_FILES.map(([kind, file]) => ({ kind, file })),
@@ -2909,10 +2872,10 @@ export const createLinuxReleaseManifest = async (input: {
   files.sort(compareFileNames);
   const packageReceipt = files.find((entry) => entry.kind === "package");
   if (packageReceipt === undefined) {
-    throw new Error("Linux release bundle is missing its deb");
+    throw new Error("Linux release bundle is missing its userland runtime archive");
   }
   const manifest: LinuxReleaseManifest = {
-    schema: "vellum/linux-release-manifest/v6",
+    schema: "vellum/linux-release-manifest/v7",
     release: {
       product: "Vellum Command",
       version,
@@ -2928,7 +2891,7 @@ export const createLinuxReleaseManifest = async (input: {
     target: LINUX_RELEASE_TARGET,
     package: {
       name: "vellum",
-      kind: "deb",
+      kind: "userland-runtime-archive",
       file: packageReceipt.file,
       bytes: packageReceipt.bytes,
       sha256: packageReceipt.sha256,
@@ -3230,17 +3193,17 @@ export const releaseKeyringSha256 = (
 export const linuxReleasePayloadFileNames = (
   version: string,
 ): ReadonlyArray<string> => [
-  `Vellum Command-${requireSemver(version, "release version")}-x64-linux.deb`,
+  linuxUserlandRuntimeArchiveName(version),
   ...REQUIRED_FIXED_FILES.map(([, file]) => file),
 ];
 
 export const linuxQualificationCandidatePayloadFileNames = (
   version: string,
 ): ReadonlyArray<string> => [
-  `Vellum Command-${requireSemver(
+  linuxUserlandRuntimeArchiveName(requireSemver(
     version,
     "qualification candidate version",
-  )}-x64-linux.deb`,
+  )),
   ...QUALIFICATION_REQUIRED_FIXED_FILES.map(([, file]) => file),
 ];
 

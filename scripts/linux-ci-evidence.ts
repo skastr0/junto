@@ -11,17 +11,13 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import {
-  linuxDebArtifactName,
-  linuxUnpackedArtifactName,
-} from "./finalize-linux-package";
+import { linuxUserlandRuntimeArchiveName } from "./linux-release-bundle";
 
 export const LINUX_CI_TARGET = Object.freeze({
   runner: "ubuntu-24.04",
   os: "linux",
   architecture: "x64",
   machine: "x86_64",
-  debArchitecture: "amd64",
   distribution: "ubuntu",
   distributionVersion: "24.04",
   libc: "glibc",
@@ -34,7 +30,7 @@ export const LINUX_CI_REQUIRED_GATES = Object.freeze([
   "electron-and-cli-compile",
   "native-package",
   "package-audit",
-  "deb-install",
+  "userland-runtime-archive",
   "packaged-pty-smoke",
   "packaged-runtime-smoke",
 ] as const);
@@ -63,8 +59,6 @@ export interface LinuxCiInventory {
     readonly electron: string;
     readonly nodePty: string;
     readonly electronBuilder: string;
-    readonly dpkg: string;
-    readonly dpkgDeb: string;
   };
 }
 
@@ -86,11 +80,7 @@ export interface LinuxCiReleaseManifest {
     readonly sourceDateEpoch: number;
   };
   readonly publishable: {
-    readonly format: "deb";
-    readonly file: string;
-  };
-  readonly diagnostic: {
-    readonly format: "tar.gz";
+    readonly format: "userland-runtime-archive";
     readonly file: string;
   };
   readonly evidence: ReadonlyArray<{
@@ -252,8 +242,6 @@ export const collectLinuxCiInventory = async (input: {
       electron: await readPackageVersion("electron"),
       nodePty: await readPackageVersion("node-pty"),
       electronBuilder: await readPackageVersion("electron-builder"),
-      dpkg: runFixed("/usr/bin/dpkg", ["--version"]).split("\n")[0],
-      dpkgDeb: runFixed("/usr/bin/dpkg-deb", ["--version"]).split("\n")[0],
     },
   };
 };
@@ -400,9 +388,16 @@ const validateLinuxCiReceipts = async (input: {
     "package audit receipt",
   ) as {
     readonly ok?: unknown;
-    readonly architecture?: unknown;
+    readonly artifact?: unknown;
+    readonly nativeObjects?: unknown;
+    readonly chromeSandbox?: unknown;
   };
-  if (packageAudit.ok !== true || packageAudit.architecture !== "amd64") {
+  if (
+    packageAudit.ok !== true ||
+    typeof packageAudit.artifact !== "string" ||
+    !Array.isArray(packageAudit.nativeObjects) ||
+    packageAudit.chromeSandbox !== "absent"
+  ) {
     throw new Error("Linux release evidence package audit mismatch");
   }
 
@@ -486,15 +481,11 @@ const requireRelativeEvidencePath = (
 
 export const validateLinuxReleaseArtifactNames = (input: {
   readonly names: ReadonlyArray<string>;
-  readonly expectedDeb: string;
-  readonly expectedDiagnostic: string;
+  readonly expectedArchive: string;
 }): void => {
-  const debs = input.names.filter((name) => name.toLowerCase().endsWith(".deb"));
-  if (debs.length !== 1 || debs[0] !== input.expectedDeb) {
-    throw new Error("Linux release evidence requires one exact x64 deb");
-  }
-  if (!input.names.includes(input.expectedDiagnostic)) {
-    throw new Error("Linux release evidence is missing the x64 diagnostic archive");
+  const archives = input.names.filter((name) => name.endsWith(".tar.gz"));
+  if (archives.length !== 1 || archives[0] !== input.expectedArchive) {
+    throw new Error("Linux release evidence requires one exact userland runtime archive");
   }
   const forbidden = input.names.filter((name) =>
     /(?:arm64|aarch64|musl|appimage|\.snap(?:$|\.)|flatpak|\.rpm(?:$|\.)|linux-(?:generic|all))/iu.test(
@@ -515,25 +506,14 @@ export const createLinuxCiReleaseManifest = async (input: {
   const releaseDirectory = path.resolve(input.releaseDirectory);
   const evidenceDirectory = path.resolve(input.evidenceDirectory);
   const identity = await readPackageIdentity();
-  const debName = linuxDebArtifactName({
-    productName: identity.productName,
-    version: identity.version,
-    arch: "x64",
-  });
-  const unpackedName = linuxUnpackedArtifactName({
-    productName: identity.productName,
-    version: identity.version,
-    arch: "x64",
-  });
-  const diagnosticName = `${unpackedName}.tar.gz`;
+  const archiveName = linuxUserlandRuntimeArchiveName(identity.version);
   const commit = requireHexCommit(input.commit);
   const sourceDateEpoch = requireSourceDateEpoch(input.sourceDateEpoch);
   const releaseNames = await readdir(releaseDirectory);
   const evidenceNames = await readdir(evidenceDirectory);
   validateLinuxReleaseArtifactNames({
     names: [...releaseNames, ...evidenceNames],
-    expectedDeb: debName,
-    expectedDiagnostic: diagnosticName,
+    expectedArchive: archiveName,
   });
 
   const requiredEvidence = [
@@ -544,8 +524,7 @@ export const createLinuxCiReleaseManifest = async (input: {
     "test-receipt.json",
   ] as const;
   const files = [
-    path.join(releaseDirectory, debName),
-    path.join(evidenceDirectory, diagnosticName),
+    path.join(releaseDirectory, archiveName),
     ...requiredEvidence.map((name) => path.join(evidenceDirectory, name)),
   ];
   const logDirectory = path.join(evidenceDirectory, "logs");
@@ -605,8 +584,7 @@ export const createLinuxCiReleaseManifest = async (input: {
       commit,
       sourceDateEpoch,
     },
-    publishable: { format: "deb", file: debName },
-    diagnostic: { format: "tar.gz", file: diagnosticName },
+    publishable: { format: "userland-runtime-archive", file: archiveName },
     evidence,
     unsupported: [
       "linux-arm64",
@@ -638,8 +616,7 @@ const decodeLinuxCiReleaseManifest = (
   requireHexCommit(manifest.source?.commit);
   requireSourceDateEpoch(manifest.source?.sourceDateEpoch);
   if (
-    manifest.publishable?.format !== "deb" ||
-    manifest.diagnostic?.format !== "tar.gz" ||
+    manifest.publishable?.format !== "userland-runtime-archive" ||
     !Array.isArray(manifest.evidence) ||
     manifest.evidence.length === 0
   ) {
@@ -664,19 +641,9 @@ export const verifyLinuxCiReleaseManifest = async (input: {
   const releaseDirectory = path.resolve(input.releaseDirectory);
   const evidenceDirectory = path.resolve(input.evidenceDirectory);
   const identity = await readPackageIdentity();
-  const expectedDeb = linuxDebArtifactName({
-    productName: identity.productName,
-    version: identity.version,
-    arch: "x64",
-  });
-  const expectedDiagnostic = `${linuxUnpackedArtifactName({
-    productName: identity.productName,
-    version: identity.version,
-    arch: "x64",
-  })}.tar.gz`;
+  const expectedArchive = linuxUserlandRuntimeArchiveName(identity.version);
   if (
-    manifest.publishable.file !== expectedDeb ||
-    manifest.diagnostic.file !== expectedDiagnostic ||
+    manifest.publishable.file !== expectedArchive ||
     JSON.stringify(manifest.unsupported) !==
       JSON.stringify([
         "linux-arm64",
@@ -718,10 +685,7 @@ export const verifyLinuxCiReleaseManifest = async (input: {
       throw new Error(`Linux release evidence hash mismatch: ${entry.file}`);
     }
   }
-  if (
-    !seen.has(`release:${manifest.publishable.file}`) ||
-    !seen.has(`evidence:${manifest.diagnostic.file}`)
-  ) {
+  if (!seen.has(`release:${manifest.publishable.file}`)) {
     throw new Error("Linux release evidence omits a declared artifact");
   }
   return manifest;

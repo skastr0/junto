@@ -53,13 +53,12 @@ const CREATED_AT = "2026-07-23T11:55:00.000Z";
 const EXPIRES_AT = "2026-08-01T12:00:00.000Z";
 const QUALIFICATION_EXPIRES_AT = "2026-07-24T11:55:00.000Z";
 const KEY_ID = "vellum-linux-2026a";
-const PACKAGE = `Vellum Command-${VERSION}-x64-linux.deb`;
+const PACKAGE = `vellum-runtime-${VERSION}-linux-x64.tar.gz`;
 const ciTarget = {
   runner: "ubuntu-24.04",
   os: "linux",
   architecture: "x64",
   machine: "x86_64",
-  debArchitecture: "amd64",
   distribution: "ubuntu",
   distributionVersion: "24.04",
   libc: "glibc",
@@ -71,7 +70,7 @@ const ciGates = [
   "electron-and-cli-compile",
   "native-package",
   "package-audit",
-  "deb-install",
+  "userland-runtime-archive",
   "packaged-pty-smoke",
   "packaged-runtime-smoke",
 ];
@@ -169,7 +168,7 @@ const createFixture = async (options: {
   };
   await writeKeyring(directory, keyring);
   const payloads: Readonly<Record<string, string>> = {
-    [PACKAGE]: "synthetic-deb-for-contract-tests",
+    [PACKAGE]: "synthetic-userland-runtime-archive-for-contract-tests",
     "build-receipt.json": canonical({
       schema: "vellum/linux-ci-inventory/v1",
       target: ciTarget,
@@ -186,14 +185,12 @@ const createFixture = async (options: {
     }),
     "package-audit.json": canonical({
       ok: true,
-      package: "vellum",
-      version: VERSION,
-      architecture: "amd64",
+      artifact: PACKAGE,
+      nativeObjects: [],
       chromeSandbox: options.chromeSandboxClaim ?? "absent",
       ...(options.includeRetiredChromeSandboxMode
         ? { chromeSandboxMode: "0755" }
         : {}),
-      appArmor: "userns",
     }),
     "packaged-pty-smoke.json": canonical({
       ok: true,
@@ -284,11 +281,7 @@ const createFixture = async (options: {
     schema: "vellum/linux-release-evidence/v1",
     target: ciTarget,
     source: { commit: REVISION, sourceDateEpoch: 1_784_772_800 },
-    publishable: { format: "deb", file: PACKAGE },
-    diagnostic: {
-      format: "tar.gz",
-      file: "Vellum Command-0.1.0-x64-linux.tar.gz",
-    },
+    publishable: { format: "userland-runtime-archive", file: PACKAGE },
     evidence: [
       {
         scope: "release",
@@ -479,7 +472,7 @@ const createFixture = async (options: {
           options.stationQualificationPackageSha256 ??
             sha256(payloads[PACKAGE]),
       },
-      stationProtocol: 3,
+      stationProtocol: CURRENT_STATION_PROTOCOL_SUPPORT.preferred,
     }
     : {
       schema: STATION_QUALIFICATION_SCHEMA,
@@ -495,7 +488,7 @@ const createFixture = async (options: {
           options.stationQualificationPackageSha256 ??
             sha256(payloads[PACKAGE]),
       },
-      stationProtocol: 3,
+      stationProtocol: CURRENT_STATION_PROTOCOL_SUPPORT.preferred,
       installations: {
         commandCenter: {
           installationId: "fixture-command-center",
@@ -585,11 +578,6 @@ const verifyFixture = async (
   return verifyLinuxReleaseBundle({
     bundleDirectory: directory,
     host,
-    packageIdentity: {
-      packageName: "vellum",
-      version: VERSION,
-      architecture: "amd64",
-    },
     peerStationProtocol: CURRENT_STATION_PROTOCOL_SUPPORT,
     trustedKeyring,
     trustedKeyringRevision: trustedKeyring.revision,
@@ -615,11 +603,6 @@ const verifyQualificationFixture = async (
   return verifyLinuxQualificationCandidateBundle({
     bundleDirectory: directory,
     host,
-    packageIdentity: {
-      packageName: "vellum",
-      version: VERSION,
-      architecture: "amd64",
-    },
     peerStationProtocol: CURRENT_STATION_PROTOCOL_SUPPORT,
     trustedKeyring,
     trustedKeyringRevision: trustedKeyring.revision,
@@ -714,7 +697,7 @@ describe("signed Linux qualification candidate", () => {
     ).rejects.toThrow(/validity window/u);
   });
 
-  it("binds the same deb hash that the final v5 release admits", async () => {
+  it("binds the same userland runtime archive hash that the final release admits", async () => {
     const candidate = await createFixture({
       qualificationCandidate: true,
     });
@@ -738,7 +721,7 @@ describe("signed Linux release bundle", () => {
         "utf8",
       ),
     ));
-    expect(manifest.schema).toBe("vellum/linux-release-manifest/v6");
+    expect(manifest.schema).toBe("vellum/linux-release-manifest/v7");
     expect(manifest.files.map(({ file }) => file)).not.toEqual(
       expect.arrayContaining([
         STATION_QUALIFICATION_EVIDENCE_FILE,
@@ -762,9 +745,8 @@ describe("signed Linux release bundle", () => {
         distributionVersion: "24.04",
         architecture: "x64",
         machine: "x86_64",
-        debArchitecture: "amd64",
         libc: { family: "glibc", minimumVersion: "2.39" },
-        packageKind: "deb",
+        packageKind: "userland-runtime-archive",
       },
       keyId: KEY_ID,
       keyringRevision: 7,
@@ -775,7 +757,7 @@ describe("signed Linux release bundle", () => {
         expect.objectContaining({
           file: PACKAGE,
           bytes: Buffer.byteLength(
-            "synthetic-deb-for-contract-tests",
+            "synthetic-userland-runtime-archive-for-contract-tests",
             "utf8",
           ),
           sha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
@@ -795,7 +777,7 @@ describe("signed Linux release bundle", () => {
       ]),
       packageFile: PACKAGE,
       packageBytes: Buffer.byteLength(
-        "synthetic-deb-for-contract-tests",
+        "synthetic-userland-runtime-archive-for-contract-tests",
         "utf8",
       ),
       packageSha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
@@ -831,7 +813,7 @@ describe("signed Linux release bundle", () => {
         );
       },
       async (directory: string) => {
-        await writeFile(path.join(directory, PACKAGE), "different-deb");
+        await writeFile(path.join(directory, PACKAGE), "different-runtime-archive");
       },
       async (directory: string) => {
         await writeFile(
@@ -908,13 +890,6 @@ describe("signed Linux release bundle", () => {
       { now: Date.parse("2026-08-02T00:00:00.000Z") },
       { now: Number.NaN },
       {
-        packageIdentity: {
-          packageName: "vellum",
-          version: "9.9.9",
-          architecture: "amd64",
-        },
-      },
-      {
         peerStationProtocol: {
           preferred: 1,
           compatibleFrom: 1,
@@ -961,7 +936,7 @@ describe("signed Linux release bundle", () => {
     ).resolves.toMatchObject({ ok: true, version: VERSION });
   });
 
-  it("strictly rejects every pre-v6 manifest shape", async () => {
+  it("strictly rejects every pre-v7 manifest shape", async () => {
     const fixture = await createFixture();
     const manifest = JSON.parse(
       await readFile(
