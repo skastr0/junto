@@ -1,17 +1,22 @@
 /**
  * Edge sparks — one-shot visual packets that travel an edge when work-plane
  * activity lands between connected nodes (claim, message, request, artifact,
- * board). Pure planner + short-lived Legend store; EtherEdge paints the flare.
+ * board) or when a new edge is authored. Pure planner + short-lived Legend
+ * store; EtherEdge paints the flare.
+ *
+ * Direction is always the document edge: fromNode → toNode (source → target).
+ * Fan-out is pairwise only — never every incident edge of a multi-linked actor
+ * (that produced the "sparks storm" when agent↔agent links enabled msg.send).
  */
 import { observable } from "@legendapp/state";
 import type { CanvasDoc, CanvasEdge, CanvasNode } from "@shared/canvas";
 import type { ActorRef } from "@shared/work-protocol";
-import type { Task } from "@shared/work-model";
+import type { Message, Task } from "@shared/work-model";
 import { claimedByOf } from "@shared/task";
 
 export type EdgeSpark = {
   readonly token: number;
-  /** Flow travels from this endpoint toward the other. */
+  /** Flow travels from this endpoint toward the other (edge source). */
   readonly fromNodeId: string;
 };
 
@@ -86,12 +91,6 @@ const edgesBetween = (
       (edge.fromNode === b && edge.toNode === a),
   );
 
-const incidentEdges = (
-  edges: ReadonlyArray<CanvasEdge>,
-  nodeId: string,
-): CanvasEdge[] =>
-  edges.filter((edge) => edge.fromNode === nodeId || edge.toNode === nodeId);
-
 const taskDeltaSeats = (
   next: ReadonlyArray<Task> | undefined,
   prev: ReadonlyArray<Task> | undefined,
@@ -120,9 +119,42 @@ const taskDeltaSeats = (
   return seats;
 };
 
+/** peerId / fromSeat / fromNode on newly arrived messages → counterparty node ids. */
+const messageDeltaPeers = (
+  next: ReadonlyArray<Message> | undefined,
+  prev: ReadonlyArray<Message> | undefined,
+  seats: Map<string, string>,
+): string[] => {
+  const prevIds = new Set((prev ?? []).map((m) => m.messageId));
+  const peers: string[] = [];
+  for (const msg of next ?? []) {
+    if (prevIds.has(msg.messageId)) continue;
+    const meta = msg.metadata;
+    if (!meta) continue;
+    const peerId = meta.peerId;
+    if (typeof peerId === "string" && peerId.length > 0) {
+      peers.push(peerId);
+      continue;
+    }
+    const fromNode = meta.fromNode;
+    if (typeof fromNode === "string" && fromNode.length > 0) {
+      peers.push(fromNode);
+      continue;
+    }
+    const fromSeat = meta.fromSeat;
+    if (typeof fromSeat === "string" && fromSeat.length > 0) {
+      const nodeId = seats.get(fromSeat);
+      if (nodeId) peers.push(nodeId);
+    }
+  }
+  return peers;
+};
+
 /**
- * Pure: map a prev→next work-lane delta to edge spark plans.
+ * Pure: map a prev→next work-lane / topology delta to edge spark plans.
  * Skips brand-new nodes (bulk load / canvas switch) and caps fan-out.
+ * Never lights every incident edge of a node — only the edge that was created
+ * or the edge between the two parties of the work act.
  */
 export function planWorkEdgeSparks(
   prev: CanvasDoc,
@@ -132,25 +164,40 @@ export function planWorkEdgeSparks(
   if (prev.nodes.length === 0 || next.edges.length === 0) return [];
 
   const prevById = new Map(prev.nodes.map((node) => [node.id, node] as const));
+  const prevEdgeIds = new Set(prev.edges.map((edge) => edge.id));
   const seats = seatNodeMap(actorRefs);
   const plans: EdgeSparkPlan[] = [];
   const seen = new Set<string>();
 
-  const push = (edge: CanvasEdge, fromNodeId: string): void => {
+  /** Always travel document source → target. */
+  const push = (edge: CanvasEdge): void => {
     if (seen.has(edge.id)) return;
     seen.add(edge.id);
-    plans.push({ edgeId: edge.id, fromNodeId });
+    plans.push({ edgeId: edge.id, fromNodeId: edge.fromNode });
   };
 
+  // 1. Newly authored edges — spark only those, source → target.
+  for (const edge of next.edges) {
+    if (!prevEdgeIds.has(edge.id)) push(edge);
+  }
+
+  // 2. Work-lane changed nodes (existing nodes only).
+  const changed = new Set<string>();
   for (const node of next.nodes) {
     const before = prevById.get(node.id);
     if (!before) continue;
-
     const prevFp = workLaneFingerprint(before);
     const nextFp = workLaneFingerprint(node);
     if (prevFp === nextFp) continue;
-    // Pure geometry/freeform node with no work lanes either side.
     if (prevFp === undefined && nextFp === undefined) continue;
+    changed.add(node.id);
+  }
+
+  // 3. Pairwise work: seat claims, message peer metadata, co-changed ends.
+  for (const node of next.nodes) {
+    if (!changed.has(node.id)) continue;
+    const before = prevById.get(node.id);
+    if (!before) continue;
 
     const counterparties = new Set<string>();
     for (const seat of taskDeltaSeats(
@@ -167,21 +214,25 @@ export function planWorkEdgeSparks(
       const actorNode = seats.get(seat);
       if (actorNode && actorNode !== node.id) counterparties.add(actorNode);
     }
-
-    if (counterparties.size > 0) {
-      for (const peer of counterparties) {
-        for (const edge of edgesBetween(next.edges, node.id, peer)) {
-          // Claim / request traffic rides actor → sink.
-          push(edge, peer);
-        }
-      }
-      continue;
+    for (const peer of messageDeltaPeers(
+      node.ether?.messages?.items,
+      before.ether?.messages?.items,
+      seats,
+    )) {
+      if (peer !== node.id) counterparties.add(peer);
     }
 
-    // Messages, artifacts, board, unclaimed task create — light every
-    // non-group incident edge from the changed node outward.
-    for (const edge of incidentEdges(next.edges, node.id)) {
-      push(edge, node.id);
+    for (const peer of counterparties) {
+      for (const edge of edgesBetween(next.edges, node.id, peer)) {
+        push(edge);
+      }
+    }
+  }
+
+  // 4. Co-changed endpoints (both sides of the edge moved work lanes together).
+  for (const edge of next.edges) {
+    if (changed.has(edge.fromNode) && changed.has(edge.toNode)) {
+      push(edge);
     }
   }
 
@@ -218,4 +269,9 @@ export function noteWorkDocChange(
   actorRefs: ReadonlyArray<ActorRef>,
 ): void {
   emitEdgeSparks(planWorkEdgeSparks(prev, next, actorRefs));
+}
+
+/** Immediate spark on freeform edge create (before work notices land). */
+export function noteEdgeCreated(edge: CanvasEdge): void {
+  emitEdgeSparks([{ edgeId: edge.id, fromNodeId: edge.fromNode }]);
 }

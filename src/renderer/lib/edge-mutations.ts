@@ -9,6 +9,7 @@ import type {
 import type { Port } from "@shared/physics";
 import { inferSchedulerEdgeEffect } from "@shared/scheduler-effects";
 import { isLabelNode } from "./presentation";
+import { noteEdgeCreated } from "./edge-sparks";
 import { state$ } from "./state";
 import { commitDoc, parseSide } from "./mutations";
 
@@ -218,6 +219,8 @@ export const addEdge = (params: {
   state$.selectedEdgeId.set(edge.id);
   state$.error.set("");
   commitDoc({ ...doc, edges: [...doc.edges, edge] });
+  // Source → target spark on the edge just created (not every incident link).
+  noteEdgeCreated(edge);
 };
 
 // --- multi-source → one target (RTS-006) ------------------------------------
@@ -361,5 +364,6 @@ export const connectAllToTarget = (
   }
   state$.error.set("");
   commitDoc({ ...doc, edges: [...doc.edges, ...newEdges] });
+  for (const edge of newEdges) noteEdgeCreated(edge);
   return plan;
 };

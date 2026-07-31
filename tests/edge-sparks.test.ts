@@ -89,27 +89,31 @@ describe("workLaneFingerprint", () => {
 describe("planWorkEdgeSparks", () => {
   const agentA = agentNode("agent-a");
   const agentB = agentNode("agent-b");
+  const agentC = agentNode("agent-c");
   const sink = taskSink("task-sink", [task("t1", "submitted")]);
   const edges = [
     edge("e-claim", "agent-a", "task-sink"),
     edge("e-peer", "agent-a", "agent-b"),
+    edge("e-boardish", "agent-a", "agent-c"),
   ];
-  const actors = [actor("agent-a", "aa"), actor("agent-b", "bb")];
+  const actors = [
+    actor("agent-a", "aa"),
+    actor("agent-b", "bb"),
+    actor("agent-c", "cc"),
+  ];
 
   it("returns nothing on empty prev (canvas open)", () => {
     const next = doc([agentA, sink], edges);
     expect(planWorkEdgeSparks(doc([], []), next, actors)).toEqual([]);
   });
 
-  it("sparks actor→sink edge on claim", () => {
-    const prev = doc(
-      [agentA, agentB, sink],
-      edges,
-    );
+  it("sparks actor→sink edge on claim (source → target)", () => {
+    const prev = doc([agentA, agentB, agentC, sink], edges);
     const next = doc(
       [
         agentA,
         agentB,
+        agentC,
         taskSink("task-sink", [task("t1", "working", seat("aa"))]),
       ],
       edges,
@@ -119,7 +123,60 @@ describe("planWorkEdgeSparks", () => {
     ]);
   });
 
-  it("sparks incident edges when messages change on an actor", () => {
+  it("sparks only the peer edge for msg.send-enable notices (no storm)", () => {
+    // Connecting A↔B delivers mailbox notices on both seats with peerId —
+    // previously lit every incident edge of each agent (claim + boardish + peer).
+    const withMail = (
+      base: CanvasNode,
+      peerId: string,
+    ): CanvasNode => ({
+      ...base,
+      ether: {
+        ...base.ether!,
+        messages: {
+          items: [
+            {
+              messageId: `msg-${base.id}`,
+              role: "user",
+              parts: [{ kind: "text", text: "msg.send enabled" }],
+              metadata: {
+                factoryLink: true,
+                msgSendEnabled: true,
+                peerId,
+              },
+            },
+          ],
+        },
+      },
+    });
+    const prev = doc([agentA, agentB, agentC, sink], edges);
+    const next = doc(
+      [
+        withMail(agentA, "agent-b"),
+        withMail(agentB, "agent-a"),
+        agentC,
+        sink,
+      ],
+      edges,
+    );
+    const plans = planWorkEdgeSparks(prev, next, actors);
+    expect(plans).toEqual([{ edgeId: "e-peer", fromNodeId: "agent-a" }]);
+    expect(plans.map((p) => p.edgeId)).not.toContain("e-claim");
+    expect(plans.map((p) => p.edgeId)).not.toContain("e-boardish");
+  });
+
+  it("sparks a newly created edge source → target only", () => {
+    const prev = doc([agentA, agentB, agentC, sink], [
+      edge("e-claim", "agent-a", "task-sink"),
+      edge("e-boardish", "agent-a", "agent-c"),
+    ]);
+    const next = doc([agentA, agentB, agentC, sink], edges);
+    expect(planWorkEdgeSparks(prev, next, actors)).toEqual([
+      { edgeId: "e-peer", fromNodeId: "agent-a" },
+    ]);
+  });
+
+  it("does not fan-out all incident edges when only one mailbox changes", () => {
     const withMail = (items: NonNullable<CanvasNode["ether"]>["messages"]): CanvasNode => ({
       ...agentB,
       ether: {
@@ -127,7 +184,7 @@ describe("planWorkEdgeSparks", () => {
         messages: items,
       },
     });
-    const prev = doc([agentA, agentB, sink], edges);
+    const prev = doc([agentA, agentB, agentC, sink], edges);
     const next = doc(
       [
         agentA,
@@ -140,19 +197,53 @@ describe("planWorkEdgeSparks", () => {
             },
           ],
         }),
+        agentC,
         sink,
       ],
       edges,
     );
-    const plans = planWorkEdgeSparks(prev, next, actors);
-    expect(plans).toContainEqual({ edgeId: "e-peer", fromNodeId: "agent-b" });
+    // No peer metadata and no co-changed counterpart — stay silent (no storm).
+    expect(planWorkEdgeSparks(prev, next, actors)).toEqual([]);
+  });
+
+  it("sparks peer edge when new message carries peerId", () => {
+    const withMail = (items: NonNullable<CanvasNode["ether"]>["messages"]): CanvasNode => ({
+      ...agentB,
+      ether: {
+        ...agentB.ether!,
+        messages: items,
+      },
+    });
+    const prev = doc([agentA, agentB, agentC, sink], edges);
+    const next = doc(
+      [
+        agentA,
+        withMail({
+          items: [
+            {
+              messageId: "msg-1",
+              role: "user",
+              parts: [{ kind: "text", text: "hi" }],
+              metadata: { peerId: "agent-a" },
+            },
+          ],
+        }),
+        agentC,
+        sink,
+      ],
+      edges,
+    );
+    expect(planWorkEdgeSparks(prev, next, actors)).toEqual([
+      { edgeId: "e-peer", fromNodeId: "agent-a" },
+    ]);
   });
 
   it("skips brand-new nodes (no mass spark on paste)", () => {
-    const prev = doc([agentA], [edge("e-claim", "agent-a", "task-sink")]);
+    const claimOnly = [edge("e-claim", "agent-a", "task-sink")];
+    const prev = doc([agentA], claimOnly);
     const next = doc(
       [agentA, taskSink("task-sink", [task("t1", "working", seat("aa"))])],
-      edges,
+      claimOnly,
     );
     // sink is new in next — claim counterparty path skipped for new node
     expect(planWorkEdgeSparks(prev, next, actors)).toEqual([]);
