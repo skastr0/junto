@@ -109,7 +109,11 @@ const normalizeLicense = (value: unknown): string => {
           )
           .join(" OR ")
         : "";
-  const candidate = declared.trim();
+  const declaredCandidate = declared.trim();
+  const candidate =
+    declaredCandidate.toLowerCase() === "apache-2.0"
+      ? "Apache-2.0"
+      : declaredCandidate;
   return candidate.length > 0 &&
       Buffer.byteLength(candidate, "utf8") <= 256 &&
       !/[\0\r\n]/u.test(candidate) &&

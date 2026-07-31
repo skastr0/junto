@@ -94,7 +94,7 @@ describe("Linux release dependency and SBOM evidence", () => {
         path.join(modules, "effect", "node_modules", "nested"),
         "nested",
         "2.0.0",
-        "Apache-2.0",
+        "apache-2.0",
       ),
     ]);
     await writeFile(
