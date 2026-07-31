@@ -2,7 +2,7 @@
  * Kill/stop process chrome for native terminal surfaces.
  * Presentation-only — does not change process-bind or kill semantics.
  *
- * Close/Detach = view only (process lives).
+ * Close = view only (process lives; session may stay warm/detached).
  * Stop = capability-plane terminate (SIGTERM → grace → SIGKILL).
  */
 
@@ -86,6 +86,6 @@ export const deadStateCopy = (input: {
   closeViewLabel: "Close view",
 });
 
-/** Surface header eyebrow — names Detach vs Stop so Close is not overloaded. */
+/** Surface header eyebrow — Close (view) vs Stop (process). */
 export const terminalSurfaceEyebrow = (hostId: string): string =>
-  `terminal · ${hostId} · Detach keeps process · Stop ends it`;
+  `terminal · ${hostId} · Close keeps process · Stop ends it`;

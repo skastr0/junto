@@ -683,10 +683,10 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
               size="xs"
               variant="primary"
               title="Close view — process keeps running"
-              aria-label="Detach view"
+              aria-label="Close view"
               onClick={closeSurface}
             >
-              Detach
+              Close
             </Button>
           </>
         }

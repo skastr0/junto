@@ -52,10 +52,11 @@ describe("terminal kill UX copy", () => {
     expect(isAgentTerminalSeat({})).toBe(false);
   });
 
-  it("eyebrow names Detach vs Stop", () => {
+  it("eyebrow names Close vs Stop", () => {
     const line = terminalSurfaceEyebrow("local");
-    expect(line).toContain("Detach keeps process");
+    expect(line).toContain("Close keeps process");
     expect(line).toContain("Stop ends it");
     expect(line.toLowerCase()).not.toContain("kill session");
+    expect(line).not.toMatch(/\bDetach\b/);
   });
 });
