@@ -239,7 +239,22 @@ export const buildRemoteEntryBundle = async (input: {
   if (!(await isNonSymlinkFile(outfile))) {
     throw new Error(`remote entry bundle was not written: ${REMOTE_ENTRY_SOURCE_RELATIVE}`);
   }
-  const bytes = (await readFile(outfile)).byteLength;
+  // bun rewrite createRequire(import.meta.url) to an absolute build-host source
+  // path (file:///…/session-observer.ts). That only resolves modules on the
+  // builder. Retarget every createRequire anchor to the staged entry file so
+  // app-remote/node_modules is searched on stock Ubuntu.
+  let body = await readFile(outfile, "utf8");
+  body = body.replace(
+    /createRequire\(\s*["']file:\/\/\/[^"']+["']\s*\)/gu,
+    "createRequire(__filename)",
+  );
+  if (/createRequire\(\s*["']file:\/\//u.test(body)) {
+    throw new Error(
+      "remote entry still embeds a host-absolute createRequire path after rewrite",
+    );
+  }
+  await writeFile(outfile, body, { encoding: "utf8", mode: 0o644 });
+  const bytes = Buffer.byteLength(body);
   if (bytes < 1024) {
     throw new Error(`remote entry bundle is implausibly small (${String(bytes)} bytes)`);
   }
