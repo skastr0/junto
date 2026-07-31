@@ -478,6 +478,7 @@ describe("machine-safety architecture", () => {
       "@effect/platform-node/NodeFileSystem",
       "@effect/platform-node/NodeSink",
       "@effect/platform-node/NodeStream",
+      "@shared/vellum-home",
       "effect",
       "node:crypto",
       "node:os",

@@ -60,6 +60,9 @@ const snapshotInput = {
       },
     ],
   },
+  board: {
+    topics: [],
+  },
 };
 
 describe("WorkSnapshot", () => {

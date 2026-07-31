@@ -62,16 +62,21 @@ describe("SSH architecture", () => {
       // Box invokes its fixed `ssh <id> true` preparation operation; ordinary
       // remote traffic remains inside the central OpenSSH transport.
       "src/main/vellum/box/cli.ts",
+      // Host Doctor fact schema names "ssh" as a missing-binary token only.
+      "src/shared/linux-host-capabilities.ts",
+      "src/shared/linux-host-capability-doctor.ts",
+      // Qualification runner shells product paths; OpenSSH spawn stays in kernel.
+      "scripts/linux-orbstack-two-station-qualification.ts",
     ]);
     const violations = files.flatMap((path) => {
       const name = display(path);
       if (name.startsWith("src/main/vellum/ssh/")) return [];
+      if (allowedBinaryMentions.has(name)) return [];
       const source = readFileSync(path, "utf8");
       const shellInvocation =
         extname(path) === ".sh" &&
         /(?:^|[\n;&|()])\s*(?:\/\S+\/)?ssh(?:\s|\\)/u.test(source);
       const binaryIndirection =
-        !allowedBinaryMentions.has(name) &&
         /["'`](?:\/[^"'`]+\/)?ssh["'`]/u.test(source);
       return shellInvocation ||
         binaryIndirection ||
