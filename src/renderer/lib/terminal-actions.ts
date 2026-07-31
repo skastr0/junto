@@ -57,7 +57,8 @@ export const ensureTerminalRunning = async (
     if (next.status === "exited") {
       return {
         ok: false,
-        message: "terminal exited immediately after spawn",
+        message:
+          next.exitMessage ?? "terminal exited immediately after spawn",
       };
     }
     return { ok: true };

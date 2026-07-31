@@ -184,6 +184,50 @@ describe("terminalActivity", () => {
       tone: "steel",
     });
   });
+
+  it("surfaces missing harness CLI as amber attention, never steel stopped", () => {
+    const missing = terminalActivity({
+      exitReason: "cli-missing",
+      exitMessage: "Claude Code is not installed on this machine",
+    });
+    expect(missing).toMatchObject({
+      mode: "static",
+      tone: "amber",
+      label: "Claude Code is not installed on this machine",
+    });
+    expect(missing.label).not.toMatch(/stopped|gone/i);
+
+    const spawnFailed = terminalActivity({
+      exitReason: "spawn_failed",
+      exitMessage: "Codex failed to start",
+    });
+    expect(spawnFailed).toMatchObject({
+      mode: "static",
+      tone: "amber",
+      label: "Codex failed to start",
+    });
+
+    // True post-run exit with no exitReason stays stopped.
+    expect(terminalActivity({ seatState: "gone" })).toMatchObject({
+      mode: "static",
+      tone: "steel",
+      label: "gone",
+    });
+    expect(terminalActivity({})).toMatchObject({
+      label: "stopped",
+      tone: "steel",
+    });
+  });
+
+  it("live seat states still beat exitReason", () => {
+    expect(
+      terminalActivity({
+        seatState: "working",
+        exitReason: "cli-missing",
+        exitMessage: "Claude Code is not installed on this machine",
+      }),
+    ).toMatchObject({ mode: "wave", tone: "cyan", label: "working" });
+  });
 });
 
 describe("watcherActivity + timerActivity", () => {

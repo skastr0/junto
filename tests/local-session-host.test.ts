@@ -249,12 +249,54 @@ describe("LocalSessionHost", () => {
     expect(attached.ok).toBe(true);
     if (!attached.ok) return;
     expect(attached.status).toBe("exited");
+    // Unresolvable launch is spawn_failed with harness display-name copy —
+    // never a raw errno dump and never idle "stopped" semantics on the wire.
+    expect(summary).toMatchObject({
+      exitReason: "spawn_failed",
+      exitMessage: "Claude Code failed to start",
+    });
     expect(
       attached.journal
         .map((entry) => (entry.type === "output" ? entry.data : ""))
         .join(""),
-    ).toContain("failed to spawn: claude seat launch unresolvable");
+    ).toContain("Claude Code failed to start");
   });
+
+  it("classifies ENOENT spawn as cli-missing with harness display name", async () => {
+    const fake = makeFakeTerminalProcessAuthority(() => {
+      throw Object.assign(new Error("spawn claude ENOENT"), { code: "ENOENT" });
+    });
+    const host = hostWith(fake);
+
+    const summary = host.createAgentSeat({
+      bindingId: "seat-cli-missing",
+      harness: "claude",
+      agentKey: "local:claude",
+      launch: { kind: "harness", argv: ["claude"] },
+    });
+
+    expect(summary).toMatchObject({
+      bindingId: "seat-cli-missing",
+      status: "exited",
+      exitReason: "cli-missing",
+      exitMessage: "Claude Code is not installed on this machine",
+    });
+    expect(summary.pid).toBeUndefined();
+    expect(fake.controllers).toHaveLength(0);
+
+    const attached = await host.attach({
+      bindingId: "seat-cli-missing",
+      mode: "observe",
+    });
+    expect(attached.ok).toBe(true);
+    if (!attached.ok) return;
+    const journal = attached.journal
+      .map((entry) => (entry.type === "output" ? entry.data : ""))
+      .join("");
+    expect(journal).toContain("Claude Code is not installed on this machine");
+    expect(journal).toContain("PATH");
+  });
+
 
   it("delegates terminal spawn to the central authority and observes its exact witness", async () => {
     const fake = makeFakeTerminalProcessAuthority((_spec, index) => ({

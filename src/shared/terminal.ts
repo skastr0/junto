@@ -245,4 +245,11 @@ export type TerminalSessionSummary = {
   readonly label?: string;
   /** Runtime backend; production admits only the native PTY path. */
   readonly backend?: "pty";
+  /**
+   * Pre-ownership failure class. Absent on clean post-run exits.
+   * `cli-missing` is distinct from idle "stopped" on the canvas.
+   */
+  readonly exitReason?: "cli-missing" | "spawn_failed";
+  /** Operator-facing explanation when `exitReason` is set. */
+  readonly exitMessage?: string;
 };

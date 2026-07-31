@@ -12,6 +12,7 @@ import { isAbsolute, join } from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
 import { Either } from "effect";
 import type { HarnessId } from "@shared/managed-terminal-templates";
+import { classifySpawnFailure } from "@shared/spawn-failure";
 import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
 import {
   productStatusFromSessionPhase,
@@ -249,6 +250,12 @@ type SessionRec = {
   failOpenUsed: boolean;
   /** Payload to recreate a pin generation after resume failure. */
   failOpenSeed?: LocalHostAgentSeatInput;
+  /**
+   * Pre-ownership failure only. Clean post-run exits leave these unset so
+   * the canvas keeps the normal stopped/exited grammar.
+   */
+  exitReason?: "cli-missing" | "spawn_failed";
+  exitMessage?: string;
 };
 
 const sessionStatusOf = (
@@ -1325,12 +1332,14 @@ export class LocalSessionHost extends EventEmitter {
   private failBeforeOwnership(rec: SessionRec, error: unknown): void {
     this.removeLiveRecord(rec);
     rec.phase = SessionPhase.Closed({ surface: "native", reason: "spawn_failed" });
+    const classified = classifySpawnFailure(error, rec.harness);
+    rec.exitReason = classified.reason;
+    rec.exitMessage = classified.message;
     rec.seq = rec.seq + 1n;
-    const message = error instanceof Error ? error.message : String(error);
     this.pushJournal(rec, {
       seq: rec.seq,
       type: "output",
-      data: `\r\n[vellum] failed to spawn: ${message}\r\n`,
+      data: `\r\n[vellum] ${classified.journal}\r\n`,
     });
     this.safeEmitEvent({
       type: "exit",
@@ -1491,6 +1500,8 @@ export class LocalSessionHost extends EventEmitter {
       createdAt: rec.createdAt,
       label: rec.label,
       backend: rec.backend,
+      ...(rec.exitReason ? { exitReason: rec.exitReason } : {}),
+      ...(rec.exitMessage ? { exitMessage: rec.exitMessage } : {}),
     };
   }
 

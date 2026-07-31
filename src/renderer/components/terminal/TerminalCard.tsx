@@ -87,18 +87,28 @@ export function TerminalCard({
 
   const label = native.label ?? (node.type === "text" ? node.text : "terminal");
   const seatState = seatEvent?.state;
+  const exitReason = session?.exitReason;
+  const exitMessage = session?.exitMessage;
   const activity = terminalActivity({
     seatState,
     running: session?.status === "running",
     starting: session?.status === "starting",
     graphBlocked,
+    exitReason,
+    exitMessage,
   });
+  // Prefer spawn-failure / attention reason over the raw launch argv line.
+  const subtitle =
+    (exitReason && exitMessage) ||
+    (seatState === "attention" && seatEvent?.reason) ||
+    launchSummary(native.launch);
 
   return (
     <div
       className="group flex h-full w-full flex-col justify-between overflow-hidden"
       title="double-click to open"
       data-seat-state={seatState}
+      data-exit-reason={exitReason}
     >
       <div>
         <ExecutionCardHeader
@@ -108,7 +118,7 @@ export function TerminalCard({
             </div>
           }
           title={label}
-          subtitle={launchSummary(native.launch)}
+          subtitle={subtitle}
           activity={
             seatState === "attention" && seatEvent?.reason
               ? { ...activity, label: seatEvent.reason }

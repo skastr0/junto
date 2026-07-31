@@ -189,6 +189,9 @@ export function herdrActivity(input: {
 /**
  * One status grammar for raw native terminals and managed agent terminals.
  * A seat event carries richer intent than process liveness and therefore wins.
+ *
+ * Pre-ownership spawn failures (`exitReason`) beat the idle "stopped" fallback
+ * so a missing harness CLI never looks like a clean stop.
  */
 export function terminalActivity(input: {
   readonly seatState?: AgentSeatState | null;
@@ -199,6 +202,13 @@ export function terminalActivity(input: {
    * Seat-local attention still wins — that needs input on *this* seat.
    */
   readonly graphBlocked?: boolean;
+  /**
+   * Fail-before-ownership reason from TerminalSessionSummary.
+   * Absent on true post-run exits (those stay stopped/exited).
+   */
+  readonly exitReason?: "cli-missing" | "spawn_failed" | null;
+  /** Operator-facing copy when exitReason is set (harness display name). */
+  readonly exitMessage?: string | null;
 }): ActivitySpec {
   if (input.seatState === "attention") {
     return {
@@ -238,6 +248,23 @@ export function terminalActivity(input: {
   }
   if (input.running) {
     return { mode: "static", tone: "green", label: "running" };
+  }
+  // Missing CLI / spawn fail: amber attention — never steel "stopped".
+  if (input.exitReason === "cli-missing") {
+    return {
+      mode: "static",
+      tone: SEVERITY_TONE.attention,
+      label:
+        input.exitMessage?.trim() ||
+        "CLI is not installed on this machine",
+    };
+  }
+  if (input.exitReason === "spawn_failed") {
+    return {
+      mode: "static",
+      tone: SEVERITY_TONE.attention,
+      label: input.exitMessage?.trim() || "failed to start",
+    };
   }
   return {
     mode: "static",

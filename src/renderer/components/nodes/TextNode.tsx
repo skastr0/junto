@@ -19,7 +19,7 @@ import {
   watcherActivity,
 } from "../../lib/activity";
 import { chatCoarse$ } from "../../lib/chat-state";
-import { accentColor, INK, DIM } from "../../lib/theme";
+import { accentColor, HUE, INK, DIM } from "../../lib/theme";
 import { kernel$ } from "../../lib/kernel-view";
 import type { WatcherRuntimeState } from "../../lib/kernel-view";
 import { ACP_CHAT_SURFACE_HIDDEN } from "@shared/legacy-surfaces";
@@ -30,6 +30,8 @@ import { openHerdrTerminal } from "../../lib/herdr-state";
 import { openTerminal } from "../../lib/terminal-actions";
 import { openAgentChatSurface } from "../../lib/dock-state";
 import { consumeWorkDetailOpen, workDetailOpen$ } from "../../lib/work-detail-open";
+import { terminal$ } from "../../lib/terminal-state";
+import { getVellumApi } from "../../lib/vellum-api";
 import { ActivityMarkFromSpec } from "../ActivityMark";
 import { HerdrCard } from "../herdr/HerdrCard";
 import { HarnessMark } from "../herdr/HarnessMark";
@@ -206,8 +208,15 @@ function EntityCard({
   const terminalBinding = resolveTerminalBinding(node);
   const bindingId =
     terminalBinding?.kind === "native" ? terminalBinding.bindingId : undefined;
+  const hostId =
+    terminalBinding?.kind === "native" ? terminalBinding.hostId : undefined;
   const seatEvent = use$(
     agentSeat$.byBindingId[bindingId ?? "__vellum-entity-card-no-binding__"],
+  );
+  const session = use$(
+    terminal$.sessionByBindingId[
+      bindingId ?? "__vellum-entity-card-no-binding__"
+    ],
   );
   const coarse = use$(
     chatCoarse$[hermesKey ?? "__vellum-entity-card-no-agent__"],
@@ -242,15 +251,39 @@ function EntityCard({
       cancelled = true;
     };
   }, [hermesKey]);
+  // Hydrate session cache so pre-ownership failures (cli-missing) paint on the card.
+  useEffect(() => {
+    if (!bindingId) return;
+    const refresh = () =>
+      getVellumApi()
+        ?.terminalGet?.(bindingId, hostId)
+        .then((next) => {
+          terminal$.sessionByBindingId[bindingId].set(next);
+        })
+        .catch(() => undefined);
+    void refresh();
+    const off = getVellumApi()?.onTerminalEvent?.((raw) => {
+      if ((raw as { bindingId?: string }).bindingId === bindingId) {
+        void refresh();
+      }
+    });
+    return () => off?.();
+  }, [bindingId, hostId]);
   const displayName =
     hermesKey && identity?.displayName && identity.displayName !== rawName
       ? identity.displayName
       : rawName;
   const managed = managedHarness !== undefined && isHarnessId(managedHarness);
+  const exitReason = session?.exitReason;
+  const exitMessage = session?.exitMessage;
   const activity = managed
     ? terminalActivity({
         seatState: seatEvent?.state,
+        running: session?.status === "running",
+        starting: session?.status === "starting",
         graphBlocked,
+        exitReason,
+        exitMessage,
       })
     : graphBlocked
       ? {
@@ -267,10 +300,17 @@ function EntityCard({
         });
   // Host is deliberately absent: which machine a seat sits on is not what the
   // operator reads an agent node for, and it crowded out the claimed task.
-  const context = [workRole].filter((value): value is string => Boolean(value));
+  // Spawn failures surface as a context line so the mark + copy both land.
+  const context = [
+    workRole,
+    managed && exitReason && exitMessage ? exitMessage : undefined,
+  ].filter((value): value is string => Boolean(value));
 
   return (
-    <div className="flex h-full w-full flex-col justify-between overflow-hidden">
+    <div
+      className="flex h-full w-full flex-col justify-between overflow-hidden"
+      data-exit-reason={managed ? exitReason : undefined}
+    >
       <div>
         <ExecutionCardHeader
           decal={
@@ -306,8 +346,16 @@ function EntityCard({
         {context.length > 0 ? (
           <div
             className="mt-1 truncate text-[10px] tabular-nums"
-            style={{ color: DIM }}
-            title={workRole ? `work role: ${workRole}` : undefined}
+            style={{
+              color: managed && exitReason ? HUE.amber : DIM,
+            }}
+            title={
+              managed && exitMessage
+                ? exitMessage
+                : workRole
+                  ? `work role: ${workRole}`
+                  : undefined
+            }
           >
             {context.join(" › ")}
           </div>
