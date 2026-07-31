@@ -56,6 +56,31 @@ describe("Linux OrbStack two-station qualification (userland archive)", () => {
     ).toThrow(/unknown option|--deb/u);
   });
 
+  it("parses the fresh Box qualification lane without golden VM inputs", () => {
+    expect(
+      parseQualificationArgs([
+        "prepare",
+        "--virtualization",
+        "box",
+        "--run-id",
+        "release-015-box",
+        "--evidence-dir",
+        "/tmp/vellum-box-evidence",
+        "--kind",
+        "qualification-candidate",
+        "--bundle",
+        "/tmp/bundle",
+        "--source-commit",
+        "b".repeat(40),
+      ]),
+    ).toMatchObject({
+      mode: "prepare",
+      virtualization: "box",
+      runId: "release-015-box",
+      kind: "qualification-candidate",
+    });
+  });
+
   it("names disposable VMs from the run id", () => {
     expect(qualificationMachineNames("release-015")).toEqual({
       commandCenter: "vellum-q-release-015-cc",
@@ -112,11 +137,27 @@ describe("Linux OrbStack two-station qualification (userland archive)", () => {
     expect(source).toContain("displayEnvironment");
     expect(source).toContain("FORBIDDEN_REMOTE_PROCESS");
     expect(source).toContain("FORBIDDEN_REMOTE_ENV");
+    expect(source).toContain("mainExecutable");
+    expect(source).toContain("xvfbProcesses");
+    expect(source).toContain("cdpListeners");
     // Role split: renderer sandbox is CC-only.
     expect(source).toContain("observeCommandCenterRuntimeSecurity");
     expect(source).toMatch(
       /observeRuntimeSecurity[\s\S]*role === "remote"/u,
     );
+  });
+
+  it("mints the strict v3 Doctor, PTY, Station verb, and deploy proofs", () => {
+    const source = readFileSync(SCRIPT, "utf8");
+    expect(source).toContain("proveRemotePty");
+    expect(source).toContain("proveCorruptCandidateRejected");
+    expect(source).toContain("requireQualificationDoctor");
+    expect(source).toContain("stationVerbs: state.qualification.stationVerbs");
+    expect(source).toContain("deployment: state.qualification.deployment");
+    expect(source).not.toContain("packaged-pty-smoke.json");
+    expect(source).not.toMatch(/--capability[\s\S]{0,40}browser/u);
+    expect(source).not.toContain("/usr/bin/vellum-station");
+    expect(source).not.toContain("rm -rf");
   });
 
   it("documents fresh stock Ubuntu 24.04 amd64 OrbStack guests", () => {

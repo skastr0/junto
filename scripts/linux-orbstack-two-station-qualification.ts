@@ -98,6 +98,8 @@ const SEMVER = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u;
 const SHA256 = /^[0-9a-f]{64}$/u;
 const INSTALLATION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
 const SAFE_BASENAME = /^[A-Za-z0-9][A-Za-z0-9 ._+-]{0,255}$/u;
+const shellLiteral = (value: string): string =>
+  `'${value.replaceAll("'", `'"'"'`)}'`;
 
 export type QualificationMode = "prepare" | "run" | "observe" | "cleanup";
 export type QualificationKind =
@@ -133,6 +135,7 @@ interface OrbMachineInfo {
   readonly config: {
     readonly defaultUsername: string;
   };
+  readonly ip?: string;
 }
 
 interface ArtifactIdentity {
@@ -142,7 +145,6 @@ interface ArtifactIdentity {
   readonly archiveBytes: number;
   readonly archiveSha256: string;
   readonly manifestSha256: string;
-  readonly ptyReceiptSha256: string;
   readonly stationProtocol: typeof STATION_PROTOCOL;
   readonly bundleFiles: ReadonlyArray<string>;
   readonly verification: {
@@ -164,7 +166,10 @@ interface RunMachine {
   readonly id: string;
   readonly name: string;
   readonly username: string;
+  readonly sshEndpoint?: string;
 }
+
+type QualificationVirtualization = "orbstack" | "box";
 
 interface QualificationPhaseProof {
   readonly commandCenterInstallationId: string;
@@ -177,16 +182,65 @@ interface QualificationPhaseProof {
     readonly remoteRestart: "passed";
     readonly idempotentRedeploy: "passed";
   };
+  readonly doctor: unknown;
+  readonly stationVerbs: {
+    readonly pair: "request-response-observed";
+    readonly configure: "request-response-observed";
+    readonly project: "request-response-observed";
+    readonly report: "request-response-observed";
+    readonly status: "request-response-observed";
+  };
+  readonly pty: {
+    readonly echo: "live-packaged-runtime-observed";
+    readonly utf8: "live-packaged-runtime-observed";
+    readonly resize: "live-packaged-runtime-observed";
+    readonly exit: "live-packaged-runtime-observed";
+    readonly shutdown: "live-packaged-runtime-observed";
+  };
+  readonly deployment: {
+    readonly activation: {
+      readonly generation: string;
+      readonly unitExecStart: string;
+      readonly conditionExecutable: string;
+    };
+    readonly corruptCandidate: {
+      readonly candidateSha256: string;
+      readonly outcome: "rejected-before-activation";
+      readonly before: GenerationState;
+      readonly after: GenerationState;
+    };
+    readonly restart: {
+      readonly before: GenerationState;
+      readonly after: GenerationState;
+    };
+    readonly idempotentRedeploy: {
+      readonly outcome: "already-active";
+      readonly before: GenerationState;
+      readonly after: GenerationState;
+    };
+    readonly hostMutation: {
+      readonly sudoInvocations: 0;
+      readonly privilegedInstallInvocations: 0;
+      readonly systemPathMutations: 0;
+    };
+  };
+}
+
+interface GenerationState {
+  readonly generation: string;
+  readonly installationId: string;
+  readonly invocationId: string;
 }
 
 export interface QualificationRunState {
   readonly schema: typeof RUN_STATE_SCHEMA;
   readonly runId: string;
   readonly kind: QualificationKind;
+  readonly virtualization: QualificationVirtualization;
   readonly commandCenterMode:
     | "new-activation-checkpoint"
     | "retained-licensed";
-  readonly golden: RunMachine;
+  readonly golden?: RunMachine;
   readonly machines: {
     readonly commandCenter?: RunMachine;
     readonly remote?: RunMachine;
@@ -212,6 +266,7 @@ export interface QualificationOptions {
   readonly bundleDirectory?: string;
   readonly sourceCommit?: string;
   readonly kind?: QualificationKind;
+  readonly virtualization?: QualificationVirtualization;
   readonly orbctlPath?: string;
 }
 
@@ -474,16 +529,11 @@ const inspectVerifiedBundle = async (input: {
     throw new Error("verified release bundle inventory is incomplete");
   }
   const bundleFiles = receipt.bundleFiles.map(({ file }) => file);
-  const ptyReceipt = receipt.bundleFiles.find(
-    (entry) => entry.file === "packaged-pty-smoke.json",
-  );
   if (
     new Set(bundleFiles).size !== bundleFiles.length ||
     bundleFiles.some(
       (file) => path.basename(file) !== file || !SAFE_BASENAME.test(file),
-    ) ||
-    ptyReceipt === undefined ||
-    !SHA256.test(ptyReceipt.sha256)
+    )
   ) {
     throw new Error("verified release bundle inventory is unsafe");
   }
@@ -494,7 +544,6 @@ const inspectVerifiedBundle = async (input: {
     archiveBytes: receipt.packageBytes,
     archiveSha256,
     manifestSha256: manifest.sha256,
-    ptyReceiptSha256: ptyReceipt.sha256,
     stationProtocol: STATION_PROTOCOL,
     bundleFiles,
     verification: {
@@ -621,16 +670,168 @@ const parseOrbInfo = (
   };
 };
 
+const isBoxCliPath = (executable: string): boolean =>
+  path.basename(executable) === "box";
+
+const parseBoxInfo = (
+  stdout: string,
+  expectedId: string,
+  logicalName: string,
+): OrbMachineInfo => {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(stdout);
+  } catch {
+    throw new Error(`Box returned malformed info for ${expectedId}`);
+  }
+  const box =
+    typeof raw === "object" &&
+      raw !== null &&
+      !Array.isArray(raw) &&
+      typeof (raw as { box?: unknown }).box === "object" &&
+      (raw as { box?: unknown }).box !== null
+      ? (raw as { box: Record<string, unknown> }).box
+      : undefined;
+  if (
+    box === undefined ||
+    box.id !== expectedId ||
+    typeof box.state !== "string" ||
+    typeof box.ip !== "string" ||
+    !/^[0-9a-f:.]+$/iu.test(box.ip)
+  ) {
+    throw new Error(`Box ${expectedId} has invalid identity or network facts`);
+  }
+  return {
+    id: expectedId,
+    name: logicalName,
+    state: box.state === "stopped" ? "stopped" : "running",
+    image: { distro: "ubuntu", version: "24.04", arch: "amd64" },
+    config: { defaultUsername: "user" },
+    ip: box.ip,
+  };
+};
+
 const orbInfo = async (
   executor: CommandExecutor,
   orbctlPath: string,
   machineName: string,
 ): Promise<OrbMachineInfo> => {
+  if (isBoxCliPath(orbctlPath)) {
+    const result = await runRequired(executor, `box info ${machineName}`, {
+      executable: orbctlPath,
+      args: ["info", machineName, "--json"],
+    });
+    return parseBoxInfo(result.stdout, machineName, machineName);
+  }
   const result = await runRequired(executor, `orbctl info ${machineName}`, {
     executable: orbctlPath,
     args: ["info", machineName, "--format", "json"],
   });
   return parseOrbInfo(result.stdout, machineName);
+};
+
+const boxInfo = async (
+  executor: CommandExecutor,
+  boxPath: string,
+  id: string,
+  logicalName: string,
+): Promise<OrbMachineInfo> => {
+  const result = await runRequired(executor, `box info ${id}`, {
+    executable: boxPath,
+    args: ["info", id, "--json"],
+  });
+  return parseBoxInfo(result.stdout, id, logicalName);
+};
+
+const createBoxMachine = async (
+  executor: CommandExecutor,
+  boxPath: string,
+  logicalName: string,
+): Promise<RunMachine> => {
+  const created = await runRequired(executor, `create ${logicalName}`, {
+    executable: boxPath,
+    args: ["new", "--no-env", "--ttl", "21600", "--json"],
+    timeoutMs: DEPLOY_COMMAND_TIMEOUT_MS,
+  });
+  let raw: unknown;
+  try {
+    raw = JSON.parse(created.stdout);
+  } catch {
+    throw new Error(`Box creation returned malformed JSON for ${logicalName}`);
+  }
+  const id =
+    typeof raw === "object" &&
+      raw !== null &&
+      !Array.isArray(raw) &&
+      typeof (raw as { box?: { id?: unknown } }).box?.id === "string"
+      ? (raw as { box: { id: string } }).box.id
+      : undefined;
+  if (id === undefined || !MACHINE_ID.test(id)) {
+    throw new Error(`Box creation returned no safe identity for ${logicalName}`);
+  }
+  const deadline = Date.now() + DEPLOY_COMMAND_TIMEOUT_MS;
+  let last: OrbMachineInfo | undefined;
+  while (Date.now() < deadline) {
+    last = await boxInfo(executor, boxPath, id, logicalName);
+    if (last.state === "running") {
+      return {
+        id,
+        name: logicalName,
+        username: last.config.defaultUsername,
+        sshEndpoint: `${last.config.defaultUsername}@${last.ip!}`,
+      };
+    }
+    await delay(1_000);
+  }
+  throw new Error(`Box ${id} did not become ready`);
+};
+
+const prepareBoxSshRoute = async (
+  executor: CommandExecutor,
+  boxPath: string,
+  commandCenter: RunMachine,
+  remote: RunMachine,
+): Promise<void> => {
+  const endpoint = remote.sshEndpoint;
+  if (endpoint === undefined) throw new Error("Box Remote has no SSH endpoint");
+  const host = endpoint.slice(endpoint.indexOf("@") + 1);
+  const publicKey = await runGuest(
+    executor,
+    boxPath,
+    commandCenter,
+    "mint qualification-only SSH identity",
+    "/bin/sh",
+    [
+      "-c",
+      'set -eu; umask 077; mkdir -p "$HOME/.ssh"; test ! -e "$HOME/.ssh/id_ed25519"; /usr/bin/ssh-keygen -q -t ed25519 -N "" -f "$HOME/.ssh/id_ed25519"; /usr/bin/cat "$HOME/.ssh/id_ed25519.pub"',
+    ],
+  );
+  if (!/^ssh-ed25519 [A-Za-z0-9+/=]+(?: .*)?\n?$/u.test(publicKey.stdout)) {
+    throw new Error("Box qualification SSH public key is malformed");
+  }
+  await runGuest(
+    executor,
+    boxPath,
+    remote,
+    "authorize qualification-only Command Center key",
+    "/bin/sh",
+    [
+      "-c",
+      'set -eu; umask 077; mkdir -p "$HOME/.ssh"; /usr/bin/cat > "$HOME/.ssh/authorized_keys"; /usr/bin/chmod 700 "$HOME/.ssh"; /usr/bin/chmod 600 "$HOME/.ssh/authorized_keys"',
+    ],
+    { input: publicKey.stdout },
+  );
+  await runGuest(
+    executor,
+    boxPath,
+    commandCenter,
+    "pin Box Remote SSH host key",
+    "/bin/sh",
+    [
+      "-c",
+      `set -eu; umask 077; /usr/bin/ssh-keyscan -H ${host} > "$HOME/.ssh/known_hosts"; /usr/bin/chmod 600 "$HOME/.ssh/known_hosts"; /usr/bin/ssh -o BatchMode=yes -o StrictHostKeyChecking=yes ${endpoint} /usr/bin/true`,
+    ],
+  );
 };
 
 const runOrb = (
@@ -697,13 +898,35 @@ const runGuest = (
   args: ReadonlyArray<string>,
   options: { readonly input?: string; readonly timeoutMs?: number } = {},
 ): Promise<CommandResult> =>
-  runOrb(
-    executor,
-    orbctlPath,
-    operation,
-    ["run", "--machine", machine.name, executable, ...args],
-    options,
-  );
+  runRequired(executor, operation, {
+    executable: orbctlPath,
+    args: isBoxCliPath(orbctlPath)
+      ? ["ssh", machine.id, executable, ...args]
+      : ["run", "--machine", machine.name, executable, ...args],
+    ...(options.input === undefined ? {} : { input: options.input }),
+    ...(options.timeoutMs === undefined
+      ? {}
+      : { timeoutMs: options.timeoutMs }),
+  });
+
+const runGuestUnchecked = (
+  executor: CommandExecutor,
+  orbctlPath: string,
+  machine: RunMachine,
+  executable: string,
+  args: ReadonlyArray<string>,
+  options: { readonly input?: string; readonly timeoutMs?: number } = {},
+): Promise<CommandResult> =>
+  executor.run({
+    executable: orbctlPath,
+    args: isBoxCliPath(orbctlPath)
+      ? ["ssh", machine.id, executable, ...args]
+      : ["run", "--machine", machine.name, executable, ...args],
+    ...(options.input === undefined ? {} : { input: options.input }),
+    ...(options.timeoutMs === undefined
+      ? {}
+      : { timeoutMs: options.timeoutMs }),
+  });
 
 const parseJsonObject = (input: string, label: string): Record<string, unknown> => {
   const lines = input
@@ -762,6 +985,33 @@ const operatorCommand = async (
   return parseOperatorEnvelope(result, renderedCommand);
 };
 
+const operatorCommandAllowFailure = async (
+  executor: CommandExecutor,
+  orbctlPath: string,
+  machine: RunMachine,
+  artifact: ArtifactIdentity,
+  command: string,
+  args: ReadonlyArray<string>,
+  timeoutMs?: number,
+): Promise<{
+  readonly result: CommandResult;
+  readonly data: Record<string, unknown>;
+}> => {
+  const renderedCommand = command.replaceAll(".", " ");
+  const result = await runGuestUnchecked(
+    executor,
+    orbctlPath,
+    machine,
+    runtimeCli(machine, artifact),
+    args,
+    { timeoutMs },
+  );
+  return {
+    result,
+    data: parseOperatorEnvelope(result, renderedCommand),
+  };
+};
+
 const delay = (milliseconds: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, milliseconds));
 
@@ -796,6 +1046,301 @@ const retryOperatorCommand = async (
   throw lastError instanceof Error
     ? lastError
     : new Error(`${command.replaceAll(".", " ")} timed out`);
+};
+
+const requireQualificationDoctor = (
+  fleetTest: Record<string, unknown>,
+): unknown => {
+  const observation =
+    typeof fleetTest.linuxCapabilities === "object" &&
+      fleetTest.linuxCapabilities !== null &&
+      !Array.isArray(fleetTest.linuxCapabilities)
+      ? fleetTest.linuxCapabilities as Record<string, unknown>
+      : undefined;
+  const terminal =
+    typeof observation?.terminal === "object" &&
+      observation.terminal !== null &&
+      !Array.isArray(observation.terminal)
+      ? observation.terminal as Record<string, unknown>
+      : undefined;
+  const browser =
+    typeof observation?.browser === "object" &&
+      observation.browser !== null &&
+      !Array.isArray(observation.browser)
+      ? observation.browser as Record<string, unknown>
+      : undefined;
+  if (
+    observation?.status !== "ready" ||
+    terminal?.status !== "ready" ||
+    browser?.status !== "unavailable"
+  ) {
+    throw new Error(
+      "Remote Doctor must report core and terminal ready with browser intentionally unavailable",
+    );
+  }
+  return observation;
+};
+
+const observeGenerationState = async (
+  executor: CommandExecutor,
+  orbctlPath: string,
+  machine: RunMachine,
+  artifact: ArtifactIdentity,
+  installationId: string,
+  label: string,
+): Promise<GenerationState> => {
+  const shown = await runGuest(
+    executor,
+    orbctlPath,
+    machine,
+    label,
+    "/usr/bin/systemctl",
+    [
+      "--user",
+      "show",
+      REMOTE_USERLAND_UNIT,
+      "--property=InvocationID",
+      "--value",
+    ],
+  );
+  const invocationId = shown.stdout.trim();
+  if (!/^[0-9a-f]{32}$/u.test(invocationId)) {
+    throw new Error(`${label} returned an invalid service invocation`);
+  }
+  return {
+    generation: runtimeGenerationName(artifact),
+    installationId,
+    invocationId,
+  };
+};
+
+const proveRemotePty = async (
+  executor: CommandExecutor,
+  orbctlPath: string,
+  machine: RunMachine,
+  artifact: ArtifactIdentity,
+  runId: string,
+): Promise<QualificationPhaseProof["pty"]> => {
+  const bindingId = `qualification-${runId}-pty`;
+  const shutdownBindingId = `qualification-${runId}-shutdown`;
+  const created = await operatorCommand(
+    executor,
+    orbctlPath,
+    machine,
+    artifact,
+    "terminal.create",
+    ["terminal", "create", "--binding-id", bindingId, "--cols", "80", "--rows", "24"],
+  );
+  if (created.status !== "running") {
+    throw new Error("packaged Remote PTY did not start");
+  }
+  const resized = await operatorCommand(
+    executor,
+    orbctlPath,
+    machine,
+    artifact,
+    "terminal.resize",
+    ["terminal", "resize", bindingId, "--cols", "101", "--rows", "37"],
+  );
+  if (resized.resized !== true || resized.cols !== 101 || resized.rows !== 37) {
+    throw new Error("packaged Remote PTY resize was not observed");
+  }
+  const marker = `VELLUM_PTY_${runId}`;
+  const utf8 = "Olá-✓";
+  const written = await operatorCommand(
+    executor,
+    orbctlPath,
+    machine,
+    artifact,
+    "terminal.write",
+    [
+      "terminal",
+      "write",
+      bindingId,
+      `printf '${marker}\\n${utf8}\\n'; exit 7\n`,
+    ],
+  );
+  if (written.written !== true) {
+    throw new Error("packaged Remote PTY write was not accepted");
+  }
+  await delay(500);
+  const attached = await runGuest(
+    executor,
+    orbctlPath,
+    machine,
+    "observe packaged Remote PTY stream",
+    runtimeCli(machine, artifact),
+    ["terminal", "attach", bindingId],
+    { timeoutMs: DEFAULT_COMMAND_TIMEOUT_MS },
+  );
+  const frames = attached.stdout
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => parseJsonObject(line, "terminal attach frame"))
+    .map((envelope) => {
+      if (
+        envelope.ok !== true ||
+        envelope.command !== "terminal attach" ||
+        typeof envelope.data !== "object" ||
+        envelope.data === null ||
+        Array.isArray(envelope.data)
+      ) {
+        throw new Error("terminal attach emitted an invalid stream envelope");
+      }
+      return envelope.data as Record<string, unknown>;
+    });
+  const output = frames
+    .filter((frame) => frame.type === "output" && typeof frame.data === "string")
+    .map((frame) => frame.data as string)
+    .join("");
+  if (
+    !output.includes(marker) ||
+    !output.includes(utf8) ||
+    !frames.some(
+      (frame) =>
+        frame.type === "resize" && frame.cols === 101 && frame.rows === 37,
+    ) ||
+    !frames.some((frame) => frame.type === "exit" && frame.code === 7)
+  ) {
+    throw new Error("packaged Remote PTY stream did not prove echo/UTF-8/resize/exit");
+  }
+
+  await operatorCommand(
+    executor,
+    orbctlPath,
+    machine,
+    artifact,
+    "terminal.create",
+    ["terminal", "create", "--binding-id", shutdownBindingId],
+  );
+  const killed = await operatorCommand(
+    executor,
+    orbctlPath,
+    machine,
+    artifact,
+    "terminal.kill",
+    ["terminal", "kill", shutdownBindingId],
+  );
+  if (killed.killed !== true) {
+    throw new Error("packaged Remote PTY shutdown was not observed");
+  }
+  return {
+    echo: "live-packaged-runtime-observed",
+    utf8: "live-packaged-runtime-observed",
+    resize: "live-packaged-runtime-observed",
+    exit: "live-packaged-runtime-observed",
+    shutdown: "live-packaged-runtime-observed",
+  };
+};
+
+const proveCorruptCandidateRejected = async (
+  executor: CommandExecutor,
+  orbctlPath: string,
+  commandCenter: RunMachine,
+  remote: RunMachine,
+  artifact: ArtifactIdentity,
+  profile: "qualification-candidate" | "final-release",
+  remoteHostId: string,
+  remoteInstallationId: string,
+  runId: string,
+): Promise<QualificationPhaseProof["deployment"]["corruptCandidate"]> => {
+  const before = await observeGenerationState(
+    executor,
+    orbctlPath,
+    remote,
+    artifact,
+    remoteInstallationId,
+    "observe Remote before corrupt-candidate rejection",
+  );
+  const candidate = path.posix.join(
+    guestHome(commandCenter),
+    managedBundleRelativeDestination(profile),
+    artifact.archiveFile,
+  );
+  const backup = `${candidate}.qualified-backup-${requireRunId(runId)}`;
+  let backupCreated = false;
+  let candidateSha256 = "";
+  try {
+    await runGuest(
+      executor,
+      orbctlPath,
+      commandCenter,
+      "stage reversible corrupt-candidate probe",
+      "/bin/sh",
+      [
+        "-c",
+        `set -eu; test ! -e ${shellLiteral(backup)}; /usr/bin/cp --reflink=auto --preserve=mode,timestamps -- ${shellLiteral(candidate)} ${shellLiteral(backup)}; printf X >> ${shellLiteral(candidate)}`,
+      ],
+    );
+    backupCreated = true;
+    const digest = await runGuest(
+      executor,
+      orbctlPath,
+      commandCenter,
+      "hash corrupt qualification candidate",
+      "/usr/bin/sha256sum",
+      [candidate],
+    );
+    candidateSha256 = digest.stdout.trim().split(/\s+/u)[0] ?? "";
+    if (!SHA256.test(candidateSha256) || candidateSha256 === artifact.archiveSha256) {
+      throw new Error("corrupt-candidate probe did not change the archive digest");
+    }
+    const attempted = profile === "qualification-candidate"
+      ? await operatorCommandAllowFailure(
+          executor,
+          orbctlPath,
+          commandCenter,
+          artifact,
+          "fleet.qualify",
+          ["fleet", "qualify", remoteHostId],
+          DEPLOY_COMMAND_TIMEOUT_MS,
+        )
+      : await operatorCommandAllowFailure(
+          executor,
+          orbctlPath,
+          commandCenter,
+          artifact,
+          "fleet.deploy",
+          ["fleet", "deploy", remoteHostId, "--source", "cached"],
+          DEPLOY_COMMAND_TIMEOUT_MS,
+        );
+    if (
+      attempted.result.exitCode === 0 ||
+      attempted.data.ok !== false ||
+      attempted.data.status !== "failed"
+    ) {
+      throw new Error("corrupt candidate was not rejected by the product deploy path");
+    }
+  } finally {
+    if (backupCreated) {
+      await runGuest(
+        executor,
+        orbctlPath,
+        commandCenter,
+        "restore qualified candidate after corruption probe",
+        "/usr/bin/mv",
+        ["-T", "--", backup, candidate],
+      );
+    }
+  }
+  const after = await observeGenerationState(
+    executor,
+    orbctlPath,
+    remote,
+    artifact,
+    remoteInstallationId,
+    "observe Remote after corrupt-candidate rejection",
+  );
+  if (before.invocationId !== after.invocationId) {
+    throw new Error("corrupt candidate altered the active Remote generation");
+  }
+  return {
+    candidateSha256,
+    outcome: "rejected-before-activation",
+    before,
+    after,
+  };
 };
 
 const evidencePath = (directory: string): string =>
@@ -918,13 +1463,13 @@ const latestState = (
       state.kind !== "qualification-candidate" &&
       state.kind !== "final-release"
     ) ||
+    (state.virtualization !== "orbstack" && state.virtualization !== "box") ||
     !SEMVER.test(state.artifact.version) ||
     !SOURCE_COMMIT.test(state.artifact.sourceCommit) ||
     !SAFE_BASENAME.test(state.artifact.archiveFile) ||
     !Number.isSafeInteger(state.artifact.archiveBytes) ||
     state.artifact.archiveBytes <= 0 ||
     !SHA256.test(state.artifact.archiveSha256) ||
-    !SHA256.test(state.artifact.ptyReceiptSha256) ||
     state.artifact.stationProtocol !== STATION_PROTOCOL ||
     !SHA256.test(state.artifact.manifestSha256) ||
     state.artifact.bundleFiles.length < 4 ||
@@ -1171,7 +1716,7 @@ const installPackage = async (
     'test -x "$TREE/resources/bin/vellum-remote"',
     'test -x "$TREE/resources/systemd/vellum-remote-launch"',
     'mv "$TREE" "$DEST"',
-    'rm -rf -- "$STAGE"',
+    'rmdir -- "$STAGE"',
     'ln -sfn "$DEST/resources/bin/vellum-station" "$HOME/.local/bin/vellum-station"',
     'ln -sfn "$DEST/resources/bin/vellum-browser" "$HOME/.local/bin/vellum-browser"',
     '"$DEST/resources/bin/vellum-remote" --install-user-service',
@@ -1298,6 +1843,16 @@ const launchCommandCenterActivation = async (
   runId: string,
 ): Promise<string> => {
   const unit = activationUnitName(runId);
+  const displayArguments = isBoxCliPath(orbctlPath)
+    ? [
+        "--setenv=DISPLAY=:0",
+        `--setenv=XAUTHORITY=${guestHome(machine)}/.Xauthority`,
+        "--setenv=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus",
+      ]
+    : [];
+  const launch = isBoxCliPath(orbctlPath)
+    ? 'set -eu; APP=$(/usr/bin/find "$HOME/.vellum/runtime/releases" -mindepth 2 -maxdepth 2 -type f -name vellum -perm -111 | /usr/bin/head -n 1); test -n "$APP"; exec "$APP" --ozone-platform=x11 --vellum-operator-control'
+    : 'set -eu; APP=$(/usr/bin/find "$HOME/.vellum/runtime/releases" -mindepth 2 -maxdepth 2 -type f -name vellum -perm -111 | /usr/bin/head -n 1); test -n "$APP"; exec /usr/bin/xvfb-run -a -s "-screen 0 1280x1024x24 -nolisten tcp" "$APP" --ozone-platform=x11 --vellum-operator-control';
   await runGuest(
     executor,
     orbctlPath,
@@ -1318,9 +1873,10 @@ const launchCommandCenterActivation = async (
       "--property=Type=simple",
       "--property=KillMode=control-group",
       "--property=TimeoutStopSec=10s",
+      ...displayArguments,
       "/bin/sh",
       "-c",
-      'set -eu; APP=$(/usr/bin/find "$HOME/.vellum/runtime/releases" -mindepth 2 -maxdepth 2 -type f -name vellum -perm -111 | /usr/bin/head -n 1); test -n "$APP"; exec /usr/bin/xvfb-run -a -s "-screen 0 1280x1024x24 -nolisten tcp" "$APP" --ozone-platform=x11 --vellum-operator-control',
+      launch,
     ],
   );
   return unit;
@@ -1408,17 +1964,13 @@ const guestPathExists = async (
   machine: RunMachine,
   candidate: string,
 ): Promise<boolean> => {
-  const result = await executor.run({
-    executable: orbctlPath,
-    args: [
-      "run",
-      "--machine",
-      machine.name,
-      "/usr/bin/test",
-      "-e",
-      candidate,
-    ],
-  });
+  const result = await runGuestUnchecked(
+    executor,
+    orbctlPath,
+    machine,
+    "/usr/bin/test",
+    ["-e", candidate],
+  );
   if (result.exitCode === 0) return true;
   if (result.exitCode === 1) return false;
   throw new Error(
@@ -1678,23 +2230,36 @@ export const stageManagedBundle = async (
       "/usr/bin/install",
       ["-d", "-m", "0700", stagingDirectory],
     );
-    // orbctl push currently resolves into OrbStack's read-only container view
-    // (/containers/ro/...) and fails. Stage via the host-mounted guest home
-    // (~/OrbStack/<machine>/home/<user>/), which is the documented equivalent.
-    const hostStagingDirectory = path.join(
-      homedir(),
-      "OrbStack",
-      machine.name,
-      "home",
-      machine.username,
-      ...relativeStagingDirectory.split("/").filter(Boolean),
-    );
-    await mkdir(hostStagingDirectory, { recursive: true, mode: 0o700 });
-    for (const name of artifact.bundleFiles) {
-      await copyFile(
-        path.join(artifact.canonicalBundleDirectory, name),
-        path.join(hostStagingDirectory, name),
+    if (isBoxCliPath(orbctlPath)) {
+      for (const name of artifact.bundleFiles) {
+        await runRequired(executor, `stage ${name} on ${machine.name}`, {
+          executable: orbctlPath,
+          args: [
+            "scp",
+            path.join(artifact.canonicalBundleDirectory, name),
+            `${machine.id}:${path.posix.join(stagingDirectory, name)}`,
+          ],
+          timeoutMs: DEPLOY_COMMAND_TIMEOUT_MS,
+        });
+      }
+    } else {
+      // orbctl push currently resolves into OrbStack's read-only container view
+      // (/containers/ro/...) and fails. Stage via the host-mounted guest home.
+      const hostStagingDirectory = path.join(
+        homedir(),
+        "OrbStack",
+        machine.name,
+        "home",
+        machine.username,
+        ...relativeStagingDirectory.split("/").filter(Boolean),
       );
+      await mkdir(hostStagingDirectory, { recursive: true, mode: 0o700 });
+      for (const name of artifact.bundleFiles) {
+        await copyFile(
+          path.join(artifact.canonicalBundleDirectory, name),
+          path.join(hostStagingDirectory, name),
+        );
+      }
     }
   }
   await verifyGuestBundleDirectory(
@@ -1845,13 +2410,149 @@ const prepare = async (
         return identity;
       })()
     : artifactWithoutArchivePath;
+  const virtualization = options.virtualization ?? "orbstack";
+  const orbctlPath = options.orbctlPath ??
+    (virtualization === "box" ? "box" : "orbctl");
+  const names = qualificationMachineNames(runId);
+
+  if (virtualization === "box") {
+    if (retainedNameSupplied || retainedIdSupplied) {
+      throw new Error("Box qualification requires two fresh --no-env Boxes");
+    }
+    let boxState: QualificationRunState = {
+      schema: RUN_STATE_SCHEMA,
+      runId,
+      kind,
+      virtualization,
+      commandCenterMode: "new-activation-checkpoint",
+      machines: {},
+      artifact,
+      prepared: false,
+      managedRunAttempted: false,
+      managedDeployReady: false,
+      failed: false,
+      cleaned: false,
+    };
+    await appendEvidence(directory, {
+      schema: OBSERVATION_SCHEMA,
+      at: dependencies.now().toISOString(),
+      runId,
+      event: "signed-candidate-validated",
+      status: "passed",
+      detail: { artifact, virtualization },
+      state: boxState,
+    });
+    try {
+      const commandCenter = await createBoxMachine(
+        dependencies.executor,
+        orbctlPath,
+        names.commandCenter,
+      );
+      boxState = withState(boxState, { machines: { commandCenter } });
+      await appendEvidence(directory, {
+        schema: OBSERVATION_SCHEMA,
+        at: dependencies.now().toISOString(),
+        runId,
+        event: "command-center-created",
+        status: "passed",
+        detail: { machine: commandCenter, lifecycle: "fresh-no-env-box" },
+        state: boxState,
+      });
+      const remote = await createBoxMachine(
+        dependencies.executor,
+        orbctlPath,
+        names.remote,
+      );
+      boxState = withState(boxState, {
+        machines: { commandCenter, remote },
+      });
+      const [commandCenterFacts, remoteFacts] = await Promise.all([
+        validateGuestFacts(
+          dependencies.executor,
+          orbctlPath,
+          commandCenter,
+        ),
+        validateGuestFacts(dependencies.executor, orbctlPath, remote),
+      ]);
+      await Promise.all([
+        verifyPackageAbsent(
+          dependencies.executor,
+          orbctlPath,
+          commandCenter,
+        ),
+        verifyPackageAbsent(dependencies.executor, orbctlPath, remote),
+      ]);
+      await prepareBoxSshRoute(
+        dependencies.executor,
+        orbctlPath,
+        commandCenter,
+        remote,
+      );
+      const managedArtifact = artifactWithPaths as ArtifactIdentity & {
+        readonly canonicalArchivePath: string;
+        readonly canonicalBundleDirectory: string;
+      };
+      const commandCenterArchive = await stageManagedBundle(
+        dependencies.executor,
+        orbctlPath,
+        commandCenter,
+        managedArtifact,
+        kind,
+      );
+      const packageIdentity = await installPackage(
+        dependencies.executor,
+        orbctlPath,
+        commandCenter,
+        commandCenterArchive,
+        artifact,
+      );
+      const activationUnit = await launchCommandCenterActivation(
+        dependencies.executor,
+        orbctlPath,
+        commandCenter,
+        runId,
+      );
+      boxState = withState(boxState, { prepared: true });
+      await appendEvidence(directory, {
+        schema: OBSERVATION_SCHEMA,
+        at: dependencies.now().toISOString(),
+        runId,
+        event: "prepared",
+        status: "passed",
+        detail: {
+          commandCenter: { id: commandCenter.id, name: commandCenter.name },
+          remote: { id: remote.id, name: remote.name },
+          commandCenterFacts,
+          remoteFacts,
+          package: packageIdentity,
+          activationCheckpoint: {
+            status: "activation-required",
+            unit: activationUnit,
+            surface: "trusted-renderer-on-box-desktop",
+            secretCustody: "never-cli-args-env-files-or-evidence",
+          },
+          next:
+            "activate the normal-renderer Command Center privately, leave it running, then run",
+        },
+        state: boxState,
+      });
+      return boxState;
+    } catch (error) {
+      return recordFailure(
+        directory,
+        dependencies.now,
+        boxState,
+        "prepare-failed",
+        error,
+      );
+    }
+  }
   const goldenName = requiredString(
     options.goldenName,
     "golden VM name",
     MACHINE_NAME,
   );
   const goldenId = requireSafeMachineId(options.goldenId, "golden VM id");
-  const orbctlPath = options.orbctlPath ?? "orbctl";
   const goldenInfo = await orbInfo(
     dependencies.executor,
     orbctlPath,
@@ -1869,6 +2570,7 @@ const prepare = async (
     schema: RUN_STATE_SCHEMA,
     runId,
     kind,
+    virtualization,
     commandCenterMode,
     golden,
     machines: {},
@@ -1894,7 +2596,6 @@ const prepare = async (
     state,
   });
 
-  const names = qualificationMachineNames(runId);
   try {
     let commandCenter: RunMachine;
     if (commandCenterMode === "retained-licensed") {
@@ -2331,7 +3032,8 @@ const managedRun = async (
     throw new Error("managed qualification run was already attempted");
   }
   const { commandCenter, remote } = requirePreparedMachines(state);
-  const orbctlPath = options.orbctlPath ?? "orbctl";
+  const orbctlPath = options.orbctlPath ??
+    (state.virtualization === "box" ? "box" : "orbctl");
   try {
     await verifyPackageAbsent(
       dependencies.executor,
@@ -2339,7 +3041,8 @@ const managedRun = async (
       remote,
     );
     const remoteHostId = `q-${runId}-remote`;
-    const sshEndpoint = `${remote.username}@${remote.name}@orb`;
+    const sshEndpoint = remote.sshEndpoint ??
+      `${remote.username}@${remote.name}@orb`;
 
     const localConfiguration = await retryOperatorCommand(
       dependencies.executor,
@@ -2426,8 +3129,6 @@ const managedRun = async (
         sshEndpoint,
         "--capability",
         "terminal",
-        "--capability",
-        "browser",
       ],
     );
     const managedInstalls = await operatorCommand(
@@ -2492,6 +3193,7 @@ const managedRun = async (
     if (test.ok !== true) {
       throw new Error("fleet.test did not prove the installed Remote reachable");
     }
+    const doctor = requireQualificationDoctor(test);
     const sync = await operatorCommand(
       dependencies.executor,
       orbctlPath,
@@ -2519,6 +3221,24 @@ const managedRun = async (
       status,
       remoteHostId,
       initialSync.stationInstallationId,
+    );
+    const pty = await proveRemotePty(
+      dependencies.executor,
+      orbctlPath,
+      remote,
+      state.artifact,
+      runId,
+    );
+    const corruptCandidate = await proveCorruptCandidateRejected(
+      dependencies.executor,
+      orbctlPath,
+      commandCenter,
+      remote,
+      state.artifact,
+      state.kind,
+      remoteHostId,
+      initialSync.stationInstallationId,
+      runId,
     );
     const remotePackage = await runGuest(
       dependencies.executor,
@@ -2731,7 +3451,9 @@ const managedRun = async (
     }
     const recoveredRemote = await waitForFixedStationReady(
       dependencies.executor,
+      orbctlPath,
       remote,
+      state.artifact,
       "remote",
       `restart-${runId}`,
     );
@@ -2777,8 +3499,27 @@ const managedRun = async (
     ) {
       throw new Error("fleet rebound a different Remote after restart");
     }
+    const idempotentBefore = await observeGenerationState(
+      dependencies.executor,
+      orbctlPath,
+      remote,
+      state.artifact,
+      initialSync.stationInstallationId,
+      "observe Remote before idempotent redeploy",
+    );
     const redeployment = await deployExactArtifact();
     requireReadyDeployment(redeployment, "idempotent redeploy");
+    const idempotentAfter = await observeGenerationState(
+      dependencies.executor,
+      orbctlPath,
+      remote,
+      state.artifact,
+      initialSync.stationInstallationId,
+      "observe Remote after idempotent redeploy",
+    );
+    if (idempotentBefore.invocationId !== idempotentAfter.invocationId) {
+      throw new Error("idempotent redeploy restarted the active Remote generation");
+    }
     const redeploySyncData = await operatorCommand(
       dependencies.executor,
       orbctlPath,
@@ -2828,33 +3569,11 @@ const managedRun = async (
     ) {
       throw new Error("idempotent redeploy changed the qualified userland runtime");
     }
-    const commandCenterQualificationStopped =
-      await stopUserUnitAndProveInactive(
-        dependencies.executor,
-        orbctlPath,
-        commandCenter,
-        activationUnitName(runId),
-      );
-    await startPackagedRuntime(
-      dependencies.executor,
-      orbctlPath,
-      commandCenter,
-    );
-    const commandCenterPackaged = await waitForFixedStationReady(
-      dependencies.executor,
-      commandCenter,
-      "command-center",
-      `packaged-${runId}`,
-    );
-    if (
-      commandCenterPackaged.installationId !==
-        commandCenterInstallationId
-    ) {
-      throw new Error("Command Center runtime changed its installation identity");
-    }
+    const generation = runtimeGenerationName(state.artifact);
+    const remoteInstallationId = initialSync.stationInstallationId;
     const qualification: QualificationPhaseProof = {
       commandCenterInstallationId,
-      remoteInstallationId: initialSync.stationInstallationId,
+      remoteInstallationId,
       phases: {
         managedDeploy: "passed",
         initialSync: "passed",
@@ -2862,6 +3581,51 @@ const managedRun = async (
         commandCenterOffline: "passed",
         remoteRestart: "passed",
         idempotentRedeploy: "passed",
+      },
+      doctor,
+      stationVerbs: {
+        pair: "request-response-observed",
+        configure: "request-response-observed",
+        project: "request-response-observed",
+        report: "request-response-observed",
+        status: "request-response-observed",
+      },
+      pty,
+      deployment: {
+        activation: {
+          generation,
+          unitExecStart: path.posix.join(
+            runtimeReleaseDirectory(remote, state.artifact),
+            "resources/systemd/vellum-remote-launch",
+          ),
+          conditionExecutable: path.posix.join(
+            runtimeReleaseDirectory(remote, state.artifact),
+            "resources/bin/vellum-remote",
+          ),
+        },
+        corruptCandidate,
+        restart: {
+          before: {
+            generation,
+            installationId: remoteInstallationId,
+            invocationId: beforeId,
+          },
+          after: {
+            generation,
+            installationId: remoteInstallationId,
+            invocationId: afterId,
+          },
+        },
+        idempotentRedeploy: {
+          outcome: "already-active",
+          before: idempotentBefore,
+          after: idempotentAfter,
+        },
+        hostMutation: {
+          sudoInvocations: 0,
+          privilegedInstallInvocations: 0,
+          systemPathMutations: 0,
+        },
       },
     };
     state = withState(state, {
@@ -2908,8 +3672,8 @@ const managedRun = async (
           package: packageAfterRedeploy.stdout.trim(),
         },
         packagedCommandCenter: {
-          stoppedQualificationUnit: commandCenterQualificationStopped,
-          station: commandCenterPackaged,
+          activationUnit: activationUnitName(runId),
+          station: commandCenterRestarted,
         },
         package: {
           name: packageName,
@@ -2965,30 +3729,19 @@ const parseFixedStationStatus = (
 
 const readFixedStationStatus = async (
   executor: CommandExecutor,
+  orbctlPath: string,
   machine: RunMachine,
+  artifact: ArtifactIdentity,
   requestId: string,
 ): Promise<Record<string, unknown>> => {
-  const result = await runRequired(
+  const result = await runGuest(
     executor,
-    `observe fixed Station status over SSH on ${machine.name}`,
-    {
-      executable: "/usr/bin/ssh",
-      args: [
-        "-o",
-        "BatchMode=yes",
-        "-o",
-        "StrictHostKeyChecking=yes",
-        "-o",
-        "ConnectTimeout=10",
-        "-o",
-        "ServerAliveInterval=5",
-        "-o",
-        "ServerAliveCountMax=2",
-        `${machine.username}@${machine.name}@orb`,
-        "/usr/bin/vellum-station",
-      ],
-      input: stationStatusRequest(requestId),
-    },
+    orbctlPath,
+    machine,
+    `observe exact packaged Station status on ${machine.name}`,
+    runtimeStationCli(machine, artifact),
+    [],
+    { input: stationStatusRequest(requestId) },
   );
   return parseFixedStationStatus(result.stdout, requestId);
 };
@@ -3024,7 +3777,9 @@ const requireReadyStationStatus = (
 
 const waitForFixedStationReady = async (
   executor: CommandExecutor,
+  orbctlPath: string,
   machine: RunMachine,
+  artifact: ArtifactIdentity,
   role: "command-center" | "remote",
   label: string,
 ): Promise<Record<string, unknown>> => {
@@ -3034,7 +3789,9 @@ const waitForFixedStationReady = async (
     try {
       const status = await readFixedStationStatus(
         executor,
+        orbctlPath,
         machine,
+        artifact,
         `${label}-${Date.now().toString(36)}`,
       );
       requireReadyStationStatus(status, role, machine.name);
@@ -3106,11 +3863,14 @@ type CommandCenterSecurityObservation = {
 type RemoteSecurityObservation = {
   readonly kind: "remote";
   readonly runtime: "displayless-node";
+  readonly mainExecutable: string;
   readonly electronProcesses: 0;
   readonly chromiumRendererProcesses: 0;
+  readonly xvfbProcesses: 0;
   readonly displayEnvironment: "unset";
   readonly controlMaterialOwnerOnly: true;
   readonly vellumTcpListeners: 0;
+  readonly cdpListeners: 0;
   readonly debugAuthority: false;
 };
 
@@ -3268,13 +4028,12 @@ const observeCommandCenterRuntimeSecurity = async (
       `packaged renderers are not isolated in user namespaces on ${machine.name}`,
     );
   }
-  const listeners = await executor.run({
-    executable: orbctlPath,
-    args: [
-      "run",
-      "--machine",
-      machine.name,
-      "/usr/bin/lsof",
+  const listeners = await runGuestUnchecked(
+    executor,
+    orbctlPath,
+    machine,
+    "/usr/bin/lsof",
+    [
       "-nP",
       "-a",
       "-p",
@@ -3282,7 +4041,7 @@ const observeCommandCenterRuntimeSecurity = async (
       "-iTCP",
       "-sTCP:LISTEN",
     ],
-  });
+  );
   assertNoTcpListeners(listeners.exitCode, listeners.stdout);
   const uidResult = await runGuest(
     executor,
@@ -3342,6 +4101,7 @@ const observeRemoteDisplaylessSecurity = async (
   machine: RunMachine,
   mainPid: number,
   invocationId: string,
+  expectedNodePath: string,
 ): Promise<RemoteSecurityObservation> => {
   const processes = await runGuest(
     executor,
@@ -3368,6 +4128,28 @@ const observeRemoteDisplaylessSecurity = async (
       `displayless Remote process tree includes Electron/Chromium/Xvfb on ${machine.name}`,
     );
   }
+  const executables = await Promise.all(
+    tree.map(async ({ pid }) => {
+      const result = await runGuestUnchecked(
+        executor,
+        orbctlPath,
+        machine,
+        "/usr/bin/readlink",
+        ["-f", `/proc/${String(pid)}/exe`],
+      );
+      return result.exitCode === 0
+        ? { pid, executable: result.stdout.trim() }
+        : undefined;
+    }),
+  );
+  const packagedNodeProcesses = executables.filter(
+    (entry): entry is { readonly pid: number; readonly executable: string } =>
+      entry?.executable === expectedNodePath,
+  );
+  if (packagedNodeProcesses.length !== 1) {
+    throw new Error(`displayless Remote is not running packaged Node on ${machine.name}`);
+  }
+  const mainExecutable = packagedNodeProcesses[0].executable;
   const environ = await runGuest(
     executor,
     orbctlPath,
@@ -3384,13 +4166,12 @@ const observeRemoteDisplaylessSecurity = async (
       `displayless Remote inherited display/Electron environment on ${machine.name}`,
     );
   }
-  const listeners = await executor.run({
-    executable: orbctlPath,
-    args: [
-      "run",
-      "--machine",
-      machine.name,
-      "/usr/bin/lsof",
+  const listeners = await runGuestUnchecked(
+    executor,
+    orbctlPath,
+    machine,
+    "/usr/bin/lsof",
+    [
       "-nP",
       "-a",
       "-p",
@@ -3398,7 +4179,7 @@ const observeRemoteDisplaylessSecurity = async (
       "-iTCP",
       "-sTCP:LISTEN",
     ],
-  });
+  );
   assertNoTcpListeners(listeners.exitCode, listeners.stdout);
   const uidResult = await runGuest(
     executor,
@@ -3438,11 +4219,14 @@ const observeRemoteDisplaylessSecurity = async (
   return {
     kind: "remote",
     runtime: "displayless-node",
+    mainExecutable,
     electronProcesses: 0,
     chromiumRendererProcesses: 0,
+    xvfbProcesses: 0,
     displayEnvironment: "unset",
     controlMaterialOwnerOnly: true,
     vellumTcpListeners: 0,
+    cdpListeners: 0,
     debugAuthority: false,
   };
 };
@@ -3454,6 +4238,7 @@ const observeRuntimeSecurity = async (
   mainPid: number,
   invocationId: string,
   role: "command-center" | "remote",
+  expectedRemoteNodePath: string,
 ): Promise<RuntimeSecurityObservation> =>
   role === "remote"
     ? observeRemoteDisplaylessSecurity(
@@ -3462,6 +4247,7 @@ const observeRuntimeSecurity = async (
         machine,
         mainPid,
         invocationId,
+        expectedRemoteNodePath,
       )
     : observeCommandCenterRuntimeSecurity(
         executor,
@@ -3489,6 +4275,7 @@ const observeMachine = async (
   machine: RunMachine,
   artifact: ArtifactIdentity,
   expectedRole: "command-center" | "remote",
+  serviceUnit: string,
 ): Promise<MachineObservation> => {
   const requestId = `qualification-${machine.name.endsWith("-cc") ? "cc" : "remote"}`;
   const releaseProof =
@@ -3513,7 +4300,7 @@ const observeMachine = async (
       [
         "--user",
         "show",
-        "vellum-remote.service",
+        serviceUnit,
         "--property=ActiveState",
         "--property=SubState",
         "--property=MainPID",
@@ -3521,7 +4308,13 @@ const observeMachine = async (
         "--property=InvocationID",
       ],
     ),
-    readFixedStationStatus(executor, machine, requestId),
+    readFixedStationStatus(
+      executor,
+      orbctlPath,
+      machine,
+      artifact,
+      requestId,
+    ),
   ]);
   const [packageName, version, architecture] =
     packageIdentity.stdout.trim().split("\t");
@@ -3542,6 +4335,10 @@ const observeMachine = async (
     Number(serviceFields.MainPID),
     serviceFields.InvocationID,
     expectedRole,
+    path.posix.join(
+      runtimeReleaseDirectory(machine, artifact),
+      "resources/bin/node",
+    ),
   );
   return {
     machine: { id: machine.id, name: machine.name },
@@ -3564,7 +4361,8 @@ const observe = async (
     throw new Error("qualification run id does not match its evidence");
   }
   const { commandCenter, remote } = requirePreparedMachines(state);
-  const orbctlPath = options.orbctlPath ?? "orbctl";
+  const orbctlPath = options.orbctlPath ??
+    (state.virtualization === "box" ? "box" : "orbctl");
   try {
     if (!state.managedDeployReady || state.qualification === undefined) {
       throw new Error("runtime observation requires a completed managed run");
@@ -3576,6 +4374,7 @@ const observe = async (
         commandCenter,
         state.artifact,
         "command-center",
+        activationUnitName(runId),
       ),
       observeMachine(
         dependencies.executor,
@@ -3583,6 +4382,7 @@ const observe = async (
         remote,
         state.artifact,
         "remote",
+        REMOTE_USERLAND_UNIT,
       ),
     ]);
     if (
@@ -3647,7 +4447,7 @@ const observe = async (
             distribution: "ubuntu" as const,
             version: "24.04" as const,
             architecture: "x64" as const,
-            virtualization: "orbstack" as const,
+            virtualization: state.virtualization,
           },
         },
         remote: {
@@ -3658,7 +4458,7 @@ const observe = async (
             distribution: "ubuntu" as const,
             version: "24.04" as const,
             architecture: "x64" as const,
-            virtualization: "orbstack" as const,
+            virtualization: state.virtualization,
           },
         },
       },
@@ -3674,6 +4474,13 @@ const observe = async (
           station: "ready" as const,
         },
       },
+      doctor: {
+        observation: state.qualification.doctor,
+        browserPolicy: "intentionally-unavailable-linux-beta" as const,
+      },
+      stationVerbs: state.qualification.stationVerbs,
+      pty: state.qualification.pty,
+      deployment: state.qualification.deployment,
       security: {
         commandCenter: {
           rendererSandbox: commandCenterSecurity.rendererSandbox,
@@ -3688,13 +4495,16 @@ const observe = async (
         },
         remote: {
           runtime: remoteSecurity.runtime,
+          mainExecutable: remoteSecurity.mainExecutable,
           electronProcesses: remoteSecurity.electronProcesses,
           chromiumRendererProcesses:
             remoteSecurity.chromiumRendererProcesses,
+          xvfbProcesses: remoteSecurity.xvfbProcesses,
           displayEnvironment: remoteSecurity.displayEnvironment,
           controlMaterialOwnerOnly:
             remoteSecurity.controlMaterialOwnerOnly,
           vellumTcpListeners: remoteSecurity.vellumTcpListeners,
+          cdpListeners: remoteSecurity.cdpListeners,
         },
       },
       evidence: {
@@ -3754,18 +4564,29 @@ const cleanup = async (
   if (
     state.machines.remote.name !== expectedNames.remote ||
     state.machines.commandCenter.name === state.machines.remote.name ||
-    recordedMachines.some(
-      (machine) =>
-        machine.name === state.golden.name ||
-        machine.id === state.golden.id,
+    (
+      state.golden !== undefined &&
+      recordedMachines.some(
+        (machine) =>
+          machine.name === state.golden!.name ||
+          machine.id === state.golden!.id,
+      )
     )
   ) {
     throw new Error("cleanup evidence does not identify only scoped clones");
   }
-  const orbctlPath = options.orbctlPath ?? "orbctl";
+  const orbctlPath = options.orbctlPath ??
+    (state.virtualization === "box" ? "box" : "orbctl");
   const fresh = await Promise.all(
     recordedMachines.map((machine) =>
-      orbInfo(dependencies.executor, orbctlPath, machine.name)
+      state.virtualization === "box"
+        ? boxInfo(
+            dependencies.executor,
+            orbctlPath,
+            machine.id,
+            machine.name,
+          )
+        : orbInfo(dependencies.executor, orbctlPath, machine.name)
     ),
   );
   for (const machine of recordedMachines) {
@@ -3805,26 +4626,47 @@ const cleanup = async (
       detail: {
         confirmedRunId: confirmation,
         machines: recordedMachines.map(({ id, name }) => ({ id, name })),
-        policy: "retain-command-center-delete-remote",
+        policy: state.virtualization === "box"
+          ? "stop-both-disposable-boxes"
+          : "retain-command-center-delete-remote",
       },
     });
   }
   const commandCenter = state.machines.commandCenter;
   const remote = state.machines.remote;
-  await runOrb(
-    dependencies.executor,
-    orbctlPath,
-    `stop retained Command Center ${commandCenter.name}`,
-    ["stop", commandCenter.name],
-    { timeoutMs: DEPLOY_COMMAND_TIMEOUT_MS },
-  );
-  await runOrb(
-    dependencies.executor,
-    orbctlPath,
-    `delete disposable Remote ${remote.name}`,
-    ["delete", "--force", remote.name],
-    { timeoutMs: DEPLOY_COMMAND_TIMEOUT_MS },
-  );
+  if (state.virtualization === "box") {
+    await Promise.all([
+      runOrb(
+        dependencies.executor,
+        orbctlPath,
+        `stop disposable Command Center ${commandCenter.name}`,
+        ["stop", commandCenter.id],
+        { timeoutMs: DEPLOY_COMMAND_TIMEOUT_MS },
+      ),
+      runOrb(
+        dependencies.executor,
+        orbctlPath,
+        `stop disposable Remote ${remote.name}`,
+        ["stop", remote.id],
+        { timeoutMs: DEPLOY_COMMAND_TIMEOUT_MS },
+      ),
+    ]);
+  } else {
+    await runOrb(
+      dependencies.executor,
+      orbctlPath,
+      `stop retained Command Center ${commandCenter.name}`,
+      ["stop", commandCenter.name],
+      { timeoutMs: DEPLOY_COMMAND_TIMEOUT_MS },
+    );
+    await runOrb(
+      dependencies.executor,
+      orbctlPath,
+      `delete disposable Remote ${remote.name}`,
+      ["delete", "--force", remote.name],
+      { timeoutMs: DEPLOY_COMMAND_TIMEOUT_MS },
+    );
+  }
   state = withState(state, { cleaned: true });
   if (!evidenceFrozen) {
     await appendEvidence(directory, {
@@ -3834,14 +4676,27 @@ const cleanup = async (
       event: "cleaned",
       status: "passed",
       detail: {
-        deletedRemote: { id: remote.id, name: remote.name },
+        remote: {
+          id: remote.id,
+          name: remote.name,
+          state: state.virtualization === "box" ? "stopped" : "deleted",
+        },
         retainedCommandCenter: {
           id: commandCenter.id,
           name: commandCenter.name,
           state: "stopped",
-          reason: "preserve licensed installation and activation slot",
+          reason: state.virtualization === "box"
+            ? "disposable Box stopped"
+            : "preserve licensed installation and activation slot",
         },
-        goldenPreserved: { id: state.golden.id, name: state.golden.name },
+        ...(state.golden === undefined
+          ? {}
+          : {
+              goldenPreserved: {
+                id: state.golden.id,
+                name: state.golden.name,
+              },
+            }),
       },
       state,
     });
@@ -3872,6 +4727,7 @@ export const runQualification = async (
 const usage = (): string => [
   "Usage:",
   "  bun run linux:qualify:orbstack -- prepare --run-id ID --evidence-dir DIR --golden-vm NAME --golden-id ID [--command-center-vm NAME --command-center-id ID] --kind qualification-candidate|final-release --bundle DIR --source-commit SHA",
+  "  bun scripts/linux-orbstack-two-station-qualification.ts prepare --virtualization box --run-id ID --evidence-dir DIR --kind qualification-candidate|final-release --bundle DIR --source-commit SHA",
   "  bun run linux:qualify:orbstack -- run --run-id ID --evidence-dir DIR",
   "  bun run linux:qualify:orbstack -- observe --run-id ID --evidence-dir DIR",
   "  bun run linux:qualify:orbstack -- cleanup --evidence-dir DIR --confirm-run-id ID",
@@ -3912,6 +4768,7 @@ export const parseQualificationArgs = (
     "--bundle",
     "--source-commit",
     "--kind",
+    "--virtualization",
   ]);
   for (const key of values.keys()) {
     if (!allowed.has(key)) throw new Error(`unknown option: ${key}`);
@@ -3928,6 +4785,7 @@ export const parseQualificationArgs = (
                 "--bundle",
           "--source-commit",
           "--kind",
+          "--virtualization",
         ]
       : modeValue === "cleanup"
         ? ["--evidence-dir", "--confirm-run-id"]
@@ -3951,6 +4809,14 @@ export const parseQualificationArgs = (
     throw new Error(
       "--kind must be qualification-candidate or final-release",
     );
+  }
+  const virtualization = values.get("--virtualization");
+  if (
+    virtualization !== undefined &&
+    virtualization !== "orbstack" &&
+    virtualization !== "box"
+  ) {
+    throw new Error("--virtualization must be orbstack or box");
   }
   return {
     mode: modeValue,
@@ -3980,6 +4846,7 @@ export const parseQualificationArgs = (
       ? {}
       : { sourceCommit: values.get("--source-commit") }),
     ...(kind === undefined ? {} : { kind }),
+    ...(virtualization === undefined ? {} : { virtualization }),
   };
 };
 
