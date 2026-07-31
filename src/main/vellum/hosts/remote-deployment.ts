@@ -1,16 +1,9 @@
 import type { Context } from "effect";
 import type { Effect } from "effect";
-import type {
-  HostsDeployRemoteAuthorizationRequest,
-  HostsDeployRemoteRecoveryAction,
-} from "@shared/ipc";
+import type { HostsDeployRemoteRecoveryAction } from "@shared/ipc";
 import type { RemoteHost } from "@shared/remote-hosts";
 import type { SshEndpoint, SshTarget } from "../ssh";
 import type { SshTransport } from "../ssh";
-import type {
-  LinuxAdministratorCredential,
-  LinuxFirstInstallActivationContinuation,
-} from "./linux-administrator-credential";
 import type { LinuxReleaseCacheSource } from "./linux-release-feed";
 
 export type RemoteDeploymentProgress = readonly string[];
@@ -67,8 +60,6 @@ export type DeployRemoteResult = {
   readonly unsupportedTarget?: UnsupportedRemoteTarget;
   /** Fixed, bounded operator recovery for a fail-closed deployment gate. */
   readonly recoveryAction?: RemoteDeploymentRecoveryAction;
-  /** Public binding facts for a fresh, one-attempt OS authorization ceremony. */
-  readonly authorizationRequest?: HostsDeployRemoteAuthorizationRequest;
 };
 
 export type RemoteDeploymentStationConfiguration =
@@ -96,51 +87,6 @@ export type RemoteDeploymentPreparation =
   | { readonly ok: true; readonly target: RemoteDeploymentTarget }
   | { readonly ok: false; readonly result: DeployRemoteResult };
 
-/**
- * Main-process-only authority threaded to exactly one admitted provider.
- * The renderer can serialize an authorization request and password, never this
- * opaque capability.
- */
-export type RemoteDeploymentAuthorization =
-  | {
-      readonly kind: "linux-administrator-password";
-      readonly credential: LinuxAdministratorCredential;
-    }
-  | {
-      /** Main-process-only hand-off after exact first-install package custody. */
-      readonly kind: "linux-first-install-activation";
-      readonly continuation: LinuxFirstInstallActivationContinuation;
-    };
-
-const activationContinuations = new WeakMap<
-  DeployRemoteResult,
-  LinuxFirstInstallActivationContinuation
->();
-
-/**
- * Keep the continuation off every serialized result surface. Object identity
- * confines it to the one in-process configured-deploy flow.
- */
-export const attachLinuxFirstInstallActivationContinuation = (
-  result: DeployRemoteResult,
-  continuation: LinuxFirstInstallActivationContinuation,
-): DeployRemoteResult => {
-  activationContinuations.set(result, continuation);
-  return result;
-};
-
-export const takeLinuxFirstInstallActivationContinuation = (
-  result: DeployRemoteResult,
-): RemoteDeploymentAuthorization | undefined => {
-  const continuation = activationContinuations.get(result);
-  activationContinuations.delete(result);
-  return continuation === undefined
-    ? undefined
-    : Object.freeze({
-        kind: "linux-first-install-activation" as const,
-        continuation,
-      });
-};
 
 export type RemoteDeploymentProviderInput = {
   readonly ssh: Context.Tag.Service<typeof SshTransport>;
@@ -148,7 +94,6 @@ export type RemoteDeploymentProviderInput = {
   readonly stationConfiguration: RemoteDeploymentStationConfiguration;
   /** Exact release authority selected for this one Linux deployment attempt. */
   readonly artifactSource: LinuxReleaseCacheSource;
-  readonly authorization?: RemoteDeploymentAuthorization;
 };
 
 export type RemoteDeploymentProvider = {

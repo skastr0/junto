@@ -41,7 +41,6 @@ import {
 export {
   decodeHostsDeployRemoteInput,
   projectDeployRemoteResult,
-  withHostsDeployRemoteAuthorization,
 } from "./operator-coordinator";
 
 const pruneFleetTargetsAgainstHosts = (

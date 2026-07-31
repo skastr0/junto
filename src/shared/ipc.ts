@@ -838,33 +838,9 @@ export type HostsDeployRemoteRecoveryAction =
   | { readonly kind: "repair-linux-release-transaction" }
   | { readonly kind: "retry-linux-release-install" };
 
-/**
- * Public facts that bind one transient Linux administrator ceremony.
- *
- * The password is deliberately absent: it exists only in
- * `HostsDeployRemoteInput.authorization` for the duration of one IPC invoke.
- */
-export interface HostsDeployRemoteAuthorizationRequest {
-  readonly kind: "linux-administrator-password";
-  readonly hostId: string;
-  readonly endpoint: string;
-  readonly version: string;
-  readonly manifestSha256: string;
-  readonly debSha256: string;
-  readonly inventorySha256: string;
+export interface HostsDeployRemoteInput {
+  readonly id: string;
 }
-
-export type HostsDeployRemoteInput =
-  | {
-      readonly id: string;
-    }
-  | {
-      readonly id: string;
-      readonly authorization: {
-        readonly request: HostsDeployRemoteAuthorizationRequest;
-        readonly password: string;
-      };
-    };
 
 /** Effective Remote deploy gates — see shared/deploy-capabilities.ts. */
 export type HostsDeployCapabilitiesResult =
@@ -890,8 +866,6 @@ export interface HostsDeployRemoteResult {
   readonly lastSeen?: string;
   readonly statusRecorded?: boolean;
   readonly recoveryAction?: HostsDeployRemoteRecoveryAction;
-  /** Present only when one exact Linux target requires fresh OS authorization. */
-  readonly authorizationRequest?: HostsDeployRemoteAuthorizationRequest;
 }
 
 export type {

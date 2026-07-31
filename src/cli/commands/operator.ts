@@ -2,7 +2,6 @@ import { Args, Command, Options } from "@effect/cli";
 import { Effect, Option } from "effect";
 import {
   OPERATOR_DEPLOY_TIMEOUT_MS,
-  OPERATOR_MAX_PASSWORD_BYTES,
   OPERATOR_SYNC_TIMEOUT_MS,
   type OperatorFleetDeployData,
 } from "../../shared/operator-control";
@@ -22,183 +21,15 @@ const optionalHostId = Options.text("id").pipe(
   Options.withDescription("Restrict the operation to one enrolled host id"),
 );
 
-const adminPasswordStdin = Options.boolean("admin-password-stdin").pipe(
-  Options.withDescription(
-    "After an exact authorization request, read one bounded password line from stdin",
-  ),
-);
-
 const failWhenDomainFailed = <A extends { readonly ok: boolean }>(value: A) =>
   value.ok
     ? Effect.succeed(value)
     : setExitCode(1).pipe(Effect.as(value));
 
-export type SecretInput = NodeJS.ReadableStream & {
-  readonly pause?: () => unknown;
-};
-
-/**
- * Read one UTF-8 line after deployment has returned an exact authorization
- * binding. Input is bounded incrementally; every retained Buffer is zeroed on
- * success, failure, and interruption.
- */
-export const readAdministratorPasswordLine = (
-  stream: SecretInput = process.stdin,
-): Effect.Effect<Buffer, InputError> =>
-  Effect.async<Buffer, InputError>((resume) => {
-    const parts: Buffer[] = [];
-    let totalBytes = 0;
-    let settled = false;
-
-    const zeroParts = () => {
-      for (const part of parts) part.fill(0);
-      parts.length = 0;
-      totalBytes = 0;
-    };
-
-    const cleanup = () => {
-      stream.removeListener("data", onData);
-      stream.removeListener("end", onEnd);
-      stream.removeListener("error", onError);
-    };
-
-    const fail = (message: string) => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      zeroParts();
-      stream.pause?.();
-      resume(
-        Effect.fail(
-          new InputError({
-            message,
-            path: "stdin",
-            hint:
-              "pipe one password-manager value to stdin; do not place a password in argv or environment variables",
-          }),
-        ),
-      );
-    };
-
-    const succeed = (password: Buffer) => {
-      if (settled) {
-        password.fill(0);
-        return;
-      }
-      settled = true;
-      cleanup();
-      resume(Effect.succeed(password));
-    };
-
-    function onData(chunk: unknown) {
-      if (settled) return;
-      if (!Buffer.isBuffer(chunk) && !(chunk instanceof Uint8Array)) {
-        fail("administrator password stdin must provide bytes");
-        return;
-      }
-      const source = Buffer.isBuffer(chunk)
-        ? chunk
-        : Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength);
-      const copy = Buffer.from(source);
-      source.fill(0);
-      if (
-        totalBytes + copy.byteLength >
-        OPERATOR_MAX_PASSWORD_BYTES + 1
-      ) {
-        copy.fill(0);
-        fail(
-          `administrator password stdin exceeds ${OPERATOR_MAX_PASSWORD_BYTES} bytes plus one newline`,
-        );
-        return;
-      }
-      parts.push(copy);
-      totalBytes += copy.byteLength;
-    }
-
-    function onEnd() {
-      if (settled) return;
-      const collected = Buffer.allocUnsafe(totalBytes);
-      let offset = 0;
-      for (const part of parts) {
-        part.copy(collected, offset);
-        offset += part.byteLength;
-      }
-      zeroParts();
-
-      let contentBytes = collected.byteLength;
-      if (contentBytes > 0 && collected[contentBytes - 1] === 0x0a) {
-        contentBytes -= 1;
-      }
-      if (
-        contentBytes < 1 ||
-        contentBytes > OPERATOR_MAX_PASSWORD_BYTES ||
-        collected.subarray(0, contentBytes).some(
-          (byte) => byte === 0x00 || byte === 0x0a || byte === 0x0d,
-        )
-      ) {
-        collected.fill(0);
-        fail(
-          `administrator password stdin must contain one 1-${OPERATOR_MAX_PASSWORD_BYTES} byte line`,
-        );
-        return;
-      }
-
-      const password = Buffer.allocUnsafe(contentBytes);
-      collected.copy(password, 0, 0, contentBytes);
-      collected.fill(0);
-      succeed(password);
-    }
-
-    function onError() {
-      fail("administrator password could not be read from stdin");
-    }
-
-    stream.on("data", onData);
-    stream.once("end", onEnd);
-    stream.once("error", onError);
-
-    return Effect.sync(() => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      zeroParts();
-      stream.pause?.();
-    });
-  });
-
-export const withAdministratorPasswordLine = <A, E, R>(
-  stream: SecretInput,
-  use: (password: string) => Effect.Effect<A, E, R>,
-): Effect.Effect<A, E | InputError, R> =>
-  Effect.acquireUseRelease(
-    readAdministratorPasswordLine(stream),
-    (passwordBytes) =>
-      Effect.gen(function* () {
-        const password = yield* Effect.try({
-          try: () =>
-            new TextDecoder("utf-8", { fatal: true }).decode(passwordBytes),
-          catch: () =>
-            new InputError({
-              message: "administrator password stdin is not valid UTF-8",
-              path: "stdin",
-            }),
-        });
-        // JS strings cannot be zeroized; it is retained only for this one
-        // request while its request Buffer is explicitly zeroed by the client.
-        return yield* use(password);
-      }),
-    (passwordBytes) =>
-      Effect.sync(() => {
-        passwordBytes.fill(0);
-      }),
-  );
-
 export const runOperatorDeployment = (input: {
   readonly op: "fleet.deploy" | "fleet.qualify";
   readonly id: string;
   readonly source?: "stable" | "cached";
-  readonly passwordStdin: boolean;
-  readonly passwordInput?: SecretInput;
 }): Effect.Effect<
   OperatorFleetDeployData,
   | InputError
@@ -209,7 +40,7 @@ export const runOperatorDeployment = (input: {
 > =>
   Effect.gen(function* () {
     const socket = yield* OperatorSocket;
-    const first =
+    const result =
       input.op === "fleet.deploy"
         ? yield* socket.call(
             "fleet.deploy",
@@ -225,50 +56,7 @@ export const runOperatorDeployment = (input: {
             OPERATOR_DEPLOY_TIMEOUT_MS,
           );
 
-    if (first.status !== "authorization-required") {
-      return yield* failWhenDomainFailed(first);
-    }
-    if (first.authorizationRequest.hostId !== input.id) {
-      return yield* Effect.fail(
-        new WireError({
-          type: "ProtocolError",
-          message: "deployment authorization is bound to a different host",
-        }),
-      );
-    }
-    if (!input.passwordStdin) {
-      return yield* failWhenDomainFailed(first);
-    }
-
-    const retried = yield* withAdministratorPasswordLine(
-      input.passwordInput ?? process.stdin,
-      (password) =>
-        input.op === "fleet.deploy"
-          ? socket.call(
-              "fleet.deploy",
-              {
-                id: input.id,
-                source: input.source ?? "stable",
-                authorization: {
-                  request: first.authorizationRequest,
-                  password,
-                },
-              },
-              OPERATOR_DEPLOY_TIMEOUT_MS,
-            )
-          : socket.call(
-              "fleet.qualify",
-              {
-                id: input.id,
-                authorization: {
-                  request: first.authorizationRequest,
-                  password,
-                },
-              },
-              OPERATOR_DEPLOY_TIMEOUT_MS,
-            ),
-    );
-    return yield* failWhenDomainFailed(retried);
+    return yield* failWhenDomainFailed(result);
   });
 
 const stationStatusCommand = Command.make("status", {}, () =>
@@ -396,16 +184,14 @@ const fleetDeployCommand = Command.make(
   {
     id: hostIdArg,
     source: Options.choice("source", ["stable", "cached"] as const),
-    adminPasswordStdin,
   },
-  ({ id, source, adminPasswordStdin }) =>
+  ({ id, source }) =>
     executeJsonCommand(
       "fleet deploy",
       runOperatorDeployment({
         op: "fleet.deploy",
         id,
         source,
-        passwordStdin: adminPasswordStdin,
       }),
     ),
 ).pipe(
@@ -416,14 +202,13 @@ const fleetDeployCommand = Command.make(
 
 const fleetQualifyCommand = Command.make(
   "qualify",
-  { id: hostIdArg, adminPasswordStdin },
-  ({ id, adminPasswordStdin }) =>
+  { id: hostIdArg },
+  ({ id }) =>
     executeJsonCommand(
       "fleet qualify",
       runOperatorDeployment({
         op: "fleet.qualify",
         id,
-        passwordStdin: adminPasswordStdin,
       }),
     ),
 ).pipe(

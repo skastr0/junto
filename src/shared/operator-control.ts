@@ -41,7 +41,6 @@ export const OPERATOR_DEPLOY_TIMEOUT_MS = 15 * 60_000;
 export const OPERATOR_MAX_REQUEST_BYTES = 16 * 1024;
 export const OPERATOR_MAX_RESPONSE_BYTES = 512 * 1024;
 export const OPERATOR_MAX_ERROR_BYTES = 4 * 1024;
-export const OPERATOR_MAX_PASSWORD_BYTES = 256;
 
 export const operatorControlDir = (home: string): string =>
   `${home}/.vellum/operator`;
@@ -143,58 +142,14 @@ export type OperatorQualificationWorkRunArgs =
 export const OperatorDeploySource = Schema.Literal("stable", "cached");
 export type OperatorDeploySource = typeof OperatorDeploySource.Type;
 
-export const OperatorDeployAuthorizationRequest = Schema.Struct({
-  kind: Schema.Literal("linux-administrator-password"),
-  hostId: HostId,
-  endpoint: HostSshEndpoint,
-  version: Schema.String.pipe(
-    Schema.pattern(/^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u),
-  ),
-  manifestSha256: Sha256,
-  debSha256: Sha256,
-  inventorySha256: Sha256,
-});
-export type OperatorDeployAuthorizationRequest =
-  typeof OperatorDeployAuthorizationRequest.Type;
-
-export const OperatorAdministratorPassword = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(OPERATOR_MAX_PASSWORD_BYTES),
-  Schema.filter(
-    (password) =>
-      !password.includes("\0") &&
-      !password.includes("\r") &&
-      !password.includes("\n") &&
-      new TextEncoder().encode(password).byteLength <=
-        OPERATOR_MAX_PASSWORD_BYTES,
-    {
-      message: () =>
-        `administrator password must be 1-${OPERATOR_MAX_PASSWORD_BYTES} UTF-8 bytes on one line`,
-    },
-  ),
-);
-
-export const OperatorDeployAuthorization = Schema.Struct({
-  request: OperatorDeployAuthorizationRequest,
-  password: OperatorAdministratorPassword,
-});
-export type OperatorDeployAuthorization =
-  typeof OperatorDeployAuthorization.Type;
-
 export const OperatorFleetDeployArgs = Schema.Struct({
   id: HostId,
   source: OperatorDeploySource,
-  authorization: Schema.optionalWith(OperatorDeployAuthorization, {
-    exact: true,
-  }),
 });
 export type OperatorFleetDeployArgs = typeof OperatorFleetDeployArgs.Type;
 
 export const OperatorFleetQualifyArgs = Schema.Struct({
   id: HostId,
-  authorization: Schema.optionalWith(OperatorDeployAuthorization, {
-    exact: true,
-  }),
 });
 export type OperatorFleetQualifyArgs = typeof OperatorFleetQualifyArgs.Type;
 
@@ -285,14 +240,7 @@ const OperatorDeployCommon = {
   version: Schema.optionalWith(Version, { exact: true }),
 };
 
-export const OperatorFleetDeployData = Schema.Union(
-  Schema.Struct({
-    status: Schema.Literal("authorization-required"),
-    ok: Schema.Literal(false),
-    ...OperatorDeployCommon,
-    authorizationRequest: OperatorDeployAuthorizationRequest,
-  }),
-  Schema.Struct({
+export const OperatorFleetDeployData = Schema.Struct({
     status: Schema.Literal("ready", "failed", "indeterminate"),
     ok: Schema.Boolean,
     ...OperatorDeployCommon,
@@ -313,8 +261,7 @@ export const OperatorFleetDeployData = Schema.Union(
     recoveryAction: Schema.optionalWith(OperatorDeployRecoveryAction, {
       exact: true,
     }),
-  }),
-);
+});
 export type OperatorFleetDeployData = typeof OperatorFleetDeployData.Type;
 
 export const OperatorProjectionSyncReceipt = Schema.Struct({
@@ -725,24 +672,7 @@ export const decodeOperatorJsonLine = (
   }
 };
 
-/** Safe diagnostic projection; never log an unredacted deployment request. */
+/** Operator requests contain only public deployment selection facts. */
 export const redactOperatorRequestForLog = (
   value: OperatorRequestEnvelope,
-): unknown => {
-  if (
-    (value.op !== "fleet.deploy" && value.op !== "fleet.qualify") ||
-    value.args.authorization === undefined
-  ) {
-    return value;
-  }
-  return {
-    ...value,
-    args: {
-      ...value.args,
-      authorization: {
-        ...value.args.authorization,
-        password: "[redacted]",
-      },
-    },
-  };
-};
+): unknown => value;

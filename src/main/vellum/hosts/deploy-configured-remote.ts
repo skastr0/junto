@@ -13,12 +13,10 @@ import {
   dispatchRemoteDeployment,
   prepareRemoteDeployment,
   type DeployRemoteResult,
-  type RemoteDeploymentAuthorization,
   type RemoteDeploymentPreparation,
   type RemoteDeploymentTarget,
 } from "./deploy-remote";
 import type { LinuxReleaseCacheSource } from "./linux-release-feed";
-import { takeLinuxFirstInstallActivationContinuation } from "./remote-deployment";
 
 type Ssh = Context.Tag.Service<typeof SshTransport>;
 
@@ -50,7 +48,6 @@ export type ConfiguredRemoteDeployResult = DeployRemoteResult & {
 };
 
 export type ConfiguredRemoteDeployOptions = ConfigureRemoteOptions & {
-  readonly authorization?: RemoteDeploymentAuthorization;
   /** Defaults to the stable feed; qualification may explicitly use the cache. */
   readonly artifactSource?: LinuxReleaseCacheSource;
 };
@@ -69,7 +66,6 @@ export type ConfiguredRemoteDeployOperations = {
       readonly state: "applied";
       readonly remoteHostId: string;
     },
-    authorization?: RemoteDeploymentAuthorization,
     artifactSource?: LinuxReleaseCacheSource,
   ) => Effect.Effect<DeployRemoteResult, never>;
   /** Configure durable station state through the app-owned Station API. */
@@ -86,14 +82,12 @@ const defaultOperations: ConfiguredRemoteDeployOperations = {
     ssh,
     target,
     stationConfiguration,
-    authorization,
     artifactSource,
   ) =>
     dispatchRemoteDeployment(
       target,
       ssh,
       stationConfiguration,
-      authorization,
       artifactSource,
     ),
   configure: configureRemoteHost,
@@ -107,7 +101,6 @@ const failedBeforeMutation = (
     readonly stages?: DeployRemoteResult["stages"];
     readonly unsupportedTarget?: DeployRemoteResult["unsupportedTarget"];
     readonly recoveryAction?: DeployRemoteResult["recoveryAction"];
-    readonly authorizationRequest?: DeployRemoteResult["authorizationRequest"];
   } = {},
 ): ConfiguredRemoteDeployResult => ({
   ok: false,
@@ -127,9 +120,6 @@ const failedBeforeMutation = (
   ...(input.recoveryAction === undefined
     ? {}
     : { recoveryAction: input.recoveryAction }),
-  ...(input.authorizationRequest === undefined
-    ? {}
-    : { authorizationRequest: input.authorizationRequest }),
 });
 
 const failedPackageResult = (
@@ -241,7 +231,6 @@ export const deployConfiguredRemoteHost = (
         stages: preparation.result.stages,
         unsupportedTarget: preparation.result.unsupportedTarget,
         recoveryAction: preparation.result.recoveryAction,
-        authorizationRequest: preparation.result.authorizationRequest,
       });
     }
 
@@ -252,89 +241,8 @@ export const deployConfiguredRemoteHost = (
         state: "applied",
         remoteHostId: host.id,
       },
-      options.authorization,
       options.artifactSource,
     );
-
-    // Break the first-boot readiness ↔ configuration deadlock once. The
-    // provider must prove this exact state structurally; progress text is
-    // operator evidence and never controls deployment.
-    if (deployed.disposition === "configuration-required") {
-      const activationAuthorization =
-        takeLinuxFirstInstallActivationContinuation(deployed);
-      if (activationAuthorization === undefined) {
-        deployed = {
-          ...deployed,
-          stages: Object.freeze([
-            ...(deployed.stages ?? []),
-            "first-install activation continuation was not retained",
-          ]),
-        };
-      } else {
-        const bootstrapConfigure = yield* operations
-          .configure(ssh, host, options)
-          .pipe(Effect.either);
-        if (bootstrapConfigure._tag === "Right" && bootstrapConfigure.right.ok) {
-          const stages = [
-            ...(deployed.stages ?? []),
-            "station configured via enrollment bootstrap after package present",
-            "retrying package activation for work-control readiness",
-          ];
-          const retryPrep = yield* operations.prepare(ssh, host);
-          if (retryPrep.ok) {
-            const retried = yield* operations.deployPrepared(
-              ssh,
-              retryPrep.target,
-              {
-                state: "applied",
-                remoteHostId: host.id,
-              },
-              activationAuthorization,
-              options.artifactSource,
-            );
-            deployed = {
-              ...retried,
-              stages: Object.freeze([
-                ...stages,
-                ...(retried.stages ?? []),
-              ]),
-            };
-            if (retried.ok && retried.disposition === "ready") {
-              // Configuration already applied; do not pair/configure twice.
-              return finishWithConfiguration(
-                host,
-                deployed,
-                bootstrapConfigure.right,
-              );
-            }
-          } else {
-            deployed = {
-              ...deployed,
-              stages: Object.freeze([
-                ...stages,
-                `readiness retry admission failed: ${retryPrep.result.detail}`,
-              ]),
-            };
-          }
-        } else if (bootstrapConfigure._tag === "Right") {
-          deployed = {
-            ...deployed,
-            stages: Object.freeze([
-              ...(deployed.stages ?? []),
-              `enrollment bootstrap configure failed: ${bootstrapConfigure.right.detail}`,
-            ]),
-          };
-        } else {
-          deployed = {
-            ...deployed,
-            stages: Object.freeze([
-              ...(deployed.stages ?? []),
-              `enrollment bootstrap configure error: ${bootstrapConfigure.left.message}`,
-            ]),
-          };
-        }
-      }
-    }
 
     if (!deployed.ok || deployed.disposition !== "ready") {
       return failedPackageResult(host, deployed);

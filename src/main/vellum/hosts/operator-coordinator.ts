@@ -14,7 +14,6 @@ import {
 } from "@shared/operator-control";
 import type {
   HostsConfigureRemoteResult,
-  HostsDeployRemoteAuthorizationRequest,
   HostsDeployRemoteInput,
   HostsDeployRemoteResult,
 } from "@shared/ipc";
@@ -36,13 +35,7 @@ import {
   getDeployJob,
   setActiveDeployJobHost,
 } from "./deploy-job-registry";
-import {
-  destroyLinuxAdministratorCredential,
-  mintLinuxAdministratorCredential,
-  type LinuxAdministratorCredentialBinding,
-} from "./linux-administrator-credential";
 import type { LinuxReleaseCacheSource } from "./linux-release-feed";
-import type { RemoteDeploymentAuthorization } from "./remote-deployment";
 import { HostsService } from "./service";
 import {
   HOST_OPERATION_ADMISSIONS,
@@ -170,42 +163,6 @@ const record = (value: unknown): Record<string, unknown> | undefined =>
     ? (value as Record<string, unknown>)
     : undefined;
 
-const decodeAuthorizationRequest = (
-  value: unknown,
-): HostsDeployRemoteAuthorizationRequest | undefined => {
-  const input = record(value);
-  if (
-    input === undefined ||
-    !exactKeys(input, [
-      "kind",
-      "hostId",
-      "endpoint",
-      "version",
-      "manifestSha256",
-      "debSha256",
-      "inventorySha256",
-    ]) ||
-    input.kind !== "linux-administrator-password" ||
-    typeof input.hostId !== "string" ||
-    typeof input.endpoint !== "string" ||
-    typeof input.version !== "string" ||
-    typeof input.manifestSha256 !== "string" ||
-    typeof input.debSha256 !== "string" ||
-    typeof input.inventorySha256 !== "string"
-  ) {
-    return undefined;
-  }
-  return {
-    kind: "linux-administrator-password",
-    hostId: input.hostId,
-    endpoint: input.endpoint,
-    version: input.version,
-    manifestSha256: input.manifestSha256,
-    debSha256: input.debSha256,
-    inventorySha256: input.inventorySha256,
-  };
-};
-
 export type DecodedHostsDeployRemoteInput = HostsDeployRemoteInput;
 
 export const decodeHostsDeployRemoteInput = (
@@ -214,85 +171,13 @@ export const decodeHostsDeployRemoteInput = (
   const input = record(value);
   if (
     input === undefined ||
-    (exactKeys(input, ["id"]) === false &&
-      exactKeys(input, ["id", "authorization"]) === false) ||
+    !exactKeys(input, ["id"]) ||
     typeof input.id !== "string" ||
     input.id.length === 0
   ) {
     return undefined;
   }
-  if (!Object.hasOwn(input, "authorization")) {
-    return "authorization" in input ? undefined : { id: input.id };
-  }
-
-  const authorization = record(input.authorization);
-  if (
-    authorization === undefined ||
-    !exactKeys(authorization, ["request", "password"]) ||
-    typeof authorization.password !== "string"
-  ) {
-    return undefined;
-  }
-  const request = decodeAuthorizationRequest(authorization.request);
-  if (request === undefined || request.hostId !== input.id) return undefined;
-  return {
-    id: input.id,
-    authorization: {
-      request,
-      password: authorization.password,
-    },
-  };
-};
-
-const credentialBinding = (
-  request: HostsDeployRemoteAuthorizationRequest,
-): LinuxAdministratorCredentialBinding => ({
-  hostId: request.hostId,
-  // The credential constructor validates the branded endpoint before storing
-  // password bytes; this cast preserves only the exact serialized value.
-  endpoint: request.endpoint as LinuxAdministratorCredentialBinding["endpoint"],
-  version: request.version,
-  manifestSha256: request.manifestSha256,
-  debSha256: request.debSha256,
-  inventorySha256: request.inventorySha256,
-});
-
-class LinuxAdministratorAuthorizationInputError extends Error {
-  readonly _tag: "LinuxAdministratorAuthorizationInputError" =
-    "LinuxAdministratorAuthorizationInputError";
-}
-
-/** Mint one main-only credential and destroy it after the sole attempt. */
-export const withHostsDeployRemoteAuthorization = <A, E, R>(
-  input: DecodedHostsDeployRemoteInput,
-  use: (
-    authorization: RemoteDeploymentAuthorization | undefined,
-  ) => Effect.Effect<A, E, R>,
-): Effect.Effect<A, E | LinuxAdministratorAuthorizationInputError, R> => {
-  if (!("authorization" in input)) return use(undefined);
-  const request = input.authorization.request;
-  return Effect.acquireUseRelease(
-    Effect.try({
-      try: () =>
-        mintLinuxAdministratorCredential(
-          input.authorization.password,
-          credentialBinding(request),
-        ),
-      catch: () =>
-        new LinuxAdministratorAuthorizationInputError(
-          "Linux administrator authorization is invalid",
-        ),
-    }),
-    (credential) =>
-      use({
-        kind: "linux-administrator-password",
-        credential,
-      }),
-    (credential) =>
-      Effect.sync(() => {
-        destroyLinuxAdministratorCredential(credential);
-      }),
-  );
+  return { id: input.id };
 };
 
 export const projectDeployRemoteResult = (
@@ -312,9 +197,6 @@ export const projectDeployRemoteResult = (
   ...(deploy.recoveryAction === undefined
     ? {}
     : { recoveryAction: deploy.recoveryAction }),
-  ...(deploy.authorizationRequest === undefined
-    ? {}
-    : { authorizationRequest: deploy.authorizationRequest }),
 });
 
 const configureRemoteEffect = (
@@ -434,8 +316,7 @@ export const deployRemoteEffect = (
   | StationRepository
   | StationFleetTargetRepository
 > =>
-  withHostsDeployRemoteAuthorization(input, (authorization) =>
-    Effect.gen(function* () {
+  Effect.gen(function* () {
       const settingsSvc = yield* SettingsService;
       const hosts = yield* HostsService;
       const stationStatus = yield* StationStatusService;
@@ -520,7 +401,6 @@ export const deployRemoteEffect = (
         .deployConfiguredRemote(input.id, {
           ...authority.right,
           ...(artifactSource === undefined ? {} : { artifactSource }),
-          ...(authorization === undefined ? {} : { authorization }),
           onAdmitted: (host) => {
             const admittedAt = new Date().toISOString();
             const detail = `${host.label}: deployment admitted; completion receipt pending`;
@@ -592,9 +472,7 @@ export const deployRemoteEffect = (
       if (!deployResult.ok) {
         return failJob(
           projectDeployRemoteResult(deployResult),
-          deployResult.authorizationRequest !== undefined
-            ? "auth_required"
-            : "failed",
+          "failed",
         );
       }
       if (deployResult.stationInstallationId === undefined) {
@@ -625,22 +503,7 @@ export const deployRemoteEffect = (
           : { version: finalResult.version }),
       });
       return projected;
-    }),
-  ).pipe(
-    Effect.catchTag("LinuxAdministratorAuthorizationInputError", () => {
-      finishDeployJob(input.id, {
-        status: "failed",
-        detail: "Linux administrator authorization is invalid",
-        stages: getDeployJob(input.id)?.stages,
-      });
-      return Effect.succeed({
-        ok: false,
-        detail: "Linux administrator authorization is invalid",
-        code: "validation",
-        message: "Linux administrator authorization is invalid",
-      } satisfies HostsDeployRemoteResult);
-    }),
-  );
+  });
 
 const releaseDeployGate = (): HostsDeployRemoteResult | undefined => {
   const releaseGate = computeDeployCapabilities({
@@ -913,14 +776,6 @@ export const projectOperatorDeployResult = (
     stages: [...(result.stages ?? [])].slice(0, 128),
     ...(result.version === undefined ? {} : { version: result.version }),
   };
-  if (result.authorizationRequest !== undefined) {
-    return {
-      ...common,
-      status: "authorization-required",
-      ok: false,
-      authorizationRequest: result.authorizationRequest,
-    };
-  }
   return {
     ...common,
     status:
@@ -1114,12 +969,8 @@ export const makeOperatorCoordinator = (
     if (request.op === "fleet.deploy" || request.op === "fleet.qualify") {
       await AppRuntime.runPromise(requireCommandCenterEffect);
       const source = operatorArtifactSource(request);
-      const authorization = request.args.authorization;
       const result = await hostCoordinator.deployRemote(
-        {
-          id: request.args.id,
-          ...(authorization === undefined ? {} : { authorization }),
-        },
+        { id: request.args.id },
         source,
       );
       return operatorSuccess(request, projectOperatorDeployResult(result));

@@ -20,7 +20,6 @@ import {
 import {
   deployRemoteHost,
   type DeployRemoteResult,
-  type RemoteDeploymentAuthorization,
 } from "./deploy-remote";
 import {
   deployConfiguredRemoteHost,
@@ -80,10 +79,7 @@ export class HostsService extends Context.Tag("@vellum/HostsService")<
       options: ConfigureRemoteOptions,
     ) => Effect.Effect<ConfigureRemoteResult, RemoteHostsError>;
     /** Command Center → install/update .app over SSH + start Remote station. */
-    readonly deployRemote: (
-      id: string,
-      authorization?: RemoteDeploymentAuthorization,
-    ) => Effect.Effect<DeployRemoteResult>;
+    readonly deployRemote: (id: string) => Effect.Effect<DeployRemoteResult>;
     /** Configure + deploy under one per-host compensating transaction. */
     readonly deployConfiguredRemote: (
       id: string,
@@ -230,7 +226,7 @@ export const makeHostsService = (
           operations.configureRemoteHost(ssh, host, options),
         );
       }),
-    deployRemote: (id, authorization) =>
+    deployRemote: (id) =>
       Effect.gen(function* () {
         if (!RELEASE_CAPABILITIES.managedRemoteDeploy) {
           return {
@@ -268,7 +264,7 @@ export const makeHostsService = (
         }
         return yield* serializeHostMutation(
           host,
-          operations.deployRemoteHost(ssh, host, authorization),
+          operations.deployRemoteHost(ssh, host),
         );
       }),
     deployConfiguredRemote: (id, options) =>
