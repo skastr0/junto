@@ -1,20 +1,41 @@
 import { createHash } from "node:crypto";
-import { constants as fsConstants } from "node:fs";
+import { constants as fsConstants, createWriteStream } from "node:fs";
 import {
   chmod,
+  link,
+  lstat,
   mkdir,
   mkdtemp,
   open,
+  readdir,
   rm,
   type FileHandle,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createGunzip } from "node:zlib";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import { isDeepStrictEqual } from "node:util";
+import { createGunzip, createGzip } from "node:zlib";
+import {
+  LINUX_RELEASE_CHECKSUMS,
+  LINUX_RELEASE_MANIFEST,
+  LINUX_RELEASE_SIGNATURE,
+  LINUX_RELEASE_TARGET,
+  type LinuxReleaseVerificationReceipt,
+} from "./linux-release-bundle";
 
 const TAR_BLOCK_BYTES = 512;
 const SHA256 = /^[0-9a-f]{64}$/u;
-const SAFE_ARCHIVE_FILE = /^[^/\\\u0000-\u001f\u007f]+$/u;
+const SAFE_ARCHIVE_FILE = /^[\u0020-\u002e\u0030-\u005b\u005d-\u007e]+$/u;
+const RELEASE_VERSION =
+  /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/u;
+const MAX_VERIFICATION_RECEIPT_BYTES = 1024 * 1024;
+const REQUIRED_METADATA_FILES = Object.freeze([
+  LINUX_RELEASE_CHECKSUMS,
+  LINUX_RELEASE_MANIFEST,
+  LINUX_RELEASE_SIGNATURE,
+]);
 
 export interface LinuxReleaseArchiveExpectedFile {
   readonly file: string;
@@ -29,6 +50,15 @@ export interface InspectedLinuxReleaseArchive {
   readonly verifiedArchivePath: string;
   readonly extractedDirectory: string;
   readonly cleanup: () => Promise<void>;
+}
+
+export interface CreatedLinuxReleaseArchive {
+  readonly schema: "vellum/linux-release-archive-receipt/v1";
+  readonly ok: true;
+  readonly version: string;
+  readonly archiveFile: string;
+  readonly archiveBytes: number;
+  readonly archiveSha256: string;
 }
 
 const isZeroBlock = (block: Buffer): boolean => {
@@ -233,6 +263,11 @@ class FlatUstarExtractor {
 
   async #startEntry(header: Buffer): Promise<void> {
     if (isZeroBlock(header)) {
+      if (this.#zeroBlocks >= 2) {
+        throw new Error(
+          "Linux release archive has data after its end marker",
+        );
+      }
       this.#zeroBlocks += 1;
       return;
     }
@@ -342,11 +377,17 @@ class FlatUstarExtractor {
 export const inspectLinuxReleaseArchive = async (input: {
   readonly archivePath: string;
   readonly expectedFiles: ReadonlyArray<LinuxReleaseArchiveExpectedFile>;
+  readonly temporaryParent?: string;
 }): Promise<InspectedLinuxReleaseArchive> => {
   const archivePath = path.resolve(input.archivePath);
   const expected = expectedFileMap(input.expectedFiles);
   const temporaryRoot = await mkdtemp(
-    path.join(tmpdir(), "vellum-linux-release-archive-"),
+    path.join(
+      input.temporaryParent === undefined
+        ? tmpdir()
+        : path.resolve(input.temporaryParent),
+      "vellum-linux-release-archive-",
+    ),
   );
   const extractedDirectory = path.join(temporaryRoot, "bundle");
   const verifiedArchivePath = path.join(
@@ -488,3 +529,335 @@ export const inspectLinuxReleaseArchive = async (input: {
     throw error;
   }
 };
+
+const putTarString = (
+  header: Buffer,
+  offset: number,
+  length: number,
+  value: string,
+): void => {
+  const bytes = Buffer.from(value, "ascii");
+  if (bytes.length > length) {
+    throw new Error("Linux release archive field exceeds ustar limits");
+  }
+  bytes.copy(header, offset);
+};
+
+const putTarOctal = (
+  header: Buffer,
+  offset: number,
+  length: number,
+  value: number,
+): void => {
+  const encoded = value.toString(8);
+  if (encoded.length > length - 1) {
+    throw new Error("Linux release archive value exceeds ustar limits");
+  }
+  putTarString(
+    header,
+    offset,
+    length,
+    `${encoded.padStart(length - 1, "0")}\0`,
+  );
+};
+
+const fileHeader = (entry: LinuxReleaseArchiveExpectedFile): Buffer => {
+  const header = Buffer.alloc(TAR_BLOCK_BYTES);
+  putTarString(header, 0, 100, entry.file);
+  putTarOctal(
+    header,
+    100,
+    8,
+    entry.file === "vellum-linux-verify-x64" ? 0o755 : 0o644,
+  );
+  putTarOctal(header, 108, 8, 0);
+  putTarOctal(header, 116, 8, 0);
+  putTarOctal(header, 124, 12, entry.bytes);
+  putTarOctal(header, 136, 12, 0);
+  header.fill(0x20, 148, 156);
+  putTarString(header, 156, 1, "0");
+  putTarString(header, 257, 6, "ustar\0");
+  putTarString(header, 263, 2, "00");
+  const checksum = header.reduce((sum, byte) => sum + byte, 0);
+  putTarString(header, 148, 8, `${checksum.toString(8).padStart(6, "0")}\0 `);
+  return header;
+};
+
+const assertExactBundleInventory = async (
+  bundleDirectory: string,
+  expected: ReadonlyMap<string, LinuxReleaseArchiveExpectedFile>,
+): Promise<void> => {
+  const directory = await lstat(bundleDirectory);
+  if (!directory.isDirectory() || directory.isSymbolicLink()) {
+    throw new Error("Linux release bundle is not a real directory");
+  }
+  const entries = await readdir(bundleDirectory, { withFileTypes: true });
+  const names = entries.map(({ name }) => name).sort();
+  const expectedNames = [...expected.keys()].sort();
+  if (
+    names.length !== expectedNames.length ||
+    names.some((name, index) => name !== expectedNames[index]) ||
+    entries.some((entry) => !entry.isFile() || entry.isSymbolicLink())
+  ) {
+    throw new Error(
+      "Linux release bundle inventory differs from independent verification",
+    );
+  }
+};
+
+const readVerificationReceipt = async (
+  receiptPath: string,
+): Promise<LinuxReleaseVerificationReceipt> => {
+  const noFollow = "O_NOFOLLOW" in fsConstants ? fsConstants.O_NOFOLLOW : 0;
+  let handle: FileHandle | undefined;
+  try {
+    handle = await open(
+      path.resolve(receiptPath),
+      fsConstants.O_RDONLY | noFollow,
+    );
+    const initial = await handle.stat();
+    if (
+      !initial.isFile() ||
+      initial.size < 1 ||
+      initial.size > MAX_VERIFICATION_RECEIPT_BYTES
+    ) {
+      throw new Error("Linux verification receipt is not a bounded file");
+    }
+    const bytes = await handle.readFile();
+    const final = await handle.stat();
+    if (
+      bytes.length !== initial.size ||
+      final.size !== initial.size ||
+      final.mtimeMs !== initial.mtimeMs
+    ) {
+      throw new Error("Linux verification receipt changed while being read");
+    }
+    const value = JSON.parse(bytes.toString("utf8")) as unknown;
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      throw new Error("Linux verification receipt is malformed");
+    }
+    const receipt = value as Partial<LinuxReleaseVerificationReceipt>;
+    if (
+      receipt.schema !== "vellum/linux-release-verification-receipt/v1" ||
+      receipt.ok !== true ||
+      typeof receipt.version !== "string" ||
+      !RELEASE_VERSION.test(receipt.version) ||
+      typeof receipt.sourceRevision !== "string" ||
+      receipt.sourceRevision.length === 0 ||
+      !isDeepStrictEqual(receipt.target, LINUX_RELEASE_TARGET) ||
+      typeof receipt.keyId !== "string" ||
+      receipt.keyId.length === 0 ||
+      !Number.isSafeInteger(receipt.keyringRevision) ||
+      (receipt.keyringRevision ?? 0) < 1 ||
+      typeof receipt.signedAt !== "string" ||
+      typeof receipt.expiresAt !== "string" ||
+      !Number.isSafeInteger(receipt.filesVerified) ||
+      (receipt.filesVerified ?? -1) < 1 ||
+      !Array.isArray(receipt.bundleFiles) ||
+      receipt.bundleFiles.length < 4 ||
+      receipt.bundleFiles.length > 64 ||
+      typeof receipt.packageFile !== "string" ||
+      !Number.isSafeInteger(receipt.packageBytes) ||
+      (receipt.packageBytes ?? -1) < 1 ||
+      typeof receipt.packageSha256 !== "string" ||
+      !SHA256.test(receipt.packageSha256)
+    ) {
+      throw new Error("Linux verification receipt is malformed");
+    }
+    const verifiedReceipt = receipt as LinuxReleaseVerificationReceipt;
+    const expected = expectedFileMap(verifiedReceipt.bundleFiles);
+    if (
+      verifiedReceipt.filesVerified + REQUIRED_METADATA_FILES.length !==
+        verifiedReceipt.bundleFiles.length ||
+      verifiedReceipt.packageFile !==
+        `Vellum Command-${verifiedReceipt.version}-x64-linux.deb` ||
+      REQUIRED_METADATA_FILES.some(
+        (file) =>
+          verifiedReceipt.bundleFiles.filter((entry) => entry.file === file)
+            .length !== 1,
+      )
+    ) {
+      throw new Error("Linux verification receipt inventory is malformed");
+    }
+    const packageEntry = expected.get(verifiedReceipt.packageFile);
+    if (
+      packageEntry === undefined ||
+      packageEntry.bytes !== verifiedReceipt.packageBytes ||
+      packageEntry.sha256 !== verifiedReceipt.packageSha256
+    ) {
+      throw new Error("Linux verification receipt package binding differs");
+    }
+    return verifiedReceipt;
+  } catch (cause) {
+    if (
+      cause instanceof Error &&
+      cause.message.startsWith("Linux verification receipt")
+    ) {
+      throw cause;
+    }
+    throw new Error("Linux verification receipt is malformed", { cause });
+  } finally {
+    await handle?.close().catch(() => undefined);
+  }
+};
+
+const verifiedTarStream = async function* (
+  bundleDirectory: string,
+  files: ReadonlyArray<LinuxReleaseArchiveExpectedFile>,
+): AsyncGenerator<Buffer> {
+  const noFollow = "O_NOFOLLOW" in fsConstants ? fsConstants.O_NOFOLLOW : 0;
+  for (const entry of [...files].sort((left, right) =>
+    left.file < right.file ? -1 : left.file > right.file ? 1 : 0,
+  )) {
+    yield fileHeader(entry);
+    let handle: FileHandle | undefined;
+    try {
+      handle = await open(
+        path.join(bundleDirectory, entry.file),
+        fsConstants.O_RDONLY | noFollow,
+      );
+      const initial = await handle.stat();
+      if (!initial.isFile() || initial.size !== entry.bytes) {
+        throw new Error(
+          `Linux release bundle file byte count differs: ${entry.file}`,
+        );
+      }
+      const digest = createHash("sha256");
+      let bytesRead = 0;
+      for await (const chunk of handle.createReadStream({
+        autoClose: false,
+      })) {
+        const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        digest.update(bytes);
+        bytesRead += bytes.length;
+        yield bytes;
+      }
+      const final = await handle.stat();
+      if (
+        bytesRead !== entry.bytes ||
+        final.size !== initial.size ||
+        final.mtimeMs !== initial.mtimeMs ||
+        digest.digest("hex") !== entry.sha256
+      ) {
+        throw new Error(
+          `Linux release bundle file digest differs: ${entry.file}`,
+        );
+      }
+    } finally {
+      await handle?.close().catch(() => undefined);
+    }
+    const padding =
+      (TAR_BLOCK_BYTES - (entry.bytes % TAR_BLOCK_BYTES)) % TAR_BLOCK_BYTES;
+    if (padding > 0) yield Buffer.alloc(padding);
+  }
+  yield Buffer.alloc(TAR_BLOCK_BYTES * 2);
+};
+
+export const createLinuxReleaseArchive = async (input: {
+  readonly bundleDirectory: string;
+  readonly verificationReceiptPath: string;
+  readonly archivePath: string;
+}): Promise<CreatedLinuxReleaseArchive> => {
+  const bundleDirectory = path.resolve(input.bundleDirectory);
+  const archivePath = path.resolve(input.archivePath);
+  const receipt = await readVerificationReceipt(input.verificationReceiptPath);
+  const expected = expectedFileMap(receipt.bundleFiles);
+  const expectedBasename = `vellum-${receipt.version}-ubuntu-24.04-x64-release.tar.gz`;
+  if (path.basename(archivePath) !== expectedBasename) {
+    throw new Error(`Linux release archive must be named ${expectedBasename}`);
+  }
+  await assertExactBundleInventory(bundleDirectory, expected);
+
+  const temporaryRoot = await mkdtemp(
+    path.join(path.dirname(archivePath), ".vellum-linux-archive-"),
+  );
+  const temporaryArchive = path.join(temporaryRoot, expectedBasename);
+  try {
+    await pipeline(
+      Readable.from(verifiedTarStream(bundleDirectory, receipt.bundleFiles)),
+      createGzip({ level: 9 }),
+      createWriteStream(temporaryArchive, {
+        flags: "wx",
+        mode: 0o600,
+      }),
+    );
+    await assertExactBundleInventory(bundleDirectory, expected);
+
+    const inspected = await inspectLinuxReleaseArchive({
+      archivePath: temporaryArchive,
+      expectedFiles: receipt.bundleFiles,
+      temporaryParent: path.dirname(archivePath),
+    });
+    const result: CreatedLinuxReleaseArchive = {
+      schema: "vellum/linux-release-archive-receipt/v1",
+      ok: true,
+      version: receipt.version,
+      archiveFile: path.basename(archivePath),
+      archiveBytes: inspected.archiveBytes,
+      archiveSha256: inspected.archiveSha256,
+    };
+    try {
+      await link(inspected.verifiedArchivePath, archivePath);
+      return result;
+    } finally {
+      await inspected.cleanup();
+    }
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+};
+
+const archiveOptions = (
+  args: ReadonlyArray<string>,
+): {
+  readonly bundleDirectory: string;
+  readonly verificationReceiptPath: string;
+  readonly archivePath: string;
+} => {
+  const [command, ...rest] = args;
+  if (command !== "create" || rest.length !== 6) {
+    throw new Error(
+      "usage: linux-release-archive.ts create --bundle DIR --verification-receipt FILE --archive FILE",
+    );
+  }
+  const values = new Map<string, string>();
+  for (let index = 0; index < rest.length; index += 2) {
+    const option = rest[index];
+    const value = rest[index + 1];
+    if (
+      option === undefined ||
+      value === undefined ||
+      !new Set(["--bundle", "--verification-receipt", "--archive"]).has(
+        option,
+      ) ||
+      values.has(option)
+    ) {
+      throw new Error("Linux release archive options are invalid");
+    }
+    values.set(option, value);
+  }
+  const bundleDirectory = values.get("--bundle");
+  const verificationReceiptPath = values.get("--verification-receipt");
+  const archivePath = values.get("--archive");
+  if (
+    bundleDirectory === undefined ||
+    verificationReceiptPath === undefined ||
+    archivePath === undefined
+  ) {
+    throw new Error("Linux release archive options are incomplete");
+  }
+  return { bundleDirectory, verificationReceiptPath, archivePath };
+};
+
+if (import.meta.main) {
+  createLinuxReleaseArchive(archiveOptions(process.argv.slice(2)))
+    .then((receipt) => {
+      process.stdout.write(`${JSON.stringify(receipt)}\n`);
+    })
+    .catch((error: unknown) => {
+      const message =
+        error instanceof Error ? error.message : "unknown failure";
+      process.stderr.write(`Linux release archive failed: ${message}\n`);
+      process.exitCode = 1;
+    });
+}
