@@ -147,7 +147,10 @@ export const setEdgeEffect = (
   });
 };
 
-/** Operator-authored board wake eligibility on an edge. */
+/**
+ * Operator-authored board wake eligibility on an edge.
+ * ON is the default (field absent); OFF is explicit `notify: false`.
+ */
 export const setEdgeNotify = (edgeId: string, notify: boolean): void => {
   const doc = state$.doc.peek();
   commitDoc({
@@ -155,8 +158,8 @@ export const setEdgeNotify = (edgeId: string, notify: boolean): void => {
     edges: doc.edges.map((edge) => {
       if (edge.id !== edgeId) return edge;
       const ether = { ...(edge.ether ?? {}) };
-      if (notify) ether.notify = true;
-      else delete ether.notify;
+      if (notify) delete ether.notify;
+      else ether.notify = false;
       const nextEther = Object.keys(ether).length > 0 ? ether : undefined;
       if (!nextEther) {
         const { ether: _drop, ...rest } = edge;

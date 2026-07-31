@@ -33,7 +33,10 @@ export type BoardWakeSeat = {
   readonly target: SurfaceDeliveryTarget;
 };
 
-/** Edge has operator-authored Notify ON. */
+/**
+ * Edge is eligible for board megaphone wakes.
+ * Default ON when connected — only explicit `notify: false` opts out.
+ */
 export const edgeNotifyOn = (
   doc: CanvasDoc,
   a: string,
@@ -44,14 +47,14 @@ export const edgeNotifyOn = (
       (edge.fromNode === a && edge.toNode === b) ||
       (edge.fromNode === b && edge.toNode === a);
     if (!pair) continue;
-    if (edge.ether?.notify === true) return true;
+    if (edge.ether?.notify !== false) return true;
   }
   return false;
 };
 
 /**
  * Resolve live actor seats eligible for a board wake.
- * Notify-all still requires Notify ON (operator wires the war-room).
+ * Connected actors are in by default; operator can opt a seat out.
  */
 export const resolveBoardWakeSet = (
   doc: CanvasDoc,

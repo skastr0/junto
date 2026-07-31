@@ -445,7 +445,8 @@ export const EtherEdgeExtension = Schema.Struct({
   ports: Schema.optionalWith(Schema.Array(Port), { exact: true }),
   /**
    * Operator-authored wake eligibility for board megaphone.
-   * Not a Port — delivery plane, not capability. Absent = false.
+   * Not a Port — delivery plane, not capability. Absent / true = ON
+   * (default when an agent is connected to a board). Explicit false = OFF.
    */
   notify: Schema.optionalWith(Schema.Boolean, { exact: true }),
   /**

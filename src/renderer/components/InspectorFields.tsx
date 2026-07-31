@@ -151,7 +151,7 @@ export function EdgeCapabilitySection({
  * write `ports: []`, which would (under attenuation) grant nothing at all
  * instead of restoring the full default.
  */
-/** Operator megaphone eligibility for agent↔board edges. */
+/** Operator megaphone eligibility for agent↔board edges. Default ON. */
 export function EdgeBoardNotifyToggle({ edge }: { readonly edge: CanvasEdge }) {
   const doc = use$(state$.doc);
   const from = doc.nodes.find((n) => n.id === edge.fromNode);
@@ -159,13 +159,15 @@ export function EdgeBoardNotifyToggle({ edge }: { readonly edge: CanvasEdge }) {
   const touchesBoard =
     from?.ether?.entity?.kind === "board" || to?.ether?.entity?.kind === "board";
   if (!touchesBoard) return null;
-  const on = edge.ether?.notify === true;
+  // Absent / true = ON; only explicit false opts out.
+  const on = edge.ether?.notify !== false;
   return (
     <div className="inspector-section">
       <div className="inspector-section__label">board wake</div>
       <div className="inspector-detail" style={{ marginBottom: 8 }}>
-        When ON, this seat is in the board megaphone set (operator Post topic /
-        Notify all). Not a capability port.
+        On by default when connected — this seat is in the board megaphone set
+        (operator Post topic / Notify all). Turn OFF to silence. Not a capability
+        port.
       </div>
       <button
         type="button"

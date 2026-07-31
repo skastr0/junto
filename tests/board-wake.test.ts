@@ -12,7 +12,7 @@ const doc = (partial: Partial<CanvasDoc> & Pick<CanvasDoc, "nodes" | "edges">): 
 });
 
 describe("board wake set", () => {
-  it("includes only Notify-ON managed agents", () => {
+  it("includes connected agents by default; explicit notify:false opts out", () => {
     const canvas = doc({
       nodes: [
         {
@@ -51,28 +51,50 @@ describe("board wake set", () => {
             terminal: { bindingId: "bind-b", harness: "claude" },
           },
         },
+        {
+          id: "agent-c",
+          type: "text",
+          text: "c",
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 80,
+          ether: {
+            entity: { kind: "agent", name: "local:c" },
+            terminal: { bindingId: "bind-c", harness: "claude" },
+          },
+        },
       ],
       edges: [
         {
           id: "e1",
           fromNode: "agent-a",
           toNode: "board-1",
-          ether: { notify: true },
+          // notify absent = ON (default)
         },
         {
           id: "e2",
           fromNode: "agent-b",
           toNode: "board-1",
-          // notify absent = off
+          ether: { notify: false },
+        },
+        {
+          id: "e3",
+          fromNode: "agent-c",
+          toNode: "board-1",
+          ether: { notify: true },
         },
       ],
     });
 
     expect(edgeNotifyOn(canvas, "board-1", "agent-a")).toBe(true);
     expect(edgeNotifyOn(canvas, "board-1", "agent-b")).toBe(false);
+    expect(edgeNotifyOn(canvas, "board-1", "agent-c")).toBe(true);
     const seats = resolveBoardWakeSet(canvas, "board-1");
-    expect(seats.map((s) => s.nodeId)).toEqual(["agent-a"]);
-    expect(seats[0]?.target.bindingId).toBe("bind-a");
+    expect(seats.map((s) => s.nodeId).sort()).toEqual(["agent-a", "agent-c"]);
+    expect(seats.find((s) => s.nodeId === "agent-a")?.target.bindingId).toBe(
+      "bind-a",
+    );
   });
 
   it("composes optional non-compulsion envelope", () => {
