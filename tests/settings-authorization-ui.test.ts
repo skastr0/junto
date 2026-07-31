@@ -1,21 +1,19 @@
+import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { isValidLinuxAdministratorPassword } from "../src/renderer/components/SettingsPanel";
 
-describe("Linux administrator authorization password validation", () => {
-  it("accepts a non-empty single-line password at the input limit", () => {
-    expect(
-      isValidLinuxAdministratorPassword("correct horse battery staple"),
-    ).toBe(true);
-    expect(isValidLinuxAdministratorPassword("a".repeat(256))).toBe(true);
-  });
+const rendererFiles = [
+  "../src/renderer/components/SettingsPanel.tsx",
+  "../src/renderer/components/fleet/FleetDetailPanel.tsx",
+] as const;
 
-  it.each([
-    "",
-    "line\nbreak",
-    "carriage\rreturn",
-    "nul\0byte",
-    "a".repeat(257),
-  ])("rejects an unsafe local password value", (password) => {
-    expect(isValidLinuxAdministratorPassword(password)).toBe(false);
+describe("Linux host preparation UI", () => {
+  it("never collects an administrator password in renderer surfaces", async () => {
+    for (const file of rendererFiles) {
+      const source = await readFile(new URL(file, import.meta.url), "utf8");
+      expect(source).not.toMatch(/type=["']password["']/u);
+      expect(source).not.toContain("authorization: { request, password }");
+      expect(source).not.toContain("admin-password");
+      expect(source).not.toContain("--no-sandbox");
+    }
   });
 });

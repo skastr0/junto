@@ -1,12 +1,10 @@
 import { use$ } from "@legendapp/state/react";
 import { RotateCcw, Settings2, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type {
   BrowserProfileInfo,
   HostsConfigureRemoteResult,
-  HostsDeployRemoteAuthorizationRequest,
-  HostsDeployRemoteResult,
   HostsOpResult,
   HostsTestResult,
   VellumBrowserApi,
@@ -18,7 +16,6 @@ import {
   type StateBackupInventoryEntry,
 } from "@shared/state-recovery";
 import { state$ } from "../lib/state";
-import { deployRecoveryGuidance } from "../lib/deploy-recovery";
 import {
   closeSettings,
   patchSettings,
@@ -61,11 +58,6 @@ const SECTIONS: ReadonlyArray<{ key: PanelSection; label: string; blurb: string 
 ];
 
 type HostRow = NonNullable<HostsOpResult["hosts"]>[number];
-
-/** Password stays renderer-local and is never copied into deployment status or errors. */
-export function isValidLinuxAdministratorPassword(password: string): boolean {
-  return password.length > 0 && password.length <= 256 && !/[\r\n\0]/.test(password);
-}
 
 const emptyHostDraft = (): {
   id: string;
@@ -884,15 +876,6 @@ function HostsSection() {
   const [draft, setDraft] = useState(emptyHostDraft);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [testDetail, setTestDetail] = useState<Record<string, string>>({});
-  const [authorizationRequest, setAuthorizationRequest] = useState<HostsDeployRemoteAuthorizationRequest>();
-  const [authorizationPassword, setAuthorizationPassword] = useState("");
-  const [authorizationError, setAuthorizationError] = useState<string>();
-
-  const clearAuthorization = useCallback(() => {
-    setAuthorizationPassword("");
-    setAuthorizationError(undefined);
-    setAuthorizationRequest(undefined);
-  }, []);
 
   const load = useCallback(async () => {
     const api = getVellumApi();
@@ -1073,95 +1056,6 @@ function HostsSection() {
       const message = error instanceof Error ? error.message : String(error);
       setTestDetail((prev) => ({ ...prev, [id]: message }));
       setNotice({ kind: "error", message });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const presentDeployResult = (
-    id: string,
-    result: HostsDeployRemoteResult,
-    options: { readonly authorizationAttempt?: boolean } = {},
-  ) => {
-    if (result.authorizationRequest) {
-      setAuthorizationRequest(result.authorizationRequest);
-      setAuthorizationPassword("");
-      setAuthorizationError(undefined);
-      setTestDetail((prev) => ({ ...prev, [id]: "Administrator authorization required." }));
-      return;
-    }
-    const stages = result.stages?.length ? `\n${result.stages.map((stage) => `· ${stage}`).join("\n")}` : "";
-    const recovery = deployRecoveryGuidance(result.recoveryAction);
-    setTestDetail((prev) => ({
-      ...prev,
-      [id]: options.authorizationAttempt
-        ? result.ok ? "Remote deployed." : "Administrator authorization was not accepted."
-        : `${result.detail || (result.ok ? "deployed" : result.message ?? "failed")}${recovery ? `\nRecovery: ${recovery}` : ""}${stages}`,
-    }));
-    setNotice({
-      kind: result.ok ? "success" : "error",
-      message: result.ok ? `${id}: Remote deployed` : options.authorizationAttempt
-        ? `${id}: administrator authorization was not accepted`
-        : `${id}: ${result.detail || result.message || "deployment failed"}`,
-    });
-  };
-
-  const deployRemote = async (id: string) => {
-    const api = getVellumApi();
-    if (!api?.hostsDeployRemote) {
-      setNotice({ kind: "error", message: "Deploy Remote API unavailable." });
-      return;
-    }
-    setBusy(true);
-    setTestDetail((prev) => ({
-      ...prev,
-      [id]: "deploying Vellum Remote and waiting for it to come online…",
-    }));
-    try {
-      const result: HostsDeployRemoteResult = await api.hostsDeployRemote({ id });
-      presentDeployResult(id, result);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      setTestDetail((prev) => ({ ...prev, [id]: message }));
-      setNotice({ kind: "error", message });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const authorizeDeployment = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const request = authorizationRequest;
-    const password = authorizationPassword;
-    // Clear the controlled field before any await so it cannot be retained or reused in this UI.
-    setAuthorizationPassword("");
-    if (!request) return;
-    if (!isValidLinuxAdministratorPassword(password)) {
-      setAuthorizationError("Enter an administrator password without line breaks.");
-      return;
-    }
-    const api = getVellumApi();
-    if (!api?.hostsDeployRemote) {
-      setAuthorizationError("Deploy Remote API unavailable.");
-      return;
-    }
-    setBusy(true);
-    setAuthorizationError(undefined);
-    try {
-      const result: HostsDeployRemoteResult = await api.hostsDeployRemote({
-        id: request.hostId,
-        authorization: { request, password },
-      });
-      if (result.authorizationRequest) {
-        presentDeployResult(request.hostId, result, { authorizationAttempt: true });
-      } else {
-        clearAuthorization();
-        presentDeployResult(request.hostId, result, { authorizationAttempt: true });
-      }
-    } catch {
-      clearAuthorization();
-      setNotice({ kind: "error", message: `${request.hostId}: administrator authorization failed` });
-      setTestDetail((prev) => ({ ...prev, [request.hostId]: "Administrator authorization failed." }));
     } finally {
       setBusy(false);
     }
@@ -1377,52 +1271,7 @@ function HostsSection() {
           {notice.message}
         </p>
       ) : null}
-      {authorizationRequest ? (
-        <LinuxAdministratorAuthorizationDialog request={authorizationRequest} password={authorizationPassword} error={authorizationError} busy={busy} onPasswordChange={setAuthorizationPassword} onCancel={clearAuthorization} onSubmit={authorizeDeployment} />
-      ) : null}
     </div>
-  );
-}
-
-function LinuxAdministratorAuthorizationDialog({ request, password, error, busy, onPasswordChange, onCancel, onSubmit }: { readonly request: HostsDeployRemoteAuthorizationRequest; readonly password: string; readonly error?: string; readonly busy: boolean; readonly onPasswordChange: (password: string) => void; readonly onCancel: () => void; readonly onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
-  const passwordInput = useRef<HTMLInputElement>(null);
-  useEffect(() => { passwordInput.current?.focus(); }, [request]);
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      event.stopPropagation();
-      if (!busy) onCancel();
-    };
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [busy, onCancel]);
-  return createPortal(
-    <div className="settings-authorization-surface" role="presentation">
-      <button type="button" className="settings-authorization-surface__backdrop" aria-label="Cancel administrator authorization" tabIndex={-1} disabled={busy} onClick={onCancel} />
-      <form className="settings-authorization-dialog" role="dialog" aria-modal="true" aria-labelledby="linux-authorization-title" aria-describedby="linux-authorization-copy linux-authorization-facts" onSubmit={onSubmit}>
-        <p className="settings-authorization-dialog__eyebrow">Deployment authorization</p>
-        <h3 id="linux-authorization-title">Fresh administrator authorization</h3>
-        <p id="linux-authorization-copy" className="settings-authorization-dialog__copy">This fresh administrator authorization authorizes exactly one deployment: no retry/reuse.</p>
-        <dl id="linux-authorization-facts" className="settings-authorization-facts">
-          <div><dt>Target id</dt><dd>{request.hostId}</dd></div>
-          <div><dt>SSH endpoint</dt><dd>{request.endpoint}</dd></div>
-          <div><dt>Version</dt><dd>{request.version}</dd></div>
-          <div><dt>Manifest SHA-256</dt><dd><code>{request.manifestSha256}</code></dd></div>
-          <div><dt>Deb SHA-256</dt><dd><code>{request.debSha256}</code></dd></div>
-          <div><dt>Inventory SHA-256</dt><dd><code>{request.inventorySha256}</code></dd></div>
-        </dl>
-        <label className="settings-authorization-password" htmlFor="linux-administrator-password">Administrator password
-          <input ref={passwordInput} id="linux-administrator-password" type="password" value={password} maxLength={256} autoComplete="off" disabled={busy} onChange={(event) => onPasswordChange(event.target.value)} />
-        </label>
-        {error ? <p className="settings-error" role="alert">{error}</p> : null}
-        <div className="settings-authorization-dialog__actions">
-          <button type="button" className="settings-panel__ghost" disabled={busy} onClick={onCancel}>cancel</button>
-          <button type="submit" className="settings-panel__ghost settings-authorization-dialog__submit" disabled={busy}>{busy ? "authorizing…" : "authorize deployment"}</button>
-        </div>
-      </form>
-    </div>,
-    document.body,
   );
 }
 

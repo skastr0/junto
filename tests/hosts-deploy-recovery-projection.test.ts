@@ -17,14 +17,7 @@ describe("Remote deploy recovery guidance", () => {
     ],
     [
       { kind: "bootstrap-linux-release-installer" },
-      [
-        "This host cannot elevate without a password (sudo -n failed).",
-        "Option A: enter the Linux administrator password when prompted.",
-        "Option B (manual): copy the signed .deb from ~/.vellum/releases/linux-x64-glibc/current/ to the host and run:",
-        "  sudo apt-get install -y './Vellum Command-*-x64-linux.deb'",
-        "then retry Deploy.",
-        "Box fleet users should already have passwordless sudo — if this appears on a Box, SSH access or image policy is wrong.",
-      ].join("\n"),
+      "Host preparation is required before Vellum can install or update this Remote. Review Linux host preparation, then retry Deploy.",
     ],
     [
       { kind: "repair-linux-release-transaction" },
