@@ -71,9 +71,8 @@ describe("repository coverage", () => {
     expect(harnessGlyphFor("kimi")).toBe(GLYPHS.kimi);
     expect(harnessGlyphFor("windsurf")).toBe(GLYPHS.windsurf);
     expect(harnessGlyphFor("hermes")).toBe(GLYPHS.hermes);
-    expect(GLYPHS.hermes.fillRule).toBe("evenodd");
-    expect(Array.isArray(GLYPHS.hermes.d)).toBe(true);
-    expect((GLYPHS.hermes.d as ReadonlyArray<string>).length).toBeGreaterThan(0);
+    expect(GLYPHS.hermes.d).toBeUndefined();
+    expect(GLYPHS.hermes.imageSrc).toMatch(/^data:image\/png;base64,/);
   });
 });
 
@@ -289,6 +288,13 @@ describe("markTileFor (HarnessMark resolve step)", () => {
     expect(tile.paths).toEqual(PROVIDER_MARKS.grok.paths);
     expect(tile.viewBox).toBe("0 0 24 24");
     expect(tile.fillRule).toBe("evenodd");
+    expect(tile.hue).toBe(INK);
+  });
+
+  it("uses the exact embedded vendor asset when a harness publishes a raster icon", () => {
+    const tile = markTileFor("hermes");
+    expect(tile.imageSrc).toBe(GLYPHS.hermes.imageSrc);
+    expect(tile.paths).toEqual([]);
     expect(tile.hue).toBe(INK);
   });
 

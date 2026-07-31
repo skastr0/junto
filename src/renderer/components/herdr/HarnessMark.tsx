@@ -53,7 +53,16 @@ export function HarnessMark({
       }}
       {...(title !== undefined ? { title } : {})}
     >
-      {tile.glyph ? (
+      {tile.imageSrc ? (
+        <img
+          src={tile.imageSrc}
+          width={inner}
+          height={inner}
+          alt=""
+          draggable={false}
+          style={{ display: "block", flex: "none", borderRadius: Math.max(2, Math.round(inner * 0.16)) }}
+        />
+      ) : tile.glyph ? (
         <svg
           viewBox={tile.viewBox}
           width={inner}
