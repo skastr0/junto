@@ -591,19 +591,50 @@
   min-width: 0;
 }
 
-.task-create-dialog__form label > span,
-.task-create-dialog__gates-heading > span,
-.task-detail-panel__section > h3 {
+.task-create-dialog__caption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
   color: var(--color-ink);
   font-size: 11px;
   font-weight: 600;
 }
 
-.task-create-dialog__form small,
-.task-create-dialog__gates-heading > small {
+.task-create-dialog__caption-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.task-create-dialog__help {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
   color: var(--color-faint);
-  font-size: 9px;
-  line-height: 1.5;
+  cursor: help;
+}
+
+.task-create-dialog__help:hover,
+.task-create-dialog__help:focus-visible {
+  color: var(--color-dim);
+  background: rgb(237 230 218 / 0.06);
+}
+
+.task-detail-panel__section > h3 {
+  color: var(--color-ink);
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .task-create-dialog__grow {
@@ -638,6 +669,11 @@
   cursor: pointer;
 }
 
+.task-create-dialog__check.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .task-create-dialog__check > span {
   color: var(--color-ink);
   font-size: 12px;
@@ -654,6 +690,10 @@
   cursor: pointer;
 }
 
+.task-create-dialog__check.is-disabled input[type="checkbox"] {
+  cursor: not-allowed;
+}
+
 .task-create-dialog__gates {
   display: grid;
   gap: 10px;
@@ -665,8 +705,7 @@
 }
 
 .task-create-dialog__gates-heading {
-  display: grid;
-  gap: 2px;
+  min-width: 0;
 }
 
 .task-create-dialog__gate-fields {
@@ -679,6 +718,7 @@
 .task-create-dialog__media {
   display: grid;
   gap: 10px;
+  justify-items: stretch;
   min-width: 0;
   padding: 12px;
   border: 1px solid var(--color-stroke);
@@ -692,24 +732,7 @@
 }
 
 .task-create-dialog__media-heading {
-  display: grid;
-  gap: 4px;
-}
-
-.task-create-dialog__media-heading > span {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--color-ink);
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.task-create-dialog__media-heading > small,
-.task-create-dialog__media-actions > span {
-  color: var(--color-faint);
-  font-size: 9px;
-  line-height: 1.5;
+  min-width: 0;
 }
 
 .task-create-dialog__media-list {
@@ -762,13 +785,16 @@
   font-size: 9px;
 }
 
-.task-create-dialog__media-empty {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+.task-create-dialog__media-empty,
+.task-create-dialog__media-actions {
   margin: 0;
+  min-width: 0;
+}
+
+.task-create-dialog__media-empty {
   color: var(--color-dim);
   font-size: 11px;
+  line-height: 1.4;
 }
 
 .task-create-dialog__media-actions {
@@ -777,10 +803,54 @@
   gap: 10px;
 }
 
-.task-create-dialog__media-error {
+.task-create-dialog__media-actions > span {
+  color: var(--color-faint);
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.task-create-dialog__media-error,
+.task-create-dialog__form-error {
   margin: 0;
   color: var(--color-crimson);
   font-size: 10px;
+}
+
+.task-create-dialog__form-error {
+  padding: 0 18px 8px;
+}
+
+/* Focused description editor — full writing room over the create form. */
+.task-description-focus.focus-surface__panel--document,
+.focus-surface__panel.task-description-focus {
+  width: min(760px, calc(100vw - 48px));
+  min-height: min(520px, 70vh);
+  height: auto;
+  max-height: min(90vh, 900px);
+  padding: 0;
+  background: var(--color-ground);
+}
+
+.task-description-focus__body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  padding: 16px 18px 14px;
+}
+
+.task-description-focus__body textarea {
+  flex: 1 1 auto;
+  min-height: min(420px, 58vh);
+  max-height: none;
+  resize: vertical;
+}
+
+.task-description-focus__body > footer {
+  display: flex;
+  flex: none;
+  justify-content: flex-end;
 }
 
 .task-detail-panel__media {
