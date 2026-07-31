@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Background,
   BackgroundVariant,
@@ -19,7 +18,7 @@ import type { Connection, FinalConnectionState, Node, OnNodeDrag } from "@xyflow
 import { use$ } from "@legendapp/state/react";
 import type { CanvasDoc, EtherEdgeKind, EtherFlag } from "@shared/canvas";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
-import { Ban, Boxes, Expand, Link2, Plus, ScanLine, SquareDashed, Trash2 } from "lucide-react";
+import { Ban, Boxes, Expand, Link2, Plus, ScanLine, SquareDashed, Trash2, X } from "lucide-react";
 import { state$ } from "../lib/state";
 import { kernel$ } from "../lib/kernel-view";
 import type { FlowEdge, FlowNode } from "../lib/convert";
@@ -65,6 +64,8 @@ import { RtsBottomBar } from "./rts/RtsBottomBar";
 import { TerminalWizard } from "./terminal/TerminalWizard";
 import { CanvasMagnifier } from "./CanvasMagnifier";
 import { NodePaletteModeDeck, type ModeDeckActions } from "./node-palette/NodePaletteModeDeck";
+import { FocusSurface } from "./FocusSurface";
+import { IconButton, OverlayHeader } from "./ui";
 
 type CanvasNodeRef = { readonly id: string; readonly type?: string; readonly position: { readonly x: number; readonly y: number }; readonly data?: unknown; readonly selected?: boolean };
 type CanvasFlow = {
@@ -764,58 +765,44 @@ const useMenuDismiss = (active: boolean, dismiss: () => void) => {
   }, [active, dismiss]);
 };
 
-// Canvas chrome insets for palette placement — stay between station top bar
-// and the docked field tools / RTS bottom chrome, never over either.
-const NODE_DECK_MAX_WIDTH = 1120;
-const NODE_DECK_MARGIN = 8;
+function ModeDeckFocus({
+  actions,
+  agentPosition,
+  onClose,
+}: {
+  readonly actions: ModeDeckActions;
+  readonly agentPosition: { readonly x: number; readonly y: number };
+  readonly onClose: () => void;
+}) {
+  return (
+    <FocusSurface
+      measure="workspace"
+      height="immersive"
+      layer="work"
+      label="Add canvas item"
+      onClose={onClose}
+      panelClassName="node-deck-focus-panel"
+    >
+      <OverlayHeader
+        title="Add item"
+        status="Choose an agent or work surface"
+        actions={
+          <IconButton aria-label="Close add canvas item" title="Close" onClick={onClose}>
+            <X size={14} />
+          </IconButton>
+        }
+      />
+      <NodePaletteModeDeck actions={actions} agentPosition={agentPosition} />
+    </FocusSurface>
+  );
+}
 
-const stationBarBottom = (): number => {
-  const bar = document.querySelector(".station-bar");
-  if (!(bar instanceof HTMLElement)) return 72;
-  return bar.getBoundingClientRect().bottom + NODE_DECK_MARGIN;
-};
-
-// Docked above the bottom-right minimap with fit-all — not scattered top chrome.
-// Menu portals to body: .rts-right overflow:hidden would clip an absolute popover.
+// Add from the field opens a focused workspace; creation still chooses the
+// same unobstructed canvas positions as the former docked deck.
 function CanvasFieldTools() {
   const rf = useReactFlow<FlowNode, FlowEdge>();
   const [open, setOpen] = useState(false);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const [menuBox, setMenuBox] = useState<{
-    readonly left: number;
-    readonly bottom: number;
-    readonly maxHeight: number;
-  } | null>(null);
   const dismiss = useCallback(() => { setOpen(false); }, []);
-  useMenuDismiss(open, dismiss);
-
-  useLayoutEffect(() => {
-    if (!open) {
-      setMenuBox(null);
-      return;
-    }
-    const place = () => {
-      const rect = triggerRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const deckWidth = Math.min(
-        NODE_DECK_MAX_WIDTH,
-        window.innerWidth - NODE_DECK_MARGIN * 2,
-      );
-      // Anchor above the trigger; clamp height under the station top bar.
-      const topLimit = stationBarBottom();
-      setMenuBox({
-        left: Math.min(
-          Math.max(NODE_DECK_MARGIN, rect.left),
-          window.innerWidth - deckWidth - NODE_DECK_MARGIN,
-        ),
-        bottom: Math.max(NODE_DECK_MARGIN, window.innerHeight - rect.top + 6),
-        maxHeight: Math.max(140, rect.top - topLimit),
-      });
-    };
-    place();
-    window.addEventListener("resize", place);
-    return () => window.removeEventListener("resize", place);
-  }, [open]);
 
   // A non-overlapping slot near the viewport center for a node of the given size.
   const nextPosition = (size: { width: number; height: number }) => {
@@ -844,7 +831,6 @@ function CanvasFieldTools() {
     <div className="rts-field-tools" aria-label="Canvas field tools">
       <div className="node-deck-host node-deck-host--docked" data-canvas-menu-surface>
         <button
-          ref={triggerRef}
           type="button"
           className="node-deck-trigger"
           aria-label="Add canvas item"
@@ -853,24 +839,7 @@ function CanvasFieldTools() {
         >
           <Plus size={12} /><span>add item</span>
         </button>
-        {open && menuBox
-          ? createPortal(
-              <div
-                className="node-deck-host node-deck-host--context"
-                data-canvas-menu-surface
-                style={{
-                  position: "fixed",
-                  left: menuBox.left,
-                  bottom: menuBox.bottom,
-                  zIndex: 60,
-                  "--node-deck-max-height": `${menuBox.maxHeight}px`,
-                } as React.CSSProperties}
-              >
-                <NodePaletteModeDeck actions={actions} agentPosition={agentPosition} />
-              </div>,
-              document.body,
-            )
-          : null}
+        {open ? <ModeDeckFocus actions={actions} agentPosition={agentPosition} onClose={dismiss} /> : null}
       </div>
       <button
         type="button"
@@ -885,64 +854,17 @@ function CanvasFieldTools() {
   );
 }
 
-// Right-click on empty canvas: the same Mode Deck, anchored at the cursor,
-// creating the node exactly where you clicked.
+// Right-click on empty canvas opens the same centered surface. Its placement
+// strategy stays bound to the click, independent of where the modal renders.
 function ContextModeDeck({ at, onClose }: { readonly at: { x: number; y: number }; readonly onClose: () => void }) {
   const rf = useReactFlow<FlowNode, FlowEdge>();
-  const menuRef = useRef<HTMLDivElement>(null);
-  const [placement, setPlacement] = useState({
-    left: at.x,
-    top: at.y,
-    maxHeight: Math.max(140, window.innerHeight - 88),
-  });
-  useMenuDismiss(true, onClose);
-  useLayoutEffect(() => {
-    const place = () => {
-      const rect = menuRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const gap = 5;
-      const margin = NODE_DECK_MARGIN;
-      const topLimit = stationBarBottom();
-      const left =
-        at.x + rect.width + gap <= window.innerWidth - margin
-          ? at.x + gap
-          : at.x - rect.width - gap;
-      const preferredTop =
-        at.y + rect.height + gap <= window.innerHeight - margin
-          ? at.y + gap
-          : at.y - rect.height - gap;
-      setPlacement({
-        left: Math.max(margin, Math.min(left, window.innerWidth - rect.width - margin)),
-        top: Math.max(topLimit, Math.min(preferredTop, window.innerHeight - rect.height - margin)),
-        maxHeight: Math.max(140, window.innerHeight - topLimit - margin * 2),
-      });
-    };
-    place();
-    window.addEventListener("resize", place);
-    return () => window.removeEventListener("resize", place);
-  }, [at.x, at.y]);
   const positionFor = (size: { width: number; height: number }) => {
     const point = rf.screenToFlowPosition({ x: at.x, y: at.y });
     return { x: Math.round(point.x - size.width / 2), y: Math.round(point.y - size.height / 2) };
   };
   const actions = makeAddActions(positionFor, onClose);
   const agentPosition = positionFor({ width: 260, height: 110 });
-  return (
-    <div
-      ref={menuRef}
-      className="node-deck-host node-deck-host--context"
-      data-canvas-menu-surface
-      style={{
-        position: "fixed",
-        left: placement.left,
-        top: placement.top,
-        zIndex: 40,
-        "--node-deck-max-height": `${placement.maxHeight}px`,
-      } as React.CSSProperties}
-    >
-      <NodePaletteModeDeck actions={actions} agentPosition={agentPosition} />
-    </div>
-  );
+  return <ModeDeckFocus actions={actions} agentPosition={agentPosition} onClose={onClose} />;
 }
 
 // Right-click on (or inside) a live rubber-band selection: a small action

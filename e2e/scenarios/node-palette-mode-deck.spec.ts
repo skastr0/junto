@@ -21,12 +21,23 @@ const openModeDeck = async (page: Page): Promise<Locator> => {
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
   await page.getByRole("button", { name: "Add canvas item" }).click();
 
+  const modal = page.getByRole("dialog", { name: "Add canvas item" });
+  await expect(modal).toBeVisible();
+  await expect(modal).toHaveAttribute("aria-modal", "true");
+  const panel = modal.locator(".focus-surface__panel--workspace");
+  await expect(panel).toBeVisible();
+  const panelBox = await panel.boundingBox();
+  expect(panelBox).not.toBeNull();
+  const viewportWidth = await page.evaluate(() => window.innerWidth);
+  expect(Math.abs(panelBox!.x + panelBox!.width / 2 - viewportWidth / 2))
+    .toBeLessThanOrEqual(4);
+
   const search = page.getByRole("searchbox", {
     name: "Search nodes and agents",
   });
   await expect(search).toBeVisible();
 
-  const deck = page.getByRole("region", { name: "Add canvas item" });
+  const deck = modal.getByRole("region", { name: "Add canvas item" });
   await expect(deck).toBeVisible();
   return deck;
 };
