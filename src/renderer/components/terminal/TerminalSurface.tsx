@@ -79,8 +79,6 @@ const XTERM_PAD_Y = 12; // 6 + 6
 const RESIZE_DEBOUNCE_MS = 48;
 /** After open/attach, wait for focus-shell enter + stored size apply. */
 const SETTLE_FITS_MS = [0, 50, 160, 320, 600] as const;
-/** Cap pre-attach event buffer so a stuck attach cannot grow forever. */
-const MAX_PENDING_EVENTS = 256;
 
 const applyViewportBookmark = (
   term: Terminal,
@@ -379,7 +377,9 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
       const event = raw as LiveEvent;
       if (event.bindingId !== bindingId) return;
       if (!attachDone) {
-        if (pending.length >= MAX_PENDING_EVENTS) pending.shift();
+        // Never drop post-snapshot events: attachScreen only covers bytes
+        // captured at snapshot start; pending is the sole gap-fill path.
+        // A stuck attach is bounded by cleanup/fail, not by discarding PTY data.
         pending.push(event);
         return;
       }
@@ -401,6 +401,7 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
           setStatus(result.message ?? "not running");
           attachDone = true;
           discardPending();
+          epochRef.current = undefined;
           return;
         }
         leaseRef.current = result.lease.leaseId;
@@ -451,12 +452,16 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
           if (result.screen?.seq !== undefined) lastSeq = result.screen.seq;
           term.write(serializedScreen, finishAttach);
         } else {
+          // Journal path: concatenate then one write so finishAttach runs after
+          // the parser drains (same contract as serialized replay).
+          const chunks: string[] = [];
           for (const item of result.journal ?? []) {
-            if (item.type === "output" && item.data) term.write(item.data);
+            if (item.type === "output" && item.data) chunks.push(item.data);
             if (item.seq !== undefined) lastSeq = item.seq;
           }
-          // Journal writes are fire-and-forget; finish after the microtask queue.
-          queueMicrotask(finishAttach);
+          const journalOutput = chunks.join("");
+          if (journalOutput.length > 0) term.write(journalOutput, finishAttach);
+          else finishAttach();
         }
       })
       .catch((error: unknown) => {
@@ -464,21 +469,25 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
         setStatus(error instanceof Error ? error.message : String(error));
         attachDone = true;
         discardPending();
+        epochRef.current = undefined;
       });
 
     return () => {
       alive = false;
-      // Capture scroll position before this surface dies (pin/unpin remount).
-      const epoch = epochRef.current;
-      if (epoch && bindingId) {
-        try {
-          const buf = term.buffer.active;
-          storeTerminalViewport(
-            bindingId,
-            bookmarkFromBuffer(epoch, buf.viewportY, buf.baseY),
-          );
-        } catch {
-          // Term may already be mid-dispose.
+      // Only bookmark a fully attached surface. Mid-attach store would overwrite
+      // a good pin bookmark with empty-buffer state and lose scroll position.
+      if (attachDone) {
+        const epoch = epochRef.current;
+        if (epoch && bindingId) {
+          try {
+            const buf = term.buffer.active;
+            storeTerminalViewport(
+              bindingId,
+              bookmarkFromBuffer(epoch, buf.viewportY, buf.baseY),
+            );
+          } catch {
+            // Term may already be mid-dispose.
+          }
         }
       }
       offData.dispose();
@@ -487,6 +496,7 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
       discardPending();
       const lease = leaseRef.current;
       leaseRef.current = undefined;
+      epochRef.current = undefined;
       if (lease) void api.terminalRelease(lease);
     };
   }, [bindingId, hostId]);
