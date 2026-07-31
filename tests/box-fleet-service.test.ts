@@ -62,7 +62,7 @@ afterEach(async () => {
 });
 
 describe("Box Fleet service ownership", () => {
-  it("returns a created Box only after SSH preparation and route verification", async () => {
+  it("enrolls a verified Box as a terminal-only Linux beta host", async () => {
     const { repository, state } = await fixture();
     const create = vi.fn(() => Effect.succeed(machine()));
     const cli = BoxCli.of({
@@ -92,7 +92,7 @@ describe("Box Fleet service ownership", () => {
       sshEndpoint: "user@203.0.113.8",
       sshIdentityFile: "/Users/operator/.ssh/ascii_box_ed25519",
       sshHostKeyPolicy: "accept-new",
-      capabilities: ["terminal", "browser", "herdr", "hermes"],
+      capabilities: ["terminal"],
     });
     expect(await Effect.runPromise(repository.list)).toHaveLength(1);
     expect(create).toHaveBeenCalledWith({

@@ -127,7 +127,10 @@ const hostForMachine = (
     sshEndpoint: `user@${machine.ip}`,
     sshIdentityFile: identityFile,
     sshHostKeyPolicy: "accept-new",
-    capabilities: ["terminal", "browser", "herdr", "hermes"],
+    // Box machines are Linux Remotes. The beta guarantees the native terminal
+    // plane only; browser is intentionally unavailable and optional external
+    // tools must be discovered rather than declared as host requirements.
+    capabilities: ["terminal"],
     appearance: { glyph: "compute-tower" },
   };
 };
