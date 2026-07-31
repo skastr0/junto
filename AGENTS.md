@@ -20,15 +20,16 @@ event convergence, the five Station verbs, and transport adapters.
 
 **Normative direction:** the protected document is the product; compiled
 projections and capability-bound tools are the agent API. **Sole durable store**
-is `~/.vellum/state/vellum.db`. The Electron main process owns its one
-`StateEngine` connection; renderers, CLIs, helpers, and remote callers use
-IPC/control APIs and never open the database. Every app version has one
-role-independent schema; independently updated installations may temporarily
-run different recognized versions. Command Center holds authorial canvases and
-fleet coordination; a Remote holds its replace-only projection and
-installation-homed work. Both event and entity homes are `InstallationId`
-values; `HostId` is placement, not durable work authority. Single-home rows and
-route-local
+is `~/.vellum/state/vellum.db`. Each installation has one sole app runtime
+database owner and one `StateEngine` connection: Electron main on Command
+Center, or the displayless packaged Node Remote process on Remote. Renderers,
+CLIs, helpers, and remote callers use IPC/control APIs and never open the
+database. Every app version has one role-independent schema; independently
+updated installations may temporarily run different recognized versions.
+Command Center holds authorial canvases and fleet coordination; a Remote holds
+its replace-only projection and installation-homed work. Both event and entity
+homes are `InstallationId` values; `HostId` is placement, not durable work
+authority. Single-home rows and route-local
 `(event_home, entity_home, seq)` Work identities make station clocks irrelevant
 to correctness.
 JSON Canvas exports and agent sidecars (`*.digest.txt`, `*.svg`) are outputs,
@@ -257,9 +258,11 @@ phase, and attention/occupancy are separate planes.
 - `~/.vellum/state/vellum.db` is the only product state store. Do not add JSON
   stores, manifests, seals, pointer files, drop-file protocols, dual
   reads/writes, legacy imports, or rollback paths.
-- The normal app main process is the only runtime database opener. Headless and
-  remote surfaces must use app-owned IPC/control/Station APIs. The sole update
-  exception is the quiesced, sealed, read-only candidate preflight above.
+- The installation's sole app runtime process is the only normal database
+  opener: Electron main on Command Center or the displayless packaged Node
+  Remote process on Remote. Other headless and remote surfaces must use
+  app-owned IPC/control/Station APIs. The sole update exception is the
+  quiesced, sealed, read-only packaged-candidate preflight above.
 - Adapters are read-only. The operator authors intent through Command Center;
   agents mutate only the work plane through `WorkService`.
 - Board/source IDs and tokens never leak into committed source.

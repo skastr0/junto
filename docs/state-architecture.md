@@ -12,7 +12,9 @@ Vellum has one storage architecture:
 ```text
 one installation
   └── ~/.vellum/state/vellum.db
-        └── one normal-runtime Electron-main StateEngine connection
+        └── one normal-runtime app StateEngine connection
+              ├── owner: Electron main (Command Center)
+              │          or displayless packaged Node process (Remote)
               ├── renderer IPC
               ├── owner-local canvas/work/browser/station controls
               └── typed Command Center → Station requests
@@ -24,20 +26,21 @@ rollback to files.
 ## Ownership
 
 - The state directory is mode `0700`; `vellum.db` is mode `0600`.
-- During normal operation the app's Electron main process is the only
-  production process that opens the database.
+- During normal operation each installation has one sole app runtime database
+  owner: Electron main on Command Center or the displayless packaged Node
+  Remote process on Remote.
 - Effect owns one scoped `StateEngine` connection and supplies it to every
   repository. A service must consume that shared layer, never construct a
   second connection.
 - Renderers, headless CLIs, packaged helpers, and SSH callers use app-owned
   IPC or control protocols.
 - The sole packaged exception is the staged candidate's sealed
-  `--vellum-state-preflight` Electron-main mode. It may open the fixed
-  canonical path read-only, when it exists, only after the installer has fully
-  quiesced the incumbent and proved that SQLite was released. It closes that
-  source before migrating and inspecting a disposable clone, accepts no
-  database-path argument or environment redirect, and starts no product
-  runtime planes. A first install creates only a disposable empty candidate.
+  `--vellum-state-preflight` process. It may open the fixed canonical path
+  read-only, when it exists, only after the installer has fully quiesced the
+  incumbent and proved that SQLite was released. It closes that source before
+  migrating and inspecting a disposable clone, accepts no database-path
+  argument or environment redirect, and starts no product runtime planes. A
+  first install creates only a disposable empty candidate.
 - Tests may open an explicitly injected disposable database. That is not a
   product access path.
 
@@ -134,7 +137,7 @@ transaction:
    database.
 2. **Quiesce.** Stop the incumbent and prove it released SQLite before another
    process opens `vellum.db`.
-3. **Mint evidence.** Invoke the exact staged packaged Electron executable in
+3. **Mint evidence.** Invoke the exact staged packaged product executable in
    sealed `--vellum-state-preflight` mode. For installed state it is now the
    sole opener, reads the fixed canonical database without write authority,
    creates and verifies one retained owner-only `VACUUM INTO` backup, copies
