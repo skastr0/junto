@@ -32,6 +32,7 @@ import { subscribeAgentSeatState } from "./lib/agent-seat-state";
 import { reconcileDockFromLiveSessions } from "./lib/dock-state";
 import { startSurfaceMotionGate } from "./lib/surface-motion";
 import { noteWorkDocChange } from "./lib/edge-sparks";
+import { clearPreambles, showPreamble } from "./lib/preamble-state";
 import { Canvas } from "./components/Canvas";
 import { TopBar } from "./components/TopBar";
 import { CanvasChrome } from "./components/CanvasChrome";
@@ -92,6 +93,7 @@ const resetCanvasView = (): void => {
     state$.regionSeverityByNodeId.set({});
     impactModeActive$.set(false);
   });
+  clearPreambles();
 };
 
 const canvasNavigationClock = makeNavigationClock();
@@ -350,6 +352,10 @@ export function App() {
       if (name !== state$.canvasName.peek()) return;
       void externalCanvasReload.changed(name);
     });
+    const offPreamble = vellum.onPreamble?.((event) => {
+      if (event.canvasName !== state$.canvasName.peek()) return;
+      showPreamble(event);
+    });
 
     const offCanvasFlush = vellum.onCanvasFlushRequested(async () => {
       await flushCanvasEdits();
@@ -373,6 +379,7 @@ export function App() {
       offSnapshots();
       offUsage();
       offCanvas();
+      offPreamble?.();
       offCanvasFlush();
       offCanvasQuiesceAndFlush();
       stopKernel();

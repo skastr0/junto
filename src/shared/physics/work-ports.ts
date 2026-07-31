@@ -2,12 +2,12 @@ import type { WorkOpName } from "../work-control";
 import type { Port, SinkKind } from "./schema";
 
 // Exhaustive WorkOp → Port map for target-scoped work ops.
-// Meta ops (ping/doctor/capabilities/onboard) are not ported — they are not
-// edge-scoped host capabilities.
+// Meta/seat-local ops (ping/doctor/capabilities/onboard/preamble) are not
+// ported — they are not edge-scoped host capabilities.
 
 export type TargetWorkOpName = Exclude<
   WorkOpName,
-  "ping" | "doctor" | "capabilities" | "onboard"
+  "ping" | "doctor" | "capabilities" | "onboard" | "preamble"
 >;
 
 /**

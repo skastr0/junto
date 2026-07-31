@@ -11,8 +11,10 @@ import {
   Pencil,
   Play,
   Trash2,
+  X,
 } from "lucide-react";
 import type { CanvasNode, EtherFlag } from "@shared/canvas";
+import type { PreambleEvent } from "@shared/preamble";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
 import { isExecutableNode } from "@shared/station";
 import { accentColor, borderColor, HUE, withAlpha } from "../../lib/theme";
@@ -27,6 +29,7 @@ import { deriveOccupancy } from "@shared/occupancy";
 import { useNodeOccupancyClue } from "../../lib/occupancy-feed";
 import { kernel$ } from "../../lib/kernel-view";
 import { executionGraphForImpact } from "../../lib/impact-mode";
+import { dismissPreamble, preambleByNodeId$ } from "../../lib/preamble-state";
 import { focusBlockerCause, resolveBlockerCause } from "../../lib/blocker-cause";
 import { Chip, IconButton, ToolbarPill } from "../ui";
 
@@ -36,6 +39,47 @@ const FLAG_HUES: Record<EtherFlag, string> = {
   attention: HUE.amber,
   parked: HUE.violet,
 };
+
+function PreambleBubble({
+  nodeId,
+  preamble,
+}: {
+  readonly nodeId: string;
+  readonly preamble: PreambleEvent;
+}) {
+  const stopNodeGesture = (event: React.PointerEvent | React.MouseEvent) => {
+    event.stopPropagation();
+  };
+  return (
+    <div
+      className="vellum-node__preamble nodrag nopan"
+      data-testid="node-preamble"
+      data-node-id={nodeId}
+      data-preamble-id={preamble.preambleId}
+      role="status"
+      aria-live="polite"
+    >
+      <span className="vellum-node__preamble-text">{preamble.text}</span>
+      <button
+        type="button"
+        className="vellum-node__preamble-close nodrag nopan"
+        aria-label="Dismiss preamble"
+        title="dismiss preamble"
+        onPointerDown={(event) => {
+          event.preventDefault();
+          stopNodeGesture(event);
+        }}
+        onClick={(event) => {
+          event.preventDefault();
+          stopNodeGesture(event);
+          dismissPreamble(nodeId, preamble.preambleId);
+        }}
+      >
+        <X size={11} />
+      </button>
+    </div>
+  );
+}
 
 function ConnectionHandles() {
   return <>{HANDLE_SIDES.map(([name, pos]) => <Handle key={`s-${name}`} id={`s-${name}`} aria-label={`Connect from ${name}`} type="source" position={pos} className={`vellum-handle vellum-handle--source vellum-handle--${name}`} />)}{HANDLE_SIDES.map(([name, pos]) => <Handle key={`t-${name}`} id={`t-${name}`} aria-label={`Connect to ${name}`} type="target" position={pos} className={`vellum-handle vellum-handle--target vellum-handle--${name}`} />)}</>;
@@ -291,6 +335,7 @@ export function NodeShell({
     flags: occupancyClue?.flags,
     nowMs: Date.now(),
   });
+  const preamble = use$(() => preambleByNodeId$[node.id].get());
   // Fire/ice glance: document + blocked prop (phase graph lives upstream).
   const attention = attentionOf(
     node,
@@ -388,6 +433,7 @@ export function NodeShell({
         boxShadow: shadow,
       }}
     >
+      {preamble ? <PreambleBubble nodeId={node.id} preamble={preamble} /> : null}
       {resizable ? (
         <NodeResizer
           isVisible={selected}

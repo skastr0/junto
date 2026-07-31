@@ -20,6 +20,7 @@ import {
   type CanvasQuiesceAndFlushResult,
   type NodeRefOpenedDelivery,
 } from "@shared/ipc";
+import type { PreambleEvent } from "@shared/preamble";
 import {
   resolvedSpawnEnv,
   terminateAdapterChildrenOnQuit,
@@ -1508,6 +1509,15 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       workControl = await startWorkControlServer({
         version: app.getVersion(),
         run: (effect) => AppRuntime.runPromise(effect),
+        onPreamble: (event: PreambleEvent) => {
+          const window = currentTrustedMainWindow();
+          if (
+            window === undefined ||
+            window.webContents.isDestroyed() ||
+            !isTrustedMainWebContents(window.webContents)
+          ) return;
+          window.webContents.send(IPC_CHANNELS.preamble, event);
+        },
       });
       if (shutdownAdmissionClosed) workControl.beginShutdown();
     } catch (error) {

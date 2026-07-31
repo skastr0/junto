@@ -355,6 +355,7 @@ describe("work-control main authoring classification", () => {
       doctor: "read",
       capabilities: "read",
       onboard: "read",
+      preamble: "read",
       "tasks.list": "read",
       "tasks.create": "authorial",
       "tasks.claim": "authorial",

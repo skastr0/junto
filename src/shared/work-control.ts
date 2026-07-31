@@ -37,6 +37,7 @@ export const WorkOpName = Schema.Literal(
   "doctor",
   "capabilities",
   "onboard",
+  "preamble",
   "tasks.list",
   "tasks.create",
   "tasks.claim",
@@ -260,6 +261,14 @@ export const MsgReplyArgs = Schema.Struct({
   inReplyTo: Schema.String,
 });
 export type MsgReplyArgs = typeof MsgReplyArgs.Type;
+
+/** Display a short-lived thought bubble above the process-bound agent node. */
+export const PreambleArgs = Schema.Struct({
+  text: Schema.String,
+}).annotations({
+  parseOptions: { onExcessProperty: "error" },
+});
+export type PreambleArgs = typeof PreambleArgs.Type;
 
 export const RequestEscalateArgs = Schema.Struct({
   target: Schema.String,

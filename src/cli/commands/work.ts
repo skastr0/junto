@@ -10,6 +10,7 @@ import {
   MsgReadArgs,
   MsgReplyArgs,
   MsgSendArgs,
+  PreambleArgs,
   RequestEscalateArgs,
   TasksClaimArgs,
   TasksCreateArgs,
@@ -122,6 +123,25 @@ export const tasksCommand = Command.make("tasks").pipe(
     tasksClaimCommand,
     tasksUpdateCommand,
   ]),
+);
+
+// --- seat-local preamble --------------------------------------------------
+
+export const preambleCommand = Command.make(
+  "preamble",
+  { input: jsonInputArg, timeout: timeoutOption },
+  ({ input, timeout }) =>
+    executeJsonCommand(
+      "preamble",
+      Effect.gen(function* () {
+        const item = yield* loadJsonInput(PreambleArgs, input);
+        return yield* callDomain("preamble", item, toUndefined(timeout));
+      }),
+    ),
+).pipe(
+  Command.withDescription(
+    "Show a short-lived preamble above this agent node (about 30 seconds)",
+  ),
 );
 
 // --- msg ---

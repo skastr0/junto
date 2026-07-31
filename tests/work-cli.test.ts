@@ -5,6 +5,7 @@ import {
   TasksCreateArgs,
   TasksUpdateArgs,
   ArtifactPublishCliArgs,
+  PreambleArgs,
 } from "../src/shared/work-control";
 import { loadBatchJsonInput, loadJsonInput } from "../src/cli/core/json";
 import { runMutationBatch } from "../src/cli/core/batch";
@@ -118,6 +119,18 @@ describe("work CLI json input modes", () => {
       ),
     ).rejects.toThrow(/approvedTaskId|unexpected/i);
   });
+
+  it("decodes the seat-local preamble input and rejects excess fields", async () => {
+    const parsed = await Effect.runPromise(
+      loadJsonInput(PreambleArgs, '{"text":"checking the task"}'),
+    );
+    expect(parsed.text).toBe("checking the task");
+    await expect(
+      Effect.runPromise(
+        loadJsonInput(PreambleArgs, '{"text":"x","target":"agent"}'),
+      ),
+    ).rejects.toThrow(/target|unexpected/i);
+  });
 });
 
 describe("work CLI batch outcomes", () => {
@@ -223,6 +236,11 @@ describe("schema/examples from validating schemas", () => {
     expect(commandIds).not.toContain("request.create");
     expect(allExamples.some((example) => example.command_id === "request.create"))
       .toBe(false);
+  });
+
+  it("discovers the seat-local preamble command", () => {
+    expect(allSchemas.map((contract) => contract.command_id)).toContain("preamble");
+    expect(allExamples.some((example) => example.command_id === "preamble")).toBe(true);
   });
 });
 

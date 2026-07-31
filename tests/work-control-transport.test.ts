@@ -15,6 +15,7 @@ import {
   encodeWorkFrame,
   workControlTokenPath,
 } from "../src/shared/work-control";
+import type { PreambleEvent } from "../src/shared/preamble";
 import { CanvasesLive, CanvasesService } from "../src/main/vellum/canvases";
 import {
   resolveProcessBoundActorRef,
@@ -245,6 +246,7 @@ const call = (
 
 const startTestServer = async (options: {
   readonly runtime?: WorkControlRuntime;
+  readonly onPreamble?: (event: PreambleEvent) => void;
   readonly decorateRun?: (
     base: WorkControlServerOptions["run"],
   ) => WorkControlServerOptions["run"];
@@ -284,6 +286,7 @@ const startTestServer = async (options: {
     readPeerPid: () => TEST_PEER_PID,
     run: options.decorateRun?.(baseRun) ?? baseRun,
     authoringGate,
+    onPreamble: options.onPreamble,
   }, options.runtime);
   servers.push(server);
   return { server, authoringGate };
@@ -674,6 +677,41 @@ describe("work control transport", () => {
         },
       },
     });
+  });
+
+  it("emits a bounded seat-local preamble without authoring the canvas", async () => {
+    const events: PreambleEvent[] = [];
+    const { server } = await startTestServer({
+      onPreamble: (event) => events.push(event),
+    });
+    const response = (await call(server.socketPath, {
+      token: token(),
+      op: "preamble",
+      args: { text: "  inspecting\n the task  " },
+    })) as {
+      ok: true;
+      data: PreambleEvent & { readonly disposition: "applied" };
+    };
+
+    expect(response.ok).toBe(true);
+    expect(response.data.text).toBe("inspecting the task");
+    expect(response.data.disposition).toBe("applied");
+    expect(response.data.expiresAt).toBeGreaterThan(Date.now());
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      canvasName: "work-cli",
+      nodeId: "agent",
+      text: "inspecting the task",
+      preambleId: response.data.preambleId,
+      expiresAt: response.data.expiresAt,
+    });
+
+    const canvases = await runtimes.at(-1)!.runPromise(CanvasesService);
+    const read = await runtimes.at(-1)!.runPromise(canvases.read("work-cli"));
+    const agentNode = read.doc.nodes.find(
+      (node) => node.id === "agent" && node.type === "text",
+    );
+    expect(agentNode?.type === "text" ? agentNode.text : undefined).toBe("agent");
   });
 
   it("escalate marks seat blocked; work ops return Blocked; resolve clears", async () => {

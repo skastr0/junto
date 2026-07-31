@@ -16,6 +16,7 @@ import {
   boardCommand,
   escalateCommand,
   msgCommand,
+  preambleCommand,
   tasksCommand,
 } from "./commands/work";
 import {
@@ -44,6 +45,7 @@ export const rootCommand = Command.make(CLI_NAME).pipe(
     onboardCommand,
     schemaCommand,
     examplesCommand,
+    preambleCommand,
     tasksCommand,
     msgCommand,
     escalateCommand,

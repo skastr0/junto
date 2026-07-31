@@ -25,6 +25,7 @@ import {
   type NodeRefOpenedEvent,
 } from "@shared/ipc";
 import type { SnapshotState } from "@shared/entities";
+import type { PreambleEvent } from "@shared/preamble";
 import type { Settings, SettingsOpResult, SettingsPatch, SettingsSectionKey } from "@shared/settings";
 import type { UsageState } from "@shared/usage";
 import type { LicenseStatus } from "@shared/license";
@@ -567,6 +568,7 @@ const vellumApi: VellumApi = {
   onCanvasFlushRequested,
   onCanvasQuiesceAndFlushRequested,
   onCanvasChanged: (listener) => subscribe<string>(IPC_CHANNELS.canvasChanged, listener),
+  onPreamble: (listener) => subscribe<PreambleEvent>(IPC_CHANNELS.preamble, listener),
   onSnapshotsChanged: (listener) =>
     subscribe<SnapshotState>(IPC_CHANNELS.snapshotsChanged, listener),
   onUsageChanged: (listener) => subscribe<UsageState>(IPC_CHANNELS.usageChanged, listener),

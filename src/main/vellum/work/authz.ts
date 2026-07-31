@@ -107,6 +107,7 @@ export const requiresConnection = (op: WorkOpName): boolean => {
     case "doctor":
     case "capabilities":
     case "onboard":
+    case "preamble":
       return false;
     case "tasks.list":
     case "tasks.create":

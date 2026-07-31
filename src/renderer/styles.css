@@ -1015,6 +1015,72 @@ html[data-vellum-platform="darwin"] .station-bar [role="listbox"] {
 .react-flow__node:hover .vellum-node--bare { transform: none; }
 .react-flow__node.dragging .vellum-node { transform: none; }
 .vellum-node--bare .vellum-node__body { overflow: visible; }
+.vellum-node__preamble {
+  position: absolute;
+  top: -9px;
+  right: -8px;
+  z-index: 30;
+  display: flex;
+  max-width: min(300px, calc(100% + 120px));
+  align-items: flex-start;
+  gap: 7px;
+  border: 1px solid rgba(57,198,214,.42);
+  border-radius: 8px 8px 3px 8px;
+  background: rgba(15,22,23,.96);
+  box-shadow: 0 10px 24px rgba(0,0,0,.35), 0 0 0 1px rgba(57,198,214,.08);
+  color: var(--color-ink);
+  padding: 7px 7px 7px 9px;
+  transform: translateY(-100%);
+  animation: vellum-preamble-enter .18s ease-out both;
+  pointer-events: auto;
+}
+.vellum-node__preamble::after {
+  content: "";
+  position: absolute;
+  right: 12px;
+  bottom: -5px;
+  width: 9px;
+  height: 9px;
+  border-right: 1px solid rgba(57,198,214,.42);
+  border-bottom: 1px solid rgba(57,198,214,.42);
+  background: rgba(15,22,23,.96);
+  transform: rotate(45deg);
+}
+.vellum-node__preamble-text {
+  min-width: 0;
+  color: rgba(237,230,218,.9);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.vellum-node__preamble-close {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-steel);
+  cursor: pointer;
+}
+.vellum-node__preamble-close:hover,
+.vellum-node__preamble-close:focus-visible {
+  background: rgba(255,255,255,.08);
+  color: var(--color-cyan);
+  outline: none;
+}
+@keyframes vellum-preamble-enter {
+  from { opacity: 0; transform: translateY(calc(-100% + 4px)); }
+  to { opacity: 1; transform: translateY(-100%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .vellum-node__preamble { animation: none; }
+}
 
 @keyframes vellum-dot-pulse {
   0%, 100% { opacity: 1; }

@@ -61,6 +61,9 @@ const WORK_OPERATION_CLASSIFICATION = {
   doctor: "read",
   capabilities: "read",
   onboard: "read",
+  // Preamble only emits an ephemeral renderer event; it does not author the
+  // canvas document or a work-plane row.
+  preamble: "read",
   "tasks.list": "read",
   "tasks.create": "authorial",
   "tasks.claim": "authorial",

@@ -14,6 +14,12 @@ import { join } from "node:path";
 import { Effect, Either, Schema } from "effect";
 import { ulid } from "ulid";
 import type { Artifact, CanvasDoc, Message, Part } from "@shared/canvas";
+import {
+  normalizePreambleText,
+  PREAMBLE_MAX_TEXT_LENGTH,
+  PREAMBLE_TTL_MS,
+  type PreambleEvent,
+} from "@shared/preamble";
 import type { ActorRef } from "@shared/work-protocol";
 import {
   makeAgentMessage,
@@ -36,6 +42,7 @@ import {
   MsgReadArgs,
   MsgReplyArgs,
   MsgSendArgs,
+  PreambleArgs,
   RequestEscalateArgs,
   TasksClaimArgs,
   TasksCreateArgs,
@@ -72,6 +79,7 @@ const MUTATING_OPS: ReadonlySet<string> = new Set([
   "tasks.claim",
   "tasks.create",
   "tasks.update",
+  "preamble",
   "msg.send",
   "msg.read",
   "msg.reply",
@@ -92,6 +100,7 @@ const BLOCKED_ENFORCED_OPS: ReadonlySet<string> = new Set([
   "tasks.claim",
   "tasks.create",
   "tasks.update",
+  "preamble",
   "msg.list",
   "msg.send",
   "msg.read",
@@ -389,6 +398,13 @@ type RunEffect = <A, E>(
   effect: Effect.Effect<A, E, WorkService | CanvasesService | PausePlane>,
 ) => Promise<A>;
 
+const PREAMBLE_TOOL = Object.freeze({
+  id: "preamble",
+  command: "vellum preamble",
+  description: "Show a short-lived thought bubble above this agent node.",
+  input: { text: "..." },
+});
+
 const ensureCaller = (
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   doc: any,
@@ -564,6 +580,7 @@ const dispatchOp = (
         node: summarizeNode(self),
         // Additive: derived factory role of the process-bound seat.
         role: factoryRoleOfNode(self),
+        tools: [PREAMBLE_TOOL],
         protocol_version: WORK_PROTOCOL_VERSION,
         connected,
         co_members: regionVisibility(board, caller.nodeId),
@@ -582,6 +599,7 @@ const dispatchOp = (
         node: summarizeNode(self),
         // Additive: derived factory role of the process-bound seat.
         role: factoryRoleOfNode(self),
+        tools: [PREAMBLE_TOOL],
         region: region ?? null,
         connected: connected.map((c) => ({
           id: c.id,
@@ -595,8 +613,37 @@ const dispatchOp = (
         capabilities: {
           protocol_version: WORK_PROTOCOL_VERSION,
           connected,
+          tools: [PREAMBLE_TOOL],
         },
       };
+    }
+
+    if (op === "preamble") {
+      const decoded = decodeArgs(PreambleArgs, args);
+      if (Either.isLeft(decoded)) return yield* Effect.fail(decoded.left);
+      const text = normalizePreambleText(decoded.right.text);
+      if (!text) {
+        return yield* Effect.fail<WorkErrorBody>({
+          type: "InputError",
+          message: "text must be non-empty",
+          details: { path: "args.text", retryable: false },
+        });
+      }
+      if (text.length > PREAMBLE_MAX_TEXT_LENGTH) {
+        return yield* Effect.fail<WorkErrorBody>({
+          type: "InputError",
+          message: `text must be at most ${PREAMBLE_MAX_TEXT_LENGTH} characters`,
+          details: { path: "args.text", retryable: false },
+        });
+      }
+      const event: PreambleEvent = {
+        preambleId: ulid(),
+        canvasName: caller.canvasName,
+        nodeId: caller.nodeId,
+        text,
+        expiresAt: Date.now() + PREAMBLE_TTL_MS,
+      };
+      return { ...event, disposition: "applied" as const };
     }
 
     if (op === "tasks.list") {
@@ -1106,6 +1153,8 @@ export interface WorkControlServerOptions {
   readonly readPeerPid?: PeerPidReader;
   /** Test seam; production uses the process-global main authoring authority. */
   readonly authoringGate?: MainAuthoringGate;
+  /** Main-process delivery for the seat-local, ephemeral preamble surface. */
+  readonly onPreamble?: (event: PreambleEvent) => void;
 }
 
 export interface WorkControlRuntime {
@@ -1542,6 +1591,30 @@ export const startWorkControlServer = async (
             workErr(body.type, body.message, body.details, req.op, req.id),
           );
           return;
+        }
+        if (req.op === "preamble" && options.onPreamble) {
+          const value = outcome.right as {
+            readonly preambleId?: unknown;
+            readonly canvasName?: unknown;
+            readonly nodeId?: unknown;
+            readonly text?: unknown;
+            readonly expiresAt?: unknown;
+          };
+          if (
+            typeof value.preambleId === "string" &&
+            typeof value.canvasName === "string" &&
+            typeof value.nodeId === "string" &&
+            typeof value.text === "string" &&
+            typeof value.expiresAt === "number"
+          ) {
+            options.onPreamble({
+              preambleId: value.preambleId,
+              canvasName: value.canvasName,
+              nodeId: value.nodeId,
+              text: value.text,
+              expiresAt: value.expiresAt,
+            });
+          }
         }
         respond(socket, workOk(req.op, outcome.right, req.id));
       } catch (error) {

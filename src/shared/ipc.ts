@@ -51,6 +51,7 @@ import type {
   StateRecoveryListResult,
 } from "./state-recovery";
 import type { UpdateApi } from "./update";
+import type { PreambleEvent } from "./preamble";
 import type { HostDeployJobSnapshot } from "./deploy-job";
 export type { UpdateApi, UpdateStatus, AvailableRelease, UpdatePhase } from "./update";
 
@@ -74,6 +75,8 @@ export const IPC_CHANNELS = {
   agentIdentity: "vellum:agent-identity",
   agentAvatar: "vellum:agent-avatar",
   agentMessage: "vellum:agent-message",
+  /** Main → renderer: one ephemeral agent preamble. */
+  preamble: "vellum:preamble",
   chatOpen: "vellum:chat-open",
   chatPrompt: "vellum:chat-prompt",
   chatPermission: "vellum:chat-permission",
@@ -688,6 +691,8 @@ export interface VellumApi extends LicenseApi, UpdateApi {
     ) => CanvasQuiesceAndFlushOutcome | Promise<CanvasQuiesceAndFlushOutcome>,
   ) => () => void;
   readonly onCanvasChanged: (listener: (name: string) => void) => () => void;
+  /** Optional for older renderer bridges; present in the current preload. */
+  readonly onPreamble?: (listener: (event: PreambleEvent) => void) => () => void;
   readonly onSnapshotsChanged: (listener: (state: SnapshotState) => void) => () => void;
   readonly onUsageChanged: (listener: (state: UsageState) => void) => () => void;
   readonly onKernelChanged: (listener: (snapshot: KernelSnapshot) => void) => () => void;

@@ -14,6 +14,7 @@ import {
   MsgReadArgs,
   MsgReplyArgs,
   MsgSendArgs,
+  PreambleArgs,
   RequestEscalateArgs,
   TasksClaimArgs,
   TasksCreateArgs,
@@ -197,6 +198,15 @@ export const msgReplySchema: CommandSchemaContract = {
   input_modes: inputModes,
 };
 
+export const preambleSchema: CommandSchemaContract = {
+  command_id: "preamble",
+  command: "preamble",
+  schema_id: "preamble.input/v1",
+  description: "Show a short-lived thought bubble above this agent node.",
+  schema: PreambleArgs,
+  input_modes: inputModes,
+};
+
 export const requestEscalateSchema: CommandSchemaContract = {
   command_id: "request.escalate",
   command: "escalate",
@@ -284,6 +294,7 @@ export const allSchemas: ReadonlyArray<CommandSchemaContract> = [
   msgSendSchema,
   msgReadSchema,
   msgReplySchema,
+  preambleSchema,
   requestEscalateSchema,
   artifactPublishSchema,
   browserPagesSchema,
@@ -412,6 +423,17 @@ export const allExamples: ReadonlyArray<CommandExample> = [
       "msg",
       "reply",
       '{"target":"seat-b","text":"ack, starting","inReplyTo":"msg_01"}',
+    ],
+  },
+  {
+    command_id: "preamble",
+    command: "preamble",
+    name: "share a brief thought",
+    description: "Show a sentence above this agent node for about 30 seconds.",
+    input: { text: "Inspecting the task and choosing the smallest safe change." },
+    args: [
+      "preamble",
+      '{"text":"Inspecting the task and choosing the smallest safe change."}',
     ],
   },
   {
@@ -610,6 +632,14 @@ export const commandCapabilities: ReadonlyArray<CommandCapability> = [
       default_concurrency: DEFAULT_BATCH_CONCURRENCY,
       supports_concurrency_option: true,
     },
+  },
+  {
+    command_id: "preamble",
+    command: "preamble",
+    category: "workflow",
+    description: "Show a short-lived thought bubble above this agent node.",
+    schemas: [preambleSchema],
+    examples: allExamples.filter((e) => e.command_id === "preamble"),
   },
   {
     command_id: "request.escalate",

@@ -91,6 +91,7 @@ Call **\`vellum onboard\`** at session start and after every compaction (or when
 |---|---|
 | orient | \`vellum onboard\` |
 | live contract | \`vellum capabilities\` |
+| share a brief preamble | \`vellum preamble '{"text":"..."}'\` |
 | list queue | \`vellum tasks list --target <id>\` |
 | propose work | \`vellum tasks create '{"target":"<id>","brief":"..."}'\` |
 | claim | \`vellum tasks claim --target <id> --task <id>\` |

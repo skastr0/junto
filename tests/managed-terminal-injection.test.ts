@@ -29,6 +29,7 @@ describe("managed-terminal injection text", () => {
     expect(text!).toContain(WORKER_DOCTRINE.slice(0, 40));
     expect(text!).toContain(CLI_CONTRACT.slice(0, 40));
     expect(text!).toContain("vellum onboard");
+    expect(text!).toContain("vellum preamble");
     expect(text!).toContain("ScopeError");
     expect(text!).toContain("ClaimConflict");
     expect(text!).toContain("RuntimeDown");
