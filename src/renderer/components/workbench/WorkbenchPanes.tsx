@@ -20,6 +20,7 @@ import { terminal$ } from "../../lib/terminal-state";
 import { TerminalSurface } from "../terminal/TerminalSurface";
 import { Button } from "../ui";
 import { ChatSurface } from "../chat/ChatSurface";
+import { activateSurfaceOnMouseDown } from "../../lib/pointer-activation";
 
 function HerdrSurfaceSlot({
   surface,
@@ -48,9 +49,7 @@ function HerdrSurfaceSlot({
       className="dock-slot dock-slot--herdr workbench-surface"
       aria-label="Herdr terminal surface"
       aria-hidden={!visible}
-      onMouseDown={() => {
-        onActivate?.();
-      }}
+      onMouseDown={activateSurfaceOnMouseDown(onActivate)}
     >
       {visible ? (
         <div className="workbench-surface__herdr-actions" data-herdr-chrome>
@@ -104,7 +103,18 @@ function resolveSurfaceBody(
   if (surface.kind === "terminal") {
     const nodeId = parseTerminalSurfaceId(surface.id);
     const node = nodeId ? terminal$.openByNodeId[nodeId].peek() : undefined;
-    return <section className="dock-slot workbench-surface" onMouseDown={onActivate}>{node ? <TerminalSurface node={node} /> : <div className="workbench-surface__placeholder">terminal · unbound</div>}</section>;
+    return (
+      <section
+        className="dock-slot workbench-surface"
+        onMouseDown={activateSurfaceOnMouseDown(onActivate)}
+      >
+        {node ? (
+          <TerminalSurface node={node} />
+        ) : (
+          <div className="workbench-surface__placeholder">terminal · unbound</div>
+        )}
+      </section>
+    );
   }
   if (surface.kind === "chat") {
     return (
@@ -117,7 +127,10 @@ function resolveSurfaceBody(
     );
   }
   return (
-    <section className="dock-slot workbench-surface" onMouseDown={onActivate}>
+    <section
+      className="dock-slot workbench-surface"
+      onMouseDown={activateSurfaceOnMouseDown(onActivate)}
+    >
       <div className="workbench-surface__placeholder">chat · {surface.id}</div>
     </section>
   );

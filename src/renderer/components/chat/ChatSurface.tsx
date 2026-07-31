@@ -6,6 +6,7 @@ import {
   pinWorkbenchSurface,
   unpinWorkbenchSurface,
 } from "../../lib/dock-state";
+import { activateSurfaceOnMouseDown } from "../../lib/pointer-activation";
 import { IconButton } from "../ui";
 import { ChatView } from "./ChatView";
 
@@ -60,7 +61,7 @@ export function ChatSurface({
       className="dock-slot dock-slot--chat workbench-surface"
       aria-label={`ACP chat · ${payload.title}`}
       aria-hidden={!visible}
-      onMouseDown={onActivate}
+      onMouseDown={activateSurfaceOnMouseDown(onActivate)}
     >
       <ChatView
         agentKey={payload.agentKey}

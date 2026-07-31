@@ -22,6 +22,12 @@ import {
   VELLUM_XTERM_THEME,
 } from "../../lib/terminal-theme";
 import { shouldNotifyPtyResize } from "../../lib/terminal-resize";
+import {
+  bookmarkFromBuffer,
+  resolveViewportRestore,
+  storeTerminalViewport,
+  takeTerminalViewport,
+} from "../../lib/terminal-viewport";
 import { claimedTaskForActorNode } from "../../lib/claimed-task";
 import { state$ } from "../../lib/state";
 import { releaseTaskToQueue } from "../../lib/work-actions";
@@ -73,6 +79,24 @@ const XTERM_PAD_Y = 12; // 6 + 6
 const RESIZE_DEBOUNCE_MS = 48;
 /** After open/attach, wait for focus-shell enter + stored size apply. */
 const SETTLE_FITS_MS = [0, 50, 160, 320, 600] as const;
+/** Cap pre-attach event buffer so a stuck attach cannot grow forever. */
+const MAX_PENDING_EVENTS = 256;
+
+const applyViewportBookmark = (
+  term: Terminal,
+  bindingId: string,
+  epoch: string,
+): void => {
+  const bookmark = takeTerminalViewport(bindingId, epoch);
+  if (!bookmark) return;
+  try {
+    const restore = resolveViewportRestore(bookmark, term.buffer.active.baseY);
+    if (restore === "bottom") term.scrollToBottom();
+    else term.scrollToLine(restore);
+  } catch {
+    // Scroll APIs can throw if the buffer is mid-dispose; content still shows.
+  }
+};
 
 type XtermCore = {
   readonly _renderService?: {
@@ -340,6 +364,10 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
     let attachDone = false;
     const settleTimers: ReturnType<typeof setTimeout>[] = [];
 
+    const discardPending = (): void => {
+      pending.length = 0;
+    };
+
     const offData = term.onData((data) => {
       const lease = leaseRef.current;
       if (lease) void api.terminalWrite(lease, data);
@@ -351,6 +379,7 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
       const event = raw as LiveEvent;
       if (event.bindingId !== bindingId) return;
       if (!attachDone) {
+        if (pending.length >= MAX_PENDING_EVENTS) pending.shift();
         pending.push(event);
         return;
       }
@@ -365,11 +394,13 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
         const result = raw as AttachResult;
         if (!alive) {
           if (result.ok && result.lease) void api.terminalRelease(result.lease.leaseId);
+          discardPending();
           return;
         }
         if (!result.ok || !result.lease) {
           setStatus(result.message ?? "not running");
           attachDone = true;
+          discardPending();
           return;
         }
         leaseRef.current = result.lease.leaseId;
@@ -382,54 +413,78 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
         // Live sessions have exactly one attach representation: serialized VT
         // state. Journal is only for failures before an observer existed.
         const serializedScreen = result.screen?.serialized;
+        const finishAttach = (): void => {
+          if (!alive || !result.lease) return;
+          applyViewportBookmark(term, bindingId, result.lease.epoch);
+          attachDone = true;
+          let sawExit = result.status === "exited";
+          for (const event of pending) {
+            if (event.epoch !== result.lease.epoch) continue;
+            if (lastSeq !== undefined && event.seq !== undefined && event.seq <= lastSeq) continue;
+            if (event.type === "output" && event.data) term.write(event.data);
+            if (event.type === "exit") sawExit = true;
+          }
+          discardPending();
+          // Retained exited generations may expose their final raw journal.
+          // Never paint those as a live control lease.
+          setStatus(sawExit ? "exited" : "control");
+          // Repaint through layout settle; only a real cols×rows transition is
+          // forwarded to the child PTY.
+          requestAnimationFrame(() => {
+            if (!alive) return;
+            pushResize();
+            if (!sawExit) term.focus();
+          });
+          for (const ms of SETTLE_FITS_MS) {
+            settleTimers.push(
+              setTimeout(() => {
+                if (alive) pushResize();
+              }, ms),
+            );
+          }
+        };
         if (serializedScreen) {
           // Serialized xterm VT state restores cells, SGR/color, cursor,
           // normal/alternate buffers, and terminal modes in one representation.
+          // Viewport restore must wait for write's parse callback.
           term.reset();
-          term.write(serializedScreen);
           if (result.screen?.seq !== undefined) lastSeq = result.screen.seq;
+          term.write(serializedScreen, finishAttach);
         } else {
           for (const item of result.journal ?? []) {
             if (item.type === "output" && item.data) term.write(item.data);
             if (item.seq !== undefined) lastSeq = item.seq;
           }
-        }
-        attachDone = true;
-        let sawExit = result.status === "exited";
-        for (const event of pending) {
-          if (event.epoch !== result.lease.epoch) continue;
-          if (lastSeq !== undefined && event.seq !== undefined && event.seq <= lastSeq) continue;
-          if (event.type === "output" && event.data) term.write(event.data);
-          if (event.type === "exit") sawExit = true;
-        }
-        pending.length = 0;
-        // Retained exited generations may expose their final raw journal.
-        // Never paint those as a live control lease.
-        setStatus(sawExit ? "exited" : "control");
-        // Repaint through layout settle; only a real cols×rows transition is
-        // forwarded to the child PTY.
-        requestAnimationFrame(() => {
-          if (!alive) return;
-          pushResize();
-          if (!sawExit) term.focus();
-        });
-        for (const ms of SETTLE_FITS_MS) {
-          settleTimers.push(
-            setTimeout(() => {
-              if (alive) pushResize();
-            }, ms),
-          );
+          // Journal writes are fire-and-forget; finish after the microtask queue.
+          queueMicrotask(finishAttach);
         }
       })
-      .catch((error: unknown) =>
-        setStatus(error instanceof Error ? error.message : String(error)),
-      );
+      .catch((error: unknown) => {
+        if (!alive) return;
+        setStatus(error instanceof Error ? error.message : String(error));
+        attachDone = true;
+        discardPending();
+      });
 
     return () => {
       alive = false;
+      // Capture scroll position before this surface dies (pin/unpin remount).
+      const epoch = epochRef.current;
+      if (epoch && bindingId) {
+        try {
+          const buf = term.buffer.active;
+          storeTerminalViewport(
+            bindingId,
+            bookmarkFromBuffer(epoch, buf.viewportY, buf.baseY),
+          );
+        } catch {
+          // Term may already be mid-dispose.
+        }
+      }
       offData.dispose();
       offEvent();
       for (const t of settleTimers) clearTimeout(t);
+      discardPending();
       const lease = leaseRef.current;
       leaseRef.current = undefined;
       if (lease) void api.terminalRelease(lease);

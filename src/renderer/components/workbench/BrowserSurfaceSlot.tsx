@@ -11,6 +11,7 @@ import {
 } from "../../lib/dock-state";
 import type { WorkZone } from "../../lib/surface-registry";
 import { getVellumApi } from "../../lib/vellum-api";
+import { activateSurfaceOnMouseDown } from "../../lib/pointer-activation";
 import { Button, OverlayHeader } from "../ui";
 
 type BrowserApi = ReturnType<typeof getVellumApi> & Partial<VellumBrowserApi>;
@@ -111,7 +112,7 @@ export function BrowserSurfaceSlot({
       className="dock-slot workbench-surface"
       aria-label="Browser page surface"
       aria-hidden={!visible}
-      onMouseDown={() => onActivate?.()}
+      onMouseDown={activateSurfaceOnMouseDown(onActivate)}
     >
       {visible ? (
         <OverlayHeader
