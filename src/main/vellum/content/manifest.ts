@@ -372,6 +372,145 @@ export const manifestAvailability = (
   };
 };
 
+/** Every distinct digest bound by a content_refs row (mark set for GC). */
+export const listReferencedContentDigests = (
+  reader: StateReader,
+): ReadonlyArray<{ readonly sha256: string; readonly byteLength: number }> => {
+  const rows = reader.all<{
+    readonly sha256: string;
+    readonly byte_length: number | bigint;
+  }>(
+    `
+      SELECT DISTINCT sha256, byte_length
+      FROM content_refs
+      ORDER BY sha256
+    `,
+  );
+  return rows.map((row) => ({
+    sha256: row.sha256,
+    byteLength: Number(row.byte_length),
+  }));
+};
+
+/** Digests protected by an in-flight transfer (not complete/failed/canceled). */
+export const listActiveTransferDigests = (
+  reader: StateReader,
+): ReadonlyArray<{
+  readonly sha256: string;
+  readonly byteLength: number;
+  readonly transferId: string;
+  readonly state: ContentTransferState;
+}> => {
+  const rows = reader.all<{
+    readonly transfer_id: string;
+    readonly sha256: string;
+    readonly byte_length: number | bigint;
+    readonly state: ContentTransferState;
+  }>(
+    `
+      SELECT transfer_id, sha256, byte_length, state
+      FROM content_transfers
+      WHERE state IN ('pending', 'receiving', 'verifying')
+      ORDER BY sha256, transfer_id
+    `,
+  );
+  return rows.map((row) => ({
+    transferId: row.transfer_id,
+    sha256: row.sha256,
+    byteLength: Number(row.byte_length),
+    state: row.state,
+  }));
+};
+
+export type ContentObjectAgeRow = {
+  readonly sha256: string;
+  readonly byteLength: number;
+  readonly createdAt: string;
+  readonly verifiedAt: string;
+  readonly refCount: number;
+};
+
+/** Manifest objects with ref counts — used by integrity/GC. */
+export const listContentObjectsWithRefCounts = (
+  reader: StateReader,
+): ReadonlyArray<ContentObjectAgeRow> => {
+  const rows = reader.all<{
+    readonly sha256: string;
+    readonly byte_length: number | bigint;
+    readonly created_at: string;
+    readonly verified_at: string;
+    readonly ref_count: number | bigint;
+  }>(
+    `
+      SELECT
+        o.sha256,
+        o.byte_length,
+        o.created_at,
+        o.verified_at,
+        (
+          SELECT count(*)
+          FROM content_refs r
+          WHERE r.sha256 = o.sha256
+        ) AS ref_count
+      FROM content_objects o
+      ORDER BY o.created_at, o.sha256
+    `,
+  );
+  return rows.map((row) => ({
+    sha256: row.sha256,
+    byteLength: Number(row.byte_length),
+    createdAt: row.created_at,
+    verifiedAt: row.verified_at,
+    refCount: Number(row.ref_count),
+  }));
+};
+
+/**
+ * Remove an unreferenced content object and its receipt from the manifest.
+ * Fails closed if any content_refs still point at the digest (GC must re-check).
+ */
+export const deleteUnreferencedContentObject = (
+  writer: StateWriter,
+  sha256: string,
+): { readonly deleted: boolean } => {
+  if (!/^[a-f0-9]{64}$/u.test(sha256)) {
+    throw new ContentManifestError("invalid", "sha256 must be lower-case hex");
+  }
+  const refs = writer.get<{ readonly count: number | bigint }>(
+    `SELECT count(*) AS count FROM content_refs WHERE sha256 = ?`,
+    [sha256],
+  );
+  if (Number(refs?.count ?? 0) > 0) {
+    throw new ContentManifestError(
+      "conflict",
+      `cannot GC content object ${sha256}: still referenced`,
+    );
+  }
+  const active = writer.get<{ readonly count: number | bigint }>(
+    `
+      SELECT count(*) AS count
+      FROM content_transfers
+      WHERE sha256 = ?
+        AND state IN ('pending', 'receiving', 'verifying')
+    `,
+    [sha256],
+  );
+  if (Number(active?.count ?? 0) > 0) {
+    throw new ContentManifestError(
+      "conflict",
+      `cannot GC content object ${sha256}: transfer still active`,
+    );
+  }
+  const object = writer.get<{ readonly sha256: string }>(
+    `SELECT sha256 FROM content_objects WHERE sha256 = ?`,
+    [sha256],
+  );
+  if (object === undefined) return { deleted: false };
+  writer.run(`DELETE FROM content_receipts WHERE sha256 = ?`, [sha256]);
+  writer.run(`DELETE FROM content_objects WHERE sha256 = ?`, [sha256]);
+  return { deleted: true };
+};
+
 export const upsertContentTransfer = (
   writer: StateWriter,
   input: {

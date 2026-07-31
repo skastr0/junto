@@ -41,6 +41,7 @@ import {
   contentPartialPath,
   contentStoreRoot,
 } from "./paths";
+import { assertContentDiskAdmission } from "./disk-admission";
 import {
   ContentStoreError,
   ensureContentLayout,
@@ -374,6 +375,9 @@ export const receiveContentTransfer = async (input: {
   readonly ref: ContentRef;
   readonly source: ContentByteSource;
   readonly expectedOffset?: number;
+  /** Test/injection hook for free-space admission. */
+  readonly diskFreeBytes?: number;
+  readonly diskReserveBytes?: number;
 }): Promise<ContentReceiveResult> => {
   const root = input.root ?? contentStoreRoot();
   ensureContentLayout(root);
@@ -428,6 +432,15 @@ export const receiveContentTransfer = async (input: {
       "content partial exceeds ContentRef byteLength",
     );
   }
+
+  // Remaining bytes must fit under free space minus reserve.
+  const needBytes = ref.byteLength - currentBytes;
+  assertContentDiskAdmission({
+    root,
+    needBytes,
+    reserveBytes: input.diskReserveBytes,
+    freeBytes: input.diskFreeBytes,
+  });
 
   // Already have a full partial — finalize without more bytes.
   if (currentBytes === ref.byteLength && ref.byteLength >= 0) {

@@ -415,6 +415,13 @@ Any app-owned backup protects only the current SQLite architecture. It does
 not preserve or restore a retired JSON, manifest, seal, or projection-file
 layout, and it cannot become a compatibility path for one.
 
+When the content store holds binary objects, a coherent product unit is the
+StateEngine backup **plus** a content snapshot of every `content_refs` digest
+(`~/.vellum/content/snapshots/content-snapshot-<uuid>/`). The snapshot hardlinks
+or copies immutable objects and refuses to mint when a referenced object is
+missing or corrupt. Export and forensic copy may carry both receipts; there is
+still no automatic restore that replaces the live `vellum.db`.
+
 ## Forbidden paths
 
 The following are architectural defects, not compatibility features:

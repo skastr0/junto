@@ -84,7 +84,9 @@ export class ContentStoreError extends Error {
     | "corrupt"
     | "missing"
     | "io"
-    | "invalid";
+    | "invalid"
+    /** Retryable: free disk below reserve after accounting for the write. */
+    | "disk-low";
 
   constructor(
     code: ContentStoreError["code"],

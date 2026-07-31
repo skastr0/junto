@@ -8,7 +8,26 @@ import { resolveVellumHome } from "@shared/vellum-home";
 import {
   StateEngine,
   StateEngineError,
+  type StateBackupReceipt,
 } from "../state/service";
+import {
+  createContentSnapshot,
+  type ContentSnapshotReceipt,
+} from "./backup";
+import {
+  admitContentWrite,
+  assertContentDiskAdmission,
+  type ContentDiskAdmission,
+} from "./disk-admission";
+import {
+  collectContentGarbage,
+  type ContentGcOptions,
+  type ContentGcReport,
+} from "./gc";
+import {
+  runContentIntegrityCheck,
+  type ContentIntegrityReport,
+} from "./integrity";
 import {
   listContentRefsForObject,
   manifestAvailability,
@@ -21,6 +40,7 @@ import {
 import { contentStoreRoot } from "./paths";
 import {
   ContentStoreError,
+  ensureContentLayout,
   ingestContentBytes,
   projectContentLocalPath,
   verifyContentObjectFile,
@@ -36,6 +56,12 @@ export type ContentPutInput = {
   readonly expected?: Pick<ContentRef, "sha256" | "byteLength">;
   /** Bind a ref only after the object is durable. Optional. */
   readonly owner?: ContentOwner;
+  /**
+   * Test/injection hook for free-space admission. Production omits this and
+   * probes the content volume via statfs.
+   */
+  readonly diskFreeBytes?: number;
+  readonly diskReserveBytes?: number;
 };
 
 export type ContentPutResult = ContentIngestResult & {
@@ -78,6 +104,37 @@ export class ContentService extends Context.Tag("@vellum/ContentService")<
     readonly listRefs: (
       sha256: string,
     ) => Effect.Effect<ReadonlyArray<ContentRefRow>, StateEngineError>;
+    /** Startup / recovery integrity over referenced digests. */
+    readonly integrityCheck: () => Effect.Effect<
+      ContentIntegrityReport,
+      StateEngineError | ContentStoreError
+    >;
+    /**
+     * Conservative mark-and-sweep. Defaults to dry-run; pass
+     * `{ dryRun: false }` for a live sweep.
+     */
+    readonly collectGarbage: (
+      options?: ContentGcOptions,
+    ) => Effect.Effect<
+      ContentGcReport,
+      StateEngineError | ContentStoreError | ContentManifestError
+    >;
+    /**
+     * Snapshot every content_refs object. Optionally attach a prior
+     * StateEngine VACUUM backup receipt so DB + objects are one product unit.
+     */
+    readonly snapshot: (options?: {
+      readonly stateBackup?: StateBackupReceipt;
+    }) => Effect.Effect<
+      ContentSnapshotReceipt,
+      StateEngineError | ContentStoreError
+    >;
+    /** Probe disk admission for a prospective write size. */
+    readonly admitWrite: (input: {
+      readonly needBytes: number;
+      readonly reserveBytes?: number;
+      readonly freeBytes?: number;
+    }) => Effect.Effect<ContentDiskAdmission, ContentStoreError>;
   }
 >() {}
 
@@ -89,6 +146,29 @@ const makeContentService = (
 
   put: (input) =>
     Effect.gen(function* () {
+      ensureContentLayout(root);
+      // Disk admission before streaming bytes: known expected size, else
+      // admit with needBytes=0 so only the reserve must be free (mid-stream
+      // ENOSPC still surfaces as io/disk-low from the OS).
+      const needBytes = input.expected?.byteLength ?? 0;
+      yield* Effect.try({
+        try: () =>
+          assertContentDiskAdmission({
+            root,
+            needBytes,
+            reserveBytes: input.diskReserveBytes,
+            freeBytes: input.diskFreeBytes,
+          }),
+        catch: (cause) => {
+          if (cause instanceof ContentStoreError) return cause;
+          return new ContentStoreError(
+            "io",
+            cause instanceof Error ? cause.message : String(cause),
+            { cause },
+          );
+        },
+      });
+
       // 1) Durable object on disk first (crash → orphan file only).
       const ingested = yield* Effect.tryPromise({
         try: () =>
@@ -169,6 +249,119 @@ const makeContentService = (
     state.read("content.listRefs", (reader) =>
       listContentRefsForObject(reader, sha256),
     ),
+
+  integrityCheck: () =>
+    Effect.gen(function* () {
+      const boxed = yield* state.read("content.integrity", (reader) => {
+        try {
+          return {
+            ok: true as const,
+            report: runContentIntegrityCheck(root, reader),
+          };
+        } catch (error) {
+          if (error instanceof ContentStoreError) {
+            return { ok: false as const, error };
+          }
+          throw error;
+        }
+      });
+      if (!boxed.ok) return yield* Effect.fail(boxed.error);
+      return boxed.report;
+    }),
+
+  collectGarbage: (options) => {
+    const dryRun = options?.dryRun !== false;
+    if (dryRun) {
+      return Effect.gen(function* () {
+        const boxed = yield* state.read("content.gc.dryRun", (reader) => {
+          try {
+            return {
+              ok: true as const,
+              report: collectContentGarbage(root, reader, undefined, {
+                ...options,
+                dryRun: true,
+              }),
+            };
+          } catch (error) {
+            if (
+              error instanceof ContentStoreError ||
+              error instanceof ContentManifestError
+            ) {
+              return { ok: false as const, error };
+            }
+            throw error;
+          }
+        });
+        if (!boxed.ok) return yield* Effect.fail(boxed.error);
+        return boxed.report;
+      });
+    }
+    return Effect.gen(function* () {
+      const boxed = yield* state.transaction("content.gc.sweep", (writer) => {
+        try {
+          return {
+            ok: true as const,
+            report: collectContentGarbage(root, writer, writer, {
+              ...options,
+              dryRun: false,
+            }),
+          };
+        } catch (error) {
+          if (
+            error instanceof ContentStoreError ||
+            error instanceof ContentManifestError
+          ) {
+            return { ok: false as const, error };
+          }
+          throw error;
+        }
+      });
+      if (!boxed.ok) return yield* Effect.fail(boxed.error);
+      return boxed.report;
+    });
+  },
+
+  snapshot: (options) =>
+    Effect.gen(function* () {
+      const boxed = yield* state.read("content.snapshot", (reader) => {
+        try {
+          return {
+            ok: true as const,
+            receipt: createContentSnapshot(root, reader, {
+              stateBackup: options?.stateBackup,
+            }),
+          };
+        } catch (error) {
+          if (error instanceof ContentStoreError) {
+            return { ok: false as const, error };
+          }
+          throw error;
+        }
+      });
+      if (!boxed.ok) return yield* Effect.fail(boxed.error);
+      return boxed.receipt;
+    }),
+
+  admitWrite: (input) =>
+    Effect.try({
+      try: () => {
+        ensureContentLayout(root);
+        return admitContentWrite({
+          root,
+          needBytes: input.needBytes,
+          reserveBytes: input.reserveBytes,
+          freeBytes: input.freeBytes,
+        });
+      },
+      catch: (cause) => {
+        if (cause instanceof ContentStoreError) return cause;
+        return new ContentStoreError(
+          "io",
+          cause instanceof Error ? cause.message : String(cause),
+          { cause },
+        );
+      },
+    }),
 });
 
 export const makeContentServiceLive = (options?: {

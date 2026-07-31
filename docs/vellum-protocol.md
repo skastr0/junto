@@ -994,6 +994,24 @@ warnBelow: 4 }`; negotiation returns non-retryable `update-required`. The
 older peer retains local work under its last valid projection. There is no
 partial down-conversion of ContentRefs into Base64 to satisfy an older peer.
 
+### Content store operations (local installation)
+
+SQLite references and immutable content objects are one recoverable product
+state. Each installation:
+
+- **admits** puts and transfers only when free space covers remaining bytes
+  plus a fixed disk reserve (`disk-low` is retryable and observable);
+- **integrity-checks** every `content_refs` digest (size + full hash) and
+  surfaces missing, corrupt, orphan-file, partial, and unreferenced findings;
+- **GCs** with mark-and-sweep: mark = digests in `content_refs` ∪ active
+  transfers (`pending`/`receiving`/`verifying`); sweep only after grace for
+  unreferenced objects, orphan files, and stale partials — never because
+  another Station lacks the object;
+- **snapshots** every referenced object beside a StateEngine `VACUUM INTO`
+  backup so a restored DB + content snapshot has no dangling refs.
+
+Physical content retirement is not a schema migration step.
+
 ### Canonical event
 
 The shared contract first names a complete route and identity:
