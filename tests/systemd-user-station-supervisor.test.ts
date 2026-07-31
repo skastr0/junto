@@ -18,7 +18,11 @@ vi.mock("../src/main/vellum/supervision/systemctl-runner", () => ({
   startVellumSystemdUserUnit: mocks.startVellumSystemdUserUnit,
 }));
 
-import { createSystemdUserStationSupervisor } from "../src/main/vellum/supervision/systemd-user";
+import {
+  createSystemdUserStationSupervisor,
+  renderUserlandLinuxService,
+  USERLAND_LINUX_SERVICE_PATH,
+} from "../src/main/vellum/supervision/systemd-user";
 
 const showOutput = (overrides: Partial<Record<
   "LoadState" | "ActiveState" | "SubState" | "MainPID" | "ControlGroup" | "InvocationID",
@@ -69,6 +73,36 @@ beforeEach(() => {
   mocks.showVellumSystemdUserUnit.mockReset();
   mocks.startVellumSystemdUserUnit.mockReset();
   mocks.systemdUserUnitTarget.mockReturnValue(mocks.target);
+});
+
+describe("userland Linux service rendering", () => {
+  const release = "/home/remote/.vellum/runtime/releases/1.2.3-" + "a".repeat(64);
+
+  it("pins the unit to one immutable release without a shell or current link", () => {
+    const service = renderUserlandLinuxService({ releaseDirectory: release });
+    expect(USERLAND_LINUX_SERVICE_PATH).toBe(
+      ".config/systemd/user/vellum-remote.service",
+    );
+    expect(service).toContain(`ConditionFileIsExecutable=${release}/vellum`);
+    expect(service).toContain(
+      `ExecStart=${release}/resources/systemd/vellum-remote-launch`,
+    );
+    expect(service).toContain("Type=notify");
+    expect(service).toContain("RuntimeDirectoryMode=0700");
+    expect(service).not.toMatch(/\/opt\/|current|\/bin\/sh|User=|loginctl|linger/u);
+  });
+
+  it("escapes a safe home path and rejects paths outside the immutable layout", () => {
+    expect(renderUserlandLinuxService({
+      releaseDirectory: "/home/remote station/.vellum/runtime/releases/1.2.3-" + "b".repeat(64),
+    })).toContain("/home/remote\\x20station/.vellum/runtime/releases/");
+    expect(() => renderUserlandLinuxService({
+      releaseDirectory: "/home/remote/.vellum/runtime/current",
+    })).toThrow(/canonical immutable/u);
+    expect(() => renderUserlandLinuxService({
+      releaseDirectory: "/home/remote/.vellum/runtime/releases/1.2.3-" + "A".repeat(64),
+    })).toThrow(/canonical immutable/u);
+  });
 });
 
 describe("systemd user station supervisor observation", () => {

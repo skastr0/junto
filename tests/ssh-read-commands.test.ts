@@ -9,6 +9,7 @@ import {
   LINUX_PACKAGED_STATION_EXECUTABLE,
   RemotePlatformProbeError,
   STATION_PROTOCOL_NEGOTIATION_ARG,
+  bindLinuxRemoteUserland,
   remoteCat,
   remoteHermesCli,
   remoteHerdrCli,
@@ -18,6 +19,7 @@ import {
   remoteUname,
   remoteVellumStation,
   remoteVellumStationNegotiation,
+  remoteLinuxUserlandVellumStation,
   resolveRemotePackagedPlatform,
 } from "../src/main/vellum/ssh/read-commands";
 import type { SshTransport } from "../src/main/vellum/ssh/service";
@@ -149,6 +151,21 @@ describe("ssh read-commands product constructors", () => {
       executable: LINUX_PACKAGED_STATION_EXECUTABLE,
       args: [STATION_PROTOCOL_NEGOTIATION_ARG],
     });
+  });
+
+  it("binds Linux helpers to an observed owner home, never a release pointer", () => {
+    const userland = run(bindLinuxRemoteUserland(
+      observedPlatform("Linux\n"),
+      "/home/remote station",
+    ));
+    expect(inspectRemoteCommand(run(remoteLinuxUserlandVellumStation(userland)))).toEqual({
+      executable: "/home/remote station/.local/bin/vellum-station",
+      args: [],
+    });
+    expect(Either.isLeft(Effect.runSync(Effect.either(bindLinuxRemoteUserland(
+      observedPlatform("Darwin\n"),
+      "/Users/remote",
+    ))))).toBe(true);
   });
 
   it("refuses malformed/unsupported platform evidence and forged witnesses without a PATH fallback", () => {

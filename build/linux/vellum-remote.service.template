@@ -3,21 +3,16 @@ Description=Vellum Remote headless station
 After=default.target
 StartLimitIntervalSec=60
 StartLimitBurst=3
-ConditionFileIsExecutable=/opt/Vellum Command/vellum
+ConditionFileIsExecutable=@VELLUM_RUNTIME_ROOT@/vellum
 
 [Service]
 Type=notify
-# The launcher removes NOTIFY_SOCKET from every long-lived child and lends it
-# only to its exact package-owned notifier after validating the generation.
 NotifyAccess=all
-ExecStart=/opt/Vellum\x20Command/resources/systemd/vellum-remote-launch-v1
+ExecStart=@VELLUM_RUNTIME_ROOT@/resources/systemd/vellum-remote-launch
 Restart=on-failure
 RestartSec=5s
 TimeoutStartSec=45s
 TimeoutStopSec=20s
-# Let the package-owned launcher ask Electron to exit cleanly before a
-# bounded, verified process-group escalation. systemd sends TERM only to the
-# launcher main process; it remains the sole graceful-shutdown authority.
 KillMode=mixed
 UMask=0077
 WorkingDirectory=%h

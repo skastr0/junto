@@ -37,6 +37,8 @@ export const LINUX_PACKAGED_BROWSER_EXECUTABLE =
   "/opt/Vellum Command/resources/bin/vellum-browser";
 export { STATION_PROTOCOL_NEGOTIATION_ARG };
 
+const SAFE_REMOTE_HOME = /^\/(?:[^/\u0000-\u001f\u007f]+\/)*[^/\u0000-\u001f\u007f]+$/u;
+
 const RemotePackagedPlatformTypeId: unique symbol = Symbol(
   "@vellum/ssh/RemotePackagedPlatform",
 );
@@ -51,6 +53,17 @@ export interface RemotePackagedPlatform {
 }
 
 type RemotePackagedPlatformName = "darwin" | "linux";
+
+const RemoteLinuxUserlandTypeId: unique symbol = Symbol(
+  "@vellum/ssh/RemoteLinuxUserland",
+);
+
+/** A Linux platform observation bound to its independently observed owner home. */
+export interface RemoteLinuxUserland {
+  readonly [RemoteLinuxUserlandTypeId]: typeof RemoteLinuxUserlandTypeId;
+}
+
+const remoteLinuxUserlands = new WeakMap<RemoteLinuxUserland, string>();
 
 const remotePackagedPlatforms = new WeakMap<
   RemotePackagedPlatform,
@@ -76,6 +89,31 @@ const mintRemotePackagedPlatform = (
   }) as RemotePackagedPlatform;
   remotePackagedPlatforms.set(witness, platform);
   return witness;
+};
+
+/**
+ * Mints fixed owner-local helper authority after both Linux platform and HOME
+ * have been independently observed. Callers cannot provide an executable path.
+ */
+export const bindLinuxRemoteUserland = (
+  platform: RemotePackagedPlatform,
+  homeDirectory: string,
+): Effect.Effect<RemoteLinuxUserland, SshInputError> => {
+  if (remotePackagedPlatforms.get(platform) !== "linux") {
+    return Effect.fail(new SshInputError({
+      message: "remote Linux userland requires a Linux platform witness",
+    }));
+  }
+  if (!SAFE_REMOTE_HOME.test(homeDirectory) || homeDirectory === "/") {
+    return Effect.fail(new SshInputError({
+      message: "remote Linux home must be a clean absolute path",
+    }));
+  }
+  const userland = Object.freeze({
+    [RemoteLinuxUserlandTypeId]: RemoteLinuxUserlandTypeId,
+  }) as RemoteLinuxUserland;
+  remoteLinuxUserlands.set(userland, homeDirectory);
+  return Effect.succeed(userland);
 };
 
 const decodeRemotePackagedPlatform = (
@@ -320,6 +358,31 @@ const remoteVellumStationCommand = (
     args,
   );
 };
+
+const remoteLinuxUserlandStationCommand = (
+  userland: RemoteLinuxUserland,
+  args: ReadonlyArray<string>,
+): Effect.Effect<RemoteCommand, SshInputError> => {
+  const home = remoteLinuxUserlands.get(userland);
+  if (home === undefined) {
+    return Effect.fail(new SshInputError({
+      message: "remote Linux userland witness is invalid",
+    }));
+  }
+  return makeRemoteCommand(`${home}/.local/bin/vellum-station`, args);
+};
+
+/** Exact owner-local Station helper, pinned by platform + HOME witnesses. */
+export const remoteLinuxUserlandVellumStation = (
+  userland: RemoteLinuxUserland,
+): Effect.Effect<RemoteCommand, SshInputError> =>
+  remoteLinuxUserlandStationCommand(userland, []);
+
+/** Owner-local exact Station protocol preface helper. */
+export const remoteLinuxUserlandVellumStationNegotiation = (
+  userland: RemoteLinuxUserland,
+): Effect.Effect<RemoteCommand, SshInputError> =>
+  remoteLinuxUserlandStationCommand(userland, [STATION_PROTOCOL_NEGOTIATION_ARG]);
 
 /** Exact pre-negotiation-v2 helper invocation. */
 export const remoteVellumStation = (

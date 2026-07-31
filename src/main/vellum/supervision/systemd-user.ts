@@ -17,6 +17,74 @@ import {
   type StationSupervisorObservation,
 } from "./contract";
 
+/** User-relative destination for the generated, generation-pinned service. */
+export const USERLAND_LINUX_SERVICE_PATH =
+  ".config/systemd/user/vellum-remote.service" as const;
+
+const RELEASE_DIRECTORY = /^\/(?:[^/\u0000-\u001f\u007f]+\/)*\.vellum\/runtime\/releases\/(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)-[0-9a-f]{64}$/u;
+
+const escapeSystemdArgument = (value: string): string =>
+  Array.from(Buffer.from(value, "utf8"), (byte) =>
+    (byte >= 0x30 && byte <= 0x39) ||
+      (byte >= 0x41 && byte <= 0x5a) ||
+      (byte >= 0x61 && byte <= 0x7a) ||
+      "/._:-".includes(String.fromCharCode(byte))
+      ? String.fromCharCode(byte)
+      : `\\x${byte.toString(16).padStart(2, "0")}`,
+  ).join("");
+
+/**
+ * Renders the only active Remote selector. Its paths are generation-pinned:
+ * there is deliberately no `current` link or shell expansion in this unit.
+ */
+export const renderUserlandLinuxService = ({
+  releaseDirectory,
+}: {
+  readonly releaseDirectory: string;
+}): string => {
+  if (!RELEASE_DIRECTORY.test(releaseDirectory)) {
+    throw new Error("Linux Remote release directory is not a canonical immutable userland generation");
+  }
+  const release = escapeSystemdArgument(releaseDirectory);
+  const launcher = `${release}/resources/systemd/vellum-remote-launch`;
+  return `[Unit]
+Description=Vellum Remote headless station
+After=default.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
+ConditionFileIsExecutable=${release}/vellum
+
+[Service]
+Type=notify
+NotifyAccess=all
+ExecStart=${launcher}
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=45s
+TimeoutStopSec=20s
+KillMode=mixed
+UMask=0077
+WorkingDirectory=%h
+Environment=PATH=/usr/bin:/bin
+Environment=HOME=%h
+Environment=XDG_STATE_HOME=%h/.local/state
+Environment=XDG_RUNTIME_DIR=%t
+RuntimeDirectory=vellum-remote
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=no
+Environment=ELECTRON_OZONE_PLATFORM_HINT=x11
+Environment=OZONE_PLATFORM=x11
+Environment=XDG_SESSION_TYPE=x11
+UnsetEnvironment=BASH_ENV BASHOPTS BUN_BE_BUN BUN_CONFIG_LINK_NATIVE_BINS BUN_CONFIG_VERBOSE_FETCH BUN_DEBUG_QUIET_LOGS BUN_INSTALL BUN_OPTIONS BUN_RUNTIME_TRANSPILER_CACHE_PATH CHROME_WRAPPER ELECTRON_RUN_AS_NODE ENV GCONV_PATH GI_TYPELIB_PATH GIO_EXTRA_MODULES GLIBC_TUNABLES GTK_MODULES HOSTALIASES IFS LD_ASSUME_KERNEL LD_AUDIT LD_DEBUG LD_DEBUG_OUTPUT LD_LIBRARY_PATH LD_ORIGIN_PATH LD_PRELOAD LD_PROFILE LD_SHOW_AUXV LOCPATH MALLOC_TRACE NLSPATH NODE_OPTIONS NODE_PATH NODE_REPL_EXTERNAL_MODULE PYTHONHOME PYTHONPATH QT_PLUGIN_PATH RESOLV_HOST_CONF SHELLOPTS TZDIR VELLUM_BROWSER_CAPABILITY VELLUM_BROWSER_HOME VELLUM_CANVASES_DIR VELLUM_E2E VELLUM_E2E_RENDERER_SURFACE_TIMEOUT_MS VELLUM_NODE_REF
+StandardOutput=null
+StandardError=null
+SyslogIdentifier=vellum-remote
+
+[Install]
+WantedBy=default.target
+`;
+};
+
 const SystemdStateToken = Schema.String.pipe(
   Schema.maxLength(64),
   Schema.pattern(/^[a-z][a-z0-9-]*$/),

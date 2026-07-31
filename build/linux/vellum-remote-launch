@@ -1,0 +1,63 @@
+#!/bin/sh
+# Generation-pinned userland Remote launcher. Its own absolute argv0 is the
+# active generation selector; no current symlink or caller argv participates.
+set -eu
+set -f
+umask 077
+fail() { printf '%s\n' "vellum-remote: $1" >&2; exit "${2:-69}"; }
+owned_dir() { [ -d "$1" ] && [ ! -L "$1" ] && [ -O "$1" ]; }
+owned_exec() { [ -f "$1" ] && [ ! -L "$1" ] && [ -O "$1" ] && [ -x "$1" ]; }
+owned_socket() { [ -S "$1" ] && [ ! -L "$1" ] && [ -O "$1" ] && [ "$(/usr/bin/stat -c '%a' "$1" 2>/dev/null || true)" = 600 ]; }
+owned_file() { [ -f "$1" ] && [ ! -L "$1" ] && [ -O "$1" ] && [ "$(/usr/bin/stat -c '%a' "$1" 2>/dev/null || true)" = 600 ]; }
+alive() { kill -0 "$1" 2>/dev/null && /usr/bin/ps -o stat= -p "$1" 2>/dev/null | /usr/bin/grep -q '[^ Z]'; }
+if [ "$#" -eq 0 ]; then
+  self="${0:?launcher argv0 required}"; home="${HOME:?HOME required}"; runtime="${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR required}"; notify="${NOTIFY_SOCKET:?NOTIFY_SOCKET required}"; generation="${INVOCATION_ID:?INVOCATION_ID required}"
+  case "$self" in /*) ;; *) fail 'launcher argv0 must be absolute' 64 ;; esac
+  case "$notify" in "$runtime/systemd/notify") ;; *) fail 'unexpected notification socket' 64 ;; esac
+  case "$generation" in *[!0-9a-f]*|'') fail 'invalid invocation id' 64 ;; esac
+  [ "${#generation}" -eq 32 ] || fail 'invalid invocation id' 64
+  [ ! -L "$self" ] && [ -x "$self" ] || fail 'launcher must be a non-symlink executable' 73
+  exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$home" PWD="$home" XDG_STATE_HOME="$home/.local/state" XDG_RUNTIME_DIR="$runtime" INVOCATION_ID="$generation" "$self" --clean "$notify"
+fi
+[ "$#" -eq 2 ] && [ "$1" = --clean ] || fail 'clean launcher sentinel is required' 64
+notify_socket="$2"; home="${HOME:?HOME required}"; runtime="${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR required}"; generation="${INVOCATION_ID:?INVOCATION_ID required}"
+case "$0" in */resources/systemd/vellum-remote-launch) release=${0%/resources/systemd/vellum-remote-launch} ;; *) fail 'launcher path is not a release resource' 73 ;; esac
+case "$release" in "$home"/.vellum/runtime/releases/*) ;; *) fail 'release is outside station user runtime' 73 ;; esac
+name=${release##*/}; digest=${name##*-}
+case "$name" in *[!0-9.a-f-]*|*-|*--*|'') fail 'release is not a canonical generation' 73 ;; esac
+[ "${#digest}" -eq 64 ] || fail 'release is not a canonical generation' 73
+case "$digest" in *[!0-9a-f]*) fail 'release is not a canonical generation' 73 ;; esac
+case "$notify_socket" in "$runtime/systemd/notify") ;; *) fail 'unexpected notification socket' 64 ;; esac
+owned_dir "$home" && [ ! -L "$home" ] && owned_dir "$release" && [ ! -L "$release" ] || fail 'home and release must be owned non-symlink directories' 73
+vellum="$release/vellum"; owned_exec "$vellum" && owned_exec /usr/bin/setsid || fail 'release executable or setsid is unavailable' 69
+service_runtime="$runtime/vellum-remote"; [ ! -L "$service_runtime" ] && owned_dir "$service_runtime" && [ "$(/usr/bin/stat -c '%a' "$service_runtime" 2>/dev/null || true)" = 700 ] || fail 'systemd runtime directory is unavailable' 73
+receipt="$service_runtime/ready-$generation"; [ ! -e "$receipt" ] && [ ! -L "$receipt" ] || fail 'generation readiness receipt already exists' 75
+display=''; xvfb_pid=''; authority=''
+if [ -x /usr/bin/Xvfb ] && [ -x /usr/bin/xauth ] && [ -x /usr/bin/mcookie ]; then
+  for n in 89 90 91 92 93 94 95 96; do [ ! -e "/tmp/.X$n-lock" ] && [ ! -L "/tmp/.X$n-lock" ] && [ ! -e "/tmp/.X11-unix/X$n" ] && [ ! -L "/tmp/.X11-unix/X$n" ] || continue; display=":$n"; break; done
+fi
+if [ -n "$display" ]; then
+  auth_dir="$service_runtime/x11-$generation"; authority="$auth_dir/authority"; [ ! -e "$auth_dir" ] && [ ! -L "$auth_dir" ] || fail 'managed X11 authority is already in use' 75
+  mkdir -m 700 -- "$auth_dir"; : > "$authority"; /usr/bin/xauth -f "$authority" add "$display" . "$(/usr/bin/mcookie)" >/dev/null 2>&1 || fail 'could not initialize managed X11 authority' 70
+  owned_file "$authority" || fail 'managed X11 authority changed during initialization' 73
+  /usr/bin/Xvfb "$display" -screen 0 1280x1024x24 -nolisten tcp -auth "$authority" & xvfb_pid=$!
+fi
+vellum_pid=''
+cleanup() { [ -z "$vellum_pid" ] || kill -TERM "$vellum_pid" 2>/dev/null || true; [ -z "$xvfb_pid" ] || kill -TERM "$xvfb_pid" 2>/dev/null || true; }
+trap 'cleanup; exit 0' HUP INT TERM
+trap cleanup EXIT
+if [ -n "$display" ]; then DISPLAY="$display" XAUTHORITY="$authority" ELECTRON_OZONE_PLATFORM_HINT=x11 OZONE_PLATFORM=x11 XDG_SESSION_TYPE=x11 /usr/bin/setsid "$vellum" --vellum-headless --ozone-platform=x11 & else /usr/bin/setsid "$vellum" --vellum-headless & fi
+vellum_pid=$!; deadline=$(( $(/bin/date +%s) + 30 ))
+while :; do
+  [ -z "$xvfb_pid" ] || alive "$xvfb_pid" || fail 'managed display exited unexpectedly' 70
+  alive "$vellum_pid" || wait "$vellum_pid"
+  if owned_socket "$home/.vellum/work/control.sock" && owned_file "$home/.vellum/work/token" && owned_file "$receipt" && /usr/bin/printf '%s\n' "$generation" | /usr/bin/cmp -s - "$receipt"; then
+    [ -x /usr/bin/systemd-notify ] || fail 'systemd notification utility is unavailable' 69
+    NOTIFY_SOCKET="$notify_socket" /usr/bin/systemd-notify --ready || fail 'could not publish readiness' 70
+    break
+  fi
+  [ "$(/bin/date +%s)" -lt "$deadline" ] || fail 'work control readiness timed out' 70
+  sleep 1
+done
+while alive "$vellum_pid"; do [ -z "$xvfb_pid" ] || alive "$xvfb_pid" || fail 'managed display exited unexpectedly' 70; sleep 1; done
+wait "$vellum_pid"
