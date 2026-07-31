@@ -224,7 +224,7 @@
   gap: 9px;
 }
 .node-deck-catalog__purpose,
-.node-deck-catalog__attention {
+.node-deck-catalog__behavior {
   margin: 4px 0 0;
   font-family: var(--font-mono);
   font-size: 9px;
@@ -232,10 +232,10 @@
   color: var(--color-dim);
   text-wrap: pretty;
 }
-.node-deck-catalog__attention {
+.node-deck-catalog__behavior {
   color: var(--color-ink-2);
 }
-.node-deck-catalog__attention > span {
+.node-deck-catalog__behavior > span {
   color: var(--color-amber);
 }
 .node-deck-catalog__relationships {

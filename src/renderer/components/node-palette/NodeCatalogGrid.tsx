@@ -292,7 +292,7 @@ function CatalogDetail({ entry, id }: { readonly entry: NodeCatalogEntry; readon
         <div className="min-w-0">
           <strong className="block font-display text-[14px] font-semibold uppercase tracking-wide text-ink">{entry.label}</strong>
           <p className="node-deck-catalog__purpose">{entry.purpose}</p>
-          {entry.behavior ? <p className="node-deck-catalog__attention"><span>Behavior:</span> {entry.behavior}</p> : null}
+          {entry.behavior ? <p className="node-deck-catalog__behavior"><span>Behavior:</span> {entry.behavior}</p> : null}
         </div>
       </div>
 
