@@ -8,23 +8,74 @@ import {
   boardWakeInjectId,
   composeBoardInjectEnvelope,
   resolveBoardWakeSet,
+  type BoardWakeSeat,
   type BoardWakeEvent,
   type BoardWakeKind,
 } from "@shared/board-wake";
 import { CanvasesService } from "../canvases";
 
-type Transport = {
+export type BoardDeliveryTransport = {
+  /** Start a local lazy managed seat before the board prompt is queued. */
+  readonly wakeManagedSeat?: (
+    canvas: string,
+    nodeId: string,
+  ) => boolean | Promise<boolean>;
   readonly sendManagedTerminalPrompt: (
     bindingId: string,
     text: string,
+    options?: { readonly ready?: boolean },
   ) => Promise<boolean>;
 };
 
-let transport: Transport | undefined;
+let transport: BoardDeliveryTransport | undefined;
 const accepted = new Set<string>();
 
-export const configureBoardDelivery = (next: Transport): void => {
+export const configureBoardDelivery = (next: BoardDeliveryTransport): void => {
   transport = next;
+};
+
+/** Deliver one already-composed wake to its resolved actor seats. */
+export const deliverBoardWakeSeats = async (input: {
+  readonly canvas: string;
+  readonly wake: BoardWakeEvent;
+  readonly payload: string;
+  readonly seats: ReadonlyArray<BoardWakeSeat>;
+  readonly transport: BoardDeliveryTransport;
+}): Promise<number> => {
+  let sent = 0;
+  for (const seat of input.seats) {
+    const deliveryId = boardWakeInjectId(
+      input.canvas,
+      seat.nodeId,
+      input.wake.wakeEventId,
+    );
+    if (accepted.has(deliveryId)) continue;
+    const bindingId = seat.target.bindingId;
+    if (!bindingId) continue;
+    if (input.transport.wakeManagedSeat) {
+      let woke = false;
+      try {
+        woke = await input.transport.wakeManagedSeat(input.canvas, seat.nodeId);
+      } catch {
+        woke = false;
+      }
+      if (!woke) continue;
+    }
+    let ok = false;
+    try {
+      ok = await input.transport.sendManagedTerminalPrompt(
+        bindingId,
+        input.payload,
+        input.transport.wakeManagedSeat ? { ready: true } : undefined,
+      );
+    } catch {
+      ok = false;
+    }
+    if (!ok) continue;
+    accepted.add(deliveryId);
+    sent += 1;
+  }
+  return sent;
 };
 
 export const deliverBoardWake = (input: {
@@ -55,23 +106,13 @@ export const deliverBoardWake = (input: {
     };
     const seats = resolveBoardWakeSet(doc, input.boardNodeId);
     const payload = composeBoardInjectEnvelope(wake);
-    let sent = 0;
-    for (const seat of seats) {
-      const deliveryId = boardWakeInjectId(
-        input.canvas,
-        seat.nodeId,
-        wake.wakeEventId,
-      );
-      if (accepted.has(deliveryId)) continue;
-      const bindingId = seat.target.bindingId;
-      if (!bindingId) continue;
-      const ok = yield* Effect.tryPromise({
-        try: () => transport!.sendManagedTerminalPrompt(bindingId, payload),
-        catch: () => false as const,
-      }).pipe(Effect.catchAll(() => Effect.succeed(false)));
-      if (!ok) continue;
-      accepted.add(deliveryId);
-      sent += 1;
-    }
-    return sent;
+    return yield* Effect.promise(() =>
+      deliverBoardWakeSeats({
+        canvas: input.canvas,
+        wake,
+        payload,
+        seats,
+        transport: transport!,
+      }),
+    );
   }).pipe(Effect.catchAll(() => Effect.succeed(0)));

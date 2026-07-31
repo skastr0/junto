@@ -1090,14 +1090,18 @@ export const registerVellumIpc = (): void => {
         () => import("./work/board-delivery"),
       );
       configureBoardDelivery({
-        sendManagedTerminalPrompt: (bindingId, text) =>
-          writeManagedPrompt(bindingId, text),
+        wakeManagedSeat: (canvas, nodeId) =>
+          kernel.wakeManagedSeat(canvas, nodeId),
+        sendManagedTerminalPrompt: (bindingId, text, options) =>
+          writeManagedPrompt(bindingId, text, options),
       });
 
       // Message nudge channel: ether.messages -> live managed terminal seats.
       // Retry only on session-live / seat-idle (no polling store).
       messageDelivery.configure({
         transport: {
+          wakeManagedSeat: (canvas, nodeId) =>
+            kernel.wakeManagedSeat(canvas, nodeId),
           // Kind-discriminated surfaces only — no ACP transport fields.
           // Raw geography shells: no auto-submit.
           sendTerminalPaste: (_bindingId, _text, _messageId) => false,

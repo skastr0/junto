@@ -100,6 +100,16 @@ export class KernelService extends Context.Tag("@vellum/KernelService")<
   KernelService,
   {
     readonly doctor: Effect.Effect<ServiceCheck>;
+    /**
+     * Start the local managed seat for one delivery target when it is still
+     * lazy. The caller must already have resolved the target through a
+     * delivery surface; this method re-reads the authoritative canvas and
+     * re-proves station locality before creating a PTY.
+     */
+    readonly wakeManagedSeat: (
+      canvasName: string,
+      nodeId: string,
+    ) => Promise<boolean>;
     // Begin hydration + the evaluation loop. Idempotent, matching
     // CanvasesService.start()/SnapshotsService.start().
     readonly start: () => void;
@@ -1138,6 +1148,56 @@ const makeKernelService = (
   };
   wakeAfterReclaimGrace = scheduleCycle;
 
+  /**
+   * Delivery is another legitimate demand signal for a lazy actor. Board
+   * wakes and mailbox messages do not create a task claim, so they cannot
+   * rely on the claim pre-pass to start the seat first. Keep the startup
+   * authority here beside the task path, and re-read the document/ref surface
+   * so a stale renderer projection cannot mint a process.
+   */
+  const wakeManagedSeat = async (
+    canvasName: string,
+    nodeId: string,
+  ): Promise<boolean> => {
+    const generation = activeGeneration();
+    if (!generationIsActive(generation)) return false;
+
+    const read = await Effect.runPromise(
+      Effect.either(canvases.read(canvasName)),
+    );
+    if (!generationIsActive(generation) || read._tag === "Left") return false;
+    const doc = read.right.doc;
+    const node = doc.nodes.find((candidate) => candidate.id === nodeId);
+    if (node === undefined) return false;
+
+    const scope = await refreshStationScope(
+      stations,
+      () => generationIsActive(generation),
+    );
+    if (!generationIsActive(generation) || scope.role === "") return false;
+
+    const actorRefs = await Effect.runPromise(
+      Effect.either(canvases.activeActorRefs()),
+    );
+    if (!generationIsActive(generation) || actorRefs._tag === "Left") return false;
+    const registry = activeActorRegistry(actorRefs.right);
+    const authority = runtimeAuthority(scope, registry, canvasName, node);
+    if (
+      authority === undefined ||
+      !isManagedSeatRuntimeLocal(canvasName, node, authority)
+    ) {
+      return false;
+    }
+    if (
+      !pause.stateFor(canvasName).playing ||
+      seatPaused(pause.stateFor(canvasName), doc, node.id)
+    ) {
+      return false;
+    }
+
+    return ensureManagedSeatRunning(canvasName, doc, node, authority);
+  };
+
   // --- doc hydration + mid-cycle resync ---------------------------------------
 
   const hydrateDoc = async (
@@ -1214,6 +1274,8 @@ const makeKernelService = (
       status: "ok" as const,
       detail: `${docs.size} canvas(es) hydrated`,
     })),
+
+    wakeManagedSeat,
 
     start: () => {
       if (started || suspended) return;

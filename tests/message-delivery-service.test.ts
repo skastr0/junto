@@ -197,6 +197,66 @@ describe("MessageDeliveryService", () => {
     expect(live?.metadata?.deliveredAt).toBe(1_111);
   });
 
+  it("wakes a lazy seat before queuing mailbox delivery", async () => {
+    const msg = userMsg("cold-mail", "hello cold seat");
+    const store = makeStore({ c: agentDoc([msg]) });
+    const wakes: Array<{ readonly canvas: string; readonly nodeId: string }> = [];
+    const calls: Array<{
+      readonly bindingId: string;
+      readonly text: string;
+      readonly ready: boolean | undefined;
+    }> = [];
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        wakeManagedSeat: async (canvas, nodeId) => {
+          wakes.push({ canvas, nodeId });
+          return true;
+        },
+        sendManagedTerminalPrompt: async (bindingId, text, options) => {
+          calls.push({ bindingId, text, ready: options?.ready });
+          return true;
+        },
+      },
+      store,
+    });
+
+    service.notifyAppended("c", "agent", msg);
+    await waitUntil(() => calls.length === 1);
+    expect(wakes).toEqual([{ canvas: "c", nodeId: "agent" }]);
+    expect(calls).toEqual([
+      {
+        bindingId: "bind-mira",
+        text: "[message · user] hello cold seat",
+        ready: true,
+      },
+    ]);
+  });
+
+  it("keeps mailbox delivery pending when the lazy seat cannot wake", async () => {
+    const msg = userMsg("cold-mail-refused", "try later");
+    const store = makeStore({ c: agentDoc([msg]) });
+    let sends = 0;
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        wakeManagedSeat: async () => false,
+        sendManagedTerminalPrompt: async () => {
+          sends += 1;
+          return true;
+        },
+      },
+      store,
+    });
+
+    service.notifyAppended("c", "agent", msg);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(sends).toBe(0);
+    expect(await store.hasAcceptedMessageDelivery("c", "agent", msg.messageId)).toBe(
+      false,
+    );
+  });
+
   it("at-most-once under rapid append burst", async () => {
     const msg = userMsg("burst");
     const store = makeStore({ c: agentDoc([msg]) });

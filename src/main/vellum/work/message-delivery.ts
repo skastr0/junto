@@ -17,6 +17,11 @@ import {
 import type { SurfaceDeliveryTarget } from "@shared/actor-surface";
 
 export type MessageDeliveryTransport = {
+  /** Start a local lazy managed seat before the first delivery attempt. */
+  readonly wakeManagedSeat?: (
+    canvas: string,
+    nodeId: string,
+  ) => boolean | Promise<boolean>;
   /** Paste without submitting (raw geography shells only). */
   readonly sendTerminalPaste?: (bindingId: string, text: string, messageId: string) => boolean;
   /**
@@ -32,6 +37,8 @@ export type MessageDeliveryTransport = {
 };
 
 export type ManagedTerminalPromptOptions = {
+  /** Allow the drive to retain a prompt while a freshly-woken seat reaches idle. */
+  readonly ready?: boolean;
   /** Interrupt one active turn before the mailbox prompt is queued. */
   readonly interruptIfBusy?: boolean;
 };
@@ -228,6 +235,15 @@ export class MessageDeliveryService {
       if (!node) return;
       const target = deliveryTargetOf(node);
       if (!target) return;
+      const woke = await this.wakeManagedSeat(
+        transport,
+        pending.canvas,
+        pending.actorNodeId,
+      );
+      if (!woke) return;
+      const promptOptions = transport.wakeManagedSeat
+        ? { ready: true }
+        : undefined;
       const payload = sanitizeDeliveryLine(
         `[request resolved · ${pending.requestId}] ${pending.response}`,
       );
@@ -236,6 +252,7 @@ export class MessageDeliveryService {
         target,
         payload,
         `request:${pending.requestId}`,
+        promptOptions,
       );
       if (delivered) this.pendingRequestResponses.delete(key);
     } catch {
@@ -323,20 +340,34 @@ export class MessageDeliveryService {
       const target = deliveryTargetOf(node);
       if (!target) return;
 
+      const woke = await this.wakeManagedSeat(
+        transport,
+        canvas,
+        nodeId,
+      );
+      if (!woke) return;
+
       // At-most-once: never re-hit the transport after a prior accept.
       if (!this.transportAccepted.has(key)) {
         if (!this.active(generation)) return;
         const payload = composeMessageDeliveryPayload(live);
+        const promptOptions =
+          transport.wakeManagedSeat || live.metadata?.factoryMail === true
+            ? {
+                ...(transport.wakeManagedSeat ? { ready: true } : {}),
+                // Only explicit factory mail steers a live turn. System
+                // mailbox notices remain ordinary queued prompts.
+                ...(live.metadata?.factoryMail === true
+                  ? { interruptIfBusy: true }
+                  : {}),
+              }
+            : undefined;
         const delivered = await this.deliver(
           transport,
           target,
           payload,
           live.messageId,
-          // Only explicit factory mail steers a live turn. System mailbox
-          // notices remain ordinary queued prompts.
-          live.metadata?.factoryMail === true
-            ? { interruptIfBusy: true }
-            : undefined,
+          promptOptions,
         );
         if (!delivered) return;
         this.transportAccepted.add(key);
@@ -364,6 +395,19 @@ export class MessageDeliveryService {
       return transport.sendManagedTerminalPrompt(target.bindingId, payload, options);
     }
     return transport.sendTerminalPaste?.(target.bindingId, payload, messageId) ?? false;
+  }
+
+  private async wakeManagedSeat(
+    transport: MessageDeliveryTransport,
+    canvas: string,
+    nodeId: string,
+  ): Promise<boolean> {
+    if (!transport.wakeManagedSeat) return true;
+    try {
+      return await transport.wakeManagedSeat(canvas, nodeId);
+    } catch {
+      return false;
+    }
   }
 }
 

@@ -5,6 +5,7 @@ import {
   edgeNotifyOn,
   resolveBoardWakeSet,
 } from "../src/shared/board-wake";
+import { deliverBoardWakeSeats } from "../src/main/vellum/work/board-delivery";
 
 const doc = (partial: Partial<CanvasDoc> & Pick<CanvasDoc, "nodes" | "edges">): CanvasDoc => ({
   nodes: partial.nodes,
@@ -110,5 +111,74 @@ describe("board wake set", () => {
     expect(line).toContain("[board · deploy window]");
     expect(line).toContain("mark_read or post optional");
     expect(line).not.toMatch(/must reply|required/i);
+  });
+
+  it("wakes a lazy seat before queueing a board prompt", async () => {
+    const wakes: Array<{ readonly canvas: string; readonly nodeId: string }> = [];
+    const calls: Array<{
+      readonly bindingId: string;
+      readonly text: string;
+      readonly ready: boolean | undefined;
+    }> = [];
+    const sent = await deliverBoardWakeSeats({
+      canvas: "main",
+      wake: {
+        wakeEventId: "wake-cold-seat",
+        canvasName: "main",
+        boardNodeId: "board-1",
+        kind: "operator.notify.all",
+        excerptSource: "hello",
+        createdAt: 1,
+      },
+      payload: "[board · notify-all · board] hello",
+      seats: [{ nodeId: "agent-a", target: { bindingId: "bind-a" } }],
+      transport: {
+        wakeManagedSeat: async (canvas, nodeId) => {
+          wakes.push({ canvas, nodeId });
+          return true;
+        },
+        sendManagedTerminalPrompt: async (bindingId, text, options) => {
+          calls.push({ bindingId, text, ready: options?.ready });
+          return true;
+        },
+      },
+    });
+
+    expect(sent).toBe(1);
+    expect(wakes).toEqual([{ canvas: "main", nodeId: "agent-a" }]);
+    expect(calls).toEqual([
+      {
+        bindingId: "bind-a",
+        text: "[board · notify-all · board] hello",
+        ready: true,
+      },
+    ]);
+  });
+
+  it("does not consume a board wake when the lazy seat cannot start", async () => {
+    let sends = 0;
+    const sent = await deliverBoardWakeSeats({
+      canvas: "main",
+      wake: {
+        wakeEventId: "wake-cold-seat-refused",
+        canvasName: "main",
+        boardNodeId: "board-1",
+        kind: "operator.notify.all",
+        excerptSource: "hello",
+        createdAt: 1,
+      },
+      payload: "[board · notify-all · board] hello",
+      seats: [{ nodeId: "agent-a", target: { bindingId: "bind-a" } }],
+      transport: {
+        wakeManagedSeat: async () => false,
+        sendManagedTerminalPrompt: async () => {
+          sends += 1;
+          return true;
+        },
+      },
+    });
+
+    expect(sent).toBe(0);
+    expect(sends).toBe(0);
   });
 });
