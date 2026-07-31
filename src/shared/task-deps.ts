@@ -110,12 +110,8 @@ export const taskDepStatus = (
   }
 
   const deps = task.dependsOn ?? [];
-  if (deps.length === 0) {
-    // submitted unclaimed with no deps is ready; other states fall through
-    return task.state === "submitted" && claimedByOf(task) === undefined
-      ? { kind: "ready" }
-      : { kind: "ready" };
-  }
+  // No hard edges: not waiting on the graph (active/terminal handled above).
+  if (deps.length === 0) return { kind: "ready" };
 
   if (visited.has(task.id)) {
     // Cycle should be rejected at write; treat as orphan-ish for safety.

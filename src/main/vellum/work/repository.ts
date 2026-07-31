@@ -65,7 +65,11 @@ import {
   mirrorTasksText,
   taskWithTransitionState,
 } from "@shared/task";
-import { taskIndexById, taskIsClaimReady } from "@shared/task-deps";
+import {
+  taskIndexById,
+  taskIsClaimReady,
+  validateTaskDependsOn,
+} from "@shared/task-deps";
 import {
   StateEngine,
   type StateReader,
@@ -4041,6 +4045,15 @@ const validateIncomingFact = (
             "first task adoption does not match its reserved source snapshot",
           );
         }
+        {
+          const siblings = loadLaneTasks(writer, fact.item.sink, "task");
+          if (!taskIsClaimReady(current.task, taskIndexById(siblings))) {
+            throw authorityError(
+              "invalid-transition",
+              `task "${fact.item.itemId}" is not claim-ready (unsatisfied dependsOn)`,
+            );
+          }
+        }
         return;
       }
       const current = loadTask(
@@ -4696,6 +4709,17 @@ export const WorkRepositoryLive = Layer.effect(
             "identity-conflict",
             `task "${task.id}" already exists`,
           );
+        }
+        if (task.dependsOn !== undefined && task.dependsOn.length > 0) {
+          const siblings = loadLaneTasks(writer, input.sink, "task");
+          const depError = validateTaskDependsOn({
+            taskId: task.id,
+            dependsOn: task.dependsOn,
+            byId: taskIndexById(siblings),
+          });
+          if (depError !== undefined) {
+            throw authorityError("invalid-transition", depError);
+          }
         }
         return commitLocalFact(writer, {
           localInstallationId,
@@ -5355,6 +5379,15 @@ export const WorkRepositoryLive = Layer.effect(
               "authority-mismatch",
               "only a locally owned submitted task may be claimed remotely",
             );
+          }
+          {
+            const siblings = loadLaneTasks(writer, input.sink, "task");
+            if (!taskIsClaimReady(current.task, taskIndexById(siblings))) {
+              throw authorityError(
+                "invalid-transition",
+                `task "${input.taskId}" is not claim-ready (unsatisfied dependsOn)`,
+              );
+            }
           }
           assertActorAvailable(writer, input.actor.seatId);
           const action = Schema.decodeUnknownSync(

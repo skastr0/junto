@@ -239,6 +239,56 @@ describe("selectFactoryClaims", () => {
     );
   });
 
+  it("skips submitted tasks with unsatisfied dependsOn", () => {
+    const worker = actorRef("w1", "1");
+    const blocked = {
+      ...taskItem("i2", "after", "submitted"),
+      dependsOn: ["i1"],
+    };
+    const doc: CanvasDoc = {
+      nodes: [
+        tasksNode(
+          "t",
+          [taskItem("i1", "first", "submitted"), blocked],
+          "builder",
+        ),
+        {
+          ...seat("w1", "actor", { label: "worker" }),
+          ether: {
+            ...seat("w1", "actor").ether,
+            workRole: "builder",
+          },
+        },
+      ],
+      edges: [{ id: "e1", fromNode: "t", toNode: "w1" }],
+    };
+    const selected = selectFactoryClaims(doc, "c", resolverFor([worker]));
+    expect(selected.map((claim) => claim.task.itemId)).toEqual(["i1"]);
+
+    const unlocked: CanvasDoc = {
+      nodes: [
+        tasksNode(
+          "t",
+          [
+            { ...taskItem("i1", "first", "submitted"), state: "completed" },
+            blocked,
+          ],
+          "builder",
+        ),
+        {
+          ...seat("w1", "actor", { label: "worker" }),
+          ether: {
+            ...seat("w1", "actor").ether,
+            workRole: "builder",
+          },
+        },
+      ],
+      edges: [{ id: "e1", fromNode: "t", toNode: "w1" }],
+    };
+    const after = selectFactoryClaims(unlocked, "c", resolverFor([worker]));
+    expect(after.map((claim) => claim.task.itemId)).toEqual(["i2"]);
+  });
+
   it("keeps identical task IDs distinct by exact sink and selects deterministically", () => {
     const actorA = actorRef("actor-a", "1");
     const actorB = actorRef("actor-b", "2");

@@ -40,6 +40,7 @@ import {
   workTaskTransition,
   type WorkIds,
 } from "@shared/work";
+import { taskIndexById, taskIsClaimReady } from "@shared/task-deps";
 import type {
   ActorRef,
   IntentFactBasis as IntentFactBasisValue,
@@ -996,12 +997,23 @@ export const WorkLive = Layer.effect(
                   "first claim must execute on the installation that owns the submitted queue",
               });
             }
-            const sourceTask = nodeById(read.doc, nodeId)?.ether?.tasks?.items
-              .find((task) => task.id === taskId);
+            const sourceItems =
+              nodeById(read.doc, nodeId)?.ether?.tasks?.items ?? [];
+            const sourceTask = sourceItems.find((task) => task.id === taskId);
             if (sourceTask === undefined) {
               return yield* new WorkServiceError({
                 code: "task_not_found",
                 message: `task "${taskId}" not found`,
+              });
+            }
+            // Claim-ready gate for every first-claim arm (local + remote reserve).
+            if (
+              sourceTask.state === "submitted" &&
+              !taskIsClaimReady(sourceTask, taskIndexById(sourceItems))
+            ) {
+              return yield* new WorkServiceError({
+                code: "invalid",
+                message: `task "${taskId}" is not claim-ready (unsatisfied dependsOn)`,
               });
             }
             let outcome: WorkMutationOutcome<Task>;
