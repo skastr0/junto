@@ -3,7 +3,8 @@
  *
  * Identity + live glance + kind action keys live here. Dense node/edge field
  * editors open in a FocusSurface form (not a sidebar). Reuses pristine
- * InspectorFields editors as-is; this file is glue only.
+ * InspectorFields editors as-is; this file is glue only. Placement is not
+ * shown as always-on chips — open Fields (or the region Placement key).
  *
  * Regions: ops (hold/slot) live on the command card. This strip is individual
  * field keys — briefing, defaults, paths, background, placement — each opening
@@ -320,16 +321,6 @@ function EdgeFormFocus({
   );
 }
 
-/** Compact placement chips without the tall inspector section chrome. */
-function PlacementGlance({ node }: { readonly node: CanvasNode }) {
-  if (!node.ether?.entity && node.type !== "group") return null;
-  return (
-    <div className="rts-kind-place">
-      <NodePlacementSection node={node} />
-    </div>
-  );
-}
-
 function RegionFieldFocus({
   node,
   form,
@@ -437,8 +428,6 @@ function RegionKindSurface({ node }: { readonly node: CanvasNode }) {
           </div>
         </div>
       </div>
-
-      <PlacementGlance node={node} />
 
       <div className="rts-kind-strip" role="toolbar" aria-label="Region fields">
         <span className="rts-kind-strip__label">region</span>
@@ -580,8 +569,6 @@ export function KindSurface() {
           </div>
         </div>
       ) : null}
-
-      <PlacementGlance node={node} />
 
       <div className="rts-kind-strip" role="toolbar" aria-label={kind ? `${kind} actions` : "node actions"}>
         {kind ? <span className="rts-kind-strip__label">{kind}</span> : null}

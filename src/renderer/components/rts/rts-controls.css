@@ -94,32 +94,6 @@
   line-height: 1.2;
 }
 
-/* Placement chips reuse inspector section; compress chrome in the kind bar. */
-.rts-kind-place {
-  flex-shrink: 0;
-  min-width: 0;
-  max-height: 28px;
-  overflow: hidden;
-}
-
-.rts-kind-place .inspector-section {
-  margin: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-}
-
-.rts-kind-place .inspector-section__label {
-  display: none;
-}
-
-.rts-kind-place .inspector-flags {
-  margin: 0;
-  gap: 4px;
-  flex-wrap: nowrap;
-  overflow: hidden;
-}
-
 /* Focus form for dense node/edge editors (not a sidebar). */
 .rts-kind-form-panel {
   display: flex;
