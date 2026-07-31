@@ -2,6 +2,7 @@ import { Either, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   STATION_QUALIFICATION_EVIDENCE_FILE,
+  STATION_QUALIFICATION_MANIFEST_FILE,
   STATION_QUALIFICATION_SCHEMA,
   StationQualificationPackageFile,
   StationQualificationSha256,
@@ -11,229 +12,224 @@ import {
 } from "../src/shared/station-qualification";
 
 const hash = (character: string) => character.repeat(64);
-const witness = (character: string) => ({
-  file: String(STATION_QUALIFICATION_EVIDENCE_FILE),
-  evidenceSha256: hash(character),
-  observedAt: "2026-07-28T12:00:00.000Z",
-});
-const cursor = (eventHome: string, entityHome: string, through = "1") => ({
-  eventHome,
-  entityHome,
-  through,
-});
 const nativePlatform = () => ({
-  os: "linux",
-  distribution: "ubuntu",
-  version: "24.04",
-  architecture: "x64",
+  os: "linux" as const,
+  distribution: "ubuntu" as const,
+  version: "24.04" as const,
+  architecture: "x64" as const,
+  virtualization: "orbstack" as const,
+});
+const health = () => ({
+  package: "installed" as const,
+  service: "running" as const,
+  station: "ready" as const,
+});
+const security = () => ({
+  rendererSandbox: "active" as const,
+  rendererNoNewPrivileges: true as const,
+  rendererSeccomp: "filtering" as const,
+  vellumTcpListeners: 0 as const,
 });
 
 const qualified = () => ({
   schema: STATION_QUALIFICATION_SCHEMA,
   ok: true as const,
   sourceCommit: "a".repeat(40),
-  package: { file: "vellum.deb", sha256: hash("b") },
+  manifest: {
+    file: STATION_QUALIFICATION_MANIFEST_FILE,
+    sha256: hash("1"),
+  },
+  package: {
+    file: "Vellum Command-0.1.5-x64-linux.deb",
+    sha256: hash("2"),
+  },
   stationProtocol: 3,
   installations: {
     commandCenter: {
       installationId: "cc-01",
-      appVersion: "0.1.0",
+      appVersion: "0.1.5",
       nativePlatform: nativePlatform(),
     },
     remote: {
       installationId: "remote-01",
-      appVersion: "0.1.0",
+      appVersion: "0.1.5",
       nativePlatform: nativePlatform(),
     },
   },
   phases: {
-    pair: { witness: witness("c") },
-    configure: { witness: witness("d") },
-    project: { witness: witness("e") },
-    report: {
-      witness: witness("f"),
-      convergence: {
-        commandCenterReceived: cursor("remote-01", "remote-01"),
-        remoteAcknowledgedByCommandCenter: cursor("remote-01", "remote-01"),
-        remoteReceived: cursor("cc-01", "cc-01"),
-        commandCenterAcknowledgedByRemote: cursor("cc-01", "cc-01"),
-      },
-    },
-    status: { witness: witness("1") },
-    commandCenterOfflineClaimedTask: {
-      witness: witness("2"),
-      taskId: "task-01",
-      advancedState: "completed" as const,
-    },
-    projectResponseRetry: {
-      interruptionWitness: witness("3"),
-      retryWitness: witness("4"),
-      outcome: "idempotent" as const,
-    },
-    reportResponseRetry: {
-      interruptionWitness: witness("5"),
-      retryWitness: witness("6"),
-      convergence: {
-        commandCenterReceived: cursor("remote-01", "remote-01", "2"),
-        remoteAcknowledgedByCommandCenter: cursor("remote-01", "remote-01", "2"),
-        remoteReceived: cursor("cc-01", "cc-01", "2"),
-        commandCenterAcknowledgedByRemote: cursor("cc-01", "cc-01", "2"),
-      },
-    },
-    doctor: {
-      commandCenter: { status: "ok" as const, witness: witness("7") },
-      remote: { status: "ok" as const, witness: witness("8") },
-    },
-    syntheticNoOverlap: {
-      synthetic: true as const,
-      witness: witness("9"),
-      commandCenterSupport: { preferred: 4, compatibleFrom: 3, warnBelow: 3 },
-      remoteSupport: { preferred: 2, compatibleFrom: 1, warnBelow: 1 },
-      outcome: "update-required" as const,
-    },
+    managedDeploy: "passed" as const,
+    initialSync: "passed" as const,
+    workRoundTrip: "passed" as const,
+    commandCenterOffline: "passed" as const,
+    remoteRestart: "passed" as const,
+    idempotentRedeploy: "passed" as const,
   },
-  completedAt: "2026-07-28T12:05:00.000Z",
+  health: {
+    commandCenter: health(),
+    remote: health(),
+  },
+  security: {
+    commandCenter: security(),
+    remote: security(),
+  },
+  evidence: {
+    file: STATION_QUALIFICATION_EVIDENCE_FILE,
+    sha256: hash("3"),
+  },
+  completedAt: "2026-07-31T12:05:00.000Z",
 });
 
 describe("two-installation Station qualification contract", () => {
-  it("accepts a complete real-operator receipt", () => {
+  it("accepts the strict v2 receipt for the exact exercised release", () => {
     expect(Either.isRight(decodeStationQualification(qualified()))).toBe(true);
   });
 
-  it("can only mint pending evidence before a coordinator completes the run", () => {
+  it("mints only a non-passing artifact binding before the real run", () => {
     const pending = pendingStationQualification({
-      sourceCommit: Schema.decodeUnknownSync(StationQualificationSourceCommit)("a".repeat(40)),
+      sourceCommit: Schema.decodeUnknownSync(StationQualificationSourceCommit)(
+        "a".repeat(40),
+      ),
+      manifest: {
+        file: STATION_QUALIFICATION_MANIFEST_FILE,
+        sha256: Schema.decodeUnknownSync(StationQualificationSha256)(hash("1")),
+      },
       package: {
         file: Schema.decodeUnknownSync(StationQualificationPackageFile)(
-          "vellum.deb",
+          "Vellum Command-0.1.5-x64-linux.deb",
         ),
-        sha256: Schema.decodeUnknownSync(StationQualificationSha256)(hash("b")),
+        sha256: Schema.decodeUnknownSync(StationQualificationSha256)(hash("2")),
       },
     });
-    expect(pending).toMatchObject({ ok: false, status: "pending" });
+
+    expect(pending).toMatchObject({
+      schema: STATION_QUALIFICATION_SCHEMA,
+      ok: false,
+      status: "pending",
+      reason: "operator-run-required",
+    });
     expect(Either.isRight(decodeStationQualification(pending))).toBe(true);
   });
 
-  it("cannot represent ok evidence without every required phase", () => {
+  it.each([
+    "managedDeploy",
+    "initialSync",
+    "workRoundTrip",
+    "commandCenterOffline",
+    "remoteRestart",
+    "idempotentRedeploy",
+  ] as const)("requires the %s phase", (phase) => {
     const receipt = qualified();
-    const { report: _report, ...phases } = receipt.phases;
-    expect(Either.isLeft(decodeStationQualification({ ...receipt, phases }))).toBe(true);
+    const phases = { ...receipt.phases } as Record<string, unknown>;
+    delete phases[phase];
+    expect(
+      Either.isLeft(decodeStationQualification({ ...receipt, phases })),
+    ).toBe(true);
   });
 
-  it("rejects zero, divergent, and missing report convergence witnesses", () => {
-    const zero = qualified();
-    zero.phases.report.convergence.commandCenterReceived.through = "0";
-    expect(Either.isLeft(decodeStationQualification(zero))).toBe(true);
+  it("requires exact health and runtime-security results for both installations", () => {
+    const unhealthy = qualified();
+    (
+      unhealthy.health.remote as {
+        service: string;
+      }
+    ).service = "failed";
+    expect(Either.isLeft(decodeStationQualification(unhealthy))).toBe(true);
 
-    const divergent = qualified();
-    divergent.phases.reportResponseRetry.convergence.remoteReceived.through = "3";
-    expect(Either.isLeft(decodeStationQualification(divergent))).toBe(true);
+    const unsandboxed = qualified();
+    (
+      unsandboxed.security.commandCenter as {
+        rendererSandbox: string;
+      }
+    ).rendererSandbox = "disabled";
+    expect(Either.isLeft(decodeStationQualification(unsandboxed))).toBe(true);
+
+    const listening = qualified();
+    (
+      listening.security.remote as {
+        vellumTcpListeners: number;
+      }
+    ).vellumTcpListeners = 1;
+    expect(Either.isLeft(decodeStationQualification(listening))).toBe(true);
   });
 
-  it("binds every converged cursor to the outer qualified installations", () => {
-    const unrelatedReport = qualified();
-    unrelatedReport.phases.report.convergence = {
-      commandCenterReceived: cursor("unrelated-remote", "unrelated-remote"),
-      remoteAcknowledgedByCommandCenter:
-        cursor("unrelated-remote", "unrelated-remote"),
-      remoteReceived: cursor("unrelated-cc", "unrelated-cc"),
-      commandCenterAcknowledgedByRemote:
-        cursor("unrelated-cc", "unrelated-cc"),
-    };
-    expect(Either.isLeft(decodeStationQualification(unrelatedReport))).toBe(true);
-
-    const unrelatedRetry = qualified();
-    unrelatedRetry.phases.reportResponseRetry.convergence = {
-      commandCenterReceived:
-        cursor("unrelated-remote", "unrelated-remote", "2"),
-      remoteAcknowledgedByCommandCenter:
-        cursor("unrelated-remote", "unrelated-remote", "2"),
-      remoteReceived: cursor("unrelated-cc", "unrelated-cc", "2"),
-      commandCenterAcknowledgedByRemote:
-        cursor("unrelated-cc", "unrelated-cc", "2"),
-    };
-    expect(Either.isLeft(decodeStationQualification(unrelatedRetry))).toBe(true);
-  });
-
-  it("permits either exact installation as entity home", () => {
-    const crossHome = qualified();
-    crossHome.phases.report.convergence = {
-      commandCenterReceived: cursor("remote-01", "cc-01"),
-      remoteAcknowledgedByCommandCenter: cursor("remote-01", "cc-01"),
-      remoteReceived: cursor("cc-01", "remote-01"),
-      commandCenterAcknowledgedByRemote: cursor("cc-01", "remote-01"),
-    };
-    expect(Either.isRight(decodeStationQualification(crossHome))).toBe(true);
-  });
-
-  it("requires distinct installations, protocol v3, and a labelled synthetic no-overlap", () => {
+  it("requires two distinct installations running the same app version", () => {
     const sameInstallation = qualified();
     sameInstallation.installations.remote.installationId = "cc-01";
-    expect(Either.isLeft(decodeStationQualification(sameInstallation))).toBe(true);
-
-    const wrongProtocol = qualified();
-    wrongProtocol.stationProtocol = 2;
-    expect(Either.isLeft(decodeStationQualification(wrongProtocol))).toBe(true);
-
-    const overlap = qualified();
-    overlap.phases.syntheticNoOverlap.remoteSupport = {
-      preferred: 3,
-      compatibleFrom: 2,
-      warnBelow: 2,
-    };
-    expect(Either.isLeft(decodeStationQualification(overlap))).toBe(true);
-
-    const invalidPlatformFact = qualified();
-    invalidPlatformFact.installations.commandCenter.nativePlatform.os =
-      "linux/other";
-    expect(Either.isLeft(decodeStationQualification(invalidPlatformFact)))
-      .toBe(true);
-  });
-
-  it("strictly rejects receipt excess", () => {
-    expect(Either.isLeft(decodeStationQualification({ ...qualified(), extra: true }))).toBe(true);
-  });
-
-  it("has one first-shipped v1 discriminator and safe evidence basenames", () => {
-    expect(STATION_QUALIFICATION_SCHEMA).toBe(
-      "vellum/station-two-installation-qualification/v1",
+    expect(Either.isLeft(decodeStationQualification(sameInstallation))).toBe(
+      true,
     );
-    expect(Either.isLeft(decodeStationQualification({
-      ...qualified(),
-      schema: "vellum/station-two-installation-qualification/v2",
-    }))).toBe(true);
-    const { phases: _phases, ...legacyHeader } = qualified();
-    expect(Either.isLeft(decodeStationQualification({
-      ...legacyHeader,
-      checks: [{ name: "pair", status: "passed" }],
-    }))).toBe(true);
 
-    for (
-      const file of [
-        ".",
-        "..",
-        "../vellum.deb",
-        "nested/vellum.deb",
-        "bad\0.deb",
-      ]
-    ) {
+    const versionSkew = qualified();
+    versionSkew.installations.remote.appVersion = "0.1.4";
+    expect(Either.isLeft(decodeStationQualification(versionSkew))).toBe(true);
+  });
+
+  it("accepts only Ubuntu 24.04 x64 OrbStack guests", () => {
+    for (const [field, value] of [
+      ["os", "darwin"],
+      ["distribution", "debian"],
+      ["version", "22.04"],
+      ["architecture", "arm64"],
+      ["virtualization", "bare-metal"],
+    ] as const) {
+      const receipt = qualified();
+      const platform = receipt.installations.commandCenter.nativePlatform as
+        Record<string, string>;
+      platform[field] = value;
+      expect(Either.isLeft(decodeStationQualification(receipt))).toBe(true);
+    }
+  });
+
+  it("binds one signed manifest, one deb, and one root evidence log", () => {
+    const wrongManifest = qualified();
+    (wrongManifest.manifest as { file: string }).file = "other.json";
+    expect(Either.isLeft(decodeStationQualification(wrongManifest))).toBe(true);
+
+    const wrongEvidence = qualified();
+    (wrongEvidence.evidence as { file: string }).file = "attestation.txt";
+    expect(Either.isLeft(decodeStationQualification(wrongEvidence))).toBe(true);
+
+    for (const file of [
+      ".",
+      "..",
+      "-option.deb",
+      "../vellum.deb",
+      "nested/vellum.deb",
+      "vellum",
+      "bad\0.deb",
+    ]) {
       const receipt = qualified();
       receipt.package.file = file;
       expect(Either.isLeft(decodeStationQualification(receipt))).toBe(true);
     }
+  });
 
-    for (
-      const file of [
-        ".",
-        "..",
-        "../station-evidence.txt",
-        "nested/station-evidence.txt",
-        "bad\0.txt",
-      ]
-    ) {
-      const receipt = qualified();
-      receipt.phases.pair.witness.file = file;
-      expect(Either.isLeft(decodeStationQualification(receipt))).toBe(true);
-    }
+  it("rejects v1, removed theater fields, and all excess properties", () => {
+    expect(
+      Either.isLeft(
+        decodeStationQualification({
+          ...qualified(),
+          schema: "vellum/station-two-installation-qualification/v1",
+        }),
+      ),
+    ).toBe(true);
+
+    expect(
+      Either.isLeft(
+        decodeStationQualification({
+          ...qualified(),
+          phases: {
+            ...qualified().phases,
+            syntheticNoOverlap: { outcome: "update-required" },
+          },
+        }),
+      ),
+    ).toBe(true);
+
+    expect(
+      Either.isLeft(
+        decodeStationQualification({ ...qualified(), extra: true }),
+      ),
+    ).toBe(true);
   });
 });

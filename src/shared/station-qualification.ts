@@ -2,55 +2,60 @@ import { Schema } from "effect";
 import { InstallationId } from "./installation-id";
 import {
   STATION_PROTOCOL_BASELINE,
-  StationProtocolSupport,
-  negotiateStationProtocol,
+  StationAppVersion,
 } from "./station-protocol";
-import { DisplayTimestamp, RouteCursor } from "./work-protocol";
+import { DisplayTimestamp } from "./work-protocol";
 
 /**
- * Operator-run release evidence for one Command Center and one Remote.
+ * Release evidence for one exact Linux package exercised by one Command Center
+ * and one Remote on real OrbStack guests.
  *
- * This is a receipt contract, not a test harness or a host-control surface.
- * A pending receipt is intentionally the only receipt a coordinator can mint
- * before the two real installations have been exercised.
+ * The receipt summarizes one root evidence log. Detailed observations belong
+ * in that log, not in repeated per-phase witness wrappers.
  */
 export const STATION_QUALIFICATION_SCHEMA =
-  "vellum/station-two-installation-qualification/v1" as const;
+  "vellum/station-two-installation-qualification/v2" as const;
 export const STATION_QUALIFICATION_RECEIPT_FILE =
   "station-qualification-receipt.json" as const;
+export const STATION_QUALIFICATION_MANIFEST_FILE =
+  "release-manifest.json" as const;
 export const STATION_QUALIFICATION_EVIDENCE_FILE =
-  "station-qualification-evidence.txt" as const;
+  "station-qualification-observations.jsonl" as const;
 
 export const StationQualificationSourceCommit = Schema.String.pipe(
-  Schema.pattern(/^[a-f0-9]{40}$/),
+  Schema.pattern(/^[a-f0-9]{40}$/u),
   Schema.brand("StationQualificationSourceCommit"),
 );
 export type StationQualificationSourceCommit =
   typeof StationQualificationSourceCommit.Type;
 
 export const StationQualificationSha256 = Schema.String.pipe(
-  Schema.pattern(/^[a-f0-9]{64}$/),
+  Schema.pattern(/^[a-f0-9]{64}$/u),
   Schema.brand("StationQualificationSha256"),
 );
 export type StationQualificationSha256 = typeof StationQualificationSha256.Type;
 
 export const StationQualificationPackageFile = Schema.String.pipe(
-  Schema.minLength(1),
+  Schema.minLength(5),
   Schema.maxLength(180),
-  Schema.pattern(/^(?!\.{1,2}$)[^/\\\u0000-\u001f\u007f]+$/),
+  Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9 ._+-]*\.deb$/u),
   Schema.brand("StationQualificationPackageFile"),
 );
 export type StationQualificationPackageFile =
   typeof StationQualificationPackageFile.Type;
 
-export const StationQualificationEvidenceFile = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(180),
-  Schema.pattern(/^(?!\.{1,2}$)[^/\\\u0000-\u001f\u007f]+$/),
-  Schema.brand("StationQualificationEvidenceFile"),
+export const StationQualificationEvidenceFile = Schema.Literal(
+  STATION_QUALIFICATION_EVIDENCE_FILE,
 );
 export type StationQualificationEvidenceFile =
   typeof StationQualificationEvidenceFile.Type;
+
+const SignedManifestBinding = Schema.Struct({
+  file: Schema.Literal(STATION_QUALIFICATION_MANIFEST_FILE),
+  sha256: StationQualificationSha256,
+});
+export type StationQualificationSignedManifest =
+  typeof SignedManifestBinding.Type;
 
 const PackageBinding = Schema.Struct({
   file: StationQualificationPackageFile,
@@ -58,44 +63,44 @@ const PackageBinding = Schema.Struct({
 });
 export type StationQualificationPackage = typeof PackageBinding.Type;
 
-const Witness = Schema.Struct({
+const EvidenceBinding = Schema.Struct({
   file: StationQualificationEvidenceFile,
-  evidenceSha256: StationQualificationSha256,
-  observedAt: DisplayTimestamp,
+  sha256: StationQualificationSha256,
 });
-export type StationQualificationWitness = typeof Witness.Type;
-
-const NativePlatformFactValue = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(64),
-  Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9._-]*$/),
-);
+export type StationQualificationEvidence = typeof EvidenceBinding.Type;
 
 export const StationQualificationNativePlatform = Schema.Struct({
-  os: NativePlatformFactValue,
-  distribution: NativePlatformFactValue,
-  version: NativePlatformFactValue,
-  architecture: NativePlatformFactValue,
+  os: Schema.Literal("linux"),
+  distribution: Schema.Literal("ubuntu"),
+  version: Schema.Literal("24.04"),
+  architecture: Schema.Literal("x64"),
+  virtualization: Schema.Literal("orbstack"),
 });
 export type StationQualificationNativePlatform =
   typeof StationQualificationNativePlatform.Type;
 
+const QualifiedInstallation = Schema.Struct({
+  installationId: InstallationId,
+  appVersion: StationAppVersion,
+  nativePlatform: StationQualificationNativePlatform,
+});
+
 const QualifiedInstallations = Schema.Struct({
-  commandCenter: Schema.Struct({
-    installationId: InstallationId,
-    appVersion: Schema.NonEmptyString.pipe(Schema.maxLength(64)),
-    nativePlatform: StationQualificationNativePlatform,
-  }),
-  remote: Schema.Struct({
-    installationId: InstallationId,
-    appVersion: Schema.NonEmptyString.pipe(Schema.maxLength(64)),
-    nativePlatform: StationQualificationNativePlatform,
-  }),
+  commandCenter: QualifiedInstallation,
+  remote: QualifiedInstallation,
 }).pipe(
   Schema.filter(
     ({ commandCenter, remote }) =>
       commandCenter.installationId !== remote.installationId,
     { message: () => "qualification requires distinct installation IDs" },
+  ),
+  Schema.filter(
+    ({ commandCenter, remote }) =>
+      commandCenter.appVersion === remote.appVersion,
+    {
+      message: () =>
+        "qualification requires the same app version on both installations",
+    },
   ),
 );
 export type StationQualificationInstallations =
@@ -103,169 +108,73 @@ export type StationQualificationInstallations =
 
 const StationProtocol = Schema.Literal(STATION_PROTOCOL_BASELINE);
 
-const PairWitness = Schema.Struct({ witness: Witness });
-const ConfigureWitness = Schema.Struct({ witness: Witness });
-const ProjectWitness = Schema.Struct({ witness: Witness });
-const StatusWitness = Schema.Struct({ witness: Witness });
+export const StationQualificationPhaseResult = Schema.Literal("passed");
+export type StationQualificationPhaseResult =
+  typeof StationQualificationPhaseResult.Type;
 
-const ReportConvergence = Schema.Struct({
-  /** Remote-originated facts received and cumulatively acknowledged by CC. */
-  commandCenterReceived: RouteCursor,
-  remoteAcknowledgedByCommandCenter: RouteCursor,
-  /** Command-Center-originated facts received and cumulatively acknowledged by Remote. */
-  remoteReceived: RouteCursor,
-  commandCenterAcknowledgedByRemote: RouteCursor,
-}).pipe(
-  Schema.filter(
-    (value) =>
-      value.commandCenterReceived.eventHome ===
-        value.remoteAcknowledgedByCommandCenter.eventHome &&
-      value.commandCenterReceived.entityHome ===
-        value.remoteAcknowledgedByCommandCenter.entityHome &&
-      value.commandCenterReceived.through ===
-        value.remoteAcknowledgedByCommandCenter.through &&
-      value.remoteReceived.eventHome ===
-        value.commandCenterAcknowledgedByRemote.eventHome &&
-      value.remoteReceived.entityHome ===
-        value.commandCenterAcknowledgedByRemote.entityHome &&
-      value.remoteReceived.through ===
-        value.commandCenterAcknowledgedByRemote.through,
-    { message: () => "report convergence requires matching nonzero cursors" },
-  ),
-);
-export type StationQualificationReportConvergence =
-  typeof ReportConvergence.Type;
-
-/**
- * Event home proves which qualified installation emitted the record.
- * Entity home may be either qualified installation because a Remote can
- * advance work that began in a Command Center-home queue.
- */
-const convergenceMatchesQualifiedInstallations = (
-  convergence: StationQualificationReportConvergence,
-  installations: StationQualificationInstallations,
-): boolean => {
-  const commandCenter = installations.commandCenter.installationId;
-  const remote = installations.remote.installationId;
-  const entityHomeIsQualified = (entityHome: string): boolean =>
-    entityHome === commandCenter || entityHome === remote;
-  return (
-    convergence.commandCenterReceived.eventHome === remote &&
-    convergence.remoteAcknowledgedByCommandCenter.eventHome === remote &&
-    convergence.remoteReceived.eventHome === commandCenter &&
-    convergence.commandCenterAcknowledgedByRemote.eventHome === commandCenter &&
-    entityHomeIsQualified(
-      convergence.commandCenterReceived.entityHome,
-    ) &&
-    entityHomeIsQualified(
-      convergence.remoteAcknowledgedByCommandCenter.entityHome,
-    ) &&
-    entityHomeIsQualified(convergence.remoteReceived.entityHome) &&
-    entityHomeIsQualified(
-      convergence.commandCenterAcknowledgedByRemote.entityHome,
-    )
-  );
-};
-
-const ReportWitness = Schema.Struct({
-  witness: Witness,
-  convergence: ReportConvergence,
+const QualificationPhases = Schema.Struct({
+  managedDeploy: StationQualificationPhaseResult,
+  initialSync: StationQualificationPhaseResult,
+  workRoundTrip: StationQualificationPhaseResult,
+  commandCenterOffline: StationQualificationPhaseResult,
+  remoteRestart: StationQualificationPhaseResult,
+  idempotentRedeploy: StationQualificationPhaseResult,
 });
+export type StationQualificationPhases = typeof QualificationPhases.Type;
 
-const OfflineClaimedTaskWitness = Schema.Struct({
-  witness: Witness,
-  taskId: Schema.NonEmptyString.pipe(Schema.maxLength(256)),
-  advancedState: Schema.Literal("completed"),
+export const StationQualificationHealthResult = Schema.Struct({
+  package: Schema.Literal("installed"),
+  service: Schema.Literal("running"),
+  station: Schema.Literal("ready"),
 });
+export type StationQualificationHealthResult =
+  typeof StationQualificationHealthResult.Type;
 
-const ProjectResponseRetryWitness = Schema.Struct({
-  interruptionWitness: Witness,
-  retryWitness: Witness,
-  outcome: Schema.Literal("idempotent"),
+const QualificationHealth = Schema.Struct({
+  commandCenter: StationQualificationHealthResult,
+  remote: StationQualificationHealthResult,
 });
+export type StationQualificationHealth = typeof QualificationHealth.Type;
 
-const ReportResponseRetryWitness = Schema.Struct({
-  interruptionWitness: Witness,
-  retryWitness: Witness,
-  convergence: ReportConvergence,
+export const StationQualificationSecurityResult = Schema.Struct({
+  rendererSandbox: Schema.Literal("active"),
+  rendererNoNewPrivileges: Schema.Literal(true),
+  rendererSeccomp: Schema.Literal("filtering"),
+  vellumTcpListeners: Schema.Literal(0),
 });
+export type StationQualificationSecurityResult =
+  typeof StationQualificationSecurityResult.Type;
 
-export const StationQualificationDoctorStatus = Schema.Literal("ok");
-export type StationQualificationDoctorStatus =
-  typeof StationQualificationDoctorStatus.Type;
-
-const DoctorWitness = Schema.Struct({
-  commandCenter: Schema.Struct({
-    status: StationQualificationDoctorStatus,
-    witness: Witness,
-  }),
-  remote: Schema.Struct({
-    status: StationQualificationDoctorStatus,
-    witness: Witness,
-  }),
+const QualificationSecurity = Schema.Struct({
+  commandCenter: StationQualificationSecurityResult,
+  remote: StationQualificationSecurityResult,
 });
-
-const SyntheticNoOverlapWitness = Schema.Struct({
-  synthetic: Schema.Literal(true),
-  witness: Witness,
-  commandCenterSupport: StationProtocolSupport,
-  remoteSupport: StationProtocolSupport,
-  outcome: Schema.Literal("update-required"),
-}).pipe(
-  Schema.filter(
-    ({ commandCenterSupport, remoteSupport }) =>
-      negotiateStationProtocol(commandCenterSupport, remoteSupport)._tag ===
-        "no-common",
-    { message: () => "synthetic no-overlap evidence must have no common protocol" },
-  ),
-);
+export type StationQualificationSecurity = typeof QualificationSecurity.Type;
 
 const PassedQualification = Schema.Struct({
   schema: Schema.Literal(STATION_QUALIFICATION_SCHEMA),
   ok: Schema.Literal(true),
   sourceCommit: StationQualificationSourceCommit,
+  manifest: SignedManifestBinding,
   package: PackageBinding,
   stationProtocol: StationProtocol,
   installations: QualifiedInstallations,
-  phases: Schema.Struct({
-    pair: PairWitness,
-    configure: ConfigureWitness,
-    project: ProjectWitness,
-    report: ReportWitness,
-    status: StatusWitness,
-    commandCenterOfflineClaimedTask: OfflineClaimedTaskWitness,
-    projectResponseRetry: ProjectResponseRetryWitness,
-    reportResponseRetry: ReportResponseRetryWitness,
-    doctor: DoctorWitness,
-    syntheticNoOverlap: SyntheticNoOverlapWitness,
-  }),
+  phases: QualificationPhases,
+  health: QualificationHealth,
+  security: QualificationSecurity,
+  evidence: EvidenceBinding,
   completedAt: DisplayTimestamp,
-}).pipe(
-  Schema.filter(
-    ({ installations, phases }) =>
-      convergenceMatchesQualifiedInstallations(
-        phases.report.convergence,
-        installations,
-      ) &&
-      convergenceMatchesQualifiedInstallations(
-        phases.reportResponseRetry.convergence,
-        installations,
-      ),
-    {
-      message: () =>
-        "qualification cursors must name the exact qualified installations",
-    },
-  ),
-);
+});
 export type PassedStationQualification = typeof PassedQualification.Type;
 
-/** A coordinator must replace this only with real, operator-run evidence. */
+/** A coordinator may mint only this non-passing binding before the real run. */
 export const PendingStationQualification = Schema.Struct({
   schema: Schema.Literal(STATION_QUALIFICATION_SCHEMA),
   ok: Schema.Literal(false),
   status: Schema.Literal("pending"),
   reason: Schema.Literal("operator-run-required"),
   sourceCommit: StationQualificationSourceCommit,
+  manifest: SignedManifestBinding,
   package: PackageBinding,
   stationProtocol: StationProtocol,
 });

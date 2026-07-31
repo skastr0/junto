@@ -209,7 +209,7 @@ const createFixture = async (options: {
         noNewPrivs: true,
         seccomp: true,
       },
-      appArmor: "vellum",
+      sandboxCapability: "apparmor",
       tcpListeners: 0,
       debugAuthority: false,
       secretBearingOutput: false,

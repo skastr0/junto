@@ -2210,7 +2210,8 @@ const validateEvidenceReceipt = (
       typeof sandbox.renderers !== "number" ||
       !Number.isSafeInteger(sandbox.renderers) ||
       sandbox.renderers < 1 ||
-      receipt.appArmor !== "vellum" ||
+      (receipt.sandboxCapability !== "apparmor" &&
+        receipt.sandboxCapability !== "userns") ||
       receipt.tcpListeners !== 0 ||
       receipt.debugAuthority !== false ||
       receipt.secretBearingOutput !== false ||
