@@ -160,15 +160,17 @@ export const makeLinuxRemoteDeploymentProvider = (input: { readonly artifactAuth
           : failure(request, "candidate failed before activation");
       }),
     ).pipe(
-      Effect.catchAll((error) =>
+      // Provider contract is errorless: any residual Effect failure becomes a
+      // structured DeployRemoteResult (never an uncaught channel error).
+      Effect.catchAllDefect((defect) =>
         Effect.succeed(
           failure(
             request,
-            error instanceof Error ? error.message : String(error),
+            defect instanceof Error ? defect.message : String(defect),
           ),
         ),
       ),
-    ),
+    ) as Effect.Effect<DeployRemoteResult, never>,
 });
 
 export const linuxRemoteDeploymentProvider = makeLinuxRemoteDeploymentProvider({ artifactAuthority: makeProductionLinuxArtifactAuthority(), liveWorkAuthority: makeProductionLinuxLiveWorkAuthority() });
