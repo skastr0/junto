@@ -1972,7 +1972,8 @@ const validateEvidenceReceipt = (
       receipt.package !== "vellum" ||
       receipt.version !== manifest.release.version ||
       receipt.architecture !== "amd64" ||
-      receipt.chromeSandboxMode !== "0755" ||
+      receipt.chromeSandbox !== "absent" ||
+      "chromeSandboxMode" in receipt ||
       receipt.appArmor !== "userns"
     ) {
       throw new Error("package audit receipt does not match the signed deb");

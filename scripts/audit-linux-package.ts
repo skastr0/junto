@@ -219,7 +219,7 @@ export interface LinuxPackageAuditReceipt {
   readonly nativeObjects: ReadonlyArray<string>;
   readonly license: LicenseBuildAuditReceipt;
   readonly fuses: Readonly<Record<string, "Enabled" | "Disabled">>;
-  readonly chromeSandboxMode: "0755";
+  readonly chromeSandbox: "absent";
   readonly appArmor: "userns";
 }
 
@@ -1266,7 +1266,7 @@ export const auditLinuxPackage = async ({
       ),
       license,
       fuses: fuseReceipt,
-      chromeSandboxMode: "0755",
+      chromeSandbox: "absent",
       appArmor: "userns",
     };
   } finally {

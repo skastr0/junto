@@ -134,6 +134,8 @@ const createFixture = async (options: {
   readonly omitStationQualification?: boolean;
   readonly qualificationCandidate?: boolean;
   readonly qualificationExpiresAt?: string;
+  readonly chromeSandboxClaim?: "absent" | "present";
+  readonly includeRetiredChromeSandboxMode?: boolean;
 } = {}) => {
   const directory = await mkdtemp(
     path.join(tmpdir(), "vellum-linux-release-bundle-"),
@@ -187,7 +189,10 @@ const createFixture = async (options: {
       package: "vellum",
       version: VERSION,
       architecture: "amd64",
-      chromeSandboxMode: "0755",
+      chromeSandbox: options.chromeSandboxClaim ?? "absent",
+      ...(options.includeRetiredChromeSandboxMode
+        ? { chromeSandboxMode: "0755" }
+        : {}),
       appArmor: "userns",
     }),
     "packaged-pty-smoke.json": canonical({
@@ -1054,6 +1059,15 @@ describe("signed Linux release bundle", () => {
     await expect(
       createFixture({ ciEvidencePackageSha256: "0".repeat(64) }),
     ).rejects.toThrow(/does not bind/u);
+  });
+
+  it("requires the package receipt to prove chrome-sandbox is absent", async () => {
+    await expect(
+      createFixture({ chromeSandboxClaim: "present" }),
+    ).rejects.toThrow(/package audit receipt/u);
+    await expect(
+      createFixture({ includeRetiredChromeSandboxMode: true }),
+    ).rejects.toThrow(/package audit receipt/u);
   });
 
   it("requires real two-installation evidence bound to source and package", async () => {
