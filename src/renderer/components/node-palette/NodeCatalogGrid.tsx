@@ -23,6 +23,8 @@ export type NodeCatalogConnection = {
   readonly target: string;
   /** Plain-language summary of the collaboration over that edge. */
   readonly relationship: string;
+  /** The edge plane this relationship uses. */
+  readonly mode: "capability" | "effect" | "context";
   /** Capability grants the edge can carry. */
   readonly ports: readonly string[];
 };
@@ -51,83 +53,83 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     id: "terminal", kind: "terminal", category: "shell", label: "Terminal", subtitle: "native shell",
     icon: SquareTerminal, accentClass: "text-cyan",
     purpose: "A managed shell on the selected host for commands, logs, and hands-on operator work.",
-    connections: [{ target: "Any node", relationship: "keeps shell work spatially adjacent as display context", ports: [] }],
+    connections: [{ target: "Any node", relationship: "keeps shell work spatially adjacent as display context", mode: "context", ports: [] }],
   },
   {
     id: "herdr", kind: "herdr", category: "shell", label: "Herdr", subtitle: "attach an existing pane",
     icon: PanelTop, accentClass: "text-indigo",
     purpose: "A bridge to an existing terminal pane without taking ownership of the underlying process.",
-    connections: [{ target: "Any node", relationship: "keeps an existing pane visible as display context", ports: [] }],
+    connections: [{ target: "Any node", relationship: "keeps an existing pane visible as display context", mode: "context", ports: [] }],
   },
   {
     id: "tasks", kind: "task", category: "sinks", label: "Tasks", subtitle: "shared claim queue",
     icon: Blocks, accentClass: "text-gold",
     purpose: "A durable work sink where connected agents inspect, claim, and submit discrete tasks.",
     attention: "Submitted and working tasks do not block anyone. Only an input-required task stops its connected actor.",
-    connections: [{ target: "Agent", relationship: "agent reads, claims, and completes work", ports: ["tasks.list", "tasks.claim", "tasks.update"] }],
+    connections: [{ target: "Agent", relationship: "agent reads, claims, and completes work", mode: "capability", ports: ["tasks.list", "tasks.claim", "tasks.update"] }],
   },
   {
     id: "requests", kind: "requests", category: "sinks", label: "Requests", subtitle: "operator input required",
     icon: Inbox, accentClass: "text-orange",
     purpose: "An operator-facing inbox for decisions and missing information surfaced by connected work.",
     attention: "Input-required requests create visible attention; connect them to the actor that needs the answer.",
-    connections: [{ target: "Agent", relationship: "surfaces an answerable operator request", ports: ["msg.send", "msg.list"] }],
+    connections: [{ target: "Agent", relationship: "surfaces an answerable operator request", mode: "capability", ports: ["request.escalate", "msg.list", "msg.send"] }],
   },
   {
     id: "artifacts", kind: "artifacts", category: "sinks", label: "Artifacts", subtitle: "published parts shelf",
     icon: Archive, accentClass: "text-green",
     purpose: "A durable shelf for named outputs produced as work becomes real.",
-    connections: [{ target: "Agent", relationship: "records produced files and proof", ports: ["artifact.create", "artifact.list"] }],
+    connections: [{ target: "Agent", relationship: "records produced files and proof", mode: "capability", ports: ["artifact.publish"] }],
   },
   {
     id: "board", kind: "board", category: "sinks", label: "Board", subtitle: "topics and posts",
     icon: Braces, accentClass: "text-amber",
     purpose: "A shared Command Center discussion surface for durable topics, updates, and decisions.",
-    connections: [{ target: "Agent", relationship: "creates topics and posts updates", ports: ["board.create_topic", "board.post"] }],
+    connections: [{ target: "Agent", relationship: "creates topics and posts updates", mode: "capability", ports: ["board.create_topic", "board.post"] }],
   },
   {
     id: "page", kind: "page", category: "canvas", label: "Page", subtitle: "browser work surface",
     icon: Globe2, accentClass: "text-cyan",
     purpose: "A browser-backed work surface for a specific web context on the canvas.",
-    connections: [{ target: "Agent", relationship: "shares bounded browser context", ports: ["browser.navigate", "browser.evaluate"] }],
+    connections: [{ target: "Agent", relationship: "shares bounded browser context", mode: "capability", ports: ["browser.automate"] }],
   },
   {
     id: "timer", kind: "timer", category: "schedule", label: "Cron", subtitle: "schedule on an interval",
     icon: Clock3, accentClass: "text-violet",
     purpose: "A durable, home-scoped schedule that fires authored edge effects (enqueue tasks, set flags).",
     attention: "Connect cron → task with an effect edge to mint work. Actors still pull via the claim tick.",
-    connections: [{ target: "Task", relationship: "enqueues work on fire", ports: [] }],
+    connections: [{ target: "Task", relationship: "enqueues work on fire", mode: "effect", ports: [] }],
   },
   {
     id: "watcher", kind: "watcher", category: "schedule", label: "Gauge", subtitle: "live data condition",
     icon: Eye, accentClass: "text-violet",
     purpose: "A hermes roster predicate (e.g. running). Rising edge can fire the same edge effects as cron.",
     attention: "Hermes roster stats are thin today (running 0/1). Effects need an outbound edge.",
-    connections: [{ target: "Task", relationship: "enqueues work when condition trips", ports: [] }],
+    connections: [{ target: "Task", relationship: "enqueues work when condition trips", mode: "effect", ports: [] }],
   },
   {
     id: "note", kind: "text", category: "canvas", label: "Note", subtitle: "freeform text",
     icon: FileText, accentClass: "text-gold",
     purpose: "Freeform operator-authored context placed directly beside the work it explains.",
-    connections: [{ target: "Any node", relationship: "adds human-readable context to the map", ports: [] }],
+    connections: [{ target: "Any node", relationship: "adds human-readable context to the map", mode: "context", ports: [] }],
   },
   {
     id: "file", kind: "file", category: "canvas", label: "File", subtitle: "workspace path",
     icon: Folder, accentClass: "text-indigo",
     purpose: "A workspace path pinned into the map so collaborators can see the durable source of a thing.",
-    connections: [{ target: "Agent", relationship: "anchors the working source in context", ports: [] }],
+    connections: [{ target: "Agent", relationship: "anchors the working source in context", mode: "context", ports: [] }],
   },
   {
     id: "link", kind: "link", category: "canvas", label: "Link", subtitle: "web reference",
     icon: Link2, accentClass: "text-cyan",
     purpose: "A web reference kept on the canvas as shared, human-authored context.",
-    connections: [{ target: "Agent", relationship: "offers an explicit reference", ports: [] }],
+    connections: [{ target: "Agent", relationship: "offers an explicit reference", mode: "context", ports: [] }],
   },
   {
     id: "region", kind: "group", category: "canvas", label: "Region", subtitle: "spatial container",
     icon: SquareDashed, accentClass: "text-green",
     purpose: "Named geography that groups related work and can carry an operator briefing.",
-    connections: [{ target: "Any node", relationship: "contains and frames related work", ports: [] }],
+    connections: [{ target: "Any node", relationship: "contains and frames related work", mode: "context", ports: [] }],
   },
 ];
 
@@ -266,7 +268,9 @@ function CatalogExplanation({ entry, id }: { readonly entry: NodeCatalogEntry; r
                 ))}
               </span>
             ) : (
-              <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-faint">context edge</span>
+              <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-faint">
+                {connection.mode} edge
+              </span>
             )}
           </span>
         ))}
