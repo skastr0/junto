@@ -72,10 +72,6 @@ export function AgentLaunchContext({
   const configured = useMemo(configuredHost, []);
   const [hosts, setHosts] = useState<ReadonlyArray<AgentHostChoice>>([configured]);
   const [hostId, setHostId] = useState(initialHostId || configured.id);
-  const [cwd, setCwd] = useState("");
-  const [folderSeed, setFolderSeed] = useState("~");
-  const [folderOpen, setFolderOpen] = useState(false);
-
   const center = centerOf(position);
   const region = useMemo(
     () => findContainingRegion(doc, center.x, center.y),
@@ -85,6 +81,9 @@ export function AgentLaunchContext({
   const selectedHost = hosts.find((host) => host.id === hostId) ?? configured;
   const regionDefaultPath = region?.ether?.region?.defaults?.paths?.[hostId]?.trim();
   const [useRegionDefault, setUseRegionDefault] = useState(Boolean(regionDefaultPath));
+  const [cwd, setCwd] = useState(() => regionPath ?? "");
+  const [folderSeed, setFolderSeed] = useState(() => regionPath ?? "~");
+  const [folderOpen, setFolderOpen] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -99,12 +98,18 @@ export function AgentLaunchContext({
     return () => { live = false; };
   }, [configured]);
 
-  // A new placement or host starts from the innermost region's per-host path.
+  // Seed only when placement identity changes. Saving a default mutates `doc`;
+  // that mutation must not reset the checkbox state that initiated it.
   useEffect(() => {
-    setCwd(regionPath ?? "");
-    setFolderSeed(regionPath ?? "~");
-    setUseRegionDefault(Boolean(regionDefaultPath));
-  }, [hostId, region?.id, regionPath, regionDefaultPath]);
+    const nextPath = resolveRegionCwd(doc, center.x, center.y, hostId);
+    const nextDefault = region?.ether?.region?.defaults?.paths?.[hostId]?.trim();
+    setCwd(nextPath ?? "");
+    setFolderSeed(nextPath ?? "~");
+    setUseRegionDefault(Boolean(nextDefault));
+    // `doc` changes when this control writes a default; placement identity is
+    // the intentional reset boundary.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hostId, region?.id]);
 
   useEffect(() => {
     onChange({
