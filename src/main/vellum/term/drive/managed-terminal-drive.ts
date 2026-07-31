@@ -72,6 +72,12 @@ export type WritePromptOptions = {
    * When now < readyAfterMs, wait only when queueIfBusy permits retention.
    */
   readonly readyAfterMs?: number;
+  /**
+   * Mailbox-only steering: send one mid-turn interrupt before queueing the
+   * prompt. Idle seats are never interrupted. Repeated prompts coalesce until
+   * the seat reports idle so a mail burst cannot double-tap Ctrl+C.
+   */
+  readonly interruptIfBusy?: boolean;
 };
 
 /** Grok TUI trap: paste before ~1.5s post-spawn is swallowed. */
@@ -128,6 +134,8 @@ export class ManagedTerminalDrive {
   private readonly readyAfter = new Map<string, number>();
   /** Per-binding generation cut: terminal epoch changes invalidate old writes. */
   private readonly bindingGenerations = new Map<string, number>();
+  /** One mailbox interrupt per busy stretch; cleared at the idle boundary. */
+  private readonly mailInterrupts = new Map<string, Promise<boolean>>();
   private suspended = false;
   private lifecycleGeneration = 0;
 
@@ -266,6 +274,49 @@ export class ManagedTerminalDrive {
       this.pendingTurns.has(bindingId)
     ) {
       if (!queueIfBusy) return false;
+      if (
+        opts.interruptIfBusy &&
+        !this.isSeatIdle(bindingId) &&
+        !this.mailInterrupts.has(bindingId)
+      ) {
+        // Reserve the coalescing slot before awaiting the physical write so
+        // concurrent mailbox appends cannot issue a second Ctrl+C. Sharing the
+        // promise also preserves FIFO queue order across the await boundary.
+        this.mailInterrupts.set(bindingId, this.interrupt(bindingId));
+      }
+      if (opts.interruptIfBusy && !this.isSeatIdle(bindingId)) {
+        const interruption = this.mailInterrupts.get(bindingId);
+        if (interruption !== undefined) {
+          const interrupted = await interruption;
+          if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
+            return false;
+          }
+          if (!interrupted) {
+            if (this.mailInterrupts.get(bindingId) === interruption) {
+              this.mailInterrupts.delete(bindingId);
+            }
+            return false;
+          }
+        }
+      }
+      if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
+        return false;
+      }
+      // The interrupt can make the seat idle before its observer event is
+      // delivered. Do not miss that boundary and strand the prompt in a queue
+      // that was drained just before this call resumed.
+      if (
+        this.isSeatIdle(bindingId) &&
+        !this.writing.has(bindingId) &&
+        !this.pendingTurns.has(bindingId)
+      ) {
+        return this.executePrompt(
+          bindingId,
+          text,
+          generation,
+          bindingGeneration,
+        );
+      }
       const timeoutMs = opts.queueTimeoutMs ?? this.queueTimeoutMs;
       return new Promise<boolean>((resolve) => {
         if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
@@ -353,6 +404,7 @@ export class ManagedTerminalDrive {
    */
   onSeatIdle(bindingId: string): void {
     if (this.suspended) return;
+    this.mailInterrupts.delete(bindingId);
     void this.drainOne(bindingId);
   }
 
@@ -383,6 +435,7 @@ export class ManagedTerminalDrive {
     this.lastIdleInterruptAt.clear();
     this.turnStartCounts.clear();
     this.readyAfter.clear();
+    this.mailInterrupts.clear();
     this.bindingGenerations.clear();
   }
 
@@ -398,6 +451,7 @@ export class ManagedTerminalDrive {
     }
     this.writing.delete(bindingId);
     this.lastIdleInterruptAt.delete(bindingId);
+    this.mailInterrupts.delete(bindingId);
     this.turnStartCounts.delete(bindingId);
     this.readyAfter.delete(bindingId);
   }

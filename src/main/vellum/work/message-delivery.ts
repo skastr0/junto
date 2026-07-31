@@ -20,10 +20,20 @@ export type MessageDeliveryTransport = {
   /** Paste without submitting (raw geography shells only). */
   readonly sendTerminalPaste?: (bindingId: string, text: string, messageId: string) => boolean;
   /**
-   * Managed-terminal drive: paste+CR into an agent seat PTY, idle-gated.
+   * Managed-terminal drive: paste+CR into an agent seat PTY, idle-gated by
+   * default. Explicit factory mail may request one busy-turn interrupt.
    * Returns true only after the managed seat acknowledges turn-start.
    */
-  readonly sendManagedTerminalPrompt?: (bindingId: string, text: string) => Promise<boolean>;
+  readonly sendManagedTerminalPrompt?: (
+    bindingId: string,
+    text: string,
+    options?: ManagedTerminalPromptOptions,
+  ) => Promise<boolean>;
+};
+
+export type ManagedTerminalPromptOptions = {
+  /** Interrupt one active turn before the mailbox prompt is queued. */
+  readonly interruptIfBusy?: boolean;
 };
 
 export type MessageDeliveryStore = {
@@ -317,7 +327,17 @@ export class MessageDeliveryService {
       if (!this.transportAccepted.has(key)) {
         if (!this.active(generation)) return;
         const payload = composeMessageDeliveryPayload(live);
-        const delivered = await this.deliver(transport, target, payload, live.messageId);
+        const delivered = await this.deliver(
+          transport,
+          target,
+          payload,
+          live.messageId,
+          // Only explicit factory mail steers a live turn. System mailbox
+          // notices remain ordinary queued prompts.
+          live.metadata?.factoryMail === true
+            ? { interruptIfBusy: true }
+            : undefined,
+        );
         if (!delivered) return;
         this.transportAccepted.add(key);
       }
@@ -337,10 +357,11 @@ export class MessageDeliveryService {
     target: SurfaceDeliveryTarget,
     payload: string,
     messageId: string,
+    options?: ManagedTerminalPromptOptions,
   ): Promise<boolean> {
     // Managed drive (paste+CR) preferred; raw paste only for geography shells.
     if (transport.sendManagedTerminalPrompt) {
-      return transport.sendManagedTerminalPrompt(target.bindingId, payload);
+      return transport.sendManagedTerminalPrompt(target.bindingId, payload, options);
     }
     return transport.sendTerminalPaste?.(target.bindingId, payload, messageId) ?? false;
   }
@@ -348,4 +369,3 @@ export class MessageDeliveryService {
 
 /** Process-wide singleton — configured once at app boot; tests call resetForTest. */
 export const messageDelivery = new MessageDeliveryService();
-

@@ -411,6 +411,62 @@ describe("MessageDeliveryService", () => {
     await waitUntil(() => store.hasAcceptedMessageDelivery("c", "terminal", msg.messageId));
   });
 
+  it("marks explicit factory mail for busy-seat interruption", async () => {
+    const msg = userMsg("mail-steer", "interrupt the turn", {
+      metadata: { factoryMail: true },
+    });
+    const store = makeStore({ c: agentDoc([msg]) });
+    const calls: Array<{
+      readonly bindingId: string;
+      readonly text: string;
+      readonly interruptIfBusy: boolean | undefined;
+    }> = [];
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        sendManagedTerminalPrompt: async (bindingId, text, options) => {
+          calls.push({ bindingId, text, interruptIfBusy: options?.interruptIfBusy });
+          return true;
+        },
+      },
+      store,
+    });
+
+    service.notifyAppended("c", "agent", msg);
+    await waitUntil(() => calls.length === 1);
+    expect(calls).toEqual([
+      {
+        bindingId: "bind-mira",
+        text: "[message · user] interrupt the turn",
+        interruptIfBusy: true,
+      },
+    ]);
+  });
+
+  it("does not steer system mailbox notices", async () => {
+    const msg = userMsg("mail-notice", "link enabled", {
+      metadata: { msgSendEnabled: true, factoryLink: true },
+    });
+    const store = makeStore({ c: agentDoc([msg]) });
+    let called = false;
+    let options: { readonly interruptIfBusy?: boolean } | undefined;
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        sendManagedTerminalPrompt: async (_bindingId, _text, next) => {
+          called = true;
+          options = next;
+          return true;
+        },
+      },
+      store,
+    });
+
+    service.notifyAppended("c", "agent", msg);
+    await waitUntil(() => called);
+    expect(options).toBeUndefined();
+  });
+
   it("managed terminal idle gate leave pending until onManagedTerminalIdle", async () => {
     const msg = userMsg("idle-gate", "wait");
     const base = terminalDoc([msg]);

@@ -111,6 +111,76 @@ describe("ManagedTerminalDrive", () => {
     ]);
   });
 
+  it("mail steering interrupts a busy seat once, then drains prompts at idle", async () => {
+    idle = false;
+    drive = makeDrive();
+
+    const first = drive.writePrompt("b1", "mail one", { interruptIfBusy: true });
+    const second = drive.writePrompt("b1", "mail two", { interruptIfBusy: true });
+    await flushMicrotasks(4);
+
+    expect(writes).toEqual([{ bindingId: "b1", data: INTERRUPT_BYTE }]);
+    expect(drive.queuedCount("b1")).toBe(2);
+
+    idle = true;
+    drive.onSeatIdle("b1");
+    await expect(first).resolves.toBe(true);
+    expect(writes.map((w) => w.data)).toEqual([
+      INTERRUPT_BYTE,
+      encodeBracketedPaste("mail one"),
+      CR,
+    ]);
+
+    drive.onSeatIdle("b1");
+    await expect(second).resolves.toBe(true);
+    expect(writes.map((w) => w.data)).toEqual([
+      INTERRUPT_BYTE,
+      encodeBracketedPaste("mail one"),
+      CR,
+      encodeBracketedPaste("mail two"),
+      CR,
+    ]);
+  });
+
+  it("mail steering never interrupts an idle seat", async () => {
+    drive = makeDrive();
+    await expect(
+      drive.writePrompt("b1", "mail", { interruptIfBusy: true }),
+    ).resolves.toBe(true);
+    expect(writes).toEqual([
+      { bindingId: "b1", data: encodeBracketedPaste("mail") },
+      { bindingId: "b1", data: CR },
+    ]);
+  });
+
+  it("does not strand mail when idle arrives before the interrupt write settles", async () => {
+    idle = false;
+    let releaseInterrupt!: (ok: boolean) => void;
+    const interruptWritten = new Promise<boolean>((resolve) => {
+      releaseInterrupt = resolve;
+    });
+    drive = makeDrive({
+      write: (bindingId, data) => {
+        writes.push({ bindingId, data });
+        return data === INTERRUPT_BYTE ? interruptWritten : true;
+      },
+    });
+
+    const mail = drive.writePrompt("b1", "mail", { interruptIfBusy: true });
+    await flushMicrotasks(3);
+    expect(writes).toEqual([{ bindingId: "b1", data: INTERRUPT_BYTE }]);
+
+    idle = true;
+    drive.onSeatIdle("b1");
+    releaseInterrupt(true);
+    await expect(mail).resolves.toBe(true);
+    expect(writes.map((w) => w.data)).toEqual([
+      INTERRUPT_BYTE,
+      encodeBracketedPaste("mail"),
+      CR,
+    ]);
+  });
+
   it("refuses a non-queuing busy prompt without writing it on a later idle transition", async () => {
     idle = false;
     drive = makeDrive();

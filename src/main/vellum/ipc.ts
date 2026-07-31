@@ -986,6 +986,7 @@ export const registerVellumIpc = (): void => {
         options?: {
           readonly queueTimeoutMs?: number;
           readonly ready?: boolean;
+          readonly interruptIfBusy?: boolean;
         },
       ) =>
         managedDrive.writePrompt(bindingId, text, {
@@ -1101,8 +1102,8 @@ export const registerVellumIpc = (): void => {
           // Raw geography shells: no auto-submit.
           sendTerminalPaste: (_bindingId, _text, _messageId) => false,
           // managedAgent + rawTerminal → paste+CR via idle-gated drive.
-          sendManagedTerminalPrompt: (bindingId, text) =>
-            writeManagedPrompt(bindingId, text),
+          sendManagedTerminalPrompt: (bindingId, text, options) =>
+            writeManagedPrompt(bindingId, text, options),
         },
         store: {
           listCanvasNames: () =>
