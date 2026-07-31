@@ -4,9 +4,9 @@
  * kind is carried by the outlined icon, never a coloured slab or side stripe.
  */
 .focus-surface__panel.node-deck-focus-panel {
-  width: min(1040px, calc(100vw - 32px));
-  height: min(720px, calc(100vh - 96px));
-  max-height: calc(100vh - 96px);
+  width: min(1240px, calc(100vw - 48px));
+  height: min(840px, calc(100vh - 80px));
+  max-height: calc(100vh - 80px);
   box-shadow: none;
 }
 
