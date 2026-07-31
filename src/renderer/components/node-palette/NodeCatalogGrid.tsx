@@ -1,8 +1,5 @@
 import { useId, useMemo, useState } from "react";
 import type { Port } from "@shared/physics/schema";
-import attentionPlate from "../../assets/node-palette/attention-plate.png";
-import capabilityPlate from "../../assets/node-palette/capability-plate.png";
-import effectPlate from "../../assets/node-palette/effect-plate.png";
 import {
   Archive,
   ArrowLeftRight,
@@ -280,11 +277,6 @@ function ConnectionMap({
 function CatalogDetail({ entry, id }: { readonly entry: NodeCatalogEntry; readonly id: string }) {
   const Icon = entry.icon;
   const [primaryConnection, ...secondaryConnections] = entry.connections;
-  const detailPlate = entry.attention
-    ? attentionPlate
-    : entry.connections.some((connection) => connection.mode === "effect")
-      ? effectPlate
-      : capabilityPlate;
   return (
     <aside
       id={id}
@@ -304,12 +296,6 @@ function CatalogDetail({ entry, id }: { readonly entry: NodeCatalogEntry; readon
 
       {primaryConnection ? (
         <div className="node-deck-catalog__relationships">
-          <img
-            aria-hidden="true"
-            alt=""
-            className="node-deck-catalog__plate"
-            src={detailPlate}
-          />
           <div className="node-deck-catalog__connection node-deck-catalog__connection--primary">
             <ConnectionMap connection={primaryConnection} accentClass={entry.accentClass} />
             <span className="node-deck-catalog__relationship">{primaryConnection.relationship}</span>

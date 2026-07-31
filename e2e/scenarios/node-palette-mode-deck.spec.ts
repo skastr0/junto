@@ -353,18 +353,8 @@ test("node detail rail preserves navigation while explaining primary and seconda
       .not.toHaveCount(0);
 
     const relationships = taskDetail.locator(".node-deck-catalog__relationships");
-    const plate = relationships.locator(".node-deck-catalog__plate");
-    const [relationshipsBox, plateBox] = await Promise.all([
-      relationships.boundingBox(),
-      plate.boundingBox(),
-    ]);
-    expect(relationshipsBox).not.toBeNull();
-    expect(plateBox).not.toBeNull();
-    expect(Math.abs(plateBox!.width - relationshipsBox!.width)).toBeLessThanOrEqual(1);
-    expect(Math.abs(plateBox!.height - relationshipsBox!.height)).toBeLessThanOrEqual(1);
-    await expect(plate).toHaveCSS("object-fit", "cover");
-    expect(Number(await plate.evaluate((element) => getComputedStyle(element).opacity)))
-      .toBeLessThanOrEqual(0.4);
+    await expect(relationships).toBeVisible();
+    await expect(relationships.locator("img")).toHaveCount(0);
   } finally {
     await vellum.close();
   }
