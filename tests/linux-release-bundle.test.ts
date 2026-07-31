@@ -35,6 +35,7 @@ import {
 } from "../scripts/linux-release-bundle";
 import {
   STATION_QUALIFICATION_EVIDENCE_FILE,
+  STATION_QUALIFICATION_MANIFEST_FILE,
   STATION_QUALIFICATION_RECEIPT_FILE,
   STATION_QUALIFICATION_SCHEMA,
 } from "../src/shared/station-qualification";
@@ -120,8 +121,7 @@ const createFixture = async (options: {
     | "unresolved";
   readonly sbomLicense?: string;
   readonly ciEvidencePackageSha256?: string;
-  readonly promotionPackageSha256?: string;
-  readonly promotionStationQualificationSha256?: string;
+  readonly stationQualificationPackageBytes?: number;
   readonly stationQualificationPackageSha256?: string;
   readonly stationQualificationSourceCommit?: string;
   readonly stationQualificationIncomplete?: boolean;
@@ -131,8 +131,7 @@ const createFixture = async (options: {
     | "macos"
     | "unsupported";
   readonly stationQualificationWrongRemotePlatform?: boolean;
-  readonly stationQualificationWitnessFile?: string;
-  readonly stationQualificationWitnessMismatchIndex?: number;
+  readonly stationQualificationEvidenceSha256?: string;
   readonly omitStationQualification?: boolean;
   readonly qualificationCandidate?: boolean;
   readonly qualificationExpiresAt?: string;
@@ -268,11 +267,13 @@ const createFixture = async (options: {
     "vellum-linux-verify-x64": "compiled-verifier-placeholder",
   };
   await Promise.all(
-    Object.entries(payloads).map(([name, body]) =>
+    Object.entries(payloads)
+      .filter(([name]) => name !== STATION_QUALIFICATION_EVIDENCE_FILE)
+      .map(([name, body]) =>
       writeFile(path.join(directory, name), body, {
         encoding: "utf8",
         mode: name === "vellum-linux-verify-x64" ? 0o755 : 0o644,
-      })
+      }),
     ),
   );
   const ciEvidenceManifest = canonical({
@@ -332,7 +333,6 @@ const createFixture = async (options: {
     { encoding: "utf8", mode: 0o644 },
   );
   if (options.qualificationCandidate === true) {
-    await rm(path.join(directory, STATION_QUALIFICATION_EVIDENCE_FILE));
     if (status !== "active") {
       return { directory, keys, keyring };
     }
@@ -356,135 +356,108 @@ const createFixture = async (options: {
     });
     return { directory, keys, keyring };
   }
-  const qualificationWitness = () => {
-    const file =
-      options.stationQualificationWitnessFile ??
-        STATION_QUALIFICATION_EVIDENCE_FILE;
-    return {
-      file,
-      evidenceSha256: sha256(
-        payloads[file] ?? payloads[STATION_QUALIFICATION_EVIDENCE_FILE],
+  const candidateDirectory = await mkdtemp(
+    path.join(tmpdir(), "vellum-linux-qualification-candidate-"),
+  );
+  const qualificationDirectory = await mkdtemp(
+    path.join(tmpdir(), "vellum-linux-qualification-result-"),
+  );
+  roots.push(candidateDirectory, qualificationDirectory);
+  await writeKeyring(candidateDirectory, keyring);
+  await Promise.all([
+    ...Object.entries(payloads)
+      .filter(([name]) => name !== STATION_QUALIFICATION_EVIDENCE_FILE)
+      .map(([name, body]) =>
+        writeFile(path.join(candidateDirectory, name), body, {
+          encoding: "utf8",
+          mode: name === "vellum-linux-verify-x64" ? 0o755 : 0o644,
+        }),
       ),
-      observedAt: "2026-07-23T11:45:00.000Z",
-    };
-  };
-  const qualificationCursor = (
-    eventHome: string,
-    entityHome: string,
-    through: string,
-  ) => ({ eventHome, entityHome, through });
-  const qualificationConvergence = {
-    commandCenterReceived:
-      qualificationCursor("fixture-remote", "fixture-remote", "2"),
-    remoteAcknowledgedByCommandCenter:
-      qualificationCursor("fixture-remote", "fixture-remote", "2"),
-    remoteReceived:
-      qualificationCursor("fixture-command-center", "fixture-command-center", "3"),
-    commandCenterAcknowledgedByRemote:
-      qualificationCursor("fixture-command-center", "fixture-command-center", "3"),
-  };
-  const qualificationPlatform = (
-    kind: "linux" | "macos" | "unsupported",
-  ) => {
-    if (kind === "linux") {
-      return {
+    writeFile(
+      path.join(candidateDirectory, "ci-evidence-manifest.json"),
+      ciEvidenceManifest,
+      { encoding: "utf8", mode: 0o644 },
+    ),
+    writeFile(
+      path.join(
+        qualificationDirectory,
+        STATION_QUALIFICATION_EVIDENCE_FILE,
+      ),
+      payloads[STATION_QUALIFICATION_EVIDENCE_FILE],
+      { encoding: "utf8", mode: 0o600 },
+    ),
+  ]);
+  await createLinuxQualificationCandidateManifest({
+    bundleDirectory: candidateDirectory,
+    version: VERSION,
+    sourceRevision: REVISION,
+    createdAt: CREATED_AT,
+    expiresAt: QUALIFICATION_EXPIRES_AT,
+    keyId: KEY_ID,
+  });
+  await signLinuxQualificationCandidateMetadata({
+    bundleDirectory: candidateDirectory,
+    keyId: KEY_ID,
+    privateKeyPem: keys.privateKey.export({
+      format: "pem",
+      type: "pkcs8",
+    }).toString(),
+    signedAt: "2026-07-23T11:58:00.000Z",
+  });
+  const candidateManifestSha256 = sha256(
+    await readFile(
+      path.join(candidateDirectory, LINUX_RELEASE_MANIFEST),
+      "utf8",
+    ),
+  );
+  const qualificationPlatform = (valid: boolean) =>
+    valid
+      ? {
         os: "linux",
         distribution: "ubuntu",
         version: "24.04",
         architecture: "x64",
+        virtualization: "orbstack",
+      }
+      : {
+        os: "windows",
+        distribution: "windows",
+        version: "11",
+        architecture: "x64",
+        virtualization: "bare-metal",
       };
-    }
-    if (kind === "macos") {
-      return {
-        os: "darwin",
-        distribution: "macos",
-        version: "15.5",
-        architecture: "arm64",
-      };
-    }
-    return {
-      os: "windows",
-      distribution: "windows",
-      version: "11",
-      architecture: "x64",
-    };
+  const qualificationPhases: Record<string, string> = {
+    managedDeploy: "passed",
+    initialSync: "passed",
+    workRoundTrip: "passed",
+    commandCenterOffline: "passed",
+    remoteRestart: "passed",
+    idempotentRedeploy: "passed",
   };
-  const qualificationPhases = {
-    pair: { witness: qualificationWitness() },
-    configure: { witness: qualificationWitness() },
-    project: { witness: qualificationWitness() },
-    report: {
-      witness: qualificationWitness(),
-      convergence: qualificationConvergence,
-    },
-    status: { witness: qualificationWitness() },
-    commandCenterOfflineClaimedTask: {
-      witness: qualificationWitness(),
-      taskId: "fixture-task",
-      advancedState: "completed",
-    },
-    projectResponseRetry: {
-      interruptionWitness: qualificationWitness(),
-      retryWitness: qualificationWitness(),
-      outcome: "idempotent",
-    },
-    reportResponseRetry: {
-      interruptionWitness: qualificationWitness(),
-      retryWitness: qualificationWitness(),
-      convergence: qualificationConvergence,
-    },
-    doctor: {
-      commandCenter: {
-        status: "ok",
-        witness: qualificationWitness(),
-      },
-      remote: {
-        status: "ok",
-        witness: qualificationWitness(),
-      },
-    },
-    syntheticNoOverlap: {
-      synthetic: true,
-      witness: qualificationWitness(),
-      commandCenterSupport: {
-        preferred: 4,
-        compatibleFrom: 3,
-        warnBelow: 3,
-      },
-      remoteSupport: {
-        preferred: 2,
-        compatibleFrom: 1,
-        warnBelow: 1,
-      },
-      outcome: "update-required",
-    },
-  };
-  const qualificationWitnesses = [
-    qualificationPhases.pair.witness,
-    qualificationPhases.configure.witness,
-    qualificationPhases.project.witness,
-    qualificationPhases.report.witness,
-    qualificationPhases.status.witness,
-    qualificationPhases.commandCenterOfflineClaimedTask.witness,
-    qualificationPhases.projectResponseRetry.interruptionWitness,
-    qualificationPhases.projectResponseRetry.retryWitness,
-    qualificationPhases.reportResponseRetry.interruptionWitness,
-    qualificationPhases.reportResponseRetry.retryWitness,
-    qualificationPhases.doctor.commandCenter.witness,
-    qualificationPhases.doctor.remote.witness,
-    qualificationPhases.syntheticNoOverlap.witness,
-  ];
-  if (options.stationQualificationWitnessMismatchIndex !== undefined) {
-    const witness = qualificationWitnesses[
-      options.stationQualificationWitnessMismatchIndex
-    ];
-    if (witness === undefined) {
-      throw new Error("invalid Station qualification witness fixture index");
-    }
-    witness.evidenceSha256 = "f".repeat(64);
+  if (options.stationQualificationIncomplete === true) {
+    delete qualificationPhases.workRoundTrip;
   }
-  const { report: _report, ...incompleteQualificationPhases } =
-    qualificationPhases;
+  const commandCenterHealth = {
+    appProcess: "running",
+    station: "ready",
+  };
+  const remoteHealth = {
+    package: "installed",
+    service: "running",
+    station: "ready",
+  };
+  const qualificationSecurity = {
+    rendererSandbox: "active",
+    rendererNoNewPrivileges: true,
+    rendererSeccomp: "filtering",
+    userNamespaceIsolation: true,
+    controlMaterialOwnerOnly: true,
+    vellumTcpListeners: 0,
+  };
+  const manifestBinding = {
+    file: STATION_QUALIFICATION_MANIFEST_FILE,
+    sha256: candidateManifestSha256,
+  };
   const stationQualification = options.stationQualificationPending === true
     ? {
       schema: STATION_QUALIFICATION_SCHEMA,
@@ -492,8 +465,12 @@ const createFixture = async (options: {
       status: "pending",
       reason: "operator-run-required",
       sourceCommit: options.stationQualificationSourceCommit ?? REVISION,
+      manifest: manifestBinding,
       package: {
         file: PACKAGE,
+        bytes:
+          options.stationQualificationPackageBytes ??
+            Buffer.byteLength(payloads[PACKAGE], "utf8"),
         sha256:
           options.stationQualificationPackageSha256 ??
             sha256(payloads[PACKAGE]),
@@ -504,8 +481,12 @@ const createFixture = async (options: {
       schema: STATION_QUALIFICATION_SCHEMA,
       ok: true,
       sourceCommit: options.stationQualificationSourceCommit ?? REVISION,
+      manifest: manifestBinding,
       package: {
         file: PACKAGE,
+        bytes:
+          options.stationQualificationPackageBytes ??
+            Buffer.byteLength(payloads[PACKAGE], "utf8"),
         sha256:
           options.stationQualificationPackageSha256 ??
             sha256(payloads[PACKAGE]),
@@ -516,68 +497,46 @@ const createFixture = async (options: {
           installationId: "fixture-command-center",
           appVersion: VERSION,
           nativePlatform: qualificationPlatform(
-            options.stationQualificationCommandCenterPlatform ?? "linux",
+            options.stationQualificationCommandCenterPlatform === undefined ||
+              options.stationQualificationCommandCenterPlatform === "linux",
           ),
         },
         remote: {
           installationId: "fixture-remote",
           appVersion: VERSION,
           nativePlatform: qualificationPlatform(
-            options.stationQualificationWrongRemotePlatform === true
-              ? "unsupported"
-              : "linux",
+            options.stationQualificationWrongRemotePlatform !== true,
           ),
         },
       },
-      phases: options.stationQualificationIncomplete === true
-        ? incompleteQualificationPhases
-        : qualificationPhases,
+      phases: qualificationPhases,
+      health: {
+        commandCenter: commandCenterHealth,
+        remote: remoteHealth,
+      },
+      security: {
+        commandCenter: qualificationSecurity,
+        remote: qualificationSecurity,
+      },
+      evidence: {
+        file: STATION_QUALIFICATION_EVIDENCE_FILE,
+        sha256:
+          options.stationQualificationEvidenceSha256 ??
+            sha256(payloads[STATION_QUALIFICATION_EVIDENCE_FILE]),
+      },
       completedAt: "2026-07-23T11:50:00.000Z",
     };
   const stationQualificationReceipt = canonical(stationQualification);
   if (options.omitStationQualification !== true) {
     await writeFile(
-      path.join(directory, STATION_QUALIFICATION_RECEIPT_FILE),
+      path.join(
+        qualificationDirectory,
+        STATION_QUALIFICATION_RECEIPT_FILE,
+      ),
       stationQualificationReceipt,
       { encoding: "utf8", mode: 0o644 },
     );
   }
-  await writeFile(
-    path.join(directory, "release-promotion-receipt.json"),
-    canonical({
-      schema: "vellum/release-promotion-gate/v2",
-      ok: true,
-      publishable: false,
-      releaseAuthorization: "not-granted",
-      sourceCommit: REVISION,
-      qualifications: {
-        macosVerification: "passed",
-        ubuntu2404X64Package: "passed",
-      },
-      ciEvidence: {
-        file: "ci-evidence-manifest.json",
-        sha256: sha256(ciEvidenceManifest),
-      },
-      stationQualification: {
-        file: STATION_QUALIFICATION_RECEIPT_FILE,
-        sha256:
-          options.promotionStationQualificationSha256 ??
-            sha256(stationQualificationReceipt),
-      },
-      package: {
-        file: PACKAGE,
-        bytes: Buffer.byteLength(payloads[PACKAGE], "utf8"),
-        sha256:
-          options.promotionPackageSha256 ?? sha256(payloads[PACKAGE]),
-      },
-      workflowRun: {
-        repository: "skastr0/vellum",
-        runId: 123,
-        runAttempt: 1,
-      },
-    }),
-    { encoding: "utf8", mode: 0o644 },
-  );
   if (status !== "active") {
     return { directory, keys, keyring };
   }
@@ -590,6 +549,10 @@ const createFixture = async (options: {
     downloadLocator:
       `https://releases.example.test/vellum-${VERSION}-ubuntu-24.04-x64-release.tar.gz`,
     keyId: KEY_ID,
+    qualification: {
+      candidateBundleDirectory: candidateDirectory,
+      resultDirectory: qualificationDirectory,
+    },
   });
   await signLinuxReleaseMetadata({
     bundleDirectory: directory,
@@ -599,6 +562,10 @@ const createFixture = async (options: {
       type: "pkcs8",
     }).toString(),
     signedAt: "2026-07-23T11:58:00.000Z",
+    qualification: {
+      candidateBundleDirectory: candidateDirectory,
+      resultDirectory: qualificationDirectory,
+    },
   });
   return { directory, keys, keyring };
 };
@@ -767,7 +734,14 @@ describe("signed Linux release bundle", () => {
         "utf8",
       ),
     ));
-    expect(manifest.schema).toBe("vellum/linux-release-manifest/v5");
+    expect(manifest.schema).toBe("vellum/linux-release-manifest/v6");
+    expect(manifest.files.map(({ file }) => file)).not.toEqual(
+      expect.arrayContaining([
+        STATION_QUALIFICATION_EVIDENCE_FILE,
+        STATION_QUALIFICATION_RECEIPT_FILE,
+        "release-promotion-receipt.json",
+      ]),
+    );
     expect(manifest.stationProtocol).toEqual({
       preferred: 3,
       compatibleFrom: 3,
@@ -792,7 +766,7 @@ describe("signed Linux release bundle", () => {
       keyringRevision: 7,
       signedAt: "2026-07-23T11:58:00.000Z",
       expiresAt: EXPIRES_AT,
-      filesVerified: 18,
+      filesVerified: 15,
       bundleFiles: expect.arrayContaining([
         expect.objectContaining({
           file: PACKAGE,
@@ -824,14 +798,12 @@ describe("signed Linux release bundle", () => {
     });
   });
 
-  it("accepts a supported macOS Command Center qualifying the Linux Remote", async () => {
-    const fixture = await createFixture({
-      stationQualificationCommandCenterPlatform: "macos",
-    });
-    await expect(verifyFixture(fixture.directory)).resolves.toMatchObject({
-      ok: true,
-      packageFile: PACKAGE,
-    });
+  it("requires both qualification installations to be real Linux OrbStack guests", async () => {
+    await expect(
+      createFixture({
+        stationQualificationCommandCenterPlatform: "macos",
+      }),
+    ).rejects.toThrow(/passed two-installation Station qualification/u);
   });
 
   it("fails production deploy when the bundle is not signed by the configured key", async () => {
@@ -985,7 +957,7 @@ describe("signed Linux release bundle", () => {
     ).resolves.toMatchObject({ ok: true, version: VERSION });
   });
 
-  it("strictly rejects the retired multi-axis v3 manifest shape", async () => {
+  it("strictly rejects every pre-v6 manifest shape", async () => {
     const fixture = await createFixture();
     const manifest = JSON.parse(
       await readFile(
@@ -1003,6 +975,12 @@ describe("signed Linux release bundle", () => {
           workControl: "vellum-work/v1",
           minimumPeerVersion: VERSION,
         },
+      })
+    ).toThrow(/unsupported|manifest/u);
+    expect(() =>
+      decodeLinuxReleaseManifest({
+        ...manifest,
+        schema: "vellum/linux-release-manifest/v5",
       })
     ).toThrow(/unsupported|manifest/u);
   });
@@ -1073,19 +1051,16 @@ describe("signed Linux release bundle", () => {
     ).rejects.toThrow(/SBOM does not match/u);
   });
 
-  it("requires CI and promotion receipts to bind the exact signed package", async () => {
+  it("requires CI evidence to bind the exact signed package", async () => {
     await expect(
       createFixture({ ciEvidencePackageSha256: "0".repeat(64) }),
     ).rejects.toThrow(/does not bind/u);
-    await expect(
-      createFixture({ promotionPackageSha256: "0".repeat(64) }),
-    ).rejects.toThrow(/promotion receipt/u);
   });
 
   it("requires real two-installation evidence bound to source and package", async () => {
     await expect(
       createFixture({ omitStationQualification: true }),
-    ).rejects.toThrow(/missing or extra files/u);
+    ).rejects.toThrow(/not a regular file/u);
     await expect(
       createFixture({
         stationQualificationSourceCommit: "b".repeat(40),
@@ -1094,6 +1069,11 @@ describe("signed Linux release bundle", () => {
     await expect(
       createFixture({
         stationQualificationPackageSha256: "0".repeat(64),
+      }),
+    ).rejects.toThrow(/two-installation Station qualification/u);
+    await expect(
+      createFixture({
+        stationQualificationPackageBytes: 1,
       }),
     ).rejects.toThrow(/two-installation Station qualification/u);
     await expect(
@@ -1108,30 +1088,18 @@ describe("signed Linux release bundle", () => {
       createFixture({
         stationQualificationCommandCenterPlatform: "unsupported",
       }),
-    ).rejects.toThrow(/does not bind the signed release/u);
+    ).rejects.toThrow(/passed two-installation Station qualification/u);
     await expect(
       createFixture({ stationQualificationWrongRemotePlatform: true }),
-    ).rejects.toThrow(/does not bind the signed release/u);
-    await expect(
-      createFixture({
-        promotionStationQualificationSha256: "0".repeat(64),
-      }),
-    ).rejects.toThrow(/promotion receipt/u);
+    ).rejects.toThrow(/passed two-installation Station qualification/u);
   });
 
-  it("binds every nested Station witness to signed operator evidence", async () => {
-    for (let index = 0; index < 13; index += 1) {
-      await expect(
-        createFixture({
-          stationQualificationWitnessMismatchIndex: index,
-        }),
-      ).rejects.toThrow(/bind signed operator evidence/u);
-    }
+  it("binds one root Station evidence log into the signed final bundle", async () => {
     await expect(
       createFixture({
-        stationQualificationWitnessFile: "test-receipt.json",
+        stationQualificationEvidenceSha256: "f".repeat(64),
       }),
-    ).rejects.toThrow(/bind signed operator evidence/u);
+    ).rejects.toThrow(/does not bind the final release/u);
   });
 
   it("never emits private key material into signed metadata", async () => {

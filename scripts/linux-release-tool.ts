@@ -68,6 +68,8 @@ export const linuxReleaseToolMain = async (
         "--expires-at",
         "--download-locator",
         "--key-id",
+        "--qualification-candidate",
+        "--qualification-result",
       ]),
     );
     const manifest = await createLinuxReleaseManifest({
@@ -78,6 +80,13 @@ export const linuxReleaseToolMain = async (
       expiresAt: required(parsed, "--expires-at"),
       downloadLocator: required(parsed, "--download-locator"),
       keyId: required(parsed, "--key-id"),
+      qualification: {
+        candidateBundleDirectory: required(
+          parsed,
+          "--qualification-candidate",
+        ),
+        resultDirectory: required(parsed, "--qualification-result"),
+      },
     });
     process.stdout.write(
       `${JSON.stringify({
@@ -133,13 +142,26 @@ export const linuxReleaseToolMain = async (
   if (command === "sign") {
     const parsed = options(
       rest,
-      new Set(["--bundle", "--key-id", "--signed-at"]),
+      new Set([
+        "--bundle",
+        "--key-id",
+        "--signed-at",
+        "--qualification-candidate",
+        "--qualification-result",
+      ]),
     );
     const signature = await signLinuxReleaseMetadata({
       bundleDirectory: required(parsed, "--bundle"),
       keyId: required(parsed, "--key-id"),
       signedAt: required(parsed, "--signed-at"),
       privateKeyPem: await readPrivateKeyFromStdin(),
+      qualification: {
+        candidateBundleDirectory: required(
+          parsed,
+          "--qualification-candidate",
+        ),
+        resultDirectory: required(parsed, "--qualification-result"),
+      },
     });
     process.stdout.write(
       `${JSON.stringify({

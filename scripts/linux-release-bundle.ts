@@ -26,8 +26,6 @@ import {
   decodeStationQualification,
   STATION_QUALIFICATION_EVIDENCE_FILE,
   STATION_QUALIFICATION_RECEIPT_FILE,
-  type StationQualificationNativePlatform,
-  type StationQualificationWitness,
 } from "../src/shared/station-qualification";
 import { isRecognizedSpdxExpression } from "./spdx-license";
 
@@ -77,9 +75,6 @@ export type LinuxReleaseFileKind =
   | "package-audit"
   | "runtime-receipt"
   | "ci-evidence-manifest"
-  | "station-qualification-evidence"
-  | "station-qualification-receipt"
-  | "promotion-receipt"
   | "release-keyring"
   | "dependency-license-inventory"
   | "sbom"
@@ -97,7 +92,7 @@ export interface LinuxReleaseFile {
 }
 
 export interface LinuxReleaseManifest {
-  readonly schema: "vellum/linux-release-manifest/v5";
+  readonly schema: "vellum/linux-release-manifest/v6";
   readonly release: {
     readonly product: "Vellum Command";
     readonly version: string;
@@ -249,6 +244,11 @@ export interface LinuxReleaseVerificationInput {
   readonly now?: number;
 }
 
+export interface LinuxReleaseQualificationInput {
+  readonly candidateBundleDirectory: string;
+  readonly resultDirectory: string;
+}
+
 export interface LinuxReleaseVerificationReceipt {
   readonly schema: "vellum/linux-release-verification-receipt/v1";
   readonly ok: true;
@@ -320,9 +320,6 @@ const FILE_KINDS = new Set<LinuxReleaseFileKind>([
   "package-audit",
   "runtime-receipt",
   "ci-evidence-manifest",
-  "station-qualification-evidence",
-  "station-qualification-receipt",
-  "promotion-receipt",
   "release-keyring",
   "dependency-license-inventory",
   "sbom",
@@ -340,15 +337,6 @@ const REQUIRED_FIXED_FILES = Object.freeze([
   ["runtime-receipt", "packaged-pty-smoke.json"],
   ["runtime-receipt", "packaged-runtime-smoke.json"],
   ["ci-evidence-manifest", "ci-evidence-manifest.json"],
-  [
-    "station-qualification-evidence",
-    STATION_QUALIFICATION_EVIDENCE_FILE,
-  ],
-  [
-    "station-qualification-receipt",
-    STATION_QUALIFICATION_RECEIPT_FILE,
-  ],
-  ["promotion-receipt", "release-promotion-receipt.json"],
   ["release-keyring", LINUX_RELEASE_KEYRING],
   ["dependency-license-inventory", "dependency-license-inventory.json"],
   ["sbom", "sbom.cdx.json"],
@@ -359,17 +347,7 @@ const REQUIRED_FIXED_FILES = Object.freeze([
   ["offline-verifier", "vellum-linux-verify-x64"],
 ] as const satisfies ReadonlyArray<readonly [LinuxReleaseFileKind, string]>);
 
-const POST_QUALIFICATION_FILES = new Set([
-  STATION_QUALIFICATION_EVIDENCE_FILE,
-  STATION_QUALIFICATION_RECEIPT_FILE,
-  "release-promotion-receipt.json",
-]);
-
-const QUALIFICATION_REQUIRED_FIXED_FILES = Object.freeze(
-  REQUIRED_FIXED_FILES.filter(([, file]) =>
-    !POST_QUALIFICATION_FILES.has(file)
-  ),
-) as ReadonlyArray<readonly [LinuxReleaseFileKind, string]>;
+const QUALIFICATION_REQUIRED_FIXED_FILES = REQUIRED_FIXED_FILES;
 
 const METADATA_FILES = new Set([
   LINUX_RELEASE_MANIFEST,
@@ -928,7 +906,7 @@ export const decodeLinuxReleaseManifest = (
     ],
     "Linux release manifest",
   );
-  if (manifest.schema !== "vellum/linux-release-manifest/v5") {
+  if (manifest.schema !== "vellum/linux-release-manifest/v6") {
     throw new Error("unsupported Linux release manifest");
   }
 
@@ -1046,7 +1024,7 @@ export const decodeLinuxReleaseManifest = (
   }
 
   return {
-    schema: "vellum/linux-release-manifest/v5",
+    schema: "vellum/linux-release-manifest/v6",
     release: {
       product: "Vellum Command",
       version,
@@ -1949,182 +1927,6 @@ const validateCiEvidenceManifest = (
   }
 };
 
-const validateStationQualificationReceipt = (
-  receipt: Record<string, unknown>,
-  manifest: LinuxEvidenceBundleManifest,
-): void => {
-  const decoded = decodeStationQualification(receipt);
-  if (Either.isLeft(decoded) || decoded.right.ok !== true) {
-    throw new Error(
-      "release requires passed two-installation Station qualification",
-    );
-  }
-  const qualification = decoded.right;
-  const witnesses: ReadonlyArray<StationQualificationWitness> = [
-    qualification.phases.pair.witness,
-    qualification.phases.configure.witness,
-    qualification.phases.project.witness,
-    qualification.phases.report.witness,
-    qualification.phases.status.witness,
-    qualification.phases.commandCenterOfflineClaimedTask.witness,
-    qualification.phases.projectResponseRetry.interruptionWitness,
-    qualification.phases.projectResponseRetry.retryWitness,
-    qualification.phases.reportResponseRetry.interruptionWitness,
-    qualification.phases.reportResponseRetry.retryWitness,
-    qualification.phases.doctor.commandCenter.witness,
-    qualification.phases.doctor.remote.witness,
-    qualification.phases.syntheticNoOverlap.witness,
-  ];
-  for (const witness of witnesses) {
-    const evidence = manifest.files.find(
-      (entry) => entry.file === witness.file,
-    );
-    if (
-      evidence?.kind !== "station-qualification-evidence" ||
-      evidence.sha256 !== witness.evidenceSha256
-    ) {
-      throw new Error(
-        "Station qualification witness does not bind signed operator evidence",
-      );
-    }
-  }
-  const completedAt = requireIsoTimestamp(
-    qualification.completedAt,
-    "Station qualification completion time",
-  );
-  const matchesReleaseTarget = (
-    platform: StationQualificationNativePlatform,
-  ): boolean =>
-    platform.os === manifest.target.os &&
-    platform.distribution === manifest.target.distribution &&
-    platform.version === manifest.target.distributionVersion &&
-    platform.architecture === manifest.target.architecture;
-  const isSupportedMacCommandCenter = (
-    platform: StationQualificationNativePlatform,
-  ): boolean =>
-    platform.os === "darwin" &&
-    platform.distribution === "macos" &&
-    platform.version.length > 0 &&
-    (platform.architecture === "arm64" ||
-      platform.architecture === "x64");
-  if (
-    qualification.sourceCommit !== manifest.source.revision ||
-    qualification.package.file !== manifest.package.file ||
-    qualification.package.sha256 !== manifest.package.sha256 ||
-    qualification.stationProtocol !== manifest.stationProtocol.preferred ||
-    qualification.installations.commandCenter.appVersion !==
-      manifest.release.version ||
-    qualification.installations.remote.appVersion !==
-      manifest.release.version ||
-    (
-      !matchesReleaseTarget(
-        qualification.installations.commandCenter.nativePlatform,
-      ) &&
-      !isSupportedMacCommandCenter(
-        qualification.installations.commandCenter.nativePlatform,
-      )
-    ) ||
-    !matchesReleaseTarget(qualification.installations.remote.nativePlatform) ||
-    Date.parse(completedAt) >
-      Date.parse(manifest.release.createdAt) + LINUX_RELEASE_CLOCK_SKEW_MS
-  ) {
-    throw new Error(
-      "two-installation Station qualification does not bind the signed release",
-    );
-  }
-};
-
-const validatePromotionReceipt = (
-  receipt: Record<string, unknown>,
-  manifest: LinuxEvidenceBundleManifest,
-): void => {
-  exactKeys(
-    receipt,
-    [
-      "schema",
-      "ok",
-      "publishable",
-      "releaseAuthorization",
-      "sourceCommit",
-      "qualifications",
-      "ciEvidence",
-      "stationQualification",
-      "package",
-      "workflowRun",
-    ],
-    "release promotion receipt",
-  );
-  const qualifications = record(
-    receipt.qualifications,
-    "release qualifications",
-  );
-  exactKeys(
-    qualifications,
-    ["macosVerification", "ubuntu2404X64Package"],
-    "release qualifications",
-  );
-  const ciEvidence = record(receipt.ciEvidence, "promotion CI evidence");
-  exactKeys(ciEvidence, ["file", "sha256"], "promotion CI evidence");
-  const stationQualification = record(
-    receipt.stationQualification,
-    "promotion Station qualification",
-  );
-  exactKeys(
-    stationQualification,
-    ["file", "sha256"],
-    "promotion Station qualification",
-  );
-  const packageReceipt = record(receipt.package, "promotion package");
-  exactKeys(
-    packageReceipt,
-    ["file", "bytes", "sha256"],
-    "promotion package",
-  );
-  const workflowRun = record(receipt.workflowRun, "promotion workflow run");
-  exactKeys(
-    workflowRun,
-    ["repository", "runId", "runAttempt"],
-    "promotion workflow run",
-  );
-  const ciManifest = signedFile(manifest, "ci-evidence-manifest.json");
-  const stationReceipt = signedFile(
-    manifest,
-    STATION_QUALIFICATION_RECEIPT_FILE,
-  );
-  if (
-    receipt.schema !== "vellum/release-promotion-gate/v2" ||
-    receipt.ok !== true ||
-    receipt.publishable !== false ||
-    receipt.releaseAuthorization !== "not-granted" ||
-    receipt.sourceCommit !== manifest.source.revision ||
-    qualifications.macosVerification !== "passed" ||
-    qualifications.ubuntu2404X64Package !== "passed" ||
-    ciEvidence.file !== ciManifest.file ||
-    ciEvidence.sha256 !== ciManifest.sha256 ||
-    stationQualification.file !== stationReceipt.file ||
-    stationQualification.sha256 !== stationReceipt.sha256 ||
-    packageReceipt.file !== manifest.package.file ||
-    packageReceipt.bytes !== manifest.package.bytes ||
-    packageReceipt.sha256 !== manifest.package.sha256 ||
-    typeof workflowRun.repository !== "string" ||
-    !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(workflowRun.repository) ||
-    requireInteger(
-      workflowRun.runId,
-      "promotion workflow run ID",
-      1,
-      Number.MAX_SAFE_INTEGER,
-    ) < 1 ||
-    requireInteger(
-      workflowRun.runAttempt,
-      "promotion workflow run attempt",
-      1,
-      Number.MAX_SAFE_INTEGER,
-    ) < 1
-  ) {
-    throw new Error("promotion receipt does not bind the signed release");
-  }
-};
-
 const validateEvidenceReceipt = (
   file: string,
   input: string,
@@ -2133,14 +1935,6 @@ const validateEvidenceReceipt = (
   const receipt = parseEvidenceJson(input, file);
   if (file === "ci-evidence-manifest.json") {
     validateCiEvidenceManifest(receipt, manifest);
-    return;
-  }
-  if (file === STATION_QUALIFICATION_RECEIPT_FILE) {
-    validateStationQualificationReceipt(receipt, manifest);
-    return;
-  }
-  if (file === "release-promotion-receipt.json") {
-    validatePromotionReceipt(receipt, manifest);
     return;
   }
   if (file === "build-receipt.json") {
@@ -2304,8 +2098,6 @@ const validatePayloads = async (
         entry.kind === "package-audit" ||
         entry.kind === "runtime-receipt" ||
         entry.kind === "ci-evidence-manifest" ||
-        entry.kind === "station-qualification-receipt" ||
-        entry.kind === "promotion-receipt" ||
         entry.kind === "dependency-license-inventory" ||
         entry.kind === "sbom"
       ) {
@@ -2801,6 +2593,122 @@ export const verifyLinuxQualificationCandidateBundle = async (
   };
 };
 
+const validateExternalLinuxQualification = async (
+  input: LinuxReleaseQualificationInput,
+  manifest: LinuxEvidenceBundleManifest,
+  keyring: LinuxReleaseKeyring,
+  now: number,
+): Promise<void> => {
+  const trustedKey = keyring.keys.find(
+    (candidate) => candidate.keyId === manifest.trust.keyId,
+  );
+  if (trustedKey === undefined || trustedKey.status !== "active") {
+    throw new Error(
+      "final release qualification requires its active trusted release key",
+    );
+  }
+  const candidateDirectory = path.resolve(input.candidateBundleDirectory);
+  const resultDirectory = path.resolve(input.resultDirectory);
+  const candidateVerification = await verifyLinuxQualificationCandidateBundle({
+    bundleDirectory: candidateDirectory,
+    host: {
+      platform: LINUX_RELEASE_TARGET.os,
+      architecture: LINUX_RELEASE_TARGET.architecture,
+      machine: LINUX_RELEASE_TARGET.machine,
+      distribution: LINUX_RELEASE_TARGET.distribution,
+      distributionVersion: LINUX_RELEASE_TARGET.distributionVersion,
+      libcFamily: LINUX_RELEASE_TARGET.libc.family,
+      libcVersion: LINUX_RELEASE_TARGET.libc.minimumVersion,
+    },
+    packageIdentity: {
+      packageName: manifest.package.name,
+      version: manifest.release.version,
+      architecture: manifest.target.debArchitecture,
+    },
+    peerStationProtocol: manifest.stationProtocol,
+    trustedKeyring: keyring,
+    trustedKeyringRevision: keyring.revision,
+    trustedKeyringSha256: releaseKeyringSha256(keyring),
+    trustedKeyId: trustedKey.keyId,
+    trustedKeyFingerprintSha256: trustedKey.fingerprintSha256,
+    now,
+  });
+  const [candidateManifestRaw, qualificationRaw, evidenceBytes] =
+    await Promise.all([
+      readCanonicalFile<unknown>(
+        candidateDirectory,
+        LINUX_RELEASE_MANIFEST,
+        "Linux qualification candidate manifest",
+      ),
+      readCanonicalFile<unknown>(
+        resultDirectory,
+        STATION_QUALIFICATION_RECEIPT_FILE,
+        "Station qualification receipt",
+      ),
+      readRegularFileBytes(
+        resultDirectory,
+        STATION_QUALIFICATION_EVIDENCE_FILE,
+        MAX_TEXT_EVIDENCE_BYTES,
+      ),
+    ]);
+  const candidateManifest = decodeLinuxQualificationCandidateManifest(
+    candidateManifestRaw.value,
+  );
+  const decodedQualification = decodeStationQualification(
+    qualificationRaw.value,
+  );
+  if (
+    Either.isLeft(decodedQualification) ||
+    decodedQualification.right.ok !== true
+  ) {
+    throw new Error(
+      "final release requires passed two-installation Station qualification",
+    );
+  }
+  const qualification = decodedQualification.right;
+  const candidateManifestReceipt = candidateVerification.bundleFiles.find(
+    (entry) => entry.file === LINUX_RELEASE_MANIFEST,
+  );
+  const completedAt = requireIsoTimestamp(
+    qualification.completedAt,
+    "Station qualification completion time",
+  );
+  if (
+    candidateManifestReceipt === undefined ||
+    candidateManifestReceipt.sha256 !==
+      sha256Bytes(candidateManifestRaw.bytes) ||
+    qualification.manifest.sha256 !== candidateManifestReceipt.sha256 ||
+    qualification.evidence.sha256 !== sha256Bytes(evidenceBytes) ||
+    qualification.sourceCommit !== manifest.source.revision ||
+    candidateManifest.source.revision !== manifest.source.revision ||
+    candidateManifest.release.version !== manifest.release.version ||
+    candidateManifest.package.file !== manifest.package.file ||
+    candidateManifest.package.bytes !== manifest.package.bytes ||
+    candidateManifest.package.sha256 !== manifest.package.sha256 ||
+    JSON.stringify(candidateManifest.target) !==
+      JSON.stringify(manifest.target) ||
+    JSON.stringify(candidateManifest.stationProtocol) !==
+      JSON.stringify(manifest.stationProtocol) ||
+    qualification.package.file !== manifest.package.file ||
+    qualification.package.bytes !== manifest.package.bytes ||
+    qualification.package.sha256 !== manifest.package.sha256 ||
+    qualification.stationProtocol !== manifest.stationProtocol.preferred ||
+    qualification.installations.commandCenter.appVersion !==
+      manifest.release.version ||
+    qualification.installations.remote.appVersion !==
+      manifest.release.version ||
+    Date.parse(completedAt) <
+      Date.parse(candidateManifest.release.createdAt) -
+        LINUX_RELEASE_CLOCK_SKEW_MS ||
+    Date.parse(completedAt) >
+      Date.parse(manifest.release.createdAt) + LINUX_RELEASE_CLOCK_SKEW_MS
+  ) {
+    throw new Error(
+      "two-installation Station qualification does not bind the final release",
+    );
+  }
+};
+
 export const createLinuxQualificationCandidateManifest = async (input: {
   readonly bundleDirectory: string;
   readonly version: string;
@@ -2948,6 +2856,7 @@ export const createLinuxReleaseManifest = async (input: {
   readonly expiresAt: string;
   readonly downloadLocator: string;
   readonly keyId: string;
+  readonly qualification: LinuxReleaseQualificationInput;
 }): Promise<LinuxReleaseManifest> => {
   const directory = path.resolve(input.bundleDirectory);
   const version = requireSemver(input.version, "release version");
@@ -3003,7 +2912,7 @@ export const createLinuxReleaseManifest = async (input: {
     throw new Error("Linux release bundle is missing its deb");
   }
   const manifest: LinuxReleaseManifest = {
-    schema: "vellum/linux-release-manifest/v5",
+    schema: "vellum/linux-release-manifest/v6",
     release: {
       product: "Vellum Command",
       version,
@@ -3037,6 +2946,12 @@ export const createLinuxReleaseManifest = async (input: {
     unsupported: LINUX_RELEASE_UNSUPPORTED,
   };
   decodeLinuxReleaseManifest(manifest);
+  await validateExternalLinuxQualification(
+    input.qualification,
+    manifest,
+    keyring,
+    Date.parse(createdAt),
+  );
   await validatePayloads(directory, manifest);
   await Promise.all([
     writeFile(
@@ -3175,6 +3090,7 @@ export const signLinuxReleaseMetadata = async (input: {
   readonly keyId: string;
   readonly privateKeyPem: string;
   readonly signedAt: string;
+  readonly qualification: LinuxReleaseQualificationInput;
 }): Promise<LinuxReleaseSignature> => {
   const directory = path.resolve(input.bundleDirectory);
   const [manifestRaw, checksumFile, keyring] = await Promise.all([
@@ -3214,6 +3130,12 @@ export const signLinuxReleaseMetadata = async (input: {
   ) {
     throw new Error("release key is not authorized to sign this metadata");
   }
+  await validateExternalLinuxQualification(
+    input.qualification,
+    manifest,
+    keyring,
+    Date.parse(signedAt),
+  );
   await requireExactDirectoryInventory(
     directory,
     manifest.files.map((entry) => entry.file),
