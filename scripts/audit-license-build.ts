@@ -54,9 +54,11 @@ export const auditCompiledLicenseMain = (
     throw new Error("compiled license binding segment is missing or ambiguous");
   }
   const binding = source.slice(start, end);
+  // electron-vite inlines the define; the return may be a bare candidate
+  // (older fixture) or the post-compile channel ternary (current main).
   const channel = exactlyOneMatch(
     binding,
-    /const candidate = "(development|beta|production)";\s*return candidate;/gu,
+    /const candidate = "(development|beta|production)";\s*return candidate(?: === "beta" \|\| candidate === "production" \? candidate : "development")?;/gu,
     "channel",
   );
   const businessId = exactlyOneMatch(
