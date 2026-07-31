@@ -213,6 +213,60 @@ test("region-default promotion fails closed with actionable guidance outside a r
   }
 });
 
+test("one agent-row click creates exactly one configured agent without a legacy location step", async () => {
+  const vellum = await launchVellum({
+    seedCanvases: { portfolio: canvasDoc([]) },
+  });
+
+  try {
+    const { page } = vellum;
+    const deck = await openModeDeck(page);
+    const picker = await openFolderPicker(page, deck);
+    const input = picker.getByLabel("Agent working directory");
+
+    await input.fill(`${REPO_ROOT}/`);
+    const listing = picker.getByRole("list", {
+      name: `Folders in ${REPO_ROOT}`,
+    });
+    await expect(listing).toBeVisible({ timeout: 10_000 });
+    await listing.getByRole("button", { name: "Select src" }).click();
+    await expect(input).toHaveValue(join(REPO_ROOT, "src"));
+    await picker
+      .getByRole("button", { name: "Close folder picker" })
+      .click();
+
+    const canvasNodes = page.locator(".react-flow__node");
+    const before = await canvasNodes.count();
+    await deck.getByRole("button", { name: "Add Claude Code agent" }).click();
+
+    await expect(deck).toHaveCount(0);
+    await expect(canvasNodes).toHaveCount(before + 1);
+    await expect(
+      page.locator(".react-flow__node", { hasText: "Claude Code" }),
+    ).toHaveCount(1);
+    await expect(
+      page.getByRole("dialog", { name: /agent location/i }),
+    ).toHaveCount(0);
+
+    await expect.poll(async () => {
+      return page.evaluate(async () => {
+        const canvases = await window.vellum!.listCanvases();
+        const name = canvases[0]?.name;
+        if (!name) return [];
+        const read = await window.vellum!.readCanvas(name);
+        return read.doc.nodes
+          .filter((node) => node.ether?.entity?.kind === "agent")
+          .map((node) => ({
+            harness: node.ether?.terminal?.harness,
+            cwd: node.ether?.terminal?.launch?.cwd,
+          }));
+      });
+    }).toEqual([{ harness: "claude", cwd: join(REPO_ROOT, "src") }]);
+  } finally {
+    await vellum.close();
+  }
+});
+
 test("node hover detail explains purpose and makes connection behavior scannable", async () => {
   const vellum = await launchVellum();
 
