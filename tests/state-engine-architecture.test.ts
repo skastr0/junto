@@ -4,6 +4,8 @@ import { describe, expect, test } from "vitest";
 
 const root = process.cwd();
 const allowed = new Set([
+  // Packaging-only in-memory ABI probe; never opens product state.
+  "scripts/audit-linux-package.ts",
   "scripts/electron-sqlite-smoke.mjs",
   "src/main/vellum/state/backup.ts",
   "src/main/vellum/state/engine.ts",
