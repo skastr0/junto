@@ -1242,17 +1242,6 @@ export class LocalSessionHost extends EventEmitter {
       pid: rec.pid,
     });
     // Never fail-closed on resume: if the harness rejected -r, open a fresh pin.
-    // Some harnesses die with no printed proof when a session is already owned
-    // by another Vellum Command process (prod + bun run dev side-by-side). Treat
-    // a quick empty exit after resume argv as the same class of miss.
-    if (
-      rec.resumeAttempt &&
-      !rec.resumeFailureSeen &&
-      rec.journalBytes === 0 &&
-      Date.now() - rec.createdAt < 4_000
-    ) {
-      rec.resumeFailureSeen = true;
-    }
     this.maybeFailOpenAfterResumeFailure(rec);
   }
 
