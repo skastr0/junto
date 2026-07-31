@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
 import { Effect, Queue, Stream } from "effect";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   LINUX_RELEASE_BRIDGE_AUTH_PROTOCOL,
   LINUX_RELEASE_BRIDGE_CLEAN_PROTOCOL,
@@ -132,6 +132,7 @@ const preflight = (input: {
   readonly installerState?: 0 | 1;
   readonly passwordlessSudo?: 0 | 1;
   readonly ready?: 0 | 1;
+  readonly linger?: 0 | 1;
   readonly unit?: "not-found" | "present";
   readonly generation?: string;
 } = {}): string => {
@@ -152,7 +153,7 @@ const preflight = (input: {
     `current=${current}`,
     `enabled=${ready}`,
     `active=${ready}`,
-    "linger=1",
+    `linger=${input.linger ?? 1}`,
     `helper=${helper}`,
     `bridge=${bridge}`,
     `installerState=${installerState}`,
@@ -845,6 +846,41 @@ const makeTranscriptHarness = (
   };
 };
 
+const makeActivationSsh = (input: {
+  readonly initial: string;
+  readonly activation?: string;
+  readonly probe?: string;
+}): {
+  readonly ssh: RemoteDeploymentProviderInput["ssh"];
+  readonly run: ReturnType<typeof vi.fn>;
+} => {
+  let invocation = 0;
+  const run = vi.fn(() => {
+    invocation += 1;
+    return Effect.succeed({
+      stdout:
+        invocation === 1
+          ? input.initial
+          : invocation === 2
+            ? input.activation ??
+              "LINUX_REMOTE_UNIT_ACTIVATE_V1 ok=1 active=active\n"
+            : input.probe ?? input.initial,
+      stderr: "",
+    });
+  });
+  return {
+    ssh: {
+      run,
+      transact: vi.fn(),
+    } as unknown as RemoteDeploymentProviderInput["ssh"],
+    run,
+  };
+};
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe("Linux Remote privileged deployment", () => {
   it("decodes only an exact V4 Ubuntu preflight receipt", () => {
     expect(decodeLinuxRemotePreflight(preflight())).toEqual({
@@ -1131,6 +1167,93 @@ describe("Linux Remote privileged deployment", () => {
     // Same-version ready: no sealed re-transaction — preflight only.
     expect(harness.run).toHaveBeenCalledTimes(1);
     expect(harness.transactCalls).toHaveLength(0);
+  });
+
+  it("reports configuration-required only after first unit activation times out", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-31T00:00:00Z"));
+    const activation = makeActivationSsh({
+      initial: preflight({
+        current: "1.2.3",
+        linger: 0,
+        unit: "present",
+      }),
+    });
+    const route = heldRouteCut();
+    const provider = makeProvider(route.authority);
+
+    const pending = Effect.runPromise(
+      provider.deploy(providerInput(activation.ssh, credential())),
+    );
+    await vi.runAllTimersAsync();
+    const receipt = await pending;
+
+    expect(receipt).toMatchObject({
+      ok: false,
+      code: "conflict",
+      disposition: "configuration-required",
+      version: "1.2.3",
+    });
+    expect(receipt.recoveryAction).toBeUndefined();
+    expect(receipt.stages).toContain(
+      "unit up — work control not ready yet (outer path will configure then retry)",
+    );
+    expect(activation.run.mock.calls.length).toBeGreaterThan(2);
+    expect(route.release).toHaveBeenCalledOnce();
+  });
+
+  it("keeps prior-activation readiness timeout indeterminate", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-31T00:00:00Z"));
+    const activation = makeActivationSsh({
+      initial: preflight({
+        current: "1.2.3",
+        linger: 1,
+        unit: "present",
+      }),
+    });
+    const provider = makeProvider(heldRouteCut().authority);
+
+    const pending = Effect.runPromise(
+      provider.deploy(providerInput(activation.ssh, credential())),
+    );
+    await vi.runAllTimersAsync();
+    const receipt = await pending;
+
+    expect(receipt).toMatchObject({
+      ok: false,
+      code: "conflict",
+      disposition: "indeterminate",
+      recoveryAction: {
+        kind: "repair-linux-release-transaction",
+      },
+    });
+  });
+
+  it("keeps a failed first unit activation indeterminate", async () => {
+    const activation = makeActivationSsh({
+      initial: preflight({
+        current: "1.2.3",
+        linger: 0,
+        unit: "present",
+      }),
+      activation: "LINUX_REMOTE_UNIT_ACTIVATE_V1 ok=0\n",
+    });
+    const provider = makeProvider(heldRouteCut().authority);
+
+    const receipt = await Effect.runPromise(
+      provider.deploy(providerInput(activation.ssh, credential())),
+    );
+
+    expect(receipt).toMatchObject({
+      ok: false,
+      code: "conflict",
+      disposition: "indeterminate",
+      recoveryAction: {
+        kind: "repair-linux-release-transaction",
+      },
+    });
+    expect(activation.run).toHaveBeenCalledTimes(2);
   });
 
   it("commits an exact stale-journal recovery plan whose projected baseline differs from preflight", async () => {

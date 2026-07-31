@@ -18,6 +18,7 @@ import { LINUX_RELEASE_MANIFEST } from "../../../../scripts/linux-release-bundle
 import {
   ensureLinuxReleaseCache,
   linuxRemoteArtifactBundleRoot,
+  type LinuxReleaseCacheSource,
 } from "./linux-release-feed";
 import {
   LINUX_RELEASE_BRIDGE_STAGE_PROTOCOL,
@@ -339,17 +340,26 @@ export { linuxRemoteArtifactBundleRoot } from "./linux-release-feed";
  * Production trust is compiled into the application by the release authority.
  * The mutable candidate cannot provide keys, pins, target facts, or a path.
  *
- * Cache source of truth: stable channel on the release Worker (R2). Local
- * ~/.vellum/releases/linux-x64-glibc/current is a seated cache after download.
+ * Cache source of truth defaults to the stable channel on the release Worker
+ * (R2). Qualification may select the fixed already-seated cache explicitly;
+ * either source passes through the same owner, embedded-signature, and hash
+ * verification below.
  */
+export interface ProductionLinuxArtifactAuthorityOptions {
+  readonly home?: string;
+  readonly source?: LinuxReleaseCacheSource;
+}
+
 export const makeProductionLinuxArtifactAuthority = (
-  home?: string,
+  input: ProductionLinuxArtifactAuthorityOptions = {},
 ): LinuxRemoteArtifactAuthority => {
-  const resolvedHome = home;
+  const resolvedHome = input.home;
+  const source = input.source ?? "stable-feed";
   return Object.freeze({
     resolve: async () => {
       const cache = await ensureLinuxReleaseCache({
         ...(resolvedHome === undefined ? {} : { home: resolvedHome }),
+        source,
       });
       const bundleRoot = cache.bundleRoot;
       const metadata = await lstat(bundleRoot);
@@ -761,9 +771,17 @@ const activateInstalledPackage = (
         : "package is installed and the unit is up, but work control is not ready — Station configuration is required next",
       {
         code: "conflict",
-        disposition: "indeterminate",
+        disposition: lingerAlreadyEnabled
+          ? "indeterminate"
+          : "configuration-required",
         version,
-        recoveryAction: { kind: "repair-linux-release-transaction" },
+        ...(lingerAlreadyEnabled
+          ? {
+              recoveryAction: {
+                kind: "repair-linux-release-transaction" as const,
+              },
+            }
+          : {}),
       },
     );
   });

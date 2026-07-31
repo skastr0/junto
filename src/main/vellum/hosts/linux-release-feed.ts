@@ -49,6 +49,10 @@ export type LinuxStableChannel = {
   readonly publishedAt: string;
 };
 
+export type LinuxReleaseCacheSource =
+  | "stable-feed"
+  | "verified-cache";
+
 const SHA256 = /^[0-9a-f]{64}$/u;
 const SEMVER = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u;
 
@@ -266,13 +270,18 @@ const extractTarGz = (archive: Buffer, destination: string): void => {
 };
 
 /**
- * Ensure the local cache exists: pull from feed when possible, otherwise use
- * an already-seated local directory.
+ * Ensure the fixed local cache exists.
+ *
+ * Production defaults to the stable feed and retains its existing seated-cache
+ * fallback when that feed is unavailable. Qualification may explicitly select
+ * `verified-cache`; that mode never contacts the feed and fails closed when the
+ * fixed cache is absent. The production artifact authority still performs the
+ * owner, signature, and hash verification after this source selection.
  */
 export const ensureLinuxReleaseCache = async (input?: {
   readonly home?: string;
   readonly feedBase?: string;
-  readonly preferLocal?: boolean;
+  readonly source?: LinuxReleaseCacheSource;
 }): Promise<{
   readonly bundleRoot: string;
   readonly source: "feed" | "local";
@@ -280,8 +289,17 @@ export const ensureLinuxReleaseCache = async (input?: {
 }> => {
   const home = input?.home ?? resolveVellumHome();
   const bundleRoot = linuxRemoteArtifactBundleRoot(home);
-  if (input?.preferLocal && existsSync(bundleRoot)) {
+  const source: unknown = input?.source ?? "stable-feed";
+  if (source === "verified-cache") {
+    if (!existsSync(bundleRoot)) {
+      throw new Error(
+        "verified Linux release cache is absent from the fixed cache path",
+      );
+    }
     return { bundleRoot, source: "local" };
+  }
+  if (source !== "stable-feed") {
+    throw new Error("Linux release cache source is unrecognized");
   }
   try {
     const seated = await seatLinuxReleaseCacheFromFeed({
