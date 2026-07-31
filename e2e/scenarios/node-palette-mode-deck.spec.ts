@@ -64,6 +64,13 @@ test("Mode Deck exposes the searchable catalog and keeps launch context dense at
     ).toBeVisible();
     await expect(deck.getByRole("button", { name: /herdr/i })).toBeVisible();
 
+    await deck.getByRole("tab", { name: "Schedule", exact: true }).click();
+    for (const scheduler of ["Cron", "Gauge", "Relay"]) {
+      await expect(
+        deck.locator(".node-deck-catalog__card").filter({ hasText: scheduler }),
+      ).toBeVisible();
+    }
+
     await deck.getByRole("tab", { name: "Agents", exact: true }).click();
     const agentPane = deck.locator('aside[aria-label="Agents"]');
     const launchContext = agentPane.getByRole("region", {
@@ -185,7 +192,7 @@ test("starting-folder modal reuses live directory browsing and can save a contai
       name: /use this folder as region default for (?:this )?host/i,
     });
     await expect(regionDefault).toBeEnabled();
-    await regionDefault.check();
+    await regionDefault.check({ force: true });
   } finally {
     await vellum.close();
   }
