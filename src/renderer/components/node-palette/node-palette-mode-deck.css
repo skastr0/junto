@@ -12,8 +12,8 @@
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
   width: min(1120px, calc(100vw - 32px));
-  height: min(720px, calc(100vh - 96px));
-  min-height: 460px;
+  height: min(720px, var(--node-deck-max-height, calc(100vh - 96px)));
+  min-height: min(460px, var(--node-deck-max-height, calc(100vh - 96px)));
   overflow: hidden;
   border: 1px solid var(--deck-line-hi);
   border-radius: var(--deck-radius);

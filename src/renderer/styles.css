@@ -1243,9 +1243,9 @@ html[data-surface-motion="paused"] *::after {
   }
 }
 
-.node-palette { position: relative; }
-.node-palette__trigger { display: inline-flex; align-items: center; gap: 7px; border: 1px solid rgba(232,163,61,.34); border-radius: 6px; background: rgba(19,17,16,.9); color: var(--color-amber); padding: 8px 10px; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; backdrop-filter: blur(12px); transition: border-color .18s ease, background .18s ease; cursor: pointer; }
-.node-palette__trigger:hover { border-color: rgba(232,163,61,.72); background: rgba(44,34,23,.94); }
+.node-deck-host { position: relative; }
+.node-deck-trigger { display: inline-flex; align-items: center; gap: 7px; border: 1px solid rgba(232,163,61,.34); border-radius: 6px; background: rgba(19,17,16,.9); color: var(--color-amber); padding: 8px 10px; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; backdrop-filter: blur(12px); transition: border-color .18s ease, background .18s ease; cursor: pointer; }
+.node-deck-trigger:hover { border-color: rgba(232,163,61,.72); background: rgba(44,34,23,.94); }
 
 /* Canvas context actions are intentionally separate from the Mode Deck. */
 .canvas-action-menu {

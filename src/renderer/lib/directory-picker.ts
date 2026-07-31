@@ -93,7 +93,7 @@ export const bestDirectoryCompletion = (
 /**
  * The absolute folder the typed text names, or undefined when it names none
  * yet. Only a folder this page can vouch for is selectable, so a half-typed
- * word never arms "create agent".
+ * word never becomes a launch directory.
  */
 export const directoryFromDraft = (
   draft: string,

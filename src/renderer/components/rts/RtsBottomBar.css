@@ -781,12 +781,12 @@
   color: #ede6da;
 }
 
-.rts-field-tools .node-palette {
+.rts-field-tools .node-deck-host {
   position: relative;
   z-index: 41;
 }
 
-.rts-field-tools .node-palette__trigger {
+.rts-field-tools .node-deck-trigger {
   padding: 4px 7px;
   font-size: 8px;
   background: rgba(12, 11, 10, 0.94);
