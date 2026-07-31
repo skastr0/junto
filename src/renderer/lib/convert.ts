@@ -28,7 +28,7 @@ export type EdgeData = {
   phase: EdgePhase;
   detail: string;
   visualRole: EdgeVisualRole;
-  /** Selection impact mode: in-cone only (outsiders stay unset; CSS dims). */
+  /** Focus selection member (stoppage cone or direct connection neighborhood). */
   impact?: "in";
 };
 
@@ -145,7 +145,8 @@ export const toFlow = (
       position: { x: node.x, y: node.y },
       data: { node, blocked: isBlocked },
       style: visualSize,
-      zIndex: isGroup ? 0 : 1,
+      // Groups behind wires; furniture above edges so strokes never cover faces.
+      zIndex: isGroup ? 0 : 2,
       connectable: !isGroup,
       ariaLabel: nodeTitle(node),
       focusable: true,
@@ -207,7 +208,8 @@ export const toFlow = (
         detail,
         visualRole,
       },
-      zIndex: 2,
+      // Below non-group nodes (z=2). Selected edges may elevate via React Flow.
+      zIndex: 1,
     };
     cache?.edges.set(edge.id, { source: edge, flow: flowEdge });
     return flowEdge;
