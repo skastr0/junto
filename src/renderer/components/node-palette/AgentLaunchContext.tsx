@@ -182,7 +182,7 @@ export function AgentLaunchContext({
               </IconButton>
             </div>
             <HostDirectoryPicker
-              key={`${hostId}\0${cwd || regionPath || "~"}`}
+              key={`${hostId}\0${region?.id ?? "no-region"}`}
               hostId={hostId}
               initialPath={cwd || regionPath || "~"}
               onSelect={saveSelectedFolder}
