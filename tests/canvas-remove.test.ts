@@ -1,11 +1,14 @@
-import { randomUUID } from "node:crypto";
 import { access, mkdir, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context, Effect, Layer, ManagedRuntime } from "effect";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
-const mockCanvasesHome = join(tmpdir(), `vellum-canvas-remove-${randomUUID()}`);
+const { mockCanvasesHome } = vi.hoisted(() => {
+  const tempRoot = (process.env.TMPDIR ?? "/tmp").replace(/\/+$/, "");
+  const home = `${tempRoot}/vellum-canvas-remove-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  process.env.VELLUM_HOME = home;
+  return { mockCanvasesHome: home };
+});
 
 vi.mock("node:os", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:os")>();

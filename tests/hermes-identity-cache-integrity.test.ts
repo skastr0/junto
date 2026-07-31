@@ -3,10 +3,14 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 
-const { mockHome, mockFs } = vi.hoisted(() => ({
-  mockHome: `/tmp/vellum-hermes-identity-cache-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-  mockFs: { failRmSync: false },
-}));
+const { mockHome, mockFs } = vi.hoisted(() => {
+  const home = `/tmp/vellum-hermes-identity-cache-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  process.env.VELLUM_HOME = home;
+  return {
+    mockHome: home,
+    mockFs: { failRmSync: false },
+  };
+});
 
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
