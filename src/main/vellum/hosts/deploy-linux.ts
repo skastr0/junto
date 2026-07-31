@@ -52,7 +52,10 @@ const failure = (input: RemoteDeploymentProviderInput, detail: string, code: Non
 const runPreflight = (input: RemoteDeploymentProviderInput) => Effect.gen(function* () { const command = yield* compileLinuxUserlandPreflight(); const stdin = yield* makeRemoteStdin(""); const result = yield* input.ssh.run(oneShotWithStdin(input.target.sshTarget, command, stdin)); return decodeLinuxRemotePreflight(result.stdout); });
 
 export const makeLinuxRemoteDeploymentProvider = (input: { readonly artifactAuthority: LinuxRemoteArtifactAuthority; readonly artifactAuthorityBySource?: (source: LinuxReleaseCacheSource) => LinuxRemoteArtifactAuthority; readonly liveWorkAuthority: LinuxRemoteLiveWorkAuthority; }): RemoteDeploymentProvider => ({
-  platform: "linux", supportsBrowser: true,
+  // Linux beta Remote is displayless Node: browser is intentionally unavailable
+  // (not a core failure). Explicit browser host requests fail closed upstream
+  // before upload/activation — never offer sudo/Xvfb/Electron remediation.
+  platform: "linux", supportsBrowser: false,
   deploy: (request) => Effect.scoped(Effect.gen(function* () {
     if (request.target.platform.platform !== "linux" || request.stationConfiguration.state !== "applied") return failure(request, "a configured Linux Remote is required", "validation");
     const candidate = yield* Effect.tryPromise({ try: () => (input.artifactAuthorityBySource?.(request.artifactSource) ?? input.artifactAuthority).resolve(), catch: () => new Error("signed userland runtime archive unavailable") }).pipe(Effect.either);

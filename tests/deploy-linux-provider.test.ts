@@ -131,6 +131,24 @@ const providerInput = (
 });
 
 describe("Linux userland remote deployment provider", () => {
+  it("declares browser intentionally unavailable for displayless Remote beta", () => {
+    const provider = makeLinuxRemoteDeploymentProvider({
+      artifactAuthority: {
+        resolve: async () => makeCandidate(),
+      },
+      liveWorkAuthority: {
+        acquire: () =>
+          Effect.succeed({
+            acquired: true,
+            evidence: { activeTerminalSessions: 0, observationId: "test" },
+            release: Effect.void,
+          }),
+      },
+    });
+    expect(provider.supportsBrowser).toBe(false);
+    expect(provider.platform).toBe("linux");
+  });
+
   it("exposes only userland preflight/deploy surface labels", () => {
     expect(buildLinuxRemotePreflightScript()).toBe("userland runtime preflight");
     expect(buildLinuxRemoteDeployCommand()).toEqual({
