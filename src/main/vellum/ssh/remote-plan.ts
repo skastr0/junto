@@ -39,7 +39,7 @@ case "$HEADER" in LINUX_USERLAND_DEPLOY_V1\ version=*\ sha256=*\ bytes=*) ;; *) 
 VERSION=$(printf '%s\n' "$HEADER" | /usr/bin/awk '{split($2,a,"="); print a[2]}')
 SHA=$(printf '%s\n' "$HEADER" | /usr/bin/awk '{split($3,a,"="); print a[2]}')
 BYTES=$(printf '%s\n' "$HEADER" | /usr/bin/awk '{split($4,a,"="); print a[2]}')
-case "$VERSION:$SHA:$BYTES" in *[!0-9.a-f:]*|*..*|:*|*:) fail header;; esac
+printf '%s\n' "$VERSION" | /usr/bin/awk -F. 'NF == 3 && $1 ~ /^(0|[1-9][0-9]*)$/ && $2 ~ /^(0|[1-9][0-9]*)$/ && $3 ~ /^(0|[1-9][0-9]*)$/ { ok=1 } END { exit ok ? 0 : 1 }' || fail header
 case "$SHA" in ????????????????????????????????????????????????????????????????) ;; *) fail header;; esac
 case "$BYTES" in ''|0|*[!0-9]*) fail header;; esac
 [ "$BYTES" -le 3221225472 ] || fail header
@@ -62,10 +62,10 @@ chmod 700 "$STAGE"
 /usr/bin/head -c "$BYTES" > "$ARCHIVE" || { rm -rf -- "$STAGE"; fail stream; }
 [ "$(/usr/bin/stat -c '%s' "$ARCHIVE")" = "$BYTES" ] || { rm -rf -- "$STAGE"; fail size; }
 [ "$(/usr/bin/sha256sum "$ARCHIVE" | /usr/bin/awk '{print $1}')" = "$SHA" ] || { rm -rf -- "$STAGE"; fail hash; }
-/usr/bin/tar -tzf "$ARCHIVE" | /usr/bin/awk 'BEGIN{ok=1} $0 ~ /^\// || $0 ~ /(^|\/)\.\.($|\/)/ || $0 !~ /^vellum-runtime-[0-9]+\.[0-9]+\.[0-9]+-linux-x64\// {ok=0} END{exit ok?0:1}' || { rm -rf -- "$STAGE"; fail members; }
+/usr/bin/tar -tvzf "$ARCHIVE" | /usr/bin/awk 'BEGIN{ok=1} $1 !~ /^[-d]/ || $0 ~ / -> / || $0 ~ / link to / || $NF ~ /^\// || $NF ~ /(^|\/)\.\.($|\/)/ || $NF !~ /^vellum-runtime-[0-9]+\.[0-9]+\.[0-9]+-linux-x64\// {ok=0} END{exit ok?0:1}' || { rm -rf -- "$STAGE"; fail members; }
 /usr/bin/tar -xzf "$ARCHIVE" -C "$STAGE" --no-same-owner --no-same-permissions || { rm -rf -- "$STAGE"; fail extract; }
 RELEASE="$STAGE/vellum-runtime-$VERSION-linux-x64"
-[ -d "$RELEASE" ] && [ ! -L "$RELEASE" ] && [ -x "$RELEASE/vellum" ] || { rm -rf -- "$STAGE"; fail candidate; }
+[ -d "$RELEASE" ] && [ ! -L "$RELEASE" ] && [ -x "$RELEASE/vellum" ] && [ ! -L "$RELEASE/vellum" ] || { rm -rf -- "$STAGE"; fail candidate; }
 "$RELEASE/vellum" --vellum-state-preflight >/dev/null 2>&1 || { rm -rf -- "$STAGE"; fail preflight; }
 mv "$RELEASE" "$DEST" || { rm -rf -- "$STAGE"; fail install; }
 rm -rf -- "$STAGE"
