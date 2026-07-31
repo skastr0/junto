@@ -812,6 +812,9 @@ const writeTaskDependsOn = (
   taskId: string,
   dependsOn: ReadonlyArray<string> | undefined,
 ): void => {
+  // undefined means "field omitted on this snapshot" — do not wipe durable edges.
+  // Explicit [] clears; non-empty replaces.
+  if (dependsOn === undefined) return;
   writer.run(
     `
       DELETE FROM work_task_dependencies
@@ -819,7 +822,6 @@ const writeTaskDependsOn = (
     `,
     [sink.canvasName, sink.nodeId, taskId],
   );
-  if (dependsOn === undefined || dependsOn.length === 0) return;
   for (let position = 0; position < dependsOn.length; position += 1) {
     writer.run(
       `
