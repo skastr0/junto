@@ -7,6 +7,7 @@ import {
   FileText,
   Image,
   Link as LinkIcon,
+  Maximize2,
   MessageSquareWarning,
   PanelRightClose,
   Search,
@@ -511,7 +512,11 @@ const artifactIcon = {
   data: FileBox,
 } as const;
 
-function ArtifactDetail({
+/**
+ * Full-reading surface for one artifact. Side-rail previews are too narrow for
+ * markdown/research/proof bodies — document FocusSurface is the product reader.
+ */
+function ArtifactFocusModal({
   artifact,
   onClose,
 }: {
@@ -521,24 +526,34 @@ function ArtifactDetail({
   const name = artifact.name?.trim() || artifact.artifactId;
   const kind = artifactKind(artifact);
   return (
-    <aside className="work-ledger-detail work-ledger-detail--artifact" aria-label={`Artifact details for ${name}`}>
-      <header>
-        <div>
-          <Chip tone="violet">{kind}</Chip>
-          <h2>{name}</h2>
-        </div>
-        <IconButton aria-label="Close artifact details" title="Close details" onClick={onClose}>
-          <PanelRightClose size={15} />
-        </IconButton>
-      </header>
-      <div className="work-ledger-detail__meta">
+    <FocusSurface
+      measure="document"
+      height="immersive"
+      layer="work"
+      label={name}
+      onClose={onClose}
+      panelClassName="artifact-focus nowheel"
+    >
+      <OverlayHeader
+        eyebrow={`artifact · ${kind}`}
+        title={name}
+        status={artifactTaskReferenceLabel(artifact)}
+        actions={
+          <IconButton aria-label="Close artifact" title="Close" onClick={onClose}>
+            <X size={14} />
+          </IconButton>
+        }
+      />
+      <div className="artifact-focus__meta" data-testid="artifact-focus-meta">
         <span>#{artifact.artifactId}</span>
-        <span>{artifactTaskReferenceLabel(artifact)}</span>
+        <span>
+          {artifact.parts.length} part{artifact.parts.length === 1 ? "" : "s"}
+        </span>
       </div>
-      <div className="work-ledger-detail__scroll">
+      <div className="artifact-focus__scroll" data-testid="artifact-focus-body">
         <section>
           <h3>Contents</h3>
-          <div className="work-ledger-parts">
+          <div className="work-ledger-parts artifact-focus__parts">
             {artifact.parts.map((part, index) => (
               <PartView key={index} part={part} filename={`${name}-${index + 1}`} />
             ))}
@@ -558,7 +573,7 @@ function ArtifactDetail({
           </section>
         ) : null}
       </div>
-    </aside>
+    </FocusSurface>
   );
 }
 
@@ -571,7 +586,8 @@ export function ArtifactLibrary({
 }) {
   const items = node.ether?.artifacts?.items ?? [];
   const [query, setQuery] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(items[0]?.artifactId ?? null);
+  /** Opened in document FocusSurface — not the old narrow side rail. */
+  const [focusedId, setFocusedId] = useState<string | null>(null);
   const normalized = query.trim().toLowerCase();
   const visible = useMemo(
     () =>
@@ -584,91 +600,102 @@ export function ArtifactLibrary({
         : items,
     [items, normalized],
   );
-  const selected = selectedId
-    ? items.find((artifact) => artifact.artifactId === selectedId)
+  const focused = focusedId
+    ? items.find((artifact) => artifact.artifactId === focusedId)
     : undefined;
 
   return (
-    <FocusSurface
-      measure="workspace"
-      height="immersive"
-      layer="work"
-      label="Artifacts"
-      onClose={onClose}
-      panelClassName="work-ledger-surface nowheel"
-    >
-      <OverlayHeader
-        eyebrow="artifacts"
-        title="Artifact library"
-        status={`${items.length} published output${items.length === 1 ? "" : "s"}`}
-        actions={
-          <>
-            <div className="work-ledger-search">
-              <Search size={13} aria-hidden />
-              <Input
-                aria-label="Search artifacts"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search artifacts"
-              />
-            </div>
-            <IconButton aria-label="Close artifacts" title="Close" onClick={onClose}>
-              <X size={14} />
-            </IconButton>
-          </>
-        }
-      />
-      <div className="work-ledger-workspace" data-detail-open={selected ? "true" : "false"}>
-        <div className="work-ledger-list work-ledger-list--artifacts">
-          <section>
-            <header>
-              <h2>Published</h2>
-              <span>{visible.length}</span>
-            </header>
-            <div role="list">
-              {visible.map((artifact) => {
-                const kind = artifactKind(artifact);
-                const Icon = artifactIcon[kind];
-                const name = artifact.name?.trim() || artifact.artifactId;
-                return (
-                  <button
-                    key={artifact.artifactId}
-                    type="button"
-                    role="listitem"
-                    className="work-ledger-row work-ledger-row--artifact"
-                    aria-current={selectedId === artifact.artifactId ? "true" : undefined}
-                    onClick={() => setSelectedId(artifact.artifactId)}
-                  >
-                    <span className="work-ledger-row__icon">
-                      <Icon size={15} />
-                    </span>
-                    <span>
-                      <strong>{name}</strong>
-                      <small>
-                        {artifactTaskReferenceLabel(artifact)} ·{" "}
-                        {artifact.parts.length} part{artifact.parts.length === 1 ? "" : "s"}
-                      </small>
-                    </span>
-                    <Chip tone="violet">{kind}</Chip>
-                  </button>
-                );
-              })}
-              {visible.length === 0 ? (
-                <div className="work-ledger-list__empty">
-                  {normalized ? "No matching artifacts" : "No artifacts published yet"}
-                </div>
-              ) : null}
-            </div>
-          </section>
+    <>
+      <FocusSurface
+        measure="workspace"
+        height="immersive"
+        layer="work"
+        label="Artifacts"
+        onClose={onClose}
+        closeOnEscape={focused === undefined}
+        closeOnBackdrop={focused === undefined}
+        panelClassName="work-ledger-surface nowheel"
+      >
+        <OverlayHeader
+          eyebrow="artifacts"
+          title="Artifact library"
+          status={`${items.length} published output${items.length === 1 ? "" : "s"}`}
+          actions={
+            <>
+              <div className="work-ledger-search">
+                <Search size={13} aria-hidden />
+                <Input
+                  aria-label="Search artifacts"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Search artifacts"
+                />
+              </div>
+              <IconButton aria-label="Close artifacts" title="Close" onClick={onClose}>
+                <X size={14} />
+              </IconButton>
+            </>
+          }
+        />
+        <div className="work-ledger-workspace" data-detail-open="false">
+          <div className="work-ledger-list work-ledger-list--artifacts">
+            <section>
+              <header>
+                <h2>Published</h2>
+                <span>{visible.length}</span>
+              </header>
+              <div role="list">
+                {visible.map((artifact) => {
+                  const kind = artifactKind(artifact);
+                  const Icon = artifactIcon[kind];
+                  const name = artifact.name?.trim() || artifact.artifactId;
+                  const isFocused = focusedId === artifact.artifactId;
+                  return (
+                    <button
+                      key={artifact.artifactId}
+                      type="button"
+                      role="listitem"
+                      className="work-ledger-row work-ledger-row--artifact"
+                      aria-current={isFocused ? "true" : undefined}
+                      data-testid="artifact-row"
+                      data-artifact-id={artifact.artifactId}
+                      onClick={() => setFocusedId(artifact.artifactId)}
+                    >
+                      <span className="work-ledger-row__icon">
+                        <Icon size={15} />
+                      </span>
+                      <span>
+                        <strong>{name}</strong>
+                        <small>
+                          {artifactTaskReferenceLabel(artifact)} ·{" "}
+                          {artifact.parts.length} part{artifact.parts.length === 1 ? "" : "s"}
+                        </small>
+                      </span>
+                      <Chip tone="violet">{kind}</Chip>
+                      <span className="work-ledger-row__expand" aria-hidden>
+                        <Maximize2 size={13} />
+                      </span>
+                    </button>
+                  );
+                })}
+                {visible.length === 0 ? (
+                  <div className="work-ledger-list__empty">
+                    {normalized ? "No matching artifacts" : "No artifacts published yet"}
+                  </div>
+                ) : null}
+              </div>
+            </section>
+          </div>
         </div>
-        {selected ? (
-          <ArtifactDetail
-            key={selected.artifactId}
-            artifact={selected}
-            onClose={() => setSelectedId(null)}
-          />
-        ) : null}
-      </div>
-    </FocusSurface>
+      </FocusSurface>
+
+      {focused ? (
+        <ArtifactFocusModal
+          key={focused.artifactId}
+          artifact={focused}
+          onClose={() => setFocusedId(null)}
+        />
+      ) : null}
+    </>
   );
 }
