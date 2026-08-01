@@ -521,7 +521,17 @@ export const parseSide = (handle?: string | null): NodeSide | undefined => {
 // entity nodes that arrive already named and bound. `focus` defaults to true;
 // pass false to skip the fitView jump (e.g. a region drawn around a selection
 // that is already fully in view — a zoom jump there would be jarring).
-export const addNode = (node: CanvasNode, options?: { readonly edit?: boolean; readonly focus?: boolean }): void => {
+// Regions open the folder-paths modal instead of the label editor so the first
+// configure step is host cwd (the main reason to create a region).
+export const addNode = (
+  node: CanvasNode,
+  options?: {
+    readonly edit?: boolean;
+    readonly focus?: boolean;
+    /** Open region folder-paths modal (groups only; default true for groups). */
+    readonly regionPaths?: boolean;
+  },
+): void => {
   batch(() => {
     state$.searchQuery.set("");
     state$.edgeFilter.set("");
@@ -531,11 +541,17 @@ export const addNode = (node: CanvasNode, options?: { readonly edit?: boolean; r
   });
   const doc = state$.doc.peek();
   commitDoc({ ...doc, nodes: [...doc.nodes, node] });
-  if (options?.focus === false) return;
+  const shouldFocus = options?.focus !== false;
+  // Groups skip label-edit: paths modal is the first configure step.
+  const shouldEdit = options?.edit !== false && node.type !== "group";
+  const shouldOpenPaths =
+    node.type === "group" && options?.regionPaths !== false;
+  if (!shouldFocus && !shouldEdit && !shouldOpenPaths) return;
   window.setTimeout(() => {
     batch(() => {
-      state$.focusNodeId.set(node.id);
-      if (options?.edit !== false) state$.editNodeId.set(node.id);
+      if (shouldFocus) state$.focusNodeId.set(node.id);
+      if (shouldEdit) state$.editNodeId.set(node.id);
+      if (shouldOpenPaths) state$.regionPathsNodeId.set(node.id);
     });
   }, 0);
 };
@@ -546,6 +562,7 @@ export const undo = (): void => {
   if (!previous) return;
   future.push(state$.doc.peek());
   state$.editNodeId.set("");
+  state$.regionPathsNodeId.set("");
   state$.doc.set(previous);
   state$.docVersion.set(state$.docVersion.peek() + 1);
   // Generation fence for async delete/teardown continuations (same as commitDoc).
@@ -560,6 +577,7 @@ export const redo = (): void => {
   if (!next) return;
   past.push(state$.doc.peek());
   state$.editNodeId.set("");
+  state$.regionPathsNodeId.set("");
   state$.doc.set(next);
   state$.docVersion.set(state$.docVersion.peek() + 1);
   state$.docEpoch.set(state$.docEpoch.peek() + 1);

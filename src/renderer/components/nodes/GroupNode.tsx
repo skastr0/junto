@@ -148,6 +148,7 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
   const [editing, setEditing] = useState(false);
   const [pathsOpen, setPathsOpen] = useState(false);
   const isEditTarget = use$(() => state$.editNodeId.get() === node.id);
+  const isPathsTarget = use$(() => state$.regionPathsNodeId.get() === node.id);
   const [draft, setDraft] = useState(label);
   const inputRef = useRef<HTMLInputElement>(null);
   const instruction = node.ether?.region?.instruction;
@@ -169,6 +170,13 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
     setEditing(true);
     state$.editNodeId.set("");
   }, [isEditTarget, node.id]);
+
+  // Create-time (and any openRegionPaths trigger): open host folder paths modal.
+  useEffect(() => {
+    if (!isPathsTarget) return;
+    setPathsOpen(true);
+    state$.regionPathsNodeId.set("");
+  }, [isPathsTarget, node.id]);
 
   const commit = () => {
     setEditing(false);

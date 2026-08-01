@@ -34,11 +34,17 @@ export function HostDirectoryPicker({
   initialPath,
   resetKey,
   onSelect,
+  onDraftChange,
+  inputAriaLabel = "Agent working directory",
 }: {
   readonly hostId: string;
   readonly initialPath?: string;
   readonly resetKey?: string;
+  /** Canonical directory this page can vouch for (empty when none). */
   readonly onSelect: (path: string) => void;
+  /** Live typed draft — free text + browse. Region paths use this for save. */
+  readonly onDraftChange?: (draft: string) => void;
+  readonly inputAriaLabel?: string;
 }) {
   const [draft, setDraft] = useState(initialPath?.trim() || "~");
   const [snapshot, setSnapshot] = useState<HostDirectorySnapshot>();
@@ -132,6 +138,12 @@ export function HostDirectoryPicker({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPath]);
 
+  useEffect(() => {
+    onDraftChange?.(draft);
+    // Draft only — parent identity churn must not re-emit an unchanged draft.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft]);
+
   useLayoutEffect(() => {
     const range = suggestRange.current;
     if (!range) return;
@@ -180,7 +192,7 @@ export function HostDirectoryPicker({
       >
         <Input
           ref={inputRef}
-          aria-label="Agent working directory"
+          aria-label={inputAriaLabel}
           value={draft}
           spellCheck={false}
           autoComplete="off"

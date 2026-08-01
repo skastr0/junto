@@ -853,6 +853,30 @@ describe("renderer graph mutations", () => {
     expect(state$.doc.peek().nodes.at(-1)).toEqual(node);
   });
 
+  it("opens folder-paths modal after creating a region (not label edit)", async () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc(doc);
+    // Drain any pending addNode timeouts from earlier cases.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    state$.regionPathsNodeId.set("");
+    state$.editNodeId.set("");
+    const region = {
+      id: "region-new",
+      type: "group" as const,
+      label: "new region",
+      x: 0,
+      y: 0,
+      width: 560,
+      height: 320,
+    };
+
+    addNode(region);
+    expect(state$.selectedNodeId.peek()).toBe("region-new");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(state$.regionPathsNodeId.peek()).toBe("region-new");
+    expect(state$.editNodeId.peek()).toBe("");
+  });
+
   it("finds a non-overlapping slot for additions near the viewport center", () => {
     const existing = [{ id: "occupied", type: "text" as const, text: "occupied", x: -120, y: -50, width: 240, height: 100 }];
     const position = findOpenPosition(existing, { x: 0, y: 0 }, { width: 240, height: 100 });

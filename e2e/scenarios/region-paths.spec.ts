@@ -117,7 +117,10 @@ test("region folder paths — empty, save, escape", async ({ vellum }) => {
 
   let dialog = await openRegionPaths(page, regionEmpty.id);
   await expect(dialog.getByText("Folder paths", { exact: true })).toBeVisible();
-  await expect(dialog.getByRole("status")).toContainText(/No host paths yet/i);
+  // Empty bag seeds one local host row + host directory picker (not a bare text field).
+  await expect(dialog.getByRole("list", { name: "Host folder paths" })).toBeVisible();
+  await expect(dialog.getByRole("textbox", { name: /Default path for local/i })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: /use this folder/i })).toBeVisible();
   await expect(dialog.getByRole("button", { name: /add host/i })).toBeVisible();
   await expect(dialog.getByRole("button", { name: /save/i })).toBeVisible();
   await expect(dialog.getByRole("button", { name: "Close folder paths" })).toBeVisible();
@@ -127,15 +130,13 @@ test("region folder paths — empty, save, escape", async ({ vellum }) => {
     fullPage: false,
   });
 
-  await dialog.getByRole("button", { name: /add host/i }).click();
-  const pathInput = dialog.getByRole("textbox", { name: /Default path/i });
-  await expect(pathInput).toBeVisible();
+  const pathInput = dialog.getByRole("textbox", { name: /Default path for local/i });
   await pathInput.fill("/Users/operator/Projects/forge");
   await dialog.getByRole("button", { name: /^save$/i }).click();
   await expect(dialog).toHaveCount(0);
 
   dialog = await openRegionPaths(page, regionEmpty.id);
-  await expect(dialog.getByRole("textbox", { name: /Default path/i })).toHaveValue(
+  await expect(dialog.getByRole("textbox", { name: /Default path for local/i })).toHaveValue(
     "/Users/operator/Projects/forge",
   );
   await page.screenshot({
@@ -163,6 +164,7 @@ test("region folder paths — multi-host seed + remove", async ({ vellum }) => {
   await expect(
     dialog.getByRole("textbox", { name: /Default path for remote-a/i }),
   ).toHaveValue("/home/operator/vellum");
+  await expect(dialog.getByRole("button", { name: /use this folder/i }).first()).toBeVisible();
   await page.screenshot({
     path: join(SHOTS, "21-region-paths-multi-host.png"),
     fullPage: false,

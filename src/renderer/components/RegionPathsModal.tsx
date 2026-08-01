@@ -3,11 +3,13 @@ import { Plus, Trash2, X } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
 import { LOCAL_HOST_ID } from "@shared/remote-hosts";
 import { stripEmptyRegionPaths } from "@shared/region-defaults";
+import { trimTrailingSlash } from "../lib/directory-picker";
 import { setRegionDefaults } from "../lib/mutations";
 import { state$ } from "../lib/state";
 import { getVellumApi } from "../lib/vellum-api";
 import { FocusSurface } from "./FocusSurface";
-import { Button, FieldLabel, IconButton, Input, OverlayHeader, Select } from "./ui";
+import { HostDirectoryPicker } from "./node-palette/HostDirectoryPicker";
+import { Button, FieldLabel, IconButton, OverlayHeader, Select } from "./ui";
 
 type HostOpt = { readonly id: string; readonly label: string };
 type PathRow = { readonly key: string; host: string; path: string };
@@ -27,6 +29,15 @@ const rowsFromPaths = (
     .map(([host, path]) => ({ key: nextRowKey(), host, path }));
 };
 
+/** Empty bag → one local host row so the picker is immediately usable. */
+const seedRows = (
+  paths: Readonly<Record<string, string>> | undefined,
+): PathRow[] => {
+  const existing = rowsFromPaths(paths);
+  if (existing.length > 0) return existing;
+  return [{ key: nextRowKey(), host: LOCAL_HOST_ID, path: "" }];
+};
+
 const sortHosts = (opts: HostOpt[]): HostOpt[] =>
   [...opts].sort((a, b) => {
     if (a.id === LOCAL_HOST_ID) return -1;
@@ -38,9 +49,12 @@ const sortHosts = (opts: HostOpt[]): HostOpt[] =>
  * Region host→cwd map editor. Create-time stamp source only — agents and
  * terminals placed inside the region inherit the path for their host.
  *
+ * Path rows use the same host-connected directory picker as the node palette
+ * (browse + type on the enrolled host filesystem).
+ *
  * Surface chrome: FocusSurface form measure + OverlayHeader (same instrument
- * as work-ledger / fleet overlays). Fields: Input / Select / FieldLabel /
- * Button / IconButton — no hand-rolled controls.
+ * as work-ledger / fleet overlays). Fields: Select / Button / IconButton —
+ * no hand-rolled controls.
  */
 export function RegionPathsModal({
   nodeId,
@@ -68,10 +82,10 @@ export function RegionPathsModal({
   const [hostOptions, setHostOptions] = useState<HostOpt[]>([
     { id: LOCAL_HOST_ID, label: "this machine" },
   ]);
-  const [rows, setRows] = useState<PathRow[]>(() => rowsFromPaths(storedPaths));
+  const [rows, setRows] = useState<PathRow[]>(() => seedRows(storedPaths));
 
   useEffect(() => {
-    setRows(rowsFromPaths(storedPaths));
+    setRows(seedRows(storedPaths));
   }, [nodeId, pathsFingerprint]);
 
   useEffect(() => {
@@ -149,8 +163,8 @@ export function RegionPathsModal({
     const map: Record<string, string> = {};
     for (const row of rows) {
       const host = row.host.trim();
-      const path = row.path.trim();
-      if (!host || !path) continue;
+      const path = trimTrailingSlash(row.path.trim());
+      if (!host || !path || path === "~") continue;
       map[host] = path;
     }
     const paths = stripEmptyRegionPaths(map);
@@ -193,68 +207,60 @@ export function RegionPathsModal({
         <p className="m-0 text-[11px] leading-relaxed text-dim">
           Create-time only — agents and terminals inside this region stamp{" "}
           <span className="font-mono text-ink">launch.cwd</span> for their host.
+          Browse each host&apos;s filesystem or type a path.
         </p>
 
-        {rows.length === 0 ? (
-          <div
-            role="status"
-            className="rounded-[5px] border border-stroke bg-inset px-3 py-3 text-[11px] leading-relaxed text-dim"
-          >
-            No host paths yet. Add one so agents and terminals spawn in the
-            right folder on each machine.
-          </div>
-        ) : (
-          <div role="list" aria-label="Host folder paths" className="grid gap-3">
-            {rows.map((row, index) => {
-              const hostLabel = `Host for path ${index + 1}`;
-              const pathLabel = `Default path for ${row.host || `path ${index + 1}`}`;
-              return (
-                <div
-                  key={row.key}
-                  role="listitem"
-                  className="grid gap-2 rounded-[5px] border border-stroke/80 bg-raise/40 p-2.5"
-                >
-                  <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-2">
-                    <FieldLabel>
-                      Host
-                      <Select
-                        aria-label={hostLabel}
-                        value={row.host}
-                        options={optionsForRow(row.key, row.host)}
-                        onChange={(value) => updateRow(row.key, { host: value })}
-                      />
-                    </FieldLabel>
-                    <IconButton
-                      tone="danger"
-                      size="md"
-                      className="mb-0.5"
-                      aria-label={`Remove path for ${row.host || `row ${index + 1}`}`}
-                      title="Remove path"
-                      onClick={() => removeRow(row.key)}
-                    >
-                      <Trash2 size={14} />
-                    </IconButton>
-                  </div>
+        <div role="list" aria-label="Host folder paths" className="grid gap-3">
+          {rows.map((row, index) => {
+            const hostLabel = `Host for path ${index + 1}`;
+            const pathLabel = `Default path for ${row.host || `path ${index + 1}`}`;
+            return (
+              <div
+                key={row.key}
+                role="listitem"
+                className="grid gap-2 rounded-[5px] border border-stroke/80 bg-raise/40 p-2.5"
+              >
+                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-2">
                   <FieldLabel>
-                    Default path
-                    <Input
-                      aria-label={pathLabel}
-                      value={row.path}
-                      placeholder="/path/to/project"
-                      spellCheck={false}
-                      autoComplete="off"
-                      autoFocus={index === 0}
-                      onChange={(e) => updateRow(row.key, { path: e.target.value })}
+                    Host
+                    <Select
+                      aria-label={hostLabel}
+                      value={row.host}
+                      options={optionsForRow(row.key, row.host)}
+                      onChange={(value) => updateRow(row.key, { host: value, path: "" })}
                     />
                   </FieldLabel>
+                  <IconButton
+                    tone="danger"
+                    size="md"
+                    className="mb-0.5"
+                    aria-label={`Remove path for ${row.host || `row ${index + 1}`}`}
+                    title="Remove path"
+                    onClick={() => removeRow(row.key)}
+                  >
+                    <Trash2 size={14} />
+                  </IconButton>
                 </div>
-              );
-            })}
-          </div>
-        )}
+                <FieldLabel>
+                  Default path
+                  <div className="mt-1">
+                    <HostDirectoryPicker
+                      hostId={row.host || LOCAL_HOST_ID}
+                      initialPath={row.path.trim() || "~"}
+                      resetKey={`${row.key}\0${row.host}\0${pathsFingerprint}`}
+                      inputAriaLabel={pathLabel}
+                      onSelect={() => undefined}
+                      onDraftChange={(draft) => updateRow(row.key, { path: draft })}
+                    />
+                  </div>
+                </FieldLabel>
+              </div>
+            );
+          })}
+        </div>
 
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <Button type="button" size="sm" variant="chrome" onClick={addRow} autoFocus={rows.length === 0}>
+          <Button type="button" size="sm" variant="chrome" onClick={addRow}>
             <Plus size={14} aria-hidden />
             add host
           </Button>

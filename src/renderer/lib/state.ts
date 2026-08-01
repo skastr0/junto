@@ -24,6 +24,8 @@ export const state$ = observable({
   edgeFilter: "" as EtherEdgeKind | "",
   flagFilter: "" as EtherFlag | "",
   editNodeId: "",
+  // One-shot: open region folder-paths modal for this group id (cleared on consume).
+  regionPathsNodeId: "",
   selectedNodeId: "",
   // React Flow multi-select set, mirrored so hotkeys (Ctrl+1–9) and the
   // command card can read it. Presentational; never persisted.
