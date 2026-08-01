@@ -109,6 +109,12 @@ describe("SSH architecture", () => {
       "src/main/vellum/station/openssh-bootstrap.ts",
       "src/main/vellum/station/openssh-peer-exchange.ts",
       "src/main/vellum/station/fleet-propagation.ts",
+      // Content transfer renders the fixed helper/stat/stream protocol over
+      // the shared SSH capability; it does not construct an SSH process.
+      "src/main/vellum/content/transfer.ts",
+      // Content transfer is the product policy renderer for the bounded
+      // content helper; it only consumes closed SSH constructors.
+      "src/main/vellum/content/transfer.ts",
     ]);
     const privateImport = /(?:from\s+|import\s*\()["'][^"']*\/ssh\/[^"']+["']/u;
     const violations = files.flatMap((path) => {
