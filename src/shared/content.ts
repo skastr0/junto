@@ -163,10 +163,7 @@ export const ContentAvailability = Schema.Union(
 );
 export type ContentAvailability = typeof ContentAvailability.Type;
 
-/**
- * Ref-only work part. RawPart remains readable as a legacy union member, but
- * new durable task/message/artifact writes must use this shape.
- */
+/** Work part that names bytes in the content store (no inline payload). */
 export const ContentPart = Schema.Struct({
   kind: Schema.Literal("content"),
   ref: ContentRef,
@@ -178,7 +175,7 @@ export const decodeContentPart = Schema.decodeUnknownEither(ContentPart, {
   onExcessProperty: "error",
 });
 
-/** Runtime narrowing helper for mixed legacy/new Part arrays. */
+/** Runtime narrowing helper for mixed Part arrays. */
 export const isContentPart = (value: unknown): value is ContentPart => {
   try {
     Schema.decodeUnknownSync(ContentPart, { onExcessProperty: "error" })(value);
@@ -186,73 +183,6 @@ export const isContentPart = (value: unknown): value is ContentPart => {
   } catch {
     return false;
   }
-};
-
-const INLINE_BINARY_KEYS = new Set(["bytesBase64", "dataBase64"]);
-
-/**
- * Detects inline binary fields in a prospective control payload.  Work
- * records are JSON values, so this intentionally walks only plain objects and
- * arrays and fails closed on any known inline-byte field at any depth.
- */
-export const hasInlineBinaryPayload = (value: unknown): boolean => {
-  const seen = new WeakSet<object>();
-  const visit = (candidate: unknown): boolean => {
-    if (candidate === null || typeof candidate !== "object") return false;
-    if (seen.has(candidate)) return false;
-    seen.add(candidate);
-    if (Array.isArray(candidate)) return candidate.some(visit);
-    for (const [key, nested] of Object.entries(candidate)) {
-      if (INLINE_BINARY_KEYS.has(key)) return true;
-      if (visit(nested)) return true;
-    }
-    return false;
-  };
-  return visit(value);
-};
-
-/** Schema-filter compatible guard for the Work/control record boundary. */
-export const validateNoInlineBinaryPayload = (
-  value: unknown,
-): string | undefined =>
-  hasInlineBinaryPayload(value)
-    ? "binary media must be carried by ContentRef, never inline Base64"
-    : undefined;
-
-/**
- * Admission guard for new durable part arrays.
- *
- * RawPart is intentionally still decodable for installed history, but it is
- * not an admissible representation for a new task/message/artifact write.
- * ContentPart carries only immutable identity and descriptive metadata; the
- * bytes remain in the content service/data plane.
- */
-export const validateDurableParts = (
-  parts: ReadonlyArray<unknown>,
-  field = "parts",
-): string | undefined => {
-  if (!Array.isArray(parts)) return `${field} must be an array`;
-  for (let index = 0; index < parts.length; index += 1) {
-    const part = parts[index];
-    if (hasInlineBinaryPayload(part)) {
-      return `${field}[${index}] binary media must be carried by ContentRef, never inline Base64`;
-    }
-    if (
-      part !== null &&
-      typeof part === "object" &&
-      !Array.isArray(part) &&
-      (part as { readonly kind?: unknown }).kind === "content"
-    ) {
-      try {
-        Schema.decodeUnknownSync(ContentPart, {
-          onExcessProperty: "error",
-        })(part);
-      } catch {
-        return `${field}[${index}] is not a valid ContentRef part`;
-      }
-    }
-  }
-  return undefined;
 };
 
 export const decodeContentRef = Schema.decodeUnknownEither(ContentRef, {

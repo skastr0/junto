@@ -18,11 +18,8 @@ import { Effect, Either, ManagedRuntime, Schema } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   ContentRef,
-  hasInlineBinaryPayload,
   taskContentIsRunnable,
   taskContentReadiness,
-  validateDurableParts,
-  validateNoInlineBinaryPayload,
 } from "../src/shared/content";
 import {
   CONTENT_STATE_HEADER,
@@ -196,12 +193,6 @@ describe("media transport e2e · task creation + WorkRecord bounds", () => {
     const task = taskWithContent("task-huge-media", [ref]);
     const fact = taskCreateFact(task);
 
-    expect(hasInlineBinaryPayload(fact)).toBe(false);
-    expect(validateNoInlineBinaryPayload(fact)).toBeUndefined();
-    expect(
-      validateDurableParts(task.history[0]!.parts),
-    ).toBeUndefined();
-
     const decoded = decodeWorkRecord(fact);
     expect(Either.isRight(decoded)).toBe(true);
     if (Either.isLeft(decoded)) return;
@@ -268,8 +259,7 @@ describe("media transport e2e · task creation + WorkRecord bounds", () => {
       },
     };
 
-    // Decode admits historical RawPart. No work-record ban on inline media.
-    expect(hasInlineBinaryPayload(inline)).toBe(true);
+    // Legacy RawPart still decodes so migration/history can load old rows.
     expect(Either.isRight(decodeWorkRecord(inline))).toBe(true);
   });
 

@@ -50,7 +50,6 @@ export {
   TextPart,
   UrlPart,
   isContentPart,
-  validateDurableParts,
   WorkArtifacts,
   WorkBoard,
   WorkMessages,

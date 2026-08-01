@@ -4,10 +4,8 @@ import { ActorRef, TaskRef } from "./work-reference";
 import { ContentPart } from "./content";
 
 // ContentRef is the portable binary-media contract. RawPart remains in the
-// union for decoding installed history and old Station records, but new
-// durable writes reject it at the repository boundary. Keeping both shapes
-// readable lets the domain migrate without fabricating identity for bytes
-// already stored in an installed database.
+// Part union so installed history and the one-shot content migration can read
+// legacy rows; the product path stores ContentPart after externalization.
 export {
   ContentAvailability,
   ContentByteLength,
@@ -31,15 +29,12 @@ export {
   collectContentRefsFromTask,
   decodeContentPart,
   decodeContentRef,
-  hasInlineBinaryPayload,
   isContentPart,
   isVerifiedContentReceipt,
   taskContentIsRunnable,
   taskContentPendingMessage,
   taskContentReadiness,
   unavailableContentResolver,
-  validateDurableParts,
-  validateNoInlineBinaryPayload,
   type ContentAvailabilityResolver,
   type TaskContentReadiness,
 } from "./content";
