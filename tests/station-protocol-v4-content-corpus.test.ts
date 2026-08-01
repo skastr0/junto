@@ -134,9 +134,12 @@ describe("Station protocol 4 content wire corpus", () => {
     expect(bytes!).toBeLessThan(8_192);
   });
 
-  it("rejects Base64 down-conversion of media on the Work wire", () => {
+  it("does not use Base64 down-conversion to serve older peers", () => {
+    // Protocol-3 peers get no-common (tested above). Historical RawPart still
+    // decodes for migration/history; there is no wire rewrite that smuggles
+    // media as Base64 to "help" an older peer.
     expect(
-      Either.isLeft(decodeWorkRecord(corpus.inlineBinaryDownConvertRejected)),
+      Either.isRight(decodeWorkRecord(corpus.inlineBinaryDownConvertRejected)),
     ).toBe(true);
   });
 
