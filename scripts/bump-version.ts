@@ -157,7 +157,7 @@ const main = (): void => {
         packageJsonPath: result.packageJsonPath,
         nextSteps: [
           "commit the version bump (chore(release): bump X.Y.Z)",
-          "bun run app:build:ship   # or app:build:beta:ship / production:ship",
+          "bun run app:build:ship",
           "bun run mac:release:publish",
         ],
       },

@@ -17,7 +17,7 @@ pull requests.
 ```bash
 bun install
 bun run verify                 # security policy + brand + typecheck + tests + Vite compile
-bun run app:build              # package the pinned Dodo Test beta app
+bun run app:build              # package the pinned Dodo production app
 bun run app:build:ship         # verify, notarize, and prepare signed macOS artifacts
 ```
 
@@ -28,10 +28,9 @@ feed) is documented in
 `bun run mac:release:publish`). GitHub Releases are not part of the release
 flow.
 
-`app:build` and its platform/verification variants always produce the pinned
-beta profile unless `--channel production` is explicit. Production packaging
-requires `VELLUM_DODO_BUSINESS_ID` and `VELLUM_DODO_PRODUCT_ID`; packaged
-development builds are rejected.
+`app:build` and its platform/verification variants always produce the one
+pinned Dodo production profile. Packaged development and Test profiles are
+rejected; `bun run dev` remains the unpackaged development path.
 
 Before submitting an internal change:
 

@@ -12,11 +12,7 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  extractFile,
-  getRawHeader,
-  statFile,
-} from "@electron/asar";
+import { extractFile, getRawHeader, statFile } from "@electron/asar";
 import {
   FuseState,
   FuseV1Options,
@@ -25,15 +21,18 @@ import {
   type FuseConfig,
 } from "@electron/fuses";
 import rawPolicy from "./package-security-policy.json";
-import { validateElectronArtifactPath, validateElectronSecurityPolicy, decodeElectronSecurityPolicy } from "./electron-security-policy";
-import rawRuntimePolicy from "./macos-runtime-policy.json";
 import {
-  auditRetiredStateRuntimeBundle,
-} from "./audit-retired-state-signatures";
+  validateElectronArtifactPath,
+  validateElectronSecurityPolicy,
+  decodeElectronSecurityPolicy,
+} from "./electron-security-policy";
+import rawRuntimePolicy from "./macos-runtime-policy.json";
+import { auditRetiredStateRuntimeBundle } from "./audit-retired-state-signatures";
 import {
   auditPackagedLicenseBinding,
   type LicenseBuildAuditReceipt,
 } from "./audit-license-build";
+import { PRODUCTION_LICENSE_BUILD_PROFILE } from "./license-build-profile";
 
 export const FUSE_NAMES = [
   "RunAsNode",
@@ -134,9 +133,12 @@ const MAC_O_MAGICS = new Set([
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const MACOS_VERSION_PATTERN = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:\.(?:0|[1-9]\d*))?$/u;
+const MACOS_VERSION_PATTERN =
+  /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:\.(?:0|[1-9]\d*))?$/u;
 
-const macOSVersionParts = (value: string): readonly [number, number, number] => {
+const macOSVersionParts = (
+  value: string,
+): readonly [number, number, number] => {
   if (Buffer.byteLength(value) > 32 || !MACOS_VERSION_PATTERN.test(value)) {
     throw new Error(`invalid macOS version ${value}`);
   }
@@ -194,8 +196,7 @@ export const validatePackageSecurityPolicy = (
 
   const expectedNames = libraryFuseNames();
   const policyNames = Object.keys(value.fuses).sort(
-    (left, right) =>
-      expectedNames.indexOf(left) - expectedNames.indexOf(right),
+    (left, right) => expectedNames.indexOf(left) - expectedNames.indexOf(right),
   );
   if (
     expectedNames.length !== FUSE_NAMES.length ||
@@ -264,7 +265,9 @@ export const validateMacOSRuntimePolicy = (
     !exactRecordKeys(value.profiles.jit, ["com.apple.security.cs.allow-jit"]) ||
     value.profiles.jit["com.apple.security.cs.allow-jit"] !== true
   ) {
-    throw new Error("macOS runtime policy must expose only empty and allow-jit profiles");
+    throw new Error(
+      "macOS runtime policy must expose only empty and allow-jit profiles",
+    );
   }
   if (value.machO.length !== 28) {
     throw new Error(
@@ -287,7 +290,9 @@ export const validateMacOSRuntimePolicy = (
       (candidate.profile !== "none" && candidate.profile !== "jit") ||
       seenPaths.has(candidate.path)
     ) {
-      throw new Error("macOS runtime policy has an invalid or duplicate Mach-O entry");
+      throw new Error(
+        "macOS runtime policy has an invalid or duplicate Mach-O entry",
+      );
     }
     seenPaths.add(candidate.path);
     if (candidate.profile === "jit") jitPaths.push(candidate.path);
@@ -314,14 +319,17 @@ export const validateMacOSRuntimePolicy = (
       (entry) => isRecord(entry) && entry.path === cliPath,
     );
     if (cli?.profile !== "none") {
-      throw new Error(`packaged ${path.posix.basename(cliPath)} must have the empty entitlement profile`);
+      throw new Error(
+        `packaged ${path.posix.basename(cliPath)} must have the empty entitlement profile`,
+      );
     }
   }
 
   return value as unknown as MacOSRuntimePolicy;
 };
 
-export const MACOS_RUNTIME_POLICY = validateMacOSRuntimePolicy(rawRuntimePolicy);
+export const MACOS_RUNTIME_POLICY =
+  validateMacOSRuntimePolicy(rawRuntimePolicy);
 
 const requireSingleCodesignValue = (
   lines: ReadonlyArray<string>,
@@ -347,7 +355,9 @@ export const parseCodesignMetadata = (output: string): CodesignMetadata => {
     line.startsWith("CodeDirectory "),
   );
   if (codeDirectoryLines.length !== 1) {
-    throw new Error("codesign metadata requires exactly one CodeDirectory field");
+    throw new Error(
+      "codesign metadata requires exactly one CodeDirectory field",
+    );
   }
   const flagMatch = codeDirectoryLines[0].match(
     /\bflags=0x[0-9a-f]+\(([^)]*)\)/iu,
@@ -456,9 +466,7 @@ export const validateFuseWire = (
 
   const receipt = {} as Record<FuseName, "Enabled" | "Disabled">;
   for (const name of FUSE_NAMES) {
-    const expected = policy.fuses[name]
-      ? FuseState.ENABLE
-      : FuseState.DISABLE;
+    const expected = policy.fuses[name] ? FuseState.ENABLE : FuseState.DISABLE;
     const actual = wire[FuseV1Options[name]];
     if (actual !== expected) {
       throw new Error(
@@ -503,7 +511,9 @@ export const validateInfoPlist = (
     throw new Error("Info.plist has invalid app.asar integrity metadata");
   }
   if (entry.hash !== actualAsarHash) {
-    throw new Error("Info.plist app.asar integrity hash does not match app.asar");
+    throw new Error(
+      "Info.plist app.asar integrity hash does not match app.asar",
+    );
   }
   return { algorithm: entry.algorithm, hash: entry.hash };
 };
@@ -519,7 +529,9 @@ const runFixedCommand = (
     shell: false,
   });
   if (result.error !== undefined) {
-    throw new Error(`${path.basename(executable)} failed: ${result.error.message}`);
+    throw new Error(
+      `${path.basename(executable)} failed: ${result.error.message}`,
+    );
   }
   if (result.status !== 0) {
     const detail = `${result.stderr ?? ""}\n${result.stdout ?? ""}`
@@ -545,7 +557,9 @@ const runFixedCommandWithInput = (
     ...(input === undefined ? {} : { input }),
   });
   if (result.error !== undefined) {
-    throw new Error(`${path.basename(executable)} failed: ${result.error.message}`);
+    throw new Error(
+      `${path.basename(executable)} failed: ${result.error.message}`,
+    );
   }
   if (result.status !== 0) {
     const detail = `${result.stderr ?? ""}\n${result.stdout ?? ""}`
@@ -581,7 +595,9 @@ const pathIsWithin = (root: string, candidate: string): boolean => {
   const relative = path.relative(root, candidate);
   return (
     relative === "" ||
-    (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))
+    (relative !== ".." &&
+      !relative.startsWith(`..${path.sep}`) &&
+      !path.isAbsolute(relative))
   );
 };
 
@@ -600,7 +616,9 @@ export const enumerateMachOPaths = async (
       if (metadata.isSymbolicLink()) {
         const target = await realpath(absolutePath);
         if (!pathIsWithin(root, target)) {
-          throw new Error("packaged app contains a symlink that escapes the bundle");
+          throw new Error(
+            "packaged app contains a symlink that escapes the bundle",
+          );
         }
         continue;
       }
@@ -614,7 +632,9 @@ export const enumerateMachOPaths = async (
         const magic = Buffer.allocUnsafe(4);
         const { bytesRead } = await handle.read(magic, 0, 4, 0);
         if (bytesRead === 4 && isMachOMagic(magic)) {
-          discovered.push(path.relative(root, absolutePath).split(path.sep).join("/"));
+          discovered.push(
+            path.relative(root, absolutePath).split(path.sep).join("/"),
+          );
         }
       } finally {
         await handle.close();
@@ -634,14 +654,20 @@ export const validateMachOInventory = (
   const actual = [...actualPaths].sort();
   const missing = expected.filter((entry) => !actual.includes(entry));
   const extra = actual.filter((entry) => !expected.includes(entry));
-  if (missing.length > 0 || extra.length > 0 || new Set(actual).size !== actual.length) {
+  if (
+    missing.length > 0 ||
+    extra.length > 0 ||
+    new Set(actual).size !== actual.length
+  ) {
     throw new Error(
       `packaged Mach-O inventory mismatch: missing=${missing.join(",") || "none"} extra=${extra.join(",") || "none"}`,
     );
   }
 };
 
-export const parseMachOArchitectures = (output: string): ReadonlyArray<string> => {
+export const parseMachOArchitectures = (
+  output: string,
+): ReadonlyArray<string> => {
   const trimmed = output.trim();
   if (trimmed.length === 0) {
     throw new Error("lipo output is missing Mach-O architectures");
@@ -655,7 +681,9 @@ export const parseMachOArchitectures = (output: string): ReadonlyArray<string> =
     ) ||
     new Set(architectures).size !== architectures.length
   ) {
-    throw new Error("lipo output has invalid or duplicate Mach-O architectures");
+    throw new Error(
+      "lipo output has invalid or duplicate Mach-O architectures",
+    );
   }
   return architectures;
 };
@@ -665,7 +693,9 @@ interface MachOLoadCommand {
   readonly fields: ReadonlyArray<string>;
 }
 
-const parseMachOLoadCommands = (output: string): ReadonlyArray<MachOLoadCommand> => {
+const parseMachOLoadCommands = (
+  output: string,
+): ReadonlyArray<MachOLoadCommand> => {
   const commands: MachOLoadCommand[] = [];
   let fields: string[] | undefined;
 
@@ -701,9 +731,7 @@ const requireSingleLoadCommandField = (
     .map((line) => line.match(new RegExp(`^${field}\\s+(\\S+)$`, "u"))?.[1])
     .filter((value): value is string => value !== undefined);
   if (values.length !== 1) {
-    throw new Error(
-      `${command.name} must contain exactly one ${field} field`,
-    );
+    throw new Error(`${command.name} must contain exactly one ${field} field`);
   }
   return values[0];
 };
@@ -732,7 +760,9 @@ export const parseMachOSliceMinimumSystemVersion = (
     command.name === "LC_BUILD_VERSION" &&
     requireSingleLoadCommandField(command, "platform") !== "1"
   ) {
-    throw new Error(`${sliceLabel} LC_BUILD_VERSION must target macOS platform 1`);
+    throw new Error(
+      `${sliceLabel} LC_BUILD_VERSION must target macOS platform 1`,
+    );
   }
   macOSVersionParts(version);
   return version;
@@ -859,7 +889,11 @@ const auditMachOObjects = async (
       runFixedCommand("/usr/bin/codesign", ["-d", "--verbose=4", filePath]),
     );
     validateMachOCodesignMetadata(metadata, expected.identifier);
-    validateEntitlementProfile(readSignedEntitlements(filePath), expected.profile, policy);
+    validateEntitlementProfile(
+      readSignedEntitlements(filePath),
+      expected.profile,
+      policy,
+    );
   }
 
   const jitPaths = policy.machO
@@ -884,16 +918,56 @@ export const auditPackagedApp = async (
   const policy = PACKAGE_SECURITY_POLICY;
   const appPath = path.resolve(requestedPath);
   await validateElectronArtifactPath(appPath);
-  const embeddedPolicyPath = path.join(appPath, "Contents", "Resources", "policy", "electron-security-policy.json");
-  const workspacePolicyPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "electron-security-policy.json");
-  const [embeddedPolicyRaw, workspacePolicyRaw] = await Promise.all([readFile(embeddedPolicyPath, "utf8"), readFile(workspacePolicyPath, "utf8")]);
-  if (embeddedPolicyRaw !== workspacePolicyRaw) throw new Error("embedded Electron policy differs from reviewed workspace policy");
-  const electronInfoPath = path.join(appPath, "Contents", "Frameworks", "Electron Framework.framework", "Versions", "A", "Resources", "Info.plist");
-  const electronInfo = JSON.parse(runFixedCommand("/usr/bin/plutil", ["-convert", "json", "-o", "-", electronInfoPath])) as Record<string, unknown>;
+  const embeddedPolicyPath = path.join(
+    appPath,
+    "Contents",
+    "Resources",
+    "policy",
+    "electron-security-policy.json",
+  );
+  const workspacePolicyPath = path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "electron-security-policy.json",
+  );
+  const [embeddedPolicyRaw, workspacePolicyRaw] = await Promise.all([
+    readFile(embeddedPolicyPath, "utf8"),
+    readFile(workspacePolicyPath, "utf8"),
+  ]);
+  if (embeddedPolicyRaw !== workspacePolicyRaw)
+    throw new Error(
+      "embedded Electron policy differs from reviewed workspace policy",
+    );
+  const electronInfoPath = path.join(
+    appPath,
+    "Contents",
+    "Frameworks",
+    "Electron Framework.framework",
+    "Versions",
+    "A",
+    "Resources",
+    "Info.plist",
+  );
+  const electronInfo = JSON.parse(
+    runFixedCommand("/usr/bin/plutil", [
+      "-convert",
+      "json",
+      "-o",
+      "-",
+      electronInfoPath,
+    ]),
+  ) as Record<string, unknown>;
   const embeddedVersion = electronInfo.CFBundleVersion;
-  if (typeof embeddedVersion !== "string") throw new Error("Electron framework Info.plist is missing CFBundleVersion");
-  const electronPolicy = decodeElectronSecurityPolicy(JSON.parse(embeddedPolicyRaw));
-  validateElectronSecurityPolicy(electronPolicy, { now: new Date(), manifestVersion: electronPolicy.electron.exactVersion, installedPackageVersion: electronPolicy.electron.exactVersion, installedRuntimeVersion: embeddedVersion });
+  if (typeof embeddedVersion !== "string")
+    throw new Error("Electron framework Info.plist is missing CFBundleVersion");
+  const electronPolicy = decodeElectronSecurityPolicy(
+    JSON.parse(embeddedPolicyRaw),
+  );
+  validateElectronSecurityPolicy(electronPolicy, {
+    now: new Date(),
+    manifestVersion: electronPolicy.electron.exactVersion,
+    installedPackageVersion: electronPolicy.electron.exactVersion,
+    installedRuntimeVersion: embeddedVersion,
+  });
   if (path.basename(appPath) !== `${policy.productName}.app`) {
     throw new Error(
       `packaged app path must end in ${policy.productName}.app: ${appPath}`,
@@ -912,11 +986,7 @@ export const auditPackagedApp = async (
     policy.productName,
   );
   const appAsarPath = path.join(contentsPath, "Resources", "app.asar");
-  const binPath = path.join(
-    contentsPath,
-    "Resources",
-    "bin",
-  );
+  const binPath = path.join(contentsPath, "Resources", "bin");
   const workCliPath = path.join(binPath, "vellum");
   const browserCliPath = path.join(binPath, "vellum-browser");
   const stationCliPath = path.join(binPath, "vellum-station");
@@ -932,7 +1002,10 @@ export const auditPackagedApp = async (
     browserCliPath,
     stationCliPath,
   });
-  const license = auditPackagedLicenseBinding(appAsarPath);
+  const license = auditPackagedLicenseBinding(
+    appAsarPath,
+    PRODUCTION_LICENSE_BUILD_PROFILE,
+  );
 
   runFixedCommand("/usr/bin/codesign", [
     "--verify",
@@ -966,10 +1039,7 @@ export const auditPackagedApp = async (
   );
 
   const fuses = validateFuseWire(await getCurrentFuseWire(appPath), policy);
-  const machO = await auditMachOObjects(
-    appPath,
-    policy.minimumSystemVersion,
-  );
+  const machO = await auditMachOObjects(appPath, policy.minimumSystemVersion);
   return {
     appPath,
     bundleIdentifier: codesign.identifier,
@@ -988,7 +1058,9 @@ const invokedPath =
 if (invokedPath === modulePath) {
   const requestedPath = process.argv[2];
   if (requestedPath === undefined || process.argv.length !== 3) {
-    console.error("usage: bun scripts/audit-packaged-app.ts /path/to/Vellum Command.app");
+    console.error(
+      "usage: bun scripts/audit-packaged-app.ts /path/to/Vellum Command.app",
+    );
     process.exitCode = 2;
   } else {
     auditPackagedApp(requestedPath)

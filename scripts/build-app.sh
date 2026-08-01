@@ -1,16 +1,15 @@
 #!/usr/bin/env bash
 # Compile Vellum Command and package for one explicit native target.
 #
-#   scripts/build-app.sh --target mac|linux [--channel beta|production] [--fast] [--verify] [--notarize]
-#   scripts/build-app.sh --compile-only [--channel beta|production]
-#   scripts/build-app.sh --license-preflight-only [--channel beta|production]
+#   scripts/build-app.sh --target mac|linux [--fast] [--verify] [--notarize]
+#   scripts/build-app.sh --compile-only
+#   scripts/build-app.sh --license-preflight-only
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 
 TARGET=""
-LICENSE_CHANNEL_FLAG=""
 FAST=0
 VERIFY=0
 COMPILE_ONLY=0
@@ -34,16 +33,6 @@ while [[ $# -gt 0 ]]; do
       ;;
     --mac) TARGET="mac"; shift ;;
     --linux) TARGET="linux"; shift ;;
-    --channel)
-      [[ $# -ge 2 && -n "$2" ]] || {
-        printf 'vellum: error: --channel requires beta or production\n' >&2
-        exit 1
-      }
-      LICENSE_CHANNEL_FLAG="$2"
-      shift 2
-      ;;
-    --beta) LICENSE_CHANNEL_FLAG="beta"; shift ;;
-    --production) LICENSE_CHANNEL_FLAG="production"; shift ;;
     --fast) FAST=1; shift ;;
     --verify) VERIFY=1; shift ;;
     --notarize) NOTARIZE=1; shift ;;
@@ -76,15 +65,11 @@ if [[ -z "$BUN_EXECUTABLE" || ! -x "$BUN_EXECUTABLE" ]]; then
   printf 'vellum: error: Bun is required to resolve the license build profile\n' >&2
   exit 1
 fi
-if [[
-  -n "$LICENSE_CHANNEL_FLAG" &&
-  -n "${VELLUM_LICENSE_CHANNEL:-}" &&
-  "$LICENSE_CHANNEL_FLAG" != "$VELLUM_LICENSE_CHANNEL"
-]]; then
-  printf 'vellum: error: --channel conflicts with VELLUM_LICENSE_CHANNEL\n' >&2
+if [[ -n "${VELLUM_LICENSE_CHANNEL:-}" && "$VELLUM_LICENSE_CHANNEL" != "production" ]]; then
+  printf 'vellum: error: packaged builds require VELLUM_LICENSE_CHANNEL=production\n' >&2
   exit 1
 fi
-export VELLUM_LICENSE_CHANNEL="${LICENSE_CHANNEL_FLAG:-${VELLUM_LICENSE_CHANNEL:-beta}}"
+export VELLUM_LICENSE_CHANNEL="production"
 LICENSE_PROFILE_FIELDS="$(
   "$BUN_EXECUTABLE" "$SCRIPT_DIR/license-build-profile.ts" --fields
 )"
@@ -165,7 +150,7 @@ bunx electron-vite build
 printf 'vellum: auditing compiled license binding …\n'
 bun "$SCRIPT_DIR/audit-license-build.ts" \
   --bundle "$REPO_ROOT/out/main/index.js" \
-  --expected-env
+  --expected-production
 printf 'vellum: standalone work CLI → dist/vellum …\n'
 build_compiled_cli "$REPO_ROOT/dist/vellum" src/cli/main.ts
 printf 'vellum: standalone browser CLI → dist/vellum-browser …\n'

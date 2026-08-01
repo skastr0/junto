@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { extractFile, statFile } from "@electron/asar";
 import {
+  PRODUCTION_LICENSE_BUILD_PROFILE,
   resolveLicenseBuildProfile,
   type ReleaseLicenseBuildProfile,
 } from "./license-build-profile";
@@ -10,8 +11,7 @@ import {
 export const PACKAGED_LICENSE_MAIN_ENTRY = "out/main/index.js" as const;
 const MAX_LICENSE_MAIN_BYTES = 8 * 1024 * 1024;
 
-export interface LicenseBuildAuditReceipt
-  extends ReleaseLicenseBuildProfile {
+export interface LicenseBuildAuditReceipt extends ReleaseLicenseBuildProfile {
   readonly entry: typeof PACKAGED_LICENSE_MAIN_ENTRY;
   readonly bytes: number;
 }
@@ -58,7 +58,7 @@ export const auditCompiledLicenseMain = (
   // (older fixture) or the post-compile channel ternary (current main).
   const channel = exactlyOneMatch(
     binding,
-    /const candidate = "(development|beta|production)";\s*return candidate(?: === "beta" \|\| candidate === "production" \? candidate : "development")?;/gu,
+    /const candidate = "(development|production)";\s*return candidate(?: === "production" \? candidate : "development")?;/gu,
     "channel",
   );
   const businessId = exactlyOneMatch(
@@ -83,7 +83,9 @@ export const auditCompiledLicenseMain = (
       resolved.businessId !== expected.businessId ||
       resolved.productId !== expected.productId)
   ) {
-    throw new Error("compiled license binding differs from the selected profile");
+    throw new Error(
+      "compiled license binding differs from the selected profile",
+    );
   }
   return {
     ...resolved,
@@ -100,6 +102,7 @@ export const auditLicenseBundle = async (
 
 export const auditPackagedLicenseBinding = (
   appAsarPath: string,
+  expected: ReleaseLicenseBuildProfile = PRODUCTION_LICENSE_BUILD_PROFILE,
 ): LicenseBuildAuditReceipt => {
   const entry = statFile(appAsarPath, PACKAGED_LICENSE_MAIN_ENTRY, false);
   if (
@@ -116,7 +119,7 @@ export const auditPackagedLicenseBinding = (
   if (bytes.byteLength !== entry.size) {
     throw new Error("packaged license main changed size during audit");
   }
-  return auditCompiledLicenseMain(bytes);
+  return auditCompiledLicenseMain(bytes, expected);
 };
 
 const modulePath = fileURLToPath(import.meta.url);
@@ -124,23 +127,19 @@ const invokedPath =
   process.argv[1] === undefined ? "" : path.resolve(process.argv[1]);
 if (invokedPath === modulePath) {
   const args = process.argv.slice(2);
-  const expectedEnvIndex = args.indexOf("--expected-env");
-  const expectsEnvironment = expectedEnvIndex >= 0;
-  if (expectsEnvironment) args.splice(expectedEnvIndex, 1);
+  const expectedProductionIndex = args.indexOf("--expected-production");
+  const expectsProduction = expectedProductionIndex >= 0;
+  if (expectsProduction) args.splice(expectedProductionIndex, 1);
   if (args.length !== 2 || args[0] !== "--bundle") {
     console.error(
-      "usage: bun scripts/audit-license-build.ts --bundle <out/main/index.js> [--expected-env]",
+      "usage: bun scripts/audit-license-build.ts --bundle <out/main/index.js> [--expected-production]",
     );
     process.exitCode = 2;
   } else {
     let expected: ReleaseLicenseBuildProfile | undefined;
     try {
-      expected = expectsEnvironment
-        ? resolveLicenseBuildProfile({
-            channel: process.env.VELLUM_LICENSE_CHANNEL,
-            businessId: process.env.VELLUM_DODO_BUSINESS_ID,
-            productId: process.env.VELLUM_DODO_PRODUCT_ID,
-          })
+      expected = expectsProduction
+        ? PRODUCTION_LICENSE_BUILD_PROFILE
         : undefined;
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);

@@ -10,24 +10,23 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { PRODUCTION_LICENSE_BUILD_PROFILE } from "./license-build-profile";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const entry = join(root, "src/main/vellum-remote.ts");
 const outDir = join(root, "out/remote");
 const outfile = join(outDir, "vellum-remote.js");
 
-const licenseChannel = process.env.VELLUM_LICENSE_CHANNEL ?? "development";
-if (!["development", "beta", "production"].includes(licenseChannel)) {
+if (
+  process.env.VELLUM_LICENSE_CHANNEL !== undefined &&
+  process.env.VELLUM_LICENSE_CHANNEL !== "production"
+) {
   throw new Error(
-    "VELLUM_LICENSE_CHANNEL must be development, beta, or production",
+    "remote packaging requires VELLUM_LICENSE_CHANNEL=production",
   );
 }
-
-const businessId = (process.env.VELLUM_DODO_BUSINESS_ID ?? "").trim();
-const productId = (process.env.VELLUM_DODO_PRODUCT_ID ?? "").trim();
-const appVersion = JSON.parse(
-  readFileSync(join(root, "package.json"), "utf8"),
-).version as string;
+const appVersion = JSON.parse(readFileSync(join(root, "package.json"), "utf8"))
+  .version as string;
 
 mkdirSync(outDir, { recursive: true });
 
@@ -42,9 +41,9 @@ const result = spawnSync(
     "--packages=bundle",
     // Never ship Electron into the Node Remote process.
     "--external=electron",
-    `--define=__VELLUM_LICENSE_CHANNEL__=${JSON.stringify(licenseChannel)}`,
-    `--define=__VELLUM_DODO_BUSINESS_ID__=${JSON.stringify(businessId)}`,
-    `--define=__VELLUM_DODO_PRODUCT_ID__=${JSON.stringify(productId)}`,
+    `--define=__VELLUM_LICENSE_CHANNEL__=${JSON.stringify(PRODUCTION_LICENSE_BUILD_PROFILE.channel)}`,
+    `--define=__VELLUM_DODO_BUSINESS_ID__=${JSON.stringify(PRODUCTION_LICENSE_BUILD_PROFILE.businessId)}`,
+    `--define=__VELLUM_DODO_PRODUCT_ID__=${JSON.stringify(PRODUCTION_LICENSE_BUILD_PROFILE.productId)}`,
     `--define=__VELLUM_MAC_UPDATE_FEED_URL__=${JSON.stringify("")}`,
     `--define=__VELLUM_APP_VERSION__=${JSON.stringify(appVersion)}`,
   ],
@@ -82,7 +81,10 @@ if (/(?:^|\n)\s*import\s+[^;]*\bfrom\s+["']electron["']/u.test(body)) {
 writeFileSync(outfile, body, { encoding: "utf8" });
 body = readFileSync(outfile, "utf8");
 
-const forbidden: ReadonlyArray<{ readonly pattern: RegExp; readonly label: string }> = [
+const forbidden: ReadonlyArray<{
+  readonly pattern: RegExp;
+  readonly label: string;
+}> = [
   {
     pattern: /(?:^|\n)\s*import\s+[^;]*\bfrom\s+["']electron["']/u,
     label: "static electron import",
@@ -112,9 +114,7 @@ const hits = forbidden.flatMap(({ pattern, label }) =>
 );
 
 if (hits.length > 0) {
-  throw new Error(
-    `remote:build emitted forbidden symbols: ${hits.join(", ")}`,
-  );
+  throw new Error(`remote:build emitted forbidden symbols: ${hits.join(", ")}`);
 }
 
 const withShebang = body.startsWith("#!")
