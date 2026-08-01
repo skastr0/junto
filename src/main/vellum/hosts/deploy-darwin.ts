@@ -1435,90 +1435,6 @@ resume_incumbent_before_activation() {
   echo "INCUMBENT_RESUMED pid=$RESUMED_PID"
 }
 
-state_update_preflight_receipt_valid() {
-  PREFLIGHT_RECEIPT="$1"
-  PREFLIGHT_FRESH_PATTERN='^\{"protocol":"vellum-state-update-preflight/v1","candidateId":"[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}","source":"fresh","sourceSchemaVersion":(0|[1-9][0-9]{0,15}),"targetSchemaVersion":[1-9][0-9]{0,15},"targetSchemaSha256":"[0-9a-f]{64}","installationId":"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}","role":"(unenrolled|command-center|remote)","canvasCount":(0|[1-9][0-9]{0,15}),"actorSeatCount":(0|[1-9][0-9]{0,15}),"workSnapshotCount":(0|[1-9][0-9]{0,15}),"pendingCommandCount":(0|[1-9][0-9]{0,15}),"armedRegionCount":(0|[1-9][0-9]{0,15}),"schedulerCursorCount":(0|[1-9][0-9]{0,15})(,"activeIntent":\{"generation":"[1-9][0-9]*","contentSha256":"[0-9a-f]{64}"\})?,"ready":true\}$'
-  PREFLIGHT_INSTALLED_PATTERN='^\{"protocol":"vellum-state-update-preflight/v1","candidateId":"[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}","source":"installed","sourceSchemaVersion":(0|[1-9][0-9]{0,15}),"targetSchemaVersion":[1-9][0-9]{0,15},"targetSchemaSha256":"[0-9a-f]{64}","backupFile":"vellum-backup-[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.db","installationId":"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}","role":"(unenrolled|command-center|remote)","canvasCount":(0|[1-9][0-9]{0,15}),"actorSeatCount":(0|[1-9][0-9]{0,15}),"workSnapshotCount":(0|[1-9][0-9]{0,15}),"pendingCommandCount":(0|[1-9][0-9]{0,15}),"armedRegionCount":(0|[1-9][0-9]{0,15}),"schedulerCursorCount":(0|[1-9][0-9]{0,15})(,"activeIntent":\{"generation":"[1-9][0-9]*","contentSha256":"[0-9a-f]{64}"\})?,"ready":true\}$'
-  [[ "$PREFLIGHT_RECEIPT" =~ $PREFLIGHT_FRESH_PATTERN ]] ||
-    [[ "$PREFLIGHT_RECEIPT" =~ $PREFLIGHT_INSTALLED_PATTERN ]]
-}
-
-run_candidate_state_preflight() {
-  same_directory_identity "$IN/$BUNDLE" "$CANDIDATE_APP_ID" &&
-    same_directory_identity "$IN/$BUNDLE/Contents" "$CANDIDATE_CONTENTS_ID" &&
-    same_file_identity "$IN_EXE" "$CANDIDATE_EXE_ID" || {
-      echo "INCOMING_BUNDLE_CHANGED_BEFORE_STATE_PREFLIGHT $IN/$BUNDLE" >&2
-      return 1
-    }
-  ACCOUNT_NAME="$("$ID" -un)" || {
-    echo "REMOTE_ACCOUNT_NAME_UNAVAILABLE" >&2
-    return 1
-  }
-  PREFLIGHT_SEPARATOR="$(/usr/bin/printf '\\036')"
-  PREFLIGHT_FRAME="$(
-    set +e
-    cd ${shellLiteral(remoteHome)} || exit 70
-    "$ENV" -i \
-      HOME=${shellLiteral(remoteHome)} \
-      LOGNAME="$ACCOUNT_NAME" \
-      PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
-      PWD=${shellLiteral(remoteHome)} \
-      USER="$ACCOUNT_NAME" \
-      "$IN_EXE" --vellum-state-preflight
-    PREFLIGHT_CHILD_STATUS=$?
-    /usr/bin/printf '\\036%s' "$PREFLIGHT_CHILD_STATUS"
-  )"
-  case "$PREFLIGHT_FRAME" in
-    *"$PREFLIGHT_SEPARATOR"*) ;;
-    *)
-      echo "STATE_PREFLIGHT_STATUS_MISSING" >&2
-      return 1
-      ;;
-  esac
-  PREFLIGHT_PAYLOAD="\${PREFLIGHT_FRAME%"$PREFLIGHT_SEPARATOR"*}"
-  PREFLIGHT_CHILD_STATUS="\${PREFLIGHT_FRAME##*"$PREFLIGHT_SEPARATOR"}"
-  case "$PREFLIGHT_CHILD_STATUS" in
-    ""|*[!0-9]*)
-      echo "STATE_PREFLIGHT_STATUS_INVALID" >&2
-      return 1
-      ;;
-  esac
-  if [ "$PREFLIGHT_CHILD_STATUS" -ne 0 ]; then
-    echo "STATE_PREFLIGHT_FAILED status=$PREFLIGHT_CHILD_STATUS" >&2
-    return 1
-  fi
-  case "$PREFLIGHT_PAYLOAD" in
-    *$'\n')
-      PREFLIGHT_RECEIPT="\${PREFLIGHT_PAYLOAD%$'\n'}"
-      ;;
-    *)
-      echo "STATE_PREFLIGHT_RECEIPT_FRAMING_INVALID" >&2
-      return 1
-      ;;
-  esac
-  case "$PREFLIGHT_RECEIPT" in
-    *"$PREFLIGHT_SEPARATOR"*|*$'\n'*)
-      echo "STATE_PREFLIGHT_RECEIPT_FRAMING_INVALID" >&2
-      return 1
-      ;;
-  esac
-  state_update_preflight_receipt_valid "$PREFLIGHT_RECEIPT" || {
-    echo "STATE_PREFLIGHT_RECEIPT_INVALID" >&2
-    return 1
-  }
-  wait_until_executable_gone "$IN_EXE" ${executableGoneLimit} || {
-    echo "CANDIDATE_PREFLIGHT_PROCESS_STILL_PRESENT $IN_EXE" >&2
-    return 1
-  }
-  same_directory_identity "$IN/$BUNDLE" "$CANDIDATE_APP_ID" &&
-    same_directory_identity "$IN/$BUNDLE/Contents" "$CANDIDATE_CONTENTS_ID" &&
-    same_file_identity "$IN_EXE" "$CANDIDATE_EXE_ID" || {
-      echo "INCOMING_BUNDLE_CHANGED_DURING_STATE_PREFLIGHT $IN/$BUNDLE" >&2
-      return 1
-    }
-  echo "STATE_PREFLIGHT_READY"
-}
-
 release_deploy_lock() {
   if [ "$LOCK_HELD" != "1" ]; then return 0; fi
   same_directory_identity "$DEPLOY_LOCK" "$LOCK_ID" || return 1
@@ -1630,7 +1546,7 @@ same_file_identity "$DEPLOY_LOCK_OWNER" "$LOCK_OWNER_ID" || {
   exit 8
 }
 
-# Bind the preflight decision to the serialized transaction. If another deploy
+# Bind package-state observation to the serialized transaction. If another deploy
 # published an app after an exact absence observation, retry through the update
 # path so terminal-session maintenance is acquired before replacement.
 if [ "$EXPECTED_PACKAGE_STATE" = "absent" ] &&
@@ -1865,8 +1781,6 @@ fi
 # both absent. Their later existence therefore witnesses a new listener.
 retire_stale_socket "$TERM_SOCK" "$RETIRED_TERM_SOCKET" || exit 5
 retire_stale_socket "$BROWSER_SOCK" "$RETIRED_BROWSER_SOCKET" || exit 5
-
-run_candidate_state_preflight || exit 5
 
 begin_candidate_activation
 

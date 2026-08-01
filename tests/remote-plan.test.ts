@@ -67,7 +67,7 @@ describe("named deploy compilers", () => {
   it("hardens deploy around vellum-remote generation pin, sealed install, and member proof", () => {
     const source = compileLinuxUserlandDeploySource();
     expect(source).toContain("resources/bin/vellum-remote");
-    expect(source).toContain("--vellum-state-preflight");
+    expect(source).not.toContain("--vellum-state-preflight");
     expect(source).toContain("--install-user-service");
     expect(source).toContain("unit_pins_generation");
     expect(source).toContain("prove_activation");
@@ -83,7 +83,7 @@ describe("named deploy compilers", () => {
     expect(source).not.toContain("rm -rf");
     expect(source).toContain('/bin/rm -f -- "$ARCHIVE"');
     expect(source).toContain('/bin/rmdir -- "$STAGE"');
-    expect(source).toContain('|| fail preflight');
+    expect(source).not.toContain('|| fail preflight');
   });
 
   it("admits a product Darwin deploy script and refuses free-form shell", () => {

@@ -180,7 +180,7 @@ describe.skipIf(process.platform === "win32")("adapter execution lifecycle", () 
     const executableIndexSource = indexSource
       .replace(/\/\*[\s\S]*?\*\//gu, "")
       .replace(/\/\/[^\n]*/gu, "");
-    // Direct exits: preflight-only success path + exitAfterDetach helper.
+    // Direct exits: exitAfterDetach helper (and relaunchWithoutInstall path).
     expect(executableIndexSource.match(/app\.exit\(/gu)).toHaveLength(2);
     expect(indexSource).toMatch(/exitAfterDetach[\s\S]*app\.exit\(exitCode\)/u);
   });

@@ -5,8 +5,8 @@ import { Schema } from "effect";
  *
  * electron-updater owns feed check / download / cache / quitAndInstall.
  * Vellum Command owns the readiness gate only: hash the exact ZIP, expand to a
- * proof-only staging dir, run the candidate with `--vellum-state-preflight`,
- * bind the receipt to the ZIP digest, then permit install. Installation is
+ * proof-only staging dir, admit the staged app, then permit install.
+ * Schema+data migration runs on normal app open after cutover. Installation is
  * explicit "Restart to update" only — never auto on quit.
  */
 
@@ -87,7 +87,7 @@ export const UpdateStatus = Schema.Struct({
   /**
    * Operator may Restart: minted candidate with admitted staged app path.
    * True in phase `ready` once expand+admit succeeded. Final quitAndInstall
-   * still requires a bound preflight receipt (main-side canAuthorizeInstall).
+   * requires the same main-side canAuthorizeInstall gate.
    */
   canInstall: Schema.Boolean,
   lastCheckedAt: Schema.optionalWith(Schema.String, { exact: true }),

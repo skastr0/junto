@@ -382,7 +382,7 @@ Staging a package and changing installed state are separate phases:
 2. The installer fully quiesces the incumbent and proves that it released the
    canonical database.
 3. The exact staged packaged product executable enters its sealed
-   `--vellum-state-preflight` mode. For installed state it opens the canonical
+   normal app-open migration. For installed state the sole opener is the product runtime on the canonical
    database read-only, creates and verifies a retained `VACUUM INTO` backup,
    copies that backup to one disposable candidate database, and closes the
    canonical source. A first install instead starts from a disposable empty

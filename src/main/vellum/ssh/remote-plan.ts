@@ -27,7 +27,7 @@ export const compileLinuxUserlandPreflight = (): Effect.Effect<RemoteCommand, Ss
  * One owner-home archive transaction. Header is fixed by the provider:
  * `LINUX_USERLAND_DEPLOY_V1 version=<semver> sha256=<hex> bytes=<n>\n`.
  * The runtime archive itself is the candidate; paths/modes are rejected by tar
- * before extraction, and activation happens only after staged preflight and
+ * before extraction, and activation happens only after staged extract and
  * sealed --install-user-service.
  */
 export const compileLinuxUserlandDeploySource = (): string => String.raw`
@@ -105,7 +105,6 @@ RELEASE="$STAGE/vellum-runtime-$VERSION-linux-x64"
 CANDIDATE_REMOTE="$RELEASE/resources/bin/vellum-remote"
 [ -d "$RELEASE" ] && [ ! -L "$RELEASE" ] && [ -x "$CANDIDATE_REMOTE" ] && [ ! -L "$CANDIDATE_REMOTE" ] || fail candidate
 [ -x "$RELEASE/resources/systemd/vellum-remote-launch" ] && [ ! -L "$RELEASE/resources/systemd/vellum-remote-launch" ] || fail candidate
-"$CANDIDATE_REMOTE" --vellum-state-preflight >/dev/null 2>&1 || fail preflight
 if [ -e "$DEST" ] || [ -L "$DEST" ]; then
   fail install
 fi

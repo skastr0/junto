@@ -7,7 +7,6 @@ import {
   type UpdateStatus,
 } from "@shared/update";
 import {
-  bindPreflightReceipt,
   canAuthorizeInstall,
   canOperatorInstall,
   hashFileSha256,
@@ -16,7 +15,6 @@ import {
   type AuthorizedUpdateCandidate,
 } from "./domain";
 import { UpdateError, updateError } from "./errors";
-import { runCandidateStatePreflight } from "./preflight-runner";
 import type { UpdateHostHooks, UpdateProvider } from "./provider";
 import { expandMacUpdateZip, releaseStaging } from "./staging";
 
@@ -27,7 +25,7 @@ export class UpdateService extends Context.Tag("@vellum/UpdateService")<
     readonly check: Effect.Effect<UpdateStatus, UpdateError>;
     /**
      * Validate the exact downloaded candidate and enter installing.
-     * Does not quiesce SQLite or run preflight — host does that, then
+     * Does not quiesce SQLite — host does that, then
      * `finalizeInstallAfterQuiesce`.
      */
     readonly prepareInstall: Effect.Effect<
@@ -72,7 +70,6 @@ export type UpdateServiceOptions = {
   /** Operator-visible install identity; mirrored onto every projected status. */
   readonly install?: UpdateInstallProvenance;
   readonly expandZip?: typeof expandMacUpdateZip;
-  readonly runPreflight?: typeof runCandidateStatePreflight;
 };
 
 type LiveState = {
@@ -110,16 +107,15 @@ const projectStatus = (
 };
 
 /**
- * Post-quiesce finalize: preflight the exact candidate, bind receipt to ZIP
- * digest, then quitAndInstall. Safe to run with Effect.runPromise after
- * AppRuntime.dispose (no UpdateService dependency).
+ * Post-quiesce finalize: authorize the exact minted staged candidate, then
+ * quitAndInstall. Schema+data migration runs on normal app open. Safe to run
+ * with Effect.runPromise after AppRuntime.dispose (no UpdateService dependency).
  */
 export const finalizeInstallAfterQuiesce = (input: {
   readonly plan: InstallPlan;
   readonly provider: UpdateProvider;
   readonly host: UpdateHostHooks;
   readonly candidate: AuthorizedUpdateCandidate;
-  readonly runPreflight?: typeof runCandidateStatePreflight;
 }): Effect.Effect<UpdateStatus, UpdateError> =>
   Effect.gen(function* () {
     if (!isMintedInstallPlan(input.plan)) {
@@ -146,35 +142,12 @@ export const finalizeInstallAfterQuiesce = (input: {
         ),
       );
     }
-
-    const runPreflight = input.runPreflight ?? runCandidateStatePreflight;
-    const receipt = yield* runPreflight({
-      executablePath: input.plan.executablePath,
-    }).pipe(
-      Effect.tapError(() =>
-        Effect.sync(() => {
-          input.host.relaunchWithoutInstall();
-        }),
-      ),
-    );
-
-    const bound = yield* bindPreflightReceipt(
-      input.candidate,
-      receipt,
-      input.plan.zipSha256,
-    ).pipe(
-      Effect.tapError(() =>
-        Effect.sync(() => {
-          input.host.relaunchWithoutInstall();
-        }),
-      ),
-    );
-    if (!canAuthorizeInstall(bound)) {
+    if (!canAuthorizeInstall(input.candidate)) {
       input.host.relaunchWithoutInstall();
       return yield* Effect.fail(
         updateError(
           "install-refused",
-          "preflight receipt did not authorize this candidate",
+          "candidate is not authorized for install",
         ),
       );
     }
@@ -204,7 +177,7 @@ export const finalizeInstallAfterQuiesce = (input: {
           ? {}
           : { available: input.plan.available }),
       },
-      bound,
+      input.candidate,
       undefined,
     );
   }).pipe(Effect.withSpan("update.finalize-install"));
@@ -230,7 +203,6 @@ export const makeUpdateService = (
     const ref = yield* SubscriptionRef.make(initial);
     const listeners = new Set<(status: UpdateStatus) => void>();
     const expandZip = options.expandZip ?? expandMacUpdateZip;
-    const runPreflight = options.runPreflight ?? runCandidateStatePreflight;
 
     // Serial provider-event queue — prevent concurrent Effect.runPromise races.
     let eventChain: Promise<void> = Promise.resolve();
@@ -570,13 +542,13 @@ export const makeUpdateService = (
         const prepared = yield* prepareInstall;
 
         yield* Effect.tryPromise({
-          try: () => options.host.quiesceForPreflight(),
+          try: () => options.host.quiesceForInstall(),
           catch: (cause) =>
             updateError(
               "readiness-failed",
               cause instanceof Error
-                ? `failed to quiesce for preflight: ${cause.message}`
-                : "failed to quiesce for preflight",
+                ? `failed to quiesce for install: ${cause.message}`
+                : "failed to quiesce for install",
               cause,
             ),
         });
@@ -586,7 +558,6 @@ export const makeUpdateService = (
           provider: options.provider,
           host: options.host,
           candidate: prepared.candidate,
-          runPreflight,
         });
       }).pipe(
         Effect.catchAll((error: UpdateError) =>

@@ -77,7 +77,7 @@ export const registerUpdateIpc = (
   );
 
   /**
-   * Split path so SQLite can be released before sealed preflight:
+   * Split path so SQLite can be released before quitAndInstall:
    * 1. prepareInstall while AppRuntime owns StateEngine
    * 2. host quiesce (dispose runtime / close DB)
    * 3. finalizeInstallAfterQuiesce via Effect.runPromise (no runtime)
@@ -104,15 +104,15 @@ export const registerUpdateIpc = (
     }
 
     try {
-      await requireUpdateHostHooks().quiesceForPreflight();
+      await requireUpdateHostHooks().quiesceForInstall();
     } catch (error) {
       // Clear pending install authority before relaunch so a later path
       // cannot finalize with a stale captured plan.
       takeInstallAuthority();
       const message =
         error instanceof Error
-          ? `failed to quiesce for preflight: ${error.message}`
-          : "failed to quiesce for preflight";
+          ? `failed to quiesce for install: ${error.message}`
+          : "failed to quiesce for install";
       requireUpdateHostHooks().relaunchWithoutInstall();
       return errorStatus(currentVersion, "readiness-failed", message);
     }
@@ -147,7 +147,7 @@ export const registerUpdateIpc = (
         error instanceof UpdateError
           ? error.updateCode
           : "readiness-failed";
-      // finalizeInstallAfterQuiesce already relaunches on preflight failure
+      // finalizeInstallAfterQuiesce already relaunches on install failure
       return errorStatus(
         currentVersion,
         code,

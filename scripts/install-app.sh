@@ -23,7 +23,7 @@
 #   - Unloads LaunchAgent before replacing the binary
 #   - Soft-quits running app so herdr control streams can detach (never pane-kill)
 #   - Validates .app structure + bundle id before ditto
-#   - Crosses one explicit one-way boundary only after preflight and quiescence
+#   - Crosses one explicit one-way boundary only after quiescence
 #   - Retains the current candidate for forward repair after that boundary
 #   - Never runs herdr pane close / session stop
 #
@@ -68,9 +68,6 @@ if launchd_loaded; then
 fi
 UNSUPERVISED_INCUMBENT_WAS_RUNNING=0
 UNSUPERVISED_INCUMBENT_APP_ID=""
-STATE_DATABASE="$INSTALL_USER_ROOT/.vellum/state/vellum.db"
-STATE_PREFLIGHT_SOURCE=""
-STATE_PREFLIGHT_DATABASE_ID=""
 
 resume_launchd_job() {
   if [[ "$LAUNCHD_WAS_LOADED" -ne 1 || launchd_loaded ]]; then
@@ -264,363 +261,6 @@ audit_app_bundle() {
   bun "$SCRIPT_DIR/audit-packaged-app.ts" "$app"
 }
 
-assert_state_database_path() {
-  local expected="$INSTALL_USER_ROOT/.vellum/state/vellum.db"
-  if [[ "$STATE_DATABASE" != "$expected" ]]; then
-    err "state database must remain under the fixed install root"
-    return 1
-  fi
-  assert_no_symlink_components \
-    "state database" \
-    "$INSTALL_USER_ROOT" \
-    "$STATE_DATABASE"
-}
-
-bind_state_update_source() {
-  local identity
-  assert_state_database_path || return 1
-  if [[ -L "$STATE_DATABASE" ]]; then
-    err "installed state source must not be a symlink"
-    return 1
-  fi
-  if [[ -e "$STATE_DATABASE" ]]; then
-    if [[ ! -f "$STATE_DATABASE" ]]; then
-      err "installed state source must be a regular file"
-      return 1
-    fi
-    identity="$(path_identity "$STATE_DATABASE")" || return 1
-    if [[
-      -z "$identity" ||
-      -L "$STATE_DATABASE" ||
-      ! -f "$STATE_DATABASE" ||
-      "$(path_identity "$STATE_DATABASE" 2>/dev/null)" != "$identity"
-    ]]; then
-      err "installed state source changed identity while binding"
-      return 1
-    fi
-    STATE_PREFLIGHT_SOURCE="installed"
-    STATE_PREFLIGHT_DATABASE_ID="$identity"
-  else
-    if [[ -L "$STATE_DATABASE" || -e "$STATE_DATABASE" ]]; then
-      err "fresh state source changed while binding"
-      return 1
-    fi
-    STATE_PREFLIGHT_SOURCE="fresh"
-    STATE_PREFLIGHT_DATABASE_ID=""
-  fi
-  assert_state_database_path
-}
-
-assert_state_update_source_unchanged() {
-  local identity
-  assert_state_database_path || return 1
-  case "$STATE_PREFLIGHT_SOURCE" in
-    fresh)
-      if [[
-        -n "$STATE_PREFLIGHT_DATABASE_ID" ||
-        -e "$STATE_DATABASE" ||
-        -L "$STATE_DATABASE"
-      ]]; then
-        err "fresh state source changed before activation"
-        return 1
-      fi
-      ;;
-    installed)
-      if [[
-        -z "$STATE_PREFLIGHT_DATABASE_ID" ||
-        -L "$STATE_DATABASE" ||
-        ! -f "$STATE_DATABASE"
-      ]]; then
-        err "installed state source changed before activation"
-        return 1
-      fi
-      identity="$(path_identity "$STATE_DATABASE" 2>/dev/null)" || return 1
-      if [[ "$identity" != "$STATE_PREFLIGHT_DATABASE_ID" ]]; then
-        err "installed state source changed identity before activation"
-        return 1
-      fi
-      ;;
-    *)
-      err "state update source has not been bound"
-      return 1
-      ;;
-  esac
-}
-
-run_staged_state_update_preflight() {
-  local executable="$STAGE/Contents/MacOS/$PRODUCT_NAME"
-  local account_name temp_root bun_executable framed separator payload child_status receipt
-  separator=$'\036'
-
-  assert_install_transaction_capabilities || return 1
-  assert_state_update_source_unchanged || return 1
-  if [[ -n "$INSTALL_SANDBOX_ROOT" ]]; then
-    err "state update preflight is unavailable in the filesystem-only install sandbox"
-    return 1
-  fi
-  if [[
-    -z "${STAGED_APP_ID:-}" ||
-    -L "$STAGE" ||
-    "$(path_identity "$STAGE" 2>/dev/null)" != "$STAGED_APP_ID"
-  ]]; then
-    err "staged app changed identity before state update preflight"
-    return 1
-  fi
-  if [[ ! -f "$executable" || -L "$executable" || ! -x "$executable" ]]; then
-    err "staged state update preflight executable is not a regular executable"
-    return 1
-  fi
-
-  account_name="$(id -un)" || return 1
-  temp_root="$(current_user_test_temp_root)" || return 1
-  bun_executable="$(type -P bun || true)"
-  if [[ -z "$bun_executable" || ! -x "$bun_executable" ]]; then
-    err "Bun is required to validate the state update preflight receipt"
-    return 1
-  fi
-  log "proving staged state update candidate"
-  # Frame bounded supervisor stdout with its exit status so command
-  # substitution cannot erase the distinction between exactly one receipt
-  # line and extra output. The supervisor streams rather than accumulates
-  # candidate output, caps it at the receipt limit, rejects any stderr, and
-  # owns a detached process group that it terminates and reaps on every
-  # failure. A clean environment denies Node/Electron/Bun loader and Vellum Command
-  # test/demo controls; HOME and TMPDIR are re-derived from fixed OS facts.
-  framed="$(
-    set +e
-    cd "$ACCOUNT_HOME" || exit 70
-    /usr/bin/env -i \
-      HOME="$ACCOUNT_HOME" \
-      LOGNAME="$account_name" \
-      PATH="/usr/bin:/bin" \
-      PWD="$ACCOUNT_HOME" \
-      TMPDIR="$temp_root" \
-      USER="$account_name" \
-      "$bun_executable" - "$executable" <<'VELLUM_STATE_PREFLIGHT_SUPERVISOR'
-import { spawn } from "node:child_process";
-
-const MAX_STDOUT_BYTES = 16 * 1024;
-const HARD_TIMEOUT_MS = 60_000;
-const TERMINATION_GRACE_MS = 1_000;
-const GROUP_REAP_TIMEOUT_MS = 2_000;
-const executable = process.argv[2];
-const requiredEnvironment = ["HOME", "LOGNAME", "PATH", "PWD", "TMPDIR", "USER"];
-
-if (
-  process.argv.length !== 3 ||
-  typeof executable !== "string" ||
-  requiredEnvironment.some((name) => typeof process.env[name] !== "string")
-) {
-  console.error("vellum state preflight supervisor received invalid authority");
-  process.exit(2);
-}
-
-const candidateEnvironment = Object.fromEntries(
-  requiredEnvironment.map((name) => [name, process.env[name]]),
-);
-let child;
-try {
-  child = spawn(executable, ["--vellum-state-preflight"], {
-    cwd: process.env.HOME,
-    detached: true,
-    env: candidateEnvironment,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-} catch {
-  console.error("vellum state preflight supervisor could not spawn candidate");
-  process.exit(1);
-}
-
-if (
-  typeof child.pid !== "number" ||
-  child.stdout === null ||
-  child.stderr === null
-) {
-  console.error("vellum state preflight supervisor did not bind an exact child");
-  process.exit(1);
-}
-
-const exactPid = child.pid;
-const stdoutChunks = [];
-let stdoutBytes = 0;
-let failure = undefined;
-let terminationStarted = false;
-let killTimer = undefined;
-
-const ignoreMissingProcess = (error) =>
-  typeof error === "object" &&
-  error !== null &&
-  "code" in error &&
-  error.code === "ESRCH";
-
-const signalExactChildAndGroup = (signal) => {
-  for (const target of [-exactPid, exactPid]) {
-    try {
-      process.kill(target, signal);
-    } catch (error) {
-      if (!ignoreMissingProcess(error)) throw error;
-    }
-  }
-};
-
-const groupIsAlive = () => {
-  try {
-    process.kill(-exactPid, 0);
-    return true;
-  } catch (error) {
-    if (ignoreMissingProcess(error)) return false;
-    return true;
-  }
-};
-
-const beginTermination = (reason) => {
-  if (failure === undefined) failure = reason;
-  if (terminationStarted) return;
-  terminationStarted = true;
-  try {
-    signalExactChildAndGroup("SIGTERM");
-  } catch {
-    failure = "signal-failure";
-  }
-  killTimer = setTimeout(() => {
-    try {
-      signalExactChildAndGroup("SIGKILL");
-    } catch {
-      failure = "signal-failure";
-    }
-  }, TERMINATION_GRACE_MS);
-};
-
-child.stdout.on("data", (chunk) => {
-  const bytes = Buffer.from(chunk);
-  if (failure !== undefined) return;
-  if (stdoutBytes + bytes.byteLength > MAX_STDOUT_BYTES) {
-    beginTermination("stdout-overflow");
-    return;
-  }
-  stdoutChunks.push(bytes);
-  stdoutBytes += bytes.byteLength;
-});
-child.stdout.on("error", () => beginTermination("stdout-read-failure"));
-child.stderr.on("data", (chunk) => {
-  if (Buffer.byteLength(chunk) > 0) beginTermination("stderr-output");
-});
-child.stderr.on("error", () => beginTermination("stderr-read-failure"));
-child.on("error", () => beginTermination("spawn-failure"));
-
-const hardTimeout = setTimeout(
-  () => beginTermination("hard-timeout"),
-  HARD_TIMEOUT_MS,
-);
-const closeResult = await new Promise((resolve) => {
-  child.once("close", (code, signal) => resolve({ code, signal }));
-});
-clearTimeout(hardTimeout);
-if (killTimer !== undefined) clearTimeout(killTimer);
-
-if (groupIsAlive()) {
-  beginTermination("descendant-survived");
-  await new Promise((resolve) => setTimeout(resolve, TERMINATION_GRACE_MS));
-  if (groupIsAlive()) {
-    try {
-      signalExactChildAndGroup("SIGKILL");
-    } catch {
-      failure = "signal-failure";
-    }
-  }
-}
-
-const groupReapDeadline = Date.now() + GROUP_REAP_TIMEOUT_MS;
-while (groupIsAlive() && Date.now() < groupReapDeadline) {
-  await new Promise((resolve) => setTimeout(resolve, 20));
-}
-
-if (
-  failure === undefined &&
-  closeResult.code === 0 &&
-  closeResult.signal === null &&
-  !groupIsAlive()
-) {
-  process.stdout.write(Buffer.concat(stdoutChunks, stdoutBytes));
-} else {
-  console.error(
-    `vellum state preflight supervisor failed: ${
-      failure ?? "candidate-exit"
-    }`,
-  );
-  process.exitCode = 1;
-}
-VELLUM_STATE_PREFLIGHT_SUPERVISOR
-    child_status=$?
-    printf '\036%s' "$child_status"
-  )"
-
-  if [[ "$framed" != *"$separator"* ]]; then
-    err "staged state update preflight returned no bounded status"
-    return 1
-  fi
-  payload="${framed%"$separator"*}"
-  child_status="${framed##*"$separator"}"
-  if [[
-    "$payload" == *"$separator"* ||
-    ! "$child_status" =~ ^[0-9]+$ ||
-    "$child_status" -ne 0
-  ]]; then
-    err "staged state update preflight failed"
-    return 1
-  fi
-  if [[ "$payload" != *$'\n' ]]; then
-    err "staged state update preflight did not emit one receipt line"
-    return 1
-  fi
-  receipt="${payload%$'\n'}"
-  if ! printf '%s' "$receipt" | /usr/bin/env -i \
-    HOME="$ACCOUNT_HOME" \
-    PATH="/usr/bin:/bin" \
-    TMPDIR="$temp_root" \
-    "$bun_executable" \
-    "$SCRIPT_DIR/state-update-preflight-receipt.ts"
-  then
-    err "staged state update preflight emitted an invalid receipt"
-    return 1
-  fi
-  if ! printf '%s' "$receipt" | /usr/bin/env -i \
-    HOME="$ACCOUNT_HOME" \
-    PATH="/usr/bin:/bin" \
-    TMPDIR="$temp_root" \
-    "$bun_executable" -e '
-const expectedSource = process.argv[1];
-try {
-  const receipt = JSON.parse(await Bun.stdin.text());
-  if (
-    process.argv.length !== 2 ||
-    (expectedSource !== "fresh" && expectedSource !== "installed") ||
-    receipt === null ||
-    typeof receipt !== "object" ||
-    receipt.source !== expectedSource
-  ) {
-    process.exitCode = 1;
-  }
-} catch {
-  process.exitCode = 1;
-}
-' "$STATE_PREFLIGHT_SOURCE"
-  then
-    err "staged state update preflight source differs from the bound database"
-    return 1
-  fi
-  if [[
-    -L "$STAGE" ||
-    "$(path_identity "$STAGE" 2>/dev/null)" != "$STAGED_APP_ID"
-  ]]; then
-    err "staged app changed identity during state update preflight"
-    return 1
-  fi
-  assert_state_update_source_unchanged || return 1
-  assert_install_transaction_capabilities || return 1
-  printf '%s\n' "$receipt"
-}
-
 app_cdhash() {
   local app="$1"
   local metadata hash
@@ -751,7 +391,6 @@ STAGED_APP_ID="$(path_identity "$STAGE")"
 
 # Detach before binary swap: launchd unload + soft quit so before-quit runs
 # and herdrStreams.detachAllOnQuit releases control (panes stay alive).
-bind_state_update_source
 bind_unsupervised_incumbent
 unload_launchd
 quit_running_app
@@ -763,15 +402,6 @@ fi
 sleep 0.5
 
 assert_install_transaction_capabilities
-if ! run_staged_state_update_preflight; then
-  err "candidate state readiness failed before activation"
-  exit 1
-fi
-if launchd_loaded || vellum_processes_running; then
-  err "Vellum Command resumed during state update preflight; activation remains unstarted"
-  exit 1
-fi
-assert_install_transaction_capabilities
 
 log "installing → $APP_DST"
 assert_install_transaction_capabilities
@@ -782,9 +412,7 @@ if [[ -e "$APP_DST" ]]; then
   assert_owned_current_app "$CURRENT_APP_ID"
 fi
 
-# This call revalidates the bound Vellum Command identity, crosses the one-way boundary,
-# and directly removes that generation without caching it.
-assert_state_update_source_unchanged
+# Cross the one-way boundary and remove that generation without caching it.
 begin_one_way_app_cutover "$CURRENT_APP_ID"
 assert_install_transaction_capabilities
 CANDIDATE_MOVE_PENDING=1

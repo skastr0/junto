@@ -37,7 +37,6 @@ import { AppRuntime } from "./runtime";
 import { releaseDemoRuntimeIsolation } from "./vellum/demo/runtime-isolation";
 import { registerBrowserIpcHandlers, registerIpcHandlers } from "./ipc";
 import { CanvasesService } from "./vellum/canvases";
-import { STATE_UPDATE_PREFLIGHT_SWITCH } from "./vellum/state/candidate-readiness";
 import { resolveControlHome } from "./vellum/control-home";
 import { registerDemoIpcHandlers } from "./vellum/demo/ipc";
 import {
@@ -140,8 +139,6 @@ import { loadStationSupervisor } from "./vellum/supervision/select";
 import { SettingsService } from "./vellum/settings/service";
 import { StateEngine } from "./vellum/state/service";
 import { CURRENT_STATE_SCHEMA_VERSION } from "./vellum/state/migrations";
-import { inspectStateUpdateCandidate } from "./vellum/state/candidate-readiness";
-import { withStateUpdateCandidate } from "./vellum/state/update-candidate";
 import { installUpdateHostHooks } from "./vellum/update";
 import { compiledLicenseBuildConfig } from "./vellum/license/compiled-config";
 import {
@@ -300,15 +297,11 @@ if (startupNodeRefUri !== undefined) queueNodeRefUri(startupNodeRefUri);
 // Explicit headless mode keeps the runtime, watchers, kernel, and local UDS
 // services alive without creating a renderer. It replaces the former dev CDP
 // listener: headless qualification must never require a network control port.
-const stateUpdatePreflight = process.argv.includes(
-  STATE_UPDATE_PREFLIGHT_SWITCH,
-);
-const headless =
-  stateUpdatePreflight || process.argv.includes("--vellum-headless");
+const headless = process.argv.includes("--vellum-headless");
 // Freeze this privileged ingress decision from the original process argv.
 // A later second-instance event cannot enable it in the running singleton.
 const operatorControlEnabledAtLaunch =
-  operatorControlEnabledFromInitialArgv(process.argv, stateUpdatePreflight);
+  operatorControlEnabledFromInitialArgv(process.argv);
 
 // Playwright E2E needs a real authoring renderer (not --vellum-headless), but
 // must never steal macOS focus or plant Dock icons. VELLUM_E2E_SHOW=1 opts out
@@ -1172,20 +1165,13 @@ const ensureSupervised = async (): Promise<boolean> => {
 // would race the same app-owned StateEngine connection and control sockets.
 // The second process exits immediately; the first focuses its window — or, when
 // the factory is windowless on macOS, recreates the surface (mirror activate).
-//
-// State-update preflight is not a product instance: the incumbent holds the
-// singleton while spawning the candidate for --vellum-state-preflight. If
-// preflight also requestSingleInstanceLock(), Electron fails the lock and we
-// app.quit() with no receipt — install aborts and the operator stays on the
-// old version with "ready to install" still showing.
 const packagedSandboxDisablingSwitch = findPackagedSandboxDisablingSwitch({
   packaged: app.isPackaged,
   hasSwitch: (name) => app.commandLine.hasSwitch(name),
 });
-const gotSingleInstanceLock = stateUpdatePreflight
-  ? true
-  : packagedSandboxDisablingSwitch === undefined &&
-    app.requestSingleInstanceLock();
+const gotSingleInstanceLock =
+  packagedSandboxDisablingSwitch === undefined &&
+  app.requestSingleInstanceLock();
 if (packagedSandboxDisablingSwitch !== undefined) {
   console.error(
     `[sandbox] packaged startup rejected --${packagedSandboxDisablingSwitch}`,
@@ -1200,22 +1186,20 @@ if (packagedSandboxDisablingSwitch !== undefined) {
 } else if (!gotSingleInstanceLock) {
   app.quit();
 } else {
-  if (!stateUpdatePreflight) {
-    app.on("second-instance", (_event, commandLine) => {
-      const uri = latestNodeRefUri(commandLine);
-      if (uri !== undefined) queueNodeRefUri(uri);
-      const existing = currentTrustedMainWindow();
-      if (!existing) {
-        // Windowless keep-alive: Spotlight/`open -a` must not leave a dead UI.
-        if (!headless) createWindow();
-        return;
-      }
-      if (e2eIsolateFocus) return;
-      if (existing.isMinimized()) existing.restore();
-      existing.show();
-      existing.focus();
-    });
-  }
+  app.on("second-instance", (_event, commandLine) => {
+    const uri = latestNodeRefUri(commandLine);
+    if (uri !== undefined) queueNodeRefUri(uri);
+    const existing = currentTrustedMainWindow();
+    if (!existing) {
+      // Windowless keep-alive: Spotlight/`open -a` must not leave a dead UI.
+      if (!headless) createWindow();
+      return;
+    }
+    if (e2eIsolateFocus) return;
+    if (existing.isMinimized()) existing.restore();
+    existing.show();
+    existing.focus();
+  });
 
   app.on("activate", () => {
     retryActiveNodeRef();
@@ -1233,36 +1217,6 @@ if (packagedSandboxDisablingSwitch !== undefined) {
         app.dock?.hide();
       },
     });
-    // The signed/audited candidate runs this sealed mode only after the
-    // installer has quiesced the incumbent and proved it released SQLite.
-    // It opens the fixed canonical database read-only, migrates and inspects
-    // only a disposable verified clone, emits one strict receipt, and starts
-    // no renderer, socket, actor, browser, terminal, provider, or fleet plane.
-    //
-    // Keep this inside the ordinary packaged Electron process: RunAsNode stays
-    // fused off. No argument or environment value can select another database.
-    if (stateUpdatePreflight) {
-      if (!app.isPackaged) {
-        console.error(
-          "[state-preflight] packaged candidate execution is required",
-        );
-        exitAfterDetach(1, "state-update-preflight-unpackaged");
-        return;
-      }
-      try {
-        const receipt = await Effect.runPromise(
-          withStateUpdateCandidate(inspectStateUpdateCandidate),
-        );
-        process.stdout.write(
-          `${JSON.stringify(receipt)}\n`,
-          () => exitAfterDetach(0, "state-update-preflight-complete"),
-        );
-      } catch (error) {
-        console.error("[state-preflight] candidate readiness failed:", error);
-        exitAfterDetach(1, "state-update-preflight-failure");
-      }
-      return;
-    }
     if (!(await ensureSupervised())) return;
     if (shutdownAdmissionClosed) return;
 
@@ -1499,29 +1453,20 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       return;
     }
 
-    // UpdateService host hooks: release SQLite before sealed preflight, and
-    // relaunch without Squirrel install when readiness fails after quiesce.
+    // UpdateService host hooks: release SQLite before quitAndInstall, and
+    // relaunch without Squirrel install when finalize fails after quiesce.
     // After successful quiesce we mark runtimeDisposed + skipQuitConfirm so
     // electron-updater quitAndInstall is not blocked by before-quit re-commit.
     installUpdateHostHooks({
-      quiesceForPreflight: async () => {
+      quiesceForInstall: async () => {
         await commitMainAuthoringOnQuit();
-        detachRuntimeOnQuit("update-install-preflight");
-        await disposeRuntimeFailClosed("update-install-preflight");
+        detachRuntimeOnQuit("update-install");
+        await disposeRuntimeFailClosed("update-install");
         runtimeDisposed = true;
         skipQuitConfirm = true;
-        // Candidate preflight is a second Electron process. Drop the product
-        // singleton so a preflight that still requests the lock cannot lose to
-        // this still-alive (but non-product) process. Preflight itself must
-        // not request the lock (see stateUpdatePreflight branch above).
-        try {
-          app.releaseSingleInstanceLock();
-        } catch {
-          // already released or unsupported
-        }
       },
       relaunchWithoutInstall: () => {
-        // app.exit bypasses before-quit; keep the same path on readiness failure.
+        // app.exit bypasses before-quit; keep the same path on install failure.
         skipQuitConfirm = true;
         runtimeDisposed = true;
         app.relaunch();
@@ -2208,8 +2153,8 @@ const disposeRuntime = (): Promise<void> => {
 };
 
 /**
- * Fail-closed dispose for update preflight. SQLite must be released before
- * the candidate opens the canonical state path — swallow is not allowed.
+ * Fail-closed dispose for update install. SQLite must be released before
+ * quitAndInstall — swallow is not allowed.
  */
 const disposeRuntimeFailClosed = (reason: string): Promise<void> => {
   if (runtimeDisposed) return Promise.resolve();

@@ -35,7 +35,7 @@ rollback to files.
 - Renderers, headless CLIs, packaged helpers, and SSH callers use app-owned
   IPC or control protocols.
 - The sole packaged exception is the staged candidate's sealed
-  `--vellum-state-preflight` process. It may open the fixed canonical path
+  process. Schema migration runs on normal app open; there is no sealed preflight opener. Historical note: older releases used a clone-readiness path for the fixed canonical path
   read-only, when it exists, only after the installer has fully quiesced the
   incumbent and proved that SQLite was released. It closes that source before
   migrating and inspecting a disposable clone, accepts no database-path
@@ -138,7 +138,7 @@ transaction:
 2. **Quiesce.** Stop the incumbent and prove it released SQLite before another
    process opens `vellum.db`.
 3. **Mint evidence.** Invoke the exact staged packaged product executable in
-   sealed `--vellum-state-preflight` mode. For installed state it is now the
+   normal app-open migration path. For installed state it is now the
    sole opener, reads the fixed canonical database without write authority,
    creates and verifies one retained owner-only `VACUUM INTO` backup, copies
    that backup to a disposable candidate database, and closes the canonical

@@ -366,10 +366,8 @@ describe("machine-safety architecture", () => {
       "src/main/vellum/term/ipc.ts:router.kill",
       "src/main/vellum/term/router.ts:c.kill",
       "src/main/vellum/term/router.ts:this.local.kill",
-      // Owned child only: codesign/plutil admit + sealed state preflight timeout.
+      // Owned child only: codesign/plutil admit timeout.
       "src/main/vellum/update/admit-mac-app.ts:child.kill",
-      "src/main/vellum/update/preflight-runner.ts:child.kill",
-      "src/main/vellum/update/preflight-runner.ts:child.kill",
     ]);
   });
 
@@ -395,9 +393,8 @@ describe("machine-safety architecture", () => {
       "src/main/vellum/app-process-plane.ts:spawn",
       "src/main/vellum/app-process-plane.ts:spawn",
       "src/main/vellum/process-signal.ts:spawn",
-      // Owned children only: codesign admit, ditto extract, candidate preflight.
+      // Owned children only: codesign admit, ditto extract.
       "src/main/vellum/update/admit-mac-app.ts:spawn",
-      "src/main/vellum/update/preflight-runner.ts:spawn",
       "src/main/vellum/update/staging.ts:spawn",
     ]);
 

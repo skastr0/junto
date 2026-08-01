@@ -37,10 +37,10 @@ export interface UpdateProvider {
 
 export type UpdateHostHooks = {
   /**
-   * Release the incumbent's SQLite connection before candidate preflight.
-   * Must not reopen product planes; install or relaunch follows.
+   * Release the incumbent's SQLite connection and product planes before
+   * quitAndInstall. Must not reopen product planes; install or relaunch follows.
    */
-  readonly quiesceForPreflight: () => Promise<void>;
-  /** Relaunch without installing when preflight fails after quiesce. */
+  readonly quiesceForInstall: () => Promise<void>;
+  /** Relaunch without installing when finalize fails after quiesce. */
   readonly relaunchWithoutInstall: () => void;
 };

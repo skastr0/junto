@@ -1,7 +1,6 @@
 export { MAC_ARM64_UPDATE_FEED_URL, macArm64UpdateFeed } from "./compiled-config";
 export {
   admitsRemoteAutoRollout,
-  bindPreflightReceipt,
   canAuthorizeInstall,
   canOperatorInstall,
   hashFileSha256,
@@ -15,7 +14,6 @@ export {
   type AdmitMacAppCommand,
   type AdmitStagedMacAppOptions,
 } from "./admit-mac-app";
-export { sealedPreflightEnv } from "./preflight-runner";
 export {
   planFleetRemoteUpdates,
   remotesMayReceiveFeedVersion,

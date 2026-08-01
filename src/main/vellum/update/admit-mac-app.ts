@@ -92,7 +92,7 @@ const runOrThrow = async (
 };
 
 /**
- * Admit a staged Mac `.app` before preflight spawn / install mint.
+ * Admit a staged Mac `.app` before install mint.
  *
  * Checks: exact bundle name, executable identity, CFBundleIdentifier,
  * Developer ID codesign requirement (team EXAMP12345).

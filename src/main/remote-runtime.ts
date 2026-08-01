@@ -71,9 +71,9 @@ import { resolve } from "node:path";
 
 /**
  * True when this process is a release-tree candidate or forced via env.
- * Used for sealed preflight admission and license build config.
+ * Used for license build config and product packaging checks.
  * Staging extracts under ~/.vellum/runtime/staging/… count as packaged
- * candidates so --vellum-state-preflight can run before activation.
+ * candidates during remote install cutover.
  */
 export const isRemotePackaged = (
   binaryPath: string = process.argv[1] ?? process.execPath,

@@ -35,8 +35,8 @@ export const requireUpdateProviderHandle = (): UpdateProvider => {
 };
 
 export const deferredUpdateHostHooks = (): UpdateHostHooks => ({
-  quiesceForPreflight: async () => {
-    await requireUpdateHostHooks().quiesceForPreflight();
+  quiesceForInstall: async () => {
+    await requireUpdateHostHooks().quiesceForInstall();
   },
   relaunchWithoutInstall: () => {
     requireUpdateHostHooks().relaunchWithoutInstall();

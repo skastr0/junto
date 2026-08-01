@@ -3,7 +3,6 @@
  * no browser host.
  *
  * Modes:
- *   --vellum-state-preflight   sealed candidate readiness (JSON receipt)
  *   --install-user-service     write systemd user unit + station helper
  *   (default)                  boot RemoteRuntime product planes
  */
@@ -16,9 +15,6 @@ import {
   remoteAppVersion,
   RemoteRuntime,
 } from "./remote-runtime";
-import { STATE_UPDATE_PREFLIGHT_SWITCH } from "./vellum/state/candidate-readiness";
-import { inspectStateUpdateCandidate } from "./vellum/state/candidate-readiness";
-import { withStateUpdateCandidate } from "./vellum/state/update-candidate";
 import { evaluateSchemaCompatibility } from "./vellum/state/schema-version-probe";
 import { CURRENT_STATE_SCHEMA_VERSION } from "./vellum/state/migrations";
 import { resolveControlHome } from "./vellum/control-home";
@@ -67,7 +63,7 @@ const failExit = (code: number, message: string): never => {
 };
 
 const resolveBinaryPath = (): string => {
-  // Wrapper exports VELLUM_REMOTE_BINARY so install/preflight see the
+  // Wrapper exports VELLUM_REMOTE_BINARY so install sees the
   // generation-pinned shell path after exec replaces argv0 with bundled node.
   const fromEnv = process.env.VELLUM_REMOTE_BINARY?.trim();
   const raw =
@@ -78,30 +74,6 @@ const resolveBinaryPath = (): string => {
     return realpathSync(resolve(raw));
   } catch {
     return resolve(raw);
-  }
-};
-
-// ---------------------------------------------------------------------------
-// --vellum-state-preflight
-// ---------------------------------------------------------------------------
-
-const runStatePreflight = async (): Promise<void> => {
-  if (!isRemotePackaged(resolveBinaryPath())) {
-    failExit(
-      1,
-      "[state-preflight] packaged candidate execution is required (release tree or VELLUM_PACKAGED=1)",
-    );
-  }
-  try {
-    const receipt = await Effect.runPromise(
-      withStateUpdateCandidate(inspectStateUpdateCandidate),
-    );
-    process.stdout.write(`${JSON.stringify(receipt)}\n`, () => {
-      process.exit(0);
-    });
-  } catch (error) {
-    console.error("[state-preflight] candidate readiness failed:", error);
-    process.exit(1);
   }
 };
 
@@ -427,10 +399,6 @@ const runProductBoot = async (): Promise<void> => {
 // ---------------------------------------------------------------------------
 
 const main = async (): Promise<void> => {
-  if (argvHas(STATE_UPDATE_PREFLIGHT_SWITCH)) {
-    await runStatePreflight();
-    return;
-  }
   if (argvHas(INSTALL_USER_SERVICE_SWITCH)) {
     runInstallUserService();
     return;

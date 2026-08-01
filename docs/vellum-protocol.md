@@ -117,7 +117,7 @@ Work-version array, projection-version array, fallback-protocol number, or
 capability array.
 
 Likewise, literals such as `vellum/station-protocol-preface/v1` and
-`vellum-state-update-preflight/v1` are closed message-shape discriminators.
+closed message-shape discriminators (state-update preflight receipts are retired).
 They are not independently negotiated product version axes. Only the selected
 Station protocol integer chooses cross-installation wire behavior; the state
 preflight receipt is local to one package update and never enters Station API.
@@ -164,7 +164,7 @@ The local update transaction is:
    opening the canonical database;
 2. fully quiesce the incumbent and prove that it released SQLite;
 3. invoke the exact staged packaged Electron executable in sealed
-   `--vellum-state-preflight` mode;
+   normal app-open migration after install cutover;
 4. for installed state, let that sole proof process open the fixed canonical
    path read-only, create and verify a retained backup, clone it, and close the
    source; for a first install, create only a disposable empty candidate;

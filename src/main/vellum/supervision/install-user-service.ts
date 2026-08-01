@@ -115,7 +115,7 @@ const resolveRemoteBinaryRoot = (
 
 /**
  * Resolve a candidate runtime root (releases generation or staging extract)
- * for sealed preflight before activation.
+ * during remote install cutover.
  */
 export const resolveCandidateRuntimeRootFromRemoteBinary = (
   binaryPath: string,

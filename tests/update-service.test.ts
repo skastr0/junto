@@ -12,8 +12,6 @@ import type {
   UpdateProvider,
   UpdateProviderListener,
 } from "../src/main/vellum/update/provider";
-import type { StateUpdatePreflightReceipt } from "../src/main/vellum/state/candidate-readiness";
-import { STATE_UPDATE_PREFLIGHT_PROTOCOL } from "../src/main/vellum/state/candidate-readiness";
 import { writeFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -68,27 +66,6 @@ const makeFakeProvider = (): {
   };
 };
 
-const receipt = (
-  candidateId: string,
-): StateUpdatePreflightReceipt =>
-  ({
-    protocol: STATE_UPDATE_PREFLIGHT_PROTOCOL,
-    candidateId,
-    source: "fresh",
-    sourceSchemaVersion: 0,
-    targetSchemaVersion: 3,
-    targetSchemaSha256: "a".repeat(64),
-    installationId: "01JTESTINSTALLATION00000000",
-    role: "command-center",
-    canvasCount: 0,
-    actorSeatCount: 0,
-    workSnapshotCount: 0,
-    pendingCommandCount: 0,
-    armedRegionCount: 0,
-    schedulerCursorCount: 0,
-    ready: true,
-  }) as StateUpdatePreflightReceipt;
-
 const waitFor = async (
   predicate: () => Promise<boolean>,
   timeoutMs = 500,
@@ -109,7 +86,7 @@ describe("UpdateService", () => {
         currentVersion: "0.1.0",
         provider,
         host: {
-          quiesceForPreflight: async () => undefined,
+          quiesceForInstall: async () => undefined,
           relaunchWithoutInstall: () => undefined,
         },
       }),
@@ -139,7 +116,7 @@ describe("UpdateService", () => {
         currentVersion: "0.1.0",
         provider,
         host: {
-          quiesceForPreflight: async () => undefined,
+          quiesceForInstall: async () => undefined,
           relaunchWithoutInstall: () => undefined,
         },
       }),
@@ -167,7 +144,7 @@ describe("UpdateService", () => {
         currentVersion: "0.1.0",
         provider: harness.provider,
         host: {
-          quiesceForPreflight: async () => undefined,
+          quiesceForInstall: async () => undefined,
           relaunchWithoutInstall: () => undefined,
         },
         expandZip: () =>
@@ -205,7 +182,7 @@ describe("UpdateService", () => {
         currentVersion: "0.1.0",
         provider: harness.provider,
         host: {
-          quiesceForPreflight: async () => undefined,
+          quiesceForInstall: async () => undefined,
           relaunchWithoutInstall: () => undefined,
         },
         expandZip: () =>
@@ -249,7 +226,7 @@ describe("UpdateService", () => {
         currentVersion: "0.1.0",
         provider: harness.provider,
         host: {
-          quiesceForPreflight: async () => undefined,
+          quiesceForInstall: async () => undefined,
           relaunchWithoutInstall: () => undefined,
         },
         expandZip: () =>
@@ -295,7 +272,7 @@ describe("UpdateService", () => {
     expect(state.available?.version).toBe("0.2.1");
   });
 
-  it("finalizeInstallAfterQuiesce binds receipt then quitAndInstall", async () => {
+  it("finalizeInstallAfterQuiesce authorizes staged candidate then quitAndInstall", async () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-update-svc-"));
     roots.push(root);
     const zipPath = join(root, "update.zip");
@@ -314,7 +291,7 @@ describe("UpdateService", () => {
         currentVersion: "0.1.0",
         provider: harness.provider,
         host: {
-          quiesceForPreflight: async () => undefined,
+          quiesceForInstall: async () => undefined,
           relaunchWithoutInstall: () => undefined,
         },
         expandZip: () =>
@@ -346,13 +323,9 @@ describe("UpdateService", () => {
         candidate: captured.candidate,
         provider: harness.provider,
         host: {
-          quiesceForPreflight: async () => undefined,
+          quiesceForInstall: async () => undefined,
           relaunchWithoutInstall: () => undefined,
-        },
-        runPreflight: () =>
-          Effect.succeed(
-            receipt("11111111-1111-4111-8111-111111111111"),
-          ),
+        }
       }),
     );
 
@@ -377,7 +350,7 @@ describe("UpdateService", () => {
         currentVersion: "0.1.0",
         provider: harness.provider,
         host: {
-          quiesceForPreflight: async () => undefined,
+          quiesceForInstall: async () => undefined,
           relaunchWithoutInstall: relaunch,
         },
         expandZip: () =>
@@ -406,13 +379,9 @@ describe("UpdateService", () => {
           candidate: prepared.candidate,
           provider: harness.provider,
           host: {
-            quiesceForPreflight: async () => undefined,
+            quiesceForInstall: async () => undefined,
             relaunchWithoutInstall: relaunch,
-          },
-          runPreflight: () =>
-            Effect.succeed(
-              receipt("11111111-1111-4111-8111-111111111111"),
-            ),
+          }
         }),
       ),
     );
@@ -428,7 +397,7 @@ describe("UpdateService", () => {
         currentVersion: "0.1.0",
         provider,
         host: {
-          quiesceForPreflight: async () => undefined,
+          quiesceForInstall: async () => undefined,
           relaunchWithoutInstall: () => undefined,
         },
       }),

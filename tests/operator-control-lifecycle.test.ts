@@ -12,22 +12,13 @@ const source = readFileSync(
 );
 
 describe("operator control main lifecycle", () => {
-  it("enables only from the frozen initial argv and never in state preflight", () => {
+  it("enables only from the frozen initial argv", () => {
     expect(
       operatorControlEnabledFromInitialArgv(
         ["vellum", OPERATOR_CONTROL_SWITCH],
-        false,
       ),
     ).toBe(true);
-    expect(operatorControlEnabledFromInitialArgv(["vellum"], false)).toBe(
-      false,
-    );
-    expect(
-      operatorControlEnabledFromInitialArgv(
-        ["vellum", OPERATOR_CONTROL_SWITCH],
-        true,
-      ),
-    ).toBe(false);
+    expect(operatorControlEnabledFromInitialArgv(["vellum"])).toBe(false);
 
     const freeze = source.indexOf("const operatorControlEnabledAtLaunch =");
     const singleton = source.indexOf("app.requestSingleInstanceLock()");

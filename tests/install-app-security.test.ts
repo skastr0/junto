@@ -79,121 +79,6 @@ const position = (source: string, needle: string): number => {
   return index;
 };
 
-type SupervisorTiming = {
-  readonly hardTimeoutMs?: number;
-  readonly terminationGraceMs?: number;
-  readonly groupReapTimeoutMs?: number;
-};
-
-const stagedStatePreflightFunction = (
-  timing: SupervisorTiming = {},
-): string => {
-  const start = position(
-    install,
-    "run_staged_state_update_preflight() {",
-  );
-  const end = position(install, "\napp_cdhash() {");
-  let helper = install.slice(start, end);
-  const replaceConstant = (
-    source: string,
-    replacement: string,
-  ): void => {
-    expect(helper).toContain(source);
-    helper = helper.replace(source, replacement);
-  };
-  if (timing.hardTimeoutMs !== undefined) {
-    replaceConstant(
-      "const HARD_TIMEOUT_MS = 60_000;",
-      `const HARD_TIMEOUT_MS = ${timing.hardTimeoutMs};`,
-    );
-  }
-  if (timing.terminationGraceMs !== undefined) {
-    replaceConstant(
-      "const TERMINATION_GRACE_MS = 1_000;",
-      `const TERMINATION_GRACE_MS = ${timing.terminationGraceMs};`,
-    );
-  }
-  if (timing.groupReapTimeoutMs !== undefined) {
-    replaceConstant(
-      "const GROUP_REAP_TIMEOUT_MS = 2_000;",
-      `const GROUP_REAP_TIMEOUT_MS = ${timing.groupReapTimeoutMs};`,
-    );
-  }
-  return helper;
-};
-
-const stateSourceFunctions = (): string => {
-  const start = position(install, "assert_state_database_path() {");
-  const end = position(
-    install,
-    "\nrun_staged_state_update_preflight() {",
-  );
-  return install.slice(start, end);
-};
-
-const runStagedStatePreflight = (
-  executableBody: string,
-  timing: SupervisorTiming = {},
-  expectedSource: "fresh" | "installed" = "fresh",
-) => {
-  const sandbox = makeSandbox();
-  const stage = join(
-    sandbox,
-    "Applications",
-    "Vellum Command.app.new.4242",
-    "Vellum Command.app",
-  );
-  const executable = join(
-    stage,
-    "Contents",
-    "MacOS",
-    "Vellum Command",
-  );
-  mkdirSync(join(stage, "Contents", "MacOS"), { recursive: true });
-  writeFileSync(executable, `#!/bin/bash\n${executableBody}\n`);
-  chmodSync(executable, 0o755);
-  const result = spawnSync(
-    "/bin/bash",
-    [
-      "-c",
-      `set -euo pipefail
-PRODUCT_NAME='Vellum Command'
-STAGE="$TEST_STAGE"
-ACCOUNT_HOME="$TEST_ACCOUNT_HOME"
-INSTALL_SANDBOX_ROOT=""
-SCRIPT_DIR="$TEST_SCRIPT_DIR"
-STAGED_APP_ID="42:42"
-STATE_PREFLIGHT_SOURCE="$TEST_EXPECTED_SOURCE"
-assert_install_transaction_capabilities() { return 0; }
-assert_state_update_source_unchanged() { return 0; }
-path_identity() { printf '42:42'; }
-current_user_test_temp_root() { printf '%s' "$TEST_TEMP_ROOT"; }
-log() { printf 'LOG:%s\\n' "$*"; }
-err() { printf 'ERR:%s\\n' "$*" >&2; }
-${stagedStatePreflightFunction(timing)}
-if run_staged_state_update_preflight; then
-  printf 'RESULT:success\\n'
-else
-  printf 'RESULT:failure\\n'
-fi`,
-    ],
-    {
-      cwd: root,
-      env: {
-        ...process.env,
-        TEST_STAGE: stage,
-        TEST_ACCOUNT_HOME: sandbox,
-        TEST_TEMP_ROOT: sandbox,
-        TEST_SCRIPT_DIR: join(root, "scripts"),
-        TEST_EXPECTED_SOURCE: expectedSource,
-      },
-      encoding: "utf8",
-      timeout: 10_000,
-    },
-  );
-  return Object.assign(result, { executable });
-};
-
 afterEach(() => {
   for (const sandbox of temporaryRoots.splice(0)) {
     rmSync(sandbox, { recursive: true, force: true });
@@ -205,320 +90,24 @@ describe("hardened app installer", () => {
     const candidate = position(install, 'audit_app_bundle "$APP_SRC"');
     const stageCopy = position(install, 'ditto --rsrc "$APP_SRC" "$STAGE"');
     const staged = position(install, 'audit_app_bundle "$STAGE"');
-    const stateSourceBind = install.lastIndexOf(
-      "\nbind_state_update_source\n",
-    );
     const incumbentBind = install.lastIndexOf(
       "\nbind_unsupervised_incumbent\n",
     );
     const quiesce = position(install, "unload_launchd");
-    const statePreflight = install.lastIndexOf(
-      "run_staged_state_update_preflight",
-    );
     const replace = position(install, "publish_staged_app_candidate");
     const installed = position(install, 'audit_app_bundle "$APP_DST"');
     const success = position(install, 'log "installed $APP_DST"');
 
     expect(candidate).toBeLessThan(stageCopy);
     expect(stageCopy).toBeLessThan(staged);
-    expect(staged).toBeLessThan(stateSourceBind);
-    expect(stateSourceBind).toBeLessThan(incumbentBind);
     expect(staged).toBeLessThan(incumbentBind);
     expect(incumbentBind).toBeLessThan(quiesce);
-    expect(staged).toBeLessThan(quiesce);
-    expect(quiesce).toBeLessThan(statePreflight);
-    expect(statePreflight).toBeLessThan(replace);
+    expect(quiesce).toBeLessThan(replace);
     expect(replace).toBeLessThan(installed);
     expect(installed).toBeLessThan(success);
-  });
-
-  it("runs the audited staged Electron preflight with one fixed mode and a clean environment", () => {
-    const helperStart = position(
-      install,
-      "run_staged_state_update_preflight() {",
-    );
-    const helperEnd = position(install, "\napp_cdhash() {");
-    const helper = install.slice(helperStart, helperEnd);
-
-    expect(helper).toContain(
-      'local executable="$STAGE/Contents/MacOS/$PRODUCT_NAME"',
-    );
-    expect(helper).toContain("/usr/bin/env -i \\");
-    expect(helper).toContain(
-      '"$bun_executable" - "$executable"',
-    );
-    expect(helper).toContain(
-      'spawn(executable, ["--vellum-state-preflight"], {',
-    );
-    expect(helper).toContain('HOME="$ACCOUNT_HOME"');
-    expect(helper).toContain('TMPDIR="$temp_root"');
-    expect(helper).toContain('PATH="/usr/bin:/bin"');
-    expect(helper).toContain("env: candidateEnvironment");
-    expect(helper).not.toContain("ELECTRON_RUN_AS_NODE");
-    expect(helper).not.toContain("NODE_OPTIONS=");
-    expect(helper).not.toContain("DYLD_");
-    expect(helper).not.toMatch(/^\s+VELLUM_[A-Z0-9_]+=/mu);
-    expect(helper).toContain(
-      'printf \'%s\' "$receipt" | /usr/bin/env -i',
-    );
-    expect(helper).toContain(
-      '"$SCRIPT_DIR/state-update-preflight-receipt.ts"',
-    );
-    expect(helper).toContain(
-      'receipt.source !== expectedSource',
-    );
-    expect(helper).toContain(
-      '"$STATE_PREFLIGHT_SOURCE"',
-    );
-    expect(helper.match(/assert_state_update_source_unchanged/gu)).toHaveLength(
-      2,
-    );
-    expect(helper).toContain(
-      "state update preflight is unavailable in the filesystem-only install sandbox",
-    );
-    expect(helper).not.toContain(
-      "vellum-state-update-preflight/v1\\\",.*",
-    );
-  });
-
-  it("binds the canonical database as absent or an exact regular-file identity", () => {
-    const source = stateSourceFunctions();
-
-    expect(install).toContain(
-      'STATE_DATABASE="$INSTALL_USER_ROOT/.vellum/state/vellum.db"',
-    );
-    expect(source).toContain(
-      'local expected="$INSTALL_USER_ROOT/.vellum/state/vellum.db"',
-    );
-    expect(install).not.toContain(
-      '$ACCOUNT_HOME/.vellum/state/vellum.db',
-    );
-    expect(source).toContain("assert_no_symlink_components");
-    expect(source).toContain('if [[ -L "$STATE_DATABASE" ]]');
-    expect(source).toContain('! -f "$STATE_DATABASE"');
-    expect(source).toContain(
-      'identity="$(path_identity "$STATE_DATABASE")"',
-    );
-    expect(source).toContain('STATE_PREFLIGHT_SOURCE="fresh"');
-    expect(source).toContain('STATE_PREFLIGHT_SOURCE="installed"');
-    expect(source).toContain(
-      '"$identity" != "$STATE_PREFLIGHT_DATABASE_ID"',
-    );
-  });
-
-  it("detects fresh-state creation and installed-state replacement after binding", () => {
-    for (const installed of [false, true]) {
-      const sandbox = makeSandbox();
-      const result = runPaths(
-        sandbox,
-        `set -euo pipefail
-source "$1"
-assert_installer_path_capabilities
-STATE_DATABASE="$INSTALL_USER_ROOT/.vellum/state/vellum.db"
-STATE_PREFLIGHT_SOURCE=""
-STATE_PREFLIGHT_DATABASE_ID=""
-${stateSourceFunctions()}
-if [[ "$INSTALL_USER_ROOT" != "$2" || "$STATE_DATABASE" != "$3" ]]; then
-  printf 'unsafe state fixture target\\n' >&2
-  exit 90
-fi
-mkdir -p "\${STATE_DATABASE%/*}"
-if [[ "$TEST_INSTALLED" == "1" ]]; then
-  printf original > "$STATE_DATABASE"
-fi
-bind_state_update_source
-printf '%s\\n' "$STATE_PREFLIGHT_SOURCE"
-assert_state_update_source_unchanged
-if [[ "$TEST_INSTALLED" == "1" ]]; then
-  mv "$STATE_DATABASE" "\${STATE_DATABASE}.bound"
-  printf replacement > "$STATE_DATABASE"
-else
-  printf appeared > "$STATE_DATABASE"
-fi
-if assert_state_update_source_unchanged; then
-  exit 91
-fi`,
-        { TEST_INSTALLED: installed ? "1" : "0" },
-      );
-
-      expect(result.status).toBe(0);
-      expect(result.stdout).toBe(`${installed ? "installed" : "fresh"}\n`);
-      expect(result.stderr).toContain(
-        installed
-          ? "installed state source changed identity"
-          : "fresh state source changed",
-      );
-    }
-  });
-
-  it("rejects a symlink or non-file at the canonical state database path", () => {
-    for (const kind of ["symlink", "directory"] as const) {
-      const sandbox = makeSandbox();
-      const result = runPaths(
-        sandbox,
-        `set -euo pipefail
-source "$1"
-assert_installer_path_capabilities
-STATE_DATABASE="$INSTALL_USER_ROOT/.vellum/state/vellum.db"
-STATE_PREFLIGHT_SOURCE=""
-STATE_PREFLIGHT_DATABASE_ID=""
-${stateSourceFunctions()}
-if [[ "$INSTALL_USER_ROOT" != "$2" || "$STATE_DATABASE" != "$3" ]]; then
-  printf 'unsafe state fixture target\\n' >&2
-  exit 90
-fi
-mkdir -p "\${STATE_DATABASE%/*}"
-if [[ "$TEST_KIND" == "symlink" ]]; then
-  printf target > "\${STATE_DATABASE}.target"
-  ln -s "\${STATE_DATABASE}.target" "$STATE_DATABASE"
-else
-  mkdir "$STATE_DATABASE"
-fi
-if bind_state_update_source; then
-  exit 91
-fi`,
-        { TEST_KIND: kind },
-      );
-
-      expect(result.status).toBe(0);
-      expect(result.stderr).toContain(
-        kind === "symlink" ? "must not be a symlink" : "must be a regular file",
-      );
-    }
-  });
-
-  it("bounds output and time while terminating and reaping the exact candidate process group", () => {
-    const helper = stagedStatePreflightFunction();
-
-    expect(helper).toContain("const MAX_STDOUT_BYTES = 16 * 1024;");
-    expect(helper).toContain("const HARD_TIMEOUT_MS = 60_000;");
-    expect(helper).toContain("const TERMINATION_GRACE_MS = 1_000;");
-    expect(helper).toContain("const GROUP_REAP_TIMEOUT_MS = 2_000;");
-    expect(helper).toContain("detached: true");
-    expect(helper).toContain('stdio: ["ignore", "pipe", "pipe"]');
-    expect(helper).toContain(
-      "stdoutBytes + bytes.byteLength > MAX_STDOUT_BYTES",
-    );
-    expect(helper).toContain(
-      'if (Buffer.byteLength(chunk) > 0) beginTermination("stderr-output")',
-    );
-    expect(helper).toContain("for (const target of [-exactPid, exactPid])");
-    expect(helper).toContain('signalExactChildAndGroup("SIGTERM")');
-    expect(helper).toContain('signalExactChildAndGroup("SIGKILL")');
-    expect(helper).toContain('child.once("close"');
-    expect(helper).toContain("while (groupIsAlive()");
-    expect(helper).not.toContain("mktemp");
-  });
-
-  it("frames exactly one successful receipt and fails before activation otherwise", () => {
-    const helperStart = position(
-      install,
-      "run_staged_state_update_preflight() {",
-    );
-    const helperEnd = position(install, "\napp_cdhash() {");
-    const helper = install.slice(helperStart, helperEnd);
-    const call = position(
-      install,
-      "if ! run_staged_state_update_preflight; then",
-    );
-    const cutover = position(
-      install,
-      'begin_one_way_app_cutover "$CURRENT_APP_ID"',
-    );
-
-    expect(helper).toContain("separator=$'\\036'");
-    expect(helper).toContain("payload=\"${framed%\"$separator\"*}\"");
-    expect(helper).toContain(
-      'child_status="${framed##*"$separator"}"',
-    );
-    expect(helper).toContain('if [[ "$payload" != *$\'\\n\' ]]');
-    expect(helper).toContain('receipt="${payload%$\'\\n\'}"');
-    expect(helper).not.toContain("ACTIVATION_STARTED=");
-    expect(call).toBeLessThan(cutover);
-    expect(
-      position(
-        install.slice(call, cutover),
-        "candidate state readiness failed before activation",
-      ),
-    ).toBeGreaterThan(0);
-    expect(install).toContain(
-      'if [[ "$status" -ne 0 && "$ACTIVATION_STARTED" -eq 0 && "$LAUNCHD_WAS_LOADED" -eq 1 ]] && ! resume_launchd_job',
-    );
-  });
-
-  // This test launches eight isolated shell/process-group fixtures. Keep the
-  // Vitest budget above the installer supervisor's own 10s fixture bound so
-  // concurrent CI workers cannot turn scheduler contention into a false gate.
-  it("accepts only one successful strict receipt from the staged executable", () => {
-    const receipt =
-      '{"protocol":"vellum-state-update-preflight/v1","candidateId":"00000000-0000-4000-8000-000000000000","source":"fresh","sourceSchemaVersion":0,"targetSchemaVersion":2,"targetSchemaSha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","installationId":"installation:fresh","role":"unenrolled","canvasCount":0,"actorSeatCount":0,"workSnapshotCount":0,"pendingCommandCount":0,"armedRegionCount":0,"schedulerCursorCount":0,"ready":true}';
-    const success = runStagedStatePreflight(
-      `printf '%s\\n' '${receipt}'`,
-    );
-    expect(success.status).toBe(0);
-    expect(success.stderr).toBe("");
-    expect(success.stdout).toContain(`${receipt}\nRESULT:success\n`);
-
-    const mismatchedSource = runStagedStatePreflight(
-      `printf '%s\\n' '${receipt}'`,
-      {},
-      "installed",
-    );
-    expect(mismatchedSource.status).toBe(0);
-    expect(mismatchedSource.stdout).toContain("RESULT:failure");
-    expect(mismatchedSource.stderr).toContain(
-      "source differs from the bound database",
-    );
-
-    for (const body of [
-      `printf '%s\\n%s\\n' '${receipt}' extra`,
-      "printf '%s\\n' '{\"ready\":true}'",
-      `printf '%s\\n' '${receipt}'; exit 9`,
-      "printf 'candidate wrote stderr' >&2; /bin/sleep 5",
-      "/usr/bin/yes x | /usr/bin/head -c 20000",
-    ]) {
-      const failure = runStagedStatePreflight(body);
-      expect(failure.status).toBe(0);
-      expect(failure.stdout).toContain("RESULT:failure");
-      expect(failure.stderr).toContain("staged state update preflight");
-      expect(failure.stdout.length).toBeLessThan(16 * 1024);
-    }
-  }, 15_000);
-
-  it("hard-times out and reaps a TERM-resistant candidate and descendant", () => {
-    const startedAt = Date.now();
-    const failure = runStagedStatePreflight(
-      `trap '' TERM
-(
-  trap '' TERM
-  while :; do /bin/sleep 1; done
-) &
-descendant_pid=$!
-printf '%s\\n%s\\n' "$$" "$descendant_pid" > "\${0}.pids"
-while :; do /bin/sleep 1; done`,
-      {
-        // Give the candidate enough scheduling room to write its PID witness
-        // under a busy full-suite run; this remains a bounded test-only limit.
-        hardTimeoutMs: 1_500,
-        terminationGraceMs: 50,
-        groupReapTimeoutMs: 500,
-      },
-    );
-
-    expect(failure.status).toBe(0);
-    expect(failure.signal).toBeNull();
-    expect(failure.stdout).toContain("RESULT:failure");
-    expect(failure.stderr).toContain("hard-timeout");
-    expect(Date.now() - startedAt).toBeLessThan(4_000);
-    const pids = readFileSync(`${failure.executable}.pids`, "utf8")
-      .trim()
-      .split("\n")
-      .map(Number);
-    expect(pids).toHaveLength(2);
-    for (const pid of pids) {
-      expect(Number.isSafeInteger(pid) && pid > 1).toBe(true);
-      expect(() => process.kill(pid, 0)).toThrow();
-    }
+    expect(install).not.toContain("run_staged_state_update_preflight");
+    expect(install).not.toContain("bind_state_update_source");
+    expect(install).not.toContain("--vellum-state-preflight");
   });
 
   it("fixes production identities and write targets while retaining read-only candidate selection", () => {
@@ -1100,7 +689,7 @@ printf '%s\n' "$(cat "$PLIST_STAGE")" "$(cat "$PLIST")"`,
     );
   });
 
-  it("crosses the one-way boundary only after preflight and before current-app removal", () => {
+  it("crosses the one-way boundary only after quiescence and before current-app removal", () => {
     const cutover = position(
       install,
       'begin_one_way_app_cutover "$CURRENT_APP_ID"',
@@ -1119,14 +708,7 @@ printf '%s\n' "$(cat "$PLIST_STAGE")" "$(cat "$PLIST")"`,
     expect(
       install.lastIndexOf('assert_owned_current_app "$CURRENT_APP_ID"', cutover),
     ).toBeGreaterThan(0);
-    const finalStateRecheck = install.lastIndexOf(
-      "\nassert_state_update_source_unchanged\n",
-      cutover,
-    );
-    expect(finalStateRecheck).toBeGreaterThan(
-      install.lastIndexOf('assert_owned_current_app "$CURRENT_APP_ID"', cutover),
-    );
-    expect(finalStateRecheck).toBeLessThan(cutover);
+    expect(install).not.toContain("assert_state_update_source_unchanged");
     expect(cutover).toBeLessThan(stagedMove);
     expect(position(install, "CANDIDATE_MOVE_PENDING=1")).toBeLessThan(
       stagedMove,

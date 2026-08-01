@@ -19,12 +19,11 @@ const FORBIDDEN_BROWSER_COMPOSITION =
 const FORBIDDEN_RENDERER_IMPORT =
   /from\s+["'][^"']*\/renderer\/[^"']+["']/u;
 
-/** Seed + entry + install/preflight helpers owned by the Node Remote lane. */
+/** Seed + entry + install helpers owned by the Node Remote lane. */
 const REMOTE_ENTRY_FILES: ReadonlyArray<string> = [
   "src/main/remote-runtime.ts",
   "src/main/vellum-remote.ts",
   "src/main/vellum/supervision/install-user-service.ts",
-  "src/main/vellum/supervision/remote-state-preflight.ts",
 ];
 
 describe("vellum-remote closure", () => {
@@ -86,12 +85,13 @@ describe("vellum-remote closure", () => {
     expect(body).not.toMatch(/ELECTRON_RUN_AS_NODE\s*=\s*["']?1/u);
   });
 
-  it("install-user-service and preflight switches are wired in the entry", () => {
+  it("install-user-service switch is wired in the entry", () => {
     const entry = readFileSync(join(root, "src/main/vellum-remote.ts"), "utf8");
     expect(entry).toContain("--install-user-service");
-    expect(entry).toContain("STATE_UPDATE_PREFLIGHT_SWITCH");
-    expect(entry).toContain("withStateUpdateCandidate");
-    expect(entry).toContain("inspectStateUpdateCandidate");
+    expect(entry).not.toContain("STATE_UPDATE_PREFLIGHT_SWITCH");
+    expect(entry).not.toContain("withStateUpdateCandidate");
+    expect(entry).not.toContain("inspectStateUpdateCandidate");
+    expect(entry).not.toContain("--vellum-state-preflight");
     expect(entry).toContain("publishSystemdGenerationReadiness");
     expect(entry).toContain("installUserlandLinuxRemoteService");
     expect(entry).toContain("RemoteRuntime");

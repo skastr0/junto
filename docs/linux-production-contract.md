@@ -75,7 +75,7 @@ The canonical transaction runs entirely as the intended Station user:
    admitted against independently trusted release metadata.
 3. The incumbent is quiesced and proved to have released the canonical
    database.
-4. The exact candidate runs sealed `--vellum-state-preflight`: it opens the
+4. Install cutover stages then activates the candidate; schema migration runs on normal app open (no sealed preflight). Historical path opened the
    fixed canonical database read-only only long enough to mint a verified
    retained backup, migrates and decodes a disposable clone, starts no runtime
    plane, and accepts no database redirect.

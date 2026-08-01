@@ -69,13 +69,9 @@ to correctness.
 JSON Canvas exports and agent sidecars (`*.digest.txt`, `*.svg`) are outputs,
 not durability or input watched by the app.
 
-The only product exception to normal-runtime database ownership is the exact
-signed packaged candidate running `--vellum-state-preflight` after the
-installer has fully quiesced the incumbent. That process may open the fixed
-canonical path read-only long enough to mint a verified retained backup; it
-migrates and decodes only a disposable clone, starts no product runtime plane,
-and accepts no database-path redirect. It is an update proof, not a second
-store or general helper access path.
+Install/update stages and cutovers without a sealed clone preflight.
+Schema+data migration runs on normal app open; failures surface in the normal
+startup recovery flow. There is no second database opener for update proofs.
 
 **SQLite evolution law:** version 1 is the frozen durable baseline; version 5
 is current through immutable `1 → 2`, `2 → 3`, `3 → 4`, and `4 → 5` steps.
@@ -301,8 +297,7 @@ phase, and attention/occupancy are separate planes.
 - The installation's sole app runtime process is the only normal database
   opener: Electron main on Command Center or the displayless packaged Node
   Remote process on Remote. Other headless and remote surfaces must use
-  app-owned IPC/control/Station APIs. The sole update exception is the
-  quiesced, sealed, read-only packaged-candidate preflight above.
+  app-owned IPC/control/Station APIs.
 - Adapters are read-only. The operator authors intent through Command Center;
   agents mutate only the work plane through `WorkService`.
 - Board/source IDs and tokens never leak into committed source.

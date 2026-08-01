@@ -1,21 +1,19 @@
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { Effect } from "effect";
-import type { StateUpdatePreflightReceipt } from "../state/candidate-readiness";
 import { updateError, type UpdateError } from "./errors";
 
 /**
  * Exact downloaded candidate that alone may authorize install.
  *
  * A structurally similar object never authorizes: only this module mints
- * membership via the sealed WeakSet after hash + (later) preflight bind.
+ * membership via the sealed WeakSet after hash + staged-app admit.
  */
 export type AuthorizedUpdateCandidate = {
   readonly version: string;
   readonly downloadedFile: string;
   readonly zipSha256: string;
   readonly stagedAppPath?: string;
-  readonly preflightReceipt?: StateUpdatePreflightReceipt;
   readonly authorizedAt: string;
 };
 
@@ -42,41 +40,6 @@ export const mintAuthorizedCandidate = (
   return candidate;
 };
 
-/**
- * Bind a successful preflight receipt to a minted candidate.
- * Fails as Effect error (never throws into defect).
- */
-export const bindPreflightReceipt = (
-  candidate: AuthorizedUpdateCandidate,
-  receipt: StateUpdatePreflightReceipt,
-  zipSha256: string,
-): Effect.Effect<AuthorizedUpdateCandidate, UpdateError> =>
-  Effect.gen(function* () {
-    if (!authorizedCandidates.has(candidate)) {
-      return yield* Effect.fail(
-        updateError(
-          "candidate-mismatch",
-          "preflight bind requires a minted update candidate",
-        ),
-      );
-    }
-    if (candidate.zipSha256 !== zipSha256) {
-      return yield* Effect.fail(
-        updateError(
-          "candidate-mismatch",
-          "preflight receipt zip digest does not match the downloaded candidate",
-        ),
-      );
-    }
-    const bound: AuthorizedUpdateCandidate = {
-      ...candidate,
-      preflightReceipt: receipt,
-      authorizedAt: new Date().toISOString(),
-    };
-    authorizedCandidates.add(bound);
-    return bound;
-  });
-
 export const isMintedCandidate = (
   candidate: AuthorizedUpdateCandidate | undefined,
 ): candidate is AuthorizedUpdateCandidate =>
@@ -94,15 +57,12 @@ export const canOperatorInstall = (
   candidate.stagedAppPath.length > 0;
 
 /**
- * Install finalize is permitted only for the exact minted candidate that has
- * a bound preflight receipt for the same ZIP digest.
+ * Install finalize is permitted only for the exact minted candidate with a
+ * staged admitted app path. Schema+data migration runs on normal app open.
  */
 export const canAuthorizeInstall = (
   candidate: AuthorizedUpdateCandidate | undefined,
-): boolean =>
-  isMintedCandidate(candidate) &&
-  candidate.preflightReceipt !== undefined &&
-  candidate.preflightReceipt.ready === true;
+): boolean => canOperatorInstall(candidate);
 
 export const hashFileSha256 = (
   path: string,
