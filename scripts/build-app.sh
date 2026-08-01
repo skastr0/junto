@@ -126,7 +126,7 @@ if [[ "$VERIFY" -eq 1 ]]; then
   bun run lint:product-name
   bun run typecheck
   # Tests that rebuild out/ (kernel headless probe) must not inherit the
-  # packaged beta/production license defines — those require activation in an
+  # packaged production license defines — those require activation in an
   # isolated HOME and deny headless Command Center startup. Packaging below
   # still builds with VELLUM_LICENSE_* set for the real ship bundle.
   env -u VELLUM_LICENSE_CHANNEL -u VELLUM_DODO_BUSINESS_ID -u VELLUM_DODO_PRODUCT_ID \

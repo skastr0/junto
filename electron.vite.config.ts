@@ -14,10 +14,8 @@ const alias = {
 };
 
 const licenseChannel = process.env.VELLUM_LICENSE_CHANNEL ?? "development";
-if (!["development", "beta", "production"].includes(licenseChannel)) {
-  throw new Error(
-    "VELLUM_LICENSE_CHANNEL must be development, beta, or production",
-  );
+if (!["development", "production"].includes(licenseChannel)) {
+  throw new Error("VELLUM_LICENSE_CHANNEL must be development or production");
 }
 const licenseProfile =
   licenseChannel === "development"
