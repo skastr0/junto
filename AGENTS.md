@@ -305,6 +305,35 @@ phase, and attention/occupancy are separate planes.
 - Host-touching code follows Machine safety (above) — fail closed, capability-first.
 - Agent reach follows Factory physics (above) — edges + ports + process-bind; no ambient region grants.
 
+## State migrations — hard law
+
+Two kinds of migration exist and they never mix:
+
+1. **Schema evolution** — expand-only DDL steps in
+   `src/main/vellum/state/migrations.ts`: versioned (`user_version` N→N+1),
+   identity-witnessed, one startup transaction, authorizer-guarded. A schema
+   step adds tables/columns/triggers; it never rewrites rows.
+2. **Data backfills** — marker-gated, idempotent walks that run after
+   StateEngine is up (e.g. `content/inline-media-migration.ts`).
+
+Backfill laws (each one broke, or nearly broke, a real release):
+
+- **Immutable logs are immutable to migrations too.** `work_events`,
+  `work_facts`, `work_commands`, `work_dispositions`, `work_proposal_events`
+  are never UPDATEd or DELETEd — not even to "modernize" old payloads. History
+  is served as written; decode paths admit historical shapes
+  (decode-admits-history). Backfills rewrite material projections only.
+- **A backfill never gates boot.** Failure = log it, leave the marker pending,
+  retry next boot. The app always opens; a half-done backfill is a deferred
+  walk, not a startup error.
+- **Idempotent by construction.** Content-addressed ingest, per-row
+  transactions, safe resume from any interruption.
+- **Proven against the real schema before it ships.** Every migration or
+  backfill ships with a test that runs it on the production DDL — triggers
+  active — seeded with historical-shaped rows *including rows in the immutable
+  log tables*. A migration proven only on empty or convenient fixtures is
+  unproven.
+
 ## Multi-agent tree (for builders)
 
 At any time, multiple agents are working this codebase concurrently — the
