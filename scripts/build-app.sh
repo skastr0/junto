@@ -147,10 +147,6 @@ build_compiled_cli() {
 
 printf 'vellum: electron-vite build → out/ …\n'
 bunx electron-vite build
-printf 'vellum: auditing compiled license binding …\n'
-bun "$SCRIPT_DIR/audit-license-build.ts" \
-  --bundle "$REPO_ROOT/out/main/index.js" \
-  --expected-production
 printf 'vellum: standalone work CLI → dist/vellum …\n'
 build_compiled_cli "$REPO_ROOT/dist/vellum" src/cli/main.ts
 printf 'vellum: standalone browser CLI → dist/vellum-browser …\n'

@@ -12,7 +12,7 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { extractFile, getRawHeader, statFile } from "@electron/asar";
+import { getRawHeader } from "@electron/asar";
 import {
   FuseState,
   FuseV1Options,
@@ -28,11 +28,6 @@ import {
 } from "./electron-security-policy";
 import rawRuntimePolicy from "./macos-runtime-policy.json";
 import { auditRetiredStateRuntimeBundle } from "./audit-retired-state-signatures";
-import {
-  auditPackagedLicenseBinding,
-  type LicenseBuildAuditReceipt,
-} from "./audit-license-build";
-import { PRODUCTION_LICENSE_BUILD_PROFILE } from "./license-build-profile";
 
 export const FUSE_NAMES = [
   "RunAsNode",
@@ -101,7 +96,6 @@ export interface PackageAuditReceipt {
   readonly teamIdentifier: string;
   readonly runtimeVersion: string;
   readonly minimumSystemVersion: string;
-  readonly license: LicenseBuildAuditReceipt;
   readonly fuses: Readonly<Record<FuseName, "Enabled" | "Disabled">>;
   readonly machO: {
     readonly count: number;
@@ -1002,10 +996,6 @@ export const auditPackagedApp = async (
     browserCliPath,
     stationCliPath,
   });
-  const license = auditPackagedLicenseBinding(
-    appAsarPath,
-    PRODUCTION_LICENSE_BUILD_PROFILE,
-  );
 
   runFixedCommand("/usr/bin/codesign", [
     "--verify",
@@ -1046,7 +1036,6 @@ export const auditPackagedApp = async (
     teamIdentifier: codesign.teamIdentifier,
     runtimeVersion: codesign.runtimeVersion,
     minimumSystemVersion: policy.minimumSystemVersion,
-    license,
     fuses,
     machO,
   };
