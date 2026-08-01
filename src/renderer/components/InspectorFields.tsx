@@ -38,6 +38,7 @@ import {
   setEdgeEffect,
   setEdgeNotify,
   setEdgePorts,
+  setEdgeRelayState,
 } from "../lib/edge-mutations";
 import { specOf } from "../lib/node-spec";
 import { commitDoc, editFileDetails, editGroupBackground, editLink, editText, renameGroup, setNodeHost, setNodeRelay, setNodeTimer, setNodeWatch, setNodeWorkRole, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag } from "../lib/mutations";
@@ -186,6 +187,44 @@ export function EdgeBoardNotifyToggle({ edge }: { readonly edge: CanvasEdge }) {
   );
 }
 
+/**
+ * Opt-in actor↔actor stoppage relay. Default OFF.
+ * Only shown when both endpoints are blockable actors.
+ */
+export function EdgeRelayStateToggle({ edge }: { readonly edge: CanvasEdge }) {
+  const doc = use$(state$.doc);
+  const from = doc.nodes.find((n) => n.id === edge.fromNode);
+  const to = doc.nodes.find((n) => n.id === edge.toNode);
+  const fromActor = roleOf(specOf(from)) === "actor";
+  const toActor = roleOf(specOf(to)) === "actor";
+  if (!fromActor || !toActor) return null;
+  const on = edge.ether?.relayState === true;
+  return (
+    <div className="inspector-section">
+      <div className="inspector-section__label">relay state</div>
+      <div className="inspector-detail" style={{ marginBottom: 8 }}>
+        Off by default. When ON, a blocked actor on either end relays its
+        stoppage and reason to the other — cascading along further relay edges.
+        Not a capability port.
+      </div>
+      <button
+        type="button"
+        className="inspector-flag-toggle"
+        aria-label="Toggle relay state"
+        aria-pressed={on}
+        style={{
+          color: on ? HUE.crimson : "#68604a",
+          borderColor: on ? withAlpha(HUE.crimson, 0.5) : "rgba(237,230,218,.12)",
+          background: on ? withAlpha(HUE.crimson, 0.1) : "rgba(255,255,255,.02)",
+        }}
+        onClick={() => setEdgeRelayState(edge.id, !on)}
+      >
+        Relay state {on ? "ON" : "OFF"}
+      </button>
+    </div>
+  );
+}
+
 export function EdgePortsAttenuator({ edge }: { readonly edge: CanvasEdge }) {
   const mask = readEdgePortMask(edge);
   const active = mask ?? HashSet.empty<PortName>();
@@ -205,6 +244,7 @@ export function EdgePortsAttenuator({ edge }: { readonly edge: CanvasEdge }) {
   return (
     <div className="inspector-section">
       <EdgeBoardNotifyToggle edge={edge} />
+      <EdgeRelayStateToggle edge={edge} />
       <div className="inspector-section__label">limit this key</div>
       <div className="inspector-detail" style={{ marginBottom: 8 }}>
         {mask === undefined

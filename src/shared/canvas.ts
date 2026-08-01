@@ -450,6 +450,13 @@ export const EtherEdgeExtension = Schema.Struct({
    */
   notify: Schema.optionalWith(Schema.Boolean, { exact: true }),
   /**
+   * Opt-in actor↔actor stoppage relay. Off by default (absent / false).
+   * When true, a blocked endpoint relays its blocked state and reasons to the
+   * other blockable endpoint; multi-hop along further relayState edges.
+   * Not a Port and not criteria — property plane only.
+   */
+  relayState: Schema.optionalWith(Schema.Boolean, { exact: true }),
+  /**
    * Scheduler automation effect. Applied by the kernel on home-local fire.
    * Not a Port and not criteria. Soft relates without effect still do nothing.
    */

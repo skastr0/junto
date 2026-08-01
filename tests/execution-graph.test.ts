@@ -286,6 +286,150 @@ describe("deriveExecutionGraph — no cascade", () => {
     expect(graph.blocked.has("a2")).toBe(false);
   });
 
+  it("relayState off (default) never cascades actor stoppage", () => {
+    const a1 = actorRef("a1", "1");
+    const a2 = actorRef("a2", "2");
+    const doc: CanvasDoc = {
+      nodes: [seat("a1", "actor", { label: "A1" }), seat("a2", "actor", { label: "A2" })],
+      edges: [{ id: "e-rel", fromNode: "a1", toNode: "a2" }],
+    };
+    const graph = deriveExecutionGraph(doc, {
+      ...contextFor([a1, a2]),
+      workBlockedSeats: new Map([
+        [
+          "a1",
+          {
+            requestId: "req-1",
+            targetNodeId: "requests",
+            detail: "choose deployment",
+          },
+        ],
+      ]),
+    });
+    expect(graph.blocked).toEqual(new Set(["a1"]));
+    expect(graph.blocked.has("a2")).toBe(false);
+  });
+
+  it("relayState on copies blocked reason to connected actor", () => {
+    const a1 = actorRef("a1", "1");
+    const a2 = actorRef("a2", "2");
+    const workReason = {
+      kind: "work" as const,
+      requestId: "req-1",
+      targetNodeId: "requests",
+      detail: "choose deployment",
+    };
+    const doc: CanvasDoc = {
+      nodes: [seat("a1", "actor", { label: "A1" }), seat("a2", "actor", { label: "A2" })],
+      edges: [
+        {
+          id: "e-rel",
+          fromNode: "a1",
+          toNode: "a2",
+          ether: { relayState: true },
+        },
+      ],
+    };
+    const graph = deriveExecutionGraph(doc, {
+      ...contextFor([a1, a2]),
+      workBlockedSeats: new Map([
+        [
+          "a1",
+          {
+            requestId: workReason.requestId,
+            targetNodeId: workReason.targetNodeId,
+            detail: workReason.detail,
+          },
+        ],
+      ]),
+    });
+    expect(graph.blocked).toEqual(new Set(["a1", "a2"]));
+    expect(graph.reasonsByNodeId.get("a2")).toEqual([workReason]);
+    expect(graph.blockedEdgeIds.has("e-rel")).toBe(true);
+    expect(graph.phaseByEdgeId.get("e-rel")).toBe("blocks");
+    expect(graph.detailByEdgeId.get("e-rel")).toContain("choose deployment");
+  });
+
+  it("relayState cascades multi-hop with the same reason", () => {
+    const a1 = actorRef("a1", "1");
+    const a2 = actorRef("a2", "2");
+    const a3 = actorRef("a3", "3");
+    const workReason = {
+      kind: "work" as const,
+      requestId: "req-esc",
+      targetNodeId: "requests",
+      detail: "need human on ship",
+    };
+    const doc: CanvasDoc = {
+      nodes: [
+        seat("a1", "actor", { label: "A1" }),
+        seat("a2", "actor", { label: "A2" }),
+        seat("a3", "actor", { label: "A3" }),
+      ],
+      edges: [
+        { id: "e12", fromNode: "a1", toNode: "a2", ether: { relayState: true } },
+        { id: "e23", fromNode: "a2", toNode: "a3", ether: { relayState: true } },
+      ],
+    };
+    const graph = deriveExecutionGraph(doc, {
+      ...contextFor([a1, a2, a3]),
+      workBlockedSeats: new Map([
+        [
+          "a1",
+          {
+            requestId: workReason.requestId,
+            targetNodeId: workReason.targetNodeId,
+            detail: workReason.detail,
+          },
+        ],
+      ]),
+    });
+    expect(graph.blocked).toEqual(new Set(["a1", "a2", "a3"]));
+    expect(graph.reasonsByNodeId.get("a2")).toEqual([workReason]);
+    expect(graph.reasonsByNodeId.get("a3")).toEqual([workReason]);
+    expect(graph.blockedEdgeIds.has("e12")).toBe(true);
+    expect(graph.blockedEdgeIds.has("e23")).toBe(true);
+  });
+
+  it("relayState is undirected and skips non-actors", () => {
+    const a1 = actorRef("a1", "1");
+    const a2 = actorRef("a2", "2");
+    const workReason = {
+      kind: "work" as const,
+      requestId: "req-1",
+      targetNodeId: "requests",
+      detail: "blocked root",
+    };
+    const doc: CanvasDoc = {
+      nodes: [
+        seat("a1", "actor", { label: "A1" }),
+        seat("a2", "actor", { label: "A2" }),
+        seat("s1", "sink", { label: "sink" }),
+      ],
+      edges: [
+        // reverse direction still relays a2 ← a1
+        { id: "e-rev", fromNode: "a2", toNode: "a1", ether: { relayState: true } },
+        { id: "e-sink", fromNode: "a1", toNode: "s1", ether: { relayState: true } },
+      ],
+    };
+    const graph = deriveExecutionGraph(doc, {
+      ...contextFor([a1, a2]),
+      workBlockedSeats: new Map([
+        [
+          "a1",
+          {
+            requestId: workReason.requestId,
+            targetNodeId: workReason.targetNodeId,
+            detail: workReason.detail,
+          },
+        ],
+      ]),
+    });
+    expect(graph.blocked.has("a2")).toBe(true);
+    expect(graph.reasonsByNodeId.get("a2")).toEqual([workReason]);
+    expect(graph.blocked.has("s1")).toBe(false);
+  });
+
   it("stable seat identity blocks through an alias; another seat does not", () => {
     const docFor = (items: ReadonlyArray<ReturnType<typeof taskItem>>): CanvasDoc => ({
       nodes: [

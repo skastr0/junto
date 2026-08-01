@@ -121,12 +121,18 @@ them; requests are claimed by the actor that raised them, at creation. An
 unclaimed attention item is inventory for a human — it stops nobody. Claims
 address the vellum node id (names are display labels, roles are routing tags).
 Manual `blocker` flags mark that actor only.
-There is **no** `depends` phase, **no** actor→actor relay, and **no** multi-hop
-dependency cascade. Clear criteria → soft **relates**.
+There is **no** `depends` phase and **no** automatic multi-hop dependency
+cascade. Clear criteria → soft **relates**.
+
+**Opt-in actor↔actor state relay:** edge property `ether.relayState: true`
+(default off — not a Port, not criteria). When on between blockable actors, a
+blocked endpoint transmits its stoppage **and the same reason payloads** to the
+other endpoint; multi-hop along further `relayState` edges. Absent/false never
+relays.
 
 **Retired (do not reintroduce):** well-known `project` kind; edge criteria
-modes `glyphs` / `wip`; `depends` phase; dependency cascade/relay between
-packet-sinks or actors.
+modes `glyphs` / `wip`; `depends` phase; *automatic* dependency cascade/relay
+between packet-sinks or actors (opt-in `relayState` is the only exception).
 
 ### 3. Ports vs criteria
 

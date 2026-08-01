@@ -171,6 +171,29 @@ export const setEdgeNotify = (edgeId: string, notify: boolean): void => {
   });
 };
 
+/**
+ * Opt-in actor↔actor stoppage relay. OFF is the default (field absent/false);
+ * ON is explicit `relayState: true`.
+ */
+export const setEdgeRelayState = (edgeId: string, relayState: boolean): void => {
+  const doc = state$.doc.peek();
+  commitDoc({
+    ...doc,
+    edges: doc.edges.map((edge) => {
+      if (edge.id !== edgeId) return edge;
+      const ether = { ...(edge.ether ?? {}) };
+      if (relayState) ether.relayState = true;
+      else delete ether.relayState;
+      const nextEther = Object.keys(ether).length > 0 ? ether : undefined;
+      if (!nextEther) {
+        const { ether: _drop, ...rest } = edge;
+        return rest;
+      }
+      return { ...edge, ether: nextEther };
+    }),
+  });
+};
+
 export const addEdge = (params: {
   source: string;
   target: string;

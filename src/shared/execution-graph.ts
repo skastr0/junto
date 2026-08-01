@@ -25,17 +25,22 @@ import {
 // Live execution graph: pure function of (document + live views).
 // Derived state is never stored in the authored canvas document.
 //
-// Authorial edge model — criteria only:
+// Authorial edge model — criteria + optional relayState property:
 //   - no criteria → soft "relates" (never generates stoppage)
 //   - criteria tasks → a CLAIMED attention item (input-required; residual auth-required)
 //     generates blocks on the claimant toNode actor only. Tasks are claimed
 //     by the pulling actor; requests are claimed by their raiser at creation.
 //     An unresolved toNode actor identity never substitutes its canvas node ID.
 //   - criteria proof / approval → blocks until trust view clears
+//   - ether.relayState === true (opt-in, default off) on an edge between
+//     blockable actors: when one endpoint is blocked, the other inherits the
+//     same reasons (multi-hop along further relayState edges). Not automatic.
 //
-// Evaluation (no cascade):
+// Evaluation:
 //   - phase "blocks" + generates → mark toNode blocked (actors only)
 //   - manual blocker flag marks that actor only
+//   - work-plane seat blocks mark their actor only
+//   - then optional relayState cascade copies reasons across actor links
 //   - no criteria → relates
 
 /** Optional live views for proof/approval criteria (runtime, not document). */
@@ -336,7 +341,7 @@ export const deriveExecutionGraph = (
     });
   }
 
-  // Generating edges only — no relay through other edges.
+  // Generating edges only — no automatic relay through other edges.
   for (const edge of doc.edges) {
     const evaluation = edgeEvalById.get(edge.id)!;
     if (!evaluation.generates) continue;
@@ -350,6 +355,72 @@ export const deriveExecutionGraph = (
       },
       edge.id,
     );
+  }
+
+  // Opt-in actor↔actor state relay (ether.relayState === true, default off).
+  // Undirected: a blocked endpoint transmits its reasons to the other blockable
+  // endpoint. Fixed-point so multi-hop cascades along further relay edges.
+  // Original reason payloads are copied so work/edge/seed detail stays true
+  // on every resulting blocker.
+  const reasonKey = (reason: BlockedReason): string => {
+    if (reason.kind === "work") return `work:${reason.requestId}:${reason.targetNodeId}:${reason.detail}`;
+    if (reason.kind === "edge") return `edge:${reason.edgeId}:${reason.fromNodeId}:${reason.detail}`;
+    return `seed:${reason.detail}`;
+  };
+
+  const hasReason = (nodeId: string, reason: BlockedReason): boolean => {
+    const list = reasonsByNodeId.get(nodeId);
+    if (!list) return false;
+    const key = reasonKey(reason);
+    return list.some((entry) => reasonKey(entry) === key);
+  };
+
+  const relayEdges = doc.edges.filter((edge) => edge.ether?.relayState === true);
+  if (relayEdges.length > 0) {
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const edge of relayEdges) {
+        const from = byId.get(edge.fromNode);
+        const to = byId.get(edge.toNode);
+        if (!isBlockableNode(from) || !isBlockableNode(to)) continue;
+
+        const transmit = (sourceId: string, targetId: string): void => {
+          if (!blocked.has(sourceId)) return;
+          const sourceReasons = reasonsByNodeId.get(sourceId) ?? [];
+          for (const reason of sourceReasons) {
+            if (hasReason(targetId, reason)) continue;
+            markBlocked(targetId, reason, edge.id);
+            changed = true;
+          }
+        };
+
+        transmit(edge.fromNode, edge.toNode);
+        transmit(edge.toNode, edge.fromNode);
+      }
+    }
+
+    // Live phase for edges that currently join two blocked actors.
+    for (const edge of relayEdges) {
+      if (!blocked.has(edge.fromNode) || !blocked.has(edge.toNode)) continue;
+      if (!isBlockableNode(byId.get(edge.fromNode)) || !isBlockableNode(byId.get(edge.toNode))) {
+        continue;
+      }
+      blockedEdgeIds.add(edge.id);
+      const existing = edgeEvalById.get(edge.id);
+      if (existing?.generates) continue;
+      const sample =
+        (reasonsByNodeId.get(edge.fromNode) ?? reasonsByNodeId.get(edge.toNode) ?? [])[0]
+          ?.detail ?? "relayed stoppage";
+      const evaluation: EdgeEval = {
+        phase: "blocks",
+        detail: `relay · ${sample}`,
+        generates: false,
+      };
+      edgeEvalById.set(edge.id, evaluation);
+      phaseByEdgeId.set(edge.id, evaluation.phase);
+      detailByEdgeId.set(edge.id, evaluation.detail);
+    }
   }
 
   return {
