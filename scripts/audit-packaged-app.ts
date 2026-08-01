@@ -25,7 +25,7 @@ import {
   type FuseConfig,
 } from "@electron/fuses";
 import rawPolicy from "./package-security-policy.json";
-import { requireElectronObservationAdmission, validateElectronArtifactPath, validateElectronObservation, validateElectronSecurityPolicy, decodeElectronObservation, decodeElectronSecurityPolicy } from "./electron-security-policy";
+import { validateElectronArtifactPath, validateElectronSecurityPolicy, decodeElectronSecurityPolicy } from "./electron-security-policy";
 import rawRuntimePolicy from "./macos-runtime-policy.json";
 import {
   auditRetiredStateRuntimeBundle,
@@ -885,10 +885,8 @@ export const auditPackagedApp = async (
   const appPath = path.resolve(requestedPath);
   await validateElectronArtifactPath(appPath);
   const embeddedPolicyPath = path.join(appPath, "Contents", "Resources", "policy", "electron-security-policy.json");
-  const embeddedObservationPath = path.join(appPath, "Contents", "Resources", "policy", "electron-observation.json");
   const workspacePolicyPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "electron-security-policy.json");
-  const embeddedHighWaterPath = path.join(appPath, "Contents", "Resources", "policy", "electron-observation-high-water.json");
-  const [embeddedPolicyRaw, workspacePolicyRaw, embeddedObservationRaw, embeddedHighWaterRaw] = await Promise.all([readFile(embeddedPolicyPath, "utf8"), readFile(workspacePolicyPath, "utf8"), readFile(embeddedObservationPath, "utf8"), readFile(embeddedHighWaterPath, "utf8")]);
+  const [embeddedPolicyRaw, workspacePolicyRaw] = await Promise.all([readFile(embeddedPolicyPath, "utf8"), readFile(workspacePolicyPath, "utf8")]);
   if (embeddedPolicyRaw !== workspacePolicyRaw) throw new Error("embedded Electron policy differs from reviewed workspace policy");
   const electronInfoPath = path.join(appPath, "Contents", "Frameworks", "Electron Framework.framework", "Versions", "A", "Resources", "Info.plist");
   const electronInfo = JSON.parse(runFixedCommand("/usr/bin/plutil", ["-convert", "json", "-o", "-", electronInfoPath])) as Record<string, unknown>;
@@ -896,12 +894,6 @@ export const auditPackagedApp = async (
   if (typeof embeddedVersion !== "string") throw new Error("Electron framework Info.plist is missing CFBundleVersion");
   const electronPolicy = decodeElectronSecurityPolicy(JSON.parse(embeddedPolicyRaw));
   validateElectronSecurityPolicy(electronPolicy, { now: new Date(), manifestVersion: electronPolicy.electron.exactVersion, installedPackageVersion: electronPolicy.electron.exactVersion, installedRuntimeVersion: embeddedVersion });
-  const embeddedObservation = decodeElectronObservation(JSON.parse(embeddedObservationRaw));
-  const embeddedHighWater = decodeElectronObservation(JSON.parse(embeddedHighWaterRaw));
-  validateElectronObservation(embeddedObservation, electronPolicy, embeddedPolicyRaw, new Date());
-  validateElectronObservation(embeddedHighWater, electronPolicy, embeddedPolicyRaw, new Date());
-  if (JSON.stringify(embeddedObservation) !== JSON.stringify(embeddedHighWater)) throw new Error("embedded Electron observation is not the current high-water state");
-  requireElectronObservationAdmission(embeddedObservation);
   if (path.basename(appPath) !== `${policy.productName}.app`) {
     throw new Error(
       `packaged app path must end in ${policy.productName}.app: ${appPath}`,

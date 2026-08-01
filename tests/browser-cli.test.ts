@@ -304,18 +304,11 @@ describe("browser CLI packaging contract", () => {
       { from: "dist/vellum", to: "bin/vellum" },
       { from: "dist/vellum-browser", to: "bin/vellum-browser" },
       { from: "dist/vellum-station", to: "bin/vellum-station" },
+      { from: "dist/vellum-content", to: "bin/vellum-content" },
       { from: "scripts/unix-peer-pid.py", to: "bin/unix-peer-pid.py" },
       {
         from: "scripts/electron-security-policy.json",
         to: "policy/electron-security-policy.json",
-      },
-      {
-        from: "build/electron-observation.json",
-        to: "policy/electron-observation.json",
-      },
-      {
-        from: "build/electron-observation-high-water.json",
-        to: "policy/electron-observation-high-water.json",
       },
     ]);
     expect(pkg.build.files).not.toContain("scripts/**");
@@ -327,9 +320,11 @@ describe("browser CLI packaging contract", () => {
     expect(installScript).toContain('install_cli_link "vellum"');
     expect(installScript).toContain('install_cli_link "vellum-browser"');
     expect(installScript).toContain('install_cli_link "vellum-station"');
+    expect(installScript).toContain('install_cli_link "vellum-content"');
     expect(installScript).toContain('local work_helper="$APP_DST/Contents/Resources/bin/vellum"');
     expect(installScript).toContain('local browser_helper="$APP_DST/Contents/Resources/bin/vellum-browser"');
     expect(installScript).toContain('local station_helper="$APP_DST/Contents/Resources/bin/vellum-station"');
+    expect(installScript).toContain('local content_helper="$APP_DST/Contents/Resources/bin/vellum-content"');
     expect(installScript).toContain('ln -s "$helper" "$target"');
     expect(installScript).toContain('CLI link changed identity during creation');
     expect(installScript).not.toContain('mv -f "$stage" "$target"');

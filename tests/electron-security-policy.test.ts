@@ -1,8 +1,6 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
+import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   checkOfficialElectronSources,
   decodeElectronSecurityPolicy,
@@ -65,19 +63,10 @@ const validInput = {
 };
 
 describe("Electron release-freshness policy", () => {
-  let stateDir: string;
-
-  beforeEach(async () => {
-    stateDir = await mkdtemp(path.join(tmpdir(), "vellum-electron-policy-test-"));
-    vi.stubEnv("VELLUM_RELEASE_SECURITY_STATE_DIR", stateDir);
-  });
-
-  afterEach(async () => {
+  afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
-    vi.unstubAllEnvs();
     vi.restoreAllMocks();
-    await rm(stateDir, { recursive: true, force: true });
   });
 
   it("pins the audited current release with official provenance and explicit review SLAs", async () => {

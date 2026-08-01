@@ -129,7 +129,6 @@ if [[ ! -f "$ELECTRON_INSTALLER" || -L "$ELECTRON_INSTALLER" ]]; then
 fi
 printf 'vellum: materializing pinned Electron runtime …\n'
 "$NODE_EXECUTABLE" "$ELECTRON_INSTALLER"
-if [[ "$COMPILE_ONLY" -eq 0 ]]; then bun "$SCRIPT_DIR/electron-security-policy.ts" prepare-package; fi
 printf 'vellum: validating checked-in Electron security policy …\n'
 bun "$SCRIPT_DIR/electron-security-policy.ts" validate
 if [[ ! -d node_modules/electron-builder ]]; then

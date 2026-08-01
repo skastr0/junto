@@ -74,14 +74,14 @@
     "ref": "bun scripts/ref-cli.ts",
     "browser": "bun scripts/browser-cli.ts",
     "station": "bun scripts/station-cli.ts",
+    "content": "bun scripts/content-cli.ts",
     "render": "bun scripts/render.ts",
     "cli": "bun src/cli/main.ts",
     "cli:build": "bun build --compile --outfile dist/vellum src/cli/main.ts",
     "station:build": "bun build --compile --outfile dist/vellum-station scripts/station-cli.ts",
+    "content:build": "bun build --compile --outfile dist/vellum-content scripts/content-cli.ts",
     "remote:build": "bun scripts/build-vellum-remote.ts",
-    "plugin:precompile": "bun scripts/precompile-vellum-plugin.ts",
-    "content": "bun scripts/content-cli.ts",
-    "content:build": "bun build --compile --outfile dist/vellum-content scripts/content-cli.ts"
+    "plugin:precompile": "bun scripts/precompile-vellum-plugin.ts"
   },
   "dependencies": {
     "@dnd-kit/helpers": "^0.5.0",
@@ -186,14 +186,6 @@
       {
         "from": "scripts/electron-security-policy.json",
         "to": "policy/electron-security-policy.json"
-      },
-      {
-        "from": "build/electron-observation.json",
-        "to": "policy/electron-observation.json"
-      },
-      {
-        "from": "build/electron-observation-high-water.json",
-        "to": "policy/electron-observation-high-water.json"
       }
     ],
     "protocols": [

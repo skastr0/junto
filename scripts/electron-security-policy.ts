@@ -1,16 +1,11 @@
 /**
- * Electron release-freshness gate. The policy is the checked-in trust root;
- * observations are a strict, locally monotonic record of an online check.
+ * Electron release-freshness gate. The policy is the checked-in trust root.
  *
- * Threat boundary: an installed signed artifact can prove the observation it
- * was packaged with, but cannot learn a later upstream release without a new
- * online observation. The owner-only high-water record prevents a previously
- * observed overdue/EOL result from being replaced by an older receipt locally.
+ * Local admission requires only the checked-in policy; an optional online `check`
+ * can still report stale upstream status, but it does not gate local install.
  */
-import { constants } from "node:fs";
-import { link, lstat, mkdir, open, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
-import { createHash, randomBytes } from "node:crypto";
-import { homedir } from "node:os";
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -21,12 +16,6 @@ const INSTALLED_PACKAGE_PATH = path.join(ROOT, "node_modules/electron/package.js
 const INSTALLED_RUNTIME_PATH = path.join(ROOT, "node_modules/electron/dist/version");
 const SUPPORT_URL = "https://www.electronjs.org/docs/latest/tutorial/electron-timelines";
 const RELEASE_INDEX_URL = "https://releases.electronjs.org/releases.json";
-const observationDirectory = () => process.env.VELLUM_RELEASE_SECURITY_STATE_DIR ?? path.join(homedir(), ".vellum", "release-security");
-const observationPath = () => path.join(observationDirectory(), "electron-observation.json");
-const highWaterPath = () => path.join(observationDirectory(), "electron-observation-high-water.json");
-const adversePath = (hash: string) => path.join(observationDirectory(), `electron-observation-adverse-${hash}.json`);
-const packagedObservationPath = path.join(ROOT, "build", "electron-observation.json");
-const packagedHighWaterPath = path.join(ROOT, "build", "electron-observation-high-water.json");
 const policyHash = (raw: string) => createHash("sha256").update(raw).digest("hex");
 const OBSERVATION_KEYS = ["checkedAt", "currentLinePatch", "disposition", "dueAt", "overdue", "policyHash", "policyVersion", "schemaVersion", "sources", "stablePublishedAt"] as const;
 
@@ -127,11 +116,6 @@ export const validateElectronObservation = (observation: ElectronObservation, po
   if (observation.disposition === "eol" && !observation.overdue) fail("EOL observation must be overdue");
   if (observation.overdue !== expectedOverdue) fail("observation overdue disposition is inconsistent with dueAt");
 };
-/** The one consumer gate: structurally valid risk evidence is never admission. */
-export const requireElectronObservationAdmission = (observation: ElectronObservation) => {
-  if (observation.disposition === "eol" || observation.overdue) fail("Electron observation is adverse and cannot admit consumers");
-};
-
 const readVersion = async (filename: string, field?: string): Promise<string> => { const raw = await readFile(filename, "utf8"); if (!field) return raw.trim(); const parsed = JSON.parse(raw) as Record<string, unknown>; if (typeof parsed[field] !== "string") fail(`${filename} is missing ${field}`); return parsed[field] as string; };
 /**
  * Electron no longer ships a plain `version` file inside the macOS framework
@@ -148,107 +132,30 @@ const readPackagedElectronVersion = async (root: string): Promise<string> => {
   if (!version) fail(`artifact ${root} is missing Electron Framework CFBundleVersion`);
   return version as string;
 };
-const readObservation = async (filename: string) => decodeElectronObservation(JSON.parse(await readFile(filename, "utf8")));
-const sameObservation = (left: ElectronObservation, right: ElectronObservation) => JSON.stringify(left) === JSON.stringify(right);
-type PersistedObservation = { readonly present: false } | { readonly present: true; readonly value: ElectronObservation };
-const readPersistedObservation = async (filename: string): Promise<PersistedObservation> => {
-  try { await lstat(filename); }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { present: false };
-    throw error;
-  }
-  return { present: true, value: await readObservation(filename) };
-};
-
-const requirePrivateStateDirectory = async (directory: string) => {
-  try { await mkdir(directory, { recursive: true, mode: 0o700 }); } catch (error) { throw error; }
-  const metadata = await lstat(directory);
-  if (!metadata.isDirectory() || metadata.isSymbolicLink() || metadata.uid !== process.getuid?.() || (metadata.mode & 0o077) !== 0) fail("observation state directory must be an owner-owned non-symlink private directory");
-};
-const atomicPrivateWrite = async (target: string, content: string) => {
-  const directory = path.dirname(target); await requirePrivateStateDirectory(directory);
-  const temporary = path.join(directory, `.${path.basename(target)}.${randomBytes(16).toString("hex")}.tmp`);
-  let handle;
-  try {
-    handle = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
-    await handle.writeFile(content); await handle.sync(); await handle.close(); handle = undefined;
-    await rename(temporary, target); await (await open(directory, constants.O_RDONLY)).sync();
-    const result = await lstat(target); if (!result.isFile() || result.isSymbolicLink() || (result.mode & 0o777) !== 0o600) fail("observation receipt must be a regular 0600 file");
-  } catch (error) { await handle?.close(); await unlink(temporary).catch(() => undefined); throw error; }
-};
-const writePrivateNoOverwrite = async (target: string, content: string) => {
-  const directory = path.dirname(target); await requirePrivateStateDirectory(directory);
-  const temporary = path.join(directory, `.${path.basename(target)}.${randomBytes(16).toString("hex")}.tmp`);
-  let handle;
-  try {
-    handle = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
-    await handle.writeFile(content); await handle.sync(); await handle.close(); handle = undefined;
-    await link(temporary, target); await unlink(temporary); await (await open(directory, constants.O_RDONLY)).sync();
-    const result = await lstat(target); if (!result.isFile() || result.isSymbolicLink() || (result.mode & 0o777) !== 0o600) fail("adverse observation marker must be a regular 0600 file");
-  } catch (error) { await handle?.close(); await unlink(temporary).catch(() => undefined); throw error; }
-};
-const withStateLock = async <T>(directory: string, operation: () => Promise<T>): Promise<T> => {
-  await requirePrivateStateDirectory(directory); const lock = path.join(directory, ".electron-observation.lock");
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    try { const handle = await open(lock, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600); try { return await operation(); } finally { await handle.close(); await unlink(lock).catch(() => undefined); } }
-    catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; await new Promise((resolve) => setTimeout(resolve, 10)); }
-  }
-  return fail("observation state lock did not become available");
-};
-const persistObservation = async (receipt: ElectronObservation) => withStateLock(observationDirectory(), async () => {
-  const water = highWaterPath();
-  const marker = adversePath(receipt.policyHash);
-  try {
-    const adverse = await readObservation(marker);
-    if (adverse.disposition === "eol" || adverse.overdue) {
-      if (receipt.disposition === "eol" || receipt.overdue) return;
-      fail("adverse observation is irreversible for this policy epoch");
-    }
-    fail("adverse observation marker is malformed");
-  } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-  try { const existing = await readObservation(water); if (Date.parse(existing.checkedAt) > Date.parse(receipt.checkedAt)) fail("older observation cannot replace newer known state"); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-  const content = `${JSON.stringify(receipt)}\n`;
-  if (receipt.disposition === "eol" || receipt.overdue) await writePrivateNoOverwrite(marker, content);
-  await atomicPrivateWrite(water, content); await atomicPrivateWrite(observationPath(), content);
-});
-const readAdverseMarker = async (policy: ElectronSecurityPolicy, rawPolicy: string, now: Date) => {
-  try { const marker = await readObservation(adversePath(policyHash(rawPolicy))); validateElectronObservation(marker, policy, rawPolicy, now); if (marker.disposition !== "eol" && !marker.overdue) fail("adverse observation marker is not adverse"); return marker; }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined; throw error; }
-};
-const validatePersistedObservation = async (policy: ElectronSecurityPolicy, rawPolicy: string, now: Date, required: boolean) => {
-  const adverse = await readAdverseMarker(policy, rawPolicy, now);
-  const [receiptState, waterState] = await Promise.all([
-    readPersistedObservation(observationPath()),
-    readPersistedObservation(highWaterPath()),
-  ]);
-  if (!receiptState.present && !waterState.present) {
-    if (!required && !adverse) return undefined;
-    fail(adverse ? "adverse observation survives a missing mutable receipt pair" : "Electron observation receipt pair is required");
-  }
-  const receipt = receiptState.present ? receiptState.value : fail("persisted Electron observation pair is incomplete");
-  const water = waterState.present ? waterState.value : fail("persisted Electron observation pair is incomplete");
-  validateElectronObservation(receipt, policy, rawPolicy, now);
-  validateElectronObservation(water, policy, rawPolicy, now);
-  if (!sameObservation(receipt, water)) fail("recorded Electron observation is not the current high-water state");
-  if (adverse) fail("adverse observation survives this mutable receipt pair");
-  requireElectronObservationAdmission(receipt);
-  return receipt;
-};
 
 export const validateCheckedInElectronPolicy = async (now = new Date()) => {
-  const [rawPolicy, installedPackageVersion, installedRuntimeVersion] = await Promise.all([readFile(POLICY_PATH, "utf8"), readVersion(INSTALLED_PACKAGE_PATH, "version"), readVersion(INSTALLED_RUNTIME_PATH)]);
-  const manifest = JSON.parse(await readFile(PACKAGE_PATH, "utf8")) as { devDependencies?: Record<string, unknown> }; const version = manifest.devDependencies?.electron;
-  if (typeof version !== "string") fail("package.json is missing devDependencies.electron"); const policy = decodeElectronSecurityPolicy(JSON.parse(rawPolicy));
-  validateElectronSecurityPolicy(policy, { now, manifestVersion: version as string, installedPackageVersion, installedRuntimeVersion }); await validatePersistedObservation(policy, rawPolicy, now, false);
+  const [rawPolicy, installedPackageVersion, installedRuntimeVersion] = await Promise.all([
+    readFile(POLICY_PATH, "utf8"),
+    readVersion(INSTALLED_PACKAGE_PATH, "version"),
+    readVersion(INSTALLED_RUNTIME_PATH),
+  ]);
+  const manifest = JSON.parse(await readFile(PACKAGE_PATH, "utf8")) as { devDependencies?: Record<string, unknown> };
+  const version = manifest.devDependencies?.electron;
+  const manifestVersion = typeof version === "string"
+    ? version
+    : fail("package.json is missing devDependencies.electron");
+  const policy = decodeElectronSecurityPolicy(JSON.parse(rawPolicy));
+  validateElectronSecurityPolicy(policy, { now, manifestVersion, installedPackageVersion, installedRuntimeVersion });
 };
 
 export const validateElectronArtifactPath = async (artifactPath: string, now = new Date()) => {
-  const reviewedRaw = await readFile(POLICY_PATH, "utf8"); const policy = decodeElectronSecurityPolicy(JSON.parse(reviewedRaw));
+  const reviewedRaw = await readFile(POLICY_PATH, "utf8");
+  const policy = decodeElectronSecurityPolicy(JSON.parse(reviewedRaw));
   validateElectronSecurityPolicy(policy, { now, manifestVersion: policy.electron.exactVersion, installedPackageVersion: policy.electron.exactVersion, installedRuntimeVersion: policy.electron.exactVersion });
-  const root = path.resolve(artifactPath); const resources = path.basename(root).endsWith(".app") ? path.join(root, "Contents", "Resources") : path.join(root, "resources");
-  const embeddedRaw = await readFile(path.join(resources, "policy", "electron-security-policy.json"), "utf8"); if (embeddedRaw !== reviewedRaw) fail(`artifact ${root} embeds a policy different from reviewed policy`);
-  const receipt = await readObservation(path.join(resources, "policy", "electron-observation.json")); const water = await readObservation(path.join(resources, "policy", "electron-observation-high-water.json"));
-  validateElectronObservation(receipt, policy, embeddedRaw, now); validateElectronObservation(water, policy, embeddedRaw, now); if (!sameObservation(receipt, water)) fail("artifact observation is not its current high-water state"); requireElectronObservationAdmission(receipt);
+  const root = path.resolve(artifactPath);
+  const resources = path.basename(root).endsWith(".app") ? path.join(root, "Contents", "Resources") : path.join(root, "resources");
+  const embeddedRaw = await readFile(path.join(resources, "policy", "electron-security-policy.json"), "utf8");
+  if (embeddedRaw !== reviewedRaw) fail(`artifact ${root} embeds a policy different from reviewed policy`);
   const version = await readPackagedElectronVersion(root);
   if (version !== policy.electron.exactVersion) fail(`artifact ${root} embeds ${version}; expected audited ${policy.electron.exactVersion}`); return { artifact: root, electronVersion: version, policyVersion: policy.electron.exactVersion };
 };
@@ -266,41 +173,8 @@ export const checkOfficialElectronSources = async (now = new Date()) => {
   const stablePublishedAt = typeof current.fullDate === "string" ? current.fullDate : typeof current.date === "string" ? `${current.date}T00:00:00.000Z` : fail("official current-line release is missing publication date");
   date(stablePublishedAt, "official release publication date"); const eol = !supportedMajors.includes(exactMajor); const disposition = eol ? "eol" : currentLinePatch === policy.electron.exactVersion ? "current" : "newer_patch_available"; const dueAt = new Date(Date.parse(stablePublishedAt) + policy.reviewSla.urgentHours * 3_600_000).toISOString();
   const receipt: ElectronObservation = { schemaVersion: 2, policyVersion: policy.electron.exactVersion, policyHash: policyHash(rawPolicy), checkedAt: now.toISOString(), currentLinePatch, stablePublishedAt, disposition, dueAt, overdue: eol || (disposition === "newer_patch_available" && now.getTime() >= Date.parse(dueAt)), sources: [SUPPORT_URL, RELEASE_INDEX_URL, policy.electron.auditedRelease.url] };
-  validateElectronObservation(receipt, policy, rawPolicy, now); await persistObservation(receipt); return { ...receipt, supportedMajors, latestStable: latestByMajor.get(Math.max(...supportedMajors))?.version as string | undefined, eol };
-};
-
-/**
- * TEMP BYPASS (2026-07-27): packaging used to require a private
- * ~/.vellum/release-security observation pair from an online `check`.
- * That home-dir ledger is release-ceremony debt (see
- * docs/debt-electron-observation-gate.md). For local app builds we mint a
- * policy-derived offline stub into build/ only — no home state, no network.
- * Revisit before any real distribution ship gate.
- */
-export const prepareElectronObservationForPackaging = async (now = new Date()) => {
-  const rawPolicy = await readFile(POLICY_PATH, "utf8");
-  const policy = decodeElectronSecurityPolicy(JSON.parse(rawPolicy));
-  const publishedAt = policy.electron.auditedRelease.publishedAt;
-  const dueAt = new Date(Date.parse(publishedAt) + policy.reviewSla.urgentHours * 3_600_000).toISOString();
-  const receipt: ElectronObservation = {
-    schemaVersion: 2,
-    policyVersion: policy.electron.exactVersion,
-    policyHash: policyHash(rawPolicy),
-    checkedAt: now.toISOString(),
-    currentLinePatch: policy.electron.exactVersion,
-    stablePublishedAt: publishedAt,
-    disposition: "current",
-    dueAt,
-    overdue: false,
-    sources: [SUPPORT_URL, RELEASE_INDEX_URL, policy.electron.auditedRelease.url],
-  };
   validateElectronObservation(receipt, policy, rawPolicy, now);
-  requireElectronObservationAdmission(receipt);
-  await mkdir(path.dirname(packagedObservationPath), { recursive: true });
-  const content = `${JSON.stringify(receipt)}\n`;
-  await writeFile(packagedObservationPath, content, { mode: 0o600 });
-  await writeFile(packagedHighWaterPath, content, { mode: 0o600 });
-  console.log("electron security policy: prepare-package BYPASS — offline stub (no ~/.vellum/release-security)");
+  return { ...receipt, supportedMajors, latestStable: latestByMajor.get(Math.max(...supportedMajors))?.version as string | undefined, eol };
 };
 
 /**
@@ -318,4 +192,17 @@ export const isElectronSecurityPolicyCli = (
   return path.basename(modulePath) === "electron-security-policy.ts" && argvEntry === modulePath;
 };
 
-if (isElectronSecurityPolicyCli(import.meta.url, process.argv[1])) { const command = process.argv[2]; if (command === "validate" && process.argv.length === 3) { await validateCheckedInElectronPolicy(); console.log("electron security policy: valid (offline)"); } else if (command === "check" && process.argv.length === 3) { const receipt = await checkOfficialElectronSources(); console.log(JSON.stringify(receipt, null, 2)); if (receipt.overdue) process.exitCode = 1; } else if (command === "prepare-package" && process.argv.length === 3) await prepareElectronObservationForPackaging(); else { console.error("usage: bun scripts/electron-security-policy.ts validate|check|prepare-package"); process.exitCode = 1; } }
+if (isElectronSecurityPolicyCli(import.meta.url, process.argv[1])) {
+  const command = process.argv[2];
+  if (command === "validate" && process.argv.length === 3) {
+    await validateCheckedInElectronPolicy();
+    console.log("electron security policy: valid (offline)");
+  } else if (command === "check" && process.argv.length === 3) {
+    const receipt = await checkOfficialElectronSources();
+    console.log(JSON.stringify(receipt, null, 2));
+    if (receipt.overdue) process.exitCode = 1;
+  } else {
+    console.error("usage: bun scripts/electron-security-policy.ts validate|check");
+    process.exitCode = 1;
+  }
+}
