@@ -386,8 +386,9 @@ export const makeContentServiceLive = (options?: {
         contentStoreRoot(options?.home ?? resolveVellumHome());
       ensureContentLayout(root);
       if (options?.skipInlineMediaMigration !== true) {
-        // Defects on failure so Layer stays error-free while still failing
-        // closed at app startup (not a separate preflight gate).
+        // Marker-gated, idempotent walk over projection tables only. A
+        // failure must never gate app startup: log it, leave the marker
+        // pending, and the walk resumes on the next boot.
         yield* Effect.tryPromise({
           try: () => runInlineMediaMigration({ state, root }),
           catch: (cause) => {
@@ -398,7 +399,16 @@ export const makeContentServiceLive = (options?: {
               { cause },
             );
           },
-        }).pipe(Effect.orDie);
+        }).pipe(
+          Effect.catchAll((error) =>
+            Effect.sync(() => {
+              console.error(
+                "[content] inline media backfill deferred to next boot:",
+                error,
+              );
+            }),
+          ),
+        );
       }
       return makeContentService(state, root);
     }),

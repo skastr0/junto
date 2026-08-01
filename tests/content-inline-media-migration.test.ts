@@ -173,4 +173,173 @@ describe("inline media migration", () => {
     expect(again.status).toBe("already-complete");
     expect(again.rowsRewritten).toBe(0);
   });
+
+  it("completes against immutable work logs and leaves them byte-identical", async () => {
+    const home = await tempRoot("vellum-inline-media-logs-");
+    const stateDir = join(home, ".vellum", "state");
+    await mkdir(stateDir, { recursive: true });
+    const dbPath = join(stateDir, "vellum.db");
+    const contentRoot = contentStoreRoot(home);
+
+    const { state } = await openEngine(dbPath);
+
+    const factBody = JSON.stringify({
+      parts: [
+        {
+          kind: "raw",
+          bytesBase64: TINY_PNG.toString("base64"),
+          mediaType: "image/png",
+        },
+      ],
+    });
+    const proposalRecord = JSON.stringify({
+      brief: {
+        parts: [
+          {
+            kind: "raw",
+            bytesBase64: TINY_PNG.toString("base64"),
+            mediaType: "image/png",
+          },
+        ],
+      },
+    });
+    const sha = "a".repeat(64);
+    const now = "2026-01-01T00:00:00.000Z";
+
+    // Historical fact + proposal event with inline Base64, seeded against the
+    // REAL schema — immutability triggers active. This is the exact shape
+    // that must never abort the migration.
+    await Effect.runPromise(
+      state.transaction("seed.immutable-logs", (writer) => {
+        writer.run(
+          `
+            INSERT INTO station_known_installations(
+              installation_id, registered_at
+            ) VALUES (?, ?)
+          `,
+          ["home1", now],
+        );
+        writer.run(
+          `
+            INSERT INTO work_event_sequences(event_home, entity_home, last_seq)
+            VALUES (?, ?, ?)
+          `,
+          ["home1", "home1", "2"],
+        );
+        writer.run(
+          `
+            INSERT INTO work_events(
+              event_home, entity_home, seq, protocol, record_type,
+              item_kind, item_id, item_canvas_name, item_node_id,
+              operation, content_sha256, origin_at, received_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `,
+          [
+            "home1",
+            "home1",
+            "1",
+            "vellum/work/v2",
+            "fact",
+            "message",
+            "msg-1",
+            "main",
+            "node-1",
+            "message.append",
+            sha,
+            now,
+            now,
+          ],
+        );
+        writer.run(
+          `
+            INSERT INTO station_projection_versions(
+              generation, content_sha256, source_canvas_generation,
+              source_intent_sha256, body, created_at, received_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+          `,
+          ["1", sha, "1", sha, "{}", now, now],
+        );
+        writer.run(
+          `
+            INSERT INTO work_facts(
+              event_home, entity_home, seq, result_json,
+              basis_kind, basis_projected_generation,
+              basis_projected_content_sha256
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+          `,
+          ["home1", "home1", "1", factBody, "projected-intent", "1", sha],
+        );
+        writer.run(
+          `
+            INSERT INTO work_proposal_events(
+              event_home, entity_home, seq, record_type,
+              canvas_name, node_id, proposal_id, operation,
+              content_sha256, record_json, origin_at, received_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `,
+          [
+            "home1",
+            "home1",
+            "2",
+            "fact",
+            "main",
+            "node-1",
+            "prop-1",
+            "proposal.create",
+            sha,
+            proposalRecord,
+            now,
+            now,
+          ],
+        );
+      }),
+    );
+
+    const report = await runInlineMediaMigration({
+      state,
+      root: contentRoot,
+    });
+
+    // The walk completes — historical logs are out of scope, not an abort.
+    expect(report.status).toBe("complete");
+    expect(report.rowsRewritten).toBe(0);
+
+    const rows = await Effect.runPromise(
+      state.read("assert.logs-untouched", (reader) => ({
+        fact: reader.get<{ readonly result_json: string }>(
+          `
+            SELECT result_json FROM work_facts
+            WHERE event_home = ? AND entity_home = ? AND seq = ?
+          `,
+          ["home1", "home1", "1"],
+        ),
+        event: reader.get<{ readonly content_sha256: string }>(
+          `
+            SELECT content_sha256 FROM work_events
+            WHERE event_home = ? AND entity_home = ? AND seq = ?
+          `,
+          ["home1", "home1", "1"],
+        ),
+        proposal: reader.get<{ readonly record_json: string }>(
+          `
+            SELECT record_json FROM work_proposal_events
+            WHERE event_home = ? AND entity_home = ? AND seq = ?
+          `,
+          ["home1", "home1", "2"],
+        ),
+      })),
+    );
+    expect(rows.fact?.result_json).toBe(factBody);
+    expect(rows.event?.content_sha256).toBe(sha);
+    expect(rows.proposal?.record_json).toBe(proposalRecord);
+
+    const marker = await Effect.runPromise(
+      state.read("assert.marker", (reader) =>
+        reader.get<{ readonly status: string }>(
+          `SELECT status FROM content_inline_media_migration WHERE singleton = 1`,
+        ),
+      ),
+    );
+    expect(marker?.status).toBe("complete");
+  });
 });

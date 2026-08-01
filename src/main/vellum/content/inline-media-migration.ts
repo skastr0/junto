@@ -3,14 +3,20 @@
  * content store. Runs after StateEngine is up; gated by the
  * `content_inline_media_migration` singleton marker (schema v13).
  *
- * Expand-only product law: columns stay; rows are rewritten in place.
- * Idempotent — a complete marker is a free no-op on every subsequent boot.
+ * Scope law: this walk rewrites MATERIAL PROJECTIONS ONLY (parts_json /
+ * brief_json columns). The work logs — work_events, work_facts,
+ * work_commands, work_dispositions, work_proposal_events — are immutable by
+ * schema trigger and are never touched: historical records keep their inline
+ * Base64 forever, and every decode path admits it (decode-admits-history).
+ * New media flows through the content store at write time.
+ *
+ * Idempotent — a complete marker is a free no-op on every subsequent boot;
+ * a partial run leaves the marker pending and safely resumes next boot
+ * (content ingest is content-addressed, row rewrites are per-row txns).
  */
 
-import { createHash } from "node:crypto";
 import { Effect } from "effect";
 import type { ContentRef } from "@shared/content";
-import { WORK_PROTOCOL } from "@shared/work-protocol";
 import type {
   StateEngine,
   StateReader,
@@ -68,28 +74,6 @@ const hasInlineBinary = (value: unknown): boolean => {
   }
   return false;
 };
-
-/**
- * Mirror of work/repository normalizeJson + content hash. Duplicated here so
- * content startup does not import the full Work repository graph.
- */
-const normalizeJson = (value: unknown): unknown => {
-  if (Array.isArray(value)) return value.map(normalizeJson);
-  if (value === null || typeof value !== "object") return value;
-  return Object.fromEntries(
-    Object.entries(value as Readonly<Record<string, unknown>>)
-      .filter(([, nested]) => nested !== undefined)
-      .sort(([left], [right]) =>
-        left < right ? -1 : left > right ? 1 : 0,
-      )
-      .map(([key, nested]) => [key, normalizeJson(nested)]),
-  );
-};
-
-const workRecordContentSha256 = (semantic: unknown): string =>
-  createHash("sha256")
-    .update(JSON.stringify(normalizeJson(semantic)), "utf8")
-    .digest("hex");
 
 const decodeBase64 = (encoded: string): Buffer => {
   const cleaned = encoded.replace(/\s+/g, "");
@@ -560,355 +544,13 @@ const migratePartsTargets = async (
   return { objects, rows };
 };
 
-/**
- * Rewrite work_facts.result_json and rotate work_events.content_sha256 so
- * load-time integrity still matches. Deferred FK checks let disposition and
- * basis_command sha mirrors update in the same commit.
- */
-const migrateWorkFacts = async (
-  state: StateService,
-  root: string,
-): Promise<{ objects: number; rows: number }> => {
-  const candidates = await runRead(
-    state,
-    "content.inline-media.scan.work_facts",
-    (reader) => {
-      if (!tableExists(reader, "work_facts")) return [];
-      return reader
-        .all<{
-          readonly event_home: string;
-          readonly entity_home: string;
-          readonly seq: string;
-          readonly result_json: string;
-          readonly content_sha256: string;
-          readonly protocol: string;
-          readonly item_kind: string;
-          readonly item_id: string;
-          readonly item_canvas_name: string;
-          readonly item_node_id: string;
-          readonly operation: string;
-          readonly predecessor_event_home: string | null;
-          readonly predecessor_entity_home: string | null;
-          readonly predecessor_seq: string | null;
-          readonly basis_kind: string;
-          readonly basis_authorial_generation: string | null;
-          readonly basis_authorial_content_sha256: string | null;
-          readonly basis_projected_generation: string | null;
-          readonly basis_projected_content_sha256: string | null;
-          readonly basis_command_event_home: string | null;
-          readonly basis_command_entity_home: string | null;
-          readonly basis_command_seq: string | null;
-          readonly basis_command_sha256: string | null;
-        }>(
-          `
-            SELECT
-              f.event_home,
-              f.entity_home,
-              f.seq,
-              f.result_json,
-              e.content_sha256,
-              e.protocol,
-              e.item_kind,
-              e.item_id,
-              e.item_canvas_name,
-              e.item_node_id,
-              e.operation,
-              f.predecessor_event_home,
-              f.predecessor_entity_home,
-              f.predecessor_seq,
-              f.basis_kind,
-              f.basis_authorial_generation,
-              f.basis_authorial_content_sha256,
-              f.basis_projected_generation,
-              f.basis_projected_content_sha256,
-              f.basis_command_event_home,
-              f.basis_command_entity_home,
-              f.basis_command_seq,
-              f.basis_command_sha256
-            FROM work_facts f
-            INNER JOIN work_events e
-              ON e.event_home = f.event_home
-              AND e.entity_home = f.entity_home
-              AND e.seq = f.seq
-          `,
-        )
-        .filter((row) => {
-          try {
-            return hasInlineBinary(JSON.parse(row.result_json));
-          } catch {
-            return false;
-          }
-        });
-    },
-  );
-
-  let objects = 0;
-  let rows = 0;
-
-  for (const row of candidates) {
-    const body = parseJson(
-      row.result_json,
-      `work_facts:${row.event_home}/${row.entity_home}/${row.seq}`,
-    );
-    const rewritten = await externalizeInlineMedia(body, root);
-    if (!rewritten.changed) continue;
-
-    const predecessor =
-      row.predecessor_event_home === null ||
-      row.predecessor_entity_home === null ||
-      row.predecessor_seq === null
-        ? null
-        : {
-            route: {
-              eventHome: row.predecessor_event_home,
-              entityHome: row.predecessor_entity_home,
-            },
-            seq: row.predecessor_seq,
-          };
-
-    const basis =
-      row.basis_kind === "authorial-intent"
-        ? {
-            kind: "authorial-intent" as const,
-            generation: row.basis_authorial_generation,
-            contentSha256: row.basis_authorial_content_sha256,
-          }
-        : row.basis_kind === "projected-intent"
-          ? {
-              kind: "projected-intent" as const,
-              generation: row.basis_projected_generation,
-              contentSha256: row.basis_projected_content_sha256,
-            }
-          : {
-              kind: "command" as const,
-              command: {
-                route: {
-                  eventHome: row.basis_command_event_home,
-                  entityHome: row.basis_command_entity_home,
-                },
-                seq: row.basis_command_seq,
-              },
-              commandSha256: row.basis_command_sha256,
-            };
-
-    const semantic = {
-      protocol: row.protocol || WORK_PROTOCOL,
-      id: {
-        route: {
-          eventHome: row.event_home,
-          entityHome: row.entity_home,
-        },
-        seq: row.seq,
-      },
-      item: {
-        kind: row.item_kind,
-        itemId: row.item_id,
-        sink: {
-          canvasName: row.item_canvas_name,
-          nodeId: row.item_node_id,
-        },
-      },
-      operation: row.operation,
-      recordType: "fact" as const,
-      basis,
-      predecessor,
-      body: rewritten.value,
-    };
-
-    const newHash = workRecordContentSha256(semantic);
-    const resultJson = JSON.stringify(rewritten.value);
-    const oldHash = row.content_sha256;
-
-    const owner: ContentOwner = {
-      kind:
-        row.item_kind === "artifact"
-          ? "artifact"
-          : row.item_kind === "message"
-            ? "message"
-            : row.item_kind === "task"
-              ? "task"
-              : "other",
-      canvasName: row.item_canvas_name,
-      nodeId: row.item_node_id,
-      recordId: row.item_id,
-    };
-
-    await runTxn(
-      state,
-      "content.inline-media.rewrite.work_facts",
-      (writer) => {
-        writer.run("PRAGMA defer_foreign_keys = ON");
-
-        writer.run(
-          `
-            UPDATE work_facts
-            SET result_json = ?
-            WHERE event_home = ? AND entity_home = ? AND seq = ?
-          `,
-          [resultJson, row.event_home, row.entity_home, row.seq],
-        );
-
-        if (newHash !== oldHash) {
-          writer.run(
-            `
-              UPDATE work_events
-              SET content_sha256 = ?
-              WHERE event_home = ? AND entity_home = ? AND seq = ?
-            `,
-            [newHash, row.event_home, row.entity_home, row.seq],
-          );
-          writer.run(
-            `
-              UPDATE work_dispositions
-              SET fact_sha256 = ?
-              WHERE fact_event_home = ?
-                AND fact_entity_home = ?
-                AND fact_seq = ?
-                AND fact_sha256 = ?
-            `,
-            [newHash, row.event_home, row.entity_home, row.seq, oldHash],
-          );
-          writer.run(
-            `
-              UPDATE work_dispositions
-              SET command_sha256 = ?
-              WHERE command_event_home = ?
-                AND command_entity_home = ?
-                AND command_seq = ?
-                AND command_sha256 = ?
-            `,
-            [newHash, row.event_home, row.entity_home, row.seq, oldHash],
-          );
-          writer.run(
-            `
-              UPDATE work_facts
-              SET basis_command_sha256 = ?
-              WHERE basis_command_event_home = ?
-                AND basis_command_entity_home = ?
-                AND basis_command_seq = ?
-                AND basis_command_sha256 = ?
-            `,
-            [newHash, row.event_home, row.entity_home, row.seq, oldHash],
-          );
-        }
-
-        recordObjectsAndRefs(writer, rewritten.objects, owner);
-      },
-    );
-
-    objects += rewritten.objects.length;
-    rows += 1;
-  }
-
-  return { objects, rows };
-};
-
-const migrateProposalEvents = async (
-  state: StateService,
-  root: string,
-): Promise<{ objects: number; rows: number }> => {
-  const candidates = await runRead(
-    state,
-    "content.inline-media.scan.work_proposal_events",
-    (reader) => {
-      if (!tableExists(reader, "work_proposal_events")) return [];
-      return reader
-        .all<{
-          readonly event_home: string;
-          readonly entity_home: string;
-          readonly seq: string;
-          readonly record_json: string;
-          readonly content_sha256: string;
-          readonly canvas_name: string;
-          readonly node_id: string;
-          readonly proposal_id: string;
-        }>(
-          `
-            SELECT
-              event_home,
-              entity_home,
-              seq,
-              record_json,
-              content_sha256,
-              canvas_name,
-              node_id,
-              proposal_id
-            FROM work_proposal_events
-          `,
-        )
-        .filter((row) => {
-          try {
-            return hasInlineBinary(JSON.parse(row.record_json));
-          } catch {
-            return false;
-          }
-        });
-    },
-  );
-
-  let objects = 0;
-  let rows = 0;
-
-  for (const row of candidates) {
-    const record = parseJson(
-      row.record_json,
-      `work_proposal_events:${row.event_home}/${row.entity_home}/${row.seq}`,
-    );
-    if (!isPlainObject(record)) continue;
-
-    const rewritten = await externalizeInlineMedia(record, root);
-    if (!rewritten.changed || !isPlainObject(rewritten.value)) continue;
-
-    const nextRecord = { ...rewritten.value };
-    const { contentSha256: _old, originAt, ...semantic } = nextRecord as {
-      contentSha256?: unknown;
-      originAt?: unknown;
-      [key: string]: unknown;
-    };
-    const newHash = workRecordContentSha256(semantic);
-    nextRecord.contentSha256 = newHash;
-    if (originAt !== undefined) nextRecord.originAt = originAt;
-
-    const owner: ContentOwner = {
-      kind: "task",
-      canvasName: row.canvas_name,
-      nodeId: row.node_id,
-      recordId: row.proposal_id,
-    };
-
-    await runTxn(
-      state,
-      "content.inline-media.rewrite.work_proposal_events",
-      (writer) => {
-        writer.run(
-          `
-            UPDATE work_proposal_events
-            SET record_json = ?, content_sha256 = ?
-            WHERE event_home = ? AND entity_home = ? AND seq = ?
-          `,
-          [
-            JSON.stringify(nextRecord),
-            newHash,
-            row.event_home,
-            row.entity_home,
-            row.seq,
-          ],
-        );
-        recordObjectsAndRefs(writer, rewritten.objects, owner);
-      },
-    );
-
-    objects += rewritten.objects.length;
-    rows += 1;
-  }
-
-  return { objects, rows };
-};
 
 /**
- * Run the one-shot historical Base64 → content store migration.
+ * Run the one-shot historical Base64 → content store migration over the
+ * material projection tables. Immutable work logs are never touched.
  *
- * Failures throw so app startup surfaces them. Safe to call every boot.
+ * Failures throw; the boot integration logs and retries next boot — a
+ * pending backfill must never gate app startup. Safe to call every boot.
  */
 export const runInlineMediaMigration = async (input: {
   readonly state:
@@ -943,12 +585,9 @@ export const runInlineMediaMigration = async (input: {
   });
 
   const parts = await migratePartsTargets(state, root);
-  const facts = await migrateWorkFacts(state, root);
-  const proposals = await migrateProposalEvents(state, root);
 
-  const objectsIngested =
-    parts.objects + facts.objects + proposals.objects;
-  const rowsRewritten = parts.rows + facts.rows + proposals.rows;
+  const objectsIngested = parts.objects;
+  const rowsRewritten = parts.rows;
 
   await runTxn(state, "content.inline-media.marker.complete", (writer) => {
     markComplete(writer, objectsIngested);
