@@ -75,13 +75,11 @@ LICENSE_PROFILE_FIELDS="$(
 )"
 IFS=$'\t' read -r \
   VELLUM_LICENSE_CHANNEL \
-  VELLUM_LICENSE_ENVIRONMENT \
   VELLUM_DODO_BUSINESS_ID \
   VELLUM_DODO_PRODUCT_ID \
   <<< "$LICENSE_PROFILE_FIELDS"
 if [[
   -z "$VELLUM_LICENSE_CHANNEL" ||
-  -z "$VELLUM_LICENSE_ENVIRONMENT" ||
   -z "$VELLUM_DODO_BUSINESS_ID" ||
   -z "$VELLUM_DODO_PRODUCT_ID"
  ]]; then
@@ -92,9 +90,8 @@ export VELLUM_LICENSE_CHANNEL
 export VELLUM_DODO_BUSINESS_ID
 export VELLUM_DODO_PRODUCT_ID
 printf \
-  'vellum: license build profile %s → Dodo %s (%s / %s)\n' \
+  'vellum: license build profile %s → Dodo Live (%s / %s)\n' \
   "$VELLUM_LICENSE_CHANNEL" \
-  "$VELLUM_LICENSE_ENVIRONMENT" \
   "$VELLUM_DODO_BUSINESS_ID" \
   "$VELLUM_DODO_PRODUCT_ID"
 if [[ "$LICENSE_PREFLIGHT_ONLY" -eq 1 ]]; then

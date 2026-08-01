@@ -146,8 +146,8 @@ const LicenseServiceFromStateLive = Layer.effect(
     const installationId = yield* station.installationId;
     const config = compiledLicenseBuildConfig(isRemotePackaged());
     const client =
-      config.configured && config.environment !== null
-        ? makeDodoLicenseClient({ environment: config.environment })
+      config.configured && config.channel === "production"
+        ? makeDodoLicenseClient()
         : undefined;
 
     return makeLicenseService({
