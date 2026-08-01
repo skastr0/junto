@@ -1,9 +1,5 @@
 import { Schema } from "effect";
 import { ActorSeatId } from "./actor-seat";
-import {
-  hasInlineBinaryPayload,
-  validateNoInlineBinaryPayload,
-} from "./content";
 import { InstallationId } from "./installation-id";
 import {
   Artifact,
@@ -727,20 +723,6 @@ const withinRecordBound = (record: unknown): boolean | string => {
   );
 };
 
-/**
- * Station control plane bound: never admit inline Base64 media on a Work
- * record. Content-capable peers carry ContentRef only; older peers must
- * negotiate a common codec rather than receive a down-converted payload.
- */
-const withoutInlineBinary = (record: unknown): boolean | string => {
-  const message = validateNoInlineBinaryPayload(record);
-  return message === undefined ? true : message;
-};
-
-// Keep the pure helper available for fixture tests and callers that need to
-// assert the same rule without going through Schema decode.
-export { hasInlineBinaryPayload, validateNoInlineBinaryPayload };
-
 const WorkCommandShape = Schema.Struct({
   ...WorkRecordCommon.fields,
   recordType: Schema.Literal("command"),
@@ -779,7 +761,6 @@ export const WorkCommand = WorkCommandShape.pipe(
       "Mutation command must name its predecessor"
     );
   }),
-  Schema.filter(withoutInlineBinary),
   Schema.filter(withinRecordBound),
 );
 export type WorkCommand = typeof WorkCommand.Type;
@@ -833,7 +814,6 @@ export const WorkFact = WorkFactShape.pipe(
       record.predecessor !== null || "Mutation fact must name its predecessor"
     );
   }),
-  Schema.filter(withoutInlineBinary),
   Schema.filter(withinRecordBound),
 );
 export type WorkFact = typeof WorkFact.Type;
@@ -867,7 +847,6 @@ export const WorkDisposition = WorkDispositionShape.pipe(
     }
     return true;
   }),
-  Schema.filter(withoutInlineBinary),
   Schema.filter(withinRecordBound),
 );
 export type WorkDisposition = typeof WorkDisposition.Type;
