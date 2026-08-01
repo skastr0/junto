@@ -4,7 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Schema } from "effect";
-import { ContentRef } from "../src/shared/content";
+import {
+  type ContentAvailabilityReason,
+  ContentRef,
+} from "../src/shared/content";
 import {
   CONTENT_PROTOCOL_SCHEME,
   CONTENT_REASON_HEADER,
@@ -162,7 +165,7 @@ describe("content protocol handler", () => {
     const missingHandler = createContentProtocolHandler(async () => ({
       ref,
       state: "missing",
-      reason: "content object is not in the local manifest",
+      reason: "content object is not in the local manifest" as ContentAvailabilityReason,
     }));
     const missing = await missingHandler(new Request(contentObjectUrl(ref)));
     expect(missing.status).toBe(404);
@@ -172,7 +175,7 @@ describe("content protocol handler", () => {
     const corruptHandler = createContentProtocolHandler(async () => ({
       ref,
       state: "corrupt",
-      reason: "content object size does not match ContentRef",
+      reason: "content object size does not match ContentRef" as ContentAvailabilityReason,
     }));
     const corrupt = await corruptHandler(new Request(contentObjectUrl(ref)));
     expect(corrupt.status).toBe(409);
