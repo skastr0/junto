@@ -5,7 +5,6 @@ import {
   lstat,
   mkdir,
   mkdtemp,
-  readFile,
   readdir,
   realpath,
   rm,
@@ -15,11 +14,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Either } from "effect";
-import {
-  controlDir,
-  controlSocketPath,
-  controlTokenPath,
-} from "../src/shared/browser-control";
+import { controlSocketPath, controlTokenPath } from "../src/shared/browser-control";
 import {
   stationControlDir,
   stationControlSocketPath,
@@ -486,7 +481,7 @@ const delay = (milliseconds: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 const waitUntil = async (
-  stage: "control startup" | "process roles" | "shutdown cleanup",
+  stage: "process roles" | "shutdown cleanup",
   timeoutMs: number,
   check: () => boolean | Promise<boolean>,
 ): Promise<void> => {
@@ -727,27 +722,6 @@ export const finalizePackagedRuntimeSandbox = async (
   };
 };
 
-const requireOwnerMode = async (
-  targetPath: string,
-  expectedMode: "0700" | "0600",
-  kind: "directory" | "file" | "socket",
-): Promise<void> => {
-  const metadata = await lstat(targetPath);
-  const matchesKind =
-    kind === "directory"
-      ? metadata.isDirectory()
-      : kind === "file"
-        ? metadata.isFile()
-        : metadata.isSocket();
-  if (
-    !matchesKind ||
-    metadata.uid !== currentUid() ||
-    modeString(metadata.mode) !== expectedMode
-  ) {
-    throw new Error(`packaged control ${kind} ownership or mode mismatch`);
-  }
-};
-
 const ensureDirectory = async (directory: string): Promise<void> => {
   await mkdir(directory, { recursive: true, mode: 0o700 });
   await chmod(directory, 0o700);
@@ -755,17 +729,13 @@ const ensureDirectory = async (directory: string): Promise<void> => {
 
 export interface PackagedRuntimeSmokeReceipt {
   readonly ok: true;
-  readonly doctor: "ok";
-  readonly station: "ok";
-  readonly browserRemoteModes: "absent";
+  readonly admission: "license-required";
+  readonly bundledClis: "present";
+  readonly protectedControls: "absent";
   readonly processRoles: ReadonlyArray<string>;
   readonly tcpListeners: 0;
   readonly debugAuthority: false;
-  readonly directoryMode: "0700";
-  readonly tokenMode: "0600";
-  readonly socketMode: "0600";
   readonly exitCode: 0;
-  readonly socketRemoved: true;
   readonly realRootsUntouched: true;
   readonly tempRootRemoved: true;
 }
@@ -873,94 +843,6 @@ export const smokePackagedRuntime = async (
     if (rootPid === undefined) throw new Error("packaged Vellum Command did not produce a process id");
     const controlHome = isolatedHome;
 
-    await waitUntil("control startup", STARTUP_TIMEOUT_MS, async () => {
-      const terminal = lifecycle.terminal();
-      if (terminal !== undefined) {
-        const [tokenCreated, socketCreated] = await Promise.all([
-          pathExists(controlTokenPath(controlHome)),
-          pathExists(controlSocketPath(controlHome)),
-        ]);
-        throw new Error(
-          `packaged Vellum Command closed before control startup (code=${String(terminal.code)}, signal=${String(terminal.signal)}, error=${terminal.error?.message ?? "none"}, phase=${output.startupMarker()}, token=${String(tokenCreated)}, socket=${String(socketCreated)})`,
-        );
-      }
-      try {
-        await Promise.all([
-          requireOwnerMode(controlDir(controlHome), "0700", "directory"),
-          requireOwnerMode(controlTokenPath(controlHome), "0600", "file"),
-          requireOwnerMode(controlSocketPath(controlHome), "0600", "socket"),
-          requireOwnerMode(
-            stationControlDir(controlHome),
-            "0700",
-            "directory",
-          ),
-          requireOwnerMode(
-            stationControlSocketPath(stationControlDir(controlHome)),
-            "0600",
-            "socket",
-          ),
-        ]);
-        return true;
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
-        throw error;
-      }
-    });
-
-    const token = (await readFile(controlTokenPath(controlHome), "utf8")).trim();
-    if (!/^[0-9a-f]{64}$/u.test(token)) {
-      throw new Error("packaged control token has the wrong opaque format");
-    }
-
-    const doctor = runFixed(browserCli, ["doctor", "--json"], {
-      env: childEnvironment,
-      timeout: 15_000,
-    });
-    if (doctor.status !== 0) {
-      throw new Error("packaged vellum-browser doctor failed");
-    }
-    parseDoctorReceipt(doctor.stdout.trim());
-
-    for (const argv of [
-      ["station"],
-      ["station-trust"],
-      ["--host", "remote-a", "doctor", "--json"],
-    ] as const) {
-      const retired = runFixed(browserCli, [...argv], {
-        env: childEnvironment,
-        timeout: 10_000,
-      });
-      if (retired.status !== 2) {
-        throw new Error(
-          `packaged vellum-browser ${argv.join(" ")} did not reject retired remote mode`,
-        );
-      }
-      if (!/remote Station-browser is removed/i.test(retired.stderr)) {
-        throw new Error(
-          `packaged vellum-browser ${argv.join(" ")} missing retirement message`,
-        );
-      }
-    }
-
-    const stationStatus = await verifyPackagedStationOwnerLocalHandoff(
-      processPlane,
-      stationCli,
-      {
-        cwd: tempRoot,
-        env: childEnvironment,
-        timeoutMs: 15_000,
-      },
-    );
-    if (
-      stationStatus.state !== "unenrolled" ||
-      !stationStatus.readiness.database ||
-      !stationStatus.readiness.session
-    ) {
-      throw new Error(
-        "packaged vellum-station owner-local status was not ready",
-      );
-    }
-
     let runtimeRows: ReadonlyArray<ProcessRow> = [];
     await waitUntil("process roles", STARTUP_TIMEOUT_MS, () => {
       const terminal = lifecycle.terminal();
@@ -973,6 +855,27 @@ export const smokePackagedRuntime = async (
       const roles = processRoles(rootPid, runtimeRows);
       return REQUIRED_PROCESS_ROLES.every((role) => roles.includes(role));
     });
+
+    await delay(250);
+    const protectedControlPaths = [
+      controlTokenPath(controlHome),
+      controlSocketPath(controlHome),
+      stationControlSocketPath(stationControlDir(controlHome)),
+    ];
+    const exposedProtectedControls = (
+      await Promise.all(protectedControlPaths.map(pathExists))
+    ).some(Boolean);
+    if (exposedProtectedControls) {
+      throw new Error(
+        "fresh unlicensed Vellum Command exposed protected product controls",
+      );
+    }
+    const terminalAfterAdmission = lifecycle.terminal();
+    if (terminalAfterAdmission !== undefined) {
+      throw new Error(
+        `packaged Vellum Command closed at the license boundary (code=${String(terminalAfterAdmission.code)}, signal=${String(terminalAfterAdmission.signal)}, error=${terminalAfterAdmission.error?.message ?? "none"}, phase=${output.startupMarker()})`,
+      );
+    }
     if (hasDebugAuthority(runtimeRows)) {
       throw new Error("packaged Vellum Command descendants exposed debugger authority");
     }
@@ -1057,17 +960,13 @@ export const smokePackagedRuntime = async (
 
     success = {
       ok: true,
-      doctor: "ok",
-      station: "ok",
-      browserRemoteModes: "absent",
+      admission: "license-required",
+      bundledClis: "present",
+      protectedControls: "absent",
       processRoles: processRoles(rootPid, runtimeRows),
       tcpListeners: 0,
       debugAuthority: false,
-      directoryMode: "0700",
-      tokenMode: "0600",
-      socketMode: "0600",
       exitCode: 0,
-      socketRemoved: true,
       realRootsUntouched: true,
     };
   } catch (error) {
