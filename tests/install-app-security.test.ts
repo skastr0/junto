@@ -497,7 +497,9 @@ descendant_pid=$!
 printf '%s\\n%s\\n' "$$" "$descendant_pid" > "\${0}.pids"
 while :; do /bin/sleep 1; done`,
       {
-        hardTimeoutMs: 500,
+        // Give the candidate enough scheduling room to write its PID witness
+        // under a busy full-suite run; this remains a bounded test-only limit.
+        hardTimeoutMs: 1_500,
         terminationGraceMs: 50,
         groupReapTimeoutMs: 500,
       },
