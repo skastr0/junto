@@ -267,7 +267,7 @@ const artifactPublishCommand = Command.make(
           }),
       }),
     ),
-).pipe(Command.withDescription("Publish an artifact (path→b64 at CLI boundary)"));
+).pipe(Command.withDescription("Publish an artifact with text/data or ContentRef parts"));
 
 export const artifactCommand = Command.make("artifact").pipe(
   Command.withDescription("Artifact ops"),
