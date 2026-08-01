@@ -73,7 +73,6 @@ import {
 import {
   taskContentPendingMessage,
   taskContentReadiness,
-  validateNoInlineBinaryPayload,
 } from "@shared/content";
 import {
   taskIndexById,
@@ -284,24 +283,6 @@ export class WorkAuthorityError extends Schema.TaggedError<WorkAuthorityError>()
   },
 ) {}
 
-/**
- * New local work facts/commands may carry only ref-only binary parts. RawPart
- * remains decodable for installed history and old Station records, but it
- * must not be copied into a newly authored task, message, or artifact fact.
- */
-const rejectInlineBinaryWorkValue = (
-  operation: string,
-  value: unknown,
-): void => {
-  const violation = validateNoInlineBinaryPayload(value);
-  if (violation !== undefined) {
-    throw WorkRepositoryError.make({
-      operation,
-      message: violation,
-      cause: value,
-    });
-  }
-};
 
 export class WorkReplicationError extends Schema.TaggedError<WorkReplicationError>()(
   "WorkReplicationError",
@@ -3502,7 +3483,6 @@ const commitLocalFact = <A>(
   // Every locally minted fact is a new durable write. This catches legacy
   // RawPart values copied forward by claim/transition/approval paths even
   // when the incoming command itself did not carry a new message payload.
-  rejectInlineBinaryWorkValue(`work.${input.operation}.fact`, input.body);
   assertCurrentIntentBasis(writer, authority, input.sink, input.basis);
   const fact = makeFact(
     writer,
@@ -5734,7 +5714,6 @@ export const WorkRepositoryLive = Layer.effect(
       const receivedAt = timestamp(input.receivedAt);
       const task = Schema.decodeUnknownSync(Task, strictDecode)(input.task);
       return transaction("work.task.create", input.sink, (writer) => {
-        rejectInlineBinaryWorkValue("work.task.create", task);
         const { installationId: localInstallationId } =
           canonicalLocalWorkAuthority(writer);
         if (task.state !== "submitted" || task.claimedBy !== undefined) {
@@ -5795,7 +5774,6 @@ export const WorkRepositoryLive = Layer.effect(
         strictDecode,
       )(input.proposal);
       return transaction("work.proposal.create", input.sink, (writer) => {
-        rejectInlineBinaryWorkValue("work.proposal.create", proposal);
         const { installationId: localInstallationId } =
           canonicalLocalWorkAuthority(writer);
         if (proposal.state !== "pending") {
@@ -5838,7 +5816,6 @@ export const WorkRepositoryLive = Layer.effect(
       const receivedAt = timestamp(input.receivedAt);
       const task = Schema.decodeUnknownSync(Task, strictDecode)(input.task);
       return transaction("work.proposal.approve", input.sink, (writer) => {
-        rejectInlineBinaryWorkValue("work.proposal.approve", task);
         const authority = canonicalLocalWorkAuthority(writer);
         if (authority.role !== "command-center") {
           throw authorityError(
@@ -5920,7 +5897,6 @@ export const WorkRepositoryLive = Layer.effect(
         strictDecode,
       )(input.message);
       return transaction("work.task.describe", input.sink, (writer) => {
-        rejectInlineBinaryWorkValue("work.task.describe", message);
         const { installationId: localInstallationId } =
           canonicalLocalWorkAuthority(writer);
         const current = loadTask(
@@ -5982,7 +5958,6 @@ export const WorkRepositoryLive = Layer.effect(
           : Schema.decodeUnknownSync(Message, strictDecode)(input.message);
       return transaction("work.task.transition", input.sink, (writer) => {
         if (message !== undefined) {
-          rejectInlineBinaryWorkValue("work.task.transition", message);
         }
         const { installationId: localInstallationId } =
           canonicalLocalWorkAuthority(writer);
@@ -6150,7 +6125,6 @@ export const WorkRepositoryLive = Layer.effect(
         input.request,
       );
       return transaction("work.request.create", input.sink, (writer) => {
-        rejectInlineBinaryWorkValue("work.request.create", request);
         const { installationId: localInstallationId } =
           canonicalLocalWorkAuthority(writer);
         if (
@@ -6201,7 +6175,6 @@ export const WorkRepositoryLive = Layer.effect(
           : Schema.decodeUnknownSync(Message, strictDecode)(input.message);
       return transaction("work.request.resolve", input.sink, (writer) => {
         if (message !== undefined) {
-          rejectInlineBinaryWorkValue("work.request.resolve", message);
         }
         const { installationId: localInstallationId } =
           canonicalLocalWorkAuthority(writer);
@@ -6276,7 +6249,6 @@ export const WorkRepositoryLive = Layer.effect(
         strictDecode,
       )(input.destination);
       return transaction("work.message.append", input.sink, (writer) => {
-        rejectInlineBinaryWorkValue("work.message.append", message);
         const authority = canonicalLocalWorkAuthority(writer);
         const localInstallationId = authority.installationId;
         if (destination.kind === "mailbox") {
@@ -6335,7 +6307,6 @@ export const WorkRepositoryLive = Layer.effect(
         strictDecode,
       )(input.artifact);
       return transaction("work.artifact.publish", input.sink, (writer) => {
-        rejectInlineBinaryWorkValue("work.artifact.publish", artifact);
         const { installationId: localInstallationId } =
           canonicalLocalWorkAuthority(writer);
         assertArtifactTaskReference(
@@ -6713,10 +6684,6 @@ export const WorkRepositoryLive = Layer.effect(
             WorkAction,
             strictDecode,
           )(input.action);
-          rejectInlineBinaryWorkValue(
-            `work.${action.operation}.enqueue`,
-            action,
-          );
           if (action.operation === "task.claim") {
             throw authorityError(
               "target-mismatch",
@@ -6774,10 +6741,6 @@ export const WorkRepositoryLive = Layer.effect(
             WorkAction,
             strictDecode,
           )(input.action);
-          rejectInlineBinaryWorkValue(
-            "work.proposal.approve.enqueue",
-            action,
-          );
           if (action.operation !== "proposal.approve") {
             throw authorityError(
               "target-mismatch",

@@ -216,7 +216,7 @@ describe("media transport e2e · task creation + WorkRecord bounds", () => {
     expect(encoded!).toBeLessThan(ref.byteLength / 1_000);
   });
 
-  it("admits historical RawPart on decode while durable-write guards reject new inline Base64", () => {
+  it("admits historical RawPart on WorkRecord decode (no codec ban)", () => {
     const inline = {
       protocol: "vellum/work/v2",
       recordType: "fact",
@@ -268,16 +268,9 @@ describe("media transport e2e · task creation + WorkRecord bounds", () => {
       },
     };
 
-    // Decode still admits historical RawPart (installed state / migration input).
-    // New durable writes reject via admission guards, not the record codec.
+    // Decode admits historical RawPart. No work-record ban on inline media.
     expect(hasInlineBinaryPayload(inline)).toBe(true);
     expect(Either.isRight(decodeWorkRecord(inline))).toBe(true);
-    expect(
-      validateDurableParts(
-        (inline.body.task.history[0] as { parts: unknown[] }).parts,
-      ),
-    ).toMatch(/ContentRef|Base64/i);
-    expect(validateNoInlineBinaryPayload(inline)).toMatch(/Base64|ContentRef/i);
   });
 
   it("keeps a gigabyte logical video under the control-record bound", () => {
@@ -830,15 +823,7 @@ describe("media transport e2e · Station projection + transfer + offline", () =>
     expect(negotiation).toMatchObject({ _tag: "no-common" });
 
     // No Base64 down-conversion path: older peers get no-common, not a
-    // rewritten wire record. New durable writes still reject inline media.
-    const inlineDownConvert = {
-      kind: "raw" as const,
-      bytesBase64: Buffer.alloc(1024, 1).toString("base64"),
-      mediaType: "video/mp4",
-    };
-    expect(validateDurableParts([inlineDownConvert])).toMatch(/Base64|ContentRef/i);
-    expect(validateNoInlineBinaryPayload({ parts: [inlineDownConvert] })).toMatch(
-      /Base64|ContentRef/i,
-    );
+    // rewritten wire record that smuggles media inline.
+    expect(negotiation._tag).toBe("no-common");
   });
 });

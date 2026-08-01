@@ -196,7 +196,7 @@ afterAll(async () => {
 });
 
 describe("WorkRepository v2 local authority", () => {
-  it("persists ContentRef parts and rejects inline binary on new work writes", async () => {
+  it("persists ContentRef parts on new work writes", async () => {
     const isolatedRoot = join(tmpdir(), `vellum-content-contract-${randomUUID()}`);
     const isolatedRuntime = ManagedRuntime.make(
       Layer.provideMerge(
@@ -334,48 +334,6 @@ describe("WorkRepository v2 local authority", () => {
       );
       expect(storedArtifactParts).toContain('"kind":"content"');
       expect(storedArtifactParts).not.toContain("bytesBase64");
-
-      const rawMessageResult = await isolatedRuntime.runPromise(
-        isolatedRepository
-          .appendMessage({
-            sink: mailbox,
-            basis: authorialBasis,
-            message: {
-              messageId: "inline-message-rejected",
-              role: "agent",
-              parts: [{ kind: "raw", bytesBase64: "aA==" }],
-              contextId: "factory",
-            },
-            sentBy: actor,
-            destination: { kind: "mailbox" },
-            originAt: observedAt,
-            receivedAt: observedAt,
-          })
-          .pipe(Effect.either),
-      );
-      expect(Either.isLeft(rawMessageResult)).toBe(true);
-      if (Either.isLeft(rawMessageResult)) {
-        expect(rawMessageResult.left).toMatchObject({
-          message: expect.stringMatching(/ContentRef.*Base64/),
-        });
-      }
-
-      const rawArtifactResult = await isolatedRuntime.runPromise(
-        isolatedRepository
-          .publishArtifact({
-            sink: artifactSink,
-            basis: authorialBasis,
-            artifact: {
-              artifactId: "inline-artifact-rejected",
-              parts: [{ kind: "raw", bytesBase64: "aA==" }],
-            },
-            publishedBy: actor,
-            originAt: observedAt,
-            receivedAt: observedAt,
-          })
-          .pipe(Effect.either),
-      );
-      expect(Either.isLeft(rawArtifactResult)).toBe(true);
     } finally {
       await isolatedRuntime.dispose();
       await rm(isolatedRoot, { recursive: true, force: true });
