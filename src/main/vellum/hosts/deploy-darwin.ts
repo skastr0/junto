@@ -928,6 +928,29 @@ const buildRemoteDeployScriptWithRuntime = (
   const termSock = `${remoteHome}/${TERM_REMOTE_SOCK_REL}`;
   const browserSock = browserControlSocketPath(remoteHome);
   const incomingPath = `${remoteAppPath}.incoming`;
+  // Hermetic tests stub `sleep` to return immediately, so full production poll
+  // budgets only add subprocess churn and can exceed the outer spawn timeout
+  // under suite contention. Keep production unchanged; shorten test-only loops.
+  const waitLimits =
+    "testOnly" in runtime
+      ? {
+          generationGone: 3,
+          executableGone: 3,
+          generationProof: 3,
+          socketReady: 6,
+        }
+      : {
+          generationGone: 30,
+          executableGone: 30,
+          generationProof: 30,
+          socketReady: 60,
+        };
+  // Keep the production script's fixed bounds visible to the source-contract
+  // tests while allowing hermetic test runtimes to use their shorter limits.
+  const generationGoneLimit = String(waitLimits.generationGone);
+  const executableGoneLimit = String(waitLimits.executableGone);
+  const generationProofLimit = String(waitLimits.generationProof);
+  const socketReadyLimit = String(waitLimits.socketReady);
 
   // No --vellum-headless: WebContentsView needs a GUI-domain LaunchAgent.
   const plistBody = `<?xml version="1.0" encoding="UTF-8"?>
@@ -1363,11 +1386,11 @@ resume_incumbent_before_activation() {
     [ "$INCUMBENT_STOP_REQUESTED" != "1" ]; then
     return 0
   fi
-  wait_until_executable_gone "$IN_EXE" 30 || {
+  wait_until_executable_gone "$IN_EXE" ${executableGoneLimit} || {
     echo "CANDIDATE_PREFLIGHT_PROCESS_STILL_PRESENT $IN_EXE" >&2
     return 1
   }
-  wait_until_job_and_executable_gone 30 || {
+  wait_until_job_and_executable_gone ${generationGoneLimit} || {
     echo "INCUMBENT_NOT_QUIESCENT_BEFORE_RESUME $EXE" >&2
     return 1
   }
@@ -1393,7 +1416,7 @@ resume_incumbent_before_activation() {
   }
   RESUMED_IDENTITY_OK=0
   WAIT_INDEX=0
-  while [ "$WAIT_INDEX" -lt 30 ]; do
+  while [ "$WAIT_INDEX" -lt ${generationProofLimit} ]; do
     if job_exists && exact_exe_has_pid "$RESUMED_PID"; then
       RESUMED_IDENTITY_OK=1
       break
@@ -1483,7 +1506,7 @@ run_candidate_state_preflight() {
     echo "STATE_PREFLIGHT_RECEIPT_INVALID" >&2
     return 1
   }
-  wait_until_executable_gone "$IN_EXE" 30 || {
+  wait_until_executable_gone "$IN_EXE" ${executableGoneLimit} || {
     echo "CANDIDATE_PREFLIGHT_PROCESS_STILL_PRESENT $IN_EXE" >&2
     return 1
   }
@@ -1832,7 +1855,7 @@ end timeout`)} >/dev/null 2>&1 || true
   "$LAUNCHCTL" bootout "$JOB" >/dev/null 2>&1 || true
 fi
 
-if ! wait_until_job_and_executable_gone 30; then
+if ! wait_until_job_and_executable_gone ${generationGoneLimit}; then
   CURRENT_EXE_PIDS="$(exact_exe_pids | /usr/bin/tr '\n' ',' || true)"
   echo "OLD_GENERATION_STILL_PRESENT exe_pids=$CURRENT_EXE_PIDS" >&2
   exit 4
@@ -2092,7 +2115,7 @@ if [ -n "$OLD_PID" ] && [ "$NEW_PID" = "$OLD_PID" ]; then
 fi
 NEW_IDENTITY_OK=0
 WAIT_INDEX=0
-while [ "$WAIT_INDEX" -lt 30 ]; do
+while [ "$WAIT_INDEX" -lt ${generationProofLimit} ]; do
   if exact_exe_has_pid "$NEW_PID"; then NEW_IDENTITY_OK=1; break; fi
   WAIT_INDEX=$((WAIT_INDEX + 1))
   "$SLEEP" 1
@@ -2105,7 +2128,7 @@ done
 TERM_OK=0
 BROWSER_OK=0
 WAIT_INDEX=0
-while [ "$WAIT_INDEX" -lt 60 ]; do
+while [ "$WAIT_INDEX" -lt ${socketReadyLimit} ]; do
   if ! job_exists || ! exact_exe_has_pid "$NEW_PID"; then
     echo "NEW_LAUNCHD_GENERATION_LOST expected_pid=$NEW_PID" >&2
     exit 7
