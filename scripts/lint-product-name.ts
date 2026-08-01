@@ -9,6 +9,8 @@
  * - identifiers glued on: VellumApi, resolveVellumHome
  * - lowercase paths / bins: ~/.vellum/, vellum.db, dist/vellum
  * - env / package keys: VELLUM_*, @skastr0/vellum
+ * - hyphenated internal protocol/header tokens: X-Vellum-Content-State
+ *   (local wire labels, not product brand — do not rename for lint alone)
  *
  * Run: `bun run lint:product-name`
  * Exit 0 = clean; exit 1 = violations printed.
@@ -90,6 +92,9 @@ const ROOT_TEXT_FILES = new Set([
 const LINE_ALLOW: readonly RegExp[] = [
   // This file encodes the forbidden bare token in its pattern source.
   /BARE_PRODUCT|lint-product-name|bare product token/i,
+  // Local/internal header and protocol token labels (not user-facing brand).
+  // e.g. X-Vellum-Content-State — keep stable; do not force Vellum Command here.
+  /\bX-Vellum-[A-Za-z0-9-]+\b/,
 ];
 
 type Hit = { file: string; line: number; text: string };

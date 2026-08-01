@@ -107,6 +107,6 @@ export const parseContentObjectUrl = (url: string): ContentRef | undefined => {
 };
 
 /** Response header names used by the content protocol (stable for renderer UX). */
-export const CONTENT_STATE_HEADER = "X-Vellumcommand-Content-State" as const;
-export const CONTENT_REASON_HEADER = "X-Vellumcommand-Content-Reason" as const;
-export const CONTENT_SHA256_HEADER = "X-Vellumcommand-Content-Sha256" as const;
+export const CONTENT_STATE_HEADER = "X-Vellum-Content-State" as const;
+export const CONTENT_REASON_HEADER = "X-Vellum-Content-Reason" as const;
+export const CONTENT_SHA256_HEADER = "X-Vellum-Content-Sha256" as const;
