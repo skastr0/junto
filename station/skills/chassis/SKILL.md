@@ -5,7 +5,8 @@ description: Default guidance for Codex agents running inside a Chassis-derived 
 
 # Chassis Station Skill
 
-This station is a local, open source desktop app built on Electron, Effect, React, Legend State, Motion, Prism, and the Codex App Server.
+This station is a local, closed-source desktop app built on Electron, Effect,
+React, Legend State, Motion, Prism, and the Codex App Server.
 
 When working inside a Chassis-derived app:
 

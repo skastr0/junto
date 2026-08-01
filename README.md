@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/skastr0/vellum/releases/latest"><strong>Download for macOS</strong></a>
+  <a href="https://vellumcommand.com/download"><strong>Download for macOS</strong></a>
   ·
   <a href="https://vellumcommand.com">vellumcommand.com</a>
 </p>
@@ -75,30 +75,24 @@ Managing agents is overwhelming.
 
 ## Download
 
-**[Download the notarized macOS build →](https://github.com/skastr0/vellum/releases/latest)**
+**[Download Vellum Command for macOS →](https://vellumcommand.com/download)**
+
+Vellum Command is a **closed-source, privately distributed macOS application**.
+Customers receive a signed and notarized app from the Vellum Command download
+page; the source repository is private and there is no supported public
+source-build or package-install path. The app's automatic update feed is the
+Cloudflare Worker configured in
+[src/main/vellum/update/compiled-config.ts](src/main/vellum/update/compiled-config.ts),
+not GitHub Releases.
 
 Requirements: **macOS 13+** (arm64 primary). Install **Hermes** and **Herdr** for live fleet and terminal features; browser nodes ship with the station.
 
-Prefer source?
-
-```bash
-bun install
-bun run app:build              # pinned Dodo Test beta profile
-bun run app:install:skip-build
-```
-
-Production packaging is explicit and fails before compilation unless the Live
-Dodo business and product IDs are present:
-
-```bash
-VELLUM_DODO_BUSINESS_ID=bus_... \
-VELLUM_DODO_PRODUCT_ID=pdt_... \
-bun run app:build:production
-```
+Authorized maintainers with repository access use the internal development and
+release instructions in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Quick start
 
-1. Download and open **Vellum Command** from the [latest Release](https://github.com/skastr0/vellum/releases/latest).
+1. Download and open **Vellum Command** from the [Vellum Command download page](https://vellumcommand.com/download).
 2. Pick a **station role** (Command Center or Remote) on first run.
 3. Author the board — drop agents, herdr panes, pages, tasks, regions.
 4. Open an agent or herdr surface; drive work via the **Vellum Command CLI** or in-app chat.
@@ -673,4 +667,7 @@ privately. See [`SECURITY.md`](SECURITY.md).
 
 ## Contributing
 
-Issues welcome with enough context to reproduce. See [`CONTRIBUTING.md`](CONTRIBUTING.md).
+Vellum Command is closed source and privately maintained. There is no public
+contribution or source-build program. Authorized maintainers can use the
+internal workflow in [CONTRIBUTING.md](CONTRIBUTING.md); customers should use
+the download page or private support channel at support@vellumcommand.com.

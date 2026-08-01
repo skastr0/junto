@@ -1,52 +1,41 @@
-# Contributing
+# Internal development
 
-Thanks for helping improve Vellum Command.
+Vellum Command is **closed source, private, and solo-maintained**. This
+repository is an internal engineering surface for authorized maintainers and
+contractors. There is no public contribution program, public source
+distribution, or supported build-from-source path for customers.
 
-**Vellum Command** is **solo-maintained**. The default contribution path is **issues first**, not unsolicited large pull requests.
+## Customer and security requests
 
-## Good Issues
+Customers should use the [Vellum Command download page](https://vellumcommand.com/download)
+for the signed application. Send security reports privately to
+**support@vellumcommand.com**; do not open public issues or submit unsolicited
+pull requests.
 
-Open an issue when you can provide:
-
-- a clear problem statement
-- reproduction steps or a minimal example
-- expected behavior
-- actual behavior
-- version / release tag, macOS version, and hardware arch (arm64 / x64)
-
-For proposals, include the maintenance cost: what this adds, removes, or makes harder to support.
-
-## Pull Requests
-
-Small pull requests for clear bugs, documentation corrections, and agreed follow-ups are welcome.
-
-Before opening a larger pull request:
-
-1. Open an issue.
-2. Wait for maintainer confirmation that the change fits the product.
-3. Keep the implementation scoped to the accepted behavior.
-
-Unsolicited large rewrites, new subsystems, broad formatting changes, generated churn, or unrelated dependency updates may be closed without review.
-
-## Development
+## Authorized development
 
 ```bash
 bun install
-bun run verify          # typecheck + unit tests + vite compile
-bun run app:build       # package pinned Dodo Test beta app + zip/dmg
+bun run verify                 # security policy + brand + typecheck + tests + Vite compile
+bun run app:build              # package the pinned Dodo Test beta app
+bun run app:build:ship         # verify, notarize, and prepare signed macOS artifacts
 ```
 
-Maintainer macOS ship loop (version bump → notarize → R2 feed): see
+The maintainer macOS ship loop (version bump → notarize → Cloudflare Worker/R2
+feed) is documented in
 [`docs/mac-release-runbook.md`](docs/mac-release-runbook.md)
-(`bun run version:bump`, `bun run app:build:ship`, `bun run mac:release:publish`).
+(`bun run version:bump`, `bun run app:build:ship`,
+`bun run mac:release:publish`). GitHub Releases are not part of the release
+flow.
 
 `app:build` and its platform/verification variants always produce the pinned
 beta profile unless `--channel production` is explicit. Production packaging
 requires `VELLUM_DODO_BUSINESS_ID` and `VELLUM_DODO_PRODUCT_ID`; packaged
 development builds are rejected.
 
-Before submitting:
+Before submitting an internal change:
 
 - run `bun run verify`
 - keep the diff focused
+- obtain maintainer review before merging or publishing
 - do not commit local state, secrets, scanner output, or `.groundwork/` sessions

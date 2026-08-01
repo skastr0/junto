@@ -2,22 +2,22 @@
 
 ## Supported Status
 
-Vellum Command is a **stable**, solo-maintained macOS desktop product. Security reports for the current release line are reviewed on a best-effort basis.
+Vellum Command is a **closed-source, privately distributed macOS application**.
+The current customer distribution is a private beta, and security reports for
+the current signed build are reviewed on a best-effort basis.
 
-| Version or branch | Supported |
+| Build | Supported |
 | --- | --- |
-| Latest GitHub Release | Yes |
-| `main` (pre-release commits) | Best-effort |
-| Older releases | No (upgrade to latest) |
+| Current signed Vellum Command build | Yes |
+| Authorized development builds | Best-effort |
+| Older signed builds | No (upgrade to the current build) |
 
 ## Reporting A Vulnerability
 
 Do not open a public issue for suspected vulnerabilities.
 
-Report privately through:
-
-- GitHub Security Advisories for this repository (preferred when the repo is public)
-- Or contact the maintainer via the GitHub profile linked from this repository
+Report privately to **support@vellumcommand.com**. Do not open a public issue or
+publish reproduction details.
 
 Include:
 
@@ -34,12 +34,13 @@ Please redact tokens, personal data, private endpoints, and unrelated secrets fr
 In scope:
 
 - Vellum Command desktop app (Electron main, preload, renderer)
-- Packaged release artifacts published via official GitHub Releases
+- Packaged release artifacts served from the Vellum Command download page and
+  Cloudflare Worker/R2 update feed
 - Local control sockets, capability grants, browser/herdr/hermes integration as shipped
 
 Out of scope:
 
-- Unsupported versions or forks
+- Unsupported or modified local builds
 - Social engineering
 - Denial-of-service against maintainer infrastructure
 - Findings that require an already-compromised local machine unless Vellum Command materially increases impact
@@ -51,8 +52,14 @@ The maintainer will coordinate disclosure timing based on severity, available fi
 
 ## Supply Chain Notes
 
-Official release channels:
+Official customer channels:
 
-- GitHub Releases for this repository (`skastr0/vellum`) — notarized macOS `.zip` / `.dmg` when published
+- [Vellum Command download page](https://vellumcommand.com/download) — the
+  customer entry point for the signed and notarized macOS build
+- The Cloudflare Worker feed compiled into the packaged app at
+  `src/main/vellum/update/compiled-config.ts` — automatic updates and their
+  immutable artifacts
 
-Do not trust binaries, packages, or install commands from channels not listed here.
+The GitHub repository is a private source and control surface, not a release
+channel. GitHub Releases are not authoritative for Vellum Command. Do not trust
+binaries, packages, or install commands from channels not listed here.
