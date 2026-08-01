@@ -89,6 +89,43 @@ const COLOR_OPTIONS: ReadonlyArray<{ readonly value: string; readonly label: str
   { value: "6", label: "violet", hue: HUE.violet },
 ];
 
+/** JSON Canvas accent presets — shared by node + region command cards. */
+function AccentColorSwatches({
+  nodeId,
+  color,
+}: {
+  readonly nodeId: string;
+  readonly color: string | undefined;
+}) {
+  return (
+    <div className="rts-cmd-accents" aria-label="Accent color">
+      <button
+        type="button"
+        className={`rts-swatch${!color ? " is-active" : ""}`}
+        title="default accent"
+        aria-label="Use default accent"
+        aria-pressed={!color}
+        onClick={() => setNodeColor(nodeId, undefined)}
+      >
+        <span style={{ background: HUE.amber }} />
+      </button>
+      {COLOR_OPTIONS.map(({ value, label, hue }) => (
+        <button
+          key={value}
+          type="button"
+          className={`rts-swatch${color === value ? " is-active" : ""}`}
+          title={`${label} accent`}
+          aria-label={`Set ${label} accent`}
+          aria-pressed={color === value}
+          onClick={() => setNodeColor(nodeId, value)}
+        >
+          <span style={{ background: hue }} />
+        </button>
+      ))}
+    </div>
+  );
+}
+
 const FLAG_META: ReadonlyArray<{
   readonly flag: EtherFlag;
   readonly hue: string;
@@ -310,7 +347,9 @@ function RegionCommandCard({
   // looked like a duplicated index.
 
   // Keys: pause + hold/slot + rename + delete. Focus is free via the region
-  // hotbar chip; field forms live on the kind strip.
+  // hotbar chip; field forms live on the kind strip. Accent color is a
+  // region customization property (JSON Canvas `color`) — same presets as
+  // free nodes; GroupNode already paints border/tint from it.
   return (
     <div className="rts-panel rts-panel--cmd">
       <div className="rts-panel__label">
@@ -326,6 +365,7 @@ function RegionCommandCard({
             <div className="rts-cmd__title" title={regionRollup.label}>{regionRollup.label}</div>
             <div className="rts-cmd__meta">{metaBits}</div>
           </div>
+          <AccentColorSwatches nodeId={node.id} color={node.color} />
           {members.length > 0 ? (
             <div className="rts-rollcall-strip" aria-label="Region members">
               {visible.map((member) => {
@@ -508,31 +548,7 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
           <div className="rts-cmd__title" title={nodeTitle(node)}>{nodeTitle(node)}</div>
         </div>
 
-        <div className="rts-cmd-accents" aria-label="Accent color">
-          <button
-            type="button"
-            className={`rts-swatch${!node.color ? " is-active" : ""}`}
-            title="default accent"
-            aria-label="Use default accent"
-            aria-pressed={!node.color}
-            onClick={() => setNodeColor(node.id, undefined)}
-          >
-            <span style={{ background: HUE.amber }} />
-          </button>
-          {COLOR_OPTIONS.map(({ value, label, hue }) => (
-            <button
-              key={value}
-              type="button"
-              className={`rts-swatch${node.color === value ? " is-active" : ""}`}
-              title={`${label} accent`}
-              aria-label={`Set ${label} accent`}
-              aria-pressed={node.color === value}
-              onClick={() => setNodeColor(node.id, value)}
-            >
-              <span style={{ background: hue }} />
-            </button>
-          ))}
-        </div>
+        <AccentColorSwatches nodeId={node.id} color={node.color} />
 
         {/* Role base actions + flags + shared utilities — kind actions live middle */}
         <div className="rts-cmd-keys" role="toolbar" aria-label="Node actions">

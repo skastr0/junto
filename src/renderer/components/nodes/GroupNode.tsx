@@ -80,9 +80,59 @@ function RegionToolbar({
   </NodeToolbar>;
 }
 
-function RegionLabel({ label, editing, draft, inputRef, onDraft, onCommit, onCancel, onEdit }: { readonly label: string; readonly editing: boolean; readonly draft: string; readonly inputRef: React.RefObject<HTMLInputElement | null>; readonly onDraft: (value: string) => void; readonly onCommit: () => void; readonly onCancel: () => void; readonly onEdit: () => void }) {
-  if (editing) return <input ref={inputRef} autoFocus aria-label="Edit region label" className="nodrag rounded-sm bg-inset px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] outline-none" style={{ color: INK, border: `1px solid ${withAlpha(HUE.amber, 0.4)}` }} value={draft} onChange={(event) => onDraft(event.target.value)} onBlur={onCommit} onKeyDown={(event) => { if (event.key === "Enter") onCommit(); if (event.key === "Escape") onCancel(); }} />;
-  return <span className="vellum-group__label cursor-text rounded-sm px-2 py-1 text-[10px] uppercase tracking-[0.18em]" onDoubleClick={(event) => { event.preventDefault(); event.stopPropagation(); onEdit(); }}>{label || "unnamed region"}</span>;
+function RegionLabel({
+  label,
+  editing,
+  draft,
+  inputRef,
+  onDraft,
+  onCommit,
+  onCancel,
+  onEdit,
+  accent,
+}: {
+  readonly label: string;
+  readonly editing: boolean;
+  readonly draft: string;
+  readonly inputRef: React.RefObject<HTMLInputElement | null>;
+  readonly onDraft: (value: string) => void;
+  readonly onCommit: () => void;
+  readonly onCancel: () => void;
+  readonly onEdit: () => void;
+  /** Optional plate accent — tints the label when the region has a color. */
+  readonly accent?: string;
+}) {
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        autoFocus
+        aria-label="Edit region label"
+        className="nodrag rounded-sm bg-inset px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] outline-none"
+        style={{ color: INK, border: `1px solid ${withAlpha(HUE.amber, 0.4)}` }}
+        value={draft}
+        onChange={(event) => onDraft(event.target.value)}
+        onBlur={onCommit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") onCommit();
+          if (event.key === "Escape") onCancel();
+        }}
+      />
+    );
+  }
+  return (
+    <span
+      className="vellum-group__label cursor-text rounded-sm px-2 py-1 text-[10px] uppercase tracking-[0.18em]"
+      style={accent ? { color: accent } : undefined}
+      onDoubleClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onEdit();
+      }}
+    >
+      {label || "unnamed region"}
+    </span>
+  );
 }
 
 export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
@@ -125,7 +175,10 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
     if (draft !== label) renameGroup(node.id, draft);
   };
 
-  return <div className="vellum-group relative h-full w-full rounded-[14px]" style={{ border: `1px solid ${selected ? withAlpha(HUE.amber, 0.6) : stroke}`, backgroundImage: hasBackground ? `linear-gradient(135deg, ${withAlpha(tint, 0.1)}, rgba(13,12,11,0.5)), url(${JSON.stringify(background)})` : undefined, background: hasBackground ? undefined : node.color ? `linear-gradient(135deg, ${withAlpha(tint, 0.08)}, rgba(13,12,11,0.25))` : "linear-gradient(135deg, rgba(33,27,21,0.22), rgba(11,11,10,0.12))", backgroundSize: hasBackground ? (backgroundStyle === "cover" ? "cover" : backgroundStyle === "ratio" ? "contain" : "auto") : undefined, backgroundRepeat: hasBackground && backgroundStyle === "repeat" ? "repeat" : "no-repeat", backgroundPosition: hasBackground ? "center" : undefined, boxShadow: selected ? `0 0 0 1px ${withAlpha(HUE.amber, 0.18)}` : "none" }}>
+  // Selection chrome stays amber; unselected border + plate tint follow
+  // JSON Canvas `color` so region color customization is visible on the map.
+  const plateBorder = selected ? withAlpha(HUE.amber, 0.6) : stroke;
+  return <div className="vellum-group relative h-full w-full rounded-[14px]" style={{ border: `1px solid ${plateBorder}`, backgroundImage: hasBackground ? `linear-gradient(135deg, ${withAlpha(tint, 0.1)}, rgba(13,12,11,0.5)), url(${JSON.stringify(background)})` : undefined, background: hasBackground ? undefined : node.color ? `linear-gradient(135deg, ${withAlpha(tint, 0.08)}, rgba(13,12,11,0.25))` : "linear-gradient(135deg, rgba(33,27,21,0.22), rgba(11,11,10,0.12))", backgroundSize: hasBackground ? (backgroundStyle === "cover" ? "cover" : backgroundStyle === "ratio" ? "contain" : "auto") : undefined, backgroundRepeat: hasBackground && backgroundStyle === "repeat" ? "repeat" : "no-repeat", backgroundPosition: hasBackground ? "center" : undefined, boxShadow: selected ? `0 0 0 1px ${withAlpha(HUE.amber, 0.18)}` : "none" }}>
     <NodeResizer isVisible={selected} minWidth={320} minHeight={180} color={HUE.amber} handleClassName="vellum-resize-handle" lineClassName="vellum-resize-line" onResizeEnd={(_event, params) => resizeNode(node.id, params)} />
     <RegionToolbar
       nodeId={node.id}
@@ -137,7 +190,7 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
       onToggleFocus={() => toggleConnectionFocus(node.id)}
     />
     <div className="absolute left-2 top-2 flex items-center gap-1">
-      <RegionLabel label={label} editing={editing} draft={draft} inputRef={inputRef} onDraft={setDraft} onCommit={commit} onCancel={() => setEditing(false)} onEdit={() => setEditing(true)} />
+      <RegionLabel label={label} editing={editing} draft={draft} inputRef={inputRef} onDraft={setDraft} onCommit={commit} onCancel={() => setEditing(false)} onEdit={() => setEditing(true)} accent={node.color ? tint : undefined} />
       {node.ether?.region?.hold ? <Lock aria-label="Region holds its contents" size={10} style={{ opacity: 0.5, color: INK, flexShrink: 0 }} /> : null}
       {hasPaths ? <span title="Region has host folder paths" style={{ display: "inline-flex", flexShrink: 0 }}><FolderOpen aria-label="Region has folder paths" size={10} style={{ opacity: 0.5, color: INK }} /></span> : null}
       {instruction ? <span title={instruction} style={{ display: "inline-flex", flexShrink: 0 }}><ScrollText aria-label="Region has a briefing" size={10} style={{ opacity: 0.5, color: INK }} /></span> : null}

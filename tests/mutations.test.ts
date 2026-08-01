@@ -882,6 +882,20 @@ describe("renderer graph mutations", () => {
     expect(state$.doc.peek().nodes[0].color).toBeUndefined();
   });
 
+  it("sets and clears region plate accent colors", () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc({
+      nodes: [{ id: "region", type: "group", label: "Ops", x: 0, y: 0, width: 400, height: 200 }],
+      edges: [],
+    });
+    setNodeColor("region", "6");
+    const colored = state$.doc.peek().nodes[0];
+    expect(colored?.type).toBe("group");
+    expect(colored?.color).toBe("6");
+    setNodeColor("region");
+    expect(state$.doc.peek().nodes[0]?.color).toBeUndefined();
+  });
+
   it("changes only a tasks sink queue home", () => {
     state$.canvasName.set("mutation-test");
     loadDoc({
