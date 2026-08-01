@@ -85,7 +85,7 @@ const taskWithRef = (ref: ContentRef): Task => ({
         { kind: "content", ref },
       ],
       taskId: "task-media-1",
-      contextId: "Vellum",
+      contextId: "Vellumcommand",
     },
   ],
 });

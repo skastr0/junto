@@ -148,7 +148,7 @@
               }
             ],
             "taskId": "task-media-1",
-            "contextId": "Vellum"
+            "contextId": "Vellumcommand"
           }
         ]
       }
@@ -198,7 +198,7 @@
               }
             ],
             "taskId": "task-media-legacy",
-            "contextId": "Vellum"
+            "contextId": "Vellumcommand"
           }
         ]
       }

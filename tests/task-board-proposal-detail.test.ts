@@ -24,7 +24,7 @@ describe("proposalAsDisplayTask", () => {
           },
         ],
         taskId: "proposal-1",
-        contextId: "Vellum",
+        contextId: "Vellumcommand",
       },
       proposedBy: {
         seatId: seat("a".repeat(64)),
@@ -71,7 +71,7 @@ describe("proposalAsDisplayTask", () => {
         role: "user",
         parts: [{ kind: "text", text: "x" }],
         taskId: "proposal-2",
-        contextId: "Vellum",
+        contextId: "Vellumcommand",
       },
       proposedBy: {
         seatId: seat("b".repeat(64)),

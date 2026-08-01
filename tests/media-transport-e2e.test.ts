@@ -140,7 +140,7 @@ const taskWithContent = (
         ...refs.map((ref) => ({ kind: "content" as const, ref })),
       ],
       taskId: id,
-      contextId: "Vellum",
+      contextId: "Vellumcommand",
     },
   ],
 });
@@ -261,7 +261,7 @@ describe("media transport e2e · task creation + WorkRecord bounds", () => {
                 },
               ],
               taskId: "task-legacy-b64",
-              contextId: "Vellum",
+              contextId: "Vellumcommand",
             },
           ],
         },

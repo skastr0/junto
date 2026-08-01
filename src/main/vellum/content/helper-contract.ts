@@ -2,7 +2,7 @@
  * Fixed packaged content helper surface.
  *
  * The helper never accepts host paths or free-form shell.  Modes are closed
- * argv records that operate only on the local Vellum content layout under
+ * argv records that operate only on the local Vellum Command content layout under
  * `$HOME/.vellum/content/…`.  Bytes travel on stdin/stdout; control/status is
  * a single bounded JSON line on the opposite stream of the byte direction.
  */

@@ -3,7 +3,7 @@
  * Fixed packaged content helper.
  *
  * Closed argv only: receive | send | stat.  Operates solely on the local
- * Vellum content layout; never accepts host paths or shell fragments.
+ * Vellum Command content layout; never accepts host paths or shell fragments.
  * Bytes travel on stdin/stdout; status is one JSON line.
  */
 
