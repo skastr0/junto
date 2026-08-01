@@ -75,8 +75,12 @@ export const ensureTerminalRunning = async (
 };
 
 /**
- * Ensure session is live, then open the workbench surface.
+ * Open the workbench surface for a terminal / actor seat.
  * Pass `zone: "pinned"` to land in the side dock (open auto-pinned).
+ *
+ * Agent seats open the surface first so the session-load spinner can paint
+ * while ensure + attach run inside TerminalSurface. Geography shells still
+ * ensure before open (no actor load chrome).
  */
 export const openTerminal = async (
   node: CanvasNode,
@@ -84,19 +88,29 @@ export const openTerminal = async (
   options?: { readonly resume?: boolean },
 ): Promise<void> => {
   const binding = resolveTerminalBinding(node);
+  if (binding?.kind !== "native") return;
+
+  const agentSeat = Boolean(
+    binding.harness?.trim() || binding.agentKey?.trim(),
+  );
+
+  // Opening is "looking" — clear ready/complete (idle+unseen → idle), herdr-style.
+  markAgentSeatSeen(binding.bindingId);
+
+  if (agentSeat) {
+    // Surface owns ensure + attach (spinner covers the full path).
+    openTerminalSurface(node, zone);
+    return;
+  }
+
   const result = await ensureTerminalRunning(node, options);
   if (!result.ok) {
     console.error("[terminal] open failed", result.message);
     // Still open the surface when a generation exists so the operator can
     // read the spawn journal (e.g. unexpanded cwd / missing shell). A total
     // unbound failure leaves the surface closed.
-    if (binding?.kind !== "native") return;
     const session = terminal$.sessionByBindingId[binding.bindingId].peek();
     if (!session) return;
-  }
-  // Opening is "looking" — clear ready/complete (idle+unseen → idle), herdr-style.
-  if (binding?.kind === "native") {
-    markAgentSeatSeen(binding.bindingId);
   }
   openTerminalSurface(node, zone);
 };

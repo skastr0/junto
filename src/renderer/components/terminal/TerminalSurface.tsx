@@ -40,9 +40,17 @@ import {
 } from "../../lib/terminal-kill-ux";
 import { ensureTerminalRunning } from "../../lib/terminal-actions";
 import { onTerminalEvent } from "../../lib/terminal-events";
+import {
+  initialSessionLoadPhase,
+  isSessionLoadActive,
+  SESSION_LOAD_STUCK_MS,
+  sessionLoadPresentation,
+  type SessionLoadPhase,
+} from "../../lib/session-load";
 import { releaseTaskToQueue } from "../../lib/work-actions";
 import { ActivityMark } from "../ActivityMark";
 import { Button, Eyebrow, OverlayHeader } from "../ui";
+import { SessionLoadSpinner } from "./SessionLoadSpinner";
 
 type AttachResult = {
   readonly ok: boolean;
@@ -179,6 +187,18 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
   const binding = resolveTerminalBinding(node);
   const bindingId = binding?.kind === "native" ? binding.bindingId : "";
   const hostId = binding?.kind === "native" ? binding.hostId : "local";
+  const agentSeat =
+    binding?.kind === "native" ? isAgentTerminalSeat(binding) : false;
+  const pinSessionId =
+    typeof node.ether?.terminal?.sessionId === "string"
+      ? node.ether.terminal.sessionId
+      : undefined;
+  const [loadPhase, setLoadPhase] = useState<SessionLoadPhase | null>(() =>
+    initialSessionLoadPhase({ agentSeat, sessionId: pinSessionId }),
+  );
+  // Attach effect must not re-run on every canvas node identity change.
+  const nodeRef = useRef(node);
+  nodeRef.current = node;
 
   /**
    * Host-box geometry is authority once getBoundingClientRect is real.
@@ -368,15 +388,45 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
     apiRef.current = api;
     if (!api || !term || !bindingId) {
       setStatus("terminal unavailable");
+      setLoadPhase(null);
       return;
     }
     let alive = true;
     const pending: LiveEvent[] = [];
     let attachDone = false;
     const settleTimers: ReturnType<typeof setTimeout>[] = [];
+    // Agent seats: starting|resuming → attaching (finding when pin unknown).
+    // Geography shells: attaching only.
+    const startPhase = initialSessionLoadPhase({
+      agentSeat,
+      sessionId: pinSessionId,
+    });
+    setLoadPhase(startPhase);
+    setStatus(
+      sessionLoadPresentation({
+        phase: startPhase,
+        sessionId: pinSessionId,
+      }).label,
+    );
+    // Long ensure/attach without progress → stuck chrome (crimson).
+    const stuckTimer = window.setTimeout(() => {
+      if (!alive || attachDone) return;
+      setLoadPhase((prev) => (prev != null ? "stuck" : prev));
+      setStatus(
+        sessionLoadPresentation({
+          phase: "stuck",
+          sessionId: pinSessionId,
+        }).label,
+      );
+    }, SESSION_LOAD_STUCK_MS);
 
     const discardPending = (): void => {
       pending.length = 0;
+    };
+
+    const clearLoad = (): void => {
+      window.clearTimeout(stuckTimer);
+      setLoadPhase(null);
     };
 
     const offData = term.onData((data) => {
@@ -401,96 +451,137 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
       if (event.type === "exit") {
         setStatus("exited");
         setKillPhase("stopped");
+        setLoadPhase(null);
       }
     });
 
-    void api
-      .terminalAttach({ bindingId, mode: "control", takeover: true, hostId })
-      .then((raw) => {
-        const result = raw as AttachResult;
-        if (!alive) {
-          if (result.ok && result.lease) void api.terminalRelease(result.lease.leaseId);
-          discardPending();
-          return;
-        }
-        if (!result.ok || !result.lease) {
-          setStatus(result.message ?? "not running");
+    const runAttach = (): void => {
+      if (!alive) return;
+      setLoadPhase((prev) => (prev === "stuck" ? "stuck" : "attaching"));
+      setStatus(
+        sessionLoadPresentation({
+          phase: "attaching",
+          sessionId: pinSessionId,
+        }).label,
+      );
+      void api
+        .terminalAttach({ bindingId, mode: "control", takeover: true, hostId })
+        .then((raw) => {
+          const result = raw as AttachResult;
+          if (!alive) {
+            if (result.ok && result.lease)
+              void api.terminalRelease(result.lease.leaseId);
+            discardPending();
+            return;
+          }
+          if (!result.ok || !result.lease) {
+            setStatus(result.message ?? "not running");
+            attachDone = true;
+            clearLoad();
+            discardPending();
+            epochRef.current = undefined;
+            return;
+          }
+          leaseRef.current = result.lease.leaseId;
+          epochRef.current = result.lease.epoch;
+          lastGeom.current = {
+            cols: result.screen?.cols ?? result.cols ?? 0,
+            rows: result.screen?.rows ?? result.rows ?? 0,
+          };
+          let lastSeq: bigint | undefined;
+          // Live sessions have exactly one attach representation: serialized VT
+          // state. Journal is only for failures before an observer existed.
+          const serializedScreen = result.screen?.serialized;
+          const finishAttach = (): void => {
+            if (!alive || !result.lease) return;
+            applyViewportBookmark(term, bindingId, result.lease.epoch);
+            attachDone = true;
+            let sawExit = result.status === "exited";
+            for (const event of pending) {
+              if (event.epoch !== result.lease.epoch) continue;
+              if (
+                lastSeq !== undefined &&
+                event.seq !== undefined &&
+                event.seq <= lastSeq
+              )
+                continue;
+              if (event.type === "output" && event.data) term.write(event.data);
+              if (event.type === "exit") sawExit = true;
+            }
+            discardPending();
+            // Retained exited generations may expose their final raw journal.
+            // Never paint those as a live control lease.
+            setStatus(sawExit ? "exited" : "control");
+            setKillPhase(sawExit ? "stopped" : "idle");
+            clearLoad();
+            // Repaint through layout settle; only a real cols×rows transition is
+            // forwarded to the child PTY.
+            requestAnimationFrame(() => {
+              if (!alive) return;
+              pushResize();
+              if (!sawExit) term.focus();
+            });
+            for (const ms of SETTLE_FITS_MS) {
+              settleTimers.push(
+                setTimeout(() => {
+                  if (alive) pushResize();
+                }, ms),
+              );
+            }
+          };
+          if (serializedScreen) {
+            // Serialized xterm VT state restores cells, SGR/color, cursor,
+            // normal/alternate buffers, and terminal modes in one representation.
+            // Viewport restore must wait for write's parse callback.
+            term.reset();
+            if (result.screen?.seq !== undefined) lastSeq = result.screen.seq;
+            term.write(serializedScreen, finishAttach);
+          } else {
+            // Journal path: concatenate then one write so finishAttach runs after
+            // the parser drains (same contract as serialized replay).
+            const chunks: string[] = [];
+            for (const item of result.journal ?? []) {
+              if (item.type === "output" && item.data) chunks.push(item.data);
+              if (item.seq !== undefined) lastSeq = item.seq;
+            }
+            const journalOutput = chunks.join("");
+            if (journalOutput.length > 0) term.write(journalOutput, finishAttach);
+            else finishAttach();
+          }
+        })
+        .catch((error: unknown) => {
+          if (!alive) return;
+          setStatus(error instanceof Error ? error.message : String(error));
           attachDone = true;
+          clearLoad();
           discardPending();
           epochRef.current = undefined;
-          return;
-        }
-        leaseRef.current = result.lease.leaseId;
-        epochRef.current = result.lease.epoch;
-        lastGeom.current = {
-          cols: result.screen?.cols ?? result.cols ?? 0,
-          rows: result.screen?.rows ?? result.rows ?? 0,
-        };
-        let lastSeq: bigint | undefined;
-        // Live sessions have exactly one attach representation: serialized VT
-        // state. Journal is only for failures before an observer existed.
-        const serializedScreen = result.screen?.serialized;
-        const finishAttach = (): void => {
-          if (!alive || !result.lease) return;
-          applyViewportBookmark(term, bindingId, result.lease.epoch);
-          attachDone = true;
-          let sawExit = result.status === "exited";
-          for (const event of pending) {
-            if (event.epoch !== result.lease.epoch) continue;
-            if (lastSeq !== undefined && event.seq !== undefined && event.seq <= lastSeq) continue;
-            if (event.type === "output" && event.data) term.write(event.data);
-            if (event.type === "exit") sawExit = true;
+        });
+    };
+
+    // Actor seats: ensure generation first (spinner covers ensure + attach).
+    // Geography shells only attach (ensure already ran in openTerminal).
+    if (agentSeat) {
+      void ensureTerminalRunning(nodeRef.current, { resume: true }).then(
+        (result) => {
+          if (!alive) return;
+          if (!result.ok) {
+            setStatus(result.message);
+            attachDone = true;
+            clearLoad();
+            setKillPhase("stopped");
+            return;
           }
-          discardPending();
-          // Retained exited generations may expose their final raw journal.
-          // Never paint those as a live control lease.
-          setStatus(sawExit ? "exited" : "control");
-          setKillPhase(sawExit ? "stopped" : "idle");
-          // Repaint through layout settle; only a real cols×rows transition is
-          // forwarded to the child PTY.
-          requestAnimationFrame(() => {
-            if (!alive) return;
-            pushResize();
-            if (!sawExit) term.focus();
-          });
-          for (const ms of SETTLE_FITS_MS) {
-            settleTimers.push(
-              setTimeout(() => {
-                if (alive) pushResize();
-              }, ms),
-            );
-          }
-        };
-        if (serializedScreen) {
-          // Serialized xterm VT state restores cells, SGR/color, cursor,
-          // normal/alternate buffers, and terminal modes in one representation.
-          // Viewport restore must wait for write's parse callback.
-          term.reset();
-          if (result.screen?.seq !== undefined) lastSeq = result.screen.seq;
-          term.write(serializedScreen, finishAttach);
-        } else {
-          // Journal path: concatenate then one write so finishAttach runs after
-          // the parser drains (same contract as serialized replay).
-          const chunks: string[] = [];
-          for (const item of result.journal ?? []) {
-            if (item.type === "output" && item.data) chunks.push(item.data);
-            if (item.seq !== undefined) lastSeq = item.seq;
-          }
-          const journalOutput = chunks.join("");
-          if (journalOutput.length > 0) term.write(journalOutput, finishAttach);
-          else finishAttach();
-        }
-      })
-      .catch((error: unknown) => {
-        if (!alive) return;
-        setStatus(error instanceof Error ? error.message : String(error));
-        attachDone = true;
-        discardPending();
-        epochRef.current = undefined;
-      });
+          runAttach();
+        },
+      );
+    } else {
+      runAttach();
+    }
 
     return () => {
       alive = false;
+      window.clearTimeout(stuckTimer);
       // Only bookmark a fully attached surface. Mid-attach store would overwrite
       // a good pin bookmark with empty-buffer state and lose scroll position.
       if (attachDone && termRef.current === term) {
@@ -516,15 +607,13 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
       epochRef.current = undefined;
       if (lease) void api.terminalRelease(lease);
     };
-  }, [bindingId, hostId, attachKey]);
+  }, [bindingId, hostId, attachKey, agentSeat, pinSessionId]);
 
   const label = node.type === "text" ? node.text : "terminal";
   const surfaceId = terminalSurfaceId(node.id);
   const registry = use$(dock$.registry);
   const surface = surfaceById(registry, surfaceId);
   const pinned = surface?.zone === "pinned";
-  const agentSeat =
-    binding?.kind === "native" ? isAgentTerminalSeat(binding) : false;
   const closeSurface = () => closeWorkbenchSurface(surfaceId);
   const togglePin = () => {
     if (pinned) unpinWorkbenchSurface(surfaceId);
@@ -568,18 +657,33 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
   const reopenProcess = async (): Promise<void> => {
     if (reopenPending) return;
     setReopenPending(true);
-    setStatus("starting…");
+    // Agent seats: attach effect owns ensure + load spinner. Geography shells
+    // still ensure here so attach finds a live generation.
     try {
-      const result = await ensureTerminalRunning(node, {
-        resume: agentSeat,
-      });
-      if (!result.ok) {
-        setStatus(result.message);
-        setKillPhase("stopped");
-        return;
+      if (!agentSeat) {
+        setLoadPhase("starting");
+        setStatus(
+          sessionLoadPresentation({ phase: "starting", sessionId: pinSessionId })
+            .label,
+        );
+        const result = await ensureTerminalRunning(node, { resume: false });
+        if (!result.ok) {
+          setStatus(result.message);
+          setKillPhase("stopped");
+          setLoadPhase(null);
+          return;
+        }
       }
       setKillPhase("idle");
-      setStatus("attaching…");
+      setLoadPhase(
+        initialSessionLoadPhase({ agentSeat, sessionId: pinSessionId }),
+      );
+      setStatus(
+        sessionLoadPresentation({
+          phase: initialSessionLoadPhase({ agentSeat, sessionId: pinSessionId }),
+          sessionId: pinSessionId,
+        }).label,
+      );
       setAttachKey((key) => key + 1);
     } finally {
       setReopenPending(false);
@@ -589,6 +693,11 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
   const processDead = status === "exited" || killPhase === "stopped";
   const processStopping = killPhase === "stopping" || status === "stopping…";
   const showDeadOverlay = processDead || processStopping;
+  const showLoadOverlay =
+    isSessionLoadActive(loadPhase) && !showDeadOverlay && !attached;
+  const loadPresentation = isSessionLoadActive(loadPhase)
+    ? sessionLoadPresentation({ phase: loadPhase, sessionId: pinSessionId })
+    : null;
   const killCopy = killActionCopy({
     phase: processDead
       ? "stopped"
@@ -629,7 +738,10 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
   }, [attached]);
 
   useEffect(() => {
-    if (status === "exited") setKillPhase("stopped");
+    if (status === "exited") {
+      setKillPhase("stopped");
+      setLoadPhase(null);
+    }
   }, [status]);
 
   return (
@@ -647,14 +759,24 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
         title={label}
         status={
           <span className="native-terminal-surface__status inline-flex items-center gap-1.5">
-            <ActivityMark
-              mode={attached ? "static" : "wave"}
-              tone={processDead || processStopping ? "crimson" : "amber"}
-              size="inline"
-              label={status}
-            />
-            {status}
-            {geomLabel ? ` · ${geomLabel}` : ""}
+            {showLoadOverlay && loadPresentation ? (
+              <SessionLoadSpinner
+                variant="inline"
+                phase={loadPresentation.phase}
+                sessionId={pinSessionId}
+              />
+            ) : (
+              <>
+                <ActivityMark
+                  mode={attached ? "static" : "wave"}
+                  tone={processDead || processStopping ? "crimson" : "amber"}
+                  size="inline"
+                  label={status}
+                />
+                {status}
+              </>
+            )}
+            {geomLabel && attached ? ` · ${geomLabel}` : ""}
           </span>
         }
         actions={
@@ -724,11 +846,20 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
           className={[
             "native-terminal-surface__xterm",
             showDeadOverlay ? "native-terminal-surface__xterm--dim" : "",
+            showLoadOverlay ? "native-terminal-surface__xterm--dim" : "",
           ]
             .filter(Boolean)
             .join(" ")}
-          aria-hidden={showDeadOverlay || undefined}
+          aria-hidden={showDeadOverlay || showLoadOverlay || undefined}
         />
+        {showLoadOverlay && loadPresentation ? (
+          <div className="native-terminal-surface__load">
+            <SessionLoadSpinner
+              phase={loadPresentation.phase}
+              sessionId={pinSessionId}
+            />
+          </div>
+        ) : null}
         {showDeadOverlay ? (
           <div
             className="native-terminal-surface__dead"

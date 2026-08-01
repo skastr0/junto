@@ -2510,6 +2510,68 @@ ol.note-md__list > .note-md__li::before {
   gap: 8px;
   margin-top: 4px;
 }
+/* Actor session load — centered 16×16 ring + short phase label. */
+.native-terminal-surface__load {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--color-ground) 72%, transparent);
+}
+.session-load {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(100%, 28ch);
+}
+.session-load--pill {
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--session-load-tone, var(--color-amber)) 32%, var(--color-stroke));
+  background: color-mix(in srgb, var(--color-raise) 88%, black);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.35);
+}
+.session-load--inline {
+  gap: 6px;
+  max-width: min(100%, 24ch);
+}
+.session-load__spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  border: 1.75px solid color-mix(in srgb, var(--session-load-tone, var(--color-amber)) 28%, transparent);
+  border-top-color: var(--session-load-tone, var(--color-amber));
+  border-right-color: color-mix(in srgb, var(--session-load-tone, var(--color-amber)) 70%, transparent);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--session-load-tone, var(--color-amber)) 35%, transparent);
+  animation: session-load-spin 0.72s linear infinite;
+}
+.session-load__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: var(--session-load-tone, var(--color-amber));
+}
+@keyframes session-load-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .session-load__spinner {
+    animation: none;
+    border-top-color: var(--session-load-tone, var(--color-amber));
+    opacity: 0.85;
+  }
+}
 /* Absolute fill so .xterm never drives host content height.
    Inset = visual pad (must match XTERM_PAD_* in TerminalSurface). Do not use
    CSS padding on this node — absolute children ignore padding and desync the
