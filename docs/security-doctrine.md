@@ -299,18 +299,11 @@ write/create/remove operations commit full-map `canvas_generations` and advance
 `canvas_head` transactionally. History is ordinary queryable database state,
 not a content-addressed directory or manifest tree.
 
-The sole narrow exception is the sealed state-preflight mode of a signed and
-audited packaged update candidate. An installer may invoke that candidate only
-after it has fully quiesced the incumbent and proved that the incumbent
-released SQLite. The candidate is then the only database opener: it opens the
-fixed canonical path read-only when an installed database exists, closes that
-connection after minting a verified backup, and performs every migration and
-repository-readiness write against a disposable clone. On a first install with
-no database, it creates only a disposable empty candidate and no backup. The
-mode accepts no database-path argument or environment redirect and starts no
-renderer, control socket, actor, browser, terminal, provider, or fleet runtime.
-Test programs may open explicitly injected disposable databases; neither
-exception is a general product data path.
+There is no sealed state-preflight database opener. Install/update stages the
+package, quiesces the incumbent, and cutovers; schema and content migration run
+on normal app open through the sole StateEngine owner. Test programs may open
+explicitly injected disposable databases; that is not a general product data
+path.
 
 Every app version provides one role-independent schema. Independently updated
 installations may temporarily run different recognized schema versions; no
@@ -892,8 +885,8 @@ Linux has one canonical Station installation and update lane:
 
 - the signed Vellum Command payload is installed, activated, updated, and repaired
   inside the Station user's account;
-- first install and update use the same userland transaction and the same
-  sealed state-preflight boundary;
+- first install and update use the same userland stage + cutover transaction;
+  schema and content migration run on normal app open;
 - Command Center may drive that userland transaction over the
   operator-enrolled ordinary-user SSH route, but neither side invokes
   `sudo`, `su`, `pkexec`, a system package manager, or a privileged helper;
