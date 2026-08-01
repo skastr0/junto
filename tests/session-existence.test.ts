@@ -19,6 +19,11 @@ import { makeManagedAgentNode } from "../src/renderer/lib/node-factories";
 const temps: string[] = [];
 
 afterEach(() => {
+  // These cases assert production pin/resume semantics. The shared Vitest
+  // setup deliberately enables an isolated VELLUM_HOME for state safety, so
+  // clear it for the assertion and restore the harness after each case.
+  if (originalVellumHome === undefined) delete process.env.VELLUM_HOME;
+  else process.env.VELLUM_HOME = originalVellumHome;
   __setSessionExistenceHomeForTest(undefined);
   for (const dir of temps.splice(0)) {
     try {
@@ -28,6 +33,8 @@ afterEach(() => {
     }
   }
 });
+
+const originalVellumHome = process.env.VELLUM_HOME;
 
 const tempHome = (): string => {
   const dir = mkdtempSync(join(tmpdir(), "vellum-session-exist-"));
@@ -111,6 +118,7 @@ describe("harness session existence (external proof)", () => {
 
 describe("spawn replan resume gate", () => {
   it("resume:true without external proof pins with --session-id", () => {
+    delete process.env.VELLUM_HOME;
     const node = makeManagedAgentNode(0, 0, {
       harness: "grok",
       host: "local",
@@ -133,6 +141,7 @@ describe("spawn replan resume gate", () => {
   });
 
   it("resume:true with external proof uses -r", () => {
+    delete process.env.VELLUM_HOME;
     const home = tempHome();
     const cwd = "/Users/me/proj";
     const node = makeManagedAgentNode(0, 0, {

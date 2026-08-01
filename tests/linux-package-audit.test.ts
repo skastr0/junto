@@ -27,6 +27,7 @@ describe("Linux userland runtime audit", () => {
         "resources/bin/vellum",
         "resources/bin/vellum-browser",
         "resources/bin/vellum-station",
+        "resources/bin/vellum-content",
         "resources/bin/unix-peer-pid.py",
         "resources/bin/node",
         "resources/bin/vellum-remote",

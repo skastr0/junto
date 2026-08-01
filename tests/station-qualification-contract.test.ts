@@ -10,6 +10,7 @@ import {
   decodeStationQualification,
   pendingStationQualification,
 } from "../src/shared/station-qualification";
+import { STATION_PROTOCOL_BASELINE } from "../src/shared/station-protocol";
 
 const hash = (character: string) => character.repeat(64);
 const nativePlatform = () => ({
@@ -58,7 +59,7 @@ const qualified = () => ({
     bytes: 252_000_000,
     sha256: hash("2"),
   },
-  stationProtocol: 3,
+  stationProtocol: STATION_PROTOCOL_BASELINE,
   installations: {
     commandCenter: {
       installationId: "cc-01",

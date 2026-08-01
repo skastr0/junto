@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   extractSessionIdFromText,
   recordCapturedSessionId,
@@ -12,6 +12,13 @@ import {
   ManagedTerminalDrive,
 } from "../src/main/vellum/term/drive";
 import { makeManagedAgentNode } from "../src/renderer/lib/node-factories";
+
+const originalVellumHome = process.env.VELLUM_HOME;
+
+afterEach(() => {
+  if (originalVellumHome === undefined) delete process.env.VELLUM_HOME;
+  else process.env.VELLUM_HOME = originalVellumHome;
+});
 
 describe("session id parsing + authorial pin", () => {
   it("extracts only session-labeled IDs and prefers structured fields", () => {
@@ -69,6 +76,7 @@ describe("session id parsing + authorial pin", () => {
   });
 
   it("spawn replan uses a stored authoring pin without implicitly resuming", () => {
+    delete process.env.VELLUM_HOME;
     const node = makeManagedAgentNode(0, 0, {
       harness: "claude",
       host: "local",
@@ -91,6 +99,7 @@ describe("session id parsing + authorial pin", () => {
   });
 
   it("spawn replan resumes only when requested AND external harness state proves the id", () => {
+    delete process.env.VELLUM_HOME;
     const node = makeManagedAgentNode(0, 0, {
       harness: "claude",
       host: "local",

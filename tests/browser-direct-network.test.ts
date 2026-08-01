@@ -7,7 +7,7 @@ describe("browser direct network bootstrap", () => {
 
   it("disables inherited proxy resolution before Chromium scheme registration", () => {
     const direct = source.indexOf('app.commandLine.appendSwitch("no-proxy-server")');
-    const scheme = source.indexOf("registerTrustedRendererScheme(protocol)");
+    const scheme = source.indexOf("registerTrustedRendererScheme(protocol,");
 
     expect(direct).toBeGreaterThanOrEqual(0);
     expect(direct).toBeLessThan(scheme);

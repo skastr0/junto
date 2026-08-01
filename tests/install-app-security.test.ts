@@ -446,6 +446,9 @@ fi`,
     );
   });
 
+  // This test launches eight isolated shell/process-group fixtures. Keep the
+  // Vitest budget above the installer supervisor's own 10s fixture bound so
+  // concurrent CI workers cannot turn scheduler contention into a false gate.
   it("accepts only one successful strict receipt from the staged executable", () => {
     const receipt =
       '{"protocol":"vellum-state-update-preflight/v1","candidateId":"00000000-0000-4000-8000-000000000000","source":"fresh","sourceSchemaVersion":0,"targetSchemaVersion":2,"targetSchemaSha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","installationId":"installation:fresh","role":"unenrolled","canvasCount":0,"actorSeatCount":0,"workSnapshotCount":0,"pendingCommandCount":0,"armedRegionCount":0,"schedulerCursorCount":0,"ready":true}';
@@ -480,7 +483,7 @@ fi`,
       expect(failure.stderr).toContain("staged state update preflight");
       expect(failure.stdout.length).toBeLessThan(16 * 1024);
     }
-  });
+  }, 15_000);
 
   it("hard-times out and reaps a TERM-resistant candidate and descendant", () => {
     const startedAt = Date.now();

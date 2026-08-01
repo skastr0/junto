@@ -66,8 +66,8 @@ const linuxRuntimeAuditPresent = (source: string): boolean =>
   /resources\/bin\/node/u.test(source);
 
 describe("macOS packaged runtime policy", () => {
-  it("pins 27 Mach-O objects and only the four exact Electron JIT roles", () => {
-    expect(MACOS_RUNTIME_POLICY.machO).toHaveLength(27);
+  it("pins 28 Mach-O objects and only the four exact Electron JIT roles", () => {
+    expect(MACOS_RUNTIME_POLICY.machO).toHaveLength(28);
     expect(
       MACOS_RUNTIME_POLICY.machO
         .filter((entry) => entry.profile === "jit")
@@ -119,7 +119,7 @@ describe("macOS packaged runtime policy", () => {
 
     const missing = structuredClone(rawRuntimePolicy);
     missing.machO.pop();
-    expect(() => validateMacOSRuntimePolicy(missing)).toThrow(/exactly 27/u);
+    expect(() => validateMacOSRuntimePolicy(missing)).toThrow(/exactly 28/u);
 
     const duplicate = structuredClone(rawRuntimePolicy);
     duplicate.machO[1].path = duplicate.machO[0].path;

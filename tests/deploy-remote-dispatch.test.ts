@@ -166,7 +166,7 @@ describe("Remote deployment dispatcher", () => {
     );
   });
 
-  it("never threads administrator credentials into either provider", async () => {
+  it("never threads administrator credentials into the Darwin provider", async () => {
     const darwin = makeProvider("darwin");
     const linux = makeProvider("linux");
     const dispatcher = makeRemoteDeploymentDispatcher({
@@ -176,22 +176,13 @@ describe("Remote deployment dispatcher", () => {
 
     await Effect.runPromise(
       dispatcher.deploy(
-        makeSsh("Linux\n"),
-        host,
-        { state: "managed-externally" },
-      ),
-    );
-    await Effect.runPromise(
-      dispatcher.deploy(
         makeSsh("Darwin\n"),
         host,
         { state: "managed-externally" },
       ),
     );
 
-    expect(linux.deploy).toHaveBeenCalledWith(
-      expect.not.objectContaining({ authorization: expect.anything() }),
-    );
+    expect(linux.deploy).not.toHaveBeenCalled();
     expect(darwin.deploy).toHaveBeenCalledWith(
       expect.not.objectContaining({ authorization: expect.anything() }),
     );
@@ -200,49 +191,34 @@ describe("Remote deployment dispatcher", () => {
     );
   });
 
-  it("threads only the three admitted Linux artifact sources", async () => {
+  it("refuses Linux artifact sources while Linux deployment is outside the release surface", async () => {
     const linux = makeProvider("linux");
     const dispatcher = makeRemoteDeploymentDispatcher({
       commandCenterPlatform: "darwin",
       providers: [linux],
     });
 
-    await Effect.runPromise(
-      dispatcher.deploy(makeSsh("Linux\n"), host, {
-        state: "managed-externally",
-      }),
-    );
-    await Effect.runPromise(
-      dispatcher.deploy(
-        makeSsh("Linux\n"),
-        host,
-        { state: "managed-externally" },
-        "verified-cache",
-      ),
-    );
-    await Effect.runPromise(
-      dispatcher.deploy(
-        makeSsh("Linux\n"),
-        host,
-        { state: "managed-externally" },
-        "qualification-candidate",
-      ),
-    );
-
-    expect(linux.deploy).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({ artifactSource: "stable-feed" }),
-    );
-    expect(linux.deploy).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({ artifactSource: "verified-cache" }),
-    );
-    expect(linux.deploy).toHaveBeenNthCalledWith(
-      3,
-      expect.objectContaining({
-        artifactSource: "qualification-candidate",
-      }),
-    );
+    for (const artifactSource of [
+      undefined,
+      "verified-cache" as const,
+      "qualification-candidate" as const,
+    ]) {
+      const result = await Effect.runPromise(
+        dispatcher.deploy(
+          makeSsh("Linux\n"),
+          host,
+          { state: "managed-externally" },
+          artifactSource,
+        ),
+      );
+      expect(result).toMatchObject({
+        ok: false,
+        code: "validation",
+        disposition: "not-started",
+        message: expect.stringContaining("Linux Remote managed deployment is not available"),
+      });
+    }
+    expect(linux.deploy).not.toHaveBeenCalled();
   });
 
   it("fails closed on an invalid or non-Linux release source", async () => {
@@ -274,7 +250,9 @@ describe("Remote deployment dispatcher", () => {
       ok: false,
       code: "validation",
       disposition: "not-started",
-      message: "invalid Linux release source",
+      message: expect.stringContaining(
+        "Linux Remote managed deployment is not available in this release",
+      ),
     });
     expect(wrongPlatform).toMatchObject({
       ok: false,
@@ -330,12 +308,9 @@ describe("Remote deployment dispatcher", () => {
       code: "validation",
       disposition: "not-started",
       stages: ["endpoint ok", "ssh warm ok", "remote uname Linux"],
-      unsupportedTarget: {
-        kind: "unsupported-target",
-        evidence: "unsupported",
-        reportedKernel: "Linux",
-        platform: "linux",
-      },
+      message: expect.stringContaining(
+        "Linux Remote managed deployment is not available in this release",
+      ),
     });
   });
 
@@ -475,7 +450,9 @@ describe("Remote deployment dispatcher", () => {
       packageState: "previous",
       role: "previous",
       disposition: "not-started",
-      unsupportedTarget: { platform: "linux" },
+      message: expect.stringContaining(
+        "Linux Remote managed deployment is not available in this release",
+      ),
     });
     expect(configure).not.toHaveBeenCalled();
     expect(deployPrepared).not.toHaveBeenCalled();
