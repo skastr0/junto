@@ -399,6 +399,12 @@ log "  sha256: $ZIP_SHA"
 log "  app: $APP_PATH"
 log "  timeout: $TIMEOUT"
 
+# asc's default S3 upload deadline (~2 min) silently kills near-complete
+# uploads of app-sized zips on a slow route (2026-08-01: three ~90%-uploaded
+# submissions thrown away). Must be set before the process starts.
+export ASC_UPLOAD_TIMEOUT="${ASC_UPLOAD_TIMEOUT:-1800s}"
+log "  upload timeout: $ASC_UPLOAD_TIMEOUT"
+
 set +e
 asc notarization submit \
   --file "$SUBMITTED_ZIP" \
