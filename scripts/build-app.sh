@@ -136,6 +136,9 @@ if [[ ! -d node_modules/electron-builder ]]; then
   exit 1
 fi
 if [[ "$VERIFY" -eq 1 ]]; then
+  # Keep the ship path aligned with `bun run verify`: the public product name
+  # is a customer-visible contract and must not be bypassable by packaging.
+  bun run lint:product-name
   bun run typecheck
   # Tests that rebuild out/ (kernel headless probe) must not inherit the
   # packaged beta/production license defines — those require activation in an

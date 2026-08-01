@@ -18,10 +18,20 @@ describe("app build userland artifact contract", () => {
       { artifact: "vellum", source: "src/cli/main.ts" },
       { artifact: "vellum-browser", source: "scripts/browser-cli.ts" },
       { artifact: "vellum-station", source: "scripts/station-cli.ts" },
+      { artifact: "vellum-content", source: "scripts/content-cli.ts" },
     ]);
     expect(build).not.toContain("vellum-release-installer");
     expect(build).not.toContain("linux-release-installer.ts");
     expect(build).not.toContain("vellum-release-bridge");
     expect(build).not.toContain("linux-release-bridge.ts");
+  });
+
+  it("keeps the verified ship path aligned with the product-name gate", async () => {
+    const build = await readFile(
+      new URL("../scripts/build-app.sh", import.meta.url),
+      "utf8",
+    );
+    const verifyBlock = build.slice(build.indexOf('if [[ "$VERIFY" -eq 1 ]]'));
+    expect(verifyBlock).toContain("bun run lint:product-name");
   });
 });
