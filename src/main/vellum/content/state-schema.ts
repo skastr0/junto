@@ -154,3 +154,26 @@ export const CONTENT_STATE_SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS content_transfers_by_object
     ON content_transfers(sha256, state, updated_at);
 `;
+
+/**
+ * One-shot marker for historical inline Base64 → content-store migration.
+ * Expand-only (schema v13). The data walk lives in
+ * `inline-media-migration.ts` and runs after StateEngine is up.
+ */
+export const CONTENT_INLINE_MEDIA_MIGRATION_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS content_inline_media_migration (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    status TEXT NOT NULL
+      CHECK (status IN ('pending', 'complete')),
+    objects_ingested INTEGER NOT NULL DEFAULT 0
+      CHECK (
+        typeof(objects_ingested) = 'integer'
+        AND objects_ingested >= 0
+      ),
+    completed_at TEXT
+      CHECK (
+        completed_at IS NULL
+        OR length(completed_at) BETWEEN 1 AND 64
+      )
+  ) STRICT;
+`;

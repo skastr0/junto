@@ -13,7 +13,10 @@ import { SCHEDULER_STATE_SCHEMA_SQL } from "../scheduler/state-schema";
 import { STATION_STATE_SCHEMA_SQL } from "../station/state-schema";
 import { STATION_STATUS_STATE_SCHEMA_SQL } from "../station-status-state-schema";
 import { USAGE_STATE_SCHEMA_SQL } from "../usage/state-schema";
-import { CONTENT_STATE_SCHEMA_SQL } from "../content/state-schema";
+import {
+  CONTENT_INLINE_MEDIA_MIGRATION_SCHEMA_SQL,
+  CONTENT_STATE_SCHEMA_SQL,
+} from "../content/state-schema";
 import {
   WORK_BOARD_STATE_SCHEMA_SQL,
   WORK_PROPOSAL_PLANNING_STATE_SCHEMA_SQL,
@@ -183,10 +186,18 @@ export const STATE_SCHEMA_V11_FRAGMENTS = [
 
 export const STATE_SCHEMA_V11_SQL = STATE_SCHEMA_V11_FRAGMENTS.join("\n");
 
-/** Current: v11 + local content-object manifest tables. */
-export const STATE_SCHEMA_FRAGMENTS = [
+/** Schema at version 12: local content-object manifest tables. */
+export const STATE_SCHEMA_V12_FRAGMENTS = [
   ...STATE_SCHEMA_V11_FRAGMENTS,
   CONTENT_STATE_SCHEMA_SQL,
+] as const;
+
+export const STATE_SCHEMA_V12_SQL = STATE_SCHEMA_V12_FRAGMENTS.join("\n");
+
+/** Current: v12 + one-shot inline media migration marker. */
+export const STATE_SCHEMA_FRAGMENTS = [
+  ...STATE_SCHEMA_V12_FRAGMENTS,
+  CONTENT_INLINE_MEDIA_MIGRATION_SCHEMA_SQL,
 ] as const;
 
 /**

@@ -45,10 +45,12 @@ import {
   migrateStateSchema,
   STATE_SCHEMA_V11_IDENTITY,
   STATE_SCHEMA_V12_IDENTITY,
+  STATE_SCHEMA_V13_IDENTITY,
 } from "../src/main/vellum/state/migrations";
 import {
   STATE_SCHEMA_SQL,
   STATE_SCHEMA_V11_SQL,
+  STATE_SCHEMA_V12_SQL,
 } from "../src/main/vellum/state/schema";
 import {
   expectedStateSchemaIdentity,
@@ -298,18 +300,21 @@ describe("content manifest ordering", () => {
   });
 });
 
-describe("content schema migration 11 → 12", () => {
-  it("freezes v11/v12 identities and CURRENT version", () => {
+describe("content schema migration 11 → 13", () => {
+  it("freezes v11/v12/v13 identities and CURRENT version", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V11_SQL)).toEqual(
       STATE_SCHEMA_V11_IDENTITY,
     );
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_V12_SQL)).toEqual(
       STATE_SCHEMA_V12_IDENTITY,
     );
-    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(12);
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(
+      STATE_SCHEMA_V13_IDENTITY,
+    );
+    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(13);
   });
 
-  it("migrates v11 rows forward and preserves data; content tables appear", () => {
+  it("migrates v11 rows forward and preserves data; content + marker tables appear", () => {
     const database = new DatabaseSync(":memory:");
     try {
       database.exec(STATE_SCHEMA_V11_SQL);
@@ -330,10 +335,10 @@ describe("content schema migration 11 → 12", () => {
       `);
 
       const result = migrateStateSchema(database);
-      expect(result.schemaVersion).toBe(12);
+      expect(result.schemaVersion).toBe(13);
       expect(result.previousVersion).toBe(11);
       expect(result.actualSchemaSha256).toBe(
-        STATE_SCHEMA_V12_IDENTITY.actualSchemaSha256,
+        STATE_SCHEMA_V13_IDENTITY.actualSchemaSha256,
       );
 
       const gen = database
@@ -346,6 +351,7 @@ describe("content schema migration 11 → 12", () => {
         "content_refs",
         "content_receipts",
         "content_transfers",
+        "content_inline_media_migration",
       ]) {
         const row = database
           .prepare(
@@ -354,6 +360,31 @@ describe("content schema migration 11 → 12", () => {
           .get(table) as { name: string } | undefined;
         expect(row?.name).toBe(table);
       }
+    } finally {
+      database.close();
+    }
+  });
+
+  it("migrates v12 → v13 and adds only the marker table", () => {
+    const database = new DatabaseSync(":memory:");
+    try {
+      database.exec(STATE_SCHEMA_V12_SQL);
+      verifyAndStampStateSchema(database, STATE_SCHEMA_V12_SQL);
+      database.exec("PRAGMA user_version = 12");
+
+      const result = migrateStateSchema(database);
+      expect(result.schemaVersion).toBe(13);
+      expect(result.previousVersion).toBe(12);
+      expect(result.actualSchemaSha256).toBe(
+        STATE_SCHEMA_V13_IDENTITY.actualSchemaSha256,
+      );
+
+      const marker = database
+        .prepare(
+          `SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'content_inline_media_migration'`,
+        )
+        .get() as { name: string } | undefined;
+      expect(marker?.name).toBe("content_inline_media_migration");
     } finally {
       database.close();
     }

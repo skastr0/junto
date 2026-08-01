@@ -37,6 +37,10 @@ import {
   type ContentRefRow,
   ContentManifestError,
 } from "./manifest";
+import {
+  InlineMediaMigrationError,
+  runInlineMediaMigration,
+} from "./inline-media-migration";
 import { contentStoreRoot } from "./paths";
 import {
   ContentStoreError,
@@ -367,6 +371,11 @@ const makeContentService = (
 export const makeContentServiceLive = (options?: {
   readonly home?: string;
   readonly root?: string;
+  /**
+   * Test hook: skip the one-shot historical Base64 → content-store walk.
+   * Production never sets this; schema marker still exists from v13.
+   */
+  readonly skipInlineMediaMigration?: boolean;
 }): Layer.Layer<ContentService, never, StateEngine> =>
   Layer.effect(
     ContentService,
@@ -375,6 +384,22 @@ export const makeContentServiceLive = (options?: {
       const root =
         options?.root ??
         contentStoreRoot(options?.home ?? resolveVellumHome());
+      ensureContentLayout(root);
+      if (options?.skipInlineMediaMigration !== true) {
+        // Defects on failure so Layer stays error-free while still failing
+        // closed at app startup (not a separate preflight gate).
+        yield* Effect.tryPromise({
+          try: () => runInlineMediaMigration({ state, root }),
+          catch: (cause) => {
+            if (cause instanceof InlineMediaMigrationError) return cause;
+            if (cause instanceof ContentStoreError) return cause;
+            return new InlineMediaMigrationError(
+              cause instanceof Error ? cause.message : String(cause),
+              { cause },
+            );
+          },
+        }).pipe(Effect.orDie);
+      }
       return makeContentService(state, root);
     }),
   );

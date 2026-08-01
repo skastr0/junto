@@ -19,7 +19,10 @@ import {
   LICENSE_STATE_V1_SCHEMA_SQL,
   LICENSE_STATE_V2_SCHEMA_SQL,
 } from "../license/state-schema";
-import { CONTENT_STATE_SCHEMA_SQL } from "../content/state-schema";
+import {
+  CONTENT_INLINE_MEDIA_MIGRATION_SCHEMA_SQL,
+  CONTENT_STATE_SCHEMA_SQL,
+} from "../content/state-schema";
 import {
   WORK_BOARD_STATE_SCHEMA_SQL,
   WORK_PROPOSAL_PLANNING_STATE_SCHEMA_SQL,
@@ -155,7 +158,13 @@ export const STATE_SCHEMA_V12_IDENTITY = {
     "a4bf3db00027fc2a52b5b73592d3d33b1f7d739c5ec7f32cdde41e3d95d5d53e",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 12;
+/** Exact witness of schema version 13 (inline media migration marker). */
+export const STATE_SCHEMA_V13_IDENTITY = {
+  actualSchemaSha256:
+    "fd6f5b73d474c83ed8ff93c24b60b8587f7cfe3783d2fe65274c7611ae431abf",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 13;
 
 export const STATE_SCHEMA_MIGRATIONS =
   [
@@ -311,6 +320,16 @@ export const STATE_SCHEMA_MIGRATIONS =
       fromIdentity: STATE_SCHEMA_V11_IDENTITY,
       migrate: (database) => {
         database.exec(CONTENT_STATE_SCHEMA_SQL);
+      },
+    },
+    {
+      fromVersion: 12,
+      toVersion: 13,
+      name: "add-content-inline-media-migration-marker",
+      safety: STATE_SCHEMA_MIGRATION_SAFETY,
+      fromIdentity: STATE_SCHEMA_V12_IDENTITY,
+      migrate: (database) => {
+        database.exec(CONTENT_INLINE_MEDIA_MIGRATION_SCHEMA_SQL);
       },
     },
 
