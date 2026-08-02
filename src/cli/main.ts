@@ -28,6 +28,7 @@ import {
   stationOperatorCommand,
 } from "./commands/operator";
 import { runBrowserCli } from "../../scripts/browser-cli";
+import { browserCliArgsFromArgv } from "./browser-argv";
 import { CLI_NAME, CLI_VERSION } from "./core/constants";
 import {
   setExitCode,
@@ -36,6 +37,8 @@ import {
 } from "./core/output";
 import { OperatorSocketLive } from "./core/operator-socket";
 import { WorkSocketLive } from "./core/socket";
+
+export { browserCliArgsFromArgv } from "./browser-argv";
 
 export const rootCommand = Command.make(CLI_NAME).pipe(
   Command.withDescription(
@@ -82,17 +85,6 @@ export const runCli = (args: ReadonlyArray<string>) =>
     ),
     Effect.provide(runtimeLayer),
   );
-
-export const browserCliArgsFromArgv = (
-  argv: ReadonlyArray<string>,
-): ReadonlyArray<string> | undefined => {
-  const sourceEntrypoint = argv[1]?.replaceAll("\\", "/");
-  const commandIndex =
-    sourceEntrypoint?.endsWith("/src/cli/main.ts") === true ? 2 : 1;
-  return argv[commandIndex] === "browser"
-    ? argv.slice(commandIndex + 1)
-    : undefined;
-};
 
 // When executed as the CLI entrypoint (bun / compiled binary).
 if (import.meta.main) {

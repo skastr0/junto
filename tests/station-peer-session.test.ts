@@ -151,7 +151,10 @@ const makeTransportHarness = Effect.gen(function* () {
     sentSize: Queue.size(sent),
     // V4: Queue.end completes Stream.fromQueue cleanly (Done excluded from
     // stream errors). shutdown fails the stream and can stall pending fibers.
-    end: Queue.end(incoming),
+    // unbounded is E=never; end's Done variance needs an any bridge.
+    end: (Queue.end as unknown as (q: typeof incoming) => Effect.Effect<boolean>)(
+      incoming,
+    ),
     closeCount: Ref.get(closeCount),
   };
 });

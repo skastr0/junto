@@ -16,7 +16,7 @@ import {
 import {
   runOperatorDeployment,
 } from "../src/cli/commands/operator";
-import { browserCliArgsFromArgv } from "../src/cli/main";
+import { browserCliArgsFromArgv } from "../src/cli/browser-argv";
 import { __resetVellumHomeCache } from "../src/shared/vellum-home";
 
 const roots: string[] = [];
