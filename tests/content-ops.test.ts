@@ -119,7 +119,7 @@ describe("content disk admission", () => {
         })
         .pipe(Effect.result),
     );
-    expect(result._tag).toBe("Left");
+    expect(result._tag).toBe("Failure");
     if (result._tag === "Failure") {
       expect(result.failure).toBeInstanceOf(ContentStoreError);
       expect((result.failure as ContentStoreError).code).toBe("disk-low");
@@ -412,7 +412,7 @@ describe("content integrity + GC + snapshot", () => {
     const result = await Effect.runPromise(
       service.snapshot().pipe(Effect.result),
     );
-    expect(result._tag).toBe("Left");
+    expect(result._tag).toBe("Failure");
     if (result._tag === "Failure") {
       expect((result.failure as ContentStoreError).code).toBe("corrupt");
     }

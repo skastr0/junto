@@ -77,8 +77,8 @@ export const BOX_IDLE_AUTO_STOP_SECONDS = 10 * 60;
 /**
  * effect-foundation **S4-rest-main** (staged, not half-migrated):
  * - Canonical id: `@vellum/box/BoxFleetService` — single definition; no dual path.
- * - Substrate: effect@3.21 → `Context.Tag` (`Context.Service` unavailable).
- * - V4 target:
+ * - Service id: Context.Service (Effect V4 live).
+ * - Shape:
  *   `class BoxFleetService extends Context.Service<BoxFleetService, BoxFleetService>()("@vellum/box/BoxFleetService") {}`
  * - Layer today: BoxFleetServiceLive / makeBoxFleetService — V4 rename candidate BoxFleetService.layer
  *   Do not dual-export Live + `.layer` names.

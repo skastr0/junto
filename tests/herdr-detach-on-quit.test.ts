@@ -138,7 +138,7 @@ describe("herdr detach-on-quit product lock", () => {
       .replace(/\/\/[^\n]*/g, "");
     expect(remoteClientStart).toBeGreaterThan(-1);
     expect(remoteClientBlock).toMatch(/makeBoundedRemoteClose/);
-    expect(remoteClientBlock).toMatch(/Scope\.make\(ExecutionStrategy\.sequential\)/);
+    expect(remoteClientBlock).toMatch(/Scope\.make\(["']sequential["']\)/);
     expect(remoteClientBlock).not.toMatch(/Scope\.fork\(/);
     expect(remoteClientBlock).not.toMatch(/\bkill\s*\(|\bpid\b|OwnedProcess|signalOwned/);
     expect(planeSrc).not.toMatch(/Scope\.fork\(/);

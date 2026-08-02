@@ -47,7 +47,7 @@ const previousCanvasesDirectory = process.env.VELLUM_CANVASES_DIR;
 const emptyDoc = { nodes: [], edges: [] } as const;
 const rejected = async (effect: Effect.Effect<unknown, unknown>): Promise<void> => {
   const outcome = await runtime.runPromise(Effect.result(effect));
-  expect(outcome._tag).toBe("Left");
+  expect(outcome._tag).toBe("Failure");
 };
 
 const runHeadless = async (script: "digest.ts" | "render.ts", name: string) => {

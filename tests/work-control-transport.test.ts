@@ -356,12 +356,12 @@ describe("work control transport", () => {
     const caller = { canvasName: "work-cli", nodeId: "agent" };
 
     expect(resolveProcessBoundActorRef([actor], caller)).toMatchObject({
-      _tag: "Right",
-      right: actor,
+      _tag: "Success",
+      success: actor,
     });
     expect(resolveProcessBoundActorRef([], caller)).toMatchObject({
-      _tag: "Left",
-      left: { type: "StaleNodeRef" },
+      _tag: "Failure",
+      failure: { type: "StaleNodeRef" },
     });
     expect(
       resolveProcessBoundActorRef(
@@ -375,8 +375,8 @@ describe("work control transport", () => {
         caller,
       ),
     ).toMatchObject({
-      _tag: "Left",
-      left: { type: "StaleNodeRef" },
+      _tag: "Failure",
+      failure: { type: "StaleNodeRef" },
     });
   });
 
@@ -653,7 +653,7 @@ describe("work control transport", () => {
       op: "ping",
     });
     const decoded = decodeWorkResponse(pong);
-    expect(decoded._tag).toBe("Right");
+    expect(decoded._tag).toBe("Success");
     if (decoded._tag === "Success") {
       expect(decoded.success.ok).toBe(true);
       if (decoded.success.ok) {
@@ -1051,7 +1051,7 @@ describe("work control transport", () => {
     expect(response.ok).toBe(false);
     expect(response.error.type).toBe("ProtocolError");
     expect(response.error.message).toContain("nodeRef");
-    expect(response.error.message).toContain("unexpected");
+    expect(response.error.message).toMatch(/unexpected/i);
     expect(response.error.details).toMatchObject({
       path: "request",
       retryable: false,
@@ -1079,7 +1079,7 @@ describe("work control transport", () => {
     expect(response.ok).toBe(false);
     expect(response.error.type).toBe("InputError");
     expect(response.error.message).toContain("role");
-    expect(response.error.message).toContain("unexpected");
+    expect(response.error.message).toMatch(/unexpected/i);
     expect(response.error.details).toMatchObject({
       path: "args",
       retryable: false,

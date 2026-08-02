@@ -125,7 +125,7 @@ describe("UpdateService", () => {
     const result = await Effect.runPromise(
       Effect.result(service.prepareInstall),
     );
-    expect(result._tag).toBe("Left");
+    expect(result._tag).toBe("Failure");
     if (result._tag === "Failure") {
       expect(result.failure.updateCode).toBe("not-ready");
     }
@@ -385,7 +385,7 @@ describe("UpdateService", () => {
         }),
       ),
     );
-    expect(result._tag).toBe("Left");
+    expect(result._tag).toBe("Failure");
     expect(relaunch).toHaveBeenCalled();
   });
 

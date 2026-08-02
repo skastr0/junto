@@ -135,13 +135,16 @@ describe("observability settings", () => {
     expect(next.advanced.openLastCanvas).toBe(true);
   });
 
-  it("decodes advanced prefs missing logsExplorer as false", () => {
+  it("decodes advanced prefs missing logsExplorer as omitted optional", () => {
+    // Schema.optionalKey: missing key stays undefined; product default is
+    // defaultAdvanced()/defaultSettings(), not schema decode.
     const decoded = Schema.decodeUnknownResult(AdvancedSettings)({
       openLastCanvas: true,
     });
     expect(Result.isSuccess(decoded)).toBe(true);
     if (Result.isSuccess(decoded)) {
-      expect(decoded.success.logsExplorer).toBe(false);
+      expect(decoded.success.logsExplorer).toBeUndefined();
+      expect(defaultSettings().advanced.logsExplorer).toBe(false);
     }
   });
 });

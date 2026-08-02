@@ -278,8 +278,8 @@ const ndjsonCall = (
 /**
  * effect-foundation **S4-rest-main** (staged, not half-migrated):
  * - Canonical id: `@vellum/cli/OperatorSocket` — single definition; no dual path.
- * - Substrate: effect@3.21 → `Context.Tag` (`Context.Service` unavailable).
- * - V4 target:
+ * - Service id: Context.Service (Effect V4 live).
+ * - Shape:
  *   `class OperatorSocket extends Context.Service<OperatorSocket, OperatorSocket>()("@vellum/cli/OperatorSocket") {}`
  * - Layer today: OperatorSocketLive — V4 rename candidate OperatorSocket.layer
  *   Do not dual-export Live + `.layer` names.

@@ -25,8 +25,8 @@ export const resolveWorkHome = (): string => {
 /**
  * effect-foundation **S4-rest-main** (staged, not half-migrated):
  * - Canonical id: `@vellum/cli/WorkSocket` — single definition; no dual path.
- * - Substrate: effect@3.21 → `Context.Tag` (`Context.Service` unavailable).
- * - V4 target:
+ * - Service id: Context.Service (Effect V4 live).
+ * - Shape:
  *   `class WorkSocket extends Context.Service<WorkSocket, WorkSocket>()("@vellum/cli/WorkSocket") {}`
  * - Layer today: WorkSocketLive — V4 rename candidate WorkSocket.layer
  *   Do not dual-export Live + `.layer` names.

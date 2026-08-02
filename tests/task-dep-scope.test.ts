@@ -31,7 +31,7 @@ const regionDoc = (): CanvasDoc => ({
       y: 0,
       width: 1000,
       height: 1000,
-      label: "Vellum",
+      label: "Vellum Command",
     },
     {
       id: "lane-a",

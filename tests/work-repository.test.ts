@@ -514,8 +514,8 @@ describe("WorkRepository v2 local authority", () => {
           .pipe(Effect.result),
       );
       expect(result).toMatchObject({
-        _tag: "Left",
-        left: {
+        _tag: "Failure",
+        failure: {
           _tag: "WorkAuthorityError",
           reason,
         },
@@ -715,8 +715,8 @@ describe("WorkRepository v2 local authority", () => {
         .pipe(Effect.result),
     );
     expect(missingComment).toMatchObject({
-      _tag: "Left",
-      left: { _tag: "WorkAuthorityError", reason: "invalid-transition" },
+      _tag: "Failure",
+      failure: { _tag: "WorkAuthorityError", reason: "invalid-transition" },
     });
 
     const rejected = await runtime.runPromise(
@@ -1352,8 +1352,8 @@ describe("WorkRepository v2 local authority", () => {
         .pipe(Effect.result),
     );
     expect(missingParent).toMatchObject({
-      _tag: "Left",
-      left: {
+      _tag: "Failure",
+      failure: {
         _tag: "WorkAuthorityError",
         reason: "missing-entity",
       },
@@ -1564,8 +1564,8 @@ describe("WorkRepository board CC-homed facts", () => {
         .pipe(Effect.result),
     );
     expect(duplicate).toMatchObject({
-      _tag: "Left",
-      left: {
+      _tag: "Failure",
+      failure: {
         _tag: "WorkAuthorityError",
         reason: "identity-conflict",
       },
@@ -1713,8 +1713,8 @@ describe("WorkRepository board CC-homed facts", () => {
           .pipe(Effect.result),
       );
       expect(denied).toMatchObject({
-        _tag: "Left",
-        left: {
+        _tag: "Failure",
+        failure: {
           _tag: "WorkAuthorityError",
           reason: "authority-mismatch",
         },

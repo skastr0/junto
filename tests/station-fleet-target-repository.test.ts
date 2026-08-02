@@ -220,8 +220,8 @@ describe("StationFleetTargetRepository", () => {
         fleet.bind(rejected).pipe(Effect.result),
       ),
     ).toMatchObject({
-      _tag: "Left",
-      left: {
+      _tag: "Failure",
+      failure: {
         _tag: "StationFleetTargetConflictError",
         admitted,
         rejected,
@@ -251,8 +251,8 @@ describe("StationFleetTargetRepository", () => {
         persisted.bind(replacement).pipe(Effect.result),
       ),
     ).toMatchObject({
-      _tag: "Left",
-      left: {
+      _tag: "Failure",
+      failure: {
         _tag: "StationFleetTargetHostBindingImmutableError",
         hostId: first.hostId,
         boundStationInstallationId: first.stationInstallationId,
@@ -290,8 +290,8 @@ describe("StationFleetTargetRepository", () => {
         ).pipe(Effect.result),
       ),
     ).toMatchObject({
-      _tag: "Left",
-      left: {
+      _tag: "Failure",
+      failure: {
         _tag: "StationFleetTargetHostBindingImmutableError",
         hostId: first.hostId,
         boundStationInstallationId: first.stationInstallationId,
@@ -318,8 +318,8 @@ describe("StationFleetTargetRepository", () => {
         fleet.bind(target, "").pipe(Effect.result),
       ),
     ).toMatchObject({
-      _tag: "Left",
-      left: {
+      _tag: "Failure",
+      failure: {
         _tag: "StationFleetTargetMetadataError",
         operation: "bind",
         field: "boundAt",
@@ -341,8 +341,8 @@ describe("StationFleetTargetRepository", () => {
         fleet.bind(forged).pipe(Effect.result),
       ),
     ).toMatchObject({
-      _tag: "Left",
-      left: {
+      _tag: "Failure",
+      failure: {
         _tag: "StationFleetTargetMetadataError",
         field: "identity",
       },

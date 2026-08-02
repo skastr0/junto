@@ -281,7 +281,7 @@ describe("remote hosts registry", () => {
       ),
     );
 
-    expect(result._tag).toBe("Left");
+    expect(result._tag).toBe("Failure");
     if (result._tag === "Failure") {
       expect(result.failure.code).toBe("validation");
       expect(result.failure.message).toContain("legacyToken");
@@ -382,7 +382,7 @@ describe("remote hosts registry", () => {
       }).toEqual({
         firstRoute: true,
         listedIds: ["local", "studio"],
-        rejected: "Left",
+        rejected: "Failure",
         reloadedIds: ["local", "render"],
         oldRoute: false,
         newRoute: true,

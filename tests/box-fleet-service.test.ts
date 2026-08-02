@@ -138,7 +138,7 @@ describe("Box Fleet service ownership", () => {
 
     const result = await Effect.runPromise(Effect.result(service.create()));
 
-    expect(result._tag).toBe("Left");
+    expect(result._tag).toBe("Failure");
     expect(result._tag === "Failure" ? result.failure : undefined).toMatchObject({
       _tag: "BoxFleetProvisioningError",
       boxId: "bx_c79mgja6",
@@ -287,7 +287,7 @@ describe("Box Fleet service ownership", () => {
       Effect.result(service.stop("bx_23456789")),
     );
 
-    expect(result._tag).toBe("Left");
+    expect(result._tag).toBe("Failure");
     expect(result._tag === "Failure" ? result.failure._tag : "").toBe(
       "BoxOwnershipNotFoundError",
     );
@@ -318,7 +318,7 @@ describe("Box Fleet service ownership", () => {
 
     const result = await Effect.runPromise(Effect.result(service.create()));
 
-    expect(result._tag).toBe("Left");
+    expect(result._tag).toBe("Failure");
     expect(result._tag === "Failure" ? result.failure._tag : "").toBe(
       "BoxFleetAuthorizationError",
     );

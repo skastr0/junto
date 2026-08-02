@@ -21,8 +21,8 @@ import { expandMacUpdateZip, releaseStaging } from "./staging";
 /**
  * effect-foundation **S4-rest-main** (staged, not half-migrated):
  * - Canonical id: `@vellum/UpdateService` — single definition; no dual path.
- * - Substrate: effect@3.21 → `Context.Tag` (`Context.Service` unavailable).
- * - V4 target:
+ * - Service id: Context.Service (Effect V4 live).
+ * - Shape:
  *   `class UpdateService extends Context.Service<UpdateService, UpdateService>()("@vellum/UpdateService") {}`
  * - Layer today: makeUpdateServiceLayer — V4 rename candidate UpdateService.layer
  *   Do not dual-export Live + `.layer` names.

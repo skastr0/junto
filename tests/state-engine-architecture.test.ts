@@ -12,6 +12,8 @@ const allowed = new Set([
   "src/main/vellum/state/schema-identity.ts",
   // Read-only pre-AppRuntime probe for newer-than-supported schema recovery.
   "src/main/vellum/state/schema-version-probe.ts",
+  // Install-local ledger (install-ops.db) — not product state; separate opener.
+  "src/main/vellum/install-ops/engine.ts",
 ]);
 
 const filesUnder = (directory: string): string[] => {

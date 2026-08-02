@@ -712,6 +712,14 @@ const assertExpandSchemaPreserved = (
   before: ExpandSchemaSnapshot,
   database: DatabaseSync,
   replacesObjects: ReadonlySet<string>,
+  /**
+   * Indexes/triggers owned by `replacesTables` tables. DROP TABLE cascades
+   * them and the step rebuilds them; their SQL may change with the rebuild.
+   */
+  sideObjects: {
+    readonly indexes: ReadonlySet<string>;
+    readonly triggers: ReadonlySet<string>;
+  } = { indexes: new Set(), triggers: new Set() },
 ): void => {
   const after = expandSchemaSnapshot(database);
   for (const [tableName, beforeColumns] of before.tables) {
@@ -735,6 +743,13 @@ const assertExpandSchemaPreserved = (
   }
   for (const [key, sql] of before.retainedObjects) {
     if (replacesObjects.has(key)) continue;
+    const colon = key.indexOf(":");
+    if (colon > 0) {
+      const kind = key.slice(0, colon);
+      const name = key.slice(colon + 1);
+      if (kind === "trigger" && sideObjects.triggers.has(name)) continue;
+      if (kind === "index" && sideObjects.indexes.has(name)) continue;
+    }
     if (after.retainedObjects.get(key) !== sql) {
       throw new Error(
         `state schema startup migration changed durable ${key}`,
@@ -943,7 +958,12 @@ const runMigrationStep = (
   });
   try {
     migration.migrate(connection);
-    assertExpandSchemaPreserved(before, database, replacesObjects);
+    assertExpandSchemaPreserved(
+      before,
+      database,
+      replacesObjects,
+      sideObjects,
+    );
   } finally {
     database.setAuthorizer(null);
   }

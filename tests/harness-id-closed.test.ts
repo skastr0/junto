@@ -28,13 +28,13 @@ describe("HarnessId is closed at the document seam", () => {
     expect(HARNESS_IDS).toEqual(["claude", "codex", "grok", "hermes"]);
     for (const harness of HARNESS_IDS) {
       const decoded = decodeCanvasDoc(agentDoc({ bindingId: "b1", harness }));
-      expect(decoded._tag).toBe("Right");
+      expect(decoded._tag).toBe("Success");
     }
   });
 
   it("refuses a harness that names no template", () => {
     const decoded = decodeCanvasDoc(agentDoc({ bindingId: "b1", harness: "banana" }));
-    expect(decoded._tag).toBe("Left");
+    expect(decoded._tag).toBe("Failure");
   });
 
   it("keeps an authored agent that has no seat — decode reads, never rewrites", () => {
@@ -53,7 +53,7 @@ describe("HarnessId is closed at the document seam", () => {
       ],
       edges: [],
     });
-    expect(decoded._tag).toBe("Right");
+    expect(decoded._tag).toBe("Success");
     if (decoded._tag !== "Success") return;
     const node = decoded.success.nodes[0]!;
     expect(node.ether?.entity?.kind).toBe("agent");

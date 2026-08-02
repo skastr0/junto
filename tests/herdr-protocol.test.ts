@@ -39,7 +39,9 @@ describe("herdr control protocol field names", () => {
 
   it("terminal.scroll uses direction + lines — not delta", () => {
     expect(domainSrc).toMatch(/terminal\.scroll/);
-    expect(domainSrc).toMatch(/direction:\s*Schema\.Literal\("up", "down"\)/);
+    expect(domainSrc).toMatch(
+      /direction:\s*Schema\.Literals\(\["up", "down"\]\)/,
+    );
     expect(domainSrc).toMatch(/lines:/);
     expect(streamSrc).toMatch(/herdrScroll/);
     const scrollMethod = streamSrc.slice(

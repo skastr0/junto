@@ -15,8 +15,8 @@ export class PrismError extends Schema.TaggedErrorClass<PrismError>()("PrismErro
 /**
  * effect-foundation **S4-rest-main** (staged, not half-migrated):
  * - Canonical id: `@chassis/PrismService` — single definition; no dual path.
- * - Substrate: effect@3.21 → `Context.Tag` (`Context.Service` unavailable).
- * - V4 target:
+ * - Service id: Context.Service (Effect V4 live).
+ * - Shape:
  *   `class PrismService extends Context.Service<PrismService, PrismService>()("@chassis/PrismService") {}`
  * - Layer today: PrismLive — V4 rename candidate PrismService.layer
  *   Do not dual-export Live + `.layer` names.

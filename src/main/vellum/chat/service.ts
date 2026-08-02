@@ -877,8 +877,8 @@ export class ChatService {
 /**
  * effect-foundation **S4-rest-main** (staged, not half-migrated):
  * - Canonical id: `@vellum/ChatService` — single definition; no dual path.
- * - Substrate: effect@3.21 → `Context.Tag` (`Context.Service` unavailable).
- * - V4 target:
+ * - Service id: Context.Service (Effect V4 live).
+ * - Shape:
  *   `class ChatServiceContext extends Context.Service<ChatServiceContext, ChatService>()("@vellum/ChatService") {}`
  * - Layer today: ChatServiceFromHermesLive (hermes plane) — single id; class name is Context holder only
  *   Do not dual-export Live + `.layer` names.

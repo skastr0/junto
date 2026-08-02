@@ -109,6 +109,10 @@ import {
   WorkRepository,
   WorkRepositoryLive,
 } from "../src/main/vellum/work/repository";
+import {
+  makeContentServiceLive,
+} from "../src/main/vellum/content/service";
+import { makeInstallOpsLive } from "../src/main/vellum/install-ops/engine";
 
 const runEffect = <A, E>(effect: Effect.Effect<A, E, any>): Promise<A> =>
   Effect.runPromise(effect as Effect.Effect<A, E, never>);
@@ -153,6 +157,8 @@ const makeInstallationRuntime = (
   databasePath: string,
   localInstallationId: InstallationIdValue,
 ) => {
+  // databasePath is `<tmp>/vellum.db`; content + install-ops live beside it.
+  const installRoot = join(databasePath, "..");
   const state = makeStateEngineLive(databasePath);
   const repositories = Layer.provideMerge(
     Layer.mergeAll(
@@ -163,8 +169,15 @@ const makeInstallationRuntime = (
       }),
       StationFleetTargetRepositoryLive,
       SettingsLive,
+      makeContentServiceLive({
+        root: join(installRoot, "content"),
+        skipInlineMediaMigration: true,
+      }),
     ),
-    state,
+    Layer.mergeAll(
+      state,
+      makeInstallOpsLive(join(installRoot, "install-ops.db")),
+    ),
   );
   const canvases = Layer.provideMerge(CanvasesLive, repositories);
   const stationApi = Layer.provideMerge(StationApiLive, canvases);

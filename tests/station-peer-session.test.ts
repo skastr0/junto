@@ -149,7 +149,9 @@ const makeTransportHarness = Effect.gen(function* () {
       Queue.offer(incoming, frame).pipe(Effect.asVoid),
     takeSent: Queue.take(sent),
     sentSize: Queue.size(sent),
-    end: Queue.shutdown(incoming),
+    // V4: Queue.end completes Stream.fromQueue cleanly (Done excluded from
+    // stream errors). shutdown fails the stream and can stall pending fibers.
+    end: Queue.end(incoming),
     closeCount: Ref.get(closeCount),
   };
 });

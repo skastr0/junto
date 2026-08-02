@@ -246,8 +246,8 @@ describe("StationRepository", () => {
       repository.configureRemote(forged).pipe(Effect.result),
     );
     expect(result).toMatchObject({
-      _tag: "Left",
-      left: {
+      _tag: "Failure",
+      failure: {
         _tag: "StationConfigurationError",
         reason: "remote-only",
       },
@@ -289,8 +289,8 @@ describe("StationRepository", () => {
     );
 
     expect(result).toMatchObject({
-      _tag: "Left",
-      left: {
+      _tag: "Failure",
+      failure: {
         _tag: "StationConfigurationError",
         reason: "host-registration-mismatch",
       },
@@ -332,8 +332,8 @@ describe("StationRepository", () => {
       ).pipe(Effect.result),
     );
     expect(pairResult).toMatchObject({
-      _tag: "Left",
-      left: {
+      _tag: "Failure",
+      failure: {
         _tag: "StationPairingTopologyError",
         reason: "command-center-configured",
       },
@@ -365,8 +365,8 @@ describe("StationRepository", () => {
       }).pipe(Effect.result),
     );
     expect(localPromotion).toMatchObject({
-      _tag: "Left",
-      left: {
+      _tag: "Failure",
+      failure: {
         code: "validation",
         message: expect.stringContaining("paired installation"),
       },

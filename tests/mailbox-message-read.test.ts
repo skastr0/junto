@@ -29,6 +29,10 @@ import {
   WorkRepositoryLive,
 } from "../src/main/vellum/work/repository";
 import { WorkLive, WorkService } from "../src/main/vellum/work/service";
+import {
+  makeContentServiceLive,
+} from "../src/main/vellum/content/service";
+import { makeInstallOpsLive } from "../src/main/vellum/install-ops/engine";
 
 const roots: string[] = [];
 const runtimes: Array<{ dispose: () => Promise<void> }> = [];
@@ -50,8 +54,15 @@ const makeRuntime = (root: string) => {
       StationRepositoryLive,
       StationFleetTargetRepositoryLive,
       SettingsLive,
+      makeContentServiceLive({
+        root: join(root, "content"),
+        skipInlineMediaMigration: true,
+      }),
     ),
-    stateLive,
+    Layer.mergeAll(
+      stateLive,
+      makeInstallOpsLive(join(root, "state", "install-ops.db")),
+    ),
   );
   const canvasesLive = Layer.provideMerge(CanvasesLive, repositoriesLive);
   const workLive = Layer.provideMerge(
@@ -164,7 +175,7 @@ describe("mailbox message read receipts", () => {
         })
         .pipe(Effect.result),
     );
-    expect(second._tag).toBe("Left");
+    expect(second._tag).toBe("Failure");
     expect(
       await runtime.runPromise(repository.acceptedDeliveryAt(sink, deliveryId)),
     ).toBe(acceptedAt);

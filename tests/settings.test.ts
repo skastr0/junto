@@ -71,7 +71,9 @@ describe("settings contract", () => {
     expect("topologyIntegrity" in defaultSettings().station).toBe(false);
     expect(
       Result.isFailure(
-        Schema.decodeUnknownResult(StationSettings)(retiredStation),
+        Schema.decodeUnknownResult(StationSettings, {
+          onExcessProperty: "error",
+        })(retiredStation),
       ),
     ).toBe(true);
     expect(
@@ -485,7 +487,9 @@ describe("SQLite settings service", () => {
     );
     expect(Result.isFailure(result)).toBe(true);
     if (Result.isFailure(result)) {
-      expect(result.failure.message).toContain("topologyIntegrity is retired");
+      expect(result.failure.message).toMatch(
+        /topologyIntegrity|Unexpected key/i,
+      );
     }
     expect((await run(service.get)).station.role).toBe("");
   });

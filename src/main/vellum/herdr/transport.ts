@@ -90,8 +90,8 @@ export interface HerdrStreamSpec {
 /**
  * effect-foundation **S4-rest-main** (staged, not half-migrated):
  * - Canonical id: `@vellum/HerdrTransport` — single definition; no dual path.
- * - Substrate: effect@3.21 → `Context.Tag` (`Context.Service` unavailable).
- * - V4 target:
+ * - Service id: Context.Service (Effect V4 live).
+ * - Shape:
  *   `class HerdrTransport extends Context.Service<HerdrTransport, HerdrTransport>()("@vellum/HerdrTransport") {}`
  * - Layer today: HerdrTransportLive — V4 rename candidate HerdrTransport.layer
  *   Do not dual-export Live + `.layer` names.

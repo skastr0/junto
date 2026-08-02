@@ -938,17 +938,29 @@ import {
 import {
   compileStationPortfolioBody,
 } from "../src/main/vellum/station/portfolio";
+import {
+  makeContentServiceLive,
+} from "../src/main/vellum/content/service";
+import { makeInstallOpsLive } from "../src/main/vellum/install-ops/engine";
 
 const makeWorkRuntime = (databasePath: string) => {
+  const installRoot = join(databasePath, "..");
   const stateLive = makeStateEngineLive(databasePath);
   const repositoriesLive = Layer.provideMerge(
     Layer.mergeAll(
       WorkRepositoryLive,
       StationRepositoryLive,
       StationFleetTargetRepositoryLive,
-      SettingsLive
+      SettingsLive,
+      makeContentServiceLive({
+        root: join(installRoot, "content"),
+        skipInlineMediaMigration: true,
+      }),
     ),
-    stateLive
+    Layer.mergeAll(
+      stateLive,
+      makeInstallOpsLive(join(installRoot, "install-ops.db")),
+    ),
   );
   const canvasesLive = Layer.provideMerge(
     CanvasesLive,
@@ -1030,7 +1042,7 @@ describe("WorkService — concurrent ops", () => {
     const missing = await workRuntime.runPromise(
       work.workTaskHome(name, "tasks", "missing-task").pipe(Effect.result)
     );
-    expect(missing._tag).toBe("Left");
+    expect(missing._tag).toBe("Failure");
     if (missing._tag === "Failure") {
       expect(missing.failure.code).toBe("task_not_found");
     }

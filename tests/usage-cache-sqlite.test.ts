@@ -228,7 +228,7 @@ describe("SQLite usage cache", () => {
       ),
     );
 
-    expect(result._tag).toBe("Left");
+    expect(result._tag).toBe("Failure");
     if (result._tag === "Failure") {
       expect(result.failure.operation).toBe("load.decode");
       expect(result.failure.message).toContain("legacyEnvelope");

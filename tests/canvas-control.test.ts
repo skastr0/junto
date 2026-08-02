@@ -252,9 +252,9 @@ describe("canvas control", () => {
       onExcessProperty: "error",
     });
 
-    expect(decode(base)._tag).toBe("Left");
+    expect(decode(base)._tag).toBe("Failure");
     expect(decode({ ...base, actorRefs: [], surprise: true })._tag).toBe(
-      "Left",
+      "Failure",
     );
     expect(
       decode({
@@ -267,7 +267,7 @@ describe("canvas control", () => {
           },
         ],
       })._tag,
-    ).toBe("Left");
+    ).toBe("Failure");
   });
 
   it("has no headless authorial mutation operation", async () => {
@@ -282,7 +282,7 @@ describe("canvas control", () => {
       }),
     );
 
-    expect(response._tag).toBe("Right");
+    expect(response._tag).toBe("Success");
     if (response._tag === "Success" && !response.success.ok) {
       expect(response.success.error.code).toBe("ProtocolError");
     }
@@ -302,7 +302,7 @@ describe("canvas control", () => {
       server.socketPath,
       `${"x".repeat(300)}\n`,
     );
-    expect(oversized._tag).toBe("Right");
+    expect(oversized._tag).toBe("Success");
     if (oversized._tag === "Success") {
       expect(oversized.success.ok).toBe(false);
       if (!oversized.success.ok) {
@@ -317,7 +317,7 @@ describe("canvas control", () => {
       id: "one",
     });
     const multiple = await rawCall(server.socketPath, `${valid}${valid}`);
-    expect(multiple._tag).toBe("Right");
+    expect(multiple._tag).toBe("Success");
     if (multiple._tag === "Success" && !multiple.success.ok) {
       expect(multiple.success.error.code).toBe("ProtocolError");
     }
@@ -325,7 +325,7 @@ describe("canvas control", () => {
     const response = await Effect.runPromise(
       Effect.result(readCanvasThroughControl("portfolio", { controlHome })),
     );
-    expect(response._tag).toBe("Left");
+    expect(response._tag).toBe("Failure");
     if (response._tag === "Failure") {
       expect(response.failure.code).toBe("ResponseTooLarge");
     }
@@ -339,7 +339,7 @@ describe("canvas control", () => {
         }),
       ),
     );
-    expect(local._tag).toBe("Left");
+    expect(local._tag).toBe("Failure");
     if (local._tag === "Failure") {
       expect(local.failure.code).toBe("InputError");
       expect(local.failure.message).toContain("invalid canvas name");
@@ -356,7 +356,7 @@ describe("canvas control", () => {
         surprise: true,
       }),
     );
-    expect(excessEnvelope._tag).toBe("Right");
+    expect(excessEnvelope._tag).toBe("Success");
     if (excessEnvelope._tag === "Success" && !excessEnvelope.success.ok) {
       expect(excessEnvelope.success.error.code).toBe("ProtocolError");
     }
@@ -370,7 +370,7 @@ describe("canvas control", () => {
         id: "excess-args",
       }),
     );
-    expect(excessArgs._tag).toBe("Right");
+    expect(excessArgs._tag).toBe("Success");
     if (excessArgs._tag === "Success" && !excessArgs.success.ok) {
       expect(excessArgs.success.error.code).toBe("InputError");
     }
@@ -408,7 +408,7 @@ describe("canvas control", () => {
     const decoded = decodeCanvasControlResponse(
       JSON.parse(response.trim()) as unknown,
     );
-    expect(decoded._tag).toBe("Right");
+    expect(decoded._tag).toBe("Success");
     if (decoded._tag === "Success" && !decoded.success.ok) {
       expect(decoded.success.error.code).toBe("RuntimeDown");
     }
@@ -475,7 +475,7 @@ describe("canvas control", () => {
 
     blocked = false;
     release();
-    await expect(client).resolves.toMatchObject({ _tag: "Right" });
+    await expect(client).resolves.toMatchObject({ _tag: "Success" });
     // A client response witnesses committed work, not the server's listener
     // close callback or lease release. Under load the deliberately tiny test
     // deadline can therefore produce another bounded unclean receipt. Retry

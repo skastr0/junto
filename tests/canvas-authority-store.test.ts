@@ -21,6 +21,10 @@ import {
   SettingsService,
 } from "../src/main/vellum/settings/service";
 import {
+  makeContentServiceLive,
+} from "../src/main/vellum/content/service";
+import { makeInstallOpsLive } from "../src/main/vellum/install-ops/engine";
+import {
   applyMirrorLaw,
   type CanvasDoc,
 } from "../src/shared/canvas";
@@ -66,14 +70,23 @@ describe("CanvasesService SQLite authority", () => {
   let stateDir = "";
   let previousCanvases: string | undefined;
   const makeCanvasRuntime = (path: string) => {
+    const contentRoot = join(stateDir || path, "..", "content");
+    const installOpsPath = join(stateDir || path, "install-ops.db");
     const repositories = Layer.provideMerge(
       Layer.mergeAll(
         WorkRepositoryLive,
         StationRepositoryLive,
         StationFleetTargetRepositoryLive,
-        SettingsLive
+        SettingsLive,
+        makeContentServiceLive({
+          root: contentRoot,
+          skipInlineMediaMigration: true,
+        }),
       ),
-      makeStateEngineLive(path)
+      Layer.mergeAll(
+        makeStateEngineLive(path),
+        makeInstallOpsLive(installOpsPath),
+      ),
     );
     const canvases = Layer.provideMerge(CanvasesLive, repositories);
     return ManagedRuntime.make((
@@ -253,8 +266,8 @@ describe("CanvasesService SQLite authority", () => {
     const reopened = await runtime.runPromise(CanvasesService);
     const result = await runtime.runPromise(Effect.result(reopened.list));
     expect(result).toMatchObject({
-      _tag: "Left",
-      left: {
+      _tag: "Failure",
+      failure: {
         message: expect.stringContaining(expectedMessage),
       },
     });
@@ -338,7 +351,7 @@ describe("CanvasesService SQLite authority", () => {
     expect([...snap.documents.keys()]).toEqual(["keep"]);
     await expect(
       runtime.runPromise(Effect.result(canvases.read("drop")))
-    ).resolves.toMatchObject({ _tag: "Left" });
+    ).resolves.toMatchObject({ _tag: "Failure" });
   });
 
   it("deduplicates identical maps and preserves a valid empty head", async () => {

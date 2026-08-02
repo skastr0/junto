@@ -561,9 +561,8 @@ const makeContentTransferService = (
               ? error
               : new Error(String(error)),
           );
-          // S5 Effect V4 prep (effect@3.21): Effect.fork → Effect.forkChild on V4 bump.
-          // See Playground/effect/migration/forking.md. Sole product Effect.fork site
-          // under src/main (2026-04 inventory); forkDaemon: none; forkScoped/forkIn unchanged.
+          // Child fiber: Effect.forkChild (V4 forking).
+          // See Playground/effect/migration/forking.md.
           const runner = yield* Effect.forkChild(bridged.run);
 
           const result = yield* Effect.tryPromise({

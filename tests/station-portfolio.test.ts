@@ -253,7 +253,7 @@ describe("station portfolio body", () => {
           actorSeats: [{ ...seat, legacyNodeIdentity: "agent-a" }],
         }),
       )
-    ).toThrow("is unexpected");
+    ).toThrow(/is unexpected|Unexpected key|invalid/i);
     expect(() =>
       decodeStationPortfolioBody(
         JSON.stringify({

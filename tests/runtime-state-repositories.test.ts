@@ -200,7 +200,7 @@ describe("typed runtime-state repositories", () => {
       }),
     );
 
-    expect(result._tag).toBe("Left");
+    expect(result._tag).toBe("Failure");
     if (result._tag === "Failure") {
       expect(result.failure).toBeInstanceOf(KernelStateCorruptError);
     }
@@ -229,7 +229,7 @@ describe("typed runtime-state repositories", () => {
       }),
     );
 
-    expect(result._tag).toBe("Left");
+    expect(result._tag).toBe("Failure");
     if (result._tag === "Failure") {
       expect(result.failure).toBeInstanceOf(FactoryPauseStateCorruptError);
     }

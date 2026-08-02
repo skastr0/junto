@@ -70,14 +70,14 @@ describe("canvases.ts remove()", () => {
     expect(listAfter.some((row) => row.name === name)).toBe(false);
     await expect(
       runtime.runPromise(Effect.result(canvases.read(name))),
-    ).resolves.toMatchObject({ _tag: "Left" });
+    ).resolves.toMatchObject({ _tag: "Failure" });
     expect(await pathExists(join(dir, `${name}.digest.txt`))).toBe(false);
     expect(await pathExists(join(dir, `${name}.svg`))).toBe(false);
   });
 
   it("fails when the canvas does not exist", async () => {
     const error = await runtime.runPromise(Effect.result(canvases.remove("missing-canvas")));
-    expect(error._tag).toBe("Left");
+    expect(error._tag).toBe("Failure");
     if (error._tag === "Failure") {
       expect(error.failure.message).toMatch(/does not exist/);
     }
@@ -85,7 +85,7 @@ describe("canvases.ts remove()", () => {
 
   it("rejects invalid names", async () => {
     const error = await runtime.runPromise(Effect.result(canvases.remove("Bad Name!")));
-    expect(error._tag).toBe("Left");
+    expect(error._tag).toBe("Failure");
     if (error._tag === "Failure") {
       expect(error.failure.message).toMatch(/invalid canvas name/);
     }
@@ -202,7 +202,7 @@ describe("canvases.ts remove()", () => {
     } else {
       await expect(
         runtime.runPromise(Effect.result(canvases.read(name))),
-      ).resolves.toMatchObject({ _tag: "Left" });
+      ).resolves.toMatchObject({ _tag: "Failure" });
     }
   });
 

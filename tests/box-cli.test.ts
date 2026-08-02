@@ -251,7 +251,7 @@ describe("Box CLI adapter", () => {
       ),
     );
 
-    expect(result._tag).toBe("Left");
+    expect(result._tag).toBe("Failure");
     expect(result._tag === "Failure" ? result.failure : undefined).toMatchObject({
       _tag: "BoxCliCommandError",
       boxId,
@@ -269,9 +269,15 @@ describe("Box CLI adapter", () => {
 
     await expect(
       withCli(failed, "/bin/true", (cli) => cli.info(ownedBox)),
-    ).rejects.toThrow(/not authenticated/u);
+    ).rejects.toMatchObject({
+      _tag: "BoxCliCommandError",
+      detail: expect.stringMatching(/not authenticated/u),
+    });
     await expect(
       withCli(malformed, "/bin/true", (cli) => cli.info(ownedBox)),
-    ).rejects.toThrow(/invalid JSON/u);
+    ).rejects.toMatchObject({
+      _tag: "BoxCliProtocolError",
+      detail: expect.stringMatching(/invalid JSON/u),
+    });
   });
 });

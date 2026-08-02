@@ -60,7 +60,7 @@ describe("work-control wire schemas", () => {
     expect(Result.isFailure(decoded)).toBe(true);
     if (Result.isFailure(decoded)) {
       expect(decoded.failure.message).toContain("nodeRef");
-      expect(decoded.failure.message).toContain("unexpected");
+      expect(decoded.failure.message).toMatch(/unexpected/i);
     }
   });
 

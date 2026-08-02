@@ -39,8 +39,12 @@ describe("settings state architecture", () => {
       new URL("../src/main/vellum/settings/service.ts", import.meta.url),
       "utf8",
     );
-    expect(source).not.toContain("./legacy-import");
-    expect(source).not.toMatch(
+    // Strip comments — prose may say "rename" without a file-store path.
+    const code = source
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/\/\/[^\n]*/g, "");
+    expect(code).not.toContain("./legacy-import");
+    expect(code).not.toMatch(
       /\breadFile\b|\bwriteFile\b|\batomicWrite\b|\brename\b/,
     );
   });

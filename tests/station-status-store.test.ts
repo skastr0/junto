@@ -175,7 +175,7 @@ describe("SQLite station status receipts", () => {
       }),
     );
 
-    expect(result._tag).toBe("Left");
+    expect(result._tag).toBe("Failure");
     if (result._tag === "Failure") {
       expect(result.failure).toBeInstanceOf(StationStatusStoreError);
     }
@@ -209,7 +209,7 @@ describe("SQLite station status receipts", () => {
       }),
     );
 
-    expect(result._tag).toBe("Left");
+    expect(result._tag).toBe("Failure");
     if (result._tag === "Failure") {
       expect(result.failure).toBeInstanceOf(StationStatusStoreError);
     }

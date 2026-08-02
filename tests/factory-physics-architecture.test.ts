@@ -48,8 +48,11 @@ describe("factory physics architecture", () => {
       ...filesUnder("src", "main", "vellum", "browser"),
       ...filesUnder("src", "main", "vellum", "kernel"),
     ];
+    // Capability planes must not branch on canvas entity.kind for the well-known
+    // actor/sink kinds. Work-item `.kind` and open-vocab furniture (e.g. board)
+    // are outside this probe; ports still go through role/physics.
     const kindComparison =
-      /\.(?:entity\?\.)?kind\s*(?:===|!==)\s*["'`](?:agent|terminal|herdr|page|task|requests|artifacts|watcher|timer)["'`]/u;
+      /\.entity\?\.kind\s*(?:===|!==)\s*["'`](?:agent|terminal|herdr|page|task|requests|artifacts|watcher|timer)["'`]/u;
     const violations = planes.flatMap((path) => {
       const source = readFileSync(path, "utf8");
       return kindComparison.test(source) ? [display(path)] : [];

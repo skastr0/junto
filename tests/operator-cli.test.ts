@@ -96,7 +96,7 @@ describe("operator socket client", () => {
     expect(result.hosts[0]?.id).toBe("local");
     expect(observed).toBeDefined();
     expect(observed).not.toHaveProperty("token");
-    expect(decodeOperatorRequest(observed)._tag).toBe("Right");
+    expect(decodeOperatorRequest(observed)._tag).toBe("Success");
   });
 
   it("rejects a response with a different request id", async () => {
@@ -114,7 +114,7 @@ describe("operator socket client", () => {
         return yield* socket.call("fleet.list", {}).pipe(Effect.result);
       }).pipe(Effect.provide(OperatorSocketLive)),
     );
-    expect(result._tag).toBe("Left");
+    expect(result._tag).toBe("Failure");
     if (result._tag === "Failure") {
       expect(result.failure.message).toMatch(/match the request/);
     }

@@ -56,8 +56,16 @@ describe("vellum-remote closure", () => {
   });
 
   it("does not import runtime.ts (Electron RootLayer) from the remote entry", () => {
-    const entry = readFileSync(join(root, "src/main/vellum-remote.ts"), "utf8");
-    const seed = readFileSync(join(root, "src/main/remote-runtime.ts"), "utf8");
+    const stripComments = (source: string): string =>
+      source
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/\/\/[^\n]*/g, "");
+    const entry = stripComments(
+      readFileSync(join(root, "src/main/vellum-remote.ts"), "utf8"),
+    );
+    const seed = stripComments(
+      readFileSync(join(root, "src/main/remote-runtime.ts"), "utf8"),
+    );
     expect(entry).not.toMatch(/from\s+["']\.\/runtime["']/u);
     expect(seed).not.toMatch(/from\s+["']\.\/runtime["']/u);
     expect(entry).not.toMatch(/\bAppRuntime\b/u);

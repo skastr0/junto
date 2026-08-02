@@ -461,7 +461,7 @@ describe("StateEngine", () => {
         }),
       ),
     );
-    expect(failed._tag).toBe("Left");
+    expect(failed._tag).toBe("Failure");
 
     await runtime.runPromise(
       engine.transaction("test.after-rollback", (writer) => {
@@ -712,7 +712,7 @@ describe("StateEngine", () => {
 
     const result = await runtime.runPromise(Effect.result(engine.backup()));
 
-    expect(result._tag).toBe("Left");
+    expect(result._tag).toBe("Failure");
     expect((await lstat(external)).mode & 0o777).toBe(0o755);
     expect(await readdir(external)).toEqual([]);
   });
@@ -958,7 +958,7 @@ describe("StateEngine", () => {
       ),
     );
 
-    expect(result._tag).toBe("Left");
+    expect(result._tag).toBe("Failure");
     if (result._tag === "Failure") {
       expect(result.failure).toMatchObject({
         _tag: "StateEngineError",

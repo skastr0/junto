@@ -46,8 +46,8 @@ import {
 /**
  * effect-foundation **S4-rest-main** (staged, not half-migrated):
  * - Canonical id: `@vellum/SettingsService` — single definition; no dual path.
- * - Substrate: effect@3.21 → `Context.Tag` (`Context.Service` unavailable).
- * - V4 target:
+ * - Service id: Context.Service (Effect V4 live).
+ * - Shape:
  *   `class SettingsService extends Context.Service<SettingsService, SettingsService>()("@vellum/SettingsService") {}`
  * - Layer today: SettingsLive / makeSettingsLive — V4 rename candidate SettingsService.layer
  *   Do not dual-export Live + `.layer` names.

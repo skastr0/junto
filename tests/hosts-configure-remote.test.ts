@@ -280,7 +280,7 @@ describe("configureRemoteHost", () => {
       Effect.result(configureRemoteHost(fixture.ssh, localHost, options)),
     );
 
-    expect(result._tag).toBe("Left");
+    expect(result._tag).toBe("Failure");
     if (result._tag === "Failure") {
       expect(result.failure.code).toBe("validation");
       expect(result.failure.message).toMatch(/local/u);
@@ -360,7 +360,7 @@ describe("configureRemoteHost", () => {
       Effect.result(configureRemoteHost(fixture.ssh, remoteHost, options)),
     );
 
-    expect(result._tag).toBe("Left");
+    expect(result._tag).toBe("Failure");
     if (result._tag === "Failure") {
       expect(result.failure.code).toBe("conflict");
       expect(result.failure.message).toMatch(/different Remote configuration/u);

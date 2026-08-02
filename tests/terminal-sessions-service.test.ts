@@ -144,7 +144,7 @@ describe("TerminalSessions Effect service", () => {
     expect(mgr.activeControlCount()).toBe(0);
     // Further writes fail closed
     const again = await Effect.runPromise(Effect.result(sessions.inputText(streamId, "x")));
-    expect(again._tag).toBe("Left");
+    expect(again._tag).toBe("Failure");
   });
 
   it("openProduct is the unscoped IPC path and closeProduct detaches", async () => {

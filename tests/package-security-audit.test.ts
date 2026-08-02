@@ -268,8 +268,8 @@ describe("electron-builder fitness", () => {
         entry.includes("node_modules/@parcel/watcher"),
       ),
     ).toEqual([
-      "!node_modules/@parcel/watcher{ /**/*}",
-      "!node_modules/@parcel/watcher-*{ /**/*}",
+      "!node_modules/@parcel/watcher{,/**/*}",
+      "!node_modules/@parcel/watcher-*{,/**/*}",
     ]);
 
     const sshFileSystemLayer = await readFile(
