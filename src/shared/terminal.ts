@@ -16,29 +16,21 @@ export type TerminalLaunch = EtherTerminalLaunch;
 
 // ── Runtime epoch (never in canvas) ───────────────────────────────────────
 
-export const TerminalSessionStatus = Schema.Literal(
-  "starting",
-  "running",
-  "exited",
-  "missing",
-);
+export const TerminalSessionStatus = Schema.Literals(["starting", "running",
+"exited",
+"missing",]);
 export type TerminalSessionStatus = typeof TerminalSessionStatus.Type;
 
-export const TerminalHarnessState = Schema.Literal(
-  "idle",
-  "working",
-  "blocked",
-  "attention",
-  "unknown",
-);
+export const TerminalHarnessState = Schema.Literals(["idle", "working",
+"blocked",
+"attention",
+"unknown",]);
 export type TerminalHarnessState = typeof TerminalHarnessState.Type;
 
 export const WorkSurfaceActivity = Schema.Struct({
   session: TerminalSessionStatus,
-  harness: Schema.optionalWith(TerminalHarnessState, { exact: true }),
-  source: Schema.optionalWith(Schema.Literal("vellum-cli", "herdr", "native"), {
-    exact: true,
-  }),
+  harness: Schema.optionalKey(TerminalHarnessState),
+  source: Schema.optionalKey(Schema.Literals(["vellum-cli", "herdr", "native"])),
 });
 export type WorkSurfaceActivity = typeof WorkSurfaceActivity.Type;
 
@@ -66,23 +58,21 @@ export const TerminalEventExit = Schema.Struct({
   epoch: Schema.String,
   seq: Schema.BigInt,
   type: Schema.Literal("exit"),
-  code: Schema.optionalWith(Schema.Number, { exact: true }),
-  signal: Schema.optionalWith(Schema.String, { exact: true }),
+  code: Schema.optionalKey(Schema.Number),
+  signal: Schema.optionalKey(Schema.String),
 });
 export type TerminalEventExit = typeof TerminalEventExit.Type;
 
-export const TerminalEvent = Schema.Union(
-  TerminalEventOutput,
-  TerminalEventResize,
-  TerminalEventExit,
-);
+export const TerminalEvent = Schema.Union([TerminalEventOutput,
+TerminalEventResize,
+TerminalEventExit,]);
 export type TerminalEvent = typeof TerminalEvent.Type;
 
 export const TerminalAttachSnapshot = Schema.Struct({
   epoch: Schema.String,
   snapshotAt: Schema.BigInt,
   /** Best-effort VT materialization (base64); may be empty. */
-  checkpointBase64: Schema.optionalWith(Schema.String, { exact: true }),
+  checkpointBase64: Schema.optionalKey(Schema.String),
   tail: Schema.Array(TerminalEvent),
   cols: Schema.Number,
   rows: Schema.Number,
@@ -98,7 +88,7 @@ export const TerminalCapabilities = Schema.Struct({
   graphics: Schema.Boolean,
   durable: Schema.Boolean,
   ownsKill: Schema.Boolean,
-  presentation: Schema.Literal("xterm", "herdr-stream"),
+  presentation: Schema.Literals(["xterm", "herdr-stream"]),
 });
 export type TerminalCapabilities = typeof TerminalCapabilities.Type;
 

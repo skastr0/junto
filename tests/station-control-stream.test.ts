@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
-import { Effect, Either, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
 import {
   afterEach,
   describe,
@@ -235,12 +235,12 @@ const makeFrameReader = (socket: Socket): FrameReader => {
       const raw = JSON.parse(buffer.subarray(0, newline).toString("utf8"));
       buffer = buffer.subarray(newline + 1);
       const preface = decodeStationProtocolPreface(raw);
-      if (Either.isRight(preface)) {
+      if (Result.isSuccess(preface)) {
         publish(preface.right);
         continue;
       }
       const session = decodeStationSessionFrame(raw);
-      if (Either.isLeft(session)) {
+      if (Result.isFailure(session)) {
         const error = new Error("received a malformed Station frame");
         for (const waiter of waiting.splice(0)) waiter.reject(error);
         return;

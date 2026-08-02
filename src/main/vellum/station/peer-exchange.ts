@@ -48,17 +48,14 @@ export const isStationPeerRoute = (
   route: StationPeerRoute,
 ): boolean => stationPeerRoutes.has(route);
 
-export class StationPeerExchangeError extends Schema.TaggedError<StationPeerExchangeError>()(
+export class StationPeerExchangeError extends Schema.TaggedErrorClass<StationPeerExchangeError>()(
   "StationPeerExchangeError",
   {
     peerInstallationId: InstallationId,
-    reason: Schema.Literal(
-      "unsupported-route",
-      "adapter-setup",
-      "connect-failed",
-      "protocol-incompatible",
-      "protocol-negotiation",
-    ),
+    reason: Schema.Literals(["unsupported-route", "adapter-setup",
+    "connect-failed",
+    "protocol-incompatible",
+    "protocol-negotiation",]),
     message: Schema.String,
     localProtocol: Schema.optional(
       Schema.Struct({
@@ -93,10 +90,7 @@ export type StationRemoteReportHandler = (
  * creates a fresh ephemeral session.
  */
 // S4-station: single canonical Context.Tag (effect@3.21). V4 → Context.Service.
-export class StationPeerExchange extends Context.Tag(
-  StationContextTagIds.peerExchange,
-)<
-  StationPeerExchange,
+export class StationPeerExchange extends Context.Service<StationPeerExchange,
   {
     readonly open: (
       route: StationPeerRoute,
@@ -106,5 +100,4 @@ export class StationPeerExchange extends Context.Tag(
       StationPeerExchangeError,
       Scope.Scope
     >;
-  }
->() {}
+  }>()(StationContextTagIds.peerExchange) {}

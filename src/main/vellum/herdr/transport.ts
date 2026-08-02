@@ -96,8 +96,7 @@ export interface HerdrStreamSpec {
  * - Layer today: HerdrTransportLive — V4 rename candidate HerdrTransport.layer
  *   Do not dual-export Live + `.layer` names.
  */
-export class HerdrTransport extends Context.Tag("@vellum/HerdrTransport")<
-  HerdrTransport,
+export class HerdrTransport extends Context.Service<HerdrTransport,
   {
     readonly run: (
       hostId: HerdrHostId,
@@ -128,8 +127,7 @@ export class HerdrTransport extends Context.Tag("@vellum/HerdrTransport")<
       remoteName: string,
       bytes: Uint8Array,
     ) => Effect.Effect<string, SshError | SshInputError>;
-  }
->() {}
+  }>()("@vellum/HerdrTransport") {}
 
 export const HerdrTransportLive = Layer.effect(
   HerdrTransport,
@@ -147,7 +145,7 @@ export const HerdrTransportLive = Layer.effect(
           ssh.run(oneShot(endpoint, command, { budget: budgetFor(timeoutMs) })),
         ),
         Effect.map((result): CliResult => ({ ok: true, stdout: result.stdout })),
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           Effect.succeed({ ok: false, stdout: "", error: sshFailure(error) }),
         ),
       );
@@ -170,7 +168,7 @@ export const HerdrTransportLive = Layer.effect(
         return Effect.tryPromise(() =>
           runCli("herdr", withSession(args, session), timeoutMs),
         ).pipe(
-          Effect.catchAll((error) =>
+          Effect.catch((error) =>
             Effect.succeed({
               ok: false,
               stdout: "",
@@ -181,13 +179,13 @@ export const HerdrTransportLive = Layer.effect(
       }
       return resolveRemoteEndpoint(hostId, route).pipe(
         Effect.flatMap((endpoint) => runRemote(endpoint, args, session, timeoutMs)),
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           Effect.succeed({ ok: false, stdout: "", error: sshFailure(error) }),
         ),
       );
     };
 
-    const connect: Context.Tag.Service<typeof HerdrTransport>["connect"] = (
+    const connect: Context.Service.Shape<typeof HerdrTransport>["connect"] = (
       spec,
       awaitReady,
     ) => {
@@ -209,7 +207,7 @@ export const HerdrTransportLive = Layer.effect(
       );
     };
 
-    const forwardMirror: Context.Tag.Service<typeof HerdrTransport>["forwardMirror"] = (
+    const forwardMirror: Context.Service.Shape<typeof HerdrTransport>["forwardMirror"] = (
       hostId,
     ) =>
       resolveRemoteEndpoint(hostId).pipe(
@@ -225,7 +223,7 @@ export const HerdrTransportLive = Layer.effect(
         ),
       );
 
-    const handoffServer: Context.Tag.Service<typeof HerdrTransport>["handoffServer"] = (
+    const handoffServer: Context.Service.Shape<typeof HerdrTransport>["handoffServer"] = (
       hostId,
       session,
       awaitReady,
@@ -241,7 +239,7 @@ export const HerdrTransportLive = Layer.effect(
         ),
       );
 
-    const stageImage: Context.Tag.Service<typeof HerdrTransport>["stageImage"] = (
+    const stageImage: Context.Service.Shape<typeof HerdrTransport>["stageImage"] = (
       hostId,
       remoteName,
       bytes,

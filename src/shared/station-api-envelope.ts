@@ -14,21 +14,18 @@ import { STATION_PROTOCOL_BASELINE } from "./station-protocol";
 export const STATION_CONTROL_PROTOCOL =
   `vellum/station-control/v${STATION_PROTOCOL_BASELINE}` as const;
 
-export const StationControlErrorCode = Schema.Literal(
-  "protocol_error",
-  "authorization_denied",
-  "request_rejected",
-  "state_conflict",
-  "integrity_error",
-  "runtime_down",
-  "unavailable",
-  "internal_error",
-);
+export const StationControlErrorCode = Schema.Literals(["protocol_error", "authorization_denied",
+"request_rejected",
+"state_conflict",
+"integrity_error",
+"runtime_down",
+"unavailable",
+"internal_error",]);
 export type StationControlErrorCode = typeof StationControlErrorCode.Type;
 
 export const StationControlError = Schema.Struct({
   code: StationControlErrorCode,
-  message: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(512)),
+  message: Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(512))),
   retryable: Schema.Boolean,
 });
 export type StationControlError = typeof StationControlError.Type;
@@ -47,18 +44,16 @@ export const StationControlErr = Schema.Struct({
 });
 export type StationControlErr = typeof StationControlErr.Type;
 
-export const StationControlEnvelope = Schema.Union(
-  StationControlOk,
-  StationControlErr,
-);
+export const StationControlEnvelope = Schema.Union([StationControlOk,
+StationControlErr,]);
 export type StationControlEnvelope = typeof StationControlEnvelope.Type;
 
 export const decodeStationControlRequest =
-  Schema.decodeUnknownEither(StationApiRequest, {
+  Schema.decodeUnknownResult(StationApiRequest, {
     onExcessProperty: "error",
   });
 export const decodeStationControlEnvelope =
-  Schema.decodeUnknownEither(StationControlEnvelope, {
+  Schema.decodeUnknownResult(StationControlEnvelope, {
     onExcessProperty: "error",
   });
 

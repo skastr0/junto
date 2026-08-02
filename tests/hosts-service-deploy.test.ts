@@ -134,8 +134,8 @@ describe("HostsService configured deploy admission", () => {
           if (received.onAdmitted) {
             const admission = yield* received
               .onAdmitted(target)
-              .pipe(Effect.either);
-            if (admission._tag === "Left") {
+              .pipe(Effect.result);
+            if (admission._tag === "Failure") {
               return {
                 ...failedResult(target),
                 detail: admission.left.message,

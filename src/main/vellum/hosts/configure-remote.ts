@@ -1,4 +1,4 @@
-import { Effect, Either, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
 import {
   ConfigureRequest,
   InstallationId,
@@ -118,13 +118,13 @@ const decodeRequest = <A, I>(
   value: unknown,
   operation: string,
 ): Effect.Effect<A, RemoteHostsError> => {
-  const decoded = Schema.decodeUnknownEither(schema)(value);
-  return Either.isRight(decoded)
-    ? Effect.succeed(decoded.right)
+  const decoded = Schema.decodeUnknownResult(schema)(value);
+  return Result.isSuccess(decoded)
+    ? Effect.succeed(decoded.success)
     : Effect.fail(
         new RemoteHostsError(
           "validation",
-          `${operation} request is invalid: ${decoded.left.message}`,
+          `${operation} request is invalid: ${decoded.failure.message}`,
         ),
       );
 };

@@ -143,7 +143,7 @@ describe("TerminalSessions Effect service", () => {
     // Scope closed → detach ran
     expect(mgr.activeControlCount()).toBe(0);
     // Further writes fail closed
-    const again = await Effect.runPromise(Effect.either(sessions.inputText(streamId, "x")));
+    const again = await Effect.runPromise(Effect.result(sessions.inputText(streamId, "x")));
     expect(again._tag).toBe("Left");
   });
 

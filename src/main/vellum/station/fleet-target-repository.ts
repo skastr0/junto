@@ -1,4 +1,4 @@
-import { Context, Effect, Either, Layer, Schema } from "effect";
+import { Context, Effect, Result, Layer, Schema } from "effect";
 import {
   HostId,
   type HostId as HostIdValue,
@@ -31,7 +31,7 @@ export const StationFleetTarget = Schema.Struct({
 });
 export type StationFleetTarget = typeof StationFleetTarget.Type;
 
-export class StationFleetTargetConflictError extends Schema.TaggedError<StationFleetTargetConflictError>()(
+export class StationFleetTargetConflictError extends Schema.TaggedErrorClass<StationFleetTargetConflictError>()(
   "StationFleetTargetConflictError",
   {
     admitted: StationFleetTarget,
@@ -39,7 +39,7 @@ export class StationFleetTargetConflictError extends Schema.TaggedError<StationF
   },
 ) {}
 
-export class StationFleetTargetHostBindingImmutableError extends Schema.TaggedError<StationFleetTargetHostBindingImmutableError>()(
+export class StationFleetTargetHostBindingImmutableError extends Schema.TaggedErrorClass<StationFleetTargetHostBindingImmutableError>()(
   "StationFleetTargetHostBindingImmutableError",
   {
     hostId: HostId,
@@ -49,7 +49,7 @@ export class StationFleetTargetHostBindingImmutableError extends Schema.TaggedEr
   },
 ) {}
 
-export class StationFleetTargetMetadataError extends Schema.TaggedError<StationFleetTargetMetadataError>()(
+export class StationFleetTargetMetadataError extends Schema.TaggedErrorClass<StationFleetTargetMetadataError>()(
   "StationFleetTargetMetadataError",
   {
     operation: Schema.String,
@@ -58,7 +58,7 @@ export class StationFleetTargetMetadataError extends Schema.TaggedError<StationF
   },
 ) {}
 
-export class StationFleetTargetCorruptRecordError extends Schema.TaggedError<StationFleetTargetCorruptRecordError>()(
+export class StationFleetTargetCorruptRecordError extends Schema.TaggedErrorClass<StationFleetTargetCorruptRecordError>()(
   "StationFleetTargetCorruptRecordError",
   {
     operation: Schema.String,
@@ -66,12 +66,12 @@ export class StationFleetTargetCorruptRecordError extends Schema.TaggedError<Sta
   },
 ) {}
 
-export class StationFleetTargetPersistenceError extends Schema.TaggedError<StationFleetTargetPersistenceError>()(
+export class StationFleetTargetPersistenceError extends Schema.TaggedErrorClass<StationFleetTargetPersistenceError>()(
   "StationFleetTargetPersistenceError",
   {
     operation: Schema.String,
     message: Schema.String,
-    cause: Schema.Defect,
+    cause: Schema.Unknown,
   },
 ) {}
 
@@ -83,10 +83,7 @@ export type StationFleetTargetRepositoryError =
   | StationFleetTargetPersistenceError;
 
 // S4-station: single canonical Context.Tag (effect@3.21). V4 → Context.Service.
-export class StationFleetTargetRepository extends Context.Tag(
-  StationContextTagIds.fleetTargetRepository,
-)<
-  StationFleetTargetRepository,
+export class StationFleetTargetRepository extends Context.Service<StationFleetTargetRepository,
   {
     readonly bind: (
       identity: StationFleetTargetIdentity,
@@ -113,8 +110,7 @@ export class StationFleetTargetRepository extends Context.Tag(
     readonly subscribeChanges: (
       listener: (hostId: HostIdValue) => void,
     ) => () => void;
-  }
->() {}
+  }>()(StationContextTagIds.fleetTargetRepository) {}
 
 type FleetTargetRow = StateRow & {
   readonly host_id: string;
@@ -124,11 +120,11 @@ type FleetTargetRow = StateRow & {
 };
 
 const decodeTarget = Schema.decodeUnknownSync(StationFleetTarget);
-const decodeIdentityEither = Schema.decodeUnknownEither(
+const decodeIdentityEither = Schema.decodeUnknownResult(
   StationFleetTargetIdentity,
   { onExcessProperty: "error" },
 );
-const decodeTimestampEither = Schema.decodeUnknownEither(DisplayTimestamp);
+const decodeTimestampEither = Schema.decodeUnknownResult(DisplayTimestamp);
 
 const nowIso = (): string => new Date().toISOString();
 
@@ -233,8 +229,8 @@ const admitTimestamp = (
   value: string,
 ): Effect.Effect<string, StationFleetTargetMetadataError> => {
   const decoded = decodeTimestampEither(value);
-  return Either.isRight(decoded)
-    ? Effect.succeed(decoded.right)
+  return Result.isSuccess(decoded)
+    ? Effect.succeed(decoded.success)
     : StationFleetTargetMetadataError.make({
         operation: "bind",
         field: "boundAt",
@@ -249,8 +245,8 @@ const admitIdentity = (
   StationFleetTargetMetadataError
 > => {
   const decoded = decodeIdentityEither(value);
-  return Either.isRight(decoded)
-    ? Effect.succeed(decoded.right)
+  return Result.isSuccess(decoded)
+    ? Effect.succeed(decoded.success)
     : StationFleetTargetMetadataError.make({
         operation: "bind",
         field: "identity",

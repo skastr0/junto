@@ -10,7 +10,7 @@ import { existsSync, statSync } from "node:fs";
 import * as os from "node:os";
 import { isAbsolute, join } from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
-import { Either } from "effect";
+import { Result } from "effect";
 import type { HarnessId } from "@shared/managed-terminal-templates";
 import { classifySpawnFailure } from "@shared/spawn-failure";
 import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
@@ -421,7 +421,7 @@ export const resolveLaunch = (
   options?: {
     readonly seatInject?: Readonly<Record<string, string>>;
   },
-): Either.Either<ResolvedLaunch, AgentLaunchUnresolvable> => {
+): Result.Result<ResolvedLaunch, AgentLaunchUnresolvable> => {
   const launch = seat.launch;
   const cwd = resolveCwd(launch);
   // Actor seat: scrub nested Claude markers + merge seat inject after scrub
@@ -470,32 +470,32 @@ export const resolveLaunch = (
       harness: seat.harness,
       reason,
     });
-    if (!launch) return Either.left(unresolvable("the seat carries no launch profile"));
+    if (!launch) return Result.fail(unresolvable("the seat carries no launch profile"));
     if (launch.kind === "shell") {
-      return Either.left(unresolvable("the seat's launch profile is a shell"));
+      return Result.fail(unresolvable("the seat's launch profile is a shell"));
     }
     const file = argv[0];
     if (file === undefined) {
-      return Either.left(unresolvable("the seat's launch profile carries no argv"));
+      return Result.fail(unresolvable("the seat's launch profile carries no argv"));
     }
-    return Either.right({ file, args: argv.slice(1), cwd, env });
+    return Result.succeed({ file, args: argv.slice(1), cwd, env });
   }
 
   if (launch && launch.kind !== "shell" && argv.length > 0) {
-    return Either.right({ file: argv[0]!, args: argv.slice(1), cwd, env });
+    return Result.succeed({ file: argv[0]!, args: argv.slice(1), cwd, env });
   }
   // An explicit shell argv wins over the user/default shell, but is still
   // validated before process ownership can be minted.
   const shell = argv.length > 0 ? validateExecutableShell(argv[0]!) : defaultShell();
   if (process.platform !== "win32") {
-    return Either.right({
+    return Result.succeed({
       file: shell,
       args: argv.length > 1 ? argv.slice(1) : ["-l"],
       cwd,
       env,
     });
   }
-  return Either.right({ file: shell, args: [], cwd, env });
+  return Result.succeed({ file: shell, args: [], cwd, env });
 };
 
 export class LocalSessionHost extends EventEmitter {
@@ -675,7 +675,7 @@ export class LocalSessionHost extends EventEmitter {
       pid: undefined,
       cols,
       rows,
-      cwd: Either.isRight(resolved) ? resolved.right.cwd : resolveCwd(seat.launch),
+      cwd: Result.isSuccess(resolved) ? resolved.success.cwd : resolveCwd(seat.launch),
       title: input.title,
       label: input.label,
       backend: undefined,
@@ -702,18 +702,18 @@ export class LocalSessionHost extends EventEmitter {
     this.sessions.set(bindingId, rec);
     this.liveRecords.add(rec);
 
-    if (Either.isLeft(resolved)) {
+    if (Result.isFailure(resolved)) {
       // An actor whose launch does not resolve stops here and shows the error
       // state on its node. It never falls through to a shell.
       this.failBeforeOwnership(
         rec,
         new Error(
-          `${resolved.left.harness} seat launch unresolvable: ${resolved.left.reason}`,
+          `${resolved.failure.harness} seat launch unresolvable: ${resolved.failure.reason}`,
         ),
       );
       return this.summaryOf(rec);
     }
-    const launch = resolved.right;
+    const launch = resolved.success;
     if (!isUsableCwd(launch.cwd)) {
       // node-pty exits the child with code 1 and no output for a missing or
       // non-directory cwd (including a literal unexpanded `~/…` before expand).

@@ -196,13 +196,13 @@ describe("typed runtime-state repositories", () => {
           );
           writer.run("PRAGMA ignore_check_constraints = OFF");
         });
-        return yield* Effect.either(kernel.readDebugPulseRing);
+        return yield* Effect.result(kernel.readDebugPulseRing);
       }),
     );
 
     expect(result._tag).toBe("Left");
-    if (result._tag === "Left") {
-      expect(result.left).toBeInstanceOf(KernelStateCorruptError);
+    if (result._tag === "Failure") {
+      expect(result.failure).toBeInstanceOf(KernelStateCorruptError);
     }
   });
 
@@ -225,13 +225,13 @@ describe("typed runtime-state repositories", () => {
           );
           writer.run("PRAGMA ignore_check_constraints = OFF");
         });
-        return yield* Effect.either(pause.loadAll);
+        return yield* Effect.result(pause.loadAll);
       }),
     );
 
     expect(result._tag).toBe("Left");
-    if (result._tag === "Left") {
-      expect(result.left).toBeInstanceOf(FactoryPauseStateCorruptError);
+    if (result._tag === "Failure") {
+      expect(result.failure).toBeInstanceOf(FactoryPauseStateCorruptError);
     }
   });
 });

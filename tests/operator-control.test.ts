@@ -1,4 +1,4 @@
-import { Either } from "effect";
+import { Result } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   OPERATOR_MAX_REQUEST_BYTES,
@@ -28,7 +28,7 @@ describe("operator control contract", () => {
         capabilities: ["terminal", "browser"],
       },
     });
-    expect(Either.isRight(valid)).toBe(true);
+    expect(Result.isSuccess(valid)).toBe(true);
 
     const extra = decodeOperatorRequest({
       protocol: OPERATOR_PROTOCOL_VERSION,
@@ -42,7 +42,7 @@ describe("operator control contract", () => {
         command: "sudo anything",
       },
     });
-    expect(Either.isLeft(extra)).toBe(true);
+    expect(Result.isFailure(extra)).toBe(true);
 
     const unknown = decodeOperatorRequest({
       protocol: OPERATOR_PROTOCOL_VERSION,
@@ -50,7 +50,7 @@ describe("operator control contract", () => {
       op: "fleet.shell",
       args: {},
     });
-    expect(Either.isLeft(unknown)).toBe(true);
+    expect(Result.isFailure(unknown)).toBe(true);
   });
 
   it("separates qualification from ordinary deployment sources", () => {
@@ -60,7 +60,7 @@ describe("operator control contract", () => {
       op: "fleet.qualify",
       args: { id: "station-1" },
     });
-    expect(Either.isRight(qualify)).toBe(true);
+    expect(Result.isSuccess(qualify)).toBe(true);
 
     const qualifyWithSource = decodeOperatorRequest({
       protocol: OPERATOR_PROTOCOL_VERSION,
@@ -68,7 +68,7 @@ describe("operator control contract", () => {
       op: "fleet.qualify",
       args: { id: "station-1", source: "cached" },
     });
-    expect(Either.isLeft(qualifyWithSource)).toBe(true);
+    expect(Result.isFailure(qualifyWithSource)).toBe(true);
 
     const deployWithoutSource = decodeOperatorRequest({
       protocol: OPERATOR_PROTOCOL_VERSION,
@@ -76,7 +76,7 @@ describe("operator control contract", () => {
       op: "fleet.deploy",
       args: { id: "station-1" },
     });
-    expect(Either.isLeft(deployWithoutSource)).toBe(true);
+    expect(Result.isFailure(deployWithoutSource)).toBe(true);
   });
 
   it("rejects retired administrator-password authorization payloads", () => {
@@ -100,7 +100,7 @@ describe("operator control contract", () => {
         },
       },
     });
-    expect(Either.isLeft(decoded)).toBe(true);
+    expect(Result.isFailure(decoded)).toBe(true);
     expect(JSON.stringify(decoded)).not.toContain("one-shot-secret");
   });
 

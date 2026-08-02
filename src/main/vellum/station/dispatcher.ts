@@ -1,4 +1,4 @@
-import { Effect, Either } from "effect";
+import { Effect, Result } from "effect";
 import {
   stationControlErr,
   stationControlOk,
@@ -163,13 +163,13 @@ export const dispatchStationApiRequest = (
 
   return run(
     Effect.flatMap(StationApiService, (service) =>
-      service.handle(request, readiness, peer).pipe(Effect.either)
+      service.handle(request, readiness, peer).pipe(Effect.result)
     ),
   ).then(
-    (outcome: Either.Either<StationApiResponse, unknown>) =>
-      Either.isLeft(outcome)
-        ? stationControlErrorEnvelope(outcome.left)
-        : stationControlOk(outcome.right),
+    (outcome: Result.Result<StationApiResponse, unknown>) =>
+      Result.isFailure(outcome)
+        ? stationControlErrorEnvelope(outcome.failure)
+        : stationControlOk(outcome.success),
     (error: unknown) => stationControlErrorEnvelope(error),
   );
 };

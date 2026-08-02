@@ -5,7 +5,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { Effect, Either, ManagedRuntime, Schema } from "effect";
+import { Effect, Result, ManagedRuntime, Schema } from "effect";
 import {
   SETTINGS_VERSION,
   StationSettings,
@@ -33,7 +33,7 @@ import { makeStateEngineLive } from "../src/main/vellum/state/engine";
 const run = <A, E>(effect: Effect.Effect<A, E>): Promise<A> =>
   Effect.runPromise(effect);
 const runEither = <A, E>(effect: Effect.Effect<A, E>) =>
-  Effect.runPromise(Effect.either(effect));
+  Effect.runPromise(Effect.result(effect));
 
 describe("settings contract", () => {
   it("defaultSettings is a valid v1 document", () => {
@@ -70,19 +70,19 @@ describe("settings contract", () => {
     };
     expect("topologyIntegrity" in defaultSettings().station).toBe(false);
     expect(
-      Either.isLeft(
-        Schema.decodeUnknownEither(StationSettings)(retiredStation),
+      Result.isFailure(
+        Schema.decodeUnknownResult(StationSettings)(retiredStation),
       ),
     ).toBe(true);
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodePatchInput({
           station: { topologyIntegrity: "ok" },
         }),
       ),
     ).toBe(true);
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeStationTopologyPatch({ topologyIntegrity: "ok" }),
       ),
     ).toBe(true);
@@ -90,17 +90,17 @@ describe("settings contract", () => {
 
   it("patch decoding and aggregate validation reject invalid limits", () => {
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodePatchInput({ browser: { maxVisibleSurfaces: 999 } }),
       ),
     ).toBe(true);
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodePatchInput({ fleet: { ditherLevel: "ultra" } }),
       ),
     ).toBe(true);
     expect(
-      Either.isRight(
+      Result.isSuccess(
         applyAndValidatePatch(defaultSettings(), {
           kernel: { debugVerbose: true },
         }),
@@ -127,19 +127,19 @@ describe("settings contract", () => {
       )
     ).toThrow(/retiredCompatibility/u);
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodePatchInput({ retiredCompatibility: true }),
       ),
     ).toBe(true);
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodePatchInput({
           fleet: { legacyManagedRollback: true },
         }),
       ),
     ).toBe(true);
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeStationTopologyPatch({ legacyManagedRollback: true }),
       ),
     ).toBe(true);
@@ -349,7 +349,7 @@ describe("SQLite settings service", () => {
     const failed = await runEither(
       service.patch({ browser: { maxWarmSessions: 0 } }),
     );
-    expect(Either.isLeft(failed)).toBe(true);
+    expect(Result.isFailure(failed)).toBe(true);
     expect(observed).toHaveLength(1);
   });
 
@@ -389,8 +389,8 @@ describe("SQLite settings service", () => {
       ),
     );
 
-    expect(Either.isLeft(topLevel)).toBe(true);
-    expect(Either.isLeft(nested)).toBe(true);
+    expect(Result.isFailure(topLevel)).toBe(true);
+    expect(Result.isFailure(nested)).toBe(true);
     expect(after).toBe(before);
     expect(observed).toEqual([]);
   });
@@ -412,10 +412,10 @@ describe("SQLite settings service", () => {
     const result = await runEither(
       service.patch({ station: { role: "command-center" } }),
     );
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left.code).toBe("validation");
-      expect(result.left.message).toContain("settingsSetStationTopology");
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure.code).toBe("validation");
+      expect(result.failure.message).toContain("settingsSetStationTopology");
     }
     expect((await run(service.get)).station.role).toBe("");
   });
@@ -436,7 +436,7 @@ describe("SQLite settings service", () => {
       { role: "" as const },
     ]) {
       const result = await runEither(service.setStationTopology(mutation));
-      expect(Either.isLeft(result)).toBe(true);
+      expect(Result.isFailure(result)).toBe(true);
     }
 
     const next = await run(
@@ -459,9 +459,9 @@ describe("SQLite settings service", () => {
         supervisedPreferred: true,
       }),
     );
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left.message).toContain("Station API");
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure.message).toContain("Station API");
     }
     expect((await run(service.get)).station).toEqual(defaultSettings().station);
     expect(
@@ -483,9 +483,9 @@ describe("SQLite settings service", () => {
         topologyIntegrity: "ok",
       }),
     );
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left.message).toContain("topologyIntegrity is retired");
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure.message).toContain("topologyIntegrity is retired");
     }
     expect((await run(service.get)).station.role).toBe("");
   });
@@ -504,7 +504,7 @@ describe("SQLite settings service", () => {
     expect(reset.browser.maxVisibleSurfaces).toBe(
       defaultSettings().browser.maxVisibleSurfaces,
     );
-    expect(Either.isLeft(await runEither(service.reset("station")))).toBe(
+    expect(Result.isFailure(await runEither(service.reset("station")))).toBe(
       true,
     );
   });
@@ -558,10 +558,10 @@ describe("SQLite settings service", () => {
       }),
     );
     const result = await runEither(service.get);
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left.code).toBe("corrupt");
-      expect(result.left.message).toContain(
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure.code).toBe("corrupt");
+      expect(result.failure.message).toContain(
         "canonical station configuration is invalid",
       );
     }
@@ -606,10 +606,10 @@ describe("SQLite settings service", () => {
       ),
     );
 
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left.code).toBe("corrupt");
-      expect(result.left.message).toContain("retiredCompatibility");
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure.code).toBe("corrupt");
+      expect(result.failure.message).toContain("retiredCompatibility");
     }
     expect(after).toBe(encoded);
   });
@@ -627,8 +627,8 @@ describe("SQLite settings service", () => {
     try {
       const reopenedState = await runtime.runPromise(StateEngine);
       const result = await runEither(makeSettingsService(reopenedState));
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) expect(result.left.code).toBe("corrupt");
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) expect(result.failure.code).toBe("corrupt");
     } finally {
       await runtime.dispose();
     }
@@ -644,6 +644,6 @@ describe("SQLite settings service", () => {
         );
       }),
     );
-    expect(Either.isLeft(result)).toBe(true);
+    expect(Result.isFailure(result)).toBe(true);
   });
 });

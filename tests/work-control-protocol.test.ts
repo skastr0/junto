@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Either, Schema } from "effect";
+import { Result, Schema } from "effect";
 import {
   TasksClaimArgs,
   WorkOpName,
@@ -36,10 +36,10 @@ describe("work-control wire schemas", () => {
       args: { target: "tasks", task: "t1" },
     };
     const decoded = decodeWorkRequest(raw);
-    expect(Either.isRight(decoded)).toBe(true);
-    if (Either.isRight(decoded)) {
-      expect(decoded.right.op).toBe("tasks.claim");
-      expect(decoded.right.token).toBe("abc");
+    expect(Result.isSuccess(decoded)).toBe(true);
+    if (Result.isSuccess(decoded)) {
+      expect(decoded.success.op).toBe("tasks.claim");
+      expect(decoded.success.token).toBe("abc");
     }
   });
 
@@ -48,7 +48,7 @@ describe("work-control wire schemas", () => {
       token: "t",
       op: "tasks.delete",
     });
-    expect(Either.isLeft(decoded)).toBe(true);
+    expect(Result.isFailure(decoded)).toBe(true);
   });
 
   it("rejects the retired client nodeRef field", () => {
@@ -57,25 +57,25 @@ describe("work-control wire schemas", () => {
       nodeRef: "vellum://canvas/demo?node=agent-1",
       op: "ping",
     });
-    expect(Either.isLeft(decoded)).toBe(true);
-    if (Either.isLeft(decoded)) {
-      expect(decoded.left.message).toContain("nodeRef");
-      expect(decoded.left.message).toContain("unexpected");
+    expect(Result.isFailure(decoded)).toBe(true);
+    if (Result.isFailure(decoded)) {
+      expect(decoded.failure.message).toContain("nodeRef");
+      expect(decoded.failure.message).toContain("unexpected");
     }
   });
 
   it("round-trips response ok/err", () => {
     const ok = workOk("ping", { pong: true }, "r1");
     const err = workErr("AuthError", "bad token", { retryable: false }, "ping", "r2");
-    expect(Either.isRight(decodeWorkResponse(ok))).toBe(true);
-    expect(Either.isRight(decodeWorkResponse(err))).toBe(true);
+    expect(Result.isSuccess(decodeWorkResponse(ok))).toBe(true);
+    expect(Result.isSuccess(decodeWorkResponse(err))).toBe(true);
     expect(ok.protocol_version).toBe(WORK_PROTOCOL_VERSION);
     expect(err.error.type).toBe("AuthError");
   });
 
   it("rejects excess response fields instead of pruning compatibility data", () => {
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeWorkResponse({
           ...workOk("ping", { pong: true }, "strict-response"),
           legacyToken: "retired",
@@ -85,21 +85,21 @@ describe("work-control wire schemas", () => {
   });
 
   it("validates TasksClaimArgs", () => {
-    const good = Schema.decodeUnknownEither(TasksClaimArgs)({
+    const good = Schema.decodeUnknownResult(TasksClaimArgs)({
       target: "n7",
       task: "t1",
     });
-    const clientIdentity = Schema.decodeUnknownEither(TasksClaimArgs)({
+    const clientIdentity = Schema.decodeUnknownResult(TasksClaimArgs)({
       target: "n7",
       task: "t1",
       actor: "agent",
     });
-    expect(Either.isRight(good)).toBe(true);
-    expect(Either.isLeft(clientIdentity)).toBe(true);
+    expect(Result.isSuccess(good)).toBe(true);
+    expect(Result.isFailure(clientIdentity)).toBe(true);
   });
 
   it("enumerates every WorkOpName", () => {
-    const ops = Schema.decodeUnknownEither(Schema.Array(WorkOpName))([
+    const ops = Schema.decodeUnknownResult(Schema.Array(WorkOpName))([
       "ping",
       "doctor",
       "capabilities",
@@ -116,9 +116,9 @@ describe("work-control wire schemas", () => {
       "request.escalate",
       "artifact.publish",
     ]);
-    expect(Either.isRight(ops)).toBe(true);
+    expect(Result.isSuccess(ops)).toBe(true);
     expect(
-      Either.isLeft(Schema.decodeUnknownEither(WorkOpName)("request.create")),
+      Result.isFailure(Schema.decodeUnknownResult(WorkOpName)("request.create")),
     ).toBe(true);
   });
 });
@@ -232,7 +232,7 @@ describe("work authz — edges as capability", () => {
 
   it("admitWorkTarget uses physics for edge + port", () => {
     const ok = admitWorkTarget(board, "agent", "tasks", "tasks.claim");
-    expect(Either.isRight(ok)).toBe(true);
+    expect(Result.isSuccess(ok)).toBe(true);
 
     const regionOnly = admitWorkTarget(
       board,
@@ -240,22 +240,22 @@ describe("work authz — edges as capability", () => {
       "req",
       "request.escalate",
     );
-    expect(Either.isLeft(regionOnly)).toBe(true);
-    if (Either.isLeft(regionOnly)) {
+    expect(Result.isFailure(regionOnly)).toBe(true);
+    if (Result.isFailure(regionOnly)) {
       expect(regionOnly.left.type).toBe("ScopeError");
       expect(regionOnly.left.message).toContain("missing edge");
     }
 
     const invisible = admitWorkTarget(board, "agent", "stranger", "tasks.list");
-    expect(Either.isLeft(invisible)).toBe(true);
-    if (Either.isLeft(invisible)) {
+    expect(Result.isFailure(invisible)).toBe(true);
+    if (Result.isFailure(invisible)) {
       expect(invisible.left.type).toBe("ScopeError");
       expect(invisible.left.message).toMatch(/not visible/);
     }
 
     const wrongKind = admitWorkTarget(board, "agent", "tasks", "artifact.publish");
-    expect(Either.isLeft(wrongKind)).toBe(true);
-    if (Either.isLeft(wrongKind)) {
+    expect(Result.isFailure(wrongKind)).toBe(true);
+    if (Result.isFailure(wrongKind)) {
       expect(wrongKind.left.type).toBe("ScopeError");
       expect(wrongKind.left.message).toMatch(/does not support/);
     }
@@ -263,14 +263,14 @@ describe("work authz — edges as capability", () => {
 
   it("S8 attack: artifact.publish from unedged actor → ScopeError", () => {
     const noEdge = admitWorkTarget(board, "agent", "stranger", "artifact.publish");
-    expect(Either.isLeft(noEdge)).toBe(true);
-    if (Either.isLeft(noEdge)) {
+    expect(Result.isFailure(noEdge)).toBe(true);
+    if (Result.isFailure(noEdge)) {
       expect(noEdge.left.type).toBe("ScopeError");
     }
     // Connected task sink does not offer artifact.publish.
     const wrongSink = admitWorkTarget(board, "agent", "tasks", "artifact.publish");
-    expect(Either.isLeft(wrongSink)).toBe(true);
-    if (Either.isLeft(wrongSink)) {
+    expect(Result.isFailure(wrongSink)).toBe(true);
+    if (Result.isFailure(wrongSink)) {
       expect(wrongSink.left.type).toBe("ScopeError");
     }
   });

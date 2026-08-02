@@ -1,4 +1,4 @@
-import { Context, Effect, Either, Layer, Schema } from "effect";
+import { Context, Effect, Result, Layer, Schema } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
 import { CommandCenterConfiguration } from "@shared/station-api";
 import {
@@ -52,8 +52,7 @@ import {
  * - Layer today: SettingsLive / makeSettingsLive — V4 rename candidate SettingsService.layer
  *   Do not dual-export Live + `.layer` names.
  */
-export class SettingsService extends Context.Tag("@vellum/SettingsService")<
-  SettingsService,
+export class SettingsService extends Context.Service<SettingsService,
   {
     readonly doctor: Effect.Effect<ServiceCheck>;
     readonly get: Effect.Effect<Settings, SettingsError>;
@@ -65,8 +64,7 @@ export class SettingsService extends Context.Tag("@vellum/SettingsService")<
       section?: SettingsSectionKey,
     ) => Effect.Effect<Settings, SettingsError>;
     readonly subscribe: (listener: (settings: Settings) => void) => () => void;
-  }
->() {}
+  }>()("@vellum/SettingsService") {}
 
 export interface SettingsServiceApi {
   readonly doctor: Effect.Effect<ServiceCheck>;
@@ -86,7 +84,7 @@ export type SettingsServiceOptions = {
   readonly probeSupervised?: SupervisedProbe;
 };
 
-type StateService = Context.Tag.Service<typeof StateEngine>;
+type StateService = Context.Service.Shape<typeof StateEngine>;
 type SettingsRows = {
   readonly preferences:
     | {
@@ -250,7 +248,7 @@ const writePreferences = (
   updatedAt: string,
 ): void => {
   ensureBounded(settings);
-  writer.run(UPSERT_PREFERENCES_SQL, [
+writer.run(UPSERT_PREFERENCES_SQL, [
     settings.version,
     encodedPreferences(settings),
     updatedAt,
@@ -347,8 +345,8 @@ export const makeSettingsService = (
       input: unknown,
     ) {
       const decoded = decodePatchInput(input);
-      if (Either.isLeft(decoded)) return yield* decoded.left;
-      if (decoded.right.station !== undefined) {
+      if (Result.isFailure(decoded)) return yield* decoded.failure;
+      if (decoded.success.station !== undefined) {
         return yield* new SettingsError({
           message:
             "the machine role is protected — use settingsSetStationTopology to establish or update the local Command Center",
@@ -365,13 +363,13 @@ export const makeSettingsService = (
               message: "canonical settings rows are missing",
             });
           }
-          const validated = applyAndValidatePatch(current, decoded.right);
-          if (Either.isLeft(validated)) throw validated.left;
-          if (sameSettings(current, validated.right)) {
+          const validated = applyAndValidatePatch(current, decoded.success);
+          if (Result.isFailure(validated)) throw validated.failure;
+          if (sameSettings(current, validated.success)) {
             return { settings: current, changed: false };
           }
-          writePreferences(writer, validated.right, new Date().toISOString());
-          return { settings: validated.right, changed: true };
+          writePreferences(writer, validated.success, new Date().toISOString());
+          return { settings: validated.success, changed: true };
         },
       ).pipe(Effect.mapError(stateFailure));
       return publishAfterCommit(result, listeners);
@@ -381,7 +379,7 @@ export const makeSettingsService = (
       "SettingsService.setStationTopology",
     )(function* (input: unknown) {
       const decoded = decodeStationTopologyPatch(input);
-      if (Either.isLeft(decoded)) return yield* decoded.left;
+      if (Result.isFailure(decoded)) return yield* decoded.failure;
       const result = yield* state.transaction(
         "settings.setStationTopology",
         (writer): MutationResult => {
@@ -392,12 +390,12 @@ export const makeSettingsService = (
               message: "canonical settings rows are missing",
             });
           }
-          const requested = decoded.right;
+          const requested = decoded.success;
           const validated = applyAndValidatePatch(current, {
             station: requested,
           });
-          if (Either.isLeft(validated)) throw validated.left;
-          if (sameSettings(current, validated.right)) {
+          if (Result.isFailure(validated)) throw validated.failure;
+          if (sameSettings(current, validated.success)) {
             return { settings: current, changed: false };
           }
 
@@ -410,7 +408,7 @@ export const makeSettingsService = (
           }
 
           const previousRole = current.station.role;
-          const nextRole = validated.right.station.role;
+          const nextRole = validated.success.station.role;
           if (nextRole === "remote") {
             throw new SettingsError({
               message:
@@ -471,23 +469,23 @@ export const makeSettingsService = (
               code: "validation",
             });
           }
-          if (validated.right.station.agentHostId !== undefined) {
+          if (validated.success.station.agentHostId !== undefined) {
             throw new SettingsError({
               message:
                 "Command Center topology cannot carry Remote-only identity fields",
               code: "validation",
             });
           }
-          const configuration = Schema.decodeUnknownEither(
+          const configuration = Schema.decodeUnknownResult(
             CommandCenterConfiguration,
             { onExcessProperty: "error" },
           )({
             role: "command-center",
-            hostId: validated.right.station.hostId,
+            hostId: validated.success.station.hostId,
             supervisedPreferred:
-              validated.right.station.supervisedPreferred,
+              validated.success.station.supervisedPreferred,
           });
-          if (Either.isLeft(configuration)) {
+          if (Result.isFailure(configuration)) {
             throw new SettingsError({
               message: "Command Center topology is invalid",
               code: "validation",
@@ -507,10 +505,10 @@ export const makeSettingsService = (
           }
           writeStationConfiguration(
             writer,
-            configuration.right,
+            configuration.success,
             new Date().toISOString(),
           );
-          return { settings: validated.right, changed: true };
+          return { settings: validated.success, changed: true };
         },
       ).pipe(Effect.mapError(stateFailure));
       return publishAfterCommit(result, listeners);
@@ -583,7 +581,7 @@ export const makeSettingsService = (
         },
       };
     }).pipe(
-      Effect.catchAll((error) =>
+      Effect.catch((error) =>
         Effect.succeed({
           id: "settings",
           label: "User Settings",

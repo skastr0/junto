@@ -34,17 +34,14 @@ import type {
 
 type Ssh = typeof SshTransport.Service;
 
-export class OpenSshStationBootstrapError extends Schema.TaggedError<OpenSshStationBootstrapError>()(
+export class OpenSshStationBootstrapError extends Schema.TaggedErrorClass<OpenSshStationBootstrapError>()(
   "OpenSshStationBootstrapError",
   {
-    reason: Schema.Literal(
-      "missing-response",
-      "response-mismatch",
-      "remote-rejected",
-      "second-frame",
-      "remote-exit",
-      "timeout",
-    ),
+    reason: Schema.Literals(["missing-response", "response-mismatch",
+    "remote-rejected",
+    "second-frame",
+    "remote-exit",
+    "timeout",]),
     message: Schema.String,
   },
 ) {}

@@ -1,4 +1,4 @@
-import { Effect, Either } from "effect";
+import { Effect, Result } from "effect";
 import { describe, expect, it } from "vitest";
 import { inspectRemoteCommand } from "../src/main/vellum/ssh/domain";
 import * as remotePlan from "../src/main/vellum/ssh/remote-plan";
@@ -14,9 +14,9 @@ import {
 } from "../src/main/vellum/ssh/remote-plan";
 
 const run = <A, E>(effect: Effect.Effect<A, E>): A => {
-  const result = Effect.runSync(Effect.either(effect));
-  if (Either.isLeft(result)) throw result.left;
-  return result.right;
+  const result = Effect.runSync(Effect.result(effect));
+  if (Result.isFailure(result)) throw result.failure;
+  return result.success;
 };
 
 describe("remote-plan public surface", () => {
@@ -102,9 +102,9 @@ describe("named deploy compilers", () => {
     expect(parts.args[1]).toBe(product);
 
     const freeForm = Effect.runSync(
-      Effect.either(compileDarwinRemoteDeployScript("rm -rf -- /")),
+      Effect.result(compileDarwinRemoteDeployScript("rm -rf -- /")),
     );
-    expect(Either.isLeft(freeForm)).toBe(true);
+    expect(Result.isFailure(freeForm)).toBe(true);
   });
 });
 
@@ -128,8 +128,8 @@ describe("herdr image stage plan", () => {
       "",
     ]) {
       expect(
-        Either.isLeft(
-          Effect.runSync(Effect.either(confineHerdrStagePath(bad))),
+        Result.isFailure(
+          Effect.runSync(Effect.result(confineHerdrStagePath(bad))),
         ),
       ).toBe(true);
     }

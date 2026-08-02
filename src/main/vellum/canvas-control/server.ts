@@ -1,7 +1,7 @@
 import { chmodSync, existsSync, lstatSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { resolveVellumHome } from "@shared/vellum-home";
-import { Effect, Either, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
 import {
   acquireControlListenerLease,
   captureControlSocketPathIdentity,
@@ -120,12 +120,12 @@ const decodeArgs = <A, I>(
 ):
   | { readonly ok: true; readonly value: A }
   | { readonly ok: false; readonly message: string } => {
-  const decoded = Schema.decodeUnknownEither(schema, {
+  const decoded = Schema.decodeUnknownResult(schema, {
     onExcessProperty: "error",
   })(args ?? {});
-  return Either.isRight(decoded)
-    ? { ok: true, value: decoded.right }
-    : { ok: false, message: decoded.left.message };
+  return Result.isSuccess(decoded)
+    ? { ok: true, value: decoded.success }
+    : { ok: false, message: decoded.failure.message };
 };
 
 const canvasFailure = (
@@ -439,18 +439,18 @@ export const startCanvasControlServer = async (
         return;
       }
       const decoded = decodeCanvasControlRequest(raw);
-      if (Either.isLeft(decoded)) {
+      if (Result.isFailure(decoded)) {
         await send(
           socket,
-          canvasControlErr("ProtocolError", decoded.left.message, false),
+          canvasControlErr("ProtocolError", decoded.failure.message, false),
         );
         return;
       }
       try {
         const response = await retainOperation(
           "dispatch",
-          `dispatch:${decoded.right.op}`,
-          () => dispatch(decoded.right),
+          `dispatch:${decoded.success.op}`,
+          () => dispatch(decoded.success),
         );
         await send(socket, response);
       } catch {
@@ -460,8 +460,8 @@ export const startCanvasControlServer = async (
             "InternalError",
             "canvas control dispatch failed",
             false,
-            decoded.right.op,
-            decoded.right.id,
+            decoded.success.op,
+            decoded.success.id,
           ),
         );
       }

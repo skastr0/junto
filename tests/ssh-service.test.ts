@@ -5,7 +5,7 @@ import {
   Deferred,
   Duration,
   Effect,
-  Either,
+  Result,
   Fiber,
   Layer,
   Option,
@@ -191,7 +191,7 @@ describe("SshTransport", () => {
     );
 
     const result = await Effect.runPromise(
-      Effect.either(
+      Effect.result(
         Effect.gen(function* () {
           const endpoint = yield* parseSshEndpoint("remote-a");
           const remote = yield* makeRemoteCommand("false");
@@ -200,12 +200,12 @@ describe("SshTransport", () => {
       ),
     );
 
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left).toBeInstanceOf(SshExitError);
-      expect((result.left as SshExitError).code).toBe(255);
-      expect(JSON.stringify(result.left)).not.toContain("secret-token");
-      expect(JSON.stringify(result.left)).not.toContain("\\u001b");
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure).toBeInstanceOf(SshExitError);
+      expect((result.failure as SshExitError).code).toBe(255);
+      expect(JSON.stringify(result.failure)).not.toContain("secret-token");
+      expect(JSON.stringify(result.failure)).not.toContain("\\u001b");
     }
   });
 
@@ -297,7 +297,7 @@ describe("SshTransport", () => {
     const layer = await testLayer(() => ({ running: true }), calls, releases);
 
     const result = await Effect.runPromise(
-      Effect.either(
+      Effect.result(
         Effect.gen(function* () {
           const endpoint = yield* parseSshEndpoint("remote-a");
           const remote = yield* makeRemoteCommand("remote-install");
@@ -310,8 +310,8 @@ describe("SshTransport", () => {
       ),
     );
 
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) expect(result.left).toBeInstanceOf(SshIoError);
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) expect(result.failure).toBeInstanceOf(SshIoError);
     expect(calls).toHaveLength(1);
     expect(releases.length).toBeGreaterThanOrEqual(1);
   });
@@ -322,7 +322,7 @@ describe("SshTransport", () => {
     const layer = await testLayer(() => ({ running: true }), calls, releases);
 
     const result = await Effect.runPromise(
-      Effect.either(
+      Effect.result(
         Effect.gen(function* () {
           const endpoint = yield* parseSshEndpoint("remote-a");
           const remote = yield* makeRemoteCommand("remote-install");
@@ -335,9 +335,9 @@ describe("SshTransport", () => {
       ),
     );
 
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result))
-      expect(result.left).toBeInstanceOf(SshTimeoutError);
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result))
+      expect(result.failure).toBeInstanceOf(SshTimeoutError);
     expect(calls).toHaveLength(1);
     expect(releases.length).toBeGreaterThanOrEqual(1);
   });
@@ -356,7 +356,7 @@ describe("SshTransport", () => {
     );
 
     const result = await Effect.runPromise(
-      Effect.either(
+      Effect.result(
         Effect.gen(function* () {
           const endpoint = yield* parseSshEndpoint("remote-a");
           const remote = yield* makeRemoteCommand("remote-install");
@@ -369,10 +369,10 @@ describe("SshTransport", () => {
       ),
     );
 
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left).toBeInstanceOf(SshTransferExitError);
-      const failure = result.left as SshTransferExitError;
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure).toBeInstanceOf(SshTransferExitError);
+      const failure = result.failure as SshTransferExitError;
       expect(failure.code).toBe(2);
       expect(failure.stdout).toContain("TERM_SOCK_TIMEOUT");
       expect(failure.stderr).toContain("STATION_PARTIAL");
@@ -392,7 +392,7 @@ describe("SshTransport", () => {
     );
 
     const result = await Effect.runPromise(
-      Effect.either(
+      Effect.result(
         Effect.gen(function* () {
           const endpoint = yield* parseSshEndpoint("remote-a");
           const remote = yield* makeRemoteCommand("huge-output");
@@ -401,9 +401,9 @@ describe("SshTransport", () => {
       ),
     );
 
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result))
-      expect(result.left).toBeInstanceOf(SshOutputLimitError);
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result))
+      expect(result.failure).toBeInstanceOf(SshOutputLimitError);
     expect(releases.length).toBeGreaterThanOrEqual(1);
   });
 
@@ -583,7 +583,7 @@ describe("SshTransport", () => {
     );
 
     const result = await Effect.runPromise(
-      Effect.either(
+      Effect.result(
         Effect.gen(function* () {
           const endpoint = yield* parseSshEndpoint("linux-station");
           const remote = yield* makeRemoteCommand(
@@ -597,10 +597,10 @@ describe("SshTransport", () => {
       ),
     );
 
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left).toBeInstanceOf(SshExitError);
-      expect((result.left as SshExitError).code).toBe(70);
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure).toBeInstanceOf(SshExitError);
+      expect((result.failure as SshExitError).code).toBe(70);
     }
   });
 
@@ -617,7 +617,7 @@ describe("SshTransport", () => {
     );
 
     const result = await Effect.runPromise(
-      Effect.either(
+      Effect.result(
         Effect.scoped(
           Effect.gen(function* () {
             const endpoint = yield* parseSshEndpoint("remote-a");
@@ -635,8 +635,8 @@ describe("SshTransport", () => {
       ),
     );
 
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) expect(result.left).toBeInstanceOf(SshIoError);
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) expect(result.failure).toBeInstanceOf(SshIoError);
   });
 
   it("rejects readiness when the stream exits first or is closed by the callback", async () => {
@@ -645,7 +645,7 @@ describe("SshTransport", () => {
     const layer = await testLayer(() => ({}), calls, releases);
 
     const exitedFirst = await Effect.runPromise(
-      Effect.either(
+      Effect.result(
         Effect.scoped(
           Effect.gen(function* () {
             const endpoint = yield* parseSshEndpoint("remote-a");
@@ -659,12 +659,12 @@ describe("SshTransport", () => {
         ).pipe(Effect.provide(layer)),
       ),
     );
-    expect(Either.isLeft(exitedFirst)).toBe(true);
-    if (Either.isLeft(exitedFirst))
+    expect(Result.isFailure(exitedFirst)).toBe(true);
+    if (Result.isFailure(exitedFirst))
       expect(exitedFirst.left).toBeInstanceOf(SshExitError);
 
     const closedInCallback = await Effect.runPromise(
-      Effect.either(
+      Effect.result(
         Effect.scoped(
           Effect.gen(function* () {
             const endpoint = yield* parseSshEndpoint("remote-a");
@@ -691,8 +691,8 @@ describe("SshTransport", () => {
         ),
       ),
     );
-    expect(Either.isLeft(closedInCallback)).toBe(true);
-    if (Either.isLeft(closedInCallback))
+    expect(Result.isFailure(closedInCallback)).toBe(true);
+    if (Result.isFailure(closedInCallback))
       expect(closedInCallback.left).toBeInstanceOf(SshIoError);
   });
 
@@ -710,7 +710,7 @@ describe("SshTransport", () => {
     );
 
     const result = await Effect.runPromise(
-      Effect.either(
+      Effect.result(
         Effect.scoped(
           Effect.gen(function* () {
             const endpoint = yield* parseSshEndpoint("linux-station");
@@ -742,9 +742,9 @@ describe("SshTransport", () => {
       ),
     );
 
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left).toEqual({
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure).toEqual({
         _tag: "ObservedStationExit",
         code: 64,
         stdout: "peer-bytes-before-exit\n",
@@ -807,7 +807,7 @@ describe("SshTransport", () => {
           return yield* (yield* SshTransport).run(
             oneShot(endpoint, remote, { budget: "short" }),
           );
-        }).pipe(Effect.provide(layer), Effect.withClock(clock), Effect.either);
+        }).pipe(Effect.provide(layer), Effect.withClock(clock), Effect.result);
         const fiber = yield* Effect.fork(operation);
         while (
           !calls.some((command) => remoteText(command).includes("never"))
@@ -820,10 +820,10 @@ describe("SshTransport", () => {
     );
 
     expect(result.observedTimeoutMs).toBe(6_000);
-    expect(Either.isLeft(result.result)).toBe(true);
-    if (Either.isLeft(result.result)) {
-      expect(result.result.left).toBeInstanceOf(SshTimeoutError);
-      expect((result.result.left as SshTimeoutError).timeoutMs).toBe(6_000);
+    expect(Result.isFailure(result.result)).toBe(true);
+    if (Result.isFailure(result.result)) {
+      expect(result.result.failure).toBeInstanceOf(SshTimeoutError);
+      expect((result.result.failure as SshTimeoutError).timeoutMs).toBe(6_000);
     }
     expect(
       releases.some((command) => remoteText(command).includes("never")),
@@ -861,7 +861,7 @@ describe("SshTransport", () => {
     const layer = await testLayer(() => ({ code: 255 }), calls, releases);
 
     const result = await Effect.runPromise(
-      Effect.either(
+      Effect.result(
         Effect.gen(function* () {
           const endpoint = yield* parseSshEndpoint("remote-a");
           yield* (yield* SshTransport).teardown(endpoint);
@@ -869,7 +869,7 @@ describe("SshTransport", () => {
       ),
     );
 
-    expect(Either.isRight(result)).toBe(true);
+    expect(Result.isSuccess(result)).toBe(true);
   });
 
   it("composes global and per-endpoint dial admission without host starvation", async () => {

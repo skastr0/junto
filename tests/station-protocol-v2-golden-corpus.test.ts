@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { Either } from "effect";
+import { Result } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   decodeStationControlRequest,
@@ -36,28 +36,28 @@ const legacy = JSON.parse(
 describe("retired Station protocol v2 golden wire corpus", () => {
   it("has no installed codec after the protocol-4 content cut", () => {
     expect(selectStationProtocolCodec(2)).toEqual(
-      Either.left("unsupported-station-protocol"),
+      Result.fail("unsupported-station-protocol"),
     );
     expect(selectStationProtocolCodec(3)).toEqual(
-      Either.left("unsupported-station-protocol"),
+      Result.fail("unsupported-station-protocol"),
     );
   });
 
   it("fails closed before any legacy domain frame can be interpreted", () => {
-    expect(Either.isRight(decodeStationProtocolPreface(legacy.preface.offer)))
+    expect(Result.isSuccess(decodeStationProtocolPreface(legacy.preface.offer)))
       .toBe(true);
-    expect(Either.isRight(decodeStationProtocolPreface(legacy.preface.accept)))
+    expect(Result.isSuccess(decodeStationProtocolPreface(legacy.preface.accept)))
       .toBe(true);
     for (const wire of legacy.session.requests) {
-      expect(Either.isLeft(decodeStationSessionFrame(wire))).toBe(true);
+      expect(Result.isFailure(decodeStationSessionFrame(wire))).toBe(true);
       const request =
         typeof wire === "object" && wire !== null && "request" in wire
           ? (wire as { readonly request: unknown }).request
           : wire;
-      expect(Either.isLeft(decodeStationControlRequest(request))).toBe(true);
+      expect(Result.isFailure(decodeStationControlRequest(request))).toBe(true);
     }
     for (const wire of legacy.session.responses) {
-      expect(Either.isLeft(decodeStationSessionFrame(wire))).toBe(true);
+      expect(Result.isFailure(decodeStationSessionFrame(wire))).toBe(true);
     }
   });
 });

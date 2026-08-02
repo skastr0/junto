@@ -15,14 +15,14 @@ export type StateBackupId = typeof StateBackupId.Type;
 
 export const StateBackupInventoryEntry = Schema.Struct({
   id: StateBackupId,
-  file: Schema.String.pipe(Schema.pattern(BACKUP_FILE_PATTERN)),
-  bytes: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
+  file: Schema.String.pipe(Schema.check(Schema.isPattern(BACKUP_FILE_PATTERN))),
+  bytes: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
   modifiedAtEpochMs: Schema.Number.pipe(
-    Schema.int(),
-    Schema.nonNegative(),
+    Schema.check(Schema.isInt()),
+    Schema.check(Schema.isGreaterThanOrEqualTo(0)),
   ),
-  schemaVersion: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
-  schemaSha256: Schema.String.pipe(Schema.pattern(SHA256_PATTERN)),
+  schemaVersion: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
+  schemaSha256: Schema.String.pipe(Schema.check(Schema.isPattern(SHA256_PATTERN))),
 });
 export type StateBackupInventoryEntry =
   typeof StateBackupInventoryEntry.Type;
@@ -31,56 +31,49 @@ export type StateBackupInventoryEntry =
 export const StateBackupExportReceipt = Schema.Struct({
   backup: StateBackupInventoryEntry,
   destination: Schema.String.pipe(
-    Schema.minLength(1),
-    Schema.maxLength(4_096),
+    Schema.check(Schema.isMinLength(1)),
+    Schema.check(Schema.isMaxLength(4_096)),
   ),
-  sha256: Schema.String.pipe(Schema.pattern(SHA256_PATTERN)),
+  sha256: Schema.String.pipe(Schema.check(Schema.isPattern(SHA256_PATTERN))),
 });
 export type StateBackupExportReceipt =
   typeof StateBackupExportReceipt.Type;
 
 const RecoveryMessage = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(240),
+  Schema.check(Schema.isMinLength(1)),
+  Schema.check(Schema.isMaxLength(240)),
 );
 
-export const StateRecoveryListResult = Schema.Union(
-  Schema.Struct({
-    outcome: Schema.Literal("listed"),
-    backups: Schema.Array(StateBackupInventoryEntry),
-  }),
-  Schema.Struct({
-    outcome: Schema.Literal("error"),
-    code: Schema.Literal("inventory-failed"),
-    message: RecoveryMessage,
-  }),
-);
+export const StateRecoveryListResult = Schema.Union([Schema.Struct({
+  outcome: Schema.Literal("listed"),
+  backups: Schema.Array(StateBackupInventoryEntry),
+}),
+Schema.Struct({
+  outcome: Schema.Literal("error"),
+  code: Schema.Literal("inventory-failed"),
+  message: RecoveryMessage,
+}),]);
 export type StateRecoveryListResult =
   typeof StateRecoveryListResult.Type;
 
-export const StateRecoveryExportResult = Schema.Union(
-  Schema.Struct({
-    outcome: Schema.Literal("exported"),
-    backup: StateBackupInventoryEntry,
-    fileName: Schema.String.pipe(
-      Schema.minLength(1),
-      Schema.maxLength(255),
-    ),
-    sha256: Schema.String.pipe(Schema.pattern(SHA256_PATTERN)),
-  }),
-  Schema.Struct({
-    outcome: Schema.Literal("canceled"),
-  }),
-  Schema.Struct({
-    outcome: Schema.Literal("error"),
-    code: Schema.Literal(
-      "invalid-backup-id",
-      "dialog-failed",
-      "export-failed",
-    ),
-    message: RecoveryMessage,
-  }),
-);
+export const StateRecoveryExportResult = Schema.Union([Schema.Struct({
+  outcome: Schema.Literal("exported"),
+  backup: StateBackupInventoryEntry,
+  fileName: Schema.String.pipe(
+    Schema.check(Schema.isMinLength(1)),
+    Schema.check(Schema.isMaxLength(255)),
+  ),
+  sha256: Schema.String.pipe(Schema.check(Schema.isPattern(SHA256_PATTERN))),
+}),
+Schema.Struct({
+  outcome: Schema.Literal("canceled"),
+}),
+Schema.Struct({
+  outcome: Schema.Literal("error"),
+  code: Schema.Literals(["invalid-backup-id", "dialog-failed",
+  "export-failed",]),
+  message: RecoveryMessage,
+}),]);
 export type StateRecoveryExportResult =
   typeof StateRecoveryExportResult.Type;
 

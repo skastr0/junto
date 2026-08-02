@@ -9,15 +9,15 @@
  * active Remote terminal to install an update.
  */
 
-import { Either, Schema } from "effect";
+import { Result, Schema } from "effect";
 
 /** Product copy for busy-Remote deferred installs. */
 export const REMOTE_UPDATE_IDLE_PRODUCT_COPY =
   "Vellum Command never force-closes an active Remote terminal to install an update. Busy Remotes wait until their terminal sessions have ended.";
 
 const AppVersion = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(128),
+  Schema.check(Schema.isMinLength(1)),
+  Schema.check(Schema.isMaxLength(128)),
 );
 
 /**
@@ -25,16 +25,13 @@ const AppVersion = Schema.String.pipe(
  * Labels (display): Up to date | Update available | Waiting for idle |
  * Downloading | Installing | Restarting | Updated | Failed — Retry
  */
-export const RemoteUpdateStatusKind = Schema.Literal(
-  "up-to-date",
-  "update-available",
-  "waiting-for-idle",
-  "downloading",
-  "installing",
-  "restarting",
-  "updated",
-  "failed-retry",
-);
+export const RemoteUpdateStatusKind = Schema.Literals(["up-to-date", "update-available",
+"waiting-for-idle",
+"downloading",
+"installing",
+"restarting",
+"updated",
+"failed-retry",]);
 export type RemoteUpdateStatusKind = typeof RemoteUpdateStatusKind.Type;
 
 /** Human-readable fleet labels — single source for UI and IPC. */
@@ -50,13 +47,13 @@ export const REMOTE_UPDATE_STATUS_LABEL = Object.freeze({
 } as const satisfies Record<RemoteUpdateStatusKind, string>);
 
 export const RemoteUpdateStatus = Schema.Struct({
-  installedVersion: Schema.optionalWith(AppVersion, { exact: true }),
-  availableVersion: Schema.optionalWith(AppVersion, { exact: true }),
+  installedVersion: Schema.optionalKey(AppVersion),
+  availableVersion: Schema.optionalKey(AppVersion),
   updateStatus: RemoteUpdateStatusKind,
 });
 export type RemoteUpdateStatus = typeof RemoteUpdateStatus.Type;
 
-const decodeStatus = Schema.decodeUnknownEither(RemoteUpdateStatus, {
+const decodeStatus = Schema.decodeUnknownResult(RemoteUpdateStatus, {
   onExcessProperty: "error",
 });
 
@@ -65,7 +62,7 @@ export const decodeRemoteUpdateStatus = (
   value: unknown,
 ): RemoteUpdateStatus | undefined => {
   const decoded = decodeStatus(value);
-  return Either.isRight(decoded) ? decoded.right : undefined;
+  return Result.isSuccess(decoded) ? decoded.success : undefined;
 };
 
 export const remoteUpdateStatusLabel = (

@@ -31,16 +31,14 @@ import { UsageSources } from "./usage-source";
  * - Layer today: UsageServiceLive (UsageLive merges sources+cache) — V4 rename candidate UsageService.layer
  *   Do not dual-export Live + `.layer` names.
  */
-export class UsageService extends Context.Tag("@vellum/UsageService")<
-  UsageService,
+export class UsageService extends Context.Service<UsageService,
   {
     readonly doctor: Effect.Effect<ServiceCheck>;
     readonly current: Effect.Effect<UsageState>;
     readonly refresh: () => Effect.Effect<UsageState>;
     readonly start: () => void;
     readonly subscribe: (listener: (state: UsageState) => void) => () => void;
-  }
->() {}
+  }>()("@vellum/UsageService") {}
 
 const emptyState: UsageState = { snapshots: [] };
 
@@ -53,7 +51,7 @@ const liveErrorMessage = (snapshots: ReadonlyArray<UsageSnapshot>): string | und
   return failed.error ?? failed.reason ?? "usage refresh failed";
 };
 
-export const UsageServiceLive = Layer.scoped(
+export const UsageServiceLive = Layer.effect(
   UsageService,
   Effect.gen(function* () {
     const sources = yield* UsageSources;
@@ -68,7 +66,7 @@ export const UsageServiceLive = Layer.scoped(
     // Cache faults are non-fatal at this read-plane boundary.
     const cached =
       (yield* cache.loadLastGood.pipe(
-        Effect.catchAll(() => Effect.succeed(undefined)),
+        Effect.catch(() => Effect.succeed(undefined)),
       )) ?? undefined;
     let state: UsageState = emptyState;
     if (cached !== undefined) {
@@ -110,7 +108,7 @@ export const UsageServiceLive = Layer.scoped(
       // Usage is an observational HUD. A persistence fault must not turn a
       // successful provider poll into a service failure.
       await Effect.runPromise(
-        cache.saveLastGood(next).pipe(Effect.catchAll(() => Effect.void)),
+        cache.saveLastGood(next).pipe(Effect.catch(() => Effect.void)),
       );
       return notify(next);
     };

@@ -17,8 +17,8 @@ import {
   type StationSupervisorObservation,
 } from "./contract";
 
-const LaunchdObservedPid = Schema.Int.pipe(
-  Schema.between(1, 0x7fff_ffff),
+const LaunchdObservedPid = Schema.Number.pipe(Schema.check(Schema.isInt()), 
+  Schema.check(Schema.isBetween({ minimum: 1, maximum: 0x7fff_ffff })),
   Schema.brand("LaunchdObservedPid"),
 );
 type LaunchdObservedPid = typeof LaunchdObservedPid.Type;
@@ -125,7 +125,7 @@ const parseLaunchdPid = (
       diagnostic: "launchctl returned a malformed pid field",
     });
   }
-  const decoded = Schema.decodeUnknownEither(LaunchdObservedPid)(
+  const decoded = Schema.decodeUnknownResult(LaunchdObservedPid)(
     Number(match[1]),
   );
   if (decoded._tag === "Left") {
@@ -140,7 +140,7 @@ const parseLaunchdPid = (
       diagnostic: "launchctl returned a pid for a non-running service",
     });
   }
-  return Object.freeze({ kind: "pid", pid: decoded.right });
+  return Object.freeze({ kind: "pid", pid: decoded.success });
 };
 
 const targetUnavailable = (): StationSupervisorFailure =>

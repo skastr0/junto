@@ -7,31 +7,29 @@ const ENDPOINT_PATTERN = /^(?!-)[A-Za-z0-9._:@%+\[\]-]+$/;
 const EXECUTABLE_PATTERN = /^(?!-)[^\u0000-\u001f\u007f]+$/u;
 
 export const SshEndpoint = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(255),
-  Schema.pattern(ENDPOINT_PATTERN),
+  Schema.check(Schema.isMinLength(1)),
+  Schema.check(Schema.isMaxLength(255)),
+  Schema.check(Schema.isPattern(ENDPOINT_PATTERN)),
   Schema.brand("SshEndpoint"),
 );
 export type SshEndpoint = typeof SshEndpoint.Type;
 
 export const SshIdentityFile = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(1024),
-  Schema.filter(
-    (value) =>
-      value.startsWith("/") &&
-      !value.includes("\u0000") &&
-      !value.includes("\n") &&
-      !value.includes("\r"),
-    {
-      message: () => "SSH identity file must be a bounded absolute path",
-    },
-  ),
+  Schema.check(Schema.isMinLength(1)),
+  Schema.check(Schema.isMaxLength(1024)),
+  Schema.check(Schema.makeFilter((value) =>
+    value.startsWith("/") &&
+    !value.includes("\u0000") &&
+    !value.includes("\n") &&
+    !value.includes("\r"),
+  {
+    message: () => "SSH identity file must be a bounded absolute path",
+  },)),
   Schema.brand("SshIdentityFile"),
 );
 export type SshIdentityFile = typeof SshIdentityFile.Type;
 
-export const SshHostKeyPolicy = Schema.Literal("system", "accept-new");
+export const SshHostKeyPolicy = Schema.Literals(["system", "accept-new"]);
 export type SshHostKeyPolicy = typeof SshHostKeyPolicy.Type;
 
 const SshRouteTypeId: unique symbol = Symbol("@vellum/ssh/SshRoute");
@@ -50,39 +48,39 @@ interface SshRouteDetails {
 
 const sshRoutes = new WeakMap<SshRoute, SshRouteDetails>();
 
-export class SshInputError extends Schema.TaggedError<SshInputError>()("SshInputError", {
+export class SshInputError extends Schema.TaggedErrorClass<SshInputError>()("SshInputError", {
   message: Schema.String,
 }) {}
 
-export class SshSetupError extends Schema.TaggedError<SshSetupError>()("SshSetupError", {
+export class SshSetupError extends Schema.TaggedErrorClass<SshSetupError>()("SshSetupError", {
   endpoint: Schema.String,
   message: Schema.String,
 }) {}
 
-export class SshSpawnError extends Schema.TaggedError<SshSpawnError>()("SshSpawnError", {
-  endpoint: Schema.String,
-  operation: Schema.String,
-  message: Schema.String,
-}) {}
-
-export class SshIoError extends Schema.TaggedError<SshIoError>()("SshIoError", {
+export class SshSpawnError extends Schema.TaggedErrorClass<SshSpawnError>()("SshSpawnError", {
   endpoint: Schema.String,
   operation: Schema.String,
   message: Schema.String,
 }) {}
 
-export class SshTimeoutError extends Schema.TaggedError<SshTimeoutError>()("SshTimeoutError", {
+export class SshIoError extends Schema.TaggedErrorClass<SshIoError>()("SshIoError", {
+  endpoint: Schema.String,
+  operation: Schema.String,
+  message: Schema.String,
+}) {}
+
+export class SshTimeoutError extends Schema.TaggedErrorClass<SshTimeoutError>()("SshTimeoutError", {
   endpoint: Schema.String,
   operation: Schema.String,
   timeoutMs: Schema.Number,
 }) {}
 
-export class SshOutputLimitError extends Schema.TaggedError<SshOutputLimitError>()(
+export class SshOutputLimitError extends Schema.TaggedErrorClass<SshOutputLimitError>()(
   "SshOutputLimitError",
   {
     endpoint: Schema.String,
     operation: Schema.String,
-    stream: Schema.Literal("stdout", "stderr"),
+    stream: Schema.Literals(["stdout", "stderr"]),
     limitBytes: Schema.Number,
   },
 ) {}
@@ -90,13 +88,13 @@ export class SshOutputLimitError extends Schema.TaggedError<SshOutputLimitError>
 // OpenSSH reserves 255 for its own failures, but a remote program may also
 // exit 255. Keep one sound exit error instead of pretending transport and
 // remote-command failures are perfectly distinguishable.
-export class SshExitError extends Schema.TaggedError<SshExitError>()("SshExitError", {
+export class SshExitError extends Schema.TaggedErrorClass<SshExitError>()("SshExitError", {
   endpoint: Schema.String,
   operation: Schema.String,
   code: Schema.Number,
 }) {}
 
-export class SshForwardError extends Schema.TaggedError<SshForwardError>()("SshForwardError", {
+export class SshForwardError extends Schema.TaggedErrorClass<SshForwardError>()("SshForwardError", {
   endpoint: Schema.String,
   message: Schema.String,
 }) {}
@@ -268,17 +266,15 @@ export const inspectRemoteCommand = (command: RemoteCommand): RemoteCommandParts
 const REMOTE_SOCKET_PATTERN = /^\/[A-Za-z0-9._+@/-]+$/u;
 
 export const RemoteUnixSocketPath = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.filter(
-    (value) =>
-      value.startsWith("/") &&
-      REMOTE_SOCKET_PATTERN.test(value) &&
-      Buffer.byteLength(value, "utf8") <= 103,
-    {
-      message: () =>
-        "Remote Unix socket path must be absolute, bounded, and safe for OpenSSH forwarding",
-    },
-  ),
+  Schema.check(Schema.isMinLength(1)),
+  Schema.check(Schema.makeFilter((value) =>
+    value.startsWith("/") &&
+    REMOTE_SOCKET_PATTERN.test(value) &&
+    Buffer.byteLength(value, "utf8") <= 103,
+  {
+    message: () =>
+      "Remote Unix socket path must be absolute, bounded, and safe for OpenSSH forwarding",
+  },)),
   Schema.brand("RemoteUnixSocketPath"),
 );
 export type RemoteUnixSocketPath = typeof RemoteUnixSocketPath.Type;

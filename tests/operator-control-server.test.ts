@@ -16,7 +16,7 @@ import {
   type OperatorControlServerRuntime,
 } from "../src/main/vellum/operator-control";
 import type { ProcessIdentityMap } from "../src/main/vellum/process-identity";
-import { Either } from "effect";
+import { Result } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const roots: string[] = [];
@@ -65,10 +65,10 @@ const statusResponse = (
       observedAt: "2026-07-31T00:00:00.000Z",
     },
   });
-  if (Either.isLeft(decoded)) {
+  if (Result.isFailure(decoded)) {
     throw new Error("invalid operator status fixture");
   }
-  return decoded.right;
+  return decoded.success;
 };
 
 const connect = (socketPath: string): Promise<Socket> =>
@@ -157,7 +157,7 @@ describe("operator control server", () => {
       encodeOperatorFrame(statusRequest()),
     );
     const decoded = decodeOperatorResponse(JSON.parse(raw));
-    expect(Either.isRight(decoded)).toBe(true);
+    expect(Result.isSuccess(decoded)).toBe(true);
     expect(dispatch).toHaveBeenCalledOnce();
   });
 

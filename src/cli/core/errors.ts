@@ -1,26 +1,26 @@
 import { Schema } from "effect";
 
-export class InputError extends Schema.TaggedError<InputError>()("InputError", {
+export class InputError extends Schema.TaggedErrorClass<InputError>()("InputError", {
   message: Schema.String,
-  path: Schema.optionalWith(Schema.String, { exact: true }),
-  expected: Schema.optionalWith(Schema.Unknown, { exact: true }),
-  received: Schema.optionalWith(Schema.Unknown, { exact: true }),
-  hint: Schema.optionalWith(Schema.String, { exact: true }),
-  next_step: Schema.optionalWith(Schema.String, { exact: true }),
+  path: Schema.optionalKey(Schema.String),
+  expected: Schema.optionalKey(Schema.Unknown),
+  received: Schema.optionalKey(Schema.Unknown),
+  hint: Schema.optionalKey(Schema.String),
+  next_step: Schema.optionalKey(Schema.String),
 }) {}
 
-export class RuntimeDown extends Schema.TaggedError<RuntimeDown>()("RuntimeDown", {
+export class RuntimeDown extends Schema.TaggedErrorClass<RuntimeDown>()("RuntimeDown", {
   message: Schema.String,
-  next_step: Schema.optionalWith(Schema.String, { exact: true }),
+  next_step: Schema.optionalKey(Schema.String),
 }) {}
 
-export class AuthError extends Schema.TaggedError<AuthError>()("AuthError", {
+export class AuthError extends Schema.TaggedErrorClass<AuthError>()("AuthError", {
   message: Schema.String,
-  next_step: Schema.optionalWith(Schema.String, { exact: true }),
+  next_step: Schema.optionalKey(Schema.String),
 }) {}
 
-export class WireError extends Schema.TaggedError<WireError>()("WireError", {
+export class WireError extends Schema.TaggedErrorClass<WireError>()("WireError", {
   type: Schema.String,
   message: Schema.String,
-  details: Schema.optionalWith(Schema.Unknown, { exact: true }),
+  details: Schema.optionalKey(Schema.Unknown),
 }) {}

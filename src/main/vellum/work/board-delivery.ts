@@ -91,7 +91,7 @@ export const deliverBoardWake = (input: {
     const canvases = yield* CanvasesService;
     const read = yield* canvases
       .read(input.canvas)
-      .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+      .pipe(Effect.catch(() => Effect.succeed(undefined)));
     if (!read) return 0;
     const doc = read.doc as CanvasDoc;
     const wake: BoardWakeEvent = {
@@ -115,4 +115,4 @@ export const deliverBoardWake = (input: {
         transport: transport!,
       }),
     );
-  }).pipe(Effect.catchAll(() => Effect.succeed(0)));
+  }).pipe(Effect.catch(() => Effect.succeed(0)));

@@ -21,7 +21,7 @@ export const STATION_PORTFOLIO_PROTOCOL =
 export const STATION_PORTFOLIO_MAX_CANVASES = 256;
 export const STATION_PORTFOLIO_MAX_ACTOR_SEATS = 16_384;
 
-export class StationPortfolioError extends Schema.TaggedError<StationPortfolioError>()(
+export class StationPortfolioError extends Schema.TaggedErrorClass<StationPortfolioError>()(
   "StationPortfolioError",
   {
     operation: Schema.String,
@@ -106,13 +106,13 @@ const decodeCanonicalCanvas = (
       `projection canvas "${name}" violates the canvas contract`,
     );
   }
-  if (serializeCanvas(decoded.right) !== body) {
+  if (serializeCanvas(decoded.success) !== body) {
     return fail(
       "decode",
       `projection canvas "${name}" is not canonical authorial content`,
     );
   }
-  return decoded.right;
+  return decoded.success;
 };
 
 /**

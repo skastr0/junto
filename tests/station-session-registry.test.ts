@@ -1,7 +1,7 @@
 import {
   Deferred,
   Effect,
-  Either,
+  Result,
   Exit,
   Fiber,
   Layer,
@@ -132,9 +132,9 @@ describe("StationLivePeerRegistry", () => {
           const wrongIdentity = yield* registry.require(
             HOST,
             OTHER_REMOTE,
-          ).pipe(Effect.either);
-          expect(Either.isLeft(wrongIdentity)).toBe(true);
-          if (Either.isLeft(wrongIdentity)) {
+          ).pipe(Effect.result);
+          expect(Result.isFailure(wrongIdentity)).toBe(true);
+          if (Result.isFailure(wrongIdentity)) {
             expect(wrongIdentity.left.reason).toBe(
               "identity-mismatch",
             );
@@ -144,10 +144,10 @@ describe("StationLivePeerRegistry", () => {
           expect(yield* registry.isLive(HOST, REMOTE)).toBe(false);
 
           const closed = yield* registry.require(HOST, REMOTE).pipe(
-            Effect.either,
+            Effect.result,
           );
-          expect(Either.isLeft(closed)).toBe(true);
-          if (Either.isLeft(closed)) {
+          expect(Result.isFailure(closed)).toBe(true);
+          if (Result.isFailure(closed)) {
             expect(closed.left.reason).toBe("session-closed");
           }
         }),
@@ -166,11 +166,11 @@ describe("StationLivePeerRegistry", () => {
             HOST,
             REMOTE,
             peer.session,
-          ).pipe(Effect.either);
+          ).pipe(Effect.result);
 
-          expect(Either.isLeft(result)).toBe(true);
-          if (Either.isLeft(result)) {
-            expect(result.left.reason).toBe("identity-mismatch");
+          expect(Result.isFailure(result)).toBe(true);
+          if (Result.isFailure(result)) {
+            expect(result.failure.reason).toBe("identity-mismatch");
           }
           expect(yield* registry.isLive(HOST, REMOTE)).toBe(false);
         }),
@@ -219,18 +219,18 @@ describe("StationLivePeerRegistry", () => {
 
           expect(yield* registry.isLive(HOST, REMOTE)).toBe(false);
           const afterClose = yield* registry.require(HOST, REMOTE).pipe(
-            Effect.either,
+            Effect.result,
           );
-          expect(Either.isLeft(afterClose)).toBe(true);
-          if (Either.isLeft(afterClose)) {
+          expect(Result.isFailure(afterClose)).toBe(true);
+          if (Result.isFailure(afterClose)) {
             expect(afterClose.left.reason).toBe("unavailable");
           }
           const staleWitness = yield* registry.withSession(
             witness,
             Effect.void,
-          ).pipe(Effect.either);
-          expect(Either.isLeft(staleWitness)).toBe(true);
-          if (Either.isLeft(staleWitness)) {
+          ).pipe(Effect.result);
+          expect(Result.isFailure(staleWitness)).toBe(true);
+          if (Result.isFailure(staleWitness)) {
             expect(staleWitness.left.reason).toBe("invalid-witness");
           }
         }),

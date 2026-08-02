@@ -66,22 +66,22 @@ export {
 export const CanvasColor = Schema.String;
 export type CanvasColor = typeof CanvasColor.Type;
 
-export const NodeSide = Schema.Literal("top", "right", "bottom", "left");
+export const NodeSide = Schema.Literals(["top", "right", "bottom", "left"]);
 export type NodeSide = typeof NodeSide.Type;
 
-export const EdgeEnd = Schema.Literal("none", "arrow");
+export const EdgeEnd = Schema.Literals(["none", "arrow"]);
 export type EdgeEnd = typeof EdgeEnd.Type;
 
 // Live edge phase — DERIVED from criteria (+ live task/trust state).
 // Never authorial: document stores criteria; evaluation produces phase.
 // `depends` is retired (no cascade); clear criteria → relates.
-export const EdgePhase = Schema.Literal("blocks", "relates");
+export const EdgePhase = Schema.Literals(["blocks", "relates"]);
 export type EdgePhase = typeof EdgePhase.Type;
 /** Alias used by theme/svg color maps. */
 export type EtherEdgeKind = EdgePhase;
 export const EtherEdgeKind = EdgePhase;
 
-export const EtherFlag = Schema.Literal("blocker", "parked", "attention");
+export const EtherFlag = Schema.Literals(["blocker", "parked", "attention"]);
 export type EtherFlag = typeof EtherFlag.Type;
 
 // entity.kind is an open vocabulary; well-known kinds get richer rendering.
@@ -111,19 +111,19 @@ export const WELL_KNOWN_ENTITY_KINDS = [
 // Bound herdr work surface (PTY pane on a host). Not a hermes agent binding;
 // metadata hydration is an explicit adapter call.
 // onDelete default is detach: removing the canvas card must not kill the pane.
-export const HerdrOnDelete = Schema.Literal("detach", "kill-pane");
+export const HerdrOnDelete = Schema.Literals(["detach", "kill-pane"]);
 export type HerdrOnDelete = typeof HerdrOnDelete.Type;
 
 export const EtherHerdr = Schema.Struct({
   host: Schema.String,
-  session: Schema.optionalWith(Schema.NullOr(Schema.String), { exact: true }),
-  workspaceId: Schema.optionalWith(Schema.String, { exact: true }),
-  tabId: Schema.optionalWith(Schema.String, { exact: true }),
+  session: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  workspaceId: Schema.optionalKey(Schema.String),
+  tabId: Schema.optionalKey(Schema.String),
   // Required once bound; optional so partially-authored nodes can decode.
-  paneId: Schema.optionalWith(Schema.String, { exact: true }),
-  terminalId: Schema.optionalWith(Schema.String, { exact: true }),
-  label: Schema.optionalWith(Schema.String, { exact: true }),
-  onDelete: Schema.optionalWith(HerdrOnDelete, { exact: true }),
+  paneId: Schema.optionalKey(Schema.String),
+  terminalId: Schema.optionalKey(Schema.String),
+  label: Schema.optionalKey(Schema.String),
+  onDelete: Schema.optionalKey(HerdrOnDelete),
 });
 export type EtherHerdr = typeof EtherHerdr.Type;
 
@@ -136,30 +136,27 @@ export const resolveHerdrOnDelete = (herdr: EtherHerdr | undefined): HerdrOnDele
 // Runtime owns epochs/PTYs/presentation — never PIDs, sockets, or scrollback here.
 // onDelete default is detach: removing the card does not kill while the app lives;
 // app quit stops local native sessions by product law.
-export const TerminalOnDelete = Schema.Literal("detach", "kill-session");
+export const TerminalOnDelete = Schema.Literals(["detach", "kill-session"]);
 export type TerminalOnDelete = typeof TerminalOnDelete.Type;
 
-export const TerminalLaunchKind = Schema.Literal("shell", "command", "harness");
+export const TerminalLaunchKind = Schema.Literals(["shell", "command", "harness"]);
 export type TerminalLaunchKind = typeof TerminalLaunchKind.Type;
 
 export const EtherTerminalLaunch = Schema.Struct({
   kind: TerminalLaunchKind,
-  argv: Schema.optionalWith(Schema.Array(Schema.String), { exact: true }),
-  cwd: Schema.optionalWith(Schema.String, { exact: true }),
-  env: Schema.optionalWith(
-    Schema.Record({ key: Schema.String, value: Schema.String }),
-    { exact: true },
-  ),
+  argv: Schema.optionalKey(Schema.Array(Schema.String)),
+  cwd: Schema.optionalKey(Schema.String),
+  env: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
 });
 export type EtherTerminalLaunch = typeof EtherTerminalLaunch.Type;
 
 export const EtherTerminal = Schema.Struct({
   /** Stable authorial identity (ULID). Not a runtime epoch/session instance id. */
   bindingId: Schema.String,
-  label: Schema.optionalWith(Schema.String, { exact: true }),
-  onDelete: Schema.optionalWith(TerminalOnDelete, { exact: true }),
+  label: Schema.optionalKey(Schema.String),
+  onDelete: Schema.optionalKey(TerminalOnDelete),
   /** Optional launch profile — inert until deliberate Start (never auto-exec on load). */
-  launch: Schema.optionalWith(EtherTerminalLaunch, { exact: true }),
+  launch: Schema.optionalKey(EtherTerminalLaunch),
   /**
    * Managed-agent harness id — closed literal, so a harness always names a
    * real template (`HarnessId`); an unknown id fails the document decode
@@ -167,13 +164,13 @@ export const EtherTerminal = Schema.Struct({
    * a shell and has no harness; required on the actor seat, where
    * `ManagedAgentNode` types it as present.
    */
-  harness: Schema.optionalWith(HarnessId, { exact: true }),
+  harness: Schema.optionalKey(HarnessId),
   /**
    * Harness session/thread id for cold wake.
    * Pin harnesses (Claude/Grok): minted at authoring, passed as --session-id.
    * Capture harnesses (Codex/Hermes): written when runtime observes the id.
    */
-  sessionId: Schema.optionalWith(Schema.String, { exact: true }),
+  sessionId: Schema.optionalKey(Schema.String),
 });
 export type EtherTerminal = typeof EtherTerminal.Type;
 
@@ -189,12 +186,12 @@ export const resolveTerminalOnDelete = (
 // kill-session: deleting the page node closes the Vellum Command-owned session for
 // that ref (Phase 5). Operators may still author onDelete: "detach" to keep a
 // warm session when removing the card only. Cookies remain profile-local.
-export const BrowserOnDelete = Schema.Literal("detach", "kill-session");
+export const BrowserOnDelete = Schema.Literals(["detach", "kill-session"]);
 export type BrowserOnDelete = typeof BrowserOnDelete.Type;
 
 export const EtherBrowser = Schema.Struct({
   profile: Schema.String,
-  onDelete: Schema.optionalWith(BrowserOnDelete, { exact: true }),
+  onDelete: Schema.optionalKey(BrowserOnDelete),
 });
 export type EtherBrowser = typeof EtherBrowser.Type;
 
@@ -210,7 +207,7 @@ export const resolveBrowserOnDelete = (browser: EtherBrowser | undefined): Brows
 // Kinds that don't join the corpus (watcher, timer, task, …) omit it.
 export const EtherEntity = Schema.Struct({
   kind: Schema.String,
-  name: Schema.optionalWith(Schema.String, { exact: true }),
+  name: Schema.optionalKey(Schema.String),
 });
 export type EtherEntity = typeof EtherEntity.Type;
 
@@ -218,9 +215,9 @@ export type EtherEntity = typeof EtherEntity.Type;
 // Same alphabet as remote-hosts HostId. Absence means "local" at resolve time
 // (see shared/station resolveNodeHostId) so existing canvases stay valid.
 export const EtherHostId = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(64),
-  Schema.pattern(/^(?!-)[A-Za-z0-9][A-Za-z0-9._-]*$/),
+  Schema.check(Schema.isMinLength(1)),
+  Schema.check(Schema.isMaxLength(64)),
+  Schema.check(Schema.isPattern(/^(?!-)[A-Za-z0-9][A-Za-z0-9._-]*$/)),
 );
 export type EtherHostId = typeof EtherHostId.Type;
 
@@ -232,31 +229,28 @@ export type EtherHostId = typeof EtherHostId.Type;
 // often need different absolute paths for the same logical project.
 export const EtherRegionHerdrDefaults = Schema.Struct({
   host: Schema.String,
-  session: Schema.optionalWith(Schema.NullOr(Schema.String), { exact: true }),
-  workspaceId: Schema.optionalWith(Schema.String, { exact: true }),
-  tabId: Schema.optionalWith(Schema.String, { exact: true }),
+  session: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  workspaceId: Schema.optionalKey(Schema.String),
+  tabId: Schema.optionalKey(Schema.String),
 });
 export type EtherRegionHerdrDefaults = typeof EtherRegionHerdrDefaults.Type;
 
 export const EtherRegionPageDefaults = Schema.Struct({
-  url: Schema.optionalWith(Schema.String, { exact: true }),
-  profile: Schema.optionalWith(Schema.String, { exact: true }),
-  host: Schema.optionalWith(EtherHostId, { exact: true }),
+  url: Schema.optionalKey(Schema.String),
+  profile: Schema.optionalKey(Schema.String),
+  host: Schema.optionalKey(EtherHostId),
 });
 export type EtherRegionPageDefaults = typeof EtherRegionPageDefaults.Type;
 
 /** host id → absolute cwd on that host for actor spawn. */
-export const EtherRegionPaths = Schema.Record({
-  key: Schema.String,
-  value: Schema.String,
-});
+export const EtherRegionPaths = Schema.Record(Schema.String, Schema.String);
 export type EtherRegionPaths = typeof EtherRegionPaths.Type;
 
 export const EtherRegionDefaults = Schema.Struct({
-  herdr: Schema.optionalWith(EtherRegionHerdrDefaults, { exact: true }),
-  page: Schema.optionalWith(EtherRegionPageDefaults, { exact: true }),
+  herdr: Schema.optionalKey(EtherRegionHerdrDefaults),
+  page: Schema.optionalKey(EtherRegionPageDefaults),
   /** Per-host default working directory for agents/terminals created inside. */
-  paths: Schema.optionalWith(EtherRegionPaths, { exact: true }),
+  paths: Schema.optionalKey(EtherRegionPaths),
 });
 export type EtherRegionDefaults = typeof EtherRegionDefaults.Type;
 
@@ -274,9 +268,9 @@ export type EtherRegionDefaults = typeof EtherRegionDefaults.Type;
 // with a bag for that kind wins). Paths are host-keyed: innermost region that
 // defines a path for the spawn host wins; missing hosts walk outward.
 export const EtherRegion = Schema.Struct({
-  hold: Schema.optionalWith(Schema.Boolean, { exact: true }),
-  instruction: Schema.optionalWith(Schema.String, { exact: true }),
-  defaults: Schema.optionalWith(EtherRegionDefaults, { exact: true }),
+  hold: Schema.optionalKey(Schema.Boolean),
+  instruction: Schema.optionalKey(Schema.String),
+  defaults: Schema.optionalKey(EtherRegionDefaults),
 });
 export type EtherRegion = typeof EtherRegion.Type;
 
@@ -289,14 +283,14 @@ export type WatchKind = typeof WatchKind.Type;
 export const EtherWatch = Schema.Struct({
   kind: WatchKind,
   // Numeric comparison on a bound hermes entity
-  source: Schema.optionalWith(Schema.Literal("hermes"), { exact: true }),
-  key: Schema.optionalWith(Schema.String, { exact: true }),
-  stat: Schema.optionalWith(Schema.String, { exact: true }),
-  op: Schema.optionalWith(Schema.Literal("gt", "lt", "eq"), { exact: true }),
-  value: Schema.optionalWith(Schema.Number, { exact: true }),
+  source: Schema.optionalKey(Schema.Literal("hermes")),
+  key: Schema.optionalKey(Schema.String),
+  stat: Schema.optionalKey(Schema.String),
+  op: Schema.optionalKey(Schema.Literals(["gt", "lt", "eq"])),
+  value: Schema.optionalKey(Schema.Number),
   // Level watchers may mirror unsatisfied into a blocker flag on THIS node
   // (display seed; schedulers are not blockable seats).
-  flagOnUnsatisfied: Schema.optionalWith(Schema.Boolean, { exact: true }),
+  flagOnUnsatisfied: Schema.optionalKey(Schema.Boolean),
 });
 export type EtherWatch = typeof EtherWatch.Type;
 
@@ -319,11 +313,11 @@ export const EtherRelay = Schema.Struct({
    * - task_state: a task sink item reaches `equals` state (default completed)
    * - flags: source node carries flag `equals` (blocker|parked|attention)
    */
-  path: Schema.Literal("task_state", "flags"),
+  path: Schema.Literals(["task_state", "flags"]),
   /** Task item id when path is task_state. Absent = any item matching equals. */
-  itemId: Schema.optionalWith(Schema.String, { exact: true }),
+  itemId: Schema.optionalKey(Schema.String),
   /** Expected state or flag name depending on path. */
-  equals: Schema.optionalWith(Schema.String, { exact: true }),
+  equals: Schema.optionalKey(Schema.String),
 });
 export type EtherRelay = typeof EtherRelay.Type;
 
@@ -332,7 +326,7 @@ export type EtherRelay = typeof EtherRelay.Type;
 export const EdgeEffectEnqueueTask = Schema.Struct({
   mode: Schema.Literal("enqueue_task"),
   brief: Schema.String,
-  reason: Schema.optionalWith(Schema.String, { exact: true }),
+  reason: Schema.optionalKey(Schema.String),
 });
 export type EdgeEffectEnqueueTask = typeof EdgeEffectEnqueueTask.Type;
 
@@ -340,11 +334,11 @@ export const EdgeEffectSetFlag = Schema.Struct({
   mode: Schema.Literal("set_flag"),
   flag: EtherFlag,
   /** true = enable, false = clear. "mirror" = pending→on / satisfied→off for level sensors. */
-  enabled: Schema.Union(Schema.Boolean, Schema.Literal("mirror")),
+  enabled: Schema.Union([Schema.Boolean, Schema.Literal("mirror")]),
 });
 export type EdgeEffectSetFlag = typeof EdgeEffectSetFlag.Type;
 
-export const EdgeEffect = Schema.Union(EdgeEffectEnqueueTask, EdgeEffectSetFlag);
+export const EdgeEffect = Schema.Union([EdgeEffectEnqueueTask, EdgeEffectSetFlag]);
 export type EdgeEffect = typeof EdgeEffect.Type;
 
 // Work read plane — normalized WorkService rows are projected into these
@@ -360,7 +354,7 @@ export type EdgeEffect = typeof EdgeEffect.Type;
 export const EdgeCriteriaTasks = Schema.Struct({
   mode: Schema.Literal("tasks"),
   // empty/absent itemIds = every item on the fromNode tasks/requests list
-  itemIds: Schema.optionalWith(Schema.Array(Schema.String), { exact: true }),
+  itemIds: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 export type EdgeCriteriaTasks = typeof EdgeCriteriaTasks.Type;
 
@@ -373,7 +367,7 @@ export const EdgeCriteriaProof = Schema.Struct({
    * When set, stamp.inputsHash must equal this value (gates replay of an old
    * stamp against new inputs). Absent = any stamp for `step` clears.
    */
-  inputsHash: Schema.optionalWith(Schema.String, { exact: true }),
+  inputsHash: Schema.optionalKey(Schema.String),
 });
 export type EdgeCriteriaProof = typeof EdgeCriteriaProof.Type;
 
@@ -384,11 +378,9 @@ export const EdgeCriteriaApproval = Schema.Struct({
 });
 export type EdgeCriteriaApproval = typeof EdgeCriteriaApproval.Type;
 
-export const EdgeCriteria = Schema.Union(
-  EdgeCriteriaTasks,
-  EdgeCriteriaProof,
-  EdgeCriteriaApproval,
-);
+export const EdgeCriteria = Schema.Union([EdgeCriteriaTasks,
+EdgeCriteriaProof,
+EdgeCriteriaApproval,]);
 export type EdgeCriteria = typeof EdgeCriteria.Type;
 
 /**
@@ -396,25 +388,25 @@ export type EdgeCriteria = typeof EdgeCriteria.Type;
  * Distinct from physics FactoryRole (actor/sink/… derived from kind).
  * Empty/absent = unassigned (any free edged actor may claim if tick allows).
  */
-export const WorkRole = Schema.String.pipe(Schema.minLength(1), Schema.maxLength(64));
+export const WorkRole = Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(64)));
 export type WorkRole = typeof WorkRole.Type;
 
 export const EtherNodeExtension = Schema.Struct({
-  entity: Schema.optionalWith(EtherEntity, { exact: true }),
-  flags: Schema.optionalWith(Schema.Array(EtherFlag), { exact: true }),
-  region: Schema.optionalWith(EtherRegion, { exact: true }),
-  watch: Schema.optionalWith(EtherWatch, { exact: true }),
-  timer: Schema.optionalWith(EtherTimer, { exact: true }),
-  relay: Schema.optionalWith(EtherRelay, { exact: true }),
-  tasks: Schema.optionalWith(EtherTasks, { exact: true }),
-  requests: Schema.optionalWith(EtherRequests, { exact: true }),
-  artifacts: Schema.optionalWith(EtherArtifacts, { exact: true }),
-  messages: Schema.optionalWith(EtherMessages, { exact: true }),
+  entity: Schema.optionalKey(EtherEntity),
+  flags: Schema.optionalKey(Schema.Array(EtherFlag)),
+  region: Schema.optionalKey(EtherRegion),
+  watch: Schema.optionalKey(EtherWatch),
+  timer: Schema.optionalKey(EtherTimer),
+  relay: Schema.optionalKey(EtherRelay),
+  tasks: Schema.optionalKey(EtherTasks),
+  requests: Schema.optionalKey(EtherRequests),
+  artifacts: Schema.optionalKey(EtherArtifacts),
+  messages: Schema.optionalKey(EtherMessages),
   /** Runtime overlay for entity.kind === "board" (glance only; SQLite owns truth). */
-  board: Schema.optionalWith(EtherBoard, { exact: true }),
+  board: Schema.optionalKey(EtherBoard),
   // Geography display binding for entity.kind === "herdr". This is not a seat:
   // a herdr pane renders and shows state, and holds no port.
-  herdr: Schema.optionalWith(EtherHerdr, { exact: true }),
+  herdr: Schema.optionalKey(EtherHerdr),
   /**
    * Work-surface binding for entity.kind === "terminal" (raw geography) OR
    * entity.kind === "agent" (managed seat). The **agent** seat requires
@@ -423,43 +415,43 @@ export const EtherNodeExtension = Schema.Struct({
    * document, it does not rewrite what the document means.
    * Host lives in ether.host (station truth); do not duplicate host here.
    */
-  terminal: Schema.optionalWith(EtherTerminal, { exact: true }),
+  terminal: Schema.optionalKey(EtherTerminal),
   // Work-surface binding for entity.kind === "page" on a link node.
-  browser: Schema.optionalWith(EtherBrowser, { exact: true }),
+  browser: Schema.optionalKey(EtherBrowser),
   // Host that may execute/tool this node. Optional for graceful degradation.
-  host: Schema.optionalWith(EtherHostId, { exact: true }),
+  host: Schema.optionalKey(EtherHostId),
   // Operator-authored claim-routing role (not physics FactoryRole).
-  workRole: Schema.optionalWith(WorkRole, { exact: true }),
+  workRole: Schema.optionalKey(WorkRole),
 });
 export type EtherNodeExtension = typeof EtherNodeExtension.Type;
 
 export const EtherEdgeExtension = Schema.Struct({
   // Authorial: only criteria. Absence = soft relates (never generates/relays).
-  criteria: Schema.optionalWith(EdgeCriteria, { exact: true }),
+  criteria: Schema.optionalKey(EdgeCriteria),
   // Derived mirror of last live phase for offline JSON Canvas readers.
   // Written only by applyPhaseMirror — never set by authoring UI.
-  kind: Schema.optionalWith(EdgePhase, { exact: true }),
+  kind: Schema.optionalKey(EdgePhase),
   // Authorial ocap attenuation: subset of Port strings. Absence = full offers
   // (default grant). Strip ether → still valid JSON Canvas 1.0.
-  ports: Schema.optionalWith(Schema.Array(Port), { exact: true }),
+  ports: Schema.optionalKey(Schema.Array(Port)),
   /**
    * Operator-authored wake eligibility for board megaphone.
    * Not a Port — delivery plane, not capability. Absent / true = ON
    * (default when an agent is connected to a board). Explicit false = OFF.
    */
-  notify: Schema.optionalWith(Schema.Boolean, { exact: true }),
+  notify: Schema.optionalKey(Schema.Boolean),
   /**
    * Opt-in actor↔actor stoppage relay. Off by default (absent / false).
    * When true, a blocked endpoint relays its blocked state and reasons to the
    * other blockable endpoint; multi-hop along further relayState edges.
    * Not a Port and not criteria — property plane only.
    */
-  relayState: Schema.optionalWith(Schema.Boolean, { exact: true }),
+  relayState: Schema.optionalKey(Schema.Boolean),
   /**
    * Scheduler automation effect. Applied by the kernel on home-local fire.
    * Not a Port and not criteria. Soft relates without effect still do nothing.
    */
-  effect: Schema.optionalWith(EdgeEffect, { exact: true }),
+  effect: Schema.optionalKey(EdgeEffect),
 });
 export type EtherEdgeExtension = typeof EtherEdgeExtension.Type;
 
@@ -469,8 +461,8 @@ const nodeBase = {
   y: Schema.Number,
   width: Schema.Number,
   height: Schema.Number,
-  color: Schema.optionalWith(CanvasColor, { exact: true }),
-  ether: Schema.optionalWith(EtherNodeExtension, { exact: true }),
+  color: Schema.optionalKey(CanvasColor),
+  ether: Schema.optionalKey(EtherNodeExtension),
 };
 
 export const TextNode = Schema.Struct({
@@ -483,7 +475,7 @@ export type TextNode = typeof TextNode.Type;
 export const FileNode = Schema.Struct({
   type: Schema.Literal("file"),
   file: Schema.String,
-  subpath: Schema.optionalWith(Schema.String, { exact: true }),
+  subpath: Schema.optionalKey(Schema.String),
   ...nodeBase,
 });
 export type FileNode = typeof FileNode.Type;
@@ -497,29 +489,27 @@ export type LinkNode = typeof LinkNode.Type;
 
 export const GroupNode = Schema.Struct({
   type: Schema.Literal("group"),
-  label: Schema.optionalWith(Schema.String, { exact: true }),
-  background: Schema.optionalWith(Schema.String, { exact: true }),
-  backgroundStyle: Schema.optionalWith(Schema.Literal("cover", "ratio", "repeat"), {
-    exact: true,
-  }),
+  label: Schema.optionalKey(Schema.String),
+  background: Schema.optionalKey(Schema.String),
+  backgroundStyle: Schema.optionalKey(Schema.Literals(["cover", "ratio", "repeat"])),
   ...nodeBase,
 });
 export type GroupNode = typeof GroupNode.Type;
 
-export const CanvasNode = Schema.Union(TextNode, FileNode, LinkNode, GroupNode);
+export const CanvasNode = Schema.Union([TextNode, FileNode, LinkNode, GroupNode]);
 export type CanvasNode = typeof CanvasNode.Type;
 
 export const CanvasEdge = Schema.Struct({
   id: Schema.String,
   fromNode: Schema.String,
-  fromSide: Schema.optionalWith(NodeSide, { exact: true }),
-  fromEnd: Schema.optionalWith(EdgeEnd, { exact: true }),
+  fromSide: Schema.optionalKey(NodeSide),
+  fromEnd: Schema.optionalKey(EdgeEnd),
   toNode: Schema.String,
-  toSide: Schema.optionalWith(NodeSide, { exact: true }),
-  toEnd: Schema.optionalWith(EdgeEnd, { exact: true }),
-  color: Schema.optionalWith(CanvasColor, { exact: true }),
-  label: Schema.optionalWith(Schema.String, { exact: true }),
-  ether: Schema.optionalWith(EtherEdgeExtension, { exact: true }),
+  toSide: Schema.optionalKey(NodeSide),
+  toEnd: Schema.optionalKey(EdgeEnd),
+  color: Schema.optionalKey(CanvasColor),
+  label: Schema.optionalKey(Schema.String),
+  ether: Schema.optionalKey(EtherEdgeExtension),
 });
 export type CanvasEdge = typeof CanvasEdge.Type;
 
@@ -529,10 +519,10 @@ export const CanvasDoc = Schema.Struct({
 });
 export type CanvasDoc = typeof CanvasDoc.Type;
 
-const decodeCanvasDocStrict = Schema.decodeUnknownEither(CanvasDoc, {
+const decodeCanvasDocStrict = Schema.decodeUnknownResult(CanvasDoc, {
   onExcessProperty: "error",
 });
-export const encodeCanvasDoc = Schema.encodeEither(CanvasDoc);
+export const encodeCanvasDoc = Schema.encodeResult(CanvasDoc);
 
 const WORK_PROJECTION_KEYS = [
   "tasks",

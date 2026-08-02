@@ -343,7 +343,7 @@ const openStateEngine = (
 export const makeStateEngineLive = (
   path?: string,
 ): Layer.Layer<StateEngine, StateEngineError> =>
-  Layer.scoped(
+  Layer.effect(
     StateEngine,
     Effect.acquireRelease(
       openStateEngine(path),

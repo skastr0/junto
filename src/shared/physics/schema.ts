@@ -19,32 +19,26 @@ export const asEdgeId = (id: string): EdgeId => id as EdgeId;
 // ---------------------------------------------------------------------------
 // Roles (derived, not stored)
 
-export const FactoryRole = Schema.Literal(
-  "actor",
-  "sink",
-  "scheduler",
-  "geography",
-);
+export const FactoryRole = Schema.Literals(["actor", "sink",
+"scheduler",
+"geography",]);
 export type FactoryRole = typeof FactoryRole.Type;
 
 // ---------------------------------------------------------------------------
 // Ports — capability facets on an edge (access plane, not phase/criteria)
 
-export const Port = Schema.Literal(
-  "tasks.list",
-  "tasks.create",
-  "tasks.claim",
-  "tasks.update",
-  "msg.list",
-  "msg.send",
-  "request.escalate",
-  "artifact.publish",
-  "browser.automate",
-  "board.list",
-  "board.create_topic",
-  "board.post",
-  "board.mark_read",
-);
+export const Port = Schema.Literals(["tasks.list", "tasks.create",
+"tasks.claim",
+"tasks.update",
+"msg.list",
+"msg.send",
+"request.escalate",
+"artifact.publish",
+"browser.automate",
+"board.list",
+"board.create_topic",
+"board.post",
+"board.mark_read",]);
 export type Port = typeof Port.Type;
 
 export const ALL_PORTS: ReadonlyArray<Port> = [
@@ -77,28 +71,23 @@ export const portSet = (...ports: ReadonlyArray<Port>): HashSet.HashSet<Port> =>
 // Exactly one actor kind, and it is a single literal — the invariant lives here
 // at construction, not in a doc or a test. `agent` is the Vellum Command-spawned template
 // terminal; a raw user-opened terminal is geography, not an actor.
-export const ActorKind = Schema.Literal("agent");
+// Literals (not single Literal) so `.literals` stays available for kind tables.
+export const ActorKind = Schema.Literals(["agent" as const]);
 export type ActorKind = typeof ActorKind.Type;
 
-export const SinkKind = Schema.Literal(
-  "page",
-  "task",
-  "requests",
-  "artifacts",
-  "board",
-);
+export const SinkKind = Schema.Literals(["page", "task",
+"requests",
+"artifacts",
+"board",]);
 export type SinkKind = typeof SinkKind.Type;
 
 /** Closed scheduler kinds. `timer` remains for decode of older docs; product UI authors `cron`. */
-export const SchedulerKind = Schema.Literal(
-  "watcher",
-  "timer",
-  "cron",
-  "relay",
-);
+export const SchedulerKind = Schema.Literals(["watcher", "timer",
+"cron",
+"relay",]);
 export type SchedulerKind = typeof SchedulerKind.Type;
 
-export const WellKnownKind = Schema.Union(ActorKind, SinkKind, SchedulerKind);
+export const WellKnownKind = Schema.Union([ActorKind, SinkKind, SchedulerKind]);
 export type WellKnownKind = typeof WellKnownKind.Type;
 
 export const ACTOR_KINDS: ReadonlyArray<ActorKind> = ActorKind.literals;
@@ -118,7 +107,7 @@ export const isWellKnownKind = (kind: string): kind is WellKnownKind =>
 // ---------------------------------------------------------------------------
 // Port grants — ocap attenuation; attenuate never expands
 
-export const PortMode = Schema.Literal("full", "empty", "subset");
+export const PortMode = Schema.Literals(["full", "empty", "subset"]);
 export type PortMode = typeof PortMode.Type;
 
 /**

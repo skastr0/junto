@@ -455,11 +455,11 @@ export const buildDoctorReport = Effect.gen(function* () {
       projection: stationRepository.projection,
       observations: stationStatus.read,
     });
-    const registeredHosts = yield* Effect.either(hosts.list);
+    const registeredHosts = yield* Effect.result(hosts.list);
     const registeredRemoteEndpoints =
-      registeredHosts._tag === "Right"
+      registeredHosts._tag === "Success"
         ? Object.fromEntries(
-            registeredHosts.right.flatMap((host) =>
+            registeredHosts.success.flatMap((host) =>
               host.kind === "remote" && host.sshEndpoint
                 ? [[host.id, host.sshEndpoint] as const]
                 : [],
@@ -520,7 +520,7 @@ export const buildDoctorReport = Effect.gen(function* () {
       },
     } satisfies ServiceCheck;
   }).pipe(
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       Effect.succeed({
         id: "station",
         label: "Station",

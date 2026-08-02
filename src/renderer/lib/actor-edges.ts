@@ -53,7 +53,7 @@ const readMask = (edge: CanvasEdge): HashSet.HashSet<PortName> | undefined => {
   for (const p of ports) {
     const decoded = decodePort(p);
     if (Option.isSome(decoded)) {
-      set = HashSet.add(set, decoded.value);
+      set = HashSet.add(set, decoded.success);
       any = true;
     }
   }

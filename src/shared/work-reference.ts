@@ -12,18 +12,18 @@ export const WORK_PROTOCOL_MAX_CANVAS_NAME_CHARS = 256;
 export const WORK_PROTOCOL_MAX_NODE_ID_CHARS = 256;
 
 export const BoundedWorkId = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(WORK_PROTOCOL_MAX_ID_CHARS),
+  Schema.check(Schema.isMinLength(1)),
+  Schema.check(Schema.isMaxLength(WORK_PROTOCOL_MAX_ID_CHARS)),
 );
 
 export const WorkCanvasName = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(WORK_PROTOCOL_MAX_CANVAS_NAME_CHARS),
+  Schema.check(Schema.isMinLength(1)),
+  Schema.check(Schema.isMaxLength(WORK_PROTOCOL_MAX_CANVAS_NAME_CHARS)),
 );
 
 export const WorkNodeId = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(WORK_PROTOCOL_MAX_NODE_ID_CHARS),
+  Schema.check(Schema.isMinLength(1)),
+  Schema.check(Schema.isMaxLength(WORK_PROTOCOL_MAX_NODE_ID_CHARS)),
 );
 
 export const SinkRef = Schema.Struct({
@@ -57,16 +57,13 @@ export const operatorPlanningActorRef = (canvasName: string): ActorRef => ({
   nodeId: "operator",
 });
 
-export const WorkItemKind = Schema.Literal(
-  "task",
-  "proposal",
-  "request",
-  "message",
-  "artifact",
-  "delivery",
-  "topic",
-  "post",
-);
+export const WorkItemKind = Schema.Literals(["task", "proposal",
+"request",
+"message",
+"artifact",
+"delivery",
+"topic",
+"post",]);
 export type WorkItemKind = typeof WorkItemKind.Type;
 
 const WorkItemIdentityFields = {

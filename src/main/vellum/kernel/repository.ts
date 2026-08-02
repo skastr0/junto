@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, ParseResult, Schema } from "effect";
+import { Context, Effect, Layer, SchemaIssue, Schema } from "effect";
 import type { PulseRecord } from "@shared/ipc";
 import {
   StateEngine,
@@ -13,16 +13,16 @@ export type ArmedRegion = {
   readonly regionId: string;
 };
 
-export class KernelStatePersistenceError extends Schema.TaggedError<KernelStatePersistenceError>()(
+export class KernelStatePersistenceError extends Schema.TaggedErrorClass<KernelStatePersistenceError>()(
   "KernelStatePersistenceError",
   {
     operation: Schema.String,
     message: Schema.String,
-    cause: Schema.Defect,
+    cause: Schema.Unknown,
   },
 ) {}
 
-export class KernelStateCorruptError extends Schema.TaggedError<KernelStateCorruptError>()(
+export class KernelStateCorruptError extends Schema.TaggedErrorClass<KernelStateCorruptError>()(
   "KernelStateCorruptError",
   {
     message: Schema.String,
@@ -33,10 +33,7 @@ export type KernelStateRepositoryError =
   | KernelStatePersistenceError
   | KernelStateCorruptError;
 
-export class KernelStateRepository extends Context.Tag(
-  "@vellum/KernelStateRepository",
-)<
-  KernelStateRepository,
+export class KernelStateRepository extends Context.Service<KernelStateRepository,
   {
     readonly listArmedRegions: Effect.Effect<
       ReadonlyArray<ArmedRegion>,
@@ -54,8 +51,7 @@ export class KernelStateRepository extends Context.Tag(
       ReadonlyArray<PulseRecord>,
       KernelStateRepositoryError
     >;
-  }
->() {}
+  }>()("@vellum/KernelStateRepository") {}
 
 type ArmedRegionRow = StateRow & {
   readonly canvas_name: string;
@@ -75,13 +71,13 @@ type DebugPulseRow = StateRow & {
   readonly dry: number;
 };
 
-const PulseKind = Schema.Literal("watcher", "timer", "manual");
+const PulseKind = Schema.Literals(["watcher", "timer", "manual"]);
 const Delivered = Schema.Array(Schema.String);
-const decodePulseKind = Schema.decodeUnknownEither(PulseKind);
-const decodeDelivered = Schema.decodeUnknownEither(Delivered);
+const decodePulseKind = Schema.decodeUnknownResult(PulseKind);
+const decodeDelivered = Schema.decodeUnknownResult(Delivered);
 
-const parseError = (error: ParseResult.ParseError): string =>
-  ParseResult.TreeFormatter.formatErrorSync(error);
+const parseError = (error: SchemaIssue.ParseError): string =>
+  error instanceof Error ? error.message : String(error);
 
 const persistenceError = (
   operation: string,
@@ -97,10 +93,10 @@ const persistenceError = (
 
 const pulseFromRow = (row: DebugPulseRow): PulseRecord => {
   const kind = decodePulseKind(row.kind);
-  if (kind._tag === "Left") {
+  if (kind._tag === "Failure") {
     throw KernelStateCorruptError.make({
       message: `kernel debug pulse ${row.position} has invalid kind: ${
-        parseError(kind.left)
+        parseError(kind.failure)
       }`,
     });
   }
@@ -117,11 +113,11 @@ const pulseFromRow = (row: DebugPulseRow): PulseRecord => {
     });
   }
   const delivered = decodeDelivered(deliveredInput);
-  if (delivered._tag === "Left") {
+  if (delivered._tag === "Failure") {
     throw KernelStateCorruptError.make({
       message:
         `kernel debug pulse ${row.position} has invalid recipients: ${
-          parseError(delivered.left)
+          parseError(delivered.failure)
         }`,
     });
   }
@@ -132,9 +128,9 @@ const pulseFromRow = (row: DebugPulseRow): PulseRecord => {
     canvasName: row.canvas_name,
     sourceNodeId: row.source_node_id,
     ...(row.region_id === null ? {} : { regionId: row.region_id }),
-    kind: kind.right,
+    kind: kind.success,
     summary: row.summary,
-    delivered: delivered.right,
+    delivered: delivered.success,
     dry: row.dry === 1,
   };
 };

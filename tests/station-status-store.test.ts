@@ -164,7 +164,7 @@ describe("SQLite station status receipts", () => {
     const result = await runtime.runPromise(
       Effect.gen(function* () {
         const status = yield* StationStatusService;
-        return yield* Effect.either(
+        return yield* Effect.result(
           status.recordKernel(
             kernelRecord({
               observedAt: "2026-07-23T12:01:00.000Z",
@@ -176,8 +176,8 @@ describe("SQLite station status receipts", () => {
     );
 
     expect(result._tag).toBe("Left");
-    if (result._tag === "Left") {
-      expect(result.left).toBeInstanceOf(StationStatusStoreError);
+    if (result._tag === "Failure") {
+      expect(result.failure).toBeInstanceOf(StationStatusStoreError);
     }
     await expect(readStatus(runtime)).resolves.toEqual({
       version: 2,
@@ -205,13 +205,13 @@ describe("SQLite station status receipts", () => {
     const result = await runtime.runPromise(
       Effect.gen(function* () {
         const status = yield* StationStatusService;
-        return yield* Effect.either(status.read);
+        return yield* Effect.result(status.read);
       }),
     );
 
     expect(result._tag).toBe("Left");
-    if (result._tag === "Left") {
-      expect(result.left).toBeInstanceOf(StationStatusStoreError);
+    if (result._tag === "Failure") {
+      expect(result.failure).toBeInstanceOf(StationStatusStoreError);
     }
   });
 

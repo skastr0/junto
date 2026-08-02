@@ -1,4 +1,4 @@
-import { Either, Schema } from "effect";
+import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   CURRENT_STATION_PROTOCOL_SUPPORT,
@@ -70,9 +70,9 @@ describe("Station protocol compatibility contract", () => {
 
   it("strictly decodes a preface outside session frames", () => {
     const initial = offer();
-    expect(Either.isRight(decodeStationProtocolPreface(initial))).toBe(true);
-    expect(Either.isLeft(decodeStationProtocolPreface({ ...initial, unknown: true }))).toBe(true);
-    expect(Either.isLeft(decodeStationProtocolPreface({ ...initial, frame: "request" }))).toBe(true);
+    expect(Result.isSuccess(decodeStationProtocolPreface(initial))).toBe(true);
+    expect(Result.isFailure(decodeStationProtocolPreface({ ...initial, unknown: true }))).toBe(true);
+    expect(Result.isFailure(decodeStationProtocolPreface({ ...initial, frame: "request" }))).toBe(true);
   });
 
   it("accepts only the exact recomputed selection", () => {
@@ -107,7 +107,7 @@ describe("Station protocol compatibility contract", () => {
     expect(rejected.retryable).toBe(false);
     expect(decideStationProtocolPreface(initial, rejected)).toEqual({ _tag: "no-common" });
     expect(
-      Either.isLeft(decodeStationProtocolPreface({ ...rejected, retryable: true })),
+      Result.isFailure(decodeStationProtocolPreface({ ...rejected, retryable: true })),
     ).toBe(true);
     expect(decideStationProtocolPreface(offer(), rejected)).toEqual({
       _tag: "no-common",
@@ -115,8 +115,8 @@ describe("Station protocol compatibility contract", () => {
   });
 
   it("selects only an installed exact codec", () => {
-    expect(selectStationProtocolCodec(2)).toEqual(Either.left("unsupported-station-protocol"));
-    expect(selectStationProtocolCodec(3)).toEqual(Either.left("unsupported-station-protocol"));
-    expect(selectStationProtocolCodec(4)).toEqual(Either.right(4));
+    expect(selectStationProtocolCodec(2)).toEqual(Result.fail("unsupported-station-protocol"));
+    expect(selectStationProtocolCodec(3)).toEqual(Result.fail("unsupported-station-protocol"));
+    expect(selectStationProtocolCodec(4)).toEqual(Result.succeed(4));
   });
 });

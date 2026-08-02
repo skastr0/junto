@@ -274,13 +274,13 @@ describe("SchedulerRepository", () => {
     );
 
     const result = await runtime.runPromise(
-      Effect.either(
+      Effect.result(
         scheduler.readIntervalState("mini", "canvas-a::timer-a"),
       ),
     );
     expect(result._tag).toBe("Left");
-    if (result._tag === "Left") {
-      expect(result.left).toBeInstanceOf(SchedulerStateCorruptError);
+    if (result._tag === "Failure") {
+      expect(result.failure).toBeInstanceOf(SchedulerStateCorruptError);
     }
   });
 });

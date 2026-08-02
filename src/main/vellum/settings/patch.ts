@@ -1,4 +1,4 @@
-import { Either, ParseResult, Schema } from "effect";
+import { Result, SchemaIssue, Schema } from "effect";
 import {
   Settings,
   SettingsError,
@@ -14,27 +14,27 @@ const STRICT_DECODE_OPTIONS = {
   onExcessProperty: "error",
 } as const;
 
-const decodeSettings = Schema.decodeUnknownEither(
+const decodeSettings = Schema.decodeUnknownResult(
   Settings,
   STRICT_DECODE_OPTIONS,
 );
-const decodeSettingsPatch = Schema.decodeUnknownEither(
+const decodeSettingsPatch = Schema.decodeUnknownResult(
   SettingsPatch,
   STRICT_DECODE_OPTIONS,
 );
-const decodeStationPatch = Schema.decodeUnknownEither(
+const decodeStationPatch = Schema.decodeUnknownResult(
   StationPatch,
   STRICT_DECODE_OPTIONS,
 );
 
-const formatParse = (error: ParseResult.ParseError): string =>
-  ParseResult.TreeFormatter.formatErrorSync(error);
+const formatParse = (error: SchemaIssue.ParseError): string =>
+  error instanceof Error ? error.message : String(error);
 
 export const decodePatchInput = (
   raw: unknown,
-): Either.Either<SettingsPatchValue, SettingsError> =>
+): Result.Result<SettingsPatchValue, SettingsError> =>
   decodeSettingsPatch(raw).pipe(
-    Either.mapLeft(
+    Result.mapError(
       (error) =>
         new SettingsError({
           message: `settings patch invalid: ${formatParse(error)}`,
@@ -46,10 +46,10 @@ export const decodePatchInput = (
 export const applyAndValidatePatch = (
   current: SettingsValue,
   patch: SettingsPatchValue,
-): Either.Either<SettingsValue, SettingsError> => {
+): Result.Result<SettingsValue, SettingsError> => {
   const merged = applySettingsPatch(current, patch);
   return decodeSettings(merged).pipe(
-    Either.mapLeft(
+    Result.mapError(
       (error) =>
         new SettingsError({
           message: `settings after patch invalid: ${formatParse(error)}`,
@@ -62,9 +62,9 @@ export const applyAndValidatePatch = (
 /** Decode the dedicated local Command Center topology transition. */
 export const decodeStationTopologyPatch = (
   raw: unknown,
-): Either.Either<StationPatchValue, SettingsError> => {
+): Result.Result<StationPatchValue, SettingsError> => {
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
-    return Either.left(
+    return Result.fail(
       new SettingsError({
         message: "station topology patch must be a plain object",
         code: "validation",
@@ -72,7 +72,7 @@ export const decodeStationTopologyPatch = (
     );
   }
   return decodeStationPatch(raw).pipe(
-    Either.mapLeft(
+    Result.mapError(
       (error) =>
         new SettingsError({
           message: `station topology patch invalid: ${formatParse(error)}`,

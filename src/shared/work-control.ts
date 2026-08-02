@@ -1,4 +1,4 @@
-import { Either, Schema } from "effect";
+import { Result, Schema } from "effect";
 import { TaskState, WorkMetadata } from "./canvas";
 import {
   CompletionEvidence,
@@ -38,75 +38,69 @@ export const WORK_MAX_ERROR_BYTES = 4_096;
 // ---------------------------------------------------------------------------
 // Ops
 
-export const WorkOpName = Schema.Literal(
-  "ping",
-  "doctor",
-  "capabilities",
-  "onboard",
-  "preamble",
-  "tasks.list",
-  "tasks.create",
-  "tasks.claim",
-  "tasks.update",
-  "content.path",
-  "content.stat",
-  "content.materialize",
-  "msg.list",
-  "msg.send",
-  "msg.read",
-  "msg.reply",
-  "request.escalate",
-  "artifact.publish",
-  "board.list",
-  "board.create_topic",
-  "board.post",
-  "board.mark_read",
-);
+export const WorkOpName = Schema.Literals(["ping", "doctor",
+"capabilities",
+"onboard",
+"preamble",
+"tasks.list",
+"tasks.create",
+"tasks.claim",
+"tasks.update",
+"content.path",
+"content.stat",
+"content.materialize",
+"msg.list",
+"msg.send",
+"msg.read",
+"msg.reply",
+"request.escalate",
+"artifact.publish",
+"board.list",
+"board.create_topic",
+"board.post",
+"board.mark_read",]);
 export type WorkOpName = typeof WorkOpName.Type;
 
 // ---------------------------------------------------------------------------
 // Error family (wire + CLI). Exhaustive at the boundary.
 
-export const WorkErrorType = Schema.Literal(
-  "ScopeError",
-  "ClaimConflict",
-  "UnknownTarget",
-  "StaleNodeRef",
-  "InvalidTransition",
-  "RuntimeDown",
-  "AuthError",
-  "InputError",
-  "ProtocolError",
-  "InternalError",
-  "Paused",
-  "Blocked",
-);
+export const WorkErrorType = Schema.Literals(["ScopeError", "ClaimConflict",
+"UnknownTarget",
+"StaleNodeRef",
+"InvalidTransition",
+"RuntimeDown",
+"AuthError",
+"InputError",
+"ProtocolError",
+"InternalError",
+"Paused",
+"Blocked",]);
 export type WorkErrorType = typeof WorkErrorType.Type;
 
 export const WorkErrorDetails = Schema.Struct({
-  path: Schema.optionalWith(Schema.String, { exact: true }),
-  expected: Schema.optionalWith(Schema.Unknown, { exact: true }),
-  received: Schema.optionalWith(Schema.Unknown, { exact: true }),
-  hint: Schema.optionalWith(Schema.String, { exact: true }),
-  next_step: Schema.optionalWith(Schema.String, { exact: true }),
-  retryable: Schema.optionalWith(Schema.Boolean, { exact: true }),
-  from: Schema.optionalWith(Schema.String, { exact: true }),
-  to: Schema.optionalWith(Schema.String, { exact: true }),
-  holder: Schema.optionalWith(Schema.String, { exact: true }),
-  target: Schema.optionalWith(Schema.String, { exact: true }),
-  caller: Schema.optionalWith(Schema.String, { exact: true }),
-  missing: Schema.optionalWith(Schema.String, { exact: true }),
+  path: Schema.optionalKey(Schema.String),
+  expected: Schema.optionalKey(Schema.Unknown),
+  received: Schema.optionalKey(Schema.Unknown),
+  hint: Schema.optionalKey(Schema.String),
+  next_step: Schema.optionalKey(Schema.String),
+  retryable: Schema.optionalKey(Schema.Boolean),
+  from: Schema.optionalKey(Schema.String),
+  to: Schema.optionalKey(Schema.String),
+  holder: Schema.optionalKey(Schema.String),
+  target: Schema.optionalKey(Schema.String),
+  caller: Schema.optionalKey(Schema.String),
+  missing: Schema.optionalKey(Schema.String),
   /** Open escalate request id when type === Blocked. */
-  requestId: Schema.optionalWith(Schema.String, { exact: true }),
+  requestId: Schema.optionalKey(Schema.String),
   /** Machine-readable stop instruction for harness tools (Blocked / escalate). */
-  stop_directive: Schema.optionalWith(Schema.Unknown, { exact: true }),
+  stop_directive: Schema.optionalKey(Schema.Unknown),
 });
 export type WorkErrorDetails = typeof WorkErrorDetails.Type;
 
 export const WorkErrorBody = Schema.Struct({
   type: WorkErrorType,
   message: Schema.String,
-  details: Schema.optionalWith(WorkErrorDetails, { exact: true }),
+  details: Schema.optionalKey(WorkErrorDetails),
 });
 export type WorkErrorBody = typeof WorkErrorBody.Type;
 
@@ -116,8 +110,8 @@ export type WorkErrorBody = typeof WorkErrorBody.Type;
 export const WorkRequestEnvelope = Schema.Struct({
   token: Schema.String,
   op: WorkOpName,
-  args: Schema.optionalWith(Schema.Unknown, { exact: true }),
-  id: Schema.optionalWith(Schema.String, { exact: true }),
+  args: Schema.optionalKey(Schema.Unknown),
+  id: Schema.optionalKey(Schema.String),
 });
 export type WorkRequestEnvelope = typeof WorkRequestEnvelope.Type;
 
@@ -125,27 +119,27 @@ export const WorkResponseOk = Schema.Struct({
   ok: Schema.Literal(true),
   op: WorkOpName,
   data: Schema.Unknown,
-  id: Schema.optionalWith(Schema.String, { exact: true }),
-  protocol_version: Schema.optionalWith(Schema.String, { exact: true }),
+  id: Schema.optionalKey(Schema.String),
+  protocol_version: Schema.optionalKey(Schema.String),
 });
 export type WorkResponseOk = typeof WorkResponseOk.Type;
 
 export const WorkResponseErr = Schema.Struct({
   ok: Schema.Literal(false),
-  op: Schema.optionalWith(WorkOpName, { exact: true }),
+  op: Schema.optionalKey(WorkOpName),
   error: WorkErrorBody,
-  id: Schema.optionalWith(Schema.String, { exact: true }),
-  protocol_version: Schema.optionalWith(Schema.String, { exact: true }),
+  id: Schema.optionalKey(Schema.String),
+  protocol_version: Schema.optionalKey(Schema.String),
 });
 export type WorkResponseErr = typeof WorkResponseErr.Type;
 
-export const WorkResponseEnvelope = Schema.Union(WorkResponseOk, WorkResponseErr);
+export const WorkResponseEnvelope = Schema.Union([WorkResponseOk, WorkResponseErr]);
 export type WorkResponseEnvelope = typeof WorkResponseEnvelope.Type;
 
-export const decodeWorkRequest = Schema.decodeUnknownEither(WorkRequestEnvelope, {
+export const decodeWorkRequest = Schema.decodeUnknownResult(WorkRequestEnvelope, {
   onExcessProperty: "error",
 });
-export const decodeWorkResponse = Schema.decodeUnknownEither(
+export const decodeWorkResponse = Schema.decodeUnknownResult(
   WorkResponseEnvelope,
   { onExcessProperty: "error" },
 );
@@ -200,27 +194,23 @@ export type TasksListArgs = typeof TasksListArgs.Type;
 export const TasksCreateArgs = Schema.Struct({
   target: Schema.String,
   brief: Schema.String,
-  reason: Schema.optionalWith(Schema.String, { exact: true }),
-  metadata: Schema.optionalWith(WorkMetadata, { exact: true }),
+  reason: Schema.optionalKey(Schema.String),
+  metadata: Schema.optionalKey(WorkMetadata),
   /** First-class media on the brief. RawPart decodes for legacy clients but is rejected at durable write. */
-  media: Schema.optionalWith(Schema.Array(Schema.Union(RawPart, ContentPart)), {
-    exact: true,
-  }),
+  media: Schema.optionalKey(Schema.Array(Schema.Union([RawPart, ContentPart]))),
   /** Same-sink hard prerequisites (task ids). Carried onto minted Task on approve. */
-  dependsOn: Schema.optionalWith(Schema.Array(Schema.String), {
-    exact: true,
-  }),
+  dependsOn: Schema.optionalKey(Schema.Array(Schema.String)),
   /** Operator done-definition; carried onto minted Task on approve. */
-  finishCriteria: Schema.optionalWith(FinishCriteria, { exact: true }),
+  finishCriteria: Schema.optionalKey(FinishCriteria),
 }).pipe(
-  Schema.filter((args) => {
+  Schema.check(Schema.makeFilter((args) => {
     const details = args.metadata?.details;
     return (
       (typeof details === "string" && details.trim().length > 0) ||
       "description (metadata.details) must be non-empty"
     );
-  }),
-).annotations({
+  })),
+).annotate({
   parseOptions: { onExcessProperty: "error" },
 });
 export type TasksCreateArgs = typeof TasksCreateArgs.Type;
@@ -228,7 +218,7 @@ export type TasksCreateArgs = typeof TasksCreateArgs.Type;
 export const TasksClaimArgs = Schema.Struct({
   target: Schema.String,
   task: Schema.String,
-}).annotations({
+}).annotate({
   parseOptions: { onExcessProperty: "error" },
 });
 export type TasksClaimArgs = typeof TasksClaimArgs.Type;
@@ -237,37 +227,35 @@ export const TasksUpdateArgs = Schema.Struct({
   target: Schema.String,
   task: Schema.String,
   state: TaskState,
-  note: Schema.optionalWith(Schema.String, { exact: true }),
-  completionEvidence: Schema.optionalWith(CompletionEvidence, { exact: true }),
+  note: Schema.optionalKey(Schema.String),
+  completionEvidence: Schema.optionalKey(CompletionEvidence),
 }).pipe(
-  Schema.filter(
-    ({ state, completionEvidence }) =>
-      completionEvidence === undefined ||
-      state === "completed" ||
-      "completionEvidence is only allowed when state is completed",
-  ),
-).annotations({
+  Schema.check(Schema.makeFilter(({ state, completionEvidence }) =>
+    completionEvidence === undefined ||
+    state === "completed" ||
+    "completionEvidence is only allowed when state is completed",)),
+).annotate({
   parseOptions: { onExcessProperty: "error" },
 });
 export type TasksUpdateArgs = typeof TasksUpdateArgs.Type;
 
 /** Process-bound content access always names the connected task sink. */
-const StrictContentRef = ContentRef.annotations({
+const StrictContentRef = ContentRef.annotate({
   parseOptions: { onExcessProperty: "error" },
 });
 
 const ContentAccessFields = {
-  target: Schema.String.pipe(Schema.minLength(1)),
-  task: Schema.String.pipe(Schema.minLength(1)),
+  target: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+  task: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
   ref: StrictContentRef,
 } as const;
 
-export const ContentPathArgs = Schema.Struct(ContentAccessFields).annotations({
+export const ContentPathArgs = Schema.Struct(ContentAccessFields).annotate({
   parseOptions: { onExcessProperty: "error" },
 });
 export type ContentPathArgs = typeof ContentPathArgs.Type;
 
-export const ContentStatArgs = Schema.Struct(ContentAccessFields).annotations({
+export const ContentStatArgs = Schema.Struct(ContentAccessFields).annotate({
   parseOptions: { onExcessProperty: "error" },
 });
 export type ContentStatArgs = typeof ContentStatArgs.Type;
@@ -275,22 +263,22 @@ export type ContentStatArgs = typeof ContentStatArgs.Type;
 export const ContentMaterializeArgs = Schema.Struct({
   ...ContentAccessFields,
   /** Optional single filename; directory components are never accepted. */
-  name: Schema.optionalWith(Schema.String, { exact: true }),
-}).annotations({
+  name: Schema.optionalKey(Schema.String),
+}).annotate({
   parseOptions: { onExcessProperty: "error" },
 });
 export type ContentMaterializeArgs = typeof ContentMaterializeArgs.Type;
 
 export const MsgListArgs = Schema.Struct({
   target: Schema.String,
-  taskId: Schema.optionalWith(Schema.String, { exact: true }),
+  taskId: Schema.optionalKey(Schema.String),
 });
 export type MsgListArgs = typeof MsgListArgs.Type;
 
 export const MsgSendArgs = Schema.Struct({
   target: Schema.String,
   text: Schema.String,
-  taskId: Schema.optionalWith(Schema.String, { exact: true }),
+  taskId: Schema.optionalKey(Schema.String),
 });
 export type MsgSendArgs = typeof MsgSendArgs.Type;
 
@@ -315,7 +303,7 @@ export type MsgReplyArgs = typeof MsgReplyArgs.Type;
 /** Display a short-lived thought bubble above the process-bound agent node. */
 export const PreambleArgs = Schema.Struct({
   text: Schema.String,
-}).annotations({
+}).annotate({
   parseOptions: { onExcessProperty: "error" },
 });
 export type PreambleArgs = typeof PreambleArgs.Type;
@@ -324,11 +312,8 @@ export const RequestEscalateArgs = Schema.Struct({
   target: Schema.String,
   brief: Schema.String,
   /** Why the caller is raising this — lands first-class on the request. */
-  reason: Schema.optionalWith(Schema.String, { exact: true }),
-  metadata: Schema.optionalWith(
-    Schema.Record({ key: Schema.String, value: Schema.Unknown }),
-    { exact: true },
-  ),
+  reason: Schema.optionalKey(Schema.String),
+  metadata: Schema.optionalKey(Schema.Record(Schema.String, Schema.Unknown)),
 });
 export type RequestEscalateArgs = typeof RequestEscalateArgs.Type;
 
@@ -359,21 +344,19 @@ export const makeStopDirective = (input: {
 });
 
 /** Artifact wire parts: text/data stay inline; binary media is a ContentRef. */
-export const ArtifactPartWire = Schema.Union(
-  Schema.Struct({ kind: Schema.Literal("text"), text: Schema.String }),
-  Schema.Struct({
-    kind: Schema.Literal("url"),
-    url: Schema.String,
-    mediaType: Schema.optionalWith(Schema.String, { exact: true }),
-  }),
-  Schema.Struct({ kind: Schema.Literal("data"), data: Schema.Unknown }),
-  Schema.Struct({
-    kind: Schema.Literal("raw"),
-    bytesBase64: Schema.String,
-    mediaType: Schema.optionalWith(Schema.String, { exact: true }),
-  }),
-  ContentPart,
-);
+export const ArtifactPartWire = Schema.Union([Schema.Struct({ kind: Schema.Literal("text"), text: Schema.String }),
+Schema.Struct({
+  kind: Schema.Literal("url"),
+  url: Schema.String,
+  mediaType: Schema.optionalKey(Schema.String),
+}),
+Schema.Struct({ kind: Schema.Literal("data"), data: Schema.Unknown }),
+Schema.Struct({
+  kind: Schema.Literal("raw"),
+  bytesBase64: Schema.String,
+  mediaType: Schema.optionalKey(Schema.String),
+}),
+ContentPart,]);
 
 export const ArtifactTaskArgs = Schema.Struct({
   target: Schema.String,
@@ -383,45 +366,37 @@ export type ArtifactTaskArgs = typeof ArtifactTaskArgs.Type;
 
 export const ArtifactPublishArgs = Schema.Struct({
   target: Schema.String,
-  name: Schema.optionalWith(Schema.String, { exact: true }),
-  artifactId: Schema.optionalWith(Schema.String, { exact: true }),
+  name: Schema.optionalKey(Schema.String),
+  artifactId: Schema.optionalKey(Schema.String),
   parts: Schema.Array(ArtifactPartWire),
-  task: Schema.optionalWith(ArtifactTaskArgs, { exact: true }),
-  metadata: Schema.optionalWith(
-    Schema.Record({ key: Schema.String, value: Schema.Unknown }),
-    { exact: true },
-  ),
+  task: Schema.optionalKey(ArtifactTaskArgs),
+  metadata: Schema.optionalKey(Schema.Record(Schema.String, Schema.Unknown)),
 });
 export type ArtifactPublishArgs = typeof ArtifactPublishArgs.Type;
 
 /** CLI-only input: legacy raw path/bytes forms decode for a fail-closed migration error. */
-export const ArtifactPartCli = Schema.Union(
-  Schema.Struct({ kind: Schema.Literal("text"), text: Schema.String }),
-  Schema.Struct({
-    kind: Schema.Literal("url"),
-    url: Schema.String,
-    mediaType: Schema.optionalWith(Schema.String, { exact: true }),
-  }),
-  Schema.Struct({ kind: Schema.Literal("data"), data: Schema.Unknown }),
-  Schema.Struct({
-    kind: Schema.Literal("raw"),
-    bytesBase64: Schema.optionalWith(Schema.String, { exact: true }),
-    path: Schema.optionalWith(Schema.String, { exact: true }),
-    mediaType: Schema.optionalWith(Schema.String, { exact: true }),
-  }),
-  ContentPart,
-);
+export const ArtifactPartCli = Schema.Union([Schema.Struct({ kind: Schema.Literal("text"), text: Schema.String }),
+Schema.Struct({
+  kind: Schema.Literal("url"),
+  url: Schema.String,
+  mediaType: Schema.optionalKey(Schema.String),
+}),
+Schema.Struct({ kind: Schema.Literal("data"), data: Schema.Unknown }),
+Schema.Struct({
+  kind: Schema.Literal("raw"),
+  bytesBase64: Schema.optionalKey(Schema.String),
+  path: Schema.optionalKey(Schema.String),
+  mediaType: Schema.optionalKey(Schema.String),
+}),
+ContentPart,]);
 
 export const ArtifactPublishCliArgs = Schema.Struct({
   target: Schema.String,
-  name: Schema.optionalWith(Schema.String, { exact: true }),
-  artifactId: Schema.optionalWith(Schema.String, { exact: true }),
+  name: Schema.optionalKey(Schema.String),
+  artifactId: Schema.optionalKey(Schema.String),
   parts: Schema.Array(ArtifactPartCli),
-  task: Schema.optionalWith(ArtifactTaskArgs, { exact: true }),
-  metadata: Schema.optionalWith(
-    Schema.Record({ key: Schema.String, value: Schema.Unknown }),
-    { exact: true },
-  ),
+  task: Schema.optionalKey(ArtifactTaskArgs),
+  metadata: Schema.optionalKey(Schema.Record(Schema.String, Schema.Unknown)),
 });
 export type ArtifactPublishCliArgs = typeof ArtifactPublishCliArgs.Type;
 
@@ -430,16 +405,16 @@ export type EmptyArgs = typeof EmptyArgs.Type;
 
 export const BoardListArgs = Schema.Struct({
   target: Schema.String,
-  topicId: Schema.optionalWith(Schema.String, { exact: true }),
+  topicId: Schema.optionalKey(Schema.String),
 });
 export type BoardListArgs = typeof BoardListArgs.Type;
 
 export const BoardCreateTopicArgs = Schema.Struct({
   target: Schema.String,
   title: Schema.String,
-  body: Schema.optionalWith(Schema.String, { exact: true }),
+  body: Schema.optionalKey(Schema.String),
   /** Operator IPC only — agents' true is ignored (no auto wake). */
-  notify: Schema.optionalWith(Schema.Boolean, { exact: true }),
+  notify: Schema.optionalKey(Schema.Boolean),
 });
 export type BoardCreateTopicArgs = typeof BoardCreateTopicArgs.Type;
 
@@ -454,7 +429,7 @@ export const BoardMarkReadArgs = Schema.Struct({
   target: Schema.String,
   topicId: Schema.String,
   /** Inclusive last post position read; omit = mark all current posts. */
-  upToPosition: Schema.optionalWith(Schema.Number, { exact: true }),
+  upToPosition: Schema.optionalKey(Schema.Number),
 });
 export type BoardMarkReadArgs = typeof BoardMarkReadArgs.Type;
 
@@ -470,10 +445,10 @@ export const stripTokenFromLog = (value: unknown): unknown => {
 
 export const encodeWorkFrame = (value: unknown): string => `${JSON.stringify(value)}\n`;
 
-export const decodeWorkJsonLine = (line: string): Either.Either<unknown, string> => {
+export const decodeWorkJsonLine = (line: string): Result.Result<unknown, string> => {
   try {
-    return Either.right(JSON.parse(line) as unknown);
+    return Result.succeed(JSON.parse(line) as unknown);
   } catch {
-    return Either.left("malformed JSON frame");
+    return Result.fail("malformed JSON frame");
   }
 };

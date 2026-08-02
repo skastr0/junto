@@ -8,58 +8,53 @@ export const REMOTE_HOSTS_VERSION = 1 as const;
 
 export const TERMINAL_HOST_CAPABILITY = "terminal" as const;
 export const BROWSER_HOST_CAPABILITY = "browser" as const;
-export const HostCapability = Schema.Literal(
-  BROWSER_HOST_CAPABILITY,
-  "herdr",
-  "hermes",
-  TERMINAL_HOST_CAPABILITY,
-);
+export const HostCapability = Schema.Literals([BROWSER_HOST_CAPABILITY, "herdr",
+"hermes",
+TERMINAL_HOST_CAPABILITY,]);
 export type HostCapability = typeof HostCapability.Type;
 
 /** local = this machine; remote = OpenSSH endpoint (alias or user@host). */
-export const HostKind = Schema.Literal("local", "remote");
+export const HostKind = Schema.Literals(["local", "remote"]);
 export type HostKind = typeof HostKind.Type;
 
 /** Product host id: stable, option-safe, not a leading dash. */
 export const HostId = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(64),
-  Schema.pattern(/^(?!-)[A-Za-z0-9][A-Za-z0-9._-]*$/),
+  Schema.check(Schema.isMinLength(1)),
+  Schema.check(Schema.isMaxLength(64)),
+  Schema.check(Schema.isPattern(/^(?!-)[A-Za-z0-9][A-Za-z0-9._-]*$/)),
 );
 export type HostId = typeof HostId.Type;
 
 export const HostLabel = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(64),
+  Schema.check(Schema.isMinLength(1)),
+  Schema.check(Schema.isMaxLength(64)),
 );
 export type HostLabel = typeof HostLabel.Type;
 
 /** SSH config alias, user@host, or IPv6 literal. Custom ports belong in ~/.ssh/config. */
 export const HostSshEndpoint = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(255),
-  Schema.pattern(/^(?!-)[A-Za-z0-9._:@%+\[\]-]+$/),
+  Schema.check(Schema.isMinLength(1)),
+  Schema.check(Schema.isMaxLength(255)),
+  Schema.check(Schema.isPattern(/^(?!-)[A-Za-z0-9._:@%+\[\]-]+$/)),
 );
 export type HostSshEndpoint = typeof HostSshEndpoint.Type;
 
 /** Optional OpenSSH identity locator. The private key remains owned by OpenSSH. */
 export const HostSshIdentityFile = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(1024),
-  Schema.filter(
-    (value) =>
-      value.startsWith("/") &&
-      !value.includes("\u0000") &&
-      !value.includes("\n") &&
-      !value.includes("\r"),
-    {
-      message: () => "SSH identity file must be a bounded absolute path",
-    },
-  ),
+  Schema.check(Schema.isMinLength(1)),
+  Schema.check(Schema.isMaxLength(1024)),
+  Schema.check(Schema.makeFilter((value) =>
+    value.startsWith("/") &&
+    !value.includes("\u0000") &&
+    !value.includes("\n") &&
+    !value.includes("\r"),
+  {
+    message: () => "SSH identity file must be a bounded absolute path",
+  },)),
 );
 export type HostSshIdentityFile = typeof HostSshIdentityFile.Type;
 
-export const HostSshHostKeyPolicy = Schema.Literal("system", "accept-new");
+export const HostSshHostKeyPolicy = Schema.Literals(["system", "accept-new"]);
 export type HostSshHostKeyPolicy = typeof HostSshHostKeyPolicy.Type;
 
 /**
@@ -67,9 +62,9 @@ export type HostSshHostKeyPolicy = typeof HostSshHostKeyPolicy.Type;
  * When omitted, agent keys use `id` as written (no silent rewrite).
  */
 export const HermesHostKey = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(64),
-  Schema.pattern(/^(?!-)[A-Za-z0-9][A-Za-z0-9._-]*$/),
+  Schema.check(Schema.isMinLength(1)),
+  Schema.check(Schema.isMaxLength(64)),
+  Schema.check(Schema.isPattern(/^(?!-)[A-Za-z0-9][A-Za-z0-9._-]*$/)),
 );
 export type HermesHostKey = typeof HermesHostKey.Type;
 
@@ -78,30 +73,27 @@ export const RemoteHost = Schema.Struct({
   label: HostLabel,
   kind: HostKind,
   /** Optional SSH route. Local rows omit it; remotes may omit until enrolled with a route. */
-  sshEndpoint: Schema.optionalWith(HostSshEndpoint, { exact: true }),
+  sshEndpoint: Schema.optionalKey(HostSshEndpoint),
   /** Optional OpenSSH-owned identity selector for this exact route. */
-  sshIdentityFile: Schema.optionalWith(HostSshIdentityFile, { exact: true }),
+  sshIdentityFile: Schema.optionalKey(HostSshIdentityFile),
   /** Explicit first-contact policy; changed known keys still fail closed. */
-  sshHostKeyPolicy: Schema.optionalWith(HostSshHostKeyPolicy, { exact: true }),
+  sshHostKeyPolicy: Schema.optionalKey(HostSshHostKeyPolicy),
   capabilities: Schema.Array(HostCapability).pipe(
-    Schema.minItems(1),
-    Schema.maxItems(4),
+    Schema.check(Schema.isMinSize(1)),
+    Schema.check(Schema.isMaxSize(4)),
   ),
-  hermesId: Schema.optionalWith(HermesHostKey, { exact: true }),
+  hermesId: Schema.optionalKey(HermesHostKey),
   /** Fleet-overlay presentation (color/glyph). Presentational; additive. */
-  appearance: Schema.optionalWith(
-    Schema.Struct({
-      color: Schema.optionalWith(Schema.String, { exact: true }),
-      glyph: Schema.optionalWith(Schema.String, { exact: true }),
-    }),
-    { exact: true },
-  ),
+  appearance: Schema.optionalKey(Schema.Struct({
+    color: Schema.optionalKey(Schema.String),
+    glyph: Schema.optionalKey(Schema.String),
+  })),
 });
 export type RemoteHost = typeof RemoteHost.Type;
 
 export const RemoteHostsDocument = Schema.Struct({
   version: Schema.Literal(REMOTE_HOSTS_VERSION),
-  hosts: Schema.Array(RemoteHost).pipe(Schema.maxItems(32)),
+  hosts: Schema.Array(RemoteHost).pipe(Schema.check(Schema.isMaxSize(32))),
 });
 export type RemoteHostsDocument = typeof RemoteHostsDocument.Type;
 

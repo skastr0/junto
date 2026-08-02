@@ -883,7 +883,5 @@ export class ChatService {
  * - Layer today: ChatServiceFromHermesLive (hermes plane) — single id; class name is Context holder only
  *   Do not dual-export Live + `.layer` names.
  */
-export class ChatServiceContext extends Context.Tag("@vellum/ChatService")<
-  ChatServiceContext,
-  ChatService
->() {}
+export class ChatServiceContext extends Context.Service<ChatServiceContext,
+  ChatService>()("@vellum/ChatService") {}

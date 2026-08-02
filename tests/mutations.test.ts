@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Either } from "effect";
+import { Result } from "effect";
 import { decodeCanvasDoc, type CanvasDoc, type GroupNode } from "../src/shared/canvas";
 import { addNode, commitDoc, deleteNode, editFileDetails, editGroupBackground, editLink, editText, loadDoc, promoteLinkToPage, redo, renameGroup, setFlagForNodes, setNodeColor, setNodeColorForNodes, setNodeHost, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag, undo } from "../src/renderer/lib/mutations";
 import { addEdge, connectAllToTarget, deleteEdges, editEdgeLabel, inferEdgeCriteria, planConnectToTarget, setEdgeColor, setEdgeCriteria, setEdgePorts, toggleEdgeArrow } from "../src/renderer/lib/edge-mutations";
@@ -407,7 +407,7 @@ describe("renderer graph mutations", () => {
     expect(state$.selectedEdgeId.peek()).toBe(edge?.id);
     expect(Object.hasOwn(edge ?? {}, "fromSide")).toBe(false);
     expect(Object.hasOwn(edge ?? {}, "toSide")).toBe(false);
-    expect(Either.isRight(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
+    expect(Result.isSuccess(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
   });
 
   it("auto-binds tasks criteria when connecting from a tasks node", () => {
@@ -462,7 +462,7 @@ describe("renderer graph mutations", () => {
     const edge = state$.doc.peek().edges[0];
     expect(edge?.ether?.criteria).toEqual({ mode: "tasks" });
     expect(edge?.ether?.kind).toBeUndefined();
-    expect(Either.isRight(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
+    expect(Result.isSuccess(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
   });
 
   it("auto-binds tasks criteria when connecting from a requests node", () => {
@@ -536,7 +536,7 @@ describe("renderer graph mutations", () => {
     setEdgeCriteria("edge-1", undefined);
     expect(state$.doc.peek().edges[0]?.ether).toBeUndefined();
     expect(Object.hasOwn(state$.doc.peek().edges[0] ?? {}, "ether")).toBe(false);
-    expect(Either.isRight(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
+    expect(Result.isSuccess(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
   });
 
   it("setEdgePorts attenuates and clear removes the field", () => {
@@ -559,7 +559,7 @@ describe("renderer graph mutations", () => {
       "browser.automate",
     ]);
     expect(state$.doc.peek().edges[0]?.ether?.criteria).toEqual({ mode: "tasks" });
-    expect(Either.isRight(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
+    expect(Result.isSuccess(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
 
     setEdgePorts("edge-1", undefined);
     expect(state$.doc.peek().edges[0]?.ether?.ports).toBeUndefined();
@@ -571,7 +571,7 @@ describe("renderer graph mutations", () => {
     setEdgePorts("edge-1", []);
     expect(state$.doc.peek().edges[0]?.ether?.ports).toBeUndefined();
     expect(state$.doc.peek().edges[0]?.ether?.criteria).toEqual({ mode: "tasks" });
-    expect(Either.isRight(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
+    expect(Result.isSuccess(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
   });
 
   it("rejects a duplicate source-to-target relation", () => {
@@ -725,7 +725,7 @@ describe("renderer graph mutations", () => {
     }
     expect(state$.selectedNodeId.peek()).toBe("");
     expect(state$.selectedEdgeId.peek()).toBe(next[1]?.id);
-    expect(Either.isRight(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
+    expect(Result.isSuccess(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
   });
 
   it("connectAllToTarget keepSelection leaves multi-select intact", () => {
@@ -1095,7 +1095,7 @@ describe("renderer graph mutations", () => {
         browser: { profile: "work", onDelete: "detach" },
       },
     });
-    expect(Either.isRight(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
+    expect(Result.isSuccess(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
   });
 
   it("promoteLinkToPage is a no-op against a non-link node id", () => {
@@ -1137,7 +1137,7 @@ describe("renderer graph mutations", () => {
         browser: { profile: "work", onDelete: "kill-session" },
       },
     });
-    expect(Either.isRight(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
+    expect(Result.isSuccess(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
   });
 
   it("includes a node whose center lies inside the region and excludes one merely overlapping its edge", () => {

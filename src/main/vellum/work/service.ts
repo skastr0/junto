@@ -2,7 +2,7 @@
 // plane. Canvas documents are read-only topology plus runtime projections;
 // every durable mutation goes through a specific WorkRepository verb.
 
-import { Context, Effect, Either, Layer, Match, Schema } from "effect";
+import { Context, Effect, Result, Layer, Match, Schema } from "effect";
 import type {
   Artifact,
   CanvasDoc,
@@ -86,18 +86,15 @@ import {
   type PendingCommand,
 } from "./repository";
 
-export class WorkServiceError extends Schema.TaggedError<WorkServiceError>()(
+export class WorkServiceError extends Schema.TaggedErrorClass<WorkServiceError>()(
   "WorkServiceError",
   {
-    code: Schema.Literal(
-      "canvas_not_found",
-      "node_not_found",
-      "task_not_found",
-      "illegal_kind",
-      "illegal_transition",
-      "claim_contention",
-      "invalid",
-    ),
+    code: Schema.Literals(["canvas_not_found", "node_not_found",
+    "task_not_found",
+    "illegal_kind",
+    "illegal_transition",
+    "claim_contention",
+    "invalid",]),
     message: Schema.String,
   },
 ) {}
@@ -200,7 +197,7 @@ const asResult = <T>(
         ...(message === undefined ? {} : { message }),
       }),
     ),
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       Effect.succeed({
         ok: false as const,
         code: error.code,
@@ -423,9 +420,7 @@ export interface WorkServiceShape {
 
 export type WorkService = WorkServiceId;
 
-export const WorkService = Context.GenericTag<WorkService, WorkServiceShape>(
-  "@vellum/WorkService",
-);
+export const WorkService = Context.Service<WorkService, WorkServiceShape>("@vellum/WorkService");
 
 export const WorkLive = Layer.effect(
   WorkService,
@@ -648,14 +643,14 @@ export const WorkLive = Layer.effect(
         targetNodeId,
         op,
       );
-      if (Either.isLeft(admitted)) {
+      if (Result.isFailure(admitted)) {
         return Effect.fail(
           new WorkServiceError({
             code:
-              admitted.left.type === "UnknownTarget"
+              admitted.failure.type === "UnknownTarget"
                 ? "node_not_found"
                 : "invalid",
-            message: admitted.left.message,
+            message: admitted.failure.message,
           }),
         );
       }
@@ -1571,7 +1566,7 @@ export const WorkLive = Layer.effect(
               messageDelivery.notifyAppended(
                 canvas,
                 nodeId,
-                outcome.value,
+                outcome.success,
               );
             }
             return yield* complete(canvas, outcome);
@@ -1641,7 +1636,7 @@ export const WorkLive = Layer.effect(
               messageDelivery.notifyAppended(
                 canvas,
                 nodeId,
-                outcome.value,
+                outcome.success,
               );
             }
             return yield* complete(canvas, outcome);
@@ -1722,7 +1717,7 @@ export const WorkLive = Layer.effect(
                 Effect.map((result) => ({
                   value: {
                     messageId: trimmed,
-                    readAt: result.value.acceptedAt,
+                    readAt: result.success.acceptedAt,
                   },
                 })),
                 Effect.catchIf(
@@ -2015,7 +2010,7 @@ export const WorkLive = Layer.effect(
                     })
                     .pipe(
                       Effect.map((result) => ({
-                        value: { topic: result.value, notify },
+                        value: { topic: result.success, notify },
                       })),
                     ),
                 )
@@ -2077,7 +2072,7 @@ export const WorkLive = Layer.effect(
                     })
                     .pipe(
                       Effect.map((result) => ({
-                        value: { post: result.value },
+                        value: { post: result.success },
                       })),
                     ),
                 )

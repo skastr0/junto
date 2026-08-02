@@ -21,10 +21,10 @@ export const boxHostId = (boxId: string): string =>
 
 export const BoxResource = Schema.Struct({
   machine: BoxMachine,
-  hostId: Schema.optionalWith(Schema.String, { exact: true }),
+  hostId: Schema.optionalKey(Schema.String),
   enrolledAt: Schema.String,
-  sshPreparedAt: Schema.optionalWith(Schema.String, { exact: true }),
-  sshVerifiedAt: Schema.optionalWith(Schema.String, { exact: true }),
+  sshPreparedAt: Schema.optionalKey(Schema.String),
+  sshVerifiedAt: Schema.optionalKey(Schema.String),
 });
 export type BoxResource = typeof BoxResource.Type;
 
@@ -41,7 +41,7 @@ type BoxResourceRow = {
   readonly enrolled_at: string;
 };
 
-export class BoxOwnershipNotFoundError extends Schema.TaggedError<BoxOwnershipNotFoundError>()(
+export class BoxOwnershipNotFoundError extends Schema.TaggedErrorClass<BoxOwnershipNotFoundError>()(
   "BoxOwnershipNotFoundError",
   {
     boxId: Schema.String,
@@ -49,12 +49,12 @@ export class BoxOwnershipNotFoundError extends Schema.TaggedError<BoxOwnershipNo
   },
 ) {}
 
-export class BoxOwnershipPersistenceError extends Schema.TaggedError<BoxOwnershipPersistenceError>()(
+export class BoxOwnershipPersistenceError extends Schema.TaggedErrorClass<BoxOwnershipPersistenceError>()(
   "BoxOwnershipPersistenceError",
   {
     operation: Schema.String,
     detail: Schema.String,
-    cause: Schema.Defect,
+    cause: Schema.Unknown,
   },
 ) {}
 
@@ -144,10 +144,7 @@ const isSshUsableState = (state: string): boolean =>
  * - Layer today: BoxOwnershipRepositoryLive — V4 rename candidate BoxOwnershipRepository.layer
  *   Do not dual-export Live + `.layer` names.
  */
-export class BoxOwnershipRepository extends Context.Tag(
-  "@vellum/box/BoxOwnershipRepository",
-)<
-  BoxOwnershipRepository,
+export class BoxOwnershipRepository extends Context.Service<BoxOwnershipRepository,
   {
     readonly enrollCreated: (
       machine: BoxMachineType,
@@ -184,8 +181,7 @@ export class BoxOwnershipRepository extends Context.Tag(
     readonly detach: (
       box: OwnedBox,
     ) => Effect.Effect<void, BoxOwnershipPersistenceError>;
-  }
->() {}
+  }>()("@vellum/box/BoxOwnershipRepository") {}
 
 export const BoxOwnershipRepositoryLive = Layer.effect(
   BoxOwnershipRepository,

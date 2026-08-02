@@ -15,7 +15,7 @@ import { join } from "node:path";
 import {
   Context,
   Effect,
-  Either,
+  Result,
   ManagedRuntime,
 } from "effect";
 import {
@@ -51,7 +51,7 @@ const run = <A, E>(
 
 const runEither = <A, E>(
   effect: Effect.Effect<A, E>,
-) => Effect.runPromise(Effect.either(effect));
+) => Effect.runPromise(Effect.result(effect));
 
 const wipePaths = (
   root: string,
@@ -296,9 +296,9 @@ describe("browser profile registry", () => {
     );
 
     const result = await runEither(registry.readState);
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left.code).toBe("corrupt");
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure.code).toBe("corrupt");
     }
     expect(
       await readFile(
@@ -323,9 +323,9 @@ describe("browser profile registry", () => {
 
     const result = await runEither(registry.readState);
 
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left.code).toBe("corrupt");
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure.code).toBe("corrupt");
     }
     expect(
       await query("test.browser-corrupt-read", (reader) =>
@@ -376,8 +376,8 @@ describe("browser profile registry", () => {
       runEither(registry.createProfile("lab")),
     ]);
 
-    expect(results.filter(Either.isRight)).toHaveLength(1);
-    expect(results.filter(Either.isLeft)).toHaveLength(1);
+    expect(results.filter(Result.isSuccess)).toHaveLength(1);
+    expect(results.filter(Result.isFailure)).toHaveLength(1);
   });
 
   it("does not create a physical profile for a rejected database write", async () => {
@@ -405,9 +405,9 @@ describe("browser profile registry", () => {
       registry.createProfile("overflow"),
     );
 
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left.code).toBe("forbidden");
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure.code).toBe("forbidden");
     }
     await expect(
       access(
@@ -487,9 +487,9 @@ describe("browser profile registry", () => {
       registry.createProfile("lab", "Lab"),
     );
 
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left).toMatchObject({
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure).toMatchObject({
         code: "pending_wipe",
         message: "browser profile admission unavailable",
       });
@@ -576,7 +576,7 @@ describe("browser profile registry", () => {
     const wipe = await runEither(
       failing.wipeProfile("personal"),
     );
-    expect(Either.isLeft(wipe)).toBe(true);
+    expect(Result.isFailure(wipe)).toBe(true);
     expect(
       (await run(failing.listProfiles)).map(
         (profile) => profile.id,
@@ -704,9 +704,9 @@ describe("browser profile registry", () => {
       serviceAfterRestart.recoverPendingWipe,
     );
 
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left.code).toBe("corrupt");
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure.code).toBe("corrupt");
     }
     expect(recovered).toBe(false);
   });
@@ -717,7 +717,7 @@ describe("browser profile registry", () => {
     const unavailable = await runEither(
       registry.wipeProfile("work"),
     );
-    expect(Either.isLeft(unavailable)).toBe(true);
+    expect(Result.isFailure(unavailable)).toBe(true);
     expect(await pendingRow()).toBeUndefined();
 
     await mutate("test.browser-one-profile", (writer) => {
@@ -753,8 +753,8 @@ describe("browser profile registry", () => {
     const last = await runEither(
       oneProfile.wipeProfile("personal"),
     );
-    expect(Either.isLeft(last)).toBe(true);
-    if (Either.isLeft(last)) {
+    expect(Result.isFailure(last)).toBe(true);
+    if (Result.isFailure(last)) {
       expect(last.left.code).toBe("forbidden");
     }
     expect(prepared).toBe(false);
@@ -777,9 +777,9 @@ describe("browser profile registry", () => {
       registry.wipeProfile("personal"),
     );
 
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left.code).toBe("corrupt");
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure.code).toBe("corrupt");
     }
     expect(await readFile(sentinel, "utf8")).toBe(
       "preserve",
@@ -835,9 +835,9 @@ describe("browser profile registry", () => {
         registry.wipeProfile("personal"),
       );
 
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left.code).toBe("forbidden");
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure.code).toBe("forbidden");
       }
       expect(await pendingRow()).toBeUndefined();
     },

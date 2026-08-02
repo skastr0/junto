@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   Effect,
-  Either,
+  Result,
   Exit,
   Layer,
   ManagedRuntime,
@@ -353,7 +353,7 @@ const apiEnvelope = (
   (request: StationApiRequest) =>
     harness.api.handle(request, readiness, peer).pipe(
       Effect.map(stationControlOk),
-      Effect.catchAll((error) =>
+      Effect.catch((error) =>
         Effect.succeed(stationControlErrorEnvelope(error))
       ),
     );
@@ -862,10 +862,10 @@ describe("Station work authority survives Command Center downtime", () => {
         basis: remoteBasis,
         originAt: now,
         receivedAt: now,
-      }).pipe(Effect.either),
+      }).pipe(Effect.result),
     );
-    expect(Either.isLeft(unreservedOfflineClaim)).toBe(true);
-    if (Either.isLeft(unreservedOfflineClaim)) {
+    expect(Result.isFailure(unreservedOfflineClaim)).toBe(true);
+    if (Result.isFailure(unreservedOfflineClaim)) {
       expect(unreservedOfflineClaim.left).toBeInstanceOf(
         WorkAuthorityError,
       );
@@ -970,9 +970,9 @@ describe("Station work authority survives Command Center downtime", () => {
             _tag: "enrolled-remote",
             installationId: remoteId,
           },
-        ).pipe(Effect.either),
+        ).pipe(Effect.result),
       );
-      expect(Either.isLeft(denied)).toBe(true);
+      expect(Result.isFailure(denied)).toBe(true);
       expect(
         await commandCenter.runtime.runPromise(
           commandCenter.station.statusFacts,

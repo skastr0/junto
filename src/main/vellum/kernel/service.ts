@@ -12,15 +12,14 @@
 // the name, those setters ARE the production injection points — cycle.ts
 // exposes no separately-named "prod" variant, by design.
 //
-// S2 (docs/END_STATE-effect-foundation.md): Promise bridges must use the
-// warm Runtime captured at KernelLive construction — never bare
-// runPromise (empty Context). That was the claim-tick bug class:
-// WorkService call-time ContentService lookups saw None and media claims
-// failed as "content service unavailable". Capture avoids importing
-// AppRuntime (circular: RootLayer includes KernelLive).
+// V4-KERNEL (docs/END_STATE-effect-v4-IRON.md §P3 + migration/runtime.md):
+// kernel never owns Runtime/Effect promise entry. Domain Effects exit only
+// through hostRun injected at start() from AppRuntime / RemoteRuntime
+// (main boot). Warm Context for claims without KernelLive capturing Runtime.
+// Importing AppRuntime here is forbidden (circular: RootLayer includes KernelLive).
 
 import { createHash } from "node:crypto";
-import { Context, Effect, Layer, Runtime, Schema } from "effect";
+import { Context, Effect, Layer, Schema } from "effect";
 import type { CanvasDoc, CanvasNode } from "@shared/canvas";
 import { actorDeliverySurfaceOf } from "@shared/actor-surface";
 import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
@@ -102,8 +101,7 @@ import {
 import { setSchedulerEffectDeps } from "./effects";
 import type { EtherFlag } from "@shared/canvas";
 
-export class KernelService extends Context.Tag("@vellum/KernelService")<
-  KernelService,
+export class KernelService extends Context.Service<KernelService,
   {
     readonly doctor: Effect.Effect<ServiceCheck>;
     /**
@@ -118,7 +116,7 @@ export class KernelService extends Context.Tag("@vellum/KernelService")<
     ) => Promise<boolean>;
     // Begin hydration + the evaluation loop. Idempotent, matching
     // CanvasesService.start()/SnapshotsService.start().
-    readonly start: () => void;
+    readonly start: (hostRun: KernelHostRun) => void;
     // Irreversibly stop admitting new kernel work. Existing terminal/agent
     // processes are deliberately untouched; work admitted before the cut may
     // settle, but no later cycle, claim, or seat start may begin.
@@ -128,8 +126,7 @@ export class KernelService extends Context.Tag("@vellum/KernelService")<
     readonly getSnapshot: () => KernelSnapshot;
     // Pushed on cycle end — never per-watcher.
     readonly subscribe: (listener: (snapshot: KernelSnapshot) => void) => () => void;
-  }
->() {}
+  }>()("@vellum/KernelService") {}
 
 const SAFETY_INTERVAL_MS = 30_000;
 
@@ -234,25 +231,24 @@ const splitNamespacedKey = (key: string): readonly [canvasName: string, id: stri
   return [key.slice(0, idx), key.slice(idx + 2)];
 };
 
-type CanvasesShape = Context.Tag.Service<typeof CanvasesService>;
-type SnapshotsShape = Context.Tag.Service<typeof SnapshotsService>;
-type PauseShape = Context.Tag.Service<typeof PausePlane>;
-type SchedulerShape = Context.Tag.Service<typeof SchedulerRepository>;
-type FleetTargetsShape = Context.Tag.Service<
+type CanvasesShape = Context.Service.Shape<typeof CanvasesService>;
+type SnapshotsShape = Context.Service.Shape<typeof SnapshotsService>;
+type PauseShape = Context.Service.Shape<typeof PausePlane>;
+type SchedulerShape = Context.Service.Shape<typeof SchedulerRepository>;
+type FleetTargetsShape = Context.Service.Shape<
   typeof StationFleetTargetRepository
 >;
-type StationsShape = Context.Tag.Service<typeof StationRepository>;
-type LivePeersShape = Context.Tag.Service<typeof StationLivePeerRegistry>;
-type WorkShape = Context.Tag.Service<typeof WorkService>;
-type WorkRepositoryShape = Context.Tag.Service<typeof WorkRepository>;
-type KernelServiceShape = Context.Tag.Service<typeof KernelService>;
+type StationsShape = Context.Service.Shape<typeof StationRepository>;
+type LivePeersShape = Context.Service.Shape<typeof StationLivePeerRegistry>;
+type WorkShape = Context.Service.Shape<typeof WorkService>;
+type WorkRepositoryShape = Context.Service.Shape<typeof WorkRepository>;
+type KernelServiceShape = Context.Service.Shape<typeof KernelService>;
 
 /**
- * Warm-Context Promise boundary for kernel async bridges.
- * Built from `yield* Effect.runtime()` inside KernelLive so Work/Content
- * (and every other RootLayer service) remain visible to domain Effects.
+ * Host-owned Effect entry for kernel bridges (AppRuntime / RemoteRuntime).
+ * Bound once at start() from main boot — never constructed inside kernel.
  */
-type KernelRunPromise = <A, E>(
+export type KernelHostRun = <A, E>(
   effect: Effect.Effect<A, E>,
 ) => Promise<A>;
 
@@ -269,11 +265,11 @@ type ActiveStationScope =
 
 const refreshStationScope = async (
   stations: StationsShape,
-  runPromise: KernelRunPromise,
+  hostRun: KernelHostRun,
   commit: () => boolean = () => true,
 ): Promise<ActiveStationScope> => {
   try {
-    const current = await runPromise(
+    const current = await hostRun(
       Effect.all({
         installationId: stations.installationId,
         configuration: stations.configuration,
@@ -414,11 +410,11 @@ export const actorSeatSelectableNow = async (
 
   const surface = actorDeliverySurfaceOf(node);
   if (surface?._tag !== "managedAgent") return false;
-  const decodedHost = Schema.decodeUnknownEither(HostId)(surface.hostId);
-  if (decodedHost._tag === "Left") return false;
+  const decodedHost = Schema.decodeUnknownResult(HostId)(surface.hostId);
+  if (decodedHost._tag === "Failure") return false;
   try {
     const installationId = await availability.installationForHost(
-      decodedHost.right,
+      decodedHost.success,
     );
     if (
       installationId === undefined ||
@@ -426,7 +422,7 @@ export const actorSeatSelectableNow = async (
     ) {
       return false;
     }
-    return availability.isLive(decodedHost.right, installationId);
+    return availability.isLive(decodedHost.success, installationId);
   } catch {
     return false;
   }
@@ -467,10 +463,22 @@ const makeKernelService = (
   livePeers: LivePeersShape,
   work: WorkShape,
   workRepository: WorkRepositoryShape,
-  runPromise: KernelRunPromise,
 ): KernelServiceShape => {
   const docs = new Map<string, CanvasDoc>();
   const snapshotListeners = new Set<(snapshot: KernelSnapshot) => void>();
+
+  // Host runner bound on first start() from AppRuntime / RemoteRuntime.
+  let hostRun: KernelHostRun | undefined;
+  const run = <A, E>(effect: Effect.Effect<A, E>): Promise<A> => {
+    if (hostRun === undefined) {
+      return Promise.reject(
+        new Error(
+          "[kernel] host Effect runner unbound — start(hostRun) from main boot only",
+        ),
+      );
+    }
+    return hostRun(effect);
+  };
 
   // Suspension is monotonic. The generation closes async check/use gaps: every
   // operation captures the current value at admission and checks it again at
@@ -603,13 +611,13 @@ const makeKernelService = (
   // separately — not region-pulse delivery deps.
   __setTimerSchedulerForTest({
     claimInterval: (input) =>
-      runPromise(scheduler.claimInterval(input)),
+      run(scheduler.claimInterval(input)),
     reconcileHome: (homeStation, activeTimerKeys) =>
-      runPromise(
+      run(
         scheduler.reconcileHome(homeStation, activeTimerKeys),
       ),
     readIntervalState: (homeStation, timerKey) =>
-      runPromise(scheduler.readIntervalState(homeStation, timerKey)),
+      run(scheduler.readIntervalState(homeStation, timerKey)),
   });
 
   // Process-local effect receipts (at-most-once within this runtime).
@@ -664,7 +672,7 @@ const makeKernelService = (
         return { ok: false, message: "canvas paused or station role unset" };
       }
       const trimmedBrief = brief.trim();
-      const result = await runPromise(
+      const result = await run(
         work.workTaskCreate(
           canvasName,
           sinkNodeId,
@@ -763,7 +771,7 @@ const makeKernelService = (
     if (!generationIsActive(generation)) return;
     const scope = await refreshStationScope(
       stations,
-      runPromise,
+      run,
       () => generationIsActive(generation),
     );
     if (!generationIsActive(generation)) return;
@@ -775,11 +783,11 @@ const makeKernelService = (
       scope.role === ""
         ? activeActorRegistry([])
         : activeActorRegistry(
-            await runPromise(canvases.activeActorRefs()),
+            await run(canvases.activeActorRefs()),
           );
     if (!generationIsActive(generation)) return;
     setActorRefResolver(registry.resolve);
-    const currentSnapshots = await runPromise(snapshots.current);
+    const currentSnapshots = await run(snapshots.current);
     if (!generationIsActive(generation)) return;
     __setSnapshotsForTest(currentSnapshots);
     startManagedSeats(scope, registry, generation);
@@ -831,10 +839,10 @@ const makeKernelService = (
             isLocalSeatReady: localManagedSeatReadyForClaim,
             installationForHost: async (hostId) =>
               (
-                await runPromise(fleetTargets.get(hostId))
+                await run(fleetTargets.get(hostId))
               )?.stationInstallationId,
             isLive: (hostId, installationId) =>
-              runPromise(livePeers.isLive(hostId, installationId)),
+              run(livePeers.isLive(hostId, installationId)),
           },
         );
         if (selectable && generationIsActive(generation)) {
@@ -845,7 +853,7 @@ const makeKernelService = (
     if (!generationIsActive(generation)) return;
 
     const busyActorSeatIds = new Set<ActorSeatId>();
-    const pendingCommands = await runPromise(
+    const pendingCommands = await run(
       workRepository.pendingCommands,
     );
     if (!generationIsActive(generation)) return;
@@ -913,7 +921,7 @@ const makeKernelService = (
         // admitted here may settle after suspension; no later selection may
         // enter WorkService.
         if (!generationIsActive(generation)) return;
-        const result = await runPromise(
+        const result = await run(
           work.workTaskClaim(
             selection.sink.canvasName,
             selection.sink.nodeId,
@@ -993,7 +1001,7 @@ const makeKernelService = (
             claimBoundaryMessageId,
           );
           if (
-            await runPromise(
+            await run(
               workRepository.hasAcceptedDelivery(sinkRef, deliveryId),
             )
           ) {
@@ -1017,7 +1025,7 @@ const makeKernelService = (
           // durably suppresses restart replay. The send→receipt crash window
           // remains intentionally at-least-once until that transport accepts
           // an idempotency key; pre-writing would instead risk silent loss.
-          const intentWitness = await runPromise(
+          const intentWitness = await run(
             canvases.activeIntentWitness(),
           );
           const basis = Schema.decodeUnknownSync(IntentFactBasis)({
@@ -1028,7 +1036,7 @@ const makeKernelService = (
             generation: intentWitness.generation,
             contentSha256: intentWitness.contentSha256,
           });
-          await runPromise(
+          await run(
             workRepository.acceptDelivery({
               sink: sinkRef,
               basis,
@@ -1070,26 +1078,26 @@ const makeKernelService = (
     const generation = activeGeneration();
     if (!generationIsActive(generation)) return false;
 
-    const read = await runPromise(
-      Effect.either(canvases.read(canvasName)),
+    const read = await run(
+      Effect.result(canvases.read(canvasName)),
     );
-    if (!generationIsActive(generation) || read._tag === "Left") return false;
-    const doc = read.right.doc;
+    if (!generationIsActive(generation) || read._tag === "Failure") return false;
+    const doc = read.success.doc;
     const node = doc.nodes.find((candidate) => candidate.id === nodeId);
     if (node === undefined) return false;
 
     const scope = await refreshStationScope(
       stations,
-      runPromise,
+      run,
       () => generationIsActive(generation),
     );
     if (!generationIsActive(generation) || scope.role === "") return false;
 
-    const actorRefs = await runPromise(
-      Effect.either(canvases.activeActorRefs()),
+    const actorRefs = await run(
+      Effect.result(canvases.activeActorRefs()),
     );
-    if (!generationIsActive(generation) || actorRefs._tag === "Left") return false;
-    const registry = activeActorRegistry(actorRefs.right);
+    if (!generationIsActive(generation) || actorRefs._tag === "Failure") return false;
+    const registry = activeActorRegistry(actorRefs.success);
     const authority = runtimeAuthority(scope, registry, canvasName, node);
     if (
       authority === undefined ||
@@ -1114,9 +1122,9 @@ const makeKernelService = (
     generation: number,
   ): Promise<void> => {
     if (!generationIsActive(generation)) return;
-    const result = await runPromise(Effect.either(canvases.read(name)));
-    if (result._tag === "Right" && generationIsActive(generation)) {
-      docs.set(name, result.right.doc);
+    const result = await run(Effect.result(canvases.read(name)));
+    if (result._tag === "Success" && generationIsActive(generation)) {
+      docs.set(name, result.success.doc);
     }
     // else: a broken/mid-write canvas is skipped this pass — one bad doc
     // never stalls hydration of the rest.
@@ -1128,7 +1136,7 @@ const makeKernelService = (
 
   const hydrateAllDocs = async (generation: number): Promise<void> => {
     if (!generationIsActive(generation)) return;
-    const summaries = await runPromise(canvases.list);
+    const summaries = await run(canvases.list);
     if (!generationIsActive(generation)) return;
     for (let i = 0; i < summaries.length; i += MAX_CONCURRENT_HYDRATIONS) {
       if (!generationIsActive(generation)) return;
@@ -1147,7 +1155,7 @@ const makeKernelService = (
   const resyncCanvas = async (name: string): Promise<void> => {
     const generation = activeGeneration();
     if (!generationIsActive(generation)) return;
-    const summaries = await runPromise(canvases.list);
+    const summaries = await run(canvases.list);
     if (!generationIsActive(generation)) return;
     if (!summaries.some((summary) => summary.name === name)) {
       docs.delete(name);
@@ -1156,10 +1164,10 @@ const makeKernelService = (
       return;
     }
 
-    const result = await runPromise(Effect.either(canvases.read(name)));
-    if (result._tag === "Right" && generationIsActive(generation)) {
-      docs.set(name, result.right.doc);
-      void runPromise(refreshWithIdentityHints());
+    const result = await run(Effect.result(canvases.read(name)));
+    if (result._tag === "Success" && generationIsActive(generation)) {
+      docs.set(name, result.success.doc);
+      void run(refreshWithIdentityHints());
       scheduleCycle();
     }
     // else: transient read/decode failure (e.g. mid-write) — keep the
@@ -1186,16 +1194,17 @@ const makeKernelService = (
 
     wakeManagedSeat,
 
-    start: () => {
+    start: (nextHostRun: KernelHostRun) => {
       if (started || suspended) return;
+      hostRun = nextHostRun;
       started = true;
       const generation = activeGeneration();
       void (async () => {
-        await runPromise(pause.start);
+        await run(pause.start);
         if (!generationIsActive(generation)) return;
         await hydrateAllDocs(generation);
         if (!generationIsActive(generation)) return;
-        void runPromise(refreshWithIdentityHints());
+        void run(refreshWithIdentityHints());
 
         lifecycleCleanups = [
           canvases.subscribeChanges((name) => void resyncCanvas(name)),
@@ -1263,16 +1272,8 @@ export const KernelLive = Layer.effect(
     const livePeers = yield* StationLivePeerRegistry;
     const work = yield* WorkService;
     const workRepository = yield* WorkRepository;
-    // Full ambient Context (CC AppRuntime / Remote RootLayer parents). Do not
-    // use Effect.runtime<never>() — bridges must retain the warm graph so
-    // Work/Content (and every other product service) stay visible. Cast only
-    // satisfies Runtime.runPromise's R parameter; the captured Context object
-    // still holds every service present at layer build.
-    const runtime = yield* Effect.runtime();
-    const runPromise: KernelRunPromise = <A, E>(effect: Effect.Effect<A, E>) =>
-      Runtime.runPromise(runtime as Runtime.Runtime<never>)(
-        effect as Effect.Effect<A, E, never>,
-      );
+    // No Runtime capture (V4-KERNEL / migration/runtime.md). Domain Effects
+    // exit only after start(hostRun) binds AppRuntime / RemoteRuntime.
     return makeKernelService(
       canvases,
       snapshots,
@@ -1283,7 +1284,6 @@ export const KernelLive = Layer.effect(
       livePeers,
       work,
       workRepository,
-      runPromise,
     );
   }),
 );

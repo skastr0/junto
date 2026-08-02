@@ -136,10 +136,10 @@ describe("Box Fleet service ownership", () => {
     });
     const service = makeBoxFleetService(cli, repository);
 
-    const result = await Effect.runPromise(Effect.either(service.create()));
+    const result = await Effect.runPromise(Effect.result(service.create()));
 
     expect(result._tag).toBe("Left");
-    expect(result._tag === "Left" ? result.left : undefined).toMatchObject({
+    expect(result._tag === "Failure" ? result.failure : undefined).toMatchObject({
       _tag: "BoxFleetProvisioningError",
       boxId: "bx_c79mgja6",
       stage: "prepare-ssh",
@@ -175,9 +175,9 @@ describe("Box Fleet service ownership", () => {
     });
     const service = makeBoxFleetService(cli, failingRepository);
 
-    const result = await Effect.runPromise(Effect.either(service.create()));
+    const result = await Effect.runPromise(Effect.result(service.create()));
 
-    expect(result._tag === "Left" ? result.left : undefined).toMatchObject({
+    expect(result._tag === "Failure" ? result.failure : undefined).toMatchObject({
       _tag: "BoxFleetProvisioningError",
       boxId: "bx_c79mgja6",
       stage: "record-ownership",
@@ -284,11 +284,11 @@ describe("Box Fleet service ownership", () => {
     const service = makeBoxFleetService(cli, repository);
 
     const result = await Effect.runPromise(
-      Effect.either(service.stop("bx_23456789")),
+      Effect.result(service.stop("bx_23456789")),
     );
 
     expect(result._tag).toBe("Left");
-    expect(result._tag === "Left" ? result.left._tag : "").toBe(
+    expect(result._tag === "Failure" ? result.failure._tag : "").toBe(
       "BoxOwnershipNotFoundError",
     );
     expect(stop).not.toHaveBeenCalled();
@@ -316,10 +316,10 @@ describe("Box Fleet service ownership", () => {
       ),
     );
 
-    const result = await Effect.runPromise(Effect.either(service.create()));
+    const result = await Effect.runPromise(Effect.result(service.create()));
 
     expect(result._tag).toBe("Left");
-    expect(result._tag === "Left" ? result.left._tag : "").toBe(
+    expect(result._tag === "Failure" ? result.failure._tag : "").toBe(
       "BoxFleetAuthorizationError",
     );
     expect(create).not.toHaveBeenCalled();

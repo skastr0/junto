@@ -51,7 +51,7 @@ const UUID_V4 =
 const PROFILE_ADMISSION_FAILURE_MESSAGE =
   "browser profile admission unavailable";
 
-type StateService = Context.Tag.Service<typeof StateEngine>;
+type StateService = Context.Service.Shape<typeof StateEngine>;
 
 const closeQuietly = async (close: () => Promise<void>): Promise<void> => {
   try {
@@ -69,21 +69,15 @@ export type BrowserProfileErrorCode =
   | "corrupt"
   | "pending_wipe";
 
-export class BrowserProfileError extends Schema.TaggedError<BrowserProfileError>()(
+export class BrowserProfileError extends Schema.TaggedErrorClass<BrowserProfileError>()(
   "BrowserProfileError",
   {
     message: Schema.String,
-    code: Schema.optionalWith(
-      Schema.Literal(
-        "invalid",
-        "not_found",
-        "io",
-        "forbidden",
-        "corrupt",
-        "pending_wipe",
-      ),
-      { exact: true },
-    ),
+    code: Schema.optionalKey(Schema.Literals(["invalid", "not_found",
+    "io",
+    "forbidden",
+    "corrupt",
+    "pending_wipe",])),
   },
 ) {}
 
@@ -207,9 +201,7 @@ export interface BrowserProfileServiceApi {
  * V3 Tag as the only bridge until the dependency cutover; do not introduce a
  * parallel Tag, Default layer, or accessor shim.
  */
-export class BrowserProfileService extends Context.Tag(
-  "@vellum/BrowserProfileService",
-)<BrowserProfileService, BrowserProfileServiceApi>() {}
+export class BrowserProfileService extends Context.Service<BrowserProfileService, BrowserProfileServiceApi>()("@vellum/BrowserProfileService") {}
 
 interface BrowserProfileStateReady extends BrowserProfileRegistryState {
   readonly phase: "ready";

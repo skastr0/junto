@@ -1,4 +1,4 @@
-import { Effect, Either } from "effect";
+import { Effect, Result } from "effect";
 import { StationApiService } from "./api";
 import { StationRepository } from "./repository";
 import {
@@ -218,14 +218,14 @@ export const startStationRemoteReportPump = (
           const attemptedSessionGeneration = sessionGeneration;
           try {
             const attempted = await Effect.runPromise(
-              Effect.either(reconcile),
+              Effect.result(reconcile),
             );
-            if (Either.isRight(attempted)) {
+            if (Result.isSuccess(attempted)) {
               lastCompletedAt = new Date().toISOString();
               lastFailure = undefined;
               retryAttempt = 0;
             } else {
-              const error = attempted.left;
+              const error = attempted.failure;
               lastFailure = describeFailure(error);
               if (
                 retryableOnSameSession(error) &&

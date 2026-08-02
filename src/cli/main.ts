@@ -75,10 +75,10 @@ const runtimeLayer = Layer.mergeAll(
 
 export const runCli = (args: ReadonlyArray<string>) =>
   Effect.suspend(() => cli(args)).pipe(
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       setExitCode(1).pipe(Effect.zipRight(writeFailureEnvelope(undefined, error))),
     ),
-    Effect.catchAllCause((cause) =>
+    Effect.catchCause((cause) =>
       setExitCode(1).pipe(Effect.zipRight(writeCauseEnvelope(undefined, cause))),
     ),
     Effect.provide(runtimeLayer),

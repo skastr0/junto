@@ -157,7 +157,7 @@ export const createHerdrShutdownController = (
         const result = settled[index]!;
         const beginCauses = beginFailures.get(name) ?? [];
         const receipt = result.status === "fulfilled"
-          ? result.value
+          ? result.success
           : herdrComponentReceipt(1, [{
               code: "component-drain-failed",
               message: herdrShutdownMessage(result.reason),
@@ -601,7 +601,7 @@ class EffectHerdrScopeClient extends EventEmitter implements HerdrClientIo {
 
   constructor(
     private readonly runPromise: RunPromise,
-    private readonly transport: Context.Tag.Service<typeof HerdrTransport>,
+    private readonly transport: Context.Service.Shape<typeof HerdrTransport>,
     private readonly hostId: HerdrHostId,
     private readonly args: ReadonlyArray<string>,
     private readonly session?: string | null,
@@ -741,8 +741,7 @@ class EffectHerdrScopeClient extends EventEmitter implements HerdrClientIo {
  * - Layer today: HerdrPlaneLive — V4 rename candidate HerdrPlane.layer
  *   Do not dual-export Live + `.layer` names.
  */
-export class HerdrPlane extends Context.Tag("@vellum/HerdrPlane")<
-  HerdrPlane,
+export class HerdrPlane extends Context.Service<HerdrPlane,
   {
     readonly service: HerdrService;
     readonly mirrors: HerdrMirrorRegistry;
@@ -751,7 +750,7 @@ export class HerdrPlane extends Context.Tag("@vellum/HerdrPlane")<
      * Product seam for herdr control open/write/close. IPC and message delivery
      * must use this — not streams.* — so Effect domain laws are the only path.
      */
-    readonly sessions: Context.Tag.Service<typeof TerminalSessions>;
+    readonly sessions: Context.Service.Shape<typeof TerminalSessions>;
     /**
      * Implementation detail of sessions (observe handoff, host revocation).
      * Not a product write API.
@@ -769,10 +768,9 @@ export class HerdrPlane extends Context.Tag("@vellum/HerdrPlane")<
     readonly isQuiescing: () => boolean;
     readonly start: Effect.Effect<void>;
     readonly warm: Effect.Effect<void>;
-  }
->() {}
+  }>()("@vellum/HerdrPlane") {}
 
-export const HerdrPlaneLive = Layer.scoped(
+export const HerdrPlaneLive = Layer.effect(
   HerdrPlane,
   Effect.gen(function* () {
     const transport = yield* HerdrTransport;
@@ -1002,7 +1000,7 @@ export const HerdrPlaneLive = Layer.scoped(
             const command = yield* remoteHostProbe(argv);
             return yield* ssh.run(oneShot(endpoint, command, { budget: "status" }));
           }).pipe(
-            Effect.catchAll((error) =>
+            Effect.catch((error) =>
               Effect.succeed({
                 stdout: "",
                 stderr: error instanceof Error ? error.message : String(error),

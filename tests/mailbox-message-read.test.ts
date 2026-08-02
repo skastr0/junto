@@ -162,7 +162,7 @@ describe("mailbox message read receipts", () => {
             acceptedAt: "2026-07-31T12:00:00.000Z",
           },
         })
-        .pipe(Effect.either),
+        .pipe(Effect.result),
     );
     expect(second._tag).toBe("Left");
     expect(

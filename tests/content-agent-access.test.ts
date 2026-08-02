@@ -1,7 +1,7 @@
 import { mkdtemp, mkdir, readFile, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { Either, Schema } from "effect";
+import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { ContentRef } from "../src/shared/content";
 import { ContentPathArgs } from "../src/shared/work-control";
@@ -34,7 +34,7 @@ const task = Schema.decodeUnknownSync(Task)({
 
 describe("process-bound content access helpers", () => {
   it("rejects host paths embedded in a ContentRef access request", () => {
-    const decoded = Schema.decodeUnknownEither(ContentPathArgs)({
+    const decoded = Schema.decodeUnknownResult(ContentPathArgs)({
       target: "tasks",
       task: task.id,
       ref: {
@@ -42,7 +42,7 @@ describe("process-bound content access helpers", () => {
         path: "/tmp/operator-owned-file",
       },
     });
-    expect(Either.isLeft(decoded)).toBe(true);
+    expect(Result.isFailure(decoded)).toBe(true);
   });
 
   it("authorizes only identities carried by the task", () => {

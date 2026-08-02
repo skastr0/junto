@@ -27,8 +27,7 @@ import { expandMacUpdateZip, releaseStaging } from "./staging";
  * - Layer today: makeUpdateServiceLayer — V4 rename candidate UpdateService.layer
  *   Do not dual-export Live + `.layer` names.
  */
-export class UpdateService extends Context.Tag("@vellum/UpdateService")<
-  UpdateService,
+export class UpdateService extends Context.Service<UpdateService,
   {
     readonly getState: Effect.Effect<UpdateStatus>;
     readonly check: Effect.Effect<UpdateStatus, UpdateError>;
@@ -52,8 +51,7 @@ export class UpdateService extends Context.Tag("@vellum/UpdateService")<
     readonly subscribe: (
       listener: (status: UpdateStatus) => void,
     ) => () => void;
-  }
->() {}
+  }>()("@vellum/UpdateService") {}
 
 /** Sealed install plan — only prepareInstall mints these. */
 export type InstallPlan = {
@@ -193,7 +191,7 @@ export const finalizeInstallAfterQuiesce = (input: {
 
 export const makeUpdateService = (
   options: UpdateServiceOptions,
-): Effect.Effect<Context.Tag.Service<typeof UpdateService>> =>
+): Effect.Effect<Context.Service.Shape<typeof UpdateService>> =>
   Effect.gen(function* () {
     const install = options.install;
     const statusOf = (
@@ -386,7 +384,7 @@ export const makeUpdateService = (
             }
           }
         }).pipe(
-          Effect.catchAll((error) =>
+          Effect.catch((error) =>
             setStatus((state) => ({
               ...state,
               status: statusOf(
@@ -569,7 +567,7 @@ export const makeUpdateService = (
           candidate: prepared.candidate,
         });
       }).pipe(
-        Effect.catchAll((error: UpdateError) =>
+        Effect.catch((error: UpdateError) =>
           Effect.gen(function* () {
             yield* setStatus((state) => ({
               ...state,
@@ -617,7 +615,7 @@ export const makeUpdateService = (
 export const makeUpdateServiceLayer = (
   options: UpdateServiceOptions,
 ): Layer.Layer<UpdateService> =>
-  Layer.scoped(
+  Layer.effect(
     UpdateService,
     Effect.gen(function* () {
       const service = yield* makeUpdateService(options);

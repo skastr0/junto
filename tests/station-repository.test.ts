@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   Effect,
-  Either,
+  Result,
   Layer,
   ManagedRuntime,
   Schema,
@@ -244,7 +244,7 @@ describe("StationRepository", () => {
     } as unknown as ConfigureRequest;
 
     const result = await runtime.runPromise(
-      repository.configureRemote(forged).pipe(Effect.either),
+      repository.configureRemote(forged).pipe(Effect.result),
     );
     expect(result).toMatchObject({
       _tag: "Left",
@@ -286,7 +286,7 @@ describe("StationRepository", () => {
       },
     });
     const result = await runtime.runPromise(
-      repository.configureRemote(mismatched).pipe(Effect.either),
+      repository.configureRemote(mismatched).pipe(Effect.result),
     );
 
     expect(result).toMatchObject({
@@ -330,7 +330,7 @@ describe("StationRepository", () => {
     const pairResult = await commandRuntime.runPromise(
       commandRepository.pair(
         pairRequest(command, peer),
-      ).pipe(Effect.either),
+      ).pipe(Effect.result),
     );
     expect(pairResult).toMatchObject({
       _tag: "Left",
@@ -363,7 +363,7 @@ describe("StationRepository", () => {
         role: "command-center",
         hostId: "command",
         supervisedPreferred: true,
-      }).pipe(Effect.either),
+      }).pipe(Effect.result),
     );
     expect(localPromotion).toMatchObject({
       _tag: "Left",
@@ -393,11 +393,11 @@ describe("StationRepository", () => {
     const invalidTimestamp = await runtime.runPromise(
       repository
         .pair(pairRequest(local, cc), "x".repeat(65))
-        .pipe(Effect.either),
+        .pipe(Effect.result),
     );
-    expect(Either.isLeft(invalidTimestamp)).toBe(true);
-    if (Either.isLeft(invalidTimestamp)) {
-      expect(invalidTimestamp.left).toMatchObject({
+    expect(Result.isFailure(invalidTimestamp)).toBe(true);
+    if (Result.isFailure(invalidTimestamp)) {
+      expect(invalidTimestamp.failure).toMatchObject({
         _tag: "StationMetadataError",
         operation: "pair",
         field: "pairedAt",
@@ -406,11 +406,11 @@ describe("StationRepository", () => {
     expect(await runtime.runPromise(repository.pairing)).toBeUndefined();
 
     const selfPairing = await runtime.runPromise(
-      repository.pair(pairRequest(local, local)).pipe(Effect.either),
+      repository.pair(pairRequest(local, local)).pipe(Effect.result),
     );
-    expect(Either.isLeft(selfPairing)).toBe(true);
-    if (Either.isLeft(selfPairing)) {
-      expect(selfPairing.left).toMatchObject({
+    expect(Result.isFailure(selfPairing)).toBe(true);
+    if (Result.isFailure(selfPairing)) {
+      expect(selfPairing.failure).toMatchObject({
         _tag: "StationSelfPairingError",
         installationId: local,
       });
@@ -419,11 +419,11 @@ describe("StationRepository", () => {
     const unpairedConfiguration = await runtime.runPromise(
       repository
         .configureRemote(remoteConfigurationRequest(local, cc))
-        .pipe(Effect.either),
+        .pipe(Effect.result),
     );
-    expect(Either.isLeft(unpairedConfiguration)).toBe(true);
-    if (Either.isLeft(unpairedConfiguration)) {
-      expect(unpairedConfiguration.left).toMatchObject({
+    expect(Result.isFailure(unpairedConfiguration)).toBe(true);
+    if (Result.isFailure(unpairedConfiguration)) {
+      expect(unpairedConfiguration.failure).toMatchObject({
         _tag: "StationConfigurationError",
         reason: "pairing-required",
       });
@@ -447,11 +447,11 @@ describe("StationRepository", () => {
     const pairingConflict = await runtime.runPromise(
       repository
         .pair(pairRequest(local, otherCc))
-        .pipe(Effect.either),
+        .pipe(Effect.result),
     );
-    expect(Either.isLeft(pairingConflict)).toBe(true);
-    if (Either.isLeft(pairingConflict)) {
-      expect(pairingConflict.left._tag).toBe(
+    expect(Result.isFailure(pairingConflict)).toBe(true);
+    if (Result.isFailure(pairingConflict)) {
+      expect(pairingConflict.failure._tag).toBe(
         "StationPairingConflictError",
       );
     }
@@ -473,11 +473,11 @@ describe("StationRepository", () => {
     const wrongConfiguration = await runtime.runPromise(
       repository
         .configureRemote(remoteConfigurationRequest(local, otherCc))
-        .pipe(Effect.either),
+        .pipe(Effect.result),
     );
-    expect(Either.isLeft(wrongConfiguration)).toBe(true);
-    if (Either.isLeft(wrongConfiguration)) {
-      expect(wrongConfiguration.left._tag).toBe(
+    expect(Result.isFailure(wrongConfiguration)).toBe(true);
+    if (Result.isFailure(wrongConfiguration)) {
+      expect(wrongConfiguration.failure._tag).toBe(
         "StationConfigurationError",
       );
     }
@@ -517,11 +517,11 @@ describe("StationRepository", () => {
             capabilities: ["browser", "hermes"],
           },
         }),
-      ).pipe(Effect.either),
+      ).pipe(Effect.result),
     );
-    expect(Either.isLeft(rehome)).toBe(true);
-    if (Either.isLeft(rehome)) {
-      expect(rehome.left).toMatchObject({
+    expect(Result.isFailure(rehome)).toBe(true);
+    if (Result.isFailure(rehome)) {
+      expect(rehome.failure).toMatchObject({
         _tag: "StationConfigurationError",
         reason: "host-immutable",
       });
@@ -595,11 +595,11 @@ describe("StationRepository", () => {
           }),
           "2026-07-27T12:02:00.000Z",
         )
-        .pipe(Effect.either),
+        .pipe(Effect.result),
     );
-    expect(Either.isLeft(rejectedRemote)).toBe(true);
-    if (Either.isLeft(rejectedRemote)) {
-      expect(rejectedRemote.left).toMatchObject({
+    expect(Result.isFailure(rejectedRemote)).toBe(true);
+    if (Result.isFailure(rejectedRemote)) {
+      expect(rejectedRemote.failure).toMatchObject({
         _tag: "StationConfigurationError",
         reason: "role-immutable",
       });
@@ -632,11 +632,11 @@ describe("StationRepository", () => {
           hostId: "studio",
           supervisedPreferred: false,
         })
-        .pipe(Effect.either),
+        .pipe(Effect.result),
     );
-    expect(Either.isLeft(rejectedCommandCenter)).toBe(true);
-    if (Either.isLeft(rejectedCommandCenter)) {
-      expect(rejectedCommandCenter.left).toMatchObject({
+    expect(Result.isFailure(rejectedCommandCenter)).toBe(true);
+    if (Result.isFailure(rejectedCommandCenter)) {
+      expect(rejectedCommandCenter.failure).toMatchObject({
         code: "validation",
         message: expect.stringContaining(
           "Remote topology is configured only",
@@ -726,11 +726,11 @@ describe("StationRepository", () => {
             body: portfolioBody("tampered"),
           },
         })
-        .pipe(Effect.either),
+        .pipe(Effect.result),
     );
-    expect(Either.isLeft(integrityFailure)).toBe(true);
-    if (Either.isLeft(integrityFailure)) {
-      expect(integrityFailure.left._tag).toBe(
+    expect(Result.isFailure(integrityFailure)).toBe(true);
+    if (Result.isFailure(integrityFailure)) {
+      expect(integrityFailure.failure._tag).toBe(
         "StationProjectionIntegrityError",
       );
     }
@@ -792,11 +792,11 @@ describe("StationRepository", () => {
             "{\"protocol\":",
           ),
         )
-        .pipe(Effect.either),
+        .pipe(Effect.result),
     );
-    expect(Either.isLeft(malformedFailure)).toBe(true);
-    if (Either.isLeft(malformedFailure)) {
-      expect(malformedFailure.left).toMatchObject({
+    expect(Result.isFailure(malformedFailure)).toBe(true);
+    if (Result.isFailure(malformedFailure)) {
+      expect(malformedFailure.failure).toMatchObject({
         _tag: "StationPortfolioError",
         operation: "decode",
       });
@@ -831,11 +831,11 @@ describe("StationRepository", () => {
         .installProjection(
           projectRequest(local, "9007199254740994", workBody),
         )
-        .pipe(Effect.either),
+        .pipe(Effect.result),
     );
-    expect(Either.isLeft(retiredWorkFailure)).toBe(true);
-    if (Either.isLeft(retiredWorkFailure)) {
-      expect(retiredWorkFailure.left).toMatchObject({
+    expect(Result.isFailure(retiredWorkFailure)).toBe(true);
+    if (Result.isFailure(retiredWorkFailure)) {
+      expect(retiredWorkFailure.failure).toMatchObject({
         _tag: "StationPortfolioError",
         operation: "decode",
       });
@@ -1089,7 +1089,7 @@ describe("StationRepository", () => {
       work.claimLocalTask({
         sink: tasks,
         basis,
-        taskId: created.value.id,
+        taskId: created.success.id,
         actor,
         originAt: "2026-07-27T12:03:00.000Z",
         receivedAt: "2026-07-27T12:03:00.000Z",

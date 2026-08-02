@@ -92,7 +92,7 @@ export const resolveBrowserCallerFromProcess = (
   // Drop any page ref whose node is no longer a page (paranoia).
   const live = pageRefs.filter((ref) => {
     const parsed = parseNodeRef(ref);
-    return parsed.ok && isPageNode(findNode(doc, parsed.value.nodeId));
+    return parsed.ok && isPageNode(findNode(doc, parsed.success.nodeId));
   });
 
   return {

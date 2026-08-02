@@ -431,11 +431,11 @@ describe("canvas entity registry", () => {
     );
 
     const result = await runtime.runPromise(
-      entities.softDelete("board", "n1").pipe(Effect.either),
+      entities.softDelete("board", "n1").pipe(Effect.result),
     );
     expect(result._tag).toBe("Left");
-    if (result._tag === "Left") {
-      expect(result.left._tag).toBe("CanvasEntityNotArchivedError");
+    if (result._tag === "Failure") {
+      expect(result.failure._tag).toBe("CanvasEntityNotArchivedError");
     }
   });
 
@@ -724,11 +724,11 @@ describe("canvas entity registry", () => {
     const runtime = openEngine(path);
     const entities = await runtime.runPromise(CanvasEntityRepository);
     const result = await runtime.runPromise(
-      entities.softDelete("board", "nope").pipe(Effect.either),
+      entities.softDelete("board", "nope").pipe(Effect.result),
     );
     expect(result._tag).toBe("Left");
-    if (result._tag === "Left") {
-      expect(result.left._tag).toBe("CanvasEntityMissingError");
+    if (result._tag === "Failure") {
+      expect(result.failure._tag).toBe("CanvasEntityMissingError");
     }
   });
 });

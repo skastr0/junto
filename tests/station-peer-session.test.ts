@@ -2,7 +2,7 @@ import {
   Cause,
   Deferred,
   Effect,
-  Either,
+  Result,
   Exit,
   Fiber,
   Option,
@@ -652,10 +652,10 @@ describe("persistent Station peer session", () => {
           const first = asRequestFrame(yield* harness.takeSent);
 
           const second = yield* session.request(statusRequest).pipe(
-            Effect.either,
+            Effect.result,
           );
-          expect(Either.isLeft(second)).toBe(true);
-          if (Either.isLeft(second)) {
+          expect(Result.isFailure(second)).toBe(true);
+          if (Result.isFailure(second)) {
             expect(second.left).toMatchObject({
               _tag: "StationPeerSessionCapacityError",
               limit: 1,
@@ -705,9 +705,9 @@ describe("persistent Station peer session", () => {
           expect(yield* session.isOpen).toBe(false);
           const afterClose = yield* session.withOpen(
             Effect.succeed("must-not-run"),
-          ).pipe(Effect.either);
-          expect(Either.isLeft(afterClose)).toBe(true);
-          if (Either.isLeft(afterClose)) {
+          ).pipe(Effect.result);
+          expect(Result.isFailure(afterClose)).toBe(true);
+          if (Result.isFailure(afterClose)) {
             expect(afterClose.left).toMatchObject({
               _tag: "StationPeerSessionClosedError",
               reason: "local-close",
@@ -730,10 +730,10 @@ describe("persistent Station peer session", () => {
           });
 
           const denied = yield* session.request(statusRequest).pipe(
-            Effect.either,
+            Effect.result,
           );
-          expect(Either.isLeft(denied)).toBe(true);
-          if (Either.isLeft(denied)) {
+          expect(Result.isFailure(denied)).toBe(true);
+          if (Result.isFailure(denied)) {
             expect(denied.left).toMatchObject({
               _tag: "StationPeerSessionProtocolError",
               reason: "outbound-verb-denied",

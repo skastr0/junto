@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 
-export const ServiceHealth = Schema.Literal("ok", "warning", "error", "unknown");
+export const ServiceHealth = Schema.Literals(["ok", "warning", "error", "unknown"]);
 export type ServiceHealth = typeof ServiceHealth.Type;
 
 export const ServiceCheck = Schema.Struct({
@@ -8,9 +8,7 @@ export const ServiceCheck = Schema.Struct({
   label: Schema.String,
   status: ServiceHealth,
   detail: Schema.String,
-  metadata: Schema.optionalWith(Schema.Record({ key: Schema.String, value: Schema.String }), {
-    exact: true,
-  }),
+  metadata: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
 });
 export type ServiceCheck = typeof ServiceCheck.Type;
 
@@ -34,7 +32,7 @@ export type DoctorReport = typeof DoctorReport.Type;
 export const DirectoryEntry = Schema.Struct({
   name: Schema.String,
   path: Schema.String,
-  kind: Schema.Literal("file", "directory"),
+  kind: Schema.Literals(["file", "directory"]),
   size: Schema.Number,
   modifiedAt: Schema.String,
 });

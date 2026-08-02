@@ -1,4 +1,4 @@
-import { Either, Schema } from "effect";
+import { Result, Schema } from "effect";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   Artifact,
@@ -67,31 +67,31 @@ const snapshotInput = {
 
 describe("WorkSnapshot", () => {
   it("round-trips an explicit canvas/node work read model", () => {
-    const decoded = Schema.decodeUnknownEither(WorkSnapshot)(snapshotInput);
-    expect(Either.isRight(decoded)).toBe(true);
-    if (Either.isLeft(decoded)) return;
+    const decoded = Schema.decodeUnknownResult(WorkSnapshot)(snapshotInput);
+    expect(Result.isSuccess(decoded)).toBe(true);
+    if (Result.isFailure(decoded)) return;
 
-    expect(decoded.right.canvasName).toBe("factory");
-    expect(decoded.right.nodeId).toBe("task-sink");
-    expect(decoded.right.tasks.items[0]?.state).toBe("working");
-    expect(decoded.right.requests.items[0]?.state).toBe("input-required");
-    expect(decoded.right.messages.items[0]?.messageId).toBe("message-1");
-    expect(decoded.right.artifacts.items[0]?.artifactId).toBe("artifact-1");
+    expect(decoded.success.canvasName).toBe("factory");
+    expect(decoded.success.nodeId).toBe("task-sink");
+    expect(decoded.success.tasks.items[0]?.state).toBe("working");
+    expect(decoded.success.requests.items[0]?.state).toBe("input-required");
+    expect(decoded.success.messages.items[0]?.messageId).toBe("message-1");
+    expect(decoded.success.artifacts.items[0]?.artifactId).toBe("artifact-1");
 
-    const encoded = Schema.encodeEither(WorkSnapshot)(decoded.right);
-    expect(Either.isRight(encoded)).toBe(true);
-    if (Either.isRight(encoded)) expect(encoded.right).toEqual(snapshotInput);
+    const encoded = Schema.encodeResult(WorkSnapshot)(decoded.success);
+    expect(Result.isSuccess(encoded)).toBe(true);
+    if (Result.isSuccess(encoded)) expect(encoded.success).toEqual(snapshotInput);
   });
 
   it("rejects a lane whose hydrated rows have the wrong domain shape", () => {
-    const decoded = Schema.decodeUnknownEither(WorkSnapshot)({
+    const decoded = Schema.decodeUnknownResult(WorkSnapshot)({
       ...snapshotInput,
       tasks: {
         items: [{ id: "task-1", state: "unknown", history: [] }],
       },
     });
 
-    expect(Either.isLeft(decoded)).toBe(true);
+    expect(Result.isFailure(decoded)).toBe(true);
   });
 
   it("keeps the canvas export as the same schema and derived type", () => {
@@ -108,8 +108,8 @@ describe("Artifact task provenance", () => {
 
   it("accepts only an exact task reference", () => {
     expect(
-      Either.isRight(
-        Schema.decodeUnknownEither(Artifact, {
+      Result.isSuccess(
+        Schema.decodeUnknownResult(Artifact, {
           onExcessProperty: "error",
         })({
           ...base,
@@ -123,8 +123,8 @@ describe("Artifact task provenance", () => {
     ).toBe(true);
 
     expect(
-      Either.isLeft(
-        Schema.decodeUnknownEither(Artifact, {
+      Result.isFailure(
+        Schema.decodeUnknownResult(Artifact, {
           onExcessProperty: "error",
         })({
           ...base,
@@ -134,8 +134,8 @@ describe("Artifact task provenance", () => {
     ).toBe(true);
 
     expect(
-      Either.isLeft(
-        Schema.decodeUnknownEither(Artifact, {
+      Result.isFailure(
+        Schema.decodeUnknownResult(Artifact, {
           onExcessProperty: "error",
         })({
           ...base,
@@ -152,7 +152,7 @@ describe("Artifact task provenance", () => {
 
 describe("Task claimant invariant", () => {
   const decode = (state: string, claimedBy?: string, metadata?: unknown) =>
-    Schema.decodeUnknownEither(Task)({
+    Schema.decodeUnknownResult(Task)({
       id: `task-${state}`,
       state,
       history: [],
@@ -161,8 +161,8 @@ describe("Task claimant invariant", () => {
     });
 
   it("requires submitted inventory to be unclaimed", () => {
-    expect(Either.isRight(decode("submitted"))).toBe(true);
-    expect(Either.isLeft(decode("submitted", seatId))).toBe(true);
+    expect(Result.isSuccess(decode("submitted"))).toBe(true);
+    expect(Result.isFailure(decode("submitted", seatId))).toBe(true);
   });
 
   it("requires every active state to have a claimant", () => {
@@ -171,8 +171,8 @@ describe("Task claimant invariant", () => {
       "input-required",
       "auth-required",
     ]) {
-      expect(Either.isLeft(decode(state))).toBe(true);
-      expect(Either.isRight(decode(state, seatId))).toBe(true);
+      expect(Result.isFailure(decode(state))).toBe(true);
+      expect(Result.isSuccess(decode(state, seatId))).toBe(true);
     }
   });
 
@@ -184,14 +184,14 @@ describe("Task claimant invariant", () => {
       "rejected",
       "archived",
     ]) {
-      expect(Either.isRight(decode(state))).toBe(true);
-      expect(Either.isRight(decode(state, seatId))).toBe(true);
+      expect(Result.isSuccess(decode(state))).toBe(true);
+      expect(Result.isSuccess(decode(state, seatId))).toBe(true);
     }
   });
 
   it("rejects the retired metadata claimant for every state", () => {
     expect(
-      Either.isLeft(decode("submitted", undefined, { claimedBy: seatId })),
+      Result.isFailure(decode("submitted", undefined, { claimedBy: seatId })),
     ).toBe(true);
   });
 });

@@ -1,4 +1,4 @@
-import { Effect, Either } from "effect";
+import { Effect, Result } from "effect";
 import { isValidProfileId } from "@shared/browser";
 import type { NodeRefKey } from "@shared/node-ref";
 import { parseNodeRef } from "@shared/node-ref";
@@ -61,11 +61,11 @@ export const makePageTargetResolver = (canvases: CanvasNodeReader): PageTargetRe
 
     try {
       const resolved = await Effect.runPromise(
-        Effect.either(resolveNodeRef(canvases, parsed.value, { expectedEntityKind: "page" })),
+        Effect.result(resolveNodeRef(canvases, parsed.success, { expectedEntityKind: "page" })),
       );
-      if (Either.isLeft(resolved)) return resolutionFailure(resolved.left);
+      if (Result.isFailure(resolved)) return resolutionFailure(resolved.failure);
 
-      const node = resolved.right.node;
+      const node = resolved.success.node;
       if (node.type !== "link") return fail("invalid", "page node must be a link node");
       const profile = node.ether?.browser?.profile;
       if (profile === undefined || !isValidProfileId(profile)) {
@@ -74,7 +74,7 @@ export const makePageTargetResolver = (canvases: CanvasNodeReader): PageTargetRe
       return {
         ok: true,
         data: {
-          ref: resolved.right.key,
+          ref: resolved.success.key,
           nodeId: node.id,
           hostId: resolveNodeHostId(node),
           url: node.url,

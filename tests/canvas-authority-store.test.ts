@@ -251,7 +251,7 @@ describe("CanvasesService SQLite authority", () => {
 
     runtime = makeCanvasRuntime(database);
     const reopened = await runtime.runPromise(CanvasesService);
-    const result = await runtime.runPromise(Effect.either(reopened.list));
+    const result = await runtime.runPromise(Effect.result(reopened.list));
     expect(result).toMatchObject({
       _tag: "Left",
       left: {
@@ -337,7 +337,7 @@ describe("CanvasesService SQLite authority", () => {
     expect(snap.generation).toBe("3");
     expect([...snap.documents.keys()]).toEqual(["keep"]);
     await expect(
-      runtime.runPromise(Effect.either(canvases.read("drop")))
+      runtime.runPromise(Effect.result(canvases.read("drop")))
     ).resolves.toMatchObject({ _tag: "Left" });
   });
 

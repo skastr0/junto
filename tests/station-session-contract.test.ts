@@ -1,4 +1,4 @@
-import { Either, Schema } from "effect";
+import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   InstallationId,
@@ -76,8 +76,8 @@ describe("Station session v2 frame contract", () => {
     expect(decideStationSessionCorrelation(request, response)).toEqual({
       _tag: "correlated",
     });
-    expect(Either.isRight(decodeStationSessionFrame(request))).toBe(true);
-    expect(Either.isRight(decodeStationSessionFrame(response))).toBe(true);
+    expect(Result.isSuccess(decodeStationSessionFrame(request))).toBe(true);
+    expect(Result.isSuccess(decodeStationSessionFrame(response))).toBe(true);
   });
 
   it("rejects request-id and successful-operation mismatches", () => {
@@ -169,12 +169,12 @@ describe("Station session v2 frame contract", () => {
     expect(decideStationSessionCorrelation(request, response)).toEqual({
       _tag: "correlated",
     });
-    expect(Either.isRight(decodeStationSessionFrame(response))).toBe(true);
+    expect(Result.isSuccess(decodeStationSessionFrame(response))).toBe(true);
   });
 
   it("rejects v1 layers, unknown frames, and excess fields", () => {
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeStationSessionFrame({
           protocol: "vellum/station-session/v1",
           frame: "request",
@@ -187,7 +187,7 @@ describe("Station session v2 frame contract", () => {
       ),
     ).toBe(true);
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeStationSessionFrame({
           protocol: STATION_SESSION_PROTOCOL,
           frame: "request",
@@ -200,7 +200,7 @@ describe("Station session v2 frame contract", () => {
       ),
     ).toBe(true);
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeStationSessionFrame({
           protocol: STATION_SESSION_PROTOCOL,
           frame: "response",
@@ -228,7 +228,7 @@ describe("Station session v2 frame contract", () => {
       ),
     ).toBe(true);
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeStationSessionFrame({
           protocol: STATION_SESSION_PROTOCOL,
           frame: "heartbeat",
@@ -237,7 +237,7 @@ describe("Station session v2 frame contract", () => {
       ),
     ).toBe(true);
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeStationSessionFrame({
           protocol: STATION_SESSION_PROTOCOL,
           frame: "request",
@@ -263,7 +263,7 @@ describe("Station session v2 frame contract", () => {
       stateSchemaVersion: 1,
       support: { preferred: 2, compatibleFrom: 2, warnBelow: 2 },
     });
-    expect(Either.isLeft(decodeStationSessionFrame(preface))).toBe(true);
+    expect(Result.isFailure(decodeStationSessionFrame(preface))).toBe(true);
   });
 
   it("bounds and brands request IDs", () => {

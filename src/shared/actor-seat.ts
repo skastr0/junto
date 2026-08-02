@@ -8,7 +8,7 @@ import { Schema } from "effect";
  * for it.
  */
 export const ActorSeatId = Schema.String.pipe(
-  Schema.pattern(/^seat_[a-f0-9]{64}$/),
+  Schema.check(Schema.isPattern(/^seat_[a-f0-9]{64}$/)),
   Schema.brand("ActorSeatId"),
 );
 export type ActorSeatId = typeof ActorSeatId.Type;

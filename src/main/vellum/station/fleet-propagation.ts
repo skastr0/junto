@@ -1,5 +1,4 @@
-import {
-  Clock,
+import { Clock,
   Context,
   Deferred,
   Duration,
@@ -10,8 +9,7 @@ import {
   Queue,
   Random,
   Ref,
-  Schema,
-} from "effect";
+  Schema, Semaphore } from "effect";
 import {
   InstallationId,
   StationHostId,
@@ -91,38 +89,30 @@ const READY: StationReadiness = {
   session: true,
 };
 
-export class StationPeerRouteResolutionError extends Schema.TaggedError<StationPeerRouteResolutionError>()(
+export class StationPeerRouteResolutionError extends Schema.TaggedErrorClass<StationPeerRouteResolutionError>()(
   "StationPeerRouteResolutionError",
   {
     hostId: HostId,
     stationInstallationId: InstallationId,
-    reason: Schema.Literal(
-      "missing-route",
-      "invalid-route",
-      "platform-unavailable",
-    ),
+    reason: Schema.Literals(["missing-route", "invalid-route",
+    "platform-unavailable",]),
     message: Schema.String,
   },
 ) {}
 
-export class StationFleetPeerUnavailable extends Schema.TaggedError<StationFleetPeerUnavailable>()(
+export class StationFleetPeerUnavailable extends Schema.TaggedErrorClass<StationFleetPeerUnavailable>()(
   "StationFleetPeerUnavailable",
   {
     hostId: HostId,
-    stationInstallationId: Schema.optionalWith(InstallationId, {
-      exact: true,
-    }),
-    reason: Schema.Literal(
-      "not-enrolled",
-      "not-running",
-      "route-unavailable",
-      "connection-failed",
-      "update-required",
-      "synchronization-failed",
-      "deadline",
-      "stopped",
-    ),
-    causeTag: Schema.optionalWith(Schema.String, { exact: true }),
+    stationInstallationId: Schema.optionalKey(InstallationId),
+    reason: Schema.Literals(["not-enrolled", "not-running",
+    "route-unavailable",
+    "connection-failed",
+    "update-required",
+    "synchronization-failed",
+    "deadline",
+    "stopped",]),
+    causeTag: Schema.optionalKey(Schema.String),
     message: Schema.String,
   },
 ) {}
@@ -171,10 +161,7 @@ export type StationFleetPropagationResult =
  * identity only; OpenSSH endpoint/platform mechanics remain in this adapter.
  */
 // S4-station: single canonical Context.Tag (effect@3.21). V4 → Context.Service.
-export class StationPeerRouteResolver extends Context.Tag(
-  StationContextTagIds.peerRouteResolver,
-)<
-  StationPeerRouteResolver,
+export class StationPeerRouteResolver extends Context.Service<StationPeerRouteResolver,
   {
     readonly resolve: (
       target: StationPropagationTarget,
@@ -182,8 +169,7 @@ export class StationPeerRouteResolver extends Context.Tag(
       StationPeerRoute,
       StationPeerRouteResolutionError
     >;
-  }
->() {}
+  }>()(StationContextTagIds.peerRouteResolver) {}
 
 const routeResolutionError = (
   target: StationPropagationTarget,
@@ -243,10 +229,7 @@ export const OpenSshStationPeerRouteResolverLive = Layer.effect(
 );
 
 // S4-station: single canonical Context.Tag (effect@3.21). V4 → Context.Service.
-export class StationFleetPropagation extends Context.Tag(
-  StationContextTagIds.fleetPropagation,
-)<
-  StationFleetPropagation,
+export class StationFleetPropagation extends Context.Service<StationFleetPropagation,
   {
     /** Start one scoped child per current enrolled fleet target. */
     readonly start: () => Effect.Effect<
@@ -280,8 +263,7 @@ export class StationFleetPropagation extends Context.Tag(
     >;
     /** Interrupt all target scopes and reject outstanding waiters. */
     readonly stop: Effect.Effect<void>;
-  }
->() {}
+  }>()(StationContextTagIds.fleetPropagation) {}
 
 type AttemptError =
   | StationPeerRouteResolutionError
@@ -470,7 +452,7 @@ const nowIso = Clock.currentTimeMillis.pipe(
   Effect.map((now) => new Date(now).toISOString()),
 );
 
-export const StationFleetPropagationLive = Layer.scoped(
+export const StationFleetPropagationLive = Layer.effect(
   StationFleetPropagation,
   Effect.gen(function* () {
     const targets = yield* StationFleetTargetRepository;
@@ -487,7 +469,7 @@ export const StationFleetPropagationLive = Layer.scoped(
     const peerStatuses = yield* Ref.make<
       ReadonlyMap<HostIdValue, StationFleetPeerStatus>
     >(new Map());
-    const reconcileLock = yield* Effect.makeSemaphore(1);
+    const reconcileLock = yield* Semaphore.make(1);
     const invalidations = yield* Queue.dropping<void>(1);
     const workers = new Map<HostIdValue, WorkerControl>();
     const pendingInvalidationHosts = new Set<HostIdValue>();
@@ -602,7 +584,7 @@ export const StationFleetPropagationLive = Layer.scoped(
     const synchronizeSession = (
       control: WorkerControl,
       session: Parameters<
-        Context.Tag.Service<typeof StationLivePeerRegistry>["activate"]
+        Context.Service.Shape<typeof StationLivePeerRegistry>["activate"]
       >[2],
       attempt: number,
     ): Effect.Effect<StationPropagationReceipt, StationPropagationError> =>
@@ -702,7 +684,7 @@ export const StationFleetPropagationLive = Layer.scoped(
                     })
                   ),
                   Effect.map(stationControlOk),
-                  Effect.catchAll((error) =>
+                  Effect.catch((error) =>
                     Effect.succeed(
                       stationControlErrorEnvelope(error),
                     )
@@ -753,14 +735,14 @@ export const StationFleetPropagationLive = Layer.scoped(
 
               return receipt;
             }),
-          ).pipe(Effect.either);
+          ).pipe(Effect.result);
 
           if (admissionClosed) return;
-          if (attempted._tag === "Right") continue;
+          if (attempted._tag === "Success") continue;
 
           const failure = unavailableFromAttempt(
             control.target,
-            attempted.left,
+            attempted.failure,
           );
           const currentTime = yield* Clock.currentTimeMillis;
           if (
@@ -770,7 +752,7 @@ export const StationFleetPropagationLive = Layer.scoped(
           ) {
             failureCount = 0;
           }
-          const retryable = retryWithoutInvalidation(attempted.left);
+          const retryable = retryWithoutInvalidation(attempted.failure);
           const delay = retryable
             ? yield* retryDelay(failureCount)
             : undefined;
@@ -779,7 +761,7 @@ export const StationFleetPropagationLive = Layer.scoped(
             control.target.hostId,
           );
           const incompatibleProtocol = protocolObservationFromAttempt(
-            attempted.left,
+            attempted.failure,
           );
           const status = yield* setStatus(control.target, {
             phase: failure.reason === "update-required"
@@ -976,7 +958,7 @@ export const StationFleetPropagationLive = Layer.scoped(
             ),
           )
         ),
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           Effect.logWarning(
             "Station fleet reconciliation failed",
             error,

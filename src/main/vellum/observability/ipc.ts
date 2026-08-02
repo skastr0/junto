@@ -8,7 +8,7 @@ import {
 } from "@shared/observability";
 import { observabilityRing } from "./ring";
 
-const decodeQuery = Schema.decodeUnknownEither(ObservabilityQuery);
+const decodeQuery = Schema.decodeUnknownResult(ObservabilityQuery);
 
 /** Drop present-but-undefined keys (IPC / object literals break exact optionals). */
 const stripUndefinedKeys = (raw: unknown): unknown => {
@@ -55,7 +55,7 @@ export const registerObservabilityIpc = (
       if (decoded._tag === "Left") {
         return observabilityRing.query();
       }
-      return observabilityRing.query(decoded.right);
+      return observabilityRing.query(decoded.success);
     },
   );
 

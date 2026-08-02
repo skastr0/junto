@@ -1,10 +1,8 @@
-import {
-  Context,
+import { Context,
   Effect,
   Layer,
   Schema,
-  Scope,
-} from "effect";
+  Scope, Semaphore } from "effect";
 import {
   HostId,
   type HostId as HostIdValue,
@@ -38,23 +36,20 @@ export interface StationLivePeer {
 interface ActivePeer {
   readonly witness: StationLivePeer;
   readonly session: StationPeerSession;
-  readonly lifetime: Effect.Semaphore;
+  readonly lifetime: Semaphore.Semaphore;
 }
 
 const livePeerAuthorities = new WeakMap<StationLivePeer, ActivePeer>();
 
-export class StationLivePeerUnavailable extends Schema.TaggedError<StationLivePeerUnavailable>()(
+export class StationLivePeerUnavailable extends Schema.TaggedErrorClass<StationLivePeerUnavailable>()(
   "StationLivePeerUnavailable",
   {
     hostId: HostId,
     installationId: InstallationId,
-    reason: Schema.Literal(
-      "already-live",
-      "identity-mismatch",
-      "invalid-witness",
-      "session-closed",
-      "unavailable",
-    ),
+    reason: Schema.Literals(["already-live", "identity-mismatch",
+    "invalid-witness",
+    "session-closed",
+    "unavailable",]),
     message: Schema.String,
   },
 ) {}
@@ -81,10 +76,7 @@ const unavailable = (
  * replayable command; it never rolls the claim back or mints a replacement.
  */
 // S4-station: single canonical Context.Tag (effect@3.21). V4 → Context.Service.
-export class StationLivePeerRegistry extends Context.Tag(
-  StationContextTagIds.livePeerRegistry,
-)<
-  StationLivePeerRegistry,
+export class StationLivePeerRegistry extends Context.Service<StationLivePeerRegistry,
   {
     readonly activate: (
       hostId: HostIdValue,
@@ -118,13 +110,12 @@ export class StationLivePeerRegistry extends Context.Tag(
       witness: StationLivePeer,
       effect: Effect.Effect<A, E, R>,
     ) => Effect.Effect<A, E | StationLivePeerUnavailable, R>;
-  }
->() {}
+  }>()(StationContextTagIds.livePeerRegistry) {}
 
 export const StationLivePeerRegistryLive = Layer.effect(
   StationLivePeerRegistry,
   Effect.gen(function* () {
-    const registryLock = yield* Effect.makeSemaphore(1);
+    const registryLock = yield* Semaphore.make(1);
     const active = new Map<HostIdValue, ActivePeer>();
     const listeners = new Set<() => void>();
 
@@ -146,7 +137,7 @@ export const StationLivePeerRegistryLive = Layer.effect(
         Effect.sync(() => active.get(peer.witness.hostId) === peer),
       );
 
-    const activate: Context.Tag.Service<
+    const activate: Context.Service.Shape<
       typeof StationLivePeerRegistry
     >["activate"] = (hostId, installationId, session) =>
       Effect.acquireRelease(
@@ -162,7 +153,7 @@ export const StationLivePeerRegistryLive = Layer.effect(
               "Station session does not match the enrolled live peer",
             );
           }
-          const lifetime = yield* Effect.makeSemaphore(1);
+          const lifetime = yield* Semaphore.make(1);
           const witness = Object.freeze({
             [StationLivePeerTypeId]: StationLivePeerTypeId,
             hostId,
@@ -208,7 +199,7 @@ export const StationLivePeerRegistryLive = Layer.effect(
           ),
       ).pipe(Effect.map((peer) => peer.witness));
 
-    const requirePeer: Context.Tag.Service<
+    const requirePeer: Context.Service.Shape<
       typeof StationLivePeerRegistry
     >["require"] = (hostId, installationId) =>
       registryLock.withPermits(1)(
@@ -242,7 +233,7 @@ export const StationLivePeerRegistryLive = Layer.effect(
         }),
       );
 
-    const isLive: Context.Tag.Service<
+    const isLive: Context.Service.Shape<
       typeof StationLivePeerRegistry
     >["isLive"] = (hostId, installationId) =>
       registryLock.withPermits(1)(
@@ -254,7 +245,7 @@ export const StationLivePeerRegistryLive = Layer.effect(
         }),
       );
 
-    const withSession: Context.Tag.Service<
+    const withSession: Context.Service.Shape<
       typeof StationLivePeerRegistry
     >["withSession"] = (witness, effect) => {
       const peer = livePeerAuthorities.get(witness);

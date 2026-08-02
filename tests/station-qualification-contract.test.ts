@@ -1,4 +1,4 @@
-import { Either, Schema } from "effect";
+import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   STATION_QUALIFICATION_EVIDENCE_FILE,
@@ -97,7 +97,7 @@ const qualified = () => ({
 
 describe("two-installation Station qualification contract", () => {
   it("accepts the strict v2 receipt for the exact exercised release", () => {
-    expect(Either.isRight(decodeStationQualification(qualified()))).toBe(true);
+    expect(Result.isSuccess(decodeStationQualification(qualified()))).toBe(true);
   });
 
   it("mints only a non-passing artifact binding before the real run", () => {
@@ -124,7 +124,7 @@ describe("two-installation Station qualification contract", () => {
       status: "pending",
       reason: "operator-run-required",
     });
-    expect(Either.isRight(decodeStationQualification(pending))).toBe(true);
+    expect(Result.isSuccess(decodeStationQualification(pending))).toBe(true);
   });
 
   it.each([
@@ -139,7 +139,7 @@ describe("two-installation Station qualification contract", () => {
     const phases = { ...receipt.phases } as Record<string, unknown>;
     delete phases[phase];
     expect(
-      Either.isLeft(decodeStationQualification({ ...receipt, phases })),
+      Result.isFailure(decodeStationQualification({ ...receipt, phases })),
     ).toBe(true);
   });
 
@@ -150,14 +150,14 @@ describe("two-installation Station qualification contract", () => {
         service: string;
       }
     ).service = "failed";
-    expect(Either.isLeft(decodeStationQualification(unhealthy))).toBe(true);
+    expect(Result.isFailure(decodeStationQualification(unhealthy))).toBe(true);
 
     const commandCenterService = qualified();
     (
       commandCenterService.health.commandCenter as Record<string, unknown>
     ).service = "running";
     expect(
-      Either.isLeft(decodeStationQualification(commandCenterService)),
+      Result.isFailure(decodeStationQualification(commandCenterService)),
     ).toBe(true);
 
     const unsandboxed = qualified();
@@ -166,7 +166,7 @@ describe("two-installation Station qualification contract", () => {
         rendererSandbox: string;
       }
     ).rendererSandbox = "disabled";
-    expect(Either.isLeft(decodeStationQualification(unsandboxed))).toBe(true);
+    expect(Result.isFailure(decodeStationQualification(unsandboxed))).toBe(true);
 
     const electronRemote = qualified();
     (
@@ -174,7 +174,7 @@ describe("two-installation Station qualification contract", () => {
         electronProcesses: number;
       }
     ).electronProcesses = 1;
-    expect(Either.isLeft(decodeStationQualification(electronRemote))).toBe(
+    expect(Result.isFailure(decodeStationQualification(electronRemote))).toBe(
       true,
     );
 
@@ -184,7 +184,7 @@ describe("two-installation Station qualification contract", () => {
         displayEnvironment: string;
       }
     ).displayEnvironment = "set";
-    expect(Either.isLeft(decodeStationQualification(displayRemote))).toBe(true);
+    expect(Result.isFailure(decodeStationQualification(displayRemote))).toBe(true);
 
     const exposedControlMaterial = qualified();
     (
@@ -193,7 +193,7 @@ describe("two-installation Station qualification contract", () => {
       }
     ).controlMaterialOwnerOnly = false;
     expect(
-      Either.isLeft(decodeStationQualification(exposedControlMaterial)),
+      Result.isFailure(decodeStationQualification(exposedControlMaterial)),
     ).toBe(true);
 
     const listening = qualified();
@@ -202,7 +202,7 @@ describe("two-installation Station qualification contract", () => {
         vellumTcpListeners: number;
       }
     ).vellumTcpListeners = 1;
-    expect(Either.isLeft(decodeStationQualification(listening))).toBe(true);
+    expect(Result.isFailure(decodeStationQualification(listening))).toBe(true);
   });
 
   it("binds the exact positive safe-integer package size", () => {
@@ -214,20 +214,20 @@ describe("two-installation Station qualification contract", () => {
     ]) {
       const receipt = qualified();
       receipt.package.bytes = bytes;
-      expect(Either.isLeft(decodeStationQualification(receipt))).toBe(true);
+      expect(Result.isFailure(decodeStationQualification(receipt))).toBe(true);
     }
   });
 
   it("requires two distinct installations running the same app version", () => {
     const sameInstallation = qualified();
     sameInstallation.installations.remote.installationId = "cc-01";
-    expect(Either.isLeft(decodeStationQualification(sameInstallation))).toBe(
+    expect(Result.isFailure(decodeStationQualification(sameInstallation))).toBe(
       true,
     );
 
     const versionSkew = qualified();
     versionSkew.installations.remote.appVersion = "0.1.4";
-    expect(Either.isLeft(decodeStationQualification(versionSkew))).toBe(true);
+    expect(Result.isFailure(decodeStationQualification(versionSkew))).toBe(true);
   });
 
   it("accepts only Ubuntu 24.04 x64 OrbStack guests", () => {
@@ -242,18 +242,18 @@ describe("two-installation Station qualification contract", () => {
       const platform = receipt.installations.commandCenter.nativePlatform as
         Record<string, string>;
       platform[field] = value;
-      expect(Either.isLeft(decodeStationQualification(receipt))).toBe(true);
+      expect(Result.isFailure(decodeStationQualification(receipt))).toBe(true);
     }
   });
 
   it("binds one signed manifest, one userland runtime archive, and one root evidence log", () => {
     const wrongManifest = qualified();
     (wrongManifest.manifest as { file: string }).file = "other.json";
-    expect(Either.isLeft(decodeStationQualification(wrongManifest))).toBe(true);
+    expect(Result.isFailure(decodeStationQualification(wrongManifest))).toBe(true);
 
     const wrongEvidence = qualified();
     (wrongEvidence.evidence as { file: string }).file = "attestation.txt";
-    expect(Either.isLeft(decodeStationQualification(wrongEvidence))).toBe(true);
+    expect(Result.isFailure(decodeStationQualification(wrongEvidence))).toBe(true);
 
     for (const file of [
       ".",
@@ -266,13 +266,13 @@ describe("two-installation Station qualification contract", () => {
     ]) {
       const receipt = qualified();
       receipt.package.file = file;
-      expect(Either.isLeft(decodeStationQualification(receipt))).toBe(true);
+      expect(Result.isFailure(decodeStationQualification(receipt))).toBe(true);
     }
   });
 
   it("rejects v1, removed theater fields, and all excess properties", () => {
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeStationQualification({
           ...qualified(),
           schema: "vellum/station-two-installation-qualification/v1",
@@ -281,7 +281,7 @@ describe("two-installation Station qualification contract", () => {
     ).toBe(true);
 
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeStationQualification({
           ...qualified(),
           phases: {
@@ -293,7 +293,7 @@ describe("two-installation Station qualification contract", () => {
     ).toBe(true);
 
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeStationQualification({ ...qualified(), extra: true }),
       ),
     ).toBe(true);

@@ -46,39 +46,33 @@ export const DEFAULT_STALL_AFTER_MS = 24 * 60 * 60 * 1000;
  * Live occupancy spectrum for a seat.
  * Never authorial; never persisted as document truth.
  */
-export const OccupancySpectrum = Schema.Literal(
-  "empty",
-  "idle",
-  "working",
-  "attention",
-  "activity_blocked",
-  "stalled",
-  "parked",
-  "gone",
-);
+export const OccupancySpectrum = Schema.Literals(["empty", "idle",
+"working",
+"attention",
+"activity_blocked",
+"stalled",
+"parked",
+"gone",]);
 export type OccupancySpectrum = typeof OccupancySpectrum.Type;
 
 /**
  * Optional harness activity vocabulary (mirrors TerminalHarnessState).
  * Kept local so occupancy stays free of terminal/runtime imports.
  */
-export const OccupancyHarnessState = Schema.Literal(
-  "idle",
-  "working",
-  "blocked",
-  "attention",
-  "unknown",
-);
+export const OccupancyHarnessState = Schema.Literals(["idle", "working",
+"blocked",
+"attention",
+"unknown",]);
 export type OccupancyHarnessState = typeof OccupancyHarnessState.Type;
 
 export const OccupancyActivity = Schema.Struct({
-  harness: Schema.optionalWith(OccupancyHarnessState, { exact: true }),
+  harness: Schema.optionalKey(OccupancyHarnessState),
 });
 export type OccupancyActivity = typeof OccupancyActivity.Type;
 
 export const OccupancyFlags = Schema.Struct({
-  parked: Schema.optionalWith(Schema.Boolean, { exact: true }),
-  attention: Schema.optionalWith(Schema.Boolean, { exact: true }),
+  parked: Schema.optionalKey(Schema.Boolean),
+  attention: Schema.optionalKey(Schema.Boolean),
 });
 export type OccupancyFlags = typeof OccupancyFlags.Type;
 

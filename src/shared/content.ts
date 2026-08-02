@@ -8,7 +8,7 @@ import { Schema } from "effect";
 
 /** Canonical lower-case SHA-256 digest used as the immutable object identity. */
 export const ContentSha256 = Schema.String.pipe(
-  Schema.pattern(/^[a-f0-9]{64}$/),
+  Schema.check(Schema.isPattern(/^[a-f0-9]{64}$/)),
   Schema.brand("ContentSha256"),
 );
 export type ContentSha256 = typeof ContentSha256.Type;
@@ -19,29 +19,29 @@ export type ContentSha256 = typeof ContentSha256.Type;
  * reserve, and transfer backpressure belong to their owning planes.
  */
 export const ContentByteLength = Schema.Number.pipe(
-  Schema.int(),
-  Schema.nonNegative(),
-  Schema.filter(Number.isSafeInteger, {
+  Schema.check(Schema.isInt()),
+  Schema.check(Schema.isGreaterThanOrEqualTo(0)),
+  Schema.check(Schema.makeFilter(Number.isSafeInteger, {
     message: () => "content byteLength must be a safe integer",
-  }),
+  })),
   Schema.brand("ContentByteLength"),
 );
 export type ContentByteLength = typeof ContentByteLength.Type;
 
 /** MIME/media type metadata.  Parameters are preserved as authored. */
 export const ContentMediaType = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(255),
-  Schema.pattern(/^[^\u0000-\u001f\u007f]+$/),
+  Schema.check(Schema.isMinLength(1)),
+  Schema.check(Schema.isMaxLength(255)),
+  Schema.check(Schema.isPattern(/^[^\u0000-\u001f\u007f]+$/)),
   Schema.brand("ContentMediaType"),
 );
 export type ContentMediaType = typeof ContentMediaType.Type;
 
 /** Display-only metadata; it is never a path or an object identity. */
 export const ContentDisplayName = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(255),
-  Schema.pattern(/^[^\u0000-\u001f\u007f]+$/),
+  Schema.check(Schema.isMinLength(1)),
+  Schema.check(Schema.isMaxLength(255)),
+  Schema.check(Schema.isPattern(/^[^\u0000-\u001f\u007f]+$/)),
   Schema.brand("ContentDisplayName"),
 );
 export type ContentDisplayName = typeof ContentDisplayName.Type;
@@ -63,7 +63,7 @@ export type ContentIdentity = typeof ContentIdentity.Type;
 export const ContentRef = Schema.Struct({
   ...ContentIdentity.fields,
   mediaType: ContentMediaType,
-  displayName: Schema.optionalWith(ContentDisplayName, { exact: true }),
+  displayName: Schema.optionalKey(ContentDisplayName),
 });
 export type ContentRef = typeof ContentRef.Type;
 
@@ -85,9 +85,9 @@ export const ContentLocalPathProjection = Schema.Struct({
   kind: Schema.Literal("local-path"),
   ref: ContentRef,
   path: Schema.String.pipe(
-    Schema.minLength(1),
-    Schema.maxLength(4_096),
-    Schema.pattern(/^[^\u0000]+$/),
+    Schema.check(Schema.isMinLength(1)),
+    Schema.check(Schema.isMaxLength(4_096)),
+    Schema.check(Schema.isPattern(/^[^\u0000]+$/)),
   ),
 });
 export type ContentLocalPathProjection = typeof ContentLocalPathProjection.Type;
@@ -97,16 +97,16 @@ export const ContentPathProjection = ContentLocalPathProjection;
 export type ContentPathProjection = ContentLocalPathProjection;
 
 export const ContentAvailabilityReason = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(1_024),
-  Schema.pattern(/^[^\u0000-\u001f\u007f]+$/),
+  Schema.check(Schema.isMinLength(1)),
+  Schema.check(Schema.isMaxLength(1_024)),
+  Schema.check(Schema.isPattern(/^[^\u0000-\u001f\u007f]+$/)),
   Schema.brand("ContentAvailabilityReason"),
 );
 export type ContentAvailabilityReason = typeof ContentAvailabilityReason.Type;
 
 export const ContentTimestamp = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(64),
+  Schema.check(Schema.isMinLength(1)),
+  Schema.check(Schema.isMaxLength(64)),
   Schema.brand("ContentTimestamp"),
 );
 export type ContentTimestamp = typeof ContentTimestamp.Type;
@@ -119,11 +119,9 @@ export const ContentReceipt = Schema.Struct({
   verifiedByteLength: ContentByteLength,
   verifiedAt: ContentTimestamp,
 }).pipe(
-  Schema.filter(
-    ({ ref, verifiedSha256, verifiedByteLength }) =>
-      (ref.sha256 === verifiedSha256 && ref.byteLength === verifiedByteLength) ||
-      "verified receipt does not match its ContentRef",
-  ),
+  Schema.check(Schema.makeFilter(({ ref, verifiedSha256, verifiedByteLength }) =>
+    (ref.sha256 === verifiedSha256 && ref.byteLength === verifiedByteLength) ||
+    "verified receipt does not match its ContentRef",)),
 );
 export type ContentReceipt = typeof ContentReceipt.Type;
 
@@ -138,8 +136,8 @@ export const ContentCorrupt = Schema.Struct({
   ref: ContentRef,
   state: Schema.Literal("corrupt"),
   reason: ContentAvailabilityReason,
-  observedSha256: Schema.optionalWith(ContentSha256, { exact: true }),
-  observedByteLength: Schema.optionalWith(ContentByteLength, { exact: true }),
+  observedSha256: Schema.optionalKey(ContentSha256),
+  observedByteLength: Schema.optionalKey(ContentByteLength),
 });
 export type ContentCorrupt = typeof ContentCorrupt.Type;
 
@@ -155,12 +153,10 @@ export type ContentUnavailable = typeof ContentUnavailable.Type;
  * consumer to open bytes; every other state requires a reason and is not an
  * empty-file success.
  */
-export const ContentAvailability = Schema.Union(
-  ContentReceipt,
-  ContentMissing,
-  ContentCorrupt,
-  ContentUnavailable,
-);
+export const ContentAvailability = Schema.Union([ContentReceipt,
+ContentMissing,
+ContentCorrupt,
+ContentUnavailable,]);
 export type ContentAvailability = typeof ContentAvailability.Type;
 
 /** Work part that names bytes in the content store (no inline payload). */
@@ -171,7 +167,7 @@ export const ContentPart = Schema.Struct({
 export type ContentPart = typeof ContentPart.Type;
 
 /** Strict decoder used by ingress adapters that accept only a ref part. */
-export const decodeContentPart = Schema.decodeUnknownEither(ContentPart, {
+export const decodeContentPart = Schema.decodeUnknownResult(ContentPart, {
   onExcessProperty: "error",
 });
 
@@ -185,7 +181,7 @@ export const isContentPart = (value: unknown): value is ContentPart => {
   }
 };
 
-export const decodeContentRef = Schema.decodeUnknownEither(ContentRef, {
+export const decodeContentRef = Schema.decodeUnknownResult(ContentRef, {
   onExcessProperty: "error",
 });
 

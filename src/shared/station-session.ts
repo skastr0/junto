@@ -19,9 +19,9 @@ export const STATION_SESSION_PROTOCOL =
   `vellum/station-session/v${STATION_PROTOCOL_BASELINE}` as const;
 
 export const StationSessionRequestId = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(64),
-  Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/),
+  Schema.check(Schema.isMinLength(1)),
+  Schema.check(Schema.isMaxLength(64)),
+  Schema.check(Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/)),
   Schema.brand("StationSessionRequestId"),
 );
 export type StationSessionRequestId =
@@ -45,14 +45,12 @@ export const StationSessionResponseFrame = Schema.Struct({
 export type StationSessionResponseFrame =
   typeof StationSessionResponseFrame.Type;
 
-export const StationSessionFrame = Schema.Union(
-  StationSessionRequestFrame,
-  StationSessionResponseFrame,
-);
+export const StationSessionFrame = Schema.Union([StationSessionRequestFrame,
+StationSessionResponseFrame,]);
 export type StationSessionFrame = typeof StationSessionFrame.Type;
 
 export const decodeStationSessionFrame =
-  Schema.decodeUnknownEither(StationSessionFrame, {
+  Schema.decodeUnknownResult(StationSessionFrame, {
     onExcessProperty: "error",
   });
 

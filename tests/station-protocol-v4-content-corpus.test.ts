@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { Either, Schema } from "effect";
+import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   ContentAvailability,
@@ -94,10 +94,10 @@ describe("Station protocol 4 content wire corpus", () => {
   it("installs only the content-capable protocol-4 codec", () => {
     expect(STATION_PROTOCOL_BASELINE).toBe(4);
     expect(CURRENT_STATION_PROTOCOL_SUPPORT).toEqual(corpus.protocol.support);
-    expect(selectStationProtocolCodec(4)).toEqual(Either.right(4));
+    expect(selectStationProtocolCodec(4)).toEqual(Result.succeed(4));
     for (const retired of corpus.protocol.retired) {
       expect(selectStationProtocolCodec(retired)).toEqual(
-        Either.left("unsupported-station-protocol"),
+        Result.fail("unsupported-station-protocol"),
       );
     }
   });
@@ -126,9 +126,9 @@ describe("Station protocol 4 content wire corpus", () => {
 
   it("admits ContentRef task facts and keeps them under the control-record bound", () => {
     const decoded = decodeWorkRecord(corpus.taskCreateFact);
-    expect(Either.isRight(decoded)).toBe(true);
-    if (Either.isLeft(decoded)) return;
-    const bytes = workRecordEncodedByteLength(decoded.right);
+    expect(Result.isSuccess(decoded)).toBe(true);
+    if (Result.isFailure(decoded)) return;
+    const bytes = workRecordEncodedByteLength(decoded.success);
     expect(bytes).toBeDefined();
     expect(bytes!).toBeLessThan(WORK_PROTOCOL_MAX_RECORD_BYTES);
     expect(bytes!).toBeLessThan(8_192);
@@ -139,7 +139,7 @@ describe("Station protocol 4 content wire corpus", () => {
     // decodes for migration/history; there is no wire rewrite that smuggles
     // media as Base64 to "help" an older peer.
     expect(
-      Either.isRight(decodeWorkRecord(corpus.inlineBinaryDownConvertRejected)),
+      Result.isSuccess(decodeWorkRecord(corpus.inlineBinaryDownConvertRejected)),
     ).toBe(true);
   });
 

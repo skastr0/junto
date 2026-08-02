@@ -269,7 +269,7 @@ describe("remote hosts registry", () => {
     );
 
     const result = await Effect.runPromise(
-      Effect.either(
+      Effect.result(
         service.upsert({
           id: "studio",
           label: "Studio",
@@ -282,9 +282,9 @@ describe("remote hosts registry", () => {
     );
 
     expect(result._tag).toBe("Left");
-    if (result._tag === "Left") {
-      expect(result.left.code).toBe("validation");
-      expect(result.left.message).toContain("legacyToken");
+    if (result._tag === "Failure") {
+      expect(result.failure.code).toBe("validation");
+      expect(result.failure.message).toContain("legacyToken");
     }
     expect(mutationCount).toBe(0);
     expect((await registry.list()).map((host) => host.id)).toEqual(["local"]);
@@ -361,7 +361,7 @@ describe("remote hosts registry", () => {
         }),
       );
       const rejected = await Effect.runPromise(
-        Effect.either(
+        Effect.result(
           service.upsert({
             id: "duplicate",
             label: "Duplicate",

@@ -157,7 +157,7 @@ const openInstallOps = (path: string) =>
 export const makeInstallOpsLive = (
   path?: string,
 ): Layer.Layer<InstallOpsService, InstallOpsError> =>
-  Layer.scoped(
+  Layer.effect(
     InstallOpsService,
     Effect.acquireRelease(
       openInstallOps(path ?? installOpsDatabasePath()),

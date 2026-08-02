@@ -1,4 +1,4 @@
-import { Clock, Context, Effect, Either, Layer, Schema } from "effect";
+import { Clock, Context, Effect, Result, Layer, Schema } from "effect";
 import {
   InstallationId,
   LogicalSequence,
@@ -53,28 +53,25 @@ export const StationPropagationTarget = Schema.Struct({
 export type StationPropagationTarget =
   typeof StationPropagationTarget.Type;
 
-export class StationPropagationInvariantError extends Schema.TaggedError<StationPropagationInvariantError>()(
+export class StationPropagationInvariantError extends Schema.TaggedErrorClass<StationPropagationInvariantError>()(
   "StationPropagationInvariantError",
   {
     operation: Schema.String,
-    reason: Schema.Literal(
-      "command-center-role-required",
-      "session-identity-mismatch",
-      "station-identity-mismatch",
-      "remote-configuration-required",
-      "station-host-mismatch",
-      "command-center-mismatch",
-      "database-unavailable",
-      "work-control-unavailable",
-      "simulation-unavailable",
-      "session-unavailable",
-      "invalid-generation",
-      "invalid-source-intent-hash",
-      "projection-stale",
-      "projection-conflict",
-      "projection-result-mismatch",
-      "report-round-limit",
-    ),
+    reason: Schema.Literals(["command-center-role-required", "session-identity-mismatch",
+    "station-identity-mismatch",
+    "remote-configuration-required",
+    "station-host-mismatch",
+    "command-center-mismatch",
+    "database-unavailable",
+    "work-control-unavailable",
+    "simulation-unavailable",
+    "session-unavailable",
+    "invalid-generation",
+    "invalid-source-intent-hash",
+    "projection-stale",
+    "projection-conflict",
+    "projection-result-mismatch",
+    "report-round-limit",]),
     message: Schema.String,
   },
 ) {}
@@ -143,20 +140,20 @@ const desiredProjection = (
   StationPortfolioError | StationPropagationInvariantError
 > =>
   Effect.gen(function* () {
-    const generation = Schema.decodeUnknownEither(LogicalSequence)(
+    const generation = Schema.decodeUnknownResult(LogicalSequence)(
       snapshot.generation,
     );
-    if (Either.isLeft(generation)) {
+    if (Result.isFailure(generation)) {
       return yield* invariant(
         "projection",
         "invalid-generation",
         "canvas authority generation is not a canonical logical sequence",
       );
     }
-    const intentSha256 = Schema.decodeUnknownEither(StationSha256)(
+    const intentSha256 = Schema.decodeUnknownResult(StationSha256)(
       snapshot.intentSha256,
     );
-    if (Either.isLeft(intentSha256)) {
+    if (Result.isFailure(intentSha256)) {
       return yield* invariant(
         "projection",
         "invalid-source-intent-hash",
@@ -180,8 +177,8 @@ const desiredProjection = (
     const now = yield* Clock.currentTimeMillis;
     return {
       scope: "full",
-      sourceCanvasGeneration: generation.right,
-      sourceIntentSha256: intentSha256.right,
+      sourceCanvasGeneration: generation.success,
+      sourceIntentSha256: intentSha256.success,
       body,
       createdAt: new Date(now).toISOString(),
     };
@@ -290,7 +287,7 @@ const synchronizeProjection = (
 };
 
 const synchronizeReport = (
-  api: Context.Tag.Service<typeof StationApiService>,
+  api: Context.Service.Shape<typeof StationApiService>,
   session: StationPeerSession,
   target: StationPropagationTarget,
 ): Effect.Effect<
@@ -350,17 +347,13 @@ const synchronizeReport = (
   }).pipe(Effect.withSpan("station.propagation.report"));
 
 // S4-station: single canonical Context.Tag (effect@3.21). V4 → Context.Service.
-export class StationPropagation extends Context.Tag(
-  StationContextTagIds.propagation,
-)<
-  StationPropagation,
+export class StationPropagation extends Context.Service<StationPropagation,
   {
     readonly synchronize: (
       target: StationPropagationTarget,
       session: StationPeerSession,
     ) => Effect.Effect<StationPropagationReceipt, StationPropagationError>;
-  }
->() {}
+  }>()(StationContextTagIds.propagation) {}
 
 export const StationPropagationLive = Layer.effect(
   StationPropagation,

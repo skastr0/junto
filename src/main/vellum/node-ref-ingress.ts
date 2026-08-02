@@ -35,7 +35,7 @@ export interface NodeRefIngress {
 export const canonicalNodeRefUri = (uri: string): NodeRefKey | undefined => {
   const parsed = parseNodeRef(uri);
   if (!parsed.ok) return undefined;
-  const canonical = nodeRefKey(parsed.value);
+  const canonical = nodeRefKey(parsed.success);
   return canonical === uri ? canonical : undefined;
 };
 
@@ -78,7 +78,7 @@ export const makeNodeRefIngress = (resolve: NodeRefIngressResolver): NodeRefIngr
       if (!parsed.ok) {
         return { ok: false, code: "invalid", message: parsed.error.message };
       }
-      if (nodeRefKey(parsed.value) !== uri) {
+      if (nodeRefKey(parsed.success) !== uri) {
         return {
           ok: false,
           code: "invalid",
@@ -88,7 +88,7 @@ export const makeNodeRefIngress = (resolve: NodeRefIngressResolver): NodeRefIngr
 
       let resolved: { readonly key: NodeRefKey };
       try {
-        resolved = await resolve(parsed.value);
+        resolved = await resolve(parsed.success);
       } catch (error) {
         if (acceptedRevision !== revision) {
           return { ok: false, code: "superseded", message: "a newer node reference arrived" };
@@ -104,7 +104,7 @@ export const makeNodeRefIngress = (resolve: NodeRefIngressResolver): NodeRefIngr
         return { ok: false, code: "superseded", message: "a newer node reference arrived" };
       }
 
-      const canonical = nodeRefKey(parsed.value);
+      const canonical = nodeRefKey(parsed.success);
       if (resolved.key !== canonical) {
         return {
           ok: false,
@@ -114,8 +114,8 @@ export const makeNodeRefIngress = (resolve: NodeRefIngressResolver): NodeRefIngr
       }
       const target: NodeRefIngressTarget = {
         ref: canonical,
-        canvasName: parsed.value.canvasName,
-        nodeId: parsed.value.nodeId,
+        canvasName: parsed.success.canvasName,
+        nodeId: parsed.success.nodeId,
       };
       return { ok: true, target, delivery: deliver(target) };
     })();

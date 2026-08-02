@@ -1,9 +1,8 @@
-import {
-  Cause,
+import { Cause,
   Context,
   Deferred,
   Effect,
-  Either,
+  Result,
   Layer,
   Option,
   Queue,
@@ -11,8 +10,7 @@ import {
   Schema,
   Scope,
   Sink,
-  Stream,
-} from "effect";
+  Stream, Semaphore } from "effect";
 import {
   STATION_API_PROTOCOL,
   StatusRequest,
@@ -124,13 +122,11 @@ const writeFailure = (error: unknown): StationSessionTransportError =>
         "OpenSSH Station session output failed",
       );
 
-const StationConnectionFrameSchema = Schema.Union(
-  StationProtocolPreface,
-  StationSessionFrame,
-);
+const StationConnectionFrameSchema = Schema.Union([StationProtocolPreface,
+StationSessionFrame,]);
 type StationConnectionFrame = typeof StationConnectionFrameSchema.Type;
 
-const decodeStationConnectionFrame = Schema.decodeUnknownEither(
+const decodeStationConnectionFrame = Schema.decodeUnknownResult(
   StationConnectionFrameSchema,
   { onExcessProperty: "error" },
 );
@@ -139,7 +135,7 @@ interface OpenSshFrameCodec<Frame> {
   readonly contractName: string;
   readonly decode: (
     input: unknown,
-  ) => Either.Either<Frame, unknown>;
+  ) => Result.Result<Frame, unknown>;
 }
 
 const stationSessionFrameCodec: OpenSshFrameCodec<StationSessionFrame> = {
@@ -176,8 +172,8 @@ const decodeFrameLine = <Frame>(
     ),
     Effect.flatMap((raw) => {
       const decoded = codec.decode(raw);
-      return Either.isRight(decoded)
-        ? Effect.succeed(decoded.right)
+      return Result.isSuccess(decoded)
+        ? Effect.succeed(decoded.success)
         : Effect.fail(
             transportError(
               "malformed-frame",
@@ -292,7 +288,7 @@ const encodeOpenSshFrame = <Frame>(
   maxFrameBytes: number,
 ): Effect.Effect<Uint8Array, StationSessionTransportError> => {
   const decoded = codec.decode(frame);
-  if (Either.isLeft(decoded)) {
+  if (Result.isFailure(decoded)) {
     return Effect.fail(
       transportError(
         "malformed-frame",
@@ -302,7 +298,7 @@ const encodeOpenSshFrame = <Frame>(
   }
   return Effect.try({
     try: () =>
-      new TextEncoder().encode(`${JSON.stringify(decoded.right)}\n`),
+      new TextEncoder().encode(`${JSON.stringify(decoded.success)}\n`),
     catch: () =>
       transportError(
         "malformed-frame",
@@ -391,7 +387,7 @@ const makeOpenSshFrameTransport = <Frame>(
     const inbound = yield* Queue.bounded<InboundFrame<Frame>>(
       maxInboundFrames,
     );
-    const queuedBytes = yield* Effect.makeSemaphore(maxQueuedBytes);
+    const queuedBytes = yield* Semaphore.make(maxQueuedBytes);
     const state = yield* Ref.make<OpenSshTransportState>({
       closed: false,
       outstanding: new Set(),
@@ -612,7 +608,7 @@ const makeOpenSshFrameTransport = <Frame>(
                 unavailable,
               ),
             ).pipe(
-              Effect.catchAllCause((cause) =>
+              Effect.catchCause((cause) =>
                 Cause.isInterruptedOnly(cause)
                   ? Ref.get(state).pipe(
                       Effect.flatMap((current) =>
@@ -707,8 +703,8 @@ const asSessionTransport = (
   incoming: incoming.pipe(
     Stream.mapEffect((frame) => {
       const decoded = decodeStationSessionFrame(frame);
-      return Either.isRight(decoded)
-        ? Effect.succeed(decoded.right)
+      return Result.isSuccess(decoded)
+        ? Effect.succeed(decoded.success)
         : Effect.fail(
             transportError(
               "malformed-frame",
@@ -801,11 +797,11 @@ const makeVerifiedCommandCenterSession = (
   });
 
 export const makeOpenSshStationPeerExchange = (
-  ssh: Context.Tag.Service<typeof SshTransport>,
+  ssh: Context.Service.Shape<typeof SshTransport>,
   commandCenterInstallationId: InstallationIdValue,
   diagnostics: OpenSshStationPeerExchangeDiagnostics =
     DEFAULT_OPENSSH_STATION_DIAGNOSTICS,
-): Context.Tag.Service<typeof StationPeerExchange> => {
+): Context.Service.Shape<typeof StationPeerExchange> => {
   const localProtocol: StationPeerProtocolDiagnostics = {
     appVersion: diagnostics.appVersion,
     stateSchemaVersion: diagnostics.stateSchemaVersion,
@@ -869,8 +865,8 @@ export const makeOpenSshStationPeerExchange = (
 
                 const decoded = decodeStationProtocolPreface(first.value);
                 if (
-                  Either.isLeft(decoded) ||
-                  decoded.right.frame === "offer"
+                  Result.isFailure(decoded) ||
+                  decoded.success.frame === "offer"
                 ) {
                   return yield* Effect.fail(
                     exchangeError(
@@ -881,7 +877,7 @@ export const makeOpenSshStationPeerExchange = (
                     ),
                   );
                 }
-                const response = decoded.right;
+                const response = decoded.success;
                 const peerProtocol = prefacePeerDiagnostics(response);
                 const decision = decideStationProtocolPreface(offer, response);
                 switch (decision._tag) {
@@ -908,7 +904,7 @@ export const makeOpenSshStationPeerExchange = (
                     break;
                 }
                 const codec = selectStationProtocolCodec(decision.selected);
-                if (Either.isLeft(codec)) {
+                if (Result.isFailure(codec)) {
                   return yield* Effect.fail(
                     exchangeError(
                       route.peerInstallationId,
@@ -919,7 +915,7 @@ export const makeOpenSshStationPeerExchange = (
                   );
                 }
                 const protocol = bindNegotiatedStationProtocol({
-                  negotiatedProtocol: codec.right,
+                  negotiatedProtocol: codec.success,
                   local: localProtocol,
                   peer: peerProtocol,
                 });
@@ -933,14 +929,14 @@ export const makeOpenSshStationPeerExchange = (
                 return confirm(session);
               }),
           )
-          .pipe(Effect.either);
-        if (Either.isRight(negotiatedAttempt)) {
-          return negotiatedAttempt.right;
+          .pipe(Effect.result);
+        if (Result.isSuccess(negotiatedAttempt)) {
+          return negotiatedAttempt.success;
         }
         return yield* Effect.fail(
           openError(
             route.peerInstallationId,
-            negotiatedAttempt.left,
+            negotiatedAttempt.failure,
             localProtocol,
           ),
         );

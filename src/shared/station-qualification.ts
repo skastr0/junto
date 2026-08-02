@@ -23,37 +23,35 @@ export const STATION_QUALIFICATION_EVIDENCE_FILE =
   "station-qualification-observations.jsonl" as const;
 
 export const StationQualificationSourceCommit = Schema.String.pipe(
-  Schema.pattern(/^[a-f0-9]{40}$/u),
+  Schema.check(Schema.isPattern(/^[a-f0-9]{40}$/u)),
   Schema.brand("StationQualificationSourceCommit"),
 );
 export type StationQualificationSourceCommit =
   typeof StationQualificationSourceCommit.Type;
 
 export const StationQualificationSha256 = Schema.String.pipe(
-  Schema.pattern(/^[a-f0-9]{64}$/u),
+  Schema.check(Schema.isPattern(/^[a-f0-9]{64}$/u)),
   Schema.brand("StationQualificationSha256"),
 );
 export type StationQualificationSha256 = typeof StationQualificationSha256.Type;
 
 export const StationQualificationPackageFile = Schema.String.pipe(
-  Schema.pattern(/^vellum-runtime-(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-linux-x64\.tar\.gz$/u),
+  Schema.check(Schema.isPattern(/^vellum-runtime-(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-linux-x64\.tar\.gz$/u)),
   Schema.brand("StationQualificationPackageFile"),
 );
 export type StationQualificationPackageFile =
   typeof StationQualificationPackageFile.Type;
 
-export const StationQualificationPackageBytes = Schema.Int.pipe(
-  Schema.positive(),
-  Schema.filter(Number.isSafeInteger, {
+export const StationQualificationPackageBytes = Schema.Number.pipe(Schema.check(Schema.isInt()), 
+  Schema.check(Schema.isGreaterThan(0)),
+  Schema.check(Schema.makeFilter(Number.isSafeInteger, {
     message: () => "package bytes must be a positive safe integer",
-  }),
+  })),
 );
 export type StationQualificationPackageBytes =
   typeof StationQualificationPackageBytes.Type;
 
-export const StationQualificationEvidenceFile = Schema.Literal(
-  STATION_QUALIFICATION_EVIDENCE_FILE,
-);
+export const StationQualificationEvidenceFile = Schema.Literals([STATION_QUALIFICATION_EVIDENCE_FILE, ]);
 export type StationQualificationEvidenceFile =
   typeof StationQualificationEvidenceFile.Type;
 
@@ -97,19 +95,15 @@ const QualifiedInstallations = Schema.Struct({
   commandCenter: QualifiedInstallation,
   remote: QualifiedInstallation,
 }).pipe(
-  Schema.filter(
-    ({ commandCenter, remote }) =>
-      commandCenter.installationId !== remote.installationId,
-    { message: () => "qualification requires distinct installation IDs" },
-  ),
-  Schema.filter(
-    ({ commandCenter, remote }) =>
-      commandCenter.appVersion === remote.appVersion,
-    {
-      message: () =>
-        "qualification requires the same app version on both installations",
-    },
-  ),
+  Schema.check(Schema.makeFilter(({ commandCenter, remote }) =>
+    commandCenter.installationId !== remote.installationId,
+  { message: () => "qualification requires distinct installation IDs" },)),
+  Schema.check(Schema.makeFilter(({ commandCenter, remote }) =>
+    commandCenter.appVersion === remote.appVersion,
+  {
+    message: () =>
+      "qualification requires the same app version on both installations",
+  },)),
 );
 export type StationQualificationInstallations =
   typeof QualifiedInstallations.Type;
@@ -214,13 +208,11 @@ export const PendingStationQualification = Schema.Struct({
 export type PendingStationQualification =
   typeof PendingStationQualification.Type;
 
-export const StationQualification = Schema.Union(
-  PendingStationQualification,
-  PassedQualification,
-);
+export const StationQualification = Schema.Union([PendingStationQualification,
+PassedQualification,]);
 export type StationQualification = typeof StationQualification.Type;
 
-export const decodeStationQualification = Schema.decodeUnknownEither(
+export const decodeStationQualification = Schema.decodeUnknownResult(
   StationQualification,
   { onExcessProperty: "error" },
 );

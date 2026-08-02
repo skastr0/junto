@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Either } from "effect";
+import { Result } from "effect";
 import {
   decodeCanvasDoc,
   resolveBrowserOnDelete,
@@ -36,9 +36,9 @@ describe("browser page document model", () => {
       ],
       edges: [],
     };
-    const decoded1 = Either.getOrThrow(decodeCanvasDoc(raw));
+    const decoded1 = Result.getOrThrow(decodeCanvasDoc(raw));
     const serialized = serializeCanvas(decoded1);
-    const decoded2 = Either.getOrThrow(decodeCanvasDoc(JSON.parse(serialized)));
+    const decoded2 = Result.getOrThrow(decodeCanvasDoc(JSON.parse(serialized)));
     expect(decoded2).toEqual(decoded1);
     const node = decoded2.nodes[0]!;
     expect(node.type).toBe("link");
@@ -68,7 +68,7 @@ describe("browser page document model", () => {
       ],
       edges: [],
     };
-    const doc = Either.getOrThrow(decodeCanvasDoc(raw));
+    const doc = Result.getOrThrow(decodeCanvasDoc(raw));
     expect(doc.nodes[0]?.ether?.browser?.onDelete).toBeUndefined();
     expect(resolveBrowserOnDelete(doc.nodes[0]?.ether?.browser)).toBe(
       "kill-session",
@@ -94,7 +94,7 @@ describe("browser page document model", () => {
       ],
       edges: [],
     };
-    const doc = Either.getOrThrow(decodeCanvasDoc(raw));
+    const doc = Result.getOrThrow(decodeCanvasDoc(raw));
     expect(resolveBrowserOnDelete(doc.nodes[0]?.ether?.browser)).toBe("kill-session");
   });
 
@@ -121,7 +121,7 @@ describe("browser page document model", () => {
       nodes: doc.nodes.map(({ ether: _e, ...rest }) => rest),
       edges: doc.edges,
     };
-    const redecoded = Either.getOrThrow(decodeCanvasDoc(stripped));
+    const redecoded = Result.getOrThrow(decodeCanvasDoc(stripped));
     expect(redecoded.nodes[0]?.type).toBe("link");
     expect(redecoded.nodes[0]?.ether).toBeUndefined();
   });

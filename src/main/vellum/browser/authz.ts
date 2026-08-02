@@ -11,7 +11,7 @@ import {
   type ActorKindName,
   type CapabilityViewOptions,
 } from "@shared/physics";
-import { Either } from "effect";
+import { Result } from "effect";
 
 // Edges are the browser capability system for process-bound callers.
 // Kernel-enforced per call via factory physics:
@@ -141,7 +141,7 @@ export const admitBrowserPage = (
     asNodeId(pageNodeId),
     "browser.automate",
   );
-  return Either.isRight(result);
+  return Result.isSuccess(result);
 };
 
 /** Page node ids the caller may automate (edge + physics port admit). */

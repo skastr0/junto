@@ -117,12 +117,12 @@ describe("content disk admission", () => {
           diskFreeBytes: 0,
           diskReserveBytes: 1024,
         })
-        .pipe(Effect.either),
+        .pipe(Effect.result),
     );
     expect(result._tag).toBe("Left");
-    if (result._tag === "Left") {
-      expect(result.left).toBeInstanceOf(ContentStoreError);
-      expect((result.left as ContentStoreError).code).toBe("disk-low");
+    if (result._tag === "Failure") {
+      expect(result.failure).toBeInstanceOf(ContentStoreError);
+      expect((result.failure as ContentStoreError).code).toBe("disk-low");
     }
   });
 
@@ -410,11 +410,11 @@ describe("content integrity + GC + snapshot", () => {
     unlinkSync(put.path);
 
     const result = await Effect.runPromise(
-      service.snapshot().pipe(Effect.either),
+      service.snapshot().pipe(Effect.result),
     );
     expect(result._tag).toBe("Left");
-    if (result._tag === "Left") {
-      expect((result.left as ContentStoreError).code).toBe("corrupt");
+    if (result._tag === "Failure") {
+      expect((result.failure as ContentStoreError).code).toBe("corrupt");
     }
   });
 

@@ -14,16 +14,16 @@ export type PauseMemberScope =
   | { readonly kind: "node"; readonly id: string }
   | { readonly kind: "region"; readonly id: string };
 
-export class FactoryPausePersistenceError extends Schema.TaggedError<FactoryPausePersistenceError>()(
+export class FactoryPausePersistenceError extends Schema.TaggedErrorClass<FactoryPausePersistenceError>()(
   "FactoryPausePersistenceError",
   {
     operation: Schema.String,
     message: Schema.String,
-    cause: Schema.Defect,
+    cause: Schema.Unknown,
   },
 ) {}
 
-export class FactoryPauseStateCorruptError extends Schema.TaggedError<FactoryPauseStateCorruptError>()(
+export class FactoryPauseStateCorruptError extends Schema.TaggedErrorClass<FactoryPauseStateCorruptError>()(
   "FactoryPauseStateCorruptError",
   {
     canvasName: Schema.String,
@@ -44,10 +44,7 @@ export type FactoryPauseRepositoryError =
  * - Layer today: FactoryPauseRepositoryLive — V4 rename candidate FactoryPauseRepository.layer
  *   Do not dual-export Live + `.layer` names.
  */
-export class FactoryPauseRepository extends Context.Tag(
-  "@vellum/FactoryPauseRepository",
-)<
-  FactoryPauseRepository,
+export class FactoryPauseRepository extends Context.Service<FactoryPauseRepository,
   {
     readonly loadAll: Effect.Effect<
       ReadonlyMap<string, CanvasPauseState>,
@@ -62,8 +59,7 @@ export class FactoryPauseRepository extends Context.Tag(
       scope: PauseMemberScope,
       paused: boolean,
     ) => Effect.Effect<CanvasPauseState, FactoryPauseRepositoryError>;
-  }
->() {}
+  }>()("@vellum/FactoryPauseRepository") {}
 
 type CanvasRow = StateRow & {
   readonly canvas_name: string;

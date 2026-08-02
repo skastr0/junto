@@ -42,7 +42,7 @@ describe("ProcessSpawnerLive", () => {
     const pipeline = Command.pipeTo(left, Command.make("/bin/cat"));
     const result = await Effect.runPromise(Effect.gen(function* () {
       return yield* Effect.scoped((yield* ProcessSpawner).start(pipeline));
-    }).pipe(Effect.provide(SpawnerLive), Effect.either));
+    }).pipe(Effect.provide(SpawnerLive), Effect.result));
     expect(result._tag).toBe("Left");
   });
 
@@ -54,7 +54,7 @@ describe("ProcessSpawnerLive", () => {
       const result = await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const child = yield* (yield* ProcessSpawner).start(Command.make("/definitely/not/a-vellum-command"));
         yield* Effect.sleep(30);
-        return yield* Effect.either(child.exitCode);
+        return yield* Effect.result(child.exitCode);
       })).pipe(Effect.provide(SpawnerLive)));
       expect(result._tag).toBe("Left");
       expect(Date.now() - startedAt).toBeLessThan(500);

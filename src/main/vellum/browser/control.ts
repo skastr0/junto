@@ -21,7 +21,7 @@ import { createServer } from "node:http";
 import type { Socket } from "node:net";
 import { resolveVellumHome } from "@shared/vellum-home";
 import { dirname, join, resolve } from "node:path";
-import { Either, Schema } from "effect";
+import { Result, Schema } from "effect";
 import { formatNodeRef } from "@shared/node-ref";
 import {
   CONTROL_ROUTES,
@@ -284,11 +284,11 @@ const fromResult = <T>(result: BrowserResult<T>): ControlEnvelope<T> =>
 
 const decodeBody =
   <A, I>(schema: Schema.Schema<A, I>) =>
-  (body: unknown): Either.Either<A, ControlEnvelope<never>> => {
-    const decoded = Schema.decodeUnknownEither(schema)(body);
-    return Either.isLeft(decoded)
-      ? Either.left(controlErr("bad_request", String(decoded.left.message).slice(0, 400)))
-      : Either.right(decoded.right);
+  (body: unknown): Result.Result<A, ControlEnvelope<never>> => {
+    const decoded = Schema.decodeUnknownResult(schema)(body);
+    return Result.isFailure(decoded)
+      ? Result.fail(controlErr("bad_request", String(decoded.failure.message).slice(0, 400)))
+      : Result.succeed(decoded.success);
   };
 
 export interface ControlDeps {
@@ -596,9 +596,9 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
         return controlErr("bad_request", "request contains unknown or invalid fields");
       }
       const decoded = decodeBody(schema)(body);
-      if (Either.isLeft(decoded)) return decoded.left;
+      if (Result.isFailure(decoded)) return decoded.failure;
       return protectedRun(action, authorization, signal, (lease, combinedSignal) =>
-        run(decoded.right, lease, combinedSignal),
+        run(decoded.success, lease, combinedSignal),
       );
     });
 

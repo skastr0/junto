@@ -71,11 +71,11 @@ const remotePackagedPlatforms = new WeakMap<
 
 type Ssh = SshTransportShape;
 
-export class RemotePlatformProbeError extends Schema.TaggedError<RemotePlatformProbeError>()(
+export class RemotePlatformProbeError extends Schema.TaggedErrorClass<RemotePlatformProbeError>()(
   "RemotePlatformProbeError",
   {
     endpoint: Schema.String,
-    reason: Schema.Literal("malformed", "unsupported"),
+    reason: Schema.Literals(["malformed", "unsupported"]),
     message: Schema.String,
   },
 ) {}

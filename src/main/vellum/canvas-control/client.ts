@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createConnection, type Socket } from "node:net";
 import { resolveVellumHome } from "@shared/vellum-home";
-import { Effect, Either, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
 import {
   CANVAS_CONTROL_DEFAULT_TIMEOUT_MS,
   CANVAS_CONTROL_HOME_ENV,
@@ -21,7 +21,7 @@ import {
   type CanvasControlReadData as CanvasControlReadResult,
 } from "./protocol";
 
-export class CanvasControlClientError extends Schema.TaggedError<CanvasControlClientError>()(
+export class CanvasControlClientError extends Schema.TaggedErrorClass<CanvasControlClientError>()(
   "CanvasControlClientError",
   {
     code: Schema.String,
@@ -188,7 +188,7 @@ const call = (
         return;
       }
       const decoded = decodeCanvasControlResponse(raw);
-      if (Either.isLeft(decoded)) {
+      if (Result.isFailure(decoded)) {
         settle(
           Effect.fail(
             malformedResponse("server returned a malformed canvas envelope"),
@@ -196,7 +196,7 @@ const call = (
         );
         return;
       }
-      const envelope = decoded.right;
+      const envelope = decoded.success;
       if (envelope.id !== id || (envelope.op !== undefined && envelope.op !== op)) {
         settle(
           Effect.fail(

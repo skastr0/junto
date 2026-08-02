@@ -39,10 +39,10 @@ describe("production Box fleet freeze (unmocked RELEASE_CAPABILITIES)", () => {
     expect(availabilityReads).toBe(0);
 
     const created = await Effect.runPromise(
-      service.create().pipe(Effect.either),
+      service.create().pipe(Effect.result),
     );
     expect(created._tag).toBe("Left");
-    if (created._tag === "Left") {
+    if (created._tag === "Failure") {
       expect(JSON.stringify(created.left)).toMatch(
         /Box fleet|not available/i,
       );

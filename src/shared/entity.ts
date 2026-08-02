@@ -19,17 +19,14 @@
 
 import { Schema } from "effect";
 
-export const EntityLifecycle = Schema.Literal(
-  "active",
-  "archived",
-  "soft_deleted",
-);
+export const EntityLifecycle = Schema.Literals(["active", "archived",
+"soft_deleted",]);
 export type EntityLifecycle = typeof EntityLifecycle.Type;
 
 /** Canvas-local node id; never a global free-floating identity. */
 export const EntityId = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(256),
+  Schema.check(Schema.isMinLength(1)),
+  Schema.check(Schema.isMaxLength(256)),
   Schema.brand("EntityId"),
 );
 export type EntityId = typeof EntityId.Type;
@@ -41,7 +38,7 @@ export const asEntityId = (value: string): EntityId => value as EntityId;
  * product identity and no cross-canvas rehome.
  */
 export const EntityKey = Schema.Struct({
-  canvasName: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(64)),
+  canvasName: Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(64))),
   entityId: EntityId,
 });
 export type EntityKey = typeof EntityKey.Type;

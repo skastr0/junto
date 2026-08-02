@@ -31,16 +31,16 @@ export type SchedulerClaimInput = Omit<
   "state"
 >;
 
-export class SchedulerPersistenceError extends Schema.TaggedError<SchedulerPersistenceError>()(
+export class SchedulerPersistenceError extends Schema.TaggedErrorClass<SchedulerPersistenceError>()(
   "SchedulerPersistenceError",
   {
     operation: Schema.String,
     message: Schema.String,
-    cause: Schema.Defect,
+    cause: Schema.Unknown,
   },
 ) {}
 
-export class SchedulerStateCorruptError extends Schema.TaggedError<SchedulerStateCorruptError>()(
+export class SchedulerStateCorruptError extends Schema.TaggedErrorClass<SchedulerStateCorruptError>()(
   "SchedulerStateCorruptError",
   {
     homeStation: Schema.String,
@@ -49,7 +49,7 @@ export class SchedulerStateCorruptError extends Schema.TaggedError<SchedulerStat
   },
 ) {}
 
-export class SchedulerInputError extends Schema.TaggedError<SchedulerInputError>()(
+export class SchedulerInputError extends Schema.TaggedErrorClass<SchedulerInputError>()(
   "SchedulerInputError",
   {
     operation: Schema.String,
@@ -71,10 +71,7 @@ export type SchedulerRepositoryError =
  * - Layer today: SchedulerRepositoryLive / makeSchedulerRepositoryLive — V4 rename candidate SchedulerRepository.layer
  *   Do not dual-export Live + `.layer` names.
  */
-export class SchedulerRepository extends Context.Tag(
-  "@vellum/SchedulerRepository",
-)<
-  SchedulerRepository,
+export class SchedulerRepository extends Context.Service<SchedulerRepository,
   {
     readonly claimInterval: (
       input: SchedulerClaimInput,
@@ -90,8 +87,7 @@ export class SchedulerRepository extends Context.Tag(
       IntervalTimerStateValue | undefined,
       SchedulerRepositoryError
     >;
-  }
->() {}
+  }>()("@vellum/SchedulerRepository") {}
 
 type SchedulerStateRow = StateRow & {
   readonly home_station: string;
@@ -107,7 +103,7 @@ type SchedulerStateRow = StateRow & {
 
 const isHostId = Schema.is(HostId);
 const isTimerKey = Schema.is(TimerKey);
-const decodeState = Schema.decodeUnknownEither(IntervalTimerState);
+const decodeState = Schema.decodeUnknownResult(IntervalTimerState);
 
 const persistenceError = (
   operation: string,
@@ -168,7 +164,7 @@ const stateFromRow = (
         "persisted interval cursor does not satisfy the scheduler contract",
     });
   }
-  return decoded.right;
+  return decoded.success;
 };
 
 const writeState = (

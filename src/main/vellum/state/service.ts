@@ -23,12 +23,12 @@ export type StateRunResult = {
   readonly lastInsertRowid: number | bigint;
 };
 
-export class StateEngineError extends Schema.TaggedError<StateEngineError>()(
+export class StateEngineError extends Schema.TaggedErrorClass<StateEngineError>()(
   "StateEngineError",
   {
     operation: Schema.String,
     message: Schema.String,
-    cause: Schema.Defect,
+    cause: Schema.Unknown,
   },
 ) {}
 
@@ -124,7 +124,5 @@ export type StateEngineShape = {
  *   V4 rename candidate: `StateEngine.layer` — callers live outside this pack;
  *   do not dual-export both names.
  */
-export class StateEngine extends Context.Tag("@vellum/StateEngine")<
-  StateEngine,
-  StateEngineShape
->() {}
+export class StateEngine extends Context.Service<StateEngine,
+  StateEngineShape>()("@vellum/StateEngine") {}

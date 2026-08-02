@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { Context, Effect, Layer, Schema } from "effect";
 import type { DirectoryEntry, ServiceCheck } from "@shared/contracts";
 
-export class FolderError extends Schema.TaggedError<FolderError>()("FolderError", {
+export class FolderError extends Schema.TaggedErrorClass<FolderError>()("FolderError", {
   message: Schema.String,
 }) {}
 
@@ -16,13 +16,11 @@ export class FolderError extends Schema.TaggedError<FolderError>()("FolderError"
  * - Layer today: FolderLive — V4 rename candidate FolderService.layer
  *   Do not dual-export Live + `.layer` names.
  */
-export class FolderService extends Context.Tag("@chassis/FolderService")<
-  FolderService,
+export class FolderService extends Context.Service<FolderService,
   {
     readonly doctor: Effect.Effect<ServiceCheck>;
     readonly readDirectory: (path: string) => Effect.Effect<ReadonlyArray<DirectoryEntry>, FolderError>;
-  }
->() {}
+  }>()("@chassis/FolderService") {}
 
 export const FolderLive = Layer.succeed(
   FolderService,

@@ -75,7 +75,7 @@ export const runMutationBatch = <A, I, R>(options: {
           const data = yield* options.run(item);
           return { index, ok: true as const, data };
         }).pipe(
-          Effect.catchAll((error) =>
+          Effect.catch((error) =>
             Effect.succeed({
               index,
               ok: false as const,

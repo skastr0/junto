@@ -121,7 +121,7 @@ export class EffectAcpChild extends EventEmitter implements AcpChildLike {
 
   constructor(
     private readonly runPromise: RunPromise,
-    private readonly transport: Context.Tag.Service<typeof HermesTransport>,
+    private readonly transport: Context.Service.Shape<typeof HermesTransport>,
     private readonly host: string,
     private readonly profile: HermesProfileName,
   ) {
@@ -317,8 +317,7 @@ export class EffectAcpChild extends EventEmitter implements AcpChildLike {
  * - Layer today: HermesPlaneLive — V4 rename candidate HermesPlane.layer
  *   Do not dual-export Live + `.layer` names.
  */
-export class HermesPlane extends Context.Tag("@vellum/HermesPlane")<
-  HermesPlane,
+export class HermesPlane extends Context.Service<HermesPlane,
   {
     readonly chat: ChatService;
     readonly shutdown: HermesShutdownPort;
@@ -327,8 +326,7 @@ export class HermesPlane extends Context.Tag("@vellum/HermesPlane")<
       key: string,
       text: string,
     ) => Promise<AgentReply>;
-  }
->() {}
+  }>()("@vellum/HermesPlane") {}
 
 export interface HermesShutdownFailure {
   readonly kind: "chat-close-rejected";
@@ -410,7 +408,7 @@ export const finalizeHermesShutdown = (
     return receipt;
   });
 
-export const HermesPlaneLive = Layer.scoped(
+export const HermesPlaneLive = Layer.effect(
   HermesPlane,
   Effect.gen(function* () {
     const transport = yield* HermesTransport;

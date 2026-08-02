@@ -6,16 +6,14 @@ import { HermesPlane } from "./hermes/plane";
 
 // Read-only data plane: hermes only. refresh never fails — a broken adapter
 // yields ok:false. Private source adapters are gone, not stubbed.
-export class SnapshotsService extends Context.Tag("@vellum/SnapshotsService")<
-  SnapshotsService,
+export class SnapshotsService extends Context.Service<SnapshotsService,
   {
     readonly doctor: Effect.Effect<ServiceCheck>;
     readonly current: Effect.Effect<SnapshotState>;
     readonly refresh: (hints?: ReadonlyArray<BindingHint>) => Effect.Effect<SnapshotState>;
     readonly start: () => void;
     readonly subscribe: (listener: (state: SnapshotState) => void) => () => void;
-  }
->() {}
+  }>()("@vellum/SnapshotsService") {}
 
 const emptyState: SnapshotState = { bundles: [] };
 

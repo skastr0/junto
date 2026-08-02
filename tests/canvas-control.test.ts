@@ -248,7 +248,7 @@ describe("canvas control", () => {
       doc: doc(),
       snapshots: { bundles: [] },
     };
-    const decode = Schema.decodeUnknownEither(CanvasControlReadData, {
+    const decode = Schema.decodeUnknownResult(CanvasControlReadData, {
       onExcessProperty: "error",
     });
 
@@ -283,7 +283,7 @@ describe("canvas control", () => {
     );
 
     expect(response._tag).toBe("Right");
-    if (response._tag === "Right" && !response.right.ok) {
+    if (response._tag === "Success" && !response.right.ok) {
       expect(response.right.error.code).toBe("ProtocolError");
     }
     await expect(
@@ -303,7 +303,7 @@ describe("canvas control", () => {
       `${"x".repeat(300)}\n`,
     );
     expect(oversized._tag).toBe("Right");
-    if (oversized._tag === "Right") {
+    if (oversized._tag === "Success") {
       expect(oversized.right.ok).toBe(false);
       if (!oversized.right.ok) {
         expect(oversized.right.error.code).toBe("ProtocolError");
@@ -318,29 +318,29 @@ describe("canvas control", () => {
     });
     const multiple = await rawCall(server.socketPath, `${valid}${valid}`);
     expect(multiple._tag).toBe("Right");
-    if (multiple._tag === "Right" && !multiple.right.ok) {
+    if (multiple._tag === "Success" && !multiple.right.ok) {
       expect(multiple.right.error.code).toBe("ProtocolError");
     }
 
     const response = await Effect.runPromise(
-      Effect.either(readCanvasThroughControl("portfolio", { controlHome })),
+      Effect.result(readCanvasThroughControl("portfolio", { controlHome })),
     );
     expect(response._tag).toBe("Left");
-    if (response._tag === "Left") {
+    if (response._tag === "Failure") {
       expect(response.left.code).toBe("ResponseTooLarge");
     }
   });
 
   it("validates canvas names locally and rejects excess protocol fields", async () => {
     const local = await Effect.runPromise(
-      Effect.either(
+      Effect.result(
         readCanvasThroughControl("../outside", {
           socketPath: "/definitely/missing/canvas-control.sock",
         }),
       ),
     );
     expect(local._tag).toBe("Left");
-    if (local._tag === "Left") {
+    if (local._tag === "Failure") {
       expect(local.left.code).toBe("InputError");
       expect(local.left.message).toContain("invalid canvas name");
     }
@@ -357,7 +357,7 @@ describe("canvas control", () => {
       }),
     );
     expect(excessEnvelope._tag).toBe("Right");
-    if (excessEnvelope._tag === "Right" && !excessEnvelope.right.ok) {
+    if (excessEnvelope._tag === "Success" && !excessEnvelope.right.ok) {
       expect(excessEnvelope.right.error.code).toBe("ProtocolError");
     }
 
@@ -371,7 +371,7 @@ describe("canvas control", () => {
       }),
     );
     expect(excessArgs._tag).toBe("Right");
-    if (excessArgs._tag === "Right" && !excessArgs.right.ok) {
+    if (excessArgs._tag === "Success" && !excessArgs.right.ok) {
       expect(excessArgs.right.error.code).toBe("InputError");
     }
   });
@@ -409,8 +409,8 @@ describe("canvas control", () => {
       JSON.parse(response.trim()) as unknown,
     );
     expect(decoded._tag).toBe("Right");
-    if (decoded._tag === "Right" && !decoded.right.ok) {
-      expect(decoded.right.error.code).toBe("RuntimeDown");
+    if (decoded._tag === "Success" && !decoded.success.ok) {
+      expect(decoded.success.error.code).toBe("RuntimeDown");
     }
     expect(runs).toBe(0);
     await expect(server.close()).resolves.toMatchObject({ clean: true });
@@ -464,7 +464,7 @@ describe("canvas control", () => {
       },
     });
     const client = Effect.runPromise(
-      Effect.either(listCanvasesThroughControl({ controlHome })),
+      Effect.result(listCanvasesThroughControl({ controlHome })),
     );
     await started;
 

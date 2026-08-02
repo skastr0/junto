@@ -85,10 +85,10 @@ const toOp = (
         readonly left: RemoteHostsError;
       },
 ): HostsOpResult => {
-  if (either._tag === "Right") {
-    return { ok: true, hosts: either.right as HostsOpResult["hosts"] };
+  if (either._tag === "Success") {
+    return { ok: true, hosts: either.success as HostsOpResult["hosts"] };
   }
-  return { ok: false, code: either.left.code, message: either.left.message };
+  return { ok: false, code: either.failure.code, message: either.failure.message };
 };
 
 const surfaceShutdownRefusal = <A>(
@@ -219,7 +219,7 @@ export const registerHostsIpc = (
         AppRuntime.runPromise(
           Effect.gen(function* () {
             const hosts = yield* HostsService;
-            const result = yield* Effect.either(hosts.list);
+            const result = yield* Effect.result(hosts.list);
             return toOp(result as never);
           }),
         ),
@@ -262,13 +262,13 @@ export const registerHostsIpc = (
         AppRuntime.runPromise(
           Effect.gen(function* () {
             const boxes = yield* BoxFleetService;
-            const result = yield* Effect.either(boxes.list);
-            return result._tag === "Right"
+            const result = yield* Effect.result(boxes.list);
+            return result._tag === "Success"
               ? ({
                   ok: true,
-                  boxes: result.right.map(projectBoxResource),
+                  boxes: result.success.map(projectBoxResource),
                 } satisfies BoxFleetResult)
-              : boxFailure(result.left);
+              : boxFailure(result.failure);
           }),
         ),
       ),
@@ -283,14 +283,14 @@ export const registerHostsIpc = (
           Effect.gen(function* () {
             const boxes = yield* BoxFleetService;
             const activity = yield* BoxActivityPolicy;
-            const result = yield* Effect.either(boxes.create());
-            if (result._tag === "Right") activity.request();
-            return result._tag === "Right"
+            const result = yield* Effect.result(boxes.create());
+            if (result._tag === "Success") activity.request();
+            return result._tag === "Success"
               ? ({
                   ok: true,
-                  box: projectBoxResource(result.right),
+                  box: projectBoxResource(result.success),
                 } satisfies BoxFleetResult)
-              : boxFailure(result.left);
+              : boxFailure(result.failure);
           }),
         ),
       ),
@@ -312,14 +312,14 @@ export const registerHostsIpc = (
             }
             const boxes = yield* BoxFleetService;
             const activity = yield* BoxActivityPolicy;
-            const result = yield* Effect.either(boxes.refresh(boxId));
-            if (result._tag === "Right") activity.request();
-            return result._tag === "Right"
+            const result = yield* Effect.result(boxes.refresh(boxId));
+            if (result._tag === "Success") activity.request();
+            return result._tag === "Success"
               ? ({
                   ok: true,
-                  box: projectBoxResource(result.right),
+                  box: projectBoxResource(result.success),
                 } satisfies BoxFleetResult)
-              : boxFailure(result.left);
+              : boxFailure(result.failure);
           }),
         ),
       ),
@@ -341,14 +341,14 @@ export const registerHostsIpc = (
             }
             const boxes = yield* BoxFleetService;
             const activity = yield* BoxActivityPolicy;
-            const result = yield* Effect.either(boxes.stop(boxId));
-            if (result._tag === "Right") activity.request();
-            return result._tag === "Right"
+            const result = yield* Effect.result(boxes.stop(boxId));
+            if (result._tag === "Success") activity.request();
+            return result._tag === "Success"
               ? ({
                   ok: true,
-                  box: projectBoxResource(result.right),
+                  box: projectBoxResource(result.success),
                 } satisfies BoxFleetResult)
-              : boxFailure(result.left);
+              : boxFailure(result.failure);
           }),
         ),
       ),
@@ -369,13 +369,13 @@ export const registerHostsIpc = (
               } satisfies BoxFleetResult;
             }
             const boxes = yield* BoxFleetService;
-            const result = yield* Effect.either(boxes.prepareSsh(boxId));
-            return result._tag === "Right"
+            const result = yield* Effect.result(boxes.prepareSsh(boxId));
+            return result._tag === "Success"
               ? ({
                   ok: true,
-                  box: projectBoxResource(result.right),
+                  box: projectBoxResource(result.success),
                 } satisfies BoxFleetResult)
-              : boxFailure(result.left);
+              : boxFailure(result.failure);
           }),
         ),
       ),
@@ -397,14 +397,14 @@ export const registerHostsIpc = (
             }
             const boxes = yield* BoxFleetService;
             const activity = yield* BoxActivityPolicy;
-            const result = yield* Effect.either(boxes.resume(boxId));
-            if (result._tag === "Right") activity.request();
-            return result._tag === "Right"
+            const result = yield* Effect.result(boxes.resume(boxId));
+            if (result._tag === "Success") activity.request();
+            return result._tag === "Success"
               ? ({
                   ok: true,
-                  box: projectBoxResource(result.right),
+                  box: projectBoxResource(result.success),
                 } satisfies BoxFleetResult)
-              : boxFailure(result.left);
+              : boxFailure(result.failure);
           }),
         ),
       ),
@@ -425,10 +425,10 @@ export const registerHostsIpc = (
               } satisfies BoxFleetResult;
             }
             const boxes = yield* BoxFleetService;
-            const result = yield* Effect.either(boxes.detach(boxId));
-            return result._tag === "Right"
+            const result = yield* Effect.result(boxes.detach(boxId));
+            return result._tag === "Success"
               ? ({ ok: true } satisfies BoxFleetResult)
-              : boxFailure(result.left);
+              : boxFailure(result.failure);
           }),
         ),
       ),
@@ -445,10 +445,10 @@ export const registerHostsIpc = (
         AppRuntime.runPromise(
           Effect.gen(function* () {
             const hosts = yield* HostsService;
-            const listed = yield* Effect.either(hosts.list);
+            const listed = yield* Effect.result(hosts.list);
             const enrolled =
-              listed._tag === "Right"
-                ? enrolledTokens(listed.right)
+              listed._tag === "Success"
+                ? enrolledTokens(listed.success)
                 : new Set<string>();
             const snapshot = yield* Effect.promise(() =>
               tailscalePeerCache.refresh(),
@@ -459,7 +459,7 @@ export const registerHostsIpc = (
               .map(toDiscoveredPeer)
               .filter((peer): peer is DiscoveredPeer => peer !== undefined);
             return { ok: true, peers } satisfies HostsDiscoverPeersResult;
-          }).pipe(Effect.catchAll(() => Effect.succeed(DISCOVER_PEERS_EMPTY))),
+          }).pipe(Effect.catch(() => Effect.succeed(DISCOVER_PEERS_EMPTY))),
         ),
       ),
       () => DISCOVER_PEERS_EMPTY,
@@ -483,16 +483,16 @@ export const registerHostsIpc = (
               } satisfies HostsOpResult;
             }
             const hosts = yield* HostsService;
-            const result = yield* Effect.either(hosts.upsert(input));
-            if (result._tag === "Right") {
-              const reconciled = yield* Effect.either(
-                pruneFleetTargetsAgainstHosts(result.right),
+            const result = yield* Effect.result(hosts.upsert(input));
+            if (result._tag === "Success") {
+              const reconciled = yield* Effect.result(
+                pruneFleetTargetsAgainstHosts(result.success),
               );
-              if (reconciled._tag === "Left") {
+              if (reconciled._tag === "Failure") {
                 return {
                   ok: false,
-                  code: reconciled.left.code,
-                  message: reconciled.left.message,
+                  code: reconciled.failure.code,
+                  message: reconciled.failure.message,
                 } satisfies HostsOpResult;
               }
             }
@@ -527,45 +527,45 @@ export const registerHostsIpc = (
               } satisfies HostsOpResult;
             }
             const fleetTargets = yield* StationFleetTargetRepository;
-            const targetRemoved = yield* Effect.either(fleetTargets.remove(id));
-            if (targetRemoved._tag === "Left") {
+            const targetRemoved = yield* Effect.result(fleetTargets.remove(id));
+            if (targetRemoved._tag === "Failure") {
               return {
                 ok: false,
                 code: "io",
-                message: `fleet target could not be removed: ${targetRemoved.left._tag}`,
+                message: `fleet target could not be removed: ${targetRemoved.failure._tag}`,
               } satisfies HostsOpResult;
             }
             // Box-owned hosts: also drop ownership so the Box panel + Fleet
             // stay consistent (stop alone no longer unenrolls).
             const boxes = yield* BoxFleetService;
-            const owned = yield* Effect.either(
+            const owned = yield* Effect.result(
               boxes.list.pipe(
                 Effect.map((list) =>
                   list.find((resource) => resource.hostId === id),
                 ),
               ),
             );
-            if (owned._tag === "Right" && owned.right !== undefined) {
-              const detached = yield* Effect.either(
-                boxes.detach(owned.right.machine.id),
+            if (owned._tag === "Success" && owned.success !== undefined) {
+              const detached = yield* Effect.result(
+                boxes.detach(owned.success.machine.id),
               );
-              if (detached._tag === "Left") {
+              if (detached._tag === "Failure") {
                 return {
                   ok: false,
                   code: "io",
                   message:
-                    detached.left instanceof Error
-                      ? detached.left.message
+                    detached.failure instanceof Error
+                      ? detached.failure.message
                       : "Box could not be detached from Vellum Command",
                 } satisfies HostsOpResult;
               }
               // detach already removed host_registry; reload list for caller.
               const hosts = yield* HostsService;
-              const remaining = yield* Effect.either(hosts.list);
+              const remaining = yield* Effect.result(hosts.list);
               return toOp(remaining as never);
             }
             const hosts = yield* HostsService;
-            const result = yield* Effect.either(hosts.remove(id));
+            const result = yield* Effect.result(hosts.remove(id));
             return toOp(result as never);
           }),
         ),
@@ -592,29 +592,29 @@ export const registerHostsIpc = (
             const boxes = yield* BoxFleetService;
             yield* boxes.ensureHostAvailable(id).pipe(Effect.ignore);
             const startedAt = Date.now();
-            const result = yield* Effect.either(hosts.test(id));
+            const result = yield* Effect.result(hosts.test(id));
             const latencyMs = Date.now() - startedAt;
-            if (result._tag === "Right") {
+            if (result._tag === "Success") {
               return {
-                ok: result.right.ok,
-                detail: result.right.detail,
+                ok: result.success.ok,
+                detail: result.success.detail,
                 latencyMs,
-                ...(result.right.reachability === undefined
+                ...(result.success.reachability === undefined
                   ? {}
-                  : { reachability: result.right.reachability }),
-                ...(result.right.protocol === undefined
+                  : { reachability: result.success.reachability }),
+                ...(result.success.protocol === undefined
                   ? {}
-                  : { protocol: result.right.protocol }),
-                ...(result.right.linuxCapabilities === undefined
+                  : { protocol: result.success.protocol }),
+                ...(result.success.linuxCapabilities === undefined
                   ? {}
-                  : { linuxCapabilities: result.right.linuxCapabilities }),
+                  : { linuxCapabilities: result.success.linuxCapabilities }),
               } satisfies HostsTestResult;
             }
             return {
               ok: false,
-              detail: result.left.message,
-              code: result.left.code,
-              message: result.left.message,
+              detail: result.failure.message,
+              code: result.failure.code,
+              message: result.failure.message,
             } satisfies HostsTestResult;
           }),
         ),
@@ -652,7 +652,7 @@ export const registerHostsIpc = (
               release: RELEASE_CAPABILITIES,
             });
           }).pipe(
-            Effect.catchAll((error) =>
+            Effect.catch((error) =>
               Effect.succeed({
                 ok: false as const,
                 code: "io" as const,

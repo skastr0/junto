@@ -12,30 +12,30 @@
  * (client TerminalControlCommand / write_terminal_session_output).
  */
 
-import { Data, Either, Schema } from "effect";
+import { Data, Result, Schema } from "effect";
 
 // ── Brands ────────────────────────────────────────────────────────────────
 
 export const BindingId = Schema.String.pipe(
-  Schema.minLength(1),
+  Schema.check(Schema.isMinLength(1)),
   Schema.brand("BindingId"),
 );
 export type BindingId = typeof BindingId.Type;
 
 export const SessionEpoch = Schema.String.pipe(
-  Schema.minLength(1),
+  Schema.check(Schema.isMinLength(1)),
   Schema.brand("SessionEpoch"),
 );
 export type SessionEpoch = typeof SessionEpoch.Type;
 
 export const HerdrStreamId = Schema.String.pipe(
-  Schema.minLength(1),
+  Schema.check(Schema.isMinLength(1)),
   Schema.brand("HerdrStreamId"),
 );
 export type HerdrStreamId = typeof HerdrStreamId.Type;
 
 export const HerdrTerminalId = Schema.String.pipe(
-  Schema.minLength(1),
+  Schema.check(Schema.isMinLength(1)),
   Schema.brand("HerdrTerminalId"),
 );
 export type HerdrTerminalId = typeof HerdrTerminalId.Type;
@@ -45,15 +45,15 @@ export type SessionSurface = "native" | "herdr-control";
 
 /** Product geometry floors for control attach / resize (renderer → herdr). */
 export const ControlCols = Schema.Number.pipe(
-  Schema.int(),
-  Schema.greaterThanOrEqualTo(20),
+  Schema.check(Schema.isInt()),
+  Schema.check(Schema.isGreaterThanOrEqualTo(20)),
   Schema.brand("ControlCols"),
 );
 export type ControlCols = typeof ControlCols.Type;
 
 export const ControlRows = Schema.Number.pipe(
-  Schema.int(),
-  Schema.greaterThanOrEqualTo(5),
+  Schema.check(Schema.isInt()),
+  Schema.check(Schema.isGreaterThanOrEqualTo(5)),
   Schema.brand("ControlRows"),
 );
 export type ControlRows = typeof ControlRows.Type;
@@ -141,36 +141,36 @@ export const sessionPhaseFromControlIo = (
 
 // ── Tagged errors ─────────────────────────────────────────────────────────
 
-export class HerdrControlInactiveError extends Schema.TaggedError<HerdrControlInactiveError>()(
+export class HerdrControlInactiveError extends Schema.TaggedErrorClass<HerdrControlInactiveError>()(
   "HerdrControlInactiveError",
   {
     message: Schema.String,
   },
 ) {}
 
-export class HerdrControlPipeError extends Schema.TaggedError<HerdrControlPipeError>()(
+export class HerdrControlPipeError extends Schema.TaggedErrorClass<HerdrControlPipeError>()(
   "HerdrControlPipeError",
   {
-    channel: Schema.Literal("stdin", "stdout", "stderr"),
+    channel: Schema.Literals(["stdin", "stdout", "stderr"]),
     message: Schema.String,
   },
 ) {}
 
-export class HerdrControlProtocolError extends Schema.TaggedError<HerdrControlProtocolError>()(
+export class HerdrControlProtocolError extends Schema.TaggedErrorClass<HerdrControlProtocolError>()(
   "HerdrControlProtocolError",
   {
     message: Schema.String,
   },
 ) {}
 
-export class HerdrControlOverflowError extends Schema.TaggedError<HerdrControlOverflowError>()(
+export class HerdrControlOverflowError extends Schema.TaggedErrorClass<HerdrControlOverflowError>()(
   "HerdrControlOverflowError",
   {
     message: Schema.String,
   },
 ) {}
 
-export class HerdrControlShutdownError extends Schema.TaggedError<HerdrControlShutdownError>()(
+export class HerdrControlShutdownError extends Schema.TaggedErrorClass<HerdrControlShutdownError>()(
   "HerdrControlShutdownError",
   {
     message: Schema.String,
@@ -184,25 +184,25 @@ export type HerdrControlError =
   | HerdrControlOverflowError
   | HerdrControlShutdownError;
 
-export class TerminalSpawnError extends Schema.TaggedError<TerminalSpawnError>()(
+export class TerminalSpawnError extends Schema.TaggedErrorClass<TerminalSpawnError>()(
   "TerminalSpawnError",
   {
-    surface: Schema.Literal("native", "herdr-control"),
+    surface: Schema.Literals(["native", "herdr-control"]),
     message: Schema.String,
   },
 ) {}
 
-export class TerminalAdmitError extends Schema.TaggedError<TerminalAdmitError>()(
+export class TerminalAdmitError extends Schema.TaggedErrorClass<TerminalAdmitError>()(
   "TerminalAdmitError",
   {
     message: Schema.String,
   },
 ) {}
 
-export class TerminalWriteError extends Schema.TaggedError<TerminalWriteError>()(
+export class TerminalWriteError extends Schema.TaggedErrorClass<TerminalWriteError>()(
   "TerminalWriteError",
   {
-    surface: Schema.Literal("native", "herdr-control"),
+    surface: Schema.Literals(["native", "herdr-control"]),
     message: Schema.String,
   },
 ) {}
@@ -258,18 +258,18 @@ export type HerdrTerminalInputText = typeof HerdrTerminalInputText.Type;
 
 export const HerdrTerminalResize = Schema.Struct({
   type: Schema.Literal("terminal.resize"),
-  cols: Schema.Number.pipe(Schema.int(), Schema.greaterThan(0)),
-  rows: Schema.Number.pipe(Schema.int(), Schema.greaterThan(0)),
+  cols: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThan(0))),
+  rows: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThan(0))),
 });
 export type HerdrTerminalResize = typeof HerdrTerminalResize.Type;
 
 export const HerdrTerminalScroll = Schema.Struct({
   type: Schema.Literal("terminal.scroll"),
-  direction: Schema.Literal("up", "down"),
-  lines: Schema.Number.pipe(Schema.int(), Schema.greaterThan(0)),
-  column: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0))),
-  row: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0))),
-  modifiers: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.between(0, 255))),
+  direction: Schema.Literals(["up", "down"]),
+  lines: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThan(0))),
+  column: Schema.optional(Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0)))),
+  row: Schema.optional(Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0)))),
+  modifiers: Schema.optional(Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isBetween({ minimum: 0, maximum: 255 })))),
 });
 export type HerdrTerminalScroll = typeof HerdrTerminalScroll.Type;
 
@@ -341,7 +341,7 @@ export const HerdrTerminalClosed = Schema.Struct({
 });
 export type HerdrTerminalClosed = typeof HerdrTerminalClosed.Type;
 
-export const HerdrControlInbound = Schema.Union(HerdrTerminalFrame, HerdrTerminalClosed);
+export const HerdrControlInbound = Schema.Union([HerdrTerminalFrame, HerdrTerminalClosed]);
 export type HerdrControlInbound = typeof HerdrControlInbound.Type;
 
 /** Best-effort parse of one control stdout line; unknown types return undefined. */
@@ -352,8 +352,8 @@ export const parseHerdrControlInbound = (line: string): HerdrControlInbound | un
   } catch {
     return undefined;
   }
-  const decoded = Schema.decodeUnknownEither(HerdrControlInbound)(raw);
-  return Either.isRight(decoded) ? decoded.right : undefined;
+  const decoded = Schema.decodeUnknownResult(HerdrControlInbound)(raw);
+  return Result.isSuccess(decoded) ? decoded.success : undefined;
 };
 
 /** Normalize raw cols/rows for product control attach (floors). */
@@ -381,25 +381,22 @@ export type ControlWriteOffer = {
  * Stable close/break codes for product recovery (renderer policy table).
  * Prefer these over freeform reason strings when branching reconnect UX.
  */
-export const SessionRecoveryCode = Schema.Literal(
-  "pipe_broken",
-  "overflow",
-  "child_error",
-  "stdin_error",
-  "stdout_error",
-  "stderr_error",
-  "client_close",
-  "renderer_destroyed",
-  "renderer_process_gone",
-  "renderer_reloaded",
-  "renderer_gone",
-  "scope_release",
-  "host_revoked",
-  "superseded",
-  "exit",
-  "pane_gone",
-  "unknown",
-);
+export const SessionRecoveryCode = Schema.Literals(["pipe_broken", "overflow",
+"child_error",
+"stdin_error",
+"stdout_error",
+"stderr_error",
+"client_close",
+"renderer_destroyed",
+"renderer_process_gone",
+"renderer_reloaded",
+"renderer_gone",
+"scope_release",
+"host_revoked",
+"superseded",
+"exit",
+"pane_gone",
+"unknown",]);
 export type SessionRecoveryCode = typeof SessionRecoveryCode.Type;
 
 /** Map freeform close reason → recovery code for UI policy. */

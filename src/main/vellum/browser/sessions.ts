@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Effect, Either } from "effect";
+import { Effect, Result } from "effect";
 import {
   initialBrowserSession,
   isAllowedBrowserUrl,
@@ -526,7 +526,7 @@ const validateTarget = (
     return err("invalid", "resolved page target ref exceeds the hard limit");
   }
   const parsed = parseNodeRef(target.ref);
-  if (!parsed.ok || parsed.value.nodeId !== target.nodeId) {
+  if (!parsed.ok || parsed.success.nodeId !== target.nodeId) {
     return err("invalid", "resolved page target does not match its canonical ref");
   }
   if (!isUtf8WithinLimit(target.url, BROWSER_MAX_URL_BYTES)) {
@@ -1231,9 +1231,9 @@ export class BrowserSessionService {
   ): Promise<BrowserResult<BrowserProfileWipeReceipt>> {
     if (!isValidProfileId(profileId)) return err("invalid", "invalid browser profile id");
     try {
-      const outcome = await Effect.runPromise(Effect.either(this.profiles.wipeProfile(profileId)));
-      if (Either.isLeft(outcome)) {
-        const error = outcome.left;
+      const outcome = await Effect.runPromise(Effect.result(this.profiles.wipeProfile(profileId)));
+      if (Result.isFailure(outcome)) {
+        const error = outcome.failure;
         const code = error.code === "invalid" || error.code === "not_found" || error.code === "forbidden"
           ? error.code
           : error.code === "pending_wipe"
@@ -1241,7 +1241,7 @@ export class BrowserSessionService {
             : "failed";
         return err(code, error.message);
       }
-      const receipt = outcome.right;
+      const receipt = outcome.success;
       return receipt.status === "complete"
         ? {
             ok: true,

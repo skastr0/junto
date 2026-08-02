@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Schema } from "effect";
+import { Context, Effect, Layer, Schema, Semaphore } from "effect";
 import { resolveVellumHome } from "@shared/vellum-home";
 import { join } from "node:path";
 import {
@@ -32,33 +32,30 @@ import { parseSshRoute, SshTransport } from "../ssh";
 
 const decodeBoxId = Schema.decodeUnknown(BoxId);
 
-export class BoxFleetValidationError extends Schema.TaggedError<BoxFleetValidationError>()(
+export class BoxFleetValidationError extends Schema.TaggedErrorClass<BoxFleetValidationError>()(
   "BoxFleetValidationError",
   {
     detail: Schema.String,
   },
 ) {}
 
-export class BoxFleetAuthorizationError extends Schema.TaggedError<BoxFleetAuthorizationError>()(
+export class BoxFleetAuthorizationError extends Schema.TaggedErrorClass<BoxFleetAuthorizationError>()(
   "BoxFleetAuthorizationError",
   {
     detail: Schema.String,
   },
 ) {}
 
-export class BoxFleetProvisioningError extends Schema.TaggedError<BoxFleetProvisioningError>()(
+export class BoxFleetProvisioningError extends Schema.TaggedErrorClass<BoxFleetProvisioningError>()(
   "BoxFleetProvisioningError",
   {
     boxId: BoxId,
-    stage: Schema.Literal(
-      "record-ownership",
-      "prepare-ssh",
-      "record-ssh-preparation",
-      "verify-openssh",
-      "enroll-host",
-      "detach",
-      "refresh-routing",
-    ),
+    stage: Schema.Literals(["record-ownership", "prepare-ssh",
+    "record-ssh-preparation",
+    "verify-openssh",
+    "enroll-host",
+    "detach",
+    "refresh-routing",]),
     detail: Schema.String,
   },
 ) {}
@@ -86,8 +83,7 @@ export const BOX_IDLE_AUTO_STOP_SECONDS = 10 * 60;
  * - Layer today: BoxFleetServiceLive / makeBoxFleetService — V4 rename candidate BoxFleetService.layer
  *   Do not dual-export Live + `.layer` names.
  */
-export class BoxFleetService extends Context.Tag("@vellum/box/BoxFleetService")<
-  BoxFleetService,
+export class BoxFleetService extends Context.Service<BoxFleetService,
   {
     readonly availability: Effect.Effect<BoxCliAvailability>;
     readonly list: Effect.Effect<
@@ -128,8 +124,7 @@ export class BoxFleetService extends Context.Tag("@vellum/box/BoxFleetService")<
     readonly ensureHostAvailable: (
       hostId: string,
     ) => Effect.Effect<BoxResource | undefined, BoxFleetError>;
-  }
->() {}
+  }>()("@vellum/box/BoxFleetService") {}
 
 const validationError = (cause: unknown): BoxFleetValidationError =>
   BoxFleetValidationError.make({
@@ -175,14 +170,14 @@ const sshUsable = (machine: BoxMachine): boolean =>
     machine.state === "running");
 
 export const makeBoxFleetService = (
-  cli: Context.Tag.Service<typeof BoxCli>,
-  ownership: Context.Tag.Service<typeof BoxOwnershipRepository>,
+  cli: Context.Service.Shape<typeof BoxCli>,
+  ownership: Context.Service.Shape<typeof BoxOwnershipRepository>,
   authorizeMutation: Effect.Effect<void, BoxFleetAuthorizationError> =
     Effect.void,
   handoff: BoxOpenSshHandoff = defaultHandoff,
-): Context.Tag.Service<typeof BoxFleetService> => {
-  const activationLocks = new Map<string, Effect.Semaphore>();
-  const activationLock = (hostId: string): Effect.Semaphore => {
+): Context.Service.Shape<typeof BoxFleetService> => {
+  const activationLocks = new Map<string, Semaphore.Semaphore>();
+  const activationLock = (hostId: string): Semaphore.Semaphore => {
     const existing = activationLocks.get(hostId);
     if (existing !== undefined) return existing;
     const created = Effect.unsafeMakeSemaphore(1);

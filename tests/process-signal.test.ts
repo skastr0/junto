@@ -37,8 +37,8 @@ afterEach(() => {
 
 describe("process-signal authority", () => {
   it("retains self and parent pid rejection as a group-mint defense", () => {
-    expect(Schema.decodeUnknownEither(KillablePid)(process.pid)._tag).toBe("Left");
-    expect(Schema.decodeUnknownEither(KillablePid)(process.ppid)._tag).toBe("Left");
+    expect(Schema.decodeUnknownResult(KillablePid)(process.pid)._tag).toBe("Left");
+    expect(Schema.decodeUnknownResult(KillablePid)(process.ppid)._tag).toBe("Left");
   });
   it("has no raw-pid admission export", async () => {
     const surface = await import("../src/main/vellum/process-signal");

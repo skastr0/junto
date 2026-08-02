@@ -1,4 +1,4 @@
-import { Either, Schema } from "effect";
+import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   evaluateIntervalTimer,
@@ -271,14 +271,14 @@ describe("persisted timer-state boundary", () => {
   });
 
   it("rejects partial/corrupt cursors instead of repairing them", () => {
-    const decode = Schema.decodeUnknownEither(IntervalTimerState);
+    const decode = Schema.decodeUnknownResult(IntervalTimerState);
     const corrupt = {
       ...initializedState(),
       nextDueSlot: "9",
       lastFiredSlot: "4",
     };
 
-    expect(Either.isLeft(decode(corrupt))).toBe(true);
+    expect(Result.isFailure(decode(corrupt))).toBe(true);
     expect(evaluate({ state: corrupt })).toEqual({
       _tag: "Ineligible",
       reason: "invalid-state",
@@ -292,8 +292,8 @@ describe("persisted timer-state boundary", () => {
     };
 
     expect(
-      Either.isLeft(
-        Schema.decodeUnknownEither(IntervalTimerState)(corrupt),
+      Result.isFailure(
+        Schema.decodeUnknownResult(IntervalTimerState)(corrupt),
       ),
     ).toBe(true);
     expect(evaluate({ state: corrupt })).toEqual({

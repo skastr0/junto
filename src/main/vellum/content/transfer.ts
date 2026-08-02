@@ -96,7 +96,7 @@ export class ContentTransferError extends Error {
 }
 
 type StateService = StateEngineShape;
-type SshService = Context.Tag.Service<typeof SshTransport>;
+type SshService = Context.Service.Shape<typeof SshTransport>;
 
 const transferIdFor = (
   direction: "inbound" | "outbound",
@@ -186,7 +186,7 @@ const streamAsAsyncIterable = <E>(
         signal();
       }),
     ),
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       Effect.sync(() => {
         failed = onError(error);
         done = true;
@@ -259,9 +259,7 @@ export type ContentTransferServiceShape = {
  * - Layer today: `makeContentTransferServiceLive` — V4 rename candidate
  *   `ContentTransferService.layer` (no dual Live+layer export).
  */
-export class ContentTransferService extends Context.Tag(
-  "@vellum/ContentTransferService",
-)<ContentTransferService, ContentTransferServiceShape>() {}
+export class ContentTransferService extends Context.Service<ContentTransferService, ContentTransferServiceShape>()("@vellum/ContentTransferService") {}
 
 const makeContentTransferService = (
   state: StateService,

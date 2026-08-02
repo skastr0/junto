@@ -84,25 +84,25 @@ WantedBy=default.target
 };
 
 const SystemdStateToken = Schema.String.pipe(
-  Schema.maxLength(64),
-  Schema.pattern(/^[a-z][a-z0-9-]*$/),
+  Schema.check(Schema.isMaxLength(64)),
+  Schema.check(Schema.isPattern(/^[a-z][a-z0-9-]*$/)),
 );
 const SystemdMainPidText = Schema.String.pipe(
-  Schema.maxLength(10),
-  Schema.pattern(/^(0|[1-9]\d*)$/),
+  Schema.check(Schema.isMaxLength(10)),
+  Schema.check(Schema.isPattern(/^(0|[1-9]\d*)$/)),
 );
 const SystemdShowFields = Schema.Struct({
   LoadState: SystemdStateToken,
   ActiveState: SystemdStateToken,
   SubState: SystemdStateToken,
   MainPID: SystemdMainPidText,
-  ControlGroup: Schema.String.pipe(Schema.maxLength(512)),
-  InvocationID: Schema.String.pipe(Schema.maxLength(32)),
+  ControlGroup: Schema.String.pipe(Schema.check(Schema.isMaxLength(512))),
+  InvocationID: Schema.String.pipe(Schema.check(Schema.isMaxLength(32))),
 });
 type SystemdShowFields = typeof SystemdShowFields.Type;
 
-const SystemdObservedPid = Schema.Int.pipe(
-  Schema.between(0, 0x7fff_ffff),
+const SystemdObservedPid = Schema.Number.pipe(Schema.check(Schema.isInt()), 
+  Schema.check(Schema.isBetween({ minimum: 0, maximum: 0x7fff_ffff })),
   Schema.brand("SystemdObservedPid"),
 );
 type SystemdObservedPid = typeof SystemdObservedPid.Type;
@@ -179,7 +179,7 @@ const parseSystemdShow = (stdout: string): ParsedSystemdShow => {
     fields[key] = line.slice(separator + 1);
   }
 
-  const decoded = Schema.decodeUnknownEither(SystemdShowFields)(fields);
+  const decoded = Schema.decodeUnknownResult(SystemdShowFields)(fields);
   if (decoded._tag === "Left") {
     return Object.freeze({
       kind: "invalid",
@@ -187,17 +187,17 @@ const parseSystemdShow = (stdout: string): ParsedSystemdShow => {
     });
   }
   if (
-    decoded.right.ActiveState === "active" &&
-    (!/^\/[\x21-\x7e]*$/.test(decoded.right.ControlGroup) ||
-      !/^[0-9a-f]{32}$/.test(decoded.right.InvocationID))
+    decoded.success.ActiveState === "active" &&
+    (!/^\/[\x21-\x7e]*$/.test(decoded.success.ControlGroup) ||
+      !/^[0-9a-f]{32}$/.test(decoded.success.InvocationID))
   ) {
     return Object.freeze({
       kind: "invalid",
       diagnostic: "systemctl returned invalid active service identity fields",
     });
   }
-  const decodedPid = Schema.decodeUnknownEither(SystemdObservedPid)(
-    Number(decoded.right.MainPID),
+  const decodedPid = Schema.decodeUnknownResult(SystemdObservedPid)(
+    Number(decoded.success.MainPID),
   );
   if (decodedPid._tag === "Left") {
     return Object.freeze({
@@ -207,8 +207,8 @@ const parseSystemdShow = (stdout: string): ParsedSystemdShow => {
   }
   return Object.freeze({
     kind: "fields",
-    fields: decoded.right,
-    mainPid: decodedPid.right,
+    fields: decoded.success,
+    mainPid: decodedPid.success,
   });
 };
 

@@ -141,12 +141,12 @@ export const resolveRemoteDeploymentTarget = (
     }
     const remoteHost = host as DeployableRemoteHost;
 
-    const sshTarget = yield* parseHostSshRoute(host).pipe(Effect.either);
-    if (sshTarget._tag === "Left") {
+    const sshTarget = yield* parseHostSshRoute(host).pipe(Effect.result);
+    if (sshTarget._tag === "Failure") {
       return {
         ok: false,
         result: remoteDeploymentFailure(
-          `Invalid endpoint: ${sshTarget.left.message}`,
+          `Invalid endpoint: ${sshTarget.failure.message}`,
           {
             code: "validation",
           },
@@ -155,8 +155,8 @@ export const resolveRemoteDeploymentTarget = (
     }
     const stages: string[] = ["endpoint ok"];
 
-    const warm = yield* ssh.warm(sshTarget.right).pipe(Effect.either);
-    if (warm._tag === "Left") {
+    const warm = yield* ssh.warm(sshTarget.success).pipe(Effect.result);
+    if (warm._tag === "Failure") {
       return {
         ok: false,
         result: remoteDeploymentFailure(
@@ -168,9 +168,9 @@ export const resolveRemoteDeploymentTarget = (
     stages.push("ssh warm ok");
 
     const unameCommand = yield* remoteUname().pipe(
-      Effect.either,
+      Effect.result,
     );
-    if (unameCommand._tag === "Left") {
+    if (unameCommand._tag === "Failure") {
       return {
         ok: false,
         result: remoteDeploymentFailure(
@@ -180,9 +180,9 @@ export const resolveRemoteDeploymentTarget = (
       };
     }
     const uname = yield* ssh
-      .run(oneShot(sshTarget.right, unameCommand.right, { budget: "short" }))
-      .pipe(Effect.either);
-    if (uname._tag === "Left") {
+      .run(oneShot(sshTarget.success, unameCommand.success, { budget: "short" }))
+      .pipe(Effect.result);
+    if (uname._tag === "Failure") {
       return {
         ok: false,
         result: remoteDeploymentFailure(
@@ -195,7 +195,7 @@ export const resolveRemoteDeploymentTarget = (
       };
     }
 
-    const evidence = decodeRemotePlatformEvidence(uname.right.stdout);
+    const evidence = decodeRemotePlatformEvidence(uname.success.stdout);
     if (!evidence.ok) {
       if (evidence.unsupportedTarget.reportedKernel) {
         stages.push(
@@ -217,8 +217,8 @@ export const resolveRemoteDeploymentTarget = (
       ok: true,
       target: Object.freeze({
         host: remoteHost,
-        endpoint: inspectSshTarget(sshTarget.right).endpoint,
-        sshTarget: sshTarget.right,
+        endpoint: inspectSshTarget(sshTarget.success).endpoint,
+        sshTarget: sshTarget.success,
         platform: evidence.platform,
         progress: Object.freeze([...stages]),
       }),

@@ -440,7 +440,7 @@ export const makeBrowserShutdownCoordinator = (input: {
 };
 
 export interface BrowserCompositionRuntime {
-  readonly state: Context.Tag.Service<typeof StateEngine>;
+  readonly state: Context.Service.Shape<typeof StateEngine>;
   readonly primaryCredentialHealth?: () => boolean;
   readonly profileRoot?: string;
   readonly profileGate?: BrowserProfileGate;

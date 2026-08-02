@@ -205,8 +205,8 @@ const resolveRendererActor = (
 ): Effect.Effect<RendererActorResolution, never, CanvasesService> =>
   Effect.gen(function* () {
     const canvases = yield* CanvasesService;
-    const read = yield* canvases.read(canvasName).pipe(Effect.either);
-    if (read._tag === "Left") {
+    const read = yield* canvases.read(canvasName).pipe(Effect.result);
+    if (read._tag === "Failure") {
       return {
         ok: false,
         result: {
@@ -219,7 +219,7 @@ const resolveRendererActor = (
       };
     }
     const actor = resolveProjectedIpcActorRef(
-      read.right.actorRefs,
+      read.success.actorRefs,
       canvasName,
       nodeId,
     );
@@ -459,9 +459,9 @@ export const registerVellumIpc = (): void => {
         Effect.gen(function* () {
           const pause = yield* PausePlane;
           yield* pause.start;
-          const written = yield* Effect.either(pause.setScopePaused(canvas, scope, paused));
-          if (written._tag === "Left") {
-            return { ok: false as const, error: written.left.message };
+          const written = yield* Effect.result(pause.setScopePaused(canvas, scope, paused));
+          if (written._tag === "Failure") {
+            return { ok: false as const, error: written.failure.message };
           }
           return { ok: true as const, state: pause.stateFor(canvas) };
         }),
@@ -559,7 +559,7 @@ export const registerVellumIpc = (): void => {
           );
           return { ok: true as const, ref: result.ref };
         }).pipe(
-          Effect.catchAll((error) =>
+          Effect.catch((error) =>
             Effect.succeed({
               ok: false as const,
               error: error instanceof Error ? error.message : String(error),
@@ -866,7 +866,7 @@ export const registerVellumIpc = (): void => {
                   topicId: result.data.topic.topicId,
                   topicTitle: result.data.topic.title,
                   excerptSource: title,
-                }).pipe(Effect.catchAll(() => Effect.void));
+                }).pipe(Effect.catch(() => Effect.void));
               }
               return result;
             }),
@@ -985,7 +985,7 @@ export const registerVellumIpc = (): void => {
               AppRuntime.runPromise(canvases.ensureSeed),
             ),
           catch: () => undefined,
-        }).pipe(Effect.catchAll(() => Effect.void));
+        }).pipe(Effect.catch(() => Effect.void));
       }
       canvases.subscribeChanges((name) => broadcast(IPC_CHANNELS.canvasChanged, name));
       canvases.subscribeChanges(() => {
@@ -1240,7 +1240,7 @@ export const registerVellumIpc = (): void => {
             AppRuntime.runPromise(
               canvases.read(name).pipe(
                 Effect.map((r) => r.doc),
-                Effect.catchAll(() => Effect.succeed(undefined as CanvasDoc | undefined)),
+                Effect.catch(() => Effect.succeed(undefined as CanvasDoc | undefined)),
               ),
             ),
           hasAcceptedMessageDelivery: (canvas, nodeId, messageId) =>
@@ -1251,7 +1251,7 @@ export const registerVellumIpc = (): void => {
                   { canvasName: canvas, nodeId },
                   mailboxMessageDeliveryId(canvas, nodeId, messageId),
                 );
-              }).pipe(Effect.catchAll(() => Effect.succeed(false))),
+              }).pipe(Effect.catch(() => Effect.succeed(false))),
             ),
           acceptMessageDelivery: (canvas, nodeId, messageId) =>
             runMainAuthoring("delivery.message-stamp", async () => {
@@ -1323,7 +1323,8 @@ export const registerVellumIpc = (): void => {
       // First usage fetch is fire-and-forget off the boot critical path;
       // codexbar can take ~15-20s so it never blocks window open.
       usage.start();
-      kernel.start();
+      // V4-KERNEL: bind warm AppRuntime; kernel has no local Runtime entry.
+      kernel.start((effect) => AppRuntime.runPromise(effect as never));
 
       if (stationForSeed.station.role === "command-center") {
         yield* fleetPropagation.start();

@@ -1,4 +1,4 @@
-import { Context, Effect, Either, Layer, Schema } from "effect";
+import { Context, Effect, Result, Layer, Schema, Semaphore } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
 import type { StationProtocolObservation } from "@shared/station-status";
 import {
@@ -40,7 +40,7 @@ import {
 import { setHostsSnapshot } from "./snapshot";
 import { StateEngine } from "../state/service";
 
-const decodeHost = Schema.decodeUnknownEither(RemoteHost, {
+const decodeHost = Schema.decodeUnknownResult(RemoteHost, {
   onExcessProperty: "error",
 });
 
@@ -54,8 +54,7 @@ export type { ConfigureRemoteResult, DeployRemoteResult };
  * @see docs/END_STATE-effect-foundation.md §S4
  * @see Playground/effect/migration/services.md
  */
-export class HostsService extends Context.Tag("@vellum/HostsService")<
-  HostsService,
+export class HostsService extends Context.Service<HostsService,
   {
     readonly doctor: Effect.Effect<ServiceCheck>;
     /** Observation from the one persistent fleet supervisor/session per Remote. */
@@ -104,11 +103,10 @@ export class HostsService extends Context.Tag("@vellum/HostsService")<
         ) => Effect.Effect<void, RemoteHostsError>;
       },
     ) => Effect.Effect<ConfiguredRemoteDeployResult>;
-  }
->() {}
+  }>()("@vellum/HostsService") {}
 
 /** Canonical service shape for `HostsService` (one id, one shape). */
-export type HostsServiceShape = Context.Tag.Service<typeof HostsService>;
+export type HostsServiceShape = Context.Service.Shape<typeof HostsService>;
 
 const asRemoteHostsError = (error: unknown): RemoteHostsError =>
   error instanceof RemoteHostsError
@@ -135,7 +133,7 @@ const loadHostsIntoRoutingSnapshot = (
 export const makeHostsService = (
   registry: HostsRegistry,
   ssh: SshTransportShape,
-  fleet: Context.Tag.Service<typeof StationFleetPropagation>,
+  fleet: Context.Service.Shape<typeof StationFleetPropagation>,
   operations: {
     readonly configureRemoteHost: typeof configureRemoteHost;
     readonly deployRemoteHost: typeof deployRemoteHost;
@@ -146,12 +144,12 @@ export const makeHostsService = (
     deployConfiguredRemoteHost,
   },
 ): HostsServiceShape => {
-  const mutationLocks = new Map<string, Effect.Semaphore>();
+  const mutationLocks = new Map<string, Semaphore.Semaphore>();
   const mutationTarget = (host: RemoteHostT): string =>
     host.kind === "remote" && host.sshEndpoint
       ? `remote:${host.sshEndpoint}`
       : `local:${host.id}`;
-  const mutationLockFor = (target: string): Effect.Semaphore => {
+  const mutationLockFor = (target: string): Semaphore.Semaphore => {
     const existing = mutationLocks.get(target);
     if (existing) return existing;
     const created = Effect.unsafeMakeSemaphore(1);
@@ -182,16 +180,16 @@ export const makeHostsService = (
     upsert: (input) =>
       Effect.gen(function* () {
         const decoded = decodeHost(input);
-        if (Either.isLeft(decoded)) {
+        if (Result.isFailure(decoded)) {
           return yield* Effect.fail(
             new RemoteHostsError(
               "validation",
-              `invalid host: ${decoded.left.message}`,
+              `invalid host: ${decoded.failure.message}`,
             ),
           );
         }
         const hosts = yield* Effect.tryPromise({
-          try: () => registry.upsert(decoded.right),
+          try: () => registry.upsert(decoded.success),
           catch: asRemoteHostsError,
         });
         setHostsSnapshot(hosts);
@@ -246,22 +244,22 @@ export const makeHostsService = (
             disposition: "not-started" as const,
           } satisfies DeployRemoteResult;
         }
-        const hostResult = yield* Effect.either(
+        const hostResult = yield* Effect.result(
           Effect.tryPromise({
             try: () => registry.get(id),
             catch: asRemoteHostsError,
           }),
         );
-        if (hostResult._tag === "Left") {
+        if (hostResult._tag === "Failure") {
           return {
             ok: false,
-            detail: hostResult.left.message,
-            code: hostResult.left.code,
+            detail: hostResult.fail.message,
+            code: hostResult.fail.code,
             stages: [],
             disposition: "not-started" as const,
           } satisfies DeployRemoteResult;
         }
-        const host = hostResult.right;
+        const host = hostResult.succeed;
         if (!host) {
           return {
             ok: false,
@@ -296,28 +294,28 @@ export const makeHostsService = (
             },
           } satisfies ConfiguredRemoteDeployResult;
         }
-        const hostResult = yield* Effect.either(
+        const hostResult = yield* Effect.result(
           Effect.tryPromise({
             try: () => registry.get(id),
             catch: asRemoteHostsError,
           }),
         );
-        if (hostResult._tag === "Left") {
+        if (hostResult._tag === "Failure") {
           return {
             ok: false,
-            detail: hostResult.left.message,
-            code: hostResult.left.code,
-            message: hostResult.left.message,
+            detail: hostResult.fail.message,
+            code: hostResult.fail.code,
+            message: hostResult.fail.message,
             hostResolved: false,
             stages: [],
             disposition: "not-started" as const,
             outcome: "failed" as const,
             packageState: "previous" as const,
             role: "previous" as const,
-            configuration: { ok: false, detail: hostResult.left.message },
+            configuration: { ok: false, detail: hostResult.fail.message },
           } satisfies ConfiguredRemoteDeployResult;
         }
-        const host = hostResult.right;
+        const host = hostResult.succeed;
         if (!host) {
           const detail = `unknown host: ${id}`;
           return {
@@ -347,14 +345,14 @@ export const makeHostsService = (
             if (!options.onCompleted) return deployed;
             const completion = yield* options
               .onCompleted(host, deployed)
-              .pipe(Effect.either);
-            if (completion._tag === "Right") {
+              .pipe(Effect.result);
+            if (completion._tag === "Success") {
               return {
                 ...deployed,
                 statusRecorded: true,
               } satisfies ConfiguredRemoteDeployResult;
             }
-            const persistenceDetail = `local deployment receipt could not be persisted: ${completion.left.message}`;
+            const persistenceDetail = `local deployment receipt could not be persisted: ${completion.failure.message}`;
             return {
               ...deployed,
               detail: `${deployed.detail} · ${persistenceDetail}`,
@@ -380,7 +378,7 @@ export const HostsServiceLive = Layer.effect(
     // visible to synchronous Herdr/Hermes routing before this layer can feed
     // either transport or plane.
     yield* loadHostsIntoRoutingSnapshot(() => registry.reload()).pipe(
-      Effect.catchAll(() =>
+      Effect.catch(() =>
         Effect.sync(() => {
           // A corrupt/unavailable database must not mint stale remote routing
           // or brick this-machine surfaces. Registry methods still surface the

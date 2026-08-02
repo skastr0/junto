@@ -222,16 +222,16 @@ const configureRemoteEffect = (
 
     const settingsSvc = yield* SettingsService;
     const hosts = yield* HostsService;
-    const settingsResult = yield* Effect.either(settingsSvc.get);
-    if (settingsResult._tag === "Left") {
+    const settingsResult = yield* Effect.result(settingsSvc.get);
+    if (settingsResult._tag === "Failure") {
       return {
         ok: false,
-        detail: settingsResult.left.message,
-        code: settingsResult.left.code,
-        message: settingsResult.left.message,
+        detail: settingsResult.fail.message,
+        code: settingsResult.fail.code,
+        message: settingsResult.fail.message,
       } satisfies HostsConfigureRemoteResult;
     }
-    if (settingsResult.right.station.role !== "command-center") {
+    if (settingsResult.succeed.station.role !== "command-center") {
       const detail =
         "Configure as Remote is only available when this station is Command Center";
       return {
@@ -242,31 +242,31 @@ const configureRemoteEffect = (
       } satisfies HostsConfigureRemoteResult;
     }
 
-    const authority = yield* Effect.either(
+    const authority = yield* Effect.result(
       resolveCommandCenterConfigureOptions(true),
     );
-    if (authority._tag === "Left") {
+    if (authority._tag === "Failure") {
       return {
         ok: false,
-        detail: authority.left.message,
-        code: authority.left.code,
-        message: authority.left.message,
+        detail: authority.failure.message,
+        code: authority.failure.code,
+        message: authority.failure.message,
       } satisfies HostsConfigureRemoteResult;
     }
-    const result = yield* Effect.either(
-      hosts.configureRemote(id, authority.right),
+    const result = yield* Effect.result(
+      hosts.configureRemote(id, authority.success),
     );
-    if (result._tag === "Left") {
+    if (result._tag === "Failure") {
       return {
         ok: false,
-        detail: result.left.message,
-        code: result.left.code,
-        message: result.left.message,
+        detail: result.failure.message,
+        code: result.failure.code,
+        message: result.failure.message,
       } satisfies HostsConfigureRemoteResult;
     }
 
-    if (result.right.ok) {
-      if (result.right.stationInstallationId === undefined) {
+    if (result.success.ok) {
+      if (result.success.stationInstallationId === undefined) {
         const detail =
           "Remote configuration succeeded without a Station installation identity";
         return {
@@ -276,29 +276,29 @@ const configureRemoteEffect = (
           message: detail,
         } satisfies HostsConfigureRemoteResult;
       }
-      const bound = yield* Effect.either(
+      const bound = yield* Effect.result(
         bindConfiguredRemoteTarget(
           hosts,
           id,
-          result.right.stationInstallationId,
+          result.success.stationInstallationId,
         ),
       );
-      if (bound._tag === "Left") {
+      if (bound._tag === "Failure") {
         return {
           ok: false,
-          detail: bound.left.message,
-          code: bound.left.code,
-          message: bound.left.message,
+          detail: bound.failure.message,
+          code: bound.failure.code,
+          message: bound.failure.message,
         } satisfies HostsConfigureRemoteResult;
       }
     }
 
     return {
-      ok: result.right.ok,
-      detail: result.right.detail,
-      station: result.right.station,
-      code: result.right.code,
-      message: result.right.message ?? result.right.detail,
+      ok: result.success.ok,
+      detail: result.success.detail,
+      station: result.success.station,
+      code: result.success.code,
+      message: result.success.message ?? result.success.detail,
     } satisfies HostsConfigureRemoteResult;
   });
 
@@ -337,20 +337,20 @@ export const deployRemoteEffect = (
         return result;
       };
 
-      const settingsResult = yield* Effect.either(settingsSvc.get);
-      if (settingsResult._tag === "Left") {
+      const settingsResult = yield* Effect.result(settingsSvc.get);
+      if (settingsResult._tag === "Failure") {
         return failJob({
           ok: false,
-          detail: settingsResult.left.message,
-          code: settingsResult.left.code,
-          message: settingsResult.left.message,
+          detail: settingsResult.fail.message,
+          code: settingsResult.fail.code,
+          message: settingsResult.fail.message,
           stages: getDeployJob(input.id)?.stages,
         });
       }
 
       const effective = computeDeployCapabilities({
-        stationRole: settingsResult.right.station.role,
-        remoteManagedInstalls: settingsResult.right.fleet.remoteManagedInstalls,
+        stationRole: settingsResult.succeed.station.role,
+        remoteManagedInstalls: settingsResult.succeed.fleet.remoteManagedInstalls,
         release: RELEASE_CAPABILITIES,
       });
       if (!effective.effective.deployRemote) {
@@ -372,26 +372,26 @@ export const deployRemoteEffect = (
       const boxes = yield* BoxFleetService;
       const route = yield* boxes
         .ensureHostAvailable(input.id)
-        .pipe(Effect.either);
-      if (route._tag === "Right" && route.right !== undefined) {
-        const ip = route.right.machine.ip;
+        .pipe(Effect.result);
+      if (route._tag === "Success" && route.success !== undefined) {
+        const ip = route.success.machine.ip;
         appendDeployJobStage(
           input.id,
           ip
-            ? `box route refreshed user@${ip} state=${route.right.machine.state}`
-            : `box route refreshed state=${route.right.machine.state}`,
+            ? `box route refreshed user@${ip} state=${route.success.machine.state}`
+            : `box route refreshed state=${route.success.machine.state}`,
         );
       }
 
-      const authority = yield* Effect.either(
+      const authority = yield* Effect.result(
         resolveCommandCenterConfigureOptions(true),
       );
-      if (authority._tag === "Left") {
+      if (authority._tag === "Failure") {
         return failJob({
           ok: false,
-          detail: authority.left.message,
-          code: authority.left.code,
-          message: authority.left.message,
+          detail: authority.failure.message,
+          code: authority.failure.code,
+          message: authority.failure.message,
           stages: getDeployJob(input.id)?.stages,
         });
       }
@@ -399,7 +399,7 @@ export const deployRemoteEffect = (
       setActiveDeployJobHost(input.id);
       const deployResult = yield* hosts
         .deployConfiguredRemote(input.id, {
-          ...authority.right,
+          ...authority.success,
           ...(artifactSource === undefined ? {} : { artifactSource }),
           onAdmitted: (host) => {
             const admittedAt = new Date().toISOString();
@@ -482,7 +482,7 @@ export const deployRemoteEffect = (
         );
         return failJob(projectDeployRemoteResult(failed));
       }
-      const bound = yield* Effect.either(
+      const bound = yield* Effect.result(
         bindConfiguredRemoteTarget(
           hosts,
           input.id,
@@ -490,9 +490,9 @@ export const deployRemoteEffect = (
         ),
       );
       const finalResult =
-        bound._tag === "Right"
+        bound._tag === "Success"
           ? deployResult
-          : deploymentFleetBindingFailure(deployResult, bound.left.message);
+          : deploymentFleetBindingFailure(deployResult, bound.failure.message);
       const projected = projectDeployRemoteResult(finalResult);
       finishDeployJob(input.id, {
         status: finalResult.ok ? "succeeded" : "failed",
@@ -929,27 +929,27 @@ export const makeOperatorCoordinator = (
           const boxes = yield* BoxFleetService;
           yield* boxes.ensureHostAvailable(request.args.id).pipe(Effect.ignore);
           const hosts = yield* HostsService;
-          return yield* Effect.either(hosts.test(request.args.id));
+          return yield* Effect.result(hosts.test(request.args.id));
         }),
       );
-      if (result._tag === "Left") {
+      if (result._tag === "Failure") {
         return operatorSuccess(request, {
           hostId: request.args.id,
           ok: false,
-          detail: operatorDiagnostic(result.left.message),
-          code: result.left.code,
+          detail: operatorDiagnostic(result.failure.message),
+          code: result.failure.code,
         });
       }
       return operatorSuccess(request, {
         hostId: request.args.id,
-        ok: result.right.ok,
-        detail: operatorDiagnostic(result.right.detail),
-        ...(result.right.reachability === undefined
+        ok: result.success.ok,
+        detail: operatorDiagnostic(result.success.detail),
+        ...(result.success.reachability === undefined
           ? {}
-          : { reachability: result.right.reachability }),
-        ...(result.right.protocol === undefined
+          : { reachability: result.success.reachability }),
+        ...(result.success.protocol === undefined
           ? {}
-          : { protocol: result.right.protocol }),
+          : { protocol: result.success.protocol }),
       });
     }
 

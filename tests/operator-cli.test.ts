@@ -111,12 +111,12 @@ describe("operator socket client", () => {
     const result = await Effect.runPromise(
       Effect.gen(function* () {
         const socket = yield* OperatorSocket;
-        return yield* socket.call("fleet.list", {}).pipe(Effect.either);
+        return yield* socket.call("fleet.list", {}).pipe(Effect.result);
       }).pipe(Effect.provide(OperatorSocketLive)),
     );
     expect(result._tag).toBe("Left");
-    if (result._tag === "Left") {
-      expect(result.left.message).toMatch(/match the request/);
+    if (result._tag === "Failure") {
+      expect(result.failure.message).toMatch(/match the request/);
     }
   });
 });

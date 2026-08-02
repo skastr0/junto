@@ -73,8 +73,7 @@ const resolveHermesEndpoint = (
  * - Layer today: HermesTransportLive — V4 rename candidate HermesTransport.layer
  *   Do not dual-export Live + `.layer` names.
  */
-export class HermesTransport extends Context.Tag("@vellum/HermesTransport")<
-  HermesTransport,
+export class HermesTransport extends Context.Service<HermesTransport,
   {
     readonly profiles: (host: HermesHostId) => Effect.Effect<CliResult>;
     readonly version: (host: HermesHostId) => Effect.Effect<CliResult>;
@@ -86,8 +85,7 @@ export class HermesTransport extends Context.Tag("@vellum/HermesTransport")<
         confirm: ConfirmSshReady,
       ) => Effect.Effect<SshReady<A>, E, R>,
     ) => Effect.Effect<A, SshError | SshInputError | E, R | Scope.Scope>;
-  }
->() {}
+  }>()("@vellum/HermesTransport") {}
 
 export const HermesTransportLive = Layer.effect(
   HermesTransport,
@@ -99,7 +97,7 @@ export const HermesTransportLive = Layer.effect(
       timeoutMs: number,
     ): Effect.Effect<CliResult> =>
       Effect.tryPromise(() => runCli("hermes", args, timeoutMs)).pipe(
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           Effect.succeed({
             ok: false,
             stdout: "",
@@ -117,7 +115,7 @@ export const HermesTransportLive = Layer.effect(
       remoteHermesCli(args).pipe(
         Effect.flatMap((command) => ssh.run(oneShot(endpoint, command, { budget }))),
         Effect.map((result): CliResult => ({ ok: true, stdout: result.stdout })),
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           Effect.succeed({
             ok: false,
             stdout: "",
@@ -143,7 +141,7 @@ export const HermesTransportLive = Layer.effect(
       }
       return parseHostSshRoute(resolved).pipe(
         Effect.flatMap((endpoint) => remoteArgv(endpoint, args, budget)),
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           Effect.succeed({
             ok: false,
             stdout: "",
@@ -153,7 +151,7 @@ export const HermesTransportLive = Layer.effect(
       );
     };
 
-    const connectAcp: Context.Tag.Service<typeof HermesTransport>["connectAcp"] = (
+    const connectAcp: Context.Service.Shape<typeof HermesTransport>["connectAcp"] = (
       host,
       profile,
       awaitReady,

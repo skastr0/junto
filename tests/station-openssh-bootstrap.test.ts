@@ -1,7 +1,7 @@
 import {
   Deferred,
   Effect,
-  Either,
+  Result,
   Schema,
   Stream,
 } from "effect";
@@ -150,7 +150,7 @@ const runBootstrap = async (
     resolveRemotePackagedPlatform(fixture.ssh, endpoint),
   );
   return Effect.runPromise(
-    Effect.either(
+    Effect.result(
       bootstrapOpenSshStationStatus(
         fixture.ssh,
         endpoint,
@@ -169,9 +169,9 @@ describe("OpenSSH Station status bootstrap", () => {
 
     const result = await runBootstrap(fixture);
 
-    expect(Either.isRight(result)).toBe(true);
-    if (Either.isRight(result)) {
-      expect(result.right).toEqual(statusResponse);
+    expect(Result.isSuccess(result)).toBe(true);
+    if (Result.isSuccess(result)) {
+      expect(result.success).toEqual(statusResponse);
     }
     expect(fixture.events).toEqual([
       "platform",
@@ -193,9 +193,9 @@ describe("OpenSSH Station status bootstrap", () => {
 
     const result = await runBootstrap(fixture);
 
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left).toMatchObject({
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure).toMatchObject({
         _tag: "OpenSshStationBootstrapError",
         reason: "second-frame",
       });
@@ -230,23 +230,23 @@ describe("OpenSSH Station status bootstrap", () => {
       maxFrameBytes: 256,
     });
 
-    expect(Either.isLeft(mismatchResult)).toBe(true);
-    if (Either.isLeft(mismatchResult)) {
-      expect(mismatchResult.left).toMatchObject({
+    expect(Result.isFailure(mismatchResult)).toBe(true);
+    if (Result.isFailure(mismatchResult)) {
+      expect(mismatchResult.fail).toMatchObject({
         _tag: "OpenSshStationBootstrapError",
         reason: "response-mismatch",
       });
     }
-    expect(Either.isLeft(malformedResult)).toBe(true);
-    if (Either.isLeft(malformedResult)) {
-      expect(malformedResult.left).toMatchObject({
+    expect(Result.isFailure(malformedResult)).toBe(true);
+    if (Result.isFailure(malformedResult)) {
+      expect(malformedResult.fail).toMatchObject({
         _tag: "StationSessionTransportError",
         reason: "malformed-frame",
       });
     }
-    expect(Either.isLeft(oversizedResult)).toBe(true);
-    if (Either.isLeft(oversizedResult)) {
-      expect(oversizedResult.left).toMatchObject({
+    expect(Result.isFailure(oversizedResult)).toBe(true);
+    if (Result.isFailure(oversizedResult)) {
+      expect(oversizedResult.fail).toMatchObject({
         _tag: "StationSessionTransportError",
         reason: "frame-too-large",
       });
@@ -258,10 +258,10 @@ describe("OpenSSH Station status bootstrap", () => {
 
     const result = await runBootstrap(fixture, { timeoutMs: 10 });
 
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left).toBeInstanceOf(OpenSshStationBootstrapError);
-      expect(result.left).toMatchObject({ reason: "timeout" });
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure).toBeInstanceOf(OpenSshStationBootstrapError);
+      expect(result.failure).toMatchObject({ reason: "timeout" });
     }
     expect(fixture.events.at(-1)).toBe("close");
   });

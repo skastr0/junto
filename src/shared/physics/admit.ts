@@ -1,4 +1,4 @@
-import { Effect, Either, HashMap, HashSet, Option, Schema } from "effect";
+import { Effect, Result, HashMap, HashSet, Option, Schema } from "effect";
 import { offersOf, resolveSpec, roleOf } from "./kinds";
 import { grantLawForRoles, selectGrant } from "./laws";
 import {
@@ -17,27 +17,24 @@ import {
 // Placement is the inter-runtime half (I18/I19): third input alongside
 // connectivity and offers — not a fourth role.
 
-export const ScopeDenialReason = Schema.Literal(
-  "invisible",
-  "not_connected",
-  "no_port",
-  "role_law",
-  "unknown_node",
-  /** Stale / missing placement projection — fail closed (I18). */
-  "placement_unknown",
-  /**
-   * Cross-runtime route is not CC↔Station (e.g. Station↔Station).
-   * Names the missing CC route — never silently relayed as no_port.
-   */
-  "route",
-);
+export const ScopeDenialReason = Schema.Literals(["invisible", "not_connected",
+"no_port",
+"role_law",
+"unknown_node",
+/** Stale / missing placement projection — fail closed (I18). */
+"placement_unknown",
+/**
+ * Cross-runtime route is not CC↔Station (e.g. Station↔Station).
+ * Names the missing CC route — never silently relayed as no_port.
+ */
+"route",]);
 export type ScopeDenialReason = typeof ScopeDenialReason.Type;
 
-export class ScopeDenial extends Schema.TaggedError<ScopeDenial>()("ScopeDenial", {
+export class ScopeDenial extends Schema.TaggedErrorClass<ScopeDenial>()("ScopeDenial", {
   reason: ScopeDenialReason,
   caller: Schema.String,
   target: Schema.String,
-  port: Schema.optionalWith(Schema.String, { exact: true }),
+  port: Schema.optionalKey(Schema.String),
   message: Schema.String,
 }) {}
 
@@ -171,19 +168,19 @@ const checkPlacement = (
  *
  * Order: nodes → connectivity → placement → role law → ports.
  *
- * Effect Either is `Either<A, E>` (success first): Right = Granted, Left = ScopeDenial.
+ * Effect Result is `Result<A, E>` (success first): Right = Granted, Left = ScopeDenial.
  */
 export const admitPure = (
   view: CapabilityView,
   caller: NodeId,
   target: NodeId,
   port: Port,
-): Either.Either<Granted, ScopeDenial> => {
+): Result.Result<Granted, ScopeDenial> => {
   const callerMeta = HashMap.get(view.nodeMeta, caller);
   const targetMeta = HashMap.get(view.nodeMeta, target);
 
   if (Option.isNone(callerMeta) || Option.isNone(targetMeta)) {
-    return Either.left(
+    return Result.fail(
       denial(
         "unknown_node",
         caller,
@@ -196,7 +193,7 @@ export const admitPure = (
 
   if (!isConnected(view, caller, target)) {
     if (isRegionPeer(view, caller, target)) {
-      return Either.left(
+      return Result.fail(
         denial(
           "not_connected",
           caller,
@@ -206,7 +203,7 @@ export const admitPure = (
         ),
       );
     }
-    return Either.left(
+    return Result.fail(
       denial(
         "invisible",
         caller,
@@ -219,7 +216,7 @@ export const admitPure = (
 
   const placementDenial = checkPlacement(view, caller, target, port);
   if (placementDenial !== undefined) {
-    return Either.left(placementDenial);
+    return Result.fail(placementDenial);
   }
 
   const callerSpec = resolveSpec(callerMeta.value);
@@ -231,7 +228,7 @@ export const admitPure = (
   // None is a hard role_law denial — distinct from OptIn without a mask,
   // which materializes empty and surfaces as no_port when a port is requested.
   if (law._tag === "None") {
-    return Either.left(
+    return Result.fail(
       denial(
         "role_law",
         caller,
@@ -251,7 +248,7 @@ export const admitPure = (
 
   const offers = offersOf(targetSpec);
   if (!grant.allows(port, offers)) {
-    return Either.left(
+    return Result.fail(
       denial(
         "no_port",
         caller,
@@ -262,7 +259,7 @@ export const admitPure = (
     );
   }
 
-  return Either.right(
+  return Result.succeed(
     new Granted({
       caller: asNodeId(caller),
       target: asNodeId(target),
@@ -280,8 +277,8 @@ export const admit = Effect.fn("physics.admit")(function* (
   port: Port,
 ) {
   const result = admitPure(view, caller, target, port);
-  if (Either.isLeft(result)) {
-    return yield* Effect.fail(result.left);
+  if (Result.isFailure(result)) {
+    return yield* Effect.fail(result.failure);
   }
-  return result.right;
+  return result.success;
 });

@@ -445,7 +445,7 @@ describe("StateEngine", () => {
     );
 
     const failed = await runtime.runPromise(
-      Effect.either(
+      Effect.result(
         engine.transaction("test.rollback", (writer) => {
           writer.run(
             `
@@ -710,7 +710,7 @@ describe("StateEngine", () => {
     const engine = await runtime.runPromise(StateEngine);
     await symlink(external, join(stateDirectory, "backups"));
 
-    const result = await runtime.runPromise(Effect.either(engine.backup()));
+    const result = await runtime.runPromise(Effect.result(engine.backup()));
 
     expect(result._tag).toBe("Left");
     expect((await lstat(external)).mode & 0o777).toBe(0o755);
@@ -949,7 +949,7 @@ describe("StateEngine", () => {
     await disposeRuntime(runtime);
 
     const result = await Effect.runPromise(
-      Effect.either(
+      Effect.result(
         engine.read("test.closed", (reader) =>
           reader.get(
             "SELECT actual_schema_sha256 FROM state_schema_identity WHERE singleton = 1",
@@ -959,8 +959,8 @@ describe("StateEngine", () => {
     );
 
     expect(result._tag).toBe("Left");
-    if (result._tag === "Left") {
-      expect(result.left).toMatchObject({
+    if (result._tag === "Failure") {
+      expect(result.failure).toMatchObject({
         _tag: "StateEngineError",
         operation: "test.closed",
         message: "state engine is closed",

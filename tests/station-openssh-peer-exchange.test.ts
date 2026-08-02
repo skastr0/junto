@@ -1,7 +1,7 @@
 import {
   Deferred,
   Effect,
-  Either,
+  Result,
   Fiber,
   Queue,
   Schema,
@@ -106,10 +106,10 @@ const expectFailureReason = async (
   effect: Effect.Effect<unknown, { readonly reason: string }>,
   reason: string,
 ): Promise<void> => {
-  const result = await Effect.runPromise(Effect.either(effect));
-  expect(Either.isLeft(result)).toBe(true);
-  if (Either.isLeft(result)) {
-    expect(result.left.reason).toBe(reason);
+  const result = await Effect.runPromise(Effect.result(effect));
+  expect(Result.isFailure(result)).toBe(true);
+  if (Result.isFailure(result)) {
+    expect(result.failure.reason).toBe(reason);
   }
 };
 
@@ -290,12 +290,12 @@ describe("OpenSSH Station frame transport", () => {
             maxQueuedBytes: 32,
           });
 
-          const result = yield* Effect.either(
+          const result = yield* Effect.result(
             transport.send(requestFrame("bounded-01")),
           );
-          expect(Either.isLeft(result)).toBe(true);
-          if (Either.isLeft(result)) {
-            expect(result.left.reason).toBe("queue-capacity");
+          expect(Result.isFailure(result)).toBe(true);
+          if (Result.isFailure(result)) {
+            expect(result.failure.reason).toBe("queue-capacity");
           }
           expect(writes).toBe(0);
         }),
@@ -332,20 +332,20 @@ describe("OpenSSH Station frame transport", () => {
             maxQueuedBytes: 8_192,
           });
 
-          const first = yield* Effect.either(
+          const first = yield* Effect.result(
             transport.send(requestFrame("disconnect-01")),
           );
-          expect(Either.isLeft(first)).toBe(true);
-          if (Either.isLeft(first)) {
+          expect(Result.isFailure(first)).toBe(true);
+          if (Result.isFailure(first)) {
             expect(first.left.reason).toBe("write-failed");
           }
           yield* Deferred.await(closeObserved);
 
-          const afterClose = yield* Effect.either(
+          const afterClose = yield* Effect.result(
             transport.send(requestFrame("disconnect-02")),
           );
-          expect(Either.isLeft(afterClose)).toBe(true);
-          if (Either.isLeft(afterClose)) {
+          expect(Result.isFailure(afterClose)).toBe(true);
+          if (Result.isFailure(afterClose)) {
             expect(afterClose.left.reason).toBe("closed");
           }
           expect(closes).toBe(1);
@@ -377,19 +377,19 @@ describe("OpenSSH Station frame transport", () => {
           });
 
           const first = yield* Effect.fork(
-            Effect.either(
+            Effect.result(
               transport.send(requestFrame("close-race-01")),
             ),
           );
           yield* Deferred.await(firstWriteStarted);
           const second = yield* Effect.fork(
-            Effect.either(
+            Effect.result(
               transport.send(requestFrame("close-race-02")),
             ),
           );
           yield* Effect.yieldNow();
           const third = yield* Effect.fork(
-            Effect.either(
+            Effect.result(
               transport.send(requestFrame("close-race-03")),
             ),
           );
@@ -402,16 +402,16 @@ describe("OpenSSH Station frame transport", () => {
             yield* Fiber.join(second),
             yield* Fiber.join(third),
           ]) {
-            expect(Either.isLeft(result)).toBe(true);
-            if (Either.isLeft(result)) {
-              expect(result.left.reason).toBe("closed");
+            expect(Result.isFailure(result)).toBe(true);
+            if (Result.isFailure(result)) {
+              expect(result.failure.reason).toBe("closed");
             }
           }
-          const afterClose = yield* Effect.either(
+          const afterClose = yield* Effect.result(
             transport.send(requestFrame("close-race-04")),
           );
-          expect(Either.isLeft(afterClose)).toBe(true);
-          if (Either.isLeft(afterClose)) {
+          expect(Result.isFailure(afterClose)).toBe(true);
+          if (Result.isFailure(afterClose)) {
             expect(afterClose.left.reason).toBe("closed");
           }
         }),
@@ -580,7 +580,7 @@ describe("OpenSSH Station peer exchange", () => {
             ),
           ),
       ),
-    ).pipe(Effect.either);
+    ).pipe(Effect.result);
 
   it("negotiates v4 on the persistent connection before domain traffic", async () => {
     const scripted = await liveLease((frame, stdout) => {
@@ -825,10 +825,10 @@ describe("OpenSSH Station peer exchange", () => {
             ),
           );
         }),
-      ).pipe(Effect.either),
+      ).pipe(Effect.result),
     );
 
-    expect(Either.isLeft(result)).toBe(true);
+    expect(Result.isFailure(result)).toBe(true);
     expect(reportCalls).toBe(0);
     expect(harness.connectCalls()).toBe(1);
   });
@@ -843,7 +843,7 @@ describe("OpenSSH Station peer exchange", () => {
       openFailure(harness.exchange, harness.route),
     );
 
-    expect(Either.isLeft(result)).toBe(true);
+    expect(Result.isFailure(result)).toBe(true);
     expect(harness.connectCalls()).toBe(1);
     expect((firstWritten[0] as StationProtocolOffer).frame).toBe("offer");
   });
@@ -856,9 +856,9 @@ describe("OpenSSH Station peer exchange", () => {
       openFailure(harness.exchange, harness.route),
     );
 
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left.reason).toBe("connect-failed");
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure.reason).toBe("connect-failed");
     }
     expect(harness.connectCalls()).toBe(1);
   });
@@ -873,9 +873,9 @@ describe("OpenSSH Station peer exchange", () => {
       openFailure(harness.exchange, harness.route),
     );
 
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left.reason).toBe("protocol-negotiation");
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure.reason).toBe("protocol-negotiation");
     }
     expect(harness.connectCalls()).toBe(1);
   });
@@ -892,9 +892,9 @@ describe("OpenSSH Station peer exchange", () => {
       openFailure(harness.exchange, harness.route),
     );
 
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left.reason).toBe("protocol-negotiation");
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure.reason).toBe("protocol-negotiation");
     }
     expect(harness.connectCalls()).toBe(1);
   });
@@ -925,9 +925,9 @@ describe("OpenSSH Station peer exchange", () => {
       openFailure(harness.exchange, harness.route),
     );
 
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left).toMatchObject({
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure).toMatchObject({
         reason: "protocol-incompatible",
         localProtocol: localDiagnostics,
         peerProtocol: {
@@ -964,10 +964,10 @@ describe("OpenSSH Station peer exchange", () => {
       openFailure(harness.exchange, harness.route),
     );
 
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left.reason).toBe("protocol-negotiation");
-      expect(result.left.peerProtocol?.support.preferred).toBe(3);
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure.reason).toBe("protocol-negotiation");
+      expect(result.failure.peerProtocol?.support.preferred).toBe(3);
     }
     expect(harness.connectCalls()).toBe(1);
   });

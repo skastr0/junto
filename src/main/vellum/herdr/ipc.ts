@@ -17,7 +17,7 @@ const toOp = <T>(result: { ok: true; data: T } | { ok: false; code: string; mess
   return { ok: false as const, code: result.code, message: result.message };
 };
 
-const withPlane = <A>(run: (plane: Context.Tag.Service<typeof HerdrPlane>) => A | PromiseLike<A>) =>
+const withPlane = <A>(run: (plane: Context.Service.Shape<typeof HerdrPlane>) => A | PromiseLike<A>) =>
   AppRuntime.runPromise(
     Effect.flatMap(HerdrPlane, (plane) => Effect.promise(() => Promise.resolve(run(plane)))),
   );

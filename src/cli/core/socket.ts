@@ -31,16 +31,14 @@ export const resolveWorkHome = (): string => {
  * - Layer today: WorkSocketLive — V4 rename candidate WorkSocket.layer
  *   Do not dual-export Live + `.layer` names.
  */
-export class WorkSocket extends Context.Tag("@vellum/cli/WorkSocket")<
-  WorkSocket,
+export class WorkSocket extends Context.Service<WorkSocket,
   {
     readonly call: (
       op: WorkOpName,
       args?: unknown,
       timeoutMs?: number,
     ) => Effect.Effect<unknown, RuntimeDown | AuthError | WireError>;
-  }
->() {}
+  }>()("@vellum/cli/WorkSocket") {}
 
 const readToken = (tokenPath: string) =>
   Effect.tryPromise({
@@ -144,7 +142,7 @@ const ndjsonCall = (
           );
           return;
         }
-        settle(Effect.succeed(decoded.right));
+        settle(Effect.succeed(decoded.success));
       } catch {
         settle(
           Effect.fail(

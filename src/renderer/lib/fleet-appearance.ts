@@ -42,7 +42,7 @@ Effect.runFork(
   Queue.take(queue).pipe(
     Effect.flatMap((command) =>
       persistAppearance(command).pipe(
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           Effect.sync(() => {
             if (latestRevision.get(command.host.id) !== command.revision) return;
             command.onError?.(error.message);

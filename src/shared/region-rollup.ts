@@ -24,15 +24,15 @@ import type { WorkSurfaceActivity } from "./terminal";
 
 // The severity ladder, worst first. A member lands in the WORST tier it
 // matches; its reasons collect every match, in ladder order.
-export const MemberSeverity = Schema.Literal("blocked", "attention", "working", "parked", "idle");
+export const MemberSeverity = Schema.Literals(["blocked", "attention", "working", "parked", "idle"]);
 export type MemberSeverity = typeof MemberSeverity.Type;
 
 // Live per-agent runtime signal, keyed by ether.entity.name (the hermes
 // "<host>:<profile>" key). The app-side ACP chat plane fills this in; the
 // headless digest omits it entirely (determinism over liveness).
 export const AgentActivity = Schema.Struct({
-  sessionLive: Schema.optionalWith(Schema.Boolean, { exact: true }),
-  permissionPending: Schema.optionalWith(Schema.Boolean, { exact: true }),
+  sessionLive: Schema.optionalKey(Schema.Boolean),
+  permissionPending: Schema.optionalKey(Schema.Boolean),
 });
 export type AgentActivity = typeof AgentActivity.Type;
 

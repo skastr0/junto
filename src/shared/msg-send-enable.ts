@@ -1,7 +1,7 @@
 // Rising-edge notices when actor↔actor msg.send becomes newly granted.
 // Pure: previous/next canvas docs → mailbox notice plan. No I/O.
 
-import { Either, HashSet } from "effect";
+import { Result, HashSet } from "effect";
 import type { CanvasDoc, CanvasNode } from "./canvas";
 import { isGroup } from "./graph";
 import {
@@ -78,7 +78,7 @@ export const listMsgSendGrants = (
         asNodeId(peer.id),
         "msg.send",
       );
-      if (Either.isLeft(admitted)) continue;
+      if (Result.isFailure(admitted)) continue;
       out.set(grantKey(caller.id, peer.id), {
         peerId: peer.id,
         peerTitle: nodeTitle(byId.get(peer.id) ?? peer),

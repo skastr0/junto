@@ -122,8 +122,8 @@ const decodeNodeRefOpened = (payload: unknown): NodeRefOpenedDelivery | undefine
   if (!("deliveryId" in payload) || typeof payload.deliveryId !== "string") return undefined;
   if (!DELIVERY_ID_PATTERN.test(payload.deliveryId)) return undefined;
   const parsed = parseNodeRef(payload.ref);
-  if (!parsed.ok || nodeRefKey(parsed.value) !== payload.ref) return undefined;
-  if (parsed.value.canvasName !== payload.canvasName || parsed.value.nodeId !== payload.nodeId) {
+  if (!parsed.ok || nodeRefKey(parsed.success) !== payload.ref) return undefined;
+  if (parsed.success.canvasName !== payload.canvasName || parsed.success.nodeId !== payload.nodeId) {
     return undefined;
   }
   return {

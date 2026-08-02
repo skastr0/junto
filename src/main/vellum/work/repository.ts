@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { Context, Effect, Either, Layer, Schema } from "effect";
+import { Context, Effect, Result, Layer, Schema } from "effect";
 import type { CanvasDoc, CanvasNode } from "@shared/canvas";
 import type { ActorSeatId } from "@shared/actor-seat";
 import { InstallationId } from "@shared/installation-id";
@@ -260,46 +260,40 @@ const boundedDiagnostic = (message: string): string => {
     : `${normalized.slice(0, 2_045)}...`;
 };
 
-export class WorkRepositoryError extends Schema.TaggedError<WorkRepositoryError>()(
+export class WorkRepositoryError extends Schema.TaggedErrorClass<WorkRepositoryError>()(
   "WorkRepositoryError",
   {
     operation: Schema.String,
     message: Schema.String,
-    cause: Schema.Defect,
+    cause: Schema.Unknown,
   },
 ) {}
 
-export class WorkAuthorityError extends Schema.TaggedError<WorkAuthorityError>()(
+export class WorkAuthorityError extends Schema.TaggedErrorClass<WorkAuthorityError>()(
   "WorkAuthorityError",
   {
-    reason: Schema.Literal(
-      "authority-mismatch",
-      "causal-conflict",
-      "claim-contention",
-      "identity-conflict",
-      "invalid-transition",
-      "missing-entity",
-      "target-mismatch",
-    ),
+    reason: Schema.Literals(["authority-mismatch", "causal-conflict",
+    "claim-contention",
+    "identity-conflict",
+    "invalid-transition",
+    "missing-entity",
+    "target-mismatch",]),
     message: Schema.String,
   },
 ) {}
 
 
-export class WorkReplicationError extends Schema.TaggedError<WorkReplicationError>()(
+export class WorkReplicationError extends Schema.TaggedErrorClass<WorkReplicationError>()(
   "WorkReplicationError",
   {
-    reason: Schema.Literal(
-      "direction-mismatch",
-      "integrity",
-      "identity-conflict",
-      "causal-conflict",
-      "cursor-regression",
-      "sequence-gap",
-      "response-capacity",
-    ),
+    reason: Schema.Literals(["direction-mismatch", "integrity",
+    "identity-conflict",
+    "causal-conflict",
+    "cursor-regression",
+    "sequence-gap",
+    "response-capacity",]),
     senderInstallationId: Schema.String,
-    sequence: Schema.optionalWith(LogicalSequence, { exact: true }),
+    sequence: Schema.optionalKey(LogicalSequence),
     message: Schema.String,
   },
 ) {}
@@ -5705,10 +5699,8 @@ export interface WorkRepositoryShape {
 
 export type WorkRepository = WorkRepositoryId;
 
-export const WorkRepository = Context.GenericTag<
-  WorkRepository,
-  WorkRepositoryShape
->("@vellum/WorkRepository");
+export const WorkRepository = Context.Service<WorkRepository,
+  WorkRepositoryShape>("@vellum/WorkRepository");
 
 export const WorkRepositoryLive = Layer.effect(
   WorkRepository,
@@ -7137,7 +7129,7 @@ export const WorkRepositoryLive = Layer.effect(
       try {
         for (const candidate of input.records) {
           const result = decodeWorkRecord(candidate);
-          if (Either.isLeft(result)) {
+          if (Result.isFailure(result)) {
             return Effect.fail(
               replicationError(
                 input.senderInstallationId,
@@ -7146,8 +7138,8 @@ export const WorkRepositoryLive = Layer.effect(
               ),
             );
           }
-          validateIncomingHash(input.senderInstallationId, result.right);
-          decoded.push(result.right);
+          validateIncomingHash(input.senderInstallationId, result.success);
+          decoded.push(result.success);
         }
       } catch (error) {
         return Effect.fail(

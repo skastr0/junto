@@ -204,7 +204,7 @@ const marksImpl: MarksService = {
   hueFor: harnessHue,
 };
 
-export class Marks extends Context.Tag("@vellum/Marks")<Marks, MarksService>() {}
+export class Marks extends Context.Service<Marks, MarksService>()("@vellum/Marks") {}
 
 export const MarksLive = Layer.succeed(Marks, marksImpl);
 

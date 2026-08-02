@@ -32,7 +32,7 @@ import type { HostsRegistry } from "./registry";
 const HOST_PROBE_TOTAL_TIMEOUT_MS = 20_000;
 
 type Ssh = SshTransportShape;
-type Fleet = Context.Tag.Service<typeof StationFleetPropagation>;
+type Fleet = Context.Service.Shape<typeof StationFleetPropagation>;
 export type HostCliRunner = (
   command: string,
   args: ReadonlyArray<string>,
@@ -148,7 +148,7 @@ const remoteBinary = (
       const line = result.stdout.trim().split("\n")[0] ?? "ok";
       return { ok: true, detail: `${binary} ${line}` };
     }),
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       Effect.succeed({
         ok: false,
         detail:
@@ -179,7 +179,7 @@ const probeLinuxHostCapabilities = (
       const observation = observeLinuxHostCapabilityDoctor(result.stdout);
       return observation === null ? undefined : observation;
     }),
-    Effect.catchAll(() => Effect.succeed(undefined)),
+    Effect.catch(() => Effect.succeed(undefined)),
     // Test doubles and transport defects must not surface through hostsTest.
     Effect.catchAllDefect(() => Effect.succeed(undefined)),
   );
@@ -323,7 +323,7 @@ const probeSshHost = (
       },
     };
   }).pipe(
-    Effect.catchAll((error) => {
+    Effect.catch((error) => {
       const detail =
         typeof error === "object" &&
           error !== null &&
@@ -355,7 +355,7 @@ const boundedProbeSshHost = (
       duration: HOST_PROBE_TOTAL_TIMEOUT_MS,
       onTimeout: () => new Error("remote host doctor deadline exceeded"),
     }),
-    Effect.catchAll(() =>
+    Effect.catch(() =>
       Effect.succeed({
         status: "error" as const,
         detail: `${host.label}: probe timed out after ${HOST_PROBE_TOTAL_TIMEOUT_MS}ms`,
@@ -420,7 +420,7 @@ export const runRemoteHostsDoctorSnapshot = (
           return true;
         },
         catch: () => false as const,
-      }).pipe(Effect.catchAll(() => Effect.succeed(false as const)));
+      }).pipe(Effect.catch(() => Effect.succeed(false as const)));
 
       if (!sshBinaryOk) {
         const detail = `OpenSSH client not executable at ${OPENSSH_CLIENT_EXECUTABLE} — install the client`;
@@ -489,7 +489,7 @@ export const runRemoteHostsDoctorSnapshot = (
       observations: results.map((result) => result.observation),
     } satisfies RemoteHostsDoctorSnapshot;
   }).pipe(
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       Effect.succeed({
         check: {
           id: "remote-hosts",

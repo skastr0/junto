@@ -136,10 +136,8 @@ export interface TerminalSessionsApi {
  * layer, or a compatibility accessor; replace the bridge directly at the V4
  * dependency cutover.
  */
-export class TerminalSessions extends Context.Tag("@vellum/TerminalSessions")<
-  TerminalSessions,
-  TerminalSessionsApi
->() {}
+export class TerminalSessions extends Context.Service<TerminalSessions,
+  TerminalSessionsApi>()("@vellum/TerminalSessions") {}
 
 const writeFromWire = (
   result: HerdrControlWriteResult,
@@ -168,7 +166,7 @@ const openFromManager = (
 
 export const makeTerminalSessions = (
   streams: HerdrStreamManager,
-): Context.Tag.Service<typeof TerminalSessions> => {
+): Context.Service.Shape<typeof TerminalSessions> => {
   const open = (input: HerdrControlOpenInput) => openFromManager(streams, input);
 
   const openScoped = (input: HerdrControlOpenInput) =>

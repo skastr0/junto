@@ -26,7 +26,7 @@ export interface NodeRefParseError {
   readonly canonical?: string;
 }
 
-export type NodeRefParseResult =
+export type NodeRefSchemaIssue =
   | { readonly ok: true; readonly value: NodeRef }
   | { readonly ok: false; readonly error: NodeRefParseError };
 
@@ -51,7 +51,7 @@ const fail = (
   code: NodeRefErrorCode,
   message: string,
   canonical?: string,
-): NodeRefParseResult => ({
+): NodeRefSchemaIssue => ({
   ok: false,
   error: { code, message, ...(canonical === undefined ? {} : { canonical }) },
 });
@@ -93,7 +93,7 @@ export const formatNodeRef = (ref: NodeRef): NodeRefKey => {
 
 export const nodeRefKey = (ref: NodeRef): NodeRefKey => formatNodeRef(ref);
 
-export const parseNodeRef = (input: string): NodeRefParseResult => {
+export const parseNodeRef = (input: string): NodeRefSchemaIssue => {
   if (
     input.length === 0 ||
     new TextEncoder().encode(input).byteLength > MAX_URI_LENGTH ||

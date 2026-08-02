@@ -1,9 +1,8 @@
 import { randomUUID } from "node:crypto";
-import {
-  Cause,
+import { Cause,
   Deferred,
   Effect,
-  Either,
+  Result,
   Equal,
   Exit,
   Fiber,
@@ -11,8 +10,7 @@ import {
   Ref,
   Schema,
   Scope,
-  Stream,
-} from "effect";
+  Stream, Semaphore } from "effect";
 import {
   InstallationId,
   type InstallationId as InstallationIdValue,
@@ -46,76 +44,64 @@ export const STATION_PEER_MAX_PENDING_REQUESTS = 64;
 export const STATION_PEER_MAX_INBOUND_REQUESTS = 16;
 export const STATION_PEER_REQUEST_TIMEOUT_MS = 30_000;
 
-export class StationSessionTransportError extends Schema.TaggedError<StationSessionTransportError>()(
+export class StationSessionTransportError extends Schema.TaggedErrorClass<StationSessionTransportError>()(
   "StationSessionTransportError",
   {
-    reason: Schema.Literal(
-      "closed",
-      "read-failed",
-      "write-failed",
-      "malformed-frame",
-      "frame-too-large",
-      "queue-capacity",
-    ),
+    reason: Schema.Literals(["closed", "read-failed",
+    "write-failed",
+    "malformed-frame",
+    "frame-too-large",
+    "queue-capacity",]),
     message: Schema.String,
   },
 ) {}
 
-export class StationPeerSessionClosedError extends Schema.TaggedError<StationPeerSessionClosedError>()(
+export class StationPeerSessionClosedError extends Schema.TaggedErrorClass<StationPeerSessionClosedError>()(
   "StationPeerSessionClosedError",
   {
     peerInstallationId: InstallationId,
-    reason: Schema.Literal(
-      "local-close",
-      "scope-closed",
-      "transport-ended",
-      "transport-failed",
-      "protocol-failed",
-      "request-interrupted",
-      "request-timeout",
-    ),
+    reason: Schema.Literals(["local-close", "scope-closed",
+    "transport-ended",
+    "transport-failed",
+    "protocol-failed",
+    "request-interrupted",
+    "request-timeout",]),
     message: Schema.String,
   },
 ) {}
 
-export class StationPeerSessionProtocolError extends Schema.TaggedError<StationPeerSessionProtocolError>()(
+export class StationPeerSessionProtocolError extends Schema.TaggedErrorClass<StationPeerSessionProtocolError>()(
   "StationPeerSessionProtocolError",
   {
     peerInstallationId: InstallationId,
-    reason: Schema.Literal(
-      "outbound-verb-denied",
-      "outbound-route-mismatch",
-      "inbound-verb-denied",
-      "inbound-route-mismatch",
-      "duplicate-request-id",
-      "unknown-response",
-      "response-mismatch",
-      "handler-response-mismatch",
-    ),
+    reason: Schema.Literals(["outbound-verb-denied", "outbound-route-mismatch",
+    "inbound-verb-denied",
+    "inbound-route-mismatch",
+    "duplicate-request-id",
+    "unknown-response",
+    "response-mismatch",
+    "handler-response-mismatch",]),
     message: Schema.String,
   },
 ) {}
 
-export class StationPeerSessionCapacityError extends Schema.TaggedError<StationPeerSessionCapacityError>()(
+export class StationPeerSessionCapacityError extends Schema.TaggedErrorClass<StationPeerSessionCapacityError>()(
   "StationPeerSessionCapacityError",
   {
     peerInstallationId: InstallationId,
-    limit: Schema.Int,
+    limit: Schema.Number.pipe(Schema.check(Schema.isInt())),
     message: Schema.String,
   },
 ) {}
 
-export class StationPeerRejectedError extends Schema.TaggedError<StationPeerRejectedError>()(
+export class StationPeerRejectedError extends Schema.TaggedErrorClass<StationPeerRejectedError>()(
   "StationPeerRejectedError",
   {
     peerInstallationId: InstallationId,
-    operation: Schema.Literal(
-      "pair",
-      "configure",
-      "project",
-      "report",
-      "status",
-    ),
+    operation: Schema.Literals(["pair", "configure",
+    "project",
+    "report",
+    "status",]),
     code: StationControlErrorCode,
     message: Schema.String,
     retryable: Schema.Boolean,
@@ -183,19 +169,19 @@ export const bindNegotiatedStationProtocol = (input: {
   readonly peer: StationPeerProtocolDiagnostics;
 }): StationPeerProtocolBinding => {
   const selected = selectStationProtocolCodec(input.negotiatedProtocol);
-  if (Either.isLeft(selected)) {
+  if (Result.isFailure(selected)) {
     throw new TypeError(
       `Station protocol ${input.negotiatedProtocol} has no compiled codec`,
     );
   }
   const compatibility =
-    selected.right < input.local.support.warnBelow ||
-      selected.right < input.peer.support.warnBelow
+    selected.success < input.local.support.warnBelow ||
+      selected.success < input.peer.support.warnBelow
       ? "deprecated"
       : "compatible";
   return Object.freeze({
     _tag: "negotiated",
-    negotiatedProtocol: selected.right,
+    negotiatedProtocol: selected.success,
     compatibility,
     local: freezeProtocolDiagnostics(input.local),
     peer: freezeProtocolDiagnostics(input.peer),
@@ -379,8 +365,8 @@ export const makeStationPeerSession = (
       inboundFibers: new Set(),
     });
     const closed = yield* Deferred.make<StationPeerSessionClosedError>();
-    const inboundPermits = yield* Effect.makeSemaphore(maxInboundRequests);
-    const lifecycle = yield* Effect.makeSemaphore(1);
+    const inboundPermits = yield* Semaphore.make(maxInboundRequests);
+    const lifecycle = yield* Semaphore.make(1);
 
     const closeWith = (
       error: StationPeerSessionClosedError,
@@ -610,13 +596,13 @@ export const makeStationPeerSession = (
           );
           return yield* failProtocol(error);
         }
-        const sent = yield* options.transport.send(response).pipe(Effect.either);
-        if (Either.isLeft(sent)) {
+        const sent = yield* options.transport.send(response).pipe(Effect.result);
+        if (Result.isFailure(sent)) {
           yield* closeWith(
             sessionClosed(
               options.peerInstallationId,
               "transport-failed",
-              sent.left.message,
+              sent.failure.message,
             ),
           );
         }
@@ -844,12 +830,12 @@ export const makeStationPeerSession = (
         const envelope = yield* Effect.gen(function* () {
           const sent = yield* options.transport
             .send(frame)
-            .pipe(Effect.either);
-          if (Either.isLeft(sent)) {
+            .pipe(Effect.result);
+          if (Result.isFailure(sent)) {
             const error = sessionClosed(
               options.peerInstallationId,
               "transport-failed",
-              sent.left.message,
+              sent.failure.message,
             );
             yield* closeWith(error);
             return yield* error;

@@ -15,7 +15,7 @@
  *
  * ```ts
  * // v3 (today)
- * class X extends Context.Tag(StationContextTagIds.x)<X, Shape>() {}
+ * class X extends Context.Service<X, Shape>()(StationContextTagIds.x) {}
  * // v4
  * class X extends Context.Service<X, Shape>()(StationContextTagIds.x) {}
  * ```

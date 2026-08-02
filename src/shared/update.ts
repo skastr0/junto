@@ -10,49 +10,43 @@ import { Schema } from "effect";
  * explicit "Restart to update" only — never auto on quit.
  */
 
-export const UpdatePhase = Schema.Literal(
-  "idle",
-  "checking",
-  "available",
-  "downloading",
-  "ready",
-  "installing",
-  "error",
-);
+export const UpdatePhase = Schema.Literals(["idle", "checking",
+"available",
+"downloading",
+"ready",
+"installing",
+"error",]);
 export type UpdatePhase = typeof UpdatePhase.Type;
 
 export const UpdateDownloadProgress = Schema.Struct({
-  percent: Schema.Number.pipe(Schema.between(0, 100)),
-  bytesPerSecond: Schema.Number.pipe(Schema.nonNegative()),
-  transferred: Schema.Number.pipe(Schema.nonNegative()),
-  total: Schema.Number.pipe(Schema.nonNegative()),
+  percent: Schema.Number.pipe(Schema.check(Schema.isBetween({ minimum: 0, maximum: 100 }))),
+  bytesPerSecond: Schema.Number.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))),
+  transferred: Schema.Number.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))),
+  total: Schema.Number.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))),
 });
 export type UpdateDownloadProgress = typeof UpdateDownloadProgress.Type;
 
 export const AvailableRelease = Schema.Struct({
-  version: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(64)),
-  releaseDate: Schema.optionalWith(Schema.String, { exact: true }),
-  releaseName: Schema.optionalWith(Schema.String, { exact: true }),
-  releaseNotes: Schema.optionalWith(Schema.String, { exact: true }),
+  version: Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(64))),
+  releaseDate: Schema.optionalKey(Schema.String),
+  releaseName: Schema.optionalKey(Schema.String),
+  releaseNotes: Schema.optionalKey(Schema.String),
 });
 export type AvailableRelease = typeof AvailableRelease.Type;
 
-export const UpdateErrorCode = Schema.Literal(
-  "not-packaged",
-  "platform-unsupported",
-  "check-failed",
-  "download-failed",
-  "readiness-failed",
-  "install-refused",
-  "not-ready",
-  "candidate-mismatch",
-  "unknown",
-);
+export const UpdateErrorCode = Schema.Literals(["not-packaged", "platform-unsupported",
+"check-failed",
+"download-failed",
+"readiness-failed",
+"install-refused",
+"not-ready",
+"candidate-mismatch",
+"unknown",]);
 export type UpdateErrorCode = typeof UpdateErrorCode.Type;
 
 export const UpdateErrorInfo = Schema.Struct({
   code: UpdateErrorCode,
-  message: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(500)),
+  message: Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(500))),
 });
 export type UpdateErrorInfo = typeof UpdateErrorInfo.Type;
 
@@ -63,14 +57,11 @@ export type UpdateErrorInfo = typeof UpdateErrorInfo.Type;
  */
 export const UpdateInstallProvenance = Schema.Struct({
   packaged: Schema.Boolean,
-  platform: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(32)),
-  arch: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(32)),
-  electronVersion: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(64)),
-  providerKind: Schema.Literal("mac", "linux", "unsupported"),
-  feedUrl: Schema.optionalWith(
-    Schema.String.pipe(Schema.minLength(1), Schema.maxLength(512)),
-    { exact: true },
-  ),
+  platform: Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(32))),
+  arch: Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(32))),
+  electronVersion: Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(64))),
+  providerKind: Schema.Literals(["mac", "linux", "unsupported"]),
+  feedUrl: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(512)))),
 });
 export type UpdateInstallProvenance = typeof UpdateInstallProvenance.Type;
 
@@ -80,18 +71,18 @@ export type UpdateInstallProvenance = typeof UpdateInstallProvenance.Type;
  */
 export const UpdateStatus = Schema.Struct({
   phase: UpdatePhase,
-  currentVersion: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(64)),
-  available: Schema.optionalWith(AvailableRelease, { exact: true }),
-  progress: Schema.optionalWith(UpdateDownloadProgress, { exact: true }),
-  error: Schema.optionalWith(UpdateErrorInfo, { exact: true }),
+  currentVersion: Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(64))),
+  available: Schema.optionalKey(AvailableRelease),
+  progress: Schema.optionalKey(UpdateDownloadProgress),
+  error: Schema.optionalKey(UpdateErrorInfo),
   /**
    * Operator may Restart: minted candidate with admitted staged app path.
    * True in phase `ready` once expand+admit succeeded. Final quitAndInstall
    * requires the same main-side canAuthorizeInstall gate.
    */
   canInstall: Schema.Boolean,
-  lastCheckedAt: Schema.optionalWith(Schema.String, { exact: true }),
-  install: Schema.optionalWith(UpdateInstallProvenance, { exact: true }),
+  lastCheckedAt: Schema.optionalKey(Schema.String),
+  install: Schema.optionalKey(UpdateInstallProvenance),
 });
 export type UpdateStatus = typeof UpdateStatus.Type;
 

@@ -90,7 +90,7 @@ export const parseContentObjectUrl = (url: string): ContentRef | undefined => {
         sha256: ContentSha256,
         byteLength: ContentByteLength,
         mediaType: ContentMediaType,
-        displayName: Schema.optionalWith(ContentDisplayName, { exact: true }),
+        displayName: Schema.optionalKey(ContentDisplayName),
       }),
       { onExcessProperty: "error" },
     )({

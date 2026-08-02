@@ -1,12 +1,12 @@
 import { Schema } from "effect";
 import { UpdateErrorCode, type UpdateErrorCode as Code } from "@shared/update";
 
-export class UpdateError extends Schema.TaggedError<UpdateError>()(
+export class UpdateError extends Schema.TaggedErrorClass<UpdateError>()(
   "UpdateError",
   {
     code: UpdateErrorCode,
     message: Schema.String,
-    cause: Schema.optional(Schema.Defect),
+    cause: Schema.optional(Schema.Unknown),
   },
 ) {
   get updateCode(): Code {

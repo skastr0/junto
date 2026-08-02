@@ -240,11 +240,11 @@ export const deployConfiguredRemoteHost = (
     // Platform is known only after prepare. Admit durably only once the target
     // is release-eligible so Linux freezes never leave a half-started receipt.
     if (options.onAdmitted) {
-      const admission = yield* options.onAdmitted(host).pipe(Effect.either);
-      if (admission._tag === "Left") {
-        const detail = `${host.label}: deployment did not start because its durable admission receipt could not be persisted — ${admission.left.message}`;
+      const admission = yield* options.onAdmitted(host).pipe(Effect.result);
+      if (admission._tag === "Failure") {
+        const detail = `${host.label}: deployment did not start because its durable admission receipt could not be persisted — ${admission.failure.message}`;
         return failedBeforeMutation(host, detail, {
-          code: admission.left.code,
+          code: admission.failure.code,
           stages: preparation.target.progress,
         });
       }
@@ -266,13 +266,13 @@ export const deployConfiguredRemoteHost = (
 
     const configured = yield* operations
       .configure(ssh, host, options)
-      .pipe(Effect.either);
-    if (configured._tag === "Left") {
-      return configurationFailure(host, deployed, configured.left);
+      .pipe(Effect.result);
+    if (configured._tag === "Failure") {
+      return configurationFailure(host, deployed, configured.failure);
     }
-    if (!configured.right.ok || configured.right.station === undefined) {
-      return configurationFailure(host, deployed, configured.right);
+    if (!configured.success.ok || configured.success.station === undefined) {
+      return configurationFailure(host, deployed, configured.success);
     }
 
-    return finishWithConfiguration(host, deployed, configured.right);
+    return finishWithConfiguration(host, deployed, configured.success);
   }).pipe(Effect.withSpan("hosts.deploy-configured-remote"));

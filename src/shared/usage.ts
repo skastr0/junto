@@ -8,28 +8,28 @@ import { Schema } from "effect";
 // HUD fail-open: paint last-good when present; hide entirely when no quotas
 // (missing codexbar, empty poll) — no error chrome.
 
-export const UsageWindowLabel = Schema.Literal("primary", "secondary", "tertiary", "extra");
+export const UsageWindowLabel = Schema.Literals(["primary", "secondary", "tertiary", "extra"]);
 export type UsageWindowLabel = typeof UsageWindowLabel.Type;
 
 export const UsagePace = Schema.Struct({
   stage: Schema.String,
   deltaPercent: Schema.Number,
-  expectedUsedPercent: Schema.optionalWith(Schema.Number, { exact: true }),
-  willLastToReset: Schema.optionalWith(Schema.Boolean, { exact: true }),
-  summary: Schema.optionalWith(Schema.String, { exact: true }),
+  expectedUsedPercent: Schema.optionalKey(Schema.Number),
+  willLastToReset: Schema.optionalKey(Schema.Boolean),
+  summary: Schema.optionalKey(Schema.String),
 });
 export type UsagePace = typeof UsagePace.Type;
 
 export const UsageWindow = Schema.Struct({
   label: UsageWindowLabel,
   // Source-native identity for extra windows (e.g. "codex-spark-weekly").
-  id: Schema.optionalWith(Schema.String, { exact: true }),
-  title: Schema.optionalWith(Schema.String, { exact: true }),
+  id: Schema.optionalKey(Schema.String),
+  title: Schema.optionalKey(Schema.String),
   usedPercent: Schema.Number,
-  windowMinutes: Schema.optionalWith(Schema.Number, { exact: true }),
-  resetsAt: Schema.optionalWith(Schema.String, { exact: true }),
-  resetDescription: Schema.optionalWith(Schema.String, { exact: true }),
-  pace: Schema.optionalWith(UsagePace, { exact: true }),
+  windowMinutes: Schema.optionalKey(Schema.Number),
+  resetsAt: Schema.optionalKey(Schema.String),
+  resetDescription: Schema.optionalKey(Schema.String),
+  pace: Schema.optionalKey(UsagePace),
 });
 export type UsageWindow = typeof UsageWindow.Type;
 
@@ -37,24 +37,21 @@ export const ProviderQuota = Schema.Struct({
   provider: Schema.String,
   // How the usage source read it (oauth|web|cli|auto|...).
   source: Schema.String,
-  status: Schema.Literal("ok", "error"),
-  account: Schema.optionalWith(Schema.String, { exact: true }),
-  plan: Schema.optionalWith(Schema.String, { exact: true }),
+  status: Schema.Literals(["ok", "error"]),
+  account: Schema.optionalKey(Schema.String),
+  plan: Schema.optionalKey(Schema.String),
   windows: Schema.Array(UsageWindow),
-  creditsRemaining: Schema.optionalWith(Schema.Number, { exact: true }),
+  creditsRemaining: Schema.optionalKey(Schema.Number),
   // Provider-specific payload remainder, passed through for the detail view.
-  extras: Schema.optionalWith(Schema.Record({ key: Schema.String, value: Schema.Unknown }), { exact: true }),
-  error: Schema.optionalWith(Schema.String, { exact: true }),
+  extras: Schema.optionalKey(Schema.Record(Schema.String, Schema.Unknown)),
+  error: Schema.optionalKey(Schema.String),
   updatedAt: Schema.String,
 });
 export type ProviderQuota = typeof ProviderQuota.Type;
 
-export const UsageUnavailableReason = Schema.Literal(
-  "cli-missing",
-  "cli-error",
-  "parse-error",
-  "source-missing",
-);
+export const UsageUnavailableReason = Schema.Literals(["cli-missing", "cli-error",
+"parse-error",
+"source-missing",]);
 export type UsageUnavailableReason = typeof UsageUnavailableReason.Type;
 
 export const UsageSnapshot = Schema.Struct({
@@ -62,8 +59,8 @@ export const UsageSnapshot = Schema.Struct({
   source: Schema.String,
   fetchedAt: Schema.String,
   ok: Schema.Boolean,
-  reason: Schema.optionalWith(UsageUnavailableReason, { exact: true }),
-  error: Schema.optionalWith(Schema.String, { exact: true }),
+  reason: Schema.optionalKey(UsageUnavailableReason),
+  error: Schema.optionalKey(Schema.String),
   quotas: Schema.Array(ProviderQuota),
 });
 export type UsageSnapshot = typeof UsageSnapshot.Type;
@@ -134,11 +131,11 @@ export const UsageState = Schema.Struct({
   snapshots: Schema.Array(UsageSnapshot),
   // True when `snapshots` are last-good (disk or prior poll) and the latest
   // live refresh has not replaced them with a fresher successful payload.
-  stale: Schema.optionalWith(Schema.Boolean, { exact: true }),
+  stale: Schema.optionalKey(Schema.Boolean),
   // ISO time of the last successful live commit that carried quotas.
-  lastLiveAt: Schema.optionalWith(Schema.String, { exact: true }),
+  lastLiveAt: Schema.optionalKey(Schema.String),
   // Last live failure message (kept while showing stale quotas).
-  lastError: Schema.optionalWith(Schema.String, { exact: true }),
+  lastError: Schema.optionalKey(Schema.String),
 });
 export type UsageState = typeof UsageState.Type;
 

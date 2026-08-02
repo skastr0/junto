@@ -20,7 +20,7 @@ import { Schema } from "effect";
  * seat slot that carries a harness carries this type — there is no second list
  * to drift.
  */
-export const HarnessId = Schema.Literal("claude", "codex", "grok", "hermes");
+export const HarnessId = Schema.Literals(["claude", "codex", "grok", "hermes"]);
 export type HarnessId = typeof HarnessId.Type;
 
 export const HARNESS_IDS: readonly HarnessId[] = HarnessId.literals;

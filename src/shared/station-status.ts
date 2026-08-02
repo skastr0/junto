@@ -1,4 +1,4 @@
-import { Either, Schema } from "effect";
+import { Result, Schema } from "effect";
 import type { ServiceCheck } from "./contracts";
 import type { KernelSnapshot } from "./ipc";
 import {
@@ -35,25 +35,22 @@ export const STATION_KERNEL_STALE_AFTER_MS = 2 * 60 * 1_000;
 export const STATION_DEPLOYMENT_STALE_AFTER_MS = 24 * 60 * 60 * 1_000;
 
 const NonNegativeInteger = Schema.Number.pipe(
-  Schema.int(),
-  Schema.nonNegative(),
+  Schema.check(Schema.isInt()),
+  Schema.check(Schema.isGreaterThanOrEqualTo(0)),
 );
-const Diagnostic = Schema.String.pipe(Schema.maxLength(4_096));
-const Stage = Schema.String.pipe(Schema.maxLength(512));
+const Diagnostic = Schema.String.pipe(Schema.check(Schema.isMaxLength(4_096)));
+const Stage = Schema.String.pipe(Schema.check(Schema.isMaxLength(512)));
 const Endpoint = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(255),
+  Schema.check(Schema.isMinLength(1)),
+  Schema.check(Schema.isMaxLength(255)),
 );
 const AppVersion = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(128),
+  Schema.check(Schema.isMinLength(1)),
+  Schema.check(Schema.isMaxLength(128)),
 );
 
-export const StationDeployOutcome = Schema.Literal(
-  "ready",
-  "failed",
-  "indeterminate",
-);
+export const StationDeployOutcome = Schema.Literals(["ready", "failed",
+"indeterminate",]);
 export type StationDeployOutcome = typeof StationDeployOutcome.Type;
 
 export const StationDeployRecord = Schema.Struct({
@@ -62,13 +59,13 @@ export const StationDeployRecord = Schema.Struct({
   endpoint: Endpoint,
   ok: Schema.Boolean,
   outcome: StationDeployOutcome,
-  packageState: Schema.Literal("present", "previous", "unknown"),
-  role: Schema.Literal("remote", "previous", "unknown"),
+  packageState: Schema.Literals(["present", "previous", "unknown"]),
+  role: Schema.Literals(["remote", "previous", "unknown"]),
   version: AppVersion,
-  lastSeen: Schema.optionalWith(DisplayTimestamp, { exact: true }),
+  lastSeen: Schema.optionalKey(DisplayTimestamp),
   configurationOk: Schema.Boolean,
   detail: Diagnostic,
-  stages: Schema.Array(Stage).pipe(Schema.maxItems(32)),
+  stages: Schema.Array(Stage).pipe(Schema.check(Schema.isMaxSize(32))),
 });
 export type StationDeployRecord = typeof StationDeployRecord.Type;
 
@@ -77,29 +74,20 @@ export type StationDeployRecord = typeof StationDeployRecord.Type;
 export const StationKernelRecord = Schema.Struct({
   observedAt: DisplayTimestamp,
   armedRegionCount: NonNegativeInteger,
-  lastFireAt: Schema.optionalWith(DisplayTimestamp, { exact: true }),
-  lastFireKind: Schema.optionalWith(
-    Schema.Literal("watcher", "timer", "manual"),
-    { exact: true },
-  ),
-  lastFireDry: Schema.optionalWith(Schema.Boolean, { exact: true }),
-  fault: Schema.optionalWith(
-    Schema.String.pipe(Schema.maxLength(1_024)),
-    { exact: true },
-  ),
+  lastFireAt: Schema.optionalKey(DisplayTimestamp),
+  lastFireKind: Schema.optionalKey(Schema.Literals(["watcher", "timer", "manual"])),
+  lastFireDry: Schema.optionalKey(Schema.Boolean),
+  fault: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMaxLength(1_024)))),
   orphanedArmingCount: NonNegativeInteger,
 });
 export type StationKernelRecord = typeof StationKernelRecord.Type;
 
-const Deployments = Schema.Record({
-  key: StationHostId,
-  value: StationDeployRecord,
-});
+const Deployments = Schema.Record(StationHostId, StationDeployRecord);
 
 export const StationStatusDocument = Schema.Struct({
   version: Schema.Literal(STATION_STATUS_VERSION),
-  kernel: Schema.optionalWith(StationKernelRecord, { exact: true }),
-  deployments: Schema.optionalWith(Deployments, { exact: true }),
+  kernel: Schema.optionalKey(StationKernelRecord),
+  deployments: Schema.optionalKey(Deployments),
 });
 export type StationStatusDocument = typeof StationStatusDocument.Type;
 
@@ -143,7 +131,7 @@ export const defaultStationStatus = (): StationStatusDocument => ({
   version: STATION_STATUS_VERSION,
 });
 
-const decodeStatus = Schema.decodeUnknownEither(StationStatusDocument, {
+const decodeStatus = Schema.decodeUnknownResult(StationStatusDocument, {
   onExcessProperty: "error",
 });
 
@@ -152,7 +140,7 @@ export const decodeStationStatusDocument = (
   value: unknown,
 ): StationStatusDocument | undefined => {
   const decoded = decodeStatus(value);
-  return Either.isRight(decoded) ? decoded.right : undefined;
+  return Result.isSuccess(decoded) ? decoded.success : undefined;
 };
 
 const decodeDeploy = Schema.decodeUnknownSync(StationDeployRecord, {

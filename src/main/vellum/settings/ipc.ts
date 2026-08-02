@@ -1,6 +1,6 @@
 import type { IpcMain, SaveDialogOptions } from "electron";
 import { app, BrowserWindow, dialog } from "electron";
-import { Effect, Either } from "effect";
+import { Effect, Result } from "effect";
 import { IPC_CHANNELS } from "@shared/ipc";
 import {
   SettingsSectionKey,
@@ -23,16 +23,16 @@ import {
   listStateBackups,
 } from "../state/recovery";
 
-const decodeSection = Schema.decodeUnknownEither(SettingsSectionKey);
+const decodeSection = Schema.decodeUnknownResult(SettingsSectionKey);
 
 const toOpResult = (
-  either: Either.Either<
+  either: Result.Result<
     import("@shared/settings").Settings,
     import("@shared/settings").SettingsError
   >,
 ): SettingsOpResult => {
-  if (Either.isRight(either)) return settingsOpOk(either.right);
-  return settingsOpFail(either.left.code, either.left.message);
+  if (Result.isSuccess(either)) return settingsOpOk(either.success);
+  return settingsOpFail(either.failure.code, either.failure.message);
 };
 
 export const registerSettingsIpc = (
@@ -49,7 +49,7 @@ export const registerSettingsIpc = (
     AppRuntime.runPromise(
       Effect.gen(function* () {
         const settings = yield* SettingsService;
-        const result = yield* Effect.either(settings.get);
+        const result = yield* Effect.result(settings.get);
         return toOpResult(result);
       }),
     ),
@@ -64,7 +64,7 @@ export const registerSettingsIpc = (
         if (patch === null || typeof patch !== "object" || Array.isArray(patch)) {
           return settingsOpFail("validation", "settings patch must be a plain object");
         }
-        const result = yield* Effect.either(settings.patch(patch));
+        const result = yield* Effect.result(settings.patch(patch));
         return toOpResult(result);
       }),
     ),
@@ -83,7 +83,7 @@ export const registerSettingsIpc = (
             "station topology patch must be a plain object",
           );
         }
-        const result = yield* Effect.either(settings.setStationTopology(station));
+        const result = yield* Effect.result(settings.setStationTopology(station));
         return toOpResult(result);
       }),
     ),
@@ -94,14 +94,14 @@ export const registerSettingsIpc = (
       Effect.gen(function* () {
         const settings = yield* SettingsService;
         if (section === undefined || section === null || section === "") {
-          const result = yield* Effect.either(settings.reset());
+          const result = yield* Effect.result(settings.reset());
           return toOpResult(result);
         }
         const decoded = decodeSection(section);
-        if (Either.isLeft(decoded)) {
+        if (Result.isFailure(decoded)) {
           return settingsOpFail("validation", "settings reset section is invalid");
         }
-        const result = yield* Effect.either(settings.reset(decoded.right));
+        const result = yield* Effect.result(settings.reset(decoded.success));
         return toOpResult(result);
       }),
     ),
@@ -158,7 +158,7 @@ export const registerSettingsIpc = (
       const settings = yield* SettingsService;
       settings.subscribe((next) => broadcast(IPC_CHANNELS.settingsChanged, next));
       // Prime cache so first UI open is warm and doctor is honest.
-      yield* settings.get.pipe(Effect.catchAll(() => Effect.void));
+      yield* settings.get.pipe(Effect.catch(() => Effect.void));
     }),
   );
 };

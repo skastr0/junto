@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from 
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Context, Either, ManagedRuntime, Schema } from "effect";
+import { Context, Result, ManagedRuntime, Schema } from "effect";
 import {
   DoctorData,
   controlErr,
@@ -144,19 +144,19 @@ const makeSpyAdapter = (options: {
 
 describe("browser control envelopes (pure)", () => {
   it("round-trips ok and error envelopes through the wire decoder", () => {
-    expect(Either.isRight(decodeControlEnvelope(JSON.parse(JSON.stringify(controlOk({ n: 1 })))))).toBe(true);
+    expect(Result.isSuccess(decodeControlEnvelope(JSON.parse(JSON.stringify(controlOk({ n: 1 })))))).toBe(true);
     const failure = decodeControlEnvelope(
       JSON.parse(JSON.stringify(controlErr("runtime_down", "app not running"))),
     );
-    expect(Either.isRight(failure)).toBe(true);
-    if (Either.isRight(failure) && !failure.right.ok) {
+    expect(Result.isSuccess(failure)).toBe(true);
+    if (Result.isSuccess(failure) && !failure.right.ok) {
       expect(failure.right.error._tag).toBe("runtime_down");
     }
   });
 
   it("rejects malformed envelopes", () => {
     for (const bad of [null, 42, { ok: "yes" }, { ok: false, error: { message: "x" } }]) {
-      expect(Either.isLeft(decodeControlEnvelope(bad))).toBe(true);
+      expect(Result.isFailure(decodeControlEnvelope(bad))).toBe(true);
     }
   });
 
@@ -410,9 +410,9 @@ describe("control route handlers", () => {
     const response = await makeStack().call("GET", "/doctor");
     expect(response.status).toBe(200);
     if (response.envelope.ok) {
-      const decoded = Schema.decodeUnknownEither(DoctorData)(response.envelope.data);
-      expect(Either.isRight(decoded)).toBe(true);
-      if (Either.isRight(decoded)) expect(decoded.right).toEqual({ status: "ok" });
+      const decoded = Schema.decodeUnknownResult(DoctorData)(response.envelope.data);
+      expect(Result.isSuccess(decoded)).toBe(true);
+      if (Result.isSuccess(decoded)) expect(decoded.success).toEqual({ status: "ok" });
     }
   });
 

@@ -15,7 +15,7 @@ import {
   type OperatorRequestEnvelope,
   type OperatorResponseEnvelope,
 } from "@shared/operator-control";
-import { Either } from "effect";
+import { Result } from "effect";
 import {
   acquireControlListenerLease,
   captureControlSocketPathIdentity,
@@ -346,15 +346,15 @@ export const startOperatorControlServer = async (
         lineBytes.fill(0);
       }
       const json = decodeOperatorJsonLine(line);
-      if (Either.isLeft(json)) {
+      if (Result.isFailure(json)) {
         await send(
           socket,
           operatorError("protocol_error", "invalid operator request"),
         );
         return;
       }
-      const decoded = decodeOperatorRequest(json.right);
-      if (Either.isLeft(decoded)) {
+      const decoded = decodeOperatorRequest(json.success);
+      if (Result.isFailure(decoded)) {
         // Effect ParseError may embed the submitted password. Never surface it.
         await send(
           socket,
@@ -364,7 +364,7 @@ export const startOperatorControlServer = async (
       }
 
       try {
-        const response = await retainDispatch(decoded.right);
+        const response = await retainDispatch(decoded.success);
         await send(socket, response);
       } catch {
         await send(
@@ -372,7 +372,7 @@ export const startOperatorControlServer = async (
           operatorError(
             "internal_error",
             "operator request failed",
-            decoded.right,
+            decoded.success,
           ),
         );
       }

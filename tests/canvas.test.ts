@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Either } from "effect";
+import { Result } from "effect";
 import {
   applyMirrorLaw,
   decodeCanvasDoc,
@@ -73,9 +73,9 @@ const rawDoc = {
 
 describe("canvas contract", () => {
   it("round-trips decode -> serialize -> decode to an identical document", () => {
-    const decoded1 = Either.getOrThrow(decodeCanvasDoc(rawDoc));
+    const decoded1 = Result.getOrThrow(decodeCanvasDoc(rawDoc));
     const serialized = serializeCanvas(decoded1);
-    const decoded2 = Either.getOrThrow(decodeCanvasDoc(JSON.parse(serialized)));
+    const decoded2 = Result.getOrThrow(decodeCanvasDoc(JSON.parse(serialized)));
     expect(decoded2).toEqual(decoded1);
   });
 
@@ -91,12 +91,12 @@ describe("canvas contract", () => {
       }),
     };
     const decoded = decodeCanvasDoc(stripped);
-    expect(Either.isRight(decoded)).toBe(true);
+    expect(Result.isSuccess(decoded)).toBe(true);
   });
 
   it("rejects excess top-level properties", () => {
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeCanvasDoc({
           ...rawDoc,
           topMystery: true,
@@ -127,7 +127,7 @@ describe("canvas contract", () => {
       edges: [],
     };
 
-    expect(Either.isLeft(decodeCanvasDoc(legacy))).toBe(true);
+    expect(Result.isFailure(decodeCanvasDoc(legacy))).toBe(true);
   });
 
   it.each(["tower", "quasar", "booth"] as const)(
@@ -159,7 +159,7 @@ describe("canvas contract", () => {
         edges: [],
       };
 
-      expect(Either.isLeft(decodeCanvasDoc(legacy))).toBe(true);
+      expect(Result.isFailure(decodeCanvasDoc(legacy))).toBe(true);
     },
   );
 
@@ -188,7 +188,7 @@ describe("canvas contract", () => {
         edges: [],
       };
 
-      expect(Either.isLeft(decodeCanvasDoc(legacy))).toBe(true);
+      expect(Result.isFailure(decodeCanvasDoc(legacy))).toBe(true);
     },
   );
 
@@ -212,7 +212,7 @@ describe("canvas contract", () => {
       edges: [],
     };
 
-    expect(Either.isLeft(decodeCanvasDoc(legacy))).toBe(true);
+    expect(Result.isFailure(decodeCanvasDoc(legacy))).toBe(true);
   });
 
   it.each(["glyphs", "wip"] as const)(
@@ -249,7 +249,7 @@ describe("canvas contract", () => {
         ],
       };
 
-      expect(Either.isLeft(decodeCanvasDoc(legacy))).toBe(true);
+      expect(Result.isFailure(decodeCanvasDoc(legacy))).toBe(true);
     },
   );
 
@@ -276,7 +276,7 @@ describe("canvas contract", () => {
       ],
     };
 
-    expect(Either.isLeft(decodeCanvasDoc(legacy))).toBe(true);
+    expect(Result.isFailure(decodeCanvasDoc(legacy))).toBe(true);
   });
 
   it("applyMirrorLaw mirrors color only and leaves labels authorial", () => {
@@ -350,7 +350,7 @@ describe("canvas contract", () => {
   });
 
   it("serializeCanvas produces a stable key order and is idempotent", () => {
-    const decoded = Either.getOrThrow(decodeCanvasDoc(rawDoc));
+    const decoded = Result.getOrThrow(decodeCanvasDoc(rawDoc));
     const first = serializeCanvas(decoded);
     const second = serializeCanvas(decoded);
     expect(first).toBe(second);

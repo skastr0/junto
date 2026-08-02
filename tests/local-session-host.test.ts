@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Either } from "effect";
+import { Result } from "effect";
 import type {
   AppProcessSignalReceipt,
   AppTerminalLease,
@@ -70,7 +70,7 @@ const hostWith = (
 
 describe("LocalSessionHost", () => {
   it("uses the explicit shell argv before the ambient user shell", () => {
-    const launch = Either.getOrThrow(
+    const launch = Result.getOrThrow(
       resolveLaunch({ kind: "terminal", launch: { kind: "shell", argv: ["/bin/sh", "-l"] } }),
     );
     expect(launch.file).toBe("/bin/sh");
@@ -84,7 +84,7 @@ describe("LocalSessionHost", () => {
     );
     expect(expandTerminalCwd("/absolute/repo")).toBe("/absolute/repo");
 
-    const launch = Either.getOrThrow(
+    const launch = Result.getOrThrow(
       resolveLaunch({
         kind: "terminal",
         launch: { kind: "shell", cwd: "~/Projects/vellum" },
@@ -96,13 +96,13 @@ describe("LocalSessionHost", () => {
 
   it("forces an xterm TERM when the host process runs under TERM=dumb", () => {
     vi.stubEnv("TERM", "dumb");
-    const launch = Either.getOrThrow(resolveLaunch({ kind: "terminal" }));
+    const launch = Result.getOrThrow(resolveLaunch({ kind: "terminal" }));
     expect(launch.env.TERM).toBe("xterm-256color");
   });
 
   it("does not pass ambient NO_COLOR into a managed agent TUI", () => {
     vi.stubEnv("NO_COLOR", "1");
-    const launch = Either.getOrThrow(
+    const launch = Result.getOrThrow(
       resolveLaunch({
         kind: "agent",
         harness: "codex",
@@ -155,13 +155,13 @@ describe("LocalSessionHost", () => {
     const fallback = process.platform === "linux" ? "/bin/bash" : "/bin/zsh";
 
     vi.stubEnv("SHELL", "relative-shell");
-    expect(Either.getOrThrow(resolveLaunch({ kind: "terminal" }))).toMatchObject({
+    expect(Result.getOrThrow(resolveLaunch({ kind: "terminal" }))).toMatchObject({
       file: fallback,
       args: ["-l"],
     });
 
     vi.stubEnv("SHELL", "/no/such/user-shell");
-    expect(Either.getOrThrow(resolveLaunch({ kind: "terminal" }))).toMatchObject({
+    expect(Result.getOrThrow(resolveLaunch({ kind: "terminal" }))).toMatchObject({
       file: fallback,
       args: ["-l"],
     });
@@ -174,7 +174,7 @@ describe("LocalSessionHost", () => {
       agentKey: "local:claude",
       launch: { kind: "harness", argv: ["/usr/local/bin/claude", "--resume"] },
     });
-    expect(Either.getOrThrow(resolved)).toMatchObject({
+    expect(Result.getOrThrow(resolved)).toMatchObject({
       file: "/usr/local/bin/claude",
       args: ["--resume"],
     });
@@ -185,7 +185,7 @@ describe("LocalSessionHost", () => {
       agentKey: "local:claude",
       launch: { kind: "harness" },
     });
-    if (!Either.isLeft(seatWithoutArgv)) {
+    if (!Result.isFailure(seatWithoutArgv)) {
       throw new Error("an agent seat with no argv must not resolve to a launch");
     }
     expect(seatWithoutArgv.left).toMatchObject({
@@ -195,7 +195,7 @@ describe("LocalSessionHost", () => {
   });
 
   it("keeps the live seat environment authoritative over a stale launch plan", () => {
-    const resolved = Either.getOrThrow(
+    const resolved = Result.getOrThrow(
       resolveLaunch(
         {
           kind: "agent",

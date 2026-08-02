@@ -17,7 +17,7 @@ import {
   type TargetWorkOpName,
 } from "@shared/physics";
 import type { WorkErrorBody, WorkOpName } from "@shared/work-control";
-import { Either, Match } from "effect";
+import { Result, Match } from "effect";
 
 // Edges are the capability system. Kernel-enforced per call via factory physics
 // (admitPure + ports). Region co-members: {id, kind, title} visibility only.
@@ -248,14 +248,14 @@ export const admitWorkTarget = (
   callerId: string,
   targetId: string,
   op: WorkOpName,
-): Either.Either<{ readonly node: CanvasNode }, WorkErrorBody> => {
+): Result.Result<{ readonly node: CanvasNode }, WorkErrorBody> => {
   const target = findNode(doc, targetId);
   if (!target) {
     const vis = visibilityOf(doc, callerId, targetId);
     if (vis === "none") {
-      return Either.left(scopeError(callerId, targetId, "invisible"));
+      return Result.fail(scopeError(callerId, targetId, "invisible"));
     }
-    return Either.left({
+    return Result.fail({
       type: "UnknownTarget",
       message: `target "${targetId}" not found`,
       details: { target: targetId, retryable: false },
@@ -263,7 +263,7 @@ export const admitWorkTarget = (
   }
 
   if (!requiresConnection(op) || !isTargetWorkOp(op)) {
-    return Either.right({ node: target });
+    return Result.succeed({ node: target });
   }
 
   const view = canvasDocToCapabilityView(doc);
@@ -273,15 +273,15 @@ export const admitWorkTarget = (
     asNodeId(targetId),
     portForWorkOp(op as TargetWorkOpName),
   );
-  if (Either.isLeft(result)) {
-    return Either.left(
-      scopeDenialToWorkError(result.left, {
+  if (Result.isFailure(result)) {
+    return Result.fail(
+      scopeDenialToWorkError(result.failure, {
         kind: nodeKind(target),
         op,
       }),
     );
   }
-  return Either.right({ node: target });
+  return Result.succeed({ node: target });
 };
 
 export type VisibleNode = {
@@ -309,7 +309,7 @@ export const heldGrantsOnEdge = (
   const caller = asNodeId(callerId);
   const target = asNodeId(targetId);
   return ALL_PORTS.filter((port) =>
-    Either.isRight(admitPure(view, caller, target, port)),
+    Result.isSuccess(admitPure(view, caller, target, port)),
   );
 };
 

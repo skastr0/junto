@@ -1,4 +1,4 @@
-import { Either, Schema } from "effect";
+import { Result, Schema } from "effect";
 import {
   BROWSER_CLI_REQUEST_TIMEOUT_MS,
   BROWSER_CONTROL_HEADERS_TIMEOUT_MS,
@@ -48,28 +48,24 @@ export const CONTROL_CLI_REQUEST_TIMEOUT_MS = BROWSER_CLI_REQUEST_TIMEOUT_MS;
 // is minted client-side only (the socket does not answer); the server never
 // emits it.
 
-export const ControlErrorTag = Schema.Literal(
-  "unauthorized", // missing/wrong token
-  "bad_request", // malformed body / unknown route
-  "invalid", // domain-invalid input (bad profile id, profile switch on warm session)
-  "not_found", // no such session / node
-  "forbidden", // url scheme not allowed
-  "timeout", // operation exceeded its deadline
-  "cancelled", // operation was aborted by its caller
-  "resource_exhausted", // bounded browser capacity is currently full
-  "unsupported_capability", // resolved page host cannot run browser work here
-  "unsupported_result", // result is not losslessly representable as JSON
-  "result_too_large", // result or response exceeds its byte budget
-  "failed", // operation attempted and failed (load error, eval throw, io)
-  "runtime_down", // app not running — socket absent or refusing (CLI-side)
-);
+export const ControlErrorTag = Schema.Literals(["unauthorized", // missing/wrong token
+"bad_request", // malformed body / unknown route
+"invalid", // domain-invalid input (bad profile id, profile switch on warm session)
+"not_found", // no such session / node
+"forbidden", // url scheme not allowed
+"timeout", // operation exceeded its deadline
+"cancelled", // operation was aborted by its caller
+"resource_exhausted", // bounded browser capacity is currently full
+"unsupported_capability", // resolved page host cannot run browser work here
+"unsupported_result", // result is not losslessly representable as JSON
+"result_too_large", // result or response exceeds its byte budget
+"failed", // operation attempted and failed (load error, eval throw, io)
+"runtime_down", // app not running — socket absent or refusing (CLI-side)]);
 export type ControlErrorTag = typeof ControlErrorTag.Type;
 
 const ControlErrorMessage = Schema.String.pipe(
-  Schema.filter(
-    (value) => isUtf8WithinLimit(value, BROWSER_MAX_ERROR_BYTES),
-    { message: () => `control error exceeds ${BROWSER_MAX_ERROR_BYTES} UTF-8 bytes` },
-  ),
+  Schema.check(Schema.makeFilter((value) => isUtf8WithinLimit(value, BROWSER_MAX_ERROR_BYTES),
+  { message: () => `control error exceeds ${BROWSER_MAX_ERROR_BYTES} UTF-8 bytes` },)),
 );
 
 export const ControlError = Schema.Struct({
@@ -230,19 +226,17 @@ export const encodeControlEnvelope = (envelope: ControlEnvelope<unknown>): strin
     : '{"ok":false,"error":{"_tag":"failed","message":"control response encoding failed"}}';
 };
 
-const EnvelopeWire = Schema.Union(
-  Schema.Struct({ ok: Schema.Literal(true), data: Schema.Unknown }),
-  Schema.Struct({ ok: Schema.Literal(false), error: ControlError }),
-);
+const EnvelopeWire = Schema.Union([Schema.Struct({ ok: Schema.Literal(true), data: Schema.Unknown }),
+Schema.Struct({ ok: Schema.Literal(false), error: ControlError }),]);
 
 /** Decode an untrusted wire payload into an envelope (data left unknown). */
 export const decodeControlEnvelope = (
   input: unknown,
-): Either.Either<ControlEnvelope<unknown>, ControlError> => {
-  const decoded = Schema.decodeUnknownEither(EnvelopeWire)(input);
-  return Either.isLeft(decoded)
-    ? Either.left(controlError("bad_request", "malformed control envelope"))
-    : Either.right(decoded.right as ControlEnvelope<unknown>);
+): Result.Result<ControlEnvelope<unknown>, ControlError> => {
+  const decoded = Schema.decodeUnknownResult(EnvelopeWire)(input);
+  return Result.isFailure(decoded)
+    ? Result.fail(controlError("bad_request", "malformed control envelope"))
+    : Result.succeed(decoded.success as ControlEnvelope<unknown>);
 };
 
 // ---------------------------------------------------------------------------
@@ -250,17 +244,13 @@ export const decodeControlEnvelope = (
 
 const boundedString = (label: string, maxBytes: number) =>
   Schema.String.pipe(
-    Schema.filter(
-      (value) => isUtf8WithinLimit(value, maxBytes),
-      { message: () => `${label} exceeds ${maxBytes} UTF-8 bytes` },
-    ),
+    Schema.check(Schema.makeFilter((value) => isUtf8WithinLimit(value, maxBytes),
+    { message: () => `${label} exceeds ${maxBytes} UTF-8 bytes` },)),
   );
 
 const SessionId = Schema.String.pipe(
-  Schema.filter(
-    isValidBrowserSessionId,
-    { message: () => "sessionId must be nonempty bounded ASCII" },
-  ),
+  Schema.check(Schema.makeFilter(isValidBrowserSessionId,
+  { message: () => "sessionId must be nonempty bounded ASCII" },)),
 );
 
 export const OpenRequest = Schema.Struct({
@@ -305,8 +295,8 @@ export type DoctorData = typeof DoctorData.Type;
 
 export const ProfileRow = Schema.Struct({
   id: Schema.String,
-  label: Schema.optionalWith(Schema.String, { exact: true }),
-  default: Schema.optionalWith(Schema.Boolean, { exact: true }),
+  label: Schema.optionalKey(Schema.String),
+  default: Schema.optionalKey(Schema.Boolean),
 });
 export type ProfileRow = typeof ProfileRow.Type;
 
@@ -319,8 +309,8 @@ export const SessionData = Schema.Struct({
   profile: Schema.String,
   state: Schema.String,
   attached: Schema.Boolean,
-  title: Schema.optionalWith(Schema.String, { exact: true }),
-  lastError: Schema.optionalWith(Schema.String, { exact: true }),
+  title: Schema.optionalKey(Schema.String),
+  lastError: Schema.optionalKey(Schema.String),
 });
 export type SessionData = typeof SessionData.Type;
 
@@ -344,7 +334,7 @@ export const PageNodeRow = Schema.Struct({
   nodeId: Schema.String,
   hostId: Schema.String,
   url: Schema.String,
-  profile: Schema.optionalWith(Schema.String, { exact: true }),
+  profile: Schema.optionalKey(Schema.String),
 });
 export type PageNodeRow = typeof PageNodeRow.Type;
 

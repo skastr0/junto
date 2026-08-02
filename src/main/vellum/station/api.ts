@@ -1,4 +1,4 @@
-import { Context, Effect, Either, Layer, Schema } from "effect";
+import { Context, Effect, Result, Layer, Schema } from "effect";
 import type { CanvasDoc, CanvasNode } from "@shared/canvas";
 import type { InstallationId as InstallationIdValue } from "@shared/installation-id";
 import { remoteLeaseState } from "../license/remote-lease-state";
@@ -97,32 +97,29 @@ export type StationApiPeerContext =
       readonly installationId: InstallationIdValue;
     };
 
-export class StationApiInvariantError extends Schema.TaggedError<StationApiInvariantError>()(
+export class StationApiInvariantError extends Schema.TaggedErrorClass<StationApiInvariantError>()(
   "StationApiInvariantError",
   {
     operation: Schema.String,
-    reason: Schema.Literal(
-      "pairing-required",
-      "configuration-required",
-      "projection-required",
-      "local-role-mismatch",
-      "peer-role-mismatch",
-      "peer-identity-mismatch",
-      "report-direction-mismatch",
-      "report-response-mismatch",
-      "report-response-command",
-      "topology-invalid",
-    ),
+    reason: Schema.Literals(["pairing-required", "configuration-required",
+    "projection-required",
+    "local-role-mismatch",
+    "peer-role-mismatch",
+    "peer-identity-mismatch",
+    "report-direction-mismatch",
+    "report-response-mismatch",
+    "report-response-command",
+    "topology-invalid",]),
     message: Schema.String,
   },
 ) {}
 
-export class StationApiDependencyError extends Schema.TaggedError<StationApiDependencyError>()(
+export class StationApiDependencyError extends Schema.TaggedErrorClass<StationApiDependencyError>()(
   "StationApiDependencyError",
   {
     operation: Schema.String,
     message: Schema.String,
-    cause: Schema.Defect,
+    cause: Schema.Unknown,
   },
 ) {}
 
@@ -469,11 +466,11 @@ const authorizeActor = (
     sink.nodeId,
     operation,
   );
-  return Either.isRight(decision)
+  return Result.isSuccess(decision)
     ? admitted()
     : rejected(
         "capability-denied",
-        decision.left.message,
+        decision.failure.message,
       );
 };
 
@@ -909,7 +906,7 @@ const historicalFactAuthorization = (
   };
 
 const loadHistoricalFactAdmissions = (
-  repository: Context.Tag.Service<typeof StationRepository>,
+  repository: Context.Service.Shape<typeof StationRepository>,
   topology: CapturedWorkTopology,
   records: ReadonlyArray<WorkRecord>,
 ): Effect.Effect<
@@ -1056,9 +1053,9 @@ const admitTransactionalResponse = (
   };
 
 const captureTopology = (
-  repository: Context.Tag.Service<typeof StationRepository>,
-  canvases: Context.Tag.Service<typeof CanvasesService>,
-  fleetTargets: Context.Tag.Service<typeof StationFleetTargetRepository>,
+  repository: Context.Service.Shape<typeof StationRepository>,
+  canvases: Context.Service.Shape<typeof CanvasesService>,
+  fleetTargets: Context.Service.Shape<typeof StationFleetTargetRepository>,
   configuration: StationConfigurationRecord,
   localInstallationId: InstallationIdValue,
   peerInstallationId: InstallationIdValue,
@@ -1182,7 +1179,7 @@ const captureTopology = (
   });
 
 export const pageStationReport = (
-  work: Context.Tag.Service<typeof WorkRepository>,
+  work: Context.Service.Shape<typeof WorkRepository>,
   facts: StationStatusFacts,
   localInstallationId: InstallationIdValue,
   peerInstallationId: InstallationIdValue,
@@ -1283,8 +1280,8 @@ export const pageStationReport = (
   });
 
 const acceptInboundBatch = (
-  repository: Context.Tag.Service<typeof StationRepository>,
-  work: Context.Tag.Service<typeof WorkRepository>,
+  repository: Context.Service.Shape<typeof StationRepository>,
+  work: Context.Service.Shape<typeof WorkRepository>,
   topology: CapturedWorkTopology,
   batch: ReportBatchValue,
 ): Effect.Effect<
@@ -1331,7 +1328,7 @@ const acceptInboundBatch = (
   });
 
 const requireConfiguredPeer = (
-  repository: Context.Tag.Service<typeof StationRepository>,
+  repository: Context.Service.Shape<typeof StationRepository>,
   peerInstallationId: InstallationIdValue,
 ): Effect.Effect<
   {
@@ -1371,7 +1368,7 @@ const requireConfiguredPeer = (
   });
 
 const handleProject = (
-  repository: Context.Tag.Service<typeof StationRepository>,
+  repository: Context.Service.Shape<typeof StationRepository>,
   request: ProjectRequest,
 ): Effect.Effect<ProjectResponse, StationApiError> =>
   Effect.gen(function* () {
@@ -1398,7 +1395,7 @@ const handleProject = (
   }).pipe(Effect.withSpan("station-api.project"));
 
 const handleStatus = (
-  repository: Context.Tag.Service<typeof StationRepository>,
+  repository: Context.Service.Shape<typeof StationRepository>,
   readiness: StationReadiness,
 ): Effect.Effect<StatusResponse, StationApiError> =>
   Effect.gen(function* () {
@@ -1442,8 +1439,7 @@ const handleStatus = (
   }).pipe(Effect.withSpan("station-api.status"));
 
 // S4-station: single canonical Context.Tag (effect@3.21). V4 → Context.Service.
-export class StationApiService extends Context.Tag(StationContextTagIds.api)<
-  StationApiService,
+export class StationApiService extends Context.Service<StationApiService,
   {
     readonly handle: (
       request: StationApiRequest,
@@ -1458,8 +1454,7 @@ export class StationApiService extends Context.Tag(StationContextTagIds.api)<
       request: ReportRequestValue,
       response: ReportResponseValue,
     ) => Effect.Effect<ReportIntegrationResult, StationApiError>;
-  }
->() {}
+  }>()(StationContextTagIds.api) {}
 
 export const StationApiLive = Layer.effect(
   StationApiService,

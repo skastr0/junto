@@ -1028,10 +1028,10 @@ describe("WorkService — concurrent ops", () => {
     ).resolves.toBe(localInstallationId);
 
     const missing = await workRuntime.runPromise(
-      work.workTaskHome(name, "tasks", "missing-task").pipe(Effect.either)
+      work.workTaskHome(name, "tasks", "missing-task").pipe(Effect.result)
     );
     expect(missing._tag).toBe("Left");
-    if (missing._tag === "Left") {
+    if (missing._tag === "Failure") {
       expect(missing.left.code).toBe("task_not_found");
     }
   });

@@ -14,7 +14,7 @@ import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdtemp } from "node:fs/promises";
-import { Effect, Either, ManagedRuntime, Schema } from "effect";
+import { Effect, Result, ManagedRuntime, Schema } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   ContentRef,
@@ -194,10 +194,10 @@ describe("media transport e2e · task creation + WorkRecord bounds", () => {
     const fact = taskCreateFact(task);
 
     const decoded = decodeWorkRecord(fact);
-    expect(Either.isRight(decoded)).toBe(true);
-    if (Either.isLeft(decoded)) return;
+    expect(Result.isSuccess(decoded)).toBe(true);
+    if (Result.isFailure(decoded)) return;
 
-    const encoded = workRecordEncodedByteLength(decoded.right);
+    const encoded = workRecordEncodedByteLength(decoded.success);
     expect(encoded).toBeDefined();
     // Control record stays far under the 256 KiB Station bound even when the
     // referenced object is multi-hundred-megabyte.
@@ -260,7 +260,7 @@ describe("media transport e2e · task creation + WorkRecord bounds", () => {
     };
 
     // Legacy RawPart still decodes so migration/history can load old rows.
-    expect(Either.isRight(decodeWorkRecord(inline))).toBe(true);
+    expect(Result.isSuccess(decodeWorkRecord(inline))).toBe(true);
   });
 
   it("keeps a gigabyte logical video under the control-record bound", () => {
@@ -272,9 +272,9 @@ describe("media transport e2e · task creation + WorkRecord bounds", () => {
     );
     const task = taskWithContent("task-1gb", [ref]);
     const decoded = decodeWorkRecord(taskCreateFact(task, "2"));
-    expect(Either.isRight(decoded)).toBe(true);
-    if (Either.isLeft(decoded)) return;
-    const bytes = workRecordEncodedByteLength(decoded.right)!;
+    expect(Result.isSuccess(decoded)).toBe(true);
+    if (Result.isFailure(decoded)) return;
+    const bytes = workRecordEncodedByteLength(decoded.success)!;
     expect(bytes).toBeLessThan(WORK_PROTOCOL_MAX_RECORD_BYTES);
   });
 });

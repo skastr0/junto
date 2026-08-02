@@ -246,13 +246,13 @@ describe("Box CLI adapter", () => {
     }));
 
     const result = await Effect.runPromise(
-      Effect.either(
+      Effect.result(
         makeBoxCli(runner, { executablePath: "/bin/true" }).create(),
       ),
     );
 
     expect(result._tag).toBe("Left");
-    expect(result._tag === "Left" ? result.left : undefined).toMatchObject({
+    expect(result._tag === "Failure" ? result.failure : undefined).toMatchObject({
       _tag: "BoxCliCommandError",
       boxId,
       detail: "machine provisioning failed",

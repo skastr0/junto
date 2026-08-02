@@ -12,68 +12,47 @@ import { Schema } from "effect";
 export const OBSERVABILITY_RING_CAPACITY = 2_000 as const;
 export const OBSERVABILITY_MESSAGE_MAX_CHARS = 4_096 as const;
 
-export const ObservabilityLogLevel = Schema.Literal(
-  "trace",
-  "debug",
-  "info",
-  "warn",
-  "error",
-  "fatal",
-);
+export const ObservabilityLogLevel = Schema.Literals(["trace", "debug",
+"info",
+"warn",
+"error",
+"fatal",]);
 export type ObservabilityLogLevel = typeof ObservabilityLogLevel.Type;
 
-export const ObservabilityLogSource = Schema.Literal(
-  "effect",
-  "main",
-  "renderer",
-  "system",
-);
+export const ObservabilityLogSource = Schema.Literals(["effect", "main",
+"renderer",
+"system",]);
 export type ObservabilityLogSource = typeof ObservabilityLogSource.Type;
 
 export const ObservabilityLogEntry = Schema.Struct({
-  id: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
-  ts: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
+  id: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
+  ts: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
   level: ObservabilityLogLevel,
   source: ObservabilityLogSource,
   message: Schema.String,
-  fiber: Schema.optionalWith(Schema.String, { exact: true }),
-  spans: Schema.optionalWith(Schema.Array(Schema.String), { exact: true }),
-  annotations: Schema.optionalWith(
-    Schema.Record({ key: Schema.String, value: Schema.String }),
-    { exact: true },
-  ),
+  fiber: Schema.optionalKey(Schema.String),
+  spans: Schema.optionalKey(Schema.Array(Schema.String)),
+  annotations: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
 });
 export type ObservabilityLogEntry = typeof ObservabilityLogEntry.Type;
 
 export const ObservabilityQuery = Schema.Struct({
   /** Inclusive sequence cursor — return entries with id > afterId. */
-  afterId: Schema.optionalWith(
-    Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
-    { exact: true },
-  ),
+  afterId: Schema.optionalKey(Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0)))),
   /** Max rows (newest-first when afterId omitted; oldest-first when afterId set). */
-  limit: Schema.optionalWith(
-    Schema.Number.pipe(Schema.int(), Schema.between(1, OBSERVABILITY_RING_CAPACITY)),
-    { exact: true },
-  ),
-  levels: Schema.optionalWith(
-    Schema.Array(ObservabilityLogLevel).pipe(Schema.minItems(1)),
-    { exact: true },
-  ),
-  sources: Schema.optionalWith(
-    Schema.Array(ObservabilityLogSource).pipe(Schema.minItems(1)),
-    { exact: true },
-  ),
+  limit: Schema.optionalKey(Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isBetween({ minimum: 1, maximum: OBSERVABILITY_RING_CAPACITY })))),
+  levels: Schema.optionalKey(Schema.Array(ObservabilityLogLevel).pipe(Schema.check(Schema.isMinSize(1)))),
+  sources: Schema.optionalKey(Schema.Array(ObservabilityLogSource).pipe(Schema.check(Schema.isMinSize(1)))),
   /** Case-insensitive substring over message + annotation values. */
-  q: Schema.optionalWith(Schema.String.pipe(Schema.maxLength(200)), { exact: true }),
+  q: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMaxLength(200)))),
 });
 export type ObservabilityQuery = typeof ObservabilityQuery.Type;
 
 export const ObservabilitySnapshot = Schema.Struct({
-  capacity: Schema.Number.pipe(Schema.int(), Schema.positive()),
-  total: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
-  dropped: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
-  newestId: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
+  capacity: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThan(0))),
+  total: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
+  dropped: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
+  newestId: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
   entries: Schema.Array(ObservabilityLogEntry),
 });
 export type ObservabilitySnapshot = typeof ObservabilitySnapshot.Type;

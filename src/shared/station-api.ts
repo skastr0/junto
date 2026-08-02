@@ -54,9 +54,9 @@ export type StationApiRole = typeof StationApiRole.Type;
 
 /** Host label used by canvas placement and the local execution plane. */
 export const StationHostId = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(64),
-  Schema.pattern(/^(?!-)[A-Za-z0-9][A-Za-z0-9._-]*$/),
+  Schema.check(Schema.isMinLength(1)),
+  Schema.check(Schema.isMaxLength(64)),
+  Schema.check(Schema.isPattern(/^(?!-)[A-Za-z0-9][A-Za-z0-9._-]*$/)),
   Schema.brand("StationHostId"),
 );
 export type StationHostId = typeof StationHostId.Type;
@@ -68,14 +68,14 @@ export type StationHostId = typeof StationHostId.Type;
  * work-protocol. A missing RouteCursor represents zero received records.
  */
 export const LogicalSequence = Schema.String.pipe(
-  Schema.pattern(/^(0|[1-9][0-9]*)$/),
-  Schema.maxLength(32),
+  Schema.check(Schema.isPattern(/^(0|[1-9][0-9]*)$/)),
+  Schema.check(Schema.isMaxLength(32)),
   Schema.brand("LogicalSequence"),
 );
 export type LogicalSequence = typeof LogicalSequence.Type;
 
 export const StationSha256 = Schema.String.pipe(
-  Schema.pattern(/^[a-f0-9]{64}$/),
+  Schema.check(Schema.isPattern(/^[a-f0-9]{64}$/)),
   Schema.brand("StationSha256"),
 );
 export type StationSha256 = typeof StationSha256.Type;
@@ -85,19 +85,19 @@ export type StationSha256 = typeof StationSha256.Type;
  * this module accepts it as an ordering input.
  */
 export const DisplayTimestamp = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(64),
+  Schema.check(Schema.isMinLength(1)),
+  Schema.check(Schema.isMaxLength(64)),
 );
 export type DisplayTimestamp = typeof DisplayTimestamp.Type;
 
 const StationLabel = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(128),
+  Schema.check(Schema.isMinLength(1)),
+  Schema.check(Schema.isMaxLength(128)),
 );
 
 const AppVersion = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(64),
+  Schema.check(Schema.isMinLength(1)),
+  Schema.check(Schema.isMaxLength(64)),
 );
 
 export const PairRequest = Schema.Struct({
@@ -146,23 +146,19 @@ export const RemoteHostRegistration = Schema.Struct({
   label: HostLabel,
   kind: Schema.Literal("remote"),
   capabilities: Schema.Array(HostCapability).pipe(
-    Schema.minItems(1),
-    Schema.maxItems(4),
+    Schema.check(Schema.isMinSize(1)),
+    Schema.check(Schema.isMaxSize(4)),
   ),
-  hermesId: Schema.optionalWith(HermesHostKey, { exact: true }),
+  hermesId: Schema.optionalKey(HermesHostKey),
 }).pipe(
-  Schema.filter(
-    (host) =>
-      new Set(host.capabilities).size === host.capabilities.length ||
-      "Remote host capabilities must be unique",
-  ),
+  Schema.check(Schema.makeFilter((host) =>
+    new Set(host.capabilities).size === host.capabilities.length ||
+    "Remote host capabilities must be unique",)),
 );
 export type RemoteHostRegistration = typeof RemoteHostRegistration.Type;
 
-export const StationConfiguration = Schema.Union(
-  CommandCenterConfiguration,
-  RemoteConfiguration,
-);
+export const StationConfiguration = Schema.Union([CommandCenterConfiguration,
+RemoteConfiguration,]);
 export type StationConfiguration = typeof StationConfiguration.Type;
 
 export const ConfigureRequest = Schema.Struct({
@@ -191,7 +187,7 @@ export const StationProjectionBody = Schema.Struct({
   generation: LogicalSequence,
   sourceCanvasGeneration: LogicalSequence,
   sourceIntentSha256: StationSha256,
-  body: Schema.String.pipe(Schema.maxLength(STATION_API_MAX_PROJECTION_CHARS)),
+  body: Schema.String.pipe(Schema.check(Schema.isMaxLength(STATION_API_MAX_PROJECTION_CHARS))),
   contentSha256: StationSha256,
   createdAt: DisplayTimestamp,
 });
@@ -212,12 +208,9 @@ export const ProjectRequest = Schema.Struct({
 });
 export type ProjectRequest = typeof ProjectRequest.Type;
 
-export const ProjectionInstallDecision = Schema.Literal(
-  "install",
-  "idempotent",
-  "stale",
-  "conflict",
-);
+export const ProjectionInstallDecision = Schema.Literals(["install", "idempotent",
+"stale",
+"conflict",]);
 export type ProjectionInstallDecision = typeof ProjectionInstallDecision.Type;
 
 export const ProjectResponse = Schema.Struct({
@@ -385,21 +378,21 @@ const reportBatchAdmissionMessage = (
 
 const ReportBatchShape = Schema.Struct({
   records: Schema.Array(WorkRecord).pipe(
-    Schema.maxItems(STATION_API_MAX_RECORDS_PER_REPORT),
+    Schema.check(Schema.isMaxSize(STATION_API_MAX_RECORDS_PER_REPORT)),
   ),
   acknowledge: Schema.Array(RouteCursor).pipe(
-    Schema.maxItems(STATION_API_MAX_ACKS_PER_REPORT),
+    Schema.check(Schema.isMaxSize(STATION_API_MAX_ACKS_PER_REPORT)),
   ),
   hasMore: Schema.Boolean,
 });
 
 export const ReportBatch = ReportBatchShape.pipe(
-  Schema.filter((candidate) => {
+  Schema.check(Schema.makeFilter((candidate) => {
     const decision = decideReportBatchAdmission(candidate);
     return decision._tag === "admitted"
       ? true
       : reportBatchAdmissionMessage(decision);
-  }),
+  })),
 );
 export type ReportBatch = typeof ReportBatch.Type;
 
@@ -504,7 +497,7 @@ const ReportRequestShape = Schema.Struct({
 });
 
 export const ReportRequest = ReportRequestShape.pipe(
-  Schema.filter(reportDirectionFilter),
+  Schema.check(Schema.makeFilter(reportDirectionFilter)),
 );
 export type ReportRequest = typeof ReportRequest.Type;
 
@@ -517,7 +510,7 @@ const ReportResponseShape = Schema.Struct({
 });
 
 export const ReportResponse = ReportResponseShape.pipe(
-  Schema.filter(reportDirectionFilter),
+  Schema.check(Schema.makeFilter(reportDirectionFilter)),
 );
 export type ReportResponse = typeof ReportResponse.Type;
 
@@ -541,13 +534,10 @@ export const StatusRequest = Schema.Struct({
 });
 export type StatusRequest = typeof StatusRequest.Type;
 
-export const StationApiStatusState = Schema.Literal(
-  "unenrolled",
-  "paired",
-  "configured",
-  "ready",
-  "degraded",
-);
+export const StationApiStatusState = Schema.Literals(["unenrolled", "paired",
+"configured",
+"ready",
+"degraded",]);
 export type StationApiStatusState = typeof StationApiStatusState.Type;
 
 export const StationReadiness = Schema.Struct({
@@ -563,11 +553,11 @@ export const StatusResponse = Schema.Struct({
   op: Schema.Literal("status"),
   installationId: InstallationId,
   state: StationApiStatusState,
-  configuration: Schema.optionalWith(StationConfiguration, { exact: true }),
-  configuredAt: Schema.optionalWith(DisplayTimestamp, { exact: true }),
-  projection: Schema.optionalWith(StationProjectionReference, { exact: true }),
+  configuration: Schema.optionalKey(StationConfiguration),
+  configuredAt: Schema.optionalKey(DisplayTimestamp),
+  projection: Schema.optionalKey(StationProjectionReference),
   receivedThrough: Schema.Array(RouteCursor).pipe(
-    Schema.maxItems(STATION_API_MAX_STATUS_CURSORS),
+    Schema.check(Schema.isMaxSize(STATION_API_MAX_STATUS_CURSORS)),
   ),
   /**
    * What the admitted peer has cumulatively acknowledged from this
@@ -577,29 +567,25 @@ export const StatusResponse = Schema.Struct({
    * cursors by peer installation identity.
    */
   peerAcknowledgedThrough: Schema.Array(RouteCursor).pipe(
-    Schema.maxItems(STATION_API_MAX_STATUS_CURSORS),
+    Schema.check(Schema.isMaxSize(STATION_API_MAX_STATUS_CURSORS)),
   ),
   readiness: StationReadiness,
   observedAt: DisplayTimestamp,
 });
 export type StatusResponse = typeof StatusResponse.Type;
 
-export const StationApiRequest = Schema.Union(
-  PairRequest,
-  ConfigureRequest,
-  ProjectRequest,
-  ReportRequest,
-  StatusRequest,
-);
+export const StationApiRequest = Schema.Union([PairRequest,
+ConfigureRequest,
+ProjectRequest,
+ReportRequest,
+StatusRequest,]);
 export type StationApiRequest = typeof StationApiRequest.Type;
 
-export const StationApiResponse = Schema.Union(
-  PairResponse,
-  ConfigureResponse,
-  ProjectResponse,
-  ReportResponse,
-  StatusResponse,
-);
+export const StationApiResponse = Schema.Union([PairResponse,
+ConfigureResponse,
+ProjectResponse,
+ReportResponse,
+StatusResponse,]);
 export type StationApiResponse = typeof StationApiResponse.Type;
 
 /** BigInt comparison for decimal projection counters. */

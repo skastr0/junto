@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { Either, ParseResult, Schema } from "effect";
+import { Result, SchemaIssue, Schema } from "effect";
 import { ActorSeatId, type ActorSeatId as ActorSeatIdValue } from "@shared/actor-seat";
 import { actorDeliverySurfaceOf } from "@shared/actor-surface";
 import {
@@ -31,14 +31,11 @@ export const ProjectedActorSeat = Schema.Struct({
   seatId: ActorSeatId,
   authorityInstallationId: InstallationId,
   hostId: StationHostId,
-  bindingId: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(512)),
-  agentKey: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(512)),
+  bindingId: Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(512))),
+  agentKey: Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(512))),
   harness: HarnessId,
-  launch: Schema.optionalWith(EtherTerminalLaunch, { exact: true }),
-  sessionId: Schema.optionalWith(
-    Schema.String.pipe(Schema.minLength(1), Schema.maxLength(512)),
-    { exact: true },
-  ),
+  launch: Schema.optionalKey(EtherTerminalLaunch),
+  sessionId: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(512)))),
   primaryRef: ActorSeatCanvasRef,
   refs: Schema.Array(ActorSeatCanvasRef),
 });
@@ -46,22 +43,19 @@ export type ProjectedActorSeat = typeof ProjectedActorSeat.Type;
 
 const ProjectedActorSeatRegistry = Schema.Array(ProjectedActorSeat);
 
-export const ActorSeatCompilationReason = Schema.Literal(
-  "invalid-actor",
-  "invalid-binding",
-  "invalid-reference",
-  "invalid-topology",
-  "unresolved-placement",
-  "duplicate-reference",
-  "conflicting-descriptor",
-  "identity-conflict",
-  "invalid-registry",
-  "unsorted-registry",
-);
+export const ActorSeatCompilationReason = Schema.Literals(["invalid-actor", "invalid-binding",
+"invalid-reference",
+"invalid-topology",
+"unresolved-placement",
+"duplicate-reference",
+"conflicting-descriptor",
+"identity-conflict",
+"invalid-registry",
+"unsorted-registry",]);
 export type ActorSeatCompilationReason =
   typeof ActorSeatCompilationReason.Type;
 
-export class ActorSeatCompilationError extends Schema.TaggedError<ActorSeatCompilationError>()(
+export class ActorSeatCompilationError extends Schema.TaggedErrorClass<ActorSeatCompilationError>()(
   "ActorSeatCompilationError",
   {
     reason: ActorSeatCompilationReason,
@@ -165,16 +159,16 @@ const canonicalLaunch = (
 const decodeRegistryStructure = (
   input: unknown,
 ): ReadonlyArray<ProjectedActorSeat> => {
-  const decoded = Schema.decodeUnknownEither(ProjectedActorSeatRegistry, {
+  const decoded = Schema.decodeUnknownResult(ProjectedActorSeatRegistry, {
     onExcessProperty: "error",
   })(input);
-  if (Either.isLeft(decoded)) {
+  if (Result.isFailure(decoded)) {
     return fail(
       "invalid-registry",
-      ParseResult.TreeFormatter.formatErrorSync(decoded.left),
+      String(decoded.failure),
     );
   }
-  return decoded.right;
+  return decoded.success;
 };
 
 /**
@@ -206,8 +200,8 @@ const descriptorFor = (
   surface: NonNullable<ReturnType<typeof actorDeliverySurfaceOf>>,
   sessionId: string | undefined,
 ): ActorSeatExecutableDescriptor => {
-  const decodedHostId = Schema.decodeUnknownEither(StationHostId)(surface.hostId);
-  if (Either.isLeft(decodedHostId)) {
+  const decodedHostId = Schema.decodeUnknownResult(StationHostId)(surface.hostId);
+  if (Result.isFailure(decodedHostId)) {
     return fail(
       "invalid-topology",
       `actor host ${JSON.stringify(surface.hostId)} is not a canonical HostId`,
@@ -216,7 +210,7 @@ const descriptorFor = (
   const canonicalSessionId = sessionId?.trim();
   return {
     authorityInstallationId,
-    hostId: decodedHostId.right,
+    hostId: decodedHostId.success,
     bindingId: surface.bindingId,
     agentKey: surface.agentKey,
     harness: surface.harness,
@@ -304,17 +298,17 @@ export const compileActorSeatRegistry = (
           `actor seat "${surface.bindingId}" has conflicting executable descriptors across canvas references`,
         );
       }
-      const decodedRef = Schema.decodeUnknownEither(ActorSeatCanvasRef)({
+      const decodedRef = Schema.decodeUnknownResult(ActorSeatCanvasRef)({
         canvasName,
         nodeId: node.id,
       });
-      if (Either.isLeft(decodedRef)) {
+      if (Result.isFailure(decodedRef)) {
         return fail(
           "invalid-reference",
           `actor "${canvasName}/${node.id}" cannot be represented as a canonical SinkRef`,
         );
       }
-      const ref = decodedRef.right;
+      const ref = decodedRef.success;
       if (existing === undefined) {
         groups.set(identityKey, {
           descriptor,

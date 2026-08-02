@@ -1,4 +1,4 @@
-import { Context, Effect, Either, Layer, Ref, Schema } from "effect";
+import { Context, Effect, Result, Layer, Ref, Schema, Semaphore } from "effect";
 import { PAUSED_CANVAS, type CanvasPauseState, type PauseScope } from "@shared/pause";
 import { licenseFactoryHold } from "./license/factory-hold";
 import { FactoryPauseRepository } from "./pause/repository";
@@ -16,13 +16,12 @@ import { FactoryPauseRepository } from "./pause/repository";
 // and refuses writes so corrupt state is never clobbered.
 
 /** A pause state mutation that could not land durably. */
-export class PauseStateError extends Schema.TaggedError<PauseStateError>()(
+export class PauseStateError extends Schema.TaggedErrorClass<PauseStateError>()(
   "PauseStateError",
   { message: Schema.String },
 ) {}
 
-export class PausePlane extends Context.Tag("vellum/PausePlane")<
-  PausePlane,
+export class PausePlane extends Context.Service<PausePlane,
   {
     /** Hydrate from normalized SQLite state. Idempotent. */
     readonly start: Effect.Effect<void>;
@@ -40,8 +39,7 @@ export class PausePlane extends Context.Tag("vellum/PausePlane")<
       paused: boolean,
     ) => Effect.Effect<void, PauseStateError>;
     readonly subscribe: (listener: (canvas: string) => void) => () => void;
-  }
->() {}
+  }>()("vellum/PausePlane") {}
 
 /**
  * Harness double: everything playing, writes accepted but inert. For suites
@@ -75,7 +73,7 @@ export const PausePlaneLive = Layer.effect(
     const listeners = yield* Ref.make<ReadonlySet<(canvas: string) => void>>(new Set());
     // One permit preserves listener/memory ordering across concurrent writes.
     // Each repository operation is already one normalized SQLite transaction.
-    const persistLock = yield* Effect.makeSemaphore(1);
+    const persistLock = yield* Semaphore.make(1);
 
     const start = Effect.gen(function* () {
       const alreadyHydrated = yield* Ref.modify(
@@ -83,9 +81,9 @@ export const PausePlaneLive = Layer.effect(
         (current) => [current.hydrated, { ...current, hydrated: true }] as const,
       );
       if (alreadyHydrated) return;
-      const read = yield* Effect.either(repository.loadAll);
-      if (Either.isLeft(read)) {
-        const fault = `pause state unreadable: ${read.left.message}`;
+      const read = yield* Effect.result(repository.loadAll);
+      if (Result.isFailure(read)) {
+        const fault = `pause state unreadable: ${read.failure.message}`;
         yield* Effect.sync(() =>
           console.error(`[pause] ${fault} — every canvas reads paused; writes refused`),
         );
@@ -94,7 +92,7 @@ export const PausePlaneLive = Layer.effect(
       }
       yield* Ref.update(memory, (current) => ({
         ...current,
-        canvases: read.right,
+        canvases: read.success,
       }));
     });
 

@@ -170,7 +170,7 @@ const fleetWithStatus = (
         Effect.map((status) => [
           successfulResult(selected, status, protocol),
         ]),
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           Effect.succeed([
             {
               ok: false as const,

@@ -1,4 +1,4 @@
-import { ParseResult, Schema } from "effect";
+import { Schema } from "effect";
 import {
   AdvancedSettings,
   AppearanceSettings,
@@ -48,16 +48,16 @@ export const StoredSettingsPreferences = Schema.Struct({
 export type StoredSettingsPreferences =
   typeof StoredSettingsPreferences.Type;
 
-const decodePreferences = Schema.decodeUnknownEither(
+const decodePreferences = Schema.decodeUnknownResult(
   StoredSettingsPreferences,
   { onExcessProperty: "error" },
 );
-const decodeTopology = Schema.decodeUnknownEither(StationSettings, {
+const decodeTopology = Schema.decodeUnknownResult(StationSettings, {
   onExcessProperty: "error",
 });
 
-const formatParse = (error: ParseResult.ParseError): string =>
-  ParseResult.TreeFormatter.formatErrorSync(error);
+const formatParse = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
 
 export const preferencesFromSettings = (
   settings: Settings,
@@ -83,28 +83,28 @@ export const decodeStoredSettings = (
     });
   }
   const decodedPreferences = decodePreferences(preferences);
-  if (decodedPreferences._tag === "Left") {
+  if (decodedPreferences._tag === "Failure") {
     throw new SettingsError({
       code: "corrupt",
       message:
         `stored settings preferences are invalid: ${
-          formatParse(decodedPreferences.left)
+          formatParse(decodedPreferences.failure)
         }`,
     });
   }
   const decodedTopology = decodeTopology(station);
-  if (decodedTopology._tag === "Left") {
+  if (decodedTopology._tag === "Failure") {
     throw new SettingsError({
       code: "corrupt",
       message:
         `canonical station configuration projects invalid settings: ${
-          formatParse(decodedTopology.left)
+          formatParse(decodedTopology.failure)
         }`,
     });
   }
   return {
     version: SETTINGS_VERSION,
-    ...decodedPreferences.right,
-    station: decodedTopology.right,
+    ...decodedPreferences.success,
+    station: decodedTopology.success,
   };
 };

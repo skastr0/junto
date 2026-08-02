@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Either } from "effect";
+import { Result } from "effect";
 import {
   decodeCanvasDoc,
   serializeCanvas,
@@ -15,7 +15,7 @@ import {
 } from "../src/shared/region-defaults";
 
 const baseDoc = (): CanvasDoc =>
-  Either.getOrThrow(
+  Result.getOrThrow(
     decodeCanvasDoc({
       nodes: [
         {
@@ -88,7 +88,7 @@ const baseDoc = (): CanvasDoc =>
 describe("region spawn defaults", () => {
   it("round-trips region.defaults through decode/serialize", () => {
     const doc = baseDoc();
-    const again = Either.getOrThrow(decodeCanvasDoc(JSON.parse(serializeCanvas(doc))));
+    const again = Result.getOrThrow(decodeCanvasDoc(JSON.parse(serializeCanvas(doc))));
     expect(again).toEqual(doc);
     const outer = again.nodes.find((n) => n.id === "outer");
     expect(outer?.type).toBe("group");
@@ -190,7 +190,7 @@ describe("region spawn defaults", () => {
 
   it("round-trips paths through decode/serialize", () => {
     const doc = baseDoc();
-    const again = Either.getOrThrow(decodeCanvasDoc(JSON.parse(serializeCanvas(doc))));
+    const again = Result.getOrThrow(decodeCanvasDoc(JSON.parse(serializeCanvas(doc))));
     const outer = again.nodes.find((n) => n.id === "outer");
     expect(outer?.type).toBe("group");
     if (outer?.type === "group") {
@@ -207,6 +207,6 @@ describe("region spawn defaults", () => {
       nodes: doc.nodes.map(({ ether: _e, ...rest }) => rest),
       edges: doc.edges,
     };
-    expect(Either.isRight(decodeCanvasDoc(stripped))).toBe(true);
+    expect(Result.isSuccess(decodeCanvasDoc(stripped))).toBe(true);
   });
 });

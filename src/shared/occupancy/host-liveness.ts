@@ -11,10 +11,8 @@ export interface HostLivenessService {
   readonly isReachable: (hostId: string) => boolean;
 }
 
-export class HostLiveness extends Context.Tag("@vellum/HostLiveness")<
-  HostLiveness,
-  HostLivenessService
->() {}
+export class HostLiveness extends Context.Service<HostLiveness,
+  HostLivenessService>()("@vellum/HostLiveness") {}
 
 /** Host always up — the fleet lane binds the real check later. */
 export const nullHostLiveness: HostLivenessService = {

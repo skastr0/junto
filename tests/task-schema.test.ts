@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Either } from "effect";
+import { Result } from "effect";
 import {
   decodeCanvasDoc,
   type CanvasDoc,
@@ -107,9 +107,9 @@ describe("task projection schema", () => {
       edges: [],
     };
     const decoded = decodeCanvasDoc(raw);
-    expect(Either.isRight(decoded)).toBe(true);
-    if (Either.isRight(decoded)) {
-      const doc = decoded.right as CanvasDoc;
+    expect(Result.isSuccess(decoded)).toBe(true);
+    if (Result.isSuccess(decoded)) {
+      const doc = decoded.success as CanvasDoc;
       expect(doc.nodes[0]?.ether?.tasks?.items[0]?.state).toBe("working");
       expect(doc.nodes[1]?.ether?.requests?.items[0]?.state).toBe("input-required");
       expect(doc.nodes[2]?.ether?.artifacts?.items[0]?.artifactId).toBe("art-1");
@@ -143,7 +143,7 @@ describe("task projection schema", () => {
       edges: [],
     };
 
-    expect(Either.isLeft(decodeCanvasDoc(raw))).toBe(true);
+    expect(Result.isFailure(decodeCanvasDoc(raw))).toBe(true);
   });
 
   it("stripped ether remains valid JSON Canvas", () => {
@@ -161,6 +161,6 @@ describe("task projection schema", () => {
       ],
       edges: [],
     };
-    expect(Either.isRight(decodeCanvasDoc(raw))).toBe(true);
+    expect(Result.isSuccess(decodeCanvasDoc(raw))).toBe(true);
   });
 });

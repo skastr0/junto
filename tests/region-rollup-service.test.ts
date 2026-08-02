@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { Effect, Either, Layer, ManagedRuntime } from "effect";
+import { Effect, Result, Layer, ManagedRuntime } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { CanvasesService, CanvasError } from "../src/main/vellum/canvases";
@@ -331,12 +331,12 @@ describe("RegionRollupService — error channel", () => {
     const runtime = makeRuntime(chat, new Map([["ops", docActivity]]));
     try {
       const result = await runtime.runPromise(
-        Effect.either(Effect.flatMap(RegionRollupService, (service) => service.rollups("missing"))),
+        Effect.result(Effect.flatMap(RegionRollupService, (service) => service.rollups("missing"))),
       );
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left).toBeInstanceOf(CanvasError);
-        expect(result.left.message).toContain("missing");
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure).toBeInstanceOf(CanvasError);
+        expect(result.failure.message).toContain("missing");
       }
     } finally {
       await runtime.dispose();

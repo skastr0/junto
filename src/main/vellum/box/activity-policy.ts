@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Queue } from "effect";
+import { Context, Effect, Layer, Queue, Semaphore } from "effect";
 import type { Task } from "@shared/canvas";
 import type { CanvasReadResult } from "@shared/ipc";
 import { resolveNodePlacement } from "@shared/physics";
@@ -84,10 +84,7 @@ export const deriveBoxHostActivity = (
  * - Layer today: BoxActivityPolicyLive — V4 rename candidate BoxActivityPolicy.layer
  *   Do not dual-export Live + `.layer` names.
  */
-export class BoxActivityPolicy extends Context.Tag(
-  "@vellum/box/BoxActivityPolicy",
-)<
-  BoxActivityPolicy,
+export class BoxActivityPolicy extends Context.Service<BoxActivityPolicy,
   {
     /** Coalesced reconciliation after work, routing, or Box lifecycle changes. */
     readonly request: () => void;
@@ -95,17 +92,16 @@ export class BoxActivityPolicy extends Context.Tag(
     readonly ensureHostAvailable: (
       hostId: string,
     ) => Effect.Effect<void, BoxFleetError>;
-  }
->() {}
+  }>()("@vellum/box/BoxActivityPolicy") {}
 
-export const BoxActivityPolicyLive = Layer.scoped(
+export const BoxActivityPolicyLive = Layer.effect(
   BoxActivityPolicy,
   Effect.gen(function* () {
     const canvases = yield* CanvasesService;
     const settings = yield* SettingsService;
     const fleet = yield* BoxFleetService;
     const invalidations = yield* Queue.dropping<void>(1);
-    const reconcileLock = yield* Effect.makeSemaphore(1);
+    const reconcileLock = yield* Semaphore.make(1);
     const appliedDemand = new Map<string, boolean>();
 
     const reconcile = reconcileLock.withPermits(1)(
@@ -154,7 +150,7 @@ export const BoxActivityPolicyLive = Layer.scoped(
                     appliedDemand.set(resource.machine.id, demanded);
                   }),
                 ),
-                Effect.catchAll((error) =>
+                Effect.catch((error) =>
                   Effect.logWarning(
                     `Box activity lease reconciliation failed for ${resource.machine.id}`,
                     error,
@@ -167,7 +163,7 @@ export const BoxActivityPolicyLive = Layer.scoped(
         );
       }),
     ).pipe(
-      Effect.catchAll((error) =>
+      Effect.catch((error) =>
         Effect.logWarning("Box activity lease reconciliation failed", error),
       ),
     );

@@ -4,8 +4,7 @@
 import * as FileSystem from "@effect/platform/FileSystem";
 import type * as Command from "@effect/platform/Command";
 import { randomUUID } from "node:crypto";
-import {
-  Context,
+import { Context,
   Deferred,
   Effect,
   ExecutionStrategy,
@@ -16,8 +15,7 @@ import {
   Ref,
   Scope,
   Sink,
-  Stream,
-} from "effect";
+  Stream, Semaphore } from "effect";
 import type { SshEndpoint, SshError, SshTarget } from "./domain";
 import {
   inspectSshTarget,
@@ -112,8 +110,7 @@ export type ConfirmSshReady = <A>(value: A) => SshReady<A>;
  * @see docs/END_STATE-effect-foundation.md §S4
  * @see Playground/effect/migration/services.md
  */
-export class SshTransport extends Context.Tag("@vellum/SshTransport")<
-  SshTransport,
+export class SshTransport extends Context.Service<SshTransport,
   {
     readonly run: (
       program: OneShotProgram,
@@ -177,19 +174,15 @@ export class SshTransport extends Context.Tag("@vellum/SshTransport")<
      * cleanup is attempted here.
      */
     readonly teardown: (endpoint: SshEndpoint) => Effect.Effect<void>;
-  }
->() {}
+  }>()("@vellum/SshTransport") {}
 
 /** Canonical service shape for `SshTransport` (one id, one shape — no dual path). */
-export type SshTransportShape = Context.Tag.Service<typeof SshTransport>;
+export type SshTransportShape = Context.Service.Shape<typeof SshTransport>;
 
 /**
  * S4: single Tag `@vellum/ssh/SshTransportConfig`. Same V4 staging as SshTransport.
  */
-export class SshTransportConfig extends Context.Tag(
-  "@vellum/ssh/SshTransportConfig",
-)<
-  SshTransportConfig,
+export class SshTransportConfig extends Context.Service<SshTransportConfig,
   {
     readonly controlDir: string;
     readonly envExecutable: string;
@@ -197,10 +190,9 @@ export class SshTransportConfig extends Context.Tag(
     readonly environment: Readonly<Record<string, string>>;
     readonly maxConcurrentDials: number;
     readonly maxConcurrentDialsPerEndpoint: number;
-  }
->() {}
+  }>()("@vellum/ssh/SshTransportConfig") {}
 
-export type SshTransportConfigShape = Context.Tag.Service<
+export type SshTransportConfigShape = Context.Service.Shape<
   typeof SshTransportConfig
 >;
 
@@ -274,16 +266,16 @@ const collectBounded = (
     ),
   );
 
-export const SshTransportLayer = Layer.scoped(
+export const SshTransportLayer = Layer.effect(
   SshTransport,
   Effect.gen(function* () {
     const spawner = yield* ProcessSpawner;
     const fs = yield* FileSystem.FileSystem;
     const config = yield* SshTransportConfig;
     const compiler = createSshProgramCompiler(config);
-    const dialPermits = yield* Effect.makeSemaphore(config.maxConcurrentDials);
-    const endpointPermits = new Map<string, Effect.Semaphore>();
-    const warmLocks = new Map<string, Effect.Semaphore>();
+    const dialPermits = yield* Semaphore.make(config.maxConcurrentDials);
+    const endpointPermits = new Map<string, Semaphore.Semaphore>();
+    const warmLocks = new Map<string, Semaphore.Semaphore>();
     // Shared commands may multiplex while one command owns the master, but
     // ControlPersist=no prevents a completed command from leaving an SSH
     // process behind. Do not issue -O exit on ordinary scope disposal: a GUI
@@ -319,7 +311,7 @@ export const SshTransportLayer = Layer.scoped(
           ),
         );
 
-    const semaphoreFor = (endpoint: SshEndpoint): Effect.Semaphore => {
+    const semaphoreFor = (endpoint: SshEndpoint): Semaphore.Semaphore => {
       const key = String(endpoint);
       const existing = endpointPermits.get(key);
       if (existing) return existing;
@@ -441,7 +433,7 @@ export const SshTransportLayer = Layer.scoped(
         }
         const process = yield* acquire(endpoint, operation, command).pipe(
           Scope.extend(child),
-          Effect.catchAll((error) =>
+          Effect.catch((error) =>
             Scope.close(child, Exit.fail(error)).pipe(
               Effect.zipRight(Effect.fail(error)),
             ),
@@ -450,7 +442,7 @@ export const SshTransportLayer = Layer.scoped(
         const queue = yield* Queue.bounded<InputMessage>(INPUT_QUEUE_CAPACITY);
         const inputDone = yield* Deferred.make<void, SshError>();
         const inputOpen = yield* Ref.make(true);
-        const inputLock = yield* Effect.makeSemaphore(1);
+        const inputLock = yield* Semaphore.make(1);
         const sensitiveCopies = new Set<Uint8Array>();
         const mappedInput = Stream.fromQueue(queue).pipe(
           Stream.takeUntil((message) => message._tag === "End"),
@@ -990,7 +982,7 @@ export const SshTransportLayer = Layer.scoped(
                     1_000,
                   ).pipe(
                     Effect.asVoid,
-                    Effect.catchAll(() =>
+                    Effect.catch(() =>
                       Effect.sleep(FORWARD_POLL_MS).pipe(
                         Effect.zipRight(waitForControl),
                       ),

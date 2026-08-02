@@ -1,4 +1,4 @@
-import { Context, Effect, Either, Layer, Schema } from "effect";
+import { Context, Effect, Result, Layer, Schema } from "effect";
 import {
   hasUsageQuotas,
   UsageSnapshot,
@@ -12,12 +12,12 @@ import {
 
 export { USAGE_STATE_SCHEMA_SQL } from "./state-schema";
 
-export class UsageCacheError extends Schema.TaggedError<UsageCacheError>()(
+export class UsageCacheError extends Schema.TaggedErrorClass<UsageCacheError>()(
   "UsageCacheError",
   {
     operation: Schema.String,
     message: Schema.String,
-    cause: Schema.Defect,
+    cause: Schema.Unknown,
   },
 ) {}
 
@@ -50,8 +50,7 @@ const fromStateError = (
  * - Layer today: UsageCacheLive / makeUsageCacheLive — V4 rename candidate UsageCache.layer
  *   Do not dual-export Live + `.layer` names.
  */
-export class UsageCache extends Context.Tag("@vellum/UsageCache")<
-  UsageCache,
+export class UsageCache extends Context.Service<UsageCache,
   {
     readonly loadLastGood: Effect.Effect<
       UsageStateValue | undefined,
@@ -60,8 +59,7 @@ export class UsageCache extends Context.Tag("@vellum/UsageCache")<
     readonly saveLastGood: (
       state: UsageStateValue,
     ) => Effect.Effect<void, UsageCacheError>;
-  }
->() {}
+  }>()("@vellum/UsageCache") {}
 
 type UsageStateRow = {
   readonly snapshots_json: string;
@@ -86,13 +84,13 @@ const decodeSnapshots = (
     catch: (error) => usageCacheError(operation, error),
   }).pipe(
     Effect.flatMap((parsed) => {
-      const decoded = Schema.decodeUnknownEither(
+      const decoded = Schema.decodeUnknownResult(
         Schema.Array(UsageSnapshot),
         { onExcessProperty: "error" },
       )(parsed);
-      return Either.isRight(decoded)
-        ? Effect.succeed(decoded.right)
-        : Effect.fail(usageCacheError(operation, decoded.left));
+      return Result.isSuccess(decoded)
+        ? Effect.succeed(decoded.success)
+        : Effect.fail(usageCacheError(operation, decoded.failure));
     }),
   );
 

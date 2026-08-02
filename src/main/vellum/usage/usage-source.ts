@@ -30,7 +30,5 @@ export interface UsageSource {
  * - Layer today: StationUsageSourcesLive / NativeUsageSourcesLive / CodexBarSourcesLive — V4 rename candidates UsageSources.layer*
  *   Do not dual-export Live + `.layer` names.
  */
-export class UsageSources extends Context.Tag("@vellum/UsageSources")<
-  UsageSources,
-  ReadonlyArray<UsageSource>
->() {}
+export class UsageSources extends Context.Service<UsageSources,
+  ReadonlyArray<UsageSource>>()("@vellum/UsageSources") {}

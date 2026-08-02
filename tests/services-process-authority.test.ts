@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { Effect, Either } from "effect";
+import { Effect, Result } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -341,16 +341,16 @@ describe("central service child authority", () => {
     mocks.spawn.mockReturnValue(child);
 
     const resultPromise = Effect.runPromise(
-      probeCodexAppServer.pipe(Effect.either),
+      probeCodexAppServer.pipe(Effect.result),
     );
     await vi.advanceTimersByTimeAsync(0);
     child.stdout.write('{"id":0,"result":{"protocol":"ok"}}\n');
 
     await vi.advanceTimersByTimeAsync(1_250);
     const result = await resultPromise;
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left.message).toBe(
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure.message).toBe(
         "codex app-server did not close after initialize response",
       );
     }
@@ -359,10 +359,10 @@ describe("central service child authority", () => {
     expect(vi.getTimerCount()).toBe(0);
 
     const retry = await Effect.runPromise(
-      probeCodexAppServer.pipe(Effect.either),
+      probeCodexAppServer.pipe(Effect.result),
     );
-    expect(Either.isLeft(retry)).toBe(true);
-    if (Either.isLeft(retry)) {
+    expect(Result.isFailure(retry)).toBe(true);
+    if (Result.isFailure(retry)) {
       expect(retry.left.message).toBe(SERVICE_CHILD_TEARDOWN_PENDING_ERROR);
     }
     expect(mocks.spawn).toHaveBeenCalledOnce();
@@ -396,7 +396,7 @@ describe("central service child authority", () => {
     mocks.spawn.mockReturnValue(child);
 
     let probeSettled = false;
-    const resultPromise = Effect.runPromise(probeCodexAppServer.pipe(Effect.either)).then(
+    const resultPromise = Effect.runPromise(probeCodexAppServer.pipe(Effect.result)).then(
       (result) => {
         probeSettled = true;
         return result;
@@ -416,9 +416,9 @@ describe("central service child authority", () => {
     child.emit("close", 17, null);
     const result = await resultPromise;
 
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left.message).toBe(
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure.message).toBe(
         "codex app-server exited before initialize response (code 17): startup rejected",
       );
     }
@@ -454,7 +454,7 @@ describe("central service child authority", () => {
     const child = new FakeChild();
     mocks.spawn.mockReturnValue(child);
 
-    const resultPromise = Effect.runPromise(probeCodexAppServer.pipe(Effect.either));
+    const resultPromise = Effect.runPromise(probeCodexAppServer.pipe(Effect.result));
     await vi.advanceTimersByTimeAsync(0);
     expect(mocks.spawn).toHaveBeenCalledOnce();
 
@@ -462,9 +462,9 @@ describe("central service child authority", () => {
     child.emit("close", null, "SIGKILL");
     const result = await resultPromise;
 
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left.message).toBe(
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure.message).toBe(
         "codex app-server closed before initialize response (signal SIGKILL): transport lost",
       );
     }
@@ -478,7 +478,7 @@ describe("central service child authority", () => {
     const child = new FakeChild();
     mocks.spawn.mockReturnValue(child);
 
-    const resultPromise = Effect.runPromise(probeCodexAppServer.pipe(Effect.either));
+    const resultPromise = Effect.runPromise(probeCodexAppServer.pipe(Effect.result));
     await vi.advanceTimersByTimeAsync(0);
     child.emit("error", new Error("spawn channel failed"));
     expect(child.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
@@ -488,9 +488,9 @@ describe("central service child authority", () => {
     child.emit("close", null, "SIGKILL");
     const result = await resultPromise;
 
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left.message).toBe(
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure.message).toBe(
         "codex app-server child failed before initialize response: spawn channel failed",
       );
     }
@@ -507,7 +507,7 @@ describe("central service child authority", () => {
     });
     mocks.spawn.mockReturnValue(child);
 
-    const resultPromise = Effect.runPromise(probeCodexAppServer.pipe(Effect.either));
+    const resultPromise = Effect.runPromise(probeCodexAppServer.pipe(Effect.result));
     await vi.advanceTimersByTimeAsync(6_000);
     expect(child.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
 
@@ -517,9 +517,9 @@ describe("central service child authority", () => {
     child.emit("close", null, "SIGKILL");
     const result = await resultPromise;
 
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left.message).toContain("initialize timed out");
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure.message).toContain("initialize timed out");
     }
     expect(vi.getTimerCount()).toBe(0);
     expect(signalOwned(capturedHandle(), "SIGTERM").attempted).toBe(false);
@@ -534,7 +534,7 @@ describe("central service child authority", () => {
     });
     mocks.spawn.mockReturnValue(child);
 
-    const resultPromise = Effect.runPromise(probeCodexAppServer.pipe(Effect.either));
+    const resultPromise = Effect.runPromise(probeCodexAppServer.pipe(Effect.result));
     await vi.advanceTimersByTimeAsync(0);
     expect(child.stdin.write).toHaveBeenCalledTimes(1);
     expect(child.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
@@ -544,9 +544,9 @@ describe("central service child authority", () => {
     child.emit("close", null, "SIGKILL");
     const result = await resultPromise;
 
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left.message).toBe(
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure.message).toBe(
         "codex app-server stdin failed before initialize response: write EPIPE",
       );
     }
@@ -564,7 +564,7 @@ describe("central service child authority", () => {
       const child = new FakeChild();
       mocks.spawn.mockReturnValue(child);
 
-      const resultPromise = Effect.runPromise(probeCodexAppServer.pipe(Effect.either));
+      const resultPromise = Effect.runPromise(probeCodexAppServer.pipe(Effect.result));
       await vi.advanceTimersByTimeAsync(0);
       child[channel].write(Buffer.alloc(262_145, "x"));
       expect(child.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
@@ -578,9 +578,9 @@ describe("central service child authority", () => {
       child.emit("close", null, "SIGKILL");
       const result = await resultPromise;
 
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left.message).toBe(expectedMessage);
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure.message).toBe(expectedMessage);
       }
       expect(vi.getTimerCount()).toBe(0);
       expect(signalOwned(capturedHandle(), "SIGTERM").attempted).toBe(false);
@@ -592,7 +592,7 @@ describe("central service child authority", () => {
     const child = new FakeChild();
     mocks.spawn.mockReturnValue(child);
 
-    const resultPromise = Effect.runPromise(probeCodexAppServer.pipe(Effect.either));
+    const resultPromise = Effect.runPromise(probeCodexAppServer.pipe(Effect.result));
     await vi.advanceTimersByTimeAsync(0);
     expect(mocks.spawn).toHaveBeenCalledOnce();
 
@@ -603,7 +603,7 @@ describe("central service child authority", () => {
     expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
     child.emit("close", null, "SIGKILL");
     const result = await resultPromise;
-    expect(Either.isLeft(result)).toBe(true);
+    expect(Result.isFailure(result)).toBe(true);
     expect(signalOwned(capturedHandle(), "SIGTERM").attempted).toBe(false);
     expect(child.kill).toHaveBeenCalledTimes(2);
   });
@@ -622,7 +622,7 @@ describe("central service child authority", () => {
       .mockReturnValueOnce(closingCodex);
 
     const runningProcess = runProcess("resistant-service", []).catch((error) => error);
-    const runningCodex = Effect.runPromise(probeCodexAppServer.pipe(Effect.either));
+    const runningCodex = Effect.runPromise(probeCodexAppServer.pipe(Effect.result));
     await vi.advanceTimersByTimeAsync(0);
     expect(mocks.spawn).toHaveBeenCalledTimes(2);
 
@@ -631,13 +631,13 @@ describe("central service child authority", () => {
     expect(second).toBe(first);
 
     const lateProcess = runProcess("late-service", []).catch((error) => error);
-    const lateCodex = Effect.runPromise(probeCodexAppServer.pipe(Effect.either));
+    const lateCodex = Effect.runPromise(probeCodexAppServer.pipe(Effect.result));
     await vi.advanceTimersByTimeAsync(0);
 
     const runningCodexResult = await runningCodex;
-    expect(Either.isLeft(runningCodexResult)).toBe(true);
-    if (Either.isLeft(runningCodexResult)) {
-      expect(runningCodexResult.left.message).toBe(
+    expect(Result.isFailure(runningCodexResult)).toBe(true);
+    if (Result.isFailure(runningCodexResult)) {
+      expect(runningCodexResult.fail.message).toBe(
         SERVICE_CHILD_PLANE_QUIESCING_ERROR,
       );
     }
@@ -645,9 +645,9 @@ describe("central service child authority", () => {
       new Error(SERVICE_CHILD_PLANE_QUIESCING_ERROR),
     );
     const lateCodexResult = await lateCodex;
-    expect(Either.isLeft(lateCodexResult)).toBe(true);
-    if (Either.isLeft(lateCodexResult)) {
-      expect(lateCodexResult.left.message).toBe(
+    expect(Result.isFailure(lateCodexResult)).toBe(true);
+    if (Result.isFailure(lateCodexResult)) {
+      expect(lateCodexResult.fail.message).toBe(
         SERVICE_CHILD_PLANE_QUIESCING_ERROR,
       );
     }

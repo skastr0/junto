@@ -6,7 +6,7 @@ import {
 } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { resolveVellumHome } from "@shared/vellum-home";
-import { Either, Schema } from "effect";
+import { Result, Schema } from "effect";
 import {
   ReportRequest as ReportRequestSchema,
   reportResponseSwapsDirection,
@@ -189,7 +189,7 @@ type StationControlOutboundFrame =
 
 const MAX_PENDING_REPORTS = 64;
 const UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
-const decodeReportRequest = Schema.decodeUnknownEither(
+const decodeReportRequest = Schema.decodeUnknownResult(
   ReportRequestSchema,
   { onExcessProperty: "error" },
 );
@@ -680,8 +680,8 @@ export const startStationControlServer = async (
       return false;
     }
     const codec = selectStationProtocolCodec(version);
-    if (Either.isLeft(codec)) return false;
-    session.negotiatedProtocol = codec.right;
+    if (Result.isFailure(codec)) return false;
+    session.negotiatedProtocol = codec.success;
     notifySessionReadiness();
     return true;
   };
@@ -731,7 +731,7 @@ export const startStationControlServer = async (
       );
       return;
     }
-    if (Either.isLeft(selectStationProtocolCodec(negotiation.selected))) {
+    if (Result.isFailure(selectStationProtocolCodec(negotiation.selected))) {
       terminateSession(
         session,
         new StationControlReportError(
@@ -792,8 +792,8 @@ export const startStationControlServer = async (
 
     if (session.negotiatedProtocol === undefined) {
       const preface = decodeStationProtocolPreface(raw);
-      if (Either.isRight(preface)) {
-        if (preface.right.frame !== "offer") {
+      if (Result.isSuccess(preface)) {
+        if (preface.success.frame !== "offer") {
           terminateSession(
             session,
             new StationControlReportError(
@@ -803,7 +803,7 @@ export const startStationControlServer = async (
           );
           return;
         }
-        await acceptProtocolOffer(session, preface.right);
+        await acceptProtocolOffer(session, preface.success);
         return;
       }
 
@@ -818,7 +818,7 @@ export const startStationControlServer = async (
     }
 
     const decoded = decodeStationSessionFrame(raw);
-    if (Either.isLeft(decoded)) {
+    if (Result.isFailure(decoded)) {
       terminateSession(
         session,
         new StationControlReportError(
@@ -828,7 +828,7 @@ export const startStationControlServer = async (
       );
       return;
     }
-    await processSessionFrame(session, decoded.right);
+    await processSessionFrame(session, decoded.success);
   };
 
   const armPartialFrameTimeout = (
@@ -1080,7 +1080,7 @@ export const startStationControlServer = async (
     input: ReportRequest,
   ): Promise<ReportResponse> => {
     const decoded = decodeReportRequest(input);
-    if (Either.isLeft(decoded)) {
+    if (Result.isFailure(decoded)) {
       return Promise.reject(
         new StationControlReportError(
           "invalid-local-request",
@@ -1125,7 +1125,7 @@ export const startStationControlServer = async (
       protocol: STATION_SESSION_PROTOCOL,
       frame: "request",
       requestId,
-      request: decoded.right,
+      request: decoded.success,
     });
     return new Promise<ReportResponse>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -1142,7 +1142,7 @@ export const startStationControlServer = async (
       timer.unref();
       session.pendingReports.set(requestId, {
         frame,
-        request: decoded.right,
+        request: decoded.success,
         resolve,
         reject,
         timer,

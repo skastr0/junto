@@ -338,7 +338,10 @@ const runProductBoot = async (): Promise<void> => {
 
   try {
     handles.kernel = await RemoteRuntime.runPromise(KernelService);
-    handles.kernel.start();
+    // V4-KERNEL: host-owned Effect entry (migration/runtime.md).
+    handles.kernel.start((effect) =>
+      RemoteRuntime.runPromise(effect as never),
+    );
     handles.stationControl = await startStationControlServer({
       home: controlHome,
       appVersion: remoteAppVersion(),

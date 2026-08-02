@@ -8,7 +8,7 @@ import {
   spawnServiceChild,
 } from "./process";
 
-export class CodexError extends Schema.TaggedError<CodexError>()("CodexError", {
+export class CodexError extends Schema.TaggedErrorClass<CodexError>()("CodexError", {
   message: Schema.String,
 }) {}
 
@@ -21,13 +21,11 @@ export class CodexError extends Schema.TaggedError<CodexError>()("CodexError", {
  * - Layer today: CodexLive — V4 rename candidate CodexService.layer
  *   Do not dual-export Live + `.layer` names.
  */
-export class CodexService extends Context.Tag("@chassis/CodexService")<
-  CodexService,
+export class CodexService extends Context.Service<CodexService,
   {
     readonly doctor: Effect.Effect<ServiceCheck>;
     readonly probeAppServer: Effect.Effect<ServiceCheck, CodexError>;
-  }
->() {}
+  }>()("@chassis/CodexService") {}
 
 const checkCodexCli = Effect.tryPromise({
   // Resolve the spawn env first so `codex` resolves on the PATH floor even
@@ -318,7 +316,7 @@ export const CodexLive = Layer.succeed(
           detail: result.stderr.trim() || `codex exited with code ${result.code}`,
         };
       }),
-      Effect.catchAll((error) =>
+      Effect.catch((error) =>
         Effect.succeed({
           id: "codex",
           label: "Codex CLI",

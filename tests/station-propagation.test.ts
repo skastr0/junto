@@ -633,7 +633,7 @@ describe("StationPropagation", () => {
 
     try {
       const result = await stationRuntime.runPromise(
-        Effect.either(
+        Effect.result(
           Effect.flatMap(StationPropagation, (service) =>
             service.synchronize(
               {
@@ -647,8 +647,8 @@ describe("StationPropagation", () => {
       );
 
       expect(result._tag).toBe("Left");
-      if (result._tag === "Left") {
-        expect(result.left).toMatchObject({
+      if (result._tag === "Failure") {
+        expect(result.failure).toMatchObject({
           _tag: "StationPropagationInvariantError",
           reason: "simulation-unavailable",
         });

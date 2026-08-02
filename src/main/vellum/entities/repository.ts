@@ -12,16 +12,16 @@ import {
 } from "../state/service";
 import { softDeleteCanvasEntity } from "./sync";
 
-export class CanvasEntityPersistenceError extends Schema.TaggedError<CanvasEntityPersistenceError>()(
+export class CanvasEntityPersistenceError extends Schema.TaggedErrorClass<CanvasEntityPersistenceError>()(
   "CanvasEntityPersistenceError",
   {
     operation: Schema.String,
     message: Schema.String,
-    cause: Schema.Defect,
+    cause: Schema.Unknown,
   },
 ) {}
 
-export class CanvasEntityNotArchivedError extends Schema.TaggedError<CanvasEntityNotArchivedError>()(
+export class CanvasEntityNotArchivedError extends Schema.TaggedErrorClass<CanvasEntityNotArchivedError>()(
   "CanvasEntityNotArchivedError",
   {
     canvasName: Schema.String,
@@ -30,7 +30,7 @@ export class CanvasEntityNotArchivedError extends Schema.TaggedError<CanvasEntit
   },
 ) {}
 
-export class CanvasEntityMissingError extends Schema.TaggedError<CanvasEntityMissingError>()(
+export class CanvasEntityMissingError extends Schema.TaggedErrorClass<CanvasEntityMissingError>()(
   "CanvasEntityMissingError",
   {
     canvasName: Schema.String,
@@ -98,10 +98,7 @@ const persistenceError = (
     cause: error,
   });
 
-export class CanvasEntityRepository extends Context.Tag(
-  "@vellum/CanvasEntityRepository",
-)<
-  CanvasEntityRepository,
+export class CanvasEntityRepository extends Context.Service<CanvasEntityRepository,
   {
     readonly get: (
       canvasName: string,
@@ -136,8 +133,7 @@ export class CanvasEntityRepository extends Context.Tag(
       canvasName: string,
       entityId: string,
     ) => Effect.Effect<CanvasEntityRecord, CanvasEntityRepositoryError>;
-  }
->() {}
+  }>()("@vellum/CanvasEntityRepository") {}
 
 export const CanvasEntityRepositoryLive: Layer.Layer<
   CanvasEntityRepository,

@@ -1,4 +1,4 @@
-import { Context, Effect, Either, Layer, ManagedRuntime } from "effect";
+import { Context, Effect, Result, Layer, ManagedRuntime } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import {
   FactoryPausePersistenceError,
@@ -188,12 +188,12 @@ describe("PausePlane — setPlaying", () => {
   it("a failed repository write is typed and leaves memory untouched", async () => {
     await withPlane({ writeFails: true }, [], async (plane) => {
       const result = await Effect.runPromise(
-        Effect.either(plane.setPlaying("ether", true)),
+        Effect.result(plane.setPlaying("ether", true)),
       );
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left._tag).toBe("PauseStateError");
-        expect(result.left.message).toMatch(/not saved/i);
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure._tag).toBe("PauseStateError");
+        expect(result.failure.message).toMatch(/not saved/i);
       }
       expect(plane.stateFor("ether")).toEqual(PAUSED_CANVAS);
     });
@@ -209,12 +209,12 @@ describe("PausePlane — corrupt state fails closed", () => {
         expect(plane.stateFor("ether")).toEqual(PAUSED_CANVAS);
 
         const result = await Effect.runPromise(
-          Effect.either(plane.setPlaying("ether", true)),
+          Effect.result(plane.setPlaying("ether", true)),
         );
-        expect(Either.isLeft(result)).toBe(true);
-        if (Either.isLeft(result)) {
-          expect(result.left._tag).toBe("PauseStateError");
-          expect(result.left.message).toMatch(/unreadable/i);
+        expect(Result.isFailure(result)).toBe(true);
+        if (Result.isFailure(result)) {
+          expect(result.failure._tag).toBe("PauseStateError");
+          expect(result.failure.message).toMatch(/unreadable/i);
         }
         expect(writes).toEqual([]);
         expect(plane.stateFor("ether")).toEqual(PAUSED_CANVAS);

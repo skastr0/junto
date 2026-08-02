@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { Context, Effect, Either, Layer, Schema } from "effect";
+import { Context, Effect, Result, Layer, Schema } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
 import {
   applyMirrorLaw,
@@ -51,7 +51,7 @@ import {
   syncCanvasEntities,
 } from "./entities/sync";
 
-export class CanvasError extends Schema.TaggedError<CanvasError>()("CanvasError", {
+export class CanvasError extends Schema.TaggedErrorClass<CanvasError>()("CanvasError", {
   message: Schema.String,
 }) {}
 
@@ -102,8 +102,7 @@ export type CanvasReadWithIntentWitness = {
   readonly intentWitness: ActiveIntentWitness;
 };
 
-export class CanvasesService extends Context.Tag("@vellum/CanvasesService")<
-  CanvasesService,
+export class CanvasesService extends Context.Service<CanvasesService,
   {
     readonly doctor: Effect.Effect<ServiceCheck>;
     readonly list: Effect.Effect<ReadonlyArray<CanvasSummary>, CanvasError>;
@@ -175,8 +174,7 @@ export class CanvasesService extends Context.Tag("@vellum/CanvasesService")<
       ReadonlyArray<ActorRef>,
       CanvasError
     >;
-  }
->() {}
+  }>()("@vellum/CanvasesService") {}
 
 const toCanvasError = (error: unknown): CanvasError =>
   error instanceof CanvasError
@@ -292,12 +290,12 @@ const decodeStoredCanvas = (
     });
   }
   const decoded = decodeCanvasDoc(parsed);
-  if (Either.isLeft(decoded)) {
+  if (Result.isFailure(decoded)) {
     throw new CanvasError({
-      message: `${canvasLabel(name)} in the database failed validation: ${decoded.left.message}`,
+      message: `${canvasLabel(name)} in the database failed validation: ${decoded.failure.message}`,
     });
   }
-  return { doc: decoded.right, body, revision, modifiedAt };
+  return { doc: decoded.success, body, revision, modifiedAt };
 };
 
 const readStoredAuthority = (reader: StateReader): StoredAuthoritySnapshot => {
@@ -693,12 +691,12 @@ const normalizeCanvas = (
   operation: string,
 ): StoredCanvas => {
   const decoded = decodeCanvasDoc(stripRuntimeWorkProjection(doc));
-  if (Either.isLeft(decoded)) {
+  if (Result.isFailure(decoded)) {
     throw new CanvasError({
-      message: `cannot ${operation} ${canvasLabel(name)}: ${decoded.left.message}`,
+      message: `cannot ${operation} ${canvasLabel(name)}: ${decoded.failure.message}`,
     });
   }
-  const nextDoc = applyMirrorLaw(decoded.right);
+  const nextDoc = applyMirrorLaw(decoded.success);
   const body = serializeCanvas(nextDoc);
   return {
     doc: nextDoc,

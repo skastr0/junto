@@ -394,7 +394,7 @@ export const makeEdgeGrantService = (
     for (const ref of pageRefs) {
       const parsed = parseNodeRef(ref);
       const page = parsed.ok
-        ? doc.nodes.find((node) => node.id === parsed.value.nodeId)
+        ? doc.nodes.find((node) => node.id === parsed.success.nodeId)
         : undefined;
       if (page === undefined || resolveNodeHostId(page) !== station.hostId) {
         return fail(

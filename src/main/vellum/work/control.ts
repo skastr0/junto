@@ -11,7 +11,7 @@ import {
 import { createServer, type Server, type Socket } from "node:net";
 import { resolveVellumHome } from "@shared/vellum-home";
 import { join } from "node:path";
-import { Effect, Either, Option, Schema } from "effect";
+import { Effect, Result, Option, Schema } from "effect";
 import { ulid } from "ulid";
 import type { Artifact, CanvasDoc, Message, Part } from "@shared/canvas";
 import {
@@ -369,21 +369,21 @@ type WorkMutationOutcome<T> = {
 
 const fromWorkResult = <T>(
   result: WorkOpResult<T>,
-): Either.Either<WorkMutationOutcome<T>, WorkErrorBody> => {
+): Result.Result<WorkMutationOutcome<T>, WorkErrorBody> => {
   if (result.ok) {
-    return Either.right({
+    return Result.succeed({
       value: result.data,
       disposition: result.disposition,
       ...(result.message === undefined ? {} : { message: result.message }),
     });
   }
-  return Either.left(mapWorkCode(result.code, result.message));
+  return Result.fail(mapWorkCode(result.code, result.message));
 };
 
 const exposeWorkMutation = <T extends object>(
   outcome: WorkMutationOutcome<T>,
 ): T & { readonly disposition: "applied" | "queued"; readonly message?: string } => ({
-  ...outcome.value,
+  ...outcome.success,
   disposition: outcome.disposition,
   ...(outcome.message === undefined ? {} : { message: outcome.message }),
 });
@@ -391,14 +391,14 @@ const exposeWorkMutation = <T extends object>(
 const decodeArgs = <A, I>(
   schema: Schema.Schema<A, I>,
   args: unknown,
-): Either.Either<A, WorkErrorBody> => {
-  const decoded = Schema.decodeUnknownEither(schema, {
+): Result.Result<A, WorkErrorBody> => {
+  const decoded = Schema.decodeUnknownResult(schema, {
     onExcessProperty: "error",
   })(args ?? {});
-  if (Either.isLeft(decoded)) {
-    return Either.left({
+  if (Result.isFailure(decoded)) {
+    return Result.fail({
       type: "InputError",
-      message: decoded.left.message,
+      message: decoded.failure.message,
       details: {
         path: "args",
         hint: "pass a JSON object matching the command schema",
@@ -406,7 +406,7 @@ const decodeArgs = <A, I>(
       },
     });
   }
-  return Either.right(decoded.right);
+  return Result.succeed(decoded.success);
 };
 
 // ---------------------------------------------------------------------------
@@ -453,8 +453,8 @@ const requireTarget = (
 ): WorkErrorBody | { readonly node: ReturnType<typeof findNode> } => {
   // Target-scoped ops: factory physics admit (edge + role law + port facet).
   const admitted = admitWorkTarget(doc, callerId, targetId, op);
-  if (Either.isLeft(admitted)) return admitted.left;
-  return { node: admitted.right.node };
+  if (Result.isFailure(admitted)) return admitted.failure;
+  return { node: admitted.success.node };
 };
 
 /** Work-control caller resolved through the sole process-bind admission path. */
@@ -474,14 +474,14 @@ type WorkCaller = {
 export const resolveProcessBoundActorRef = (
   actorRefs: ReadonlyArray<ActorRef>,
   caller: Pick<WorkCaller, "canvasName" | "nodeId">,
-): Either.Either<ActorRef, WorkErrorBody> => {
+): Result.Result<ActorRef, WorkErrorBody> => {
   const matches = actorRefs.filter(
     (actor) =>
       actor.canvasName === caller.canvasName &&
       actor.nodeId === caller.nodeId,
   );
-  if (matches.length === 1) return Either.right(matches[0]!);
-  return Either.left({
+  if (matches.length === 1) return Result.succeed(matches[0]!);
+  return Result.fail({
     type: "StaleNodeRef",
     message:
       matches.length === 0
@@ -643,8 +643,8 @@ const dispatchOp = (
 
     if (op === "preamble") {
       const decoded = decodeArgs(PreambleArgs, args);
-      if (Either.isLeft(decoded)) return yield* Effect.fail(decoded.left);
-      const text = normalizePreambleText(decoded.right.text);
+      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
+      const text = normalizePreambleText(decoded.success.text);
       if (!text) {
         return yield* Effect.fail<WorkErrorBody>({
           type: "InputError",
@@ -671,12 +671,12 @@ const dispatchOp = (
 
     if (op === "tasks.list") {
       const decoded = decodeArgs(TasksListArgs, args);
-      if (Either.isLeft(decoded)) return yield* Effect.fail(decoded.left);
-      const gate = requireTarget(board, caller.nodeId, decoded.right.target, op);
+      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
+      const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
       if ("type" in gate) return yield* Effect.fail(gate);
       const items = gate.node?.ether?.tasks?.items ?? [];
       const proposals = gate.node?.ether?.tasks?.proposals ?? [];
-      return { target: decoded.right.target, items, proposals };
+      return { target: decoded.success.target, items, proposals };
     }
 
     if (
@@ -690,9 +690,9 @@ const dispatchOp = (
           : op === "content.stat"
             ? decodeArgs(ContentStatArgs, args)
             : decodeArgs(ContentMaterializeArgs, args);
-      if (Either.isLeft(decoded)) return yield* Effect.fail(decoded.left);
-      const target = decoded.right.target;
-      const taskId = decoded.right.task;
+      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
+      const target = decoded.success.target;
+      const taskId = decoded.success.task;
       const gate = requireTarget(board, caller.nodeId, target, op);
       if ("type" in gate) return yield* Effect.fail(gate);
       const task = taskItemsForNode(gate.node!).find(
@@ -705,7 +705,7 @@ const dispatchOp = (
           details: { target: taskId, retryable: false },
         });
       }
-      const authorizedRef = taskContentRef(task, decoded.right.ref);
+      const authorizedRef = taskContentRef(task, decoded.success.ref);
       if (authorizedRef === undefined) {
         return yield* Effect.fail<WorkErrorBody>({
           type: "ScopeError",
@@ -753,7 +753,7 @@ const dispatchOp = (
 
       const name =
         op === "content.materialize"
-          ? (decoded.right as ContentMaterializeArgs).name
+          ? (decoded.success as ContentMaterializeArgs).name
           : undefined;
       const materialized = yield* Effect.tryPromise({
         try: () =>
@@ -786,66 +786,66 @@ const dispatchOp = (
 
     if (op === "tasks.create") {
       const decoded = decodeArgs(TasksCreateArgs, args);
-      if (Either.isLeft(decoded)) return yield* Effect.fail(decoded.left);
-      const gate = requireTarget(board, caller.nodeId, decoded.right.target, op);
+      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
+      const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
       if ("type" in gate) return yield* Effect.fail(gate);
       const actor = resolveProcessBoundActorRef(read.actorRefs, caller);
-      if (Either.isLeft(actor)) return yield* Effect.fail(actor.left);
+      if (Result.isFailure(actor)) return yield* Effect.fail(actor.failure);
       const result = yield* work.workTaskPropose(
         caller.canvasName,
-        decoded.right.target,
-        decoded.right.brief,
-        decoded.right.metadata,
-        actor.right,
-        decoded.right.reason,
-        decoded.right.media,
-        decoded.right.dependsOn,
-        decoded.right.finishCriteria,
+        decoded.success.target,
+        decoded.success.brief,
+        decoded.success.metadata,
+        actor.success,
+        decoded.success.reason,
+        decoded.success.media,
+        decoded.success.dependsOn,
+        decoded.success.finishCriteria,
       );
       const mapped = fromWorkResult(result);
-      if (Either.isLeft(mapped)) return yield* Effect.fail(mapped.left);
-      return exposeWorkMutation(mapped.right);
+      if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
+      return exposeWorkMutation(mapped.success);
     }
 
     if (op === "tasks.claim") {
       const decoded = decodeArgs(TasksClaimArgs, args);
-      if (Either.isLeft(decoded)) return yield* Effect.fail(decoded.left);
-      const gate = requireTarget(board, caller.nodeId, decoded.right.target, op);
+      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
+      const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
       if ("type" in gate) return yield* Effect.fail(gate);
       const actor = resolveProcessBoundActorRef(read.actorRefs, caller);
-      if (Either.isLeft(actor)) return yield* Effect.fail(actor.left);
+      if (Result.isFailure(actor)) return yield* Effect.fail(actor.failure);
       const result = yield* work.workTaskClaim(
         caller.canvasName,
-        decoded.right.target,
-        decoded.right.task,
-        actor.right,
+        decoded.success.target,
+        decoded.success.task,
+        actor.success,
       );
       const mapped = fromWorkResult(result);
-      if (Either.isLeft(mapped)) return yield* Effect.fail(mapped.left);
-      return exposeWorkMutation(mapped.right);
+      if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
+      return exposeWorkMutation(mapped.success);
     }
 
     if (op === "tasks.update") {
       const decoded = decodeArgs(TasksUpdateArgs, args);
-      if (Either.isLeft(decoded)) return yield* Effect.fail(decoded.left);
-      const gate = requireTarget(board, caller.nodeId, decoded.right.target, op);
+      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
+      const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
       if ("type" in gate) return yield* Effect.fail(gate);
       const actor = resolveProcessBoundActorRef(read.actorRefs, caller);
-      if (Either.isLeft(actor)) return yield* Effect.fail(actor.left);
+      if (Result.isFailure(actor)) return yield* Effect.fail(actor.failure);
       const task = gate.node?.ether?.tasks?.items.find(
-        (candidate) => candidate.id === decoded.right.task,
+        (candidate) => candidate.id === decoded.success.task,
       );
       if (
         task?.claimedBy !== undefined &&
-        task.claimedBy !== actor.right.seatId
+        task.claimedBy !== actor.success.seatId
       ) {
         return yield* Effect.fail<WorkErrorBody>({
           type: "ClaimConflict",
           message:
-            `task "${decoded.right.task}" is claimed by another actor seat`,
+            `task "${decoded.success.task}" is claimed by another actor seat`,
           details: {
             holder: task.claimedBy,
-            caller: actor.right.seatId,
+            caller: actor.success.seatId,
             retryable: false,
             next_step: "only the claimed actor may update an active task",
           },
@@ -853,51 +853,51 @@ const dispatchOp = (
       }
       const result = yield* work.workTaskTransition(
         caller.canvasName,
-        decoded.right.target,
-        decoded.right.task,
-        decoded.right.state,
-        decoded.right.note,
-        decoded.right.completionEvidence,
+        decoded.success.target,
+        decoded.success.task,
+        decoded.success.state,
+        decoded.success.note,
+        decoded.success.completionEvidence,
       );
       const mapped = fromWorkResult(result);
-      if (Either.isLeft(mapped)) return yield* Effect.fail(mapped.left);
-      return exposeWorkMutation(mapped.right);
+      if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
+      return exposeWorkMutation(mapped.success);
     }
 
     if (op === "msg.list") {
       const decoded = decodeArgs(MsgListArgs, args);
-      if (Either.isLeft(decoded)) return yield* Effect.fail(decoded.left);
-      const gate = requireTarget(board, caller.nodeId, decoded.right.target, op);
+      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
+      const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
       if ("type" in gate) return yield* Effect.fail(gate);
       const node = gate.node!;
       const kind = nodeKind(node);
-      if (decoded.right.taskId) {
+      if (decoded.success.taskId) {
         const list =
           kind === "task"
             ? node.ether?.tasks?.items ?? []
             : node.ether?.requests?.items ?? [];
-        const task = list.find((t) => t.id === decoded.right.taskId);
+        const task = list.find((t) => t.id === decoded.success.taskId);
         if (!task) {
           return yield* Effect.fail({
             type: "UnknownTarget" as const,
-            message: `task "${decoded.right.taskId}" not found`,
-            details: { target: decoded.right.taskId, retryable: false },
+            message: `task "${decoded.success.taskId}" not found`,
+            details: { target: decoded.success.taskId, retryable: false },
           });
         }
-        return { target: decoded.right.target, taskId: task.id, items: task.history };
+        return { target: decoded.success.target, taskId: task.id, items: task.history };
       }
       return {
-        target: decoded.right.target,
+        target: decoded.success.target,
         items: node.ether?.messages?.items ?? [],
       };
     }
 
     if (op === "msg.send") {
       const decoded = decodeArgs(MsgSendArgs, args);
-      if (Either.isLeft(decoded)) return yield* Effect.fail(decoded.left);
-      const gate = requireTarget(board, caller.nodeId, decoded.right.target, op);
+      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
+      const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
       if ("type" in gate) return yield* Effect.fail(gate);
-      const text = decoded.right.text.trim();
+      const text = decoded.success.text.trim();
       if (!text) {
         return yield* Effect.fail({
           type: "InputError" as const,
@@ -916,36 +916,36 @@ const dispatchOp = (
         messageId,
         text: body,
         contextId,
-        ...(decoded.right.taskId ? { taskId: decoded.right.taskId } : {}),
+        ...(decoded.success.taskId ? { taskId: decoded.success.taskId } : {}),
         metadata: { factoryMail: true, fromSeat: from },
       });
       const sentBy = resolveProcessBoundActorRef(read.actorRefs, caller);
-      if (Either.isLeft(sentBy)) return yield* Effect.fail(sentBy.left);
+      if (Result.isFailure(sentBy)) return yield* Effect.fail(sentBy.failure);
       const result = yield* work.workMessageAppend(
         caller.canvasName,
-        decoded.right.target,
-        decoded.right.taskId ?? null,
+        decoded.success.target,
+        decoded.success.taskId ?? null,
         message,
-        sentBy.right,
+        sentBy.success,
       );
       const mapped = fromWorkResult(result);
-      if (Either.isLeft(mapped)) return yield* Effect.fail(mapped.left);
-      return exposeWorkMutation(mapped.right);
+      if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
+      return exposeWorkMutation(mapped.success);
     }
 
     if (op === "msg.read") {
       const decoded = decodeArgs(MsgReadArgs, args);
-      if (Either.isLeft(decoded)) return yield* Effect.fail(decoded.left);
+      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
       // Own mailbox only — process-bind is the authority (not edge OptIn ports).
       // Actor↔actor is OptIn; a seat reading its own inbox must not require a
       // self-loop edge with msg.list.
-      if (decoded.right.target !== caller.nodeId) {
+      if (decoded.success.target !== caller.nodeId) {
         return yield* Effect.fail({
           type: "ScopeError" as const,
           message: "msg.read only applies to this seat's own mailbox",
           details: {
             caller: caller.nodeId,
-            target: decoded.right.target,
+            target: decoded.success.target,
             next_step: `use target "${caller.nodeId}" (your seat) with the messageId`,
             retryable: false,
           },
@@ -960,24 +960,24 @@ const dispatchOp = (
         });
       }
       const reader = resolveProcessBoundActorRef(read.actorRefs, caller);
-      if (Either.isLeft(reader)) return yield* Effect.fail(reader.left);
+      if (Result.isFailure(reader)) return yield* Effect.fail(reader.failure);
       const result = yield* work.workMessageMarkRead(
         caller.canvasName,
-        decoded.right.target,
-        decoded.right.messageId.trim(),
-        reader.right,
+        decoded.success.target,
+        decoded.success.messageId.trim(),
+        reader.success,
       );
       const mapped = fromWorkResult(result);
-      if (Either.isLeft(mapped)) return yield* Effect.fail(mapped.left);
-      return exposeWorkMutation(mapped.right);
+      if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
+      return exposeWorkMutation(mapped.success);
     }
 
     if (op === "msg.reply") {
       const decoded = decodeArgs(MsgReplyArgs, args);
-      if (Either.isLeft(decoded)) return yield* Effect.fail(decoded.left);
-      const gate = requireTarget(board, caller.nodeId, decoded.right.target, op);
+      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
+      const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
       if ("type" in gate) return yield* Effect.fail(gate);
-      const text = decoded.right.text.trim();
+      const text = decoded.success.text.trim();
       if (!text) {
         return yield* Effect.fail({
           type: "InputError" as const,
@@ -985,7 +985,7 @@ const dispatchOp = (
           details: { path: "text", retryable: false },
         });
       }
-      const inReplyTo = decoded.right.inReplyTo.trim();
+      const inReplyTo = decoded.success.inReplyTo.trim();
       if (!inReplyTo) {
         return yield* Effect.fail({
           type: "InputError" as const,
@@ -994,16 +994,16 @@ const dispatchOp = (
         });
       }
       const sentBy = resolveProcessBoundActorRef(read.actorRefs, caller);
-      if (Either.isLeft(sentBy)) return yield* Effect.fail(sentBy.left);
+      if (Result.isFailure(sentBy)) return yield* Effect.fail(sentBy.failure);
       // Mark the parent mail read on own inbox first (idempotent).
       const marked = yield* work.workMessageMarkRead(
         caller.canvasName,
         caller.nodeId,
         inReplyTo,
-        sentBy.right,
+        sentBy.success,
       );
       const markedMapped = fromWorkResult(marked);
-      if (Either.isLeft(markedMapped)) return yield* Effect.fail(markedMapped.left);
+      if (Result.isFailure(markedMapped)) return yield* Effect.fail(markedMapped.failure);
       const from = caller.nodeId.trim() || "seat";
       const message: Message = makeUserMessage({
         messageId: ulid(),
@@ -1017,54 +1017,54 @@ const dispatchOp = (
       });
       const result = yield* work.workMessageAppend(
         caller.canvasName,
-        decoded.right.target,
+        decoded.success.target,
         null,
         message,
-        sentBy.right,
+        sentBy.success,
       );
       const mapped = fromWorkResult(result);
-      if (Either.isLeft(mapped)) return yield* Effect.fail(mapped.left);
+      if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
       return {
-        ...exposeWorkMutation(mapped.right),
+        ...exposeWorkMutation(mapped.success),
         inReplyTo,
-        read: exposeWorkMutation(markedMapped.right),
+        read: exposeWorkMutation(markedMapped.success),
       };
     }
 
     if (op === "request.escalate") {
       const decoded = decodeArgs(RequestEscalateArgs, args);
-      if (Either.isLeft(decoded)) return yield* Effect.fail(decoded.left);
+      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
       const gate = requireTarget(
         board,
         caller.nodeId,
-        decoded.right.target,
+        decoded.success.target,
         op,
       );
       if ("type" in gate) return yield* Effect.fail(gate);
       const raisedBy = resolveProcessBoundActorRef(read.actorRefs, caller);
-      if (Either.isLeft(raisedBy)) return yield* Effect.fail(raisedBy.left);
+      if (Result.isFailure(raisedBy)) return yield* Effect.fail(raisedBy.failure);
       // File the durable request, then mark the calling seat blocked and
       // return a stop directive. Hold-until-answer is TODO.
       const result = yield* work.workRequestCreate(
         caller.canvasName,
-        decoded.right.target,
-        decoded.right.brief,
-        decoded.right.metadata,
-        raisedBy.right,
-        decoded.right.reason,
+        decoded.success.target,
+        decoded.success.brief,
+        decoded.success.metadata,
+        raisedBy.success,
+        decoded.success.reason,
       );
       const mapped = fromWorkResult(result);
-      if (Either.isLeft(mapped)) return yield* Effect.fail(mapped.left);
-      const task = mapped.right.value as {
+      if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
+      const task = mapped.success.value as {
         readonly id: string;
         readonly reason?: string;
       };
-      const brief = decoded.right.brief.trim();
+      const brief = decoded.success.brief.trim();
       const block = markSeatBlocked({
         canvasName: caller.canvasName,
         nodeId: caller.nodeId,
         requestId: task.id,
-        target: decoded.right.target,
+        target: decoded.success.target,
         brief,
       });
       const stop_directive = makeStopDirective({
@@ -1073,8 +1073,8 @@ const dispatchOp = (
         brief: block.brief,
       });
       return {
-        request: mapped.right.value,
-        disposition: mapped.right.disposition,
+        request: mapped.success.value,
+        disposition: mapped.success.disposition,
         blocked: true,
         stop_directive,
         // Hold-until-answer not implemented: agent must stop and resume later.
@@ -1085,147 +1085,147 @@ const dispatchOp = (
 
     if (op === "artifact.publish") {
       const decoded = decodeArgs(ArtifactPublishArgs, args);
-      if (Either.isLeft(decoded)) return yield* Effect.fail(decoded.left);
-      const gate = requireTarget(board, caller.nodeId, decoded.right.target, op);
+      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
+      const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
       if ("type" in gate) return yield* Effect.fail(gate);
-      const parts = decoded.right.parts as Part[];
+      const parts = decoded.success.parts as Part[];
       const artifact: Artifact = {
-        artifactId: decoded.right.artifactId?.trim() || ulid(),
+        artifactId: decoded.success.artifactId?.trim() || ulid(),
         parts,
-        ...(decoded.right.name !== undefined ? { name: decoded.right.name } : {}),
-        ...(decoded.right.task !== undefined
+        ...(decoded.success.name !== undefined ? { name: decoded.success.name } : {}),
+        ...(decoded.success.task !== undefined
           ? {
               task: {
                 kind: "task",
-                itemId: decoded.right.task.id,
+                itemId: decoded.success.task.id,
                 sink: {
                   canvasName: caller.canvasName,
-                  nodeId: decoded.right.task.target,
+                  nodeId: decoded.success.task.target,
                 },
               },
             }
           : {}),
-        ...(decoded.right.metadata !== undefined
-          ? { metadata: decoded.right.metadata }
+        ...(decoded.success.metadata !== undefined
+          ? { metadata: decoded.success.metadata }
           : {}),
       };
       const publishedBy = resolveProcessBoundActorRef(
         read.actorRefs,
         caller,
       );
-      if (Either.isLeft(publishedBy)) {
-        return yield* Effect.fail(publishedBy.left);
+      if (Result.isFailure(publishedBy)) {
+        return yield* Effect.fail(publishedBy.failure);
       }
       const result = yield* work.workArtifactPublish(
         caller.canvasName,
-        decoded.right.target,
+        decoded.success.target,
         artifact,
-        publishedBy.right,
+        publishedBy.success,
       );
       const mapped = fromWorkResult(result);
-      if (Either.isLeft(mapped)) return yield* Effect.fail(mapped.left);
+      if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
       // Work control admits process-bound callers only. Renderer IPC publish
       // does not write stamps, so it cannot become a trust-plane side door.
       const authority = artifactPublishAuthority({
         canvasName: caller.canvasName,
         seat: caller.nodeId,
         occupant: caller.occupant,
-        sinkNodeId: decoded.right.target,
+        sinkNodeId: decoded.success.target,
       });
-      const stamp = extractProofStamp(authority, mapped.right.value);
+      const stamp = extractProofStamp(authority, mapped.success.value);
       if (stamp) {
         globalStampRuntime.recordStamp(authority, stamp);
       }
-      return exposeWorkMutation(mapped.right);
+      return exposeWorkMutation(mapped.success);
     }
 
     if (op === "board.list") {
       const decoded = decodeArgs(BoardListArgs, args);
-      if (Either.isLeft(decoded)) return yield* Effect.fail(decoded.left);
-      const gate = requireTarget(board, caller.nodeId, decoded.right.target, op);
+      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
+      const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
       if ("type" in gate) return yield* Effect.fail(gate);
       const result = yield* work.workBoardList(
         caller.canvasName,
-        decoded.right.target,
-        decoded.right.topicId,
+        decoded.success.target,
+        decoded.success.topicId,
       );
       const mapped = fromWorkResult(result);
-      if (Either.isLeft(mapped)) return yield* Effect.fail(mapped.left);
+      if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
       return {
-        topics: mapped.right.value.topics,
+        topics: mapped.success.value.topics,
       };
     }
 
     if (op === "board.create_topic") {
       const decoded = decodeArgs(BoardCreateTopicArgs, args);
-      if (Either.isLeft(decoded)) return yield* Effect.fail(decoded.left);
-      const gate = requireTarget(board, caller.nodeId, decoded.right.target, op);
+      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
+      const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
       if ("type" in gate) return yield* Effect.fail(gate);
       const bound = resolveProcessBoundActorRef(read.actorRefs, caller);
-      if (Either.isLeft(bound)) return yield* Effect.fail(bound.left);
+      if (Result.isFailure(bound)) return yield* Effect.fail(bound.failure);
       const author = {
         kind: "actor" as const,
-        seatId: bound.right.seatId,
-        nodeId: bound.right.nodeId,
+        seatId: bound.success.seatId,
+        nodeId: bound.success.nodeId,
         label: caller.nodeId,
       };
       // Agents never wake the floor — notify flag ignored.
       const result = yield* work.workBoardCreateTopic(
         caller.canvasName,
-        decoded.right.target,
-        decoded.right.title,
-        decoded.right.body,
+        decoded.success.target,
+        decoded.success.title,
+        decoded.success.body,
         author,
         false,
       );
       const mapped = fromWorkResult(result);
-      if (Either.isLeft(mapped)) return yield* Effect.fail(mapped.left);
-      return exposeWorkMutation(mapped.right);
+      if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
+      return exposeWorkMutation(mapped.success);
     }
 
     if (op === "board.post") {
       const decoded = decodeArgs(BoardPostArgs, args);
-      if (Either.isLeft(decoded)) return yield* Effect.fail(decoded.left);
-      const gate = requireTarget(board, caller.nodeId, decoded.right.target, op);
+      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
+      const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
       if ("type" in gate) return yield* Effect.fail(gate);
       const bound = resolveProcessBoundActorRef(read.actorRefs, caller);
-      if (Either.isLeft(bound)) return yield* Effect.fail(bound.left);
+      if (Result.isFailure(bound)) return yield* Effect.fail(bound.failure);
       const author = {
         kind: "actor" as const,
-        seatId: bound.right.seatId,
-        nodeId: bound.right.nodeId,
+        seatId: bound.success.seatId,
+        nodeId: bound.success.nodeId,
         label: caller.nodeId,
       };
       const result = yield* work.workBoardPost(
         caller.canvasName,
-        decoded.right.target,
-        decoded.right.topicId,
-        decoded.right.text,
+        decoded.success.target,
+        decoded.success.topicId,
+        decoded.success.text,
         author,
       );
       const mapped = fromWorkResult(result);
-      if (Either.isLeft(mapped)) return yield* Effect.fail(mapped.left);
-      return exposeWorkMutation(mapped.right);
+      if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
+      return exposeWorkMutation(mapped.success);
     }
 
     if (op === "board.mark_read") {
       const decoded = decodeArgs(BoardMarkReadArgs, args);
-      if (Either.isLeft(decoded)) return yield* Effect.fail(decoded.left);
-      const gate = requireTarget(board, caller.nodeId, decoded.right.target, op);
+      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
+      const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
       if ("type" in gate) return yield* Effect.fail(gate);
       const bound = resolveProcessBoundActorRef(read.actorRefs, caller);
-      if (Either.isLeft(bound)) return yield* Effect.fail(bound.left);
-      const principalKey = `seat:${bound.right.seatId}`;
+      if (Result.isFailure(bound)) return yield* Effect.fail(bound.failure);
+      const principalKey = `seat:${bound.success.seatId}`;
       const result = yield* work.workBoardMarkRead(
         caller.canvasName,
-        decoded.right.target,
-        decoded.right.topicId,
+        decoded.success.target,
+        decoded.success.topicId,
         principalKey,
-        decoded.right.upToPosition,
+        decoded.success.upToPosition,
       );
       const mapped = fromWorkResult(result);
-      if (Either.isLeft(mapped)) return yield* Effect.fail(mapped.left);
-      return exposeWorkMutation(mapped.right);
+      if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
+      return exposeWorkMutation(mapped.success);
     }
 
     // Exhaustiveness — Schema already gates ops
@@ -1583,10 +1583,10 @@ export const startWorkControlServer = async (
       }
 
       const decoded = decodeWorkRequest(raw);
-      if (Either.isLeft(decoded)) {
+      if (Result.isFailure(decoded)) {
         respond(
           socket,
-          workErr("ProtocolError", decoded.left.message, {
+          workErr("ProtocolError", decoded.failure.message, {
             retryable: false,
             path: "request",
             hint: "request must be {token, op, args?}",
@@ -1595,7 +1595,7 @@ export const startWorkControlServer = async (
         return;
       }
 
-      const req = decoded.right;
+      const req = decoded.success;
 
       // The work-file token proves owner-local reach; process-bind is the sole
       // caller identity.
@@ -1649,7 +1649,7 @@ export const startWorkControlServer = async (
           retainOperation(
             "dispatch",
             `dispatch:${req.op}`,
-            async (): Promise<Either.Either<WorkErrorBody, unknown>> => {
+            async (): Promise<Result.Result<WorkErrorBody, unknown>> => {
               let liveDocs: ReadonlyArray<{
                 readonly canvasName: string;
                 readonly doc: CanvasDoc;
@@ -1659,7 +1659,7 @@ export const startWorkControlServer = async (
                   Effect.flatMap(CanvasesService, (c) => c.liveDocuments()),
                 );
               } catch {
-                return Either.left({
+                return Result.fail({
                   type: "StaleNodeRef",
                   message: "live canvas authority is unavailable",
                   details: {
@@ -1673,7 +1673,7 @@ export const startWorkControlServer = async (
                 admission.principal,
               );
               if (!callerResolved.ok) {
-                return Either.left({
+                return Result.fail({
                   type:
                     callerResolved.code === "ambiguous"
                       ? "ScopeError"
@@ -1699,9 +1699,9 @@ export const startWorkControlServer = async (
               };
               return options.run(
                 dispatchOp(req.op, req.args, caller, options.version).pipe(
-                  Effect.either,
+                  Effect.result,
                 ),
-              ) as Promise<Either.Either<WorkErrorBody, unknown>>;
+              ) as Promise<Result.Result<WorkErrorBody, unknown>>;
             },
           );
         const authoringLabel = mainAuthoringLabelForWorkOperation(req.op);
@@ -1713,8 +1713,8 @@ export const startWorkControlServer = async (
           ? await run()
           : await authoringGate.run(authoringLabel, run);
 
-        if (Either.isLeft(outcome)) {
-          const body = outcome.left as WorkErrorBody;
+        if (Result.isFailure(outcome)) {
+          const body = outcome.failure as WorkErrorBody;
           respond(
             socket,
             workErr(body.type, body.message, body.details, req.op, req.id),
@@ -1722,7 +1722,7 @@ export const startWorkControlServer = async (
           return;
         }
         if (req.op === "preamble" && options.onPreamble) {
-          const value = outcome.right as {
+          const value = outcome.success as {
             readonly preambleId?: unknown;
             readonly canvasName?: unknown;
             readonly nodeId?: unknown;
@@ -1745,7 +1745,7 @@ export const startWorkControlServer = async (
             });
           }
         }
-        respond(socket, workOk(req.op, outcome.right, req.id));
+        respond(socket, workOk(req.op, outcome.success, req.id));
       } catch (error) {
         if (error instanceof MainAuthoringRefused) {
           respond(

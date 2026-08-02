@@ -14,16 +14,13 @@ export const Entity = Schema.Struct({
   // The canonical join key shared/connections.ts resolves identities against.
   key: Schema.String,
   kind: Schema.String,
-  title: Schema.optionalWith(Schema.String, { exact: true }),
-  stats: Schema.Record({
-    key: Schema.String,
-    value: Schema.Union(Schema.String, Schema.Number),
-  }),
+  title: Schema.optionalKey(Schema.String),
+  stats: Schema.Record(Schema.String, Schema.Union([Schema.String, Schema.Number])),
   updatedAt: Schema.String,
   // A retained last-known observation. `false` is meaningful on a partial
   // source read: that individual fact was observed during the current
   // attempt even though another host made the bundle unhealthy.
-  stale: Schema.optionalWith(Schema.Boolean, { exact: true }),
+  stale: Schema.optionalKey(Schema.Boolean),
 });
 export type Entity = typeof Entity.Type;
 
@@ -33,9 +30,9 @@ export const SnapshotBundle = Schema.Struct({
   ok: Schema.Boolean,
   // Explicit cache provenance. A failed/partial refresh may retain entities
   // for offline display, but stale facts are never authoritative predicates.
-  stale: Schema.optionalWith(Schema.Boolean, { exact: true }),
-  lastSuccessfulAt: Schema.optionalWith(Schema.String, { exact: true }),
-  error: Schema.optionalWith(Schema.String, { exact: true }),
+  stale: Schema.optionalKey(Schema.Boolean),
+  lastSuccessfulAt: Schema.optionalKey(Schema.String),
+  error: Schema.optionalKey(Schema.String),
   entities: Schema.Array(Entity),
 });
 export type SnapshotBundle = typeof SnapshotBundle.Type;

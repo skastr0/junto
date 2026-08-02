@@ -1,4 +1,4 @@
-import { Either, Schema } from "effect";
+import { Result, Schema } from "effect";
 import {
   HostCapability,
   HostId,
@@ -49,54 +49,46 @@ export const operatorControlSocketPath = (home: string): string =>
   `${operatorControlDir(home)}/control.sock`;
 
 const RequestId = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(64),
-  Schema.pattern(/^[A-Za-z0-9._-]+$/u),
+  Schema.check(Schema.isMinLength(1)),
+  Schema.check(Schema.isMaxLength(64)),
+  Schema.check(Schema.isPattern(/^[A-Za-z0-9._-]+$/u)),
 );
 
 const Diagnostic = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(4_096),
+  Schema.check(Schema.isMinLength(1)),
+  Schema.check(Schema.isMaxLength(4_096)),
 );
-const OptionalCode = Schema.optionalWith(
-  Schema.String.pipe(Schema.minLength(1), Schema.maxLength(64)),
-  { exact: true },
-);
-const Stage = Schema.String.pipe(Schema.minLength(1), Schema.maxLength(1_024));
+const OptionalCode = Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(64))));
+const Stage = Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(1_024)));
 const Version = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(128),
+  Schema.check(Schema.isMinLength(1)),
+  Schema.check(Schema.isMaxLength(128)),
 );
-const Sha256 = Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/u));
-const NonNegativeInt = Schema.Int.pipe(Schema.nonNegative());
+const Sha256 = Schema.String.pipe(Schema.check(Schema.isPattern(/^[a-f0-9]{64}$/u)));
+const NonNegativeInt = Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0)));
 
-export const OperatorOpName = Schema.Literal(
-  "station.status",
-  "station.configure-command-center",
-  "fleet.list",
-  "fleet.add",
-  "fleet.test",
-  "fleet.enable-managed-installs",
-  "fleet.deploy",
-  "fleet.qualify",
-  "fleet.sync",
-  "fleet.status",
-  "qualification.work.prepare",
-  "qualification.work.progress-offline",
-  "qualification.work.verify",
-);
+export const OperatorOpName = Schema.Literals(["station.status", "station.configure-command-center",
+"fleet.list",
+"fleet.add",
+"fleet.test",
+"fleet.enable-managed-installs",
+"fleet.deploy",
+"fleet.qualify",
+"fleet.sync",
+"fleet.status",
+"qualification.work.prepare",
+"qualification.work.progress-offline",
+"qualification.work.verify",]);
 export type OperatorOpName = typeof OperatorOpName.Type;
 
 export const OperatorEmptyArgs = Schema.Struct({});
 export type OperatorEmptyArgs = typeof OperatorEmptyArgs.Type;
 
 const UniqueCapabilities = Schema.Array(HostCapability).pipe(
-  Schema.minItems(1),
-  Schema.maxItems(4),
-  Schema.filter(
-    (capabilities) => new Set(capabilities).size === capabilities.length,
-    { message: () => "host capabilities must be unique" },
-  ),
+  Schema.check(Schema.isMinSize(1)),
+  Schema.check(Schema.isMaxSize(4)),
+  Schema.check(Schema.makeFilter((capabilities) => new Set(capabilities).size === capabilities.length,
+  { message: () => "host capabilities must be unique" },)),
 );
 
 export const OperatorFleetAddArgs = Schema.Struct({
@@ -113,15 +105,15 @@ export const OperatorFleetHostArgs = Schema.Struct({
 export type OperatorFleetHostArgs = typeof OperatorFleetHostArgs.Type;
 
 export const OperatorFleetSelectionArgs = Schema.Struct({
-  id: Schema.optionalWith(HostId, { exact: true }),
+  id: Schema.optionalKey(HostId),
 });
 export type OperatorFleetSelectionArgs =
   typeof OperatorFleetSelectionArgs.Type;
 
 export const OperatorQualificationRunId = Schema.String.pipe(
-  Schema.minLength(3),
-  Schema.maxLength(32),
-  Schema.pattern(/^[a-z0-9][a-z0-9-]{2,31}$/u),
+  Schema.check(Schema.isMinLength(3)),
+  Schema.check(Schema.isMaxLength(32)),
+  Schema.check(Schema.isPattern(/^[a-z0-9][a-z0-9-]{2,31}$/u)),
 );
 export type OperatorQualificationRunId =
   typeof OperatorQualificationRunId.Type;
@@ -139,7 +131,7 @@ export const OperatorQualificationWorkRunArgs = Schema.Struct({
 export type OperatorQualificationWorkRunArgs =
   typeof OperatorQualificationWorkRunArgs.Type;
 
-export const OperatorDeploySource = Schema.Literal("stable", "cached");
+export const OperatorDeploySource = Schema.Literals(["stable", "cached"]);
 export type OperatorDeploySource = typeof OperatorDeploySource.Type;
 
 export const OperatorFleetDeployArgs = Schema.Struct({
@@ -156,18 +148,18 @@ export type OperatorFleetQualifyArgs = typeof OperatorFleetQualifyArgs.Type;
 export const OperatorPublicHost = Schema.Struct({
   id: HostId,
   label: HostLabel,
-  kind: Schema.Literal("local", "remote"),
-  sshEndpoint: Schema.optionalWith(HostSshEndpoint, { exact: true }),
+  kind: Schema.Literals(["local", "remote"]),
+  sshEndpoint: Schema.optionalKey(HostSshEndpoint),
   capabilities: Schema.Array(HostCapability).pipe(
-    Schema.minItems(1),
-    Schema.maxItems(4),
+    Schema.check(Schema.isMinSize(1)),
+    Schema.check(Schema.isMaxSize(4)),
   ),
-  hermesId: Schema.optionalWith(HostId, { exact: true }),
+  hermesId: Schema.optionalKey(HostId),
 });
 export type OperatorPublicHost = typeof OperatorPublicHost.Type;
 
 export const OperatorFleetHostsData = Schema.Struct({
-  hosts: Schema.Array(OperatorPublicHost).pipe(Schema.maxItems(32)),
+  hosts: Schema.Array(OperatorPublicHost).pipe(Schema.check(Schema.isMaxSize(32))),
 });
 export type OperatorFleetHostsData = typeof OperatorFleetHostsData.Type;
 
@@ -177,19 +169,17 @@ const OperatorProtocolPeer = Schema.Struct({
   support: StationProtocolSupport,
 });
 
-export const OperatorProtocolObservation = Schema.Union(
-  Schema.Struct({
-    compatibility: Schema.Literal("compatible", "deprecated"),
-    negotiatedProtocol: StationProtocolVersion,
-    local: OperatorProtocolPeer,
-    peer: OperatorProtocolPeer,
-  }),
-  Schema.Struct({
-    compatibility: Schema.Literal("update-required"),
-    local: OperatorProtocolPeer,
-    peer: OperatorProtocolPeer,
-  }),
-);
+export const OperatorProtocolObservation = Schema.Union([Schema.Struct({
+  compatibility: Schema.Literals(["compatible", "deprecated"]),
+  negotiatedProtocol: StationProtocolVersion,
+  local: OperatorProtocolPeer,
+  peer: OperatorProtocolPeer,
+}),
+Schema.Struct({
+  compatibility: Schema.Literal("update-required"),
+  local: OperatorProtocolPeer,
+  peer: OperatorProtocolPeer,
+}),]);
 export type OperatorProtocolObservation =
   typeof OperatorProtocolObservation.Type;
 
@@ -197,11 +187,8 @@ export const OperatorFleetTestData = Schema.Struct({
   hostId: HostId,
   ok: Schema.Boolean,
   detail: Diagnostic,
-  reachability: Schema.optionalWith(
-    Schema.Literal("reachable", "unreachable", "unknown"),
-    { exact: true },
-  ),
-  protocol: Schema.optionalWith(OperatorProtocolObservation, { exact: true }),
+  reachability: Schema.optionalKey(Schema.Literals(["reachable", "unreachable", "unknown"])),
+  protocol: Schema.optionalKey(OperatorProtocolObservation),
   code: OptionalCode,
 });
 export type OperatorFleetTestData = typeof OperatorFleetTestData.Type;
@@ -222,36 +209,25 @@ export type OperatorDeployRecoveryAction =
 const OperatorDeployCommon = {
   detail: Diagnostic,
   code: OptionalCode,
-  stages: Schema.Array(Stage).pipe(Schema.maxItems(128)),
-  version: Schema.optionalWith(Version, { exact: true }),
+  stages: Schema.Array(Stage).pipe(Schema.check(Schema.isMaxSize(128))),
+  version: Schema.optionalKey(Version),
 };
 
 export const OperatorFleetDeployData = Schema.Struct({
-    status: Schema.Literal("ready", "failed", "indeterminate"),
+    status: Schema.Literals(["ready", "failed", "indeterminate"]),
     ok: Schema.Boolean,
     ...OperatorDeployCommon,
-    outcome: Schema.optionalWith(
-      Schema.Literal("ready", "failed", "indeterminate"),
-      { exact: true },
-    ),
-    packageState: Schema.optionalWith(
-      Schema.Literal("present", "previous", "unknown"),
-      { exact: true },
-    ),
-    role: Schema.optionalWith(
-      Schema.Literal("remote", "previous", "unknown"),
-      { exact: true },
-    ),
-    lastSeen: Schema.optionalWith(DisplayTimestamp, { exact: true }),
-    statusRecorded: Schema.optionalWith(Schema.Boolean, { exact: true }),
-    recoveryAction: Schema.optionalWith(OperatorDeployRecoveryAction, {
-      exact: true,
-    }),
+    outcome: Schema.optionalKey(Schema.Literals(["ready", "failed", "indeterminate"])),
+    packageState: Schema.optionalKey(Schema.Literals(["present", "previous", "unknown"])),
+    role: Schema.optionalKey(Schema.Literals(["remote", "previous", "unknown"])),
+    lastSeen: Schema.optionalKey(DisplayTimestamp),
+    statusRecorded: Schema.optionalKey(Schema.Boolean),
+    recoveryAction: Schema.optionalKey(OperatorDeployRecoveryAction),
 });
 export type OperatorFleetDeployData = typeof OperatorFleetDeployData.Type;
 
 export const OperatorProjectionSyncReceipt = Schema.Struct({
-  decision: Schema.Literal("unchanged", "install", "idempotent"),
+  decision: Schema.Literals(["unchanged", "install", "idempotent"]),
   active: StationProjectionReference,
 });
 
@@ -262,7 +238,7 @@ export const OperatorReportSyncReceipt = Schema.Struct({
   inboundAccepted: NonNegativeInt,
   inboundIdempotent: NonNegativeInt,
   inboundRejected: NonNegativeInt,
-  receivedThrough: Schema.Array(RouteCursor).pipe(Schema.maxItems(256)),
+  receivedThrough: Schema.Array(RouteCursor).pipe(Schema.check(Schema.isMaxSize(256))),
   hasMoreOutbound: Schema.Boolean,
   hasMoreInbound: Schema.Boolean,
 });
@@ -278,21 +254,15 @@ export type OperatorPropagationReceipt =
 
 export const OperatorFleetFailure = Schema.Struct({
   hostId: HostId,
-  stationInstallationId: Schema.optionalWith(InstallationId, { exact: true }),
-  reason: Schema.Literal(
-    "not-enrolled",
-    "not-running",
-    "route-unavailable",
-    "connection-failed",
-    "update-required",
-    "synchronization-failed",
-    "deadline",
-    "stopped",
-  ),
-  causeTag: Schema.optionalWith(
-    Schema.String.pipe(Schema.maxLength(128)),
-    { exact: true },
-  ),
+  stationInstallationId: Schema.optionalKey(InstallationId),
+  reason: Schema.Literals(["not-enrolled", "not-running",
+  "route-unavailable",
+  "connection-failed",
+  "update-required",
+  "synchronization-failed",
+  "deadline",
+  "stopped",]),
+  causeTag: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMaxLength(128)))),
   message: Diagnostic,
 });
 export type OperatorFleetFailure = typeof OperatorFleetFailure.Type;
@@ -300,51 +270,44 @@ export type OperatorFleetFailure = typeof OperatorFleetFailure.Type;
 export const OperatorFleetPeerStatus = Schema.Struct({
   hostId: HostId,
   stationInstallationId: InstallationId,
-  phase: Schema.Literal(
-    "connecting",
-    "synchronizing",
-    "ready",
-    "update-required",
-    "backoff",
-    "stopped",
-  ),
+  phase: Schema.Literals(["connecting", "synchronizing",
+  "ready",
+  "update-required",
+  "backoff",
+  "stopped",]),
   sessionOpen: Schema.Boolean,
   attempt: NonNegativeInt,
   updatedAt: DisplayTimestamp,
-  nextRetryAt: Schema.optionalWith(DisplayTimestamp, { exact: true }),
-  protocol: Schema.optionalWith(OperatorProtocolObservation, { exact: true }),
-  lastReceipt: Schema.optionalWith(OperatorPropagationReceipt, { exact: true }),
-  lastFailure: Schema.optionalWith(OperatorFleetFailure, { exact: true }),
+  nextRetryAt: Schema.optionalKey(DisplayTimestamp),
+  protocol: Schema.optionalKey(OperatorProtocolObservation),
+  lastReceipt: Schema.optionalKey(OperatorPropagationReceipt),
+  lastFailure: Schema.optionalKey(OperatorFleetFailure),
 });
 export type OperatorFleetPeerStatus = typeof OperatorFleetPeerStatus.Type;
 
-export const OperatorFleetSyncResult = Schema.Union(
-  Schema.Struct({
-    ok: Schema.Literal(true),
-    hostId: HostId,
-    stationInstallationId: InstallationId,
-    receipt: OperatorPropagationReceipt,
-    status: OperatorFleetPeerStatus,
-  }),
-  Schema.Struct({
-    ok: Schema.Literal(false),
-    hostId: HostId,
-    stationInstallationId: Schema.optionalWith(InstallationId, {
-      exact: true,
-    }),
-    error: OperatorFleetFailure,
-    status: Schema.optionalWith(OperatorFleetPeerStatus, { exact: true }),
-  }),
-);
+export const OperatorFleetSyncResult = Schema.Union([Schema.Struct({
+  ok: Schema.Literal(true),
+  hostId: HostId,
+  stationInstallationId: InstallationId,
+  receipt: OperatorPropagationReceipt,
+  status: OperatorFleetPeerStatus,
+}),
+Schema.Struct({
+  ok: Schema.Literal(false),
+  hostId: HostId,
+  stationInstallationId: Schema.optionalKey(InstallationId),
+  error: OperatorFleetFailure,
+  status: Schema.optionalKey(OperatorFleetPeerStatus),
+}),]);
 export type OperatorFleetSyncResult = typeof OperatorFleetSyncResult.Type;
 
 export const OperatorFleetSyncData = Schema.Struct({
-  results: Schema.Array(OperatorFleetSyncResult).pipe(Schema.maxItems(32)),
+  results: Schema.Array(OperatorFleetSyncResult).pipe(Schema.check(Schema.isMaxSize(32))),
 });
 export type OperatorFleetSyncData = typeof OperatorFleetSyncData.Type;
 
 export const OperatorFleetStatusData = Schema.Struct({
-  peers: Schema.Array(OperatorFleetPeerStatus).pipe(Schema.maxItems(32)),
+  peers: Schema.Array(OperatorFleetPeerStatus).pipe(Schema.check(Schema.isMaxSize(32))),
 });
 export type OperatorFleetStatusData = typeof OperatorFleetStatusData.Type;
 
@@ -361,7 +324,7 @@ const OperatorQualificationWorkIdentity = {
 export const OperatorQualificationWorkPrepareData = Schema.Struct({
   ...OperatorQualificationWorkIdentity,
   state: Schema.Literal("working"),
-  disposition: Schema.Literal("prepared", "idempotent"),
+  disposition: Schema.Literals(["prepared", "idempotent"]),
 });
 export type OperatorQualificationWorkPrepareData =
   typeof OperatorQualificationWorkPrepareData.Type;
@@ -449,21 +412,19 @@ export const OperatorQualificationWorkVerifyRequest = request(
   OperatorQualificationWorkTargetArgs,
 );
 
-export const OperatorRequestEnvelope = Schema.Union(
-  OperatorStationStatusRequest,
-  OperatorConfigureCommandCenterRequest,
-  OperatorFleetListRequest,
-  OperatorFleetAddRequest,
-  OperatorFleetTestRequest,
-  OperatorEnableManagedInstallsRequest,
-  OperatorFleetDeployRequest,
-  OperatorFleetQualifyRequest,
-  OperatorFleetSyncRequest,
-  OperatorFleetStatusRequest,
-  OperatorQualificationWorkPrepareRequest,
-  OperatorQualificationWorkProgressRequest,
-  OperatorQualificationWorkVerifyRequest,
-);
+export const OperatorRequestEnvelope = Schema.Union([OperatorStationStatusRequest,
+OperatorConfigureCommandCenterRequest,
+OperatorFleetListRequest,
+OperatorFleetAddRequest,
+OperatorFleetTestRequest,
+OperatorEnableManagedInstallsRequest,
+OperatorFleetDeployRequest,
+OperatorFleetQualifyRequest,
+OperatorFleetSyncRequest,
+OperatorFleetStatusRequest,
+OperatorQualificationWorkPrepareRequest,
+OperatorQualificationWorkProgressRequest,
+OperatorQualificationWorkVerifyRequest,]);
 export type OperatorRequestEnvelope = typeof OperatorRequestEnvelope.Type;
 
 const response = <
@@ -534,65 +495,51 @@ export const OperatorQualificationWorkVerifyResponse = response(
   OperatorQualificationWorkVerifyData,
 );
 
-export const OperatorErrorType = Schema.Literal(
-  "validation",
-  "not_found",
-  "conflict",
-  "io",
-  "runtime_down",
-  "auth_error",
-  "protocol_error",
-  "forbidden",
-  "shutdown",
-  "internal_error",
-);
+export const OperatorErrorType = Schema.Literals(["validation", "not_found",
+"conflict",
+"io",
+"runtime_down",
+"auth_error",
+"protocol_error",
+"forbidden",
+"shutdown",
+"internal_error",]);
 export type OperatorErrorType = typeof OperatorErrorType.Type;
 
 export const OperatorErrorBody = Schema.Struct({
   type: OperatorErrorType,
   message: Diagnostic,
-  details: Schema.optionalWith(
-    Schema.Struct({
-      path: Schema.optionalWith(
-        Schema.String.pipe(Schema.maxLength(128)),
-        { exact: true },
-      ),
-      next_step: Schema.optionalWith(
-        Schema.String.pipe(Schema.maxLength(1_024)),
-        { exact: true },
-      ),
-      retryable: Schema.optionalWith(Schema.Boolean, { exact: true }),
-    }),
-    { exact: true },
-  ),
+  details: Schema.optionalKey(Schema.Struct({
+    path: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMaxLength(128)))),
+    next_step: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMaxLength(1_024)))),
+    retryable: Schema.optionalKey(Schema.Boolean),
+  })),
 });
 export type OperatorErrorBody = typeof OperatorErrorBody.Type;
 
 export const OperatorErrorResponse = Schema.Struct({
   protocol: Schema.Literal(OPERATOR_PROTOCOL_VERSION),
-  id: Schema.optionalWith(RequestId, { exact: true }),
+  id: Schema.optionalKey(RequestId),
   ok: Schema.Literal(false),
-  op: Schema.optionalWith(OperatorOpName, { exact: true }),
+  op: Schema.optionalKey(OperatorOpName),
   error: OperatorErrorBody,
 });
 export type OperatorErrorResponse = typeof OperatorErrorResponse.Type;
 
-export const OperatorResponseEnvelope = Schema.Union(
-  OperatorStationStatusResponse,
-  OperatorConfigureCommandCenterResponse,
-  OperatorFleetListResponse,
-  OperatorFleetAddResponse,
-  OperatorFleetTestResponse,
-  OperatorEnableManagedInstallsResponse,
-  OperatorFleetDeployResponse,
-  OperatorFleetQualifyResponse,
-  OperatorFleetSyncResponse,
-  OperatorFleetStatusResponse,
-  OperatorQualificationWorkPrepareResponse,
-  OperatorQualificationWorkProgressResponse,
-  OperatorQualificationWorkVerifyResponse,
-  OperatorErrorResponse,
-);
+export const OperatorResponseEnvelope = Schema.Union([OperatorStationStatusResponse,
+OperatorConfigureCommandCenterResponse,
+OperatorFleetListResponse,
+OperatorFleetAddResponse,
+OperatorFleetTestResponse,
+OperatorEnableManagedInstallsResponse,
+OperatorFleetDeployResponse,
+OperatorFleetQualifyResponse,
+OperatorFleetSyncResponse,
+OperatorFleetStatusResponse,
+OperatorQualificationWorkPrepareResponse,
+OperatorQualificationWorkProgressResponse,
+OperatorQualificationWorkVerifyResponse,
+OperatorErrorResponse,]);
 export type OperatorResponseEnvelope = typeof OperatorResponseEnvelope.Type;
 
 export interface OperatorArgsByOp {
@@ -627,12 +574,12 @@ export interface OperatorDataByOp {
   readonly "qualification.work.verify": OperatorQualificationWorkVerifyData;
 }
 
-export const decodeOperatorRequest = Schema.decodeUnknownEither(
+export const decodeOperatorRequest = Schema.decodeUnknownResult(
   OperatorRequestEnvelope,
   { onExcessProperty: "error" },
 );
 
-export const decodeOperatorResponse = Schema.decodeUnknownEither(
+export const decodeOperatorResponse = Schema.decodeUnknownResult(
   OperatorResponseEnvelope,
   { onExcessProperty: "error" },
 );
@@ -650,11 +597,11 @@ export const encodeOperatorFrame = (
 
 export const decodeOperatorJsonLine = (
   line: string,
-): Either.Either<unknown, string> => {
+): Result.Result<unknown, string> => {
   try {
-    return Either.right(JSON.parse(line) as unknown);
+    return Result.succeed(JSON.parse(line) as unknown);
   } catch {
-    return Either.left("malformed JSON frame");
+    return Result.fail("malformed JSON frame");
   }
 };
 

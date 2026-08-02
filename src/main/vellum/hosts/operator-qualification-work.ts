@@ -1,4 +1,4 @@
-import { Effect, Either, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
 import {
   HostId,
   type HostId as HostIdValue,
@@ -182,7 +182,7 @@ const isMarkerCandidate = (task: Task, runId: string): boolean => {
   );
 };
 
-const decodeHostId = Schema.decodeUnknownEither(HostId, {
+const decodeHostId = Schema.decodeUnknownResult(HostId, {
   onExcessProperty: "error",
 });
 
@@ -206,8 +206,8 @@ const exactMarkerHost = (
     );
   }
   const hostId = decodeHostId(marker.hostId);
-  return Either.isRight(hostId)
-    ? Effect.succeed(hostId.right)
+  return Result.isSuccess(hostId)
+    ? Effect.succeed(hostId.success)
     : qualificationFailure(
       "conflict",
       "qualification task marker contains an invalid Remote host identity",
@@ -561,9 +561,9 @@ const ensureQualificationCanvas = (
     let authority = yield* canvases.authoritySnapshot();
     let existing = authority.documents.get(name);
     if (existing === undefined) {
-      const created = yield* Effect.either(canvases.create(name));
-      if (Either.isRight(created)) {
-        yield* canvases.write(name, expected, created.right.revision);
+      const created = yield* Effect.result(canvases.create(name));
+      if (Result.isSuccess(created)) {
+        yield* canvases.write(name, expected, created.success.revision);
       }
       authority = yield* canvases.authoritySnapshot();
       existing = authority.documents.get(name);

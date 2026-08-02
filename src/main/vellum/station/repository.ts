@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { Context, Effect, Either, Layer, Schema } from "effect";
+import { Context, Effect, Result, Layer, Schema } from "effect";
 import { StationContextTagIds } from "./context-services";
 import {
   ConfigureResponse,
@@ -59,16 +59,16 @@ import {
   StationPortfolioError,
 } from "./portfolio";
 
-export class StationPersistenceError extends Schema.TaggedError<StationPersistenceError>()(
+export class StationPersistenceError extends Schema.TaggedErrorClass<StationPersistenceError>()(
   "StationPersistenceError",
   {
     operation: Schema.String,
     message: Schema.String,
-    cause: Schema.Defect,
+    cause: Schema.Unknown,
   },
 ) {}
 
-export class StationIdentityMismatchError extends Schema.TaggedError<StationIdentityMismatchError>()(
+export class StationIdentityMismatchError extends Schema.TaggedErrorClass<StationIdentityMismatchError>()(
   "StationIdentityMismatchError",
   {
     operation: Schema.String,
@@ -77,7 +77,7 @@ export class StationIdentityMismatchError extends Schema.TaggedError<StationIden
   },
 ) {}
 
-export class StationPairingConflictError extends Schema.TaggedError<StationPairingConflictError>()(
+export class StationPairingConflictError extends Schema.TaggedErrorClass<StationPairingConflictError>()(
   "StationPairingConflictError",
   {
     admittedCommandCenterInstallationId: InstallationId,
@@ -85,7 +85,7 @@ export class StationPairingConflictError extends Schema.TaggedError<StationPairi
   },
 ) {}
 
-export class StationPairingTopologyError extends Schema.TaggedError<StationPairingTopologyError>()(
+export class StationPairingTopologyError extends Schema.TaggedErrorClass<StationPairingTopologyError>()(
   "StationPairingTopologyError",
   {
     reason: Schema.Literal("command-center-configured"),
@@ -93,29 +93,26 @@ export class StationPairingTopologyError extends Schema.TaggedError<StationPairi
   },
 ) {}
 
-export class StationSelfPairingError extends Schema.TaggedError<StationSelfPairingError>()(
+export class StationSelfPairingError extends Schema.TaggedErrorClass<StationSelfPairingError>()(
   "StationSelfPairingError",
   {
     installationId: InstallationId,
   },
 ) {}
 
-export class StationConfigurationError extends Schema.TaggedError<StationConfigurationError>()(
+export class StationConfigurationError extends Schema.TaggedErrorClass<StationConfigurationError>()(
   "StationConfigurationError",
   {
-    reason: Schema.Literal(
-      "pairing-required",
-      "command-center-mismatch",
-      "host-immutable",
-      "host-registration-mismatch",
-      "role-immutable",
-      "remote-only",
-    ),
+    reason: Schema.Literals(["pairing-required", "command-center-mismatch",
+    "host-immutable",
+    "host-registration-mismatch",
+    "role-immutable",
+    "remote-only",]),
     message: Schema.String,
   },
 ) {}
 
-export class StationProjectionIntegrityError extends Schema.TaggedError<StationProjectionIntegrityError>()(
+export class StationProjectionIntegrityError extends Schema.TaggedErrorClass<StationProjectionIntegrityError>()(
   "StationProjectionIntegrityError",
   {
     generation: LogicalSequence,
@@ -124,7 +121,7 @@ export class StationProjectionIntegrityError extends Schema.TaggedError<StationP
   },
 ) {}
 
-export class StationMetadataError extends Schema.TaggedError<StationMetadataError>()(
+export class StationMetadataError extends Schema.TaggedErrorClass<StationMetadataError>()(
   "StationMetadataError",
   {
     operation: Schema.String,
@@ -181,8 +178,7 @@ export type StationStatusFacts = {
 };
 
 // S4-station: single canonical Context.Tag (effect@3.21). V4 → Context.Service.
-export class StationRepository extends Context.Tag(StationContextTagIds.repository)<
-  StationRepository,
+export class StationRepository extends Context.Service<StationRepository,
   {
     readonly installationId: Effect.Effect<
       InstallationIdValue,
@@ -233,8 +229,7 @@ export class StationRepository extends Context.Tag(StationContextTagIds.reposito
       StationStatusFacts,
       StationRepositoryError
     >;
-  }
->() {}
+  }>()(StationContextTagIds.repository) {}
 
 type InstallationRow = StateRow & {
   readonly installation_id: string;
@@ -271,7 +266,7 @@ type PeerAckRow = CursorRow & {
 const decodeInstallationId = Schema.decodeUnknownSync(InstallationId);
 const decodeSequence = Schema.decodeUnknownSync(LogicalSequence);
 const decodeHash = Schema.decodeUnknownSync(StationSha256);
-const decodeTimestampEither = Schema.decodeUnknownEither(DisplayTimestamp);
+const decodeTimestampEither = Schema.decodeUnknownResult(DisplayTimestamp);
 const decodeRemoteHostRegistration = Schema.decodeUnknownSync(
   RemoteHostRegistration,
 );
@@ -297,13 +292,16 @@ const admitTimestamp = (
   value: string,
 ): Effect.Effect<string, StationMetadataError> => {
   const decoded = decodeTimestampEither(value);
-  return Either.isRight(decoded)
-    ? Effect.succeed(decoded.right)
-    : StationMetadataError.make({
-        operation,
-        field,
-        message: `${field} must contain between 1 and 64 characters`,
-      });
+  if (Result.isSuccess(decoded)) {
+    return Effect.succeed(decoded.success);
+  }
+  return Effect.fail(
+    StationMetadataError.make({
+      operation,
+      field,
+      message: `${field} must contain between 1 and 64 characters`,
+    }),
+  );
 };
 
 const persistenceError = (
@@ -342,7 +340,7 @@ const registerKnownInstallation = (
   installationId: InstallationIdValue,
   registeredAt: string,
 ): void => {
-  writer.run(
+writer.run(
     `INSERT INTO station_known_installations(
        installation_id,
        registered_at

@@ -40,7 +40,7 @@ export const deliverMsgSendEnableNotices = (input: {
       if (result.ok) sent += 1;
     }
     return sent;
-  }).pipe(Effect.catchAll(() => Effect.succeed(0)));
+  }).pipe(Effect.catch(() => Effect.succeed(0)));
 
 /**
  * Canvas change listener body. No previous doc ⇒ skip (open / first paint /

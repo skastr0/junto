@@ -2282,21 +2282,21 @@ export const makeDarwinRemoteDeploymentProvider = (deps: {
           try: () => deps.artifactAuthority.resolve(),
           catch: (error) =>
             error instanceof Error ? error : new Error(String(error)),
-        }).pipe(Effect.either);
-        if (resolvedArtifact._tag === "Left") {
+        }).pipe(Effect.result);
+        if (resolvedArtifact._tag === "Failure") {
           return {
             ok: false,
-            detail: `${host.label}: deploy artifact unavailable — ${resolvedArtifact.left.message}`,
+            detail: `${host.label}: deploy artifact unavailable — ${resolvedArtifact.failure.message}`,
             code: "not_found" as const,
-            message: resolvedArtifact.left.message,
+            message: resolvedArtifact.failure.message,
             stages,
             disposition: "not-started" as const,
           };
         }
-        const admission = resolvedArtifact.right;
+        const admission = resolvedArtifact.success;
         yield* Effect.addFinalizer(() =>
           Effect.promise(() => admission.dispose()).pipe(
-            Effect.catchAll(() => Effect.void),
+            Effect.catch(() => Effect.void),
           ),
         );
         push(
@@ -2313,8 +2313,8 @@ export const makeDarwinRemoteDeploymentProvider = (deps: {
 
         const homeResult = yield* ssh
           .run(homeDirectoryLookup(target.sshTarget))
-          .pipe(Effect.either);
-        if (homeResult._tag === "Left") {
+          .pipe(Effect.result);
+        if (homeResult._tag === "Failure") {
           return {
             ok: false,
             detail: `${host.label}: remote home lookup failed`,
@@ -2324,7 +2324,7 @@ export const makeDarwinRemoteDeploymentProvider = (deps: {
             version: admission.localApp.version,
           };
         }
-        const home = decodeRemoteHomeDirectoryOutput(homeResult.right.stdout);
+        const home = decodeRemoteHomeDirectoryOutput(homeResult.succeed.stdout);
         if (home === null) {
           return {
             ok: false,
@@ -2341,14 +2341,14 @@ export const makeDarwinRemoteDeploymentProvider = (deps: {
         // timeout, authentication, and command-construction failures are not
         // evidence that an installed Remote is absent.
         const installedProbeCmd = yield* remoteDarwinPackageExists().pipe(
-          Effect.either,
+          Effect.result,
         );
-        if (installedProbeCmd._tag === "Left") {
+        if (installedProbeCmd._tag === "Failure") {
           return {
             ok: false,
-            detail: `${host.label}: could not construct the fixed installed-package probe — ${installedProbeCmd.left.message}`,
+            detail: `${host.label}: could not construct the fixed installed-package probe — ${installedProbeCmd.failure.message}`,
             code: "io" as const,
-            message: installedProbeCmd.left.message,
+            message: installedProbeCmd.failure.message,
             stages,
             disposition: "not-started" as const,
             version: admission.localApp.version,
@@ -2356,20 +2356,20 @@ export const makeDarwinRemoteDeploymentProvider = (deps: {
         }
         const installedProbe = yield* ssh
           .run(
-            oneShot(target.sshTarget, installedProbeCmd.right, {
+            oneShot(target.sshTarget, installedProbeCmd.success, {
               budget: "short",
             }),
           )
-          .pipe(Effect.either);
-        const installedPresent = installedProbe._tag === "Right";
+          .pipe(Effect.result);
+        const installedPresent = installedProbe._tag === "Success";
         const firstInstall =
-          installedProbe._tag === "Left" &&
-          installedProbe.left instanceof SshExitError &&
-          installedProbe.left.code === 1;
+          installedProbe._tag === "Failure" &&
+          installedProbe.failure instanceof SshExitError &&
+          installedProbe.failure.code === 1;
         if (!installedPresent && !firstInstall) {
           const message =
-            installedProbe._tag === "Left"
-              ? installedProbe.left.message
+            installedProbe._tag === "Failure"
+              ? installedProbe.failure.message
               : "installed-package probe returned an unknown result";
           return {
             ok: false,
@@ -2386,19 +2386,19 @@ export const makeDarwinRemoteDeploymentProvider = (deps: {
           const maintenance = yield* Effect.acquireRelease(
             deps.liveWorkAuthority.acquire(providerInput),
             (lease) => (lease.acquired ? lease.release : Effect.void),
-          ).pipe(Effect.either);
-          if (maintenance._tag === "Left") {
+          ).pipe(Effect.result);
+          if (maintenance._tag === "Failure") {
             return {
               ok: false,
-              detail: `${host.label}: could not acquire Remote terminal maintenance — ${maintenance.left.message}`,
+              detail: `${host.label}: could not acquire Remote terminal maintenance — ${maintenance.failure.message}`,
               code: "conflict" as const,
-              message: maintenance.left.message,
+              message: maintenance.failure.message,
               stages,
               disposition: "not-started" as const,
               version: admission.localApp.version,
             };
           }
-          const liveWork = maintenance.right;
+          const liveWork = maintenance.success;
           if (!liveWork.acquired) {
             return darwinLiveWorkRefusalResult({
               hostLabel: host.label,
@@ -2423,27 +2423,27 @@ export const makeDarwinRemoteDeploymentProvider = (deps: {
             remoteHome: home,
             expectedPackageState: installedPresent ? "present" : "absent",
           },
-        ).pipe(Effect.either);
+        ).pipe(Effect.result);
 
-        if (streamed._tag === "Left") {
-          const disposition = classifyDeployTransferDisposition(streamed.left);
+        if (streamed._tag === "Failure") {
+          const disposition = classifyDeployTransferDisposition(streamed.failure);
           return {
             ok: false,
-            detail: `${host.label}: ${describeDeployTransferFailure(streamed.left)}`,
+            detail: `${host.label}: ${describeDeployTransferFailure(streamed.failure)}`,
             code: "io" as const,
-            message: describeDeployTransferFailure(streamed.left),
+            message: describeDeployTransferFailure(streamed.failure),
             stages,
             disposition,
             version: admission.localApp.version,
           };
         }
-        push(stages, streamed.right.detail);
-        if (!streamed.right.ok) {
+        push(stages, streamed.success.detail);
+        if (!streamed.success.ok) {
           return {
             ok: false,
-            detail: `${host.label}: ${streamed.right.detail}`,
+            detail: `${host.label}: ${streamed.success.detail}`,
             code: "io" as const,
-            message: streamed.right.detail,
+            message: streamed.success.detail,
             stages,
             disposition: "indeterminate" as const,
             version: admission.localApp.version,
@@ -2452,7 +2452,7 @@ export const makeDarwinRemoteDeploymentProvider = (deps: {
 
         return {
           ok: true,
-          detail: `${host.label} (${host.sshEndpoint}): ${streamed.right.detail}`,
+          detail: `${host.label} (${host.sshEndpoint}): ${streamed.success.detail}`,
           stages,
           disposition: "ready",
           version: admission.localApp.version,

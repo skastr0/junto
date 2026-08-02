@@ -66,14 +66,14 @@ export const WORK_PROTOCOL_MAX_TIMESTAMP_CHARS = 64;
  * larger than Number.MAX_SAFE_INTEGER cannot lose precision.
  */
 export const LogicalSequence = Schema.String.pipe(
-  Schema.pattern(/^[1-9][0-9]*$/),
-  Schema.maxLength(32),
+  Schema.check(Schema.isPattern(/^[1-9][0-9]*$/)),
+  Schema.check(Schema.isMaxLength(32)),
   Schema.brand("WorkLogicalSequence"),
 );
 export type LogicalSequence = typeof LogicalSequence.Type;
 
 export const WorkSha256 = Schema.String.pipe(
-  Schema.pattern(/^[a-f0-9]{64}$/),
+  Schema.check(Schema.isPattern(/^[a-f0-9]{64}$/)),
   Schema.brand("WorkSha256"),
 );
 export type WorkSha256 = typeof WorkSha256.Type;
@@ -83,14 +83,14 @@ export type WorkSha256 = typeof WorkSha256.Type;
  * authority input.
  */
 export const DisplayTimestamp = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(WORK_PROTOCOL_MAX_TIMESTAMP_CHARS),
+  Schema.check(Schema.isMinLength(1)),
+  Schema.check(Schema.isMaxLength(WORK_PROTOCOL_MAX_TIMESTAMP_CHARS)),
 );
 export type DisplayTimestamp = typeof DisplayTimestamp.Type;
 
 export const BoundedDiagnostic = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(WORK_PROTOCOL_MAX_DIAGNOSTIC_CHARS),
+  Schema.check(Schema.isMinLength(1)),
+  Schema.check(Schema.isMaxLength(WORK_PROTOCOL_MAX_DIAGNOSTIC_CHARS)),
 );
 export type BoundedDiagnostic = typeof BoundedDiagnostic.Type;
 
@@ -113,8 +113,8 @@ export type WorkRecordId = typeof WorkRecordId.Type;
  * sequences. A fresh projection may legitimately identify generation zero.
  */
 export const FactBasisGeneration = Schema.String.pipe(
-  Schema.pattern(/^(0|[1-9][0-9]*)$/),
-  Schema.maxLength(32),
+  Schema.check(Schema.isPattern(/^(0|[1-9][0-9]*)$/)),
+  Schema.check(Schema.isMaxLength(32)),
   Schema.brand("FactBasisGeneration"),
 );
 export type FactBasisGeneration = typeof FactBasisGeneration.Type;
@@ -150,17 +150,13 @@ export type CommandFactBasis = typeof CommandFactBasis.Type;
  * command instead, so later topology changes cannot retroactively invalidate
  * its correlated result.
  */
-export const FactBasis = Schema.Union(
-  AuthorialIntentFactBasis,
-  ProjectedIntentFactBasis,
-  CommandFactBasis,
-);
+export const FactBasis = Schema.Union([AuthorialIntentFactBasis,
+ProjectedIntentFactBasis,
+CommandFactBasis,]);
 export type FactBasis = typeof FactBasis.Type;
 
-export const IntentFactBasis = Schema.Union(
-  AuthorialIntentFactBasis,
-  ProjectedIntentFactBasis,
-);
+export const IntentFactBasis = Schema.Union([AuthorialIntentFactBasis,
+ProjectedIntentFactBasis,]);
 export type IntentFactBasis = typeof IntentFactBasis.Type;
 
 export const RouteCursor = Schema.Struct({
@@ -170,33 +166,28 @@ export const RouteCursor = Schema.Struct({
 });
 export type RouteCursor = typeof RouteCursor.Type;
 
-export const WorkOperation = Schema.Literal(
-  "proposal.create",
-  "proposal.approve",
-  "proposal.reject",
-  "task.create",
-  "task.describe",
-  "task.transition",
-  "task.claim",
-  "request.create",
-  "request.resolve",
-  "message.append",
-  "artifact.publish",
-  "delivery.accepted",
-  "board.topic.create",
-  "board.post.append",
-);
+export const WorkOperation = Schema.Literals(["proposal.create", "proposal.approve",
+"proposal.reject",
+"task.create",
+"task.describe",
+"task.transition",
+"task.claim",
+"request.create",
+"request.resolve",
+"message.append",
+"artifact.publish",
+"delivery.accepted",
+"board.topic.create",
+"board.post.append",]);
 export type WorkOperation = typeof WorkOperation.Type;
 
 export const ProposalCreateAction = Schema.Struct({
   operation: Schema.Literal("proposal.create"),
   proposal: TaskProposal,
 }).pipe(
-  Schema.filter(
-    ({ proposal }) =>
-      proposal.state === "pending" ||
-      "proposal.create requires a pending proposal",
-  ),
+  Schema.check(Schema.makeFilter(({ proposal }) =>
+    proposal.state === "pending" ||
+    "proposal.create requires a pending proposal",)),
 );
 export type ProposalCreateAction = typeof ProposalCreateAction.Type;
 
@@ -205,11 +196,9 @@ export const ProposalApproveAction = Schema.Struct({
   proposalId: BoundedWorkId,
   task: Task,
 }).pipe(
-  Schema.filter(
-    ({ task }) =>
-      (task.state === "submitted" && task.claimedBy === undefined) ||
-      "proposal.approve requires a submitted unclaimed task",
-  ),
+  Schema.check(Schema.makeFilter(({ task }) =>
+    (task.state === "submitted" && task.claimedBy === undefined) ||
+    "proposal.approve requires a submitted unclaimed task",)),
 );
 export type ProposalApproveAction = typeof ProposalApproveAction.Type;
 
@@ -231,11 +220,9 @@ export const TaskCreateAction = Schema.Struct({
   operation: Schema.Literal("task.create"),
   task: Task,
 }).pipe(
-  Schema.filter(
-    ({ task }) =>
-      (task.state === "submitted" && task.claimedBy === undefined) ||
-      "task.create requires a submitted task snapshot",
-  ),
+  Schema.check(Schema.makeFilter(({ task }) =>
+    (task.state === "submitted" && task.claimedBy === undefined) ||
+    "task.create requires a submitted task snapshot",)),
 );
 export type TaskCreateAction = typeof TaskCreateAction.Type;
 
@@ -250,16 +237,14 @@ export const TaskTransitionAction = Schema.Struct({
   operation: Schema.Literal("task.transition"),
   taskId: BoundedWorkId,
   state: TaskState,
-  message: Schema.optionalWith(Message, { exact: true }),
+  message: Schema.optionalKey(Message),
   /** Set on → completed when finish criteria require proof. */
-  completionEvidence: Schema.optionalWith(CompletionEvidence, { exact: true }),
+  completionEvidence: Schema.optionalKey(CompletionEvidence),
 }).pipe(
-  Schema.filter(
-    ({ state, completionEvidence }) =>
-      completionEvidence === undefined ||
-      state === "completed" ||
-      "completionEvidence is only allowed when state is completed",
-  ),
+  Schema.check(Schema.makeFilter(({ state, completionEvidence }) =>
+    completionEvidence === undefined ||
+    state === "completed" ||
+    "completionEvidence is only allowed when state is completed",)),
 );
 export type TaskTransitionAction = typeof TaskTransitionAction.Type;
 
@@ -277,7 +262,7 @@ export const TaskClaimAction = Schema.Struct({
   actor: ActorRef,
   targetHome: InstallationId,
 }).pipe(
-  Schema.filter((action) => {
+  Schema.check(Schema.makeFilter((action) => {
     if (action.sourceTask.state !== "submitted") {
       return "task.claim requires a submitted source task snapshot";
     }
@@ -295,7 +280,7 @@ export const TaskClaimAction = Schema.Struct({
       return "task.claim source predecessor must belong to the source queue authority lane";
     }
     return true;
-  }),
+  })),
 );
 export type TaskClaimAction = typeof TaskClaimAction.Type;
 
@@ -304,12 +289,10 @@ export const RequestCreateAction = Schema.Struct({
   request: Task,
   raisedBy: ActorRef,
 }).pipe(
-  Schema.filter(
-    ({ request, raisedBy }) =>
-      (request.state === "input-required" &&
-        request.claimedBy === raisedBy.seatId) ||
-      "request.create requires an input-required request claimed by its raiser",
-  ),
+  Schema.check(Schema.makeFilter(({ request, raisedBy }) =>
+    (request.state === "input-required" &&
+      request.claimedBy === raisedBy.seatId) ||
+    "request.create requires an input-required request claimed by its raiser",)),
 );
 export type RequestCreateAction = typeof RequestCreateAction.Type;
 
@@ -317,8 +300,8 @@ export const RequestResolveAction = Schema.Struct({
   operation: Schema.Literal("request.resolve"),
   requestId: BoundedWorkId,
   response: Schema.String,
-  disposition: Schema.Literal("completed", "rejected"),
-  message: Schema.optionalWith(Message, { exact: true }),
+  disposition: Schema.Literals(["completed", "rejected"]),
+  message: Schema.optionalKey(Message),
 });
 export type RequestResolveAction = typeof RequestResolveAction.Type;
 
@@ -328,19 +311,17 @@ export type RequestResolveAction = typeof RequestResolveAction.Type;
  * materialize it without consulting transport context or guessing from
  * optional message fields.
  */
-export const MessageAppendDestination = Schema.Union(
-  Schema.Struct({
-    kind: Schema.Literal("mailbox"),
-  }),
-  Schema.Struct({
-    kind: Schema.Literal("task"),
-    itemId: BoundedWorkId,
-  }),
-  Schema.Struct({
-    kind: Schema.Literal("request"),
-    itemId: BoundedWorkId,
-  }),
-);
+export const MessageAppendDestination = Schema.Union([Schema.Struct({
+  kind: Schema.Literal("mailbox"),
+}),
+Schema.Struct({
+  kind: Schema.Literal("task"),
+  itemId: BoundedWorkId,
+}),
+Schema.Struct({
+  kind: Schema.Literal("request"),
+  itemId: BoundedWorkId,
+}),]);
 export type MessageAppendDestination =
   typeof MessageAppendDestination.Type;
 
@@ -364,7 +345,7 @@ const destinationMatchesMessage = (
 export const MessageAppendAction = Schema.Struct({
   operation: Schema.Literal("message.append"),
   ...MessageAppendPayload,
-}).pipe(Schema.filter(destinationMatchesMessage));
+}).pipe(Schema.check(Schema.makeFilter(destinationMatchesMessage)));
 export type MessageAppendAction = typeof MessageAppendAction.Type;
 
 export const ArtifactPublishAction = Schema.Struct({
@@ -395,33 +376,29 @@ export const BoardPostAppendAction = Schema.Struct({
 });
 export type BoardPostAppendAction = typeof BoardPostAppendAction.Type;
 
-export const WorkAction = Schema.Union(
-  ProposalCreateAction,
-  ProposalApproveAction,
-  ProposalRejectAction,
-  TaskCreateAction,
-  TaskDescribeAction,
-  TaskTransitionAction,
-  TaskClaimAction,
-  RequestCreateAction,
-  RequestResolveAction,
-  MessageAppendAction,
-  ArtifactPublishAction,
-  DeliveryAcceptedAction,
-  BoardTopicCreateAction,
-  BoardPostAppendAction,
-);
+export const WorkAction = Schema.Union([ProposalCreateAction,
+ProposalApproveAction,
+ProposalRejectAction,
+TaskCreateAction,
+TaskDescribeAction,
+TaskTransitionAction,
+TaskClaimAction,
+RequestCreateAction,
+RequestResolveAction,
+MessageAppendAction,
+ArtifactPublishAction,
+DeliveryAcceptedAction,
+BoardTopicCreateAction,
+BoardPostAppendAction,]);
 export type WorkAction = typeof WorkAction.Type;
 
 export const ProposalCreateResult = Schema.Struct({
   operation: Schema.Literal("proposal.create"),
   proposal: TaskProposal,
 }).pipe(
-  Schema.filter(
-    ({ proposal }) =>
-      proposal.state === "pending" ||
-      "proposal.create result requires a pending proposal",
-  ),
+  Schema.check(Schema.makeFilter(({ proposal }) =>
+    proposal.state === "pending" ||
+    "proposal.create result requires a pending proposal",)),
 );
 export type ProposalCreateResult = typeof ProposalCreateResult.Type;
 
@@ -430,14 +407,12 @@ export const ProposalApproveResult = Schema.Struct({
   proposal: TaskProposal,
   task: Task,
 }).pipe(
-  Schema.filter(
-    ({ proposal, task }) =>
-      (proposal.state === "approved" &&
-        proposal.approvedTaskId === task.id &&
-        task.state === "submitted" &&
-        task.claimedBy === undefined) ||
-      "proposal.approve result must bind the approved proposal to its submitted task",
-  ),
+  Schema.check(Schema.makeFilter(({ proposal, task }) =>
+    (proposal.state === "approved" &&
+      proposal.approvedTaskId === task.id &&
+      task.state === "submitted" &&
+      task.claimedBy === undefined) ||
+    "proposal.approve result must bind the approved proposal to its submitted task",)),
 );
 export type ProposalApproveResult = typeof ProposalApproveResult.Type;
 
@@ -445,11 +420,9 @@ export const ProposalRejectResult = Schema.Struct({
   operation: Schema.Literal("proposal.reject"),
   proposal: TaskProposal,
 }).pipe(
-  Schema.filter(
-    ({ proposal }) =>
-      proposal.state === "rejected" ||
-      "proposal.reject result requires a rejected proposal",
-  ),
+  Schema.check(Schema.makeFilter(({ proposal }) =>
+    proposal.state === "rejected" ||
+    "proposal.reject result requires a rejected proposal",)),
 );
 export type ProposalRejectResult = typeof ProposalRejectResult.Type;
 
@@ -457,19 +430,14 @@ export const TaskCreateResult = Schema.Struct({
   operation: Schema.Literal("task.create"),
   task: Task,
 }).pipe(
-  Schema.filter(
-    ({ task }) =>
-      (task.state === "submitted" && task.claimedBy === undefined) ||
-      "task.create result requires a submitted unclaimed task",
-  ),
+  Schema.check(Schema.makeFilter(({ task }) =>
+    (task.state === "submitted" && task.claimedBy === undefined) ||
+    "task.create result requires a submitted unclaimed task",)),
 );
 export type TaskCreateResult = typeof TaskCreateResult.Type;
 
 export const TaskMutationResult = Schema.Struct({
-  operation: Schema.Literal(
-    "task.describe",
-    "task.transition",
-  ),
+  operation: Schema.Literals(["task.describe", "task.transition",]),
   task: Task,
 });
 export type TaskMutationResult = typeof TaskMutationResult.Type;
@@ -480,20 +448,18 @@ export const TaskClaimResult = Schema.Struct({
   claimedBy: ActorRef,
   previousHome: InstallationId,
 }).pipe(
-  Schema.filter(
-    ({ task, claimedBy }) =>
-      (task.state === "working" &&
-        task.claimedBy === claimedBy.seatId) ||
-      "task.claim result requires a working task claimed by the exact actor seat",
-  ),
+  Schema.check(Schema.makeFilter(({ task, claimedBy }) =>
+    (task.state === "working" &&
+      task.claimedBy === claimedBy.seatId) ||
+    "task.claim result requires a working task claimed by the exact actor seat",)),
 );
 export type TaskClaimResult = typeof TaskClaimResult.Type;
 
 export const RequestResult = Schema.Struct({
-  operation: Schema.Literal("request.create", "request.resolve"),
+  operation: Schema.Literals(["request.create", "request.resolve"]),
   request: Task,
 }).pipe(
-  Schema.filter((result) => {
+  Schema.check(Schema.makeFilter((result) => {
     if (result.operation === "request.create") {
       return (
         (result.request.state === "input-required" &&
@@ -507,14 +473,14 @@ export const RequestResult = Schema.Struct({
         result.request.claimedBy !== undefined) ||
       "request.resolve result requires a completed or rejected request with its original claimant"
     );
-  }),
+  })),
 );
 export type RequestResult = typeof RequestResult.Type;
 
 export const MessageAppendResult = Schema.Struct({
   operation: Schema.Literal("message.append"),
   ...MessageAppendPayload,
-}).pipe(Schema.filter(destinationMatchesMessage));
+}).pipe(Schema.check(Schema.makeFilter(destinationMatchesMessage)));
 export type MessageAppendResult = typeof MessageAppendResult.Type;
 
 export const ArtifactPublishResult = Schema.Struct({
@@ -544,34 +510,29 @@ export const BoardPostAppendResult = Schema.Struct({
 });
 export type BoardPostAppendResult = typeof BoardPostAppendResult.Type;
 
-export const WorkResult = Schema.Union(
-  ProposalCreateResult,
-  ProposalApproveResult,
-  ProposalRejectResult,
-  TaskCreateResult,
-  TaskMutationResult,
-  TaskClaimResult,
-  RequestResult,
-  MessageAppendResult,
-  ArtifactPublishResult,
-  DeliveryAcceptedResult,
-  BoardTopicCreateResult,
-  BoardPostAppendResult,
-);
+export const WorkResult = Schema.Union([ProposalCreateResult,
+ProposalApproveResult,
+ProposalRejectResult,
+TaskCreateResult,
+TaskMutationResult,
+TaskClaimResult,
+RequestResult,
+MessageAppendResult,
+ArtifactPublishResult,
+DeliveryAcceptedResult,
+BoardTopicCreateResult,
+BoardPostAppendResult,]);
 export type WorkResult = typeof WorkResult.Type;
 
-export const WorkRejectionReason = Schema.Literal(
-  "authority-mismatch",
-  "capability-denied",
-  "causal-conflict",
-  "claim-contention",
-  "identity-conflict",
-  "invalid-transition",
-  "locality-mismatch",
-  "missing-entity",
-  "projection-conflict",
-  "target-mismatch",
-);
+export const WorkRejectionReason = Schema.Literals(["authority-mismatch", "capability-denied",
+"causal-conflict",
+"claim-contention",
+"identity-conflict",
+"invalid-transition",
+"locality-mismatch",
+"missing-entity",
+"projection-conflict",
+"target-mismatch",]);
 export type WorkRejectionReason = typeof WorkRejectionReason.Type;
 
 export const AppliedDisposition = Schema.Struct({
@@ -592,16 +553,14 @@ export const RejectedDisposition = Schema.Struct({
 });
 export type RejectedDisposition = typeof RejectedDisposition.Type;
 
-export const WorkDispositionBody = Schema.Union(
-  AppliedDisposition,
-  RejectedDisposition,
-);
+export const WorkDispositionBody = Schema.Union([AppliedDisposition,
+RejectedDisposition,]);
 export type WorkDispositionBody = typeof WorkDispositionBody.Type;
 
 export const WorkRecordCommon = Schema.Struct({
   protocol: Schema.Literal(WORK_PROTOCOL),
   id: WorkRecordId,
-  recordType: Schema.Literal("command", "fact", "disposition"),
+  recordType: Schema.Literals(["command", "fact", "disposition"]),
   item: WorkItemRef,
   operation: WorkOperation,
   contentSha256: WorkSha256,
@@ -754,7 +713,7 @@ const WorkCommandShape = Schema.Struct({
 });
 
 export const WorkCommand = WorkCommandShape.pipe(
-  Schema.filter((record) => {
+  Schema.check(Schema.makeFilter((record) => {
     if (record.id.route.eventHome === record.id.route.entityHome) {
       return "Work command event and entity homes must be different";
     }
@@ -783,8 +742,8 @@ export const WorkCommand = WorkCommandShape.pipe(
       record.predecessor !== null ||
       "Mutation command must name its predecessor"
     );
-  }),
-  Schema.filter(withinRecordBound),
+  })),
+  Schema.check(Schema.makeFilter(withinRecordBound)),
 );
 export type WorkCommand = typeof WorkCommand.Type;
 
@@ -797,7 +756,7 @@ const WorkFactShape = Schema.Struct({
 });
 
 export const WorkFact = WorkFactShape.pipe(
-  Schema.filter((record) => {
+  Schema.check(Schema.makeFilter((record) => {
     if (record.id.route.eventHome !== record.id.route.entityHome) {
       return "Work fact must be emitted by its entity authority home";
     }
@@ -836,8 +795,8 @@ export const WorkFact = WorkFactShape.pipe(
     return (
       record.predecessor !== null || "Mutation fact must name its predecessor"
     );
-  }),
-  Schema.filter(withinRecordBound),
+  })),
+  Schema.check(Schema.makeFilter(withinRecordBound)),
 );
 export type WorkFact = typeof WorkFact.Type;
 
@@ -854,7 +813,7 @@ const WorkDispositionShape = Schema.Struct({
  * into this wire body.
  */
 export const WorkDisposition = WorkDispositionShape.pipe(
-  Schema.filter((record) => {
+  Schema.check(Schema.makeFilter((record) => {
     if (record.id.route.eventHome !== record.id.route.entityHome) {
       return "Work disposition must be emitted by its entity authority home";
     }
@@ -869,16 +828,14 @@ export const WorkDisposition = WorkDispositionShape.pipe(
       return "Applied disposition fact must belong to the disposition authority lane";
     }
     return true;
-  }),
-  Schema.filter(withinRecordBound),
+  })),
+  Schema.check(Schema.makeFilter(withinRecordBound)),
 );
 export type WorkDisposition = typeof WorkDisposition.Type;
 
-export const WorkRecord = Schema.Union(
-  WorkCommand,
-  WorkFact,
-  WorkDisposition,
-);
+export const WorkRecord = Schema.Union([WorkCommand,
+WorkFact,
+WorkDisposition,]);
 export type WorkRecord = typeof WorkRecord.Type;
 
 /**
@@ -893,22 +850,22 @@ export type StoredWorkRecord = typeof StoredWorkRecord.Type;
 
 const STRICT_PARSE_OPTIONS = { onExcessProperty: "error" } as const;
 
-export const decodeWorkAction = Schema.decodeUnknownEither(
+export const decodeWorkAction = Schema.decodeUnknownResult(
   WorkAction,
   STRICT_PARSE_OPTIONS,
 );
 
-export const decodeWorkResult = Schema.decodeUnknownEither(
+export const decodeWorkResult = Schema.decodeUnknownResult(
   WorkResult,
   STRICT_PARSE_OPTIONS,
 );
 
-export const decodeWorkRecord = Schema.decodeUnknownEither(
+export const decodeWorkRecord = Schema.decodeUnknownResult(
   WorkRecord,
   STRICT_PARSE_OPTIONS,
 );
 
-export const decodeStoredWorkRecord = Schema.decodeUnknownEither(
+export const decodeStoredWorkRecord = Schema.decodeUnknownResult(
   StoredWorkRecord,
   STRICT_PARSE_OPTIONS,
 );

@@ -31,12 +31,12 @@ type StationStatusFactRow = {
   readonly record_json: string;
 };
 
-export class StationStatusStoreError extends Schema.TaggedError<StationStatusStoreError>()(
+export class StationStatusStoreError extends Schema.TaggedErrorClass<StationStatusStoreError>()(
   "StationStatusStoreError",
   {
     operation: Schema.String,
     message: Schema.String,
-    cause: Schema.Defect,
+    cause: Schema.Unknown,
   },
 ) {}
 
@@ -57,10 +57,7 @@ const fromStateError = (
   error: StateEngineError,
 ): StationStatusStoreError => statusError(operation, error);
 
-export class StationStatusService extends Context.Tag(
-  "@vellum/StationStatusService",
-)<
-  StationStatusService,
+export class StationStatusService extends Context.Service<StationStatusService,
   {
     readonly read: Effect.Effect<
       StationStatusDocument,
@@ -72,8 +69,7 @@ export class StationStatusService extends Context.Tag(
     readonly recordDeployment: (
       deployment: StationDeployRecord,
     ) => Effect.Effect<void, StationStatusStoreError>;
-  }
->() {}
+  }>()("@vellum/StationStatusService") {}
 
 const parseRecord = (row: StationStatusFactRow): unknown => {
   try {

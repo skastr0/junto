@@ -277,13 +277,13 @@ describe("configureRemoteHost", () => {
   it("rejects local hosts before contacting OpenSSH", async () => {
     const fixture = makeSsh();
     const result = await Effect.runPromise(
-      Effect.either(configureRemoteHost(fixture.ssh, localHost, options)),
+      Effect.result(configureRemoteHost(fixture.ssh, localHost, options)),
     );
 
     expect(result._tag).toBe("Left");
-    if (result._tag === "Left") {
-      expect(result.left.code).toBe("validation");
-      expect(result.left.message).toMatch(/local/u);
+    if (result._tag === "Failure") {
+      expect(result.failure.code).toBe("validation");
+      expect(result.failure.message).toMatch(/local/u);
     }
     expect(fixture.events).toEqual([]);
   });
@@ -357,13 +357,13 @@ describe("configureRemoteHost", () => {
   it("fails closed when the configure receipt changes the host", async () => {
     const fixture = makeSsh({ responseHostId: "other" });
     const result = await Effect.runPromise(
-      Effect.either(configureRemoteHost(fixture.ssh, remoteHost, options)),
+      Effect.result(configureRemoteHost(fixture.ssh, remoteHost, options)),
     );
 
     expect(result._tag).toBe("Left");
-    if (result._tag === "Left") {
-      expect(result.left.code).toBe("conflict");
-      expect(result.left.message).toMatch(/different Remote configuration/u);
+    if (result._tag === "Failure") {
+      expect(result.failure.code).toBe("conflict");
+      expect(result.failure.message).toMatch(/different Remote configuration/u);
     }
     expect(fixture.events.at(-1)).toBe("peer-close");
   });

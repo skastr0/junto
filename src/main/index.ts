@@ -349,12 +349,12 @@ let stationControl: StationControlServer | undefined;
 let stationRemoteReportPump: StationRemoteReportPump | undefined;
 let canvasControl: CanvasControlServer | undefined;
 let operatorControl: OperatorControlServer | undefined;
-type HerdrPlaneService = Context.Tag.Service<typeof HerdrPlane>;
-type HermesPlaneService = Context.Tag.Service<typeof HermesPlane>;
+type HerdrPlaneService = Context.Service.Shape<typeof HerdrPlane>;
+type HermesPlaneService = Context.Service.Shape<typeof HermesPlane>;
 let herdrPlaneService: HerdrPlaneService | undefined;
 let hermesPlaneService: HermesPlaneService | undefined;
-type KernelServiceShape = Context.Tag.Service<typeof KernelService>;
-type StationFleetPropagationShape = Context.Tag.Service<
+type KernelServiceShape = Context.Service.Shape<typeof KernelService>;
+type StationFleetPropagationShape = Context.Service.Shape<
   typeof StationFleetPropagation
 >;
 let kernelService: KernelServiceShape | undefined;
@@ -1568,7 +1568,8 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     // headless/zero-window station contract explicit before readiness opens.
     try {
       kernelService = await AppRuntime.runPromise(KernelService);
-      kernelService.start();
+      // V4-KERNEL: host-owned Effect entry (migration/runtime.md).
+      kernelService.start((effect) => AppRuntime.runPromise(effect as never));
       stationControl = await startStationControlServer({
         home: termControlHome,
         appVersion: app.getVersion(),

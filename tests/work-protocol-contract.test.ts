@@ -1,4 +1,4 @@
-import { Either, Schema } from "effect";
+import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   RouteCursor,
@@ -181,24 +181,24 @@ const artifactFact = {
 
 describe("Work protocol v2 contract", () => {
   it("decodes InstallationId-based routes, claim records, and dispositions", () => {
-    expect(Either.isRight(decodeWorkRecord(claimCommand))).toBe(true);
-    expect(Either.isRight(decodeWorkRecord(claimFact))).toBe(true);
-    expect(Either.isRight(decodeWorkRecord(appliedDisposition))).toBe(true);
-    expect(Either.isRight(decodeWorkRecord(artifactFact))).toBe(true);
+    expect(Result.isSuccess(decodeWorkRecord(claimCommand))).toBe(true);
+    expect(Result.isSuccess(decodeWorkRecord(claimFact))).toBe(true);
+    expect(Result.isSuccess(decodeWorkRecord(appliedDisposition))).toBe(true);
+    expect(Result.isSuccess(decodeWorkRecord(artifactFact))).toBe(true);
 
-    const cursor = Schema.decodeUnknownEither(RouteCursor, {
+    const cursor = Schema.decodeUnknownResult(RouteCursor, {
       onExcessProperty: "error",
     })({
       eventHome: remote,
       entityHome: remote,
       through: "9007199254740993",
     });
-    expect(Either.isRight(cursor)).toBe(true);
+    expect(Result.isSuccess(cursor)).toBe(true);
 
     // No cursor represents "nothing received"; zero is not a record sequence.
     expect(
-      Either.isLeft(
-        Schema.decodeUnknownEither(RouteCursor, {
+      Result.isFailure(
+        Schema.decodeUnknownResult(RouteCursor, {
           onExcessProperty: "error",
         })({
           eventHome: remote,
@@ -211,10 +211,10 @@ describe("Work protocol v2 contract", () => {
 
   it("requires one strict fact basis and keeps it off commands and dispositions", () => {
     const { basis: _basis, ...basisLessFact } = claimFact;
-    expect(Either.isLeft(decodeWorkRecord(basisLessFact))).toBe(true);
+    expect(Result.isFailure(decodeWorkRecord(basisLessFact))).toBe(true);
 
     expect(
-      Either.isRight(
+      Result.isSuccess(
         decodeWorkRecord({
           ...claimFact,
           basis: {
@@ -226,7 +226,7 @@ describe("Work protocol v2 contract", () => {
       ),
     ).toBe(true);
     expect(
-      Either.isRight(
+      Result.isSuccess(
         decodeWorkRecord({
           ...claimFact,
           basis: {
@@ -238,7 +238,7 @@ describe("Work protocol v2 contract", () => {
       ),
     ).toBe(true);
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeWorkRecord({
           ...claimFact,
           basis: {
@@ -254,7 +254,7 @@ describe("Work protocol v2 contract", () => {
     ).toBe(true);
 
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeWorkRecord({
           ...claimCommand,
           basis: claimFact.basis,
@@ -262,7 +262,7 @@ describe("Work protocol v2 contract", () => {
       ),
     ).toBe(true);
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeWorkRecord({
           ...appliedDisposition,
           basis: claimFact.basis,
@@ -273,7 +273,7 @@ describe("Work protocol v2 contract", () => {
 
   it("keeps actions and results as closed discriminated sums", () => {
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeWorkAction({
           operation: "task.assign",
           taskId: "task-1",
@@ -283,7 +283,7 @@ describe("Work protocol v2 contract", () => {
     ).toBe(true);
 
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeWorkResult({
           operation: "task.assigned",
           task: sourceTask,
@@ -292,7 +292,7 @@ describe("Work protocol v2 contract", () => {
     ).toBe(true);
 
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeWorkRecord({
           ...claimCommand,
           operation: "task.transition",
@@ -301,7 +301,7 @@ describe("Work protocol v2 contract", () => {
     ).toBe(true);
 
     expect(
-      Either.isRight(
+      Result.isSuccess(
         decodeWorkResult({
           operation: "request.resolve",
           request: {
@@ -314,7 +314,7 @@ describe("Work protocol v2 contract", () => {
       ),
     ).toBe(true);
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeWorkResult({
           operation: "request.resolve",
           request: {
@@ -327,7 +327,7 @@ describe("Work protocol v2 contract", () => {
     ).toBe(true);
 
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeWorkRecord({
           ...artifactFact,
           body: {
@@ -339,7 +339,7 @@ describe("Work protocol v2 contract", () => {
     ).toBe(true);
 
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeWorkRecord({
           ...artifactFact,
           body: {
@@ -355,7 +355,7 @@ describe("Work protocol v2 contract", () => {
     ).toBe(true);
 
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeWorkRecord({
           ...artifactFact,
           body: {
@@ -373,7 +373,7 @@ describe("Work protocol v2 contract", () => {
     ).toBe(true);
 
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeWorkRecord({
           ...artifactFact,
           body: {
@@ -394,7 +394,7 @@ describe("Work protocol v2 contract", () => {
     ).toBe(true);
 
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeWorkRecord({
           ...artifactFact,
           body: {
@@ -414,7 +414,7 @@ describe("Work protocol v2 contract", () => {
       parts: [{ kind: "text" as const, text: "sent from this seat" }],
     };
     expect(
-      Either.isRight(
+      Result.isSuccess(
         decodeWorkAction({
           operation: "message.append",
           message: appendedMessage,
@@ -424,7 +424,7 @@ describe("Work protocol v2 contract", () => {
       ),
     ).toBe(true);
     expect(
-      Either.isRight(
+      Result.isSuccess(
         decodeWorkResult({
           operation: "message.append",
           message: appendedMessage,
@@ -434,7 +434,7 @@ describe("Work protocol v2 contract", () => {
       ),
     ).toBe(true);
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeWorkAction({
           operation: "message.append",
           message: appendedMessage,
@@ -443,7 +443,7 @@ describe("Work protocol v2 contract", () => {
       ),
     ).toBe(true);
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeWorkResult({
           operation: "message.append",
           message: appendedMessage,
@@ -457,7 +457,7 @@ describe("Work protocol v2 contract", () => {
       taskId: "task-1",
     };
     expect(
-      Either.isRight(
+      Result.isSuccess(
         decodeWorkAction({
           operation: "message.append",
           message: taskMessage,
@@ -467,7 +467,7 @@ describe("Work protocol v2 contract", () => {
       ),
     ).toBe(true);
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeWorkAction({
           operation: "message.append",
           message: taskMessage,
@@ -477,7 +477,7 @@ describe("Work protocol v2 contract", () => {
       ),
     ).toBe(true);
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeWorkAction({
           operation: "message.append",
           message: taskMessage,
@@ -489,7 +489,7 @@ describe("Work protocol v2 contract", () => {
 
   it("rejects excess properties at every decoded boundary", () => {
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeWorkRecord({
           ...claimCommand,
           originStationId: cc,
@@ -498,7 +498,7 @@ describe("Work protocol v2 contract", () => {
     ).toBe(true);
 
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeWorkRecord({
           ...claimCommand,
           body: {
@@ -515,7 +515,7 @@ describe("Work protocol v2 contract", () => {
 
   it("enforces the first-adoption predecessor laws", () => {
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeWorkRecord({
           ...claimCommand,
           predecessor: claimCommand.body.sourcePredecessor,
@@ -524,7 +524,7 @@ describe("Work protocol v2 contract", () => {
     ).toBe(true);
 
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeWorkRecord({
           ...claimCommand,
           body: {
@@ -542,7 +542,7 @@ describe("Work protocol v2 contract", () => {
     ).toBe(true);
 
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeWorkRecord({
           ...claimFact,
           predecessor: factId,
@@ -551,7 +551,7 @@ describe("Work protocol v2 contract", () => {
     ).toBe(true);
 
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeWorkRecord({
           ...claimFact,
           body: {
@@ -565,7 +565,7 @@ describe("Work protocol v2 contract", () => {
 
   it("makes claimant identity first-class and exact", () => {
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeWorkRecord({
           ...claimCommand,
           body: {
@@ -582,7 +582,7 @@ describe("Work protocol v2 contract", () => {
     ).toBe(true);
 
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeWorkRecord({
           ...claimFact,
           body: {
@@ -607,9 +607,9 @@ describe("Work protocol v2 contract", () => {
         task: sourceTask,
       },
     };
-    expect(Either.isRight(decodeWorkRecord(taskCreateFact))).toBe(true);
+    expect(Result.isSuccess(decodeWorkRecord(taskCreateFact))).toBe(true);
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeWorkRecord({
           ...taskCreateFact,
           body: {
@@ -627,7 +627,7 @@ describe("Work protocol v2 contract", () => {
 
   it("keeps receivedAt local to StoredWorkRecord", () => {
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeWorkRecord({
           ...claimFact,
           receivedAt: timestamp,
@@ -636,7 +636,7 @@ describe("Work protocol v2 contract", () => {
     ).toBe(true);
 
     expect(
-      Either.isRight(
+      Result.isSuccess(
         decodeStoredWorkRecord({
           record: claimFact,
           receivedAt: timestamp,
@@ -647,7 +647,7 @@ describe("Work protocol v2 contract", () => {
 
   it("rejects unknown disposition reasons", () => {
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeWorkRecord({
           ...appliedDisposition,
           body: {
@@ -664,7 +664,7 @@ describe("Work protocol v2 contract", () => {
     // Referenced command/fact semantic coherence is loaded and checked by the
     // repository; the seam still makes malformed reference hashes impossible.
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeWorkRecord({
           ...appliedDisposition,
           body: {
@@ -693,6 +693,6 @@ describe("Work protocol v2 contract", () => {
     expect(workRecordEncodedByteLength(claimCommand)).toBeLessThan(
       WORK_PROTOCOL_MAX_RECORD_BYTES,
     );
-    expect(Either.isLeft(decodeWorkRecord(oversized))).toBe(true);
+    expect(Result.isFailure(decodeWorkRecord(oversized))).toBe(true);
   });
 });

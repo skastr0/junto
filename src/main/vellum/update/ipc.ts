@@ -1,5 +1,5 @@
 import type { IpcMain } from "electron";
-import { Effect, Either } from "effect";
+import { Effect, Result } from "effect";
 import { IPC_CHANNELS } from "@shared/ipc";
 import {
   decodeUpdateStatus,
@@ -54,7 +54,7 @@ export const registerUpdateIpc = (
         const updates = yield* UpdateService;
         return yield* updates.getState;
       }).pipe(
-        Effect.catchAll(() =>
+        Effect.catch(() =>
           Effect.succeed(idleUpdateStatus(currentVersion)),
         ),
       ),
@@ -65,12 +65,12 @@ export const registerUpdateIpc = (
     AppRuntime.runPromise(
       Effect.gen(function* () {
         const updates = yield* UpdateService;
-        const result = yield* Effect.either(updates.check);
-        if (Either.isRight(result)) return result.right;
+        const result = yield* Effect.result(updates.check);
+        if (Result.isSuccess(result)) return result.success;
         return errorStatus(
           currentVersion,
-          result.left.updateCode,
-          result.left.message,
+          result.failure.updateCode,
+          result.failure.message,
         );
       }),
     ),

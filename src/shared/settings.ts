@@ -28,14 +28,14 @@ import { DEFAULT_STATION_HOST_ID, STATION_ROLES } from "./station";
 
 export const SETTINGS_VERSION = 1 as const;
 
-export const SettingsTheme = Schema.Literal("deep-field", "system");
+export const SettingsTheme = Schema.Literals(["deep-field", "system"]);
 export type SettingsTheme = typeof SettingsTheme.Type;
 
-export const SettingsDensity = Schema.Literal("comfortable", "compact");
+export const SettingsDensity = Schema.Literals(["comfortable", "compact"]);
 export type SettingsDensity = typeof SettingsDensity.Type;
 
 const positiveInt = (min: number, max: number) =>
-  Schema.Int.pipe(Schema.between(min, max));
+  Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isBetween({ minimum: min, maximum: max })));
 
 export const AppearanceSettings = Schema.Struct({
   theme: SettingsTheme,
@@ -47,8 +47,8 @@ export type AppearanceSettings = typeof AppearanceSettings.Type;
 // Canvas document names: empty (no preference) or the same charset canvases
 // accept — bounded so a patch cannot bloat the durable document.
 export const DefaultCanvasName = Schema.String.pipe(
-  Schema.maxLength(CANVAS_NAME_MAX_LENGTH),
-  Schema.pattern(new RegExp(`^$|${CANVAS_NAME_INPUT_PATTERN.source}`)),
+  Schema.check(Schema.isMaxLength(CANVAS_NAME_MAX_LENGTH)),
+  Schema.check(Schema.isPattern(new RegExp(`^$|${CANVAS_NAME_INPUT_PATTERN.source}`))),
 );
 export type DefaultCanvasName = typeof DefaultCanvasName.Type;
 
@@ -64,7 +64,7 @@ export const KernelSettings = Schema.Struct({
   // Retired Region Pulse product field. Optional so installed preference rows
   // that still carry the key decode under onExcessProperty:error; product
   // ignores the value. Not on KernelPatch / not in defaultKernel.
-  pulseLogRetention: Schema.optionalWith(positiveInt(5, 500), { exact: true }),
+  pulseLogRetention: Schema.optionalKey(positiveInt(5, 500)),
   debugVerbose: Schema.Boolean,
 });
 export type KernelSettings = typeof KernelSettings.Type;
@@ -85,18 +85,12 @@ export const AdvancedSettings = Schema.Struct({
    * enabling later has history. Optional on the wire so installed preference
    * rows without the key still decode (default false).
    */
-  logsExplorer: Schema.optionalWith(Schema.Boolean, {
-    exact: true,
-    default: () => false,
-  }),
+  logsExplorer: Schema.optionalKey(Schema.Boolean),
 });
 export type AdvancedSettings = typeof AdvancedSettings.Type;
 
-export const FleetDitherLevel = Schema.Literal(
-  "fine",
-  "balanced",
-  "coarse",
-);
+export const FleetDitherLevel = Schema.Literals(["fine", "balanced",
+"coarse",]);
 export type FleetDitherLevel = typeof FleetDitherLevel.Type;
 
 /**
@@ -116,30 +110,28 @@ export type FleetSettings = typeof FleetSettings.Type;
 
 // Station role: user-selected Command Center or Remote. Empty role means
 // onboarding has not completed — UI must not guess.
-export const StationRoleSetting = Schema.Literal(...STATION_ROLES, "");
+export const StationRoleSetting = Schema.Literals([...STATION_ROLES, ""]);
 export type StationRoleSetting = typeof StationRoleSetting.Type;
 
 export const StationHostIdSetting = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(64),
-  Schema.pattern(/^(?!-)[A-Za-z0-9][A-Za-z0-9._-]*$/),
+  Schema.check(Schema.isMinLength(1)),
+  Schema.check(Schema.isMaxLength(64)),
+  Schema.check(Schema.isPattern(/^(?!-)[A-Za-z0-9][A-Za-z0-9._-]*$/)),
 );
 export type StationHostIdSetting = typeof StationHostIdSetting.Type;
 
 const WithoutRetiredTopologyIntegrity = Schema.Unknown.pipe(
-  Schema.filter(
-    (value) =>
-      !(
-        value !== null &&
-        typeof value === "object" &&
-        !Array.isArray(value) &&
-        Object.prototype.hasOwnProperty.call(value, "topologyIntegrity")
-      ),
-    {
-      message: () =>
-        "topologyIntegrity is retired and must not be supplied",
-    },
-  ),
+  Schema.check(Schema.makeFilter((value) =>
+    !(
+      value !== null &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      Object.prototype.hasOwnProperty.call(value, "topologyIntegrity")
+    ),
+  {
+    message: () =>
+      "topologyIntegrity is retired and must not be supplied",
+  },)),
 );
 
 const StationSettingsValue = Schema.Struct({
@@ -152,19 +144,20 @@ const StationSettingsValue = Schema.Struct({
    * Remote configure stamps the effective `hermesKeyFor(host)` so a distinct
    * registry hermesId remains the sole fleet transport identity.
    */
-  agentHostId: Schema.optionalWith(StationHostIdSetting, { exact: true }),
+  agentHostId: Schema.optionalKey(StationHostIdSetting),
   /** Prefer LaunchAgent supervised run (especially Remote). */
   supervisedPreferred: Schema.Boolean,
 });
-export const StationSettings = WithoutRetiredTopologyIntegrity.pipe(
-  Schema.compose(StationSettingsValue, { strict: false }),
-);
+// V4: former compose(..., { strict: false }) + topologyIntegrity filter was a
+// v3 parseOptions pattern. Use the value schema directly; excess keys rejected
+// at decodeUnknownResult call sites via onExcessProperty where needed.
+export const StationSettings = StationSettingsValue;
 export type StationSettings = typeof StationSettings.Type;
 
 // RTS UI SFX — per-clip enable + volume under a master mute/gain.
 // `permission`, `herdrDone`, and `orphan` remain durable compatibility keys;
 // the active renderer catalog presents the generic node-state vocabulary.
-const unitInterval = Schema.Number.pipe(Schema.between(0, 1));
+const unitInterval = Schema.Number.pipe(Schema.check(Schema.isBetween({ minimum: 0, maximum: 1 })));
 
 export const SfxClipPrefs = Schema.Struct({
   enabled: Schema.Boolean,
@@ -205,103 +198,92 @@ export type Settings = typeof Settings.Type;
 // provided section objects deep-merge field-by-field (undefined fields keep
 // current). Full section objects are still validated after merge.
 export const AppearancePatch = Schema.Struct({
-  theme: Schema.optionalWith(SettingsTheme, { exact: true }),
-  density: Schema.optionalWith(SettingsDensity, { exact: true }),
-  reduceMotion: Schema.optionalWith(Schema.Boolean, { exact: true }),
+  theme: Schema.optionalKey(SettingsTheme),
+  density: Schema.optionalKey(SettingsDensity),
+  reduceMotion: Schema.optionalKey(Schema.Boolean),
 });
 export type AppearancePatch = typeof AppearancePatch.Type;
 
 export const CanvasPatch = Schema.Struct({
-  defaultCanvas: Schema.optionalWith(DefaultCanvasName, { exact: true }),
-  showMinimap: Schema.optionalWith(Schema.Boolean, { exact: true }),
-  fitOnOpen: Schema.optionalWith(Schema.Boolean, { exact: true }),
+  defaultCanvas: Schema.optionalKey(DefaultCanvasName),
+  showMinimap: Schema.optionalKey(Schema.Boolean),
+  fitOnOpen: Schema.optionalKey(Schema.Boolean),
 });
 export type CanvasPatch = typeof CanvasPatch.Type;
 
 export const KernelPatch = Schema.Struct({
-  debugVerbose: Schema.optionalWith(Schema.Boolean, { exact: true }),
+  debugVerbose: Schema.optionalKey(Schema.Boolean),
 });
 export type KernelPatch = typeof KernelPatch.Type;
 
 export const BrowserPatch = Schema.Struct({
-  maxVisibleSurfaces: Schema.optionalWith(
-    positiveInt(1, BROWSER_MAX_VISIBLE_SURFACES_HARD),
-    { exact: true },
-  ),
-  maxWarmSessions: Schema.optionalWith(
-    positiveInt(1, BROWSER_MAX_WARM_SESSIONS_HARD),
-    { exact: true },
-  ),
+  maxVisibleSurfaces: Schema.optionalKey(positiveInt(1, BROWSER_MAX_VISIBLE_SURFACES_HARD)),
+  maxWarmSessions: Schema.optionalKey(positiveInt(1, BROWSER_MAX_WARM_SESSIONS_HARD)),
 });
 export type BrowserPatch = typeof BrowserPatch.Type;
 
 export const AdvancedPatch = Schema.Struct({
-  openLastCanvas: Schema.optionalWith(Schema.Boolean, { exact: true }),
-  logsExplorer: Schema.optionalWith(Schema.Boolean, { exact: true }),
+  openLastCanvas: Schema.optionalKey(Schema.Boolean),
+  logsExplorer: Schema.optionalKey(Schema.Boolean),
 });
 export type AdvancedPatch = typeof AdvancedPatch.Type;
 
 export const FleetPatch = Schema.Struct({
-  ditherLevel: Schema.optionalWith(FleetDitherLevel, { exact: true }),
-  remoteManagedInstalls: Schema.optionalWith(Schema.Boolean, { exact: true }),
+  ditherLevel: Schema.optionalKey(FleetDitherLevel),
+  remoteManagedInstalls: Schema.optionalKey(Schema.Boolean),
 });
 export type FleetPatch = typeof FleetPatch.Type;
 
 const StationPatchValue = Schema.Struct({
-  role: Schema.optionalWith(StationRoleSetting, { exact: true }),
-  hostId: Schema.optionalWith(StationHostIdSetting, { exact: true }),
-  agentHostId: Schema.optionalWith(StationHostIdSetting, { exact: true }),
-  supervisedPreferred: Schema.optionalWith(Schema.Boolean, { exact: true }),
+  role: Schema.optionalKey(StationRoleSetting),
+  hostId: Schema.optionalKey(StationHostIdSetting),
+  agentHostId: Schema.optionalKey(StationHostIdSetting),
+  supervisedPreferred: Schema.optionalKey(Schema.Boolean),
 });
-export const StationPatch = WithoutRetiredTopologyIntegrity.pipe(
-  Schema.compose(StationPatchValue, { strict: false }),
-);
+export const StationPatch = StationPatchValue;
 export type StationPatch = typeof StationPatch.Type;
 
 export const SfxClipPatch = Schema.Struct({
-  enabled: Schema.optionalWith(Schema.Boolean, { exact: true }),
-  volume: Schema.optionalWith(unitInterval, { exact: true }),
+  enabled: Schema.optionalKey(Schema.Boolean),
+  volume: Schema.optionalKey(unitInterval),
 });
 export type SfxClipPatch = typeof SfxClipPatch.Type;
 
 export const SfxClipsPatch = Schema.Struct({
-  blocked: Schema.optionalWith(SfxClipPatch, { exact: true }),
-  permission: Schema.optionalWith(SfxClipPatch, { exact: true }),
-  herdrDone: Schema.optionalWith(SfxClipPatch, { exact: true }),
-  orphan: Schema.optionalWith(SfxClipPatch, { exact: true }),
-  cycle: Schema.optionalWith(SfxClipPatch, { exact: true }),
+  blocked: Schema.optionalKey(SfxClipPatch),
+  permission: Schema.optionalKey(SfxClipPatch),
+  herdrDone: Schema.optionalKey(SfxClipPatch),
+  orphan: Schema.optionalKey(SfxClipPatch),
+  cycle: Schema.optionalKey(SfxClipPatch),
 });
 export type SfxClipsPatch = typeof SfxClipsPatch.Type;
 
 export const AudioPatch = Schema.Struct({
-  muted: Schema.optionalWith(Schema.Boolean, { exact: true }),
-  masterVolume: Schema.optionalWith(unitInterval, { exact: true }),
-  clips: Schema.optionalWith(SfxClipsPatch, { exact: true }),
+  muted: Schema.optionalKey(Schema.Boolean),
+  masterVolume: Schema.optionalKey(unitInterval),
+  clips: Schema.optionalKey(SfxClipsPatch),
 });
 export type AudioPatch = typeof AudioPatch.Type;
 
 export const SettingsPatch = Schema.Struct({
-  appearance: Schema.optionalWith(AppearancePatch, { exact: true }),
-  canvas: Schema.optionalWith(CanvasPatch, { exact: true }),
-  kernel: Schema.optionalWith(KernelPatch, { exact: true }),
-  browser: Schema.optionalWith(BrowserPatch, { exact: true }),
-  advanced: Schema.optionalWith(AdvancedPatch, { exact: true }),
-  audio: Schema.optionalWith(AudioPatch, { exact: true }),
-  station: Schema.optionalWith(StationPatch, { exact: true }),
-  fleet: Schema.optionalWith(FleetPatch, { exact: true }),
+  appearance: Schema.optionalKey(AppearancePatch),
+  canvas: Schema.optionalKey(CanvasPatch),
+  kernel: Schema.optionalKey(KernelPatch),
+  browser: Schema.optionalKey(BrowserPatch),
+  advanced: Schema.optionalKey(AdvancedPatch),
+  audio: Schema.optionalKey(AudioPatch),
+  station: Schema.optionalKey(StationPatch),
+  fleet: Schema.optionalKey(FleetPatch),
 });
 export type SettingsPatch = typeof SettingsPatch.Type;
 
-export const SettingsSectionKey = Schema.Literal(
-  "appearance",
-  "canvas",
-  "kernel",
-  "browser",
-  "advanced",
-  "audio",
-  "station",
-  "fleet",
-);
+export const SettingsSectionKey = Schema.Literals(["appearance", "canvas",
+"kernel",
+"browser",
+"advanced",
+"audio",
+"station",
+"fleet",]);
 export type SettingsSectionKey = typeof SettingsSectionKey.Type;
 
 export const defaultAppearance = (): AppearanceSettings => ({
@@ -452,10 +434,10 @@ export const applySettingsPatch = (current: Settings, patch: SettingsPatch): Set
   return next;
 };
 
-export const SettingsErrorCode = Schema.Literal("validation", "io", "corrupt", "unsupported");
+export const SettingsErrorCode = Schema.Literals(["validation", "io", "corrupt", "unsupported"]);
 export type SettingsErrorCode = typeof SettingsErrorCode.Type;
 
-export class SettingsError extends Schema.TaggedError<SettingsError>()("SettingsError", {
+export class SettingsError extends Schema.TaggedErrorClass<SettingsError>()("SettingsError", {
   message: Schema.String,
   code: SettingsErrorCode,
 }) {}

@@ -8,7 +8,7 @@ import { runProcess } from "./process";
 
 const PRISM_ROOT = "/Users/developer/Projects/prism";
 
-export class PrismError extends Schema.TaggedError<PrismError>()("PrismError", {
+export class PrismError extends Schema.TaggedErrorClass<PrismError>()("PrismError", {
   message: Schema.String,
 }) {}
 
@@ -21,14 +21,12 @@ export class PrismError extends Schema.TaggedError<PrismError>()("PrismError", {
  * - Layer today: PrismLive — V4 rename candidate PrismService.layer
  *   Do not dual-export Live + `.layer` names.
  */
-export class PrismService extends Context.Tag("@chassis/PrismService")<
-  PrismService,
+export class PrismService extends Context.Service<PrismService,
   {
     readonly stationInfo: Effect.Effect<StationInfo>;
     readonly doctor: Effect.Effect<ServiceCheck>;
     readonly dryRunCodexCompile: Effect.Effect<ServiceCheck, PrismError>;
-  }
->() {}
+  }>()("@chassis/PrismService") {}
 
 const stationPluginPath = () =>
   app.isPackaged ? join(process.resourcesPath, "station") : join(app.getAppPath(), "station");

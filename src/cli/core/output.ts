@@ -92,7 +92,7 @@ export const writeCauseEnvelope = (command: string | undefined, cause: Cause.Cau
 export const executeJsonCommand = <A, E, R>(command: string, effect: Effect.Effect<A, E, R>) =>
   effect.pipe(
     Effect.flatMap((data) => writeSuccessEnvelope(command, data)),
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       setExitCode(1).pipe(Effect.zipRight(writeFailureEnvelope(command, error))),
     ),
   );

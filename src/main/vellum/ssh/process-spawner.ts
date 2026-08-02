@@ -24,16 +24,14 @@ export interface ProcessHandle {
  * No dual Effect.Service / Context.Service until Effect V4 pin.
  * @see docs/END_STATE-effect-foundation.md §S4
  */
-export class ProcessSpawner extends Context.Tag("@vellum/ssh/ProcessSpawner")<
-  ProcessSpawner,
+export class ProcessSpawner extends Context.Service<ProcessSpawner,
   {
     readonly start: (
       command: Command.Command,
     ) => Effect.Effect<ProcessHandle, ProcessFailure, Scope.Scope>;
-  }
->() {}
+  }>()("@vellum/ssh/ProcessSpawner") {}
 
-export type ProcessSpawnerShape = Context.Tag.Service<typeof ProcessSpawner>;
+export type ProcessSpawnerShape = Context.Service.Shape<typeof ProcessSpawner>;
 const failure = (): ProcessFailure => new ProcessFailure();
 
 const SSH_PROCESS_TERM_GRACE_MS = 1_500;

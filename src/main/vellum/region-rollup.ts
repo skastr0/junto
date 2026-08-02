@@ -24,13 +24,11 @@ export const herdrAgentStatusActivity = (status: string): WorkSurfaceActivity =>
 
 // Region severity rollups for the RTS bottom bar. Derived per request from
 // the document + snapshots + ACP chat plane + herdr mirrors.
-export class RegionRollupService extends Context.Tag("@vellum/RegionRollupService")<
-  RegionRollupService,
+export class RegionRollupService extends Context.Service<RegionRollupService,
   {
     readonly doctor: Effect.Effect<ServiceCheck>;
     readonly rollups: (canvasName: string) => Effect.Effect<ReadonlyArray<RegionRollup>, CanvasError>;
-  }
->() {}
+  }>()("@vellum/RegionRollupService") {}
 
 export const makeRegionRollupLive = (
   chatService: ChatService,

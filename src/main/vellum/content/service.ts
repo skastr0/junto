@@ -155,10 +155,8 @@ export type ContentServiceShape = {
  * - Hard law: yield ContentService from warm Layer Context; never ambient
  *   empty-context lookup (claim-gate class of bug).
  */
-export class ContentService extends Context.Tag("@vellum/ContentService")<
-  ContentService,
-  ContentServiceShape
->() {}
+export class ContentService extends Context.Service<ContentService,
+  ContentServiceShape>()("@vellum/ContentService") {}
 
 const makeContentService = (
   state: StateService,
@@ -420,7 +418,7 @@ export const makeContentServiceLive = (options?: {
             );
           },
         }).pipe(
-          Effect.catchAll((error) =>
+          Effect.catch((error) =>
             Effect.sync(() => {
               console.error(
                 "[content] inline media backfill deferred to next boot:",

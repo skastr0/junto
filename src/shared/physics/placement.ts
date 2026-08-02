@@ -99,10 +99,8 @@ export interface PlacementViewService {
   readonly placementFor: (nodeId: string) => NodePlacement | undefined;
 }
 
-export class PlacementView extends Context.Tag("@vellum/PlacementView")<
-  PlacementView,
-  PlacementViewService
->() {}
+export class PlacementView extends Context.Service<PlacementView,
+  PlacementViewService>()("@vellum/PlacementView") {}
 
 /** Everything unknown — shippable default before a fleet producer binds. */
 export const nullPlacementView: PlacementViewService = {

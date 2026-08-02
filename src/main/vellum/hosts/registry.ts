@@ -38,7 +38,7 @@ const CAPABILITIES_IN_STORAGE_ORDER = [
   "hermes",
 ] as const satisfies ReadonlyArray<HostCapability>;
 
-type StateService = Context.Tag.Service<typeof StateEngine>;
+type StateService = Context.Service.Shape<typeof StateEngine>;
 
 type HostRow = {
   readonly id: string;
@@ -58,12 +58,12 @@ type RegistryStateRow = {
   readonly singleton: number;
 };
 
-export class HostsStateError extends Schema.TaggedError<HostsStateError>()(
+export class HostsStateError extends Schema.TaggedErrorClass<HostsStateError>()(
   "HostsStateError",
   {
     operation: Schema.String,
     message: Schema.String,
-    cause: Schema.Defect,
+    cause: Schema.Unknown,
   },
 ) {}
 
@@ -467,9 +467,9 @@ const initializeRegistry = (
 const runRegistryEffect = async <A>(
   effect: Effect.Effect<A, RemoteHostsError>,
 ): Promise<A> => {
-  const result = await Effect.runPromise(Effect.either(effect));
-  if (result._tag === "Left") throw result.left;
-  return result.right;
+  const result = await Effect.runPromise(Effect.result(effect));
+  if (result._tag === "Failure") throw result.failure;
+  return result.success;
 };
 
 export interface HostsRegistry {

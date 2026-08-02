@@ -123,11 +123,11 @@ describe("UpdateService", () => {
     );
 
     const result = await Effect.runPromise(
-      Effect.either(service.prepareInstall),
+      Effect.result(service.prepareInstall),
     );
     expect(result._tag).toBe("Left");
-    if (result._tag === "Left") {
-      expect(result.left.updateCode).toBe("not-ready");
+    if (result._tag === "Failure") {
+      expect(result.failure.updateCode).toBe("not-ready");
     }
   });
 
@@ -373,7 +373,7 @@ describe("UpdateService", () => {
     });
     const prepared = await Effect.runPromise(svc.prepareInstall);
     const result = await Effect.runPromise(
-      Effect.either(
+      Effect.result(
         finalizeInstallAfterQuiesce({
           plan: prepared.plan,
           candidate: prepared.candidate,

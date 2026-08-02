@@ -4,7 +4,7 @@ import { access, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { url as inspectorUrl } from "node:inspector";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { app, BrowserWindow, session, webContents } from "electron";
-import { Effect, Either, Layer, ManagedRuntime } from "effect";
+import { Effect, Result, Layer, ManagedRuntime } from "effect";
 import { CanvasesLive, CanvasesService } from "../../../src/main/vellum/canvases";
 import {
   makeStateEngineLive,
@@ -591,7 +591,7 @@ void app.whenReady().then(async () => {
   const fixtureCanvas = decodeCanvasDoc(
     JSON.parse(Buffer.from(canvasPayload, "base64url").toString("utf8")),
   );
-  if (Either.isLeft(fixtureCanvas)) {
+  if (Result.isFailure(fixtureCanvas)) {
     throw new Error(
       `dedicated browser probe canvas is invalid: ${fixtureCanvas.left.message}`,
     );

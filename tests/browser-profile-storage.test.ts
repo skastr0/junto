@@ -15,7 +15,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { Effect, Either, ManagedRuntime } from "effect";
+import { Effect, Result, ManagedRuntime } from "effect";
 import {
   browserProfileQuarantinePath,
   BrowserProfileStorageError,
@@ -742,7 +742,7 @@ describe("browser profile storage lifecycle", () => {
     });
     await Effect.runPromise(registry.initialize);
 
-    const wipe = Effect.runPromise(Effect.either(registry.wipeProfile(PROFILE)));
+    const wipe = Effect.runPromise(Effect.result(registry.wipeProfile(PROFILE)));
     const siblingTouch = Effect.runPromise(registry.touchProfile("work"));
     let siblingDeadline: ReturnType<typeof setTimeout> | undefined;
     const siblingProgress = Promise.race([
@@ -758,9 +758,9 @@ describe("browser profile storage lifecycle", () => {
     });
     const [wipeResult] = await Promise.all([wipe, siblingProgress]);
 
-    expect(Either.isLeft(wipeResult)).toBe(true);
-    if (Either.isLeft(wipeResult)) {
-      expect(wipeResult.left).toMatchObject({
+    expect(Result.isFailure(wipeResult)).toBe(true);
+    if (Result.isFailure(wipeResult)) {
+      expect(wipeResult.fail).toMatchObject({
         code: "pending_wipe",
         message: "browser profile wipe incomplete; recovery required",
       });

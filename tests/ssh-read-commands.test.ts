@@ -1,4 +1,4 @@
-import { Effect, Either, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   inspectRemoteCommand,
@@ -26,9 +26,9 @@ import {
 import type { SshTransport } from "../src/main/vellum/ssh/service";
 
 const run = <A, E>(effect: Effect.Effect<A, E>): A => {
-  const result = Effect.runSync(Effect.either(effect));
-  if (Either.isLeft(result)) throw result.left;
-  return result.right;
+  const result = Effect.runSync(Effect.result(effect));
+  if (Result.isFailure(result)) throw result.failure;
+  return result.success;
 };
 
 const ENDPOINT = Schema.decodeUnknownSync(SshEndpoint)("remote");
@@ -91,7 +91,7 @@ describe("ssh read-commands product constructors", () => {
       "/home/a$(id)",
       "/home/a\0b",
     ]) {
-      expect(Either.isLeft(Effect.runSync(Effect.either(remoteCat(bad))))).toBe(
+      expect(Result.isFailure(Effect.runSync(Effect.result(remoteCat(bad))))).toBe(
         true,
       );
     }
@@ -99,9 +99,9 @@ describe("ssh read-commands product constructors", () => {
 
   it("refuses free-form destructive shell via host probe and product CLIs", () => {
     const shRm = Effect.runSync(
-      Effect.either(remoteHostProbe(["/bin/sh", "-c", "rm -rf -- /"])),
+      Effect.result(remoteHostProbe(["/bin/sh", "-c", "rm -rf -- /"])),
     );
-    expect(Either.isLeft(shRm)).toBe(true);
+    expect(Result.isFailure(shRm)).toBe(true);
 
     // Probe admits [lsof,-nP,-iTCP,-sTCP:LISTEN,-a,<pidList>]; factory inserts -p.
     const lsof = inspectRemoteCommand(
@@ -147,11 +147,11 @@ describe("ssh read-commands product constructors", () => {
       args: [STATION_PROTOCOL_NEGOTIATION_ARG],
     });
     expect(
-      Either.isLeft(Effect.runSync(Effect.either(remoteVellumStation(linux)))),
+      Result.isFailure(Effect.runSync(Effect.result(remoteVellumStation(linux)))),
     ).toBe(true);
     expect(
-      Either.isLeft(
-        Effect.runSync(Effect.either(remoteVellumStationNegotiation(linux))),
+      Result.isFailure(
+        Effect.runSync(Effect.result(remoteVellumStationNegotiation(linux))),
       ),
     ).toBe(true);
   });
@@ -165,7 +165,7 @@ describe("ssh read-commands product constructors", () => {
       executable: "/home/remote station/.local/bin/vellum-station",
       args: [],
     });
-    expect(Either.isLeft(Effect.runSync(Effect.either(bindLinuxRemoteUserland(
+    expect(Result.isFailure(Effect.runSync(Effect.result(bindLinuxRemoteUserland(
       observedPlatform("Darwin\n"),
       "/Users/remote",
     ))))).toBe(true);
@@ -180,7 +180,7 @@ describe("ssh read-commands product constructors", () => {
       "",
     ]) {
       const result = Effect.runSync(
-        Effect.either(
+        Effect.result(
           resolveRemotePackagedPlatform(
             {
               run: () => Effect.succeed({ stdout: output, stderr: "" }),
@@ -189,16 +189,16 @@ describe("ssh read-commands product constructors", () => {
           ),
         ),
       );
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left).toBeInstanceOf(RemotePlatformProbeError);
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure).toBeInstanceOf(RemotePlatformProbeError);
       }
     }
 
     expect(
-      Either.isLeft(
+      Result.isFailure(
         Effect.runSync(
-          Effect.either(remoteVellumStation({} as never)),
+          Effect.result(remoteVellumStation({} as never)),
         ),
       ),
     ).toBe(true);

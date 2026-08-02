@@ -189,13 +189,13 @@ describe("StationFleetTargetRepository", () => {
     changed.length = 0;
 
     await runtime.runPromise(
-      fleet.bind(identity("studio", "station-mini")).pipe(Effect.either),
+      fleet.bind(identity("studio", "station-mini")).pipe(Effect.result),
     );
     await runtime.runPromise(
-      fleet.bind(identity("mini", "station-new-mini")).pipe(Effect.either),
+      fleet.bind(identity("mini", "station-new-mini")).pipe(Effect.result),
     );
     await runtime.runPromise(
-      fleet.bind(identity("new", "station-new"), "").pipe(Effect.either),
+      fleet.bind(identity("new", "station-new"), "").pipe(Effect.result),
     );
 
     expect(changed).toEqual([]);
@@ -217,7 +217,7 @@ describe("StationFleetTargetRepository", () => {
 
     expect(
       await runtime.runPromise(
-        fleet.bind(rejected).pipe(Effect.either),
+        fleet.bind(rejected).pipe(Effect.result),
       ),
     ).toMatchObject({
       _tag: "Left",
@@ -248,7 +248,7 @@ describe("StationFleetTargetRepository", () => {
     const persisted = await repository(reopened.runtime);
     expect(
       await reopened.runtime.runPromise(
-        persisted.bind(replacement).pipe(Effect.either),
+        persisted.bind(replacement).pipe(Effect.result),
       ),
     ).toMatchObject({
       _tag: "Left",
@@ -287,7 +287,7 @@ describe("StationFleetTargetRepository", () => {
         fleet.bind(
           replacement,
           "2026-07-28T15:00:00.000Z",
-        ).pipe(Effect.either),
+        ).pipe(Effect.result),
       ),
     ).toMatchObject({
       _tag: "Left",
@@ -315,7 +315,7 @@ describe("StationFleetTargetRepository", () => {
 
     expect(
       await runtime.runPromise(
-        fleet.bind(target, "").pipe(Effect.either),
+        fleet.bind(target, "").pipe(Effect.result),
       ),
     ).toMatchObject({
       _tag: "Left",
@@ -338,7 +338,7 @@ describe("StationFleetTargetRepository", () => {
 
     expect(
       await runtime.runPromise(
-        fleet.bind(forged).pipe(Effect.either),
+        fleet.bind(forged).pipe(Effect.result),
       ),
     ).toMatchObject({
       _tag: "Left",

@@ -30,10 +30,8 @@ export interface ActivityFeedService {
   readonly clueFor: (nodeId: string) => OccupancyClue | undefined;
 }
 
-export class ActivityFeed extends Context.Tag("@vellum/ActivityFeed")<
-  ActivityFeed,
-  ActivityFeedService
->() {}
+export class ActivityFeed extends Context.Service<ActivityFeed,
+  ActivityFeedService>()("@vellum/ActivityFeed") {}
 
 /** Everything vacant — the shippable default before any producer binds. */
 export const nullActivityFeed: ActivityFeedService = {

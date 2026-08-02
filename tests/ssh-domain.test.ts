@@ -1,4 +1,4 @@
-import { Effect, Either } from "effect";
+import { Effect, Result } from "effect";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   parseSshEndpoint,
@@ -20,26 +20,26 @@ import {
 describe("SSH domain", () => {
   it("accepts option-safe SSH aliases and rejects option injection", async () => {
     const valid = await Effect.runPromise(parseSshEndpoint("ops@remote-a"));
-    const invalid = await Effect.runPromise(Effect.either(parseSshEndpoint("-oProxyCommand=boom")));
+    const invalid = await Effect.runPromise(Effect.result(parseSshEndpoint("-oProxyCommand=boom")));
 
     expect(valid).toBe("ops@remote-a");
-    expect(Either.isLeft(invalid)).toBe(true);
+    expect(Result.isFailure(invalid)).toBe(true);
   });
 
   it("rejects NUL-bearing remote arguments before policy compilation", async () => {
     const result = await Effect.runPromise(
-      Effect.either(makeRemoteCommand("herdr", ["session", "bad\u0000value"])),
+      Effect.result(makeRemoteCommand("herdr", ["session", "bad\u0000value"])),
     );
 
-    expect(Either.isLeft(result)).toBe(true);
+    expect(Result.isFailure(result)).toBe(true);
   });
 
   it("bounds the complete remote command below the local argv ceiling", async () => {
     const result = await Effect.runPromise(
-      Effect.either(makeRemoteCommand("herdr", ["a".repeat(64 * 1024), "b".repeat(64 * 1024)])),
+      Effect.result(makeRemoteCommand("herdr", ["a".repeat(64 * 1024), "b".repeat(64 * 1024)])),
     );
 
-    expect(Either.isLeft(result)).toBe(true);
+    expect(Result.isFailure(result)).toBe(true);
   });
 
   it("makes free-form destructive sh -c unrepresentable from the product API", async () => {
@@ -49,11 +49,11 @@ describe("SSH domain", () => {
     expectTypeOf<HasGenericMint>().toEqualTypeOf<false>();
 
     const probe = await Effect.runPromise(
-      Effect.either(
+      Effect.result(
         remoteHostProbe(["/bin/sh", "-c", "rm -rf -- /"]),
       ),
     );
-    expect(Either.isLeft(probe)).toBe(true);
+    expect(Result.isFailure(probe)).toBe(true);
 
     // remoteHermesCli cannot redirect the executable to a shell.
     const hermes = await Effect.runPromise(remoteHermesCli(["version"]));
@@ -64,9 +64,9 @@ describe("SSH domain", () => {
 
   it("bounds Unix socket paths by encoded bytes", async () => {
     const overLimit = `/${"é".repeat(52)}`;
-    const result = await Effect.runPromise(Effect.either(parseRemoteUnixSocketPath(overLimit)));
+    const result = await Effect.runPromise(Effect.result(parseRemoteUnixSocketPath(overLimit)));
 
-    expect(Either.isLeft(result)).toBe(true);
+    expect(Result.isFailure(result)).toBe(true);
   });
 
   it("rejects OpenSSH forwarding metacharacters in remote socket paths", async () => {
@@ -77,9 +77,9 @@ describe("SSH domain", () => {
       "/tmp/a\nsock",
     ]) {
       const result = await Effect.runPromise(
-        Effect.either(parseRemoteUnixSocketPath(path)),
+        Effect.result(parseRemoteUnixSocketPath(path)),
       );
-      expect(Either.isLeft(result)).toBe(true);
+      expect(Result.isFailure(result)).toBe(true);
     }
   });
 

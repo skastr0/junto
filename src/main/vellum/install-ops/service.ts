@@ -9,12 +9,12 @@ export type BackfillMarker = {
   readonly completedAt: string | undefined;
 };
 
-export class InstallOpsError extends Schema.TaggedError<InstallOpsError>()(
+export class InstallOpsError extends Schema.TaggedErrorClass<InstallOpsError>()(
   "InstallOpsError",
   {
     operation: Schema.String,
     message: Schema.String,
-    cause: Schema.optional(Schema.Defect),
+    cause: Schema.optional(Schema.Unknown),
   },
 ) {}
 
@@ -48,7 +48,5 @@ export type InstallOpsServiceShape = {
  * - Product vs install-local split is law (AGENTS.md): install-ops.db is not
  *   product truth and must not be seeded with vellum.db.
  */
-export class InstallOpsService extends Context.Tag("@vellum/InstallOpsService")<
-  InstallOpsService,
-  InstallOpsServiceShape
->() {}
+export class InstallOpsService extends Context.Service<InstallOpsService,
+  InstallOpsServiceShape>()("@vellum/InstallOpsService") {}

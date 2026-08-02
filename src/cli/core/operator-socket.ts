@@ -206,8 +206,8 @@ const ndjsonCall = (
           return;
         }
         if (
-          decoded.right.id !== request.id ||
-          decoded.right.op !== request.op
+          decoded.success.id !== request.id ||
+          decoded.success.op !== request.op
         ) {
           settle(
             Effect.fail(
@@ -219,7 +219,7 @@ const ndjsonCall = (
           );
           return;
         }
-        settle(Effect.succeed(decoded.right));
+        settle(Effect.succeed(decoded.success));
       } catch {
         settle(
           Effect.fail(
@@ -284,16 +284,14 @@ const ndjsonCall = (
  * - Layer today: OperatorSocketLive — V4 rename candidate OperatorSocket.layer
  *   Do not dual-export Live + `.layer` names.
  */
-export class OperatorSocket extends Context.Tag("@vellum/cli/OperatorSocket")<
-  OperatorSocket,
+export class OperatorSocket extends Context.Service<OperatorSocket,
   {
     readonly call: <Op extends OperatorOpName>(
       op: Op,
       args: OperatorArgsByOp[Op],
       timeoutMs?: number,
     ) => Effect.Effect<OperatorDataByOp[Op], OperatorSocketError>;
-  }
->() {}
+  }>()("@vellum/cli/OperatorSocket") {}
 
 export const OperatorSocketLive = Layer.succeed(
   OperatorSocket,
@@ -335,7 +333,7 @@ export const OperatorSocketLive = Layer.succeed(
 
         const envelope = yield* ndjsonCall(
           resolveOperatorSocketPath(),
-          decodedRequest.right,
+          decodedRequest.success,
           timeout,
         );
         if (!envelope.ok) {

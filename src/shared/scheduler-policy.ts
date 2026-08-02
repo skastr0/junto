@@ -10,33 +10,29 @@ import { HostId } from "./remote-hosts";
  */
 
 export const EpochMilliseconds = Schema.Number.pipe(
-  Schema.int(),
-  Schema.nonNegative(),
-  Schema.filter(
-    Number.isSafeInteger,
-    { message: () => "epoch milliseconds must be a safe integer" },
-  ),
+  Schema.check(Schema.isInt()),
+  Schema.check(Schema.isGreaterThanOrEqualTo(0)),
+  Schema.check(Schema.makeFilter(Number.isSafeInteger,
+  { message: () => "epoch milliseconds must be a safe integer" },)),
 );
 export type EpochMilliseconds = typeof EpochMilliseconds.Type;
 
 export const IntervalMilliseconds = Schema.Number.pipe(
-  Schema.int(),
-  Schema.positive(),
-  Schema.filter(
-    Number.isSafeInteger,
-    { message: () => "interval milliseconds must be a safe integer" },
-  ),
+  Schema.check(Schema.isInt()),
+  Schema.check(Schema.isGreaterThan(0)),
+  Schema.check(Schema.makeFilter(Number.isSafeInteger,
+  { message: () => "interval milliseconds must be a safe integer" },)),
 );
 export type IntervalMilliseconds = typeof IntervalMilliseconds.Type;
 
 export const TimerScheduleId = Schema.NonEmptyString.pipe(
-  Schema.maxLength(256),
+  Schema.check(Schema.isMaxLength(256)),
   Schema.brand("TimerScheduleId"),
 );
 export type TimerScheduleId = typeof TimerScheduleId.Type;
 
 export const TimerKey = Schema.NonEmptyString.pipe(
-  Schema.maxLength(512),
+  Schema.check(Schema.isMaxLength(512)),
   Schema.brand("TimerKey"),
 );
 export type TimerKey = typeof TimerKey.Type;
@@ -46,21 +42,19 @@ export type TimerKey = typeof TimerKey.Type;
  * range and maps directly to SQLite TEXT. Never parse it through Number.
  */
 export const TimerSlotId = Schema.String.pipe(
-  Schema.pattern(/^(?:0|[1-9][0-9]*)$/),
+  Schema.check(Schema.isPattern(/^(?:0|[1-9][0-9]*)$/)),
   Schema.brand("TimerSlotId"),
 );
 export type TimerSlotId = typeof TimerSlotId.Type;
 
 export const TimerSlotCount = Schema.String.pipe(
-  Schema.pattern(/^(?:0|[1-9][0-9]*)$/),
+  Schema.check(Schema.isPattern(/^(?:0|[1-9][0-9]*)$/)),
   Schema.brand("TimerSlotCount"),
 );
 export type TimerSlotCount = typeof TimerSlotCount.Type;
 
 export const INTERVAL_CATCH_UP_POLICY = "coalesce-latest" as const;
-export const IntervalCatchUpPolicy = Schema.Literal(
-  INTERVAL_CATCH_UP_POLICY,
-);
+export const IntervalCatchUpPolicy = Schema.Literals([INTERVAL_CATCH_UP_POLICY, ]);
 export type IntervalCatchUpPolicy =
   typeof IntervalCatchUpPolicy.Type;
 
@@ -71,7 +65,7 @@ const TimerStateShape = Schema.Struct({
   catchUpPolicy: IntervalCatchUpPolicy,
   nextDueAtEpochMs: EpochMilliseconds,
   nextDueSlot: TimerSlotId,
-  lastFiredSlot: Schema.optionalWith(TimerSlotId, { exact: true }),
+  lastFiredSlot: Schema.optionalKey(TimerSlotId),
 });
 
 /**
@@ -80,31 +74,26 @@ const TimerStateShape = Schema.Struct({
  * partially-written cursor fail closed at decode time.
  */
 export const IntervalTimerState = TimerStateShape.pipe(
-  Schema.filter(
-    (state) =>
-      state.lastFiredSlot === undefined ||
-      BigInt(state.nextDueSlot) === BigInt(state.lastFiredSlot) + 1n,
-    {
-      message: () =>
-        "nextDueSlot must immediately follow lastFiredSlot",
-    },
-  ),
+  Schema.check(Schema.makeFilter((state) =>
+    state.lastFiredSlot === undefined ||
+    BigInt(state.nextDueSlot) === BigInt(state.lastFiredSlot) + 1n,
+  {
+    message: () =>
+      "nextDueSlot must immediately follow lastFiredSlot",
+  },)),
 );
 export type IntervalTimerState = typeof IntervalTimerState.Type;
 
-export const TimerIneligibilityReason = Schema.Literal(
-  "invalid-local-station",
-  "unhomed",
-  "ambiguous-home",
-  "invalid-home",
-  "foreign-home",
-  "invalid-timer-key",
-  "invalid-clock",
-  "invalid-interval",
-  "invalid-state",
-  "interval-mismatch",
-  "schedule-overflow",
-);
+export const TimerIneligibilityReason = Schema.Literals(["invalid-local-station", "unhomed",
+"ambiguous-home",
+"invalid-home",
+"foreign-home",
+"invalid-timer-key",
+"invalid-clock",
+"invalid-interval",
+"invalid-state",
+"interval-mismatch",
+"schedule-overflow",]);
 export type TimerIneligibilityReason =
   typeof TimerIneligibilityReason.Type;
 

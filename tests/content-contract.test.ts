@@ -1,4 +1,4 @@
-import { Either, Schema } from "effect";
+import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   ContentAvailability,
@@ -26,9 +26,9 @@ describe("content object contract", () => {
     const decoded = Schema.decodeUnknownSync(ContentRef)(ref);
     expect(decoded).toEqual(ref);
     expect("path" in decoded).toBe(false);
-    expect(Either.isRight(decodeContentRef(ref))).toBe(true);
+    expect(Result.isSuccess(decodeContentRef(ref))).toBe(true);
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeContentRef({ ...ref, path: "/Users/operator/video.mp4" }),
       ),
     ).toBe(true);

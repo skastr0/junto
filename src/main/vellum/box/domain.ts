@@ -1,14 +1,14 @@
 import { Schema } from "effect";
 
 export const BoxId = Schema.String.pipe(
-  Schema.pattern(/^bx_[23456789abcdefghjkmnpqrstuvwxyz]{8}$/u),
+  Schema.check(Schema.isPattern(/^bx_[23456789abcdefghjkmnpqrstuvwxyz]{8}$/u)),
   Schema.brand("BoxId"),
 );
 export type BoxId = typeof BoxId.Type;
 
 export const BoxMachineState = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(32),
+  Schema.check(Schema.isMinLength(1)),
+  Schema.check(Schema.isMaxLength(32)),
 );
 export type BoxMachineState = typeof BoxMachineState.Type;
 
@@ -54,16 +54,14 @@ export const BoxNewReadyLine = Schema.Struct({
 export const BoxNewErrorLine = Schema.Struct({
   event: Schema.Literal("error"),
   error: Schema.String,
-  code: Schema.optionalWith(Schema.String, { exact: true }),
-  status: Schema.optionalWith(Schema.Number, { exact: true }),
+  code: Schema.optionalKey(Schema.String),
+  status: Schema.optionalKey(Schema.Number),
 });
 
-export const BoxNewLine = Schema.Union(
-  BoxNewCreatedLine,
-  BoxNewStateLine,
-  BoxNewReadyLine,
-  BoxNewErrorLine,
-);
+export const BoxNewLine = Schema.Union([BoxNewCreatedLine,
+BoxNewStateLine,
+BoxNewReadyLine,
+BoxNewErrorLine,]);
 
 export const BoxCliStatus = Schema.Struct({
   account: Schema.Struct({
@@ -95,24 +93,24 @@ export interface BoxCliAvailability {
   readonly detail: string;
 }
 
-export class BoxCliUnavailableError extends Schema.TaggedError<BoxCliUnavailableError>()(
+export class BoxCliUnavailableError extends Schema.TaggedErrorClass<BoxCliUnavailableError>()(
   "BoxCliUnavailableError",
   {
     detail: Schema.String,
   },
 ) {}
 
-export class BoxCliCommandError extends Schema.TaggedError<BoxCliCommandError>()(
+export class BoxCliCommandError extends Schema.TaggedErrorClass<BoxCliCommandError>()(
   "BoxCliCommandError",
   {
     operation: Schema.String,
     detail: Schema.String,
-    exitCode: Schema.optionalWith(Schema.Number, { exact: true }),
-    boxId: Schema.optionalWith(BoxId, { exact: true }),
+    exitCode: Schema.optionalKey(Schema.Number),
+    boxId: Schema.optionalKey(BoxId),
   },
 ) {}
 
-export class BoxCliProtocolError extends Schema.TaggedError<BoxCliProtocolError>()(
+export class BoxCliProtocolError extends Schema.TaggedErrorClass<BoxCliProtocolError>()(
   "BoxCliProtocolError",
   {
     operation: Schema.String,

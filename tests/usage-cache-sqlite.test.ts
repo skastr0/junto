@@ -216,7 +216,7 @@ describe("SQLite usage cache", () => {
     const runtime = cacheRuntime(engine);
 
     const result = await runtime.runPromise(
-      Effect.either(
+      Effect.result(
         Effect.flatMap(UsageCache, (cache) => cache.loadLastGood),
       ),
     );
@@ -229,9 +229,9 @@ describe("SQLite usage cache", () => {
     );
 
     expect(result._tag).toBe("Left");
-    if (result._tag === "Left") {
-      expect(result.left.operation).toBe("load.decode");
-      expect(result.left.message).toContain("legacyEnvelope");
+    if (result._tag === "Failure") {
+      expect(result.failure.operation).toBe("load.decode");
+      expect(result.failure.message).toContain("legacyEnvelope");
     }
     expect(persisted).toBe(encoded);
   });

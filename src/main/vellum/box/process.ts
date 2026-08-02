@@ -26,7 +26,7 @@ export interface BoxProcessResult {
   readonly stderr: string;
 }
 
-export class BoxProcessError extends Schema.TaggedError<BoxProcessError>()(
+export class BoxProcessError extends Schema.TaggedErrorClass<BoxProcessError>()(
   "BoxProcessError",
   {
     operation: Schema.String,
@@ -43,14 +43,12 @@ export class BoxProcessError extends Schema.TaggedError<BoxProcessError>()(
  * - Layer today: BoxProcessRunnerLive — V4 rename candidate BoxProcessRunner.layer
  *   Do not dual-export Live + `.layer` names.
  */
-export class BoxProcessRunner extends Context.Tag("@vellum/box/BoxProcessRunner")<
-  BoxProcessRunner,
+export class BoxProcessRunner extends Context.Service<BoxProcessRunner,
   {
     readonly run: (
       request: BoxProcessRequest,
     ) => Effect.Effect<BoxProcessResult, BoxProcessError>;
-  }
->() {}
+  }>()("@vellum/box/BoxProcessRunner") {}
 
 type ActiveOperation = {
   readonly lease: AppProcessLease;

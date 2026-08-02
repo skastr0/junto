@@ -1,4 +1,4 @@
-import { Either, Schema } from "effect";
+import { Result, Schema } from "effect";
 import { CanvasDoc } from "@shared/canvas";
 import {
   CANVAS_NAME_INPUT_PATTERN,
@@ -37,30 +37,27 @@ export const canvasControlNameFrom = (raw: string): string => {
   return trimmed.toLowerCase();
 };
 
-export const CanvasControlOp = Schema.Literal("list", "read");
+export const CanvasControlOp = Schema.Literals(["list", "read"]);
 export type CanvasControlOp = typeof CanvasControlOp.Type;
 
-export const CanvasControlErrorCode = Schema.Literal(
-  "InputError",
-  "CanvasError",
-  "RuntimeDown",
-  "ProtocolError",
-  "ResponseTooLarge",
-  "InternalError",
-);
+export const CanvasControlErrorCode = Schema.Literals(["InputError", "CanvasError",
+"RuntimeDown",
+"ProtocolError",
+"ResponseTooLarge",
+"InternalError",]);
 export type CanvasControlErrorCode = typeof CanvasControlErrorCode.Type;
 
 const RequestId = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(128),
-  Schema.pattern(/^[A-Za-z0-9._:-]+$/),
+  Schema.check(Schema.isMinLength(1)),
+  Schema.check(Schema.isMaxLength(128)),
+  Schema.check(Schema.isPattern(/^[A-Za-z0-9._:-]+$/)),
 );
 
 export const CanvasControlRequestEnvelope = Schema.Struct({
   protocol_version: Schema.Literal(CANVAS_CONTROL_PROTOCOL_VERSION),
   op: CanvasControlOp,
-  args: Schema.optionalWith(Schema.Unknown, { exact: true }),
-  id: Schema.optionalWith(RequestId, { exact: true }),
+  args: Schema.optionalKey(Schema.Unknown),
+  id: Schema.optionalKey(RequestId),
 });
 export type CanvasControlRequestEnvelope =
   typeof CanvasControlRequestEnvelope.Type;
@@ -77,30 +74,28 @@ export const CanvasControlResponseOk = Schema.Struct({
   ok: Schema.Literal(true),
   op: CanvasControlOp,
   data: Schema.Unknown,
-  id: Schema.optionalWith(RequestId, { exact: true }),
+  id: Schema.optionalKey(RequestId),
 });
 export type CanvasControlResponseOk = typeof CanvasControlResponseOk.Type;
 
 export const CanvasControlResponseErr = Schema.Struct({
   protocol_version: Schema.Literal(CANVAS_CONTROL_PROTOCOL_VERSION),
   ok: Schema.Literal(false),
-  op: Schema.optionalWith(CanvasControlOp, { exact: true }),
+  op: Schema.optionalKey(CanvasControlOp),
   error: CanvasControlErrorBody,
-  id: Schema.optionalWith(RequestId, { exact: true }),
+  id: Schema.optionalKey(RequestId),
 });
 export type CanvasControlResponseErr = typeof CanvasControlResponseErr.Type;
 
-export const CanvasControlResponseEnvelope = Schema.Union(
-  CanvasControlResponseOk,
-  CanvasControlResponseErr,
-);
+export const CanvasControlResponseEnvelope = Schema.Union([CanvasControlResponseOk,
+CanvasControlResponseErr,]);
 export type CanvasControlResponseEnvelope =
   typeof CanvasControlResponseEnvelope.Type;
 
 const BoundedCanvasName = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(CANVAS_NAME_MAX_LENGTH),
-  Schema.pattern(CANVAS_NAME_INPUT_PATTERN),
+  Schema.check(Schema.isMinLength(1)),
+  Schema.check(Schema.isMaxLength(CANVAS_NAME_MAX_LENGTH)),
+  Schema.check(Schema.isPattern(CANVAS_NAME_INPUT_PATTERN)),
 );
 
 export const CanvasControlListArgs = Schema.Struct({});
@@ -114,8 +109,8 @@ export type CanvasControlReadArgs = typeof CanvasControlReadArgs.Type;
 export const CanvasControlListEntry = Schema.Struct({
   name: Schema.String,
   modifiedAt: Schema.String,
-  nodes: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
-  edges: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
+  nodes: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
+  edges: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
 });
 export type CanvasControlListEntry = typeof CanvasControlListEntry.Type;
 
@@ -131,11 +126,11 @@ export const CanvasControlReadData = Schema.Struct({
 });
 export type CanvasControlReadData = typeof CanvasControlReadData.Type;
 
-export const decodeCanvasControlRequest = Schema.decodeUnknownEither(
+export const decodeCanvasControlRequest = Schema.decodeUnknownResult(
   CanvasControlRequestEnvelope,
   { onExcessProperty: "error" },
 );
-export const decodeCanvasControlResponse = Schema.decodeUnknownEither(
+export const decodeCanvasControlResponse = Schema.decodeUnknownResult(
   CanvasControlResponseEnvelope,
 );
 
@@ -174,10 +169,10 @@ export const encodeCanvasControlFrame = (value: unknown): string =>
 
 export const decodeCanvasControlJsonLine = (
   line: string,
-): Either.Either<unknown, string> => {
+): Result.Result<unknown, string> => {
   try {
-    return Either.right(JSON.parse(line) as unknown);
+    return Result.succeed(JSON.parse(line) as unknown);
   } catch {
-    return Either.left("malformed JSON frame");
+    return Result.fail("malformed JSON frame");
   }
 };

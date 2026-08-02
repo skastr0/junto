@@ -1,4 +1,4 @@
-import { Either, HashSet } from "effect";
+import { Result, HashSet } from "effect";
 import type { CanvasDoc, CanvasNode } from "./canvas";
 import type { Task } from "./work-model";
 import type { ActorSeatId } from "./actor-seat";
@@ -137,7 +137,7 @@ export const selectFactoryClaims = (
       .filter(isActor)
       .filter(actorEligible)
       .filter((actor) =>
-        Either.isRight(
+        Result.isSuccess(
           admitPure(
             capabilityView,
             asNodeId(actor.id),

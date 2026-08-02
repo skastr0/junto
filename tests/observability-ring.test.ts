@@ -11,7 +11,7 @@ import {
   applySettingsPatch,
   defaultSettings,
 } from "../src/shared/settings";
-import { Schema, Either } from "effect";
+import { Schema, Result } from "effect";
 import { makeObservabilityRing } from "../src/main/vellum/observability/ring";
 import { ObservabilityEffectLogger } from "../src/main/vellum/observability/logger";
 
@@ -98,24 +98,24 @@ describe("observability ring", () => {
 
 describe("observability query wire shape", () => {
   it("rejects present-but-undefined optionals (exact schema)", () => {
-    const bad = Schema.decodeUnknownEither(ObservabilityQuery)({
+    const bad = Schema.decodeUnknownResult(ObservabilityQuery)({
       limit: 500,
       q: undefined,
       levels: undefined,
       sources: undefined,
     });
-    expect(Either.isLeft(bad)).toBe(true);
+    expect(Result.isFailure(bad)).toBe(true);
   });
 
   it("accepts omitted optionals and partial filters", () => {
     expect(
-      Either.isRight(
-        Schema.decodeUnknownEither(ObservabilityQuery)({ limit: 500 }),
+      Result.isSuccess(
+        Schema.decodeUnknownResult(ObservabilityQuery)({ limit: 500 }),
       ),
     ).toBe(true);
     expect(
-      Either.isRight(
-        Schema.decodeUnknownEither(ObservabilityQuery)({
+      Result.isSuccess(
+        Schema.decodeUnknownResult(ObservabilityQuery)({
           limit: 500,
           levels: ["fatal"],
           sources: ["renderer", "system"],
@@ -136,12 +136,12 @@ describe("observability settings", () => {
   });
 
   it("decodes advanced prefs missing logsExplorer as false", () => {
-    const decoded = Schema.decodeUnknownEither(AdvancedSettings)({
+    const decoded = Schema.decodeUnknownResult(AdvancedSettings)({
       openLastCanvas: true,
     });
-    expect(Either.isRight(decoded)).toBe(true);
-    if (Either.isRight(decoded)) {
-      expect(decoded.right.logsExplorer).toBe(false);
+    expect(Result.isSuccess(decoded)).toBe(true);
+    if (Result.isSuccess(decoded)) {
+      expect(decoded.success.logsExplorer).toBe(false);
     }
   });
 });

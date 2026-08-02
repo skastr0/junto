@@ -1,4 +1,4 @@
-import { Either, Schema } from "effect";
+import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import * as StationApi from "../src/shared/station-api";
 import {
@@ -41,7 +41,7 @@ import {
 const decodeStrict =
   <A, I>(schema: Schema.Schema<A, I>) =>
   (value: unknown) =>
-    Schema.decodeUnknownEither(schema, { onExcessProperty: "error" })(value);
+    Schema.decodeUnknownResult(schema, { onExcessProperty: "error" })(value);
 
 const cc = Schema.decodeUnknownSync(InstallationId)("cc-installation");
 const remote = Schema.decodeUnknownSync(InstallationId)(
@@ -349,7 +349,7 @@ describe("Station API v2 contract", () => {
     expect(
       requests
         .map((candidate) => decodeStationControlRequest(candidate))
-        .every(Either.isRight),
+        .every(Result.isSuccess),
     ).toBe(true);
     expect(Schema.decodeUnknownSync(PairRequest)(requests[0])).toBeDefined();
     expect(
@@ -389,7 +389,7 @@ describe("Station API v2 contract", () => {
 
   it("rejects v1 reports, opaque events, excess fields, and sixth verbs", () => {
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeStationControlRequest({
           protocol: "vellum/station-api/v1",
           op: "pair",
@@ -401,7 +401,7 @@ describe("Station API v2 contract", () => {
       ),
     ).toBe(true);
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeStationControlRequest({
           protocol: STATION_API_PROTOCOL,
           op: "report",
@@ -421,7 +421,7 @@ describe("Station API v2 contract", () => {
       ),
     ).toBe(true);
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeStationControlRequest({
           protocol: STATION_API_PROTOCOL,
           op: "status",
@@ -430,7 +430,7 @@ describe("Station API v2 contract", () => {
       ),
     ).toBe(true);
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeStationControlRequest({
           protocol: STATION_API_PROTOCOL,
           op: "browser",
@@ -449,7 +449,7 @@ describe("Station API v2 contract", () => {
       (_, index) => messageFact(String(index + 1)),
     );
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeStrict(ReportBatch)({
           records,
           acknowledge: [],
@@ -480,7 +480,7 @@ describe("Station API v2 contract", () => {
       limit: STATION_API_MAX_COMMANDS_PER_REPORT,
     });
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeStrict(ReportBatch)({
           records: commands,
           acknowledge: [],
@@ -494,7 +494,7 @@ describe("Station API v2 contract", () => {
       (_, index) => cursor(remote, remote, String(index + 1)),
     );
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeStrict(ReportBatch)({
           records: [],
           acknowledge,
@@ -520,7 +520,7 @@ describe("Station API v2 contract", () => {
       actual: STATION_API_MAX_FIRST_DELIVERY_CLAIMS_PER_REPORT + 1,
     });
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeStrict(ReportBatch)({
           records: claims,
           acknowledge: [],
@@ -543,7 +543,7 @@ describe("Station API v2 contract", () => {
     expect(decideReportBatchAdmission(largeBatch)._tag).toBe(
       "encoded-byte-limit",
     );
-    expect(Either.isLeft(decodeStrict(ReportBatch)(largeBatch))).toBe(true);
+    expect(Result.isFailure(decodeStrict(ReportBatch)(largeBatch))).toBe(true);
   });
 
   it("admits only records and acknowledgements with the exact direction", () => {
@@ -607,7 +607,7 @@ describe("Station API v2 contract", () => {
 
   it("uses absent cursor as zero and advances only full contiguous routes", () => {
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeStrict(RouteCursor)({
           eventHome: cc,
           entityHome: remote,
@@ -688,11 +688,11 @@ describe("Station API v2 contract", () => {
         capabilities: ["terminal", "browser"],
       },
     };
-    expect(Either.isRight(decodeStrict(ConfigureRequest)(configure))).toBe(
+    expect(Result.isSuccess(decodeStrict(ConfigureRequest)(configure))).toBe(
       true,
     );
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeStrict(ConfigureRequest)({
           ...configure,
           configuration: {
@@ -704,7 +704,7 @@ describe("Station API v2 contract", () => {
       ),
     ).toBe(true);
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeStrict(ConfigureRequest)({
           ...configure,
           host: {
@@ -720,7 +720,7 @@ describe("Station API v2 contract", () => {
       ["sshHostKeyPolicy", "accept-new"],
     ] as const) {
       expect(
-        Either.isLeft(
+        Result.isFailure(
           decodeStrict(ConfigureRequest)({
             ...configure,
             host: {

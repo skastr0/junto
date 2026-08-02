@@ -100,15 +100,15 @@ export const doctorCommand = Command.make(
           const socket = yield* WorkSocket;
           const live = yield* socket
             .call("doctor", {}, toUndefined(timeout))
-            .pipe(Effect.either);
-          if (live._tag === "Right") {
+            .pipe(Effect.result);
+          if (live._tag === "Success") {
             liveOk = true;
-            protocol = live.right;
+            protocol = live.success;
             const version =
-              typeof live.right === "object" &&
-              live.right !== null &&
-              "protocol_version" in live.right
-                ? String((live.right as { protocol_version: string }).protocol_version)
+              typeof live.success === "object" &&
+              live.success !== null &&
+              "protocol_version" in live.success
+                ? String((live.success as { protocol_version: string }).protocol_version)
                 : undefined;
             checks.push({
               name: "protocol.version",
@@ -123,7 +123,7 @@ export const doctorCommand = Command.make(
               name: "protocol.live",
               ok: false,
               details: {
-                error: live.left.message,
+                error: live.failure.message,
                 hint: "CLI must run under a live Vellum Command agent process (process-bind)",
               },
             });

@@ -76,11 +76,11 @@ export const makeLinuxRemoteDeploymentProvider = (input: { readonly artifactAuth
               input.artifactAuthority
             ).resolve(),
           catch: () => new Error("signed userland runtime archive unavailable"),
-        }).pipe(Effect.either);
+        }).pipe(Effect.result);
         if (
-          candidate._tag === "Left" ||
-          !SEMVER.test(candidate.right.version) ||
-          !SHA256.test(candidate.right.sha256)
+          candidate._tag === "Failure" ||
+          !SEMVER.test(candidate.success.version) ||
+          !SHA256.test(candidate.success.sha256)
         ) {
           return failure(
             request,
@@ -88,8 +88,8 @@ export const makeLinuxRemoteDeploymentProvider = (input: { readonly artifactAuth
             "validation",
           );
         }
-        const preflight = yield* runPreflight(request).pipe(Effect.either);
-        if (preflight._tag === "Left" || !preflight.right.ok) {
+        const preflight = yield* runPreflight(request).pipe(Effect.result);
+        if (preflight._tag === "Failure" || !preflight.success.ok) {
           return failure(
             request,
             "owner-local systemd user service is unavailable",
@@ -98,23 +98,23 @@ export const makeLinuxRemoteDeploymentProvider = (input: { readonly artifactAuth
         }
         const cut = yield* input.liveWorkAuthority
           .acquire(request, false, async () => null)
-          .pipe(Effect.either);
-        if (cut._tag === "Left" || !cut.right.acquired) {
+          .pipe(Effect.result);
+        if (cut._tag === "Failure" || !cut.success.acquired) {
           return failure(
             request,
             "active Remote work prevents deployment",
             "conflict",
           );
         }
-        const archive = candidate.right.authorize();
-        const command = yield* compileLinuxUserlandDeploy().pipe(Effect.either);
-        if (command._tag === "Left") {
-          yield* (cut.right.release ?? Effect.void);
+        const archive = candidate.success.authorize();
+        const command = yield* compileLinuxUserlandDeploy().pipe(Effect.result);
+        if (command._tag === "Failure") {
+          yield* (cut.success.release ?? Effect.void);
           return failure(request, "userland deploy program is unavailable");
         }
         const outcome = yield* request.ssh
           .transact(
-            deploymentStream(request.target.sshTarget, command.right),
+            deploymentStream(request.target.sshTarget, command.success),
             (lease) =>
               Effect.scoped(
                 Effect.gen(function* () {
@@ -143,12 +143,12 @@ export const makeLinuxRemoteDeploymentProvider = (input: { readonly artifactAuth
                 }),
               ),
           )
-          .pipe(Effect.either);
-        yield* (cut.right.release ?? Effect.void);
-        if (outcome._tag === "Left") {
+          .pipe(Effect.result);
+        yield* (cut.success.release ?? Effect.void);
+        if (outcome._tag === "Failure") {
           return failure(request, "userland runtime transfer failed");
         }
-        const ready = DEPLOY.exec(outcome.right.trim());
+        const ready = DEPLOY.exec(outcome.success.trim());
         return ready && ready[2] === `${archive.version}-${archive.sha256}`
           ? {
               ok: true,

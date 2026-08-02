@@ -6,7 +6,7 @@
  * storage, and optional lingering. Browser is never ready in this beta.
  */
 
-import { Either, Schema } from "effect";
+import { Result, Schema } from "effect";
 import {
   LinuxHostCapabilityFacts,
   type LinuxHostCapabilityCheck,
@@ -100,7 +100,7 @@ const LIBRARY_NAMES = new Set([
 /** Core runtime libraries required for the signed Node Remote payload. */
 const CORE_LIBRARIES = new Set(["libc", "libstdc++", "libgcc"]);
 
-const decodeFacts = Schema.decodeUnknownEither(LinuxHostCapabilityFacts, {
+const decodeFacts = Schema.decodeUnknownResult(LinuxHostCapabilityFacts, {
   errors: "all",
   onExcessProperty: "error",
 });
@@ -465,7 +465,7 @@ export const parseLinuxHostCapabilityFacts = (
   if (diskFreeMiB !== undefined) candidate.diskFreeMiB = diskFreeMiB;
 
   const decoded = decodeFacts(candidate);
-  return Either.isRight(decoded) ? decoded.right : null;
+  return Result.isSuccess(decoded) ? decoded.success : null;
 };
 
 const compareGlibc = (version: string): number | null => {

@@ -152,12 +152,12 @@ export const registerTerminalIpc = (
         const read = await AppRuntime.runPromise(
           Effect.gen(function* () {
             const canvases = yield* CanvasesService;
-            return yield* canvases.read(canvasName).pipe(Effect.either);
+            return yield* canvases.read(canvasName).pipe(Effect.result);
           }),
         );
-        if (read._tag === "Right") {
+        if (read._tag === "Success") {
           const planned = launchForManagedSpawn({
-            doc: read.right.doc,
+            doc: read.success.doc,
             nodeId,
             harness,
             documentLaunch: input.launch,

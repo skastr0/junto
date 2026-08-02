@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Either, HashMap, HashSet, Match, Option } from "effect";
+import { Result, HashMap, HashSet, Match, Option } from "effect";
 import type { CanvasDoc } from "../../src/shared/canvas";
 import { WELL_KNOWN_ENTITY_KINDS } from "../../src/shared/canvas";
 import {
@@ -266,11 +266,11 @@ describe("physics admitPure", () => {
       asNodeId("p1"),
       "browser.automate",
     );
-    expect(Either.isRight(result)).toBe(true);
-    if (Either.isRight(result)) {
-      expect(result.right.port).toBe("browser.automate");
-      expect(result.right.caller).toBe("agent");
-      expect(result.right.target).toBe("p1");
+    expect(Result.isSuccess(result)).toBe(true);
+    if (Result.isSuccess(result)) {
+      expect(result.success.port).toBe("browser.automate");
+      expect(result.success.caller).toBe("agent");
+      expect(result.success.target).toBe("p1");
     }
   });
 
@@ -286,7 +286,7 @@ describe("physics admitPure", () => {
       asNodeId("p1"),
       "browser.automate",
     );
-    expect(Either.isRight(result)).toBe(true);
+    expect(Result.isSuccess(result)).toBe(true);
   });
 
   it("denies browser.automate to geography — a herdr pane is not an actor", () => {
@@ -301,7 +301,7 @@ describe("physics admitPure", () => {
       asNodeId("p1"),
       "browser.automate",
     );
-    expect(Either.isLeft(result)).toBe(true);
+    expect(Result.isFailure(result)).toBe(true);
   });
 
   it("denies with not_connected when only region co-members (no edge)", () => {
@@ -327,9 +327,9 @@ describe("physics admitPure", () => {
       asNodeId("p1"),
       "browser.automate",
     );
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left.reason).toBe("not_connected");
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure.reason).toBe("not_connected");
     }
   });
 
@@ -345,9 +345,9 @@ describe("physics admitPure", () => {
       asNodeId("p1"),
       "browser.automate",
     );
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left.reason).toBe("invisible");
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure.reason).toBe("invisible");
     }
   });
 
@@ -363,9 +363,9 @@ describe("physics admitPure", () => {
       asNodeId("missing"),
       "msg.send",
     );
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left.reason).toBe("unknown_node");
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure.reason).toBe("unknown_node");
     }
   });
 
@@ -382,9 +382,9 @@ describe("physics admitPure", () => {
       asNodeId("task1"),
       "browser.automate",
     );
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left.reason).toBe("no_port");
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure.reason).toBe("no_port");
     }
   });
 
@@ -402,7 +402,7 @@ describe("physics admitPure", () => {
       "msg.send",
     ] as const satisfies ReadonlyArray<Port>) {
       const result = admitPure(view, asNodeId("agent"), asNodeId("task1"), port);
-      expect(Either.isRight(result), port).toBe(true);
+      expect(Result.isSuccess(result), port).toBe(true);
     }
   });
 
@@ -418,9 +418,9 @@ describe("physics admitPure", () => {
       asNodeId("note"),
       "msg.send",
     );
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left.reason).toBe("role_law");
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure.reason).toBe("role_law");
     }
   });
 
@@ -444,8 +444,8 @@ describe("physics admitPure", () => {
       asNodeId("p1"),
       "browser.automate",
     );
-    expect(Either.isLeft(denied)).toBe(true);
-    if (Either.isLeft(denied)) {
+    expect(Result.isFailure(denied)).toBe(true);
+    if (Result.isFailure(denied)) {
       expect(denied.left.reason).toBe("no_port");
     }
   });
@@ -463,7 +463,7 @@ describe("physics admitPure", () => {
       asNodeId("p1"),
       "browser.automate",
     );
-    expect(Either.isRight(admitted)).toBe(true);
+    expect(Result.isSuccess(admitted)).toBe(true);
   });
 
   it("ignores invalid port strings (no mask ⇒ full offers)", () => {
@@ -487,7 +487,7 @@ describe("physics admitPure", () => {
       asNodeId("p1"),
       "browser.automate",
     );
-    expect(Either.isRight(admitted)).toBe(true);
+    expect(Result.isSuccess(admitted)).toBe(true);
   });
 
   it("fresh actor↔actor, no ports → both mailbox ports are admitted by default", () => {
@@ -507,7 +507,7 @@ describe("physics admitPure", () => {
     }
     for (const port of ["msg.send", "msg.list"] as const) {
       const admitted = admitPure(view, asNodeId("a1"), asNodeId("a2"), port);
-      expect(Either.isRight(admitted), port).toBe(true);
+      expect(Result.isSuccess(admitted), port).toBe(true);
     }
   });
 
@@ -528,10 +528,10 @@ describe("physics admitPure", () => {
     };
     const view = canvasDocToCapabilityView(doc);
     const send = admitPure(view, asNodeId("a1"), asNodeId("a2"), "msg.send");
-    expect(Either.isRight(send)).toBe(true);
+    expect(Result.isSuccess(send)).toBe(true);
     const list = admitPure(view, asNodeId("a1"), asNodeId("a2"), "msg.list");
-    expect(Either.isLeft(list)).toBe(true);
-    if (Either.isLeft(list)) {
+    expect(Result.isFailure(list)).toBe(true);
+    if (Result.isFailure(list)) {
       expect(list.left.reason).toBe("no_port");
     }
   });
@@ -569,7 +569,7 @@ describe("physics mask union (I7 — multi-edge masks combine as union)", () => 
         "msg.send",
       ] as const satisfies ReadonlyArray<Port>
     ).filter((port) =>
-      Either.isRight(admitPure(view, asNodeId("agent"), asNodeId("task1"), port)),
+      Result.isSuccess(admitPure(view, asNodeId("agent"), asNodeId("task1"), port)),
     );
 
   it("no-mask: neither edge declares ports ⇒ full offers", () => {
@@ -648,8 +648,8 @@ describe("physics mask union (I7 — multi-edge masks combine as union)", () => 
       );
     }
     const automate = admitPure(view, asNodeId("agent"), asNodeId("p1"), "browser.automate");
-    expect(Either.isLeft(automate)).toBe(true);
-    if (Either.isLeft(automate)) {
+    expect(Result.isFailure(automate)).toBe(true);
+    if (Result.isFailure(automate)) {
       expect(automate.left.reason).toBe("no_port");
     }
   });
@@ -734,11 +734,11 @@ describe("physics placement admit (I18/I19)", () => {
       asNodeId("page-b"),
       "browser.automate",
     );
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left.reason).toBe("route");
-      expect(result.left.reason).not.toBe("no_port");
-      expect(result.left.message).toMatch(/Command Center route/i);
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure.reason).toBe("route");
+      expect(result.failure.reason).not.toBe("no_port");
+      expect(result.failure.message).toMatch(/Command Center route/i);
     }
   });
 
@@ -757,7 +757,7 @@ describe("physics placement admit (I18/I19)", () => {
       asNodeId("page-b"),
       "browser.automate",
     );
-    expect(Either.isRight(result)).toBe(true);
+    expect(Result.isSuccess(result)).toBe(true);
   });
 
   it("same-station actor → page: admits", () => {
@@ -775,7 +775,7 @@ describe("physics placement admit (I18/I19)", () => {
       asNodeId("page-a"),
       "browser.automate",
     );
-    expect(Either.isRight(result)).toBe(true);
+    expect(Result.isSuccess(result)).toBe(true);
   });
 
   it("placement unknown (omitted map entry) fails closed", () => {
@@ -797,10 +797,10 @@ describe("physics placement admit (I18/I19)", () => {
       asNodeId("page1"),
       "browser.automate",
     );
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left.reason).toBe("placement_unknown");
-      expect(result.left.message).toMatch(/fail closed/i);
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure.reason).toBe("placement_unknown");
+      expect(result.failure.message).toMatch(/fail closed/i);
     }
   });
 

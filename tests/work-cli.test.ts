@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Effect, Either, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
 import {
   TasksClaimArgs,
   TasksCreateArgs,
@@ -186,11 +186,11 @@ describe("work CLI batch outcomes", () => {
         concurrency: 0,
         itemSchema: TasksUpdateArgs,
         run: () => Effect.succeed({}),
-      }).pipe(Effect.either),
+      }).pipe(Effect.result),
     );
-    expect(Either.isLeft(outcome)).toBe(true);
-    if (Either.isLeft(outcome)) {
-      expect(toErrorDetails(outcome.left).type).toBe("InputError");
+    expect(Result.isFailure(outcome)).toBe(true);
+    if (Result.isFailure(outcome)) {
+      expect(toErrorDetails(outcome.failure).type).toBe("InputError");
     }
   });
 });
@@ -205,8 +205,8 @@ describe("schema/examples from validating schemas", () => {
       const related = allExamples.filter((e) => e.command_id === contract.command_id);
       for (const example of related) {
         if (example.input !== undefined && !Array.isArray(example.input)) {
-          const decoded = Schema.decodeUnknownEither(contract.schema)(example.input);
-          expect(Either.isRight(decoded)).toBe(true);
+          const decoded = Schema.decodeUnknownResult(contract.schema)(example.input);
+          expect(Result.isSuccess(decoded)).toBe(true);
         }
       }
     }
@@ -284,8 +284,8 @@ describe("artifact content admission", () => {
     ).toBe("artifact.publish.input/v2");
 
     expect(
-      Either.isLeft(
-        Schema.decodeUnknownEither(ArtifactPublishCliArgs, {
+      Result.isFailure(
+        Schema.decodeUnknownResult(ArtifactPublishCliArgs, {
           onExcessProperty: "error",
         })({
           target: "art1",

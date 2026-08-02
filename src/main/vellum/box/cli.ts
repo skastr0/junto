@@ -34,8 +34,8 @@ const decodeNewLine = Schema.decodeUnknown(BoxNewLine, {
 });
 const decodeTtlSeconds = Schema.decodeUnknown(
   Schema.Number.pipe(
-    Schema.int(),
-    Schema.between(60, 7 * 24 * 60 * 60),
+    Schema.check(Schema.isInt()),
+    Schema.check(Schema.isBetween({ minimum: 60, maximum: 7 * 24 * 60 * 60 })),
   ),
 );
 
@@ -137,11 +137,11 @@ const boxIdFromJsonLines = (stdout: string): BoxIdType | undefined => {
   for (const line of stdout.split(/\r?\n/u)) {
     try {
       const value = JSON.parse(line) as { readonly id?: unknown };
-      const decoded = Schema.decodeUnknownEither(
+      const decoded = Schema.decodeUnknownResult(
         Schema.Struct({ id: BoxId }),
         { onExcessProperty: "ignore" },
       )(value);
-      if (decoded._tag === "Right") return decoded.right.id;
+      if (decoded._tag === "Success") return decoded.success.id;
     } catch {
       // Best-effort recovery metadata only; the typed protocol decoder reports
       // malformed success output on the normal path.
@@ -176,8 +176,7 @@ const errorDetailFromJsonLines = (stdout: string): string | undefined => {
  * - Layer today: BoxCliLive / makeBoxCli — V4 rename candidate BoxCli.layer
  *   Do not dual-export Live + `.layer` names.
  */
-export class BoxCli extends Context.Tag("@vellum/box/BoxCli")<
-  BoxCli,
+export class BoxCli extends Context.Service<BoxCli,
   {
     readonly availability: Effect.Effect<BoxCliAvailability>;
     readonly create: (
@@ -202,13 +201,12 @@ export class BoxCli extends Context.Tag("@vellum/box/BoxCli")<
       box: OwnedBox,
       policy: BoxAutoStopPolicy,
     ) => Effect.Effect<void, BoxCliError>;
-  }
->() {}
+  }>()("@vellum/box/BoxCli") {}
 
 export const makeBoxCli = (
-  runner: Context.Tag.Service<typeof BoxProcessRunner>,
+  runner: Context.Service.Shape<typeof BoxProcessRunner>,
   options: BoxCliOptions = {},
-): Context.Tag.Service<typeof BoxCli> => {
+): Context.Service.Shape<typeof BoxCli> => {
   const candidates = resolveBoxCliCandidates(
     options.executablePath,
     options.environment,
@@ -392,36 +390,36 @@ export const makeBoxCli = (
           detail: "Box CLI not installed",
         })
       : Effect.gen(function* () {
-          const versionResult = yield* Effect.either(
+          const versionResult = yield* Effect.result(
             run("version", ["--version"]),
           );
-          if (versionResult._tag === "Left") {
+          if (versionResult._tag === "Failure") {
             return {
               available: true,
               executable,
               authenticated: false,
               healthy: false,
-              detail: versionResult.left.detail,
+              detail: versionResult.fail.detail,
             };
           }
-          const version = versionResult.right.stdout
+          const version = versionResult.succeed.stdout
             .trim()
             .replace(/^box\s+/u, "");
-          const statusResult = yield* Effect.either(
+          const statusResult = yield* Effect.result(
             run("status", ["--json", "status"]),
           );
-          if (statusResult._tag === "Left") {
+          if (statusResult._tag === "Failure") {
             return {
               available: true,
               executable,
               version,
               authenticated: false,
               healthy: false,
-              detail: statusResult.left.detail,
+              detail: statusResult.fail.detail,
             };
           }
-          const parsed = yield* Effect.either(
-            parseJson("status", statusResult.right.stdout).pipe(
+          const parsed = yield* Effect.result(
+            parseJson("status", statusResult.succeed.stdout).pipe(
               Effect.flatMap((value) =>
                 decodeStatus(value).pipe(
                   Effect.mapError((error) => protocolError("status", error)),
@@ -429,17 +427,17 @@ export const makeBoxCli = (
               ),
             ),
           );
-          if (parsed._tag === "Left") {
+          if (parsed._tag === "Failure") {
             return {
               available: true,
               executable,
               version,
               authenticated: false,
               healthy: false,
-              detail: parsed.left.detail,
+              detail: parsed.failure.detail,
             };
           }
-          const status = parsed.right;
+          const status = parsed.success;
           const authenticated =
             status.account.loginState === "active" &&
             status.account.status === "active";
