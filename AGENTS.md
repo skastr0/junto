@@ -53,13 +53,22 @@ authority, synchronous CC-home task claims, offline Remote execution, logical
 event convergence, the five Station verbs, and transport adapters.
 
 **Normative direction:** the protected document is the product; compiled
-projections and capability-bound tools are the agent API. **Sole durable store**
-is `~/.vellum/state/vellum.db`. Each installation has one sole app runtime
-database owner and one `StateEngine` connection: Electron main on Command
-Center, or the displayless packaged Node Remote process on Remote. Renderers,
-CLIs, helpers, and remote callers use IPC/control APIs and never open the
-database. Every app version has one role-independent schema; independently
-updated installations may temporarily run different recognized versions.
+projections and capability-bound tools are the agent API. **Sole product
+store** is `~/.vellum/state/vellum.db` — canvases, work, content manifests,
+station, settings, and every other product durable fact. That law is about
+**product** durability, not process-internal bookkeeping: install-local
+internals (e.g. backfill ledgers in `~/.vellum/state/install-ops.db`, content
+object files under `~/.vellum/content/`) may use separate on-disk stores
+owned by the same app runtime. Do not fold migration/backfill completeness
+markers into product rows so seeds and installs cannot lie about local
+walks. Each installation has one sole app runtime process as the normal
+opener of product and install-ops databases, and one `StateEngine`
+connection for `vellum.db`: Electron main on Command Center, or the
+displayless packaged Node Remote process on Remote. Renderers, CLIs,
+helpers, and remote callers use IPC/control APIs and never open product or
+install-ops databases. Every app version has one role-independent product
+schema; independently updated installations may temporarily run different
+recognized versions.
 Command Center holds authorial canvases and fleet coordination; a Remote holds
 its replace-only projection and installation-homed work. Both event and entity
 homes are `InstallationId` values; `HostId` is placement, not durable work
@@ -291,13 +300,16 @@ phase, and attention/occupancy are separate planes.
 
 ## Discipline
 
-- `~/.vellum/state/vellum.db` is the only product state store. Do not add JSON
-  stores, manifests, seals, pointer files, drop-file protocols, dual
-  reads/writes, legacy imports, or rollback paths.
+- `~/.vellum/state/vellum.db` is the only **product** state store. Do not add
+  parallel product JSON stores, manifests, seals, pointer files, drop-file
+  protocols, dual product reads/writes, legacy imports, or rollback paths.
+  Install-local internals (backfill ledgers, content object files) are not
+  product state: they must not live as product tables that get seeded or
+  projected as operator truth.
 - The installation's sole app runtime process is the only normal database
-  opener: Electron main on Command Center or the displayless packaged Node
-  Remote process on Remote. Other headless and remote surfaces must use
-  app-owned IPC/control/Station APIs.
+  opener (product + install-ops): Electron main on Command Center or the
+  displayless packaged Node Remote process on Remote. Other headless and
+  remote surfaces must use app-owned IPC/control/Station APIs.
 - Adapters are read-only. The operator authors intent through Command Center;
   agents mutate only the work plane through `WorkService`.
 - Board/source IDs and tokens never leak into committed source.
@@ -314,7 +326,10 @@ Two kinds of migration exist and they never mix:
    identity-witnessed, one startup transaction, authorizer-guarded. A schema
    step adds tables/columns/triggers; it never rewrites rows.
 2. **Data backfills** — marker-gated, idempotent walks that run after
-   StateEngine is up (e.g. `content/inline-media-migration.ts`).
+   StateEngine is up (e.g. `content/inline-media-migration.ts`). Completeness
+   markers live in install-ops (`install-ops.db` / `InstallOpsService`), not
+   in product tables. Dev seeds may copy `vellum.db` + content files; they
+   must never copy install-ops ledgers.
 
 Backfill laws (each one broke, or nearly broke, a real release):
 
@@ -328,6 +343,9 @@ Backfill laws (each one broke, or nearly broke, a real release):
   walk, not a startup error.
 - **Idempotent by construction.** Content-addressed ingest, per-row
   transactions, safe resume from any interruption.
+- **Install-local ledger.** Backfill completeness is install-local
+  bookkeeping, not product state — separate Effect layer/service and
+  separate on-disk store from `vellum.db`.
 - **Proven against the real schema before it ships.** Every migration or
   backfill ships with a test that runs it on the production DDL — triggers
   active — seeded with historical-shaped rows *including rows in the immutable
