@@ -1,0 +1,87 @@
+{
+  "$comment": "S0 fitness gate for bare Effect.runPromise under src/main. permanent = true host/post-dispose adapters only. debt = known product debt (ratchet: count may only shrink; never promote kernel/work claim paths to permanent). See docs/END_STATE-effect-foundation.md §S0.",
+  "permanent": [
+    {
+      "path": "src/main/vellum/update/ipc.ts",
+      "maxCount": 1,
+      "reason": "post AppRuntime.dispose: finalizeInstallAfterQuiesce via bare Effect.runPromise — runtime and UpdateService are already gone"
+    }
+  ],
+  "debt": [
+    {
+      "path": "src/main/vellum/kernel/service.ts",
+      "maxCount": 26,
+      "reason": "S2 debt: empty-Context kernel bridges (claim/timer/fleet). NEVER promote to permanent."
+    },
+    {
+      "path": "src/main/vellum/browser/sessions.ts",
+      "maxCount": 5,
+      "reason": "product debt: profile state via bare runPromise; migrate to AppRuntime"
+    },
+    {
+      "path": "src/main/vellum/content/inline-media-migration.ts",
+      "maxCount": 5,
+      "reason": "product debt: backfill helpers bridge StateEngine/InstallOps without warm runtime"
+    },
+    {
+      "path": "src/main/vellum/usage/usage-service.ts",
+      "maxCount": 3,
+      "reason": "product debt: usage refresh bridges"
+    },
+    {
+      "path": "src/main/vellum/canvases.ts",
+      "maxCount": 2,
+      "reason": "product debt: bootstrap/ensureReady"
+    },
+    {
+      "path": "src/main/vellum/settings/ipc.ts",
+      "maxCount": 2,
+      "reason": "IPC adapter debt: should be AppRuntime.runPromise"
+    },
+    {
+      "path": "src/main/vellum/browser/composition.ts",
+      "maxCount": 1,
+      "reason": "product debt: profile wipe recover"
+    },
+    {
+      "path": "src/main/vellum/browser/page-target.ts",
+      "maxCount": 1,
+      "reason": "product debt: page target resolve"
+    },
+    {
+      "path": "src/main/vellum/browser/station-authority.ts",
+      "maxCount": 1,
+      "reason": "product debt: settings read"
+    },
+    {
+      "path": "src/main/vellum/hosts/registry.ts",
+      "maxCount": 1,
+      "reason": "adapter debt: runRegistryEffect Promise boundary"
+    },
+    {
+      "path": "src/main/vellum/ipc.ts",
+      "maxCount": 1,
+      "reason": "IPC adapter debt: canvases.ensureSeed bare call"
+    },
+    {
+      "path": "src/main/vellum/license/monitor.ts",
+      "maxCount": 1,
+      "reason": "product debt: license cycle runner"
+    },
+    {
+      "path": "src/main/vellum/station/remote-report-pump.ts",
+      "maxCount": 1,
+      "reason": "product debt: remote report pump"
+    },
+    {
+      "path": "src/main/vellum/term/router.ts",
+      "maxCount": 1,
+      "reason": "adapter debt: runScopePromise for R=never Scope effects"
+    },
+    {
+      "path": "src/main/vellum/update/service.ts",
+      "maxCount": 1,
+      "reason": "product debt: provider-event enqueue while runtime still alive; prefer AppRuntime"
+    }
+  ]
+}

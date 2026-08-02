@@ -43,6 +43,24 @@ Read V4 patterns from **Playground/effect**, not from V3 skill text.
 | id | lane | done when |
 |---|---|---|
 | **S0** | deep | Fitness: CI/rg or architecture test bans bare `Effect.runPromise` under product globs except allowlist file. Document allowlist. **≥1 commit.** |
+
+### S0 allowlist (fitness gate)
+
+| Surface | Path |
+|---|---|
+| Scanner | `scripts/lint-effect-runpromise.ts` (`bun run lint:effect-runpromise`) |
+| Allowlist | `scripts/effect-runpromise-allowlist.json` |
+| Architecture test | `tests/effect-runpromise-boundary.test.ts` (also in `bun run test` / `verify`) |
+| Product globs | `src/main/**/*.{ts,tsx}` (tests excluded) |
+
+**Rules**
+
+- **permanent** — true host / post-dispose adapters only (today: `update/ipc.ts` finalize after `AppRuntime.dispose`). Each entry needs a reason naming dispose/host.
+- **debt** — known product bare-`runPromise` sites. Counts are a **ratchet** (may only shrink). S2 clears kernel debt; other packs clear their own.
+- **Never permanent:** `src/main/vellum/kernel/**`, `src/main/vellum/work/**` (claim/ContentService empty-Context class of bug).
+- New bare `Effect.runPromise` under product globs → lint exit 1 unless allowlist/debt is deliberately updated in review.
+
+Preferred product path remains `AppRuntime.runPromise` / `RemoteRuntime.runPromise` with warm Context (see § Canonical end state).
 | **S1** | deep | Single warm ManagedRuntime story documented in code comments at `runtime.ts` / `remote-runtime.ts`; product IPC uses `AppRuntime`/`RemoteRuntime` only for domain Effects. **≥1 commit.** |
 | **S2** | deep | Kernel factory cycle (claim/delivery/timer bridges) does not use bare empty-Context `Effect.runPromise` for Work/Content paths; claims see ContentService. **≥1 commit.** |
 | **S3** | deep | Regression test: media/ContentRef task claim succeeds when receipts+files present (would catch prior claim-gate bug). **≥1 commit.** |
