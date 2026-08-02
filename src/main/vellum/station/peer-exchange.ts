@@ -10,6 +10,7 @@ import {
   StationProtocolSupport,
   StationStateSchemaVersion,
 } from "@shared/station-protocol";
+import { StationContextTagIds } from "./context-services";
 import type { StationPeerSession } from "./peer-session";
 
 const StationPeerRouteTypeId: unique symbol = Symbol(
@@ -91,8 +92,9 @@ export type StationRemoteReportHandler = (
  * in-flight requests. Reconnection is an orchestration concern and always
  * creates a fresh ephemeral session.
  */
+// S4-station: single canonical Context.Tag (effect@3.21). V4 → Context.Service.
 export class StationPeerExchange extends Context.Tag(
-  "@vellum/StationPeerExchange",
+  StationContextTagIds.peerExchange,
 )<
   StationPeerExchange,
   {

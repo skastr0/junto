@@ -15,6 +15,7 @@ import {
   type StateRow,
   type StateWriter,
 } from "../state/service";
+import { StationContextTagIds } from "./context-services";
 
 /** Fleet identity is host + station installation only. SSH routes live on the host registry. */
 export const StationFleetTargetIdentity = Schema.Struct({
@@ -81,8 +82,9 @@ export type StationFleetTargetRepositoryError =
   | StationFleetTargetCorruptRecordError
   | StationFleetTargetPersistenceError;
 
+// S4-station: single canonical Context.Tag (effect@3.21). V4 → Context.Service.
 export class StationFleetTargetRepository extends Context.Tag(
-  "@vellum/StationFleetTargetRepository",
+  StationContextTagIds.fleetTargetRepository,
 )<
   StationFleetTargetRepository,
   {

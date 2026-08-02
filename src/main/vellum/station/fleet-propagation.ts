@@ -36,6 +36,7 @@ import {
 import {
   SshTransport,
 } from "../ssh/service";
+import { StationContextTagIds } from "./context-services";
 import {
   findHostById,
   subscribeHostsSnapshot,
@@ -169,8 +170,9 @@ export type StationFleetPropagationResult =
  * Transport admission port. The supervisor understands enrolled peer
  * identity only; OpenSSH endpoint/platform mechanics remain in this adapter.
  */
+// S4-station: single canonical Context.Tag (effect@3.21). V4 → Context.Service.
 export class StationPeerRouteResolver extends Context.Tag(
-  "@vellum/StationPeerRouteResolver",
+  StationContextTagIds.peerRouteResolver,
 )<
   StationPeerRouteResolver,
   {
@@ -240,8 +242,9 @@ export const OpenSshStationPeerRouteResolverLive = Layer.effect(
   ),
 );
 
+// S4-station: single canonical Context.Tag (effect@3.21). V4 → Context.Service.
 export class StationFleetPropagation extends Context.Tag(
-  "@vellum/StationFleetPropagation",
+  StationContextTagIds.fleetPropagation,
 )<
   StationFleetPropagation,
   {

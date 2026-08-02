@@ -22,6 +22,7 @@ import {
   StationApiService,
   type StationApiError,
 } from "./api";
+import { StationContextTagIds } from "./context-services";
 import {
   StationFleetTargetRepository,
   type StationFleetTargetRepositoryError,
@@ -348,8 +349,9 @@ const synchronizeReport = (
     );
   }).pipe(Effect.withSpan("station.propagation.report"));
 
+// S4-station: single canonical Context.Tag (effect@3.21). V4 → Context.Service.
 export class StationPropagation extends Context.Tag(
-  "@vellum/StationPropagation",
+  StationContextTagIds.propagation,
 )<
   StationPropagation,
   {

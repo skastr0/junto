@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { Context, Effect, Either, Layer, Schema } from "effect";
+import { StationContextTagIds } from "./context-services";
 import {
   ConfigureResponse,
   DisplayTimestamp,
@@ -179,7 +180,8 @@ export type StationStatusFacts = {
   readonly peerAcknowledgedThrough: ReadonlyArray<StationPeerAcknowledgement>;
 };
 
-export class StationRepository extends Context.Tag("@vellum/StationRepository")<
+// S4-station: single canonical Context.Tag (effect@3.21). V4 → Context.Service.
+export class StationRepository extends Context.Tag(StationContextTagIds.repository)<
   StationRepository,
   {
     readonly installationId: Effect.Effect<

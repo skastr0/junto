@@ -2,6 +2,7 @@ import { Context, Effect, Either, Layer, Schema } from "effect";
 import type { CanvasDoc, CanvasNode } from "@shared/canvas";
 import type { InstallationId as InstallationIdValue } from "@shared/installation-id";
 import { remoteLeaseState } from "../license/remote-lease-state";
+import { StationContextTagIds } from "./context-services";
 import {
   LogicalSequence,
   ReportBatch,
@@ -1440,7 +1441,8 @@ const handleStatus = (
     });
   }).pipe(Effect.withSpan("station-api.status"));
 
-export class StationApiService extends Context.Tag("@vellum/StationApiService")<
+// S4-station: single canonical Context.Tag (effect@3.21). V4 → Context.Service.
+export class StationApiService extends Context.Tag(StationContextTagIds.api)<
   StationApiService,
   {
     readonly handle: (

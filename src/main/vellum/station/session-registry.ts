@@ -13,6 +13,7 @@ import {
   InstallationId,
   type InstallationId as InstallationIdValue,
 } from "@shared/installation-id";
+import { StationContextTagIds } from "./context-services";
 import {
   StationPeerSessionClosedError,
   type StationPeerProtocolBinding,
@@ -79,8 +80,9 @@ const unavailable = (
  * reservation runs. A disconnect immediately after commit leaves a durable
  * replayable command; it never rolls the claim back or mints a replacement.
  */
+// S4-station: single canonical Context.Tag (effect@3.21). V4 → Context.Service.
 export class StationLivePeerRegistry extends Context.Tag(
-  "@vellum/StationLivePeerRegistry",
+  StationContextTagIds.livePeerRegistry,
 )<
   StationLivePeerRegistry,
   {
