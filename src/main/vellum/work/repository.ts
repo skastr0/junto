@@ -5579,9 +5579,18 @@ const applyCommand = (
   return [fact, disposition];
 };
 
-export class WorkRepository extends Context.Tag("@vellum/WorkRepository")<
-  WorkRepository,
-  {
+/**
+ * V4 service contract staging.
+ *
+ * Effect 3 has no `Context.Service`; `Context.GenericTag` is the direct
+ * function-form rename target. Keep the identifier and service shape separate
+ * so the V4 migration is mechanical and there is only one repository tag.
+ */
+export interface WorkRepositoryId {
+  readonly _workRepository: unique symbol;
+}
+
+export interface WorkRepositoryShape {
     readonly readSnapshot: (
       canvasName: string,
       nodeId: string,
@@ -5688,8 +5697,14 @@ export class WorkRepository extends Context.Tag("@vellum/WorkRepository")<
     readonly subscribeChanges: (
       listener: (canvasName: string, nodeId: string) => void,
     ) => () => void;
-  }
->() {}
+}
+
+export type WorkRepository = WorkRepositoryId;
+
+export const WorkRepository = Context.GenericTag<
+  WorkRepository,
+  WorkRepositoryShape
+>("@vellum/WorkRepository");
 
 export const WorkRepositoryLive = Layer.effect(
   WorkRepository,

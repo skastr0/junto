@@ -241,9 +241,19 @@ const nodeById = (
 ): CanvasNode | undefined =>
   doc.nodes.find((node) => node.id === nodeId);
 
-export class WorkService extends Context.Tag("@vellum/WorkService")<
-  WorkService,
-  {
+/**
+ * V4 service contract staging.
+ *
+ * Effect 3 has no `Context.Service`; its `Context.GenericTag` constructor is
+ * the direct V4 function-form rename target. Keep the identifier and shape
+ * separate so the eventual V4 change is mechanical and cannot create a
+ * second tag for the same work-plane service.
+ */
+export interface WorkServiceId {
+  readonly _workService: unique symbol;
+}
+
+export interface WorkServiceShape {
     /** Read the canonical single home of one task through the app-owned seam. */
     readonly workTaskHome: (
       canvas: string,
@@ -409,8 +419,13 @@ export class WorkService extends Context.Tag("@vellum/WorkService")<
       WorkCommandStatus,
       WorkServiceError
     >;
-  }
->() {}
+}
+
+export type WorkService = WorkServiceId;
+
+export const WorkService = Context.GenericTag<WorkService, WorkServiceShape>(
+  "@vellum/WorkService",
+);
 
 export const WorkLive = Layer.effect(
   WorkService,
