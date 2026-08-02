@@ -41,90 +41,104 @@ export type ProductPasteResult = ProductWriteResult & { readonly path?: string }
 
 export type FrameSink = (frame: HerdrStreamFrame) => void;
 
+/** The stable capability shape shared by the V3 bridge and the V4 service. */
+export interface TerminalSessionsApi {
+  /** Long-lived product open (IPC / message path). Does not Scope-bind. */
+  readonly open: (
+    input: HerdrControlOpenInput,
+  ) => Effect.Effect<HerdrControlLiveHandle, TerminalSpawnError>;
+
+  /**
+   * Scoped open: detach on Scope close / interrupt. Prefer for Effect
+   * workflows that own a temporary control generation.
+   */
+  readonly openScoped: (
+    input: HerdrControlOpenInput,
+  ) => Effect.Effect<
+    HerdrControlLiveHandle,
+    TerminalSpawnError,
+    Scope.Scope
+  >;
+
+  readonly inputBytes: (
+    streamId: string,
+    dataBase64: string,
+  ) => Effect.Effect<void, HerdrControlError>;
+  readonly inputText: (
+    streamId: string,
+    text: string,
+  ) => Effect.Effect<void, HerdrControlError>;
+  readonly resize: (
+    streamId: string,
+    cols: number,
+    rows: number,
+  ) => Effect.Effect<void, HerdrControlError>;
+  readonly scroll: (
+    streamId: string,
+    delta: number,
+    at?: HerdrPointerCell,
+  ) => Effect.Effect<void, HerdrControlError>;
+  readonly pasteImage: (
+    streamId: string,
+    extension: string,
+    dataBase64: string,
+  ) => Effect.Effect<ProductPasteResult, never>;
+  readonly close: (
+    streamId: string,
+    reason?: string,
+  ) => Effect.Effect<void>;
+
+  /** IPC / sync product open result. */
+  readonly openProduct: (input: HerdrControlOpenInput) => HerdrStreamOpenResult;
+  readonly inputBytesProduct: (
+    streamId: string,
+    dataBase64: string,
+  ) => ProductWriteResult;
+  readonly inputTextProduct: (
+    streamId: string,
+    text: string,
+  ) => ProductWriteResult;
+  readonly resizeProduct: (
+    streamId: string,
+    cols: number,
+    rows: number,
+  ) => ProductWriteResult;
+  readonly scrollProduct: (
+    streamId: string,
+    delta: number,
+    at?: HerdrPointerCell,
+  ) => ProductWriteResult;
+  readonly pasteImageProduct: (
+    streamId: string,
+    extension: string,
+    dataBase64: string,
+  ) => Promise<ProductPasteResult>;
+  readonly closeProduct: (
+    streamId: string,
+    reason?: string,
+  ) => ProductWriteResult;
+
+  readonly setFrameSink: (sink: FrameSink | undefined) => void;
+  /** Message-delivery retry when control attaches for a terminal. */
+  readonly setOpenHook: (hook: ((terminalId: string) => void) | undefined) => void;
+  readonly activeControlCount: () => number;
+  readonly streamIdForTerminal: (terminalId: string) => string | undefined;
+}
+
+/**
+ * V4 migration map (effect@3.21 keeps the compiling bridge for now):
+ *
+ *   Context.Service<TerminalSessions, TerminalSessionsApi>()(
+ *     "@vellum/TerminalSessions",
+ *   )
+ *
+ * There is one identifier and one shape. Do not add a second Tag, a Default
+ * layer, or a compatibility accessor; replace the bridge directly at the V4
+ * dependency cutover.
+ */
 export class TerminalSessions extends Context.Tag("@vellum/TerminalSessions")<
   TerminalSessions,
-  {
-    /** Long-lived product open (IPC / message path). Does not Scope-bind. */
-    readonly open: (
-      input: HerdrControlOpenInput,
-    ) => Effect.Effect<HerdrControlLiveHandle, TerminalSpawnError>;
-
-    /**
-     * Scoped open: detach on Scope close / interrupt. Prefer for Effect
-     * workflows that own a temporary control generation.
-     */
-    readonly openScoped: (
-      input: HerdrControlOpenInput,
-    ) => Effect.Effect<
-      HerdrControlLiveHandle,
-      TerminalSpawnError,
-      Scope.Scope
-    >;
-
-    readonly inputBytes: (
-      streamId: string,
-      dataBase64: string,
-    ) => Effect.Effect<void, HerdrControlError>;
-    readonly inputText: (
-      streamId: string,
-      text: string,
-    ) => Effect.Effect<void, HerdrControlError>;
-    readonly resize: (
-      streamId: string,
-      cols: number,
-      rows: number,
-    ) => Effect.Effect<void, HerdrControlError>;
-    readonly scroll: (
-      streamId: string,
-      delta: number,
-      at?: HerdrPointerCell,
-    ) => Effect.Effect<void, HerdrControlError>;
-    readonly pasteImage: (
-      streamId: string,
-      extension: string,
-      dataBase64: string,
-    ) => Effect.Effect<ProductPasteResult, never>;
-    readonly close: (
-      streamId: string,
-      reason?: string,
-    ) => Effect.Effect<void>;
-
-    /** IPC / sync product open result. */
-    readonly openProduct: (input: HerdrControlOpenInput) => HerdrStreamOpenResult;
-    readonly inputBytesProduct: (
-      streamId: string,
-      dataBase64: string,
-    ) => ProductWriteResult;
-    readonly inputTextProduct: (
-      streamId: string,
-      text: string,
-    ) => ProductWriteResult;
-    readonly resizeProduct: (
-      streamId: string,
-      cols: number,
-      rows: number,
-    ) => ProductWriteResult;
-    readonly scrollProduct: (
-      streamId: string,
-      delta: number,
-      at?: HerdrPointerCell,
-    ) => ProductWriteResult;
-    readonly pasteImageProduct: (
-      streamId: string,
-      extension: string,
-      dataBase64: string,
-    ) => Promise<ProductPasteResult>;
-    readonly closeProduct: (
-      streamId: string,
-      reason?: string,
-    ) => ProductWriteResult;
-
-    readonly setFrameSink: (sink: FrameSink | undefined) => void;
-    /** Message-delivery retry when control attaches for a terminal. */
-    readonly setOpenHook: (hook: ((terminalId: string) => void) | undefined) => void;
-    readonly activeControlCount: () => number;
-    readonly streamIdForTerminal: (terminalId: string) => string | undefined;
-  }
+  TerminalSessionsApi
 >() {}
 
 const writeFromWire = (

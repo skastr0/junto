@@ -196,6 +196,17 @@ export interface BrowserProfileServiceApi {
   readonly rootDir: () => string;
 }
 
+/**
+ * V4 migration map (effect@3.21 keeps the compiling bridge for now):
+ *
+ *   Context.Service<BrowserProfileService, BrowserProfileServiceApi>()(
+ *     "@vellum/BrowserProfileService",
+ *   )
+ *
+ * This is the single browser-profile service identifier and shape. Keep the
+ * V3 Tag as the only bridge until the dependency cutover; do not introduce a
+ * parallel Tag, Default layer, or accessor shim.
+ */
 export class BrowserProfileService extends Context.Tag(
   "@vellum/BrowserProfileService",
 )<BrowserProfileService, BrowserProfileServiceApi>() {}
