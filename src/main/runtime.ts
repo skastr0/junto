@@ -1,3 +1,24 @@
+/**
+ * Command Center product ManagedRuntime — single warm Effect entry for Electron main.
+ *
+ * Canonical end state (docs/END_STATE-effect-foundation.md §S1):
+ *
+ *   boot  → ManagedRuntime.make(RootLayer) once   // AppRuntime below
+ *   IPC   → AppRuntime.runPromise(handler)        // adapters only (src/main/ipc.ts, vellum/ipc.ts)
+ *   loops → AppRuntime.runFork / same Context     // kernel debt cleared in S2
+ *   quit  → AppRuntime.dispose()                  // sole teardown; index.ts owns the call
+ *
+ * Laws:
+ * - One ManagedRuntime per process role (CC = AppRuntime; Remote = RemoteRuntime).
+ * - Never rebuild RootLayer or make() per IPC/handler call.
+ * - Domain Effects enter via AppRuntime.runPromise / runFork — bare Effect.runPromise
+ *   is empty Context (S0 fitness gate; permanent allowlist is host/post-dispose only).
+ * - Sole product store: StateEngine → vellum.db. InstallOps (install-ops.db) is
+ *   install-local bookkeeping co-composed here so ContentService sees both; it is
+ *   never a second product truth store.
+ *
+ * Remote stations use src/main/remote-runtime.ts (Node-only, no Electron shell).
+ */
 import { existsSync } from "node:fs";
 import { app } from "electron";
 import { Effect, Layer, ManagedRuntime } from "effect";
@@ -323,6 +344,12 @@ export const RootLayer = Layer.provideMerge(
 
 // Observability logger is an additional Effect sink (ring buffer) — does not
 // replace the default pretty console logger.
+//
+// AppRuntime is the sole warm ManagedRuntime for Command Center main.
+// Constructed once at module load; never remake. Callers: Electron IPC adapters
+// (AppRuntime.runPromise), boot wiring in index.ts, and process loops that share
+// the same Context. Dispose exactly once on quit via AppRuntime.dispose()
+// (index.ts disposeRuntime / disposeRuntimeFailClosed).
 export const AppRuntime = ManagedRuntime.make(
   Layer.mergeAll(RootLayer, ObservabilityLoggerLive),
 );

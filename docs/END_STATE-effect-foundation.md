@@ -43,6 +43,14 @@ Read V4 patterns from **Playground/effect**, not from V3 skill text.
 | id | lane | done when |
 |---|---|---|
 | **S0** | deep | Fitness: CI/rg or architecture test bans bare `Effect.runPromise` under product globs except allowlist file. Document allowlist. **≥1 commit.** |
+| **S1** | deep | Single warm ManagedRuntime story documented in code comments at `runtime.ts` / `remote-runtime.ts`; product IPC uses `AppRuntime`/`RemoteRuntime` only for domain Effects. **≥1 commit.** |
+| **S2** | deep | Kernel factory cycle (claim/delivery/timer bridges) does not use bare empty-Context `Effect.runPromise` for Work/Content paths; claims see ContentService. **≥1 commit.** |
+| **S3** | deep | Regression test: media/ContentRef task claim succeeds when receipts+files present (would catch prior claim-gate bug). **≥1 commit.** |
+| **S4** | parallel | `Context.Tag` → V4-ready `Context.Service` (or staged rename map) for **owned path pack only**. **≥1 commit.** |
+| **S5** | parallel | `Effect.fork` / `forkDaemon` → `forkChild` / `forkDetach` (V4 names if on V4; else V3-compatible prep + comment) **owned paths only**. **≥1 commit.** |
+| **S6** | parallel | Error combinator renames (`catchAll`→`catch` etc.) **owned paths only** when on V4; else no-op commit documenting N/A. **≥1 commit.** |
+| **S7** | parallel | Platform import path prep / V4 import map for **owned paths only** (ssh/cli/platform). **≥1 commit.** |
+| **S8** | deep | Optional later: Schema V4 — **serial only**, not parallel packs. |
 
 ### S0 allowlist (fitness gate)
 
@@ -61,14 +69,31 @@ Read V4 patterns from **Playground/effect**, not from V3 skill text.
 - New bare `Effect.runPromise` under product globs → lint exit 1 unless allowlist/debt is deliberately updated in review.
 
 Preferred product path remains `AppRuntime.runPromise` / `RemoteRuntime.runPromise` with warm Context (see § Canonical end state).
-| **S1** | deep | Single warm ManagedRuntime story documented in code comments at `runtime.ts` / `remote-runtime.ts`; product IPC uses `AppRuntime`/`RemoteRuntime` only for domain Effects. **≥1 commit.** |
-| **S2** | deep | Kernel factory cycle (claim/delivery/timer bridges) does not use bare empty-Context `Effect.runPromise` for Work/Content paths; claims see ContentService. **≥1 commit.** |
-| **S3** | deep | Regression test: media/ContentRef task claim succeeds when receipts+files present (would catch prior claim-gate bug). **≥1 commit.** |
-| **S4** | parallel | `Context.Tag` → V4-ready `Context.Service` (or staged rename map) for **owned path pack only**. **≥1 commit.** |
-| **S5** | parallel | `Effect.fork` / `forkDaemon` → `forkChild` / `forkDetach` (V4 names if on V4; else V3-compatible prep + comment) **owned paths only**. **≥1 commit.** |
-| **S6** | parallel | Error combinator renames (`catchAll`→`catch` etc.) **owned paths only** when on V4; else no-op commit documenting N/A. **≥1 commit.** |
-| **S7** | parallel | Platform import path prep / V4 import map for **owned paths only** (ssh/cli/platform). **≥1 commit.** |
-| **S8** | deep | Optional later: Schema V4 — **serial only**, not parallel packs. |
+
+### S1 ManagedRuntime / IPC boundary
+
+| Surface | Path |
+|---|---|
+| Command Center runtime | `src/main/runtime.ts` — `AppRuntime = ManagedRuntime.make(RootLayer)` once |
+| Remote runtime | `src/main/remote-runtime.ts` — `RemoteRuntime` once (Node-only) |
+| CC boot / dispose | `src/main/index.ts` — bind `AppRuntime.runPromise`; quit → `AppRuntime.dispose()` |
+| Product IPC | `src/main/ipc.ts`, `src/main/vellum/ipc.ts` — domain Effects via `AppRuntime.runPromise` only |
+| Remote boot | `src/main/vellum-remote.ts` — `RemoteRuntime.runPromise` / `dispose` (audit only in S1) |
+
+**Laws (cemented in code comments on the runtime modules):**
+
+- One warm ManagedRuntime per process role; never rebuild per IPC call.
+- Domain Effects enter via `AppRuntime` / `RemoteRuntime` — not bare `Effect.runPromise`.
+- Sole product store composition: memoized `StateEngine` + co-owned `InstallOps` at `StateRepositoriesLive` (install-ops is not product truth).
+- Dispose once on quit; post-dispose host edges stay on S0 permanent allowlist only.
+
+**S2 inventory (remaining bare `Effect.runPromise` under product main — do not rewrite in S1):**
+
+| Path | Debt role |
+|---|---|
+| `src/main/vellum/kernel/service.ts` | S2 target: claim/timer/fleet bridges (empty Context) |
+| browser/*, content/inline-media-migration, usage, canvases, settings/ipc, hosts/registry, license/monitor, station/remote-report-pump, term/router, update/service | product/adapter debt — shrink via S0 ratchet when migrated |
+| `src/main/vellum/update/ipc.ts` | permanent: post-`AppRuntime.dispose` finalize only |
 
 ## Review slices (validation lane — parallel + deep)
 

@@ -961,11 +961,13 @@ export const registerVellumIpc = (): void => {
       const stationStatus = yield* StationStatusService;
       const stationForSeed = yield* settingsForSeed.get;
       // Fresh Command Center (or unset) may seed. Remote never authors a seed.
+      // Domain Effect through warm AppRuntime — never bare Effect.runPromise
+      // (empty Context; S0/S1). Authoring gate still serializes the write.
       if (stationForSeed.station.role !== "remote") {
         yield* Effect.tryPromise({
           try: () =>
             runMainAuthoring("startup.canvas.ensure-seed", () =>
-              Effect.runPromise(canvases.ensureSeed),
+              AppRuntime.runPromise(canvases.ensureSeed),
             ),
           catch: () => undefined,
         }).pipe(Effect.catchAll(() => Effect.void));

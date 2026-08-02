@@ -59,11 +59,6 @@
       "reason": "adapter debt: runRegistryEffect Promise boundary"
     },
     {
-      "path": "src/main/vellum/ipc.ts",
-      "maxCount": 1,
-      "reason": "IPC adapter debt: canvases.ensureSeed bare call"
-    },
-    {
       "path": "src/main/vellum/license/monitor.ts",
       "maxCount": 1,
       "reason": "product debt: license cycle runner"

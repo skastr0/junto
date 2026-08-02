@@ -1,9 +1,22 @@
 /**
- * Node-only Runtime for a Remote station. It intentionally has no Electron
- * shell, renderer host, browser host, update, or IPC dependencies.
- * The memoized StateEngine layer remains the sole database owner.
+ * Node-only ManagedRuntime for a Remote station — single warm Effect entry.
  *
- * isPackaged is derived from env / release-tree placement — never app.isPackaged.
+ * Canonical end state (docs/END_STATE-effect-foundation.md §S1):
+ *
+ *   boot  → ManagedRuntime.make(RemoteRootLayer) once  // RemoteRuntime below
+ *   entry → RemoteRuntime.runPromise(handler)          // remote boot / station APIs
+ *   loops → same warm Context (kernel debt → S2)
+ *   quit  → RemoteRuntime.dispose()                    // vellum-remote drainAndExit
+ *
+ * Same laws as Command Center AppRuntime (src/main/runtime.ts):
+ * - One ManagedRuntime per process; never rebuild per call.
+ * - Domain Effects enter via RemoteRuntime.runPromise / runFork — not bare
+ *   Effect.runPromise (empty Context; S0 fitness gate).
+ * - Sole product store: StateEngine → vellum.db. InstallOps co-composed for
+ *   ContentService; install-ops.db is install-local, not product truth.
+ *
+ * Intentionally has no Electron shell, renderer host, browser host, update, or
+ * Electron IPC. isPackaged is env / release-tree placement — never app.isPackaged.
  */
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { ObservabilityLoggerLive } from "./vellum/observability";
@@ -270,6 +283,10 @@ const RemoteRootLayer = Layer.provideMerge(
   ),
 );
 
+// RemoteRuntime is the sole warm ManagedRuntime for the displayless Remote
+// process. Constructed once at module load; never remake. Callers: vellum-remote
+// boot, station/work control bridges, product planes. Dispose exactly once on
+// SIGTERM/SIGINT via RemoteRuntime.dispose() in drainAndExit.
 export const RemoteRuntime = ManagedRuntime.make(
   Layer.mergeAll(RemoteRootLayer, ObservabilityLoggerLive),
 );

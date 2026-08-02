@@ -168,6 +168,8 @@ import {
 
 // TerminalRouter SSH dials need the process RootLayer; bind AppRuntime once
 // so term/router never imports the Electron runtime graph itself.
+// AppRuntime is the sole warm ManagedRuntime for CC main (see runtime.ts §S1):
+// boot once → runPromise/runFork with shared Context → dispose on quit.
 configureTerminalRouterLayeredRunner((effect) =>
   AppRuntime.runPromise(effect as never),
 );
@@ -2159,6 +2161,7 @@ const drainRuntimeOnQuit = async (reason: string): Promise<void> => {
 const disposeRuntime = (): Promise<void> => {
   // Soft dispose for ordinary quit: log failures but still resolve so the
   // native quit sequence can continue after best-effort teardown.
+  // Sole AppRuntime.dispose — do not construct a second runtime after this.
   runtimeDispose ??= drainRuntimeOnQuit(shutdownReason)
     .then(() => AppRuntime.dispose())
     .finally(releaseDemoRuntimeIsolation)
@@ -2171,6 +2174,9 @@ const disposeRuntime = (): Promise<void> => {
 /**
  * Fail-closed dispose for update install. SQLite must be released before
  * quitAndInstall — swallow is not allowed.
+ * After dispose, only host/post-dispose bare Effect.runPromise is allowed
+ * (S0 permanent allowlist: update finalize). Domain Effects stay on AppRuntime
+ * before this point.
  */
 const disposeRuntimeFailClosed = (reason: string): Promise<void> => {
   if (runtimeDisposed) return Promise.resolve();
