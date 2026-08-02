@@ -31,6 +31,10 @@ export const state$ = observable({
   // command card can read it. Presentational; never persisted.
   selectedNodeIds: [] as ReadonlyArray<string>,
   selectedEdgeId: "",
+  // One-shot request used by canvas gestures that should open the selected
+  // edge's fields directly (rather than making the operator find the fields
+  // key in the relation strip).
+  edgeSettingsRequestId: "",
   // Presentational connection-focus target. Unlike focusNodeId (a one-shot
   // camera request), this stays set while the operator inspects one node's
   // neighborhood and is never persisted to the canvas document.
@@ -87,6 +91,7 @@ export const toggleFlagFilter = (flag: EtherFlag): void => {
     state$.selectedNodeId.set("");
     state$.selectedNodeIds.set([]);
     state$.selectedEdgeId.set("");
+    state$.edgeSettingsRequestId.set("");
     state$.connectionFocusNodeId.set("");
   });
 };
@@ -98,6 +103,7 @@ export const clearGraphFilters = (): void => {
     state$.selectedNodeId.set("");
     state$.selectedNodeIds.set([]);
     state$.selectedEdgeId.set("");
+    state$.edgeSettingsRequestId.set("");
     state$.connectionFocusNodeId.set("");
   });
 };
@@ -108,6 +114,7 @@ export const clearSelection = (): void => {
     state$.selectedNodeId.set("");
     state$.selectedNodeIds.set([]);
     state$.selectedEdgeId.set("");
+    state$.edgeSettingsRequestId.set("");
     state$.connectionFocusNodeId.set("");
   });
 };

@@ -572,11 +572,18 @@ export function KindSurface() {
   const selectedNodeId = use$(state$.selectedNodeId);
   const selectedNodeIds = use$(state$.selectedNodeIds);
   const selectedEdgeId = use$(state$.selectedEdgeId);
+  const edgeSettingsRequestId = use$(state$.edgeSettingsRequestId);
   const [formOpen, setFormOpen] = useState(false);
 
   useEffect(() => {
     setFormOpen(false);
   }, [selectedNodeId, selectedEdgeId, selectedNodeIds.length]);
+
+  useEffect(() => {
+    if (!edgeSettingsRequestId || edgeSettingsRequestId !== selectedEdgeId) return;
+    setFormOpen(true);
+    state$.edgeSettingsRequestId.set("");
+  }, [edgeSettingsRequestId, selectedEdgeId]);
 
   if (selectedNodeIds.length > 1) {
     const selectedNodes = selectedNodeIds

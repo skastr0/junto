@@ -14,7 +14,7 @@ import {
   useNodesState,
   useReactFlow,
 } from "@xyflow/react";
-import type { Connection, FinalConnectionState, Node, OnNodeDrag } from "@xyflow/react";
+import type { Connection, EdgeMouseHandler, FinalConnectionState, Node, OnNodeDrag } from "@xyflow/react";
 import { use$ } from "@legendapp/state/react";
 import type { CanvasDoc, EtherEdgeKind, EtherFlag } from "@shared/canvas";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
@@ -588,6 +588,15 @@ function useCanvasInteractions(
     deleteNodes(deleted.map((node) => node.id));
   }, [dragInProgressRef, finishDrag]);
   const onEdgesDelete = useCallback((deleted: ReadonlyArray<FlowEdge>) => deleteEdges(deleted.map((edge) => edge.id)), []);
+  const onEdgeDoubleClick: EdgeMouseHandler<FlowEdge> = useCallback((event, edge) => {
+    event.preventDefault();
+    event.stopPropagation();
+    state$.selectedNodeId.set("");
+    state$.selectedNodeIds.set([]);
+    state$.selectedEdgeId.set(edge.id);
+    state$.edgeSettingsRequestId.set(edge.id);
+    state$.connectionFocusNodeId.set("");
+  }, []);
   const onSelectionChange = useCallback(({ nodes: selectedNodes, edges: selectedEdges }: { readonly nodes: ReadonlyArray<FlowNode>; readonly edges: ReadonlyArray<FlowEdge> }) => {
     // React Flow emits empty selections while the graph remounts. A pane
     // click is the explicit deselection gesture; do not erase an inspector
@@ -609,14 +618,19 @@ function useCanvasInteractions(
       state$.selectedEdgeId.set("");
       return;
     }
+    const nextSelectedEdgeId = selectedNodes.length === 0 ? selectedEdges[0]?.id ?? "" : "";
+    if (state$.edgeSettingsRequestId.peek() && state$.edgeSettingsRequestId.peek() !== nextSelectedEdgeId) {
+      state$.edgeSettingsRequestId.set("");
+    }
     state$.selectedNodeId.set(nextSelectedNodeId);
-    state$.selectedEdgeId.set(selectedNodes.length === 0 ? selectedEdges[0]?.id ?? "" : "");
+    state$.selectedEdgeId.set(nextSelectedEdgeId);
   }, []);
   const onPaneClick = useCallback((event: React.MouseEvent) => {
     if (event.detail === 1) {
       state$.selectedNodeId.set("");
       state$.selectedNodeIds.set([]);
       state$.selectedEdgeId.set("");
+      state$.edgeSettingsRequestId.set("");
       state$.connectionFocusNodeId.set("");
       return;
     }
@@ -624,7 +638,7 @@ function useCanvasInteractions(
     const pos = rf.screenToFlowPosition({ x: event.clientX, y: event.clientY });
     addNode(makeTextNode(pos.x - 120, pos.y - 50));
   }, [rf]);
-  return { onConnect, onConnectEnd, onNodeDragStart, onNodeDrag, onNodeDragStop, onNodesDelete, onEdgesDelete, onSelectionChange, onPaneClick };
+  return { onConnect, onConnectEnd, onNodeDragStart, onNodeDrag, onNodeDragStop, onNodesDelete, onEdgesDelete, onEdgeDoubleClick, onSelectionChange, onPaneClick };
 }
 
 // Node creation against a caller-supplied placement strategy — the toolbar
@@ -1364,6 +1378,7 @@ function CanvasGraph() {
       onNodesChange={onNodesChange}
       onEdgesChange={onEdgesChange}
       {...interactions}
+      onEdgeDoubleClick={interactions.onEdgeDoubleClick}
       onPaneClick={onPaneClick}
       onPaneContextMenu={onPaneContextMenu}
       onNodeContextMenu={onNodeContextMenu}
