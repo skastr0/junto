@@ -95,6 +95,37 @@ Claim-ready only after implement is **completed**. Reviewers are different seats
 - Complete with git commits on `main` (or campaign branch if operator says so).
 - Point finish description at slice id + END_STATE path.
 
+## Proposal / task authoring (CLI → UI)
+
+Task detail UI maps fields as follows (not the free-text `brief` alone):
+
+| UI | Source |
+|---|---|
+| **Title** | `metadata.title` else first line of brief |
+| **Description** | `metadata.details` (long-form — **required** for agent-usable tasks) |
+| **Reason** | `reason` |
+| **Finish criteria** | `finishCriteria.description` + git/artifacts arms |
+
+`vellum tasks create` must always set:
+
+```json
+{
+  "brief": "<title>\\n\\n<details full text>",
+  "reason": "...",
+  "metadata": {
+    "title": "<short title>",
+    "details": "<full long-form description with DO / paths / out-of-bounds / done-when>",
+    "lane": "deep|parallel",
+    "slice": "S0|...",
+    "role": "implement|review",
+    "campaign": "effect-foundation"
+  },
+  "finishCriteria": { "description": "...", "git": { "minCommits": 1 } }
+}
+```
+
+Prefer proposals tagged `briefVersion: 3` (full description). Reject/ignore older empty-Description drafts when approving.
+
 ## Repo roots
 
 | Root | Role |
