@@ -411,6 +411,10 @@ export const WorkLive = Layer.effect(
     const stations = yield* StationRepository;
     const fleetTargets = yield* StationFleetTargetRepository;
     const livePeers = yield* StationLivePeerRegistry;
+    // Capture at construction: kernel (and other callers) run Work effects via
+    // bare Effect.runPromise with no ambient services. serviceOption at call
+    // time always misses ContentService even when it is in the app graph.
+    const contentServiceOption = yield* Effect.serviceOption(ContentService);
     const ids = defaultIds();
 
     const stationContext: Effect.Effect<
@@ -497,8 +501,7 @@ export const WorkLive = Layer.effect(
         return Effect.succeed(parts);
       }
       return Effect.gen(function* () {
-        const service = yield* Effect.serviceOption(ContentService);
-        if (Option.isNone(service)) {
+        if (Option.isNone(contentServiceOption)) {
           return yield* Effect.fail(
             new WorkServiceError({
               code: "invalid",
@@ -507,6 +510,7 @@ export const WorkLive = Layer.effect(
             }),
           );
         }
+        const service = contentServiceOption.value;
         return yield* Effect.forEach(parts, (part) => {
           if (part.kind !== "raw") return Effect.succeed(part);
           return Effect.try({
@@ -514,7 +518,7 @@ export const WorkLive = Layer.effect(
             catch: toWorkServiceError,
           }).pipe(
             Effect.flatMap((source) =>
-              service.value.put({
+              service.put({
                 source,
                 mediaType: part.mediaType ?? "application/octet-stream",
                 ...(owner === undefined ? {} : { owner }),
@@ -1277,17 +1281,17 @@ export const WorkLive = Layer.effect(
               sourceTask.state === "submitted" &&
               collectContentRefsFromTask(sourceTask).length > 0
             ) {
-              const contentService = yield* Effect.serviceOption(ContentService);
-              if (Option.isNone(contentService)) {
+              if (Option.isNone(contentServiceOption)) {
                 return yield* new WorkServiceError({
                   code: "invalid",
                   message: `task "${taskId}" is not claim-ready (content service unavailable)`,
                 });
               }
+              const contentService = contentServiceOption.value;
               const statuses = yield* Effect.forEach(
                 collectContentRefsFromTask(sourceTask),
                 (ref) =>
-                  contentService.value.availability(ref).pipe(
+                  contentService.availability(ref).pipe(
                     Effect.mapError(
                       (error) =>
                         new WorkServiceError({
