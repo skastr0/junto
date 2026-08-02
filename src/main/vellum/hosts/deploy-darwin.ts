@@ -24,7 +24,6 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import type { Context } from "effect";
 import { Effect, Stream } from "effect";
 import { controlSocketPath as browserControlSocketPath } from "@shared/browser-control";
 import {
@@ -41,7 +40,10 @@ import {
   remoteDarwinPackageExists,
 } from "../ssh/read-commands";
 import { compileDarwinRemoteDeployScript } from "../ssh/remote-plan";
-import { SshTransferExitError, SshTransport } from "../ssh/service";
+import {
+  SshTransferExitError,
+  type SshTransportShape,
+} from "../ssh/service";
 import {
   appProcessPlane,
   type AppChildIo,
@@ -673,7 +675,7 @@ const tryPackagedAppPath = (): string | null => {
   return null;
 };
 
-type Ssh = Context.Tag.Service<typeof SshTransport>;
+type Ssh = SshTransportShape;
 
 const push = (stages: string[], line: string): void => {
   stages.push(line);

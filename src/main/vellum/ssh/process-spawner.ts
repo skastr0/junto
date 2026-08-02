@@ -16,7 +16,21 @@ export interface ProcessHandle {
   readonly stdout: Stream.Stream<Uint8Array, ProcessFailure>;
   readonly stderr: Stream.Stream<Uint8Array, ProcessFailure>;
 }
-export class ProcessSpawner extends Context.Tag("@vellum/ssh/ProcessSpawner")<ProcessSpawner, { readonly start: (command: Command.Command) => Effect.Effect<ProcessHandle, ProcessFailure, Scope.Scope> }>() {}
+/**
+ * S4 (effect@3.21): single canonical Tag `@vellum/ssh/ProcessSpawner`.
+ * No dual Effect.Service / Context.Service until Effect V4 pin.
+ * @see docs/END_STATE-effect-foundation.md §S4
+ */
+export class ProcessSpawner extends Context.Tag("@vellum/ssh/ProcessSpawner")<
+  ProcessSpawner,
+  {
+    readonly start: (
+      command: Command.Command,
+    ) => Effect.Effect<ProcessHandle, ProcessFailure, Scope.Scope>;
+  }
+>() {}
+
+export type ProcessSpawnerShape = Context.Tag.Service<typeof ProcessSpawner>;
 const failure = (): ProcessFailure => new ProcessFailure();
 
 const SSH_PROCESS_TERM_GRACE_MS = 1_500;

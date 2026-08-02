@@ -1,6 +1,5 @@
 /** Remote deployment target admission and platform-provider dispatch. */
 
-import type { Context } from "effect";
 import { Effect } from "effect";
 import {
   DARWIN_REMOTE_DEPLOY_DISABLED_DETAIL,
@@ -8,7 +7,7 @@ import {
   RELEASE_CAPABILITIES,
 } from "@shared/release-capabilities";
 import { hostHasCapability, type RemoteHost } from "@shared/remote-hosts";
-import { SshTransport } from "../ssh";
+import type { SshTransportShape } from "../ssh";
 import type {
   DeployRemoteResult,
   RemoteDeploymentPreparation,
@@ -24,7 +23,7 @@ import {
 } from "./remote-platform";
 import type { LinuxReleaseCacheSource } from "./linux-release-feed";
 
-type Ssh = Context.Tag.Service<typeof SshTransport>;
+type Ssh = SshTransportShape;
 
 export interface RemoteDeploymentProviderLoaders {
   readonly darwin: () => Promise<RemoteDeploymentProvider>;

@@ -22,7 +22,7 @@ import {
   remoteLinuxCapabilityDoctor,
   remoteProductVersion,
 } from "../ssh/read-commands";
-import { SshTransport } from "../ssh/service";
+import type { SshTransportShape } from "../ssh/service";
 import {
   StationFleetPropagation,
   type StationFleetPeerUnavailable,
@@ -31,7 +31,7 @@ import type { HostsRegistry } from "./registry";
 
 const HOST_PROBE_TOTAL_TIMEOUT_MS = 20_000;
 
-type Ssh = Context.Tag.Service<typeof SshTransport>;
+type Ssh = SshTransportShape;
 type Fleet = Context.Tag.Service<typeof StationFleetPropagation>;
 export type HostCliRunner = (
   command: string,

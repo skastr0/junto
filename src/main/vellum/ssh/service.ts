@@ -101,6 +101,14 @@ export interface SshReady<A> {
 
 export type ConfirmSshReady = <A>(value: A) => SshReady<A>;
 
+/**
+ * S4 (effect@3.21): single canonical Tag id `@vellum/SshTransport`.
+ * `Context.Service` is unavailable until the product pins Effect V4 — do not
+ * dual-define Tag + Service. Shape is `SshTransportShape` for callers.
+ * V4 map: `class SshTransport extends Context.Service<SshTransport, Shape>()("@vellum/SshTransport")`.
+ * @see docs/END_STATE-effect-foundation.md §S4
+ * @see Playground/effect/migration/services.md
+ */
 export class SshTransport extends Context.Tag("@vellum/SshTransport")<
   SshTransport,
   {
@@ -169,6 +177,12 @@ export class SshTransport extends Context.Tag("@vellum/SshTransport")<
   }
 >() {}
 
+/** Canonical service shape for `SshTransport` (one id, one shape — no dual path). */
+export type SshTransportShape = Context.Tag.Service<typeof SshTransport>;
+
+/**
+ * S4: single Tag `@vellum/ssh/SshTransportConfig`. Same V4 staging as SshTransport.
+ */
 export class SshTransportConfig extends Context.Tag(
   "@vellum/ssh/SshTransportConfig",
 )<
@@ -182,6 +196,10 @@ export class SshTransportConfig extends Context.Tag(
     readonly maxConcurrentDialsPerEndpoint: number;
   }
 >() {}
+
+export type SshTransportConfigShape = Context.Tag.Service<
+  typeof SshTransportConfig
+>;
 
 interface Collected {
   readonly chunks: ReadonlyArray<Uint8Array>;
@@ -715,19 +733,16 @@ export const SshTransportLayer = Layer.scoped(
         }),
       );
 
-    const connect: Context.Tag.Service<typeof SshTransport>["connect"] = (
+    const connect: SshTransportShape["connect"] = (
       program,
       awaitReady,
     ) => connectWithPolicy(false, program, awaitReady);
 
-    const connectWithExitObservation: Context.Tag.Service<
-      typeof SshTransport
-    >["connectWithExitObservation"] = (
-      program,
-      awaitReady,
-    ) => connectWithPolicy(true, program, awaitReady);
+    const connectWithExitObservation: SshTransportShape["connectWithExitObservation"] =
+      (program, awaitReady) =>
+        connectWithPolicy(true, program, awaitReady);
 
-    const transfer: Context.Tag.Service<typeof SshTransport>["transfer"] = (
+    const transfer: SshTransportShape["transfer"] = (
       program,
       input,
       timeoutMs,
@@ -826,7 +841,7 @@ export const SshTransportLayer = Layer.scoped(
         }),
       );
 
-    const transact: Context.Tag.Service<typeof SshTransport>["transact"] = (
+    const transact: SshTransportShape["transact"] = (
       program,
       use,
     ) =>
@@ -892,7 +907,7 @@ export const SshTransportLayer = Layer.scoped(
         }),
       );
 
-    const forward: Context.Tag.Service<typeof SshTransport>["forward"] = (
+    const forward: SshTransportShape["forward"] = (
       program,
     ) =>
       Effect.gen(function* () {
@@ -1037,7 +1052,7 @@ export const SshTransportLayer = Layer.scoped(
         );
       });
 
-    const handoff: Context.Tag.Service<typeof SshTransport>["handoff"] = (
+    const handoff: SshTransportShape["handoff"] = (
       program,
       awaitReady,
     ) =>

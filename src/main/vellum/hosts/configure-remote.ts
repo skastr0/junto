@@ -19,7 +19,7 @@ import type { RemoteHost } from "@shared/remote-hosts";
 import { hermesKeyFor, RemoteHostsError } from "@shared/remote-hosts";
 import { parseHostSshRoute } from "../ssh/domain";
 import { resolveRemotePackagedPlatform } from "../ssh/read-commands";
-import { SshTransport } from "../ssh/service";
+import type { SshTransportShape } from "../ssh/service";
 import { bootstrapOpenSshStationStatus } from "../station/openssh-bootstrap";
 import {
   admitEnrolledOpenSshStationPeer,
@@ -27,7 +27,7 @@ import {
 } from "../station/openssh-peer-exchange";
 import { CURRENT_STATE_SCHEMA_VERSION } from "../state/migrations";
 
-type Ssh = typeof SshTransport.Service;
+type Ssh = SshTransportShape;
 
 export type ConfigureRemoteOptions = {
   /** Durable identity of this Command Center's SQLite installation. */

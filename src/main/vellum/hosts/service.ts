@@ -11,7 +11,7 @@ import {
   MANAGED_REMOTE_DEPLOY_DISABLED_DETAIL,
   RELEASE_CAPABILITIES,
 } from "@shared/release-capabilities";
-import { SshTransport } from "../ssh";
+import { SshTransport, type SshTransportShape } from "../ssh";
 import {
   configureRemoteHost,
   type ConfigureRemoteOptions,
@@ -46,6 +46,14 @@ const decodeHost = Schema.decodeUnknownEither(RemoteHost, {
 
 export type { ConfigureRemoteResult, DeployRemoteResult };
 
+/**
+ * S4 (effect@3.21): single canonical Tag `@vellum/HostsService`.
+ * `Context.Service` unavailable until Effect V4 pin — do not dual-define.
+ * Shape is `HostsServiceShape`. V4 map:
+ * `class HostsService extends Context.Service<HostsService, Shape>()("@vellum/HostsService")`.
+ * @see docs/END_STATE-effect-foundation.md §S4
+ * @see Playground/effect/migration/services.md
+ */
 export class HostsService extends Context.Tag("@vellum/HostsService")<
   HostsService,
   {
@@ -99,6 +107,9 @@ export class HostsService extends Context.Tag("@vellum/HostsService")<
   }
 >() {}
 
+/** Canonical service shape for `HostsService` (one id, one shape). */
+export type HostsServiceShape = Context.Tag.Service<typeof HostsService>;
+
 const asRemoteHostsError = (error: unknown): RemoteHostsError =>
   error instanceof RemoteHostsError
     ? error
@@ -123,7 +134,7 @@ const loadHostsIntoRoutingSnapshot = (
 
 export const makeHostsService = (
   registry: HostsRegistry,
-  ssh: Context.Tag.Service<typeof SshTransport>,
+  ssh: SshTransportShape,
   fleet: Context.Tag.Service<typeof StationFleetPropagation>,
   operations: {
     readonly configureRemoteHost: typeof configureRemoteHost;
@@ -134,7 +145,7 @@ export const makeHostsService = (
     deployRemoteHost,
     deployConfiguredRemoteHost,
   },
-): Context.Tag.Service<typeof HostsService> => {
+): HostsServiceShape => {
   const mutationLocks = new Map<string, Effect.Semaphore>();
   const mutationTarget = (host: RemoteHostT): string =>
     host.kind === "remote" && host.sshEndpoint

@@ -33,6 +33,8 @@ export {
   type SshForwardLease,
   type SshLease,
   type SshReady,
+  type SshTransportConfigShape,
+  type SshTransportShape,
 } from "./service";
 export { SshTransportLive } from "./live";
 export {

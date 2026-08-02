@@ -1,9 +1,7 @@
-import type { Context } from "effect";
 import type { Effect } from "effect";
 import type { HostsDeployRemoteRecoveryAction } from "@shared/ipc";
 import type { RemoteHost } from "@shared/remote-hosts";
-import type { SshEndpoint, SshTarget } from "../ssh";
-import type { SshTransport } from "../ssh";
+import type { SshEndpoint, SshTarget, SshTransportShape } from "../ssh";
 import type { LinuxReleaseCacheSource } from "./linux-release-feed";
 
 export type RemoteDeploymentProgress = readonly string[];
@@ -89,7 +87,7 @@ export type RemoteDeploymentPreparation =
 
 
 export type RemoteDeploymentProviderInput = {
-  readonly ssh: Context.Tag.Service<typeof SshTransport>;
+  readonly ssh: SshTransportShape;
   readonly target: RemoteDeploymentTarget;
   readonly stationConfiguration: RemoteDeploymentStationConfiguration;
   /** Exact release authority selected for this one Linux deployment attempt. */

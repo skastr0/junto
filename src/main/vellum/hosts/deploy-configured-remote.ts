@@ -1,9 +1,8 @@
-import type { Context } from "effect";
 import { Effect } from "effect";
 import type { StationSettings } from "@shared/settings";
 import type { InstallationId } from "@shared/station-api";
 import { RemoteHostsError, type RemoteHost } from "@shared/remote-hosts";
-import { SshTransport } from "../ssh";
+import type { SshTransportShape } from "../ssh";
 import {
   configureRemoteHost,
   type ConfigureRemoteOptions,
@@ -18,7 +17,7 @@ import {
 } from "./deploy-remote";
 import type { LinuxReleaseCacheSource } from "./linux-release-feed";
 
-type Ssh = Context.Tag.Service<typeof SshTransport>;
+type Ssh = SshTransportShape;
 
 export type ConfiguredRemoteDeployOutcome =
   | "ready"

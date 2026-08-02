@@ -1,10 +1,9 @@
-import type { Context } from "effect";
 import { Effect } from "effect";
 import type { RemoteHost } from "@shared/remote-hosts";
 import { inspectSshTarget, parseHostSshRoute } from "../ssh/domain";
 import { oneShot } from "../ssh/program";
 import { remoteUname } from "../ssh/read-commands";
-import { SshTransport } from "../ssh/service";
+import type { SshTransportShape } from "../ssh/service";
 import type {
   DeployableRemoteHost,
   DeployRemoteResult,
@@ -13,7 +12,7 @@ import type {
   UnsupportedRemoteTarget,
 } from "./remote-deployment";
 
-type Ssh = Context.Tag.Service<typeof SshTransport>;
+type Ssh = SshTransportShape;
 
 export type RemotePlatformEvidence =
   | { readonly ok: true; readonly platform: RemotePlatformDescriptor }

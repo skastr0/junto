@@ -4,6 +4,7 @@ export {
   makeHostsService,
   type ConfigureRemoteResult,
   type DeployRemoteResult,
+  type HostsServiceShape,
 } from "./service";
 export {
   getDefaultHostsRegistry,

@@ -9,7 +9,6 @@
  * Doctrine: brand means “safe product operation,” not merely “created by Vellum Command.”
  */
 
-import type { Context } from "effect";
 import { Effect, Schema } from "effect";
 import { STATION_PROTOCOL_NEGOTIATION_ARG } from "../station/helper-contract";
 import {
@@ -22,7 +21,7 @@ import {
   SshInputError,
 } from "./domain";
 import { homeDirectoryLookup, oneShot } from "./program";
-import { SshTransport } from "./service";
+import type { SshTransportShape } from "./service";
 
 // Clean absolute POSIX path: no shell metacharacters, no `..`, no NULs.
 const SAFE_ABS_PATH = /^\/(?:[A-Za-z0-9._+-]+\/)*[A-Za-z0-9._+-]+$/u;
@@ -70,7 +69,7 @@ const remotePackagedPlatforms = new WeakMap<
   RemotePackagedPlatformName
 >();
 
-type Ssh = Context.Tag.Service<typeof SshTransport>;
+type Ssh = SshTransportShape;
 
 export class RemotePlatformProbeError extends Schema.TaggedError<RemotePlatformProbeError>()(
   "RemotePlatformProbeError",

@@ -1,4 +1,4 @@
-import { Context, Effect } from "effect";
+import { Effect } from "effect";
 import {
   OPERATOR_PROTOCOL_VERSION,
   type OperatorDataByOp,
@@ -36,7 +36,7 @@ import {
   setActiveDeployJobHost,
 } from "./deploy-job-registry";
 import type { LinuxReleaseCacheSource } from "./linux-release-feed";
-import { HostsService } from "./service";
+import { HostsService, type HostsServiceShape } from "./service";
 import {
   HOST_OPERATION_ADMISSIONS,
   HostOperationShutdownRefused,
@@ -68,7 +68,7 @@ import {
   qualificationWorkVerifyEffect,
 } from "./operator-qualification-work";
 
-type Hosts = Context.Tag.Service<typeof HostsService>;
+type Hosts = HostsServiceShape;
 
 const resolveCommandCenterConfigureOptions = (
   supervisedPreferred = true,
