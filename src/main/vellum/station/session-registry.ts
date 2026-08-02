@@ -75,7 +75,7 @@ const unavailable = (
  * reservation runs. A disconnect immediately after commit leaves a durable
  * replayable command; it never rolls the claim back or mints a replacement.
  */
-// S4-station: single canonical Context.Tag (effect@3.21). V4 → Context.Service.
+// Station plane: canonical Context.Service (effect v4).
 export class StationLivePeerRegistry extends Context.Service<StationLivePeerRegistry,
   {
     readonly activate: (

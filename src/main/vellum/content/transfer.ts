@@ -251,13 +251,8 @@ export type ContentTransferServiceShape = {
 /**
  * Station content transfer orchestration (SSH helper path).
  *
- * effect-foundation **S4-state-content** (staged, not half-migrated):
- * - Canonical id: `@vellum/ContentTransferService` — single definition.
- * - Substrate: effect@3.21 → `Context.Tag` (`Context.Service` unavailable).
- * - V4 target:
- *   `class ContentTransferService extends Context.Service<ContentTransferService, ContentTransferServiceShape>()("@vellum/ContentTransferService") {}`
- * - Layer today: `makeContentTransferServiceLive` — V4 rename candidate
- *   `ContentTransferService.layer` (no dual Live+layer export).
+ * - Canonical id: `@vellum/ContentTransferService` — single `Context.Service`.
+ * - Layer: `makeContentTransferServiceLive`.
  */
 export class ContentTransferService extends Context.Service<ContentTransferService, ContentTransferServiceShape>()("@vellum/ContentTransferService") {}
 
@@ -569,7 +564,7 @@ const makeContentTransferService = (
           // S5 Effect V4 prep (effect@3.21): Effect.fork → Effect.forkChild on V4 bump.
           // See Playground/effect/migration/forking.md. Sole product Effect.fork site
           // under src/main (2026-04 inventory); forkDaemon: none; forkScoped/forkIn unchanged.
-          const runner = yield* Effect.fork(bridged.run);
+          const runner = yield* Effect.forkChild(bridged.run);
 
           const result = yield* Effect.tryPromise({
             try: () =>

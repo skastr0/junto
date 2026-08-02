@@ -346,7 +346,7 @@ const synchronizeReport = (
     );
   }).pipe(Effect.withSpan("station.propagation.report"));
 
-// S4-station: single canonical Context.Tag (effect@3.21). V4 → Context.Service.
+// Station plane: canonical Context.Service (effect v4).
 export class StationPropagation extends Context.Service<StationPropagation,
   {
     readonly synchronize: (

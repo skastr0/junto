@@ -160,7 +160,7 @@ export type StationFleetPropagationResult =
  * Transport admission port. The supervisor understands enrolled peer
  * identity only; OpenSSH endpoint/platform mechanics remain in this adapter.
  */
-// S4-station: single canonical Context.Tag (effect@3.21). V4 → Context.Service.
+// Station plane: canonical Context.Service (effect v4).
 export class StationPeerRouteResolver extends Context.Service<StationPeerRouteResolver,
   {
     readonly resolve: (
@@ -228,7 +228,7 @@ export const OpenSshStationPeerRouteResolverLive = Layer.effect(
   ),
 );
 
-// S4-station: single canonical Context.Tag (effect@3.21). V4 → Context.Service.
+// Station plane: canonical Context.Service (effect v4).
 export class StationFleetPropagation extends Context.Service<StationFleetPropagation,
   {
     /** Start one scoped child per current enrolled fleet target. */
@@ -679,7 +679,7 @@ export const StationFleetPropagationLive = Layer.effect(
                           response.batch.hasMore
                         )
                       ) {
-                        control.wake.unsafeOffer(undefined);
+                        Queue.offerUnsafe(control.wake, undefined);
                       }
                     })
                   ),
@@ -927,11 +927,11 @@ export const StationFleetPropagationLive = Layer.effect(
         if (admissionClosed) return;
         if (hostId === undefined) {
           for (const control of workers.values()) {
-            control.wake.unsafeOffer(undefined);
+            Queue.offerUnsafe(control.wake, undefined);
           }
           return;
         }
-        workers.get(hostId)?.wake.unsafeOffer(undefined);
+        (() => { const w = workers.get(hostId); if (w) Queue.offerUnsafe(w.wake, undefined); })();
       });
 
     const coordinator = Effect.forever(
@@ -947,7 +947,7 @@ export const StationFleetPropagationLive = Layer.effect(
         ),
         Effect.flatMap(({ all, hosts }) =>
           reconcile.pipe(
-            Effect.zipRight(
+            Effect.andThen(
               all
                 ? wakeSelected()
                 : Effect.forEach(
@@ -976,7 +976,7 @@ export const StationFleetPropagationLive = Layer.effect(
       } else if (!pendingInvalidateAll) {
         pendingInvalidationHosts.add(hostId);
       }
-      invalidations.unsafeOffer(undefined);
+      Queue.offerUnsafe(invalidations, undefined);
     };
     const unsubscribeCanvases = canvases.subscribeChanges(() =>
       invalidate()
@@ -1060,7 +1060,7 @@ export const StationFleetPropagationLive = Layer.effect(
           currentStatus?.phase === "backoff" ||
           currentStatus?.phase === "stopped"
         ) {
-          control.wake.unsafeOffer(undefined);
+          Queue.offerUnsafe(control.wake, undefined);
         }
 
         const completed = yield* Deferred.await(waiter).pipe(

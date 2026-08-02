@@ -239,12 +239,10 @@ const nodeById = (
   doc.nodes.find((node) => node.id === nodeId);
 
 /**
- * V4 service contract staging.
+ * Work-plane service contract (effect v4).
  *
- * Effect 3 has no `Context.Service`; its `Context.GenericTag` constructor is
- * the direct V4 function-form rename target. Keep the identifier and shape
- * separate so the eventual V4 change is mechanical and cannot create a
- * second tag for the same work-plane service.
+ * Identifier and shape stay separate so there is exactly one work-plane
+ * service key — no dual definitions.
  */
 export interface WorkServiceId {
   readonly _workService: unique symbol;

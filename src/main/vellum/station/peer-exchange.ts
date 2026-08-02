@@ -89,7 +89,7 @@ export type StationRemoteReportHandler = (
  * in-flight requests. Reconnection is an orchestration concern and always
  * creates a fresh ephemeral session.
  */
-// S4-station: single canonical Context.Tag (effect@3.21). V4 → Context.Service.
+// Station plane: canonical Context.Service (effect v4).
 export class StationPeerExchange extends Context.Service<StationPeerExchange,
   {
     readonly open: (

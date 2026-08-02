@@ -115,14 +115,8 @@ export type StateEngineShape = {
 /**
  * Sole product SQLite engine (vellum.db).
  *
- * effect-foundation **S4-state-content** (staged, not half-migrated):
- * - Canonical id: `@vellum/StateEngine` — single definition; no dual path.
- * - Substrate: effect@3.21 → `Context.Tag` (`Context.Service` unavailable).
- * - V4 target:
- *   `class StateEngine extends Context.Service<StateEngine, StateEngineShape>()("@vellum/StateEngine") {}`
- * - Layer today: `StateEngineLive` / `makeStateEngineLive` (engine.ts).
- *   V4 rename candidate: `StateEngine.layer` — callers live outside this pack;
- *   do not dual-export both names.
+ * - Canonical id: `@vellum/StateEngine` — single `Context.Service` definition.
+ * - Layer: `StateEngineLive` / `makeStateEngineLive` (engine.ts).
  */
 export class StateEngine extends Context.Service<StateEngine,
   StateEngineShape>()("@vellum/StateEngine") {}

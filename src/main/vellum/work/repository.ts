@@ -5578,11 +5578,10 @@ const applyCommand = (
 };
 
 /**
- * V4 service contract staging.
+ * Work repository service contract (effect v4).
  *
- * Effect 3 has no `Context.Service`; `Context.GenericTag` is the direct
- * function-form rename target. Keep the identifier and service shape separate
- * so the V4 migration is mechanical and there is only one repository tag.
+ * Identifier and shape stay separate so there is exactly one repository
+ * service key — no dual definitions.
  */
 export interface WorkRepositoryId {
   readonly _workRepository: unique symbol;

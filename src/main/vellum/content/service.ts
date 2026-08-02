@@ -145,13 +145,8 @@ export type ContentServiceShape = {
  * Local content store + SQLite manifest. Main owns the only DB connection;
  * this service never opens `vellum.db` itself.
  *
- * effect-foundation **S4-state-content** (staged, not half-migrated):
- * - Canonical id: `@vellum/ContentService` — single definition; no dual path.
- * - Substrate: effect@3.21 → `Context.Tag` (`Context.Service` unavailable).
- * - V4 target:
- *   `class ContentService extends Context.Service<ContentService, ContentServiceShape>()("@vellum/ContentService") {}`
- * - Layer today: `makeContentServiceLive` — V4 rename candidate
- *   `ContentService.layer` (no dual Live+layer export).
+ * - Canonical id: `@vellum/ContentService` — single `Context.Service` definition.
+ * - Layer: `makeContentServiceLive`.
  * - Hard law: yield ContentService from warm Layer Context; never ambient
  *   empty-context lookup (claim-gate class of bug).
  */

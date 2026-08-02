@@ -1,22 +1,15 @@
 /**
- * S4-station — Context.Tag inventory for the station plane
- * (docs/END_STATE-effect-foundation.md §S4).
+ * Station plane — Context.Service inventory
+ * (docs/END_STATE-effect-foundation.md §S4, effect-v4-IRON V4-SERVICE-CORE).
  *
- * Product pin: effect@3.21.x — `Context.Service` is not available yet.
- * Do **not** half-migrate to a fake Service shim. This pack is already
- * V4-ready in structure:
+ * Product pin: effect@4.x — live services are `Context.Service` only.
  *
- * - one canonical class `Context.Tag` per identifier (no dual v1/v2)
- * - no `Effect.Tag` / accessor proxies (prefer `yield*` + service methods)
- * - one Live `Layer` per Tag
- * - string ids centralized here so Tag keys cannot drift
- *
- * V4 rename (when `@effect/*` pins allow `Context.Service`):
+ * - one canonical `Context.Service` per identifier (no dual v1/v2)
+ * - no accessor proxies (prefer `yield*` + service methods)
+ * - one Live `Layer` per service
+ * - string ids centralized here so service keys cannot drift
  *
  * ```ts
- * // v3 (today)
- * class X extends Context.Service<X, Shape>()(StationContextTagIds.x) {}
- * // v4
  * class X extends Context.Service<X, Shape>()(StationContextTagIds.x) {}
  * ```
  *
@@ -37,7 +30,7 @@
  * never open a second product DB.
  */
 
-/** Stable Context.Tag keys for the station plane — single source of truth. */
+/** Stable Context.Service keys for the station plane — single source of truth. */
 export const StationContextTagIds = {
   repository: "@vellum/StationRepository",
   api: "@vellum/StationApiService",
