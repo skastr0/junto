@@ -29,6 +29,19 @@ const CLOCKWISE_CELLS = [
   [2, 1],
 ] as const;
 
+/** Full 3×3 including center — pulse breathes every cell together. */
+const PULSE_CELLS = [
+  [1, 1],
+  [1, 2],
+  [1, 3],
+  [2, 1],
+  [2, 2],
+  [2, 3],
+  [3, 1],
+  [3, 2],
+  [3, 3],
+] as const;
+
 export type ActivityMarkProps = {
   readonly mode: ActivityMode;
   readonly tone: ActivityTone;
@@ -63,13 +76,10 @@ export function ActivityMarkFromSpec({
 
 /**
  * Canvas activity indicator.
- * wave  → deterministic clockwise perimeter trail
+ * wave  → deterministic clockwise perimeter trail (work / block / attention)
+ * pulse → full grid soft breath (ready/complete — never clockwise)
  * static → single filled dot of the same tone
  * No visible text — label is aria-only.
- *
- * Pattern remains in the activity contract for semantic compatibility, but
- * the visible motion is deliberately invariant: clockwise always reads as
- * activity instead of making operators decode several traversal grammars.
  */
 export function ActivityMark({
   mode,
@@ -85,13 +95,15 @@ export function ActivityMark({
   // Page hidden / reduced-motion: static tone dot — GradientSpin keyframes
   // still schedule compositor work even under animation-play-state:paused on
   // some Electron builds; unmount the spinner entirely when motion is gated.
-  const wave = mode === "wave" && active && surfaceLive;
+  const live = active && surfaceLive;
+  const wave = mode === "wave" && live;
+  const pulse = mode === "pulse" && live;
 
   // Footprint matches the wave grid so mode flips don't shift card chrome.
   const box = dims.cols * dims.cellSize + (dims.cols - 1) * dims.cellGap;
   const boxH = dims.rows * dims.cellSize + (dims.rows - 1) * dims.cellGap;
 
-  if (!wave) {
+  if (!wave && !pulse) {
     const dot = Math.max(5, Math.min(box, boxH) - 4);
     return (
       <span
@@ -122,6 +134,41 @@ export function ActivityMark({
                 : "none",
           }}
         />
+      </span>
+    );
+  }
+
+  if (pulse) {
+    return (
+      <span
+        role="status"
+        aria-label={label}
+        className={className}
+        style={{
+          display: "inline-grid",
+          gridTemplateColumns: `repeat(3, ${String(dims.cellSize)}px)`,
+          gridTemplateRows: `repeat(3, ${String(dims.cellSize)}px)`,
+          gap: dims.cellGap,
+          flexShrink: 0,
+          lineHeight: 0,
+          verticalAlign: "middle",
+        }}
+        title={label}
+      >
+        {PULSE_CELLS.map(([row, column]) => (
+          <span
+            key={`${String(row)}:${String(column)}`}
+            className="vellum-activity-pulse-cell"
+            style={{
+              gridRow: row,
+              gridColumn: column,
+              width: dims.cellSize,
+              height: dims.cellSize,
+              borderRadius: 1,
+              backgroundColor: hex,
+            }}
+          />
+        ))}
       </span>
     );
   }
@@ -157,6 +204,57 @@ export function ActivityMark({
           } as CSSProperties}
         />
       ))}
+    </span>
+  );
+}
+
+/**
+ * Card-wide spinner-art wash for ready/complete — same cell grammar as
+ * ActivityMark, scaled up so the finished seat is glanceable across the board.
+ * Decorative only; the upper-right mark remains the accessible status.
+ */
+export function ActivityCardWash({
+  tone,
+  active = true,
+}: {
+  readonly tone: ActivityTone;
+  readonly active?: boolean;
+}) {
+  const surfaceLive = use$(surfaceMotionLive$);
+  if (!active || !surfaceLive) return null;
+  const hex = ACTIVITY_TONE_HEX[tone];
+  // 5×5 grid fills the card without fighting the header text.
+  const cells: Array<[number, number]> = [];
+  for (let r = 1; r <= 5; r += 1) {
+    for (let c = 1; c <= 5; c += 1) {
+      cells.push([r, c]);
+    }
+  }
+  return (
+    <span
+      aria-hidden
+      className="vellum-activity-card-wash"
+      style={
+        {
+          "--activity-wash-hex": hex,
+        } as CSSProperties
+      }
+    >
+      <span className="vellum-activity-card-wash__grid">
+        {cells.map(([row, column], i) => (
+          <span
+            key={`${String(row)}:${String(column)}`}
+            className="vellum-activity-card-wash__cell"
+            style={
+              {
+                gridRow: row,
+                gridColumn: column,
+                "--activity-wash-step": i % 5,
+              } as CSSProperties
+            }
+          />
+        ))}
+      </span>
     </span>
   );
 }

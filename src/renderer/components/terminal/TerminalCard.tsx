@@ -10,6 +10,7 @@ import {
   subscribeAgentSeatState,
 } from "../../lib/agent-seat-state";
 import { terminalActivity } from "../../lib/activity";
+import { ActivityCardWash } from "../ActivityMark";
 import { terminal$ } from "../../lib/terminal-state";
 import { onTerminalEvent } from "../../lib/terminal-events";
 import { getVellumApi } from "../../lib/vellum-api";
@@ -115,14 +116,17 @@ export function TerminalCard({
     (presentation === "done" ? "ready — review response" : undefined) ||
     launchSummary(native.launch);
 
+  const complete = activity.mode === "pulse" && activity.tone === "green";
   return (
     <div
-      className="group flex h-full w-full flex-col justify-between overflow-hidden"
+      className="group relative flex h-full w-full flex-col justify-between overflow-hidden"
       title="double-click to open"
       data-seat-state={presentation ?? seatState}
       data-exit-reason={exitReason}
+      data-seat-complete={complete ? "true" : undefined}
     >
-      <div>
+      {complete ? <ActivityCardWash tone="green" /> : null}
+      <div className="relative z-[1]">
         <ExecutionCardHeader
           decal={
             <div className="grid size-7 shrink-0 place-items-center rounded-md border border-amber/25 bg-amber/[0.07] text-amber">
@@ -141,7 +145,9 @@ export function TerminalCard({
           {native.hostId}
         </div>
       </div>
-      <ClaimedTaskStrip node={node} />
+      <div className="relative z-[1]">
+        <ClaimedTaskStrip node={node} />
+      </div>
     </div>
   );
 }

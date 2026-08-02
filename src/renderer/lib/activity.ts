@@ -1,13 +1,14 @@
 /**
  * ActivityMark predicates + house gradient stops.
  *
- * Rule: active (working | waiting) → wave; settled → static mark.
- * Visible status labels are forbidden; aria/title carry the word.
+ * Rule: active work/block → wave (clockwise); ready/complete → pulse;
+ * settled → static mark. Visible status labels are forbidden; aria/title
+ * carry the word.
  *
  * Severity tones MUST match signal-mark / RTS ladder end-to-end
  * (cards, chips, minimap, command bar):
  *   blocked → crimson · attention → amber · working → cyan
- *   parked → violet (signal-mark only) · idle → steel
+ *   ready/complete → green · parked → violet (signal-mark only) · idle → steel
  * Motion pattern may change across states; the hue for a severity does not.
  */
 
@@ -16,13 +17,14 @@ import type { AgentSeatState } from "@shared/agent-seat-state";
 import { HUE } from "./theme";
 
 export type ActivityTone = "amber" | "cyan" | "green" | "crimson" | "steel";
-export type ActivityMode = "wave" | "static";
+/** wave = clockwise trail · pulse = soft breath (complete) · static = settled */
+export type ActivityMode = "wave" | "pulse" | "static";
 export type ActivitySize = "node" | "inline";
 
 export interface ActivitySpec {
   readonly mode: ActivityMode;
   readonly tone: ActivityTone;
-  /** Legacy semantic nuance; the mark now renders every active state clockwise. */
+  /** Legacy semantic nuance for wave states; pulse/static ignore pattern. */
   readonly pattern?: SpinPattern;
   /** Accessible name only — never rendered as chrome text. */
   readonly label: string;
@@ -105,11 +107,12 @@ export type HerdrConnState =
  *   Working / Blocked / Unknown map 1:1.
  *
  * Precedence: meta loading (cyan diagonal, first fetch only) → working/blocked
- * → done (amber ripple — attention until open marks seen) → connection degraded
+ * → done (green pulse — ready until open marks seen) → connection degraded
  * → lost/failed → idle (static steel — no animation; fleet-safe) → unknown green.
  *
  * Tones follow SEVERITY_TONE (same as chips/minimap). Patterns distinguish
  * states that share a hue (e.g. loading diagonal vs working snake, both cyan).
+ * Ready/complete is green pulse — never amber and never the working clockwise.
  */
 export function herdrActivity(input: {
   readonly agentStatus?: HerdrAgentStatus | null;
@@ -143,14 +146,13 @@ export function herdrActivity(input: {
       label: "blocked",
     };
   }
-  // Unseen idle: herdr's "done" = rollup attention. Wave amber until open
-  // marks the pane seen (done → idle). Must not keep working-cyan — that
-  // would lie that the agent is still running.
+  // Unseen idle: herdr's "done" = ready/complete. Green pulse until open
+  // marks the pane seen (done → idle). Never amber (that's needs-input) and
+  // never working-cyan (would lie the agent is still running).
   if (agent === "done") {
     return {
-      mode: "wave",
-      tone: SEVERITY_TONE.attention,
-      pattern: "ripple",
+      mode: "pulse",
+      tone: "green",
       label: "done — waiting for look",
     };
   }
@@ -249,11 +251,11 @@ export function terminalActivity(input: {
     };
   }
   // Ready/complete: idle after work, operator has not looked (herdr done).
+  // Green pulse — distinct from attention amber (needs operator input).
   if (input.seatState === "idle" && input.needsLook === true) {
     return {
-      mode: "wave",
-      tone: SEVERITY_TONE.attention,
-      pattern: "ripple",
+      mode: "pulse",
+      tone: "green",
       label: "ready — waiting for look",
     };
   }

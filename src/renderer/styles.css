@@ -1692,6 +1692,81 @@ html[data-surface-motion="paused"] *::after {
   42%, 100% { opacity: .1; transform: scale(.82); }
 }
 
+/* Ready/complete: all cells breathe together — never the clockwise trail. */
+.vellum-activity-pulse-cell {
+  opacity: .28;
+  transform: scale(.9);
+  animation: vellumActivityPulse 1.6s ease-in-out infinite;
+}
+
+@keyframes vellumActivityPulse {
+  0%,
+  100% {
+    opacity: .22;
+    transform: scale(.88);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Card-wide spinner-art wash for complete seats (same cell grammar, soft). */
+.vellum-activity-card-wash {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  background:
+    radial-gradient(
+      120% 90% at 50% 40%,
+      color-mix(in srgb, var(--activity-wash-hex, #5fb98e) 14%, transparent),
+      transparent 70%
+    );
+  animation: vellumActivityCardWash 2.4s ease-in-out infinite;
+}
+.vellum-activity-card-wash__grid {
+  position: absolute;
+  inset: 10% 8%;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  grid-template-rows: repeat(5, 1fr);
+  gap: 3px;
+  opacity: .55;
+}
+.vellum-activity-card-wash__cell {
+  border-radius: 1px;
+  background: var(--activity-wash-hex, #5fb98e);
+  opacity: .08;
+  transform: scale(.85);
+  animation: vellumActivityWashCell 2s ease-in-out infinite;
+  animation-delay: calc(var(--activity-wash-step, 0) * 120ms);
+}
+
+@keyframes vellumActivityCardWash {
+  0%,
+  100% {
+    opacity: .72;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes vellumActivityWashCell {
+  0%,
+  100% {
+    opacity: .06;
+    transform: scale(.82);
+  }
+  50% {
+    opacity: .22;
+    transform: scale(1);
+  }
+}
+
 .vellum-status-dot-pulse {
   animation: vellumStatusDotPulse 2.4s ease-in-out infinite;
 }
@@ -1708,6 +1783,9 @@ html[data-surface-motion="paused"] *::after {
 
 /* Hidden/reduced-motion: freeze continuous status/edge paint entirely. */
 html[data-surface-motion="paused"] .vellum-status-dot-pulse,
+html[data-surface-motion="paused"] .vellum-activity-pulse-cell,
+html[data-surface-motion="paused"] .vellum-activity-card-wash,
+html[data-surface-motion="paused"] .vellum-activity-card-wash__cell,
 html[data-surface-motion="paused"] .vellum-blocker,
 html[data-surface-motion="paused"] .vellum-blocker::after,
 html[data-surface-motion="paused"] .vellum-node__flag--blocked-live,
@@ -1723,6 +1801,9 @@ html[data-surface-motion="paused"] .vellum-herdr-working-dot {
   .vellum-blocker::after,
   .vellum-node__flag--blocked-live,
   .vellum-status-dot-pulse,
+  .vellum-activity-pulse-cell,
+  .vellum-activity-card-wash,
+  .vellum-activity-card-wash__cell,
   .vellum-edge-ripple .react-flow__edge-path,
   path.vellum-edge-ripple {
     animation: none;

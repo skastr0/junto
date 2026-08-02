@@ -22,7 +22,10 @@ export function ExecutionCardHeader({
   readonly activity: ActivitySpec;
 }) {
   const surfaceLive = use$(surfaceMotionLive$);
-  const animated = activity.mode === "wave" && surfaceLive;
+  // wave (work/block/attention) and pulse (ready/complete) both paint; static
+  // stays silent so a fleet of idle seats doesn't light every corner.
+  const animated =
+    (activity.mode === "wave" || activity.mode === "pulse") && surfaceLive;
   return (
     <div className="flex items-center gap-2">
       {decal}

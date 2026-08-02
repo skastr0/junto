@@ -33,7 +33,7 @@ describe("houseGradientStops", () => {
 });
 
 describe("herdrActivity", () => {
-  it("maps herdr seen/unseen with RTS severity tones (cyan/amber/crimson)", () => {
+  it("maps herdr seen/unseen with RTS severity tones (cyan/amber/crimson/green)", () => {
     // working → cyan (same as chips/minimap); pattern snake
     expect(herdrActivity({ agentStatus: "working" })).toEqual({
       mode: "wave",
@@ -46,11 +46,11 @@ describe("herdrActivity", () => {
       tone: "crimson",
       pattern: "arrow-up",
     });
-    // done = Idle+!seen → attention amber until the operator looks
+    // done = Idle+!seen → green pulse until the operator looks (never amber/clockwise)
     expect(herdrActivity({ agentStatus: "done" })).toMatchObject({
-      mode: "wave",
-      tone: "amber",
-      pattern: "ripple",
+      mode: "pulse",
+      tone: "green",
+      label: "done — waiting for look",
     });
     // idle = Idle+seen → quiet; never animate the whole fleet
     expect(herdrActivity({ agentStatus: "idle" })).toMatchObject({
@@ -60,14 +60,14 @@ describe("herdrActivity", () => {
     });
   });
 
-  it("gives each wave state a distinct (tone, pattern) pair", () => {
-    const waves = [
+  it("gives each active state a distinct (mode, tone) pair", () => {
+    const active = [
       herdrActivity({ agentStatus: "working" }),
       herdrActivity({ agentStatus: "blocked" }),
       herdrActivity({ agentStatus: "done" }),
       herdrActivity({ agentStatus: "idle", connState: "degraded" }),
     ];
-    const keys = waves.map((s) => `${s.tone}:${s.pattern ?? "none"}`);
+    const keys = active.map((s) => `${s.mode}:${s.tone}`);
     expect(new Set(keys).size).toBe(keys.length);
   });
 
@@ -91,22 +91,24 @@ describe("herdrActivity", () => {
     });
   });
 
-  it("done (unseen) beats degraded so attention amber stays visible", () => {
+  it("done (unseen) beats degraded so green complete stays visible", () => {
     expect(
       herdrActivity({ agentStatus: "done", connState: "degraded" }),
     ).toMatchObject({
-      mode: "wave",
-      tone: "amber",
-      pattern: "ripple",
+      mode: "pulse",
+      tone: "green",
     });
   });
 
-  it("working cyan and done amber never share a tone", () => {
+  it("working cyan and done green never share a tone or motion", () => {
     const work = herdrActivity({ agentStatus: "working" });
     const done = herdrActivity({ agentStatus: "done" });
     expect(work.tone).toBe("cyan");
-    expect(done.tone).toBe("amber");
+    expect(work.mode).toBe("wave");
+    expect(done.tone).toBe("green");
+    expect(done.mode).toBe("pulse");
     expect(work.tone).not.toBe(done.tone);
+    expect(work.mode).not.toBe(done.mode);
   });
 });
 
@@ -148,13 +150,12 @@ describe("terminalActivity", () => {
     });
   });
 
-  it("idle + needsLook is ready/complete (herdr done), not steel idle", () => {
+  it("idle + needsLook is ready/complete green pulse, not amber clockwise", () => {
     expect(
       terminalActivity({ seatState: "idle", needsLook: true }),
     ).toMatchObject({
-      mode: "wave",
-      tone: "amber",
-      pattern: "ripple",
+      mode: "pulse",
+      tone: "green",
       label: "ready — waiting for look",
     });
     // Seen idle stays quiet.
@@ -162,6 +163,11 @@ describe("terminalActivity", () => {
       mode: "static",
       tone: "steel",
       label: "idle",
+    });
+    // True needs-input stays amber wave (distinct from complete).
+    expect(terminalActivity({ seatState: "attention" })).toMatchObject({
+      mode: "wave",
+      tone: "amber",
     });
   });
 

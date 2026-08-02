@@ -25,6 +25,7 @@ import { resolveAuthoredPageHost } from "../../lib/page-authoring";
 import { state$ } from "../../lib/state";
 import { getVellumApi } from "../../lib/vellum-api";
 import { DIM, HUE, INK, withAlpha } from "../../lib/theme";
+import { ActivityCardWash } from "../ActivityMark";
 import { ExecutionCardHeader } from "../nodes/ExecutionCardHeader";
 import { HarnessMark } from "./HarnessMark";
 
@@ -365,12 +366,15 @@ export function HerdrCard({
     });
   };
 
+  const complete = activity.mode === "pulse" && activity.tone === "green";
   return (
     <div
-      className="group flex h-full w-full flex-col justify-between overflow-hidden"
+      className="group relative flex h-full w-full flex-col justify-between overflow-hidden"
+      data-seat-complete={complete ? "true" : undefined}
       onPointerEnter={preWarm}
     >
-      <div>
+      {complete ? <ActivityCardWash tone="green" /> : null}
+      <div className="relative z-[1]">
         <ExecutionCardHeader
           decal={
             <HarnessMark
@@ -420,7 +424,7 @@ export function HerdrCard({
           {crumbs.join(" › ")}
         </div>
       </div>
-      <div className="flex flex-col gap-0.5">
+      <div className="relative z-[1] flex flex-col gap-0.5">
         {serviceBadge ? (
           <div
             className="flex items-center gap-1 truncate text-[10px] tabular-nums"

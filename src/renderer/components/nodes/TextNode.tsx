@@ -29,7 +29,7 @@ import { consumeWorkDetailOpen, workDetailOpen$ } from "../../lib/work-detail-op
 import { onTerminalEvent } from "../../lib/terminal-events";
 import { terminal$ } from "../../lib/terminal-state";
 import { getVellumApi } from "../../lib/vellum-api";
-import { ActivityMarkFromSpec } from "../ActivityMark";
+import { ActivityCardWash, ActivityMarkFromSpec } from "../ActivityMark";
 import { HerdrCard } from "../herdr/HerdrCard";
 import { HarnessMark } from "../herdr/HarnessMark";
 import { TerminalCard } from "../terminal/TerminalCard";
@@ -268,12 +268,15 @@ function EntityCard({
     managed && exitReason && exitMessage ? exitMessage : undefined,
   ].filter((value): value is string => Boolean(value));
 
+  const complete = activity.mode === "pulse" && activity.tone === "green";
   return (
     <div
-      className="factory-agent-card flex h-full w-full flex-col justify-between overflow-hidden"
+      className="factory-agent-card relative flex h-full w-full flex-col justify-between overflow-hidden"
       data-exit-reason={managed ? exitReason : undefined}
+      data-seat-complete={complete ? "true" : undefined}
     >
-      <div>
+      {complete ? <ActivityCardWash tone="green" /> : null}
+      <div className="relative z-[1]">
         <ExecutionCardHeader
           decal={<HarnessMark agent={managed ? managedHarness : undefined} size={28} />}
           title={
@@ -309,7 +312,11 @@ function EntityCard({
           </div>
         ) : null}
       </div>
-      {kind === "agent" ? <ClaimedTaskStrip node={node} /> : null}
+      {kind === "agent" ? (
+        <div className="relative z-[1]">
+          <ClaimedTaskStrip node={node} />
+        </div>
+      ) : null}
     </div>
   );
 }
