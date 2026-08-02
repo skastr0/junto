@@ -2600,6 +2600,84 @@ ol.note-md__list > .note-md__li::before {
   .vellum-tooltip { transition: none; }
 }
 
+/* Actor focus — compact read-only edge inventory under the terminal header. */
+.actor-edges-glance {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  min-height: 28px;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--color-stroke);
+  background: color-mix(in srgb, var(--color-raise) 55%, transparent);
+  overflow: hidden;
+}
+.actor-edges-glance__label {
+  flex-shrink: 0;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+.actor-edges-glance__list {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+.actor-edges-glance__row {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  max-width: 320px;
+  padding: 2px 6px;
+  border: 1px solid color-mix(in srgb, var(--color-stroke) 90%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--color-inset) 70%, transparent);
+  font-size: 11px;
+  line-height: 1.2;
+  color: var(--color-dim);
+}
+.actor-edges-glance__dir {
+  flex-shrink: 0;
+  color: var(--color-amber);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 12px;
+}
+.actor-edges-glance__kind {
+  flex-shrink: 0;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+.actor-edges-glance__title {
+  min-width: 0;
+  max-width: 14ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-ink);
+  font-weight: 500;
+}
+.actor-edges-glance__ports {
+  min-width: 0;
+  max-width: 22ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 10px;
+  color: var(--color-cyan);
+}
+
 /* Native terminal — fill focus/dock body.
    Critical: flex:1 1 0 + height:0 so the host gets the pane's flex-assigned
    box. Without height:0, the chain content-sizes to xterm's default 80×24
