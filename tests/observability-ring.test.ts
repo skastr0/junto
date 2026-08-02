@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Effect, Layer, Logger, ManagedRuntime } from "effect";
 import {
   OBSERVABILITY_RING_CAPACITY,
+  ObservabilityQuery,
   matchesObservabilityQuery,
   type ObservabilityLogEntry,
 } from "../src/shared/observability";
