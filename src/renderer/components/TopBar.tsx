@@ -1,6 +1,6 @@
 import { use$, useObservable } from "@legendapp/state/react";
 import { useEffect, useRef, useState } from "react";
-import { CircleHelp, Pause, Play, Plus, Radar, Search, Settings2, Trash2, X } from "lucide-react";
+import { CircleHelp, Pause, Play, Plus, Radar, ScrollText, Search, Settings2, Trash2, X } from "lucide-react";
 import type { CanvasSummary } from "@shared/ipc";
 import type { CanvasPauseState } from "@shared/pause";
 import { state$ } from "../lib/state";
@@ -357,6 +357,8 @@ export function TopBar({
   const canvases = use$(state$.canvases);
   const canvasName = use$(state$.canvasName);
   const canvasLoading = use$(state$.canvasLoading);
+  const logsExplorer = use$(state$.settings.advanced.logsExplorer);
+  const observabilityOpen = use$(state$.observabilityOpen);
   const [helpOpen, setHelpOpen] = useState(false);
   useEffect(() => {
     if (!helpOpen) return;
@@ -383,6 +385,28 @@ export function TopBar({
       <div className="station-actions relative ml-auto flex items-center gap-3">
         <UpdateChip />
         <FactoryPauseControl canvasName={canvasName} />
+        {logsExplorer ? (
+          <button
+            type="button"
+            className="station-icon-button"
+            data-testid="observability-logs"
+            aria-label={observabilityOpen ? "Close logs explorer" : "Open logs explorer"}
+            aria-pressed={observabilityOpen}
+            title="logs explorer"
+            style={{
+              borderColor: observabilityOpen
+                ? withAlpha(HUE.cyan, 0.45)
+                : "rgba(237,230,218,0.16)",
+              color: observabilityOpen ? HUE.cyan : HUE.steel,
+            }}
+            onClick={() => {
+              setHelpOpen(false);
+              state$.observabilityOpen.set(!state$.observabilityOpen.peek());
+            }}
+          >
+            <ScrollText size={15} />
+          </button>
+        ) : null}
         <button type="button" className="station-icon-button" aria-label="Open fleet manager" title="fleet"
           style={{ borderColor: "rgba(237,230,218,0.16)", color: HUE.steel }}
           onPointerEnter={prefetchFleetChunk}

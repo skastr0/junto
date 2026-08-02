@@ -38,6 +38,7 @@ import { TopBar } from "./components/TopBar";
 import { CanvasChrome } from "./components/CanvasChrome";
 
 import { SettingsPanel } from "./components/SettingsPanel";
+import { ObservabilityPanel } from "./components/ObservabilityPanel";
 // Fleet pulls three.js + GLBs. Keep it out of the main chunk until open.
 const FleetOverlay = lazy(async () => {
   const mod = await import("./components/fleet/FleetOverlay");
@@ -459,6 +460,7 @@ export function App() {
         {/* Selection fields live on the RTS kind surface (FocusSurface forms). */}
 
         <SettingsPanel />
+        <ObservabilityPanel />
         {/* Mount fleet only while open — unmount destroys every WebGL machine. */}
         {fleetOpen ? (
           <Suspense

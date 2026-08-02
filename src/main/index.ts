@@ -34,6 +34,11 @@ import {
 import { appProcessPlane } from "./vellum/app-process-plane";
 import { beginBoxProcessShutdown } from "./vellum/box";
 import { AppRuntime } from "./runtime";
+import {
+  installObservabilityConsoleHook,
+  recordRendererConsole,
+  recordSystemLog,
+} from "./vellum/observability";
 import { releaseDemoRuntimeIsolation } from "./vellum/demo/runtime-isolation";
 import { registerBrowserIpcHandlers, registerIpcHandlers } from "./ipc";
 import { CanvasesService } from "./vellum/canvases";
@@ -722,19 +727,25 @@ let reloadCount = 0;
 let relaunchCount = 0;
 
 const registerCrashRecovery = (mainWindow: BrowserWindow) => {
-  // Dev observability: forward the renderer console to main stdout so headless
-  // failures are visible in the terminal log. Noise-only — stays dev-gated.
+  // Observability: feed renderer console into the process log ring (always).
+  // Dev builds also mirror warn/error to main stdout for headless terminal logs.
   // Electron 43 deprecates the positional console-message signature; use the
   // Event<WebContentsConsoleMessageEventParams> fields instead.
-  if (!app.isPackaged) {
-    mainWindow.webContents.on("console-message", (event) => {
-      if (event.level !== "error" && event.level !== "warning") return;
-      const severity = event.level === "error" ? "error" : "warn";
-      console.log(
-        `[renderer:${severity}] ${event.message} (${event.sourceId}:${event.lineNumber})`,
-      );
+  mainWindow.webContents.on("console-message", (event) => {
+    recordRendererConsole({
+      level: event.level,
+      message: event.message,
+      sourceId: event.sourceId,
+      lineNumber: event.lineNumber,
     });
-  }
+    // Dev stdout only — process.stdout avoids the main console ring hook.
+    if (app.isPackaged) return;
+    if (event.level !== "error" && event.level !== "warning") return;
+    const severity = event.level === "error" ? "error" : "warn";
+    process.stdout.write(
+      `[renderer:${severity}] ${event.message} (${event.sourceId}:${event.lineNumber})\n`,
+    );
+  });
 
   mainWindow.webContents.on("render-process-gone", (_event, details) => {
     console.error(`[renderer:gone] ${details.reason} (exitCode ${details.exitCode})`);
@@ -1207,6 +1218,11 @@ if (packagedSandboxDisablingSwitch !== undefined) {
   });
 
   void app.whenReady().then(async () => {
+    // Process log ring: main console + Effect logger (layer already on AppRuntime).
+    installObservabilityConsoleHook();
+    recordSystemLog(
+      `${PRODUCT_NAME} ready · ${app.isPackaged ? "packaged" : "dev"} · ${app.getVersion() || "0.0.0"}`,
+    );
     // Re-apply after ready: dock.hide before ready is a no-op / race on some
     // Electron builds, and E2E must never plant a Dock icon mid-suite.
     applyE2eMacOsFocusIsolation({

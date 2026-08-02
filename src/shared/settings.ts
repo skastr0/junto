@@ -79,6 +79,16 @@ export type BrowserPrefs = typeof BrowserPrefs.Type;
 
 export const AdvancedSettings = Schema.Struct({
   openLastCanvas: Schema.Boolean,
+  /**
+   * Developer logs explorer — TopBar control + live ring over Effect logs /
+   * main + renderer console. Off by default; process ring still captures so
+   * enabling later has history. Optional on the wire so installed preference
+   * rows without the key still decode (default false).
+   */
+  logsExplorer: Schema.optionalWith(Schema.Boolean, {
+    exact: true,
+    default: () => false,
+  }),
 });
 export type AdvancedSettings = typeof AdvancedSettings.Type;
 
@@ -227,6 +237,7 @@ export type BrowserPatch = typeof BrowserPatch.Type;
 
 export const AdvancedPatch = Schema.Struct({
   openLastCanvas: Schema.optionalWith(Schema.Boolean, { exact: true }),
+  logsExplorer: Schema.optionalWith(Schema.Boolean, { exact: true }),
 });
 export type AdvancedPatch = typeof AdvancedPatch.Type;
 
@@ -316,6 +327,7 @@ export const defaultBrowser = (): BrowserPrefs => ({
 
 export const defaultAdvanced = (): AdvancedSettings => ({
   openLastCanvas: true,
+  logsExplorer: false,
 });
 
 /** Fail-closed: managed Remote deployment requires explicit operator opt-in. */

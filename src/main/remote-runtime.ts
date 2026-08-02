@@ -6,6 +6,7 @@
  * isPackaged is derived from env / release-tree placement — never app.isPackaged.
  */
 import { Effect, Layer, ManagedRuntime } from "effect";
+import { ObservabilityLoggerLive } from "./vellum/observability";
 import { CURRENT_STATION_PROTOCOL_SUPPORT } from "@shared/station-protocol";
 import { assessSupervisedRuntime } from "@shared/station";
 import { CanvasesLive } from "./vellum/canvases";
@@ -268,7 +269,9 @@ const RemoteRootLayer = Layer.provideMerge(
   ),
 );
 
-export const RemoteRuntime = ManagedRuntime.make(RemoteRootLayer);
+export const RemoteRuntime = ManagedRuntime.make(
+  Layer.mergeAll(RemoteRootLayer, ObservabilityLoggerLive),
+);
 
 // ---------------------------------------------------------------------------
 // Pure readiness helpers (Node-safe reimplementation — no electron import)

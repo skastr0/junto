@@ -31,6 +31,7 @@ import {
 import { PausePlane } from "./pause-plane";
 import { registerSettingsIpc } from "./settings/ipc";
 import { SettingsService } from "./settings/service";
+import { registerObservabilityIpc } from "./observability";
 import { registerUpdateIpc } from "./update/ipc";
 import { SnapshotsService } from "./snapshots";
 import { UsageService } from "./usage/usage-service";
@@ -265,6 +266,7 @@ export const registerVellumIpc = (): void => {
     ensureHostAvailable: ensureBoxHostAvailable,
   });
   registerSettingsIpc(privilegedIpc, broadcast);
+  registerObservabilityIpc(privilegedIpc, broadcast);
   registerHostsIpc(privilegedIpc);
   registerUpdateIpc(
     privilegedIpc,

@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { app } from "electron";
 import { Effect, Layer, ManagedRuntime } from "effect";
+import { ObservabilityLoggerLive } from "./vellum/observability";
 import productMetadata from "../../package.json";
 import type { DoctorReport, ServiceCheck } from "@shared/contracts";
 import { assessSupervisedRuntime } from "@shared/station";
@@ -317,7 +318,11 @@ export const RootLayer = Layer.provideMerge(
   BaseWithPauseLive,
 );
 
-export const AppRuntime = ManagedRuntime.make(RootLayer);
+// Observability logger is an additional Effect sink (ring buffer) — does not
+// replace the default pretty console logger.
+export const AppRuntime = ManagedRuntime.make(
+  Layer.mergeAll(RootLayer, ObservabilityLoggerLive),
+);
 
 export const supervisorAlignedForReadiness = (
   input: Parameters<typeof assessSupervisedRuntime>[0],

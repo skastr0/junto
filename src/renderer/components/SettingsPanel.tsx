@@ -57,7 +57,7 @@ const SECTIONS: ReadonlyArray<{ key: PanelSection; label: string; blurb: string 
   { key: "license", label: "License", blurb: "access, billing, and this installation" },
   { key: "kernel", label: "Kernel", blurb: "debug verbosity" },
   { key: "browser", label: "Browser", blurb: "surface and warm-session limits" },
-  { key: "advanced", label: "Advanced", blurb: "startup and recovery prefs" },
+  { key: "advanced", label: "Advanced", blurb: "startup, recovery, developer tools" },
 ];
 
 type HostRow = NonNullable<HostsOpResult["hosts"]>[number];
@@ -456,6 +456,21 @@ function AdvancedSection() {
           onChange={(event) =>
             void patchSettings({ advanced: { openLastCanvas: event.target.checked } })
           }
+        />
+      </FieldRow>
+      <FieldRow
+        label="Logs explorer"
+        hint="TopBar control over the process Effect + console ring (developer)"
+      >
+        <input
+          type="checkbox"
+          checked={advanced.logsExplorer}
+          aria-label="Logs explorer"
+          onChange={(event) => {
+            const enabled = event.target.checked;
+            void patchSettings({ advanced: { logsExplorer: enabled } });
+            if (!enabled) state$.observabilityOpen.set(false);
+          }}
         />
       </FieldRow>
       {usesAppleLoginItems ? (

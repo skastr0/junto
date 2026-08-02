@@ -23,6 +23,9 @@ import {
   type KernelSnapshot,
   type NodeRefOpenedDelivery,
   type NodeRefOpenedEvent,
+  type ObservabilityLogEntry,
+  type ObservabilityQuery,
+  type ObservabilitySnapshot,
 } from "@shared/ipc";
 import type { SnapshotState } from "@shared/entities";
 import type { PreambleEvent } from "@shared/preamble";
@@ -630,6 +633,16 @@ const vellumApi: VellumApi = {
   loginItemSet: (openAtLogin: boolean) =>
     invoke<LoginItemOpResult>(IPC_CHANNELS.loginItemSet, IPC_TIMEOUT_MS, openAtLogin),
   onSettingsChanged: (listener) => subscribe<Settings>(IPC_CHANNELS.settingsChanged, listener),
+  observabilityQuery: (query?: ObservabilityQuery) =>
+    invoke<ObservabilitySnapshot>(
+      IPC_CHANNELS.observabilityQuery,
+      IPC_TIMEOUT_MS,
+      query,
+    ),
+  observabilityClear: () =>
+    invoke<ObservabilitySnapshot>(IPC_CHANNELS.observabilityClear, IPC_TIMEOUT_MS),
+  onObservabilityLog: (listener) =>
+    subscribe<ObservabilityLogEntry>(IPC_CHANNELS.observabilityLog, listener),
 };
 
 const chatApi: VellumChatApi = {

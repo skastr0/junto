@@ -53,7 +53,17 @@ import type {
 import type { UpdateApi } from "./update";
 import type { PreambleEvent } from "./preamble";
 import type { HostDeployJobSnapshot } from "./deploy-job";
+import type {
+  ObservabilityLogEntry,
+  ObservabilityQuery,
+  ObservabilitySnapshot,
+} from "./observability";
 export type { UpdateApi, UpdateStatus, AvailableRelease, UpdatePhase } from "./update";
+export type {
+  ObservabilityLogEntry,
+  ObservabilityQuery,
+  ObservabilitySnapshot,
+} from "./observability";
 
 export const IPC_CHANNELS = {
   doctor: "chassis:doctor",
@@ -244,6 +254,11 @@ export const IPC_CHANNELS = {
   agentSeatStateSnapshot: "vellum:agent-seat-state-snapshot",
   agentSeatStateChanged: "vellum:agent-seat-state-changed",
   browserSessionChanged: "vellum:browser-session-changed",
+  // Developer observability ring (process-local; UI gated by advanced.logsExplorer)
+  observabilityQuery: "vellum:observability-query",
+  observabilityClear: "vellum:observability-clear",
+  /** Main → renderer: one structured log entry. */
+  observabilityLog: "vellum:observability-log",
 } as const;
 
 export interface ChassisApi {
@@ -699,6 +714,17 @@ export interface VellumApi extends LicenseApi, UpdateApi {
     id: StateBackupId,
   ) => Promise<StateRecoveryExportResult>;
   readonly onSettingsChanged: (listener: (settings: Settings) => void) => () => void;
+  /**
+   * Developer observability ring — process-local Effect + console logs.
+   * UI gated by `settings.advanced.logsExplorer`.
+   */
+  readonly observabilityQuery: (
+    query?: ObservabilityQuery,
+  ) => Promise<ObservabilitySnapshot>;
+  readonly observabilityClear: () => Promise<ObservabilitySnapshot>;
+  readonly onObservabilityLog: (
+    listener: (entry: ObservabilityLogEntry) => void,
+  ) => () => void;
   /** OS login item — read real state; never assume. */
   readonly loginItemGet: () => Promise<LoginItemOpResult>;
   /** Explicit toggle only; no silent enrollment. */

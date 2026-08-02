@@ -59,6 +59,8 @@ export const state$ = observable({
   settings: EMPTY_SETTINGS as Settings,
   settingsOpen: false,
   settingsLoading: false,
+  /** Developer logs explorer (gated by advanced.logsExplorer). */
+  observabilityOpen: false,
   settingsError: "",
   // Fleet overlay plane: enrolled hosts, discovered Tailscale peers, and
   // per-host reachability probes. Mirrors the settings plane pattern.
