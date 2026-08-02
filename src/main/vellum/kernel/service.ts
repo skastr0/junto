@@ -11,9 +11,16 @@
 // thing that binds their `__*ForTest`-named seams to something real. Despite
 // the name, those setters ARE the production injection points — cycle.ts
 // exposes no separately-named "prod" variant, by design.
+//
+// S2 (docs/END_STATE-effect-foundation.md): Promise bridges must use the
+// warm Runtime captured at KernelLive construction — never bare
+// runPromise (empty Context). That was the claim-tick bug class:
+// WorkService call-time ContentService lookups saw None and media claims
+// failed as "content service unavailable". Capture avoids importing
+// AppRuntime (circular: RootLayer includes KernelLive).
 
 import { createHash } from "node:crypto";
-import { Context, Effect, Layer, Schema } from "effect";
+import { Context, Effect, Layer, Runtime, Schema } from "effect";
 import type { CanvasDoc, CanvasNode } from "@shared/canvas";
 import { actorDeliverySurfaceOf } from "@shared/actor-surface";
 import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
@@ -241,6 +248,15 @@ type WorkShape = Context.Tag.Service<typeof WorkService>;
 type WorkRepositoryShape = Context.Tag.Service<typeof WorkRepository>;
 type KernelServiceShape = Context.Tag.Service<typeof KernelService>;
 
+/**
+ * Warm-Context Promise boundary for kernel async bridges.
+ * Built from `yield* Effect.runtime()` inside KernelLive so Work/Content
+ * (and every other RootLayer service) remain visible to domain Effects.
+ */
+type KernelRunPromise = <A, E>(
+  effect: Effect.Effect<A, E>,
+) => Promise<A>;
+
 type ActiveStationScope =
   | {
       readonly role: "";
@@ -254,10 +270,11 @@ type ActiveStationScope =
 
 const refreshStationScope = async (
   stations: StationsShape,
+  runPromise: KernelRunPromise,
   commit: () => boolean = () => true,
 ): Promise<ActiveStationScope> => {
   try {
-    const current = await Effect.runPromise(
+    const current = await runPromise(
       Effect.all({
         installationId: stations.installationId,
         configuration: stations.configuration,
@@ -468,6 +485,7 @@ const makeKernelService = (
   livePeers: LivePeersShape,
   work: WorkShape,
   workRepository: WorkRepositoryShape,
+  runPromise: KernelRunPromise,
 ): KernelServiceShape => {
   const docs = new Map<string, CanvasDoc>();
   const snapshotListeners = new Set<(snapshot: KernelSnapshot) => void>();
@@ -603,13 +621,13 @@ const makeKernelService = (
   // separately — not region-pulse delivery deps.
   __setTimerSchedulerForTest({
     claimInterval: (input) =>
-      Effect.runPromise(scheduler.claimInterval(input)),
+      runPromise(scheduler.claimInterval(input)),
     reconcileHome: (homeStation, activeTimerKeys) =>
-      Effect.runPromise(
+      runPromise(
         scheduler.reconcileHome(homeStation, activeTimerKeys),
       ),
     readIntervalState: (homeStation, timerKey) =>
-      Effect.runPromise(scheduler.readIntervalState(homeStation, timerKey)),
+      runPromise(scheduler.readIntervalState(homeStation, timerKey)),
   });
 
   // Process-local effect receipts (at-most-once within this runtime).
@@ -664,7 +682,7 @@ const makeKernelService = (
         return { ok: false, message: "canvas paused or station role unset" };
       }
       const trimmedBrief = brief.trim();
-      const result = await Effect.runPromise(
+      const result = await runPromise(
         work.workTaskCreate(
           canvasName,
           sinkNodeId,
@@ -763,6 +781,7 @@ const makeKernelService = (
     if (!generationIsActive(generation)) return;
     const scope = await refreshStationScope(
       stations,
+      runPromise,
       () => generationIsActive(generation),
     );
     if (!generationIsActive(generation)) return;
@@ -774,11 +793,11 @@ const makeKernelService = (
       scope.role === ""
         ? activeActorRegistry([])
         : activeActorRegistry(
-            await Effect.runPromise(canvases.activeActorRefs()),
+            await runPromise(canvases.activeActorRefs()),
           );
     if (!generationIsActive(generation)) return;
     setActorRefResolver(registry.resolve);
-    const currentSnapshots = await Effect.runPromise(snapshots.current);
+    const currentSnapshots = await runPromise(snapshots.current);
     if (!generationIsActive(generation)) return;
     __setSnapshotsForTest(currentSnapshots);
     startManagedSeats(scope, registry, generation);
@@ -830,10 +849,10 @@ const makeKernelService = (
             isLocalSeatReady: localManagedSeatReadyForClaim,
             installationForHost: async (hostId) =>
               (
-                await Effect.runPromise(fleetTargets.get(hostId))
+                await runPromise(fleetTargets.get(hostId))
               )?.stationInstallationId,
             isLive: (hostId, installationId) =>
-              Effect.runPromise(livePeers.isLive(hostId, installationId)),
+              runPromise(livePeers.isLive(hostId, installationId)),
           },
         );
         if (selectable && generationIsActive(generation)) {
@@ -844,7 +863,7 @@ const makeKernelService = (
     if (!generationIsActive(generation)) return;
 
     const busyActorSeatIds = new Set<ActorSeatId>();
-    const pendingCommands = await Effect.runPromise(
+    const pendingCommands = await runPromise(
       workRepository.pendingCommands,
     );
     if (!generationIsActive(generation)) return;
@@ -912,7 +931,7 @@ const makeKernelService = (
         // admitted here may settle after suspension; no later selection may
         // enter WorkService.
         if (!generationIsActive(generation)) return;
-        const result = await Effect.runPromise(
+        const result = await runPromise(
           work.workTaskClaim(
             selection.sink.canvasName,
             selection.sink.nodeId,
@@ -998,7 +1017,7 @@ const makeKernelService = (
             claimBoundaryMessageId,
           );
           if (
-            await Effect.runPromise(
+            await runPromise(
               workRepository.hasAcceptedDelivery(sinkRef, deliveryId),
             )
           ) {
@@ -1007,7 +1026,7 @@ const makeKernelService = (
           if (!generationIsActive(generation)) return;
           ensureManagedSeatRunning(canvasName, doc, actor, authority);
           if (
-            !await Effect.runPromise(
+            !await runPromise(
               workRepository.hasAcceptedDelivery(
                 sinkRef,
                 compactionDeliveryId,
@@ -1023,7 +1042,7 @@ const makeKernelService = (
               "/compact",
             );
             if (!compacted) continue;
-            const intentWitness = await Effect.runPromise(
+            const intentWitness = await runPromise(
               canvases.activeIntentWitness(),
             );
             const basis = Schema.decodeUnknownSync(IntentFactBasis)({
@@ -1034,7 +1053,7 @@ const makeKernelService = (
               generation: intentWitness.generation,
               contentSha256: intentWitness.contentSha256,
             });
-            await Effect.runPromise(
+            await runPromise(
               workRepository.acceptDelivery({
                 sink: sinkRef,
                 basis,
@@ -1114,7 +1133,7 @@ const makeKernelService = (
           // durably suppresses restart replay. The send→receipt crash window
           // remains intentionally at-least-once until that transport accepts
           // an idempotency key; pre-writing would instead risk silent loss.
-          const intentWitness = await Effect.runPromise(
+          const intentWitness = await runPromise(
             canvases.activeIntentWitness(),
           );
           const basis = Schema.decodeUnknownSync(IntentFactBasis)({
@@ -1125,7 +1144,7 @@ const makeKernelService = (
             generation: intentWitness.generation,
             contentSha256: intentWitness.contentSha256,
           });
-          await Effect.runPromise(
+          await runPromise(
             workRepository.acceptDelivery({
               sink: sinkRef,
               basis,
@@ -1167,7 +1186,7 @@ const makeKernelService = (
     const generation = activeGeneration();
     if (!generationIsActive(generation)) return false;
 
-    const read = await Effect.runPromise(
+    const read = await runPromise(
       Effect.either(canvases.read(canvasName)),
     );
     if (!generationIsActive(generation) || read._tag === "Left") return false;
@@ -1177,11 +1196,12 @@ const makeKernelService = (
 
     const scope = await refreshStationScope(
       stations,
+      runPromise,
       () => generationIsActive(generation),
     );
     if (!generationIsActive(generation) || scope.role === "") return false;
 
-    const actorRefs = await Effect.runPromise(
+    const actorRefs = await runPromise(
       Effect.either(canvases.activeActorRefs()),
     );
     if (!generationIsActive(generation) || actorRefs._tag === "Left") return false;
@@ -1210,7 +1230,7 @@ const makeKernelService = (
     generation: number,
   ): Promise<void> => {
     if (!generationIsActive(generation)) return;
-    const result = await Effect.runPromise(Effect.either(canvases.read(name)));
+    const result = await runPromise(Effect.either(canvases.read(name)));
     if (result._tag === "Right" && generationIsActive(generation)) {
       docs.set(name, result.right.doc);
     }
@@ -1224,7 +1244,7 @@ const makeKernelService = (
 
   const hydrateAllDocs = async (generation: number): Promise<void> => {
     if (!generationIsActive(generation)) return;
-    const summaries = await Effect.runPromise(canvases.list);
+    const summaries = await runPromise(canvases.list);
     if (!generationIsActive(generation)) return;
     for (let i = 0; i < summaries.length; i += MAX_CONCURRENT_HYDRATIONS) {
       if (!generationIsActive(generation)) return;
@@ -1243,7 +1263,7 @@ const makeKernelService = (
   const resyncCanvas = async (name: string): Promise<void> => {
     const generation = activeGeneration();
     if (!generationIsActive(generation)) return;
-    const summaries = await Effect.runPromise(canvases.list);
+    const summaries = await runPromise(canvases.list);
     if (!generationIsActive(generation)) return;
     if (!summaries.some((summary) => summary.name === name)) {
       docs.delete(name);
@@ -1252,10 +1272,10 @@ const makeKernelService = (
       return;
     }
 
-    const result = await Effect.runPromise(Effect.either(canvases.read(name)));
+    const result = await runPromise(Effect.either(canvases.read(name)));
     if (result._tag === "Right" && generationIsActive(generation)) {
       docs.set(name, result.right.doc);
-      void Effect.runPromise(refreshWithIdentityHints());
+      void runPromise(refreshWithIdentityHints());
       scheduleCycle();
     }
     // else: transient read/decode failure (e.g. mid-write) — keep the
@@ -1287,11 +1307,11 @@ const makeKernelService = (
       started = true;
       const generation = activeGeneration();
       void (async () => {
-        await Effect.runPromise(pause.start);
+        await runPromise(pause.start);
         if (!generationIsActive(generation)) return;
         await hydrateAllDocs(generation);
         if (!generationIsActive(generation)) return;
-        void Effect.runPromise(refreshWithIdentityHints());
+        void runPromise(refreshWithIdentityHints());
 
         lifecycleCleanups = [
           canvases.subscribeChanges((name) => void resyncCanvas(name)),
@@ -1359,6 +1379,16 @@ export const KernelLive = Layer.effect(
     const livePeers = yield* StationLivePeerRegistry;
     const work = yield* WorkService;
     const workRepository = yield* WorkRepository;
+    // Full ambient Context (CC AppRuntime / Remote RootLayer parents). Do not
+    // use Effect.runtime<never>() — bridges must retain the warm graph so
+    // Work/Content (and every other product service) stay visible. Cast only
+    // satisfies Runtime.runPromise's R parameter; the captured Context object
+    // still holds every service present at layer build.
+    const runtime = yield* Effect.runtime();
+    const runPromise: KernelRunPromise = <A, E>(effect: Effect.Effect<A, E>) =>
+      Runtime.runPromise(runtime as Runtime.Runtime<never>)(
+        effect as Effect.Effect<A, E, never>,
+      );
     return makeKernelService(
       canvases,
       snapshots,
@@ -1369,6 +1399,7 @@ export const KernelLive = Layer.effect(
       livePeers,
       work,
       workRepository,
+      runPromise,
     );
   }),
 );

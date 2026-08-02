@@ -44,7 +44,7 @@ Read V4 patterns from **Playground/effect**, not from V3 skill text.
 |---|---|---|
 | **S0** | deep | Fitness: CI/rg or architecture test bans bare `Effect.runPromise` under product globs except allowlist file. Document allowlist. **≥1 commit.** |
 | **S1** | deep | Single warm ManagedRuntime story documented in code comments at `runtime.ts` / `remote-runtime.ts`; product IPC uses `AppRuntime`/`RemoteRuntime` only for domain Effects. **≥1 commit.** |
-| **S2** | deep | Kernel factory cycle (claim/delivery/timer bridges) does not use bare empty-Context `Effect.runPromise` for Work/Content paths; claims see ContentService. **≥1 commit.** |
+| **S2** | deep | ✅ Kernel factory cycle (claim/delivery/timer bridges) does not use bare empty-Context `Effect.runPromise` for Work/Content paths; claims see ContentService. **≥1 commit.** |
 | **S3** | deep | Regression test: media/ContentRef task claim succeeds when receipts+files present (would catch prior claim-gate bug). **≥1 commit.** |
 | **S4** | parallel | `Context.Tag` → V4-ready `Context.Service` (or staged rename map) for **owned path pack only**. **≥1 commit.** |
 | **S5** | parallel | `Effect.fork` / `forkDaemon` → `forkChild` / `forkDetach` (V4 names if on V4; else V3-compatible prep + comment) **owned paths only**. **≥1 commit.** |
@@ -87,11 +87,18 @@ Preferred product path remains `AppRuntime.runPromise` / `RemoteRuntime.runPromi
 - Sole product store composition: memoized `StateEngine` + co-owned `InstallOps` at `StateRepositoriesLive` (install-ops is not product truth).
 - Dispose once on quit; post-dispose host edges stay on S0 permanent allowlist only.
 
-**S2 inventory (remaining bare `Effect.runPromise` under product main — do not rewrite in S1):**
+**S2 done (kernel warm Runtime):**
+
+| Surface | Law |
+|---|---|
+| `src/main/vellum/kernel/service.ts` | `KernelLive` captures full ambient `Effect.runtime()`; all Promise bridges use `Runtime.runPromise` — zero bare `Effect.runPromise` |
+| `src/main/vellum/work/service.ts` | Hard `yield* ContentService` at WorkLive build (no `serviceOption` soft-miss; missing content fails layer, not claim) |
+| S0 debt | `kernel/service.ts` removed from allowlist (count 0) |
+
+**Remaining product bare `Effect.runPromise` (not S2):**
 
 | Path | Debt role |
 |---|---|
-| `src/main/vellum/kernel/service.ts` | S2 target: claim/timer/fleet bridges (empty Context) |
 | browser/*, content/inline-media-migration, usage, canvases, settings/ipc, hosts/registry, license/monitor, station/remote-report-pump, term/router, update/service | product/adapter debt — shrink via S0 ratchet when migrated |
 | `src/main/vellum/update/ipc.ts` | permanent: post-`AppRuntime.dispose` finalize only |
 

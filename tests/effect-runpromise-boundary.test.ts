@@ -69,14 +69,18 @@ describe("effect-runpromise boundary (S0)", () => {
     }
   });
 
-  it("records kernel bare runPromise as debt, not permanent", () => {
+  it("keeps kernel free of bare runPromise (S2 cleared; never permanent)", () => {
     const raw = JSON.parse(readFileSync(ALLOWLIST, "utf8")) as Allowlist;
-    const kernelDebt = raw.debt.filter((e) =>
-      e.path.startsWith("src/main/vellum/kernel/"),
-    );
-    expect(kernelDebt.length).toBeGreaterThan(0);
+    // S2: kernel debt entry is gone — zero bare Effect.runPromise in
+    // kernel/service.ts. Permanent must still never cover kernel/work.
+    expect(
+      raw.debt.some((e) => e.path.startsWith("src/main/vellum/kernel/")),
+    ).toBe(false);
     expect(
       raw.permanent.some((e) => e.path.startsWith("src/main/vellum/kernel/")),
+    ).toBe(false);
+    expect(
+      raw.permanent.some((e) => e.path.startsWith("src/main/vellum/work/")),
     ).toBe(false);
   });
 

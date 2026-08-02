@@ -9,11 +9,6 @@
   ],
   "debt": [
     {
-      "path": "src/main/vellum/kernel/service.ts",
-      "maxCount": 26,
-      "reason": "S2 debt: empty-Context kernel bridges (claim/timer/fleet). NEVER promote to permanent."
-    },
-    {
       "path": "src/main/vellum/browser/sessions.ts",
       "maxCount": 5,
       "reason": "product debt: profile state via bare runPromise; migrate to AppRuntime"

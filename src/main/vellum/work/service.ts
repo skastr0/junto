@@ -2,7 +2,7 @@
 // plane. Canvas documents are read-only topology plus runtime projections;
 // every durable mutation goes through a specific WorkRepository verb.
 
-import { Context, Effect, Either, Layer, Match, Option, Schema } from "effect";
+import { Context, Effect, Either, Layer, Match, Schema } from "effect";
 import type {
   Artifact,
   CanvasDoc,
@@ -414,10 +414,14 @@ export const WorkLive = Layer.effect(
     const stations = yield* StationRepository;
     const fleetTargets = yield* StationFleetTargetRepository;
     const livePeers = yield* StationLivePeerRegistry;
-    // Capture at construction: kernel (and other callers) run Work effects via
-    // bare Effect.runPromise with no ambient services. serviceOption at call
-    // time always misses ContentService even when it is in the app graph.
-    const contentServiceOption = yield* Effect.serviceOption(ContentService);
+    // S2: ContentService is a hard WorkLive dependency (both CC + Remote graphs
+    // compose it — runtime.ts / remote-runtime.ts). Hard yield*, never
+    // serviceOption: a missing ContentService must fail layer build, not soft-
+    // degrade claim/media as "unavailable". Closed over for media claim gate +
+    // raw externalize (methods stay R=never). Kernel still runs via warm
+    // Runtime.runPromise so other ambient lookups cannot reintroduce the
+    // empty-Context class of bug.
+    const contentService = yield* ContentService;
     const ids = defaultIds();
 
     const stationContext: Effect.Effect<
@@ -504,16 +508,6 @@ export const WorkLive = Layer.effect(
         return Effect.succeed(parts);
       }
       return Effect.gen(function* () {
-        if (Option.isNone(contentServiceOption)) {
-          return yield* Effect.fail(
-            new WorkServiceError({
-              code: "invalid",
-              message:
-                "content service is unavailable; binary media cannot be written as inline Base64",
-            }),
-          );
-        }
-        const service = contentServiceOption.value;
         return yield* Effect.forEach(parts, (part) => {
           if (part.kind !== "raw") return Effect.succeed(part);
           return Effect.try({
@@ -521,7 +515,7 @@ export const WorkLive = Layer.effect(
             catch: toWorkServiceError,
           }).pipe(
             Effect.flatMap((source) =>
-              service.put({
+              contentService.put({
                 source,
                 mediaType: part.mediaType ?? "application/octet-stream",
                 ...(owner === undefined ? {} : { owner }),
@@ -1327,13 +1321,6 @@ export const WorkLive = Layer.effect(
               sourceTask.state === "submitted" &&
               collectContentRefsFromTask(sourceTask).length > 0
             ) {
-              if (Option.isNone(contentServiceOption)) {
-                return yield* new WorkServiceError({
-                  code: "invalid",
-                  message: `task "${taskId}" is not claim-ready (content service unavailable)`,
-                });
-              }
-              const contentService = contentServiceOption.value;
               const statuses = yield* Effect.forEach(
                 collectContentRefsFromTask(sourceTask),
                 (ref) =>
