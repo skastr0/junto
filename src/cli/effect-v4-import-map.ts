@@ -38,7 +38,7 @@ export const S7_EFFECT_V4_IMPORT_MAP = {
   "@effect/cli/CliApp": "effect/unstable/cli/Command (CliApp folded into Command)",
 
   // --- effect core renames used under cli/** ---
-  "effect/JSONSchema": "effect/JsonSchema",
+  "effect/JsonSchema": "effect/JsonSchema",
 
   // --- platform-* remain separate packages (bump version with effect@4) ---
   "@effect/platform-node": "@effect/platform-node (stays; version lockstep V4)",
@@ -95,7 +95,7 @@ export const S7_PLATFORM_COMMAND_API_RENAMES = {
  * | @effect/platform-node/NodeSink | 1 | ssh/process-spawner.ts |
  * | @effect/platform-node/NodeStream | 1 | ssh/process-spawner.ts |
  * | @effect/platform-bun (BunContext, BunRuntime) | 1 | cli/main.ts |
- * | effect/JSONSchema | 1 | cli/core/discovery.ts |
+ * | effect/JsonSchema | 1 | cli/core/discovery.ts |
  * | Context.Tag service ids (S4 owns Tag→Service) | 5 | SshTransport, SshTransportConfig, ProcessSpawner, WorkSocket, OperatorSocket |
  *
  * Dual-path guard: each service id appears once; no v1/v2 twin Tags under ownership.
@@ -155,7 +155,7 @@ export const S7_LIVE_IMPORT_SITES = [
     v4: "BunContext → BunServices; BunRuntime keep-alive",
   },
   {
-    module: "effect/JSONSchema",
+    module: "effect/JsonSchema",
     files: ["src/cli/core/discovery.ts"],
     v4: "effect/JsonSchema",
   },

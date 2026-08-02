@@ -316,8 +316,7 @@ const runtime = (
           fleetTargets,
         ),
       ),
-    ),
-  );
+    ) as never);
 
 const reportResponse = (hasMore = false) =>
   ReportResponse.make({

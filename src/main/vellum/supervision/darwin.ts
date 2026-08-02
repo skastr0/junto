@@ -128,7 +128,7 @@ const parseLaunchdPid = (
   const decoded = Schema.decodeUnknownResult(LaunchdObservedPid)(
     Number(match[1]),
   );
-  if (decoded._tag === "Left") {
+  if (decoded._tag === "Failure") {
     return Object.freeze({
       kind: "invalid",
       diagnostic: "launchctl returned an out-of-range pid field",

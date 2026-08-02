@@ -85,7 +85,7 @@ const tempRoot = async (): Promise<string> => {
 
 const openEngine = async (path: string): Promise<{
   readonly runtime: EngineRuntime;
-  readonly engine: Context.Tag.Service<typeof StateEngine>;
+  readonly engine: Context.Service.Shape<typeof StateEngine>;
 }> => {
   const runtime = ManagedRuntime.make(makeStateEngineLive(path));
   dispose.push(() => runtime.dispose());
@@ -94,7 +94,7 @@ const openEngine = async (path: string): Promise<{
 };
 
 const cacheRuntime = (
-  engine: Context.Tag.Service<typeof StateEngine>,
+  engine: Context.Service.Shape<typeof StateEngine>,
 ): ManagedRuntime.ManagedRuntime<UsageCache, never> => {
   const runtime = ManagedRuntime.make(
     Layer.provide(
@@ -107,7 +107,7 @@ const cacheRuntime = (
 };
 
 const serviceRuntime = (
-  engine: Context.Tag.Service<typeof StateEngine>,
+  engine: Context.Service.Shape<typeof StateEngine>,
   sources: ReadonlyArray<UsageSource>,
 ): ManagedRuntime.ManagedRuntime<UsageService, never> => {
   const cache = Layer.provide(

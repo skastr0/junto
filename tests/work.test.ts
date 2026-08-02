@@ -954,10 +954,10 @@ const makeWorkRuntime = (databasePath: string) => {
     CanvasesLive,
     repositoriesLive
   );
-  return ManagedRuntime.make(
+  return ManagedRuntime.make(((
     Layer.provideMerge(
       WorkLive,
-      Layer.mergeAll(canvasesLive, StationLivePeerRegistryLive)
+      Layer.mergeAll(canvasesLive, StationLivePeerRegistryLive) as never) as never)
     )
   );
 };
@@ -979,9 +979,9 @@ const activeIntentBasis = async (
 const workRuntime = makeWorkRuntime(
   join(mockCanvasesHome, "state", "vellum.db")
 );
-let work: Context.Tag.Service<typeof WorkService>;
-let canvases: Context.Tag.Service<typeof CanvasesService>;
-let repository: Context.Tag.Service<typeof WorkRepository>;
+let work: Context.Service.Shape<typeof WorkService>;
+let canvases: Context.Service.Shape<typeof CanvasesService>;
+let repository: Context.Service.Shape<typeof WorkRepository>;
 
 beforeAll(async () => {
   const settings = await workRuntime.runPromise(SettingsService);
@@ -1032,7 +1032,7 @@ describe("WorkService — concurrent ops", () => {
     );
     expect(missing._tag).toBe("Left");
     if (missing._tag === "Failure") {
-      expect(missing.left.code).toBe("task_not_found");
+      expect(missing.failure.code).toBe("task_not_found");
     }
   });
 

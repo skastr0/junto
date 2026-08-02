@@ -43,15 +43,15 @@ const makeRuntime = async (
         now: () => "2026-07-27T12:00:00.000Z",
       }),
       stateLive,
-    ),
-  );
+    ) as never,
+  ) as FleetRuntime;
   runtimes.push(runtime);
   return { path: databasePath, runtime };
 };
 
 const repository = (
   runtime: FleetRuntime,
-): Promise<Context.Tag.Service<typeof StationFleetTargetRepository>> =>
+): Promise<Context.Service.Shape<typeof StationFleetTargetRepository>> =>
   runtime.runPromise(StationFleetTargetRepository);
 
 const identity = (

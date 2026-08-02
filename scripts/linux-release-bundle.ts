@@ -15,7 +15,7 @@ import {
 } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import path from "node:path";
-import { Either, Schema } from "effect";
+import { Result, Schema } from "effect";
 import {
   CURRENT_STATION_PROTOCOL_SUPPORT,
   StationProtocolSupport as StationProtocolSupportSchema,
@@ -470,13 +470,13 @@ const decodeStationProtocolSupport = (
   value: unknown,
   label: string,
 ): StationProtocolSupport => {
-  const decoded = Schema.decodeUnknownEither(StationProtocolSupportSchema, {
+  const decoded = Schema.decodeUnknownResult(StationProtocolSupportSchema, {
     onExcessProperty: "error",
   })(value);
-  if (Either.isLeft(decoded)) {
+  if (Result.isFailure(decoded)) {
     throw new Error(`invalid ${label}`);
   }
-  return decoded.right;
+  return decoded.success;
 };
 
 const requireIsoTimestamp = (value: unknown, label: string): string => {
@@ -2621,14 +2621,14 @@ const validateExternalLinuxQualification = async (
     qualificationRaw.value,
   );
   if (
-    Either.isLeft(decodedQualification) ||
-    decodedQualification.right.ok !== true
+    Result.isFailure(decodedQualification) ||
+    decodedQualification.success.ok !== true
   ) {
     throw new Error(
       "final release requires passed two-installation Station qualification",
     );
   }
-  const qualification = decodedQualification.right;
+  const qualification = decodedQualification.success;
   const candidateManifestReceipt = candidateVerification.bundleFiles.find(
     (entry) => entry.file === LINUX_RELEASE_MANIFEST,
   );

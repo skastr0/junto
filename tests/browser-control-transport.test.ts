@@ -48,7 +48,7 @@ const servers: BrowserControlServer[] = [];
 const capabilityRegistries: BrowserCapabilityRegistry[] = [];
 const rogueServers: HttpServer[] = [];
 const stateRuntimes: ManagedRuntime.ManagedRuntime<StateEngine, unknown>[] = [];
-const states = new Map<string, Context.Tag.Service<typeof StateEngine>>();
+const states = new Map<string, Context.Service.Shape<typeof StateEngine>>();
 const PAGE_REF = "vellum://canvas/work?node=cli-node";
 const AGENT_KEY = "local:cli";
 const deferred = <A>() => {

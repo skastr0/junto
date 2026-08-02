@@ -217,7 +217,7 @@ describe("browser edge-delete session teardown", () => {
   let root: string;
   let registries: BrowserCapabilityRegistry[];
   let stateRuntime: ManagedRuntime.ManagedRuntime<StateEngine, unknown>;
-  let state: Context.Tag.Service<typeof StateEngine>;
+  let state: Context.Service.Shape<typeof StateEngine>;
 
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), "vellum-edge-delete-"));

@@ -38,7 +38,7 @@ import {
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Either } from "effect";
+import { Result } from "effect";
 import {
   LINUX_QUALIFICATION_CANDIDATE_PURPOSE,
   LINUX_RELEASE_MANIFEST,
@@ -2944,10 +2944,10 @@ const parseFixedStationStatus = (
 ): Record<string, unknown> => {
   const raw = parseJsonObject(output, "fixed vellum-station status");
   const decoded = decodeStationSessionFrame(raw);
-  if (Either.isLeft(decoded)) {
+  if (Result.isFailure(decoded)) {
     throw new Error("fixed vellum-station emitted a malformed Station frame");
   }
-  const frame = decoded.right;
+  const frame = decoded.success;
   if (
     frame.frame !== "response" ||
     frame.requestId !== expectedRequestId ||
@@ -3700,7 +3700,7 @@ const observe = async (
       completedAt,
     };
     const decoded = decodeStationQualification(receipt);
-    if (Either.isLeft(decoded) || decoded.right.ok !== true) {
+    if (Result.isFailure(decoded) || decoded.success.ok !== true) {
       throw new Error("completed qualification receipt failed strict decode");
     }
     const receiptFile = path.join(
@@ -3709,10 +3709,10 @@ const observe = async (
     );
     await writeFile(
       receiptFile,
-      `${JSON.stringify(decoded.right, null, 2)}\n`,
+      `${JSON.stringify(decoded.success, null, 2)}\n`,
       { encoding: "utf8", mode: 0o600, flag: "wx" },
     );
-    return { ...observations, receipt: decoded.right };
+    return { ...observations, receipt: decoded.success };
   } catch (error) {
     return recordFailure(
       directory,

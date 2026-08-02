@@ -14,8 +14,8 @@ export interface OwnedProcess { readonly [OwnedProcessTypeId]: typeof OwnedProce
 
 export const KillablePid = Schema.Number.pipe(Schema.check(Schema.isInt()), 
   Schema.check(Schema.isGreaterThan(1)),
-  Schema.check(Schema.makeFilter((pid) => pid !== globalThis.process.pid, { message: () => "pid must not be the Vellum Command process" })),
-  Schema.check(Schema.makeFilter((pid) => pid !== globalThis.process.ppid, { message: () => "pid must not be Vellum Command's parent process" })),
+  Schema.check(Schema.makeFilter((pid) => pid !== globalThis.process.pid, { message: "pid must not be the Vellum Command process" })),
+  Schema.check(Schema.makeFilter((pid) => pid !== globalThis.process.ppid, { message: "pid must not be Vellum Command's parent process" })),
   Schema.brand("KillablePid"),
 );
 export type KillablePid = typeof KillablePid.Type;
@@ -90,7 +90,7 @@ export const admitChildProcess = (input: { readonly source: string; readonly chi
     return mintRefusedChild(input.source, input.child, undefined, "child-pid-unavailable");
   }
   const decoded = Schema.decodeUnknownResult(KillablePid)(observation.pid);
-  if (decoded._tag === "Left") {
+  if (decoded._tag === "Failure") {
     return mintRefusedChild(
       input.source,
       input.child,
@@ -120,7 +120,7 @@ export const spawnDetachedProcessGroup = (input: { readonly source: string; read
     ...(pid === undefined ? {} : { pid }),
     kill: child.kill.bind(child),
   });
-  if (decoded._tag === "Left" || pid === undefined) {
+  if (decoded._tag === "Failure" || pid === undefined) {
     return {
       child,
       process: mintRefusedChild(input.source, signalSink, typeof pid === "number" ? pid : undefined, "child-pid-not-killable"),
@@ -183,7 +183,7 @@ const signalChild = (rec: OwnedAuthority, signal: TerminatingSignal): SignalOwne
 export const signalOwned = (process: OwnedProcess, signal: TerminatingSignal): SignalOwnedResult => {
   const rec = authority.get(process);
   if (!rec || rec.released) return { attempted: false, decision: { ok: false, reason: "handle-not-registered" }, via: "none" };
-  if (Schema.decodeUnknownResult(TerminatingSignal)(signal)._tag === "Left") return { attempted: false, decision: { ok: false, reason: "signal-not-allowed" }, via: "none" };
+  if (Schema.decodeUnknownResult(TerminatingSignal)(signal)._tag === "Failure") return { attempted: false, decision: { ok: false, reason: "signal-not-allowed" }, via: "none" };
   if (rec.kind === "child-refused") return refuseChildSignal(rec, signal, rec.reason);
   if (rec.kind === "child-opaque") return signalChild(rec, signal);
   if (rec.kind === "child-verified") {

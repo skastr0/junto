@@ -39,9 +39,9 @@ import {
 } from "../src/shared/work-protocol";
 
 const decodeStrict =
-  <A, I>(schema: Schema.Schema<A, I>) =>
+  <S extends Schema.Top>(schema: S) =>
   (value: unknown) =>
-    Schema.decodeUnknownResult(schema, { onExcessProperty: "error" })(value);
+    Schema.decodeUnknownResult(schema as never, { onExcessProperty: "error" })(value);
 
 const cc = Schema.decodeUnknownSync(InstallationId)("cc-installation");
 const remote = Schema.decodeUnknownSync(InstallationId)(

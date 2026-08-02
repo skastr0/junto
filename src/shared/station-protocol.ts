@@ -17,7 +17,7 @@ export const STATION_PROTOCOL_BASELINE = 4 as const;
 export const StationProtocolVersion = Schema.Number.pipe(Schema.check(Schema.isInt()), 
   Schema.check(Schema.isGreaterThan(0)),
   Schema.check(Schema.makeFilter(Number.isSafeInteger, {
-    message: () => "Station protocol version must be a safe integer",
+    message: "Station protocol version must be a safe integer",
   })),
 );
 export type StationProtocolVersion = typeof StationProtocolVersion.Type;
@@ -30,8 +30,7 @@ export const StationProtocolSupport = Schema.Struct({
   Schema.check(Schema.makeFilter(({ compatibleFrom, warnBelow, preferred }) =>
     compatibleFrom <= warnBelow && warnBelow <= preferred,
   {
-    message: () =>
-      "Station protocol support must satisfy compatibleFrom <= warnBelow <= preferred",
+    message: "Station protocol support must satisfy compatibleFrom <= warnBelow <= preferred",
   },)),
 );
 export type StationProtocolSupport = typeof StationProtocolSupport.Type;
@@ -86,7 +85,7 @@ export type StationAppVersion = typeof StationAppVersion.Type;
 export const StationStateSchemaVersion = Schema.Number.pipe(Schema.check(Schema.isInt()), 
   Schema.check(Schema.isGreaterThan(0)),
   Schema.check(Schema.makeFilter(Number.isSafeInteger, {
-    message: () => "state schema version must be a safe integer",
+    message: "state schema version must be a safe integer",
   })),
 );
 export type StationStateSchemaVersion = typeof StationStateSchemaVersion.Type;

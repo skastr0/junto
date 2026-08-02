@@ -111,7 +111,7 @@ describe("main authoring architecture", () => {
     const control = source("src/main/vellum/work/control.ts");
 
     expect(ipc).toContain("resolveProjectedIpcActorRef");
-    expect(ipc).toContain("read.right.actorRefs");
+    expect(ipc).toContain("read.success.actorRefs");
     for (const actorOperation of [
       "workMessageAppend",
       "workRequestCreate",
@@ -124,9 +124,9 @@ describe("main authoring architecture", () => {
     expect(control).toContain(
       "resolveProcessBoundActorRef(read.actorRefs, caller)",
     );
-    expect(control).not.toContain("decoded.right.actor");
+    expect(control).not.toContain("decoded.success.actor");
     expect(control).not.toContain(
-      "decoded.right.actor?.trim() || caller.nodeId",
+      "decoded.success.actor?.trim() || caller.nodeId",
     );
   });
 

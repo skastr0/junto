@@ -66,7 +66,7 @@ describe("browser physical-station authority", () => {
     const runtime = ManagedRuntime.make(
       makeStateEngineLive(join(root, "vellum.db")),
     );
-    const state: Context.Tag.Service<typeof StateEngine> =
+    const state: Context.Service.Shape<typeof StateEngine> =
       await runtime.runPromise(StateEngine);
     stateRuntimes.push(runtime);
     return makeBrowserProfileService(state, root);

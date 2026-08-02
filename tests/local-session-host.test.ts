@@ -188,7 +188,7 @@ describe("LocalSessionHost", () => {
     if (!Result.isFailure(seatWithoutArgv)) {
       throw new Error("an agent seat with no argv must not resolve to a launch");
     }
-    expect(seatWithoutArgv.left).toMatchObject({
+    expect(seatWithoutArgv.failure).toMatchObject({
       code: "agent_launch_unresolvable",
       harness: "claude",
     });

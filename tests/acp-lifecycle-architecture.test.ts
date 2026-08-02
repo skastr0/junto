@@ -28,7 +28,7 @@ describe("ACP lifecycle architecture", () => {
 
     expect(client).toContain('readonly kind: "remote-scope"');
     expect(plane).toContain('kind: "remote-scope"');
-    expect(plane).toContain("Scope.make(ExecutionStrategy.sequential)");
+    expect(plane).toContain('Scope.make("sequential")');
     expect(plane).not.toContain("Scope.fork(");
     expect(plane).not.toMatch(/\.kill\s*\(/u);
     expect(plane).not.toContain("signalOwned");

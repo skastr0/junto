@@ -538,7 +538,7 @@ describe("WorkRepository v2 report reconciliation", () => {
     );
     expect(Result.isFailure(duplicate)).toBe(true);
     if (Result.isFailure(duplicate)) {
-      expect(duplicate.left).toMatchObject({ reason: "causal-conflict" });
+      expect(duplicate.failure).toMatchObject({ reason: "causal-conflict" });
     }
     expect(
       (
@@ -629,7 +629,7 @@ describe("WorkRepository v2 report reconciliation", () => {
     );
     expect(Result.isFailure(rejected)).toBe(true);
     if (Result.isFailure(rejected)) {
-      expect(rejected.left).toMatchObject({
+      expect(rejected.failure).toMatchObject({
         reason: "response-capacity",
       });
     }
@@ -803,7 +803,7 @@ describe("WorkRepository v2 report reconciliation", () => {
     );
     expect(Result.isFailure(wrongCommandResult)).toBe(true);
     if (Result.isFailure(wrongCommandResult)) {
-      expect(wrongCommandResult.fail).toMatchObject({
+      expect(wrongCommandResult.failure).toMatchObject({
         reason: "causal-conflict",
       });
     }
@@ -832,7 +832,7 @@ describe("WorkRepository v2 report reconciliation", () => {
     );
     expect(Result.isFailure(changedResponse)).toBe(true);
     if (Result.isFailure(changedResponse)) {
-      expect(changedResponse.left).toMatchObject({
+      expect(changedResponse.failure).toMatchObject({
         reason: "causal-conflict",
       });
     }
@@ -1069,7 +1069,7 @@ describe("WorkRepository v2 report reconciliation", () => {
         ),
       )
     ).tasks.items[0]!.history;
-    expect(remoteHistory).toEqual([created.success.history[0], note]);
+    expect(remoteHistory).toEqual([created.value.history[0], note]);
     expect(commandCenterHistory).toEqual(remoteHistory);
   });
 
@@ -1109,7 +1109,7 @@ describe("WorkRepository v2 report reconciliation", () => {
       commandCenter.repository.reserveRemoteTaskClaim({
         targetInstallationId: remote,
         sink,
-        taskId: created.success.id,
+        taskId: created.value.id,
         actor: worker,
         originAt: observedAt,
         receivedAt: observedAt,
@@ -1156,7 +1156,7 @@ describe("WorkRepository v2 report reconciliation", () => {
     );
     expect(Result.isFailure(capacityDenied)).toBe(true);
     if (Result.isFailure(capacityDenied)) {
-      expect(capacityDenied.left).toMatchObject({
+      expect(capacityDenied.failure).toMatchObject({
         reason: "response-capacity",
       });
     }
@@ -1220,7 +1220,7 @@ describe("WorkRepository v2 report reconciliation", () => {
           "task",
           sink.canvasName,
           sink.nodeId,
-          created.success.id,
+          created.value.id,
         ),
       ),
     ).toBe(remote);
@@ -1245,7 +1245,7 @@ describe("WorkRepository v2 report reconciliation", () => {
     );
     expect(Result.isFailure(wrongCommandResult)).toBe(true);
     if (Result.isFailure(wrongCommandResult)) {
-      expect(wrongCommandResult.fail).toMatchObject({
+      expect(wrongCommandResult.failure).toMatchObject({
         reason: "causal-conflict",
       });
     }
@@ -1256,9 +1256,9 @@ describe("WorkRepository v2 report reconciliation", () => {
           sink.nodeId,
         ),
       )
-    ).tasks.items.find((task) => task.id === created.success.id);
+    ).tasks.items.find((task) => task.id === created.value.id);
     expect(sourceAfterWrongBasis).toMatchObject({
-      id: created.success.id,
+      id: created.value.id,
       state: "submitted",
     });
     expect(sourceAfterWrongBasis?.claimedBy).toBeUndefined();
@@ -1288,9 +1288,9 @@ describe("WorkRepository v2 report reconciliation", () => {
             sink.nodeId,
           ),
         )
-      ).tasks.items.find((task) => task.id === created.success.id),
+      ).tasks.items.find((task) => task.id === created.value.id),
     ).toMatchObject({
-      id: created.success.id,
+      id: created.value.id,
       state: "working",
       claimedBy: worker.seatId,
     });
@@ -1300,7 +1300,7 @@ describe("WorkRepository v2 report reconciliation", () => {
           "task",
           sink.canvasName,
           sink.nodeId,
-          created.success.id,
+          created.value.id,
         ),
       ),
     ).toBe(remote);
@@ -1319,13 +1319,13 @@ describe("WorkRepository v2 report reconciliation", () => {
       station.repository.transitionTask({
         sink,
         basis: station.basis,
-        taskId: created.success.id,
+        taskId: created.value.id,
         state: "completed",
         message: message(
           "done-first-adoption",
           "agent",
           "done",
-          created.success.id,
+          created.value.id,
         ),
         originAt: observedAt,
         receivedAt: observedAt,
@@ -1346,7 +1346,7 @@ describe("WorkRepository v2 report reconciliation", () => {
     );
     expect(Result.isFailure(causalFailure)).toBe(true);
     if (Result.isFailure(causalFailure)) {
-      expect(causalFailure.left).toMatchObject({
+      expect(causalFailure.failure).toMatchObject({
         reason: "causal-conflict",
       });
     }
@@ -1361,20 +1361,20 @@ describe("WorkRepository v2 report reconciliation", () => {
             sink.nodeId,
           ),
         )
-      ).tasks.items.find((task) => task.id === created.success.id)?.state,
+      ).tasks.items.find((task) => task.id === created.value.id)?.state,
     ).toBe("completed");
 
     const qaRejected = await station.runtime.runPromise(
       station.repository.transitionTask({
         sink,
         basis: station.basis,
-        taskId: created.success.id,
+        taskId: created.value.id,
         state: "submitted",
         message: message(
           "qa-reject-first-adoption",
           "user",
           "The completion receipt is missing.",
-          created.success.id,
+          created.value.id,
         ),
         originAt: observedAt,
         receivedAt: observedAt,
@@ -1391,9 +1391,9 @@ describe("WorkRepository v2 report reconciliation", () => {
             sink.nodeId,
           ),
         )
-      ).tasks.items.find((task) => task.id === created.success.id),
+      ).tasks.items.find((task) => task.id === created.value.id),
     ).toMatchObject({
-      id: created.success.id,
+      id: created.value.id,
       state: "submitted",
       metadata: { rejectedTimes: 1 },
     });
@@ -1430,7 +1430,7 @@ describe("WorkRepository v2 report reconciliation", () => {
       commandCenter.repository.reserveRemoteTaskClaim({
         targetInstallationId: remote,
         sink,
-        taskId: created.success.id,
+        taskId: created.value.id,
         actor: worker,
         originAt: observedAt,
         receivedAt: observedAt,
@@ -1539,7 +1539,7 @@ describe("WorkRepository v2 report reconciliation", () => {
       commandCenter.repository.reserveRemoteTaskClaim({
         targetInstallationId: remote,
         sink,
-        taskId: created.success.id,
+        taskId: created.value.id,
         actor: worker,
         originAt: observedAt,
         receivedAt: observedAt,
@@ -1555,7 +1555,7 @@ describe("WorkRepository v2 report reconciliation", () => {
     );
     expect(Result.isFailure(gapResult)).toBe(true);
     if (Result.isFailure(gapResult)) {
-      expect(gapResult.fail).toMatchObject({ reason: "sequence-gap" });
+      expect(gapResult.failure).toMatchObject({ reason: "sequence-gap" });
     }
 
     const falseAuthority = await other.runtime.runPromise(
@@ -1563,7 +1563,7 @@ describe("WorkRepository v2 report reconciliation", () => {
     );
     expect(Result.isFailure(falseAuthority)).toBe(true);
     if (Result.isFailure(falseAuthority)) {
-      expect(falseAuthority.left).toMatchObject({
+      expect(falseAuthority.failure).toMatchObject({
         reason: "direction-mismatch",
       });
     }
@@ -1577,7 +1577,7 @@ describe("WorkRepository v2 report reconciliation", () => {
     );
     expect(Result.isFailure(hashResult)).toBe(true);
     if (Result.isFailure(hashResult)) {
-      expect(hashResult.fail).toMatchObject({ reason: "integrity" });
+      expect(hashResult.failure).toMatchObject({ reason: "integrity" });
     }
 
     const remoteResult = await station.runtime.runPromise(
@@ -1597,7 +1597,7 @@ describe("WorkRepository v2 report reconciliation", () => {
     );
     expect(Result.isFailure(denied)).toBe(true);
     if (Result.isFailure(denied)) {
-      expect(denied.left).toMatchObject({ reason: "causal-conflict" });
+      expect(denied.failure).toMatchObject({ reason: "causal-conflict" });
     }
     expect(
       (
@@ -1640,8 +1640,8 @@ describe("WorkRepository v2 report reconciliation", () => {
     );
     expect(Result.isFailure(conflict)).toBe(true);
     if (Result.isFailure(conflict)) {
-      expect(conflict.left).toBeInstanceOf(WorkReplicationError);
-      expect(conflict.left).toMatchObject({
+      expect(conflict.failure).toBeInstanceOf(WorkReplicationError);
+      expect(conflict.failure).toMatchObject({
         reason: "identity-conflict",
       });
     }
@@ -1765,7 +1765,7 @@ describe("WorkRepository v2 report reconciliation", () => {
     );
     expect(Result.isFailure(deniedHistory)).toBe(true);
     if (Result.isFailure(deniedHistory)) {
-      expect(deniedHistory.left).toMatchObject({
+      expect(deniedHistory.failure).toMatchObject({
         reason: "causal-conflict",
       });
     }
@@ -1897,7 +1897,7 @@ describe("WorkRepository v2 report reconciliation", () => {
     );
     expect(Result.isFailure(deniedArtifact)).toBe(true);
     if (Result.isFailure(deniedArtifact)) {
-      expect(deniedArtifact.left).toMatchObject({
+      expect(deniedArtifact.failure).toMatchObject({
         reason: "causal-conflict",
       });
     }

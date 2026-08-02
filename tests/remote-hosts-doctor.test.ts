@@ -44,7 +44,7 @@ const sequence = Schema.decodeUnknownSync(LogicalSequence);
 const sha256 = Schema.decodeUnknownSync(StationSha256);
 const localHost = defaultRemoteHostsDocument().hosts[0]!;
 const unusedSsh = {} as Parameters<typeof testHostConnection>[0];
-type Fleet = Context.Tag.Service<typeof StationFleetPropagation>;
+type Fleet = Context.Service.Shape<typeof StationFleetPropagation>;
 const unusedFleet = {} as Fleet;
 const localProtocol = {
   appVersion: StationAppVersion.make("1.2.0"),

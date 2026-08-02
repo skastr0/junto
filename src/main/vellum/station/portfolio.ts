@@ -100,7 +100,7 @@ const decodeCanonicalCanvas = (
     );
   }
   const decoded = decodeCanvasDoc(parsed);
-  if (decoded._tag === "Left") {
+  if (decoded._tag === "Failure") {
     return fail(
       "decode",
       `projection canvas "${name}" violates the canvas contract`,

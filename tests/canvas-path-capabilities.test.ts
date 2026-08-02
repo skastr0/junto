@@ -41,7 +41,7 @@ const canvasesLive = Layer.provideMerge(CanvasesLive, repositoriesLive);
 const runtime = ManagedRuntime.make(
   canvasesLive,
 );
-let canvases: Context.Tag.Service<typeof CanvasesService>;
+let canvases: Context.Service.Shape<typeof CanvasesService>;
 const previousCanvasesDirectory = process.env.VELLUM_CANVASES_DIR;
 
 const emptyDoc = { nodes: [], edges: [] } as const;

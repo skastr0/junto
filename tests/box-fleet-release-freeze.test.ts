@@ -43,7 +43,7 @@ describe("production Box fleet freeze (unmocked RELEASE_CAPABILITIES)", () => {
     );
     expect(created._tag).toBe("Left");
     if (created._tag === "Failure") {
-      expect(JSON.stringify(created.left)).toMatch(
+      expect(JSON.stringify(created.failure)).toMatch(
         /Box fleet|not available/i,
       );
     }

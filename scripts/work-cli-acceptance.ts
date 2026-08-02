@@ -462,8 +462,8 @@ const main = async () => {
     WorkLive,
     Layer.mergeAll(canvasesLive, StationLivePeerRegistryLive),
   );
-  const runtime = ManagedRuntime.make(
-    Layer.mergeAll(workLive, PausePlaneAllPlaying),
+  const runtime = ManagedRuntime.make((
+    Layer.mergeAll(workLive, PausePlaneAllPlaying) as never),
   );
   // Establish the same canonical role and topology services used in the app.
   const settings = await runtime.runPromise(SettingsService);

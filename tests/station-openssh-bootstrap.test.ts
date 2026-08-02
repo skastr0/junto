@@ -31,6 +31,11 @@ import {
   bootstrapOpenSshStationStatus,
 } from "../src/main/vellum/station/openssh-bootstrap";
 
+const runEffect = <A, E>(effect: Effect.Effect<A, E, any>): Promise<A> =>
+  Effect.runPromise(effect as Effect.Effect<A, E, never>);
+
+
+
 const decodeInstallationId = Schema.decodeUnknownSync(InstallationId);
 const decodeRequestId = Schema.decodeUnknownSync(StationSessionRequestId);
 const decodeEndpoint = Schema.decodeUnknownSync(SshEndpoint);
@@ -110,14 +115,14 @@ const makeBootstrapSsh = (
                 decoder.decode(bytes).trim(),
               ) as StationSessionFrame;
               if (frame.frame !== "request") {
-                return yield* Effect.dieMessage(
+                return yield* Effect.die(new Error(
                   "bootstrap wrote a response frame",
-                );
+                ));
               }
               const chunks = yield* reply(frame);
               yield* Deferred.succeed(output, chunks);
             }),
-          writeSensitive: () => Effect.dieMessage("unexpected sensitive write"),
+          writeSensitive: () => Effect.die(new Error("unexpected sensitive write")),
           closeInput: Effect.sync(() => {
             events.push("close-input");
           }),
@@ -136,8 +141,8 @@ const makeBootstrapSsh = (
         );
         return (ready as { readonly value: unknown }).value;
       }),
-    transfer: () => Effect.dieMessage("bootstrap must not transfer"),
-    transact: () => Effect.dieMessage("bootstrap must not transact"),
+    transfer: () => Effect.die(new Error("bootstrap must not transfer")),
+    transact: () => Effect.die(new Error("bootstrap must not transact")),
   } as unknown as typeof SshTransport.Service;
   return { ssh, events };
 };
@@ -146,7 +151,7 @@ const runBootstrap = async (
   fixture: ReturnType<typeof makeBootstrapSsh>,
   options: Parameters<typeof bootstrapOpenSshStationStatus>[3] = {},
 ) => {
-  const platform = await Effect.runPromise(
+  const platform = await runEffect(
     resolveRemotePackagedPlatform(fixture.ssh, endpoint),
   );
   return Effect.runPromise(
@@ -232,21 +237,21 @@ describe("OpenSSH Station status bootstrap", () => {
 
     expect(Result.isFailure(mismatchResult)).toBe(true);
     if (Result.isFailure(mismatchResult)) {
-      expect(mismatchResult.fail).toMatchObject({
+      expect(mismatchResult.failure).toMatchObject({
         _tag: "OpenSshStationBootstrapError",
         reason: "response-mismatch",
       });
     }
     expect(Result.isFailure(malformedResult)).toBe(true);
     if (Result.isFailure(malformedResult)) {
-      expect(malformedResult.fail).toMatchObject({
+      expect(malformedResult.failure).toMatchObject({
         _tag: "StationSessionTransportError",
         reason: "malformed-frame",
       });
     }
     expect(Result.isFailure(oversizedResult)).toBe(true);
     if (Result.isFailure(oversizedResult)) {
-      expect(oversizedResult.fail).toMatchObject({
+      expect(oversizedResult.failure).toMatchObject({
         _tag: "StationSessionTransportError",
         reason: "frame-too-large",
       });

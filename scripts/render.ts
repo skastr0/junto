@@ -19,17 +19,17 @@ const errorMessage = (error: unknown): string => {
 
 const main = async () => {
   const read = await Effect.runPromise(
-    Effect.either(
+    Effect.result(
       readCanvasThroughControl(process.argv[2] ?? "portfolio"),
     ),
   );
-  if (read._tag === "Left") {
-    console.error(`render: ${errorMessage(read.left)}`);
+  if (read._tag === "Failure") {
+    console.error(`render: ${errorMessage(read.failure)}`);
     process.exitCode = 1;
     return;
   }
 
-  const { actorRefs, doc, name } = read.right;
+  const { actorRefs, doc, name } = read.success;
   const svg = renderCanvasSvg(
     doc,
     executionGraphContextFromActorRefs(name, actorRefs),

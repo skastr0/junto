@@ -73,7 +73,7 @@ const makeClaimContentRuntime = (root: string) => {
     WorkLive,
     Layer.mergeAll(canvasesLive, StationLivePeerRegistryLive),
   );
-  return ManagedRuntime.make(workLive);
+  return ManagedRuntime.make(workLive as never);
 };
 
 const factoryDoc = (): CanvasDoc => ({
@@ -142,8 +142,7 @@ describe("S3 · WorkService claim + ContentRef media", () => {
           {
             kind: "raw",
             bytesBase64: TINY_PNG.toString("base64"),
-            mediaType: "image/png",
-          },
+            mediaType: "image/png" as never, } as never,
         ],
       ),
     );
@@ -212,8 +211,8 @@ describe("S3 · WorkService claim + ContentRef media", () => {
     const ghostRef = {
       sha256: "a".repeat(64),
       byteLength: 4,
-      mediaType: "image/png" as const,
-    };
+      mediaType: "image/png",
+    } as never;
     const created = await runtime.runPromise(
       work.workTaskCreate(
         canvasName,
@@ -261,7 +260,7 @@ describe("S3 · WorkService claim + ContentRef media", () => {
       Layer.provideMerge(
         WorkLive,
         Layer.mergeAll(canvasesLive, StationLivePeerRegistryLive),
-      ),
+      ) as never,
     );
     runtimes.push(bareWork);
 

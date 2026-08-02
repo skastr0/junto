@@ -206,13 +206,11 @@ export const bootstrapOpenSshStationStatus = (
       return status;
     }),
   ).pipe(
-    Effect.timeoutFail({
+    Effect.timeoutOrElse({
       duration: timeoutMs,
-      onTimeout: () =>
-        bootstrapError(
+      orElse: () => Effect.fail(bootstrapError(
           "timeout",
           `OpenSSH Station bootstrap exceeded its ${timeoutMs}ms deadline`,
-        ),
-    }),
+        ),)}),
   );
 };

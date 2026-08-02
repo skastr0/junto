@@ -363,7 +363,7 @@ describe("central service child authority", () => {
     );
     expect(Result.isFailure(retry)).toBe(true);
     if (Result.isFailure(retry)) {
-      expect(retry.left.message).toBe(SERVICE_CHILD_TEARDOWN_PENDING_ERROR);
+      expect(retry.failure.message).toBe(SERVICE_CHILD_TEARDOWN_PENDING_ERROR);
     }
     expect(mocks.spawn).toHaveBeenCalledOnce();
     child.emit("close", null, "SIGKILL");
@@ -637,7 +637,7 @@ describe("central service child authority", () => {
     const runningCodexResult = await runningCodex;
     expect(Result.isFailure(runningCodexResult)).toBe(true);
     if (Result.isFailure(runningCodexResult)) {
-      expect(runningCodexResult.fail.message).toBe(
+      expect(runningCodexResult.failure.message).toBe(
         SERVICE_CHILD_PLANE_QUIESCING_ERROR,
       );
     }
@@ -647,7 +647,7 @@ describe("central service child authority", () => {
     const lateCodexResult = await lateCodex;
     expect(Result.isFailure(lateCodexResult)).toBe(true);
     if (Result.isFailure(lateCodexResult)) {
-      expect(lateCodexResult.fail.message).toBe(
+      expect(lateCodexResult.failure.message).toBe(
         SERVICE_CHILD_PLANE_QUIESCING_ERROR,
       );
     }

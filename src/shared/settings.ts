@@ -129,8 +129,7 @@ const WithoutRetiredTopologyIntegrity = Schema.Unknown.pipe(
       Object.prototype.hasOwnProperty.call(value, "topologyIntegrity")
     ),
   {
-    message: () =>
-      "topologyIntegrity is retired and must not be supplied",
+    message: "topologyIntegrity is retired and must not be supplied",
   },)),
 );
 

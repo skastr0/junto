@@ -446,7 +446,7 @@ describe("physics admitPure", () => {
     );
     expect(Result.isFailure(denied)).toBe(true);
     if (Result.isFailure(denied)) {
-      expect(denied.left.reason).toBe("no_port");
+      expect(denied.failure.reason).toBe("no_port");
     }
   });
 
@@ -532,7 +532,7 @@ describe("physics admitPure", () => {
     const list = admitPure(view, asNodeId("a1"), asNodeId("a2"), "msg.list");
     expect(Result.isFailure(list)).toBe(true);
     if (Result.isFailure(list)) {
-      expect(list.left.reason).toBe("no_port");
+      expect(list.failure.reason).toBe("no_port");
     }
   });
 
@@ -643,21 +643,21 @@ describe("physics mask union (I7 — multi-edge masks combine as union)", () => 
     const mask = HashMap.get(view.edgePortMask, undirectedEdgeKey("agent", "p1"));
     expect(Option.isSome(mask)).toBe(true);
     if (Option.isSome(mask)) {
-      expect(HashSet.toValues(mask.value).sort()).toEqual(
+      expect(Array.from(mask.value).sort()).toEqual(
         ["msg.list", "msg.send"].sort(),
       );
     }
     const automate = admitPure(view, asNodeId("agent"), asNodeId("p1"), "browser.automate");
     expect(Result.isFailure(automate)).toBe(true);
     if (Result.isFailure(automate)) {
-      expect(automate.left.reason).toBe("no_port");
+      expect(automate.failure.reason).toBe("no_port");
     }
   });
 });
 
 describe("physics KindSpecs offers match behavior-preserving work surface", () => {
   it("page offers only browser.automate", () => {
-    expect(HashSet.toValues(KindSpecs.page.offers).sort()).toEqual([
+    expect(Array.from(KindSpecs.page.offers).sort()).toEqual([
       "browser.automate",
     ]);
   });

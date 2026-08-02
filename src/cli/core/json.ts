@@ -2,12 +2,12 @@ import { readFile } from "node:fs/promises";
 import { Effect, Schema } from "effect";
 import { InputError } from "./errors";
 
-const decodeJsonWithSchema = <A, I, R>(
-  schema: Schema.Schema<A, I, R>,
+const decodeJsonWithSchema = <S extends Schema.Top>(
+  schema: S,
   text: string,
   source: string,
 ) =>
-  Schema.decodeUnknown(Schema.parseJson(schema))(text).pipe(
+  Schema.decodeUnknownEffect(Schema.fromJsonString(schema))(text).pipe(
     Effect.mapError(
       (error) =>
         new InputError({
@@ -18,8 +18,8 @@ const decodeJsonWithSchema = <A, I, R>(
     ),
   );
 
-export const decodeJsonText = <A, I, R>(
-  schema: Schema.Schema<A, I, R>,
+export const decodeJsonText = <S extends Schema.Top>(
+  schema: S,
   text: string,
   source: string,
 ) => decodeJsonWithSchema(schema, text, source);
@@ -33,7 +33,7 @@ const readStdinText = Effect.tryPromise({
     }),
 });
 
-export const loadJsonInput = <A, I, R>(schema: Schema.Schema<A, I, R>, input: string) =>
+export const loadJsonInput = <S extends Schema.Top>(schema: S, input: string) =>
   Effect.gen(function* () {
     const trimmed = input.trim();
     if (trimmed.length === 0) {

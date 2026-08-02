@@ -24,9 +24,9 @@ const timeoutOption = Options.integer("timeout").pipe(
 const toUndefined = <A>(value: Option.Option<A>): A | undefined =>
   Option.isSome(value) ? value.value : undefined;
 
-const callContent = <A, I, R>(
+const callContent = <S extends Schema.Top>(
   op: WorkOpName,
-  schema: Schema.Schema<A, I, R>,
+  schema: S,
   input: string,
   timeout: number | undefined,
 ) =>

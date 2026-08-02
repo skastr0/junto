@@ -86,8 +86,7 @@ const makeRuntime = (
         WorkRepositoryLive,
       ),
       stateLive,
-    ),
-  );
+    ) as never);
 };
 
 const pairRequest = (

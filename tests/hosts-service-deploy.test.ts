@@ -68,7 +68,7 @@ const failedResult = (host: RemoteHost): ConfiguredRemoteDeployResult => ({
 });
 
 const unused = () => Effect.die(new Error("unexpected operation"));
-const unusedFleet = {} as Context.Tag.Service<
+const unusedFleet = {} as Context.Service.Shape<
   typeof StationFleetPropagation
 >;
 
@@ -138,8 +138,8 @@ describe("HostsService configured deploy admission", () => {
             if (admission._tag === "Failure") {
               return {
                 ...failedResult(target),
-                detail: admission.left.message,
-                code: admission.left.code,
+                detail: admission.failure.message,
+                code: admission.failure.code,
               } satisfies ConfiguredRemoteDeployResult;
             }
           }

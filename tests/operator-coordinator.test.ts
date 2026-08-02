@@ -25,9 +25,9 @@ import {
   type OperatorRequestEnvelope,
 } from "../src/shared/operator-control";
 
-const stub = <Tag extends Context.Tag<any, any>>(
+const stub = <Tag extends Context.Service<any, any>>(
   tag: Tag,
-): Context.Tag.Service<Tag> => ({}) as Context.Tag.Service<Tag>;
+): Context.Service.Shape<Tag> => ({}) as Context.Service.Shape<Tag>;
 
 describe("operator deployment coordinator", () => {
   it("checks the managed-install gate before refreshing a Box route", async () => {

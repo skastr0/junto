@@ -30,7 +30,7 @@ import { SettingsService } from "../settings/service";
 import { HostsService } from "../hosts/service";
 import { parseSshRoute, SshTransport } from "../ssh";
 
-const decodeBoxId = Schema.decodeUnknown(BoxId);
+const decodeBoxId = Schema.decodeUnknownEffect(BoxId);
 
 export class BoxFleetValidationError extends Schema.TaggedErrorClass<BoxFleetValidationError>()(
   "BoxFleetValidationError",
@@ -180,7 +180,7 @@ export const makeBoxFleetService = (
   const activationLock = (hostId: string): Semaphore.Semaphore => {
     const existing = activationLocks.get(hostId);
     if (existing !== undefined) return existing;
-    const created = Effect.unsafeMakeSemaphore(1);
+    const created = Semaphore.makeUnsafe(1);
     activationLocks.set(hostId, created);
     return created;
   };
@@ -449,7 +449,7 @@ export const makeBoxFleetService = (
             Effect.mapError((error) =>
               provisioningError(machineId, "detach", error),
             ),
-            Effect.zipRight(
+            Effect.andThen(
               handoff.convergeHosts.pipe(
                 Effect.mapError((error) =>
                   provisioningError(machineId, "refresh-routing", error),

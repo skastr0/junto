@@ -162,7 +162,7 @@ export const makeLinuxRemoteDeploymentProvider = (input: { readonly artifactAuth
     ).pipe(
       // Provider contract is errorless: any residual Effect failure becomes a
       // structured DeployRemoteResult (never an uncaught channel error).
-      Effect.catchAllDefect((defect) =>
+      Effect.catchDefect((defect) =>
         Effect.succeed(
           failure(
             request,

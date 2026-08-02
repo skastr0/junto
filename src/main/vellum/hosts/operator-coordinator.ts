@@ -226,12 +226,12 @@ const configureRemoteEffect = (
     if (settingsResult._tag === "Failure") {
       return {
         ok: false,
-        detail: settingsResult.fail.message,
-        code: settingsResult.fail.code,
-        message: settingsResult.fail.message,
+        detail: settingsResult.failure.message,
+        code: settingsResult.failure.code,
+        message: settingsResult.failure.message,
       } satisfies HostsConfigureRemoteResult;
     }
-    if (settingsResult.succeed.station.role !== "command-center") {
+    if (settingsResult.success.station.role !== "command-center") {
       const detail =
         "Configure as Remote is only available when this station is Command Center";
       return {
@@ -341,16 +341,16 @@ export const deployRemoteEffect = (
       if (settingsResult._tag === "Failure") {
         return failJob({
           ok: false,
-          detail: settingsResult.fail.message,
-          code: settingsResult.fail.code,
-          message: settingsResult.fail.message,
+          detail: settingsResult.failure.message,
+          code: settingsResult.failure.code,
+          message: settingsResult.failure.message,
           stages: getDeployJob(input.id)?.stages,
         });
       }
 
       const effective = computeDeployCapabilities({
-        stationRole: settingsResult.succeed.station.role,
-        remoteManagedInstalls: settingsResult.succeed.fleet.remoteManagedInstalls,
+        stationRole: settingsResult.success.station.role,
+        remoteManagedInstalls: settingsResult.success.fleet.remoteManagedInstalls,
         release: RELEASE_CAPABILITIES,
       });
       if (!effective.effective.deployRemote) {

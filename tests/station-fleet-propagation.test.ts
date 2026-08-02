@@ -418,7 +418,7 @@ const makeHarness = (
         canvasListeners.delete(listener);
       };
     },
-  } as Context.Tag.Service<typeof CanvasesService>;
+  } as Context.Service.Shape<typeof CanvasesService>;
 
   const work = {
     subscribeChanges: (
@@ -429,7 +429,7 @@ const makeHarness = (
         workListeners.delete(listener);
       };
     },
-  } as Context.Tag.Service<typeof WorkRepository>;
+  } as Context.Service.Shape<typeof WorkRepository>;
 
   const dependencies = Layer.mergeAll(
     Layer.succeed(StationFleetTargetRepository, fleetTargets),
@@ -527,8 +527,8 @@ const withRuntime = async <A>(
   harness: ReturnType<typeof makeHarness>,
   use: (
     runtime: ManagedRuntime.ManagedRuntime<
-      | Context.Tag.Identifier<typeof StationFleetPropagation>
-      | Context.Tag.Identifier<typeof StationLivePeerRegistry>,
+      | Context.Service.Identifier<typeof StationFleetPropagation>
+      | Context.Service.Identifier<typeof StationLivePeerRegistry>,
       never
     >,
   ) => Promise<A>,
@@ -543,17 +543,17 @@ const withRuntime = async <A>(
 
 const ready = (
   runtime: ManagedRuntime.ManagedRuntime<
-    | Context.Tag.Identifier<typeof StationFleetPropagation>
-    | Context.Tag.Identifier<typeof StationLivePeerRegistry>,
+    | Context.Service.Identifier<typeof StationFleetPropagation>
+    | Context.Service.Identifier<typeof StationLivePeerRegistry>,
     never
   >,
-  service: Context.Tag.Service<typeof StationFleetPropagation>,
+  service: Context.Service.Shape<typeof StationFleetPropagation>,
   host: HostIdValue,
 ): Promise<void> =>
   runtime.runPromise(
     Effect.gen(function* () {
       while ((yield* service.status(host))?.phase !== "ready") {
-        yield* Effect.yieldNow();
+        yield* Effect.yieldNow;
       }
     }),
   );
@@ -832,7 +832,7 @@ describe("StationFleetPropagation persistent supervisor", () => {
       expect(harness.closeCount(remote.stationInstallationId)).toBe(1);
 
       await runtime.runPromise(service.request(remote.hostId));
-      await runtime.runPromise(Effect.yieldNow());
+      await runtime.runPromise(Effect.yieldNow);
       expect(harness.openCount(remote.stationInstallationId)).toBe(1);
     });
   });
@@ -876,7 +876,7 @@ describe("StationFleetPropagation persistent supervisor", () => {
         remote.stationInstallationId,
       );
       await runtime.runPromise(service.request(remote.hostId));
-      await runtime.runPromise(Effect.yieldNow());
+      await runtime.runPromise(Effect.yieldNow);
       expect(harness.openCount(remote.stationInstallationId)).toBe(
         opensAfterStop,
       );
@@ -938,7 +938,7 @@ describe("StationFleetPropagation persistent supervisor", () => {
             (yield* service.status(remote.hostId))?.phase !==
               "update-required"
           ) {
-            yield* Effect.yieldNow();
+            yield* Effect.yieldNow;
           }
         }),
       );

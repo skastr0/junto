@@ -22,7 +22,7 @@ export const ContentByteLength = Schema.Number.pipe(
   Schema.check(Schema.isInt()),
   Schema.check(Schema.isGreaterThanOrEqualTo(0)),
   Schema.check(Schema.makeFilter(Number.isSafeInteger, {
-    message: () => "content byteLength must be a safe integer",
+    message: "content byteLength must be a safe integer",
   })),
   Schema.brand("ContentByteLength"),
 );

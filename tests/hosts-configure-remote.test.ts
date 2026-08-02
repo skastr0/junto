@@ -228,16 +228,16 @@ const makeSsh = (
               );
               return;
             }
-            return yield* Effect.dieMessage(
+            return yield* Effect.die(new Error(
               `unexpected enrollment operation: ${request.request.op}`,
-            );
+            ));
           }),
-        writeSensitive: () => Effect.dieMessage("unexpected sensitive write"),
+        writeSensitive: () => Effect.die(new Error("unexpected sensitive write")),
         closeInput: bootstrap
           ? Effect.sync(() => {
               events.push("bootstrap-input-close");
             })
-          : Effect.dieMessage("peer input must stay open"),
+          : Effect.die(new Error("peer input must stay open")),
         stdout: bootstrap
           ? Stream.fromEffect(Deferred.await(bootstrapOutput))
           : Stream.fromQueue(peerOutput),
@@ -267,8 +267,8 @@ const makeSsh = (
       }),
     connect,
     connectWithExitObservation: connect,
-    transfer: () => Effect.dieMessage("Station enrollment must not transfer"),
-    transact: () => Effect.dieMessage("Station enrollment must not transact"),
+    transfer: () => Effect.die(new Error("Station enrollment must not transfer")),
+    transact: () => Effect.die(new Error("Station enrollment must not transact")),
   } as unknown as typeof SshTransport.Service;
   return { ssh, events, requests };
 };

@@ -760,7 +760,7 @@ describe("browser profile storage lifecycle", () => {
 
     expect(Result.isFailure(wipeResult)).toBe(true);
     if (Result.isFailure(wipeResult)) {
-      expect(wipeResult.fail).toMatchObject({
+      expect(wipeResult.failure).toMatchObject({
         code: "pending_wipe",
         message: "browser profile wipe incomplete; recovery required",
       });

@@ -10,7 +10,7 @@ import { EventEmitter } from "node:events";
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
-import { Effect, ExecutionStrategy, Exit, Scope } from "effect";
+import { Effect, Exit, Scope } from "effect";
 import {
   findHostById,
   hostsWithCapability,
@@ -93,9 +93,9 @@ type RemoteEntry = {
   /** Snapshot generation used to establish this connection. */
   generation: number;
   /** Forked Effect scope that owns the SSH forward finalizers. */
-  scope: Scope.CloseableScope;
+  scope: Scope.Closeable;
   /** Parent scope must be closed too; retaining only the child leaks authority. */
-  rootScope: Scope.CloseableScope;
+  rootScope: Scope.Closeable;
   leaseMap: Map<string, string>;
   reverseLease: Map<string, string>;
   closeFlight?: Promise<RemoteCloseReceipt>;
@@ -943,10 +943,10 @@ export class TerminalRouter extends EventEmitter {
     // Own a forked scope so the SSH forward finalizers stay alive until we
     // explicitly closeRemotes() — same pattern as herdr mirror forwards.
     const rootScope = await runScopePromise(Scope.make());
-    let scope: Scope.CloseableScope;
+    let scope: Scope.Closeable;
     try {
       scope = await runScopePromise(
-        Scope.fork(rootScope, ExecutionStrategy.sequential),
+        Scope.fork(rootScope, "sequential"),
       );
     } catch (error) {
       const closed = await Promise.allSettled([
@@ -978,7 +978,7 @@ export class TerminalRouter extends EventEmitter {
           );
           const forward = yield* ssh
             .forward(unixForward(sshEndpoint, remoteSock))
-            .pipe(Scope.extend(scope));
+            .pipe(Scope.provide(scope));
           const tokenCmd = yield* remoteCat(
             join(home, ".vellum", "term", "token"),
           );

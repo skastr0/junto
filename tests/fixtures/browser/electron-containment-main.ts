@@ -593,11 +593,11 @@ void app.whenReady().then(async () => {
   );
   if (Result.isFailure(fixtureCanvas)) {
     throw new Error(
-      `dedicated browser probe canvas is invalid: ${fixtureCanvas.left.message}`,
+      `dedicated browser probe canvas is invalid: ${fixtureCanvas.failure.message}`,
     );
   }
   await activeCanvasRuntime.runPromise(
-    canvases.write(canvasName, fixtureCanvas.right),
+    canvases.write(canvasName, fixtureCanvas.success),
   );
   const listCanvasDocuments = async () =>
     (await activeCanvasRuntime.runPromise(canvases.liveDocuments())).map(

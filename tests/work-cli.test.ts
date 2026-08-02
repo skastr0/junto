@@ -205,7 +205,7 @@ describe("schema/examples from validating schemas", () => {
       const related = allExamples.filter((e) => e.command_id === contract.command_id);
       for (const example of related) {
         if (example.input !== undefined && !Array.isArray(example.input)) {
-          const decoded = Schema.decodeUnknownResult(contract.schema)(example.input);
+          const decoded = Schema.decodeUnknownResult(contract.schema as never)(example.input);
           expect(Result.isSuccess(decoded)).toBe(true);
         }
       }

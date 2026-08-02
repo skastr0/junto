@@ -149,8 +149,8 @@ describe("browser control envelopes (pure)", () => {
       JSON.parse(JSON.stringify(controlErr("runtime_down", "app not running"))),
     );
     expect(Result.isSuccess(failure)).toBe(true);
-    if (Result.isSuccess(failure) && !failure.right.ok) {
-      expect(failure.right.error._tag).toBe("runtime_down");
+    if (Result.isSuccess(failure) && !failure.success.ok) {
+      expect(failure.success.error._tag).toBe("runtime_down");
     }
   });
 
@@ -269,7 +269,7 @@ describe("token handling", () => {
 describe("control route handlers", () => {
   let root: string;
   let stateRuntime: ManagedRuntime.ManagedRuntime<StateEngine, unknown>;
-  let state: Context.Tag.Service<typeof StateEngine>;
+  let state: Context.Service.Shape<typeof StateEngine>;
   let sessionCounter: number;
   let requestCounter: number;
   const capabilityRegistries: BrowserCapabilityRegistry[] = [];

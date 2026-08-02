@@ -2195,7 +2195,7 @@ const streamArtifactToRemote = (
                   "deploy artifact stream scope finalized",
                 ),
               ).pipe(
-                Effect.zipRight(
+                Effect.andThen(
                   Effect.promise(() => awaitTarCloseBounded(exit, 2_000)),
                 ),
               ),
@@ -2324,7 +2324,7 @@ export const makeDarwinRemoteDeploymentProvider = (deps: {
             version: admission.localApp.version,
           };
         }
-        const home = decodeRemoteHomeDirectoryOutput(homeResult.succeed.stdout);
+        const home = decodeRemoteHomeDirectoryOutput(homeResult.success.stdout);
         if (home === null) {
           return {
             ok: false,

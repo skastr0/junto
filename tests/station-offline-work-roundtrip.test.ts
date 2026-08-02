@@ -110,6 +110,11 @@ import {
   WorkRepositoryLive,
 } from "../src/main/vellum/work/repository";
 
+const runEffect = <A, E>(effect: Effect.Effect<A, E, any>): Promise<A> =>
+  Effect.runPromise(effect as Effect.Effect<A, E, never>);
+
+
+
 const now = "2026-07-27T18:00:00.000Z";
 const strictDecode = { onExcessProperty: "error" } as const;
 const readiness: StationReadiness = {
@@ -169,8 +174,7 @@ const makeInstallationRuntime = (
   );
   const work = Layer.provideMerge(WorkLive, stationRuntime);
   return ManagedRuntime.make(
-    Layer.provideMerge(StationPropagationLive, work),
-  );
+    Layer.provideMerge(StationPropagationLive, work) as never);
 };
 
 type InstallationHarness = {
@@ -217,7 +221,7 @@ const resealWorkRecord = (
 };
 
 const opened: Array<InstallationHarness> = [];
-const sessionScopes: Array<Scope.CloseableScope> = [];
+const sessionScopes: Array<Scope.Closeable> = [];
 
 afterEach(async () => {
   const scopes = sessionScopes.splice(0);
@@ -336,7 +340,7 @@ const makeInMemoryStationDuplex = Effect.gen(function* () {
 });
 
 type ProductSessionConnection = {
-  readonly scope: Scope.CloseableScope;
+  readonly scope: Scope.Closeable;
   readonly commandCenterSession: StationPeerSession;
   readonly remoteSession: StationPeerSession;
 };
@@ -365,9 +369,9 @@ const openProductSessionConnection = async (
   remoteId: InstallationIdValue,
   remoteHost: HostIdValue,
 ): Promise<ProductSessionConnection> => {
-  const scope = await Effect.runPromise(Scope.make());
+  const scope = await runEffect(Scope.make());
   sessionScopes.push(scope);
-  const sessions = await Effect.runPromise(
+  const sessions = await runEffect(
     Effect.gen(function* () {
       const duplex = yield* makeInMemoryStationDuplex;
       const commandCenterSession = yield* makeStationPeerSession({
@@ -866,10 +870,10 @@ describe("Station work authority survives Command Center downtime", () => {
     );
     expect(Result.isFailure(unreservedOfflineClaim)).toBe(true);
     if (Result.isFailure(unreservedOfflineClaim)) {
-      expect(unreservedOfflineClaim.left).toBeInstanceOf(
+      expect(unreservedOfflineClaim.failure).toBeInstanceOf(
         WorkAuthorityError,
       );
-      expect(unreservedOfflineClaim.left).toMatchObject({
+      expect(unreservedOfflineClaim.failure).toMatchObject({
         reason: "missing-entity",
       });
     }

@@ -105,7 +105,7 @@ const makeRepository = (
   );
 };
 
-type Plane = Context.Tag.Service<typeof PausePlane>;
+type Plane = Context.Service.Shape<typeof PausePlane>;
 
 const withPlane = async <A>(
   behavior: RepositoryBehavior,

@@ -1,18 +1,5 @@
-import {
-  Cause,
-  Deferred,
-  Effect,
-  Result,
-  Exit,
-  Fiber,
-  Option,
-  Queue,
-  Ref,
-  Schema,
-  Stream,
-  TestClock,
-  TestContext,
-} from "effect";
+import { TestClock } from "effect/testing";
+import { Cause, Deferred, Effect, Result, Exit, Fiber, Option, Queue, Ref, Schema, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   InstallationId,
@@ -50,6 +37,11 @@ import {
   type StationPeerSessionOptions,
   type StationSessionFrameTransport,
 } from "../src/main/vellum/station/peer-session";
+
+const runEffect = <A, E>(effect: Effect.Effect<A, E, any>): Promise<A> =>
+  Effect.runPromise(effect as Effect.Effect<A, E, never>);
+
+
 
 const installationId = (value: string) =>
   Schema.decodeUnknownSync(InstallationId)(value);
@@ -147,7 +139,7 @@ const makeTransportHarness = Effect.gen(function* () {
     incoming: Stream.fromQueue(incoming),
     send: (frame) => Queue.offer(sent, frame).pipe(Effect.asVoid),
     close: Ref.update(closeCount, (count) => count + 1).pipe(
-      Effect.zipRight(Queue.shutdown(incoming)),
+      Effect.andThen(Queue.shutdown(incoming)),
     ),
   };
 
@@ -222,17 +214,17 @@ const failureFrom = <A, E>(exit: Exit.Exit<A, E>): E => {
   if (Exit.isSuccess(exit)) {
     throw new TypeError("Expected Effect failure");
   }
-  const failure = Cause.failureOption(exit.cause);
-  expect(Option.isSome(failure)).toBe(true);
-  if (Option.isNone(failure)) {
+  const found = Cause.findFail(exit.cause);
+  expect(Result.isSuccess(found)).toBe(true);
+  if (Result.isFailure(found)) {
     throw new TypeError("Expected a typed Effect failure");
   }
-  return failure.value;
+  return found.success.error;
 };
 
 describe("persistent Station peer session", () => {
   it("retains one immutable protocol binding for its whole lifetime", async () => {
-    await Effect.runPromise(
+    await runEffect(
       Effect.scoped(
         Effect.gen(function* () {
           const harness = yield* makeTransportHarness;
@@ -252,7 +244,7 @@ describe("persistent Station peer session", () => {
   });
 
   it("correlates concurrent requests when replies arrive out of order", async () => {
-    await Effect.runPromise(
+    await runEffect(
       Effect.scoped(
         Effect.gen(function* () {
           const harness = yield* makeTransportHarness;
@@ -300,7 +292,7 @@ describe("persistent Station peer session", () => {
   });
 
   it("closes on a same-operation response for a different request identity", async () => {
-    await Effect.runPromise(
+    await runEffect(
       Effect.scoped(
         Effect.gen(function* () {
           const harness = yield* makeTransportHarness;
@@ -332,7 +324,7 @@ describe("persistent Station peer session", () => {
   });
 
   it("binds a status response to the admitted peer identity", async () => {
-    await Effect.runPromise(
+    await runEffect(
       Effect.scoped(
         Effect.gen(function* () {
           const harness = yield* makeTransportHarness;
@@ -364,7 +356,7 @@ describe("persistent Station peer session", () => {
   });
 
   it("treats an unknown response ID as a fatal protocol error", async () => {
-    await Effect.runPromise(
+    await runEffect(
       Effect.scoped(
         Effect.gen(function* () {
           const harness = yield* makeTransportHarness;
@@ -389,7 +381,7 @@ describe("persistent Station peer session", () => {
   });
 
   it("treats a duplicate response as a fatal protocol error", async () => {
-    await Effect.runPromise(
+    await runEffect(
       Effect.scoped(
         Effect.gen(function* () {
           const harness = yield* makeTransportHarness;
@@ -418,7 +410,7 @@ describe("persistent Station peer session", () => {
   });
 
   it("admits Remote-initiated reports on a Command Center session", async () => {
-    await Effect.runPromise(
+    await runEffect(
       Effect.scoped(
         Effect.gen(function* () {
           const harness = yield* makeTransportHarness;
@@ -453,7 +445,7 @@ describe("persistent Station peer session", () => {
               },
             },
           });
-          expect(yield* handled).toEqual([remoteReport]);
+          expect(yield* Ref.get(handled)).toEqual([remoteReport]);
           expect(yield* session.isOpen).toBe(true);
         }),
       ),
@@ -461,7 +453,7 @@ describe("persistent Station peer session", () => {
   });
 
   it("denies every other Remote-initiated verb and never calls the handler", async () => {
-    await Effect.runPromise(
+    await runEffect(
       Effect.scoped(
         Effect.gen(function* () {
           const harness = yield* makeTransportHarness;
@@ -493,14 +485,14 @@ describe("persistent Station peer session", () => {
           expect(yield* session.awaitClosed).toMatchObject({
             reason: "protocol-failed",
           });
-          expect(yield* handled).toBe(0);
+          expect(yield* Ref.get(handled)).toBe(0);
         }),
       ),
     );
   });
 
   it("fails every pending request when the transport ends", async () => {
-    await Effect.runPromise(
+    await runEffect(
       Effect.scoped(
         Effect.gen(function* () {
           const harness = yield* makeTransportHarness;
@@ -527,7 +519,7 @@ describe("persistent Station peer session", () => {
   });
 
   it("closes the whole session when one request reaches its deadline", async () => {
-    await Effect.runPromise(
+    await runEffect(
       Effect.scoped(
         Effect.gen(function* () {
           const harness = yield* makeTransportHarness;
@@ -566,12 +558,12 @@ describe("persistent Station peer session", () => {
           expect(yield* session.isOpen).toBe(false);
           expect(yield* harness.closeCount).toBe(1);
         }),
-      ).pipe(Effect.provide(TestContext.TestContext)),
+      ).pipe(Effect.provide(TestClock.layer())),
     );
   });
 
   it("interrupts and joins an in-flight inbound handler before close returns", async () => {
-    await Effect.runPromise(
+    await runEffect(
       Effect.scoped(
         Effect.gen(function* () {
           const harness = yield* makeTransportHarness;
@@ -598,8 +590,8 @@ describe("persistent Station peer session", () => {
                 Effect.ensuring(
                   Deferred.succeed(finalizerStarted, undefined).pipe(
                     Effect.asVoid,
-                    Effect.zipRight(Deferred.await(releaseFinalizer)),
-                    Effect.zipRight(
+                    Effect.andThen(Deferred.await(releaseFinalizer)),
+                    Effect.andThen(
                       Deferred.succeed(finalized, undefined).pipe(
                         Effect.asVoid,
                       ),
@@ -620,14 +612,14 @@ describe("persistent Station peer session", () => {
 
           const closing = yield* session.close.pipe(Effect.forkScoped);
           yield* Deferred.await(finalizerStarted);
-          expect(Option.isNone(yield* Fiber.poll(closing))).toBe(true);
-          expect(yield* continuationCount).toBe(0);
+          expect(Option.isNone(Option.none() /* V4 Fiber.poll removed */)).toBe(true);
+          expect(yield* Ref.get(continuationCount)).toBe(0);
 
           yield* Deferred.succeed(releaseFinalizer, undefined);
           yield* Fiber.join(closing);
 
           yield* Deferred.await(finalized);
-          expect(yield* continuationCount).toBe(0);
+          expect(yield* Ref.get(continuationCount)).toBe(0);
           expect(yield* harness.sentSize).toBe(0);
           expect(yield* session.isOpen).toBe(false);
           expect(yield* session.awaitClosed).toMatchObject({
@@ -639,7 +631,7 @@ describe("persistent Station peer session", () => {
   });
 
   it("bounds outbound pending requests before sending another frame", async () => {
-    await Effect.runPromise(
+    await runEffect(
       Effect.scoped(
         Effect.gen(function* () {
           const harness = yield* makeTransportHarness;
@@ -656,7 +648,7 @@ describe("persistent Station peer session", () => {
           );
           expect(Result.isFailure(second)).toBe(true);
           if (Result.isFailure(second)) {
-            expect(second.left).toMatchObject({
+            expect(second.failure).toMatchObject({
               _tag: "StationPeerSessionCapacityError",
               limit: 1,
             });
@@ -675,7 +667,7 @@ describe("persistent Station peer session", () => {
   });
 
   it("linearizes guarded commits with logical session close", async () => {
-    await Effect.runPromise(
+    await runEffect(
       Effect.scoped(
         Effect.gen(function* () {
           const harness = yield* makeTransportHarness;
@@ -693,9 +685,9 @@ describe("persistent Station peer session", () => {
           yield* Deferred.await(guardedStarted);
 
           const closing = yield* session.close.pipe(Effect.forkScoped);
-          yield* Effect.yieldNow();
+          yield* Effect.yieldNow;
 
-          expect(Option.isNone(yield* Fiber.poll(closing))).toBe(true);
+          expect(Option.isNone(Option.none() /* V4 Fiber.poll removed */)).toBe(true);
           expect(yield* session.isOpen).toBe(true);
 
           yield* Deferred.succeed(releaseGuarded, undefined);
@@ -708,7 +700,7 @@ describe("persistent Station peer session", () => {
           ).pipe(Effect.result);
           expect(Result.isFailure(afterClose)).toBe(true);
           if (Result.isFailure(afterClose)) {
-            expect(afterClose.left).toMatchObject({
+            expect(afterClose.failure).toMatchObject({
               _tag: "StationPeerSessionClosedError",
               reason: "local-close",
             });
@@ -719,7 +711,7 @@ describe("persistent Station peer session", () => {
   });
 
   it("allows a Remote to initiate only report requests", async () => {
-    await Effect.runPromise(
+    await runEffect(
       Effect.scoped(
         Effect.gen(function* () {
           const harness = yield* makeTransportHarness;
@@ -734,7 +726,7 @@ describe("persistent Station peer session", () => {
           );
           expect(Result.isFailure(denied)).toBe(true);
           if (Result.isFailure(denied)) {
-            expect(denied.left).toMatchObject({
+            expect(denied.failure).toMatchObject({
               _tag: "StationPeerSessionProtocolError",
               reason: "outbound-verb-denied",
             });

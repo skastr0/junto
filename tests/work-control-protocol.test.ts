@@ -242,22 +242,22 @@ describe("work authz — edges as capability", () => {
     );
     expect(Result.isFailure(regionOnly)).toBe(true);
     if (Result.isFailure(regionOnly)) {
-      expect(regionOnly.left.type).toBe("ScopeError");
-      expect(regionOnly.left.message).toContain("missing edge");
+      expect(regionOnly.failure.type).toBe("ScopeError");
+      expect(regionOnly.failure.message).toContain("missing edge");
     }
 
     const invisible = admitWorkTarget(board, "agent", "stranger", "tasks.list");
     expect(Result.isFailure(invisible)).toBe(true);
     if (Result.isFailure(invisible)) {
-      expect(invisible.left.type).toBe("ScopeError");
-      expect(invisible.left.message).toMatch(/not visible/);
+      expect(invisible.failure.type).toBe("ScopeError");
+      expect(invisible.failure.message).toMatch(/not visible/);
     }
 
     const wrongKind = admitWorkTarget(board, "agent", "tasks", "artifact.publish");
     expect(Result.isFailure(wrongKind)).toBe(true);
     if (Result.isFailure(wrongKind)) {
-      expect(wrongKind.left.type).toBe("ScopeError");
-      expect(wrongKind.left.message).toMatch(/does not support/);
+      expect(wrongKind.failure.type).toBe("ScopeError");
+      expect(wrongKind.failure.message).toMatch(/does not support/);
     }
   });
 
@@ -265,13 +265,13 @@ describe("work authz — edges as capability", () => {
     const noEdge = admitWorkTarget(board, "agent", "stranger", "artifact.publish");
     expect(Result.isFailure(noEdge)).toBe(true);
     if (Result.isFailure(noEdge)) {
-      expect(noEdge.left.type).toBe("ScopeError");
+      expect(noEdge.failure.type).toBe("ScopeError");
     }
     // Connected task sink does not offer artifact.publish.
     const wrongSink = admitWorkTarget(board, "agent", "tasks", "artifact.publish");
     expect(Result.isFailure(wrongSink)).toBe(true);
     if (Result.isFailure(wrongSink)) {
-      expect(wrongSink.left.type).toBe("ScopeError");
+      expect(wrongSink.failure.type).toBe("ScopeError");
     }
   });
 

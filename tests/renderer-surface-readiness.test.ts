@@ -8,7 +8,7 @@ describe("renderer surface readiness", () => {
       const timedOut = vi.fn();
       const after = createRendererSurfaceReadiness({
         timeoutMs: 1_000,
-        onTimeout: timedOut,
+        orElse: timedOut,
         createChallenge: () => "generation-1",
       });
       after.documentStarted();
@@ -30,7 +30,7 @@ describe("renderer surface readiness", () => {
       const timedOut = vi.fn();
       const readiness = createRendererSurfaceReadiness({
         timeoutMs: 1_000,
-        onTimeout: timedOut,
+        orElse: timedOut,
         createChallenge: () => "generation-1",
       });
       readiness.documentStarted();
@@ -52,7 +52,7 @@ describe("renderer surface readiness", () => {
       const readiness = createRendererSurfaceReadiness({
         timeoutMs: 1_000,
         loadTimeoutMs: 500,
-        onTimeout: timedOut,
+        orElse: timedOut,
       });
       readiness.documentStarted();
       vi.advanceTimersByTime(499);
@@ -71,7 +71,7 @@ describe("renderer surface readiness", () => {
     const readiness = createRendererSurfaceReadiness({
       timeoutMs: 1_000,
       loadTimeoutMs: 500,
-      onTimeout: timedOut,
+      orElse: timedOut,
       now: () => clock,
       schedule: (callback, delay) => {
         scheduled.push({ callback, delay });
@@ -96,7 +96,7 @@ describe("renderer surface readiness", () => {
     const readiness = createRendererSurfaceReadiness({
       timeoutMs: 1_000,
       loadTimeoutMs: 500,
-      onTimeout: vi.fn(),
+      orElse: vi.fn(),
       now: () => clock,
       createChallenge: () => "generation-1",
       schedule: (_callback, delay) => {
@@ -122,7 +122,7 @@ describe("renderer surface readiness", () => {
       const challenges = ["generation-1", "generation-2"];
       const readiness = createRendererSurfaceReadiness({
         timeoutMs: 1_000,
-        onTimeout: timedOut,
+        orElse: timedOut,
         createChallenge: () => challenges.shift() ?? "unexpected",
       });
       readiness.documentStarted();
@@ -148,7 +148,7 @@ describe("renderer surface readiness", () => {
       const timedOut = vi.fn();
       const readiness = createRendererSurfaceReadiness({
         timeoutMs: 1_000,
-        onTimeout: timedOut,
+        orElse: timedOut,
         createChallenge: () => "generation-1",
       });
       readiness.documentStarted();
@@ -171,7 +171,7 @@ describe("renderer surface readiness", () => {
     vi.useFakeTimers();
     try {
       const timedOut = vi.fn();
-      const readiness = createRendererSurfaceReadiness({ timeoutMs: 1_000, onTimeout: timedOut });
+      const readiness = createRendererSurfaceReadiness({ timeoutMs: 1_000, orElse: timedOut });
       readiness.trustedDocumentCommitted();
       readiness.dispose();
       vi.advanceTimersByTime(1_000);

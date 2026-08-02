@@ -69,7 +69,7 @@ const ndjsonCall = (
   request: OperatorRequestEnvelope,
   timeoutMs: number,
 ): Effect.Effect<OperatorResponseEnvelope, RuntimeDown | WireError> =>
-  Effect.async<OperatorResponseEnvelope, RuntimeDown | WireError>((resume) => {
+  Effect.callback<OperatorResponseEnvelope, RuntimeDown | WireError>((resume) => {
     let settled = false;
     let responseBuffer: Buffer<ArrayBufferLike> = Buffer.alloc(0);
     let requestBuffer: Buffer | undefined;
@@ -194,7 +194,7 @@ const ndjsonCall = (
         );
         const raw = JSON.parse(line) as unknown;
         const decoded = decodeOperatorResponse(raw);
-        if (decoded._tag === "Left") {
+        if (decoded._tag === "Failure") {
           settle(
             Effect.fail(
               new WireError({
@@ -309,7 +309,7 @@ export const OperatorSocketLive = Layer.succeed(
           args,
         };
         const decodedRequest = decodeOperatorRequest(rawRequest);
-        if (decodedRequest._tag === "Left") {
+        if (decodedRequest._tag === "Failure") {
           return yield* Effect.fail(
             new WireError({
               type: "InputError",

@@ -68,7 +68,7 @@ type StorageKey = (typeof storageKeys)[number];
 type StorageStatus = "match" | "absent" | "mismatch";
 type StorageReport = Readonly<Record<StorageKey, StorageStatus>>;
 type DiskMarkers = Readonly<Record<"personal" | "work", string>>;
-type StateService = Context.Tag.Service<typeof StateEngine>;
+type StateService = Context.Service.Shape<typeof StateEngine>;
 
 type PendingWipeRow = {
   readonly wipe_id: string;

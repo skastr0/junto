@@ -1,6 +1,6 @@
 import type { IpcMain } from "electron";
 import { BrowserWindow } from "electron";
-import { Effect } from "effect";
+import { Effect, Result } from "effect";
 import { IPC_CHANNELS } from "@shared/ipc";
 import type {
   DiscoveredPeer,
@@ -78,14 +78,9 @@ const pruneFleetTargetsAgainstHosts = (
   });
 
 const toOp = (
-  either:
-    | { readonly _tag: "Right"; readonly right: ReadonlyArray<unknown> }
-    | {
-        readonly _tag: "Left";
-        readonly left: RemoteHostsError;
-      },
+  either: Result.Result<ReadonlyArray<unknown>, RemoteHostsError>,
 ): HostsOpResult => {
-  if (either._tag === "Success") {
+  if (Result.isSuccess(either)) {
     return { ok: true, hosts: either.success as HostsOpResult["hosts"] };
   }
   return { ok: false, code: either.failure.code, message: either.failure.message };

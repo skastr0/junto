@@ -156,7 +156,7 @@ const stateFromRow = (
       : { lastFiredSlot: row.last_fired_slot }),
   };
   const decoded = decodeState(candidate);
-  if (decoded._tag === "Left") {
+  if (decoded._tag === "Failure") {
     throw SchedulerStateCorruptError.make({
       homeStation: row.home_station,
       timerKey: row.timer_key,

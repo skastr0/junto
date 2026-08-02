@@ -45,7 +45,7 @@ export type StationQualificationPackageFile =
 export const StationQualificationPackageBytes = Schema.Number.pipe(Schema.check(Schema.isInt()), 
   Schema.check(Schema.isGreaterThan(0)),
   Schema.check(Schema.makeFilter(Number.isSafeInteger, {
-    message: () => "package bytes must be a positive safe integer",
+    message: "package bytes must be a positive safe integer",
   })),
 );
 export type StationQualificationPackageBytes =
@@ -97,12 +97,11 @@ const QualifiedInstallations = Schema.Struct({
 }).pipe(
   Schema.check(Schema.makeFilter(({ commandCenter, remote }) =>
     commandCenter.installationId !== remote.installationId,
-  { message: () => "qualification requires distinct installation IDs" },)),
+  { message: "qualification requires distinct installation IDs" },)),
   Schema.check(Schema.makeFilter(({ commandCenter, remote }) =>
     commandCenter.appVersion === remote.appVersion,
   {
-    message: () =>
-      "qualification requires the same app version on both installations",
+    message: "qualification requires the same app version on both installations",
   },)),
 );
 export type StationQualificationInstallations =

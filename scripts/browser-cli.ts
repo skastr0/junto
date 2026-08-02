@@ -18,7 +18,7 @@ import {
   type ControlEnvelope,
   type ControlRouteName,
 } from "../src/shared/browser-control";
-import { Either } from "effect";
+import { Result } from "effect";
 import {
   BROWSER_CLI_REQUEST_TIMEOUT_MS,
   BROWSER_CONTROL_MAX_REQUEST_BODY_BYTES,
@@ -183,9 +183,9 @@ const httpOverSocket = (
           try {
             const decoded = decodeControlEnvelope(JSON.parse(Buffer.concat(chunks).toString("utf8")));
             settle(
-              Either.isLeft(decoded)
+              Result.isFailure(decoded)
                 ? controlErr("failed", "server returned a malformed envelope")
-                : decoded.right,
+                : decoded.success,
             );
           } catch {
             settle(controlErr("failed", "server returned non-JSON"));

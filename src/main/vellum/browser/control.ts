@@ -283,12 +283,12 @@ const fromResult = <T>(result: BrowserResult<T>): ControlEnvelope<T> =>
   result.ok ? controlOk(result.data) : controlErr(result.code, result.message);
 
 const decodeBody =
-  <A, I>(schema: Schema.Schema<A, I>) =>
-  (body: unknown): Result.Result<A, ControlEnvelope<never>> => {
-    const decoded = Schema.decodeUnknownResult(schema)(body);
+  <S extends Schema.Top>(schema: S) =>
+  (body: unknown): Result.Result<Schema.Schema.Type<S>, ControlEnvelope<never>> => {
+    const decoded = Schema.decodeUnknownResult(schema as never)(body);
     return Result.isFailure(decoded)
       ? Result.fail(controlErr("bad_request", String(decoded.failure.message).slice(0, 400)))
-      : Result.succeed(decoded.success);
+      : Result.succeed(decoded.success as never);
   };
 
 export interface ControlDeps {
@@ -576,12 +576,12 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
     });
 
   const withBody =
-    <A, I>(
+    <S extends Schema.Top>(
       action: BrowserCapabilityAction,
-      schema: Schema.Schema<A, I>,
+      schema: S,
       keys: ReadonlyArray<string>,
       run: (
-        input: A,
+        input: Schema.Schema.Type<S>,
         lease: BrowserCapabilityLease,
         signal: AbortSignal,
       ) => Promise<ControlEnvelope<unknown>>,

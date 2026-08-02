@@ -76,10 +76,10 @@ describe("CanvasesService SQLite authority", () => {
       makeStateEngineLive(path)
     );
     const canvases = Layer.provideMerge(CanvasesLive, repositories);
-    return ManagedRuntime.make(
+    return ManagedRuntime.make((
       Layer.provideMerge(
         WorkLive,
-        Layer.mergeAll(canvases, StationLivePeerRegistryLive)
+        Layer.mergeAll(canvases, StationLivePeerRegistryLive) as never)
       )
     );
   };

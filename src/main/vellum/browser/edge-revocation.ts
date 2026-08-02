@@ -63,7 +63,7 @@ export const lostPageTargetsForCaller = (
     if (!parsed.ok) continue;
     lost.push({
       pageRef: target.ref as NodeRefKey,
-      pageNodeId: parsed.success.nodeId,
+      pageNodeId: parsed.value.nodeId,
       callerNodeId,
       hostId: target.hostId,
     });
@@ -88,7 +88,7 @@ export const allTargetsLost = (
     return [
       {
         pageRef: target.ref as NodeRefKey,
-        pageNodeId: parsed.success.nodeId,
+        pageNodeId: parsed.value.nodeId,
         callerNodeId,
         hostId: target.hostId,
       },

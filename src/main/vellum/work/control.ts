@@ -383,16 +383,16 @@ const fromWorkResult = <T>(
 const exposeWorkMutation = <T extends object>(
   outcome: WorkMutationOutcome<T>,
 ): T & { readonly disposition: "applied" | "queued"; readonly message?: string } => ({
-  ...outcome.success,
+  ...outcome.value,
   disposition: outcome.disposition,
   ...(outcome.message === undefined ? {} : { message: outcome.message }),
 });
 
-const decodeArgs = <A, I>(
-  schema: Schema.Schema<A, I>,
+const decodeArgs = <S extends Schema.Top>(
+  schema: S,
   args: unknown,
-): Result.Result<A, WorkErrorBody> => {
-  const decoded = Schema.decodeUnknownResult(schema, {
+): Result.Result<Schema.Schema.Type<S>, WorkErrorBody> => {
+  const decoded = Schema.decodeUnknownResult(schema as never, {
     onExcessProperty: "error",
   })(args ?? {});
   if (Result.isFailure(decoded)) {
@@ -406,7 +406,7 @@ const decodeArgs = <A, I>(
       },
     });
   }
-  return Result.succeed(decoded.success);
+  return Result.succeed(decoded.success as never);
 };
 
 // ---------------------------------------------------------------------------

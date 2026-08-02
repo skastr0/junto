@@ -57,7 +57,7 @@ const ndjsonCall = (
   args: unknown,
   timeoutMs: number,
 ): Effect.Effect<WorkResponseEnvelope, RuntimeDown | WireError> =>
-  Effect.async<WorkResponseEnvelope, RuntimeDown | WireError>((resume) => {
+  Effect.callback<WorkResponseEnvelope, RuntimeDown | WireError>((resume) => {
     let settled = false;
     let buffer = Buffer.alloc(0);
     let socket: Socket | undefined;
@@ -131,7 +131,7 @@ const ndjsonCall = (
       try {
         const raw = JSON.parse(line) as unknown;
         const decoded = decodeWorkResponse(raw);
-        if (decoded._tag === "Left") {
+        if (decoded._tag === "Failure") {
           settle(
             Effect.fail(
               new WireError({

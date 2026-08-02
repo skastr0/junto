@@ -91,6 +91,6 @@ export const makeRegionRollupLive = (
     }),
   );
 
-export const RegionRollupLive = Layer.unwrapEffect(
+export const RegionRollupLive = Layer.unwrap(
   Effect.map(ChatServiceContext, (chat) => makeRegionRollupLive(chat)),
 );

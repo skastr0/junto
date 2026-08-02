@@ -37,8 +37,8 @@ const runtime = ManagedRuntime.make(
   ),
 );
 
-let repository: Context.Tag.Service<typeof WorkRepository>;
-let state: Context.Tag.Service<typeof StateEngine>;
+let repository: Context.Service.Shape<typeof WorkRepository>;
+let state: Context.Service.Shape<typeof StateEngine>;
 
 const observedAt = "2026-07-27T18:00:00.000Z";
 const cc = Schema.decodeUnknownSync(InstallationId)("cc-repository");
@@ -109,7 +109,7 @@ const message = (
 const seedInstallations = (
   installations: ReadonlyArray<InstallationIdValue>,
   local: InstallationIdValue,
-  engine: Context.Tag.Service<typeof StateEngine> = state,
+  engine: Context.Service.Shape<typeof StateEngine> = state,
 ) =>
   engine.transaction("test.seed-installations", (writer) => {
     for (const installation of installations) {
@@ -546,7 +546,7 @@ describe("WorkRepository v2 local authority", () => {
       repository.claimLocalTask({
         sink,
         basis: authorialBasis,
-        taskId: created.success.id,
+        taskId: created.value.id,
         actor,
         originAt: observedAt,
         receivedAt: observedAt,
@@ -556,13 +556,13 @@ describe("WorkRepository v2 local authority", () => {
       repository.transitionTask({
         sink,
         basis: authorialBasis,
-        taskId: created.success.id,
+        taskId: created.value.id,
         state: "completed",
         message: message(
           "done-local",
           "agent",
           "done",
-          created.success.id,
+          created.value.id,
         ),
         originAt: observedAt,
         receivedAt: observedAt,
@@ -579,7 +579,7 @@ describe("WorkRepository v2 local authority", () => {
     expect(claimed.record.predecessor).toEqual(created.record.id);
     expect(completed.record.id.seq).toBe("3");
     expect(completed.record.predecessor).toEqual(claimed.record.id);
-    expect(claimed.success).toMatchObject({
+    expect(claimed.value).toMatchObject({
       state: "working",
       claimedBy: actor.seatId,
     });
@@ -633,7 +633,7 @@ describe("WorkRepository v2 local authority", () => {
       repository.claimLocalTask({
         sink,
         basis: authorialBasis,
-        taskId: created.success.id,
+        taskId: created.value.id,
         actor,
         originAt: observedAt,
         receivedAt: observedAt,
@@ -644,7 +644,7 @@ describe("WorkRepository v2 local authority", () => {
       repository.transitionTask({
         sink,
         basis: authorialBasis,
-        taskId: created.success.id,
+        taskId: created.value.id,
         state: "submitted",
         originAt: observedAt,
         receivedAt: observedAt,
@@ -657,7 +657,7 @@ describe("WorkRepository v2 local authority", () => {
       repository.readSnapshot(sink.canvasName, sink.nodeId),
     );
     expect(snapshot.tasks.items[0]).toMatchObject({
-      id: created.success.id,
+      id: created.value.id,
       state: "submitted",
     });
     expect(snapshot.tasks.items[0]?.claimedBy).toBeUndefined();
@@ -684,7 +684,7 @@ describe("WorkRepository v2 local authority", () => {
       repository.claimLocalTask({
         sink,
         basis: authorialBasis,
-        taskId: created.success.id,
+        taskId: created.value.id,
         actor,
         originAt: observedAt,
         receivedAt: observedAt,
@@ -694,9 +694,9 @@ describe("WorkRepository v2 local authority", () => {
       repository.transitionTask({
         sink,
         basis: authorialBasis,
-        taskId: created.success.id,
+        taskId: created.value.id,
         state: "completed",
-        message: message("done-qa-rejection", "agent", "done", created.success.id),
+        message: message("done-qa-rejection", "agent", "done", created.value.id),
         originAt: observedAt,
         receivedAt: observedAt,
       }),
@@ -707,7 +707,7 @@ describe("WorkRepository v2 local authority", () => {
         .transitionTask({
           sink,
           basis: authorialBasis,
-          taskId: created.success.id,
+          taskId: created.value.id,
           state: "submitted",
           originAt: observedAt,
           receivedAt: observedAt,
@@ -723,13 +723,13 @@ describe("WorkRepository v2 local authority", () => {
       repository.transitionTask({
         sink,
         basis: authorialBasis,
-        taskId: created.success.id,
+        taskId: created.value.id,
         state: "submitted",
         message: message(
           "qa-rejection",
           "user",
           "The release receipt is missing.",
-          created.success.id,
+          created.value.id,
         ),
         originAt: observedAt,
         receivedAt: observedAt,
@@ -809,7 +809,7 @@ describe("WorkRepository v2 local authority", () => {
       repository.reserveRemoteTaskClaim({
         targetInstallationId: remote,
         sink,
-        taskId: created.success.id,
+        taskId: created.value.id,
         actor,
         originAt: observedAt,
         receivedAt: observedAt,
@@ -884,8 +884,8 @@ describe("WorkRepository v2 local authority", () => {
     );
     expect(Result.isFailure(contention)).toBe(true);
     if (Result.isFailure(contention)) {
-      expect(contention.left).toBeInstanceOf(WorkAuthorityError);
-      expect(contention.left).toMatchObject({
+      expect(contention.failure).toBeInstanceOf(WorkAuthorityError);
+      expect(contention.failure).toMatchObject({
         reason: "claim-contention",
       });
     }
@@ -1050,7 +1050,7 @@ describe("WorkRepository v2 local authority", () => {
     );
     const task = {
       kind: "task" as const,
-      itemId: created.success.id,
+      itemId: created.value.id,
       sink: taskSink,
     };
 
@@ -1072,7 +1072,7 @@ describe("WorkRepository v2 local authority", () => {
     );
     expect(Result.isFailure(beforeClaim)).toBe(true);
     if (Result.isFailure(beforeClaim)) {
-      expect(beforeClaim.left).toMatchObject({
+      expect(beforeClaim.failure).toMatchObject({
         reason: "invalid-transition",
       });
     }
@@ -1081,7 +1081,7 @@ describe("WorkRepository v2 local authority", () => {
       repository.claimLocalTask({
         sink: taskSink,
         basis: authorialBasis,
-        taskId: created.success.id,
+        taskId: created.value.id,
         actor: artifactClaimant,
         originAt: observedAt,
         receivedAt: observedAt,
@@ -1147,7 +1147,7 @@ describe("WorkRepository v2 local authority", () => {
       actor_seat_id: artifactPublisher.seatId,
       task_canvas_name: taskSink.canvasName,
       task_node_id: taskSink.nodeId,
-      task_id: created.success.id,
+      task_id: created.value.id,
       task_entity_home: cc,
     });
 
@@ -1395,7 +1395,7 @@ describe("WorkRepository v2 local authority", () => {
           "task",
           sink.canvasName,
           sink.nodeId,
-          created.success.id,
+          created.value.id,
         ),
       ),
     ).toBe(cc);
@@ -1426,7 +1426,7 @@ describe("WorkRepository board CC-homed facts", () => {
         receivedAt: observedAt,
       }),
     );
-    expect(created.success.topicId).toBe("topic-board-1");
+    expect(created.value.topicId).toBe("topic-board-1");
     expect(created.record.operation).toBe("board.topic.create");
     expect(created.record.item.kind).toBe("topic");
     expect(created.record.id.route).toEqual({
@@ -1611,8 +1611,8 @@ describe("WorkRepository board CC-homed facts", () => {
         receivedAt: observedAt,
       }),
     );
-    expect(created.success.openedBy).toEqual(operator);
-    expect(created.success.posts?.[0]?.author).toEqual(operator);
+    expect(created.value.openedBy).toEqual(operator);
+    expect(created.value.posts?.[0]?.author).toEqual(operator);
     const snap = await runtime.runPromise(
       repository.readSnapshot(boardSink.canvasName, boardSink.nodeId),
     );

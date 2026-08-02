@@ -48,24 +48,26 @@ export const CONTROL_CLI_REQUEST_TIMEOUT_MS = BROWSER_CLI_REQUEST_TIMEOUT_MS;
 // is minted client-side only (the socket does not answer); the server never
 // emits it.
 
-export const ControlErrorTag = Schema.Literals(["unauthorized", // missing/wrong token
-"bad_request", // malformed body / unknown route
-"invalid", // domain-invalid input (bad profile id, profile switch on warm session)
-"not_found", // no such session / node
-"forbidden", // url scheme not allowed
-"timeout", // operation exceeded its deadline
-"cancelled", // operation was aborted by its caller
-"resource_exhausted", // bounded browser capacity is currently full
-"unsupported_capability", // resolved page host cannot run browser work here
-"unsupported_result", // result is not losslessly representable as JSON
-"result_too_large", // result or response exceeds its byte budget
-"failed", // operation attempted and failed (load error, eval throw, io)
-"runtime_down", // app not running — socket absent or refusing (CLI-side)]);
+export const ControlErrorTag = Schema.Literals([
+  "unauthorized", // missing/wrong token
+  "bad_request", // malformed body / unknown route
+  "invalid", // domain-invalid input (bad profile id, profile switch on warm session)
+  "not_found", // no such session / node
+  "forbidden", // url scheme not allowed
+  "timeout", // operation exceeded its deadline
+  "cancelled", // operation was aborted by its caller
+  "resource_exhausted", // bounded browser capacity is currently full
+  "unsupported_capability", // resolved page host cannot run browser work here
+  "unsupported_result", // result is not losslessly representable as JSON
+  "result_too_large", // result or response exceeds its byte budget
+  "failed", // operation attempted and failed (load error, eval throw, io)
+  "runtime_down", // app not running — socket absent or refusing (CLI-side)
+]);
 export type ControlErrorTag = typeof ControlErrorTag.Type;
 
 const ControlErrorMessage = Schema.String.pipe(
   Schema.check(Schema.makeFilter((value) => isUtf8WithinLimit(value, BROWSER_MAX_ERROR_BYTES),
-  { message: () => `control error exceeds ${BROWSER_MAX_ERROR_BYTES} UTF-8 bytes` },)),
+  { message: `control error exceeds ${BROWSER_MAX_ERROR_BYTES} UTF-8 bytes` },)),
 );
 
 export const ControlError = Schema.Struct({
@@ -245,12 +247,12 @@ export const decodeControlEnvelope = (
 const boundedString = (label: string, maxBytes: number) =>
   Schema.String.pipe(
     Schema.check(Schema.makeFilter((value) => isUtf8WithinLimit(value, maxBytes),
-    { message: () => `${label} exceeds ${maxBytes} UTF-8 bytes` },)),
+    { message: `${label} exceeds ${maxBytes} UTF-8 bytes` },)),
   );
 
 const SessionId = Schema.String.pipe(
   Schema.check(Schema.makeFilter(isValidBrowserSessionId,
-  { message: () => "sessionId must be nonempty bounded ASCII" },)),
+  { message: "sessionId must be nonempty bounded ASCII" },)),
 );
 
 export const OpenRequest = Schema.Struct({

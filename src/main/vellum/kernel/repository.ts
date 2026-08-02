@@ -1,3 +1,4 @@
+import type { SchemaError } from "effect/SchemaError";
 import { Context, Effect, Layer, SchemaIssue, Schema } from "effect";
 import type { PulseRecord } from "@shared/ipc";
 import {
@@ -76,7 +77,7 @@ const Delivered = Schema.Array(Schema.String);
 const decodePulseKind = Schema.decodeUnknownResult(PulseKind);
 const decodeDelivered = Schema.decodeUnknownResult(Delivered);
 
-const parseError = (error: SchemaIssue.ParseError): string =>
+const parseError = (error: SchemaError): string =>
   error instanceof Error ? error.message : String(error);
 
 const persistenceError = (

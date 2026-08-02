@@ -1,5 +1,5 @@
-// S7: effect/JSONSchema → effect/JsonSchema on V4 pin (see ../effect-v4-import-map.ts)
-import { JSONSchema, Schema } from "effect";
+// S7: effect/JsonSchema → effect/JsonSchema on V4 pin (see ../effect-v4-import-map.ts)
+import { Schema } from "effect";
 import {
   CloseRequest,
   EvalRequest,
@@ -34,7 +34,7 @@ export interface CommandSchemaContract {
   readonly command: string;
   readonly schema_id: string;
   readonly description: string;
-  readonly schema: Schema.Schema.AnyNoContext;
+  readonly schema: Schema.Top;
   readonly accepts_batch?: boolean;
   readonly input_modes?: readonly string[];
 }
@@ -115,7 +115,7 @@ export const renderSchemaContract = (contract: CommandSchemaContract) => ({
   description: contract.description,
   accepts_batch: contract.accepts_batch ?? false,
   input_modes: contract.input_modes ?? ["inline-json", "@file", "stdin"],
-  schema: JSONSchema.make(contract.schema),
+  schema: Schema.toJsonSchemaDocument(contract.schema).schema,
 });
 
 const inputModes = ["inline-json", "@file", "stdin"] as const;
@@ -266,7 +266,7 @@ const browserSchema = (
   operation: string,
   command: string,
   description: string,
-  schema: Schema.Schema.AnyNoContext,
+  schema: Schema.Top,
 ): CommandSchemaContract => ({
   command_id: `browser.${operation}`,
   command: `browser ${command}`,

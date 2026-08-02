@@ -60,8 +60,8 @@ const decodeEvent = (event: NodeRefOpenedEvent): NodeRefOpenedEvent | undefined 
   if (!("nodeId" in value) || typeof value.nodeId !== "string") return undefined;
 
   const parsed = parseNodeRef(value.ref);
-  if (!parsed.ok || nodeRefKey(parsed.success) !== value.ref) return undefined;
-  if (parsed.success.canvasName !== value.canvasName || parsed.success.nodeId !== value.nodeId) {
+  if (!parsed.ok || nodeRefKey(parsed.value) !== value.ref) return undefined;
+  if (parsed.value.canvasName !== value.canvasName || parsed.value.nodeId !== value.nodeId) {
     return undefined;
   }
   return {

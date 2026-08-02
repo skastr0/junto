@@ -79,7 +79,7 @@ describe("browser profile registry", () => {
     | ManagedRuntime.ManagedRuntime<StateEngine, unknown>
     | undefined;
   let state:
-    | Context.Tag.Service<typeof StateEngine>
+    | Context.Service.Shape<typeof StateEngine>
     | undefined;
 
   afterEach(async () => {
@@ -140,7 +140,7 @@ describe("browser profile registry", () => {
   const query = <A>(
     operation: string,
     body: Parameters<
-      Context.Tag.Service<typeof StateEngine>["read"]
+      Context.Service.Shape<typeof StateEngine>["read"]
     >[1],
   ): Promise<A> => {
     if (!state) throw new Error("state unavailable");
@@ -150,7 +150,7 @@ describe("browser profile registry", () => {
   const mutate = (
     operation: string,
     body: Parameters<
-      Context.Tag.Service<typeof StateEngine>["transaction"]
+      Context.Service.Shape<typeof StateEngine>["transaction"]
     >[1],
   ): Promise<unknown> => {
     if (!state) throw new Error("state unavailable");
@@ -424,7 +424,7 @@ describe("browser profile registry", () => {
     const stateService = await freshState();
     const gate = new BrowserProfileGate();
     let createCommitted = false;
-    const observedState: Context.Tag.Service<
+    const observedState: Context.Service.Shape<
       typeof StateEngine
     > = {
       ...stateService,
@@ -755,7 +755,7 @@ describe("browser profile registry", () => {
     );
     expect(Result.isFailure(last)).toBe(true);
     if (Result.isFailure(last)) {
-      expect(last.left.code).toBe("forbidden");
+      expect(last.failure.code).toBe("forbidden");
     }
     expect(prepared).toBe(false);
   });

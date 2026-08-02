@@ -52,7 +52,7 @@ const claimInput = (
   nowEpochMs: number,
   overrides: Partial<
     Parameters<
-      Context.Tag.Service<typeof SchedulerRepository>["claimInterval"]
+      Context.Service.Shape<typeof SchedulerRepository>["claimInterval"]
     >[0]
   > = {},
 ) => ({

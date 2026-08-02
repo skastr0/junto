@@ -76,7 +76,7 @@ const call = (
   args: unknown,
   options: CanvasControlClientOptions,
 ): Effect.Effect<unknown, CanvasControlClientError> =>
-  Effect.async<unknown, CanvasControlClientError>((resume) => {
+  Effect.callback<unknown, CanvasControlClientError>((resume) => {
     const controlHome = resolveCanvasControlHome(
       options.home,
       options.controlHome,
@@ -252,11 +252,11 @@ const call = (
     });
   });
 
-const decodeData = <A, I>(
-  schema: Schema.Schema<A, I>,
+const decodeData = <S extends Schema.Top>(
+  schema: S,
   value: unknown,
-): Effect.Effect<A, CanvasControlClientError> =>
-  Schema.decodeUnknown(schema)(value, { onExcessProperty: "error" }).pipe(
+): Effect.Effect<Schema.Schema.Type<S>, CanvasControlClientError> =>
+  Schema.decodeUnknownEffect(schema as never)(value, { onExcessProperty: "error" }).pipe(
     Effect.mapError(() =>
       malformedResponse("server returned malformed canvas operation data"),
     ),

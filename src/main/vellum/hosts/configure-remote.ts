@@ -113,14 +113,14 @@ const mapStationError = (
     `${host.label}: ${stationErrorMessage(error)}`,
   );
 
-const decodeRequest = <A, I>(
-  schema: Schema.Schema<A, I>,
+const decodeRequest = <S extends Schema.Top>(
+  schema: S,
   value: unknown,
   operation: string,
-): Effect.Effect<A, RemoteHostsError> => {
-  const decoded = Schema.decodeUnknownResult(schema)(value);
+): Effect.Effect<Schema.Schema.Type<S>, RemoteHostsError> => {
+  const decoded = Schema.decodeUnknownResult(schema as never)(value);
   return Result.isSuccess(decoded)
-    ? Effect.succeed(decoded.success)
+    ? Effect.succeed(decoded.success as never)
     : Effect.fail(
         new RemoteHostsError(
           "validation",

@@ -30,7 +30,7 @@ const canvasesLive = Layer.provideMerge(CanvasesLive, repositoriesLive);
 const runtime = ManagedRuntime.make(
   canvasesLive,
 );
-let canvases: Context.Tag.Service<typeof CanvasesService>;
+let canvases: Context.Service.Shape<typeof CanvasesService>;
 
 beforeAll(async () => {
   canvases = await runtime.runPromise(CanvasesService);
@@ -79,7 +79,7 @@ describe("canvases.ts remove()", () => {
     const error = await runtime.runPromise(Effect.result(canvases.remove("missing-canvas")));
     expect(error._tag).toBe("Left");
     if (error._tag === "Failure") {
-      expect(error.left.message).toMatch(/does not exist/);
+      expect(error.failure.message).toMatch(/does not exist/);
     }
   });
 
@@ -87,7 +87,7 @@ describe("canvases.ts remove()", () => {
     const error = await runtime.runPromise(Effect.result(canvases.remove("Bad Name!")));
     expect(error._tag).toBe("Left");
     if (error._tag === "Failure") {
-      expect(error.left.message).toMatch(/invalid canvas name/);
+      expect(error.failure.message).toMatch(/invalid canvas name/);
     }
   });
 

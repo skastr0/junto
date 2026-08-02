@@ -401,7 +401,7 @@ const makeOpenSshFrameTransport = <Frame>(
 
     const unavailable: Effect.Effect<never, StationSessionTransportError> =
       Deferred.await(closedSignal).pipe(
-        Effect.zipRight(Effect.fail(closedError)),
+        Effect.andThen(Effect.fail(closedError)),
       );
 
     const releaseOnce = (bytes: number): Effect.Effect<void> => {
@@ -420,7 +420,7 @@ const makeOpenSshFrameTransport = <Frame>(
         frames,
         (frame) =>
           Deferred.fail(frame.written, closedError).pipe(
-            Effect.zipRight(frame.releaseBytes),
+            Effect.andThen(frame.releaseBytes),
           ),
         { discard: true },
       );
@@ -487,7 +487,7 @@ const makeOpenSshFrameTransport = <Frame>(
         Effect.matchEffect({
           onFailure: (error) =>
             Deferred.fail(frame.written, writeFailure(error)).pipe(
-              Effect.zipRight(close()),
+              Effect.andThen(close()),
               Effect.asVoid,
             ),
           onSuccess: () =>
@@ -547,7 +547,11 @@ const makeOpenSshFrameTransport = <Frame>(
             return Effect.succeed(Option.none<Frame>());
         }
       }),
-      Stream.filterMap((frame) => frame),
+      Stream.filterMap((frame) =>
+        Option.isSome(frame)
+          ? Result.succeed(frame.value)
+          : Result.fail(undefined as void),
+      ),
     );
 
     const send = (
@@ -609,7 +613,7 @@ const makeOpenSshFrameTransport = <Frame>(
               ),
             ).pipe(
               Effect.catchCause((cause) =>
-                Cause.isInterruptedOnly(cause)
+                Cause.hasInterruptsOnly(cause)
                   ? Ref.get(state).pipe(
                       Effect.flatMap((current) =>
                         current.closed
@@ -621,7 +625,7 @@ const makeOpenSshFrameTransport = <Frame>(
               ),
               Effect.onError(() =>
                 removeOutstanding(outboundFrame).pipe(
-                  Effect.zipRight(releaseBytes),
+                  Effect.andThen(releaseBytes),
                 )
               ),
             );
@@ -770,7 +774,7 @@ const makeVerifiedCommandCenterSession = (
       handleRequest: (request: StationApiRequest) =>
         request.op === "report"
           ? Deferred.await(verified).pipe(
-              Effect.zipRight(
+              Effect.andThen(
                 Effect.suspend(() => onRemoteReport(request)),
               ),
             )

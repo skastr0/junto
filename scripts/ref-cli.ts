@@ -63,17 +63,17 @@ const main = async (): Promise<void> => {
   }
 
   const read = await Effect.runPromise(
-    Effect.either(readCanvasThroughControl(parsed.value.canvasName)),
+    Effect.result(readCanvasThroughControl(parsed.value.canvasName)),
   );
-  if (read._tag === "Left") {
+  if (read._tag === "Failure") {
     printError(
-      { code: read.left.code, message: read.left.message },
+      { code: read.failure.code, message: read.failure.message },
       json,
       1,
     );
     return;
   }
-  const matches = read.right.doc.nodes.filter(
+  const matches = read.success.doc.nodes.filter(
     (node) => node.id === parsed.value.nodeId,
   );
   if (matches.length === 0) {

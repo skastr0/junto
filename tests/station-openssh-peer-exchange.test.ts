@@ -58,6 +58,11 @@ import {
   makeOpenSshStationPeerExchange,
 } from "../src/main/vellum/station/openssh-peer-exchange";
 
+const runEffect = <A, E>(effect: Effect.Effect<A, E, any>): Promise<A> =>
+  Effect.runPromise(effect as Effect.Effect<A, E, never>);
+
+
+
 const decodeInstallationId = Schema.decodeUnknownSync(InstallationId);
 const decodeRequestId = Schema.decodeUnknownSync(StationSessionRequestId);
 const decodeEndpoint = Schema.decodeUnknownSync(SshEndpoint);
@@ -106,7 +111,7 @@ const expectFailureReason = async (
   effect: Effect.Effect<unknown, { readonly reason: string }>,
   reason: string,
 ): Promise<void> => {
-  const result = await Effect.runPromise(Effect.result(effect));
+  const result = await runEffect(Effect.result(effect));
   expect(Result.isFailure(result)).toBe(true);
   if (Result.isFailure(result)) {
     expect(result.failure.reason).toBe(reason);
@@ -130,10 +135,10 @@ describe("OpenSSH Station session NDJSON", () => {
   it("incrementally decodes fragmented input and multiple frames per chunk", async () => {
     const first = requestFrame("fragmented-01");
     const second = responseFrame(first);
-    const firstBytes = await Effect.runPromise(
+    const firstBytes = await runEffect(
       encodeOpenSshStationFrame(first),
     );
-    const secondBytes = await Effect.runPromise(
+    const secondBytes = await runEffect(
       encodeOpenSshStationFrame(second),
     );
     const all = Buffer.concat([
@@ -144,12 +149,12 @@ describe("OpenSSH Station session NDJSON", () => {
     const stream = makeOpenSshStationFrameDecoder();
 
     expect(
-      await Effect.runPromise(stream.push(all.subarray(0, cut))),
+      await runEffect(stream.push(all.subarray(0, cut))),
     ).toEqual([]);
-    const decoded = await Effect.runPromise(stream.push(all.subarray(cut)));
+    const decoded = await runEffect(stream.push(all.subarray(cut)));
 
     expect(decoded).toEqual([first, second]);
-    expect(await Effect.runPromise(stream.end)).toEqual([]);
+    expect(await runEffect(stream.end)).toEqual([]);
   });
 
   it("rejects malformed UTF-8, malformed JSON, and excess properties", async () => {
@@ -187,7 +192,7 @@ describe("OpenSSH Station session NDJSON", () => {
     );
 
     const truncated = makeOpenSshStationFrameDecoder();
-    await Effect.runPromise(
+    await runEffect(
       truncated.push(
         encoder.encode(JSON.stringify(requestFrame("truncated-01"))),
       ),
@@ -197,13 +202,13 @@ describe("OpenSSH Station session NDJSON", () => {
 
   it("encodes exactly one newline-terminated frame and enforces its byte bound", async () => {
     const frame = requestFrame("encode-01");
-    const bytes = await Effect.runPromise(encodeOpenSshStationFrame(frame));
+    const bytes = await runEffect(encodeOpenSshStationFrame(frame));
 
     expect(bytes.at(-1)).toBe(0x0a);
     expect(decoder.decode(bytes).endsWith("\n")).toBe(true);
     expect(JSON.parse(decoder.decode(bytes))).toEqual(frame);
     expect(
-      await Effect.runPromise(
+      await runEffect(
         encodeOpenSshStationFrame(frame, bytes.byteLength),
       ),
     ).toEqual(bytes);
@@ -216,7 +221,7 @@ describe("OpenSSH Station session NDJSON", () => {
 
 describe("OpenSSH Station frame transport", () => {
   it("serializes bounded writes even when callers send concurrently", async () => {
-    await Effect.runPromise(
+    await runEffect(
       Effect.scoped(
         Effect.gen(function* () {
           const firstStarted = yield* Deferred.make<void>();
@@ -249,14 +254,14 @@ describe("OpenSSH Station frame transport", () => {
             maxQueuedBytes: 8_192,
             maxQueuedFrames: 1,
           });
-          const first = yield* Effect.fork(
+          const first = yield* Effect.forkChild(
             transport.send(requestFrame("serialized-01")),
           );
           yield* Deferred.await(firstStarted);
-          const second = yield* Effect.fork(
+          const second = yield* Effect.forkChild(
             transport.send(requestFrame("serialized-02")),
           );
-          yield* Effect.yieldNow();
+          yield* Effect.yieldNow;
 
           expect(yield* Deferred.isDone(secondStarted)).toBe(false);
           expect(maximumActiveWrites).toBe(1);
@@ -276,7 +281,7 @@ describe("OpenSSH Station frame transport", () => {
   });
 
   it("rejects a frame larger than the bounded byte queue before writing", async () => {
-    await Effect.runPromise(
+    await runEffect(
       Effect.scoped(
         Effect.gen(function* () {
           let writes = 0;
@@ -304,7 +309,7 @@ describe("OpenSSH Station frame transport", () => {
   });
 
   it("fails the active send and closes the lease after a write disconnect", async () => {
-    await Effect.runPromise(
+    await runEffect(
       Effect.scoped(
         Effect.gen(function* () {
           const closeObserved = yield* Deferred.make<void>();
@@ -321,7 +326,7 @@ describe("OpenSSH Station frame transport", () => {
             Effect.sync(() => {
               closes += 1;
             }).pipe(
-              Effect.zipRight(
+              Effect.andThen(
                 Deferred.succeed(closeObserved, undefined),
               ),
               Effect.asVoid,
@@ -337,7 +342,7 @@ describe("OpenSSH Station frame transport", () => {
           );
           expect(Result.isFailure(first)).toBe(true);
           if (Result.isFailure(first)) {
-            expect(first.left.reason).toBe("write-failed");
+            expect(first.failure.reason).toBe("write-failed");
           }
           yield* Deferred.await(closeObserved);
 
@@ -346,7 +351,7 @@ describe("OpenSSH Station frame transport", () => {
           );
           expect(Result.isFailure(afterClose)).toBe(true);
           if (Result.isFailure(afterClose)) {
-            expect(afterClose.left.reason).toBe("closed");
+            expect(afterClose.failure.reason).toBe("closed");
           }
           expect(closes).toBe(1);
         }),
@@ -355,7 +360,7 @@ describe("OpenSSH Station frame transport", () => {
   });
 
   it("settles active, queued, and offer-blocked sends when close races enqueue", async () => {
-    await Effect.runPromise(
+    await runEffect(
       Effect.scoped(
         Effect.gen(function* () {
           const firstWriteStarted = yield* Deferred.make<void>();
@@ -363,7 +368,7 @@ describe("OpenSSH Station frame transport", () => {
           const lease = dormantLease(
             () =>
               Deferred.succeed(firstWriteStarted, undefined).pipe(
-                Effect.zipRight(Deferred.await(releaseFirstWrite)),
+                Effect.andThen(Deferred.await(releaseFirstWrite)),
                 Effect.asVoid,
               ),
             Deferred.succeed(releaseFirstWrite, undefined).pipe(
@@ -376,24 +381,24 @@ describe("OpenSSH Station frame transport", () => {
             maxQueuedFrames: 1,
           });
 
-          const first = yield* Effect.fork(
+          const first = yield* Effect.forkChild(
             Effect.result(
               transport.send(requestFrame("close-race-01")),
             ),
           );
           yield* Deferred.await(firstWriteStarted);
-          const second = yield* Effect.fork(
+          const second = yield* Effect.forkChild(
             Effect.result(
               transport.send(requestFrame("close-race-02")),
             ),
           );
-          yield* Effect.yieldNow();
-          const third = yield* Effect.fork(
+          yield* Effect.yieldNow;
+          const third = yield* Effect.forkChild(
             Effect.result(
               transport.send(requestFrame("close-race-03")),
             ),
           );
-          yield* Effect.yieldNow();
+          yield* Effect.yieldNow;
 
           yield* transport.close;
 
@@ -412,7 +417,7 @@ describe("OpenSSH Station frame transport", () => {
           );
           expect(Result.isFailure(afterClose)).toBe(true);
           if (Result.isFailure(afterClose)) {
-            expect(afterClose.left.reason).toBe("closed");
+            expect(afterClose.failure.reason).toBe("closed");
           }
         }),
       ),
@@ -443,7 +448,7 @@ describe("OpenSSH Station peer exchange", () => {
     readonly lease: SshLease;
     readonly written: unknown[];
   }> => {
-    const stdout = await Effect.runPromise(Queue.unbounded<Uint8Array>());
+    const stdout = await runEffect(Queue.unbounded<Uint8Array>());
     const written: unknown[] = [];
     const lease: SshLease = {
       write: (bytes) =>
@@ -527,7 +532,7 @@ describe("OpenSSH Station peer exchange", () => {
 
   const makeExchange = async (leases: ReadonlyArray<SshLease>) => {
     const harness = scriptedSsh(leases);
-    const platform = await Effect.runPromise(
+    const platform = await runEffect(
       resolveRemotePackagedPlatform(harness.ssh, ENDPOINT),
     );
     const route = admitEnrolledOpenSshStationPeer({
@@ -601,7 +606,7 @@ describe("OpenSSH Station peer exchange", () => {
     });
     const harness = await makeExchange([scripted.lease]);
 
-    const result = await Effect.runPromise(
+    const result = await runEffect(
       Effect.scoped(
         Effect.gen(function* () {
           const session = yield* harness.exchange.open(
@@ -633,9 +638,9 @@ describe("OpenSSH Station peer exchange", () => {
   });
 
   it("holds an early Remote report until same-session status verifies route identity", async () => {
-    const statusObserved = await Effect.runPromise(Deferred.make<void>());
-    const releaseStatus = await Effect.runPromise(Deferred.make<void>());
-    const reportHandled = await Effect.runPromise(Deferred.make<void>());
+    const statusObserved = await runEffect(Deferred.make<void>());
+    const releaseStatus = await runEffect(Deferred.make<void>());
+    const reportHandled = await runEffect(Deferred.make<void>());
     const report = ReportRequest.make({
       protocol: STATION_API_PROTOCOL,
       op: "report",
@@ -679,8 +684,8 @@ describe("OpenSSH Station peer exchange", () => {
         request.request.op === "status"
       ) {
         return Deferred.succeed(statusObserved, undefined).pipe(
-          Effect.zipRight(Deferred.await(releaseStatus)),
-          Effect.zipRight(respondToStatus(frame, stdout)),
+          Effect.andThen(Deferred.await(releaseStatus)),
+          Effect.andThen(respondToStatus(frame, stdout)),
           Effect.asVoid,
         );
       }
@@ -688,14 +693,14 @@ describe("OpenSSH Station peer exchange", () => {
     });
     const harness = await makeExchange([scripted.lease]);
 
-    await Effect.runPromise(
+    await runEffect(
       Effect.scoped(
         Effect.gen(function* () {
-          const opening = yield* Effect.fork(
+          const opening = yield* Effect.forkChild(
             harness.exchange.open(harness.route, () => {
               reportCalls += 1;
               return Effect.void.pipe(
-                Effect.zipRight(
+                Effect.andThen(
                   Deferred.succeed(reportHandled, undefined),
                 ),
                 Effect.as(
@@ -717,28 +722,25 @@ describe("OpenSSH Station peer exchange", () => {
             }),
           );
           yield* Deferred.await(statusObserved).pipe(
-            Effect.timeoutFail({
+            Effect.timeoutOrElse({
               duration: 1_000,
-              onTimeout: () =>
-                new Error("identity status request was not sent"),
+              orElse: () => Effect.fail(new Error("identity status request was not sent")),
             }),
           );
-          yield* Effect.yieldNow();
+          yield* Effect.yieldNow;
           expect(reportCalls).toBe(0);
 
           yield* Deferred.succeed(releaseStatus, undefined);
           yield* Fiber.join(opening).pipe(
-            Effect.timeoutFail({
+            Effect.timeoutOrElse({
               duration: 1_000,
-              onTimeout: () =>
-                new Error("identity status verification did not finish"),
+              orElse: () => Effect.fail(new Error("identity status verification did not finish")),
             }),
           );
           yield* Deferred.await(reportHandled).pipe(
-            Effect.timeoutFail({
+            Effect.timeoutOrElse({
               duration: 1_000,
-              onTimeout: () =>
-                new Error("early report did not resume after verification"),
+              orElse: () => Effect.fail(new Error("early report did not resume after verification")),
             }),
           );
           expect(reportCalls).toBe(1);
@@ -813,7 +815,7 @@ describe("OpenSSH Station peer exchange", () => {
     });
     const harness = await makeExchange([scripted.lease]);
 
-    const result = await Effect.runPromise(
+    const result = await runEffect(
       Effect.scoped(
         harness.exchange.open(harness.route, () => {
           reportCalls += 1;
@@ -839,7 +841,7 @@ describe("OpenSSH Station peer exchange", () => {
       endedLease(64, firstWritten),
     ]);
 
-    const result = await Effect.runPromise(
+    const result = await runEffect(
       openFailure(harness.exchange, harness.route),
     );
 
@@ -852,7 +854,7 @@ describe("OpenSSH Station peer exchange", () => {
     const written: unknown[] = [];
     const harness = await makeExchange([endedLease(1, written)]);
 
-    const result = await Effect.runPromise(
+    const result = await runEffect(
       openFailure(harness.exchange, harness.route),
     );
 
@@ -869,7 +871,7 @@ describe("OpenSSH Station peer exchange", () => {
       endedLease(64, written, encoder.encode("{")),
     ]);
 
-    const result = await Effect.runPromise(
+    const result = await runEffect(
       openFailure(harness.exchange, harness.route),
     );
 
@@ -888,7 +890,7 @@ describe("OpenSSH Station peer exchange", () => {
     );
     const harness = await makeExchange([scripted.lease]);
 
-    const result = await Effect.runPromise(
+    const result = await runEffect(
       openFailure(harness.exchange, harness.route),
     );
 
@@ -921,7 +923,7 @@ describe("OpenSSH Station peer exchange", () => {
     });
     const harness = await makeExchange([scripted.lease]);
 
-    const result = await Effect.runPromise(
+    const result = await runEffect(
       openFailure(harness.exchange, harness.route),
     );
 
@@ -960,7 +962,7 @@ describe("OpenSSH Station peer exchange", () => {
     });
     const harness = await makeExchange([scripted.lease]);
 
-    const result = await Effect.runPromise(
+    const result = await runEffect(
       openFailure(harness.exchange, harness.route),
     );
 

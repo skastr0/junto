@@ -13,7 +13,7 @@
 import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { request } from "node:http";
-import { Either } from "effect";
+import { Result } from "effect";
 import {
   CONTROL_REQUEST_ID_HEADER,
   CONTROL_ROUTES,
@@ -93,11 +93,11 @@ export const controlCall = (
             const status = res.statusCode ?? 0;
             const raw = Buffer.concat(chunks).toString("utf8");
             const decoded = decodeControlEnvelope(raw.length === 0 ? undefined : JSON.parse(raw));
-            if (Either.isLeft(decoded)) {
-              settle({ error: new Error(`malformed control envelope: ${decoded.left.message}`) });
+            if (Result.isFailure(decoded)) {
+              settle({ error: new Error(`malformed control envelope: ${decoded.failure.message}`) });
               return;
             }
-            settle({ value: { status, envelope: decoded.right } });
+            settle({ value: { status, envelope: decoded.success } });
           } catch (error) {
             settle({ error });
           }

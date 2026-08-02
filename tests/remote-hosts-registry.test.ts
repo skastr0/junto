@@ -46,13 +46,13 @@ import { StationFleetPropagation } from "../src/main/vellum/station/fleet-propag
 
 const dirs: string[] = [];
 const originalHome = process.env.HOME;
-const unusedFleet = {} as Context.Tag.Service<
+const unusedFleet = {} as Context.Service.Shape<
   typeof StationFleetPropagation
 >;
 const stateDisposers: Array<() => Promise<void>> = [];
 const stateByPath = new Map<
   string,
-  Context.Tag.Service<typeof StateEngine>
+  Context.Service.Shape<typeof StateEngine>
 >();
 
 const testRegistry = async (databasePath: string) => {
@@ -264,7 +264,7 @@ describe("remote hosts registry", () => {
     };
     const service = makeHostsService(
       observingRegistry,
-      {} as Context.Tag.Service<typeof SshTransport>,
+      {} as Context.Service.Shape<typeof SshTransport>,
       unusedFleet,
     );
 
@@ -345,7 +345,7 @@ describe("remote hosts registry", () => {
       const registry = makeHostsRegistry(state);
       const service = makeHostsService(
         registry,
-        {} as Context.Tag.Service<typeof SshTransport>,
+        {} as Context.Service.Shape<typeof SshTransport>,
         unusedFleet,
       );
       const listed = await Effect.runPromise(service.list);
@@ -417,7 +417,7 @@ describe("remote hosts registry", () => {
     };
     const service = makeHostsService(
       delayedRegistry,
-      {} as Context.Tag.Service<typeof SshTransport>,
+      {} as Context.Service.Shape<typeof SshTransport>,
       unusedFleet,
     );
     const fiber = Effect.runFork(

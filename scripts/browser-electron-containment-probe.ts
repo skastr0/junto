@@ -15,7 +15,7 @@ import {
 import { createServer, request, type Server } from "node:http";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Either } from "effect";
+import { Result } from "effect";
 import {
   CONTROL_REQUEST_ID_HEADER,
   CONTROL_ROUTES,
@@ -654,11 +654,11 @@ const controlCall = (
             const decoded = decodeControlEnvelope(
               JSON.parse(encoded),
             );
-            if (Either.isLeft(decoded)) {
-              settle({ error: new Error(decoded.left.message) });
+            if (Result.isFailure(decoded)) {
+              settle({ error: new Error(decoded.failure.message) });
               return;
             }
-            settle({ value: decoded.right });
+            settle({ value: decoded.success });
           } catch (error) {
             settle({ error });
           }
@@ -799,8 +799,8 @@ const launchDenialProbeClient = async (root: string, label: string): Promise<{
               throw new Error(`denial probe client failed: ${String(value?.error ?? "invalid response")}`);
             }
             const decoded = decodeControlEnvelope(JSON.parse(value.body));
-            if (Either.isLeft(decoded)) throw new Error(decoded.left.message);
-            return decoded.right;
+            if (Result.isFailure(decoded)) throw new Error(decoded.failure.message);
+            return decoded.success;
           } catch (error) {
             if (error instanceof Error && !error.message.includes("ENOENT")) throw error;
           }

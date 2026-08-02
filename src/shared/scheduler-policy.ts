@@ -13,7 +13,7 @@ export const EpochMilliseconds = Schema.Number.pipe(
   Schema.check(Schema.isInt()),
   Schema.check(Schema.isGreaterThanOrEqualTo(0)),
   Schema.check(Schema.makeFilter(Number.isSafeInteger,
-  { message: () => "epoch milliseconds must be a safe integer" },)),
+  { message: "epoch milliseconds must be a safe integer" },)),
 );
 export type EpochMilliseconds = typeof EpochMilliseconds.Type;
 
@@ -21,7 +21,7 @@ export const IntervalMilliseconds = Schema.Number.pipe(
   Schema.check(Schema.isInt()),
   Schema.check(Schema.isGreaterThan(0)),
   Schema.check(Schema.makeFilter(Number.isSafeInteger,
-  { message: () => "interval milliseconds must be a safe integer" },)),
+  { message: "interval milliseconds must be a safe integer" },)),
 );
 export type IntervalMilliseconds = typeof IntervalMilliseconds.Type;
 
@@ -78,8 +78,7 @@ export const IntervalTimerState = TimerStateShape.pipe(
     state.lastFiredSlot === undefined ||
     BigInt(state.nextDueSlot) === BigInt(state.lastFiredSlot) + 1n,
   {
-    message: () =>
-      "nextDueSlot must immediately follow lastFiredSlot",
+    message: "nextDueSlot must immediately follow lastFiredSlot",
   },)),
 );
 export type IntervalTimerState = typeof IntervalTimerState.Type;

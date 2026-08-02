@@ -152,7 +152,7 @@ export const makeHostsService = (
   const mutationLockFor = (target: string): Semaphore.Semaphore => {
     const existing = mutationLocks.get(target);
     if (existing) return existing;
-    const created = Effect.unsafeMakeSemaphore(1);
+    const created = Semaphore.makeUnsafe(1);
     mutationLocks.set(target, created);
     return created;
   };
@@ -253,13 +253,13 @@ export const makeHostsService = (
         if (hostResult._tag === "Failure") {
           return {
             ok: false,
-            detail: hostResult.fail.message,
-            code: hostResult.fail.code,
+            detail: hostResult.failure.message,
+            code: hostResult.failure.code,
             stages: [],
             disposition: "not-started" as const,
           } satisfies DeployRemoteResult;
         }
-        const host = hostResult.succeed;
+        const host = hostResult.success;
         if (!host) {
           return {
             ok: false,
@@ -303,19 +303,19 @@ export const makeHostsService = (
         if (hostResult._tag === "Failure") {
           return {
             ok: false,
-            detail: hostResult.fail.message,
-            code: hostResult.fail.code,
-            message: hostResult.fail.message,
+            detail: hostResult.failure.message,
+            code: hostResult.failure.code,
+            message: hostResult.failure.message,
             hostResolved: false,
             stages: [],
             disposition: "not-started" as const,
             outcome: "failed" as const,
             packageState: "previous" as const,
             role: "previous" as const,
-            configuration: { ok: false, detail: hostResult.fail.message },
+            configuration: { ok: false, detail: hostResult.failure.message },
           } satisfies ConfiguredRemoteDeployResult;
         }
-        const host = hostResult.succeed;
+        const host = hostResult.success;
         if (!host) {
           const detail = `unknown host: ${id}`;
           return {

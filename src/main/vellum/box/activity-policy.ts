@@ -169,13 +169,13 @@ export const BoxActivityPolicyLive = Layer.effect(
     );
 
     const coordinator = Effect.forever(
-      invalidations.take.pipe(Effect.andThen(reconcile)),
+      Queue.take(invalidations).pipe(Effect.andThen(reconcile)),
     );
     yield* Effect.forkScoped(coordinator);
 
     let admissionClosed = false;
     const request = (): void => {
-      if (!admissionClosed) invalidations.unsafeOffer(undefined);
+      if (!admissionClosed) Queue.offerUnsafe(invalidations, undefined);
     };
     // CanvasesService merges committed Work changes into this invalidation
     // stream, so claims and terminal transitions need no second subscription.

@@ -61,7 +61,7 @@ export const makePageTargetResolver = (canvases: CanvasNodeReader): PageTargetRe
 
     try {
       const resolved = await Effect.runPromise(
-        Effect.result(resolveNodeRef(canvases, parsed.success, { expectedEntityKind: "page" })),
+        Effect.result(resolveNodeRef(canvases, parsed.value, { expectedEntityKind: "page" })),
       );
       if (Result.isFailure(resolved)) return resolutionFailure(resolved.failure);
 

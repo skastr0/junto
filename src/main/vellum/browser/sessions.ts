@@ -526,7 +526,7 @@ const validateTarget = (
     return err("invalid", "resolved page target ref exceeds the hard limit");
   }
   const parsed = parseNodeRef(target.ref);
-  if (!parsed.ok || parsed.success.nodeId !== target.nodeId) {
+  if (!parsed.ok || parsed.value.nodeId !== target.nodeId) {
     return err("invalid", "resolved page target does not match its canonical ref");
   }
   if (!isUtf8WithinLimit(target.url, BROWSER_MAX_URL_BYTES)) {

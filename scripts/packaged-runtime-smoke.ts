@@ -13,7 +13,7 @@ import {
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Either } from "effect";
+import { Result } from "effect";
 import { controlSocketPath, controlTokenPath } from "../src/shared/browser-control";
 import {
   stationControlDir,
@@ -259,12 +259,12 @@ export const parsePackagedStationStatus = (
     throw new Error("packaged vellum-station returned non-JSON output");
   }
   const decoded = decodeStationSessionFrame(raw);
-  if (Either.isLeft(decoded)) {
+  if (Result.isFailure(decoded)) {
     throw new Error(
       "packaged vellum-station returned a malformed session frame",
     );
   }
-  const frame = decoded.right;
+  const frame = decoded.success;
   if (
     frame.frame !== "response" ||
     frame.requestId !== expectedRequestId ||

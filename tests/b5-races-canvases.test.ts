@@ -37,7 +37,7 @@ const canvasesLive = Layer.provideMerge(CanvasesLive, repositoriesLive);
 const runtime = ManagedRuntime.make(
   canvasesLive,
 );
-let canvases: Context.Tag.Service<typeof CanvasesService>;
+let canvases: Context.Service.Shape<typeof CanvasesService>;
 
 beforeAll(async () => {
   canvases = await runtime.runPromise(CanvasesService);

@@ -58,7 +58,7 @@ const makeRuntime = (root: string) => {
     WorkLive,
     Layer.mergeAll(canvasesLive, StationLivePeerRegistryLive),
   );
-  return ManagedRuntime.make(workLive);
+  return ManagedRuntime.make(workLive as never);
 };
 
 const agentDoc = (): CanvasDoc => ({

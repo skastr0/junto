@@ -114,17 +114,17 @@ const closeServer = (server: Server): Promise<void> =>
     server.close(() => resolve());
   });
 
-const decodeArgs = <A, I>(
-  schema: Schema.Schema<A, I>,
+const decodeArgs = <S extends Schema.Top>(
+  schema: S,
   args: unknown,
 ):
-  | { readonly ok: true; readonly value: A }
+  | { readonly ok: true; readonly value: Schema.Schema.Type<S> }
   | { readonly ok: false; readonly message: string } => {
-  const decoded = Schema.decodeUnknownResult(schema, {
+  const decoded = Schema.decodeUnknownResult(schema as never, {
     onExcessProperty: "error",
   })(args ?? {});
   return Result.isSuccess(decoded)
-    ? { ok: true, value: decoded.success }
+    ? { ok: true, value: decoded.success as never }
     : { ok: false, message: decoded.failure.message };
 };
 

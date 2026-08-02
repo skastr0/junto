@@ -654,10 +654,10 @@ describe("work control transport", () => {
     });
     const decoded = decodeWorkResponse(pong);
     expect(decoded._tag).toBe("Right");
-    if (decoded._tag === "Right") {
-      expect(decoded.right.ok).toBe(true);
-      if (decoded.right.ok) {
-        expect((decoded.right.data as { protocol_version: string }).protocol_version).toBe(
+    if (decoded._tag === "Success") {
+      expect(decoded.success.ok).toBe(true);
+      if (decoded.success.ok) {
+        expect((decoded.success.data as { protocol_version: string }).protocol_version).toBe(
           WORK_PROTOCOL_VERSION,
         );
       }

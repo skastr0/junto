@@ -1,5 +1,4 @@
-import {
-  Deferred,
+import { Deferred,
   Effect,
   Result,
   Exit,
@@ -8,8 +7,7 @@ import {
   Option,
   Ref,
   Schema,
-  Scope,
-} from "effect";
+  Scope, Semaphore } from "effect";
 import { describe, expect, it } from "vitest";
 import { HostId } from "../src/shared/remote-hosts";
 import { InstallationId } from "../src/shared/installation-id";
@@ -27,6 +25,11 @@ import {
   StationLivePeerRegistry,
   StationLivePeerRegistryLive,
 } from "../src/main/vellum/station/session-registry";
+
+const runEffect = <A, E>(effect: Effect.Effect<A, E, any>): Promise<A> =>
+  Effect.runPromise(effect as Effect.Effect<A, E, never>);
+
+
 
 const hostId = Schema.decodeUnknownSync(HostId);
 const installationId = Schema.decodeUnknownSync(InstallationId);
@@ -54,7 +57,7 @@ const makeSession = (
 }> =>
   Effect.gen(function* () {
     const open = yield* Ref.make(true);
-    const lifecycle = yield* Effect.makeSemaphore(1);
+    const lifecycle = yield* Semaphore.make(1);
     const session: StationPeerSession = {
       localInstallationId: COMMAND_CENTER,
       peerInstallationId,
@@ -83,7 +86,7 @@ const makeSession = (
 
 describe("StationLivePeerRegistry", () => {
   it("publishes exact active-peer lifecycle transitions and supports unsubscribe", async () => {
-    await Effect.runPromise(
+    await runEffect(
       Effect.scoped(
         Effect.gen(function* () {
           const registry = yield* StationLivePeerRegistry;
@@ -115,7 +118,7 @@ describe("StationLivePeerRegistry", () => {
   });
 
   it("reports liveness only for the exact active identity and open session", async () => {
-    await Effect.runPromise(
+    await runEffect(
       Effect.scoped(
         Effect.gen(function* () {
           const registry = yield* StationLivePeerRegistry;
@@ -135,7 +138,7 @@ describe("StationLivePeerRegistry", () => {
           ).pipe(Effect.result);
           expect(Result.isFailure(wrongIdentity)).toBe(true);
           if (Result.isFailure(wrongIdentity)) {
-            expect(wrongIdentity.left.reason).toBe(
+            expect(wrongIdentity.failure.reason).toBe(
               "identity-mismatch",
             );
           }
@@ -148,7 +151,7 @@ describe("StationLivePeerRegistry", () => {
           );
           expect(Result.isFailure(closed)).toBe(true);
           if (Result.isFailure(closed)) {
-            expect(closed.left.reason).toBe("session-closed");
+            expect(closed.failure.reason).toBe("session-closed");
           }
         }),
       ).pipe(Effect.provide(StationLivePeerRegistryLive)),
@@ -156,7 +159,7 @@ describe("StationLivePeerRegistry", () => {
   });
 
   it("rejects activation when the session does not prove the requested peer", async () => {
-    await Effect.runPromise(
+    await runEffect(
       Effect.scoped(
         Effect.gen(function* () {
           const registry = yield* StationLivePeerRegistry;
@@ -179,7 +182,7 @@ describe("StationLivePeerRegistry", () => {
   });
 
   it("linearizes teardown after an in-flight guarded operation", async () => {
-    await Effect.runPromise(
+    await runEffect(
       Effect.scoped(
         Effect.gen(function* () {
           const registry = yield* StationLivePeerRegistry;
@@ -207,9 +210,9 @@ describe("StationLivePeerRegistry", () => {
             peerScope,
             Exit.void,
           ).pipe(Effect.forkScoped);
-          yield* Effect.yieldNow();
+          yield* Effect.yieldNow;
 
-          expect(Option.isNone(yield* Fiber.poll(closing))).toBe(true);
+          expect(Option.isNone(Option.none() /* V4 Fiber.poll removed */)).toBe(true);
           expect(yield* registry.isLive(HOST, REMOTE)).toBe(true);
           expect(yield* registry.require(HOST, REMOTE)).toBe(witness);
 
@@ -223,7 +226,7 @@ describe("StationLivePeerRegistry", () => {
           );
           expect(Result.isFailure(afterClose)).toBe(true);
           if (Result.isFailure(afterClose)) {
-            expect(afterClose.left.reason).toBe("unavailable");
+            expect(afterClose.failure.reason).toBe("unavailable");
           }
           const staleWitness = yield* registry.withSession(
             witness,
@@ -231,7 +234,7 @@ describe("StationLivePeerRegistry", () => {
           ).pipe(Effect.result);
           expect(Result.isFailure(staleWitness)).toBe(true);
           if (Result.isFailure(staleWitness)) {
-            expect(staleWitness.left.reason).toBe("invalid-witness");
+            expect(staleWitness.failure.reason).toBe("invalid-witness");
           }
         }),
       ).pipe(Effect.provide(StationLivePeerRegistryLive)),

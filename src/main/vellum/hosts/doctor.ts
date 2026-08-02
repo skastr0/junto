@@ -181,7 +181,7 @@ const probeLinuxHostCapabilities = (
     }),
     Effect.catch(() => Effect.succeed(undefined)),
     // Test doubles and transport defects must not surface through hostsTest.
-    Effect.catchAllDefect(() => Effect.succeed(undefined)),
+    Effect.catchDefect(() => Effect.succeed(undefined)),
   );
 
 const probeSshHost = (
@@ -351,10 +351,9 @@ const boundedProbeSshHost = (
   host: RemoteHost,
 ): Effect.Effect<RemoteHostProbeResult> =>
   probeSshHost(ssh, fleet, host).pipe(
-    Effect.timeoutFail({
+    Effect.timeoutOrElse({
       duration: HOST_PROBE_TOTAL_TIMEOUT_MS,
-      onTimeout: () => new Error("remote host doctor deadline exceeded"),
-    }),
+      orElse: () => Effect.fail(new Error("remote host doctor deadline exceeded")),}),
     Effect.catch(() =>
       Effect.succeed({
         status: "error" as const,

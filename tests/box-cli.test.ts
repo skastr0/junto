@@ -85,9 +85,9 @@ const success = (stdout: string): BoxProcessResult => ({
 });
 
 const withCli = <A>(
-  runner: Context.Tag.Service<typeof BoxProcessRunner>,
+  runner: Context.Service.Shape<typeof BoxProcessRunner>,
   path: string,
-  effect: (cli: Context.Tag.Service<typeof BoxCli>) => Effect.Effect<A, unknown>,
+  effect: (cli: Context.Service.Shape<typeof BoxCli>) => Effect.Effect<A, unknown>,
 ) => Effect.runPromise(effect(makeBoxCli(runner, { executablePath: path })));
 
 afterEach(() => {

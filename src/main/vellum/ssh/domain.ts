@@ -23,7 +23,7 @@ export const SshIdentityFile = Schema.String.pipe(
     !value.includes("\n") &&
     !value.includes("\r"),
   {
-    message: () => "SSH identity file must be a bounded absolute path",
+    message: "SSH identity file must be a bounded absolute path",
   },)),
   Schema.brand("SshIdentityFile"),
 );
@@ -110,7 +110,7 @@ export type SshError =
   | SshForwardError;
 
 export const parseSshEndpoint = (input: unknown): Effect.Effect<SshEndpoint, SshInputError> =>
-  Schema.decodeUnknown(SshEndpoint)(input).pipe(
+  Schema.decodeUnknownEffect(SshEndpoint)(input).pipe(
     Effect.mapError(() =>
       new SshInputError({
         message: "SSH endpoint must be a bounded option-safe host or SSH config alias",
@@ -128,7 +128,7 @@ export const parseSshRoute = (input: {
     const identityFile =
       input.identityFile === undefined
         ? undefined
-        : yield* Schema.decodeUnknown(SshIdentityFile)(input.identityFile).pipe(
+        : yield* Schema.decodeUnknownEffect(SshIdentityFile)(input.identityFile).pipe(
             Effect.mapError(
               () =>
                 new SshInputError({
@@ -140,7 +140,7 @@ export const parseSshRoute = (input: {
     const hostKeyPolicy =
       input.hostKeyPolicy === undefined
         ? "system"
-        : yield* Schema.decodeUnknown(SshHostKeyPolicy)(
+        : yield* Schema.decodeUnknownEffect(SshHostKeyPolicy)(
             input.hostKeyPolicy,
           ).pipe(
             Effect.mapError(
@@ -272,8 +272,7 @@ export const RemoteUnixSocketPath = Schema.String.pipe(
     REMOTE_SOCKET_PATTERN.test(value) &&
     Buffer.byteLength(value, "utf8") <= 103,
   {
-    message: () =>
-      "Remote Unix socket path must be absolute, bounded, and safe for OpenSSH forwarding",
+    message: "Remote Unix socket path must be absolute, bounded, and safe for OpenSSH forwarding",
   },)),
   Schema.brand("RemoteUnixSocketPath"),
 );
@@ -282,7 +281,7 @@ export type RemoteUnixSocketPath = typeof RemoteUnixSocketPath.Type;
 export const parseRemoteUnixSocketPath = (
   input: unknown,
 ): Effect.Effect<RemoteUnixSocketPath, SshInputError> =>
-  Schema.decodeUnknown(RemoteUnixSocketPath)(input).pipe(
+  Schema.decodeUnknownEffect(RemoteUnixSocketPath)(input).pipe(
     Effect.mapError(() =>
       new SshInputError({
         message:

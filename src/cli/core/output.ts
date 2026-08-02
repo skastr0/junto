@@ -93,6 +93,6 @@ export const executeJsonCommand = <A, E, R>(command: string, effect: Effect.Effe
   effect.pipe(
     Effect.flatMap((data) => writeSuccessEnvelope(command, data)),
     Effect.catch((error) =>
-      setExitCode(1).pipe(Effect.zipRight(writeFailureEnvelope(command, error))),
+      setExitCode(1).pipe(Effect.andThen(writeFailureEnvelope(command, error))),
     ),
   );

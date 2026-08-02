@@ -22,12 +22,12 @@ const errorMessage = (error: unknown): string => {
 const main = async () => {
   const requestedName = process.argv[2] ?? "portfolio";
   const result = await Effect.runPromise(
-    Effect.either(readCanvasThroughControl(requestedName)),
+    Effect.result(readCanvasThroughControl(requestedName)),
   );
-  if (result._tag === "Left") {
-    throw new DigestExit(errorMessage(result.left));
+  if (result._tag === "Failure") {
+    throw new DigestExit(errorMessage(result.failure));
   }
-  const { actorRefs, doc, name, snapshots } = result.right;
+  const { actorRefs, doc, name, snapshots } = result.success;
   const context = executionGraphContextFromActorRefs(name, actorRefs);
 
   const digest = digestCanvas(name, doc, snapshots, {

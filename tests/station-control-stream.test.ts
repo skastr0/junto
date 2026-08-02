@@ -66,6 +66,11 @@ import {
   type StationControlLocalHandoffAuthority,
 } from "../src/main/vellum/station/peer-authority";
 
+const runEffect = <A, E>(effect: Effect.Effect<A, E, any>): Promise<A> =>
+  Effect.runPromise(effect as Effect.Effect<A, E, never>);
+
+
+
 const decodeInstallationId = Schema.decodeUnknownSync(InstallationId);
 const REMOTE = decodeInstallationId("remote-01");
 const COMMAND_CENTER = decodeInstallationId("cc-01");
@@ -119,7 +124,7 @@ const makeServer = async (options: {
       handled += 1;
       readiness = observed;
       if (request.op !== "status") {
-        return Effect.dieMessage("focused fixture accepts status only");
+        return Effect.die(new Error("focused fixture accepts status only"));
       }
       return Effect.succeed(
         StatusResponse.make({
@@ -135,13 +140,13 @@ const makeServer = async (options: {
       );
     },
     prepareReport: () =>
-      Effect.dieMessage(
+      Effect.die(new Error(
         "focused control-stream fixture does not prepare domain reports",
-      ),
+      )),
     acceptReportResponse: () =>
-      Effect.dieMessage(
+      Effect.die(new Error(
         "focused control-stream fixture does not integrate domain reports",
-      ),
+      )),
   });
   const server = await startStationControlServer({
     stationHome: join(root, "station"),
@@ -236,7 +241,7 @@ const makeFrameReader = (socket: Socket): FrameReader => {
       buffer = buffer.subarray(newline + 1);
       const preface = decodeStationProtocolPreface(raw);
       if (Result.isSuccess(preface)) {
-        publish(preface.right);
+        publish(preface.success);
         continue;
       }
       const session = decodeStationSessionFrame(raw);
@@ -245,7 +250,7 @@ const makeFrameReader = (socket: Socket): FrameReader => {
         for (const waiter of waiting.splice(0)) waiter.reject(error);
         return;
       }
-      publish(session.right);
+      publish(session.success);
     }
   });
   socket.once("close", () => {

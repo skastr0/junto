@@ -38,6 +38,10 @@ import {
 } from "../src/main/vellum/station/dispatcher";
 import { mintStationPeerRoute } from "../src/main/vellum/station/peer-exchange";
 
+const runEffect = <A, E>(effect: Effect.Effect<A, E, any>): Promise<A> =>
+  Effect.runPromise(effect as Effect.Effect<A, E, never>);
+
+
 const strictDecode = { onExcessProperty: "error" } as const;
 const observedAt = "2026-07-27T18:00:00.000Z";
 const contentSha256 = "a".repeat(64);
@@ -599,7 +603,7 @@ describe("Station API v2 work routing", () => {
       }),
     ).toBe(true);
 
-    const batch = await Effect.runPromise(
+    const batch = await runEffect(
       pageStationReport(
         work,
         facts,

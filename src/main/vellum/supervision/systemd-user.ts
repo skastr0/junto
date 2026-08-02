@@ -180,7 +180,7 @@ const parseSystemdShow = (stdout: string): ParsedSystemdShow => {
   }
 
   const decoded = Schema.decodeUnknownResult(SystemdShowFields)(fields);
-  if (decoded._tag === "Left") {
+  if (decoded._tag === "Failure") {
     return Object.freeze({
       kind: "invalid",
       diagnostic: "systemctl returned invalid property values",
@@ -199,7 +199,7 @@ const parseSystemdShow = (stdout: string): ParsedSystemdShow => {
   const decodedPid = Schema.decodeUnknownResult(SystemdObservedPid)(
     Number(decoded.success.MainPID),
   );
-  if (decodedPid._tag === "Left") {
+  if (decodedPid._tag === "Failure") {
     return Object.freeze({
       kind: "invalid",
       diagnostic: "systemctl returned an out-of-range MainPID",

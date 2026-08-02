@@ -222,7 +222,7 @@ describe("BrowserSessionService", () => {
     | ManagedRuntime.ManagedRuntime<StateEngine, unknown>
     | undefined;
   let state:
-    | Context.Tag.Service<typeof StateEngine>
+    | Context.Service.Shape<typeof StateEngine>
     | undefined;
 
   beforeEach(async () => {

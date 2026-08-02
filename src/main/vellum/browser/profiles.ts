@@ -11,7 +11,7 @@ import {
 } from "node:fs/promises";
 import { resolveVellumHome } from "@shared/vellum-home";
 import { isAbsolute, join, relative, resolve } from "node:path";
-import { Context, Effect, Layer, Schema } from "effect";
+import { Context, Effect, Layer, Schema , Semaphore } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
 import {
   DEFAULT_BROWSER_PROFILES,
@@ -692,7 +692,7 @@ export const makeBrowserProfileService = (
 ): BrowserProfileServiceApi => {
   const requestedRoot = root;
   const now = options.now ?? (() => new Date());
-  const mutationLock = Effect.unsafeMakeSemaphore(1);
+  const mutationLock = Semaphore.makeUnsafe(1);
 
   const databaseTransaction = <A>(
     operation: string,

@@ -36,7 +36,7 @@ describe("browser Electron containment authority", () => {
     );
     expect(fixture).toContain('requiredArgument("canvas-payload")');
     expect(fixture).toContain(
-      "canvases.write(canvasName, fixtureCanvas.right)",
+      "canvases.write(canvasName, fixtureCanvas.success)",
     );
     expect(fixture).toContain("canvases.liveDocuments()");
   });

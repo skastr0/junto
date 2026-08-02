@@ -54,8 +54,8 @@ describe("HarnessId is closed at the document seam", () => {
       edges: [],
     });
     expect(decoded._tag).toBe("Right");
-    if (decoded._tag !== "Right") return;
-    const node = decoded.right.nodes[0]!;
+    if (decoded._tag !== "Success") return;
+    const node = decoded.success.nodes[0]!;
     expect(node.ether?.entity?.kind).toBe("agent");
     // Not a deliverable seat: the narrowing decides that, not the decoder.
     expect(actorDeliverySurfaceOf(node)).toBeUndefined();

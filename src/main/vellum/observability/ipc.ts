@@ -52,7 +52,7 @@ export const registerObservabilityIpc = (
       }
       // Soft-fail: never throw — IPC handler errors hit console → ring spam.
       const decoded = decodeQuery(stripUndefinedKeys(raw));
-      if (decoded._tag === "Left") {
+      if (decoded._tag === "Failure") {
         return observabilityRing.query();
       }
       return observabilityRing.query(decoded.success);

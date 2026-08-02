@@ -283,8 +283,8 @@ describe("canvas control", () => {
     );
 
     expect(response._tag).toBe("Right");
-    if (response._tag === "Success" && !response.right.ok) {
-      expect(response.right.error.code).toBe("ProtocolError");
+    if (response._tag === "Success" && !response.success.ok) {
+      expect(response.success.error.code).toBe("ProtocolError");
     }
     await expect(
       Effect.runPromise(listCanvasesThroughControl({ controlHome })),
@@ -304,9 +304,9 @@ describe("canvas control", () => {
     );
     expect(oversized._tag).toBe("Right");
     if (oversized._tag === "Success") {
-      expect(oversized.right.ok).toBe(false);
-      if (!oversized.right.ok) {
-        expect(oversized.right.error.code).toBe("ProtocolError");
+      expect(oversized.success.ok).toBe(false);
+      if (!oversized.success.ok) {
+        expect(oversized.success.error.code).toBe("ProtocolError");
       }
     }
 
@@ -318,8 +318,8 @@ describe("canvas control", () => {
     });
     const multiple = await rawCall(server.socketPath, `${valid}${valid}`);
     expect(multiple._tag).toBe("Right");
-    if (multiple._tag === "Success" && !multiple.right.ok) {
-      expect(multiple.right.error.code).toBe("ProtocolError");
+    if (multiple._tag === "Success" && !multiple.success.ok) {
+      expect(multiple.success.error.code).toBe("ProtocolError");
     }
 
     const response = await Effect.runPromise(
@@ -327,7 +327,7 @@ describe("canvas control", () => {
     );
     expect(response._tag).toBe("Left");
     if (response._tag === "Failure") {
-      expect(response.left.code).toBe("ResponseTooLarge");
+      expect(response.failure.code).toBe("ResponseTooLarge");
     }
   });
 
@@ -341,8 +341,8 @@ describe("canvas control", () => {
     );
     expect(local._tag).toBe("Left");
     if (local._tag === "Failure") {
-      expect(local.left.code).toBe("InputError");
-      expect(local.left.message).toContain("invalid canvas name");
+      expect(local.failure.code).toBe("InputError");
+      expect(local.failure.message).toContain("invalid canvas name");
     }
 
     const { server } = await start({});
@@ -357,8 +357,8 @@ describe("canvas control", () => {
       }),
     );
     expect(excessEnvelope._tag).toBe("Right");
-    if (excessEnvelope._tag === "Success" && !excessEnvelope.right.ok) {
-      expect(excessEnvelope.right.error.code).toBe("ProtocolError");
+    if (excessEnvelope._tag === "Success" && !excessEnvelope.success.ok) {
+      expect(excessEnvelope.success.error.code).toBe("ProtocolError");
     }
 
     const excessArgs = await rawCall(
@@ -371,8 +371,8 @@ describe("canvas control", () => {
       }),
     );
     expect(excessArgs._tag).toBe("Right");
-    if (excessArgs._tag === "Success" && !excessArgs.right.ok) {
-      expect(excessArgs.right.error.code).toBe("InputError");
+    if (excessArgs._tag === "Success" && !excessArgs.success.ok) {
+      expect(excessArgs.success.error.code).toBe("InputError");
     }
   });
 

@@ -203,7 +203,7 @@ describe("darwinLiveWorkRefusalResult", () => {
 describe("Darwin deployment first-install boundary", () => {
   it("admits exact package absence without touching terminal-route maintenance", async () => {
     const acquire = vi.fn(() =>
-      Effect.dieMessage("first install must not acquire terminal maintenance"),
+      Effect.die(new Error("first install must not acquire terminal maintenance")),
     );
     const { provider, streamArtifact } = providerWith({ acquire });
     const run = vi
@@ -315,7 +315,7 @@ describe("Darwin deployment first-install boundary", () => {
     ],
   ])("fails before mutation when the package probe reports %s", async (_label, error) => {
     const acquire = vi.fn(() =>
-      Effect.dieMessage("ambiguous probe must not acquire maintenance"),
+      Effect.die(new Error("ambiguous probe must not acquire maintenance")),
     );
     const { provider, streamArtifact } = providerWith({ acquire });
     const run = vi

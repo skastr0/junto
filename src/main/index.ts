@@ -905,7 +905,7 @@ const createWindow = () => {
   };
   const surfaceReadiness = createRendererSurfaceReadiness({
     timeoutMs: RENDERER_SURFACE_READY_TIMEOUT_MS,
-    onTimeout: (phase) => {
+    orElse: (phase) => {
       console.error(`[window] trusted renderer ${phase} did not complete before the readiness deadline`);
       clearRendererTrust();
       recoverRendererSurface(mainWindow, phase);

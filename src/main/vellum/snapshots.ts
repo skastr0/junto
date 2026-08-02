@@ -200,6 +200,6 @@ export const makeSnapshotsLive = (
   });
 });
 
-export const SnapshotsLive = Layer.unwrapEffect(
+export const SnapshotsLive = Layer.unwrap(
   Effect.map(HermesPlane, (plane) => makeSnapshotsLive(plane.fetchBundle)),
 );
