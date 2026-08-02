@@ -11,7 +11,6 @@ import { isManagedSeatRuntimeLocal } from "../src/main/vellum/term/ensure-manage
 import {
   activeActorRegistry,
   actorSeatSelectableNow,
-  managedTaskCompactionDeliveryId,
   managedTaskDeliveryId,
 } from "../src/main/vellum/kernel/service";
 
@@ -152,17 +151,6 @@ describe("kernel actor and delivery identity", () => {
     expect(managedTaskDeliveryId(sink, "task-1", seatId, "message-1")).toBe(delivery);
     expect(managedTaskDeliveryId(sink, "task-2", seatId, "message-1")).not.toBe(delivery);
     expect(managedTaskDeliveryId(sink, "task-1", seatId, "message-2")).not.toBe(delivery);
-    const compaction = managedTaskCompactionDeliveryId(
-      sink,
-      "task-1",
-      seatId,
-      "message-1",
-    );
-    expect(compaction).toMatch(/^delivery_[a-f0-9]{64}$/u);
-    expect(compaction).not.toBe(delivery);
-    expect(managedTaskCompactionDeliveryId(sink, "task-1", seatId, "message-1")).toBe(
-      compaction,
-    );
   });
 
   it("selects a local actor only after its managed seat is ready to receive work", async () => {

@@ -31,10 +31,9 @@ import {
   DEFAULT_STATION_HOST_ID,
   type StationRole,
 } from "@shared/station";
+import { buildFactoryClaimPrompt } from "@shared/factory-claim-prompt";
 import {
   claimedByOf,
-  taskBrief,
-  taskMediaParts,
   taskReleaseBoundary,
 } from "@shared/task";
 import type { Task } from "@shared/work-model";
@@ -454,26 +453,9 @@ export const managedTaskDeliveryId = (
     )
     .digest("hex")}`;
 
-/** Stable receipt for the session compaction that precedes one task prompt. */
-export const managedTaskCompactionDeliveryId = (
-  sink: SinkRef,
-  taskId: string,
-  actorSeatId: ActorSeatId,
-  claimBoundaryMessageId: string,
-): string =>
-  `delivery_${createHash("sha256")
-    .update(
-      JSON.stringify([
-        "vellum/managed-task-compaction/v1",
-        sink.canvasName,
-        sink.nodeId,
-        taskId,
-        actorSeatId,
-        claimBoundaryMessageId,
-      ]),
-      "utf8",
-    )
-    .digest("hex")}`;
+// Claim delivery never gates on a prior `/compact` harness turn. Optional
+// post-complete compaction is a separate product surface if reintroduced —
+// not a claim-path receipt (see buildFactoryClaimPrompt + factory physics test).
 
 const makeKernelService = (
   canvases: CanvasesShape,
@@ -1004,12 +986,6 @@ const makeKernelService = (
           const sinkRef = { canvasName, nodeId: sink.id } satisfies SinkRef;
           const claimBoundaryMessageId =
             task.history.at(-1)?.messageId ?? task.id;
-          const compactionDeliveryId = managedTaskCompactionDeliveryId(
-            sinkRef,
-            task.id,
-            actorSeatId,
-            claimBoundaryMessageId,
-          );
           const deliveryId = managedTaskDeliveryId(
             sinkRef,
             task.id,
@@ -1025,107 +1001,15 @@ const makeKernelService = (
           }
           if (!generationIsActive(generation)) return;
           ensureManagedSeatRunning(canvasName, doc, actor, authority);
-          if (
-            !await runPromise(
-              workRepository.hasAcceptedDelivery(
-                sinkRef,
-                compactionDeliveryId,
-              ),
-            )
-          ) {
-            // A task boundary gets its own harness turn. Never concatenate
-            // `/compact` with the claim brief: slash commands are interpreted
-            // only as standalone prompts, and the seat must become idle again
-            // before the next durable delivery is admitted.
-            const compacted = await managedPulseDeliver(
-              surface.bindingId,
-              "/compact",
-            );
-            if (!compacted) continue;
-            const intentWitness = await runPromise(
-              canvases.activeIntentWitness(),
-            );
-            const basis = Schema.decodeUnknownSync(IntentFactBasis)({
-              kind:
-                scope.role === "command-center"
-                  ? "authorial-intent"
-                  : "projected-intent",
-              generation: intentWitness.generation,
-              contentSha256: intentWitness.contentSha256,
-            });
-            await runPromise(
-              workRepository.acceptDelivery({
-                sink: sinkRef,
-                basis,
-                receipt: {
-                  deliveryId: compactionDeliveryId,
-                  deliveredItem: {
-                    kind: "task",
-                    itemId: task.id,
-                    sink: sinkRef,
-                  },
-                  actor: actorRef,
-                  acceptedAt: new Date().toISOString(),
-                },
-              }),
-            );
-            continue;
-          }
-          // Final prompt-send admission. If suspension occurs while the
-          // transport is accepting this already-admitted prompt, its receipt
-          // is still allowed to settle below.
+          // Claim brief only — never a prior `/compact` gate. Compact is not
+          // part of claim delivery; the seat receives one complete CLI packet.
           if (!generationIsActive(generation)) return;
-          const media = taskMediaParts(task);
-          const mediaNote =
-            media.length === 0
-              ? []
-              : [
-                  "",
-                  `This task includes ${media.length} first-class media attachment${media.length === 1 ? "" : "s"} (${media.map((part) => part.mediaType ?? "raw").join(", ")}) on history[0] as raw parts.`,
-                  "Inspect them via `vellum tasks list` (bytesBase64 + mediaType travel with the projected claim — no host path).",
-                ];
-          const criteria = task.finishCriteria;
-          const criteriaNote =
-            criteria === undefined
-              ? []
-              : [
-                  "",
-                  "Finish criteria (hard gate on complete):",
-                  ...(criteria.description
-                    ? [`- description: ${criteria.description}`]
-                    : []),
-                  ...(criteria.artifacts
-                    ? [
-                        `- artifacts required on node "${criteria.artifacts.nodeId}"` +
-                          (criteria.artifacts.instruction
-                            ? ` — ${criteria.artifacts.instruction}`
-                            : "") +
-                          (criteria.artifacts.names &&
-                          criteria.artifacts.names.length > 0
-                            ? ` (exact names: ${criteria.artifacts.names.join(", ")})`
-                            : ""),
-                        "  Publish with task linkage, then complete with completionEvidence.artifacts: [{ artifactId, nodeId }].",
-                      ]
-                    : []),
-                  ...(criteria.git
-                    ? [
-                        `- git: at least ${criteria.git.minCommits} commit(s)`,
-                        '  Complete with completionEvidence.git.commits: ["<sha>", ...].',
-                      ]
-                    : []),
-                  "Full task JSON (incl. finishCriteria) is on `vellum tasks list`.",
-                ];
           const accepted = await managedPulseDeliver(
             surface.bindingId,
-            [
-              `[factory claim] task ${task.id}: ${taskBrief(task)}`,
-              "",
-              "You claimed this task from the factory pull queue.",
-              "Run `vellum onboard`, do the work, and update it with `vellum tasks update`.",
-              "If blocked on a human, use `vellum escalate`.",
-              ...mediaNote,
-              ...criteriaNote,
-            ].join("\n"),
+            buildFactoryClaimPrompt({
+              sinkNodeId: sink.id,
+              task,
+            }),
           );
           if (!accepted) continue;
 

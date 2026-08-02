@@ -98,6 +98,26 @@ describe("factory physics architecture", () => {
     expect(violations).toEqual([]);
   });
 
+  it("delivers factory claims directly without mutating the agent session first", () => {
+    // Claim path must not gate on `/compact` (PTY-Factory A). Compact is not a
+    // claim receipt; agents get one complete CLI packet on working delivery.
+    const kernel = readFileSync(
+      join(root, "src", "main", "vellum", "kernel", "service.ts"),
+      "utf8",
+    );
+    const claimPrompt = readFileSync(
+      join(root, "src", "shared", "factory-claim-prompt.ts"),
+      "utf8",
+    );
+    expect(kernel).toContain("buildFactoryClaimPrompt");
+    expect(kernel).not.toContain('"/compact"');
+    expect(kernel).not.toContain("managedTaskCompactionDeliveryId");
+    expect(claimPrompt).toContain("[factory claim]");
+    expect(claimPrompt).toContain("vellum tasks list");
+    expect(claimPrompt).toContain("vellum tasks update");
+    expect(claimPrompt).not.toContain('"/compact"');
+  });
+
   it("permits geography to DISPLAY agent state — display is not a factory power", () => {
     // Operator ruling, 2026-07-26: a herdr pane keeps its live badge after
     // becoming geography. This test exists so the permission is deliberate
