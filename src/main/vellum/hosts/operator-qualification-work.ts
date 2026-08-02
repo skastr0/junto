@@ -91,6 +91,8 @@ const qualificationMarker = (
   runId: string,
   hostId: HostIdValue,
 ): WorkMetadata => ({
+  // Required on every task create — brief doubles as description for this probe.
+  details: QUALIFICATION_WORK_BRIEF,
   [QUALIFICATION_WORK_MARKER_KEY]: {
     protocol: QUALIFICATION_WORK_PROTOCOL,
     runId,

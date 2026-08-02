@@ -192,9 +192,10 @@ export type TasksListArgs = typeof TasksListArgs.Type;
  * Author a pending proposal for operator review.
  *
  * Same authoring contract as executable task creation (`workTaskCreate` /
- * `workTaskPropose`): brief + optional reason/metadata/media/dependsOn/
- * finishCriteria. Only approval mints a submitted Task; proposal-only fields
- * (`proposedBy`, `approvedTaskId`, proposal state) are server-owned.
+ * `workTaskPropose`): brief + required description (`metadata.details`) +
+ * optional reason/media/dependsOn/finishCriteria. Only approval mints a
+ * submitted Task; proposal-only fields (`proposedBy`, `approvedTaskId`,
+ * proposal state) are server-owned.
  */
 export const TasksCreateArgs = Schema.Struct({
   target: Schema.String,
@@ -211,7 +212,15 @@ export const TasksCreateArgs = Schema.Struct({
   }),
   /** Operator done-definition; carried onto minted Task on approve. */
   finishCriteria: Schema.optionalWith(FinishCriteria, { exact: true }),
-}).annotations({
+}).pipe(
+  Schema.filter((args) => {
+    const details = args.metadata?.details;
+    return (
+      (typeof details === "string" && details.trim().length > 0) ||
+      "description (metadata.details) must be non-empty"
+    );
+  }),
+).annotations({
   parseOptions: { onExcessProperty: "error" },
 });
 export type TasksCreateArgs = typeof TasksCreateArgs.Type;

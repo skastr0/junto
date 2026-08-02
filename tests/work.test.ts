@@ -49,7 +49,7 @@ const ids = (() => {
 const actorRef = (
   digit: string,
   nodeId: string,
-  canvasName = "alpha",
+  canvasName = "alpha"
 ) =>
   Schema.decodeUnknownSync(ActorRef)({
     seatId: `seat_${digit.repeat(64)}`,
@@ -86,7 +86,7 @@ const emptyRequestsNode = (id = "req"): CanvasDoc["nodes"][number] => ({
 
 const agentNode = (
   id = "agent",
-  hostId = "local",
+  hostId = "local"
 ): CanvasDoc["nodes"][number] => ({
   id,
   type: "text",
@@ -118,10 +118,10 @@ describe("work pure transforms", () => {
       "alpha",
       "tasks",
       "add keyboard navigation",
-      { title: "Keyboard navigation" },
+      { title: "Keyboard navigation", details: "Keyboard navigation" },
       ids,
       worker,
-      "accessibility gap",
+      "accessibility gap"
     );
 
     expect(proposed.proposal.state).toBe("pending");
@@ -135,7 +135,7 @@ describe("work pure transforms", () => {
         "tasks",
         proposed.proposal.id,
         worker,
-        ids,
+        ids
       )
     ).toThrow(/not found/);
 
@@ -144,7 +144,7 @@ describe("work pure transforms", () => {
       "alpha",
       "tasks",
       proposed.proposal.id,
-      ids,
+      ids
     );
     expect(approved.proposal.state).toBe("approved");
     expect(approved.proposal.approvedTaskId).toBe(approved.task.id);
@@ -154,21 +154,14 @@ describe("work pure transforms", () => {
       "tasks",
       approved.task.id,
       worker,
-      ids,
+      ids
     );
     expect(claimed.task.state).toBe("working");
   });
 
   it("carries media, dependsOn, and finishCriteria through propose → approve", () => {
     const worker = actorRef("1", "worker-1");
-    const seed = workTaskCreate(
-      { nodes: [emptyTaskNode()], edges: [] },
-      "alpha",
-      "tasks",
-      "prerequisite",
-      undefined,
-      ids,
-    );
+    const seed = workTaskCreate({ nodes: [emptyTaskNode()], edges: [] }, "alpha", "tasks", "prerequisite", { details: "prerequisite" }, ids );
     const media = [
       {
         kind: "raw" as const,
@@ -181,13 +174,13 @@ describe("work pure transforms", () => {
       "alpha",
       "tasks",
       "ship with proof",
-      { title: "Ship with proof" },
+      { title: "Ship with proof", details: "Ship with proof" },
       ids,
       worker,
       undefined,
       media,
       [seed.task.id],
-      { description: "PR green", git: { minCommits: 1 } },
+      { description: "PR green", git: { minCommits: 1 } }
     );
     expect(proposed.proposal.dependsOn).toEqual([seed.task.id]);
     expect(proposed.proposal.finishCriteria).toEqual({
@@ -195,7 +188,7 @@ describe("work pure transforms", () => {
       git: { minCommits: 1 },
     });
     expect(proposed.proposal.brief.parts.some((part) => part.kind === "raw")).toBe(
-      true,
+      true
     );
 
     const approved = workTaskApproveProposal(
@@ -203,7 +196,7 @@ describe("work pure transforms", () => {
       "alpha",
       "tasks",
       proposed.proposal.id,
-      ids,
+      ids
     );
     expect(approved.task.dependsOn).toEqual([seed.task.id]);
     expect(approved.task.finishCriteria).toEqual({
@@ -211,13 +204,43 @@ describe("work pure transforms", () => {
       git: { minCommits: 1 },
     });
     expect(approved.task.history[0]?.parts.some((part) => part.kind === "raw")).toBe(
-      true,
+      true
     );
+  });
+
+  it("rejects create and propose without a non-empty description", () => {
+    const doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
+    expect(() =>
+      workTaskCreate(doc, "alpha", "tasks", "title only", undefined, ids)
+    ).toThrow(/description must be non-empty/);
+    expect(() =>
+      workTaskCreate(doc, "alpha", "tasks", "title only", { details: "   " }, ids)
+    ).toThrow(/description must be non-empty/);
+    expect(() =>
+      workTaskPropose(
+        doc,
+        "alpha",
+        "tasks",
+        "title only",
+        { title: "Title only" },
+        ids,
+        actorRef("1", "worker-1")
+      )
+    ).toThrow(/description must be non-empty/);
+    const created = workTaskCreate(
+      doc,
+      "alpha",
+      "tasks",
+      "title only",
+      { details: "  full context  " },
+      ids
+    );
+    expect(created.task.metadata?.details).toBe("full context");
   });
 
   it("create → claim → transition, with contextId from canvas name", () => {
     let doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
-    const created = workTaskCreate(doc, "alpha", "tasks", "ship docs", undefined, ids);
+    const created = workTaskCreate(doc, "alpha", "tasks", "ship docs", { details: "ship docs" }, ids);
     doc = created.doc;
     expect(created.task.state).toBe("submitted");
     expect(created.task.history[0]?.parts[0]).toEqual({ kind: "text", text: "ship docs" });
@@ -239,7 +262,7 @@ describe("work pure transforms", () => {
       "tasks",
       created.task.id,
       alias,
-      ids,
+      ids
     );
     doc = replayed.doc;
     expect(replayed.task.history).toHaveLength(historyLength);
@@ -253,8 +276,8 @@ describe("work pure transforms", () => {
         "tasks",
         created.task.id,
         actorRef("2", "other-agent"),
-        ids,
-      ),
+        ids
+      )
     ).toThrow(WorkError);
     try {
       workTaskClaim(
@@ -263,7 +286,7 @@ describe("work pure transforms", () => {
         "tasks",
         created.task.id,
         actorRef("2", "other-agent"),
-        ids,
+        ids
       );
     } catch (e) {
       expect(e).toBeInstanceOf(WorkError);
@@ -277,7 +300,7 @@ describe("work pure transforms", () => {
       created.task.id,
       "completed",
       "shipped",
-      ids,
+      ids
     );
     expect(done.task.state).toBe("completed");
     expect(done.task.history.at(-1)?.role).toBe("agent");
@@ -286,7 +309,7 @@ describe("work pure transforms", () => {
 
   it("generic transition cannot turn unclaimed submitted work into attention", () => {
     const doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
-    const created = workTaskCreate(doc, "c", "tasks", "needs answer", undefined, ids);
+    const created = workTaskCreate(doc, "c", "tasks", "needs answer", { details: "needs answer" }, ids);
     for (const state of ["input-required", "auth-required"] as const) {
       expect(() =>
         workTaskTransition(
@@ -296,32 +319,25 @@ describe("work pure transforms", () => {
           created.task.id,
           state,
           undefined,
-          ids,
-        ),
+          ids
+        )
       ).toThrowError(
         expect.objectContaining<Partial<WorkError>>({
           code: "illegal_transition",
-        }),
+        })
       );
     }
   });
 
   it("releases active work back to Queue and clears its claimant atomically", () => {
-    const created = workTaskCreate(
-      { nodes: [emptyTaskNode()], edges: [] },
-      "alpha",
-      "tasks",
-      "release me",
-      undefined,
-      ids,
-    );
+    const created = workTaskCreate({ nodes: [emptyTaskNode()], edges: [] }, "alpha", "tasks", "release me", { details: "release me" }, ids );
     const claimed = workTaskClaim(
       created.doc,
       "alpha",
       "tasks",
       created.task.id,
       actorRef("1", "worker-1"),
-      ids,
+      ids
     );
 
     const released = workTaskTransition(
@@ -331,13 +347,13 @@ describe("work pure transforms", () => {
       created.task.id,
       "submitted",
       undefined,
-      ids,
+      ids
     );
 
     expect(released.task.state).toBe("submitted");
     expect(released.task.claimedBy).toBeUndefined();
     expect(released.task.history).toHaveLength(
-      claimed.task.history.length + 1,
+      claimed.task.history.length + 1
     );
     expect(released.task.history.at(-1)).toMatchObject({
       role: "user",
@@ -350,21 +366,14 @@ describe("work pure transforms", () => {
 
   it("rejects completed work with a QA comment, requeues it, and counts the rejection", () => {
     let doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
-    const created = workTaskCreate(
-      doc,
-      "alpha",
-      "tasks",
-      "prove the release",
-      undefined,
-      ids,
-    );
+    const created = workTaskCreate(doc, "alpha", "tasks", "prove the release", { details: "prove the release" }, ids );
     const claimed = workTaskClaim(
       created.doc,
       "alpha",
       "tasks",
       created.task.id,
       actorRef("1", "worker-1"),
-      ids,
+      ids
     );
     const completed = workTaskTransition(
       claimed.doc,
@@ -373,7 +382,7 @@ describe("work pure transforms", () => {
       created.task.id,
       "completed",
       "shipped",
-      ids,
+      ids
     );
 
     expect(() =>
@@ -384,8 +393,8 @@ describe("work pure transforms", () => {
         created.task.id,
         "submitted",
         undefined,
-        ids,
-      ),
+        ids
+      )
     ).toThrow(/QA rejection comment is required/);
 
     const rejected = workTaskTransition(
@@ -395,7 +404,7 @@ describe("work pure transforms", () => {
       created.task.id,
       "submitted",
       "The proof does not include the release receipt.",
-      ids,
+      ids
     );
     expect(rejected.task.state).toBe("submitted");
     expect(rejected.task.claimedBy).toBeUndefined();
@@ -415,7 +424,7 @@ describe("work pure transforms", () => {
       "tasks",
       created.task.id,
       actorRef("2", "worker-2"),
-      ids,
+      ids
     );
     const completedAgain = workTaskTransition(
       reclaimed.doc,
@@ -424,7 +433,7 @@ describe("work pure transforms", () => {
       created.task.id,
       "completed",
       "updated proof",
-      ids,
+      ids
     );
     const rejectedAgain = workTaskTransition(
       completedAgain.doc,
@@ -433,21 +442,21 @@ describe("work pure transforms", () => {
       created.task.id,
       "submitted",
       "The updated proof still omits the receipt.",
-      ids,
+      ids
     );
     expect(rejectedAgain.task.metadata?.rejectedTimes).toBe(2);
   });
 
   it("respond atomically records one operator message and resolves attention", () => {
     let doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
-    const created = workTaskCreate(doc, "alpha", "tasks", "need direction", undefined, ids);
+    const created = workTaskCreate(doc, "alpha", "tasks", "need direction", { details: "need direction" }, ids);
     const claimed = workTaskClaim(
       created.doc,
       "alpha",
       "tasks",
       created.task.id,
       actorRef("1", "worker-1"),
-      ids,
+      ids
     );
     const waiting = workTaskTransition(
       claimed.doc,
@@ -456,7 +465,7 @@ describe("work pure transforms", () => {
       created.task.id,
       "input-required",
       "need the deployment region",
-      ids,
+      ids
     );
     doc = waiting.doc;
 
@@ -467,7 +476,7 @@ describe("work pure transforms", () => {
       created.task.id,
       "  Deploy to us-east-1.  ",
       "working",
-      ids,
+      ids
     );
 
     expect(responded.task.state).toBe("working");
@@ -484,19 +493,19 @@ describe("work pure transforms", () => {
         created.task.id,
         "another response",
         "working",
-        ids,
-      ),
+        ids
+      )
     ).toThrowError(expect.objectContaining({ code: "illegal_transition" }));
     expect(
       (responded.doc.nodes[0]?.ether?.tasks?.items.find(
-        (task) => task.id === created.task.id,
-      )?.history.length),
+        (task) => task.id === created.task.id
+      )?.history.length)
     ).toBe(responded.task.history.length);
   });
 
   it("describe re-authors the brief in place, keeps later notes, updates mirror text", () => {
     let doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
-    const created = workTaskCreate(doc, "alpha", "tasks", "ship docs", undefined, ids);
+    const created = workTaskCreate(doc, "alpha", "tasks", "ship docs", { details: "ship docs" }, ids);
     doc = created.doc;
     const noted = workTaskClaim(
       doc,
@@ -504,7 +513,7 @@ describe("work pure transforms", () => {
       "tasks",
       created.task.id,
       actorRef("1", "worker-1"),
-      ids,
+      ids
     );
     doc = noted.doc;
 
@@ -522,7 +531,7 @@ describe("work pure transforms", () => {
 
   it("describe rejects empty briefs, terminal states, and unknown ids", () => {
     let doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
-    const created = workTaskCreate(doc, "c", "tasks", "x", undefined, ids);
+    const created = workTaskCreate(doc, "c", "tasks", "x", { details: "x" }, ids);
     doc = created.doc;
 
     expect(() => workTaskDescribe(doc, "c", "tasks", created.task.id, "   ", ids)).toThrow(WorkError);
@@ -541,7 +550,7 @@ describe("work pure transforms", () => {
 
   it("rejects illegal transitions and unknown ids", () => {
     let doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
-    const created = workTaskCreate(doc, "c", "tasks", "x", undefined, ids);
+    const created = workTaskCreate(doc, "c", "tasks", "x", { details: "x" }, ids);
     doc = created.doc;
     expect(() =>
       workTaskTransition(
@@ -551,8 +560,8 @@ describe("work pure transforms", () => {
         created.task.id,
         "working",
         undefined,
-        ids,
-      ),
+        ids
+      )
     ).toThrow(/cannot transition/);
     const completed = workTaskTransition(
       doc,
@@ -561,31 +570,20 @@ describe("work pure transforms", () => {
       created.task.id,
       "completed",
       undefined,
-      ids,
+      ids
     );
     doc = completed.doc;
     expect(() =>
-      workTaskTransition(doc, "c", "tasks", created.task.id, "working", undefined, ids),
+      workTaskTransition(doc, "c", "tasks", created.task.id, "working", undefined, ids)
     ).toThrow(/cannot transition/);
-    expect(() => workTaskCreate(doc, "c", "missing", "x", undefined, ids)).toThrow(
-      /not found/,
+    expect(() => workTaskCreate(doc, "c", "missing", "x", { details: "x" }, ids)).toThrow(
+      /not found/
     );
   });
 
   it("finish criteria gate blocks complete without evidence; skip when off-home", () => {
     const doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
-    const created = workTaskCreate(
-      doc,
-      "c",
-      "tasks",
-      "gated",
-      undefined,
-      ids,
-      undefined,
-      undefined,
-      undefined,
-      { git: { minCommits: 1 } },
-    );
+    const created = workTaskCreate(doc, "c", "tasks", "gated", { details: "gated" }, ids, undefined, undefined, undefined, { git: { minCommits: 1 } } );
     expect(created.task.finishCriteria?.git?.minCommits).toBe(1);
     expect(() =>
       workTaskTransition(
@@ -595,8 +593,8 @@ describe("work pure transforms", () => {
         created.task.id,
         "completed",
         undefined,
-        ids,
-      ),
+        ids
+      )
     ).toThrow(/finish criteria unsatisfied/);
     const skipped = workTaskTransition(
       created.doc,
@@ -607,7 +605,7 @@ describe("work pure transforms", () => {
       undefined,
       ids,
       undefined,
-      { evaluateFinishCriteria: false },
+      { evaluateFinishCriteria: false }
     );
     expect(skipped.task.state).toBe("completed");
     const withEvidence = workTaskTransition(
@@ -618,7 +616,7 @@ describe("work pure transforms", () => {
       "completed",
       undefined,
       ids,
-      { artifacts: [], git: { commits: ["abc"] } },
+      { artifacts: [], git: { commits: ["abc"] } }
     );
     expect(withEvidence.task.completionEvidence?.git?.commits).toEqual(["abc"]);
   });
@@ -632,8 +630,8 @@ describe("work pure transforms", () => {
         "tasks",
         "x",
         { claimedBy: actorRef("1", "worker-1", "c").seatId },
-        ids,
-      ),
+        ids
+      )
     ).toThrow(/metadata\.claimedBy is retired/);
   });
 
@@ -647,7 +645,7 @@ describe("work pure transforms", () => {
       undefined,
       ids,
       actorRef("7", "actor-7", "c"),
-      "signing is gated on the operator's key",
+      "signing is gated on the operator's key"
     );
     expect(raised.task.state).toBe("input-required");
     expect(raised.task.claimedBy).toBe(actorRef("7", "actor-7", "c").seatId);
@@ -656,9 +654,9 @@ describe("work pure transforms", () => {
 
   it("task create records its reason first-class", () => {
     const doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
-    const created = workTaskCreate(doc, "c", "tasks", "port the map", undefined, ids, "fleet epic");
+    const created = workTaskCreate(doc, "c", "tasks", "port the map", { details: "port the map" }, ids, "fleet epic");
     expect(created.task.reason).toBe("fleet epic");
-    const bare = workTaskCreate(doc, "c", "tasks", "port the map", undefined, ids);
+    const bare = workTaskCreate(doc, "c", "tasks", "port the map", { details: "port the map" }, ids);
     expect(bare.task.reason).toBeUndefined();
   });
 
@@ -674,21 +672,21 @@ describe("work pure transforms", () => {
       { title: "screenshot bug", details: "see attached" },
       ids,
       undefined,
-      [{ kind: "raw", bytesBase64: pngBase64, mediaType: "image/png" }],
+      [{ kind: "raw", bytesBase64: pngBase64, mediaType: "image/png" }]
     );
     expect(created.task.history[0]?.parts).toEqual([
       { kind: "text", text: "fix the screenshot bug" },
       { kind: "raw", bytesBase64: pngBase64, mediaType: "image/png" },
     ]);
     expect(() =>
-      workTaskCreate(doc, "c", "tasks", "bad media", undefined, ids, undefined, [
+      workTaskCreate(doc, "c", "tasks", "bad media", { details: "bad media" }, ids, undefined, [
         { kind: "raw", bytesBase64: pngBase64, mediaType: "application/pdf" },
-      ]),
+      ])
     ).toThrow(/mediaType not allowed/);
     expect(() =>
-      workTaskCreate(doc, "c", "tasks", "empty media", undefined, ids, undefined, [
+      workTaskCreate(doc, "c", "tasks", "empty media", { details: "empty media" }, ids, undefined, [
         { kind: "raw", bytesBase64: "", mediaType: "image/png" },
-      ]),
+      ])
     ).toThrow(/empty/);
   });
 
@@ -701,7 +699,7 @@ describe("work pure transforms", () => {
       "need approval",
       { class: "review" },
       ids,
-      actorRef("4", "actor-4", "c"),
+      actorRef("4", "actor-4", "c")
     );
     doc = created.doc;
     expect(created.task.state).toBe("input-required");
@@ -716,7 +714,7 @@ describe("work pure transforms", () => {
       created.task.id,
       "approved",
       "completed",
-      ids,
+      ids
     );
     expect(resolved.task.state).toBe("completed");
     expect(resolved.task.history.at(-1)?.role).toBe("user");
@@ -730,7 +728,7 @@ describe("work pure transforms", () => {
       nodes: [emptyTaskNode(), agentNode()],
       edges: [],
     };
-    const created = workTaskCreate(doc, "c", "tasks", "brief", undefined, ids);
+    const created = workTaskCreate(doc, "c", "tasks", "brief", { details: "brief" }, ids);
     doc = created.doc;
     const msg: Message = {
       messageId: "manual-1",
@@ -779,7 +777,7 @@ describe("work pure transforms", () => {
       ],
       edges: [],
     };
-    const created = workTaskCreate(doc, "canvas-name", "tasks", "inside", undefined, ids);
+    const created = workTaskCreate(doc, "canvas-name", "tasks", "inside", { details: "inside" }, ids);
     expect(created.task.history[0]?.contextId).toBe("forge-lane");
   });
 
@@ -798,14 +796,7 @@ describe("work pure transforms", () => {
       nodes: [emptyTaskNode(), artifactNode],
       edges: [],
     };
-    const created = workTaskCreate(
-      doc,
-      "alpha",
-      "tasks",
-      "ship",
-      undefined,
-      ids,
-    );
+    const created = workTaskCreate(doc, "alpha", "tasks", "ship", { details: "ship" }, ids );
     doc = created.doc;
 
     const artifact = {
@@ -819,7 +810,7 @@ describe("work pure transforms", () => {
     };
 
     expect(() =>
-      workArtifactPublish(doc, "alpha", "artifacts", artifact),
+      workArtifactPublish(doc, "alpha", "artifacts", artifact)
     ).toThrow(/must be claimed/);
 
     const claimed = workTaskClaim(
@@ -828,11 +819,11 @@ describe("work pure transforms", () => {
       "tasks",
       created.task.id,
       actorRef("1", "worker-1"),
-      ids,
+      ids
     );
     doc = claimed.doc;
     expect(
-      workArtifactPublish(doc, "alpha", "artifacts", artifact).artifact.task,
+      workArtifactPublish(doc, "alpha", "artifacts", artifact).artifact.task
     ).toEqual(artifact.task);
 
     expect(() =>
@@ -840,7 +831,7 @@ describe("work pure transforms", () => {
         ...artifact,
         artifactId: "artifact-missing-task",
         task: { ...artifact.task, itemId: "missing" },
-      }),
+      })
     ).toThrow(/not found/);
 
     expect(() =>
@@ -851,7 +842,7 @@ describe("work pure transforms", () => {
           ...artifact.task,
           sink: { ...artifact.task.sink, canvasName: "other" },
         },
-      }),
+      })
     ).toThrow(/artifact canvas/);
   });
 
@@ -915,25 +906,25 @@ const makeWorkRuntime = (databasePath: string) => {
       WorkRepositoryLive,
       StationRepositoryLive,
       StationFleetTargetRepositoryLive,
-      SettingsLive,
+      SettingsLive
     ),
-    stateLive,
+    stateLive
   );
   const canvasesLive = Layer.provideMerge(
     CanvasesLive,
-    repositoriesLive,
+    repositoriesLive
   );
   return ManagedRuntime.make(
     Layer.provideMerge(
       WorkLive,
-      Layer.mergeAll(canvasesLive, StationLivePeerRegistryLive),
-    ),
+      Layer.mergeAll(canvasesLive, StationLivePeerRegistryLive)
+    )
   );
 };
 
 const activeIntentBasis = async (
   runtime: ReturnType<typeof makeWorkRuntime>,
-  kind: IntentFactBasisValue["kind"],
+  kind: IntentFactBasisValue["kind"]
 ): Promise<IntentFactBasisValue> => {
   const canvases = await runtime.runPromise(CanvasesService);
   const witness = await runtime.runPromise(canvases.activeIntentWitness());
@@ -946,7 +937,7 @@ const activeIntentBasis = async (
 };
 
 const workRuntime = makeWorkRuntime(
-  join(mockCanvasesHome, "state", "vellum.db"),
+  join(mockCanvasesHome, "state", "vellum.db")
 );
 let work: Context.Tag.Service<typeof WorkService>;
 let canvases: Context.Tag.Service<typeof CanvasesService>;
@@ -959,7 +950,7 @@ beforeAll(async () => {
       role: "command-center",
       hostId: "local",
       supervisedPreferred: true,
-    }),
+    })
   );
   work = await workRuntime.runPromise(WorkService);
   canvases = await workRuntime.runPromise(CanvasesService);
@@ -978,26 +969,26 @@ describe("WorkService — concurrent ops", () => {
       canvases.write(name, {
         nodes: [emptyTaskNode()],
         edges: [],
-      }),
+      })
     );
     const created = await workRuntime.runPromise(
-      work.workTaskCreate(name, "tasks", "prove the task home"),
+      work.workTaskCreate(name, "tasks", "prove the task home", { details: "prove the task home" })
     );
     expect(created.ok).toBe(true);
     if (!created.ok) return;
 
     const station = await workRuntime.runPromise(StationRepository);
     const localInstallationId = await workRuntime.runPromise(
-      station.installationId,
+      station.installationId
     );
     await expect(
       workRuntime.runPromise(
-        work.workTaskHome(name, "tasks", created.data.id),
-      ),
+        work.workTaskHome(name, "tasks", created.data.id)
+      )
     ).resolves.toBe(localInstallationId);
 
     const missing = await workRuntime.runPromise(
-      work.workTaskHome(name, "tasks", "missing-task").pipe(Effect.either),
+      work.workTaskHome(name, "tasks", "missing-task").pipe(Effect.either)
     );
     expect(missing._tag).toBe("Left");
     if (missing._tag === "Left") {
@@ -1029,19 +1020,19 @@ describe("WorkService — concurrent ops", () => {
           { id: "edge-b", fromNode: "actor-b", toNode: "tasks" },
           { id: "edge-c", fromNode: "actor-c", toNode: "tasks" },
         ],
-      }),
+      })
     );
     const authorialBefore = await workRuntime.runPromise(canvases.read(name));
     const actors = ["actor-a", "actor-b", "actor-c"].map((nodeId) => {
       const actor = authorialBefore.actorRefs.find(
-        (candidate) => candidate.nodeId === nodeId,
+        (candidate) => candidate.nodeId === nodeId
       );
       if (actor === undefined) throw new Error(`missing actor ref for ${nodeId}`);
       return actor;
     });
 
     const created = await workRuntime.runPromise(
-      work.workTaskCreate(name, "tasks", "race me"),
+      work.workTaskCreate(name, "tasks", "race me", { details: "race me" })
     );
     expect(created.ok).toBe(true);
     if (!created.ok) return;
@@ -1052,9 +1043,9 @@ describe("WorkService — concurrent ops", () => {
     const results = await Promise.all(
       actors.map((actor) =>
         workRuntime.runPromise(
-          work.workTaskClaim(name, "tasks", taskId, actor),
+          work.workTaskClaim(name, "tasks", taskId, actor)
         )
-      ),
+      )
     );
 
     const wins = results.filter((r) => r.ok);
@@ -1062,11 +1053,11 @@ describe("WorkService — concurrent ops", () => {
     expect(wins).toHaveLength(1);
     expect(losses).toHaveLength(2);
     expect(
-      losses.every((result) => !result.ok && result.code === "claim_contention"),
+      losses.every((result) => !result.ok && result.code === "claim_contention")
     ).toBe(true);
 
     const snapshot = await workRuntime.runPromise(
-      repository.readSnapshot(name, "tasks"),
+      repository.readSnapshot(name, "tasks")
     );
     const task = snapshot.tasks.items.find((item) => item.id === taskId);
     expect(task?.state).toBe("working");
@@ -1078,8 +1069,8 @@ describe("WorkService — concurrent ops", () => {
         name,
         "tasks",
         taskId,
-        actors.find((actor) => actor.seatId !== task?.claimedBy)!,
-      ),
+        actors.find((actor) => actor.seatId !== task?.claimedBy)!
+      )
     );
     expect(other.ok).toBe(false);
     if (!other.ok) expect(other.code).toBe("claim_contention");
@@ -1088,7 +1079,7 @@ describe("WorkService — concurrent ops", () => {
     expect(authorialAfter.revision).toBe(authorialBefore.revision);
     const authority = await workRuntime.runPromise(canvases.authoritySnapshot());
     expect(
-      authority.documents.get(name)?.nodes[0]?.ether?.tasks,
+      authority.documents.get(name)?.nodes[0]?.ether?.tasks
     ).toBeUndefined();
   });
 
@@ -1109,22 +1100,22 @@ describe("WorkService — concurrent ops", () => {
           },
         ],
         edges: [],
-      }),
+      })
     );
     const missingNode = await workRuntime.runPromise(
-      work.workTaskCreate(name, "nope", "x"),
+      work.workTaskCreate(name, "nope", "x", { details: "x" })
     );
     expect(missingNode.ok).toBe(false);
     if (!missingNode.ok) expect(missingNode.code).toBe("node_not_found");
 
-    const created = await workRuntime.runPromise(work.workTaskCreate(name, "tasks", "t"));
+    const created = await workRuntime.runPromise(work.workTaskCreate(name, "tasks", "t", { details: "t" }));
     expect(created.ok).toBe(true);
     if (!created.ok) return;
     await workRuntime.runPromise(
-      work.workTaskTransition(name, "tasks", created.data.id, "completed"),
+      work.workTaskTransition(name, "tasks", created.data.id, "completed")
     );
     const illegal = await workRuntime.runPromise(
-      work.workTaskTransition(name, "tasks", created.data.id, "working"),
+      work.workTaskTransition(name, "tasks", created.data.id, "working")
     );
     expect(illegal.ok).toBe(false);
     if (!illegal.ok) expect(illegal.code).toBe("illegal_transition");
@@ -1136,22 +1127,22 @@ describe("WorkService — concurrent ops", () => {
       canvases.write(name, {
         nodes: [emptyTaskNode(), agentNode("operator-response-worker")],
         edges: [{ id: "worker-tasks", fromNode: "operator-response-worker", toNode: "tasks" }],
-      }),
+      })
     );
     const created = await workRuntime.runPromise(
-      work.workTaskCreate(name, "tasks", "need a deployment decision"),
+      work.workTaskCreate(name, "tasks", "need a deployment decision", { details: "need a deployment decision" })
     );
     expect(created.ok).toBe(true);
     if (!created.ok) return;
     const taskId = created.data.id;
     const actor = (await workRuntime.runPromise(canvases.read(name))).actorRefs.find(
-      (candidate) => candidate.nodeId === "operator-response-worker",
+      (candidate) => candidate.nodeId === "operator-response-worker"
     );
     if (actor === undefined) throw new Error("missing operator response worker");
     await workRuntime.runPromise(work.workTaskClaim(name, "tasks", taskId, actor));
     const basis = await activeIntentBasis(
       workRuntime,
-      "authorial-intent",
+      "authorial-intent"
     );
     await workRuntime.runPromise(
       repository.transitionTask({
@@ -1159,7 +1150,7 @@ describe("WorkService — concurrent ops", () => {
         taskId,
         state: "input-required",
         basis,
-      }),
+      })
     );
 
     const result = await workRuntime.runPromise(
@@ -1168,8 +1159,8 @@ describe("WorkService — concurrent ops", () => {
         "tasks",
         taskId,
         "Deploy to us-east-1.",
-        "working",
-      ),
+        "working"
+      )
     );
     expect(result).toMatchObject({ ok: true, disposition: "applied" });
     const snapshot = await workRuntime.runPromise(repository.readSnapshot(name, "tasks"));
@@ -1182,7 +1173,7 @@ describe("WorkService — concurrent ops", () => {
     const historyLength = task?.history.length;
 
     const invalid = await workRuntime.runPromise(
-      work.workTaskRespond(name, "tasks", taskId, "not accepted", "working"),
+      work.workTaskRespond(name, "tasks", taskId, "not accepted", "working")
     );
     expect(invalid).toMatchObject({ ok: false, code: "illegal_transition" });
     const afterInvalid = await workRuntime.runPromise(repository.readSnapshot(name, "tasks"));
@@ -1221,11 +1212,11 @@ describe("WorkService — concurrent ops", () => {
           },
           { id: "edge-artifact", fromNode: "sender", toNode: "artifacts" },
         ],
-      }),
+      })
     );
     const authorialBefore = await workRuntime.runPromise(canvases.read(name));
     const actor = authorialBefore.actorRefs.find(
-      (candidate) => candidate.nodeId === "sender",
+      (candidate) => candidate.nodeId === "sender"
     );
     if (actor === undefined) throw new Error("missing actor ref for sender");
 
@@ -1235,8 +1226,8 @@ describe("WorkService — concurrent ops", () => {
         "requests",
         "approve release",
         undefined,
-        actor,
-      ),
+        actor
+      )
     );
     expect(request.ok).toBe(true);
     if (!request.ok) return;
@@ -1246,8 +1237,8 @@ describe("WorkService — concurrent ops", () => {
         "requests",
         request.data.id,
         "approved",
-        "completed",
-      ),
+        "completed"
+      )
     );
     expect(resolved.ok).toBe(true);
 
@@ -1262,8 +1253,8 @@ describe("WorkService — concurrent ops", () => {
         "recipient",
         null,
         inboxMessage,
-        actor,
-      ),
+        actor
+      )
     );
     if (!appended.ok) {
       throw new Error(`${appended.code}: ${appended.message}`);
@@ -1276,24 +1267,24 @@ describe("WorkService — concurrent ops", () => {
       parts: [{ kind: "text", text: "sha256:abc" }],
     };
     const published = await workRuntime.runPromise(
-      work.workArtifactPublish(name, "artifacts", artifact, actor),
+      work.workArtifactPublish(name, "artifacts", artifact, actor)
     );
     expect(published.ok).toBe(true);
 
     const snapshots = await workRuntime.runPromise(
-      repository.snapshotsForCanvas(name),
+      repository.snapshotsForCanvas(name)
     );
     expect(
       snapshots.find((snapshot) => snapshot.nodeId === "requests")?.requests
-        .items[0],
+        .items[0]
     ).toMatchObject({ state: "completed", response: "approved" });
     expect(
       snapshots.find((snapshot) => snapshot.nodeId === "recipient")?.messages
-        .items,
+        .items
     ).toEqual([expect.objectContaining({ messageId: "inbox-lane-1" })]);
     expect(
       snapshots.find((snapshot) => snapshot.nodeId === "artifacts")?.artifacts
-        .items,
+        .items
     ).toEqual([expect.objectContaining({ artifactId: "artifact-lane-1" })]);
 
     const authorialAfter = await workRuntime.runPromise(canvases.read(name));
@@ -1301,8 +1292,8 @@ describe("WorkService — concurrent ops", () => {
     const authority = await workRuntime.runPromise(canvases.authoritySnapshot());
     expect(
       authority.documents.get(name)?.nodes.find(
-        (node) => node.id === "requests",
-      )?.ether?.requests,
+        (node) => node.id === "requests"
+      )?.ether?.requests
     ).toBeUndefined();
   });
 
@@ -1327,15 +1318,15 @@ describe("WorkService — concurrent ops", () => {
             toNode: "requests",
           },
         ],
-      }),
+      })
     );
     const read = await workRuntime.runPromise(canvases.read(name));
     const sender = read.actorRefs.find(
-      (candidate) => candidate.nodeId === "sender",
+      (candidate) => candidate.nodeId === "sender"
     );
     if (sender === undefined) throw new Error("missing sender actor");
     const task = await workRuntime.runPromise(
-      work.workTaskCreate(name, "tasks", "Thread task"),
+      work.workTaskCreate(name, "tasks", "Thread task", { details: "Thread task" })
     );
     const request = await workRuntime.runPromise(
       work.workRequestCreate(
@@ -1343,8 +1334,8 @@ describe("WorkService — concurrent ops", () => {
         "requests",
         "Thread request",
         undefined,
-        sender,
-      ),
+        sender
+      )
     );
     if (!task.ok || !request.ok) {
       throw new Error("failed to seed thread work");
@@ -1361,8 +1352,8 @@ describe("WorkService — concurrent ops", () => {
           parts: [{ kind: "text", text: "Task progress" }],
           taskId: task.data.id,
         },
-        sender,
-      ),
+        sender
+      )
     );
     const requestNote = await workRuntime.runPromise(
       work.workMessageAppend(
@@ -1375,8 +1366,8 @@ describe("WorkService — concurrent ops", () => {
           parts: [{ kind: "text", text: "Request context" }],
           taskId: request.data.id,
         },
-        sender,
-      ),
+        sender
+      )
     );
     expect(taskNote).toMatchObject({ ok: true, disposition: "applied" });
     expect(requestNote).toMatchObject({
@@ -1387,20 +1378,20 @@ describe("WorkService — concurrent ops", () => {
     expect(
       taskNote.doc.nodes
         .find((node) => node.id === "tasks")
-        ?.ether?.tasks?.items[0]?.history.map(({ messageId }) => messageId),
+        ?.ether?.tasks?.items[0]?.history.map(({ messageId }) => messageId)
     ).toContain("service-task-note");
     expect(
       requestNote.doc.nodes
         .find((node) => node.id === "requests")
-        ?.ether?.requests?.items[0]?.history.map(({ messageId }) => messageId),
+        ?.ether?.requests?.items[0]?.history.map(({ messageId }) => messageId)
     ).toContain("service-request-note");
     expect(
       taskNote.doc.nodes.find((node) => node.id === "tasks")?.ether?.messages
-        ?.items ?? [],
+        ?.items ?? []
     ).toEqual([]);
     expect(
       requestNote.doc.nodes.find((node) => node.id === "requests")?.ether
-        ?.messages?.items ?? [],
+        ?.messages?.items ?? []
     ).toEqual([]);
   });
 
@@ -1409,7 +1400,7 @@ describe("WorkService — concurrent ops", () => {
     const remoteHost = remoteHostId("remote-actor");
     const remoteInstallation = installationId("remote-actor-installation");
     const fleetTargets = await workRuntime.runPromise(
-      StationFleetTargetRepository,
+      StationFleetTargetRepository
     );
     await workRuntime.runPromise(
       fleetTargets.bind(
@@ -1417,8 +1408,8 @@ describe("WorkService — concurrent ops", () => {
           hostId: remoteHost,
           stationInstallationId: remoteInstallation,
         },
-        "2026-07-28T00:00:00.000Z",
-      ),
+        "2026-07-28T00:00:00.000Z"
+      )
     );
     await workRuntime.runPromise(
       canvases.write(name, {
@@ -1455,11 +1446,11 @@ describe("WorkService — concurrent ops", () => {
             toNode: "artifacts",
           },
         ],
-      }),
+      })
     );
     const read = await workRuntime.runPromise(canvases.read(name));
     const remoteActor = read.actorRefs.find(
-      (candidate) => candidate.nodeId === "remote-sender",
+      (candidate) => candidate.nodeId === "remote-sender"
     );
     if (remoteActor === undefined) throw new Error("missing Remote actor ref");
 
@@ -1474,8 +1465,8 @@ describe("WorkService — concurrent ops", () => {
             role: "agent",
             parts: [{ kind: "text", text: "forged locally" }],
           },
-          remoteActor,
-        ),
+          remoteActor
+        )
       ),
       workRuntime.runPromise(
         work.workRequestCreate(
@@ -1483,8 +1474,8 @@ describe("WorkService — concurrent ops", () => {
           "requests",
           "forged request",
           undefined,
-          remoteActor,
-        ),
+          remoteActor
+        )
       ),
       workRuntime.runPromise(
         work.workArtifactPublish(
@@ -1494,8 +1485,8 @@ describe("WorkService — concurrent ops", () => {
             artifactId: "cross-home-artifact",
             parts: [{ kind: "text", text: "forged locally" }],
           },
-          remoteActor,
-        ),
+          remoteActor
+        )
       ),
     ]);
 
@@ -1503,34 +1494,34 @@ describe("WorkService — concurrent ops", () => {
       expect(result).toMatchObject({ ok: false, code: "invalid" });
       if (!result.ok) {
         expect(result.message).toContain(
-          "must originate on the installation that owns actor",
+          "must originate on the installation that owns actor"
         );
       }
     }
     const snapshots = await workRuntime.runPromise(
-      repository.snapshotsForCanvas(name),
+      repository.snapshotsForCanvas(name)
     );
     expect(
       snapshots.find((snapshot) => snapshot.nodeId === "recipient")?.messages
-        .items ?? [],
+        .items ?? []
     ).toEqual([]);
     expect(
       snapshots.find((snapshot) => snapshot.nodeId === "requests")?.requests
-        .items ?? [],
+        .items ?? []
     ).toEqual([]);
     expect(
       snapshots.find((snapshot) => snapshot.nodeId === "artifacts")?.artifacts
-        .items ?? [],
+        .items ?? []
     ).toEqual([]);
   });
 
   it("lets a Remote-local actor queue mail and create requests and artifacts offline", async () => {
     const isolatedRoot = join(
       tmpdir(),
-      `vellum-work-remote-mail-${randomUUID()}`,
+      `vellum-work-remote-mail-${randomUUID()}`
     );
     const runtime = makeWorkRuntime(
-      join(isolatedRoot, "state", "vellum.db"),
+      join(isolatedRoot, "state", "vellum.db")
     );
     const commandCenter = installationId("command-center-mail");
     const hostId = stationHostId("studio");
@@ -1547,8 +1538,8 @@ describe("WorkService — concurrent ops", () => {
             stationInstallationId: local,
             stationLabel: "Studio",
             appVersion: "test",
-          }),
-        ),
+          })
+        )
       );
       await runtime.runPromise(
         station.configureRemote(
@@ -1569,8 +1560,8 @@ describe("WorkService — concurrent ops", () => {
               kind: "remote",
               capabilities: ["terminal"],
             },
-          }),
-        ),
+          })
+        )
       );
 
       const canvasName = "remote-mail";
@@ -1616,7 +1607,7 @@ describe("WorkService — concurrent ops", () => {
             } satisfies CanvasDoc,
           ],
         ]),
-        new Map([[hostId, local]]),
+        new Map([[hostId, local]])
       );
       await runtime.runPromise(
         station.installProjection(
@@ -1634,21 +1625,21 @@ describe("WorkService — concurrent ops", () => {
               contentSha256: stationProjectionContentSha256(body),
               createdAt: "2026-07-27T12:00:00.000Z",
             },
-          }),
-        ),
+          })
+        )
       );
 
       const canvases = await runtime.runPromise(CanvasesService);
       const read = await runtime.runPromise(canvases.read(canvasName));
       const sender = read.actorRefs.find(
-        (candidate) => candidate.nodeId === "sender",
+        (candidate) => candidate.nodeId === "sender"
       );
       if (sender === undefined) throw new Error("missing Remote sender actor");
       const remoteWork = await runtime.runPromise(WorkService);
       const remoteRepository = await runtime.runPromise(WorkRepository);
       const basis = await activeIntentBasis(
         runtime,
-        "projected-intent",
+        "projected-intent"
       );
       await runtime.runPromise(
         remoteRepository.createTask({
@@ -1667,7 +1658,7 @@ describe("WorkService — concurrent ops", () => {
             ],
           },
           basis,
-        }),
+        })
       );
       await runtime.runPromise(
         remoteRepository.claimLocalTask({
@@ -1675,7 +1666,7 @@ describe("WorkService — concurrent ops", () => {
           taskId: "remote-operator-response",
           actor: sender,
           basis,
-        }),
+        })
       );
       await runtime.runPromise(
         remoteRepository.transitionTask({
@@ -1683,7 +1674,7 @@ describe("WorkService — concurrent ops", () => {
           taskId: "remote-operator-response",
           state: "input-required",
           basis,
-        }),
+        })
       );
       const deniedResponse = await runtime.runPromise(
         remoteWork.workTaskRespond(
@@ -1691,13 +1682,13 @@ describe("WorkService — concurrent ops", () => {
           "tasks",
           "remote-operator-response",
           "approved",
-          "working",
-        ),
+          "working"
+        )
       );
       expect(deniedResponse).toMatchObject({ ok: false, code: "invalid" });
       expect(
         (await runtime.runPromise(remoteRepository.readSnapshot(canvasName, "tasks")))
-          .tasks.items[0]?.history,
+          .tasks.items[0]?.history
       ).toHaveLength(1);
       const appended = await runtime.runPromise(
         remoteWork.workMessageAppend(
@@ -1709,8 +1700,8 @@ describe("WorkService — concurrent ops", () => {
             role: "user",
             parts: [{ kind: "text", text: "from the station" }],
           },
-          sender,
-        ),
+          sender
+        )
       );
       expect(appended).toMatchObject({
         ok: true,
@@ -1722,8 +1713,8 @@ describe("WorkService — concurrent ops", () => {
           "requests",
           "need operator input",
           undefined,
-          sender,
-        ),
+          sender
+        )
       );
       expect(request).toMatchObject({
         ok: true,
@@ -1737,8 +1728,8 @@ describe("WorkService — concurrent ops", () => {
             artifactId: "remote-artifact-1",
             parts: [{ kind: "text", text: "created while offline" }],
           },
-          sender,
-        ),
+          sender
+        )
       );
       expect(artifact).toMatchObject({
         ok: true,
@@ -1746,7 +1737,7 @@ describe("WorkService — concurrent ops", () => {
       });
 
       const pending = await runtime.runPromise(
-        remoteRepository.pendingCommands,
+        remoteRepository.pendingCommands
       );
       expect(pending).toHaveLength(1);
       expect(pending[0]).toMatchObject({
@@ -1771,11 +1762,11 @@ describe("WorkService — concurrent ops", () => {
         },
       });
       const snapshots = await runtime.runPromise(
-        remoteRepository.snapshotsForCanvas(canvasName),
+        remoteRepository.snapshotsForCanvas(canvasName)
       );
       expect(
         snapshots.find((snapshot) => snapshot.nodeId === "requests")?.requests
-          .items,
+          .items
       ).toEqual([
         expect.objectContaining({
           state: "input-required",
@@ -1784,7 +1775,7 @@ describe("WorkService — concurrent ops", () => {
       ]);
       expect(
         snapshots.find((snapshot) => snapshot.nodeId === "artifacts")?.artifacts
-          .items,
+          .items
       ).toEqual([
         expect.objectContaining({ artifactId: "remote-artifact-1" }),
       ]);

@@ -807,7 +807,10 @@ describe("work control transport", () => {
       args: {
         target: "tasks",
         brief: "add keyboard navigation",
-        metadata: { title: "Keyboard navigation" },
+        metadata: {
+          title: "Keyboard navigation",
+          details: "Cover the task board first.",
+        },
       },
     })) as {
       ok: true;
@@ -862,6 +865,7 @@ describe("work control transport", () => {
       args: {
         target: "tasks",
         brief: "attach a screenshot",
+        metadata: { details: "attach a screenshot" },
         media: [
           {
             kind: "raw",
@@ -915,6 +919,7 @@ describe("work control transport", () => {
       args: {
         target: "tasks",
         brief: "inspect the attached recording",
+        metadata: { details: "inspect the attached recording" },
         media: [
           {
             kind: "raw",

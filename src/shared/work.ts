@@ -271,6 +271,29 @@ const rejectRetiredClaimMetadata = (
   }
 };
 
+/**
+ * Tasks and proposals always carry a non-empty description (`metadata.details`).
+ * Title/brief alone is not enough — create and propose both reject empty/missing
+ * description. Historical rows without details still decode (create-only gate).
+ */
+export const requireTaskDescription = (
+  metadata: WorkMetadata | undefined,
+): string => {
+  const raw = metadata?.details;
+  if (typeof raw !== "string" || raw.trim().length === 0) {
+    throw new WorkError("invalid", "description must be non-empty");
+  }
+  return raw.trim();
+};
+
+/** Normalize metadata so create/propose always persist trimmed details. */
+const withRequiredDescription = (
+  metadata: WorkMetadata | undefined,
+): WorkMetadata => {
+  const details = requireTaskDescription(metadata);
+  return { ...(metadata ?? {}), details };
+};
+
 export type WorkTaskCreateResult = { readonly doc: CanvasDoc; readonly task: Task };
 export type WorkTaskResult = { readonly doc: CanvasDoc; readonly task: Task };
 export type WorkProposalResult = {
@@ -309,6 +332,7 @@ export const workTaskCreate = (
   const trimmed = brief.trim();
   if (!trimmed) throw new WorkError("invalid", "brief must be non-empty");
   rejectRetiredClaimMetadata(metadata);
+  const nextMetadata = withRequiredDescription(metadata);
   const mediaError = validateTaskMediaParts(media);
   if (mediaError) throw new WorkError("invalid", mediaError);
   const taskId = ids.id();
@@ -342,7 +366,7 @@ export const workTaskCreate = (
     id: taskId,
     state: "submitted",
     history: [briefMessage],
-    ...(metadata ? { metadata } : {}),
+    metadata: nextMetadata,
     ...(why ? { reason: why } : {}),
     ...(normalizedDeps ? { dependsOn: normalizedDeps } : {}),
     ...(criteria !== undefined ? { finishCriteria: criteria } : {}),
@@ -413,6 +437,7 @@ export const workTaskPropose = (
   const trimmed = brief.trim();
   if (!trimmed) throw new WorkError("invalid", "brief must be non-empty");
   rejectRetiredClaimMetadata(metadata);
+  const nextMetadata = withRequiredDescription(metadata);
   const mediaError = validateTaskMediaParts(media);
   if (mediaError) throw new WorkError("invalid", mediaError);
   const proposalId = ids.id();
@@ -445,7 +470,7 @@ export const workTaskPropose = (
       ...(media && media.length > 0 ? { extraParts: media } : {}),
     }),
     proposedBy,
-    ...(metadata ? { metadata } : {}),
+    metadata: nextMetadata,
     ...(reason?.trim() ? { reason: reason.trim() } : {}),
     ...(normalizedDeps ? { dependsOn: normalizedDeps } : {}),
     ...(criteria !== undefined ? { finishCriteria: criteria } : {}),
@@ -526,6 +551,46 @@ export const workTaskApproveProposal = (
     doc: withTasks(doc, nodeId, [...items, task], nextProposals),
     proposal,
     task,
+  };
+};
+
+/**
+ * Operator discard of a pending proposal. Terminal on the planning lane —
+ * never mints a task. Rejected proposals drop out of the board's pending view.
+ */
+export const workTaskRejectProposal = (
+  doc: CanvasDoc,
+  nodeId: string,
+  proposalId: string,
+): WorkProposalResult => {
+  const node = requireNode(doc, nodeId);
+  requireSink(node, ["task"]);
+  const items = node.ether?.tasks?.items ?? [];
+  const proposals = node.ether?.tasks?.proposals ?? [];
+  const index = proposals.findIndex((proposal) => proposal.id === proposalId);
+  if (index < 0) {
+    throw new WorkError(
+      "task_not_found",
+      `proposal "${proposalId}" not found`,
+    );
+  }
+  const current = proposals[index]!;
+  if (current.state !== "pending") {
+    throw new WorkError(
+      "illegal_transition",
+      `proposal "${proposalId}" is not pending`,
+    );
+  }
+  const proposal: TaskProposal = {
+    ...current,
+    state: "rejected",
+  };
+  const nextProposals = proposals.map((candidate, proposalIndex) =>
+    proposalIndex === index ? proposal : candidate
+  );
+  return {
+    doc: withTasks(doc, nodeId, items, nextProposals),
+    proposal,
   };
 };
 

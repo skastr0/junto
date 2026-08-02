@@ -90,13 +90,13 @@ export function TaskEnqueueSurface({
     dependsOn: ReadonlyArray<string>,
     finishCriteria: import("@shared/work-model").FinishCriteria | undefined,
   ) => {
-    if (!api || !title.trim()) return;
+    if (!api || !title.trim() || !details.trim()) return;
     setError("");
     setPending(true);
     try {
       const metadata: WorkMetadata = {
         title: title.trim(),
-        ...(details.trim() ? { details: details.trim() } : {}),
+        details: details.trim(),
         ...(role.trim() ? { workRole: role.trim() } : {}),
       };
       if (mode === "proposal") {

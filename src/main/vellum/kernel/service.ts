@@ -663,12 +663,17 @@ const makeKernelService = (
       if (!canAutomateCanvas(canvasName)) {
         return { ok: false, message: "canvas paused or station role unset" };
       }
+      const trimmedBrief = brief.trim();
       const result = await Effect.runPromise(
         work.workTaskCreate(
           canvasName,
           sinkNodeId,
           brief,
-          undefined,
+          {
+            title: trimmedBrief,
+            // Scheduler effects author only a brief; treat it as the required description.
+            details: trimmedBrief,
+          },
           reason ?? "scheduler",
           undefined,
           undefined,

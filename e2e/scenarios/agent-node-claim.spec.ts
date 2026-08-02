@@ -61,7 +61,7 @@ test("an agent node shows the task its seat has claimed", async () => {
       .toBeTruthy();
 
     const created = await page.evaluate(
-      ([name]) => window.vellum!.workTaskCreate(name, "tasks", "Display claim task on the node"),
+      ([name]) => window.vellum!.workTaskCreate(name, "tasks", "Display claim task on the node", { details: "Display claim task on the node" }),
       [canvas] as const,
     );
     expect(created.ok).toBe(true);

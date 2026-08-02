@@ -1031,6 +1031,10 @@ export function TaskCreateDialog({
           onSubmit={(event) => {
             event.preventDefault();
             if (!title.trim()) return;
+            if (!details.trim()) {
+              setFormError("Description is required.");
+              return;
+            }
             setFormError("");
             const parts = mediaPartsFromDrafts(media);
             const validation = validateTaskMediaParts(parts);
@@ -1103,7 +1107,7 @@ export function TaskCreateDialog({
               <label className="task-create-dialog__grow">
                 <FieldCaption
                   label="Description"
-                  help="Context, constraints, expected result, and any proof the worker should return."
+                  help="Required. Context, constraints, expected result, and any proof the worker should return."
                   action={
                     <IconButton
                       type="button"
@@ -1117,10 +1121,15 @@ export function TaskCreateDialog({
                   }
                 />
                 <Textarea
+                  required
                   value={details}
-                  onChange={(event) => setDetails(event.target.value)}
+                  onChange={(event) => {
+                    setDetails(event.target.value);
+                    if (formError && event.target.value.trim()) setFormError("");
+                  }}
                   placeholder="Context, constraints, expected result…"
                   rows={12}
+                  aria-invalid={formError === "Description is required."}
                 />
               </label>
               <label className="task-create-dialog__grow task-create-dialog__grow--secondary">
@@ -2050,13 +2059,13 @@ export function TaskBoard({
     dependsOn: ReadonlyArray<string> = [],
     finishCriteria?: import("@shared/work-model").FinishCriteria,
   ) => {
-    if (!api || !title.trim()) return;
+    if (!api || !title.trim() || !details.trim()) return;
     setError("");
     setCreatingPending(true);
     try {
       const metadata: WorkMetadata = {
         title: title.trim(),
-        ...(details.trim() ? { details: details.trim() } : {}),
+        details: details.trim(),
         ...(role.trim() ? { workRole: role.trim() } : {}),
       };
       const result = await runWorkCanvasMutation(name, () =>
@@ -2094,13 +2103,13 @@ export function TaskBoard({
     dependsOn: ReadonlyArray<string> = [],
     finishCriteria?: import("@shared/work-model").FinishCriteria,
   ) => {
-    if (!api || !title.trim()) return;
+    if (!api || !title.trim() || !details.trim()) return;
     setError("");
     setCreatingPending(true);
     try {
       const metadata: WorkMetadata = {
         title: title.trim(),
-        ...(details.trim() ? { details: details.trim() } : {}),
+        details: details.trim(),
         ...(role.trim() ? { workRole: role.trim() } : {}),
       };
       const result = await runWorkCanvasMutation(name, () =>

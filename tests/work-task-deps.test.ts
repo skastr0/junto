@@ -32,19 +32,9 @@ const baseDoc = (): CanvasDoc => ({
 describe("workTaskCreate/claim dependsOn", () => {
   it("creates free tasks and chains claim readiness", () => {
     let doc = baseDoc();
-    const a = workTaskCreate(doc, "c", "tasks", "spine start", undefined, ids);
+    const a = workTaskCreate(doc, "c", "tasks", "spine start", { details: "spine start" }, ids);
     doc = a.doc;
-    const b = workTaskCreate(
-      doc,
-      "c",
-      "tasks",
-      "spine next",
-      undefined,
-      ids,
-      undefined,
-      undefined,
-      [a.task.id],
-    );
+    const b = workTaskCreate(doc, "c", "tasks", "spine next", { details: "spine next" }, ids, undefined, undefined, [a.task.id] );
     doc = b.doc;
     const items = doc.nodes[0]!.ether!.tasks!.items;
     const byId = taskIndexById(items);
@@ -56,7 +46,7 @@ describe("workTaskCreate/claim dependsOn", () => {
         seatId: seat as never,
         canvasName: "c",
         nodeId: "agent",
-      }, ids),
+      }, ids)
     ).toThrow(WorkError);
 
     // complete a via transition isn't needed — claim a, then mark completed
@@ -66,11 +56,11 @@ describe("workTaskCreate/claim dependsOn", () => {
       "tasks",
       a.task.id,
       { seatId: seat as never, canvasName: "c", nodeId: "agent" },
-      ids,
+      ids
     );
     doc = claimed.doc;
     const completedItems = doc.nodes[0]!.ether!.tasks!.items.map((t) =>
-      t.id === a.task.id ? { ...t, state: "completed" as const, claimedBy: undefined } : t,
+      t.id === a.task.id ? { ...t, state: "completed" as const, claimedBy: undefined } : t
     );
     // manually patch completed (policy tests state machine separately)
     doc = {
@@ -84,7 +74,7 @@ describe("workTaskCreate/claim dependsOn", () => {
                 tasks: { items: completedItems },
               },
             }
-          : n,
+          : n
       ),
     };
     const byId2 = taskIndexById(doc.nodes[0]!.ether!.tasks!.items);
@@ -95,7 +85,7 @@ describe("workTaskCreate/claim dependsOn", () => {
       "tasks",
       b.task.id,
       { seatId: seat as never, canvasName: "c", nodeId: "agent" },
-      ids,
+      ids
     );
     expect(claimedB.task.state).toBe("working");
     expect(claimedB.task.dependsOn).toEqual([a.task.id]);
@@ -104,17 +94,7 @@ describe("workTaskCreate/claim dependsOn", () => {
   it("rejects missing dependsOn at create", () => {
     const doc = baseDoc();
     expect(() =>
-      workTaskCreate(
-        doc,
-        "c",
-        "tasks",
-        "orphan",
-        undefined,
-        ids,
-        undefined,
-        undefined,
-        ["nope"],
-      ),
+      workTaskCreate(doc, "c", "tasks", "orphan", { details: "orphan" }, ids, undefined, undefined, ["nope"] )
     ).toThrow(/missing/);
   });
 });

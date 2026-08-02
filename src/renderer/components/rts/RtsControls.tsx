@@ -221,7 +221,10 @@ const createWorkTask = async (nodeId: string, brief: string): Promise<string> =>
   if (!api?.workTaskCreate || !canvas) return "no canvas is open";
   try {
     const result = await runCanvasAuthoringOperation(async () => {
-      const r = await api.workTaskCreate(canvas, nodeId, brief, { title: brief });
+      const r = await api.workTaskCreate(canvas, nodeId, brief, {
+        title: brief,
+        details: brief,
+      });
       if (r.ok) applyWorkCanvasWrite(canvas, r.doc, r.revision);
       return r;
     });

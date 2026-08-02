@@ -1160,6 +1160,10 @@ describe("Station work authority survives Command Center downtime", () => {
         "factory",
         "shared-tasks",
         "complete this task while Command Center is disconnected",
+        {
+          details:
+            "complete this task while Command Center is disconnected",
+        },
       ),
     );
     expect(created).toMatchObject({

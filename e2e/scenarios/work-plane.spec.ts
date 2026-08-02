@@ -112,7 +112,7 @@ const work = async (page: import("@playwright/test").Page): Promise<WorkApi> => 
   return {
     workTaskCreate: (canvas, nodeId, brief) =>
       page.evaluate(
-        ([c, n, b]) => window.vellum!.workTaskCreate(c, n, b),
+        ([c, n, b]) => window.vellum!.workTaskCreate(c, n, b, { details: b }),
         [canvas, nodeId, brief] as const,
       ),
     workTaskClaim: (canvas, nodeId, taskId, actor) =>

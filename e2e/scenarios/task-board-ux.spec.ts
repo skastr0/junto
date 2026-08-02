@@ -129,7 +129,7 @@ test("task board supports creation, operator responses, layered status, and body
       const api = window.vellum!;
       const canvas = (await api.listCanvases())[0];
       if (!canvas) throw new Error("No canvas available for focus regression");
-      const result = await api.workTaskCreate(canvas.name, "tasks", "Background projection update");
+      const result = await api.workTaskCreate(canvas.name, "tasks", "Background projection update", { details: "Background projection update" });
       if (!result.ok) throw new Error(result.message);
     });
     await expect(board.getByText("Background projection update", { exact: true })).toBeVisible();

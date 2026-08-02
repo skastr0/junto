@@ -22,7 +22,7 @@ const ids = (() => {
 const actorRef = (
   digit: string,
   nodeId: string,
-  canvasName: string,
+  canvasName: string
 ) =>
   Schema.decodeUnknownSync(ActorRef)({
     seatId: `seat_${digit.repeat(64)}`,
@@ -64,14 +64,7 @@ const requestDoc = (): CanvasDoc => ({
 
 describe("work claimant policy", () => {
   it("claims submitted work through ActorRef and stamps only Task.claimedBy", () => {
-    const created = workTaskCreate(
-      taskDoc(),
-      "alpha",
-      "tasks",
-      "ship",
-      undefined,
-      ids,
-    );
+    const created = workTaskCreate(taskDoc(), "alpha", "tasks", "ship", { details: "ship" }, ids );
     const actor = actorRef("1", "worker-a", "alpha");
 
     const claimed = workTaskClaim(
@@ -80,24 +73,18 @@ describe("work claimant policy", () => {
       "tasks",
       created.task.id,
       actor,
-      ids,
+      ids
     );
 
     expect(claimed.task.state).toBe("working");
     expect(claimed.task.claimedBy).toBe(actor.seatId);
-    expect(claimed.task.metadata).toBeUndefined();
+    // Description is required at create; claim must not stamp retired metadata.claimedBy.
+    expect(claimed.task.metadata).toEqual({ details: "ship" });
     expect(claimed.claimedBy).toEqual(actor);
   });
 
   it("keys idempotency and contention on stable ActorSeatId", () => {
-    const created = workTaskCreate(
-      taskDoc(),
-      "alpha",
-      "tasks",
-      "ship",
-      undefined,
-      ids,
-    );
+    const created = workTaskCreate(taskDoc(), "alpha", "tasks", "ship", { details: "ship" }, ids );
     const first = actorRef("1", "worker-a", "alpha");
     const claimed = workTaskClaim(
       created.doc,
@@ -105,7 +92,7 @@ describe("work claimant policy", () => {
       "tasks",
       created.task.id,
       first,
-      ids,
+      ids
     );
     const historyLength = claimed.task.history.length;
     const alias = actorRef("1", "worker-alias", "beta");
@@ -116,7 +103,7 @@ describe("work claimant policy", () => {
       "tasks",
       created.task.id,
       alias,
-      ids,
+      ids
     );
 
     expect(replayed.task.history).toHaveLength(historyLength);
@@ -129,24 +116,17 @@ describe("work claimant policy", () => {
         "tasks",
         created.task.id,
         actorRef("2", "worker-b", "alpha"),
-        ids,
-      ),
+        ids
+      )
     ).toThrowError(
       expect.objectContaining<Partial<WorkError>>({
         code: "claim_contention",
-      }),
+      })
     );
   });
 
   it("reserves the first submitted-to-working transition for claim", () => {
-    const created = workTaskCreate(
-      taskDoc(),
-      "alpha",
-      "tasks",
-      "ship",
-      undefined,
-      ids,
-    );
+    const created = workTaskCreate(taskDoc(), "alpha", "tasks", "ship", { details: "ship" }, ids );
 
     expect(canTransitionTaskState("submitted", "working")).toBe(false);
     for (const state of [
@@ -163,12 +143,12 @@ describe("work claimant policy", () => {
           created.task.id,
           state,
           undefined,
-          ids,
-        ),
+          ids
+        )
       ).toThrowError(
         expect.objectContaining<Partial<WorkError>>({
           code: "illegal_transition",
-        }),
+        })
       );
     }
   });
@@ -181,12 +161,12 @@ describe("work claimant policy", () => {
         "tasks",
         "ship",
         { claimedBy: actorRef("1", "worker-a", "alpha").seatId },
-        ids,
-      ),
+        ids
+      )
     ).toThrowError(
       expect.objectContaining<Partial<WorkError>>({
         code: "invalid",
-      }),
+      })
     );
   });
 
@@ -199,7 +179,7 @@ describe("work claimant policy", () => {
       "need approval",
       { class: "review" },
       ids,
-      actor,
+      actor
     );
 
     expect(raised.task.state).toBe("input-required");

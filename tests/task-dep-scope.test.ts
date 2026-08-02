@@ -105,22 +105,12 @@ describe("dependencyScope", () => {
               ...n,
               ether: { entity: { kind: "task" }, tasks: { items: [] } },
             }
-          : n,
+          : n
       ),
     };
-    const a = workTaskCreate(doc, "factory", "lane-a", "spine", undefined, ids);
+    const a = workTaskCreate(doc, "factory", "lane-a", "spine", { details: "spine" }, ids);
     doc = a.doc;
-    const b = workTaskCreate(
-      doc,
-      "factory",
-      "lane-b",
-      "depends on other lane",
-      undefined,
-      ids,
-      undefined,
-      undefined,
-      [a.task.id],
-    );
+    const b = workTaskCreate(doc, "factory", "lane-b", "depends on other lane", { details: "depends on other lane" }, ids, undefined, undefined, [a.task.id] );
     doc = b.doc;
     expect(b.task.dependsOn).toEqual([a.task.id]);
 
@@ -131,7 +121,7 @@ describe("dependencyScope", () => {
         taskId: "x",
         dependsOn: [a.task.id],
         byId,
-      }),
+      })
     ).toBeUndefined();
 
     // complete a, then b is claim-ready
@@ -142,7 +132,7 @@ describe("dependencyScope", () => {
         const items = (n.ether?.tasks?.items ?? []).map((t) =>
           t.id === a.task.id
             ? { ...t, state: "completed" as const, claimedBy: undefined }
-            : t,
+            : t
         );
         return {
           ...n,
@@ -153,8 +143,8 @@ describe("dependencyScope", () => {
     expect(
       taskIsClaimReady(
         doc.nodes.find((n) => n.id === "lane-b")!.ether!.tasks!.items[0]!,
-        dependencyScopeIndex(doc, "lane-b"),
-      ),
+        dependencyScopeIndex(doc, "lane-b")
+      )
     ).toBe(true);
 
     const claimed = workTaskClaim(
@@ -163,7 +153,7 @@ describe("dependencyScope", () => {
       "lane-b",
       b.task.id,
       { seatId: seat as never, canvasName: "factory", nodeId: "agent" },
-      ids,
+      ids
     );
     expect(claimed.task.state).toBe("working");
   });
@@ -171,30 +161,10 @@ describe("dependencyScope", () => {
   it("rejects cross-region dependsOn as missing", () => {
     const doc = regionDoc();
     expect(() =>
-      workTaskCreate(
-        doc,
-        "factory",
-        "lane-b",
-        "bad",
-        undefined,
-        ids,
-        undefined,
-        undefined,
-        ["c1"],
-      ),
+      workTaskCreate(doc, "factory", "lane-b", "bad", { details: "bad" }, ids, undefined, undefined, ["c1"] )
     ).toThrow(WorkError);
     expect(() =>
-      workTaskCreate(
-        doc,
-        "factory",
-        "lane-b",
-        "bad",
-        undefined,
-        ids,
-        undefined,
-        undefined,
-        ["c1"],
-      ),
+      workTaskCreate(doc, "factory", "lane-b", "bad", { details: "bad" }, ids, undefined, undefined, ["c1"] )
     ).toThrow(/missing/);
   });
 });

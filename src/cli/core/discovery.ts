@@ -143,7 +143,7 @@ export const tasksCreateSchema: CommandSchemaContract = {
   command: "tasks create",
   schema_id: "tasks.create.input/v2",
   description:
-    "Create a proposal on a connected task node for operator review. Same authoring fields as executable tasks (brief, reason, metadata, media, dependsOn, finishCriteria); approval mints a submitted Task.",
+    "Create a proposal on a connected task node for operator review. Same authoring fields as executable tasks (brief, required metadata.details description, reason, media, dependsOn, finishCriteria); approval mints a submitted Task.",
   schema: TasksCreateArgs,
   accepts_batch: true,
   input_modes: inputModes,
@@ -374,12 +374,15 @@ export const allExamples: ReadonlyArray<CommandExample> = [
         description: "graph claimable and media uses ContentRef",
         git: { minCommits: 1 },
       },
-      metadata: { title: "Media migration graph" },
+      metadata: {
+        title: "Media migration graph",
+        details: "Wire ContentRef media and make the graph claimable.",
+      },
     },
     args: [
       "tasks",
       "create",
-      '{"target":"n7","brief":"Ship media migration graph","reason":"needs prior content-ref work complete","dependsOn":["t_prereq"],"finishCriteria":{"description":"graph claimable and media uses ContentRef","git":{"minCommits":1}},"metadata":{"title":"Media migration graph"}}',
+      '{"target":"n7","brief":"Ship media migration graph","reason":"needs prior content-ref work complete","dependsOn":["t_prereq"],"finishCriteria":{"description":"graph claimable and media uses ContentRef","git":{"minCommits":1}},"metadata":{"title":"Media migration graph","details":"Wire ContentRef media and make the graph claimable."}}',
     ],
   },
   {

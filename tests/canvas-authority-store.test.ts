@@ -71,16 +71,16 @@ describe("CanvasesService SQLite authority", () => {
         WorkRepositoryLive,
         StationRepositoryLive,
         StationFleetTargetRepositoryLive,
-        SettingsLive,
+        SettingsLive
       ),
-      makeStateEngineLive(path),
+      makeStateEngineLive(path)
     );
     const canvases = Layer.provideMerge(CanvasesLive, repositories);
     return ManagedRuntime.make(
       Layer.provideMerge(
         WorkLive,
-        Layer.mergeAll(canvases, StationLivePeerRegistryLive),
-      ),
+        Layer.mergeAll(canvases, StationLivePeerRegistryLive)
+      )
     );
   };
   let runtime: ReturnType<typeof makeCanvasRuntime> | undefined;
@@ -125,8 +125,8 @@ describe("CanvasesService SQLite authority", () => {
     expect(gen1.documents.get("alpha")?.nodes[0]).toMatchObject({ text: "one" });
     expect(
       await runtime.runPromise(
-        canvases.readWithIntentWitness("alpha"),
-      ),
+        canvases.readWithIntentWitness("alpha")
+      )
     ).toMatchObject({
       read: { name: "alpha" },
       intentWitness: {
@@ -209,7 +209,7 @@ describe("CanvasesService SQLite authority", () => {
   ] as const)("fails closed when an authority body contains %s", async (
     _case,
     invalidDoc,
-    expectedMessage,
+    expectedMessage
   ) => {
     await installEnv();
     const database = join(stateDir, "vellum.db");
@@ -236,15 +236,15 @@ describe("CanvasesService SQLite authority", () => {
           `UPDATE canvas_generation_documents
            SET body = ?, sha256 = ?
            WHERE generation = '1' AND name = 'work'`,
-          [invalidBody, bodySha256],
+          [invalidBody, bodySha256]
         );
         writer.run(
           `UPDATE canvas_generations
            SET intent_sha256 = ?
            WHERE generation = '1'`,
-          [intentSha256],
+          [intentSha256]
         );
-      }),
+      })
     );
     await runtime.dispose();
     runtime = undefined;
@@ -269,7 +269,7 @@ describe("CanvasesService SQLite authority", () => {
         role: "command-center",
         hostId: "local",
         supervisedPreferred: true,
-      }),
+      })
     );
     const canvases = await runtime.runPromise(CanvasesService);
     const work = await runtime.runPromise(WorkService);
@@ -284,7 +284,7 @@ describe("CanvasesService SQLite authority", () => {
     const changed: string[] = [];
     const unsubscribe = canvases.subscribeChanges((name) => changed.push(name));
     const created = await runtime.runPromise(
-      work.workTaskCreate("work", "sink", "ship the SQLite cutover"),
+      work.workTaskCreate("work", "sink", "ship the SQLite cutover", { details: "ship the SQLite cutover" })
     );
     unsubscribe();
     expect(created).toMatchObject({
@@ -296,19 +296,19 @@ describe("CanvasesService SQLite authority", () => {
     const projected = await runtime.runPromise(canvases.read("work"));
     expect(projected.revision).toBe(projectedBefore.revision);
     expect(BigInt(projected.workRevision)).toBeGreaterThan(
-      BigInt(projectedBefore.workRevision),
+      BigInt(projectedBefore.workRevision)
     );
     expect(projected.doc.nodes[0]?.ether?.tasks?.items).toHaveLength(1);
     expect(projected.doc.nodes[0]).toMatchObject({
       text: "ship the SQLite cutover",
     });
     expect(await runtime.runPromise(canvases.liveAuthorityGeneration())).toBe(
-      "1",
+      "1"
     );
     expect(
       (await runtime.runPromise(canvases.authoritySnapshot())).documents.get(
-        "work",
-      )?.nodes[0]?.ether?.tasks,
+        "work"
+      )?.nodes[0]?.ether?.tasks
     ).toBeUndefined();
   });
 
@@ -337,7 +337,7 @@ describe("CanvasesService SQLite authority", () => {
     expect(snap.generation).toBe("3");
     expect([...snap.documents.keys()]).toEqual(["keep"]);
     await expect(
-      runtime.runPromise(Effect.either(canvases.read("drop"))),
+      runtime.runPromise(Effect.either(canvases.read("drop")))
     ).resolves.toMatchObject({ _tag: "Left" });
   });
 
@@ -351,14 +351,14 @@ describe("CanvasesService SQLite authority", () => {
     await runtime.runPromise(canvases.write("only", doc));
     await runtime.runPromise(canvases.write("only", doc));
     expect(await runtime.runPromise(canvases.liveAuthorityGeneration())).toBe(
-      "1",
+      "1"
     );
     await runtime.runPromise(canvases.remove("only"));
     expect(await runtime.runPromise(canvases.authoritySnapshot())).toMatchObject({
       generation: "2",
     });
     expect(
-      (await runtime.runPromise(canvases.authoritySnapshot())).documents.size,
+      (await runtime.runPromise(canvases.authoritySnapshot())).documents.size
     ).toBe(0);
 
     await runtime.dispose();
@@ -366,7 +366,7 @@ describe("CanvasesService SQLite authority", () => {
     const reloaded = await runtime.runPromise(CanvasesService);
     expect(await runtime.runPromise(reloaded.list)).toEqual([]);
     expect(await runtime.runPromise(reloaded.liveAuthorityGeneration())).toBe(
-      "2",
+      "2"
     );
   });
 });

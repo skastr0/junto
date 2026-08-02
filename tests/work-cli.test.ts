@@ -97,7 +97,10 @@ describe("work CLI json input modes", () => {
               mediaType: "image/png",
             },
           ],
-          metadata: { title: "Media migration graph" },
+          metadata: {
+            title: "Media migration graph",
+            details: "Wire ContentRef media and make the graph claimable.",
+          },
         }),
       ),
     );
@@ -108,13 +111,26 @@ describe("work CLI json input modes", () => {
     });
     expect(created.media).toHaveLength(1);
     expect(created.media?.[0]?.kind).toBe("raw");
+    expect(created.metadata?.details).toBe(
+      "Wire ContentRef media and make the graph claimable.",
+    );
+
+    // missing description rejected
+    await expect(
+      Effect.runPromise(
+        loadJsonInput(
+          TasksCreateArgs,
+          '{"target":"n7","brief":"x","metadata":{"title":"x"}}',
+        ),
+      ),
+    ).rejects.toThrow(/description|details/i);
 
     // excess properties still rejected
     await expect(
       Effect.runPromise(
         loadJsonInput(
           TasksCreateArgs,
-          '{"target":"n7","brief":"x","approvedTaskId":"t1"}',
+          '{"target":"n7","brief":"x","metadata":{"details":"ctx"},"approvedTaskId":"t1"}',
         ),
       ),
     ).rejects.toThrow(/approvedTaskId|unexpected/i);
