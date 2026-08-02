@@ -31,6 +31,10 @@ import { kernel$ } from "../../lib/kernel-view";
 import { executionGraphForImpact } from "../../lib/impact-mode";
 import { dismissPreamble, preambleByNodeId$ } from "../../lib/preamble-state";
 import { focusBlockerCause, resolveBlockerCause } from "../../lib/blocker-cause";
+import {
+  stopNodeGestureUnlessMultiSelect,
+  useShiftMultiSelectDominance,
+} from "../../lib/multi-select-gesture";
 import { Chip, IconButton, ToolbarPill } from "../ui";
 
 const HANDLE_SIDES = [["top", Position.Top], ["right", Position.Right], ["bottom", Position.Bottom], ["left", Position.Left]] as const;
@@ -47,9 +51,6 @@ function PreambleBubble({
   readonly nodeId: string;
   readonly preamble: PreambleEvent;
 }) {
-  const stopNodeGesture = (event: React.PointerEvent | React.MouseEvent) => {
-    event.stopPropagation();
-  };
   return (
     <div
       className="vellum-node__preamble nodrag nopan"
@@ -66,12 +67,12 @@ function PreambleBubble({
         aria-label="Dismiss preamble"
         title="dismiss preamble"
         onPointerDown={(event) => {
+          if (stopNodeGestureUnlessMultiSelect(event, { preventDefault: true })) return;
           event.preventDefault();
-          stopNodeGesture(event);
         }}
         onClick={(event) => {
+          if (stopNodeGestureUnlessMultiSelect(event, { preventDefault: true })) return;
           event.preventDefault();
-          stopNodeGesture(event);
           dismissPreamble(nodeId, preamble.preambleId);
         }}
       >
@@ -104,8 +105,8 @@ function MinimalNodeToolbar({
             aria-label="Edit label"
             title="edit label"
             onPointerDown={(event) => {
+              if (stopNodeGestureUnlessMultiSelect(event, { preventDefault: true })) return;
               event.preventDefault();
-              event.stopPropagation();
               onEdit();
             }}
           >
@@ -118,8 +119,8 @@ function MinimalNodeToolbar({
           aria-label="Delete label"
           title="delete"
           onPointerDown={(event) => {
+            if (stopNodeGestureUnlessMultiSelect(event, { preventDefault: true })) return;
             event.preventDefault();
-            event.stopPropagation();
             deleteNode(nodeId);
           }}
         >
@@ -201,8 +202,8 @@ function NodeActions({
             aria-label="Edit item"
             title="edit item"
             onPointerDown={(event) => {
+              if (stopNodeGestureUnlessMultiSelect(event, { preventDefault: true })) return;
               event.preventDefault();
-              event.stopPropagation();
               onEdit();
             }}
           >
@@ -215,8 +216,8 @@ function NodeActions({
             aria-label="Expand note editor"
             title="expand editor"
             onPointerDown={(event) => {
+              if (stopNodeGestureUnlessMultiSelect(event, { preventDefault: true })) return;
               event.preventDefault();
-              event.stopPropagation();
               onMaximize();
             }}
           >
@@ -233,12 +234,12 @@ function NodeActions({
           data-focused={connectionFocused ? "true" : "false"}
           style={connectionFocused ? { color: HUE.cyan } : undefined}
           onPointerDown={(event) => {
+            if (stopNodeGestureUnlessMultiSelect(event, { preventDefault: true })) return;
             event.preventDefault();
-            event.stopPropagation();
           }}
           onClick={(event) => {
+            if (stopNodeGestureUnlessMultiSelect(event, { preventDefault: true })) return;
             event.preventDefault();
-            event.stopPropagation();
             toggleConnectionFocus(node.id);
           }}
         >
@@ -264,8 +265,8 @@ function NodeActions({
             }
             data-testid="node-toolbar-blocker-cause"
             onPointerDown={(event) => {
+              if (stopNodeGestureUnlessMultiSelect(event, { preventDefault: true })) return;
               event.preventDefault();
-              event.stopPropagation();
               focusBlockerCause(cause);
             }}
           >
@@ -281,8 +282,8 @@ function NodeActions({
             data-testid="node-toolbar-pause"
             data-paused={nodePaused ? "true" : "false"}
             onPointerDown={(event) => {
+              if (stopNodeGestureUnlessMultiSelect(event, { preventDefault: true })) return;
               event.preventDefault();
-              event.stopPropagation();
               void setScopePaused({ kind: "node", id: node.id }, !nodePaused);
             }}
           >
@@ -295,8 +296,8 @@ function NodeActions({
           style={{ color: chromeBlocker ? HUE.crimson : undefined }}
           title={title}
           onPointerDown={(event) => {
+            if (stopNodeGestureUnlessMultiSelect(event, { preventDefault: true })) return;
             event.preventDefault();
-            event.stopPropagation();
             toggleFlag(node.id, "blocker");
           }}
         >
@@ -308,8 +309,8 @@ function NodeActions({
           aria-label="Delete node"
           title="delete node"
           onPointerDown={(event) => {
+            if (stopNodeGestureUnlessMultiSelect(event, { preventDefault: true })) return;
             event.preventDefault();
-            event.stopPropagation();
             deleteNode(node.id);
           }}
         >
@@ -462,6 +463,8 @@ export function NodeShell({
           : primaryFlag === "parked"
             ? `0 0 0 1px ${withAlpha(HUE.violet, 0.14)}, 0 10px 28px rgba(0,0,0,0.18)`
             : "0 10px 28px rgba(0,0,0,0.18)";
+  // Shift+click multi-select dominates all node chrome (labels, open, edit).
+  const multiSelectCapture = useShiftMultiSelectDominance(node.id);
   // Pulse + corner spin for any stoppage chrome (graph blocked, flag, herdr).
   // isBlocker alone used to skip actors blocked only by upstream criteria.
   return (
@@ -474,6 +477,8 @@ export function NodeShell({
       data-seat-attention={liveSeatAttention ? "true" : undefined}
       data-occupancy={occupancyState}
       data-attention={attention === "idle" && liveSeatAttention ? "fire" : attention}
+      onPointerDownCapture={multiSelectCapture.onPointerDownCapture}
+      onClickCapture={multiSelectCapture.onClickCapture}
       style={{
         border: `1px solid ${bare ? border : selected ? withAlpha(isBlocker || shellBlocked ? HUE.crimson : accent, 0.75) : border}`,
         background,
@@ -498,8 +503,8 @@ export function NodeShell({
           aria-label="Edit item"
           title="edit item"
           onPointerDown={(event) => {
+            if (stopNodeGestureUnlessMultiSelect(event, { preventDefault: true })) return;
             event.preventDefault();
-            event.stopPropagation();
             onEdit();
           }}
         >
@@ -512,8 +517,8 @@ export function NodeShell({
           aria-label={openTitle ?? "Open external link"}
           title={openTitle ?? "open external link"}
           onPointerDown={(event) => {
+            if (stopNodeGestureUnlessMultiSelect(event, { preventDefault: true })) return;
             event.preventDefault();
-            event.stopPropagation();
             onOpen();
           }}
         >

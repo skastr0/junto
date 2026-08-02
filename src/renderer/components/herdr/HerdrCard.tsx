@@ -329,8 +329,9 @@ export function HerdrCard({
 
   // Open on press (pointerdown) with an onClick fallback for keyboard. Once the
   // card is selected the press is inert — double-click renames, the ghost
-  // button opens.
+  // button opens. Shift multi-select always wins over open/rename.
   const guardedOpen = (e: SyntheticEvent) => {
+    if ("shiftKey" in e && (e as { shiftKey?: boolean }).shiftKey) return;
     e.stopPropagation();
     if (selected) return;
     timeGuardedOpen();
@@ -399,6 +400,7 @@ export function HerdrCard({
                 onPointerDown={guardedOpen}
                 onClick={guardedOpen}
                 onDoubleClick={(event) => {
+                  if (event.shiftKey) return;
                   if (!selected) return;
                   event.preventDefault();
                   event.stopPropagation();

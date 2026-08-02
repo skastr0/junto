@@ -653,16 +653,19 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
             className="label-surface nopan flex h-full w-full cursor-text items-center overflow-hidden border-0 bg-transparent p-0 text-left font-display"
             style={{ color: labelHue, fontSize: "15px", fontWeight: 650, letterSpacing: "0.02em", lineHeight: 1.25 }}
             onClick={(event) => {
+              if (event.shiftKey) return;
               if (!selected) return;
               event.stopPropagation();
               openInline();
             }}
             onDoubleClick={(event) => {
+              if (event.shiftKey) return;
               event.preventDefault();
               event.stopPropagation();
               openInline();
             }}
             onKeyDown={(event) => {
+              if (event.shiftKey) return;
               if (!selected) return;
               if (event.key === "Enter" || event.key === " ") {
                 event.preventDefault();
@@ -705,6 +708,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
         <div
           className="nopan h-full w-full"
           onDoubleClick={(event) => {
+            if (event.shiftKey) return;
             event.preventDefault();
             event.stopPropagation();
             // herdr / terminal / managed agent: double-click opens the live surface.
@@ -764,16 +768,19 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
           tabIndex={0}
           className="note-surface nopan h-full w-full cursor-text overflow-hidden border-0 bg-transparent p-0 text-left font-mono items-stretch justify-start"
           onClick={(event) => {
+            if (event.shiftKey) return;
             if (!selected) return;
             event.stopPropagation();
             openInline();
           }}
           onDoubleClick={(event) => {
+            if (event.shiftKey) return;
             event.preventDefault();
             event.stopPropagation();
             openInline();
           }}
           onKeyDown={(event) => {
+            if (event.shiftKey) return;
             if (!selected) return;
             if (event.key === "Enter" || event.key === " ") {
               event.preventDefault();

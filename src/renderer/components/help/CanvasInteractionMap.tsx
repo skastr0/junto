@@ -12,7 +12,7 @@ export const CANVAS_HELP_POINTER: ReadonlyArray<HelpMapKeyRow> = [
   { keys: "scroll", action: "pan the field" },
   { keys: "mid-drag", action: "pan the field" },
   { keys: "drag empty", action: "rubber-band multi-select (works inside regions)" },
-  { keys: "⇧ click", action: "add / remove node in selection" },
+  { keys: "⇧ click", action: "multi-select (dominates labels & chrome)" },
   { keys: "multi selection", action: "RTS bar · bulk color/flags · same-kind multi-prompt" },
   { keys: "⌘↵ multi-prompt", action: "send one prompt to all selected agents" },
   { keys: "double-click", action: "add a note at cursor" },

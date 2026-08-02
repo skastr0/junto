@@ -8,6 +8,10 @@ import { deleteNode, renameGroup } from "../../lib/mutations";
 import { resizeNode } from "../../lib/geometry";
 import { state$, toggleConnectionFocus } from "../../lib/state";
 import { accentColor, borderColor, HUE, INK, withAlpha } from "../../lib/theme";
+import {
+  stopNodeGestureUnlessMultiSelect,
+  useShiftMultiSelectDominance,
+} from "../../lib/multi-select-gesture";
 import { RegionPathsModal } from "../RegionPathsModal";
 import { IconButton, ToolbarPill } from "../ui";
 
@@ -30,9 +34,9 @@ function RegionToolbar({
 }) {
   // pointerdown stopPropagation keeps RF from starting a drag; action on click
   // so Enter/Space on focused IconButton still fires (pointerdown-only is keyboard-dead).
-  const stopDrag = (event: React.PointerEvent | React.MouseEvent) => {
-    event.stopPropagation();
-  };
+  // Shift multi-select always wins — do not eat the gesture / run the action.
+  const stopDrag = (event: React.PointerEvent | React.MouseEvent): boolean =>
+    stopNodeGestureUnlessMultiSelect(event);
   // Multi-select: RTS bar owns bulk — suppress floating region pills.
   const multiSelect = use$(() => state$.selectedNodeIds.get().length > 1);
   return <NodeToolbar isVisible={selected && !multiSelect} position={Position.Top} offset={8}>
@@ -42,7 +46,7 @@ function RegionToolbar({
         aria-label="Edit region"
         title="edit region"
         onPointerDown={stopDrag}
-        onClick={(event) => { stopDrag(event); onEdit(); }}
+        onClick={(event) => { if (stopDrag(event)) return; onEdit(); }}
       >
         <Pencil size={14} />
       </IconButton>
@@ -51,7 +55,7 @@ function RegionToolbar({
         aria-label={hasPaths ? "Region folder paths (set)" : "Region folder paths"}
         title={hasPaths ? "folder paths (set)" : "folder paths"}
         onPointerDown={stopDrag}
-        onClick={(event) => { stopDrag(event); onPaths(); }}
+        onClick={(event) => { if (stopDrag(event)) return; onPaths(); }}
       >
         <FolderOpen size={14} />
       </IconButton>
@@ -64,7 +68,7 @@ function RegionToolbar({
         data-focused={connectionFocused ? "true" : "false"}
         style={connectionFocused ? { color: HUE.cyan } : undefined}
         onPointerDown={stopDrag}
-        onClick={(event) => { stopDrag(event); onToggleFocus(); }}
+        onClick={(event) => { if (stopDrag(event)) return; onToggleFocus(); }}
       >
         <Crosshair size={14} />
       </IconButton>
@@ -74,7 +78,7 @@ function RegionToolbar({
         tone="danger"
         title="delete region"
         onPointerDown={stopDrag}
-        onClick={(event) => { stopDrag(event); deleteNode(nodeId); }}
+        onClick={(event) => { if (stopDrag(event)) return; deleteNode(nodeId); }}
       >
         <Trash2 size={14} />
       </IconButton>
@@ -127,6 +131,7 @@ function RegionLabel({
       className="vellum-group__label cursor-text rounded-sm px-2 py-1 text-[10px] uppercase tracking-[0.18em]"
       style={accent ? { color: accent } : undefined}
       onDoubleClick={(event) => {
+        if (event.shiftKey) return;
         event.preventDefault();
         event.stopPropagation();
         onEdit();
@@ -190,6 +195,7 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
   //
   // pointer-events: plate none + chrome auto so rubber-band can start in empty
   // interior without dragging the region (dragHandle lives on the label strip).
+  const multiSelectCapture = useShiftMultiSelectDominance(node.id);
   const plateBorder = selected ? withAlpha(HUE.amber, 0.6) : stroke;
   return <div
     className="vellum-group relative h-full w-full rounded-[14px]"
@@ -222,6 +228,8 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
       className="region-drag-handle absolute left-2 top-2 flex cursor-grab items-center gap-1 active:cursor-grabbing"
       style={{ pointerEvents: "auto" }}
       title="drag region"
+      onPointerDownCapture={multiSelectCapture.onPointerDownCapture}
+      onClickCapture={multiSelectCapture.onClickCapture}
     >
       <RegionLabel label={label} editing={editing} draft={draft} inputRef={inputRef} onDraft={setDraft} onCommit={commit} onCancel={() => setEditing(false)} onEdit={() => setEditing(true)} accent={node.color ? tint : undefined} />
       {node.ether?.region?.hold ? <Lock aria-label="Region holds its contents" size={10} style={{ opacity: 0.5, color: INK, flexShrink: 0 }} /> : null}
