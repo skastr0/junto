@@ -425,6 +425,8 @@ export type WorkOpResult<T> =
       readonly doc: CanvasDoc;
       readonly revision: string;
       readonly disposition: "applied" | "queued";
+      /** Human-readable context for an idempotent or otherwise notable mutation. */
+      readonly message?: string;
     }
   | { readonly ok: false; readonly code: WorkErrorCode; readonly message: string };
 

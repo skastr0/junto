@@ -1199,6 +1199,31 @@ describe("work control transport", () => {
     expect(res.ok).toBe(true);
     expect(res.data.state).toBe("working");
     expect(res.data.claimedBy).toBe(actor.seatId);
+
+    const replay = (await call(server.socketPath, {
+      token: token(),
+      op: "tasks.claim",
+      args: { target: "tasks", task: "t1" },
+    })) as {
+      ok: true;
+      data: {
+        id: string;
+        state: string;
+        claimedBy?: string;
+        disposition: string;
+        message?: string;
+      };
+    };
+    expect(replay).toMatchObject({
+      ok: true,
+      data: {
+        id: "t1",
+        state: "working",
+        claimedBy: actor.seatId,
+        disposition: "applied",
+      },
+    });
+    expect(replay.data.message).toMatch(/already claimed by you/i);
   });
 
   it("publishes exact task provenance through the local control boundary", async () => {

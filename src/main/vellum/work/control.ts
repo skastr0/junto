@@ -364,6 +364,7 @@ const mapWorkCode = (
 type WorkMutationOutcome<T> = {
   readonly value: T;
   readonly disposition: "applied" | "queued";
+  readonly message?: string;
 };
 
 const fromWorkResult = <T>(
@@ -373,6 +374,7 @@ const fromWorkResult = <T>(
     return Either.right({
       value: result.data,
       disposition: result.disposition,
+      ...(result.message === undefined ? {} : { message: result.message }),
     });
   }
   return Either.left(mapWorkCode(result.code, result.message));
@@ -380,9 +382,10 @@ const fromWorkResult = <T>(
 
 const exposeWorkMutation = <T extends object>(
   outcome: WorkMutationOutcome<T>,
-): T & { readonly disposition: "applied" | "queued" } => ({
+): T & { readonly disposition: "applied" | "queued"; readonly message?: string } => ({
   ...outcome.value,
   disposition: outcome.disposition,
+  ...(outcome.message === undefined ? {} : { message: outcome.message }),
 });
 
 const decodeArgs = <A, I>(

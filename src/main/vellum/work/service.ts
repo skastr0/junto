@@ -177,6 +177,7 @@ const toWorkServiceError = (error: unknown): WorkServiceError => {
 type WorkMutationOutcome<T> = {
   readonly value: T;
   readonly disposition: "applied" | "queued";
+  readonly message?: string;
 };
 
 type WorkApplyOk<T> = WorkMutationOutcome<T> & {
@@ -189,12 +190,13 @@ const asResult = <T>(
 ): Effect.Effect<WorkOpResult<T>> =>
   effect.pipe(
     Effect.map(
-      ({ value, doc, revision, disposition }): WorkOpResult<T> => ({
+      ({ value, doc, revision, disposition, message }): WorkOpResult<T> => ({
         ok: true,
         data: value,
         doc,
         revision,
         disposition,
+        ...(message === undefined ? {} : { message }),
       }),
     ),
     Effect.catchAll((error) =>
@@ -1266,6 +1268,45 @@ export const WorkLive = Layer.effect(
                 code: "task_not_found",
                 message: `task "${taskId}" not found`,
               });
+            }
+            if (
+              sourceTask.state === "working" &&
+              sourceTask.claimedBy === actor.seatId
+            ) {
+              return yield* complete(canvas, {
+                value: sourceTask,
+                disposition: "applied",
+                message:
+                  "Task " +
+                  JSON.stringify(taskId) +
+                  " is already claimed by you; continue working on it.",
+              });
+            }
+            if (actorHome !== context.localInstallationId) {
+              const pendingClaims = yield* repository.pendingCommands.pipe(
+                Effect.mapError(toWorkServiceError),
+              );
+              const existingClaim = pendingClaims.some(
+                ({ command, resolution }) =>
+                  resolution === undefined &&
+                  command.operation === "task.claim" &&
+                  command.body.operation === "task.claim" &&
+                  command.item.kind === "task" &&
+                  command.item.sink.canvasName === canvas &&
+                  command.item.sink.nodeId === nodeId &&
+                  command.item.itemId === taskId &&
+                  command.body.actor.seatId === actor.seatId,
+              );
+              if (existingClaim) {
+                return yield* complete(canvas, {
+                  value: sourceTask,
+                  disposition: "queued",
+                  message:
+                    "Task " +
+                    JSON.stringify(taskId) +
+                    " already has your claim queued; continue when it is delivered.",
+                });
+              }
             }
             // Claim-ready gate for every first-claim arm (local + remote reserve).
             // dependsOn may resolve to other task sinks in the same region.
