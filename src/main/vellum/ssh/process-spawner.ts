@@ -1,3 +1,6 @@
+// S7 V4: platform/Command → effect/unstable/process/ChildProcess;
+//   NodeSink/NodeStream → partial Stdio / platform-node shape change on pin.
+//   Map: src/cli/effect-v4-import-map.ts — no rewrite while effect@3.21
 import * as Command from "@effect/platform/Command";
 import * as NodeSink from "@effect/platform-node/NodeSink";
 import * as NodeStream from "@effect/platform-node/NodeStream";

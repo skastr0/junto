@@ -1,3 +1,4 @@
+// S7: @effect/cli → effect/unstable/cli/* on V4 pin (Args→Argument, Options→Flag). Map: ../effect-v4-import-map.ts
 import { Args, Command, Options } from "@effect/cli";
 import { Effect, Option } from "effect";
 import {
