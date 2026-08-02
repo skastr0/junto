@@ -68,6 +68,8 @@ export function ContentMedia({
   const probe = useCallback(async () => {
     setStatus("loading");
     setReason(undefined);
+    const elementBacked =
+      kind === "image" || kind === "audio" || kind === "video";
     try {
       const response = await fetch(url, { method: "HEAD" });
       const headerState = response.headers.get(CONTENT_STATE_HEADER);
@@ -87,13 +89,27 @@ export function ContentMedia({
         setReason(headerReason);
         return;
       }
+      // Explicit non-OK without a known state: still try the media element —
+      // it uses a separate load path and can succeed when fetch is limited.
+      if (elementBacked) {
+        setStatus("ready");
+        setReason(headerReason ?? `HTTP ${response.status}`);
+        return;
+      }
       setStatus("error");
       setReason(headerReason ?? `HTTP ${response.status}`);
     } catch (error) {
+      // Network / CORS / protocol races: element-backed kinds fall through to
+      // <img>/<audio>/<video>, which report failure via onError if real.
+      if (elementBacked) {
+        setStatus("ready");
+        setReason(error instanceof Error ? error.message : "fetch failed");
+        return;
+      }
       setStatus("error");
       setReason(error instanceof Error ? error.message : "fetch failed");
     }
-  }, [url]);
+  }, [url, kind]);
 
   useEffect(() => {
     void probe();

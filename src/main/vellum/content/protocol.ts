@@ -32,12 +32,34 @@ export type ContentOpenResolver = (
 const safeReason = (reason: string): string =>
   reason.replace(/[\u0000-\u001f\u007f]/gu, " ").slice(0, 512);
 
+/**
+ * Content is intentionally loaded by the app renderer, which lives on a
+ * different origin (dev: loopback Vite; packaged: vellum-app://). CORP must
+ * allow cross-origin embedding, and CORS headers must allow fetch HEAD probes
+ * from ContentMedia.
+ */
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+  "Access-Control-Allow-Headers": "Range, Content-Type",
+  "Access-Control-Expose-Headers": [
+    "Accept-Ranges",
+    "Content-Length",
+    "Content-Range",
+    "Content-Type",
+    CONTENT_STATE_HEADER,
+    CONTENT_REASON_HEADER,
+    CONTENT_SHA256_HEADER,
+  ].join(", "),
+  "Cross-Origin-Resource-Policy": "cross-origin",
+} as const;
+
 const baseHeaders = (extra: Record<string, string>): Headers =>
   new Headers({
     "Cache-Control": "no-store",
-    "Cross-Origin-Resource-Policy": "same-origin",
     "Referrer-Policy": "no-referrer",
     "X-Content-Type-Options": "nosniff",
+    ...CORS_HEADERS,
     ...extra,
   });
 
@@ -59,6 +81,15 @@ const stateResponse = (
     }),
   });
 };
+
+const corsPreflightResponse = (): Response =>
+  new Response(null, {
+    status: 204,
+    headers: baseHeaders({
+      "Access-Control-Max-Age": "86400",
+      "Content-Length": "0",
+    }),
+  });
 
 const streamBody = (
   path: string,
@@ -87,7 +118,9 @@ export const CONTENT_PROTOCOL_SCHEME_REGISTRATION = {
     supportFetchAPI: true,
     bypassCSP: false,
     allowServiceWorkers: false,
-    corsEnabled: false,
+    // Renderer (vellum-app / Vite loopback) is a different origin; HEAD probes
+    // and element loads need CORS participation on this scheme.
+    corsEnabled: true,
     stream: true,
     codeCache: false,
     allowExtensions: false,
@@ -102,6 +135,9 @@ export const createContentProtocolHandler = (
   open: ContentOpenResolver,
 ): ((request: Request) => Promise<Response>) => {
   return async (request: Request): Promise<Response> => {
+    if (request.method === "OPTIONS") {
+      return corsPreflightResponse();
+    }
     if (request.method !== "GET" && request.method !== "HEAD") {
       return stateResponse(405, "invalid", "method not allowed", request.method);
     }

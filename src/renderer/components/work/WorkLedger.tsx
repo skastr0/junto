@@ -70,6 +70,9 @@ const textOf = (parts: ReadonlyArray<Part>): string =>
     .join("\n");
 
 const isImagePart = (part: Part): boolean => {
+  if (part.kind === "content" && part.ref.mediaType.startsWith("image/")) {
+    return true;
+  }
   if (part.kind === "url" && part.mediaType?.startsWith("image/")) return true;
   if (part.kind === "raw" && part.mediaType?.startsWith("image/")) return true;
   return part.kind === "url" && /\.(png|jpe?g|gif|webp|svg)(\?|$)/i.test(part.url);

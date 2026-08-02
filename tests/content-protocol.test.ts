@@ -196,4 +196,51 @@ describe("content protocol handler", () => {
     expect(head.headers.get("content-length")).toBe(String(bytes.byteLength));
     expect(await head.text()).toBe("");
   });
+
+  it("advertises CORS and cross-origin CORP so renderer fetch/embed work", async () => {
+    const handler = createContentProtocolHandler(async () => ({
+      state: "verified",
+      path,
+      byteLength: ref.byteLength,
+      mediaType: ref.mediaType,
+    }));
+    const head = await handler(
+      new Request(contentObjectUrl(ref), { method: "HEAD" }),
+    );
+    expect(head.headers.get("access-control-allow-origin")).toBe("*");
+    expect(head.headers.get("access-control-allow-methods")).toMatch(/GET/);
+    expect(head.headers.get("access-control-allow-methods")).toMatch(/HEAD/);
+    expect(head.headers.get("cross-origin-resource-policy")).toBe("cross-origin");
+    expect(head.headers.get("access-control-expose-headers") ?? "").toMatch(
+      /x-vellum-content-state/i,
+    );
+
+    const preflight = await handler(
+      new Request(contentObjectUrl(ref), {
+        method: "OPTIONS",
+        headers: {
+          Origin: "http://localhost:5173",
+          "Access-Control-Request-Method": "HEAD",
+        },
+      }),
+    );
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get("access-control-allow-origin")).toBe("*");
+    expect(preflight.headers.get("access-control-max-age")).toBe("86400");
+  });
+});
+
+describe("content protocol scheme privileges", () => {
+  it("enables CORS for the content scheme (cross-origin renderer)", async () => {
+    const { CONTENT_PROTOCOL_SCHEME_REGISTRATION } = await import(
+      "../src/main/vellum/content/protocol"
+    );
+    expect(CONTENT_PROTOCOL_SCHEME_REGISTRATION.privileges.corsEnabled).toBe(
+      true,
+    );
+    expect(CONTENT_PROTOCOL_SCHEME_REGISTRATION.privileges.supportFetchAPI).toBe(
+      true,
+    );
+    expect(CONTENT_PROTOCOL_SCHEME_REGISTRATION.privileges.stream).toBe(true);
+  });
 });
