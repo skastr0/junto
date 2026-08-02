@@ -31,7 +31,7 @@ import {
 import { useSortable } from "@dnd-kit/react/sortable";
 import type { CanvasDoc, CanvasNode, Part, TaskState, WorkMetadata } from "@shared/canvas";
 import type { WorkOpResult } from "@shared/ipc";
-import { sinkGlance, workRoleOf } from "@shared/attention";
+import { sinkGlance, workRoleOf, workRolesInDoc } from "@shared/attention";
 import {
   canTransitionTaskState,
   claimedByOf,
@@ -41,6 +41,7 @@ import {
   validateTaskMediaParts,
 } from "@shared/task";
 import { ContentMedia } from "./ContentMedia";
+import { dependencyScopeTasks } from "@shared/task-dep-scope";
 import {
   taskDepStatus,
   taskIndexById,
@@ -54,7 +55,6 @@ import { IconButton } from "../ui/IconButton";
 import { Input, Textarea } from "../ui/Field";
 import { OverlayHeader } from "../ui/OverlayHeader";
 import { StatusDot, type StatusTone } from "../ui/StatusDot";
-import { openTaskCreateSurface } from "../../lib/dock-state";
 import { applyWorkCanvasWrite, setNodeWorkRole } from "../../lib/mutations";
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import {
@@ -1158,12 +1158,12 @@ export function TaskCreateDialog({
               <label>
                 <FieldCaption
                   label="Depends on"
-                  help="Hard prerequisite task ids. Empty means free to claim in parallel."
+                  help="Hard prerequisite task ids on this sink or any other task sink in the same region. Empty means free to claim in parallel."
                 />
                 <Input
                   value={dependsOnText}
                   onChange={(event) => setDependsOnText(event.target.value)}
-                  placeholder="task ids…"
+                  placeholder="task ids (same region)…"
                 />
               </label>
 
@@ -1962,6 +1962,8 @@ export function TaskBoard({
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [hideClosed, setHideClosed] = useState(false);
+  const [creating, setCreating] = useState<CreateDialogMode | null>(null);
+  const [creatingPending, setCreatingPending] = useState(false);
   const [roleDraft, setRoleDraft] = useState(workRoleOf(node) ?? "");
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [activeLane, setActiveLane] = useState<LaneId | null>(null);
@@ -2032,6 +2034,101 @@ export function TaskBoard({
     : undefined;
   const selectedIsProposal =
     selectedTask !== undefined && proposalById.has(selectedTask.id);
+  const doc = use$(state$.doc);
+  const knownRoles = useMemo(() => workRolesInDoc(doc), [doc]);
+  /** Region-scoped tasks for dep glance (cross-sink prereqs in the same region). */
+  const scopeTasks = useMemo(
+    () => dependencyScopeTasks(doc, node.id),
+    [doc, node.id],
+  );
+
+  const createTask = async (
+    title: string,
+    details: string,
+    role: string,
+    media: ReadonlyArray<Extract<Part, { kind: "raw" }>>,
+    dependsOn: ReadonlyArray<string> = [],
+    finishCriteria?: import("@shared/work-model").FinishCriteria,
+  ) => {
+    if (!api || !title.trim()) return;
+    setError("");
+    setCreatingPending(true);
+    try {
+      const metadata: WorkMetadata = {
+        title: title.trim(),
+        ...(details.trim() ? { details: details.trim() } : {}),
+        ...(role.trim() ? { workRole: role.trim() } : {}),
+      };
+      const result = await runWorkCanvasMutation(name, () =>
+        api.workTaskCreate(
+          name,
+          node.id,
+          title.trim(),
+          metadata,
+          undefined,
+          media.length > 0 ? media : undefined,
+          dependsOn.length > 0 ? dependsOn : undefined,
+          finishCriteria,
+        ),
+      );
+      if (result === undefined) return;
+      if (!result.ok) {
+        setError(result.message);
+        return;
+      }
+      setAnnouncement(`Created ${title.trim()} in Queue.`);
+      setCreating(null);
+      setSelectedTaskId(result.data.id);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setCreatingPending(false);
+    }
+  };
+
+  const createProposal = async (
+    title: string,
+    details: string,
+    role: string,
+    media: ReadonlyArray<Extract<Part, { kind: "raw" }>>,
+    dependsOn: ReadonlyArray<string> = [],
+    finishCriteria?: import("@shared/work-model").FinishCriteria,
+  ) => {
+    if (!api || !title.trim()) return;
+    setError("");
+    setCreatingPending(true);
+    try {
+      const metadata: WorkMetadata = {
+        title: title.trim(),
+        ...(details.trim() ? { details: details.trim() } : {}),
+        ...(role.trim() ? { workRole: role.trim() } : {}),
+      };
+      const result = await runWorkCanvasMutation(name, () =>
+        api.workTaskPropose(
+          name,
+          node.id,
+          title.trim(),
+          metadata,
+          undefined,
+          media.length > 0 ? media : undefined,
+          dependsOn.length > 0 ? dependsOn : undefined,
+          finishCriteria,
+        ),
+      );
+      if (result === undefined) return;
+      if (!result.ok) {
+        setError(result.message);
+        return;
+      }
+      setAnnouncement(`Proposed ${title.trim()} for planning.`);
+      setCreating(null);
+      setSelectedTaskId(result.data.id);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setCreatingPending(false);
+    }
+  };
 
   const transitionTask = async (
     task: WorkTask,
@@ -2260,7 +2357,7 @@ export function TaskBoard({
               <Button
                 variant="subtle"
                 size="sm"
-                onClick={() => openTaskCreateSurface(node, { mode: "proposal" })}
+                onClick={() => setCreating("proposal")}
               >
                 <Plus size={12} />
                 New proposal
@@ -2268,7 +2365,7 @@ export function TaskBoard({
               <Button
                 variant="primary"
                 size="sm"
-                onClick={() => openTaskCreateSurface(node, { mode: "task" })}
+                onClick={() => setCreating("task")}
                 data-testid="task-board-enqueue"
               >
                 <Plus size={12} />
@@ -2305,6 +2402,32 @@ export function TaskBoard({
           </div>
         ) : null}
 
+        {creating ? (
+          <TaskCreateDialog
+            mode={creating}
+            roles={knownRoles}
+            pending={creatingPending}
+            artifactsNodeId={resolveArtifactsNodeId(node.id, doc)}
+            onClose={() => {
+              if (!creatingPending) setCreating(null);
+            }}
+            onCreate={(title, details, role, media, dependsOn, finishCriteria) => {
+              if (creating === "proposal") {
+                void createProposal(
+                  title,
+                  details,
+                  role,
+                  media,
+                  dependsOn,
+                  finishCriteria,
+                );
+                return;
+              }
+              void createTask(title, details, role, media, dependsOn, finishCriteria);
+            }}
+          />
+        ) : null}
+
         {error ? (
           <div className="task-board-error" role="alert">
             <MessageSquareWarning size={14} />
@@ -2327,7 +2450,7 @@ export function TaskBoard({
                 key={lane.id}
                 lane={lane}
                 tasks={tasksByLane[lane.id]}
-                allTasks={items}
+                allTasks={scopeTasks}
                 searchActive={Boolean(query.trim())}
                 activeLane={activeLane}
                 pendingTaskId={pendingTaskId}
@@ -2336,9 +2459,7 @@ export function TaskBoard({
                 activeActorSeatIds={activeActorSeatIds}
                 proposalById={proposalById}
                 onCreate={() =>
-                  openTaskCreateSurface(node, {
-                    mode: lane.id === "proposal" ? "proposal" : "task",
-                  })
+                  setCreating(lane.id === "proposal" ? "proposal" : "task")
                 }
                 onSelect={setSelectedTaskId}
                 onMove={(task, state) => void transitionTask(task, state)}

@@ -502,7 +502,7 @@ test("capture every surface for design review", async () => {
       taskFlow.getByRole("complementary", { name: "Details for Clarify claim tick rules" }),
     ).toBeVisible();
     await shot(page, "06c-task-flow-details");
-    await taskFlow.getByRole("button", { name: "New task" }).click();
+    await taskFlow.getByRole("button", { name: "Enqueue", exact: true }).click();
     const taskCreator = page.getByRole("dialog", { name: "Create task" });
     await expect(taskCreator).toBeVisible();
     await shot(page, "06d-task-flow-create");

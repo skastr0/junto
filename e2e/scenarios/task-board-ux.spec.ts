@@ -104,8 +104,20 @@ test("task board supports creation, operator responses, layered status, and body
     const board = page.getByRole("dialog", { name: "Task flow" });
     await expect(board).toBeVisible();
 
-    await board.getByRole("button", { name: "New task" }).click();
+    await board.getByRole("button", { name: "Enqueue", exact: true }).click();
     const creator = page.getByRole("dialog", { name: "Create task" });
+    await expect(creator).toBeVisible();
+    const creatorPanel = creator.locator(".focus-surface__panel");
+    await expect(creatorPanel).toBeVisible();
+    const creatorOwnsCenter = await creatorPanel.evaluate((panel) => {
+      const rect = panel.getBoundingClientRect();
+      const top = document.elementFromPoint(
+        rect.left + rect.width / 2,
+        rect.top + rect.height / 2,
+      );
+      return top instanceof Node && panel.contains(top);
+    });
+    expect(creatorOwnsCenter).toBe(true);
     const titleInput = creator.getByPlaceholder("What needs doing?");
     await expect(titleInput).toBeFocused();
     await titleInput.pressSequentially("Audit");
@@ -126,7 +138,7 @@ test("task board supports creation, operator responses, layered status, and body
     await titleInput.pressSequentially(" release authority");
     await creator.getByPlaceholder("e.g. Security Agent").fill("Security Agent");
     await creator
-      .getByPlaceholder(/Describe the context/)
+      .getByPlaceholder(/Context, constraints/)
       .fill("Verify the signing boundary and return the exact proof receipt.");
     await creator.getByRole("button", { name: "Create task", exact: true }).click();
     await expect(creator).toBeHidden();
@@ -223,6 +235,52 @@ test("task board supports creation, operator responses, layered status, and body
     await expect(inputLane.getByText("Working task", { exact: true })).toBeVisible({
       timeout: 10_000,
     });
+  } finally {
+    await vellum.close();
+  }
+});
+
+test("Kanban enqueue opens the normal modal above the task flow", async () => {
+  const fixture = canvasDoc([
+    tasksNode({
+      id: "tasks",
+      x: 80,
+      y: 80,
+      items: [],
+    }),
+  ]);
+  const vellum = await launchVellum();
+
+  try {
+    const { page } = vellum;
+    await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+    await installBoard(page, fixture);
+    const tasksNodeCard = page.locator('.react-flow__node[data-id="tasks"]');
+    await expect(tasksNodeCard).toBeVisible({ timeout: 30_000 });
+    await tasksNodeCard.getByTestId("tasks-card").dispatchEvent("dblclick");
+
+    const board = page.getByRole("dialog", { name: "Task flow" });
+    await expect(board).toBeVisible();
+    await board.getByTestId("task-board-enqueue").click();
+
+    const creator = page.getByRole("dialog", { name: "Create task" });
+    await expect(creator).toBeVisible();
+    await expect(page.getByTestId("task-enqueue-surface")).toHaveCount(0);
+
+    const creatorPanel = creator.locator(".focus-surface__panel");
+    const creatorOwnsCenter = await creatorPanel.evaluate((panel) => {
+      const rect = panel.getBoundingClientRect();
+      const top = document.elementFromPoint(
+        rect.left + rect.width / 2,
+        rect.top + rect.height / 2,
+      );
+      return top instanceof Node && panel.contains(top);
+    });
+    expect(creatorOwnsCenter).toBe(true);
+
+    await creator.getByRole("button", { name: "Close task creator" }).click();
+    await expect(creator).toBeHidden();
+    await expect(board).toBeVisible();
   } finally {
     await vellum.close();
   }
