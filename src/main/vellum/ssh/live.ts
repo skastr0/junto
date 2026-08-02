@@ -1,3 +1,5 @@
+// S7 V4: @effect/platform-node/* stays separate package (lockstep with effect@4).
+// Map + platform/* consolidations: src/cli/effect-v4-import-map.ts
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import { Effect, Layer } from "effect";
 import { resolveVellumHome } from "@shared/vellum-home";

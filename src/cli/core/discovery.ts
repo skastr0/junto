@@ -1,3 +1,4 @@
+// S7: effect/JSONSchema → effect/JsonSchema on V4 pin (see ../effect-v4-import-map.ts)
 import { JSONSchema, Schema } from "effect";
 import {
   CloseRequest,

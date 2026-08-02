@@ -1,5 +1,8 @@
 #!/usr/bin/env bun
 import * as Cause from "effect/Cause";
+// S7 V4 import map (do not rewrite on effect@3.21):
+//   @effect/cli → effect/unstable/cli/*  ·  platform-bun stays separate (lockstep V4)
+//   Full table: ./effect-v4-import-map.ts · Playground/effect/migration/v3-to-v4.md
 import { Command } from "@effect/cli";
 import { BunContext, BunRuntime } from "@effect/platform-bun";
 import { Effect, Layer } from "effect";

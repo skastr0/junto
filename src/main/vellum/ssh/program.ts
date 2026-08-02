@@ -1,3 +1,5 @@
+// S7 V4: @effect/platform/Command → effect/unstable/process/ChildProcess (not @effect/cli)
+// Inventory: src/cli/effect-v4-import-map.ts — no rewrite while product is on effect@3.21
 import * as Command from "@effect/platform/Command";
 import { join } from "node:path";
 import type {
