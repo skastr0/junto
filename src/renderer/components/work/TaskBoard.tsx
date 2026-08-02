@@ -263,7 +263,13 @@ const LANES: ReadonlyArray<LaneDefinition> = [
   },
 ];
 
-const TERMINAL_STATES = new Set<TaskState>(["completed", "canceled", "failed", "rejected"]);
+const TERMINAL_STATES = new Set<TaskState>([
+  "completed",
+  "canceled",
+  "failed",
+  "rejected",
+  "archived",
+]);
 
 export const isTaskClaimantRetired = (
   state: TaskState,
@@ -300,6 +306,8 @@ const stateLabel = (state: TaskState): string => {
       return "Failed";
     case "rejected":
       return "Rejected";
+    case "archived":
+      return "Archived";
   }
 };
 
@@ -307,7 +315,7 @@ const toneForState = (state: TaskState): StatusTone => {
   if (state === "working") return "cyan";
   if (state === "completed") return "green";
   if (state === "failed" || state === "rejected") return "crimson";
-  if (state === "canceled") return "dim";
+  if (state === "canceled" || state === "archived") return "dim";
   return "amber";
 };
 
@@ -556,6 +564,7 @@ function TaskActionsMenu({
       ["failed", "Mark as failed"],
       ["rejected", "Reject task"],
       ["canceled", "Cancel task"],
+      ["archived", "Delete from board"],
     ] as const
   ).filter(([state]) => {
     if (!canTransitionTaskState(task.state, state)) return false;
@@ -1561,6 +1570,7 @@ function TaskDetailPanel({
             ["failed", "Mark as failed"],
             ["rejected", "Reject task"],
             ["canceled", "Cancel task"],
+            ["archived", "Delete from board"],
           ] as const
         ).flatMap(([state, label]) =>
           canTransitionTaskState(task.state, state) &&
@@ -1615,6 +1625,19 @@ function TaskDetailPanel({
               >
                 <XCircle size={12} />
                 Reject proposal
+              </Button>
+            ) : null}
+            {!isProposal && canTransitionTaskState(task.state, "archived") ? (
+              <Button
+                size="xs"
+                variant="danger"
+                disabled={pending}
+                title="Soft-delete: remove this task from the board entirely"
+                data-testid="task-delete-from-board"
+                onClick={() => onMove(task, "archived")}
+              >
+                <XCircle size={12} />
+                Delete from board
               </Button>
             ) : null}
             {!isProposal &&
@@ -1956,13 +1979,14 @@ function TaskDetailPanel({
               <h3>{attentionRequired ? "Other status changes" : "Status"}</h3>
               <p>
                 {task.state === "completed"
-                  ? "Completed work can return to Queue only through the QA review above."
+                  ? "Completed work can return to Queue only through the QA review above, or be deleted from the board entirely."
                   : attentionRequired
                   ? "Use this only when the task should leave the response workflow without resuming."
-                  : "Move this task to another valid stage in its lifecycle."}
+                  : "Move this task to another valid stage, or delete it from the board (soft-archive)."}
               </p>
             </div>
-            {task.state === "completed" ? null : (
+            {task.state === "completed" &&
+            !canTransitionTaskState(task.state, "archived") ? null : (
               <Dropdown
                 value=""
                 options={transitionOptions}
@@ -2205,6 +2229,9 @@ export function TaskBoard({
       }
       if (task.state === "completed" && state === "submitted") {
         setAnnouncement(`Rejected ${taskTitle(task)} and returned it to Queue.`);
+      } else if (state === "archived") {
+        setSelectedTaskId(null);
+        setAnnouncement(`Deleted ${taskTitle(task)} from the board.`);
       } else {
         setAnnouncement(`Moved ${taskTitle(task)} to ${stateLabel(state)}.`);
       }

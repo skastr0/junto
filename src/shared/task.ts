@@ -26,7 +26,15 @@ export const taskBrief = (task: Task): string => {
 
 /** Settled for workers/dragging; completed has the separate QA requeue exit. */
 export const isTerminalTaskState = (state: TaskState): boolean =>
-  state === "completed" || state === "canceled" || state === "failed" || state === "rejected";
+  state === "completed" ||
+  state === "canceled" ||
+  state === "failed" ||
+  state === "rejected" ||
+  state === "archived";
+
+/** Soft-deleted: durable but omitted from board / list projections. */
+export const isArchivedTaskState = (state: TaskState): boolean =>
+  state === "archived";
 
 /** Legal outbound transitions. Completed work has one operator-only QA exit. */
 const LEGAL_TRANSITIONS: Readonly<Record<TaskState, ReadonlySet<TaskState>>> = {
@@ -35,6 +43,7 @@ const LEGAL_TRANSITIONS: Readonly<Record<TaskState, ReadonlySet<TaskState>>> = {
     "canceled",
     "failed",
     "rejected",
+    "archived",
   ]),
   working: new Set([
     "submitted",
@@ -44,6 +53,7 @@ const LEGAL_TRANSITIONS: Readonly<Record<TaskState, ReadonlySet<TaskState>>> = {
     "canceled",
     "failed",
     "rejected",
+    "archived",
   ]),
   "input-required": new Set([
     "submitted",
@@ -52,6 +62,7 @@ const LEGAL_TRANSITIONS: Readonly<Record<TaskState, ReadonlySet<TaskState>>> = {
     "canceled",
     "rejected",
     "failed",
+    "archived",
   ]),
   /**
    * Residual durable value only — no producer may enter this state.
@@ -65,14 +76,17 @@ const LEGAL_TRANSITIONS: Readonly<Record<TaskState, ReadonlySet<TaskState>>> = {
     "rejected",
     "failed",
     "input-required",
+    "archived",
   ]),
   // A completed task can be rejected by QA and returned to the Queue. The
   // work transition policy requires the accompanying review comment and
   // stamps the rejection count before the task becomes claimable again.
-  completed: new Set(["submitted"]),
-  canceled: new Set(),
-  failed: new Set(),
-  rejected: new Set(),
+  // Operators may also archive completed work off the board.
+  completed: new Set(["submitted", "archived"]),
+  canceled: new Set(["archived"]),
+  failed: new Set(["archived"]),
+  rejected: new Set(["archived"]),
+  archived: new Set(),
 };
 
 export const canTransitionTaskState = (from: TaskState, to: TaskState): boolean =>
@@ -141,6 +155,7 @@ export const countByTaskState = (
     failed: 0,
     rejected: 0,
     "auth-required": 0,
+    archived: 0,
   };
   for (const item of items) counts[item.state] += 1;
   return counts;

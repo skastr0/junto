@@ -22,6 +22,7 @@ import {
   WORK_PROPOSAL_PLANNING_STATE_SCHEMA_SQL,
   WORK_STATE_SCHEMA_BOARD_VOCAB_SQL,
   WORK_STATE_SCHEMA_PROPOSAL_REJECT_SQL,
+  WORK_STATE_SCHEMA_TASK_ARCHIVED_SQL,
   WORK_STATE_SCHEMA_SQL,
   WORK_STATE_SCHEMA_V3_SQL,
   WORK_TASK_DEPENDENCIES_STATE_SCHEMA_SQL,
@@ -204,13 +205,26 @@ export const STATE_SCHEMA_V13_FRAGMENTS = [
 export const STATE_SCHEMA_V13_SQL = STATE_SCHEMA_V13_FRAGMENTS.join("\n");
 
 /**
- * Current: v13 + proposal.reject on proposal event operation CHECKs.
+ * Schema at version 14: proposal.reject event vocabulary (pre task.archive).
  * Historical V5–V13 keep create/approve-only proposal event vocabulary.
+ */
+export const STATE_SCHEMA_V14_FRAGMENTS = STATE_SCHEMA_V13_FRAGMENTS.map(
+  (fragment) =>
+    fragment === WORK_STATE_SCHEMA_BOARD_VOCAB_SQL
+      ? WORK_STATE_SCHEMA_PROPOSAL_REJECT_SQL
+      : fragment,
+) as unknown as typeof STATE_SCHEMA_V13_FRAGMENTS;
+
+export const STATE_SCHEMA_V14_SQL = STATE_SCHEMA_V14_FRAGMENTS.join("\n");
+
+/**
+ * Current: v14 + task `archived` soft-delete on work_tasks /
+ * work_task_transitions state CHECKs.
  */
 export const STATE_SCHEMA_FRAGMENTS = STATE_SCHEMA_V13_FRAGMENTS.map(
   (fragment) =>
     fragment === WORK_STATE_SCHEMA_BOARD_VOCAB_SQL
-      ? WORK_STATE_SCHEMA_PROPOSAL_REJECT_SQL
+      ? WORK_STATE_SCHEMA_TASK_ARCHIVED_SQL
       : fragment,
 ) as unknown as typeof STATE_SCHEMA_V13_FRAGMENTS;
 

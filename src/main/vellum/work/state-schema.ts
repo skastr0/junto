@@ -1773,6 +1773,117 @@ export const WORK_STATE_SCHEMA_PROPOSAL_REJECT_SQL =
   );
 
 /**
+ * V14 + task `archived` soft-delete state on work_tasks and
+ * work_task_transitions. Requests lane is unchanged (no board-archive).
+ * Historical V5–V14 keep the pre-archived task state vocabulary.
+ */
+export const WORK_STATE_SCHEMA_TASK_ARCHIVED_SQL =
+  WORK_STATE_SCHEMA_PROPOSAL_REJECT_SQL
+    .replaceAll(
+      `'completed',
+          'canceled',
+          'failed',
+          'rejected'
+        )
+      ),
+    brief_message_id TEXT NOT NULL
+      CHECK (length(brief_message_id) BETWEEN 1 AND 256),
+    artifact_ids_json TEXT
+      CHECK (artifact_ids_json IS NULL OR json_valid(artifact_ids_json)),
+    metadata_json TEXT
+      CHECK (
+        metadata_json IS NULL
+        OR (
+          json_valid(metadata_json)
+          AND json_type(metadata_json, '$.claimedBy') IS NULL
+        )
+      ),
+    reason TEXT,
+    response TEXT,
+    created_at TEXT NOT NULL CHECK (length(created_at) BETWEEN 1 AND 64),
+    updated_at TEXT NOT NULL CHECK (length(updated_at) BETWEEN 1 AND 64),
+    origin_at TEXT NOT NULL CHECK (length(origin_at) BETWEEN 1 AND 64),
+    received_at TEXT NOT NULL CHECK (length(received_at) BETWEEN 1 AND 64),
+    PRIMARY KEY (canvas_name, node_id, task_id),`,
+      `'completed',
+          'canceled',
+          'failed',
+          'rejected',
+          'archived'
+        )
+      ),
+    brief_message_id TEXT NOT NULL
+      CHECK (length(brief_message_id) BETWEEN 1 AND 256),
+    artifact_ids_json TEXT
+      CHECK (artifact_ids_json IS NULL OR json_valid(artifact_ids_json)),
+    metadata_json TEXT
+      CHECK (
+        metadata_json IS NULL
+        OR (
+          json_valid(metadata_json)
+          AND json_type(metadata_json, '$.claimedBy') IS NULL
+        )
+      ),
+    reason TEXT,
+    response TEXT,
+    created_at TEXT NOT NULL CHECK (length(created_at) BETWEEN 1 AND 64),
+    updated_at TEXT NOT NULL CHECK (length(updated_at) BETWEEN 1 AND 64),
+    origin_at TEXT NOT NULL CHECK (length(origin_at) BETWEEN 1 AND 64),
+    received_at TEXT NOT NULL CHECK (length(received_at) BETWEEN 1 AND 64),
+    PRIMARY KEY (canvas_name, node_id, task_id),`,
+    )
+    .replaceAll(
+      "OR state IN ('completed', 'canceled', 'failed', 'rejected')",
+      "OR state IN ('completed', 'canceled', 'failed', 'rejected', 'archived')",
+    )
+    .replaceAll(
+      `to_state IN (
+          'submitted',
+          'working',
+          'input-required',
+          'auth-required',
+          'completed',
+          'canceled',
+          'failed',
+          'rejected'
+        )`,
+      `to_state IN (
+          'submitted',
+          'working',
+          'input-required',
+          'auth-required',
+          'completed',
+          'canceled',
+          'failed',
+          'rejected',
+          'archived'
+        )`,
+    )
+    .replaceAll(
+      `from_state IN (
+        'submitted',
+        'working',
+        'input-required',
+        'auth-required',
+        'completed',
+        'canceled',
+        'failed',
+        'rejected'
+      )`,
+      `from_state IN (
+        'submitted',
+        'working',
+        'input-required',
+        'auth-required',
+        'completed',
+        'canceled',
+        'failed',
+        'rejected',
+        'archived'
+      )`,
+    );
+
+/**
  * Proposal event tables only, with reject in the operation CHECK. Used by the
  * v13→v14 rebuild (drop + recreate + copy-forward). work_task_proposals is
  * IF NOT EXISTS so material rows and their already-allowed rejected state stay.

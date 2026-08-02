@@ -113,6 +113,10 @@ export type Message = typeof Message.Type;
  * Work task states. `auth-required` is residual durable-only: no producer may
  * enter it; decode + heal exits remain for installed rows and event history.
  * Operator escalation is `input-required` or a request.
+ *
+ * `archived` is operator soft-delete: durable row remains, but board/CLI
+ * projections omit it so the task disappears from the sink surface (unlike
+ * canceled/rejected/completed which stay in Closed).
  */
 export const TaskState = Schema.Literal(
   "submitted",
@@ -123,6 +127,7 @@ export const TaskState = Schema.Literal(
   "failed",
   "rejected",
   "auth-required",
+  "archived",
 );
 export type TaskState = typeof TaskState.Type;
 

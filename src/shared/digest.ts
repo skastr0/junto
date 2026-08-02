@@ -322,7 +322,8 @@ export const digestCanvas = (
             item.state !== "completed" &&
             item.state !== "canceled" &&
             item.state !== "failed" &&
-            item.state !== "rejected",
+            item.state !== "rejected" &&
+            item.state !== "archived",
         ).length;
         entityLines.push(`  tasks: ${items.length - open}/${items.length} settled`);
       }

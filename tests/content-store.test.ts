@@ -47,12 +47,14 @@ import {
   STATE_SCHEMA_V12_IDENTITY,
   STATE_SCHEMA_V13_IDENTITY,
   STATE_SCHEMA_V14_IDENTITY,
+  STATE_SCHEMA_V15_IDENTITY,
 } from "../src/main/vellum/state/migrations";
 import {
   STATE_SCHEMA_SQL,
   STATE_SCHEMA_V11_SQL,
   STATE_SCHEMA_V12_SQL,
   STATE_SCHEMA_V13_SQL,
+  STATE_SCHEMA_V14_SQL,
 } from "../src/main/vellum/state/schema";
 import {
   expectedStateSchemaIdentity,
@@ -303,7 +305,7 @@ describe("content manifest ordering", () => {
 });
 
 describe("content schema migration 11 → current", () => {
-  it("freezes v11/v12/v13 identities and CURRENT version", () => {
+  it("freezes v11/v12/v13/v14 identities and CURRENT version", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V11_SQL)).toEqual(
       STATE_SCHEMA_V11_IDENTITY,
     );
@@ -313,10 +315,13 @@ describe("content schema migration 11 → current", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V13_SQL)).toEqual(
       STATE_SCHEMA_V13_IDENTITY,
     );
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_V14_SQL)).toEqual(
       STATE_SCHEMA_V14_IDENTITY,
     );
-    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(14);
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(
+      STATE_SCHEMA_V15_IDENTITY,
+    );
+    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(15);
   });
 
   it("migrates v11 rows forward and preserves data; content + marker tables appear", () => {
@@ -343,7 +348,7 @@ describe("content schema migration 11 → current", () => {
       expect(result.schemaVersion).toBe(CURRENT_STATE_SCHEMA_VERSION);
       expect(result.previousVersion).toBe(11);
       expect(result.actualSchemaSha256).toBe(
-        STATE_SCHEMA_V14_IDENTITY.actualSchemaSha256,
+        STATE_SCHEMA_V15_IDENTITY.actualSchemaSha256,
       );
 
       const gen = database
@@ -381,7 +386,7 @@ describe("content schema migration 11 → current", () => {
       expect(result.schemaVersion).toBe(CURRENT_STATE_SCHEMA_VERSION);
       expect(result.previousVersion).toBe(12);
       expect(result.actualSchemaSha256).toBe(
-        STATE_SCHEMA_V14_IDENTITY.actualSchemaSha256,
+        STATE_SCHEMA_V15_IDENTITY.actualSchemaSha256,
       );
 
       const marker = database

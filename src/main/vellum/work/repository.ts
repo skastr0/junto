@@ -1646,7 +1646,11 @@ const loadSnapshot = (
   Schema.decodeUnknownSync(WorkSnapshot, strictDecode)({
     ...sink,
     tasks: {
-      items: loadLaneTasks(reader, sink, "task"),
+      // Soft-deleted tasks stay durable in work_tasks but leave the board /
+      // CLI projection entirely (not merely the Closed lane).
+      items: loadLaneTasks(reader, sink, "task").filter(
+        (task) => task.state !== "archived",
+      ),
       proposals: loadProposals(reader, sink),
     },
     requests: { items: loadLaneTasks(reader, sink, "request") },
@@ -6098,7 +6102,8 @@ export const WorkRepositoryLive = Layer.effect(
           current.task.state === "completed" ||
           current.task.state === "canceled" ||
           current.task.state === "failed" ||
-          current.task.state === "rejected"
+          current.task.state === "rejected" ||
+          current.task.state === "archived"
         ) {
           throw authorityError(
             "invalid-transition",

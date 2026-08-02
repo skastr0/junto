@@ -177,7 +177,13 @@ describe("Task claimant invariant", () => {
   });
 
   it("allows terminal history with or without its former claimant", () => {
-    for (const state of ["completed", "canceled", "failed", "rejected"]) {
+    for (const state of [
+      "completed",
+      "canceled",
+      "failed",
+      "rejected",
+      "archived",
+    ]) {
       expect(Either.isRight(decode(state))).toBe(true);
       expect(Either.isRight(decode(state, seatId))).toBe(true);
     }

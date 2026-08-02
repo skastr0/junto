@@ -29,6 +29,7 @@ import {
   WORK_PROPOSAL_PLANNING_STATE_SCHEMA_SQL,
   WORK_PROPOSAL_STATE_SCHEMA_SQL,
   WORK_STATE_SCHEMA_BOARD_VOCAB_SQL,
+  WORK_STATE_SCHEMA_TASK_ARCHIVED_SQL,
   WORK_TASK_DEPENDENCIES_STATE_SCHEMA_SQL,
   WORK_TASK_FINISH_STATE_SCHEMA_SQL,
 } from "../work/state-schema";
@@ -171,7 +172,13 @@ export const STATE_SCHEMA_V14_IDENTITY = {
     "646f7b553d54bd55cbdab2562132c22508b8ea9b4f29b7f9ae31c8f93d9bf06f",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 14;
+/** Exact witness of schema version 15 (task archived soft-delete). */
+export const STATE_SCHEMA_V15_IDENTITY = {
+  actualSchemaSha256:
+    "419206d0b4a3e52fa7d24a04c0cf07fb17f25cbf60b83e64e6d89bb32d4fb5c9",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 15;
 
 export const STATE_SCHEMA_MIGRATIONS =
   [
@@ -371,6 +378,37 @@ export const STATE_SCHEMA_MIGRATIONS =
             SELECT * FROM work_pending_proposal_commands__migrate_bak;
           DROP TABLE work_proposal_events__migrate_bak;
           DROP TABLE work_pending_proposal_commands__migrate_bak;
+        `);
+      },
+    },
+    {
+      fromVersion: 14,
+      toVersion: 15,
+      name: "task-archived-soft-delete",
+      safety: STATE_SCHEMA_MIGRATION_SAFETY,
+      fromIdentity: STATE_SCHEMA_V14_IDENTITY,
+      replacesTables: ["work_tasks", "work_task_transitions"],
+      migrate: (database) => {
+        // Expand work_tasks / work_task_transitions state CHECKs for
+        // `archived` (operator soft-delete off the board). Same-column
+        // rebuild + full row copy-forward; FK off outside this BEGIN.
+        database.exec(`
+          CREATE TABLE work_tasks__migrate_bak AS SELECT * FROM work_tasks;
+          CREATE TABLE work_task_transitions__migrate_bak AS
+            SELECT * FROM work_task_transitions;
+
+          DROP TABLE work_task_transitions;
+          DROP TABLE work_tasks;
+        `);
+
+        database.exec(WORK_STATE_SCHEMA_TASK_ARCHIVED_SQL);
+
+        database.exec(`
+          INSERT INTO work_tasks SELECT * FROM work_tasks__migrate_bak;
+          INSERT INTO work_task_transitions
+            SELECT * FROM work_task_transitions__migrate_bak;
+          DROP TABLE work_tasks__migrate_bak;
+          DROP TABLE work_task_transitions__migrate_bak;
         `);
       },
     },
