@@ -35,6 +35,7 @@ import {
   WorkRepositoryLive,
 } from "../src/main/vellum/work/repository";
 import { makeStateEngineLive } from "../src/main/vellum/state/engine";
+import { makeInstallOpsLive } from "../src/main/vellum/install-ops/engine";
 import { StationRepositoryLive } from "../src/main/vellum/station/repository";
 import {
   StationFleetTargetRepositoryLive,
@@ -75,9 +76,15 @@ const makeWorkTestRuntime = (root: string) => {
       StationRepositoryLive,
       StationFleetTargetRepositoryLive,
       SettingsLive,
-      makeContentServiceLive({ root: join(root, "content") }),
+      makeContentServiceLive({
+        root: join(root, "content"),
+        skipInlineMediaMigration: true,
+      }),
     ),
-    stateLive,
+    Layer.mergeAll(
+      stateLive,
+      makeInstallOpsLive(join(root, "state", "install-ops.db")),
+    ),
   );
   const canvasesLive = Layer.provideMerge(CanvasesLive, repositoriesLive);
   const workLive = Layer.provideMerge(

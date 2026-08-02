@@ -1,7 +1,9 @@
 /**
  * One-shot migration of historical inline Base64 work media into the local
- * content store. Runs after StateEngine is up; gated by the
- * `content_inline_media_migration` singleton marker (schema v13).
+ * content store. Runs after StateEngine is up; gated by the install-ops
+ * backfill ledger (`install-ops.db` / `content.inline-media.v1`), not by
+ * product `vellum.db`. The product table `content_inline_media_migration`
+ * remains for schema identity only and is no longer the authority.
  *
  * Scope law: this walk rewrites MATERIAL PROJECTIONS ONLY (parts_json /
  * brief_json columns). The work logs — work_events, work_facts,
@@ -10,12 +12,13 @@
  * Base64 forever, and every decode path admits it (decode-admits-history).
  * New media flows through the content store at write time.
  *
- * Idempotent — a complete marker is a free no-op on every subsequent boot;
- * a partial run leaves the marker pending and safely resumes next boot
- * (content ingest is content-addressed, row rewrites are per-row txns).
+ * Idempotent — a complete install-ops marker is a free no-op on every
+ * subsequent boot; a partial run leaves the marker pending and safely
+ * resumes next boot (content ingest is content-addressed, row rewrites are
+ * per-row txns).
  */
 
-import { Effect } from "effect";
+import { type Context, Effect } from "effect";
 import type { ContentRef } from "@shared/content";
 import type {
   StateEngine,
@@ -23,6 +26,10 @@ import type {
   StateRow,
   StateWriter,
 } from "../state/service";
+import {
+  BACKFILL_INLINE_MEDIA_V1,
+  InstallOpsService,
+} from "../install-ops/engine";
 import {
   recordContentObject,
   recordContentRef,
@@ -318,51 +325,6 @@ const tableExists = (reader: StateReader, table: string): boolean =>
     [table],
   ) !== undefined;
 
-const readMarker = (
-  reader: StateReader,
-): { status: string; objects_ingested: number | bigint } | undefined => {
-  if (!tableExists(reader, "content_inline_media_migration")) return undefined;
-  return reader.get<{
-    readonly status: string;
-    readonly objects_ingested: number | bigint;
-  }>(
-    `
-      SELECT status, objects_ingested
-      FROM content_inline_media_migration
-      WHERE singleton = 1
-    `,
-  );
-};
-
-const ensurePendingMarker = (writer: StateWriter): void => {
-  writer.run(
-    `
-      INSERT INTO content_inline_media_migration(
-        singleton, status, objects_ingested, completed_at
-      ) VALUES (1, 'pending', 0, NULL)
-      ON CONFLICT(singleton) DO NOTHING
-    `,
-  );
-};
-
-const markComplete = (
-  writer: StateWriter,
-  objectsIngested: number,
-): void => {
-  writer.run(
-    `
-      INSERT INTO content_inline_media_migration(
-        singleton, status, objects_ingested, completed_at
-      ) VALUES (1, 'complete', ?, ?)
-      ON CONFLICT(singleton) DO UPDATE SET
-        status = 'complete',
-        objects_ingested = excluded.objects_ingested,
-        completed_at = excluded.completed_at
-    `,
-    [objectsIngested, new Date().toISOString()],
-  );
-};
-
 type IngestedObject = {
   readonly ref: ContentRef;
   readonly verifiedAt: string;
@@ -551,47 +513,40 @@ const migratePartsTargets = async (
  *
  * Failures throw; the boot integration logs and retries next boot — a
  * pending backfill must never gate app startup. Safe to call every boot.
+ *
+ * Completeness is recorded only on the install-ops ledger so product DB
+ * seeds cannot claim "already migrated" without local files.
  */
 export const runInlineMediaMigration = async (input: {
   readonly state:
     | StateService
     | import("effect").Context.Tag.Service<typeof StateEngine>;
   readonly root: string;
+  readonly installOps: Context.Tag.Service<typeof InstallOpsService>;
 }): Promise<InlineMediaMigrationReport> => {
   const state = input.state as StateService;
   const root = input.root;
+  const installOps = input.installOps;
+  const backfillId = BACKFILL_INLINE_MEDIA_V1;
 
-  const marker = await runRead(
-    state,
-    "content.inline-media.marker.read",
-    (reader) => readMarker(reader),
-  );
+  const marker = await Effect.runPromise(installOps.getBackfill(backfillId));
 
   if (marker?.status === "complete") {
     return {
       status: "already-complete",
-      objectsIngested: Number(marker.objects_ingested ?? 0),
+      objectsIngested: marker.objectsIngested,
       rowsRewritten: 0,
     };
   }
 
-  await runTxn(state, "content.inline-media.marker.ensure", (writer) => {
-    if (!tableExists(writer, "content_inline_media_migration")) {
-      throw new InlineMediaMigrationError(
-        "content_inline_media_migration table missing — schema migration to v13 required",
-      );
-    }
-    ensurePendingMarker(writer);
-  });
+  await Effect.runPromise(installOps.ensurePending(backfillId));
 
   const parts = await migratePartsTargets(state, root);
 
   const objectsIngested = parts.objects;
   const rowsRewritten = parts.rows;
 
-  await runTxn(state, "content.inline-media.marker.complete", (writer) => {
-    markComplete(writer, objectsIngested);
-  });
+  await Effect.runPromise(installOps.markComplete(backfillId, objectsIngested));
 
   return {
     status: "complete",

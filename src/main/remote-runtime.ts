@@ -25,6 +25,7 @@ import { SchedulerRepositoryLive } from "./vellum/scheduler/repository";
 import { WorkLive } from "./vellum/work/service";
 import { WorkRepositoryLive } from "./vellum/work/repository";
 import { makeContentServiceLive } from "./vellum/content/service";
+import { InstallOpsLive } from "./vellum/install-ops/engine";
 import { RegionRollupLive } from "./vellum/region-rollup";
 import { SettingsLive } from "./vellum/settings/service";
 import { SnapshotsLive } from "./vellum/snapshots";
@@ -135,7 +136,7 @@ const StateRepositoriesLive = Layer.provideMerge(
     LicenseRepositoryLive,
     makeContentServiceLive(),
   ),
-  StateEngineLive,
+  Layer.mergeAll(StateEngineLive, InstallOpsLive),
 );
 
 // License never opens a second StateEngine — same memoized repository graph.

@@ -156,9 +156,10 @@ export const CONTENT_STATE_SCHEMA_SQL = `
 `;
 
 /**
- * One-shot marker for historical inline Base64 → content-store migration.
- * Expand-only (schema v13). The data walk lives in
- * `inline-media-migration.ts` and runs after StateEngine is up.
+ * Legacy product-DB marker for historical inline Base64 → content-store
+ * migration (schema v13, expand-only). Authority moved to install-ops.db
+ * (`content.inline-media.v1`); this table is retained for schema identity
+ * and must not gate the walk. New installs leave it unused.
  */
 export const CONTENT_INLINE_MEDIA_MIGRATION_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS content_inline_media_migration (

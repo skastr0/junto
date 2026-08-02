@@ -41,6 +41,7 @@ import {
   InlineMediaMigrationError,
   runInlineMediaMigration,
 } from "./inline-media-migration";
+import { InstallOpsService } from "../install-ops/engine";
 import { contentStoreRoot } from "./paths";
 import {
   ContentStoreError,
@@ -373,24 +374,26 @@ export const makeContentServiceLive = (options?: {
   readonly root?: string;
   /**
    * Test hook: skip the one-shot historical Base64 → content-store walk.
-   * Production never sets this; schema marker still exists from v13.
+   * Production never sets this; install-ops ledger is the authority.
    */
   readonly skipInlineMediaMigration?: boolean;
-}): Layer.Layer<ContentService, never, StateEngine> =>
+}): Layer.Layer<ContentService, never, StateEngine | InstallOpsService> =>
   Layer.effect(
     ContentService,
     Effect.gen(function* () {
       const state = yield* StateEngine;
+      const installOps = yield* InstallOpsService;
       const root =
         options?.root ??
         contentStoreRoot(options?.home ?? resolveVellumHome());
       ensureContentLayout(root);
       if (options?.skipInlineMediaMigration !== true) {
-        // Marker-gated, idempotent walk over projection tables only. A
+        // Install-ops marker-gated walk over product projections only. A
         // failure must never gate app startup: log it, leave the marker
         // pending, and the walk resumes on the next boot.
         yield* Effect.tryPromise({
-          try: () => runInlineMediaMigration({ state, root }),
+          try: () =>
+            runInlineMediaMigration({ state, root, installOps }),
           catch: (cause) => {
             if (cause instanceof InlineMediaMigrationError) return cause;
             if (cause instanceof ContentStoreError) return cause;

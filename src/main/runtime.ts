@@ -34,6 +34,7 @@ import { SchedulerRepositoryLive } from "./vellum/scheduler/repository";
 import { WorkLive } from "./vellum/work/service";
 import { WorkRepositoryLive } from "./vellum/work/repository";
 import { makeContentServiceLive } from "./vellum/content/service";
+import { InstallOpsLive } from "./vellum/install-ops/engine";
 import { RegionRollupLive, RegionRollupService } from "./vellum/region-rollup";
 import { SettingsLive, SettingsService } from "./vellum/settings/service";
 import { probeSupervisedRuntime } from "./vellum/settings/supervised-probe";
@@ -106,6 +107,8 @@ import {
 // Effect memoizes layers by reference, so every repository below receives the
 // same scoped StateEngine connection even when the composed layers are reused
 // by more than one product plane.
+// Product StateEngine + install-ops (backfill ledger) are co-owned at this
+// boundary. ContentService needs both; install-ops.db is never product state.
 const StateRepositoriesLive = Layer.provideMerge(
   Layer.mergeAll(
     KernelStateRepositoryLive,
@@ -122,7 +125,7 @@ const StateRepositoriesLive = Layer.provideMerge(
     CanvasEntityRepositoryLive,
     makeContentServiceLive(),
   ),
-  StateEngineLive,
+  Layer.mergeAll(StateEngineLive, InstallOpsLive),
 );
 
 const LicenseServiceFromStateLive = Layer.effect(

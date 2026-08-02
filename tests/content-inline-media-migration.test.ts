@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { access, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect, ManagedRuntime } from "effect";
+import { Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   runInlineMediaMigration,
@@ -12,14 +12,17 @@ import {
   contentStoreRoot,
 } from "../src/main/vellum/content/paths";
 import {
+  BACKFILL_INLINE_MEDIA_V1,
+  InstallOpsService,
+  makeInstallOpsLive,
+} from "../src/main/vellum/install-ops/engine";
+import {
   makeStateEngineLive,
   StateEngine,
 } from "../src/main/vellum/state/engine";
 
 const roots: string[] = [];
-const runtimes: Array<
-  ManagedRuntime.ManagedRuntime<StateEngine, unknown>
-> = [];
+const runtimes: Array<ManagedRuntime.ManagedRuntime<any, unknown>> = [];
 
 afterEach(async () => {
   while (runtimes.length > 0) {
@@ -36,11 +39,21 @@ const tempRoot = async (prefix: string): Promise<string> => {
   return root;
 };
 
-const openEngine = async (dbPath: string) => {
-  const runtime = ManagedRuntime.make(makeStateEngineLive(dbPath));
+const openEngines = async (home: string) => {
+  const stateDir = join(home, ".vellum", "state");
+  await mkdir(stateDir, { recursive: true });
+  const dbPath = join(stateDir, "vellum.db");
+  const opsPath = join(stateDir, "install-ops.db");
+  const runtime = ManagedRuntime.make(
+    Layer.mergeAll(
+      makeStateEngineLive(dbPath),
+      makeInstallOpsLive(opsPath),
+    ),
+  );
   runtimes.push(runtime);
   const state = await runtime.runPromise(StateEngine);
-  return { runtime, state };
+  const installOps = await runtime.runPromise(InstallOpsService);
+  return { runtime, state, installOps, contentRoot: contentStoreRoot(home) };
 };
 
 /** 1×1 PNG — valid small binary for a historical RawPart. */
@@ -52,12 +65,7 @@ const TINY_PNG = Buffer.from(
 describe("inline media migration", () => {
   it("rewrites parts_json base64 into ContentRef, records object, marks complete", async () => {
     const home = await tempRoot("vellum-inline-media-");
-    const stateDir = join(home, ".vellum", "state");
-    await mkdir(stateDir, { recursive: true });
-    const dbPath = join(stateDir, "vellum.db");
-    const contentRoot = contentStoreRoot(home);
-
-    const { state } = await openEngine(dbPath);
+    const { state, installOps, contentRoot } = await openEngines(home);
 
     const boardParts = JSON.stringify([
       {
@@ -108,6 +116,7 @@ describe("inline media migration", () => {
     const report = await runInlineMediaMigration({
       state,
       root: contentRoot,
+      installOps,
     });
 
     expect(report.status).toBe("complete");
@@ -153,22 +162,16 @@ describe("inline media migration", () => {
     expect(Number(object?.byte_length)).toBe(TINY_PNG.byteLength);
 
     const marker = await Effect.runPromise(
-      state.read("assert.marker", (reader) =>
-        reader.get<{
-          readonly status: string;
-          readonly objects_ingested: number;
-        }>(
-          `SELECT status, objects_ingested FROM content_inline_media_migration WHERE singleton = 1`,
-        ),
-      ),
+      installOps.getBackfill(BACKFILL_INLINE_MEDIA_V1),
     );
     expect(marker?.status).toBe("complete");
-    expect(Number(marker?.objects_ingested)).toBe(1);
+    expect(marker?.objectsIngested).toBe(1);
 
     // Idempotent re-run.
     const again = await runInlineMediaMigration({
       state,
       root: contentRoot,
+      installOps,
     });
     expect(again.status).toBe("already-complete");
     expect(again.rowsRewritten).toBe(0);
@@ -176,12 +179,7 @@ describe("inline media migration", () => {
 
   it("completes against immutable work logs and leaves them byte-identical", async () => {
     const home = await tempRoot("vellum-inline-media-logs-");
-    const stateDir = join(home, ".vellum", "state");
-    await mkdir(stateDir, { recursive: true });
-    const dbPath = join(stateDir, "vellum.db");
-    const contentRoot = contentStoreRoot(home);
-
-    const { state } = await openEngine(dbPath);
+    const { state, installOps, contentRoot } = await openEngines(home);
 
     const factBody = JSON.stringify({
       parts: [
@@ -298,6 +296,7 @@ describe("inline media migration", () => {
     const report = await runInlineMediaMigration({
       state,
       root: contentRoot,
+      installOps,
     });
 
     // The walk completes — historical logs are out of scope, not an abort.
@@ -334,11 +333,7 @@ describe("inline media migration", () => {
     expect(rows.proposal?.record_json).toBe(proposalRecord);
 
     const marker = await Effect.runPromise(
-      state.read("assert.marker", (reader) =>
-        reader.get<{ readonly status: string }>(
-          `SELECT status FROM content_inline_media_migration WHERE singleton = 1`,
-        ),
-      ),
+      installOps.getBackfill(BACKFILL_INLINE_MEDIA_V1),
     );
     expect(marker?.status).toBe("complete");
   });
