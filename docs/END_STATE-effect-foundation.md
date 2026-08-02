@@ -52,6 +52,35 @@ Read V4 patterns from **Playground/effect**, not from V3 skill text.
 | **S7** | parallel | Platform import path prep / V4 import map for **owned paths only** (ssh/cli/platform). **≥1 commit.** |
 | **S8** | deep | Optional later: Schema V4 — **serial only**, not parallel packs. |
 
+## Review slices (validation lane — parallel + deep)
+
+Review tasks **depend on** the implement pack/slice completing (factory `dependsOn`).
+Claim-ready only after implement is **completed**. Reviewers are different seats from implementers when possible.
+
+| id | depends on | done when |
+|---|---|---|
+| **R4-work** | S4-work pack complete | Alignment review of `src/main/vellum/work/**` vs END_STATE §S4; dual-service / dual-path rejected; typecheck green; **≥1 commit** (review note under `docs/effect-foundation/reviews/` or nits fixed in-path). |
+| **R4-station** | S4-station | same for station/** |
+| **R4-state-content** | S4-state-content | same for state/content/install-ops |
+| **R4-hosts-ssh** | S4-hosts-ssh | same for hosts/ssh |
+| **R4-browser-term** | S4-browser-term | same for browser/term |
+| **R4-rest-main** | S4-rest-main | same for remaining main+cli pack |
+| **R5-fork** | S5-fork-main | fork rename prep does not thrash kernel; no dual fork helpers; **≥1 commit** |
+| **R7-platform** | S7-platform-imports | import map prep is coherent; package.json peers consistent; **≥1 commit** |
+| **R4-integrate** | all R4-* pack reviews **or** all S4 implement packs complete | Cross-pack coherence: no duplicate Tag ids across packs, no half-migrated service shapes, END_STATE §S4 overall; **≥1 commit** |
+| **R0–R3** | S0–S3 respectively (deep) | Deep foundation reviews: fitness gate real, runtime boundary real, kernel Context fixed, claim+content test exists and passes; **≥1 commit** each |
+
+### Review checklist (every R*)
+
+1. Load **consolidation-engineering** + **pristine-components** (not V3 effect skill).
+2. V4 truth: `/Users/developer/Playground/effect` migration docs.
+3. Diff only the pack’s path ownership vs `main` / base.
+4. Reject dual paths, compatibility shims, bare `Effect.runPromise` in product paths (unless allowlisted by S0).
+5. Confirm finishCriteria of implement pack was commit-based (no artifact theater).
+6. Commit review note or in-path nits; complete with git evidence.
+
+**Hard `dependsOn`:** only works once implement proposals are **approved into tasks**. Soft order in briefs is a fallback until then.
+
 ## Parallelization boundaries (hard)
 
 - **Own only the path glob in the task brief.** Do not edit other packs.
