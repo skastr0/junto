@@ -48,6 +48,7 @@ import { StationRoleGate } from "./components/StationRoleGate";
 import { HerdrWizard } from "./components/herdr/HerdrWizard";
 import { HerdrTerminalModal } from "./components/herdr/HerdrTerminalModal";
 import { HerdrToast } from "./components/herdr/HerdrToast";
+import { OperatorAttentionDock } from "./components/OperatorAttentionDock";
 import { WorkSurfaceDock } from "./components/WorkSurfaceDock";
 import { WorkFocusShell } from "./components/workbench";
 import { TooltipLayer } from "./components/TooltipLayer";
@@ -479,6 +480,7 @@ export function App() {
         <HerdrTerminalModal />
         <WorkFocusShell />
         <HerdrToast />
+        <OperatorAttentionDock />
         <DemoLayer />
         </div>
         <WorkSurfaceDock />

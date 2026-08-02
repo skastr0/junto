@@ -573,7 +573,7 @@ export function NodeShell({
           ) : null}
           {liveSeatAttention ? (
             <Chip key="seat-attention" tone="amber" title="needs operator input">
-              !
+              needs input
             </Chip>
           ) : null}
           {flags.map((flag) => (

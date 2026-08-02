@@ -84,6 +84,10 @@ import { EdgeCommandCard, PauseScopeKey } from "./RtsControls";
 import { ensurePauseState, pause$, regionPausedIn } from "../../lib/pause-state";
 import { ActivityMark } from "../ActivityMark";
 import { KindSurface } from "./KindSurface";
+import {
+  collectOperatorAttention,
+  OPERATOR_ATTENTION_HEADLINE,
+} from "../../lib/operator-attention";
 import "./RtsBottomBar.css";
 
 const COLOR_OPTIONS: ReadonlyArray<{ readonly value: string; readonly label: string; readonly hue: string }> = [
@@ -1018,16 +1022,67 @@ function MinimapChrome({ children }: { readonly children: ReactNode }) {
 }
 
 /**
- * Thin strip above the minimap only — stoppage rank.
+ * Permanent attention pills in the notify strip (needs-input + blocked).
+ * Complements StoppageRank (blast-radius stoppage) and the fixed dock.
+ */
+function OperatorAttentionPills({
+  rollups,
+}: {
+  readonly rollups: ReadonlyArray<RegionRollup>;
+}) {
+  const items = useMemo(() => collectOperatorAttention(rollups), [rollups]);
+  if (items.length === 0) return null;
+  const visible = items.slice(0, 4);
+  return (
+    <div
+      className="rts-notify-attention"
+      role="group"
+      aria-label="Operator attention required"
+      data-testid="notify-attention-pills"
+    >
+      {visible.map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          className={`rts-notify-attention__pill rts-notify-attention__pill--${item.kind}`}
+          title={`${OPERATOR_ATTENTION_HEADLINE[item.kind]} · ${item.label}`}
+          aria-label={`${OPERATOR_ATTENTION_HEADLINE[item.kind]}: ${item.label}. Focus node.`}
+          onClick={() => {
+            state$.selectedNodeId.set(item.nodeId);
+            state$.selectedNodeIds.set([item.nodeId]);
+            state$.selectedEdgeId.set("");
+            state$.focusNodeId.set(item.nodeId);
+          }}
+        >
+          {item.kind === "blocked" ? (
+            <Ban size={10} aria-hidden />
+          ) : (
+            <AlertTriangle size={10} aria-hidden />
+          )}
+          <span className="rts-notify-attention__text">
+            {item.kind === "blocked" ? "blocked" : "needs input"} · {item.label}
+          </span>
+        </button>
+      ))}
+      {items.length > visible.length ? (
+        <span className="rts-notify-attention__more">+{items.length - visible.length}</span>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Thin strip above the minimap only — stoppage rank + permanent attention.
  * Parallel to the region strip (ops left+mid); keeps the minimap full-height.
  */
-function NotifyStrip() {
+function NotifyStrip({ rollups }: { readonly rollups: ReadonlyArray<RegionRollup> }) {
   return (
     <div className="rts-notify-strip" role="region" aria-label="Notifications">
       <div className="rts-notify-strip__chrome">
         <span className="rts-notify-strip__label">notify</span>
       </div>
       <div className="rts-notify-strip__body">
+        <OperatorAttentionPills rollups={rollups} />
         <StoppageRank />
       </div>
     </div>
@@ -1178,7 +1233,7 @@ export function RtsBottomBar({ minimap, tools }: { readonly minimap: ReactNode; 
         idleQueue={idleQueue}
         severityByNodeId={severityMap}
       />
-      <NotifyStrip />
+      <NotifyStrip rollups={rollups} />
       <CommandCard regionRollup={selectedRegion} />
       <KindMiddle />
       <div className="rts-right">

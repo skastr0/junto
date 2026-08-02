@@ -1803,10 +1803,38 @@ path.vellum-edge-ripple {
 
 /* --- Fire / ice attention (glance language) ---------------------------
    data-attention on .vellum-node: fire = needs human; ice = calm capacity. */
-.vellum-node[data-attention="fire"] {
+.vellum-node[data-attention="fire"],
+.vellum-node[data-seat-attention="true"] {
   box-shadow:
-    0 0 0 1px rgba(232, 168, 56, 0.45),
+    0 0 0 2px rgba(232, 168, 56, 0.55),
+    0 0 22px 2px rgba(232, 163, 61, 0.22),
     0 10px 28px rgba(0, 0, 0, 0.2);
+  animation: vellumSeatAttentionPulse 1.5s ease-in-out infinite;
+}
+@keyframes vellumSeatAttentionPulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 2px rgba(232, 168, 56, 0.45),
+      0 0 14px 0 rgba(232, 163, 61, 0.12),
+      0 10px 28px rgba(0, 0, 0, 0.2);
+  }
+  50% {
+    box-shadow:
+      0 0 0 4px rgba(232, 168, 56, 0.7),
+      0 0 28px 4px rgba(232, 163, 61, 0.28),
+      0 10px 28px rgba(0, 0, 0, 0.22);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .vellum-node[data-attention="fire"],
+  .vellum-node[data-seat-attention="true"] {
+    animation: none;
+  }
+}
+html[data-surface-motion="paused"] .vellum-node[data-attention="fire"],
+html[data-surface-motion="paused"] .vellum-node[data-seat-attention="true"] {
+  animation: none;
 }
 .vellum-node[data-attention="ice"] {
   /* calm — no extra chrome; silence is semantic */

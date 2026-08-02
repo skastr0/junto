@@ -809,6 +809,85 @@
   scrollbar-width: thin;
 }
 
+/* Permanent needs-input / blocked pills — must read louder than stoppage. */
+.rts-notify-attention {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.rts-notify-attention__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 168px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  border: 1px solid rgba(232, 163, 61, 0.65);
+  background: rgba(232, 163, 61, 0.16);
+  color: #f0c36a;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  cursor: pointer;
+  animation: rts-notify-attention-pulse 1.4s ease-in-out infinite;
+}
+
+.rts-notify-attention__pill--blocked {
+  border-color: rgba(229, 72, 77, 0.7);
+  background: rgba(229, 72, 77, 0.16);
+  color: #f07178;
+  animation-name: rts-notify-blocked-pulse;
+}
+
+.rts-notify-attention__pill:hover,
+.rts-notify-attention__pill:focus-visible {
+  outline: none;
+  filter: brightness(1.12);
+}
+
+.rts-notify-attention__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.rts-notify-attention__more {
+  font-size: 9px;
+  font-weight: 700;
+  color: rgba(232, 163, 61, 0.9);
+  letter-spacing: 0.06em;
+}
+
+@keyframes rts-notify-attention-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(232, 163, 61, 0);
+  }
+  50% {
+    box-shadow: 0 0 0 2px rgba(232, 163, 61, 0.35);
+  }
+}
+
+@keyframes rts-notify-blocked-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(229, 72, 77, 0);
+  }
+  50% {
+    box-shadow: 0 0 0 2px rgba(229, 72, 77, 0.38);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rts-notify-attention__pill {
+    animation: none;
+  }
+}
+
 .rts-notify-strip__group {
   display: flex;
   flex-wrap: nowrap;

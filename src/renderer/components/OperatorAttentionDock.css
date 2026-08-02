@@ -1,0 +1,235 @@
+/* Permanent operator-attention dock — bottom-right, above RTS chrome.
+   Must out-shout the canvas: strong border pulse, large type, high z-index. */
+
+.op-attention-dock {
+  position: fixed;
+  right: 14px;
+  /* Sit above the RTS triad (region/notify strip + minimap row). */
+  bottom: 196px;
+  z-index: 120;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: min(340px, calc(100vw - 28px));
+  max-height: min(48vh, 420px);
+  padding: 8px;
+  border-radius: 12px;
+  border: 1px solid rgba(232, 163, 61, 0.55);
+  background:
+    linear-gradient(165deg, rgba(42, 28, 12, 0.97), rgba(14, 12, 10, 0.96));
+  box-shadow:
+    0 0 0 1px rgba(232, 163, 61, 0.2),
+    0 0 28px 4px rgba(232, 163, 61, 0.18),
+    0 18px 40px rgba(0, 0, 0, 0.55);
+  pointer-events: auto;
+  animation: op-attention-dock-enter 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.op-attention-dock__chrome {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px 4px;
+}
+
+.op-attention-dock__pulse {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #e8a33d;
+  box-shadow: 0 0 0 0 rgba(232, 163, 61, 0.7);
+  animation: op-attention-beacon 1.2s ease-out infinite;
+  flex-shrink: 0;
+}
+
+.op-attention-dock__title {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #f0c36a;
+}
+
+.op-attention-dock__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.op-attention-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1.5px solid rgba(232, 163, 61, 0.55);
+  background: rgba(232, 163, 61, 0.1);
+  color: #ede6da;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    transform 0.12s ease;
+}
+
+.op-attention-card:hover,
+.op-attention-card:focus-visible {
+  outline: none;
+  border-color: rgba(232, 163, 61, 0.95);
+  background: rgba(232, 163, 61, 0.18);
+  transform: translateY(-1px);
+}
+
+.op-attention-card--blocked {
+  border-color: rgba(229, 72, 77, 0.65);
+  background: rgba(229, 72, 77, 0.12);
+  animation: op-attention-card-blocked-pulse 1.4s ease-in-out infinite;
+}
+
+.op-attention-card--blocked:hover,
+.op-attention-card--blocked:focus-visible {
+  border-color: rgba(229, 72, 77, 0.95);
+  background: rgba(229, 72, 77, 0.2);
+}
+
+.op-attention-card--attention {
+  animation: op-attention-card-pulse 1.5s ease-in-out infinite;
+}
+
+.op-attention-card__icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  flex-shrink: 0;
+  color: #e8a33d;
+  background: rgba(232, 163, 61, 0.16);
+}
+
+.op-attention-card--blocked .op-attention-card__icon {
+  color: #e5484d;
+  background: rgba(229, 72, 77, 0.18);
+}
+
+.op-attention-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.op-attention-card__headline {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  line-height: 1.25;
+  color: #f0c36a;
+}
+
+.op-attention-card--blocked .op-attention-card__headline {
+  color: #f07178;
+}
+
+.op-attention-card__label {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: #ede6da;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.op-attention-card__reason {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  color: rgba(138, 131, 120, 0.95);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.op-attention-dock__more,
+.op-attention-dock__hint {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(143, 163, 176, 0.85);
+  padding: 0 4px 2px;
+}
+
+@keyframes op-attention-dock-enter {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes op-attention-beacon {
+  0% {
+    box-shadow: 0 0 0 0 rgba(232, 163, 61, 0.65);
+    opacity: 1;
+  }
+  70% {
+    box-shadow: 0 0 0 12px rgba(232, 163, 61, 0);
+    opacity: 0.85;
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(232, 163, 61, 0);
+    opacity: 1;
+  }
+}
+
+@keyframes op-attention-card-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(232, 163, 61, 0);
+  }
+  50% {
+    box-shadow: 0 0 0 3px rgba(232, 163, 61, 0.28);
+  }
+}
+
+@keyframes op-attention-card-blocked-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(229, 72, 77, 0);
+  }
+  50% {
+    box-shadow: 0 0 0 3px rgba(229, 72, 77, 0.32);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .op-attention-dock,
+  .op-attention-dock__pulse,
+  .op-attention-card--attention,
+  .op-attention-card--blocked {
+    animation: none;
+  }
+}
+
+/* While viewport pans, drop expensive glow but keep the dock readable. */
+.react-flow.is-viewport-busy ~ * .op-attention-dock,
+html[data-surface-motion="paused"] .op-attention-dock {
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+}
+
+html[data-surface-motion="paused"] .op-attention-dock__pulse,
+html[data-surface-motion="paused"] .op-attention-card--attention,
+html[data-surface-motion="paused"] .op-attention-card--blocked {
+  animation: none;
+}
