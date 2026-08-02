@@ -103,6 +103,7 @@ export function TerminalCard({
   const activity = terminalActivity({
     seatState,
     needsLook: needsLook === true,
+    seatReason: seatEvent?.reason,
     running: session?.status === "running",
     starting: session?.status === "starting",
     graphBlocked,
@@ -110,9 +111,17 @@ export function TerminalCard({
     exitMessage,
   });
   // Prefer spawn-failure / attention reason over the raw launch argv line.
+  // turn-stalled keeps operator-facing "stalled" wording (not raw reason id).
+  const attentionSubtitle =
+    seatState === "attention"
+      ? seatEvent?.reason === "turn-stalled" ||
+        seatEvent?.reason === "prompt-stalled"
+        ? "stalled — needs operator look"
+        : seatEvent?.reason
+      : undefined;
   const subtitle =
     (exitReason && exitMessage) ||
-    (seatState === "attention" && seatEvent?.reason) ||
+    attentionSubtitle ||
     (presentation === "done" ? "ready — review response" : undefined) ||
     launchSummary(native.launch);
 

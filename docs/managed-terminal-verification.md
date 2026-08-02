@@ -103,3 +103,36 @@ From [`tui-horizons.md`](research/managed-terminal-probes/tui-horizons.md):
 2. Codex approval-behavior confound (Groundwork hooks hypothesis) not fully ablation-closed; operative mechanism verified.
 3. Hermes HERMES_HOME auth handling: copied `auth.json` risks consuming a rotating refresh token (source-read `auth.py:3605-3612`) — design choice needed before shipping the effort lever.
 4. Hermes TUI self-exit anomaly: bounded non-reproducible (5/5 survived) — QA watch.
+
+## PTY-factory campaign re-smoke (A/B/C)
+
+Campaign: claim contract (A) · seat truth (B) · mid-turn cyan honesty (C).
+Not a product surface — operator / QA checklist after seat/drive changes.
+
+### Thresholds (code)
+
+| gate | constant | default | meaning |
+|---|---|---|---|
+| paste → turn-start | `DEFAULT_PROMPT_STALL_MS` | 5s | no turn-start after paste → `prompt-stalled` attention |
+| mid-turn silence | `DEFAULT_TURN_STALL_MS` | 90s | working with no progress fingerprint → `turn-stalled` attention |
+
+Progress fingerprint: PTY `seq` + OSC title/osc9 + bounded grid text + hook key (`turn-progress-watch.ts`). Stall publishes **attention**, never idle (no managed queue drain / re-paste).
+
+### Automated
+
+```bash
+bunx vitest run tests/turn-progress-watch.test.ts tests/activity.test.ts \
+  tests/managed-terminal-drive.test.ts tests/seat-truth-replay.test.ts \
+  tests/factory-claim-prompt.test.ts
+```
+
+### Live (Grok + Claude managed seats)
+
+1. **Happy path** — idle seat, factory claim or manual paste: cyan working → settles idle (or green ready/complete). No double paste. Claim text includes sink `target` + task id (A).
+2. **False idle (B)** — permission / dialog chrome must refuse paste (`isSeatIdle` false); sticky OSC hooks clear on null same tick.
+3. **Mid-turn stall (C)** — after turn-start, freeze progress (no PTY/title change for ≥90s, or lower `turnStallMs` in a test build): seat → **amber** attention, reason/subtitle `stalled — needs operator look`, not cyan. Queued prompts stay queued until a real idle.
+4. Record pass/fail in the slice commit message or a short note; name residual risk if a harness cannot be frozen safely.
+
+### Residual
+
+- Live freeze is hard to force without hanging the model; unit/integration covers the transition. Prefer watching a naturally stuck Thinking seat when available.

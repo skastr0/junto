@@ -202,6 +202,11 @@ export function terminalActivity(input: {
    * has not opened the seat yet. Never a physics state — presentation only.
    */
   readonly needsLook?: boolean;
+  /**
+   * Latest seat reason (e.g. `turn-stalled`, `prompt-stalled`). Shapes the
+   * accessible label only — tone stays amber attention, never cyan working.
+   */
+  readonly seatReason?: string | null;
   readonly running?: boolean;
   readonly starting?: boolean;
   /**
@@ -218,11 +223,17 @@ export function terminalActivity(input: {
   readonly exitMessage?: string | null;
 }): ActivitySpec {
   if (input.seatState === "attention") {
+    const stalled =
+      input.seatReason === "turn-stalled" ||
+      input.seatReason === "prompt-stalled";
     return {
       mode: "wave",
       tone: SEVERITY_TONE.attention,
       pattern: "ripple",
-      label: "needs operator input",
+      // Accessible name only — never chrome text. Stall vs needs-input stay distinct.
+      label: stalled
+        ? "stalled — needs operator look"
+        : "needs operator input",
     };
   }
   // Stoppage cone membership: crimson spinner even when the seat is idle.

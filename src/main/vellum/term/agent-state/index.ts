@@ -50,5 +50,12 @@ export {
 export {
   SeatStateRuntime,
   seatStateRuntime,
+  DEFAULT_TURN_STALL_MS,
+  TURN_STALLED_REASON,
+  progressFingerprint,
   type SeatStateRuntimeOptions,
 } from "./runtime";
+
+export {
+  TurnProgressWatch,
+} from "./turn-progress-watch";

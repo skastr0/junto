@@ -171,6 +171,34 @@ describe("terminalActivity", () => {
     });
   });
 
+  it("turn-stalled attention is amber (not cyan) with stalled accessible label", () => {
+    expect(
+      terminalActivity({
+        seatState: "attention",
+        seatReason: "turn-stalled",
+      }),
+    ).toMatchObject({
+      mode: "wave",
+      tone: "amber",
+      label: "stalled — needs operator look",
+    });
+    expect(
+      terminalActivity({
+        seatState: "attention",
+        seatReason: "prompt-stalled",
+      }).label,
+    ).toBe("stalled — needs operator look");
+    // Unrelated attention reasons keep needs-input wording.
+    expect(
+      terminalActivity({
+        seatState: "attention",
+        seatReason: "permission",
+      }).label,
+    ).toBe("needs operator input");
+    // Working remains sacred cyan — stall must not reuse working tone.
+    expect(terminalActivity({ seatState: "working" }).tone).toBe("cyan");
+  });
+
   it("waves crimson when graph-blocked even if the seat is idle", () => {
     expect(
       terminalActivity({ seatState: "idle", graphBlocked: true }),

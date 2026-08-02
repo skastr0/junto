@@ -247,6 +247,7 @@ function EntityCard({
     ? terminalActivity({
         seatState: seatEvent?.state,
         needsLook: needsLook === true,
+        seatReason: seatEvent?.reason,
         running: session?.status === "running",
         starting: session?.status === "starting",
         graphBlocked,
