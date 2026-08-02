@@ -732,6 +732,15 @@ class EffectHerdrScopeClient extends EventEmitter implements HerdrClientIo {
   }
 }
 
+/**
+ * effect-foundation **S4-rest-main** (staged, not half-migrated):
+ * - Canonical id: `@vellum/HerdrPlane` — single definition; no dual path.
+ * - Substrate: effect@3.21 → `Context.Tag` (`Context.Service` unavailable).
+ * - V4 target:
+ *   `class HerdrPlane extends Context.Service<HerdrPlane, HerdrPlane>()("@vellum/HerdrPlane") {}`
+ * - Layer today: HerdrPlaneLive — V4 rename candidate HerdrPlane.layer
+ *   Do not dual-export Live + `.layer` names.
+ */
 export class HerdrPlane extends Context.Tag("@vellum/HerdrPlane")<
   HerdrPlane,
   {

@@ -12,6 +12,15 @@ export class CodexError extends Schema.TaggedError<CodexError>()("CodexError", {
   message: Schema.String,
 }) {}
 
+/**
+ * effect-foundation **S4-rest-main** (staged, not half-migrated):
+ * - Canonical id: `@chassis/CodexService` — single definition; no dual path.
+ * - Substrate: effect@3.21 → `Context.Tag` (`Context.Service` unavailable).
+ * - V4 target:
+ *   `class CodexService extends Context.Service<CodexService, CodexService>()("@chassis/CodexService") {}`
+ * - Layer today: CodexLive — V4 rename candidate CodexService.layer
+ *   Do not dual-export Live + `.layer` names.
+ */
 export class CodexService extends Context.Tag("@chassis/CodexService")<
   CodexService,
   {

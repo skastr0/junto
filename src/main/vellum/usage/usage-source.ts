@@ -21,6 +21,15 @@ export interface UsageSource {
 // Registry Tag: the composition root contributes the set of sources the
 // service fans out over. Tests inject fakes via Layer.succeed(UsageSources,
 // [...]) — same pattern as the SDK adapter tests.
+/**
+ * effect-foundation **S4-rest-main** (staged, not half-migrated):
+ * - Canonical id: `@vellum/UsageSources` — single definition; no dual path.
+ * - Substrate: effect@3.21 → `Context.Tag` (`Context.Service` unavailable).
+ * - V4 target:
+ *   `class UsageSources extends Context.Service<UsageSources, ReadonlyArray<UsageSource>>()("@vellum/UsageSources") {}`
+ * - Layer today: StationUsageSourcesLive / NativeUsageSourcesLive / CodexBarSourcesLive — V4 rename candidates UsageSources.layer*
+ *   Do not dual-export Live + `.layer` names.
+ */
 export class UsageSources extends Context.Tag("@vellum/UsageSources")<
   UsageSources,
   ReadonlyArray<UsageSource>

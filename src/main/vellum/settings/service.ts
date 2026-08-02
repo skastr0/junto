@@ -43,6 +43,15 @@ import {
  * preferences. Its station section is a projection of station_configuration,
  * the sole normalized topology authority.
  */
+/**
+ * effect-foundation **S4-rest-main** (staged, not half-migrated):
+ * - Canonical id: `@vellum/SettingsService` — single definition; no dual path.
+ * - Substrate: effect@3.21 → `Context.Tag` (`Context.Service` unavailable).
+ * - V4 target:
+ *   `class SettingsService extends Context.Service<SettingsService, SettingsService>()("@vellum/SettingsService") {}`
+ * - Layer today: SettingsLive / makeSettingsLive — V4 rename candidate SettingsService.layer
+ *   Do not dual-export Live + `.layer` names.
+ */
 export class SettingsService extends Context.Tag("@vellum/SettingsService")<
   SettingsService,
   {

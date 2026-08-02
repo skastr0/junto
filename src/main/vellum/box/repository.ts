@@ -135,6 +135,15 @@ const hostForMachine = (
 const isSshUsableState = (state: string): boolean =>
   state === "ready" || state === "idle" || state === "running";
 
+/**
+ * effect-foundation **S4-rest-main** (staged, not half-migrated):
+ * - Canonical id: `@vellum/box/BoxOwnershipRepository` — single definition; no dual path.
+ * - Substrate: effect@3.21 → `Context.Tag` (`Context.Service` unavailable).
+ * - V4 target:
+ *   `class BoxOwnershipRepository extends Context.Service<BoxOwnershipRepository, BoxOwnershipRepository>()("@vellum/box/BoxOwnershipRepository") {}`
+ * - Layer today: BoxOwnershipRepositoryLive — V4 rename candidate BoxOwnershipRepository.layer
+ *   Do not dual-export Live + `.layer` names.
+ */
 export class BoxOwnershipRepository extends Context.Tag(
   "@vellum/box/BoxOwnershipRepository",
 )<

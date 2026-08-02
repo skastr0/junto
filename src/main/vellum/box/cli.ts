@@ -167,6 +167,15 @@ const errorDetailFromJsonLines = (stdout: string): string | undefined => {
   return undefined;
 };
 
+/**
+ * effect-foundation **S4-rest-main** (staged, not half-migrated):
+ * - Canonical id: `@vellum/box/BoxCli` — single definition; no dual path.
+ * - Substrate: effect@3.21 → `Context.Tag` (`Context.Service` unavailable).
+ * - V4 target:
+ *   `class BoxCli extends Context.Service<BoxCli, BoxCli>()("@vellum/box/BoxCli") {}`
+ * - Layer today: BoxCliLive / makeBoxCli — V4 rename candidate BoxCli.layer
+ *   Do not dual-export Live + `.layer` names.
+ */
 export class BoxCli extends Context.Tag("@vellum/box/BoxCli")<
   BoxCli,
   {

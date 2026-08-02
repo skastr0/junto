@@ -35,6 +35,15 @@ export type FactoryPauseRepositoryError =
   | FactoryPausePersistenceError
   | FactoryPauseStateCorruptError;
 
+/**
+ * effect-foundation **S4-rest-main** (staged, not half-migrated):
+ * - Canonical id: `@vellum/FactoryPauseRepository` — single definition; no dual path.
+ * - Substrate: effect@3.21 → `Context.Tag` (`Context.Service` unavailable).
+ * - V4 target:
+ *   `class FactoryPauseRepository extends Context.Service<FactoryPauseRepository, FactoryPauseRepository>()("@vellum/FactoryPauseRepository") {}`
+ * - Layer today: FactoryPauseRepositoryLive — V4 rename candidate FactoryPauseRepository.layer
+ *   Do not dual-export Live + `.layer` names.
+ */
 export class FactoryPauseRepository extends Context.Tag(
   "@vellum/FactoryPauseRepository",
 )<

@@ -62,6 +62,15 @@ export type SchedulerRepositoryError =
   | SchedulerStateCorruptError
   | SchedulerInputError;
 
+/**
+ * effect-foundation **S4-rest-main** (staged, not half-migrated):
+ * - Canonical id: `@vellum/SchedulerRepository` — single definition; no dual path.
+ * - Substrate: effect@3.21 → `Context.Tag` (`Context.Service` unavailable).
+ * - V4 target:
+ *   `class SchedulerRepository extends Context.Service<SchedulerRepository, SchedulerRepository>()("@vellum/SchedulerRepository") {}`
+ * - Layer today: SchedulerRepositoryLive / makeSchedulerRepositoryLive — V4 rename candidate SchedulerRepository.layer
+ *   Do not dual-export Live + `.layer` names.
+ */
 export class SchedulerRepository extends Context.Tag(
   "@vellum/SchedulerRepository",
 )<

@@ -75,6 +75,15 @@ export const deriveBoxHostActivity = (
   return { activeHostIds, hasUnresolvedActiveWork };
 };
 
+/**
+ * effect-foundation **S4-rest-main** (staged, not half-migrated):
+ * - Canonical id: `@vellum/box/BoxActivityPolicy` — single definition; no dual path.
+ * - Substrate: effect@3.21 → `Context.Tag` (`Context.Service` unavailable).
+ * - V4 target:
+ *   `class BoxActivityPolicy extends Context.Service<BoxActivityPolicy, BoxActivityPolicy>()("@vellum/box/BoxActivityPolicy") {}`
+ * - Layer today: BoxActivityPolicyLive — V4 rename candidate BoxActivityPolicy.layer
+ *   Do not dual-export Live + `.layer` names.
+ */
 export class BoxActivityPolicy extends Context.Tag(
   "@vellum/box/BoxActivityPolicy",
 )<

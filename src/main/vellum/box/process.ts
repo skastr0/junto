@@ -34,6 +34,15 @@ export class BoxProcessError extends Schema.TaggedError<BoxProcessError>()(
   },
 ) {}
 
+/**
+ * effect-foundation **S4-rest-main** (staged, not half-migrated):
+ * - Canonical id: `@vellum/box/BoxProcessRunner` — single definition; no dual path.
+ * - Substrate: effect@3.21 → `Context.Tag` (`Context.Service` unavailable).
+ * - V4 target:
+ *   `class BoxProcessRunner extends Context.Service<BoxProcessRunner, BoxProcessRunner>()("@vellum/box/BoxProcessRunner") {}`
+ * - Layer today: BoxProcessRunnerLive — V4 rename candidate BoxProcessRunner.layer
+ *   Do not dual-export Live + `.layer` names.
+ */
 export class BoxProcessRunner extends Context.Tag("@vellum/box/BoxProcessRunner")<
   BoxProcessRunner,
   {

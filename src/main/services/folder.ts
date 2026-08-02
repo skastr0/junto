@@ -7,6 +7,15 @@ export class FolderError extends Schema.TaggedError<FolderError>()("FolderError"
   message: Schema.String,
 }) {}
 
+/**
+ * effect-foundation **S4-rest-main** (staged, not half-migrated):
+ * - Canonical id: `@chassis/FolderService` — single definition; no dual path.
+ * - Substrate: effect@3.21 → `Context.Tag` (`Context.Service` unavailable).
+ * - V4 target:
+ *   `class FolderService extends Context.Service<FolderService, FolderService>()("@chassis/FolderService") {}`
+ * - Layer today: FolderLive — V4 rename candidate FolderService.layer
+ *   Do not dual-export Live + `.layer` names.
+ */
 export class FolderService extends Context.Tag("@chassis/FolderService")<
   FolderService,
   {

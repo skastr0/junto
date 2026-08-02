@@ -64,6 +64,15 @@ const resolveHermesEndpoint = (
   return parseHostSshRoute(host);
 };
 
+/**
+ * effect-foundation **S4-rest-main** (staged, not half-migrated):
+ * - Canonical id: `@vellum/HermesTransport` — single definition; no dual path.
+ * - Substrate: effect@3.21 → `Context.Tag` (`Context.Service` unavailable).
+ * - V4 target:
+ *   `class HermesTransport extends Context.Service<HermesTransport, HermesTransport>()("@vellum/HermesTransport") {}`
+ * - Layer today: HermesTransportLive — V4 rename candidate HermesTransport.layer
+ *   Do not dual-export Live + `.layer` names.
+ */
 export class HermesTransport extends Context.Tag("@vellum/HermesTransport")<
   HermesTransport,
   {

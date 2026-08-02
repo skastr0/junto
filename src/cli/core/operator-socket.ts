@@ -275,6 +275,15 @@ const ndjsonCall = (
     });
   });
 
+/**
+ * effect-foundation **S4-rest-main** (staged, not half-migrated):
+ * - Canonical id: `@vellum/cli/OperatorSocket` — single definition; no dual path.
+ * - Substrate: effect@3.21 → `Context.Tag` (`Context.Service` unavailable).
+ * - V4 target:
+ *   `class OperatorSocket extends Context.Service<OperatorSocket, OperatorSocket>()("@vellum/cli/OperatorSocket") {}`
+ * - Layer today: OperatorSocketLive — V4 rename candidate OperatorSocket.layer
+ *   Do not dual-export Live + `.layer` names.
+ */
 export class OperatorSocket extends Context.Tag("@vellum/cli/OperatorSocket")<
   OperatorSocket,
   {
