@@ -3,7 +3,8 @@ import type { CanvasDoc, CanvasNode } from "./canvas";
 import type { Task } from "./work-model";
 import type { ActorSeatId } from "./actor-seat";
 import { claimedByOf } from "./task";
-import { taskIndexById, taskIsClaimReady } from "./task-deps";
+import { dependencyScopeIndex } from "./task-dep-scope";
+import { taskIsClaimReady } from "./task-deps";
 import {
   resolveCompiledActorRef,
   workRoleOf,
@@ -73,8 +74,10 @@ export type FactoryClaimSelection = {
  *
  * The selector reserves a seat in-memory only for the rest of this returned
  * batch. The caller remains responsible for exactly one durable claim attempt
- * per selection. Task IDs are sink-local, so every result carries both its
- * SinkRef and exact TaskRef.
+ * per selection. Task routing ids are (sink, taskId); dependsOn edges may
+ * resolve to other task sinks in the same region, so claim-ready walks the
+ * region-scoped index. Every result still carries both its SinkRef and
+ * exact TaskRef.
  *
  * A paused seat (opts.seatPaused) neither drains as a sink nor claims as a
  * worker — the pause plane's law reaches the simulation here.
@@ -118,7 +121,7 @@ export const selectFactoryClaims = (
     for (const task of items) {
       counts.set(task.id, (counts.get(task.id) ?? 0) + 1);
     }
-    const byId = taskIndexById(items);
+    const byId = dependencyScopeIndex(doc, node.id);
     const open = items
       .filter(
         (task) =>

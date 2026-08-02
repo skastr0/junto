@@ -50,7 +50,8 @@ import {
   taskContentPendingMessage,
   taskContentReadiness,
 } from "@shared/content";
-import { taskIndexById, taskIsClaimReady } from "@shared/task-deps";
+import { dependencyScopeIndex } from "@shared/task-dep-scope";
+import { taskIsClaimReady } from "@shared/task-deps";
 import { operatorPlanningActorRef } from "@shared/work-reference";
 import type {
   ActorRef,
@@ -1267,9 +1268,13 @@ export const WorkLive = Layer.effect(
               });
             }
             // Claim-ready gate for every first-claim arm (local + remote reserve).
+            // dependsOn may resolve to other task sinks in the same region.
             if (
               sourceTask.state === "submitted" &&
-              !taskIsClaimReady(sourceTask, taskIndexById(sourceItems))
+              !taskIsClaimReady(
+                sourceTask,
+                dependencyScopeIndex(read.doc, nodeId),
+              )
             ) {
               return yield* new WorkServiceError({
                 code: "invalid",

@@ -110,9 +110,11 @@ const now = (): DisplayTimestampValue =>
 const assertTaskClaimReady = (
   reader: StateReader,
   task: TaskValue,
-  siblings: ReadonlyArray<TaskValue>,
+  canvasName: string,
 ): void => {
-  if (!taskIsClaimReady(task, taskIndexById(siblings))) {
+  // Canvas-wide index: cross-sink dependsOn may point at other task nodes.
+  // Pure policy already rejected cross-region at create/propose time.
+  if (!taskIsClaimReady(task, taskIndexById(loadCanvasTasks(reader, canvasName)))) {
     throw authorityError(
       "invalid-transition",
       `task "${task.id}" is not claim-ready (unsatisfied dependsOn)`,
@@ -1234,6 +1236,33 @@ const loadLaneTasks = (
         finishMap?.get(row.item_id),
       ),
     );
+};
+
+/**
+ * All tasks on a canvas — used for dependsOn existence / claim-ready so
+ * cross-sink prereqs (same region at the policy layer) resolve in SQLite.
+ * Region geometry is enforced by pure work policy before commit.
+ */
+const loadCanvasTasks = (
+  reader: StateReader,
+  canvasName: string,
+): ReadonlyArray<TaskValue> => {
+  const nodes = reader.all<StateRow & { readonly node_id: string }>(
+    `
+      SELECT DISTINCT node_id
+      FROM work_tasks
+      WHERE canvas_name = ?
+      ORDER BY node_id
+    `,
+    [canvasName],
+  );
+  const items: TaskValue[] = [];
+  for (const { node_id } of nodes) {
+    items.push(
+      ...loadLaneTasks(reader, { canvasName, nodeId: node_id }, "task"),
+    );
+  }
+  return items;
 };
 
 const loadProposals = (
@@ -4912,8 +4941,11 @@ const validateIncomingFact = (
           );
         }
         {
-          const siblings = loadLaneTasks(writer, fact.item.sink, "task");
-          assertTaskClaimReady(writer, current.task, siblings);
+          assertTaskClaimReady(
+            writer,
+            current.task,
+            fact.item.sink.canvasName,
+          );
         }
         return;
       }
@@ -5736,11 +5768,12 @@ export const WorkRepositoryLive = Layer.effect(
           );
         }
         if (task.dependsOn !== undefined && task.dependsOn.length > 0) {
-          const siblings = loadLaneTasks(writer, input.sink, "task");
           const depError = validateTaskDependsOn({
             taskId: task.id,
             dependsOn: task.dependsOn,
-            byId: taskIndexById(siblings),
+            byId: taskIndexById(
+              loadCanvasTasks(writer, input.sink.canvasName),
+            ),
           });
           if (depError !== undefined) {
             throw authorityError("invalid-transition", depError);
@@ -6087,8 +6120,7 @@ export const WorkRepositoryLive = Layer.effect(
           );
         }
         {
-          const siblings = loadLaneTasks(writer, input.sink, "task");
-          assertTaskClaimReady(writer, current.task, siblings);
+          assertTaskClaimReady(writer, current.task, input.sink.canvasName);
         }
         assertActorAvailable(writer, input.actor.seatId);
         const task = Schema.decodeUnknownSync(Task, strictDecode)({
@@ -6620,8 +6652,7 @@ export const WorkRepositoryLive = Layer.effect(
             );
           }
           {
-            const siblings = loadLaneTasks(writer, input.sink, "task");
-            assertTaskClaimReady(writer, current.task, siblings);
+            assertTaskClaimReady(writer, current.task, input.sink.canvasName);
           }
           assertActorAvailable(writer, input.actor.seatId);
           const action = Schema.decodeUnknownSync(

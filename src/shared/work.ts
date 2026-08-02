@@ -28,9 +28,9 @@ import {
   taskWithTransitionState,
   validateTaskMediaParts,
 } from "./task";
+import { dependencyScopeIndex } from "./task-dep-scope";
 import {
   normalizeDependsOn,
-  taskIndexById,
   taskIsClaimReady,
   validateTaskDependsOn,
 } from "./task-deps";
@@ -300,7 +300,7 @@ export const workTaskCreate = (
    * paths.
    */
   media?: ReadonlyArray<Part>,
-  /** Same-sink hard prerequisites (task ids). Empty / omitted = free. */
+  /** Same-region hard prerequisites (task ids; cross-sink ok). Empty / omitted = free. */
   dependsOn?: ReadonlyArray<string>,
   finishCriteria?: FinishCriteria,
 ): WorkTaskCreateResult => {
@@ -317,7 +317,7 @@ export const workTaskCreate = (
   const depError = validateTaskDependsOn({
     taskId,
     dependsOn: normalizedDeps,
-    byId: taskIndexById(existing),
+    byId: dependencyScopeIndex(doc, nodeId),
   });
   if (depError) throw new WorkError("invalid", depError);
   let criteria: FinishCriteria | undefined;
@@ -404,7 +404,7 @@ export const workTaskPropose = (
    * First-class media on the brief message — same contract as task.create.
    */
   media?: ReadonlyArray<Part>,
-  /** Same-sink hard prerequisites (task ids). Empty / omitted = free. */
+  /** Same-region hard prerequisites (task ids; cross-sink ok). Empty / omitted = free. */
   dependsOn?: ReadonlyArray<string>,
   finishCriteria?: FinishCriteria,
 ): WorkProposalResult => {
@@ -421,7 +421,7 @@ export const workTaskPropose = (
   const depError = validateTaskDependsOn({
     taskId: proposalId,
     dependsOn: normalizedDeps,
-    byId: taskIndexById(existing),
+    byId: dependencyScopeIndex(doc, nodeId),
   });
   if (depError) throw new WorkError("invalid", depError);
   let criteria: FinishCriteria | undefined;
@@ -487,11 +487,11 @@ export const workTaskApproveProposal = (
     );
   }
   const taskId = ids.id();
-  // Re-validate deps against current items at approve time (still not self).
+  // Re-validate deps against region-scoped items at approve time (still not self).
   const depError = validateTaskDependsOn({
     taskId,
     dependsOn: current.dependsOn,
-    byId: taskIndexById(items),
+    byId: dependencyScopeIndex(doc, nodeId),
   });
   if (depError) throw new WorkError("invalid", depError);
   const task: Task = {
@@ -739,9 +739,10 @@ export const workTaskClaim = (
     if (current.state === "working" && existing === actor.seatId) {
       return current;
     }
-    // Hard prereqs: first claim only when every dependsOn is completed.
+    // Hard prereqs: first claim only when every dependsOn is completed
+    // (deps may live on other task sinks in the same region).
     if (current.state === "submitted") {
-      const byId = taskIndexById(items);
+      const byId = dependencyScopeIndex(doc, nodeId);
       if (!taskIsClaimReady(current, byId)) {
         throw new WorkError(
           "invalid",

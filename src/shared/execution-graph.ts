@@ -8,7 +8,8 @@ import type {
 } from "./canvas";
 import type { ActorSeatId } from "./actor-seat";
 import { claimedByOf, isTerminalTaskState, taskBrief } from "./task";
-import { taskDepStatus, taskIndexById } from "./task-deps";
+import { dependencyScopeIndex } from "./task-dep-scope";
+import { taskDepStatus } from "./task-deps";
 import {
   resolveCompiledActorRef,
   type ActorRefResolver,
@@ -503,7 +504,7 @@ export const composeRegionExecutionContext = (
       taskLines.push(`${titleOf(node, id)} :: ${pending}/${items.length} pending · ${preview}`);
     } else {
       const open = items.filter((item) => !isTerminalTaskState(item.state)).length;
-      const byId = taskIndexById(items);
+      const depById = dependencyScopeIndex(doc, id);
       const preview = items
         .map((item) => {
           const mark = isTerminalTaskState(item.state) ? "[x]" : "[ ]";
@@ -511,7 +512,7 @@ export const composeRegionExecutionContext = (
           if (item.state !== "submitted" || claimedByOf(item)) {
             return `${mark} ${brief}`;
           }
-          const dep = taskDepStatus(item, byId);
+          const dep = taskDepStatus(item, depById);
           if (dep.kind === "ready") return `${mark} ${brief}`;
           if (dep.kind === "waiting") {
             return `${mark} ${brief} (waiting: ${dep.frontier.join(",")})`;

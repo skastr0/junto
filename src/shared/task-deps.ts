@@ -2,7 +2,8 @@ import type { Task } from "./work-model";
 import { claimedByOf, isTerminalTaskState } from "./task";
 
 /**
- * Work-plane task dependencies (same-sink hard prereqs).
+ * Work-plane task dependencies (hard prereqs; scope is supplied by the
+ * caller — typically same-region via dependencyScopeIndex).
  *
  * Parallel default: omit / empty dependsOn → immediately claim-ready.
  * Join is ALL; only `completed` satisfies an edge.
@@ -177,7 +178,7 @@ export const validateTaskDependsOn = (params: {
   readonly taskId: string;
   readonly dependsOn: ReadonlyArray<string> | undefined;
   readonly byId: ReadonlyMap<string, Task>;
-  /** When true, every dep id must already exist in the sink. */
+  /** When true, every dep id must already exist in the dependency scope. */
   readonly requireExisting?: boolean;
 }): string | undefined => {
   const deps = normalizeDependsOn(params.dependsOn);
