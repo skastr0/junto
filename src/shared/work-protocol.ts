@@ -173,6 +173,7 @@ export type RouteCursor = typeof RouteCursor.Type;
 export const WorkOperation = Schema.Literal(
   "proposal.create",
   "proposal.approve",
+  "proposal.reject",
   "task.create",
   "task.describe",
   "task.transition",
@@ -211,6 +212,12 @@ export const ProposalApproveAction = Schema.Struct({
   ),
 );
 export type ProposalApproveAction = typeof ProposalApproveAction.Type;
+
+export const ProposalRejectAction = Schema.Struct({
+  operation: Schema.Literal("proposal.reject"),
+  proposalId: BoundedWorkId,
+});
+export type ProposalRejectAction = typeof ProposalRejectAction.Type;
 
 export const DeliveryReceipt = Schema.Struct({
   deliveryId: BoundedWorkId,
@@ -391,6 +398,7 @@ export type BoardPostAppendAction = typeof BoardPostAppendAction.Type;
 export const WorkAction = Schema.Union(
   ProposalCreateAction,
   ProposalApproveAction,
+  ProposalRejectAction,
   TaskCreateAction,
   TaskDescribeAction,
   TaskTransitionAction,
@@ -432,6 +440,18 @@ export const ProposalApproveResult = Schema.Struct({
   ),
 );
 export type ProposalApproveResult = typeof ProposalApproveResult.Type;
+
+export const ProposalRejectResult = Schema.Struct({
+  operation: Schema.Literal("proposal.reject"),
+  proposal: TaskProposal,
+}).pipe(
+  Schema.filter(
+    ({ proposal }) =>
+      proposal.state === "rejected" ||
+      "proposal.reject result requires a rejected proposal",
+  ),
+);
+export type ProposalRejectResult = typeof ProposalRejectResult.Type;
 
 export const TaskCreateResult = Schema.Struct({
   operation: Schema.Literal("task.create"),
@@ -527,6 +547,7 @@ export type BoardPostAppendResult = typeof BoardPostAppendResult.Type;
 export const WorkResult = Schema.Union(
   ProposalCreateResult,
   ProposalApproveResult,
+  ProposalRejectResult,
   TaskCreateResult,
   TaskMutationResult,
   TaskClaimResult,
@@ -610,6 +631,7 @@ const itemMatchesAction = (
     case "proposal.create":
       return item.kind === "proposal" && item.itemId === action.proposal.id;
     case "proposal.approve":
+    case "proposal.reject":
       return item.kind === "proposal" && item.itemId === action.proposalId;
     case "task.create":
       return item.kind === "task" && item.itemId === action.task.id;
@@ -655,6 +677,7 @@ const itemMatchesResult = (
   switch (result.operation) {
     case "proposal.create":
     case "proposal.approve":
+    case "proposal.reject":
       return item.kind === "proposal" && item.itemId === result.proposal.id;
     case "task.create":
     case "task.describe":

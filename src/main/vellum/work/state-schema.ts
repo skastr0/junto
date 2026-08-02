@@ -1763,6 +1763,27 @@ export const WORK_STATE_SCHEMA_BOARD_VOCAB_SQL = WORK_STATE_SCHEMA_SQL
   );
 
 /**
+ * Board vocab + proposal.reject on work_proposal_events /
+ * work_pending_proposal_commands. V5–V13 keep create/approve-only CHECKs.
+ */
+export const WORK_STATE_SCHEMA_PROPOSAL_REJECT_SQL =
+  WORK_STATE_SCHEMA_BOARD_VOCAB_SQL.replaceAll(
+    "operation IN ('proposal.create', 'proposal.approve')",
+    "operation IN ('proposal.create', 'proposal.approve', 'proposal.reject')",
+  );
+
+/**
+ * Proposal event tables only, with reject in the operation CHECK. Used by the
+ * v13→v14 rebuild (drop + recreate + copy-forward). work_task_proposals is
+ * IF NOT EXISTS so material rows and their already-allowed rejected state stay.
+ */
+export const WORK_PROPOSAL_EVENTS_REJECT_VOCAB_SQL =
+  WORK_PROPOSAL_STATE_SCHEMA_SQL.replaceAll(
+    "operation IN ('proposal.create', 'proposal.approve')",
+    "operation IN ('proposal.create', 'proposal.approve', 'proposal.reject')",
+  );
+
+/**
  * Historical Work schema embedded in state schema versions 1–3.
  * Kept as an exact forward-migration witness; fresh installs use the current
  * trigger above. This avoids duplicating the rest of the large Work schema.

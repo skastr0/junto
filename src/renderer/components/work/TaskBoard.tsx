@@ -20,6 +20,7 @@ import {
   Search,
   UserRound,
   X,
+  XCircle,
 } from "lucide-react";
 import {
   DragDropProvider,
@@ -396,6 +397,7 @@ function TaskLane({
   proposalById,
   onCreate,
   onApprove,
+  onRejectProposal,
   onSelect,
   onMove,
   onEdit,
@@ -414,6 +416,7 @@ function TaskLane({
   readonly proposalById: ReadonlyMap<string, string>;
   readonly onCreate: () => void;
   readonly onApprove: (task: WorkTask) => void;
+  readonly onRejectProposal?: (task: WorkTask) => void;
   readonly onSelect: (taskId: string) => void;
   readonly onMove: (task: WorkTask, state: TaskState) => void;
   readonly onEdit: (task: WorkTask) => void;
@@ -485,6 +488,7 @@ function TaskLane({
             onSelect={onSelect}
             onMove={onMove}
             onApprove={onApprove}
+            onRejectProposal={onRejectProposal}
             onEdit={onEdit}
             onCancelEdit={onCancelEdit}
             onSaveEdit={onSaveEdit}
@@ -521,6 +525,7 @@ function TaskActionsMenu({
   onEdit,
   onMove,
   onApprove,
+  onRejectProposal,
 }: {
   readonly task: WorkTask;
   readonly lane: LaneDefinition;
@@ -529,6 +534,7 @@ function TaskActionsMenu({
   readonly onEdit: (task: WorkTask) => void;
   readonly onMove: (task: WorkTask, state: TaskState) => void;
   readonly onApprove: (task: WorkTask) => void;
+  readonly onRejectProposal?: (task: WorkTask) => void;
 }) {
   const menuId = `task-actions-${useId().replaceAll(":", "")}`;
   const menuRef = useRef<HTMLDivElement>(null);
@@ -609,6 +615,16 @@ function TaskActionsMenu({
             Approve to Queue
           </button>
         ) : null}
+        {isProposal && onRejectProposal ? (
+          <button
+            type="button"
+            role="menuitem"
+            disabled={pending}
+            onClick={() => commit(() => onRejectProposal(task))}
+          >
+            Reject proposal
+          </button>
+        ) : null}
         {!isProposal ? (
           <button type="button" role="menuitem" onClick={() => commit(() => onEdit(task))}>
             Edit title
@@ -662,6 +678,7 @@ function TaskCard({
   onSelect,
   onMove,
   onApprove,
+  onRejectProposal,
   onEdit,
   onCancelEdit,
   onSaveEdit,
@@ -678,6 +695,7 @@ function TaskCard({
   readonly onSelect: (taskId: string) => void;
   readonly onMove: (task: WorkTask, state: TaskState) => void;
   readonly onApprove: (task: WorkTask) => void;
+  readonly onRejectProposal?: (task: WorkTask) => void;
   readonly onEdit: (task: WorkTask) => void;
   readonly onCancelEdit: () => void;
   readonly onSaveEdit: (task: WorkTask, brief: string) => void;
@@ -835,6 +853,7 @@ function TaskCard({
             onEdit={onEdit}
             onMove={onMove}
             onApprove={onApprove}
+            onRejectProposal={onRejectProposal}
           />
         ) : null}
       </div>
@@ -1487,6 +1506,7 @@ function TaskDetailPanel({
   onReject,
   onMove,
   onApprove,
+  onRejectProposal,
 }: {
   readonly task: WorkTask;
   readonly pending: boolean;
@@ -1503,6 +1523,7 @@ function TaskDetailPanel({
   readonly onReject: (task: WorkTask, comment: string) => Promise<boolean>;
   readonly onMove: (task: WorkTask, state: TaskState) => void;
   readonly onApprove?: (task: WorkTask) => void;
+  readonly onRejectProposal?: (task: WorkTask) => void;
 }) {
   const [title, setTitle] = useState(() => taskTitle(task));
   const [response, setResponse] = useState("");
@@ -1582,6 +1603,18 @@ function TaskDetailPanel({
               >
                 <CheckCircle2 size={12} />
                 Approve to Queue
+              </Button>
+            ) : null}
+            {isProposal && onRejectProposal ? (
+              <Button
+                size="xs"
+                variant="danger"
+                disabled={pending}
+                title="Reject and remove this proposal from the board"
+                onClick={() => onRejectProposal(task)}
+              >
+                <XCircle size={12} />
+                Reject proposal
               </Button>
             ) : null}
             {!isProposal &&
@@ -1888,21 +1921,34 @@ function TaskDetailPanel({
             <div>
               <h3>Planning</h3>
               <p>
-                Proposals are drafts. Approve to mint a queued task workers can claim, or
-                leave it here until the plan is ready.
+                Proposals are drafts. Approve to mint a queued task workers can claim,
+                reject to discard it, or leave it here until the plan is ready.
               </p>
             </div>
-            {onApprove ? (
-              <Button
-                size="sm"
-                variant="primary"
-                disabled={pending}
-                onClick={() => onApprove(task)}
-              >
-                <CheckCircle2 size={13} />
-                Approve to Queue
-              </Button>
-            ) : null}
+            <div className="flex flex-wrap gap-2">
+              {onApprove ? (
+                <Button
+                  size="sm"
+                  variant="primary"
+                  disabled={pending}
+                  onClick={() => onApprove(task)}
+                >
+                  <CheckCircle2 size={13} />
+                  Approve to Queue
+                </Button>
+              ) : null}
+              {onRejectProposal ? (
+                <Button
+                  size="sm"
+                  variant="danger"
+                  disabled={pending}
+                  onClick={() => onRejectProposal(task)}
+                >
+                  <XCircle size={13} />
+                  Reject proposal
+                </Button>
+              ) : null}
+            </div>
           </section>
         ) : (
           <section className="task-detail-panel__section task-detail-panel__status">
@@ -2205,6 +2251,31 @@ export function TaskBoard({
     }
   };
 
+  const rejectProposal = async (task: WorkTask) => {
+    if (!api?.workTaskRejectProposal) return;
+    setError("");
+    setPendingTaskId(task.id);
+    try {
+      const result = await runWorkCanvasMutation(name, () =>
+        api.workTaskRejectProposal(name, node.id, task.id),
+      );
+      if (result === undefined) return;
+      if (!result.ok) {
+        setError(result.message);
+        setAnnouncement(`Could not reject ${taskTitle(task)}. ${result.message}`);
+        return;
+      }
+      setSelectedTaskId(null);
+      setAnnouncement(`Rejected proposal ${taskTitle(task)}.`);
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      setError(message);
+      setAnnouncement(`Could not reject ${taskTitle(task)}. ${message}`);
+    } finally {
+      setPendingTaskId(null);
+    }
+  };
+
   const saveTaskTitle = async (task: WorkTask, nextBrief: string) => {
     const describe = (api as (typeof api & DescribeApi) | undefined)?.workTaskDescribe;
     if (!api || !describe || !nextBrief.trim()) {
@@ -2473,6 +2544,7 @@ export function TaskBoard({
                 onSelect={setSelectedTaskId}
                 onMove={(task, state) => void transitionTask(task, state)}
                 onApprove={(task) => void approveProposal(task)}
+                onRejectProposal={(task) => void rejectProposal(task)}
                 onEdit={(task) => setEditingTaskId(task.id)}
                 onCancelEdit={() => setEditingTaskId(null)}
                 onSaveEdit={(task, nextBrief) => void saveTaskTitle(task, nextBrief)}
@@ -2503,6 +2575,11 @@ export function TaskBoard({
               onApprove={
                 selectedIsProposal
                   ? (task) => void approveProposal(task)
+                  : undefined
+              }
+              onRejectProposal={
+                selectedIsProposal
+                  ? (task) => void rejectProposal(task)
                   : undefined
               }
             />

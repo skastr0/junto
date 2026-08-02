@@ -39,6 +39,7 @@ import {
   workRequestResolve,
   workTaskCreate,
   workTaskApproveProposal,
+  workTaskRejectProposal,
   workTaskDescribe,
   workTaskPropose,
   workTaskRespond,
@@ -290,6 +291,11 @@ export class WorkService extends Context.Tag("@vellum/WorkService")<
       nodeId: string,
       taskId: string,
     ) => Effect.Effect<WorkOpResult<Task>>;
+    readonly workTaskRejectProposal: (
+      canvas: string,
+      nodeId: string,
+      taskId: string,
+    ) => Effect.Effect<WorkOpResult<TaskProposal>>;
     readonly workTaskDescribe: (
       canvas: string,
       nodeId: string,
@@ -1068,6 +1074,52 @@ export const WorkLive = Layer.effect(
                   Effect.mapError(toWorkServiceError),
                   Effect.as({
                     value: policy.task,
+                    disposition: "queued" as const,
+                  }),
+                );
+            return yield* complete(canvas, outcome);
+          }),
+        ),
+
+      workTaskRejectProposal: (canvas, nodeId, taskId) =>
+        asResult(
+          Effect.gen(function* () {
+            const [context, read, home] = yield* Effect.all([
+              stationContext,
+              readCanvas(canvas),
+              itemHome("proposal", canvas, nodeId, taskId),
+            ]);
+            const policy = yield* runPolicy(() =>
+              workTaskRejectProposal(read.doc, nodeId, taskId)
+            );
+            const outcome = home === context.localInstallationId
+              ? yield* local(
+                repository.rejectProposal({
+                  sink: sinkRef(canvas, nodeId),
+                  basis: intentBasis(context, read.intentWitness),
+                  proposalId: taskId,
+                }),
+              )
+              : yield* requireRoutableRemote(home, context).pipe(
+                  Effect.flatMap(() =>
+                    repository.enqueueRemoteCommand({
+                      sink: sinkRef(canvas, nodeId),
+                      targetInstallationId: home,
+                      item: workItem(
+                        "proposal",
+                        taskId,
+                        canvas,
+                        nodeId,
+                      ),
+                      action: {
+                        operation: "proposal.reject",
+                        proposalId: taskId,
+                      },
+                    })
+                  ),
+                  Effect.mapError(toWorkServiceError),
+                  Effect.as({
+                    value: policy.proposal,
                     disposition: "queued" as const,
                   }),
                 );

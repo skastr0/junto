@@ -21,6 +21,7 @@ import {
   WORK_BOARD_STATE_SCHEMA_SQL,
   WORK_PROPOSAL_PLANNING_STATE_SCHEMA_SQL,
   WORK_STATE_SCHEMA_BOARD_VOCAB_SQL,
+  WORK_STATE_SCHEMA_PROPOSAL_REJECT_SQL,
   WORK_STATE_SCHEMA_SQL,
   WORK_STATE_SCHEMA_V3_SQL,
   WORK_TASK_DEPENDENCIES_STATE_SCHEMA_SQL,
@@ -194,11 +195,24 @@ export const STATE_SCHEMA_V12_FRAGMENTS = [
 
 export const STATE_SCHEMA_V12_SQL = STATE_SCHEMA_V12_FRAGMENTS.join("\n");
 
-/** Current: v12 + one-shot inline media migration marker. */
-export const STATE_SCHEMA_FRAGMENTS = [
+/** Schema at version 13: content inline-media migration marker (pre proposal.reject). */
+export const STATE_SCHEMA_V13_FRAGMENTS = [
   ...STATE_SCHEMA_V12_FRAGMENTS,
   CONTENT_INLINE_MEDIA_MIGRATION_SCHEMA_SQL,
 ] as const;
+
+export const STATE_SCHEMA_V13_SQL = STATE_SCHEMA_V13_FRAGMENTS.join("\n");
+
+/**
+ * Current: v13 + proposal.reject on proposal event operation CHECKs.
+ * Historical V5–V13 keep create/approve-only proposal event vocabulary.
+ */
+export const STATE_SCHEMA_FRAGMENTS = STATE_SCHEMA_V13_FRAGMENTS.map(
+  (fragment) =>
+    fragment === WORK_STATE_SCHEMA_BOARD_VOCAB_SQL
+      ? WORK_STATE_SCHEMA_PROPOSAL_REJECT_SQL
+      : fragment,
+) as unknown as typeof STATE_SCHEMA_V13_FRAGMENTS;
 
 /**
  * Fresh-install and final-verification target for the current version.

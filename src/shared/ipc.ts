@@ -110,6 +110,7 @@ export const IPC_CHANNELS = {
   workTaskCreate: "vellum:work-task-create",
   workTaskPropose: "vellum:work-task-propose",
   workTaskApproveProposal: "vellum:work-task-approve-proposal",
+  workTaskRejectProposal: "vellum:work-task-reject-proposal",
   workTaskDescribe: "vellum:work-task-describe",
   workTaskTransition: "vellum:work-task-transition",
   workTaskRespond: "vellum:work-task-respond",
@@ -631,6 +632,11 @@ export interface VellumApi extends LicenseApi, UpdateApi {
     nodeId: string,
     taskId: string,
   ) => Promise<WorkOpResult<Task>>;
+  readonly workTaskRejectProposal: (
+    canvas: string,
+    nodeId: string,
+    taskId: string,
+  ) => Promise<WorkOpResult<TaskProposal>>;
   readonly workTaskDescribe: (
     canvas: string,
     nodeId: string,

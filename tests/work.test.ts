@@ -11,6 +11,7 @@ import {
   workRequestResolve,
   workTaskClaim,
   workTaskApproveProposal,
+  workTaskRejectProposal,
   workTaskCreate,
   workTaskDescribe,
   workTaskRespond,
@@ -157,6 +158,45 @@ describe("work pure transforms", () => {
       ids
     );
     expect(claimed.task.state).toBe("working");
+  });
+
+  it("rejects a pending proposal without minting a task", () => {
+    const worker = actorRef("1", "worker-1");
+    const initial: CanvasDoc = {
+      nodes: [emptyTaskNode()],
+      edges: [{ id: "edge", fromNode: "worker-1", toNode: "tasks" }],
+    };
+    const proposed = workTaskPropose(
+      initial,
+      "alpha",
+      "tasks",
+      "noise draft",
+      { title: "Noise", details: "discard me" },
+      ids,
+      worker,
+    );
+    const rejected = workTaskRejectProposal(
+      proposed.doc,
+      "tasks",
+      proposed.proposal.id,
+    );
+    expect(rejected.proposal.state).toBe("rejected");
+    expect(rejected.proposal.approvedTaskId).toBeUndefined();
+    expect(rejected.doc.nodes[0]?.ether?.tasks?.items).toEqual([]);
+    expect(
+      rejected.doc.nodes[0]?.ether?.tasks?.proposals?.find(
+        (proposal) => proposal.id === proposed.proposal.id,
+      )?.state,
+    ).toBe("rejected");
+    expect(() =>
+      workTaskApproveProposal(
+        rejected.doc,
+        "alpha",
+        "tasks",
+        proposed.proposal.id,
+        ids,
+      ),
+    ).toThrow(/not pending/);
   });
 
   it("carries media, dependsOn, and finishCriteria through propose → approve", () => {

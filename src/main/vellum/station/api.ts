@@ -292,6 +292,7 @@ const operationForActor = (
     case "proposal.create":
       return "tasks.create";
     case "proposal.approve":
+    case "proposal.reject":
       return undefined;
     case "task.claim":
       return "tasks.claim";
@@ -500,6 +501,7 @@ const actorFromFact = (
     case "proposal.create":
       return fact.body.proposal.proposedBy;
     case "proposal.approve":
+    case "proposal.reject":
       return undefined;
     case "task.claim":
       return fact.body.claimedBy;
@@ -641,6 +643,7 @@ export const makeStationWorkAdmission = (
 
     switch (command.body.operation) {
       case "proposal.approve":
+      case "proposal.reject":
         return admitted();
       case "proposal.create":
         return rejected(

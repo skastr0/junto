@@ -19,6 +19,7 @@ export const MAIN_AUTHORING_LABELS = [
   "ipc.work.task-create",
   "ipc.work.task-propose",
   "ipc.work.task-approve-proposal",
+  "ipc.work.task-reject-proposal",
   "ipc.work.task-describe",
   "ipc.work.task-transition",
   "ipc.work.task-respond",

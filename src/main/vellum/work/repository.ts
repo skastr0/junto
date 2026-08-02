@@ -335,6 +335,10 @@ export type ApproveProposalInput = LocalWorkInput & {
   readonly task: TaskValue;
 };
 
+export type RejectProposalInput = LocalWorkInput & {
+  readonly proposalId: string;
+};
+
 export type DescribeTaskInput = LocalWorkInput & {
   readonly taskId: string;
   readonly message: MessageValue;
@@ -3119,6 +3123,7 @@ const materializeFact = (
       );
       return;
     case "proposal.approve":
+    case "proposal.reject":
       writeProposal(
         writer,
         fact.item.sink,
@@ -3547,7 +3552,8 @@ const predecessorForAction = (
     case "board.topic.create":
     case "board.post.append":
       return null;
-    case "proposal.approve": {
+    case "proposal.approve":
+    case "proposal.reject": {
       const current = selectProposalIdentity(
         writer,
         commandItem.sink,
@@ -3664,6 +3670,33 @@ const resultForCommand = (
             approvedTaskId: action.task.id,
           },
           task: action.task,
+        },
+      };
+    }
+    case "proposal.reject": {
+      const current = loadProposal(
+        writer,
+        command.item.sink,
+        action.proposalId,
+      );
+      assertCurrentPredecessor(
+        current?.row,
+        command.predecessor,
+        `proposal "${action.proposalId}"`,
+      );
+      if (current!.proposal.state !== "pending") {
+        throw authorityError(
+          "invalid-transition",
+          `proposal "${action.proposalId}" is not pending`,
+        );
+      }
+      return {
+        body: {
+          operation: "proposal.reject",
+          proposal: {
+            ...current!.proposal,
+            state: "rejected",
+          },
         },
       };
     }
@@ -4567,6 +4600,18 @@ const assertCorrelatedCommandFact = (
         );
       }
       return;
+    case "proposal.reject":
+      if (
+        fact.body.operation !== "proposal.reject" ||
+        fact.body.proposal.id !== action.proposalId ||
+        fact.body.proposal.state !== "rejected"
+      ) {
+        throw authorityError(
+          "causal-conflict",
+          "proposal rejection fact differs from the exact pending command",
+        );
+      }
+      return;
     case "task.create":
       if (
         fact.body.operation !== "task.create" ||
@@ -4863,6 +4908,33 @@ const validateIncomingFact = (
         throw authorityError(
           "invalid-transition",
           "proposal approval fact must promote the exact pending proposal",
+        );
+      }
+      return;
+    }
+    case "proposal.reject": {
+      const current = loadProposal(
+        writer,
+        fact.item.sink,
+        fact.item.itemId,
+      );
+      assertCurrentPredecessor(
+        current?.row,
+        fact.predecessor,
+        `proposal "${fact.item.itemId}"`,
+      );
+      if (
+        current!.row.entity_home !== sender ||
+        current!.proposal.state !== "pending" ||
+        fact.body.proposal.state !== "rejected" ||
+        canonicalJson({
+          ...current!.proposal,
+          state: "rejected",
+        }) !== canonicalJson(fact.body.proposal)
+      ) {
+        throw authorityError(
+          "invalid-transition",
+          "proposal rejection fact must reject the exact pending proposal",
         );
       }
       return;
@@ -5550,6 +5622,12 @@ export class WorkRepository extends Context.Tag("@vellum/WorkRepository")<
       LocalFactResult<ProposalApprovalValue>,
       RepositoryFailure
     >;
+    readonly rejectProposal: (
+      input: RejectProposalInput,
+    ) => Effect.Effect<
+      LocalFactResult<TaskProposalValue>,
+      RepositoryFailure
+    >;
     readonly describeTask: (
       input: DescribeTaskInput,
     ) => Effect.Effect<LocalFactResult<TaskValue>, RepositoryFailure>;
@@ -5917,6 +5995,57 @@ export const WorkRepositoryLive = Layer.effect(
           record: proposalFact.record,
           snapshot: loadSnapshot(writer, input.sink),
         };
+      });
+    };
+
+    const rejectProposal = (
+      input: RejectProposalInput,
+    ): Effect.Effect<
+      LocalFactResult<TaskProposalValue>,
+      RepositoryFailure
+    > => {
+      const originAt = timestamp(input.originAt);
+      const receivedAt = timestamp(input.receivedAt);
+      return transaction("work.proposal.reject", input.sink, (writer) => {
+        const authority = canonicalLocalWorkAuthority(writer);
+        if (authority.role !== "command-center") {
+          throw authorityError(
+            "authority-mismatch",
+            "only the Command Center operator may reject proposals",
+          );
+        }
+        const current = loadProposal(writer, input.sink, input.proposalId);
+        if (current === undefined) {
+          throw authorityError(
+            "missing-entity",
+            `proposal "${input.proposalId}" does not exist`,
+          );
+        }
+        if (
+          current.row.entity_home !== authority.installationId ||
+          current.proposal.state !== "pending"
+        ) {
+          throw authorityError(
+            "invalid-transition",
+            `proposal "${input.proposalId}" is not locally pending`,
+          );
+        }
+        const proposal: TaskProposalValue = {
+          ...current.proposal,
+          state: "rejected",
+        };
+        return commitLocalFact(writer, {
+          localInstallationId: authority.installationId,
+          sink: input.sink,
+          basis: input.basis,
+          item: item("proposal", proposal.id, input.sink),
+          operation: "proposal.reject",
+          predecessor: currentIdentity(current.row),
+          body: { operation: "proposal.reject", proposal },
+          value: proposal,
+          originAt,
+          receivedAt,
+        });
       });
     };
 
@@ -7280,6 +7409,7 @@ export const WorkRepositoryLive = Layer.effect(
       createTask,
       createProposal,
       approveProposal,
+      rejectProposal,
       describeTask,
       transitionTask,
       claimLocalTask,

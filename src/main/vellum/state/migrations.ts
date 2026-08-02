@@ -25,6 +25,7 @@ import {
 } from "../content/state-schema";
 import {
   WORK_BOARD_STATE_SCHEMA_SQL,
+  WORK_PROPOSAL_EVENTS_REJECT_VOCAB_SQL,
   WORK_PROPOSAL_PLANNING_STATE_SCHEMA_SQL,
   WORK_PROPOSAL_STATE_SCHEMA_SQL,
   WORK_STATE_SCHEMA_BOARD_VOCAB_SQL,
@@ -164,7 +165,13 @@ export const STATE_SCHEMA_V13_IDENTITY = {
     "fd6f5b73d474c83ed8ff93c24b60b8587f7cfe3783d2fe65274c7611ae431abf",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 13;
+/** Exact witness of schema version 14 (proposal.reject event vocabulary). */
+export const STATE_SCHEMA_V14_IDENTITY = {
+  actualSchemaSha256:
+    "646f7b553d54bd55cbdab2562132c22508b8ea9b4f29b7f9ae31c8f93d9bf06f",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 14;
 
 export const STATE_SCHEMA_MIGRATIONS =
   [
@@ -330,6 +337,41 @@ export const STATE_SCHEMA_MIGRATIONS =
       fromIdentity: STATE_SCHEMA_V12_IDENTITY,
       migrate: (database) => {
         database.exec(CONTENT_INLINE_MEDIA_MIGRATION_SCHEMA_SQL);
+      },
+    },
+    {
+      fromVersion: 13,
+      toVersion: 14,
+      name: "proposal-reject-event-vocabulary",
+      safety: STATE_SCHEMA_MIGRATION_SAFETY,
+      fromIdentity: STATE_SCHEMA_V13_IDENTITY,
+      replacesTables: [
+        "work_proposal_events",
+        "work_pending_proposal_commands",
+      ],
+      migrate: (database) => {
+        // Expand proposal event operation CHECK for proposal.reject.
+        // Same pattern as board-event-vocabulary (v9→v10).
+        database.exec(`
+          CREATE TABLE work_proposal_events__migrate_bak AS
+            SELECT * FROM work_proposal_events;
+          CREATE TABLE work_pending_proposal_commands__migrate_bak AS
+            SELECT * FROM work_pending_proposal_commands;
+
+          DROP TABLE work_pending_proposal_commands;
+          DROP TABLE work_proposal_events;
+        `);
+
+        database.exec(WORK_PROPOSAL_EVENTS_REJECT_VOCAB_SQL);
+
+        database.exec(`
+          INSERT INTO work_proposal_events
+            SELECT * FROM work_proposal_events__migrate_bak;
+          INSERT INTO work_pending_proposal_commands
+            SELECT * FROM work_pending_proposal_commands__migrate_bak;
+          DROP TABLE work_proposal_events__migrate_bak;
+          DROP TABLE work_pending_proposal_commands__migrate_bak;
+        `);
       },
     },
 
