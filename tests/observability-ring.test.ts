@@ -156,7 +156,7 @@ describe("Effect logger sink", () => {
     observabilityRing.clear();
 
     const runtime = ManagedRuntime.make(
-      Logger.replace(Logger.defaultLogger, ObservabilityEffectLogger),
+      Logger.layer([ObservabilityEffectLogger]),
     );
     try {
       await runtime.runPromise(

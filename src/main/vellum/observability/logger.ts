@@ -1,25 +1,17 @@
-import {
-  Cause,
-  FiberId,
-  HashMap,
-  HashSet,
-  List,
-  Logger,
-  LogLevel,
-  type LogSpan,
-} from "effect";
+import { Cause, Logger, type LogLevel } from "effect";
 import type { ObservabilityLogLevel } from "@shared/observability";
 import { observabilityRing, recordObservabilityLog } from "./ring";
 
 const levelFromEffect = (level: LogLevel.LogLevel): ObservabilityLogLevel => {
-  switch (level._tag) {
+  // V4 LogLevel is a string union, not a tagged ADT.
+  switch (level) {
     case "Trace":
       return "trace";
     case "Debug":
       return "debug";
     case "Info":
       return "info";
-    case "Warning":
+    case "Warn":
       return "warn";
     case "Error":
       return "error";
@@ -54,65 +46,33 @@ const formatMessage = (message: unknown): string => {
   }
 };
 
-const fiberLabel = (fiberId: FiberId.FiberId): string | undefined => {
-  const ids = FiberId.ids(fiberId);
-  if (HashSet.size(ids) === 0) return undefined;
-  return HashSet.toValues(ids).join(",");
-};
-
-const spanLabels = (
-  spans: List.List<LogSpan.LogSpan>,
-): ReadonlyArray<string> | undefined => {
-  const labels = List.toArray(spans).map((span) => span.label);
-  return labels.length > 0 ? labels : undefined;
-};
-
-const annotationMap = (
-  annotations: HashMap.HashMap<string, unknown>,
-): Record<string, string> | undefined => {
-  const out: Record<string, string> = {};
-  for (const [key, value] of HashMap.toEntries(annotations)) {
-    out[key] =
-      typeof value === "string"
-        ? value
-        : value instanceof Error
-          ? value.message
-          : (() => {
-              try {
-                return JSON.stringify(value);
-              } catch {
-                return String(value);
-              }
-            })();
-  }
-  return Object.keys(out).length > 0 ? out : undefined;
-};
-
 /**
  * Single Effect log sink: ring + process.stdout (never console.*).
  *
  * Replaces the default pretty console logger so Effect logs are not
  * double-captured by the main console hook (which would burn ring capacity
  * and show every line twice as source effect + source main).
+ *
+ * Effect V4 Logger.Options: message, logLevel, cause, fiber, date.
+ * Spans/annotations are not on Options — drop them.
  */
 export const ObservabilityEffectLogger = Logger.make<unknown, void>((options) => {
-  const causeText =
-    options.cause._tag === "Empty" ? "" : Cause.pretty(options.cause);
+  const causeEmpty = options.cause.reasons.length === 0;
+  const causeText = causeEmpty ? "" : Cause.pretty(options.cause);
   const base = formatMessage(options.message);
   const message = causeText ? (base ? `${base}\n${causeText}` : causeText) : base;
-  if (!message && options.cause._tag === "Empty") return;
+  if (!message && causeEmpty) return;
 
   const level = levelFromEffect(options.logLevel);
   const text = message || "(empty)";
+  const fiberId = options.fiber.id;
 
   observabilityRing.append({
     level,
     source: "effect",
     message: text,
     ts: options.date.getTime(),
-    fiber: fiberLabel(options.fiberId),
-    spans: spanLabels(options.spans),
-    annotations: annotationMap(options.annotations),
+    fiber: Number.isFinite(fiberId) ? String(fiberId) : undefined,
   });
 
   // Terminal visibility without touching hooked console.*
@@ -124,10 +84,7 @@ export const ObservabilityEffectLogger = Logger.make<unknown, void>((options) =>
 });
 
 /** Replace default console logger — one Effect path into the ring. */
-export const ObservabilityLoggerLive = Logger.replace(
-  Logger.defaultLogger,
-  ObservabilityEffectLogger,
-);
+export const ObservabilityLoggerLive = Logger.layer([ObservabilityEffectLogger]);
 
 type ConsoleMethod = "log" | "info" | "warn" | "error" | "debug";
 
