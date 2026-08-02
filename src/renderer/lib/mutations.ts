@@ -1011,7 +1011,12 @@ export const toggleFlag = (id: string, flag: EtherFlag): void => {
 // Bulk flag set/clear over a whole selection in one commit — a multi-select
 // action applies once, not as N individual toggles. `flag: null` clears the
 // full flag vocabulary (not just one flag) for every target node.
-export const setFlagForNodes = (ids: ReadonlyArray<string>, flag: EtherFlag | null): void => {
+// `mode: "clear"` removes one flag from every target (multi toggle-off).
+export const setFlagForNodes = (
+  ids: ReadonlyArray<string>,
+  flag: EtherFlag | null,
+  mode: "set" | "clear" = "set",
+): void => {
   const targets = new Set(ids);
   if (targets.size === 0) return;
   const doc = state$.doc.peek();
@@ -1025,6 +1030,16 @@ export const setFlagForNodes = (ids: ReadonlyArray<string>, flag: EtherFlag | nu
         return (Object.keys(nextEther).length ? { ...n, ether: nextEther } : without(n, "ether")) as CanvasNode;
       }
       const flags = n.ether?.flags ?? [];
+      if (mode === "clear") {
+        if (!flags.includes(flag)) return n;
+        const nextFlags = flags.filter((f) => f !== flag);
+        if (nextFlags.length) {
+          return { ...n, ether: { ...(n.ether ?? {}), flags: nextFlags } };
+        }
+        if (!n.ether) return n;
+        const nextEther = without(n.ether, "flags");
+        return (Object.keys(nextEther).length ? { ...n, ether: nextEther } : without(n, "ether")) as CanvasNode;
+      }
       if (flags.includes(flag)) return n;
       return { ...n, ether: { ...(n.ether ?? {}), flags: [...flags, flag] } };
     }),

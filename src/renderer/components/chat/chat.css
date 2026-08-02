@@ -523,6 +523,31 @@
   cursor: not-allowed;
   opacity: 0.32;
 }
+.chat-composer__send:focus-visible {
+  outline: 1px solid rgb(232 163 61 / 0.7);
+  outline-offset: 1px;
+}
+.chat-composer__status {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-dim);
+  font-size: 9px;
+  letter-spacing: 0.03em;
+}
+
+/* Compact RTS kind-strip host — same chrome, tighter margins. */
+.chat-composer--rts {
+  margin: 0;
+  padding: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.chat-composer--rts .chat-composer__input {
+  min-height: 32px;
+  font-size: 11px;
+}
 
 .chat-empty {
   display: grid;

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Either } from "effect";
 import { decodeCanvasDoc, type CanvasDoc, type GroupNode } from "../src/shared/canvas";
-import { addNode, commitDoc, deleteNode, editFileDetails, editGroupBackground, editLink, editText, loadDoc, promoteLinkToPage, redo, renameGroup, setNodeColor, setNodeColorForNodes, setNodeHost, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag, undo } from "../src/renderer/lib/mutations";
+import { addNode, commitDoc, deleteNode, editFileDetails, editGroupBackground, editLink, editText, loadDoc, promoteLinkToPage, redo, renameGroup, setFlagForNodes, setNodeColor, setNodeColorForNodes, setNodeHost, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag, undo } from "../src/renderer/lib/mutations";
 import { addEdge, connectAllToTarget, deleteEdges, editEdgeLabel, inferEdgeCriteria, planConnectToTarget, setEdgeColor, setEdgeCriteria, setEdgePorts, toggleEdgeArrow } from "../src/renderer/lib/edge-mutations";
 import { dragHoldMemberIds, findOpenPosition, resizeNode, syncPositions } from "../src/renderer/lib/geometry";
 import { clearGraphFilters, state$, toggleFlagFilter } from "../src/renderer/lib/state";
@@ -923,6 +923,21 @@ describe("renderer graph mutations", () => {
     expect(nodes.find((n) => n.id === "c")?.color).toBeUndefined();
     setNodeColorForNodes(["a", "b"], undefined);
     expect(state$.doc.peek().nodes.find((n) => n.id === "a")?.color).toBeUndefined();
+  });
+
+  it("bulk flag set and clear modes", () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc({
+      nodes: [
+        { id: "a", type: "text", text: "a", x: 0, y: 0, width: 100, height: 40 },
+        { id: "b", type: "text", text: "b", x: 20, y: 20, width: 100, height: 40 },
+      ],
+      edges: [],
+    });
+    setFlagForNodes(["a", "b"], "blocker");
+    expect(state$.doc.peek().nodes.every((n) => n.ether?.flags?.includes("blocker"))).toBe(true);
+    setFlagForNodes(["a", "b"], "blocker", "clear");
+    expect(state$.doc.peek().nodes.every((n) => !n.ether?.flags?.includes("blocker"))).toBe(true);
   });
 
   it("sets and clears region plate accent colors", () => {

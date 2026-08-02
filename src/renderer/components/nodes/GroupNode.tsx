@@ -33,7 +33,9 @@ function RegionToolbar({
   const stopDrag = (event: React.PointerEvent | React.MouseEvent) => {
     event.stopPropagation();
   };
-  return <NodeToolbar isVisible={selected} position={Position.Top} offset={8}>
+  // Multi-select: RTS bar owns bulk — suppress floating region pills.
+  const multiSelect = use$(() => state$.selectedNodeIds.get().length > 1);
+  return <NodeToolbar isVisible={selected && !multiSelect} position={Position.Top} offset={8}>
     <ToolbarPill>
       <IconButton
         className="nodrag nopan"

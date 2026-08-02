@@ -11,14 +11,31 @@ const MAX_ROWS = 6;
 
 // Textarea grows with content up to MAX_ROWS, then scrolls. ⌘Enter (or
 // Ctrl+Enter) sends; Enter alone inserts a newline like every other chat UI.
+// onSend may return false (sync/async) to keep the draft (partial multi-fail).
 export function ChatComposer({
   contextBlocks = [],
   onSend,
+  ariaLabel = "Message",
+  placeholder = "Message the agent…",
+  hint = "⌘↵ send",
+  sendLabel = "send",
+  disabled = false,
+  status,
+  className,
 }: {
   readonly contextBlocks?: ReadonlyArray<ChatContextBlock>;
-  readonly onSend: (text: string) => void;
+  readonly onSend: (text: string) => void | boolean | Promise<void | boolean>;
+  readonly ariaLabel?: string;
+  readonly placeholder?: string;
+  readonly hint?: string;
+  readonly sendLabel?: string;
+  readonly disabled?: boolean;
+  /** Persistent status (aria-live); hint stays for hotkey teaching. */
+  readonly status?: string;
+  readonly className?: string;
 }) {
   const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -30,27 +47,35 @@ export function ChatComposer({
     el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
   }, [draft]);
 
-  const send = () => {
+  const send = async () => {
     const text = draft.trim();
-    if (!text) return;
-    onSend(text);
-    setDraft("");
+    if (!text || disabled || sending) return;
+    setSending(true);
+    try {
+      const result = await onSend(text);
+      if (result !== false) setDraft("");
+    } finally {
+      setSending(false);
+    }
   };
 
+  const blocked = disabled || sending || !draft.trim();
+
   return (
-    <div className="chat-composer">
+    <div className={["chat-composer", className].filter(Boolean).join(" ")}>
       <textarea
         ref={textareaRef}
-        aria-label="Message"
+        aria-label={ariaLabel}
         rows={MIN_ROWS}
         className="chat-composer__input"
-        placeholder="Message the agent…"
+        placeholder={placeholder}
         value={draft}
+        disabled={disabled || sending}
         onChange={(event) => setDraft(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
             event.preventDefault();
-            send();
+            void send();
           }
         }}
       />
@@ -63,15 +88,20 @@ export function ChatComposer({
               </span>
             ))}
           </div>
+          {status ? (
+            <span className="chat-composer__status" role="status" aria-live="polite">
+              {status}
+            </span>
+          ) : null}
         </div>
         <div className="chat-composer__submit">
-          <span className="chat-composer__hint">⌘↵ send</span>
+          <span className="chat-composer__hint">{hint}</span>
           <button
             type="button"
             className="chat-composer__send"
-            aria-label="send"
-            disabled={!draft.trim()}
-            onClick={send}
+            aria-label={sendLabel}
+            disabled={blocked}
+            onClick={() => void send()}
           >
             <ArrowUp size={14} />
           </button>

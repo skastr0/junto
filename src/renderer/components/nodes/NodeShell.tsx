@@ -85,6 +85,51 @@ function ConnectionHandles() {
   return <>{HANDLE_SIDES.map(([name, pos]) => <Handle key={`s-${name}`} id={`s-${name}`} aria-label={`Connect from ${name}`} type="source" position={pos} className={`vellum-handle vellum-handle--source vellum-handle--${name}`} />)}{HANDLE_SIDES.map(([name, pos]) => <Handle key={`t-${name}`} id={`t-${name}`} aria-label={`Connect to ${name}`} type="target" position={pos} className={`vellum-handle vellum-handle--target vellum-handle--${name}`} />)}</>;
 }
 
+function MinimalNodeToolbar({
+  selected,
+  onEdit,
+  nodeId,
+}: {
+  readonly selected: boolean;
+  readonly onEdit?: () => void;
+  readonly nodeId: string;
+}) {
+  const multiSelect = use$(() => state$.selectedNodeIds.get().length > 1);
+  return (
+    <NodeToolbar isVisible={selected && !multiSelect} position={Position.Top} offset={8}>
+      <ToolbarPill>
+        {onEdit ? (
+          <IconButton
+            className="nodrag nopan"
+            aria-label="Edit label"
+            title="edit label"
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onEdit();
+            }}
+          >
+            <Pencil size={14} />
+          </IconButton>
+        ) : null}
+        <IconButton
+          className="nodrag nopan"
+          tone="danger"
+          aria-label="Delete label"
+          title="delete"
+          onPointerDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            deleteNode(nodeId);
+          }}
+        >
+          <Trash2 size={14} />
+        </IconButton>
+      </ToolbarPill>
+    </NodeToolbar>
+  );
+}
+
 function NodeActions({
   node,
   selected,
@@ -114,6 +159,8 @@ function NodeActions({
   // crimson but clear still means "clear flag" (or no-op if flag absent).
   const chromeBlocker = flagBlocker || liveHerdrBlocked;
   const connectionFocused = use$(() => state$.connectionFocusNodeId.get() === node.id);
+  // Multi-select: RTS bar owns bulk actions — suppress floating pills.
+  const multiSelect = use$(() => state$.selectedNodeIds.get().length > 1);
   const title = flagBlocker
     ? "clear blocker flag"
     : liveHerdrBlocked
@@ -146,7 +193,7 @@ function NodeActions({
   ]);
 
   return (
-    <NodeToolbar isVisible={selected} position={Position.Top} offset={8}>
+    <NodeToolbar isVisible={selected && !multiSelect} position={Position.Top} offset={8}>
       <ToolbarPill>
         {onEdit ? (
           <IconButton
@@ -475,37 +522,7 @@ export function NodeShell({
       ) : null}
       {showHandles ? <ConnectionHandles /> : null}
       {toolbar === "minimal" ? (
-        <NodeToolbar isVisible={selected} position={Position.Top} offset={8}>
-          <ToolbarPill>
-            {onEdit ? (
-              <IconButton
-                className="nodrag nopan"
-                aria-label="Edit label"
-                title="edit label"
-                onPointerDown={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  onEdit();
-                }}
-              >
-                <Pencil size={14} />
-              </IconButton>
-            ) : null}
-            <IconButton
-              className="nodrag nopan"
-              tone="danger"
-              aria-label="Delete label"
-              title="delete"
-              onPointerDown={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                deleteNode(node.id);
-              }}
-            >
-              <Trash2 size={14} />
-            </IconButton>
-          </ToolbarPill>
-        </NodeToolbar>
+        <MinimalNodeToolbar selected={selected} onEdit={onEdit} nodeId={node.id} />
       ) : (
         <NodeActions
           node={node}

@@ -42,6 +42,8 @@ import { HarnessMark } from "../herdr/HarnessMark";
 import { WaitingOnSection } from "../WaitingOnSection";
 import { NoteMarkdown } from "../../lib/note-markdown";
 import { RegionPathsModal } from "../RegionPathsModal";
+import { ChatComposer } from "../chat/ChatComposer";
+import "../chat/chat.css";
 import {
   EdgeCapabilitySection,
   EdgeCriteriaEditor,
@@ -461,9 +463,10 @@ function RegionKindSurface({ node }: { readonly node: CanvasNode }) {
 
 /**
  * Multi-select kind surface: generic cue for mixed; kind actions when homogeneous.
- * Agents get multi-prompt (same text → every selected actor seat).
+ * Agents get multi-prompt (same text → every selected actor seat) via ChatComposer.
  */
 function MultiKindSurface({ nodes }: { readonly nodes: ReadonlyArray<CanvasNode> }) {
+  const selectionKey = nodes.map((n) => n.id).join("|");
   const classified = useMemo(() => classifyMultiSelection(nodes), [nodes]);
   const targets = useMemo(
     () =>
@@ -472,15 +475,13 @@ function MultiKindSurface({ nodes }: { readonly nodes: ReadonlyArray<CanvasNode>
         : [],
     [classified],
   );
-  const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string>("");
 
   useEffect(() => {
-    setDraft("");
     setBusy(false);
     setStatus("");
-  }, [nodes.map((n) => n.id).join("|")]);
+  }, [selectionKey]);
 
   if (classified.mode === "heterogeneous") {
     return (
@@ -501,29 +502,8 @@ function MultiKindSurface({ nodes }: { readonly nodes: ReadonlyArray<CanvasNode>
   }
 
   if (classified.surface === "kind:agent" && targets.length > 0) {
-    const send = async () => {
-      const text = draft.trim();
-      if (!text || busy) return;
-      setBusy(true);
-      setStatus("");
-      try {
-        const result = await multiPromptAgents(targets, text);
-        setDraft("");
-        if (result.failed.length === 0) {
-          setStatus(`sent to ${result.sent}`);
-        } else {
-          setStatus(
-            `sent ${result.sent} · failed ${result.failed.length}` +
-              (result.failed[0] ? ` · ${result.failed[0].agentKey}` : ""),
-          );
-        }
-      } finally {
-        setBusy(false);
-      }
-    };
-
     return (
-      <div className="rts-kind-surface">
+      <div className="rts-kind-surface" data-testid="rts-multi-prompt">
         <div className="rts-kind-id rts-kind-id--compact">
           <div className="rts-kind-id__text">
             <div className="rts-kind-id__name">multi-prompt</div>
@@ -532,36 +512,44 @@ function MultiKindSurface({ nodes }: { readonly nodes: ReadonlyArray<CanvasNode>
             </div>
           </div>
         </div>
-        <div className="rts-multi-prompt">
-          <textarea
-            className="rts-multi-prompt__input"
-            aria-label="Prompt all selected agents"
-            rows={2}
-            placeholder="Message all selected agents…"
-            value={draft}
-            disabled={busy}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-                event.preventDefault();
-                void send();
+        <ChatComposer
+          key={selectionKey}
+          className="chat-composer--rts"
+          ariaLabel="Prompt all selected agents"
+          placeholder="Message all selected agents…"
+          hint="⌘↵ send to all"
+          sendLabel="Send to all selected agents"
+          disabled={busy}
+          status={status}
+          onSend={async (text) => {
+            setBusy(true);
+            setStatus(targets.length > 1 ? `sending ${targets.length}…` : "sending…");
+            try {
+              const result = await multiPromptAgents(targets, text);
+              if (result.failed.length === 0) {
+                setStatus(`sent to ${result.sent}`);
+                return true;
               }
-            }}
-          />
-          <div className="rts-multi-prompt__footer">
-            <span className="rts-multi-prompt__hint">
-              {status || "⌘↵ send to all"}
-            </span>
-            <button
-              type="button"
-              className="rts-multi-prompt__send"
-              aria-label="Send to all selected agents"
-              disabled={busy || !draft.trim()}
-              onClick={() => void send()}
-            >
-              {busy ? "…" : "Send all"}
-            </button>
-          </div>
+              const failKeys = result.failed.map((f) => f.agentKey).join(", ");
+              setStatus(
+                `sent ${result.sent} · failed ${result.failed.length}${failKeys ? ` · ${failKeys}` : ""}`,
+              );
+              // Keep draft so the operator can retry failed seats.
+              return false;
+            } finally {
+              setBusy(false);
+            }
+          }}
+        />
+      </div>
+    );
+  }
+
+  if (classified.surface === "kind:agent" && targets.length === 0) {
+    return (
+      <div className="rts-kind-surface">
+        <div className="rts-quiet rts-quiet--compact">
+          agents missing keys · multi-prompt needs entity.name
         </div>
       </div>
     );

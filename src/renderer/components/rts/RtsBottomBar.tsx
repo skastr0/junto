@@ -25,6 +25,7 @@ import {
   PauseCircle,
   Pencil,
   Trash2,
+  X,
 } from "lucide-react";
 import type { CanvasNode, EtherFlag } from "@shared/canvas";
 import { executionGraphContextFromActorRefs, groupMembers } from "@shared/graph";
@@ -50,7 +51,6 @@ import {
   setRegionHold,
 } from "../../lib/mutations";
 import {
-  agentKeysFromNodes,
   classifyMultiSelection,
   multiSelectionLabel,
 } from "../../lib/multi-selection";
@@ -100,11 +100,14 @@ function AccentColorSwatches({
   nodeId,
   nodeIds,
   color,
+  mixed = false,
 }: {
   readonly nodeId?: string;
   /** When set, applies color to every id (multi-select). */
   readonly nodeIds?: ReadonlyArray<string>;
   readonly color: string | undefined;
+  /** Selection has differing colors — no swatch pretends to be the active one. */
+  readonly mixed?: boolean;
 }) {
   const apply = (next: string | undefined) => {
     if (nodeIds && nodeIds.length > 0) {
@@ -113,31 +116,39 @@ function AccentColorSwatches({
     }
     if (nodeId) setNodeColor(nodeId, next);
   };
+  const defaultActive = !mixed && !color;
   return (
-    <div className="rts-cmd-accents" aria-label="Accent color">
+    <div
+      className="rts-cmd-accents"
+      aria-label="Accent color"
+      title={mixed ? "mixed accents — pick to apply to all" : undefined}
+    >
       <button
         type="button"
-        className={`rts-swatch${!color ? " is-active" : ""}`}
-        title="default accent"
+        className={`rts-swatch${defaultActive ? " is-active" : ""}`}
+        title={mixed ? "set all to default accent" : "default accent"}
         aria-label="Use default accent"
-        aria-pressed={!color}
+        aria-pressed={defaultActive}
         onClick={() => apply(undefined)}
       >
         <span style={{ background: HUE.amber }} />
       </button>
-      {COLOR_OPTIONS.map(({ value, label, hue }) => (
-        <button
-          key={value}
-          type="button"
-          className={`rts-swatch${color === value ? " is-active" : ""}`}
-          title={`${label} accent`}
-          aria-label={`Set ${label} accent`}
-          aria-pressed={color === value}
-          onClick={() => apply(value)}
-        >
-          <span style={{ background: hue }} />
-        </button>
-      ))}
+      {COLOR_OPTIONS.map(({ value, label, hue }) => {
+        const active = !mixed && color === value;
+        return (
+          <button
+            key={value}
+            type="button"
+            className={`rts-swatch${active ? " is-active" : ""}`}
+            title={mixed ? `set all to ${label}` : `${label} accent`}
+            aria-label={`Set ${label} accent`}
+            aria-pressed={active}
+            onClick={() => apply(value)}
+          >
+            <span style={{ background: hue }} />
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -232,18 +243,14 @@ function CommandCard({ regionRollup }: { readonly regionRollup?: RegionRollup })
       .map((id) => doc.nodes.find((n) => n.id === id))
       .filter((n): n is CanvasNode => n !== undefined);
     const classified = classifyMultiSelection(selectedNodes);
-    const sharedColor =
-      selectedNodes.length > 0 && selectedNodes.every((n) => n.color === selectedNodes[0]?.color)
-        ? selectedNodes[0]?.color
-        : undefined;
-    const homogeneousAgents =
-      classified.mode === "homogeneous" && classified.surface === "kind:agent";
-    const agentCount = homogeneousAgents
-      ? agentKeysFromNodes(classified.nodes).length
-      : 0;
+    const colorsMatch =
+      selectedNodes.length > 0 &&
+      selectedNodes.every((n) => n.color === selectedNodes[0]?.color);
+    const sharedColor = colorsMatch ? selectedNodes[0]?.color : undefined;
+    const mixedColor = !colorsMatch;
 
     return (
-      <div className="rts-panel rts-panel--cmd">
+      <div className="rts-panel rts-panel--cmd" data-testid="rts-multi-command">
         <div className="rts-panel__label">
           command · multi
           {classified.mode === "homogeneous" ? " · same kind" : " · generic"}
@@ -252,35 +259,46 @@ function CommandCard({ regionRollup }: { readonly regionRollup?: RegionRollup })
           <div className="rts-cmd-head">
             <div className="rts-cmd__meta">{multiSelectionLabel(classified)}</div>
             <div className="rts-cmd__title">
-              {homogeneousAgents && agentCount > 0
-                ? `multi-prompt · ${agentCount} agents →`
-                : classified.mode === "homogeneous"
-                  ? "shared settings"
-                  : "shared settings only"}
+              {classified.mode === "homogeneous" ? "shared settings" : "shared settings only"}
             </div>
           </div>
-          <AccentColorSwatches nodeIds={selectedNodeIds} color={sharedColor} />
+          <AccentColorSwatches
+            nodeIds={selectedNodeIds}
+            color={sharedColor}
+            mixed={mixedColor}
+          />
           <div className="rts-cmd-keys" role="toolbar" aria-label="Multi-select actions">
+            {FLAG_META.map(({ flag, hue, label, Icon }) => {
+              const allOn = selectedNodes.every((n) => n.ether?.flags?.includes(flag));
+              const someOn = selectedNodes.some((n) => n.ether?.flags?.includes(flag));
+              return (
+                <CmdKey
+                  key={flag}
+                  label={allOn ? `Clear ${label}` : `Flag ${label}`}
+                  title={
+                    allOn
+                      ? `clear ${label} on selection`
+                      : someOn
+                        ? `set ${label} on all (partial)`
+                        : `flag ${label}`
+                  }
+                  active={allOn}
+                  style={allOn || someOn ? { color: hue, opacity: allOn ? 1 : 0.65 } : undefined}
+                  onClick={() =>
+                    setFlagForNodes(selectedNodeIds, flag, allOn ? "clear" : "set")
+                  }
+                >
+                  <Icon size={ICON} />
+                </CmdKey>
+              );
+            })}
+            <span className="rts-cmd-keys__rule" aria-hidden />
             <CmdKey
-              label="Flag blocker"
-              onClick={() => setFlagForNodes(selectedNodeIds, "blocker")}
-              style={{ color: HUE.crimson }}
+              label="Clear all flags"
+              title="clear blocker · attention · parked on selection"
+              onClick={() => setFlagForNodes(selectedNodeIds, null)}
             >
-              <Ban size={ICON} />
-            </CmdKey>
-            <CmdKey
-              label="Flag attention"
-              onClick={() => setFlagForNodes(selectedNodeIds, "attention")}
-              style={{ color: HUE.amber }}
-            >
-              <AlertTriangle size={ICON} />
-            </CmdKey>
-            <CmdKey
-              label="Flag parked"
-              onClick={() => setFlagForNodes(selectedNodeIds, "parked")}
-              style={{ color: HUE.violet }}
-            >
-              <PauseCircle size={ICON} />
+              <X size={ICON} />
             </CmdKey>
             <CmdKey label="Delete selection" danger onClick={() => deleteNodes(selectedNodeIds)}>
               <Trash2 size={ICON} />
