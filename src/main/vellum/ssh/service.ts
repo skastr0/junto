@@ -7,12 +7,11 @@ import { randomUUID } from "node:crypto";
 import { Context,
   Deferred,
   Effect,
-  ExecutionStrategy,
   Exit,
   Layer,
-  Option,
   Queue,
   Ref,
+  Result,
   Scope,
   Sink,
   Stream, Semaphore } from "effect";
@@ -219,7 +218,7 @@ type InputMessage = InputChunk | InputBarrier | InputEnd;
 
 interface InternalLease extends SshLease {
   readonly isRunning: Effect.Effect<boolean, SshError>;
-  readonly scope: Scope.CloseableScope;
+  readonly scope: Scope.Closeable;
 }
 
 const asText = (collected: Collected): string =>
@@ -237,7 +236,7 @@ const collectBounded = (
 ): Effect.Effect<Collected, SshError> =>
   Stream.runFoldEffect(
     stream,
-    { chunks: [], bytes: 0 } as Collected,
+    (): Collected => ({ chunks: [], bytes: 0 }),
     (state, chunk) => {
       const bytes = state.bytes + chunk.byteLength;
       return bytes > limitBytes
@@ -301,7 +300,7 @@ export const SshTransportLayer = Layer.effect(
       fs
         .makeDirectory(config.controlDir, { recursive: true, mode: 0o700 })
         .pipe(
-          Effect.zipRight(fs.chmod(config.controlDir, 0o700)),
+          Effect.andThen(fs.chmod(config.controlDir, 0o700)),
           Effect.mapError(
             () =>
               new SshSetupError({
@@ -315,7 +314,7 @@ export const SshTransportLayer = Layer.effect(
       const key = String(endpoint);
       const existing = endpointPermits.get(key);
       if (existing) return existing;
-      const created = Effect.unsafeMakeSemaphore(
+      const created = Semaphore.makeUnsafe(
         config.maxConcurrentDialsPerEndpoint,
       );
       endpointPermits.set(key, created);
@@ -409,11 +408,9 @@ export const SshTransportLayer = Layer.effect(
             ? Effect.succeed(result)
             : Effect.fail(new SshExitError({ endpoint, operation, code })),
         ),
-        Effect.timeoutFail({
+        Effect.timeoutOrElse({
           duration: timeoutMs,
-          onTimeout: () =>
-            new SshTimeoutError({ endpoint, operation, timeoutMs }),
-        }),
+          orElse: () => Effect.fail(new SshTimeoutError({ endpoint, operation, timeoutMs })),}),
       );
 
     const openLease = (
@@ -424,7 +421,7 @@ export const SshTransportLayer = Layer.effect(
     ): Effect.Effect<InternalLease, SshSpawnError, Scope.Scope> =>
       Effect.gen(function* () {
         const caller = yield* Scope.Scope;
-        const child = yield* Scope.fork(caller, ExecutionStrategy.sequential);
+        const child = yield* Scope.fork(caller, "sequential");
         // Sequential scopes close finalizers in LIFO order. Register owned-file
         // cleanup before process acquisition so the ProcessSpawner release
         // stops/reaps the child before its socket paths are unlinked.
@@ -432,10 +429,10 @@ export const SshTransportLayer = Layer.effect(
           yield* Scope.addFinalizer(child, cleanupAfterProcess);
         }
         const process = yield* acquire(endpoint, operation, command).pipe(
-          Scope.extend(child),
+          Scope.provide(child),
           Effect.catch((error) =>
             Scope.close(child, Exit.fail(error)).pipe(
-              Effect.zipRight(Effect.fail(error)),
+              Effect.andThen(Effect.fail(error)),
             ),
           ),
         );
@@ -446,16 +443,20 @@ export const SshTransportLayer = Layer.effect(
         const sensitiveCopies = new Set<Uint8Array>();
         const mappedInput = Stream.fromQueue(queue).pipe(
           Stream.takeUntil((message) => message._tag === "End"),
-          Stream.mapEffect((message) =>
+          Stream.mapEffect((message): Effect.Effect<
+            Result.Result<Uint8Array, void>
+          > =>
             message._tag === "Barrier"
-              ? message.afterPriorWrite.pipe(Effect.as(Option.none()))
+              ? message.afterPriorWrite.pipe(
+                  Effect.as(Result.fail(undefined as void)),
+                )
               : Effect.succeed(
                   message._tag === "Chunk"
-                    ? Option.some(message.bytes)
-                    : Option.none(),
+                    ? Result.succeed(message.bytes)
+                    : Result.fail(undefined as void),
                 ),
           ),
-          Stream.filterMap((bytes) => bytes),
+          Stream.filterMap((chunk) => chunk),
         );
         const pump = Stream.run(mappedInput, process.stdin).pipe(
           Effect.mapError(() => ioError(endpoint, operation)),
@@ -463,8 +464,8 @@ export const SshTransportLayer = Layer.effect(
           Effect.flatMap((exit) =>
             Effect.uninterruptible(
               Ref.set(inputOpen, false).pipe(
-                Effect.zipRight(Queue.shutdown(queue)),
-                Effect.zipRight(Deferred.done(inputDone, exit)),
+                Effect.andThen(Queue.shutdown(queue)),
+                Effect.andThen(Deferred.done(inputDone, exit)),
                 Effect.asVoid,
               ),
             ),
@@ -556,20 +557,20 @@ export const SshTransportLayer = Layer.effect(
                 owned.fill(0);
                 sensitiveCopies.delete(owned);
               }).pipe(
-                Effect.zipRight(Deferred.succeed(flushed, undefined)),
+                Effect.andThen(Deferred.succeed(flushed, undefined)),
                 Effect.asVoid,
               );
               const submitted = offer({
                 _tag: "Chunk",
                 bytes: owned,
               }).pipe(
-                Effect.zipRight(
+                Effect.andThen(
                   offer({
                     _tag: "Barrier",
                     afterPriorWrite: zeroAndConfirm,
                   }),
                 ),
-                Effect.zipRight(
+                Effect.andThen(
                   Effect.raceFirst(
                     Deferred.await(flushed),
                     inputUnavailable,
@@ -596,7 +597,7 @@ export const SshTransportLayer = Layer.effect(
               ),
             ),
           )
-          .pipe(Effect.zipRight(Deferred.await(inputDone)));
+          .pipe(Effect.andThen(Deferred.await(inputDone)));
 
         return {
           write,
@@ -634,7 +635,7 @@ export const SshTransportLayer = Layer.effect(
           withDial(
             compiled.endpoint,
             ensureControlDir(compiled.endpoint).pipe(
-              Effect.zipRight(
+              Effect.andThen(
                 runChecked(
                   compiled.endpoint,
                   "one-shot",
@@ -672,7 +673,7 @@ export const SshTransportLayer = Layer.effect(
           return withDial(
             compiled.endpoint,
             setup.pipe(
-              Effect.zipRight(
+              Effect.andThen(
                 openLease(compiled.endpoint, "stream", compiled.command),
               ),
               Effect.flatMap((lease) => {
@@ -695,15 +696,13 @@ export const SshTransportLayer = Layer.effect(
                       exited,
                     );
                 return readiness.pipe(
-                  Effect.timeoutFail({
+                  Effect.timeoutOrElse({
                     duration: compiled.readinessTimeoutMs,
-                    onTimeout: () =>
-                      new SshTimeoutError({
+                    orElse: () => Effect.fail(new SshTimeoutError({
                         endpoint: compiled.endpoint,
                         operation: "stream",
                         timeoutMs: compiled.readinessTimeoutMs,
-                      }),
-                  }),
+                      })),}),
                   Effect.flatMap((ready) =>
                     lease.isRunning.pipe(
                       Effect.flatMap((running) =>
@@ -769,7 +768,7 @@ export const SshTransportLayer = Layer.effect(
             compiled.endpoint,
             Effect.scoped(
               setup.pipe(
-                Effect.zipRight(
+                Effect.andThen(
                   openLease(compiled.endpoint, "transfer", compiled.command),
                 ),
                 Effect.flatMap((lease) => {
@@ -777,7 +776,7 @@ export const SshTransportLayer = Layer.effect(
                   input,
                   Sink.forEach(lease.write),
                 ).pipe(
-                  Effect.zipRight(lease.closeInput),
+                  Effect.andThen(lease.closeInput),
                   // If the remote command exits first, interrupt the local
                   // producer now but keep draining its bounded diagnostics.
                   Effect.raceFirst(lease.exitCode.pipe(Effect.asVoid)),
@@ -818,15 +817,13 @@ export const SshTransportLayer = Layer.effect(
                           ),
                         ),
                     ),
-                    Effect.timeoutFail({
+                    Effect.timeoutOrElse({
                       duration: timeoutMs,
-                      onTimeout: () =>
-                        new SshTimeoutError({
+                      orElse: () => Effect.fail(new SshTimeoutError({
                           endpoint: compiled.endpoint,
                           operation: "transfer",
                           timeoutMs,
-                        }),
-                    }),
+                        })),}),
                     Effect.ensuring(lease.close),
                   );
                 }),
@@ -858,7 +855,7 @@ export const SshTransportLayer = Layer.effect(
             compiled.endpoint,
             Effect.scoped(
               setup.pipe(
-                Effect.zipRight(
+                Effect.andThen(
                   openLease(
                     compiled.endpoint,
                     "transaction",
@@ -884,15 +881,13 @@ export const SshTransportLayer = Layer.effect(
                             }),
                           ),
                     ),
-                    Effect.timeoutFail({
+                    Effect.timeoutOrElse({
                       duration: compiled.readinessTimeoutMs,
-                      onTimeout: () =>
-                        new SshTimeoutError({
+                      orElse: () => Effect.fail(new SshTimeoutError({
                           endpoint: compiled.endpoint,
                           operation: "transaction",
                           timeoutMs: compiled.readinessTimeoutMs,
-                        }),
-                    }),
+                        })),}),
                     Effect.ensuring(lease.close),
                   ),
                 ),
@@ -904,7 +899,7 @@ export const SshTransportLayer = Layer.effect(
 
     const forward: SshTransportShape["forward"] = (
       program,
-    ) =>
+    ): Effect.Effect<SshForwardLease, SshError, Scope.Scope> =>
       Effect.gen(function* () {
         const compiled = yield* Effect.try({
           try: () =>
@@ -932,7 +927,7 @@ export const SshTransportLayer = Layer.effect(
               .remove(compiled.localSocket, { force: true })
               .pipe(
                 Effect.ignore,
-                Effect.zipRight(
+                Effect.andThen(
                   fs
                     .remove(compiled.controlSocket, { force: true })
                     .pipe(Effect.ignore),
@@ -984,7 +979,7 @@ export const SshTransportLayer = Layer.effect(
                     Effect.asVoid,
                     Effect.catch(() =>
                       Effect.sleep(FORWARD_POLL_MS).pipe(
-                        Effect.zipRight(waitForControl),
+                        Effect.andThen(waitForControl),
                       ),
                     ),
                   ),
@@ -1009,7 +1004,7 @@ export const SshTransportLayer = Layer.effect(
                       exists
                         ? Effect.void
                         : Effect.sleep(FORWARD_POLL_MS).pipe(
-                            Effect.zipRight(waitForSocket),
+                            Effect.andThen(waitForSocket),
                           ),
                     ),
                   ),
@@ -1017,7 +1012,7 @@ export const SshTransportLayer = Layer.effect(
                 ),
             );
             const setup = waitForControl.pipe(
-              Effect.zipRight(
+              Effect.andThen(
                 runChecked(
                   compiled.endpoint,
                   "forward-request",
@@ -1025,16 +1020,14 @@ export const SshTransportLayer = Layer.effect(
                   4_000,
                 ),
               ),
-              Effect.zipRight(waitForSocket),
-              Effect.timeoutFail({
+              Effect.andThen(waitForSocket),
+              Effect.timeoutOrElse({
                 duration: compiled.readinessTimeoutMs,
-                onTimeout: () =>
-                  new SshTimeoutError({
+                orElse: () => Effect.fail(new SshTimeoutError({
                     endpoint: compiled.endpoint,
                     operation: "forward",
                     timeoutMs: compiled.readinessTimeoutMs,
-                  }),
-              }),
+                  })),}),
               Effect.onError(() => master.close),
             );
             yield* setup;
@@ -1045,7 +1038,7 @@ export const SshTransportLayer = Layer.effect(
             };
           }),
         );
-      });
+      }) as Effect.Effect<SshForwardLease, SshError, Scope.Scope>;
 
     const handoff: SshTransportShape["handoff"] = (
       program,
@@ -1081,15 +1074,13 @@ export const SshTransportLayer = Layer.effect(
                 );
               }
               const ready = yield* awaitReady(confirm).pipe(
-                Effect.timeoutFail({
+                Effect.timeoutOrElse({
                   duration: compiled.readinessTimeoutMs,
-                  onTimeout: () =>
-                    new SshTimeoutError({
+                  orElse: () => Effect.fail(new SshTimeoutError({
                       endpoint: compiled.endpoint,
                       operation: "daemon-handoff",
                       timeoutMs: compiled.readinessTimeoutMs,
-                    }),
-                }),
+                    })),}),
               );
               return ready.value;
             }),
@@ -1101,14 +1092,14 @@ export const SshTransportLayer = Layer.effect(
       const endpoint = inspectSshTarget(target).endpoint;
       let lock = warmLocks.get(String(endpoint));
       if (!lock) {
-        lock = Effect.unsafeMakeSemaphore(1);
+        lock = Semaphore.makeUnsafe(1);
         warmLocks.set(String(endpoint), lock);
       }
       return lock.withPermits(1)(
         withDial(
           endpoint,
           ensureControlDir(endpoint).pipe(
-            Effect.zipRight(
+            Effect.andThen(
               runChecked(
                 endpoint,
                 "master-warm",

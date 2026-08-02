@@ -234,7 +234,7 @@ export function EdgePortsAttenuator({ edge }: { readonly edge: CanvasEdge }) {
       setEdgePorts(edge.id, undefined);
       return;
     }
-    setEdgePorts(edge.id, [...HashSet.values(next)]);
+    setEdgePorts(edge.id, [...next]);
   };
 
   const toggle = (port: PortName): void => {
@@ -315,7 +315,7 @@ export function NodeCapabilityInventory({ node }: { readonly node: CanvasNode })
     }
     const byId = new Map(doc.nodes.map((n) => [n.id, n]));
     const rows: CapabilityNeighbor[] = [];
-    for (const peerId of HashSet.values(neighbors.value)) {
+    for (const peerId of neighbors.value) {
       const peer = byId.get(peerId);
       if (!peer) continue;
       const peerSpec = resolveSpec({

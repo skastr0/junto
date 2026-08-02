@@ -196,7 +196,7 @@ const StationPropagationServicesLive = Layer.provideMerge(
   StatefulServicesLive,
 );
 
-const OpenSshStationPeerExchangeFromStateLive = Layer.unwrapEffect(
+const OpenSshStationPeerExchangeFromStateLive = Layer.unwrap(
   Effect.gen(function* () {
     const repository = yield* StationRepository;
     const localInstallationId = yield* repository.installationId;
@@ -293,7 +293,7 @@ const SnapshotsWithProductsLive = Layer.provideMerge(
 
 // UpdateService joins this ManagedRuntime — never a second runtime.
 // Host quiesce/relaunch hooks are late-bound from main/index after boot.
-const UpdateServiceLive = Layer.unwrapEffect(
+const UpdateServiceLive = Layer.unwrap(
   Effect.sync(() => {
     const provider = makePlatformUpdateProvider({
       platform: process.platform,
@@ -350,8 +350,13 @@ export const RootLayer = Layer.provideMerge(
 // (AppRuntime.runPromise), boot wiring in index.ts, and process loops that share
 // the same Context. Dispose exactly once on quit via AppRuntime.dispose()
 // (index.ts disposeRuntime / disposeRuntimeFailClosed).
+const AppLayer = Layer.mergeAll(RootLayer, ObservabilityLoggerLive);
 export const AppRuntime = ManagedRuntime.make(
-  Layer.mergeAll(RootLayer, ObservabilityLoggerLive),
+  AppLayer as Layer.Layer<
+    Layer.Success<typeof AppLayer>,
+    Layer.Error<typeof AppLayer>,
+    never
+  >,
 );
 
 export const supervisorAlignedForReadiness = (

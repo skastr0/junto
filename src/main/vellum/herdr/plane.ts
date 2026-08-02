@@ -649,27 +649,28 @@ class EffectHerdrScopeClient extends EventEmitter implements HerdrClientIo {
         return;
       }
 
+      const self = this;
       await this.runPromise(
         this.transport.connect(
           { hostId: this.hostId, args: this.args, session: this.session },
           (lease, confirm) =>
-            Effect.gen({ self: this }, function* () {
-              this.lease = lease;
+            Effect.gen(function* () {
+              self.lease = lease;
               yield* Effect.forkIn(
                 Stream.runForEach(lease.stdout, (chunk) =>
-                  Effect.sync(() => { this.stdout.write(chunk); }),
+                  Effect.sync(() => { self.stdout.write(chunk); }),
                 ).pipe(Effect.ignore),
                 scope,
               );
               yield* Effect.forkIn(
                 Stream.runForEach(lease.stderr, (chunk) =>
-                  Effect.sync(() => { this.stderr.write(chunk); }),
+                  Effect.sync(() => { self.stderr.write(chunk); }),
                 ).pipe(Effect.ignore),
                 scope,
               );
               yield* Effect.forkIn(
                 lease.exitCode.pipe(
-                  Effect.tap((code) => Effect.sync(() => this.finish(code))),
+                  Effect.tap((code) => Effect.sync(() => self.finish(code))),
                   Effect.ignore,
                 ),
                 scope,

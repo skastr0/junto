@@ -208,9 +208,19 @@ export const ProcessSpawnerLive = Layer.succeed(ProcessSpawner, ProcessSpawner.o
         isRunning: Effect.sync(() =>
           !tracked.preSpawnFailed() && !tracked.processEnded()
         ),
-        stdin: NodeSink.fromWritable(() => tracked.lease.io.stdin, failure, { endOnDone: true }),
-        stdout: NodeStream.fromReadable(() => tracked.lease.io.stdout, failure),
-        stderr: NodeStream.fromReadable(() => tracked.lease.io.stderr, failure),
+        stdin: NodeSink.fromWritable({
+          evaluate: () => tracked.lease.io.stdin,
+          onError: failure,
+          endOnDone: true,
+        }),
+        stdout: NodeStream.fromReadable({
+          evaluate: () => tracked.lease.io.stdout,
+          onError: failure,
+        }),
+        stderr: NodeStream.fromReadable({
+          evaluate: () => tracked.lease.io.stderr,
+          onError: failure,
+        }),
       };
     }));
   },

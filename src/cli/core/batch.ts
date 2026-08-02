@@ -41,11 +41,13 @@ const summarizeBatchResults = (
   };
 };
 
-export const runMutationBatch = <A, I, R>(options: {
+export const runMutationBatch = <S extends Schema.Top, R>(options: {
   readonly input: string;
   readonly concurrency: number;
-  readonly itemSchema: Schema.Schema<A, I, R>;
-  readonly run: (item: A) => Effect.Effect<unknown, unknown, R>;
+  readonly itemSchema: S;
+  readonly run: (
+    item: S["Type"],
+  ) => Effect.Effect<unknown, unknown, R>;
 }) =>
   Effect.gen(function* () {
     if (options.concurrency <= 0) {
@@ -63,7 +65,7 @@ export const runMutationBatch = <A, I, R>(options: {
       rawItems,
       (rawItem, index) =>
         Effect.gen(function* () {
-          const item = yield* Schema.decodeUnknown(options.itemSchema)(rawItem).pipe(
+          const item = yield* Schema.decodeUnknownEffect(options.itemSchema)(rawItem).pipe(
             Effect.mapError(
               (error) =>
                 new InputError({

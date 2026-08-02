@@ -20,19 +20,19 @@ import {
 } from "./process";
 import { ownedBoxId, type OwnedBox } from "./ownership";
 
-const decodeStatus = Schema.decodeUnknown(BoxCliStatus, {
+const decodeStatus = Schema.decodeUnknownEffect(BoxCliStatus, {
   onExcessProperty: "ignore",
 });
-const decodeMachineEnvelope = Schema.decodeUnknown(BoxMachineEnvelope, {
+const decodeMachineEnvelope = Schema.decodeUnknownEffect(BoxMachineEnvelope, {
   onExcessProperty: "ignore",
 });
-const decodeActionEnvelope = Schema.decodeUnknown(BoxActionEnvelope, {
+const decodeActionEnvelope = Schema.decodeUnknownEffect(BoxActionEnvelope, {
   onExcessProperty: "ignore",
 });
-const decodeNewLine = Schema.decodeUnknown(BoxNewLine, {
+const decodeNewLine = Schema.decodeUnknownEffect(BoxNewLine, {
   onExcessProperty: "ignore",
 });
-const decodeTtlSeconds = Schema.decodeUnknown(
+const decodeTtlSeconds = Schema.decodeUnknownEffect(
   Schema.Number.pipe(
     Schema.check(Schema.isInt()),
     Schema.check(Schema.isBetween({ minimum: 60, maximum: 7 * 24 * 60 * 60 })),
@@ -399,10 +399,10 @@ export const makeBoxCli = (
               executable,
               authenticated: false,
               healthy: false,
-              detail: versionResult.fail.detail,
+              detail: versionResult.failure.detail,
             };
           }
-          const version = versionResult.succeed.stdout
+          const version = versionResult.success.stdout
             .trim()
             .replace(/^box\s+/u, "");
           const statusResult = yield* Effect.result(
@@ -415,11 +415,11 @@ export const makeBoxCli = (
               version,
               authenticated: false,
               healthy: false,
-              detail: statusResult.fail.detail,
+              detail: statusResult.failure.detail,
             };
           }
           const parsed = yield* Effect.result(
-            parseJson("status", statusResult.succeed.stdout).pipe(
+            parseJson("status", statusResult.success.stdout).pipe(
               Effect.flatMap((value) =>
                 decodeStatus(value).pipe(
                   Effect.mapError((error) => protocolError("status", error)),

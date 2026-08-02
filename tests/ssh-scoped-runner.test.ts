@@ -1,12 +1,12 @@
-import { Effect, Exit, Scope } from "effect";
+import { Context, Effect, Exit, Scope } from "effect";
 import { describe, expect, it } from "vitest";
 import { makeScopedPromiseRunner } from "../src/main/vellum/ssh";
 
 describe("makeScopedPromiseRunner", () => {
   it("interrupts and finalizes in-flight Promise bridges when the owner closes", async () => {
-    const runtime = await Effect.runPromise(Effect.runtime<never>());
+    const services = Context.empty();
     const owner = await Effect.runPromise(Scope.make());
-    const runOwned = makeScopedPromiseRunner(runtime, owner);
+    const runOwned = makeScopedPromiseRunner(services, owner);
     let releaseStarted!: () => void;
     const started = new Promise<void>((resolve) => { releaseStarted = resolve; });
     let finalized = false;
@@ -15,7 +15,7 @@ describe("makeScopedPromiseRunner", () => {
       Effect.acquireRelease(
         Effect.sync(releaseStarted),
         () => Effect.sync(() => { finalized = true; }),
-      ).pipe(Effect.zipRight(Effect.never)),
+      ).pipe(Effect.andThen(Effect.never)),
     ));
     await started;
     await Effect.runPromise(Scope.close(owner, Exit.void));

@@ -1,4 +1,5 @@
 import { Result, SchemaIssue, Schema } from "effect";
+import { SchemaError } from "effect/SchemaError";
 import {
   Settings,
   SettingsError,
@@ -27,7 +28,7 @@ const decodeStationPatch = Schema.decodeUnknownResult(
   STRICT_DECODE_OPTIONS,
 );
 
-const formatParse = (error: SchemaIssue.ParseError): string =>
+const formatParse = (error: SchemaError): string =>
   error instanceof Error ? error.message : String(error);
 
 export const decodePatchInput = (

@@ -148,19 +148,20 @@ export class EffectAcpChild extends EventEmitter implements AcpChildLike {
       this.scope = scope;
       if (this.killed) return;
 
+      const self = this;
       await this.runPromise(
         this.transport
           .connectAcp(this.host, this.profile, (lease, confirm) =>
-            Effect.gen({ self: this }, function* () {
-              this.lease = lease;
+            Effect.gen(function* () {
+              self.lease = lease;
               yield* Effect.forkIn(
                 Stream.runForEach(lease.stdout, (chunk) =>
                   Effect.sync(() => {
-                    this.stdout.write(chunk);
+                    self.stdout.write(chunk);
                   }),
                 ).pipe(
                   Effect.tapError((error) =>
-                    Effect.sync(() => this.deferFailure(error)),
+                    Effect.sync(() => self.deferFailure(error)),
                   ),
                   Effect.ignore,
                 ),
@@ -169,11 +170,11 @@ export class EffectAcpChild extends EventEmitter implements AcpChildLike {
               yield* Effect.forkIn(
                 Stream.runForEach(lease.stderr, (chunk) =>
                   Effect.sync(() => {
-                    this.stderr.write(chunk);
+                    self.stderr.write(chunk);
                   }),
                 ).pipe(
                   Effect.tapError((error) =>
-                    Effect.sync(() => this.deferFailure(error)),
+                    Effect.sync(() => self.deferFailure(error)),
                   ),
                   Effect.ignore,
                 ),
@@ -182,8 +183,8 @@ export class EffectAcpChild extends EventEmitter implements AcpChildLike {
               yield* Effect.forkIn(
                 lease.exitCode.pipe(
                   Effect.match({
-                    onFailure: (error) => this.deferFailure(error),
-                    onSuccess: (code) => this.requestFinish(code),
+                    onFailure: (error) => self.deferFailure(error),
+                    onSuccess: (code) => self.requestFinish(code),
                   }),
                 ),
                 scope,

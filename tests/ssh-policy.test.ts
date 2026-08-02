@@ -37,6 +37,11 @@ import { SshTransportConfig, SshTransportLayer } from "../src/main/vellum/ssh/se
 const encoder = new TextEncoder();
 const temporaryDirs: string[] = [];
 
+/** V4 residual R from Layers often infers as unknown; runPromise requires never. */
+const runPromise = <A, E = never>(
+  effect: Effect.Effect<A, E, never> | Effect.Effect<A, E, unknown>,
+): Promise<A> => Effect.runPromise(effect as Effect.Effect<A, E, never>);
+
 afterEach(async () => {
   setHostsSnapshot(defaultRemoteHostsDocument().hosts);
   await Promise.all(temporaryDirs.splice(0).map((path) => rm(path, { recursive: true, force: true })));
@@ -144,7 +149,7 @@ describe("SSH policy surface", () => {
   it("uses an absolute executable, scrubbed environment, hardened baseline, and versioned mux", async () => {
     const calls: Command.StandardCommand[] = [];
     const layer = await recordingLayer(calls);
-    await Effect.runPromise(
+    await runPromise(
       Effect.gen(function* () {
         const endpoint = yield* parseSshEndpoint("remote-a");
         const remote = yield* makeRemoteCommand(
@@ -188,7 +193,7 @@ describe("SSH policy surface", () => {
   it("makes dedicated streams caller-scoped and explicitly non-multiplexed", async () => {
     const calls: Command.StandardCommand[] = [];
     const layer = await recordingLayer(calls);
-    await Effect.runPromise(
+    await runPromise(
       Effect.scoped(
         Effect.gen(function* () {
           const endpoint = yield* parseSshEndpoint("remote-a");
@@ -208,14 +213,14 @@ describe("SSH policy surface", () => {
   });
 
   it("compiles an admitted identity route without exposing provider semantics", async () => {
-    const target = await Effect.runPromise(
+    const target = await runPromise(
       parseSshRoute({
         endpoint: "user@203.0.113.8",
         identityFile: "/Users/operator/.ssh/provider_ed25519",
         hostKeyPolicy: "accept-new",
       }),
     );
-    const remote = await Effect.runPromise(
+    const remote = await runPromise(
       makeRemoteCommand("/usr/bin/true"),
     );
     const compiler = createSshProgramCompiler({
@@ -241,8 +246,8 @@ describe("SSH policy surface", () => {
   });
 
   it("keeps deployment streams dedicated for one bounded privileged transcript", async () => {
-    const endpoint = await Effect.runPromise(parseSshEndpoint("linux-station"));
-    const remote = await Effect.runPromise(
+    const endpoint = await runPromise(parseSshEndpoint("linux-station"));
+    const remote = await runPromise(
       makeRemoteCommand("/usr/libexec/vellum-release-bridge", []),
     );
     const compiler = createSshProgramCompiler({
@@ -281,7 +286,7 @@ describe("SSH policy surface", () => {
     const layer = Layer.provideMerge(HermesTransportLive, sshLayer);
     const profile = parseHermesProfileName("profile-13")!;
 
-    await Effect.runPromise(
+    await runPromise(
       Effect.scoped(
         Effect.gen(function* () {
           const hermes = yield* HermesTransport;
@@ -329,7 +334,7 @@ describe("SSH policy surface", () => {
     let ownedSocket = "";
     let ownedControlSocket = "";
     let callsBeforeClose = 0;
-    await Effect.runPromise(
+    await runPromise(
       Effect.scoped(
         Effect.gen(function* () {
           const endpoint = yield* parseSshEndpoint("remote-a");
@@ -389,7 +394,7 @@ describe("SSH policy surface", () => {
   it("builds the daemon handoff script only from quoted command tokens", async () => {
     const calls: Command.StandardCommand[] = [];
     const layer = await recordingLayer(calls);
-    await Effect.runPromise(
+    await runPromise(
       Effect.gen(function* () {
         const endpoint = yield* parseSshEndpoint("remote-a");
         const remote = yield* makeRemoteCommand("herdr", ["--session", "red; echo bad", "server"]);

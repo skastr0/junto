@@ -3,7 +3,6 @@ import type { ObservabilityLogLevel } from "@shared/observability";
 import { observabilityRing, recordObservabilityLog } from "./ring";
 
 const levelFromEffect = (level: LogLevel.LogLevel): ObservabilityLogLevel => {
-  // V4 LogLevel is a string union, not a tagged ADT.
   switch (level) {
     case "Trace":
       return "trace";
@@ -54,7 +53,7 @@ const formatMessage = (message: unknown): string => {
  * and show every line twice as source effect + source main).
  *
  * Effect V4 Logger.Options: message, logLevel, cause, fiber, date.
- * Spans/annotations are not on Options — drop them.
+ * Spans/annotations are no longer on the options bag — omit from ring rows.
  */
 export const ObservabilityEffectLogger = Logger.make<unknown, void>((options) => {
   const causeEmpty = options.cause.reasons.length === 0;
@@ -65,14 +64,13 @@ export const ObservabilityEffectLogger = Logger.make<unknown, void>((options) =>
 
   const level = levelFromEffect(options.logLevel);
   const text = message || "(empty)";
-  const fiberId = options.fiber.id;
 
   observabilityRing.append({
     level,
     source: "effect",
     message: text,
     ts: options.date.getTime(),
-    fiber: Number.isFinite(fiberId) ? String(fiberId) : undefined,
+    fiber: String(options.fiber.id),
   });
 
   // Terminal visibility without touching hooked console.*
@@ -83,8 +81,13 @@ export const ObservabilityEffectLogger = Logger.make<unknown, void>((options) =>
   }
 });
 
-/** Replace default console logger — one Effect path into the ring. */
-export const ObservabilityLoggerLive = Logger.layer([ObservabilityEffectLogger]);
+/**
+ * Replace default console logger — one Effect path into the ring.
+ * V4: Logger.replace removed; Logger.layer installs the set (mergeWithExisting false).
+ */
+export const ObservabilityLoggerLive = Logger.layer([ObservabilityEffectLogger], {
+  mergeWithExisting: false,
+});
 
 type ConsoleMethod = "log" | "info" | "warn" | "error" | "debug";
 

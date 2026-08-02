@@ -181,17 +181,18 @@ const buildQuery = (
   levels: ReadonlyArray<ObservabilityLogLevel>,
   sources: ReadonlyArray<ObservabilityLogSource>,
 ): ObservabilityQuery => {
-  const query: ObservabilityQuery = { limit: 500 };
   const trimmed = q.trim();
-  if (trimmed.length > 0) query.q = trimmed;
   // Full chip sets mean "no filter" — omit the key. Empty means client-side empty.
-  if (levels.length > 0 && levels.length < LEVELS.length) {
-    query.levels = [...levels];
-  }
-  if (sources.length > 0 && sources.length < SOURCES.length) {
-    query.sources = [...sources];
-  }
-  return query;
+  return {
+    limit: 500,
+    ...(trimmed.length > 0 ? { q: trimmed } : {}),
+    ...(levels.length > 0 && levels.length < LEVELS.length
+      ? { levels: [...levels] }
+      : {}),
+    ...(sources.length > 0 && sources.length < SOURCES.length
+      ? { sources: [...sources] }
+      : {}),
+  };
 };
 
 export function ObservabilityPanel() {

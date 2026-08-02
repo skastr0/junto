@@ -194,7 +194,7 @@ const StationPropagationServicesLive = Layer.provideMerge(
   StatefulServicesLive,
 );
 
-const OpenSshStationPeerExchangeFromStateLive = Layer.unwrapEffect(
+const OpenSshStationPeerExchangeFromStateLive = Layer.unwrap(
   Effect.gen(function* () {
     const repository = yield* StationRepository;
     const localInstallationId = yield* repository.installationId;
@@ -287,8 +287,13 @@ const RemoteRootLayer = Layer.provideMerge(
 // process. Constructed once at module load; never remake. Callers: vellum-remote
 // boot, station/work control bridges, product planes. Dispose exactly once on
 // SIGTERM/SIGINT via RemoteRuntime.dispose() in drainAndExit.
+const RemoteAppLayer = Layer.mergeAll(RemoteRootLayer, ObservabilityLoggerLive);
 export const RemoteRuntime = ManagedRuntime.make(
-  Layer.mergeAll(RemoteRootLayer, ObservabilityLoggerLive),
+  RemoteAppLayer as Layer.Layer<
+    Layer.Success<typeof RemoteAppLayer>,
+    Layer.Error<typeof RemoteAppLayer>,
+    never
+  >,
 );
 
 // ---------------------------------------------------------------------------

@@ -8,7 +8,6 @@ import {
   Result,
   Fiber,
   Layer,
-  Option,
   Scope,
   Sink,
   Stream,
@@ -64,6 +63,11 @@ interface FakeProcess {
 const encoder = new TextEncoder();
 const temporaryDirs: string[] = [];
 
+/** V4 residual R from Layers often infers as unknown; runPromise requires never. */
+const runPromise = <A, E = never>(
+  effect: Effect.Effect<A, E, never> | Effect.Effect<A, E, unknown>,
+): Promise<A> => Effect.runPromise(effect as Effect.Effect<A, E, never>);
+
 afterEach(async () => {
   await Promise.all(
     temporaryDirs
@@ -99,7 +103,7 @@ const fakeProcess = (
       release: Effect.sync(() => {
         running = false;
       }).pipe(
-        Effect.zipRight(Deferred.succeed(exit, result.code ?? 143)),
+        Effect.andThen(Deferred.succeed(exit, result.code ?? 143)),
         Effect.asVoid,
       ),
     };
@@ -119,11 +123,11 @@ const testLayer = async (
       const flattened = standard(command);
       return Effect.acquireRelease(
         Effect.sync(() => calls.push(flattened)).pipe(
-          Effect.zipRight(fakeProcess(resolve(flattened), nextPid++)),
+          Effect.andThen(fakeProcess(resolve(flattened), nextPid++)),
         ),
         ({ release }) =>
           release.pipe(
-            Effect.zipRight(Effect.sync(() => releases.push(flattened))),
+            Effect.andThen(Effect.sync(() => releases.push(flattened))),
           ),
       ).pipe(Effect.map(({ handle }) => handle));
     },
@@ -163,7 +167,7 @@ describe("SshTransport", () => {
       releases,
     );
 
-    const result = await Effect.runPromise(
+    const result = await runPromise(
       Effect.gen(function* () {
         const endpoint = yield* parseSshEndpoint("remote-a");
         const remote = yield* makeRemoteCommand("true");
@@ -190,7 +194,7 @@ describe("SshTransport", () => {
       releases,
     );
 
-    const result = await Effect.runPromise(
+    const result = await runPromise(
       Effect.result(
         Effect.gen(function* () {
           const endpoint = yield* parseSshEndpoint("remote-a");
@@ -225,7 +229,7 @@ describe("SshTransport", () => {
       releases,
     );
 
-    await Effect.runPromise(
+    await runPromise(
       Effect.gen(function* () {
         const endpoint = yield* parseSshEndpoint("remote-a");
         const remote = yield* makeRemoteCommand("hermes", ["identity-apply"]);
@@ -270,7 +274,7 @@ describe("SshTransport", () => {
       releases,
     );
 
-    const result = await Effect.runPromise(
+    const result = await runPromise(
       Effect.gen(function* () {
         const endpoint = yield* parseSshEndpoint("remote-a");
         const remote = yield* makeRemoteCommand("remote-install");
@@ -296,7 +300,7 @@ describe("SshTransport", () => {
     const releases: Command.StandardCommand[] = [];
     const layer = await testLayer(() => ({ running: true }), calls, releases);
 
-    const result = await Effect.runPromise(
+    const result = await runPromise(
       Effect.result(
         Effect.gen(function* () {
           const endpoint = yield* parseSshEndpoint("remote-a");
@@ -321,7 +325,7 @@ describe("SshTransport", () => {
     const releases: Command.StandardCommand[] = [];
     const layer = await testLayer(() => ({ running: true }), calls, releases);
 
-    const result = await Effect.runPromise(
+    const result = await runPromise(
       Effect.result(
         Effect.gen(function* () {
           const endpoint = yield* parseSshEndpoint("remote-a");
@@ -355,7 +359,7 @@ describe("SshTransport", () => {
       releases,
     );
 
-    const result = await Effect.runPromise(
+    const result = await runPromise(
       Effect.result(
         Effect.gen(function* () {
           const endpoint = yield* parseSshEndpoint("remote-a");
@@ -391,7 +395,7 @@ describe("SshTransport", () => {
       releases,
     );
 
-    const result = await Effect.runPromise(
+    const result = await runPromise(
       Effect.result(
         Effect.gen(function* () {
           const endpoint = yield* parseSshEndpoint("remote-a");
@@ -425,7 +429,7 @@ describe("SshTransport", () => {
       releases,
     );
 
-    const value = await Effect.runPromise(
+    const value = await runPromise(
       Effect.scoped(
         Effect.gen(function* () {
           const endpoint = yield* parseSshEndpoint("remote-a");
@@ -436,8 +440,8 @@ describe("SshTransport", () => {
               lease
                 .write(encoder.encode("first"))
                 .pipe(
-                  Effect.zipRight(lease.write(encoder.encode("second"))),
-                  Effect.zipRight(lease.closeInput),
+                  Effect.andThen(lease.write(encoder.encode("second"))),
+                  Effect.andThen(lease.closeInput),
                   Effect.as(confirm("ready")),
                 ),
           );
@@ -477,7 +481,7 @@ describe("SshTransport", () => {
       releases,
     );
 
-    const result = await Effect.runPromise(
+    const result = await runPromise(
       Effect.gen(function* () {
         const endpoint = yield* parseSshEndpoint("linux-station");
         const remote = yield* makeRemoteCommand(
@@ -487,12 +491,12 @@ describe("SshTransport", () => {
           dedicatedStream(endpoint, remote),
           (lease) =>
             lease.write(encoder.encode("stage\n")).pipe(
-              Effect.zipRight(lease.write(encoder.encode("password\n"))),
-              Effect.zipRight(lease.closeInput),
-              Effect.zipRight(
+              Effect.andThen(lease.write(encoder.encode("password\n"))),
+              Effect.andThen(lease.closeInput),
+              Effect.andThen(
                 Stream.runFold(
                   lease.stdout,
-                  "",
+                  () => "",
                   (body, chunk) =>
                     body + Buffer.from(chunk).toString("utf8"),
                 ),
@@ -523,8 +527,8 @@ describe("SshTransport", () => {
     const allowSink = Effect.runSync(Deferred.make<void>());
     const input = Sink.forEach((chunk: Uint8Array) =>
       Deferred.succeed(sinkEntered, undefined).pipe(
-        Effect.zipRight(Deferred.await(allowSink)),
-        Effect.zipRight(
+        Effect.andThen(Deferred.await(allowSink)),
+        Effect.andThen(
           Effect.sync(() => {
             received.push(Uint8Array.from(chunk));
           }),
@@ -540,7 +544,7 @@ describe("SshTransport", () => {
       releases,
     );
 
-    await Effect.runPromise(
+    await runPromise(
       Effect.gen(function* () {
         const endpoint = yield* parseSshEndpoint("linux-station");
         const remote = yield* makeRemoteCommand(
@@ -551,11 +555,11 @@ describe("SshTransport", () => {
           (lease) =>
             Effect.gen(function* () {
               const passwordLine = Buffer.from("one-shot-secret\n", "utf8");
-              const write = yield* Effect.fork(
+              const write = yield* Effect.forkChild(
                 lease.writeSensitive(passwordLine),
               );
               yield* Deferred.await(sinkEntered);
-              expect(Option.isNone(yield* Fiber.poll(write))).toBe(true);
+              expect(write.pollUnsafe()).toBeUndefined();
               yield* Deferred.succeed(allowSink, undefined);
               yield* Fiber.join(write);
               passwordLine.fill(0);
@@ -582,7 +586,7 @@ describe("SshTransport", () => {
       [],
     );
 
-    const result = await Effect.runPromise(
+    const result = await runPromise(
       Effect.result(
         Effect.gen(function* () {
           const endpoint = yield* parseSshEndpoint("linux-station");
@@ -616,7 +620,7 @@ describe("SshTransport", () => {
       releases,
     );
 
-    const result = await Effect.runPromise(
+    const result = await runPromise(
       Effect.result(
         Effect.scoped(
           Effect.gen(function* () {
@@ -626,7 +630,7 @@ describe("SshTransport", () => {
               dedicatedStream(endpoint, remote),
               (lease, confirm) =>
                 Effect.sleep(10).pipe(
-                  Effect.zipRight(lease.write(encoder.encode("discarded"))),
+                  Effect.andThen(lease.write(encoder.encode("discarded"))),
                   Effect.as(confirm("ready")),
                 ),
             );
@@ -644,7 +648,7 @@ describe("SshTransport", () => {
     const releases: Command.StandardCommand[] = [];
     const layer = await testLayer(() => ({}), calls, releases);
 
-    const exitedFirst = await Effect.runPromise(
+    const exitedFirst = await runPromise(
       Effect.result(
         Effect.scoped(
           Effect.gen(function* () {
@@ -661,9 +665,9 @@ describe("SshTransport", () => {
     );
     expect(Result.isFailure(exitedFirst)).toBe(true);
     if (Result.isFailure(exitedFirst))
-      expect(exitedFirst.left).toBeInstanceOf(SshExitError);
+      expect(exitedFirst.failure).toBeInstanceOf(SshExitError);
 
-    const closedInCallback = await Effect.runPromise(
+    const closedInCallback = await runPromise(
       Effect.result(
         Effect.scoped(
           Effect.gen(function* () {
@@ -693,7 +697,7 @@ describe("SshTransport", () => {
     );
     expect(Result.isFailure(closedInCallback)).toBe(true);
     if (Result.isFailure(closedInCallback))
-      expect(closedInCallback.left).toBeInstanceOf(SshIoError);
+      expect(closedInCallback.failure).toBeInstanceOf(SshIoError);
   });
 
   it("lets Station readiness drain stdout before classifying an already-finished exit", async () => {
@@ -709,7 +713,7 @@ describe("SshTransport", () => {
       [],
     );
 
-    const result = await Effect.runPromise(
+    const result = await runPromise(
       Effect.result(
         Effect.scoped(
           Effect.gen(function* () {
@@ -725,7 +729,7 @@ describe("SshTransport", () => {
                 Effect.gen(function* () {
                   const stdout = yield* Stream.runFold(
                     lease.stdout,
-                    "",
+                    () => "",
                     (body, chunk) =>
                       body + Buffer.from(chunk).toString("utf8"),
                   );
@@ -764,7 +768,7 @@ describe("SshTransport", () => {
       releases,
     );
 
-    const value = await Effect.runPromise(
+    const value = await runPromise(
       Effect.gen(function* () {
         const endpoint = yield* parseSshEndpoint("remote-a");
         const remote = yield* makeRemoteCommand("herdr", ["server"]);
@@ -786,20 +790,19 @@ describe("SshTransport", () => {
       calls,
       releases,
     );
-    const result = await Effect.runPromise(
+    const result = await runPromise(
       Effect.gen(function* () {
         const fireTimeout = yield* Deferred.make<void>();
         let observedTimeoutMs: number | undefined;
         const clock: Clock.Clock = {
-          [Clock.ClockTypeId]: Clock.ClockTypeId,
-          unsafeCurrentTimeMillis: () => 0,
+          currentTimeMillisUnsafe: () => 0,
           currentTimeMillis: Effect.succeed(0),
-          unsafeCurrentTimeNanos: () => 0n,
+          currentTimeNanosUnsafe: () => 0n,
           currentTimeNanos: Effect.succeed(0n),
           sleep: (duration) =>
             Effect.sync(() => {
               observedTimeoutMs = Duration.toMillis(duration);
-            }).pipe(Effect.zipRight(Deferred.await(fireTimeout))),
+            }).pipe(Effect.andThen(Deferred.await(fireTimeout))),
         };
         const operation = Effect.gen(function* () {
           const endpoint = yield* parseSshEndpoint("remote-a");
@@ -807,12 +810,16 @@ describe("SshTransport", () => {
           return yield* (yield* SshTransport).run(
             oneShot(endpoint, remote, { budget: "short" }),
           );
-        }).pipe(Effect.provide(layer), Effect.withClock(clock), Effect.result);
-        const fiber = yield* Effect.fork(operation);
+        }).pipe(
+          Effect.provide(layer),
+          Effect.provideService(Clock.Clock, clock),
+          Effect.result,
+        );
+        const fiber = yield* Effect.forkChild(operation);
         while (
           !calls.some((command) => remoteText(command).includes("never"))
         ) {
-          yield* Effect.yieldNow();
+          yield* Effect.yieldNow;
         }
         yield* Deferred.succeed(fireTimeout, undefined);
         return { result: yield* Fiber.join(fiber), observedTimeoutMs };
@@ -835,7 +842,7 @@ describe("SshTransport", () => {
     const releases: Command.StandardCommand[] = [];
     const layer = await testLayer(() => ({}), calls, releases);
 
-    await Effect.runPromise(
+    await runPromise(
       Effect.gen(function* () {
         const endpoint = yield* parseSshEndpoint("remote-a");
         yield* (yield* SshTransport).teardown(endpoint);
@@ -860,7 +867,7 @@ describe("SshTransport", () => {
     // ssh -O exit against a socket with no listening master exits non-zero.
     const layer = await testLayer(() => ({ code: 255 }), calls, releases);
 
-    const result = await Effect.runPromise(
+    const result = await runPromise(
       Effect.result(
         Effect.gen(function* () {
           const endpoint = yield* parseSshEndpoint("remote-a");
@@ -952,7 +959,7 @@ describe("SshTransport", () => {
       ),
     );
 
-    await Effect.runPromise(
+    await runPromise(
       Effect.scoped(
         Effect.gen(function* () {
           const endpointA = yield* parseSshEndpoint("host-a");
@@ -960,10 +967,10 @@ describe("SshTransport", () => {
           const command = yield* makeRemoteCommand("hold");
           const ssh = yield* SshTransport;
           const fibers = yield* Effect.forEach([0, 1, 2, 3], () =>
-            Effect.fork(ssh.run(oneShot(endpointA, command))),
+            Effect.forkChild(ssh.run(oneShot(endpointA, command))),
           );
           yield* Effect.sleep(50);
-          fibers.push(yield* Effect.fork(ssh.run(oneShot(endpointB, command))));
+          fibers.push(yield* Effect.forkChild(ssh.run(oneShot(endpointB, command))));
           yield* Effect.sleep(50);
           expect(active).toBe(3);
           expect(activeByEndpoint.get("host-a")).toBe(2);

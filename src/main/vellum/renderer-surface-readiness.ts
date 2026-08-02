@@ -5,7 +5,7 @@ type RendererSurfaceTimer = ReturnType<typeof setTimeout> | number;
 export interface RendererSurfaceReadinessOptions {
   readonly timeoutMs: number;
   readonly loadTimeoutMs?: number;
-  readonly onTimeout: (phase: "load" | "mount") => void;
+  readonly orElse: (phase: "load" | "mount") => void;
   readonly schedule?: (callback: () => void, timeoutMs: number) => RendererSurfaceTimer;
   readonly cancel?: (timer: RendererSurfaceTimer) => void;
   readonly createChallenge?: () => string;
@@ -67,7 +67,7 @@ export const createRendererSurfaceReadiness = (
         challenge === armedChallenge &&
         deadlineAt === armedDeadline
       ) {
-        options.onTimeout(armedPhase === "loading" ? "load" : "mount");
+        options.orElse(armedPhase === "loading" ? "load" : "mount");
       }
     }, Math.max(0, armedDeadline - now()));
   };

@@ -4,7 +4,7 @@ import * as Cause from "effect/Cause";
 //   @effect/cli → effect/unstable/cli/*  ·  platform-bun stays separate (lockstep V4)
 //   Full table: ./effect-v4-import-map.ts · Playground/effect/migration/v3-to-v4.md
 import { Command } from "@effect/cli";
-import { BunContext, BunRuntime } from "@effect/platform-bun";
+import { BunRuntime, BunServices } from "@effect/platform-bun";
 import { Effect, Layer } from "effect";
 import {
   capabilitiesCommand,
@@ -68,7 +68,7 @@ const cli = Command.run(rootCommand, {
 });
 
 const runtimeLayer = Layer.mergeAll(
-  BunContext.layer,
+  BunServices.layer,
   WorkSocketLive,
   OperatorSocketLive,
 );
@@ -76,10 +76,10 @@ const runtimeLayer = Layer.mergeAll(
 export const runCli = (args: ReadonlyArray<string>) =>
   Effect.suspend(() => cli(args)).pipe(
     Effect.catch((error) =>
-      setExitCode(1).pipe(Effect.zipRight(writeFailureEnvelope(undefined, error))),
+      setExitCode(1).pipe(Effect.andThen(writeFailureEnvelope(undefined, error))),
     ),
     Effect.catchCause((cause) =>
-      setExitCode(1).pipe(Effect.zipRight(writeCauseEnvelope(undefined, cause))),
+      setExitCode(1).pipe(Effect.andThen(writeCauseEnvelope(undefined, cause))),
     ),
     Effect.provide(runtimeLayer),
   );
@@ -104,7 +104,9 @@ if (import.meta.main) {
   if (browserArgs !== undefined) {
     await runBrowserCli(browserArgs);
   } else {
-    runCli(Bun.argv).pipe(BunRuntime.runMain);
+    BunRuntime.runMain(
+      runCli(Bun.argv) as Effect.Effect<void, never, never>,
+    );
   }
 }
 
