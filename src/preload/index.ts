@@ -459,6 +459,8 @@ const vellumApi: VellumApi = {
     invoke(IPC_CHANNELS.factoryPauseSet, IPC_TIMEOUT_MS, canvas, scope, paused),
   regionRollups: (name) =>
     invoke(IPC_CHANNELS.regionRollups, IPC_TIMEOUT_MS, name),
+  contentPutImage: (input) =>
+    invoke(IPC_CHANNELS.contentPutImage, IPC_TIMEOUT_MS, input),
   workTaskCreate: (canvas, nodeId, brief, metadata, reason, media, dependsOn, finishCriteria) =>
     invoke(
       IPC_CHANNELS.workTaskCreate,

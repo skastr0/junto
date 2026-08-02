@@ -48,6 +48,7 @@ import {
   makeFileNode,
   makeGaugeNode,
   makeGroupNode,
+  makeImageNode,
   makeLabelNode,
   makeLinkNode,
   makeManagedAgentNode,
@@ -57,6 +58,8 @@ import {
   makeTasksNode,
   makeTextNode,
 } from "../lib/node-factories";
+import { putImagesFromDataTransfer } from "../lib/image-content";
+import { contentObjectUrl } from "@shared/content-url";
 import { openHerdrWizard } from "../lib/herdr-state";
 import { describeConnectPreview } from "../lib/connect-preview";
 import { GROUND, HUE } from "../lib/theme";
@@ -1256,6 +1259,78 @@ function CanvasGraph() {
     closeMenus();
     interactions.onPaneClick(event);
   }, [interactions.onPaneClick, closeMenus]);
+
+  /** Drop / paste images onto the field → content store → image file nodes. */
+  const placeImagesAt = useCallback(
+    async (data: DataTransfer | null | undefined, flow: { x: number; y: number }) => {
+      const result = await putImagesFromDataTransfer(data);
+      if (result.kind === "none") return false;
+      if (result.kind === "error") {
+        state$.error.set(result.error);
+        return true;
+      }
+      let offset = 0;
+      for (const ref of result.refs) {
+        const node = makeImageNode(
+          flow.x + offset,
+          flow.y + offset,
+          contentObjectUrl(ref),
+        );
+        addNode(node, { edit: false });
+        state$.focusNodeId.set(node.id);
+        offset += 24;
+      }
+      return true;
+    },
+    [],
+  );
+
+  const onDragOver = useCallback((event: React.DragEvent) => {
+    if (!event.dataTransfer?.types?.includes("Files")) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  }, []);
+
+  const onDrop = useCallback(
+    (event: React.DragEvent) => {
+      if (!event.dataTransfer) return;
+      // Only intercept file drops; node/edge RF drags stay native.
+      if (![...event.dataTransfer.types].includes("Files")) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const flow = rf.screenToFlowPosition({ x: event.clientX, y: event.clientY });
+      void placeImagesAt(event.dataTransfer, {
+        x: flow.x - 140,
+        y: flow.y - 100,
+      });
+    },
+    [rf, placeImagesAt],
+  );
+
+  useEffect(() => {
+    const onPaste = (event: ClipboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("input, textarea, [contenteditable='true']")) return;
+      const data = event.clipboardData;
+      if (!data) return;
+      const hasImageItem =
+        Array.from(data.items ?? []).some(
+          (item) => item.kind === "file" && item.type.startsWith("image/"),
+        ) ||
+        Array.from(data.files ?? []).some((file) => file.type.startsWith("image/"));
+      if (!hasImageItem) return;
+      // Must cancel default paste synchronously before the async put.
+      event.preventDefault();
+      const center = rf.screenToFlowPosition({
+        x: window.innerWidth / 2,
+        y: window.innerHeight / 2,
+      });
+      void placeImagesAt(data, { x: center.x - 140, y: center.y - 100 });
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [rf, placeImagesAt]);
+
   // Boolean only — flips when a cone appears/clears, not on every kernel tick.
   const impactMode = use$(impactModeActive$);
   const connectionFocusNodeId = use$(state$.connectionFocusNodeId);
@@ -1293,6 +1368,8 @@ function CanvasGraph() {
       onPaneContextMenu={onPaneContextMenu}
       onNodeContextMenu={onNodeContextMenu}
       onSelectionContextMenu={onSelectionContextMenu}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
       onMoveStart={onMoveStart}
       onMove={onMove}
       onMoveEnd={onMoveEnd}

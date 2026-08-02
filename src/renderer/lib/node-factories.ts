@@ -59,6 +59,26 @@ export const makeFileNode = (x: number, y: number): FileNode => ({
   height: 110,
 });
 
+/**
+ * Geography image card — JSON Canvas `file` node whose `file` is a
+ * `vellum-content://` object URL for an image ContentRef. Renders the image;
+ * no factory ports.
+ */
+export const makeImageNode = (
+  x: number,
+  y: number,
+  contentFileUrl: string,
+  size?: { readonly width: number; readonly height: number },
+): FileNode => ({
+  id: `image-${ulid()}`,
+  type: "file",
+  file: contentFileUrl,
+  x: Math.round(x),
+  y: Math.round(y),
+  width: Math.round(size?.width ?? 280),
+  height: Math.round(size?.height ?? 200),
+});
+
 export const makeLinkNode = (x: number, y: number): LinkNode => ({
   id: `node-${ulid()}`,
   type: "link",

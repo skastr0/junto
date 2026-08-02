@@ -23,6 +23,22 @@ describe("parseInline", () => {
       { kind: "link", href: "#", children: [{ kind: "text", value: "x" }] },
     ]);
   });
+
+  it("parses image markup and allows vellum-content src", () => {
+    const src =
+      "vellum-content://object/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?byteLength=12&mediaType=image%2Fpng";
+    expect(parseInline(`shot ![cap](${src}) end`)).toEqual([
+      { kind: "text", value: "shot " },
+      { kind: "image", alt: "cap", src },
+      { kind: "text", value: " end" },
+    ]);
+  });
+
+  it("rejects unsafe image schemes", () => {
+    expect(parseInline("![x](javascript:alert(1))")).toEqual([
+      { kind: "image", alt: "x", src: "" },
+    ]);
+  });
 });
 
 describe("parseBlocks", () => {
@@ -52,5 +68,20 @@ describe("parseBlocks", () => {
     if (blocks[0]?.kind === "list") {
       expect(blocks[0].items).toHaveLength(2);
     }
+  });
+
+  it("parses a sole image line as an image block", () => {
+    const src =
+      "vellum-content://object/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb?byteLength=4&mediaType=image%2Fpng";
+    const blocks = parseBlocks(`# Title\n\n![diagram](${src})\n\nbody`);
+    expect(blocks).toEqual([
+      {
+        kind: "heading",
+        level: 1,
+        children: [{ kind: "text", value: "Title" }],
+      },
+      { kind: "image", alt: "diagram", src },
+      { kind: "paragraph", children: [{ kind: "text", value: "body" }] },
+    ]);
   });
 });

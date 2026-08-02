@@ -5,6 +5,7 @@ import { X } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
 import type { FlowNode } from "../../lib/convert";
 import { registerCanvasDraftCommit } from "../../lib/canvas-editor-flush";
+import { markdownImageLine, putImagesFromDataTransfer } from "../../lib/image-content";
 import { editText } from "../../lib/mutations";
 import { NoteMarkdown } from "../../lib/note-markdown";
 import { isLabelNode } from "../../lib/presentation";
@@ -369,6 +370,53 @@ function NoteEditModal({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onCommit, onDiscard]);
 
+  const insertAtCursor = (snippet: string) => {
+    const el = textareaRef.current;
+    // Prefer live textarea value — paste put is async and `draft` can be stale.
+    const current = el?.value ?? draft;
+    if (!el) {
+      onChange(
+        current.endsWith("\n") || current.length === 0
+          ? `${current}${snippet}`
+          : `${current}\n${snippet}`,
+      );
+      return;
+    }
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const next = `${current.slice(0, start)}${snippet}${current.slice(end)}`;
+    onChange(next);
+    requestAnimationFrame(() => {
+      const caret = start + snippet.length;
+      el.focus();
+      el.setSelectionRange(caret, caret);
+    });
+  };
+
+  const onPasteImage = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const data = event.clipboardData;
+    if (!data) return;
+    const hasImageItem =
+      Array.from(data.items ?? []).some(
+        (item) => item.kind === "file" && item.type.startsWith("image/"),
+      ) ||
+      Array.from(data.files ?? []).some((file) => file.type.startsWith("image/"));
+    if (!hasImageItem) return;
+    event.preventDefault();
+    void (async () => {
+      const result = await putImagesFromDataTransfer(data);
+      if (result.kind === "none") return;
+      if (result.kind === "error") {
+        state$.error.set(result.error);
+        return;
+      }
+      const lines = result.refs.map((ref) =>
+        markdownImageLine(ref, ref.displayName ?? "image"),
+      );
+      insertAtCursor(`${lines.join("\n")}\n`);
+    })();
+  };
+
   // House FocusSurface owns portal/backdrop/enter-animation/session size.
   // Semantics preserved: backdrop click SAVES (onClose=onCommit), Escape
   // discards (own keydown; FocusSurface Escape stays off).
@@ -407,9 +455,10 @@ function NoteEditModal({
           spellCheck
           value={draft}
           onChange={(event) => onChange(event.target.value)}
-          placeholder={"# heading\n\n- list item\n\n**bold** and `code`"}
+          onPaste={onPasteImage}
+          placeholder={"# heading\n\n- list item\n\n**bold** and `code`\n\npaste an image to embed"}
         />
-        <div className="note-edit-modal__hint">⌘↵ save · esc discard</div>
+        <div className="note-edit-modal__hint">⌘↵ save · esc discard · paste image to embed</div>
       </div>
     </FocusSurface>
   );

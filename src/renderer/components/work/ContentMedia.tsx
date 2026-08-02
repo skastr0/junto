@@ -23,6 +23,11 @@ type ContentMediaProps = {
   readonly alt?: string;
   readonly className?: string;
   readonly controls?: boolean;
+  /**
+   * Canvas / note chrome: image fills the parent, no media-type caption or
+   * ledger padding. Work ledger keeps the default (false).
+   */
+  readonly bare?: boolean;
 };
 
 const formatBytes = (count: number): string => `${count.toLocaleString()} bytes`;
@@ -54,6 +59,7 @@ export function ContentMedia({
   alt,
   className,
   controls = true,
+  bare = false,
 }: ContentMediaProps) {
   const url = contentObjectUrl(contentRef);
   const kind = contentMediaKind(contentRef.mediaType);
@@ -64,6 +70,13 @@ export function ContentMedia({
   const [status, setStatus] = useState<ContentMediaStatus>("loading");
   const [reason, setReason] = useState<string | undefined>(undefined);
   const [retryToken, setRetryToken] = useState(0);
+  const shellClass = [
+    "content-media",
+    bare ? "content-media--bare" : "",
+    className ?? "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   const probe = useCallback(async () => {
     setStatus("loading");
@@ -118,16 +131,18 @@ export function ContentMedia({
   if (status === "loading") {
     return (
       <div
-        className={`content-media content-media--loading${className ? ` ${className}` : ""}`}
+        className={`${shellClass} content-media--loading`}
         role="status"
         aria-live="polite"
       >
         <LoaderCircle size={16} className="content-media__spin" aria-hidden />
-        <div>
-          <strong>{label}</strong>
-          <span>{formatBytes(contentRef.byteLength)}</span>
-          <small>{stateLabel(status)}</small>
-        </div>
+        {bare ? null : (
+          <div>
+            <strong>{label}</strong>
+            <span>{formatBytes(contentRef.byteLength)}</span>
+            <small>{stateLabel(status)}</small>
+          </div>
+        )}
       </div>
     );
   }
@@ -135,16 +150,20 @@ export function ContentMedia({
   if (status !== "ready") {
     return (
       <div
-        className={`content-media content-media--${status}${className ? ` ${className}` : ""}`}
+        className={`${shellClass} content-media--${status}`}
         role="alert"
       >
         <AlertTriangle size={16} aria-hidden />
-        <div>
-          <strong>{stateLabel(status)}</strong>
-          <span>{label}</span>
-          <span>{formatBytes(contentRef.byteLength)}</span>
-          {reason ? <small>{reason}</small> : null}
-        </div>
+        {bare ? (
+          <span className="content-media__bare-error">{stateLabel(status)}</span>
+        ) : (
+          <div>
+            <strong>{stateLabel(status)}</strong>
+            <span>{label}</span>
+            <span>{formatBytes(contentRef.byteLength)}</span>
+            {reason ? <small>{reason}</small> : null}
+          </div>
+        )}
         <Button
           size="xs"
           variant="subtle"
@@ -159,18 +178,17 @@ export function ContentMedia({
 
   if (kind === "image") {
     return (
-      <div
-        className={`content-media content-media--image${className ? ` ${className}` : ""}`}
-      >
+      <div className={`${shellClass} content-media--image`}>
         <img
           src={url}
           alt={label}
+          draggable={false}
           onError={() => {
             setStatus("error");
             setReason("image element failed to decode stream");
           }}
         />
-        <span>{contentRef.mediaType}</span>
+        {bare ? null : <span>{contentRef.mediaType}</span>}
       </div>
     );
   }

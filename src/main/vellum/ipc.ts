@@ -36,6 +36,7 @@ import { registerUpdateIpc } from "./update/ipc";
 import { SnapshotsService } from "./snapshots";
 import { UsageService } from "./usage/usage-service";
 import { WorkService } from "./work/service";
+import { ContentService } from "./content/service";
 import { messageDelivery } from "./work/message-delivery";
 import { mailboxMessageDeliveryId } from "./work/mailbox-receipts";
 import { onCanvasChangeForMsgSendEnable } from "./work/msg-send-enable-notify";
@@ -471,6 +472,101 @@ export const registerVellumIpc = (): void => {
   // document + snapshots + the chat plane's session/permission state.
   privilegedIpc.handle(IPC_CHANNELS.regionRollups, (_event, name: string) =>
     AppRuntime.runPromise(Effect.flatMap(RegionRollupService, (service) => service.rollups(name))),
+  );
+
+  // Image content put — canvas image nodes + note embeds. Content store only;
+  // document carries ContentRef URLs, never Base64.
+  const IMAGE_PUT_MAX_BYTES = 16 * 1024 * 1024;
+  const IMAGE_PUT_TYPES = new Set([
+    "image/png",
+    "image/jpeg",
+    "image/jpg",
+    "image/gif",
+    "image/webp",
+    "image/bmp",
+  ]);
+  privilegedIpc.handle(
+    IPC_CHANNELS.contentPutImage,
+    (
+      _event,
+      input: {
+        readonly bytesBase64?: unknown;
+        readonly mediaType?: unknown;
+        readonly displayName?: unknown;
+      },
+    ) =>
+      AppRuntime.runPromise(
+        Effect.gen(function* () {
+          const settings = yield* SettingsService;
+          const current = yield* settings.get;
+          if (current.station.role === "remote") {
+            return {
+              ok: false as const,
+              error:
+                "Image authoring is available only on the Command Center.",
+            };
+          }
+          if (
+            input === null ||
+            typeof input !== "object" ||
+            typeof input.bytesBase64 !== "string" ||
+            typeof input.mediaType !== "string"
+          ) {
+            return { ok: false as const, error: "invalid image put input" };
+          }
+          const mediaType = input.mediaType.trim().toLowerCase().split(";")[0]?.trim() ?? "";
+          if (!IMAGE_PUT_TYPES.has(mediaType)) {
+            return {
+              ok: false as const,
+              error: `unsupported image media type: ${input.mediaType}`,
+            };
+          }
+          const normalized = input.bytesBase64.replace(/\s+/g, "");
+          if (
+            normalized.length === 0 ||
+            normalized.length % 4 === 1 ||
+            !/^[A-Za-z0-9+/]*={0,2}$/u.test(normalized)
+          ) {
+            return { ok: false as const, error: "invalid Base64 image payload" };
+          }
+          const bytes = Buffer.from(normalized, "base64");
+          const withoutPadding = normalized.replace(/=+$/u, "");
+          if (bytes.toString("base64").replace(/=+$/u, "") !== withoutPadding) {
+            return { ok: false as const, error: "non-canonical Base64 image payload" };
+          }
+          if (bytes.length === 0) {
+            return { ok: false as const, error: "empty image" };
+          }
+          if (bytes.length > IMAGE_PUT_MAX_BYTES) {
+            return {
+              ok: false as const,
+              error: `image too large (${bytes.length} bytes; max ${IMAGE_PUT_MAX_BYTES})`,
+            };
+          }
+          const displayName =
+            typeof input.displayName === "string" && input.displayName.trim().length > 0
+              ? input.displayName.trim().slice(0, 255)
+              : undefined;
+          const content = yield* ContentService;
+          const result = yield* content.put({
+            source: bytes,
+            mediaType,
+            ...(displayName !== undefined ? { displayName } : {}),
+          }).pipe(
+            Effect.mapError((error) =>
+              error instanceof Error ? error : new Error(String(error)),
+            ),
+          );
+          return { ok: true as const, ref: result.ref };
+        }).pipe(
+          Effect.catchAll((error) =>
+            Effect.succeed({
+              ok: false as const,
+              error: error instanceof Error ? error.message : String(error),
+            }),
+          ),
+        ),
+      ),
   );
 
   // work plane — renderer commands call repository-native WorkService verbs.

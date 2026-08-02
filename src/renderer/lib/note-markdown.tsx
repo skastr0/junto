@@ -1,16 +1,19 @@
 import type { ReactNode } from "react";
 import { createElement, memo } from "react";
+import { parseContentObjectUrl } from "@shared/content-url";
+import { ContentMedia } from "../components/work/ContentMedia";
 
 // Lightweight, dependency-free markdown for freeform note nodes.
 // Raw source is stored; this renders a safe subset when the node is unselected.
-// Never injects HTML — every leaf is a text node.
+// Never injects HTML — every leaf is a text node (except content-store images).
 
 type InlineToken =
   | { readonly kind: "text"; readonly value: string }
   | { readonly kind: "code"; readonly value: string }
   | { readonly kind: "strong"; readonly children: ReadonlyArray<InlineToken> }
   | { readonly kind: "em"; readonly children: ReadonlyArray<InlineToken> }
-  | { readonly kind: "link"; readonly href: string; readonly children: ReadonlyArray<InlineToken> };
+  | { readonly kind: "link"; readonly href: string; readonly children: ReadonlyArray<InlineToken> }
+  | { readonly kind: "image"; readonly alt: string; readonly src: string };
 
 type Block =
   | { readonly kind: "heading"; readonly level: 1 | 2 | 3; readonly children: ReadonlyArray<InlineToken> }
@@ -18,13 +21,19 @@ type Block =
   | { readonly kind: "list"; readonly ordered: boolean; readonly items: ReadonlyArray<ReadonlyArray<InlineToken>> }
   | { readonly kind: "code"; readonly lang: string; readonly value: string }
   | { readonly kind: "quote"; readonly children: ReadonlyArray<InlineToken> }
-  | { readonly kind: "hr" };
+  | { readonly kind: "hr" }
+  | { readonly kind: "image"; readonly alt: string; readonly src: string };
 
-// Links allow one level of nested parens in the href (e.g. wikipedia URLs).
-const INLINE_RE = /(\*\*[^*]+\*\*|\*[^*\n]+\*|`[^`\n]+`|\[[^\]]+\]\((?:[^()\s]+|\([^)]*\))+\))/g;
+// Images first (`![alt](src)`), then links. Links allow one level of nested
+// parens in the href (e.g. wikipedia URLs). Content URLs have no spaces.
+const INLINE_RE =
+  /(!\[[^\]]*\]\((?:[^()\s]+|\([^)]*\))+\)|\*\*[^*]+\*\*|\*[^*\n]+\*|`[^`\n]+`|\[[^\]]+\]\((?:[^()\s]+|\([^)]*\))+\))/g;
 
+const IMAGE_LINE_RE = /^\s*!\[([^\]]*)\]\(([^)\s]+)\)\s*$/;
+
+/** Safe schemes for links and images — includes app content protocol. */
 const isSafeHref = (href: string): boolean =>
-  /^(https?:|mailto:|\/|#)/i.test(href);
+  /^(https?:|mailto:|\/|#|vellum-content:)/i.test(href);
 
 export function parseInline(source: string): ReadonlyArray<InlineToken> {
   if (!source) return [];
@@ -34,7 +43,16 @@ export function parseInline(source: string): ReadonlyArray<InlineToken> {
     const index = match.index ?? 0;
     if (index > last) tokens.push({ kind: "text", value: source.slice(last, index) });
     const token = match[0];
-    if (token.startsWith("**") && token.endsWith("**")) {
+    if (token.startsWith("![")) {
+      const close = token.indexOf("](");
+      const alt = token.slice(2, close);
+      const src = token.slice(close + 2, -1);
+      tokens.push({
+        kind: "image",
+        alt,
+        src: isSafeHref(src) ? src : "",
+      });
+    } else if (token.startsWith("**") && token.endsWith("**")) {
       tokens.push({ kind: "strong", children: parseInline(token.slice(2, -2)) });
     } else if (token.startsWith("*") && token.endsWith("*")) {
       tokens.push({ kind: "em", children: parseInline(token.slice(1, -1)) });
@@ -103,6 +121,19 @@ export function parseBlocks(source: string): ReadonlyArray<Block> {
       continue;
     }
 
+    const soleImage = IMAGE_LINE_RE.exec(line);
+    if (soleImage) {
+      const alt = soleImage[1] ?? "";
+      const src = soleImage[2] ?? "";
+      blocks.push({
+        kind: "image",
+        alt,
+        src: isSafeHref(src) ? src : "",
+      });
+      i += 1;
+      continue;
+    }
+
     if (/^\s*[-*+]\s+/.test(line) || /^\s*\d+\.\s+/.test(line)) {
       const ordered = /^\s*\d+\.\s+/.test(line);
       const items: Array<ReadonlyArray<InlineToken>> = [];
@@ -135,6 +166,7 @@ export function parseBlocks(source: string): ReadonlyArray<Block> {
       if (/^\s*[-*+]\s+/.test(current) || /^\s*\d+\.\s+/.test(current)) break;
       if (/^\s*>\s?/.test(current)) break;
       if (/^---+$/.test(current.trim()) || /^\*\*\*+$/.test(current.trim())) break;
+      if (IMAGE_LINE_RE.test(current)) break;
       body.push(current);
       i += 1;
     }
@@ -142,6 +174,40 @@ export function parseBlocks(source: string): ReadonlyArray<Block> {
   }
 
   return blocks;
+}
+
+function renderImage(src: string, alt: string, key: string): ReactNode {
+  if (!src) {
+    return (
+      <span key={key} className="note-md__image-missing">
+        [image blocked]
+      </span>
+    );
+  }
+  const contentRef = parseContentObjectUrl(src);
+  if (contentRef) {
+    return (
+      <span key={key} className="note-md__image note-md__image--content">
+        <ContentMedia
+          contentRef={contentRef}
+          alt={alt || contentRef.displayName || "image"}
+          bare
+          controls={false}
+          className="note-md__content-media"
+        />
+      </span>
+    );
+  }
+  return (
+    <img
+      key={key}
+      className="note-md__image"
+      src={src}
+      alt={alt}
+      loading="lazy"
+      draggable={false}
+    />
+  );
 }
 
 function renderInline(tokens: ReadonlyArray<InlineToken>, keyPrefix: string): ReactNode[] {
@@ -169,6 +235,8 @@ function renderInline(tokens: ReadonlyArray<InlineToken>, keyPrefix: string): Re
             {renderInline(token.children, key)}
           </a>
         );
+      case "image":
+        return renderImage(token.src, token.alt, key);
     }
   });
 }
@@ -222,6 +290,15 @@ export const NoteMarkdown = memo(function NoteMarkdown({ source }: { readonly so
             return <blockquote key={key} className="note-md__quote">{renderInline(block.children, key)}</blockquote>;
           case "hr":
             return <hr key={key} className="note-md__hr" />;
+          case "image":
+            return (
+              <figure key={key} className="note-md__figure">
+                {renderImage(block.src, block.alt, `${key}-img`)}
+                {block.alt ? (
+                  <figcaption className="note-md__figcaption">{block.alt}</figcaption>
+                ) : null}
+              </figure>
+            );
         }
       })}
     </div>

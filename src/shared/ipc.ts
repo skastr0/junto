@@ -21,6 +21,7 @@ import type {
   TaskProposal,
   EtherFlag,
 } from "./canvas";
+import type { ContentRef } from "./content";
 import type {
   DemoCommand,
   DemoCommandResult,
@@ -99,6 +100,12 @@ export const IPC_CHANNELS = {
   factoryPauseState: "vellum:factory-pause-state",
   factoryPauseSet: "vellum:factory-pause-set",
   regionRollups: "vellum:region-rollups",
+  /**
+   * Put image bytes into the local content store; returns a ContentRef.
+   * Canvas notes and image file nodes author through this — never inline Base64
+   * in the document.
+   */
+  contentPutImage: "vellum:content-put-image",
   // work plane (serialized canvas mutations)
   workTaskCreate: "vellum:work-task-create",
   workTaskPropose: "vellum:work-task-propose",
@@ -576,6 +583,19 @@ export interface VellumApi extends LicenseApi, UpdateApi {
   // Region severity rollups for the bottom bar, derived live per call from
   // the document + snapshots + ACP chat activity (shared/region-rollup.ts).
   readonly regionRollups: (name: string) => Promise<ReadonlyArray<RegionRollup>>;
+  /**
+   * Ingest image bytes into the content store. Used by canvas image nodes and
+   * note embeds. Bytes never land in CanvasDoc; only the returned ContentRef
+   * (via content object URL) is authored into the document.
+   */
+  readonly contentPutImage: (input: {
+    readonly bytesBase64: string;
+    readonly mediaType: string;
+    readonly displayName?: string;
+  }) => Promise<
+    | { readonly ok: true; readonly ref: ContentRef }
+    | { readonly ok: false; readonly error: string }
+  >;
   // work plane — repository-native SQLite mutations; canvas reads provide
   // topology and runtime projection only.
   readonly workTaskCreate: (
