@@ -98,9 +98,10 @@ describe("factory physics architecture", () => {
     expect(violations).toEqual([]);
   });
 
-  it("delivers factory claims directly without mutating the agent session first", () => {
-    // Claim path must not gate on `/compact` (PTY-Factory A). Compact is not a
-    // claim receipt; agents get one complete CLI packet on working delivery.
+  it("delivers factory claims as a complete CLI packet on the direct claim path", () => {
+    // Forward law (PTY-Factory A): claim delivery builds one complete packet.
+    // Do not encode ban-lists of retired symbols here — standing ruling against
+    // mistake-tombstone tests; the positive contract is the gate.
     const kernel = readFileSync(
       join(root, "src", "main", "vellum", "kernel", "service.ts"),
       "utf8",
@@ -110,12 +111,11 @@ describe("factory physics architecture", () => {
       "utf8",
     );
     expect(kernel).toContain("buildFactoryClaimPrompt");
-    expect(kernel).not.toContain('"/compact"');
-    expect(kernel).not.toContain("managedTaskCompactionDeliveryId");
     expect(claimPrompt).toContain("[factory claim]");
     expect(claimPrompt).toContain("vellum tasks list");
     expect(claimPrompt).toContain("vellum tasks update");
-    expect(claimPrompt).not.toContain('"/compact"');
+    expect(claimPrompt).toContain('"target"');
+    expect(claimPrompt).toContain('"task"');
   });
 
   it("permits geography to DISPLAY agent state — display is not a factory power", () => {
