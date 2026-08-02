@@ -1,10 +1,18 @@
 import { describe, expect, it } from "vitest";
+import { Effect, Layer, Logger, ManagedRuntime } from "effect";
 import {
   OBSERVABILITY_RING_CAPACITY,
   matchesObservabilityQuery,
   type ObservabilityLogEntry,
 } from "../src/shared/observability";
+import {
+  AdvancedSettings,
+  applySettingsPatch,
+  defaultSettings,
+} from "../src/shared/settings";
+import { Schema, Either } from "effect";
 import { makeObservabilityRing } from "../src/main/vellum/observability/ring";
+import { ObservabilityEffectLogger } from "../src/main/vellum/observability/logger";
 
 const entry = (
   partial: Partial<ObservabilityLogEntry> & Pick<ObservabilityLogEntry, "message">,
@@ -84,5 +92,63 @@ describe("observability ring", () => {
     expect(matchesObservabilityQuery(e, { q: "resolve-route" })).toBe(true);
     expect(matchesObservabilityQuery(e, { levels: ["error"] })).toBe(false);
     expect(OBSERVABILITY_RING_CAPACITY).toBeGreaterThan(100);
+  });
+});
+
+describe("observability settings", () => {
+  it("defaults logsExplorer off and patches on", () => {
+    expect(defaultSettings().advanced.logsExplorer).toBe(false);
+    const next = applySettingsPatch(defaultSettings(), {
+      advanced: { logsExplorer: true },
+    });
+    expect(next.advanced.logsExplorer).toBe(true);
+    expect(next.advanced.openLastCanvas).toBe(true);
+  });
+
+  it("decodes advanced prefs missing logsExplorer as false", () => {
+    const decoded = Schema.decodeUnknownEither(AdvancedSettings)({
+      openLastCanvas: true,
+    });
+    expect(Either.isRight(decoded)).toBe(true);
+    if (Either.isRight(decoded)) {
+      expect(decoded.right.logsExplorer).toBe(false);
+    }
+  });
+});
+
+describe("Effect logger sink", () => {
+  it("captures Effect.log* Info+ into the process ring via replace default", async () => {
+    // Use a private ring by temporarily logging through the logger factory
+    // against the singleton — clear first so the suite is isolated.
+    const { observabilityRing } = await import(
+      "../src/main/vellum/observability/ring"
+    );
+    observabilityRing.clear();
+
+    const runtime = ManagedRuntime.make(
+      Logger.replace(Logger.defaultLogger, ObservabilityEffectLogger),
+    );
+    try {
+      await runtime.runPromise(
+        Effect.gen(function* () {
+          yield* Effect.log("hello-effect-ring");
+          yield* Effect.logWarning("warn-effect-ring");
+        }),
+      );
+      // Allow logger side effects to settle.
+      const snap = observabilityRing.query({
+        q: "effect-ring",
+        limit: 20,
+      });
+      const messages = snap.entries.map((e) => e.message);
+      expect(messages.some((m) => m.includes("hello-effect-ring"))).toBe(true);
+      expect(messages.some((m) => m.includes("warn-effect-ring"))).toBe(true);
+      expect(snap.entries.every((e) => e.source === "effect")).toBe(true);
+      // Single source — no main double from default pretty console.
+      expect(snap.entries.filter((e) => e.source === "main")).toHaveLength(0);
+    } finally {
+      await runtime.dispose();
+      observabilityRing.clear();
+    }
   });
 });

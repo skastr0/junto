@@ -641,8 +641,17 @@ const vellumApi: VellumApi = {
     ),
   observabilityClear: () =>
     invoke<ObservabilitySnapshot>(IPC_CHANNELS.observabilityClear, IPC_TIMEOUT_MS),
+  observabilityWatch: () =>
+    invoke<ObservabilitySnapshot>(IPC_CHANNELS.observabilityWatch, IPC_TIMEOUT_MS),
+  observabilityUnwatch: () =>
+    invoke<{ ok: true }>(IPC_CHANNELS.observabilityUnwatch, IPC_TIMEOUT_MS),
   onObservabilityLog: (listener) =>
     subscribe<ObservabilityLogEntry>(IPC_CHANNELS.observabilityLog, listener),
+  onObservabilityCleared: (listener) =>
+    subscribe<{ newestId: number; total: number; dropped: number }>(
+      IPC_CHANNELS.observabilityCleared,
+      listener,
+    ),
 };
 
 const chatApi: VellumChatApi = {

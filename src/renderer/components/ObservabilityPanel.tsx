@@ -10,10 +10,12 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type {
-  ObservabilityLogEntry,
-  ObservabilityLogLevel,
-  ObservabilityLogSource,
+import {
+  matchesObservabilityQuery,
+  type ObservabilityLogEntry,
+  type ObservabilityLogLevel,
+  type ObservabilityLogSource,
+  type ObservabilityQuery,
 } from "@shared/observability";
 import { state$ } from "../lib/state";
 import { DIM, FAINT, GREEN, HUE, INK, RAISE, WELL, withAlpha } from "../lib/theme";
@@ -172,68 +174,123 @@ function LogRow({ entry }: { readonly entry: ObservabilityLogEntry }) {
   );
 }
 
+const buildQuery = (
+  q: string,
+  levels: ReadonlyArray<ObservabilityLogLevel>,
+  sources: ReadonlyArray<ObservabilityLogSource>,
+): ObservabilityQuery => ({
+  limit: 500,
+  q: q.trim() || undefined,
+  // Never send empty arrays — schema minItems(1); empty means client-only empty.
+  levels: levels.length > 0 && levels.length < LEVELS.length ? [...levels] : undefined,
+  sources:
+    sources.length > 0 && sources.length < SOURCES.length ? [...sources] : undefined,
+});
+
 export function ObservabilityPanel() {
   const open = use$(state$.observabilityOpen);
   const [entries, setEntries] = useState<ReadonlyArray<ObservabilityLogEntry>>([]);
   const [total, setTotal] = useState(0);
   const [dropped, setDropped] = useState(0);
+  const [capacity, setCapacity] = useState(2000);
   const [q, setQ] = useState("");
   const [levels, setLevels] = useState<ReadonlyArray<ObservabilityLogLevel>>(LEVELS);
   const [sources, setSources] = useState<ReadonlyArray<ObservabilityLogSource>>(SOURCES);
   const [live, setLive] = useState(true);
   const [stickBottom, setStickBottom] = useState(true);
   const listRef = useRef<HTMLDivElement>(null);
-  const newestIdRef = useRef(0);
+  const loadGen = useRef(0);
+  const queryRef = useRef<ObservabilityQuery>({});
+  queryRef.current = buildQuery(q, levels, sources);
 
   const close = useCallback(() => {
     state$.observabilityOpen.set(false);
   }, []);
 
-  const load = useCallback(async () => {
-    if (!window.vellum?.observabilityQuery) return;
-    try {
-      const snap = await window.vellum.observabilityQuery({
-        limit: 500,
-        q: q.trim() || undefined,
-        levels: levels.length === LEVELS.length ? undefined : [...levels],
-        sources: sources.length === SOURCES.length ? undefined : [...sources],
-      });
+  const applySnapshot = useCallback(
+    (snap: {
+      readonly entries: ReadonlyArray<ObservabilityLogEntry>;
+      readonly total: number;
+      readonly dropped: number;
+      readonly capacity: number;
+      readonly newestId: number;
+    }) => {
       setEntries(snap.entries);
       setTotal(snap.total);
       setDropped(snap.dropped);
-      newestIdRef.current = snap.newestId;
-    } catch {
-      // Unreachable backend: leave prior frame.
-    }
-  }, [q, levels, sources]);
+      setCapacity(snap.capacity);
+    },
+    [],
+  );
 
+  const load = useCallback(async () => {
+    if (!window.vellum?.observabilityQuery) return;
+    // Empty chip set → show nothing (avoid invalid IPC query).
+    if (levels.length === 0 || sources.length === 0) {
+      setEntries([]);
+      return;
+    }
+    const gen = ++loadGen.current;
+    try {
+      const snap = await window.vellum.observabilityQuery(queryRef.current);
+      if (gen !== loadGen.current) return;
+      applySnapshot(snap);
+    } catch {
+      // Unreachable backend or invalid query: leave prior frame.
+    }
+  }, [levels, sources, applySnapshot]);
+
+  // Watch interest while open (live push only with ≥1 watcher).
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    const api = window.vellum;
+    if (!api?.observabilityWatch) return;
+    void api.observabilityWatch().then((snap) => {
+      if (cancelled) return;
+      setCapacity(snap.capacity);
+      setTotal(snap.total);
+      setDropped(snap.dropped);
+    });
+    return () => {
+      cancelled = true;
+      void api.observabilityUnwatch?.();
+    };
+  }, [open]);
+
+  // Snapshot reload when filters change (or on open).
   useEffect(() => {
     if (!open) return;
     void load();
-  }, [open, load]);
+  }, [open, q, levels, sources, load]);
 
+  // Live push while open + live.
   useEffect(() => {
     if (!open || !live) return;
-    const unsub = window.vellum?.onObservabilityLog?.((entry) => {
-      if (levels.length !== LEVELS.length && !levels.includes(entry.level)) return;
-      if (sources.length !== SOURCES.length && !sources.includes(entry.source)) return;
-      const needle = q.trim().toLowerCase();
-      if (needle && !entry.message.toLowerCase().includes(needle)) {
-        // Full filter (annotations/spans) still applies on next full reload;
-        // live path is message-only for speed.
-        return;
-      }
-      newestIdRef.current = Math.max(newestIdRef.current, entry.id);
+    const unsubLog = window.vellum?.onObservabilityLog?.((entry) => {
+      if (!matchesObservabilityQuery(entry, queryRef.current)) return;
       setEntries((prev) => {
         const next = [...prev, entry];
         return next.length > 800 ? next.slice(-800) : next;
       });
-      setTotal((t) => t + 1);
+      setTotal((t) => {
+        if (t >= capacity) {
+          setDropped((d) => d + 1);
+          return capacity;
+        }
+        return t + 1;
+      });
+    });
+    const unsubClear = window.vellum?.onObservabilityCleared?.((payload) => {
+      setEntries([]);
+      setTotal(payload.total);
+      setDropped(payload.dropped);
     });
     return () => {
-      unsub?.();
+      unsubLog?.();
+      unsubClear?.();
     };
-  }, [open, live, levels, sources, q]);
+  }, [open, live, capacity]);
 
   useEffect(() => {
     if (!open || !stickBottom) return;
@@ -256,17 +313,13 @@ export function ObservabilityPanel() {
 
   const toggleLevel = (level: ObservabilityLogLevel) => {
     setLevels((prev) =>
-      prev.includes(level)
-        ? prev.filter((l) => l !== level)
-        : [...prev, level],
+      prev.includes(level) ? prev.filter((l) => l !== level) : [...prev, level],
     );
   };
 
   const toggleSource = (source: ObservabilityLogSource) => {
     setSources((prev) =>
-      prev.includes(source)
-        ? prev.filter((s) => s !== source)
-        : [...prev, source],
+      prev.includes(source) ? prev.filter((s) => s !== source) : [...prev, source],
     );
   };
 
@@ -276,16 +329,15 @@ export function ObservabilityPanel() {
     setEntries([]);
     setTotal(0);
     setDropped(0);
-    newestIdRef.current = 0;
   };
 
   const status = useMemo(() => {
     const parts = [`${entries.length} shown`];
-    if (total > 0) parts.push(`${total} in ring`);
+    if (total > 0) parts.push(`${total}/${capacity} in ring`);
     if (dropped > 0) parts.push(`${dropped} dropped`);
     parts.push(live ? "live" : "paused");
     return parts.join(" · ");
-  }, [entries.length, total, dropped, live]);
+  }, [entries.length, total, capacity, dropped, live]);
 
   if (!open) return null;
 
@@ -409,8 +461,8 @@ export function ObservabilityPanel() {
               <ScrollText size={22} style={{ color: FAINT }} />
               <p className="font-mono text-[12px]">No log lines match.</p>
               <p className="max-w-sm text-[11px]" style={{ color: FAINT }}>
-                The process ring captures Effect logs, main console, and renderer
-                console. Emit traffic or loosen filters.
+                Process ring: Effect logs (Info+), main console, renderer console.
+                Emit traffic or loosen filters.
               </p>
             </div>
           ) : (

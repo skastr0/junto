@@ -3,8 +3,10 @@ import { Schema } from "effect";
 /**
  * Process-local observability surface for the developer logs explorer.
  *
- * Capture is always-on (bounded ring in main). The UI is gated by
- * `settings.advanced.logsExplorer` — never a second durable store.
+ * Capture is always-on (bounded ring in main): Effect.log* (Info+ default
+ * min level), main console.*, and renderer console-message. Not the durable
+ * work ledger, LaunchAgent files, or child protocol streams — those are
+ * separate planes. The UI is gated by `settings.advanced.logsExplorer`.
  */
 
 export const OBSERVABILITY_RING_CAPACITY = 2_000 as const;

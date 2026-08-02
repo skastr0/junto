@@ -460,7 +460,7 @@ function AdvancedSection() {
       </FieldRow>
       <FieldRow
         label="Logs explorer"
-        hint="TopBar control over the process Effect + console ring (developer)"
+        hint="TopBar control · process Effect.log + main/renderer console (not work ledger)"
       >
         <input
           type="checkbox"

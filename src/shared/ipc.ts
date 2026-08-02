@@ -257,8 +257,13 @@ export const IPC_CHANNELS = {
   // Developer observability ring (process-local; UI gated by advanced.logsExplorer)
   observabilityQuery: "vellum:observability-query",
   observabilityClear: "vellum:observability-clear",
-  /** Main → renderer: one structured log entry. */
+  /** Renderer interest: enable live push while the explorer is open. */
+  observabilityWatch: "vellum:observability-watch",
+  observabilityUnwatch: "vellum:observability-unwatch",
+  /** Main → renderer: one structured log entry (only while watched). */
   observabilityLog: "vellum:observability-log",
+  /** Main → renderer: ring was cleared. */
+  observabilityCleared: "vellum:observability-cleared",
 } as const;
 
 export interface ChassisApi {
@@ -722,8 +727,18 @@ export interface VellumApi extends LicenseApi, UpdateApi {
     query?: ObservabilityQuery,
   ) => Promise<ObservabilitySnapshot>;
   readonly observabilityClear: () => Promise<ObservabilitySnapshot>;
+  /** Open a live-push interest slot (call while explorer is mounted). */
+  readonly observabilityWatch: () => Promise<ObservabilitySnapshot>;
+  readonly observabilityUnwatch: () => Promise<{ readonly ok: true }>;
   readonly onObservabilityLog: (
     listener: (entry: ObservabilityLogEntry) => void,
+  ) => () => void;
+  readonly onObservabilityCleared: (
+    listener: (payload: {
+      readonly newestId: number;
+      readonly total: number;
+      readonly dropped: number;
+    }) => void,
   ) => () => void;
   /** OS login item — read real state; never assume. */
   readonly loginItemGet: () => Promise<LoginItemOpResult>;

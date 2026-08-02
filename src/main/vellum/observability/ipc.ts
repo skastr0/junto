@@ -10,10 +10,30 @@ import { observabilityRing } from "./ring";
 
 const decodeQuery = Schema.decodeUnknownEither(ObservabilityQuery);
 
+/**
+ * Interest count for live IPC push. Ring always captures; we only
+ * webContents.send when ≥1 explorer panel is watching — avoids log-storm
+ * IPC when the UI is closed.
+ */
+let watchInterest = 0;
+let ringUnsub: (() => void) | undefined;
+
+const ensureRingPush = (
+  broadcast: (channel: string, payload: unknown) => void,
+): void => {
+  if (ringUnsub) return;
+  ringUnsub = observabilityRing.subscribe((entry: ObservabilityLogEntry) => {
+    if (watchInterest <= 0) return;
+    broadcast(IPC_CHANNELS.observabilityLog, entry);
+  });
+};
+
 export const registerObservabilityIpc = (
   ipcMain: IpcMain,
   broadcast: (channel: string, payload: unknown) => void,
 ): void => {
+  ensureRingPush(broadcast);
+
   ipcMain.handle(
     IPC_CHANNELS.observabilityQuery,
     (_event, raw: unknown): ObservabilitySnapshot => {
@@ -22,7 +42,7 @@ export const registerObservabilityIpc = (
       }
       const decoded = decodeQuery(raw);
       if (decoded._tag === "Left") {
-        return observabilityRing.query();
+        throw new Error("invalid observability query");
       }
       return observabilityRing.query(decoded.right);
     },
@@ -30,12 +50,24 @@ export const registerObservabilityIpc = (
 
   ipcMain.handle(IPC_CHANNELS.observabilityClear, (): ObservabilitySnapshot => {
     observabilityRing.clear();
-    return observabilityRing.query({ limit: 1 });
+    const snap = observabilityRing.query({ limit: 1 });
+    if (watchInterest > 0) {
+      broadcast(IPC_CHANNELS.observabilityCleared, {
+        newestId: 0,
+        total: 0,
+        dropped: 0,
+      });
+    }
+    return snap;
   });
 
-  // Live push: every append fans out to renderers. The panel filters client-side
-  // and only mounts the subscription while open — cheap empty-listener path.
-  observabilityRing.subscribe((entry: ObservabilityLogEntry) => {
-    broadcast(IPC_CHANNELS.observabilityLog, entry);
+  ipcMain.handle(IPC_CHANNELS.observabilityWatch, (): ObservabilitySnapshot => {
+    watchInterest += 1;
+    return observabilityRing.query({ limit: 500 });
+  });
+
+  ipcMain.handle(IPC_CHANNELS.observabilityUnwatch, (): { ok: true } => {
+    watchInterest = Math.max(0, watchInterest - 1);
+    return { ok: true };
   });
 };

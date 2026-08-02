@@ -89,8 +89,11 @@ const annotationMap = (
 };
 
 /**
- * Effect Logger that records into the process ring. Added via Layer — keeps
- * default pretty console logging; this is an additional sink.
+ * Single Effect log sink: ring + process.stdout (never console.*).
+ *
+ * Replaces the default pretty console logger so Effect logs are not
+ * double-captured by the main console hook (which would burn ring capacity
+ * and show every line twice as source effect + source main).
  */
 export const ObservabilityEffectLogger = Logger.make<unknown, void>((options) => {
   const causeText =
@@ -99,18 +102,32 @@ export const ObservabilityEffectLogger = Logger.make<unknown, void>((options) =>
   const message = causeText ? (base ? `${base}\n${causeText}` : causeText) : base;
   if (!message && options.cause._tag === "Empty") return;
 
+  const level = levelFromEffect(options.logLevel);
+  const text = message || "(empty)";
+
   observabilityRing.append({
-    level: levelFromEffect(options.logLevel),
+    level,
     source: "effect",
-    message: message || "(empty)",
+    message: text,
     ts: options.date.getTime(),
     fiber: fiberLabel(options.fiberId),
     spans: spanLabels(options.spans),
     annotations: annotationMap(options.annotations),
   });
+
+  // Terminal visibility without touching hooked console.*
+  try {
+    process.stdout.write(`[effect:${level}] ${text.replace(/\n/g, " · ")}\n`);
+  } catch {
+    // stdout closed during shutdown — ignore
+  }
 });
 
-export const ObservabilityLoggerLive = Logger.add(ObservabilityEffectLogger);
+/** Replace default console logger — one Effect path into the ring. */
+export const ObservabilityLoggerLive = Logger.replace(
+  Logger.defaultLogger,
+  ObservabilityEffectLogger,
+);
 
 type ConsoleMethod = "log" | "info" | "warn" | "error" | "debug";
 
@@ -125,8 +142,9 @@ const CONSOLE_LEVEL: Record<ConsoleMethod, ObservabilityLogLevel> = {
 let consoleHookInstalled = false;
 
 /**
- * Mirror main-process console into the ring. Idempotent. Skips our own
- * re-entrancy via an ALS-style flag on the call stack.
+ * Mirror main-process console into the ring. Idempotent.
+ * Depth wraps the original call so nested console.* from formatters
+ * does not double-append.
  */
 export const installObservabilityConsoleHook = (): void => {
   if (consoleHookInstalled) return;
@@ -136,10 +154,13 @@ export const installObservabilityConsoleHook = (): void => {
   const wrap =
     (method: ConsoleMethod, original: (...args: unknown[]) => void) =>
     (...args: unknown[]) => {
-      original.apply(console, args);
-      if (depth > 0) return;
+      if (depth > 0) {
+        original.apply(console, args);
+        return;
+      }
       depth += 1;
       try {
+        original.apply(console, args);
         const message = args
           .map((arg) => {
             if (typeof arg === "string") return arg;
