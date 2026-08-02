@@ -10,6 +10,16 @@ import { observabilityRing } from "./ring";
 
 const decodeQuery = Schema.decodeUnknownEither(ObservabilityQuery);
 
+/** Drop present-but-undefined keys (IPC / object literals break exact optionals). */
+const stripUndefinedKeys = (raw: unknown): unknown => {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return raw;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (value !== undefined) out[key] = value;
+  }
+  return out;
+};
+
 /**
  * Interest count for live IPC push. Ring always captures; we only
  * webContents.send when ≥1 explorer panel is watching — avoids log-storm
@@ -40,9 +50,10 @@ export const registerObservabilityIpc = (
       if (raw === undefined || raw === null) {
         return observabilityRing.query();
       }
-      const decoded = decodeQuery(raw);
+      // Soft-fail: never throw — IPC handler errors hit console → ring spam.
+      const decoded = decodeQuery(stripUndefinedKeys(raw));
       if (decoded._tag === "Left") {
-        throw new Error("invalid observability query");
+        return observabilityRing.query();
       }
       return observabilityRing.query(decoded.right);
     },

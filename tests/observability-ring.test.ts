@@ -95,6 +95,35 @@ describe("observability ring", () => {
   });
 });
 
+describe("observability query wire shape", () => {
+  it("rejects present-but-undefined optionals (exact schema)", () => {
+    const bad = Schema.decodeUnknownEither(ObservabilityQuery)({
+      limit: 500,
+      q: undefined,
+      levels: undefined,
+      sources: undefined,
+    });
+    expect(Either.isLeft(bad)).toBe(true);
+  });
+
+  it("accepts omitted optionals and partial filters", () => {
+    expect(
+      Either.isRight(
+        Schema.decodeUnknownEither(ObservabilityQuery)({ limit: 500 }),
+      ),
+    ).toBe(true);
+    expect(
+      Either.isRight(
+        Schema.decodeUnknownEither(ObservabilityQuery)({
+          limit: 500,
+          levels: ["fatal"],
+          sources: ["renderer", "system"],
+        }),
+      ),
+    ).toBe(true);
+  });
+});
+
 describe("observability settings", () => {
   it("defaults logsExplorer off and patches on", () => {
     expect(defaultSettings().advanced.logsExplorer).toBe(false);

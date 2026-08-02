@@ -174,18 +174,25 @@ function LogRow({ entry }: { readonly entry: ObservabilityLogEntry }) {
   );
 }
 
+/** Build a wire query with *omitted* optional keys (never `undefined` values).
+ * Effect Schema `optionalWith({ exact: true })` rejects present-but-undefined. */
 const buildQuery = (
   q: string,
   levels: ReadonlyArray<ObservabilityLogLevel>,
   sources: ReadonlyArray<ObservabilityLogSource>,
-): ObservabilityQuery => ({
-  limit: 500,
-  q: q.trim() || undefined,
-  // Never send empty arrays — schema minItems(1); empty means client-only empty.
-  levels: levels.length > 0 && levels.length < LEVELS.length ? [...levels] : undefined,
-  sources:
-    sources.length > 0 && sources.length < SOURCES.length ? [...sources] : undefined,
-});
+): ObservabilityQuery => {
+  const query: ObservabilityQuery = { limit: 500 };
+  const trimmed = q.trim();
+  if (trimmed.length > 0) query.q = trimmed;
+  // Full chip sets mean "no filter" — omit the key. Empty means client-side empty.
+  if (levels.length > 0 && levels.length < LEVELS.length) {
+    query.levels = [...levels];
+  }
+  if (sources.length > 0 && sources.length < SOURCES.length) {
+    query.sources = [...sources];
+  }
+  return query;
+};
 
 export function ObservabilityPanel() {
   const open = use$(state$.observabilityOpen);
