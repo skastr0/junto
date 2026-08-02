@@ -45,7 +45,7 @@ Read V4 patterns from **Playground/effect**, not from V3 skill text.
 | **S0** | deep | Fitness: CI/rg or architecture test bans bare `Effect.runPromise` under product globs except allowlist file. Document allowlist. **≥1 commit.** |
 | **S1** | deep | Single warm ManagedRuntime story documented in code comments at `runtime.ts` / `remote-runtime.ts`; product IPC uses `AppRuntime`/`RemoteRuntime` only for domain Effects. **≥1 commit.** |
 | **S2** | deep | ✅ Kernel factory cycle (claim/delivery/timer bridges) does not use bare empty-Context `Effect.runPromise` for Work/Content paths; claims see ContentService. **≥1 commit.** |
-| **S3** | deep | Regression test: media/ContentRef task claim succeeds when receipts+files present (would catch prior claim-gate bug). **≥1 commit.** |
+| **S3** | deep | ✅ Regression test: media/ContentRef task claim succeeds when receipts+files present (would catch prior claim-gate bug). **≥1 commit.** · `tests/work-claim-content-ref.test.ts` |
 | **S4** | parallel | `Context.Tag` → V4-ready `Context.Service` (or staged rename map) for **owned path pack only**. **≥1 commit.** |
 | **S5** | parallel | `Effect.fork` / `forkDaemon` → `forkChild` / `forkDetach` (V4 names if on V4; else V3-compatible prep + comment) **owned paths only**. **≥1 commit.** |
 | **S6** | parallel | Error combinator renames (`catchAll`→`catch` etc.) **owned paths only** when on V4; else no-op commit documenting N/A. **≥1 commit.** |
