@@ -42,7 +42,10 @@ import { makeOwnerLocalStationControlHandoffAuthority } from "./vellum/station/p
 import { StationApiService } from "./vellum/station/api";
 import { StationRepository } from "./vellum/station/repository";
 import { WorkRepository } from "./vellum/work/repository";
-import { KernelService } from "./vellum/kernel/service";
+import {
+  KernelService,
+  type KernelHostRun,
+} from "./vellum/kernel/service";
 import { HerdrPlane } from "./vellum/herdr/plane";
 import { HermesPlane } from "./vellum/hermes/plane";
 import { termPlane } from "./vellum/term/plane";
@@ -120,7 +123,7 @@ type Handles = {
     readonly shutdown: { readonly drainOnQuit: () => Promise<unknown> };
   };
   kernel?: {
-    readonly start: () => void;
+    readonly start: (hostRun: KernelHostRun) => void;
     readonly suspend: () => void;
   };
   shuttingDown: boolean;
@@ -337,9 +340,10 @@ const runProductBoot = async (): Promise<void> => {
   await RemoteRuntime.runPromise(herdr.start);
 
   try {
-    handles.kernel = await RemoteRuntime.runPromise(KernelService);
+    const kernel = await RemoteRuntime.runPromise(KernelService);
+    handles.kernel = kernel;
     // V4-KERNEL: host-owned Effect entry (migration/runtime.md).
-    handles.kernel.start((effect) =>
+    kernel.start((effect) =>
       RemoteRuntime.runPromise(effect as never),
     );
     handles.stationControl = await startStationControlServer({

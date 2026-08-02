@@ -3,10 +3,8 @@ import { PassThrough } from "node:stream";
 import {
   Context,
   Effect,
-  ExecutionStrategy,
   Exit,
   Layer,
-  Runtime,
   Scope,
   Stream,
 } from "effect";
@@ -157,7 +155,7 @@ export const createHerdrShutdownController = (
         const result = settled[index]!;
         const beginCauses = beginFailures.get(name) ?? [];
         const receipt = result.status === "fulfilled"
-          ? result.success
+          ? result.value
           : herdrComponentReceipt(1, [{
               code: "component-drain-failed",
               message: herdrShutdownMessage(result.reason),
@@ -595,8 +593,8 @@ class EffectHerdrScopeClient extends EventEmitter implements HerdrClientIo {
   private closeRequested = false;
   private settled = false;
   private scopeReadySettled = false;
-  private readonly scopeReady: Promise<Scope.CloseableScope | undefined>;
-  private resolveScopeReady!: (scope: Scope.CloseableScope | undefined) => void;
+  private readonly scopeReady: Promise<Scope.Closeable | undefined>;
+  private resolveScopeReady!: (scope: Scope.Closeable | undefined) => void;
   private scopeCloseFlight: Promise<void> | undefined;
 
   constructor(
@@ -624,7 +622,7 @@ class EffectHerdrScopeClient extends EventEmitter implements HerdrClientIo {
     queueMicrotask(() => { void this.start(); });
   }
 
-  private markScopeReady(scope: Scope.CloseableScope | undefined): void {
+  private markScopeReady(scope: Scope.Closeable | undefined): void {
     if (this.scopeReadySettled) return;
     this.scopeReadySettled = true;
     this.resolveScopeReady(scope);
@@ -642,7 +640,7 @@ class EffectHerdrScopeClient extends EventEmitter implements HerdrClientIo {
   private async start(): Promise<void> {
     try {
       const scope = await this.runPromise(
-        Scope.make(ExecutionStrategy.sequential),
+        Scope.make("sequential"),
       );
       this.markScopeReady(scope);
       if (this.closeRequested) {
@@ -655,7 +653,7 @@ class EffectHerdrScopeClient extends EventEmitter implements HerdrClientIo {
         this.transport.connect(
           { hostId: this.hostId, args: this.args, session: this.session },
           (lease, confirm) =>
-            Effect.gen(this, function* () {
+            Effect.gen({ self: this }, function* () {
               this.lease = lease;
               yield* Effect.forkIn(
                 Stream.runForEach(lease.stdout, (chunk) =>
@@ -678,7 +676,7 @@ class EffectHerdrScopeClient extends EventEmitter implements HerdrClientIo {
               );
               return confirm(undefined);
             }),
-        ).pipe(Scope.extend(scope)),
+        ).pipe(Scope.provide(scope)) as Effect.Effect<void, unknown>,
       );
 
       // Close can race the async connect after the pre-connect check. Never
@@ -776,8 +774,8 @@ export const HerdrPlaneLive = Layer.effect(
     const transport = yield* HerdrTransport;
     const ssh = yield* SshTransport;
     const owner = yield* Scope.Scope;
-    const runtime = yield* Effect.runtime<never>();
-    const runPromise: RunPromise = (effect) => Runtime.runPromise(runtime)(effect);
+    const runtime = yield* Effect.context<never>();
+    const runPromise: RunPromise = (effect) => Effect.runPromiseWith(runtime)(effect);
     const runOwned = makeScopedPromiseRunner(runtime, owner);
 
     const runner: HerdrRunner = async (hostId, args, session, timeoutMs = 12_000, route) => {
@@ -868,14 +866,14 @@ export const HerdrPlaneLive = Layer.effect(
         // Independent scope: the Herdr shutdown receipt is its sole lifetime
         // owner. Forking under the layer owner would let Effect auto-close a
         // late scope before the bounded Herdr finalizer gets to observe it.
-        const scope = await runPromise(Scope.make(ExecutionStrategy.sequential));
+        const scope = await runPromise(Scope.make("sequential"));
         const boundedScopeClose = makeBoundedRemoteClose(
           () => runPromise(Scope.close(scope, Exit.void)),
         );
         const close = mirrorForwardPart.registerScope(boundedScopeClose);
         try {
           const lease = await runPromise(
-            transport.forwardMirror(known).pipe(Scope.extend(scope)),
+            transport.forwardMirror(known).pipe(Scope.provide(scope)),
           );
           if (mirrorForwardPart.isQuiescing()) {
             await close();
@@ -1121,7 +1119,7 @@ export const HerdrPlaneLive = Layer.effect(
       shutdown.isQuiescing()
         ? Effect.void
         : warm.pipe(
-            Effect.zipRight(
+            Effect.andThen(
               Effect.sync(() => {
                 if (shutdown.isQuiescing()) return;
                 mirrors.startAll();

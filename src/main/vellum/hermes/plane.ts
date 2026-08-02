@@ -5,10 +5,8 @@ import type { SnapshotBundle } from "@shared/entities";
 import {
   Context,
   Effect,
-  ExecutionStrategy,
   Exit,
   Layer,
-  Runtime,
   Scope,
   Stream,
 } from "effect";
@@ -103,7 +101,7 @@ export class EffectAcpChild extends EventEmitter implements AcpChildLike {
     },
   };
 
-  private scope: Scope.CloseableScope | undefined;
+  private scope: Scope.Closeable | undefined;
   private lease: SshLease | undefined;
   private pending: Uint8Array[] = [];
   private writes = Promise.resolve();
@@ -145,7 +143,7 @@ export class EffectAcpChild extends EventEmitter implements AcpChildLike {
   private async start(): Promise<void> {
     try {
       const scope = await this.runPromise(
-        Scope.make(ExecutionStrategy.sequential),
+        Scope.make("sequential"),
       );
       this.scope = scope;
       if (this.killed) return;
@@ -153,7 +151,7 @@ export class EffectAcpChild extends EventEmitter implements AcpChildLike {
       await this.runPromise(
         this.transport
           .connectAcp(this.host, this.profile, (lease, confirm) =>
-            Effect.gen(this, function* () {
+            Effect.gen({ self: this }, function* () {
               this.lease = lease;
               yield* Effect.forkIn(
                 Stream.runForEach(lease.stdout, (chunk) =>
@@ -193,7 +191,7 @@ export class EffectAcpChild extends EventEmitter implements AcpChildLike {
               return confirm(undefined);
             }),
           )
-          .pipe(Scope.extend(scope)),
+          .pipe(Scope.provide(scope)) as Effect.Effect<void, unknown>,
       );
 
       const pending = this.pending;
@@ -414,9 +412,9 @@ export const HermesPlaneLive = Layer.effect(
     const transport = yield* HermesTransport;
     const settings = yield* SettingsService;
     const owner = yield* Scope.Scope;
-    const runtime = yield* Effect.runtime<never>();
+    const runtime = yield* Effect.context<never>();
     const runPromise: RunPromise = (effect) =>
-      Runtime.runPromise(runtime)(effect);
+      Effect.runPromiseWith(runtime)(effect);
     const runOwned = makeScopedPromiseRunner(runtime, owner);
     let observedIdentity: HermesStationIdentity | undefined;
     let observedUpdate = false;
