@@ -197,7 +197,7 @@ function installMockVellum(overrides: Partial<MockVellum> = {}): MockVellum {
     browserOpen: vi.fn(async (input: { ref: string }): Promise<BrowserOpResult<BrowserSessionInfo>> => {
       const parsed = parseNodeRef(input.ref);
       if (!parsed.ok) return { ok: false, code: "invalid", message: "bad ref" };
-      const session = baseSession(input.ref, parsed.success.nodeId, `session-${++handle}`);
+      const session = baseSession(input.ref, parsed.value.nodeId, `session-${++handle}`);
       sessions.set(session.sessionId, session);
       return { ok: true, data: session };
     }),

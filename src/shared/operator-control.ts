@@ -85,10 +85,10 @@ export const OperatorEmptyArgs = Schema.Struct({});
 export type OperatorEmptyArgs = typeof OperatorEmptyArgs.Type;
 
 const UniqueCapabilities = Schema.Array(HostCapability).pipe(
-  Schema.check(Schema.isMinSize(1)),
-  Schema.check(Schema.isMaxSize(4)),
+  Schema.check(Schema.isMinLength(1)),
+  Schema.check(Schema.isMaxLength(4)),
   Schema.check(Schema.makeFilter((capabilities) => new Set(capabilities).size === capabilities.length,
-  { message: () => "host capabilities must be unique" },)),
+  { message: "host capabilities must be unique" },)),
 );
 
 export const OperatorFleetAddArgs = Schema.Struct({
@@ -151,15 +151,15 @@ export const OperatorPublicHost = Schema.Struct({
   kind: Schema.Literals(["local", "remote"]),
   sshEndpoint: Schema.optionalKey(HostSshEndpoint),
   capabilities: Schema.Array(HostCapability).pipe(
-    Schema.check(Schema.isMinSize(1)),
-    Schema.check(Schema.isMaxSize(4)),
+    Schema.check(Schema.isMinLength(1)),
+    Schema.check(Schema.isMaxLength(4)),
   ),
   hermesId: Schema.optionalKey(HostId),
 });
 export type OperatorPublicHost = typeof OperatorPublicHost.Type;
 
 export const OperatorFleetHostsData = Schema.Struct({
-  hosts: Schema.Array(OperatorPublicHost).pipe(Schema.check(Schema.isMaxSize(32))),
+  hosts: Schema.Array(OperatorPublicHost).pipe(Schema.check(Schema.isMaxLength(32))),
 });
 export type OperatorFleetHostsData = typeof OperatorFleetHostsData.Type;
 
@@ -209,7 +209,7 @@ export type OperatorDeployRecoveryAction =
 const OperatorDeployCommon = {
   detail: Diagnostic,
   code: OptionalCode,
-  stages: Schema.Array(Stage).pipe(Schema.check(Schema.isMaxSize(128))),
+  stages: Schema.Array(Stage).pipe(Schema.check(Schema.isMaxLength(128))),
   version: Schema.optionalKey(Version),
 };
 
@@ -238,7 +238,7 @@ export const OperatorReportSyncReceipt = Schema.Struct({
   inboundAccepted: NonNegativeInt,
   inboundIdempotent: NonNegativeInt,
   inboundRejected: NonNegativeInt,
-  receivedThrough: Schema.Array(RouteCursor).pipe(Schema.check(Schema.isMaxSize(256))),
+  receivedThrough: Schema.Array(RouteCursor).pipe(Schema.check(Schema.isMaxLength(256))),
   hasMoreOutbound: Schema.Boolean,
   hasMoreInbound: Schema.Boolean,
 });
@@ -302,12 +302,12 @@ Schema.Struct({
 export type OperatorFleetSyncResult = typeof OperatorFleetSyncResult.Type;
 
 export const OperatorFleetSyncData = Schema.Struct({
-  results: Schema.Array(OperatorFleetSyncResult).pipe(Schema.check(Schema.isMaxSize(32))),
+  results: Schema.Array(OperatorFleetSyncResult).pipe(Schema.check(Schema.isMaxLength(32))),
 });
 export type OperatorFleetSyncData = typeof OperatorFleetSyncData.Type;
 
 export const OperatorFleetStatusData = Schema.Struct({
-  peers: Schema.Array(OperatorFleetPeerStatus).pipe(Schema.check(Schema.isMaxSize(32))),
+  peers: Schema.Array(OperatorFleetPeerStatus).pipe(Schema.check(Schema.isMaxLength(32))),
 });
 export type OperatorFleetStatusData = typeof OperatorFleetStatusData.Type;
 
@@ -347,7 +347,7 @@ export type OperatorQualificationWorkVerifyData =
 
 const request = <
   Op extends OperatorOpName,
-  S extends Schema.Schema.AnyNoContext,
+  S extends Schema.Top,
 >(
   op: Op,
   args: S,
@@ -429,7 +429,7 @@ export type OperatorRequestEnvelope = typeof OperatorRequestEnvelope.Type;
 
 const response = <
   Op extends OperatorOpName,
-  S extends Schema.Schema.AnyNoContext,
+  S extends Schema.Top,
 >(
   op: Op,
   data: S,

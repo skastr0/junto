@@ -41,8 +41,8 @@ export const ObservabilityQuery = Schema.Struct({
   afterId: Schema.optionalKey(Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0)))),
   /** Max rows (newest-first when afterId omitted; oldest-first when afterId set). */
   limit: Schema.optionalKey(Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isBetween({ minimum: 1, maximum: OBSERVABILITY_RING_CAPACITY })))),
-  levels: Schema.optionalKey(Schema.Array(ObservabilityLogLevel).pipe(Schema.check(Schema.isMinSize(1)))),
-  sources: Schema.optionalKey(Schema.Array(ObservabilityLogSource).pipe(Schema.check(Schema.isMinSize(1)))),
+  levels: Schema.optionalKey(Schema.Array(ObservabilityLogLevel).pipe(Schema.check(Schema.isMinLength(1)))),
+  sources: Schema.optionalKey(Schema.Array(ObservabilityLogSource).pipe(Schema.check(Schema.isMinLength(1)))),
   /** Case-insensitive substring over message + annotation values. */
   q: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMaxLength(200)))),
 });

@@ -1089,7 +1089,7 @@ describe("StationRepository", () => {
       work.claimLocalTask({
         sink: tasks,
         basis,
-        taskId: created.success.id,
+        taskId: created.value.id,
         actor,
         originAt: "2026-07-27T12:03:00.000Z",
         receivedAt: "2026-07-27T12:03:00.000Z",

@@ -120,7 +120,7 @@ export const LinuxHostCapabilityFacts = Schema.Struct({
     "mcookie",
     "unshare",
     "secret-tool",]),
-  ).pipe(Schema.check(Schema.isMaxSize(17))),
+  ).pipe(Schema.check(Schema.isMaxLength(17))),
   runtimeLibraries: Schema.Literals(["ready", "incomplete", "unknown"]),
   missingLibraries: Schema.Array(
     Schema.Literals(["libc", "libstdc++",
@@ -140,7 +140,7 @@ export const LinuxHostCapabilityFacts = Schema.Struct({
     "libxrandr",
     "libxshmfence",
     "libxkbcommon",]),
-  ).pipe(Schema.check(Schema.isMaxSize(18))),
+  ).pipe(Schema.check(Schema.isMaxLength(18))),
   userSystemd: Schema.Literals(["ready", "not-running",
   "missing",
   "unknown",]),
@@ -185,8 +185,8 @@ const ObservationDetails = {
   terminal: LinuxHostCapabilityProjection,
   browser: LinuxHostCapabilityProjection,
   checks: Schema.Array(LinuxHostCapabilityCheck).pipe(
-    Schema.check(Schema.isMinSize(8)),
-    Schema.check(Schema.isMaxSize(8)),
+    Schema.check(Schema.isMinLength(8)),
+    Schema.check(Schema.isMaxLength(8)),
   ),
   facts: LinuxHostCapabilityFacts,
 } as const;

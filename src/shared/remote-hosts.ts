@@ -49,7 +49,7 @@ export const HostSshIdentityFile = Schema.String.pipe(
     !value.includes("\n") &&
     !value.includes("\r"),
   {
-    message: () => "SSH identity file must be a bounded absolute path",
+    message: "SSH identity file must be a bounded absolute path",
   },)),
 );
 export type HostSshIdentityFile = typeof HostSshIdentityFile.Type;
@@ -79,8 +79,8 @@ export const RemoteHost = Schema.Struct({
   /** Explicit first-contact policy; changed known keys still fail closed. */
   sshHostKeyPolicy: Schema.optionalKey(HostSshHostKeyPolicy),
   capabilities: Schema.Array(HostCapability).pipe(
-    Schema.check(Schema.isMinSize(1)),
-    Schema.check(Schema.isMaxSize(4)),
+    Schema.check(Schema.isMinLength(1)),
+    Schema.check(Schema.isMaxLength(4)),
   ),
   hermesId: Schema.optionalKey(HermesHostKey),
   /** Fleet-overlay presentation (color/glyph). Presentational; additive. */
@@ -93,7 +93,7 @@ export type RemoteHost = typeof RemoteHost.Type;
 
 export const RemoteHostsDocument = Schema.Struct({
   version: Schema.Literal(REMOTE_HOSTS_VERSION),
-  hosts: Schema.Array(RemoteHost).pipe(Schema.check(Schema.isMaxSize(32))),
+  hosts: Schema.Array(RemoteHost).pipe(Schema.check(Schema.isMaxLength(32))),
 });
 export type RemoteHostsDocument = typeof RemoteHostsDocument.Type;
 

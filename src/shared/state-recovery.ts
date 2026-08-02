@@ -8,7 +8,8 @@ const BACKUP_FILE_PATTERN =
   /^vellum-backup-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.db$/;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 
-export const StateBackupId = Schema.UUID.pipe(
+export const StateBackupId = Schema.String.pipe(
+  Schema.check(Schema.isUUID()),
   Schema.brand("StateBackupId"),
 );
 export type StateBackupId = typeof StateBackupId.Type;

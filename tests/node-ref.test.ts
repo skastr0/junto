@@ -17,7 +17,7 @@ import { CanvasError } from "../src/main/vellum/canvases";
 const parsed = (input: string): NodeRef => {
   const result = parseNodeRef(input);
   if (!result.ok) throw new Error(`${result.error.code}: ${result.error.message}`);
-  return result.success;
+  return result.value;
 };
 
 const textNode = (id: string, kind?: string) => ({

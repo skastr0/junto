@@ -65,7 +65,7 @@ export const StationDeployRecord = Schema.Struct({
   lastSeen: Schema.optionalKey(DisplayTimestamp),
   configurationOk: Schema.Boolean,
   detail: Diagnostic,
-  stages: Schema.Array(Stage).pipe(Schema.check(Schema.isMaxSize(32))),
+  stages: Schema.Array(Stage).pipe(Schema.check(Schema.isMaxLength(32))),
 });
 export type StationDeployRecord = typeof StationDeployRecord.Type;
 

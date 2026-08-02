@@ -318,7 +318,7 @@ export const BoardPost = Schema.Struct({
   postId: Schema.String,
   topicId: Schema.String,
   author: BoardAuthor,
-  parts: Schema.Array(Part).pipe(Schema.check(Schema.isMinSize(1))),
+  parts: Schema.Array(Part).pipe(Schema.check(Schema.isMinLength(1))),
   /** Monotone per-topic position (0-based). */
   position: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
   createdAt: Schema.String,

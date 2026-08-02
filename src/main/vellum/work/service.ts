@@ -1564,7 +1564,7 @@ export const WorkLive = Layer.effect(
               messageDelivery.notifyAppended(
                 canvas,
                 nodeId,
-                outcome.success,
+                outcome.value,
               );
             }
             return yield* complete(canvas, outcome);
@@ -1634,7 +1634,7 @@ export const WorkLive = Layer.effect(
               messageDelivery.notifyAppended(
                 canvas,
                 nodeId,
-                outcome.success,
+                outcome.value,
               );
             }
             return yield* complete(canvas, outcome);
@@ -1715,7 +1715,7 @@ export const WorkLive = Layer.effect(
                 Effect.map((result) => ({
                   value: {
                     messageId: trimmed,
-                    readAt: result.success.acceptedAt,
+                    readAt: result.value.acceptedAt,
                   },
                 })),
                 Effect.catchIf(
@@ -2008,7 +2008,7 @@ export const WorkLive = Layer.effect(
                     })
                     .pipe(
                       Effect.map((result) => ({
-                        value: { topic: result.success, notify },
+                        value: { topic: result.value, notify },
                       })),
                     ),
                 )
@@ -2070,7 +2070,7 @@ export const WorkLive = Layer.effect(
                     })
                     .pipe(
                       Effect.map((result) => ({
-                        value: { post: result.success },
+                        value: { post: result.value },
                       })),
                     ),
                 )

@@ -35,7 +35,7 @@ const readEdgePorts = (
   for (const p of ports) {
     const decoded = decodePort(p);
     if (Option.isSome(decoded)) {
-      set = HashSet.add(set, decoded.success);
+      set = HashSet.add(set, decoded.value);
       any = true;
     }
   }

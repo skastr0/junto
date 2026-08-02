@@ -49,7 +49,7 @@ export const STATION_API_MAX_REPORT_BATCH_BYTES = 8 * 1024 * 1024;
 export const STATION_API_MAX_STATUS_CURSORS = 256;
 
 /** User-selected station role. It is never inferred by this protocol. */
-export const StationApiRole = Schema.Literal(...STATION_ROLES);
+export const StationApiRole = Schema.Literals([...STATION_ROLES]);
 export type StationApiRole = typeof StationApiRole.Type;
 
 /** Host label used by canvas placement and the local execution plane. */
@@ -146,8 +146,8 @@ export const RemoteHostRegistration = Schema.Struct({
   label: HostLabel,
   kind: Schema.Literal("remote"),
   capabilities: Schema.Array(HostCapability).pipe(
-    Schema.check(Schema.isMinSize(1)),
-    Schema.check(Schema.isMaxSize(4)),
+    Schema.check(Schema.isMinLength(1)),
+    Schema.check(Schema.isMaxLength(4)),
   ),
   hermesId: Schema.optionalKey(HermesHostKey),
 }).pipe(
@@ -378,10 +378,10 @@ const reportBatchAdmissionMessage = (
 
 const ReportBatchShape = Schema.Struct({
   records: Schema.Array(WorkRecord).pipe(
-    Schema.check(Schema.isMaxSize(STATION_API_MAX_RECORDS_PER_REPORT)),
+    Schema.check(Schema.isMaxLength(STATION_API_MAX_RECORDS_PER_REPORT)),
   ),
   acknowledge: Schema.Array(RouteCursor).pipe(
-    Schema.check(Schema.isMaxSize(STATION_API_MAX_ACKS_PER_REPORT)),
+    Schema.check(Schema.isMaxLength(STATION_API_MAX_ACKS_PER_REPORT)),
   ),
   hasMore: Schema.Boolean,
 });
@@ -557,7 +557,7 @@ export const StatusResponse = Schema.Struct({
   configuredAt: Schema.optionalKey(DisplayTimestamp),
   projection: Schema.optionalKey(StationProjectionReference),
   receivedThrough: Schema.Array(RouteCursor).pipe(
-    Schema.check(Schema.isMaxSize(STATION_API_MAX_STATUS_CURSORS)),
+    Schema.check(Schema.isMaxLength(STATION_API_MAX_STATUS_CURSORS)),
   ),
   /**
    * What the admitted peer has cumulatively acknowledged from this
@@ -567,7 +567,7 @@ export const StatusResponse = Schema.Struct({
    * cursors by peer installation identity.
    */
   peerAcknowledgedThrough: Schema.Array(RouteCursor).pipe(
-    Schema.check(Schema.isMaxSize(STATION_API_MAX_STATUS_CURSORS)),
+    Schema.check(Schema.isMaxLength(STATION_API_MAX_STATUS_CURSORS)),
   ),
   readiness: StationReadiness,
   observedAt: DisplayTimestamp,
