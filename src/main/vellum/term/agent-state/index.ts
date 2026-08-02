@@ -42,6 +42,12 @@ export {
 export { matcherMatches, regionLines, regionText, ruleMatches } from "./match";
 
 export {
+  applyOscHookFromSnapshot,
+  attachOscHookFeed,
+  hookStateFromSnapshot,
+} from "./hook-feed";
+
+export {
   SeatStateRuntime,
   seatStateRuntime,
   type SeatStateRuntimeOptions,

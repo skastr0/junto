@@ -516,8 +516,19 @@ export class ManagedTerminalDrive {
     if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
       return false;
     }
+    // Re-check idle immediately before paste — observer can flip to dialog
+    // after the outer gate and before the physical write.
+    if (!this.isSeatIdle(bindingId)) {
+      this.onAttention?.(bindingId, "not-ready");
+      return false;
+    }
     this.writing.add(bindingId);
     try {
+      // Second check under the writing lock: still refuse if seat left idle.
+      if (!this.isSeatIdle(bindingId)) {
+        this.onAttention?.(bindingId, "not-ready");
+        return false;
+      }
       const turnStartCount = this.turnStartCounts.get(bindingId) ?? 0;
       const compactNoopCount = this.compactNoopCounts.get(bindingId) ?? 0;
       const ok = await this.writePasteAndCr(
@@ -565,6 +576,10 @@ export class ManagedTerminalDrive {
     bindingGeneration: number,
   ): Promise<boolean> {
     if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
+      return false;
+    }
+    // Final idle gate at the paste boundary (no durable receipt if refused).
+    if (!this.isSeatIdle(bindingId)) {
       return false;
     }
     const [paste, cr] = buildPromptWriteSequence(text);

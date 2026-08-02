@@ -59,6 +59,24 @@ describe("SeatStateRuntime idle gate", () => {
     rt.stop();
   });
 
+  it("refuses paste auth on low-confidence fallback idle", () => {
+    const rt = new SeatStateRuntime({ now: () => 1_500 });
+    rt.bindHarness("b1", "claude", "e1");
+    rt.machine.feed(snap("b1", { title: "⣿ work", lines: ["…"] }), {
+      harness: "claude",
+    });
+    // Debounce working→fallback idle (3 confirms).
+    for (let i = 0; i < 3; i++) {
+      rt.machine.feed(snap("b1", { title: "", lines: ["log"] }), {
+        harness: "claude",
+      });
+    }
+    expect(rt.getState("b1")).toBe("idle");
+    expect(rt.machine.getSlot("b1")?.confidence).toBe("low");
+    expect(rt.isSeatIdle("b1")).toBe(false);
+    rt.stop();
+  });
+
   it("is not idle while attention", () => {
     const rt = new SeatStateRuntime({ now: () => 2_000 });
     rt.bindHarness("b1", "codex", "e1");

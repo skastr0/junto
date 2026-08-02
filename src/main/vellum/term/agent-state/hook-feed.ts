@@ -91,6 +91,22 @@ export const hookStateFromSnapshot = (
   return null;
 };
 
+/**
+ * Apply OSC-derived hook for one snapshot.
+ * `null` **clears** sticky prior working/idle — never retain forever.
+ */
+export const applyOscHookFromSnapshot = (
+  machine: SeatStateMachine,
+  snap: ObserverGridSnapshot,
+  now: number = Date.now(),
+): AgentSeatHookState | null => {
+  const slot = machine.getSlot(snap.bindingId);
+  if (!slot) return null;
+  const hook = hookStateFromSnapshot(snap, String(slot.harness), now);
+  machine.setHookState(snap.bindingId, hook);
+  return hook;
+};
+
 export const attachOscHookFeed = (
   machine: SeatStateMachine,
   subscribe: (
@@ -98,8 +114,5 @@ export const attachOscHookFeed = (
   ) => () => void,
 ): (() => void) =>
   subscribe((snap) => {
-    const slot = machine.getSlot(snap.bindingId);
-    if (!slot) return;
-    const hook = hookStateFromSnapshot(snap, String(slot.harness), Date.now());
-    if (hook) machine.setHookState(snap.bindingId, hook);
+    applyOscHookFromSnapshot(machine, snap);
   });

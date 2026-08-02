@@ -6,7 +6,8 @@
 import type { AgentSeatState, AgentSeatStateEvent } from "../../../../shared/agent-seat-state";
 import { terminalObserverPlane } from "../observer";
 import type { ObserverGridSnapshot } from "../observer/types";
-import { attachOscHookFeed } from "./hook-feed";
+import { FALLBACK_IDLE } from "./engine";
+import { hookStateFromSnapshot } from "./hook-feed";
 import { SeatStateMachine } from "./seat-state-machine";
 import type { HarnessId } from "../../../../shared/managed-terminal-templates";
 import { isHarnessId } from "../../../../shared/managed-terminal-templates";
@@ -23,13 +24,14 @@ export type SeatStateRuntimeOptions = {
 export class SeatStateRuntime {
   readonly machine: SeatStateMachine;
   private unsubObserver: (() => void) | undefined;
-  private unsubHookFeed: (() => void) | undefined;
   private readonly harnessByBinding = new Map<string, HarnessId | string>();
   private readonly eventListeners = new Set<(event: AgentSeatStateEvent) => void>();
+  private readonly now: () => number;
 
   constructor(opts: SeatStateRuntimeOptions = {}) {
+    this.now = opts.now ?? (() => Date.now());
     this.machine = new SeatStateMachine({
-      now: opts.now,
+      now: this.now,
       onEvent: (event) => {
         opts.onEvent?.(event);
         for (const listener of this.eventListeners) {
@@ -45,20 +47,16 @@ export class SeatStateRuntime {
 
   start(): void {
     if (this.unsubObserver) return;
+    // Single observer path: OSC hook + evaluate on the same tick so null
+    // clears sticky hooks before idle gate reads them (no dual-sub race).
     this.unsubObserver = terminalObserverPlane.subscribeAll((snap) => {
       this.onSnapshot(snap);
     });
-    // OSC → setHookState so hooks→OSC→grid rank is live (not dead API).
-    this.unsubHookFeed = attachOscHookFeed(this.machine, (listener) =>
-      terminalObserverPlane.subscribeAll(listener),
-    );
   }
 
   stop(): void {
     this.unsubObserver?.();
     this.unsubObserver = undefined;
-    this.unsubHookFeed?.();
-    this.unsubHookFeed = undefined;
     this.machine.dispose();
     this.harnessByBinding.clear();
     this.eventListeners.clear();
@@ -86,10 +84,22 @@ export class SeatStateRuntime {
     this.harnessByBinding.delete(bindingId);
   }
 
+  /**
+   * Paste authorization for ManagedTerminalDrive.
+   * Fail closed: unknown/unbound/attention/working refuse.
+   * Low-confidence bare `default_known_agent_idle_fallback` is **not** typeable —
+   * only high-confidence idle or visible idle chrome authorizes paste.
+   */
   isSeatIdle(bindingId: string): boolean {
-    const state = this.machine.getState(bindingId);
-    // Unknown/unbound: refuse typing (fail closed — never type into a dialog).
-    return state === "idle";
+    const slot = this.machine.getSlot(bindingId);
+    if (!slot || slot.state !== "idle") return false;
+    if (slot.visibleIdle) return true;
+    if (slot.confidence === "high") return true;
+    // Low-confidence fallback idle: refuse paste (dialog / unmatched chrome).
+    if (slot.reason === FALLBACK_IDLE || slot.reason.startsWith(`${FALLBACK_IDLE}+`)) {
+      return false;
+    }
+    return false;
   }
 
   getState(bindingId: string): AgentSeatState | undefined {
@@ -119,8 +129,13 @@ export class SeatStateRuntime {
       // configured — better: stay unbound and isSeatIdle stays false.
       return;
     }
+    const now = this.now();
+    // Same-tick hook: null clears sticky prior OSC working/idle.
+    const hook = hookStateFromSnapshot(snap, String(harness), now);
+    this.machine.setHookState(snap.bindingId, hook);
     this.machine.feed(snap, {
       harness: isHarnessId(harness) ? harness : harness,
+      hookState: hook,
     });
   }
 }
