@@ -1,4 +1,4 @@
-import * as Command from "@effect/platform/Command";
+import * as Command from "effect/unstable/process/ChildProcess";
 import { Effect, Layer, Stream } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import { readFile } from "node:fs/promises";
@@ -13,7 +13,7 @@ describe("ProcessSpawnerLive", () => {
       Effect.scoped(
         Effect.gen(function* () {
           const process = yield* (yield* ProcessSpawner).start(
-            Command.make("/usr/bin/printf", "effect-process-ok"),
+            Command.make("/usr/bin/printf", ["effect-process-ok"]),
           );
           const completed = yield* Effect.all(
             {
@@ -38,12 +38,12 @@ describe("ProcessSpawnerLive", () => {
   });
 
   it("explicitly rejects command pipelines", async () => {
-    const left = Command.make("/usr/bin/printf", "x");
+    const left = Command.make("/usr/bin/printf", ["x"]);
     const pipeline = Command.pipeTo(left, Command.make("/bin/cat"));
     const result = await Effect.runPromise(Effect.gen(function* () {
       return yield* Effect.scoped((yield* ProcessSpawner).start(pipeline));
     }).pipe(Effect.provide(SpawnerLive), Effect.result));
-    expect(result._tag).toBe("Left");
+    expect(result._tag).toBe("Failure");
   });
 
   it("handles async missing-executable errors without a rejection or shutdown grace", async () => {
@@ -56,7 +56,7 @@ describe("ProcessSpawnerLive", () => {
         yield* Effect.sleep(30);
         return yield* Effect.result(child.exitCode);
       })).pipe(Effect.provide(SpawnerLive)));
-      expect(result._tag).toBe("Left");
+      expect(result._tag).toBe("Failure");
       expect(Date.now() - startedAt).toBeLessThan(500);
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(unhandled).not.toHaveBeenCalled();
@@ -104,15 +104,11 @@ describe("ProcessSpawnerLive", () => {
       Effect.scoped(
         Effect.gen(function* () {
           const child = yield* (yield* ProcessSpawner).start(
-            Command.make(
-              process.execPath,
-              "-e",
-              [
+            Command.make(process.execPath, ["-e", [
                 "const { spawn } = require('node:child_process');",
                 "const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 500)'], { stdio: ['ignore', 'inherit', 'inherit'] });",
                 "child.unref();",
-              ].join(" "),
-            ),
+              ].join(" "), ]),
           );
           const code = yield* child.exitCode;
           return { code, exitedAt: Date.now() };
@@ -126,11 +122,10 @@ describe("ProcessSpawnerLive", () => {
 
   it("forwards StandardCommand identity options through the central spawn spec", async () => {
     const source = await readFile("src/main/vellum/ssh/process-spawner.ts", "utf8");
-    expect(source).toMatch(/cwd: Option\.getOrUndefined\(command\.cwd\)/u);
+    expect(source).toMatch(/cwd: command\.options\.cwd/u);
     expect(source).toMatch(/env: environment/u);
-    expect(source).toMatch(/shell: command\.shell/u);
-    expect(source).toMatch(/uid: Option\.getOrUndefined\(command\.uid\)/u);
-    expect(source).toMatch(/gid: Option\.getOrUndefined\(command\.gid\)/u);
+    expect(source).toMatch(/shell: command\.options\.shell/u);
+    expect(source).toMatch(/command\.options\.env/u);
   });
 
   it("terminates a responsive owned process without waiting through the grace period", async () => {
@@ -152,11 +147,7 @@ describe("ProcessSpawnerLive", () => {
     const startedAt = Date.now();
     let pid: number | undefined;
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
-      const child = yield* (yield* ProcessSpawner).start(Command.make(
-        process.execPath,
-        "-e",
-        "process.on('SIGTERM', () => setTimeout(() => process.exit(0), 100)); setInterval(() => {}, 1000)",
-      ));
+      const child = yield* (yield* ProcessSpawner).start(Command.make(process.execPath, ["-e", "process.on('SIGTERM', () => setTimeout(() => process.exit(0), 100)); setInterval(() => {}, 1000)", ]));
       pid = child.pid;
       yield* Effect.sleep(20);
     })).pipe(Effect.provide(SpawnerLive)));
@@ -173,11 +164,7 @@ describe("ProcessSpawnerLive", () => {
       Effect.scoped(
         Effect.gen(function* () {
           const child = yield* (yield* ProcessSpawner).start(
-            Command.make(
-              "/bin/sh",
-              "-c",
-              "trap '' TERM; (sleep 4; kill -KILL $$) & printf ready; while :; do sleep 1; done",
-            ),
+            Command.make("/bin/sh", ["-c", "trap '' TERM; (sleep 4; kill -KILL $$) & printf ready; while :; do sleep 1; done", ]),
           );
           pid = child.pid;
           yield* Stream.runHead(child.stdout);

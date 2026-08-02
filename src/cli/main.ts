@@ -1,9 +1,8 @@
 #!/usr/bin/env bun
 import * as Cause from "effect/Cause";
-// S7 V4 import map (do not rewrite on effect@3.21):
-//   @effect/cli → effect/unstable/cli/*  ·  platform-bun stays separate (lockstep V4)
-//   Full table: ./effect-v4-import-map.ts · Playground/effect/migration/v3-to-v4.md
-import { Command } from "@effect/cli";
+// V4: @effect/cli → effect/unstable/cli · platform-bun stays separate (lockstep V4)
+// Map: ./effect-v4-import-map.ts
+import { Command } from "effect/unstable/cli";
 import { BunRuntime, BunServices } from "@effect/platform-bun";
 import { Effect, Layer } from "effect";
 import {
@@ -62,8 +61,8 @@ export const rootCommand = Command.make(CLI_NAME).pipe(
   ]),
 );
 
-const cli = Command.run(rootCommand, {
-  name: CLI_NAME,
+// V4: runWith takes explicit argv; run() pulls from Stdio only.
+const cli = Command.runWith(rootCommand, {
   version: CLI_VERSION,
 });
 

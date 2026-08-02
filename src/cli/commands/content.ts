@@ -1,5 +1,5 @@
-// S7: @effect/cli → effect/unstable/cli/* on V4 pin (Args→Argument, Options→Flag). Map: ../effect-v4-import-map.ts
-import { Args, Command, Options } from "@effect/cli";
+// V4: Args→Argument, Options→Flag. Map: ../effect-v4-import-map.ts
+import { Argument, Command, Flag } from "effect/unstable/cli";
 import { Effect, Option, Schema } from "effect";
 import {
   ContentMaterializeArgs,
@@ -12,13 +12,13 @@ import { loadJsonInput } from "../core/json";
 import { executeJsonCommand } from "../core/output";
 import { WorkSocket } from "../core/socket";
 
-const jsonInputArg = Args.text({ name: "input" }).pipe(
-  Args.withDescription("JSON object, @file path, raw JSON string, or - for stdin"),
+const jsonInputArg = Argument.string("input").pipe(
+  Argument.withDescription("JSON object, @file path, raw JSON string, or - for stdin"),
 );
 
-const timeoutOption = Options.integer("timeout").pipe(
-  Options.optional,
-  Options.withDescription(`Socket call timeout in ms (default ${DEFAULT_TIMEOUT_MS})`),
+const timeoutOption = Flag.integer("timeout").pipe(
+  Flag.optional,
+  Flag.withDescription(`Socket call timeout in ms (default ${DEFAULT_TIMEOUT_MS})`),
 );
 
 const toUndefined = <A>(value: Option.Option<A>): A | undefined =>

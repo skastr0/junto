@@ -1,10 +1,10 @@
-// S7 V4: platform/Command → effect/unstable/process/ChildProcess;
-//   NodeSink/NodeStream → partial Stdio / platform-node shape change on pin.
-//   Map: src/cli/effect-v4-import-map.ts — no rewrite while effect@3.21
-import * as Command from "@effect/platform/Command";
+// V4: platform/Command → effect/unstable/process/ChildProcess
+//   NodeSink/NodeStream stay @effect/platform-node (lockstep V4)
+// Map: src/cli/effect-v4-import-map.ts
+import * as Command from "effect/unstable/process/ChildProcess";
 import * as NodeSink from "@effect/platform-node/NodeSink";
 import * as NodeStream from "@effect/platform-node/NodeStream";
-import { Context, Effect, HashMap, Layer, Option, Scope, Sink, Stream } from "effect";
+import { Context, Effect, Layer, Scope, Sink, Stream } from "effect";
 import {
   appProcessPlane,
   type AppProcessLease,
@@ -20,8 +20,7 @@ export interface ProcessHandle {
   readonly stderr: Stream.Stream<Uint8Array, ProcessFailure>;
 }
 /**
- * S4 (effect@3.21): single canonical Tag `@vellum/ssh/ProcessSpawner`.
- * No dual Effect.Service / Context.Service until Effect V4 pin.
+ * Single canonical service id `@vellum/ssh/ProcessSpawner` via Context.Service.
  * @see docs/END_STATE-effect-foundation.md §S4
  */
 export class ProcessSpawner extends Context.Service<ProcessSpawner,
@@ -102,17 +101,19 @@ const stopProcess = (tracked: TrackedSshChild): Effect.Effect<void> =>
 const startStandard = (command: Command.StandardCommand): Effect.Effect<TrackedSshChild, ProcessFailure> =>
   Effect.try({
     try: () => {
-      const environment = HashMap.reduce(command.env, { ...process.env } as Record<string, string | undefined>, (acc, value, key) => ({ ...acc, [key]: value }));
+      // V4 CommandOptions.env is Record (not HashMap); merge over process.env when set.
+      const environment = {
+        ...process.env,
+        ...(command.options.env ?? {}),
+      } as Record<string, string | undefined>;
       const lease = appProcessPlane.spawnGroup({
         source: "ssh.process-spawner",
         purpose: "SSH transport command",
         command: command.command,
         args: command.args,
-        cwd: Option.getOrUndefined(command.cwd),
+        cwd: command.options.cwd,
         env: environment,
-        shell: command.shell,
-        uid: Option.getOrUndefined(command.uid),
-        gid: Option.getOrUndefined(command.gid),
+        shell: command.options.shell,
       });
       let preSpawnFailed = false;
       let processEnded = false;

@@ -1,5 +1,5 @@
-// S7: @effect/cli → effect/unstable/cli/* on V4 pin (Args→Argument, Options→Flag). Map: ../effect-v4-import-map.ts
-import { Args, Command, Options } from "@effect/cli";
+// V4: Args→Argument, Options→Flag. Map: ../effect-v4-import-map.ts
+import { Argument, Command, Flag } from "effect/unstable/cli";
 import { Effect, Option, Schema } from "effect";
 import {
   ArtifactPublishCliArgs,
@@ -29,20 +29,20 @@ import { WorkSocket } from "../core/socket";
 const toUndefined = <A>(value: Option.Option<A>) =>
   Option.isSome(value) ? value.value : undefined;
 
-const jsonInputArg = Args.text({ name: "input" }).pipe(
-  Args.withDescription("JSON object, @file path, raw JSON string, or - for stdin"),
+const jsonInputArg = Argument.string("input").pipe(
+  Argument.withDescription("JSON object, @file path, raw JSON string, or - for stdin"),
 );
 
-const concurrencyOption = Options.integer("concurrency").pipe(
-  Options.optional,
-  Options.withDescription(
+const concurrencyOption = Flag.integer("concurrency").pipe(
+  Flag.optional,
+  Flag.withDescription(
     `Max concurrent mutations (default ${DEFAULT_BATCH_CONCURRENCY}); reject <= 0`,
   ),
 );
 
-const timeoutOption = Options.integer("timeout").pipe(
-  Options.optional,
-  Options.withDescription(`Socket call timeout in ms (default ${DEFAULT_TIMEOUT_MS})`),
+const timeoutOption = Flag.integer("timeout").pipe(
+  Flag.optional,
+  Flag.withDescription(`Socket call timeout in ms (default ${DEFAULT_TIMEOUT_MS})`),
 );
 
 /** Domain call — identity is process-bind on the server, not a payload claim. */

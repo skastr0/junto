@@ -1,4 +1,4 @@
-import * as Command from "@effect/platform/Command";
+import * as Command from "effect/unstable/process/ChildProcess";
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import {
   Clock,
@@ -76,8 +76,12 @@ afterEach(async () => {
   );
 });
 
-const standard = (command: Command.Command): Command.StandardCommand =>
-  Command.flatten(command)[0];
+const standard = (command: Command.Command): Command.StandardCommand => {
+  if (!Command.isStandardCommand(command)) {
+    throw new TypeError("expected StandardCommand");
+  }
+  return command;
+};
 
 const fakeProcess = (
   result: FakeResult,

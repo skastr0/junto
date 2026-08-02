@@ -1,6 +1,6 @@
-// S7 V4: @effect/platform/Command → effect/unstable/process/ChildProcess (not @effect/cli)
-// Inventory: src/cli/effect-v4-import-map.ts — no rewrite while product is on effect@3.21
-import * as Command from "@effect/platform/Command";
+// V4: platform/Command → effect/unstable/process/ChildProcess (not @effect/cli)
+// Map: src/cli/effect-v4-import-map.ts
+import * as Command from "effect/unstable/process/ChildProcess";
 import { join } from "node:path";
 import type {
   RemoteCommand,
@@ -320,13 +320,12 @@ export const createSshProgramCompiler = (policy: SshExecutionPolicy) => {
     });
 
   const ssh = (args: ReadonlyArray<string>): Command.Command =>
-    Command.make(
-      policy.envExecutable,
+    Command.make(policy.envExecutable, [
       "-i",
       ...environment,
       policy.sshExecutable,
       ...args,
-    );
+    ]);
 
   const sharedOptions = [
     "-o", "ControlMaster=auto",

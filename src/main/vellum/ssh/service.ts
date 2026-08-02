@@ -1,8 +1,7 @@
-// S7 V4 import map (no live rewrite on effect@3.21):
-//   FileSystem → effect/FileSystem · Command → effect/unstable/process/ChildProcess
-//   Full table + API renames: src/cli/effect-v4-import-map.ts
-import * as FileSystem from "@effect/platform/FileSystem";
-import type * as Command from "@effect/platform/Command";
+// V4: FileSystem → effect/FileSystem · Command → effect/unstable/process/ChildProcess
+// Map: src/cli/effect-v4-import-map.ts
+import * as FileSystem from "effect/FileSystem";
+import type * as Command from "effect/unstable/process/ChildProcess";
 import { randomUUID } from "node:crypto";
 import { Context,
   Deferred,

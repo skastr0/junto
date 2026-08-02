@@ -1,4 +1,4 @@
-import * as Command from "@effect/platform/Command";
+import * as Command from "effect/unstable/process/ChildProcess";
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import { Effect, Layer, Scope, Sink, Stream } from "effect";
 import { existsSync } from "node:fs";
@@ -47,7 +47,12 @@ afterEach(async () => {
   await Promise.all(temporaryDirs.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 
-const standard = (command: Command.Command): Command.StandardCommand => Command.flatten(command)[0];
+const standard = (command: Command.Command): Command.StandardCommand => {
+  if (!Command.isStandardCommand(command)) {
+    throw new TypeError("expected StandardCommand");
+  }
+  return command;
+};
 
 const sshArgs = (command: Command.StandardCommand): ReadonlyArray<string> => {
   const index = command.args.indexOf("/usr/bin/ssh");

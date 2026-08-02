@@ -470,8 +470,8 @@ describe("machine-safety architecture", () => {
     expect(forbiddenEffectImports).toEqual([]);
 
     const approvedSshExternalImports = new Set([
-      "@effect/platform/Command",
-      "@effect/platform/FileSystem",
+      "effect/unstable/process/ChildProcess",
+      "effect/FileSystem",
       "@effect/platform-node/NodeFileSystem",
       "@effect/platform-node/NodeSink",
       "@effect/platform-node/NodeStream",

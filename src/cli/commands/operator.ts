@@ -1,5 +1,5 @@
-// S7: @effect/cli → effect/unstable/cli/* on V4 pin (Args→Argument, Options→Flag). Map: ../effect-v4-import-map.ts
-import { Args, Command, Options } from "@effect/cli";
+// V4: Args→Argument, Options→Flag. Map: ../effect-v4-import-map.ts
+import { Argument, Command, Flag } from "effect/unstable/cli";
 import { Effect, Option } from "effect";
 import {
   OPERATOR_DEPLOY_TIMEOUT_MS,
@@ -13,13 +13,13 @@ import { executeJsonCommand, setExitCode } from "../core/output";
 const toUndefined = <A>(value: Option.Option<A>): A | undefined =>
   Option.isSome(value) ? value.value : undefined;
 
-const hostIdArg = Args.text({ name: "id" }).pipe(
-  Args.withDescription("Enrolled Vellum Command host id"),
+const hostIdArg = Argument.string("id").pipe(
+  Argument.withDescription("Enrolled Vellum Command host id"),
 );
 
-const optionalHostId = Options.text("id").pipe(
-  Options.optional,
-  Options.withDescription("Restrict the operation to one enrolled host id"),
+const optionalHostId = Flag.string("id").pipe(
+  Flag.optional,
+  Flag.withDescription("Restrict the operation to one enrolled host id"),
 );
 
 const failWhenDomainFailed = <A extends { readonly ok: boolean }>(value: A) =>
@@ -105,14 +105,15 @@ const fleetListCommand = Command.make("list", {}, () =>
   ),
 ).pipe(Command.withDescription("List enrolled hosts"));
 
-const capabilityOption = Options.choice("capability", [
+// V3 Options.repeated → Flag.atLeast(0) (0+ occurrences as array)
+const capabilityOption = Flag.choice("capability", [
   "terminal",
   "browser",
   "hermes",
   "herdr",
 ] as const).pipe(
-  Options.repeated,
-  Options.withDescription(
+  Flag.atLeast(0),
+  Flag.withDescription(
     "Repeat for each admitted host capability: terminal, browser, hermes, herdr",
   ),
 );
@@ -120,9 +121,9 @@ const capabilityOption = Options.choice("capability", [
 const fleetAddCommand = Command.make(
   "add",
   {
-    id: Options.text("id"),
-    label: Options.text("label"),
-    sshEndpoint: Options.text("ssh-endpoint"),
+    id: Flag.string("id"),
+    label: Flag.string("label"),
+    sshEndpoint: Flag.string("ssh-endpoint"),
     capabilities: capabilityOption,
   },
   ({ id, label, sshEndpoint, capabilities }) =>
@@ -184,7 +185,7 @@ const fleetDeployCommand = Command.make(
   "deploy",
   {
     id: hostIdArg,
-    source: Options.choice("source", ["stable", "cached"] as const),
+    source: Flag.choice("source", ["stable", "cached"] as const),
   },
   ({ id, source }) =>
     executeJsonCommand(
@@ -270,12 +271,12 @@ export const fleetOperatorCommand = Command.make("fleet").pipe(
   ]),
 );
 
-const qualificationRunId = Options.text("run-id").pipe(
-  Options.withDescription("Short qualification run id"),
+const qualificationRunId = Flag.string("run-id").pipe(
+  Flag.withDescription("Short qualification run id"),
 );
 
-const qualificationHostId = Options.text("host-id").pipe(
-  Options.withDescription("Exact enrolled Remote host id"),
+const qualificationHostId = Flag.string("host-id").pipe(
+  Flag.withDescription("Exact enrolled Remote host id"),
 );
 
 const qualificationWorkPrepareCommand = Command.make(

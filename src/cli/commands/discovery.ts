@@ -1,6 +1,6 @@
 import { access, constants as fsConstants, stat } from "node:fs/promises";
-// S7: @effect/cli → effect/unstable/cli/* on V4 pin (Args→Argument, Options→Flag). Map: ../effect-v4-import-map.ts
-import { Args, Command, Options } from "@effect/cli";
+// V4: Args→Argument, Options→Flag. Map: ../effect-v4-import-map.ts
+import { Argument, Command, Flag } from "effect/unstable/cli";
 import { Effect, Option } from "effect";
 import { WORK_PROTOCOL_VERSION } from "../../shared/work-control";
 import { CLI_NAME, CLI_VERSION, DEFAULT_TIMEOUT_MS } from "../core/constants";
@@ -18,13 +18,13 @@ import { WorkSocket, localDoctorChecks } from "../core/socket";
 const toUndefined = <A>(value: Option.Option<A>) =>
   Option.isSome(value) ? value.value : undefined;
 
-const timeoutOption = Options.integer("timeout").pipe(
-  Options.optional,
-  Options.withDescription(`Socket call timeout in ms (default ${DEFAULT_TIMEOUT_MS})`),
+const timeoutOption = Flag.integer("timeout").pipe(
+  Flag.optional,
+  Flag.withDescription(`Socket call timeout in ms (default ${DEFAULT_TIMEOUT_MS})`),
 );
 
-const targetArg = Args.text({ name: "target" }).pipe(
-  Args.withDescription("Schema id, command id, or command name"),
+const targetArg = Argument.string("target").pipe(
+  Argument.withDescription("Schema id, command id, or command name"),
 );
 
 const matchesTarget = (
