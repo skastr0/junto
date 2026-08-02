@@ -10,7 +10,7 @@
  * field keys — briefing, defaults, paths, background, placement — each opening
  * a small form, not the kitchen-sink inspector modal.
  */
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
 import {
   FolderOpen,
@@ -29,6 +29,13 @@ import { kernel$ } from "../../lib/kernel-view";
 import { nodeDetail, nodeTitle, nodeTypeLabel } from "../../lib/presentation";
 import { HUE } from "../../lib/theme";
 import { connectionStateOf, herdr$, refreshHerdrMeta } from "../../lib/herdr-state";
+import {
+  agentKeysFromNodes,
+  classifyMultiSelection,
+  multiSelectionLabel,
+  surfaceLabel,
+} from "../../lib/multi-selection";
+import { multiPromptAgents } from "../../lib/multi-prompt";
 import { FocusSurface } from "../FocusSurface";
 import { OverlayHeader, IconButton } from "../ui";
 import { HarnessMark } from "../herdr/HarnessMark";
@@ -453,6 +460,123 @@ function RegionKindSurface({ node }: { readonly node: CanvasNode }) {
 }
 
 /**
+ * Multi-select kind surface: generic cue for mixed; kind actions when homogeneous.
+ * Agents get multi-prompt (same text → every selected actor seat).
+ */
+function MultiKindSurface({ nodes }: { readonly nodes: ReadonlyArray<CanvasNode> }) {
+  const classified = useMemo(() => classifyMultiSelection(nodes), [nodes]);
+  const targets = useMemo(
+    () =>
+      classified.mode === "homogeneous" && classified.surface === "kind:agent"
+        ? agentKeysFromNodes(classified.nodes)
+        : [],
+    [classified],
+  );
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<string>("");
+
+  useEffect(() => {
+    setDraft("");
+    setBusy(false);
+    setStatus("");
+  }, [nodes.map((n) => n.id).join("|")]);
+
+  if (classified.mode === "heterogeneous") {
+    return (
+      <div className="rts-kind-surface">
+        <div className="rts-quiet rts-quiet--compact">
+          {multiSelectionLabel(classified)} · colors & flags on command card
+        </div>
+      </div>
+    );
+  }
+
+  if (classified.mode !== "homogeneous") {
+    return (
+      <div className="rts-quiet rts-quiet--compact">
+        Multi-select · kind actions need a single node
+      </div>
+    );
+  }
+
+  if (classified.surface === "kind:agent" && targets.length > 0) {
+    const send = async () => {
+      const text = draft.trim();
+      if (!text || busy) return;
+      setBusy(true);
+      setStatus("");
+      try {
+        const result = await multiPromptAgents(targets, text);
+        setDraft("");
+        if (result.failed.length === 0) {
+          setStatus(`sent to ${result.sent}`);
+        } else {
+          setStatus(
+            `sent ${result.sent} · failed ${result.failed.length}` +
+              (result.failed[0] ? ` · ${result.failed[0].agentKey}` : ""),
+          );
+        }
+      } finally {
+        setBusy(false);
+      }
+    };
+
+    return (
+      <div className="rts-kind-surface">
+        <div className="rts-kind-id rts-kind-id--compact">
+          <div className="rts-kind-id__text">
+            <div className="rts-kind-id__name">multi-prompt</div>
+            <div className="rts-kind-id__live">
+              {targets.length} agent{targets.length === 1 ? "" : "s"} · same text to all
+            </div>
+          </div>
+        </div>
+        <div className="rts-multi-prompt">
+          <textarea
+            className="rts-multi-prompt__input"
+            aria-label="Prompt all selected agents"
+            rows={2}
+            placeholder="Message all selected agents…"
+            value={draft}
+            disabled={busy}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                event.preventDefault();
+                void send();
+              }
+            }}
+          />
+          <div className="rts-multi-prompt__footer">
+            <span className="rts-multi-prompt__hint">
+              {status || "⌘↵ send to all"}
+            </span>
+            <button
+              type="button"
+              className="rts-multi-prompt__send"
+              aria-label="Send to all selected agents"
+              disabled={busy || !draft.trim()}
+              onClick={() => void send()}
+            >
+              {busy ? "…" : "Send all"}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rts-kind-surface">
+      <div className="rts-quiet rts-quiet--compact">
+        {classified.nodes.length} {surfaceLabel(classified.surface)} · shared settings on command card
+      </div>
+    </div>
+  );
+}
+
+/**
  * Full kind middle surface: glance + actions + Fields focus form.
  */
 export function KindSurface() {
@@ -467,11 +591,10 @@ export function KindSurface() {
   }, [selectedNodeId, selectedEdgeId, selectedNodeIds.length]);
 
   if (selectedNodeIds.length > 1) {
-    return (
-      <div className="rts-quiet rts-quiet--compact">
-        Multi-select · kind actions need a single node
-      </div>
-    );
+    const selectedNodes = selectedNodeIds
+      .map((id) => doc.nodes.find((n) => n.id === id))
+      .filter((n): n is CanvasNode => n !== undefined);
+    return <MultiKindSurface nodes={selectedNodes} />;
   }
 
   if (selectedEdgeId) {

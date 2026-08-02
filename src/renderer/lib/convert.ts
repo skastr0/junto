@@ -164,6 +164,9 @@ export const toFlow = (
       focusable: true,
       selectable: true,
       draggable: true,
+      // Region body must not steal rubber-band / empty-interior drags — only the
+      // chrome handle moves the region (see GroupNode `.region-drag-handle`).
+      ...(isGroup ? { dragHandle: ".region-drag-handle" } : {}),
     };
     cache?.nodes.set(node.id, flowNode);
     return flowNode;

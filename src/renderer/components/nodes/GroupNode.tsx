@@ -185,24 +185,47 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
 
   // Selection chrome stays amber; unselected border + plate tint follow
   // JSON Canvas `color` so region color customization is visible on the map.
+  //
+  // pointer-events: plate none + chrome auto so rubber-band can start in empty
+  // interior without dragging the region (dragHandle lives on the label strip).
   const plateBorder = selected ? withAlpha(HUE.amber, 0.6) : stroke;
-  return <div className="vellum-group relative h-full w-full rounded-[14px]" style={{ border: `1px solid ${plateBorder}`, backgroundImage: hasBackground ? `linear-gradient(135deg, ${withAlpha(tint, 0.1)}, rgba(13,12,11,0.5)), url(${JSON.stringify(background)})` : undefined, background: hasBackground ? undefined : node.color ? `linear-gradient(135deg, ${withAlpha(tint, 0.08)}, rgba(13,12,11,0.25))` : "linear-gradient(135deg, rgba(33,27,21,0.22), rgba(11,11,10,0.12))", backgroundSize: hasBackground ? (backgroundStyle === "cover" ? "cover" : backgroundStyle === "ratio" ? "contain" : "auto") : undefined, backgroundRepeat: hasBackground && backgroundStyle === "repeat" ? "repeat" : "no-repeat", backgroundPosition: hasBackground ? "center" : undefined, boxShadow: selected ? `0 0 0 1px ${withAlpha(HUE.amber, 0.18)}` : "none" }}>
-    <NodeResizer isVisible={selected} minWidth={320} minHeight={180} color={HUE.amber} handleClassName="vellum-resize-handle" lineClassName="vellum-resize-line" onResizeEnd={(_event, params) => resizeNode(node.id, params)} />
-    <RegionToolbar
-      nodeId={node.id}
-      selected={selected}
-      onEdit={() => setEditing(true)}
-      onPaths={() => setPathsOpen(true)}
-      hasPaths={hasPaths}
-      connectionFocused={connectionFocused}
-      onToggleFocus={() => toggleConnectionFocus(node.id)}
-    />
-    <div className="absolute left-2 top-2 flex items-center gap-1">
+  return <div
+    className="vellum-group relative h-full w-full rounded-[14px]"
+    style={{
+      border: `1px solid ${plateBorder}`,
+      pointerEvents: "none",
+      backgroundImage: hasBackground ? `linear-gradient(135deg, ${withAlpha(tint, 0.1)}, rgba(13,12,11,0.5)), url(${JSON.stringify(background)})` : undefined,
+      background: hasBackground ? undefined : node.color ? `linear-gradient(135deg, ${withAlpha(tint, 0.08)}, rgba(13,12,11,0.25))` : "linear-gradient(135deg, rgba(33,27,21,0.22), rgba(11,11,10,0.12))",
+      backgroundSize: hasBackground ? (backgroundStyle === "cover" ? "cover" : backgroundStyle === "ratio" ? "contain" : "auto") : undefined,
+      backgroundRepeat: hasBackground && backgroundStyle === "repeat" ? "repeat" : "no-repeat",
+      backgroundPosition: hasBackground ? "center" : undefined,
+      boxShadow: selected ? `0 0 0 1px ${withAlpha(HUE.amber, 0.18)}` : "none",
+    }}
+  >
+    <div style={{ pointerEvents: "auto" }}>
+      <NodeResizer isVisible={selected} minWidth={320} minHeight={180} color={HUE.amber} handleClassName="vellum-resize-handle" lineClassName="vellum-resize-line" onResizeEnd={(_event, params) => resizeNode(node.id, params)} />
+    </div>
+    <div style={{ pointerEvents: "auto" }}>
+      <RegionToolbar
+        nodeId={node.id}
+        selected={selected}
+        onEdit={() => setEditing(true)}
+        onPaths={() => setPathsOpen(true)}
+        hasPaths={hasPaths}
+        connectionFocused={connectionFocused}
+        onToggleFocus={() => toggleConnectionFocus(node.id)}
+      />
+    </div>
+    <div
+      className="region-drag-handle absolute left-2 top-2 flex cursor-grab items-center gap-1 active:cursor-grabbing"
+      style={{ pointerEvents: "auto" }}
+      title="drag region"
+    >
       <RegionLabel label={label} editing={editing} draft={draft} inputRef={inputRef} onDraft={setDraft} onCommit={commit} onCancel={() => setEditing(false)} onEdit={() => setEditing(true)} accent={node.color ? tint : undefined} />
       {node.ether?.region?.hold ? <Lock aria-label="Region holds its contents" size={10} style={{ opacity: 0.5, color: INK, flexShrink: 0 }} /> : null}
       {hasPaths ? <span title="Region has host folder paths" style={{ display: "inline-flex", flexShrink: 0 }}><FolderOpen aria-label="Region has folder paths" size={10} style={{ opacity: 0.5, color: INK }} /></span> : null}
       {instruction ? <span title={instruction} style={{ display: "inline-flex", flexShrink: 0 }}><ScrollText aria-label="Region has a briefing" size={10} style={{ opacity: 0.5, color: INK }} /></span> : null}
     </div>
-    {pathsOpen ? <RegionPathsModal nodeId={node.id} onClose={() => setPathsOpen(false)} /> : null}
+    {pathsOpen ? <div style={{ pointerEvents: "auto" }}><RegionPathsModal nodeId={node.id} onClose={() => setPathsOpen(false)} /></div> : null}
   </div>;
 }

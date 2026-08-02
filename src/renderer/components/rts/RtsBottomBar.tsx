@@ -44,10 +44,16 @@ import {
   deleteNode,
   deleteNodes,
   setNodeColor,
+  setNodeColorForNodes,
   toggleFlag,
   setFlagForNodes,
   setRegionHold,
 } from "../../lib/mutations";
+import {
+  agentKeysFromNodes,
+  classifyMultiSelection,
+  multiSelectionLabel,
+} from "../../lib/multi-selection";
 import { nodeTitle, nodeTypeLabel } from "../../lib/presentation";
 import { herdr$ } from "../../lib/herdr-state";
 import {
@@ -89,14 +95,24 @@ const COLOR_OPTIONS: ReadonlyArray<{ readonly value: string; readonly label: str
   { value: "6", label: "violet", hue: HUE.violet },
 ];
 
-/** JSON Canvas accent presets — shared by node + region command cards. */
+/** JSON Canvas accent presets — single node or multi-select mass apply. */
 function AccentColorSwatches({
   nodeId,
+  nodeIds,
   color,
 }: {
-  readonly nodeId: string;
+  readonly nodeId?: string;
+  /** When set, applies color to every id (multi-select). */
+  readonly nodeIds?: ReadonlyArray<string>;
   readonly color: string | undefined;
 }) {
+  const apply = (next: string | undefined) => {
+    if (nodeIds && nodeIds.length > 0) {
+      setNodeColorForNodes(nodeIds, next);
+      return;
+    }
+    if (nodeId) setNodeColor(nodeId, next);
+  };
   return (
     <div className="rts-cmd-accents" aria-label="Accent color">
       <button
@@ -105,7 +121,7 @@ function AccentColorSwatches({
         title="default accent"
         aria-label="Use default accent"
         aria-pressed={!color}
-        onClick={() => setNodeColor(nodeId, undefined)}
+        onClick={() => apply(undefined)}
       >
         <span style={{ background: HUE.amber }} />
       </button>
@@ -117,7 +133,7 @@ function AccentColorSwatches({
           title={`${label} accent`}
           aria-label={`Set ${label} accent`}
           aria-pressed={color === value}
-          onClick={() => setNodeColor(nodeId, value)}
+          onClick={() => apply(value)}
         >
           <span style={{ background: hue }} />
         </button>
@@ -212,14 +228,38 @@ function CommandCard({ regionRollup }: { readonly regionRollup?: RegionRollup })
   }
 
   if (multi) {
+    const selectedNodes = selectedNodeIds
+      .map((id) => doc.nodes.find((n) => n.id === id))
+      .filter((n): n is CanvasNode => n !== undefined);
+    const classified = classifyMultiSelection(selectedNodes);
+    const sharedColor =
+      selectedNodes.length > 0 && selectedNodes.every((n) => n.color === selectedNodes[0]?.color)
+        ? selectedNodes[0]?.color
+        : undefined;
+    const homogeneousAgents =
+      classified.mode === "homogeneous" && classified.surface === "kind:agent";
+    const agentCount = homogeneousAgents
+      ? agentKeysFromNodes(classified.nodes).length
+      : 0;
+
     return (
       <div className="rts-panel rts-panel--cmd">
-        <div className="rts-panel__label">command · multi</div>
+        <div className="rts-panel__label">
+          command · multi
+          {classified.mode === "homogeneous" ? " · same kind" : " · generic"}
+        </div>
         <div className="rts-panel__body rts-cmd-shell">
           <div className="rts-cmd-head">
-            <div className="rts-cmd__meta">{selectedNodeIds.length} selected</div>
-            <div className="rts-cmd__title">selection</div>
+            <div className="rts-cmd__meta">{multiSelectionLabel(classified)}</div>
+            <div className="rts-cmd__title">
+              {homogeneousAgents && agentCount > 0
+                ? `multi-prompt · ${agentCount} agents →`
+                : classified.mode === "homogeneous"
+                  ? "shared settings"
+                  : "shared settings only"}
+            </div>
           </div>
+          <AccentColorSwatches nodeIds={selectedNodeIds} color={sharedColor} />
           <div className="rts-cmd-keys" role="toolbar" aria-label="Multi-select actions">
             <CmdKey
               label="Flag blocker"

@@ -494,11 +494,8 @@ export function KindStrip() {
   const selectedEdgeId = use$(state$.selectedEdgeId);
 
   if (selectedNodeIds.length > 1) {
-    return (
-      <div className="rts-quiet rts-quiet--compact">
-        Multi-select · kind actions need a single node
-      </div>
-    );
+    // KindSurface owns multi-select kind chrome (incl. multi-prompt).
+    return null;
   }
 
   if (selectedEdgeId) {

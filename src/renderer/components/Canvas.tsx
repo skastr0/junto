@@ -1309,6 +1309,8 @@ function CanvasGraph() {
       panActivationKeyCode={null}
       selectionOnDrag
       selectionMode={SelectionMode.Partial}
+      // Shift+click / Shift+marquee additive multi-select (RF default is Meta/Ctrl).
+      multiSelectionKeyCode="Shift"
       zoomOnDoubleClick={false}
       onlyRenderVisibleElements
       deleteKeyCode={["Backspace", "Delete"]}

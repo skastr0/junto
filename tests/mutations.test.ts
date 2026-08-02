@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Either } from "effect";
 import { decodeCanvasDoc, type CanvasDoc, type GroupNode } from "../src/shared/canvas";
-import { addNode, commitDoc, deleteNode, editFileDetails, editGroupBackground, editLink, editText, loadDoc, promoteLinkToPage, redo, renameGroup, setNodeColor, setNodeHost, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag, undo } from "../src/renderer/lib/mutations";
+import { addNode, commitDoc, deleteNode, editFileDetails, editGroupBackground, editLink, editText, loadDoc, promoteLinkToPage, redo, renameGroup, setNodeColor, setNodeColorForNodes, setNodeHost, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag, undo } from "../src/renderer/lib/mutations";
 import { addEdge, connectAllToTarget, deleteEdges, editEdgeLabel, inferEdgeCriteria, planConnectToTarget, setEdgeColor, setEdgeCriteria, setEdgePorts, toggleEdgeArrow } from "../src/renderer/lib/edge-mutations";
 import { dragHoldMemberIds, findOpenPosition, resizeNode, syncPositions } from "../src/renderer/lib/geometry";
 import { clearGraphFilters, state$, toggleFlagFilter } from "../src/renderer/lib/state";
@@ -904,6 +904,25 @@ describe("renderer graph mutations", () => {
     expect(state$.doc.peek().nodes[0].color).toBe("5");
     setNodeColor("source");
     expect(state$.doc.peek().nodes[0].color).toBeUndefined();
+  });
+
+  it("bulk-sets accent color across a multi-select", () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc({
+      nodes: [
+        { id: "a", type: "text", text: "a", x: 0, y: 0, width: 100, height: 40 },
+        { id: "b", type: "text", text: "b", x: 20, y: 20, width: 100, height: 40 },
+        { id: "c", type: "text", text: "c", x: 40, y: 40, width: 100, height: 40 },
+      ],
+      edges: [],
+    });
+    setNodeColorForNodes(["a", "b"], "3");
+    const nodes = state$.doc.peek().nodes;
+    expect(nodes.find((n) => n.id === "a")?.color).toBe("3");
+    expect(nodes.find((n) => n.id === "b")?.color).toBe("3");
+    expect(nodes.find((n) => n.id === "c")?.color).toBeUndefined();
+    setNodeColorForNodes(["a", "b"], undefined);
+    expect(state$.doc.peek().nodes.find((n) => n.id === "a")?.color).toBeUndefined();
   });
 
   it("sets and clears region plate accent colors", () => {

@@ -969,12 +969,23 @@ export const editGroupBackground = (id: string, background: string, backgroundSt
 };
 
 export const setNodeColor = (id: string, color?: string): void => {
+  setNodeColorForNodes([id], color);
+};
+
+/** Bulk accent color for multi-select — one commit, not N toggles. */
+export const setNodeColorForNodes = (
+  ids: ReadonlyArray<string>,
+  color?: string,
+): void => {
+  const targets = new Set(ids);
+  if (targets.size === 0) return;
   const doc = state$.doc.peek();
   commitDoc({
     ...doc,
-    nodes: doc.nodes.map((n) => n.id === id
-      ? (color ? { ...n, color } : without(n, "color")) as CanvasNode
-      : n),
+    nodes: doc.nodes.map((n) => {
+      if (!targets.has(n.id)) return n;
+      return (color ? { ...n, color } : without(n, "color")) as CanvasNode;
+    }),
   });
 };
 
