@@ -1,13 +1,24 @@
 import type { CSSProperties } from "react";
+import { useEffect, useRef, useState } from "react";
 import { use$ } from "@legendapp/state/react";
+import { GradientSpin } from "gradient-spin";
 import {
   ACTIVITY_TONE_HEX,
+  houseGradientStops,
   type ActivityMode,
   type ActivitySize,
   type ActivitySpec,
   type ActivityTone,
 } from "../lib/activity";
 import { surfaceMotionLive$ } from "../lib/surface-motion";
+
+/** Match ActivityMark node density / package defaults (4px cells, 2px gap). */
+const WASH_CELL = 4;
+const WASH_GAP = 2;
+const WASH_PITCH = WASH_CELL + WASH_GAP;
+/** Soft cap so a fleet of complete seats does not spawn thousands of cells. */
+const WASH_MAX_COLS = 28;
+const WASH_MAX_ROWS = 14;
 
 const SIZE: Record<
   ActivitySize,
@@ -209,9 +220,9 @@ export function ActivityMark({
 }
 
 /**
- * Card-wide spinner-art wash for ready/complete — same cell grammar as
- * ActivityMark, scaled up so the finished seat is glanceable across the board.
- * Decorative only; the upper-right mark remains the accessible status.
+ * Card-wide ready/complete wash — real GradientSpin (loading-spinner tech),
+ * small 4×4 cells matching ActivityMark, streaming a soft pulse over the seat.
+ * Decorative only; the upper-right ActivityMark remains the accessible status.
  */
 export function ActivityCardWash({
   tone,
@@ -221,40 +232,65 @@ export function ActivityCardWash({
   readonly active?: boolean;
 }) {
   const surfaceLive = use$(surfaceMotionLive$);
+  const hostRef = useRef<HTMLSpanElement>(null);
+  const [grid, setGrid] = useState({ rows: 8, cols: 16 });
+
+  useEffect(() => {
+    const el = hostRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const measure = (width: number, height: number) => {
+      const cols = Math.min(
+        WASH_MAX_COLS,
+        Math.max(8, Math.ceil(width / WASH_PITCH)),
+      );
+      const rows = Math.min(
+        WASH_MAX_ROWS,
+        Math.max(5, Math.ceil(height / WASH_PITCH)),
+      );
+      setGrid((prev) =>
+        prev.rows === rows && prev.cols === cols ? prev : { rows, cols },
+      );
+    };
+    measure(el.clientWidth, el.clientHeight);
+    const ro = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      measure(entry.contentRect.width, entry.contentRect.height);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   if (!active || !surfaceLive) return null;
   const hex = ACTIVITY_TONE_HEX[tone];
-  // 5×5 grid fills the card without fighting the header text.
-  const cells: Array<[number, number]> = [];
-  for (let r = 1; r <= 5; r += 1) {
-    for (let c = 1; c <= 5; c += 1) {
-      cells.push([r, c]);
-    }
-  }
+
   return (
     <span
+      ref={hostRef}
       aria-hidden
       className="vellum-activity-card-wash"
+      data-activity-wash="gradient-spin"
       style={
         {
           "--activity-wash-hex": hex,
         } as CSSProperties
       }
     >
-      <span className="vellum-activity-card-wash__grid">
-        {cells.map(([row, column], i) => (
-          <span
-            key={`${String(row)}:${String(column)}`}
-            className="vellum-activity-card-wash__cell"
-            style={
-              {
-                gridRow: row,
-                gridColumn: column,
-                "--activity-wash-step": i % 5,
-              } as CSSProperties
-            }
-          />
-        ))}
-      </span>
+      <GradientSpin
+        gradient={[...houseGradientStops(tone)]}
+        pattern="ripple"
+        rows={grid.rows}
+        cols={grid.cols}
+        cellSize={WASH_CELL}
+        cellGap={WASH_GAP}
+        cellRadius={1}
+        period={2200}
+        dim={0.07}
+        colorBy="path"
+        label="ready"
+        respectReducedMotion
+        className="vellum-activity-card-wash__spin"
+      />
     </span>
   );
 }

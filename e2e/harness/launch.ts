@@ -473,8 +473,25 @@ export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumH
 
     server = await startRendererServer(RENDERER_DIR);
 
+    // Drop live seat / work-control env that a factory agent inherits. Spreading
+    // process.env would otherwise point the e2e app at the operator's real
+    // ~/.vellum/work lock (VELLUM_WORK_HOME) and fail work-control startup.
+    const inherited = { ...(process.env as Record<string, string>) };
+    for (const key of [
+      "VELLUM_HOME",
+      "VELLUM_WORK_HOME",
+      "VELLUM_WORK_SOCKET",
+      "VELLUM_SOCKET",
+      "VELLUM_NODE_REF",
+      "VELLUM_SEAT",
+      "VELLUM_TOKEN",
+      "VELLUM_WORK_TOKEN",
+    ] as const) {
+      delete inherited[key];
+    }
+
     const env: Record<string, string> = {
-      ...(process.env as Record<string, string>),
+      ...inherited,
       HOME: sandbox.homeDir,
       SHELL: "/bin/sh",
       VELLUM_CANVASES_DIR: sandbox.canvasesDir,
