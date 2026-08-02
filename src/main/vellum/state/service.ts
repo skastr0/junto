@@ -76,40 +76,55 @@ export type StateBackupReceipt = {
   readonly schemaVersion: number;
 };
 
+/**
+ * Implementation shape for {@link StateEngine}.
+ * Named so the V4 swap is a one-line Tag→Service change, not a reshape.
+ */
+export type StateEngineShape = {
+  readonly info: StateEngineInfo;
+  readonly read: <A>(
+    operation: string,
+    body: (reader: StateReader) => A,
+  ) => Effect.Effect<A, StateEngineError>;
+  /**
+   * One synchronous BEGIN IMMEDIATE transaction. The callback cannot yield,
+   * so no other fiber can observe a half-applied domain transition.
+   */
+  readonly transaction: <A>(
+    operation: string,
+    body: (writer: StateWriter) => A,
+  ) => Effect.Effect<A, StateEngineError>;
+  /**
+   * Large imports are intentionally several small transactions with a real
+   * event-loop turn between chunks. Atomicity is per chunk; callers use this
+   * only for resumable/idempotent bulk work, never one domain transition.
+   */
+  readonly chunkedWrite: <A>(
+    operation: string,
+    rows: ReadonlyArray<A>,
+    body: (writer: StateWriter, chunk: ReadonlyArray<A>) => void,
+    options?: { readonly chunkRows?: number },
+  ) => Effect.Effect<void, StateEngineError>;
+  /**
+   * Create a coherent live backup at an engine-minted, owner-only path.
+   * There is deliberately no caller-selected destination capability.
+   */
+  readonly backup: () => Effect.Effect<StateBackupReceipt, StateEngineError>;
+};
+
+/**
+ * Sole product SQLite engine (vellum.db).
+ *
+ * effect-foundation **S4-state-content** (staged, not half-migrated):
+ * - Canonical id: `@vellum/StateEngine` — single definition; no dual path.
+ * - Substrate: effect@3.21 → `Context.Tag` (`Context.Service` unavailable).
+ * - V4 target:
+ *   `class StateEngine extends Context.Service<StateEngine, StateEngineShape>()("@vellum/StateEngine") {}`
+ * - Layer today: `StateEngineLive` / `makeStateEngineLive` (engine.ts).
+ *   V4 rename candidate: `StateEngine.layer` — callers live outside this pack;
+ *   do not dual-export both names.
+ */
 export class StateEngine extends Context.Tag("@vellum/StateEngine")<
   StateEngine,
-  {
-    readonly info: StateEngineInfo;
-    readonly read: <A>(
-      operation: string,
-      body: (reader: StateReader) => A,
-    ) => Effect.Effect<A, StateEngineError>;
-    /**
-     * One synchronous BEGIN IMMEDIATE transaction. The callback cannot yield,
-     * so no other fiber can observe a half-applied domain transition.
-     */
-    readonly transaction: <A>(
-      operation: string,
-      body: (writer: StateWriter) => A,
-    ) => Effect.Effect<A, StateEngineError>;
-    /**
-     * Large imports are intentionally several small transactions with a real
-     * event-loop turn between chunks. Atomicity is per chunk; callers use this
-     * only for resumable/idempotent bulk work, never one domain transition.
-     */
-    readonly chunkedWrite: <A>(
-      operation: string,
-      rows: ReadonlyArray<A>,
-      body: (writer: StateWriter, chunk: ReadonlyArray<A>) => void,
-      options?: { readonly chunkRows?: number },
-    ) => Effect.Effect<void, StateEngineError>;
-    /**
-     * Create a coherent live backup at an engine-minted, owner-only path.
-     * There is deliberately no caller-selected destination capability.
-     */
-    readonly backup: () => Effect.Effect<
-      StateBackupReceipt,
-      StateEngineError
-    >;
-  }
+  StateEngineShape
 >() {}

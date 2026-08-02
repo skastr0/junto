@@ -29,6 +29,7 @@ import {
 import {
   StateEngine,
   type StateEngineError,
+  type StateEngineShape,
 } from "../state/service";
 import {
   recordContentObject,
@@ -94,7 +95,7 @@ export class ContentTransferError extends Error {
   }
 }
 
-type StateService = Context.Tag.Service<typeof StateEngine>;
+type StateService = StateEngineShape;
 type SshService = Context.Tag.Service<typeof SshTransport>;
 
 const transferIdFor = (
@@ -214,45 +215,59 @@ const streamAsAsyncIterable = <E>(
   return { iterable, run };
 };
 
+/**
+ * Implementation shape for {@link ContentTransferService}.
+ * Named so the V4 swap is a one-line Tag→Service change, not a reshape.
+ */
+export type ContentTransferServiceShape = {
+  readonly root: string;
+  /**
+   * Push a local verified object to a Remote.  Idempotent when the Remote
+   * already holds a verified digest.  Resumes from the remote partial size.
+   */
+  readonly push: (
+    ref: ContentRef,
+    peer: ContentTransferPeer,
+  ) => Effect.Effect<ContentTransferOutcome, ContentTransferServiceError>;
+  /**
+   * Pull a Remote object into the local content store.  Idempotent when the
+   * local object is already verified.  Resumes from the local partial size.
+   */
+  readonly pull: (
+    ref: ContentRef,
+    peer: ContentTransferPeer,
+  ) => Effect.Effect<ContentTransferOutcome, ContentTransferServiceError>;
+  /** Local-only receive path used by the fixed content helper. */
+  readonly receiveLocal: (
+    ref: ContentRef,
+    source: AsyncIterable<Uint8Array | Buffer> | Uint8Array | Buffer,
+    expectedOffset?: number,
+  ) => Effect.Effect<
+    ContentReceiveResult,
+    ContentStoreError | StateEngineError
+  >;
+};
+
+/**
+ * Station content transfer orchestration (SSH helper path).
+ *
+ * effect-foundation **S4-state-content** (staged, not half-migrated):
+ * - Canonical id: `@vellum/ContentTransferService` — single definition.
+ * - Substrate: effect@3.21 → `Context.Tag` (`Context.Service` unavailable).
+ * - V4 target:
+ *   `class ContentTransferService extends Context.Service<ContentTransferService, ContentTransferServiceShape>()("@vellum/ContentTransferService") {}`
+ * - Layer today: `makeContentTransferServiceLive` — V4 rename candidate
+ *   `ContentTransferService.layer` (no dual Live+layer export).
+ */
 export class ContentTransferService extends Context.Tag(
   "@vellum/ContentTransferService",
-)<
-  ContentTransferService,
-  {
-    readonly root: string;
-    /**
-     * Push a local verified object to a Remote.  Idempotent when the Remote
-     * already holds a verified digest.  Resumes from the remote partial size.
-     */
-    readonly push: (
-      ref: ContentRef,
-      peer: ContentTransferPeer,
-    ) => Effect.Effect<ContentTransferOutcome, ContentTransferServiceError>;
-    /**
-     * Pull a Remote object into the local content store.  Idempotent when the
-     * local object is already verified.  Resumes from the local partial size.
-     */
-    readonly pull: (
-      ref: ContentRef,
-      peer: ContentTransferPeer,
-    ) => Effect.Effect<ContentTransferOutcome, ContentTransferServiceError>;
-    /** Local-only receive path used by the fixed content helper. */
-    readonly receiveLocal: (
-      ref: ContentRef,
-      source: AsyncIterable<Uint8Array | Buffer> | Uint8Array | Buffer,
-      expectedOffset?: number,
-    ) => Effect.Effect<
-      ContentReceiveResult,
-      ContentStoreError | StateEngineError
-    >;
-  }
->() {}
+)<ContentTransferService, ContentTransferServiceShape>() {}
 
 const makeContentTransferService = (
   state: StateService,
   ssh: SshService,
   root: string,
-): Context.Tag.Service<typeof ContentTransferService> => ({
+): ContentTransferServiceShape => ({
   root,
 
   receiveLocal: (ref, source, expectedOffset) =>
@@ -668,7 +683,7 @@ export const createContentTransferService = (
   state: StateService,
   ssh: SshService,
   root: string,
-): Context.Tag.Service<typeof ContentTransferService> =>
+): ContentTransferServiceShape =>
   makeContentTransferService(state, ssh, root);
 
 export {

@@ -11,13 +11,14 @@ import {
   type SQLOutputValue,
   type StatementSync,
 } from "node:sqlite";
-import { Context, Effect, Layer } from "effect";
+import { Effect, Layer } from "effect";
 import {
   StateEngine,
   StateEngineError,
   type StateBackupReceipt,
   type StateBindings,
   type StateEngineInfo,
+  type StateEngineShape,
   type StateReader,
   type StateRow,
   type StateWriter,
@@ -115,7 +116,7 @@ const applyBindings = <A>(
 };
 
 type OpenStateEngine = {
-  readonly service: Context.Tag.Service<typeof StateEngine>;
+  readonly service: StateEngineShape;
   readonly close: () => void;
 };
 

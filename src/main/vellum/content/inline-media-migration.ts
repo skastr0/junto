@@ -18,17 +18,16 @@
  * per-row txns).
  */
 
-import { type Context, Effect } from "effect";
+import { Effect } from "effect";
 import type { ContentRef } from "@shared/content";
 import type {
-  StateEngine,
   StateReader,
   StateRow,
   StateWriter,
 } from "../state/service";
+import type { InstallOpsServiceShape } from "../install-ops/service";
 import {
   BACKFILL_INLINE_MEDIA_V1,
-  InstallOpsService,
 } from "../install-ops/engine";
 import {
   recordContentObject,
@@ -518,13 +517,12 @@ const migratePartsTargets = async (
  * seeds cannot claim "already migrated" without local files.
  */
 export const runInlineMediaMigration = async (input: {
-  readonly state:
-    | StateService
-    | import("effect").Context.Tag.Service<typeof StateEngine>;
+  /** Structural: only read/transaction needed; accepts full StateEngineShape. */
+  readonly state: StateService;
   readonly root: string;
-  readonly installOps: Context.Tag.Service<typeof InstallOpsService>;
+  readonly installOps: InstallOpsServiceShape;
 }): Promise<InlineMediaMigrationReport> => {
-  const state = input.state as StateService;
+  const state = input.state;
   const root = input.root;
   const installOps = input.installOps;
   const backfillId = BACKFILL_INLINE_MEDIA_V1;

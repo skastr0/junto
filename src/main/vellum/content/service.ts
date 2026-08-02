@@ -9,6 +9,7 @@ import {
   StateEngine,
   StateEngineError,
   type StateBackupReceipt,
+  type StateEngineShape,
 } from "../state/service";
 import {
   createContentSnapshot,
@@ -80,73 +81,89 @@ export type ContentServiceError =
 
 export type ContentOpenForRead = ContentOpenResult;
 
-type StateService = Context.Tag.Service<typeof StateEngine>;
+type StateService = StateEngineShape;
+
+/**
+ * Implementation shape for {@link ContentService}.
+ * Named so the V4 swap is a one-line Tag→Service change, not a reshape.
+ */
+export type ContentServiceShape = {
+  readonly root: string;
+  readonly put: (
+    input: ContentPutInput,
+  ) => Effect.Effect<ContentPutResult, ContentServiceError>;
+  readonly availability: (
+    ref: ContentRef,
+  ) => Effect.Effect<ContentAvailability, StateEngineError>;
+  /**
+   * Open for streaming reads. Checks manifest receipt + path/size without
+   * re-hashing the full object (so video range seeks stay cheap).
+   */
+  readonly openForRead: (
+    ref: ContentRef,
+  ) => Effect.Effect<ContentOpenForRead, StateEngineError>;
+  readonly localPath: (
+    ref: ContentRef,
+  ) => Effect.Effect<ReturnType<typeof projectContentLocalPath>, never>;
+  readonly listRefs: (
+    sha256: string,
+  ) => Effect.Effect<ReadonlyArray<ContentRefRow>, StateEngineError>;
+  /** Startup / recovery integrity over referenced digests. */
+  readonly integrityCheck: () => Effect.Effect<
+    ContentIntegrityReport,
+    StateEngineError | ContentStoreError
+  >;
+  /**
+   * Conservative mark-and-sweep. Defaults to dry-run; pass
+   * `{ dryRun: false }` for a live sweep.
+   */
+  readonly collectGarbage: (
+    options?: ContentGcOptions,
+  ) => Effect.Effect<
+    ContentGcReport,
+    StateEngineError | ContentStoreError | ContentManifestError
+  >;
+  /**
+   * Snapshot every content_refs object. Optionally attach a prior
+   * StateEngine VACUUM backup receipt so DB + objects are one product unit.
+   */
+  readonly snapshot: (options?: {
+    readonly stateBackup?: StateBackupReceipt;
+  }) => Effect.Effect<
+    ContentSnapshotReceipt,
+    StateEngineError | ContentStoreError
+  >;
+  /** Probe disk admission for a prospective write size. */
+  readonly admitWrite: (input: {
+    readonly needBytes: number;
+    readonly reserveBytes?: number;
+    readonly freeBytes?: number;
+  }) => Effect.Effect<ContentDiskAdmission, ContentStoreError>;
+};
 
 /**
  * Local content store + SQLite manifest. Main owns the only DB connection;
  * this service never opens `vellum.db` itself.
+ *
+ * effect-foundation **S4-state-content** (staged, not half-migrated):
+ * - Canonical id: `@vellum/ContentService` — single definition; no dual path.
+ * - Substrate: effect@3.21 → `Context.Tag` (`Context.Service` unavailable).
+ * - V4 target:
+ *   `class ContentService extends Context.Service<ContentService, ContentServiceShape>()("@vellum/ContentService") {}`
+ * - Layer today: `makeContentServiceLive` — V4 rename candidate
+ *   `ContentService.layer` (no dual Live+layer export).
+ * - Hard law: yield ContentService from warm Layer Context; never ambient
+ *   empty-context lookup (claim-gate class of bug).
  */
 export class ContentService extends Context.Tag("@vellum/ContentService")<
   ContentService,
-  {
-    readonly root: string;
-    readonly put: (
-      input: ContentPutInput,
-    ) => Effect.Effect<ContentPutResult, ContentServiceError>;
-    readonly availability: (
-      ref: ContentRef,
-    ) => Effect.Effect<ContentAvailability, StateEngineError>;
-    /**
-     * Open for streaming reads. Checks manifest receipt + path/size without
-     * re-hashing the full object (so video range seeks stay cheap).
-     */
-    readonly openForRead: (
-      ref: ContentRef,
-    ) => Effect.Effect<ContentOpenForRead, StateEngineError>;
-    readonly localPath: (
-      ref: ContentRef,
-    ) => Effect.Effect<ReturnType<typeof projectContentLocalPath>, never>;
-    readonly listRefs: (
-      sha256: string,
-    ) => Effect.Effect<ReadonlyArray<ContentRefRow>, StateEngineError>;
-    /** Startup / recovery integrity over referenced digests. */
-    readonly integrityCheck: () => Effect.Effect<
-      ContentIntegrityReport,
-      StateEngineError | ContentStoreError
-    >;
-    /**
-     * Conservative mark-and-sweep. Defaults to dry-run; pass
-     * `{ dryRun: false }` for a live sweep.
-     */
-    readonly collectGarbage: (
-      options?: ContentGcOptions,
-    ) => Effect.Effect<
-      ContentGcReport,
-      StateEngineError | ContentStoreError | ContentManifestError
-    >;
-    /**
-     * Snapshot every content_refs object. Optionally attach a prior
-     * StateEngine VACUUM backup receipt so DB + objects are one product unit.
-     */
-    readonly snapshot: (options?: {
-      readonly stateBackup?: StateBackupReceipt;
-    }) => Effect.Effect<
-      ContentSnapshotReceipt,
-      StateEngineError | ContentStoreError
-    >;
-    /** Probe disk admission for a prospective write size. */
-    readonly admitWrite: (input: {
-      readonly needBytes: number;
-      readonly reserveBytes?: number;
-      readonly freeBytes?: number;
-    }) => Effect.Effect<ContentDiskAdmission, ContentStoreError>;
-  }
+  ContentServiceShape
 >() {}
 
 const makeContentService = (
   state: StateService,
   root: string,
-): Context.Tag.Service<typeof ContentService> => ({
+): ContentServiceShape => ({
   root,
 
   put: (input) =>
@@ -421,7 +438,6 @@ export const makeContentServiceLive = (options?: {
 export const createContentService = (
   state: StateService,
   root: string,
-): Context.Tag.Service<typeof ContentService> =>
-  makeContentService(state, root);
+): ContentServiceShape => makeContentService(state, root);
 
 export { ContentManifestError, ContentStoreError };

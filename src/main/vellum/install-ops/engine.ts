@@ -5,7 +5,7 @@ import {
 } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { Context, Effect, Layer } from "effect";
+import { Effect, Layer } from "effect";
 import {
   INSTALL_OPS_SCHEMA_SQL,
 } from "./schema";
@@ -14,6 +14,7 @@ import {
   InstallOpsService,
   type BackfillMarker,
   type BackfillMarkerStatus,
+  type InstallOpsServiceShape,
 } from "./service";
 import { installOpsDatabasePath } from "./paths";
 
@@ -24,6 +25,7 @@ export {
   InstallOpsService,
   type BackfillMarker,
   type BackfillMarkerStatus,
+  type InstallOpsServiceShape,
 } from "./service";
 
 const DIR_MODE = 0o700;
@@ -94,7 +96,7 @@ const openInstallOps = (path: string) =>
       );
 
       let closed = false;
-      const service: Context.Tag.Service<typeof InstallOpsService> = {
+      const service: InstallOpsServiceShape = {
         path,
         getBackfill: (id) =>
           Effect.try({
