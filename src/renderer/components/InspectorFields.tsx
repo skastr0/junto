@@ -412,14 +412,8 @@ const FLAG_OPTIONS: ReadonlyArray<{ readonly flag: EtherFlag; readonly hue: stri
 
 export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
   const textValue = node.type === "text" ? node.text : "";
-  const isPage =
-    node.type === "link" &&
-    node.ether?.entity?.kind === "page" &&
-    Boolean(node.ether?.browser);
-  const linkValue = isPage && node.type === "link" ? node.url : "";
   const groupLabelValue = node.type === "group" ? node.label ?? "" : "";
   const [textDraft, setTextDraft] = useState(textValue);
-  const [linkDraft, setLinkDraft] = useState(linkValue);
   const [groupLabelDraft, setGroupLabelDraft] = useState(groupLabelValue);
   const workRoleValue = node.ether?.workRole ?? "";
   const [workRoleDraft, setWorkRoleDraft] = useState(workRoleValue);
@@ -429,17 +423,11 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
 
   useEffect(() => {
     setTextDraft(textValue);
-    setLinkDraft(linkValue);
     setGroupLabelDraft(groupLabelValue);
     setWorkRoleDraft(workRoleValue);
-  }, [groupLabelValue, linkValue, node.id, textValue, workRoleValue]);
+  }, [groupLabelValue, node.id, textValue, workRoleValue]);
 
   const commitText = () => { if (node.type === "text" && textDraft !== textValue) editText(node.id, textDraft); };
-  const commitLink = () => {
-    if (isPage && linkDraft.trim() && linkDraft.trim() !== linkValue) {
-      editLink(node.id, linkDraft.trim());
-    }
-  };
   const commitGroupLabel = () => { if (node.type === "group" && groupLabelDraft !== groupLabelValue) renameGroup(node.id, groupLabelDraft.trim()); };
 
   return <>
@@ -526,30 +514,6 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
         />
       </label>
     ) : null}
-    {isPage ? (
-      <label className="inspector-editor">
-        <span>page url</span>
-        <input
-          aria-label="Page URL"
-          value={linkDraft}
-          onChange={(event) => setLinkDraft(event.target.value)}
-          onBlur={commitLink}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              commitLink();
-              event.currentTarget.blur();
-            }
-            if (event.key === "Escape") {
-              setLinkDraft(linkValue);
-              event.currentTarget.blur();
-            }
-          }}
-        />
-      </label>
-    ) : null}
-    {isPage ? <PageBindingControl node={node} /> : null}
-
     {node.ether?.entity?.kind === "agent"
       ? <div className="inspector-section">
           <div className="inspector-section__label">actor placement</div>
@@ -589,7 +553,8 @@ export function TaskQueueHomeControl({ node }: { readonly node: CanvasNode }) {
   );
 }
 
-function PageBindingControl({ node }: { readonly node: CanvasNode }) {
+/** Host + profile for a page — used from RTS kind-strip pop. */
+export function PageBindingControl({ node }: { readonly node: CanvasNode }) {
   const storedProfile = node.ether?.browser?.profile ?? "personal";
   const storedHost = resolveNodeHostId(node);
   const [profile, setProfile] = useState(storedProfile);
@@ -604,33 +569,73 @@ function PageBindingControl({ node }: { readonly node: CanvasNode }) {
     setPageBinding(node.id, { profile: nextProfile, host: nextHost });
   };
 
-  return <div className="inspector-section">
-    <div className="inspector-section__label">browser binding</div>
-    <label className="inspector-editor">
-      <span>host</span>
-      <EnrolledHostSelect
-        ariaLabel="Page browser host"
-        value={host}
-        capability="browser"
-        onChange={(next) => {
-          setHost(next);
-          commit(profile, next);
-        }}
-      />
-    </label>
-    <label className="inspector-editor">
-      <span>profile</span>
-      <BrowserProfileSelect
-        ariaLabel="Page browser profile"
-        value={profile}
-        onChange={(next) => {
-          setProfile(next);
-          commit(next, host);
-        }}
-      />
-    </label>
-    <div className="inspector-detail">The page opens only on this exact registered browser host.</div>
-  </div>;
+  return (
+    <div className="inspector-section" style={{ marginTop: 0 }}>
+      <div className="inspector-section__label">browser binding</div>
+      <label className="inspector-editor">
+        <span>host</span>
+        <EnrolledHostSelect
+          ariaLabel="Page browser host"
+          value={host}
+          capability="browser"
+          onChange={(next) => {
+            setHost(next);
+            commit(profile, next);
+          }}
+        />
+      </label>
+      <label className="inspector-editor">
+        <span>profile</span>
+        <BrowserProfileSelect
+          ariaLabel="Page browser profile"
+          value={profile}
+          onChange={(next) => {
+            setProfile(next);
+            commit(next, host);
+          }}
+        />
+      </label>
+    </div>
+  );
+}
+
+/** Page URL — used from RTS kind-strip pop. */
+export function PageUrlControl({ node }: { readonly node: CanvasNode }) {
+  const url = node.type === "link" ? node.url : "";
+  const [draft, setDraft] = useState(url);
+  useEffect(() => {
+    setDraft(url);
+  }, [node.id, url]);
+  const commit = () => {
+    const next = draft.trim();
+    if (!next || next === url || node.type !== "link") return;
+    editLink(node.id, next);
+  };
+  return (
+    <div className="inspector-section" style={{ marginTop: 0 }}>
+      <div className="inspector-section__label">page url</div>
+      <label className="inspector-editor">
+        <span>url</span>
+        <input
+          aria-label="Page URL"
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={commit}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              commit();
+              event.currentTarget.blur();
+            }
+            if (event.key === "Escape") {
+              setDraft(url);
+              event.currentTarget.blur();
+            }
+          }}
+        />
+      </label>
+    </div>
+  );
 }
 
 // Watcher/timer/region briefing editors, grouped behind one call so the

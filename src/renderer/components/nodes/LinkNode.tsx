@@ -3,12 +3,15 @@
  * Plain link furniture is retired; legacy url-only cards still decode but
  * render as a delete-only stub (no promote path).
  */
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { use$ } from "@legendapp/state/react";
 import type { NodeProps } from "@xyflow/react";
 import { Link2 } from "lucide-react";
+import { formatNodeRef } from "@shared/node-ref";
 import { PageCard } from "../browser/PageCard";
 import type { FlowNode } from "../../lib/convert";
+import { openDockBrowser } from "../../lib/dock-state";
+import { browser$ } from "../../lib/browser-state";
 import { hostOf } from "../../lib/presentation";
 import { state$ } from "../../lib/state";
 import { DIM, HUE, INK } from "../../lib/theme";
@@ -24,6 +27,16 @@ export function LinkNode({ data, selected }: NodeProps<FlowNode>) {
   const url = node.type === "link" ? node.url : "";
   const isPage = isPageSurface(node);
   const isEditTarget = use$(() => state$.editNodeId.get() === node.id);
+  const canvasName = use$(state$.canvasName);
+  const pageRef = useMemo(() => {
+    if (!isPage) return undefined;
+    try {
+      return formatNodeRef({ canvasName, nodeId: node.id });
+    } catch {
+      return undefined;
+    }
+  }, [canvasName, isPage, node.id]);
+  const session = use$(browser$.sessionByRef[pageRef ?? ""]);
 
   // No inline path edit surface remains for link cards — clear edit targeting.
   useEffect(() => {
@@ -32,9 +45,29 @@ export function LinkNode({ data, selected }: NodeProps<FlowNode>) {
   }, [isEditTarget]);
 
   if (isPage) {
+    const browser = node.ether?.browser;
+    const open = () => {
+      if (!pageRef || !browser) return;
+      void openDockBrowser(pageRef, {
+        nodeId: node.id,
+        browser,
+        url,
+        title: session?.title ?? hostOf(url),
+      });
+    };
     return (
       <NodeShell node={node} selected={selected} blocked={data.blocked}>
-        <PageCard node={node} />
+        <div
+          className="nopan h-full w-full"
+          onDoubleClick={(event) => {
+            if (event.shiftKey) return;
+            event.preventDefault();
+            event.stopPropagation();
+            open();
+          }}
+        >
+          <PageCard node={node} />
+        </div>
       </NodeShell>
     );
   }

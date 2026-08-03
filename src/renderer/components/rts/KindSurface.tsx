@@ -167,6 +167,7 @@ function NodeFormFocus({
         kind !== "timer" &&
         kind !== "cron" &&
         kind !== "relay" &&
+        kind !== "page" &&
         Boolean(node.ether?.entity) ? (
           <WaitingOnSection nodeId={node.id} />
         ) : null}
@@ -180,6 +181,7 @@ function NodeFormFocus({
         kind !== "timer" &&
         kind !== "cron" &&
         kind !== "relay" &&
+        kind !== "page" &&
         node.type !== "group" &&
         Boolean(node.ether?.entity) ? (
           <NodePlacementSection node={node} />
@@ -194,6 +196,7 @@ function NodeFormFocus({
         kind !== "timer" &&
         kind !== "cron" &&
         kind !== "relay" &&
+        kind !== "page" &&
         Boolean(node.ether?.entity) ? (
           <NodeCapabilityInventory node={node} />
         ) : null}
@@ -644,13 +647,14 @@ export function KindSurface() {
       "timer",
       "cron",
       "relay",
+      "page",
     ].includes(kind);
   // Agent/herdr keep a live glance. Everything else is strip-only (kind once +
   // keys) so command title is not echoed three more times in the mid third.
   const showSeatGlance =
     kind === "agent" || (HERDR_ENABLED && kind === "herdr");
-  // Free notes / work sinks / schedulers / shell: no fields sheet. Config is
-  // kind-strip pops; rename is pencil. Placement chips are noise.
+  // Free notes / work sinks / schedulers / page / shell: no fields sheet.
+  // Config is kind-strip pops; rename is pencil. Placement chips are noise.
   const showFieldsKey =
     !isFreeNote &&
     kind !== "terminal" &&
@@ -662,7 +666,8 @@ export function KindSurface() {
     kind !== "watcher" &&
     kind !== "timer" &&
     kind !== "cron" &&
-    kind !== "relay";
+    kind !== "relay" &&
+    kind !== "page";
   const stripLabel = kind ?? nodeTypeLabel(node);
 
   return (

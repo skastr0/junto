@@ -5,7 +5,9 @@ import {
   ArrowRight,
   CheckCheck,
   Gauge,
+  Globe,
   Inbox,
+  Link2,
   ListChecks,
   MessageSquareText,
   Package,
@@ -37,7 +39,7 @@ import {
 } from "../../lib/pause-state";
 import { openWorkDetail } from "../../lib/work-detail-open";
 import { ACP_CHAT_SURFACE_HIDDEN } from "@shared/legacy-surfaces";
-import { openAgentChatSurface, openTaskCreateSurface } from "../../lib/dock-state";
+import { openAgentChatSurface, openDockBrowser, openTaskCreateSurface } from "../../lib/dock-state";
 import { openTerminal } from "../../lib/terminal-actions";
 import {
   herdr$,
@@ -47,10 +49,14 @@ import {
 } from "../../lib/herdr-state";
 import { killHerdrPane } from "../../lib/herdr-actions";
 import { deleteEdges, toggleEdgeArrow } from "../../lib/edge-mutations";
-import { nodeTitle } from "../../lib/presentation";
+import { hostOf, nodeTitle } from "../../lib/presentation";
+import { browser$ } from "../../lib/browser-state";
+import { formatNodeRef } from "@shared/node-ref";
 import { OpenHerdrMark } from "../herdr/OpenHerdrMark";
 import {
   EdgeCriteriaEditor,
+  PageBindingControl,
+  PageUrlControl,
   RelayEditor,
   TaskQueueHomeControl,
   TimerEditor,
@@ -301,6 +307,69 @@ function HerdrKindKeys({ node }: { readonly node: CanvasNode }) {
   );
 }
 
+function PageKindKeys({ node }: { readonly node: CanvasNode }) {
+  const [pop, setPop] = useState<"url" | "binding" | null>(null);
+  const canvasName = use$(state$.canvasName);
+  const pageRef = (() => {
+    try {
+      return formatNodeRef({ canvasName, nodeId: node.id });
+    } catch {
+      return undefined;
+    }
+  })();
+  const session = use$(browser$.sessionByRef[pageRef ?? ""]);
+  const browser = node.ether?.browser;
+  const url = node.type === "link" ? node.url : "";
+
+  useEffect(() => {
+    setPop(null);
+  }, [node.id]);
+
+  const open = () => {
+    if (!pageRef || !browser) return;
+    void openDockBrowser(pageRef, {
+      nodeId: node.id,
+      browser,
+      url,
+      title: session?.title ?? hostOf(url),
+    });
+  };
+
+  return (
+    <>
+      <KindKey label="Open page" title="Open page" onClick={open}>
+        <Globe size={ICON} />
+      </KindKey>
+      <KindKey
+        label={pop === "url" ? "Close url" : "Page url"}
+        title="Page URL"
+        active={pop === "url"}
+        onClick={() => setPop((current) => (current === "url" ? null : "url"))}
+      >
+        <Link2 size={ICON} />
+      </KindKey>
+      <KindKey
+        label={pop === "binding" ? "Close binding" : "Browser binding"}
+        title="Host and profile"
+        active={pop === "binding"}
+        onClick={() => setPop((current) => (current === "binding" ? null : "binding"))}
+      >
+        <Server size={ICON} />
+      </KindKey>
+      {pop === "url" ? (
+        <div className="rts-kind-pop rts-kind-pop--editor">
+          <PageUrlControl node={node} />
+        </div>
+      ) : null}
+      {pop === "binding" ? (
+        <div className="rts-kind-pop rts-kind-pop--editor">
+          <PageBindingControl node={node} />
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
   const [homeOpen, setHomeOpen] = useState(false);
 
@@ -370,12 +439,14 @@ export function KindActions({ node }: { readonly node: CanvasNode }) {
       return (
         <KindKey
           label="Open terminal"
-          title="open the terminal surface"
+          title="Open terminal"
           onClick={() => void openTerminal(node)}
         >
           <Terminal size={ICON} />
         </KindKey>
       );
+    case "page":
+      return <PageKindKeys node={node} />;
     case "task":
       return <TaskKindKeys node={node} />;
     case "requests":
