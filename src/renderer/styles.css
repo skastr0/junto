@@ -180,6 +180,12 @@ html[data-vellum-platform="darwin"] .focus-surface.focus-surface--contain-parent
   background: var(--color-raise);
   padding: 20px 22px 20px;
 }
+/* Fit = content-sized. Do not inherit the immersive document height. */
+.focus-surface__panel--document[data-height="fit"] {
+  height: auto;
+  min-height: 0;
+  max-height: min(86vh, 720px);
+}
 .focus-surface__panel--document[data-height="resizable"] {
   resize: both;
   overflow: auto;
@@ -956,7 +962,8 @@ html[data-vellum-platform="darwin"] .station-bar [role="listbox"] {
 }
 .region-briefing__editor {
   width: 100%;
-  min-height: 220px;
+  min-height: 280px;
+  height: 280px;
   resize: vertical;
   border: 1px solid rgba(237, 230, 218, 0.14);
   border-radius: 6px;

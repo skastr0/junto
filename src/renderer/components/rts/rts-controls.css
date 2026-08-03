@@ -131,6 +131,15 @@
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
 }
 
+/* Fit panels size to content — body must not flex-fill empty height. */
+.rts-kind-form-panel[data-height="fit"] {
+  max-height: min(86vh, 720px);
+}
+
+.rts-kind-form-panel[data-height="fit"] .rts-kind-form-body {
+  flex: 0 1 auto;
+}
+
 .rts-kind-form-body {
   flex: 1;
   min-height: 0;

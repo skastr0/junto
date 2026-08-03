@@ -1152,9 +1152,9 @@ export function RegionBriefingEditor({ node }: { readonly node: CanvasNode }) {
   return (
     <div className="region-briefing">
       <p className="region-briefing__hint">
-        Agents receive this when they run{" "}
-        <span className="cli-cmd">vellum onboard</span>
-        {" "}inside the region.
+        Agents receive this from the{" "}
+        <span className="cli-cmd">onboard</span>
+        {" "}command inside the region.
       </p>
       <textarea
         className="region-briefing__editor"
