@@ -149,7 +149,7 @@ function NodeFormFocus({
       <OverlayHeader
         eyebrow={kind ?? nodeTypeLabel(node)}
         title={nodeTitle(node)}
-        status="edit fields — esc closes"
+
         actions={
           <IconButton aria-label="Close fields" title="Close fields" onClick={onClose}>
             <X size={14} />
@@ -403,7 +403,7 @@ function RegionKindSurface({ node }: { readonly node: CanvasNode }) {
         <div className="rts-kind-strip" role="toolbar" aria-label="Region fields">
           <KindKey
             label={form === "briefing" ? "Close briefing" : "Region briefing"}
-            title="Briefing for agents on onboard"
+            title="Region briefing"
             active={form === "briefing" || instruction}
             style={form === "briefing" || instruction ? { color: HUE.amber } : undefined}
             onClick={() => toggleForm("briefing")}
@@ -412,7 +412,7 @@ function RegionKindSurface({ node }: { readonly node: CanvasNode }) {
           </KindKey>
           <KindKey
             label={pathsOpen ? "Close folder paths" : "Folder paths"}
-            title="Per-host working directories for agents and terminals"
+            title="Folder paths"
             active={pathsOpen || hasPaths}
             style={pathsOpen || hasPaths ? { color: HUE.amber } : undefined}
             onClick={() => {

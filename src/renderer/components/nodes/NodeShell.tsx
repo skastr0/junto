@@ -245,7 +245,7 @@ function NodeActions({
             className="nodrag nopan"
             aria-label={nodePaused ? "Resume node" : "Pause node"}
             style={{ color: nodePaused ? HUE.amber : undefined }}
-            title={nodePaused ? "node paused — click to resume" : "pause node (seat stops acting)"}
+            title={nodePaused ? "Resume" : "Pause"}
             data-testid="node-toolbar-pause"
             data-paused={nodePaused ? "true" : "false"}
             onPointerDown={(event) => {

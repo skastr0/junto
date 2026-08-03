@@ -106,7 +106,7 @@ export function WorkbenchChrome({
         <button
           type="button"
           className="workbench-layout-toggle"
-          title={`Layout: ${layout} (click to cycle)`}
+          title={`Layout: ${layout}`}
           aria-label={`Layout ${layout}`}
           onClick={cycleLayout}
         >

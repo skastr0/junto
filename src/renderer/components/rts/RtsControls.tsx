@@ -131,10 +131,10 @@ export function PauseScopeKey({ scope }: { readonly scope: PauseScope }) {
       label={paused ? `Resume ${noun}` : `Pause ${noun}`}
       title={
         error
-          ? `pause switch: ${error}`
+          ? error
           : paused
-            ? `${noun} paused — click to resume`
-            : `pause ${noun} — its seats stop acting`
+            ? `Resume ${noun}`
+            : `Pause ${noun}`
       }
       active={paused}
       disabled={busy}
@@ -310,7 +310,7 @@ function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
       </KindKey>
       <KindKey
         label="Add task"
-        title="enqueue a task (title, details, finish criteria)"
+        title="Enqueue a task"
         onClick={() => openTaskCreateSurface(node)}
       >
         <Plus size={ICON} />
@@ -583,7 +583,7 @@ export function RegionPauseDot({ regionId }: { readonly regionId: string }) {
       tabIndex={0}
       className={`rts-chip__pause${paused ? " is-paused" : ""}`}
       aria-label={paused ? "Resume region" : "Pause region"}
-      title={paused ? "region paused — click to resume" : "pause region"}
+      title={paused ? "Resume region" : "Pause region"}
       data-paused={paused ? "true" : "false"}
       onPointerDown={(event) => event.stopPropagation()}
       onClick={(event) => {

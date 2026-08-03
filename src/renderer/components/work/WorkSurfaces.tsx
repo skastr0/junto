@@ -111,7 +111,7 @@ function SinkGlanceTitle({
       type="button"
       className="nodrag nopan min-w-0 flex-1 truncate text-left text-[8px] uppercase tracking-[0.18em]"
       style={{ color: "#68604a" }}
-      title={onRequestRename ? "double-click to rename" : undefined}
+      title={onRequestRename ? "Rename" : undefined}
       onDoubleClick={(event) => {
         if (event.shiftKey || !onRequestRename) return;
         event.preventDefault();
@@ -206,8 +206,8 @@ export function TasksCard({
             type="button"
             className="nodrag nowheel factory-glance__enqueue"
             data-testid="tasks-card-enqueue"
-            title="Quick enqueue (pinnable)"
-            aria-label="Quick enqueue task"
+            title="Enqueue task"
+            aria-label="Enqueue task"
             onClick={(event) => {
               event.preventDefault();
               event.stopPropagation();

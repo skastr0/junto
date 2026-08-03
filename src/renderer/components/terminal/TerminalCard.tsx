@@ -189,7 +189,7 @@ export function TerminalCard({
   return (
     <div
       className="group relative flex h-full w-full flex-col justify-between overflow-hidden"
-      title="double-click to open"
+      title="Open terminal"
       data-seat-state={presentation ?? seatState}
       data-exit-reason={exitReason}
       data-seat-complete={complete ? "true" : undefined}
@@ -211,7 +211,7 @@ export function TerminalCard({
             <button
               type="button"
               className="nodrag nopan w-full truncate text-left font-mono text-[14px] font-semibold leading-snug text-ink"
-              title={onRequestRename ? "double-click to rename" : "double-click to open"}
+              title={onRequestRename ? "Rename" : "Open terminal"}
               onDoubleClick={(event) => {
                 if (event.shiftKey) return;
                 event.preventDefault();

@@ -393,7 +393,7 @@ export function HerdrCard({
               type="button"
               className="nodrag nopan w-full truncate text-left font-mono text-[14px] font-semibold leading-snug"
               style={{ color: INK }}
-              title={selected ? "double-click to rename" : "open terminal"}
+              title={selected ? "Rename" : "Open terminal"}
               onPointerDown={guardedOpen}
               onClick={guardedOpen}
               onDoubleClick={(event) => {

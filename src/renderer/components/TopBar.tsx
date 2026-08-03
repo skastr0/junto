@@ -260,8 +260,8 @@ function FactoryPauseControl({ canvasName }: { readonly canvasName: string }) {
             : licenseMaintenance
               ? "license maintenance — factory work blocked until access is restored"
               : playing
-                ? "factory playing — click to pause"
-                : "factory paused — click to play"
+                ? "Pause factory"
+                : "Play factory"
         }
         disabled={busy || licenseMaintenance}
         onClick={onClick}

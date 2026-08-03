@@ -478,7 +478,7 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
                 <button
                   key={role}
                   type="button"
-                  title={active ? "click to clear this role" : `assign role "${role}"`}
+                  title={active ? `Clear role ${role}` : `Assign role ${role}`}
                   className="inline-flex cursor-pointer items-center rounded-[3px] border px-1.5 py-0.5 text-[8px] leading-none tracking-[0.13em] uppercase select-none"
                   style={{
                     color: hex,
