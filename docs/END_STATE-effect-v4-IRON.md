@@ -1,61 +1,86 @@
 # END_STATE — Effect V4 IRON (no theater)
 
 **Campaign objective (one line):**  
-Product dependency **`effect` major version is 4**, all `@effect/*` lockstep 4.x, product builds green, services are `Context.Service`, kernel has **no** bare/`Runtime.runPromise` claim theater.
+Electron main (and Remote) run as a **V4 Effect program**: `effect@4` lockstep, `Context.Service` only, product domain Effects only through **AppRuntime / RemoteRuntime**, kernel factory loop is an **Effect** (not an async Promise control plane), bare `Effect.runPromise` gone except **permanent** post-dispose host adapters.
 
-**Reference:** `/Users/developer/Playground/effect` (V4 beta source + `MIGRATION.md`).  
-**Do not use** V3 effect skills.  
-**Skills:** consolidation-engineering, pristine-components.
+**Reference:** `/Users/developer/Playground/effect` (`MIGRATION.md`, `migration/*`).  
+**Skills:** consolidation-engineering, pristine-components. **No V3 effect skill.**
+
+---
+
+## Phase status (as of IRON deep close-out)
+
+| slice | status |
+|---|---|
+| V4-PIN | **DONE** — `effect@4.0.0-beta.102` |
+| V4-SERVICE-CORE + main/cli Tag purge | **DONE** — P1 zero under main/cli |
+| V4-KERNEL hostRun / no runPromise *in* kernel file | **DONE** — still **async cycle + hostRun** (not full program) |
+| V4-VERIFY (probe sheet) | **DONE** at time of review |
+| **V4-PROGRAM** | **REMAINING** — kill async kernel control plane |
+| **V4-DEBT-ZERO** | **REMAINING** — bare `Effect.runPromise` debt → 0 (except permanent) |
+| **V4-ENTRY** | **REMAINING** — main/remote/ipc domain entry only via ManagedRuntime |
+| **V4-CONSOLIDATE-FINAL** | **REMAINING** — end-to-end proof |
+
+---
 
 ## Forbidden (instant FAIL)
 
-- Comment-only commits (“on V4 pin…”)
-- Import-map files that do not change live imports
-- “Staged Tag inventory” without removing Tag
-- `Runtime.runPromise` as a substitute for fixing Context (counts as **not done**)
-- Claiming done without pasting **command output** in the git commit body
-- `finishCriteria` satisfied by docs alone
+- Comment-only / “on V4 pin…” / import-map without live import change  
+- `Runtime.runPromise` or bare `Effect.runPromise` **inside** `src/main/vellum/kernel/**`  
+- Completing without **pasting full probe stdout** in the **git commit body**  
+- Docs-only finish  
+- Shrinking scope silently (“mostly pure”)  
+- Dual control planes left alive (async cycle **and** Effect program)
 
-## Iron finish probes (every implement task must run and paste)
+---
+
+## Iron probes
 
 ```bash
-# P0 — version (whole campaign blocked until true)
-node -p "require('effect/package.json').version"   # MUST match /^4\./
-# every package matching @effect/* in package.json must report same 4.x line
+# P0 version
+node -p "require('effect/package.json').version"   # /^4\./
 
-# P1 — product services
-rg -n 'Context\.Tag\b|Context\.GenericTag\b|Effect\.Tag\b|Effect\.Service\b' src/main src/cli src/shared --glob '*.ts' --glob '*.tsx'
-# MUST exit 1 (no matches) after full cutover; path-pack tasks: zero matches under OWNED globs only
+# P1 services
+rg -n 'Context\.Tag\b|Context\.GenericTag\b|Effect\.Tag\b|Effect\.Service\b' \
+  src/main src/cli --glob '*.ts' --glob '*.tsx'   # exit 1 = clean
 
-# P2 — forks
-rg -n 'Effect\.fork\b|Effect\.forkDaemon\b' src/main src/cli --glob '*.ts'
-# MUST exit 1 (no matches); use forkChild/forkDetach per V4
+# P2 forks
+rg -n 'Effect\.fork\b|Effect\.forkDaemon\b' src/main src/cli --glob '*.ts'  # exit 1
 
-# P3 — kernel theater ban
-rg -n 'Effect\.runPromise|Runtime\.runPromise' src/main/vellum/kernel --glob '*.ts'
-# MUST exit 1 (no matches). Claims/cycles enter via AppRuntime.runPromise/runFork from main boot only.
+# P3 kernel — no Promise runners in kernel tree
+rg -n 'Effect\.runPromise|Runtime\.runPromise' src/main/vellum/kernel --glob '*.ts'  # exit 1
 
-# P4 — green product
-bun run typecheck
+# P5 program shape — no async factory control plane in kernel
+rg -n 'async \(|= async |: Promise<' src/main/vellum/kernel/service.ts
+# After V4-PROGRAM: factory control path must not be an async runCycle/runClaimTicks chain.
+# Iron definition in V4-PROGRAM task: zero matches for runCycle/runClaimTicks as async functions;
+# cycle is Effect.gen (or equivalent) started via AppRuntime.runFork from boot.
+
+# P6 bare product runPromise debt
 bun run lint:effect-runpromise
-bun run test
-# all exit 0
+# After V4-DEBT-ZERO: debt array empty or maxCount sum 0; only permanent[] remains
+
+# P4 green
+bun run typecheck && bun run lint:effect-runpromise && bun run test
+bunx vitest run tests/work-claim-content-ref.test.ts tests/effect-runpromise-boundary.test.ts
 ```
 
-## Slices
+---
 
-| id | lane | iron done |
+## Remaining Deep sequence (this fill)
+
+| order | id | one-line iron done |
 |---|---|---|
-| **V4-PIN** | deep first | P0 true in lockfile + node_modules; P4 typecheck starts (may be red until later slices — PIN alone requires typecheck **or** documented compile blockers filed as **code** fixes in-flight; **cannot** complete PIN with effect still 3.x) |
-| **V4-SERVICE** | deep or parallel packs | P1 zero under owned paths; live `Context.Service` |
-| **V4-FORK** | deep/parallel | P2 zero |
-| **V4-KERNEL** | deep only | P3 zero; factory claim path works with ContentRef test green |
-| **V4-IMPORTS** | parallel | live imports from V4 paths (not comments); P4 |
-| **V4-SCHEMA** | deep serial | shared Schema on V4; P4 full |
-| **V4-VERIFY** | deep last | all P0–P4 green; claim+content test green |
+| 1 | **V4-PROGRAM** | Kernel factory loop is Effect under `AppRuntime.runFork` (or equivalent single host entry); no async `runCycle`/`runClaimTicks` Promise control plane; P3+P5+claim tests |
+| 2 | **V4-DEBT-ZERO** | `scripts/effect-runpromise-allowlist.json` **debt: []** (or all maxCount 0); every former debt site uses AppRuntime/RemoteRuntime or is deleted; permanent only post-dispose; lint green |
+| 3 | **V4-ENTRY** | Domain Effects in `src/main/index.ts`, `src/main/ipc.ts`, `src/main/vellum/ipc.ts`, `src/main/vellum-remote.ts` enter only via AppRuntime/RemoteRuntime; no new bare product runPromise |
+| 4 | **V4-CONSOLIDATE-FINAL** | P0–P6 + full test suite green; claim+content green; END_STATE one-line objective true |
+| * | **R-*** | Review re-runs same probes; PASS only if green |
+
+Parallel track: **ignored** for this endgame.
+
+---
 
 ## Review iron
 
-Reviewer re-runs the **same** probes for the implement slice.  
-**PASS only if probes match.**  
-If implement left comments / 3.x / Tag remaining → **FAIL**, no niceness.
+Same probes as implement. **PASS only if probes match.** Theater → **FAIL** + commit documenting FAIL.
