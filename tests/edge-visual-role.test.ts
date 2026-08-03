@@ -30,6 +30,7 @@ describe("edgeVisualRole", () => {
     expect(edgeVisualRole(edge("tasks", "actor"), node("tasks", "task"), actor)).toBe("task-flow");
     expect(edgeVisualRole(edge("actor", "requests"), actor, node("requests", "requests"))).toBe("request-flow");
     expect(edgeVisualRole(edge("actor", "artifacts"), actor, node("artifacts", "artifacts"))).toBe("artifact-flow");
+    expect(edgeVisualRole(edge("actor", "page"), actor, node("page", "page"))).toBe("page-flow");
     expect(edgeVisualRole(edge("actor", "note"), actor, node("note", "note"))).toBe("soft-relation");
   });
 
@@ -38,10 +39,24 @@ describe("edgeVisualRole", () => {
     const tasks = node("tasks", "task");
     const requests = node("requests", "requests");
     const artifacts = node("artifacts", "artifacts");
+    const page = node("page", "page");
 
     expect(edgeVisualRole(edge("actor", "tasks"), actor, tasks)).toBe("task-flow");
     expect(edgeVisualRole(edge("requests", "actor"), requests, actor)).toBe("request-flow");
     expect(edgeVisualRole(edge("artifacts", "actor"), artifacts, actor)).toBe("artifact-flow");
+    expect(edgeVisualRole(edge("page", "actor"), page, actor)).toBe("page-flow");
+  });
+
+  it("projects authored scheduler effects as scheduler flow", () => {
+    const scheduler = node("cron", "cron");
+    const target = node("tasks", "task");
+    const effectEdge: CanvasEdge = {
+      id: "cron-tasks",
+      fromNode: "cron",
+      toNode: "tasks",
+      ether: { effect: { mode: "enqueue_task", brief: "scheduled review" } },
+    };
+    expect(edgeVisualRole(effectEdge, scheduler, target)).toBe("scheduler-flow");
   });
 
   it("agent↔agent defaults to msg.send; explicit masks can attenuate", () => {

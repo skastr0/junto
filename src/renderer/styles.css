@@ -1114,6 +1114,437 @@ html[data-vellum-platform="darwin"] .station-bar [role="listbox"] {
 .react-flow__node:hover .vellum-node--bare { transform: none; }
 .react-flow__node.dragging .vellum-node { transform: none; }
 .vellum-node--bare .vellum-node__body { overflow: visible; }
+
+/* Special canvas instruments -------------------------------------------------
+   Cron, gauge, relay, and page own their silhouettes. The NodeShell remains
+   only as selection/toolbar/handle infrastructure, so these read as factory
+   notation rather than four more cards. */
+.vellum-node--special,
+.vellum-node--special .vellum-node__body,
+.vellum-node--special .vellum-node__body > div {
+  overflow: visible;
+}
+.vellum-node--special .vellum-node__body { min-height: 0; }
+
+.special-node {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 72px;
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  isolation: isolate;
+}
+.special-node svg {
+  position: absolute;
+  inset: 12px 0 12px;
+  width: 100%;
+  height: calc(100% - 24px);
+  overflow: visible;
+}
+.special-node svg path,
+.special-node svg circle {
+  vector-effect: non-scaling-stroke;
+}
+.special-node__label {
+  position: absolute;
+  top: 0;
+  left: 8px;
+  z-index: 2;
+  display: flex;
+  max-width: calc(100% - 16px);
+  align-items: baseline;
+  gap: 8px;
+  pointer-events: none;
+}
+.special-node__kind {
+  color: var(--color-amber);
+  font-size: 8px;
+  line-height: 1;
+  letter-spacing: .22em;
+  text-transform: uppercase;
+}
+.special-node--gauge .special-node__kind { color: var(--color-cyan); }
+.special-node__name {
+  min-width: 0;
+  color: var(--color-dim);
+  font-size: 8px;
+  line-height: 1;
+  letter-spacing: .06em;
+  pointer-events: auto;
+}
+.special-node__rename {
+  width: min(124px, calc(100% - 48px));
+  border: 0;
+  border-bottom: 1px solid rgba(232,163,61,.45);
+  border-radius: 0;
+  background: rgba(12,11,10,.82);
+  color: var(--color-ink);
+  padding: 0 1px 2px;
+  font-size: 9px;
+  line-height: 1;
+  outline: none;
+}
+.special-node__footer {
+  position: absolute;
+  right: 8px;
+  bottom: 0;
+  left: 8px;
+  z-index: 2;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  pointer-events: none;
+}
+.special-node__rule,
+.special-node__detail {
+  overflow: hidden;
+  color: var(--color-faint);
+  font-size: 8px;
+  line-height: 1;
+  letter-spacing: .05em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.special-node__rule { color: var(--color-dim); }
+
+/* Cron — an incomplete time rail. Progress advances from live nextFire; only
+   the due notch animates, so a floor full of scheduled crons stays quiet. */
+.special-cron__rail {
+  stroke: rgba(143,163,176,.26);
+  stroke-width: 1.25;
+}
+.special-cron__progress {
+  stroke: var(--color-amber);
+  stroke-width: 2;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 3px rgba(232,163,61,.25));
+  transition: stroke-dasharray 320ms cubic-bezier(.2,0,.38,.9);
+}
+.special-cron__ticks {
+  stroke: rgba(237,230,218,.18);
+  stroke-width: 5;
+  stroke-dasharray: .45 6;
+}
+.special-cron__notch,
+.special-cron__outlet {
+  stroke: rgba(232,163,61,.58);
+  stroke-width: 1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.special-cron__event {
+  fill: var(--color-ground);
+  stroke: rgba(232,163,61,.75);
+  stroke-width: 1.2;
+}
+.special-cron__readout {
+  position: absolute;
+  top: 48%;
+  left: 50%;
+  z-index: 2;
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.special-cron__time {
+  color: var(--color-ink);
+  font-size: clamp(14px, 15cqw, 23px);
+  line-height: 1;
+  letter-spacing: .04em;
+}
+.special-node--cron.is-triggering .special-cron__event {
+  fill: var(--color-amber);
+  animation: special-node-fire 920ms cubic-bezier(.2,0,.38,.9) both;
+}
+.special-node--cron.is-triggering .special-cron__outlet {
+  stroke-dasharray: 2 4;
+  animation: special-node-dash 540ms linear infinite;
+}
+
+/* Gauge — cyan live signal inside an open bracket; amber is reserved for the
+   authored threshold. Unknown is a broken read, not a blocker. */
+.special-gauge__bracket {
+  stroke: rgba(143,163,176,.5);
+  stroke-width: 1.3;
+  stroke-linecap: square;
+}
+.special-gauge__inlet,
+.special-gauge__signal {
+  stroke: var(--color-cyan);
+  stroke-width: 1.35;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 2px rgba(57,198,214,.2));
+  transition: d 280ms cubic-bezier(.2,0,.38,.9), opacity 180ms ease-out;
+}
+.special-gauge__threshold {
+  stroke: var(--color-amber);
+  stroke-width: 1.35;
+  opacity: .82;
+}
+.special-gauge__outlet {
+  stroke: rgba(232,163,61,.35);
+  stroke-width: 1;
+}
+.special-gauge__terminal {
+  fill: var(--color-ground);
+  stroke: rgba(57,198,214,.62);
+  stroke-width: 1;
+}
+.special-gauge__spark {
+  fill: var(--color-ground);
+  stroke: rgba(232,163,61,.42);
+  stroke-width: 1;
+}
+.special-gauge__spark.is-live {
+  fill: var(--color-amber);
+  stroke: var(--color-amber);
+  animation: special-node-fire 920ms cubic-bezier(.2,0,.38,.9) both;
+}
+.special-node--gauge.is-satisfied .special-gauge__signal { stroke: var(--color-cyan); }
+.special-node--gauge.is-satisfied .special-gauge__threshold { opacity: 1; }
+.special-node--gauge.is-unknown .special-gauge__bracket,
+.special-node--gauge.is-unknown .special-gauge__inlet,
+.special-node--gauge.is-unknown .special-gauge__signal {
+  stroke: rgba(143,163,176,.3);
+  stroke-dasharray: 2 4;
+  filter: none;
+}
+
+/* Relay — a typed projection enters one aperture, authored effects fan out.
+   Satisfied stays lit but still; only a new rising edge throws the token. */
+.special-relay__aperture path {
+  stroke: rgba(143,163,176,.48);
+  stroke-width: 1.25;
+  stroke-linecap: square;
+  transition: stroke 220ms ease-out, opacity 220ms ease-out;
+}
+.special-relay__inlet {
+  stroke: rgba(143,163,176,.42);
+  stroke-width: 1;
+}
+.special-relay__outlet {
+  stroke: rgba(232,163,61,.5);
+  stroke-width: 1;
+}
+.special-relay__core {
+  fill: var(--color-ground);
+  stroke: rgba(232,163,61,.55);
+  stroke-width: 1;
+  transition: r 220ms cubic-bezier(.2,0,.38,.9), fill 220ms ease-out;
+}
+.special-relay__token {
+  fill: var(--color-ground);
+  stroke: rgba(232,163,61,.55);
+  stroke-width: 1;
+}
+.special-relay__terminal {
+  fill: var(--color-ground);
+  stroke: rgba(232,163,61,.62);
+  stroke-width: 1;
+}
+.special-node--relay.is-satisfied .special-relay__aperture path {
+  stroke: rgba(232,163,61,.62);
+}
+.special-node--relay.is-satisfied .special-relay__core {
+  fill: rgba(232,163,61,.16);
+  stroke: var(--color-amber);
+  filter: drop-shadow(0 0 3px rgba(232,163,61,.24));
+}
+.special-node--relay.is-unknown .special-relay__aperture path,
+.special-node--relay.is-unknown .special-relay__inlet {
+  stroke: rgba(143,163,176,.28);
+  stroke-dasharray: 2 4;
+}
+.special-relay__token.is-live {
+  fill: var(--color-amber);
+  stroke: var(--color-amber);
+  animation: special-relay-token 920ms cubic-bezier(.2,0,.38,.9) both;
+}
+
+/* Page — clipped portal and warm-runtime echo. It is cyan because it is a
+   live capability surface, never amber scheduler authority. */
+.special-page {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 82px;
+  isolation: isolate;
+  font-family: var(--font-mono);
+}
+.special-page__runtime-shadow {
+  position: absolute;
+  inset: 9px -6px -5px 12px;
+  z-index: -1;
+  border: 1px solid rgba(143,163,176,.22);
+  clip-path: polygon(0 12px,12px 0,56% 0,calc(56% + 18px) 15px,100% 15px,100% 100%,0 100%);
+  transform: translate(5px, 4px);
+  transition: transform 280ms cubic-bezier(.2,0,.38,.9), opacity 180ms ease-out;
+}
+.special-page.is-warm-detached .special-page__runtime-shadow {
+  opacity: .85;
+  transform: translate(10px, 7px);
+}
+.special-page__frame {
+  position: absolute;
+  inset: 0;
+  padding: 1px;
+  background: rgba(57,198,214,.5);
+  clip-path: polygon(0 12px,12px 0,56% 0,calc(56% + 18px) 15px,100% 15px,100% 100%,0 100%);
+  filter: drop-shadow(0 7px 18px rgba(0,0,0,.24));
+}
+.special-page__inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: linear-gradient(145deg,rgba(17,22,22,.96),rgba(11,12,12,.98));
+  clip-path: polygon(0 12px,12px 0,56% 0,calc(56% + 18px) 15px,100% 15px,100% 100%,0 100%);
+}
+.special-page__tabline {
+  position: absolute;
+  top: 6px;
+  right: 10px;
+  left: 15px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.special-page__profile {
+  color: var(--color-cyan);
+  font-size: 7px;
+  line-height: 1;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+.special-page__activity { transform: scale(.78); transform-origin: right center; }
+.special-page__title {
+  position: absolute;
+  top: 34%;
+  right: 14px;
+  left: 15px;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font-size: clamp(11px, 7cqw, 15px);
+  font-weight: 620;
+  line-height: 1.1;
+  text-align: left;
+}
+.special-page__title span,
+.special-page__url {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.special-page__title svg { flex: none; color: var(--color-cyan); }
+.special-page__url {
+  position: absolute;
+  top: 55%;
+  right: 14px;
+  left: 36px;
+  color: var(--color-faint);
+  font-size: 8px;
+  letter-spacing: .025em;
+}
+.special-page__actions {
+  position: absolute;
+  bottom: 8px;
+  left: 14px;
+  z-index: 2;
+  display: flex;
+  gap: 10px;
+}
+.special-page__actions button {
+  border: 0;
+  border-bottom: 1px solid rgba(57,198,214,.28);
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-dim);
+  padding: 1px 0;
+  font-size: 7px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  transition: border-color 160ms ease-out, color 160ms ease-out;
+}
+.special-page__actions button:hover { border-color: var(--color-cyan); color: var(--color-cyan); }
+.special-page__actions .special-page__stop { border-color: rgba(229,72,77,.32); }
+.special-page__actions .special-page__stop:hover { border-color: var(--color-crimson); color: var(--color-crimson); }
+.special-page__error {
+  position: absolute;
+  right: 12px;
+  bottom: 9px;
+  max-width: 44%;
+  overflow: hidden;
+  font-size: 7px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.special-page__dock {
+  position: absolute;
+  right: -1px;
+  top: 50%;
+  width: 7px;
+  height: 1px;
+  background: rgba(57,198,214,.5);
+}
+.special-page__dock::after {
+  content: "";
+  position: absolute;
+  right: -3px;
+  top: -2px;
+  width: 5px;
+  height: 5px;
+  border: 1px solid rgba(57,198,214,.72);
+  border-radius: 50%;
+  background: var(--color-ground);
+}
+.special-page.is-attached .special-page__frame { background: rgba(57,198,214,.8); }
+.special-page.is-loading .special-page__inner::after,
+.special-page.is-attaching .special-page__inner::after {
+  content: "";
+  position: absolute;
+  inset: 16px 0 0;
+  width: 35%;
+  background: linear-gradient(90deg,transparent,rgba(57,198,214,.12),transparent);
+  animation: special-page-sweep 1.4s cubic-bezier(.2,0,.38,.9) infinite;
+}
+.special-page.is-error .special-page__frame { background: rgba(229,72,77,.66); }
+
+@keyframes special-node-fire {
+  0% { opacity: .35; transform: scale(.7); transform-origin: center; }
+  35% { opacity: 1; transform: scale(1.8); }
+  100% { opacity: .65; transform: scale(1); }
+}
+@keyframes special-node-dash { to { stroke-dashoffset: -12; } }
+@keyframes special-relay-token {
+  0% { opacity: 0; transform: translateX(0); }
+  18% { opacity: 1; }
+  70% { opacity: 1; transform: translateX(148px); }
+  100% { opacity: 0; transform: translateX(164px); }
+}
+@keyframes special-page-sweep {
+  from { transform: translateX(-120%); }
+  to { transform: translateX(390%); }
+}
+
+html[data-surface-motion="paused"] .special-node *,
+html[data-surface-motion="paused"] .special-page * {
+  animation: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .special-node *,
+  .special-page * { animation: none !important; transition: none !important; }
+}
 .vellum-node__preamble {
   position: absolute;
   top: -9px;

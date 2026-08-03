@@ -21,6 +21,8 @@ export type EdgeVisualRole =
   | "request-flow"
   | "artifact-flow"
   | "scheduler-flow"
+  /** Agent↔page browser authority — a quiet live-surface tether. */
+  | "page-flow"
   /** Agent↔agent with msg.send granted — collab link (amber, medium weight). */
   | "agent-msg"
   | "soft-relation";
@@ -90,6 +92,7 @@ export const edgeVisualRole = (
   if (connects("task", "agent")) return "task-flow";
   if (connects("agent", "requests")) return "request-flow";
   if (connects("agent", "artifacts")) return "artifact-flow";
+  if (connects("agent", "page")) return "page-flow";
   // Agent↔agent with msg.send is a live collab link — amber presentation only
   // when the effective port is enabled (an explicit mask may attenuate it).
   if (connects("agent", "agent") && edgeHasMsgSend(edge)) return "agent-msg";
