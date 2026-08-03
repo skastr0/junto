@@ -279,7 +279,6 @@ function HerdrKindKeys({ node }: { readonly node: CanvasNode }) {
       <KindKey
         label="Open work surface"
         title={`open — ${herdr.host}`}
-        style={{ color: HUE.cyan }}
         onClick={() => openHerdrTerminal(node.id, herdr, nodeTitle(node))}
       >
         <OpenHerdrMark size={ICON} />
@@ -345,7 +344,6 @@ function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
       <KindKey
         label="Open task board"
         title="open the full task board"
-        style={{ color: HUE.cyan }}
         onClick={() => openWorkDetail(node.id)}
       >
         <ListChecks size={ICON} />
@@ -393,7 +391,6 @@ export function KindActions({ node }: { readonly node: CanvasNode }) {
         <KindKey
           label="Open chat"
           title="open the agent chat surface"
-          style={{ color: HUE.cyan }}
           onClick={() => openAgentChatSurface(node)}
         >
           <MessageSquareText size={ICON} />
@@ -406,7 +403,6 @@ export function KindActions({ node }: { readonly node: CanvasNode }) {
         <KindKey
           label="Open terminal"
           title="open the terminal surface"
-          style={{ color: HUE.cyan }}
           onClick={() => void openTerminal(node)}
         >
           <Terminal size={ICON} />
@@ -419,7 +415,6 @@ export function KindActions({ node }: { readonly node: CanvasNode }) {
         <KindKey
           label="Open request inbox"
           title="open the request inbox"
-          style={{ color: HUE.cyan }}
           onClick={() => openWorkDetail(node.id)}
         >
           <Inbox size={ICON} />
