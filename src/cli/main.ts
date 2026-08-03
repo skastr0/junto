@@ -88,15 +88,15 @@ export const runCli = (args: ReadonlyArray<string>) =>
 
 // When executed as the CLI entrypoint (bun / compiled binary).
 if (import.meta.main) {
-  // Source execution has [bun, script, ...args]; the compiled executable has
-  // [vellum, ...args]. Only the top-level command dispatches Browser. A later
-  // `browser` value (for example `--capability browser`) remains CLI data.
+  // Bun puts user args at index 2 in both modes: source is
+  // [bunPath, script, ...args], compiled is ["bun", "/$bunfs/root/vellum",
+  // ...args]. V4 runWith takes user args only — never the full argv.
   const browserArgs = browserCliArgsFromArgv(Bun.argv);
   if (browserArgs !== undefined) {
     await runBrowserCli(browserArgs);
   } else {
     BunRuntime.runMain(
-      runCli(Bun.argv) as Effect.Effect<void, never, never>,
+      runCli(Bun.argv.slice(2)) as Effect.Effect<void, never, never>,
     );
   }
 }

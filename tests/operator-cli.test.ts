@@ -154,7 +154,8 @@ describe("top-level browser dispatch", () => {
   it("does not treat a fleet capability value as the browser command", () => {
     expect(
       browserCliArgsFromArgv([
-        "/usr/local/bin/vellum",
+        "bun",
+        "/$bunfs/root/vellum",
         "fleet",
         "add",
         "--capability",
@@ -163,11 +164,20 @@ describe("top-level browser dispatch", () => {
     ).toBeUndefined();
     expect(
       browserCliArgsFromArgv([
-        "/usr/local/bin/vellum",
+        "bun",
+        "/$bunfs/root/vellum",
         "browser",
         "doctor",
         "--json",
       ]),
     ).toEqual(["doctor", "--json"]);
+    expect(
+      browserCliArgsFromArgv([
+        "/Users/dev/.bun/bin/bun",
+        "/Users/dev/Projects/vellum/src/cli/main.ts",
+        "browser",
+        "doctor",
+      ]),
+    ).toEqual(["doctor"]);
   });
 });
