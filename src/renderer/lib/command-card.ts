@@ -31,12 +31,19 @@ export type CommandCardCaps = {
 
 /**
  * Classify a selected node for the command card primary row.
- * Precedence: region → herdr → link → default.
+ * Precedence: region → herdr → page (link+page) → default.
+ * Plain link furniture is retired.
  */
 export function commandSelectionKind(node: CanvasNode): CommandSelectionKind {
   if (node.type === "group") return "region";
   if (node.ether?.herdr || node.ether?.entity?.kind === "herdr") return "herdr";
-  if (node.type === "link") return "link";
+  if (
+    node.type === "link" &&
+    node.ether?.entity?.kind === "page" &&
+    Boolean(node.ether?.browser)
+  ) {
+    return "link";
+  }
   return "default";
 }
 

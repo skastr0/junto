@@ -24,7 +24,14 @@ import {
   taskItem,
 } from "../harness/sandbox";
 import { expect, launchVellum, test } from "../harness/launch";
-import type { Artifact, CanvasEdge, CanvasNode, GroupNode, LinkNode, Task } from "../../src/shared/canvas";
+import type {
+  Artifact,
+  CanvasEdge,
+  CanvasNode,
+  GroupNode,
+  LinkNode,
+  Task,
+} from "../../src/shared/canvas";
 
 const SHOTS = join(process.cwd(), "test-results", "design-audit");
 
@@ -66,6 +73,20 @@ const attentionNote: CanvasNode = {
   ether: { flags: ["attention"] },
 };
 
+const boardNode: CanvasNode = {
+  id: "board1",
+  type: "text",
+  text: "factory bulletin",
+  x: 780,
+  y: 620,
+  width: 240,
+  height: 120,
+  ether: {
+    entity: { kind: "board" },
+    board: { topics: [] },
+  },
+};
+
 const parkedNote: CanvasNode = {
   id: "note4",
   type: "text",
@@ -94,16 +115,6 @@ const linkNode: LinkNode = {
   },
 };
 
-const fileNode: CanvasNode = {
-  id: "file1",
-  type: "file",
-  file: "docs/rts-bottom-bar.md",
-  x: 620,
-  y: 140,
-  width: 240,
-  height: 90,
-};
-
 const regionNode: GroupNode = {
   id: "region1",
   type: "group",
@@ -117,17 +128,26 @@ const regionNode: GroupNode = {
 
 const LAUNCH = {
   kind: "command" as const,
-  argv: ["/bin/sh", "-c", "printf 'audit-terminal-ready\\r\\n'; exec sleep 3600"],
+  argv: [
+    "/bin/sh",
+    "-c",
+    "printf 'audit-terminal-ready\\r\\n'; exec sleep 3600",
+  ],
 };
 
-const auditTask = (id: string, brief: string, state: Task["state"], claimedBy?: string, update?: string): Task => {
+const auditTask = (
+  id: string,
+  brief: string,
+  state: Task["state"],
+  claimedBy?: string,
+  update?: string,
+): Task => {
   const task = taskItem(id, brief, state);
   return {
     ...task,
     ...(claimedBy
       ? {
           metadata: {
-            claimedBy,
             workRole: "Security Agent",
             details:
               "Validate the task against the station capability boundary, preserve the operator’s declared intent, and return concrete proof with the result.",
@@ -158,7 +178,6 @@ const nodes: CanvasNode[] = [
   attentionNote,
   parkedNote,
   linkNode,
-  fileNode,
   projectNode({ id: "proj1", name: "prism", x: 0, y: 460 }),
   projectNode({ id: "proj2", name: "vellum", x: 260, y: 460 }),
   agentTextNode({
@@ -174,7 +193,7 @@ const nodes: CanvasNode[] = [
     y: 620,
     items: [
       auditTask("t-1", "Ship browser containment probe", "submitted"),
-      auditTask("t-2", "Fix stale host badge", "working", "remote-a:profile-06"),
+      auditTask("t-2", "Fix stale host badge", "submitted"),
       auditTask(
         "t-3",
         "Clarify claim tick rules",
@@ -185,11 +204,16 @@ const nodes: CanvasNode[] = [
       auditTask(
         "t-4",
         "Enable remote session capture",
-        "input-required",
-        "remote-a:profile-06",
+        "submitted",
+        undefined,
         "Confirm scope before opening the remote capability.",
       ),
-      auditTask("t-5", "Rotate service key material", "completed", "remote-a:profile-06"),
+      auditTask(
+        "t-5",
+        "Rotate service key material",
+        "completed",
+        "remote-a:profile-06",
+      ),
       auditTask(
         "t-6",
         "Reject unsafe host cleanup",
@@ -205,14 +229,22 @@ const nodes: CanvasNode[] = [
     y: 620,
     items: [
       {
-        ...taskItem("r-1", "Confirm release signing identity", "input-required"),
+        ...taskItem(
+          "r-1",
+          "Confirm release signing identity",
+          "input-required",
+        ),
         metadata: {
           title: "Confirm release signing identity",
           details:
             "Verify which signing identity should be used before the release artifact is distributed to remote stations.",
         },
         history: [
-          ...taskItem("r-1", "Confirm release signing identity", "input-required").history,
+          ...taskItem(
+            "r-1",
+            "Confirm release signing identity",
+            "input-required",
+          ).history,
           {
             messageId: "r-1-m1",
             role: "agent",
@@ -236,7 +268,8 @@ const nodes: CanvasNode[] = [
         ...taskItem("r-2", "Choose retention window", "completed"),
         metadata: {
           title: "Choose retention window",
-          details: "Select the duration for preserving completed task telemetry.",
+          details:
+            "Select the duration for preserving completed task telemetry.",
         },
       },
     ],
@@ -251,7 +284,7 @@ const nodes: CanvasNode[] = [
         name: "release-v1.4.2-sigstore.json",
         task: {
           kind: "task",
-          itemId: "t-2",
+          itemId: "t-3",
           sink: { canvasName: "design-audit", nodeId: "tasks1" },
         },
         parts: [
@@ -265,11 +298,6 @@ const nodes: CanvasNode[] = [
       {
         artifactId: "a-2",
         name: "station-deployment-report",
-        task: {
-          kind: "task",
-          itemId: "t-5",
-          sink: { canvasName: "design-audit", nodeId: "tasks1" },
-        },
         parts: [
           {
             kind: "url",
@@ -281,10 +309,16 @@ const nodes: CanvasNode[] = [
       {
         artifactId: "a-3",
         name: "containment-observations.txt",
-        parts: [{ kind: "text", text: "No capability escaped the connected task edge." }],
+        parts: [
+          {
+            kind: "text",
+            text: "No capability escaped the connected task edge.",
+          },
+        ],
       },
     ] satisfies Artifact[],
   }),
+  boardNode,
   terminalTextNode({
     id: "term1",
     bindingId: "audit-term-binding",
@@ -305,7 +339,7 @@ const nodes: CanvasNode[] = [
 ];
 
 const edges: CanvasEdge[] = [
-  tasksCriteriaEdge("e1", "tasks1", "proj1"),
+  tasksCriteriaEdge("e1", "tasks1", "agent1"),
   {
     id: "e2",
     fromNode: "proj1",
@@ -321,6 +355,9 @@ const edges: CanvasEdge[] = [
     toSide: "left",
     ether: { kind: "blocks" },
   },
+  { id: "e4", fromNode: "agent1", toNode: "req1" },
+  { id: "e5", fromNode: "agent1", toNode: "art1" },
+  { id: "e6", fromNode: "agent1", toNode: "board1" },
 ];
 
 test("capture every surface for design review", async () => {
@@ -477,12 +514,15 @@ test("capture every surface for design review", async () => {
     // rendered, so pan the field before querying this lower-row card.
     const pane = page.locator(".react-flow__pane");
     const paneBox = await pane.boundingBox();
-    if (!paneBox) throw new Error("Canvas pane is unavailable for task-row capture");
+    if (!paneBox)
+      throw new Error("Canvas pane is unavailable for task-row capture");
     const panX = paneBox.x + paneBox.width * 0.5;
     const panStartY = paneBox.y + paneBox.height * 0.7;
     await page.mouse.move(panX, panStartY);
     await page.mouse.down();
-    await page.mouse.move(panX, paneBox.y + paneBox.height * 0.25, { steps: 8 });
+    await page.mouse.move(panX, paneBox.y + paneBox.height * 0.25, {
+      steps: 8,
+    });
     await page.mouse.up();
 
     const tasksNodeCard = page.locator('.react-flow__node[data-id="tasks1"]');
@@ -495,40 +535,110 @@ test("capture every surface for design review", async () => {
     const taskFlow = page.getByRole("dialog", { name: "Task flow" });
     await expect(taskFlow).toBeVisible({ timeout: 10_000 });
     await expect(taskFlow.getByTestId("task-board")).toBeVisible();
-    await expect(taskFlow.getByText("Needs input", { exact: true })).toBeVisible();
-    await shot(page, "06b-task-flow-kanban");
-    await taskFlow.getByLabel("Open details for Clarify claim tick rules").click();
     await expect(
-      taskFlow.getByRole("complementary", { name: "Details for Clarify claim tick rules" }),
+      taskFlow.getByText("Needs input", { exact: true }),
+    ).toBeVisible();
+    await shot(page, "06b-task-flow-kanban");
+    await taskFlow
+      .getByLabel("Open details for Clarify claim tick rules")
+      .click();
+    await expect(
+      taskFlow.getByRole("complementary", {
+        name: "Details for Clarify claim tick rules",
+      }),
     ).toBeVisible();
     await shot(page, "06c-task-flow-details");
-    await taskFlow.getByRole("button", { name: "Enqueue", exact: true }).click();
+    await taskFlow
+      .getByRole("button", { name: "Enqueue", exact: true })
+      .click();
     const taskCreator = page.getByRole("dialog", { name: "Create task" });
     await expect(taskCreator).toBeVisible();
     await shot(page, "06d-task-flow-create");
-    await taskCreator.getByRole("button", { name: "Close task creator" }).click();
+    await taskCreator
+      .getByRole("button", { name: "Close task creator" })
+      .click();
     await expect(taskCreator).toBeHidden();
     await taskFlow.locator('button[title="Close"]').click();
     await expect(taskFlow).toBeHidden();
 
     // Requests and artifacts reuse the same master-detail grammar.
     const requestsNodeCard = page.locator('.react-flow__node[data-id="req1"]');
-    await requestsNodeCard.getByTestId("requests-card").dispatchEvent("dblclick");
+    await requestsNodeCard
+      .getByTestId("requests-card")
+      .dispatchEvent("dblclick");
     const requestInbox = page.getByRole("dialog", { name: "Input requests" });
     await expect(requestInbox).toBeVisible();
-    await expect(requestInbox.getByText("Confirm release signing identity", { exact: true }).first()).toBeVisible();
+    await expect(
+      requestInbox
+        .getByText("Confirm release signing identity", { exact: true })
+        .first(),
+    ).toBeVisible();
     await shot(page, "06e-input-requests");
     await requestInbox.locator('button[title="Close"]').click();
     await expect(requestInbox).toBeHidden();
 
     const artifactsNodeCard = page.locator('.react-flow__node[data-id="art1"]');
-    await artifactsNodeCard.getByTestId("artifacts-card").dispatchEvent("dblclick");
+    await artifactsNodeCard
+      .getByTestId("artifacts-card")
+      .dispatchEvent("dblclick");
     const artifactLibrary = page.getByRole("dialog", { name: "Artifacts" });
     await expect(artifactLibrary).toBeVisible();
-    await expect(artifactLibrary.getByText("release-v1.4.2-sigstore.json", { exact: true }).first()).toBeVisible();
+    await expect(
+      artifactLibrary
+        .getByText("release-v1.4.2-sigstore.json", { exact: true })
+        .first(),
+    ).toBeVisible();
     await shot(page, "06f-artifact-library");
     await artifactLibrary.locator('button[title="Close"]').click();
     await expect(artifactLibrary).toBeHidden();
+
+    // Board: first capture today's empty composition, then exercise the real
+    // work-plane authoring path so the populated frame exposes density,
+    // hierarchy, and conversation behavior rather than an invented fixture.
+    const boardNodeCard = page.locator('.react-flow__node[data-id="board1"]');
+    await boardNodeCard.getByTestId("board-card").dispatchEvent("dblclick");
+    const bulletinBoard = page.getByRole("dialog", { name: "Bulletin board" });
+    await expect(bulletinBoard).toBeVisible();
+    await shot(page, "06g-board-empty");
+
+    const createTopic = async (topicTitle: string, openingNote: string) => {
+      await bulletinBoard.getByPlaceholder("New topic title").fill(topicTitle);
+      await bulletinBoard
+        .getByPlaceholder("Opening note (optional)")
+        .fill(openingNote);
+      await bulletinBoard.getByRole("button", { name: "Post topic" }).click();
+      await expect(
+        bulletinBoard.getByText(topicTitle, { exact: true }).first(),
+      ).toBeVisible();
+    };
+
+    await createTopic(
+      "Release readiness · August 3",
+      "Capture blockers, proof receipts, and operator decisions for the next signed build.",
+    );
+    await bulletinBoard
+      .getByPlaceholder("Optional note…")
+      .fill(
+        "Notarization is green. Waiting on the two-host Station smoke before promotion.",
+      );
+    await bulletinBoard
+      .getByRole("button", { name: "Post note", exact: true })
+      .click();
+    await expect(
+      bulletinBoard.getByText(/two-host Station smoke/i),
+    ).toBeVisible();
+
+    await createTopic(
+      "Remote station smoke",
+      "Mac mini is enrolled. Validate reconnect, offline work, and exact protocol negotiation.",
+    );
+    await createTopic(
+      "Board redesign notes",
+      "Keep operator broadcasts distinct from agent-authored discussion and quiet by default.",
+    );
+    await shot(page, "06h-board-populated");
+    await bulletinBoard.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(bulletinBoard).toBeHidden();
 
     // Return to the overview before continuing with the upper-canvas cards.
     if (await fit.isVisible().catch(() => false)) await fit.click();
@@ -541,7 +651,10 @@ test("capture every surface for design review", async () => {
     }
 
     // Select a note → toolbar + inspector.
-    await page.locator(".react-flow__node", { hasText: "Field notes" }).first().click();
+    await page
+      .locator(".react-flow__node", { hasText: "Field notes" })
+      .first()
+      .click();
     await shot(page, "08-node-selected-inspector");
 
     // Expanded note editor (FocusSurface document panel).
@@ -551,7 +664,9 @@ test("capture every surface for design review", async () => {
     await shot(page, "25-note-edit");
     await page.keyboard.press("Escape");
     await page.waitForTimeout(300);
-    const pageNode = page.locator(".react-flow__node", { hasText: "jsoncanvas.org" }).first();
+    const pageNode = page
+      .locator(".react-flow__node", { hasText: "jsoncanvas.org" })
+      .first();
     // PageCard's main action attaches the browser surface. Select its blank
     // chrome instead, then inspect the bound host through the kind fields.
     await pageNode.click({ position: { x: 120, y: 5 }, force: true });
@@ -559,7 +674,9 @@ test("capture every surface for design review", async () => {
     await expect(page.getByLabel("Page browser host")).toBeVisible();
     await shot(page, "08b-page-host-inspector");
     await page.keyboard.press("Escape");
-    await expect(page.getByRole("dialog", { name: "page fields" })).toBeHidden();
+    await expect(
+      page.getByRole("dialog", { name: "page fields" }),
+    ).toBeHidden();
 
     // ACP chat is intentionally retired; agent seats use managed terminals.
     // The terminal focus capture below covers the remaining live-seat surface.
@@ -571,13 +688,17 @@ test("capture every surface for design review", async () => {
     const herdrNode = page.locator(".react-flow__node", {
       hasText: "audit herdr pane",
     });
-    await page.locator(".react-flow__pane").click({ position: { x: 24, y: 24 } });
+    await page
+      .locator(".react-flow__pane")
+      .click({ position: { x: 24, y: 24 } });
     await herdrNode
       .getByRole("button", { name: "audit herdr pane" })
       .dispatchEvent("pointerdown");
     const herdrPanel = page.locator(".herdr-terminal-panel");
     await expect(herdrPanel).toBeVisible({ timeout: 30_000 });
-    await expect(herdrPanel.getByRole("status", { name: "connected" })).toBeVisible({
+    await expect(
+      herdrPanel.getByRole("status", { name: "connected" }),
+    ).toBeVisible({
       timeout: 30_000,
     });
     await page.waitForTimeout(700);
@@ -589,7 +710,9 @@ test("capture every surface for design review", async () => {
     await page.getByRole("button", { name: "Open settings" }).click();
     await shot(page, "13-settings");
     await page.getByText("Hosts", { exact: true }).click();
-    await expect(page.getByText("Browser", { exact: true }).first()).toBeVisible();
+    await expect(
+      page.getByText("Browser", { exact: true }).first(),
+    ).toBeVisible();
     await shot(page, "13b-settings-hosts");
     await page.keyboard.press("Escape");
     await page.waitForTimeout(300);
@@ -669,7 +792,9 @@ test("capture every surface for design review", async () => {
         await page.waitForTimeout(300);
       }
       await addItem.click();
-      const reopenedDeck = page.getByRole("region", { name: "Add canvas item" });
+      const reopenedDeck = page.getByRole("region", {
+        name: "Add canvas item",
+      });
       const herdrWiz = reopenedDeck.getByRole("button", {
         name: /Herdr/,
       });
@@ -691,7 +816,9 @@ test("capture every surface for design review", async () => {
     await termNode.dblclick();
     const surface = page.locator(".native-terminal-surface");
     await expect(surface).toBeVisible({ timeout: 30_000 });
-    await expect(surface.locator(".native-terminal-surface__status")).toContainText(/control|attaching/, {
+    await expect(
+      surface.locator(".native-terminal-surface__status"),
+    ).toContainText(/control|attaching/, {
       timeout: 30_000,
     });
     await page.waitForTimeout(900);
@@ -727,45 +854,45 @@ test("capture the fleet manager overlay", async () => {
   const vellum = await launchVellum({
     seedCanvases: { fleet: canvasDoc([]) },
     seedHosts: [
-        {
-          id: "local",
-          label: "local",
-          kind: "local",
-          capabilities: ["herdr", "hermes", "browser"],
-        },
-        {
-          id: "mac-mini",
-          label: "mac-mini",
-          kind: "remote",
-          sshEndpoint: "mac-mini",
-          capabilities: ["herdr", "hermes", "terminal"],
-          hermesId: "remote-a",
-        },
-        {
-          id: "forge-pi",
-          label: "forge-pi",
-          kind: "remote",
-          sshEndpoint: "forge-pi",
-          capabilities: ["terminal"],
-          appearance: { color: "#39C6D6", glyph: "remote-anchor" },
-        },
-        {
-          id: "relay-1",
-          label: "relay-1",
-          kind: "remote",
-          sshEndpoint: "relay-1",
-          capabilities: ["hermes", "browser"],
-          appearance: { color: "#7F6DD6", glyph: "relay-obelisk" },
-        },
-        {
-          id: "archive",
-          label: "archive",
-          kind: "remote",
-          sshEndpoint: "archive",
-          capabilities: ["terminal", "browser"],
-          appearance: { glyph: "artifact-vault" },
-        },
-      ],
+      {
+        id: "local",
+        label: "local",
+        kind: "local",
+        capabilities: ["herdr", "hermes", "browser"],
+      },
+      {
+        id: "mac-mini",
+        label: "mac-mini",
+        kind: "remote",
+        sshEndpoint: "mac-mini",
+        capabilities: ["herdr", "hermes", "terminal"],
+        hermesId: "remote-a",
+      },
+      {
+        id: "forge-pi",
+        label: "forge-pi",
+        kind: "remote",
+        sshEndpoint: "forge-pi",
+        capabilities: ["terminal"],
+        appearance: { color: "#39C6D6", glyph: "remote-anchor" },
+      },
+      {
+        id: "relay-1",
+        label: "relay-1",
+        kind: "remote",
+        sshEndpoint: "relay-1",
+        capabilities: ["hermes", "browser"],
+        appearance: { color: "#7F6DD6", glyph: "relay-obelisk" },
+      },
+      {
+        id: "archive",
+        label: "archive",
+        kind: "remote",
+        sshEndpoint: "archive",
+        capabilities: ["terminal", "browser"],
+        appearance: { glyph: "artifact-vault" },
+      },
+    ],
   });
   try {
     const { page } = vellum;
@@ -821,7 +948,9 @@ test("capture the fleet manager overlay", async () => {
       await ghost.click();
       const detail = page.locator(".fleet-detail");
       await expect(detail).toBeVisible({ timeout: 5_000 });
-      await expect(detail.getByRole("button", { name: "Enroll this machine" })).toBeVisible();
+      await expect(
+        detail.getByRole("button", { name: "Enroll this machine" }),
+      ).toBeVisible();
       await shot(page, "27-fleet-ghost-detail");
     }
   } finally {

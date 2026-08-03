@@ -25,7 +25,8 @@ import {
 import "./node-palette-mode-deck.css";
 
 export type ModeDeckActions = {
-  readonly create: (kind: "text" | "file" | "link" | "group") => void;
+  /** Geography only — note (text) and region (group). Page/image use dedicated adders. */
+  readonly create: (kind: "text" | "group") => void;
   readonly addConfiguredAgent: (
     choices: AgentConfigurationChoices & AgentLaunchContextValue,
     position: { readonly x: number; readonly y: number },
@@ -68,8 +69,6 @@ const catalogAction = (actions: ModeDeckActions, entry: NodeCatalogEntry): void 
     case "relay": actions.addRelay(); break;
     case "note": actions.create("text"); break;
     case "label": actions.addLabel(); break;
-    case "file": actions.create("file"); break;
-    case "link": actions.create("link"); break;
     case "region": actions.create("group"); break;
   }
 };

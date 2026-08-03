@@ -34,7 +34,19 @@ describe("commandSelectionKind", () => {
     expect(
       commandSelectionKind(text({ ether: { entity: { kind: "project", name: "prism" } } })),
     ).toBe("default");
-    expect(commandSelectionKind({ ...base, type: "link", url: "https://x.com" })).toBe("link");
+    expect(commandSelectionKind({ ...base, type: "link", url: "https://x.com" })).toBe("default");
+    expect(
+      commandSelectionKind({
+        ...base,
+        type: "link",
+        url: "https://x.com",
+        ether: {
+          entity: { kind: "page" },
+          host: "local",
+          browser: { profile: "personal" },
+        },
+      }),
+    ).toBe("link");
     expect(commandSelectionKind(text({ text: "note" }))).toBe("default");
     expect(commandSelectionKind(text({ ether: { entity: { kind: "agent", name: "h:p" } } }))).toBe(
       "default",

@@ -42,7 +42,7 @@ import {
   setEdgeRelayState,
 } from "../lib/edge-mutations";
 import { specOf } from "../lib/node-spec";
-import { commitDoc, editFileDetails, editLink, editText, renameGroup, setNodeHost, setNodeRelay, setNodeTimer, setNodeWatch, setNodeWorkRole, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag } from "../lib/mutations";
+import { commitDoc, editLink, editText, renameGroup, setNodeHost, setNodeRelay, setNodeTimer, setNodeWatch, setNodeWorkRole, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag } from "../lib/mutations";
 import { isSchedulerEntityKind } from "@shared/scheduler-effects";
 import { AgentMessagesPane } from "./work/WorkSurfaces";
 import { state$ } from "../lib/state";
@@ -412,15 +412,15 @@ const FLAG_OPTIONS: ReadonlyArray<{ readonly flag: EtherFlag; readonly hue: stri
 
 export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
   const textValue = node.type === "text" ? node.text : "";
-  const linkValue = node.type === "link" ? node.url : "";
+  const isPage =
+    node.type === "link" &&
+    node.ether?.entity?.kind === "page" &&
+    Boolean(node.ether?.browser);
+  const linkValue = isPage && node.type === "link" ? node.url : "";
   const groupLabelValue = node.type === "group" ? node.label ?? "" : "";
-  const fileValue = node.type === "file" ? node.file : "";
-  const subpathValue = node.type === "file" ? node.subpath ?? "" : "";
   const [textDraft, setTextDraft] = useState(textValue);
   const [linkDraft, setLinkDraft] = useState(linkValue);
   const [groupLabelDraft, setGroupLabelDraft] = useState(groupLabelValue);
-  const [fileDraft, setFileDraft] = useState(fileValue);
-  const [subpathDraft, setSubpathDraft] = useState(subpathValue);
   const workRoleValue = node.ether?.workRole ?? "";
   const [workRoleDraft, setWorkRoleDraft] = useState(workRoleValue);
   // Work role is claim-routing on actor seats only — not sinks or furniture.
@@ -431,15 +431,16 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
     setTextDraft(textValue);
     setLinkDraft(linkValue);
     setGroupLabelDraft(groupLabelValue);
-    setFileDraft(fileValue);
-    setSubpathDraft(subpathValue);
     setWorkRoleDraft(workRoleValue);
-  }, [fileValue, groupLabelValue, linkValue, node.id, subpathValue, textValue, workRoleValue]);
+  }, [groupLabelValue, linkValue, node.id, textValue, workRoleValue]);
 
   const commitText = () => { if (node.type === "text" && textDraft !== textValue) editText(node.id, textDraft); };
-  const commitLink = () => { if (node.type === "link" && linkDraft.trim() && linkDraft.trim() !== linkValue) editLink(node.id, linkDraft.trim()); };
+  const commitLink = () => {
+    if (isPage && linkDraft.trim() && linkDraft.trim() !== linkValue) {
+      editLink(node.id, linkDraft.trim());
+    }
+  };
   const commitGroupLabel = () => { if (node.type === "group" && groupLabelDraft !== groupLabelValue) renameGroup(node.id, groupLabelDraft.trim()); };
-  const commitFile = () => { if (node.type === "file") editFileDetails(node.id, fileDraft, subpathDraft); };
 
   return <>
     {showWorkRole ? (
@@ -521,10 +522,29 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
         />
       </label>
     ) : null}
-    {node.type === "link" ? <label className="inspector-editor"><span>web reference</span><input aria-label="Link URL" value={linkDraft} onChange={(event) => setLinkDraft(event.target.value)} onBlur={commitLink} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitLink(); event.currentTarget.blur(); } if (event.key === "Escape") { setLinkDraft(linkValue); event.currentTarget.blur(); } }} /></label> : null}
-    {node.type === "link" && node.ether?.entity?.kind === "page"
-      ? <PageBindingControl node={node} />
-      : null}
+    {isPage ? (
+      <label className="inspector-editor">
+        <span>page url</span>
+        <input
+          aria-label="Page URL"
+          value={linkDraft}
+          onChange={(event) => setLinkDraft(event.target.value)}
+          onBlur={commitLink}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              commitLink();
+              event.currentTarget.blur();
+            }
+            if (event.key === "Escape") {
+              setLinkDraft(linkValue);
+              event.currentTarget.blur();
+            }
+          }}
+        />
+      </label>
+    ) : null}
+    {isPage ? <PageBindingControl node={node} /> : null}
 
     {node.ether?.entity?.kind === "agent"
       ? <div className="inspector-section">
@@ -535,7 +555,6 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
         </div>
       : null}
     {node.type === "group" ? <label className="inspector-editor"><span>region label</span><input aria-label="Region label" value={groupLabelDraft} placeholder="unnamed region" onChange={(event) => setGroupLabelDraft(event.target.value)} onBlur={commitGroupLabel} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitGroupLabel(); event.currentTarget.blur(); } if (event.key === "Escape") { setGroupLabelDraft(groupLabelValue); event.currentTarget.blur(); } }} /></label> : null}
-    {node.type === "file" ? <div className="inspector-section"><div className="inspector-section__label">file reference</div><div className="inspector-file-fields"><label><span>path</span><input aria-label="File path" value={fileDraft} onChange={(event) => setFileDraft(event.target.value)} onBlur={commitFile} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitFile(); event.currentTarget.blur(); } if (event.key === "Escape") { setFileDraft(fileValue); event.currentTarget.blur(); } }} /></label><label><span>subpath</span><input aria-label="File subpath" value={subpathDraft} placeholder="#section or block" onChange={(event) => setSubpathDraft(event.target.value)} onBlur={commitFile} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitFile(); event.currentTarget.blur(); } if (event.key === "Escape") { setSubpathDraft(subpathValue); event.currentTarget.blur(); } }} /></label></div></div> : null}
     {/* Region dense fields: kind-strip keys are preferred (briefing / herdr /
         page / paths). Hold stays on the command card; plate + placement are gone. */}
     {node.type === "group" ? <RegionHoldControl node={node} /> : null}

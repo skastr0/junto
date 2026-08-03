@@ -45,12 +45,10 @@ import {
   makeArtifactsNode,
   makeBoardNode,
   makeCronNode,
-  makeFileNode,
   makeGaugeNode,
   makeGroupNode,
   makeImageNode,
   makeLabelNode,
-  makeLinkNode,
   makeManagedAgentNode,
   makePageNode,
   makeRelayNode,
@@ -651,17 +649,11 @@ const makeAddActions = (
   create: (kind) => {
     const size = kind === "text"
       ? { width: 240, height: 100 }
-      : kind === "group"
-        ? { width: 560, height: 320 }
-        : { width: 260, height: 110 };
+      : { width: 560, height: 320 };
     const position = positionFor(size);
     const node = kind === "text"
       ? makeTextNode(position.x, position.y)
-      : kind === "file"
-        ? makeFileNode(position.x, position.y)
-        : kind === "link"
-          ? makeLinkNode(position.x, position.y)
-          : makeGroupNode(position.x, position.y);
+      : makeGroupNode(position.x, position.y);
     addNode(node);
     state$.focusNodeId.set(node.id);
     dismiss();

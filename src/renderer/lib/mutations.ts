@@ -819,33 +819,20 @@ export const editText = (id: string, text: string): void => {
   });
 };
 
-export const editFile = (id: string, file: string): void => {
-  const doc = state$.doc.peek();
-  commitDoc({
-    ...doc,
-    nodes: doc.nodes.map((n) => (n.id === id && n.type === "file" ? { ...n, file } : n)),
-  });
-};
-
-export const editFileDetails = (id: string, file: string, subpath: string): void => {
-  const doc = state$.doc.peek();
-  const nextFile = file.trim();
-  if (!nextFile) return;
-  commitDoc({
-    ...doc,
-    nodes: doc.nodes.map((n) => n.id === id && n.type === "file"
-      ? subpath.trim()
-        ? { ...n, file: nextFile, subpath: subpath.trim() }
-        : { ...without(n, "subpath"), file: nextFile }
-      : n),
-  });
-};
-
+/** Page URL edit only — plain link furniture is retired. */
 export const editLink = (id: string, url: string): void => {
+  const next = url.trim();
+  if (!next) return;
   const doc = state$.doc.peek();
   commitDoc({
     ...doc,
-    nodes: doc.nodes.map((n) => (n.id === id && n.type === "link" ? { ...n, url } : n)),
+    nodes: doc.nodes.map((n) =>
+      n.id === id &&
+      n.type === "link" &&
+      n.ether?.entity?.kind === "page"
+        ? { ...n, url: next }
+        : n,
+    ),
   });
 };
 
@@ -915,33 +902,7 @@ export const setNodeHost = (id: string, input: string): void => {
   });
 };
 
-// Promote a plain link node in place into a bound browser page work surface —
-// stamps entity.kind "page" + ether.browser onto the EXISTING node.id (never
-// spawns a new node; the JSON Canvas `link` type never changes). Product
-// default onDelete is kill-session (Phase 5), matching makePageNode.
-export const promoteLinkToPage = (id: string, profile: string): void => {
-  const doc = state$.doc.peek();
-  const stationHost = state$.settings.station.hostId.peek();
-  const fallbackHost = isValidStationHostId(stationHost)
-    ? stationHost
-    : DEFAULT_STATION_HOST_ID;
-  commitDoc({
-    ...doc,
-    nodes: doc.nodes.map((n) =>
-      n.id === id && n.type === "link"
-        ? {
-            ...n,
-            ether: {
-              ...(n.ether ?? {}),
-              entity: { kind: "page" },
-              host: n.ether?.host ?? fallbackHost,
-              browser: { profile, onDelete: "detach" },
-            },
-          }
-        : n,
-    ),
-  });
-};
+
 
 export const renameGroup = (id: string, label: string): void => {
   const doc = state$.doc.peek();

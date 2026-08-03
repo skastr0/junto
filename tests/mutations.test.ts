@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Result } from "effect";
 import { decodeCanvasDoc, type CanvasDoc, type GroupNode } from "../src/shared/canvas";
-import { addNode, commitDoc, deleteNode, editFileDetails, editLink, editText, loadDoc, promoteLinkToPage, redo, renameGroup, setFlagForNodes, setNodeColor, setNodeColorForNodes, setNodeHost, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag, undo } from "../src/renderer/lib/mutations";
+import { addNode, commitDoc, deleteNode, editLink, editText, loadDoc, redo, renameGroup, setFlagForNodes, setNodeColor, setNodeColorForNodes, setNodeHost, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag, undo } from "../src/renderer/lib/mutations";
 import { addEdge, connectAllToTarget, deleteEdges, editEdgeLabel, inferEdgeCriteria, planConnectToTarget, setEdgeColor, setEdgeCriteria, setEdgePorts, toggleEdgeArrow } from "../src/renderer/lib/edge-mutations";
 import { dragHoldMemberIds, findOpenPosition, resizeNode, syncPositions } from "../src/renderer/lib/geometry";
 import { clearGraphFilters, state$, toggleFlagFilter } from "../src/renderer/lib/state";
@@ -1035,67 +1035,49 @@ describe("renderer graph mutations", () => {
     expect(state$.doc.peek().edges[0]?.color).toBeUndefined();
   });
 
-  it("edits file paths and subpaths together", () => {
-    state$.canvasName.set("mutation-test");
-    loadDoc({ nodes: [{ id: "file", type: "file", file: "docs/old.md", x: 0, y: 0, width: 200, height: 80 }], edges: [] });
-    editFileDetails("file", "docs/readme.md", "#install");
-    expect(state$.doc.peek().nodes[0]).toMatchObject({ file: "docs/readme.md", subpath: "#install" });
-    editFileDetails("file", "docs/readme.md", "");
-    expect(state$.doc.peek().nodes[0]).toMatchObject({ file: "docs/readme.md" });
-    expect(Object.hasOwn(state$.doc.peek().nodes[0] ?? {}, "subpath")).toBe(false);
-  });
-
-  it("edits text, link, and region content through the shared mutation plane", () => {
+  it("edits text, page url, and region content through the shared mutation plane", () => {
     state$.canvasName.set("mutation-test");
     loadDoc({ nodes: [
       { id: "note", type: "text", text: "before", x: 0, y: 0, width: 200, height: 80 },
-      { id: "link", type: "link", url: "https://before.example", x: 0, y: 100, width: 200, height: 80 },
+      {
+        id: "page",
+        type: "link",
+        url: "https://before.example",
+        x: 0,
+        y: 100,
+        width: 200,
+        height: 80,
+        ether: {
+          entity: { kind: "page" },
+          host: "local",
+          browser: { profile: "personal", onDelete: "kill-session" },
+        },
+      },
       { id: "region", type: "group", label: "Before", x: 0, y: 200, width: 300, height: 160 },
     ], edges: [] });
 
     editText("note", "after");
-    editLink("link", "https://after.example");
+    editLink("page", "https://after.example");
     renameGroup("region", "After");
 
     expect(state$.doc.peek().nodes).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "note", text: "after" }),
-      expect.objectContaining({ id: "link", url: "https://after.example" }),
+      expect.objectContaining({ id: "page", url: "https://after.example" }),
       expect.objectContaining({ id: "region", label: "After" }),
     ]));
   });
 
-  it("promotes a plain link node in place into a bound browser page work surface", () => {
+  it("editLink ignores plain (non-page) link furniture", () => {
     state$.canvasName.set("mutation-test");
-    state$.settings.station.hostId.set("studio");
-    loadDoc({ nodes: [
-      { id: "link", type: "link", url: "https://before.example", x: 0, y: 0, width: 200, height: 80 },
-    ], edges: [] });
-
-    promoteLinkToPage("link", "work");
-    state$.settings.station.hostId.set("local");
-
-    const node = state$.doc.peek().nodes[0];
-    expect(node).toMatchObject({
-      id: "link",
-      type: "link",
-      url: "https://before.example", // url untouched — only ether is stamped
-      ether: {
-        entity: { kind: "page" },
-        host: "studio",
-        browser: { profile: "work", onDelete: "detach" },
-      },
+    loadDoc({
+      nodes: [{ id: "link", type: "link", url: "https://before.example", x: 0, y: 0, width: 200, height: 80 }],
+      edges: [],
     });
-    expect(Result.isSuccess(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
-  });
-
-  it("promoteLinkToPage is a no-op against a non-link node id", () => {
-    state$.canvasName.set("mutation-test");
-    const note = { id: "note", type: "text" as const, text: "hello", x: 0, y: 0, width: 200, height: 80 };
-    loadDoc({ nodes: [note], edges: [] });
-
-    promoteLinkToPage("note", "personal");
-
-    expect(state$.doc.peek().nodes[0]).toEqual(note);
+    editLink("link", "https://after.example");
+    expect(state$.doc.peek().nodes[0]).toMatchObject({
+      id: "link",
+      url: "https://before.example",
+    });
   });
 
   it("edits page host/profile without dropping URL, delete policy, or sibling ether", () => {

@@ -49,20 +49,10 @@ export const makeLabelNode = (x: number, y: number): TextNode => ({
   },
 });
 
-export const makeFileNode = (x: number, y: number): FileNode => ({
-  id: `node-${ulid()}`,
-  type: "file",
-  file: "docs/untitled.md",
-  x: Math.round(x),
-  y: Math.round(y),
-  width: 260,
-  height: 110,
-});
-
 /**
  * Geography image card — JSON Canvas `file` node whose `file` is a
  * `vellum-content://` object URL for an image ContentRef. Renders the image;
- * no factory ports.
+ * no factory ports. Plain workspace-path file cards are retired.
  */
 export const makeImageNode = (
   x: number,
@@ -77,16 +67,6 @@ export const makeImageNode = (
   y: Math.round(y),
   width: Math.round(size?.width ?? 280),
   height: Math.round(size?.height ?? 200),
-});
-
-export const makeLinkNode = (x: number, y: number): LinkNode => ({
-  id: `node-${ulid()}`,
-  type: "link",
-  url: "https://example.com",
-  x: Math.round(x),
-  y: Math.round(y),
-  width: 260,
-  height: 110,
 });
 
 export const makeGroupNode = (
@@ -329,6 +309,7 @@ export const makeTerminalNode = (
 // A browser page work-surface node — JSON Canvas `link` + ether.browser.
 // Profile name only in the document; cookies stay in the browser runtime.
 // Not an EntitySource; not a pulse target; not blockable.
+// Plain link furniture (url-only cards) is retired — pages are authored here only.
 export const makePageNode = (
   x: number,
   y: number,
