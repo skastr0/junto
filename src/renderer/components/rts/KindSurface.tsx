@@ -14,6 +14,7 @@ import {
   FolderOpen,
   Globe,
   Package,
+  Pencil,
   RefreshCw,
   ScrollText,
   Settings2,
@@ -38,7 +39,6 @@ import { FocusSurface } from "../FocusSurface";
 import { OverlayHeader, IconButton } from "../ui";
 import { HarnessMark } from "../herdr/HarnessMark";
 import { WaitingOnSection } from "../WaitingOnSection";
-import { NoteMarkdown } from "../../lib/note-markdown";
 import { RegionPathsModal } from "../RegionPathsModal";
 import { ChatComposer } from "../chat/ChatComposer";
 import "../chat/chat.css";
@@ -162,7 +162,8 @@ function NodeFormFocus({
         kind !== "task" &&
         kind !== "requests" &&
         kind !== "artifacts" &&
-        kind !== "board" ? (
+        kind !== "board" &&
+        Boolean(node.ether?.entity) ? (
           <WaitingOnSection nodeId={node.id} />
         ) : null}
         {!isLabel &&
@@ -171,7 +172,8 @@ function NodeFormFocus({
         kind !== "requests" &&
         kind !== "artifacts" &&
         kind !== "board" &&
-        node.type !== "group" ? (
+        node.type !== "group" &&
+        Boolean(node.ether?.entity) ? (
           <NodePlacementSection node={node} />
         ) : null}
         {!isLabel &&
@@ -179,13 +181,9 @@ function NodeFormFocus({
         kind !== "task" &&
         kind !== "requests" &&
         kind !== "artifacts" &&
-        kind !== "board" ? (
+        kind !== "board" &&
+        Boolean(node.ether?.entity) ? (
           <NodeCapabilityInventory node={node} />
-        ) : null}
-        {!node.ether?.entity && node.type === "text" ? (
-          <div className="inspector-detail note-surface">
-            <NoteMarkdown source={node.text.split("\n").slice(1).join("\n").trim()} />
-          </div>
         ) : null}
         {node.ether?.entity && !isLabel && nodeDetail(node) ? (
           <div className="inspector-detail">{nodeDetail(node)}</div>
@@ -619,6 +617,7 @@ export function KindSurface() {
   }
 
   const kind = node.ether?.entity?.kind;
+  const isFreeNote = node.type === "text" && !node.ether?.entity;
   const hasKindActions =
     kind !== undefined &&
     [
@@ -636,9 +635,10 @@ export function KindSurface() {
   // keys) so command title is not echoed three more times in the mid third.
   const showSeatGlance =
     kind === "agent" || (HERDR_ENABLED && kind === "herdr");
-  // Work sinks + shell furniture: no fields sheet. Rename via kind-strip pencil;
-  // task queue home is a host pop. Placement/fat label are noise.
+  // Free notes / work sinks / shell: no fields sheet. Note body edits on-card
+  // (pencil → maximize). Placement chips are noise on furniture.
   const showFieldsKey =
+    !isFreeNote &&
     kind !== "terminal" &&
     kind !== "label" &&
     kind !== "task" &&
@@ -656,6 +656,15 @@ export function KindSurface() {
         <span className="rts-kind-kind-label">{stripLabel}</span>
         <div className="rts-kind-strip" role="toolbar" aria-label={`${stripLabel} actions`}>
           {hasKindActions ? <KindActions node={node} /> : null}
+          {isFreeNote ? (
+            <KindKey
+              label="Edit note"
+              title="Edit note"
+              onClick={() => state$.editNodeId.set(node.id)}
+            >
+              <Pencil size={ICON} />
+            </KindKey>
+          ) : null}
           {showFieldsKey ? (
             <KindKey
               label={formOpen ? "Close fields" : "Open fields"}
