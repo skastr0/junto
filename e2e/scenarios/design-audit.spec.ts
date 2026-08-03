@@ -592,54 +592,6 @@ test("capture every surface for design review", async () => {
     await artifactLibrary.locator('button[title="Close"]').click();
     await expect(artifactLibrary).toBeHidden();
 
-    // Board: first capture today's empty composition, then exercise the real
-    // work-plane authoring path so the populated frame exposes density,
-    // hierarchy, and conversation behavior rather than an invented fixture.
-    const boardNodeCard = page.locator('.react-flow__node[data-id="board1"]');
-    await boardNodeCard.getByTestId("board-card").dispatchEvent("dblclick");
-    const bulletinBoard = page.getByRole("dialog", { name: "Bulletin board" });
-    await expect(bulletinBoard).toBeVisible();
-    await shot(page, "06g-board-empty");
-
-    const createTopic = async (topicTitle: string, openingNote: string) => {
-      await bulletinBoard.getByPlaceholder("New topic title").fill(topicTitle);
-      await bulletinBoard
-        .getByPlaceholder("Opening note (optional)")
-        .fill(openingNote);
-      await bulletinBoard.getByRole("button", { name: "Post topic" }).click();
-      await expect(
-        bulletinBoard.getByText(topicTitle, { exact: true }).first(),
-      ).toBeVisible();
-    };
-
-    await createTopic(
-      "Release readiness · August 3",
-      "Capture blockers, proof receipts, and operator decisions for the next signed build.",
-    );
-    await bulletinBoard
-      .getByPlaceholder("Optional note…")
-      .fill(
-        "Notarization is green. Waiting on the two-host Station smoke before promotion.",
-      );
-    await bulletinBoard
-      .getByRole("button", { name: "Post note", exact: true })
-      .click();
-    await expect(
-      bulletinBoard.getByText(/two-host Station smoke/i),
-    ).toBeVisible();
-
-    await createTopic(
-      "Remote station smoke",
-      "Mac mini is enrolled. Validate reconnect, offline work, and exact protocol negotiation.",
-    );
-    await createTopic(
-      "Board redesign notes",
-      "Keep operator broadcasts distinct from agent-authored discussion and quiet by default.",
-    );
-    await shot(page, "06h-board-populated");
-    await bulletinBoard.getByRole("button", { name: "Close", exact: true }).click();
-    await expect(bulletinBoard).toBeHidden();
-
     // Return to the overview before continuing with the upper-canvas cards.
     if (await fit.isVisible().catch(() => false)) await fit.click();
     await page.waitForTimeout(600);
@@ -826,6 +778,67 @@ test("capture every surface for design review", async () => {
     await surface.getByRole("button", { name: "Pin" }).click();
     await page.waitForTimeout(700);
     await shot(page, "09b-native-terminal-pinned");
+  } finally {
+    await vellum.close();
+  }
+});
+
+test("capture Board empty and populated states", async () => {
+  const vellum = await launchVellum({
+    seedCanvases: { "board-audit": canvasDoc([boardNode]) },
+  });
+  try {
+    const { page } = vellum;
+    await mkdir(SHOTS, { recursive: true });
+    await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+    const boardNodeCard = page.locator('.react-flow__node[data-id="board1"]');
+    await expect(boardNodeCard).toBeVisible({ timeout: 15_000 });
+    await boardNodeCard.getByTestId("board-card").dispatchEvent("dblclick");
+
+    const bulletinBoard = page.getByRole("dialog", { name: "Bulletin board" });
+    await expect(bulletinBoard).toBeVisible();
+    await shot(page, "06g-board-empty");
+
+    const createTopic = async (topicTitle: string, openingNote: string) => {
+      await bulletinBoard.getByPlaceholder("New topic title").fill(topicTitle);
+      await bulletinBoard
+        .getByPlaceholder("Opening note (optional)")
+        .fill(openingNote);
+      await bulletinBoard.getByRole("button", { name: "Post topic" }).click();
+      await expect(
+        bulletinBoard.getByText(topicTitle, { exact: true }).first(),
+      ).toBeVisible();
+    };
+
+    await createTopic(
+      "Release readiness · August 3",
+      "Capture blockers, proof receipts, and operator decisions for the next signed build.",
+    );
+    await bulletinBoard
+      .getByPlaceholder("Optional note…")
+      .fill(
+        "Notarization is green. Waiting on the two-host Station smoke before promotion.",
+      );
+    await bulletinBoard
+      .getByRole("button", { name: "Post note", exact: true })
+      .click();
+    await expect(
+      bulletinBoard.getByText(/two-host Station smoke/i),
+    ).toBeVisible();
+    await createTopic(
+      "Remote station smoke",
+      "Mac mini is enrolled. Validate reconnect, offline work, and exact protocol negotiation.",
+    );
+    await createTopic(
+      "Board redesign notes",
+      "Keep operator broadcasts distinct from agent-authored discussion and quiet by default.",
+    );
+
+    await shot(page, "06h-board-populated");
+    await bulletinBoard
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
+    await expect(bulletinBoard).toBeHidden();
   } finally {
     await vellum.close();
   }
