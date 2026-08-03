@@ -61,18 +61,8 @@ export function PageCard({ node }: { readonly node: CanvasNode }) {
       ? { ...browserActivity({ state, attaching }), label: session.lastError }
       : browserActivity({ state, attaching });
   const displayTitle = warm && pageTitle ? pageTitle : host;
-  const err = stopError ?? session?.lastError;
-  const subtitle =
-    err ??
-    (attaching
-      ? "attaching"
-      : state === "ready"
-        ? "ready"
-        : state === "loading"
-          ? "loading"
-          : state === "detached"
-            ? "detached"
-            : undefined);
+  // Failures only — never paint session-machine words (detached/ready/idle).
+  const err = stopError ?? (state === "failed" ? session?.lastError : undefined);
 
   return (
     <div className="flex h-full w-full flex-col justify-between overflow-hidden">
@@ -92,13 +82,9 @@ export function PageCard({ node }: { readonly node: CanvasNode }) {
           </div>
         }
         subtitle={
-          subtitle ? (
-            <span
-              className="truncate"
-              style={err ? { color: HUE.crimson } : undefined}
-              title={err ?? subtitle}
-            >
-              {subtitle}
+          err ? (
+            <span className="truncate" style={{ color: HUE.crimson }} title={err}>
+              {err}
             </span>
           ) : undefined
         }
