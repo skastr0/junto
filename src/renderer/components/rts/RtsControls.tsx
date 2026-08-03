@@ -31,7 +31,7 @@ import {
 } from "../../lib/pause-state";
 import { openWorkDetail } from "../../lib/work-detail-open";
 import { ACP_CHAT_SURFACE_HIDDEN } from "@shared/legacy-surfaces";
-import { openAgentChatSurface } from "../../lib/dock-state";
+import { openAgentChatSurface, openTaskCreateSurface } from "../../lib/dock-state";
 import { openTerminal } from "../../lib/terminal-actions";
 import {
   herdr$,
@@ -41,9 +41,6 @@ import {
 } from "../../lib/herdr-state";
 import { killHerdrPane } from "../../lib/herdr-actions";
 import { deleteEdges, toggleEdgeArrow } from "../../lib/edge-mutations";
-import { applyWorkCanvasWrite } from "../../lib/mutations";
-import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
-import { getVellumApi } from "../../lib/vellum-api";
 import { nodeTitle } from "../../lib/presentation";
 import { OpenHerdrMark } from "../herdr/OpenHerdrMark";
 import { EdgeCriteriaEditor } from "../InspectorFields";
@@ -210,27 +207,6 @@ export function EdgeCommandCard({ edgeId }: { readonly edgeId: string }) {
 
 // --- middle panel: kind strip ------------------------------------------------
 
-/** Work-service task create, inside the same admission boundary as the board. */
-const createWorkTask = async (nodeId: string, brief: string): Promise<string> => {
-  const api = getVellumApi();
-  const canvas = state$.canvasName.peek();
-  if (!api?.workTaskCreate || !canvas) return "no canvas is open";
-  try {
-    const result = await runCanvasAuthoringOperation(async () => {
-      const r = await api.workTaskCreate(canvas, nodeId, brief, {
-        title: brief,
-        details: brief,
-      });
-      if (r.ok) applyWorkCanvasWrite(canvas, r.doc, r.revision);
-      return r;
-    });
-    if (result === undefined) return "";
-    return result.ok ? "" : result.message;
-  } catch (cause) {
-    return cause instanceof Error ? cause.message : String(cause);
-  }
-};
-
 const KILL_ARM_MS = 3000;
 
 function HerdrKindKeys({ node }: { readonly node: CanvasNode }) {
@@ -314,32 +290,6 @@ function HerdrKindKeys({ node }: { readonly node: CanvasNode }) {
 }
 
 function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
-  const [adding, setAdding] = useState(false);
-  const [brief, setBrief] = useState("");
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    setAdding(false);
-    setBrief("");
-    setError("");
-  }, [node.id]);
-
-  const submit = () => {
-    const trimmed = brief.trim();
-    if (!trimmed || busy) return;
-    setBusy(true);
-    void createWorkTask(node.id, trimmed)
-      .then((refusal) => {
-        setError(refusal);
-        if (!refusal) {
-          setBrief("");
-          setAdding(false);
-        }
-      })
-      .finally(() => setBusy(false));
-  };
-
   return (
     <>
       <KindKey
@@ -350,33 +300,12 @@ function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
         <ListChecks size={ICON} />
       </KindKey>
       <KindKey
-        label={adding ? "Close add task" : "Add task"}
-        title="submit a task to this sink"
-        active={adding}
-        onClick={() => setAdding((open) => !open)}
+        label="Add task"
+        title="enqueue a task (title, details, finish criteria)"
+        onClick={() => openTaskCreateSurface(node)}
       >
         <Plus size={ICON} />
       </KindKey>
-      {adding ? (
-        <div className="rts-kind-pop">
-          <label className="rts-kind-pop__field">
-            <span>new task — enter submits</span>
-            <input
-              autoFocus
-              aria-label="New task brief"
-              placeholder="what needs doing?"
-              value={brief}
-              disabled={busy}
-              onChange={(event) => setBrief(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") submit();
-                if (event.key === "Escape") setAdding(false);
-              }}
-            />
-          </label>
-          {error ? <div className="rts-kind-pop__error">{error}</div> : null}
-        </div>
-      ) : null}
     </>
   );
 }
