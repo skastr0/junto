@@ -593,10 +593,17 @@
 .focus-surface__panel.task-create-dialog {
   width: min(1080px, calc(100vw - 48px));
   min-width: min(720px, calc(100vw - 32px));
-  height: min(88vh, 860px);
-  max-height: min(88vh, 860px);
   padding: 0;
   background: var(--color-ground);
+}
+
+/* 80vh matches the task flow board and the quick enqueue shell — every task
+   surface holds the same height. [data-height] lifts specificity above the
+   generic --document[data-height="fit"] auto-height rule, which otherwise wins
+   on cascade order. */
+.focus-surface__panel.task-create-dialog[data-height] {
+  height: 80vh;
+  max-height: 80vh;
 }
 
 .task-create-dialog__form {

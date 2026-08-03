@@ -30,6 +30,9 @@ export function WorkFocusShell() {
   const onlyChats =
     focusSurfaces.length > 0 &&
     focusSurfaces.every((s) => s.kind === "chat");
+  const onlyTaskCreate =
+    focusSurfaces.length > 0 &&
+    focusSurfaces.every((s) => s.kind === "task-create");
   const measure = onlyTerminals ? "terminal" : "workspace";
   // Dock chrome (tabs / split / pin-all) is for multi-surface browser work.
   // Pure terminal/herdr focus uses surface-local Pin + Close — reusing the
@@ -97,7 +100,7 @@ export function WorkFocusShell() {
       onClose={closeAllFocus}
       closeOnEscape={false}
       closeOnBackdrop
-      panelClassName={`work-focus-shell__panel${onlyChats ? " work-focus-shell__panel--chat" : ""}`}
+      panelClassName={`work-focus-shell__panel${onlyChats ? " work-focus-shell__panel--chat" : ""}${onlyTaskCreate ? " work-focus-shell__panel--task-create" : ""}`}
     >
       <div className="work-focus-shell">
         {showDockChrome ? (
