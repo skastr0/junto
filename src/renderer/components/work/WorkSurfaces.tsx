@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Inbox, ListChecks, MessageSquareText, Package, Plus, X } from "lucide-react";
+import { Bell, Check, Inbox, ListChecks, MessageSquareText, Package, Plus, Send, X } from "lucide-react";
 import type {
   CanvasNode,
   Part,
@@ -90,14 +90,13 @@ type SinkRenameProps = {
   readonly onRenameDone?: () => void;
 };
 
-/** Glance header: amber decal + rename title (terminal weight). */
+/** Glance header: amber decal + title. Rename only via RTS pencil (no dbl-click). */
 function SinkGlanceHead({
   node,
   fallback,
   decal,
   trailing,
   renaming = false,
-  onRequestRename,
   onRenameDone,
 }: {
   readonly node: CanvasNode;
@@ -119,20 +118,13 @@ function SinkGlanceHead({
         {renaming && onRenameDone ? (
           <SinkRenameInput initial={label} onCommit={commitRename} onDone={onRenameDone} />
         ) : (
-          <button
-            type="button"
-            className="nodrag nopan w-full truncate text-left font-mono text-[14px] font-semibold leading-snug"
+          <div
+            className="truncate font-mono text-[14px] font-semibold leading-snug"
             style={{ color: INK }}
-            title={onRequestRename ? "Rename" : undefined}
-            onDoubleClick={(event) => {
-              if (event.shiftKey || !onRequestRename) return;
-              event.preventDefault();
-              event.stopPropagation();
-              onRequestRename();
-            }}
+            title={label}
           >
             {label}
-          </button>
+          </div>
         )}
       </div>
       {trailing ? <div className="flex shrink-0 items-center gap-1.5">{trailing}</div> : null}
@@ -149,6 +141,24 @@ const boardTextOf = (parts: ReadonlyArray<Part>): string =>
 const boardAuthorLabel = (author: BoardPost["author"] | BoardTopic["openedBy"]): string =>
   author.label ??
   (author.kind === "operator" ? "operator" : (author.nodeId ?? author.kind));
+
+const boardTimestamp = (value: string): string => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+};
+
+const boardTopicPreview = (topic: BoardTopic): string => {
+  const latestPost = topic.posts?.length
+    ? [...topic.posts].sort((a, b) => b.position - a.position)[0]
+    : undefined;
+  return boardTextOf(latestPost?.parts ?? topic.parts ?? []).trim();
+};
 
 const acceptWorkResult = <T,>(canvas: string, result: WorkOpResult<T>): WorkOpResult<T> => {
   if (result.ok) applyWorkCanvasWrite(canvas, result.doc, result.revision);
@@ -433,6 +443,7 @@ export function BoardDetail({
   const [body, setBody] = useState("");
   const [selectedTopicId, setSelectedTopicId] = useState<string | undefined>();
   const [postText, setPostText] = useState("");
+  const [creatingTopic, setCreatingTopic] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [detailTopics, setDetailTopics] = useState<ReadonlyArray<BoardTopic>>(
     [],
@@ -487,6 +498,37 @@ export function BoardDetail({
   };
 
   const posts: ReadonlyArray<BoardPost> = selected?.posts ?? [];
+  const unread = node.ether?.board?.unread ?? 0;
+
+  const createTopic = async () => {
+    const r = await run(() =>
+      api!.workBoardCreateTopic(
+        canvas,
+        node.id,
+        title.trim(),
+        body.trim() || undefined,
+        true,
+      ),
+    );
+    if (r?.ok) {
+      setTitle("");
+      setBody("");
+      setCreatingTopic(false);
+      setSelectedTopicId(r.data.topic.topicId);
+      await refreshList();
+    }
+  };
+
+  const submitPost = async () => {
+    if (!selected || !postText.trim()) return;
+    const r = await run(() =>
+      api!.workBoardPost(canvas, node.id, selected.topicId, postText.trim()),
+    );
+    if (r?.ok) {
+      setPostText("");
+      await refreshList();
+    }
+  };
 
   return (
     <FocusSurface
@@ -497,23 +539,35 @@ export function BoardDetail({
       onClose={onClose}
       data-testid="board-detail"
     >
-      <div className="work-ledger-surface flex h-full min-h-0 flex-col">
+      <div className="board-surface flex h-full min-h-0 flex-col">
         <OverlayHeader
           eyebrow="board"
           title={boardTitle}
-          status={`${topics.length} topics`}
+          status={`${topics.length} ${topics.length === 1 ? "topic" : "topics"}${unread > 0 ? ` · ${unread} new` : ""}`}
+          className="board-header"
           actions={
             <>
               <Button
                 variant="subtle"
                 size="sm"
+                className="board-notify"
                 onClick={() =>
                   void run(() =>
                     api!.workBoardNotify(canvas, node.id, selected?.topicId),
                   )
                 }
               >
+                <Bell size={12} aria-hidden />
                 Notify all
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                aria-expanded={creatingTopic}
+                onClick={() => setCreatingTopic((open) => !open)}
+              >
+                <Plus size={12} aria-hidden />
+                New topic
               </Button>
               <IconButton aria-label="Close" onClick={onClose}>
                 <X size={14} />
@@ -524,178 +578,181 @@ export function BoardDetail({
         {error ? (
           <div className="work-ledger-error px-3 py-1 text-[11px]">{error}</div>
         ) : null}
-        <div className="work-ledger-workspace flex min-h-0 flex-1">
-          <div className="work-ledger-list flex w-[40%] flex-col border-r border-stroke/40">
-            <div className="flex flex-col gap-1 p-2">
-              <Input
-                placeholder="New topic title"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-              />
-              <Textarea
-                placeholder="Opening note (optional)"
-                value={body}
-                onChange={(e) => setBody(e.target.value)}
-                rows={2}
-              />
-              <Button
-                size="sm"
-                variant="primary"
-                disabled={!title.trim()}
-                onClick={() =>
-                  void run(async () => {
-                    const r = await api!.workBoardCreateTopic(
-                      canvas,
-                      node.id,
-                      title.trim(),
-                      body.trim() || undefined,
-                      true,
-                    );
-                    if (r.ok) {
+        <div className="board-workspace">
+          <aside className="board-topics" aria-label="Topics">
+            <div className="board-topics__heading">
+              <span>Topics</span>
+              <span>{topics.length}</span>
+            </div>
+            {creatingTopic ? (
+              <form
+                className="board-topic-create"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void createTopic();
+                }}
+              >
+                <Input
+                  aria-label="Topic title"
+                  placeholder="New topic title"
+                  value={title}
+                  autoFocus
+                  onChange={(e) => setTitle(e.target.value)}
+                />
+                <Textarea
+                  aria-label="Opening note"
+                  placeholder="Opening note (optional)"
+                  value={body}
+                  onChange={(e) => setBody(e.target.value)}
+                  rows={3}
+                />
+                <div className="board-topic-create__actions">
+                  <Button
+                    size="sm"
+                    variant="subtle"
+                    onClick={() => {
+                      setCreatingTopic(false);
                       setTitle("");
                       setBody("");
-                      setSelectedTopicId(r.data.topic.topicId);
-                      await refreshList();
-                    }
-                    return r;
-                  })
-                }
-              >
-                Post topic
-              </Button>
-            </div>
-            <div className="min-h-0 flex-1 overflow-auto px-1">
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button size="sm" variant="primary" disabled={!title.trim()} type="submit">
+                    Create topic
+                  </Button>
+                </div>
+              </form>
+            ) : null}
+            <div className="board-topic-list">
               {topics.length === 0 ? (
-                <div className="p-3 text-[11px]" style={{ color: DIM }}>
-                  No topics yet. Post when something needs a shared place.
+                <div className="board-empty">
+                  <MessageSquareText size={20} aria-hidden />
+                  <strong>No topics yet</strong>
+                  <span>Create a shared place for a decision, update, or question.</span>
+                  <Button size="sm" variant="chrome" onClick={() => setCreatingTopic(true)}>
+                    <Plus size={12} aria-hidden />
+                    New topic
+                  </Button>
                 </div>
               ) : (
                 topics.map((topic) => (
                   <button
                     key={topic.topicId}
                     type="button"
-                    className="work-ledger-row w-full text-left"
-                    data-selected={selected?.topicId === topic.topicId}
+                    className="board-topic-row"
+                    aria-current={selected?.topicId === topic.topicId ? "true" : undefined}
                     onClick={() => setSelectedTopicId(topic.topicId)}
                   >
-                    <div className="truncate text-[12px]">{topic.title}</div>
-                    <div className="text-[10px]" style={{ color: DIM }}>
-                      {topic.postCount} posts · {topic.lastActivityAt}
-                    </div>
+                    <span className="board-topic-row__marker" aria-hidden />
+                    <span className="board-topic-row__content">
+                      <strong>{topic.title}</strong>
+                      {boardTopicPreview(topic) ? <span>{boardTopicPreview(topic)}</span> : null}
+                      <small>
+                        {boardAuthorLabel(topic.openedBy)} · {boardTimestamp(topic.lastActivityAt)}
+                      </small>
+                    </span>
+                    <span className="board-topic-row__count" aria-label={`${topic.postCount} posts`}>
+                      {topic.postCount}
+                    </span>
                   </button>
                 ))
               )}
             </div>
-          </div>
-          <div className="work-ledger-detail flex min-w-0 flex-1 flex-col">
+          </aside>
+          <main className="board-conversation">
             {selected ? (
               <>
-                <div className="border-b border-stroke/40 px-3 py-2">
-                  <div className="text-[13px] font-medium">{selected.title}</div>
-                  <div className="text-[10px]" style={{ color: DIM }}>
-                    {boardAuthorLabel(selected.openedBy)} · {selected.postCount}{" "}
-                    posts
-                    {loading ? " · loading…" : ""}
+                <header className="board-conversation__header">
+                  <div>
+                    <h2>{selected.title}</h2>
+                    <p>
+                      Opened by {boardAuthorLabel(selected.openedBy)} · {boardTimestamp(selected.openedAt)} · {selected.postCount}{" "}
+                      {selected.postCount === 1 ? "post" : "posts"}
+                      {loading ? " · loading…" : ""}
+                    </p>
                   </div>
-                </div>
-                <div className="min-h-0 flex-1 overflow-auto p-3">
-                  {selected.parts && selected.parts.length > 0 ? (
-                    <div
-                      className="mb-3 rounded border border-stroke/30 px-2 py-2 text-[12px] leading-snug"
-                      style={{ color: INK }}
-                    >
-                      <div className="mb-1 text-[10px]" style={{ color: DIM }}>
-                        opening · {boardAuthorLabel(selected.openedBy)}
-                      </div>
-                      {boardTextOf(selected.parts)}
-                    </div>
-                  ) : null}
-                  {posts.length === 0 ? (
-                    <div className="text-[11px]" style={{ color: DIM }}>
-                      No posts yet.
-                    </div>
+                  <Button
+                    size="sm"
+                    variant="subtle"
+                    onClick={() =>
+                      void run(() => api!.workBoardMarkRead(canvas, node.id, selected.topicId))
+                    }
+                  >
+                    <Check size={12} aria-hidden />
+                    Mark read
+                  </Button>
+                </header>
+                <div className="board-posts" aria-live="polite">
+                  {posts.length === 0 && (!selected.parts || selected.parts.length === 0) ? (
+                    <div className="board-posts__empty">No posts yet. Start the conversation below.</div>
                   ) : (
-                    <div className="flex flex-col gap-2">
-                      {[...posts]
-                        .sort((a, b) => a.position - b.position)
-                        .map((post) => (
-                          <div
-                            key={post.postId}
-                            className="rounded border border-stroke/25 px-2 py-2"
-                            data-testid="board-post"
-                          >
-                            <div
-                              className="mb-1 flex justify-between gap-2 text-[10px]"
-                              style={{ color: DIM }}
-                            >
-                              <span>{boardAuthorLabel(post.author)}</span>
-                              <span>{post.createdAt}</span>
-                            </div>
-                            <div
-                              className="whitespace-pre-wrap text-[12px] leading-snug"
-                              style={{ color: INK }}
-                            >
-                              {boardTextOf(post.parts) || "—"}
-                            </div>
-                          </div>
-                        ))}
-                    </div>
+                    (posts.length > 0
+                      ? [...posts].sort((a, b) => a.position - b.position)
+                      : [
+                          {
+                            postId: `${selected.topicId}-opening`,
+                            topicId: selected.topicId,
+                            author: selected.openedBy,
+                            parts: selected.parts ?? [],
+                            position: 0,
+                            createdAt: selected.openedAt,
+                          },
+                        ]
+                    ).map((post, index) => (
+                      <article key={post.postId} className="board-post" data-testid="board-post">
+                        <div className="board-post__avatar" aria-hidden>
+                          {boardAuthorLabel(post.author).slice(0, 1).toUpperCase()}
+                        </div>
+                        <div className="board-post__body">
+                          <header>
+                            <strong>{boardAuthorLabel(post.author)}</strong>
+                            {index === 0 ? <span className="board-post__opening">opened topic</span> : null}
+                            <time dateTime={post.createdAt}>{boardTimestamp(post.createdAt)}</time>
+                          </header>
+                          <p>{boardTextOf(post.parts) || "—"}</p>
+                        </div>
+                      </article>
+                    ))
                   )}
                 </div>
-                <div className="flex flex-col gap-1 border-t border-stroke/40 p-2">
+                <form
+                  className="board-reply"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void submitPost();
+                  }}
+                >
                   <Textarea
-                    placeholder="Optional note…"
+                    aria-label="Reply"
+                    placeholder="Write a reply…"
                     value={postText}
                     onChange={(e) => setPostText(e.target.value)}
-                    rows={2}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                        event.preventDefault();
+                        void submitPost();
+                      }
+                    }}
+                    rows={3}
                   />
-                  <div className="flex justify-end gap-2">
-                    <Button
-                      size="sm"
-                      variant="subtle"
-                      onClick={() =>
-                        void run(() =>
-                          api!.workBoardMarkRead(
-                            canvas,
-                            node.id,
-                            selected.topicId,
-                          ),
-                        )
-                      }
-                    >
-                      Mark read
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="primary"
-                      disabled={!postText.trim()}
-                      onClick={() =>
-                        void run(async () => {
-                          const r = await api!.workBoardPost(
-                            canvas,
-                            node.id,
-                            selected.topicId,
-                            postText.trim(),
-                          );
-                          if (r.ok) {
-                            setPostText("");
-                            await refreshList();
-                          }
-                          return r;
-                        })
-                      }
-                    >
-                      Post note
+                  <div className="board-reply__footer">
+                    <span>⌘ Enter to post</span>
+                    <Button size="sm" variant="primary" disabled={!postText.trim()} type="submit">
+                      <Send size={12} aria-hidden />
+                      Post reply
                     </Button>
                   </div>
-                </div>
+                </form>
               </>
             ) : (
-              <div className="p-4 text-[11px]" style={{ color: DIM }}>
-                Select a topic
+              <div className="board-conversation__empty">
+                <MessageSquareText size={24} aria-hidden />
+                <strong>Select a topic</strong>
+                <span>Choose a topic from the list to read its conversation.</span>
               </div>
             )}
-          </div>
+          </main>
         </div>
       </div>
     </FocusSurface>

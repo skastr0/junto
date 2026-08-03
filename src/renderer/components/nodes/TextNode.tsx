@@ -719,6 +719,16 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
               setWorkDetail(true);
               return;
             }
+            // Schedulers: open kind-strip config is RTS; card dbl-click is no-op
+            // (no inline title edit — rename only via RTS pencil).
+            if (
+              entityKind === "watcher" ||
+              entityKind === "relay" ||
+              entityKind === "timer" ||
+              entityKind === "cron"
+            ) {
+              return;
+            }
             openInline();
           }}
         >
@@ -732,28 +742,24 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
             <TasksCard
               node={node}
               renaming={renaming}
-              onRequestRename={() => setRenaming(true)}
               onRenameDone={() => setRenaming(false)}
             />
           ) : entityKind === "requests" ? (
             <RequestsCard
               node={node}
               renaming={renaming}
-              onRequestRename={() => setRenaming(true)}
               onRenameDone={() => setRenaming(false)}
             />
           ) : entityKind === "artifacts" ? (
             <ArtifactsCard
               node={node}
               renaming={renaming}
-              onRequestRename={() => setRenaming(true)}
               onRenameDone={() => setRenaming(false)}
             />
           ) : entityKind === "board" ? (
             <BoardCard
               node={node}
               renaming={renaming}
-              onRequestRename={() => setRenaming(true)}
               onRenameDone={() => setRenaming(false)}
             />
           ) : entityKind === "herdr" ? (
@@ -769,7 +775,6 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
               node={node}
               graphBlocked={data.blocked}
               renaming={renaming}
-              onRequestRename={() => setRenaming(true)}
               onRenameDone={() => setRenaming(false)}
             />
           ) : entityKind === "agent" ? (

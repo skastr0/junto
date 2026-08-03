@@ -85,14 +85,13 @@ export function TerminalCard({
   node,
   graphBlocked = false,
   renaming = false,
-  onRequestRename,
   onRenameDone,
 }: {
   readonly node: CanvasNode;
   /** Execution-graph blocked — crimson spinner even when seat is idle. */
   readonly graphBlocked?: boolean;
   readonly renaming?: boolean;
-  readonly onRequestRename?: () => void;
+  /** Rename only via RTS pencil (editNodeId) — not card double-click. */
   readonly onRenameDone?: () => void;
 }) {
   const binding = resolveTerminalBinding(node);
@@ -208,19 +207,12 @@ export function TerminalCard({
               onDone={onRenameDone}
             />
           ) : (
-            <button
-              type="button"
-              className="nodrag nopan w-full truncate text-left font-mono text-[14px] font-semibold leading-snug text-ink"
-              title={onRequestRename ? "Rename" : "Open terminal"}
-              onDoubleClick={(event) => {
-                if (event.shiftKey) return;
-                event.preventDefault();
-                event.stopPropagation();
-                onRequestRename?.();
-              }}
+            <div
+              className="truncate font-mono text-[14px] font-semibold leading-snug text-ink"
+              title={label}
             >
               {label}
-            </button>
+            </div>
           )
         }
         subtitle={subtitle}
