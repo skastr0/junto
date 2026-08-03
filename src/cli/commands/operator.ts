@@ -106,6 +106,9 @@ const fleetListCommand = Command.make("list", {}, () =>
 ).pipe(Command.withDescription("List enrolled hosts"));
 
 // V3 Options.repeated → Flag.atLeast(0) (0+ occurrences as array)
+// "herdr" remains a durable HostCapability for schema/decode; product surface
+// is compile-gated. CLI still accepts the token so re-enabled builds and
+// historical enroll scripts keep working.
 const capabilityOption = Flag.choice("capability", [
   "terminal",
   "browser",
@@ -114,7 +117,7 @@ const capabilityOption = Flag.choice("capability", [
 ] as const).pipe(
   Flag.atLeast(0),
   Flag.withDescription(
-    "Repeat for each admitted host capability: terminal, browser, hermes, herdr",
+    "Repeat for each admitted host capability: terminal, browser, hermes, herdr (herdr is product-gated via VELLUM_HERDR=1)",
   ),
 );
 

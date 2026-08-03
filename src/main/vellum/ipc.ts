@@ -20,6 +20,7 @@ import { BoxActivityPolicy } from "./box";
 import { registerChatIpc } from "./chat/ipc";
 import { ChatServiceContext } from "./chat/service";
 import { HermesPlane } from "./hermes/plane";
+import { HERDR_ENABLED } from "@shared/features";
 import { registerHerdrIpc } from "./herdr/ipc";
 import { KernelService } from "./kernel/service";
 import { RegionRollupService } from "./region-rollup";
@@ -257,11 +258,13 @@ const denyUnlessCommandCenterAuthorial = Effect.gen(function* () {
 
 export const registerVellumIpc = (): void => {
   const privilegedIpc = licensedRendererIpc(ipcMain);
-  registerHerdrIpc(privilegedIpc, () =>
-    BrowserWindow.getAllWindows()
-      .map((window) => window.webContents)
-      .filter(isTrustedMainWebContents),
-  );
+  if (HERDR_ENABLED) {
+    registerHerdrIpc(privilegedIpc, () =>
+      BrowserWindow.getAllWindows()
+        .map((window) => window.webContents)
+        .filter(isTrustedMainWebContents),
+    );
+  }
   registerTerminalIpc(privilegedIpc, termPlane, {
     isTrustedSender: isTrustedMainWebContents,
     ensureHostAvailable: ensureBoxHostAvailable,

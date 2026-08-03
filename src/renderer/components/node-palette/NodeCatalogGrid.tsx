@@ -20,6 +20,7 @@ import {
   Workflow,
   type LucideIcon,
 } from "lucide-react";
+import { HERDR_ENABLED } from "@shared/features";
 
 export type NodeCatalogCategory = "shell" | "sinks" | "schedule" | "canvas";
 
@@ -63,6 +64,13 @@ export type NodeCatalogEntry = {
   readonly connections: readonly NodeCatalogConnection[];
 };
 
+const HERDR_CATALOG_ENTRY: NodeCatalogEntry = {
+  id: "herdr", category: "shell", label: "Herdr", subtitle: "attach an existing pane",
+  icon: PanelTop,
+  purpose: "A bridge to an existing terminal pane without taking ownership of the underlying process.",
+  connections: [{ source: "Herdr", target: "Any node", direction: "relation", relationship: "keeps an existing pane visible as display context", mode: "context", ports: [] }],
+};
+
 export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
   {
     id: "terminal", category: "shell", label: "Terminal", subtitle: "native shell",
@@ -70,12 +78,7 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     purpose: "A managed shell on the selected host for commands, logs, and hands-on operator work.",
     connections: [{ source: "Terminal", target: "Any node", direction: "relation", relationship: "keeps shell work spatially adjacent as display context", mode: "context", ports: [] }],
   },
-  {
-    id: "herdr", category: "shell", label: "Herdr", subtitle: "attach an existing pane",
-    icon: PanelTop,
-    purpose: "A bridge to an existing terminal pane without taking ownership of the underlying process.",
-    connections: [{ source: "Herdr", target: "Any node", direction: "relation", relationship: "keeps an existing pane visible as display context", mode: "context", ports: [] }],
-  },
+  ...(HERDR_ENABLED ? [HERDR_CATALOG_ENTRY] : []),
   {
     id: "tasks", category: "sinks", label: "Tasks", subtitle: "shared claim queue",
     icon: Blocks,

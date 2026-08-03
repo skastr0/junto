@@ -27,6 +27,7 @@ import {
   type ObservabilityQuery,
   type ObservabilitySnapshot,
 } from "@shared/ipc";
+import { HERDR_ENABLED } from "@shared/features";
 import type { SnapshotState } from "@shared/entities";
 import type { PreambleEvent } from "@shared/preamble";
 import type { Settings, SettingsOpResult, SettingsPatch, SettingsSectionKey } from "@shared/settings";
@@ -824,7 +825,7 @@ if (preloadLocation === undefined || isRendererPreloadCandidate(preloadLocation)
   contextBridge.exposeInMainWorld("vellum", {
     ...vellumApi,
     ...chatApi,
-    ...herdrApi,
+    ...(HERDR_ENABLED ? herdrApi : {}),
     ...terminalApi,
     ...browserApi,
     ...demoApi,

@@ -45,6 +45,7 @@ const FleetOverlay = lazy(async () => {
   return { default: mod.FleetOverlay };
 });
 import { StationRoleGate } from "./components/StationRoleGate";
+import { HERDR_ENABLED } from "@shared/features";
 import { HerdrWizard } from "./components/herdr/HerdrWizard";
 import { HerdrTerminalModal } from "./components/herdr/HerdrTerminalModal";
 import { HerdrToast } from "./components/herdr/HerdrToast";
@@ -475,11 +476,15 @@ export function App() {
           </Suspense>
         ) : null}
         <StationRoleGate />
-        <HerdrWizard />
-        {/* HerdrTerminalModal is fallback only — WorkFocusShell owns herdr when registered. */}
-        <HerdrTerminalModal />
+        {HERDR_ENABLED ? (
+          <>
+            <HerdrWizard />
+            {/* HerdrTerminalModal is fallback only — WorkFocusShell owns herdr when registered. */}
+            <HerdrTerminalModal />
+            <HerdrToast />
+          </>
+        ) : null}
         <WorkFocusShell />
-        <HerdrToast />
         <OperatorAttentionDock />
         <DemoLayer />
         </div>

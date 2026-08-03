@@ -16,6 +16,7 @@ import {
   LINUX_HOST_UNAVAILABLE_IN_RELEASE_LABEL,
   LINUX_REMOTE_DEPLOY_DISABLED_DETAIL,
 } from "@shared/release-capabilities";
+import { productHostCapabilities } from "@shared/features";
 import type { RemoteHost } from "@shared/remote-hosts";
 import {
   deriveRemoteUpdateStatus,
@@ -326,7 +327,7 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
           ) : null}
         </div>
         <div className="fleet-detail__chips">
-          {host.capabilities.map((capability) => (
+          {productHostCapabilities(host.capabilities).map((capability) => (
             <Chip key={capability} tone={CAPABILITY_TONE[capability] ?? "steel"}>
               {capability}
             </Chip>

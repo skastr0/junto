@@ -3,6 +3,7 @@ import { constants } from "node:fs";
 import type { Context } from "effect";
 import { Effect } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
+import { HERDR_ENABLED } from "@shared/features";
 import { observeLinuxHostCapabilityDoctor } from "@shared/linux-host-capability-doctor";
 import type { LinuxHostCapabilityObservation } from "@shared/linux-host-capabilities";
 import type { StationRemoteObservation } from "@shared/station-status";
@@ -297,7 +298,7 @@ const probeSshHost = (
     if (hostHasCapability(host, "browser")) {
       parts.push("browser capability declared");
     }
-    if (hostHasCapability(host, "herdr")) {
+    if (HERDR_ENABLED && hostHasCapability(host, "herdr")) {
       const herdr = yield* remoteBinary(ssh, host, "herdr");
       parts.push(herdr.detail);
       if (!herdr.ok) raise("warning", herdr.detail);
@@ -395,7 +396,7 @@ export const runRemoteHostsDoctorSnapshot = (
       if (hostHasCapability(local, "browser")) {
         lines.push("local: browser capability declared");
       }
-      if (hostHasCapability(local, "herdr")) {
+      if (HERDR_ENABLED && hostHasCapability(local, "herdr")) {
         const herdr = yield* Effect.promise(() =>
           localBinary("herdr", run),
         );
@@ -535,7 +536,7 @@ export const testHostConnection = (
             detail: "browser capability declared",
           });
         }
-        if (hostHasCapability(host, "herdr")) {
+        if (HERDR_ENABLED && hostHasCapability(host, "herdr")) {
           probes.push(yield* Effect.promise(() => localBinary("herdr", run)));
         }
         if (hostHasCapability(host, "hermes")) {

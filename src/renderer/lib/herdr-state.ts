@@ -14,6 +14,7 @@ import type {
   HerdrPaneInfo,
   HerdrServiceMapInfo,
 } from "@shared/ipc";
+import { HERDR_ENABLED } from "@shared/features";
 import { state$ } from "./state";
 import { getVellumApi } from "./vellum-api";
 import { viewportBusy$ } from "./viewport-busy";
@@ -112,6 +113,8 @@ const releasePendingSeen = (nodeId: string): void => {
 };
 
 export const openHerdrWizard = (anchor: { readonly x: number; readonly y: number }): void => {
+  // Product surface compile-gated — no wizard chrome when Herdr is off.
+  if (!HERDR_ENABLED) return;
   // Wizard owns the interaction — close all open terminals (UI first, streams async).
   // Workbench slots drop via dock-state observe on terminals change (no dynamic import).
   const openIds = herdrTerminalIds();

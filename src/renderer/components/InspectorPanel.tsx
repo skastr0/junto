@@ -11,6 +11,7 @@ import { clearSelection, state$ } from "../lib/state";
 import { kernel$ } from "../lib/kernel-view";
 import { DIM, GREEN, HUE, INK, withAlpha } from "../lib/theme";
 import { nodeDetail, nodeTitle, nodeTypeLabel } from "../lib/presentation";
+import { HERDR_ENABLED } from "@shared/features";
 import { connectionStateOf, herdr$, refreshHerdrMeta } from "../lib/herdr-state";
 import { HarnessMark } from "./herdr/HarnessMark";
 import { NoteMarkdown } from "../lib/note-markdown";
@@ -136,7 +137,7 @@ const NodeInspector = memo(function NodeInspector({ node, onClose }: { readonly 
     <div className="inspector-body">
       {isLabel ? (
         <div className="inspector-detail">Bare map text · color and size from the canvas controls</div>
-      ) : isEntity && node.ether?.entity?.kind === "herdr" ? (
+      ) : HERDR_ENABLED && isEntity && node.ether?.entity?.kind === "herdr" ? (
         <HerdrSections key={node.id} node={node} />
       ) : isAgent ? (
         <AgentSeatSection key={node.id} node={node} />

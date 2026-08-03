@@ -28,6 +28,7 @@ import {
   X,
 } from "lucide-react";
 import type { CanvasNode, EtherFlag } from "@shared/canvas";
+import { HERDR_ENABLED } from "@shared/features";
 import { executionGraphContextFromActorRefs, groupMembers } from "@shared/graph";
 import type { MemberSeverity, RegionRollup } from "@shared/region-rollup";
 import { formatNodeRef } from "@shared/node-ref";
@@ -977,7 +978,7 @@ function HotbarStrip({
           ))}
         </div>
       )}
-      <IdleHerdrButton queue={idleQueue} />
+      {HERDR_ENABLED ? <IdleHerdrButton queue={idleQueue} /> : null}
     </div>
   );
 }
@@ -1110,6 +1111,7 @@ function useHotbarHotkeys(idleQueue: ReadonlyArray<IdleHerdrEntry>): void {
 
       // SC2 idle-worker: F1 (and `.`) cycles needs-you herdr nodes.
       if (
+        HERDR_ENABLED &&
         !event.metaKey &&
         !event.ctrlKey &&
         !event.altKey &&

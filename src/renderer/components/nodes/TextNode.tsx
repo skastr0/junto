@@ -23,6 +23,7 @@ import { ACP_CHAT_SURFACE_HIDDEN } from "@shared/legacy-surfaces";
 import { isHarnessId } from "@shared/managed-terminal-templates";
 import { resolveTerminalBinding } from "@shared/terminal";
 import { agentSeat$ } from "../../lib/agent-seat-state";
+import { HERDR_ENABLED } from "@shared/features";
 import { openHerdrTerminal } from "../../lib/herdr-state";
 import { openTerminal } from "../../lib/terminal-actions";
 import { openAgentChatSurface } from "../../lib/dock-state";
@@ -470,7 +471,8 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
   const text = node.type === "text" ? node.text : "";
   const isLabel = isLabelNode(node);
   const isFreeNote = !node.ether?.entity;
-  const isHerdr = node.ether?.entity?.kind === "herdr";
+  // When herdr product surface is off, historical herdr nodes are inert furniture.
+  const isHerdr = HERDR_ENABLED && node.ether?.entity?.kind === "herdr";
   const isTerminal = node.ether?.entity?.kind === "terminal";
   const isAgent = node.ether?.entity?.kind === "agent";
   const managedTerminal =

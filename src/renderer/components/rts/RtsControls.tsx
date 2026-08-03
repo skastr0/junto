@@ -16,6 +16,7 @@ import {
   Trash2,
 } from "lucide-react";
 import type { CanvasEdge, CanvasNode } from "@shared/canvas";
+import { HERDR_ENABLED } from "@shared/features";
 import { type PauseScope } from "@shared/pause";
 import { HUE } from "../../lib/theme";
 import { state$ } from "../../lib/state";
@@ -397,7 +398,7 @@ export function KindActions({ node }: { readonly node: CanvasNode }) {
         </KindKey>
       );
     case "herdr":
-      return <HerdrKindKeys node={node} />;
+      return HERDR_ENABLED ? <HerdrKindKeys node={node} /> : null;
     case "terminal":
       return (
         <KindKey
@@ -529,7 +530,17 @@ export function KindStrip() {
       <div className="rts-quiet rts-quiet--compact">No kind actions for this node</div>
     );
   }
-  if (!["agent", "herdr", "terminal", "task", "requests", "watcher", "timer"].includes(kind)) {
+  if (
+    ![
+      "agent",
+      ...(HERDR_ENABLED ? (["herdr"] as const) : []),
+      "terminal",
+      "task",
+      "requests",
+      "watcher",
+      "timer",
+    ].includes(kind)
+  ) {
     return (
       <div className="rts-quiet rts-quiet--compact">No kind actions for this node</div>
     );

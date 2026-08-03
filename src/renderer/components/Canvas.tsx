@@ -60,6 +60,7 @@ import {
 } from "../lib/node-factories";
 import { putImagesFromDataTransfer } from "../lib/image-content";
 import { contentObjectUrl } from "@shared/content-url";
+import { HERDR_ENABLED } from "@shared/features";
 import { openHerdrWizard } from "../lib/herdr-state";
 import { describeConnectPreview } from "../lib/connect-preview";
 import { GROUND, HUE } from "../lib/theme";
@@ -744,6 +745,7 @@ const makeAddActions = (
     dismiss();
   },
   addHerdr: () => {
+    if (!HERDR_ENABLED) return;
     const position = positionFor({ width: 260, height: 110 });
     openHerdrWizard(position);
     dismiss();

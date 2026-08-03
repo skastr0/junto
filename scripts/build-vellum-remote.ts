@@ -46,6 +46,8 @@ const result = spawnSync(
     `--define=__VELLUM_DODO_PRODUCT_ID__=${JSON.stringify(PRODUCTION_LICENSE_BUILD_PROFILE.productId)}`,
     `--define=__VELLUM_MAC_UPDATE_FEED_URL__=${JSON.stringify("")}`,
     `--define=__VELLUM_APP_VERSION__=${JSON.stringify(appVersion)}`,
+    // Product default: herdr surface off. Match electron-vite / VELLUM_HERDR.
+    `--define=__VELLUM_HERDR_ENABLED__=${JSON.stringify(process.env.VELLUM_HERDR === "1")}`,
   ],
   {
     cwd: root,

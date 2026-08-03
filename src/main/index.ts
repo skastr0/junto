@@ -56,6 +56,7 @@ import { makeBrowserProductPathProbe } from "./vellum/browser/readiness-probe";
 import { installBrowserProductPathProbe } from "./vellum/station-readiness";
 import { findHostById, hostsSnapshot } from "./vellum/hosts/snapshot";
 import { hostHasCapability } from "@shared/remote-hosts";
+import { HERDR_ENABLED } from "@shared/features";
 import { HerdrPlane } from "./vellum/herdr/plane";
 import { HermesPlane } from "./vellum/hermes/plane";
 import { termPlane, termPlaneBlocksAppExit } from "./vellum/term/plane";
@@ -1543,15 +1544,19 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       AppRuntime.runPromise(HermesPlane),
     ]);
     void chat;
-    herdrPlaneService = herdr;
+    // Plane stays in the Effect Layer graph (TerminalSessions), but product
+    // start/warm/IPC are compile-gated when Herdr is off.
+    herdrPlaneService = HERDR_ENABLED ? herdr : undefined;
     hermesPlaneService = hermes;
     if (shutdownAdmissionClosed) {
-      herdr.beginShutdown();
+      if (HERDR_ENABLED) herdr.beginShutdown();
       hermesShutdown ??= hermes.shutdown.drainOnQuit();
       return;
     }
-  herdrActiveControlCount = () => herdr.sessions.activeControlCount();
-  await AppRuntime.runPromise(herdr.start);
+  if (HERDR_ENABLED) {
+    herdrActiveControlCount = () => herdr.sessions.activeControlCount();
+    await AppRuntime.runPromise(herdr.start);
+  }
     try {
       canvasControl = await startCanvasControlServer({
         home: termControlHome,
@@ -1619,11 +1624,13 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       void (async () => {
         await coordinator.wakeMonitoring();
         if (productRuntimeSuspended) return;
-        void AppRuntime.runPromise(
-          Effect.flatMap(HerdrPlane, (plane) => plane.warm),
-        ).catch(() => {
-          console.error("[herdr] resume warm failed");
-        });
+        if (HERDR_ENABLED) {
+          void AppRuntime.runPromise(
+            Effect.flatMap(HerdrPlane, (plane) => plane.warm),
+          ).catch(() => {
+            console.error("[herdr] resume warm failed");
+          });
+        }
         try {
           browserComposition?.registry.reapAfterResume();
         } catch {

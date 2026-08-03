@@ -9,6 +9,7 @@ import type {
   HostsTestResult,
   VellumBrowserApi,
 } from "@shared/ipc";
+import { HERDR_ENABLED } from "@shared/features";
 import type { LinuxHostCapabilityObservation } from "@shared/linux-host-capabilities";
 import type { SettingsSectionKey } from "@shared/settings";
 import {
@@ -923,7 +924,7 @@ function HostsSection() {
       endpoint: host.sshEndpoint ?? "",
       terminal: host.capabilities.includes("terminal"),
       browser: host.capabilities.includes("browser"),
-      herdr: host.capabilities.includes("herdr"),
+      herdr: HERDR_ENABLED && host.capabilities.includes("herdr"),
       hermes: host.capabilities.includes("hermes"),
       hermesId: host.hermesId ?? "",
     });
@@ -947,7 +948,12 @@ function HostsSection() {
       setNotice({ kind: "error", message: "Host id and SSH endpoint are required." });
       return;
     }
-    if (!draft.terminal && !draft.browser && !draft.herdr && !draft.hermes) {
+    if (
+      !draft.terminal &&
+      !draft.browser &&
+      !(HERDR_ENABLED && draft.herdr) &&
+      !draft.hermes
+    ) {
       setNotice({ kind: "error", message: "Enable at least one host capability." });
       return;
     }
@@ -958,7 +964,13 @@ function HostsSection() {
     const capabilities: Array<"browser" | "terminal" | "herdr" | "hermes"> = [];
     if (draft.terminal) capabilities.push("terminal");
     if (draft.browser) capabilities.push("browser");
-    if (draft.herdr) capabilities.push("herdr");
+    if (HERDR_ENABLED) {
+      if (draft.herdr) capabilities.push("herdr");
+    } else if (editingId) {
+      // Surface hidden — keep durable herdr cap so re-enabling the build still works.
+      const existing = hosts.find((h) => h.id === editingId);
+      if (existing?.capabilities.includes("herdr")) capabilities.push("herdr");
+    }
     if (draft.hermes) capabilities.push("hermes");
 
     setBusy(true);
@@ -1181,7 +1193,9 @@ function HostsSection() {
                   compact
                 />
               ) : null}
-              <HostServeCatalog hostId={host.id} hostLabel={host.label} />
+              {HERDR_ENABLED ? (
+                <HostServeCatalog hostId={host.id} hostLabel={host.label} />
+              ) : null}
             </li>
           ))}
         </ul>
@@ -1243,16 +1257,18 @@ function HostsSection() {
               />
               Browser
             </label>
-            <label>
-              <input
-                type="checkbox"
-                checked={draft.herdr}
-                disabled={busy}
-                aria-label="Herdr capability"
-                onChange={(event) => setDraft((d) => ({ ...d, herdr: event.target.checked }))}
-              />
-              Herdr
-            </label>
+            {HERDR_ENABLED ? (
+              <label>
+                <input
+                  type="checkbox"
+                  checked={draft.herdr}
+                  disabled={busy}
+                  aria-label="Herdr capability"
+                  onChange={(event) => setDraft((d) => ({ ...d, herdr: event.target.checked }))}
+                />
+                Herdr
+              </label>
+            ) : null}
             <label>
               <input
                 type="checkbox"

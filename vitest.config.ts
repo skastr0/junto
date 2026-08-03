@@ -10,6 +10,11 @@ import { configDefaults, defineConfig } from "vitest/config";
 // `vi.mock("@shared/canvas", ...)` redirect; this makes that workaround
 // unnecessary for every test going forward.
 export default defineConfig({
+  // Herdr unit tests need the surface on. Product builds (electron-vite) default
+  // OFF via VELLUM_HERDR. Opt out of herdr in vitest with VELLUM_HERDR=0.
+  define: {
+    __VELLUM_HERDR_ENABLED__: JSON.stringify(process.env.VELLUM_HERDR !== "0"),
+  },
   test: {
     // e2e/ specs use @playwright/test's own `test`/`expect` and launch a
     // real Electron app — vitest's default glob would otherwise pick up

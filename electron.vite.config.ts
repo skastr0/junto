@@ -43,15 +43,27 @@ const updateDefines = {
   __VELLUM_MAC_UPDATE_FEED_URL__: JSON.stringify(updateFeedUrl),
 };
 
+// Herdr product surface — default OFF. Opt in with VELLUM_HERDR=1 at build.
+const herdrDefines = {
+  __VELLUM_HERDR_ENABLED__: JSON.stringify(process.env.VELLUM_HERDR === "1"),
+};
+
+const productDefines = {
+  ...licenseDefines,
+  ...updateDefines,
+  ...herdrDefines,
+};
+
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
     resolve: { alias },
-    define: { ...licenseDefines, ...updateDefines },
+    define: productDefines,
   },
   preload: {
     plugins: [externalizeDepsPlugin()],
     resolve: { alias },
+    define: productDefines,
     build: {
       rollupOptions: {
         output: {
@@ -64,6 +76,7 @@ export default defineConfig({
   renderer: {
     root: ".",
     resolve: { alias },
+    define: productDefines,
     plugins: [react(), tailwindcss()],
     build: {
       rollupOptions: {

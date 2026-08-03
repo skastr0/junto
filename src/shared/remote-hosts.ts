@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { HERDR_ENABLED } from "./features";
 
 // Durable remote-host enrollment lives in the app-owned StateEngine database.
 // Source only synthesizes the immutable local host — remote machines are
@@ -111,7 +112,8 @@ export const LOCAL_HOST_ID = "local" as const;
 export const LOCAL_STATION_CAPABILITIES: ReadonlyArray<HostCapability> = [
   TERMINAL_HOST_CAPABILITY,
   BROWSER_HOST_CAPABILITY,
-  "herdr",
+  // Herdr is compile-gated (legacy). Schema still decodes historical rows.
+  ...(HERDR_ENABLED ? (["herdr"] as const) : []),
   "hermes",
 ];
 

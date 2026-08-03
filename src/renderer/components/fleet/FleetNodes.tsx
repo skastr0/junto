@@ -20,6 +20,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { DiscoveredPeer } from "@shared/ipc";
+import { productHostCapabilities } from "@shared/features";
 import type { RemoteHost } from "@shared/remote-hosts";
 import type { FleetProbeState } from "../../lib/fleet-state";
 import { hostColor } from "../../lib/fleet-layout";
@@ -225,8 +226,11 @@ export function StationNode({ data, selected }: NodeProps<StationFlowNode>) {
           <div className={`fleet-node__signal fleet-node__signal--${probe?.status ?? "unknown"}`}>
             {probeLabel(probe)}
           </div>
-          <div className="fleet-node__capabilities" aria-label={`Capabilities: ${host.capabilities.join(", ")}`}>
-            {host.capabilities.slice(0, 3).map((capability) => (
+          <div
+            className="fleet-node__capabilities"
+            aria-label={`Capabilities: ${productHostCapabilities(host.capabilities).join(", ")}`}
+          >
+            {productHostCapabilities(host.capabilities).slice(0, 3).map((capability) => (
               <span key={capability}>{capability}</span>
             ))}
           </div>

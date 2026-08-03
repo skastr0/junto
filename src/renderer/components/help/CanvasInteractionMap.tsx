@@ -1,3 +1,4 @@
+import { HERDR_ENABLED } from "@shared/features";
 import {
   HelpMap,
   HelpMapGroup,
@@ -40,7 +41,9 @@ export const CANVAS_HELP_KEYS: ReadonlyArray<HelpMapKeyRow> = [
   { keys: "⌫ · Del", action: "delete multi or single selection" },
   { keys: "1–9", action: "focus hotbar slot · re-tap cycles region members" },
   { keys: "⌘1–9", action: "assign selected node → slot (any node)" },
-  { keys: "F1 · .", action: "cycle idle herdr workers needing you" },
+  ...(HERDR_ENABLED
+    ? ([{ keys: "F1 · .", action: "cycle idle herdr workers needing you" }] as const)
+    : []),
 ];
 
 /**
