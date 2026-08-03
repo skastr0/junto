@@ -157,16 +157,29 @@ function NodeFormFocus({
         }
       />
       <div className="rts-kind-form-body inspector-body">
-        {!isLabel && kind !== "terminal" && kind !== "task" ? (
+        {!isLabel &&
+        kind !== "terminal" &&
+        kind !== "task" &&
+        kind !== "requests" &&
+        kind !== "artifacts" &&
+        kind !== "board" ? (
           <WaitingOnSection nodeId={node.id} />
         ) : null}
         {!isLabel &&
         kind !== "terminal" &&
         kind !== "task" &&
+        kind !== "requests" &&
+        kind !== "artifacts" &&
+        kind !== "board" &&
         node.type !== "group" ? (
           <NodePlacementSection node={node} />
         ) : null}
-        {!isLabel && kind !== "terminal" && kind !== "task" ? (
+        {!isLabel &&
+        kind !== "terminal" &&
+        kind !== "task" &&
+        kind !== "requests" &&
+        kind !== "artifacts" &&
+        kind !== "board" ? (
           <NodeCapabilityInventory node={node} />
         ) : null}
         {!node.ether?.entity && node.type === "text" ? (
@@ -614,6 +627,8 @@ export function KindSurface() {
       "terminal",
       "task",
       "requests",
+      "artifacts",
+      "board",
       "watcher",
       "timer",
     ].includes(kind);
@@ -621,10 +636,15 @@ export function KindSurface() {
   // keys) so command title is not echoed three more times in the mid third.
   const showSeatGlance =
     kind === "agent" || (HERDR_ENABLED && kind === "herdr");
-  // Terminal / label / task: no fields sheet. Label is pencil rename; task
-  // queue home is a kind-strip host pop; placement/work-role are noise here.
+  // Work sinks + shell furniture: no fields sheet. Rename via kind-strip pencil;
+  // task queue home is a host pop. Placement/fat label are noise.
   const showFieldsKey =
-    kind !== "terminal" && kind !== "label" && kind !== "task";
+    kind !== "terminal" &&
+    kind !== "label" &&
+    kind !== "task" &&
+    kind !== "requests" &&
+    kind !== "artifacts" &&
+    kind !== "board";
   const stripLabel = kind ?? nodeTypeLabel(node);
 
   return (

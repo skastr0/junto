@@ -53,7 +53,7 @@ function SinkRenameInput({
         el?.focus();
         el?.select();
       }}
-      aria-label="Rename tasks sink"
+      aria-label="Rename sink"
       className="nodrag nopan nowheel w-full truncate bg-transparent text-left font-mono text-[11px] font-semibold leading-snug outline-none"
       style={{ color: INK }}
       value={value}
@@ -72,6 +72,55 @@ function SinkRenameInput({
       onClick={(event) => event.stopPropagation()}
       onPointerDown={(event) => event.stopPropagation()}
     />
+  );
+}
+
+type SinkRenameProps = {
+  readonly renaming?: boolean;
+  readonly onRequestRename?: () => void;
+  readonly onRenameDone?: () => void;
+};
+
+/** Glance header title — pencil/RTS rename, no fat fields form. */
+function SinkGlanceTitle({
+  node,
+  fallback,
+  renaming = false,
+  onRequestRename,
+  onRenameDone,
+}: {
+  readonly node: CanvasNode;
+  readonly fallback: string;
+} & SinkRenameProps) {
+  const rawText = node.type === "text" ? node.text : "";
+  const firstLine = rawText.split("\n")[0] ?? "";
+  const label = firstLine || fallback;
+  const commitRename = (nextFirst: string) => {
+    const rest = rawText.split("\n").slice(1).join("\n");
+    editText(node.id, rest ? `${nextFirst}\n${rest}` : nextFirst);
+  };
+  if (renaming && onRenameDone) {
+    return (
+      <div className="min-w-0 flex-1">
+        <SinkRenameInput initial={label} onCommit={commitRename} onDone={onRenameDone} />
+      </div>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className="nodrag nopan min-w-0 flex-1 truncate text-left text-[8px] uppercase tracking-[0.18em]"
+      style={{ color: "#68604a" }}
+      title={onRequestRename ? "double-click to rename" : undefined}
+      onDoubleClick={(event) => {
+        if (event.shiftKey || !onRequestRename) return;
+        event.preventDefault();
+        event.stopPropagation();
+        onRequestRename();
+      }}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -128,49 +177,22 @@ export function TasksCard({
   onRenameDone,
 }: {
   readonly node: CanvasNode;
-  readonly renaming?: boolean;
-  readonly onRequestRename?: () => void;
-  readonly onRenameDone?: () => void;
-}) {
+} & SinkRenameProps) {
   const items = node.ether?.tasks?.items ?? [];
   const { inFlight, needsInput } = sinkGlance(items);
-  const rawText = node.type === "text" ? node.text : "";
-  const firstLine = rawText.split("\n")[0] ?? "";
-  const label = firstLine || "tasks";
-  const commitRename = (nextFirst: string) => {
-    const rest = rawText.split("\n").slice(1).join("\n");
-    editText(node.id, rest ? `${nextFirst}\n${rest}` : nextFirst);
-  };
   const hotItems = items.filter(
     (t) => t.state === "input-required" || t.state === "auth-required" || t.state === "working",
   );
   return (
     <div className="factory-glance factory-glance--tasks flex h-full w-full flex-col overflow-hidden" data-testid="tasks-card">
       <div className="factory-glance__header flex items-center justify-between gap-2">
-        {renaming && onRenameDone ? (
-          <div className="min-w-0 flex-1">
-            <SinkRenameInput
-              initial={label}
-              onCommit={commitRename}
-              onDone={onRenameDone}
-            />
-          </div>
-        ) : (
-          <button
-            type="button"
-            className="nodrag nopan min-w-0 flex-1 truncate text-left text-[8px] uppercase tracking-[0.18em]"
-            style={{ color: "#68604a" }}
-            title={onRequestRename ? "double-click to rename" : undefined}
-            onDoubleClick={(event) => {
-              if (event.shiftKey || !onRequestRename) return;
-              event.preventDefault();
-              event.stopPropagation();
-              onRequestRename();
-            }}
-          >
-            {label}
-          </button>
-        )}
+        <SinkGlanceTitle
+          node={node}
+          fallback="tasks"
+          renaming={renaming}
+          onRequestRename={onRequestRename}
+          onRenameDone={onRenameDone}
+        />
         <div className="flex items-center gap-1.5">
           <span
             className="text-[9px] tabular-nums"
@@ -227,15 +249,26 @@ export function TasksCard({
   );
 }
 
-export function RequestsCard({ node }: { readonly node: CanvasNode }) {
+export function RequestsCard({
+  node,
+  renaming = false,
+  onRequestRename,
+  onRenameDone,
+}: {
+  readonly node: CanvasNode;
+} & SinkRenameProps) {
   const items = node.ether?.requests?.items ?? [];
   const pending = items.filter((t) => t.state === "input-required").length;
   return (
     <div className="factory-glance factory-glance--requests flex h-full w-full flex-col overflow-hidden" data-testid="requests-card">
       <div className="factory-glance__header flex items-center justify-between gap-2">
-        <span className="text-[8px] uppercase tracking-[0.18em]" style={{ color: "#68604a" }}>
-          requests
-        </span>
+        <SinkGlanceTitle
+          node={node}
+          fallback="requests"
+          renaming={renaming}
+          onRequestRename={onRequestRename}
+          onRenameDone={onRenameDone}
+        />
         <span className="text-[9px] tabular-nums" style={{ color: pending ? HUE.amber : DIM }}>
           {pending} pending
         </span>
@@ -251,15 +284,26 @@ export function RequestsCard({ node }: { readonly node: CanvasNode }) {
   );
 }
 
-export function BoardCard({ node }: { readonly node: CanvasNode }) {
+export function BoardCard({
+  node,
+  renaming = false,
+  onRequestRename,
+  onRenameDone,
+}: {
+  readonly node: CanvasNode;
+} & SinkRenameProps) {
   const topics = node.ether?.board?.topics ?? [];
   const unread = node.ether?.board?.unread ?? 0;
   return (
     <div className="factory-glance factory-glance--board flex h-full w-full flex-col overflow-hidden" data-testid="board-card">
       <div className="factory-glance__header flex items-center justify-between gap-2">
-        <span className="text-[8px] uppercase tracking-[0.18em]" style={{ color: "#68604a" }}>
-          board
-        </span>
+        <SinkGlanceTitle
+          node={node}
+          fallback="board"
+          renaming={renaming}
+          onRequestRename={onRequestRename}
+          onRenameDone={onRenameDone}
+        />
         <span
           className="text-[9px] tabular-nums"
           style={{ color: unread > 0 ? HUE.amber : DIM }}
@@ -285,14 +329,25 @@ export function BoardCard({ node }: { readonly node: CanvasNode }) {
   );
 }
 
-export function ArtifactsCard({ node }: { readonly node: CanvasNode }) {
+export function ArtifactsCard({
+  node,
+  renaming = false,
+  onRequestRename,
+  onRenameDone,
+}: {
+  readonly node: CanvasNode;
+} & SinkRenameProps) {
   const items = node.ether?.artifacts?.items ?? [];
   return (
     <div className="factory-glance factory-glance--artifacts flex h-full w-full flex-col overflow-hidden" data-testid="artifacts-card">
       <div className="factory-glance__header flex items-center justify-between gap-2">
-        <span className="text-[8px] uppercase tracking-[0.18em]" style={{ color: "#68604a" }}>
-          artifacts
-        </span>
+        <SinkGlanceTitle
+          node={node}
+          fallback="artifacts"
+          renaming={renaming}
+          onRequestRename={onRequestRename}
+          onRenameDone={onRenameDone}
+        />
         <span className="text-[9px] tabular-nums" style={{ color: DIM }}>
           {items.length}
         </span>

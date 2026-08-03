@@ -7,6 +7,7 @@ import {
   Inbox,
   ListChecks,
   MessageSquareText,
+  Package,
   Pause,
   Pencil,
   Play,
@@ -370,13 +371,60 @@ export function KindActions({ node }: { readonly node: CanvasNode }) {
       return <TaskKindKeys node={node} />;
     case "requests":
       return (
-        <KindKey
-          label="Open request inbox"
-          title="open the request inbox"
-          onClick={() => openWorkDetail(node.id)}
-        >
-          <Inbox size={ICON} />
-        </KindKey>
+        <>
+          <KindKey
+            label="Open request inbox"
+            title="open the request inbox"
+            onClick={() => openWorkDetail(node.id)}
+          >
+            <Inbox size={ICON} />
+          </KindKey>
+          <KindKey
+            label="Rename"
+            title="rename this requests sink"
+            onClick={() => state$.editNodeId.set(node.id)}
+          >
+            <Pencil size={ICON} />
+          </KindKey>
+        </>
+      );
+    case "artifacts":
+      return (
+        <>
+          <KindKey
+            label="Open artifacts"
+            title="open the artifact library"
+            onClick={() => openWorkDetail(node.id)}
+          >
+            <Package size={ICON} />
+          </KindKey>
+          <KindKey
+            label="Rename"
+            title="rename this artifacts sink"
+            onClick={() => state$.editNodeId.set(node.id)}
+          >
+            <Pencil size={ICON} />
+          </KindKey>
+        </>
+      );
+    case "board":
+      return (
+        <>
+          <KindKey
+            label="Open board"
+            title="open the board"
+            onClick={() => openWorkDetail(node.id)}
+          >
+            <MessageSquareText size={ICON} />
+          </KindKey>
+          <KindKey
+            label="Rename"
+            title="rename this board"
+            onClick={() => state$.editNodeId.set(node.id)}
+          >
+            <Pencil size={ICON} />
+          </KindKey>
+        </>
       );
     case "watcher":
     case "timer":

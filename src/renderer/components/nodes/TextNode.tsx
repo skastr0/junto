@@ -753,11 +753,26 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
               onRenameDone={() => setRenaming(false)}
             />
           ) : entityKind === "requests" ? (
-            <RequestsCard node={node} />
+            <RequestsCard
+              node={node}
+              renaming={renaming}
+              onRequestRename={() => setRenaming(true)}
+              onRenameDone={() => setRenaming(false)}
+            />
           ) : entityKind === "artifacts" ? (
-            <ArtifactsCard node={node} />
+            <ArtifactsCard
+              node={node}
+              renaming={renaming}
+              onRequestRename={() => setRenaming(true)}
+              onRenameDone={() => setRenaming(false)}
+            />
           ) : entityKind === "board" ? (
-            <BoardCard node={node} />
+            <BoardCard
+              node={node}
+              renaming={renaming}
+              onRequestRename={() => setRenaming(true)}
+              onRenameDone={() => setRenaming(false)}
+            />
           ) : entityKind === "herdr" ? (
             <HerdrCard
               node={node}

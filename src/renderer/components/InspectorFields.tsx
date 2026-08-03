@@ -499,8 +499,12 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
         ) : null}
       </div>
     ) : null}
-    {/* Task sinks rename via kind-strip pencil / card double-click — no fat label field. */}
-    {node.type === "text" && node.ether?.entity?.kind !== "task" ? (
+    {/* Work sinks rename via kind-strip pencil / card double-click — no fat label field. */}
+    {node.type === "text" &&
+    node.ether?.entity?.kind !== "task" &&
+    node.ether?.entity?.kind !== "requests" &&
+    node.ether?.entity?.kind !== "artifacts" &&
+    node.ether?.entity?.kind !== "board" ? (
       <label className="inspector-editor">
         <span>{node.ether?.entity ? "label" : "note text"}</span>
         <textarea
