@@ -36,6 +36,12 @@ const SKIP_DIR_NAMES = new Set([
   ".turbo",
   ".vite",
   "coverage",
+  // Local design-tooling / agent state — not product brand surfaces.
+  ".design-sync",
+  ".ds-sync",
+  ".atlas",
+  ".groundwork",
+  ".local",
 ]);
 
 const TEXT_EXT = new Set([

@@ -10,7 +10,7 @@ import { EventEmitter } from "node:events";
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
-import { Effect, Exit, Scope } from "effect";
+import { Context, Effect, Exit, Scope } from "effect";
 import {
   findHostById,
   hostsWithCapability,
@@ -80,10 +80,15 @@ const runLayered = async <A, E, R>(
   return runner(effect);
 };
 
-/** R=never Scope.make/close — same configured host runner as layered SSH work. */
+/**
+ * R=never Scope.make/close — empty Context is correct (no product services).
+ * Do not route through the layered SSH runner: unit tests never configure it,
+ * and Scope finalizers must still run on close/error paths.
+ */
 const runScopePromise = <A>(
   effect: Effect.Effect<A, unknown, never>,
-): Promise<A> => runLayered(effect as Effect.Effect<A, unknown, never>);
+): Promise<A> =>
+  Effect.runPromiseWith(Context.empty())(effect);
 
 type RemoteEntry = {
   client: TermControlClient;

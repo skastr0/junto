@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Context, Effect } from "effect";
 import { isAllowedBrowserUrl } from "@shared/browser";
-import { AppRuntime } from "../../runtime";
+import { runClosedBrowserEffect } from "./run-closed";
 import {
   makeBrowserCapabilityRegistry,
   type BrowserCapabilityRegistry,
@@ -565,7 +565,8 @@ export const startBrowserComposition = async (
       bindControlShutdown: shutdown.bindControlShutdown,
       drainOnQuit: shutdown.drainOnQuit,
     });
-    await AppRuntime.runPromise(profiles.recoverPendingWipe);
+    // recoverPendingWipe is R=never on the injected profiles API.
+    await runClosedBrowserEffect(profiles.recoverPendingWipe);
     await activate(composition);
     return composition;
   } catch (error) {

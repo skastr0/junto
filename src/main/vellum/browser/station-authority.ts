@@ -8,6 +8,7 @@ import {
   type SettingsServiceApi,
 } from "../settings/service";
 import type { BrowserHostCapabilityAuthority } from "./host-capability";
+import { runClosedBrowserEffect } from "./run-closed";
 
 export interface BrowserHostCapabilityAuthorityLease {
   readonly authority: BrowserHostCapabilityAuthority;
@@ -44,7 +45,8 @@ export const prepareBrowserHostCapabilityAuthority = async (
     current = stationIdentity(next);
   });
   try {
-    const loaded = await AppRuntime.runPromise(settings.get);
+    // settings.get is R=never on the injected API — do not force AppRuntime.
+    const loaded = await runClosedBrowserEffect(settings.get);
     // Subscribe-before-read closes the load/subscribe gap. If a complete
     // settings transaction published while the read was pending, that newer
     // identity wins over the older load result.

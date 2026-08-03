@@ -8,7 +8,7 @@ import {
   type CanvasNodeReader,
   type NodeRefResolutionError,
 } from "../node-ref-resolver";
-import { AppRuntime } from "../../runtime";
+import { runClosedBrowserEffect } from "./run-closed";
 
 export interface ResolvedPageTarget {
   readonly ref: NodeRefKey;
@@ -61,7 +61,7 @@ export const makePageTargetResolver = (canvases: CanvasNodeReader): PageTargetRe
     if (!parsed.ok) return fail("invalid", parsed.error.message);
 
     try {
-      const resolved = await AppRuntime.runPromise(
+      const resolved = await runClosedBrowserEffect(
         Effect.result(resolveNodeRef(canvases, parsed.value, { expectedEntityKind: "page" })),
       );
       if (Result.isFailure(resolved)) return resolutionFailure(resolved.failure);
