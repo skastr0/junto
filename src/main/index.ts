@@ -1568,8 +1568,14 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     // headless/zero-window station contract explicit before readiness opens.
     try {
       kernelService = await AppRuntime.runPromise(KernelService);
-      // V4-KERNEL: host-owned Effect entry (migration/runtime.md).
-      kernelService.start((effect) => AppRuntime.runPromise(effect as never));
+      // V4-KERNEL + V4-PROGRAM: host-owned ManagedRuntime entry
+      // (migration/runtime.md). Factory program via runFork.
+      kernelService.start({
+        runPromise: (effect) => AppRuntime.runPromise(effect as never),
+        runFork: (effect) => {
+          AppRuntime.runFork(effect as never);
+        },
+      });
       stationControl = await startStationControlServer({
         home: termControlHome,
         appVersion: app.getVersion(),

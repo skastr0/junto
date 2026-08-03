@@ -44,7 +44,7 @@ import { StationRepository } from "./vellum/station/repository";
 import { WorkRepository } from "./vellum/work/repository";
 import {
   KernelService,
-  type KernelHostRun,
+  type KernelHost,
 } from "./vellum/kernel/service";
 import { HerdrPlane } from "./vellum/herdr/plane";
 import { HermesPlane } from "./vellum/hermes/plane";
@@ -123,7 +123,7 @@ type Handles = {
     readonly shutdown: { readonly drainOnQuit: () => Promise<unknown> };
   };
   kernel?: {
-    readonly start: (hostRun: KernelHostRun) => void;
+    readonly start: (host: KernelHost) => void;
     readonly suspend: () => void;
   };
   shuttingDown: boolean;
@@ -342,10 +342,14 @@ const runProductBoot = async (): Promise<void> => {
   try {
     const kernel = await RemoteRuntime.runPromise(KernelService);
     handles.kernel = kernel;
-    // V4-KERNEL: host-owned Effect entry (migration/runtime.md).
-    kernel.start((effect) =>
-      RemoteRuntime.runPromise(effect as never),
-    );
+    // V4-KERNEL + V4-PROGRAM: host-owned ManagedRuntime entry.
+    // Factory program via runFork (Effect control plane).
+    kernel.start({
+      runPromise: (effect) => RemoteRuntime.runPromise(effect as never),
+      runFork: (effect) => {
+        RemoteRuntime.runFork(effect as never);
+      },
+    });
     handles.stationControl = await startStationControlServer({
       home: controlHome,
       appVersion: remoteAppVersion(),

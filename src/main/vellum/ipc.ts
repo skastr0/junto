@@ -1323,8 +1323,14 @@ export const registerVellumIpc = (): void => {
       // First usage fetch is fire-and-forget off the boot critical path;
       // codexbar can take ~15-20s so it never blocks window open.
       usage.start();
-      // V4-KERNEL: bind warm AppRuntime; kernel has no local Runtime entry.
-      kernel.start((effect) => AppRuntime.runPromise(effect as never));
+      // V4-KERNEL + V4-PROGRAM: host-owned ManagedRuntime entry; factory
+      // program is runFork (Effect control plane, not async IIFE).
+      kernel.start({
+        runPromise: (effect) => AppRuntime.runPromise(effect as never),
+        runFork: (effect) => {
+          AppRuntime.runFork(effect as never);
+        },
+      });
 
       if (stationForSeed.station.role === "command-center") {
         yield* fleetPropagation.start();

@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import type { CanvasDoc, CanvasNode } from "../src/shared/canvas";
 import {
@@ -164,26 +164,30 @@ describe("kernel actor and delivery identity", () => {
     };
     const available = (ready: boolean) => ({
       isLocalSeatReady: () => ready,
-      installationForHost: async () => undefined,
-      isLive: async () => false,
+      installationForHost: () => Effect.succeed(undefined),
+      isLive: () => Effect.succeed(false),
     });
 
     expect(
-      await actorSeatSelectableNow(
-        "factory",
-        node,
-        actor,
-        scope,
-        available(false),
+      await Effect.runPromise(
+        actorSeatSelectableNow(
+          "factory",
+          node,
+          actor,
+          scope,
+          available(false),
+        ),
       ),
     ).toBe(false);
     expect(
-      await actorSeatSelectableNow(
-        "factory",
-        node,
-        actor,
-        scope,
-        available(true),
+      await Effect.runPromise(
+        actorSeatSelectableNow(
+          "factory",
+          node,
+          actor,
+          scope,
+          available(true),
+        ),
       ),
     ).toBe(true);
   });
@@ -200,20 +204,22 @@ describe("kernel actor and delivery identity", () => {
     };
 
     expect(
-      await actorSeatSelectableNow(
-        "factory",
-        node,
-        actor,
-        {
-          role: "remote",
-          hostId: "box-a",
-          installationId: installation("remote-a"),
-        },
-        {
-          isLocalSeatReady: () => false,
-          installationForHost: async () => installation("remote-b"),
-          isLive: async () => true,
-        },
+      await Effect.runPromise(
+        actorSeatSelectableNow(
+          "factory",
+          node,
+          actor,
+          {
+            role: "remote",
+            hostId: "box-a",
+            installationId: installation("remote-a"),
+          },
+          {
+            isLocalSeatReady: () => false,
+            installationForHost: () => Effect.succeed(installation("remote-b")),
+            isLive: () => Effect.succeed(true),
+          },
+        ),
       ),
     ).toBe(false);
   });
@@ -284,13 +290,15 @@ describe("kernel actor and delivery identity", () => {
     const registry = activeActorRegistry(actorRefs);
     const availability = {
       isLocalSeatReady: () => false,
-      installationForHost: async (hostId: string) =>
-        hostId === "box-offline"
-          ? offlineInstallation
-          : hostId === "box-live"
-            ? liveInstallation
-            : undefined,
-      isLive: async (hostId: string) => hostId === "box-live",
+      installationForHost: (hostId: string) =>
+        Effect.succeed(
+          hostId === "box-offline"
+            ? offlineInstallation
+            : hostId === "box-live"
+              ? liveInstallation
+              : undefined,
+        ),
+      isLive: (hostId: string) => Effect.succeed(hostId === "box-live"),
     };
     const scope = {
       role: "command-center" as const,
@@ -299,21 +307,22 @@ describe("kernel actor and delivery identity", () => {
     };
     const selectable = new Set(
       (
-        await Promise.all(
-          actorRefs.map(async (actor) => {
-            const node = doc.nodes.find(
-              (candidate) => candidate.id === actor.nodeId,
-            )!;
-            return (await actorSeatSelectableNow(
-              "factory",
-              node,
-              actor,
-              scope,
-              availability,
-            ))
-              ? actor.seatId
-              : undefined;
-          }),
+        await Effect.runPromise(
+          Effect.forEach(actorRefs, (actor) =>
+            Effect.gen(function* () {
+              const node = doc.nodes.find(
+                (candidate) => candidate.id === actor.nodeId,
+              )!;
+              const ok = yield* actorSeatSelectableNow(
+                "factory",
+                node,
+                actor,
+                scope,
+                availability,
+              );
+              return ok ? actor.seatId : undefined;
+            }),
+          ),
         )
       ).filter((seatId) => seatId !== undefined),
     );

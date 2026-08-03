@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { Effect } from "effect";
 
 import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
 import {
@@ -116,11 +117,17 @@ describe("Kernel managed-seat wake scheduling", () => {
     });
     let runs = 0;
 
-    const schedule = makeCoalescedKernelCycleScheduler(async () => {
-      runs += 1;
-      if (runs === 1) await firstCycle;
-      if (runs === 2) reportSecondStarted();
-    });
+    // V4-PROGRAM: cycle is Effect; host fork is the only Promise bridge.
+    const schedule = makeCoalescedKernelCycleScheduler(
+      Effect.gen(function* () {
+        runs += 1;
+        if (runs === 1) yield* Effect.promise(() => firstCycle);
+        if (runs === 2) reportSecondStarted();
+      }),
+      (effect) => {
+        void Effect.runPromise(effect as Effect.Effect<unknown, unknown>);
+      },
+    );
 
     schedule();
     schedule();
