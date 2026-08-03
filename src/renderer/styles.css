@@ -1763,42 +1763,6 @@ html[data-surface-motion="paused"] *::after {
   }
 }
 
-/* Card-wide ready/complete wash — GradientSpin fills the seat (4px cells). */
-.vellum-activity-card-wash {
-  pointer-events: none;
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  overflow: hidden;
-  border-radius: inherit;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  /* Soft green breath under the cell stream — keeps the seat glanceable. */
-  background:
-    radial-gradient(
-      120% 90% at 50% 40%,
-      color-mix(in srgb, var(--activity-wash-hex, #5fb98e) 10%, transparent),
-      transparent 72%
-    );
-  animation: vellumActivityCardWash 2.8s ease-in-out infinite;
-}
-.vellum-activity-card-wash__spin {
-  /* Opacity only — GradientSpin owns cell motion. */
-  opacity: 0.72;
-  flex-shrink: 0;
-}
-
-@keyframes vellumActivityCardWash {
-  0%,
-  100% {
-    opacity: 0.78;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
 .vellum-status-dot-pulse {
   animation: vellumStatusDotPulse 2.4s ease-in-out infinite;
 }
@@ -1816,7 +1780,6 @@ html[data-surface-motion="paused"] *::after {
 /* Hidden/reduced-motion: freeze continuous status/edge paint entirely. */
 html[data-surface-motion="paused"] .vellum-status-dot-pulse,
 html[data-surface-motion="paused"] .vellum-activity-pulse-cell,
-html[data-surface-motion="paused"] .vellum-activity-card-wash,
 html[data-surface-motion="paused"] .vellum-blocker,
 html[data-surface-motion="paused"] .vellum-blocker::after,
 html[data-surface-motion="paused"] .vellum-node__flag--blocked-live,
@@ -1833,7 +1796,6 @@ html[data-surface-motion="paused"] .vellum-herdr-working-dot {
   .vellum-node__flag--blocked-live,
   .vellum-status-dot-pulse,
   .vellum-activity-pulse-cell,
-  .vellum-activity-card-wash,
   .vellum-edge-ripple .react-flow__edge-path,
   path.vellum-edge-ripple {
     animation: none;

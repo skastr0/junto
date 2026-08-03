@@ -3,34 +3,12 @@ import {
   browserActivity,
   chatActivity,
   herdrActivity,
-  houseGradientStops,
   loadingActivity,
   terminalActivity,
   timerActivity,
   toolActivity,
   watcherActivity,
 } from "../src/renderer/lib/activity";
-
-describe("houseGradientStops", () => {
-  it("returns monochrome hex stops for a tone (gradient-spin needs #rrggbb)", () => {
-    const stops = houseGradientStops("amber");
-    expect(stops).toHaveLength(3);
-    expect(stops[0]?.position).toBe(0);
-    expect(stops[2]?.position).toBe(1);
-    for (const s of stops) {
-      expect(s.color).toMatch(/^#[0-9a-fA-F]{6}$/);
-    }
-  });
-
-  it("can tip amber into cyan with hex only", () => {
-    const stops = houseGradientStops("amber", { cyanTip: true });
-    expect(stops[2]?.color).toMatch(/^#[0-9a-fA-F]{6}$/);
-    // tip should move toward cyan vs pure amber mid stop
-    expect(stops[2]?.color.toLowerCase()).not.toBe(
-      stops[1]?.color.toLowerCase(),
-    );
-  });
-});
 
 describe("herdrActivity", () => {
   it("maps herdr seen/unseen with RTS severity tones (cyan/amber/crimson/green)", () => {

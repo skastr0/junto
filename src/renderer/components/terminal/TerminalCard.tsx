@@ -10,7 +10,6 @@ import {
   subscribeAgentSeatState,
 } from "../../lib/agent-seat-state";
 import { terminalActivity } from "../../lib/activity";
-import { ActivityCardWash } from "../ActivityMark";
 import { terminal$ } from "../../lib/terminal-state";
 import { onTerminalEvent } from "../../lib/terminal-events";
 import { getVellumApi } from "../../lib/vellum-api";
@@ -134,29 +133,24 @@ export function TerminalCard({
       data-exit-reason={exitReason}
       data-seat-complete={complete ? "true" : undefined}
     >
-      {complete ? <ActivityCardWash tone="green" /> : null}
-      <div className="relative z-[1]">
-        <ExecutionCardHeader
-          decal={
-            <div className="grid size-7 shrink-0 place-items-center rounded-md border border-amber/25 bg-amber/[0.07] text-amber">
-              <SquareTerminal size={15} />
-            </div>
-          }
-          title={label}
-          subtitle={subtitle}
-          activity={
-            seatState === "attention" && seatEvent?.reason
-              ? { ...activity, label: seatEvent.reason }
-              : activity
-          }
-        />
-        <div className="mt-1 truncate text-[10px] tabular-nums text-dim">
-          {native.hostId}
-        </div>
+      <ExecutionCardHeader
+        decal={
+          <div className="grid size-7 shrink-0 place-items-center rounded-md border border-amber/25 bg-amber/[0.07] text-amber">
+            <SquareTerminal size={15} />
+          </div>
+        }
+        title={label}
+        subtitle={subtitle}
+        activity={
+          seatState === "attention" && seatEvent?.reason
+            ? { ...activity, label: seatEvent.reason }
+            : activity
+        }
+      />
+      <div className="mt-1 truncate text-[10px] tabular-nums text-dim">
+        {native.hostId}
       </div>
-      <div className="relative z-[1]">
-        <ClaimedTaskStrip node={node} />
-      </div>
+      <ClaimedTaskStrip node={node} />
     </div>
   );
 }

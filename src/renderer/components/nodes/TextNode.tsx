@@ -31,7 +31,7 @@ import { consumeWorkDetailOpen, workDetailOpen$ } from "../../lib/work-detail-op
 import { onTerminalEvent } from "../../lib/terminal-events";
 import { terminal$ } from "../../lib/terminal-state";
 import { getVellumApi } from "../../lib/vellum-api";
-import { ActivityCardWash, ActivityMarkFromSpec } from "../ActivityMark";
+import { ActivityMarkFromSpec } from "../ActivityMark";
 import { HerdrCard } from "../herdr/HerdrCard";
 import { HarnessMark } from "../herdr/HarnessMark";
 import { TerminalCard } from "../terminal/TerminalCard";
@@ -278,48 +278,41 @@ function EntityCard({
       data-exit-reason={managed ? exitReason : undefined}
       data-seat-complete={complete ? "true" : undefined}
     >
-      {complete ? <ActivityCardWash tone="green" /> : null}
-      <div className="relative z-[1]">
-        <ExecutionCardHeader
-          decal={<HarnessMark agent={managed ? managedHarness : undefined} size={28} />}
-          title={
-            <div
-              className="truncate font-mono text-[14px] font-semibold leading-snug"
-              style={{ color: nameHue }}
-              title={rawName}
-            >
-              {rawName}
-            </div>
-          }
-          activity={
-            seatEvent?.state === "attention" && seatEvent.reason
-              ? { ...activity, label: seatEvent.reason }
-              : activity
-          }
-        />
-        {context.length > 0 ? (
+      <ExecutionCardHeader
+        decal={<HarnessMark agent={managed ? managedHarness : undefined} size={28} />}
+        title={
           <div
-            className="mt-1 truncate text-[10px] tabular-nums"
-            style={{
-              color: managed && exitReason ? HUE.amber : DIM,
-            }}
-            title={
-              managed && exitMessage
-                ? exitMessage
-                : workRole
-                  ? `work role: ${workRole}`
-                  : undefined
-            }
+            className="truncate font-mono text-[14px] font-semibold leading-snug"
+            style={{ color: nameHue }}
+            title={rawName}
           >
-            {context.join(" › ")}
+            {rawName}
           </div>
-        ) : null}
-      </div>
-      {kind === "agent" ? (
-        <div className="relative z-[1]">
-          <ClaimedTaskStrip node={node} />
+        }
+        activity={
+          seatEvent?.state === "attention" && seatEvent.reason
+            ? { ...activity, label: seatEvent.reason }
+            : activity
+        }
+      />
+      {context.length > 0 ? (
+        <div
+          className="mt-1 truncate text-[10px] tabular-nums"
+          style={{
+            color: managed && exitReason ? HUE.amber : DIM,
+          }}
+          title={
+            managed && exitMessage
+              ? exitMessage
+              : workRole
+                ? `work role: ${workRole}`
+                : undefined
+          }
+        >
+          {context.join(" › ")}
         </div>
       ) : null}
+      {kind === "agent" ? <ClaimedTaskStrip node={node} /> : null}
     </div>
   );
 }

@@ -1,9 +1,10 @@
 /**
- * ActivityMark predicates + house gradient stops.
+ * ActivityMark predicates.
  *
  * Rule: active work/block → wave (clockwise); ready/complete → pulse;
  * settled → static mark. Visible status labels are forbidden; aria/title
- * carry the word.
+ * carry the word. Complete seats use the corner green pulse only — no
+ * card-wide wash.
  *
  * Severity tones MUST match signal-mark / RTS ladder end-to-end
  * (cards, chips, minimap, command bar):
@@ -12,7 +13,6 @@
  * Motion pattern may change across states; the hue for a severity does not.
  */
 
-import type { SpinPattern } from "gradient-spin";
 import type { AgentSeatState } from "@shared/agent-seat-state";
 import { HUE } from "./theme";
 
@@ -20,12 +20,14 @@ export type ActivityTone = "amber" | "cyan" | "green" | "crimson" | "steel";
 /** wave = clockwise trail · pulse = soft breath (complete) · static = settled */
 export type ActivityMode = "wave" | "pulse" | "static";
 export type ActivitySize = "node" | "inline";
+/** Legacy motion nuance for wave states; ActivityMark ignores pattern. */
+export type ActivityPattern = "arrow-up" | "diagonal" | "snake" | "ripple";
 
 export interface ActivitySpec {
   readonly mode: ActivityMode;
   readonly tone: ActivityTone;
   /** Legacy semantic nuance for wave states; pulse/static ignore pattern. */
-  readonly pattern?: SpinPattern;
+  readonly pattern?: ActivityPattern;
   /** Accessible name only — never rendered as chrome text. */
   readonly label: string;
 }
@@ -45,52 +47,6 @@ export const SEVERITY_TONE = {
   working: "cyan",
   idle: "steel",
 } as const satisfies Record<string, ActivityTone>;
-
-/** Near-black house ground — used as the dim end of monochrome ramps. */
-const GROUND_HEX = "#0c0b0a";
-
-/**
- * Linear mix of two #rrggbb colors. gradient-spin's OKLab sampler only accepts
- * hex (hexToOklab) — rgba stops become NaN cell fills.
- */
-export function mixHex(a: string, b: string, t: number): string {
-  const parse = (hex: string): [number, number, number] => {
-    const clean = hex.replace("#", "");
-    return [
-      parseInt(clean.slice(0, 2), 16),
-      parseInt(clean.slice(2, 4), 16),
-      parseInt(clean.slice(4, 6), 16),
-    ];
-  };
-  const [ar, ag, ab] = parse(a);
-  const [br, bg, bb] = parse(b);
-  const clamp = (n: number) => Math.max(0, Math.min(255, Math.round(n)));
-  const to = (n: number) => clamp(n).toString(16).padStart(2, "0");
-  const r = ar + (br - ar) * t;
-  const g = ag + (bg - ag) * t;
-  const bl = ab + (bb - ab) * t;
-  return `#${to(r)}${to(g)}${to(bl)}`;
-}
-
-/** Monochrome (or amber→cyan tip) hex stops for gradient-spin. */
-export function houseGradientStops(
-  tone: ActivityTone,
-  opts?: { readonly cyanTip?: boolean },
-): ReadonlyArray<{ readonly color: string; readonly position: number }> {
-  const hex = ACTIVITY_TONE_HEX[tone];
-  if (opts?.cyanTip && tone === "amber") {
-    return [
-      { color: mixHex(GROUND_HEX, hex, 0.22), position: 0 },
-      { color: hex, position: 0.55 },
-      { color: mixHex(hex, HUE.cyan, 0.65), position: 1 },
-    ];
-  }
-  return [
-    { color: mixHex(GROUND_HEX, hex, 0.2), position: 0 },
-    { color: hex, position: 0.5 },
-    { color: mixHex(hex, "#ffffff", 0.12), position: 1 },
-  ];
-}
 
 // --- herdr -------------------------------------------------------------------
 
@@ -120,8 +76,8 @@ export function herdrActivity(input: {
   readonly connState?: HerdrConnState | null;
 }): ActivitySpec {
   // First-hydrate must stay static. A fleet of unbound cards all hit
-  // metaStatus:"loading" together — waving every GradientSpin pegs the
-  // renderer (~70% CPU idle on an 80-pane board). Working/blocked still wave.
+  // metaStatus:"loading" together — waving every card pegs the renderer
+  // (~70% CPU idle on an 80-pane board). Working/blocked still wave.
   if (input.metaStatus === "loading") {
     return {
       mode: "static",

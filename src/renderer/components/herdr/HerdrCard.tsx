@@ -25,7 +25,6 @@ import { resolveAuthoredPageHost } from "../../lib/page-authoring";
 import { state$ } from "../../lib/state";
 import { getVellumApi } from "../../lib/vellum-api";
 import { DIM, HUE, INK, withAlpha } from "../../lib/theme";
-import { ActivityCardWash } from "../ActivityMark";
 import { ExecutionCardHeader } from "../nodes/ExecutionCardHeader";
 import { HarnessMark } from "./HarnessMark";
 
@@ -374,59 +373,56 @@ export function HerdrCard({
       data-seat-complete={complete ? "true" : undefined}
       onPointerEnter={preWarm}
     >
-      {complete ? <ActivityCardWash tone="green" /> : null}
-      <div className="relative z-[1]">
-        <ExecutionCardHeader
-          decal={
-            <HarnessMark
-              agent={agent}
-              size={28}
-              focused={meta?.focused === true}
+      <ExecutionCardHeader
+        decal={
+          <HarnessMark
+            agent={agent}
+            size={28}
+            focused={meta?.focused === true}
+          />
+        }
+        title={
+          renaming ? (
+            <RenameInput
+              initial={rawName}
+              onCommit={commitRename}
+              onDone={onRenameDone}
             />
-          }
-          title={
-            renaming ? (
-              <RenameInput
-                initial={rawName}
-                onCommit={commitRename}
-                onDone={onRenameDone}
-              />
-            ) : (
-              <button
-                type="button"
-                className="nodrag nopan w-full truncate text-left font-mono text-[14px] font-semibold leading-snug"
-                style={{ color: INK }}
-                title={selected ? "double-click to rename" : "open terminal"}
-                onPointerDown={guardedOpen}
-                onClick={guardedOpen}
-                onDoubleClick={(event) => {
-                  if (event.shiftKey) return;
-                  if (!selected) return;
-                  event.preventDefault();
-                  event.stopPropagation();
-                  onRequestRename();
-                }}
-              >
-                {hero}
-              </button>
-            )
-          }
-          subtitle={harnessDisplayName(agent)}
-          activity={
-            metaCache?.error
-              ? { ...activity, label: metaCache.error }
-              : activity
-          }
-        />
-        <div
-          className="mt-0.5 truncate text-[10px] tabular-nums"
-          style={{ color: DIM }}
-          title={crumbTitle}
-        >
-          {crumbs.join(" › ")}
-        </div>
+          ) : (
+            <button
+              type="button"
+              className="nodrag nopan w-full truncate text-left font-mono text-[14px] font-semibold leading-snug"
+              style={{ color: INK }}
+              title={selected ? "double-click to rename" : "open terminal"}
+              onPointerDown={guardedOpen}
+              onClick={guardedOpen}
+              onDoubleClick={(event) => {
+                if (event.shiftKey) return;
+                if (!selected) return;
+                event.preventDefault();
+                event.stopPropagation();
+                onRequestRename();
+              }}
+            >
+              {hero}
+            </button>
+          )
+        }
+        subtitle={harnessDisplayName(agent)}
+        activity={
+          metaCache?.error
+            ? { ...activity, label: metaCache.error }
+            : activity
+        }
+      />
+      <div
+        className="mt-0.5 truncate text-[10px] tabular-nums"
+        style={{ color: DIM }}
+        title={crumbTitle}
+      >
+        {crumbs.join(" › ")}
       </div>
-      <div className="relative z-[1] flex flex-col gap-0.5">
+      <div className="flex flex-col gap-0.5">
         {serviceBadge ? (
           <div
             className="flex items-center gap-1 truncate text-[10px] tabular-nums"

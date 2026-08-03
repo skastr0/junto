@@ -95,7 +95,6 @@
     "@xyflow/react": "^12.11.2",
     "effect": "4.0.0-beta.102",
     "electron-updater": "^6.6.2",
-    "gradient-spin": "^0.1.0",
     "lucide-react": "^0.468.0",
     "motion": "^12.23.24",
     "node-pty": "^1.1.0",

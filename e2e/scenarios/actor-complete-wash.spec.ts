@@ -1,6 +1,6 @@
 /**
- * Visual iteration for actor ready/complete card wash.
- * Seeds a herdr pane as agent_status "done" (green pulse + GradientSpin wash).
+ * Ready/complete seats: corner green pulse only — no card-wide square wash.
+ * Seeds a herdr pane as agent_status "done".
  *   bun run test:e2e:fast e2e/scenarios/actor-complete-wash.spec.ts
  */
 import { mkdir, mkdtemp } from "node:fs/promises";
@@ -20,13 +20,13 @@ const PANE_ID = "w1:p1";
 const TERMINAL_ID = "term_1";
 const LABEL = "complete wash pane";
 
-test("ready/complete wash uses GradientSpin small cells over the card", async () => {
+test("ready/complete shows corner green pulse only (no card wash)", async () => {
   await mkdir(SHOTS, { recursive: true });
   const scenarioDir = await mkdtemp(join(tmpdir(), "vellum-complete-wash-"));
   const herdrScenario = join(scenarioDir, "herdr.json");
 
   const world = oneWorkspaceWorld();
-  // Idle+!seen herdr presentation is "done" → green pulse + card wash.
+  // Idle+!seen herdr presentation is "done" → green pulse, no card wash.
   const doneWorld = {
     ...world,
     workspaces: world.workspaces.map((w) => ({
@@ -87,32 +87,19 @@ test("ready/complete wash uses GradientSpin small cells over the card", async ()
     const complete = node.locator('[data-seat-complete="true"]');
     await expect(complete).toBeVisible({ timeout: 15_000 });
 
-    const wash = complete.locator(
-      '.vellum-activity-card-wash[data-activity-wash="gradient-spin"]',
-    );
-    await expect(wash).toBeVisible();
+    // Retired: card-wide square wash must not appear.
+    await expect(
+      complete.locator(
+        '.vellum-activity-card-wash, [data-activity-wash="gradient-spin"]',
+      ),
+    ).toHaveCount(0);
 
     // Corner mark is green pulse (accessible status), not amber clockwise.
     await expect(
       node.getByRole("status", { name: /done|waiting for look/i }),
     ).toBeVisible();
 
-    // GradientSpin: small cells matching ActivityMark density (4px pitch).
-    const spin = wash.locator(".vellum-activity-card-wash__spin");
-    await expect(spin).toBeVisible();
-    const cellBox = await spin.evaluate((el) => {
-      const cell = el.querySelector("span span") as HTMLElement | null;
-      if (!cell) return null;
-      const r = cell.getBoundingClientRect();
-      return { w: Math.round(r.width), h: Math.round(r.height) };
-    });
-    expect(cellBox).not.toBeNull();
-    expect(cellBox!.w).toBeGreaterThanOrEqual(3);
-    expect(cellBox!.w).toBeLessThanOrEqual(6);
-    expect(cellBox!.h).toBeGreaterThanOrEqual(3);
-    expect(cellBox!.h).toBeLessThanOrEqual(6);
-
-    await page.waitForTimeout(600);
+    await page.waitForTimeout(400);
     await node.screenshot({ path: join(SHOTS, "actor-complete-wash.png") });
     await page.screenshot({
       path: join(SHOTS, "actor-complete-wash-board.png"),
