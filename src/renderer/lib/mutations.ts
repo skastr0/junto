@@ -1050,8 +1050,8 @@ export const setFlagForNodes = (
 // pattern: `hold: true` writes ether.region, anything else strips the
 // `region` key entirely and degrades `ether` itself away once nothing else
 // is left. Membership is never written here — it stays derived (geometry.ts).
-// Merges into ether.region rather than replacing it — a region's pulse
-// instruction must survive toggling hold.
+// Merges into ether.region rather than replacing it — region briefing
+// (`instruction`) and defaults must survive toggling hold.
 export const setRegionHold = (id: string, hold: boolean): void => {
   const doc = state$.doc.peek();
   commitDoc({

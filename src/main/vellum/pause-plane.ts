@@ -4,9 +4,9 @@ import { licenseFactoryHold } from "./license/factory-hold";
 import { FactoryPauseRepository } from "./pause/repository";
 
 // Factory pause plane — the safety switch that decides whether the factory
-// may act at all. App-state, never the document (same doctrine as region
-// arming, canvas.ts:193): definitions travel with the file; the switch that
-// spends real actions exists only in the running app, flipped by a human.
+// may act at all. App-state, never the document: definitions travel with the
+// file; the switch that spends real actions exists only in the running app,
+// flipped by a human.
 //
 // LAW (enforced here and in @shared/pause): a canvas with no recorded play
 // decision is PAUSED. The factory is born paused; the first play is an

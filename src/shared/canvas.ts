@@ -256,13 +256,10 @@ export type EtherRegionDefaults = typeof EtherRegionDefaults.Type;
 
 // Region behavior (group nodes only). `hold: true` makes the region a
 // structural container: nodes spatially inside it travel with it when it
-// moves. `instruction` is the region's pulse briefing: when the region
-// activates (a watcher fires, a timer ticks, or a manual pulse), every agent
-// node inside receives it. Membership itself is always DERIVED from geometry
-// at interaction time — never stored — so the document cannot go incoherent.
-// ARMING deliberately does NOT live in the document: definitions travel with
-// the file; the switch that lets a pulse spend real agent turns exists only
-// in the running app, flipped by a human.
+// moves. `instruction` is optional operator briefing text for agents inside
+// the region — surfaced on work-control `onboard` (not auto-injected).
+// Membership itself is always DERIVED from geometry at interaction time —
+// never stored — so the document cannot go incoherent.
 // `defaults` is a create-time stamp source for herdr/page/path bags on nodes
 // placed inside the region. Herdr/page bags are bag-atomic (innermost region
 // with a bag for that kind wins). Paths are host-keyed: innermost region that

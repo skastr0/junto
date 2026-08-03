@@ -171,7 +171,11 @@ export const onboardCommand = Command.make(
         );
       }),
     ),
-).pipe(Command.withDescription("Onboard briefing from live document state"));
+).pipe(
+  Command.withDescription(
+    "Seat orientation: node, region briefing (instruction), edges, co-members",
+  ),
+);
 
 const schemaListCommand = Command.make("list", {}, () =>
   executeJsonCommand(

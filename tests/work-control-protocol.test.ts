@@ -13,6 +13,7 @@ import {
   admitWorkTarget,
   areConnected,
   connectedCapabilities,
+  containingRegion,
   factoryRoleOfNode,
   kindAllowsOp,
   regionCoMemberIds,
@@ -198,6 +199,15 @@ describe("work authz — edges as capability", () => {
     expect(visibilityOf(board, "agent", "tasks")).toBe("connected");
     expect(visibilityOf(board, "agent", "req")).toBe("region");
     expect(visibilityOf(board, "agent", "stranger")).toBe("none");
+  });
+
+  it("containingRegion returns onboard briefing instruction", () => {
+    expect(containingRegion(board, "agent")).toEqual({
+      id: "region",
+      label: "Forge",
+      instruction: "ship work",
+    });
+    expect(containingRegion(board, "stranger")).toBeUndefined();
   });
 
   it("kindAllowsOp gates by entity kind", () => {

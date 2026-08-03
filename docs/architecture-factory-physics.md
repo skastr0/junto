@@ -218,8 +218,9 @@ current capabilities and whose phase or occupancy will change.
 - Cone never includes “everything in the region” without edges.
 
 Region `instruction` is optional operator briefing text on geography.
-Region pulse inject is retired; agents receive turns via factory claim, work
-messages, board notify, and the managed-terminal seat UI.
+It is returned on work-control `onboard` for agents inside the region; it is
+not auto-injected. Agents receive turns via factory claim, work messages,
+board notify, and the managed-terminal seat UI.
 
 ### 7. Fail closed (authz)
 
@@ -274,7 +275,7 @@ the act can touch the OS.
 | Process-bind (peer PID) | Occupant admission to seat |
 | `authz` / `ScopeError` | Capability plane enforcement |
 | Derived `blocks` / `relates` | Phase plane (stoppage vs soft relate; no depends) |
-| Region `instruction` + watchers/timers | Briefing text + status/clock sensors (no inject) |
+| Region `instruction` + watchers/timers | Onboard briefing text + status/clock sensors |
 | Digest / render | Read-only projections; no capability mint |
 
 Vocabulary note: the live source plane and watcher source schema are

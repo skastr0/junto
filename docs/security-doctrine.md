@@ -415,9 +415,10 @@ or key-management system merely because the canvas is authoritative.
 The protected document remains the product. Compiled projections and
 capability-bound tools are the agent API.
 
-Agents may receive deterministic text or visual projections, scoped context,
-pulse briefings, work requests, messages, and artifact facilities. They do not
-receive an authorial canvas mutation path.
+Agents may receive deterministic text or visual projections, scoped context
+(including region briefing text via work-control onboard), work requests,
+messages, and artifact facilities. They do not receive an authorial canvas
+mutation path.
 
 ### Work authority and sink reach
 

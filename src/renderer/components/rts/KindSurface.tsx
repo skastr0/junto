@@ -407,7 +407,7 @@ function RegionKindSurface({ node }: { readonly node: CanvasNode }) {
       <div className="rts-kind-strip" role="toolbar" aria-label="Region fields">
         <KindKey
           label={form === "briefing" ? "Close briefing" : "Region briefing"}
-          title="Region briefing — context for agents inside"
+          title="Region briefing — surfaced on agent onboard"
           active={form === "briefing" || instruction}
           style={form === "briefing" || instruction ? { color: HUE.amber } : undefined}
           onClick={() => toggleForm("briefing")}

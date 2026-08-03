@@ -736,13 +736,13 @@ function PageBindingControl({ node }: { readonly node: CanvasNode }) {
   </div>;
 }
 
-// Watcher/timer/region-pulse editors, grouped behind one call so the
+// Watcher/timer/region briefing editors, grouped behind one call so the
 // switchboard above reads as one branch per concern instead of three more
 // node-type ternaries stacked onto an already-dense dispatcher.
 function KernelFieldEditors({ node }: { readonly node: CanvasNode }) {
   const kind = node.ether?.entity?.kind;
   return <>
-    {node.type === "group" ? <RegionPulseControl node={node} /> : null}
+    {node.type === "group" ? <RegionBriefingEditor node={node} /> : null}
     {kind === "watcher" ? <WatcherEditor node={node} /> : null}
     {kind === "timer" || kind === "cron" ? <TimerEditor node={node} /> : null}
     {kind === "relay" ? <RelayEditor node={node} /> : null}
@@ -1086,7 +1086,9 @@ const withoutKey = <T extends object, K extends keyof T>(value: T, key: K): Omit
   return rest;
 };
 
-// Region briefing text is document furniture (ether.region.instruction).
+// Region briefing (ether.region.instruction) — operator context for agents
+// inside the group. Work-control `onboard` returns it via containingRegion;
+// nothing auto-injects it into agent turns.
 // Writes via commitDoc rather than a lib/mutations.ts export — same strip
 // pattern as setRegionHold.
 const commitRegionInstruction = (node: CanvasNode, instruction: string): void => {
@@ -1107,10 +1109,7 @@ const commitRegionInstruction = (node: CanvasNode, instruction: string): void =>
   });
 };
 
-/**
- * Region briefing only — document furniture; not wired to operator pulse UI.
- * Kind-strip "briefing" key opens this alone.
- */
+/** Region briefing editor — RTS "briefing" form and legacy inspector path. */
 export function RegionBriefingEditor({ node }: { readonly node: CanvasNode }) {
   const instructionValue = node.ether?.region?.instruction ?? "";
   const [instructionDraft, setInstructionDraft] = useState(instructionValue);
@@ -1128,7 +1127,7 @@ export function RegionBriefingEditor({ node }: { readonly node: CanvasNode }) {
     <div className="inspector-section">
       <div className="inspector-section__label">region briefing</div>
       <label className="inspector-editor">
-        <span>context for agents inside this region</span>
+        <span>context for agents inside this region (onboard)</span>
         <textarea
           aria-label="Region briefing"
           placeholder="what should agents inside this region know?"
@@ -1145,11 +1144,6 @@ export function RegionBriefingEditor({ node }: { readonly node: CanvasNode }) {
       </label>
     </div>
   );
-}
-
-// Legacy full-form path: briefing only (ops moved to command keys).
-function RegionPulseControl({ node }: { readonly node: CanvasNode }) {
-  return <RegionBriefingEditor node={node} />;
 }
 
 const STAT_SOURCE_OPTIONS: ReadonlyArray<NonNullable<EtherWatch["source"]>> = ["hermes"];

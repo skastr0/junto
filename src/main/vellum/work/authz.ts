@@ -67,7 +67,10 @@ export const regionCoMemberIds = (
   return [...out];
 };
 
-/** The first group containing nodeId, if any. */
+/**
+ * The first group containing nodeId, if any.
+ * Includes optional `instruction` (region briefing) for work-control onboard.
+ */
 export const containingRegion = (
   doc: CanvasDoc,
   nodeId: string,

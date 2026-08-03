@@ -22,7 +22,7 @@ export const KERNEL_PROBE_COMMAND_CENTER_TOPOLOGY = {
 /**
  * Isolated headless-proof document. The timer is an executable entity and its
  * human-authored edge is the only automatic route to the agent. Spatial
- * containment supplies arming + instruction context; it is not delivery ACL.
+ * containment supplies region briefing context (onboard); it is not delivery ACL.
  */
 export const makeKernelHeadlessFixture = (): CanvasDoc => ({
   nodes: [

@@ -152,7 +152,7 @@ Derived state (blocked seats, region membership, binding health, live phase) is 
 | **View slice** | retired — project slice lens removed |
 | **Host stamp** | `ether.host` — multi-fleet execution locality |
 | **Region defaults** | Create-time defaults for herdr/page inside a region |
-| **Region hold / instruction** | Structural container + briefing context; not an automatic delivery route |
+| **Region hold / instruction** | Structural container + onboard briefing text (`vellum onboard` → `region.instruction`) |
 
 Work contents never persist in authorial `ether`; task, request, message,
 artifact, and transition rows belong to the SQLite Work plane and are projected

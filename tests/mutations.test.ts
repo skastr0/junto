@@ -1203,7 +1203,7 @@ describe("renderer graph mutations", () => {
         y: 0,
         width: 400,
         height: 300,
-        ether: { region: { hold: true, instruction: "pulse me" } },
+        ether: { region: { hold: true, instruction: "ship the region" } },
       }],
       edges: [],
     });
@@ -1215,7 +1215,7 @@ describe("renderer graph mutations", () => {
     });
     const withDefaults = state$.doc.peek().nodes[0];
     expect(withDefaults?.ether?.region?.hold).toBe(true);
-    expect(withDefaults?.ether?.region?.instruction).toBe("pulse me");
+    expect(withDefaults?.ether?.region?.instruction).toBe("ship the region");
     expect(withDefaults?.ether?.region?.defaults?.herdr?.host).toBe("local");
     expect(withDefaults?.ether?.region?.defaults?.page?.profile).toBe("work");
     expect(withDefaults?.ether?.region?.defaults?.paths).toEqual({
@@ -1225,7 +1225,7 @@ describe("renderer graph mutations", () => {
 
     setRegionDefaults("region", undefined);
     const cleared = state$.doc.peek().nodes[0];
-    expect(cleared?.ether?.region).toEqual({ hold: true, instruction: "pulse me" });
+    expect(cleared?.ether?.region).toEqual({ hold: true, instruction: "ship the region" });
     expect(Object.hasOwn(cleared?.ether?.region ?? {}, "defaults")).toBe(false);
   });
 
