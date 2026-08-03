@@ -711,6 +711,7 @@ export const CanvasesLive = Layer.effect(
   Effect.gen(function* () {
     const state = yield* StateEngine;
     const work = yield* WorkRepository;
+    const runtime = yield* Effect.context<never>();
     const listeners = new Set<
       (name: string, detail?: CanvasChangeDetail) => void
     >();
@@ -797,7 +798,7 @@ export const CanvasesLive = Layer.effect(
   const ensureReady: Effect.Effect<void, CanvasError> = Effect.tryPromise({
     try: () => {
       if (bootstrapPromise === undefined) {
-        bootstrapPromise = Effect.runPromise(bootstrap);
+        bootstrapPromise = Effect.runPromiseWith(runtime)(bootstrap);
       }
       return bootstrapPromise;
     },
@@ -1145,7 +1146,7 @@ export const CanvasesLive = Layer.effect(
     });
 
   const start = (): void => {
-    void Effect.runPromise(ensureReady).catch((error) => {
+    void Effect.runPromiseWith(runtime)(ensureReady).catch((error) => {
       console.error("[canvases] SQLite authority bootstrap failed:", error);
     });
   };

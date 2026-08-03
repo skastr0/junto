@@ -41,9 +41,9 @@ export const registerSettingsIpc = (
 ): void => {
   const startupProvider = createStartupProvider(app);
   const stateRecovery = createStateRecoveryIpcHandlers({
-    listBackups: () => Effect.runPromise(listStateBackups()),
+    listBackups: () => AppRuntime.runPromise(listStateBackups()),
     exportBackup: (id, destination) =>
-      Effect.runPromise(exportStateBackup(id, destination)),
+      AppRuntime.runPromise(exportStateBackup(id, destination)),
   });
   ipcMain.handle(IPC_CHANNELS.settingsGet, () =>
     AppRuntime.runPromise(

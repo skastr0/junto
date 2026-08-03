@@ -459,18 +459,28 @@ const initializeRegistry = (
   }).pipe(Effect.withSpan("hosts.initialize"));
 
 /**
+ * Host-injected Promise bridge. Product code passes AppRuntime/RemoteRuntime
+ * (via Effect.runPromiseWith from HostsServiceLive); tests may pass bare
+ * Effect.runPromise outside the src/main lint scan.
+ */
+export type HostsRegistryRunPromise = <A, E>(
+  effect: Effect.Effect<A, E, never>,
+) => Promise<A>;
+
+/**
  * The registry retains its Promise contract for existing transport callers,
  * but Effect's default Promise runner wraps typed failures in FiberFailure.
  * Keep domain errors intact at this boundary so callers can branch on
  * RemoteHostsError.code without inspecting Effect internals.
  */
-const runRegistryEffect = async <A>(
-  effect: Effect.Effect<A, RemoteHostsError>,
-): Promise<A> => {
-  const result = await Effect.runPromise(Effect.result(effect));
-  if (result._tag === "Failure") throw result.failure;
-  return result.success;
-};
+const makeRunRegistryEffect = (
+  runPromise: HostsRegistryRunPromise,
+) =>
+  async <A>(effect: Effect.Effect<A, RemoteHostsError>): Promise<A> => {
+    const result = await runPromise(Effect.result(effect));
+    if (result._tag === "Failure") throw result.failure;
+    return result.success;
+  };
 
 export interface HostsRegistry {
   readonly list: () => Promise<ReadonlyArray<RemoteHost>>;
@@ -486,7 +496,9 @@ export interface HostsRegistry {
 
 export const makeHostsRegistry = (
   state: StateService,
+  runPromise: HostsRegistryRunPromise,
 ): HostsRegistry => {
+  const runRegistryEffect = makeRunRegistryEffect(runPromise);
   let initialization: Promise<void> | undefined;
 
   const ensure = (): Promise<void> => {
@@ -604,9 +616,10 @@ let defaultRegistry: HostsRegistry | undefined;
 
 export const getDefaultHostsRegistry = (
   state?: StateService,
+  runPromise?: HostsRegistryRunPromise,
 ): HostsRegistry => {
-  if (!defaultRegistry && state) {
-    defaultRegistry = makeHostsRegistry(state);
+  if (!defaultRegistry && state && runPromise) {
+    defaultRegistry = makeHostsRegistry(state, runPromise);
   }
   if (!defaultRegistry) {
     throw new RemoteHostsError(

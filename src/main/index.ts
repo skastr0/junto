@@ -1430,7 +1430,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
           ? "remote-support"
           : "licensed-command-center",
       service: licenseService,
-      run: (effect) => AppRuntime.runPromise(effect),
+      run: (effect, options) => AppRuntime.runPromise(effect, options),
       openExternal: (url) => shell.openExternal(url),
       application: {
         relaunch: () => app.relaunch(),
@@ -1598,6 +1598,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
         stations,
         work,
         control: stationControl,
+        runPromise: (effect) => AppRuntime.runPromise(effect as never),
       });
       if (shutdownAdmissionClosed) {
         stationRemoteReportPumpShutdown ??= stationRemoteReportPump.close();

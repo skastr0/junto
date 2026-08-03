@@ -373,7 +373,12 @@ export const HostsServiceLive = Layer.effect(
     const ssh = yield* SshTransport;
     const state = yield* StateEngine;
     const fleet = yield* StationFleetPropagation;
-    const registry = getDefaultHostsRegistry(state);
+    // Capture warm ambient Context so registry Promise bridges never use bare
+    // Effect.runPromise (AppRuntime / RemoteRuntime host entry).
+    const runtime = yield* Effect.context<never>();
+    const runPromise = <A, E>(effect: Effect.Effect<A, E, never>) =>
+      Effect.runPromiseWith(runtime)(effect);
+    const registry = getDefaultHostsRegistry(state, runPromise);
     // Layer acquisition is the normal-boot barrier: the persisted database is
     // visible to synchronous Herdr/Hermes routing before this layer can feed
     // either transport or plane.

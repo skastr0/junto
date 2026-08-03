@@ -102,7 +102,7 @@ describe("Box Fleet service ownership", () => {
       machine: { id: "bx_c79mgja6", state: "running" },
       hostId: "box-c79mgja6",
     });
-    const hosts = await makeHostsRegistry(state).list();
+    const hosts = await makeHostsRegistry(state, (e) => Effect.runPromise(e)).list();
     expect(hosts.find((host) => host.id === resource.hostId)).toMatchObject({
       sshEndpoint: "user@203.0.113.8",
       sshIdentityFile: "/Users/operator/.ssh/ascii_box_ed25519",
@@ -147,7 +147,7 @@ describe("Box Fleet service ownership", () => {
     const [owned] = await Effect.runPromise(repository.list);
     expect(owned?.machine.id).toBe("bx_c79mgja6");
     expect(owned?.hostId).toBeUndefined();
-    expect(await makeHostsRegistry(state).get("box-c79mgja6")).toBeUndefined();
+    expect(await makeHostsRegistry(state, (e) => Effect.runPromise(e)).get("box-c79mgja6")).toBeUndefined();
   });
 
   it("returns the exact provider identity when local ownership enrollment fails", async () => {
@@ -205,7 +205,7 @@ describe("Box Fleet service ownership", () => {
 
     // Stop must not unenroll — same Station, temporarily unreachable.
     expect(stopped.hostId).toBe("box-c79mgja6");
-    expect(await makeHostsRegistry(state).get("box-c79mgja6")).toMatchObject({
+    expect(await makeHostsRegistry(state, (e) => Effect.runPromise(e)).get("box-c79mgja6")).toMatchObject({
       sshEndpoint: "user@203.0.113.8",
     });
     expect(await Effect.runPromise(repository.list)).toHaveLength(1);
@@ -230,12 +230,12 @@ describe("Box Fleet service ownership", () => {
 
     expect(stop).not.toHaveBeenCalled();
     expect(await Effect.runPromise(repository.list)).toHaveLength(0);
-    expect(await makeHostsRegistry(state).get("box-c79mgja6")).toBeUndefined();
+    expect(await makeHostsRegistry(state, (e) => Effect.runPromise(e)).get("box-c79mgja6")).toBeUndefined();
   });
 
   it("converges the process-local route before a lifecycle call returns", async () => {
     const { repository, state } = await fixture();
-    const registry = makeHostsRegistry(state);
+    const registry = makeHostsRegistry(state, (e) => Effect.runPromise(e));
     const convergeHosts = Effect.promise(async () => {
       setHostsSnapshot(await registry.reload());
     });
@@ -343,7 +343,7 @@ describe("Box Fleet service ownership", () => {
     await Effect.runPromise(service.resume("bx_c79mgja6"));
 
     expect(
-      (await makeHostsRegistry(state).get("box-c79mgja6"))?.sshEndpoint,
+      (await makeHostsRegistry(state, (e) => Effect.runPromise(e)).get("box-c79mgja6"))?.sshEndpoint,
     ).toBe("user@203.0.113.99");
   });
 
@@ -401,7 +401,7 @@ describe("Box Fleet service ownership", () => {
       ip: "203.0.113.99",
     });
     expect(
-      (await makeHostsRegistry(state).get("box-c79mgja6"))?.sshEndpoint,
+      (await makeHostsRegistry(state, (e) => Effect.runPromise(e)).get("box-c79mgja6"))?.sshEndpoint,
     ).toBe("user@203.0.113.99");
   });
 

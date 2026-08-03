@@ -210,13 +210,14 @@ export const makeUpdateService = (
     const ref = yield* SubscriptionRef.make(initial);
     const listeners = new Set<(status: UpdateStatus) => void>();
     const expandZip = options.expandZip ?? expandMacUpdateZip;
+    const runtime = yield* Effect.context<never>();
 
-    // Serial provider-event queue — prevent concurrent Effect.runPromise races.
+    // Serial provider-event queue — prevent concurrent runPromiseWith races.
     let eventChain: Promise<void> = Promise.resolve();
     const enqueueProviderEvent = (work: Effect.Effect<void>): void => {
       eventChain = eventChain
         .then(() =>
-          Effect.runPromise(work).then(
+          Effect.runPromiseWith(runtime)(work).then(
             () => undefined,
             () => undefined,
           ),

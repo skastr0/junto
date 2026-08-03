@@ -38,6 +38,10 @@ export interface StationRemoteReportPump {
   readonly close: () => Promise<void>;
 }
 
+export type StationRemoteReportPumpRunPromise = <A, E>(
+  effect: Effect.Effect<A, E, never>,
+) => Promise<A>;
+
 export type StationRemoteReportPumpInput = {
   readonly api: StationApiShape;
   readonly stations: StationRepositoryShape;
@@ -46,6 +50,8 @@ export type StationRemoteReportPumpInput = {
     StationControlServer,
     "report" | "sessionReady" | "subscribeSession"
   >;
+  /** Host-injected runner (AppRuntime / RemoteRuntime); never bare Effect.runPromise. */
+  readonly runPromise: StationRemoteReportPumpRunPromise;
   readonly reportRoundLimit?: number;
   /** Tests may lower the retry delay; production callers use the protocol policy. */
   readonly retryPolicy?: Partial<StationRemoteReportRetryPolicy>;
@@ -217,7 +223,7 @@ export const startStationRemoteReportPump = (
           pending = false;
           const attemptedSessionGeneration = sessionGeneration;
           try {
-            const attempted = await Effect.runPromise(
+            const attempted = await input.runPromise(
               Effect.result(reconcile),
             );
             if (Result.isSuccess(attempted)) {

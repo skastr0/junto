@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Effect, Result } from "effect";
+import { AppRuntime } from "../../runtime";
 import {
   initialBrowserSession,
   isAllowedBrowserUrl,
@@ -762,7 +763,7 @@ export class BrowserSessionService {
 
   private async resolvePoolLimits(): Promise<BrowserPoolLimits> {
     if (this.poolLimits) return this.poolLimits();
-    const state = await Effect.runPromise(this.profiles.readState);
+    const state = await AppRuntime.runPromise(this.profiles.readState);
     return {
       maxVisibleSurfaces: state.maxVisibleSurfaces,
       maxWarmSessions: state.maxWarmSessions,
@@ -1205,7 +1206,7 @@ export class BrowserSessionService {
     BrowserResult<ReadonlyArray<{ id: string; label?: string; default?: boolean }>>
   > {
     try {
-      const state = await Effect.runPromise(this.profiles.readState);
+      const state = await AppRuntime.runPromise(this.profiles.readState);
       return {
         ok: true,
         data: state.profiles.map((profile) => ({
@@ -1231,7 +1232,7 @@ export class BrowserSessionService {
   ): Promise<BrowserResult<BrowserProfileWipeReceipt>> {
     if (!isValidProfileId(profileId)) return err("invalid", "invalid browser profile id");
     try {
-      const outcome = await Effect.runPromise(Effect.result(this.profiles.wipeProfile(profileId)));
+      const outcome = await AppRuntime.runPromise(Effect.result(this.profiles.wipeProfile(profileId)));
       if (Result.isFailure(outcome)) {
         const error = outcome.failure;
         const code = error.code === "invalid" || error.code === "not_found" || error.code === "forbidden"
@@ -1409,7 +1410,7 @@ export class BrowserSessionService {
     let partition: string;
     let maxWarmSessions: number;
     try {
-      partition = await Effect.runPromise(this.profiles.partitionName(target.profile));
+      partition = await AppRuntime.runPromise(this.profiles.partitionName(target.profile));
       if (!this.isOpenAttemptCurrent(owner, ownerEpoch, profileSnapshot, signal)) {
         return err("cancelled", "navigation cancelled");
       }
@@ -1423,7 +1424,7 @@ export class BrowserSessionService {
           ? Math.max(1, Math.floor(limits.maxWarmSessions))
           : 1,
       );
-      await Effect.runPromise(this.profiles.touchProfile(target.profile));
+      await AppRuntime.runPromise(this.profiles.touchProfile(target.profile));
     } catch (error) {
       return err("invalid", error instanceof Error ? error.message : String(error));
     }

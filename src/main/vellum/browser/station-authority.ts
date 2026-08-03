@@ -44,7 +44,7 @@ export const prepareBrowserHostCapabilityAuthority = async (
     current = stationIdentity(next);
   });
   try {
-    const loaded = await Effect.runPromise(settings.get);
+    const loaded = await AppRuntime.runPromise(settings.get);
     // Subscribe-before-read closes the load/subscribe gap. If a complete
     // settings transaction published while the read was pending, that newer
     // identity wins over the older load result.

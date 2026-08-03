@@ -25,7 +25,10 @@ import type {
   StateRow,
   StateWriter,
 } from "../state/service";
-import type { InstallOpsServiceShape } from "../install-ops/service";
+import type {
+  InstallOpsError,
+  InstallOpsServiceShape,
+} from "../install-ops/service";
 import {
   BACKFILL_INLINE_MEDIA_V1,
 } from "../install-ops/engine";
@@ -35,7 +38,7 @@ import {
   type ContentOwner,
   type ContentOwnerKind,
 } from "./manifest";
-import { ingestContentBytes } from "./store";
+import { ContentStoreError, ingestContentBytes } from "./store";
 
 export type InlineMediaMigrationReport = {
   readonly status: "complete" | "already-complete";
@@ -329,38 +332,52 @@ type IngestedObject = {
   readonly verifiedAt: string;
 };
 
-const externalizeInlineMedia = async (
+const externalizeInlineMedia = (
   value: unknown,
   root: string,
-): Promise<{
-  readonly value: unknown;
-  readonly changed: boolean;
-  readonly objects: ReadonlyArray<IngestedObject>;
-}> => {
-  const pending = collectInlinePayloads(value);
-  if (pending.length === 0) {
-    return { value, changed: false, objects: [] };
-  }
+): Effect.Effect<
+  {
+    readonly value: unknown;
+    readonly changed: boolean;
+    readonly objects: ReadonlyArray<IngestedObject>;
+  },
+  ContentStoreError | InlineMediaMigrationError
+> =>
+  Effect.gen(function* () {
+    const pending = collectInlinePayloads(value);
+    if (pending.length === 0) {
+      return { value, changed: false, objects: [] };
+    }
 
-  let next = value;
-  const objects: IngestedObject[] = [];
-  // Deepest paths first so parent index paths stay stable while rewriting.
-  const ordered = [...pending].sort((a, b) => b.path.length - a.path.length);
-  for (const item of ordered) {
-    const ingested = await ingestContentBytes({
-      root,
-      source: item.bytes,
-      mediaType: item.mediaType,
-      displayName: item.displayName,
-    });
-    objects.push({
-      ref: ingested.ref,
-      verifiedAt: ingested.verifiedAt,
-    });
-    next = setAtPath(next, item.path, asContentPart(ingested.ref));
-  }
-  return { value: next, changed: true, objects };
-};
+    let next = value;
+    const objects: IngestedObject[] = [];
+    // Deepest paths first so parent index paths stay stable while rewriting.
+    const ordered = [...pending].sort((a, b) => b.path.length - a.path.length);
+    for (const item of ordered) {
+      const ingested = yield* Effect.tryPromise({
+        try: () =>
+          ingestContentBytes({
+            root,
+            source: item.bytes,
+            mediaType: item.mediaType,
+            displayName: item.displayName,
+          }),
+        catch: (cause) =>
+          cause instanceof ContentStoreError
+            ? cause
+            : new InlineMediaMigrationError(
+                cause instanceof Error ? cause.message : String(cause),
+                { cause },
+              ),
+      });
+      objects.push({
+        ref: ingested.ref,
+        verifiedAt: ingested.verifiedAt,
+      });
+      next = setAtPath(next, item.path, asContentPart(ingested.ref));
+    }
+    return { value: next, changed: true, objects };
+  });
 
 const recordObjectsAndRefs = (
   writer: StateWriter,
@@ -438,117 +455,111 @@ const updateBindingsForPartsTarget = (
   }
 };
 
-const runRead = <A>(
-  state: StateService,
-  operation: string,
-  body: (reader: StateReader) => A,
-): Promise<A> => Effect.runPromise(state.read(operation, body));
-
-const runTxn = <A>(
-  state: StateService,
-  operation: string,
-  body: (writer: StateWriter) => A,
-): Promise<A> => Effect.runPromise(state.transaction(operation, body));
-
-const migratePartsTargets = async (
+const migratePartsTargets = (
   state: StateService,
   root: string,
-): Promise<{ objects: number; rows: number }> => {
-  let objects = 0;
-  let rows = 0;
+): Effect.Effect<
+  { objects: number; rows: number },
+  ContentStoreError | InlineMediaMigrationError | unknown
+> =>
+  Effect.gen(function* () {
+    let objects = 0;
+    let rows = 0;
 
-  for (const target of PARTS_TARGETS) {
-    const candidates = await runRead(
-      state,
-      `content.inline-media.scan.${target.table}`,
-      (reader) => {
-        if (!tableExists(reader, target.table)) return [];
-        return reader.all(target.selectSql).filter((row) => {
-          const raw = row[target.jsonColumn];
-          if (typeof raw !== "string") return false;
-          try {
-            return hasInlineBinary(JSON.parse(raw));
-          } catch {
-            return false;
-          }
-        });
-      },
-    );
-
-    for (const row of candidates) {
-      const raw = String(row[target.jsonColumn]);
-      const parsed = parseJson(raw, target.rowKey(row));
-      const rewritten = await externalizeInlineMedia(parsed, root);
-      if (!rewritten.changed) continue;
-
-      const json = JSON.stringify(rewritten.value);
-      await runTxn(
-        state,
-        `content.inline-media.rewrite.${target.table}`,
-        (writer) => {
-          writer.run(
-            target.updateSql,
-            updateBindingsForPartsTarget(target, row, json),
-          );
-          recordObjectsAndRefs(
-            writer,
-            rewritten.objects,
-            target.ownerFromRow(row),
-          );
+    for (const target of PARTS_TARGETS) {
+      const candidates = yield* state.read(
+        `content.inline-media.scan.${target.table}`,
+        (reader) => {
+          if (!tableExists(reader, target.table)) return [];
+          return reader.all(target.selectSql).filter((row) => {
+            const raw = row[target.jsonColumn];
+            if (typeof raw !== "string") return false;
+            try {
+              return hasInlineBinary(JSON.parse(raw));
+            } catch {
+              return false;
+            }
+          });
         },
       );
-      objects += rewritten.objects.length;
-      rows += 1;
+
+      for (const row of candidates) {
+        const raw = String(row[target.jsonColumn]);
+        const parsed = parseJson(raw, target.rowKey(row));
+        const rewritten = yield* externalizeInlineMedia(parsed, root);
+        if (!rewritten.changed) continue;
+
+        const json = JSON.stringify(rewritten.value);
+        yield* state.transaction(
+          `content.inline-media.rewrite.${target.table}`,
+          (writer) => {
+            writer.run(
+              target.updateSql,
+              updateBindingsForPartsTarget(target, row, json),
+            );
+            recordObjectsAndRefs(
+              writer,
+              rewritten.objects,
+              target.ownerFromRow(row),
+            );
+          },
+        );
+        objects += rewritten.objects.length;
+        rows += 1;
+      }
     }
-  }
 
-  return { objects, rows };
-};
-
+    return { objects, rows };
+  });
 
 /**
  * Run the one-shot historical Base64 → content store migration over the
  * material projection tables. Immutable work logs are never touched.
  *
- * Failures throw; the boot integration logs and retries next boot — a
- * pending backfill must never gate app startup. Safe to call every boot.
+ * Failures surface as Effect errors; the boot integration logs and retries
+ * next boot — a pending backfill must never gate app startup. Safe to call
+ * every boot.
  *
  * Completeness is recorded only on the install-ops ledger so product DB
  * seeds cannot claim "already migrated" without local files.
  */
-export const runInlineMediaMigration = async (input: {
+export const runInlineMediaMigration = (input: {
   /** Structural: only read/transaction needed; accepts full StateEngineShape. */
   readonly state: StateService;
   readonly root: string;
   readonly installOps: InstallOpsServiceShape;
-}): Promise<InlineMediaMigrationReport> => {
-  const state = input.state;
-  const root = input.root;
-  const installOps = input.installOps;
-  const backfillId = BACKFILL_INLINE_MEDIA_V1;
+}): Effect.Effect<
+  InlineMediaMigrationReport,
+  ContentStoreError | InlineMediaMigrationError | InstallOpsError | unknown
+> =>
+  Effect.gen(function* () {
+    const state = input.state;
+    const root = input.root;
+    const installOps = input.installOps;
+    const backfillId = BACKFILL_INLINE_MEDIA_V1;
 
-  const marker = await Effect.runPromise(installOps.getBackfill(backfillId));
+    const marker = yield* installOps.getBackfill(backfillId);
 
-  if (marker?.status === "complete") {
+    if (marker?.status === "complete") {
+      return {
+        status: "already-complete" as const,
+        objectsIngested: marker.objectsIngested,
+        rowsRewritten: 0,
+      };
+    }
+
+    yield* installOps.ensurePending(backfillId);
+
+    const parts = yield* migratePartsTargets(state, root);
+
+    const objectsIngested = parts.objects;
+    const rowsRewritten = parts.rows;
+
+    yield* installOps.markComplete(backfillId, objectsIngested);
+
     return {
-      status: "already-complete",
-      objectsIngested: marker.objectsIngested,
-      rowsRewritten: 0,
+      status: "complete" as const,
+      objectsIngested,
+      rowsRewritten,
     };
-  }
-
-  await Effect.runPromise(installOps.ensurePending(backfillId));
-
-  const parts = await migratePartsTargets(state, root);
-
-  const objectsIngested = parts.objects;
-  const rowsRewritten = parts.rows;
-
-  await Effect.runPromise(installOps.markComplete(backfillId, objectsIngested));
-
-  return {
-    status: "complete",
-    objectsIngested,
-    rowsRewritten,
-  };
-};
+  });

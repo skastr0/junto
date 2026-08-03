@@ -149,6 +149,8 @@ const fixture = (
       stations,
       work,
       control,
+      runPromise: <A, E>(effect: Effect.Effect<A, E, never>) =>
+        Effect.runPromise(effect),
       ...(options.retryDelayMs === undefined
         ? {}
         : {

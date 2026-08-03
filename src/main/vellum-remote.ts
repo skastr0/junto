@@ -297,7 +297,7 @@ const runProductBoot = async (): Promise<void> => {
         ? "remote-support"
         : "licensed-command-center",
     service: licenseService,
-    run: (effect) => RemoteRuntime.runPromise(effect),
+    run: (effect, options) => RemoteRuntime.runPromise(effect, options),
     openExternal: openExternalNoop,
     application: {
       relaunch: () => {
@@ -371,6 +371,7 @@ const runProductBoot = async (): Promise<void> => {
       stations,
       work,
       control: handles.stationControl,
+      runPromise: (effect) => RemoteRuntime.runPromise(effect as never),
     });
   } catch (error) {
     console.error("[station-control] failed to start:", error);

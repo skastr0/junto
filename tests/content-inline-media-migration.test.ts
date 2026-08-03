@@ -113,11 +113,13 @@ describe("inline media migration", () => {
 
     const digest = createHash("sha256").update(TINY_PNG).digest("hex");
 
-    const report = await runInlineMediaMigration({
-      state,
-      root: contentRoot,
-      installOps,
-    });
+    const report = await Effect.runPromise(
+      runInlineMediaMigration({
+        state,
+        root: contentRoot,
+        installOps,
+      }),
+    );
 
     expect(report.status).toBe("complete");
     expect(report.objectsIngested).toBe(1);
@@ -168,11 +170,13 @@ describe("inline media migration", () => {
     expect(marker?.objectsIngested).toBe(1);
 
     // Idempotent re-run.
-    const again = await runInlineMediaMigration({
-      state,
-      root: contentRoot,
-      installOps,
-    });
+    const again = await Effect.runPromise(
+      runInlineMediaMigration({
+        state,
+        root: contentRoot,
+        installOps,
+      }),
+    );
     expect(again.status).toBe("already-complete");
     expect(again.rowsRewritten).toBe(0);
   });
@@ -293,11 +297,13 @@ describe("inline media migration", () => {
       }),
     );
 
-    const report = await runInlineMediaMigration({
-      state,
-      root: contentRoot,
-      installOps,
-    });
+    const report = await Effect.runPromise(
+      runInlineMediaMigration({
+        state,
+        root: contentRoot,
+        installOps,
+      }),
+    );
 
     // The walk completes — historical logs are out of scope, not an abort.
     expect(report.status).toBe("complete");

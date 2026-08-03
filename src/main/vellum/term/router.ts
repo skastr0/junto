@@ -48,11 +48,6 @@ import { TermControlClient } from "./control-client";
 import { readHostDirectory } from "./host-directory";
 import type { TermControlClientShutdownReceipt } from "./control-client";
 
-const runScopePromise = <A>(
-  effect: Effect.Effect<A, unknown, never>,
-): Promise<A> =>
-  Effect.runPromise(effect as Effect.Effect<A, unknown, never>);
-
 /**
  * Layered Effect runner for SSH/Scope work. Configured once by the process
  * entry (Electron `AppRuntime` or Node `RemoteRuntime`) so this module never
@@ -84,6 +79,11 @@ const runLayered = async <A, E, R>(
   }
   return runner(effect);
 };
+
+/** R=never Scope.make/close — same configured host runner as layered SSH work. */
+const runScopePromise = <A>(
+  effect: Effect.Effect<A, unknown, never>,
+): Promise<A> => runLayered(effect as Effect.Effect<A, unknown, never>);
 
 type RemoteEntry = {
   client: TermControlClient;

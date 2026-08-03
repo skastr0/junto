@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Context, Effect } from "effect";
 import { isAllowedBrowserUrl } from "@shared/browser";
+import { AppRuntime } from "../../runtime";
 import {
   makeBrowserCapabilityRegistry,
   type BrowserCapabilityRegistry,
@@ -564,7 +565,7 @@ export const startBrowserComposition = async (
       bindControlShutdown: shutdown.bindControlShutdown,
       drainOnQuit: shutdown.drainOnQuit,
     });
-    await Effect.runPromise(profiles.recoverPendingWipe);
+    await AppRuntime.runPromise(profiles.recoverPendingWipe);
     await activate(composition);
     return composition;
   } catch (error) {

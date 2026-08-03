@@ -401,18 +401,15 @@ export const makeContentServiceLive = (options?: {
         // Install-ops marker-gated walk over product projections only. A
         // failure must never gate app startup: log it, leave the marker
         // pending, and the walk resumes on the next boot.
-        yield* Effect.tryPromise({
-          try: () =>
-            runInlineMediaMigration({ state, root, installOps }),
-          catch: (cause) => {
+        yield* runInlineMediaMigration({ state, root, installOps }).pipe(
+          Effect.mapError((cause) => {
             if (cause instanceof InlineMediaMigrationError) return cause;
             if (cause instanceof ContentStoreError) return cause;
             return new InlineMediaMigrationError(
               cause instanceof Error ? cause.message : String(cause),
               { cause },
             );
-          },
-        }).pipe(
+          }),
           Effect.catch((error) =>
             Effect.sync(() => {
               console.error(

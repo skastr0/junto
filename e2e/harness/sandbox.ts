@@ -317,7 +317,7 @@ export const writeFixtureHosts = async (
   );
   try {
     const state = await runtime.runPromise(StateEngine);
-    const registry = makeHostsRegistry(state);
+    const registry = makeHostsRegistry(state, (e) => Effect.runPromise(e));
     for (const host of hosts) {
       await registry.upsert(host);
     }

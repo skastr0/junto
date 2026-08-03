@@ -17,7 +17,7 @@ Electron main (and Remote) run as a **V4 Effect program**: `effect@4` lockstep, 
 | V4-KERNEL hostRun / no runPromise *in* kernel file | **DONE** — still **async cycle + hostRun** (not full program) |
 | V4-VERIFY (probe sheet) | **DONE** at time of review |
 | **V4-PROGRAM** | **DONE** — factory cycle/claim/deliver/hydrate are Effect; host `runFork` |
-| **V4-DEBT-ZERO** | **REMAINING** — bare `Effect.runPromise` debt → 0 (except permanent) |
+| **V4-DEBT-ZERO** | **DONE** — `debt: []`; only permanent post-dispose `update/ipc.ts` |
 | **V4-ENTRY** | **REMAINING** — main/remote/ipc domain entry only via ManagedRuntime |
 | **V4-CONSOLIDATE-FINAL** | **REMAINING** — end-to-end proof |
 

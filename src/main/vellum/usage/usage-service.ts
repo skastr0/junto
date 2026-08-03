@@ -56,6 +56,7 @@ export const UsageServiceLive = Layer.effect(
   Effect.gen(function* () {
     const sources = yield* UsageSources;
     const cache = yield* UsageCache;
+    const runtime = yield* Effect.context<never>();
     const activeSourceIds = new Set(sources.map((source) => source.id));
 
     /** Drop snapshots from sources not in the live registry (e.g. cached natives while beta is codexbar-only). */
@@ -107,7 +108,7 @@ export const UsageServiceLive = Layer.effect(
       };
       // Usage is an observational HUD. A persistence fault must not turn a
       // successful provider poll into a service failure.
-      await Effect.runPromise(
+      await Effect.runPromiseWith(runtime)(
         cache.saveLastGood(next).pipe(Effect.catch(() => Effect.void)),
       );
       return notify(next);
@@ -148,7 +149,7 @@ export const UsageServiceLive = Layer.effect(
     const runEnrich = async (primary: ReadonlyArray<UsageSnapshot>): Promise<void> => {
       const enrichable = sources.filter((source) => source.enrich !== undefined);
       if (enrichable.length === 0) return;
-      const enriched = await Effect.runPromise(
+      const enriched = await Effect.runPromiseWith(runtime)(
         Effect.all(
           enrichable.map((source) =>
             Effect.map(source.enrich!, (snapshot) => ({ id: source.id, snapshot })),
@@ -174,7 +175,7 @@ export const UsageServiceLive = Layer.effect(
     };
 
     const runRefresh = async (): Promise<UsageState> => {
-      const snapshots = await Effect.runPromise(
+      const snapshots = await Effect.runPromiseWith(runtime)(
         Effect.all(
           sources.map((source) => source.fetch),
           { concurrency: "unbounded" },

@@ -64,7 +64,7 @@ const testRegistry = async (databasePath: string) => {
     stateDisposers.push(() => runtime.dispose());
   }
   return {
-    registry: makeHostsRegistry(state),
+    registry: makeHostsRegistry(state, (e) => Effect.runPromise(e)),
     state,
   };
 };
@@ -120,7 +120,7 @@ describe("remote hosts registry", () => {
       appearance: { color: "amber", glyph: "S" },
     });
 
-    const cold = makeHostsRegistry(state);
+    const cold = makeHostsRegistry(state, (e) => Effect.runPromise(e));
     expect((await cold.list()).map((host) => host.id)).toEqual([
       "local",
       "studio",
@@ -184,7 +184,7 @@ describe("remote hosts registry", () => {
     const firstRuntime = ManagedRuntime.make(makeStateEngineLive(databasePath));
     try {
       const state = await firstRuntime.runPromise(StateEngine);
-      await makeHostsRegistry(state).upsert({
+      await makeHostsRegistry(state, (e) => Effect.runPromise(e)).upsert({
         id: "studio",
         label: "Studio",
         kind: "remote",
@@ -199,7 +199,7 @@ describe("remote hosts registry", () => {
     try {
       const state = await secondRuntime.runPromise(StateEngine);
       expect(
-        (await makeHostsRegistry(state).list()).map((host) => host.id),
+        (await makeHostsRegistry(state, (e) => Effect.runPromise(e)).list()).map((host) => host.id),
       ).toEqual(["local", "studio"]);
     } finally {
       await secondRuntime.dispose();
@@ -324,7 +324,7 @@ describe("remote hosts registry", () => {
     const setupRuntime = ManagedRuntime.make(makeStateEngineLive(databasePath));
     try {
       const state = await setupRuntime.runPromise(StateEngine);
-      await makeHostsRegistry(state).upsert({
+      await makeHostsRegistry(state, (e) => Effect.runPromise(e)).upsert({
         id: "studio",
         label: "Studio",
         kind: "remote",
@@ -342,7 +342,7 @@ describe("remote hosts registry", () => {
     const reopen = ManagedRuntime.make(makeStateEngineLive(databasePath));
     try {
       const state = await reopen.runPromise(StateEngine);
-      const registry = makeHostsRegistry(state);
+      const registry = makeHostsRegistry(state, (e) => Effect.runPromise(e));
       const service = makeHostsService(
         registry,
         {} as Context.Service.Shape<typeof SshTransport>,
