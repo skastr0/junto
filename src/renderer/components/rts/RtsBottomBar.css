@@ -695,44 +695,63 @@
 }
 
 /* Region member strip — max N pills, no vertical scroll */
-.rts-rollcall-strip {
+/* Region roll call — situation buckets, not a member directory. */
+.rts-rollcall {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+  margin-top: 2px;
+}
+
+.rts-rollcall__quiet {
+  font-size: 10px;
+  color: rgba(143, 163, 176, 0.9);
+  line-height: 1.2;
+  padding: 1px 0;
+}
+
+.rts-rollcall__bucket {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+  line-height: 1.2;
+}
+
+.rts-rollcall__mark {
+  flex-shrink: 0;
+  width: 10px;
+  font-size: 10px;
+  font-weight: 700;
+  text-align: center;
+  line-height: 1;
+}
+
+.rts-rollcall__copy {
   display: flex;
   flex-wrap: wrap;
-  gap: 3px;
-  margin-top: 2px;
-  max-height: 44px;
-  overflow: hidden;
+  align-items: baseline;
+  gap: 0 6px;
+  min-width: 0;
 }
 
-.rts-rollcall-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  max-width: 88px;
-  padding: 2px 5px;
-  border-radius: 4px;
-  border: 1px solid rgba(237, 230, 218, 0.1);
-  background: rgba(255, 255, 255, 0.03);
-  color: #ede6da;
+.rts-rollcall__count {
+  flex-shrink: 0;
   font-size: 9px;
-  cursor: pointer;
+  font-weight: 600;
+  letter-spacing: 0.04em;
 }
 
-.rts-rollcall-pill:hover {
-  background: rgba(255, 255, 255, 0.07);
-}
-
-.rts-rollcall-pill__label {
+.rts-rollcall__names {
+  min-width: 0;
+  font-size: 9px;
+  color: rgba(237, 230, 218, 0.72);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.rts-rollcall-more {
-  font-size: 9px;
-  color: rgba(143, 163, 176, 0.9);
-  align-self: center;
-  padding: 0 2px;
 }
 
 /* Regions/minimap panels still clip; only command pops above. */

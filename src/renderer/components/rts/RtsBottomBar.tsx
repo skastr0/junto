@@ -85,6 +85,7 @@ import { EdgeCommandCard, PauseScopeKey } from "./RtsControls";
 import { ensurePauseState, pause$, regionPausedIn } from "../../lib/pause-state";
 import { ActivityMark } from "../ActivityMark";
 import { KindSurface } from "./KindSurface";
+import { RollCall } from "./RollCall";
 import {
   collectOperatorAttention,
   OPERATOR_ATTENTION_HEADLINE,
@@ -457,6 +458,7 @@ function RegionCommandCard({
             <div className="rts-cmd__meta">{memberMeta}</div>
           </div>
           <AccentColorSwatches nodeId={node.id} color={node.color} />
+          <RollCall rollup={regionRollup} />
         </div>
         <div className="rts-cmd-keys rts-cmd-keys--col" role="toolbar" aria-label="Region actions">
           <PauseScopeKey scope={{ kind: "region", id: node.id }} />
