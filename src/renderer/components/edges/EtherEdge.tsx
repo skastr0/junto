@@ -102,13 +102,9 @@ export function EtherEdge({
   // which read as amber so operator can spot collaborating agents at a glance.
   const color =
     authoredColor ??
-    (phase === "relates" && visualRole === "scheduler-flow"
+    (visualRole === "agent-msg" && phase === "relates"
       ? HUE.amber
-      : phase === "relates" && visualRole === "page-flow"
-        ? HUE.cyan
-        : visualRole === "agent-msg" && phase === "relates"
-          ? HUE.amber
-          : EDGE_COLOR[phase]);
+      : EDGE_COLOR[phase]);
 
   // Selection impact mode — only "in" is stamped (CSS dims the rest).
   const impactIn = data?.impact === "in";
@@ -170,8 +166,6 @@ export function EtherEdge({
       ? 2.2
       : visualRole === "agent-msg"
         ? 1.55
-        : visualRole === "page-flow"
-          ? 1
         : visualRole === "artifact-flow"
           ? 0.85
           : 1.2;
@@ -180,8 +174,6 @@ export function EtherEdge({
       ? 0.42
       : visualRole === "agent-msg"
         ? 0.88
-        : visualRole === "page-flow"
-          ? 0.52
         : visualRole === "soft-relation" && !hasCriteria
           ? 0.38
           : 0.9;

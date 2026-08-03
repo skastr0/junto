@@ -193,7 +193,7 @@ export function CronCard({
         onRequestRename={onRequestRename}
         onRenameDone={onRenameDone}
       />
-      <svg className="special-cron" viewBox="0 0 200 96" fill="none" aria-hidden="true">
+      <svg className="special-cron" viewBox="0 0 200 96" aria-hidden="true">
         <path className="special-cron__rail" d="M20 78 A78 70 0 0 1 180 78" pathLength="100" />
         <path
           className="special-cron__progress"
@@ -222,7 +222,7 @@ function GaugeGraphic({ status, firing }: { readonly status: string; readonly fi
       ? "M18 48 C32 48 34 25 46 25 S60 48 72 48 S86 20 98 20 S114 42 126 42 S140 16 158 16"
       : "M18 48 C32 48 34 38 46 38 S60 51 72 51 S86 35 98 35 S114 48 126 48 S140 36 158 36";
   return (
-    <svg className="special-gauge" viewBox="0 0 220 72" fill="none" aria-hidden="true">
+    <svg className="special-gauge" viewBox="0 0 220 72" aria-hidden="true">
       <path className="special-gauge__inlet" d="M0 48 H18" />
       <path className="special-gauge__bracket" d="M30 12 H20 V62 H30 M190 12 H200 V62 H190" />
       <path className="special-gauge__signal" d={signalPath} />
@@ -236,7 +236,7 @@ function GaugeGraphic({ status, firing }: { readonly status: string; readonly fi
 
 function RelayGraphic({ status, firing }: { readonly status: string; readonly firing: boolean }) {
   return (
-    <svg className="special-relay" viewBox="0 0 220 76" fill="none" aria-hidden="true">
+    <svg className="special-relay" viewBox="0 0 220 76" aria-hidden="true">
       <path className="special-relay__inlet" d="M0 38 H34" />
       <g className="special-relay__aperture">
         <path d="M70 10 H150" />

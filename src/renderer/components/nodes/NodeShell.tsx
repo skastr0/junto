@@ -307,11 +307,6 @@ export function NodeShell({
   bare = false,
   /** Full factory toolbar vs delete-only (labels). */
   toolbar = "full",
-  /**
-   * Flat canvas instrument: the child owns its silhouette and the shell keeps
-   * only selection, handles, flags, and toolbar behavior.
-   */
-  surface = "card",
   children,
 }: {
   readonly node: CanvasNode;
@@ -327,7 +322,6 @@ export function NodeShell({
   readonly showHandles?: boolean;
   readonly bare?: boolean;
   readonly toolbar?: "full" | "minimal";
-  readonly surface?: "card" | "special";
   readonly children: ReactNode;
 }) {
   // Live herdr meta: agent_status blocked paints shell chrome without a doc flag.
@@ -398,7 +392,6 @@ export function NodeShell({
         : undefined;
   const primaryHue = primaryFlag ? FLAG_HUES[primaryFlag] : undefined;
   const accent = accentColor(node.color);
-  const special = surface === "special";
   const border = bare
     ? selected
       ? withAlpha(accent, 0.55)
@@ -408,7 +401,7 @@ export function NodeShell({
       : primaryHue
         ? withAlpha(primaryHue, 0.52)
         : borderColor(node.color, selected);
-  const background = bare || special
+  const background = bare
     ? "transparent"
     : shellBlocked
       ? `linear-gradient(135deg, ${withAlpha(HUE.crimson, 0.12)}, rgba(18,15,13,0.92))`
@@ -421,10 +414,6 @@ export function NodeShell({
     ? selected
       ? `0 0 0 1px ${withAlpha(accent, 0.35)}`
       : "none"
-    : special
-      ? selected
-        ? `0 0 0 1px ${withAlpha(shellBlocked ? HUE.crimson : accent, 0.34)}, 0 8px 24px rgba(0,0,0,0.18)`
-        : "none"
     : selected
       ? `0 0 0 1px ${withAlpha(shellBlocked ? HUE.crimson : accent, 0.25)}, 0 12px 30px rgba(0,0,0,0.22)`
       : shellBlocked
@@ -440,10 +429,9 @@ export function NodeShell({
   // isBlocker alone used to skip actors blocked only by upstream criteria.
   return (
     <div
-      className={`vellum-node group relative flex h-full w-full flex-col overflow-visible ${bare ? "vellum-node--bare rounded-sm px-1 py-0.5" : special ? "vellum-node--special rounded-sm p-0" : "rounded-[10px] px-3.5 py-3"} ${shellBlocked ? "vellum-blocker" : ""}`}
+      className={`vellum-node group relative flex h-full w-full flex-col overflow-visible ${bare ? "vellum-node--bare rounded-sm px-1 py-0.5" : "rounded-[10px] px-3.5 py-3"} ${shellBlocked ? "vellum-blocker" : ""}`}
       data-node-kind={node.ether?.entity?.kind ?? node.type}
       data-bare={bare ? "true" : undefined}
-      data-surface={special ? "special" : undefined}
       data-blocked={shellBlocked ? "true" : undefined}
       data-herdr-blocked={liveHerdrBlocked ? "true" : undefined}
       data-seat-attention={liveSeatAttention ? "true" : undefined}
@@ -452,7 +440,7 @@ export function NodeShell({
       onPointerDownCapture={multiSelectCapture.onPointerDownCapture}
       onClickCapture={multiSelectCapture.onClickCapture}
       style={{
-        border: `1px solid ${special ? "transparent" : bare ? border : selected ? withAlpha(isBlocker || shellBlocked ? HUE.crimson : accent, 0.75) : border}`,
+        border: `1px solid ${bare ? border : selected ? withAlpha(isBlocker || shellBlocked ? HUE.crimson : accent, 0.75) : border}`,
         background,
         boxShadow: shadow,
       }}
@@ -461,7 +449,7 @@ export function NodeShell({
       {resizable ? (
         <NodeResizer
           isVisible={selected}
-          minWidth={bare ? 48 : special ? 140 : 170}
+          minWidth={bare ? 48 : 170}
           minHeight={bare ? 24 : 72}
           color={accent}
           handleClassName="vellum-resize-handle"

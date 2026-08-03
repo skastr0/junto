@@ -13,7 +13,7 @@ import { closeDockBrowser, dock$, openDockBrowser, stopDockBrowser } from "../..
 import { hostOf } from "../../lib/presentation";
 import { state$ } from "../../lib/state";
 import { HUE, INK } from "../../lib/theme";
-import { ActivityMarkFromSpec } from "../ActivityMark";
+import { ExecutionCardHeader } from "../nodes/ExecutionCardHeader";
 
 /**
  * Browser page work-surface card — rendered by LinkNode.tsx for kind "page" +
@@ -80,86 +80,81 @@ export function PageCard({ node }: { readonly node: CanvasNode }) {
     void stopDockBrowser(pageRef);
   };
 
-  const errored = Boolean(stopError || session?.lastError);
-  const frameClassName = [
-    "special-page",
-    `is-${state}`,
-    attaching ? "is-attaching" : "",
-    session?.attached ? "is-attached" : "",
-    warm && !session?.attached ? "is-warm-detached" : "",
-    errored ? "is-error" : "",
-  ].filter(Boolean).join(" ");
-
   return (
-    <div className={frameClassName} role="group" aria-label={`${displayTitle}, ${activity.label}`}>
-      {warm ? <div className="special-page__runtime-shadow" aria-hidden="true" /> : null}
-      <div className="special-page__frame">
-        <div className="special-page__inner">
-          <div className="special-page__tabline">
-            <span className="special-page__profile">{browser.profile}</span>
-            <ActivityMarkFromSpec spec={activity} size="inline" className="special-page__activity" />
+    <div className="flex h-full w-full flex-col justify-between overflow-hidden">
+      <ExecutionCardHeader
+        decal={
+          <div className="grid size-7 shrink-0 place-items-center rounded-md border border-amber/25 bg-amber/[0.07] text-amber">
+            <Globe size={15} />
           </div>
+        }
+        title={
           <button
             type="button"
-            className="special-page__title nodrag nopan"
+            className="nodrag nopan w-full truncate text-left font-mono text-[14px] font-semibold leading-snug"
             style={{ color: INK }}
             title="Attach browser surface"
-            onClick={(event) => {
-              event.stopPropagation();
+            onClick={(e) => {
+              e.stopPropagation();
               open();
             }}
           >
-            <Globe size={14} aria-hidden="true" />
-            <span>{displayTitle}</span>
+            {displayTitle}
           </button>
-          <div className="special-page__url" title={url}>{subtitle}</div>
-          <div className="special-page__actions nodrag nopan">
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                open();
-              }}
-            >
-              open
-            </button>
-            {session?.attached ? (
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  detach();
-                }}
-              >
-                detach
-              </button>
-            ) : null}
-            {warm ? (
-              <button
-                type="button"
-                className="special-page__stop"
-                title="Destroy this page runtime; profile cookies remain"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  stop();
-                }}
-              >
-                stop
-              </button>
-            ) : null}
-          </div>
-          {errored ? (
-            <span
-              className="special-page__error"
-              style={{ color: HUE.crimson }}
-              title={stopError ?? session?.lastError}
-              role={stopError ? "alert" : undefined}
-            >
-              {stopError ?? session?.lastError}
-            </span>
-          ) : null}
-          <span className="special-page__dock" aria-hidden="true" />
-        </div>
+        }
+        subtitle={
+          <span className="truncate" title={url}>
+            {subtitle}
+          </span>
+        }
+        activity={activity}
+      />
+      <div className="nodrag nopan flex flex-wrap items-center gap-1 pt-0.5">
+        <button
+          type="button"
+          className="rounded border border-white/10 px-1.5 py-0.5 text-[9px] text-ink-2 hover:bg-white/10"
+          onClick={(e) => {
+            e.stopPropagation();
+            open();
+          }}
+        >
+          open
+        </button>
+        {session?.attached ? (
+          <button
+            type="button"
+            className="rounded border border-white/10 px-1.5 py-0.5 text-[9px] text-ink-2 hover:bg-white/10"
+            onClick={(e) => {
+              e.stopPropagation();
+              detach();
+            }}
+          >
+            detach
+          </button>
+        ) : null}
+        {warm ? (
+          <button
+            type="button"
+            className="rounded border border-red-400/20 px-1.5 py-0.5 text-[9px] text-red-200 hover:bg-red-400/10"
+            title="Destroy this page runtime; profile cookies remain"
+            onClick={(e) => {
+              e.stopPropagation();
+              stop();
+            }}
+          >
+            stop page
+          </button>
+        ) : null}
+        {stopError || session?.lastError ? (
+          <span
+            className="truncate text-[9px]"
+            style={{ color: HUE.crimson }}
+            title={stopError ?? session?.lastError}
+            role={stopError ? "alert" : undefined}
+          >
+            {stopError ?? session?.lastError}
+          </span>
+        ) : null}
       </div>
     </div>
   );

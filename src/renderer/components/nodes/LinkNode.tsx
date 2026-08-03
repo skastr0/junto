@@ -33,7 +33,7 @@ export function LinkNode({ data, selected }: NodeProps<FlowNode>) {
 
   if (isPage) {
     return (
-      <NodeShell node={node} selected={selected} blocked={data.blocked} surface="special">
+      <NodeShell node={node} selected={selected} blocked={data.blocked}>
         <PageCard node={node} />
       </NodeShell>
     );
