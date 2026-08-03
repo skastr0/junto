@@ -1,4 +1,9 @@
-.task-board-surface {
+/* Task flow modal holds 80% of the viewport height, centered — not full-bleed.
+   Two-class selector so it beats .focus-surface__panel--workspace (height: 100%)
+   regardless of stylesheet order. max-height 100% still caps small windows. */
+.focus-surface__panel.task-board-surface {
+  height: 80vh;
+  align-self: center;
   min-height: 560px;
   background: var(--color-ground);
 }
