@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "baseUrl": "..",
+    "paths": {
+      "@shared/physics": ["src/shared/physics/index.ts"],
+      "@shared/occupancy": ["src/shared/occupancy/index.ts"],
+      "@shared/impact": ["src/shared/impact/index.ts"],
+      "../assets/sfx/blocked.mp3?url": [".design-sync/stubs/asset-url.ts"],
+      "../assets/sfx/cycle.mp3?url": [".design-sync/stubs/asset-url.ts"],
+      "../assets/sfx/permission.mp3?url": [".design-sync/stubs/asset-url.ts"],
+      "@shared/*": ["src/shared/*"],
+      "@main/*": ["src/main/*"],
+      "@renderer/*": ["src/renderer/*"]
+    }
+  }
+}

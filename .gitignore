@@ -13,3 +13,10 @@ blob-report/
 src/main/vellum/plugin-install/payloads/.pack-tmp/
 build/electron-observation.json
 build/electron-observation-high-water.json
+
+# design-sync machine state
+.ds-sync/
+ds-bundle/
+.design-sync/.cache/
+.design-sync/learnings/
+.design-sync/node_modules
