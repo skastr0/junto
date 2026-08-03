@@ -354,12 +354,6 @@ function RegionCommandCard({
   const slotOrder = use$(state$.regionSlotOrder);
   const slot = slotIndexOf(slotOrder, node.id);
   const primary = primaryCommandActions("region");
-  const memberCount = regionRollup.counts.total;
-  const memberMeta = memberCount === 0
-    ? "Empty"
-    : memberCount === 1
-      ? "1 member"
-      : `${memberCount} members`;
   const title = regionRollup.label || "unnamed region";
   const [renaming, setRenaming] = useState(false);
   const [nameDraft, setNameDraft] = useState(title);
@@ -455,7 +449,6 @@ function RegionCommandCard({
             ) : (
               <div className="rts-cmd__title" title={title}>{title}</div>
             )}
-            <div className="rts-cmd__meta">{memberMeta}</div>
           </div>
           <AccentColorSwatches nodeId={node.id} color={node.color} />
           <RollCall rollup={regionRollup} />
