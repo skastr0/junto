@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   ArrowRight,
   CheckCheck,
+  Gauge,
   Inbox,
   ListChecks,
   MessageSquareText,
@@ -12,10 +13,12 @@ import {
   Pencil,
   Play,
   Plus,
+  Radio,
   Server,
   SlidersHorizontal,
   SquareX,
   Terminal,
+  Timer,
   Trash2,
 } from "lucide-react";
 import type { CanvasEdge, CanvasNode } from "@shared/canvas";
@@ -46,7 +49,13 @@ import { killHerdrPane } from "../../lib/herdr-actions";
 import { deleteEdges, toggleEdgeArrow } from "../../lib/edge-mutations";
 import { nodeTitle } from "../../lib/presentation";
 import { OpenHerdrMark } from "../herdr/OpenHerdrMark";
-import { EdgeCriteriaEditor, TaskQueueHomeControl } from "../InspectorFields";
+import {
+  EdgeCriteriaEditor,
+  RelayEditor,
+  TaskQueueHomeControl,
+  TimerEditor,
+  WatcherEditor,
+} from "../InspectorFields";
 import "./rts-controls.css";
 
 const ICON = 12;
@@ -428,12 +437,72 @@ export function KindActions({ node }: { readonly node: CanvasNode }) {
       );
     case "watcher":
     case "timer":
-      // Region pulse product is dead — no manual pulse keys.
-      return null;
+    case "cron":
+    case "relay":
+      return <SchedulerKindKeys node={node} />;
     default:
       // Unknown / geography kinds: silence is semantic.
       return null;
   }
+}
+
+/** Cron / gauge / relay: rename + sensor body pop (no fields sheet). */
+function SchedulerKindKeys({ node }: { readonly node: CanvasNode }) {
+  const kind = node.ether?.entity?.kind;
+  const [configOpen, setConfigOpen] = useState(false);
+
+  useEffect(() => {
+    setConfigOpen(false);
+  }, [node.id]);
+
+  const config =
+    kind === "cron" || kind === "timer"
+      ? {
+          label: configOpen ? "Close interval" : "Interval",
+          title: "How often this cron fires",
+          Icon: Timer,
+          body: <TimerEditor node={node} />,
+        }
+      : kind === "watcher"
+        ? {
+            label: configOpen ? "Close threshold" : "Threshold",
+            title: "Hermes stat threshold",
+            Icon: Gauge,
+            body: <WatcherEditor node={node} />,
+          }
+        : kind === "relay"
+          ? {
+              label: configOpen ? "Close source" : "Source",
+              title: "Node this relay watches",
+              Icon: Radio,
+              body: <RelayEditor node={node} />,
+            }
+          : null;
+
+  if (!config) return null;
+
+  return (
+    <>
+      <KindKey
+        label="Rename"
+        title="Rename"
+        onClick={() => state$.editNodeId.set(node.id)}
+      >
+        <Pencil size={ICON} />
+      </KindKey>
+      <KindKey
+        label={config.label}
+        title={config.title}
+        active={configOpen}
+        onClick={() => setConfigOpen((open) => !open)}
+      >
+        <config.Icon size={ICON} />
+      </KindKey>
+      {configOpen ? (
+        <div className="rts-kind-pop rts-kind-pop--editor">{config.body}</div>
+      ) : null}
+    </>
+  );
 }
 
 export function EdgePairStrip({ edge }: { readonly edge: CanvasEdge }) {

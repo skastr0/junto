@@ -500,12 +500,16 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
         ) : null}
       </div>
     ) : null}
-    {/* Work sinks rename via kind-strip pencil / card double-click — no fat label field. */}
+    {/* Work sinks / schedulers rename via kind-strip pencil — no fat label field. */}
     {node.type === "text" &&
     node.ether?.entity?.kind !== "task" &&
     node.ether?.entity?.kind !== "requests" &&
     node.ether?.entity?.kind !== "artifacts" &&
-    node.ether?.entity?.kind !== "board" ? (
+    node.ether?.entity?.kind !== "board" &&
+    node.ether?.entity?.kind !== "cron" &&
+    node.ether?.entity?.kind !== "timer" &&
+    node.ether?.entity?.kind !== "watcher" &&
+    node.ether?.entity?.kind !== "relay" ? (
       <label className="inspector-editor">
         <span>{node.ether?.entity ? "label" : "note text"}</span>
         <textarea
@@ -1228,7 +1232,7 @@ function useWatchDraft(nodeId: string, watch: EtherWatch | undefined) {
 }
 
 // Gauge editor: hermes stat_threshold.
-function WatcherEditor({ node }: { readonly node: CanvasNode }) {
+export function WatcherEditor({ node }: { readonly node: CanvasNode }) {
   const watch = node.ether?.watch;
   const {
     source, setSource, key, setKey, stat, setStat, op, setOp,
@@ -1286,7 +1290,7 @@ function WatcherEditor({ node }: { readonly node: CanvasNode }) {
   </div>;
 }
 
-function RelayEditor({ node }: { readonly node: CanvasNode }) {
+export function RelayEditor({ node }: { readonly node: CanvasNode }) {
   const relay = node.ether?.relay;
   const [sourceNodeId, setSourceNodeId] = useState(relay?.sourceNodeId ?? "");
   const [path, setPath] = useState<EtherRelay["path"]>(relay?.path ?? "task_state");
@@ -1373,7 +1377,7 @@ function RelayEditor({ node }: { readonly node: CanvasNode }) {
 const MIN_TIMER_EVERY_MINUTES = 5;
 
 // Cron editor: interval field; 5-minute UI floor before setNodeTimer.
-function TimerEditor({ node }: { readonly node: CanvasNode }) {
+export function TimerEditor({ node }: { readonly node: CanvasNode }) {
   const timer = node.ether?.timer;
   const defaultMinutes = timer?.everyMinutes ?? 30;
   const [minutesText, setMinutesText] = useState(String(defaultMinutes));

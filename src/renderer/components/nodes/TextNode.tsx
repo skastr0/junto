@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import type { NodeProps } from "@xyflow/react";
-import { Gauge, Radio, Timer, X } from "lucide-react";
+import { X } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
 import type { FlowNode } from "../../lib/convert";
 import { registerCanvasDraftCommit } from "../../lib/canvas-editor-flush";
@@ -11,14 +11,8 @@ import { NoteMarkdown } from "../../lib/note-markdown";
 import { isLabelNode } from "../../lib/presentation";
 import { state$ } from "../../lib/state";
 import { workRoleOf } from "@shared/attention";
-import {
-  terminalActivity,
-  timerActivity,
-  watcherActivity,
-} from "../../lib/activity";
+import { terminalActivity } from "../../lib/activity";
 import { accentColor, HUE, INK, DIM } from "../../lib/theme";
-import { kernel$ } from "../../lib/kernel-view";
-import type { WatcherRuntimeState } from "../../lib/kernel-view";
 import { ACP_CHAT_SURFACE_HIDDEN } from "@shared/legacy-surfaces";
 import { isHarnessId } from "@shared/managed-terminal-templates";
 import { resolveTerminalBinding } from "@shared/terminal";
@@ -53,122 +47,7 @@ import {
 import { TaskToolbarActions } from "../work/TaskToolbarActions";
 import { ClaimedTaskStrip } from "./ClaimedTaskStrip";
 import { NodeShell } from "./NodeShell";
-
-// Re-renders every intervalMs so relative-time copy ("fired 2m ago", "next
-// pulse in 12m") stays fresh without a per-second timer — a 30s cadence is
-// plenty for minute-grained wording.
-function useRelativeNow(intervalMs: number): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const id = window.setInterval(() => setNow(Date.now()), intervalMs);
-    return () => window.clearInterval(id);
-  }, [intervalMs]);
-  return now;
-}
-
-function formatAgo(firedAt: number, now: number): string {
-  const minutes = Math.max(0, Math.round((now - firedAt) / 60000));
-  if (minutes < 1) return "fired just now";
-  if (minutes < 60) return `fired ${minutes}m ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `fired ${hours}h ago`;
-  return `fired ${Math.round(hours / 24)}d ago`;
-}
-
-function formatCountdown(nextFire: number, now: number): string {
-  const minutes = Math.round((nextFire - now) / 60000);
-  // Due state is ActivityMark wave only — no "pulsing…" label.
-  if (minutes <= 0) return "now";
-  if (minutes < 60) return `next run in ${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  const remainder = minutes % 60;
-  return `next run in ${hours}h${remainder ? ` ${remainder}m` : ""}`;
-}
-
-/** Kind decal — same 28px amber tile as terminal / seats. */
-function SchedulerDecal({
-  kind,
-}: {
-  readonly kind: "cron" | "gauge" | "relay";
-}) {
-  const Icon = kind === "cron" ? Timer : kind === "gauge" ? Gauge : Radio;
-  return (
-    <div className="grid size-7 shrink-0 place-items-center rounded-md border border-amber/25 bg-amber/[0.07] text-amber">
-      <Icon size={15} />
-    </div>
-  );
-}
-
-// Gauge / relay: kernel$ status only. Idle mark is silent (ExecutionCardHeader).
-function WatcherCard({
-  node,
-  label,
-}: {
-  readonly node: CanvasNode;
-  readonly label: "gauge" | "relay";
-}) {
-  const runtime = use$(kernel$.watchers[node.id]) as
-    WatcherRuntimeState | undefined;
-  const now = useRelativeNow(30_000);
-  const rawName = (node.type === "text" ? node.text : "").split("\n")[0] ?? "";
-  const title = rawName || label;
-  const status = runtime?.status ?? "unknown";
-  const detail = runtime?.detail ?? "watching";
-  const activity = watcherActivity(status);
-  const subtitle = runtime?.lastFiredAt
-    ? `${detail} · ${formatAgo(runtime.lastFiredAt, now)}`
-    : detail;
-  return (
-    <div className="flex h-full w-full flex-col justify-between overflow-hidden">
-      <ExecutionCardHeader
-        decal={<SchedulerDecal kind={label} />}
-        title={
-          <div
-            className="truncate font-mono text-[14px] font-semibold leading-snug"
-            style={{ color: INK }}
-            title={title}
-          >
-            {title}
-          </div>
-        }
-        subtitle={subtitle}
-        activity={activity}
-      />
-    </div>
-  );
-}
-
-// Cron: countdown from kernel$.nextFire; interval from ether.timer.
-function TimerCard({ node }: { readonly node: CanvasNode }) {
-  const nextFire = use$(kernel$.nextFire[node.id]) as number | undefined;
-  const now = useRelativeNow(30_000);
-  const rawName = (node.type === "text" ? node.text : "").split("\n")[0] ?? "";
-  const title = rawName || "cron";
-  const everyMinutes = node.ether?.timer?.everyMinutes;
-  const activity = timerActivity({ nextFire, now });
-  const countdown = nextFire ? formatCountdown(nextFire, now) : "—";
-  const subtitle = everyMinutes
-    ? `${countdown} · every ${everyMinutes}m`
-    : countdown;
-  return (
-    <div className="flex h-full w-full flex-col justify-between overflow-hidden">
-      <ExecutionCardHeader
-        decal={<SchedulerDecal kind="cron" />}
-        title={
-          <div
-            className="truncate font-mono text-[14px] font-semibold leading-snug"
-            style={{ color: INK }}
-            title={title}
-          >
-            {title}
-          </div>
-        }
-        subtitle={subtitle}
-        activity={activity}
-      />
-    </div>
-  );
-}
+import { CronCard, GaugeCard, RelayCard } from "./SpecialNodeCards";
 
 // Actor seat card — document label + harness mark + terminal seat activity.
 // No hermes corpus join, matrix identity, or profile avatar IPC.
@@ -464,11 +343,21 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
   const [draft, setDraft] = useState(text);
   const ref = useRef<HTMLTextAreaElement>(null);
   const entityKind = node.ether?.entity?.kind;
+  const isSpecialNode =
+    entityKind === "watcher" ||
+    entityKind === "relay" ||
+    entityKind === "timer" ||
+    entityKind === "cron";
   const isWorkSurface =
     entityKind === "task" ||
     entityKind === "requests" ||
     entityKind === "artifacts" ||
     entityKind === "board";
+  const isScheduler =
+    entityKind === "cron" ||
+    entityKind === "timer" ||
+    entityKind === "watcher" ||
+    entityKind === "relay";
 
   useEffect(() => {
     if (editing && !maximized) {
@@ -484,13 +373,14 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
     setDraft(text);
     if (isLabel) setEditing(true);
     else if (isFreeNote) setMaximized(true);
-    // Seat/shell/sink cards: rename first line (not full note textarea).
+    // Seat/shell/sink/scheduler cards: rename first line (not full note textarea).
     else if (
       isHerdr ||
       isTerminal ||
       isAgent ||
       managedTerminal ||
-      isWorkSurface
+      isWorkSurface ||
+      isScheduler
     )
       setRenaming(true);
     else setEditing(true);
@@ -504,6 +394,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
     isAgent,
     managedTerminal,
     isWorkSurface,
+    isScheduler,
     isLabel,
     text,
   ]);
@@ -562,6 +453,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
       resizable={!isAgent}
       showHandles={!isLabel}
       bare={isLabel}
+      surface={isSpecialNode ? "special" : "card"}
       toolbar={isLabel ? "minimal" : "full"}
       toolbarExtras={
         isHerdr ? (
@@ -724,11 +616,26 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
           }}
         >
           {entityKind === "watcher" ? (
-            <WatcherCard node={node} label="gauge" />
+            <GaugeCard
+              node={node}
+              renaming={renaming}
+              onRequestRename={() => setRenaming(true)}
+              onRenameDone={() => setRenaming(false)}
+            />
           ) : entityKind === "relay" ? (
-            <WatcherCard node={node} label="relay" />
+            <RelayCard
+              node={node}
+              renaming={renaming}
+              onRequestRename={() => setRenaming(true)}
+              onRenameDone={() => setRenaming(false)}
+            />
           ) : entityKind === "timer" || entityKind === "cron" ? (
-            <TimerCard node={node} />
+            <CronCard
+              node={node}
+              renaming={renaming}
+              onRequestRename={() => setRenaming(true)}
+              onRenameDone={() => setRenaming(false)}
+            />
           ) : entityKind === "task" ? (
             <TasksCard
               node={node}

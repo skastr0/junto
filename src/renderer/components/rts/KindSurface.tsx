@@ -163,6 +163,10 @@ function NodeFormFocus({
         kind !== "requests" &&
         kind !== "artifacts" &&
         kind !== "board" &&
+        kind !== "watcher" &&
+        kind !== "timer" &&
+        kind !== "cron" &&
+        kind !== "relay" &&
         Boolean(node.ether?.entity) ? (
           <WaitingOnSection nodeId={node.id} />
         ) : null}
@@ -172,6 +176,10 @@ function NodeFormFocus({
         kind !== "requests" &&
         kind !== "artifacts" &&
         kind !== "board" &&
+        kind !== "watcher" &&
+        kind !== "timer" &&
+        kind !== "cron" &&
+        kind !== "relay" &&
         node.type !== "group" &&
         Boolean(node.ether?.entity) ? (
           <NodePlacementSection node={node} />
@@ -182,6 +190,10 @@ function NodeFormFocus({
         kind !== "requests" &&
         kind !== "artifacts" &&
         kind !== "board" &&
+        kind !== "watcher" &&
+        kind !== "timer" &&
+        kind !== "cron" &&
+        kind !== "relay" &&
         Boolean(node.ether?.entity) ? (
           <NodeCapabilityInventory node={node} />
         ) : null}
@@ -630,13 +642,15 @@ export function KindSurface() {
       "board",
       "watcher",
       "timer",
+      "cron",
+      "relay",
     ].includes(kind);
   // Agent/herdr keep a live glance. Everything else is strip-only (kind once +
   // keys) so command title is not echoed three more times in the mid third.
   const showSeatGlance =
     kind === "agent" || (HERDR_ENABLED && kind === "herdr");
-  // Free notes / work sinks / shell: no fields sheet. Note body edits on-card
-  // (pencil → maximize). Placement chips are noise on furniture.
+  // Free notes / work sinks / schedulers / shell: no fields sheet. Config is
+  // kind-strip pops; rename is pencil. Placement chips are noise.
   const showFieldsKey =
     !isFreeNote &&
     kind !== "terminal" &&
@@ -644,7 +658,11 @@ export function KindSurface() {
     kind !== "task" &&
     kind !== "requests" &&
     kind !== "artifacts" &&
-    kind !== "board";
+    kind !== "board" &&
+    kind !== "watcher" &&
+    kind !== "timer" &&
+    kind !== "cron" &&
+    kind !== "relay";
   const stripLabel = kind ?? nodeTypeLabel(node);
 
   return (
