@@ -2648,82 +2648,130 @@ ol.note-md__list > .note-md__li::before {
   .vellum-tooltip { transition: none; }
 }
 
-/* Actor focus — compact read-only edge inventory under the terminal header. */
+/* Actor focus — floating right-rail edge inventory over the terminal stage.
+   Plate is geography for reach; does not claim header chrome. */
 .actor-edges-glance {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  bottom: 10px;
+  z-index: 1;
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 8px;
-  flex-shrink: 0;
-  min-height: 28px;
-  padding: 4px 12px;
-  border-bottom: 1px solid var(--color-stroke);
-  background: color-mix(in srgb, var(--color-raise) 55%, transparent);
+  width: min(248px, calc(100% - 20px));
+  max-height: calc(100% - 20px);
+  padding: 10px 10px 8px;
+  border: 1px solid color-mix(in srgb, var(--color-stroke) 88%, transparent);
+  border-radius: 10px;
+  background:
+    linear-gradient(
+      165deg,
+      color-mix(in srgb, var(--color-raise) 92%, transparent),
+      color-mix(in srgb, var(--color-ground) 88%, transparent)
+    );
+  box-shadow:
+    0 1px 0 color-mix(in srgb, var(--color-ink) 4%, transparent) inset,
+    0 12px 32px rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(10px);
+  pointer-events: auto;
   overflow: hidden;
 }
-.actor-edges-glance__label {
+.actor-edges-glance__chrome {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
   flex-shrink: 0;
-  font-size: 9px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  padding: 0 2px 2px;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-stroke) 70%, transparent);
+}
+.actor-edges-glance__count {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.04em;
   color: var(--color-faint);
+  font-variant-numeric: tabular-nums;
 }
 .actor-edges-glance__list {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 6px;
   margin: 0;
-  padding: 0;
+  padding: 0 0 2px;
   list-style: none;
-  min-width: 0;
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   scrollbar-width: thin;
 }
 .actor-edges-glance__row {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  flex-shrink: 0;
-  max-width: 320px;
-  padding: 2px 6px;
-  border: 1px solid color-mix(in srgb, var(--color-stroke) 90%, transparent);
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--color-inset) 70%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding: 8px 9px;
+  border: 1px solid color-mix(in srgb, var(--color-stroke) 80%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--color-inset) 78%, transparent);
   font-size: 11px;
-  line-height: 1.2;
+  line-height: 1.25;
   color: var(--color-dim);
+}
+.actor-edges-glance__row-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
 .actor-edges-glance__dir {
   flex-shrink: 0;
   color: var(--color-amber);
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: 12px;
+  line-height: 1;
 }
 .actor-edges-glance__kind {
-  flex-shrink: 0;
+  flex: 1;
+  min-width: 0;
   font-size: 9px;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--color-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .actor-edges-glance__title {
   min-width: 0;
-  max-width: 14ch;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--color-ink);
   font-weight: 500;
+  font-size: 12px;
+  line-height: 1.3;
 }
 .actor-edges-glance__ports {
   min-width: 0;
-  max-width: 22ch;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: 10px;
   color: var(--color-cyan);
+  opacity: 0.92;
+}
+.actor-edges-glance__flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .actor-edges-glance {
+    backdrop-filter: none;
+  }
 }
 
 /* Native terminal — fill focus/dock body.

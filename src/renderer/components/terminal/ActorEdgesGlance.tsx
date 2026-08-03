@@ -1,7 +1,8 @@
 /**
- * Compact read-only edge inventory for an actor on focus.
- * Lives under the terminal OverlayHeader — not the top bar — so PIN/STOP/CLOSE
- * stay uncluttered while the operator still sees connected sinks + edge nature.
+ * Floating right-rail edge inventory for an actor on focus.
+ * Overlays the terminal stage (not the header) so PIN/STOP/CLOSE stay clean
+ * and the operator still sees connected sinks + edge nature without the
+ * inspector.
  */
 import { useMemo } from "react";
 import { use$ } from "@legendapp/state/react";
@@ -15,7 +16,7 @@ import {
 } from "../../lib/actor-edges";
 import { state$ } from "../../lib/state";
 import { kernel$ } from "../../lib/kernel-view";
-import { Chip, type ChipTone } from "../ui";
+import { Chip, Eyebrow, type ChipTone } from "../ui";
 
 const natureTone = (row: ActorEdgeRow): ChipTone => {
   if (row.livePhase === "blocks" || row.nature === "tasks") return "crimson";
@@ -33,7 +34,7 @@ const DirectionMark = ({ direction }: { readonly direction: "out" | "in" }) => (
   </span>
 );
 
-function EdgeChip({ row }: { readonly row: ActorEdgeRow }) {
+function EdgeCard({ row }: { readonly row: ActorEdgeRow }) {
   const nature = actorEdgeNatureLabel(row);
   const ports =
     row.ports.length > 0
@@ -62,32 +63,40 @@ function EdgeChip({ row }: { readonly row: ActorEdgeRow }) {
       data-live-phase={row.livePhase ?? undefined}
       title={title}
     >
-      <DirectionMark direction={row.direction} />
-      <span className="actor-edges-glance__kind">{row.peerKind}</span>
+      <div className="actor-edges-glance__row-head">
+        <DirectionMark direction={row.direction} />
+        <span className="actor-edges-glance__kind">{row.peerKind}</span>
+        <Chip tone={natureTone(row)} title={`edge · ${nature}`}>
+          {nature}
+        </Chip>
+      </div>
       <span className="actor-edges-glance__title">{row.peerTitle}</span>
-      <Chip tone={natureTone(row)} title={`edge · ${nature}`}>
-        {nature}
-      </Chip>
       {ports ? (
         <span className="actor-edges-glance__ports" title={row.ports.join(" · ")}>
           {ports}
         </span>
       ) : null}
-      {row.boardNotify === "on" ? (
-        <Chip tone="amber" title="board megaphone on">
-          notify
-        </Chip>
-      ) : null}
-      {row.boardNotify === "off" ? (
-        <Chip tone="steel" title="board megaphone off">
-          quiet
-        </Chip>
-      ) : null}
-      {row.relayState ? (
-        <Chip tone="crimson" title="relay state on">
-          relay
-        </Chip>
-      ) : null}
+      {(row.boardNotify === "on" ||
+        row.boardNotify === "off" ||
+        row.relayState) && (
+        <div className="actor-edges-glance__flags">
+          {row.boardNotify === "on" ? (
+            <Chip tone="amber" title="board megaphone on">
+              notify
+            </Chip>
+          ) : null}
+          {row.boardNotify === "off" ? (
+            <Chip tone="steel" title="board megaphone off">
+              quiet
+            </Chip>
+          ) : null}
+          {row.relayState ? (
+            <Chip tone="crimson" title="relay state on">
+              relay
+            </Chip>
+          ) : null}
+        </div>
+      )}
     </li>
   );
 }
@@ -126,18 +135,25 @@ export function ActorEdgesGlance({ node }: { readonly node: CanvasNode }) {
   if (!isActor || rows.length === 0) return null;
 
   return (
-    <div
+    <aside
       className="actor-edges-glance"
       data-testid="actor-edges-glance"
       role="region"
       aria-label="Connected edges"
     >
-      <span className="actor-edges-glance__label">edges</span>
+      <header className="actor-edges-glance__chrome">
+        <Eyebrow tone="steel" size="xs">
+          edges
+        </Eyebrow>
+        <span className="actor-edges-glance__count" aria-hidden>
+          {rows.length}
+        </span>
+      </header>
       <ul className="actor-edges-glance__list">
         {rows.map((row) => (
-          <EdgeChip key={row.edgeId} row={row} />
+          <EdgeCard key={row.edgeId} row={row} />
         ))}
       </ul>
-    </div>
+    </aside>
   );
 }

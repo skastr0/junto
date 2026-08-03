@@ -1,5 +1,5 @@
 /**
- * Actor edges on focus — read-only edge inventory under the agent terminal header.
+ * Actor edges on focus — floating right-rail edge inventory on the agent terminal.
  *   bun run test:e2e:fast e2e/scenarios/actor-edges-focus.spec.ts
  */
 import { mkdir } from "node:fs/promises";

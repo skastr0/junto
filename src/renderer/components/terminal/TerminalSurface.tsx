@@ -841,7 +841,6 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
           </Button>
         </div>
       ) : null}
-      {agentSeat ? <ActorEdgesGlance node={node} /> : null}
       <div className="native-terminal-surface__stage">
         <div
           ref={hostRef}
@@ -854,6 +853,7 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
             .join(" ")}
           aria-hidden={showDeadOverlay || showLoadOverlay || undefined}
         />
+        {agentSeat ? <ActorEdgesGlance node={node} /> : null}
         {showLoadOverlay && loadPresentation ? (
           <div className="native-terminal-surface__load">
             <SessionLoadSpinner
