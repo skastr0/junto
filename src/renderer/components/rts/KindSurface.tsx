@@ -157,11 +157,18 @@ function NodeFormFocus({
         }
       />
       <div className="rts-kind-form-body inspector-body">
-        {!isLabel && kind !== "terminal" ? <WaitingOnSection nodeId={node.id} /> : null}
-        {!isLabel && kind !== "terminal" && node.type !== "group" ? (
+        {!isLabel && kind !== "terminal" && kind !== "task" ? (
+          <WaitingOnSection nodeId={node.id} />
+        ) : null}
+        {!isLabel &&
+        kind !== "terminal" &&
+        kind !== "task" &&
+        node.type !== "group" ? (
           <NodePlacementSection node={node} />
         ) : null}
-        {!isLabel && kind !== "terminal" ? <NodeCapabilityInventory node={node} /> : null}
+        {!isLabel && kind !== "terminal" && kind !== "task" ? (
+          <NodeCapabilityInventory node={node} />
+        ) : null}
         {!node.ether?.entity && node.type === "text" ? (
           <div className="inspector-detail note-surface">
             <NoteMarkdown source={node.text.split("\n").slice(1).join("\n").trim()} />
@@ -614,9 +621,10 @@ export function KindSurface() {
   // keys) so command title is not echoed three more times in the mid third.
   const showSeatGlance =
     kind === "agent" || (HERDR_ENABLED && kind === "herdr");
-  // Terminal is a shell surface: open + command chrome only. Fields sheet was
-  // placement / work-role / label noise with no product value.
-  const showFieldsKey = kind !== "terminal" && kind !== "label";
+  // Terminal / label / task: no fields sheet. Label is pencil rename; task
+  // queue home is a kind-strip host pop; placement/work-role are noise here.
+  const showFieldsKey =
+    kind !== "terminal" && kind !== "label" && kind !== "task";
   const stripLabel = kind ?? nodeTypeLabel(node);
 
   return (

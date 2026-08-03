@@ -500,8 +500,15 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
     setDraft(text);
     if (isLabel) setEditing(true);
     else if (isFreeNote) setMaximized(true);
-    // Seat/shell cards: rename hero line (not full note textarea).
-    else if (isHerdr || isTerminal || isAgent || managedTerminal) setRenaming(true);
+    // Seat/shell/sink cards: rename first line (not full note textarea).
+    else if (
+      isHerdr ||
+      isTerminal ||
+      isAgent ||
+      managedTerminal ||
+      isWorkSurface
+    )
+      setRenaming(true);
     else setEditing(true);
     state$.editNodeId.set("");
   }, [
@@ -512,6 +519,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
     isTerminal,
     isAgent,
     managedTerminal,
+    isWorkSurface,
     isLabel,
     text,
   ]);
@@ -744,7 +752,12 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
           ) : entityKind === "timer" || entityKind === "cron" ? (
             <TimerCard node={node} />
           ) : entityKind === "task" ? (
-            <TasksCard node={node} />
+            <TasksCard
+              node={node}
+              renaming={renaming}
+              onRequestRename={() => setRenaming(true)}
+              onRenameDone={() => setRenaming(false)}
+            />
           ) : entityKind === "requests" ? (
             <RequestsCard node={node} />
           ) : entityKind === "artifacts" ? (

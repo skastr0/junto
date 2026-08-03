@@ -423,10 +423,8 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
   const [subpathDraft, setSubpathDraft] = useState(subpathValue);
   const workRoleValue = node.ether?.workRole ?? "";
   const [workRoleDraft, setWorkRoleDraft] = useState(workRoleValue);
-  const showWorkRole =
-    Boolean(node.ether?.entity) &&
-    node.ether?.entity?.kind !== "label" &&
-    node.ether?.entity?.kind !== "terminal";
+  // Work role is claim-routing on actor seats only — not sinks or furniture.
+  const showWorkRole = node.ether?.entity?.kind === "agent";
   const knownWorkRoles = use$(() => workRolesInDoc(state$.doc.get()));
 
   useEffect(() => {
@@ -501,14 +499,29 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
         ) : null}
       </div>
     ) : null}
-    {node.type === "text" ? <label className="inspector-editor"><span>{node.ether?.entity ? "label" : "note text"}</span><textarea aria-label={node.ether?.entity ? "Node label" : "Note text"} value={textDraft} onChange={(event) => setTextDraft(event.target.value)} onBlur={commitText} onKeyDown={(event) => { if (event.key === "Escape") { setTextDraft(textValue); event.currentTarget.blur(); } }} /></label> : null}
+    {/* Task sinks rename via kind-strip pencil / card double-click — no fat label field. */}
+    {node.type === "text" && node.ether?.entity?.kind !== "task" ? (
+      <label className="inspector-editor">
+        <span>{node.ether?.entity ? "label" : "note text"}</span>
+        <textarea
+          aria-label={node.ether?.entity ? "Node label" : "Note text"}
+          value={textDraft}
+          onChange={(event) => setTextDraft(event.target.value)}
+          onBlur={commitText}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              setTextDraft(textValue);
+              event.currentTarget.blur();
+            }
+          }}
+        />
+      </label>
+    ) : null}
     {node.type === "link" ? <label className="inspector-editor"><span>web reference</span><input aria-label="Link URL" value={linkDraft} onChange={(event) => setLinkDraft(event.target.value)} onBlur={commitLink} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitLink(); event.currentTarget.blur(); } if (event.key === "Escape") { setLinkDraft(linkValue); event.currentTarget.blur(); } }} /></label> : null}
     {node.type === "link" && node.ether?.entity?.kind === "page"
       ? <PageBindingControl node={node} />
       : null}
-    {node.ether?.entity?.kind === "task"
-      ? <TaskQueueHomeControl node={node} />
-      : null}
+
     {node.ether?.entity?.kind === "agent"
       ? <div className="inspector-section">
           <div className="inspector-section__label">actor placement</div>
@@ -530,73 +543,23 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
   </>;
 }
 
-function TaskQueueHomeControl({ node }: { readonly node: CanvasNode }) {
+/** Queue home host for a tasks sink — used from RTS kind strip pop. */
+export function TaskQueueHomeControl({ node }: { readonly node: CanvasNode }) {
   const storedHost = resolveNodeHostId(node);
-  const [host, setHost] = useState(storedHost);
-  const [hostOptions, setHostOptions] = useState<
-    ReadonlyArray<{ readonly id: string; readonly label: string }>
-  >([{ id: storedHost, label: storedHost }]);
-
-  useEffect(() => {
-    setHost(storedHost);
-  }, [node.id, storedHost]);
-
-  useEffect(() => {
-    let current = true;
-    void window.vellum?.hostsList?.()
-      .then((result) => {
-        if (!current || !result.ok || !result.hosts) return;
-        const seen = new Set<string>();
-        const enrolled = result.hosts
-          .filter((candidate) => {
-            if (seen.has(candidate.id)) return false;
-            seen.add(candidate.id);
-            return true;
-          })
-          .map((candidate) => ({
-            id: candidate.id,
-            label:
-              candidate.label === candidate.id
-                ? candidate.id
-                : `${candidate.label} (${candidate.id})`,
-          }));
-        setHostOptions(
-          enrolled.some((candidate) => candidate.id === storedHost)
-            ? enrolled
-            : [
-                { id: storedHost, label: `${storedHost} (unavailable)` },
-                ...enrolled,
-              ],
-        );
-      })
-      .catch(() => undefined);
-    return () => {
-      current = false;
-    };
-  }, [storedHost]);
-
-  return <div className="inspector-section">
-    <div className="inspector-section__label">task queue</div>
-    <label className="inspector-editor">
-      <span>home for new tasks</span>
-      <Select
-        dense
-        aria-label="Task queue home host"
-        value={host}
-        options={hostOptions.map((candidate) => ({
-          value: candidate.id,
-          label: candidate.label,
-        }))}
-        onChange={(next) => {
-          setHost(next);
-          setNodeHost(node.id, next);
-        }}
-      />
-    </label>
-    <div className="inspector-detail">
-      Existing tasks keep their current authority home.
+  return (
+    <div className="inspector-section" style={{ marginTop: 0 }}>
+      <div className="inspector-section__label">queue home</div>
+      <label className="inspector-editor">
+        <span>host for new tasks</span>
+        <EnrolledHostSelect
+          ariaLabel="Task queue home host"
+          value={storedHost}
+          onChange={(next) => setNodeHost(node.id, next)}
+        />
+      </label>
+      <div className="inspector-detail">Existing tasks keep their current authority home.</div>
     </div>
-  </div>;
+  );
 }
 
 function PageBindingControl({ node }: { readonly node: CanvasNode }) {
@@ -653,14 +616,7 @@ function KernelFieldEditors({ node }: { readonly node: CanvasNode }) {
     {kind === "watcher" ? <WatcherEditor node={node} /> : null}
     {kind === "timer" || kind === "cron" ? <TimerEditor node={node} /> : null}
     {kind === "relay" ? <RelayEditor node={node} /> : null}
-    {kind === "task" || kind === "requests" || kind === "artifacts" ? (
-      <div className="inspector-section">
-        <div className="inspector-section__label">work plane</div>
-        <div className="inspector-detail">
-          Double-click the card for the full {kind} surface. Mutations go through the work service.
-        </div>
-      </div>
-    ) : null}
+
     {kind === "agent" ? <AgentMessagesPane node={node} /> : null}
   </>;
 }

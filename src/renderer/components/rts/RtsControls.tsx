@@ -8,8 +8,10 @@ import {
   ListChecks,
   MessageSquareText,
   Pause,
+  Pencil,
   Play,
   Plus,
+  Server,
   SlidersHorizontal,
   SquareX,
   Terminal,
@@ -43,7 +45,7 @@ import { killHerdrPane } from "../../lib/herdr-actions";
 import { deleteEdges, toggleEdgeArrow } from "../../lib/edge-mutations";
 import { nodeTitle } from "../../lib/presentation";
 import { OpenHerdrMark } from "../herdr/OpenHerdrMark";
-import { EdgeCriteriaEditor } from "../InspectorFields";
+import { EdgeCriteriaEditor, TaskQueueHomeControl } from "../InspectorFields";
 import "./rts-controls.css";
 
 const ICON = 12;
@@ -290,6 +292,12 @@ function HerdrKindKeys({ node }: { readonly node: CanvasNode }) {
 }
 
 function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
+  const [homeOpen, setHomeOpen] = useState(false);
+
+  useEffect(() => {
+    setHomeOpen(false);
+  }, [node.id]);
+
   return (
     <>
       <KindKey
@@ -306,6 +314,26 @@ function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
       >
         <Plus size={ICON} />
       </KindKey>
+      <KindKey
+        label="Rename"
+        title="rename this tasks sink"
+        onClick={() => state$.editNodeId.set(node.id)}
+      >
+        <Pencil size={ICON} />
+      </KindKey>
+      <KindKey
+        label={homeOpen ? "Close queue home" : "Queue home"}
+        title="host for new tasks"
+        active={homeOpen}
+        onClick={() => setHomeOpen((open) => !open)}
+      >
+        <Server size={ICON} />
+      </KindKey>
+      {homeOpen ? (
+        <div className="rts-kind-pop rts-kind-pop--queue-home">
+          <TaskQueueHomeControl node={node} />
+        </div>
+      ) : null}
     </>
   );
 }

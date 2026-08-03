@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Plus, X } from "lucide-react";
 import type {
   CanvasNode,
@@ -8,7 +8,7 @@ import type {
 import type { WorkOpResult } from "@shared/ipc";
 import type { BoardPost, BoardTopic } from "@shared/work-model";
 import { isTerminalTaskState, taskBrief } from "@shared/task";
-import { sinkGlance, workRoleOf } from "@shared/attention";
+import { sinkGlance } from "@shared/attention";
 import { openTaskCreateSurface } from "../../lib/dock-state";
 import { DIM, HUE, INK } from "../../lib/theme";
 import { FocusSurface } from "../FocusSurface";
@@ -16,7 +16,7 @@ import { Button } from "../ui/Button";
 import { Input, Textarea } from "../ui/Field";
 import { IconButton } from "../ui/IconButton";
 import { OverlayHeader } from "../ui/OverlayHeader";
-import { applyWorkCanvasWrite } from "../../lib/mutations";
+import { applyWorkCanvasWrite, editText } from "../../lib/mutations";
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import { state$ } from "../../lib/state";
 import { getVellumApi } from "../../lib/vellum-api";
@@ -25,6 +25,55 @@ import { ArtifactLibrary, RequestInbox } from "./WorkLedger";
 import "./work-ledger.css";
 
 const canvasName = (): string => state$.canvasName.peek() || "";
+
+/** First-line rename — Enter/blur commits, Escape discards. */
+function SinkRenameInput({
+  initial,
+  onCommit,
+  onDone,
+}: {
+  readonly initial: string;
+  readonly onCommit: (firstLine: string) => void;
+  readonly onDone: () => void;
+}) {
+  const [value, setValue] = useState(initial);
+  const firedRef = useRef(false);
+
+  const finish = (commit: boolean) => {
+    if (firedRef.current) return;
+    firedRef.current = true;
+    const next = value.trim();
+    if (commit && next && next !== initial) onCommit(next);
+    onDone();
+  };
+
+  return (
+    <input
+      ref={(el) => {
+        el?.focus();
+        el?.select();
+      }}
+      aria-label="Rename tasks sink"
+      className="nodrag nopan nowheel w-full truncate bg-transparent text-left font-mono text-[11px] font-semibold leading-snug outline-none"
+      style={{ color: INK }}
+      value={value}
+      onChange={(event) => setValue(event.target.value)}
+      onBlur={() => finish(true)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          finish(true);
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          finish(false);
+        }
+      }}
+      onClick={(event) => event.stopPropagation()}
+      onPointerDown={(event) => event.stopPropagation()}
+    />
+  );
+}
 
 const boardTextOf = (parts: ReadonlyArray<Part>): string =>
   parts
@@ -72,19 +121,56 @@ export const stateHue = (state: TaskState): string => {
 // --- Cards -----------------------------------------------------------------
 
 /** Glance-grade sink: in-flight count + input-required hot only. */
-export function TasksCard({ node }: { readonly node: CanvasNode }) {
+export function TasksCard({
+  node,
+  renaming = false,
+  onRequestRename,
+  onRenameDone,
+}: {
+  readonly node: CanvasNode;
+  readonly renaming?: boolean;
+  readonly onRequestRename?: () => void;
+  readonly onRenameDone?: () => void;
+}) {
   const items = node.ether?.tasks?.items ?? [];
   const { inFlight, needsInput } = sinkGlance(items);
-  const role = workRoleOf(node);
+  const rawText = node.type === "text" ? node.text : "";
+  const firstLine = rawText.split("\n")[0] ?? "";
+  const label = firstLine || "tasks";
+  const commitRename = (nextFirst: string) => {
+    const rest = rawText.split("\n").slice(1).join("\n");
+    editText(node.id, rest ? `${nextFirst}\n${rest}` : nextFirst);
+  };
   const hotItems = items.filter(
     (t) => t.state === "input-required" || t.state === "auth-required" || t.state === "working",
   );
   return (
     <div className="factory-glance factory-glance--tasks flex h-full w-full flex-col overflow-hidden" data-testid="tasks-card">
       <div className="factory-glance__header flex items-center justify-between gap-2">
-        <span className="text-[8px] uppercase tracking-[0.18em]" style={{ color: "#68604a" }}>
-          tasks{role ? ` · ${role}` : ""}
-        </span>
+        {renaming && onRenameDone ? (
+          <div className="min-w-0 flex-1">
+            <SinkRenameInput
+              initial={label}
+              onCommit={commitRename}
+              onDone={onRenameDone}
+            />
+          </div>
+        ) : (
+          <button
+            type="button"
+            className="nodrag nopan min-w-0 flex-1 truncate text-left text-[8px] uppercase tracking-[0.18em]"
+            style={{ color: "#68604a" }}
+            title={onRequestRename ? "double-click to rename" : undefined}
+            onDoubleClick={(event) => {
+              if (event.shiftKey || !onRequestRename) return;
+              event.preventDefault();
+              event.stopPropagation();
+              onRequestRename();
+            }}
+          >
+            {label}
+          </button>
+        )}
         <div className="flex items-center gap-1.5">
           <span
             className="text-[9px] tabular-nums"
