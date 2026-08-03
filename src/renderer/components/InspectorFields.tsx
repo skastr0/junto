@@ -13,6 +13,7 @@ import type {
   EtherRelay,
   EtherWatch,
 } from "@shared/canvas";
+import { HERDR_ENABLED } from "@shared/features";
 import { isGroup } from "@shared/graph";
 import { workRolesInDoc } from "@shared/attention";
 import {
@@ -423,7 +424,9 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
   const workRoleValue = node.ether?.workRole ?? "";
   const [workRoleDraft, setWorkRoleDraft] = useState(workRoleValue);
   const showWorkRole =
-    Boolean(node.ether?.entity) && node.ether?.entity?.kind !== "label";
+    Boolean(node.ether?.entity) &&
+    node.ether?.entity?.kind !== "label" &&
+    node.ether?.entity?.kind !== "terminal";
   const knownWorkRoles = use$(() => workRolesInDoc(state$.doc.get()));
 
   useEffect(() => {
@@ -519,7 +522,9 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
     {/* Region dense fields: kind-strip keys are preferred (briefing / herdr /
         page / paths). Hold stays on the command card; plate + placement are gone. */}
     {node.type === "group" ? <RegionHoldControl node={node} /> : null}
-    {node.type === "group" ? <RegionHerdrDefaultsControl node={node} /> : null}
+    {HERDR_ENABLED && node.type === "group" ? (
+      <RegionHerdrDefaultsControl node={node} />
+    ) : null}
     {node.type === "group" ? <RegionPageDefaultsControl node={node} /> : null}
     <KernelFieldEditors node={node} />
   </>;

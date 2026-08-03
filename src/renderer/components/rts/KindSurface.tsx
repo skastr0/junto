@@ -20,6 +20,7 @@ import {
   X,
 } from "lucide-react";
 import type { CanvasEdge, CanvasNode } from "@shared/canvas";
+import { HERDR_ENABLED } from "@shared/features";
 import { isHarnessId } from "@shared/managed-terminal-templates";
 import { state$ } from "../../lib/state";
 import { kernel$ } from "../../lib/kernel-view";
@@ -156,9 +157,11 @@ function NodeFormFocus({
         }
       />
       <div className="rts-kind-form-body inspector-body">
-        {!isLabel ? <WaitingOnSection nodeId={node.id} /> : null}
-        {!isLabel && node.type !== "group" ? <NodePlacementSection node={node} /> : null}
-        {!isLabel ? <NodeCapabilityInventory node={node} /> : null}
+        {!isLabel && kind !== "terminal" ? <WaitingOnSection nodeId={node.id} /> : null}
+        {!isLabel && kind !== "terminal" && node.type !== "group" ? (
+          <NodePlacementSection node={node} />
+        ) : null}
+        {!isLabel && kind !== "terminal" ? <NodeCapabilityInventory node={node} /> : null}
         {!node.ether?.entity && node.type === "text" ? (
           <div className="inspector-detail note-surface">
             <NoteMarkdown source={node.text.split("\n").slice(1).join("\n").trim()} />
@@ -399,15 +402,17 @@ function RegionKindSurface({ node }: { readonly node: CanvasNode }) {
           >
             <FolderOpen size={ICON} />
           </KindKey>
-          <KindKey
-            label={form === "herdr" ? "Close herdr defaults" : "Herdr defaults"}
-            title="Defaults for new herdr nodes in this region"
-            active={form === "herdr" || hasHerdr}
-            style={form === "herdr" || hasHerdr ? { color: HUE.cyan } : undefined}
-            onClick={() => toggleForm("herdr")}
-          >
-            <Package size={ICON} />
-          </KindKey>
+          {HERDR_ENABLED ? (
+            <KindKey
+              label={form === "herdr" ? "Close herdr defaults" : "Herdr defaults"}
+              title="Defaults for new herdr nodes in this region"
+              active={form === "herdr" || hasHerdr}
+              style={form === "herdr" || hasHerdr ? { color: HUE.cyan } : undefined}
+              onClick={() => toggleForm("herdr")}
+            >
+              <Package size={ICON} />
+            </KindKey>
+          ) : null}
           <KindKey
             label={form === "page" ? "Close page defaults" : "Page defaults"}
             title="Defaults for new page nodes in this region"
@@ -596,34 +601,50 @@ export function KindSurface() {
   const kind = node.ether?.entity?.kind;
   const hasKindActions =
     kind !== undefined &&
-    ["agent", "herdr", "terminal", "task", "requests", "watcher", "timer"].includes(kind);
+    [
+      "agent",
+      ...(HERDR_ENABLED ? (["herdr"] as const) : []),
+      "terminal",
+      "task",
+      "requests",
+      "watcher",
+      "timer",
+    ].includes(kind);
   // Agent/herdr keep a live glance. Everything else is strip-only (kind once +
   // keys) so command title is not echoed three more times in the mid third.
-  const showSeatGlance = kind === "agent" || kind === "herdr";
+  const showSeatGlance =
+    kind === "agent" || (HERDR_ENABLED && kind === "herdr");
+  // Terminal is a shell surface: open + command chrome only. Fields sheet was
+  // placement / work-role / label noise with no product value.
+  const showFieldsKey = kind !== "terminal" && kind !== "label";
   const stripLabel = kind ?? nodeTypeLabel(node);
 
   return (
     <div className={`rts-kind-surface${showSeatGlance ? "" : " rts-kind-surface--simple"}`}>
       {kind === "agent" ? <AgentSeatGlance node={node} /> : null}
-      {kind === "herdr" ? <HerdrGlance node={node} /> : null}
+      {HERDR_ENABLED && kind === "herdr" ? <HerdrGlance node={node} /> : null}
 
       <div className="rts-kind-cluster">
         <span className="rts-kind-kind-label">{stripLabel}</span>
         <div className="rts-kind-strip" role="toolbar" aria-label={`${stripLabel} actions`}>
           {hasKindActions ? <KindActions node={node} /> : null}
-          <KindKey
-            label={formOpen ? "Close fields" : "Open fields"}
-            title="Edit node fields"
-            active={formOpen}
-            style={{ color: formOpen ? HUE.amber : undefined }}
-            onClick={() => setFormOpen((open) => !open)}
-          >
-            <Settings2 size={ICON} />
-          </KindKey>
+          {showFieldsKey ? (
+            <KindKey
+              label={formOpen ? "Close fields" : "Open fields"}
+              title="Edit node fields"
+              active={formOpen}
+              style={{ color: formOpen ? HUE.amber : undefined }}
+              onClick={() => setFormOpen((open) => !open)}
+            >
+              <Settings2 size={ICON} />
+            </KindKey>
+          ) : null}
         </div>
       </div>
 
-      {formOpen ? <NodeFormFocus node={node} onClose={() => setFormOpen(false)} /> : null}
+      {formOpen && showFieldsKey ? (
+        <NodeFormFocus node={node} onClose={() => setFormOpen(false)} />
+      ) : null}
     </div>
   );
 }
