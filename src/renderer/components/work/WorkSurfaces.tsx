@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Plus, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Inbox, ListChecks, MessageSquareText, Package, Plus, X } from "lucide-react";
 import type {
   CanvasNode,
   Part,
@@ -23,6 +23,15 @@ import { getVellumApi } from "../../lib/vellum-api";
 import { TaskBoard } from "./TaskBoard";
 import { ArtifactLibrary, RequestInbox } from "./WorkLedger";
 import "./work-ledger.css";
+
+/** Same 28px amber tile as terminal / cron / page. */
+function AmberDecal({ children }: { readonly children: ReactNode }) {
+  return (
+    <div className="grid size-7 shrink-0 place-items-center rounded-md border border-amber/25 bg-amber/[0.07] text-amber">
+      {children}
+    </div>
+  );
+}
 
 const canvasName = (): string => state$.canvasName.peek() || "";
 
@@ -54,7 +63,7 @@ function SinkRenameInput({
         el?.select();
       }}
       aria-label="Rename sink"
-      className="nodrag nopan nowheel w-full truncate bg-transparent text-left font-mono text-[11px] font-semibold leading-snug outline-none"
+      className="nodrag nopan nowheel w-full truncate bg-transparent text-left font-mono text-[14px] font-semibold leading-snug outline-none"
       style={{ color: INK }}
       value={value}
       onChange={(event) => setValue(event.target.value)}
@@ -81,16 +90,20 @@ type SinkRenameProps = {
   readonly onRenameDone?: () => void;
 };
 
-/** Glance header title — pencil/RTS rename, no fat fields form. */
-function SinkGlanceTitle({
+/** Glance header: amber decal + rename title (terminal weight). */
+function SinkGlanceHead({
   node,
   fallback,
+  decal,
+  trailing,
   renaming = false,
   onRequestRename,
   onRenameDone,
 }: {
   readonly node: CanvasNode;
   readonly fallback: string;
+  readonly decal: ReactNode;
+  readonly trailing?: ReactNode;
 } & SinkRenameProps) {
   const rawText = node.type === "text" ? node.text : "";
   const firstLine = rawText.split("\n")[0] ?? "";
@@ -99,28 +112,31 @@ function SinkGlanceTitle({
     const rest = rawText.split("\n").slice(1).join("\n");
     editText(node.id, rest ? `${nextFirst}\n${rest}` : nextFirst);
   };
-  if (renaming && onRenameDone) {
-    return (
-      <div className="min-w-0 flex-1">
-        <SinkRenameInput initial={label} onCommit={commitRename} onDone={onRenameDone} />
-      </div>
-    );
-  }
   return (
-    <button
-      type="button"
-      className="nodrag nopan min-w-0 flex-1 truncate text-left text-[8px] uppercase tracking-[0.18em]"
-      style={{ color: "#68604a" }}
-      title={onRequestRename ? "Rename" : undefined}
-      onDoubleClick={(event) => {
-        if (event.shiftKey || !onRequestRename) return;
-        event.preventDefault();
-        event.stopPropagation();
-        onRequestRename();
-      }}
-    >
-      {label}
-    </button>
+    <div className="factory-glance__header flex items-center gap-2">
+      <AmberDecal>{decal}</AmberDecal>
+      <div className="min-w-0 flex-1">
+        {renaming && onRenameDone ? (
+          <SinkRenameInput initial={label} onCommit={commitRename} onDone={onRenameDone} />
+        ) : (
+          <button
+            type="button"
+            className="nodrag nopan w-full truncate text-left font-mono text-[14px] font-semibold leading-snug"
+            style={{ color: INK }}
+            title={onRequestRename ? "Rename" : undefined}
+            onDoubleClick={(event) => {
+              if (event.shiftKey || !onRequestRename) return;
+              event.preventDefault();
+              event.stopPropagation();
+              onRequestRename();
+            }}
+          >
+            {label}
+          </button>
+        )}
+      </div>
+      {trailing ? <div className="flex shrink-0 items-center gap-1.5">{trailing}</div> : null}
+    </div>
   );
 }
 
@@ -185,44 +201,45 @@ export function TasksCard({
   );
   return (
     <div className="factory-glance factory-glance--tasks flex h-full w-full flex-col overflow-hidden" data-testid="tasks-card">
-      <div className="factory-glance__header flex items-center justify-between gap-2">
-        <SinkGlanceTitle
-          node={node}
-          fallback="tasks"
-          renaming={renaming}
-          onRequestRename={onRequestRename}
-          onRenameDone={onRenameDone}
-        />
-        <div className="flex items-center gap-1.5">
-          <span
-            className="text-[9px] tabular-nums"
-            style={{ color: needsInput > 0 ? HUE.amber : DIM }}
-            data-testid="tasks-glance"
-          >
-            {inFlight} in flight
-            {needsInput > 0 ? ` · ${needsInput} need input` : ""}
-          </span>
-          <button
-            type="button"
-            className="nodrag nowheel factory-glance__enqueue"
-            data-testid="tasks-card-enqueue"
-            title="Enqueue task"
-            aria-label="Enqueue task"
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              openTaskCreateSurface(node, { mode: "task" });
-            }}
-            onDoubleClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-            }}
-            onPointerDown={(event) => event.stopPropagation()}
-          >
-            <Plus size={11} strokeWidth={2.25} aria-hidden />
-          </button>
-        </div>
-      </div>
+      <SinkGlanceHead
+        node={node}
+        fallback="tasks"
+        decal={<ListChecks size={15} />}
+        renaming={renaming}
+        onRequestRename={onRequestRename}
+        onRenameDone={onRenameDone}
+        trailing={
+          <>
+            <span
+              className="text-[9px] tabular-nums"
+              style={{ color: needsInput > 0 ? HUE.amber : DIM }}
+              data-testid="tasks-glance"
+            >
+              {inFlight} in flight
+              {needsInput > 0 ? ` · ${needsInput} need input` : ""}
+            </span>
+            <button
+              type="button"
+              className="nodrag nowheel factory-glance__enqueue"
+              data-testid="tasks-card-enqueue"
+              title="Enqueue task"
+              aria-label="Enqueue task"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                openTaskCreateSurface(node, { mode: "task" });
+              }}
+              onDoubleClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+              onPointerDown={(event) => event.stopPropagation()}
+            >
+              <Plus size={11} strokeWidth={2.25} aria-hidden />
+            </button>
+          </>
+        }
+      />
       <div className="factory-glance__list mt-1.5 flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden">
         {(hotItems.length > 0 ? hotItems : items.filter((t) => !isTerminalTaskState(t.state)))
           .slice(0, 4)
@@ -261,18 +278,19 @@ export function RequestsCard({
   const pending = items.filter((t) => t.state === "input-required").length;
   return (
     <div className="factory-glance factory-glance--requests flex h-full w-full flex-col overflow-hidden" data-testid="requests-card">
-      <div className="factory-glance__header flex items-center justify-between gap-2">
-        <SinkGlanceTitle
-          node={node}
-          fallback="requests"
-          renaming={renaming}
-          onRequestRename={onRequestRename}
-          onRenameDone={onRenameDone}
-        />
-        <span className="text-[9px] tabular-nums" style={{ color: pending ? HUE.amber : DIM }}>
-          {pending} pending
-        </span>
-      </div>
+      <SinkGlanceHead
+        node={node}
+        fallback="requests"
+        decal={<Inbox size={15} />}
+        renaming={renaming}
+        onRequestRename={onRequestRename}
+        onRenameDone={onRenameDone}
+        trailing={
+          <span className="text-[9px] tabular-nums" style={{ color: pending ? HUE.amber : DIM }}>
+            {pending} pending
+          </span>
+        }
+      />
       <div className="factory-glance__list mt-1.5 flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden">
         {items.slice(0, 4).map((item) => (
           <div key={item.id} className="factory-glance__row factory-glance__row--request truncate text-[10px] leading-snug" style={{ color: INK }} data-state={item.state}>
@@ -296,23 +314,24 @@ export function BoardCard({
   const unread = node.ether?.board?.unread ?? 0;
   return (
     <div className="factory-glance factory-glance--board flex h-full w-full flex-col overflow-hidden" data-testid="board-card">
-      <div className="factory-glance__header flex items-center justify-between gap-2">
-        <SinkGlanceTitle
-          node={node}
-          fallback="board"
-          renaming={renaming}
-          onRequestRename={onRequestRename}
-          onRenameDone={onRenameDone}
-        />
-        <span
-          className="text-[9px] tabular-nums"
-          style={{ color: unread > 0 ? HUE.amber : DIM }}
-          data-testid="board-glance"
-        >
-          {topics.length} topics
-          {unread > 0 ? ` · ${unread} new` : ""}
-        </span>
-      </div>
+      <SinkGlanceHead
+        node={node}
+        fallback="board"
+        decal={<MessageSquareText size={15} />}
+        renaming={renaming}
+        onRequestRename={onRequestRename}
+        onRenameDone={onRenameDone}
+        trailing={
+          <span
+            className="text-[9px] tabular-nums"
+            style={{ color: unread > 0 ? HUE.amber : DIM }}
+            data-testid="board-glance"
+          >
+            {topics.length} topics
+            {unread > 0 ? ` · ${unread} new` : ""}
+          </span>
+        }
+      />
       <div className="factory-glance__list mt-1.5 flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden">
         {topics.slice(0, 4).map((topic) => (
           <div key={topic.topicId} className="factory-glance__row factory-glance__row--topic truncate text-[10px] leading-snug" style={{ color: INK }}>
@@ -340,18 +359,19 @@ export function ArtifactsCard({
   const items = node.ether?.artifacts?.items ?? [];
   return (
     <div className="factory-glance factory-glance--artifacts flex h-full w-full flex-col overflow-hidden" data-testid="artifacts-card">
-      <div className="factory-glance__header flex items-center justify-between gap-2">
-        <SinkGlanceTitle
-          node={node}
-          fallback="artifacts"
-          renaming={renaming}
-          onRequestRename={onRequestRename}
-          onRenameDone={onRenameDone}
-        />
-        <span className="text-[9px] tabular-nums" style={{ color: DIM }}>
-          {items.length}
-        </span>
-      </div>
+      <SinkGlanceHead
+        node={node}
+        fallback="artifacts"
+        decal={<Package size={15} />}
+        renaming={renaming}
+        onRequestRename={onRequestRename}
+        onRenameDone={onRenameDone}
+        trailing={
+          <span className="text-[9px] tabular-nums" style={{ color: DIM }}>
+            {items.length}
+          </span>
+        }
+      />
       <div className="factory-glance__list mt-1.5 flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden">
         {items.slice(0, 4).map((item) => (
           <div key={item.artifactId} className="factory-glance__row factory-glance__row--artifact truncate text-[10px]" style={{ color: INK }}>
