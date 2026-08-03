@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import type { NodeProps } from "@xyflow/react";
-import { X } from "lucide-react";
+import { Gauge, Radio, Timer, X } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
 import type { FlowNode } from "../../lib/convert";
 import { registerCanvasDraftCommit } from "../../lib/canvas-editor-flush";
@@ -31,7 +31,6 @@ import { consumeWorkDetailOpen, workDetailOpen$ } from "../../lib/work-detail-op
 import { onTerminalEvent } from "../../lib/terminal-events";
 import { terminal$ } from "../../lib/terminal-state";
 import { getVellumApi } from "../../lib/vellum-api";
-import { ActivityMarkFromSpec } from "../ActivityMark";
 import { HerdrCard } from "../herdr/HerdrCard";
 import { HarnessMark } from "../herdr/HarnessMark";
 import { TerminalCard } from "../terminal/TerminalCard";
@@ -40,6 +39,7 @@ import { HerdrToolbarActions } from "../herdr/HerdrToolbarActions";
 import { AgentChatToolbarActions } from "../chat/AgentChatToolbarActions";
 import { FocusSurface } from "../FocusSurface";
 import { Button, Eyebrow, IconButton } from "../ui";
+import { ExecutionCardHeader } from "./ExecutionCardHeader";
 import {
   ArtifactsCard,
   ArtifactsDetail,
@@ -52,7 +52,6 @@ import {
 } from "../work/WorkSurfaces";
 import { TaskToolbarActions } from "../work/TaskToolbarActions";
 import { ClaimedTaskStrip } from "./ClaimedTaskStrip";
-import { ExecutionCardHeader } from "./ExecutionCardHeader";
 import { NodeShell } from "./NodeShell";
 
 // Re-renders every intervalMs so relative-time copy ("fired 2m ago", "next
@@ -86,7 +85,21 @@ function formatCountdown(nextFire: number, now: number): string {
   return `next run in ${hours}h${remainder ? ` ${remainder}m` : ""}`;
 }
 
-// Gauge / relay card: status is DERIVED from kernel$ (never the document).
+/** Kind decal — same 28px amber tile as terminal / seats. */
+function SchedulerDecal({
+  kind,
+}: {
+  readonly kind: "cron" | "gauge" | "relay";
+}) {
+  const Icon = kind === "cron" ? Timer : kind === "gauge" ? Gauge : Radio;
+  return (
+    <div className="grid size-7 shrink-0 place-items-center rounded-md border border-amber/25 bg-amber/[0.07] text-amber">
+      <Icon size={15} />
+    </div>
+  );
+}
+
+// Gauge / relay: kernel$ status only. Idle mark is silent (ExecutionCardHeader).
 function WatcherCard({
   node,
   label,
@@ -98,90 +111,61 @@ function WatcherCard({
     WatcherRuntimeState | undefined;
   const now = useRelativeNow(30_000);
   const rawName = (node.type === "text" ? node.text : "").split("\n")[0] ?? "";
+  const title = rawName || label;
   const status = runtime?.status ?? "unknown";
   const detail = runtime?.detail ?? "watching";
   const activity = watcherActivity(status);
+  const subtitle = runtime?.lastFiredAt
+    ? `${detail} · ${formatAgo(runtime.lastFiredAt, now)}`
+    : detail;
   return (
     <div className="flex h-full w-full flex-col justify-between overflow-hidden">
-      <div>
-        <div className="flex items-center gap-2">
-          <ActivityMarkFromSpec spec={activity} />
-          <span
-            className="text-[8px] uppercase tracking-[0.18em]"
-            style={{ color: "#68604a" }}
+      <ExecutionCardHeader
+        decal={<SchedulerDecal kind={label} />}
+        title={
+          <div
+            className="truncate font-mono text-[14px] font-semibold leading-snug"
+            style={{ color: INK }}
+            title={title}
           >
-            {label}
-          </span>
-        </div>
-        <div
-          className="mt-1 truncate font-mono text-[13px] font-semibold leading-snug"
-          style={{ color: INK }}
-          title={rawName}
-        >
-          {rawName}
-        </div>
-      </div>
-      <div
-        className="text-[10px] leading-snug tabular-nums"
-        style={{ color: DIM }}
-      >
-        <div className="truncate" title={detail}>
-          {detail}
-        </div>
-        {runtime?.lastFiredAt ? (
-          <div className="mt-0.5" style={{ opacity: 0.7 }}>
-            {formatAgo(runtime.lastFiredAt, now)}
+            {title}
           </div>
-        ) : null}
-      </div>
+        }
+        subtitle={subtitle}
+        activity={activity}
+      />
     </div>
   );
 }
 
-// Cron card: countdown from kernel$.nextFire; interval from ether.timer.
+// Cron: countdown from kernel$.nextFire; interval from ether.timer.
 function TimerCard({ node }: { readonly node: CanvasNode }) {
   const nextFire = use$(kernel$.nextFire[node.id]) as number | undefined;
   const now = useRelativeNow(30_000);
   const rawName = (node.type === "text" ? node.text : "").split("\n")[0] ?? "";
+  const title = rawName || "cron";
   const everyMinutes = node.ether?.timer?.everyMinutes;
   const activity = timerActivity({ nextFire, now });
+  const countdown = nextFire ? formatCountdown(nextFire, now) : "—";
+  const subtitle = everyMinutes
+    ? `${countdown} · every ${everyMinutes}m`
+    : countdown;
   return (
-    <div className="factory-timer flex h-full w-full items-center gap-3 overflow-hidden">
-      <span className="factory-timer__dial" aria-hidden="true">
-        <span />
-      </span>
-      <div className="factory-timer__copy min-w-0 flex-1">
-        <div>
-        <div className="flex items-center gap-2">
-          <ActivityMarkFromSpec spec={activity} />
-          <span
-            className="text-[8px] uppercase tracking-[0.18em]"
-            style={{ color: "#68604a" }}
+    <div className="flex h-full w-full flex-col justify-between overflow-hidden">
+      <ExecutionCardHeader
+        decal={<SchedulerDecal kind="cron" />}
+        title={
+          <div
+            className="truncate font-mono text-[14px] font-semibold leading-snug"
+            style={{ color: INK }}
+            title={title}
           >
-            cron
-          </span>
-        </div>
-        <div
-          className="mt-1 truncate font-mono text-[13px] font-semibold leading-snug"
-          style={{ color: INK }}
-          title={rawName}
-        >
-          {rawName}
-        </div>
-      </div>
-        <div
-          className="mt-1 text-[10px] leading-snug tabular-nums"
-          style={{ color: DIM }}
-        >
-        {/* Countdown numbers are content, not status labels. */}
-        <div>{nextFire ? formatCountdown(nextFire, now) : "—"}</div>
-        {everyMinutes ? (
-          <div className="mt-0.5" style={{ opacity: 0.7 }}>
-            every {everyMinutes}m
+            {title}
           </div>
-        ) : null}
-        </div>
-      </div>
+        }
+        subtitle={subtitle}
+        activity={activity}
+      />
     </div>
   );
 }

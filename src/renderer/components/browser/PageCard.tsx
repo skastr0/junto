@@ -12,13 +12,14 @@ import {
 import { closeDockBrowser, dock$, openDockBrowser, stopDockBrowser } from "../../lib/dock-state";
 import { hostOf } from "../../lib/presentation";
 import { state$ } from "../../lib/state";
-import { DIM, HUE, INK, withAlpha } from "../../lib/theme";
-import { ActivityMarkFromSpec } from "../ActivityMark";
+import { HUE, INK } from "../../lib/theme";
+import { ExecutionCardHeader } from "../nodes/ExecutionCardHeader";
 
 /**
  * Browser page work-surface card — rendered by LinkNode.tsx for kind "page" +
  * ether.browser nodes. Session state is runtime (browser$); the document only
- * carries the profile binding. ActivityMark: wave while loading/attaching.
+ * carries the profile binding. ActivityMark waves while loading/attaching;
+ * idle is silent (same as terminal / schedulers).
  */
 export function PageCard({ node }: { readonly node: CanvasNode }) {
   const browser = node.ether?.browser;
@@ -55,16 +56,21 @@ export function PageCard({ node }: { readonly node: CanvasNode }) {
 
   const state = session?.state ?? "idle";
   const warm = state === "loading" || state === "ready" || state === "failed" || state === "detached";
-  const title = session?.title;
+  const pageTitle = session?.title;
   const host = hostOf(url);
-  const activity = browserActivity({ state, attaching });
+  const activity =
+    session?.lastError && state === "failed"
+      ? { ...browserActivity({ state, attaching }), label: session.lastError }
+      : browserActivity({ state, attaching });
+  const displayTitle = warm && pageTitle ? pageTitle : host;
+  const subtitle = [browser.profile, url].filter(Boolean).join(" · ");
 
   const open = () => {
     void openDockBrowser(pageRef, {
       nodeId: node.id,
       browser,
       url,
-      title: title ?? host,
+      title: pageTitle ?? host,
     });
   };
   const detach = () => {
@@ -76,44 +82,33 @@ export function PageCard({ node }: { readonly node: CanvasNode }) {
 
   return (
     <div className="flex h-full w-full flex-col justify-between overflow-hidden">
-      <div>
-        <div className="flex items-center justify-between gap-2">
-          <span
-            className="rounded-full border px-1.5 py-px text-[8px] font-semibold uppercase tracking-wide"
-            style={{ color: HUE.cyan, borderColor: withAlpha(HUE.cyan, 0.4) }}
-            title={`profile · ${browser.profile}`}
-          >
-            {browser.profile}
-          </span>
-          <ActivityMarkFromSpec
-            spec={
-              session?.lastError && state === "failed"
-                ? { ...activity, label: session.lastError }
-                : activity
-            }
-          />
-        </div>
-        <button
-          type="button"
-          className="nodrag nopan mt-1 flex w-full items-center gap-1.5 text-left"
-          title="Attach browser surface"
-          onClick={(e) => {
-            e.stopPropagation();
-            open();
-          }}
-        >
-          <Globe size={13} className="shrink-0" style={{ color: HUE.steel }} />
-          <span
-            className="truncate font-mono text-[14px] font-semibold leading-snug"
+      <ExecutionCardHeader
+        decal={
+          <div className="grid size-7 shrink-0 place-items-center rounded-md border border-amber/25 bg-amber/[0.07] text-amber">
+            <Globe size={15} />
+          </div>
+        }
+        title={
+          <button
+            type="button"
+            className="nodrag nopan w-full truncate text-left font-mono text-[14px] font-semibold leading-snug"
             style={{ color: INK }}
+            title="Attach browser surface"
+            onClick={(e) => {
+              e.stopPropagation();
+              open();
+            }}
           >
-            {warm && title ? title : host}
+            {displayTitle}
+          </button>
+        }
+        subtitle={
+          <span className="truncate" title={url}>
+            {subtitle}
           </span>
-        </button>
-        <div className="mt-0.5 truncate text-[10px]" style={{ color: DIM }} title={url}>
-          {url}
-        </div>
-      </div>
+        }
+        activity={activity}
+      />
       <div className="nodrag nopan flex flex-wrap items-center gap-1 pt-0.5">
         <button
           type="button"
