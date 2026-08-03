@@ -500,10 +500,21 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
     setDraft(text);
     if (isLabel) setEditing(true);
     else if (isFreeNote) setMaximized(true);
-    else if (isHerdr) setRenaming(true);
+    // Seat/shell cards: rename hero line (not full note textarea).
+    else if (isHerdr || isTerminal || isAgent || managedTerminal) setRenaming(true);
     else setEditing(true);
     state$.editNodeId.set("");
-  }, [isEditTarget, node.id, isFreeNote, isHerdr, isLabel, text]);
+  }, [
+    isEditTarget,
+    node.id,
+    isFreeNote,
+    isHerdr,
+    isTerminal,
+    isAgent,
+    managedTerminal,
+    isLabel,
+    text,
+  ]);
 
   // Cross-surface open trigger (RTS bars / jump-to-cause): mirrors editNodeId —
   // consume the target (+ optional item id), open the work-plane detail, clear.
@@ -556,14 +567,12 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
       selected={selected}
       blocked={data.blocked}
       onEdit={
-        isHerdr
+        isHerdr || isTerminal || isAgent || managedTerminal
           ? () => setRenaming(true)
-          : managedTerminal
-            ? undefined
-            : openInline
+          : openInline
       }
       onMaximize={isFreeNote && !isLabel ? openMaximized : undefined}
-      inlineEdit={!isHerdr && !managedTerminal && !isLabel}
+      inlineEdit={!isHerdr && !managedTerminal && !isLabel && !isTerminal && !isAgent}
       resizable={!isAgent}
       showHandles={!isLabel}
       bare={isLabel}
@@ -751,7 +760,13 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
               onRenameDone={() => setRenaming(false)}
             />
           ) : entityKind === "terminal" ? (
-            <TerminalCard node={node} graphBlocked={data.blocked} />
+            <TerminalCard
+              node={node}
+              graphBlocked={data.blocked}
+              renaming={renaming}
+              onRequestRename={() => setRenaming(true)}
+              onRenameDone={() => setRenaming(false)}
+            />
           ) : entityKind === "agent" ? (
             <EntityCard node={node} kind="agent" graphBlocked={data.blocked} />
           ) : (

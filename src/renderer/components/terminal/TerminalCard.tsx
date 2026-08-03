@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import { SquareTerminal } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
@@ -13,8 +13,57 @@ import { terminalActivity } from "../../lib/activity";
 import { terminal$ } from "../../lib/terminal-state";
 import { onTerminalEvent } from "../../lib/terminal-events";
 import { getVellumApi } from "../../lib/vellum-api";
+import { editText } from "../../lib/mutations";
+import { INK } from "../../lib/theme";
 import { ClaimedTaskStrip } from "../nodes/ClaimedTaskStrip";
 import { ExecutionCardHeader } from "../nodes/ExecutionCardHeader";
+
+/** First-line rename — Enter/blur commits, Escape discards. */
+function RenameInput({
+  initial,
+  onCommit,
+  onDone,
+}: {
+  readonly initial: string;
+  readonly onCommit: (firstLine: string) => void;
+  readonly onDone: () => void;
+}) {
+  const [value, setValue] = useState(initial);
+  const firedRef = useRef(false);
+
+  const finish = (commit: boolean) => {
+    if (firedRef.current) return;
+    firedRef.current = true;
+    const next = value.trim();
+    if (commit && next && next !== initial) onCommit(next);
+    onDone();
+  };
+
+  return (
+    <input
+      ref={(el) => {
+        el?.focus();
+        el?.select();
+      }}
+      aria-label="Rename terminal"
+      className="nodrag nopan nowheel w-full truncate bg-transparent text-left font-mono text-[14px] font-semibold leading-snug outline-none"
+      style={{ color: INK }}
+      value={value}
+      onChange={(event) => setValue(event.target.value)}
+      onBlur={() => finish(true)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          finish(true);
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          finish(false);
+        }
+      }}
+    />
+  );
+}
 
 const launchSummary = (
   launch:
@@ -35,10 +84,16 @@ const launchSummary = (
 export function TerminalCard({
   node,
   graphBlocked = false,
+  renaming = false,
+  onRequestRename,
+  onRenameDone,
 }: {
   readonly node: CanvasNode;
   /** Execution-graph blocked — crimson spinner even when seat is idle. */
   readonly graphBlocked?: boolean;
+  readonly renaming?: boolean;
+  readonly onRequestRename?: () => void;
+  readonly onRenameDone?: () => void;
 }) {
   const binding = resolveTerminalBinding(node);
   const native = binding?.kind === "native" ? binding : undefined;
@@ -94,7 +149,13 @@ export function TerminalCard({
   if (!native)
     return <div className="text-[11px] text-dim">unbound terminal</div>;
 
-  const label = native.label ?? (node.type === "text" ? node.text : "terminal");
+  const rawText = node.type === "text" ? node.text : "";
+  const firstLine = rawText.split("\n")[0] ?? "";
+  const label = native.label ?? firstLine || "terminal";
+  const commitRename = (nextFirst: string) => {
+    const rest = rawText.split("\n").slice(1).join("\n");
+    editText(node.id, rest ? `${nextFirst}\n${rest}` : nextFirst);
+  };
   const seatState = seatEvent?.state;
   const presentation = presentationForSeat(seatState, needsLook === true);
   const exitReason = session?.exitReason;
@@ -139,7 +200,29 @@ export function TerminalCard({
             <SquareTerminal size={15} />
           </div>
         }
-        title={label}
+        title={
+          renaming && onRenameDone ? (
+            <RenameInput
+              initial={firstLine || label}
+              onCommit={commitRename}
+              onDone={onRenameDone}
+            />
+          ) : (
+            <button
+              type="button"
+              className="nodrag nopan w-full truncate text-left font-mono text-[14px] font-semibold leading-snug text-ink"
+              title={onRequestRename ? "double-click to rename" : "double-click to open"}
+              onDoubleClick={(event) => {
+                if (event.shiftKey) return;
+                event.preventDefault();
+                event.stopPropagation();
+                onRequestRename?.();
+              }}
+            >
+              {label}
+            </button>
+          )
+        }
         subtitle={subtitle}
         activity={
           seatState === "attention" && seatEvent?.reason
