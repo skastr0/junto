@@ -97,7 +97,7 @@ function HerdrGlance({ node }: { readonly node: CanvasNode }) {
   const connState = conn?.state ?? connectionStateOf(node.id);
   const agent = meta?.agent
     ? meta.agentStatus
-      ? `${meta.agent} · ${meta.agentStatus}`
+      ? `${meta.agent} — ${meta.agentStatus}`
       : meta.agent
     : undefined;
 
@@ -110,8 +110,8 @@ function HerdrGlance({ node }: { readonly node: CanvasNode }) {
         <div className="rts-kind-id__name">{nodeTitle(node)}</div>
         <div className="rts-kind-id__live">
           {herdr.host}
-          {agent ? ` · ${agent}` : ""}
-          {` · ${connState}`}
+          {agent ? ` — ${agent}` : ""}
+          {` — ${connState}`}
         </div>
       </div>
       <KindKey
@@ -148,7 +148,7 @@ function NodeFormFocus({
       <OverlayHeader
         eyebrow={kind ?? nodeTypeLabel(node)}
         title={nodeTitle(node)}
-        status="edit fields · esc closes"
+        status="edit fields — esc closes"
         actions={
           <IconButton aria-label="Close fields" title="Close fields" onClick={onClose}>
             <X size={14} />
@@ -168,7 +168,7 @@ function NodeFormFocus({
           <div className="inspector-detail">{nodeDetail(node)}</div>
         ) : null}
         {isLabel ? (
-          <div className="inspector-detail">Bare map text · color and size from the canvas controls</div>
+          <div className="inspector-detail">Bare map text — color and size from the canvas controls</div>
         ) : null}
         <NodeFieldEditors node={node} />
       </div>
@@ -209,7 +209,7 @@ function EdgeFormFocus({
       panelClassName="rts-kind-form-panel nowheel"
     >
       <OverlayHeader
-        eyebrow={criteria ? `live · ${livePhase}` : `soft · ${livePhase}`}
+        eyebrow={criteria ? `live — ${livePhase}` : `soft — ${livePhase}`}
         title="execution edge"
         status={`${fromNode ? nodeTitle(fromNode) : edge.fromNode} → ${toNode ? nodeTitle(toNode) : edge.toNode}`}
         actions={
@@ -450,7 +450,7 @@ function MultiKindSurface({ nodes }: { readonly nodes: ReadonlyArray<CanvasNode>
     return (
       <div className="rts-kind-surface">
         <div className="rts-quiet rts-quiet--compact">
-          {multiSelectionLabel(classified)} · colors & flags on command card
+          {multiSelectionLabel(classified)} — colors & flags on command card
         </div>
       </div>
     );
@@ -459,7 +459,7 @@ function MultiKindSurface({ nodes }: { readonly nodes: ReadonlyArray<CanvasNode>
   if (classified.mode !== "homogeneous") {
     return (
       <div className="rts-quiet rts-quiet--compact">
-        Multi-select · kind actions need a single node
+        Multi-select — kind actions need a single node
       </div>
     );
   }
@@ -471,7 +471,7 @@ function MultiKindSurface({ nodes }: { readonly nodes: ReadonlyArray<CanvasNode>
           <div className="rts-kind-id__text">
             <div className="rts-kind-id__name">multi-prompt</div>
             <div className="rts-kind-id__live">
-              {targets.length} agent{targets.length === 1 ? "" : "s"} · same text to all
+              {targets.length} agent{targets.length === 1 ? "" : "s"} — same text to all
             </div>
           </div>
         </div>
@@ -495,7 +495,7 @@ function MultiKindSurface({ nodes }: { readonly nodes: ReadonlyArray<CanvasNode>
               }
               const failKeys = result.failed.map((f) => f.agentKey).join(", ");
               setStatus(
-                `sent ${result.sent} · failed ${result.failed.length}${failKeys ? ` · ${failKeys}` : ""}`,
+                `sent ${result.sent} — failed ${result.failed.length}${failKeys ? ` — ${failKeys}` : ""}`,
               );
               // Keep draft so the operator can retry failed seats.
               return false;
@@ -512,7 +512,7 @@ function MultiKindSurface({ nodes }: { readonly nodes: ReadonlyArray<CanvasNode>
     return (
       <div className="rts-kind-surface">
         <div className="rts-quiet rts-quiet--compact">
-          agents missing keys · multi-prompt needs entity.name
+          agents missing keys — multi-prompt needs entity.name
         </div>
       </div>
     );
@@ -521,7 +521,7 @@ function MultiKindSurface({ nodes }: { readonly nodes: ReadonlyArray<CanvasNode>
   return (
     <div className="rts-kind-surface">
       <div className="rts-quiet rts-quiet--compact">
-        {classified.nodes.length} {surfaceLabel(classified.surface)} · shared settings on command card
+        {classified.nodes.length} {surfaceLabel(classified.surface)} — shared settings on command card
       </div>
     </div>
   );
@@ -558,7 +558,7 @@ export function KindSurface() {
   if (selectedEdgeId) {
     const edge = doc.edges.find((candidate) => candidate.id === selectedEdgeId);
     if (!edge) {
-      return <div className="rts-quiet rts-quiet--compact">Select a node · or tap 1–9</div>;
+      return <div className="rts-quiet rts-quiet--compact">Select a node, or tap 1–9</div>;
     }
     return (
       <div className="rts-kind-surface">
@@ -566,7 +566,7 @@ export function KindSurface() {
         <div className="rts-kind-strip" role="toolbar" aria-label="Relation fields">
           <KindKey
             label={formOpen ? "Close fields" : "Open fields"}
-            title="ports · criteria · label"
+            title="ports — criteria — label"
             active={formOpen}
             onClick={() => setFormOpen((open) => !open)}
           >
@@ -579,12 +579,12 @@ export function KindSurface() {
   }
 
   if (!selectedNodeId) {
-    return <div className="rts-quiet rts-quiet--compact">Select a node · or tap 1–9</div>;
+    return <div className="rts-quiet rts-quiet--compact">Select a node, or tap 1–9</div>;
   }
 
   const node = doc.nodes.find((candidate) => candidate.id === selectedNodeId);
   if (!node) {
-    return <div className="rts-quiet rts-quiet--compact">Select a node · or tap 1–9</div>;
+    return <div className="rts-quiet rts-quiet--compact">Select a node, or tap 1–9</div>;
   }
 
   if (node.type === "group") {
@@ -622,7 +622,7 @@ export function KindSurface() {
         {hasKindActions ? <KindActions node={node} /> : null}
         <KindKey
           label={formOpen ? "Close fields" : "Open fields"}
-          title="placement · label · kind fields"
+          title="placement — label — kind fields"
           active={formOpen}
           style={{ color: formOpen ? HUE.amber : undefined }}
           onClick={() => setFormOpen((open) => !open)}

@@ -233,8 +233,8 @@
   overflow: hidden;
 }
 
-/* Region command has no panel eyebrow — pad body like labeled panels. */
-.rts-panel--cmd > .rts-panel__body.rts-cmd-shell--region {
+/* Command cards dropped the COMMAND eyebrow — pad the body instead. */
+.rts-panel--cmd > .rts-panel__body {
   padding: 8px;
 }
 

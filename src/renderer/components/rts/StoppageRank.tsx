@@ -48,7 +48,7 @@ function StoppageRow({
       type="button"
       className={`rts-stoppage-row${active ? " is-active" : ""}`}
       style={{ color: HUE.crimson }}
-      title={`${line} · ${ranked.clearAction}`}
+      title={`${line} — ${ranked.clearAction}`}
       aria-label={`Stoppage: ${line}. Enter impact mode.`}
       onClick={() => enterImpactOnSeed(ranked.seedNodeId)}
     >
@@ -109,7 +109,7 @@ export function StoppageRank() {
   return (
     <div className="rts-stoppage" aria-label="Stoppage ranking by blast radius">
       <div className="rts-stoppage__label">
-        stoppage · by impact
+        stoppage — by impact
         {ranked.length > MAX_VISIBLE ? (
           <span className="rts-stoppage__more"> +{ranked.length - MAX_VISIBLE}</span>
         ) : null}

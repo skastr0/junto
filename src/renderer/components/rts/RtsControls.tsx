@@ -165,21 +165,15 @@ export function EdgeCommandCard({ edgeId }: { readonly edgeId: string }) {
   const livePhase = execution?.phaseByEdgeId[edgeId];
   const liveDetail = execution?.detailByEdgeId[edgeId];
   const criteria = edge.ether?.criteria;
-  const phase = livePhase ?? (criteria ? `criteria · ${criteria.mode}` : "soft relates");
+  const phase = livePhase ?? (criteria ? `criteria: ${criteria.mode}` : "soft relates");
   const phaseHue = livePhase === "blocks" ? HUE.crimson : undefined;
 
   return (
     <div className="rts-panel rts-panel--cmd">
-      <div className="rts-panel__label">
-        command · relation
-        <span className="rts-signal" style={{ color: phaseHue }} title={liveDetail ?? phase}>
-          {phase}
-        </span>
-      </div>
       <div className="rts-panel__body rts-cmd-shell">
         <div className="rts-cmd-head">
-          <div className="rts-cmd__meta">
-            {liveDetail ?? (criteria ? "stops flow while unmet" : "no stoppage")}
+          <div className="rts-cmd__meta" style={{ color: phaseHue }} title={liveDetail ?? phase}>
+            {liveDetail ?? phase}
           </div>
           <div className="rts-cmd__title">
             {fromNode ? nodeTitle(fromNode) : edge.fromNode} → {toNode ? nodeTitle(toNode) : edge.toNode}
@@ -283,7 +277,7 @@ function HerdrKindKeys({ node }: { readonly node: CanvasNode }) {
     <>
       <KindKey
         label="Open work surface"
-        title={`open · ${herdr.host}`}
+        title={`open — ${herdr.host}`}
         style={{ color: HUE.cyan }}
         onClick={() => openHerdrTerminal(node.id, herdr, nodeTitle(node))}
       >
@@ -366,7 +360,7 @@ function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
       {adding ? (
         <div className="rts-kind-pop">
           <label className="rts-kind-pop__field">
-            <span>new task · enter submits</span>
+            <span>new task — enter submits</span>
             <input
               autoFocus
               aria-label="New task brief"
@@ -453,8 +447,8 @@ export function EdgePairStrip({ edge }: { readonly edge: CanvasEdge }) {
   const summary = !criteria
     ? "soft relates"
     : criteria.mode === "tasks"
-      ? "tasks · needs input blocks"
-      : `trust plane · ${criteria.mode}`;
+      ? "tasks — needs input blocks"
+      : `trust plane — ${criteria.mode}`;
 
   return (
     <div className="rts-kind-strip" role="toolbar" aria-label="Relation pair actions">
@@ -506,20 +500,20 @@ export function KindStrip() {
     return edge ? (
       <EdgePairStrip edge={edge} />
     ) : (
-      <div className="rts-quiet rts-quiet--compact">Select a node · or tap 1–9</div>
+      <div className="rts-quiet rts-quiet--compact">Select a node, or tap 1–9</div>
     );
   }
 
   if (!selectedNodeId) {
     return (
-      <div className="rts-quiet rts-quiet--compact">Select a node · or tap 1–9</div>
+      <div className="rts-quiet rts-quiet--compact">Select a node, or tap 1–9</div>
     );
   }
 
   const node = doc.nodes.find((candidate) => candidate.id === selectedNodeId);
   if (!node) {
     return (
-      <div className="rts-quiet rts-quiet--compact">Select a node · or tap 1–9</div>
+      <div className="rts-quiet rts-quiet--compact">Select a node, or tap 1–9</div>
     );
   }
 
@@ -528,7 +522,7 @@ export function KindStrip() {
     // only surfaces when KindSurface is not mounted.
     return (
       <div className="rts-quiet rts-quiet--compact">
-        Region · command card has ops · kind surface has fields
+        Region — command card has ops — kind surface has fields
       </div>
     );
   }

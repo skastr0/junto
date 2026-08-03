@@ -267,10 +267,6 @@ function CommandCard({ regionRollup }: { readonly regionRollup?: RegionRollup })
 
     return (
       <div className="rts-panel rts-panel--cmd" data-testid="rts-multi-command">
-        <div className="rts-panel__label">
-          command · multi
-          {classified.mode === "homogeneous" ? " · same kind" : " · generic"}
-        </div>
         <div className="rts-panel__body rts-cmd-shell">
           <div className="rts-cmd-head">
             <div className="rts-cmd__meta">{multiSelectionLabel(classified)}</div>
@@ -311,7 +307,7 @@ function CommandCard({ regionRollup }: { readonly regionRollup?: RegionRollup })
             <span className="rts-cmd-keys__rule" aria-hidden />
             <CmdKey
               label="Clear all flags"
-              title="clear blocker · attention · parked on selection"
+              title="Clear blocker, attention, and parked on selection"
               onClick={() => setFlagForNodes(selectedNodeIds, null)}
             >
               <X size={ICON} />
@@ -332,9 +328,8 @@ function CommandCard({ regionRollup }: { readonly regionRollup?: RegionRollup })
   if (!node) {
     return (
       <div className="rts-panel rts-panel--cmd">
-        <div className="rts-panel__label">command</div>
         <div className="rts-panel__body">
-          <div className="rts-quiet rts-quiet--compact">No selection · click a node or tap 1–9</div>
+          <div className="rts-quiet rts-quiet--compact">No selection. Click a node or tap 1–9</div>
         </div>
       </div>
     );
@@ -520,9 +515,8 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
   if (!node) {
     return (
       <div className="rts-panel rts-panel--cmd">
-        <div className="rts-panel__label">command</div>
         <div className="rts-panel__body">
-          <div className="rts-quiet rts-quiet--compact">No selection · click a node or tap 1–9</div>
+          <div className="rts-quiet rts-quiet--compact">No selection. Click a node or tap 1–9</div>
         </div>
       </div>
     );
@@ -542,8 +536,7 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
 
   const metaLine = (() => {
     if (kind === "herdr" && herdr) {
-      const status = agentStatus ? ` · ${agentStatus}` : "";
-      return `herdr · ${herdr.host}${status}`;
+      return agentStatus ? `herdr ${herdr.host} (${agentStatus})` : `herdr ${herdr.host}`;
     }
     return nodeTypeLabel(node);
   })();
@@ -613,9 +606,11 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
     return null;
   };
 
+  // Flags are factory/attention language — not for map furniture (label, note, bare terminal).
+  const showFlags = role === "actor" || role === "sink" || role === "scheduler";
+
   return (
     <div className="rts-panel rts-panel--cmd">
-      <div className="rts-panel__label">command · {role !== "geography" ? role : kind}</div>
       <div className="rts-panel__body rts-cmd-shell">
         <div className="rts-cmd-head">
           <div className="rts-cmd__meta">{metaLine}</div>
@@ -648,29 +643,31 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
                     : "Blocker cause"
                   : "Jump to blocker cause"
               }
-              title={`jump to cause · ${blockerCause.title}`}
+              title={`Jump to cause: ${blockerCause.title}`}
               style={{ color: HUE.crimson }}
               onClick={() => focusBlockerCause(blockerCause)}
             >
               <LocateFixed size={ICON} />
             </CmdKey>
           ) : null}
-          {executableRole ? <span className="rts-cmd-keys__rule" aria-hidden /> : null}
-          {FLAG_META.map(({ flag, hue, label, Icon }) => {
-            const active = flags.includes(flag);
-            return (
-              <CmdKey
-                key={flag}
-                label={active ? `Clear ${label}` : `Flag ${label}`}
-                active={active}
-                style={{ color: active ? hue : undefined }}
-                onClick={() => toggleFlag(node.id, flag)}
-              >
-                <Icon size={ICON} />
-              </CmdKey>
-            );
-          })}
-          <span className="rts-cmd-keys__rule" aria-hidden />
+          {executableRole || showFlags ? <span className="rts-cmd-keys__rule" aria-hidden /> : null}
+          {showFlags
+            ? FLAG_META.map(({ flag, hue, label, Icon }) => {
+                const active = flags.includes(flag);
+                return (
+                  <CmdKey
+                    key={flag}
+                    label={active ? `Clear ${label}` : `Flag ${label}`}
+                    active={active}
+                    style={{ color: active ? hue : undefined }}
+                    onClick={() => toggleFlag(node.id, flag)}
+                  >
+                    <Icon size={ICON} />
+                  </CmdKey>
+                );
+              })
+            : null}
+          {showFlags ? <span className="rts-cmd-keys__rule" aria-hidden /> : null}
           {primary.map(renderPrimary)}
           {primary.length > 0 ? <span className="rts-cmd-keys__rule" aria-hidden /> : null}
           <CmdKey label="Focus" onClick={() => state$.focusNodeId.set(node.id)}>
@@ -789,7 +786,7 @@ function IdleHerdrButton({ queue }: { readonly queue: ReadonlyArray<IdleHerdrEnt
       type="button"
       className="rts-idle-herdr"
       style={{ color: HUE.amber, borderColor: withAlpha(HUE.amber, 0.45) }}
-      title={`Idle herdr · ${count} need you · F1 or .`}
+      title={`Idle herdr — ${count} need you — F1 or .`}
       aria-label={`Idle herdr: ${count} need you. Cycle focus. Hotkey F1 or period.`}
       onClick={() => cycleIdleHerdr(queue)}
     >
@@ -1056,7 +1053,7 @@ function OperatorAttentionPills({
           key={item.id}
           type="button"
           className={`rts-notify-attention__pill rts-notify-attention__pill--${item.kind}`}
-          title={`${OPERATOR_ATTENTION_HEADLINE[item.kind]} · ${item.label}`}
+          title={`${OPERATOR_ATTENTION_HEADLINE[item.kind]} — ${item.label}`}
           aria-label={`${OPERATOR_ATTENTION_HEADLINE[item.kind]}: ${item.label}. Focus node.`}
           onClick={() => {
             state$.selectedNodeId.set(item.nodeId);
@@ -1071,7 +1068,7 @@ function OperatorAttentionPills({
             <AlertTriangle size={10} aria-hidden />
           )}
           <span className="rts-notify-attention__text">
-            {item.kind === "blocked" ? "blocked" : "needs input"} · {item.label}
+            {item.kind === "blocked" ? "blocked" : "needs input"} — {item.label}
           </span>
         </button>
       ))}
