@@ -282,41 +282,45 @@ function CommandCard({ regionRollup }: { readonly regionRollup?: RegionRollup })
               mixed={mixedColor}
             />
           </div>
-          <div className="rts-cmd-keys rts-cmd-keys--col" role="toolbar" aria-label="Multi-select actions">
-            {FLAG_META.map(({ flag, hue, label, Icon }) => {
-              const allOn = selectedNodes.every((n) => n.ether?.flags?.includes(flag));
-              const someOn = selectedNodes.some((n) => n.ether?.flags?.includes(flag));
-              return (
-                <CmdKey
-                  key={flag}
-                  label={allOn ? `Clear ${label}` : `Flag ${label}`}
-                  title={
-                    allOn
-                      ? `clear ${label} on selection`
-                      : someOn
-                        ? `set ${label} on all (partial)`
-                        : `flag ${label}`
-                  }
-                  active={allOn}
-                  style={allOn || someOn ? { color: hue, opacity: allOn ? 1 : 0.65 } : undefined}
-                  onClick={() =>
-                    setFlagForNodes(selectedNodeIds, flag, allOn ? "clear" : "set")
-                  }
-                >
-                  <Icon size={ICON} />
-                </CmdKey>
-              );
-            })}
-            <CmdKey
-              label="Clear all flags"
-              title="Clear blocker, attention, and parked on selection"
-              onClick={() => setFlagForNodes(selectedNodeIds, null)}
-            >
-              <X size={ICON} />
-            </CmdKey>
-            <CmdKey label="Delete selection" danger onClick={() => deleteNodes(selectedNodeIds)}>
-              <Trash2 size={ICON} />
-            </CmdKey>
+          <div className="rts-cmd-keys-rail" role="toolbar" aria-label="Multi-select actions">
+            <div className="rts-cmd-keys-group" aria-label="Flags">
+              {FLAG_META.map(({ flag, hue, label, Icon }) => {
+                const allOn = selectedNodes.every((n) => n.ether?.flags?.includes(flag));
+                const someOn = selectedNodes.some((n) => n.ether?.flags?.includes(flag));
+                return (
+                  <CmdKey
+                    key={flag}
+                    label={allOn ? `Clear ${label}` : `Flag ${label}`}
+                    title={
+                      allOn
+                        ? `clear ${label} on selection`
+                        : someOn
+                          ? `set ${label} on all (partial)`
+                          : `flag ${label}`
+                    }
+                    active={allOn}
+                    style={allOn || someOn ? { color: hue, opacity: allOn ? 1 : 0.65 } : undefined}
+                    onClick={() =>
+                      setFlagForNodes(selectedNodeIds, flag, allOn ? "clear" : "set")
+                    }
+                  >
+                    <Icon size={ICON} />
+                  </CmdKey>
+                );
+              })}
+            </div>
+            <div className="rts-cmd-keys rts-cmd-keys--col" aria-label="Actions">
+              <CmdKey
+                label="Clear all flags"
+                title="Clear blocker, attention, and parked on selection"
+                onClick={() => setFlagForNodes(selectedNodeIds, null)}
+              >
+                <X size={ICON} />
+              </CmdKey>
+              <CmdKey label="Delete selection" danger onClick={() => deleteNodes(selectedNodeIds)}>
+                <Trash2 size={ICON} />
+              </CmdKey>
+            </div>
           </div>
         </div>
       </div>
@@ -625,38 +629,10 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
           <AccentColorSwatches nodeId={node.id} color={node.color} />
         </div>
 
-        <div className="rts-cmd-keys rts-cmd-keys--col" role="toolbar" aria-label="Node actions">
-          {executableRole ? (
-            <PauseScopeKey scope={{ kind: "node", id: node.id }} />
-          ) : null}
-          {role === "sink" &&
-          (entityKind === "task" || entityKind === "requests" || entityKind === "artifacts") ? (
-            <CmdKey
-              label="Open detail"
-              title="open the work surface"
-              onClick={() => openWorkDetail(node.id)}
-            >
-              <Eye size={ICON} />
-            </CmdKey>
-          ) : null}
-          {blockerCause ? (
-            <CmdKey
-              label={
-                blockerCause.isSelf
-                  ? blockerCause.openWorkDetail
-                    ? "Open blocker cause"
-                    : "Blocker cause"
-                  : "Jump to blocker cause"
-              }
-              title={`Jump to cause: ${blockerCause.title}`}
-              style={{ color: HUE.crimson }}
-              onClick={() => focusBlockerCause(blockerCause)}
-            >
-              <LocateFixed size={ICON} />
-            </CmdKey>
-          ) : null}
-          {showFlags
-            ? FLAG_META.map(({ flag, hue, label, Icon }) => {
+        <div className="rts-cmd-keys-rail" role="toolbar" aria-label="Node actions">
+          {showFlags ? (
+            <div className="rts-cmd-keys-group" aria-label="Flags">
+              {FLAG_META.map(({ flag, hue, label, Icon }) => {
                 const active = flags.includes(flag);
                 return (
                   <CmdKey
@@ -669,45 +645,77 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
                     <Icon size={ICON} />
                   </CmdKey>
                 );
-              })
-            : null}
-          {primary.map(renderPrimary)}
-          <CmdKey label="Focus" onClick={() => state$.focusNodeId.set(node.id)}>
-            <Crosshair size={ICON} />
-          </CmdKey>
-          <CmdKey label="Edit" onClick={() => state$.editNodeId.set(node.id)}>
-            <Pencil size={ICON} />
-          </CmdKey>
-          <CmdKey
-            label={connectOpen ? "Close connect" : "Connect"}
-            active={connectOpen}
-            onClick={() => setConnectOpen((open) => !open)}
-          >
-            <Link2 size={ICON} />
-          </CmdKey>
-          <CmdKey
-            label={copyStatus === "copied" ? "Copied" : copyStatus === "failed" ? "Copy failed" : "Copy reference"}
-            title={copyDetail || "copy stable node reference"}
-            active={copyStatus === "copied"}
-            onClick={() => void copyReference()}
-          >
-            <Copy size={ICON} />
-          </CmdKey>
-          {kind === "default" ? (
-            <CmdKey
-              label="Select only this node"
-              onClick={() => {
-                state$.selectedNodeId.set(node.id);
-                state$.selectedNodeIds.set([node.id]);
-                state$.selectedEdgeId.set("");
-              }}
-            >
-              <CircleDot size={ICON} />
-            </CmdKey>
+              })}
+            </div>
           ) : null}
-          <CmdKey label="Delete" danger onClick={() => deleteNode(node.id)}>
-            <Trash2 size={ICON} />
-          </CmdKey>
+          <div className="rts-cmd-keys rts-cmd-keys--col" aria-label="Actions">
+            {executableRole ? (
+              <PauseScopeKey scope={{ kind: "node", id: node.id }} />
+            ) : null}
+            {role === "sink" &&
+            (entityKind === "task" || entityKind === "requests" || entityKind === "artifacts") ? (
+              <CmdKey
+                label="Open detail"
+                title="open the work surface"
+                onClick={() => openWorkDetail(node.id)}
+              >
+                <Eye size={ICON} />
+              </CmdKey>
+            ) : null}
+            {blockerCause ? (
+              <CmdKey
+                label={
+                  blockerCause.isSelf
+                    ? blockerCause.openWorkDetail
+                      ? "Open blocker cause"
+                      : "Blocker cause"
+                    : "Jump to blocker cause"
+                }
+                title={`Jump to cause: ${blockerCause.title}`}
+                style={{ color: HUE.crimson }}
+                onClick={() => focusBlockerCause(blockerCause)}
+              >
+                <LocateFixed size={ICON} />
+              </CmdKey>
+            ) : null}
+            {primary.map(renderPrimary)}
+            <CmdKey label="Focus" onClick={() => state$.focusNodeId.set(node.id)}>
+              <Crosshair size={ICON} />
+            </CmdKey>
+            <CmdKey label="Edit" onClick={() => state$.editNodeId.set(node.id)}>
+              <Pencil size={ICON} />
+            </CmdKey>
+            <CmdKey
+              label={connectOpen ? "Close connect" : "Connect"}
+              active={connectOpen}
+              onClick={() => setConnectOpen((open) => !open)}
+            >
+              <Link2 size={ICON} />
+            </CmdKey>
+            <CmdKey
+              label={copyStatus === "copied" ? "Copied" : copyStatus === "failed" ? "Copy failed" : "Copy reference"}
+              title={copyDetail || "copy stable node reference"}
+              active={copyStatus === "copied"}
+              onClick={() => void copyReference()}
+            >
+              <Copy size={ICON} />
+            </CmdKey>
+            {kind === "default" ? (
+              <CmdKey
+                label="Select only this node"
+                onClick={() => {
+                  state$.selectedNodeId.set(node.id);
+                  state$.selectedNodeIds.set([node.id]);
+                  state$.selectedEdgeId.set("");
+                }}
+              >
+                <CircleDot size={ICON} />
+              </CmdKey>
+            ) : null}
+            <CmdKey label="Delete" danger onClick={() => deleteNode(node.id)}>
+              <Trash2 size={ICON} />
+            </CmdKey>
+          </div>
         </div>
 
         {connectOpen ? (

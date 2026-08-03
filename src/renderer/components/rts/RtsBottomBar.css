@@ -600,34 +600,60 @@
 }
 
 /*
- * Command keys — fixed 4-row column-major grid.
- * Fills top→bottom, then next column. Height fits the panel; never clips.
- * (flex column+wrap was unstable when body styles fought the shell grid.)
+ * Command key rail: sibling groups side by side.
+ * Flags always own their own vertical column (blocker → attention → parked).
+ * Actions use a 4-row column-major grid next to them.
  */
-.rts-cmd-keys,
-.rts-cmd-keys.rts-cmd-keys--col {
+.rts-cmd-keys-rail {
   --rts-key-size: 22px;
   --rts-key-gap: 2px;
   --rts-key-rows: 4;
-  display: grid;
-  grid-auto-flow: column;
-  grid-template-rows: repeat(var(--rts-key-rows), var(--rts-key-size));
-  grid-auto-columns: var(--rts-key-size);
-  gap: var(--rts-key-gap);
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 6px;
   align-self: start;
   justify-self: end;
   width: max-content;
   max-width: 100%;
+  margin: 0;
+}
+
+/* Flag trio: fixed order, never mixed into the ops grid. */
+.rts-cmd-keys-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rts-key-gap, 2px);
+  flex: 0 0 auto;
+}
+
+.rts-cmd-keys,
+.rts-cmd-keys.rts-cmd-keys--col {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(var(--rts-key-rows, 4), var(--rts-key-size, 22px));
+  grid-auto-columns: var(--rts-key-size, 22px);
+  gap: var(--rts-key-gap, 2px);
+  width: max-content;
   height: calc(
-    var(--rts-key-rows) * var(--rts-key-size) + (var(--rts-key-rows) - 1) * var(--rts-key-gap)
+    var(--rts-key-rows, 4) * var(--rts-key-size, 22px) +
+      (var(--rts-key-rows, 4) - 1) * var(--rts-key-gap, 2px)
   );
   margin: 0;
   overflow: visible;
 }
 
+/* Region ops: same rail semantics (no flags group). */
+.rts-cmd-shell--region > .rts-cmd-keys,
+.rts-cmd-shell--region > .rts-cmd-keys-rail {
+  align-self: start;
+  justify-self: end;
+}
+
 .rts-cmd-shell .rts-key,
 .rts-cmd-shell--region .rts-key,
-.rts-cmd-keys .rts-key {
+.rts-cmd-keys .rts-key,
+.rts-cmd-keys-group .rts-key {
   width: var(--rts-key-size, 22px);
   height: var(--rts-key-size, 22px);
   min-width: var(--rts-key-size, 22px);
