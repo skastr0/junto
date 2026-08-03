@@ -64,8 +64,20 @@ export const makeInMemoryTimerScheduler = (): TimerSchedulerDeps => {
     return evaluated;
   };
 
+  const claimedSlots = new Set<string>();
+
   return {
     claimInterval,
+    claimExpression: async (input) => {
+      const slotKey = `${input.homeStation}\u0000${input.timerKey}\u0000${input.scheduleId}\u0000${input.dueAtEpochMs}`;
+      if (claimedSlots.has(slotKey)) return { _tag: "Duplicate" as const };
+      claimedSlots.add(slotKey);
+      return {
+        _tag: "Claimed" as const,
+        dueAtEpochMs: input.dueAtEpochMs,
+        nextDueAtEpochMs: input.nextDueAtEpochMs,
+      };
+    },
     readIntervalState: async (homeStation, timerKey) =>
       states.get(`${homeStation}\u0000${timerKey}`),
     reconcileHome: async (homeStation, activeTimerKeys) => {

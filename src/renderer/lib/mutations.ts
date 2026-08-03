@@ -1117,8 +1117,24 @@ export const setNodeTimer = (id: string, timer: EtherTimer | undefined): void =>
     ...doc,
     nodes: doc.nodes.map((n) => {
       if (n.id !== id) return n;
-      if (timer && Number.isFinite(timer.everyMinutes) && timer.everyMinutes >= MIN_TIMER_EVERY_MINUTES) {
-        return { ...n, ether: { ...(n.ether ?? {}), timer: { everyMinutes: Math.round(timer.everyMinutes) } } };
+      const expression = timer?.expression?.trim().replace(/\s+/g, " ");
+      const every =
+        typeof timer?.everyMinutes === "number" &&
+        Number.isFinite(timer.everyMinutes) &&
+        timer.everyMinutes > 0
+          ? Math.round(timer.everyMinutes)
+          : undefined;
+      if (expression || every !== undefined) {
+        return {
+          ...n,
+          ether: {
+            ...(n.ether ?? {}),
+            timer: {
+              ...(expression ? { expression } : {}),
+              ...(every !== undefined ? { everyMinutes: every } : {}),
+            },
+          },
+        };
       }
       if (!n.ether) return n;
       const nextEther = without(n.ether, "timer");

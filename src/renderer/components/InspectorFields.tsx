@@ -1379,49 +1379,74 @@ export function RelayEditor({ node }: { readonly node: CanvasNode }) {
   );
 }
 
-const MIN_TIMER_EVERY_MINUTES = 5;
-
-// Cron editor: interval field; 5-minute UI floor before setNodeTimer.
+// Cron expression strip pop — full editor is CronScheduleSurface (double-click).
 export function TimerEditor({ node }: { readonly node: CanvasNode }) {
   const timer = node.ether?.timer;
-  const defaultMinutes = timer?.everyMinutes ?? 30;
-  const [minutesText, setMinutesText] = useState(String(defaultMinutes));
+  const defaultExpr =
+    timer?.expression?.trim() ||
+    (typeof timer?.everyMinutes === "number" && timer.everyMinutes > 0
+      ? `*/${Math.round(timer.everyMinutes)} * * * *`
+      : "*/30 * * * *");
+  const [draft, setDraft] = useState(defaultExpr);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    setMinutesText(String(timer?.everyMinutes ?? 30));
+    setDraft(
+      timer?.expression?.trim() ||
+        (typeof timer?.everyMinutes === "number" && timer.everyMinutes > 0
+          ? `*/${Math.round(timer.everyMinutes)} * * * *`
+          : "*/30 * * * *"),
+    );
     setError("");
-  }, [node.id, timer?.everyMinutes]);
+  }, [node.id, timer?.expression, timer?.everyMinutes]);
 
   const commit = () => {
-    const parsed = Number(minutesText);
-    if (!Number.isFinite(parsed) || parsed < MIN_TIMER_EVERY_MINUTES) {
-      setError(`minimum is ${MIN_TIMER_EVERY_MINUTES}m`);
+    const cleaned = draft.trim().replace(/\s+/g, " ");
+    if (!/^\S+(?:\s+\S+){4}$/.test(cleaned)) {
+      setError("5 fields: minute hour day month weekday");
       return;
     }
     setError("");
-    setNodeTimer(node.id, { everyMinutes: Math.round(parsed) });
+    setNodeTimer(node.id, { expression: cleaned });
   };
 
-  return <div className="inspector-section">
-    <div className="inspector-section__label">timer</div>
-    <label className="inspector-editor">
-      <span>every (minutes)</span>
-      <input
-        aria-label="Timer interval minutes"
-        type="number"
-        min={MIN_TIMER_EVERY_MINUTES}
-        value={minutesText}
-        onChange={(event) => setMinutesText(event.target.value)}
-        onBlur={commit}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") { event.preventDefault(); commit(); event.currentTarget.blur(); }
-          if (event.key === "Escape") { setMinutesText(String(timer?.everyMinutes ?? 30)); setError(""); event.currentTarget.blur(); }
-        }}
-      />
-    </label>
-    {error ? <div className="mt-1 text-[9px]" style={{ color: withAlpha(HUE.crimson, 0.8) }}>{error}</div> : null}
-  </div>;
+  return (
+    <div className="inspector-section" style={{ marginTop: 0 }}>
+      <div className="inspector-section__label">crontab</div>
+      <label className="inspector-editor">
+        <span>expression</span>
+        <input
+          aria-label="Cron expression"
+          className="font-mono"
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={commit}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              commit();
+              event.currentTarget.blur();
+            }
+            if (event.key === "Escape") {
+              setDraft(defaultExpr);
+              setError("");
+              event.currentTarget.blur();
+            }
+          }}
+          spellCheck={false}
+        />
+      </label>
+      {error ? (
+        <div className="mt-1 text-[9px]" style={{ color: withAlpha(HUE.crimson, 0.8) }}>
+          {error}
+        </div>
+      ) : (
+        <div className="mt-1 text-[9px]" style={{ color: DIM }}>
+          minute hour day month weekday
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function NodeFlagControls({ node }: { readonly node: CanvasNode }) {

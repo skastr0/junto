@@ -529,8 +529,8 @@ function SchedulerKindKeys({ node }: { readonly node: CanvasNode }) {
   const config =
     kind === "cron" || kind === "timer"
       ? {
-          label: configOpen ? "Close interval" : "Interval",
-          title: "How often this cron fires",
+          label: configOpen ? "Close schedule" : "Schedule",
+          title: "Cron expression",
           Icon: Timer,
           body: <TimerEditor node={node} />,
         }

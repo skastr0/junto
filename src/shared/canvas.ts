@@ -291,10 +291,16 @@ export const EtherWatch = Schema.Struct({
 });
 export type EtherWatch = typeof EtherWatch.Type;
 
-// Cron schedule body (entity.kind cron | timer). Interval only for v1;
-// calendar schedules require an explicit catch-up + TZ contract first.
+/**
+ * Cron schedule body (entity.kind cron | timer).
+ * - `expression`: standard 5-field crontab (preferred).
+ * - `everyMinutes`: legacy interval; still decoded; UI migrates to expression.
+ * At least one must be present on write; decode admits either for history.
+ */
 export const EtherTimer = Schema.Struct({
-  everyMinutes: Schema.Number,
+  everyMinutes: Schema.optionalKey(Schema.Number),
+  /** 5-field cron: minute hour day-of-month month day-of-week. */
+  expression: Schema.optionalKey(Schema.String),
 });
 export type EtherTimer = typeof EtherTimer.Type;
 

@@ -3,7 +3,13 @@ import { use$ } from "@legendapp/state/react";
 import type { NodeProps } from "@xyflow/react";
 import { Gauge, Radio, Timer, X } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
+import {
+  describeCronExpression,
+  expressionFromEveryMinutes,
+  isValidCronExpression,
+} from "@shared/cron-expression";
 import type { FlowNode } from "../../lib/convert";
+import { CronScheduleSurface } from "./CronScheduleSurface";
 import { registerCanvasDraftCommit } from "../../lib/canvas-editor-flush";
 import { markdownImageLine, putImagesFromDataTransfer } from "../../lib/image-content";
 import { editText } from "../../lib/mutations";
@@ -84,6 +90,17 @@ function formatCountdown(nextFire: number, now: number): string {
   return `in ${hours}h${remainder ? ` ${remainder}m` : ""}`;
 }
 
+const cronExpressionOf = (
+  timer: { readonly expression?: string; readonly everyMinutes?: number } | undefined,
+): string => {
+  const expr = timer?.expression?.trim();
+  if (expr && isValidCronExpression(expr)) return expr.replace(/\s+/g, " ");
+  if (typeof timer?.everyMinutes === "number" && timer.everyMinutes > 0) {
+    return expressionFromEveryMinutes(timer.everyMinutes);
+  }
+  return "*/30 * * * *";
+};
+
 /** Kind decal — same 28px amber tile as terminal / seats. */
 function SchedulerDecal({
   kind,
@@ -137,24 +154,22 @@ function WatcherCard({
   );
 }
 
-// Cron: countdown from kernel nextFire; interval from ether.timer.
+// Cron: countdown + expression glance; schedule via double-click modal.
 function TimerCard({ node }: { readonly node: CanvasNode }) {
   const nextFire = use$(kernel$.nextFire[node.id]) as number | undefined;
   const now = useRelativeNow(30_000);
   const rawName = (node.type === "text" ? node.text : "").split("\n")[0] ?? "";
   const title = rawName || "cron";
-  const everyMinutes = node.ether?.timer?.everyMinutes;
+  const expression = cronExpressionOf(node.ether?.timer);
   const activity = timerActivity({ nextFire, now });
   const countdown = nextFire ? formatCountdown(nextFire, now) : "—";
-  // Two short lines — no middot, no forced ellipsis on a one-line mash.
+  const scheduleLine = describeCronExpression(expression);
   const subtitle = (
     <span className="flex flex-col gap-0.5">
       <span className="tabular-nums">{countdown}</span>
-      {everyMinutes ? (
-        <span className="tabular-nums" style={{ opacity: 0.85 }}>
-          every {everyMinutes}m
-        </span>
-      ) : null}
+      <span className="truncate font-mono" style={{ opacity: 0.85 }} title={expression}>
+        {scheduleLine}
+      </span>
     </span>
   );
   return (
@@ -468,6 +483,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
   const [maximized, setMaximized] = useState(false);
   const [workDetail, setWorkDetail] = useState(false);
   const [workDetailItemId, setWorkDetailItemId] = useState<string | undefined>();
+  const [cronScheduleOpen, setCronScheduleOpen] = useState(false);
   const [draft, setDraft] = useState(text);
   const ref = useRef<HTMLTextAreaElement>(null);
   const entityKind = node.ether?.entity?.kind;
@@ -476,6 +492,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
     entityKind === "requests" ||
     entityKind === "artifacts" ||
     entityKind === "board";
+  const isCron = entityKind === "cron" || entityKind === "timer";
 
   useEffect(() => {
     if (editing && !maximized) {
@@ -727,19 +744,23 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
               setWorkDetail(true);
               return;
             }
-            // Schedulers: open kind-strip config is RTS; card dbl-click is no-op
-            // (no inline title edit — rename only via RTS pencil).
-            if (
-              entityKind === "watcher" ||
-              entityKind === "relay" ||
-              entityKind === "timer" ||
-              entityKind === "cron"
-            ) {
+            if (isCron) {
+              setCronScheduleOpen(true);
+              return;
+            }
+            // Relay/gauge: RTS config pops; no card dbl-click surface yet.
+            if (entityKind === "watcher" || entityKind === "relay") {
               return;
             }
             openInline();
           }}
         >
+          {cronScheduleOpen && isCron ? (
+            <CronScheduleSurface
+              node={node}
+              onClose={() => setCronScheduleOpen(false)}
+            />
+          ) : null}
           {entityKind === "watcher" ? (
             <WatcherCard node={node} label="gauge" />
           ) : entityKind === "relay" ? (

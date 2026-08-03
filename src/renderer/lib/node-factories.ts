@@ -360,11 +360,11 @@ export const makeGaugeNode = (
   },
 });
 
-/** Cron schedule node — durable interval; fires edge effects on due. */
+/** Cron schedule node — 5-field expression; fires edge effects on due. */
 export const makeCronNode = (
   x: number,
   y: number,
-  everyMinutes = 30,
+  expression = "*/30 * * * *",
   host = "local",
 ): TextNode => ({
   id: `cron-${ulid()}`,
@@ -372,12 +372,12 @@ export const makeCronNode = (
   text: "cron",
   x: Math.round(x),
   y: Math.round(y),
-  width: 200,
-  height: 88,
+  width: 220,
+  height: 96,
   ether: {
     entity: { kind: "cron" },
     host,
-    timer: { everyMinutes },
+    timer: { expression, everyMinutes: 30 },
   },
 });
 

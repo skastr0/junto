@@ -20,7 +20,6 @@ import type {
   SchedulerClaimResult,
 } from "../scheduler/repository";
 import type { IntervalTimerState } from "@shared/scheduler-policy";
-import { evaluateIntervalTimer } from "@shared/scheduler-policy";
 import type { ActorRefResolver } from "@shared/attention";
 import {
   detectPulses,
@@ -30,6 +29,11 @@ import {
   type WatcherStatus,
 } from "./evaluate";
 import { evaluateRelay } from "@shared/scheduler-effects";
+import {
+  expressionFromEveryMinutes,
+  isValidCronExpression,
+  nextCronOccurrence,
+} from "@shared/cron-expression";
 import { applySchedulerFire } from "./effects";
 import { liveSeatBlocksForCanvas } from "../work/blocked-seat";
 import type { SnapshotState } from "../../../shared/entities";
@@ -97,6 +101,18 @@ export interface TimerSchedulerDeps {
   readonly claimInterval: (
     input: SchedulerClaimInput,
   ) => Promise<SchedulerClaimResult>;
+  readonly claimExpression: (input: {
+    readonly homeStation: string;
+    readonly timerKey: string;
+    readonly scheduleId: string;
+    readonly dueAtEpochMs: number;
+    readonly nextDueAtEpochMs: number;
+    readonly nowEpochMs: number;
+  }) => Promise<
+    | { readonly _tag: "Claimed"; readonly dueAtEpochMs: number; readonly nextDueAtEpochMs: number }
+    | { readonly _tag: "Duplicate" }
+    | { readonly _tag: "Ineligible"; readonly reason: string }
+  >;
   readonly reconcileHome: (
     homeStation: string,
     activeTimerKeys: ReadonlyArray<string>,
@@ -512,14 +528,26 @@ export const runEvaluationCycle = async (): Promise<void> => {
 };
 
 // --- timer scheduling ----------------------------------------------------------
-// EtherTimer.everyMinutes is Schema.Number at the document level — the
-// schema validates SHAPE, not business range, and the UI editor's 5-minute
-// floor is only a convenience. The main-side scheduler remains the authority
-// and admits only a positive, finite interval.
+// Crontab expression (preferred) or legacy everyMinutes → expression.
+// Durable at-most-once via scheduler_interval_firings claim slots.
 export const isValidTimerInterval = (everyMinutes: number): boolean =>
   Number.isFinite(everyMinutes) &&
   everyMinutes > 0 &&
   Number.isSafeInteger(everyMinutes * 60_000);
+
+const resolveTimerExpression = (
+  timer: { readonly everyMinutes?: number; readonly expression?: string },
+): string | undefined => {
+  const expr = timer.expression?.trim();
+  if (expr && isValidCronExpression(expr)) return expr.replace(/\s+/g, " ");
+  if (
+    typeof timer.everyMinutes === "number" &&
+    isValidTimerInterval(timer.everyMinutes)
+  ) {
+    return expressionFromEveryMinutes(timer.everyMinutes);
+  }
+  return undefined;
+};
 
 export const checkTimers = async (
   nowEpochMs = Date.now(),
@@ -567,99 +595,73 @@ export const checkTimers = async (
       if (!timer) continue;
       if (!isNodeEligibleOnStation(node, stationHostId)) continue;
       const timerKey = `${canvasName}::${node.id}`;
-      if (!isValidTimerInterval(timer.everyMinutes)) {
-        // Invalid -> unknown-style no-op: never scheduled, never advances
-        // (LAW: unknown never fires). Clear any stale schedule left over
-        // from before an edit made it invalid.
-        if (nextFire.has(timerKey)) nextFire.delete(timerKey);
-        console.error(
-          `[kernel] invalid timer everyMinutes (${timer.everyMinutes}) on ${timerKey} — disabled until fixed`,
-        );
-        continue;
-      }
-      try {
-        const homeIds = [resolveNodeHostId(node)];
-        const claimInput = {
-          timerKey,
-          localStationId: stationHostId,
-          homeStationIds: homeIds,
-          nowEpochMs,
-          everyMinutes: timer.everyMinutes,
-        };
 
-        // Paused / unset role: project nextFire for UI without consuming a
-        // durable firing slot or applying effects.
-        if (!canAutomateCanvas(canvasName)) {
-          const state = await timerSchedulerDeps.readIntervalState(
-            stationHostId,
-            timerKey,
-          );
-          if (state === undefined) {
-            // First discovery: initialize cursor only (no fire on init).
-            const seeded = await timerSchedulerDeps.claimInterval(claimInput);
-            if (seeded._tag === "Initialized") {
-              nextFire.set(timerKey, seeded.state.nextDueAtEpochMs);
-            } else if (seeded._tag === "NotDue") {
-              nextFire.set(timerKey, seeded.state.nextDueAtEpochMs);
-            } else if (seeded._tag === "Firing") {
-              // Race: became due during init path — do not apply; show due.
-              nextFire.set(timerKey, seeded.scheduledForEpochMs);
-            } else {
-              nextFire.delete(timerKey);
-            }
-            continue;
-          }
-          const peeked = evaluateIntervalTimer({
-            ...claimInput,
-            state,
-          });
-          if (peeked._tag === "Ineligible") {
+      // Prefer 5-field expression (legacy everyMinutes migrates via expressionFromEveryMinutes).
+      const expression = resolveTimerExpression(timer);
+      if (expression) {
+        try {
+          // Coalesce: walk to the latest due occurrence ≤ now (at most a few steps).
+          let due = nextCronOccurrence(expression, nowEpochMs - 60_000 * 24 * 7);
+          if (due === undefined) {
             nextFire.delete(timerKey);
             continue;
           }
-          if (peeked._tag === "NotDue") {
-            nextFire.set(timerKey, peeked.state.nextDueAtEpochMs);
+          // Advance while the following occurrence is still in the past.
+          for (let i = 0; i < 500; i += 1) {
+            const following = nextCronOccurrence(expression, due);
+            if (following === undefined || following > nowEpochMs) break;
+            due = following;
+          }
+          const nextAfterDue = nextCronOccurrence(expression, due);
+          if (due > nowEpochMs) {
+            nextFire.set(timerKey, due);
             continue;
           }
-          // Due but not consuming — keep countdown at scheduled due time.
-          nextFire.set(timerKey, peeked.scheduledForEpochMs);
-          continue;
-        }
-
-        const decision = await timerSchedulerDeps.claimInterval(claimInput);
-        if (decision._tag === "Ineligible") {
+          // Due now.
+          nextFire.set(timerKey, due);
+          if (!canAutomateCanvas(canvasName)) continue;
+          if (nextAfterDue === undefined) continue;
+          const home = resolveNodeHostId(node);
+          const claimed = await timerSchedulerDeps.claimExpression({
+            homeStation: home,
+            timerKey,
+            scheduleId: `cron:${expression}`.slice(0, 256),
+            dueAtEpochMs: due,
+            nextDueAtEpochMs: nextAfterDue,
+            nowEpochMs,
+          });
+          if (claimed._tag === "Claimed") {
+            nextFire.set(timerKey, claimed.nextDueAtEpochMs);
+            await applySchedulerFire(doc, {
+              canvasName,
+              sourceNodeId: node.id,
+              kind: "cron",
+              fireKey: `cron:${home}:${timerKey}:${claimed.dueAtEpochMs}`,
+              status: "satisfied",
+            });
+          } else if (claimed._tag === "Duplicate") {
+            nextFire.set(timerKey, nextAfterDue);
+          } else {
+            nextFire.delete(timerKey);
+            console.error(
+              `[kernel] expression timer ${timerKey} ineligible (${claimed.reason})`,
+            );
+          }
+        } catch (error) {
           nextFire.delete(timerKey);
           console.error(
-            `[kernel] timer ${timerKey} is ineligible (${decision.reason})`,
+            `[kernel] expression timer claim failed for ${timerKey}:`,
+            error,
           );
-          continue;
         }
-        if (decision._tag === "Initialized") {
-          nextFire.set(timerKey, decision.state.nextDueAtEpochMs);
-          continue;
-        }
-        if (decision._tag === "NotDue") {
-          nextFire.set(timerKey, decision.state.nextDueAtEpochMs);
-          continue;
-        }
-
-        // Due: advance nextFire and apply edge-authored effects (enqueue / flags).
-        nextFire.set(timerKey, decision.nextState.nextDueAtEpochMs);
-        const { identity } = decision;
-        await applySchedulerFire(doc, {
-          canvasName,
-          sourceNodeId: node.id,
-          kind: "cron",
-          fireKey: `cron:${identity.homeStationId}:${identity.timerKey}:${identity.scheduleId}:${identity.claimSlot}`,
-          status: "satisfied",
-        });
-      } catch (error) {
-        nextFire.delete(timerKey);
-        console.error(
-          `[kernel] timer claim failed for ${timerKey} — disabled for this pass:`,
-          error,
-        );
+        continue;
       }
+
+      // No valid schedule.
+      if (nextFire.has(timerKey)) nextFire.delete(timerKey);
+      console.error(
+        `[kernel] invalid timer schedule on ${timerKey} — disabled until fixed`,
+      );
     }
   }
 };

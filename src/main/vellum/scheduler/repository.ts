@@ -71,11 +71,30 @@ export type SchedulerRepositoryError =
  * - Layer today: SchedulerRepositoryLive / makeSchedulerRepositoryLive — V4 rename candidate SchedulerRepository.layer
  *   Do not dual-export Live + `.layer` names.
  */
+/** Claim a calendar (crontab) due slot once; advances next due on success. */
+export type ExpressionClaimInput = {
+  readonly homeStation: string;
+  readonly timerKey: string;
+  /** Stable id for the expression (e.g. the expression source string). */
+  readonly scheduleId: string;
+  readonly dueAtEpochMs: number;
+  readonly nextDueAtEpochMs: number;
+  readonly nowEpochMs: number;
+};
+
+export type ExpressionClaimResult =
+  | { readonly _tag: "Claimed"; readonly dueAtEpochMs: number; readonly nextDueAtEpochMs: number }
+  | { readonly _tag: "Duplicate" }
+  | { readonly _tag: "Ineligible"; readonly reason: string };
+
 export class SchedulerRepository extends Context.Service<SchedulerRepository,
   {
     readonly claimInterval: (
       input: SchedulerClaimInput,
     ) => Effect.Effect<SchedulerClaimResult, SchedulerRepositoryError>;
+    readonly claimExpression: (
+      input: ExpressionClaimInput,
+    ) => Effect.Effect<ExpressionClaimResult, SchedulerRepositoryError>;
     readonly reconcileHome: (
       homeStation: string,
       activeTimerKeys: ReadonlyArray<string>,
@@ -370,6 +389,71 @@ export const makeSchedulerRepositoryLive = (
           );
       });
 
+      const claimExpression = Effect.fn(
+        "SchedulerRepository.claimExpression",
+      )(function* (input: ExpressionClaimInput) {
+        if (
+          !isHostId(input.homeStation) ||
+          !isTimerKey(input.timerKey) ||
+          input.scheduleId.length === 0 ||
+          input.scheduleId.length > 256 ||
+          !Number.isSafeInteger(input.dueAtEpochMs) ||
+          input.dueAtEpochMs < 0 ||
+          !Number.isSafeInteger(input.nextDueAtEpochMs) ||
+          input.nextDueAtEpochMs <= input.dueAtEpochMs
+        ) {
+          return {
+            _tag: "Ineligible" as const,
+            reason: "invalid-expression-claim",
+          };
+        }
+        const claimSlot = String(input.dueAtEpochMs);
+        return yield* state
+          .transaction("scheduler.claim-expression", (writer) => {
+            const firing = writer.run(
+              `
+                INSERT OR IGNORE INTO scheduler_interval_firings(
+                  home_station,
+                  timer_key,
+                  schedule_id,
+                  catch_up_policy,
+                  claim_slot,
+                  due_slot,
+                  scheduled_for_epoch_ms,
+                  observed_at_epoch_ms,
+                  coalesced_missed_slots,
+                  claimed_at
+                ) VALUES (?, ?, ?, 'coalesce-latest', ?, ?, ?, ?, '0', ?)
+              `,
+              [
+                input.homeStation,
+                input.timerKey,
+                input.scheduleId,
+                claimSlot,
+                claimSlot,
+                input.dueAtEpochMs,
+                input.nowEpochMs,
+                timestamp(input.nowEpochMs),
+              ],
+            );
+            if (Number(firing.changes) !== 1) {
+              return { _tag: "Duplicate" as const };
+            }
+            // Expression timers do not use the interval cursor (slot successor
+            // invariant). Dedup is the firings primary key only.
+            return {
+              _tag: "Claimed" as const,
+              dueAtEpochMs: input.dueAtEpochMs,
+              nextDueAtEpochMs: input.nextDueAtEpochMs,
+            };
+          })
+          .pipe(
+            Effect.mapError((error) =>
+              persistenceError("claim-expression", error)
+            ),
+          );
+      });
+
       const reconcileHome = Effect.fn(
         "SchedulerRepository.reconcileHome",
       )(function* (
@@ -459,6 +543,7 @@ export const makeSchedulerRepositoryLive = (
 
       return SchedulerRepository.of({
         claimInterval,
+        claimExpression,
         reconcileHome,
         readIntervalState,
       });

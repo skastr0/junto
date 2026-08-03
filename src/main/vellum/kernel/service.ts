@@ -645,6 +645,8 @@ const makeKernelService = (
   __setTimerSchedulerForTest({
     claimInterval: (input) =>
       run(scheduler.claimInterval(input)),
+    claimExpression: (input) =>
+      run(scheduler.claimExpression(input)),
     reconcileHome: (homeStation, activeTimerKeys) =>
       run(
         scheduler.reconcileHome(homeStation, activeTimerKeys),
