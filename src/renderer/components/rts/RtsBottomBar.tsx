@@ -534,11 +534,21 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
   // middle-bar kind strip now; the left card keeps type/base + slot cue.
   const primary = kind === "herdr" ? (["slot-cue"] as const) : primaryCommandActions(kind);
 
+  // Meta is useful subtype/context only — never a second copy of the title/kind.
   const metaLine = (() => {
     if (kind === "herdr" && herdr) {
-      return agentStatus ? `herdr ${herdr.host} (${agentStatus})` : `herdr ${herdr.host}`;
+      return agentStatus ? `${herdr.host} (${agentStatus})` : herdr.host;
     }
-    return nodeTypeLabel(node);
+    if (entityKind === "terminal") {
+      return "shell";
+    }
+    if (entityKind === "agent") {
+      return "";
+    }
+    const type = nodeTypeLabel(node);
+    const title = nodeTitle(node);
+    if (type.toLowerCase() === title.toLowerCase()) return "";
+    return type;
   })();
 
   const copyReference = async (): Promise<void> => {
@@ -606,14 +616,16 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
     return null;
   };
 
-  // Flags are factory/attention language — not for map furniture (label, note, bare terminal).
-  const showFlags = role === "actor" || role === "sink" || role === "scheduler";
+  // Operator flags: any selected node except bare map labels and regions
+  // (region command has its own chrome). Physics "actor" is not the gate —
+  // flagging a terminal for attention is legitimate operator intent.
+  const showFlags = node.type !== "group" && entityKind !== "label";
 
   return (
     <div className="rts-panel rts-panel--cmd">
       <div className="rts-panel__body rts-cmd-shell">
         <div className="rts-cmd-head">
-          <div className="rts-cmd__meta">{metaLine}</div>
+          {metaLine ? <div className="rts-cmd__meta">{metaLine}</div> : null}
           <div className="rts-cmd__title" title={nodeTitle(node)}>{nodeTitle(node)}</div>
         </div>
 

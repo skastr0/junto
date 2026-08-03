@@ -595,34 +595,22 @@ export function KindSurface() {
   const hasKindActions =
     kind !== undefined &&
     ["agent", "herdr", "terminal", "task", "requests", "watcher", "timer"].includes(kind);
+  // Agent/herdr keep a live glance. Everything else is strip-only (kind once +
+  // keys) so command title is not echoed three more times in the mid third.
+  const showSeatGlance = kind === "agent" || kind === "herdr";
+  const stripLabel = kind ?? nodeTypeLabel(node);
 
   return (
-    <div className="rts-kind-surface">
+    <div className={`rts-kind-surface${showSeatGlance ? "" : " rts-kind-surface--simple"}`}>
       {kind === "agent" ? <AgentSeatGlance node={node} /> : null}
       {kind === "herdr" ? <HerdrGlance node={node} /> : null}
-      {kind && kind !== "agent" && kind !== "herdr" ? (
-        <div className="rts-kind-id rts-kind-id--compact">
-          <div className="rts-kind-id__text">
-            <div className="rts-kind-id__name">{nodeTitle(node)}</div>
-            <div className="rts-kind-id__live">{kind}</div>
-          </div>
-        </div>
-      ) : null}
-      {!kind ? (
-        <div className="rts-kind-id rts-kind-id--compact">
-          <div className="rts-kind-id__text">
-            <div className="rts-kind-id__name">{nodeTitle(node)}</div>
-            <div className="rts-kind-id__live">{nodeTypeLabel(node)}</div>
-          </div>
-        </div>
-      ) : null}
 
-      <div className="rts-kind-strip" role="toolbar" aria-label={kind ? `${kind} actions` : "node actions"}>
-        {kind ? <span className="rts-kind-strip__label">{kind}</span> : null}
+      <div className="rts-kind-strip" role="toolbar" aria-label={`${stripLabel} actions`}>
+        <span className="rts-kind-kind-label">{stripLabel}</span>
         {hasKindActions ? <KindActions node={node} /> : null}
         <KindKey
           label={formOpen ? "Close fields" : "Open fields"}
-          title="placement — label — kind fields"
+          title="Edit node fields"
           active={formOpen}
           style={{ color: formOpen ? HUE.amber : undefined }}
           onClick={() => setFormOpen((open) => !open)}

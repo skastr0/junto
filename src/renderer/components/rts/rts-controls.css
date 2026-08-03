@@ -34,16 +34,18 @@
 }
 
 /*
- * Region: kind label + keys top-left, same corner language as command accents.
+ * Region + simple kinds: kind label + keys top-left (no second title block).
  */
-.rts-kind-surface--region {
+.rts-kind-surface--region,
+.rts-kind-surface--simple {
   justify-content: flex-start;
   align-items: flex-start;
   gap: 6px;
   padding-top: 2px;
 }
 
-.rts-kind-surface--region .rts-kind-strip {
+.rts-kind-surface--region .rts-kind-strip,
+.rts-kind-surface--simple .rts-kind-strip {
   gap: 6px;
 }
 
