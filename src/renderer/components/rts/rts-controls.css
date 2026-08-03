@@ -149,28 +149,30 @@
   padding: 12px 14px 16px;
 }
 
-/* One-row kind strip: micro label + fixed keys, RTS bar language. */
+/*
+ * Kind cluster: label on its own row, then icon row (region + every kind).
+ * Never inline "TERMINAL [icon] [icon]".
+ */
+.rts-kind-cluster {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+
 .rts-kind-strip {
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   flex-shrink: 0;
   min-width: 0;
-  padding: 1px 0;
+  padding: 0;
 }
 
 .rts-kind-strip__label {
-  font-size: 8px;
-  font-weight: 600;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: rgba(143, 163, 176, 0.85);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 140px;
-  margin-right: 2px;
+  display: none; /* use .rts-kind-kind-label above the strip */
 }
 
 .rts-kind-strip__meta {

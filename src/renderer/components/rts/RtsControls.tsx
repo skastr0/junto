@@ -171,15 +171,17 @@ export function EdgeCommandCard({ edgeId }: { readonly edgeId: string }) {
   return (
     <div className="rts-panel rts-panel--cmd">
       <div className="rts-panel__body rts-cmd-shell">
-        <div className="rts-cmd-head">
-          <div className="rts-cmd__meta" style={{ color: phaseHue }} title={liveDetail ?? phase}>
-            {liveDetail ?? phase}
-          </div>
-          <div className="rts-cmd__title">
-            {fromNode ? nodeTitle(fromNode) : edge.fromNode} → {toNode ? nodeTitle(toNode) : edge.toNode}
+        <div className="rts-cmd-main">
+          <div className="rts-cmd-head">
+            <div className="rts-cmd__title">
+              {fromNode ? nodeTitle(fromNode) : edge.fromNode} → {toNode ? nodeTitle(toNode) : edge.toNode}
+            </div>
+            <div className="rts-cmd__live" style={{ color: phaseHue }} title={liveDetail ?? phase}>
+              {liveDetail ?? phase}
+            </div>
           </div>
         </div>
-        <div className="rts-cmd-keys" role="toolbar" aria-label="Relation actions">
+        <div className="rts-cmd-keys rts-cmd-keys--col" role="toolbar" aria-label="Relation actions">
           <KindKey
             label="Toggle arrow at source"
             title="arrowhead on the from end"
@@ -196,7 +198,6 @@ export function EdgeCommandCard({ edgeId }: { readonly edgeId: string }) {
           >
             <ArrowRight size={ICON} />
           </KindKey>
-          <span className="rts-cmd-keys__rule" aria-hidden />
           <KindKey label="Delete relation" danger onClick={() => deleteEdges([edgeId])}>
             <Trash2 size={ICON} />
           </KindKey>

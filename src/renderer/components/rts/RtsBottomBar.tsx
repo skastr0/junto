@@ -268,18 +268,20 @@ function CommandCard({ regionRollup }: { readonly regionRollup?: RegionRollup })
     return (
       <div className="rts-panel rts-panel--cmd" data-testid="rts-multi-command">
         <div className="rts-panel__body rts-cmd-shell">
-          <div className="rts-cmd-head">
-            <div className="rts-cmd__meta">{multiSelectionLabel(classified)}</div>
-            <div className="rts-cmd__title">
-              {classified.mode === "homogeneous" ? "shared settings" : "shared settings only"}
+          <div className="rts-cmd-main">
+            <div className="rts-cmd-head">
+              <div className="rts-cmd__title">
+                {classified.mode === "homogeneous" ? "shared settings" : "shared settings only"}
+              </div>
+              <div className="rts-cmd__live">{multiSelectionLabel(classified)}</div>
             </div>
+            <AccentColorSwatches
+              nodeIds={selectedNodeIds}
+              color={sharedColor}
+              mixed={mixedColor}
+            />
           </div>
-          <AccentColorSwatches
-            nodeIds={selectedNodeIds}
-            color={sharedColor}
-            mixed={mixedColor}
-          />
-          <div className="rts-cmd-keys" role="toolbar" aria-label="Multi-select actions">
+          <div className="rts-cmd-keys rts-cmd-keys--col" role="toolbar" aria-label="Multi-select actions">
             {FLAG_META.map(({ flag, hue, label, Icon }) => {
               const allOn = selectedNodes.every((n) => n.ether?.flags?.includes(flag));
               const someOn = selectedNodes.some((n) => n.ether?.flags?.includes(flag));
@@ -304,7 +306,6 @@ function CommandCard({ regionRollup }: { readonly regionRollup?: RegionRollup })
                 </CmdKey>
               );
             })}
-            <span className="rts-cmd-keys__rule" aria-hidden />
             <CmdKey
               label="Clear all flags"
               title="Clear blocker, attention, and parked on selection"
@@ -534,21 +535,12 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
   // middle-bar kind strip now; the left card keeps type/base + slot cue.
   const primary = kind === "herdr" ? (["slot-cue"] as const) : primaryCommandActions(kind);
 
-  // Meta is useful subtype/context only — never a second copy of the title/kind.
-  const metaLine = (() => {
+  // Optional subtitle under the title (host/status) — never a kind/shell eyebrow.
+  const subtitle = (() => {
     if (kind === "herdr" && herdr) {
       return agentStatus ? `${herdr.host} (${agentStatus})` : herdr.host;
     }
-    if (entityKind === "terminal") {
-      return "shell";
-    }
-    if (entityKind === "agent") {
-      return "";
-    }
-    const type = nodeTypeLabel(node);
-    const title = nodeTitle(node);
-    if (type.toLowerCase() === title.toLowerCase()) return "";
-    return type;
+    return "";
   })();
 
   const copyReference = async (): Promise<void> => {
@@ -624,15 +616,15 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
   return (
     <div className="rts-panel rts-panel--cmd">
       <div className="rts-panel__body rts-cmd-shell">
-        <div className="rts-cmd-head">
-          {metaLine ? <div className="rts-cmd__meta">{metaLine}</div> : null}
-          <div className="rts-cmd__title" title={nodeTitle(node)}>{nodeTitle(node)}</div>
+        <div className="rts-cmd-main">
+          <div className="rts-cmd-head">
+            <div className="rts-cmd__title" title={nodeTitle(node)}>{nodeTitle(node)}</div>
+            {subtitle ? <div className="rts-cmd__live">{subtitle}</div> : null}
+          </div>
+          <AccentColorSwatches nodeId={node.id} color={node.color} />
         </div>
 
-        <AccentColorSwatches nodeId={node.id} color={node.color} />
-
-        {/* Role base actions + flags + shared utilities — kind actions live middle */}
-        <div className="rts-cmd-keys" role="toolbar" aria-label="Node actions">
+        <div className="rts-cmd-keys rts-cmd-keys--col" role="toolbar" aria-label="Node actions">
           {executableRole ? (
             <PauseScopeKey scope={{ kind: "node", id: node.id }} />
           ) : null}
@@ -662,7 +654,6 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
               <LocateFixed size={ICON} />
             </CmdKey>
           ) : null}
-          {executableRole || showFlags ? <span className="rts-cmd-keys__rule" aria-hidden /> : null}
           {showFlags
             ? FLAG_META.map(({ flag, hue, label, Icon }) => {
                 const active = flags.includes(flag);
@@ -679,9 +670,7 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
                 );
               })
             : null}
-          {showFlags ? <span className="rts-cmd-keys__rule" aria-hidden /> : null}
           {primary.map(renderPrimary)}
-          {primary.length > 0 ? <span className="rts-cmd-keys__rule" aria-hidden /> : null}
           <CmdKey label="Focus" onClick={() => state$.focusNodeId.set(node.id)}>
             <Crosshair size={ICON} />
           </CmdKey>

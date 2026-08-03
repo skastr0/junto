@@ -472,25 +472,22 @@
   color: #ede6da;
 }
 
-/* Command shell: stacked head → accents → fixed key row. No stretch. */
-.rts-cmd-shell {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  height: 100%;
-  min-height: 0;
-  justify-content: flex-start;
-}
-
-/* Region: identity+members left, action keys right (fills the panel). */
+/*
+ * Command shell — one layout for every selection:
+ * identity + accents (left) | key grid (right). Never a horizontal key row.
+ */
+.rts-cmd-shell,
 .rts-cmd-shell--region {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   grid-template-rows: 1fr;
   gap: 6px 8px;
+  height: 100%;
+  min-height: 0;
   align-items: stretch;
 }
 
+.rts-cmd-main,
 .rts-cmd-region-main {
   display: flex;
   flex-direction: column;
@@ -545,6 +542,16 @@
   line-height: 1.2;
 }
 
+/* Optional live line under the title (host/status) — not a kind eyebrow. */
+.rts-cmd__live {
+  font-size: 9px;
+  color: rgba(143, 163, 176, 0.95);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
 .rts-quiet--compact {
   padding: 4px 2px;
   font-size: 10px;
@@ -588,20 +595,8 @@
   border-color: rgba(237, 230, 218, 0.5);
 }
 
-/* Single key row — fixed 26px keys, never stretch */
-.rts-cmd-keys {
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-  margin-top: auto;
-  overflow: hidden;
-}
-
-/* Region keys: 2-col grid so pause/arm/pulse/slot + focus/edit/delete all
-   fit inside the fixed 120px panel (single column clipped the slot key).
-   Compound selector beats .rts-cmd-keys { display:flex } above. */
+/* Command keys: always a 2-col vertical grid (region + every node). */
+.rts-cmd-keys,
 .rts-cmd-keys.rts-cmd-keys--col {
   display: grid;
   grid-template-columns: repeat(2, 22px);
@@ -610,8 +605,10 @@
   align-self: center;
   align-content: center;
   overflow: visible;
+  flex-shrink: 0;
 }
 
+.rts-cmd-shell .rts-key,
 .rts-cmd-shell--region .rts-key {
   width: 22px;
   height: 22px;
@@ -621,12 +618,9 @@
   max-height: 22px;
 }
 
+/* Rules were for the old horizontal row — hide in the key grid. */
 .rts-cmd-keys__rule {
-  width: 1px;
-  height: 16px;
-  flex-shrink: 0;
-  background: rgba(237, 230, 218, 0.14);
-  margin: 0 2px;
+  display: none;
 }
 
 .rts-key {

@@ -375,47 +375,49 @@ function RegionKindSurface({ node }: { readonly node: CanvasNode }) {
 
   return (
     <div className="rts-kind-surface rts-kind-surface--region">
-      <div className="rts-kind-kind-label">region</div>
-      <div className="rts-kind-strip" role="toolbar" aria-label="Region fields">
-        <KindKey
-          label={form === "briefing" ? "Close briefing" : "Region briefing"}
-          title="Briefing for agents on onboard"
-          active={form === "briefing" || instruction}
-          style={form === "briefing" || instruction ? { color: HUE.amber } : undefined}
-          onClick={() => toggleForm("briefing")}
-        >
-          <ScrollText size={ICON} />
-        </KindKey>
-        <KindKey
-          label={pathsOpen ? "Close folder paths" : "Folder paths"}
-          title="Per-host working directories for agents and terminals"
-          active={pathsOpen || hasPaths}
-          style={pathsOpen || hasPaths ? { color: HUE.amber } : undefined}
-          onClick={() => {
-            setForm(null);
-            setPathsOpen((open) => !open);
-          }}
-        >
-          <FolderOpen size={ICON} />
-        </KindKey>
-        <KindKey
-          label={form === "herdr" ? "Close herdr defaults" : "Herdr defaults"}
-          title="Defaults for new herdr nodes in this region"
-          active={form === "herdr" || hasHerdr}
-          style={form === "herdr" || hasHerdr ? { color: HUE.cyan } : undefined}
-          onClick={() => toggleForm("herdr")}
-        >
-          <Package size={ICON} />
-        </KindKey>
-        <KindKey
-          label={form === "page" ? "Close page defaults" : "Page defaults"}
-          title="Defaults for new page nodes in this region"
-          active={form === "page" || hasPage}
-          style={form === "page" || hasPage ? { color: HUE.cyan } : undefined}
-          onClick={() => toggleForm("page")}
-        >
-          <Globe size={ICON} />
-        </KindKey>
+      <div className="rts-kind-cluster">
+        <span className="rts-kind-kind-label">region</span>
+        <div className="rts-kind-strip" role="toolbar" aria-label="Region fields">
+          <KindKey
+            label={form === "briefing" ? "Close briefing" : "Region briefing"}
+            title="Briefing for agents on onboard"
+            active={form === "briefing" || instruction}
+            style={form === "briefing" || instruction ? { color: HUE.amber } : undefined}
+            onClick={() => toggleForm("briefing")}
+          >
+            <ScrollText size={ICON} />
+          </KindKey>
+          <KindKey
+            label={pathsOpen ? "Close folder paths" : "Folder paths"}
+            title="Per-host working directories for agents and terminals"
+            active={pathsOpen || hasPaths}
+            style={pathsOpen || hasPaths ? { color: HUE.amber } : undefined}
+            onClick={() => {
+              setForm(null);
+              setPathsOpen((open) => !open);
+            }}
+          >
+            <FolderOpen size={ICON} />
+          </KindKey>
+          <KindKey
+            label={form === "herdr" ? "Close herdr defaults" : "Herdr defaults"}
+            title="Defaults for new herdr nodes in this region"
+            active={form === "herdr" || hasHerdr}
+            style={form === "herdr" || hasHerdr ? { color: HUE.cyan } : undefined}
+            onClick={() => toggleForm("herdr")}
+          >
+            <Package size={ICON} />
+          </KindKey>
+          <KindKey
+            label={form === "page" ? "Close page defaults" : "Page defaults"}
+            title="Defaults for new page nodes in this region"
+            active={form === "page" || hasPage}
+            style={form === "page" || hasPage ? { color: HUE.cyan } : undefined}
+            onClick={() => toggleForm("page")}
+          >
+            <Globe size={ICON} />
+          </KindKey>
+        </div>
       </div>
 
       {form ? <RegionFieldFocus node={node} form={form} onClose={() => setForm(null)} /> : null}
@@ -605,18 +607,20 @@ export function KindSurface() {
       {kind === "agent" ? <AgentSeatGlance node={node} /> : null}
       {kind === "herdr" ? <HerdrGlance node={node} /> : null}
 
-      <div className="rts-kind-strip" role="toolbar" aria-label={`${stripLabel} actions`}>
+      <div className="rts-kind-cluster">
         <span className="rts-kind-kind-label">{stripLabel}</span>
-        {hasKindActions ? <KindActions node={node} /> : null}
-        <KindKey
-          label={formOpen ? "Close fields" : "Open fields"}
-          title="Edit node fields"
-          active={formOpen}
-          style={{ color: formOpen ? HUE.amber : undefined }}
-          onClick={() => setFormOpen((open) => !open)}
-        >
-          <Settings2 size={ICON} />
-        </KindKey>
+        <div className="rts-kind-strip" role="toolbar" aria-label={`${stripLabel} actions`}>
+          {hasKindActions ? <KindActions node={node} /> : null}
+          <KindKey
+            label={formOpen ? "Close fields" : "Open fields"}
+            title="Edit node fields"
+            active={formOpen}
+            style={{ color: formOpen ? HUE.amber : undefined }}
+            onClick={() => setFormOpen((open) => !open)}
+          >
+            <Settings2 size={ICON} />
+          </KindKey>
+        </div>
       </div>
 
       {formOpen ? <NodeFormFocus node={node} onClose={() => setFormOpen(false)} /> : null}
