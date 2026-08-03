@@ -1,16 +1,21 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { use$ } from "@legendapp/state/react";
 import {
   closeWorkbenchSurface,
   dock$,
+  parseTerminalSurfaceId,
   setWorkbenchFocusSize,
 } from "../../lib/dock-state";
+import { actorEdgeRows } from "../../lib/actor-edges";
 import {
   surfaceById,
   visiblePanes,
   zoneHasSurfaces,
 } from "../../lib/surface-registry";
+import { state$ } from "../../lib/state";
+import { terminal$ } from "../../lib/terminal-state";
 import { FocusSurface } from "../FocusSurface";
+import { ActorEdgesGlance } from "../terminal/ActorEdgesGlance";
 import { WorkbenchChrome } from "./WorkbenchChrome";
 import { WorkbenchPanes } from "./WorkbenchPanes";
 
@@ -42,6 +47,19 @@ export function WorkFocusShell() {
   const panes = visiblePanes(registry, "focus");
   const activeId = panes.pane0;
   const active = activeId ? surfaceById(registry, activeId) : undefined;
+  // Terminal open map — edges rail rides outside the modal plate for the active agent.
+  const openByNodeId = use$(terminal$.openByNodeId);
+  const doc = use$(state$.doc);
+  const edgesAsideNode = useMemo(() => {
+    if (!active || active.kind !== "terminal") return null;
+    const nodeId = parseTerminalSurfaceId(active.id);
+    if (!nodeId) return null;
+    const node = openByNodeId?.[nodeId];
+    if (!node) return null;
+    // Only mount the aside when there is at least one incident edge — empty
+    // aside would still shrink the panel via --has-aside.
+    return actorEdgeRows(doc, node.id).length > 0 ? node : null;
+  }, [active, openByNodeId, doc]);
 
   const closeAllFocus = useCallback(() => {
     const ids = dock$.registry
@@ -101,6 +119,9 @@ export function WorkFocusShell() {
       closeOnEscape={false}
       closeOnBackdrop
       panelClassName={`work-focus-shell__panel${onlyChats ? " work-focus-shell__panel--chat" : ""}${onlyTaskCreate ? " work-focus-shell__panel--task-create" : ""}`}
+      aside={
+        edgesAsideNode ? <ActorEdgesGlance node={edgesAsideNode} /> : undefined
+      }
     >
       <div className="work-focus-shell">
         {showDockChrome ? (

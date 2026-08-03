@@ -50,7 +50,6 @@ import {
 import { releaseTaskToQueue } from "../../lib/work-actions";
 import { ActivityMark } from "../ActivityMark";
 import { Button, Eyebrow, OverlayHeader } from "../ui";
-import { ActorEdgesGlance } from "./ActorEdgesGlance";
 import { SessionLoadSpinner } from "./SessionLoadSpinner";
 
 type AttachResult = {
@@ -853,7 +852,6 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
             .join(" ")}
           aria-hidden={showDeadOverlay || showLoadOverlay || undefined}
         />
-        {agentSeat ? <ActorEdgesGlance node={node} /> : null}
         {showLoadOverlay && loadPresentation ? (
           <div className="native-terminal-surface__load">
             <SessionLoadSpinner

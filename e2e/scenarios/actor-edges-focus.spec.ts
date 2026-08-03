@@ -64,9 +64,13 @@ test("actor terminal focus shows read-only edge inventory", async () => {
     const surface = page.locator(".native-terminal-surface");
     await expect(surface).toBeVisible({ timeout: 20_000 });
 
-    const glance = surface.getByTestId("actor-edges-glance");
+    // Rail lives outside the modal plate (FocusSurface aside), not over the TUI.
+    const focus = page.locator('[data-focus-surface="1"]');
+    await expect(focus).toHaveClass(/focus-surface--has-aside/);
+    const glance = focus.locator(".focus-surface__aside").getByTestId("actor-edges-glance");
     await expect(glance).toBeVisible({ timeout: 10_000 });
     await expect(glance).toHaveAttribute("aria-label", "Connected edges");
+    await expect(surface.getByTestId("actor-edges-glance")).toHaveCount(0);
 
     // Tasks criteria edge (inbound) + soft shell edge (outbound).
     const tasksRow = glance.locator('[data-peer-kind="task"]');
@@ -82,7 +86,7 @@ test("actor terminal focus shows read-only edge inventory", async () => {
     // Ports on tasks reach should surface (list/claim/update family).
     await expect(tasksRow.locator(".actor-edges-glance__ports")).toBeVisible();
 
-    await surface.screenshot({
+    await focus.screenshot({
       path: join(SHOTS, "actor-edges-focus.png"),
     });
     await page.screenshot({

@@ -142,11 +142,45 @@ html[data-vellum-platform="darwin"] .focus-surface.focus-surface--contain-parent
   backdrop-filter: blur(2px);
   cursor: default;
 }
+/* Panel + optional outside rail (edges) share one centered frame above the dim. */
+.focus-surface__frame {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  align-items: stretch;
+  gap: 12px;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  max-width: 100%;
+  height: 100%;
+}
+.focus-surface--height-fit .focus-surface__frame,
+.focus-surface--height-resizable .focus-surface__frame {
+  height: auto;
+  max-height: 100%;
+  align-items: stretch;
+}
+.focus-surface__aside {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex: 0 0 248px;
+  width: 248px;
+  min-width: 0;
+  min-height: 0;
+  max-height: 100%;
+  pointer-events: auto;
+}
 .focus-surface__panel {
   position: relative;
   z-index: 1;
   display: flex;
   flex-direction: column;
+  min-width: 0;
   max-width: calc(100vw - 32px);
   overflow: hidden;
   border-radius: 12px;
@@ -156,6 +190,13 @@ html[data-vellum-platform="darwin"] .focus-surface.focus-surface--contain-parent
     0 24px 80px rgba(0, 0, 0, 0.55),
     0 0 0 1px rgba(237, 230, 218, 0.03);
   animation: focus-surface-enter 160ms ease-out;
+}
+/* Leave room for the outside edges rail (248px + 12px gap). */
+.focus-surface--has-aside .focus-surface__panel {
+  max-width: min(calc(100vw - 32px), calc(100% - 260px));
+}
+.focus-surface--has-aside .focus-surface__panel.work-focus-shell__panel {
+  max-width: min(calc(100vw - 32px), calc(100% - 260px));
 }
 @keyframes focus-surface-enter {
   from { opacity: 0; transform: translateY(6px) scale(0.985); }
@@ -2648,31 +2689,27 @@ ol.note-md__list > .note-md__li::before {
   .vellum-tooltip { transition: none; }
 }
 
-/* Actor focus — floating right-rail edge inventory over the terminal stage.
-   Plate is geography for reach; does not claim header chrome. */
+/* Actor focus — outside-the-plate right rail (FocusSurface aside).
+   Never overlays the terminal subject. */
 .actor-edges-glance {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  bottom: 10px;
-  z-index: 1;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  width: min(248px, calc(100% - 20px));
-  max-height: calc(100% - 20px);
-  padding: 10px 10px 8px;
+  width: 248px;
+  height: 100%;
+  max-height: 100%;
+  padding: 12px 12px 10px;
   border: 1px solid color-mix(in srgb, var(--color-stroke) 88%, transparent);
-  border-radius: 10px;
+  border-radius: 12px;
   background:
     linear-gradient(
       165deg,
-      color-mix(in srgb, var(--color-raise) 92%, transparent),
-      color-mix(in srgb, var(--color-ground) 88%, transparent)
+      color-mix(in srgb, var(--color-raise) 94%, transparent),
+      color-mix(in srgb, var(--color-ground) 90%, transparent)
     );
   box-shadow:
     0 1px 0 color-mix(in srgb, var(--color-ink) 4%, transparent) inset,
-    0 12px 32px rgba(0, 0, 0, 0.42);
+    0 18px 48px rgba(0, 0, 0, 0.48);
   backdrop-filter: blur(10px);
   pointer-events: auto;
   overflow: hidden;

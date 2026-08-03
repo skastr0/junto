@@ -36,6 +36,7 @@ export function FocusSurface({
   closeOnBackdrop = true,
   label,
   panelClassName,
+  aside,
   children,
 }: {
   readonly measure: FocusMeasure;
@@ -48,6 +49,12 @@ export function FocusSurface({
   readonly closeOnBackdrop?: boolean;
   readonly label: string;
   readonly panelClassName?: string;
+  /**
+   * Optional rail outside the modal plate (sibling of the panel, still above
+   * the dim backdrop). Used for actor edge inventory so it never covers the
+   * focused subject.
+   */
+  readonly aside?: ReactNode;
   readonly children: ReactNode;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -100,6 +107,7 @@ export function FocusSurface({
         `focus-surface--layer-${layer}`,
         `focus-surface--height-${height}`,
         contain === "parent" ? "focus-surface--contain-parent" : "",
+        aside ? "focus-surface--has-aside" : "",
       ]
         .filter(Boolean)
         .join(" ")}
@@ -117,17 +125,28 @@ export function FocusSurface({
           if (closeOnBackdrop) onClose();
         }}
       />
-      <div
-        ref={panelRef}
-        className={["focus-surface__panel", `focus-surface__panel--${measure}`, panelClassName]
-          .filter(Boolean)
-          .join(" ")}
-        data-measure={measure}
-        data-height={height}
-        onClick={(e) => e.stopPropagation()}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        {children}
+      <div className="focus-surface__frame">
+        <div
+          ref={panelRef}
+          className={["focus-surface__panel", `focus-surface__panel--${measure}`, panelClassName]
+            .filter(Boolean)
+            .join(" ")}
+          data-measure={measure}
+          data-height={height}
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          {children}
+        </div>
+        {aside ? (
+          <div
+            className="focus-surface__aside"
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            {aside}
+          </div>
+        ) : null}
       </div>
     </div>
   );

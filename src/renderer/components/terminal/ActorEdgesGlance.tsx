@@ -1,8 +1,7 @@
 /**
- * Floating right-rail edge inventory for an actor on focus.
- * Overlays the terminal stage (not the header) so PIN/STOP/CLOSE stay clean
- * and the operator still sees connected sinks + edge nature without the
- * inspector.
+ * Outside-the-plate right-rail edge inventory for an actor on focus.
+ * Mounted as FocusSurface `aside` (sibling of the modal panel) so the TUI
+ * stays unobscured while the operator still sees connected sinks + edge nature.
  */
 import { useMemo } from "react";
 import { use$ } from "@legendapp/state/react";
