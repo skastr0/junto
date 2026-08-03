@@ -68,8 +68,8 @@ describe("slot helpers", () => {
   it("slotIndexOf and regionSlotCueLabel", () => {
     expect(slotIndexOf(["a", "b"], "b")).toBe(1);
     expect(slotIndexOf(["a"], "z")).toBe(null);
-    expect(regionSlotCueLabel(2)).toBe("slot 3");
-    expect(regionSlotCueLabel(null)).toBe("slot · Ctrl+1–9");
-    expect(regionSlotCueLabel(-1)).toBe("slot · Ctrl+1–9");
+    expect(regionSlotCueLabel(2)).toBe("Hotkey slot 3");
+    expect(regionSlotCueLabel(null)).toBe("Assign hotkey slot");
+    expect(regionSlotCueLabel(-1)).toBe("Assign hotkey slot");
   });
 });

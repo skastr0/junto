@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   assignSlot,
+  clearSlot,
   fuseRegionRollups,
   mergeSlotOrder,
   pruneSlotOrder,
@@ -58,6 +59,16 @@ describe("assignSlot", () => {
 
   it("moves an existing node without duplicating", () => {
     expect(assignSlot(["a", "b", "c"], "c", 0)).toEqual(["c", "a", "b"]);
+  });
+});
+
+describe("clearSlot", () => {
+  it("removes a slotted node", () => {
+    expect(clearSlot(["a", "b", "c"], "b")).toEqual(["a", "c"]);
+  });
+
+  it("no-ops when the node is not slotted", () => {
+    expect(clearSlot(["a", "b"], "z")).toEqual(["a", "b"]);
   });
 });
 

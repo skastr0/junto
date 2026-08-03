@@ -399,16 +399,15 @@ function RegionKindSurface({ node }: { readonly node: CanvasNode }) {
         <div className="rts-kind-id__text">
           <div className="rts-kind-id__name">{nodeTitle(node)}</div>
           <div className="rts-kind-id__live">
-            {glanceBits.length > 0 ? glanceBits.join(" · ") : "region fields"}
+            {glanceBits.length > 0 ? glanceBits.join(", ") : "Region fields"}
           </div>
         </div>
       </div>
 
       <div className="rts-kind-strip" role="toolbar" aria-label="Region fields">
-        <span className="rts-kind-strip__label">region</span>
         <KindKey
           label={form === "briefing" ? "Close briefing" : "Region briefing"}
-          title="region briefing · context for agents inside"
+          title="Region briefing — context for agents inside"
           active={form === "briefing" || instruction}
           style={form === "briefing" || instruction ? { color: HUE.amber } : undefined}
           onClick={() => toggleForm("briefing")}
@@ -417,7 +416,7 @@ function RegionKindSurface({ node }: { readonly node: CanvasNode }) {
         </KindKey>
         <KindKey
           label={form === "defaults" ? "Close defaults" : "Spawn defaults"}
-          title="herdr / page stamp for new nodes in this region"
+          title="Herdr / page stamp for new nodes in this region"
           active={form === "defaults" || hasDefaults}
           style={form === "defaults" || hasDefaults ? { color: HUE.cyan } : undefined}
           onClick={() => toggleForm("defaults")}
@@ -426,7 +425,7 @@ function RegionKindSurface({ node }: { readonly node: CanvasNode }) {
         </KindKey>
         <KindKey
           label={pathsOpen ? "Close folder paths" : "Folder paths"}
-          title="host folder paths · stamped onto actors"
+          title="Host folder paths stamped onto actors"
           active={pathsOpen || hasPaths}
           style={pathsOpen || hasPaths ? { color: HUE.amber } : undefined}
           onClick={() => {
@@ -438,7 +437,7 @@ function RegionKindSurface({ node }: { readonly node: CanvasNode }) {
         </KindKey>
         <KindKey
           label={form === "background" ? "Close background" : "Background"}
-          title="region plate image + fit"
+          title="Region plate image and fit"
           active={form === "background" || hasBackground}
           style={form === "background" || hasBackground ? { color: HUE.violet } : undefined}
           onClick={() => toggleForm("background")}
@@ -447,7 +446,7 @@ function RegionKindSurface({ node }: { readonly node: CanvasNode }) {
         </KindKey>
         <KindKey
           label={form === "placement" ? "Close placement" : "Placement"}
-          title="command center vs local host home"
+          title="Command Center vs local host home"
           active={form === "placement"}
           onClick={() => toggleForm("placement")}
         >

@@ -33,14 +33,14 @@ import type { MemberSeverity, RegionRollup } from "@shared/region-rollup";
 import { formatNodeRef } from "@shared/node-ref";
 import { state$, toggleFlagFilter } from "../../lib/state";
 import { viewportBusy$ } from "../../lib/viewport-busy";
-import { assignSlot, pruneSlotOrder, useRegionRollups } from "../../lib/region-rollups";
+import { assignSlot, clearSlot, pruneSlotOrder, useRegionRollups } from "../../lib/region-rollups";
 import {
   membersInDocumentOrder,
   regionDigitVerdict,
   type RegionRetapMemory,
 } from "../../lib/region-retap";
 import { hotbarNodeSeverity } from "../../lib/hotbar-signal";
-import { signalMark, signalMarkForMember } from "../../lib/signal-mark";
+import { signalMark } from "../../lib/signal-mark";
 import {
   deleteNode,
   deleteNodes,
@@ -227,6 +227,16 @@ const assignToFirstFreeSlot = (nodeId: string): void => {
   state$.regionSlotOrder.set(assignSlot(order, nodeId, target));
 };
 
+/** Toggle hotkey slot: assign first free, or clear if already slotted. */
+const toggleSlotAssignment = (nodeId: string): void => {
+  const order = pruneSlotOrder(state$.regionSlotOrder.peek(), liveNodeIds(state$.doc.peek()));
+  if (slotIndexOf(order, nodeId) !== null) {
+    state$.regionSlotOrder.set(clearSlot(order, nodeId));
+    return;
+  }
+  assignToFirstFreeSlot(nodeId);
+};
+
 function CommandCard({ regionRollup }: { readonly regionRollup?: RegionRollup }) {
   const doc = use$(state$.doc);
   const selectedNodeId = use$(state$.selectedNodeId);
@@ -331,8 +341,6 @@ function CommandCard({ regionRollup }: { readonly regionRollup?: RegionRollup })
   return <NodeCommandCard nodeId={node.id} />;
 }
 
-const ROLLCALL_VISIBLE = 4;
-
 function RegionCommandCard({
   node,
   regionRollup,
@@ -340,15 +348,16 @@ function RegionCommandCard({
   readonly node: CanvasNode;
   readonly regionRollup: RegionRollup;
 }) {
-  const mark = signalMark(regionRollup.severity);
-  const members = regionRollup.members;
-  const visible = members.slice(0, ROLLCALL_VISIBLE);
-  const extra = members.length - visible.length;
   const hold = Boolean(node.ether?.region?.hold);
   const slotOrder = use$(state$.regionSlotOrder);
   const slot = slotIndexOf(slotOrder, node.id);
-
   const primary = primaryCommandActions("region");
+  const memberCount = regionRollup.counts.total;
+  const memberMeta = memberCount === 0
+    ? "Empty"
+    : memberCount === 1
+      ? "1 member"
+      : `${memberCount} members`;
 
   const primaryKey = (action: PrimaryCommandAction) => {
     switch (action) {
@@ -357,7 +366,7 @@ function RegionCommandCard({
           <CmdKey
             key={action}
             label={hold ? "Release hold" : "Hold contents"}
-            title={hold ? "holding contents — drag moves members" : "hold contents when dragging"}
+            title={hold ? "Holding contents — drag moves members" : "Hold contents when dragging"}
             active={hold}
             style={hold ? { color: HUE.amber } : undefined}
             onClick={() => setRegionHold(node.id, !hold)}
@@ -370,10 +379,14 @@ function RegionCommandCard({
           <CmdKey
             key={action}
             label={regionSlotCueLabel(slot)}
-            title={slot !== null ? `hotkey slot ${slot + 1}` : "assign to next free slot (or ⌘/Ctrl+1–9)"}
+            title={
+              slot !== null
+                ? `Hotkey slot ${slot + 1} — click to unassign`
+                : "Assign to next free slot (or ⌘/Ctrl+1–9)"
+            }
             active={slot !== null}
             style={slot !== null ? { color: HUE.cyan } : undefined}
-            onClick={() => assignToFirstFreeSlot(node.id)}
+            onClick={() => toggleSlotAssignment(node.id)}
           >
             <Hash size={ICON} />
           </CmdKey>
@@ -383,84 +396,29 @@ function RegionCommandCard({
     }
   };
 
-  const memberCount = regionRollup.counts.total;
-  const metaBits: ReactNode[] = [
-    <span key="members">{memberCount === 1 ? "1 member" : `${memberCount} members`}</span>,
-  ];
-  if (regionRollup.counts.blocked > 0) {
-    metaBits.push(
-      <span key="b" style={{ color: HUE.crimson }}> · {regionRollup.counts.blocked}b</span>,
-    );
-  }
-  if (regionRollup.counts.attention > 0) {
-    metaBits.push(
-      <span key="a" style={{ color: HUE.amber }}> · {regionRollup.counts.attention}a</span>,
-    );
-  }
-  if (regionRollup.counts.working > 0) {
-    metaBits.push(
-      <span key="w" style={{ color: HUE.cyan }}> · {regionRollup.counts.working}w</span>,
-    );
-  }
-  if (hold) {
-    metaBits.push(<span key="hold" style={{ color: HUE.amber }}> · hold</span>);
-  }
-  // Slot lives on the Hash key only — meta used to print `1 · #1` which
-  // looked like a duplicated index.
-
-  // Keys: pause + hold/slot + rename + delete. Focus is free via the region
-  // hotbar chip; field forms live on the kind strip. Accent color is a
-  // region customization property (JSON Canvas `color`) — same presets as
-  // free nodes; GroupNode already paints border/tint from it.
+  // Identity + accent + ops. No panel eyebrow, no severity stamp, no member
+  // rollcall, no hold echo in meta (lock key is the hold state).
   return (
     <div className="rts-panel rts-panel--cmd">
-      <div className="rts-panel__label">
-        command
-        <span className="rts-signal" style={{ color: mark.hue }} title={mark.label}>
-          {mark.symbol} {mark.label}
-        </span>
-      </div>
-      {/* Two-column: identity+members left, keys right — no empty dead zone */}
       <div className="rts-panel__body rts-cmd-shell rts-cmd-shell--region">
         <div className="rts-cmd-region-main">
           <div className="rts-cmd-head">
             <div className="rts-cmd__title" title={regionRollup.label}>{regionRollup.label}</div>
-            <div className="rts-cmd__meta">{metaBits}</div>
+            <div className="rts-cmd__meta">{memberMeta}</div>
           </div>
           <AccentColorSwatches nodeId={node.id} color={node.color} />
-          {members.length > 0 ? (
-            <div className="rts-rollcall-strip" aria-label="Region members">
-              {visible.map((member) => {
-                const m = signalMarkForMember(member);
-                return (
-                  <button
-                    key={member.nodeId}
-                    type="button"
-                    className="rts-rollcall-pill"
-                    title={`${member.label} · ${m.label}`}
-                    aria-label={`${member.label}, ${m.label}`}
-                    onClick={() => {
-                      state$.selectedNodeId.set(member.nodeId);
-                      state$.selectedNodeIds.set([member.nodeId]);
-                      state$.selectedEdgeId.set("");
-                      state$.focusNodeId.set(member.nodeId);
-                    }}
-                  >
-                    <span style={{ color: m.hue }} aria-hidden>{m.symbol}</span>
-                    <span className="rts-rollcall-pill__label">{member.label}</span>
-                  </button>
-                );
-              })}
-              {extra > 0 ? <span className="rts-rollcall-more">+{extra}</span> : null}
-            </div>
-          ) : (
-            <div className="rts-quiet rts-quiet--compact">empty region</div>
-          )}
         </div>
         <div className="rts-cmd-keys rts-cmd-keys--col" role="toolbar" aria-label="Region actions">
           <PauseScopeKey scope={{ kind: "region", id: node.id }} />
           {primary.map(primaryKey)}
-          <CmdKey label="Edit region name" onClick={() => state$.editNodeId.set(node.id)}>
+          <CmdKey
+            label="Edit region name"
+            title="Rename region"
+            onClick={() => {
+              state$.focusNodeId.set(node.id);
+              state$.editNodeId.set(node.id);
+            }}
+          >
             <Pencil size={ICON} />
           </CmdKey>
           <CmdKey label="Delete region" danger onClick={() => deleteNode(node.id)}>
@@ -589,10 +547,14 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
         <CmdKey
           key={action}
           label={regionSlotCueLabel(slot)}
-          title={slot !== null ? `hotkey slot ${slot + 1}` : "assign to next free slot (or ⌘/Ctrl+1–9)"}
+          title={
+            slot !== null
+              ? `Hotkey slot ${slot + 1} — click to unassign`
+              : "Assign to next free slot (or ⌘/Ctrl+1–9)"
+          }
           active={slot !== null}
           style={slot !== null ? { color: HUE.cyan } : undefined}
-          onClick={() => assignToFirstFreeSlot(node.id)}
+          onClick={() => toggleSlotAssignment(node.id)}
         >
           <Hash size={ICON} />
         </CmdKey>
@@ -976,7 +938,6 @@ function HotbarStrip({
 function KindMiddle() {
   return (
     <div className="rts-panel rts-panel--mid">
-      <div className="rts-panel__label">kind</div>
       <div className="rts-panel__body rts-mid-body">
         <KindSurface />
       </div>

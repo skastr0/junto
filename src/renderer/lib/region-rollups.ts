@@ -298,3 +298,11 @@ export function assignSlot(
   next.splice(clamped, 0, nodeId);
   return next.slice(0, 9);
 }
+
+/** Remove `nodeId` from the hotbar order (unassign). */
+export function clearSlot(
+  order: ReadonlyArray<string>,
+  nodeId: string,
+): string[] {
+  return order.filter((id) => id !== nodeId);
+}

@@ -69,9 +69,9 @@ export function primaryCommandActions(
 /** 1-based slot label for hotbar chips (empty → cue to Ctrl/⌘+N). */
 export function regionSlotCueLabel(slotIndex: number | null | undefined): string {
   if (slotIndex === null || slotIndex === undefined || slotIndex < 0 || slotIndex > 8) {
-    return "slot · Ctrl+1–9";
+    return "Assign hotkey slot";
   }
-  return `slot ${slotIndex + 1}`;
+  return `Hotkey slot ${slotIndex + 1}`;
 }
 
 /** Index of nodeId in presentational slot order, or null if not assigned. */
