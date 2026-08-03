@@ -387,6 +387,18 @@ function RegionKindSurface({ node }: { readonly node: CanvasNode }) {
           <ScrollText size={ICON} />
         </KindKey>
         <KindKey
+          label={pathsOpen ? "Close folder paths" : "Folder paths"}
+          title="Per-host working directories for agents and terminals"
+          active={pathsOpen || hasPaths}
+          style={pathsOpen || hasPaths ? { color: HUE.amber } : undefined}
+          onClick={() => {
+            setForm(null);
+            setPathsOpen((open) => !open);
+          }}
+        >
+          <FolderOpen size={ICON} />
+        </KindKey>
+        <KindKey
           label={form === "herdr" ? "Close herdr defaults" : "Herdr defaults"}
           title="Defaults for new herdr nodes in this region"
           active={form === "herdr" || hasHerdr}
@@ -403,18 +415,6 @@ function RegionKindSurface({ node }: { readonly node: CanvasNode }) {
           onClick={() => toggleForm("page")}
         >
           <Globe size={ICON} />
-        </KindKey>
-        <KindKey
-          label={pathsOpen ? "Close folder paths" : "Folder paths"}
-          title="Per-host working directories for agents and terminals"
-          active={pathsOpen || hasPaths}
-          style={pathsOpen || hasPaths ? { color: HUE.amber } : undefined}
-          onClick={() => {
-            setForm(null);
-            setPathsOpen((open) => !open);
-          }}
-        >
-          <FolderOpen size={ICON} />
         </KindKey>
       </div>
 
