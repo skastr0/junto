@@ -233,13 +233,15 @@
   overflow: hidden;
 }
 
-/* Region command has no panel eyebrow — give the body the top pad labels used. */
+/* Region command has no panel eyebrow — pad body like labeled panels. */
 .rts-panel--cmd > .rts-panel__body.rts-cmd-shell--region {
-  padding-top: 8px;
+  padding: 8px;
 }
 
+/* Kind third: equal pad so region strip can optical-center in the panel. */
 .rts-panel--mid > .rts-panel__body {
-  padding-top: 8px;
+  padding: 8px;
+  box-sizing: border-box;
 }
 
 .rts-cmd-pop {

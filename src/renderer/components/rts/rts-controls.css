@@ -13,14 +13,14 @@
   overflow: hidden;
 }
 
-/* Middle body: kind surface (region chips live on the strip above). */
+/* Middle body: kind surface fills the panel. */
 .rts-mid-body {
   display: flex;
   flex-direction: column;
   gap: 4px;
   height: 100%;
   min-height: 0;
-  justify-content: flex-start;
+  justify-content: stretch;
 }
 
 /* Kind surface — identity glance + action strip + fields key. */
@@ -33,9 +33,17 @@
   justify-content: flex-start;
 }
 
-/* Region: secondary kind label + icon strip only (no duplicate title/flags). */
+/*
+ * Region: one compact cluster (label + keys), optically centered in the panel.
+ * Left-aligned as a unit so it tracks command identity, not floating mid-void.
+ */
 .rts-kind-surface--region {
   justify-content: center;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.rts-kind-surface--region .rts-kind-strip {
   gap: 6px;
 }
 
@@ -47,6 +55,7 @@
   color: rgba(143, 163, 176, 0.85);
   line-height: 1;
   flex-shrink: 0;
+  padding-left: 2px;
 }
 
 .rts-kind-id {
