@@ -1,0 +1,159 @@
+/* Region folder paths — host sidebar + directory main. */
+
+.region-paths {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: min(86vh, 720px);
+  background: var(--color-raise);
+}
+
+.region-paths__body {
+  display: grid;
+  grid-template-columns: minmax(160px, 200px) minmax(0, 1fr);
+  gap: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  border-top: 1px solid rgba(237, 230, 218, 0.08);
+}
+
+.region-paths__sidebar {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid rgba(237, 230, 218, 0.08);
+  background: var(--color-raise-2);
+  padding: 8px;
+  gap: 8px;
+}
+
+.region-paths__host-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.region-paths__host-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: 2px;
+}
+
+.region-paths__host-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--color-ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.region-paths__host-btn:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.region-paths__host-btn.is-active {
+  border-color: rgba(232, 163, 61, 0.35);
+  background: rgba(232, 163, 61, 0.08);
+}
+
+.region-paths__host-name {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.region-paths__host-path {
+  font-size: 9px;
+  color: var(--color-dim);
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.region-paths__host-remove {
+  opacity: 0.45;
+  align-self: center;
+}
+
+.region-paths__host-item:hover .region-paths__host-remove,
+.region-paths__host-btn.is-active + .region-paths__host-remove {
+  opacity: 1;
+}
+
+.region-paths__add {
+  flex-shrink: 0;
+  width: 100%;
+  justify-content: center;
+}
+
+.region-paths__main {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  padding: 10px 12px 12px;
+  gap: 8px;
+  overflow: hidden;
+  background: var(--color-raise);
+}
+
+.region-paths__main-label {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-dim);
+}
+
+.region-paths__picker {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.region-paths__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 10px 12px;
+  border-top: 1px solid rgba(237, 230, 218, 0.08);
+  background: var(--color-raise-2);
+}
+
+/* Fit document panel: content height with a real scroll region. */
+.focus-surface__panel--document[data-height="fit"]:has(.region-paths) {
+  height: min(78vh, 640px);
+  min-height: 420px;
+  max-height: min(86vh, 720px);
+  padding: 0;
+  overflow: hidden;
+}
+
+.focus-surface__panel--document[data-height="fit"]:has(.region-paths) > .region-paths {
+  height: 100%;
+}

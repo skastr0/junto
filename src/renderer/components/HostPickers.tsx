@@ -13,19 +13,17 @@ export function EnrolledHostSelect({
   value,
   onChange,
   ariaLabel,
-  allowNone = false,
-  noneLabel = "none",
   /** When set, only hosts advertising this capability (e.g. browser). */
   capability,
   dense = true,
+  placeholder = "select host…",
 }: {
   readonly value: string;
   readonly onChange: (hostId: string) => void;
   readonly ariaLabel: string;
-  readonly allowNone?: boolean;
-  readonly noneLabel?: string;
   readonly capability?: string;
   readonly dense?: boolean;
+  readonly placeholder?: string;
 }) {
   const [options, setOptions] = useState<ReadonlyArray<HostOpt>>([]);
 
@@ -63,15 +61,15 @@ export function EnrolledHostSelect({
     };
   }, [value, capability]);
 
+  // Host is always a real enrolled id when set. Empty value = not chosen yet
+  // (placeholder), never a "none" option.
   return (
     <Select
       dense={dense}
       aria-label={ariaLabel}
       value={value}
-      options={[
-        ...(allowNone ? [{ value: "", label: noneLabel }] : []),
-        ...options,
-      ]}
+      options={options}
+      placeholder={placeholder}
       onChange={onChange}
     />
   );

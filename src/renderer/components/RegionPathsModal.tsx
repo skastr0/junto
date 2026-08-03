@@ -9,34 +9,10 @@ import { state$ } from "../lib/state";
 import { getVellumApi } from "../lib/vellum-api";
 import { FocusSurface } from "./FocusSurface";
 import { HostDirectoryPicker } from "./node-palette/HostDirectoryPicker";
-import { Button, FieldLabel, IconButton, OverlayHeader, Select } from "./ui";
+import { Button, IconButton, OverlayHeader } from "./ui";
+import "./RegionPathsModal.css";
 
 type HostOpt = { readonly id: string; readonly label: string };
-type PathRow = { readonly key: string; host: string; path: string };
-
-let rowSeq = 0;
-const nextRowKey = (): string => {
-  rowSeq += 1;
-  return `path-row-${rowSeq}`;
-};
-
-const rowsFromPaths = (
-  paths: Readonly<Record<string, string>> | undefined,
-): PathRow[] => {
-  if (!paths) return [];
-  return Object.entries(paths)
-    .filter(([host, path]) => host.trim() && path.trim())
-    .map(([host, path]) => ({ key: nextRowKey(), host, path }));
-};
-
-/** Empty bag → one local host row so the picker is immediately usable. */
-const seedRows = (
-  paths: Readonly<Record<string, string>> | undefined,
-): PathRow[] => {
-  const existing = rowsFromPaths(paths);
-  if (existing.length > 0) return existing;
-  return [{ key: nextRowKey(), host: LOCAL_HOST_ID, path: "" }];
-};
 
 const sortHosts = (opts: HostOpt[]): HostOpt[] =>
   [...opts].sort((a, b) => {
@@ -45,11 +21,14 @@ const sortHosts = (opts: HostOpt[]): HostOpt[] =>
     return a.label.localeCompare(b.label);
   });
 
+const labelForHost = (
+  id: string,
+  enrolled: ReadonlyArray<HostOpt>,
+): string => enrolled.find((h) => h.id === id)?.label ?? id;
+
 /**
- * Region host→cwd map editor. Agents and terminals created inside the region
- * use the path for their host as the working directory.
- *
- * Path rows use the same host-connected directory picker as the node palette.
+ * Region host→cwd editor.
+ * Left: host list + add. Right: filesystem for the selected host.
  */
 export function RegionPathsModal({
   nodeId,
@@ -71,16 +50,29 @@ export function RegionPathsModal({
         : "",
     [storedPaths],
   );
-  const regionLabel =
-    node?.type === "group" ? (node.label?.trim() || "unnamed region") : "region";
 
-  const [hostOptions, setHostOptions] = useState<HostOpt[]>([
+  const [enrolled, setEnrolled] = useState<HostOpt[]>([
     { id: LOCAL_HOST_ID, label: "this machine" },
   ]);
-  const [rows, setRows] = useState<PathRow[]>(() => seedRows(storedPaths));
+  /** Draft path by host id. */
+  const [pathsByHost, setPathsByHost] = useState<Record<string, string>>(() => ({
+    ...(storedPaths ?? {}),
+  }));
+  /** Hosts present in the sidebar (order preserved). */
+  const [hostIds, setHostIds] = useState<string[]>(() => {
+    const ids = Object.keys(storedPaths ?? {});
+    return ids.length > 0 ? ids : [LOCAL_HOST_ID];
+  });
+  const [selectedHostId, setSelectedHostId] = useState<string>(
+    () => Object.keys(storedPaths ?? {})[0] ?? LOCAL_HOST_ID,
+  );
 
   useEffect(() => {
-    setRows(seedRows(storedPaths));
+    const next = { ...(storedPaths ?? {}) };
+    const ids = Object.keys(next);
+    setPathsByHost(next);
+    setHostIds(ids.length > 0 ? ids : [LOCAL_HOST_ID]);
+    setSelectedHostId(ids[0] ?? LOCAL_HOST_ID);
   }, [nodeId, pathsFingerprint]);
 
   useEffect(() => {
@@ -94,9 +86,8 @@ export function RegionPathsModal({
           .map((h) => ({
             id: h.id,
             label:
-              h.kind === "remote"
-                ? `${h.label || h.id} (remote)`
-                : h.label || (h.id === LOCAL_HOST_ID ? "this machine" : h.id),
+              h.label?.trim() ||
+              (h.id === LOCAL_HOST_ID ? "this machine" : h.id),
           }));
         const seen = new Set<string>();
         const merged: HostOpt[] = [];
@@ -108,59 +99,52 @@ export function RegionPathsModal({
         if (merged.length === 0) {
           merged.push({ id: LOCAL_HOST_ID, label: "this machine" });
         }
-        // Keep hosts already stored on the region even if de-enrolled.
-        for (const row of rowsFromPaths(storedPaths)) {
-          if (seen.has(row.host)) continue;
-          seen.add(row.host);
-          merged.push({ id: row.host, label: row.host });
+        for (const id of Object.keys(storedPaths ?? {})) {
+          if (seen.has(id)) continue;
+          seen.add(id);
+          merged.push({ id, label: id });
         }
-        setHostOptions(sortHosts(merged));
+        setEnrolled(sortHosts(merged));
       })
       .catch(() => undefined);
   }, [nodeId, pathsFingerprint]);
 
-  /** Options for a row: all hosts, but mark/used hosts stay selectable only on their row. */
-  const optionsForRow = (rowKey: string, currentHost: string) => {
-    const usedByOther = new Set(
-      rows.filter((r) => r.key !== rowKey && r.host.trim()).map((r) => r.host.trim()),
-    );
-    const base = hostOptions
-      .filter((h) => h.id === currentHost || !usedByOther.has(h.id))
-      .map((h) => ({ value: h.id, label: h.label }));
-    if (currentHost && !base.some((o) => o.value === currentHost)) {
-      return [{ value: currentHost, label: currentHost }, ...base];
-    }
-    return base;
-  };
-
   if (!node || node.type !== "group") return null;
 
-  const updateRow = (key: string, patch: Partial<Pick<PathRow, "host" | "path">>) => {
-    setRows((current) =>
-      current.map((row) => (row.key === key ? { ...row, ...patch } : row)),
-    );
+  const unusedHosts = enrolled.filter((h) => !hostIds.includes(h.id));
+  const selectedPath = pathsByHost[selectedHostId] ?? "";
+
+  const addHost = () => {
+    const next = unusedHosts[0];
+    if (!next) return;
+    setHostIds((ids) => [...ids, next.id]);
+    setPathsByHost((map) => ({ ...map, [next.id]: map[next.id] ?? "" }));
+    setSelectedHostId(next.id);
   };
 
-  const removeRow = (key: string) => {
-    setRows((current) => current.filter((row) => row.key !== key));
+  const removeHost = (hostId: string) => {
+    setHostIds((ids) => {
+      const next = ids.filter((id) => id !== hostId);
+      const remaining = next.length > 0 ? next : [LOCAL_HOST_ID];
+      setSelectedHostId((current) => (current === hostId ? remaining[0]! : current));
+      return remaining;
+    });
+    setPathsByHost((map) => {
+      const { [hostId]: _drop, ...rest } = map;
+      return rest;
+    });
   };
 
-  const addRow = () => {
-    const used = new Set(rows.map((r) => r.host.trim()).filter(Boolean));
-    const free =
-      hostOptions.find((h) => !used.has(h.id))?.id ??
-      hostOptions[0]?.id ??
-      LOCAL_HOST_ID;
-    setRows((current) => [...current, { key: nextRowKey(), host: free, path: "" }]);
+  const setPath = (hostId: string, path: string) => {
+    setPathsByHost((map) => ({ ...map, [hostId]: path }));
   };
 
   const save = () => {
     const map: Record<string, string> = {};
-    for (const row of rows) {
-      const host = row.host.trim();
-      const path = trimTrailingSlash(row.path.trim());
-      if (!host || !path || path === "~") continue;
-      map[host] = path;
+    for (const hostId of hostIds) {
+      const path = trimTrailingSlash((pathsByHost[hostId] ?? "").trim());
+      if (!hostId || !path || path === "~") continue;
+      map[hostId] = path;
     }
     const paths = stripEmptyRegionPaths(map);
     const current = node.ether?.region?.defaults;
@@ -181,93 +165,94 @@ export function RegionPathsModal({
       label="Region folder paths"
       onClose={onClose}
     >
-      <OverlayHeader
-        eyebrow="region"
-        title="Folder paths"
-        status={`${regionLabel} — working directory per host`}
-        actions={
-          <IconButton aria-label="Close folder paths" title="Close" onClick={onClose}>
-            <X size={14} />
-          </IconButton>
-        }
-      />
+      <div className="region-paths">
+        <OverlayHeader
+          eyebrow="region"
+          title="Folder paths"
+          actions={
+            <IconButton aria-label="Close folder paths" title="Close" onClick={onClose}>
+              <X size={14} />
+            </IconButton>
+          }
+        />
 
-      <form
-        className="grid gap-4 p-4"
-        onSubmit={(event) => {
-          event.preventDefault();
-          save();
-        }}
-      >
-        <p className="m-0 text-[11px] leading-relaxed text-dim">
-          Agents and terminals created in this region use the path for their host as the
-          working directory. Browse each host filesystem or type a path.
-        </p>
+        <div className="region-paths__body">
+          <aside className="region-paths__sidebar" aria-label="Hosts">
+            <ul className="region-paths__host-list" role="listbox" aria-label="Hosts with paths">
+              {hostIds.map((hostId) => {
+                const active = hostId === selectedHostId;
+                const path = (pathsByHost[hostId] ?? "").trim();
+                const hasPath = Boolean(path && path !== "~");
+                return (
+                  <li key={hostId} className="region-paths__host-item">
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={active}
+                      className={`region-paths__host-btn${active ? " is-active" : ""}`}
+                      onClick={() => setSelectedHostId(hostId)}
+                    >
+                      <span className="region-paths__host-name">
+                        {labelForHost(hostId, enrolled)}
+                      </span>
+                      <span className="region-paths__host-path">
+                        {hasPath ? path : "no path"}
+                      </span>
+                    </button>
+                    <IconButton
+                      tone="danger"
+                      size="sm"
+                      className="region-paths__host-remove"
+                      aria-label={`Remove ${labelForHost(hostId, enrolled)}`}
+                      title="Remove host"
+                      onClick={() => removeHost(hostId)}
+                    >
+                      <Trash2 size={12} />
+                    </IconButton>
+                  </li>
+                );
+              })}
+            </ul>
+            <Button
+              type="button"
+              size="sm"
+              variant="chrome"
+              className="region-paths__add"
+              disabled={unusedHosts.length === 0}
+              onClick={addHost}
+            >
+              <Plus size={14} aria-hidden />
+              add host
+            </Button>
+          </aside>
 
-        <div role="list" aria-label="Host folder paths" className="grid gap-3">
-          {rows.map((row, index) => {
-            const hostLabel = `Host for path ${index + 1}`;
-            const pathLabel = `Default path for ${row.host || `path ${index + 1}`}`;
-            return (
-              <div
-                key={row.key}
-                role="listitem"
-                className="grid gap-2 rounded-[5px] border border-stroke/80 bg-raise/40 p-2.5"
-              >
-                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-2">
-                  <FieldLabel>
-                    Host
-                    <Select
-                      aria-label={hostLabel}
-                      value={row.host}
-                      options={optionsForRow(row.key, row.host)}
-                      onChange={(value) => updateRow(row.key, { host: value, path: "" })}
-                    />
-                  </FieldLabel>
-                  <IconButton
-                    tone="danger"
-                    size="md"
-                    className="mb-0.5"
-                    aria-label={`Remove path for ${row.host || `row ${index + 1}`}`}
-                    title="Remove path"
-                    onClick={() => removeRow(row.key)}
-                  >
-                    <Trash2 size={14} />
-                  </IconButton>
-                </div>
-                <FieldLabel>
-                  Default path
-                  <div className="mt-1">
-                    <HostDirectoryPicker
-                      hostId={row.host || LOCAL_HOST_ID}
-                      initialPath={row.path.trim() || "~"}
-                      resetKey={`${row.key}\0${row.host}\0${pathsFingerprint}`}
-                      inputAriaLabel={pathLabel}
-                      onSelect={() => undefined}
-                      onDraftChange={(draft) => updateRow(row.key, { path: draft })}
-                    />
-                  </div>
-                </FieldLabel>
-              </div>
-            );
-          })}
+          <section className="region-paths__main" aria-label="Directory">
+            <div className="region-paths__main-label">
+              {labelForHost(selectedHostId, enrolled)}
+            </div>
+            <div className="region-paths__picker">
+              <HostDirectoryPicker
+                key={selectedHostId}
+                hostId={selectedHostId || LOCAL_HOST_ID}
+                initialPath={selectedPath.trim() || "~"}
+                resetKey={`${selectedHostId}\0${pathsFingerprint}`}
+                inputAriaLabel={`Working directory for ${labelForHost(selectedHostId, enrolled)}`}
+                onSelect={(path) => setPath(selectedHostId, path)}
+                onDraftChange={(draft) => setPath(selectedHostId, draft)}
+              />
+            </div>
+          </section>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <Button type="button" size="sm" variant="chrome" onClick={addRow}>
-            <Plus size={14} aria-hidden />
-            add host
+        <footer className="region-paths__footer">
+          <Button type="button" size="sm" variant="subtle" onClick={onClose}>
+            cancel
           </Button>
-          <div className="flex gap-2">
-            <Button type="button" size="sm" variant="subtle" onClick={onClose}>
-              cancel
-            </Button>
-            <Button type="submit" size="sm" variant="primary">
-              save
-            </Button>
-          </div>
-        </div>
-      </form>
+          <Button type="button" size="sm" variant="primary" onClick={save}>
+            save
+          </Button>
+        </footer>
+      </div>
     </FocusSurface>
   );
 }

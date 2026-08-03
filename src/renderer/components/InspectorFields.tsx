@@ -929,7 +929,6 @@ export function RegionHerdrDefaultsControl({ node }: { readonly node: CanvasNode
         <EnrolledHostSelect
           ariaLabel="Region herdr host default"
           value={host}
-          allowNone
           onChange={(next) => {
             setHost(next);
             writeHerdr(next, session, workspaceId, tabId);
@@ -1059,7 +1058,6 @@ export function RegionPageDefaultsControl({ node }: { readonly node: CanvasNode 
         <EnrolledHostSelect
           ariaLabel="Region page browser host default"
           value={pageHost}
-          allowNone
           capability="browser"
           onChange={(next) => {
             setPageHost(next);
