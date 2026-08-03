@@ -1,12 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CanvasNode } from "@shared/canvas";
 import {
-  CRON_PRESETS,
   describeCronExpression,
   expressionFromEveryMinutes,
   isValidCronExpression,
   nextCronOccurrence,
-  parseCronExpression,
 } from "@shared/cron-expression";
 import { setNodeTimer } from "../../lib/mutations";
 import { DIM, HUE, INK } from "../../lib/theme";
@@ -14,16 +12,39 @@ import { FocusSurface } from "../FocusSurface";
 import { Button } from "../ui/Button";
 import { IconButton } from "../ui/IconButton";
 import { OverlayHeader } from "../ui/OverlayHeader";
-import { Select } from "../ui";
-import { X } from "lucide-react";
+import { Input, Select } from "../ui";
+import { ChevronDown, ChevronRight, X } from "lucide-react";
 
-const FIELD_LABELS = [
-  "minute",
-  "hour",
-  "day of month",
-  "month",
-  "day of week",
-] as const;
+type FriendlyMode =
+  | "every-5"
+  | "every-15"
+  | "every-30"
+  | "hourly"
+  | "daily"
+  | "weekdays"
+  | "weekly"
+  | "custom";
+
+const MODE_OPTIONS: ReadonlyArray<{ readonly value: FriendlyMode; readonly label: string }> = [
+  { value: "every-5", label: "Every 5 minutes" },
+  { value: "every-15", label: "Every 15 minutes" },
+  { value: "every-30", label: "Every 30 minutes" },
+  { value: "hourly", label: "Every hour" },
+  { value: "daily", label: "Every day" },
+  { value: "weekdays", label: "Weekdays" },
+  { value: "weekly", label: "Once a week" },
+  { value: "custom", label: "Custom…" },
+];
+
+const WEEKDAYS: ReadonlyArray<{ readonly value: string; readonly label: string }> = [
+  { value: "1", label: "Monday" },
+  { value: "2", label: "Tuesday" },
+  { value: "3", label: "Wednesday" },
+  { value: "4", label: "Thursday" },
+  { value: "5", label: "Friday" },
+  { value: "6", label: "Saturday" },
+  { value: "0", label: "Sunday" },
+];
 
 const resolveExpression = (
   timer:
@@ -38,9 +59,87 @@ const resolveExpression = (
   return "*/30 * * * *";
 };
 
+const expressionFromFriendly = (input: {
+  readonly mode: FriendlyMode;
+  readonly hour: number;
+  readonly minute: number;
+  readonly weekday: string;
+  readonly custom: string;
+}): string => {
+  const h = Math.min(23, Math.max(0, Math.round(input.hour)));
+  const m = Math.min(59, Math.max(0, Math.round(input.minute)));
+  switch (input.mode) {
+    case "every-5":
+      return "*/5 * * * *";
+    case "every-15":
+      return "*/15 * * * *";
+    case "every-30":
+      return "*/30 * * * *";
+    case "hourly":
+      return "0 * * * *";
+    case "daily":
+      return `${m} ${h} * * *`;
+    case "weekdays":
+      return `${m} ${h} * * 1-5`;
+    case "weekly":
+      return `${m} ${h} * * ${input.weekday}`;
+    case "custom":
+      return input.custom.trim().replace(/\s+/g, " ");
+    default:
+      return "*/30 * * * *";
+  }
+};
+
+const friendlyFromExpression = (
+  expr: string,
+): {
+  readonly mode: FriendlyMode;
+  readonly hour: number;
+  readonly minute: number;
+  readonly weekday: string;
+} => {
+  const source = expr.trim().replace(/\s+/g, " ");
+  const map: Record<string, FriendlyMode> = {
+    "*/5 * * * *": "every-5",
+    "*/15 * * * *": "every-15",
+    "*/30 * * * *": "every-30",
+    "0 * * * *": "hourly",
+  };
+  if (map[source]) {
+    return { mode: map[source]!, hour: 9, minute: 0, weekday: "1" };
+  }
+  const parts = source.split(" ");
+  if (parts.length === 5) {
+    const minute = Number(parts[0]);
+    const hour = Number(parts[1]);
+    const dom = parts[2];
+    const mon = parts[3];
+    const dow = parts[4]!;
+    if (
+      Number.isInteger(minute) &&
+      Number.isInteger(hour) &&
+      dom === "*" &&
+      mon === "*"
+    ) {
+      if (dow === "*") {
+        return { mode: "daily", hour, minute, weekday: "1" };
+      }
+      if (dow === "1-5") {
+        return { mode: "weekdays", hour, minute, weekday: "1" };
+      }
+      if (/^[0-6]$/.test(dow)) {
+        return { mode: "weekly", hour, minute, weekday: dow };
+      }
+    }
+  }
+  return { mode: "custom", hour: 9, minute: 0, weekday: "1" };
+};
+
+const needsTime = (mode: FriendlyMode): boolean =>
+  mode === "daily" || mode === "weekdays" || mode === "weekly";
+
 /**
- * Full cron schedule editor — FocusSurface form.
- * Expression is standard 5-field crontab; next fire is projected for the operator.
+ * Human-first cron schedule. Presets + time; raw expression is advanced-only.
  */
 export function CronScheduleSurface({
   node,
@@ -49,40 +148,61 @@ export function CronScheduleSurface({
   readonly node: CanvasNode;
   readonly onClose: () => void;
 }) {
-  const initial = resolveExpression(node.ether?.timer);
-  const [draft, setDraft] = useState(initial);
+  const initialExpr = resolveExpression(node.ether?.timer);
+  const initial = friendlyFromExpression(initialExpr);
+
+  const [mode, setMode] = useState<FriendlyMode>(initial.mode);
+  const [hour, setHour] = useState(initial.hour);
+  const [minute, setMinute] = useState(initial.minute);
+  const [weekday, setWeekday] = useState(initial.weekday);
+  const [custom, setCustom] = useState(initialExpr);
+  const [advancedOpen, setAdvancedOpen] = useState(initial.mode === "custom");
   const [error, setError] = useState("");
 
   useEffect(() => {
-    setDraft(resolveExpression(node.ether?.timer));
+    const expr = resolveExpression(node.ether?.timer);
+    const next = friendlyFromExpression(expr);
+    setMode(next.mode);
+    setHour(next.hour);
+    setMinute(next.minute);
+    setWeekday(next.weekday);
+    setCustom(expr);
+    setAdvancedOpen(next.mode === "custom");
     setError("");
   }, [node.id, node.ether?.timer?.expression, node.ether?.timer?.everyMinutes]);
 
-  const parts = draft.trim().split(/\s+/);
-  const fieldValues = FIELD_LABELS.map((_, i) => parts[i] ?? "");
+  const expression = useMemo(
+    () =>
+      expressionFromFriendly({
+        mode,
+        hour,
+        minute,
+        weekday,
+        custom,
+      }),
+    [mode, hour, minute, weekday, custom],
+  );
 
-  const setField = (index: number, value: string) => {
-    const next = FIELD_LABELS.map((_, i) =>
-      i === index ? value.trim() || "*" : fieldValues[i] || "*",
+  // Keep custom field in sync when using friendly modes (for advanced reveal).
+  useEffect(() => {
+    if (mode === "custom") return;
+    setCustom(
+      expressionFromFriendly({ mode, hour, minute, weekday, custom: "" }),
     );
-    setDraft(next.join(" "));
-    setError("");
-  };
+  }, [mode, hour, minute, weekday]);
 
-  const parsed = useMemo(() => parseCronExpression(draft), [draft]);
   const nextDue = useMemo(() => {
-    if ("error" in parsed) return undefined;
-    return nextCronOccurrence(parsed.source, Date.now());
-  }, [parsed]);
+    if (!isValidCronExpression(expression)) return undefined;
+    return nextCronOccurrence(expression, Date.now());
+  }, [expression]);
 
   const commit = () => {
-    const cleaned = draft.trim().replace(/\s+/g, " ");
+    const cleaned =
+      mode === "custom"
+        ? custom.trim().replace(/\s+/g, " ")
+        : expressionFromFriendly({ mode, hour, minute, weekday, custom: "" });
     if (!isValidCronExpression(cleaned)) {
-      setError(
-        "error" in parsed
-          ? parsed.error
-          : "invalid expression",
-      );
+      setError("That schedule is not valid");
       return;
     }
     setError("");
@@ -100,6 +220,8 @@ export function CronScheduleSurface({
       })
     : "—";
 
+  const timeValue = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+
   return (
     <FocusSurface
       measure="form"
@@ -113,8 +235,8 @@ export function CronScheduleSurface({
     >
       <OverlayHeader
         eyebrow="cron"
-        title="Schedule"
-        status={describeCronExpression(draft)}
+        title="When should this fire?"
+        status={describeCronExpression(expression)}
         actions={
           <IconButton aria-label="Close" title="Close" onClick={onClose}>
             <X size={14} />
@@ -123,71 +245,93 @@ export function CronScheduleSurface({
       />
       <div className="rts-kind-form-body inspector-body flex flex-col gap-3">
         <label className="inspector-editor">
-          <span>expression</span>
-          <input
-            aria-label="Cron expression"
-            className="font-mono"
-            value={draft}
-            onChange={(event) => {
-              setDraft(event.target.value);
-              setError("");
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                commit();
-              }
-            }}
-            spellCheck={false}
-          />
-        </label>
-
-        <div className="grid grid-cols-5 gap-1.5">
-          {FIELD_LABELS.map((label, index) => (
-            <label key={label} className="inspector-editor" style={{ margin: 0 }}>
-              <span className="truncate">{label}</span>
-              <input
-                aria-label={label}
-                className="font-mono"
-                value={fieldValues[index] ?? "*"}
-                onChange={(event) => setField(index, event.target.value)}
-                spellCheck={false}
-              />
-            </label>
-          ))}
-        </div>
-
-        <label className="inspector-editor">
-          <span>preset</span>
+          <span>frequency</span>
           <Select
             dense
-            aria-label="Cron preset"
-            value={
-              CRON_PRESETS.some((p) => p.expression === draft.trim().replace(/\s+/g, " "))
-                ? draft.trim().replace(/\s+/g, " ")
-                : ""
-            }
-            options={[
-              { value: "", label: "custom" },
-              ...CRON_PRESETS.map((p) => ({
-                value: p.expression,
-                label: p.label,
-              })),
-            ]}
+            aria-label="Frequency"
+            value={mode}
+            options={MODE_OPTIONS.map((o) => ({
+              value: o.value,
+              label: o.label,
+            }))}
             onChange={(value) => {
-              if (!value) return;
-              setDraft(value);
+              const next = value as FriendlyMode;
+              setMode(next);
+              setAdvancedOpen(next === "custom");
               setError("");
             }}
           />
         </label>
 
-        <div className="text-[11px]" style={{ color: DIM }}>
-          next fire{" "}
-          <span className="tabular-nums" style={{ color: INK }}>
-            {nextLabel}
-          </span>
+        {needsTime(mode) ? (
+          <div className="grid grid-cols-2 gap-2">
+            <label className="inspector-editor" style={{ margin: 0 }}>
+              <span>time</span>
+              <Input
+                type="time"
+                aria-label="Time of day"
+                value={timeValue}
+                onChange={(event) => {
+                  const [h, m] = event.target.value.split(":").map(Number);
+                  if (Number.isFinite(h)) setHour(h!);
+                  if (Number.isFinite(m)) setMinute(m!);
+                  setError("");
+                }}
+              />
+            </label>
+            {mode === "weekly" ? (
+              <label className="inspector-editor" style={{ margin: 0 }}>
+                <span>day</span>
+                <Select
+                  dense
+                  aria-label="Day of week"
+                  value={weekday}
+                  options={WEEKDAYS.map((d) => ({
+                    value: d.value,
+                    label: d.label,
+                  }))}
+                  onChange={(value) => {
+                    setWeekday(value);
+                    setError("");
+                  }}
+                />
+              </label>
+            ) : (
+              <div />
+            )}
+          </div>
+        ) : null}
+
+        <div className="text-[11px] tabular-nums" style={{ color: DIM }}>
+          Next: <span style={{ color: INK }}>{nextLabel}</span>
         </div>
+
+        <button
+          type="button"
+          className="flex items-center gap-1 self-start border-0 bg-transparent p-0 text-[10px] uppercase tracking-[0.12em]"
+          style={{ color: DIM }}
+          onClick={() => setAdvancedOpen((open) => !open)}
+        >
+          {advancedOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          expression
+        </button>
+
+        {advancedOpen ? (
+          <label className="inspector-editor">
+            <span>cron expression</span>
+            <Input
+              aria-label="Cron expression"
+              className="font-mono"
+              value={mode === "custom" ? custom : expression}
+              onChange={(event) => {
+                setMode("custom");
+                setCustom(event.target.value);
+                setError("");
+              }}
+              spellCheck={false}
+            />
+          </label>
+        ) : null}
 
         {error ? (
           <div className="text-[10px]" style={{ color: HUE.crimson }}>
@@ -197,10 +341,10 @@ export function CronScheduleSurface({
 
         <div className="flex justify-end gap-2 pt-1">
           <Button size="sm" variant="chrome" onClick={onClose}>
-            cancel
+            Cancel
           </Button>
           <Button size="sm" variant="primary" onClick={commit}>
-            save schedule
+            Save
           </Button>
         </div>
       </div>

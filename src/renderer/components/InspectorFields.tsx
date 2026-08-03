@@ -44,6 +44,10 @@ import {
 import { specOf } from "../lib/node-spec";
 import { commitDoc, editLink, editText, renameGroup, setNodeHost, setNodeRelay, setNodeTimer, setNodeWatch, setNodeWorkRole, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag } from "../lib/mutations";
 import { isSchedulerEntityKind } from "@shared/scheduler-effects";
+import {
+  describeCronExpression,
+  isValidCronExpression,
+} from "@shared/cron-expression";
 import { AgentMessagesPane } from "./work/WorkSurfaces";
 import { state$ } from "../lib/state";
 import { resolveNodeHostId } from "@shared/station";
@@ -1379,7 +1383,7 @@ export function RelayEditor({ node }: { readonly node: CanvasNode }) {
   );
 }
 
-// Cron expression strip pop — full editor is CronScheduleSurface (double-click).
+// Compact expression strip — full human schedule is CronScheduleSurface.
 export function TimerEditor({ node }: { readonly node: CanvasNode }) {
   const timer = node.ether?.timer;
   const defaultExpr =
@@ -1402,8 +1406,8 @@ export function TimerEditor({ node }: { readonly node: CanvasNode }) {
 
   const commit = () => {
     const cleaned = draft.trim().replace(/\s+/g, " ");
-    if (!/^\S+(?:\s+\S+){4}$/.test(cleaned)) {
-      setError("5 fields: minute hour day month weekday");
+    if (!isValidCronExpression(cleaned)) {
+      setError("invalid expression");
       return;
     }
     setError("");
@@ -1412,7 +1416,10 @@ export function TimerEditor({ node }: { readonly node: CanvasNode }) {
 
   return (
     <div className="inspector-section" style={{ marginTop: 0 }}>
-      <div className="inspector-section__label">crontab</div>
+      <div className="inspector-section__label">schedule</div>
+      <div className="mb-1.5 text-[11px]" style={{ color: INK }}>
+        {describeCronExpression(draft)}
+      </div>
       <label className="inspector-editor">
         <span>expression</span>
         <input
@@ -1442,7 +1449,7 @@ export function TimerEditor({ node }: { readonly node: CanvasNode }) {
         </div>
       ) : (
         <div className="mt-1 text-[9px]" style={{ color: DIM }}>
-          minute hour day month weekday
+          double-click card for presets
         </div>
       )}
     </div>
