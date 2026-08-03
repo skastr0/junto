@@ -229,13 +229,24 @@
   grid-column: 2;
 }
 
+/* Body clips only the identity column; key flow may grow columns in-panel. */
 .rts-panel--cmd .rts-panel__body {
   overflow: hidden;
+  min-height: 0;
+  height: 100%;
+  box-sizing: border-box;
 }
 
 /* Command cards dropped the COMMAND eyebrow — pad the body instead. */
 .rts-panel--cmd > .rts-panel__body {
   padding: 8px;
+  display: flex;
+  flex-direction: column;
+}
+
+.rts-panel--cmd > .rts-panel__body > .rts-cmd-shell {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 /* Kind third: equal pad so region strip can optical-center in the panel. */
@@ -474,13 +485,14 @@
 
 /*
  * Command shell — one layout for every selection:
- * identity + accents (left) | key grid (right). Never a horizontal key row.
+ * identity + accents (left) | flowing key columns (right).
+ * Keys fill height top→bottom, then open a new column (never clip).
  */
 .rts-cmd-shell,
 .rts-cmd-shell--region {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-rows: 1fr;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  grid-template-rows: minmax(0, 1fr);
   gap: 6px 8px;
   height: 100%;
   min-height: 0;
@@ -595,30 +607,47 @@
   border-color: rgba(237, 230, 218, 0.5);
 }
 
-/* Command keys: always a 2-col vertical grid (region + every node). */
+/*
+ * Command keys — column-major flow:
+ * fill a vertical stack, wrap to the next column when the panel height is full.
+ * Works for region (few keys) and terminal (many keys) without clipping.
+ */
 .rts-cmd-keys,
 .rts-cmd-keys.rts-cmd-keys--col {
-  display: grid;
-  grid-template-columns: repeat(2, 22px);
-  gap: 2px;
-  margin-top: 0;
-  align-self: center;
-  align-content: center;
-  overflow: visible;
-  flex-shrink: 0;
+  --rts-key-size: 22px;
+  --rts-key-gap: 2px;
+  display: flex;
+  flex-direction: column;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: var(--rts-key-gap);
+  align-self: stretch;
+  height: 100%;
+  max-height: 100%;
+  width: max-content;
+  min-width: calc(var(--rts-key-size) * 2 + var(--rts-key-gap));
+  max-width: 100%;
+  margin: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
 }
 
 .rts-cmd-shell .rts-key,
-.rts-cmd-shell--region .rts-key {
-  width: 22px;
-  height: 22px;
-  min-width: 22px;
-  min-height: 22px;
-  max-width: 22px;
-  max-height: 22px;
+.rts-cmd-shell--region .rts-key,
+.rts-cmd-keys .rts-key {
+  width: var(--rts-key-size, 22px);
+  height: var(--rts-key-size, 22px);
+  min-width: var(--rts-key-size, 22px);
+  min-height: var(--rts-key-size, 22px);
+  max-width: var(--rts-key-size, 22px);
+  max-height: var(--rts-key-size, 22px);
+  flex: 0 0 auto;
 }
 
-/* Rules were for the old horizontal row — hide in the key grid. */
+/* Rules were for the old horizontal row — hide in the key flow. */
 .rts-cmd-keys__rule {
   display: none;
 }
