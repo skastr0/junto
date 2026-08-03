@@ -32,9 +32,10 @@ export interface HerdrMetaCache {
   readonly seenGen?: number;
   /**
    * True from local mark-seen until the host confirms a non-done status
-   * (idle|working|blocked). While set, remote "done" cannot re-paint attention
-   * — closes the post-open race where a refresh *starts after* open and would
-   * otherwise pass the mid-flight seenGen gate (VL-030 residual).
+   * (idle|working|blocked). While set, remote "done" cannot re-paint
+   * ready/complete chrome — closes the post-open race where a refresh
+   * *starts after* open and would otherwise pass the mid-flight seenGen
+   * gate (VL-030 residual).
    */
   readonly pendingSeen?: boolean;
 }

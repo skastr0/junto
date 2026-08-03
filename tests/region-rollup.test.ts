@@ -515,12 +515,13 @@ describe("deriveRegionRollups — backend-neutral terminal status", () => {
     expect(rollup?.counts).toEqual({ total: 1, blocked: 0, attention: 0, working: 1 });
   });
 
-  it("herdr blocked and done map to blocked / attention", () => {
+  it("herdr blocked and attention map to blocked / attention; idle (done) invents nothing", () => {
     const doc: CanvasDoc = {
       nodes: [
         group("r", 0, 0, 500, 500, "ops"),
         herdrNode("h1", 10, 10, "local", "p1"),
         herdrNode("h2", 10, 100, "local", "p2"),
+        herdrNode("h3", 10, 200, "local", "p3"),
       ],
       edges: [],
     };
@@ -529,11 +530,13 @@ describe("deriveRegionRollups — backend-neutral terminal status", () => {
       terminalStatusByNodeId: new Map([
         ["h1", { session: "running", harness: "blocked", source: "herdr" } as const],
         ["h2", { session: "running", harness: "attention", source: "herdr" } as const],
+        // Adapter maps herdr "done" → idle; ready/complete is not rollup attention.
+        ["h3", { session: "running", harness: "idle", source: "herdr" } as const],
       ]),
     });
     expect(rollup?.severity).toBe("blocked");
-    expect(rollup?.members.map((m) => m.severity)).toEqual(["blocked", "attention"]);
-    expect(rollup?.counts).toEqual({ total: 2, blocked: 1, attention: 1, working: 0 });
+    expect(rollup?.members.map((m) => m.severity)).toEqual(["blocked", "attention", "idle"]);
+    expect(rollup?.counts).toEqual({ total: 3, blocked: 1, attention: 1, working: 0 });
   });
 
   it("missing herdr status invents nothing; idle herdr is not elevated", () => {

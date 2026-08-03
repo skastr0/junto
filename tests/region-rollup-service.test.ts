@@ -260,7 +260,9 @@ describe("RegionRollupService — activity wiring", () => {
   it("translates herdr agent_status only at the main adapter boundary", () => {
     expect(herdrAgentStatusActivity("working")).toMatchObject({ harness: "working", source: "herdr" });
     expect(herdrAgentStatusActivity("blocked").harness).toBe("blocked");
-    expect(herdrAgentStatusActivity("done").harness).toBe("attention");
+    // Ready/complete must not elevate operator-attention severity.
+    expect(herdrAgentStatusActivity("done").harness).toBe("idle");
+    expect(herdrAgentStatusActivity("idle").harness).toBe("idle");
     expect(herdrAgentStatusActivity("other").harness).toBe("unknown");
   });
 

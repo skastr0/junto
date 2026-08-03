@@ -9,16 +9,20 @@ import { SnapshotsService } from "./snapshots";
 import type { WorkSurfaceActivity } from "@shared/terminal";
 import { liveSeatBlocksForCanvas } from "./work/blocked-seat";
 
-/** Herdr vocabulary stops at this adapter boundary. */
+/**
+ * Herdr vocabulary stops at this adapter boundary.
+ *
+ * Ready/complete (`done` = Idle+!seen) is presentation-only: green pulse on the
+ * card and the idle-herdr Space queue. It must not elevate rollup severity or
+ * the notify-strip attention pills (those are needs-input / blocked only).
+ */
 export const herdrAgentStatusActivity = (status: string): WorkSurfaceActivity => {
   const normalized = status.toLowerCase();
   const harness = normalized === "working" || normalized === "blocked"
     ? normalized
-    : normalized === "done"
-      ? "attention"
-      : normalized === "idle"
-        ? "idle"
-        : "unknown";
+    : normalized === "done" || normalized === "idle"
+      ? "idle"
+      : "unknown";
   return { session: "running", harness, source: "herdr" };
 };
 

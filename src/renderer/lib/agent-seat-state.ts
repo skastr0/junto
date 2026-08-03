@@ -118,15 +118,18 @@ export const decodeAgentSeatStateEvent = (raw: unknown): AgentSeatStateEvent | u
 
 /**
  * Map product seat state → occupancy harness vocabulary.
- * idle + needsLook presents as attention (herdr done → attention rollup).
+ *
+ * `needsLook` (ready/complete after a turn) is presentation-only — green pulse
+ * via `presentationForSeat` / `terminalActivity`. It must not map to harness
+ * `attention`, or region rollups and the notify strip treat finished seats
+ * as "NEEDS OPERATOR INPUT".
  */
 export const harnessFromSeatState = (
   state: AgentSeatState,
-  needsLook = false,
+  _needsLook = false,
 ): OccupancyHarnessState => {
   if (state === "attention") return "attention";
   if (state === "working") return "working";
-  if (state === "idle" && needsLook) return "attention";
   if (state === "idle") return "idle";
   return "unknown";
 };

@@ -339,7 +339,7 @@ export function chatActivity(input: {
   if (input.status === "connecting") {
     return { mode: "wave", tone: SEVERITY_TONE.working, label: "connecting" };
   }
-  // Permission = attention (same amber as herdr done / flag:attention).
+  // Permission = attention (amber needs-input — not ready/complete green pulse).
   if (input.pendingPermission) {
     return {
       mode: "wave",

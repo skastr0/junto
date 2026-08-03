@@ -71,7 +71,8 @@ describe("harnessFromSeatState / clueFromAgentSeat", () => {
     expect(harnessFromSeatState("attention")).toBe("attention");
     expect(harnessFromSeatState("working")).toBe("working");
     expect(harnessFromSeatState("idle")).toBe("idle");
-    expect(harnessFromSeatState("idle", true)).toBe("attention");
+    // Ready/complete (needsLook) stays presentation-only — not rollup attention.
+    expect(harnessFromSeatState("idle", true)).toBe("idle");
     expect(harnessFromSeatState("unknown")).toBe("unknown");
     expect(harnessFromSeatState("gone")).toBe("unknown");
   });
@@ -137,9 +138,10 @@ describe("applyAgentSeatStateEvent + terminalStatusByNodeIdFromSeats", () => {
     applyAgentSeatStateEvent(event({ bindingId: "b1", state: "idle", at: 2 }));
     expect(agentSeat$.needsLookByBindingId.b1.peek()).toBe(true);
     expect(presentationForSeat("idle", true)).toBe("done");
+    // needsLook arms green-pulse presentation only; rollup harness stays idle.
     expect(workSurfaceFromSeat(event({ bindingId: "b1", state: "idle" }), true)).toEqual({
       session: "running",
-      harness: "attention",
+      harness: "idle",
       source: "native",
     });
 
@@ -202,7 +204,7 @@ describe("applyAgentSeatStateEvent + terminalStatusByNodeIdFromSeats", () => {
     expect(map.has("n3")).toBe(false);
   });
 
-  it("projects idle unseen seats as node attention", () => {
+  it("projects idle unseen seats as idle (ready/complete is not rollup attention)", () => {
     const map = terminalStatusByNodeIdFromSeats(
       [terminalNode("n-ready", "bind-ready")],
       { "bind-ready": event({ bindingId: "bind-ready", state: "idle" }) },
@@ -210,7 +212,7 @@ describe("applyAgentSeatStateEvent + terminalStatusByNodeIdFromSeats", () => {
     );
     expect(map.get("n-ready")).toEqual({
       session: "running",
-      harness: "attention",
+      harness: "idle",
       source: "native",
     });
   });
