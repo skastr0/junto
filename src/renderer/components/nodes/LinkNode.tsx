@@ -44,7 +44,7 @@ export function LinkNode({ data, selected }: NodeProps<FlowNode>) {
   const rest = url.replace(/^https?:\/\/[^/]+/, "");
 
   return (
-    <NodeShell node={node} selected={selected} blocked={data.blocked} onEdit={() => setEditing(true)} onOpen={isPage ? undefined : () => window.open(url, "_blank")}>
+    <NodeShell node={node} selected={selected} blocked={data.blocked} onOpen={isPage ? undefined : () => window.open(url, "_blank")}>
       {editing ? (
         <input ref={ref} autoFocus aria-label="Edit URL" className="nodrag nopan h-full w-full bg-transparent font-mono text-[12px] outline-none" style={{ color: INK }} value={draft} onChange={(event) => setDraft(event.target.value)} onBlur={commit} onKeyDown={(event) => { if (event.key === "Enter") commit(); if (event.key === "Escape") setEditing(false); }} />
       ) : isPage ? (

@@ -1650,9 +1650,6 @@ html[data-surface-motion="paused"] *::after {
   box-shadow: 0 0 0 4px rgba(57, 198, 214, 0.12), 0 0 16px rgba(57, 198, 214, 0.3);
 }
 
-.vellum-node__edit { opacity: 0; }
-.vellum-node:hover .vellum-node__edit,
-.react-flow__node.selected .vellum-node__edit { opacity: 1; }
 .vellum-node__open { opacity: 0; }
 .vellum-node:hover .vellum-node__open,
 .react-flow__node.selected .vellum-node__open { opacity: 1; }

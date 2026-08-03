@@ -59,7 +59,6 @@ export function FileNode({ data, selected }: NodeProps<FlowNode>) {
           node={node}
           selected={selected}
           blocked={data.blocked}
-          onEdit={() => setExpanded(true)}
         >
           <button
             type="button"
@@ -132,7 +131,7 @@ export function FileNode({ data, selected }: NodeProps<FlowNode>) {
   }
 
   return (
-    <NodeShell node={node} selected={selected} blocked={data.blocked} onEdit={() => setEditing(true)}>
+    <NodeShell node={node} selected={selected} blocked={data.blocked}>
       {editing ? (
         <input
           ref={ref}

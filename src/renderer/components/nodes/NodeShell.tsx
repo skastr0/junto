@@ -8,7 +8,6 @@ import {
   LocateFixed,
   Maximize2,
   Pause,
-  Pencil,
   Play,
   Trash2,
   X,
@@ -88,31 +87,15 @@ function ConnectionHandles() {
 
 function MinimalNodeToolbar({
   selected,
-  onEdit,
   nodeId,
 }: {
   readonly selected: boolean;
-  readonly onEdit?: () => void;
   readonly nodeId: string;
 }) {
   const multiSelect = use$(() => state$.selectedNodeIds.get().length > 1);
   return (
     <NodeToolbar isVisible={selected && !multiSelect} position={Position.Top} offset={8}>
       <ToolbarPill>
-        {onEdit ? (
-          <IconButton
-            className="nodrag nopan"
-            aria-label="Edit label"
-            title="edit label"
-            onPointerDown={(event) => {
-              if (stopNodeGestureUnlessMultiSelect(event, { preventDefault: true })) return;
-              event.preventDefault();
-              onEdit();
-            }}
-          >
-            <Pencil size={14} />
-          </IconButton>
-        ) : null}
         <IconButton
           className="nodrag nopan"
           tone="danger"
@@ -134,7 +117,6 @@ function MinimalNodeToolbar({
 function NodeActions({
   node,
   selected,
-  onEdit,
   onMaximize,
   toolbarExtras,
   flagBlocker,
@@ -144,7 +126,6 @@ function NodeActions({
 }: {
   readonly node: CanvasNode;
   readonly selected: boolean;
-  readonly onEdit?: () => void;
   readonly onMaximize?: () => void;
   readonly toolbarExtras?: ReactNode;
   /** Document ether.flags includes blocker. */
@@ -196,20 +177,6 @@ function NodeActions({
   return (
     <NodeToolbar isVisible={selected && !multiSelect} position={Position.Top} offset={8}>
       <ToolbarPill>
-        {onEdit ? (
-          <IconButton
-            className="nodrag nopan"
-            aria-label="Edit item"
-            title="edit item"
-            onPointerDown={(event) => {
-              if (stopNodeGestureUnlessMultiSelect(event, { preventDefault: true })) return;
-              event.preventDefault();
-              onEdit();
-            }}
-          >
-            <Pencil size={14} />
-          </IconButton>
-        ) : null}
         {onMaximize ? (
           <IconButton
             className="nodrag nopan"
@@ -325,13 +292,11 @@ export function NodeShell({
   node,
   selected,
   blocked,
-  onEdit,
   onMaximize,
   onOpen,
   openIcon,
   openTitle,
   toolbarExtras,
-  inlineEdit = true,
   resizable = true,
   /** When false, no source/target handles (labels). */
   showHandles = true,
@@ -340,23 +305,18 @@ export function NodeShell({
    * Used by geography labels so they read as free text on the field.
    */
   bare = false,
-  /** Full factory toolbar vs edit+delete only (labels). */
+  /** Full factory toolbar vs delete-only (labels). */
   toolbar = "full",
   children,
 }: {
   readonly node: CanvasNode;
   readonly selected: boolean;
   readonly blocked: boolean;
-  readonly onEdit?: () => void;
   readonly onMaximize?: () => void;
   readonly onOpen?: () => void;
   readonly openIcon?: ReactNode;
   readonly openTitle?: string;
   readonly toolbarExtras?: ReactNode;
-  // Set false when the card body owns its edit gesture (herdr renames inline)
-  // so the corner pencil can't collide with card chrome. The NodeActions
-  // toolbar pencil still appears — it shares the same onEdit.
-  readonly inlineEdit?: boolean;
   /** Fixed-geometry instruments (actors) do not expose meaningless resizing. */
   readonly resizable?: boolean;
   readonly showHandles?: boolean;
@@ -497,23 +457,9 @@ export function NodeShell({
           onResizeEnd={(_event, params) => resizeNode(node.id, params)}
         />
       ) : null}
-      {onEdit && inlineEdit && toolbar === "full" ? (
-        <button
-          className="vellum-node__edit nodrag nopan absolute right-2 top-2 z-10 grid size-6 place-items-center rounded text-dim transition hover:bg-white/10 hover:text-ink"
-          aria-label="Edit item"
-          title="edit item"
-          onPointerDown={(event) => {
-            if (stopNodeGestureUnlessMultiSelect(event, { preventDefault: true })) return;
-            event.preventDefault();
-            onEdit();
-          }}
-        >
-          <Pencil size={12} />
-        </button>
-      ) : null}
       {onOpen ? (
         <button
-          className="vellum-node__open nodrag nopan absolute right-10 top-2 z-10 grid size-6 place-items-center rounded text-cyan-300/70 transition hover:bg-white/10 hover:text-cyan-200"
+          className="vellum-node__open nodrag nopan absolute right-2 top-2 z-10 grid size-6 place-items-center rounded text-cyan-300/70 transition hover:bg-white/10 hover:text-cyan-200"
           aria-label={openTitle ?? "Open external link"}
           title={openTitle ?? "open external link"}
           onPointerDown={(event) => {
@@ -527,12 +473,11 @@ export function NodeShell({
       ) : null}
       {showHandles ? <ConnectionHandles /> : null}
       {toolbar === "minimal" ? (
-        <MinimalNodeToolbar selected={selected} onEdit={onEdit} nodeId={node.id} />
+        <MinimalNodeToolbar selected={selected} nodeId={node.id} />
       ) : (
         <NodeActions
           node={node}
           selected={selected}
-          onEdit={onEdit}
           onMaximize={onMaximize}
           toolbarExtras={toolbarExtras}
           flagBlocker={flagBlocker}

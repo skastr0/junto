@@ -574,13 +574,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
       node={node}
       selected={selected}
       blocked={data.blocked}
-      onEdit={
-        isHerdr || isTerminal || isAgent || managedTerminal
-          ? () => setRenaming(true)
-          : openInline
-      }
       onMaximize={isFreeNote && !isLabel ? openMaximized : undefined}
-      inlineEdit={!isHerdr && !managedTerminal && !isLabel && !isTerminal && !isAgent}
       resizable={!isAgent}
       showHandles={!isLabel}
       bare={isLabel}

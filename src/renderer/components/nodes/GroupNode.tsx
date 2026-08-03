@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import { NodeResizer, NodeToolbar, Position } from "@xyflow/react";
 import type { NodeProps } from "@xyflow/react";
-import { Crosshair, FolderOpen, Lock, Pencil, ScrollText, Trash2 } from "lucide-react";
+import { Crosshair, FolderOpen, Lock, ScrollText, Trash2 } from "lucide-react";
 import type { FlowNode } from "../../lib/convert";
 import { deleteNode, renameGroup } from "../../lib/mutations";
 import { resizeNode } from "../../lib/geometry";
@@ -18,7 +18,6 @@ import { IconButton, ToolbarPill } from "../ui";
 function RegionToolbar({
   nodeId,
   selected,
-  onEdit,
   onPaths,
   hasPaths,
   connectionFocused,
@@ -26,7 +25,6 @@ function RegionToolbar({
 }: {
   readonly nodeId: string;
   readonly selected: boolean;
-  readonly onEdit: () => void;
   readonly onPaths: () => void;
   readonly hasPaths: boolean;
   readonly connectionFocused: boolean;
@@ -41,15 +39,6 @@ function RegionToolbar({
   const multiSelect = use$(() => state$.selectedNodeIds.get().length > 1);
   return <NodeToolbar isVisible={selected && !multiSelect} position={Position.Top} offset={8}>
     <ToolbarPill>
-      <IconButton
-        className="nodrag nopan"
-        aria-label="Edit region"
-        title="edit region"
-        onPointerDown={stopDrag}
-        onClick={(event) => { if (stopDrag(event)) return; onEdit(); }}
-      >
-        <Pencil size={14} />
-      </IconButton>
       <IconButton
         className="nodrag nopan"
         aria-label={hasPaths ? "Region folder paths (set)" : "Region folder paths"}
@@ -212,7 +201,6 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
       <RegionToolbar
         nodeId={node.id}
         selected={selected}
-        onEdit={() => setEditing(true)}
         onPaths={() => setPathsOpen(true)}
         hasPaths={hasPaths}
         connectionFocused={connectionFocused}
