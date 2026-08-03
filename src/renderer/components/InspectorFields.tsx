@@ -49,6 +49,7 @@ import { resolveNodeHostId } from "@shared/station";
 import { DIM, HUE, INK, withAlpha } from "../lib/theme";
 import { nodeTitle, searchText } from "../lib/presentation";
 import { Chip, Select, type ChipTone } from "./ui";
+import { BrowserProfileSelect, EnrolledHostSelect } from "./HostPickers";
 
 // ---------------------------------------------------------------------------
 // Factory physics — capability inventory (read-only) + "limit this key" editor
@@ -598,34 +599,11 @@ function PageBindingControl({ node }: { readonly node: CanvasNode }) {
   const storedHost = resolveNodeHostId(node);
   const [profile, setProfile] = useState(storedProfile);
   const [host, setHost] = useState(storedHost);
-  const [hostOptions, setHostOptions] = useState<
-    ReadonlyArray<{ readonly id: string; readonly label: string }>
-  >([{ id: storedHost, label: storedHost }]);
 
   useEffect(() => {
     setProfile(storedProfile);
     setHost(storedHost);
   }, [node.id, storedHost, storedProfile]);
-
-  useEffect(() => {
-    let current = true;
-    void window.vellum?.hostsList?.()
-      .then((result) => {
-        if (!current || !result.ok || !result.hosts) return;
-        const declared = result.hosts
-          .filter((candidate) => candidate.capabilities.includes("browser"))
-          .map((candidate) => ({ id: candidate.id, label: candidate.label }));
-        setHostOptions(
-          declared.some((candidate) => candidate.id === storedHost)
-            ? declared
-            : [{ id: storedHost, label: `${storedHost} (unavailable)` }, ...declared],
-        );
-      })
-      .catch(() => undefined);
-    return () => {
-      current = false;
-    };
-  }, [storedHost]);
 
   const commit = (nextProfile = profile, nextHost = host) => {
     setPageBinding(node.id, { profile: nextProfile, host: nextHost });
@@ -635,14 +613,10 @@ function PageBindingControl({ node }: { readonly node: CanvasNode }) {
     <div className="inspector-section__label">browser binding</div>
     <label className="inspector-editor">
       <span>host</span>
-      <Select
-        dense
-        aria-label="Page browser host"
+      <EnrolledHostSelect
+        ariaLabel="Page browser host"
         value={host}
-        options={hostOptions.map((candidate) => ({
-          value: candidate.id,
-          label: candidate.label,
-        }))}
+        capability="browser"
         onChange={(next) => {
           setHost(next);
           commit(profile, next);
@@ -651,21 +625,12 @@ function PageBindingControl({ node }: { readonly node: CanvasNode }) {
     </label>
     <label className="inspector-editor">
       <span>profile</span>
-      <input
-        aria-label="Page browser profile"
+      <BrowserProfileSelect
+        ariaLabel="Page browser profile"
         value={profile}
-        onChange={(event) => setProfile(event.target.value)}
-        onBlur={() => commit()}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") {
-            event.preventDefault();
-            commit();
-            event.currentTarget.blur();
-          }
-          if (event.key === "Escape") {
-            setProfile(storedProfile);
-            event.currentTarget.blur();
-          }
+        onChange={(next) => {
+          setProfile(next);
+          commit(next, host);
         }}
       />
     </label>
@@ -903,47 +868,12 @@ export function RegionHerdrDefaultsControl({ node }: { readonly node: CanvasNode
   );
   const [workspaceId, setWorkspaceId] = useState(stored?.herdr?.workspaceId ?? "");
   const [tabId, setTabId] = useState(stored?.herdr?.tabId ?? "");
-  const [hostOptions, setHostOptions] = useState<
-    ReadonlyArray<{ readonly id: string; readonly label: string }>
-  >([]);
-
   useEffect(() => {
     setHost(storedHost);
     setSession(stored?.herdr?.session === null ? "default" : (stored?.herdr?.session ?? ""));
     setWorkspaceId(stored?.herdr?.workspaceId ?? "");
     setTabId(stored?.herdr?.tabId ?? "");
   }, [node.id, storedHost, stored?.herdr?.session, stored?.herdr?.workspaceId, stored?.herdr?.tabId]);
-
-  useEffect(() => {
-    let current = true;
-    void window.vellum?.hostsList?.()
-      .then((result) => {
-        if (!current || !result.ok || !result.hosts) return;
-        const seen = new Set<string>();
-        const enrolled = result.hosts
-          .filter((candidate) => {
-            if (seen.has(candidate.id)) return false;
-            seen.add(candidate.id);
-            return true;
-          })
-          .map((candidate) => ({
-            id: candidate.id,
-            label:
-              candidate.label === candidate.id
-                ? candidate.id
-                : `${candidate.label} (${candidate.id})`,
-          }));
-        setHostOptions(
-          storedHost && !enrolled.some((candidate) => candidate.id === storedHost)
-            ? [{ id: storedHost, label: `${storedHost} (unavailable)` }, ...enrolled]
-            : enrolled,
-        );
-      })
-      .catch(() => undefined);
-    return () => {
-      current = false;
-    };
-  }, [storedHost]);
 
   const writeHerdr = (
     nextHost: string,
@@ -996,17 +926,10 @@ export function RegionHerdrDefaultsControl({ node }: { readonly node: CanvasNode
       </div>
       <label className="inspector-editor">
         <span>host</span>
-        <Select
-          dense
-          aria-label="Region herdr host default"
+        <EnrolledHostSelect
+          ariaLabel="Region herdr host default"
           value={host}
-          options={[
-            { value: "", label: "none" },
-            ...hostOptions.map((candidate) => ({
-              value: candidate.id,
-              label: candidate.label,
-            })),
-          ]}
+          allowNone
           onChange={(next) => {
             setHost(next);
             writeHerdr(next, session, workspaceId, tabId);
@@ -1070,15 +993,15 @@ export function RegionPageDefaultsControl({ node }: { readonly node: CanvasNode 
     setPageHost(stored?.page?.host ?? "");
   }, [node.id, stored?.page?.url, stored?.page?.profile, stored?.page?.host]);
 
-  const commit = () => {
+  const writePage = (url: string, profile: string, host: string) => {
     const paths = stored?.paths;
     const herdr = stored?.herdr;
     const page =
-      pageUrl.trim() || pageProfile.trim() || pageHost.trim()
+      url.trim() || profile.trim() || host.trim()
         ? {
-            ...(pageUrl.trim() ? { url: pageUrl.trim() } : {}),
-            ...(pageProfile.trim() ? { profile: pageProfile.trim() } : {}),
-            ...(pageHost.trim() ? { host: pageHost.trim() } : {}),
+            ...(url.trim() ? { url: url.trim() } : {}),
+            ...(profile.trim() ? { profile: profile.trim() } : {}),
+            ...(host.trim() ? { host: host.trim() } : {}),
           }
         : undefined;
     const next: EtherRegionDefaults = {
@@ -1089,20 +1012,19 @@ export function RegionPageDefaultsControl({ node }: { readonly node: CanvasNode 
     setRegionDefaults(node.id, Object.keys(next).length > 0 ? next : undefined);
   };
 
+  const commit = () => writePage(pageUrl, pageProfile, pageHost);
+
   const clearPage = () => {
     setPageUrl("");
     setPageProfile("");
     setPageHost("");
-    const paths = stored?.paths;
-    const herdr = stored?.herdr;
-    const next: EtherRegionDefaults = {
-      ...(herdr ? { herdr } : {}),
-      ...(paths && Object.keys(paths).length > 0 ? { paths } : {}),
-    };
-    setRegionDefaults(node.id, Object.keys(next).length > 0 ? next : undefined);
+    writePage("", "", "");
   };
 
   const onEnter = commitOnEnter(commit);
+  const hasPageDefaults = Boolean(
+    stored?.page?.url || stored?.page?.profile || stored?.page?.host,
+  );
 
   return (
     <div className="inspector-section">
@@ -1122,31 +1044,36 @@ export function RegionPageDefaultsControl({ node }: { readonly node: CanvasNode 
       </label>
       <label className="inspector-editor">
         <span>profile</span>
-        <input
-          aria-label="Region page profile default"
+        <BrowserProfileSelect
+          ariaLabel="Region page profile default"
           value={pageProfile}
-          placeholder="personal"
-          onChange={(e) => setPageProfile(e.target.value)}
-          onBlur={commit}
-          onKeyDown={onEnter}
+          allowNone
+          onChange={(next) => {
+            setPageProfile(next);
+            writePage(pageUrl, next, pageHost);
+          }}
         />
       </label>
       <label className="inspector-editor">
-        <span>browser host</span>
-        <input
-          aria-label="Region page host default"
+        <span>host</span>
+        <EnrolledHostSelect
+          ariaLabel="Region page browser host default"
           value={pageHost}
-          placeholder="local or browser host id"
-          onChange={(e) => setPageHost(e.target.value)}
-          onBlur={commit}
-          onKeyDown={onEnter}
+          allowNone
+          capability="browser"
+          onChange={(next) => {
+            setPageHost(next);
+            writePage(pageUrl, pageProfile, next);
+          }}
         />
       </label>
-      <div className="inspector-flags mt-1">
-        <button type="button" className="inspector-flag-toggle" onClick={clearPage}>
-          clear page defaults
-        </button>
-      </div>
+      {hasPageDefaults ? (
+        <div className="inspector-flags" style={{ marginTop: 14 }}>
+          <button type="button" className="inspector-flag-toggle" onClick={clearPage}>
+            clear page defaults
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
