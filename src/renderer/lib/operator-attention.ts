@@ -1,9 +1,10 @@
 /**
- * Permanent operator-attention surface model.
+ * Permanent operator-attention surface model (RTS notify strip pills).
  *
  * Distinct from the rising-edge alert queue (SFX + Space cycle): this is the
  * always-on set of blocked / needs-input nodes that must stay visible even when
- * the subject is off-canvas. Collect from region rollups; worst severity wins.
+ * the subject is off-canvas. Collect from region rollups + freestanding seats;
+ * worst severity wins.
  */
 
 import type { MemberSeverity, RegionRollup } from "@shared/region-rollup";
@@ -107,5 +108,5 @@ export const freestandingFromTerminalStatus = (
   return out;
 };
 
-/** Cap how many permanent cards stack in the dock. */
-export const OPERATOR_ATTENTION_DOCK_MAX = 6;
+/** Cap how many permanent pills show in the notify strip before "+N". */
+export const OPERATOR_ATTENTION_STRIP_MAX = 4;

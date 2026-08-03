@@ -27,6 +27,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
 import type { CanvasNode, EtherFlag } from "@shared/canvas";
 import { HERDR_ENABLED } from "@shared/features";
 import { executionGraphContextFromActorRefs, groupMembers } from "@shared/graph";
@@ -88,8 +89,14 @@ import { ActivityMark } from "../ActivityMark";
 import { KindSurface } from "./KindSurface";
 import { RollCall } from "./RollCall";
 import {
+  agentSeat$,
+  terminalStatusByNodeIdFromSeats,
+} from "../../lib/agent-seat-state";
+import {
   collectOperatorAttention,
+  freestandingFromTerminalStatus,
   OPERATOR_ATTENTION_HEADLINE,
+  OPERATOR_ATTENTION_STRIP_MAX,
 } from "../../lib/operator-attention";
 import "./RtsBottomBar.css";
 
@@ -1041,16 +1048,42 @@ function MinimapChrome({ children }: { readonly children: ReactNode }) {
 
 /**
  * Permanent attention pills in the notify strip (needs-input + blocked).
- * Complements StoppageRank (blast-radius stoppage) and the fixed dock.
+ * Sole permanent attention surface — region rollups + freestanding seats.
+ * Complements StoppageRank (blast-radius stoppage).
  */
 function OperatorAttentionPills({
   rollups,
 }: {
   readonly rollups: ReadonlyArray<RegionRollup>;
 }) {
-  const items = useMemo(() => collectOperatorAttention(rollups), [rollups]);
+  const doc = use$(state$.doc);
+  const seatByBinding = use$(agentSeat$.byBindingId) as Record<
+    string,
+    AgentSeatStateEvent | undefined
+  >;
+  const needsLookByBinding = use$(agentSeat$.needsLookByBindingId) as Record<
+    string,
+    boolean | undefined
+  >;
+
+  const items = useMemo(() => {
+    const fromRollups = collectOperatorAttention(rollups);
+    const covered = new Set(fromRollups.map((i) => i.nodeId));
+    const terminalStatus = terminalStatusByNodeIdFromSeats(
+      doc.nodes,
+      seatByBinding ?? {},
+      needsLookByBinding ?? {},
+    );
+    const freestanding = freestandingFromTerminalStatus(
+      doc.nodes.map((n) => ({ id: n.id, label: nodeTitle(n) })),
+      terminalStatus,
+      covered,
+    );
+    return collectOperatorAttention(rollups, freestanding);
+  }, [rollups, doc, seatByBinding, needsLookByBinding]);
+
   if (items.length === 0) return null;
-  const visible = items.slice(0, 4);
+  const visible = items.slice(0, OPERATOR_ATTENTION_STRIP_MAX);
   return (
     <div
       className="rts-notify-attention"

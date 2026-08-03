@@ -49,7 +49,6 @@ import { HERDR_ENABLED } from "@shared/features";
 import { HerdrWizard } from "./components/herdr/HerdrWizard";
 import { HerdrTerminalModal } from "./components/herdr/HerdrTerminalModal";
 import { HerdrToast } from "./components/herdr/HerdrToast";
-import { OperatorAttentionDock } from "./components/OperatorAttentionDock";
 import { WorkSurfaceDock } from "./components/WorkSurfaceDock";
 import { WorkFocusShell } from "./components/workbench";
 import { TooltipLayer } from "./components/TooltipLayer";
@@ -485,7 +484,6 @@ export function App() {
           </>
         ) : null}
         <WorkFocusShell />
-        <OperatorAttentionDock />
         <DemoLayer />
         </div>
         <WorkSurfaceDock />
