@@ -261,10 +261,28 @@ export function terminalActivity(input: {
 export type BrowserSessionState =
   "idle" | "loading" | "ready" | "failed" | "detached" | "destroyed" | string;
 
+/**
+ * Browser page ActivityMark.
+ * - loading/attaching → cyan wave
+ * - automating (agent wielding browser.automate) → cyan wave, higher priority
+ * - warm session (ready or detached-but-alive) → green pulse (session live)
+ * - failed → crimson wave
+ * - cold → silent static
+ */
 export function browserActivity(input: {
   readonly state?: BrowserSessionState | null;
   readonly attaching?: boolean;
+  /** Live agent automation on this page (CLI/browser.automate in flight). */
+  readonly automating?: boolean;
 }): ActivitySpec {
+  if (input.automating) {
+    return {
+      mode: "wave",
+      tone: SEVERITY_TONE.working,
+      pattern: "snake",
+      label: "automating",
+    };
+  }
   if (input.attaching || input.state === "loading") {
     return {
       mode: "wave",
@@ -272,17 +290,20 @@ export function browserActivity(input: {
       label: input.attaching ? "attaching" : "loading",
     };
   }
-  if (input.state === "ready") {
-    return { mode: "static", tone: "green", label: "ready" };
-  }
   if (input.state === "failed") {
-    return { mode: "static", tone: SEVERITY_TONE.blocked, label: "failed" };
+    return {
+      mode: "wave",
+      tone: SEVERITY_TONE.blocked,
+      pattern: "arrow-up",
+      label: "failed",
+    };
   }
-  if (input.state === "detached") {
-    return { mode: "static", tone: SEVERITY_TONE.idle, label: "detached" };
+  // ready = surface open; detached = warm session without panel — both "running".
+  if (input.state === "ready" || input.state === "detached") {
+    return { mode: "pulse", tone: "green", label: "live" };
   }
   if (input.state === "destroyed") {
-    return { mode: "static", tone: SEVERITY_TONE.idle, label: "destroyed" };
+    return { mode: "static", tone: SEVERITY_TONE.idle, label: "stopped" };
   }
   return { mode: "static", tone: SEVERITY_TONE.idle, label: "idle" };
 }
