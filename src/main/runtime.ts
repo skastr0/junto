@@ -1,11 +1,11 @@
 /**
  * Command Center product ManagedRuntime — single warm Effect entry for Electron main.
  *
- * Canonical end state (docs/END_STATE-effect-foundation.md §S1):
+ * Canonical end state (docs/END_STATE-effect-foundation.md §S1 + V4-ENTRY):
  *
  *   boot  → ManagedRuntime.make(RootLayer) once   // AppRuntime below
  *   IPC   → AppRuntime.runPromise(handler)        // adapters only (src/main/ipc.ts, vellum/ipc.ts)
- *   loops → AppRuntime.runFork / same Context     // kernel debt cleared in S2
+ *   loops → AppRuntime.runFork / same Context     // factory program (V4-PROGRAM)
  *   quit  → AppRuntime.dispose()                  // sole teardown; index.ts owns the call
  *
  * Laws:
@@ -13,6 +13,8 @@
  * - Never rebuild RootLayer or make() per IPC/handler call.
  * - Domain Effects enter via AppRuntime.runPromise / runFork — bare Effect.runPromise
  *   is empty Context (S0 fitness gate; permanent allowlist is host/post-dispose only).
+ * - V4-ENTRY: src/main/index.ts, src/main/ipc.ts, src/main/vellum/ipc.ts carry zero
+ *   bare Effect.runPromise; only AppRuntime for product domain work.
  * - Sole product store: StateEngine → vellum.db. InstallOps (install-ops.db) is
  *   install-local bookkeeping co-composed here so ContentService sees both; it is
  *   never a second product truth store.

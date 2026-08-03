@@ -1,17 +1,19 @@
 /**
  * Node-only ManagedRuntime for a Remote station — single warm Effect entry.
  *
- * Canonical end state (docs/END_STATE-effect-foundation.md §S1):
+ * Canonical end state (docs/END_STATE-effect-foundation.md §S1 + V4-ENTRY):
  *
  *   boot  → ManagedRuntime.make(RemoteRootLayer) once  // RemoteRuntime below
  *   entry → RemoteRuntime.runPromise(handler)          // remote boot / station APIs
- *   loops → same warm Context (kernel debt → S2)
+ *   loops → RemoteRuntime.runFork / same warm Context  // factory program (V4-PROGRAM)
  *   quit  → RemoteRuntime.dispose()                    // vellum-remote drainAndExit
  *
  * Same laws as Command Center AppRuntime (src/main/runtime.ts):
  * - One ManagedRuntime per process; never rebuild per call.
  * - Domain Effects enter via RemoteRuntime.runPromise / runFork — not bare
  *   Effect.runPromise (empty Context; S0 fitness gate).
+ * - V4-ENTRY: src/main/vellum-remote.ts has zero bare Effect.runPromise; only
+ *   RemoteRuntime for product domain work.
  * - Sole product store: StateEngine → vellum.db. InstallOps co-composed for
  *   ContentService; install-ops.db is install-local, not product truth.
  *

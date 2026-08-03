@@ -1,10 +1,13 @@
 /**
- * S0 fitness gate — bare Effect.runPromise boundary under product main.
+ * S0 + V4-ENTRY fitness gates — bare Effect.runPromise boundary.
  *
- * Cement for docs/END_STATE-effect-foundation.md §S0:
- * product code must not reintroduce empty-Context Effect.runPromise except
- * the permanent host/post-dispose allowlist. Known debt is ratcheted (may
- * shrink, must not grow). Kernel/work claim paths must never be permanent.
+ * S0 (docs/END_STATE-effect-foundation.md): product main must not use empty-
+ * Context Effect.runPromise except the permanent host/post-dispose allowlist.
+ * Debt is ratcheted empty after V4-DEBT-ZERO. Kernel/work never permanent.
+ *
+ * V4-ENTRY (docs/END_STATE-effect-v4-IRON.md): domain Effects in main/remote
+ * entry + IPC files enter only via AppRuntime / RemoteRuntime — zero bare
+ * Effect.runPromise call sites in those four surfaces.
  *
  * Allowlist file: scripts/effect-runpromise-allowlist.json
  * Scanner:        scripts/lint-effect-runpromise.ts
@@ -18,6 +21,16 @@ const ROOT = path.resolve(import.meta.dirname, "..");
 const LINT = path.join(ROOT, "scripts/lint-effect-runpromise.ts");
 const ALLOWLIST = path.join(ROOT, "scripts/effect-runpromise-allowlist.json");
 
+/** IRON V4-ENTRY surfaces — domain Effects only via ManagedRuntime. */
+const ENTRY_SURFACES = [
+  "src/main/index.ts",
+  "src/main/ipc.ts",
+  "src/main/vellum/ipc.ts",
+  "src/main/vellum-remote.ts",
+] as const;
+
+const CALL_PATTERN = /Effect\.runPromise\b/;
+
 type AllowEntry = {
   readonly path: string;
   readonly maxCount: number;
@@ -27,6 +40,36 @@ type AllowEntry = {
 type Allowlist = {
   readonly permanent: ReadonlyArray<AllowEntry>;
   readonly debt: ReadonlyArray<AllowEntry>;
+};
+
+const stripLineComment = (line: string): string => {
+  const idx = line.indexOf("//");
+  if (idx === -1) return line;
+  // Keep `//` inside strings out of scope for this cement — entry files use
+  // line comments only for the runPromise ban wording.
+  return line.slice(0, idx);
+};
+
+const isCommentOnlyLine = (line: string): boolean => {
+  const t = line.trim();
+  return (
+    t.length === 0 ||
+    t.startsWith("//") ||
+    t.startsWith("*") ||
+    t.startsWith("/*") ||
+    t.startsWith("*/")
+  );
+};
+
+/** Bare Effect.runPromise call sites (comments stripped), same law as lint. */
+const bareRunPromiseHits = (source: string): ReadonlyArray<number> => {
+  const hits: number[] = [];
+  for (const [i, raw] of source.split(/\r?\n/).entries()) {
+    if (isCommentOnlyLine(raw)) continue;
+    if (!CALL_PATTERN.test(stripLineComment(raw))) continue;
+    hits.push(i + 1);
+  }
+  return hits;
 };
 
 describe("effect-runpromise boundary (S0)", () => {
@@ -95,5 +138,59 @@ describe("effect-runpromise boundary (S0)", () => {
     expect(/Effect\.runPromise\b/.test(sample)).toBe(true);
     // Runtime proof remains: full tree lint above is green; new files require
     // an allowlist/debt edit which is the deliberate review surface.
+  });
+});
+
+describe("V4-ENTRY managed runtime domain entry", () => {
+  it("has zero bare Effect.runPromise in index/ipc/vellum-ipc/vellum-remote", () => {
+    const bad: string[] = [];
+    for (const rel of ENTRY_SURFACES) {
+      const source = readFileSync(path.join(ROOT, rel), "utf8");
+      const hits = bareRunPromiseHits(source);
+      if (hits.length > 0) {
+        bad.push(`${rel}: bare Effect.runPromise at lines ${hits.join(",")}`);
+      }
+    }
+    expect(bad, bad.join("\n")).toEqual([]);
+  });
+
+  it("routes domain entry via AppRuntime (CC) or RemoteRuntime (Remote)", () => {
+    // Cement: entry surfaces import and call the warm ManagedRuntime, not bare.
+    const cc = readFileSync(path.join(ROOT, "src/main/index.ts"), "utf8");
+    const ipc = readFileSync(path.join(ROOT, "src/main/ipc.ts"), "utf8");
+    const vellumIpc = readFileSync(
+      path.join(ROOT, "src/main/vellum/ipc.ts"),
+      "utf8",
+    );
+    const remote = readFileSync(
+      path.join(ROOT, "src/main/vellum-remote.ts"),
+      "utf8",
+    );
+
+    expect(cc).toMatch(/AppRuntime\.runPromise/);
+    expect(cc).toMatch(/AppRuntime\.runFork/);
+    expect(ipc).toMatch(/AppRuntime\.runPromise/);
+    expect(vellumIpc).toMatch(/AppRuntime\.runPromise/);
+    expect(remote).toMatch(/RemoteRuntime\.runPromise/);
+    expect(remote).toMatch(/RemoteRuntime\.runFork/);
+
+    // Exactly one ManagedRuntime.make construction per process role (S1 + V4-ENTRY).
+    const makes = spawnSync(
+      "rg",
+      ["-n", "ManagedRuntime\\.make\\s*\\(", "src/main", "--type", "ts"],
+      { cwd: ROOT, encoding: "utf8" },
+    );
+    const constructions = (makes.stdout ?? "")
+      .split("\n")
+      .filter((line) => line.length > 0)
+      .filter((line) => {
+        // rg format: path:lineno:content — drop pure comment/docblock hits
+        const content = line.replace(/^[^:]+:\d+:/, "");
+        return !isCommentOnlyLine(content);
+      });
+    expect(
+      constructions.map((l) => l.split(":")[0]).sort(),
+      constructions.join("\n"),
+    ).toEqual(["src/main/remote-runtime.ts", "src/main/runtime.ts"]);
   });
 });
