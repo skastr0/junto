@@ -262,27 +262,17 @@ export type BrowserSessionState =
   "idle" | "loading" | "ready" | "failed" | "detached" | "destroyed" | string;
 
 /**
- * Browser page ActivityMark.
+ * Browser page ActivityMark — session truth only (never agent-seat proxy).
  * - loading/attaching → cyan wave
- * - automating (agent wielding browser.automate) → cyan wave, higher priority
- * - warm session (ready or detached-but-alive) → green pulse (session live)
+ * - warm session (ready or detached) → green pulse
  * - failed → crimson wave
  * - cold → silent static
+ * Live “who is automating” needs owner + op projection on BrowserSessionInfo.
  */
 export function browserActivity(input: {
   readonly state?: BrowserSessionState | null;
   readonly attaching?: boolean;
-  /** Live agent automation on this page (CLI/browser.automate in flight). */
-  readonly automating?: boolean;
 }): ActivitySpec {
-  if (input.automating) {
-    return {
-      mode: "wave",
-      tone: SEVERITY_TONE.working,
-      pattern: "snake",
-      label: "automating",
-    };
-  }
   if (input.attaching || input.state === "loading") {
     return {
       mode: "wave",
