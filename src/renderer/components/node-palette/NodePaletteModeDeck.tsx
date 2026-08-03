@@ -31,7 +31,7 @@ export type ModeDeckActions = {
     choices: AgentConfigurationChoices & AgentLaunchContextValue,
     position: { readonly x: number; readonly y: number },
   ) => void;
-  readonly addGauge: () => void;
+
   readonly addCron: () => void;
   readonly addRelay: () => void;
   readonly addTasks: () => void;
@@ -64,7 +64,6 @@ const catalogAction = (actions: ModeDeckActions, entry: NodeCatalogEntry): void 
     case "artifacts": actions.addArtifacts(); break;
     case "board": actions.addBoard(); break;
     case "page": actions.addPage(); break;
-    case "gauge": actions.addGauge(); break;
     case "cron": actions.addCron(); break;
     case "relay": actions.addRelay(); break;
     case "note": actions.create("text"); break;

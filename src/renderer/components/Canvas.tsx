@@ -45,7 +45,6 @@ import {
   makeArtifactsNode,
   makeBoardNode,
   makeCronNode,
-  makeGaugeNode,
   makeGroupNode,
   makeImageNode,
   makeLabelNode,
@@ -660,21 +659,6 @@ const makeAddActions = (
   },
   addConfiguredAgent: (choices, position) => {
     const node = makeManagedAgentNode(position.x, position.y, choices);
-    addNode(node, { edit: false });
-    state$.focusNodeId.set(node.id);
-    dismiss();
-  },
-  addGauge: () => {
-    const position = positionFor({ width: 240, height: 96 });
-    const stationHost = state$.settings.station.hostId.peek() || "local";
-    const node = {
-      ...makeGaugeNode(position.x, position.y),
-      ether: {
-        entity: { kind: "watcher" as const },
-        host: stationHost,
-        watch: { kind: "stat_threshold" as const, source: "hermes" as const },
-      },
-    };
     addNode(node, { edit: false });
     state$.focusNodeId.set(node.id);
     dismiss();

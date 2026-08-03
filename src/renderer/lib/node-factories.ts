@@ -337,7 +337,10 @@ export const makePageNode = (
   };
 };
 
-/** Gauge (watcher) predicate node — hermes stat threshold. */
+/**
+ * Gauge (watcher) — hermes stat_threshold. Product-hidden from palette.
+ * Existing boards still decode. Future external-input actuator is a new surface.
+ */
 export const makeGaugeNode = (
   x: number,
   y: number,

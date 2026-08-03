@@ -11,7 +11,7 @@ import { DIM, GROUND, HUE, INK, INK_2, STROKE, withAlpha } from "../lib/theme";
 
 /** What play actually does — honest consequences, no softeners. */
 const CONSEQUENCES: ReadonlyArray<string> = [
-  "Timers and watchers start firing and may spend real agent turns in armed regions.",
+  "Timers and relays start firing and may spend real agent turns in armed regions.",
   "Agents bound to seats may act through the vellum CLI.",
   "Queued messages will deliver to their live targets.",
   "The claim tick starts assigning submitted tasks to free connected workers.",

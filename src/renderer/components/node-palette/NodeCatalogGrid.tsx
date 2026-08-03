@@ -7,7 +7,6 @@ import {
   Blocks,
   Braces,
   Clock3,
-  Eye,
   FileText,
   Globe2,
   Inbox,
@@ -133,17 +132,8 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
       { source: "Cron", target: "Non-region node", direction: "directed", relationship: "projects the selected runtime flag on Command Center", mode: "effect", ports: [] },
     ],
   },
-  {
-    id: "gauge", category: "schedule", label: "Gauge", subtitle: "live data condition",
-    icon: Eye,
-    purpose: "A hermes roster predicate (e.g. running). Rising edge can fire the same edge effects as cron.",
-    behavior: "Rising-edge memory advances only while automation is enabled, so pausing cannot consume the next match.",
-    connections: [
-      { source: "Hermes stats", target: "Gauge", direction: "directed", relationship: "supplies the live value evaluated by the predicate", mode: "context", ports: [] },
-      { source: "Gauge", target: "Tasks", direction: "directed", relationship: "enqueues work on a rising match", mode: "effect", ports: [] },
-      { source: "Gauge", target: "Non-region node", direction: "directed", relationship: "projects the selected runtime flag on Command Center", mode: "effect", ports: [] },
-    ],
-  },
+  // Gauge (hermes stat_threshold) is product-hidden. Future: external input
+  // actuator (webhook / poll) evolving the snapshots plane — not this stub.
   {
     id: "relay", category: "schedule", label: "Relay", subtitle: "watch a node projection",
     icon: Workflow,
