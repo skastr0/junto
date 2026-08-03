@@ -44,6 +44,7 @@ import { signalMark } from "../../lib/signal-mark";
 import {
   deleteNode,
   deleteNodes,
+  renameGroup,
   setNodeColor,
   setNodeColorForNodes,
   toggleFlag,
@@ -358,6 +359,33 @@ function RegionCommandCard({
     : memberCount === 1
       ? "1 member"
       : `${memberCount} members`;
+  const title = regionRollup.label || "unnamed region";
+  const [renaming, setRenaming] = useState(false);
+  const [nameDraft, setNameDraft] = useState(title);
+  const nameRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setRenaming(false);
+    setNameDraft(title);
+  }, [node.id, title]);
+
+  useEffect(() => {
+    if (!renaming) return;
+    nameRef.current?.focus();
+    nameRef.current?.select();
+  }, [renaming]);
+
+  const commitRename = () => {
+    setRenaming(false);
+    const next = nameDraft.trim();
+    if (next === title || (next === "" && !regionRollup.label)) return;
+    renameGroup(node.id, next);
+  };
+
+  const cancelRename = () => {
+    setRenaming(false);
+    setNameDraft(title);
+  };
 
   const primaryKey = (action: PrimaryCommandAction) => {
     switch (action) {
@@ -398,12 +426,34 @@ function RegionCommandCard({
 
   // Identity + accent + ops. No panel eyebrow, no severity stamp, no member
   // rollcall, no hold echo in meta (lock key is the hold state).
+  // Rename is inline here — canvas plate rename from RTS was a focus no-op.
   return (
     <div className="rts-panel rts-panel--cmd">
       <div className="rts-panel__body rts-cmd-shell rts-cmd-shell--region">
         <div className="rts-cmd-region-main">
           <div className="rts-cmd-head">
-            <div className="rts-cmd__title" title={regionRollup.label}>{regionRollup.label}</div>
+            {renaming ? (
+              <input
+                ref={nameRef}
+                className="rts-cmd__title-input"
+                aria-label="Region name"
+                value={nameDraft}
+                onChange={(event) => setNameDraft(event.target.value)}
+                onBlur={commitRename}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    commitRename();
+                  }
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    cancelRename();
+                  }
+                }}
+              />
+            ) : (
+              <div className="rts-cmd__title" title={title}>{title}</div>
+            )}
             <div className="rts-cmd__meta">{memberMeta}</div>
           </div>
           <AccentColorSwatches nodeId={node.id} color={node.color} />
@@ -412,11 +462,16 @@ function RegionCommandCard({
           <PauseScopeKey scope={{ kind: "region", id: node.id }} />
           {primary.map(primaryKey)}
           <CmdKey
-            label="Edit region name"
-            title="Rename region"
+            label={renaming ? "Cancel rename" : "Edit region name"}
+            title={renaming ? "Cancel rename" : "Rename region"}
+            active={renaming}
             onClick={() => {
-              state$.focusNodeId.set(node.id);
-              state$.editNodeId.set(node.id);
+              if (renaming) {
+                cancelRename();
+                return;
+              }
+              setNameDraft(title);
+              setRenaming(true);
             }}
           >
             <Pencil size={ICON} />

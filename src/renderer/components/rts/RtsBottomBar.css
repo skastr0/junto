@@ -516,6 +516,22 @@
   line-height: 1.15;
 }
 
+.rts-cmd__title-input {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 1px 4px;
+  border-radius: 3px;
+  border: 1px solid rgba(232, 163, 61, 0.45);
+  background: rgba(0, 0, 0, 0.28);
+  color: #ede6da;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  line-height: 1.15;
+  outline: none;
+}
+
 .rts-cmd__meta {
   font-size: 8px;
   letter-spacing: 0.12em;
