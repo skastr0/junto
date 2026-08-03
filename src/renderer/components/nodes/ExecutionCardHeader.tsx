@@ -38,7 +38,7 @@ export function ExecutionCardHeader({
           title
         )}
         {subtitle ? (
-          <div className="truncate text-[11px] text-dim">{subtitle}</div>
+          <div className="min-w-0 text-[11px] leading-snug text-dim">{subtitle}</div>
         ) : null}
       </div>
       {animated ? (

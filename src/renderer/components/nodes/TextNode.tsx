@@ -77,11 +77,11 @@ function formatAgo(firedAt: number, now: number): string {
 
 function formatCountdown(nextFire: number, now: number): string {
   const minutes = Math.round((nextFire - now) / 60000);
-  if (minutes <= 0) return "now";
-  if (minutes < 60) return `next run in ${minutes}m`;
+  if (minutes <= 0) return "due now";
+  if (minutes < 60) return `in ${minutes}m`;
   const hours = Math.floor(minutes / 60);
   const remainder = minutes % 60;
-  return `next run in ${hours}h${remainder ? ` ${remainder}m` : ""}`;
+  return `in ${hours}h${remainder ? ` ${remainder}m` : ""}`;
 }
 
 /** Kind decal — same 28px amber tile as terminal / seats. */
@@ -115,7 +115,7 @@ function WatcherCard({
   const detail = runtime?.detail ?? "watching";
   const activity = watcherActivity(status);
   const subtitle = runtime?.lastFiredAt
-    ? `${detail} · ${formatAgo(runtime.lastFiredAt, now)}`
+    ? `${detail}. ${formatAgo(runtime.lastFiredAt, now)}`
     : detail;
   return (
     <div className="flex h-full w-full flex-col justify-between overflow-hidden">
@@ -146,9 +146,17 @@ function TimerCard({ node }: { readonly node: CanvasNode }) {
   const everyMinutes = node.ether?.timer?.everyMinutes;
   const activity = timerActivity({ nextFire, now });
   const countdown = nextFire ? formatCountdown(nextFire, now) : "—";
-  const subtitle = everyMinutes
-    ? `${countdown} · every ${everyMinutes}m`
-    : countdown;
+  // Two short lines — no middot, no forced ellipsis on a one-line mash.
+  const subtitle = (
+    <span className="flex flex-col gap-0.5">
+      <span className="tabular-nums">{countdown}</span>
+      {everyMinutes ? (
+        <span className="tabular-nums" style={{ opacity: 0.85 }}>
+          every {everyMinutes}m
+        </span>
+      ) : null}
+    </span>
+  );
   return (
     <div className="flex h-full w-full flex-col justify-between overflow-hidden">
       <ExecutionCardHeader
