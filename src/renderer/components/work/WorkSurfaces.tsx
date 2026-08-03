@@ -455,10 +455,9 @@ export function BoardDetail({
     topics.find((t) => t.topicId === selectedTopicId) ?? topics[0];
   const canvas = canvasName();
   const api = getVellumApi();
-  const boardTitle =
-    node.type === "text" && typeof node.text === "string" && node.text.trim()
-      ? node.text.trim()
-      : "Bulletin";
+  // Board node text is a live glance projection ("quiet" or recent topic
+  // titles), not a stable sink name. Keep the work surface title predictable.
+  const boardTitle = "Board";
 
   const refreshList = useCallback(async () => {
     if (!api) return;

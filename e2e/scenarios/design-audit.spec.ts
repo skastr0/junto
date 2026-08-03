@@ -800,11 +800,12 @@ test("capture Board empty and populated states", async () => {
     await shot(page, "06g-board-empty");
 
     const createTopic = async (topicTitle: string, openingNote: string) => {
+      await bulletinBoard.getByRole("button", { name: "New topic" }).first().click();
       await bulletinBoard.getByPlaceholder("New topic title").fill(topicTitle);
       await bulletinBoard
         .getByPlaceholder("Opening note (optional)")
         .fill(openingNote);
-      await bulletinBoard.getByRole("button", { name: "Post topic" }).click();
+      await bulletinBoard.getByRole("button", { name: "Create topic" }).click();
       await expect(
         bulletinBoard.getByText(topicTitle, { exact: true }).first(),
       ).toBeVisible();
@@ -815,15 +816,15 @@ test("capture Board empty and populated states", async () => {
       "Capture blockers, proof receipts, and operator decisions for the next signed build.",
     );
     await bulletinBoard
-      .getByPlaceholder("Optional note…")
+      .getByPlaceholder("Write a reply…")
       .fill(
         "Notarization is green. Waiting on the two-host Station smoke before promotion.",
       );
     await bulletinBoard
-      .getByRole("button", { name: "Post note", exact: true })
+      .getByRole("button", { name: "Post reply", exact: true })
       .click();
     await expect(
-      bulletinBoard.getByText(/two-host Station smoke/i),
+      bulletinBoard.getByRole("main").getByText(/two-host Station smoke/i),
     ).toBeVisible();
     await createTopic(
       "Remote station smoke",
