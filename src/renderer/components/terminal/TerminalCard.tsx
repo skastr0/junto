@@ -151,7 +151,7 @@ export function TerminalCard({
 
   const rawText = node.type === "text" ? node.text : "";
   const firstLine = rawText.split("\n")[0] ?? "";
-  const label = native.label ?? firstLine || "terminal";
+  const label = native.label ?? (firstLine || "terminal");
   const commitRename = (nextFirst: string) => {
     const rest = rawText.split("\n").slice(1).join("\n");
     editText(node.id, rest ? `${nextFirst}\n${rest}` : nextFirst);
