@@ -34,13 +34,13 @@
 }
 
 /*
- * Region: one compact cluster (label + keys), optically centered in the panel.
- * Left-aligned as a unit so it tracks command identity, not floating mid-void.
+ * Region: kind label + keys top-left, same corner language as command accents.
  */
 .rts-kind-surface--region {
-  justify-content: center;
+  justify-content: flex-start;
   align-items: flex-start;
-  gap: 8px;
+  gap: 6px;
+  padding-top: 2px;
 }
 
 .rts-kind-surface--region .rts-kind-strip {
