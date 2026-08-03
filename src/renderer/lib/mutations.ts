@@ -14,7 +14,7 @@ import { batch } from "@legendapp/state";
 import type { BindingHint } from "@shared/ipc";
 import type { ActorRef } from "@shared/work-protocol";
 import { formatNodeRef } from "@shared/node-ref";
-import { DEFAULT_STATION_HOST_ID, isValidStationHostId } from "@shared/station";
+import { isValidStationHostId } from "@shared/station";
 import { noteWorkDocChange } from "./edge-sparks";
 import { licenseCustody } from "./license-custody";
 import { state$ } from "./state";
