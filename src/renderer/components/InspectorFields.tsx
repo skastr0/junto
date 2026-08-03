@@ -896,23 +896,63 @@ export function RegionHoldControl({ node }: { readonly node: CanvasNode }) {
 /** Defaults for new herdr nodes created inside this region. Paths are separate. */
 export function RegionHerdrDefaultsControl({ node }: { readonly node: CanvasNode }) {
   const stored = node.ether?.region?.defaults;
-  const [host, setHost] = useState(stored?.herdr?.host ?? "");
+  const storedHost = stored?.herdr?.host ?? "";
+  const [host, setHost] = useState(storedHost);
   const [session, setSession] = useState(
     stored?.herdr?.session === null ? "default" : (stored?.herdr?.session ?? ""),
   );
   const [workspaceId, setWorkspaceId] = useState(stored?.herdr?.workspaceId ?? "");
   const [tabId, setTabId] = useState(stored?.herdr?.tabId ?? "");
+  const [hostOptions, setHostOptions] = useState<
+    ReadonlyArray<{ readonly id: string; readonly label: string }>
+  >([]);
 
   useEffect(() => {
-    setHost(stored?.herdr?.host ?? "");
+    setHost(storedHost);
     setSession(stored?.herdr?.session === null ? "default" : (stored?.herdr?.session ?? ""));
     setWorkspaceId(stored?.herdr?.workspaceId ?? "");
     setTabId(stored?.herdr?.tabId ?? "");
-  }, [node.id, stored?.herdr?.host, stored?.herdr?.session, stored?.herdr?.workspaceId, stored?.herdr?.tabId]);
+  }, [node.id, storedHost, stored?.herdr?.session, stored?.herdr?.workspaceId, stored?.herdr?.tabId]);
 
-  const commit = () => {
-    const hostTrim = host.trim();
-    const sessionTrim = session.trim();
+  useEffect(() => {
+    let current = true;
+    void window.vellum?.hostsList?.()
+      .then((result) => {
+        if (!current || !result.ok || !result.hosts) return;
+        const seen = new Set<string>();
+        const enrolled = result.hosts
+          .filter((candidate) => {
+            if (seen.has(candidate.id)) return false;
+            seen.add(candidate.id);
+            return true;
+          })
+          .map((candidate) => ({
+            id: candidate.id,
+            label:
+              candidate.label === candidate.id
+                ? candidate.id
+                : `${candidate.label} (${candidate.id})`,
+          }));
+        setHostOptions(
+          storedHost && !enrolled.some((candidate) => candidate.id === storedHost)
+            ? [{ id: storedHost, label: `${storedHost} (unavailable)` }, ...enrolled]
+            : enrolled,
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      current = false;
+    };
+  }, [storedHost]);
+
+  const writeHerdr = (
+    nextHost: string,
+    nextSession: string,
+    nextWorkspace: string,
+    nextTab: string,
+  ) => {
+    const hostTrim = nextHost.trim();
+    const sessionTrim = nextSession.trim();
     let sessionValue: string | null | undefined;
     if (hostTrim) {
       if (!sessionTrim || sessionTrim === "default") sessionValue = null;
@@ -924,8 +964,8 @@ export function RegionHerdrDefaultsControl({ node }: { readonly node: CanvasNode
       ? {
           host: hostTrim,
           session: sessionValue ?? null,
-          ...(workspaceId.trim() ? { workspaceId: workspaceId.trim() } : {}),
-          ...(tabId.trim() ? { tabId: tabId.trim() } : {}),
+          ...(nextWorkspace.trim() ? { workspaceId: nextWorkspace.trim() } : {}),
+          ...(nextTab.trim() ? { tabId: nextTab.trim() } : {}),
         }
       : undefined;
     const next: EtherRegionDefaults = {
@@ -936,21 +976,18 @@ export function RegionHerdrDefaultsControl({ node }: { readonly node: CanvasNode
     setRegionDefaults(node.id, Object.keys(next).length > 0 ? next : undefined);
   };
 
+  const commit = () => writeHerdr(host, session, workspaceId, tabId);
+
   const clearHerdr = () => {
     setHost("");
     setSession("");
     setWorkspaceId("");
     setTabId("");
-    const paths = stored?.paths;
-    const page = stored?.page;
-    const next: EtherRegionDefaults = {
-      ...(page ? { page } : {}),
-      ...(paths && Object.keys(paths).length > 0 ? { paths } : {}),
-    };
-    setRegionDefaults(node.id, Object.keys(next).length > 0 ? next : undefined);
+    writeHerdr("", "", "", "");
   };
 
   const onEnter = commitOnEnter(commit);
+  const hasHerdrDefaults = Boolean(stored?.herdr?.host);
 
   return (
     <div className="inspector-section">
@@ -959,13 +996,21 @@ export function RegionHerdrDefaultsControl({ node }: { readonly node: CanvasNode
       </div>
       <label className="inspector-editor">
         <span>host</span>
-        <input
+        <Select
+          dense
           aria-label="Region herdr host default"
           value={host}
-          placeholder="local or host id from Settings → Hosts"
-          onChange={(e) => setHost(e.target.value)}
-          onBlur={commit}
-          onKeyDown={onEnter}
+          options={[
+            { value: "", label: "none" },
+            ...hostOptions.map((candidate) => ({
+              value: candidate.id,
+              label: candidate.label,
+            })),
+          ]}
+          onChange={(next) => {
+            setHost(next);
+            writeHerdr(next, session, workspaceId, tabId);
+          }}
         />
       </label>
       <label className="inspector-editor">
@@ -1001,11 +1046,13 @@ export function RegionHerdrDefaultsControl({ node }: { readonly node: CanvasNode
           onKeyDown={onEnter}
         />
       </label>
-      <div className="inspector-flags mt-1">
-        <button type="button" className="inspector-flag-toggle" onClick={clearHerdr}>
-          clear herdr defaults
-        </button>
-      </div>
+      {hasHerdrDefaults ? (
+        <div className="inspector-flags" style={{ marginTop: 14 }}>
+          <button type="button" className="inspector-flag-toggle" onClick={clearHerdr}>
+            clear herdr defaults
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
