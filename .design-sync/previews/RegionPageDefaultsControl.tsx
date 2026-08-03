@@ -1,4 +1,4 @@
-import { RegionDefaultsControl } from "@skastr0/vellum";
+import { RegionPageDefaultsControl } from "@skastr0/vellum";
 
 const Frame = ({ children }: { children: React.ReactNode }) => (
   <div style={{ background: "var(--color-ground)", padding: 20, maxWidth: 360 }}>
@@ -8,7 +8,7 @@ const Frame = ({ children }: { children: React.ReactNode }) => (
 
 const region = (defaults?: Record<string, unknown>) => ({
   id: "region-1",
-  type: "group",
+  type: "group" as const,
   x: 0,
   y: 0,
   width: 320,
@@ -19,11 +19,9 @@ const region = (defaults?: Record<string, unknown>) => ({
 
 export const Filled = () => (
   <Frame>
-    <RegionDefaultsControl
+    <RegionPageDefaultsControl
       node={region({
-        herdr: { host: "remote-a", session: "nightly", workspaceId: "vellum-workshop", tabId: "build" },
         page: { url: "https://github.com/notifications", profile: "personal", host: "remote-a" },
-        paths: { "remote-a": "~/Projects/vellum", local: "~/Projects/vellum" },
       })}
     />
   </Frame>
@@ -31,6 +29,6 @@ export const Filled = () => (
 
 export const Empty = () => (
   <Frame>
-    <RegionDefaultsControl node={region()} />
+    <RegionPageDefaultsControl node={region()} />
   </Frame>
 );

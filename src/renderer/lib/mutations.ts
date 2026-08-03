@@ -955,18 +955,6 @@ export const renameGroup = (id: string, label: string): void => {
   });
 };
 
-export const editGroupBackground = (id: string, background: string, backgroundStyle: "cover" | "ratio" | "repeat"): void => {
-  const doc = state$.doc.peek();
-  const source = background.trim();
-  commitDoc({
-    ...doc,
-    nodes: doc.nodes.map((n) => n.id === id && n.type === "group"
-      ? source
-        ? { ...n, background: source, backgroundStyle }
-        : without(without(n, "background"), "backgroundStyle")
-      : n),
-  });
-};
 
 export const setNodeColor = (id: string, color?: string): void => {
   setNodeColorForNodes([id], color);

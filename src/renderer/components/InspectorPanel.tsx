@@ -148,7 +148,9 @@ const NodeInspector = memo(function NodeInspector({ node, onClose }: { readonly 
         <div className="inspector-detail">{detail}</div>
       ) : null}
       {!isLabel ? <WaitingOnSection key={`waiting:${node.id}`} nodeId={node.id} /> : null}
-      {!isLabel ? <NodePlacementSection key={`place:${node.id}`} node={node} /> : null}
+      {!isLabel && node.type !== "group" ? (
+        <NodePlacementSection key={`place:${node.id}`} node={node} />
+      ) : null}
       {!isLabel ? <NodeCapabilityInventory key={`cap:${node.id}`} node={node} /> : null}
       <NodeFieldEditors node={node} />
     </div>

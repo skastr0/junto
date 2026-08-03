@@ -33,6 +33,22 @@
   justify-content: flex-start;
 }
 
+/* Region: secondary kind label + icon strip only (no duplicate title/flags). */
+.rts-kind-surface--region {
+  justify-content: center;
+  gap: 6px;
+}
+
+.rts-kind-kind-label {
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(143, 163, 176, 0.85);
+  line-height: 1;
+  flex-shrink: 0;
+}
+
 .rts-kind-id {
   display: flex;
   align-items: center;

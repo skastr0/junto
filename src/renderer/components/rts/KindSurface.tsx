@@ -3,19 +3,16 @@
  *
  * Identity + live glance + kind action keys live here. Dense node/edge field
  * editors open in a FocusSurface form (not a sidebar). Reuses pristine
- * InspectorFields editors as-is; this file is glue only. Placement is not
- * shown as always-on chips — open Fields (or the region Placement key).
+ * InspectorFields editors as-is; this file is glue only.
  *
- * Regions: ops (hold/slot) live on the command card. This strip is individual
- * field keys — briefing, defaults, paths, background, placement — each opening
- * a small form, not the kitchen-sink inspector modal.
+ * Regions: ops on the command card. Kind strip is field keys only —
+ * briefing, herdr defaults, page defaults, folder paths. No plate, no placement.
  */
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
 import {
   FolderOpen,
-  Image,
-  MapPin,
+  Globe,
   Package,
   RefreshCw,
   ScrollText,
@@ -51,9 +48,9 @@ import {
   NodeCapabilityInventory,
   NodeFieldEditors,
   NodePlacementSection,
-  RegionBackgroundEditor,
   RegionBriefingEditor,
-  RegionDefaultsControl,
+  RegionHerdrDefaultsControl,
+  RegionPageDefaultsControl,
 } from "../InspectorFields";
 import {
   deleteEdges,
@@ -66,7 +63,7 @@ import "./rts-controls.css";
 
 const ICON = 12;
 
-type RegionFormKey = "briefing" | "defaults" | "background" | "placement";
+type RegionFormKey = "briefing" | "herdr" | "page";
 
 /**
  * Seat-native agent glance — harness mark + document label.
@@ -160,7 +157,7 @@ function NodeFormFocus({
       />
       <div className="rts-kind-form-body inspector-body">
         {!isLabel ? <WaitingOnSection nodeId={node.id} /> : null}
-        {!isLabel ? <NodePlacementSection node={node} /> : null}
+        {!isLabel && node.type !== "group" ? <NodePlacementSection node={node} /> : null}
         {!isLabel ? <NodeCapabilityInventory node={node} /> : null}
         {!node.ether?.entity && node.type === "text" ? (
           <div className="inspector-detail note-surface">
@@ -305,35 +302,33 @@ function RegionFieldFocus({
   readonly form: RegionFormKey;
   readonly onClose: () => void;
 }) {
-  const copy: Record<RegionFormKey, { readonly title: string; readonly status: string; readonly body: ReactNode }> = {
+  const copy: Record<
+    RegionFormKey,
+    { readonly title: string; readonly measure: "form" | "document"; readonly body: ReactNode }
+  > = {
     briefing: {
-      title: "region briefing",
-      status: "context for agents inside this region",
+      title: "Briefing",
+      measure: "document",
       body: <RegionBriefingEditor node={node} />,
     },
-    defaults: {
-      title: "spawn defaults",
-      status: "stamped onto new herdr / page nodes",
-      body: <RegionDefaultsControl node={node} />,
+    herdr: {
+      title: "Herdr defaults",
+      measure: "form",
+      body: <RegionHerdrDefaultsControl node={node} />,
     },
-    background: {
-      title: "background",
-      status: "image + fit for the region plate",
-      body: <RegionBackgroundEditor node={node} />,
-    },
-    placement: {
-      title: "placement",
-      status: "command center vs local host home",
-      body: <NodePlacementSection node={node} />,
+    page: {
+      title: "Page defaults",
+      measure: "form",
+      body: <RegionPageDefaultsControl node={node} />,
     },
   };
   const panel = copy[form];
   return (
     <FocusSurface
-      measure="form"
+      measure={panel.measure}
       height="fit"
       layer="detail"
-      label={`Region ${panel.title}`}
+      label={panel.title}
       onClose={onClose}
       closeOnEscape
       closeOnBackdrop
@@ -342,7 +337,6 @@ function RegionFieldFocus({
       <OverlayHeader
         eyebrow="region"
         title={panel.title}
-        status={panel.status}
         actions={
           <IconButton aria-label="Close fields" title="Close fields" onClick={onClose}>
             <X size={14} />
@@ -354,27 +348,20 @@ function RegionFieldFocus({
   );
 }
 
-/**
- * Region kind strip — individual field keys instead of one mega inspector.
- * Ops (hold/slot) are on the left command card.
- */
+/** Region kind strip — field keys only. No title, no flag glance, no plate/placement. */
 function RegionKindSurface({ node }: { readonly node: CanvasNode }) {
   const [form, setForm] = useState<RegionFormKey | null>(null);
   const [pathsOpen, setPathsOpen] = useState(false);
-  const hold = Boolean(node.ether?.region?.hold);
   const instruction = Boolean(node.ether?.region?.instruction?.trim());
   const defaults = node.ether?.region?.defaults;
-  const hasDefaults = Boolean(
-    defaults?.herdr?.host ||
-      defaults?.page?.url ||
-      defaults?.page?.profile ||
-      defaults?.page?.host,
+  const hasHerdr = Boolean(defaults?.herdr?.host);
+  const hasPage = Boolean(
+    defaults?.page?.url || defaults?.page?.profile || defaults?.page?.host,
   );
   const pathMap = defaults?.paths;
   const hasPaths = Boolean(
     pathMap && Object.values(pathMap).some((p) => typeof p === "string" && p.trim().length > 0),
   );
-  const hasBackground = Boolean(node.type === "group" && node.background);
 
   useEffect(() => {
     setForm(null);
@@ -386,28 +373,13 @@ function RegionKindSurface({ node }: { readonly node: CanvasNode }) {
     setForm((current) => (current === key ? null : key));
   };
 
-  const glanceBits: string[] = [];
-  if (hold) glanceBits.push("hold");
-  if (instruction) glanceBits.push("briefing");
-  if (hasDefaults) glanceBits.push("defaults");
-  if (hasPaths) glanceBits.push("paths");
-  if (hasBackground) glanceBits.push("bg");
-
   return (
-    <div className="rts-kind-surface">
-      <div className="rts-kind-id rts-kind-id--compact">
-        <div className="rts-kind-id__text">
-          <div className="rts-kind-id__name">{nodeTitle(node)}</div>
-          <div className="rts-kind-id__live">
-            {glanceBits.length > 0 ? glanceBits.join(", ") : "Region fields"}
-          </div>
-        </div>
-      </div>
-
+    <div className="rts-kind-surface rts-kind-surface--region">
+      <div className="rts-kind-kind-label">region</div>
       <div className="rts-kind-strip" role="toolbar" aria-label="Region fields">
         <KindKey
           label={form === "briefing" ? "Close briefing" : "Region briefing"}
-          title="Region briefing — surfaced on agent onboard"
+          title="Briefing for agents on onboard"
           active={form === "briefing" || instruction}
           style={form === "briefing" || instruction ? { color: HUE.amber } : undefined}
           onClick={() => toggleForm("briefing")}
@@ -415,17 +387,26 @@ function RegionKindSurface({ node }: { readonly node: CanvasNode }) {
           <ScrollText size={ICON} />
         </KindKey>
         <KindKey
-          label={form === "defaults" ? "Close defaults" : "Spawn defaults"}
-          title="Herdr / page stamp for new nodes in this region"
-          active={form === "defaults" || hasDefaults}
-          style={form === "defaults" || hasDefaults ? { color: HUE.cyan } : undefined}
-          onClick={() => toggleForm("defaults")}
+          label={form === "herdr" ? "Close herdr defaults" : "Herdr defaults"}
+          title="Defaults for new herdr nodes in this region"
+          active={form === "herdr" || hasHerdr}
+          style={form === "herdr" || hasHerdr ? { color: HUE.cyan } : undefined}
+          onClick={() => toggleForm("herdr")}
         >
           <Package size={ICON} />
         </KindKey>
         <KindKey
+          label={form === "page" ? "Close page defaults" : "Page defaults"}
+          title="Defaults for new page nodes in this region"
+          active={form === "page" || hasPage}
+          style={form === "page" || hasPage ? { color: HUE.cyan } : undefined}
+          onClick={() => toggleForm("page")}
+        >
+          <Globe size={ICON} />
+        </KindKey>
+        <KindKey
           label={pathsOpen ? "Close folder paths" : "Folder paths"}
-          title="Host folder paths stamped onto actors"
+          title="Per-host working directories for agents and terminals"
           active={pathsOpen || hasPaths}
           style={pathsOpen || hasPaths ? { color: HUE.amber } : undefined}
           onClick={() => {
@@ -434,23 +415,6 @@ function RegionKindSurface({ node }: { readonly node: CanvasNode }) {
           }}
         >
           <FolderOpen size={ICON} />
-        </KindKey>
-        <KindKey
-          label={form === "background" ? "Close background" : "Background"}
-          title="Region plate image and fit"
-          active={form === "background" || hasBackground}
-          style={form === "background" || hasBackground ? { color: HUE.violet } : undefined}
-          onClick={() => toggleForm("background")}
-        >
-          <Image size={ICON} />
-        </KindKey>
-        <KindKey
-          label={form === "placement" ? "Close placement" : "Placement"}
-          title="Command Center vs local host home"
-          active={form === "placement"}
-          onClick={() => toggleForm("placement")}
-        >
-          <MapPin size={ICON} />
         </KindKey>
       </div>
 

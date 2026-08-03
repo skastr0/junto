@@ -930,6 +930,51 @@ html[data-vellum-platform="darwin"] .station-bar [role="listbox"] {
 .inspector-editor { display: grid; gap: 5px; margin-top: 15px; color: var(--color-dim); font-size: 8px; letter-spacing: .14em; text-transform: uppercase; }
 .inspector-editor input, .inspector-editor textarea { width: 100%; min-height: 32px; border: 1px solid rgba(237,230,218,.14); border-radius: 4px; background: var(--color-inset); color: var(--color-ink); padding: 7px 8px; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 10px; line-height: 1.45; outline: none; }
 .inspector-editor textarea { min-height: 76px; resize: vertical; }
+
+/* First-class CLI command chip — agents and operators share this vocabulary. */
+.cli-cmd {
+  display: inline;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.95em;
+  font-weight: 600;
+  color: var(--color-amber);
+  letter-spacing: 0.01em;
+}
+
+/* Region briefing focus body — large surface, one hint, no duplicated chrome. */
+.region-briefing {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+.region-briefing__hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--color-dim);
+}
+.region-briefing__editor {
+  width: 100%;
+  min-height: 220px;
+  resize: vertical;
+  border: 1px solid rgba(237, 230, 218, 0.14);
+  border-radius: 6px;
+  background: var(--color-inset);
+  color: var(--color-ink);
+  padding: 12px 14px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  outline: none;
+}
+.region-briefing__editor::placeholder {
+  color: var(--color-faint);
+}
+.region-briefing__editor:focus {
+  border-color: rgba(57, 198, 214, 0.55);
+  box-shadow: 0 0 0 3px rgba(57, 198, 214, 0.08);
+}
 .inspector-editor input::placeholder, .inspector-editor textarea::placeholder { color: var(--color-faint); }
 .inspector-editor input:focus, .inspector-editor textarea:focus { border-color: rgba(57,198,214,.55); box-shadow: 0 0 0 3px rgba(57,198,214,.08); }
 .inspector-section { margin-top: 16px; }

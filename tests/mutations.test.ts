@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Result } from "effect";
 import { decodeCanvasDoc, type CanvasDoc, type GroupNode } from "../src/shared/canvas";
-import { addNode, commitDoc, deleteNode, editFileDetails, editGroupBackground, editLink, editText, loadDoc, promoteLinkToPage, redo, renameGroup, setFlagForNodes, setNodeColor, setNodeColorForNodes, setNodeHost, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag, undo } from "../src/renderer/lib/mutations";
+import { addNode, commitDoc, deleteNode, editFileDetails, editLink, editText, loadDoc, promoteLinkToPage, redo, renameGroup, setFlagForNodes, setNodeColor, setNodeColorForNodes, setNodeHost, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag, undo } from "../src/renderer/lib/mutations";
 import { addEdge, connectAllToTarget, deleteEdges, editEdgeLabel, inferEdgeCriteria, planConnectToTarget, setEdgeColor, setEdgeCriteria, setEdgePorts, toggleEdgeArrow } from "../src/renderer/lib/edge-mutations";
 import { dragHoldMemberIds, findOpenPosition, resizeNode, syncPositions } from "../src/renderer/lib/geometry";
 import { clearGraphFilters, state$, toggleFlagFilter } from "../src/renderer/lib/state";
@@ -1033,16 +1033,6 @@ describe("renderer graph mutations", () => {
     expect(state$.doc.peek().edges[0]?.color).toBe("6");
     setEdgeColor("edge-1");
     expect(state$.doc.peek().edges[0]?.color).toBeUndefined();
-  });
-
-  it("edits and clears region backgrounds with fit style", () => {
-    state$.canvasName.set("mutation-test");
-    loadDoc({ nodes: [{ id: "region", type: "group", label: "region", x: 0, y: 0, width: 400, height: 200 }], edges: [] });
-    editGroupBackground("region", "https://example.com/field.png", "ratio");
-    expect(state$.doc.peek().nodes[0]).toMatchObject({ background: "https://example.com/field.png", backgroundStyle: "ratio" });
-    editGroupBackground("region", "", "cover");
-    expect(Object.hasOwn(state$.doc.peek().nodes[0] ?? {}, "background")).toBe(false);
-    expect(Object.hasOwn(state$.doc.peek().nodes[0] ?? {}, "backgroundStyle")).toBe(false);
   });
 
   it("edits file paths and subpaths together", () => {

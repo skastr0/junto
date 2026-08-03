@@ -46,15 +46,10 @@ const sortHosts = (opts: HostOpt[]): HostOpt[] =>
   });
 
 /**
- * Region host→cwd map editor. Create-time stamp source only — agents and
- * terminals placed inside the region inherit the path for their host.
+ * Region host→cwd map editor. Agents and terminals created inside the region
+ * use the path for their host as the working directory.
  *
- * Path rows use the same host-connected directory picker as the node palette
- * (browse + type on the enrolled host filesystem).
- *
- * Surface chrome: FocusSurface form measure + OverlayHeader (same instrument
- * as work-ledger / fleet overlays). Fields: Select / Button / IconButton —
- * no hand-rolled controls.
+ * Path rows use the same host-connected directory picker as the node palette.
  */
 export function RegionPathsModal({
   nodeId,
@@ -180,16 +175,16 @@ export function RegionPathsModal({
 
   return (
     <FocusSurface
-      measure="form"
+      measure="document"
       height="fit"
       layer="detail"
       label="Region folder paths"
       onClose={onClose}
     >
       <OverlayHeader
-        eyebrow="region · paths"
+        eyebrow="region"
         title="Folder paths"
-        status={`${regionLabel} · per-host cwd for agents & terminals`}
+        status={`${regionLabel} — working directory per host`}
         actions={
           <IconButton aria-label="Close folder paths" title="Close" onClick={onClose}>
             <X size={14} />
@@ -205,9 +200,8 @@ export function RegionPathsModal({
         }}
       >
         <p className="m-0 text-[11px] leading-relaxed text-dim">
-          Create-time only — agents and terminals inside this region stamp{" "}
-          <span className="font-mono text-ink">launch.cwd</span> for their host.
-          Browse each host&apos;s filesystem or type a path.
+          Agents and terminals created in this region use the path for their host as the
+          working directory. Browse each host filesystem or type a path.
         </p>
 
         <div role="list" aria-label="Host folder paths" className="grid gap-3">

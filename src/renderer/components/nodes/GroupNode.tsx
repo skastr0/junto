@@ -149,9 +149,6 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
   const label = node.type === "group" ? (node.label ?? "") : "";
   const stroke = borderColor(node.color, selected);
   const tint = accentColor(node.color);
-  const background = node.type === "group" ? node.background : undefined;
-  const hasBackground = Boolean(background);
-  const backgroundStyle = node.type === "group" ? (node.backgroundStyle ?? "cover") : "cover";
   const [editing, setEditing] = useState(false);
   const [pathsOpen, setPathsOpen] = useState(false);
   const isEditTarget = use$(() => state$.editNodeId.get() === node.id);
@@ -190,8 +187,8 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
     if (draft !== label) renameGroup(node.id, draft);
   };
 
-  // Selection chrome stays amber; unselected border + plate tint follow
-  // JSON Canvas `color` so region color customization is visible on the map.
+  // Selection chrome stays amber; unselected border + tint follow JSON Canvas
+  // `color`. Region plate images are retired — color wash only.
   //
   // pointer-events: plate none + chrome auto so rubber-band can start in empty
   // interior without dragging the region (dragHandle lives on the label strip).
@@ -202,11 +199,9 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
     style={{
       border: `1px solid ${plateBorder}`,
       pointerEvents: "none",
-      backgroundImage: hasBackground ? `linear-gradient(135deg, ${withAlpha(tint, 0.1)}, rgba(13,12,11,0.5)), url(${JSON.stringify(background)})` : undefined,
-      background: hasBackground ? undefined : node.color ? `linear-gradient(135deg, ${withAlpha(tint, 0.08)}, rgba(13,12,11,0.25))` : "linear-gradient(135deg, rgba(33,27,21,0.22), rgba(11,11,10,0.12))",
-      backgroundSize: hasBackground ? (backgroundStyle === "cover" ? "cover" : backgroundStyle === "ratio" ? "contain" : "auto") : undefined,
-      backgroundRepeat: hasBackground && backgroundStyle === "repeat" ? "repeat" : "no-repeat",
-      backgroundPosition: hasBackground ? "center" : undefined,
+      background: node.color
+        ? `linear-gradient(135deg, ${withAlpha(tint, 0.08)}, rgba(13,12,11,0.25))`
+        : "linear-gradient(135deg, rgba(33,27,21,0.22), rgba(11,11,10,0.12))",
       boxShadow: selected ? `0 0 0 1px ${withAlpha(HUE.amber, 0.18)}` : "none",
     }}
   >

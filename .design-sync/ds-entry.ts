@@ -1,7 +1,7 @@
 // design-sync DS entry — seed scope: foundations + ui primitives + canvas
 // nodes + inspector (node/edge settings) + RTS bar. Operator-trimmed 2026-08-02.
 export { CanvasStage, SeedState } from "./ds-extras";
-export { ConnectEditor, EdgeBoardNotifyToggle, EdgeCapabilitySection, EdgeCriteriaEditor, EdgePortsAttenuator, EdgeRelayStateToggle, NodeCapabilityInventory, NodeFieldEditors, NodeFlagControls, NodePlacementSection, RegionBackgroundEditor, RegionBriefingEditor, RegionDefaultsControl, RegionHoldControl } from "../src/renderer/components/InspectorFields";
+export { ConnectEditor, EdgeBoardNotifyToggle, EdgeCapabilitySection, EdgeCriteriaEditor, EdgePortsAttenuator, EdgeRelayStateToggle, NodeCapabilityInventory, NodeFieldEditors, NodeFlagControls, NodePlacementSection, RegionBriefingEditor, RegionHerdrDefaultsControl, RegionHoldControl, RegionPageDefaultsControl } from "../src/renderer/components/InspectorFields";
 export { InspectorPanel } from "../src/renderer/components/InspectorPanel";
 export { ClaimedTaskStrip } from "../src/renderer/components/nodes/ClaimedTaskStrip";
 export { ExecutionCardHeader } from "../src/renderer/components/nodes/ExecutionCardHeader";
