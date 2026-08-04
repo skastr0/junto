@@ -62,6 +62,7 @@ import {
   TimerEditor,
   WatcherEditor,
 } from "../InspectorFields";
+import { CronScheduleSurface } from "../nodes/CronScheduleSurface";
 import "./rts-controls.css";
 
 const ICON = 12;
@@ -521,15 +522,18 @@ export function KindActions({ node }: { readonly node: CanvasNode }) {
 function SchedulerKindKeys({ node }: { readonly node: CanvasNode }) {
   const kind = node.ether?.entity?.kind;
   const [configOpen, setConfigOpen] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const isCron = kind === "cron" || kind === "timer";
 
   useEffect(() => {
     setConfigOpen(false);
+    setScheduleOpen(false);
   }, [node.id]);
 
   const config =
-    kind === "cron" || kind === "timer"
+    isCron
       ? {
-          label: configOpen ? "Close schedule" : "Schedule",
+          label: configOpen ? "Close expression" : "Expression",
           title: "Cron expression",
           Icon: Timer,
           body: <TimerEditor node={node} />,
@@ -561,16 +565,38 @@ function SchedulerKindKeys({ node }: { readonly node: CanvasNode }) {
       >
         <Pencil size={ICON} />
       </KindKey>
+      {isCron ? (
+        <KindKey
+          label="Settings"
+          title="Schedule settings"
+          active={scheduleOpen}
+          onClick={() => {
+            setConfigOpen(false);
+            setScheduleOpen(true);
+          }}
+        >
+          <SlidersHorizontal size={ICON} />
+        </KindKey>
+      ) : null}
       <KindKey
         label={config.label}
         title={config.title}
         active={configOpen}
-        onClick={() => setConfigOpen((open) => !open)}
+        onClick={() => {
+          setScheduleOpen(false);
+          setConfigOpen((open) => !open);
+        }}
       >
         <config.Icon size={ICON} />
       </KindKey>
       {configOpen ? (
         <div className="rts-kind-pop rts-kind-pop--editor">{config.body}</div>
+      ) : null}
+      {scheduleOpen && isCron ? (
+        <CronScheduleSurface
+          node={node}
+          onClose={() => setScheduleOpen(false)}
+        />
       ) : null}
     </>
   );

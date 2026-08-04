@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import type { NodeProps } from "@xyflow/react";
-import { Gauge, Radio, Timer, X } from "lucide-react";
+import { Gauge, Radio, Settings2, Timer, X } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
 import {
   describeCronExpression,
@@ -59,6 +59,24 @@ import {
 import { TaskToolbarActions } from "../work/TaskToolbarActions";
 import { ClaimedTaskStrip } from "./ClaimedTaskStrip";
 import { NodeShell } from "./NodeShell";
+
+function CronScheduleToolbarAction({ onOpen }: { readonly onOpen: () => void }) {
+  return (
+    <IconButton
+      className="nodrag nopan"
+      aria-label="Schedule settings"
+      title="schedule settings"
+      data-testid="node-toolbar-cron-settings"
+      onPointerDown={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onOpen();
+      }}
+    >
+      <Settings2 size={14} />
+    </IconButton>
+  );
+}
 
 // Re-renders every intervalMs so relative-time copy ("fired 2m ago", "next
 // pulse in 12m") stays fresh without a per-second timer — a 30s cadence is
@@ -596,6 +614,8 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
           <AgentChatToolbarActions node={node} />
         ) : entityKind === "task" ? (
           <TaskToolbarActions node={node} />
+        ) : isCron ? (
+          <CronScheduleToolbarAction onOpen={() => setCronScheduleOpen(true)} />
         ) : undefined
       }
     >
