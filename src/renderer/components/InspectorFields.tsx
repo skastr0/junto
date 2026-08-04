@@ -710,7 +710,7 @@ function EdgeEffectEditor({
 
   return (
     <div className="inspector-section">
-      <div className="inspector-section__label">When it fires</div>
+      <div className="inspector-section__label">When this fires</div>
       <div className="inspector-detail" style={{ marginBottom: 8 }}>
         Applied to {toNode ? nodeTitle(toNode) : "the other end"}
       </div>

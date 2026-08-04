@@ -322,7 +322,7 @@ export const sheetTitleFor = (family: WireFamily): string => {
     case "trigger":
       return "Trigger";
     case "effect":
-      return "On fire";
+      return "When this fires";
     default: {
       const _exhaustive: never = family;
       return _exhaustive;
