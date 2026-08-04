@@ -1,12 +1,12 @@
 import { memo, useEffect, useState } from "react";
-import { ArrowRight, Trash2, X } from "lucide-react";
+import { Trash2, X } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
 import type { CanvasNode } from "@shared/canvas";
 import { isHarnessId } from "@shared/managed-terminal-templates";
 import { deriveExecutionGraph } from "@shared/execution-graph";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
 import { deleteEdges, setEdgeCriteria } from "../lib/edge-mutations";
-import { EdgeCapabilitySection, EdgeCriteriaEditor, EdgePortsAttenuator, NodeCapabilityInventory, NodeFieldEditors, NodePlacementSection } from "./InspectorFields";
+import { EdgeCriteriaEditor, EdgePortsAttenuator, NodeCapabilityInventory, NodeFieldEditors, NodePlacementSection } from "./InspectorFields";
 import { clearSelection, state$ } from "../lib/state";
 import { kernel$ } from "../lib/kernel-view";
 import { DIM, GREEN, HUE, INK, withAlpha } from "../lib/theme";
@@ -180,26 +180,26 @@ function EdgeInspector({ onClose }: { readonly onClose: () => void }) {
   const liveDetail =
     execution?.detailByEdgeId?.[edge.id] ?? cold?.detailByEdgeId.get(edge.id) ?? "";
   const criteria = edge.ether?.stops ?? edge.ether?.criteria;
-  const eyebrow =
+  const title =
     edge.ether?.slot === "input"
-      ? "watch"
+      ? "Watch"
       : edge.ether?.slot === "output" || edge.ether?.slot === "recipient"
-        ? "effect"
+        ? "On fire"
         : edge.ether?.slot === "trigger"
-          ? "trigger"
-          : criteria
-            ? "access"
-            : "access";
+          ? "Trigger"
+          : "Access";
   return (
     <aside className="inspector-panel">
-      <InspectorHeader eyebrow={eyebrow} title="connection" onClose={onClose} />
+      <InspectorHeader
+        eyebrow={
+          source && target
+            ? `${nodeTitle(source)} → ${nodeTitle(target)}`
+            : "Selected link"
+        }
+        title={title}
+        onClose={onClose}
+      />
       <div className="inspector-body">
-        <div className="inspector-edge">
-          <span>{source ? nodeTitle(source) : edge.fromNode}</span>
-          <ArrowRight size={14} style={{ color: HUE.amber }} />
-          <span>{target ? nodeTitle(target) : edge.toNode}</span>
-        </div>
-        <EdgeCapabilitySection edge={edge} fromNode={source} toNode={target} />
         <EdgePortsAttenuator edge={edge} />
         <EdgeCriteriaEditor
           edgeId={edge.id}
@@ -210,12 +210,12 @@ function EdgeInspector({ onClose }: { readonly onClose: () => void }) {
         <div className="inspector-actions">
           {criteria ? (
             <button onClick={() => setEdgeCriteria(edge.id, undefined)}>
-              clear stops
+              Clear stop condition
             </button>
           ) : null}
           <button className="inspector-action--danger" onClick={() => deleteEdges([edge.id])}>
             <Trash2 size={13} />
-            delete
+            Delete link
           </button>
         </div>
       </div>

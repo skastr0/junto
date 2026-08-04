@@ -158,7 +158,7 @@ export function EdgeCapabilitySection({
  * write `ports: []`, which would (under attenuation) grant nothing at all
  * instead of restoring the full default.
  */
-/** Board wakes word — default ON. */
+/** Board megaphone membership — default on. */
 export function EdgeBoardNotifyToggle({ edge }: { readonly edge: CanvasEdge }) {
   const doc = use$(state$.doc);
   const from = doc.nodes.find((n) => n.id === edge.fromNode);
@@ -169,7 +169,7 @@ export function EdgeBoardNotifyToggle({ edge }: { readonly edge: CanvasEdge }) {
   const on = (edge.ether?.wake ?? edge.ether?.notify) !== false;
   return (
     <div className="inspector-section">
-      <div className="inspector-section__label">wakes board</div>
+      <div className="inspector-section__label">Board notifications</div>
       <button
         type="button"
         className="inspector-flag-toggle"
@@ -181,11 +181,30 @@ export function EdgeBoardNotifyToggle({ edge }: { readonly edge: CanvasEdge }) {
         }}
         onClick={() => setEdgeNotify(edge.id, !on)}
       >
-        {on ? "ON" : "OFF"}
+        {on ? "Included" : "Muted"}
       </button>
     </div>
   );
 }
+
+/** Human labels for port chips — never raw protocol tokens as the only text. */
+const PORT_LABEL: Partial<Record<PortName, string>> = {
+  "tasks.list": "List tasks",
+  "tasks.create": "Create tasks",
+  "tasks.claim": "Claim tasks",
+  "tasks.update": "Update tasks",
+  "msg.list": "List messages",
+  "msg.send": "Send messages",
+  "request.escalate": "Raise requests",
+  "artifact.publish": "Publish artifacts",
+  "browser.automate": "Drive browser",
+  "board.list": "List board",
+  "board.create_topic": "Create topics",
+  "board.post": "Post to board",
+  "board.mark_read": "Mark board read",
+};
+
+const portLabel = (port: PortName): string => PORT_LABEL[port] ?? port;
 
 /** @deprecated cascade removed — no UI. */
 export function EdgeRelayStateToggle(_props: { readonly edge: CanvasEdge }) {
@@ -242,11 +261,13 @@ export function EdgePortsAttenuator({ edge }: { readonly edge: CanvasEdge }) {
   return (
     <div className="inspector-section">
       <EdgeBoardNotifyToggle edge={edge} />
-      <div className="inspector-section__label">access ports</div>
+      <div className="inspector-section__label">Permissions</div>
       <div className="inspector-detail" style={{ marginBottom: 8 }}>
-        {mask === undefined ? "All offered ports open" : "Allow-list"}
+        {mask === undefined
+          ? "Everything this side offers is allowed. Turn one off to limit."
+          : "Only the highlighted actions are allowed."}
       </div>
-      <div className="inspector-flags" role="list" aria-label="Limit edge ports">
+      <div className="inspector-flags" role="list" aria-label="Permissions on this link">
         {offeredPorts.map((port) => {
           const isActive = mask === undefined || HashSet.has(active, port);
           return (
@@ -264,7 +285,7 @@ export function EdgePortsAttenuator({ edge }: { readonly edge: CanvasEdge }) {
               }}
               onClick={() => toggle(port)}
             >
-              {port}
+              {portLabel(port)}
             </button>
           );
         })}
@@ -276,7 +297,7 @@ export function EdgePortsAttenuator({ edge }: { readonly edge: CanvasEdge }) {
           style={{ marginTop: 8 }}
           onClick={() => setEdgePorts(edge.id, undefined)}
         >
-          restore full default
+          Allow all again
         </button>
       ) : null}
     </div>
@@ -691,29 +712,29 @@ function EdgeEffectEditor({
 
   return (
     <div className="inspector-section">
-      <div className="inspector-section__label">effect</div>
+      <div className="inspector-section__label">When it fires</div>
       <div className="inspector-detail" style={{ marginBottom: 8 }}>
-        When this scheduler fires → {toNode ? nodeTitle(toNode) : "…"}
+        Applied to {toNode ? nodeTitle(toNode) : "the other end"}
       </div>
       <label className="inspector-editor">
-        <span>does</span>
+        <span>Action</span>
         <Select
           dense
-          aria-label="Wire effect"
+          aria-label="Action when this fires"
           value={mode}
           options={[
-            { value: "none", label: "nothing" },
-            { value: "enqueue_task", label: "enqueue task" },
-            { value: "set_flag", label: "set flag" },
+            { value: "none", label: "Do nothing" },
+            { value: "enqueue_task", label: "Add a task" },
+            { value: "set_flag", label: "Set a flag" },
           ]}
           onChange={(value) => setMode(value as "none" | "enqueue_task" | "set_flag")}
         />
       </label>
       {effect?.mode === "enqueue_task" ? (
         <label className="inspector-editor">
-          <span>brief</span>
+          <span>Task brief</span>
           <input
-            aria-label="Enqueue task brief"
+            aria-label="Task brief"
             value={effect.brief}
             onChange={(event) =>
               setEdgeEffect(edgeId, {
@@ -727,15 +748,15 @@ function EdgeEffectEditor({
       ) : null}
       {effect?.mode === "set_flag" ? (
         <label className="inspector-editor">
-          <span>flag</span>
+          <span>Flag</span>
           <Select
             dense
-            aria-label="Set flag name"
+            aria-label="Flag to set"
             value={effect.flag}
             options={[
-              { value: "blocker", label: "blocker" },
-              { value: "attention", label: "attention" },
-              { value: "parked", label: "parked" },
+              { value: "blocker", label: "Blocker" },
+              { value: "attention", label: "Needs attention" },
+              { value: "parked", label: "Parked" },
             ]}
             onChange={(value) =>
               setEdgeEffect(edgeId, {
@@ -773,19 +794,19 @@ function EdgeWhenEditor({
 
   return (
     <div className="inspector-section">
-      <div className="inspector-section__label">watch</div>
+      <div className="inspector-section__label">Watch for</div>
       <label className="inspector-editor">
-        <span>when</span>
+        <span>Condition</span>
         <Select
           dense
-          aria-label="Watch when"
+          aria-label="Condition that fires this relay"
           value={value}
           options={[
-            { value: "none", label: "not set" },
-            { value: "completes", label: "task completes" },
-            { value: "flagged:attention", label: "flag attention" },
-            { value: "flagged:blocker", label: "flag blocker" },
-            { value: "flagged:parked", label: "flag parked" },
+            { value: "none", label: "Not set" },
+            { value: "completes", label: "A task completes" },
+            { value: "flagged:attention", label: "Marked needs attention" },
+            { value: "flagged:blocker", label: "Marked blocker" },
+            { value: "flagged:parked", label: "Marked parked" },
           ]}
           onChange={(next) => {
             if (next === "none") {
@@ -822,17 +843,6 @@ export function EdgeCriteriaEditor({
   const toNode = doc.nodes.find((node) => node.id === edge?.toNode);
   const fromKind = fromNode?.ether?.entity?.kind;
   const fromIsTask = fromKind === "task" || fromKind === "requests";
-  const fromRole = roleOf(specOf(fromNode));
-  const toRole = roleOf(specOf(toNode));
-  const slot = edge?.ether?.slot;
-  const familyHint =
-    slot === "input"
-      ? "watch"
-      : slot === "output" || slot === "recipient"
-        ? "effect"
-        : slot === "trigger"
-          ? "trigger"
-          : "access";
 
   type AuthoringMode = "none" | "tasks";
   const mode: AuthoringMode = criteria?.mode === "tasks" ? "tasks" : "none";
@@ -840,27 +850,20 @@ export function EdgeCriteriaEditor({
 
   return (
     <>
-      <div className="inspector-section" style={{ marginBottom: 4 }}>
-        <div className="inspector-section__label">kind</div>
-        <div className="text-[12px] font-semibold" style={{ color: INK }}>
-          {familyHint}
-          {slot ? ` / ${slot}` : ""}
-        </div>
-      </div>
       <EdgeWhenEditor edgeId={edgeId} toNode={toNode} />
       <EdgeEffectEditor edgeId={edgeId} fromNode={fromNode} toNode={toNode} />
       {showStops ? (
         <div className="inspector-section">
-          <div className="inspector-section__label">stops</div>
+          <div className="inspector-section__label">Blocks the agent</div>
           <label className="inspector-editor">
-            <span>when agent is blocked</span>
+            <span>When</span>
             <Select
               dense
-              aria-label="Stop condition"
+              aria-label="When this link blocks the agent"
               value={mode}
               options={[
-                { value: "none", label: "never" },
-                { value: "tasks", label: "needs input" },
+                { value: "none", label: "Never" },
+                { value: "tasks", label: "Work needs input" },
               ]}
               onChange={(value) => {
                 if (value === "none") setEdgeCriteria(edgeId, undefined);
@@ -1339,7 +1342,7 @@ export function WatcherEditor({ node }: { readonly node: CanvasNode }) {
   </div>;
 }
 
-/** Relay binding is the wire — no node-id form. */
+/** Relay binding is the drawn links — no node-id form. */
 export function RelayEditor({ node }: { readonly node: CanvasNode }) {
   const doc = use$(state$.doc);
   const inbound = doc.edges.filter(
@@ -1352,7 +1355,7 @@ export function RelayEditor({ node }: { readonly node: CanvasNode }) {
   );
   const watchLine =
     inbound.length === 0
-      ? "Draw a task sink into this relay to watch completions"
+      ? "Connect a tasks card into this relay to watch for completions."
       : inbound
           .map((edge) => {
             const src = doc.nodes.find((n) => n.id === edge.fromNode);
@@ -1362,24 +1365,24 @@ export function RelayEditor({ node }: { readonly node: CanvasNode }) {
             const when = edge.ether?.when;
             const word =
               when?.word === "flagged"
-                ? `flagged ${when.flag}`
-                : "completes";
-            return `${name} - ${word}`;
+                ? `flag ${when.flag}`
+                : "task completes";
+            return `${name}: ${word}`;
           })
           .join("; ");
   const effectLine =
     outbound.length === 0
-      ? "Draw from this relay to a task sink to enqueue on fire"
-      : `${outbound.length} effect link${outbound.length === 1 ? "" : "s"}`;
+      ? "Connect this relay to a tasks card to add work when it fires."
+      : `${outbound.length} outgoing action${outbound.length === 1 ? "" : "s"}`;
 
   return (
     <div className="inspector-section">
-      <div className="inspector-section__label">relay</div>
+      <div className="inspector-section__label">Relay</div>
       <div className="text-[11px] leading-snug" style={{ color: INK }}>
-        watch: {watchLine}
+        Watches: {watchLine}
       </div>
       <div className="mt-1 text-[11px] leading-snug" style={{ color: DIM }}>
-        then: {effectLine}
+        Then: {effectLine}
       </div>
     </div>
   );
