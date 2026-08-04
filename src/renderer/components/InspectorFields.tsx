@@ -216,7 +216,6 @@ export function EdgePortsAttenuator({ edge }: { readonly edge: CanvasEdge }) {
   const toNode = doc.nodes.find((n) => n.id === edge.toNode);
   const fromNode = doc.nodes.find((n) => n.id === edge.fromNode);
   // Direction-agnostic: non-actor end offers; actor–actor unions both.
-  // Never show scaffolding ports (relay.trigger) until a consumer exists.
   const targetSpec = specOf(toNode);
   const fromSpec = specOf(fromNode);
   const offerSet = offerPortsForAccessWire(

@@ -4,6 +4,7 @@ import {
   collectEffectEdgesFrom,
   defaultEnqueueBrief,
   evaluateRelay,
+  evaluateWatchWhen,
   inferSchedulerEdgeEffect,
   validateEffectTarget,
 } from "./scheduler-effects";
@@ -131,6 +132,45 @@ describe("scheduler-effects", () => {
       reason: "scheduler",
     });
     expect(inferSchedulerEdgeEffect(task, cron)).toBeUndefined();
+    const agent = {
+      id: "a1",
+      type: "text" as const,
+      text: "agent",
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+      ether: { entity: { kind: "agent" as const } },
+    };
+    expect(inferSchedulerEdgeEffect(cron, agent)).toEqual({
+      mode: "inject_prompt",
+    });
+  });
+
+  it("OR-evaluates multi-select watch any", () => {
+    const flagged = {
+      id: "n1",
+      type: "text" as const,
+      text: "x",
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+      ether: {
+        entity: { kind: "task" as const },
+        flags: ["attention" as const],
+        tasks: { items: [] },
+      },
+    };
+    expect(
+      evaluateWatchWhen(flagged, {
+        word: "any",
+        any: [
+          { word: "completes" },
+          { word: "flagged", flag: "attention" },
+        ],
+      }).status,
+    ).toBe("satisfied");
   });
 
   it("evaluates relay task_state", () => {

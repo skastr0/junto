@@ -471,6 +471,33 @@ export const registerVellumIpc = (): void => {
       ),
   );
 
+  privilegedIpc.handle(
+    IPC_CHANNELS.schedulerFire,
+    (
+      _event,
+      canvas: string,
+      sourceNodeId: string,
+    ): Promise<{ ok: true } | { ok: false; error: string }> =>
+      AppRuntime.runPromise(
+        Effect.gen(function* () {
+          const kernel = yield* KernelService;
+          const result = yield* Effect.tryPromise({
+            try: () =>
+              kernel.manualFire({
+                canvasName: canvas,
+                sourceNodeId,
+              }),
+            catch: (error) =>
+              error instanceof Error ? error : new Error(String(error)),
+          });
+          if (!result.ok) {
+            return { ok: false as const, error: result.message };
+          }
+          return { ok: true as const };
+        }),
+      ),
+  );
+
   // Region rollups for the bottom bar: derived per call from the current
   // document + snapshots + the chat plane's session/permission state.
   privilegedIpc.handle(IPC_CHANNELS.regionRollups, (_event, name: string) =>

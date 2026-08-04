@@ -35,8 +35,10 @@ import {
 import { buildFactoryClaimPrompt } from "@shared/factory-claim-prompt";
 import {
   claimedByOf,
+  makeUserMessage,
   taskReleaseBoundary,
 } from "@shared/task";
+import { ulid } from "ulid";
 import type { Task } from "@shared/work-model";
 import type { InstallationId } from "@shared/installation-id";
 import type { ActorSeatId } from "@shared/actor-seat";
@@ -87,6 +89,7 @@ import {
   getNextFire,
   getRuntimeFlagOverrides,
   getWatchers,
+  manualSchedulerFire,
   purgeCanvasMemory,
   reconcileLiveCanvasMemory,
   runEvaluationCycle,
@@ -129,6 +132,12 @@ export class KernelService extends Context.Service<KernelService,
     readonly getSnapshot: () => KernelSnapshot;
     // Pushed on cycle end — never per-watcher.
     readonly subscribe: (listener: (snapshot: KernelSnapshot) => void) => () => void;
+    /** Fire a scheduler node now (operator Fire now / agent relay.trigger). */
+    readonly manualFire: (input: {
+      readonly canvasName: string;
+      readonly sourceNodeId: string;
+      readonly kind?: "relay" | "cron" | "gauge";
+    }) => Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }>;
   }>()("@vellum/KernelService") {}
 
 const SAFETY_INTERVAL_MS = 30_000;
@@ -729,6 +738,30 @@ const makeKernelService = (
       return { ok: true };
     },
     setFlag: setNodeFlag,
+    injectPrompt: async ({ canvasName, agentNodeId, text }) => {
+      if (!canAutomateCanvas(canvasName)) {
+        return { ok: false, message: "canvas paused or station role unset" };
+      }
+      if (cachedStationRole !== "command-center") {
+        return { ok: false, message: "inject_prompt requires Command Center" };
+      }
+      const result = await run(
+        work.workSystemMailboxNotify(
+          canvasName,
+          agentNodeId,
+          makeUserMessage({
+            messageId: ulid(),
+            text,
+            contextId: canvasName,
+            metadata: { factoryScheduler: true, injectPrompt: true },
+          }),
+        ),
+      );
+      if (!result.ok) {
+        return { ok: false, message: result.message };
+      }
+      return { ok: true };
+    },
   });
 
   // flagOnUnsatisfied writes only when automation gate allows (CC + playing).
@@ -1329,6 +1362,8 @@ const makeKernelService = (
       snapshotListeners.add(listener);
       return () => snapshotListeners.delete(listener);
     },
+
+    manualFire: (input) => manualSchedulerFire(input),
   });
 };
 

@@ -98,6 +98,7 @@ export const collectWatchEdgesInto = (
 
 export type EffectTargetError =
   | "target_not_task_sink"
+  | "target_not_agent"
   | "target_missing"
   | "empty_brief"
   | "invalid_flag";
@@ -114,6 +115,11 @@ export const validateEffectTarget = (
     if (effect.brief.trim().length === 0) return "empty_brief";
     return undefined;
   }
+  if (effect.mode === "inject_prompt") {
+    if (target.type === "group") return "target_missing";
+    if (target.ether?.entity?.kind !== "agent") return "target_not_agent";
+    return undefined;
+  }
   // set_flag: any non-group node
   if (target.type === "group") return "target_missing";
   return undefined;
@@ -127,18 +133,38 @@ export const defaultEnqueueBrief = (source: CanvasNode): string => {
   return `Scheduled work from ${kind}`;
 };
 
-/** Infer enqueue effect when connecting a scheduler to a task sink. */
+/** Infer effect when connecting a scheduler → target. */
 export const inferSchedulerEdgeEffect = (
   fromNode: CanvasNode | undefined,
   toNode: CanvasNode | undefined,
 ): EdgeEffect | undefined => {
   if (!isSchedulerNode(fromNode)) return undefined;
-  if (toNode?.ether?.entity?.kind !== "task") return undefined;
-  return {
-    mode: "enqueue_task",
-    brief: defaultEnqueueBrief(fromNode!),
-    reason: "scheduler",
-  };
+  const toKind = toNode?.ether?.entity?.kind;
+  if (toKind === "task") {
+    return {
+      mode: "enqueue_task",
+      brief: defaultEnqueueBrief(fromNode!),
+      reason: "scheduler",
+    };
+  }
+  if (toKind === "agent") {
+    return { mode: "inject_prompt" };
+  }
+  return undefined;
+};
+
+/** Default inject text when the wire carries no authored template. */
+export const defaultInjectPromptText = (
+  source: CanvasNode,
+  fireStatus?: string,
+): string => {
+  const kind = source.ether?.entity?.kind ?? "scheduler";
+  const label =
+    source.type === "text" && source.text.trim().length > 0
+      ? source.text.trim().split("\n")[0]!
+      : kind;
+  const status = fireStatus ? ` (${fireStatus})` : "";
+  return `[factory] ${label} fired${status}`;
 };
 
 export type RelayEvaluation = {
@@ -146,14 +172,10 @@ export type RelayEvaluation = {
   readonly detail: string;
 };
 
-/** Evaluate a watch predicate against a concrete source node. */
-export const evaluateWatchWhen = (
-  source: CanvasNode | undefined,
-  when: WatchWhen,
+const evaluateWatchAtom = (
+  source: CanvasNode,
+  when: Extract<WatchWhen, { readonly word: "completes" | "flagged" }>,
 ): RelayEvaluation => {
-  if (!source) {
-    return { status: "unknown", detail: "source missing" };
-  }
   if (when.word === "flagged") {
     const flag = when.flag;
     const has = source.ether?.flags?.includes(flag) ?? false;
@@ -193,6 +215,22 @@ export const evaluateWatchWhen = (
     status: "pending",
     detail: `no item in state ${want}`,
   };
+};
+
+/** Evaluate a watch predicate against a concrete source node. */
+export const evaluateWatchWhen = (
+  source: CanvasNode | undefined,
+  when: WatchWhen,
+): RelayEvaluation => {
+  if (!source) {
+    return { status: "unknown", detail: "source missing" };
+  }
+  if (when.word === "any") {
+    return combineWatchEvaluations(
+      when.any.map((atom) => evaluateWatchAtom(source, atom)),
+    );
+  }
+  return evaluateWatchAtom(source, when);
 };
 
 /** @deprecated Prefer evaluateWatchWhen on wire `when`. Legacy EtherRelay body. */

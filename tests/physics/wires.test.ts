@@ -190,13 +190,13 @@ describe("wires grammar", () => {
       fromKind: "agent",
       toKind: "task",
     });
-    expect(access.map((s) => s._tag)).toEqual(["ports", "delete"]);
+    expect(access.map((s) => s._tag)).toEqual(["ports", "hold", "delete"]);
     const board = sheetSectionsFor({
       family: "access",
       fromKind: "agent",
       toKind: "board",
     });
-    expect(board.map((s) => s._tag)).toEqual(["ports", "wake", "delete"]);
+    expect(board.map((s) => s._tag)).toEqual(["ports", "wake", "hold", "delete"]);
     const watch = sheetSectionsFor({
       family: "watch",
       fromKind: "task",

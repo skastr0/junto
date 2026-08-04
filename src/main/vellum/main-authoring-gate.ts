@@ -37,6 +37,7 @@ export const MAIN_AUTHORING_LABELS = [
   "control.work.board-create-topic",
   "control.work.board-post",
   "control.work.board-mark-read",
+  "control.work.relay-trigger",
   "ipc.work.board-topic-create",
   "ipc.work.board-post",
   "ipc.work.board-mark-read",
@@ -82,6 +83,7 @@ const WORK_OPERATION_CLASSIFICATION = {
   "board.create_topic": "authorial",
   "board.post": "authorial",
   "board.mark_read": "authorial",
+  "relay.trigger": "authorial",
 } as const satisfies Record<WorkOpName, MainAuthoringWorkClassification>;
 
 export const classifyMainAuthoringWorkOperation = (
@@ -100,6 +102,7 @@ const WORK_AUTHORING_LABELS = {
   "board.create_topic": "control.work.board-create-topic",
   "board.post": "control.work.board-post",
   "board.mark_read": "control.work.board-mark-read",
+  "relay.trigger": "control.work.relay-trigger",
 } as const satisfies Record<
   Extract<
     WorkOpName,
@@ -114,6 +117,7 @@ const WORK_AUTHORING_LABELS = {
     | "board.create_topic"
     | "board.post"
     | "board.mark_read"
+    | "relay.trigger"
   >,
   MainAuthoringLabel
 >;

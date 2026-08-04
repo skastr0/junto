@@ -58,7 +58,9 @@ export const WorkOpName = Schema.Literals(["ping", "doctor",
 "board.list",
 "board.create_topic",
 "board.post",
-"board.mark_read",]);
+"board.mark_read",
+/** Agent → relay: fire the scheduler pipeline now (port relay.trigger). */
+"relay.trigger",]);
 export type WorkOpName = typeof WorkOpName.Type;
 
 // ---------------------------------------------------------------------------
@@ -432,6 +434,14 @@ export const BoardMarkReadArgs = Schema.Struct({
   upToPosition: Schema.optionalKey(Schema.Number),
 });
 export type BoardMarkReadArgs = typeof BoardMarkReadArgs.Type;
+
+/** Agent fires a connected scheduler via the relay.trigger port. */
+export const RelayTriggerArgs = Schema.Struct({
+  target: Schema.String,
+}).annotate({
+  parseOptions: { onExcessProperty: "error" },
+});
+export type RelayTriggerArgs = typeof RelayTriggerArgs.Type;
 
 // ---------------------------------------------------------------------------
 // Helpers

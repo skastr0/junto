@@ -31,8 +31,8 @@ export type ContractEvent = typeof ContractEvent.Type;
 export const ContractInput = Schema.Struct({
   id: Schema.String,
   label: Schema.String,
-  /** Maps to EdgeEffect.mode (or planned inject). */
-  mode: Schema.Literals(["enqueue_task", "set_flag"]),
+  /** Maps to EdgeEffect.mode. */
+  mode: Schema.Literals(["enqueue_task", "set_flag", "inject_prompt"]),
 });
 export type ContractInput = typeof ContractInput.Type;
 
@@ -76,6 +76,12 @@ const flagInput: ContractInput = {
   mode: "set_flag",
 };
 
+const injectPromptInput: ContractInput = {
+  id: "input.inject_prompt",
+  label: "Inject a prompt",
+  mode: "inject_prompt",
+};
+
 const portsOf = (kind: WellKnownKind): ReadonlyArray<Port> => [
   ...KindSpecs[kind].offers,
 ];
@@ -98,7 +104,7 @@ export const NodeContracts: {
       },
       ...flagEvents,
     ],
-    inputs: [flagInput],
+    inputs: [injectPromptInput, flagInput],
   },
   task: {
     kind: "task",
@@ -251,6 +257,8 @@ export type SheetSection =
       readonly inputs: ReadonlyArray<ContractInput>;
     }
   | { readonly _tag: "trigger_readout" }
+  /** Deliberate gate: proof or human approval only. */
+  | { readonly _tag: "hold" }
   | { readonly _tag: "delete" };
 
 /**
@@ -275,6 +283,7 @@ export const sheetSectionsFor = (input: {
     if (fromKind === "board" || toKind === "board") {
       sections.push({ _tag: "wake" });
     }
+    sections.push({ _tag: "hold" });
   } else if (family === "watch") {
     // Watch observes the source (sink → relay). Events from source contract.
     const source = contractOf(fromKind);

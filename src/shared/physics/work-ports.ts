@@ -35,6 +35,7 @@ export const PortForWorkOp = {
   "board.create_topic": "board.create_topic",
   "board.post": "board.post",
   "board.mark_read": "board.mark_read",
+  "relay.trigger": "relay.trigger",
 } as const satisfies Record<TargetWorkOpName, Port>;
 
 export type PortForWorkOp = typeof PortForWorkOp;
@@ -62,6 +63,7 @@ export const TARGET_WORK_OPS: ReadonlyArray<TargetWorkOpName> = [
   "board.create_topic",
   "board.post",
   "board.mark_read",
+  "relay.trigger",
 ];
 
 // ---------------------------------------------------------------------------

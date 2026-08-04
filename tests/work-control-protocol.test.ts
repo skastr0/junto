@@ -116,6 +116,7 @@ describe("work-control wire schemas", () => {
       "msg.reply",
       "request.escalate",
       "artifact.publish",
+      "relay.trigger",
     ]);
     expect(Result.isSuccess(ops)).toBe(true);
     expect(

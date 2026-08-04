@@ -15,9 +15,8 @@ import type { FactoryRole, Port } from "./schema";
  * Ports that exist on the schema for future ops but must not appear in access
  * chips until a real consumer exists (otherwise operators attenuate into air).
  */
-export const PORTS_HIDDEN_FROM_CHIPS: ReadonlySet<Port> = new Set([
-  "relay.trigger",
-]);
+/** Empty — relay.trigger ships (agent fire + operator Fire now). */
+export const PORTS_HIDDEN_FROM_CHIPS: ReadonlySet<Port> = new Set([]);
 
 /**
  * Which port set an access wire attenuates. Direction-agnostic:
@@ -311,7 +310,10 @@ export type WireEtherView = {
   readonly criteria?: unknown;
   readonly wake?: boolean;
   readonly notify?: boolean;
-  readonly when?: { readonly word?: string };
+  readonly when?: {
+    readonly word?: string;
+    readonly any?: ReadonlyArray<{ readonly word?: string }>;
+  };
   readonly does?: { readonly mode?: string };
   readonly effect?: { readonly mode?: string };
   readonly ports?: ReadonlyArray<string>;
@@ -340,7 +342,22 @@ export const wordsOfEdge = (input: {
     return words;
   }
   if (family === "watch") {
-    const word = ether?.when?.word;
+    const when = ether?.when;
+    if (when?.word === "any" && Array.isArray(when.any)) {
+      const seen = new Set<WireWord>();
+      for (const atom of when.any) {
+        if (atom.word === "completes" && !seen.has("completes")) {
+          words.push("completes");
+          seen.add("completes");
+        } else if (atom.word === "flagged" && !seen.has("flagged")) {
+          words.push("flagged");
+          seen.add("flagged");
+        }
+      }
+      if (words.length === 0) words.push("completes");
+      return words;
+    }
+    const word = when?.word;
     if (word === "completes") words.push("completes");
     else if (word === "flagged") words.push("flagged");
     // Watch always carries a word in product; default completes when unset
@@ -352,6 +369,7 @@ export const wordsOfEdge = (input: {
     const mode = ether?.does?.mode ?? ether?.effect?.mode;
     if (mode === "enqueue_task") words.push("enqueues");
     else if (mode === "set_flag") words.push("flags");
+    else if (mode === "inject_prompt") words.push("wakes");
     // Effect always worded; default enqueues when mode absent (draw default).
     else words.push("enqueues");
     return words;

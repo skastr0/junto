@@ -307,6 +307,11 @@ export const addEdge = (params: {
       : undefined;
   const does = inferSchedulerEdgeEffect(fromNode, toNode);
   const when = inferWatchWhen(fromNode, toNode);
+  // Actor→relay OptIn needs an explicit port mask for relay.trigger grant.
+  const ports =
+    slot === "trigger" && toNode?.ether?.entity?.kind === "relay"
+      ? (["relay.trigger"] as const)
+      : undefined;
   const fromSide = parseSide(params.sourceHandle);
   const toSide = parseSide(params.targetHandle);
   const etherParts: NonNullable<CanvasEdge["ether"]> = {
@@ -314,6 +319,7 @@ export const addEdge = (params: {
     ...(stops ? { stops, criteria: stops } : {}),
     ...(does ? { does, effect: does } : {}),
     ...(when ? { when } : {}),
+    ...(ports ? { ports: [...ports] } : {}),
   };
   const ether =
     Object.keys(etherParts).length > 0 ? etherParts : undefined;
@@ -353,6 +359,7 @@ export type EdgeBatchCandidate = {
   readonly effect?: EdgeEffect;
   readonly slot?: WireSlot;
   readonly when?: WatchWhen;
+  readonly ports?: ReadonlyArray<Port>;
 };
 
 export type EdgeBatchPlan = {
@@ -432,6 +439,10 @@ export const planConnectToTarget = (
       toKind: target.ether?.entity?.kind,
     });
     const when = inferWatchWhen(source, target);
+    const ports =
+      slot === "trigger" && target.ether?.entity?.kind === "relay"
+        ? (["relay.trigger"] as const)
+        : undefined;
     toAdd.push({
       fromNode: sourceId,
       toNode: targetId,
@@ -439,6 +450,7 @@ export const planConnectToTarget = (
       ...(effect ? { effect } : {}),
       ...(slot ? { slot } : {}),
       ...(when ? { when } : {}),
+      ...(ports ? { ports: [...ports] } : {}),
     });
   }
 
@@ -481,6 +493,9 @@ export const connectAllToTarget = (
         ? { does: candidate.effect, effect: candidate.effect }
         : {}),
       ...(candidate.when ? { when: candidate.when } : {}),
+      ...(candidate.ports && candidate.ports.length > 0
+        ? { ports: [...candidate.ports] }
+        : {}),
     };
     const ether =
       Object.keys(etherParts).length > 0 ? etherParts : undefined;

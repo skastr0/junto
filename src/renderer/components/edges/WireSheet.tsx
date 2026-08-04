@@ -1,8 +1,15 @@
 /**
  * Dynamic edge config sheet — sections from family + node contracts.
- * Sheet law: only settings physics cannot derive. See wire-grammar artifact.
  */
-import type { CanvasEdge, CanvasNode, EtherFlag } from "@shared/canvas";
+import { useState } from "react";
+import type {
+  CanvasEdge,
+  CanvasNode,
+  EdgeCriteria,
+  EtherFlag,
+  WatchWhen,
+  WatchWhenAtom,
+} from "@shared/canvas";
 import {
   familyFromSlot,
   resolveSpec,
@@ -11,6 +18,7 @@ import {
   sheetTitleFor,
   wirePresentation,
   wireRolePair,
+  type ContractEvent,
   type SheetSection,
   type WireFamily,
 } from "@shared/physics";
@@ -19,8 +27,10 @@ import {
   EdgePortsAttenuator,
 } from "../InspectorFields";
 import { Select } from "../ui";
-import { setEdgeEffect, setEdgeWhen } from "../../lib/edge-mutations";
+import { setEdgeCriteria, setEdgeEffect, setEdgeWhen } from "../../lib/edge-mutations";
 import { nodeTitle } from "../../lib/presentation";
+import { state$ } from "../../lib/state";
+import { HUE, withAlpha } from "../../lib/theme";
 
 export const resolveEdgeFamily = (
   edge: CanvasEdge,
@@ -67,6 +77,29 @@ export const edgeSheetSentence = (
   }).sentence;
 };
 
+const atomKey = (atom: WatchWhenAtom): string =>
+  atom.word === "flagged" ? `flagged:${atom.flag}` : "completes";
+
+const eventToAtom = (event: ContractEvent): WatchWhenAtom => {
+  if (event.word === "flagged" && event.flag) {
+    return { word: "flagged", flag: event.flag };
+  }
+  return { word: "completes" };
+};
+
+const atomsFromWhen = (when: WatchWhen | undefined): ReadonlyArray<WatchWhenAtom> => {
+  if (!when) return [];
+  if (when.word === "any") return when.any;
+  if (when.word === "completes" || when.word === "flagged") return [when];
+  return [];
+};
+
+const whenFromAtoms = (atoms: ReadonlyArray<WatchWhenAtom>): WatchWhen | undefined => {
+  if (atoms.length === 0) return undefined;
+  if (atoms.length === 1) return atoms[0];
+  return { word: "any", any: [...atoms] };
+};
+
 function WhenSection({
   edgeId,
   section,
@@ -76,54 +109,56 @@ function WhenSection({
   readonly section: Extract<SheetSection, { readonly _tag: "when" }>;
   readonly edge: CanvasEdge;
 }) {
-  const when = edge.ether?.when;
-  const value =
-    when?.word === "flagged"
-      ? `flagged:${when.flag}`
-      : when?.word === "completes"
-        ? section.events.find((e) => e.word === "completes")?.id ?? "completes"
-        : "none";
+  const active = new Set(atomsFromWhen(edge.ether?.when).map(atomKey));
 
-  const options = [
-    { value: "none", label: "Not set" },
-    ...section.events.map((event) => ({
-      value:
-        event.word === "flagged" && event.flag
-          ? `flagged:${event.flag}`
-          : event.id,
-      label: event.label,
-    })),
-  ];
+  const toggle = (event: ContractEvent): void => {
+    const atom = eventToAtom(event);
+    const key = atomKey(atom);
+    const current = atomsFromWhen(edge.ether?.when);
+    const next = active.has(key)
+      ? current.filter((a) => atomKey(a) !== key)
+      : [...current, atom];
+    const seen = new Set<string>();
+    const deduped: WatchWhenAtom[] = [];
+    for (const a of next) {
+      const k = atomKey(a);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      deduped.push(a);
+    }
+    setEdgeWhen(edgeId, whenFromAtoms(deduped));
+  };
 
   return (
     <div className="inspector-section">
       <div className="inspector-section__label">Fires when</div>
-      <label className="inspector-editor">
-        <span>Condition</span>
-        <Select
-          dense
-          aria-label="Condition that fires this relay"
-          value={value}
-          options={options}
-          onChange={(next) => {
-            if (next === "none") {
-              setEdgeWhen(edgeId, undefined);
-              return;
-            }
-            if (next.startsWith("flagged:")) {
-              const flag = next.replace("flagged:", "") as EtherFlag;
-              setEdgeWhen(edgeId, { word: "flagged", flag });
-              return;
-            }
-            const event = section.events.find((e) => e.id === next);
-            if (event?.word === "flagged" && event.flag) {
-              setEdgeWhen(edgeId, { word: "flagged", flag: event.flag });
-              return;
-            }
-            setEdgeWhen(edgeId, { word: "completes" });
-          }}
-        />
-      </label>
+      <div className="inspector-detail" style={{ marginBottom: 8 }}>
+        Any selected condition (OR)
+      </div>
+      <div className="inspector-flags" role="list" aria-label="Watch conditions">
+        {section.events.map((event) => {
+          const atom = eventToAtom(event);
+          const key = atomKey(atom);
+          const on = active.has(key);
+          return (
+            <button
+              key={event.id}
+              type="button"
+              role="listitem"
+              aria-pressed={on}
+              className="inspector-flag-toggle"
+              style={{
+                color: on ? HUE.cyan : "#68604a",
+                borderColor: on ? withAlpha(HUE.cyan, 0.5) : "rgba(237,230,218,.12)",
+                background: on ? withAlpha(HUE.cyan, 0.1) : "rgba(255,255,255,.02)",
+              }}
+              onClick={() => toggle(event)}
+            >
+              {event.label}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -175,6 +210,10 @@ function DoesSection({
               });
               return;
             }
+            if (value === "inject_prompt") {
+              setEdgeEffect(edgeId, { mode: "inject_prompt" });
+              return;
+            }
             setEdgeEffect(edgeId, {
               mode: "set_flag",
               flag: "attention",
@@ -205,39 +244,166 @@ function DoesSection({
           />
         </label>
       ) : null}
-      {effect?.mode === "enqueue_task" ? (
+      {effect?.mode === "enqueue_task" || effect?.mode === "inject_prompt" ? (
         <div className="inspector-detail" style={{ marginTop: 8 }}>
-          Task content is built from the firing event — no template on the wire.
+          Content is built from the firing event — no template on the wire.
         </div>
       ) : null}
     </div>
   );
 }
 
-function TriggerReadout({
-  fromNode,
-  toNode,
+function HoldSection({
+  edgeId,
+  edge,
 }: {
-  readonly fromNode: CanvasNode | undefined;
-  readonly toNode: CanvasNode | undefined;
+  readonly edgeId: string;
+  readonly edge: CanvasEdge;
 }) {
-  const from = fromNode ? nodeTitle(fromNode) : "This end";
-  const to = toNode ? nodeTitle(toNode) : "the scheduler";
+  const criteria = edge.ether?.stops ?? edge.ether?.criteria;
+  const mode =
+    criteria?.mode === "proof"
+      ? "proof"
+      : criteria?.mode === "approval"
+        ? "approval"
+        : "none";
+  const step =
+    criteria && (criteria.mode === "proof" || criteria.mode === "approval")
+      ? criteria.step
+      : "gate";
+
   return (
     <div className="inspector-section">
-      <div className="inspector-section__label">Trigger</div>
-      <div className="inspector-detail">
-        {from} can fire {to}. No settings — the pipeline is the output wires
-        leaving the scheduler.
+      <div className="inspector-section__label">Hold (gate)</div>
+      <div className="inspector-detail" style={{ marginBottom: 8 }}>
+        Optional deliberate gate. Work stoppage is automatic — not a toggle.
       </div>
+      <label className="inspector-editor">
+        <span>Kind</span>
+        <Select
+          dense
+          aria-label="Hold on this link"
+          value={mode}
+          options={[
+            { value: "none", label: "None" },
+            { value: "proof", label: "Proof step" },
+            { value: "approval", label: "Human approval" },
+          ]}
+          onChange={(value) => {
+            if (value === "none") {
+              setEdgeCriteria(edgeId, undefined);
+              return;
+            }
+            const next: EdgeCriteria =
+              value === "proof"
+                ? { mode: "proof", step: step || "gate" }
+                : { mode: "approval", step: step || "gate" };
+            setEdgeCriteria(edgeId, next);
+          }}
+        />
+      </label>
+      {mode !== "none" ? (
+        <label className="inspector-editor">
+          <span>Step name</span>
+          <input
+            aria-label="Gate step name"
+            value={step}
+            onChange={(event) => {
+              const nextStep = event.target.value.trim() || "gate";
+              setEdgeCriteria(
+                edgeId,
+                mode === "proof"
+                  ? { mode: "proof", step: nextStep }
+                  : { mode: "approval", step: nextStep },
+              );
+            }}
+          />
+        </label>
+      ) : null}
     </div>
   );
 }
 
-/**
- * Body of the edge sheet: only sections the pair's family + contracts admit.
- * Caller owns header + delete action.
- */
+function TriggerReadout({
+  edge,
+  fromNode,
+  toNode,
+}: {
+  readonly edge: CanvasEdge;
+  readonly fromNode: CanvasNode | undefined;
+  readonly toNode: CanvasNode | undefined;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<string>("");
+  const from = fromNode ? nodeTitle(fromNode) : "This end";
+  const to = toNode ? nodeTitle(toNode) : "the scheduler";
+  const schedulerId =
+    toNode?.ether?.entity?.kind === "relay" ||
+    toNode?.ether?.entity?.kind === "cron" ||
+    toNode?.ether?.entity?.kind === "timer" ||
+    toNode?.ether?.entity?.kind === "watcher"
+      ? toNode.id
+      : fromNode?.ether?.entity?.kind === "relay" ||
+          fromNode?.ether?.entity?.kind === "cron"
+        ? fromNode.id
+        : toNode?.id;
+
+  const fireNow = async () => {
+    if (!schedulerId) {
+      setStatus("No scheduler on this link");
+      return;
+    }
+    const api = window.vellum;
+    const canvas = state$.canvasName.peek();
+    if (!api?.schedulerFire || !canvas) {
+      setStatus("Fire is unavailable");
+      return;
+    }
+    setBusy(true);
+    setStatus("");
+    try {
+      const result = await api.schedulerFire(canvas, schedulerId);
+      setStatus(result.ok ? "Fired" : result.error);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="inspector-section">
+      <div className="inspector-section__label">Trigger</div>
+      <div className="inspector-detail" style={{ marginBottom: 8 }}>
+        {from} can fire {to}. Pipeline is the output wires leaving the scheduler.
+      </div>
+      <button
+        type="button"
+        className="inspector-flag-toggle"
+        disabled={busy}
+        style={{
+          color: HUE.violet,
+          borderColor: withAlpha(HUE.violet, 0.5),
+          background: withAlpha(HUE.violet, 0.1),
+        }}
+        onClick={() => void fireNow()}
+      >
+        {busy ? "Firing…" : "Fire now"}
+      </button>
+      {status ? (
+        <div className="inspector-detail" style={{ marginTop: 8 }}>
+          {status}
+        </div>
+      ) : null}
+      {edge.ether?.ports?.includes("relay.trigger") ? (
+        <div className="inspector-detail" style={{ marginTop: 6 }}>
+          Agents with this link may call relay.trigger.
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function WireSheetBody({
   edge,
   fromNode,
@@ -290,9 +456,6 @@ export function WireSheetBody({
           case "ports":
             return <EdgePortsAttenuator key="ports" edge={edge} />;
           case "wake":
-            // EdgePortsAttenuator already mounts the board toggle when ports
-            // empty; when ports exist the attenuator also mounts it. Render
-            // standalone only if ports section is absent (never for access).
             return sections.some((s) => s._tag === "ports") ? null : (
               <EdgeBoardNotifyToggle key="wake" edge={edge} />
             );
@@ -315,10 +478,13 @@ export function WireSheetBody({
                 toNode={toNode}
               />
             );
+          case "hold":
+            return <HoldSection key="hold" edgeId={edge.id} edge={edge} />;
           case "trigger_readout":
             return (
               <TriggerReadout
                 key="trigger"
+                edge={edge}
                 fromNode={fromNode}
                 toNode={toNode}
               />

@@ -99,6 +99,8 @@ export const IPC_CHANNELS = {
   /** Factory pause plane — canvas-level switch state (born paused). */
   factoryPauseState: "vellum:factory-pause-state",
   factoryPauseSet: "vellum:factory-pause-set",
+  /** Operator Fire now — apply scheduler output-edge effects immediately. */
+  schedulerFire: "vellum:scheduler-fire",
   regionRollups: "vellum:region-rollups",
   /**
    * Put image bytes into the local content store; returns a ContentRef.
@@ -583,6 +585,14 @@ export interface VellumApi extends LicenseApi, UpdateApi {
     scope: PauseScope,
     paused: boolean,
   ) => Promise<FactoryPauseSetResult>;
+  /** Fire a scheduler node now (relay/cron). Used by the trigger edge sheet. */
+  readonly schedulerFire: (
+    canvas: string,
+    sourceNodeId: string,
+  ) => Promise<
+    | { readonly ok: true }
+    | { readonly ok: false; readonly error: string }
+  >;
   // Region severity rollups for the bottom bar, derived live per call from
   // the document + snapshots + ACP chat activity (shared/region-rollup.ts).
   readonly regionRollups: (name: string) => Promise<ReadonlyArray<RegionRollup>>;

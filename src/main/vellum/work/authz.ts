@@ -129,6 +129,7 @@ export const requiresConnection = (op: WorkOpName): boolean => {
     case "board.create_topic":
     case "board.post":
     case "board.mark_read":
+    case "relay.trigger":
       return true;
   }
 };
@@ -147,12 +148,15 @@ const MSG_OPS: ReadonlyArray<WorkOpName> = [
  * `OPS_BY_SINK` record in the physics work vocabulary, so a new sink kind is a
  * compile error at the declaration rather than a silent empty op list here.
  */
+const RELAY_OPS: ReadonlyArray<WorkOpName> = ["relay.trigger"];
+
 const opsForSpec = (spec: NodeSpecValue): ReadonlyArray<WorkOpName> =>
   Match.value(spec).pipe(
     Match.tagsExhaustive({
       Actor: () => MSG_OPS,
       Sink: (s): ReadonlyArray<WorkOpName> => opsForSink(s.kind),
-      Scheduler: () => NO_OPS,
+      Scheduler: (s): ReadonlyArray<WorkOpName> =>
+        s.kind === "relay" ? RELAY_OPS : NO_OPS,
       Geography: () => NO_OPS,
     }),
   );

@@ -6,6 +6,7 @@
 import type { CanvasDoc, CanvasNode, EtherFlag } from "@shared/canvas";
 import {
   collectEffectEdgesFrom,
+  defaultInjectPromptText,
   resolveMirrorFlagEnabled,
   validateEffectTarget,
   type EffectEdgeBinding,
@@ -43,6 +44,12 @@ export type SchedulerEffectDeps = {
     flag: EtherFlag,
     enabled: boolean,
   ) => Promise<{ readonly ok: boolean; readonly message?: string }>;
+  /** Optional — inject prompt into agent mailbox. Absent = inject effects no-op. */
+  readonly injectPrompt?: (input: {
+    readonly canvasName: string;
+    readonly agentNodeId: string;
+    readonly text: string;
+  }) => Promise<{ readonly ok: boolean; readonly message?: string }>;
 };
 
 let effectDeps: SchedulerEffectDeps | undefined;
@@ -82,6 +89,31 @@ const applyOne = async (
     if (!result.ok) {
       console.error(
         `[kernel] enqueue_task failed on ${binding.edge.id}: ${result.message ?? "unknown"}`,
+      );
+      return;
+    }
+    deps.recordReceipt(fire.fireKey, binding.edge.id);
+    return;
+  }
+
+  if (binding.effect.mode === "inject_prompt") {
+    if (!deps.injectPrompt) {
+      console.error(
+        `[kernel] inject_prompt skipped on ${binding.edge.id}: no inject handler`,
+      );
+      return;
+    }
+    const text =
+      binding.effect.text?.trim() ||
+      defaultInjectPromptText(binding.source, fire.status);
+    const result = await deps.injectPrompt({
+      canvasName,
+      agentNodeId: binding.target.id,
+      text,
+    });
+    if (!result.ok) {
+      console.error(
+        `[kernel] inject_prompt failed on ${binding.edge.id}: ${result.message ?? "unknown"}`,
       );
       return;
     }

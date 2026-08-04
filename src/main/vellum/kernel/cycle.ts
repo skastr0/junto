@@ -686,6 +686,41 @@ export const checkTimers = async (
 
 // --- utility exports (for tests) -----------------------------------------------
 
+/**
+ * Operator / agent-triggered scheduler fire. Applies output-edge effects once
+ * under a unique fireKey (no rising-edge gate). Canvas must be hydrated.
+ */
+export const manualSchedulerFire = async (input: {
+  readonly canvasName: string;
+  readonly sourceNodeId: string;
+  readonly kind?: "relay" | "cron" | "gauge";
+}): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }> => {
+  const doc = docs.get(input.canvasName);
+  if (!doc) {
+    return { ok: false, message: "canvas is not hydrated in the kernel" };
+  }
+  const node = doc.nodes.find((n) => n.id === input.sourceNodeId);
+  if (!node) {
+    return { ok: false, message: `node "${input.sourceNodeId}" not found` };
+  }
+  const kind =
+    input.kind ??
+    (node.ether?.entity?.kind === "cron" || node.ether?.entity?.kind === "timer"
+      ? "cron"
+      : node.ether?.entity?.kind === "watcher" || node.ether?.entity?.kind === "gauge"
+        ? "gauge"
+        : "relay");
+  const fireKey = `manual:${input.canvasName}::${input.sourceNodeId}:${Date.now()}`;
+  await applySchedulerFire(doc, {
+    canvasName: input.canvasName,
+    sourceNodeId: input.sourceNodeId,
+    kind,
+    fireKey,
+    status: "satisfied",
+  });
+  return { ok: true };
+};
+
 export const setDocs = (docsMap: Map<string, CanvasDoc>): void => {
   docs = docsMap;
   reconcileRuntimeFlagOverrides(docsMap);

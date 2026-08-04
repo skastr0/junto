@@ -345,7 +345,22 @@ export const WatchWhenFlagged = Schema.Struct({
 });
 export type WatchWhenFlagged = typeof WatchWhenFlagged.Type;
 
-export const WatchWhen = Schema.Union([WatchWhenCompletes, WatchWhenFlagged]);
+/** Atomic watch atoms — multi-select OR nests these under `any`. */
+export const WatchWhenAtom = Schema.Union([WatchWhenCompletes, WatchWhenFlagged]);
+export type WatchWhenAtom = typeof WatchWhenAtom.Type;
+
+/** Multi-select OR within one watch wire. Single atoms still decode alone. */
+export const WatchWhenAny = Schema.Struct({
+  word: Schema.Literal("any"),
+  any: Schema.Array(WatchWhenAtom).pipe(Schema.check(Schema.isMinLength(1))),
+});
+export type WatchWhenAny = typeof WatchWhenAny.Type;
+
+export const WatchWhen = Schema.Union([
+  WatchWhenCompletes,
+  WatchWhenFlagged,
+  WatchWhenAny,
+]);
 export type WatchWhen = typeof WatchWhen.Type;
 
 // Automation effect plane (sibling of criteria/ports/notify). Kernel-home fire
@@ -365,7 +380,18 @@ export const EdgeEffectSetFlag = Schema.Struct({
 });
 export type EdgeEffectSetFlag = typeof EdgeEffectSetFlag.Type;
 
-export const EdgeEffect = Schema.Union([EdgeEffectEnqueueTask, EdgeEffectSetFlag]);
+/** Inject a prompt into an agent seat. Text optional — kernel fills from fire provenance. */
+export const EdgeEffectInjectPrompt = Schema.Struct({
+  mode: Schema.Literal("inject_prompt"),
+  text: Schema.optionalKey(Schema.String),
+});
+export type EdgeEffectInjectPrompt = typeof EdgeEffectInjectPrompt.Type;
+
+export const EdgeEffect = Schema.Union([
+  EdgeEffectEnqueueTask,
+  EdgeEffectSetFlag,
+  EdgeEffectInjectPrompt,
+]);
 export type EdgeEffect = typeof EdgeEffect.Type;
 
 // Work read plane — normalized WorkService rows are projected into these

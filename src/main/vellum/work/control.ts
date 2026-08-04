@@ -46,6 +46,7 @@ import {
   MsgReplyArgs,
   MsgSendArgs,
   PreambleArgs,
+  RelayTriggerArgs,
   RequestEscalateArgs,
   TasksClaimArgs,
   TasksCreateArgs,
@@ -77,6 +78,7 @@ import {
 import { contentObjectPath } from "../content/paths";
 import { ContentStoreError } from "../content/store";
 import { WorkService, type WorkOpResult } from "./service";
+import { manualSchedulerFire } from "../kernel/cycle";
 import {
   liveSeatBlock,
   markSeatBlocked,
@@ -100,6 +102,7 @@ const MUTATING_OPS: ReadonlySet<string> = new Set([
   "board.create_topic",
   "board.post",
   "board.mark_read",
+  "relay.trigger",
 ]);
 
 /**
@@ -124,6 +127,7 @@ const BLOCKED_ENFORCED_OPS: ReadonlySet<string> = new Set([
   "artifact.publish",
   "board.create_topic",
   "board.post",
+  "relay.trigger",
 ]);
 import {
   admitWorkTarget,
@@ -1226,6 +1230,61 @@ const dispatchOp = (
       const mapped = fromWorkResult(result);
       if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
       return exposeWorkMutation(mapped.success);
+    }
+
+    if (op === "relay.trigger") {
+      const decoded = decodeArgs(RelayTriggerArgs, args);
+      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
+      const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
+      if ("type" in gate) return yield* Effect.fail(gate);
+      const kind = nodeKind(gate.node);
+      if (
+        kind !== "relay" &&
+        kind !== "cron" &&
+        kind !== "timer" &&
+        kind !== "watcher"
+      ) {
+        return yield* Effect.fail({
+          type: "ScopeError" as const,
+          message: `relay.trigger requires a scheduler target; got ${kind ?? "none"}`,
+          details: {
+            target: decoded.success.target,
+            caller: caller.nodeId,
+            retryable: false,
+            missing: "scheduler target",
+          },
+        });
+      }
+      const fired = yield* Effect.tryPromise({
+        try: () =>
+          manualSchedulerFire({
+            canvasName: caller.canvasName,
+            sourceNodeId: decoded.success.target,
+            kind:
+              kind === "cron" || kind === "timer"
+                ? "cron"
+                : kind === "watcher"
+                  ? "gauge"
+                  : "relay",
+          }),
+        catch: (error) => ({
+          type: "InternalError" as const,
+          message: error instanceof Error ? error.message : String(error),
+          details: { retryable: true },
+        }),
+      });
+      if (!fired.ok) {
+        return yield* Effect.fail({
+          type: "RuntimeDown" as const,
+          message: fired.message,
+          details: { target: decoded.success.target, retryable: true },
+        });
+      }
+      return {
+        target: decoded.success.target,
+        fired: true as const,
+        disposition: "applied" as const,
+      };
     }
 
     // Exhaustiveness — Schema already gates ops
