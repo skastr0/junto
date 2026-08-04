@@ -346,8 +346,7 @@ function DoesSection({
             };
             if (field.kind === "boolean") {
               return (
-                <label key={field.path} className="inspector-editor">
-                  <span>{field.label}</span>
+                <label key={field.path} className="inspector-check" htmlFor={id}>
                   <input
                     id={id}
                     type="checkbox"
@@ -357,6 +356,7 @@ function DoesSection({
                       onRaw(event.target.checked ? "true" : "false")
                     }
                   />
+                  <span className="inspector-check__label">{field.label}</span>
                 </label>
               );
             }
