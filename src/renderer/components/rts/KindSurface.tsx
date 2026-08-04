@@ -522,7 +522,7 @@ export function KindSurface() {
   if (selectedEdgeId) {
     const edge = doc.edges.find((candidate) => candidate.id === selectedEdgeId);
     if (!edge) {
-      return <div className="rts-quiet rts-quiet--compact">Select a node, or tap 1–9</div>;
+      return <div className="rts-quiet rts-quiet--compact"></div>;
     }
     return (
       <div className="rts-kind-surface">
@@ -543,12 +543,12 @@ export function KindSurface() {
   }
 
   if (!selectedNodeId) {
-    return <div className="rts-quiet rts-quiet--compact">Select a node, or tap 1–9</div>;
+    return <div className="rts-quiet rts-quiet--compact"></div>;
   }
 
   const node = doc.nodes.find((candidate) => candidate.id === selectedNodeId);
   if (!node) {
-    return <div className="rts-quiet rts-quiet--compact">Select a node, or tap 1–9</div>;
+    return <div className="rts-quiet rts-quiet--compact"></div>;
   }
 
   if (node.type === "group") {

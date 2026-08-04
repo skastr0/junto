@@ -181,8 +181,10 @@ export function EdgeCommandCard({ edgeId }: { readonly edgeId: string }) {
   const toNode = doc.nodes.find((n) => n.id === edge.toNode);
   const livePhase = execution?.phaseByEdgeId[edgeId];
   const liveDetail = execution?.detailByEdgeId[edgeId];
-  const criteria = edge.ether?.criteria;
-  const phase = livePhase ?? (criteria ? `criteria: ${criteria.mode}` : "soft relates");
+  const phase =
+    livePhase ??
+    edgeSheetSentence(edge, fromNode, toNode) ??
+    edgeSheetTitle(edge, fromNode, toNode);
   const phaseHue = livePhase === "blocks" ? HUE.crimson : undefined;
 
   return (
@@ -295,7 +297,7 @@ function HerdrKindKeys({ node }: { readonly node: CanvasNode }) {
       {canKill ? (
         <KindKey
           label={killArmed ? "Confirm kill pane" : "Kill pane"}
-          title={killArmed ? "click again to kill pane" : "arm kill pane (3s)"}
+          title={killArmed ? "Click again to kill the pane" : "Kill the pane, click again to confirm"}
           danger
           active={killArmed}
           style={killArmed ? { color: HUE.crimson } : undefined}
@@ -396,7 +398,7 @@ function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
       </KindKey>
       <KindKey
         label="Rename"
-        title="rename this tasks sink"
+        title="Rename"
         onClick={() => state$.editNodeId.set(node.id)}
       >
         <Pencil size={ICON} />
@@ -462,7 +464,7 @@ export function KindActions({ node }: { readonly node: CanvasNode }) {
           </KindKey>
           <KindKey
             label="Rename"
-            title="rename this requests sink"
+            title="Rename"
             onClick={() => state$.editNodeId.set(node.id)}
           >
             <Pencil size={ICON} />
@@ -481,7 +483,7 @@ export function KindActions({ node }: { readonly node: CanvasNode }) {
           </KindKey>
           <KindKey
             label="Rename"
-            title="rename this artifacts sink"
+            title="Rename"
             onClick={() => state$.editNodeId.set(node.id)}
           >
             <Pencil size={ICON} />
@@ -641,20 +643,20 @@ export function KindStrip() {
     return edge ? (
       <EdgePairStrip edge={edge} />
     ) : (
-      <div className="rts-quiet rts-quiet--compact">Select a node, or tap 1–9</div>
+      <div className="rts-quiet rts-quiet--compact"></div>
     );
   }
 
   if (!selectedNodeId) {
     return (
-      <div className="rts-quiet rts-quiet--compact">Select a node, or tap 1–9</div>
+      <div className="rts-quiet rts-quiet--compact"></div>
     );
   }
 
   const node = doc.nodes.find((candidate) => candidate.id === selectedNodeId);
   if (!node) {
     return (
-      <div className="rts-quiet rts-quiet--compact">Select a node, or tap 1–9</div>
+      <div className="rts-quiet rts-quiet--compact"></div>
     );
   }
 

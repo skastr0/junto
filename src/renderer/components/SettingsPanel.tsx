@@ -52,11 +52,11 @@ const SECTIONS: ReadonlyArray<{ key: PanelSection; label: string; blurb: string 
   { key: "station", label: "Machine", blurb: "Command Center or Remote role" },
   { key: "updates", label: "Updates", blurb: "check and install app updates" },
   { key: "appearance", label: "Appearance", blurb: "theme, density, motion" },
-  { key: "canvas", label: "Canvas", blurb: "defaults for the portfolio field" },
+  { key: "canvas", label: "Canvas", blurb: "defaults for new canvases" },
   { key: "hosts", label: "Hosts", blurb: "fleet + network services" },
   { key: "audio", label: "Audio", blurb: "RTS alert SFX mute and levels" },
   { key: "license", label: "License", blurb: "access, billing, and this installation" },
-  { key: "kernel", label: "Kernel", blurb: "debug verbosity" },
+  { key: "kernel", label: "Logging", blurb: "how much detail the app logs" },
   { key: "browser", label: "Browser", blurb: "surface and warm-session limits" },
   { key: "advanced", label: "Advanced", blurb: "startup, recovery, developer tools" },
 ];
@@ -108,7 +108,7 @@ function AppearanceSection() {
   const appearance = use$(state$.settings.appearance);
   return (
     <div className="settings-section">
-      <FieldRow label="Theme" hint="deep-field is the house look">
+      <FieldRow label="Theme" hint="how Vellum Command looks">
         <Select
           dense
           value={appearance.theme}
@@ -461,7 +461,7 @@ function AdvancedSection() {
       </FieldRow>
       <FieldRow
         label="Logs explorer"
-        hint="TopBar control - process Effect.log + main/renderer console (not work ledger)"
+        hint="how much detail the app logs"
       >
         <input
           type="checkbox"
@@ -551,10 +551,10 @@ function InstallationFacts() {
           {station.hostId.length > 0 ? station.hostId : "—"}
         </span>
       </FieldRow>
-      <FieldRow label="Settings schema" hint="prefs document version in vellum.db">
+      <FieldRow label="Settings version" hint="internal settings format">
         <span style={{ color: INK, fontSize: 13 }}>v{settingsVersion}</span>
       </FieldRow>
-      <FieldRow label="State store" hint="sole durable product database">
+      <FieldRow label="Data location" hint="where Vellum Command stores its data">
         <span className="settings-mono-value" style={{ color: INK, fontSize: 12 }}>
           ~/.vellum/state/vellum.db
         </span>
@@ -1103,7 +1103,7 @@ function HostsSection() {
     <div className="settings-section">
       <FieldRow
         label="Allow remote managed installs"
-        hint="Fleet kill-switch for deploying Vellum Command to enrolled Remotes. Off by default; main re-gates every invoke."
+        hint="Allow deploying Vellum Command to enrolled Remotes. Off by default."
       >
         <input
           type="checkbox"
@@ -1621,8 +1621,7 @@ export function SettingsPanel() {
               </p>
             ) : null}
             <p className="settings-foot" style={{ color: DIM }}>
-              Vellum Command {appVersion} - settings schema v{settingsVersion} -
-              ~/.vellum/state/vellum.db
+              Vellum Command {appVersion}
             </p>
           </div>
         </div>

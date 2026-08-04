@@ -17,7 +17,7 @@ export type ConnectPreview = {
   readonly label: string;
 };
 
-const GRANTLESS_LABEL = "reach + phase only — no ports offered";
+const GRANTLESS_LABEL = "connects, allows nothing yet";
 
 /**
  * Live would-be-grant preview for a candidate edge, before it is drawn.
@@ -39,6 +39,6 @@ export const describeConnectPreview = (
     fromRole,
     toRole,
     ports,
-    label: ports.length > 0 ? `will grant: ${ports.join(", ")}` : GRANTLESS_LABEL,
+    label: ports.length > 0 ? `allows ${ports.length} action${ports.length === 1 ? "" : "s"}` : GRANTLESS_LABEL,
   };
 };

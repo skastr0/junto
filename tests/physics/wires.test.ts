@@ -107,7 +107,7 @@ describe("wires grammar", () => {
       formatWireSentence(
         sentenceOf({ family: "watch", words: ["completes"] }),
       ),
-    ).toBe("watch - completes");
+    ).toBe("watch completes");
     expect(familyColorToken("effect")).toBe("amber");
     expect(familyColorToken("access")).toBe("steel");
   });
@@ -196,7 +196,7 @@ describe("wires grammar", () => {
       fromKind: "agent",
       toKind: "board",
     });
-    expect(board.map((s) => s._tag)).toEqual(["ports", "wake", "hold", "delete"]);
+    expect(board.map((s) => s._tag)).toEqual(["ports", "wake", "delete"]);
     const watch = sheetSectionsFor({
       family: "watch",
       fromKind: "task",

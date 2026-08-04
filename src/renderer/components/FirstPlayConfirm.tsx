@@ -11,10 +11,10 @@ import { DIM, GROUND, HUE, INK, INK_2, STROKE, withAlpha } from "../lib/theme";
 
 /** What play actually does — honest consequences, no softeners. */
 const CONSEQUENCES: ReadonlyArray<string> = [
-  "Timers and relays start firing and may spend real agent turns in armed regions.",
-  "Agents bound to seats may act through the vellum CLI.",
-  "Queued messages will deliver to their live targets.",
-  "The claim tick starts assigning submitted tasks to free connected workers.",
+  "Cron and relay nodes start firing, and may spend real agent turns.",
+  "Agents can act through the vellum CLI.",
+  "Queued messages deliver to their targets.",
+  "Queued tasks are handed to free connected agents.",
 ];
 
 const LABEL: React.CSSProperties = {
@@ -79,11 +79,10 @@ export function FirstPlayConfirm({
           id="first-play-title"
           style={{ margin: "0 0 10px", fontSize: 14, fontWeight: 600, color: INK }}
         >
-          Play the factory on “{canvasName}”?
+          Start “{canvasName}”?
         </h2>
         <p style={{ margin: "0 0 10px", fontSize: 11, lineHeight: 1.55 }}>
-          This canvas has never played. Playing flips the live switch and the
-          factory starts acting on its own:
+          This canvas has never run. Once playing, it acts on its own:
         </p>
         <ul style={{ margin: "0 0 12px", padding: 0, listStyle: "none", display: "grid", gap: 6 }}>
           {CONSEQUENCES.map((line) => (

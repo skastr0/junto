@@ -211,7 +211,7 @@ export const makeTasksNode = (
 export const makeRequestsNode = (x: number, y: number): TextNode => ({
   id: `requests-${ulid()}`,
   type: "text",
-  text: "0 pending",
+  text: "requests",
   x: Math.round(x),
   y: Math.round(y),
   width: 240,
@@ -241,7 +241,7 @@ export const makeArtifactsNode = (x: number, y: number): TextNode => ({
 export const makeBoardNode = (x: number, y: number): TextNode => ({
   id: `board-${ulid()}`,
   type: "text",
-  text: "quiet",
+  text: "board",
   x: Math.round(x),
   y: Math.round(y),
   width: 240,

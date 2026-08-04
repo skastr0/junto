@@ -1179,7 +1179,6 @@ function ConnectPreviewChip() {
   return (
     <Panel position="top-center" className="connect-preview-panel">
       <div className="connect-preview-chip" role="status" aria-live="polite">
-        <span className="connect-preview-chip__pair">{preview.fromRole} → {preview.toRole}</span>
         <span className="connect-preview-chip__grant">{preview.label}</span>
       </div>
     </Panel>

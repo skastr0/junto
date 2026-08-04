@@ -56,10 +56,10 @@ export const killActionCopy = (input: {
     return {
       label: "Confirm",
       title: agentSeat
-        ? "Click again to end agent process and work identity (3s)"
-        : "Click again to stop process (3s)",
+        ? "Click again to stop this agent"
+        : "Click again to stop the process",
       ariaLabel: agentSeat
-        ? "Confirm end agent process"
+        ? "Confirm stop agent"
         : "Confirm stop process",
       disabled: false,
     };
@@ -68,9 +68,9 @@ export const killActionCopy = (input: {
   return {
     label: "Stop",
     title: agentSeat
-      ? "Ends this agent process and its work identity. Click again to confirm (3s)."
-      : "Stop process — click again to confirm (3s)",
-    ariaLabel: agentSeat ? "Stop agent process" : "Stop process",
+      ? "Stop this agent, click again to confirm"
+      : "Stop the process, click again to confirm",
+    ariaLabel: agentSeat ? "Stop agent" : "Stop process",
     disabled: false,
   };
 };
@@ -78,14 +78,14 @@ export const killActionCopy = (input: {
 export const deadStateCopy = (input: {
   readonly agentSeat: boolean;
 }): DeadStateCopy => ({
-  headline: "Process stopped",
+  headline: input.agentSeat ? "Agent stopped" : "Process stopped",
   detail: input.agentSeat
-    ? "Work identity revoked - unclaim task if still held."
-    : "Last output is frozen below — process is not running.",
+    ? "If it still held a task, unclaim it from the task board."
+    : "The last output stays frozen below.",
   reopenLabel: "Reopen",
   closeViewLabel: "Close view",
 });
 
-/** Surface header eyebrow — Close (view) vs Stop (process). */
+/** Surface header eyebrow. */
 export const terminalSurfaceEyebrow = (hostId: string): string =>
-  `terminal - ${hostId} - Close keeps process - Stop ends it`;
+  `terminal — ${hostId}`;

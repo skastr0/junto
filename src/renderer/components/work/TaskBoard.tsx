@@ -259,7 +259,7 @@ const LANES: ReadonlyArray<LaneDefinition> = [
     tone: "green",
     chipTone: "green",
     icon: CheckCircle2,
-    hint: "Completed and stopped work - open a completed task to QA-reject it",
+    hint: "Completed and stopped work",
   },
 ];
 
@@ -892,9 +892,9 @@ function TaskCard({
             {claimantRetired ? (
               <Chip
                 tone="crimson"
-                title="This task remains claimed, but its ActorSeatId is absent from the current actor projection."
+                title="Still claimed by an agent that is no longer on the canvas"
               >
-                Stalled - retired seat
+                Stalled
               </Chip>
             ) : null}
           </div>
@@ -1079,7 +1079,7 @@ export function TaskCreateDialog({
               .map((n) => n.trim())
               .filter(Boolean);
             if (requireArtifacts && !artifactsNodeId) {
-              setFormError("No artifacts sink on this canvas — draw one before requiring artifacts.");
+              setFormError("Add an Artifacts card to the canvas before requiring artifacts.");
               return;
             }
             const finishCriteria: import("@shared/work-model").FinishCriteria | undefined = (() => {
@@ -1195,7 +1195,7 @@ export function TaskCreateDialog({
               <label>
                 <FieldCaption
                   label="Depends on"
-                  help="Hard prerequisite task ids on this sink or any other task sink in the same region. Empty means free to claim in parallel."
+                  help="Tasks that must finish first. Empty means this can start right away."
                 />
                 <Input
                   value={dependsOnText}
@@ -1208,7 +1208,7 @@ export function TaskCreateDialog({
                 <div className="task-create-dialog__gates-heading">
                   <FieldCaption
                     label="Hard finish gates"
-                    help="Deterministic complete requirements. Artifacts resolve to the canvas artifacts sink automatically."
+                    help="What must exist before this task can complete."
                   />
                 </div>
                 <label
@@ -1223,7 +1223,7 @@ export function TaskCreateDialog({
                     title={
                       artifactsNodeId
                         ? undefined
-                        : "No artifacts sink on this canvas"
+                        : "No Artifacts card on this canvas"
                     }
                     onChange={(event) => setRequireArtifacts(event.target.checked)}
                   />
@@ -1234,7 +1234,7 @@ export function TaskCreateDialog({
                     <label>
                       <FieldCaption
                         label="Instruction"
-                        help="What the agent should publish to the artifacts sink."
+                        help="What the agent should publish when the work is done."
                       />
                       <Textarea
                         value={artifactsInstruction}
@@ -1598,9 +1598,9 @@ function TaskDetailPanel({
             {claimantRetired ? (
               <Chip
                 tone="crimson"
-                title="This task remains claimed, but its ActorSeatId is absent from the current actor projection."
+                title="Still claimed by an agent that is no longer on the canvas"
               >
-                Stalled - retired seat
+                Stalled
               </Chip>
             ) : null}
             {isProposal && onApprove ? (

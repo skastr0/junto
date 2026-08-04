@@ -41,7 +41,7 @@ export function TerminalInventory() {
                     size="xs"
                     variant="danger"
                     className="row-span-2"
-                    title="Stop process (ends PTY; view may stay open elsewhere)"
+                    title="Stop the process"
                     aria-label="Stop process"
                     onClick={() => void getVellumApi()?.terminalKill?.(session.bindingId).then(refresh)}
                   >

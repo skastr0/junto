@@ -875,7 +875,7 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
               </strong>
               <p className="native-terminal-surface__dead-detail">
                 {processStopping
-                  ? "Revoking work identity, then terminating the PTY."
+                  ? "Stopping the process…"
                   : deadCopy.detail}
               </p>
               {!processStopping ? (

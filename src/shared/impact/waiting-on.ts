@@ -93,9 +93,9 @@ export const waitingOnPath = (
 };
 
 const reasonPhrase = (reason: BlockedReason): string => {
-  if (reason.kind === "edge") return reason.detail || "generating edge";
+  if (reason.kind === "edge") return reason.detail || "waiting on connected work";
   if (reason.kind === "work") return reason.detail || "waiting for operator";
-  return reason.detail || "manual seed";
+  return reason.detail || "held by hand";
 };
 
 /**
@@ -113,14 +113,13 @@ export const formatWaitingOnLines = (
   const byId = new Map(doc.nodes.map((n) => [n.id, n] as const));
   return path.hops.map((hop) => {
     const title = titleOf(byId.get(hop.nodeId), hop.nodeId);
-    if (hop.role === "seed") return `${title} - seed`;
+    if (hop.role === "seed") return `${title} — the holdup`;
     if (hop.role === "generator") {
-      const detail = hop.reasons[0] ? reasonPhrase(hop.reasons[0]) : "generator";
-      // Generator apex often has no reasons on itself; use role label.
-      return hop.reasons.length > 0 ? `${title} - ${detail}` : `${title} - generator`;
+      const detail = hop.reasons[0] ? reasonPhrase(hop.reasons[0]) : undefined;
+      return detail ? `${title} — ${detail}` : title;
     }
-    if (hop.role === "apex") return `${title} - apex`;
+    if (hop.role === "apex") return title;
     const first = hop.reasons[0];
-    return first ? `${title} - ${reasonPhrase(first)}` : title;
+    return first ? `${title} — ${reasonPhrase(first)}` : title;
   });
 };

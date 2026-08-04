@@ -13,14 +13,14 @@ export function surfaceLabel(
   void _registry;
   if (surface.kind === "browser") {
     const payload = dock$.browserByRef[surface.id].peek();
-    return payload?.title ?? payload?.url ?? surface.id.slice(0, 24);
+    return payload?.title ?? payload?.url ?? "page";
   }
   if (surface.kind === "herdr") {
     const nodeId = parseHerdrSurfaceId(surface.id);
     if (nodeId) {
       const terminal = getHerdrTerminal(nodeId);
       if (terminal) return terminal.title || "herdr";
-      return `herdr - ${nodeId.slice(0, 12)}`;
+      return "herdr";
     }
     return "herdr";
   }

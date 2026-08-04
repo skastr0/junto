@@ -97,16 +97,16 @@ const effectivePorts = (
 
 function PortChips({ ports }: { readonly ports: ReadonlyArray<PortName> }) {
   if (ports.length === 0) {
-    return <div className="inspector-detail">no ports granted</div>;
+    return <div className="inspector-detail">Nothing allowed on this wire</div>;
   }
   return (
-    <div className="inspector-flags" role="list" aria-label="Granted ports">
+    <div className="inspector-flags" role="list" aria-label="Allowed actions">
       {ports.map((port) => (
         <span
           key={port}
           role="listitem"
           className="inspector-flag-toggle"
-          title={port}
+          title={portLabel(port)}
           style={{
             color: HUE.cyan,
             borderColor: withAlpha(HUE.cyan, 0.4),
@@ -114,7 +114,7 @@ function PortChips({ ports }: { readonly ports: ReadonlyArray<PortName> }) {
             cursor: "default",
           }}
         >
-          {port}
+          {portLabel(port)}
         </span>
       ))}
     </div>
@@ -135,15 +135,14 @@ export function EdgeCapabilitySection({
   const toSpec = specOf(toNode);
   const mask = readEdgePortMask(edge);
   const forward = effectivePorts(fromSpec, toSpec, mask);
-  const fromLabel = fromNode ? nodeTitle(fromNode) : edge.fromNode;
-  const toLabel = toNode ? nodeTitle(toNode) : edge.toNode;
-  const portsNote = forward.length > 0 ? ` - ${forward.join(" - ")}` : "";
+  const fromLabel = fromNode ? nodeTitle(fromNode) : "This end";
+  const toLabel = toNode ? nodeTitle(toNode) : "the other end";
 
   return (
     <div className="inspector-section">
-      <div className="inspector-section__label">reach</div>
+      <div className="inspector-section__label">Allows</div>
       <div className="inspector-detail" style={{ marginBottom: forward.length > 0 ? 8 : 0 }}>
-        {fromLabel} can reach {toLabel}{portsNote}
+        What {fromLabel} may do to {toLabel}
       </div>
       {forward.length > 0 ? <PortChips ports={forward} /> : null}
     </div>
@@ -169,7 +168,7 @@ export function EdgeBoardNotifyToggle({ edge }: { readonly edge: CanvasEdge }) {
   const on = (edge.ether?.wake ?? edge.ether?.notify) !== false;
   return (
     <div className="inspector-section">
-      <div className="inspector-section__label">Board notifications</div>
+      <div className="inspector-section__label">Board wakes this agent</div>
       <button
         type="button"
         className="inspector-flag-toggle"
@@ -181,7 +180,7 @@ export function EdgeBoardNotifyToggle({ edge }: { readonly edge: CanvasEdge }) {
         }}
         onClick={() => setEdgeNotify(edge.id, !on)}
       >
-        {on ? "Included" : "Muted"}
+        {on ? "On" : "Off"}
       </button>
     </div>
   );
@@ -359,7 +358,7 @@ export function NodeCapabilityInventory({ node }: { readonly node: CanvasNode })
 
   if (!inventory) return null;
 
-  const label = inventory.role === "actor" ? "reaches" : "reached by";
+  const label = inventory.role === "actor" ? "connected to" : "used by";
 
   if (inventory.rows.length === 0) return null;
 
@@ -375,7 +374,7 @@ export function NodeCapabilityInventory({ node }: { readonly node: CanvasNode })
             <span className="min-w-0 flex-1 truncate">{row.title}</span>
             {row.ports.length > 0 ? (
               <span style={{ color: HUE.cyan, flex: "0 1 auto" }}>
-                {row.ports.join(" - ")}
+                {row.ports.map(portLabel).join(", ")}
               </span>
             ) : null}
           </div>
@@ -529,9 +528,9 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
     ) : null}
     {node.ether?.entity?.kind === "agent"
       ? <div className="inspector-section">
-          <div className="inspector-section__label">actor placement</div>
+          <div className="inspector-section__label">machine</div>
           <div className="inspector-detail">
-            This host is part of the actor seat identity. Create a new actor seat to move it.
+            This agent lives on its machine. To run one elsewhere, add a new agent there.
           </div>
         </div>
       : null}
@@ -561,7 +560,7 @@ export function TaskQueueHomeControl({ node }: { readonly node: CanvasNode }) {
           onChange={(next) => setNodeHost(node.id, next)}
         />
       </label>
-      <div className="inspector-detail">Existing tasks keep their current authority home.</div>
+      <div className="inspector-detail">Existing tasks stay where they are.</div>
     </div>
   );
 }
@@ -1354,25 +1353,21 @@ export function RelayEditor({ node }: { readonly node: CanvasNode }) {
   );
   const watchLine =
     inbound.length === 0
-      ? "Connect a tasks card into this relay to watch for completions."
+      ? "Not watching anything yet"
       : inbound
           .map((edge) => {
             const src = doc.nodes.find((n) => n.id === edge.fromNode);
-            const name =
-              (src?.type === "text" ? src.text : src?.id)?.split("\n")[0] ??
-              "source";
+            const name = src ? nodeTitle(src) : "a connected node";
             const when = edge.ether?.when;
             const word =
-              when?.word === "flagged"
-                ? `flag ${when.flag}`
-                : "task completes";
-            return `${name}: ${word}`;
+              when?.word === "flagged" ? `flagged ${when.flag}` : "completes";
+            return `${name} ${word}`;
           })
           .join("; ");
   const effectLine =
     outbound.length === 0
-      ? "Connect this relay to a tasks card to add work when it fires."
-      : `${outbound.length} outgoing action${outbound.length === 1 ? "" : "s"}`;
+      ? "Does nothing yet"
+      : `${outbound.length} action${outbound.length === 1 ? "" : "s"} when it fires`;
 
   return (
     <div className="inspector-section">
@@ -1520,8 +1515,8 @@ export function ConnectEditor({ node, doc, open, onOpenChange }: { readonly node
       )}
       <div className="inspector-detail">
         {fromIsTask
-          ? "From a tasks/requests node: edge auto-binds tasks criteria (blocks while needs input)."
-          : "Soft relates by default. Attach tasks criteria on the edge after connect."}
+          ? "Work on this lane pauses its agent while a task waits on you."
+          : "Draw the wire, then open it to set what it allows."}
       </div>
       <button disabled={!targetId} onClick={connect}>
         create edge

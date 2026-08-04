@@ -116,7 +116,7 @@ export function BrowserSurfaceSlot({
     >
       {visible ? (
         <OverlayHeader
-          eyebrow={`page - ${payload.browser.profile} - close detaches (session keeps running)`}
+          eyebrow={`page — ${payload.browser.profile}`}
           title={session?.title ?? payload.title}
           status={
             <>
@@ -148,7 +148,7 @@ export function BrowserSurfaceSlot({
               <Button
                 size="xs"
                 variant="chrome"
-                title="Destroy this page runtime; profile cookies remain"
+                title="Stop the page session"
                 onPointerDown={(e) => {
                   e.preventDefault();
                   e.stopPropagation();

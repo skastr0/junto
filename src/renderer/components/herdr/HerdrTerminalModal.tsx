@@ -821,7 +821,7 @@ export function HerdrTerminalPanel({
     >
       <OverlayHeader
         data-herdr-chrome
-        eyebrow={`herdr - ⌘W / Close detaches (pane keeps running) - Esc goes to the terminal${isFocused ? " - focused" : " - click to focus"}`}
+        eyebrow={`herdr${isFocused ? " — focused" : ""}`}
         title={terminalOpen.title}
         status={
           <span className="herdr-modal-status inline-flex items-center gap-1.5">

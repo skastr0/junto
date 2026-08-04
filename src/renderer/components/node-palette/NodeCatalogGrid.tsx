@@ -64,106 +64,98 @@ export type NodeCatalogEntry = {
 const HERDR_CATALOG_ENTRY: NodeCatalogEntry = {
   id: "herdr", category: "shell", label: "Herdr", subtitle: "attach an existing pane",
   icon: PanelTop,
-  purpose: "A bridge to an existing terminal pane without taking ownership of the underlying process.",
-  connections: [{ source: "Herdr", target: "Any node", direction: "relation", relationship: "keeps an existing pane visible as display context", mode: "context", ports: [] }],
+  purpose: "Shows an existing terminal pane on the canvas without taking it over.",
+  connections: [],
 };
 
 export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
   {
-    id: "terminal", category: "shell", label: "Terminal", subtitle: "native shell",
+    id: "terminal", category: "shell", label: "Terminal", subtitle: "a shell on your machine",
     icon: SquareTerminal,
-    purpose: "A managed shell on the selected host for commands, logs, and hands-on operator work.",
-    connections: [{ source: "Terminal", target: "Any node", direction: "relation", relationship: "keeps shell work spatially adjacent as display context", mode: "context", ports: [] }],
+    purpose: "A shell on the selected machine for commands, logs, and hands-on work.",
+    connections: [],
   },
   ...(HERDR_ENABLED ? [HERDR_CATALOG_ENTRY] : []),
   {
-    id: "tasks", category: "sinks", label: "Tasks", subtitle: "shared claim queue",
+    id: "tasks", category: "sinks", label: "Tasks", subtitle: "shared work queue",
     icon: Blocks,
-    purpose: "A durable work sink where connected agents inspect, claim, and submit discrete tasks.",
-    behavior: "Submitted and working tasks stay calm. A tasks-criteria edge blocks only the claimant actor while a scoped item is input-required or auth-required.",
+    purpose: "A work queue. Connected agents pick up tasks and turn in finished work.",
+    behavior: "A task waiting on your answer pauses only the agent working on it.",
     connections: [
-      { source: "Agent", target: "Tasks", direction: "directed", relationship: "reads, claims, and completes work", mode: "capability", ports: ["tasks.list", "tasks.claim", "tasks.update"] },
-      { source: "Tasks", target: "Actor", direction: "directed", relationship: "blocks only its claimant during a human wait", mode: "criteria", ports: [] },
-      { source: "Scheduler", target: "Tasks", direction: "directed", relationship: "enqueues work when its condition fires", mode: "effect", ports: [] },
+      { source: "Agent", target: "Tasks", direction: "directed", relationship: "picks up and finishes tasks", mode: "capability", ports: [] },
+      { source: "Cron or Relay", target: "Tasks", direction: "directed", relationship: "adds a task when it fires", mode: "effect", ports: [] },
     ],
   },
   {
-    id: "requests", category: "sinks", label: "Requests", subtitle: "operator input required",
+    id: "requests", category: "sinks", label: "Requests", subtitle: "questions for you",
     icon: Inbox,
-    purpose: "An operator-facing inbox for decisions and missing information surfaced by connected work.",
-    behavior: "A tasks-criteria edge blocks only the claimant actor while its request is input-required or auth-required.",
+    purpose: "Questions from agents that only you can answer.",
+    behavior: "An open question pauses only the agent that asked it.",
     connections: [
-      { source: "Agent", target: "Requests", direction: "directed", relationship: "surfaces an answerable operator request", mode: "capability", ports: ["request.escalate", "msg.list", "msg.send"] },
-      { source: "Requests", target: "Actor", direction: "directed", relationship: "blocks only its claimant during a human wait", mode: "criteria", ports: [] },
-      { source: "Scheduler", target: "Requests", direction: "directed", relationship: "projects the selected runtime flag on Command Center", mode: "effect", ports: [] },
+      { source: "Agent", target: "Requests", direction: "directed", relationship: "asks you for a decision or a missing detail", mode: "capability", ports: [] },
     ],
   },
   {
-    id: "artifacts", category: "sinks", label: "Artifacts", subtitle: "published parts shelf",
+    id: "artifacts", category: "sinks", label: "Artifacts", subtitle: "finished work shelf",
     icon: Archive,
-    purpose: "A durable shelf for named outputs produced as work becomes real.",
+    purpose: "A shelf for finished outputs: files, results, and proof of work.",
     connections: [
-      { source: "Agent", target: "Artifacts", direction: "directed", relationship: "records produced files and proof", mode: "capability", ports: ["artifact.publish"] },
-      { source: "Scheduler", target: "Artifacts", direction: "directed", relationship: "projects the selected runtime flag on Command Center", mode: "effect", ports: [] },
+      { source: "Agent", target: "Artifacts", direction: "directed", relationship: "publishes finished work", mode: "capability", ports: [] },
     ],
   },
   {
     id: "board", category: "sinks", label: "Board", subtitle: "topics and posts",
     icon: Braces,
-    purpose: "A shared Command Center discussion surface for durable topics, updates, and decisions.",
+    purpose: "A shared board for topics, updates, and decisions.",
     connections: [
-      { source: "Agent", target: "Board", direction: "directed", relationship: "creates topics and posts updates", mode: "capability", ports: ["board.create_topic", "board.post"] },
-      { source: "Scheduler", target: "Board", direction: "directed", relationship: "projects the selected runtime flag on Command Center", mode: "effect", ports: [] },
+      { source: "Agent", target: "Board", direction: "directed", relationship: "posts topics and updates", mode: "capability", ports: [] },
     ],
   },
   {
-    id: "page", category: "canvas", label: "Page", subtitle: "browser work surface",
+    id: "page", category: "canvas", label: "Page", subtitle: "a browser page",
     icon: Globe2,
-    purpose: "A browser-backed work surface for a specific web context on the canvas.",
-    connections: [{ source: "Agent", target: "Page", direction: "directed", relationship: "shares bounded browser context", mode: "capability", ports: ["browser.automate"] }],
+    purpose: "A browser page that lives on the canvas.",
+    connections: [{ source: "Agent", target: "Page", direction: "directed", relationship: "drives the page", mode: "capability", ports: [] }],
   },
   {
-    id: "cron", category: "schedule", label: "Cron", subtitle: "schedule on an interval",
+    id: "cron", category: "schedule", label: "Cron", subtitle: "fires on a schedule",
     icon: Clock3,
-    purpose: "A durable, home-scoped schedule that fires authored edge effects (enqueue tasks, set flags).",
-    behavior: "Automation runs only with a configured station role while this canvas is playing. Pausing preserves the next due firing.",
+    purpose: "Fires on a schedule to add tasks or set flags automatically.",
+    behavior: "Runs only while the canvas is playing. Pausing keeps the next firing.",
     connections: [
-      { source: "Cron", target: "Tasks", direction: "directed", relationship: "enqueues work when the interval is due", mode: "effect", ports: [] },
-      { source: "Cron", target: "Non-region node", direction: "directed", relationship: "projects the selected runtime flag on Command Center", mode: "effect", ports: [] },
+      { source: "Cron", target: "Tasks", direction: "directed", relationship: "adds a task on schedule", mode: "effect", ports: [] },
     ],
   },
   // Gauge (hermes stat_threshold) is product-hidden and not a product peer of
   // cron/relay. Hermes = fleet join, not automation. Future external-input
   // actuator (webhook / poll) is a new surface — not “fix this hermes stub.”
   {
-    id: "relay", category: "schedule", label: "Relay", subtitle: "watch a node projection",
+    id: "relay", category: "schedule", label: "Relay", subtitle: "reacts to changes",
     icon: Workflow,
-    purpose: "A scheduler that watches another node's typed projection and fires edge effects on a rising match.",
-    behavior: "Rising-edge memory advances only while automation is enabled, so pausing cannot consume the next match.",
+    purpose: "Watches a connected node and acts when something happens.",
+    behavior: "Runs only while the canvas is playing. Pausing keeps the next firing.",
     connections: [
-      { source: "Watched node", target: "Relay", direction: "directed", relationship: "supplies the typed projection evaluated by the predicate", mode: "context", ports: [] },
-      { source: "Relay", target: "Tasks", direction: "directed", relationship: "enqueues work on a rising match", mode: "effect", ports: [] },
-      { source: "Relay", target: "Non-region node", direction: "directed", relationship: "projects the selected runtime flag on Command Center", mode: "effect", ports: [] },
+      { source: "Watched node", target: "Relay", direction: "directed", relationship: "the relay watches it", mode: "context", ports: [] },
+      { source: "Relay", target: "Tasks", direction: "directed", relationship: "adds a task when it fires", mode: "effect", ports: [] },
     ],
   },
   {
     id: "note", category: "canvas", label: "Note", subtitle: "freeform text",
     icon: FileText,
-    purpose: "Freeform operator-authored context placed directly beside the work it explains.",
-    connections: [{ source: "Note", target: "Any node", direction: "relation", relationship: "adds human-readable context to the map", mode: "context", ports: [] }],
+    purpose: "Freeform text placed beside the work it explains.",
+    connections: [],
   },
   {
     id: "label", category: "canvas", label: "Label", subtitle: "bare map text",
     icon: Type,
-    purpose: "Geography-only text on the field — name a pocket inside a region without a card, box, or connectors.",
-    behavior: "No handles, ports, or edges. Settings are text, optional accent color, and size.",
+    purpose: "Bare text on the map. Name an area without a card, box, or connectors.",
     connections: [],
   },
   {
-    id: "region", category: "canvas", label: "Region", subtitle: "spatial container",
+    id: "region", category: "canvas", label: "Region", subtitle: "groups related work",
     icon: SquareDashed,
-    purpose: "Named geography that groups related work and can carry an operator briefing.",
-    connections: [{ source: "Region", target: "Any node", direction: "relation", relationship: "contains and frames related work", mode: "context", ports: [] }],
+    purpose: "A named area that groups related work and can carry a briefing.",
+    connections: [],
   },
 ];
 
@@ -300,15 +292,6 @@ function CatalogDetail({ entry, id }: { readonly entry: NodeCatalogEntry; readon
           <div className="node-deck-catalog__connection node-deck-catalog__connection--primary">
             <ConnectionMap connection={primaryConnection} accentClass={accentClass} />
             <span className="node-deck-catalog__relationship">{primaryConnection.relationship}</span>
-            {primaryConnection.ports.length > 0 ? (
-              <span className="node-deck-catalog__ports">
-                {primaryConnection.ports.map((port) => (
-                  <span key={port} className="node-deck-catalog__port">{port}</span>
-                ))}
-              </span>
-            ) : (
-              <span className="node-deck-catalog__edge-mode">{primaryConnection.mode} edge</span>
-            )}
           </div>
           {secondaryConnections.length > 0 ? (
             <div className="node-deck-catalog__secondary-list" aria-label="Other useful connections">
@@ -316,15 +299,6 @@ function CatalogDetail({ entry, id }: { readonly entry: NodeCatalogEntry; readon
                 <div key={`${connection.source}-${connection.target}-${connection.relationship}`} className="node-deck-catalog__connection node-deck-catalog__connection--secondary">
                   <ConnectionMap connection={connection} accentClass={accentClass} />
                   <span className="node-deck-catalog__relationship">{connection.relationship}</span>
-                  {connection.ports.length > 0 ? (
-                    <span className="node-deck-catalog__ports">
-                      {connection.ports.map((port) => (
-                        <span key={port} className="node-deck-catalog__port">{port}</span>
-                      ))}
-                    </span>
-                  ) : connection.mode === "criteria" ? (
-                    <span className="node-deck-catalog__edge-mode">{connection.mode} edge</span>
-                  ) : null}
                 </div>
               ))}
             </div>

@@ -23,7 +23,7 @@ export const CANVAS_HELP_POINTER: ReadonlyArray<HelpMapKeyRow> = [
   { keys: "drag region label", action: "move region (body is for marquee)" },
   { keys: "select + corners", action: "resize a node" },
   { keys: "drag edge handle", action: "connect nodes (drop on a card)" },
-  { keys: "click edge", action: "inspect edge - set criteria" },
+  { keys: "click edge", action: "open the wire's settings" },
   { keys: "click node", action: "select - open command card" },
   { keys: "RMB selection", action: "bulk: region - flags - delete" },
   { keys: "select + RMB target", action: "connect all → that node" },
@@ -54,25 +54,22 @@ export function CanvasInteractionMap({ onClose }: { readonly onClose: () => void
   return (
     <HelpMap
       className="help-map--dock-top-right"
-      eyebrow="canvas protocol"
+      eyebrow="canvas"
       title="interaction map"
       aria-label="Interaction help"
       closeLabel="Close interaction help"
       onClose={onClose}
     >
-      <HelpMapGroup label="field primer" aria-label="Field primer">
+      <HelpMapGroup label="how the canvas works" aria-label="How the canvas works">
         <HelpMapPrimer>
-          <HelpMapPrimerBlock lead="execution graph">
-            edges carry optional criteria. Live data derives phase:{" "}
-            <em>blocks</em> or soft <em>relates</em>. A generating edge stops only
-            its connected actor agent and never relays through another edge. Sinks,
-            schedulers, and geography never enter the blocked set; relates never stops work.
+          <HelpMapPrimerBlock lead="wires">
+            a wire is permission. What a node can do to another travels only
+            over a drawn wire, and each wire lists exactly what it allows.
           </HelpMapPrimerBlock>
-          <HelpMapPrimerBlock lead="factory physics">
-            the canvas is a factory floor. Drawn edges mint capability (ocaps); ports
-            attenuate; process-bind wields a seat. Capability (reach), phase (stoppage),
-            and attention/occupancy are separate planes — selecting a node never grants
-            power; clearing a block never mints an edge.
+          <HelpMapPrimerBlock lead="waiting">
+            an agent pauses only while its own task or question waits on you.
+            Nothing else on the canvas stops it, and selecting a node never
+            changes what it can do.
           </HelpMapPrimerBlock>
         </HelpMapPrimer>
       </HelpMapGroup>

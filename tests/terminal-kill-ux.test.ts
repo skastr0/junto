@@ -21,11 +21,11 @@ describe("terminal kill UX copy", () => {
 
   it("names agent-seat severity on arm and idle", () => {
     const idle = killActionCopy({ phase: "idle", agentSeat: true });
-    expect(idle.title).toMatch(/work identity/i);
-    expect(idle.ariaLabel).toBe("Stop agent process");
+    expect(idle.title).toMatch(/agent/i);
+    expect(idle.ariaLabel).toBe("Stop agent");
 
     const armed = killActionCopy({ phase: "armed", agentSeat: true });
-    expect(armed.title).toMatch(/work identity/i);
+    expect(armed.title).toMatch(/agent/i);
   });
 
   it("shows in-flight Stopping state as disabled", () => {
@@ -37,12 +37,13 @@ describe("terminal kill UX copy", () => {
   it("dead overlay distinguishes agent seats", () => {
     const shell = deadStateCopy({ agentSeat: false });
     expect(shell.headline).toBe("Process stopped");
-    expect(shell.detail).toMatch(/not running/i);
+    expect(shell.detail).toMatch(/frozen/i);
     expect(shell.reopenLabel).toBe("Reopen");
     expect(shell.closeViewLabel).toBe("Close view");
 
     const agent = deadStateCopy({ agentSeat: true });
-    expect(agent.detail).toMatch(/work identity/i);
+    expect(agent.headline).toBe("Agent stopped");
+    expect(agent.detail).toMatch(/unclaim/i);
   });
 
   it("detects agent seats from harness or agentKey", () => {
@@ -52,11 +53,8 @@ describe("terminal kill UX copy", () => {
     expect(isAgentTerminalSeat({})).toBe(false);
   });
 
-  it("eyebrow names Close vs Stop", () => {
+  it("eyebrow stays plain", () => {
     const line = terminalSurfaceEyebrow("local");
-    expect(line).toContain("Close keeps process");
-    expect(line).toContain("Stop ends it");
-    expect(line.toLowerCase()).not.toContain("kill session");
-    expect(line).not.toMatch(/\bDetach\b/);
+    expect(line).toBe("terminal — local");
   });
 });

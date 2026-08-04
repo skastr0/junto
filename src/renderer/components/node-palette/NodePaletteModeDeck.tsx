@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowRight, Search, Zap } from "lucide-react";
+import { ArrowRight, Search } from "lucide-react";
 import {
   allTemplates,
   templateFor,
@@ -47,7 +47,7 @@ export type ModeDeckActions = {
 const CATEGORIES: ReadonlyArray<{ readonly id: NodeCatalogCategory | "all"; readonly label: string }> = [
   { id: "all", label: "All" },
   { id: "shell", label: "Shell" },
-  { id: "sinks", label: "Sinks" },
+  { id: "sinks", label: "Work" },
   { id: "schedule", label: "Schedule" },
   { id: "canvas", label: "Canvas" },
 ];
@@ -215,17 +215,10 @@ export function NodePaletteModeDeck({
               <span>{activeAgentName}</span>
               <ArrowRight size={13} aria-hidden />
               <strong>Tasks</strong>
-              <small>claim and submit</small>
-            </div>
-            <div className="node-deck__agent-ports" aria-label="Task capability ports">
-              <code>tasks.list</code>
-              <code>tasks.claim</code>
-              <code>tasks.update</code>
+              <small>claims and completes work</small>
             </div>
             <div className="node-deck__agent-secondary">
               <span>Also connects to Requests and Artifacts.</span>
-              <span>Human-wait items block only their claimant actor.</span>
-              <span><Zap size={11} aria-hidden /> Schedulers enqueue at Tasks or project a runtime flag on Command Center.</span>
             </div>
           </section>
           <div className="node-deck__launch-slot">
