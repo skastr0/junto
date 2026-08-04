@@ -6,7 +6,9 @@ import {
   defaultEnqueueBrief,
   evaluateWatchWhen,
   inferSchedulerEdgeEffect,
+  mergePageLoadStatus,
   NO_WATCH_YET_DETAIL,
+  pageLoadMapKey,
   validateEffectTarget,
 } from "./scheduler-effects";
 
@@ -146,7 +148,15 @@ describe("scheduler-effects", () => {
     ).toBe("unknown");
   });
 
-  it("keeps page ready and page failed as independent completes equals", () => {
+  it("mergePageLoadStatus prefers ready/failed over loading", () => {
+    expect(mergePageLoadStatus(undefined, "loading")).toBe("loading");
+    expect(mergePageLoadStatus("loading", "ready")).toBe("ready");
+    expect(mergePageLoadStatus("ready", "loading")).toBe("ready");
+    expect(mergePageLoadStatus("loading", "failed")).toBe("failed");
+    expect(pageLoadMapKey("board", "p1")).toBe("board::p1");
+  });
+
+  it("keeps page ready and page failed as independent completes equals without sensor", () => {
     const page: import("./canvas").CanvasNode = {
       id: "p1",
       type: "link",
@@ -170,6 +180,107 @@ describe("scheduler-effects", () => {
     expect(failed.status).toBe("unknown");
     expect(ready.detail).toMatch(/page load/);
     expect(failed.detail).toMatch(/page fail/);
+  });
+
+  it("satisfies page ready/failed from live browser load map", () => {
+    const page: import("./canvas").CanvasNode = {
+      id: "p1",
+      type: "link",
+      url: "https://example.com",
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+      ether: { entity: { kind: "page" } },
+    };
+    const loads = new Map([["p1", "ready" as const]]);
+    expect(
+      evaluateWatchWhen(
+        page,
+        { word: "completes", equals: "ready" },
+        { pageLoadByNodeId: loads },
+      ).status,
+    ).toBe("satisfied");
+    expect(
+      evaluateWatchWhen(
+        page,
+        { word: "completes", equals: "failed" },
+        { pageLoadByNodeId: loads },
+      ).status,
+    ).toBe("pending");
+
+    const failedLoads = new Map([["p1", "failed" as const]]);
+    expect(
+      evaluateWatchWhen(
+        page,
+        { word: "completes", equals: "failed" },
+        { pageLoadByNodeId: failedLoads },
+      ).status,
+    ).toBe("satisfied");
+    expect(
+      evaluateWatchWhen(
+        page,
+        { word: "completes", equals: "ready" },
+        { pageLoadByNodeId: failedLoads },
+      ).status,
+    ).toBe("pending");
+  });
+
+  it("treats page loading as pending and missing session as unknown", () => {
+    const page: import("./canvas").CanvasNode = {
+      id: "p1",
+      type: "link",
+      url: "https://example.com",
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+      ether: { entity: { kind: "page" } },
+    };
+    expect(
+      evaluateWatchWhen(
+        page,
+        { word: "completes", equals: "ready" },
+        { pageLoadByNodeId: new Map([["p1", "loading"]]) },
+      ).status,
+    ).toBe("pending");
+    expect(
+      evaluateWatchWhen(
+        page,
+        { word: "completes", equals: "ready" },
+        { pageLoadByNodeId: new Map() },
+      ).status,
+    ).toBe("unknown");
+  });
+
+  it("OR-evaluates page ready|failed when either load outcome lands", () => {
+    const page: import("./canvas").CanvasNode = {
+      id: "p1",
+      type: "link",
+      url: "https://example.com",
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+      ether: { entity: { kind: "page" } },
+    };
+    const when = {
+      word: "any" as const,
+      any: [
+        { word: "completes" as const, equals: "ready" },
+        { word: "completes" as const, equals: "failed" },
+      ],
+    };
+    expect(
+      evaluateWatchWhen(page, when, {
+        pageLoadByNodeId: new Map([["p1", "ready"]]),
+      }).status,
+    ).toBe("satisfied");
+    expect(
+      evaluateWatchWhen(page, when, {
+        pageLoadByNodeId: new Map([["p1", "failed"]]),
+      }).status,
+    ).toBe("satisfied");
   });
 
   it("evaluates watch completes on task wire (no node body)", () => {

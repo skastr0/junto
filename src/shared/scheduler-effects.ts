@@ -217,9 +217,103 @@ export type RelayEvaluation = {
   readonly detail: string;
 };
 
+/**
+ * Live browser load outcome for a page node (main→kernel thin map).
+ * Mirrors BrowserSessionState names used by the session machine.
+ */
+export type PageLoadStatus =
+  | "idle"
+  | "loading"
+  | "ready"
+  | "failed"
+  | "detached"
+  | "destroyed";
+
+/**
+ * Runtime sensors the pure evaluator cannot read from the document.
+ * Key for page loads: document-local node id (map is scoped to one canvas
+ * by the kernel when evaluating that canvas's relays).
+ */
+export type WatchEvalContext = {
+  readonly pageLoadByNodeId?: ReadonlyMap<string, PageLoadStatus>;
+};
+
+/** Canvas-scoped key for the main-process page load map. */
+export const pageLoadMapKey = (
+  canvasName: string,
+  nodeId: string,
+): string => `${canvasName}::${nodeId}`;
+
+/**
+ * Prefer terminal load outcomes when multiple warm sessions share a page
+ * node (UI + agent owners). ready/failed win over in-flight; loading over idle.
+ */
+export const mergePageLoadStatus = (
+  previous: PageLoadStatus | undefined,
+  next: PageLoadStatus,
+): PageLoadStatus => {
+  if (previous === undefined) return next;
+  const rank = (status: PageLoadStatus): number => {
+    switch (status) {
+      case "ready":
+        return 5;
+      case "failed":
+        return 4;
+      case "loading":
+        return 3;
+      case "detached":
+        return 2;
+      case "idle":
+        return 1;
+      case "destroyed":
+        return 0;
+    }
+  };
+  return rank(next) >= rank(previous) ? next : previous;
+};
+
+const evaluatePageLoad = (
+  sourceId: string,
+  want: string,
+  pageLoadByNodeId: ReadonlyMap<string, PageLoadStatus> | undefined,
+): RelayEvaluation => {
+  const load = pageLoadByNodeId?.get(sourceId);
+  if (load === undefined) {
+    // Sensor absent — not pending (that would spin the card forever).
+    return {
+      status: "unknown",
+      detail:
+        want === "failed"
+          ? "page fail not connected yet"
+          : "page load not connected yet",
+    };
+  }
+  const target = want === "failed" ? "failed" : "ready";
+  if (load === "ready" || load === "failed") {
+    const ok = load === target;
+    return {
+      status: ok ? "satisfied" : "pending",
+      detail: ok ? `page ${load}` : `page ${load} (want ${target})`,
+    };
+  }
+  if (load === "loading") {
+    return { status: "pending", detail: "page loading" };
+  }
+  if (load === "detached") {
+    // Warm but not attached — not a completed load for watch purposes.
+    return { status: "pending", detail: "page detached" };
+  }
+  // idle / destroyed: no live load outcome to score.
+  return {
+    status: "unknown",
+    detail: load === "destroyed" ? "page session gone" : "page not opened",
+  };
+};
+
 const evaluateWatchAtom = (
   source: CanvasNode,
   when: Extract<WatchWhen, { readonly word: "completes" | "flagged" }>,
+  context?: WatchEvalContext,
 ): RelayEvaluation => {
   if (when.word === "flagged") {
     const flag = when.flag;
@@ -266,15 +360,7 @@ const evaluateWatchAtom = (
   }
 
   if (kind === "page") {
-    // Page load is live browser session state. Kernel watch has no session
-    // projection yet — not "waiting" (that would spin forever), just unknown.
-    return {
-      status: "unknown",
-      detail:
-        want === "failed"
-          ? "page fail not connected yet"
-          : "page load not connected yet",
-    };
+    return evaluatePageLoad(source.id, want, context?.pageLoadByNodeId);
   }
 
   if (kind === "board") {
@@ -313,6 +399,7 @@ const evaluateWatchAtom = (
 export const evaluateWatchWhen = (
   source: CanvasNode | undefined,
   when: WatchWhen,
+  context?: WatchEvalContext,
 ): RelayEvaluation => {
   if (!source) {
     return {
@@ -322,10 +409,10 @@ export const evaluateWatchWhen = (
   }
   if (when.word === "any") {
     return combineWatchEvaluations(
-      when.any.map((atom) => evaluateWatchAtom(source, atom)),
+      when.any.map((atom) => evaluateWatchAtom(source, atom, context)),
     );
   }
-  return evaluateWatchAtom(source, when);
+  return evaluateWatchAtom(source, when, context);
 };
 
 /**

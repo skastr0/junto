@@ -34,6 +34,11 @@ import {
   isValidBrowserSessionId,
 } from "@shared/browser-limits";
 import type { BrowserSessionInfo, BrowserSurfaceBounds } from "@shared/ipc";
+import {
+  mergePageLoadStatus,
+  pageLoadMapKey,
+  type PageLoadStatus,
+} from "@shared/scheduler-effects";
 import { parseNodeRef } from "@shared/node-ref";
 import type { PageTargetResult, ResolvedPageTarget } from "./page-target";
 import {
@@ -578,6 +583,9 @@ export class BrowserSessionService {
   private uiShutdownDrainFlight: Promise<BrowserUiShutdownDrainReceipt> | undefined;
   private teardownWitnessFailures = 0;
   private sink: ((session: BrowserSessionInfo) => void) | undefined;
+  private readonly sessionListeners = new Set<
+    (session: BrowserSessionInfo) => void
+  >();
   private readonly viewDestroyTimeoutMs: number;
   private readonly uiShutdownDrainTimeoutMs: number;
   // Sole durable SoT for these numbers is Settings.browser; profiles.config
@@ -696,6 +704,38 @@ export class BrowserSessionService {
 
   setSink(sink: (session: BrowserSessionInfo) => void): void {
     this.sink = sink;
+  }
+
+  /**
+   * Extra listeners for live session transitions (load ok/fail, destroy).
+   * Kernel page→relay watch wakes here; IPC uses setSink.
+   */
+  subscribeSessionChanges(
+    listener: (session: BrowserSessionInfo) => void,
+  ): () => void {
+    this.sessionListeners.add(listener);
+    return () => {
+      this.sessionListeners.delete(listener);
+    };
+  }
+
+  /**
+   * Thin readiness map for kernel watch: `${canvasName}::${nodeId}` → load
+   * status from every current warm session (all owners). ready/failed from
+   * onLoadOk/onLoadFail satisfy page completes equals.
+   */
+  pageLoadSnapshot(): ReadonlyMap<string, PageLoadStatus> {
+    const out = new Map<string, PageLoadStatus>();
+    for (const entry of this.sessions.values()) {
+      if (!this.isCurrent(entry)) continue;
+      const state = entry.machine.state;
+      if (state === "destroyed") continue;
+      const parsed = parseNodeRef(entry.ref);
+      if (!parsed.ok) continue;
+      const key = pageLoadMapKey(parsed.value.canvasName, parsed.value.nodeId);
+      out.set(key, mergePageLoadStatus(out.get(key), state));
+    }
+    return out;
   }
 
   /** Install Settings (or test fake) as the pool-limits authority. */
@@ -982,8 +1022,16 @@ export class BrowserSessionService {
   }
 
   private emit(entry: SessionEntry): void {
+    const info = this.info(entry);
+    // UI surface: only the UI-owned warm session (renderer dock).
     if (entry.owner === BROWSER_UI_SESSION_OWNER && this.isCurrent(entry)) {
-      this.sink?.(this.info(entry));
+      this.sink?.(info);
+    }
+    // Kernel page→relay watch and other internal listeners: every owner.
+    if (this.sessionListeners.size > 0) {
+      for (const listener of this.sessionListeners) {
+        listener(info);
+      }
     }
   }
 
