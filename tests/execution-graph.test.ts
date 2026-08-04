@@ -84,7 +84,7 @@ describe("evaluateEdge — derived work-lane stoppage", () => {
     expect(result.generates).toBe(false);
   });
 
-  it("kind-only ether is soft relates (kind is not authorial)", () => {
+  it("kind-only ether is soft relates", () => {
     const edge = { id: "e1", fromNode: "a", toNode: "b", ether: { kind: "blocks" as const } };
     const result = evaluateEdge(
       edge,
@@ -96,7 +96,7 @@ describe("evaluateEdge — derived work-lane stoppage", () => {
     expect(result.generates).toBe(false);
   });
 
-  it("tasks: queues relate; claimed attention blocks without authorial stops", () => {
+  it("tasks: queues relate; claimed attention blocks the seat", () => {
     const edge = {
       id: "e1",
       fromNode: "t1",

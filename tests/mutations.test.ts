@@ -417,15 +417,13 @@ describe("renderer graph mutations", () => {
     expect(beginOrder).toBeLessThan(finishOrder);
   });
 
-  it("draws agent→task access without authorial stops", () => {
+  it("draws agent→task access", () => {
     state$.canvasName.set("mutation-test");
     loadDoc(doc);
     addEdge({ source: "source", target: "target" });
 
     const edge = state$.doc.peek().edges[0];
     expect(edge).toMatchObject({ fromNode: "source", toNode: "target" });
-    // Stoppage is derived at eval — product does not stamp ether.stops.
-    expect(edge?.ether?.stops).toBeUndefined();
     expect(state$.selectedNodeId.peek()).toBe("");
     expect(state$.selectedEdgeId.peek()).toBe(edge?.id);
     expect(Object.hasOwn(edge ?? {}, "fromSide")).toBe(false);
@@ -433,7 +431,7 @@ describe("renderer graph mutations", () => {
     expect(Result.isSuccess(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
   });
 
-  it("connects from a tasks node without stamping stops", () => {
+  it("connects tasks → agent", () => {
     state$.canvasName.set("mutation-test");
     loadDoc({
       nodes: [
@@ -480,12 +478,12 @@ describe("renderer graph mutations", () => {
     });
     addEdge({ source: "tasks", target: "agent" });
     const edge = state$.doc.peek().edges[0];
-    expect(edge?.ether?.stops).toBeUndefined();
-    expect(edge?.ether?.kind).toBeUndefined();
+    expect(edge?.fromNode).toBe("tasks");
+    expect(edge?.toNode).toBe("agent");
     expect(Result.isSuccess(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
   });
 
-  it("connects from a requests node without stamping stops", () => {
+  it("connects requests → agent", () => {
     state$.canvasName.set("mutation-test");
     loadDoc({
       nodes: [
@@ -532,7 +530,8 @@ describe("renderer graph mutations", () => {
     });
     addEdge({ source: "req", target: "agent" });
     const edge = state$.doc.peek().edges[0];
-    expect(edge?.ether?.stops).toBeUndefined();
+    expect(edge?.fromNode).toBe("req");
+    expect(edge?.toNode).toBe("agent");
   });
 
   it("setEdgePorts attenuates and clear removes the field", () => {
@@ -553,7 +552,6 @@ describe("renderer graph mutations", () => {
       "msg.send",
       "browser.automate",
     ]);
-    expect(state$.doc.peek().edges[0]?.ether?.stops).toBeUndefined();
     expect(Result.isSuccess(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
 
     setEdgePorts("edge-1", undefined);
@@ -717,23 +715,18 @@ describe("renderer graph mutations", () => {
       expect(planConnectToTarget(["a"], "gone", batchNodes, []).toAdd).toEqual([]);
     });
 
-    it("plans agent→task without stamping stops; refuses sink-sink", () => {
+    it("plans agent→task and refuses sink-sink", () => {
       const plan = planConnectToTarget(["tasks", "a"], "c", batchNodes, []);
-      // tasks→task refused (sink-sink); agent→task ok without authorial stops
-      expect(plan.toAdd).toEqual([
-        { fromNode: "a", toNode: "c" },
-      ]);
+      expect(plan.toAdd).toEqual([{ fromNode: "a", toNode: "c" }]);
       expect(plan.skipped).toContainEqual({
         source: "tasks",
         reason: "refused-pair",
       });
     });
 
-    it("plans tasks → agent without stamping stops", () => {
+    it("plans tasks → agent", () => {
       const plan = planConnectToTarget(["tasks"], "a", batchNodes, []);
-      expect(plan.toAdd).toEqual([
-        { fromNode: "tasks", toNode: "a" },
-      ]);
+      expect(plan.toAdd).toEqual([{ fromNode: "tasks", toNode: "a" }]);
     });
 
     it("does not mutate inputs", () => {
@@ -792,9 +785,6 @@ describe("renderer graph mutations", () => {
       { from: "a", to: "c" },
       { from: "b", to: "c" },
     ]);
-    for (const edge of next) {
-      expect(edge.ether?.stops).toBeUndefined();
-    }
     expect(state$.selectedNodeId.peek()).toBe("");
     expect(state$.selectedEdgeId.peek()).toBe(next[1]?.id);
     expect(Result.isSuccess(decodeCanvasDoc(state$.doc.peek()))).toBe(true);

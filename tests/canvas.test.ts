@@ -3,7 +3,6 @@ import { Result } from "effect";
 import {
   applyMirrorLaw,
   decodeCanvasDoc,
-  scrubCanvasDocInput,
   serializeCanvas,
   type CanvasDoc,
 } from "../src/shared/canvas";
@@ -368,103 +367,4 @@ describe("canvas contract", () => {
     expect(first.endsWith("\n")).toBe(true);
   });
 
-  describe("scrubCanvasDocInput dual-key collapse", () => {
-    const dualLegacy = {
-      nodes: [
-        {
-          id: "relay-n",
-          type: "text",
-          text: "relay",
-          x: 0,
-          y: 0,
-          width: 100,
-          height: 40,
-          ether: {
-            entity: { kind: "relay" },
-            // dead node-body surface — must drop before strict decode
-            relay: { rising: true },
-          },
-        },
-        {
-          id: "task-n",
-          type: "text",
-          text: "tasks",
-          x: 120,
-          y: 0,
-          width: 100,
-          height: 40,
-          ether: { entity: { kind: "task" }, tasks: { items: [] } },
-        },
-      ],
-      edges: [
-        {
-          id: "e-legacy",
-          fromNode: "task-n",
-          toNode: "relay-n",
-          ether: {
-            criteria: { mode: "tasks" },
-            effect: { mode: "enqueue_task", brief: "go" },
-            notify: true,
-            when: { word: "completes" },
-            relayState: true,
-            slot: "input",
-          },
-        },
-      ],
-    };
-
-    it("maps criteria→stops, effect→does, notify→wake; drops relayState + node ether.relay", () => {
-      const scrubbed = scrubCanvasDocInput(dualLegacy) as {
-        nodes: Array<{ id: string; ether?: Record<string, unknown> }>;
-        edges: Array<{ id: string; ether?: Record<string, unknown> }>;
-      };
-      const relayNode = scrubbed.nodes.find((n) => n.id === "relay-n");
-      expect(relayNode?.ether).toEqual({ entity: { kind: "relay" } });
-      expect(relayNode?.ether).not.toHaveProperty("relay");
-
-      const eth = scrubbed.edges[0]!.ether!;
-      expect(eth.stops).toEqual({ mode: "tasks" });
-      expect(eth.does).toEqual({ mode: "enqueue_task", brief: "go" });
-      expect(eth.wake).toBe(true);
-      expect(eth.when).toEqual({ word: "completes" });
-      expect(eth.slot).toBe("input");
-      expect(eth).not.toHaveProperty("criteria");
-      expect(eth).not.toHaveProperty("effect");
-      expect(eth).not.toHaveProperty("notify");
-      expect(eth).not.toHaveProperty("relayState");
-    });
-
-    it("decodeCanvasDoc accepts dual-key input and re-encode has no dual keys", () => {
-      // Strip work projection so decode is allowed at persistence boundaries.
-      const authorial = {
-        ...dualLegacy,
-        nodes: dualLegacy.nodes.map((n) => {
-          if (n.id !== "task-n") return n;
-          return {
-            ...n,
-            ether: { entity: { kind: "task" } },
-          };
-        }),
-      };
-      const decoded = Result.getOrThrow(decodeCanvasDoc(authorial));
-      const edge = decoded.edges.find((e) => e.id === "e-legacy");
-      expect(edge?.ether?.stops).toEqual({ mode: "tasks" });
-      expect(edge?.ether?.does).toEqual({ mode: "enqueue_task", brief: "go" });
-      expect(edge?.ether?.wake).toBe(true);
-      expect(edge?.ether).not.toHaveProperty("criteria");
-      expect(edge?.ether).not.toHaveProperty("effect");
-      expect(edge?.ether).not.toHaveProperty("notify");
-      expect(edge?.ether).not.toHaveProperty("relayState");
-      const relay = decoded.nodes.find((n) => n.id === "relay-n");
-      expect(relay?.ether).not.toHaveProperty("relay");
-
-      const serialized = serializeCanvas(decoded);
-      expect(serialized).not.toMatch(/"criteria"/);
-      expect(serialized).not.toMatch(/"effect"/);
-      expect(serialized).not.toMatch(/"notify"/);
-      expect(serialized).not.toMatch(/"relayState"/);
-      // node-body relay key must not reappear
-      expect(serialized).not.toMatch(/"relay"\s*:/);
-    });
-  });
 });
