@@ -197,6 +197,14 @@ kinds are inert furniture. Watch sources are closed to `hermes`; retired
 private-source bindings and excess document fields fail strict decode rather
 than being rewritten.
 
+## Copy law: no middle dots, ever
+
+The middle dot (U+00B7) is banned from every surface: product copy, UI strings,
+generated sheets, docs, artifacts, commit-facing summaries. Separate with
+commas, em dashes, or plain spaces. Derived wire sentences are spoken compounds
+("access stops", "watch completes") — never dotted. This is an operator hard
+invariant; reintroducing a middot is a defect.
+
 ## Kernel: cron, relay (+ dormant gauge) — wires
 
 Region pulse inject is **retired**. Edges are **wires**: configuration only,

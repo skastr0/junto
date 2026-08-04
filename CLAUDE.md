@@ -14,6 +14,12 @@ them.
 Gate: `bun run lint:product-name` (also in `bun run verify`).
 Constant: `src/shared/product-name.ts`.
 
+## Copy law — hard invariant
+
+**No middle dots (U+00B7) anywhere.** Not in product copy, UI strings, docs, or
+artifacts. Use commas, em dashes, or spaces. Wire sentences read as spoken
+compounds ("access stops"), never dotted.
+
 ## Multi-agent tree (for builders)
 
 At any time, multiple agents are working this codebase concurrently — the
