@@ -43,7 +43,6 @@ import { RegionPathsModal } from "../RegionPathsModal";
 import { ChatComposer } from "../chat/ChatComposer";
 import "../chat/chat.css";
 import {
-  EdgeCapabilitySection,
   EdgeCriteriaEditor,
   EdgePortsAttenuator,
   NodeCapabilityInventory,
@@ -53,12 +52,7 @@ import {
   RegionHerdrDefaultsControl,
   RegionPageDefaultsControl,
 } from "../InspectorFields";
-import {
-  deleteEdges,
-  editEdgeLabel,
-  setEdgeCriteria,
-  toggleEdgeArrow,
-} from "../../lib/edge-mutations";
+import { deleteEdges, setEdgeCriteria } from "../../lib/edge-mutations";
 import { KindActions, EdgePairStrip, KindKey } from "./RtsControls";
 import "./rts-controls.css";
 
@@ -223,31 +217,34 @@ function EdgeFormFocus({
   const execution = use$(kernel$.execution);
   const fromNode = doc.nodes.find((n) => n.id === edge.fromNode);
   const toNode = doc.nodes.find((n) => n.id === edge.toNode);
-  const [labelDraft, setLabelDraft] = useState(edge.label ?? "");
-  useEffect(() => setLabelDraft(edge.label ?? ""), [edge.label, edge.id]);
 
   const livePhase = execution?.phaseByEdgeId?.[edge.id] ?? "relates";
   const liveDetail = execution?.detailByEdgeId?.[edge.id] ?? "";
-  const criteria = edge.ether?.criteria;
-  const commitLabel = () => {
-    if (labelDraft !== (edge.label ?? "")) editEdgeLabel(edge.id, labelDraft);
-  };
+  const criteria = edge.ether?.stops ?? edge.ether?.criteria;
+  const title =
+    edge.ether?.slot === "input"
+      ? "Watch"
+      : edge.ether?.slot === "output" || edge.ether?.slot === "recipient"
+        ? "On fire"
+        : edge.ether?.slot === "trigger"
+          ? "Trigger"
+          : "Access";
+  const pair = `${fromNode ? nodeTitle(fromNode) : edge.fromNode} → ${toNode ? nodeTitle(toNode) : edge.toNode}`;
 
   return (
     <FocusSurface
       measure="form"
       height="fit"
       layer="detail"
-      label="Relation fields"
+      label="Link settings"
       onClose={onClose}
       closeOnEscape
       closeOnBackdrop
       panelClassName="rts-kind-form-panel nowheel"
     >
       <OverlayHeader
-        eyebrow={criteria ? `live — ${livePhase}` : `soft — ${livePhase}`}
-        title="execution edge"
-        status={`${fromNode ? nodeTitle(fromNode) : edge.fromNode} → ${toNode ? nodeTitle(toNode) : edge.toNode}`}
+        eyebrow={pair}
+        title={title}
         actions={
           <IconButton aria-label="Close fields" title="Close fields" onClick={onClose}>
             <X size={14} />
@@ -255,7 +252,6 @@ function EdgeFormFocus({
         }
       />
       <div className="rts-kind-form-body inspector-body">
-        <EdgeCapabilitySection edge={edge} fromNode={fromNode} toNode={toNode} />
         <EdgePortsAttenuator edge={edge} />
         <EdgeCriteriaEditor
           edgeId={edge.id}
@@ -263,54 +259,10 @@ function EdgeFormFocus({
           livePhase={livePhase}
           liveDetail={liveDetail}
         />
-        <label className="inspector-edge-label">
-          <span>optional label</span>
-          <input
-            aria-label="Edit edge label"
-            value={labelDraft}
-            placeholder={livePhase}
-            onChange={(event) => setLabelDraft(event.target.value)}
-            onBlur={commitLabel}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                commitLabel();
-                event.currentTarget.blur();
-              }
-              if (event.key === "Escape") {
-                setLabelDraft(edge.label ?? "");
-                event.currentTarget.blur();
-              }
-            }}
-          />
-        </label>
-        <div className="inspector-edge-ends">
-          <span>arrow ends</span>
-          <div>
-            <button
-              type="button"
-              aria-label="Toggle source arrow"
-              aria-pressed={edge.fromEnd === "arrow"}
-              className={edge.fromEnd === "arrow" ? "is-active" : ""}
-              onClick={() => toggleEdgeArrow(edge.id, "from")}
-            >
-              source
-            </button>
-            <button
-              type="button"
-              aria-label="Toggle target arrow"
-              aria-pressed={edge.toEnd === "arrow"}
-              className={edge.toEnd === "arrow" ? "is-active" : ""}
-              onClick={() => toggleEdgeArrow(edge.id, "to")}
-            >
-              target
-            </button>
-          </div>
-        </div>
         <div className="inspector-actions">
           {criteria ? (
             <button type="button" onClick={() => setEdgeCriteria(edge.id, undefined)}>
-              clear criteria
+              Clear stop condition
             </button>
           ) : null}
           <button
@@ -321,7 +273,7 @@ function EdgeFormFocus({
               onClose();
             }}
           >
-            delete edge
+            Delete link
           </button>
         </div>
       </div>
