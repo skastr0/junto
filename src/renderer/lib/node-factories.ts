@@ -338,8 +338,10 @@ export const makePageNode = (
 };
 
 /**
- * Gauge (watcher) — hermes stat_threshold. Product-hidden from palette.
- * Existing boards still decode. Future external-input actuator is a new surface.
+ * Gauge (watcher) — hermes stat_threshold stub. Product-hidden from palette.
+ * Hermes is agent fleet join, not this product’s external automation sensor.
+ * Existing boards still decode. Future external-input actuator (webhook/poll)
+ * is a new surface — do not “revive” this hermes gauge as that story.
  */
 export const makeGaugeNode = (
   x: number,
@@ -381,7 +383,10 @@ export const makeCronNode = (
   },
 });
 
-/** Relay — watch another node projection; fire edge effects on rising edge. */
+/**
+ * Relay — product canvas-state sensor (peer of cron, not of hermes gauge).
+ * Watches another node projection; fires edge effects on rising edge.
+ */
 export const makeRelayNode = (
   x: number,
   y: number,

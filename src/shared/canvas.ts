@@ -271,7 +271,12 @@ export const EtherRegion = Schema.Struct({
 });
 export type EtherRegion = typeof EtherRegion.Type;
 
-// Gauge (entity.kind watcher): predicate over live hermes roster stats.
+// Gauge body (entity.kind watcher) — PRODUCT-DORMANT.
+// Hermes roster/stats feed agent fleet join, not the automation product.
+// This shape still decodes for existing boards; palette hides new gauges.
+// Do NOT describe product schedulers as "cron / hermes gauge / relay".
+// Live product sensors: cron (time) + relay (canvas node projection).
+// Future external-input actuator (webhook/poll) is a new surface, not this stub.
 // Runtime state is derived, never stored. Live kind is only stat_threshold.
 // Retired glyph kinds and private-source watchers fail strict decode.
 export const WatchKind = Schema.Literal("stat_threshold");
@@ -279,7 +284,7 @@ export type WatchKind = typeof WatchKind.Type;
 
 export const EtherWatch = Schema.Struct({
   kind: WatchKind,
-  // Numeric comparison on a bound hermes entity
+  // Legacy hermes numeric compare — not the product gauge story
   source: Schema.optionalKey(Schema.Literal("hermes")),
   key: Schema.optionalKey(Schema.String),
   stat: Schema.optionalKey(Schema.String),
@@ -305,8 +310,10 @@ export const EtherTimer = Schema.Struct({
 export type EtherTimer = typeof EtherTimer.Type;
 
 /**
- * Relay: watch another canvas node's typed projection.
- * Fires rising-edge into satisfied when the predicate holds (same law as gauge).
+ * Relay: the canvas-state automation sensor (product peer of cron).
+ * Watches another node’s typed projection on this board; rising edge → effects.
+ * Same fire law as level sensors (rising edge + automation gate) — not “hermes.”
+ * Closed paths only (expand deliberately); no free JSONPath into the authorial doc.
  */
 export const EtherRelay = Schema.Struct({
   /** Node id whose projection is watched (same canvas). */

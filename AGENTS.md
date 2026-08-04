@@ -171,7 +171,7 @@ Standard JSON Canvas 1.0 (`nodes` of type `text`/`file`/`link`/`group`, `edges`)
 ```jsonc
 { "id": "n1", "type": "text", "x": 0, "y": 0, "width": 220, "height": 84, "text": "worker",
   "ether": {
-    "entity": { "kind": "agent", "name": "local:worker" },  // open vocab; well-known: agent|terminal|herdr|task|requests|artifacts|page|watcher|timer
+    "entity": { "kind": "agent", "name": "local:worker" },  // open vocab; well-known product: agent|terminal|herdr|task|requests|artifacts|page|cron|relay (+ dormant watcher/gauge; timer aliases cron)
     "flags": ["blocker"],                                    // blocker|parked|attention
     "workRole": "frontend"                                   // optional claim-routing label (not physics role)
   } }
@@ -197,17 +197,26 @@ kinds are inert furniture. Watch sources are closed to `hermes`; retired
 private-source bindings and excess document fields fail strict decode rather
 than being rewritten.
 
-## Kernel: cron, gauge, relay
+## Kernel: cron, relay (+ dormant gauge)
 
 Region pulse inject is **retired**. Schedulers fire **edge-authored effects**
 only (`ether.effect` on directed scheduler→target edges). Actors pull work via
 the factory claim tick — never via geometry broadcast.
 
+**Product scheduler plane (author these):**
+
 | Kind | Body | Fire |
 |---|---|---|
-| **cron** (`timer` still decodes) | `ether.timer.everyMinutes` | Durable due → apply effects |
-| **gauge** (`watcher`) | `ether.watch` hermes `stat_threshold` | Rising edge → apply effects |
-| **relay** | `ether.relay` (node projection) | Rising edge → apply effects |
+| **cron** (`timer` still decodes) | `ether.timer` expression (or legacy `everyMinutes`) | Durable due → apply effects |
+| **relay** | `ether.relay` (another **canvas node** projection) | Rising edge → apply effects |
+
+**Not a product peer — do not frame automation as “time vs hermes”:**
+
+| Kind | Status |
+|---|---|
+| **gauge** (`watcher` + `ether.watch` hermes `stat_threshold`) | **Product-hidden.** Hermes roster/stats are agent fleet join, not the gauge product. Boards still decode; palette omits it. A future **external-input actuator** (webhook/poll) is a separate surface — not “fix the hermes gauge.” |
+
+Agent mistake to avoid: treating hermes gauge as the third live automation sensor next to cron/relay. **Live product sensors = cron (time) + relay (board state).**
 
 **Effects (v1):** `enqueue_task` (task sink) · `set_flag` (any node). Soft relates
 without `effect` still do nothing. Claim assignment stays the factory tick.

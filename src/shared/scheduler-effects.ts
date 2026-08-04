@@ -1,5 +1,10 @@
 /**
- * Pure automation-effect plane for cron / gauge / relay.
+ * Pure automation-effect plane for schedulers.
+ *
+ * Product sensors (author these): cron (time) + relay (canvas node projection).
+ * Gauge/watcher (hermes stat_threshold) is product-dormant — still evaluated if
+ * present on a board, but not a palette product and not “the external sensor.”
+ * Hermes adapters = agent fleet join; do not invent a hermes-gauge product story.
  *
  * Effects ride `edge.ether.effect` (not ports, not criteria). The kernel
  * applies them on home-local fire; claim assignment stays the factory tick.

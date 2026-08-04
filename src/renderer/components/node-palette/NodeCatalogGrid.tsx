@@ -132,8 +132,9 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
       { source: "Cron", target: "Non-region node", direction: "directed", relationship: "projects the selected runtime flag on Command Center", mode: "effect", ports: [] },
     ],
   },
-  // Gauge (hermes stat_threshold) is product-hidden. Future: external input
-  // actuator (webhook / poll) evolving the snapshots plane — not this stub.
+  // Gauge (hermes stat_threshold) is product-hidden and not a product peer of
+  // cron/relay. Hermes = fleet join, not automation. Future external-input
+  // actuator (webhook / poll) is a new surface — not “fix this hermes stub.”
   {
     id: "relay", category: "schedule", label: "Relay", subtitle: "watch a node projection",
     icon: Workflow,

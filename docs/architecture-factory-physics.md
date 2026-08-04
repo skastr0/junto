@@ -74,7 +74,7 @@ process on that installation to exercise host-adjacent ops.
 |------|---------------|------------------|
 | **Actor** | `agent` only | Vellum Command-spawned template terminal; occupies one host-local seat and wields outbound edges under process-bind |
 | **Sink** | `task`, `requests`, `artifacts`, `page` | Receives ops; target of inbound capability |
-| **Scheduler** | `watcher`/`gauge`, `timer`/`cron`, `relay` | Sensors/clocks that fire **edge effects** (enqueue/set_flag); no seats, no region inject |
+| **Scheduler** | product: `cron`/`timer`, `relay`; dormant: `watcher`/`gauge` (hermes stub, palette-hidden) | Sensors/clocks that fire **edge effects** (enqueue/set_flag); no seats, no region inject. Live product pair is time + board-state — not hermes roster. |
 | **Region** | group + `ether.region` | Geography + optional briefing text |
 | **Geography / furniture** | raw `terminal`, notes, labels, unknown/open-vocab kinds (incl. retired `project` strings) | Spatial or operator surface; no actor seat, inbox, work claim, or ocap wield |
 
