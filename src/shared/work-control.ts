@@ -340,9 +340,9 @@ export const makeStopDirective = (input: {
   requestId: input.requestId,
   target: input.target,
   brief: input.brief,
-  message: `Seat is blocked waiting on request ${input.requestId}. Stop work until the operator answers — do not thrash tools.`,
+  message: `You are blocked waiting on request ${input.requestId}. Stop work until the operator answers.`,
   next_step:
-    "Wait for the operator to answer the request on the canvas, then retry work ops (or call vellum onboard).",
+    "Wait for the operator to answer the request, then retry work ops (re-run vellum onboard if your view is stale).",
 });
 
 /** Artifact wire parts: text/data stay inline; binary media is a ContentRef. */

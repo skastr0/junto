@@ -97,7 +97,7 @@ Call **\`vellum onboard\`** at session start and after every compaction (or when
 | claim | \`vellum tasks claim --target <id> --task <id>\` |
 | progress / settle / block task | \`vellum tasks update --target <id> --task <id> --state <state>\` |
 | read / write thread | \`vellum msg list\` - \`vellum msg send\` - \`vellum msg read\` - \`vellum msg reply\` |
-| factory mail | on inject: \`msg list\` then \`msg reply\` (or \`msg read\` if no reply) — stops re-nudge pressure |
+| factory mail | when mail arrives: \`msg list\` then \`msg reply\` (or \`msg read\` if no reply) — this stops repeat nudges |
 | escalate to human | \`vellum escalate\` |
 | ship output | \`vellum artifact publish\` |
 | list granted pages | \`vellum browser pages --json\` |

@@ -96,7 +96,7 @@ export const resolveCallerAcrossCanvases = (
       ok: false,
       code: "ambiguous",
       message:
-        "connecting process matches multiple canvas nodes — keep one actor card per process",
+        "this process matches more than one agent node across live canvases",
     };
   }
   return { ok: true, caller: hits[0]! };

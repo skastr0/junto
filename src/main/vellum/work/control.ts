@@ -343,7 +343,7 @@ const mapWorkCode = (
         message,
         details: {
           retryable: false,
-          next_step: "ensure the process-bound agent card exists on a live canvas",
+          next_step: "the canvas for this call is not loaded; ask the operator to open it in Vellum Command",
         },
       };
     case "illegal_kind":
@@ -352,8 +352,8 @@ const mapWorkCode = (
         message,
         details: {
           retryable: false,
-          hint: "connect the nodes",
-          next_step: "target a node of the required kind via an edge",
+          hint: "pick a target whose kind supports this op",
+          next_step: "call a connected node of a kind that supports this op; if none is connected, ask the operator to wire an edge to one on the canvas",
         },
       };
     default:
@@ -441,7 +441,7 @@ const ensureCaller = (
         path: "caller",
         received: nodeId,
         retryable: false,
-        next_step: "ensure the live process maps to one actor card on the canvas",
+        next_step: "your node is no longer on the canvas; ask the operator to restore it",
       },
     };
   }
@@ -489,13 +489,13 @@ export const resolveProcessBoundActorRef = (
     type: "StaleNodeRef",
     message:
       matches.length === 0
-        ? `caller node "${caller.nodeId}" has no compiled actor reference`
-        : `caller node "${caller.nodeId}" has ambiguous compiled actor references`,
+        ? `caller node "${caller.nodeId}" does not resolve to a live agent`
+        : `caller node "${caller.nodeId}" resolves to more than one live agent`,
     details: {
       caller: caller.nodeId,
       retryable: false,
       next_step:
-        "refresh the Command Center projection and ensure the live process maps to exactly one actor seat",
+        "your process does not resolve to exactly one agent node; ask the operator to check this agent on the canvas",
     },
   });
 };
@@ -549,7 +549,7 @@ const dispatchOp = (
           message: e.message,
           details: {
             retryable: false,
-            next_step: "open the canvas in Vellum Command",
+            next_step: "the canvas is not open; ask the operator to open it in Vellum Command",
           },
         }),
       ),
@@ -567,11 +567,11 @@ const dispatchOp = (
       if (seatPaused(pauseState, board, caller.nodeId)) {
         return yield* Effect.fail<WorkErrorBody>({
           type: "Paused",
-          message: `seat "${caller.nodeId}" is paused — the factory is not accepting its actions`,
+          message: `agent "${caller.nodeId}" is paused and cannot act`,
           details: {
             caller: caller.nodeId,
             retryable: true,
-            next_step: "wait for the operator to press play on the seat, region, or canvas",
+            next_step: "wait for the operator to resume this agent, its region, or the canvas",
           },
         });
       }
@@ -846,12 +846,12 @@ const dispatchOp = (
         return yield* Effect.fail<WorkErrorBody>({
           type: "ClaimConflict",
           message:
-            `task "${decoded.success.task}" is claimed by another actor seat`,
+            `task "${decoded.success.task}" is claimed by another agent`,
           details: {
             holder: task.claimedBy,
             caller: actor.success.seatId,
             retryable: false,
-            next_step: "only the claimed actor may update an active task",
+            next_step: "pick another task; only the agent that claimed this one can update it",
           },
         });
       }
@@ -950,7 +950,7 @@ const dispatchOp = (
           details: {
             caller: caller.nodeId,
             target: decoded.success.target,
-            next_step: `use target "${caller.nodeId}" (your seat) with the messageId`,
+            next_step: `retry with target "${caller.nodeId}" (your own node) and the same messageId`,
             retryable: false,
           },
         });
@@ -1083,7 +1083,7 @@ const dispatchOp = (
         stop_directive,
         // Hold-until-answer not implemented: agent must stop and resume later.
         hold: null,
-        note: "seat blocked; stop work until the operator answers (hold-until-answer TODO)",
+        note: "you are blocked; stop work until the operator answers this request",
       };
     }
 
@@ -1673,7 +1673,7 @@ export const startWorkControlServer = async (
               admission.message,
               {
                 retryable: true,
-                next_step: "launch Vellum Command, then `vellum doctor`",
+                next_step: "your token is invalid or stale; run `vellum doctor`, and if Vellum Command is not running ask the operator to start it",
               },
               req.op,
               req.id,
@@ -1690,9 +1690,9 @@ export const startWorkControlServer = async (
               retryable: admission.reason === "peer_pid_unavailable",
               next_step:
                 admission.reason === "process_unbound"
-                  ? "open the agent's terminal in Vellum Command so its process is registered"
-                  : "ensure the CLI runs as a child of a live Vellum Command agent process",
-              missing: "process-bind",
+                  ? "this process was not launched by Vellum Command; only agents started from the canvas can call work ops — ask the operator to start you from an agent node"
+                  : "run the CLI from inside your Vellum Command terminal session, then retry",
+              missing: "process identity",
             },
             req.op,
             req.id,
@@ -1723,7 +1723,7 @@ export const startWorkControlServer = async (
                   message: "live canvas authority is unavailable",
                   details: {
                     retryable: true,
-                    next_step: "open Vellum Command and ensure canvases are loaded",
+                    next_step: "retry shortly; if this persists, ask the operator to check that Vellum Command is running with its canvases loaded",
                   },
                 });
               }
@@ -1741,7 +1741,7 @@ export const startWorkControlServer = async (
                   details: {
                     retryable: false,
                     next_step:
-                      "ensure exactly one actor node matches the live process",
+                      "your process does not match exactly one agent node; ask the operator to check the canvas",
                   },
                 });
               }
@@ -1814,7 +1814,7 @@ export const startWorkControlServer = async (
               error.message,
               {
                 retryable: false,
-                next_step: "wait for Vellum Command shutdown to finish or restart Vellum Command",
+                next_step: "Vellum Command is shutting down; wait for it to come back, then retry",
               },
               req.op,
               req.id,

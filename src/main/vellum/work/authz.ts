@@ -184,8 +184,8 @@ export const scopeError = (
         caller: callerId,
         expected: extra?.op ? opsForKind(extra.kind) : undefined,
         received: extra?.kind,
-        hint: "connect the caller to a node of the required kind",
-        next_step: "draw an edge in Vellum Command between the nodes",
+        hint: "pick a target whose kind supports this op",
+        next_step: "call a connected node of a kind that supports this op; if none is connected, ask the operator to wire an edge to one on the canvas",
         retryable: false,
         missing: "compatible target kind",
       },
@@ -198,8 +198,8 @@ export const scopeError = (
       details: {
         target: targetId,
         caller: callerId,
-        hint: "connect the nodes",
-        next_step: "draw an edge in Vellum Command between the nodes, or place them in the same region",
+        hint: "no edge or shared region grants access to this target",
+        next_step: "this connection does not exist; ask the operator to wire an edge between the nodes or place them in the same region on the canvas",
         retryable: false,
         missing: "edge",
       },
@@ -207,12 +207,12 @@ export const scopeError = (
   }
   return {
     type: "ScopeError",
-    message: `missing edge between "${callerId}" and "${targetId}" — connect the nodes`,
+    message: `missing edge between "${callerId}" and "${targetId}"`,
     details: {
       target: targetId,
       caller: callerId,
-      hint: "connect the nodes",
-      next_step: "draw an edge in Vellum Command between the nodes",
+      hint: "no edge connects these nodes",
+      next_step: "this connection does not exist; ask the operator to wire an edge between the nodes on the canvas",
       retryable: false,
       missing: "edge",
     },

@@ -298,7 +298,7 @@ describe("work authz — edges as capability", () => {
     );
     expect(notConnected.type).toBe("ScopeError");
     expect(notConnected.message).toBe(
-      'missing edge between "agent" and "req" — connect the nodes',
+      'missing edge between "agent" and "req"',
     );
 
     const noPort = scopeDenialToWorkError(
