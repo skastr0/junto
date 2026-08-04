@@ -191,6 +191,6 @@ describe("multi-connect effect parity", () => {
     const nodes = gaugeAndTask().nodes;
     const plan = planConnectToTarget(["c1", "g1"], "t1", nodes, []);
     expect(plan.toAdd).toHaveLength(2);
-    expect(plan.toAdd.every((c) => c.effect?.mode === "enqueue_task")).toBe(true);
+    expect(plan.toAdd.every((c) => c.does?.mode === "enqueue_task")).toBe(true);
   });
 });
