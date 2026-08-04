@@ -61,15 +61,30 @@ describe("wires grammar", () => {
     );
   });
 
-  it("defaults draw slots by directed roles", () => {
+  it("defaults draw slots by directed roles (watch input is relay-only)", () => {
     expect(
-      defaultSlotForDraw({ fromRole: "sink", toRole: "scheduler" }),
+      defaultSlotForDraw({
+        fromRole: "sink",
+        toRole: "scheduler",
+        toKind: "relay",
+      }),
     ).toBe("input");
+    expect(
+      defaultSlotForDraw({
+        fromRole: "sink",
+        toRole: "scheduler",
+        toKind: "cron",
+      }),
+    ).toBeUndefined();
     expect(
       defaultSlotForDraw({ fromRole: "scheduler", toRole: "sink" }),
     ).toBe("output");
     expect(
-      defaultSlotForDraw({ fromRole: "actor", toRole: "scheduler" }),
+      defaultSlotForDraw({
+        fromRole: "actor",
+        toRole: "scheduler",
+        toKind: "relay",
+      }),
     ).toBe("trigger");
     expect(
       defaultSlotForDraw({ fromRole: "scheduler", toRole: "actor" }),

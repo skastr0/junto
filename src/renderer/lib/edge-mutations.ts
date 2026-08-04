@@ -31,19 +31,18 @@ const roleOfNode = (node: CanvasNode | undefined) => {
   );
 };
 
-/** Infer watch `when` for sink → scheduler input wires. */
+/**
+ * Infer watch `when` only for sink → **relay** input wires.
+ * Cron/gauge never consume `when` — authoring them would be meaningless config.
+ */
 export const inferWatchWhen = (
   fromNode: CanvasNode | undefined,
   toNode: CanvasNode | undefined,
 ): WatchWhen | undefined => {
   if (!fromNode || !toNode) return undefined;
-  if (roleOfNode(fromNode) !== "sink" || roleOfNode(toNode) !== "scheduler") {
-    return undefined;
-  }
-  const kind = fromNode.ether?.entity?.kind;
-  if (kind === "task") return { word: "completes" };
-  // Any flag-carrier sink (or other sink): default flagged/blocker is too aggressive.
-  // Completes only for task; other sinks get no when until operator picks.
+  if (toNode.ether?.entity?.kind !== "relay") return undefined;
+  if (roleOfNode(fromNode) !== "sink") return undefined;
+  if (fromNode.ether?.entity?.kind === "task") return { word: "completes" };
   return undefined;
 };
 
@@ -295,8 +294,17 @@ export const addEdge = (params: {
     state$.error.set(check.reason);
     return;
   }
-  const slot = defaultSlotForDraw({ fromRole, toRole });
-  const stops = params.criteria ?? inferEdgeCriteria(fromNode);
+  const slot = defaultSlotForDraw({
+    fromRole,
+    toRole,
+    fromKind: fromNode?.ether?.entity?.kind,
+    toKind: toNode?.ether?.entity?.kind,
+  });
+  // stops only make sense on access wires involving task/requests (not geography)
+  const stops =
+    fromRole === "sink" || toRole === "sink"
+      ? (params.criteria ?? inferEdgeCriteria(fromNode))
+      : undefined;
   const does = inferSchedulerEdgeEffect(fromNode, toNode);
   const when = inferWatchWhen(fromNode, toNode);
   const fromSide = parseSide(params.sourceHandle);
@@ -412,9 +420,17 @@ export const planConnectToTarget = (
       continue;
     }
     planned.add(key);
-    const criteria = criteriaOverride ?? inferEdgeCriteria(source);
+    const criteria =
+      fromRole === "sink" || toRole === "sink"
+        ? (criteriaOverride ?? inferEdgeCriteria(source))
+        : undefined;
     const effect = inferSchedulerEdgeEffect(source, target);
-    const slot = defaultSlotForDraw({ fromRole, toRole });
+    const slot = defaultSlotForDraw({
+      fromRole,
+      toRole,
+      fromKind: source.ether?.entity?.kind,
+      toKind: target.ether?.entity?.kind,
+    });
     const when = inferWatchWhen(source, target);
     toAdd.push({
       fromNode: sourceId,

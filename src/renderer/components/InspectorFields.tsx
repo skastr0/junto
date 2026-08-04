@@ -19,7 +19,9 @@ import {
   Port,
   asNodeId,
   canvasDocToCapabilityView,
+  chipPortsFromOffers,
   grantLawForRoles,
+  offerPortsForAccessWire,
   offersOf,
   resolveNodePlacement,
   resolveSpec,
@@ -194,14 +196,17 @@ export function EdgePortsAttenuator({ edge }: { readonly edge: CanvasEdge }) {
   const doc = use$(state$.doc);
   const toNode = doc.nodes.find((n) => n.id === edge.toNode);
   const fromNode = doc.nodes.find((n) => n.id === edge.fromNode);
-  // Ports are target offers (or both actors for actor–actor).
+  // Direction-agnostic: non-actor end offers; actor–actor unions both.
+  // Never show scaffolding ports (relay.trigger) until a consumer exists.
   const targetSpec = specOf(toNode);
   const fromSpec = specOf(fromNode);
-  const offerSet =
-    roleOf(targetSpec) === "actor" && roleOf(fromSpec) === "actor"
-      ? HashSet.union(offersOf(targetSpec), offersOf(fromSpec))
-      : offersOf(targetSpec);
-  const offeredPorts = [...offerSet] as PortName[];
+  const offerSet = offerPortsForAccessWire(
+    roleOf(fromSpec),
+    roleOf(targetSpec),
+    offersOf(fromSpec),
+    offersOf(targetSpec),
+  );
+  const offeredPorts = chipPortsFromOffers(offerSet) as PortName[];
   const mask = readEdgePortMask(edge);
   const active = mask ?? HashSet.empty<PortName>();
 
@@ -756,8 +761,8 @@ function EdgeWhenEditor({
   const doc = use$(state$.doc);
   const edge = doc.edges.find((candidate) => candidate.id === edgeId);
   const when = edge?.ether?.when;
-  const toIsScheduler = isSchedulerEntityKind(toNode?.ether?.entity?.kind);
-  if (!toIsScheduler) return null;
+  // Only relay consumes watch — cron/gauge show no when editor.
+  if (toNode?.ether?.entity?.kind !== "relay") return null;
 
   const value =
     when?.word === "flagged"

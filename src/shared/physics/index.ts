@@ -119,9 +119,11 @@ export { canvasDocToCapabilityView, edgeMaskAllows } from "./view";
 export type { CapabilityViewOptions } from "./view";
 
 export {
+  PORTS_HIDDEN_FROM_CHIPS,
   WIRE_FAMILIES,
   WIRE_SLOTS,
   WIRE_WORDS,
+  chipPortsFromOffers,
   connectCheck,
   connectable,
   defaultSlotForDraw,
@@ -129,6 +131,7 @@ export {
   familyColorToken,
   familyFromSlot,
   formatWireSentence,
+  offerPortsForAccessWire,
   sentenceOf,
   wireRolePair,
 } from "./wires";

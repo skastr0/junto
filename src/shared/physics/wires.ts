@@ -9,7 +9,41 @@
  * scheduler on exactly one end (or two for scheduler–scheduler chains).
  */
 import { HashSet, Match } from "effect";
-import type { FactoryRole } from "./schema";
+import type { FactoryRole, Port } from "./schema";
+
+/**
+ * Ports that exist on the schema for future ops but must not appear in access
+ * chips until a real consumer exists (otherwise operators attenuate into air).
+ */
+export const PORTS_HIDDEN_FROM_CHIPS: ReadonlySet<Port> = new Set([
+  "relay.trigger",
+]);
+
+/**
+ * Which port set an access wire attenuates. Direction-agnostic:
+ * - actor–actor → union of both inboxes
+ * - actor–non-actor → the non-actor's offers (sink/scheduler)
+ * - else empty (no access family ports)
+ */
+export const offerPortsForAccessWire = (
+  fromRole: FactoryRole,
+  toRole: FactoryRole,
+  fromOffers: HashSet.HashSet<Port>,
+  toOffers: HashSet.HashSet<Port>,
+): HashSet.HashSet<Port> => {
+  if (fromRole === "actor" && toRole === "actor") {
+    return HashSet.union(fromOffers, toOffers);
+  }
+  if (fromRole === "actor") return toOffers;
+  if (toRole === "actor") return fromOffers;
+  return HashSet.empty();
+};
+
+/** Drop ports that are schema scaffolding without a live consumer. */
+export const chipPortsFromOffers = (
+  offers: HashSet.HashSet<Port>,
+): ReadonlyArray<Port> =>
+  [...offers].filter((port) => !PORTS_HIDDEN_FROM_CHIPS.has(port));
 
 /** Closed forever — four families. */
 export type WireFamily = "access" | "watch" | "trigger" | "effect";
@@ -181,22 +215,32 @@ export const familyFromSlot = (
   return undefined;
 };
 
-/** Default slot when drawing a directed edge into/out of a scheduler. */
+/**
+ * Default slot when drawing a directed edge into/out of a scheduler.
+ * Watch input is **relay-only** — cron/gauge do not consume `when`.
+ */
 export const defaultSlotForDraw = (input: {
   readonly fromRole: FactoryRole;
   readonly toRole: FactoryRole;
+  readonly fromKind?: string;
+  readonly toKind?: string;
 }): WireSlot | undefined => {
-  const { fromRole, toRole } = input;
-  // sink → scheduler = watch input
-  if (fromRole === "sink" && toRole === "scheduler") return "input";
+  const { fromRole, toRole, fromKind, toKind } = input;
+  // sink → relay = watch input (only relay evaluates when)
+  if (fromRole === "sink" && toRole === "scheduler" && toKind === "relay") {
+    return "input";
+  }
   // scheduler → sink = effect output
   if (fromRole === "scheduler" && toRole === "sink") return "output";
-  // actor → scheduler = trigger (agent fires the scheduler)
-  if (fromRole === "actor" && toRole === "scheduler") return "trigger";
+  // actor → relay = trigger (port reserved; op not yet shipped)
+  if (fromRole === "actor" && toRole === "scheduler" && toKind === "relay") {
+    return "trigger";
+  }
   // scheduler → actor = effect on recipient
   if (fromRole === "scheduler" && toRole === "actor") return "recipient";
-  // scheduler → scheduler = upstream fires downstream (trigger on target)
+  // scheduler → scheduler = upstream fires downstream
   if (fromRole === "scheduler" && toRole === "scheduler") return "trigger";
+  void fromKind;
   return undefined;
 };
 

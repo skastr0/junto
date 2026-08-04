@@ -686,16 +686,17 @@ export const applyPhaseMirror = (
 ): CanvasDoc => ({
   nodes: doc.nodes,
   edges: doc.edges.map((edge) => {
-    if (!edge.ether?.criteria) return edge;
+    const ether = edge.ether;
+    if (ether === undefined || !edgeStops(ether)) return edge;
     const phase = phaseByEdgeId.get(edge.id);
     if (phase === undefined) return edge;
     const base = {
       ...edge,
       label: phase,
       ether: {
-        ...edge.ether,
+        ...ether,
         kind: phase,
-        criteria: edge.ether.criteria,
+        criteria: ether.criteria ?? ether.stops,
       },
     };
     if (phase === "blocks") return { ...base, color: "1" as CanvasColor };

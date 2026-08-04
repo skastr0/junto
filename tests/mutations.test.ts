@@ -78,10 +78,32 @@ const runtimeWindow = {
 };
 (globalThis as unknown as { window: typeof runtimeWindow }).window = runtimeWindow;
 
+/** Access wires require factory roles — geography (plain notes) cannot connect. */
 const doc: CanvasDoc = {
   nodes: [
-    { id: "source", type: "text", text: "SOURCE", x: 0, y: 0, width: 200, height: 80 },
-    { id: "target", type: "text", text: "TARGET", x: 300, y: 0, width: 200, height: 80 },
+    {
+      id: "source",
+      type: "text",
+      text: "agent",
+      x: 0,
+      y: 0,
+      width: 200,
+      height: 80,
+      ether: { entity: { kind: "agent", name: "local:worker" } },
+    },
+    {
+      id: "target",
+      type: "text",
+      text: "tasks",
+      x: 300,
+      y: 0,
+      width: 200,
+      height: 80,
+      ether: {
+        entity: { kind: "task" },
+        tasks: { items: [] },
+      },
+    },
   ],
   edges: [],
 };
@@ -443,24 +465,22 @@ describe("renderer graph mutations", () => {
           },
         },
         {
-          id: "proj",
+          id: "agent",
           type: "text",
-          text: "quasar",
+          text: "worker",
           x: 300,
           y: 0,
           width: 200,
           height: 80,
-          ether: {
-            entity: { kind: "project", name: "quasar" },
-          },
+          ether: { entity: { kind: "agent", name: "local:worker" } },
         },
       ],
       edges: [],
     });
     expect(inferEdgeCriteria(state$.doc.peek().nodes[0])).toEqual({ mode: "tasks" });
-    addEdge({ source: "tasks", target: "proj" });
+    addEdge({ source: "tasks", target: "agent" });
     const edge = state$.doc.peek().edges[0];
-    expect(edge?.ether?.criteria).toEqual({ mode: "tasks" });
+    expect(edge?.ether?.stops ?? edge?.ether?.criteria).toEqual({ mode: "tasks" });
     expect(edge?.ether?.kind).toBeUndefined();
     expect(Result.isSuccess(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
   });
@@ -498,21 +518,22 @@ describe("renderer graph mutations", () => {
           },
         },
         {
-          id: "proj",
+          id: "agent",
           type: "text",
-          text: "quasar",
+          text: "worker",
           x: 300,
           y: 0,
           width: 200,
           height: 80,
-          ether: { entity: { kind: "project", name: "quasar" } },
+          ether: { entity: { kind: "agent", name: "local:worker" } },
         },
       ],
       edges: [],
     });
     expect(inferEdgeCriteria(state$.doc.peek().nodes[0])).toEqual({ mode: "tasks" });
-    addEdge({ source: "req", target: "proj" });
-    expect(state$.doc.peek().edges[0]?.ether?.criteria).toEqual({ mode: "tasks" });
+    addEdge({ source: "req", target: "agent" });
+    const edge = state$.doc.peek().edges[0];
+    expect(edge?.ether?.stops ?? edge?.ether?.criteria).toEqual({ mode: "tasks" });
   });
 
   it("sets tasks criteria and strips ether when cleared", () => {
@@ -610,10 +631,38 @@ describe("renderer graph mutations", () => {
   });
 
   describe("planConnectToTarget (pure edge-batch helper, RTS-006)", () => {
+    // Factory roles only — geography notes are deliberately unwirable.
     const batchNodes: CanvasDoc["nodes"] = [
-      { id: "a", type: "text", text: "A", x: 0, y: 0, width: 200, height: 80 },
-      { id: "b", type: "text", text: "B", x: 100, y: 0, width: 200, height: 80 },
-      { id: "c", type: "text", text: "C", x: 200, y: 0, width: 200, height: 80 },
+      {
+        id: "a",
+        type: "text",
+        text: "A",
+        x: 0,
+        y: 0,
+        width: 200,
+        height: 80,
+        ether: { entity: { kind: "agent", name: "local:a" } },
+      },
+      {
+        id: "b",
+        type: "text",
+        text: "B",
+        x: 100,
+        y: 0,
+        width: 200,
+        height: 80,
+        ether: { entity: { kind: "agent", name: "local:b" } },
+      },
+      {
+        id: "c",
+        type: "text",
+        text: "C",
+        x: 200,
+        y: 0,
+        width: 200,
+        height: 80,
+        ether: { entity: { kind: "task" }, tasks: { items: [] } },
+      },
       { id: "region", type: "group", label: "R", x: 0, y: 100, width: 400, height: 200 },
       {
         id: "tasks",
@@ -643,19 +692,30 @@ describe("renderer graph mutations", () => {
           },
         },
       },
+      {
+        id: "note",
+        type: "text",
+        text: "geography note",
+        x: 0,
+        y: 500,
+        width: 200,
+        height: 80,
+      },
     ];
 
-    it("plans soft relates from each source to the target", () => {
+    it("plans access wires from each agent to the task sink", () => {
       const plan = planConnectToTarget(["a", "b"], "c", batchNodes, []);
-      expect(plan.toAdd).toEqual([
-        { fromNode: "a", toNode: "c" },
-        { fromNode: "b", toNode: "c" },
+      expect(plan.toAdd.map((c) => ({ from: c.fromNode, to: c.toNode }))).toEqual([
+        { from: "a", to: "c" },
+        { from: "b", to: "c" },
       ]);
       expect(plan.skipped).toEqual([]);
-      // Soft relates: no criteria key on candidates
-      for (const candidate of plan.toAdd) {
-        expect(Object.hasOwn(candidate, "criteria")).toBe(false);
-      }
+    });
+
+    it("refuses geography notes as unwirable", () => {
+      const plan = planConnectToTarget(["note"], "c", batchNodes, []);
+      expect(plan.toAdd).toEqual([]);
+      expect(plan.skipped).toEqual([{ source: "note", reason: "refused-pair" }]);
     });
 
     it("skips self, duplicates, groups, and missing sources", () => {
@@ -683,11 +743,20 @@ describe("renderer graph mutations", () => {
       expect(planConnectToTarget(["a"], "gone", batchNodes, []).toAdd).toEqual([]);
     });
 
-    it("infers tasks criteria per source when connecting a tasks node", () => {
+    it("infers tasks criteria per source when connecting a tasks node to an agent", () => {
       const plan = planConnectToTarget(["tasks", "a"], "c", batchNodes, []);
+      // tasks→task refused (sink-sink); agent→task ok
+      expect(plan.toAdd).toEqual([{ fromNode: "a", toNode: "c" }]);
+      expect(plan.skipped).toContainEqual({
+        source: "tasks",
+        reason: "refused-pair",
+      });
+    });
+
+    it("infers tasks criteria when tasks → agent", () => {
+      const plan = planConnectToTarget(["tasks"], "a", batchNodes, []);
       expect(plan.toAdd).toEqual([
-        { fromNode: "tasks", toNode: "c", criteria: { mode: "tasks" } },
-        { fromNode: "a", toNode: "c" },
+        { fromNode: "tasks", toNode: "a", criteria: { mode: "tasks" } },
       ]);
     });
 
@@ -701,13 +770,40 @@ describe("renderer graph mutations", () => {
     });
   });
 
-  it("connectAllToTarget commits multi-source soft relates in one write", () => {
+  it("connectAllToTarget commits multi-source access wires in one write", () => {
     state$.canvasName.set("mutation-test");
     loadDoc({
       nodes: [
-        { id: "a", type: "text", text: "A", x: 0, y: 0, width: 200, height: 80 },
-        { id: "b", type: "text", text: "B", x: 100, y: 0, width: 200, height: 80 },
-        { id: "c", type: "text", text: "C", x: 200, y: 0, width: 200, height: 80 },
+        {
+          id: "a",
+          type: "text",
+          text: "A",
+          x: 0,
+          y: 0,
+          width: 200,
+          height: 80,
+          ether: { entity: { kind: "agent", name: "local:a" } },
+        },
+        {
+          id: "b",
+          type: "text",
+          text: "B",
+          x: 100,
+          y: 0,
+          width: 200,
+          height: 80,
+          ether: { entity: { kind: "agent", name: "local:b" } },
+        },
+        {
+          id: "c",
+          type: "text",
+          text: "C",
+          x: 200,
+          y: 0,
+          width: 200,
+          height: 80,
+          ether: { entity: { kind: "task" }, tasks: { items: [] } },
+        },
       ],
       edges: [],
     });
@@ -732,9 +828,36 @@ describe("renderer graph mutations", () => {
     state$.canvasName.set("mutation-test");
     loadDoc({
       nodes: [
-        { id: "a", type: "text", text: "A", x: 0, y: 0, width: 200, height: 80 },
-        { id: "t1", type: "text", text: "T1", x: 100, y: 0, width: 200, height: 80 },
-        { id: "t2", type: "text", text: "T2", x: 200, y: 0, width: 200, height: 80 },
+        {
+          id: "a",
+          type: "text",
+          text: "A",
+          x: 0,
+          y: 0,
+          width: 200,
+          height: 80,
+          ether: { entity: { kind: "agent", name: "local:a" } },
+        },
+        {
+          id: "t1",
+          type: "text",
+          text: "T1",
+          x: 100,
+          y: 0,
+          width: 200,
+          height: 80,
+          ether: { entity: { kind: "task" }, tasks: { items: [] } },
+        },
+        {
+          id: "t2",
+          type: "text",
+          text: "T2",
+          x: 200,
+          y: 0,
+          width: 200,
+          height: 80,
+          ether: { entity: { kind: "task" }, tasks: { items: [] } },
+        },
       ],
       edges: [],
     });
@@ -754,13 +877,14 @@ describe("renderer graph mutations", () => {
     loadDoc({ ...doc, edges: [{ id: "edge-1", fromNode: "source", toNode: "target" }] });
     runtimeWindow.confirm = () => false;
 
-    deleteNode("source");
+    // Delete the task sink (agent seats may use multi-step kill ceremony).
+    deleteNode("target");
     expect(state$.doc.peek().nodes).toHaveLength(2);
     expect(state$.doc.peek().edges).toHaveLength(1);
 
     runtimeWindow.confirm = () => true;
-    deleteNode("source");
-    expect(state$.doc.peek().nodes.map((node) => node.id)).toEqual(["target"]);
+    deleteNode("target");
+    expect(state$.doc.peek().nodes.map((node) => node.id)).toEqual(["source"]);
     expect(state$.doc.peek().edges).toHaveLength(0);
   });
 
@@ -820,13 +944,24 @@ describe("renderer graph mutations", () => {
     state$.canvasName.set("mutation-test");
     loadDoc(doc);
     commitDoc({
-      nodes: [{ id: "source", type: "text", text: "EDITED", x: 0, y: 0, width: 200, height: 80 }],
+      nodes: [
+        {
+          id: "source",
+          type: "text",
+          text: "EDITED",
+          x: 0,
+          y: 0,
+          width: 200,
+          height: 80,
+          ether: { entity: { kind: "agent", name: "local:worker" } },
+        },
+      ],
       edges: [],
     });
     const afterCommit = state$.docEpoch.peek();
     undo();
     expect(state$.docEpoch.peek()).toBe(afterCommit + 1);
-    expect(state$.doc.peek().nodes[0]).toMatchObject({ text: "SOURCE" });
+    expect(state$.doc.peek().nodes[0]).toMatchObject({ text: "agent" });
     redo();
     expect(state$.docEpoch.peek()).toBe(afterCommit + 2);
     expect(state$.doc.peek().nodes[0]).toMatchObject({ text: "EDITED" });

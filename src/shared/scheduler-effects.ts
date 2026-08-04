@@ -215,8 +215,11 @@ export const evaluateRelay = (
 };
 
 /**
- * Combine multiple watch inputs: satisfied if ANY is satisfied.
- * unknown only if all unknown; else pending if none satisfied.
+ * Combine multiple watch inputs: **OR** — any input satisfied fires.
+ *
+ * Rising-edge memory is per relay node (not per input wire), so if A
+ * satisfies and later B satisfies while A is still satisfied, there is no
+ * new rising edge and the relay will not refire. Stated fire semantics for v1.
  */
 export const combineWatchEvaluations = (
   parts: ReadonlyArray<RelayEvaluation>,
