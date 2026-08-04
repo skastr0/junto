@@ -9,6 +9,7 @@ import type { NodeProps } from "@xyflow/react";
 import { Link2 } from "lucide-react";
 import { formatNodeRef } from "@shared/node-ref";
 import { PageCard } from "../browser/PageCard";
+import { PageToolbarActions } from "../browser/PageToolbarActions";
 import type { FlowNode } from "../../lib/convert";
 import { openDockBrowser } from "../../lib/dock-state";
 import { browser$ } from "../../lib/browser-state";
@@ -56,7 +57,12 @@ export function LinkNode({ data, selected }: NodeProps<FlowNode>) {
       });
     };
     return (
-      <NodeShell node={node} selected={selected} blocked={data.blocked}>
+      <NodeShell
+        node={node}
+        selected={selected}
+        blocked={data.blocked}
+        toolbarExtras={<PageToolbarActions node={node} />}
+      >
         <div
           className="nopan h-full w-full"
           onDoubleClick={(event) => {
