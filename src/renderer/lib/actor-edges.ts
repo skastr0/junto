@@ -1,7 +1,10 @@
 /**
  * Read-only inventory of edges incident to an actor node — used on agent
- * focus surfaces so the operator sees connected sinks and edge nature
- * without opening the inspector.
+ * focus surfaces so the operator sees connected peers, ports, and wake
+ * without inventing obsolete edge natures (soft / authorial stops).
+ *
+ * Live stoppage on a work lane is kernel-derived (actor blocked by task
+ * attention) — never an authorable edge mode.
  */
 import { HashSet, Option, Schema } from "effect";
 import type { CanvasDoc, CanvasEdge, CanvasNode } from "@shared/canvas";
@@ -21,8 +24,6 @@ import { specOf } from "./node-spec";
 
 const decodePort = Schema.decodeUnknownOption(Port);
 
-export type ActorEdgeNature = "soft" | "tasks";
-
 export type ActorEdgeRow = {
   readonly edgeId: string;
   readonly peerId: string;
@@ -30,23 +31,15 @@ export type ActorEdgeRow = {
   readonly peerKind: string;
   /** Actor is fromNode → out; actor is toNode → in. */
   readonly direction: "out" | "in";
-  readonly nature: ActorEdgeNature;
   /** Effective ports the actor can wield toward the peer (reach). */
   readonly ports: ReadonlyArray<PortName>;
   /** Board megaphone: absent/true = ON, explicit false = OFF. */
   readonly boardNotify: "on" | "off" | null;
+  /**
+   * Live kernel phase only. `blocks` = seat is stopped on this wire right
+   * now (derived). Absent = no stoppage paint — not "soft relationship".
+   */
   readonly livePhase: "blocks" | "relates" | null;
-};
-
-/** Work-lane nature is derived from peer kind (task|requests), not ether.stops. */
-const natureOf = (
-  edge: CanvasEdge,
-  peer: CanvasNode | undefined,
-): ActorEdgeNature => {
-  const peerKind = peer?.ether?.entity?.kind;
-  if (peerKind === "task" || peerKind === "requests") return "tasks";
-  if (edge.ether?.stops?.mode === "tasks") return "tasks";
-  return "soft";
 };
 
 const readMask = (edge: CanvasEdge): HashSet.HashSet<PortName> | undefined => {
@@ -124,7 +117,6 @@ export const actorEdgeRows = (
     const peerId = out ? edge.toNode : edge.fromNode;
     const peer = byId.get(peerId);
     const mask = readMask(edge);
-    // Reach is always actor → peer (what this seat can do on the connection).
     const ports = effectivePorts(actor, peer, mask);
     const phase = phaseByEdgeId?.get(edge.id) ?? null;
 
@@ -134,7 +126,6 @@ export const actorEdgeRows = (
       peerTitle: peer ? nodeTitle(peer) : peerId,
       peerKind: peerKindOf(peer),
       direction: out ? "out" : "in",
-      nature: natureOf(edge, peer),
       ports,
       boardNotify: boardNotifyOf(edge, actor, peer),
       livePhase: phase,
@@ -148,9 +139,7 @@ export const actorEdgeRows = (
   return rows;
 };
 
-/** Short human nature label for chips / a11y. */
-export const actorEdgeNatureLabel = (row: ActorEdgeRow): string => {
-  if (row.livePhase === "blocks") return "blocks";
-  if (row.nature === "soft") return "soft";
-  return row.nature;
-};
+/** Live stoppage label only — never "soft". */
+export const actorEdgePhaseLabel = (
+  row: ActorEdgeRow,
+): "blocks" | null => (row.livePhase === "blocks" ? "blocks" : null);

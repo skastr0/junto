@@ -331,13 +331,9 @@ export const wordsOfEdge = (input: {
   const { family, ether, fromKind, toKind, hasMessages } = input;
   const words: WireWord[] = [];
   if (family === "access") {
-    // Derived work-lane stoppage (actor ↔ task|requests) — not authorial ether.stops.
-    const workLane =
-      fromKind === "task" ||
-      fromKind === "requests" ||
-      toKind === "task" ||
-      toKind === "requests";
-    if (workLane || ether?.stops != null) words.push("stops");
+    // No authorial "stops" word. Seat stoppage is derived from work attention
+    // on the actor, not painted as edge vocabulary. Access words are wake
+    // (board megaphone) and messages (actor↔actor reach) only.
     const touchesBoard = fromKind === "board" || toKind === "board";
     if (touchesBoard && ether?.wake !== false) words.push("wakes");
     if (hasMessages) words.push("messages");
@@ -378,11 +374,11 @@ export const wordsOfEdge = (input: {
 };
 
 /**
- * Halo rule (artifact cold scan):
+ * Halo rule:
  * - watch → always worded (completes/flagged default)
  * - effect → worded only when `does` is authored (no false enqueues)
  * - trigger → bare (no live words)
- * - access → worded only when stops / wakes / messages present
+ * - access → worded only when wakes / messages present (never stops)
  */
 export const isWorded = (
   family: WireFamily,

@@ -1,14 +1,16 @@
 /**
  * Node shell blocked presentation.
  *
- * Factory law: only **actor** seats join the stoppage set. Schedulers/sinks/
- * geography never wear seat-stoppage chrome (pulse, spinner, crimson shell)
- * and never show a **blocker** flag rail chip — stoppage is seat-only.
- * A stray flag:blocker on a non-seat is ignored for chrome (clear via toolbar
- * if the flag still exists in the document).
+ * Two planes (do not collapse them):
+ *
+ * 1. **Flags** (blocker / attention / parked) — uniform document tags on any
+ *    node. All three show on the rail. No special hide for blocker on boards.
+ * 2. **Seat stoppage chrome** (pulse, crimson shell, spinner) — **actors only**,
+ *    from graph stoppage, manual blocker flag on a seat, or live herdr blocked.
+ *    Flagging a board "blocker" is a tag, not seat stoppage.
  *
  * Herdr agent_status is live runtime: when the pane is blocked, the card
- * wears the same chrome as a blocked seat without writing ether.flags.
+ * wears seat chrome without writing ether.flags.
  */
 
 import type { CanvasNode, EtherFlag } from "@shared/canvas";
@@ -24,16 +26,13 @@ export const liveHerdrBlocked = (
 ): boolean => isHerdrCanvasNode(node) && agentStatus === "blocked";
 
 export type NodeBlockPresentation = {
-  /** Crimson border / vellum-blocker pulse / flag-rail primary stoppage. */
+  /** Crimson border / vellum-blocker pulse / primary stoppage paint. */
   readonly isBlocker: boolean;
   /** Crimson wash + pulse + corner spinner (seat stoppage only). */
   readonly shellBlocked: boolean;
   /** Live herdr only — not a document flag. */
   readonly liveHerdrBlocked: boolean;
-  /**
-   * Flags shown on the rail. Non-seats never surface `blocker` here —
-   * that chip is seat stoppage language only.
-   */
+  /** Flags shown on the rail — same vocabulary for every node kind. */
   readonly flags: ReadonlyArray<EtherFlag>;
 };
 
@@ -46,18 +45,14 @@ export const nodeBlockPresentation = (input: {
   const seat = isBlockableNode(input.node as CanvasNode);
   const flagBlocker = rawFlags.includes("blocker");
   const live = liveHerdrBlocked(input.node, input.herdrAgentStatus);
-  // Flag drives seat chrome only on blockable actors.
+  // Seat stoppage paint: seats only (+ live herdr).
   const flagDrivesSeatChrome = flagBlocker && seat;
   const isBlocker = flagDrivesSeatChrome || live;
-  // Graph blocked set is seats-only by factory law; never dress non-seats.
   const shellBlocked = (seat && input.graphBlocked) || isBlocker;
-  const flags = seat
-    ? rawFlags
-    : rawFlags.filter((flag) => flag !== "blocker");
   return {
     isBlocker,
     shellBlocked,
     liveHerdrBlocked: live,
-    flags,
+    flags: rawFlags,
   };
 };

@@ -131,14 +131,14 @@ team :: idle - 2 members
 
 factory physics
 roles :: actors=1 sinks=1 schedulers=0 geography=3
-capabilities :: criteria=1 soft=3
+edges :: 4
 
 design
 seats
   Baz :: empty
 empty seats
   Baz :: empty
-topology :: soft=3 tasks=1
+topology :: edges=4
 
 entities
 Foo :: project
@@ -231,7 +231,7 @@ const expected2 = [
   "",
   "factory physics",
   "roles :: actors=0 sinks=0 schedulers=0 geography=8",
-  "capabilities :: criteria=0 soft=0",
+  "edges :: 0",
   "",
   "entities",
   "W1 :: project",
@@ -337,12 +337,14 @@ const physicsDoc: CanvasDoc = {
 };
 
 describe("digestCanvas — factory physics", () => {
-  it("projects role counts via roleOf/resolveSpec and criteria vs soft edges", () => {
+  it("projects role counts via roleOf/resolveSpec and edge totals (no soft modes)", () => {
     const out = digestCanvas("physics", physicsDoc, { bundles: [] });
     expect(out).toContain("factory physics");
     // One actor kind: the `tty` node is a raw terminal, hence geography.
     expect(out).toMatch(/roles :: actors=1 sinks=\d+ schedulers=2 geography=\d+/);
-    expect(out).toContain("capabilities :: criteria=2 soft=1");
+    expect(out).toContain("edges :: 3");
+    expect(out).not.toContain("soft=");
+    expect(out).not.toContain("criteria=");
     // Never leaks live occupancy / process-bind identity.
     expect(out).not.toMatch(/\bpid\b/i);
     expect(out).not.toContain("process-bind");
@@ -359,7 +361,7 @@ describe("digestCanvas — factory physics", () => {
         "",
         "factory physics",
         "roles :: actors=0 sinks=0 schedulers=0 geography=0",
-        "capabilities :: criteria=0 soft=0",
+        "edges :: 0",
         "",
       ].join("\n"),
     );

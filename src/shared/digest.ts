@@ -200,19 +200,13 @@ export const digestCanvas = (
       );
       roleCounts[role] += 1;
     }
-    let criteriaEdges = 0;
-    let softEdges = 0;
-    for (const edge of doc.edges) {
-      if (edge.ether?.stops) criteriaEdges += 1;
-      else softEdges += 1;
-    }
     const roleParts = ROLE_ORDER.map(
       (role) => `${ROLE_COUNT_KEY[role]}=${roleCounts[role]}`,
     );
     sections.push([
       "factory physics",
       `roles :: ${roleParts.join(" ")}`,
-      `capabilities :: criteria=${criteriaEdges} soft=${softEdges}`,
+      `edges :: ${doc.edges.length}`,
     ]);
   }
 
@@ -244,17 +238,9 @@ export const digestCanvas = (
       designLines.push("empty seats");
       designLines.push(...emptyLines.map((line) => `  ${line}`));
     }
-    // Topology summary: criteria modes present (document shape, not completion).
-    const modeCounts: Record<string, number> = {};
-    for (const edge of doc.edges) {
-      const mode = edge.ether?.stops?.mode ?? "soft";
-      modeCounts[mode] = (modeCounts[mode] ?? 0) + 1;
-    }
-    const modeParts = Object.keys(modeCounts)
-      .sort()
-      .map((mode) => `${mode}=${modeCounts[mode]}`);
-    if (modeParts.length > 0) {
-      designLines.push(`topology :: ${modeParts.join(" ")}`);
+    // Topology summary: edge count only — no soft/stops modes (retired).
+    if (doc.edges.length > 0) {
+      designLines.push(`topology :: edges=${doc.edges.length}`);
     }
     if (designLines.length > 1) {
       sections.push(designLines);

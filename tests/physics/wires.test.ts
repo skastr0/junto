@@ -120,6 +120,7 @@ describe("wires grammar", () => {
   });
 
   it("derives words and worded/disabled presentation", () => {
+    // agent↔task access is bare hairline — stoppage is not an edge word.
     expect(
       wordsOfEdge({
         family: "access",
@@ -127,7 +128,7 @@ describe("wires grammar", () => {
         fromKind: "agent",
         toKind: "task",
       }),
-    ).toEqual(["stops"]);
+    ).toEqual([]);
     expect(
       wordsOfEdge({
         family: "access",
@@ -145,7 +146,7 @@ describe("wires grammar", () => {
     ).toEqual(["flags"]);
 
     expect(isWorded("access", [])).toBe(false);
-    expect(isWorded("access", ["stops"])).toBe(true);
+    expect(isWorded("access", ["wakes"])).toBe(true);
     expect(isWorded("watch", [])).toBe(true);
     // Bare effect (no does) is not worded — no false "enqueues".
     expect(isWorded("effect", [])).toBe(false);
@@ -171,14 +172,24 @@ describe("wires grammar", () => {
     expect(bareAccess.worded).toBe(false);
     expect(bareAccess.strokeDasharray).toBe("none");
 
-    const wordedAccess = wirePresentation({
+    // agent↔task is bare (no stops word). Worded access is board wake / messages.
+    const taskAccess = wirePresentation({
       family: "access",
       ether: {},
       fromKind: "agent",
       toKind: "task",
     });
-    expect(wordedAccess.worded).toBe(true);
-    expect(wordedAccess.words).toContain("stops");
+    expect(taskAccess.worded).toBe(false);
+    expect(taskAccess.words).toEqual([]);
+
+    const wakeAccess = wirePresentation({
+      family: "access",
+      ether: {},
+      fromKind: "agent",
+      toKind: "board",
+    });
+    expect(wakeAccess.worded).toBe(true);
+    expect(wakeAccess.words).toContain("wakes");
 
     const watch = wirePresentation({ family: "watch", ether: {} });
     expect(watch.worded).toBe(true);

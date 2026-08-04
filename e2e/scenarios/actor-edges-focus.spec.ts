@@ -72,15 +72,15 @@ test("actor terminal focus shows read-only edge inventory", async () => {
     await expect(glance).toHaveAttribute("aria-label", "Connected edges");
     await expect(surface.getByTestId("actor-edges-glance")).toHaveCount(0);
 
-    // Tasks criteria edge (inbound) + soft shell edge (outbound).
+    // Tasks work-lane (inbound) + shell peer (outbound) — no soft/tasks nature chips.
     const tasksRow = glance.locator('[data-peer-kind="task"]');
     await expect(tasksRow).toBeVisible();
-    await expect(tasksRow).toHaveAttribute("data-edge-nature", "tasks");
+    await expect(tasksRow).not.toHaveAttribute("data-edge-nature");
     await expect(tasksRow).toContainText(/tasks/i);
 
     const shellRow = glance.locator('[data-peer-kind="terminal"]');
     await expect(shellRow).toBeVisible();
-    await expect(shellRow).toHaveAttribute("data-edge-nature", "soft");
+    await expect(shellRow).not.toHaveAttribute("data-edge-nature");
     await expect(shellRow).toContainText(/shell/i);
 
     // Ports on tasks reach should surface (list/claim/update family).

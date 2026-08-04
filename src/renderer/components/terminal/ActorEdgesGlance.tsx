@@ -1,7 +1,10 @@
 /**
  * Outside-the-plate right-rail edge inventory for an actor on focus.
  * Mounted as FocusSurface `aside` (sibling of the modal panel) so the TUI
- * stays unobscured while the operator still sees connected sinks + edge nature.
+ * stays unobscured while the operator still sees connected peers + ports.
+ *
+ * No "soft" / "tasks" edge nature — those were authorial relationship modes.
+ * Live stoppage is a derived chip only when the kernel reports blocks.
  */
 import { useMemo } from "react";
 import { use$ } from "@legendapp/state/react";
@@ -9,18 +12,13 @@ import type { CanvasNode } from "@shared/canvas";
 import { isGroup } from "@shared/graph";
 import { resolveSpec, roleOf } from "@shared/physics";
 import {
-  actorEdgeNatureLabel,
+  actorEdgePhaseLabel,
   actorEdgeRows,
   type ActorEdgeRow,
 } from "../../lib/actor-edges";
 import { state$ } from "../../lib/state";
 import { kernel$ } from "../../lib/kernel-view";
-import { Chip, Eyebrow, type ChipTone } from "../ui";
-
-const natureTone = (row: ActorEdgeRow): ChipTone => {
-  if (row.livePhase === "blocks" || row.nature === "tasks") return "crimson";
-  return "steel";
-};
+import { Chip, Eyebrow } from "../ui";
 
 const DirectionMark = ({ direction }: { readonly direction: "out" | "in" }) => (
   <span
@@ -33,7 +31,7 @@ const DirectionMark = ({ direction }: { readonly direction: "out" | "in" }) => (
 );
 
 function EdgeCard({ row }: { readonly row: ActorEdgeRow }) {
-  const nature = actorEdgeNatureLabel(row);
+  const phase = actorEdgePhaseLabel(row);
   const ports =
     row.ports.length > 0
       ? row.ports.map((p) => p.replace(/^[a-z]+\./, "")).join(" - ")
@@ -44,7 +42,7 @@ function EdgeCard({ row }: { readonly row: ActorEdgeRow }) {
   const title = [
     `${row.direction === "out" ? "to" : "from"} ${row.peerTitle}`,
     `kind ${row.peerKind}`,
-    `edge ${nature}`,
+    phase ? `live ${phase}` : null,
     ports ? `ports ${row.ports.join(" - ")}` : null,
     ...meta,
   ]
@@ -56,16 +54,17 @@ function EdgeCard({ row }: { readonly row: ActorEdgeRow }) {
       className="actor-edges-glance__row"
       data-edge-id={row.edgeId}
       data-peer-kind={row.peerKind}
-      data-edge-nature={row.nature}
       data-live-phase={row.livePhase ?? undefined}
       title={title}
     >
       <div className="actor-edges-glance__row-head">
         <DirectionMark direction={row.direction} />
         <span className="actor-edges-glance__kind">{row.peerKind}</span>
-        <Chip tone={natureTone(row)} title={`edge - ${nature}`}>
-          {nature}
-        </Chip>
+        {phase ? (
+          <Chip tone="crimson" title="live stoppage">
+            {phase}
+          </Chip>
+        ) : null}
       </div>
       <span className="actor-edges-glance__title">{row.peerTitle}</span>
       {ports ? (

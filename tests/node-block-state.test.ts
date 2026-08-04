@@ -76,7 +76,7 @@ describe("nodeBlockPresentation", () => {
     expect(p.liveHerdrBlocked).toBe(false);
   });
 
-  it("document flag:blocker on herdr alone does not seat-chrome (live status does)", () => {
+  it("document flag:blocker on herdr shows rail tag but not seat chrome until live blocks", () => {
     const flagged = {
       type: "text" as const,
       ether: {
@@ -89,8 +89,8 @@ describe("nodeBlockPresentation", () => {
       graphBlocked: false,
       herdrAgentStatus: "idle",
     });
-    // Non-seat: blocker is not rail language; shell quiet until live herdr blocks.
-    expect(p.flags).toEqual([]);
+    // Flags are uniform tags; seat pulse still live-herdr only for non-agents.
+    expect(p.flags).toEqual(["blocker"]);
     expect(p.isBlocker).toBe(false);
     expect(p.shellBlocked).toBe(false);
     expect(p.liveHerdrBlocked).toBe(false);
@@ -110,14 +110,15 @@ describe("nodeBlockPresentation", () => {
     });
     expect(p.isBlocker).toBe(true);
     expect(p.shellBlocked).toBe(true);
+    expect(p.flags).toEqual(["blocker"]);
   });
 
-  it("relay with flag:blocker hides rail chip and seat dress", () => {
+  it("relay with flag:blocker shows rail tag, never seat dress", () => {
     const p = nodeBlockPresentation({
       node: relayNode,
       graphBlocked: false,
     });
-    expect(p.flags).toEqual([]);
+    expect(p.flags).toEqual(["blocker"]);
     expect(p.isBlocker).toBe(false);
     expect(p.shellBlocked).toBe(false);
   });
