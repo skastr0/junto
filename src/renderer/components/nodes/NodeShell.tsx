@@ -451,7 +451,8 @@ export function NodeShell({
           isVisible={selected}
           minWidth={bare ? 48 : 170}
           minHeight={bare ? 24 : 72}
-          color={accent}
+          // Never paint amber/gold resize chrome over stoppage crimson.
+          color={shellBlocked || isBlocker ? HUE.crimson : accent}
           handleClassName="vellum-resize-handle"
           lineClassName="vellum-resize-line"
           onResizeEnd={(_event, params) => resizeNode(node.id, params)}

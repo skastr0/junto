@@ -508,9 +508,10 @@ export const runEvaluationCycle = async (): Promise<void> => {
         } else if (node.ether?.relay) {
           evaluation = evaluateRelay(effectiveDoc, node.ether.relay);
         } else {
+          // No watch wire with `when` (or only empty/legacy body). Not stoppage.
           evaluation = {
             status: "unknown" as const,
-            detail: "draw a sink into this relay to watch",
+            detail: "no watch yet — draw a sink in and set fires-when",
           };
         }
         const result = evaluateWatcherLevel(canvasName, node.id, evaluation, {

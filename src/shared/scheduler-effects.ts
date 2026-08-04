@@ -223,7 +223,10 @@ export const evaluateWatchWhen = (
   when: WatchWhen,
 ): RelayEvaluation => {
   if (!source) {
-    return { status: "unknown", detail: "source missing" };
+    return {
+      status: "unknown",
+      detail: "watch source gone — reconnect a sink",
+    };
   }
   if (when.word === "any") {
     return combineWatchEvaluations(
