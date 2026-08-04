@@ -20,6 +20,10 @@ import type {
   WatchWhen,
 } from "./canvas";
 import { edgeDoes } from "./canvas";
+import {
+  defaultInsertData,
+  insertDataValid,
+} from "./node-insert";
 import { resolveSpec, roleOf } from "./physics/kinds";
 
 export const SCHEDULER_ENTITY_KINDS = [
@@ -145,7 +149,7 @@ export type EffectTargetError =
   | "target_not_task_sink"
   | "target_not_agent"
   | "target_missing"
-  | "empty_brief"
+  | "empty_insert_data"
   | "invalid_flag";
 
 export const validateEffectTarget = (
@@ -153,11 +157,14 @@ export const validateEffectTarget = (
   target: CanvasNode,
 ): EffectTargetError | undefined => {
   if (effect.mode === "enqueue_task") {
-    if (target.ether?.entity?.kind !== "task") return "target_not_task_sink";
-    if (roleOf(resolveSpec({ isGroup: target.type === "group", kind: target.ether?.entity?.kind })) !== "sink") {
+    const kind = target.ether?.entity?.kind;
+    if (kind !== "task") return "target_not_task_sink";
+    if (roleOf(resolveSpec({ isGroup: target.type === "group", kind })) !== "sink") {
       return "target_not_task_sink";
     }
-    if (effect.brief.trim().length === 0) return "empty_brief";
+    if (!insertDataValid(kind, "enqueue_task", effect.data)) {
+      return "empty_insert_data";
+    }
     return undefined;
   }
   if (effect.mode === "inject_prompt") {
@@ -170,12 +177,12 @@ export const validateEffectTarget = (
   return undefined;
 };
 
-export const defaultEnqueueBrief = (source: CanvasNode): string => {
+/** Human label for a scheduler node (text first line, else entity kind). */
+export const schedulerSourceLabel = (source: CanvasNode): string => {
   if (source.type === "text" && source.text.trim().length > 0) {
-    return source.text.trim();
+    return source.text.trim().split("\n")[0]!;
   }
-  const kind = source.ether?.entity?.kind ?? "scheduler";
-  return `Scheduled work from ${kind}`;
+  return source.ether?.entity?.kind ?? "scheduler";
 };
 
 /** Infer effect when connecting a scheduler → target. */
@@ -188,8 +195,7 @@ export const inferSchedulerEdgeEffect = (
   if (toKind === "task") {
     return {
       mode: "enqueue_task",
-      brief: defaultEnqueueBrief(fromNode!),
-      reason: "scheduler",
+      data: defaultInsertData(toKind, schedulerSourceLabel(fromNode!)),
     };
   }
   if (toKind === "agent") {

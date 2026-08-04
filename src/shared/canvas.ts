@@ -8,6 +8,7 @@ import {
   EtherRequests,
   EtherTasks,
 } from "./work-model";
+import { InsertData, scrubDoesEffect } from "./node-insert";
 
 export {
   Artifact,
@@ -352,10 +353,11 @@ export type WatchWhen = typeof WatchWhen.Type;
 
 // Automation effect plane (sibling of criteria/ports/notify). Kernel-home fire
 // applies these; never process-bind ocap. Claim assignment stays factory tick.
+// enqueue_task carries generic insert `data` for the *target node* (field keys
+// from that kind's contract) — not a task-typed payload and not a free brief.
 export const EdgeEffectEnqueueTask = Schema.Struct({
   mode: Schema.Literal("enqueue_task"),
-  brief: Schema.String,
-  reason: Schema.optionalKey(Schema.String),
+  data: InsertData,
 });
 export type EdgeEffectEnqueueTask = typeof EdgeEffectEnqueueTask.Type;
 
@@ -639,7 +641,9 @@ export const scrubCanvasDocInput = (input: unknown): unknown => {
             (rawStops as { readonly mode?: unknown }).mode === "approval")
             ? undefined
             : rawStops;
-        const does = eth.does ?? eth.effect;
+        const doesRaw = eth.does ?? eth.effect;
+        const does =
+          doesRaw !== undefined ? scrubDoesEffect(doesRaw) : undefined;
         const wake = eth.wake ?? eth.notify;
         const next: Record<string, unknown> = {};
         if (eth.ports !== undefined) next.ports = eth.ports;

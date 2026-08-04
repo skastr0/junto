@@ -11,6 +11,13 @@ import type {
   WatchWhenAtom,
 } from "@shared/canvas";
 import {
+  defaultInsertData,
+  getInsertField,
+  insertFieldsFor,
+  setInsertField,
+  type InsertData,
+} from "@shared/node-insert";
+import {
   familyFromSlot,
   resolveSpec,
   roleOf,
@@ -25,13 +32,14 @@ import {
 import {
   collectEffectEdgesFrom,
   isSchedulerNode,
+  schedulerSourceLabel,
   type EffectEdgeBinding,
 } from "@shared/scheduler-effects";
 import {
   EdgeBoardNotifyToggle,
   EdgePortsAttenuator,
 } from "../InspectorFields";
-import { Select } from "../ui";
+import { Input, Select } from "../ui";
 import {
   setAgentRelayMode,
   setEdgeEffect,
@@ -45,8 +53,12 @@ import { HUE, withAlpha } from "../../lib/theme";
 const describeEffectBinding = (binding: EffectEdgeBinding): string => {
   const target = nodeTitle(binding.target);
   switch (binding.effect.mode) {
-    case "enqueue_task":
-      return `adds a task on ${target}`;
+    case "enqueue_task": {
+      const title = (binding.effect.data.title ?? "").trim();
+      return title.length > 0
+        ? `adds “${title}” on ${target}`
+        : `adds inventory on ${target}`;
+    }
     case "inject_prompt":
       return `sends a prompt to ${target}`;
     case "set_flag":
@@ -194,15 +206,18 @@ function DoesSection({
   edgeId,
   section,
   edge,
+  fromNode,
   toNode,
 }: {
   readonly edgeId: string;
   readonly section: Extract<SheetSection, { readonly _tag: "does" }>;
   readonly edge: CanvasEdge;
+  readonly fromNode: CanvasNode | undefined;
   readonly toNode: CanvasNode | undefined;
 }) {
   const effect = edge.ether?.does;
   const mode = effect?.mode ?? "none";
+  const targetKind = toNode?.ether?.entity?.kind;
   const options = [
     { value: "none", label: "Do nothing" },
     ...section.inputs.map((input) => ({
@@ -210,6 +225,14 @@ function DoesSection({
       label: input.label,
     })),
   ];
+  const insertFields =
+    effect?.mode === "enqueue_task"
+      ? insertFieldsFor(targetKind, "enqueue_task")
+      : [];
+
+  const patchData = (data: InsertData) => {
+    setEdgeEffect(edgeId, { mode: "enqueue_task", data });
+  };
 
   return (
     <div className="inspector-section">
@@ -230,10 +253,12 @@ function DoesSection({
               return;
             }
             if (value === "enqueue_task") {
+              const label = fromNode
+                ? schedulerSourceLabel(fromNode)
+                : "scheduler";
               setEdgeEffect(edgeId, {
                 mode: "enqueue_task",
-                brief: "Scheduled work",
-                reason: "scheduler",
+                data: defaultInsertData(targetKind, label),
               });
               return;
             }
@@ -249,6 +274,61 @@ function DoesSection({
           }}
         />
       </label>
+      {effect?.mode === "enqueue_task"
+        ? insertFields.map((field) => {
+            const value = getInsertField(effect.data, field.key);
+            const id = `does-${edgeId}-${field.key}`;
+            if (field.kind === "textarea") {
+              return (
+                <label key={field.key} className="inspector-editor">
+                  <span>
+                    {field.label}
+                    {field.required ? "" : " (optional)"}
+                  </span>
+                  <textarea
+                    id={id}
+                    aria-label={field.label}
+                    rows={3}
+                    value={value}
+                    onChange={(event) =>
+                      patchData(
+                        setInsertField(
+                          effect.data,
+                          field.key,
+                          event.target.value,
+                        ),
+                      )
+                    }
+                  />
+                </label>
+              );
+            }
+            return (
+              <label key={field.key} className="inspector-editor">
+                <span>
+                  {field.label}
+                  {field.required ? "" : " (optional)"}
+                </span>
+                <Input
+                  id={id}
+                  aria-label={field.label}
+                  type={field.kind === "number" ? "number" : "text"}
+                  min={field.kind === "number" ? 1 : undefined}
+                  value={value}
+                  onChange={(event) =>
+                    patchData(
+                      setInsertField(
+                        effect.data,
+                        field.key,
+                        event.target.value,
+                      ),
+                    )
+                  }
+                />
+              </label>
+            );
+          })
+        : null}
       {effect?.mode === "set_flag" ? (
         <label className="inspector-editor">
           <span>Flag</span>
@@ -482,6 +562,7 @@ export function WireSheetBody({
                 edgeId={edge.id}
                 section={section}
                 edge={edge}
+                fromNode={fromNode}
                 toNode={toNode}
               />
             );
