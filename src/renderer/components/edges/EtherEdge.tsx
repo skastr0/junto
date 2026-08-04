@@ -166,10 +166,13 @@ export function EtherEdge({
       })
     : undefined;
   const familyColor = familyHue(family);
+  // Centerline may take phase crimson; word-bed stays family hue so config
+  // glow never wears stoppage paint (artifact: family color on worded wires).
   const color =
     phase === "blocks"
       ? EDGE_COLOR.blocks
       : (authoredColor ?? familyColor ?? EDGE_COLOR.relates);
+  const wordBedColor = familyColor ?? authoredColor ?? color;
 
   // Selection impact mode — only "in" is stamped (CSS dims the rest).
   const impactIn = data?.impact === "in";
@@ -253,9 +256,9 @@ export function EtherEdge({
           d={path}
           className="vellum-edge__word-bed"
           fill="none"
-          stroke={color}
+          stroke={wordBedColor}
           strokeWidth={8}
-          style={{ color }}
+          style={{ color: wordBedColor }}
         />
       ) : null}
       <BaseEdge
