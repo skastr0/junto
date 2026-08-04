@@ -11,6 +11,7 @@ import type {
 import type { EtherFlag } from "@shared/canvas";
 import { getVellumApi } from "./vellum-api";
 import { state$ } from "./state";
+import { noteSchedulerFire } from "./edge-sparks";
 
 // --- frozen interface --------------------------------------------------------
 
@@ -75,11 +76,27 @@ const projectSnapshot = (snapshot: KernelSnapshot, canvasName: string): void => 
   const prevWatchers = kernel$.watchers.peek() as Record<string, WatcherRuntimeState>;
   if (!shallowRecordEqual(prevWatchers, entry.watchers)) {
     const merged: Record<string, WatcherRuntimeState> = {};
+    const firedNodeIds: string[] = [];
     for (const [id, next] of Object.entries(entry.watchers)) {
       const prev = prevWatchers[id];
       merged[id] = prev && shallowWatcherEqual(prev, next) ? prev : next;
+      // Rising lastFiredAt → scheduler just ran — spark outbound does/trigger edges.
+      const prevFire = prev?.lastFiredAt;
+      const nextFire = next.lastFiredAt;
+      if (
+        typeof nextFire === "number" &&
+        (prevFire === undefined || nextFire > prevFire)
+      ) {
+        firedNodeIds.push(id);
+      }
     }
     kernel$.watchers.set(merged);
+    if (firedNodeIds.length > 0) {
+      const doc = state$.doc.peek();
+      for (const nodeId of firedNodeIds) {
+        noteSchedulerFire(doc, nodeId);
+      }
+    }
   }
 
   if (!shallowRecordEqual(kernel$.nextFire.peek() as Record<string, number>, entry.nextFire)) {

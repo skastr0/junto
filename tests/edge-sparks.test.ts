@@ -3,6 +3,7 @@ import type { CanvasDoc, CanvasEdge, CanvasNode } from "../src/shared/canvas";
 import type { ActorRef } from "../src/shared/work-protocol";
 import type { Task } from "../src/shared/work-model";
 import {
+  planSchedulerFireSparks,
   planWorkEdgeSparks,
   workLaneFingerprint,
 } from "../src/renderer/lib/edge-sparks";
@@ -254,5 +255,87 @@ describe("planWorkEdgeSparks", () => {
     const moved: CanvasNode = { ...agentA, x: 99, y: 40 };
     const next = doc([moved, sink], edges);
     expect(planWorkEdgeSparks(prev, next, actors)).toEqual([]);
+  });
+
+  it("sparks inbound does edges when a sink gains tasks (scheduler delivery)", () => {
+    const cron: CanvasNode = {
+      id: "cron-1",
+      type: "text",
+      text: "cron",
+      x: 0,
+      y: 0,
+      width: 80,
+      height: 40,
+      ether: { entity: { kind: "cron" }, timer: { everyMinutes: 30 } },
+    };
+    const doesEdge: CanvasEdge = {
+      id: "e-effect",
+      fromNode: "cron-1",
+      toNode: "task-sink",
+      ether: {
+        does: {
+          mode: "enqueue_task",
+          data: {
+            brief: "hi",
+            metadata: { title: "hi", details: "hi" },
+          },
+        },
+      },
+    };
+    const prev = doc([cron, taskSink("task-sink", [])], [doesEdge]);
+    const next = doc(
+      [cron, taskSink("task-sink", [task("t-new", "submitted")])],
+      [doesEdge],
+    );
+    expect(planWorkEdgeSparks(prev, next, [])).toEqual([
+      { edgeId: "e-effect", fromNodeId: "cron-1" },
+    ]);
+  });
+});
+
+describe("planSchedulerFireSparks", () => {
+  it("sparks does + trigger cascade from cron through relay", () => {
+    const cron: CanvasNode = {
+      id: "cron",
+      type: "text",
+      text: "cron",
+      x: 0,
+      y: 0,
+      width: 40,
+      height: 40,
+      ether: { entity: { kind: "cron" } },
+    };
+    const relay: CanvasNode = {
+      id: "relay",
+      type: "text",
+      text: "relay",
+      x: 100,
+      y: 0,
+      width: 40,
+      height: 40,
+      ether: { entity: { kind: "relay" } },
+    };
+    const tasks = taskSink("tasks", []);
+    const edges: CanvasEdge[] = [
+      {
+        id: "e-trigger",
+        fromNode: "cron",
+        toNode: "relay",
+        ether: { slot: "trigger" },
+      },
+      {
+        id: "e-does",
+        fromNode: "relay",
+        toNode: "tasks",
+        ether: {
+          does: {
+            mode: "enqueue_task",
+            data: { brief: "x", metadata: { details: "y", title: "x" } },
+          },
+        },
+      },
+    ];
+    const plans = planSchedulerFireSparks(doc([cron, relay, tasks], edges), "cron");
+    expect(plans.map((p) => p.edgeId).sort()).toEqual(["e-does", "e-trigger"]);
   });
 });

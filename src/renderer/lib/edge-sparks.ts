@@ -1,12 +1,13 @@
 /**
- * Edge sparks — one-shot visual packets that travel an edge when work-plane
- * activity lands between connected nodes (claim, message, request, artifact,
- * board) or when a new edge is authored. Pure planner + short-lived Legend
- * store; EtherEdge paints the flare.
+ * Edge sparks — one-shot visual packets that travel an edge when:
+ * - work-plane activity lands between connected nodes (claim, msg, …)
+ * - a new edge is authored
+ * - a scheduler fires (cron / relay / gauge) — outbound does + trigger hops
+ * - an effect delivers into a sink (task/board/… inventory or flags change)
  *
  * Direction is always the document edge: fromNode → toNode (source → target).
- * Fan-out is pairwise only — never every incident edge of a multi-linked actor
- * (that produced the "sparks storm" when agent↔agent links enabled msg.send).
+ * Fan-out is pairwise or fire-scoped — never every incident edge of a multi-
+ * linked actor (that produced the "sparks storm" on agent↔agent msg.send).
  */
 import { observable } from "@legendapp/state";
 import type { CanvasDoc, CanvasEdge, CanvasNode } from "@shared/canvas";
@@ -45,13 +46,15 @@ export function workLaneFingerprint(node: CanvasNode): string | undefined {
   const artifacts = e.artifacts?.items;
   const messages = e.messages?.items;
   const board = e.board?.topics;
+  const flags = e.flags;
   if (
     tasks === undefined &&
     proposals === undefined &&
     requests === undefined &&
     artifacts === undefined &&
     messages === undefined &&
-    board === undefined
+    board === undefined &&
+    (flags === undefined || flags.length === 0)
   ) {
     return undefined;
   }
@@ -67,8 +70,16 @@ export function workLaneFingerprint(node: CanvasNode): string | undefined {
     b: board?.map(
       (topic) => `${topic.topicId}:${topic.postCount}:${topic.lastActivityAt}`,
     ),
+    f: flags && flags.length > 0 ? [...flags].sort().join(",") : undefined,
   });
 }
+
+const isSchedulerKind = (kind: string | undefined): boolean =>
+  kind === "relay" ||
+  kind === "cron" ||
+  kind === "timer" ||
+  kind === "watcher" ||
+  kind === "gauge";
 
 const seatNodeMap = (
   actorRefs: ReadonlyArray<ActorRef>,
@@ -236,7 +247,78 @@ export function planWorkEdgeSparks(
     }
   }
 
+  // 5. Effect delivery: sink inventory/flags changed → spark inbound does edges
+  //    (cron/relay → task/board/page). Not limited to actor seats.
+  for (const edge of next.edges) {
+    if (!edge.ether?.does) continue;
+    if (changed.has(edge.toNode)) push(edge);
+  }
+
   return plans.slice(0, SPARK_EDGE_CAP);
+}
+
+/**
+ * Outbound sparks when a scheduler fires: every `does` edge from the source,
+ * trigger hops into downstream schedulers, and those schedulers' does edges
+ * (mirrors kernel cascade depth).
+ */
+export function planSchedulerFireSparks(
+  doc: CanvasDoc,
+  sourceNodeId: string,
+  depth = 0,
+  visited: Set<string> = new Set(),
+): ReadonlyArray<EdgeSparkPlan> {
+  if (visited.has(sourceNodeId) || depth > 3) return [];
+  visited.add(sourceNodeId);
+
+  const plans: EdgeSparkPlan[] = [];
+  const seenEdges = new Set<string>();
+  const push = (edge: CanvasEdge): void => {
+    if (seenEdges.has(edge.id)) return;
+    seenEdges.add(edge.id);
+    plans.push({ edgeId: edge.id, fromNodeId: edge.fromNode });
+  };
+
+  const byId = new Map(doc.nodes.map((n) => [n.id, n] as const));
+  const source = byId.get(sourceNodeId);
+  if (!source || !isSchedulerKind(source.ether?.entity?.kind)) return [];
+
+  const cascadeTargets: string[] = [];
+  for (const edge of doc.edges) {
+    if (edge.fromNode !== sourceNodeId) continue;
+    if (edge.ether?.does) {
+      push(edge);
+      continue;
+    }
+    const target = byId.get(edge.toNode);
+    if (!isSchedulerKind(target?.ether?.entity?.kind)) continue;
+    const slot = edge.ether?.slot;
+    if (slot === "trigger" || slot === undefined) {
+      push(edge);
+      cascadeTargets.push(edge.toNode);
+    }
+  }
+  for (const targetId of cascadeTargets) {
+    for (const child of planSchedulerFireSparks(
+      doc,
+      targetId,
+      depth + 1,
+      visited,
+    )) {
+      if (seenEdges.has(child.edgeId)) continue;
+      seenEdges.add(child.edgeId);
+      plans.push(child);
+    }
+  }
+  return plans.slice(0, SPARK_EDGE_CAP);
+}
+
+/** Operator Fire now / kernel lastFiredAt rising edge. */
+export function noteSchedulerFire(
+  doc: CanvasDoc,
+  sourceNodeId: string,
+): void {
+  emitEdgeSparks(planSchedulerFireSparks(doc, sourceNodeId));
 }
 
 /** Arm edge animations; re-entrant tokens re-fire the same edge. */

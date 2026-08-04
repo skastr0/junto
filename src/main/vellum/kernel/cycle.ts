@@ -740,6 +740,14 @@ export const checkTimers = async (
               fireKey: `cron:${home}:${timerKey}:${claimed.dueAtEpochMs}`,
               status: "satisfied",
             });
+            // Project lastFiredAt so the renderer can spark cron→target edges
+            // (same channel as relay/gauge watchers).
+            const previous = watchers.get(timerKey);
+            watchers.set(timerKey, {
+              status: "satisfied",
+              detail: previous?.detail ?? "cron fired",
+              lastFiredAt: Date.now(),
+            });
           } else if (claimed._tag === "Duplicate") {
             nextFire.set(timerKey, nextAfterDue);
           } else {

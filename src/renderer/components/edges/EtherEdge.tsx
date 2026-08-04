@@ -318,17 +318,18 @@ export function EtherEdge({
           <path
             d={path}
             fill="none"
-            stroke={HUE.amber}
+            stroke={wordBedColor}
             className={
               spark.fromNodeId === target
                 ? "vellum-edge__spark-flare vellum-edge__spark-flare--rev"
                 : "vellum-edge__spark-flare"
             }
             pathLength={100}
+            style={{ color: wordBedColor }}
           />
           <circle
             r={2.4}
-            fill={HUE.amber}
+            fill={wordBedColor}
             className="vellum-edge__spark-core"
           >
             <animateMotion

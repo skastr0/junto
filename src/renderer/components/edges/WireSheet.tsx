@@ -58,6 +58,7 @@ import {
   setEdgeEffect,
   setEdgeWhen,
 } from "../../lib/edge-mutations";
+import { noteSchedulerFire } from "../../lib/edge-sparks";
 import { nodeTitle } from "../../lib/presentation";
 import { state$ } from "../../lib/state";
 import { HUE, withAlpha } from "../../lib/theme";
@@ -697,6 +698,9 @@ function TriggerReadout({
     try {
       const result = await api.schedulerFire(canvas, scheduler.id);
       setStatus(result.ok ? result.message : result.error);
+      if (result.ok) {
+        noteSchedulerFire(state$.doc.peek(), scheduler.id);
+      }
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error));
     } finally {
