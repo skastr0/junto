@@ -137,22 +137,21 @@ product keys `criteria` / `notify` / `effect` (scrub may map them once on
 decode — not authoring); node-body `ether.relay`; automatic dependency cascade
 between packet-sinks or actors.
 
-### 3. Ports vs stops
+### 3. Ports vs derived stoppage
 
-Two filters on the same edge geometry; different jobs. Sibling wire areas:
+Two planes on the same edge geometry; different jobs. Sibling wire areas:
 `wake` (board megaphone, default ON), `when` / `does` / `slot` (scheduler
-wires).
+wires). There is **no authorable Hold / stops field** on the product sheet.
 
-| | **Ports** | **Stops** |
+| | **Ports** | **Stoppage (derived)** |
 |---|-----------|-----------|
-| Plane | Capability (access) | Phase (stoppage) |
-| Question | May this actor invoke this op on this sink? | Does live work still block progress? |
-| Absence | No port match → no access (fail closed on protected ops) | No `stops` → soft **relates**; never generates blocks |
-| Modes (`stops`) | — | `tasks`, `proof`, `approval` (see document contract) |
-| Authoring | Attenuation of the ocap | Phase filter on the ocap’s *progress semantics* |
+| Plane | Capability (access) | Phase (attention) |
+| Question | May this actor invoke this op on this sink? | Does claimed work still need this seat? |
+| Absence | No port match → no access (fail closed on protected ops) | Soft **relates** — never generates blocks |
+| Rule | Attenuation of the ocap | Access edge actor ↔ task\|requests + claimed `input-required` / `auth-required` on that sink → blocks that actor only |
+| Authoring | Port chips on the access sheet | **None** — relationship + work state; lexicon word “stops” is speech only |
 
-`stops` **stay on edges**. They do not become node-local ACLs. Ports never
-substitute for process-bind identity.
+Ports never substitute for process-bind identity. Open queues never block.
 
 ### 4. Seats vs occupants
 
