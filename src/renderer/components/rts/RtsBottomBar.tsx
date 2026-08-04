@@ -253,9 +253,16 @@ function CommandCard({ regionRollup }: { readonly regionRollup?: RegionRollup })
   const selectedNodeId = use$(state$.selectedNodeId);
   const selectedNodeIds = use$(state$.selectedNodeIds);
   const selectedEdgeId = use$(state$.selectedEdgeId);
-  const multi = selectedNodeIds.length > 1;
-  const node = !multi && selectedNodeId
-    ? doc.nodes.find((candidate) => candidate.id === selectedNodeId)
+  // Multi is authoritative only when the multi set is live and not desynced
+  // from a later single-id write (selectedNodeId alone after add/focus).
+  const multi =
+    selectedNodeIds.length > 1 &&
+    (selectedNodeId === "" || selectedNodeIds.includes(selectedNodeId));
+  const singleId = !multi
+    ? selectedNodeId || (selectedNodeIds.length === 1 ? (selectedNodeIds[0] ?? "") : "")
+    : "";
+  const node = singleId
+    ? doc.nodes.find((candidate) => candidate.id === singleId)
     : undefined;
 
   // Relation selected: general edge controls left; pair controls live middle.
@@ -267,6 +274,8 @@ function CommandCard({ regionRollup }: { readonly regionRollup?: RegionRollup })
     const selectedNodes = selectedNodeIds
       .map((id) => doc.nodes.find((n) => n.id === id))
       .filter((n): n is CanvasNode => n !== undefined);
+    // Live selection ids only — same document ether.flags truth as the card rail.
+    const liveIds = selectedNodes.map((n) => n.id);
     const classified = classifyMultiSelection(selectedNodes);
     const colorsMatch =
       selectedNodes.length > 0 &&
@@ -285,7 +294,7 @@ function CommandCard({ regionRollup }: { readonly regionRollup?: RegionRollup })
               <div className="rts-cmd__live">{multiSelectionLabel(classified)}</div>
             </div>
             <AccentColorSwatches
-              nodeIds={selectedNodeIds}
+              nodeIds={liveIds}
               color={sharedColor}
               mixed={mixedColor}
             />
@@ -293,8 +302,11 @@ function CommandCard({ regionRollup }: { readonly regionRollup?: RegionRollup })
           <div className="rts-cmd-keys-rail" role="toolbar" aria-label="Multi-select actions">
             <div className="rts-cmd-keys-group" aria-label="Flags">
               {FLAG_META.map(({ flag, hue, label, Icon }) => {
-                const allOn = selectedNodes.every((n) => n.ether?.flags?.includes(flag));
-                const someOn = selectedNodes.some((n) => n.ether?.flags?.includes(flag));
+                // active = all-on only (document ether.flags of each selected node).
+                const allOn =
+                  selectedNodes.length > 0 &&
+                  selectedNodes.every((n) => n.ether?.flags?.includes(flag) ?? false);
+                const someOn = selectedNodes.some((n) => n.ether?.flags?.includes(flag) ?? false);
                 return (
                   <CmdKey
                     key={flag}
@@ -309,7 +321,7 @@ function CommandCard({ regionRollup }: { readonly regionRollup?: RegionRollup })
                     active={allOn}
                     style={allOn || someOn ? { color: hue, opacity: allOn ? 1 : 0.65 } : undefined}
                     onClick={() =>
-                      setFlagForNodes(selectedNodeIds, flag, allOn ? "clear" : "set")
+                      setFlagForNodes(liveIds, flag, allOn ? "clear" : "set")
                     }
                   >
                     <Icon size={ICON} />
@@ -321,11 +333,11 @@ function CommandCard({ regionRollup }: { readonly regionRollup?: RegionRollup })
               <CmdKey
                 label="Clear all flags"
                 title="Clear blocker, attention, and parked on selection"
-                onClick={() => setFlagForNodes(selectedNodeIds, null)}
+                onClick={() => setFlagForNodes(liveIds, null)}
               >
                 <X size={ICON} />
               </CmdKey>
-              <CmdKey label="Delete selection" danger onClick={() => deleteNodes(selectedNodeIds)}>
+              <CmdKey label="Delete selection" danger onClick={() => deleteNodes(liveIds)}>
                 <Trash2 size={ICON} />
               </CmdKey>
             </div>
@@ -349,7 +361,7 @@ function CommandCard({ regionRollup }: { readonly regionRollup?: RegionRollup })
     );
   }
 
-  return <NodeCommandCard nodeId={node.id} />;
+  return <NodeCommandCard nodeId={singleId} />;
 }
 
 function RegionCommandCard({
@@ -537,6 +549,8 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
     );
   }
 
+  // Document truth only — same ether.flags the node flag rail chips use for
+  // operator flags (not kernel flagOverrides, not occupancy/live chrome).
   const flags = node.ether?.flags ?? [];
   const herdr = node.ether?.herdr;
   const kind = commandSelectionKind(node);
@@ -561,7 +575,7 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
     const request = copyRequest.current + 1;
     copyRequest.current = request;
     const currentCanvasName = state$.canvasName.peek();
-    const currentNodeId = node.id;
+    const currentNodeId = nodeId;
     const matches = state$.doc.peek().nodes.filter((candidate) => candidate.id === currentNodeId);
 
     try {
@@ -590,7 +604,7 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
   };
 
   const slotOrder = use$(state$.regionSlotOrder);
-  const slot = slotIndexOf(slotOrder, node.id);
+  const slot = slotIndexOf(slotOrder, nodeId);
 
   // Kind-specific primaries + slot cue (any node). Entity actions live mid-strip.
   const renderPrimary = (action: PrimaryCommandAction) => {
@@ -613,7 +627,7 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
           }
           active={slot !== null}
           style={slot !== null ? { color: HUE.cyan } : undefined}
-          onClick={() => toggleSlotAssignment(node.id)}
+          onClick={() => toggleSlotAssignment(nodeId)}
         >
           <Hash size={ICON} />
         </CmdKey>
@@ -635,7 +649,7 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
             <div className="rts-cmd__title" title={nodeTitle(node)}>{nodeTitle(node)}</div>
             {subtitle ? <div className="rts-cmd__live">{subtitle}</div> : null}
           </div>
-          <AccentColorSwatches nodeId={node.id} color={node.color} />
+          <AccentColorSwatches nodeId={nodeId} color={node.color} />
         </div>
 
         <div className="rts-cmd-keys-rail" role="toolbar" aria-label="Node actions">
@@ -649,7 +663,7 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
                     label={active ? `Clear ${label}` : `Flag ${label}`}
                     active={active}
                     style={{ color: active ? hue : undefined }}
-                    onClick={() => toggleFlag(node.id, flag)}
+                    onClick={() => toggleFlag(nodeId, flag)}
                   >
                     <Icon size={ICON} />
                   </CmdKey>
@@ -659,14 +673,14 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
           ) : null}
           <div className="rts-cmd-keys rts-cmd-keys--col" aria-label="Actions">
             {executableRole ? (
-              <PauseScopeKey scope={{ kind: "node", id: node.id }} />
+              <PauseScopeKey scope={{ kind: "node", id: nodeId }} />
             ) : null}
             {role === "sink" &&
             (entityKind === "task" || entityKind === "requests" || entityKind === "artifacts") ? (
               <CmdKey
                 label="Open detail"
                 title="Open the work surface"
-                onClick={() => openWorkDetail(node.id)}
+                onClick={() => openWorkDetail(nodeId)}
               >
                 <Eye size={ICON} />
               </CmdKey>
@@ -688,10 +702,10 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
               </CmdKey>
             ) : null}
             {primary.map(renderPrimary)}
-            <CmdKey label="Focus" onClick={() => state$.focusNodeId.set(node.id)}>
+            <CmdKey label="Focus" onClick={() => state$.focusNodeId.set(nodeId)}>
               <Crosshair size={ICON} />
             </CmdKey>
-            <CmdKey label="Edit" onClick={() => state$.editNodeId.set(node.id)}>
+            <CmdKey label="Edit" onClick={() => state$.editNodeId.set(nodeId)}>
               <Pencil size={ICON} />
             </CmdKey>
             <CmdKey
@@ -713,15 +727,15 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
               <CmdKey
                 label="Select only this node"
                 onClick={() => {
-                  state$.selectedNodeId.set(node.id);
-                  state$.selectedNodeIds.set([node.id]);
+                  state$.selectedNodeId.set(nodeId);
+                  state$.selectedNodeIds.set([nodeId]);
                   state$.selectedEdgeId.set("");
                 }}
               >
                 <CircleDot size={ICON} />
               </CmdKey>
             ) : null}
-            <CmdKey label="Delete" danger onClick={() => deleteNode(node.id)}>
+            <CmdKey label="Delete" danger onClick={() => deleteNode(nodeId)}>
               <Trash2 size={ICON} />
             </CmdKey>
           </div>

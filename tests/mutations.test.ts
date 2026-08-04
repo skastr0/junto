@@ -984,8 +984,28 @@ describe("renderer graph mutations", () => {
     addNode(node);
 
     expect(state$.selectedNodeId.peek()).toBe("new-note");
+    expect(state$.selectedNodeIds.peek()).toEqual(["new-note"]);
     expect(state$.selectedEdgeId.peek()).toBe("");
     expect(state$.doc.peek().nodes.at(-1)).toEqual(node);
+  });
+
+  it("addNode replaces a stale multi selection so RTS flags target the new node", () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc({
+      nodes: [
+        { id: "a", type: "text", text: "a", x: 0, y: 0, width: 100, height: 40 },
+        { id: "b", type: "text", text: "b", x: 20, y: 20, width: 100, height: 40 },
+      ],
+      edges: [],
+    });
+    state$.selectedNodeId.set("");
+    state$.selectedNodeIds.set(["a", "b"]);
+    const node = { id: "c", type: "text" as const, text: "c", x: 40, y: 40, width: 100, height: 40 };
+
+    addNode(node);
+
+    expect(state$.selectedNodeId.peek()).toBe("c");
+    expect(state$.selectedNodeIds.peek()).toEqual(["c"]);
   });
 
   it("opens folder-paths modal after creating a region (not label edit)", async () => {

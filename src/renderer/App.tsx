@@ -157,6 +157,7 @@ const nodeRefNavigation = makeNodeRefNavigationCoordinator({
     });
     externalCanvasReload.accept(result);
     state$.selectedNodeId.set(event.nodeId);
+    state$.selectedNodeIds.set([event.nodeId]);
     state$.focusNodeId.set(event.nodeId);
     state$.canvasLoading.set(false);
     state$.error.set("");

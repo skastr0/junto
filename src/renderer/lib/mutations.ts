@@ -536,7 +536,10 @@ export const addNode = (
     state$.searchQuery.set("");
     state$.edgeFilter.set("");
     state$.flagFilter.set("");
+    // Keep the single/multi selection pair coherent so RTS flag keys target
+    // this node only (stale selectedNodeIds would open multi bulk-flags).
     state$.selectedNodeId.set(node.id);
+    state$.selectedNodeIds.set([node.id]);
     state$.selectedEdgeId.set("");
   });
   const doc = state$.doc.peek();
