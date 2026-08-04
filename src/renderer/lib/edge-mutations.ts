@@ -77,7 +77,8 @@ export const setEdgeColor = (id: string, color?: string): void => {
 
 /**
  * Set or clear edge.ether.ports (ocap attenuation).
- * `undefined` or empty array removes the field; absence ⇒ full offers at admit.
+ * `undefined` removes the field → full offers (unattenuated).
+ * Explicit array (including `[]`) is a closed allow-list — empty = nothing allowed.
  * Does not strip derived kind.
  */
 export const setEdgePorts = (
@@ -85,19 +86,18 @@ export const setEdgePorts = (
   ports: ReadonlyArray<Port> | undefined,
 ): void => {
   const doc = state$.doc.peek();
-  const cleaned = ports && ports.length > 0 ? [...ports] : undefined;
   commitDoc({
     ...doc,
     edges: doc.edges.map((edge) => {
       if (edge.id !== id) return edge;
-      if (!cleaned) {
+      if (ports === undefined) {
         if (!edge.ether || edge.ether.ports === undefined) return edge;
         const rest = without(edge.ether, "ports");
         return Object.keys(rest).length > 0
           ? { ...edge, ether: rest }
           : without(edge, "ether");
       }
-      return { ...edge, ether: { ...(edge.ether ?? {}), ports: cleaned } };
+      return { ...edge, ether: { ...(edge.ether ?? {}), ports: [...ports] } };
     }),
   });
 };

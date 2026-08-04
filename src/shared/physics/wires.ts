@@ -364,6 +364,8 @@ export const wordsOfEdge = (input: {
   if (family === "effect") {
     const mode = ether?.does?.mode;
     if (mode === "enqueue_task") words.push("enqueues");
+    else if (mode === "board_create_topic" || mode === "board_post")
+      words.push("enqueues");
     else if (mode === "set_flag") words.push("flags");
     else if (mode === "inject_prompt") words.push("wakes");
     // Bare effect (no does yet) — do not pretend enqueues.

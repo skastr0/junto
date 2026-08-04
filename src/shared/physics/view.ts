@@ -23,28 +23,26 @@ const nodeMetaOf = (node: CanvasNode): NodeMeta => ({
 /**
  * Read edge.ether.ports into a Port set.
  * Invalid / unknown strings are skipped (fail-closed for those tokens only).
- * Absent, empty, or all-invalid → no mask (full offers).
+ * Absent field → no mask (full offers). Explicit `[]` → empty mask (nothing).
  */
 const readEdgePorts = (
   edge: CanvasEdge,
 ): HashSet.HashSet<Port> | undefined => {
   const ports = edge.ether?.ports;
-  if (!ports || ports.length === 0) return undefined;
+  if (ports === undefined) return undefined;
   let set = HashSet.empty<Port>();
-  let any = false;
   for (const p of ports) {
     const decoded = decodePort(p);
     if (Option.isSome(decoded)) {
       set = HashSet.add(set, decoded.value);
-      any = true;
     }
   }
-  return any ? set : undefined;
+  return set;
 };
 
 /**
- * Whether an authored edge mask leaves a port available. An absent, empty, or
- * all-invalid mask is the unattenuated default, matching capability admission.
+ * Whether an authored edge mask leaves a port available.
+ * Absent mask = unattenuated (full offers). Empty mask = nothing allowed.
  */
 export const edgeMaskAllows = (edge: CanvasEdge, port: Port): boolean => {
   const mask = readEdgePorts(edge);
@@ -115,6 +113,7 @@ export const canvasDocToCapabilityView = (
       continue;
     }
     if (prev?.unmasked) continue;
+    // Explicit mask including empty set — closed allow-list.
     if (prev === undefined || prev.mask === undefined) {
       pairState.set(key, { unmasked: false, mask: ports });
     } else {

@@ -146,8 +146,9 @@ export function EtherEdge({
   const offeredChips = chipPortsFromOffers(offerSet);
   const edgeDoc = data?.edge;
   const portsField = edgeDoc?.ether?.ports;
+  // Absent ports = full. Explicit [] = zero allowed (not full).
   const activeChipCount: number | "full" =
-    !edgeDoc || portsField === undefined || portsField.length === 0
+    !edgeDoc || portsField === undefined
       ? "full"
       : offeredChips.filter((port) => edgeMaskAllows(edgeDoc, port)).length;
   const hasMessages =

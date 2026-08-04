@@ -44,17 +44,15 @@ export type ActorEdgeRow = {
 
 const readMask = (edge: CanvasEdge): HashSet.HashSet<PortName> | undefined => {
   const ports = edge.ether?.ports;
-  if (!ports || ports.length === 0) return undefined;
+  if (ports === undefined) return undefined;
   let set = HashSet.empty<PortName>();
-  let any = false;
   for (const p of ports) {
     const decoded = decodePort(p);
     if (Option.isSome(decoded)) {
       set = HashSet.add(set, decoded.value);
-      any = true;
     }
   }
-  return any ? set : undefined;
+  return set;
 };
 
 const effectivePorts = (

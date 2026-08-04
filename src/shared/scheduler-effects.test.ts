@@ -50,7 +50,7 @@ describe("scheduler-effects", () => {
           fromNode: "c1",
           toNode: "t1",
           ether: {
-            does: { mode: "enqueue_task", data: { title: "review overnight", details: "review overnight" } },
+            does: { mode: "enqueue_task", data: { brief: "review overnight", metadata: { title: "review overnight", details: "review overnight" } } },
           },
         },
         {
@@ -58,7 +58,7 @@ describe("scheduler-effects", () => {
           fromNode: "t1",
           toNode: "c1",
           ether: {
-            does: { mode: "enqueue_task", data: { title: "wrong way", details: "wrong way" } },
+            does: { mode: "enqueue_task", data: { brief: "wrong way", metadata: { title: "wrong way", details: "wrong way" } } },
           },
         },
       ],
@@ -91,13 +91,13 @@ describe("scheduler-effects", () => {
     };
     expect(
       validateEffectTarget(
-        { mode: "enqueue_task", data: { title: "hi", details: "hi" } },
+        { mode: "enqueue_task", data: { brief: "hi", metadata: { title: "hi", details: "hi" } } },
         task,
       ),
     ).toBeUndefined();
     expect(
       validateEffectTarget(
-        { mode: "enqueue_task", data: { title: "hi", details: "hi" } },
+        { mode: "enqueue_task", data: { brief: "hi", metadata: { title: "hi", details: "hi" } } },
         agent,
       ),
     ).toBe("target_not_task_sink");
@@ -127,7 +127,7 @@ describe("scheduler-effects", () => {
     expect(inferSchedulerEdgeEffect(cron, task)?.mode).toBe("enqueue_task");
   });
 
-  it("infers set_flag attention for scheduler→board/page/requests/artifacts", () => {
+  it("infers board_create_topic for scheduler→board; set_flag for page/requests/artifacts", () => {
     const relay: import("./canvas").CanvasNode = {
       id: "r1",
       type: "text",
@@ -138,7 +138,18 @@ describe("scheduler-effects", () => {
       height: 1,
       ether: { entity: { kind: "relay" } },
     };
-    for (const kind of ["board", "page", "requests", "artifacts"] as const) {
+    const board: import("./canvas").CanvasNode = {
+      id: "board",
+      type: "text",
+      text: "board",
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+      ether: { entity: { kind: "board" } },
+    };
+    expect(inferSchedulerEdgeEffect(relay, board)?.mode).toBe("board_create_topic");
+    for (const kind of ["page", "requests", "artifacts"] as const) {
       const target: import("./canvas").CanvasNode = {
         id: kind,
         type: "text",
@@ -149,8 +160,7 @@ describe("scheduler-effects", () => {
         height: 1,
         ether: { entity: { kind } },
       };
-      const effect = inferSchedulerEdgeEffect(relay, target);
-      expect(effect).toEqual({
+      expect(inferSchedulerEdgeEffect(relay, target)).toEqual({
         mode: "set_flag",
         flag: "attention",
         enabled: true,
@@ -528,7 +538,7 @@ describe("scheduler-effects", () => {
     expect(NO_WATCH_YET_DETAIL).toMatch(/draw a sink/);
   });
 
-  it("default insert data uses target kind fields", () => {
+  it("default task effect payload uses scheduler label", () => {
     const source = {
       id: "c",
       type: "text" as const,
@@ -541,8 +551,9 @@ describe("scheduler-effects", () => {
     };
     const label = schedulerSourceLabel(source);
     expect(label).toBe("cron");
-    const data = defaultInsertData("task", label);
-    expect(data.title).toContain("cron");
-    expect(data.details).toContain("cron");
+    const { defaultEffectTasksCreate } = require("./node-insert") as typeof import("./node-insert");
+    const data = defaultEffectTasksCreate(label);
+    expect(data.brief).toContain("cron");
+    expect(String(data.metadata?.details)).toContain("cron");
   });
 });

@@ -1,229 +1,456 @@
 /**
- * Effect-wire **insert data** — generic to the target node, not a task type.
- *
- * An effect that delivers into a sink carries `data`: a flat string map of
- * field keys the **target kind** publishes on its contract. UI forms and
- * validation read the contract; the kernel maps `data` into the sink's create
- * API only at apply time.
- *
- * Do not name this TaskInsert / put task domain types on the wire.
+ * Effect-wire insert **payloads** — closed, strict create contracts for the
+ * target sink. The wire stores the same shapes work-plane create APIs accept
+ * (minus `target`, which is the edge's toNode). Kernel decode fails hard on
+ * excess keys or missing required fields. No ad-hoc flat field invention.
  */
 import { Schema } from "effect";
-import type { FinishCriteria } from "./work-model";
 import {
-  isWellKnownKind,
-  type WellKnownKind,
-} from "./physics/schema";
+  FinishCriteria,
+  WorkMetadata,
+  type FinishCriteria as FinishCriteriaType,
+} from "./work-model";
 
-/** Flat field values authored on the wire (keys from the target contract). */
-export const InsertData = Schema.Record(Schema.String, Schema.String);
-export type InsertData = typeof InsertData.Type;
+// ─── Task sink: TasksCreateArgs body (no target) ────────────────────────────
 
-export type InsertFieldKind = "text" | "textarea" | "number";
+/**
+ * Same authoring contract as `TasksCreateArgs` / workTaskCreate — without
+ * `target` (the effect wire already points at the sink).
+ */
+export const EffectTasksCreate = Schema.Struct({
+  brief: Schema.String,
+  reason: Schema.optionalKey(Schema.String),
+  metadata: Schema.optionalKey(WorkMetadata),
+  dependsOn: Schema.optionalKey(Schema.Array(Schema.String)),
+  finishCriteria: Schema.optionalKey(FinishCriteria),
+}).pipe(
+  Schema.check(
+    Schema.makeFilter((args) => {
+      const details = args.metadata?.details;
+      return (
+        (typeof details === "string" && details.trim().length > 0) ||
+        "description (metadata.details) must be non-empty"
+      );
+    }),
+  ),
+).annotate({
+  parseOptions: { onExcessProperty: "error" },
+});
+export type EffectTasksCreate = typeof EffectTasksCreate.Type;
 
-export type InsertField = {
-  readonly key: string;
+// ─── Board sink: BoardCreateTopicArgs / BoardPostArgs bodies ─────────────────
+
+/** Same as BoardCreateTopicArgs without target. */
+export const EffectBoardCreateTopic = Schema.Struct({
+  title: Schema.String,
+  body: Schema.optionalKey(Schema.String),
+  notify: Schema.optionalKey(Schema.Boolean),
+}).annotate({
+  parseOptions: { onExcessProperty: "error" },
+});
+export type EffectBoardCreateTopic = typeof EffectBoardCreateTopic.Type;
+
+/** Same as BoardPostArgs without target. */
+export const EffectBoardPost = Schema.Struct({
+  topicId: Schema.String,
+  text: Schema.String,
+}).annotate({
+  parseOptions: { onExcessProperty: "error" },
+});
+export type EffectBoardPost = typeof EffectBoardPost.Type;
+
+// ─── Decode (fail closed) ───────────────────────────────────────────────────
+
+const decodeOpts = { errors: "all" as const, onExcessProperty: "error" as const };
+
+export const decodeEffectTasksCreate = (
+  data: unknown,
+):
+  | { readonly ok: true; readonly value: EffectTasksCreate }
+  | { readonly ok: false; readonly message: string } => {
+  const result = Schema.decodeUnknownResult(EffectTasksCreate, decodeOpts)(data);
+  if (result._tag === "Success") return { ok: true, value: result.success };
+  return {
+    ok: false,
+    message: `task create payload invalid: ${String(result.failure)}`,
+  };
+};
+
+export const decodeEffectBoardCreateTopic = (
+  data: unknown,
+):
+  | { readonly ok: true; readonly value: EffectBoardCreateTopic }
+  | { readonly ok: false; readonly message: string } => {
+  const result = Schema.decodeUnknownResult(EffectBoardCreateTopic, decodeOpts)(
+    data,
+  );
+  if (result._tag === "Success") return { ok: true, value: result.success };
+  return {
+    ok: false,
+    message: `board create topic payload invalid: ${String(result.failure)}`,
+  };
+};
+
+export const decodeEffectBoardPost = (
+  data: unknown,
+):
+  | { readonly ok: true; readonly value: EffectBoardPost }
+  | { readonly ok: false; readonly message: string } => {
+  const result = Schema.decodeUnknownResult(EffectBoardPost, decodeOpts)(data);
+  if (result._tag === "Success") return { ok: true, value: result.success };
+  return {
+    ok: false,
+    message: `board post payload invalid: ${String(result.failure)}`,
+  };
+};
+
+// ─── Defaults / light authoring helpers (still schema-shaped) ───────────────
+
+export const defaultEffectTasksCreate = (
+  sourceLabel: string,
+): EffectTasksCreate => {
+  const label = sourceLabel.trim().length > 0 ? sourceLabel.trim() : "scheduler";
+  const brief = `From ${label}`;
+  return {
+    brief,
+    reason: "scheduler",
+    metadata: {
+      title: brief,
+      details: `Scheduled work from ${label}`,
+    },
+  };
+};
+
+export const defaultEffectBoardCreateTopic = (
+  sourceLabel: string,
+): EffectBoardCreateTopic => {
+  const label = sourceLabel.trim().length > 0 ? sourceLabel.trim() : "scheduler";
+  return {
+    title: `From ${label}`,
+    body: `Scheduled bulletin from ${label}`,
+    notify: false,
+  };
+};
+
+/** True when EffectTasksCreate would decode successfully. */
+export const effectTasksCreateValid = (data: unknown): boolean =>
+  decodeEffectTasksCreate(data).ok;
+
+export const effectBoardCreateTopicValid = (data: unknown): boolean =>
+  decodeEffectBoardCreateTopic(data).ok;
+
+export const effectBoardPostValid = (data: unknown): boolean =>
+  decodeEffectBoardPost(data).ok;
+
+/**
+ * Map validated task payload → workTaskCreate positional args.
+ * Call only after decodeEffectTasksCreate succeeds.
+ */
+export const effectTasksCreateToWorkArgs = (
+  payload: EffectTasksCreate,
+): {
+  readonly brief: string;
+  readonly metadata: { readonly title?: string; readonly details: string } & Record<
+    string,
+    unknown
+  >;
+  readonly reason?: string;
+  readonly dependsOn?: ReadonlyArray<string>;
+  readonly finishCriteria?: FinishCriteriaType;
+} => {
+  const brief = payload.brief.trim();
+  const details =
+    typeof payload.metadata?.details === "string"
+      ? payload.metadata.details.trim()
+      : "";
+  const titleRaw = payload.metadata?.title;
+  const title =
+    typeof titleRaw === "string" && titleRaw.trim().length > 0
+      ? titleRaw.trim()
+      : brief;
+  const reason = payload.reason?.trim();
+  return {
+    brief,
+    metadata: {
+      ...(payload.metadata ?? {}),
+      title,
+      details,
+    },
+    ...(reason && reason.length > 0 ? { reason } : {}),
+    ...(payload.dependsOn && payload.dependsOn.length > 0
+      ? { dependsOn: [...payload.dependsOn] }
+      : {}),
+    ...(payload.finishCriteria ? { finishCriteria: payload.finishCriteria } : {}),
+  };
+};
+
+// ─── Wire form paths (schema fields only — not invented product fields) ─────
+
+export type EffectFormField = {
+  readonly path: string;
   readonly label: string;
-  readonly kind: InsertFieldKind;
+  readonly kind: "text" | "textarea" | "number" | "boolean";
   readonly required: boolean;
 };
 
-/**
- * Insert fields for a target kind + effect mode.
- * Owned here as the node surface catalog (contract inputs point at modes;
- * field layout lives once so sheet + validate share one table).
- */
-const TASK_ENQUEUE_FIELDS: ReadonlyArray<InsertField> = [
-  { key: "title", label: "Title", kind: "text", required: true },
-  { key: "details", label: "Description", kind: "textarea", required: true },
-  { key: "reason", label: "Reason", kind: "text", required: false },
+/** Authoring fields for EffectTasksCreate — keys are contract paths. */
+export const EFFECT_TASKS_CREATE_FIELDS: ReadonlyArray<EffectFormField> = [
+  { path: "brief", label: "Title", kind: "text", required: true },
   {
-    key: "finishCriteria.description",
-    label: "Done when",
+    path: "metadata.details",
+    label: "Description",
+    kind: "textarea",
+    required: true,
+  },
+  { path: "reason", label: "Reason", kind: "text", required: false },
+  {
+    path: "dependsOn",
+    label: "Depends on",
+    kind: "text",
+    required: false,
+  },
+  {
+    path: "finishCriteria.description",
+    label: "Finish criteria",
     kind: "textarea",
     required: false,
   },
   {
-    key: "finishCriteria.git.minCommits",
-    label: "Min commits",
+    path: "finishCriteria.git.minCommits",
+    label: "Require min git commits",
     kind: "number",
     required: false,
   },
 ];
 
-const FIELDS_BY_KIND_MODE: Partial<
-  Record<WellKnownKind, Partial<Record<string, ReadonlyArray<InsertField>>>>
-> = {
-  task: {
-    enqueue_task: TASK_ENQUEUE_FIELDS,
-  },
+export const EFFECT_BOARD_CREATE_TOPIC_FIELDS: ReadonlyArray<EffectFormField> = [
+  { path: "title", label: "Topic title", kind: "text", required: true },
+  { path: "body", label: "Opening body", kind: "textarea", required: false },
+  { path: "notify", label: "Notify seats", kind: "boolean", required: false },
+];
+
+export const EFFECT_BOARD_POST_FIELDS: ReadonlyArray<EffectFormField> = [
+  { path: "topicId", label: "Topic id", kind: "text", required: true },
+  { path: "text", label: "Post text", kind: "textarea", required: true },
+];
+
+const getPath = (obj: unknown, path: string): unknown => {
+  const parts = path.split(".");
+  let cur: unknown = obj;
+  for (const p of parts) {
+    if (cur === null || typeof cur !== "object") return undefined;
+    cur = (cur as Record<string, unknown>)[p];
+  }
+  return cur;
 };
 
-export const insertFieldsFor = (
-  kind: string | undefined,
-  mode: string,
-): ReadonlyArray<InsertField> => {
-  if (!kind || !isWellKnownKind(kind)) return [];
-  return FIELDS_BY_KIND_MODE[kind]?.[mode] ?? [];
-};
-
-export const getInsertField = (data: InsertData, key: string): string =>
-  data[key] ?? "";
-
-export const setInsertField = (
-  data: InsertData,
-  key: string,
-  value: string,
-): InsertData => {
-  if (value.length === 0) {
-    if (!(key in data)) return data;
-    const next = { ...data };
-    delete next[key];
+const setPath = (
+  obj: Record<string, unknown>,
+  path: string,
+  value: unknown,
+): Record<string, unknown> => {
+  const parts = path.split(".");
+  if (parts.length === 1) {
+    const key = parts[0]!;
+    if (value === undefined) {
+      const next = { ...obj };
+      delete next[key];
+      return next;
+    }
+    return { ...obj, [key]: value };
+  }
+  const [head, ...rest] = parts;
+  const child =
+    obj[head!] !== null && typeof obj[head!] === "object" && !Array.isArray(obj[head!])
+      ? { ...(obj[head!] as Record<string, unknown>) }
+      : {};
+  const nextChild = setPath(child, rest.join("."), value);
+  if (Object.keys(nextChild).length === 0) {
+    const next = { ...obj };
+    delete next[head!];
     return next;
   }
-  return { ...data, [key]: value };
+  return { ...obj, [head!]: nextChild };
 };
 
-export const insertDataValid = (
-  kind: string | undefined,
-  mode: string,
-  data: InsertData,
-): boolean => {
-  const fields = insertFieldsFor(kind, mode);
-  if (fields.length === 0) return false;
-  for (const field of fields) {
-    if (!field.required) continue;
-    if ((data[field.key] ?? "").trim().length === 0) return false;
-  }
-  return true;
+export const getEffectFormValue = (data: unknown, path: string): string => {
+  const v = getPath(data, path);
+  if (v === undefined || v === null) return "";
+  if (typeof v === "boolean") return v ? "true" : "false";
+  if (Array.isArray(v)) return v.map(String).join(", ");
+  return String(v);
 };
 
-/** Default insert map for a target kind when the wire is first drawn. */
-export const defaultInsertData = (
-  kind: string | undefined,
-  sourceLabel: string,
-): InsertData => {
-  const label = sourceLabel.trim().length > 0 ? sourceLabel.trim() : "scheduler";
-  if (kind === "task") {
-    return {
-      title: `From ${label}`,
-      details: `Scheduled work from ${label}`,
-      reason: "scheduler",
-    };
+export const setEffectFormValue = (
+  data: Record<string, unknown>,
+  path: string,
+  raw: string,
+  kind: EffectFormField["kind"],
+): Record<string, unknown> => {
+  if (path === "dependsOn") {
+    const ids = raw
+      .split(/[,\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return setPath(data, path, ids.length > 0 ? ids : undefined);
   }
-  return {};
+  if (kind === "boolean") {
+    if (raw === "" || raw === "false") return setPath(data, path, undefined);
+    return setPath(data, path, raw === "true" || raw === "1" || raw === "on");
+  }
+  if (kind === "number") {
+    const n = Number(raw);
+    if (!raw.trim() || !Number.isFinite(n) || n < 1) {
+      return setPath(data, path, undefined);
+    }
+    return setPath(data, path, Math.floor(n));
+  }
+  const trimmed = raw; // keep spaces while typing; trim at validate
+  if (trimmed.length === 0) return setPath(data, path, undefined);
+  return setPath(data, path, trimmed);
 };
 
 /**
- * Map insert data → workTaskCreate args for a **task** sink.
- * Only call this at the kernel apply boundary for kind === "task".
+ * Historical wire shapes → EffectTasksCreate.
+ * - `{ brief, reason? }` old enqueue
+ * - `{ title, details }` mistaken flat insert
+ * - `{ task: { title, details } }` mistaken TaskInsert
  */
-export const insertDataToTaskCreateArgs = (
-  data: InsertData,
-): {
-  readonly brief: string;
-  readonly metadata: { readonly title: string; readonly details: string };
-  readonly reason?: string;
-  readonly dependsOn?: ReadonlyArray<string>;
-  readonly finishCriteria?: FinishCriteria;
-} => {
-  const title = (data.title ?? "").trim();
-  const details = (data.details ?? "").trim();
-  const reason = (data.reason ?? "").trim();
-  const doneWhen = (data["finishCriteria.description"] ?? "").trim();
-  const minRaw = (data["finishCriteria.git.minCommits"] ?? "").trim();
-  const minCommits = Number(minRaw);
-  const git =
-    minRaw.length > 0 && Number.isFinite(minCommits) && minCommits >= 1
-      ? { minCommits: Math.floor(minCommits) }
-      : undefined;
-  const finishCriteria: FinishCriteria | undefined =
-    doneWhen || git
-      ? {
-          ...(doneWhen ? { description: doneWhen } : {}),
-          ...(git ? { git } : {}),
-        }
-      : undefined;
-  return {
-    brief: title,
-    metadata: { title, details },
-    ...(reason.length > 0 ? { reason } : {}),
-    ...(finishCriteria ? { finishCriteria } : {}),
-  };
-};
-
-/**
- * Historical wire `{ mode, brief, reason? }` → InsertData.
- * Returns undefined if already `data` shape or not legacy brief.
- */
-export const migrateBriefToInsertData = (
+export const migrateToEffectTasksCreate = (
   raw: Record<string, unknown>,
-): InsertData | undefined => {
+): EffectTasksCreate | undefined => {
   if (raw.mode !== "enqueue_task") return undefined;
   if (raw.data !== undefined && typeof raw.data === "object" && raw.data !== null) {
+    const d = raw.data as Record<string, unknown>;
+    // Already contract-shaped
+    if (typeof d.brief === "string") {
+      const decoded = decodeEffectTasksCreate(d);
+      return decoded.ok ? decoded.value : undefined;
+    }
+    // Flat title/details mistake
+    if (typeof d.title === "string" || typeof d.details === "string") {
+      const title = typeof d.title === "string" ? d.title.trim() : "";
+      const details = typeof d.details === "string" ? d.details.trim() : "";
+      const brief = title || details;
+      const body = details || title;
+      if (!brief || !body) return undefined;
+      const reason = typeof d.reason === "string" ? d.reason : undefined;
+      return {
+        brief,
+        metadata: { title: brief, details: body },
+        ...(reason?.trim() ? { reason: reason.trim() } : {}),
+      };
+    }
     return undefined;
   }
-  // Also accept mistaken prior TaskInsert shape { task: { title, details } }
   if (raw.task !== undefined && typeof raw.task === "object" && raw.task !== null) {
     const t = raw.task as Record<string, unknown>;
     const title = typeof t.title === "string" ? t.title.trim() : "";
     const details = typeof t.details === "string" ? t.details.trim() : "";
-    if (title.length === 0 && details.length === 0) return undefined;
-    const out: Record<string, string> = {
-      title: title || details,
-      details: details || title,
+    const brief = title || details;
+    const body = details || title;
+    if (!brief || !body) return undefined;
+    return {
+      brief,
+      metadata: { title: brief, details: body },
+      ...(typeof t.reason === "string" && t.reason.trim()
+        ? { reason: t.reason.trim() }
+        : {}),
+      ...(t.finishCriteria && typeof t.finishCriteria === "object"
+        ? { finishCriteria: t.finishCriteria as FinishCriteriaType }
+        : {}),
     };
-    if (typeof t.reason === "string" && t.reason.trim()) out.reason = t.reason.trim();
-    if (
-      t.finishCriteria &&
-      typeof t.finishCriteria === "object" &&
-      t.finishCriteria !== null
-    ) {
-      const fc = t.finishCriteria as Record<string, unknown>;
-      if (typeof fc.description === "string" && fc.description.trim()) {
-        out["finishCriteria.description"] = fc.description.trim();
-      }
-      if (fc.git && typeof fc.git === "object" && fc.git !== null) {
-        const min = (fc.git as { minCommits?: unknown }).minCommits;
-        if (typeof min === "number" && min >= 1) {
-          out["finishCriteria.git.minCommits"] = String(Math.floor(min));
-        }
-      }
-    }
-    return out;
   }
   const brief = typeof raw.brief === "string" ? raw.brief.trim() : "";
-  if (brief.length === 0) return undefined;
+  if (!brief) return undefined;
   const reason = typeof raw.reason === "string" ? raw.reason.trim() : "";
   return {
-    title: brief,
-    details: brief,
+    brief,
+    metadata: { title: brief, details: brief },
     ...(reason.length > 0 ? { reason } : {}),
   };
 };
 
-/** Scrub a raw `does` value: legacy brief / task shapes → { mode, data }. */
+/** Scrub raw `does` to current effect shapes. */
 export const scrubDoesEffect = (does: unknown): unknown => {
   if (does === null || typeof does !== "object" || Array.isArray(does)) {
     return does;
   }
   const raw = does as Record<string, unknown>;
-  if (raw.mode !== "enqueue_task") return does;
-  if (
-    raw.data !== undefined &&
-    typeof raw.data === "object" &&
-    raw.data !== null &&
-    !Array.isArray(raw.data)
-  ) {
-    // Normalize non-string values out
-    const data: Record<string, string> = {};
-    for (const [k, v] of Object.entries(raw.data as Record<string, unknown>)) {
-      if (typeof v === "string") data[k] = v;
-      else if (v !== undefined && v !== null) data[k] = String(v);
+  if (raw.mode === "enqueue_task") {
+    if (
+      raw.data !== undefined &&
+      typeof raw.data === "object" &&
+      raw.data !== null &&
+      typeof (raw.data as { brief?: unknown }).brief === "string"
+    ) {
+      return does;
     }
-    return { mode: "enqueue_task", data };
+    const migrated = migrateToEffectTasksCreate(raw);
+    if (!migrated) return does;
+    return { mode: "enqueue_task", data: migrated };
   }
-  const migrated = migrateBriefToInsertData(raw);
-  if (!migrated) return does;
-  return { mode: "enqueue_task", data: migrated };
+  return does;
+};
+
+// Back-compat aliases used during transition (tests / old imports).
+/** @deprecated use EffectTasksCreate */
+export type InsertData = EffectTasksCreate | EffectBoardCreateTopic | EffectBoardPost | Record<string, string>;
+
+/** @deprecated */
+export const insertFieldsFor = (
+  kind: string | undefined,
+  mode: string,
+): ReadonlyArray<EffectFormField> => {
+  if (kind === "task" && mode === "enqueue_task") return EFFECT_TASKS_CREATE_FIELDS;
+  if (kind === "board" && mode === "board_create_topic")
+    return EFFECT_BOARD_CREATE_TOPIC_FIELDS;
+  if (kind === "board" && mode === "board_post") return EFFECT_BOARD_POST_FIELDS;
+  return [];
+};
+
+/** @deprecated */
+export const defaultInsertData = (
+  kind: string | undefined,
+  sourceLabel: string,
+): Record<string, unknown> => {
+  if (kind === "task") return defaultEffectTasksCreate(sourceLabel);
+  if (kind === "board") return defaultEffectBoardCreateTopic(sourceLabel);
+  return {};
+};
+
+/** @deprecated */
+export const insertDataValid = (
+  kind: string | undefined,
+  mode: string,
+  data: unknown,
+): boolean => {
+  if (kind === "task" && mode === "enqueue_task") return effectTasksCreateValid(data);
+  if (kind === "board" && mode === "board_create_topic")
+    return effectBoardCreateTopicValid(data);
+  if (kind === "board" && mode === "board_post") return effectBoardPostValid(data);
+  return false;
+};
+
+/** @deprecated */
+export const insertDataToTaskCreateArgs = (data: unknown) => {
+  const decoded = decodeEffectTasksCreate(data);
+  if (!decoded.ok) {
+    throw new Error(decoded.message);
+  }
+  return effectTasksCreateToWorkArgs(decoded.value);
+};
+
+/** @deprecated */
+export const getInsertField = (data: unknown, key: string): string =>
+  getEffectFormValue(data, key);
+
+/** @deprecated */
+export const setInsertField = (
+  data: Record<string, unknown>,
+  key: string,
+  value: string,
+): Record<string, unknown> => {
+  const field = EFFECT_TASKS_CREATE_FIELDS.find((f) => f.path === key);
+  return setEffectFormValue(data, key, value, field?.kind ?? "text");
 };

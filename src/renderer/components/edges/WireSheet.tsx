@@ -6,16 +6,20 @@ import { use$ } from "@legendapp/state/react";
 import type {
   CanvasEdge,
   CanvasNode,
+  EdgeEffect,
   EtherFlag,
   WatchWhen,
   WatchWhenAtom,
 } from "@shared/canvas";
 import {
-  defaultInsertData,
-  getInsertField,
-  insertFieldsFor,
-  setInsertField,
-  type InsertData,
+  defaultEffectBoardCreateTopic,
+  defaultEffectTasksCreate,
+  EFFECT_BOARD_CREATE_TOPIC_FIELDS,
+  EFFECT_BOARD_POST_FIELDS,
+  EFFECT_TASKS_CREATE_FIELDS,
+  getEffectFormValue,
+  setEffectFormValue,
+  type EffectFormField,
 } from "@shared/node-insert";
 import {
   familyFromSlot,
@@ -54,11 +58,21 @@ const describeEffectBinding = (binding: EffectEdgeBinding): string => {
   const target = nodeTitle(binding.target);
   switch (binding.effect.mode) {
     case "enqueue_task": {
-      const title = (binding.effect.data.title ?? "").trim();
-      return title.length > 0
-        ? `adds “${title}” on ${target}`
+      const data = binding.effect.data as { brief?: string };
+      const brief = (data.brief ?? "").trim();
+      return brief.length > 0
+        ? `adds “${brief}” on ${target}`
         : `adds inventory on ${target}`;
     }
+    case "board_create_topic": {
+      const data = binding.effect.data as { title?: string };
+      const title = (data.title ?? "").trim();
+      return title.length > 0
+        ? `opens topic “${title}” on ${target}`
+        : `opens a topic on ${target}`;
+    }
+    case "board_post":
+      return `posts to ${target}`;
     case "inject_prompt":
       return `sends a prompt to ${target}`;
     case "set_flag":
@@ -202,6 +216,15 @@ function WhenSection({
   );
 }
 
+const effectFormFields = (
+  mode: string | undefined,
+): ReadonlyArray<EffectFormField> => {
+  if (mode === "enqueue_task") return EFFECT_TASKS_CREATE_FIELDS;
+  if (mode === "board_create_topic") return EFFECT_BOARD_CREATE_TOPIC_FIELDS;
+  if (mode === "board_post") return EFFECT_BOARD_POST_FIELDS;
+  return [];
+};
+
 function DoesSection({
   edgeId,
   section,
@@ -217,7 +240,6 @@ function DoesSection({
 }) {
   const effect = edge.ether?.does;
   const mode = effect?.mode ?? "none";
-  const targetKind = toNode?.ether?.entity?.kind;
   const options = [
     { value: "none", label: "Do nothing" },
     ...section.inputs.map((input) => ({
@@ -225,14 +247,20 @@ function DoesSection({
       label: input.label,
     })),
   ];
-  const insertFields =
-    effect?.mode === "enqueue_task"
-      ? insertFieldsFor(targetKind, "enqueue_task")
-      : [];
+  const fields = effectFormFields(effect?.mode);
+  const label = fromNode ? schedulerSourceLabel(fromNode) : "scheduler";
 
-  const patchData = (data: InsertData) => {
-    setEdgeEffect(edgeId, { mode: "enqueue_task", data });
+  const patchPayload = (next: EdgeEffect) => {
+    setEdgeEffect(edgeId, next);
   };
+
+  const dataRecord =
+    effect &&
+    (effect.mode === "enqueue_task" ||
+      effect.mode === "board_create_topic" ||
+      effect.mode === "board_post")
+      ? (effect.data as Record<string, unknown>)
+      : {};
 
   return (
     <div className="inspector-section">
@@ -253,12 +281,23 @@ function DoesSection({
               return;
             }
             if (value === "enqueue_task") {
-              const label = fromNode
-                ? schedulerSourceLabel(fromNode)
-                : "scheduler";
               setEdgeEffect(edgeId, {
                 mode: "enqueue_task",
-                data: defaultInsertData(targetKind, label),
+                data: defaultEffectTasksCreate(label),
+              });
+              return;
+            }
+            if (value === "board_create_topic") {
+              setEdgeEffect(edgeId, {
+                mode: "board_create_topic",
+                data: defaultEffectBoardCreateTopic(label),
+              });
+              return;
+            }
+            if (value === "board_post") {
+              setEdgeEffect(edgeId, {
+                mode: "board_post",
+                data: { topicId: "", text: "" },
               });
               return;
             }
@@ -274,13 +313,56 @@ function DoesSection({
           }}
         />
       </label>
-      {effect?.mode === "enqueue_task"
-        ? insertFields.map((field) => {
-            const value = getInsertField(effect.data, field.key);
-            const id = `does-${edgeId}-${field.key}`;
+      {effect &&
+      (effect.mode === "enqueue_task" ||
+        effect.mode === "board_create_topic" ||
+        effect.mode === "board_post")
+        ? fields.map((field) => {
+            const value = getEffectFormValue(dataRecord, field.path);
+            const id = `does-${edgeId}-${field.path}`;
+            const onRaw = (raw: string) => {
+              const nextData = setEffectFormValue(
+                { ...dataRecord },
+                field.path,
+                raw,
+                field.kind,
+              );
+              if (effect.mode === "enqueue_task") {
+                patchPayload({
+                  mode: "enqueue_task",
+                  data: nextData as typeof effect.data,
+                });
+              } else if (effect.mode === "board_create_topic") {
+                patchPayload({
+                  mode: "board_create_topic",
+                  data: nextData as typeof effect.data,
+                });
+              } else {
+                patchPayload({
+                  mode: "board_post",
+                  data: nextData as typeof effect.data,
+                });
+              }
+            };
+            if (field.kind === "boolean") {
+              return (
+                <label key={field.path} className="inspector-editor">
+                  <span>{field.label}</span>
+                  <input
+                    id={id}
+                    type="checkbox"
+                    aria-label={field.label}
+                    checked={value === "true"}
+                    onChange={(event) =>
+                      onRaw(event.target.checked ? "true" : "false")
+                    }
+                  />
+                </label>
+              );
+            }
             if (field.kind === "textarea") {
               return (
-                <label key={field.key} className="inspector-editor">
+                <label key={field.path} className="inspector-editor">
                   <span>
                     {field.label}
                     {field.required ? "" : " (optional)"}
@@ -290,21 +372,13 @@ function DoesSection({
                     aria-label={field.label}
                     rows={3}
                     value={value}
-                    onChange={(event) =>
-                      patchData(
-                        setInsertField(
-                          effect.data,
-                          field.key,
-                          event.target.value,
-                        ),
-                      )
-                    }
+                    onChange={(event) => onRaw(event.target.value)}
                   />
                 </label>
               );
             }
             return (
-              <label key={field.key} className="inspector-editor">
+              <label key={field.path} className="inspector-editor">
                 <span>
                   {field.label}
                   {field.required ? "" : " (optional)"}
@@ -315,15 +389,7 @@ function DoesSection({
                   type={field.kind === "number" ? "number" : "text"}
                   min={field.kind === "number" ? 1 : undefined}
                   value={value}
-                  onChange={(event) =>
-                    patchData(
-                      setInsertField(
-                        effect.data,
-                        field.key,
-                        event.target.value,
-                      ),
-                    )
-                  }
+                  onChange={(event) => onRaw(event.target.value)}
                 />
               </label>
             );

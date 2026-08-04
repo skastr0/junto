@@ -106,6 +106,8 @@ describe("set_flag effect — visible on projected/read path", () => {
       hasReceipt: () => false,
       recordReceipt: () => undefined,
       enqueueTask: async () => ({ ok: true }),
+      boardCreateTopic: async () => ({ ok: true }),
+      boardPost: async () => ({ ok: true }),
       setFlag: async (canvasName, nodeId, flag, enabled) => {
         // Production path: applyNodeFlag is what CanvasesService.mutate runs.
         durable = applyNodeFlag(durable, nodeId, flag, enabled);
@@ -148,6 +150,8 @@ describe("set_flag effect — visible on projected/read path", () => {
       hasReceipt: () => false,
       recordReceipt: () => undefined,
       enqueueTask: async () => ({ ok: true }),
+      boardCreateTopic: async () => ({ ok: true }),
+      boardPost: async () => ({ ok: true }),
       setFlag: async () => {
         called = true;
         return { ok: true };

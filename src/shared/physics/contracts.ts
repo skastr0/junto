@@ -37,7 +37,13 @@ export const ContractInput = Schema.Struct({
   id: Schema.String,
   label: Schema.String,
   /** Maps to EdgeEffect.mode. */
-  mode: Schema.Literals(["enqueue_task", "set_flag", "inject_prompt"]),
+  mode: Schema.Literals([
+    "enqueue_task",
+    "board_create_topic",
+    "board_post",
+    "set_flag",
+    "inject_prompt",
+  ]),
 });
 export type ContractInput = typeof ContractInput.Type;
 
@@ -73,6 +79,18 @@ const enqueueInput: ContractInput = {
   id: "input.enqueue_task",
   label: "Add a task",
   mode: "enqueue_task",
+};
+
+const boardCreateTopicInput: ContractInput = {
+  id: "input.board_create_topic",
+  label: "Create a topic",
+  mode: "board_create_topic",
+};
+
+const boardPostInput: ContractInput = {
+  id: "input.board_post",
+  label: "Post to a topic",
+  mode: "board_post",
 };
 
 const flagInput: ContractInput = {
@@ -163,7 +181,7 @@ export const NodeContracts: {
         equals: "topic",
       },
     ],
-    inputs: [flagInput],
+    inputs: [boardCreateTopicInput, boardPostInput, flagInput],
   },
   page: {
     kind: "page",

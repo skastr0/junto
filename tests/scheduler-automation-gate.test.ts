@@ -91,7 +91,7 @@ const gaugeAndTask = (): CanvasDoc =>
         id: "e1",
         fromNode: "g1",
         toNode: "t1",
-        ether: { does: { mode: "enqueue_task", data: { title: "from gauge", details: "from gauge", reason: "scheduler" } },
+        ether: { does: { mode: "enqueue_task", data: { brief: "from gauge", metadata: { title: "from gauge", details: "from gauge" }, reason: "scheduler" } },
         },
       },
     ],
@@ -122,10 +122,12 @@ describe("scheduler automation gate", () => {
       canApplyFlagEffects: () => true,
       hasReceipt: () => false,
       recordReceipt: () => undefined,
-      enqueueTask: async ({ data }) => {
-        enqueues.push(data.title);
+      enqueueTask: async ({ payload }) => {
+        enqueues.push(payload.brief);
         return { ok: true };
       },
+      boardCreateTopic: async () => ({ ok: true }),
+      boardPost: async () => ({ ok: true }),
       setFlag: async () => ({ ok: true }),
     });
 
@@ -152,10 +154,12 @@ describe("scheduler automation gate", () => {
       canApplyFlagEffects: () => true,
       hasReceipt: () => false,
       recordReceipt: () => undefined,
-      enqueueTask: async ({ data }) => {
-        enqueues.push(data.title);
+      enqueueTask: async ({ payload }) => {
+        enqueues.push(payload.brief);
         return { ok: true };
       },
+      boardCreateTopic: async () => ({ ok: true }),
+      boardPost: async () => ({ ok: true }),
       setFlag: async () => ({ ok: true }),
     });
     await runEvaluationCycle();

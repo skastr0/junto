@@ -560,8 +560,9 @@ describe("renderer graph mutations", () => {
 
     setEdgePorts("edge-1", ["msg.list"]);
     expect(state$.doc.peek().edges[0]?.ether?.ports).toEqual(["msg.list"]);
+    // Explicit empty allow-list — not "allow all" (undefined).
     setEdgePorts("edge-1", []);
-    expect(state$.doc.peek().edges[0]?.ether?.ports).toBeUndefined();
+    expect(state$.doc.peek().edges[0]?.ether?.ports).toEqual([]);
     expect(Result.isSuccess(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
   });
 

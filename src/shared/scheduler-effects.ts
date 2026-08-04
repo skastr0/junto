@@ -21,8 +21,11 @@ import type {
 } from "./canvas";
 import { edgeDoes } from "./canvas";
 import {
-  defaultInsertData,
-  insertDataValid,
+  defaultEffectBoardCreateTopic,
+  defaultEffectTasksCreate,
+  effectBoardCreateTopicValid,
+  effectBoardPostValid,
+  effectTasksCreateValid,
 } from "./node-insert";
 import { resolveSpec, roleOf } from "./physics/kinds";
 
@@ -147,9 +150,10 @@ export const collectWatchEdgesInto = (
 
 export type EffectTargetError =
   | "target_not_task_sink"
+  | "target_not_board"
   | "target_not_agent"
   | "target_missing"
-  | "empty_insert_data"
+  | "invalid_payload"
   | "invalid_flag";
 
 export const validateEffectTarget = (
@@ -162,8 +166,19 @@ export const validateEffectTarget = (
     if (roleOf(resolveSpec({ isGroup: target.type === "group", kind })) !== "sink") {
       return "target_not_task_sink";
     }
-    if (!insertDataValid(kind, "enqueue_task", effect.data)) {
-      return "empty_insert_data";
+    if (!effectTasksCreateValid(effect.data)) return "invalid_payload";
+    return undefined;
+  }
+  if (effect.mode === "board_create_topic" || effect.mode === "board_post") {
+    const kind = target.ether?.entity?.kind;
+    if (kind !== "board") return "target_not_board";
+    if (roleOf(resolveSpec({ isGroup: target.type === "group", kind })) !== "sink") {
+      return "target_not_board";
+    }
+    if (effect.mode === "board_create_topic") {
+      if (!effectBoardCreateTopicValid(effect.data)) return "invalid_payload";
+    } else if (!effectBoardPostValid(effect.data)) {
+      return "invalid_payload";
     }
     return undefined;
   }
@@ -195,19 +210,20 @@ export const inferSchedulerEdgeEffect = (
   if (toKind === "task") {
     return {
       mode: "enqueue_task",
-      data: defaultInsertData(toKind, schedulerSourceLabel(fromNode!)),
+      data: defaultEffectTasksCreate(schedulerSourceLabel(fromNode!)),
+    };
+  }
+  if (toKind === "board") {
+    return {
+      mode: "board_create_topic",
+      data: defaultEffectBoardCreateTopic(schedulerSourceLabel(fromNode!)),
     };
   }
   if (toKind === "agent") {
     return { mode: "inject_prompt" };
   }
   // Flag sinks: bare draw is a real product effect, not a silent no-op.
-  if (
-    toKind === "requests" ||
-    toKind === "artifacts" ||
-    toKind === "board" ||
-    toKind === "page"
-  ) {
+  if (toKind === "requests" || toKind === "artifacts" || toKind === "page") {
     return { mode: "set_flag", flag: "attention", enabled: true };
   }
   return undefined;

@@ -5,6 +5,14 @@
 
 import type { CanvasDoc, CanvasNode, EtherFlag } from "@shared/canvas";
 import {
+  decodeEffectBoardCreateTopic,
+  decodeEffectBoardPost,
+  decodeEffectTasksCreate,
+  type EffectBoardCreateTopic,
+  type EffectBoardPost,
+  type EffectTasksCreate,
+} from "@shared/node-insert";
+import {
   collectEffectEdgesFrom,
   defaultInjectPromptText,
   resolveMirrorFlagEnabled,
@@ -35,7 +43,17 @@ export type SchedulerEffectDeps = {
   readonly enqueueTask: (input: {
     readonly canvasName: string;
     readonly sinkNodeId: string;
-    readonly data: import("@shared/node-insert").InsertData;
+    readonly payload: EffectTasksCreate;
+  }) => Promise<{ readonly ok: boolean; readonly message?: string }>;
+  readonly boardCreateTopic: (input: {
+    readonly canvasName: string;
+    readonly sinkNodeId: string;
+    readonly payload: EffectBoardCreateTopic;
+  }) => Promise<{ readonly ok: boolean; readonly message?: string }>;
+  readonly boardPost: (input: {
+    readonly canvasName: string;
+    readonly sinkNodeId: string;
+    readonly payload: EffectBoardPost;
   }) => Promise<{ readonly ok: boolean; readonly message?: string }>;
   readonly setFlag: (
     canvasName: string,
@@ -78,14 +96,67 @@ const applyOne = async (
   if (deps.hasReceipt(fire.fireKey, binding.edge.id)) return false;
 
   if (binding.effect.mode === "enqueue_task") {
+    const decoded = decodeEffectTasksCreate(binding.effect.data);
+    if (!decoded.ok) {
+      console.error(
+        `[kernel] enqueue_task schema fail on ${binding.edge.id}: ${decoded.message}`,
+      );
+      return false;
+    }
     const result = await deps.enqueueTask({
       canvasName,
       sinkNodeId: binding.target.id,
-      data: binding.effect.data,
+      payload: decoded.value,
     });
     if (!result.ok) {
       console.error(
         `[kernel] enqueue_task failed on ${binding.edge.id}: ${result.message ?? "unknown"}`,
+      );
+      return false;
+    }
+    deps.recordReceipt(fire.fireKey, binding.edge.id);
+    return true;
+  }
+
+  if (binding.effect.mode === "board_create_topic") {
+    const decoded = decodeEffectBoardCreateTopic(binding.effect.data);
+    if (!decoded.ok) {
+      console.error(
+        `[kernel] board_create_topic schema fail on ${binding.edge.id}: ${decoded.message}`,
+      );
+      return false;
+    }
+    const result = await deps.boardCreateTopic({
+      canvasName,
+      sinkNodeId: binding.target.id,
+      payload: decoded.value,
+    });
+    if (!result.ok) {
+      console.error(
+        `[kernel] board_create_topic failed on ${binding.edge.id}: ${result.message ?? "unknown"}`,
+      );
+      return false;
+    }
+    deps.recordReceipt(fire.fireKey, binding.edge.id);
+    return true;
+  }
+
+  if (binding.effect.mode === "board_post") {
+    const decoded = decodeEffectBoardPost(binding.effect.data);
+    if (!decoded.ok) {
+      console.error(
+        `[kernel] board_post schema fail on ${binding.edge.id}: ${decoded.message}`,
+      );
+      return false;
+    }
+    const result = await deps.boardPost({
+      canvasName,
+      sinkNodeId: binding.target.id,
+      payload: decoded.value,
+    });
+    if (!result.ok) {
+      console.error(
+        `[kernel] board_post failed on ${binding.edge.id}: ${result.message ?? "unknown"}`,
       );
       return false;
     }

@@ -8,7 +8,7 @@ import {
   EtherRequests,
   EtherTasks,
 } from "./work-model";
-import { InsertData, scrubDoesEffect } from "./node-insert";
+import { scrubDoesEffect } from "./node-insert";
 
 export {
   Artifact,
@@ -353,13 +353,31 @@ export type WatchWhen = typeof WatchWhen.Type;
 
 // Automation effect plane (sibling of criteria/ports/notify). Kernel-home fire
 // applies these; never process-bind ocap. Claim assignment stays factory tick.
-// enqueue_task carries generic insert `data` for the *target node* (field keys
-// from that kind's contract) — not a task-typed payload and not a free brief.
+// `data` is opaque on the wire; the target sink's closed create schema is
+// decoded fail-closed at apply (EffectTasksCreate / EffectBoard*).
 export const EdgeEffectEnqueueTask = Schema.Struct({
   mode: Schema.Literal("enqueue_task"),
-  data: InsertData,
+  data: Schema.Unknown,
 });
-export type EdgeEffectEnqueueTask = typeof EdgeEffectEnqueueTask.Type;
+export type EdgeEffectEnqueueTask = typeof EdgeEffectEnqueueTask.Type & {
+  readonly data: import("./node-insert").EffectTasksCreate | Record<string, unknown>;
+};
+
+export const EdgeEffectBoardCreateTopic = Schema.Struct({
+  mode: Schema.Literal("board_create_topic"),
+  data: Schema.Unknown,
+});
+export type EdgeEffectBoardCreateTopic = typeof EdgeEffectBoardCreateTopic.Type & {
+  readonly data: import("./node-insert").EffectBoardCreateTopic | Record<string, unknown>;
+};
+
+export const EdgeEffectBoardPost = Schema.Struct({
+  mode: Schema.Literal("board_post"),
+  data: Schema.Unknown,
+});
+export type EdgeEffectBoardPost = typeof EdgeEffectBoardPost.Type & {
+  readonly data: import("./node-insert").EffectBoardPost | Record<string, unknown>;
+};
 
 export const EdgeEffectSetFlag = Schema.Struct({
   mode: Schema.Literal("set_flag"),
@@ -378,6 +396,8 @@ export type EdgeEffectInjectPrompt = typeof EdgeEffectInjectPrompt.Type;
 
 export const EdgeEffect = Schema.Union([
   EdgeEffectEnqueueTask,
+  EdgeEffectBoardCreateTopic,
+  EdgeEffectBoardPost,
   EdgeEffectSetFlag,
   EdgeEffectInjectPrompt,
 ]);

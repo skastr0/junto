@@ -466,7 +466,7 @@ describe("physics admitPure", () => {
     expect(Result.isSuccess(admitted)).toBe(true);
   });
 
-  it("ignores invalid port strings (no mask ⇒ full offers)", () => {
+  it("invalid-only port strings yield empty mask (nothing allowed)", () => {
     const doc = {
       nodes: [textNode("agent", "agent"), pageNode("p1")],
       edges: [
@@ -474,20 +474,21 @@ describe("physics admitPure", () => {
           id: "e1",
           fromNode: "agent",
           toNode: "p1",
-          // Not a Port literal — skipped fail-closed for the token only.
+          // Not a Port literal — skipped; explicit ports:[] shape remains.
           ether: { ports: ["browser.read"] },
         },
       ],
     } as unknown as CanvasDoc;
     const view = canvasDocToCapabilityView(doc);
-    expect(HashMap.size(view.edgePortMask)).toBe(0);
+    // Explicit mask present but empty after invalid tokens dropped.
+    expect(HashMap.size(view.edgePortMask)).toBe(1);
     const admitted = admitPure(
       view,
       asNodeId("agent"),
       asNodeId("p1"),
       "browser.automate",
     );
-    expect(Result.isSuccess(admitted)).toBe(true);
+    expect(Result.isSuccess(admitted)).toBe(false);
   });
 
   it("fresh actor↔actor, no ports → both mailbox ports are admitted by default", () => {

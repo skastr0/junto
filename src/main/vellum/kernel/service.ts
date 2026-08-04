@@ -23,7 +23,7 @@
 import { createHash } from "node:crypto";
 import { Cause, Context, Effect, Layer, Schema } from "effect";
 import type { CanvasDoc, CanvasNode } from "@shared/canvas";
-import { insertDataToTaskCreateArgs } from "@shared/node-insert";
+import { effectTasksCreateToWorkArgs } from "@shared/node-insert";
 import { actorDeliverySurfaceOf } from "@shared/actor-surface";
 import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
 import type { ActorRefResolver } from "@shared/attention";
@@ -779,12 +779,11 @@ const makeKernelService = (
     recordReceipt: (fireKey, edgeId) => {
       effectReceipts.add(`${fireKey}::${edgeId}`);
     },
-    enqueueTask: async ({ canvasName, sinkNodeId, data }) => {
+    enqueueTask: async ({ canvasName, sinkNodeId, payload }) => {
       if (!canAutomateCanvas(canvasName)) {
         return { ok: false, message: "canvas paused or station role unset" };
       }
-      // Task sink apply boundary — insert data is generic; map here only.
-      const args = insertDataToTaskCreateArgs(data);
+      const args = effectTasksCreateToWorkArgs(payload);
       const result = await run(
         work.workTaskCreate(
           canvasName,
@@ -795,6 +794,57 @@ const makeKernelService = (
           undefined,
           args.dependsOn,
           args.finishCriteria,
+        ),
+      );
+      if (!result.ok) {
+        return { ok: false, message: result.message };
+      }
+      return { ok: true };
+    },
+    boardCreateTopic: async ({ canvasName, sinkNodeId, payload }) => {
+      if (!canAutomateCanvas(canvasName)) {
+        return { ok: false, message: "canvas paused or station role unset" };
+      }
+      if (cachedStationRole !== "command-center") {
+        return { ok: false, message: "board_create_topic requires Command Center" };
+      }
+      const title = payload.title.trim();
+      if (!title) return { ok: false, message: "topic title required" };
+      const body = payload.body?.trim();
+      const result = await run(
+        work.workBoardCreateTopic(
+          canvasName,
+          sinkNodeId,
+          title,
+          body && body.length > 0 ? body : undefined,
+          { kind: "operator", label: "scheduler" },
+          payload.notify === true,
+        ),
+      );
+      if (!result.ok) {
+        return { ok: false, message: result.message };
+      }
+      return { ok: true };
+    },
+    boardPost: async ({ canvasName, sinkNodeId, payload }) => {
+      if (!canAutomateCanvas(canvasName)) {
+        return { ok: false, message: "canvas paused or station role unset" };
+      }
+      if (cachedStationRole !== "command-center") {
+        return { ok: false, message: "board_post requires Command Center" };
+      }
+      const topicId = payload.topicId.trim();
+      const text = payload.text.trim();
+      if (!topicId || !text) {
+        return { ok: false, message: "topicId and text required" };
+      }
+      const result = await run(
+        work.workBoardPost(
+          canvasName,
+          sinkNodeId,
+          topicId,
+          text,
+          { kind: "operator", label: "scheduler" },
         ),
       );
       if (!result.ok) {

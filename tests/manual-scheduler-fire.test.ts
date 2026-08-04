@@ -72,7 +72,7 @@ const board = (): CanvasDoc =>
         fromNode: "cron1",
         toNode: "tasks-cron",
         ether: {
-          does: { mode: "enqueue_task", data: { title: "from-cron", details: "from-cron", reason: "scheduler" } },
+          does: { mode: "enqueue_task", data: { brief: "from-cron", metadata: { title: "from-cron", details: "from-cron" }, reason: "scheduler" } },
         },
       },
       {
@@ -80,7 +80,7 @@ const board = (): CanvasDoc =>
         fromNode: "relay1",
         toNode: "tasks-relay",
         ether: {
-          does: { mode: "enqueue_task", data: { title: "from-relay", details: "from-relay", reason: "scheduler" } },
+          does: { mode: "enqueue_task", data: { brief: "from-relay", metadata: { title: "from-relay", details: "from-relay" }, reason: "scheduler" } },
         },
       },
       // Trigger chain: cron fire cascades into the relay's does edges.
@@ -108,10 +108,12 @@ describe("manualSchedulerFire scope", () => {
       canApplyFlagEffects: () => true,
       hasReceipt: () => false,
       recordReceipt: () => undefined,
-      enqueueTask: async ({ data }) => {
-        enqueues.push(data.title);
+      enqueueTask: async ({ payload }) => {
+        enqueues.push(payload.brief);
         return { ok: true };
       },
+      boardCreateTopic: async () => ({ ok: true }),
+      boardPost: async () => ({ ok: true }),
       setFlag: async () => ({ ok: true }),
     });
     __setDocsForTest(new Map([["board", board()]]));
@@ -166,10 +168,12 @@ describe("manualSchedulerFire scope", () => {
       canApplyFlagEffects: () => true,
       hasReceipt: () => false,
       recordReceipt: () => undefined,
-      enqueueTask: async ({ data }) => {
-        enqueues.push(data.title);
+      enqueueTask: async ({ payload }) => {
+        enqueues.push(payload.brief);
         return { ok: true };
       },
+      boardCreateTopic: async () => ({ ok: true }),
+      boardPost: async () => ({ ok: true }),
       setFlag: async () => ({ ok: true }),
     });
     const result = await manualSchedulerFire({

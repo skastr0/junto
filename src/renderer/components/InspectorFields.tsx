@@ -59,22 +59,23 @@ const decodePort = Schema.decodeUnknownOption(Port);
 const entityNameOf = (node: CanvasNode | undefined): string =>
   typeof node?.ether?.entity?.name === "string" ? node.ether.entity.name : "";
 
-/** Valid edge.ether.ports → mask; absent / empty / all-invalid → undefined (full offers). */
+/**
+ * Valid edge.ether.ports → mask.
+ * Absent → undefined (full offers). Explicit [] → empty set (nothing allowed).
+ */
 const readEdgePortMask = (
   edge: CanvasEdge,
 ): HashSet.HashSet<PortName> | undefined => {
   const ports = edge.ether?.ports;
-  if (!ports || ports.length === 0) return undefined;
+  if (ports === undefined) return undefined;
   let set = HashSet.empty<PortName>();
-  let any = false;
   for (const p of ports) {
     const decoded = decodePort(p);
     if (Option.isSome(decoded)) {
       set = HashSet.add(set, decoded.value);
-      any = true;
     }
   }
-  return any ? set : undefined;
+  return set;
 };
 
 /** Effective ports for caller → target: GrantLaw + mask → PortGrant ∩ offers. */
@@ -223,10 +224,7 @@ export function EdgePortsAttenuator({ edge }: { readonly edge: CanvasEdge }) {
   const active = mask ?? HashSet.empty<PortName>();
 
   const commit = (next: HashSet.HashSet<PortName>): void => {
-    if (HashSet.size(next) === 0) {
-      setEdgePorts(edge.id, undefined);
-      return;
-    }
+    // Explicit empty allow-list is valid — never collapse to "allow all".
     setEdgePorts(edge.id, [...next]);
   };
 
