@@ -126,10 +126,10 @@ describe("effect payloads (closed create contracts)", () => {
     expect(decoded.value.dependsOn).toEqual(["t1", "t2"]);
   });
 
-  it("defaults for board and task are schema-valid", () => {
-    expect(decodeEffectTasksCreate(defaultEffectTasksCreate("cron")).ok).toBe(
-      true,
-    );
+  it("defaults for board and task are schema-valid and match create shape", () => {
+    const task = defaultEffectTasksCreate("cron");
+    expect(decodeEffectTasksCreate(task).ok).toBe(true);
+    expect(task.reason).toBeUndefined();
     expect(
       decodeEffectBoardCreateTopic(defaultEffectBoardCreateTopic("cron")).ok,
     ).toBe(true);
@@ -139,5 +139,38 @@ describe("effect payloads (closed create contracts)", () => {
         task: { title: "T", details: "D" },
       }),
     ).toMatchObject({ brief: "T", metadata: { details: "D" } });
+  });
+
+  it("git / artifact gates match TaskCreateDialog semantics", () => {
+    const {
+      setEffectTasksRequireGit,
+      effectTasksRequireGit,
+      setEffectTasksRequireArtifacts,
+      effectTasksRequireArtifacts,
+      setEffectTasksArtifactInstruction,
+      setEffectTasksArtifactNames,
+    } = require("./node-insert") as typeof import("./node-insert");
+    let data: Record<string, unknown> = {
+      ...defaultEffectTasksCreate("relay"),
+    };
+    data = setEffectTasksRequireGit(data, true);
+    expect(effectTasksRequireGit(data)).toBe(true);
+    expect(
+      (data.finishCriteria as { git?: { minCommits: number } }).git?.minCommits,
+    ).toBe(1);
+    data = setEffectTasksRequireGit(data, false);
+    expect(effectTasksRequireGit(data)).toBe(false);
+    data = setEffectTasksRequireArtifacts(data, true, "art1");
+    expect(effectTasksRequireArtifacts(data)).toBe(true);
+    data = setEffectTasksArtifactInstruction(data, "publish report");
+    data = setEffectTasksArtifactNames(data, "a, b");
+    const decoded = decodeEffectTasksCreate(data);
+    expect(decoded.ok).toBe(true);
+    if (!decoded.ok) return;
+    expect(decoded.value.finishCriteria?.artifacts).toEqual({
+      nodeId: "art1",
+      instruction: "publish report",
+      names: ["a", "b"],
+    });
   });
 });

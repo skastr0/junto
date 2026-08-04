@@ -17,10 +17,19 @@ import {
   EFFECT_BOARD_CREATE_TOPIC_FIELDS,
   EFFECT_BOARD_POST_FIELDS,
   EFFECT_TASKS_CREATE_FIELDS,
+  effectTasksRequireArtifacts,
+  effectTasksRequireGit,
   getEffectFormValue,
+  getEffectTasksArtifactInstruction,
+  getEffectTasksArtifactNames,
   setEffectFormValue,
+  setEffectTasksArtifactInstruction,
+  setEffectTasksArtifactNames,
+  setEffectTasksRequireArtifacts,
+  setEffectTasksRequireGit,
   type EffectFormField,
 } from "@shared/node-insert";
+import { workRolesInDoc } from "@shared/attention";
 import {
   familyFromSlot,
   resolveSpec,
@@ -225,6 +234,191 @@ const effectFormFields = (
   return [];
 };
 
+function EffectFormFields({
+  edgeId,
+  mode,
+  dataRecord,
+  fields,
+  onData,
+}: {
+  readonly edgeId: string;
+  readonly mode: "enqueue_task" | "board_create_topic" | "board_post";
+  readonly dataRecord: Record<string, unknown>;
+  readonly fields: ReadonlyArray<EffectFormField>;
+  readonly onData: (next: Record<string, unknown>) => void;
+}) {
+  return (
+    <>
+      {fields.map((field) => {
+        const value = getEffectFormValue(dataRecord, field.path);
+        const id = `does-${edgeId}-${field.path}`;
+        const onRaw = (raw: string) => {
+          onData(
+            setEffectFormValue({ ...dataRecord }, field.path, raw, field.kind),
+          );
+        };
+        if (field.kind === "boolean") {
+          return (
+            <label key={field.path} className="inspector-check" htmlFor={id}>
+              <input
+                id={id}
+                type="checkbox"
+                aria-label={field.label}
+                checked={value === "true"}
+                onChange={(event) =>
+                  onRaw(event.target.checked ? "true" : "false")
+                }
+              />
+              <span className="inspector-check__label">{field.label}</span>
+            </label>
+          );
+        }
+        if (field.kind === "textarea") {
+          return (
+            <label key={field.path} className="inspector-editor">
+              <span>
+                {field.label}
+                {field.required ? "" : " (optional)"}
+              </span>
+              <textarea
+                id={id}
+                aria-label={field.label}
+                rows={3}
+                value={value}
+                onChange={(event) => onRaw(event.target.value)}
+              />
+            </label>
+          );
+        }
+        return (
+          <label key={field.path} className="inspector-editor">
+            <span>
+              {field.label}
+              {field.required ? "" : " (optional)"}
+            </span>
+            <Input
+              id={id}
+              aria-label={field.label}
+              type={field.kind === "number" ? "number" : "text"}
+              min={field.kind === "number" ? 1 : undefined}
+              value={value}
+              onChange={(event) => onRaw(event.target.value)}
+            />
+          </label>
+        );
+      })}
+      {mode === "enqueue_task" ? (
+        <TaskCreateGates edgeId={edgeId} dataRecord={dataRecord} onData={onData} />
+      ) : null}
+    </>
+  );
+}
+
+/** Hard finish gates — same contract as TaskCreateDialog. */
+function TaskCreateGates({
+  edgeId,
+  dataRecord,
+  onData,
+}: {
+  readonly edgeId: string;
+  readonly dataRecord: Record<string, unknown>;
+  readonly onData: (next: Record<string, unknown>) => void;
+}) {
+  const doc = use$(state$.doc);
+  const artifactsNodeId = useMemo(
+    () => doc.nodes.find((n) => n.ether?.entity?.kind === "artifacts")?.id,
+    [doc.nodes],
+  );
+  const requireGit = effectTasksRequireGit(dataRecord);
+  const requireArtifacts = effectTasksRequireArtifacts(dataRecord);
+  const noArtifacts = !artifactsNodeId;
+
+  return (
+    <div className="inspector-effect-gates" style={{ marginTop: 12 }}>
+      <div className="inspector-section__label">Hard finish gates</div>
+      <label
+        className="inspector-check"
+        htmlFor={`does-${edgeId}-artifacts`}
+        style={noArtifacts ? { opacity: 0.55, cursor: "not-allowed" } : undefined}
+      >
+        <input
+          id={`does-${edgeId}-artifacts`}
+          type="checkbox"
+          aria-label="Require artifact(s)"
+          checked={requireArtifacts}
+          disabled={noArtifacts}
+          title={
+            noArtifacts ? "Add an Artifacts card to the canvas first" : undefined
+          }
+          onChange={(event) =>
+            onData(
+              setEffectTasksRequireArtifacts(
+                { ...dataRecord },
+                event.target.checked,
+                artifactsNodeId,
+              ),
+            )
+          }
+        />
+        <span className="inspector-check__label">Require artifact(s)</span>
+      </label>
+      {requireArtifacts ? (
+        <>
+          <label className="inspector-editor">
+            <span>Instruction</span>
+            <textarea
+              aria-label="Artifact instruction"
+              rows={2}
+              value={getEffectTasksArtifactInstruction(dataRecord)}
+              placeholder="What to publish…"
+              onChange={(event) =>
+                onData(
+                  setEffectTasksArtifactInstruction(
+                    { ...dataRecord },
+                    event.target.value,
+                  ),
+                )
+              }
+            />
+          </label>
+          <label className="inspector-editor">
+            <span>Required names</span>
+            <Input
+              aria-label="Required artifact names"
+              value={getEffectTasksArtifactNames(dataRecord)}
+              placeholder="exact names…"
+              onChange={(event) =>
+                onData(
+                  setEffectTasksArtifactNames(
+                    { ...dataRecord },
+                    event.target.value,
+                  ),
+                )
+              }
+            />
+          </label>
+        </>
+      ) : null}
+      <label className="inspector-check" htmlFor={`does-${edgeId}-git`}>
+        <input
+          id={`does-${edgeId}-git`}
+          type="checkbox"
+          aria-label="Require at least one git commit"
+          checked={requireGit}
+          onChange={(event) =>
+            onData(
+              setEffectTasksRequireGit({ ...dataRecord }, event.target.checked),
+            )
+          }
+        />
+        <span className="inspector-check__label">
+          Require at least one git commit
+        </span>
+      </label>
+    </div>
+  );
+}
+
 function DoesSection({
   edgeId,
   section,
@@ -249,6 +443,9 @@ function DoesSection({
   ];
   const fields = effectFormFields(effect?.mode);
   const label = fromNode ? schedulerSourceLabel(fromNode) : "scheduler";
+  const doc = use$(state$.doc);
+  const roles = useMemo(() => workRolesInDoc(doc), [doc]);
+  const roleListId = `effect-role-opts-${edgeId}`;
 
   const patchPayload = (next: EdgeEffect) => {
     setEdgeEffect(edgeId, next);
@@ -261,6 +458,17 @@ function DoesSection({
       effect.mode === "board_post")
       ? (effect.data as Record<string, unknown>)
       : {};
+
+  const onData = (nextData: Record<string, unknown>) => {
+    if (!effect) return;
+    if (effect.mode === "enqueue_task") {
+      patchPayload({ mode: "enqueue_task", data: nextData });
+    } else if (effect.mode === "board_create_topic") {
+      patchPayload({ mode: "board_create_topic", data: nextData });
+    } else if (effect.mode === "board_post") {
+      patchPayload({ mode: "board_post", data: nextData });
+    }
+  };
 
   return (
     <div className="inspector-section">
@@ -313,50 +521,36 @@ function DoesSection({
           }}
         />
       </label>
-      {effect &&
-      (effect.mode === "enqueue_task" ||
-        effect.mode === "board_create_topic" ||
-        effect.mode === "board_post")
-        ? fields.map((field) => {
+      {effect?.mode === "enqueue_task" ? (
+        <>
+          {EFFECT_TASKS_CREATE_FIELDS.map((field) => {
             const value = getEffectFormValue(dataRecord, field.path);
             const id = `does-${edgeId}-${field.path}`;
             const onRaw = (raw: string) => {
-              const nextData = setEffectFormValue(
-                { ...dataRecord },
-                field.path,
-                raw,
-                field.kind,
+              onData(
+                setEffectFormValue(
+                  { ...dataRecord },
+                  field.path,
+                  raw,
+                  field.kind,
+                ),
               );
-              if (effect.mode === "enqueue_task") {
-                patchPayload({
-                  mode: "enqueue_task",
-                  data: nextData as typeof effect.data,
-                });
-              } else if (effect.mode === "board_create_topic") {
-                patchPayload({
-                  mode: "board_create_topic",
-                  data: nextData as typeof effect.data,
-                });
-              } else {
-                patchPayload({
-                  mode: "board_post",
-                  data: nextData as typeof effect.data,
-                });
-              }
             };
-            if (field.kind === "boolean") {
+            if (field.path === "metadata.workRole") {
               return (
-                <label key={field.path} className="inspector-check" htmlFor={id}>
-                  <input
+                <label key={field.path} className="inspector-editor">
+                  <span>
+                    {field.label}
+                    {field.required ? "" : " (optional)"}
+                  </span>
+                  <Input
                     id={id}
-                    type="checkbox"
                     aria-label={field.label}
-                    checked={value === "true"}
-                    onChange={(event) =>
-                      onRaw(event.target.checked ? "true" : "false")
-                    }
+                    list={roleListId}
+                    value={value}
+                    placeholder="e.g. Security Agent"
+                    onChange={(event) => onRaw(event.target.value)}
                   />
-                  <span className="inspector-check__label">{field.label}</span>
                 </label>
               );
             }
@@ -370,8 +564,15 @@ function DoesSection({
                   <textarea
                     id={id}
                     aria-label={field.label}
-                    rows={3}
+                    rows={field.path === "metadata.details" ? 5 : 3}
                     value={value}
+                    placeholder={
+                      field.path === "metadata.details"
+                        ? "Context, constraints, expected result…"
+                        : field.path === "finishCriteria.description"
+                          ? "What must be true when this is done…"
+                          : undefined
+                    }
                     onChange={(event) => onRaw(event.target.value)}
                   />
                 </label>
@@ -386,15 +587,41 @@ function DoesSection({
                 <Input
                   id={id}
                   aria-label={field.label}
-                  type={field.kind === "number" ? "number" : "text"}
-                  min={field.kind === "number" ? 1 : undefined}
                   value={value}
+                  placeholder={
+                    field.path === "dependsOn"
+                      ? "task ids (same region)…"
+                      : field.path === "brief"
+                        ? "What needs doing?"
+                        : undefined
+                  }
                   onChange={(event) => onRaw(event.target.value)}
                 />
               </label>
             );
-          })
-        : null}
+          })}
+          <datalist id={roleListId}>
+            {roles.map((r) => (
+              <option key={r} value={r} />
+            ))}
+          </datalist>
+          <TaskCreateGates
+            edgeId={edgeId}
+            dataRecord={dataRecord}
+            onData={onData}
+          />
+        </>
+      ) : null}
+      {effect &&
+      (effect.mode === "board_create_topic" || effect.mode === "board_post") ? (
+        <EffectFormFields
+          edgeId={edgeId}
+          mode={effect.mode}
+          dataRecord={dataRecord}
+          fields={fields}
+          onData={onData}
+        />
+      ) : null}
       {effect?.mode === "set_flag" ? (
         <label className="inspector-editor">
           <span>Flag</span>

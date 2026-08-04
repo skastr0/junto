@@ -106,6 +106,7 @@ export const decodeEffectBoardPost = (
 
 // ─── Defaults / light authoring helpers (still schema-shaped) ───────────────
 
+/** Default payload matches TaskCreateDialog: title + required description only. */
 export const defaultEffectTasksCreate = (
   sourceLabel: string,
 ): EffectTasksCreate => {
@@ -113,7 +114,6 @@ export const defaultEffectTasksCreate = (
   const brief = `From ${label}`;
   return {
     brief,
-    reason: "scheduler",
     metadata: {
       title: brief,
       details: `Scheduled work from ${label}`,
@@ -184,7 +184,7 @@ export const effectTasksCreateToWorkArgs = (
   };
 };
 
-// ─── Wire form paths (schema fields only — not invented product fields) ─────
+// ─── Wire form paths — same authoring surface as TaskCreateDialog ───────────
 
 export type EffectFormField = {
   readonly path: string;
@@ -193,7 +193,11 @@ export type EffectFormField = {
   readonly required: boolean;
 };
 
-/** Authoring fields for EffectTasksCreate — keys are contract paths. */
+/**
+ * Task create contract fields (TaskCreateDialog → workTaskCreate).
+ * No invented "reason" / free-form min-commits number.
+ * Git/artifacts hard gates are toggled via helpers below.
+ */
 export const EFFECT_TASKS_CREATE_FIELDS: ReadonlyArray<EffectFormField> = [
   { path: "brief", label: "Title", kind: "text", required: true },
   {
@@ -202,7 +206,12 @@ export const EFFECT_TASKS_CREATE_FIELDS: ReadonlyArray<EffectFormField> = [
     kind: "textarea",
     required: true,
   },
-  { path: "reason", label: "Reason", kind: "text", required: false },
+  {
+    path: "metadata.workRole",
+    label: "Role",
+    kind: "text",
+    required: false,
+  },
   {
     path: "dependsOn",
     label: "Depends on",
@@ -213,12 +222,6 @@ export const EFFECT_TASKS_CREATE_FIELDS: ReadonlyArray<EffectFormField> = [
     path: "finishCriteria.description",
     label: "Finish criteria",
     kind: "textarea",
-    required: false,
-  },
-  {
-    path: "finishCriteria.git.minCommits",
-    label: "Require min git commits",
-    kind: "number",
     required: false,
   },
 ];
@@ -233,6 +236,101 @@ export const EFFECT_BOARD_POST_FIELDS: ReadonlyArray<EffectFormField> = [
   { path: "topicId", label: "Topic id", kind: "text", required: true },
   { path: "text", label: "Post text", kind: "textarea", required: true },
 ];
+
+/** Create UI: "Require at least one git commit" → finishCriteria.git.minCommits = 1. */
+export const effectTasksRequireGit = (data: unknown): boolean => {
+  const git = getPath(data, "finishCriteria.git");
+  return (
+    git !== null &&
+    typeof git === "object" &&
+    typeof (git as { minCommits?: unknown }).minCommits === "number" &&
+    (git as { minCommits: number }).minCommits >= 1
+  );
+};
+
+export const setEffectTasksRequireGit = (
+  data: Record<string, unknown>,
+  on: boolean,
+): Record<string, unknown> => {
+  if (on) return setPath(data, "finishCriteria.git", { minCommits: 1 });
+  return setPath(data, "finishCriteria.git", undefined);
+};
+
+/** Create UI: require artifact(s) gate. */
+export const effectTasksRequireArtifacts = (data: unknown): boolean => {
+  const arts = getPath(data, "finishCriteria.artifacts");
+  return (
+    arts !== null &&
+    typeof arts === "object" &&
+    typeof (arts as { nodeId?: unknown }).nodeId === "string" &&
+    (arts as { nodeId: string }).nodeId.trim().length > 0
+  );
+};
+
+export const setEffectTasksRequireArtifacts = (
+  data: Record<string, unknown>,
+  on: boolean,
+  artifactsNodeId: string | undefined,
+): Record<string, unknown> => {
+  if (!on || !artifactsNodeId?.trim()) {
+    return setPath(data, "finishCriteria.artifacts", undefined);
+  }
+  const prev = getPath(data, "finishCriteria.artifacts");
+  const prevObj =
+    prev !== null && typeof prev === "object"
+      ? (prev as Record<string, unknown>)
+      : {};
+  return setPath(data, "finishCriteria.artifacts", {
+    ...prevObj,
+    nodeId: artifactsNodeId.trim(),
+  });
+};
+
+export const setEffectTasksArtifactInstruction = (
+  data: Record<string, unknown>,
+  instruction: string,
+): Record<string, unknown> => {
+  const prev = getPath(data, "finishCriteria.artifacts");
+  if (prev === null || typeof prev !== "object") return data;
+  const nodeId = (prev as { nodeId?: string }).nodeId;
+  if (!nodeId) return data;
+  const rest = { ...(prev as Record<string, unknown>) };
+  if (!instruction.trim()) {
+    delete rest.instruction;
+  } else {
+    rest.instruction = instruction.trim();
+  }
+  return setPath(data, "finishCriteria.artifacts", rest);
+};
+
+export const setEffectTasksArtifactNames = (
+  data: Record<string, unknown>,
+  namesText: string,
+): Record<string, unknown> => {
+  const prev = getPath(data, "finishCriteria.artifacts");
+  if (prev === null || typeof prev !== "object") return data;
+  const nodeId = (prev as { nodeId?: string }).nodeId;
+  if (!nodeId) return data;
+  const names = namesText
+    .split(/[\n,]+/)
+    .map((n) => n.trim())
+    .filter(Boolean);
+  const rest = { ...(prev as Record<string, unknown>) };
+  if (names.length === 0) delete rest.names;
+  else rest.names = names;
+  return setPath(data, "finishCriteria.artifacts", rest);
+};
+
+export const getEffectTasksArtifactInstruction = (data: unknown): string => {
+  const v = getPath(data, "finishCriteria.artifacts.instruction");
+  return typeof v === "string" ? v : "";
+};
+
+export const getEffectTasksArtifactNames = (data: unknown): string => {
+  const v = getPath(data, "finishCriteria.artifacts.names");
+  if (Array.isArray(v)) return v.map(String).join(", ");
+  return "";
+};
 
 const getPath = (obj: unknown, path: string): unknown => {
   const parts = path.split(".");
