@@ -33,7 +33,12 @@ import {
   EdgePortsAttenuator,
 } from "../InspectorFields";
 import { Select } from "../ui";
-import { setEdgeCriteria, setEdgeEffect, setEdgeWhen } from "../../lib/edge-mutations";
+import {
+  setAgentRelayMode,
+  setEdgeCriteria,
+  setEdgeEffect,
+  setEdgeWhen,
+} from "../../lib/edge-mutations";
 import { nodeTitle } from "../../lib/presentation";
 import { state$ } from "../../lib/state";
 import { HUE, withAlpha } from "../../lib/theme";
@@ -429,6 +434,37 @@ function TriggerReadout({
   );
 }
 
+/** Gold: agent→relay is fire XOR watch — one authoring choice. */
+function AgentRelayModeSection({
+  edgeId,
+  edge,
+}: {
+  readonly edgeId: string;
+  readonly edge: CanvasEdge;
+}) {
+  const mode = edge.ether?.slot === "input" ? "watch" : "fire";
+  return (
+    <div className="inspector-section">
+      <div className="inspector-section__label">This link</div>
+      <label className="inspector-editor">
+        <span>Role</span>
+        <Select
+          dense
+          aria-label="Agent to relay role"
+          value={mode}
+          options={[
+            { value: "fire", label: "Agent may fire the relay" },
+            { value: "watch", label: "Relay watches the agent" },
+          ]}
+          onChange={(value) =>
+            setAgentRelayMode(edgeId, value === "watch" ? "watch" : "fire")
+          }
+        />
+      </label>
+    </div>
+  );
+}
+
 export function WireSheetBody({
   edge,
   fromNode,
@@ -443,7 +479,12 @@ export function WireSheetBody({
   readonly onDelete?: () => void;
 }) {
   const family = resolveEdgeFamily(edge, fromNode, toNode);
-  if (!family) {
+  const fromKind = fromNode?.ether?.entity?.kind;
+  const toKind = toNode?.ether?.entity?.kind;
+  const agentRelay =
+    fromKind === "agent" && toKind === "relay";
+
+  if (!family && !agentRelay) {
     return (
       <>
         <EdgePortsAttenuator edge={edge} />
@@ -462,11 +503,21 @@ export function WireSheetBody({
     );
   }
 
-  const sections = sheetSectionsFor({
-    family,
-    fromKind: fromNode?.ether?.entity?.kind,
-    toKind: toNode?.ether?.entity?.kind,
-  });
+  const effectiveFamily =
+    family ??
+    (agentRelay
+      ? edge.ether?.slot === "input"
+        ? ("watch" as const)
+        : ("trigger" as const)
+      : undefined);
+
+  const sections = effectiveFamily
+    ? sheetSectionsFor({
+        family: effectiveFamily,
+        fromKind,
+        toKind,
+      })
+    : [];
   const sentence = edgeSheetSentence(edge, fromNode, toNode);
 
   return (
@@ -475,6 +526,9 @@ export function WireSheetBody({
         <div className="inspector-detail" style={{ marginBottom: 10 }}>
           {sentence}
         </div>
+      ) : null}
+      {agentRelay ? (
+        <AgentRelayModeSection edgeId={edge.id} edge={edge} />
       ) : null}
       {sections.map((section) => {
         switch (section._tag) {

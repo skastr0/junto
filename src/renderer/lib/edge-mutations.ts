@@ -251,6 +251,46 @@ export const setEdgeSlot = (
 };
 
 /**
+ * Agent → relay draw choice (gold): fire this relay vs watch the agent.
+ * Fire: slot trigger + relay.trigger port. Watch: slot input + flagged when.
+ */
+export const setAgentRelayMode = (
+  id: string,
+  mode: "fire" | "watch",
+): void => {
+  const doc = state$.doc.peek();
+  commitDoc({
+    ...doc,
+    edges: doc.edges.map((edge) => {
+      if (edge.id !== id) return edge;
+      if (mode === "fire") {
+        const rest = edge.ether ? without(without(edge.ether, "when"), "does") : {};
+        return {
+          ...edge,
+          ether: {
+            ...rest,
+            slot: "trigger" as const,
+            ports: ["relay.trigger"],
+          },
+        };
+      }
+      // watch
+      const rest = edge.ether
+        ? without(without(edge.ether, "ports"), "does")
+        : {};
+      return {
+        ...edge,
+        ether: {
+          ...rest,
+          slot: "input" as const,
+          when: { word: "flagged" as const, flag: "attention" as const },
+        },
+      };
+    }),
+  });
+};
+
+/**
  * Board wake eligibility. ON default (field absent); OFF = wake false.
  */
 export const setEdgeNotify = (edgeId: string, notify: boolean): void => {
