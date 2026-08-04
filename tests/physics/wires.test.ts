@@ -145,7 +145,9 @@ describe("wires grammar", () => {
     expect(isWorded("access", [])).toBe(false);
     expect(isWorded("access", ["stops"])).toBe(true);
     expect(isWorded("watch", [])).toBe(true);
-    expect(isWorded("effect", [])).toBe(true);
+    // Bare effect (no does) is not worded — no false "enqueues".
+    expect(isWorded("effect", [])).toBe(false);
+    expect(isWorded("effect", ["flags"])).toBe(true);
     expect(isWorded("trigger", [])).toBe(false);
 
     expect(

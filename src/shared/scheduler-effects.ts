@@ -195,6 +195,15 @@ export const inferSchedulerEdgeEffect = (
   if (toKind === "agent") {
     return { mode: "inject_prompt" };
   }
+  // Flag sinks: bare draw is a real product effect, not a silent no-op.
+  if (
+    toKind === "requests" ||
+    toKind === "artifacts" ||
+    toKind === "board" ||
+    toKind === "page"
+  ) {
+    return { mode: "set_flag", flag: "attention", enabled: true };
+  }
   return undefined;
 };
 

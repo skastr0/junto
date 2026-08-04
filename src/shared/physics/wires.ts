@@ -364,8 +364,7 @@ export const wordsOfEdge = (input: {
     if (mode === "enqueue_task") words.push("enqueues");
     else if (mode === "set_flag") words.push("flags");
     else if (mode === "inject_prompt") words.push("wakes");
-    // Effect always worded; default enqueues when mode absent (draw default).
-    else words.push("enqueues");
+    // Bare effect (no does yet) — do not pretend enqueues.
     return words;
   }
   // trigger — no live words yet
@@ -374,7 +373,8 @@ export const wordsOfEdge = (input: {
 
 /**
  * Halo rule (artifact cold scan):
- * - watch / effect → always worded (family always carries a word)
+ * - watch → always worded (completes/flagged default)
+ * - effect → worded only when `does` is authored (no false enqueues)
  * - trigger → bare (no live words)
  * - access → worded only when stops / wakes / messages present
  */
@@ -382,8 +382,9 @@ export const isWorded = (
   family: WireFamily,
   words: ReadonlyArray<WireWord>,
 ): boolean => {
-  if (family === "watch" || family === "effect") return true;
+  if (family === "watch") return true;
   if (family === "trigger") return false;
+  if (family === "effect") return words.length > 0;
   return words.length > 0;
 };
 

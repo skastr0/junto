@@ -126,6 +126,37 @@ describe("scheduler-effects", () => {
     expect(inferSchedulerEdgeEffect(cron, task)?.mode).toBe("enqueue_task");
   });
 
+  it("infers set_flag attention for scheduler→board/page/requests/artifacts", () => {
+    const relay: import("./canvas").CanvasNode = {
+      id: "r1",
+      type: "text",
+      text: "relay",
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+      ether: { entity: { kind: "relay" } },
+    };
+    for (const kind of ["board", "page", "requests", "artifacts"] as const) {
+      const target: import("./canvas").CanvasNode = {
+        id: kind,
+        type: "text",
+        text: kind,
+        x: 0,
+        y: 0,
+        width: 1,
+        height: 1,
+        ether: { entity: { kind } },
+      };
+      const effect = inferSchedulerEdgeEffect(relay, target);
+      expect(effect).toEqual({
+        mode: "set_flag",
+        flag: "attention",
+        enabled: true,
+      });
+    }
+  });
+
   it("OR-evaluates multi-select watch any", () => {
     const page: import("./canvas").CanvasNode = {
       id: "p1",

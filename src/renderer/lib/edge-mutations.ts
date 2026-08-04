@@ -293,13 +293,13 @@ export const addEdge = (params: {
     fromKind: fromNode?.ether?.entity?.kind,
     toKind: toNode?.ether?.entity?.kind,
   });
-  // stops only make sense on access wires involving task/requests (not geography)
-  const stops =
-    fromRole === "sink" || toRole === "sink"
-      ? (params.criteria ?? inferEdgeCriteria(fromNode))
-      : undefined;
   const does = inferSchedulerEdgeEffect(fromNode, toNode);
   const when = inferWatchWhen(fromNode, toNode);
+  // Access-only: tasks/requests stops never ride watch (sink→relay) wires.
+  const stops =
+    when === undefined && (fromRole === "sink" || toRole === "sink")
+      ? (params.criteria ?? inferEdgeCriteria(fromNode))
+      : undefined;
   // Actor→relay OptIn needs an explicit port mask for relay.trigger grant.
   const ports =
     slot === "trigger" && toNode?.ether?.entity?.kind === "relay"
@@ -421,10 +421,6 @@ export const planConnectToTarget = (
       continue;
     }
     planned.add(key);
-    const stops =
-      fromRole === "sink" || toRole === "sink"
-        ? (criteriaOverride ?? inferEdgeCriteria(source))
-        : undefined;
     const does = inferSchedulerEdgeEffect(source, target);
     const slot = defaultSlotForDraw({
       fromRole,
@@ -433,6 +429,11 @@ export const planConnectToTarget = (
       toKind: target.ether?.entity?.kind,
     });
     const when = inferWatchWhen(source, target);
+    // Access-only stops — never stamp tasks stops on watch wires.
+    const stops =
+      when === undefined && (fromRole === "sink" || toRole === "sink")
+        ? (criteriaOverride ?? inferEdgeCriteria(source))
+        : undefined;
     const ports =
       slot === "trigger" && target.ether?.entity?.kind === "relay"
         ? (["relay.trigger"] as const)
