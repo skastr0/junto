@@ -8,6 +8,7 @@ import {
   EtherRequests,
   EtherTasks,
 } from "./work-model";
+import { scrubDoesEffect, TaskInsert } from "./effect-insert";
 
 export {
   Artifact,
@@ -352,10 +353,11 @@ export type WatchWhen = typeof WatchWhen.Type;
 
 // Automation effect plane (sibling of criteria/ports/notify). Kernel-home fire
 // applies these; never process-bind ocap. Claim assignment stays factory tick.
+// enqueue_task payload is TaskInsert — the target sink's create type — not an
+// ad-hoc wire "brief" string. Scrub migrates historical { brief, reason? }.
 export const EdgeEffectEnqueueTask = Schema.Struct({
   mode: Schema.Literal("enqueue_task"),
-  brief: Schema.String,
-  reason: Schema.optionalKey(Schema.String),
+  task: TaskInsert,
 });
 export type EdgeEffectEnqueueTask = typeof EdgeEffectEnqueueTask.Type;
 
@@ -639,7 +641,9 @@ export const scrubCanvasDocInput = (input: unknown): unknown => {
             (rawStops as { readonly mode?: unknown }).mode === "approval")
             ? undefined
             : rawStops;
-        const does = eth.does ?? eth.effect;
+        const doesRaw = eth.does ?? eth.effect;
+        const does =
+          doesRaw !== undefined ? scrubDoesEffect(doesRaw) : undefined;
         const wake = eth.wake ?? eth.notify;
         const next: Record<string, unknown> = {};
         if (eth.ports !== undefined) next.ports = eth.ports;

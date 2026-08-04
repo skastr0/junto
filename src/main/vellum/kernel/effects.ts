@@ -35,8 +35,7 @@ export type SchedulerEffectDeps = {
   readonly enqueueTask: (input: {
     readonly canvasName: string;
     readonly sinkNodeId: string;
-    readonly brief: string;
-    readonly reason?: string;
+    readonly task: import("@shared/effect-insert").TaskInsert;
   }) => Promise<{ readonly ok: boolean; readonly message?: string }>;
   readonly setFlag: (
     canvasName: string,
@@ -82,10 +81,7 @@ const applyOne = async (
     const result = await deps.enqueueTask({
       canvasName,
       sinkNodeId: binding.target.id,
-      brief: binding.effect.brief,
-      ...(binding.effect.reason !== undefined
-        ? { reason: binding.effect.reason }
-        : {}),
+      task: binding.effect.task,
     });
     if (!result.ok) {
       console.error(

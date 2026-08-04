@@ -23,6 +23,7 @@
 import { createHash } from "node:crypto";
 import { Cause, Context, Effect, Layer, Schema } from "effect";
 import type { CanvasDoc, CanvasNode } from "@shared/canvas";
+import { taskInsertToCreateArgs } from "@shared/effect-insert";
 import { actorDeliverySurfaceOf } from "@shared/actor-surface";
 import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
 import type { ActorRefResolver } from "@shared/attention";
@@ -778,25 +779,21 @@ const makeKernelService = (
     recordReceipt: (fireKey, edgeId) => {
       effectReceipts.add(`${fireKey}::${edgeId}`);
     },
-    enqueueTask: async ({ canvasName, sinkNodeId, brief, reason }) => {
+    enqueueTask: async ({ canvasName, sinkNodeId, task }) => {
       if (!canAutomateCanvas(canvasName)) {
         return { ok: false, message: "canvas paused or station role unset" };
       }
-      const trimmedBrief = brief.trim();
+      const args = taskInsertToCreateArgs(task);
       const result = await run(
         work.workTaskCreate(
           canvasName,
           sinkNodeId,
-          brief,
-          {
-            title: trimmedBrief,
-            // Scheduler effects author only a brief; treat it as the required description.
-            details: trimmedBrief,
-          },
-          reason ?? "scheduler",
+          args.brief,
+          args.metadata,
+          args.reason ?? "scheduler",
           undefined,
-          undefined,
-          undefined,
+          args.dependsOn,
+          args.finishCriteria,
         ),
       );
       if (!result.ok) {

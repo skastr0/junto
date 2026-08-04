@@ -105,10 +105,10 @@ const EDGES: CanvasEdge[] = [
     ether: { slot: "input", when: { word: "completes" } } },
   // effect: relay→tasks2 enqueue
   { id: "e-fire", fromNode: "relay", toNode: "tasks2", fromSide: "bottom", toSide: "top",
-    ether: { slot: "output", does: { mode: "enqueue_task", brief: "review the completed work" } } },
+    ether: { slot: "output", does: { mode: "enqueue_task", task: { title: "review the completed work", details: "review the completed work" } } } },
   // effect: cron→tasks2 heartbeat
   { id: "e-cron", fromNode: "cron", toNode: "tasks2", fromSide: "bottom", toSide: "right",
-    ether: { does: { mode: "enqueue_task", brief: "heartbeat check" } } },
+    ether: { does: { mode: "enqueue_task", task: { title: "heartbeat check", details: "heartbeat check" } } } },
 ];
 
 test("walk every product surface and screenshot it", async () => {

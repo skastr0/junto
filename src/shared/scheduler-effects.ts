@@ -20,6 +20,7 @@ import type {
   WatchWhen,
 } from "./canvas";
 import { edgeDoes } from "./canvas";
+import { defaultTaskInsert, taskInsertValid } from "./effect-insert";
 import { resolveSpec, roleOf } from "./physics/kinds";
 
 export const SCHEDULER_ENTITY_KINDS = [
@@ -145,7 +146,7 @@ export type EffectTargetError =
   | "target_not_task_sink"
   | "target_not_agent"
   | "target_missing"
-  | "empty_brief"
+  | "empty_task_insert"
   | "invalid_flag";
 
 export const validateEffectTarget = (
@@ -157,7 +158,7 @@ export const validateEffectTarget = (
     if (roleOf(resolveSpec({ isGroup: target.type === "group", kind: target.ether?.entity?.kind })) !== "sink") {
       return "target_not_task_sink";
     }
-    if (effect.brief.trim().length === 0) return "empty_brief";
+    if (!taskInsertValid(effect.task)) return "empty_task_insert";
     return undefined;
   }
   if (effect.mode === "inject_prompt") {
@@ -170,12 +171,12 @@ export const validateEffectTarget = (
   return undefined;
 };
 
-export const defaultEnqueueBrief = (source: CanvasNode): string => {
+/** Human label for a scheduler node (text first line, else entity kind). */
+export const schedulerSourceLabel = (source: CanvasNode): string => {
   if (source.type === "text" && source.text.trim().length > 0) {
-    return source.text.trim();
+    return source.text.trim().split("\n")[0]!;
   }
-  const kind = source.ether?.entity?.kind ?? "scheduler";
-  return `Scheduled work from ${kind}`;
+  return source.ether?.entity?.kind ?? "scheduler";
 };
 
 /** Infer effect when connecting a scheduler → target. */
@@ -188,8 +189,7 @@ export const inferSchedulerEdgeEffect = (
   if (toKind === "task") {
     return {
       mode: "enqueue_task",
-      brief: defaultEnqueueBrief(fromNode!),
-      reason: "scheduler",
+      task: defaultTaskInsert(schedulerSourceLabel(fromNode!)),
     };
   }
   if (toKind === "agent") {
