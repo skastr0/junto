@@ -229,15 +229,14 @@ export function EtherEdge({
   const labelX = routed?.labelX ?? fallbackLabelX;
   const labelY = routed?.labelY ?? fallbackLabelY;
 
-  // agent-msg: stronger than thin soft-relation dots, not task-flow thick.
+  // Family hairlines are equal weight. No special thick task-flow claim rails
+  // (stoppage is node chrome + phase, not a fatter wire).
   const baseWidth =
-    visualRole === "task-flow"
-      ? 2.2
-      : visualRole === "agent-msg"
-        ? 1.55
-        : visualRole === "artifact-flow"
-          ? 0.85
-          : 1.2;
+    visualRole === "agent-msg"
+      ? 1.55
+      : visualRole === "artifact-flow"
+        ? 0.85
+        : 1.2;
   const disabled = presentation?.disabled ?? false;
   const baseOpacity = disabled
     ? 0.25
@@ -260,14 +259,18 @@ export function EtherEdge({
     routed?.detoured ? "vellum-edge--routed" : "",
   ].filter(Boolean).join(" ");
 
-  // Halo only when grammar says worded (and not disabled). Task-flow rail-bed
-  // remains for bare claim wires that still need construction weight.
+  // Word halo: watch/effect only. Access stops are sheet config — not a fat
+  // claim corridor (bundles of task→agent edges were unreadable white beams).
   const worded = presentation?.worded ?? false;
+  const showWordBed =
+    !disabled &&
+    worded &&
+    (family === "watch" || family === "effect");
   const strokeDasharray = presentation?.strokeDasharray;
 
   return (
     <>
-      {worded ? (
+      {showWordBed ? (
         <path
           d={path}
           className="vellum-edge__word-bed"
@@ -275,14 +278,6 @@ export function EtherEdge({
           stroke={color}
           strokeWidth={8}
           style={{ color }}
-        />
-      ) : visualRole === "task-flow" && !disabled ? (
-        <path
-          d={path}
-          className="vellum-edge__rail-bed"
-          fill="none"
-          stroke={color}
-          strokeWidth={5.4}
         />
       ) : null}
       <BaseEdge
@@ -292,7 +287,7 @@ export function EtherEdge({
         className={className}
         style={{
           stroke: color,
-          strokeWidth: impactIn ? Math.max(baseWidth, 2.1) : baseWidth,
+          strokeWidth: impactIn ? Math.max(baseWidth, 1.6) : baseWidth,
           opacity: impactIn && !disabled ? 1 : baseOpacity,
           // Family lay always wins over soft-relation CSS dots.
           ...(strokeDasharray
@@ -301,19 +296,12 @@ export function EtherEdge({
         }}
       />
       {!disabled &&
-      (visualRole === "task-flow" ||
-        visualRole === "request-flow" ||
-        visualRole === "scheduler-flow" ||
-        family === "effect") ? (
+      (visualRole === "scheduler-flow" || family === "effect") ? (
         <path
           d={path}
           fill="none"
           stroke={color}
-          className={`vellum-edge__signal vellum-edge__signal--${
-            visualRole === "scheduler-flow" || family === "effect"
-              ? "scheduler-flow"
-              : visualRole
-          }`}
+          className="vellum-edge__signal vellum-edge__signal--scheduler-flow"
           pathLength={100}
         />
       ) : null}

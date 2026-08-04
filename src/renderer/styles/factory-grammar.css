@@ -81,15 +81,14 @@
   stroke-linejoin: round;
   pointer-events: none;
 }
-/* Worded-wire halo: the one always-on word bit, on every family incl. claim
-   wires. Coaxial with the hairline so bundles merge into a corridor glow.
-   Tuned to be unmistakable at working zoom — a lit conduit, not a whisper. */
+/* Worded-wire halo: watch/effect only (access claim bundles stay hairlines).
+   Coaxial with the hairline so parallel worded runs merge into a corridor. */
 .vellum-edge__word-bed {
-  opacity: .34;
+  opacity: .28;
   stroke-linecap: round;
   stroke-linejoin: round;
   pointer-events: none;
-  filter: drop-shadow(0 0 6px currentColor);
+  filter: drop-shadow(0 0 5px currentColor);
 }
 path.vellum-edge {
   transition:
