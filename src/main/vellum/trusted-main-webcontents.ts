@@ -4,8 +4,21 @@ import type { TrustedRendererOrigin } from "@shared/trusted-renderer-origin";
 let trusted: { readonly webContents: WebContents; readonly origin: TrustedRendererOrigin } | undefined;
 
 export class TrustedRendererRefused extends Error {
-  constructor() {
-    super("renderer IPC refused: sender is not the committed trusted renderer");
+  constructor(context?: string, candidate?: WebContents) {
+    let detail = context ? `on ${context} — ` : "";
+    detail += "sender is not the committed trusted renderer";
+    if (
+      candidate !== undefined &&
+      typeof candidate.isDestroyed === "function" &&
+      !candidate.isDestroyed()
+    ) {
+      try {
+        detail += ` (id=${candidate.id}, url=${candidate.getURL()})`;
+      } catch {
+        detail += ` (id=${candidate.id})`;
+      }
+    }
+    super(`renderer IPC refused: ${detail}`);
     this.name = "TrustedRendererRefused";
   }
 }
@@ -29,8 +42,13 @@ export const getTrustedMainWebContents = (): WebContents | undefined => {
 export const isTrustedMainWebContents = (candidate: WebContents): boolean =>
   getTrustedMainWebContents() === candidate;
 
-export const assertTrustedMainWebContents = (candidate: WebContents): void => {
-  if (!isTrustedMainWebContents(candidate)) throw new TrustedRendererRefused();
+export const assertTrustedMainWebContents = (
+  candidate: WebContents,
+  context?: string,
+): void => {
+  if (!isTrustedMainWebContents(candidate)) {
+    throw new TrustedRendererRefused(context, candidate);
+  }
 };
 
 type IpcListener = (event: { readonly sender: WebContents }, ...args: ReadonlyArray<unknown>) => unknown;
@@ -53,7 +71,7 @@ export const trustedRendererIpc = (target: IpcMain): IpcMain =>
           callback: IpcListener,
         ) => void;
         register(channel, (event, ...args) => {
-          assertTrustedMainWebContents(event.sender);
+          assertTrustedMainWebContents(event.sender, channel);
           return listener(event, ...args);
         });
       };
