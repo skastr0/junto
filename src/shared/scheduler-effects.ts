@@ -8,6 +8,7 @@
  *
  * Effects ride `edge.ether.does` (not ports, not stops). The kernel
  * applies them on home-local fire; claim assignment stays the factory tick.
+ * Product words only: stops / does / wake / when / slot / ports.
  */
 
 import type {
@@ -50,7 +51,7 @@ export type EffectEdgeBinding = {
   readonly target: CanvasNode;
 };
 
-/** Directed scheduler → target edges that carry an authored effect (does | effect). */
+/** Directed scheduler → target edges that carry an authored effect (`does`). */
 export const collectEffectEdgesFrom = (
   doc: CanvasDoc,
   sourceNodeId: string,
@@ -79,7 +80,7 @@ export type WatchEdgeBinding = {
 
 /**
  * Default `when` for a sink → relay edge with no authored predicate yet.
- * Drawing tasks → relay means “fires when a task completes.”
+ * Single table for authoring + kernel evaluation defaults.
  */
 export const defaultWatchWhenForSource = (
   source: CanvasNode,
@@ -95,6 +96,23 @@ export const defaultWatchWhenForSource = (
 export const NO_WATCH_YET_DETAIL =
   "no watch yet — draw a sink in and set fires-when";
 
+const sourceRole = (source: CanvasNode) =>
+  roleOf(
+    resolveSpec({
+      isGroup: source.type === "group",
+      kind: source.ether?.entity?.kind,
+    }),
+  );
+
+/**
+ * Watch inputs into a scheduler (product: sink → relay).
+ * Counts an edge when:
+ * - `toNode` is the scheduler
+ * - slot is absent or `"input"` (skip effect/trigger/recipient wires)
+ * - source is a sink **or** the edge has an authored `when`
+ * Authored `when` wins; else default from `defaultWatchWhenForSource` on relay.
+ * Multiple matching edges remain OR-combined by the caller.
+ */
 export const collectWatchEdgesInto = (
   doc: CanvasDoc,
   schedulerNodeId: string,
@@ -106,9 +124,14 @@ export const collectWatchEdgesInto = (
     if (edge.toNode !== schedulerNodeId) continue;
     const source = doc.nodes.find((node) => node.id === edge.fromNode);
     if (!source) continue;
+    const slot = edge.ether?.slot;
+    if (slot !== undefined && slot !== "input") continue;
+    const authored = edge.ether?.when;
+    const isSink = sourceRole(source) === "sink";
+    if (!authored && !isSink) continue;
     // Authored `when` wins; else default for sink → relay.
     const when =
-      edge.ether?.when ??
+      authored ??
       (scheduler!.ether?.entity?.kind === "relay"
         ? defaultWatchWhenForSource(source)
         : undefined);

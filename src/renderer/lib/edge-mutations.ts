@@ -15,7 +15,10 @@ import {
   roleOf,
   type Port,
 } from "@shared/physics";
-import { inferSchedulerEdgeEffect } from "@shared/scheduler-effects";
+import {
+  defaultWatchWhenForSource,
+  inferSchedulerEdgeEffect,
+} from "@shared/scheduler-effects";
 import { isLabelNode } from "./presentation";
 import { noteEdgeCreated } from "./edge-sparks";
 import { state$ } from "./state";
@@ -33,6 +36,7 @@ const roleOfNode = (node: CanvasNode | undefined) => {
 
 /**
  * Infer watch `when` only for sink → **relay** input wires.
+ * Defaults live in `defaultWatchWhenForSource` (single table).
  * Cron/gauge never consume `when` — authoring them would be meaningless config.
  */
 export const inferWatchWhen = (
@@ -42,8 +46,7 @@ export const inferWatchWhen = (
   if (!fromNode || !toNode) return undefined;
   if (toNode.ether?.entity?.kind !== "relay") return undefined;
   if (roleOfNode(fromNode) !== "sink") return undefined;
-  if (fromNode.ether?.entity?.kind === "task") return { word: "completes" };
-  return undefined;
+  return defaultWatchWhenForSource(fromNode);
 };
 
 const without = <T extends object, K extends keyof T>(value: T, key: K): Omit<T, K> => {
@@ -342,11 +345,12 @@ export type EdgeBatchSkipReason =
   | "invalid-target"
   | "refused-pair";
 
+/** Plan payload uses document words: stops / does / when / slot / ports. */
 export type EdgeBatchCandidate = {
   readonly fromNode: string;
   readonly toNode: string;
-  readonly criteria?: EdgeCriteria;
-  readonly effect?: EdgeEffect;
+  readonly stops?: EdgeCriteria;
+  readonly does?: EdgeEffect;
   readonly slot?: WireSlot;
   readonly when?: WatchWhen;
   readonly ports?: ReadonlyArray<Port>;
@@ -417,11 +421,11 @@ export const planConnectToTarget = (
       continue;
     }
     planned.add(key);
-    const criteria =
+    const stops =
       fromRole === "sink" || toRole === "sink"
         ? (criteriaOverride ?? inferEdgeCriteria(source))
         : undefined;
-    const effect = inferSchedulerEdgeEffect(source, target);
+    const does = inferSchedulerEdgeEffect(source, target);
     const slot = defaultSlotForDraw({
       fromRole,
       toRole,
@@ -436,8 +440,8 @@ export const planConnectToTarget = (
     toAdd.push({
       fromNode: sourceId,
       toNode: targetId,
-      ...(criteria ? { criteria } : {}),
-      ...(effect ? { effect } : {}),
+      ...(stops ? { stops } : {}),
+      ...(does ? { does } : {}),
       ...(slot ? { slot } : {}),
       ...(when ? { when } : {}),
       ...(ports ? { ports: [...ports] } : {}),
@@ -476,8 +480,8 @@ export const connectAllToTarget = (
   const newEdges: CanvasEdge[] = plan.toAdd.map((candidate) => {
     const etherParts: NonNullable<CanvasEdge["ether"]> = {
       ...(candidate.slot ? { slot: candidate.slot } : {}),
-      ...(candidate.criteria ? { stops: candidate.criteria } : {}),
-      ...(candidate.effect ? { does: candidate.effect } : {}),
+      ...(candidate.stops ? { stops: candidate.stops } : {}),
+      ...(candidate.does ? { does: candidate.does } : {}),
       ...(candidate.when ? { when: candidate.when } : {}),
       ...(candidate.ports && candidate.ports.length > 0
         ? { ports: [...candidate.ports] }

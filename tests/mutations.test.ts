@@ -753,10 +753,10 @@ describe("renderer graph mutations", () => {
       });
     });
 
-    it("infers tasks criteria when tasks → agent", () => {
+    it("infers tasks stops when tasks → agent", () => {
       const plan = planConnectToTarget(["tasks"], "a", batchNodes, []);
       expect(plan.toAdd).toEqual([
-        { fromNode: "tasks", toNode: "a", criteria: { mode: "tasks" } },
+        { fromNode: "tasks", toNode: "a", stops: { mode: "tasks" } },
       ]);
     });
 

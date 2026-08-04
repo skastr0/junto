@@ -257,6 +257,120 @@ describe("scheduler-effects", () => {
     );
   });
 
+  it("collectWatchEdgesInto skips non-input slots and non-sink without authored when", () => {
+    const canvas = doc({
+      nodes: [
+        {
+          id: "t1",
+          type: "text",
+          text: "tasks",
+          x: 0,
+          y: 0,
+          width: 1,
+          height: 1,
+          ether: { entity: { kind: "task" }, tasks: { items: [] } },
+        },
+        {
+          id: "a1",
+          type: "text",
+          text: "agent",
+          x: 0,
+          y: 0,
+          width: 1,
+          height: 1,
+          ether: { entity: { kind: "agent", name: "local:a" } },
+        },
+        {
+          id: "r1",
+          type: "text",
+          text: "relay",
+          x: 0,
+          y: 0,
+          width: 1,
+          height: 1,
+          ether: { entity: { kind: "relay" } },
+        },
+      ],
+      edges: [
+        // effect-shaped wire into relay — not a watch input
+        {
+          id: "e-out",
+          fromNode: "t1",
+          toNode: "r1",
+          ether: { slot: "output", when: { word: "completes" } },
+        },
+        // agent with no when — not a watch
+        { id: "e-agent", fromNode: "a1", toNode: "r1" },
+        // agent with authored when — still counts
+        {
+          id: "e-agent-when",
+          fromNode: "a1",
+          toNode: "r1",
+          ether: { when: { word: "flagged", flag: "blocker" } },
+        },
+        // sink with explicit input slot
+        {
+          id: "e-in",
+          fromNode: "t1",
+          toNode: "r1",
+          ether: { slot: "input" },
+        },
+      ],
+    });
+    const edges = collectWatchEdgesInto(canvas, "r1");
+    expect(edges.map((e) => e.edge.id).sort()).toEqual([
+      "e-agent-when",
+      "e-in",
+    ]);
+  });
+
+  it("collectWatchEdgesInto keeps OR multi-input sinks", () => {
+    const canvas = doc({
+      nodes: [
+        {
+          id: "t1",
+          type: "text",
+          text: "tasks",
+          x: 0,
+          y: 0,
+          width: 1,
+          height: 1,
+          ether: { entity: { kind: "task" }, tasks: { items: [] } },
+        },
+        {
+          id: "p1",
+          type: "text",
+          text: "page",
+          x: 0,
+          y: 0,
+          width: 1,
+          height: 1,
+          ether: { entity: { kind: "page" } },
+        },
+        {
+          id: "r1",
+          type: "text",
+          text: "relay",
+          x: 0,
+          y: 0,
+          width: 1,
+          height: 1,
+          ether: { entity: { kind: "relay" } },
+        },
+      ],
+      edges: [
+        { id: "e1", fromNode: "t1", toNode: "r1" },
+        { id: "e2", fromNode: "p1", toNode: "r1" },
+      ],
+    });
+    const edges = collectWatchEdgesInto(canvas, "r1");
+    expect(edges).toHaveLength(2);
+    expect(edges.map((e) => e.when)).toEqual([
+      { word: "completes" },
+      { word: "completes", equals: "ready" },
+    ]);
+  });
+
   it("missing watch source reports reconnect copy, not node-body path", () => {
     expect(evaluateWatchWhen(undefined, { word: "completes" }).detail).toBe(
       "watch source gone — reconnect a sink",
