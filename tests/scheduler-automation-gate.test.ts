@@ -91,7 +91,7 @@ const gaugeAndTask = (): CanvasDoc =>
         id: "e1",
         fromNode: "g1",
         toNode: "t1",
-        ether: { does: { mode: "enqueue_task", task: { title: "from gauge", details: "from gauge", reason: "scheduler" } },
+        ether: { does: { mode: "enqueue_task", brief: "from gauge", reason: "scheduler" },
         },
       },
     ],
@@ -122,8 +122,8 @@ describe("scheduler automation gate", () => {
       canApplyFlagEffects: () => true,
       hasReceipt: () => false,
       recordReceipt: () => undefined,
-      enqueueTask: async ({ task }) => {
-        enqueues.push(task.title);
+      enqueueTask: async ({ brief }) => {
+        enqueues.push(brief);
         return { ok: true };
       },
       setFlag: async () => ({ ok: true }),
@@ -152,8 +152,8 @@ describe("scheduler automation gate", () => {
       canApplyFlagEffects: () => true,
       hasReceipt: () => false,
       recordReceipt: () => undefined,
-      enqueueTask: async ({ task }) => {
-        enqueues.push(task.title);
+      enqueueTask: async ({ brief }) => {
+        enqueues.push(brief);
         return { ok: true };
       },
       setFlag: async () => ({ ok: true }),

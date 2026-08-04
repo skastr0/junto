@@ -6,6 +6,7 @@ import type {
   CanvasDoc,
   CanvasEdge,
   CanvasNode,
+  EdgeEffect,
   EtherFlag,
   EtherRegionDefaults,
   EtherWatch,
@@ -33,12 +34,14 @@ import {
 } from "@shared/physics";
 import {
   addEdge,
+  setEdgeEffect,
   setEdgeNotify,
   setEdgePorts,
   setEdgeWhen,
 } from "../lib/edge-mutations";
 import { specOf } from "../lib/node-spec";
 import { commitDoc, editLink, editText, renameGroup, setNodeHost, setNodeTimer, setNodeWatch, setNodeWorkRole, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag } from "../lib/mutations";
+import { isSchedulerEntityKind } from "@shared/scheduler-effects";
 import {
   describeCronExpression,
   isValidCronExpression,
@@ -658,6 +661,111 @@ function KernelFieldEditors({ node }: { readonly node: CanvasNode }) {
 
     {kind === "agent" ? <AgentMessagesPane node={node} /> : null}
   </>;
+}
+
+function EdgeEffectEditor({
+  edgeId,
+  fromNode,
+  toNode,
+}: {
+  readonly edgeId: string;
+  readonly fromNode: CanvasNode | undefined;
+  readonly toNode: CanvasNode | undefined;
+}) {
+  const doc = use$(state$.doc);
+  const edge = doc.edges.find((candidate) => candidate.id === edgeId);
+  const effect = edge?.ether?.does;
+  const fromIsScheduler = isSchedulerEntityKind(fromNode?.ether?.entity?.kind);
+  if (!fromIsScheduler) return null;
+
+  const mode = effect?.mode ?? "none";
+  const brief =
+    effect && effect.mode === "enqueue_task"
+      ? effect.brief
+      : fromNode?.type === "text"
+        ? fromNode.text
+        : "";
+
+  const setMode = (next: "none" | "enqueue_task" | "set_flag") => {
+    if (next === "none") {
+      setEdgeEffect(edgeId, undefined);
+      return;
+    }
+    if (next === "enqueue_task") {
+      setEdgeEffect(edgeId, {
+        mode: "enqueue_task",
+        brief: brief.trim() || "Scheduled work",
+        reason: "scheduler",
+      });
+      return;
+    }
+    setEdgeEffect(edgeId, {
+      mode: "set_flag",
+      flag: "attention",
+      enabled: true,
+    });
+  };
+
+  return (
+    <div className="inspector-section">
+      <div className="inspector-section__label">When this fires</div>
+      <div className="inspector-detail" style={{ marginBottom: 8 }}>
+        Applied to {toNode ? nodeTitle(toNode) : "the other end"}
+      </div>
+      <label className="inspector-editor">
+        <span>Action</span>
+        <Select
+          dense
+          aria-label="Action when this fires"
+          value={mode}
+          options={[
+            { value: "none", label: "Do nothing" },
+            { value: "enqueue_task", label: "Add a task" },
+            { value: "set_flag", label: "Set a flag" },
+          ]}
+          onChange={(value) => setMode(value as "none" | "enqueue_task" | "set_flag")}
+        />
+      </label>
+      {effect?.mode === "enqueue_task" ? (
+        <label className="inspector-editor">
+          <span>Task brief</span>
+          <input
+            aria-label="Task brief"
+            value={effect.brief}
+            onChange={(event) =>
+              setEdgeEffect(edgeId, {
+                mode: "enqueue_task",
+                brief: event.target.value,
+                reason: effect.reason ?? "scheduler",
+              })
+            }
+          />
+        </label>
+      ) : null}
+      {effect?.mode === "set_flag" ? (
+        <label className="inspector-editor">
+          <span>Flag</span>
+          <Select
+            dense
+            aria-label="Flag to set"
+            value={effect.flag}
+            options={[
+              { value: "blocker", label: "Blocker" },
+              { value: "attention", label: "Needs attention" },
+              { value: "parked", label: "Parked" },
+            ]}
+            onChange={(value) =>
+              setEdgeEffect(edgeId, {
+                mode: "set_flag",
+                flag: value as EtherFlag,
+                enabled: effect.enabled,
+              })
+            }
+          />
+        </label>
+      ) : null}
+    </div>
+  );
 }
 
 function EdgeWhenEditor({

@@ -133,7 +133,7 @@ const edges: CanvasEdge[] = [
     toSide: "left",
     ether: {
       slot: "output" as const,
-      does: { mode: "enqueue_task" as const, task: { title: "review the completed work", details: "review the completed work" } },
+      does: { mode: "enqueue_task" as const, brief: "review the completed work" },
     },
   },
   {
@@ -143,7 +143,7 @@ const edges: CanvasEdge[] = [
     fromSide: "right",
     toSide: "bottom",
     ether: {
-      does: { mode: "enqueue_task" as const, task: { title: "heartbeat check", details: "heartbeat check" } },
+      does: { mode: "enqueue_task" as const, brief: "heartbeat check" },
     },
   },
 ];

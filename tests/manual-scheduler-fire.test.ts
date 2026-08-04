@@ -72,7 +72,7 @@ const board = (): CanvasDoc =>
         fromNode: "cron1",
         toNode: "tasks-cron",
         ether: {
-          does: { mode: "enqueue_task", task: { title: "from-cron", details: "from-cron", reason: "scheduler" } },
+          does: { mode: "enqueue_task", brief: "from-cron", reason: "scheduler" },
         },
       },
       {
@@ -80,7 +80,7 @@ const board = (): CanvasDoc =>
         fromNode: "relay1",
         toNode: "tasks-relay",
         ether: {
-          does: { mode: "enqueue_task", task: { title: "from-relay", details: "from-relay", reason: "scheduler" } },
+          does: { mode: "enqueue_task", brief: "from-relay", reason: "scheduler" },
         },
       },
       // Trigger chain: cron fire cascades into the relay's does edges.
@@ -108,8 +108,8 @@ describe("manualSchedulerFire scope", () => {
       canApplyFlagEffects: () => true,
       hasReceipt: () => false,
       recordReceipt: () => undefined,
-      enqueueTask: async ({ task }) => {
-        enqueues.push(task.title);
+      enqueueTask: async ({ brief }) => {
+        enqueues.push(brief);
         return { ok: true };
       },
       setFlag: async () => ({ ok: true }),
@@ -166,8 +166,8 @@ describe("manualSchedulerFire scope", () => {
       canApplyFlagEffects: () => true,
       hasReceipt: () => false,
       recordReceipt: () => undefined,
-      enqueueTask: async ({ task }) => {
-        enqueues.push(task.title);
+      enqueueTask: async ({ brief }) => {
+        enqueues.push(brief);
         return { ok: true };
       },
       setFlag: async () => ({ ok: true }),

@@ -1,15 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { CanvasDoc } from "./canvas";
-import { defaultTaskInsert } from "./effect-insert";
 import {
   collectEffectEdgesFrom,
   collectWatchEdgesInto,
+  defaultEnqueueBrief,
   evaluateWatchWhen,
   inferSchedulerEdgeEffect,
   mergePageLoadStatus,
   NO_WATCH_YET_DETAIL,
   pageLoadMapKey,
-  schedulerSourceLabel,
   validateEffectTarget,
 } from "./scheduler-effects";
 
@@ -50,7 +49,7 @@ describe("scheduler-effects", () => {
           fromNode: "c1",
           toNode: "t1",
           ether: {
-            does: { mode: "enqueue_task", task: { title: "review overnight", details: "review overnight" } },
+            does: { mode: "enqueue_task", brief: "review overnight" },
           },
         },
         {
@@ -58,7 +57,7 @@ describe("scheduler-effects", () => {
           fromNode: "t1",
           toNode: "c1",
           ether: {
-            does: { mode: "enqueue_task", task: { title: "wrong way", details: "wrong way" } },
+            does: { mode: "enqueue_task", brief: "wrong way" },
           },
         },
       ],
@@ -91,13 +90,13 @@ describe("scheduler-effects", () => {
     };
     expect(
       validateEffectTarget(
-        { mode: "enqueue_task", task: { title: "hi", details: "hi" } },
+        { mode: "enqueue_task", brief: "hi" },
         task,
       ),
     ).toBeUndefined();
     expect(
       validateEffectTarget(
-        { mode: "enqueue_task", task: { title: "hi", details: "hi" } },
+        { mode: "enqueue_task", brief: "hi" },
         agent,
       ),
     ).toBe("target_not_task_sink");
@@ -528,22 +527,18 @@ describe("scheduler-effects", () => {
     expect(NO_WATCH_YET_DETAIL).toMatch(/draw a sink/);
   });
 
-  it("default task insert falls back to kind", () => {
-    const source = {
-      id: "c",
-      type: "text" as const,
-      text: "  ",
-      x: 0,
-      y: 0,
-      width: 1,
-      height: 1,
-      ether: { entity: { kind: "cron" as const } },
-    };
-    const label = schedulerSourceLabel(source);
-    expect(label).toBe("cron");
-    const task = defaultTaskInsert(label);
-    expect(task.title).toContain("cron");
-    expect(task.details).toContain("cron");
-    expect(task.reason).toBe("scheduler");
+  it("default brief falls back to kind", () => {
+    expect(
+      defaultEnqueueBrief({
+        id: "c",
+        type: "text",
+        text: "  ",
+        x: 0,
+        y: 0,
+        width: 1,
+        height: 1,
+        ether: { entity: { kind: "cron" } },
+      }),
+    ).toContain("cron");
   });
 });
