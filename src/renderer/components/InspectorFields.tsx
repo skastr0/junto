@@ -10,14 +10,12 @@ import type {
   EdgeEffect,
   EtherFlag,
   EtherRegionDefaults,
-  EtherRelay,
   EtherWatch,
 } from "@shared/canvas";
 import { HERDR_ENABLED } from "@shared/features";
 import { isGroup } from "@shared/graph";
 import { workRolesInDoc } from "@shared/attention";
 import {
-  ALL_PORTS,
   Port,
   asNodeId,
   canvasDocToCapabilityView,
@@ -39,10 +37,10 @@ import {
   setEdgeEffect,
   setEdgeNotify,
   setEdgePorts,
-  setEdgeRelayState,
+  setEdgeWhen,
 } from "../lib/edge-mutations";
 import { specOf } from "../lib/node-spec";
-import { commitDoc, editLink, editText, renameGroup, setNodeHost, setNodeRelay, setNodeTimer, setNodeWatch, setNodeWorkRole, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag } from "../lib/mutations";
+import { commitDoc, editLink, editText, renameGroup, setNodeHost, setNodeTimer, setNodeWatch, setNodeWorkRole, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag } from "../lib/mutations";
 import { isSchedulerEntityKind } from "@shared/scheduler-effects";
 import {
   describeCronExpression,
@@ -92,7 +90,7 @@ const effectivePorts = (
   const grant = selectGrant(law, mask);
   if (grant.isEmpty()) return [];
   const offers = offersOf(target);
-  return ALL_PORTS.filter((port) => grant.allows(port, offers));
+  return [...offers].filter((port) => grant.allows(port, offers));
 };
 
 function PortChips({ ports }: { readonly ports: ReadonlyArray<PortName> }) {
@@ -158,7 +156,7 @@ export function EdgeCapabilitySection({
  * write `ports: []`, which would (under attenuation) grant nothing at all
  * instead of restoring the full default.
  */
-/** Operator megaphone eligibility for agent↔board edges. Default ON. */
+/** Board wakes word — default ON. */
 export function EdgeBoardNotifyToggle({ edge }: { readonly edge: CanvasEdge }) {
   const doc = use$(state$.doc);
   const from = doc.nodes.find((n) => n.id === edge.fromNode);
@@ -166,16 +164,10 @@ export function EdgeBoardNotifyToggle({ edge }: { readonly edge: CanvasEdge }) {
   const touchesBoard =
     from?.ether?.entity?.kind === "board" || to?.ether?.entity?.kind === "board";
   if (!touchesBoard) return null;
-  // Absent / true = ON; only explicit false opts out.
-  const on = edge.ether?.notify !== false;
+  const on = (edge.ether?.wake ?? edge.ether?.notify) !== false;
   return (
     <div className="inspector-section">
-      <div className="inspector-section__label">board wake</div>
-      <div className="inspector-detail" style={{ marginBottom: 8 }}>
-        On by default when connected — this seat is in the board megaphone set
-        (operator Post topic / Notify all). Turn OFF to silence. Not a capability
-        port.
-      </div>
+      <div className="inspector-section__label">wakes board</div>
       <button
         type="button"
         className="inspector-flag-toggle"
@@ -187,51 +179,29 @@ export function EdgeBoardNotifyToggle({ edge }: { readonly edge: CanvasEdge }) {
         }}
         onClick={() => setEdgeNotify(edge.id, !on)}
       >
-        Notify {on ? "ON" : "OFF"}
+        {on ? "ON" : "OFF"}
       </button>
     </div>
   );
 }
 
-/**
- * Opt-in actor↔actor stoppage relay. Default OFF.
- * Only shown when both endpoints are blockable actors.
- */
-export function EdgeRelayStateToggle({ edge }: { readonly edge: CanvasEdge }) {
-  const doc = use$(state$.doc);
-  const from = doc.nodes.find((n) => n.id === edge.fromNode);
-  const to = doc.nodes.find((n) => n.id === edge.toNode);
-  const fromActor = roleOf(specOf(from)) === "actor";
-  const toActor = roleOf(specOf(to)) === "actor";
-  if (!fromActor || !toActor) return null;
-  const on = edge.ether?.relayState === true;
-  return (
-    <div className="inspector-section">
-      <div className="inspector-section__label">relay state</div>
-      <div className="inspector-detail" style={{ marginBottom: 8 }}>
-        Off by default. When ON, a blocked actor on either end relays its
-        stoppage and reason to the other — cascading along further relay edges.
-        Not a capability port.
-      </div>
-      <button
-        type="button"
-        className="inspector-flag-toggle"
-        aria-label="Toggle relay state"
-        aria-pressed={on}
-        style={{
-          color: on ? HUE.crimson : "#68604a",
-          borderColor: on ? withAlpha(HUE.crimson, 0.5) : "rgba(237,230,218,.12)",
-          background: on ? withAlpha(HUE.crimson, 0.1) : "rgba(255,255,255,.02)",
-        }}
-        onClick={() => setEdgeRelayState(edge.id, !on)}
-      >
-        Relay state {on ? "ON" : "OFF"}
-      </button>
-    </div>
-  );
+/** @deprecated cascade removed — no UI. */
+export function EdgeRelayStateToggle(_props: { readonly edge: CanvasEdge }) {
+  return null;
 }
 
 export function EdgePortsAttenuator({ edge }: { readonly edge: CanvasEdge }) {
+  const doc = use$(state$.doc);
+  const toNode = doc.nodes.find((n) => n.id === edge.toNode);
+  const fromNode = doc.nodes.find((n) => n.id === edge.fromNode);
+  // Ports are target offers (or both actors for actor–actor).
+  const targetSpec = specOf(toNode);
+  const fromSpec = specOf(fromNode);
+  const offerSet =
+    roleOf(targetSpec) === "actor" && roleOf(fromSpec) === "actor"
+      ? HashSet.union(offersOf(targetSpec), offersOf(fromSpec))
+      : offersOf(targetSpec);
+  const offeredPorts = [...offerSet] as PortName[];
   const mask = readEdgePortMask(edge);
   const active = mask ?? HashSet.empty<PortName>();
 
@@ -244,22 +214,36 @@ export function EdgePortsAttenuator({ edge }: { readonly edge: CanvasEdge }) {
   };
 
   const toggle = (port: PortName): void => {
-    commit(HashSet.has(active, port) ? HashSet.remove(active, port) : HashSet.add(active, port));
+    if (mask === undefined) {
+      // Full default → allow-list with this port removed.
+      commit(HashSet.remove(offerSet, port));
+      return;
+    }
+    commit(
+      HashSet.has(active, port)
+        ? HashSet.remove(active, port)
+        : HashSet.add(active, port),
+    );
   };
+
+  if (offeredPorts.length === 0) {
+    return (
+      <div className="inspector-section">
+        <EdgeBoardNotifyToggle edge={edge} />
+      </div>
+    );
+  }
 
   return (
     <div className="inspector-section">
       <EdgeBoardNotifyToggle edge={edge} />
-      <EdgeRelayStateToggle edge={edge} />
-      <div className="inspector-section__label">limit this key</div>
+      <div className="inspector-section__label">access ports</div>
       <div className="inspector-detail" style={{ marginBottom: 8 }}>
-        {mask === undefined
-          ? "Full default — every port the target offers. Toggle a port to start an explicit allow-list."
-          : "Explicit allow-list. Toggling off the last port restores full default."}
+        {mask === undefined ? "All offered ports open" : "Allow-list"}
       </div>
       <div className="inspector-flags" role="list" aria-label="Limit edge ports">
-        {ALL_PORTS.map((port) => {
-          const isActive = HashSet.has(active, port);
+        {offeredPorts.map((port) => {
+          const isActive = mask === undefined || HashSet.has(active, port);
           return (
             <button
               key={port}
@@ -668,13 +652,17 @@ function EdgeEffectEditor({
 }) {
   const doc = use$(state$.doc);
   const edge = doc.edges.find((candidate) => candidate.id === edgeId);
-  const effect = edge?.ether?.effect;
+  const effect = edge?.ether?.does ?? edge?.ether?.effect;
   const fromIsScheduler = isSchedulerEntityKind(fromNode?.ether?.entity?.kind);
   if (!fromIsScheduler) return null;
 
   const mode = effect?.mode ?? "none";
   const brief =
-    effect && effect.mode === "enqueue_task" ? effect.brief : fromNode?.type === "text" ? fromNode.text : "";
+    effect && effect.mode === "enqueue_task"
+      ? effect.brief
+      : fromNode?.type === "text"
+        ? fromNode.text
+        : "";
 
   const setMode = (next: "none" | "enqueue_task" | "set_flag") => {
     if (next === "none") {
@@ -698,18 +686,18 @@ function EdgeEffectEditor({
 
   return (
     <div className="inspector-section">
-      <div className="inspector-section__label">automation effect</div>
+      <div className="inspector-section__label">effect</div>
       <div className="inspector-detail" style={{ marginBottom: 8 }}>
-        On fire → target {toNode ? nodeTitle(toNode) : "…"}
+        When this scheduler fires → {toNode ? nodeTitle(toNode) : "…"}
       </div>
       <label className="inspector-editor">
-        <span>mode</span>
+        <span>does</span>
         <Select
           dense
-          aria-label="Edge automation effect"
+          aria-label="Wire effect"
           value={mode}
           options={[
-            { value: "none", label: "none" },
+            { value: "none", label: "nothing" },
             { value: "enqueue_task", label: "enqueue task" },
             { value: "set_flag", label: "set flag" },
           ]}
@@ -758,11 +746,65 @@ function EdgeEffectEditor({
   );
 }
 
+function EdgeWhenEditor({
+  edgeId,
+  toNode,
+}: {
+  readonly edgeId: string;
+  readonly toNode: CanvasNode | undefined;
+}) {
+  const doc = use$(state$.doc);
+  const edge = doc.edges.find((candidate) => candidate.id === edgeId);
+  const when = edge?.ether?.when;
+  const toIsScheduler = isSchedulerEntityKind(toNode?.ether?.entity?.kind);
+  if (!toIsScheduler) return null;
+
+  const value =
+    when?.word === "flagged"
+      ? `flagged:${when.flag}`
+      : when?.word === "completes"
+        ? "completes"
+        : "none";
+
+  return (
+    <div className="inspector-section">
+      <div className="inspector-section__label">watch</div>
+      <label className="inspector-editor">
+        <span>when</span>
+        <Select
+          dense
+          aria-label="Watch when"
+          value={value}
+          options={[
+            { value: "none", label: "not set" },
+            { value: "completes", label: "task completes" },
+            { value: "flagged:attention", label: "flag attention" },
+            { value: "flagged:blocker", label: "flag blocker" },
+            { value: "flagged:parked", label: "flag parked" },
+          ]}
+          onChange={(next) => {
+            if (next === "none") {
+              setEdgeWhen(edgeId, undefined);
+              return;
+            }
+            if (next === "completes") {
+              setEdgeWhen(edgeId, { word: "completes" });
+              return;
+            }
+            const flag = next.replace("flagged:", "") as EtherFlag;
+            setEdgeWhen(edgeId, { word: "flagged", flag });
+          }}
+        />
+      </label>
+    </div>
+  );
+}
+
 export function EdgeCriteriaEditor({
   edgeId,
   fromNode,
-  livePhase,
-  liveDetail,
+  livePhase: _livePhase,
+  liveDetail: _liveDetail,
 }: {
   readonly edgeId: string;
   readonly fromNode: CanvasNode | undefined;
@@ -771,65 +813,60 @@ export function EdgeCriteriaEditor({
 }) {
   const doc = use$(state$.doc);
   const edge = doc.edges.find((candidate) => candidate.id === edgeId);
-  const criteria = edge?.ether?.criteria;
+  const criteria = edge?.ether?.stops ?? edge?.ether?.criteria;
   const toNode = doc.nodes.find((node) => node.id === edge?.toNode);
   const fromKind = fromNode?.ether?.entity?.kind;
   const fromIsTask = fromKind === "task" || fromKind === "requests";
+  const fromRole = roleOf(specOf(fromNode));
+  const toRole = roleOf(specOf(toNode));
+  const slot = edge?.ether?.slot;
+  const familyHint =
+    slot === "input"
+      ? "watch"
+      : slot === "output" || slot === "recipient"
+        ? "effect"
+        : slot === "trigger"
+          ? "trigger"
+          : fromRole === "actor" || toRole === "actor"
+            ? "access"
+            : "wire";
 
   type AuthoringMode = "none" | "tasks";
   const mode: AuthoringMode = criteria?.mode === "tasks" ? "tasks" : "none";
-  const isTrustMode = criteria?.mode === "proof" || criteria?.mode === "approval";
-
-  const setMode = (next: AuthoringMode) => {
-    if (next === "none") {
-      setEdgeCriteria(edgeId, undefined);
-      return;
-    }
-    setEdgeCriteria(edgeId, { mode: "tasks" });
-  };
+  const showStops = fromIsTask || criteria?.mode === "tasks";
 
   return (
     <>
-    <EdgeEffectEditor edgeId={edgeId} fromNode={fromNode} toNode={toNode} />
-    <div className="inspector-section">
-      <div className="inspector-section__label">phase</div>
-      {livePhase ? (
-        <div className="inspector-detail" style={{ marginBottom: 8 }}>
-          <strong style={{ color: livePhase === "blocks" ? HUE.crimson : undefined }}>
-            {livePhase}
-          </strong>
-          {liveDetail ? ` · ${liveDetail}` : null}
-          {!criteria ? " · soft relates (no stoppage)" : null}
+      <div className="inspector-section" style={{ marginBottom: 4 }}>
+        <div className="inspector-section__label">wire</div>
+        <div className="text-[12px] font-semibold" style={{ color: INK }}>
+          {familyHint}
+          {slot ? ` · ${slot}` : ""}
+        </div>
+      </div>
+      <EdgeWhenEditor edgeId={edgeId} toNode={toNode} />
+      <EdgeEffectEditor edgeId={edgeId} fromNode={fromNode} toNode={toNode} />
+      {showStops ? (
+        <div className="inspector-section">
+          <div className="inspector-section__label">stops</div>
+          <label className="inspector-editor">
+            <span>when agent is blocked</span>
+            <Select
+              dense
+              aria-label="Stop condition"
+              value={mode}
+              options={[
+                { value: "none", label: "never from this wire" },
+                { value: "tasks", label: "needs input" },
+              ]}
+              onChange={(value) => {
+                if (value === "none") setEdgeCriteria(edgeId, undefined);
+                else setEdgeCriteria(edgeId, { mode: "tasks" });
+              }}
+            />
+          </label>
         </div>
       ) : null}
-      <div className="inspector-section__label">stop when</div>
-      {isTrustMode ? (
-        <div className="inspector-detail">
-          trust plane · {criteria?.mode}
-          {criteria && "step" in criteria ? ` · ${String((criteria as { step?: string }).step ?? "")}` : ""}
-        </div>
-      ) : (
-        <label className="inspector-editor">
-          <span>mode</span>
-          <Select
-            dense
-            aria-label="Edge phase filter mode"
-            value={mode}
-            options={[
-              { value: "none", label: "none · soft relates" },
-              {
-                value: "tasks",
-                label:
-                  fromIsTask && fromKind === "requests"
-                    ? "tasks · pending requests block"
-                    : "tasks · needs input blocks",
-              },
-            ]}
-            onChange={(value) => setMode(value as AuthoringMode)}
-          />
-        </label>
-      )}
-    </div>
     </>
   );
 }
