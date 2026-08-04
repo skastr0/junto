@@ -179,7 +179,7 @@ Standard JSON Canvas 1.0 (`nodes` of type `text`/`file`/`link`/`group`, `edges`)
 
 Edges: `{ "id", "fromNode", "toNode", "ether": { "stops"?: EdgeCriteria, "ports"?: Port[], "wake"?: boolean, "slot"?: WireSlot, "when"?: WatchWhen, "does"?: EdgeEffect } }`.
 
-Canonical edge ether words: **`stops` · `wake` · `does` · `when` · `slot` · `ports`**. One word per area. Writers emit only these; decode may scrub old dual keys once (`criteria`→`stops`, `notify`→`wake`, `effect`→`does`) — migration hygiene, not product authoring.
+Canonical edge ether words: **`stops`, `wake`, `does`, `when`, `slot`, `ports`**. One word per area. Writers emit only these; decode may scrub old dual keys once (`criteria`→`stops`, `notify`→`wake`, `effect`→`does`) — migration hygiene, not product authoring.
 
 **Edge product (stops for hold; ports for capability; wake/when/does/slot for wires):**
 - No `stops` → soft **relates** (capability/ocap only; never generates stoppage).

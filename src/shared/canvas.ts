@@ -467,7 +467,7 @@ export type EtherNodeExtension = typeof EtherNodeExtension.Type;
 /**
  * Wire areas on edges. Derived (not authorial): sentence, family color, badges.
  * Phase mirror may stamp `kind` for offline JSON Canvas readers only.
- * Canonical words: stops · wake · does · when · slot · ports.
+ * Canonical words: stops, wake, does, when, slot, ports.
  */
 export const EtherEdgeExtension = Schema.Struct({
   ports: Schema.optionalKey(Schema.Array(Port)),

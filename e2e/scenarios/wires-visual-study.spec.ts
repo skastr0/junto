@@ -95,7 +95,7 @@ const flagged: CanvasNode = {
 } as CanvasNode;
 
 const edges: CanvasEdge[] = [
-  // access·stops — three agents into one sink, bundled
+  // access stops — three agents into one sink, bundled
   ...actors.map((actor) => ({
     id: `claim-${actor.id}`,
     fromNode: actor.id,
@@ -104,7 +104,7 @@ const edges: CanvasEdge[] = [
     toSide: "right" as const,
     ether: { stops: { mode: "tasks" as const } },
   })),
-  // access·wakes + access·messages
+  // access wakes + access messages
   { id: "wake-claude", fromNode: "claude", toNode: "board", fromSide: "left", toSide: "top", ether: { wake: true } },
   { id: "msg-pair", fromNode: "claude", toNode: "codex", fromSide: "right", toSide: "right" },
   // watch wires into relay
