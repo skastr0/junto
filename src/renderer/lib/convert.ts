@@ -93,11 +93,37 @@ export const edgeVisualRole = (
   // Agent↔agent with msg.send is a live collab link — amber presentation only
   // when the effective port is enabled (an explicit mask may attenuate it).
   if (connects("agent", "agent") && edgeHasMsgSend(edge)) return "agent-msg";
+  const does = edge.ether?.does ?? edge.ether?.effect;
+  const when = edge.ether?.when;
+  const slot = edge.ether?.slot;
   if (
-    edge.ether?.effect &&
-    (from === "cron" || from === "timer" || from === "gauge" || from === "watcher" || from === "relay")
+    does ||
+    when ||
+    slot === "input" ||
+    slot === "output" ||
+    slot === "trigger" ||
+    slot === "recipient" ||
+    (from === "cron" ||
+      from === "timer" ||
+      from === "gauge" ||
+      from === "watcher" ||
+      from === "relay" ||
+      to === "relay" ||
+      to === "cron")
   ) {
-    return "scheduler-flow";
+    if (
+      does ||
+      when ||
+      from === "cron" ||
+      from === "timer" ||
+      from === "gauge" ||
+      from === "watcher" ||
+      from === "relay" ||
+      to === "relay" ||
+      to === "cron"
+    ) {
+      return "scheduler-flow";
+    }
   }
   return "soft-relation";
 };

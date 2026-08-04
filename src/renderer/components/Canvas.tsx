@@ -37,6 +37,7 @@ import { nodeTitle } from "../lib/presentation";
 import { AGENT_NODE_SIZE } from "../lib/node-geometry";
 import { addNode, deleteNodes, setFlagForNodes } from "../lib/mutations";
 import { addEdge, connectAllToTarget, deleteEdges } from "../lib/edge-mutations";
+import { connectCheck, resolveSpec, roleOf } from "@shared/physics";
 import { dragHoldMemberIds, findOpenPosition, syncPositions } from "../lib/geometry";
 import { resolvePageSpawnDefaults } from "@shared/region-defaults";
 import { resolveAuthoredPageHost } from "../lib/page-authoring";
@@ -490,6 +491,22 @@ function useCanvasInteractions(
   pendingRebuildRef: React.MutableRefObject<boolean>,
   flushRebuild: () => void,
 ) {
+  const isValidConnection = useCallback((connection: Connection | { source: string | null; target: string | null }) => {
+    const sourceId = connection.source;
+    const targetId = connection.target;
+    if (!sourceId || !targetId || sourceId === targetId) return false;
+    const doc = state$.doc.peek();
+    const from = doc.nodes.find((n) => n.id === sourceId);
+    const to = doc.nodes.find((n) => n.id === targetId);
+    if (!from || !to || from.type === "group" || to.type === "group") return false;
+    const fromRole = roleOf(
+      resolveSpec({ isGroup: false, kind: from.ether?.entity?.kind }),
+    );
+    const toRole = roleOf(
+      resolveSpec({ isGroup: false, kind: to.ether?.entity?.kind }),
+    );
+    return connectCheck(fromRole, toRole).ok;
+  }, []);
   const onConnect = useCallback((connection: Connection) => addEdge(connection), []);
   // Dropping a connection on a card body (not a handle) still creates the
   // edge — the whole node is a legitimate target, the dots are just anchors.
@@ -505,7 +522,6 @@ function useCanvasInteractions(
     if (!targetId || targetId === from) return;
     const targetNode = state$.doc.peek().nodes.find((node) => node.id === targetId);
     if (!targetNode || targetNode.type === "group") return;
-    // Infer criteria from source (tasks → tasks criteria). No static kind.
     addEdge({ source: from, target: targetId, sourceHandle: connectionState.fromHandle?.id });
   }, []);
   // Region hold: dragging a `hold` region moves every node geometrically
@@ -636,7 +652,19 @@ function useCanvasInteractions(
     const pos = rf.screenToFlowPosition({ x: event.clientX, y: event.clientY });
     addNode(makeTextNode(pos.x - 120, pos.y - 50));
   }, [rf]);
-  return { onConnect, onConnectEnd, onNodeDragStart, onNodeDrag, onNodeDragStop, onNodesDelete, onEdgesDelete, onEdgeDoubleClick, onSelectionChange, onPaneClick };
+  return {
+    onConnect,
+    onConnectEnd,
+    isValidConnection,
+    onNodeDragStart,
+    onNodeDrag,
+    onNodeDragStop,
+    onNodesDelete,
+    onEdgesDelete,
+    onEdgeDoubleClick,
+    onSelectionChange,
+    onPaneClick,
+  };
 }
 
 // Node creation against a caller-supplied placement strategy — the toolbar

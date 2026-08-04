@@ -82,10 +82,16 @@ export const KindSpecs = {
   requests: { kind: "requests", role: "sink", offers: requestsOffers },
   artifacts: { kind: "artifacts", role: "sink", offers: artifactsOffers },
   board: { kind: "board", role: "sink", offers: boardOffers },
+  // Terminal sink: tmux-like resource. Ports TBD in v1 — access family only.
+  terminal: { kind: "terminal", role: "sink", offers: emptyOffers },
   watcher: { kind: "watcher", role: "scheduler", offers: emptyOffers },
   timer: { kind: "timer", role: "scheduler", offers: emptyOffers },
   cron: { kind: "cron", role: "scheduler", offers: emptyOffers },
-  relay: { kind: "relay", role: "scheduler", offers: emptyOffers },
+  relay: {
+    kind: "relay",
+    role: "scheduler",
+    offers: portSet("relay.trigger"),
+  },
 } as const satisfies KindSpecTable;
 
 export const KindRegistry: HashMap.HashMap<WellKnownKind, KindSpec> =

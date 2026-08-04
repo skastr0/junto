@@ -5,13 +5,47 @@ import type {
   EdgeCriteria,
   EdgeEffect,
   EdgeEnd,
+  WatchWhen,
+  WireSlot,
 } from "@shared/canvas";
-import type { Port } from "@shared/physics";
+import {
+  connectCheck,
+  defaultSlotForDraw,
+  resolveSpec,
+  roleOf,
+  type Port,
+} from "@shared/physics";
 import { inferSchedulerEdgeEffect } from "@shared/scheduler-effects";
 import { isLabelNode } from "./presentation";
 import { noteEdgeCreated } from "./edge-sparks";
 import { state$ } from "./state";
 import { commitDoc, parseSide } from "./mutations";
+
+const roleOfNode = (node: CanvasNode | undefined) => {
+  if (!node) return "geography" as const;
+  return roleOf(
+    resolveSpec({
+      isGroup: node.type === "group",
+      kind: node.ether?.entity?.kind,
+    }),
+  );
+};
+
+/** Infer watch `when` for sink → scheduler input wires. */
+export const inferWatchWhen = (
+  fromNode: CanvasNode | undefined,
+  toNode: CanvasNode | undefined,
+): WatchWhen | undefined => {
+  if (!fromNode || !toNode) return undefined;
+  if (roleOfNode(fromNode) !== "sink" || roleOfNode(toNode) !== "scheduler") {
+    return undefined;
+  }
+  const kind = fromNode.ether?.entity?.kind;
+  if (kind === "task") return { word: "completes" };
+  // Any flag-carrier sink (or other sink): default flagged/blocker is too aggressive.
+  // Completes only for task; other sinks get no when until operator picks.
+  return undefined;
+};
 
 const without = <T extends object, K extends keyof T>(value: T, key: K): Omit<T, K> => {
   const { [key]: _removed, ...rest } = value;
@@ -40,6 +74,7 @@ export const setEdgeColor = (id: string, color?: string): void => {
   });
 };
 
+/** Write stops (v2) + legacy criteria for dual-read. */
 export const setEdgeCriteria = (id: string, criteria: EdgeCriteria | undefined): void => {
   const doc = state$.doc.peek();
   const cleaned = criteria;
@@ -49,11 +84,14 @@ export const setEdgeCriteria = (id: string, criteria: EdgeCriteria | undefined):
       if (edge.id !== id) return edge;
       if (!cleaned) {
         if (!edge.ether) return edge;
-        const rest = without(without(edge.ether, "criteria"), "kind");
+        const rest = without(
+          without(without(edge.ether, "criteria"), "stops"),
+          "kind",
+        );
         return Object.keys(rest).length > 0 ? { ...edge, ether: rest } : without(edge, "ether");
       }
       const rest = edge.ether ? without(edge.ether, "kind") : {};
-      return { ...edge, ether: { ...rest, criteria: cleaned } };
+      return { ...edge, ether: { ...rest, stops: cleaned, criteria: cleaned } };
     }),
   });
 };
@@ -126,7 +164,7 @@ export const inferEdgeCriteria = (fromNode: CanvasNode | undefined): EdgeCriteri
   return undefined;
 };
 
-/** Author scheduler automation effect on an edge (or clear). */
+/** Author effect word on an edge (writes does + legacy effect). */
 export const setEdgeEffect = (
   id: string,
   effect: EdgeEffect | undefined,
@@ -137,20 +175,64 @@ export const setEdgeEffect = (
     edges: doc.edges.map((edge) => {
       if (edge.id !== id) return edge;
       if (!effect) {
-        if (!edge.ether || edge.ether.effect === undefined) return edge;
-        const rest = without(edge.ether, "effect");
+        if (!edge.ether) return edge;
+        const rest = without(without(edge.ether, "effect"), "does");
         return Object.keys(rest).length > 0
           ? { ...edge, ether: rest }
           : without(edge, "ether");
       }
-      return { ...edge, ether: { ...(edge.ether ?? {}), effect } };
+      return {
+        ...edge,
+        ether: { ...(edge.ether ?? {}), does: effect, effect },
+      };
+    }),
+  });
+};
+
+export const setEdgeWhen = (
+  id: string,
+  when: WatchWhen | undefined,
+): void => {
+  const doc = state$.doc.peek();
+  commitDoc({
+    ...doc,
+    edges: doc.edges.map((edge) => {
+      if (edge.id !== id) return edge;
+      if (!when) {
+        if (!edge.ether || edge.ether.when === undefined) return edge;
+        const rest = without(edge.ether, "when");
+        return Object.keys(rest).length > 0
+          ? { ...edge, ether: rest }
+          : without(edge, "ether");
+      }
+      return { ...edge, ether: { ...(edge.ether ?? {}), when } };
+    }),
+  });
+};
+
+export const setEdgeSlot = (
+  id: string,
+  slot: WireSlot | undefined,
+): void => {
+  const doc = state$.doc.peek();
+  commitDoc({
+    ...doc,
+    edges: doc.edges.map((edge) => {
+      if (edge.id !== id) return edge;
+      if (!slot) {
+        if (!edge.ether || edge.ether.slot === undefined) return edge;
+        const rest = without(edge.ether, "slot");
+        return Object.keys(rest).length > 0
+          ? { ...edge, ether: rest }
+          : without(edge, "ether");
+      }
+      return { ...edge, ether: { ...(edge.ether ?? {}), slot } };
     }),
   });
 };
 
 /**
- * Operator-authored board wake eligibility on an edge.
- * ON is the default (field absent); OFF is explicit `notify: false`.
+ * Board wake eligibility. ON default (field absent); OFF = wake/notify false.
  */
 export const setEdgeNotify = (edgeId: string, notify: boolean): void => {
   const doc = state$.doc.peek();
@@ -159,8 +241,13 @@ export const setEdgeNotify = (edgeId: string, notify: boolean): void => {
     edges: doc.edges.map((edge) => {
       if (edge.id !== edgeId) return edge;
       const ether = { ...(edge.ether ?? {}) };
-      if (notify) delete ether.notify;
-      else ether.notify = false;
+      if (notify) {
+        delete ether.notify;
+        delete ether.wake;
+      } else {
+        ether.notify = false;
+        ether.wake = false;
+      }
       const nextEther = Object.keys(ether).length > 0 ? ether : undefined;
       if (!nextEther) {
         const { ether: _drop, ...rest } = edge;
@@ -171,27 +258,9 @@ export const setEdgeNotify = (edgeId: string, notify: boolean): void => {
   });
 };
 
-/**
- * Opt-in actor↔actor stoppage relay. OFF is the default (field absent/false);
- * ON is explicit `relayState: true`.
- */
-export const setEdgeRelayState = (edgeId: string, relayState: boolean): void => {
-  const doc = state$.doc.peek();
-  commitDoc({
-    ...doc,
-    edges: doc.edges.map((edge) => {
-      if (edge.id !== edgeId) return edge;
-      const ether = { ...(edge.ether ?? {}) };
-      if (relayState) ether.relayState = true;
-      else delete ether.relayState;
-      const nextEther = Object.keys(ether).length > 0 ? ether : undefined;
-      if (!nextEther) {
-        const { ether: _drop, ...rest } = edge;
-        return rest;
-      }
-      return { ...edge, ether: nextEther };
-    }),
-  });
+/** @deprecated relayState cascade is dead — no-op keep export for call sites. */
+export const setEdgeRelayState = (_edgeId: string, _relayState: boolean): void => {
+  // Wires law: no hidden cascades. Propagation requires an explicit relay node.
 };
 
 export const addEdge = (params: {
@@ -219,17 +288,27 @@ export const addEdge = (params: {
     state$.error.set("Labels cannot take connections.");
     return;
   }
-  const criteria = params.criteria ?? inferEdgeCriteria(fromNode);
-  const effect = inferSchedulerEdgeEffect(fromNode, toNode);
+  const fromRole = roleOfNode(fromNode);
+  const toRole = roleOfNode(toNode);
+  const check = connectCheck(fromRole, toRole);
+  if (!check.ok) {
+    state$.error.set(check.reason);
+    return;
+  }
+  const slot = defaultSlotForDraw({ fromRole, toRole });
+  const stops = params.criteria ?? inferEdgeCriteria(fromNode);
+  const does = inferSchedulerEdgeEffect(fromNode, toNode);
+  const when = inferWatchWhen(fromNode, toNode);
   const fromSide = parseSide(params.sourceHandle);
   const toSide = parseSide(params.targetHandle);
+  const etherParts: NonNullable<CanvasEdge["ether"]> = {
+    ...(slot ? { slot } : {}),
+    ...(stops ? { stops, criteria: stops } : {}),
+    ...(does ? { does, effect: does } : {}),
+    ...(when ? { when } : {}),
+  };
   const ether =
-    criteria || effect
-      ? {
-          ...(criteria ? { criteria } : {}),
-          ...(effect ? { effect } : {}),
-        }
-      : undefined;
+    Object.keys(etherParts).length > 0 ? etherParts : undefined;
   const edge: CanvasEdge = {
     id: `edge-${ulid()}`,
     fromNode: params.source,
@@ -242,7 +321,6 @@ export const addEdge = (params: {
   state$.selectedEdgeId.set(edge.id);
   state$.error.set("");
   commitDoc({ ...doc, edges: [...doc.edges, edge] });
-  // Source → target spark on the edge just created (not every incident link).
   noteEdgeCreated(edge);
 };
 
@@ -257,13 +335,16 @@ export type EdgeBatchSkipReason =
   | "missing-source"
   | "group-source"
   | "label-source"
-  | "invalid-target";
+  | "invalid-target"
+  | "refused-pair";
 
 export type EdgeBatchCandidate = {
   readonly fromNode: string;
   readonly toNode: string;
   readonly criteria?: EdgeCriteria;
   readonly effect?: EdgeEffect;
+  readonly slot?: WireSlot;
+  readonly when?: WatchWhen;
 };
 
 export type EdgeBatchPlan = {
@@ -319,6 +400,12 @@ export const planConnectToTarget = (
       skipped.push({ source: sourceId, reason: "label-source" });
       continue;
     }
+    const fromRole = roleOfNode(source);
+    const toRole = roleOfNode(target);
+    if (!connectCheck(fromRole, toRole).ok) {
+      skipped.push({ source: sourceId, reason: "refused-pair" });
+      continue;
+    }
     const key = `${sourceId}->${targetId}`;
     if (existing.has(key) || planned.has(key)) {
       skipped.push({ source: sourceId, reason: "duplicate" });
@@ -327,11 +414,15 @@ export const planConnectToTarget = (
     planned.add(key);
     const criteria = criteriaOverride ?? inferEdgeCriteria(source);
     const effect = inferSchedulerEdgeEffect(source, target);
+    const slot = defaultSlotForDraw({ fromRole, toRole });
+    const when = inferWatchWhen(source, target);
     toAdd.push({
       fromNode: sourceId,
       toNode: targetId,
       ...(criteria ? { criteria } : {}),
       ...(effect ? { effect } : {}),
+      ...(slot ? { slot } : {}),
+      ...(when ? { when } : {}),
     });
   }
 
@@ -365,13 +456,18 @@ export const connectAllToTarget = (
   }
 
   const newEdges: CanvasEdge[] = plan.toAdd.map((candidate) => {
+    const etherParts: NonNullable<CanvasEdge["ether"]> = {
+      ...(candidate.slot ? { slot: candidate.slot } : {}),
+      ...(candidate.criteria
+        ? { stops: candidate.criteria, criteria: candidate.criteria }
+        : {}),
+      ...(candidate.effect
+        ? { does: candidate.effect, effect: candidate.effect }
+        : {}),
+      ...(candidate.when ? { when: candidate.when } : {}),
+    };
     const ether =
-      candidate.criteria || candidate.effect
-        ? {
-            ...(candidate.criteria ? { criteria: candidate.criteria } : {}),
-            ...(candidate.effect ? { effect: candidate.effect } : {}),
-          }
-        : undefined;
+      Object.keys(etherParts).length > 0 ? etherParts : undefined;
     return {
       id: `edge-${ulid()}`,
       fromNode: candidate.fromNode,

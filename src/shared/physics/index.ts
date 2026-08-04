@@ -117,3 +117,27 @@ export type { TargetWorkOpName } from "./work-ports";
 
 export { canvasDocToCapabilityView, edgeMaskAllows } from "./view";
 export type { CapabilityViewOptions } from "./view";
+
+export {
+  WIRE_FAMILIES,
+  WIRE_SLOTS,
+  WIRE_WORDS,
+  connectCheck,
+  connectable,
+  defaultSlotForDraw,
+  familiesForPair,
+  familyColorToken,
+  familyFromSlot,
+  formatWireSentence,
+  sentenceOf,
+  wireRolePair,
+} from "./wires";
+export type {
+  ConnectOk,
+  ConnectRefusal,
+  WireFamily,
+  WireRolePair,
+  WireSentence,
+  WireSlot,
+  WireWord,
+} from "./wires";

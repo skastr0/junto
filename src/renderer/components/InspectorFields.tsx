@@ -1299,86 +1299,48 @@ export function WatcherEditor({ node }: { readonly node: CanvasNode }) {
   </div>;
 }
 
+/** Relay binding is the wire — no node-id form. */
 export function RelayEditor({ node }: { readonly node: CanvasNode }) {
-  const relay = node.ether?.relay;
-  const [sourceNodeId, setSourceNodeId] = useState(relay?.sourceNodeId ?? "");
-  const [path, setPath] = useState<EtherRelay["path"]>(relay?.path ?? "task_state");
-  const [equals, setEquals] = useState(relay?.equals ?? "completed");
-  const [itemId, setItemId] = useState(relay?.itemId ?? "");
-
-  useEffect(() => {
-    setSourceNodeId(relay?.sourceNodeId ?? "");
-    setPath(relay?.path ?? "task_state");
-    setEquals(relay?.equals ?? "completed");
-    setItemId(relay?.itemId ?? "");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [node.id]);
-
-  const commit = (overrides: Partial<EtherRelay> = {}) => {
-    const next: EtherRelay = {
-      sourceNodeId: (overrides.sourceNodeId ?? sourceNodeId).trim(),
-      path: overrides.path ?? path,
-      ...( (overrides.equals ?? equals).trim()
-        ? { equals: (overrides.equals ?? equals).trim() }
-        : {}),
-      ...( (overrides.itemId ?? itemId).trim()
-        ? { itemId: (overrides.itemId ?? itemId).trim() }
-        : {}),
-    };
-    if (!next.sourceNodeId) return;
-    setNodeRelay(node.id, next);
-  };
+  const doc = use$(state$.doc);
+  const inbound = doc.edges.filter(
+    (edge) => edge.toNode === node.id && edge.ether?.when,
+  );
+  const outbound = doc.edges.filter(
+    (edge) =>
+      edge.fromNode === node.id &&
+      (edge.ether?.does ?? edge.ether?.effect),
+  );
+  const watchLine =
+    inbound.length === 0
+      ? "Draw a task sink into this relay to watch completions"
+      : inbound
+          .map((edge) => {
+            const src = doc.nodes.find((n) => n.id === edge.fromNode);
+            const name =
+              (src?.type === "text" ? src.text : src?.id)?.split("\n")[0] ??
+              "source";
+            const when = edge.ether?.when;
+            const word =
+              when?.word === "flagged"
+                ? `flagged ${when.flag}`
+                : "completes";
+            return `${name} · ${word}`;
+          })
+          .join("; ");
+  const effectLine =
+    outbound.length === 0
+      ? "Draw from this relay to a task sink to enqueue on fire"
+      : `${outbound.length} effect wire${outbound.length === 1 ? "" : "s"}`;
 
   return (
     <div className="inspector-section">
-      <div className="inspector-section__label">relay · watch node</div>
-      <label className="inspector-editor">
-        <span>source node id</span>
-        <input
-          aria-label="Relay source node id"
-          value={sourceNodeId}
-          onChange={(event) => setSourceNodeId(event.target.value)}
-          onBlur={() => commit()}
-        />
-      </label>
-      <label className="inspector-editor">
-        <span>path</span>
-        <Select
-          dense
-          aria-label="Relay path"
-          value={path}
-          options={[
-            { value: "task_state", label: "task state" },
-            { value: "flags", label: "flags" },
-          ]}
-          onChange={(value) => {
-            const next = value as EtherRelay["path"];
-            setPath(next);
-            commit({ path: next });
-          }}
-        />
-      </label>
-      <label className="inspector-editor">
-        <span>equals</span>
-        <input
-          aria-label="Relay equals"
-          value={equals}
-          onChange={(event) => setEquals(event.target.value)}
-          onBlur={() => commit()}
-          placeholder={path === "flags" ? "blocker" : "completed"}
-        />
-      </label>
-      {path === "task_state" ? (
-        <label className="inspector-editor">
-          <span>item id (optional)</span>
-          <input
-            aria-label="Relay task item id"
-            value={itemId}
-            onChange={(event) => setItemId(event.target.value)}
-            onBlur={() => commit()}
-          />
-        </label>
-      ) : null}
+      <div className="inspector-section__label">relay</div>
+      <div className="text-[11px] leading-snug" style={{ color: INK }}>
+        watch: {watchLine}
+      </div>
+      <div className="mt-1 text-[11px] leading-snug" style={{ color: DIM }}>
+        then: {effectLine}
+      </div>
     </div>
   );
 }

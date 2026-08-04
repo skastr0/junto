@@ -159,10 +159,10 @@ describe("physics phase membership", () => {
 });
 
 describe("physics GrantLaw (actor↔actor mailbox defaults)", () => {
-  it("ActorSink and ActorActor are Full; others None", () => {
+  it("ActorSink and ActorActor are Full; ActorScheduler OptIn for relay.trigger", () => {
     expect(grantLawBetween(canonicalRolePair("actor", "sink"))._tag).toBe("Full");
     expect(grantLawBetween(canonicalRolePair("actor", "actor"))._tag).toBe("Full");
-    expect(grantLawForRoles("actor", "scheduler")._tag).toBe("None");
+    expect(grantLawForRoles("actor", "scheduler")._tag).toBe("OptIn");
     expect(grantLawForRoles("actor", "geography")._tag).toBe("None");
     expect(grantLawForRoles("sink", "actor")._tag).toBe("None");
     expect(grantLawForRoles("geography", "sink")._tag).toBe("None");

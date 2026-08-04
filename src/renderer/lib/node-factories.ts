@@ -384,13 +384,14 @@ export const makeCronNode = (
 });
 
 /**
- * Relay — product canvas-state sensor (peer of cron, not of hermes gauge).
- * Watches another node projection; fires edge effects on rising edge.
+ * Relay — product canvas-state sensor (peer of cron).
+ * Binding is the wire: draw sink → relay (when) and relay → target (does).
+ * No sourceNodeId on the node body.
  */
 export const makeRelayNode = (
   x: number,
   y: number,
-  sourceNodeId: string,
+  _sourceNodeId?: string,
   host = "local",
 ): TextNode => ({
   id: `relay-${ulid()}`,
@@ -403,10 +404,5 @@ export const makeRelayNode = (
   ether: {
     entity: { kind: "relay" },
     host,
-    relay: {
-      sourceNodeId,
-      path: "task_state",
-      equals: "completed",
-    },
   },
 });

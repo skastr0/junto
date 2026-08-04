@@ -310,26 +310,43 @@ export const EtherTimer = Schema.Struct({
 export type EtherTimer = typeof EtherTimer.Type;
 
 /**
- * Relay: the canvas-state automation sensor (product peer of cron).
- * Watches another node’s typed projection on this board; rising edge → effects.
- * Same fire law as level sensors (rising edge + automation gate) — not “hermes.”
- * Closed paths only (expand deliberately); no free JSONPath into the authorial doc.
+ * @deprecated Wires v2: relay binding lives on watch wires (`when` on sink→relay).
+ * Still decoded for history; kernel prefers edge `when` over this body.
  */
 export const EtherRelay = Schema.Struct({
-  /** Node id whose projection is watched (same canvas). */
   sourceNodeId: Schema.String,
-  /**
-   * Closed projection paths:
-   * - task_state: a task sink item reaches `equals` state (default completed)
-   * - flags: source node carries flag `equals` (blocker|parked|attention)
-   */
   path: Schema.Literals(["task_state", "flags"]),
-  /** Task item id when path is task_state. Absent = any item matching equals. */
   itemId: Schema.optionalKey(Schema.String),
-  /** Expected state or flag name depending on path. */
   equals: Schema.optionalKey(Schema.String),
 });
 export type EtherRelay = typeof EtherRelay.Type;
+
+/** Scheduler slot on a wire (assigned by draw direction / config). */
+export const WireSlot = Schema.Literals([
+  "input",
+  "output",
+  "trigger",
+  "recipient",
+]);
+export type WireSlot = typeof WireSlot.Type;
+
+/** Watch predicate on input wires (sink→relay). */
+export const WatchWhenCompletes = Schema.Struct({
+  word: Schema.Literal("completes"),
+  /** Task item state; default completed. */
+  equals: Schema.optionalKey(Schema.String),
+  itemId: Schema.optionalKey(Schema.String),
+});
+export type WatchWhenCompletes = typeof WatchWhenCompletes.Type;
+
+export const WatchWhenFlagged = Schema.Struct({
+  word: Schema.Literal("flagged"),
+  flag: EtherFlag,
+});
+export type WatchWhenFlagged = typeof WatchWhenFlagged.Type;
+
+export const WatchWhen = Schema.Union([WatchWhenCompletes, WatchWhenFlagged]);
+export type WatchWhen = typeof WatchWhen.Type;
 
 // Automation effect plane (sibling of criteria/ports/notify). Kernel-home fire
 // applies these; never process-bind ocap. Claim assignment stays factory tick.
@@ -435,35 +452,49 @@ export const EtherNodeExtension = Schema.Struct({
 });
 export type EtherNodeExtension = typeof EtherNodeExtension.Type;
 
+/**
+ * Wires v2 — area storage on edges. Derived: sentence, family color, badges.
+ * Never stored as authorial truth: phase, runtime, labels, arrow ends.
+ *
+ * Dual-read: legacy criteria/notify/effect still decode; prefer stops/wake/does.
+ * kind + relayState decode-admitted then ignored by product readers.
+ */
 export const EtherEdgeExtension = Schema.Struct({
-  // Authorial: only criteria. Absence = soft relates (never generates/relays).
-  criteria: Schema.optionalKey(EdgeCriteria),
-  // Derived mirror of last live phase for offline JSON Canvas readers.
-  // Written only by applyPhaseMirror — never set by authoring UI.
-  kind: Schema.optionalKey(EdgePhase),
-  // Authorial ocap attenuation: subset of Port strings. Absence = full offers
-  // (default grant). Strip ether → still valid JSON Canvas 1.0.
+  // access area
   ports: Schema.optionalKey(Schema.Array(Port)),
-  /**
-   * Operator-authored wake eligibility for board megaphone.
-   * Not a Port — delivery plane, not capability. Absent / true = ON
-   * (default when an agent is connected to a board). Explicit false = OFF.
-   */
+  // task/requests area (stops word) — preferred
+  stops: Schema.optionalKey(EdgeCriteria),
+  // board area (wakes word) — preferred; absent/true = ON default for board links
+  wake: Schema.optionalKey(Schema.Boolean),
+  // scheduler-assigned slot
+  slot: Schema.optionalKey(WireSlot),
+  // watch area (input wires)
+  when: Schema.optionalKey(WatchWhen),
+  // effect area (output wires)
+  does: Schema.optionalKey(EdgeEffect),
+  // --- legacy (decode-admits-history; writers emit stops/wake/does) ---
+  criteria: Schema.optionalKey(EdgeCriteria),
   notify: Schema.optionalKey(Schema.Boolean),
-  /**
-   * Opt-in actor↔actor stoppage relay. Off by default (absent / false).
-   * When true, a blocked endpoint relays its blocked state and reasons to the
-   * other blockable endpoint; multi-hop along further relayState edges.
-   * Not a Port and not criteria — property plane only.
-   */
-  relayState: Schema.optionalKey(Schema.Boolean),
-  /**
-   * Scheduler automation effect. Applied by the kernel on home-local fire.
-   * Not a Port and not criteria. Soft relates without effect still do nothing.
-   */
   effect: Schema.optionalKey(EdgeEffect),
+  kind: Schema.optionalKey(EdgePhase),
+  relayState: Schema.optionalKey(Schema.Boolean),
 });
 export type EtherEdgeExtension = typeof EtherEdgeExtension.Type;
+
+/** Prefer v2 stops, else legacy criteria. */
+export const edgeStops = (
+  ether: EtherEdgeExtension | undefined,
+): EdgeCriteria | undefined => ether?.stops ?? ether?.criteria;
+
+/** Prefer v2 wake, else legacy notify. */
+export const edgeWake = (
+  ether: EtherEdgeExtension | undefined,
+): boolean | undefined => ether?.wake ?? ether?.notify;
+
+/** Prefer v2 does, else legacy effect. */
+export const edgeDoes = (
+  ether: EtherEdgeExtension | undefined,
+): EdgeEffect | undefined => ether?.does ?? ether?.effect;
 
 const nodeBase = {
   id: Schema.String,

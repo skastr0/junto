@@ -28,7 +28,12 @@ import {
   resetWatcherMemory,
   type WatcherStatus,
 } from "./evaluate";
-import { evaluateRelay } from "@shared/scheduler-effects";
+import {
+  collectWatchEdgesInto,
+  combineWatchEvaluations,
+  evaluateRelay,
+  evaluateWatchWhen,
+} from "@shared/scheduler-effects";
 import {
   expressionFromEveryMinutes,
   isValidCronExpression,
@@ -490,11 +495,24 @@ export const runEvaluationCycle = async (): Promise<void> => {
         }
       }
 
-      // Relay nodes: watch another node's projection; rising edge → effects.
+      // Relay nodes: watch via input wires (`when`) or legacy ether.relay body.
       for (const node of effectiveDoc.nodes) {
-        if (node.type !== "text" || !node.ether?.relay) continue;
+        if (node.type !== "text" || node.ether?.entity?.kind !== "relay") continue;
         if (!isNodeEligibleOnStation(node, stationHostId)) continue;
-        const evaluation = evaluateRelay(effectiveDoc, node.ether.relay);
+        const watchEdges = collectWatchEdgesInto(effectiveDoc, node.id);
+        let evaluation;
+        if (watchEdges.length > 0) {
+          evaluation = combineWatchEvaluations(
+            watchEdges.map((w) => evaluateWatchWhen(w.source, w.when)),
+          );
+        } else if (node.ether?.relay) {
+          evaluation = evaluateRelay(effectiveDoc, node.ether.relay);
+        } else {
+          evaluation = {
+            status: "unknown" as const,
+            detail: "draw a sink into this relay to watch",
+          };
+        }
         const result = evaluateWatcherLevel(canvasName, node.id, evaluation, {
           consumeEdge: automate,
         });

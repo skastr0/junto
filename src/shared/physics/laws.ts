@@ -63,14 +63,15 @@ export const canonicalRolePair = (
  * Actor↔actor edges use the same Full default as actor→sink edges. The target
  * actor's offered ports still bound the concrete grant, so an unmasked edge
  * grants that actor's mailbox ports while an authored edge mask can attenuate
- * them. Scheduler/geography/denied pairs stay None.
+ * them. Actor→scheduler is OptIn so relay.trigger (and future scheduler ports)
+ * ride the ocap admit path when the edge mask includes them. Geography stays None.
  */
 export const grantLawBetween = (pair: RolePair): GrantLaw =>
   Match.value(pair).pipe(
     Match.tagsExhaustive({
       ActorSink: () => GrantLaw.Full(),
       ActorActor: () => GrantLaw.Full(),
-      ActorScheduler: () => GrantLaw.None(),
+      ActorScheduler: () => GrantLaw.OptIn(),
       ActorGeography: () => GrantLaw.None(),
       Denied: () => GrantLaw.None(),
     }),

@@ -38,7 +38,9 @@ export const Port = Schema.Literals(["tasks.list", "tasks.create",
 "board.list",
 "board.create_topic",
 "board.post",
-"board.mark_read",]);
+"board.mark_read",
+/** Actor → relay: admit trigger (ocap path for agent-fired automation). */
+"relay.trigger",]);
 export type Port = typeof Port.Type;
 
 export const ALL_PORTS: ReadonlyArray<Port> = [
@@ -55,6 +57,7 @@ export const ALL_PORTS: ReadonlyArray<Port> = [
   "board.create_topic",
   "board.post",
   "board.mark_read",
+  "relay.trigger",
 ];
 
 export const portSet = (...ports: ReadonlyArray<Port>): HashSet.HashSet<Port> =>
@@ -69,8 +72,8 @@ export const portSet = (...ports: ReadonlyArray<Port>): HashSet.HashSet<Port> =>
 // role variant instead of every call site re-deciding from a parallel list.
 
 // Exactly one actor kind, and it is a single literal — the invariant lives here
-// at construction, not in a doc or a test. `agent` is the Vellum Command-spawned template
-// terminal; a raw user-opened terminal is geography, not an actor.
+// at construction, not in a doc or a test. `agent` is the Vellum Command-spawned
+// template seat. Raw user terminal is a **sink** (tmux-like resource), not an actor.
 // Literals (not single Literal) so `.literals` stays available for kind tables.
 export const ActorKind = Schema.Literals(["agent" as const]);
 export type ActorKind = typeof ActorKind.Type;
@@ -78,7 +81,8 @@ export type ActorKind = typeof ActorKind.Type;
 export const SinkKind = Schema.Literals(["page", "task",
 "requests",
 "artifacts",
-"board",]);
+"board",
+"terminal",]);
 export type SinkKind = typeof SinkKind.Type;
 
 /** Closed scheduler kinds. `timer` remains for decode of older docs; product UI authors `cron`. */

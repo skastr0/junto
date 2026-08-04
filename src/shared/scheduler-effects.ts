@@ -17,7 +17,9 @@ import type {
   EdgeEffect,
   EtherFlag,
   EtherRelay,
+  WatchWhen,
 } from "./canvas";
+import { edgeDoes } from "./canvas";
 import { resolveSpec, roleOf } from "./physics/kinds";
 
 export const SCHEDULER_ENTITY_KINDS = [
@@ -49,7 +51,7 @@ export type EffectEdgeBinding = {
   readonly target: CanvasNode;
 };
 
-/** Directed scheduler → target edges that carry an authored effect. */
+/** Directed scheduler → target edges that carry an authored effect (does | effect). */
 export const collectEffectEdgesFrom = (
   doc: CanvasDoc,
   sourceNodeId: string,
@@ -59,11 +61,37 @@ export const collectEffectEdgesFrom = (
   const out: EffectEdgeBinding[] = [];
   for (const edge of doc.edges) {
     if (edge.fromNode !== sourceNodeId) continue;
-    const effect = edge.ether?.effect;
+    const effect = edgeDoes(edge.ether);
     if (!effect) continue;
     const target = doc.nodes.find((node) => node.id === edge.toNode);
     if (!target) continue;
     out.push({ edge, effect, source: source!, target });
+  }
+  return out;
+};
+
+/** Watch input wires: sink → scheduler with when (or legacy slot input). */
+export type WatchEdgeBinding = {
+  readonly edge: CanvasEdge;
+  readonly when: WatchWhen;
+  readonly source: CanvasNode;
+  readonly scheduler: CanvasNode;
+};
+
+export const collectWatchEdgesInto = (
+  doc: CanvasDoc,
+  schedulerNodeId: string,
+): ReadonlyArray<WatchEdgeBinding> => {
+  const scheduler = doc.nodes.find((node) => node.id === schedulerNodeId);
+  if (!isSchedulerNode(scheduler)) return [];
+  const out: WatchEdgeBinding[] = [];
+  for (const edge of doc.edges) {
+    if (edge.toNode !== schedulerNodeId) continue;
+    const when = edge.ether?.when;
+    if (!when) continue;
+    const source = doc.nodes.find((node) => node.id === edge.fromNode);
+    if (!source) continue;
+    out.push({ edge, when, source, scheduler: scheduler! });
   }
   return out;
 };
@@ -118,37 +146,35 @@ export type RelayEvaluation = {
   readonly detail: string;
 };
 
-export const evaluateRelay = (
-  doc: CanvasDoc,
-  relay: EtherRelay,
+/** Evaluate a watch predicate against a concrete source node. */
+export const evaluateWatchWhen = (
+  source: CanvasNode | undefined,
+  when: WatchWhen,
 ): RelayEvaluation => {
-  const source = doc.nodes.find((node) => node.id === relay.sourceNodeId);
   if (!source) {
-    return { status: "unknown", detail: `source ${relay.sourceNodeId} missing` };
+    return { status: "unknown", detail: "source missing" };
   }
-
-  if (relay.path === "flags") {
-    const flag = (relay.equals ?? "blocker") as EtherFlag;
+  if (when.word === "flagged") {
+    const flag = when.flag;
     const has = source.ether?.flags?.includes(flag) ?? false;
     return {
       status: has ? "satisfied" : "pending",
       detail: has ? `flag ${flag} set` : `flag ${flag} absent`,
     };
   }
-
-  // task_state
+  // completes
   if (source.ether?.entity?.kind !== "task") {
     return { status: "unknown", detail: "source is not a task sink" };
   }
-  const want = relay.equals ?? "completed";
+  const want = when.equals ?? "completed";
   const items = source.ether.tasks?.items ?? [];
   if (items.length === 0) {
     return { status: "pending", detail: "no tasks" };
   }
-  if (relay.itemId) {
-    const item = items.find((task) => task.id === relay.itemId);
+  if (when.itemId) {
+    const item = items.find((task) => task.id === when.itemId);
     if (!item) {
-      return { status: "unknown", detail: `item ${relay.itemId} missing` };
+      return { status: "unknown", detail: `item ${when.itemId} missing` };
     }
     const ok = item.state === want;
     return {
@@ -167,6 +193,42 @@ export const evaluateRelay = (
     status: "pending",
     detail: `no item in state ${want}`,
   };
+};
+
+/** @deprecated Prefer evaluateWatchWhen on wire `when`. Legacy EtherRelay body. */
+export const evaluateRelay = (
+  doc: CanvasDoc,
+  relay: EtherRelay,
+): RelayEvaluation => {
+  const source = doc.nodes.find((node) => node.id === relay.sourceNodeId);
+  if (relay.path === "flags") {
+    return evaluateWatchWhen(source, {
+      word: "flagged",
+      flag: (relay.equals ?? "blocker") as EtherFlag,
+    });
+  }
+  return evaluateWatchWhen(source, {
+    word: "completes",
+    ...(relay.equals ? { equals: relay.equals } : {}),
+    ...(relay.itemId ? { itemId: relay.itemId } : {}),
+  });
+};
+
+/**
+ * Combine multiple watch inputs: satisfied if ANY is satisfied.
+ * unknown only if all unknown; else pending if none satisfied.
+ */
+export const combineWatchEvaluations = (
+  parts: ReadonlyArray<RelayEvaluation>,
+): RelayEvaluation => {
+  if (parts.length === 0) {
+    return { status: "unknown", detail: "no watch wires" };
+  }
+  const satisfied = parts.find((p) => p.status === "satisfied");
+  if (satisfied) return satisfied;
+  const pending = parts.find((p) => p.status === "pending");
+  if (pending) return pending;
+  return parts[0]!;
 };
 
 export const resolveMirrorFlagEnabled = (

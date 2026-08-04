@@ -104,6 +104,7 @@ export const OPS_BY_SINK = {
     "board.mark_read",
   ],
   page: [],
+  terminal: [],
 } as const satisfies Record<SinkKind, ReadonlyArray<TargetWorkOpName>>;
 
 export const opsForSink = (kind: SinkKind): ReadonlyArray<TargetWorkOpName> =>
