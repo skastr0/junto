@@ -75,14 +75,7 @@
 }
 .factory-glance__empty { padding: 3px 0; }
 
-.vellum-edge__rail-bed {
-  opacity: .13;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  pointer-events: none;
-}
-/* Worded-wire halo: watch/effect only (access claim bundles stay hairlines).
-   Coaxial with the hairline so parallel worded runs merge into a corridor. */
+/* Worded-wire halo: watch/effect only (access claim bundles stay hairlines). */
 .vellum-edge__word-bed {
   opacity: .28;
   stroke-linecap: round;
@@ -95,18 +88,9 @@ path.vellum-edge {
     stroke 420ms cubic-bezier(.22,.61,.36,1),
     opacity 240ms ease-out;
 }
-/* Soft relation only when no wire family is known (fallback furniture). */
-path.vellum-edge--soft-relation:not([class*="vellum-edge--family-"]) {
-  stroke-dasharray: 1.5 5;
-}
-path.vellum-edge--artifact-flow { stroke-dasharray: 1 3; }
-/* Agent↔agent msg.send: solid medium stroke (not dotted soft-relation). */
-path.vellum-edge--agent-msg {
-  stroke-dasharray: none;
-  stroke-linecap: round;
-}
-/* Wire-family lay (artifact grammar) — always wins over soft-relation dots. */
-path.vellum-edge--family-access {
+/* Wire-family lay — sole visual fork for edges (no pair-role roles). */
+path.vellum-edge--family-access,
+path.vellum-edge--family-unknown {
   stroke-dasharray: none;
   stroke-linecap: round;
 }
@@ -129,9 +113,11 @@ path.vellum-edge--disabled {
   pointer-events: none;
   stroke-linecap: square;
 }
-.vellum-edge__signal--task-flow { stroke-width: 1.1; stroke-dasharray: 3 9; opacity: .5; }
-.vellum-edge__signal--request-flow { stroke-width: 3; stroke-dasharray: .65 10.45; opacity: .46; }
-.vellum-edge__signal--scheduler-flow { stroke-width: 2.2; stroke-dasharray: .7 8.3; opacity: .4; }
+.vellum-edge__signal--effect {
+  stroke-width: 2.2;
+  stroke-dasharray: .7 8.3;
+  opacity: .4;
+}
 .vellum-edge__interruption {
   pointer-events: none;
   stroke: var(--color-crimson);

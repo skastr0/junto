@@ -15,22 +15,12 @@ export type NodeData = {
   blocked: boolean;
 };
 
-/** Renderer-only edge grammar. Durable edge meaning remains in CanvasEdge. */
-export type EdgeVisualRole =
-  | "task-flow"
-  | "request-flow"
-  | "artifact-flow"
-  | "scheduler-flow"
-  /** Agent↔agent with msg.send granted — collab link (amber, medium weight). */
-  | "agent-msg"
-  | "soft-relation";
-
+/** Flow edge data — durable meaning stays on CanvasEdge; paint uses wire family. */
 export type EdgeData = {
   edge: CanvasEdge;
   rippling: boolean;
   phase: EdgePhase;
   detail: string;
-  visualRole: EdgeVisualRole;
   /** Focus selection member (stoppage cone or direct connection neighborhood). */
   impact?: "in";
 };
@@ -71,62 +61,6 @@ const entityKind = (node: CanvasNode | undefined): string | undefined =>
 /** True when the effective edge mask leaves msg.send available. */
 export const edgeHasMsgSend = (edge: CanvasEdge): boolean =>
   edgeMaskAllows(edge, "msg.send");
-
-/**
- * Pair-aware visual projection. This is intentionally not a canvas contract:
- * drawing or deleting the same edge keeps exactly the same product authority.
- */
-export const edgeVisualRole = (
-  edge: CanvasEdge,
-  source: CanvasNode | undefined,
-  target: CanvasNode | undefined,
-): EdgeVisualRole => {
-  const from = entityKind(source);
-  const to = entityKind(target);
-  const connects = (a: string, b: string): boolean =>
-    (from === a && to === b) || (from === b && to === a);
-  // Resting construction describes the connected pair, not authored
-  // direction. Direction remains meaningful for authority and event travel.
-  if (connects("task", "agent")) return "task-flow";
-  if (connects("agent", "requests")) return "request-flow";
-  if (connects("agent", "artifacts")) return "artifact-flow";
-  // Agent↔agent with msg.send is a live collab link — amber presentation only
-  // when the effective port is enabled (an explicit mask may attenuate it).
-  if (connects("agent", "agent") && edgeHasMsgSend(edge)) return "agent-msg";
-  const does = edge.ether?.does ?? edge.ether?.effect;
-  const when = edge.ether?.when;
-  const slot = edge.ether?.slot;
-  if (
-    does ||
-    when ||
-    slot === "input" ||
-    slot === "output" ||
-    slot === "trigger" ||
-    slot === "recipient" ||
-    (from === "cron" ||
-      from === "timer" ||
-      from === "gauge" ||
-      from === "watcher" ||
-      from === "relay" ||
-      to === "relay" ||
-      to === "cron")
-  ) {
-    if (
-      does ||
-      when ||
-      from === "cron" ||
-      from === "timer" ||
-      from === "gauge" ||
-      from === "watcher" ||
-      from === "relay" ||
-      to === "relay" ||
-      to === "cron"
-    ) {
-      return "scheduler-flow";
-    }
-  }
-  return "soft-relation";
-};
 
 // CanvasDoc -> React Flow. Optional kernel execution overlay carries the
 // main-process phase snapshot so the canvas does not re-derive it.
@@ -209,11 +143,6 @@ export const toFlow = (
     const phase = phaseOf(edge.id);
     const detail = detailOf(edge.id);
     const rippling = blockedEdgeIds.has(edge.id);
-    const visualRole = edgeVisualRole(
-      edge,
-      nodeById.get(edge.fromNode),
-      nodeById.get(edge.toNode),
-    );
     const cached = cache?.edges.get(edge.id);
     // Hit on *source* doc edge ref + live phase inputs — never compare against
     // the projected edge (which always remints ether/label).
@@ -222,8 +151,7 @@ export const toFlow = (
       cached.source === edge &&
       cached.flow.data?.phase === phase &&
       cached.flow.data?.detail === detail &&
-      cached.flow.data?.rippling === rippling &&
-      cached.flow.data?.visualRole === visualRole
+      cached.flow.data?.rippling === rippling
     ) {
       return cached.flow;
     }
@@ -247,7 +175,6 @@ export const toFlow = (
         rippling,
         phase,
         detail,
-        visualRole,
       },
       // Below non-group nodes (z=2). Selected edges may elevate via React Flow.
       zIndex: 1,

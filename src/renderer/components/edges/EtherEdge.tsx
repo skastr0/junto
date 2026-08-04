@@ -95,9 +95,7 @@ export function EtherEdge({
   markerEnd,
 }: EdgeProps<FlowEdge>) {
   const phase = data?.phase ?? data?.edge.ether?.kind ?? "relates";
-  const visualRole = data?.visualRole ?? "soft-relation";
   const detail = data?.detail ?? "";
-  const hasCriteria = Boolean(data?.edge.ether?.criteria);
   const rippling = data?.rippling ?? false;
   const blocked = phase === "blocks" || rippling;
   const previousBlockedRef = useRef(blocked);
@@ -171,9 +169,7 @@ export function EtherEdge({
   const color =
     phase === "blocks"
       ? EDGE_COLOR.blocks
-      : (authoredColor ??
-        familyColor ??
-        (visualRole === "agent-msg" ? HUE.amber : EDGE_COLOR.relates));
+      : (authoredColor ?? familyColor ?? EDGE_COLOR.relates);
 
   // Selection impact mode — only "in" is stamped (CSS dims the rest).
   const impactIn = data?.impact === "in";
@@ -229,28 +225,13 @@ export function EtherEdge({
   const labelX = routed?.labelX ?? fallbackLabelX;
   const labelY = routed?.labelY ?? fallbackLabelY;
 
-  // Family hairlines are equal weight. No special thick task-flow claim rails
-  // (stoppage is node chrome + phase, not a fatter wire).
-  const baseWidth =
-    visualRole === "agent-msg"
-      ? 1.55
-      : visualRole === "artifact-flow"
-        ? 0.85
-        : 1.2;
+  // One paint grammar: wire family. Equal hairline weight for every pair.
+  const baseWidth = 1.2;
   const disabled = presentation?.disabled ?? false;
-  const baseOpacity = disabled
-    ? 0.25
-    : visualRole === "artifact-flow"
-      ? 0.42
-      : visualRole === "agent-msg"
-        ? 0.88
-        : visualRole === "soft-relation" && !hasCriteria && !family
-          ? 0.38
-          : 0.9;
+  const baseOpacity = disabled ? 0.25 : family ? 0.9 : 0.55;
   const className = [
     "vellum-edge",
-    `vellum-edge--${visualRole}`,
-    family ? `vellum-edge--family-${family}` : "",
+    family ? `vellum-edge--family-${family}` : "vellum-edge--family-unknown",
     presentation?.worded ? "vellum-edge--worded" : "",
     disabled ? "vellum-edge--disabled" : "",
     blocked ? "vellum-edge--blocked" : "",
@@ -259,8 +240,7 @@ export function EtherEdge({
     routed?.detoured ? "vellum-edge--routed" : "",
   ].filter(Boolean).join(" ");
 
-  // Word halo: watch/effect only. Access stops are sheet config — not a fat
-  // claim corridor (bundles of task→agent edges were unreadable white beams).
+  // Word halo: watch/effect only (access stays hairline even with stops).
   const worded = presentation?.worded ?? false;
   const showWordBed =
     !disabled &&
@@ -289,19 +269,17 @@ export function EtherEdge({
           stroke: color,
           strokeWidth: impactIn ? Math.max(baseWidth, 1.6) : baseWidth,
           opacity: impactIn && !disabled ? 1 : baseOpacity,
-          // Family lay always wins over soft-relation CSS dots.
           ...(strokeDasharray
             ? { strokeDasharray: strokeDasharray === "none" ? "none" : strokeDasharray }
             : {}),
         }}
       />
-      {!disabled &&
-      (visualRole === "scheduler-flow" || family === "effect") ? (
+      {!disabled && family === "effect" ? (
         <path
           d={path}
           fill="none"
           stroke={color}
-          className="vellum-edge__signal vellum-edge__signal--scheduler-flow"
+          className="vellum-edge__signal vellum-edge__signal--effect"
           pathLength={100}
         />
       ) : null}
