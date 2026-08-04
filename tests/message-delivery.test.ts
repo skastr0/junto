@@ -61,7 +61,7 @@ const terminalNode = (messages: ReadonlyArray<Message> = []): CanvasDoc["nodes"]
 
 describe("message-delivery pure helpers", () => {
   it("formats one-line payload with role and optional taskId", () => {
-    expect(composeMessageDeliveryPayload(userMsg())).toBe("[message · user] ping the lane");
+    expect(composeMessageDeliveryPayload(userMsg())).toBe("[message - user] ping the lane");
     expect(
       composeMessageDeliveryPayload(
         userMsg({
@@ -69,7 +69,7 @@ describe("message-delivery pure helpers", () => {
           taskId: "task-9",
         }),
       ),
-    ).toBe("[message · user] ping the lane · task task-9");
+    ).toBe("[message - user] ping the lane - task task-9");
   });
 
   it("sender is role only; brief strips controls and collapses whitespace", () => {

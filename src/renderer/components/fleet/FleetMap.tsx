@@ -334,7 +334,7 @@ function FleetMapInner({
         <div className="fleet-map__context" role="status">
           <span>Command Center routes</span>
           <span>
-            {stations.length} enrolled · {peers.length} discovered
+            {stations.length} enrolled - {peers.length} discovered
           </span>
         </div>
         <div
@@ -362,7 +362,7 @@ function FleetMapInner({
           <span><i className="fleet-pip--unreachable" />unreachable</span>
           <span><i className="fleet-pip--unknown" />untested</span>
         </div>
-        <div className="fleet-map__hint">drag to pan · scroll to zoom · select a machine to inspect</div>
+        <div className="fleet-map__hint">drag to pan - scroll to zoom - select a machine to inspect</div>
       </ReactFlow>
     </FleetRendererProvider>
     </div>

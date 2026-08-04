@@ -84,8 +84,8 @@ test("shift multi-select: RTS multi command + multi-prompt", async ({ vellum }) 
 
   const multiCmd = page.getByTestId("rts-multi-command");
   await expect(multiCmd).toBeVisible();
-  await expect(multiCmd.locator(".rts-panel__label")).toContainText("command · multi");
-  await expect(multiCmd.locator(".rts-cmd__meta")).toContainText("2 · agents");
+  await expect(multiCmd.locator(".rts-panel__label")).toContainText("command - multi");
+  await expect(multiCmd.locator(".rts-cmd__meta")).toContainText("2 - agents");
 
   const multiPrompt = page.getByTestId("rts-multi-prompt");
   await expect(multiPrompt).toBeVisible();

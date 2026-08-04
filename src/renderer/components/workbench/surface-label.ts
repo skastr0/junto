@@ -20,7 +20,7 @@ export function surfaceLabel(
     if (nodeId) {
       const terminal = getHerdrTerminal(nodeId);
       if (terminal) return terminal.title || "herdr";
-      return `herdr · ${nodeId.slice(0, 12)}`;
+      return `herdr - ${nodeId.slice(0, 12)}`;
     }
     return "herdr";
   }
@@ -35,7 +35,7 @@ export function surfaceLabel(
   if (surface.kind === "task-create") {
     const payload = dock$.taskCreateById[surface.id].peek();
     if (!payload) return "enqueue";
-    return payload.mode === "proposal" ? `propose · ${payload.title}` : `enqueue · ${payload.title}`;
+    return payload.mode === "proposal" ? `propose - ${payload.title}` : `enqueue - ${payload.title}`;
   }
   return surface.kind;
 }

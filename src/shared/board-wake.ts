@@ -101,12 +101,12 @@ export const composeBoardInjectEnvelope = (wake: BoardWakeEvent): string => {
   const body = excerpt.length > 0 ? excerpt : "(empty)";
   const prefix =
     wake.kind === "operator.notify.all"
-      ? `[board · notify-all · ${topic}]`
+      ? `[board - notify-all - ${topic}]`
       : wake.kind === "scheduler.pulse"
-        ? `[board · pulse · ${topic}]`
-        : `[board · ${topic}]`;
+        ? `[board - pulse - ${topic}]`
+        : `[board - ${topic}]`;
   return sanitizeDeliveryLine(
-    `${prefix} ${body} · mark_read or post optional`,
+    `${prefix} ${body} - mark_read or post optional`,
   );
 };
 

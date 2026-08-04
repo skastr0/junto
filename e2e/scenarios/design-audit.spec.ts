@@ -435,7 +435,7 @@ test("capture every surface for design review", async () => {
     world,
     frames: {
       term_1: [
-        { text: "● claude · forging design tokens\r\n" },
+        { text: "● claude - forging design tokens\r\n" },
         { text: "$ bun run typecheck && bun run test\r\n" },
         { text: "✓ 187 tests passed\r\n" },
       ],
@@ -812,7 +812,7 @@ test("capture Board empty and populated states", async () => {
     };
 
     await createTopic(
-      "Release readiness · August 3",
+      "Release readiness - August 3",
       "Capture blockers, proof receipts, and operator decisions for the next signed build.",
     );
     await bulletinBoard

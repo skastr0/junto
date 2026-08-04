@@ -177,7 +177,7 @@ const PermissionCard = memo(function PermissionCard({
               size="inline"
             />
           ) : null}
-          <span>{item.toolKind ? `${item.toolKind} · ` : ""}{item.title}</span>
+          <span>{item.toolKind ? `${item.toolKind} - ` : ""}{item.title}</span>
         </div>
         <div className="chat-permission-card__options">
           {item.options.map((option) => {

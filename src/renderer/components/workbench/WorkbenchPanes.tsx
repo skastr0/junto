@@ -40,7 +40,7 @@ function HerdrSurfaceSlot({
   if (!nodeId) {
     return (
       <section className="dock-slot workbench-surface">
-        <div className="workbench-surface__placeholder">herdr · unbound</div>
+        <div className="workbench-surface__placeholder">herdr - unbound</div>
       </section>
     );
   }
@@ -112,7 +112,7 @@ function resolveSurfaceBody(
         {node ? (
           <TerminalSurface node={node} />
         ) : (
-          <div className="workbench-surface__placeholder">terminal · unbound</div>
+          <div className="workbench-surface__placeholder">terminal - unbound</div>
         )}
       </section>
     );
@@ -142,7 +142,7 @@ function resolveSurfaceBody(
       className="dock-slot workbench-surface"
       onMouseDown={activateSurfaceOnMouseDown(onActivate)}
     >
-      <div className="workbench-surface__placeholder">{surface.kind} · {surface.id}</div>
+      <div className="workbench-surface__placeholder">{surface.kind} - {surface.id}</div>
     </section>
   );
 }

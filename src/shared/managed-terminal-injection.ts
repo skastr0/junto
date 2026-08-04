@@ -96,14 +96,14 @@ Call **\`vellum onboard\`** at session start and after every compaction (or when
 | propose work | \`vellum tasks create '{"target":"<id>","brief":"..."}'\` |
 | claim | \`vellum tasks claim --target <id> --task <id>\` |
 | progress / settle / block task | \`vellum tasks update --target <id> --task <id> --state <state>\` |
-| read / write thread | \`vellum msg list\` · \`vellum msg send\` · \`vellum msg read\` · \`vellum msg reply\` |
+| read / write thread | \`vellum msg list\` - \`vellum msg send\` - \`vellum msg read\` - \`vellum msg reply\` |
 | factory mail | on inject: \`msg list\` then \`msg reply\` (or \`msg read\` if no reply) — stops re-nudge pressure |
 | escalate to human | \`vellum escalate\` |
 | ship output | \`vellum artifact publish\` |
 | list granted pages | \`vellum browser pages --json\` |
 | open a granted page | \`vellum browser open <vellum-ref> --json\` |
-| navigate / inspect / capture | \`vellum browser goto\` · \`vellum browser eval\` · \`vellum browser shot\` |
-| schemas / examples | \`vellum schema\` · \`vellum examples\` |
+| navigate / inspect / capture | \`vellum browser goto\` - \`vellum browser eval\` - \`vellum browser shot\` |
+| schemas / examples | \`vellum schema\` - \`vellum examples\` |
 
 \`browser.automate\` is a live edge grant realized by \`vellum browser\` from
 the managed agent's existing shell. Existing sessions may use it immediately
@@ -128,7 +128,7 @@ const formatConnectedTargets = (
   }
   return targets
     .map((t) => {
-      const kind = t.kind?.trim() ? ` · ${t.kind.trim()}` : "";
+      const kind = t.kind?.trim() ? ` - ${t.kind.trim()}` : "";
       const summary = t.summary?.trim() ? ` — ${t.summary.trim()}` : "";
       return `- \`${t.id}\`${kind}${summary}`;
     })

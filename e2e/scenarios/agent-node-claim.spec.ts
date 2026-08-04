@@ -21,7 +21,7 @@ const fixtureDoc = canvasDoc(
     agentTextNode({
       id: "worker",
       key: "local:worker",
-      label: "Claude Code · opus",
+      label: "Claude Code - opus",
       x: 40,
       y: 260,
     }),

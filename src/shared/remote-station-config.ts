@@ -61,6 +61,6 @@ export const planRemoteStationConfig = (
   const station = planRemoteStationFields(input);
   return {
     station,
-    summary: `role=remote · hostId=${station.hostId} · agentHostId=${station.agentHostId} · supervisedPreferred=${station.supervisedPreferred}`,
+    summary: `role=remote - hostId=${station.hostId} - agentHostId=${station.agentHostId} - supervisedPreferred=${station.supervisedPreferred}`,
   };
 };

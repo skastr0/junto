@@ -13,7 +13,7 @@
 
 <p align="center">
   <a href="https://vellumcommand.com/download"><strong>Download for macOS</strong></a>
-  ·
+  -
   <a href="https://vellumcommand.com">vellumcommand.com</a>
 </p>
 
@@ -148,7 +148,7 @@ Derived state (blocked seats, region membership, binding health, live phase) is 
 
 | Stamp | What |
 |---|---|
-| **Flags** | `blocker` · `parked` · `attention` — visual + graph seed |
+| **Flags** | `blocker` - `parked` - `attention` — visual + graph seed |
 | **View slice** | retired — project slice lens removed |
 | **Host stamp** | `ether.host` — multi-fleet execution locality |
 | **Region defaults** | Create-time defaults for herdr/page inside a region |
@@ -215,7 +215,7 @@ Build the CLI: `bun run cli:build` → `dist/vellum`.
 
 **Process-bind:** the principal is the live ACP/herdr child PID — no freeform nodeRef identity claim. Draw edges from the agent to targets so authorization is spatial and honest.
 
-**Task states:** `submitted` · `working` · `input-required` · `completed` · `canceled` · `failed` · `rejected` — legal transitions enforced.
+**Task states:** `submitted` - `working` - `input-required` - `completed` - `canceled` - `failed` - `rejected` — legal transitions enforced.
 
 ---
 
@@ -265,7 +265,7 @@ App must be running. Control home: `~/.vellum/browser/` (override `VELLUM_BROWSE
 | **Quit** | Detaches control streams only — fleet keeps running |
 | **Hosts** | Settings → Hosts; registry rows live in `vellum.db`; local is seeded with herdr+hermes |
 
-Connection states: connected · degraded · lost · failed · reconnect. Clipboard image paste supported (bounded).
+Connection states: connected - degraded - lost - failed - reconnect. Clipboard image paste supported (bounded).
 
 ---
 
@@ -318,7 +318,7 @@ Preferences, station topology, and host enrollment live as normalized rows in
 | Supervised (LaunchAgent, crash-only KeepAlive) | `bun run app:install:supervised` |
 | Unload agent, keep app | `bun run app:uninstall-agent` |
 
-App bundle: **Vellum Command.app** · protocol: `vellum://` node references.
+App bundle: **Vellum Command.app** - protocol: `vellum://` node references.
 
 ---
 
@@ -428,7 +428,7 @@ enrollment, canvases, work, and Station coordination.
 | Supervised LaunchAgent | `bun run app:install:supervised` |
 | Unload agent | `bun run app:uninstall-agent` |
 
-Bundle: **Vellum Command.app** · scheme: `vellum://`
+Bundle: **Vellum Command.app** - scheme: `vellum://`
 
 ---
 
@@ -614,7 +614,7 @@ vellum request create
 vellum artifact publish
 ```
 
-Socket `~/.vellum/work/control.sock` · token `~/.vellum/work/token` · authz by **edges** · identity by process-bind.
+Socket `~/.vellum/work/control.sock` - token `~/.vellum/work/token` - authz by **edges** - identity by process-bind.
 
 ---
 
@@ -632,7 +632,7 @@ vellum-browser goto | eval | shot | close | stop
 
 ---
 
-## Herdr · Kernel · Stations · Hosts
+## Herdr - Kernel - Stations - Hosts
 
 - **Herdr** — canvas cards bound to PTY panes; wizard bind; detach-on-quit; multi-host registry
 - **Kernel** — regions, watchers, timers (status/clock only; no region pulse inject)

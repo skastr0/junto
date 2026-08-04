@@ -146,7 +146,7 @@ export const leadStaffing = (
 
 /**
  * Format one RTS/digest line:
- *   "1 request · stops 4 · leads: hermes (unstaffed), agent-b"
+ *   "1 request - stops 4 - leads: hermes (unstaffed), agent-b"
  */
 export const formatRankedStoppageLine = (
   ranked: RankedStoppage,
@@ -158,12 +158,12 @@ export const formatRankedStoppageLine = (
   const leads =
     ranked.attentionLeadIds.length === 0
       ? ""
-      : ` · leads: ${ranked.attentionLeadIds
+      : ` - leads: ${ranked.attentionLeadIds
           .map((id) => {
             const label = options.titleOf(id);
             const staff = leadStaffing(id, options.occupancyByNodeId);
             return staff === "unstaffed" ? `${label} (unstaffed)` : label;
           })
           .join(", ")}`;
-  return `${ranked.seedBrief} · stops ${ranked.stops}${leads}`;
+  return `${ranked.seedBrief} - stops ${ranked.stops}${leads}`;
 };

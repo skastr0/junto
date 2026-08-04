@@ -70,21 +70,21 @@ function reachabilityLine(probe?: FleetProbeState): {
     case "reachable":
       if (probe.protocol?.compatibility === "update-required") {
         return {
-          text: "reachable · update required",
+          text: "reachable - update required",
           detail: probe.detail,
           color: HUE.amber,
         };
       }
       if (probe.protocol?.compatibility === "deprecated") {
         return {
-          text: `reachable · protocol ${probe.protocol.negotiatedProtocol} deprecated`,
+          text: `reachable - protocol ${probe.protocol.negotiatedProtocol} deprecated`,
           detail: probe.detail,
           color: HUE.amber,
         };
       }
       return {
         text: probe.latencyMs !== undefined
-          ? `reachable · ${probe.latencyMs} ms`
+          ? `reachable - ${probe.latencyMs} ms`
           : "reachable",
         detail: probe.detail,
         color: "#5FB98E",
@@ -212,7 +212,7 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
     // missing job-bridge (stale preload) still shows what main ran.
     const recovery = deployRecoveryGuidance(result.recoveryAction);
     const stages = result.stages?.length
-      ? `\n${result.stages.map((stage) => `· ${stage}`).join("\n")}`
+      ? `\n${result.stages.map((stage) => `- ${stage}`).join("\n")}`
       : "";
     if (!result.ok) {
       setActionLine(
@@ -358,7 +358,7 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
             <span>
               {probe.protocol.compatibility === "update-required"
                 ? "update required"
-                : `${probe.protocol.negotiatedProtocol} · ${probe.protocol.compatibility}`}
+                : `${probe.protocol.negotiatedProtocol} - ${probe.protocol.compatibility}`}
             </span>
             <span>local app / schema</span>
             <span>
@@ -368,7 +368,7 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
             <span>local support</span>
             <span>
               {probe.protocol.local.support.compatibleFrom}–
-              {probe.protocol.local.support.preferred} · warn below{" "}
+              {probe.protocol.local.support.preferred} - warn below{" "}
               {probe.protocol.local.support.warnBelow}
             </span>
             <span>Remote app / schema</span>
@@ -380,7 +380,7 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
             <span>Remote support</span>
             <span>
               {probe.protocol.peer
-                ? `${probe.protocol.peer.support.compatibleFrom}–${probe.protocol.peer.support.preferred} · warn below ${probe.protocol.peer.support.warnBelow}`
+                ? `${probe.protocol.peer.support.compatibleFrom}–${probe.protocol.peer.support.preferred} - warn below ${probe.protocol.peer.support.warnBelow}`
                 : "unknown"}
             </span>
           </div>
@@ -399,7 +399,7 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
           <div className="fleet-detail__section-label">
             Linux host
             {linuxReleaseBlocked
-              ? ` · ${LINUX_HOST_UNAVAILABLE_IN_RELEASE_LABEL}`
+              ? ` - ${LINUX_HOST_UNAVAILABLE_IN_RELEASE_LABEL}`
               : ""}
           </div>
           {linuxReleaseBlocked ? (
@@ -697,7 +697,7 @@ export function FleetDetailPanel({
             {selection.kind === "station"
               ? reach?.text
               : selection.kind === "ghost"
-                ? `${selection.peer.os ?? "unknown device"} · ${selection.peer.online ? "online" : "offline"}`
+                ? `${selection.peer.os ?? "unknown device"} - ${selection.peer.online ? "online" : "offline"}`
                 : ccHostId || "local"}
           </small>
         </div>

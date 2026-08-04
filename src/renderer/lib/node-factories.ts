@@ -134,7 +134,7 @@ export const makeManagedAgentNode = (
     options.model,
     options.effort,
   ].filter((p): p is string => Boolean(p && p.trim()));
-  const label = options.label?.trim() || parts.join(" · ");
+  const label = options.label?.trim() || parts.join(" - ");
   // Pin harnesses (Claude/Grok) require a UUID for --session-id; ULIDs are rejected.
   const pinSession =
     template.capabilityBadges.sessionId === "pin"
@@ -263,7 +263,7 @@ export const makeHerdrNode = (
   const title =
     label?.trim() ||
     herdr.label?.trim() ||
-    [herdr.host, herdr.paneId].filter(Boolean).join(" · ") ||
+    [herdr.host, herdr.paneId].filter(Boolean).join(" - ") ||
     "herdr";
   return {
     id: `herdr-${ulid()}`,

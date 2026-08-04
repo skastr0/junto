@@ -97,7 +97,7 @@ describe("wires grammar", () => {
       formatWireSentence(
         sentenceOf({ family: "watch", words: ["completes"] }),
       ),
-    ).toBe("watch · completes");
+    ).toBe("watch - completes");
     expect(familyColorToken("effect")).toBe("amber");
     expect(familyColorToken("access")).toBe("steel");
   });

@@ -4,7 +4,7 @@ import { Eyebrow } from "./Eyebrow";
 /**
  * Overlay header — the one chrome header for every work-surface panel
  * (terminal, herdr, browser, detail readers). Structure:
- *   eyebrow (context hints) / title / status line ····· actions
+ *   eyebrow (context hints) / title / status line ----- actions
  * Replaces the cloned herdr-modal-header / browser-modal-header blocks and
  * gives surfaces like the native terminal the same face.
  */

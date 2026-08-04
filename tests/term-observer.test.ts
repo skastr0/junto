@@ -62,9 +62,9 @@ describe("SessionObserver", () => {
       rows: 24,
     });
     try {
-      await feedAndWait(obs, "\x1b]0;Claude · working\x07");
+      await feedAndWait(obs, "\x1b]0;Claude - working\x07");
       const snap = await obs.snapshot();
-      expect(snap.signals.title).toBe("Claude · working");
+      expect(snap.signals.title).toBe("Claude - working");
 
       await feedAndWait(obs, "\x1b]2;Action Required\x07", 2n);
       expect((await obs.snapshot()).signals.title).toBe("Action Required");

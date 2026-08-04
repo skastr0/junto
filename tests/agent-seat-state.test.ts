@@ -112,7 +112,7 @@ describe("evaluate — claude", () => {
         lines: [
           HR,
           "Allow edit?",
-          "Enter to select · Esc to cancel · Tab/Arrow keys to navigate",
+          "Enter to select - Esc to cancel - Tab/Arrow keys to navigate",
         ],
       }),
       { harness: "claude" },
@@ -200,7 +200,7 @@ describe("evaluate — codex", () => {
     const r = evaluate(
       snap({
         title: "",
-        lines: ["• Working (esc to interrupt) · 12s"],
+        lines: ["• Working (esc to interrupt) - 12s"],
       }),
       { harness: "codex" },
     );
@@ -270,8 +270,8 @@ describe("evaluate — hermes", () => {
       snap({
         lines: [
           "Dangerous command detected",
-          "Allow once · Allow for this session · Deny",
-          "Enter to confirm · ↑/↓ to select",
+          "Allow once - Allow for this session - Deny",
+          "Enter to confirm - ↑/↓ to select",
         ],
       }),
       { harness: "hermes" },

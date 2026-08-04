@@ -1,12 +1,12 @@
 /**
  * Static marketing stills — clean geometry only.
- *   01  one-region · short left→right chain
- *   02  two-region multi-host · each region a clean chain
- *   03  five-region map · three nodes per region, no cross-region edges
+ *   01  one-region - short left→right chain
+ *   02  two-region multi-host - each region a clean chain
+ *   03  five-region map - three nodes per region, no cross-region edges
  *   04  six-machine fleet manager
- *   05  five-region · large forge with 2×2 agents → tasks/requests/artifacts
- *   06  work UI grid · kanban + requests + artifacts (composited)
- *   07  open UIs grid · ACP chat + native terminal + herdr modal
+ *   05  five-region - large forge with 2×2 agents → tasks/requests/artifacts
+ *   06  work UI grid - kanban + requests + artifacts (composited)
+ *   07  open UIs grid - ACP chat + native terminal + herdr modal
  *
  * Layout rules for canvas plates:
  *   - fixed card size 260×110; column pitch with ≥120px gaps
@@ -82,7 +82,7 @@ const resizeFrame = async (
 
 const hideFilmChrome = async (page: Page) => {
   await page
-    .getByText("DEMO · F9 to roll", { exact: false })
+    .getByText("DEMO - F9 to roll", { exact: false })
     .evaluate((el) => {
       const chip = el.parentElement;
       if (chip) chip.style.display = "none";
@@ -142,7 +142,7 @@ const TERM_LAUNCH = {
   argv: [
     "/bin/sh",
     "-c",
-    "printf '\\033[1;33m● agent · ready\\033[0m\\r\\n$ bun run typecheck\\r\\n\\033[32m✓ pass\\033[0m\\r\\n'; exec sleep 3600",
+    "printf '\\033[1;33m● agent - ready\\033[0m\\r\\n$ bun run typecheck\\r\\n\\033[32m✓ pass\\033[0m\\r\\n'; exec sleep 3600",
   ],
 };
 
@@ -221,7 +221,7 @@ const paneNode = (p: Pane) =>
     y: p.y,
   });
 
-// ── 01 · one region · single clean chain ────────────────────────────────────
+// ── 01 - one region - single clean chain ────────────────────────────────────
 
 test("still 01 — one region factory close", async () => {
   await mkdir(SHOTS, { recursive: true });
@@ -258,7 +258,7 @@ test("still 01 — one region factory close", async () => {
   const region: GroupNode = {
     id: "rg-forge",
     type: "group",
-    label: "forge · build lane",
+    label: "forge - build lane",
     x: ox,
     y: oy,
     width: regionW,
@@ -318,7 +318,7 @@ test("still 01 — one region factory close", async () => {
   }
 });
 
-// ── 02 · two regions · multi-host · two parallel chains ─────────────────────
+// ── 02 - two regions - multi-host - two parallel chains ─────────────────────
 
 test("still 02 — multi-host work board", async () => {
   await mkdir(SHOTS, { recursive: true });
@@ -335,7 +335,7 @@ test("still 02 — multi-host work board", async () => {
   const forge: GroupNode = {
     id: "rg-forge",
     type: "group",
-    label: "forge · local",
+    label: "forge - local",
     x: fx,
     y: fy,
     width: regionW,
@@ -353,7 +353,7 @@ test("still 02 — multi-host work board", async () => {
   const beacon: GroupNode = {
     id: "rg-beacon",
     type: "group",
-    label: "beacon · remote-a",
+    label: "beacon - remote-a",
     x: bx,
     y: by,
     width: regionW,
@@ -454,7 +454,7 @@ test("still 02 — multi-host work board", async () => {
   }
 });
 
-// ── 03 · five regions · 3-node chain each · no cross edges ──────────────────
+// ── 03 - five regions - 3-node chain each - no cross edges ──────────────────
 
 test("still 03 — five region factory map", async () => {
   await mkdir(SHOTS, { recursive: true });
@@ -484,7 +484,7 @@ test("still 03 — five region factory map", async () => {
   const orbits: readonly Orbit[] = [
     {
       id: "forge",
-      label: "forge · build",
+      label: "forge - build",
       host: "local",
       agent: "rivet",
       agentKey: "local:builder",
@@ -498,7 +498,7 @@ test("still 03 — five region factory map", async () => {
     },
     {
       id: "beacon",
-      label: "beacon · launch",
+      label: "beacon - launch",
       host: "remote-a",
       agent: "ward",
       agentKey: "remote-a:release",
@@ -512,7 +512,7 @@ test("still 03 — five region factory map", async () => {
     },
     {
       id: "survey",
-      label: "survey · research",
+      label: "survey - research",
       host: "remote-a",
       agent: "gauge",
       agentKey: "remote-a:research",
@@ -526,7 +526,7 @@ test("still 03 — five region factory map", async () => {
     },
     {
       id: "scribe",
-      label: "scribe · copy",
+      label: "scribe - copy",
       host: "local",
       agent: "relay",
       agentKey: "local:writer",
@@ -540,7 +540,7 @@ test("still 03 — five region factory map", async () => {
     },
     {
       id: "oracle",
-      label: "oracle · ops",
+      label: "oracle - ops",
       host: "local",
       agent: "mote",
       agentKey: "local:ops",
@@ -645,7 +645,7 @@ test("still 03 — five region factory map", async () => {
   }
 });
 
-// ── 04 · six-machine fleet manager (unchanged composition) ──────────────────
+// ── 04 - six-machine fleet manager (unchanged composition) ──────────────────
 
 test("still 04 — six machine fleet manager", async () => {
   await mkdir(SHOTS, { recursive: true });
@@ -726,7 +726,7 @@ test("still 04 — six machine fleet manager", async () => {
   }
 });
 
-// ── 05 · five regions · large forge with 2×2 agents + work sinks ────────────
+// ── 05 - five regions - large forge with 2×2 agents + work sinks ────────────
 
 test("still 05 — five regions agent square", async () => {
   await mkdir(SHOTS, { recursive: true });
@@ -757,7 +757,7 @@ test("still 05 — five regions agent square", async () => {
   }> = [
     {
       id: "beacon",
-      label: "beacon · launch",
+      label: "beacon - launch",
       host: "remote-a",
       agent: "ward",
       agentKey: "remote-a:release",
@@ -768,7 +768,7 @@ test("still 05 — five regions agent square", async () => {
     },
     {
       id: "survey",
-      label: "survey · research",
+      label: "survey - research",
       host: "remote-a",
       agent: "gauge",
       agentKey: "remote-a:research",
@@ -779,7 +779,7 @@ test("still 05 — five regions agent square", async () => {
     },
     {
       id: "scribe",
-      label: "scribe · copy",
+      label: "scribe - copy",
       host: "local",
       agent: "relay",
       agentKey: "local:writer",
@@ -842,7 +842,7 @@ test("still 05 — five regions agent square", async () => {
   nodes.push({
     id: "rg-forge",
     type: "group",
-    label: "forge · build lane",
+    label: "forge - build lane",
     x: forgeX,
     y: forgeY,
     width: forgeW,
@@ -962,7 +962,7 @@ test("still 05 — five regions agent square", async () => {
   nodes.push({
     id: "rg-oracle",
     type: "group",
-    label: "oracle · ops",
+    label: "oracle - ops",
     x: oracleX,
     y: oracleY,
     width: smallW,
@@ -1012,7 +1012,7 @@ test("still 05 — five regions agent square", async () => {
   }
 });
 
-// ── 06 · work UI grid · kanban + requests + artifacts ───────────────────────
+// ── 06 - work UI grid - kanban + requests + artifacts ───────────────────────
 
 test("still 06 — work UI grid", async () => {
   await mkdir(SHOTS, { recursive: true });
@@ -1211,7 +1211,7 @@ test("still 06 — work UI grid", async () => {
   }
 });
 
-// ── 07 · open surfaces grid · ACP chat + native terminal (+ herdr modal) ────
+// ── 07 - open surfaces grid - ACP chat + native terminal (+ herdr modal) ────
 // Minimal seed nodes only exist so the open UIs can be launched. The plate is
 // the opened workbench/modals, not a board of terminal/agent cards.
 
@@ -1238,7 +1238,7 @@ test("still 07 — open terminal and ACP UIs", async () => {
     terminalTextNode({
       id: "term-a",
       bindingId: "bind-a",
-      label: "build · typecheck",
+      label: "build - typecheck",
       launch: TERM_LAUNCH,
       x: 360,
       y: 40,
@@ -1268,7 +1268,7 @@ test("still 07 — open terminal and ACP UIs", async () => {
 
     // Real pointer dblclick (React onDoubleClick) — dispatchEvent does not open these surfaces.
 
-    // 1 · ACP chat workbench
+    // 1 - ACP chat workbench
     const agentNode = page.locator(".react-flow__node", { hasText: "builder" }).first();
     await expect(agentNode).toBeVisible({ timeout: 15_000 });
     await agentNode.dblclick();
@@ -1288,8 +1288,8 @@ test("still 07 — open terminal and ACP UIs", async () => {
     await page.getByRole("button", { name: "Close ACP chat" }).click();
     await page.waitForTimeout(400);
 
-    // 2 · Native terminal focus surface
-    const termNode = page.locator(".react-flow__node", { hasText: "build · typecheck" }).first();
+    // 2 - Native terminal focus surface
+    const termNode = page.locator(".react-flow__node", { hasText: "build - typecheck" }).first();
     await expect(termNode).toBeVisible({ timeout: 15_000 });
     await termNode.dblclick();
     const surface = page.locator(".native-terminal-surface");

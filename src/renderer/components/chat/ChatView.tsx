@@ -194,10 +194,10 @@ export function ChatView({
   const station = agentKey.split(":")[0] || "local";
   const statusText =
     status === "live"
-      ? `${station} · ACP · live`
+      ? `${station} - ACP - live`
       : status === "connecting"
-        ? `${station} · ACP · connecting`
-        : `${station} · ACP · ${status}`;
+        ? `${station} - ACP - connecting`
+        : `${station} - ACP - ${status}`;
 
   const headerActions = (
     <>

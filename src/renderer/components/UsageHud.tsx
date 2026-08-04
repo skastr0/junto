@@ -80,7 +80,7 @@ const providerLabel = (quota: ProviderQuota): string => {
   // Disambiguate multi-account same provider (e.g. two Codex logins).
   if (quota.account) {
     const local = quota.account.includes("@") ? quota.account.split("@")[0]! : quota.account;
-    if (local.length > 0 && local.length <= 14) return `${quota.provider} · ${local}`;
+    if (local.length > 0 && local.length <= 14) return `${quota.provider} - ${local}`;
   }
   return quota.provider;
 };
@@ -195,7 +195,7 @@ function DetailCard({ quota }: { readonly quota: ProviderQuota }) {
           <div>
             <div className="usage-hud-detail__provider">{providerLabel(quota)}</div>
             <div className="usage-hud-detail__plan">
-              {[quota.source, quota.plan, billingMode].filter(Boolean).join(" · ") || "—"}
+              {[quota.source, quota.plan, billingMode].filter(Boolean).join(" - ") || "—"}
             </div>
           </div>
         </div>
@@ -243,9 +243,9 @@ function DetailCard({ quota }: { readonly quota: ProviderQuota }) {
           </div>
           {tokens.totalTokens !== undefined ? (
             <div className="usage-hud-detail__pace">
-              in {formatTokens(asFiniteNumber(quota.extras?.inputTokens) ?? 0)} · out{" "}
+              in {formatTokens(asFiniteNumber(quota.extras?.inputTokens) ?? 0)} - out{" "}
               {formatTokens(asFiniteNumber(quota.extras?.outputTokens) ?? 0)}
-              {costTicks !== undefined && costTicks > 0 ? ` · cost ticks ${formatTokens(costTicks)}` : ""}
+              {costTicks !== undefined && costTicks > 0 ? ` - cost ticks ${formatTokens(costTicks)}` : ""}
             </div>
           ) : null}
           {tokens.note ? <div className="usage-hud-detail__pace">{tokens.note}</div> : null}
@@ -309,7 +309,7 @@ export function UsageHud() {
   // Accessible name only — never `title` (Electron paints a native bubble that
   // sits on top of the custom hover list).
   const a11yLabel = stale
-    ? `Provider limits, stale${state.lastLiveAt ? ` · ${state.lastLiveAt.slice(0, 16).replace("T", " ")}` : ""}`
+    ? `Provider limits, stale${state.lastLiveAt ? ` - ${state.lastLiveAt.slice(0, 16).replace("T", " ")}` : ""}`
     : "Provider limits";
 
   return (

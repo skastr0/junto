@@ -50,7 +50,7 @@ interface FleetPane {
 // Agent names are the house avatar-crew names (assets/agent-avatars/library),
 // NOT harness brands — marketing frames carry no third-party marks.
 const fleet: readonly FleetPane[] = [
-  { id: "h1", host: "local", paneId: "w1:p01", terminalId: "term-p01", agent: "rivet", label: "vellum · typecheck", status: "working", x: 0, y: 0 },
+  { id: "h1", host: "local", paneId: "w1:p01", terminalId: "term-p01", agent: "rivet", label: "vellum - typecheck", status: "working", x: 0, y: 0 },
   { id: "h2", host: "remote-a", paneId: "w1:p02", terminalId: "term-p02", agent: "brisk", label: "ssh kernel", status: "working", x: 300, y: 0 },
   { id: "h3", host: "local", paneId: "w1:p03", terminalId: "term-p03", agent: "mote", label: "canvas sync", status: "done", x: 600, y: 0 },
   { id: "h4", host: "remote-a", paneId: "w1:p04", terminalId: "term-p04", agent: "ward", label: "release notes", status: "idle", x: 0, y: 180 },
@@ -61,8 +61,8 @@ const fleet: readonly FleetPane[] = [
 ];
 
 const regions: readonly GroupNode[] = [
-  { id: "rg-forge", type: "group", label: "forge · build lane", x: -80, y: -80, width: 1220, height: 460, ether: { region: { hold: true } } },
-  { id: "rg-beacon", type: "group", label: "beacon · launch", x: -80, y: 500, width: 940, height: 440, ether: { region: { hold: true } } },
+  { id: "rg-forge", type: "group", label: "forge - build lane", x: -80, y: -80, width: 1220, height: 460, ether: { region: { hold: true } } },
+  { id: "rg-beacon", type: "group", label: "beacon - launch", x: -80, y: 500, width: 940, height: 440, ether: { region: { hold: true } } },
   { id: "rg-research", type: "group", label: "deep research", x: 880, y: 500, width: 660, height: 440, ether: { region: { hold: true } } },
 ];
 
@@ -161,7 +161,7 @@ test("compose a staged fleet board and capture marketing frames", async () => {
     // The demo HUD chip is film-set chrome, not product UI — keep it out of
     // marketing frames.
     await page
-      .getByText("DEMO · F9 to roll", { exact: false })
+      .getByText("DEMO - F9 to roll", { exact: false })
       .evaluate((el) => {
         const chip = el.parentElement;
         if (chip) chip.style.display = "none";
@@ -194,7 +194,7 @@ test("compose a staged fleet board and capture marketing frames", async () => {
       await el.scrollIntoViewIfNeeded();
       await el.screenshot({ path: join(SHOTS, `${name}.png`), animations: "disabled" });
     };
-    await closeup("vellum · typecheck", "02-card-working");
+    await closeup("vellum - typecheck", "02-card-working");
     await closeup("og plates", "03-card-blocked");
     await closeup("canvas sync", "04-card-done");
     await closeup("ship design tokens", "05-card-tasks");
@@ -212,7 +212,7 @@ test("compose a staged fleet board and capture marketing frames", async () => {
     }
 
     // 10 — selection state: a working card selected, command panel live.
-    await page.locator(".react-flow__node", { hasText: "vellum · typecheck" }).first().click();
+    await page.locator(".react-flow__node", { hasText: "vellum - typecheck" }).first().click();
     await shot(page, "10-board-selected");
   } finally {
     await vellum.close();

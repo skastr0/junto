@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 /**
  * Toolbar pill — the floating icon-button strip stamped above a selected
- * node/region (edit · expand · flag · delete). One chrome, every entity.
+ * node/region (edit - expand - flag - delete). One chrome, every entity.
  */
 export function ToolbarPill({ children }: { readonly children: ReactNode }) {
   return (

@@ -214,8 +214,8 @@ export const presentLinuxHostCapabilities = (
     summary:
       observation.status === "ready"
         ? optionalLimitCount === 0
-          ? "Core Station ready · all requested host capabilities ready"
-          : `Core Station ready · ${optionalLimitCount} optional ${
+          ? "Core Station ready - all requested host capabilities ready"
+          : `Core Station ready - ${optionalLimitCount} optional ${
               optionalLimitCount === 1 ? "limit" : "limits"
             }`
         : `Core Station ${coreStatusLabel.toLowerCase()}`,

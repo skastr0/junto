@@ -86,13 +86,13 @@ describe("labels", () => {
         surface: "kind:agent",
         nodes: [text(), text()],
       }),
-    ).toBe("2 · agents");
+    ).toBe("2 - agents");
     expect(
       multiSelectionLabel({
         mode: "heterogeneous",
         nodes: [text(), text()],
         surfaces: ["kind:agent", "type:text"],
       }),
-    ).toBe("2 · mixed");
+    ).toBe("2 - mixed");
   });
 });

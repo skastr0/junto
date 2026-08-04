@@ -77,7 +77,7 @@ const resizeFrame = async (
 /** Hide the demo chip only — the usage rail stays visible (mocked codexbar). */
 const hideDemoChip = async (page: Page) => {
   await page
-    .getByText("DEMO · F9 to roll", { exact: false })
+    .getByText("DEMO - F9 to roll", { exact: false })
     .evaluate((el) => {
       const chip = el.parentElement;
       if (chip) chip.style.display = "none";
@@ -172,7 +172,7 @@ test("still 00 — factory hero board", async () => {
   const nodes: CanvasNode[] = [];
   const edges: CanvasEdge[] = [];
 
-  // ── region A · scribe · landing — queue → writer → artifacts, page below ──
+  // ── region A - scribe - landing — queue → writer → artifacts, page below ──
   const aX = 0;
   const aY = 0;
   const aW = PAD + 3 * CW + 2 * GAP_X + PAD; // 1132
@@ -180,7 +180,7 @@ test("still 00 — factory hero board", async () => {
   nodes.push({
     id: "rg-scribe",
     type: "group",
-    label: "scribe · landing",
+    label: "scribe - landing",
     x: aX,
     y: aY,
     width: aW,
@@ -260,7 +260,7 @@ test("still 00 — factory hero board", async () => {
     ),
   );
 
-  // ── region C · survey · standby — empty queue + free seat = ice ───────────
+  // ── region C - survey - standby — empty queue + free seat = ice ───────────
   const cX = aW + 64;
   const cY = 0;
   const cW = PAD + 2 * CW + GAP_X + PAD; // 752
@@ -268,7 +268,7 @@ test("still 00 — factory hero board", async () => {
   nodes.push({
     id: "rg-survey",
     type: "group",
-    label: "survey · standby",
+    label: "survey - standby",
     x: cX,
     y: cY,
     width: cW,
@@ -297,7 +297,7 @@ test("still 00 — factory hero board", async () => {
     ),
   );
 
-  // ── region B · forge · release gate — claimed request blocks its actor ────
+  // ── region B - forge - release gate — claimed request blocks its actor ────
   const bX = cX;
   const bY = cH + 128;
   const bW = cW;
@@ -305,7 +305,7 @@ test("still 00 — factory hero board", async () => {
   nodes.push({
     id: "rg-forge",
     type: "group",
-    label: "forge · release gate",
+    label: "forge - release gate",
     x: bX,
     y: bY,
     width: bW,

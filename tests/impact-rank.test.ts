@@ -109,7 +109,7 @@ describe("rankStoppageSeeds — blast-radius ranking", () => {
     const line = formatRankedStoppageLine(ranked[0]!, {
       titleOf: (id) => (id === "lead1" ? "lead worker" : id),
     });
-    expect(line).toMatch(/3 requests · stops 4/);
+    expect(line).toMatch(/3 requests - stops 4/);
     expect(line).toMatch(/leads: lead worker/);
   });
 

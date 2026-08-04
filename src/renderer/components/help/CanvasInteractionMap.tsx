@@ -14,7 +14,7 @@ export const CANVAS_HELP_POINTER: ReadonlyArray<HelpMapKeyRow> = [
   { keys: "mid-drag", action: "pan the field" },
   { keys: "drag empty", action: "rubber-band multi-select (works inside regions)" },
   { keys: "⇧ click", action: "multi-select (dominates labels & chrome)" },
-  { keys: "multi selection", action: "RTS bar · bulk color/flags · same-kind multi-prompt" },
+  { keys: "multi selection", action: "RTS bar - bulk color/flags - same-kind multi-prompt" },
   { keys: "⌘↵ multi-prompt", action: "send one prompt to all selected agents" },
   { keys: "double-click", action: "add a note at cursor" },
   { keys: "right-click empty", action: "add item menu (place at cursor)" },
@@ -23,26 +23,26 @@ export const CANVAS_HELP_POINTER: ReadonlyArray<HelpMapKeyRow> = [
   { keys: "drag region label", action: "move region (body is for marquee)" },
   { keys: "select + corners", action: "resize a node" },
   { keys: "drag edge handle", action: "connect nodes (drop on a card)" },
-  { keys: "click edge", action: "inspect edge · set criteria" },
-  { keys: "click node", action: "select · open command card" },
-  { keys: "RMB selection", action: "bulk: region · flags · delete" },
+  { keys: "click edge", action: "inspect edge - set criteria" },
+  { keys: "click node", action: "select - open command card" },
+  { keys: "RMB selection", action: "bulk: region - flags - delete" },
   { keys: "select + RMB target", action: "connect all → that node" },
   { keys: "⇧ RMB target", action: "connect keep selection (fan-out)" },
   { keys: "⌥ / Alt + move", action: "scan nearby nodes at readable scale" },
-  { keys: "minimap click", action: "jump camera · dbl-click zoom" },
-  { keys: "add item · fit all", action: "docked above minimap" },
+  { keys: "minimap click", action: "jump camera - dbl-click zoom" },
+  { keys: "add item - fit all", action: "docked above minimap" },
 ];
 
 /** Canvas hotkey inventory — single source for the interaction map. */
 export const CANVAS_HELP_KEYS: ReadonlyArray<HelpMapKeyRow> = [
-  { keys: "/ · ⌘K", action: "focus search" },
+  { keys: "/ - ⌘K", action: "focus search" },
   { keys: "Escape", action: "close overlays / clear selection" },
-  { keys: "⌘Z · ⌘⇧Z", action: "undo · redo" },
-  { keys: "⌫ · Del", action: "delete multi or single selection" },
-  { keys: "1–9", action: "focus hotbar slot · re-tap cycles region members" },
+  { keys: "⌘Z - ⌘⇧Z", action: "undo - redo" },
+  { keys: "⌫ - Del", action: "delete multi or single selection" },
+  { keys: "1–9", action: "focus hotbar slot - re-tap cycles region members" },
   { keys: "⌘1–9", action: "assign selected node → slot (any node)" },
   ...(HERDR_ENABLED
-    ? ([{ keys: "F1 · .", action: "cycle idle herdr workers needing you" }] as const)
+    ? ([{ keys: "F1 - .", action: "cycle idle herdr workers needing you" }] as const)
     : []),
 ];
 

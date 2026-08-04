@@ -32,7 +32,7 @@ export function HarnessMark({
   const title =
     titleProp === false
       ? undefined
-      : (titleProp ?? `${tile.displayName}${focused ? " · focused in herdr" : ""}`);
+      : (titleProp ?? `${tile.displayName}${focused ? " - focused in herdr" : ""}`);
   return (
     <span
       aria-hidden

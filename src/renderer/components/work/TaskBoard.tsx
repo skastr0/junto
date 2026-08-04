@@ -259,7 +259,7 @@ const LANES: ReadonlyArray<LaneDefinition> = [
     tone: "green",
     chipTone: "green",
     icon: CheckCircle2,
-    hint: "Completed and stopped work · open a completed task to QA-reject it",
+    hint: "Completed and stopped work - open a completed task to QA-reject it",
   },
 ];
 
@@ -346,17 +346,17 @@ const depGlance = (
       return undefined;
     case "waiting":
       return {
-        label: `Waiting · ${status.frontier.join(", ")}`,
+        label: `Waiting - ${status.frontier.join(", ")}`,
         tone: "amber",
       };
     case "blocked":
       return {
-        label: `Blocked · ${status.roots.join(", ")}`,
+        label: `Blocked - ${status.roots.join(", ")}`,
         tone: "crimson",
       };
     case "orphan":
       return {
-        label: `Missing · ${status.missing.join(", ")}`,
+        label: `Missing - ${status.missing.join(", ")}`,
         tone: "crimson",
       };
   }
@@ -894,7 +894,7 @@ function TaskCard({
                 tone="crimson"
                 title="This task remains claimed, but its ActorSeatId is absent from the current actor projection."
               >
-                Stalled · retired seat
+                Stalled - retired seat
               </Chip>
             ) : null}
           </div>
@@ -1600,7 +1600,7 @@ function TaskDetailPanel({
                 tone="crimson"
                 title="This task remains claimed, but its ActorSeatId is absent from the current actor projection."
               >
-                Stalled · retired seat
+                Stalled - retired seat
               </Chip>
             ) : null}
             {isProposal && onApprove ? (
@@ -1793,7 +1793,7 @@ function TaskDetailPanel({
                   : ""}
                 {task.finishCriteria.artifacts.names &&
                 task.finishCriteria.artifacts.names.length > 0
-                  ? ` · names: ${task.finishCriteria.artifacts.names.join(", ")}`
+                  ? ` - names: ${task.finishCriteria.artifacts.names.join(", ")}`
                   : ""}
               </p>
             ) : null}
@@ -2421,7 +2421,7 @@ export function TaskBoard({
           status={
             <>
               {glance.inFlight} in flight
-              {glance.needsInput > 0 ? ` · ${glance.needsInput} need you` : ""}
+              {glance.needsInput > 0 ? ` - ${glance.needsInput} need you` : ""}
             </>
           }
           actions={

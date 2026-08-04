@@ -906,7 +906,7 @@ export const makeBrowserProfileService = (
               label: "Browser Profiles",
               status: "ok",
               detail:
-                `registry v${CONFIG_VERSION} · ${config.profiles.length} profiles`,
+                `registry v${CONFIG_VERSION} - ${config.profiles.length} profiles`,
             }
           : {
               id: "browser-profiles",

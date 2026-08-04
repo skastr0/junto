@@ -36,10 +36,10 @@ const taskSink = {
 };
 
 const actors = [
-  agentTextNode({ id: "claude", key: "local:claude", label: "Claude Code · opus", x: 410, y: 60 }),
-  agentTextNode({ id: "codex-a", key: "local:codex-a", label: "Codex · gpt-5.6-sol", x: 410, y: 190 }),
-  agentTextNode({ id: "codex-b", key: "local:codex-b", label: "Codex · gpt-5.6-sonnet", x: 410, y: 320 }),
-  agentTextNode({ id: "grok", key: "local:grok", label: "Grok · grok-4.5", x: 410, y: 450 }),
+  agentTextNode({ id: "claude", key: "local:claude", label: "Claude Code - opus", x: 410, y: 60 }),
+  agentTextNode({ id: "codex-a", key: "local:codex-a", label: "Codex - gpt-5.6-sol", x: 410, y: 190 }),
+  agentTextNode({ id: "codex-b", key: "local:codex-b", label: "Codex - gpt-5.6-sonnet", x: 410, y: 320 }),
+  agentTextNode({ id: "grok", key: "local:grok", label: "Grok - grok-4.5", x: 410, y: 450 }),
 ];
 
 const requestSink = {

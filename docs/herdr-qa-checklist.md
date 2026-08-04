@@ -1,6 +1,6 @@
 # Herdr work-surface — manual TUI QA checklist (HN-011)
 
-Automated gates: `bun run typecheck` · `bun run test` (no live ssh required).
+Automated gates: `bun run typecheck` - `bun run test` (no live ssh required).
 
 ## Product locks (do not regress)
 

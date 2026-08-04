@@ -37,7 +37,7 @@ function EdgeCard({ row }: { readonly row: ActorEdgeRow }) {
   const nature = actorEdgeNatureLabel(row);
   const ports =
     row.ports.length > 0
-      ? row.ports.map((p) => p.replace(/^[a-z]+\./, "")).join(" · ")
+      ? row.ports.map((p) => p.replace(/^[a-z]+\./, "")).join(" - ")
       : null;
   const meta: string[] = [];
   if (row.boardNotify === "on") meta.push("notify");
@@ -47,11 +47,11 @@ function EdgeCard({ row }: { readonly row: ActorEdgeRow }) {
     `${row.direction === "out" ? "to" : "from"} ${row.peerTitle}`,
     `kind ${row.peerKind}`,
     `edge ${nature}`,
-    ports ? `ports ${row.ports.join(" · ")}` : null,
+    ports ? `ports ${row.ports.join(" - ")}` : null,
     ...meta,
   ]
     .filter(Boolean)
-    .join(" · ");
+    .join(" - ");
 
   return (
     <li
@@ -65,13 +65,13 @@ function EdgeCard({ row }: { readonly row: ActorEdgeRow }) {
       <div className="actor-edges-glance__row-head">
         <DirectionMark direction={row.direction} />
         <span className="actor-edges-glance__kind">{row.peerKind}</span>
-        <Chip tone={natureTone(row)} title={`edge · ${nature}`}>
+        <Chip tone={natureTone(row)} title={`edge - ${nature}`}>
           {nature}
         </Chip>
       </div>
       <span className="actor-edges-glance__title">{row.peerTitle}</span>
       {ports ? (
-        <span className="actor-edges-glance__ports" title={row.ports.join(" · ")}>
+        <span className="actor-edges-glance__ports" title={row.ports.join(" - ")}>
           {ports}
         </span>
       ) : null}

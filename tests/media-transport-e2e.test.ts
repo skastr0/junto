@@ -182,7 +182,7 @@ const support = (value: {
 // Task creation + WorkRecord bounds (fleet control plane)
 // ---------------------------------------------------------------------------
 
-describe("media transport e2e · task creation + WorkRecord bounds", () => {
+describe("media transport e2e - task creation + WorkRecord bounds", () => {
   it("admits a multi-hundred-MB ContentRef task without requiring bytes in the WorkRecord", () => {
     const ref = makeRef(
       "a".repeat(64),
@@ -283,7 +283,7 @@ describe("media transport e2e · task creation + WorkRecord bounds", () => {
 // Local ingest + crash ordering
 // ---------------------------------------------------------------------------
 
-describe("media transport e2e · local ingest + crash ordering", () => {
+describe("media transport e2e - local ingest + crash ordering", () => {
   it("streams image/audio/video fixtures without full-body residency beyond one chunk", async () => {
     const station = await openStation("vellum-media-ingest-");
 
@@ -452,7 +452,7 @@ describe("media transport e2e · local ingest + crash ordering", () => {
 // Renderer access
 // ---------------------------------------------------------------------------
 
-describe("media transport e2e · renderer access", () => {
+describe("media transport e2e - renderer access", () => {
   it("streams image/audio/video through the app content protocol with range seeks", async () => {
     const station = await openStation("vellum-media-renderer-");
 
@@ -562,7 +562,7 @@ describe("media transport e2e · renderer access", () => {
 // Station projection, transfer, offline convergence
 // ---------------------------------------------------------------------------
 
-describe("media transport e2e · Station projection + transfer + offline", () => {
+describe("media transport e2e - Station projection + transfer + offline", () => {
   it("gates runnable work until local receipt is verified", async () => {
     const station = await openStation("vellum-media-gate-");
     const fixture = buildMediaFixture("video", 0x33);

@@ -123,7 +123,7 @@ export function FileNode({ data, selected }: NodeProps<FlowNode>) {
             {base}
           </div>
           <div className="truncate font-mono text-[10px]" style={{ color: DIM }}>
-            retired · delete to remove
+            retired - delete to remove
           </div>
         </div>
       </div>

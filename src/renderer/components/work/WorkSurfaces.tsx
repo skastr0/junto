@@ -226,7 +226,7 @@ export function TasksCard({
               data-testid="tasks-glance"
             >
               {inFlight} in flight
-              {needsInput > 0 ? ` · ${needsInput} need input` : ""}
+              {needsInput > 0 ? ` - ${needsInput} need input` : ""}
             </span>
             <button
               type="button"
@@ -338,7 +338,7 @@ export function BoardCard({
             data-testid="board-glance"
           >
             {topics.length} topics
-            {unread > 0 ? ` · ${unread} new` : ""}
+            {unread > 0 ? ` - ${unread} new` : ""}
           </span>
         }
       />
@@ -542,7 +542,7 @@ export function BoardDetail({
         <OverlayHeader
           eyebrow="board"
           title={boardTitle}
-          status={`${topics.length} ${topics.length === 1 ? "topic" : "topics"}${unread > 0 ? ` · ${unread} new` : ""}`}
+          status={`${topics.length} ${topics.length === 1 ? "topic" : "topics"}${unread > 0 ? ` - ${unread} new` : ""}`}
           className="board-header"
           actions={
             <>
@@ -648,7 +648,7 @@ export function BoardDetail({
                       <strong>{topic.title}</strong>
                       {boardTopicPreview(topic) ? <span>{boardTopicPreview(topic)}</span> : null}
                       <small>
-                        {boardAuthorLabel(topic.openedBy)} · {boardTimestamp(topic.lastActivityAt)}
+                        {boardAuthorLabel(topic.openedBy)} - {boardTimestamp(topic.lastActivityAt)}
                       </small>
                     </span>
                     <span className="board-topic-row__count" aria-label={`${topic.postCount} posts`}>
@@ -666,9 +666,9 @@ export function BoardDetail({
                   <div>
                     <h2>{selected.title}</h2>
                     <p>
-                      Opened by {boardAuthorLabel(selected.openedBy)} · {boardTimestamp(selected.openedAt)} · {selected.postCount}{" "}
+                      Opened by {boardAuthorLabel(selected.openedBy)} - {boardTimestamp(selected.openedAt)} - {selected.postCount}{" "}
                       {selected.postCount === 1 ? "post" : "posts"}
-                      {loading ? " · loading…" : ""}
+                      {loading ? " - loading…" : ""}
                     </p>
                   </div>
                   <Button
@@ -781,7 +781,7 @@ export function AgentMessagesPane({ node }: { readonly node: CanvasNode }) {
               msg.role === "agent"
                 ? "own"
                 : delivered
-                  ? `delivered · ${delivered}`
+                  ? `delivered - ${delivered}`
                   : "pending";
             return (
               <div key={msg.messageId} className="text-[11px] leading-snug" style={{ color: INK }}>

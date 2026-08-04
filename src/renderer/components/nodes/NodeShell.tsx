@@ -226,9 +226,9 @@ function NodeActions({
             title={
               cause.isSelf
                 ? cause.openWorkDetail
-                  ? `open cause · ${cause.title}`
-                  : `blocker cause · ${cause.title}`
-                : `jump to cause · ${cause.title}`
+                  ? `open cause - ${cause.title}`
+                  : `blocker cause - ${cause.title}`
+                : `jump to cause - ${cause.title}`
             }
             data-testid="node-toolbar-blocker-cause"
             onPointerDown={(event) => {

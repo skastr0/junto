@@ -54,6 +54,6 @@ export const nodeDetail = (node: CanvasNode): string => {
   if (node.type === "link") return node.url;
   if (node.type === "group") return "Spatial region";
   const entity = node.ether?.entity;
-  if (entity?.name) return `${entity.kind} · ${entity.name}`;
+  if (entity?.name) return `${entity.kind} - ${entity.name}`;
   return "";
 };

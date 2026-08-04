@@ -68,7 +68,7 @@ export function DiscoveryBandNode({ data }: NodeProps<DiscoveryBandFlowNode>) {
   return (
     <div className="fleet-discovery-band" aria-hidden="true">
       <span>discovered</span>
-      <small>{data.count} visible · not enrolled</small>
+      <small>{data.count} visible - not enrolled</small>
     </div>
   );
 }
@@ -156,7 +156,7 @@ const probePipTitle = (probe?: FleetProbeState): string => {
     case "probing":
       return "probing link";
     case "reachable":
-      return probe.latencyMs !== undefined ? `reachable · ${probe.latencyMs} ms` : "reachable";
+      return probe.latencyMs !== undefined ? `reachable - ${probe.latencyMs} ms` : "reachable";
     case "unreachable":
       return probe.detail ? `unreachable — ${probe.detail}` : "unreachable";
     default:
@@ -180,7 +180,7 @@ const probeLabel = (probe?: FleetProbeState): string => {
     case "reachable":
       return probe.latencyMs === undefined
         ? "reachable"
-        : `reachable · ${probe.latencyMs} ms`;
+        : `reachable - ${probe.latencyMs} ms`;
     case "unreachable":
       return "unreachable";
     default:
@@ -298,7 +298,7 @@ export function GhostStationNode({ data, selected }: NodeProps<GhostStationFlowN
           <div className="fleet-station__label">{peer.name}</div>
           <div className="fleet-node__meta">{peer.os ?? "unknown device"}</div>
           <div className="fleet-node__signal fleet-node__signal--discovered">
-            {peer.online ? "visible · not enrolled" : "offline · not enrolled"}
+            {peer.online ? "visible - not enrolled" : "offline - not enrolled"}
           </div>
         </div>
       </div>

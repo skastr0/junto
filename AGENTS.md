@@ -212,10 +212,10 @@ Only schedulers push; actors pull. Connect refused for sink–sink and geography
 
 **Not a product peer:** hermes **gauge** (`watcher`) is palette-hidden / dormant.
 
-**Wire areas (v2):** `ports` · `stops` · `wake` · `slot` · `when` · `does`. Legacy
+**Wire areas (v2):** `ports` - `stops` - `wake` - `slot` - `when` - `does`. Legacy
 `criteria`/`notify`/`effect` still decode (dual-read). No `relayState` cascade.
 
-**Effects (v1):** `enqueue_task` · `set_flag`. Claim assignment stays the factory tick.
+**Effects (v1):** `enqueue_task` - `set_flag`. Claim assignment stays the factory tick.
 
 **Scheduler laws**: (1) Sensor truth is derived. (2) Single-home evaluation.
 (3) Interval catch-up ≤1 due tick. (4) **Automate only when station role is
@@ -255,7 +255,7 @@ Techniques baked in: dim+blur backdrop, titlebar-aware padding, enter animation 
 The renderer has one visual language — **deep-field**: warm near-black ground (never pure black), ink text, ~95% amber with sparse accents, crimson reserved for blockers, hairline ink strokes, mono instrument type + condensed display for titles. Two projections of one palette, never a second source:
 
 - **Tokens** — the `@theme` block at the top of `src/renderer/styles.css` registers the palette as Tailwind v4 utilities (`text-ink`, `text-dim`, `text-faint`, `bg-ground/raise/raise-2/inset/well`, `border-stroke`, `text-amber/cyan/violet/crimson/…`, `font-mono`, `font-display`). `src/renderer/lib/theme.ts` is the TS mirror for runtime consumers (canvas paint, inline styles) — same values.
-- **Primitives** — `src/renderer/components/ui/`: `Button` (chrome/primary/subtle/danger · xs/sm/md), `IconButton`, `Eyebrow`, `StatusDot`, `Chip`, `Input`/`Select`/`FieldLabel`, `OverlayHeader` (eyebrow/title/status/actions chrome header for every work-surface panel), `ToolbarPill` (floating node toolbar), `Kbd` (hotkey/gesture chip), `HelpMap` + `HelpMapGroup` / `HelpMapKeys` / `HelpMapPrimer` / `HelpMapPrimerBlock` (protocol & interaction maps — compose anywhere; canvas fill lives in `components/help/CanvasInteractionMap.tsx`). New surfaces compose these; do not hand-roll buttons, headers, status dots, or help chrome.
+- **Primitives** — `src/renderer/components/ui/`: `Button` (chrome/primary/subtle/danger - xs/sm/md), `IconButton`, `Eyebrow`, `StatusDot`, `Chip`, `Input`/`Select`/`FieldLabel`, `OverlayHeader` (eyebrow/title/status/actions chrome header for every work-surface panel), `ToolbarPill` (floating node toolbar), `Kbd` (hotkey/gesture chip), `HelpMap` + `HelpMapGroup` / `HelpMapKeys` / `HelpMapPrimer` / `HelpMapPrimerBlock` (protocol & interaction maps — compose anywhere; canvas fill lives in `components/help/CanvasInteractionMap.tsx`). New surfaces compose these; do not hand-roll buttons, headers, status dots, or help chrome.
 - **Canvas card law — no action buttons on nodes.** Cards are glance + identity only. Open via double-click or RTS kind-strip keys; config via kind-strip pops; flags/delete/pause live on the selection toolbar / RTS command card. The only on-card controls allowed are pure instrumentation (enqueue + on tasks glance, activity marks). Never put "open" / "stop" / "detach" / form CTAs on the card body.
 - **Terminal look** — `src/renderer/lib/terminal-theme.ts` (`VELLUM_XTERM_THEME`, font family/size) is the one xterm theme for every terminal surface (native + herdr).
 - **Overlays** — one backdrop recipe everywhere: `rgba(0,0,0,0.72)` + `blur(2px)`. New single-subject overlays go through `FocusSurface`; panel headers go through `OverlayHeader`.

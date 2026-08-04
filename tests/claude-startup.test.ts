@@ -11,15 +11,15 @@ describe("Claude managed startup recovery", () => {
         This session is 1h 52m old and 207.2k tokens.
         1. Resume from summary (recommended)
         2. Resume full session as-is
-        Enter to confirm · Esc to cancel
+        Enter to confirm - Esc to cancel
       `),
     ).toBe(true);
   });
 
   it.each([
-    "Do you want to proceed? Enter to confirm · Esc to cancel",
+    "Do you want to proceed? Enter to confirm - Esc to cancel",
     "1. Resume from summary (recommended)",
-    "Resume full session as-is · Enter to confirm",
+    "Resume full session as-is - Enter to confirm",
   ])("does not match another interactive prompt: %s", (text) => {
     expect(isClaudeResumeSummaryChoice(text)).toBe(false);
   });

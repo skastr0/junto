@@ -72,7 +72,7 @@ export const grokRules: SeatRulePack = {
       visibleWorking: true,
       // Animated chip with non-zero background task count (top chrome).
       matchers: {
-        lineRegex: ["[⋅:⸬⁙.·]\\s+[1-9][0-9]*\\s+│"],
+        lineRegex: ["[⋅:⸬⁙.-]\\s+[1-9][0-9]*\\s+│"],
       },
     },
     {

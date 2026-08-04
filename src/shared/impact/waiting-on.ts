@@ -102,8 +102,8 @@ const reasonPhrase = (reason: BlockedReason): string => {
  * Human lines for inspector / digest: one line per hop, seed last.
  * Example:
  *   Waiting on…
- *     Ship · 1 need input · ship
- *     Requests · generator
+ *     Ship - 1 need input - ship
+ *     Requests - generator
  */
 export const formatWaitingOnLines = (
   path: WaitingOnPath,
@@ -113,14 +113,14 @@ export const formatWaitingOnLines = (
   const byId = new Map(doc.nodes.map((n) => [n.id, n] as const));
   return path.hops.map((hop) => {
     const title = titleOf(byId.get(hop.nodeId), hop.nodeId);
-    if (hop.role === "seed") return `${title} · seed`;
+    if (hop.role === "seed") return `${title} - seed`;
     if (hop.role === "generator") {
       const detail = hop.reasons[0] ? reasonPhrase(hop.reasons[0]) : "generator";
       // Generator apex often has no reasons on itself; use role label.
-      return hop.reasons.length > 0 ? `${title} · ${detail}` : `${title} · generator`;
+      return hop.reasons.length > 0 ? `${title} - ${detail}` : `${title} - generator`;
     }
-    if (hop.role === "apex") return `${title} · apex`;
+    if (hop.role === "apex") return `${title} - apex`;
     const first = hop.reasons[0];
-    return first ? `${title} · ${reasonPhrase(first)}` : title;
+    return first ? `${title} - ${reasonPhrase(first)}` : title;
   });
 };

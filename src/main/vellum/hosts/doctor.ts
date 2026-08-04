@@ -269,7 +269,7 @@ const probeSshHost = (
       raise("warning", "station is not configured");
     } else {
       parts.push(
-        `role ${configuration.role} · hostId ${configuration.hostId}`,
+        `role ${configuration.role} - hostId ${configuration.hostId}`,
       );
       if (
         configuration.role !== "remote" ||
@@ -311,7 +311,7 @@ const probeSshHost = (
 
     return {
       status: worst,
-      detail: `${host.label} (${host.sshEndpoint}): ${parts.join(" · ")}`,
+      detail: `${host.label} (${host.sshEndpoint}): ${parts.join(" - ")}`,
       observation: {
         hostId: host.id,
         endpoint: host.sshEndpoint,
@@ -473,7 +473,7 @@ export const runRemoteHostsDoctorSnapshot = (
         id: "remote-hosts",
         label: "Remote hosts",
         status: worst,
-        detail: lines.join(" · "),
+        detail: lines.join(" - "),
         metadata: {
           hostCount: String(hosts.length),
           remoteHostCount: String(remoteHosts.length),
@@ -547,7 +547,7 @@ export const testHostConnection = (
         return {
           ok: probes.every((probe) => probe.ok),
           detail:
-            probes.map((probe) => probe.detail).join(" · ") ||
+            probes.map((probe) => probe.detail).join(" - ") ||
             "local host ready",
         };
       })
@@ -562,7 +562,7 @@ export const testHostConnection = (
           detail:
             linuxCapabilities === undefined
               ? result.detail
-              : `${result.detail} · host ${linuxCapabilities.status}: ${linuxCapabilities.summary}`,
+              : `${result.detail} - host ${linuxCapabilities.status}: ${linuxCapabilities.summary}`,
           reachability: result.observation.reachability,
           ...(result.observation.protocol === undefined
             ? {}

@@ -82,7 +82,7 @@ export function DemoLayer() {
         border: "1px solid rgba(237,230,218,0.16)",
       }}
     >
-      <div>DEMO · F9 to roll · trailer-60</div>
+      <div>DEMO - F9 to roll - trailer-60</div>
       {running ? <div>beat {beat}/{total}</div> : null}
     </div>
   );

@@ -114,7 +114,7 @@ export function WorkFocusShell() {
       height="immersive"
       layer="work"
       contain="parent"
-      label={active ? `Workbench · ${active.kind}` : "Workbench focus"}
+      label={active ? `Workbench - ${active.kind}` : "Workbench focus"}
       onClose={closeAllFocus}
       closeOnEscape={false}
       closeOnBackdrop

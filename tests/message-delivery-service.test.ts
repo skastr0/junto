@@ -133,7 +133,7 @@ describe("MessageDeliveryService", () => {
     expect(writes).toEqual([
       {
         bindingId: "bind-mira",
-        text: "[request resolved · request-7] Use the staging key.",
+        text: "[request resolved - request-7] Use the staging key.",
       },
     ]);
   });
@@ -192,7 +192,7 @@ describe("MessageDeliveryService", () => {
     await waitUntil(async () =>
       store.hasAcceptedMessageDelivery("c", "agent", "m1"),
     );
-    expect(payloads).toEqual(["[message · user] ping"]);
+    expect(payloads).toEqual(["[message - user] ping"]);
     const live = (await store.readDoc("c"))?.nodes[0]?.ether?.messages?.items[0];
     expect(live?.metadata?.deliveredAt).toBe(1_111);
   });
@@ -227,7 +227,7 @@ describe("MessageDeliveryService", () => {
     expect(calls).toEqual([
       {
         bindingId: "bind-mira",
-        text: "[message · user] hello cold seat",
+        text: "[message - user] hello cold seat",
         ready: true,
       },
     ]);
@@ -375,7 +375,7 @@ describe("MessageDeliveryService", () => {
     accepts = true;
     service.onTerminalAttached("bind-term");
     await waitUntil(() => store.hasAcceptedMessageDelivery("c", "terminal", msg.messageId));
-    expect(payloads.some((p) => p.includes("[message · user] wake"))).toBe(true);
+    expect(payloads.some((p) => p.includes("[message - user] wake"))).toBe(true);
     expect(payloads.at(-1)).not.toContain("\n");
   });
 
@@ -407,7 +407,7 @@ describe("MessageDeliveryService", () => {
     });
     service.notifyAppended("c", "terminal", msg);
     await waitUntil(() => pastes.length === 1);
-    expect(pastes).toEqual([{ text: "[message · user] echo owned; $(touch /tmp/nope) && rm -rf ~", messageId: "safe" }]);
+    expect(pastes).toEqual([{ text: "[message - user] echo owned; $(touch /tmp/nope) && rm -rf ~", messageId: "safe" }]);
     expect(pastes[0]!.text).not.toContain("\n");
   });
 
@@ -431,7 +431,7 @@ describe("MessageDeliveryService", () => {
     });
     service.notifyAppended("c", "agent", msg);
     await waitUntil(() => payloads.length >= 1);
-    expect(payloads[0]).toBe("[message · user] do the thing · task task-42");
+    expect(payloads[0]).toBe("[message - user] do the thing - task task-42");
   });
 
   it("managed terminal prompt uses sendManagedTerminalPrompt when wired", async () => {
@@ -467,7 +467,7 @@ describe("MessageDeliveryService", () => {
     });
     service.notifyAppended("c", "terminal", msg);
     await waitUntil(() => prompts.length === 1);
-    expect(prompts[0]).toBe("[message · user] claim task");
+    expect(prompts[0]).toBe("[message - user] claim task");
     await waitUntil(() => store.hasAcceptedMessageDelivery("c", "terminal", msg.messageId));
   });
 
@@ -497,7 +497,7 @@ describe("MessageDeliveryService", () => {
     expect(calls).toEqual([
       {
         bindingId: "bind-mira",
-        text: "[message · user] interrupt the turn",
+        text: "[message - user] interrupt the turn",
         interruptIfBusy: true,
       },
     ]);

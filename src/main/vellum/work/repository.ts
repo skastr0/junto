@@ -804,7 +804,7 @@ export const projectWorkSnapshots = (
                   ? "quiet"
                   : snapshot.board.topics
                       .slice(0, 4)
-                      .map((t) => `· ${t.title}`)
+                      .map((t) => `- ${t.title}`)
                       .join("\n"),
             }
           : {}),

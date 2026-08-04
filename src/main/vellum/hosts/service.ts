@@ -355,10 +355,10 @@ export const makeHostsService = (
             const persistenceDetail = `local deployment receipt could not be persisted: ${completion.failure.message}`;
             return {
               ...deployed,
-              detail: `${deployed.detail} · ${persistenceDetail}`,
+              detail: `${deployed.detail} - ${persistenceDetail}`,
               message: deployed.message
-                ? `${deployed.message} · ${persistenceDetail}`
-                : `${deployed.detail} · ${persistenceDetail}`,
+                ? `${deployed.message} - ${persistenceDetail}`
+                : `${deployed.detail} - ${persistenceDetail}`,
               statusRecorded: false,
             } satisfies ConfiguredRemoteDeployResult;
           }),

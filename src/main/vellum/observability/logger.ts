@@ -75,7 +75,7 @@ export const ObservabilityEffectLogger = Logger.make<unknown, void>((options) =>
 
   // Terminal visibility without touching hooked console.*
   try {
-    process.stdout.write(`[effect:${level}] ${text.replace(/\n/g, " · ")}\n`);
+    process.stdout.write(`[effect:${level}] ${text.replace(/\n/g, " - ")}\n`);
   } catch {
     // stdout closed during shutdown — ignore
   }

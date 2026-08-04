@@ -55,7 +55,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("replay · sticky hooks clear", () => {
+describe("replay - sticky hooks clear", () => {
   it("null OSC feed clears prior working hook (not sticky forever)", () => {
     const m = new SeatStateMachine({ now: () => 1_000 });
     m.bind("b1", { harness: "claude", epoch: "e1" });
@@ -102,7 +102,7 @@ describe("replay · sticky hooks clear", () => {
   });
 });
 
-describe("replay · no typeable low-conf idle", () => {
+describe("replay - no typeable low-conf idle", () => {
   it("bare fallback idle is not injectable via isSeatIdle", () => {
     const rt = new SeatStateRuntime({ now: () => 2_000 });
     rt.bindHarness("b1", "claude", "e1");
@@ -150,7 +150,7 @@ describe("replay · no typeable low-conf idle", () => {
         lines: [
           HR,
           "Allow edit?",
-          "Enter to select · Esc to cancel · Tab/Arrow keys to navigate",
+          "Enter to select - Esc to cancel - Tab/Arrow keys to navigate",
         ],
       },
     ] as const) {
@@ -215,7 +215,7 @@ describe("replay · no typeable low-conf idle", () => {
   });
 });
 
-describe("replay · paste re-check", () => {
+describe("replay - paste re-check", () => {
   it("refuses paste when idle flips false immediately before write", async () => {
     const writes: string[] = [];
     const attention: string[] = [];
@@ -257,7 +257,7 @@ describe("replay · paste re-check", () => {
   });
 });
 
-describe("replay · sticky working clearance", () => {
+describe("replay - sticky working clearance", () => {
   it("sticky OSC working + clear → high-conf idle unblocks drain", async () => {
     const writes: string[] = [];
     let seatIdle = false;
@@ -340,7 +340,7 @@ describe("replay · sticky working clearance", () => {
   });
 });
 
-describe("replay · happy-path working→idle drain", () => {
+describe("replay - happy-path working→idle drain", () => {
   it("working → visible idle drains one queued prompt", async () => {
     const writes: Array<{ data: string }> = [];
     let idle = false;

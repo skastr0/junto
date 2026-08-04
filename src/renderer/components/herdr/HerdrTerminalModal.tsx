@@ -249,7 +249,7 @@ export function HerdrTerminalPanel({
       const id = streamIdRef.current;
       const api = apiRef.current;
       if (!id || !api) {
-        setStatus("input dropped · stream not ready");
+        setStatus("input dropped - stream not ready");
         return;
       }
       void api.herdrStreamInput(id, utf8ToBase64(pty)).then((res) => {
@@ -263,7 +263,7 @@ export function HerdrTerminalPanel({
       const id = streamIdRef.current;
       const api = apiRef.current;
       if (!id || !api?.herdrStreamPasteImage) {
-        setStatus("image paste dropped · stream not ready");
+        setStatus("image paste dropped - stream not ready");
         return;
       }
       setStatus(`pasting image (${image.byteLength} B)…`);
@@ -277,8 +277,8 @@ export function HerdrTerminalPanel({
           const path = typeof res?.path === "string" ? res.path : "";
           setStatus(
             path
-              ? `image path pasted · ${path}`
-              : `image path pasted · ${image.extension} · ${image.byteLength} B`,
+              ? `image path pasted - ${path}`
+              : `image path pasted - ${image.extension} - ${image.byteLength} B`,
           );
         })
         .catch((err: unknown) => {
@@ -581,9 +581,9 @@ export function HerdrTerminalPanel({
           setConnectionEvent(nodeId, { type: "pane_closed" });
         } else if (!sessionRecoveryShouldAutoReconnect(code)) {
           // client_close / renderer_reloaded / supersede — stay quiet.
-          setStatus(code === "client_close" ? "detached" : `closed · ${code}`);
+          setStatus(code === "client_close" ? "detached" : `closed - ${code}`);
         } else {
-          setStatus(`closed · ${code}`);
+          setStatus(`closed - ${code}`);
           setConnectionEvent(nodeId, { type: "reconnect_exhausted" });
         }
       }
@@ -727,7 +727,7 @@ export function HerdrTerminalPanel({
       e.stopPropagation();
       const id = streamIdRef.current;
       if (!id || !api.herdrStreamPasteImage) {
-        setStatus("image drop dropped · stream not ready");
+        setStatus("image drop dropped - stream not ready");
         return;
       }
       void (async () => {
@@ -737,7 +737,7 @@ export function HerdrTerminalPanel({
           return;
         }
         if (!image) {
-          setStatus("drop ignored · not an image");
+          setStatus("drop ignored - not an image");
           return;
         }
         setStatus(`pasting image (${image.byteLength} B)…`);
@@ -750,8 +750,8 @@ export function HerdrTerminalPanel({
           const path = typeof res?.path === "string" ? res.path : "";
           setStatus(
             path
-              ? `image path pasted · ${path}`
-              : `image path pasted · ${image.extension} · ${image.byteLength} B`,
+              ? `image path pasted - ${path}`
+              : `image path pasted - ${image.extension} - ${image.byteLength} B`,
           );
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
@@ -802,7 +802,7 @@ export function HerdrTerminalPanel({
 
   // Status line: ActivityMark carries connected/connecting; the text adds
   // identity + geometry + stream status. conn.state joins only when it adds
-  // information (never a bare "connected · connected" repeat).
+  // information (never a bare "connected - connected" repeat).
   const connState = conn?.state;
   const statusBits = [
     terminalOpen.herdr.host,
@@ -821,7 +821,7 @@ export function HerdrTerminalPanel({
     >
       <OverlayHeader
         data-herdr-chrome
-        eyebrow={`herdr · ⌘W / Close detaches (pane keeps running) · Esc goes to the terminal${isFocused ? " · focused" : " · click to focus"}`}
+        eyebrow={`herdr - ⌘W / Close detaches (pane keeps running) - Esc goes to the terminal${isFocused ? " - focused" : " - click to focus"}`}
         title={terminalOpen.title}
         status={
           <span className="herdr-modal-status inline-flex items-center gap-1.5">
@@ -831,7 +831,7 @@ export function HerdrTerminalPanel({
               size="inline"
               label={connState === "connected" ? "connected" : "connecting"}
             />
-            {statusBits.join(" · ")}
+            {statusBits.join(" - ")}
           </span>
         }
         actions={

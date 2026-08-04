@@ -180,7 +180,7 @@ const finishWithConfiguration = (
   deployed: DeployRemoteResult,
   configured: ConfigureRemoteResult,
 ): ConfiguredRemoteDeployResult => {
-  const detail = `${deployed.detail} · ${configured.detail}`;
+  const detail = `${deployed.detail} - ${configured.detail}`;
   return {
     ...deployed,
     ok: true,

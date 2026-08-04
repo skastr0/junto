@@ -112,7 +112,7 @@ export function TerminalWizard({
         }}
       >
         <div>
-          <Eyebrow tone="steel">terminal · create</Eyebrow>
+          <Eyebrow tone="steel">terminal - create</Eyebrow>
           <div className="mt-1 font-mono text-[16px] font-semibold text-ink">New terminal</div>
         </div>
         <FieldLabel>

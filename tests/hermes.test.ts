@@ -38,7 +38,7 @@ describe("hermes profile parsing", () => {
   });
 
   it("extracts the semver from the version banner", () => {
-    expect(parseVersion("Hermes Agent v0.18.2 (2026.6.5) · upstream a72bb037")).toBe("v0.18.2");
+    expect(parseVersion("Hermes Agent v0.18.2 (2026.6.5) - upstream a72bb037")).toBe("v0.18.2");
     expect(parseVersion("no version here")).toBeUndefined();
   });
 });

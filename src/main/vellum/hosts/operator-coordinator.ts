@@ -140,8 +140,8 @@ const deploymentFleetBindingFailure = (
 ): ConfiguredRemoteDeployResult => ({
   ...deploy,
   ok: false,
-  detail: `${deploy.detail} · ${detail}`,
-  message: `${deploy.message ?? deploy.detail} · ${detail}`,
+  detail: `${deploy.detail} - ${detail}`,
+  message: `${deploy.message ?? deploy.detail} - ${detail}`,
   outcome: "indeterminate",
   statusRecorded: false,
 });

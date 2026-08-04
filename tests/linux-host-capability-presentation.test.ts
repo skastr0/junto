@@ -107,7 +107,7 @@ describe("Linux host capability presentation", () => {
   it("keeps the five operator-facing capabilities ordered and fully ready", () => {
     const presentation = presentLinuxHostCapabilities(readyObservation());
     expect(presentation.summary).toBe(
-      "Core Station ready · all requested host capabilities ready",
+      "Core Station ready - all requested host capabilities ready",
     );
     expect(presentation.optionalLimitCount).toBe(0);
     expect(
@@ -164,7 +164,7 @@ describe("Linux host capability presentation", () => {
 
     const presentation = presentLinuxHostCapabilities(observation);
     expect(presentation.coreStatus).toBe("ready");
-    expect(presentation.summary).toBe("Core Station ready · 4 optional limits");
+    expect(presentation.summary).toBe("Core Station ready - 4 optional limits");
     expect(presentation.summary).not.toMatch(/failed|not ready/iu);
 
     const nonReady = presentation.capabilities.filter(

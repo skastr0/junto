@@ -8,8 +8,8 @@
  *
  * Severity tones MUST match signal-mark / RTS ladder end-to-end
  * (cards, chips, minimap, command bar):
- *   blocked → crimson · attention → amber · working → cyan
- *   ready/complete → green · parked → violet (signal-mark only) · idle → steel
+ *   blocked → crimson - attention → amber - working → cyan
+ *   ready/complete → green - parked → violet (signal-mark only) - idle → steel
  * Motion pattern may change across states; the hue for a severity does not.
  */
 
@@ -17,7 +17,7 @@ import type { AgentSeatState } from "@shared/agent-seat-state";
 import { HUE } from "./theme";
 
 export type ActivityTone = "amber" | "cyan" | "green" | "crimson" | "steel";
-/** wave = clockwise trail · pulse = soft breath (complete) · static = settled */
+/** wave = clockwise trail - pulse = soft breath (complete) - static = settled */
 export type ActivityMode = "wave" | "pulse" | "static";
 export type ActivitySize = "node" | "inline";
 /** Legacy motion nuance for wave states; ActivityMark ignores pattern. */

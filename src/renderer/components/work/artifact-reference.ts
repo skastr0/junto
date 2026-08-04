@@ -9,7 +9,7 @@ export const artifactTaskReferenceLabel = (
 ): string =>
   artifact.task === undefined
     ? "Unbound output"
-    : `Task #${artifact.task.itemId} · ${artifact.task.sink.canvasName}/${artifact.task.sink.nodeId}`;
+    : `Task #${artifact.task.itemId} - ${artifact.task.sink.canvasName}/${artifact.task.sink.nodeId}`;
 
 export const artifactSearchText = (artifact: Artifact): string => {
   const task = artifact.task;

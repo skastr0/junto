@@ -1246,7 +1246,7 @@ export const CanvasesLive = Layer.effect(
           id: "canvases",
           label: "Canvas Documents",
           status: "ok" as const,
-          detail: `${state.info.path} · gen ${snapshot.generation}`,
+          detail: `${state.info.path} - gen ${snapshot.generation}`,
         }),
       }),
     ),

@@ -16,7 +16,7 @@ describe("canvas presentation", () => {
     };
 
     expect(nodeTitle(node)).toBe("PRISM");
-    expect(nodeDetail(node)).toBe("project · prism");
+    expect(nodeDetail(node)).toBe("project - prism");
     expect(nodeTypeLabel(node)).toBe("project");
   });
 

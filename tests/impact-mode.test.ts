@@ -139,7 +139,7 @@ describe("connectionFocusSelection — direct neighborhood focus", () => {
     expect(focus.active).toBe(true);
     expect(focus.cone.nodeIds).toEqual(new Set(["a1", "r1"]));
     expect(focus.cone.edgeIds).toEqual(new Set(["e-rp"]));
-    expect(focus.seedLabel).toBe("1 connected · 1 edge");
+    expect(focus.seedLabel).toBe("1 connected - 1 edge");
     expect(nodeImpactClass(true, focus.cone, "a1")).toBe("impact-in impact-root");
     expect(nodeImpactClass(true, focus.cone, "r1")).toBe("impact-in");
     expect(nodeImpactClass(true, focus.cone, "a2")).toBeUndefined();
@@ -154,7 +154,7 @@ describe("connectionFocusSelection — direct neighborhood focus", () => {
     expect(focus.active).toBe(true);
     expect(focus.cone.nodeIds).toEqual(new Set(["outsider"]));
     expect(focus.cone.edgeIds.size).toBe(0);
-    expect(focus.seedLabel).toBe("0 connected · 0 edges");
+    expect(focus.seedLabel).toBe("0 connected - 0 edges");
   });
 
   it("stays inactive when the requested node no longer exists", () => {

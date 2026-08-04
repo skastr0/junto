@@ -341,7 +341,7 @@ test("node detail rail preserves navigation while explaining primary and seconda
     await expect(connectionMap).not.toHaveCount(0);
     await expect(connectionMap).toHaveCSS("text-transform", "none");
     await expect(page.getByRole("tooltip")).toHaveCount(0);
-    await expect(deck).not.toContainText(/inspect · click to add/i);
+    await expect(deck).not.toContainText(/inspect - click to add/i);
 
     const tasks = deck.locator(".node-deck-catalog__card").filter({
       hasText: "Tasks",

@@ -80,7 +80,7 @@ export const deadStateCopy = (input: {
 }): DeadStateCopy => ({
   headline: "Process stopped",
   detail: input.agentSeat
-    ? "Work identity revoked · unclaim task if still held."
+    ? "Work identity revoked - unclaim task if still held."
     : "Last output is frozen below — process is not running.",
   reopenLabel: "Reopen",
   closeViewLabel: "Close view",
@@ -88,4 +88,4 @@ export const deadStateCopy = (input: {
 
 /** Surface header eyebrow — Close (view) vs Stop (process). */
 export const terminalSurfaceEyebrow = (hostId: string): string =>
-  `terminal · ${hostId} · Close keeps process · Stop ends it`;
+  `terminal - ${hostId} - Close keeps process - Stop ends it`;

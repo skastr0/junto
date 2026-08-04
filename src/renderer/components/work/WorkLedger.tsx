@@ -402,7 +402,7 @@ export function RequestInbox({
       <OverlayHeader
         eyebrow="requests"
         title="Input requests"
-        status={`${pendingItems.length} need you · ${items.length - pendingItems.length} resolved`}
+        status={`${pendingItems.length} need you - ${items.length - pendingItems.length} resolved`}
         actions={
           <>
             <div className="work-ledger-search">
@@ -538,7 +538,7 @@ function ArtifactFocusModal({
       panelClassName="artifact-focus nowheel"
     >
       <OverlayHeader
-        eyebrow={`artifact · ${kind}`}
+        eyebrow={`artifact - ${kind}`}
         title={name}
         status={artifactTaskReferenceLabel(artifact)}
         actions={
@@ -670,7 +670,7 @@ export function ArtifactLibrary({
                       <span>
                         <strong>{name}</strong>
                         <small>
-                          {artifactTaskReferenceLabel(artifact)} ·{" "}
+                          {artifactTaskReferenceLabel(artifact)} -{" "}
                           {artifact.parts.length} part{artifact.parts.length === 1 ? "" : "s"}
                         </small>
                       </span>

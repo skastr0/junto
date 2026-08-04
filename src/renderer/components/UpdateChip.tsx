@@ -71,7 +71,7 @@ export function UpdateChip() {
       {installing
         ? "installing…"
         : version
-          ? `Restart to update · ${version}`
+          ? `Restart to update - ${version}`
           : "Restart to update"}
     </Button>
   );

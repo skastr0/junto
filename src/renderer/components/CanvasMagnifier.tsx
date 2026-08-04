@@ -366,7 +366,7 @@ export function CanvasMagnifier() {
     }
     if (statusRef.current) {
       statusRef.current.textContent = nearest
-        ? `${nodeTypeLabel(nearest.flow.data.node)} · ${signalMark(nearest.severity).label}`
+        ? `${nodeTypeLabel(nearest.flow.data.node)} - ${signalMark(nearest.severity).label}`
         : "no node in range";
       statusRef.current.style.color = nearest && nearest.severity !== "idle"
         ? signalMark(nearest.severity).hue
@@ -494,7 +494,7 @@ export function CanvasMagnifier() {
     >
       <canvas ref={canvasRef} className="canvas-magnifier__canvas" />
       <div className="canvas-magnifier__readout">
-        <span className="canvas-magnifier__mode">field scan · 0.8×</span>
+        <span className="canvas-magnifier__mode">field scan - 0.8×</span>
         <span ref={subjectRef} className="canvas-magnifier__subject">open field</span>
         <span ref={statusRef} className="canvas-magnifier__status">no node in range</span>
       </div>

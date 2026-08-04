@@ -74,7 +74,7 @@ export function TaskEnqueueSurface({
   if (!payload || !node) {
     return (
       <section className="dock-slot workbench-surface">
-        <div className="workbench-surface__placeholder">task enqueue · unbound</div>
+        <div className="workbench-surface__placeholder">task enqueue - unbound</div>
       </section>
     );
   }
@@ -174,7 +174,7 @@ export function TaskEnqueueSurface({
   return (
     <section
       className="dock-slot dock-slot--task-create workbench-surface"
-      aria-label={`Quick enqueue · ${payload.title}`}
+      aria-label={`Quick enqueue - ${payload.title}`}
       aria-hidden={!visible}
       data-testid="task-enqueue-surface"
       onMouseDown={activateSurfaceOnMouseDown(onActivate)}

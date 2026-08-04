@@ -25,7 +25,7 @@ export function ChatSurface({
   if (!payload) {
     return (
       <section className="dock-slot workbench-surface">
-        <div className="workbench-surface__placeholder">ACP chat · unbound</div>
+        <div className="workbench-surface__placeholder">ACP chat - unbound</div>
       </section>
     );
   }
@@ -59,7 +59,7 @@ export function ChatSurface({
   return (
     <section
       className="dock-slot dock-slot--chat workbench-surface"
-      aria-label={`ACP chat · ${payload.title}`}
+      aria-label={`ACP chat - ${payload.title}`}
       aria-hidden={!visible}
       onMouseDown={activateSurfaceOnMouseDown(onActivate)}
     >

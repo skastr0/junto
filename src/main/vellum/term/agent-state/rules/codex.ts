@@ -93,7 +93,7 @@ export const codexRules: SeatRulePack = {
       visibleWorking: true,
       matchers: {
         lineRegex: [
-          "^[•◦]\\s+Working \\([^)]*esc to interrupt\\)(?: · .*)?$",
+          "^[•◦]\\s+Working \\([^)]*esc to interrupt\\)(?: - .*)?$",
         ],
         not: [{ contains: ["■ conversation interrupted"] }],
       },

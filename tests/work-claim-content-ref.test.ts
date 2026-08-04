@@ -110,7 +110,7 @@ const factoryDoc = (): CanvasDoc => ({
   edges: [{ id: "e-claim", fromNode: "agent", toNode: "tasks" }],
 });
 
-describe("S3 · WorkService claim + ContentRef media", () => {
+describe("S3 - WorkService claim + ContentRef media", () => {
   it("claims a ContentRef task when ContentService receipts+files are verified", async () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-s3-claim-content-"));
     roots.push(root);

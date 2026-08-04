@@ -20,7 +20,7 @@ describe("herdr document model", () => {
         {
           id: "h1",
           type: "text",
-          text: "local · w11:pA",
+          text: "local - w11:pA",
           x: 10,
           y: 20,
           width: 260,

@@ -114,9 +114,9 @@ for pack, tid, paths, rid in PACKS:
         continue
     if pack.startswith("S4-"):
         s4_task_ids.append(tid)
-    brief = f"""{rid} · REVIEW of {pack}
+    brief = f"""{rid} - REVIEW of {pack}
 
-LANE: Parallel · ROLE: review
+LANE: Parallel - ROLE: review
 SLICE: {rid}
 IMPLEMENT_PACK: {pack} ({tid})
 HARD dependsOn: [{tid}]  # claim-ready only after implement completed
@@ -160,9 +160,9 @@ FINISH: END_STATE review slice {rid}; git minCommits ≥ 1; NO artifacts
 
 # Integration review: depends on all S4 implement tasks that exist
 if len(s4_task_ids) >= 1:
-    brief = f"""R4-integrate · Cross-pack S4 coherence review
+    brief = f"""R4-integrate - Cross-pack S4 coherence review
 
-LANE: Parallel · ROLE: review
+LANE: Parallel - ROLE: review
 HARD dependsOn: all present S4 implement task ids
 
 GOAL
@@ -201,9 +201,9 @@ FINISH: END_STATE R4-integrate; commits only
 for slice_id, tid, rid in DEEP_SLICES:
     if tid not in deep:
         continue
-    brief = f"""{rid} · REVIEW of deep {slice_id}
+    brief = f"""{rid} - REVIEW of deep {slice_id}
 
-LANE: Deep · ROLE: review
+LANE: Deep - ROLE: review
 HARD dependsOn: [{tid}]
 
 GOAL

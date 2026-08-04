@@ -111,8 +111,8 @@ export const selectionImpact = (
 
   const seeds = cone.seedReasons;
   const primary = seeds[0] ? reasonBrief(seeds[0]) : "stoppage";
-  const extra = seeds.length > 1 ? ` · +${seeds.length - 1}` : "";
-  const seedLabel = `${cone.nodeIds.size} in cone · ${primary}${extra}`;
+  const extra = seeds.length > 1 ? ` - +${seeds.length - 1}` : "";
+  const seedLabel = `${cone.nodeIds.size} in cone - ${primary}${extra}`;
 
   return { active: true, cone, seedLabel };
 };
@@ -167,7 +167,7 @@ export const connectionFocusSelection = (
   return {
     active: true,
     cone,
-    seedLabel: `${connectedLabel} · ${edgeLabel}`,
+    seedLabel: `${connectedLabel} - ${edgeLabel}`,
   };
 };
 

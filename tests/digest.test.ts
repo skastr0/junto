@@ -127,8 +127,8 @@ regions
 team :: Foo, Bar
 
 region rollups
-team :: blocked · 2 members (1 blocked)
-  Bar :: blocked · flag:blocker
+team :: blocked - 2 members (1 blocked)
+  Bar :: blocked - flag:blocker
 
 factory physics
 roles :: actors=1 sinks=1 schedulers=0 geography=3
@@ -150,17 +150,17 @@ Ops :: task
 
 edges
 Foo --relates--> Bar
-Ops --blocks(1 need input · ship)--> Baz
+Ops --blocks(1 need input - ship)--> Baz
 Baz --refs--> Foo
 Foo --relates--> Baz
 
 blockers
 Bar
 blocked closure :: 1 nodes
-Baz · 1 need input · ship
+Baz - 1 need input - ship
 
 impact
-1 task · stops 2
+1 task - stops 2
   seed: Ops
   settle: ship
 
@@ -224,12 +224,12 @@ const expected2 = [
   "unnamed region :: ",
   "",
   "region rollups",
-  "ops :: blocked · 4 members (1 blocked, 2 attention)",
-  "  B1 :: blocked · flag:blocker",
-  "  A1 :: attention · flag:attention",
-  "  A2 :: attention · flag:attention",
-  "solo :: idle · 1 member",
-  "unnamed region :: idle · 0 members",
+  "ops :: blocked - 4 members (1 blocked, 2 attention)",
+  "  B1 :: blocked - flag:blocker",
+  "  A1 :: attention - flag:attention",
+  "  A2 :: attention - flag:attention",
+  "solo :: idle - 1 member",
+  "unnamed region :: idle - 0 members",
   "",
   "factory physics",
   "roles :: actors=0 sinks=0 schedulers=0 geography=8",
@@ -460,9 +460,9 @@ describe("digestCanvas — design vs completion (I13/I16)", () => {
     // Completion lists stamp with evidence refs — not empty seats
     expect(out).toContain("completion");
     expect(out).toContain("stamps");
-    expect(out).toContain("build · seat=agent1 · edge=e-proof · refs=art-build-1,log://run");
+    expect(out).toContain("build - seat=agent1 - edge=e-proof - refs=art-build-1,log://run");
     expect(out).toContain("cleared");
-    expect(out).toContain("proof edge e-proof · step=build");
+    expect(out).toContain("proof edge e-proof - step=build");
     // Cleared proof → soft relates.
     expect(out).toContain("proofs --relates--> ship");
     // I13: the word "empty seats" must not appear under completion block

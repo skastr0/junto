@@ -71,11 +71,11 @@ function HerdrSections({ node }: { readonly node: CanvasNode }) {
   const reconnects = conn?.reconnectAttempts ?? 0;
   const status =
     reconnects > 0
-      ? `${connState} · ${reconnects} reconnect${reconnects === 1 ? "" : "s"}`
+      ? `${connState} - ${reconnects} reconnect${reconnects === 1 ? "" : "s"}`
       : connState;
   const agent = meta?.agent
     ? meta.agentStatus
-      ? `${meta.agent} · ${meta.agentStatus}`
+      ? `${meta.agent} - ${meta.agentStatus}`
       : meta.agent
     : undefined;
 
@@ -136,7 +136,7 @@ const NodeInspector = memo(function NodeInspector({ node, onClose }: { readonly 
     <InspectorHeader eyebrow={nodeTypeLabel(node)} title={nodeTitle(node)} onClose={onClose} />
     <div className="inspector-body">
       {isLabel ? (
-        <div className="inspector-detail">Bare map text · color and size from the canvas controls</div>
+        <div className="inspector-detail">Bare map text - color and size from the canvas controls</div>
       ) : HERDR_ENABLED && isEntity && node.ether?.entity?.kind === "herdr" ? (
         <HerdrSections key={node.id} node={node} />
       ) : isAgent ? (
@@ -186,7 +186,7 @@ function EdgeInspector({ onClose }: { readonly onClose: () => void }) {
     if (labelDraft !== (edge.label ?? "")) editEdgeLabel(edge.id, labelDraft);
   };
   const eyebrow = criteria
-    ? `live / ${livePhase} · ${criteria.mode}`
+    ? `live / ${livePhase} - ${criteria.mode}`
     : `soft / ${livePhase}`;
   return (
     <aside className="inspector-panel">

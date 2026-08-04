@@ -776,7 +776,7 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
                 {status}
               </>
             )}
-            {geomLabel && attached ? ` · ${geomLabel}` : ""}
+            {geomLabel && attached ? ` - ${geomLabel}` : ""}
           </span>
         }
         actions={

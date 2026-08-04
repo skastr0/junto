@@ -69,7 +69,7 @@ const MARK: Readonly<Record<SignalKind, SignalMark>> = {
     tone: SEVERITY_TONE.idle,
     hue: ACTIVITY_TONE_HEX[SEVERITY_TONE.idle],
     // Empty circle — not a middot. Middot reads as list punctuation next to
-    // labels ("· IDLE", "· terminal") and collides with · separators.
+    // labels ("- IDLE", "- terminal") and collides with - separators.
     symbol: "○",
     label: "idle",
     mode: "static",

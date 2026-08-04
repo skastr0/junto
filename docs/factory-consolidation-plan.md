@@ -5,7 +5,7 @@ the earlier `factory-physics` cleanup plan (two live plans for one migration is
 the duplicate-v1/v2 this doctrine forbids — it was deleted, not deprecated).
 
 Evidence base — 184 cited findings across two scan rounds, all spot-checked:
-[`research/actor-model-scans/`](research/actor-model-scans/) (138) ·
+[`research/actor-model-scans/`](research/actor-model-scans/) (138) -
 [`research/weirdness-hunt/`](research/weirdness-hunt/) (46, read its correction
 header first). Verified harness behavior:
 [`managed-terminal-verification.md`](managed-terminal-verification.md).
@@ -18,7 +18,7 @@ rigorous seams, disposable glue; ratchet invariants rightward on
 
 ---
 
-## 0 · The canonical end state, in one page
+## 0 - The canonical end state, in one page
 
 Everything below serves this. If a change does not move the code toward this, it
 is not in this plan.
@@ -92,7 +92,7 @@ gradient — not policed, structurally impossible):
 | a port gated by a tier number | `PORT_TIER_FLOOR` / `tierAllowsPort` (`physics/placement.ts:63-81`) |
 | a second work-admission path | route tokens (`work/route-tokens.ts`) |
 
-## 1 · Strata — where abstraction effort goes
+## 1 - Strata — where abstraction effort goes
 
 PCMI's question, answered for this codebase. Investment posture per stratum; a
 change whose posture does not match its stratum is a review failure.
@@ -128,7 +128,7 @@ delivery ordering, idempotent claim, seat identity. Every one of these is a seam
 contract in the list above, and every one currently has at least one hand-rolled
 copy in glue — that is the substance of §2.
 
-## 2 · The consolidation ledger
+## 2 - The consolidation ledger
 
 Consolidation doctrine: preserved old paths are **presumed wrong**. Each row
 names what dies. The three allowed exception classes are **destructive state
@@ -166,7 +166,7 @@ owner).
 | D17 | `region` + `furniture` roles → `geography` | historical split | `physics/schema.ts:22-28` |
 | D18 | Duplicate per-kind actor-inbox declaration | same rule stated at two layers | `physics/kinds.ts:38,40` vs `physics/stamp.ts:9-12` |
 
-## 3 · The gradient ratchet
+## 3 - The gradient ratchet
 
 PCMI's enforcement gradient made concrete: every invariant this migration
 establishes, and how far right it can be pushed. **Construction** means the
@@ -195,7 +195,7 @@ The three grep tests exist only for the invariants a type cannot hold (an agent
 inventing a *new* branch, a *new* vocabulary word). That ratio is the measure of
 whether this migration succeeded.
 
-## 4 · Commit sequence
+## 4 - Commit sequence
 
 Ordered so each commit is independently green (`bunx tsc --noEmit` + `bunx
 vitest run` + `tests/kernel-headless-probe.test.ts`, which boots the real app).
@@ -222,7 +222,7 @@ is low because the diff is removed lines with no logic rewritten. C1–C7 land f
 specifically to shrink them. (C8 was a third such web until the chat UI and ACP
 transport were ruled kept; it is now a small severing commit.)
 
-## 5 · Yield — decisions compressed
+## 5 - Yield — decisions compressed
 
 PCMI measures design in decisions compressed, never lines generated. This
 migration's ledger:
@@ -242,7 +242,7 @@ migration's ledger:
 Five decisions compressed; ~2,400 lines and four subsystems deleted as a
 *consequence*, not as the goal.
 
-## 6 · Risks
+## 6 - Risks
 
 - **Browser plane going dark** — C5 must land the D13 fix in the same commit, or
   no principal can hold a browser grant and it fails closed looking like correct
@@ -254,7 +254,7 @@ Five decisions compressed; ~2,400 lines and four subsystems deleted as a
 - **Usage rail** — verified independent: keys on `quota.provider`, zero
   `entity.kind` coupling. No change expected; assert it stays that way.
 
-## 7 · Deliberately out of scope
+## 7 - Deliberately out of scope
 
 Station-aware product work, tracked in `managed-terminal-plan.md` so this
 cleanup does not foreclose it: station deploy status surfaced with the right
@@ -269,7 +269,7 @@ Also untouched: authoring `entity.kind` at creation (role-from-kind is the
 doctrine); presentation-by-kind in the renderer; `promote` outside the physics
 domain; work role (`ether.workRole`) as an operator-authored routing label.
 
-## 8 · Settled 2026-07-26
+## 8 - Settled 2026-07-26
 
 Both former open items are closed by operator ruling; neither is a derivation.
 

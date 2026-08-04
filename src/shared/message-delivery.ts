@@ -22,15 +22,15 @@ export const sanitizeDeliveryLine = (text: string): string =>
     .replace(/\s+/g, " ")
     .trim();
 
-/** Pulse-style one-liner: `[message · <sender>] <brief>[ · task <id>]` */
+/** Pulse-style one-liner: `[message - <sender>] <brief>[ - task <id>]` */
 export const composeMessageDeliveryPayload = (message: Message): string => {
   const sender = messageSenderLabel(message);
   const brief = messageBriefText(message);
   const task =
     typeof message.taskId === "string" && message.taskId.trim().length > 0
-      ? ` · task ${sanitizeDeliveryLine(message.taskId)}`
+      ? ` - task ${sanitizeDeliveryLine(message.taskId)}`
       : "";
-  return sanitizeDeliveryLine(`[message · ${sender}] ${brief}${task}`);
+  return sanitizeDeliveryLine(`[message - ${sender}] ${brief}${task}`);
 };
 
 /**

@@ -2,7 +2,7 @@
  * Wires grammar — edges as configuration, never runtime state.
  *
  * Closed families: access | watch | trigger | effect.
- * Words come from kind-areas (open lexicon). Sentence = family · word*.
+ * Words come from kind-areas (open lexicon). Sentence = family - word*.
  * Connect refused when no family exists for the role pair.
  *
  * Law: only schedulers push; actors pull. Automation families require a
@@ -268,7 +268,7 @@ export const familyColorToken = (
 
 export const formatWireSentence = (sentence: WireSentence): string => {
   if (sentence.words.length === 0) return sentence.family;
-  return `${sentence.family} · ${sentence.words.join(" · ")}`;
+  return `${sentence.family} - ${sentence.words.join(" - ")}`;
 };
 
 /** Build a sentence from known areas (pure; no canvas). */

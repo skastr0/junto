@@ -10,7 +10,7 @@ recorded by the managed-terminal template badges.
 
 The design being verified: **one agent surface** — a Vellum Command-spawned PTY running the harness's full interactive TUI (never headless), per-session injection via flags/env only (zero writes to user configs), the station CLI as the tool surface (process-bind), state-gated PTY typing as the drive channel, Ctrl+C interrupt, resume-by-id cold wake. Harness templates v1: Claude Code, Codex, Grok, Hermes.
 
-Versions probed: claude 2.1.220 · codex-cli 0.145.0 · grok build (grok-4.5 era, 2026-07) · hermes (2026-07, gpt-5.4/5.5 era) · herdr master @ c0fb777 (Apache-2.0). Re-verify on major harness updates — several load-bearing behaviors are undocumented.
+Versions probed: claude 2.1.220 - codex-cli 0.145.0 - grok build (grok-4.5 era, 2026-07) - hermes (2026-07, gpt-5.4/5.5 era) - herdr master @ c0fb777 (Apache-2.0). Re-verify on major harness updates — several load-bearing behaviors are undocumented.
 
 ## Claude Code — 9/9 VERIFIED ([full report](research/managed-terminal-probes/claude-code-tui.md))
 
@@ -36,7 +36,7 @@ Spawn env trap (prior probe): scrub `CLAUDE_CODE_CHILD_SESSION`, `CLAUDECODE`, `
 | C2 | Paste then **separate** CR write submits (0–150ms gaps all pass) | ⚠ payload+CR in one write NEVER submits; typed chars need ≥~200ms before CR; mid-turn CR queues a second turn |
 | C3 | Session id capture order: SessionStart hook > `CODEX_THREAD_ID` (agent env) > notify payload > rollout file > `/status` | ⚠ rollout file absent until first turn; `session_index.jsonl` stale |
 | C4 | `codex resume <id>` continues the same session (no fork, no usage) | ⚠ flags NOT inherited on resume — re-pass everything |
-| C5 | Hooks injectable via `-c`; 11 events; PreToolUse deny blocks pre-execution; PermissionRequest deny pre-empts the modal | ⚠ untrusted hook = blocking pre-TUI modal; use Vellum Command-owned `CODEX_HOME` with pre-trusted hash (verified, zero writes to real config; auth symlink works) · ⚠ matcher `"Bash"`, not `"shell"` (silent no-op) |
+| C5 | Hooks injectable via `-c`; 11 events; PreToolUse deny blocks pre-execution; PermissionRequest deny pre-empts the modal | ⚠ untrusted hook = blocking pre-TUI modal; use Vellum Command-owned `CODEX_HOME` with pre-trusted hash (verified, zero writes to real config; auth symlink works) - ⚠ matcher `"Bash"`, not `"shell"` (silent no-op) |
 | C6 | `notify` via `-c`: single event `agent-turn-complete`, JSON payload with thread-id | does not fire on interrupted turns |
 | C7 | Allowlisting: no `-c` path — `$CODEX_HOME/rules/default.rules` `prefix_rule` file; fires unprompted in Vellum Command-owned CODEX_HOME | residual: one probe's ask-everything behavior hypothesized to be Groundwork hooks, not codex (not fully ablation-closed) |
 | C8 | `codex debug models` enumerates models + per-model effort lists (gpt-5.6-sol/terra/luna, …, incl. `ultra`) | ⚠ `-m` not validated locally — bogus ids proceed |
@@ -51,7 +51,7 @@ Spawn env trap (prior probe): scrub `CLAUDE_CODE_CHILD_SESSION`, `CLAUDECODE`, `
 | # | fact | key receipt / trap |
 |---|---|---|
 | G1 | Argv prompt auto-submits; `--session-id <uuid>` pins the session dir/id | ⚠ requires a git cwd — non-git shows a modal that swallows the prompt |
-| G2 | Paste + CR recipe; earliest accepted write ~1.5s post-spawn; mid-turn CR **queues natively** ("Queued · Enter to send now", auto-delivered on turn end) | ⚠ image on macOS clipboard → paste-end attaches `[Image #1]` (trigger = `ESC[201~`; bare 0x16 too). Pre-flight `osascript clipboard info`; detect-and-abort, never silent-clear |
+| G2 | Paste + CR recipe; earliest accepted write ~1.5s post-spawn; mid-turn CR **queues natively** ("Queued - Enter to send now", auto-delivered on turn end) | ⚠ image on macOS clipboard → paste-end attaches `[Image #1]` (trigger = `ESC[201~`; bare 0x16 too). Pre-flight `osascript clipboard info`; detect-and-abort, never silent-clear |
 | G3 | `--session-id` pin + `grok -r <id>` resume round-trip; `--fork-session` for forks | resume replayed pre-resume history verbatim |
 | G4 | Leader lane: `grok agent leader` + `--leader` clients speak full ACP; a second client can `session/load` a **live TUI's** session and replay its update stream (structured observability, no scraping) | steering into a live TUI via this lane not executed (read-only scope); `grok leader list` unreliable |
 | G5 | Hooks EXIST: project-local `.grok/hooks/*.json`, 15 events incl. blocking PreToolUse/Stop; plus per-session `events.jsonl` (`turn_started/turn_ended/phase_changed/tool_started/permission_requested/resolved`) — free machine-readable state feed | ⚠ grok also executes `~/.claude/settings.json` hooks; `grok inspect` under-reports |
@@ -64,7 +64,7 @@ Spawn env trap (prior probe): scrub `CLAUDE_CODE_CHILD_SESSION`, `CLAUDECODE`, `
 | G12 | 0x03 mid-turn cancels turn only (`trigger:"ctrl_c"` in events); ESC same + restores composer; idle 0x03 no-op | `/exit` + CR for clean exit |
 | G13 | `--agent <file>`: frontmatter (name, model, permission_mode, tools, disallowedTools) + body appended to system prompt; `tools`/`disallowedTools` gating verified enforced | `permission_mode` in the file is inert at top level — use the CLI flag |
 
-## Hermes — 10/10 VERIFIED ([local](research/managed-terminal-probes/hermes-verify.md) · [remote](research/managed-terminal-probes/remote-hermes-ssh-verifier.md))
+## Hermes — 10/10 VERIFIED ([local](research/managed-terminal-probes/hermes-verify.md) - [remote](research/managed-terminal-probes/remote-hermes-ssh-verifier.md))
 
 | # | fact | key receipt / trap |
 |---|---|---|
@@ -106,7 +106,7 @@ From [`tui-horizons.md`](research/managed-terminal-probes/tui-horizons.md):
 
 ## PTY-factory campaign re-smoke (A/B/C)
 
-Campaign: claim contract (A) · seat truth (B) · mid-turn cyan honesty (C).
+Campaign: claim contract (A) - seat truth (B) - mid-turn cyan honesty (C).
 Not a product surface — operator / QA checklist after seat/drive changes.
 
 ### Thresholds (code)

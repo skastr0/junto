@@ -45,7 +45,7 @@ const listHermesHosts = (
       label: host.label,
     }));
 
-// "Hermes Agent v0.16.0 (2026.6.5) · upstream a72bb037" -> "v0.16.0"
+// "Hermes Agent v0.16.0 (2026.6.5) - upstream a72bb037" -> "v0.16.0"
 export const parseVersion = (stdout: string): string | undefined => {
   const match = stdout.match(/v\d+\.\d+\.\d+/);
   return match?.[0];

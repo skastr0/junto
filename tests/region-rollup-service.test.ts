@@ -319,7 +319,7 @@ describe("RegionRollupService — activity wiring", () => {
         rollup?.members.find((member) => member.nodeId === "actor"),
       ).toMatchObject({
         severity: "blocked",
-        reasons: ["edge:1 need input · needs operator"],
+        reasons: ["edge:1 need input - needs operator"],
       });
     } finally {
       await runtime.dispose();

@@ -93,7 +93,7 @@ const titleForItem = (
   if (!item) return fallbackLine;
   const brief = taskBrief(item).trim();
   const sink = nodeTitle(causeNode);
-  return brief ? `${sink} · ${brief}` : fallbackLine;
+  return brief ? `${sink} - ${brief}` : fallbackLine;
 };
 
 /**

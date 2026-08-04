@@ -76,9 +76,9 @@ export function multiSelectionLabel(classified: MultiSelectionClass): string {
     case "single":
       return "1 selected";
     case "homogeneous":
-      return `${classified.nodes.length} · ${surfaceLabel(classified.surface)}`;
+      return `${classified.nodes.length} - ${surfaceLabel(classified.surface)}`;
     case "heterogeneous":
-      return `${classified.nodes.length} · mixed`;
+      return `${classified.nodes.length} - mixed`;
   }
 }
 

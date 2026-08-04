@@ -90,7 +90,7 @@ const agentNodes = (
     const statsHost = typeof agent.stats.host === "string" ? agent.stats.host : undefined;
     const host = snapshotAgentHostId(agent);
     const label = statsHost
-      ? `${agent.title ?? agent.key} · ${statsHost}`
+      ? `${agent.title ?? agent.key} - ${statsHost}`
       : (agent.title ?? agent.key);
     return [
       {

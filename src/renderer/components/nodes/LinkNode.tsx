@@ -92,7 +92,7 @@ export function LinkNode({ data, selected }: NodeProps<FlowNode>) {
             {host}
           </div>
           <div className="truncate font-mono text-[10px]" style={{ color: DIM }}>
-            retired · delete to remove
+            retired - delete to remove
           </div>
         </div>
       </div>

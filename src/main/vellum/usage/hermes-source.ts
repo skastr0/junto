@@ -49,7 +49,7 @@ export const buildHermesQuota = (
     extras: {
       capability: "tokens",
       partial: true,
-      note: "tokens from state.db · subscription has no separate limit surface",
+      note: "tokens from state.db - subscription has no separate limit surface",
       window: "7d",
       inputTokens: aggregate.inputTokens,
       outputTokens: aggregate.outputTokens,

@@ -82,7 +82,7 @@ export const buildGrokQuota = (
     extras: {
       capability: "tokens",
       partial: true,
-      note: "tokens/cost from local sessions · plan weekly % needs /usage scrape (not live)",
+      note: "tokens/cost from local sessions - plan weekly % needs /usage scrape (not live)",
       window: "7d",
       inputTokens: aggregate.inputTokens,
       outputTokens: aggregate.outputTokens,

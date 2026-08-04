@@ -313,7 +313,7 @@ function BrowserSection() {
           <div key={profile.id} className="settings-profile-row">
             <span>
               <strong>{profile.label ?? profile.id}</strong>
-              <small>{profile.id}{profile.default ? " · default" : ""}</small>
+              <small>{profile.id}{profile.default ? " - default" : ""}</small>
             </span>
             <button
               type="button"
@@ -461,7 +461,7 @@ function AdvancedSection() {
       </FieldRow>
       <FieldRow
         label="Logs explorer"
-        hint="TopBar control · process Effect.log + main/renderer console (not work ledger)"
+        hint="TopBar control - process Effect.log + main/renderer console (not work ledger)"
       >
         <input
           type="checkbox"
@@ -505,12 +505,12 @@ function InstallationFacts() {
   const platformLabel =
     install === undefined
       ? "—"
-      : `${install.platform}/${install.arch} · electron ${install.electronVersion}`;
+      : `${install.platform}/${install.arch} - electron ${install.electronVersion}`;
   const buildLabel =
     install === undefined
       ? "—"
       : install.packaged
-        ? `packaged · ${install.providerKind} updater`
+        ? `packaged - ${install.providerKind} updater`
         : "development (self-update disabled)";
   const feedLabel =
     install?.feedUrl !== undefined && install.feedUrl.length > 0
@@ -685,7 +685,7 @@ const backupOptionLabel = (
   const timestamp = Number.isNaN(modified.getTime())
     ? "unknown date"
     : modified.toISOString().slice(0, 16).replace("T", " ");
-  return `${timestamp} UTC · ${formatBackupBytes(backup.bytes)} · schema ${backup.schemaVersion}`;
+  return `${timestamp} UTC - ${formatBackupBytes(backup.bytes)} - schema ${backup.schemaVersion}`;
 };
 
 function StateRecoveryControls() {
@@ -1136,9 +1136,9 @@ function HostsSection() {
                 <strong>{host.label}</strong>
                 <span className="settings-host-card__meta">
                   {host.kind === "local" ? "local" : host.sshEndpoint}
-                  {" · "}
+                  {" - "}
                   {host.capabilities.join(", ")}
-                  {host.hermesId ? ` · hermes ${host.hermesId}` : ""}
+                  {host.hermesId ? ` - hermes ${host.hermesId}` : ""}
                 </span>
               </div>
               <div className="settings-host-card__actions">
@@ -1363,7 +1363,7 @@ function AudioSection() {
         const clip = audio.clips[key];
         return (
           <div key={id} className="settings-sfx-row">
-            <FieldRow label={SFX_LABELS[id]} hint={id === "cycle" ? "played on Space / `" : `rising-edge · ${id}`}>
+            <FieldRow label={SFX_LABELS[id]} hint={id === "cycle" ? "played on Space / `" : `rising-edge - ${id}`}>
               <span className="settings-sfx-controls">
                 <label className="settings-sfx-enable">
                   <input
@@ -1621,7 +1621,7 @@ export function SettingsPanel() {
               </p>
             ) : null}
             <p className="settings-foot" style={{ color: DIM }}>
-              Vellum Command {appVersion} · settings schema v{settingsVersion} ·
+              Vellum Command {appVersion} - settings schema v{settingsVersion} -
               ~/.vellum/state/vellum.db
             </p>
           </div>

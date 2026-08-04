@@ -170,12 +170,12 @@ export const digestCanvas = (
       const total = `${rollup.counts.total} member${rollup.counts.total === 1 ? "" : "s"}`;
       rollupLines.push(
         buckets.length > 0
-          ? `${rollup.label} :: ${rollup.severity} · ${total} (${buckets.join(", ")})`
-          : `${rollup.label} :: ${rollup.severity} · ${total}`,
+          ? `${rollup.label} :: ${rollup.severity} - ${total} (${buckets.join(", ")})`
+          : `${rollup.label} :: ${rollup.severity} - ${total}`,
       );
       for (const member of rollup.members) {
         if (member.severity === "idle") continue;
-        rollupLines.push(`  ${member.label} :: ${member.severity} · ${member.reasons.join(", ")}`);
+        rollupLines.push(`  ${member.label} :: ${member.severity} - ${member.reasons.join(", ")}`);
       }
     }
     sections.push(rollupLines);
@@ -270,12 +270,12 @@ export const digestCanvas = (
       for (const { edgeId, stamp } of cleared) {
         const refs = stamp.evidenceRefs.join(",") || "(none)";
         completionLines.push(
-          `  ${stamp.step} · seat=${stamp.seat} · edge=${edgeId} · refs=${refs}`,
+          `  ${stamp.step} - seat=${stamp.seat} - edge=${edgeId} - refs=${refs}`,
         );
       }
       completionLines.push("cleared");
       for (const { edgeId, stamp } of cleared) {
-        completionLines.push(`  proof edge ${edgeId} · step=${stamp.step}`);
+        completionLines.push(`  proof edge ${edgeId} - step=${stamp.step}`);
       }
     }
     // Human approvals that clear approval edges.
@@ -286,7 +286,7 @@ export const digestCanvas = (
         if (!criteria || criteria.mode !== "approval") continue;
         const grant = live.approvals.get(criteria.step);
         if (grant && grant.principal === "human") {
-          approvalClears.push(`  approval edge ${edge.id} · step=${criteria.step}`);
+          approvalClears.push(`  approval edge ${edge.id} - step=${criteria.step}`);
         }
       }
       if (approvalClears.length > 0) {
@@ -371,9 +371,9 @@ export const digestCanvas = (
         const first = reasons[0];
         const suffix =
           first?.kind === "edge"
-            ? ` · ${first.detail}`
+            ? ` - ${first.detail}`
             : first?.kind === "seed"
-              ? ` · ${first.detail}`
+              ? ` - ${first.detail}`
               : "";
         blockerLines.push(`${titleOf(node)}${suffix}`);
       }
@@ -382,7 +382,7 @@ export const digestCanvas = (
   }
 
   // impact — stoppage seeds ranked by blast-radius cone size (S7).
-  // seed · stops · leads · clear-action. No occupancy in headless digest
+  // seed - stops - leads - clear-action. No occupancy in headless digest
   // (live plane); empty lead seats are not marked unstaffed here.
   const rankedStoppages = rankStoppageSeeds(doc, graph);
   if (rankedStoppages.length > 0) {

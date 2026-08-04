@@ -1,7 +1,7 @@
 # Managed terminal — end-to-end plan to beta
 
 Status: plan of record. Authored 2026-07-26 after the ACP/terminal decision arc and a 63-item executed-probe verification pass.
-Evidence: [`managed-terminal-verification.md`](managed-terminal-verification.md) (per-harness verified facts + traps) · [`research/managed-terminal-probes/`](research/managed-terminal-probes/) (raw reports).
+Evidence: [`managed-terminal-verification.md`](managed-terminal-verification.md) (per-harness verified facts + traps) - [`research/managed-terminal-probes/`](research/managed-terminal-probes/) (raw reports).
 Supersedes for v1: the retired ACP-first and remote-client proposal preserved at
 [`factory-harness-integration.md`](factory-harness-integration.md). The current
 factory model has one actor runtime and one work admission path: a
@@ -9,13 +9,13 @@ Vellum Command-spawned managed terminal using owner-local process-bind.
 
 ---
 
-## 1 · The product sentence
+## 1 - The product sentence
 
 **Vellum Command is the canvas for the coding agents you already run.** Not a new agent UI — the terminals you know, on a factory floor you author, driven by a factory you can watch.
 
 The enemy is friction. Every design call below resolves toward: fewer ways to do one thing, fewer installs, fewer hoops, nothing hidden from the operator's eye.
 
-## 2 · The acceptance loop (the definition of beta-ready)
+## 2 - The acceptance loop (the definition of beta-ready)
 
 Verbatim from the operator; this is the test:
 
@@ -30,7 +30,7 @@ Verbatim from the operator; this is the test:
 
 Nothing ships as beta until this loop runs on all four v1 harnesses (with per-harness state fidelity as specified in §9).
 
-## 3 · Settled rulings (do not relitigate)
+## 3 - Settled rulings (do not relitigate)
 
 | ruling | consequence |
 |---|---|
@@ -47,7 +47,7 @@ Nothing ships as beta until this loop runs on all four v1 harnesses (with per-ha
 | **No tiers — a node is an ACTOR or it is GEOGRAPHY** (ruling 2026-07-26, supersedes Tier 1/2/3) | actor = a Vellum Command-spawned template terminal, the four harnesses, full stop. Everything else — raw terminals the user opens, herdr, pages, regions, notes — is geography. **Kind is fixed at node creation and never derived from what process happens to be running.** If answering "is this an actor?" would require runtime inspection, the design is wrong |
 | **A dead agent process never degrades to a clean shell** | an actor terminal whose harness exits goes to an explicit error/restart state. Otherwise an actor silently becomes geography — the exact ambiguity the no-tiers ruling removes. Process is mortal; kind is permanent |
 
-## 4 · What already exists (verified by code read, 2026-07-26)
+## 4 - What already exists (verified by code read, 2026-07-26)
 
 This is why the plan is short. Most of the factory is built.
 
@@ -68,7 +68,7 @@ This is why the plan is short. Most of the factory is built.
 
 ---
 
-## 5 · Phases
+## 5 - Phases
 
 Each phase ends in a commit. Phases 1–2 are the bulk; 3–7 are wiring to surfaces that exist.
 
@@ -181,7 +181,7 @@ Replaces the Codex Bar dependency; per-station, cross-account, and Linux-viable.
 
 ---
 
-## 9 · Verified harness mechanism matrix (target template spec)
+## 9 - Verified harness mechanism matrix (target template spec)
 
 Every row below is backed by harness probes — see
 [`managed-terminal-verification.md`](managed-terminal-verification.md) for
@@ -204,7 +204,7 @@ for all four harnesses, and Codex/Hermes cold wake is unavailable.
 | effort at spawn | ✅ `--effort` | ✅ per-model list | ✅ high/med/low | ❌ typed `/reasoning` or omit |
 | remote (ssh) | — | — | — | ✅ verified end-to-end |
 
-## 10 · QA plan
+## 10 - QA plan
 
 The consolidation's whole point: **QA scales with template rows, not with surfaces.** One drive path, four templates.
 
@@ -214,7 +214,7 @@ The consolidation's whole point: **QA scales with template rows, not with surfac
 - **Live smoke** (costs plan usage, keep minimal): one full acceptance loop per harness before release.
 - **Version pinning:** several load-bearing behaviors are undocumented (Claude's `--settings`-as-hook-source; Hermes's hidden `--profile`). Pin probed versions in the template pack and re-smoke on harness updates.
 
-## 11 · Beta checklist
+## 11 - Beta checklist
 
 1. Acceptance loop (§2) green on all four harnesses.
 2. Zero writes to user harness configs — audited, with a test that fails if a spawn touches `~/.claude`, `~/.codex`, `~/.grok`, `~/.hermes`.
@@ -227,7 +227,7 @@ The consolidation's whole point: **QA scales with template rows, not with surfac
 9. Remote station: hermes over ssh in the loop (the verified remote path).
 10. Docs: the four residue items (§13) either closed or documented as known limits.
 
-## 12 · Deferred (explicitly not v1)
+## 12 - Deferred (explicitly not v1)
 
 - **Embedded Worker (forked pi)** — tabled until the monotool exists. The dossier (MIT, white-label `piConfig`, `PI_CODING_AGENT_DIR` isolation, injectable credentials, per-message cost) stays valid; forking pi is *sanctioned* (unlike herdr).
 - **Cloud workers** — the zero-harness answer; Vouch-shaped, keys server-side, no consumer-ToS exposure. Empty-state should point at it to measure demand.
@@ -235,7 +235,7 @@ The consolidation's whole point: **QA scales with template rows, not with surfac
 - **TUI automation horizons** — dev-server node, log-watcher, exit-code→task state, terminal macros, OSC 133 semantic prompt marks (with nonce discipline: children can forge marks). Cheap once Phases 1–4 land. Two taste rulings deferred: shell-integration injection into plain terminals; command palettes typed into any terminal.
 - **Round-robin workers, harness-per-task, model-per-task** — trivial once templates are data and every harness shares one drive path. Post-beta.
 
-## 13 · Known residue (non-blocking, tracked)
+## 13 - Known residue (non-blocking, tracked)
 
 1. Grok leader-lane **steering** of a live TUI: plausible, unexecuted. Typing covers steering.
 2. Codex approval-behavior confound (Groundwork-hooks hypothesis) not fully ablation-closed.

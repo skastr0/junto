@@ -116,12 +116,12 @@ export function BrowserSurfaceSlot({
     >
       {visible ? (
         <OverlayHeader
-          eyebrow={`page · ${payload.browser.profile} · close detaches (session keeps running)`}
+          eyebrow={`page - ${payload.browser.profile} - close detaches (session keeps running)`}
           title={session?.title ?? payload.title}
           status={
             <>
               {session?.url ?? payload.url}
-              {" · "}
+              {" - "}
               {session?.state ?? status}
               {stopError ? (
                 <span className="block text-crimson" role="alert">

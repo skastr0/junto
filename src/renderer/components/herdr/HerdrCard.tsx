@@ -56,10 +56,10 @@ const isAutoDerivedLabel = (
   if (!trimmed || trimmed.toLowerCase() === "herdr") return true;
   const paneId = herdr.paneId;
   if (!paneId) return false;
-  if (trimmed === paneId || trimmed === `${herdr.host} · ${paneId}`)
+  if (trimmed === paneId || trimmed === `${herdr.host} - ${paneId}`)
     return true;
-  if (liveAgent && trimmed === `${liveAgent} · ${paneId}`) return true;
-  if (herdr.label && trimmed === `${herdr.label} · ${paneId}`) return true;
+  if (liveAgent && trimmed === `${liveAgent} - ${paneId}`) return true;
+  if (herdr.label && trimmed === `${herdr.label} - ${paneId}`) return true;
   return false;
 };
 
@@ -269,11 +269,11 @@ export function HerdrCard({
           service.health === "stale" ? "stale" : undefined,
         ]
           .filter(Boolean)
-          .join(" · ")
+          .join(" - ")
       : service?.health === "pending"
-        ? [processLine, "port…"].filter(Boolean).join(" · ")
+        ? [processLine, "port…"].filter(Boolean).join(" - ")
         : service?.health === "dead" && processLine
-          ? `${processLine} · no port`
+          ? `${processLine} - no port`
           : processLine;
 
   const bottomFallback = preview ?? herdr.paneId ?? "no meta yet";
@@ -435,7 +435,7 @@ export function HerdrCard({
                 type="button"
                 className="nodrag nopan shrink-0 rounded px-1 text-[9px] uppercase tracking-wide"
                 style={{ color: INK, background: withAlpha(INK, 0.08) }}
-                title={`Open page · ${service.url}`}
+                title={`Open page - ${service.url}`}
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={openServicePage}
               >

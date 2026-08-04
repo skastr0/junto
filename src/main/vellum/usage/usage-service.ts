@@ -207,14 +207,14 @@ export const UsageServiceLive = Layer.effect(
         const okProviders = state.snapshots
           .filter((snapshot) => snapshot.ok)
           .reduce((count, snapshot) => count + snapshot.quotas.filter((quota) => quota.status === "ok").length, 0);
-        const staleNote = state.stale ? " · showing last-good" : "";
-        const partialNote = usageStateIsPartial(state) ? " · partial" : "";
+        const staleNote = state.stale ? " - showing last-good" : "";
+        const partialNote = usageStateIsPartial(state) ? " - partial" : "";
         return available.length > 0
           ? {
               id: "usage",
               label: "Provider Usage",
               status: "ok" as const,
-              detail: `${available.map((entry) => entry.id).join(", ")} · ${okProviders} providers${staleNote}${partialNote}`,
+              detail: `${available.map((entry) => entry.id).join(", ")} - ${okProviders} providers${staleNote}${partialNote}`,
             }
           : {
               id: "usage",

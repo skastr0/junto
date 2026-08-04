@@ -333,7 +333,7 @@ export function FleetBoxPanel({
                     <div>
                       <strong>{box.name}</strong>
                       <span>
-                        {box.boxId} · {box.ip ?? "address unavailable"}
+                        {box.boxId} - {box.ip ?? "address unavailable"}
                       </span>
                     </div>
                   </div>

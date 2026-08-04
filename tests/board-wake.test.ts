@@ -108,7 +108,7 @@ describe("board wake set", () => {
       excerptSource: "hold prod",
       createdAt: 1,
     });
-    expect(line).toContain("[board · deploy window]");
+    expect(line).toContain("[board - deploy window]");
     expect(line).toContain("mark_read or post optional");
     expect(line).not.toMatch(/must reply|required/i);
   });
@@ -130,7 +130,7 @@ describe("board wake set", () => {
         excerptSource: "hello",
         createdAt: 1,
       },
-      payload: "[board · notify-all · board] hello",
+      payload: "[board - notify-all - board] hello",
       seats: [{ nodeId: "agent-a", target: { bindingId: "bind-a" } }],
       transport: {
         wakeManagedSeat: async (canvas, nodeId) => {
@@ -149,7 +149,7 @@ describe("board wake set", () => {
     expect(calls).toEqual([
       {
         bindingId: "bind-a",
-        text: "[board · notify-all · board] hello",
+        text: "[board - notify-all - board] hello",
         ready: true,
       },
     ]);
@@ -167,7 +167,7 @@ describe("board wake set", () => {
         excerptSource: "hello",
         createdAt: 1,
       },
-      payload: "[board · notify-all · board] hello",
+      payload: "[board - notify-all - board] hello",
       seats: [{ nodeId: "agent-a", target: { bindingId: "bind-a" } }],
       transport: {
         wakeManagedSeat: async () => false,

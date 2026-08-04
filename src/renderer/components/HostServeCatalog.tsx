@@ -174,7 +174,7 @@ export function HostServeCatalog({
                     type="button"
                     className="settings-panel__ghost"
                     disabled={!svc.publicUrl}
-                    title={svc.publicUrl ? `Open page · ${svc.publicUrl}` : "No public URL"}
+                    title={svc.publicUrl ? `Open page - ${svc.publicUrl}` : "No public URL"}
                     onClick={() => openEntry(svc)}
                   >
                     open page
@@ -198,7 +198,7 @@ export function HostServeCatalog({
                       type="button"
                       className="settings-panel__ghost"
                       disabled={!w.publicUrl}
-                      title={w.publicUrl ? `Open page · ${w.publicUrl}` : undefined}
+                      title={w.publicUrl ? `Open page - ${w.publicUrl}` : undefined}
                       onClick={() => openEntry(w)}
                     >
                       open page
@@ -225,7 +225,7 @@ export function HostServeCatalog({
                       disabled={!f.publicUrl}
                       title={
                         f.publicUrl
-                          ? `Open page · ${f.publicUrl} (may be non-HTTP)`
+                          ? `Open page - ${f.publicUrl} (may be non-HTTP)`
                           : undefined
                       }
                       onClick={() => openEntry(f)}

@@ -155,15 +155,15 @@ function LogRow({ entry }: { readonly entry: ObservabilityLogEntry }) {
           className="mt-1 ml-[calc(88px+0.5rem)] space-y-0.5 text-[10px]"
           style={{ color: DIM }}
         >
-          {entry.fiber ? <div>fiber · {entry.fiber}</div> : null}
+          {entry.fiber ? <div>fiber - {entry.fiber}</div> : null}
           {entry.spans && entry.spans.length > 0 ? (
-            <div>spans · {entry.spans.join(" › ")}</div>
+            <div>spans - {entry.spans.join(" › ")}</div>
           ) : null}
           {entry.annotations
             ? Object.entries(entry.annotations).map(([key, value]) => (
                 <div key={key}>
                   <span style={{ color: HUE.steel }}>{key}</span>
-                  {" · "}
+                  {" - "}
                   {value}
                 </div>
               ))
@@ -344,7 +344,7 @@ export function ObservabilityPanel() {
     if (total > 0) parts.push(`${total}/${capacity} in ring`);
     if (dropped > 0) parts.push(`${dropped} dropped`);
     parts.push(live ? "live" : "paused");
-    return parts.join(" · ");
+    return parts.join(" - ");
   }, [entries.length, total, capacity, dropped, live]);
 
   if (!open) return null;

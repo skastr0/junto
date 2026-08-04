@@ -378,7 +378,7 @@ describe("station status doctor", () => {
 
     expect(check.status).toBe("ok");
     expect(check.detail).toMatch(
-      /Remote studio \(studio-box\): Station API ready · installation station-studio · projection 3 · received 2 · peer-acked 0 · errors none/u,
+      /Remote studio \(studio-box\): Station API ready - installation station-studio - projection 3 - received 2 - peer-acked 0 - errors none/u,
     );
     expect(check.metadata).toMatchObject({
       deploymentCount: "1",
@@ -566,7 +566,7 @@ describe("station status doctor", () => {
     });
 
     expect(check.status).toBe("warning");
-    expect(check.detail).toMatch(/kernel observed · stale/u);
+    expect(check.detail).toMatch(/kernel observed - stale/u);
     expect(check.detail).not.toMatch(/pull/u);
     expect(check.metadata).toMatchObject({
       kernelObservedAt: staleKernelAt,

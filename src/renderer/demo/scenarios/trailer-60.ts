@@ -149,7 +149,7 @@ const herdrSpec = (n: number): HerdrSpec => {
     terminalId: `term-p${nn}`,
     agent,
     shortTask,
-    label: `${agent} · ${shortTask}`,
+    label: `${agent} - ${shortTask}`,
   };
 };
 

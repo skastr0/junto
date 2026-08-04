@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import * as Cause from "effect/Cause";
-// V4: @effect/cli → effect/unstable/cli · platform-bun stays separate (lockstep V4)
+// V4: @effect/cli → effect/unstable/cli - platform-bun stays separate (lockstep V4)
 // Map: ./effect-v4-import-map.ts
 import { Command } from "effect/unstable/cli";
 import { BunRuntime, BunServices } from "@effect/platform-bun";

@@ -129,8 +129,8 @@ function FleetOverlayInner() {
       <OverlayHeader
         eyebrow="fleet"
         title="Command Fleet"
-        status={`${stations.length} enrolled · ${routeSummary}${
-          peers.length > 0 ? ` · ${peers.length} discovered` : ""
+        status={`${stations.length} enrolled - ${routeSummary}${
+          peers.length > 0 ? ` - ${peers.length} discovered` : ""
         }`}
         actions={
           <>

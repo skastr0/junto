@@ -245,7 +245,7 @@ export class MessageDeliveryService {
         ? { ready: true }
         : undefined;
       const payload = sanitizeDeliveryLine(
-        `[request resolved · ${pending.requestId}] ${pending.response}`,
+        `[request resolved - ${pending.requestId}] ${pending.response}`,
       );
       const delivered = await this.deliver(
         transport,

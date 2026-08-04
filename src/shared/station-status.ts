@@ -250,8 +250,8 @@ const localConfigurationDetail = (
   configuration === undefined
     ? "configuration absent"
     : configuration.role === "command-center"
-      ? `Command Center · host ${configuration.hostId}`
-      : `Remote · host ${configuration.hostId} · CC ${configuration.commandCenterInstallationId}`;
+      ? `Command Center - host ${configuration.hostId}`
+      : `Remote - host ${configuration.hostId} - CC ${configuration.commandCenterInstallationId}`;
 
 /** Pure Doctor projection over canonical repository and Station API facts. */
 export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => {
@@ -307,7 +307,7 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
       raise("warning");
     } else {
       lines.push(
-        `projection ${input.projection.generation} · received ${input.projection.receivedAt}`,
+        `projection ${input.projection.generation} - received ${input.projection.receivedAt}`,
       );
     }
   }
@@ -327,7 +327,7 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
       STATION_KERNEL_STALE_AFTER_MS,
     );
     lines.push(
-      `kernel observed${stale ? " · stale" : ""} · watchers/timers (no pulse product)`,
+      `kernel observed${stale ? " - stale" : ""} - watchers/timers (no pulse product)`,
     );
     if (stale) raise("warning");
     if (localKernel.fault) {
@@ -506,18 +506,18 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
     const prefix = `remote.${remoteHostId}.`;
     remotes.push({
       line:
-        `Remote ${remoteHostId} (${endpoint}): Station API ${station?.state ?? "unavailable"} · ` +
-        `installation ${station?.installationId ?? "unknown"} · ` +
+        `Remote ${remoteHostId} (${endpoint}): Station API ${station?.state ?? "unavailable"} - ` +
+        `installation ${station?.installationId ?? "unknown"} - ` +
         (protocol === undefined
           ? ""
           : `protocol ${protocol.compatibility}${
             protocol.compatibility === "update-required"
               ? ""
               : `/${protocol.negotiatedProtocol}`
-          } · `) +
-        `projection ${station?.projection?.generation ?? "absent"} · ` +
-        `received ${station?.receivedThrough.length ?? 0} · ` +
-        `peer-acked ${station?.peerAcknowledgedThrough.length ?? 0} · ` +
+          } - `) +
+        `projection ${station?.projection?.generation ?? "absent"} - ` +
+        `received ${station?.receivedThrough.length ?? 0} - ` +
+        `peer-acked ${station?.peerAcknowledgedThrough.length ?? 0} - ` +
         `errors ${problems.join("; ") || "none"}`,
       metadata: {
         [`${prefix}state`]: state,
@@ -616,7 +616,7 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
     id: "station",
     label: "Station",
     status: worst,
-    detail: lines.join(" · "),
+    detail: lines.join(" - "),
     metadata: {
       installationId: input.installationId,
       configurationState:

@@ -103,8 +103,8 @@ export function FleetDeployJobPanel({
           open={job.status === "running" || job.status === "failed"}
         >
           <summary>
-            Step log · {stages.length} step{stages.length === 1 ? "" : "s"}
-            {latest ? ` · latest: ${latest.slice(0, 48)}${latest.length > 48 ? "…" : ""}` : ""}
+            Step log - {stages.length} step{stages.length === 1 ? "" : "s"}
+            {latest ? ` - latest: ${latest.slice(0, 48)}${latest.length > 48 ? "…" : ""}` : ""}
           </summary>
           <ol className="fleet-deploy-job__stages">
             {stages.map((stage, index) => (
@@ -119,7 +119,7 @@ export function FleetDeployJobPanel({
 
       {job.recoveryHint && job.status !== "succeeded" ? (
         <p className="fleet-deploy-job__hint">
-          recovery · {job.recoveryHint.replaceAll("-", " ")}
+          recovery - {job.recoveryHint.replaceAll("-", " ")}
         </p>
       ) : null}
 

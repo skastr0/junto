@@ -238,7 +238,7 @@ export function HerdrWizard() {
         .map((w) => ({
           key: w.workspaceId,
           label: w.label || w.workspaceId,
-          sub: `${w.workspaceId}${w.paneCount != null ? ` · ${w.paneCount} panes` : ""}`,
+          sub: `${w.workspaceId}${w.paneCount != null ? ` - ${w.paneCount} panes` : ""}`,
           onPick: () => void pickWorkspace(w.workspaceId),
         }));
     }
@@ -248,7 +248,7 @@ export function HerdrWizard() {
         .map((t) => ({
           key: t.tabId,
           label: t.label || t.tabId,
-          sub: `${t.tabId}${t.agentStatus ? ` · ${t.agentStatus}` : ""}`,
+          sub: `${t.tabId}${t.agentStatus ? ` - ${t.agentStatus}` : ""}`,
           onPick: () => void pickTab(t.tabId),
         }));
     }
@@ -263,8 +263,8 @@ export function HerdrWizard() {
       )
       .map((p) => ({
         key: p.paneId,
-        label: p.agent ? `${p.agent} · ${p.paneId}` : p.paneId,
-        sub: [p.cwd, p.agentStatus].filter(Boolean).join(" · "),
+        label: p.agent ? `${p.agent} - ${p.paneId}` : p.paneId,
+        sub: [p.cwd, p.agentStatus].filter(Boolean).join(" - "),
         onPick: () => void pickPane(p),
       }));
   }, [step, hosts, sessions, workspaces, tabs, panes, needle]);
@@ -398,7 +398,7 @@ export function HerdrWizard() {
     if (!stillOpen()) return;
     const node = makeHerdrNode(anchor.x, anchor.y, herdr, label);
     addNode(node, { edit: false });
-    setHerdrToast(`Attached herdr · ${herdr.host} · ${herdr.paneId}`);
+    setHerdrToast(`Attached herdr - ${herdr.host} - ${herdr.paneId}`);
     closeHerdrWizard();
   };
 
@@ -414,7 +414,7 @@ export function HerdrWizard() {
       label: pane.agent ?? pane.label,
       onDelete: "detach",
     };
-    placeNode(herdr, pane.agent ? `${pane.agent} · ${pane.paneId}` : pane.paneId);
+    placeNode(herdr, pane.agent ? `${pane.agent} - ${pane.paneId}` : pane.paneId);
   };
 
   const createAtStep = async () => {
@@ -535,7 +535,7 @@ export function HerdrWizard() {
         <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
           <div>
             <div className="text-[10px] uppercase tracking-[0.18em]" style={{ color: HUE.steel }}>
-              herdr · attach
+              herdr - attach
             </div>
             <div className="text-sm font-semibold text-ink">
               {step === "host" && "Host"}
@@ -546,9 +546,9 @@ export function HerdrWizard() {
             </div>
             {seedApplied && seed?.host ? (
               <div className="mt-0.5 text-[10px] text-faint">
-                region · {[seed.host, seed.session === null ? "default" : seed.session, seed.workspaceId, seed.tabId]
+                region - {[seed.host, seed.session === null ? "default" : seed.session, seed.workspaceId, seed.tabId]
                   .filter((part) => part != null && part !== "")
-                  .join(" · ")}
+                  .join(" - ")}
               </div>
             ) : null}
           </div>

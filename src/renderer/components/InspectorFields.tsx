@@ -137,7 +137,7 @@ export function EdgeCapabilitySection({
   const forward = effectivePorts(fromSpec, toSpec, mask);
   const fromLabel = fromNode ? nodeTitle(fromNode) : edge.fromNode;
   const toLabel = toNode ? nodeTitle(toNode) : edge.toNode;
-  const portsNote = forward.length > 0 ? ` · ${forward.join(" · ")}` : "";
+  const portsNote = forward.length > 0 ? ` - ${forward.join(" - ")}` : "";
 
   return (
     <div className="inspector-section">
@@ -355,7 +355,7 @@ export function NodeCapabilityInventory({ node }: { readonly node: CanvasNode })
             <span className="min-w-0 flex-1 truncate">{row.title}</span>
             {row.ports.length > 0 ? (
               <span style={{ color: HUE.cyan, flex: "0 1 auto" }}>
-                {row.ports.join(" · ")}
+                {row.ports.join(" - ")}
               </span>
             ) : null}
           </div>
@@ -426,7 +426,7 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
   return <>
     {showWorkRole ? (
       <div className="inspector-editor">
-        <span>work role · routes task claims</span>
+        <span>work role - routes task claims</span>
         <input
           aria-label="Work role for claim routing"
           placeholder="type a role or pick below"
@@ -846,7 +846,7 @@ export function EdgeCriteriaEditor({
         <div className="inspector-section__label">wire</div>
         <div className="text-[12px] font-semibold" style={{ color: INK }}>
           {familyHint}
-          {slot ? ` · ${slot}` : ""}
+          {slot ? ` - ${slot}` : ""}
         </div>
       </div>
       <EdgeWhenEditor edgeId={edgeId} toNode={toNode} />
@@ -1314,7 +1314,7 @@ export function WatcherEditor({ node }: { readonly node: CanvasNode }) {
   };
 
   return <div className="inspector-section">
-    <div className="inspector-section__label">gauge · hermes threshold</div>
+    <div className="inspector-section__label">gauge - hermes threshold</div>
     <StatThresholdFields
       source={source}
       entityKey={key}
@@ -1366,7 +1366,7 @@ export function RelayEditor({ node }: { readonly node: CanvasNode }) {
               when?.word === "flagged"
                 ? `flagged ${when.flag}`
                 : "completes";
-            return `${name} · ${word}`;
+            return `${name} - ${word}`;
           })
           .join("; ");
   const effectLine =
@@ -1511,7 +1511,7 @@ export function ConnectEditor({ node, doc, open, onOpenChange }: { readonly node
               { value: "", label: "choose a node" },
               ...filteredTargets.map((target) => ({
                 value: target.id,
-                label: `${nodeTitle(target)} · ${target.ether?.entity?.kind ?? target.type}`,
+                label: `${nodeTitle(target)} - ${target.ether?.entity?.kind ?? target.type}`,
               })),
             ]}
             onChange={setTargetId}

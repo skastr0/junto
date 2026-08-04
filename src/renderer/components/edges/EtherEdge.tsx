@@ -281,7 +281,7 @@ export function EtherEdge({
             clicking (paths already select) and screen readers. */}
         <button
           type="button"
-          aria-label={detail ? `Select edge · ${phase} · ${detail}` : `Select edge · ${phase}`}
+          aria-label={detail ? `Select edge - ${phase} - ${detail}` : `Select edge - ${phase}`}
           className="nodrag nopan vellum-edge-label vellum-edge-label--silent"
           style={{ top: labelY, left: labelX, opacity: 0, width: 14, height: 14, padding: 0 }}
           onClick={(e) => {

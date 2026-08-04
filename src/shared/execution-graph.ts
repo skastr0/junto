@@ -169,8 +169,8 @@ const evalTasksCriteria = (
     if (open.length > 0) {
       return softRelates(
         toActorSeatId === undefined
-          ? `${open.length} ${noun} · actor identity unresolved`
-          : `${open.length} ${noun} · not this actor's wait`,
+          ? `${open.length} ${noun} - actor identity unresolved`
+          : `${open.length} ${noun} - not this actor's wait`,
       );
     }
     return softRelates(
@@ -185,7 +185,7 @@ const evalTasksCriteria = (
     .join(", ");
   return {
     phase: "blocks",
-    detail: `${held.length} ${noun} · ${sample}`,
+    detail: `${held.length} ${noun} - ${sample}`,
     generates: true,
   };
 };
@@ -438,7 +438,7 @@ export const composeRegionExecutionContext = (
     if (kind === "requests") {
       const pending = items.filter((item) => item.state === "input-required").length;
       const preview = items.map((item) => `${item.state}: ${taskBrief(item)}`).join("; ");
-      taskLines.push(`${titleOf(node, id)} :: ${pending}/${items.length} pending · ${preview}`);
+      taskLines.push(`${titleOf(node, id)} :: ${pending}/${items.length} pending - ${preview}`);
     } else {
       const open = items.filter((item) => !isTerminalTaskState(item.state)).length;
       const depById = dependencyScopeIndex(doc, id);
@@ -461,7 +461,7 @@ export const composeRegionExecutionContext = (
         })
         .join("; ");
       taskLines.push(
-        `${titleOf(node, id)} :: ${items.length - open}/${items.length} settled · ${preview}`,
+        `${titleOf(node, id)} :: ${items.length - open}/${items.length} settled - ${preview}`,
       );
     }
   }

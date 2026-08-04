@@ -451,7 +451,7 @@ function NoteEditModal({
       <div className="note-edit-modal nowheel">
         <div className="note-edit-modal__chrome">
           <Eyebrow tone="faint" size="xs">
-            note · markdown
+            note - markdown
           </Eyebrow>
           <div className="note-edit-modal__actions">
             <Button size="xs" variant="chrome" onClick={onCommit}>
@@ -477,7 +477,7 @@ function NoteEditModal({
           onPaste={onPasteImage}
           placeholder={"# heading\n\n- list item\n\n**bold** and `code`\n\npaste an image to embed"}
         />
-        <div className="note-edit-modal__hint">⌘↵ save · esc discard · paste image to embed</div>
+        <div className="note-edit-modal__hint">⌘↵ save - esc discard - paste image to embed</div>
       </div>
     </FocusSurface>
   );

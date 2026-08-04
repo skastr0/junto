@@ -97,7 +97,7 @@ describe("deriveRegionRollups — member severity ladder", () => {
     const [rollup] = deriveRegionRollups({ doc });
     const target = rollup?.members.find((member) => member.nodeId === "p");
     expect(target?.severity).toBe("blocked");
-    expect(target?.reasons).toEqual(["edge:1 need input · ship"]);
+    expect(target?.reasons).toEqual(["edge:1 need input - ship"]);
     expect(rollup?.counts).toEqual({ total: 2, blocked: 1, attention: 0, working: 0 });
   });
 
@@ -168,7 +168,7 @@ describe("deriveRegionRollups — member severity ladder", () => {
     expect(target?.severity).toBe("blocked");
     expect(target?.reasons).toEqual([
       "flag:blocker",
-      "edge:1 need input · ship",
+      "edge:1 need input - ship",
       "seed:blocker flag on Target",
     ]);
   });
@@ -442,7 +442,7 @@ describe("deriveRegionRollups — derivation edges", () => {
     expect(target?.severity).toBe("blocked");
     expect(target?.reasons).toEqual([
       "flag:blocker",
-      "edge:1 need input · ship",
+      "edge:1 need input - ship",
       "seed:blocker flag on Target",
     ]);
     expect(new Set(target?.reasons).size).toBe(target?.reasons.length);

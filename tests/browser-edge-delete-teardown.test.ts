@@ -1,5 +1,5 @@
 /**
- * S4 · Edge-delete session teardown (I10 / I20)
+ * S4 - Edge-delete session teardown (I10 / I20)
  *
  * Deleting an edge severs live automation sessions for that (caller, target)
  * pair on the same document-commit tick. Sibling edges keep their sessions.

@@ -148,7 +148,7 @@ export const makeSnapshotsLive = (
           id: "snapshots",
           label: "Adapter Snapshots",
           status: "warning" as const,
-          detail: "hermes not refreshed yet · fleet state unknown",
+          detail: "hermes not refreshed yet - fleet state unknown",
           metadata: { fleetBlind: "true", freshFacts: "0", staleFacts: "0" },
         };
       }
@@ -159,7 +159,7 @@ export const makeSnapshotsLive = (
           id: "snapshots",
           label: "Adapter Snapshots",
           status: "ok" as const,
-          detail: `hermes fresh · ${freshFacts} fact(s)`,
+          detail: `hermes fresh - ${freshFacts} fact(s)`,
           metadata: {
             fleetBlind: "false",
             freshFacts: String(freshFacts),
@@ -173,7 +173,7 @@ export const makeSnapshotsLive = (
         label: "Adapter Snapshots",
         status: "warning" as const,
         detail:
-          `fleet-blind · ${hermes.error ?? "hermes refresh failed"} · ` +
+          `fleet-blind - ${hermes.error ?? "hermes refresh failed"} - ` +
           `${freshFacts} current / ${staleFacts} last-known fact(s)`,
         metadata: {
           fleetBlind: "true",

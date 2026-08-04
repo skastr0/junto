@@ -28,7 +28,7 @@ describe("collectOperatorAttention", () => {
       rollup([
         {
           nodeId: "a1",
-          label: "Codex · needs input",
+          label: "Codex - needs input",
           kind: "agent",
           severity: "attention",
           reasons: ["activity:attention"],

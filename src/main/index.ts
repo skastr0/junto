@@ -1224,7 +1224,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     // Process log ring: main console + Effect logger (layer already on AppRuntime).
     installObservabilityConsoleHook();
     recordSystemLog(
-      `${PRODUCT_NAME} ready · ${app.isPackaged ? "packaged" : "dev"} · ${app.getVersion() || "0.0.0"}`,
+      `${PRODUCT_NAME} ready - ${app.isPackaged ? "packaged" : "dev"} - ${app.getVersion() || "0.0.0"}`,
     );
     // Re-apply after ready: dock.hide before ready is a no-op / race on some
     // Electron builds, and E2E must never plant a Dock icon mid-suite.
