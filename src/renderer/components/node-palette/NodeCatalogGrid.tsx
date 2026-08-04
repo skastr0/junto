@@ -1,9 +1,8 @@
 import { useId, useMemo, useState } from "react";
-import type { Port } from "@shared/physics/schema";
+import { ALL_PORTS, type Port } from "@shared/physics/schema";
+import { contractOf, familyColorToken, type WireFamily } from "@shared/physics";
 import {
   Archive,
-  ArrowLeftRight,
-  ArrowRight,
   Blocks,
   Braces,
   Clock3,
@@ -18,6 +17,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { HERDR_ENABLED } from "@shared/features";
+import { HUE } from "../../lib/theme";
 
 export type NodeCatalogCategory = "shell" | "sinks" | "schedule" | "canvas";
 
@@ -30,19 +30,6 @@ export const NODE_CATALOG_CATEGORY_ACCENT: Readonly<Record<NodeCatalogCategory, 
   sinks: "text-amber",
   schedule: "text-violet",
   canvas: "text-indigo",
-};
-
-export type NodeCatalogConnection = {
-  readonly source: string;
-  /** The kind of node at the other end of a useful edge. */
-  readonly target: string;
-  readonly direction: "directed" | "relation";
-  /** Plain-language summary of the collaboration over that edge. */
-  readonly relationship: string;
-  /** The edge plane this relationship uses. */
-  readonly mode: "capability" | "effect" | "criteria" | "context";
-  /** Capability grants the edge can carry. */
-  readonly ports: ReadonlyArray<Port>;
 };
 
 /**
@@ -58,14 +45,91 @@ export type NodeCatalogEntry = {
   readonly purpose: string;
   /** Short operational constraint; never a re-derived live attention state. */
   readonly behavior?: string;
-  readonly connections: readonly NodeCatalogConnection[];
+};
+
+/**
+ * Human labels for access ports — the same wording the wire sheet uses.
+ * Complete over Port so a new port cannot ship a raw token here.
+ */
+const ACCESS_PORT_LABEL: Record<Port, string> = {
+  "tasks.list": "List tasks",
+  "tasks.create": "Create tasks",
+  "tasks.claim": "Claim tasks",
+  "tasks.update": "Update tasks",
+  "msg.list": "List messages",
+  "msg.send": "Send messages",
+  "request.escalate": "Raise requests",
+  "artifact.publish": "Publish artifacts",
+  "browser.automate": "Drive browser",
+  "board.list": "List board",
+  "board.create_topic": "Create topics",
+  "board.post": "Post to board",
+  "board.mark_read": "Mark board read",
+  "relay.trigger": "Fire the relay",
+};
+
+/** Catalog entry id → contract kind. Entries absent here have no wires. */
+const CATALOG_CONTRACT_KIND: Partial<Record<string, string>> = {
+  tasks: "task",
+  requests: "requests",
+  artifacts: "artifacts",
+  board: "board",
+  page: "page",
+  cron: "cron",
+  relay: "relay",
+};
+
+/** Plain line for entries that take no wires. */
+export const NO_WIRES_COPY: Partial<Record<string, string>> = {
+  note: "No wires — sits on the map.",
+  label: "No wires — sits on the map.",
+  region: "No wires — sits on the map.",
+  terminal: "No wires — open it and work by hand.",
+  herdr: "No wires — open it and work by hand.",
+};
+
+export type CatalogWireLine = {
+  readonly family: WireFamily;
+  readonly text: string;
+};
+
+/**
+ * Derive the wire explainer from the node contract: ports → access,
+ * events → watch, inputs → effect. Never a hand-written row.
+ */
+export const catalogWireLines = (entryId: string): readonly CatalogWireLine[] => {
+  const contract = contractOf(CATALOG_CONTRACT_KIND[entryId]);
+  if (!contract) return [];
+  const lines: CatalogWireLine[] = [];
+  if (contract.ports.length > 0) {
+    // Contract ports arrive in hash order; present them in schema order.
+    const ports = [...contract.ports].sort(
+      (a, b) => ALL_PORTS.indexOf(a) - ALL_PORTS.indexOf(b),
+    );
+    lines.push({
+      family: "access",
+      text: `Agents can: ${ports.map((port) => ACCESS_PORT_LABEL[port]).join(", ")}`,
+    });
+  }
+  if (contract.events.length > 0) {
+    lines.push({
+      family: "watch",
+      text: `A relay can watch: ${contract.events.map((event) => event.label).join(", ")}`,
+    });
+  }
+  if (contract.inputs.length > 0) {
+    lines.push({
+      family: "effect",
+      text: `Cron and relay can: ${contract.inputs.map((input) => input.label).join(", ")}`,
+    });
+  }
+  return lines;
 };
 
 const HERDR_CATALOG_ENTRY: NodeCatalogEntry = {
   id: "herdr", category: "shell", label: "Herdr", subtitle: "attach an existing pane",
   icon: PanelTop,
   purpose: "Shows an existing terminal pane on the canvas without taking it over.",
-  connections: [],
 };
 
 export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
@@ -73,7 +137,6 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     id: "terminal", category: "shell", label: "Terminal", subtitle: "a shell on your machine",
     icon: SquareTerminal,
     purpose: "A shell on the selected machine for commands, logs, and hands-on work.",
-    connections: [],
   },
   ...(HERDR_ENABLED ? [HERDR_CATALOG_ENTRY] : []),
   {
@@ -81,50 +144,33 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     icon: Blocks,
     purpose: "A work queue. Connected agents pick up tasks and turn in finished work.",
     behavior: "A task waiting on your answer pauses only the agent working on it.",
-    connections: [
-      { source: "Agent", target: "Tasks", direction: "directed", relationship: "picks up and finishes tasks", mode: "capability", ports: [] },
-      { source: "Cron or Relay", target: "Tasks", direction: "directed", relationship: "adds a task when it fires", mode: "effect", ports: [] },
-    ],
   },
   {
     id: "requests", category: "sinks", label: "Requests", subtitle: "questions for you",
     icon: Inbox,
     purpose: "Questions from agents that only you can answer.",
     behavior: "An open question pauses only the agent that asked it.",
-    connections: [
-      { source: "Agent", target: "Requests", direction: "directed", relationship: "asks you for a decision or a missing detail", mode: "capability", ports: [] },
-    ],
   },
   {
     id: "artifacts", category: "sinks", label: "Artifacts", subtitle: "finished work shelf",
     icon: Archive,
     purpose: "A shelf for finished outputs: files, results, and proof of work.",
-    connections: [
-      { source: "Agent", target: "Artifacts", direction: "directed", relationship: "publishes finished work", mode: "capability", ports: [] },
-    ],
   },
   {
     id: "board", category: "sinks", label: "Board", subtitle: "topics and posts",
     icon: Braces,
     purpose: "A shared board for topics, updates, and decisions.",
-    connections: [
-      { source: "Agent", target: "Board", direction: "directed", relationship: "posts topics and updates", mode: "capability", ports: [] },
-    ],
   },
   {
     id: "page", category: "canvas", label: "Page", subtitle: "a browser page",
     icon: Globe2,
     purpose: "A browser page that lives on the canvas.",
-    connections: [{ source: "Agent", target: "Page", direction: "directed", relationship: "drives the page", mode: "capability", ports: [] }],
   },
   {
     id: "cron", category: "schedule", label: "Cron", subtitle: "fires on a schedule",
     icon: Clock3,
     purpose: "Fires on a schedule to add tasks or set flags automatically.",
     behavior: "Runs only while the canvas is playing. Pausing keeps the next firing.",
-    connections: [
-      { source: "Cron", target: "Tasks", direction: "directed", relationship: "adds a task on schedule", mode: "effect", ports: [] },
-    ],
   },
   // Gauge (hermes stat_threshold) is product-hidden and not a product peer of
   // cron/relay. Hermes = fleet join, not automation. Future external-input
@@ -134,28 +180,21 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     icon: Workflow,
     purpose: "Watches a connected node and acts when something happens.",
     behavior: "Runs only while the canvas is playing. Pausing keeps the next firing.",
-    connections: [
-      { source: "Watched node", target: "Relay", direction: "directed", relationship: "the relay watches it", mode: "context", ports: [] },
-      { source: "Relay", target: "Tasks", direction: "directed", relationship: "adds a task when it fires", mode: "effect", ports: [] },
-    ],
   },
   {
     id: "note", category: "canvas", label: "Note", subtitle: "freeform text",
     icon: FileText,
     purpose: "Freeform text placed beside the work it explains.",
-    connections: [],
   },
   {
     id: "label", category: "canvas", label: "Label", subtitle: "bare map text",
     icon: Type,
     purpose: "Bare text on the map. Name an area without a card, box, or connectors.",
-    connections: [],
   },
   {
     id: "region", category: "canvas", label: "Region", subtitle: "groups related work",
     icon: SquareDashed,
     purpose: "A named area that groups related work and can carry a briefing.",
-    connections: [],
   },
 ];
 
@@ -239,37 +278,43 @@ export function NodeCatalogGrid({
   );
 }
 
-function ConnectionArrow({
-  direction,
-}: {
-  readonly direction: NodeCatalogConnection["direction"];
-}) {
-  const Arrow = direction === "directed" ? ArrowRight : ArrowLeftRight;
-  return <Arrow aria-hidden="true" size={18} strokeWidth={1.7} />;
-}
+/** Fixed family hues — same mapping the canvas wires render with. */
+const FAMILY_HUE: Record<ReturnType<typeof familyColorToken>, string> = {
+  steel: HUE.steel,
+  cyan: HUE.cyan,
+  violet: HUE.violet,
+  amber: HUE.amber,
+};
 
-function ConnectionMap({
-  connection,
-  accentClass,
-}: {
-  readonly connection: NodeCatalogConnection;
-  readonly accentClass: string;
-}) {
+function WireExplainer({ entryId }: { readonly entryId: string }) {
+  const noWires = NO_WIRES_COPY[entryId];
+  const lines = noWires ? [] : catalogWireLines(entryId);
+  if (!noWires && lines.length === 0) return null;
   return (
-    <span className="node-deck-catalog__connection-map flex min-w-0 items-center gap-2 font-mono text-[12px] font-medium text-ink">
-      <span className="node-deck-catalog__endpoint truncate">{connection.source}</span>
-      <span aria-hidden="true" className={`node-deck-catalog__arrow shrink-0 ${accentClass}`}>
-        <ConnectionArrow direction={connection.direction} />
-      </span>
-      <span className="node-deck-catalog__endpoint truncate">{connection.target}</span>
-    </span>
+    <div className="node-deck-catalog__wires" aria-label="Wires">
+      <span className="node-deck-catalog__wires-title">Wires</span>
+      {noWires ? (
+        <p className="node-deck-catalog__wires-none">{noWires}</p>
+      ) : (
+        lines.map((line) => (
+          <div key={line.family} className="node-deck-catalog__wire">
+            <span
+              aria-hidden="true"
+              className="node-deck-catalog__wire-dot"
+              style={{ background: FAMILY_HUE[familyColorToken(line.family)] }}
+            />
+            <span className="node-deck-catalog__wire-family">{line.family}</span>
+            <span className="node-deck-catalog__wire-text">{line.text}</span>
+          </div>
+        ))
+      )}
+    </div>
   );
 }
 
 function CatalogDetail({ entry, id }: { readonly entry: NodeCatalogEntry; readonly id: string }) {
   const Icon = entry.icon;
   const accentClass = NODE_CATALOG_CATEGORY_ACCENT[entry.category];
-  const [primaryConnection, ...secondaryConnections] = entry.connections;
   return (
     <aside
       id={id}
@@ -287,24 +332,7 @@ function CatalogDetail({ entry, id }: { readonly entry: NodeCatalogEntry; readon
         </div>
       </div>
 
-      {primaryConnection ? (
-        <div className="node-deck-catalog__relationships">
-          <div className="node-deck-catalog__connection node-deck-catalog__connection--primary">
-            <ConnectionMap connection={primaryConnection} accentClass={accentClass} />
-            <span className="node-deck-catalog__relationship">{primaryConnection.relationship}</span>
-          </div>
-          {secondaryConnections.length > 0 ? (
-            <div className="node-deck-catalog__secondary-list" aria-label="Other useful connections">
-              {secondaryConnections.map((connection) => (
-                <div key={`${connection.source}-${connection.target}-${connection.relationship}`} className="node-deck-catalog__connection node-deck-catalog__connection--secondary">
-                  <ConnectionMap connection={connection} accentClass={accentClass} />
-                  <span className="node-deck-catalog__relationship">{connection.relationship}</span>
-                </div>
-              ))}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
+      <WireExplainer entryId={entry.id} />
     </aside>
   );
 }

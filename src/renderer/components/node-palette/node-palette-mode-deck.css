@@ -239,9 +239,7 @@
 .node-deck-catalog__behavior > span {
   color: var(--color-amber);
 }
-.node-deck-catalog__relationships {
-  position: relative;
-  isolation: isolate;
+.node-deck-catalog__wires {
   display: grid;
   align-content: start;
   gap: 7px;
@@ -250,28 +248,47 @@
   overflow: hidden;
   padding: 9px 10px;
 }
-.node-deck-catalog__connection {
+.node-deck-catalog__wires-title {
+  color: var(--color-faint);
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+}
+.node-deck-catalog__wire {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
   min-width: 0;
   font-family: var(--font-mono);
 }
-.node-deck-catalog__connection--primary {
-  display: grid;
-  grid-template-columns: minmax(0, auto) minmax(100px, 1fr);
-  align-items: center;
-  gap: 5px 10px;
+.node-deck-catalog__wire-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin-top: 3px;
+  border-radius: 50%;
 }
-.node-deck-catalog__endpoint {
-  color: var(--color-ink);
+.node-deck-catalog__wire-family {
+  flex: none;
+  width: 38px;
+  color: var(--color-ink-2);
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: .06em;
 }
-.node-deck-catalog__arrow {
-  display: inline-flex;
-  align-items: center;
-}
-.node-deck-catalog__relationship {
+.node-deck-catalog__wire-text {
   min-width: 0;
   color: var(--color-dim);
   font-size: 9px;
   line-height: 1.45;
+}
+.node-deck-catalog__wires-none {
+  margin: 0;
+  color: var(--color-dim);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  line-height: 1.55;
 }
 .node-deck-catalog__ports {
   display: flex;
@@ -296,26 +313,6 @@
   letter-spacing: .08em;
   text-transform: uppercase;
 }
-.node-deck-catalog__secondary-list {
-  display: grid;
-  gap: 4px;
-  border-top: 1px solid var(--deck-line);
-  padding-top: 6px;
-}
-.node-deck-catalog__connection--secondary {
-  display: grid;
-  grid-template-columns: minmax(120px, auto) minmax(100px, 1fr);
-  align-items: center;
-  gap: 8px;
-}
-.node-deck-catalog__connection--secondary .node-deck-catalog__connection-map {
-  font-size: 10px;
-}
-.node-deck-catalog__connection--secondary .node-deck-catalog__arrow svg {
-  width: 14px;
-  height: 14px;
-}
-
 .node-deck button:focus-visible,
 .node-deck [role="button"]:focus-visible { outline: 1px solid var(--color-cyan); outline-offset: 2px; }
 

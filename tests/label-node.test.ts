@@ -5,7 +5,11 @@ import { toFlow } from "../src/renderer/lib/convert";
 import { makeLabelNode, makeTextNode } from "../src/renderer/lib/node-factories";
 import { isLabelNode } from "../src/renderer/lib/presentation";
 import { planConnectToTarget } from "../src/renderer/lib/edge-mutations";
-import { DEFAULT_NODE_CATALOG_ENTRIES } from "../src/renderer/components/node-palette/NodeCatalogGrid";
+import {
+  DEFAULT_NODE_CATALOG_ENTRIES,
+  NO_WIRES_COPY,
+  catalogWireLines,
+} from "../src/renderer/components/node-palette/NodeCatalogGrid";
 
 const emptyContext = {
   canvasName: "test",
@@ -60,11 +64,12 @@ describe("label geography node", () => {
     expect(asSource.skipped).toEqual([{ source: label.id, reason: "label-source" }]);
   });
 
-  it("catalog lists Label under canvas with no connections", () => {
+  it("catalog lists Label under canvas with no wires", () => {
     const entry = DEFAULT_NODE_CATALOG_ENTRIES.find((c) => c.id === "label");
     expect(entry).toBeDefined();
     expect(entry?.category).toBe("canvas");
     expect(entry?.label).toBe("Label");
-    expect(entry?.connections).toEqual([]);
+    expect(catalogWireLines("label")).toEqual([]);
+    expect(NO_WIRES_COPY.label).toBe("No wires — sits on the map.");
   });
 });
