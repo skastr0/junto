@@ -358,71 +358,8 @@ export const deriveExecutionGraph = (
     );
   }
 
-  // Opt-in actor↔actor state relay (ether.relayState === true, default off).
-  // Undirected: a blocked endpoint transmits its reasons to the other blockable
-  // endpoint. Fixed-point so multi-hop cascades along further relay edges.
-  // Original reason payloads are copied so work/edge/seed detail stays true
-  // on every resulting blocker.
-  const reasonKey = (reason: BlockedReason): string => {
-    if (reason.kind === "work") return `work:${reason.requestId}:${reason.targetNodeId}:${reason.detail}`;
-    if (reason.kind === "edge") return `edge:${reason.edgeId}:${reason.fromNodeId}:${reason.detail}`;
-    return `seed:${reason.detail}`;
-  };
-
-  const hasReason = (nodeId: string, reason: BlockedReason): boolean => {
-    const list = reasonsByNodeId.get(nodeId);
-    if (!list) return false;
-    const key = reasonKey(reason);
-    return list.some((entry) => reasonKey(entry) === key);
-  };
-
-  const relayEdges = doc.edges.filter((edge) => edge.ether?.relayState === true);
-  if (relayEdges.length > 0) {
-    let changed = true;
-    while (changed) {
-      changed = false;
-      for (const edge of relayEdges) {
-        const from = byId.get(edge.fromNode);
-        const to = byId.get(edge.toNode);
-        if (!isBlockableNode(from) || !isBlockableNode(to)) continue;
-
-        const transmit = (sourceId: string, targetId: string): void => {
-          if (!blocked.has(sourceId)) return;
-          const sourceReasons = reasonsByNodeId.get(sourceId) ?? [];
-          for (const reason of sourceReasons) {
-            if (hasReason(targetId, reason)) continue;
-            markBlocked(targetId, reason, edge.id);
-            changed = true;
-          }
-        };
-
-        transmit(edge.fromNode, edge.toNode);
-        transmit(edge.toNode, edge.fromNode);
-      }
-    }
-
-    // Live phase for edges that currently join two blocked actors.
-    for (const edge of relayEdges) {
-      if (!blocked.has(edge.fromNode) || !blocked.has(edge.toNode)) continue;
-      if (!isBlockableNode(byId.get(edge.fromNode)) || !isBlockableNode(byId.get(edge.toNode))) {
-        continue;
-      }
-      blockedEdgeIds.add(edge.id);
-      const existing = edgeEvalById.get(edge.id);
-      if (existing?.generates) continue;
-      const sample =
-        (reasonsByNodeId.get(edge.fromNode) ?? reasonsByNodeId.get(edge.toNode) ?? [])[0]
-          ?.detail ?? "relayed stoppage";
-      const evaluation: EdgeEval = {
-        phase: "blocks",
-        detail: `relay · ${sample}`,
-        generates: false,
-      };
-      edgeEvalById.set(edge.id, evaluation);
-      phaseByEdgeId.set(edge.id, evaluation.phase);
-      detailByEdgeId.set(edge.id, evaluation.detail);
-    }
-  }
+  // Wires law: no hidden stoppage cascades. Propagation requires an explicit
+  // relay scheduler node + effect wires — never edge.relayState.
 
   return {
     phaseByEdgeId,

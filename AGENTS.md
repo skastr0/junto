@@ -197,29 +197,25 @@ kinds are inert furniture. Watch sources are closed to `hermes`; retired
 private-source bindings and excess document fields fail strict decode rather
 than being rewritten.
 
-## Kernel: cron, relay (+ dormant gauge)
+## Kernel: cron, relay (+ dormant gauge) — wires
 
-Region pulse inject is **retired**. Schedulers fire **edge-authored effects**
-only (`ether.effect` on directed scheduler→target edges). Actors pull work via
-the factory claim tick — never via geometry broadcast.
+Region pulse inject is **retired**. Edges are **wires**: configuration only,
+never runtime state. Closed families: `access | watch | trigger | effect`.
+Only schedulers push; actors pull. Connect refused for sink–sink and geography.
 
-**Product scheduler plane (author these):**
+**Product scheduler plane:**
 
-| Kind | Body | Fire |
+| Kind | How it binds | Fire |
 |---|---|---|
-| **cron** (`timer` still decodes) | `ether.timer` expression (or legacy `everyMinutes`) | Durable due → apply effects |
-| **relay** | `ether.relay` (another **canvas node** projection) | Rising edge → apply effects |
+| **cron** | `ether.timer` expression | Durable due → effect wires (`does`) |
+| **relay** | **input wire** sink→relay carries `when`; **output wire** relay→target carries `does` | Rising edge on watch → apply effects |
 
-**Not a product peer — do not frame automation as “time vs hermes”:**
+**Not a product peer:** hermes **gauge** (`watcher`) is palette-hidden / dormant.
 
-| Kind | Status |
-|---|---|
-| **gauge** (`watcher` + `ether.watch` hermes `stat_threshold`) | **Product-hidden.** Hermes roster/stats are agent fleet join, not the gauge product. Boards still decode; palette omits it. A future **external-input actuator** (webhook/poll) is a separate surface — not “fix the hermes gauge.” |
+**Wire areas (v2):** `ports` · `stops` · `wake` · `slot` · `when` · `does`. Legacy
+`criteria`/`notify`/`effect` still decode (dual-read). No `relayState` cascade.
 
-Agent mistake to avoid: treating hermes gauge as the third live automation sensor next to cron/relay. **Live product sensors = cron (time) + relay (board state).**
-
-**Effects (v1):** `enqueue_task` (task sink) · `set_flag` (any node). Soft relates
-without `effect` still do nothing. Claim assignment stays the factory tick.
+**Effects (v1):** `enqueue_task` · `set_flag`. Claim assignment stays the factory tick.
 
 **Scheduler laws**: (1) Sensor truth is derived. (2) Single-home evaluation.
 (3) Interval catch-up ≤1 due tick. (4) **Automate only when station role is
