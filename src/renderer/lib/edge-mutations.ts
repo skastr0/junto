@@ -73,7 +73,7 @@ export const setEdgeColor = (id: string, color?: string): void => {
   });
 };
 
-/** Write stops (v2) + legacy criteria for dual-read. */
+/** Write stops only — one word for task/requests hold. */
 export const setEdgeCriteria = (id: string, criteria: EdgeCriteria | undefined): void => {
   const doc = state$.doc.peek();
   const cleaned = criteria;
@@ -83,14 +83,11 @@ export const setEdgeCriteria = (id: string, criteria: EdgeCriteria | undefined):
       if (edge.id !== id) return edge;
       if (!cleaned) {
         if (!edge.ether) return edge;
-        const rest = without(
-          without(without(edge.ether, "criteria"), "stops"),
-          "kind",
-        );
+        const rest = without(without(edge.ether, "stops"), "kind");
         return Object.keys(rest).length > 0 ? { ...edge, ether: rest } : without(edge, "ether");
       }
       const rest = edge.ether ? without(edge.ether, "kind") : {};
-      return { ...edge, ether: { ...rest, stops: cleaned, criteria: cleaned } };
+      return { ...edge, ether: { ...rest, stops: cleaned } };
     }),
   });
 };
@@ -163,7 +160,7 @@ export const inferEdgeCriteria = (fromNode: CanvasNode | undefined): EdgeCriteri
   return undefined;
 };
 
-/** Author effect word on an edge (writes does + legacy effect). */
+/** Author effect word on an edge — `does` only. */
 export const setEdgeEffect = (
   id: string,
   effect: EdgeEffect | undefined,
@@ -175,14 +172,14 @@ export const setEdgeEffect = (
       if (edge.id !== id) return edge;
       if (!effect) {
         if (!edge.ether) return edge;
-        const rest = without(without(edge.ether, "effect"), "does");
+        const rest = without(edge.ether, "does");
         return Object.keys(rest).length > 0
           ? { ...edge, ether: rest }
           : without(edge, "ether");
       }
       return {
         ...edge,
-        ether: { ...(edge.ether ?? {}), does: effect, effect },
+        ether: { ...(edge.ether ?? {}), does: effect },
       };
     }),
   });
@@ -231,7 +228,7 @@ export const setEdgeSlot = (
 };
 
 /**
- * Board wake eligibility. ON default (field absent); OFF = wake/notify false.
+ * Board wake eligibility. ON default (field absent); OFF = wake false.
  */
 export const setEdgeNotify = (edgeId: string, notify: boolean): void => {
   const doc = state$.doc.peek();
@@ -241,10 +238,8 @@ export const setEdgeNotify = (edgeId: string, notify: boolean): void => {
       if (edge.id !== edgeId) return edge;
       const ether = { ...(edge.ether ?? {}) };
       if (notify) {
-        delete ether.notify;
         delete ether.wake;
       } else {
-        ether.notify = false;
         ether.wake = false;
       }
       const nextEther = Object.keys(ether).length > 0 ? ether : undefined;
@@ -255,11 +250,6 @@ export const setEdgeNotify = (edgeId: string, notify: boolean): void => {
       return { ...edge, ether: nextEther };
     }),
   });
-};
-
-/** @deprecated relayState cascade is dead — no-op keep export for call sites. */
-export const setEdgeRelayState = (_edgeId: string, _relayState: boolean): void => {
-  // Wires law: no hidden cascades. Propagation requires an explicit relay node.
 };
 
 export const addEdge = (params: {
@@ -316,8 +306,8 @@ export const addEdge = (params: {
   const toSide = parseSide(params.targetHandle);
   const etherParts: NonNullable<CanvasEdge["ether"]> = {
     ...(slot ? { slot } : {}),
-    ...(stops ? { stops, criteria: stops } : {}),
-    ...(does ? { does, effect: does } : {}),
+    ...(stops ? { stops } : {}),
+    ...(does ? { does } : {}),
     ...(when ? { when } : {}),
     ...(ports ? { ports: [...ports] } : {}),
   };
@@ -486,12 +476,8 @@ export const connectAllToTarget = (
   const newEdges: CanvasEdge[] = plan.toAdd.map((candidate) => {
     const etherParts: NonNullable<CanvasEdge["ether"]> = {
       ...(candidate.slot ? { slot: candidate.slot } : {}),
-      ...(candidate.criteria
-        ? { stops: candidate.criteria, criteria: candidate.criteria }
-        : {}),
-      ...(candidate.effect
-        ? { does: candidate.effect, effect: candidate.effect }
-        : {}),
+      ...(candidate.criteria ? { stops: candidate.criteria } : {}),
+      ...(candidate.effect ? { does: candidate.effect } : {}),
       ...(candidate.when ? { when: candidate.when } : {}),
       ...(candidate.ports && candidate.ports.length > 0
         ? { ports: [...candidate.ports] }

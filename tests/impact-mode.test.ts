@@ -72,13 +72,13 @@ const stoppageDoc = (): CanvasDoc => ({
       id: "e-rp",
       fromNode: "r1",
       toNode: "a1",
-      ether: { criteria: { mode: "tasks" } },
+      ether: { stops: { mode: "tasks" } },
     },
     {
       id: "e-rp2",
       fromNode: "r1",
       toNode: "a2",
-      ether: { criteria: { mode: "tasks" } },
+      ether: { stops: { mode: "tasks" } },
     },
   ],
 });

@@ -555,5 +555,5 @@ export const tasksCriteriaEdge = (
   toNode,
   fromSide: "right",
   toSide: "left",
-  ether: { criteria: { mode: "tasks" } },
+  ether: { stops: { mode: "tasks" } },
 });

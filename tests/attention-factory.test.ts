@@ -119,7 +119,7 @@ describe("sinkGlance + attention", () => {
           id: "e1",
           fromNode: "t",
           toNode: "a1",
-          ether: { criteria: { mode: "tasks" } },
+          ether: { stops: { mode: "tasks" } },
         },
       ],
     }, context);

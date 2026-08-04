@@ -424,7 +424,7 @@ describe("renderer graph mutations", () => {
 
     const edge = state$.doc.peek().edges[0];
     expect(edge).toMatchObject({ fromNode: "source", toNode: "target" });
-    expect(edge?.ether?.criteria).toBeUndefined();
+    expect(edge?.ether?.stops).toBeUndefined();
     expect(state$.selectedNodeId.peek()).toBe("");
     expect(state$.selectedEdgeId.peek()).toBe(edge?.id);
     expect(Object.hasOwn(edge ?? {}, "fromSide")).toBe(false);
@@ -480,7 +480,7 @@ describe("renderer graph mutations", () => {
     expect(inferEdgeCriteria(state$.doc.peek().nodes[0])).toEqual({ mode: "tasks" });
     addEdge({ source: "tasks", target: "agent" });
     const edge = state$.doc.peek().edges[0];
-    expect(edge?.ether?.stops ?? edge?.ether?.criteria).toEqual({ mode: "tasks" });
+    expect(edge?.ether?.stops).toEqual({ mode: "tasks" });
     expect(edge?.ether?.kind).toBeUndefined();
     expect(Result.isSuccess(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
   });
@@ -533,7 +533,7 @@ describe("renderer graph mutations", () => {
     expect(inferEdgeCriteria(state$.doc.peek().nodes[0])).toEqual({ mode: "tasks" });
     addEdge({ source: "req", target: "agent" });
     const edge = state$.doc.peek().edges[0];
-    expect(edge?.ether?.stops ?? edge?.ether?.criteria).toEqual({ mode: "tasks" });
+    expect(edge?.ether?.stops).toEqual({ mode: "tasks" });
   });
 
   it("sets tasks criteria and strips ether when cleared", () => {
@@ -550,7 +550,7 @@ describe("renderer graph mutations", () => {
     });
 
     setEdgeCriteria("edge-1", { mode: "tasks" });
-    expect(state$.doc.peek().edges[0]?.ether?.criteria).toEqual({
+    expect(state$.doc.peek().edges[0]?.ether?.stops).toEqual({
       mode: "tasks",
     });
 
@@ -569,7 +569,7 @@ describe("renderer graph mutations", () => {
           id: "edge-1",
           fromNode: "source",
           toNode: "target",
-          ether: { criteria: { mode: "tasks" } },
+          ether: { stops: { mode: "tasks" } },
         },
       ],
     });
@@ -579,19 +579,19 @@ describe("renderer graph mutations", () => {
       "msg.send",
       "browser.automate",
     ]);
-    expect(state$.doc.peek().edges[0]?.ether?.criteria).toEqual({ mode: "tasks" });
+    expect(state$.doc.peek().edges[0]?.ether?.stops).toEqual({ mode: "tasks" });
     expect(Result.isSuccess(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
 
     setEdgePorts("edge-1", undefined);
     expect(state$.doc.peek().edges[0]?.ether?.ports).toBeUndefined();
     expect(Object.hasOwn(state$.doc.peek().edges[0]?.ether ?? {}, "ports")).toBe(false);
-    expect(state$.doc.peek().edges[0]?.ether?.criteria).toEqual({ mode: "tasks" });
+    expect(state$.doc.peek().edges[0]?.ether?.stops).toEqual({ mode: "tasks" });
 
     setEdgePorts("edge-1", ["msg.list"]);
     expect(state$.doc.peek().edges[0]?.ether?.ports).toEqual(["msg.list"]);
     setEdgePorts("edge-1", []);
     expect(state$.doc.peek().edges[0]?.ether?.ports).toBeUndefined();
-    expect(state$.doc.peek().edges[0]?.ether?.criteria).toEqual({ mode: "tasks" });
+    expect(state$.doc.peek().edges[0]?.ether?.stops).toEqual({ mode: "tasks" });
     expect(Result.isSuccess(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
   });
 
@@ -817,7 +817,7 @@ describe("renderer graph mutations", () => {
       { from: "b", to: "c" },
     ]);
     for (const edge of next) {
-      expect(edge.ether?.criteria).toBeUndefined();
+      expect(edge.ether?.stops).toBeUndefined();
     }
     expect(state$.selectedNodeId.peek()).toBe("");
     expect(state$.selectedEdgeId.peek()).toBe(next[1]?.id);

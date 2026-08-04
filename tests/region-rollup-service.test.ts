@@ -140,7 +140,7 @@ const docStoppage: CanvasDoc = {
       id: "wait",
       fromNode: "tasks",
       toNode: "actor",
-      ether: { criteria: { mode: "tasks" } },
+      ether: { stops: { mode: "tasks" } },
     },
   ],
 };

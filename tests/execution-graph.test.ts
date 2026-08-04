@@ -102,7 +102,7 @@ describe("evaluateEdge — authorial modes", () => {
       id: "e1",
       fromNode: "t1",
       toNode: "b",
-      ether: { criteria: { mode: "tasks" as const } },
+      ether: { stops: { mode: "tasks" as const } },
     };
     const worker = seat("b", "actor", { label: "B" });
     const workerIdentity = actorRef("b", "1");
@@ -166,7 +166,7 @@ describe("evaluateEdge — authorial modes", () => {
       id: "e1",
       fromNode: "r1",
       toNode: "b",
-      ether: { criteria: { mode: "tasks" as const } },
+      ether: { stops: { mode: "tasks" as const } },
     };
     const worker = seat("b", "actor", { label: "B" });
     const workerIdentity = actorRef("b", "1");
@@ -268,14 +268,14 @@ describe("deriveExecutionGraph — no cascade", () => {
           id: "e1",
           fromNode: "t1",
           toNode: "a1",
-          ether: { criteria: { mode: "tasks" } },
+          ether: { stops: { mode: "tasks" } },
         },
         // An actor has no task inventory, so this criteria edge relates.
         {
           id: "e2",
           fromNode: "a1",
           toNode: "a2",
-          ether: { criteria: { mode: "tasks" } },
+          ether: { stops: { mode: "tasks" } },
         },
       ],
     };
@@ -320,8 +320,8 @@ describe("deriveExecutionGraph — no cascade", () => {
         seat("a2", "actor", { label: "A2" }),
       ],
       edges: [
-        { id: "e1", fromNode: "t1", toNode: "a1", ether: { criteria: { mode: "tasks" } } },
-        { id: "e2", fromNode: "t1", toNode: "a2", ether: { criteria: { mode: "tasks" } } },
+        { id: "e1", fromNode: "t1", toNode: "a1", ether: { stops: { mode: "tasks" } } },
+        { id: "e2", fromNode: "t1", toNode: "a2", ether: { stops: { mode: "tasks" } } },
       ],
     });
     const a1 = actorRef("a1", "1");
@@ -370,7 +370,7 @@ describe("deriveExecutionGraph — no cascade", () => {
           id: "e1",
           fromNode: "proof",
           toNode: "s1",
-          ether: { criteria: { mode: "proof", step: "build" } },
+          ether: { stops: { mode: "proof", step: "build" } },
         },
       ],
     };
@@ -390,7 +390,7 @@ describe("deriveExecutionGraph — no cascade", () => {
           id: "e-bc",
           fromNode: "b",
           toNode: "c",
-          ether: { criteria: { mode: "tasks" } },
+          ether: { stops: { mode: "tasks" } },
         },
       ],
     };
@@ -419,8 +419,8 @@ describe("deriveExecutionGraph — no cascade", () => {
         seat("actor1", "actor"),
       ],
       edges: [
-        { id: "e1", fromNode: "t1", toNode: "note1", ether: { criteria: { mode: "tasks" } } },
-        { id: "e2", fromNode: "t1", toNode: "actor1", ether: { criteria: { mode: "tasks" } } },
+        { id: "e1", fromNode: "t1", toNode: "note1", ether: { stops: { mode: "tasks" } } },
+        { id: "e2", fromNode: "t1", toNode: "actor1", ether: { stops: { mode: "tasks" } } },
       ],
     };
     const graph = deriveExecutionGraph(doc, contextFor([actor]));
@@ -455,7 +455,7 @@ describe("composeRegionExecutionContext", () => {
           id: "e-tb",
           fromNode: "t1",
           toNode: "b",
-          ether: { criteria: { mode: "tasks" } },
+          ether: { stops: { mode: "tasks" } },
         },
       ],
     };
@@ -491,7 +491,7 @@ describe("evaluateEdge — proof / approval", () => {
       id: "e1",
       fromNode: "sink",
       toNode: "down",
-      ether: { criteria: { mode: "proof" as const, step: "build" } },
+      ether: { stops: { mode: "proof" as const, step: "build" } },
     };
     expect(
       evaluateEdge(
@@ -518,7 +518,7 @@ describe("evaluateEdge — proof / approval", () => {
       ["sink", [stamp({ step: "build", inputsHash: "h1" })]],
     ]);
     const cleared = evaluateEdge(
-      { ...edge, ether: { criteria: { mode: "proof", step: "build", inputsHash: "h1" } } },
+      { ...edge, ether: { stops: { mode: "proof", step: "build", inputsHash: "h1" } } },
       from,
       undefined,
       contextFor([], { stamps }),
@@ -533,7 +533,7 @@ describe("evaluateEdge — proof / approval", () => {
       id: "e1",
       fromNode: "sink",
       toNode: "down",
-      ether: { criteria: { mode: "approval" as const, step: "ship" } },
+      ether: { stops: { mode: "approval" as const, step: "ship" } },
     };
     expect(evaluateEdge(edge, from, undefined, contextFor()).phase).toBe(
       "blocks",

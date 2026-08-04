@@ -120,7 +120,7 @@ describe("deriveRegionRollups — member severity ladder", () => {
         taskNode("t", 10, 10, "Ops tasks", [claimed(taskItem("i1", "ship", "input-required"), "p")]),
         actorSeat("p", 10, 100, "prism"),
       ],
-      edges: [{ id: "e1", fromNode: "t", toNode: "p", ether: { criteria: { mode: "tasks" } } }],
+      edges: [{ id: "e1", fromNode: "t", toNode: "p", ether: { stops: { mode: "tasks" } } }],
     };
     const [rollup] = deriveRegionRollups({ doc });
     const target = rollup?.members.find((member) => member.nodeId === "p");
@@ -143,7 +143,7 @@ describe("deriveRegionRollups — member severity ladder", () => {
       nodes: doc.nodes.map((n) =>
         n.id === "s" ? { ...n, ether: { ...n.ether, flags: ["blocker" as const] } } : n,
       ),
-      edges: [{ id: "e1", fromNode: "s", toNode: "t", ether: { criteria: { mode: "tasks" } } }],
+      edges: [{ id: "e1", fromNode: "s", toNode: "t", ether: { stops: { mode: "tasks" } } }],
     };
     const [rollup] = deriveRegionRollups({ doc: flagged });
     const seed = rollup?.members.find((member) => member.nodeId === "s");
@@ -163,9 +163,9 @@ describe("deriveRegionRollups — member severity ladder", () => {
         actorSeat("b", 10, 200, "quasar"),
       ],
       edges: [
-        { id: "e1", fromNode: "t", toNode: "a", ether: { criteria: { mode: "tasks" } } },
+        { id: "e1", fromNode: "t", toNode: "a", ether: { stops: { mode: "tasks" } } },
         // Empty queue on a → soft relates; never relays stoppage to b
-        { id: "e2", fromNode: "a", toNode: "b", ether: { criteria: { mode: "tasks" } } },
+        { id: "e2", fromNode: "a", toNode: "b", ether: { stops: { mode: "tasks" } } },
       ],
     };
     const [rollup] = deriveRegionRollups({ doc });
@@ -183,7 +183,7 @@ describe("deriveRegionRollups — member severity ladder", () => {
         taskNode("u", 10, 10, "Ops tasks", [claimed(taskItem("i1", "ship", "input-required"), "t")]),
         actorSeat("t", 10, 210, "Target"),
       ],
-      edges: [{ id: "e1", fromNode: "u", toNode: "t", ether: { criteria: { mode: "tasks" } } }],
+      edges: [{ id: "e1", fromNode: "u", toNode: "t", ether: { stops: { mode: "tasks" } } }],
     };
     const flagged: CanvasDoc = {
       ...base,
@@ -303,7 +303,7 @@ describe("deriveRegionRollups — absent activity inputs", () => {
       agentNode("a", 10, 100, "MIRA", "remote-a:mira"),
       projectNode("q", 10, 200, "quasar", "quasar"),
     ],
-    edges: [{ id: "e1", fromNode: "p", toNode: "q", ether: { criteria: { mode: "tasks" } } }],
+    edges: [{ id: "e1", fromNode: "p", toNode: "q", ether: { stops: { mode: "tasks" } } }],
   };
 
   it("missing activity invents nothing: every member idle, edge stays relates", () => {
@@ -467,7 +467,7 @@ describe("deriveRegionRollups — derivation edges", () => {
           },
         },
       ],
-      edges: [{ id: "e1", fromNode: "u", toNode: "t", ether: { criteria: { mode: "tasks" } } }],
+      edges: [{ id: "e1", fromNode: "u", toNode: "t", ether: { stops: { mode: "tasks" } } }],
     };
     const [rollup] = deriveRegionRollups({ doc });
     const target = rollup?.members.find((member) => member.nodeId === "t");

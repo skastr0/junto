@@ -35,12 +35,11 @@ export type ActorEdgeRow = {
   readonly ports: ReadonlyArray<PortName>;
   /** Board megaphone: absent/true = ON, explicit false = OFF. */
   readonly boardNotify: "on" | "off" | null;
-  readonly relayState: boolean;
   readonly livePhase: "blocks" | "relates" | null;
 };
 
 const natureOf = (edge: CanvasEdge): ActorEdgeNature => {
-  const mode = edge.ether?.criteria?.mode;
+  const mode = edge.ether?.stops?.mode;
   if (mode === "tasks" || mode === "proof" || mode === "approval") return mode;
   return "soft";
 };
@@ -90,7 +89,7 @@ const boardNotifyOf = (
     actor.ether?.entity?.kind === "board" ||
     peer?.ether?.entity?.kind === "board";
   if (!touchesBoard) return null;
-  return edge.ether?.notify === false ? "off" : "on";
+  return edge.ether?.wake === false ? "off" : "on";
 };
 
 /**
@@ -133,7 +132,6 @@ export const actorEdgeRows = (
       nature: natureOf(edge),
       ports,
       boardNotify: boardNotifyOf(edge, actor, peer),
-      relayState: edge.ether?.relayState === true,
       livePhase: phase,
     });
   }

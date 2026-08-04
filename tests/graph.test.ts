@@ -44,8 +44,8 @@ describe("graph derivations", () => {
         seat("a2", "actor", { label: "a2" }),
       ],
       edges: [
-        { id: "e-ab", fromNode: "t1", toNode: "a1", ether: { criteria: { mode: "tasks" } } },
-        { id: "e-bc", fromNode: "a1", toNode: "a2", ether: { criteria: { mode: "tasks" } } },
+        { id: "e-ab", fromNode: "t1", toNode: "a1", ether: { stops: { mode: "tasks" } } },
+        { id: "e-bc", fromNode: "a1", toNode: "a2", ether: { stops: { mode: "tasks" } } },
       ],
     };
     const context = executionContextForDoc(doc);
@@ -61,7 +61,7 @@ describe("graph derivations", () => {
         seat("c", "actor", { label: "c" }),
       ],
       edges: [
-        { id: "e-ab", fromNode: "t1", toNode: "b", ether: { criteria: { mode: "tasks" } } },
+        { id: "e-ab", fromNode: "t1", toNode: "b", ether: { stops: { mode: "tasks" } } },
         { id: "e-bc", fromNode: "b", toNode: "c" },
       ],
     };
@@ -86,7 +86,7 @@ describe("graph derivations", () => {
     const doc: CanvasDoc = {
       nodes: [tasks("t1", true), seat("a1", "actor")],
       edges: [
-        { id: "e1", fromNode: "t1", toNode: "a1", ether: { criteria: { mode: "tasks" } } },
+        { id: "e1", fromNode: "t1", toNode: "a1", ether: { stops: { mode: "tasks" } } },
       ],
     };
     const context = executionContextForDoc(doc);
@@ -117,7 +117,7 @@ describe("graph derivations", () => {
           id: "e1",
           fromNode: "t1",
           toNode: "a1",
-          ether: { criteria: { mode: "tasks" } },
+          ether: { stops: { mode: "tasks" } },
         },
       ],
     };

@@ -102,7 +102,7 @@ const edges: CanvasEdge[] = [
     toNode: "work",
     fromSide: "left" as const,
     toSide: "right" as const,
-    ether: { stops: { mode: "tasks" as const }, criteria: { mode: "tasks" as const } },
+    ether: { stops: { mode: "tasks" as const } },
   })),
   // access·wakes + access·messages
   { id: "wake-claude", fromNode: "claude", toNode: "board", fromSide: "left", toSide: "top", ether: { wake: true } },
@@ -134,7 +134,6 @@ const edges: CanvasEdge[] = [
     ether: {
       slot: "output" as const,
       does: { mode: "enqueue_task" as const, brief: "review the completed work" },
-      effect: { mode: "enqueue_task" as const, brief: "review the completed work" },
     },
   },
   {
@@ -145,7 +144,6 @@ const edges: CanvasEdge[] = [
     toSide: "bottom",
     ether: {
       does: { mode: "enqueue_task" as const, brief: "heartbeat check" },
-      effect: { mode: "enqueue_task" as const, brief: "heartbeat check" },
     },
   },
 ];

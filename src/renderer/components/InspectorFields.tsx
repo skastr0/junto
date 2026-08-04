@@ -165,7 +165,7 @@ export function EdgeBoardNotifyToggle({ edge }: { readonly edge: CanvasEdge }) {
   const touchesBoard =
     from?.ether?.entity?.kind === "board" || to?.ether?.entity?.kind === "board";
   if (!touchesBoard) return null;
-  const on = (edge.ether?.wake ?? edge.ether?.notify) !== false;
+  const on = edge.ether?.wake !== false;
   return (
     <div className="inspector-section">
       <div className="inspector-section__label">Board wakes this agent</div>
@@ -676,7 +676,7 @@ function EdgeEffectEditor({
 }) {
   const doc = use$(state$.doc);
   const edge = doc.edges.find((candidate) => candidate.id === edgeId);
-  const effect = edge?.ether?.does ?? edge?.ether?.effect;
+  const effect = edge?.ether?.does;
   const fromIsScheduler = isSchedulerEntityKind(fromNode?.ether?.entity?.kind);
   if (!fromIsScheduler) return null;
 
@@ -837,7 +837,7 @@ export function EdgeCriteriaEditor({
 }) {
   const doc = use$(state$.doc);
   const edge = doc.edges.find((candidate) => candidate.id === edgeId);
-  const criteria = edge?.ether?.stops ?? edge?.ether?.criteria;
+  const criteria = edge?.ether?.stops;
   const toNode = doc.nodes.find((node) => node.id === edge?.toNode);
   const fromKind = fromNode?.ether?.entity?.kind;
   const fromIsTask = fromKind === "task" || fromKind === "requests";
@@ -1340,16 +1340,12 @@ export function WatcherEditor({ node }: { readonly node: CanvasNode }) {
   </div>;
 }
 
-/** Relay binding is the drawn links — no node-id form. */
+/** Relay binding is the drawn links only. */
 export function RelayEditor({ node }: { readonly node: CanvasNode }) {
   const doc = use$(state$.doc);
-  const inbound = doc.edges.filter(
-    (edge) => edge.toNode === node.id && edge.ether?.when,
-  );
+  const inbound = doc.edges.filter((edge) => edge.toNode === node.id);
   const outbound = doc.edges.filter(
-    (edge) =>
-      edge.fromNode === node.id &&
-      (edge.ether?.does ?? edge.ether?.effect),
+    (edge) => edge.fromNode === node.id && edge.ether?.does,
   );
   const watchLine =
     inbound.length === 0

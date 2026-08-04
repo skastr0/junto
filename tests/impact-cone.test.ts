@@ -49,13 +49,13 @@ describe("impactCone — tasks / requests stoppage", () => {
           id: "e-r1",
           fromNode: "r1",
           toNode: "a1",
-          ether: { criteria: { mode: "tasks" } },
+          ether: { stops: { mode: "tasks" } },
         },
         {
           id: "e-r2",
           fromNode: "r1",
           toNode: "a2",
-          ether: { criteria: { mode: "tasks" } },
+          ether: { stops: { mode: "tasks" } },
         },
       ],
     };
@@ -108,7 +108,7 @@ describe("impactCone — tasks / requests stoppage", () => {
           id: "e1",
           fromNode: "t1",
           toNode: "a1",
-          ether: { criteria: { mode: "tasks" } },
+          ether: { stops: { mode: "tasks" } },
         },
       ],
     };
@@ -155,7 +155,7 @@ describe("impactCone — tasks / requests stoppage", () => {
           id: "e1",
           fromNode: "r1",
           toNode: "a1",
-          ether: { criteria: { mode: "tasks" } },
+          ether: { stops: { mode: "tasks" } },
         },
       ],
     };
@@ -179,13 +179,13 @@ describe("impactCone — seeds, relays, attention leads", () => {
           id: "e-bc",
           fromNode: "b",
           toNode: "c",
-          ether: { criteria: { mode: "tasks" } },
+          ether: { stops: { mode: "tasks" } },
         },
         {
           id: "e-cd",
           fromNode: "c",
           toNode: "d",
-          ether: { criteria: { mode: "tasks" } },
+          ether: { stops: { mode: "tasks" } },
         },
       ],
     };
@@ -218,7 +218,7 @@ describe("impactCone — seeds, relays, attention leads", () => {
           id: "e-tb",
           fromNode: "t1",
           toNode: "blocked",
-          ether: { criteria: { mode: "tasks" } },
+          ether: { stops: { mode: "tasks" } },
         },
         // Soft relates from free actor into blocked actor — attention lead.
         { id: "e-lb", fromNode: "lead", toNode: "blocked" },
@@ -252,7 +252,7 @@ describe("impactCone — seeds, relays, attention leads", () => {
           id: "e1",
           fromNode: "t1",
           toNode: "a1",
-          ether: { criteria: { mode: "tasks" } },
+          ether: { stops: { mode: "tasks" } },
         },
         { id: "e2", fromNode: "a1", toNode: "a2" }, // relates — no relay
       ],

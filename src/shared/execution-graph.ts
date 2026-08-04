@@ -26,23 +26,20 @@ import {
 // Live execution graph: pure function of (document + live views).
 // Derived state is never stored in the authored canvas document.
 //
-// Authorial edge model — criteria + optional relayState property:
-//   - no criteria → soft "relates" (never generates stoppage)
-//   - criteria tasks → a CLAIMED attention item (input-required; residual auth-required)
+// Authorial edge model — `stops` only (no dual keys, no cascade property):
+//   - no stops → soft "relates" (never generates stoppage)
+//   - stops tasks → a CLAIMED attention item (input-required; residual auth-required)
 //     generates blocks on the claimant toNode actor only. Tasks are claimed
 //     by the pulling actor; requests are claimed by their raiser at creation.
 //     An unresolved toNode actor identity never substitutes its canvas node ID.
-//   - criteria proof / approval → blocks until trust view clears
-//   - ether.relayState === true (opt-in, default off) on an edge between
-//     blockable actors: when one endpoint is blocked, the other inherits the
-//     same reasons (multi-hop along further relayState edges). Not automatic.
+//   - stops proof / approval → blocks until trust view clears
 //
 // Evaluation:
 //   - phase "blocks" + generates → mark toNode blocked (actors only)
 //   - manual blocker flag marks that actor only
 //   - work-plane seat blocks mark their actor only
-//   - then optional relayState cascade copies reasons across actor links
-//   - no criteria → relates
+//   - stoppage never cascades via edge property — use a relay node + wires
+//   - no stops → relates
 
 /** Optional live views for proof/approval criteria (runtime, not document). */
 export type LiveTrustViews = {
@@ -239,7 +236,7 @@ export const evaluateEdge = (
   toNode: CanvasNode | undefined,
   context: ExecutionGraphContext,
 ): EdgeEval => {
-  const criteria = edge.ether?.stops ?? edge.ether?.criteria;
+  const criteria = edge.ether?.stops;
   if (!criteria) return softRelates();
   switch (criteria.mode) {
     case "tasks":
@@ -271,7 +268,7 @@ export const clearingStampsForDoc = (
   const byId = new Map(doc.nodes.map((node) => [node.id, node] as const));
   const out: Array<{ edgeId: string; stamp: ProofStamp }> = [];
   for (const edge of doc.edges) {
-    const criteria = edge.ether?.stops ?? edge.ether?.criteria;
+    const criteria = edge.ether?.stops;
     if (!criteria || criteria.mode !== "proof") continue;
     const from = byId.get(edge.fromNode);
     if (!from) continue;
@@ -359,7 +356,7 @@ export const deriveExecutionGraph = (
   }
 
   // Wires law: no hidden stoppage cascades. Propagation requires an explicit
-  // relay scheduler node + effect wires — never edge.relayState.
+  // relay node + does wires.
 
   return {
     phaseByEdgeId,

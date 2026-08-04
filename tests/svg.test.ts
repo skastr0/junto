@@ -49,7 +49,7 @@ const doc: CanvasDoc = {
     },
   ],
   edges: [
-    { id: "e1", fromNode: "n1", toNode: "n2", ether: { criteria: { mode: "tasks" } } },
+    { id: "e1", fromNode: "n1", toNode: "n2", ether: { stops: { mode: "tasks" } } },
   ],
 };
 

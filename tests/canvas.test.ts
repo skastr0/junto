@@ -244,7 +244,7 @@ describe("canvas contract", () => {
             id: "legacy",
             fromNode: "source",
             toNode: "target",
-            ether: { criteria: { mode } },
+            ether: { stops: { mode } },
           },
         ],
       };
@@ -286,8 +286,8 @@ describe("canvas contract", () => {
         { id: "n2", type: "text", text: "Plain", x: 0, y: 100, width: 200, height: 80 },
       ],
       edges: [
-        { id: "e-blocks", fromNode: "n1", toNode: "n2", ether: { kind: "blocks", criteria: { mode: "tasks" } } },
-        { id: "e-relates", fromNode: "n1", toNode: "n2", ether: { kind: "relates", criteria: { mode: "tasks" } } },
+        { id: "e-blocks", fromNode: "n1", toNode: "n2", ether: { kind: "blocks", stops: { mode: "tasks" } } },
+        { id: "e-relates", fromNode: "n1", toNode: "n2", ether: { kind: "relates", stops: { mode: "tasks" } } },
         { id: "e-relates-labeled", fromNode: "n1", toNode: "n2", label: "kept", ether: { kind: "relates" } },
         { id: "e-plain", fromNode: "n1", toNode: "n2" },
       ],
@@ -327,7 +327,7 @@ describe("canvas contract", () => {
           toNode: "n1",
           label: "depends",
           color: "1",
-          ether: { kind: "relates", criteria: { mode: "tasks" } },
+          ether: { kind: "relates", stops: { mode: "tasks" } },
         },
         {
           id: "e-soft",

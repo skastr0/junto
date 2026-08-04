@@ -93,7 +93,7 @@ const NODES: ReadonlyArray<CanvasNode> = [
 const EDGES: CanvasEdge[] = [
   // access: claim lane agent1→tasks
   { id: "e-claim", fromNode: "agent1", toNode: "tasks", fromSide: "right", toSide: "left",
-    ether: { stops: { mode: "tasks" }, criteria: { mode: "tasks" } } },
+    ether: { stops: { mode: "tasks" } } },
   // access: bare agent mail pair (vertical)
   { id: "e-mail", fromNode: "agent1", toNode: "agent2", fromSide: "bottom", toSide: "top" },
   // access: board wake
@@ -105,12 +105,10 @@ const EDGES: CanvasEdge[] = [
     ether: { slot: "input", when: { word: "completes" } } },
   // effect: relay→tasks2 enqueue
   { id: "e-fire", fromNode: "relay", toNode: "tasks2", fromSide: "bottom", toSide: "top",
-    ether: { slot: "output", does: { mode: "enqueue_task", brief: "review the completed work" },
-      effect: { mode: "enqueue_task", brief: "review the completed work" } } },
+    ether: { slot: "output", does: { mode: "enqueue_task", brief: "review the completed work" } } },
   // effect: cron→tasks2 heartbeat
   { id: "e-cron", fromNode: "cron", toNode: "tasks2", fromSide: "bottom", toSide: "right",
-    ether: { does: { mode: "enqueue_task", brief: "heartbeat check" },
-      effect: { mode: "enqueue_task", brief: "heartbeat check" } } },
+    ether: { does: { mode: "enqueue_task", brief: "heartbeat check" } } },
 ];
 
 test("walk every product surface and screenshot it", async () => {

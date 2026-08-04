@@ -709,7 +709,7 @@ const makeAddActions = (
   addRelay: () => {
     const position = positionFor({ width: 220, height: 96 });
     const stationHost = state$.settings.station.hostId.peek() || "local";
-    const node = makeRelayNode(position.x, position.y, "", stationHost);
+    const node = makeRelayNode(position.x, position.y, stationHost);
     addNode(node, { edit: false });
     state$.focusNodeId.set(node.id);
     dismiss();

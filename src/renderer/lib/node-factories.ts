@@ -386,12 +386,10 @@ export const makeCronNode = (
 /**
  * Relay — product canvas-state sensor (peer of cron).
  * Binding is the wire: draw sink → relay (when) and relay → target (does).
- * No sourceNodeId on the node body.
  */
 export const makeRelayNode = (
   x: number,
   y: number,
-  _sourceNodeId?: string,
   host = "local",
 ): TextNode => ({
   id: `relay-${ulid()}`,

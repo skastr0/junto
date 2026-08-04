@@ -307,15 +307,12 @@ export const familyStroke = (family: WireFamily): FamilyStroke => {
 /** Minimal ether surface for pure word derivation (no canvas import). */
 export type WireEtherView = {
   readonly stops?: unknown;
-  readonly criteria?: unknown;
   readonly wake?: boolean;
-  readonly notify?: boolean;
   readonly when?: {
     readonly word?: string;
     readonly any?: ReadonlyArray<{ readonly word?: string }>;
   };
   readonly does?: { readonly mode?: string };
-  readonly effect?: { readonly mode?: string };
   readonly ports?: ReadonlyArray<string>;
 };
 
@@ -334,10 +331,9 @@ export const wordsOfEdge = (input: {
   const { family, ether, fromKind, toKind, hasMessages } = input;
   const words: WireWord[] = [];
   if (family === "access") {
-    if (ether?.stops != null || ether?.criteria != null) words.push("stops");
+    if (ether?.stops != null) words.push("stops");
     const touchesBoard = fromKind === "board" || toKind === "board";
-    const wake = ether?.wake ?? ether?.notify;
-    if (touchesBoard && wake !== false) words.push("wakes");
+    if (touchesBoard && ether?.wake !== false) words.push("wakes");
     if (hasMessages) words.push("messages");
     return words;
   }
@@ -364,7 +360,7 @@ export const wordsOfEdge = (input: {
     return words;
   }
   if (family === "effect") {
-    const mode = ether?.does?.mode ?? ether?.effect?.mode;
+    const mode = ether?.does?.mode;
     if (mode === "enqueue_task") words.push("enqueues");
     else if (mode === "set_flag") words.push("flags");
     else if (mode === "inject_prompt") words.push("wakes");

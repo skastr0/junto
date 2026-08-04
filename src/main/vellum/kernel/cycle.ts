@@ -31,8 +31,8 @@ import {
 import {
   collectWatchEdgesInto,
   combineWatchEvaluations,
-  evaluateRelay,
   evaluateWatchWhen,
+  NO_WATCH_YET_DETAIL,
 } from "@shared/scheduler-effects";
 import {
   expressionFromEveryMinutes,
@@ -299,7 +299,7 @@ export const criteriaPhasesNeedMirror = (
   phaseByEdgeId: ReadonlyMap<string, EdgePhase>,
 ): boolean => {
   for (const edge of doc.edges) {
-    if (!(edge.ether?.stops ?? edge.ether?.criteria)) continue;
+    if (!edge.ether?.stops) continue;
     const phase = phaseByEdgeId.get(edge.id);
     if (phase === undefined) continue;
     if (edge.ether.kind !== phase) return true;
@@ -495,25 +495,20 @@ export const runEvaluationCycle = async (): Promise<void> => {
         }
       }
 
-      // Relay nodes: watch via input wires (`when`) or legacy ether.relay body.
+      // Relay: watch is sink → relay wires only (`when` / default completes).
       for (const node of effectiveDoc.nodes) {
         if (node.type !== "text" || node.ether?.entity?.kind !== "relay") continue;
         if (!isNodeEligibleOnStation(node, stationHostId)) continue;
         const watchEdges = collectWatchEdgesInto(effectiveDoc, node.id);
-        let evaluation;
-        if (watchEdges.length > 0) {
-          evaluation = combineWatchEvaluations(
-            watchEdges.map((w) => evaluateWatchWhen(w.source, w.when)),
-          );
-        } else if (node.ether?.relay) {
-          evaluation = evaluateRelay(effectiveDoc, node.ether.relay);
-        } else {
-          // No watch wire with `when` (or only empty/legacy body). Not stoppage.
-          evaluation = {
-            status: "unknown" as const,
-            detail: "no watch yet — draw a sink in and set fires-when",
-          };
-        }
+        const evaluation =
+          watchEdges.length > 0
+            ? combineWatchEvaluations(
+                watchEdges.map((w) => evaluateWatchWhen(w.source, w.when)),
+              )
+            : ({
+                status: "unknown" as const,
+                detail: NO_WATCH_YET_DETAIL,
+              });
         const result = evaluateWatcherLevel(canvasName, node.id, evaluation, {
           consumeEdge: automate,
         });
@@ -765,12 +760,15 @@ export const reconcileLiveCanvasMemory = (): void => {
   const hasSensor = (canvasName: string, nodeId: string): boolean => {
     const doc = docs.get(canvasName);
     if (!doc) return false;
-    return doc.nodes.some(
-      (node) =>
-        node.id === nodeId &&
-        node.type === "text" &&
-        (node.ether?.watch !== undefined || node.ether?.relay !== undefined),
-    );
+    return doc.nodes.some((node) => {
+      if (node.id !== nodeId || node.type !== "text") return false;
+      const kind = node.ether?.entity?.kind;
+      return (
+        kind === "relay" ||
+        kind === "watcher" ||
+        node.ether?.watch !== undefined
+      );
+    });
   };
   const hasTimer = (canvasName: string, nodeId: string): boolean => {
     const doc = docs.get(canvasName);

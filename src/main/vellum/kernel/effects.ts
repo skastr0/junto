@@ -172,5 +172,5 @@ export const applySchedulerFire = async (
 export const nodeHasCronBody = (node: CanvasNode): boolean =>
   node.type === "text" && node.ether?.timer !== undefined;
 
-export const nodeHasRelayBody = (node: CanvasNode): boolean =>
-  node.type === "text" && node.ether?.relay !== undefined;
+export const nodeIsRelay = (node: CanvasNode): boolean =>
+  node.type === "text" && node.ether?.entity?.kind === "relay";

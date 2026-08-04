@@ -355,7 +355,7 @@ test("still 00 — factory hero board", async () => {
     toNode: "a-security",
     fromSide: "left",
     toSide: "right",
-    ether: { criteria: { mode: "tasks" } },
+    ether: { stops: { mode: "tasks" } },
   });
   nodes.push(
     note(

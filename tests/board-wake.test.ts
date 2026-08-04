@@ -77,13 +77,13 @@ describe("board wake set", () => {
           id: "e2",
           fromNode: "agent-b",
           toNode: "board-1",
-          ether: { notify: false },
+          ether: { wake: false },
         },
         {
           id: "e3",
           fromNode: "agent-c",
           toNode: "board-1",
-          ether: { notify: true },
+          ether: { wake: true },
         },
       ],
     });

@@ -35,7 +35,7 @@ export type BoardWakeSeat = {
 
 /**
  * Edge is eligible for board megaphone wakes.
- * Default ON when connected — only explicit `notify: false` opts out.
+ * Default ON when connected — only explicit `wake: false` opts out.
  */
 export const edgeNotifyOn = (
   doc: CanvasDoc,
@@ -47,7 +47,7 @@ export const edgeNotifyOn = (
       (edge.fromNode === a && edge.toNode === b) ||
       (edge.fromNode === b && edge.toNode === a);
     if (!pair) continue;
-    if ((edge.ether?.wake ?? edge.ether?.notify) !== false) return true;
+    if (edge.ether?.wake !== false) return true;
   }
   return false;
 };

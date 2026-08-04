@@ -203,7 +203,7 @@ export const digestCanvas = (
     let criteriaEdges = 0;
     let softEdges = 0;
     for (const edge of doc.edges) {
-      if (edge.ether?.criteria) criteriaEdges += 1;
+      if (edge.ether?.stops) criteriaEdges += 1;
       else softEdges += 1;
     }
     const roleParts = ROLE_ORDER.map(
@@ -247,7 +247,7 @@ export const digestCanvas = (
     // Topology summary: criteria modes present (document shape, not completion).
     const modeCounts: Record<string, number> = {};
     for (const edge of doc.edges) {
-      const mode = edge.ether?.criteria?.mode ?? "soft";
+      const mode = edge.ether?.stops?.mode ?? "soft";
       modeCounts[mode] = (modeCounts[mode] ?? 0) + 1;
     }
     const modeParts = Object.keys(modeCounts)
@@ -282,7 +282,7 @@ export const digestCanvas = (
     if (live.approvals && live.approvals.size > 0) {
       const approvalClears: string[] = [];
       for (const edge of doc.edges) {
-        const criteria = edge.ether?.criteria;
+        const criteria = edge.ether?.stops;
         if (!criteria || criteria.mode !== "approval") continue;
         const grant = live.approvals.get(criteria.step);
         if (grant && grant.principal === "human") {
@@ -348,9 +348,9 @@ export const digestCanvas = (
       const phase = graph.phaseByEdgeId.get(edge.id) ?? "relates";
       const detail = graph.detailByEdgeId.get(edge.id);
       let token: string;
-      if (edge.ether?.criteria && detail && phase !== "relates") {
+      if (edge.ether?.stops && detail && phase !== "relates") {
         token = `${phase}(${detail})`;
-      } else if (phase === "relates" && edge.label && !edge.ether?.kind && !edge.ether?.criteria) {
+      } else if (phase === "relates" && edge.label && !edge.ether?.kind && !edge.ether?.stops) {
         token = edge.label;
       } else {
         token = phase;

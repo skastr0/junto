@@ -94,7 +94,7 @@ const doc: CanvasDoc = {
   ],
   edges: [
     { id: "e1", fromNode: "m1", toNode: "m2" },
-    { id: "e2", fromNode: "t1", toNode: "m3", ether: { criteria: { mode: "tasks" } } },
+    { id: "e2", fromNode: "t1", toNode: "m3", ether: { stops: { mode: "tasks" } } },
     { id: "e3", fromNode: "m3", toNode: "m1", label: "refs" },
     { id: "e4", fromNode: "m1", toNode: "m3" },
   ],
@@ -327,13 +327,13 @@ const physicsDoc: CanvasDoc = {
       id: "e-crit",
       fromNode: "agent1",
       toNode: "task1",
-      ether: { criteria: { mode: "tasks" } },
+      ether: { stops: { mode: "tasks" } },
     },
     {
       id: "e-crit2",
       fromNode: "term1",
       toNode: "page1",
-      ether: { criteria: { mode: "tasks" } },
+      ether: { stops: { mode: "tasks" } },
     },
   ],
 };
@@ -412,8 +412,7 @@ describe("digestCanvas — design vs completion (I13/I16)", () => {
         id: "e-proof",
         fromNode: "sink1",
         toNode: "down1",
-        ether: {
-          criteria: { mode: "proof", step: "build", inputsHash: "h1" },
+        ether: { stops: { mode: "proof", step: "build", inputsHash: "h1" },
         },
       },
     ],

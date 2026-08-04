@@ -177,7 +177,7 @@ function DoesSection({
   readonly edge: CanvasEdge;
   readonly toNode: CanvasNode | undefined;
 }) {
-  const effect = edge.ether?.does ?? edge.ether?.effect;
+  const effect = edge.ether?.does;
   const mode = effect?.mode ?? "none";
   const options = [
     { value: "none", label: "Do nothing" },
@@ -258,7 +258,7 @@ function HoldSection({
   readonly edgeId: string;
   readonly edge: CanvasEdge;
 }) {
-  const criteria = edge.ether?.stops ?? edge.ether?.criteria;
+  const criteria = edge.ether?.stops;
   const mode =
     criteria?.mode === "proof"
       ? "proof"

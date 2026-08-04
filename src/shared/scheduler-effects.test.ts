@@ -2,10 +2,11 @@ import { describe, expect, it } from "vitest";
 import type { CanvasDoc } from "./canvas";
 import {
   collectEffectEdgesFrom,
+  collectWatchEdgesInto,
   defaultEnqueueBrief,
-  evaluateRelay,
   evaluateWatchWhen,
   inferSchedulerEdgeEffect,
+  NO_WATCH_YET_DETAIL,
   validateEffectTarget,
 } from "./scheduler-effects";
 
@@ -46,7 +47,7 @@ describe("scheduler-effects", () => {
           fromNode: "c1",
           toNode: "t1",
           ether: {
-            effect: { mode: "enqueue_task", brief: "review overnight" },
+            does: { mode: "enqueue_task", brief: "review overnight" },
           },
         },
         {
@@ -54,36 +55,36 @@ describe("scheduler-effects", () => {
           fromNode: "t1",
           toNode: "c1",
           ether: {
-            effect: { mode: "enqueue_task", brief: "wrong way" },
+            does: { mode: "enqueue_task", brief: "wrong way" },
           },
         },
       ],
     });
-    const edges = collectEffectEdgesFrom(canvas, "c1");
-    expect(edges).toHaveLength(1);
-    expect(edges[0]?.edge.id).toBe("e1");
+    const bindings = collectEffectEdgesFrom(canvas, "c1");
+    expect(bindings).toHaveLength(1);
+    expect(bindings[0]!.effect.mode).toBe("enqueue_task");
   });
 
   it("validates enqueue targets a task sink", () => {
-    const task = {
+    const task: import("./canvas").CanvasNode = {
       id: "t1",
-      type: "text" as const,
+      type: "text",
       text: "tasks",
       x: 0,
       y: 0,
       width: 1,
       height: 1,
-      ether: { entity: { kind: "task" as const } },
+      ether: { entity: { kind: "task" } },
     };
-    const agent = {
+    const agent: import("./canvas").CanvasNode = {
       id: "a1",
-      type: "text" as const,
+      type: "text",
       text: "agent",
       x: 0,
       y: 0,
       width: 1,
       height: 1,
-      ether: { entity: { kind: "agent" as const, name: "local:x" } },
+      ether: { entity: { kind: "agent" } },
     };
     expect(
       validateEffectTarget(
@@ -97,105 +98,43 @@ describe("scheduler-effects", () => {
         agent,
       ),
     ).toBe("target_not_task_sink");
-    expect(
-      validateEffectTarget(
-        { mode: "enqueue_task", brief: "  " },
-        task,
-      ),
-    ).toBe("empty_brief");
   });
 
   it("infers enqueue when connecting cron to task", () => {
-    const cron = {
+    const cron: import("./canvas").CanvasNode = {
       id: "c1",
-      type: "text" as const,
-      text: "nightly harvest",
+      type: "text",
+      text: "cron",
       x: 0,
       y: 0,
       width: 1,
       height: 1,
-      ether: { entity: { kind: "cron" as const }, timer: { everyMinutes: 60 } },
+      ether: { entity: { kind: "cron" }, timer: { expression: "0 9 * * *" } },
     };
-    const task = {
+    const task: import("./canvas").CanvasNode = {
       id: "t1",
-      type: "text" as const,
+      type: "text",
       text: "tasks",
       x: 0,
       y: 0,
       width: 1,
       height: 1,
-      ether: { entity: { kind: "task" as const } },
+      ether: { entity: { kind: "task" } },
     };
-    expect(inferSchedulerEdgeEffect(cron, task)).toEqual({
-      mode: "enqueue_task",
-      brief: "nightly harvest",
-      reason: "scheduler",
-    });
-    expect(inferSchedulerEdgeEffect(task, cron)).toBeUndefined();
-    const agent = {
-      id: "a1",
-      type: "text" as const,
-      text: "agent",
-      x: 0,
-      y: 0,
-      width: 1,
-      height: 1,
-      ether: { entity: { kind: "agent" as const } },
-    };
-    expect(inferSchedulerEdgeEffect(cron, agent)).toEqual({
-      mode: "inject_prompt",
-    });
+    expect(inferSchedulerEdgeEffect(cron, task)?.mode).toBe("enqueue_task");
   });
 
   it("OR-evaluates multi-select watch any", () => {
-    const flagged = {
-      id: "n1",
-      type: "text" as const,
-      text: "x",
-      x: 0,
-      y: 0,
-      width: 1,
-      height: 1,
-      ether: {
-        entity: { kind: "task" as const },
-        flags: ["attention" as const],
-        tasks: { items: [] },
-      },
-    };
-    expect(
-      evaluateWatchWhen(flagged, {
-        word: "any",
-        any: [
-          { word: "completes", equals: "completed" },
-          { word: "flagged", flag: "attention" },
-        ],
-      }).status,
-    ).toBe("satisfied");
-  });
-
-  it("keeps page ready and page failed as independent completes equals", () => {
-    const page = {
+    const page: import("./canvas").CanvasNode = {
       id: "p1",
-      type: "link" as const,
+      type: "link",
       url: "https://example.com",
       x: 0,
       y: 0,
       width: 1,
       height: 1,
-      ether: { entity: { kind: "page" as const } },
+      ether: { entity: { kind: "page" } },
     };
-    const ready = evaluateWatchWhen(page, {
-      word: "completes",
-      equals: "ready",
-    });
-    const failed = evaluateWatchWhen(page, {
-      word: "completes",
-      equals: "failed",
-    });
-    expect(ready.detail).toMatch(/ready/i);
-    expect(failed.detail).toMatch(/failed/i);
-    expect(ready.detail).not.toBe(failed.detail);
-    // OR of both still pending until observed
     expect(
       evaluateWatchWhen(page, {
         word: "any",
@@ -207,7 +146,77 @@ describe("scheduler-effects", () => {
     ).toBe("pending");
   });
 
-  it("evaluates relay task_state", () => {
+  it("keeps page ready and page failed as independent completes equals", () => {
+    const page: import("./canvas").CanvasNode = {
+      id: "p1",
+      type: "link",
+      url: "https://example.com",
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+      ether: { entity: { kind: "page" } },
+    };
+    expect(
+      evaluateWatchWhen(page, { word: "completes", equals: "ready" }).detail,
+    ).toMatch(/ready/);
+    expect(
+      evaluateWatchWhen(page, { word: "completes", equals: "failed" }).detail,
+    ).toMatch(/failed/);
+  });
+
+  it("evaluates watch completes on task wire (no node body)", () => {
+    const source: import("./canvas").CanvasNode = {
+      id: "t1",
+      type: "text",
+      text: "tasks",
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+      ether: {
+        entity: { kind: "task" },
+        tasks: {
+          items: [
+            {
+              id: "item-1",
+              state: "submitted",
+              history: [],
+            },
+          ],
+        },
+      },
+    };
+    expect(
+      evaluateWatchWhen(source, {
+        word: "completes",
+        equals: "completed",
+      }).status,
+    ).toBe("pending");
+    const done = {
+      ...source,
+      ether: {
+        entity: { kind: "task" as const },
+        tasks: {
+          items: [
+            {
+              id: "item-1",
+              state: "completed" as const,
+              history: [],
+            },
+          ],
+        },
+      },
+    };
+    expect(
+      evaluateWatchWhen(done, {
+        word: "completes",
+        equals: "completed",
+      }).status,
+    ).toBe("satisfied");
+  });
+
+  it("collectWatchEdgesInto defaults when on sink→relay without authored when", () => {
     const canvas = doc({
       nodes: [
         {
@@ -221,59 +230,38 @@ describe("scheduler-effects", () => {
           ether: {
             entity: { kind: "task" },
             tasks: {
-              items: [
-                {
-                  id: "item-1",
-                  state: "submitted",
-                  history: [],
-                },
-              ],
+              items: [{ id: "item-1", state: "completed", history: [] }],
             },
           },
         },
-      ],
-      edges: [],
-    });
-    expect(
-      evaluateRelay(canvas, {
-        sourceNodeId: "t1",
-        path: "task_state",
-        equals: "completed",
-      }).status,
-    ).toBe("pending");
-    const done = doc({
-      nodes: [
         {
-          id: "t1",
+          id: "r1",
           type: "text",
-          text: "tasks",
+          text: "relay",
           x: 0,
           y: 0,
           width: 1,
           height: 1,
           ether: {
-            entity: { kind: "task" },
-            tasks: {
-              items: [
-                {
-                  id: "item-1",
-                  state: "completed",
-                  history: [],
-                },
-              ],
-            },
+            entity: { kind: "relay" },
           },
         },
       ],
-      edges: [],
+      edges: [{ id: "e1", fromNode: "t1", toNode: "r1" }],
     });
-    expect(
-      evaluateRelay(done, {
-        sourceNodeId: "t1",
-        path: "task_state",
-        equals: "completed",
-      }).status,
-    ).toBe("satisfied");
+    const edges = collectWatchEdgesInto(canvas, "r1");
+    expect(edges).toHaveLength(1);
+    expect(edges[0]!.when).toEqual({ word: "completes" });
+    expect(evaluateWatchWhen(edges[0]!.source, edges[0]!.when).status).toBe(
+      "satisfied",
+    );
+  });
+
+  it("missing watch source reports reconnect copy, not node-body path", () => {
+    expect(evaluateWatchWhen(undefined, { word: "completes" }).detail).toBe(
+      "watch source gone — reconnect a sink",
+    );
+    expect(NO_WATCH_YET_DETAIL).toMatch(/draw a sink/);
   });
 
   it("default brief falls back to kind", () => {

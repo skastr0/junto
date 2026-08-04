@@ -6,7 +6,7 @@
  * present on a board, but not a palette product and not “the external sensor.”
  * Hermes adapters = agent fleet join; do not invent a hermes-gauge product story.
  *
- * Effects ride `edge.ether.effect` (not ports, not criteria). The kernel
+ * Effects ride `edge.ether.does` (not ports, not stops). The kernel
  * applies them on home-local fire; claim assignment stays the factory tick.
  */
 
@@ -16,7 +16,6 @@ import type {
   CanvasNode,
   EdgeEffect,
   EtherFlag,
-  EtherRelay,
   WatchWhen,
 } from "./canvas";
 import { edgeDoes } from "./canvas";
@@ -70,13 +69,31 @@ export const collectEffectEdgesFrom = (
   return out;
 };
 
-/** Watch input wires: sink → scheduler with when (or legacy slot input). */
+/** Watch input wires: sink → relay (`when` on the edge). */
 export type WatchEdgeBinding = {
   readonly edge: CanvasEdge;
   readonly when: WatchWhen;
   readonly source: CanvasNode;
   readonly scheduler: CanvasNode;
 };
+
+/**
+ * Default `when` for a sink → relay edge with no authored predicate yet.
+ * Drawing tasks → relay means “fires when a task completes.”
+ */
+export const defaultWatchWhenForSource = (
+  source: CanvasNode,
+): WatchWhen | undefined => {
+  const kind = source.ether?.entity?.kind;
+  if (kind === "task" || kind === "requests") return { word: "completes" };
+  if (kind === "page") return { word: "completes", equals: "ready" };
+  if (kind === "board") return { word: "completes", equals: "post" };
+  if (kind === "artifacts") return { word: "completes" };
+  return undefined;
+};
+
+export const NO_WATCH_YET_DETAIL =
+  "no watch yet — draw a sink in and set fires-when";
 
 export const collectWatchEdgesInto = (
   doc: CanvasDoc,
@@ -87,10 +104,15 @@ export const collectWatchEdgesInto = (
   const out: WatchEdgeBinding[] = [];
   for (const edge of doc.edges) {
     if (edge.toNode !== schedulerNodeId) continue;
-    const when = edge.ether?.when;
-    if (!when) continue;
     const source = doc.nodes.find((node) => node.id === edge.fromNode);
     if (!source) continue;
+    // Authored `when` wins; else default for sink → relay.
+    const when =
+      edge.ether?.when ??
+      (scheduler!.ether?.entity?.kind === "relay"
+        ? defaultWatchWhenForSource(source)
+        : undefined);
+    if (!when) continue;
     out.push({ edge, when, source, scheduler: scheduler! });
   }
   return out;
@@ -281,25 +303,6 @@ export const evaluateWatchWhen = (
     );
   }
   return evaluateWatchAtom(source, when);
-};
-
-/** @deprecated Prefer evaluateWatchWhen on wire `when`. Legacy EtherRelay body. */
-export const evaluateRelay = (
-  doc: CanvasDoc,
-  relay: EtherRelay,
-): RelayEvaluation => {
-  const source = doc.nodes.find((node) => node.id === relay.sourceNodeId);
-  if (relay.path === "flags") {
-    return evaluateWatchWhen(source, {
-      word: "flagged",
-      flag: (relay.equals ?? "blocker") as EtherFlag,
-    });
-  }
-  return evaluateWatchWhen(source, {
-    word: "completes",
-    ...(relay.equals ? { equals: relay.equals } : {}),
-    ...(relay.itemId ? { itemId: relay.itemId } : {}),
-  });
 };
 
 /**

@@ -42,7 +42,6 @@ function EdgeCard({ row }: { readonly row: ActorEdgeRow }) {
   const meta: string[] = [];
   if (row.boardNotify === "on") meta.push("notify");
   if (row.boardNotify === "off") meta.push("notify off");
-  if (row.relayState) meta.push("relay");
   const title = [
     `${row.direction === "out" ? "to" : "from"} ${row.peerTitle}`,
     `kind ${row.peerKind}`,
@@ -75,9 +74,7 @@ function EdgeCard({ row }: { readonly row: ActorEdgeRow }) {
           {ports}
         </span>
       ) : null}
-      {(row.boardNotify === "on" ||
-        row.boardNotify === "off" ||
-        row.relayState) && (
+      {(row.boardNotify === "on" || row.boardNotify === "off") && (
         <div className="actor-edges-glance__flags">
           {row.boardNotify === "on" ? (
             <Chip tone="amber" title="Board wake on">
@@ -87,11 +84,6 @@ function EdgeCard({ row }: { readonly row: ActorEdgeRow }) {
           {row.boardNotify === "off" ? (
             <Chip tone="steel" title="Board wake off">
               quiet
-            </Chip>
-          ) : null}
-          {row.relayState ? (
-            <Chip tone="crimson" title="Relay flag on">
-              relay
             </Chip>
           ) : null}
         </div>

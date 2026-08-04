@@ -299,8 +299,7 @@ export type EtherWatch = typeof EtherWatch.Type;
 /**
  * Cron schedule body (entity.kind cron | timer).
  * - `expression`: standard 5-field crontab (preferred).
- * - `everyMinutes`: legacy interval; still decoded; UI migrates to expression.
- * At least one must be present on write; decode admits either for history.
+ * - `everyMinutes`: older interval form; UI/writers emit expression.
  */
 export const EtherTimer = Schema.Struct({
   everyMinutes: Schema.optionalKey(Schema.Number),
@@ -308,18 +307,6 @@ export const EtherTimer = Schema.Struct({
   expression: Schema.optionalKey(Schema.String),
 });
 export type EtherTimer = typeof EtherTimer.Type;
-
-/**
- * @deprecated Wires v2: relay binding lives on watch wires (`when` on sink→relay).
- * Still decoded for history; kernel prefers edge `when` over this body.
- */
-export const EtherRelay = Schema.Struct({
-  sourceNodeId: Schema.String,
-  path: Schema.Literals(["task_state", "flags"]),
-  itemId: Schema.optionalKey(Schema.String),
-  equals: Schema.optionalKey(Schema.String),
-});
-export type EtherRelay = typeof EtherRelay.Type;
 
 /** Scheduler slot on a wire (assigned by draw direction / config). */
 export const WireSlot = Schema.Literals([
@@ -450,7 +437,6 @@ export const EtherNodeExtension = Schema.Struct({
   region: Schema.optionalKey(EtherRegion),
   watch: Schema.optionalKey(EtherWatch),
   timer: Schema.optionalKey(EtherTimer),
-  relay: Schema.optionalKey(EtherRelay),
   tasks: Schema.optionalKey(EtherTasks),
   requests: Schema.optionalKey(EtherRequests),
   artifacts: Schema.optionalKey(EtherArtifacts),
@@ -479,48 +465,34 @@ export const EtherNodeExtension = Schema.Struct({
 export type EtherNodeExtension = typeof EtherNodeExtension.Type;
 
 /**
- * Wires v2 — area storage on edges. Derived: sentence, family color, badges.
- * Never stored as authorial truth: phase, runtime, labels, arrow ends.
- *
- * Dual-read: legacy criteria/notify/effect still decode; prefer stops/wake/does.
- * kind + relayState decode-admitted then ignored by product readers.
+ * Wire areas on edges. Derived (not authorial): sentence, family color, badges.
+ * Phase mirror may stamp `kind` for offline JSON Canvas readers only.
+ * Canonical words: stops · wake · does · when · slot · ports.
  */
 export const EtherEdgeExtension = Schema.Struct({
-  // access area
   ports: Schema.optionalKey(Schema.Array(Port)),
-  // task/requests area (stops word) — preferred
   stops: Schema.optionalKey(EdgeCriteria),
-  // board area (wakes word) — preferred; absent/true = ON default for board links
+  /** Board links: absent/true = ON; explicit false = OFF. */
   wake: Schema.optionalKey(Schema.Boolean),
-  // scheduler-assigned slot
   slot: Schema.optionalKey(WireSlot),
-  // watch area (input wires)
   when: Schema.optionalKey(WatchWhen),
-  // effect area (output wires)
   does: Schema.optionalKey(EdgeEffect),
-  // --- legacy (decode-admits-history; writers emit stops/wake/does) ---
-  criteria: Schema.optionalKey(EdgeCriteria),
-  notify: Schema.optionalKey(Schema.Boolean),
-  effect: Schema.optionalKey(EdgeEffect),
+  /** Derived phase mirror for offline readers — never authoring input. */
   kind: Schema.optionalKey(EdgePhase),
-  relayState: Schema.optionalKey(Schema.Boolean),
 });
 export type EtherEdgeExtension = typeof EtherEdgeExtension.Type;
 
-/** Prefer v2 stops, else legacy criteria. */
 export const edgeStops = (
   ether: EtherEdgeExtension | undefined,
-): EdgeCriteria | undefined => ether?.stops ?? ether?.criteria;
+): EdgeCriteria | undefined => ether?.stops;
 
-/** Prefer v2 wake, else legacy notify. */
 export const edgeWake = (
   ether: EtherEdgeExtension | undefined,
-): boolean | undefined => ether?.wake ?? ether?.notify;
+): boolean | undefined => ether?.wake;
 
-/** Prefer v2 does, else legacy effect. */
 export const edgeDoes = (
   ether: EtherEdgeExtension | undefined,
-): EdgeEffect | undefined => ether?.does ?? ether?.effect;
+): EdgeEffect | undefined => ether?.does;
 
 const nodeBase = {
   id: Schema.String,
@@ -624,9 +596,86 @@ export const containsWorkProjection = (input: unknown): boolean => {
   });
 };
 
+/**
+ * Collapse old dual-keys and delete dead node bodies before strict decode.
+ * Product shape is one word per area: stops / does / wake / when. Node-body
+ * `ether.relay` is not a product surface — watch lives on the wire.
+ */
+export const scrubCanvasDocInput = (input: unknown): unknown => {
+  if (input === null || typeof input !== "object" || Array.isArray(input)) {
+    return input;
+  }
+  const raw = input as {
+    readonly nodes?: unknown;
+    readonly edges?: unknown;
+    readonly [key: string]: unknown;
+  };
+  const nodes = Array.isArray(raw.nodes)
+    ? raw.nodes.map((node) => {
+        if (node === null || typeof node !== "object" || Array.isArray(node)) {
+          return node;
+        }
+        const n = node as { readonly ether?: unknown; readonly [k: string]: unknown };
+        const etherIn = n.ether;
+        if (
+          etherIn === null ||
+          typeof etherIn !== "object" ||
+          Array.isArray(etherIn)
+        ) {
+          return node;
+        }
+        if (!Object.prototype.hasOwnProperty.call(etherIn, "relay")) {
+          return node;
+        }
+        const { relay: _drop, ...ether } = etherIn as Record<string, unknown>;
+        if (Object.keys(ether).length === 0) {
+          const { ether: _e, ...rest } = n;
+          return rest;
+        }
+        return { ...n, ether };
+      })
+    : raw.nodes;
+  const edges = Array.isArray(raw.edges)
+    ? raw.edges.map((edge) => {
+        if (edge === null || typeof edge !== "object" || Array.isArray(edge)) {
+          return edge;
+        }
+        const e = edge as { readonly ether?: unknown; readonly [k: string]: unknown };
+        const etherIn = e.ether;
+        if (
+          etherIn === null ||
+          typeof etherIn !== "object" ||
+          Array.isArray(etherIn)
+        ) {
+          return edge;
+        }
+        const eth = etherIn as Record<string, unknown>;
+        const stops = eth.stops ?? eth.criteria;
+        const does = eth.does ?? eth.effect;
+        const wake = eth.wake ?? eth.notify;
+        const next: Record<string, unknown> = {};
+        if (eth.ports !== undefined) next.ports = eth.ports;
+        if (stops !== undefined) next.stops = stops;
+        if (wake !== undefined) next.wake = wake;
+        if (eth.slot !== undefined) next.slot = eth.slot;
+        if (eth.when !== undefined) next.when = eth.when;
+        if (does !== undefined) next.does = does;
+        if (eth.kind !== undefined) next.kind = eth.kind;
+        // Drop: criteria, effect, notify, relayState, and any other dual keys.
+        if (Object.keys(next).length === 0) {
+          const { ether: _e, ...rest } = e;
+          return rest;
+        }
+        return { ...e, ether: next };
+      })
+    : raw.edges;
+  return { ...raw, nodes, edges };
+};
+
 export const decodeCanvasDoc = (
   input: unknown,
-): ReturnType<typeof decodeCanvasDocStrict> => decodeCanvasDocStrict(input);
+): ReturnType<typeof decodeCanvasDocStrict> =>
+  decodeCanvasDocStrict(scrubCanvasDocInput(input));
 
 const NODE_KEY_ORDER = [
   "id",
@@ -720,7 +769,6 @@ export const applyPhaseMirror = (
       ether: {
         ...ether,
         kind: phase,
-        criteria: ether.criteria ?? ether.stops,
       },
     };
     if (phase === "blocks") return { ...base, color: "1" as CanvasColor };

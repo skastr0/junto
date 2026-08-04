@@ -55,7 +55,7 @@ const tasksEdge = (id: string, from: string, to: string): CanvasEdge => ({
   id,
   fromNode: from,
   toNode: to,
-  ether: { criteria: { mode: "tasks" } },
+  ether: { stops: { mode: "tasks" } },
 });
 
 const soft = (id: string, from: string, to: string): CanvasEdge => ({
@@ -110,28 +110,20 @@ describe("actorEdgeRows", () => {
     expect(noteRow.ports).toEqual([]);
   });
 
-  it("honors explicit board notify off and relay state", () => {
-    const other = agent("peer", "Peer");
+  it("honors explicit board wake off", () => {
     const doc = docOf(
-      [agent("worker", "Grok"), board("board"), other],
+      [agent("worker", "Grok"), board("board")],
       [
         {
           id: "e-board",
           fromNode: "worker",
           toNode: "board",
-          ether: { notify: false },
-        },
-        {
-          id: "e-relay",
-          fromNode: "worker",
-          toNode: "peer",
-          ether: { relayState: true },
+          ether: { wake: false },
         },
       ],
     );
     const rows = actorEdgeRows(doc, "worker");
     expect(rows.find((r) => r.edgeId === "e-board")?.boardNotify).toBe("off");
-    expect(rows.find((r) => r.edgeId === "e-relay")?.relayState).toBe(true);
   });
 
   it("overlays live phase when provided", () => {

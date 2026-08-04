@@ -91,8 +91,7 @@ const gaugeAndTask = (): CanvasDoc =>
         id: "e1",
         fromNode: "g1",
         toNode: "t1",
-        ether: {
-          effect: { mode: "enqueue_task", brief: "from gauge", reason: "scheduler" },
+        ether: { does: { mode: "enqueue_task", brief: "from gauge", reason: "scheduler" },
         },
       },
     ],
