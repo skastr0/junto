@@ -89,8 +89,8 @@ describe("nodeBlockPresentation", () => {
       graphBlocked: false,
       herdrAgentStatus: "idle",
     });
-    // Flag remains on the rail; shell is quiet until live herdr is blocked.
-    expect(p.flags).toEqual(["blocker"]);
+    // Non-seat: blocker is not rail language; shell quiet until live herdr blocks.
+    expect(p.flags).toEqual([]);
     expect(p.isBlocker).toBe(false);
     expect(p.shellBlocked).toBe(false);
     expect(p.liveHerdrBlocked).toBe(false);
@@ -112,23 +112,23 @@ describe("nodeBlockPresentation", () => {
     expect(p.shellBlocked).toBe(true);
   });
 
-  it("relay with flag:blocker keeps the flag but no seat-stoppage dress", () => {
+  it("relay with flag:blocker hides rail chip and seat dress", () => {
     const p = nodeBlockPresentation({
       node: relayNode,
       graphBlocked: false,
     });
-    expect(p.flags).toEqual(["blocker"]);
+    expect(p.flags).toEqual([]);
     expect(p.isBlocker).toBe(false);
     expect(p.shellBlocked).toBe(false);
   });
 
-  it("graph blocked still elevates non-herdr nodes", () => {
+  it("graph blocked never elevates non-seat nodes", () => {
     const p = nodeBlockPresentation({
       node: noteNode,
       graphBlocked: true,
       herdrAgentStatus: "blocked",
     });
-    expect(p.shellBlocked).toBe(true);
+    expect(p.shellBlocked).toBe(false);
     expect(p.isBlocker).toBe(false);
     expect(p.liveHerdrBlocked).toBe(false);
   });

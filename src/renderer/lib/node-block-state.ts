@@ -2,10 +2,10 @@
  * Node shell blocked presentation.
  *
  * Factory law: only **actor** seats join the stoppage set. Schedulers/sinks/
- * geography never wear seat-stoppage chrome (pulse + corner spinner) even if
- * someone put flag:blocker on the card — that flag still appears on the rail
- * so it can be cleared, but the shell does not pretend the node is a blocked
- * seat.
+ * geography never wear seat-stoppage chrome (pulse, spinner, crimson shell)
+ * and never show a **blocker** flag rail chip — stoppage is seat-only.
+ * A stray flag:blocker on a non-seat is ignored for chrome (clear via toolbar
+ * if the flag still exists in the document).
  *
  * Herdr agent_status is live runtime: when the pane is blocked, the card
  * wears the same chrome as a blocked seat without writing ether.flags.
@@ -30,7 +30,10 @@ export type NodeBlockPresentation = {
   readonly shellBlocked: boolean;
   /** Live herdr only — not a document flag. */
   readonly liveHerdrBlocked: boolean;
-  /** Document flags only (rail + toolbar toggle). */
+  /**
+   * Flags shown on the rail. Non-seats never surface `blocker` here —
+   * that chip is seat stoppage language only.
+   */
   readonly flags: ReadonlyArray<EtherFlag>;
 };
 
@@ -39,17 +42,21 @@ export const nodeBlockPresentation = (input: {
   readonly graphBlocked: boolean;
   readonly herdrAgentStatus?: string | null;
 }): NodeBlockPresentation => {
-  const flags = input.node.ether?.flags ?? [];
-  const flagBlocker = flags.includes("blocker");
+  const rawFlags = input.node.ether?.flags ?? [];
+  const seat = isBlockableNode(input.node as CanvasNode);
+  const flagBlocker = rawFlags.includes("blocker");
   const live = liveHerdrBlocked(input.node, input.herdrAgentStatus);
-  // Only seats that can actually stop (actors) get flag→chrome. Schedulers
-  // with a stray flag:blocker keep the flag chip, not seat stoppage dress.
-  const flagDrivesSeatChrome =
-    flagBlocker && isBlockableNode(input.node as CanvasNode);
+  // Flag drives seat chrome only on blockable actors.
+  const flagDrivesSeatChrome = flagBlocker && seat;
   const isBlocker = flagDrivesSeatChrome || live;
+  // Graph blocked set is seats-only by factory law; never dress non-seats.
+  const shellBlocked = (seat && input.graphBlocked) || isBlocker;
+  const flags = seat
+    ? rawFlags
+    : rawFlags.filter((flag) => flag !== "blocker");
   return {
     isBlocker,
-    shellBlocked: input.graphBlocked || isBlocker,
+    shellBlocked,
     liveHerdrBlocked: live,
     flags,
   };

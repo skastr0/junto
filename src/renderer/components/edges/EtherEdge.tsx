@@ -240,12 +240,10 @@ export function EtherEdge({
     routed?.detoured ? "vellum-edge--routed" : "",
   ].filter(Boolean).join(" ");
 
-  // Word halo: watch/effect only (access stays hairline even with stops).
+  // Word halo: every worded family (access with stops/wakes, watch, effect).
+  // Trigger stays bare — isWorded is false. Disabled unmounts the bed.
   const worded = presentation?.worded ?? false;
-  const showWordBed =
-    !disabled &&
-    worded &&
-    (family === "watch" || family === "effect");
+  const showWordBed = !disabled && worded;
   const strokeDasharray = presentation?.strokeDasharray;
 
   return (
