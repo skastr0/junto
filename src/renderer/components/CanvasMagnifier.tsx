@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { createPortal } from "react-dom";
 import { useOnViewportChange, useReactFlow } from "@xyflow/react";
 import type { MemberSeverity } from "@shared/region-rollup";
+import { isBlockableNode } from "@shared/execution-graph";
 import type { FlowEdge, FlowNode } from "../lib/convert";
 import { nodeTitle, nodeTypeLabel } from "../lib/presentation";
 import { signalMark, identityHue } from "../lib/signal-mark";
@@ -45,10 +46,15 @@ const validSeverity = (value: string | undefined): value is MemberSeverity =>
   || value === "idle";
 
 const severityOf = (node: FlowNode): MemberSeverity => {
-  if (node.data.blocked || node.data.node.ether?.flags?.includes("blocker")) return "blocked";
+  const canvasNode = node.data.node;
+  const seatStoppage =
+    node.data.blocked ||
+    (isBlockableNode(canvasNode) &&
+      (canvasNode.ether?.flags?.includes("blocker") ?? false));
+  if (seatStoppage) return "blocked";
   const live = state$.regionSeverityByNodeId.peek()[node.id];
   if (validSeverity(live)) return live;
-  const flags = node.data.node.ether?.flags ?? [];
+  const flags = canvasNode.ether?.flags ?? [];
   if (flags.includes("attention")) return "attention";
   if (flags.includes("parked")) return "parked";
   return "idle";
