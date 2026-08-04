@@ -1,11 +1,11 @@
 import { memo, useEffect, useState } from "react";
-import { ArrowLeft, ArrowRight, Trash2, X } from "lucide-react";
+import { ArrowRight, Trash2, X } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
 import type { CanvasNode } from "@shared/canvas";
 import { isHarnessId } from "@shared/managed-terminal-templates";
 import { deriveExecutionGraph } from "@shared/execution-graph";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
-import { deleteEdges, editEdgeLabel, setEdgeColor, setEdgeCriteria, toggleEdgeArrow } from "../lib/edge-mutations";
+import { deleteEdges, setEdgeCriteria } from "../lib/edge-mutations";
 import { EdgeCapabilitySection, EdgeCriteriaEditor, EdgePortsAttenuator, NodeCapabilityInventory, NodeFieldEditors, NodePlacementSection } from "./InspectorFields";
 import { clearSelection, state$ } from "../lib/state";
 import { kernel$ } from "../lib/kernel-view";
@@ -165,8 +165,6 @@ function EdgeInspector({ onClose }: { readonly onClose: () => void }) {
   const edgeId = use$(state$.selectedEdgeId);
   const execution = use$(kernel$.execution);
   const edge = doc.edges.find((candidate) => candidate.id === edgeId);
-  const [labelDraft, setLabelDraft] = useState(edge?.label ?? "");
-  useEffect(() => setLabelDraft(edge?.label ?? ""), [edge?.label, edgeId]);
   if (!edge) return null;
   const source = doc.nodes.find((node) => node.id === edge.fromNode);
   const target = doc.nodes.find((node) => node.id === edge.toNode);
@@ -181,16 +179,20 @@ function EdgeInspector({ onClose }: { readonly onClose: () => void }) {
     execution?.phaseByEdgeId?.[edge.id] ?? cold?.phaseByEdgeId.get(edge.id) ?? "relates";
   const liveDetail =
     execution?.detailByEdgeId?.[edge.id] ?? cold?.detailByEdgeId.get(edge.id) ?? "";
-  const criteria = edge.ether?.criteria;
-  const commitLabel = () => {
-    if (labelDraft !== (edge.label ?? "")) editEdgeLabel(edge.id, labelDraft);
-  };
-  const eyebrow = criteria
-    ? `live / ${livePhase} - ${criteria.mode}`
-    : `soft / ${livePhase}`;
+  const criteria = edge.ether?.stops ?? edge.ether?.criteria;
+  const eyebrow =
+    edge.ether?.slot === "input"
+      ? "watch"
+      : edge.ether?.slot === "output" || edge.ether?.slot === "recipient"
+        ? "effect"
+        : edge.ether?.slot === "trigger"
+          ? "trigger"
+          : criteria
+            ? "access"
+            : "access";
   return (
     <aside className="inspector-panel">
-      <InspectorHeader eyebrow={eyebrow} title="execution edge" onClose={onClose} />
+      <InspectorHeader eyebrow={eyebrow} title="connection" onClose={onClose} />
       <div className="inspector-body">
         <div className="inspector-edge">
           <span>{source ? nodeTitle(source) : edge.fromNode}</span>
@@ -205,62 +207,15 @@ function EdgeInspector({ onClose }: { readonly onClose: () => void }) {
           livePhase={livePhase}
           liveDetail={liveDetail}
         />
-        <label className="inspector-edge-label">
-          <span>optional label</span>
-          <input
-            aria-label="Edit edge label"
-            value={labelDraft}
-            placeholder={livePhase}
-            onChange={(event) => setLabelDraft(event.target.value)}
-            onBlur={commitLabel}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                commitLabel();
-                event.currentTarget.blur();
-              }
-              if (event.key === "Escape") {
-                setLabelDraft(edge.label ?? "");
-                event.currentTarget.blur();
-              }
-            }}
-          />
-        </label>
-        <AccentControls value={edge.color} onChange={(color) => setEdgeColor(edge.id, color)} />
-        <div className="inspector-edge-ends">
-          <span>arrow ends</span>
-          <div>
-            <button
-              type="button"
-              aria-label="Toggle source arrow"
-              aria-pressed={edge.fromEnd === "arrow"}
-              className={edge.fromEnd === "arrow" ? "is-active" : ""}
-              onClick={() => toggleEdgeArrow(edge.id, "from")}
-            >
-              <ArrowLeft size={13} />
-              source
-            </button>
-            <button
-              type="button"
-              aria-label="Toggle target arrow"
-              aria-pressed={edge.toEnd === "arrow"}
-              className={edge.toEnd === "arrow" ? "is-active" : ""}
-              onClick={() => toggleEdgeArrow(edge.id, "to")}
-            >
-              <ArrowRight size={13} />
-              target
-            </button>
-          </div>
-        </div>
         <div className="inspector-actions">
           {criteria ? (
             <button onClick={() => setEdgeCriteria(edge.id, undefined)}>
-              clear criteria
+              clear stops
             </button>
           ) : null}
           <button className="inspector-action--danger" onClick={() => deleteEdges([edge.id])}>
             <Trash2 size={13} />
-            delete edge
+            delete
           </button>
         </div>
       </div>

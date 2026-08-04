@@ -7,6 +7,24 @@ import { edgeSparks$ } from "../../lib/edge-sparks";
 import { state$ } from "../../lib/state";
 import { accentColor, EDGE_COLOR, HUE } from "../../lib/theme";
 import { nodeBounds, routeWire, type WireRect } from "../../lib/wire-route";
+import type { WireFamily } from "@shared/physics";
+import {
+  familyColorToken,
+  familyFromSlot,
+  resolveSpec,
+  roleOf,
+  wireRolePair,
+} from "@shared/physics";
+
+const FAMILY_HUE: Record<ReturnType<typeof familyColorToken>, string> = {
+  steel: HUE.steel,
+  cyan: HUE.cyan,
+  violet: HUE.violet,
+  amber: HUE.amber,
+};
+
+const familyHue = (family: WireFamily | undefined): string | undefined =>
+  family ? FAMILY_HUE[familyColorToken(family)] : undefined;
 
 /** Minimal node fields needed for obstacle bounds (xyflow InternalNode shape). */
 type RouteNode = {
@@ -96,15 +114,33 @@ export function EtherEdge({
     data?.edge.color && data.edge.color !== "1"
       ? accentColor(data.edge.color)
       : undefined;
-  // Pair kind lives in construction (rail, packets, provenance dots, ticks),
-  // never in an always-hot hue. Color is reserved for live phase or an
-  // explicit operator-authored canvas color — except agent-msg collab links,
-  // which read as amber so operator can spot collaborating agents at a glance.
+  // Family color (access/watch/trigger/effect) when slot/roles known; blocks still crimson.
+  const slot = data?.edge.ether?.slot;
+  const doc = state$.doc.peek();
+  const fromNode = doc.nodes.find((n) => n.id === source);
+  const toNode = doc.nodes.find((n) => n.id === target);
+  const fromRole = roleOf(
+    resolveSpec({
+      isGroup: fromNode?.type === "group",
+      kind: fromNode?.ether?.entity?.kind,
+    }),
+  );
+  const toRole = roleOf(
+    resolveSpec({
+      isGroup: toNode?.type === "group",
+      kind: toNode?.ether?.entity?.kind,
+    }),
+  );
+  const family =
+    familyFromSlot(slot, wireRolePair(fromRole, toRole)) ??
+    (fromRole === "actor" || toRole === "actor" ? ("access" as const) : undefined);
+  const familyColor = familyHue(family);
   const color =
-    authoredColor ??
-    (visualRole === "agent-msg" && phase === "relates"
-      ? HUE.amber
-      : EDGE_COLOR[phase]);
+    phase === "blocks"
+      ? EDGE_COLOR.blocks
+      : (authoredColor ??
+        familyColor ??
+        (visualRole === "agent-msg" ? HUE.amber : EDGE_COLOR.relates));
 
   // Selection impact mode — only "in" is stamped (CSS dims the rest).
   const impactIn = data?.impact === "in";

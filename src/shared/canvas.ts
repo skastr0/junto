@@ -677,9 +677,8 @@ export const applyMirrorLaw = (doc: CanvasDoc): CanvasDoc => ({
   }),
 });
 
-// Project derived phase onto criteria edges only. Soft relates (no criteria)
-// are never stamped with kind/label — free optional labels stay free.
-// Blocks demotion clears mirror color "1".
+// Project derived phase onto stops edges only. Never stamp labels (product:
+// no phase words on the canvas). Blocks demotion clears mirror color "1".
 export const applyPhaseMirror = (
   doc: CanvasDoc,
   phaseByEdgeId: ReadonlyMap<string, EdgePhase>,
@@ -692,7 +691,6 @@ export const applyPhaseMirror = (
     if (phase === undefined) return edge;
     const base = {
       ...edge,
-      label: phase,
       ether: {
         ...ether,
         kind: phase,

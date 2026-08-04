@@ -832,9 +832,7 @@ export function EdgeCriteriaEditor({
         ? "effect"
         : slot === "trigger"
           ? "trigger"
-          : fromRole === "actor" || toRole === "actor"
-            ? "access"
-            : "wire";
+          : "access";
 
   type AuthoringMode = "none" | "tasks";
   const mode: AuthoringMode = criteria?.mode === "tasks" ? "tasks" : "none";
@@ -843,10 +841,10 @@ export function EdgeCriteriaEditor({
   return (
     <>
       <div className="inspector-section" style={{ marginBottom: 4 }}>
-        <div className="inspector-section__label">wire</div>
+        <div className="inspector-section__label">kind</div>
         <div className="text-[12px] font-semibold" style={{ color: INK }}>
           {familyHint}
-          {slot ? ` - ${slot}` : ""}
+          {slot ? ` / ${slot}` : ""}
         </div>
       </div>
       <EdgeWhenEditor edgeId={edgeId} toNode={toNode} />
@@ -861,7 +859,7 @@ export function EdgeCriteriaEditor({
               aria-label="Stop condition"
               value={mode}
               options={[
-                { value: "none", label: "never from this wire" },
+                { value: "none", label: "never" },
                 { value: "tasks", label: "needs input" },
               ]}
               onChange={(value) => {
@@ -1372,7 +1370,7 @@ export function RelayEditor({ node }: { readonly node: CanvasNode }) {
   const effectLine =
     outbound.length === 0
       ? "Draw from this relay to a task sink to enqueue on fire"
-      : `${outbound.length} effect wire${outbound.length === 1 ? "" : "s"}`;
+      : `${outbound.length} effect link${outbound.length === 1 ? "" : "s"}`;
 
   return (
     <div className="inspector-section">
