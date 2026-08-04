@@ -222,6 +222,14 @@ export function EtherEdge({
     routed?.detoured ? "vellum-edge--routed" : "",
   ].filter(Boolean).join(" ");
 
+  // Worded wire: carries a word-bearing config area. The halo extends the
+  // task-flow rail-bed treatment to every worded wire (coaxial, merges in
+  // bundles); task-flow already draws its bed, so it is excluded here.
+  const ether = data?.edge.ether;
+  const worded = Boolean(
+    ether?.stops ?? ether?.criteria ?? ether?.when ?? ether?.does ?? ether?.effect,
+  ) || ether?.wake !== undefined || ether?.notify !== undefined;
+
   return (
     <>
       {visualRole === "task-flow" ? (
@@ -231,6 +239,14 @@ export function EtherEdge({
           fill="none"
           stroke={color}
           strokeWidth={5.4}
+        />
+      ) : worded ? (
+        <path
+          d={path}
+          className="vellum-edge__word-bed"
+          fill="none"
+          stroke={color}
+          strokeWidth={4.6}
         />
       ) : null}
       <BaseEdge

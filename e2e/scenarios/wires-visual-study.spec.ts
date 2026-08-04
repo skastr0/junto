@@ -105,7 +105,7 @@ const edges: CanvasEdge[] = [
     ether: { stops: { mode: "tasks" as const }, criteria: { mode: "tasks" as const } },
   })),
   // access·wakes + access·messages
-  { id: "wake-claude", fromNode: "claude", toNode: "board", fromSide: "left", toSide: "top" },
+  { id: "wake-claude", fromNode: "claude", toNode: "board", fromSide: "left", toSide: "top", ether: { wake: true } },
   { id: "msg-pair", fromNode: "claude", toNode: "codex", fromSide: "right", toSide: "right" },
   // watch wires into relay
   {

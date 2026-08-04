@@ -81,6 +81,14 @@
   stroke-linejoin: round;
   pointer-events: none;
 }
+/* Worded-wire halo: same treatment as the rail-bed, softer — the one always-on
+   word bit. Coaxial with the hairline so bundles merge into a corridor glow. */
+.vellum-edge__word-bed {
+  opacity: .12;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
 path.vellum-edge {
   transition:
     stroke 420ms cubic-bezier(.22,.61,.36,1),
