@@ -159,6 +159,25 @@ describe("evaluateEdge — authorial modes", () => {
 
     const empty = text("t1", "Checklist", { entity: { kind: "task" }, tasks: { items: [] } });
     expect(evaluateEdge(edge, empty, worker, context).phase).toBe("relates");
+
+    // Reverse draw direction agent→task still blocks the actor seat.
+    const reverse = {
+      id: "e-rev",
+      fromNode: "b",
+      toNode: "t1",
+      ether: { stops: { mode: "tasks" as const } },
+    };
+    expect(evaluateEdge(reverse, worker, heldHere, context).phase).toBe("blocks");
+    expect(evaluateEdge(reverse, worker, heldHere, context).generates).toBe(true);
+    const revGraph = deriveExecutionGraph(
+      {
+        nodes: [worker, heldHere],
+        edges: [reverse],
+      },
+      context,
+    );
+    expect(revGraph.blocked.has("b")).toBe(true);
+    expect(revGraph.blocked.has("t1")).toBe(false);
   });
 
   it("requests: pending blocks its raiser only; other and resolved relate", () => {
