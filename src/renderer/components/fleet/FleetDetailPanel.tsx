@@ -70,7 +70,7 @@ function reachabilityLine(probe?: FleetProbeState): {
     case "reachable":
       if (probe.protocol?.compatibility === "update-required") {
         return {
-          text: "reachable - update required",
+          text: "Reachable, update required",
           detail: probe.detail,
           color: HUE.amber,
         };
@@ -703,7 +703,7 @@ export function FleetDetailPanel({
         </div>
         <IconButton
           aria-label="Close fleet detail"
-          title="close detail"
+          title="Close"
           {...activateOnPointerUp(onClose)}
         >
           <X size={13} />

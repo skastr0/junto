@@ -150,7 +150,7 @@ export function TaskEnqueueSurface({
       <IconButton
         size="md"
         aria-label={pinned ? "Unpin task enqueue" : "Pin task enqueue"}
-        title={pinned ? "move to focus" : "pin to side dock"}
+        title={pinned ? "Move to focus" : "Pin to side dock"}
         onClick={() => {
           if (pinned) unpinWorkbenchSurface(surface.id);
           else pinWorkbenchSurface(surface.id);
@@ -162,7 +162,7 @@ export function TaskEnqueueSurface({
         size="md"
         tone="danger"
         aria-label="Close task enqueue"
-        title="close enqueue surface"
+        title="Close"
         onClick={() => closeWorkbenchSurface(surface.id)}
         disabled={pending}
       >

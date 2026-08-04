@@ -109,7 +109,7 @@ export function herdrActivity(input: {
     return {
       mode: "pulse",
       tone: "green",
-      label: "done — waiting for look",
+      label: "Done — waiting for review",
     };
   }
   if (input.connState === "degraded") {

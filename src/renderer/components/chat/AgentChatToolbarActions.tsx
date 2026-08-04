@@ -13,7 +13,7 @@ export function AgentChatToolbarActions({ node }: { readonly node: CanvasNode })
     <IconButton
       className="nodrag nopan"
       aria-label="Open ACP chat"
-      title="open ACP chat"
+      title="Open chat"
       onPointerDown={(event) => {
         event.preventDefault();
         event.stopPropagation();

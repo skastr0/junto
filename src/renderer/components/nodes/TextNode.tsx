@@ -65,7 +65,7 @@ function CronScheduleToolbarAction({ onOpen }: { readonly onOpen: () => void }) 
     <IconButton
       className="nodrag nopan"
       aria-label="Schedule settings"
-      title="schedule settings"
+      title="Schedule settings"
       data-testid="node-toolbar-cron-settings"
       onPointerDown={(event) => {
         event.preventDefault();
@@ -460,7 +460,7 @@ function NoteEditModal({
             <IconButton
               size="sm"
               aria-label="Close without saving"
-              title="discard"
+              title="Discard"
               onClick={onDiscard}
             >
               <X size={13} />

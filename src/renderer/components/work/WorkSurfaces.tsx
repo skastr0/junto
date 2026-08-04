@@ -232,8 +232,8 @@ export function TasksCard({
               type="button"
               className="nodrag nowheel factory-glance__enqueue"
               data-testid="tasks-card-enqueue"
-              title="Enqueue task"
-              aria-label="Enqueue task"
+              title="Add task"
+              aria-label="Add task"
               onClick={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
@@ -748,7 +748,7 @@ export function BoardDetail({
               <div className="board-conversation__empty">
                 <MessageSquareText size={24} aria-hidden />
                 <strong>Select a topic</strong>
-                <span>Choose a topic from the list to read its conversation.</span>
+                <span>Pick a topic to read it.</span>
               </div>
             )}
           </main>

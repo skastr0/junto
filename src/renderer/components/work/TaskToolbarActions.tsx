@@ -8,8 +8,8 @@ export function TaskToolbarActions({ node }: { readonly node: CanvasNode }) {
   return (
     <IconButton
       className="nodrag nopan"
-      aria-label="Enqueue task"
-      title="Enqueue task"
+      aria-label="Add task"
+      title="Add task"
       data-testid="node-toolbar-task-enqueue"
       onPointerDown={(event) => {
         event.preventDefault();

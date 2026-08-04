@@ -27,7 +27,7 @@ function DigestHeader({ path, copied, onCopy, onClose }: { readonly path: string
       <div className="mt-0.5 truncate text-[10px]" style={{ color: "#8a8378" }} title={path}>{path}</div>
     </div>
     <div className="flex items-center gap-1">
-      <button className="digest-copy-button inline-flex items-center gap-1 rounded px-2 py-1 transition hover:bg-white/10" style={{ color: copied ? HUE.cyan : "#8a8378" }} aria-label={copied ? "Digest copied" : "Copy digest"} title={copied ? "digest copied" : "copy digest"} onClick={onCopy}>
+      <button className="digest-copy-button inline-flex items-center gap-1 rounded px-2 py-1 transition hover:bg-white/10" style={{ color: copied ? HUE.cyan : "#8a8378" }} aria-label={copied ? "Digest copied" : "Copy digest"} title={copied ? "Copied" : "Copy digest"} onClick={onCopy}>
         {copied ? <Check size={13} /> : <Copy size={13} />}<span>{copied ? "copied" : "copy"}</span>
       </button>
       <button className="grid size-7 place-items-center rounded transition hover:bg-white/10" style={{ color: "#8a8378" }} aria-label="Close digest" onClick={onClose}><X size={15} /></button>

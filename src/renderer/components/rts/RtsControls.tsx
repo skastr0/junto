@@ -203,7 +203,7 @@ export function EdgeCommandCard({ edgeId }: { readonly edgeId: string }) {
         <div className="rts-cmd-keys rts-cmd-keys--col" role="toolbar" aria-label="Relation actions">
           <KindKey
             label="Toggle arrow at source"
-            title="arrowhead on the from end"
+            title="Arrowhead at the source"
             active={edge.fromEnd === "arrow"}
             onClick={() => toggleEdgeArrow(edgeId, "from")}
           >
@@ -211,7 +211,7 @@ export function EdgeCommandCard({ edgeId }: { readonly edgeId: string }) {
           </KindKey>
           <KindKey
             label="Toggle arrow at target"
-            title="arrowhead on the to end"
+            title="Arrowhead at the target"
             active={edge.toEnd === "arrow"}
             onClick={() => toggleEdgeArrow(edgeId, "to")}
           >
@@ -284,7 +284,7 @@ function HerdrKindKeys({ node }: { readonly node: CanvasNode }) {
       {canMarkSeen ? (
         <KindKey
           label="Mark seen"
-          title="mark pane seen (done → idle)"
+          title="Mark seen"
           style={{ color: HUE.amber }}
           onClick={() => {
             markHerdrPaneSeenLocal(node.id, herdr);
@@ -384,7 +384,7 @@ function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
     <>
       <KindKey
         label="Open task board"
-        title="open the full task board"
+        title="Open the task board"
         onClick={() => openWorkDetail(node.id)}
       >
         <ListChecks size={ICON} />
@@ -405,7 +405,7 @@ function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
       </KindKey>
       <KindKey
         label={homeOpen ? "Close queue home" : "Queue home"}
-        title="host for new tasks"
+        title="Host for new tasks"
         active={homeOpen}
         onClick={() => setHomeOpen((open) => !open)}
       >
@@ -430,7 +430,7 @@ export function KindActions({ node }: { readonly node: CanvasNode }) {
       return (
         <KindKey
           label="Open chat"
-          title="open the agent chat surface"
+          title="Open chat"
           onClick={() => openAgentChatSurface(node)}
         >
           <MessageSquareText size={ICON} />
@@ -457,7 +457,7 @@ export function KindActions({ node }: { readonly node: CanvasNode }) {
         <>
           <KindKey
             label="Open request inbox"
-            title="open the request inbox"
+            title="Open requests"
             onClick={() => openWorkDetail(node.id)}
           >
             <Inbox size={ICON} />
@@ -476,7 +476,7 @@ export function KindActions({ node }: { readonly node: CanvasNode }) {
         <>
           <KindKey
             label="Open artifacts"
-            title="open the artifact library"
+            title="Open artifacts"
             onClick={() => openWorkDetail(node.id)}
           >
             <Package size={ICON} />
@@ -495,14 +495,14 @@ export function KindActions({ node }: { readonly node: CanvasNode }) {
         <>
           <KindKey
             label="Open board"
-            title="open the board"
+            title="Open the board"
             onClick={() => openWorkDetail(node.id)}
           >
             <MessageSquareText size={ICON} />
           </KindKey>
           <KindKey
             label="Rename"
-            title="rename this board"
+            title="Rename"
             onClick={() => state$.editNodeId.set(node.id)}
           >
             <Pencil size={ICON} />

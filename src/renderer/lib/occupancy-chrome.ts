@@ -12,7 +12,7 @@
  * the packet), "stalled" (the clock). Each carries its own word below; a
  * table test in tests/occupancy-chrome.test.ts asserts they stay distinct.
  *
- * I20: `gone` reads "host unreachable — last intent stands" — never
+ * I20: `gone` reads "Machine unreachable" — never
  * stopped/revoked/compromised. There is no compromise inference from
  * unreachability.
  */
@@ -54,7 +54,7 @@ const SPEC: Readonly<Record<OccupancySpectrumName, OccupancyChromeSpec>> = {
   },
   parked: { state: "parked", attr: "parked", label: "parked" },
   // I20: honest unreachability, never a compromise/revocation claim.
-  gone: { state: "gone", attr: "gone", label: "host unreachable — last intent stands" },
+  gone: { state: "gone", attr: "gone", label: "Machine unreachable" },
 };
 
 /** Spectrum state -> card chrome spec. Total over OccupancySpectrum.literals. */

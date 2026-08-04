@@ -893,7 +893,7 @@ function CanvasFieldTools() {
         type="button"
         className="rts-field-tools__fit"
         aria-label="Fit all nodes"
-        title="fit all nodes"
+        title="Fit all nodes"
         onClick={() => void rf.fitView({ padding: 0.18, duration: 320, maxZoom: 1.35 })}
       >
         <Expand size={12} />fit all
@@ -1012,7 +1012,7 @@ function FieldControls() {
   const rf = useReactFlow<FlowNode, FlowEdge>();
   return (
     <Controls showFitView={false} showInteractive={false} aria-label="Canvas controls">
-      <ControlButton aria-label="Fit readable view" title="fit readable view" onClick={() => fitReadableField(rf)}>
+      <ControlButton aria-label="Fit readable view" title="Fit readable view" onClick={() => fitReadableField(rf)}>
         <ScanLine size={14} />
       </ControlButton>
     </Controls>

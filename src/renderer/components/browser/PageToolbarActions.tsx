@@ -78,7 +78,7 @@ export function PageToolbarActions({ node }: { readonly node: CanvasNode }) {
       <IconButton
         className="nodrag nopan"
         aria-label="Open page"
-        title="open page"
+        title="Open page"
         data-testid="node-toolbar-page-open"
         onPointerDown={(event) => {
           event.preventDefault();
@@ -91,7 +91,7 @@ export function PageToolbarActions({ node }: { readonly node: CanvasNode }) {
       <IconButton
         className="nodrag nopan"
         aria-label="Open page pinned"
-        title="open page pinned"
+        title="Open page pinned"
         data-testid="node-toolbar-page-pin"
         onPointerDown={(event) => {
           event.preventDefault();
@@ -104,7 +104,7 @@ export function PageToolbarActions({ node }: { readonly node: CanvasNode }) {
       <IconButton
         className="nodrag nopan"
         aria-label={armed ? "Confirm stop page" : "Stop page"}
-        title={armed ? "confirm stop page" : "stop page"}
+        title={armed ? "Confirm stop page" : "Stop page"}
         data-testid="node-toolbar-page-stop"
         style={armed ? { color: HUE.crimson } : undefined}
         onPointerDown={(event) => {

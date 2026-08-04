@@ -63,7 +63,7 @@ export function TerminalToolbarActions({ node }: { readonly node: CanvasNode }) 
       <IconButton
         className="nodrag nopan"
         aria-label="Open terminal"
-        title="open terminal"
+        title="Open terminal"
         onPointerDown={(event) => {
           event.preventDefault();
           event.stopPropagation();
@@ -75,7 +75,7 @@ export function TerminalToolbarActions({ node }: { readonly node: CanvasNode }) 
       <IconButton
         className="nodrag nopan"
         aria-label="Open terminal pinned"
-        title="open terminal pinned"
+        title="Open terminal pinned"
         onPointerDown={(event) => {
           event.preventDefault();
           event.stopPropagation();

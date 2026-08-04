@@ -36,7 +36,7 @@ export function ChatSurface({
       <IconButton
         size="md"
         aria-label={pinned ? "Unpin ACP chat" : "Pin ACP chat"}
-        title={pinned ? "move to focus" : "pin to side dock"}
+        title={pinned ? "Move to focus" : "Pin to side dock"}
         onClick={() => {
           if (pinned) unpinWorkbenchSurface(surface.id);
           else pinWorkbenchSurface(surface.id);
@@ -48,7 +48,7 @@ export function ChatSurface({
         size="md"
         tone="danger"
         aria-label="Close ACP chat"
-        title="close chat surface"
+        title="Close chat"
         onClick={() => closeWorkbenchSurface(surface.id)}
       >
         <X size={14} />

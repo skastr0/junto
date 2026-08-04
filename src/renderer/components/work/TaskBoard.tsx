@@ -1163,7 +1163,7 @@ export function TaskCreateDialog({
               <label className="task-create-dialog__grow task-create-dialog__grow--secondary">
                 <FieldCaption
                   label="Finish criteria"
-                  help="Soft north-star for the agent. Hard gates (artifacts, git) are set on the right."
+                  help="What finished looks like, in your words."
                 />
                 <Textarea
                   value={criteriaText}
@@ -1289,7 +1289,7 @@ export function TaskCreateDialog({
                 <div className="task-create-dialog__media-heading">
                   <FieldCaption
                     label="Media"
-                    help="Paste, drop, or attach images. Stored as first-class raw parts and projected to remote claims (not host paths)."
+                    help="Paste, drop, or attach images. They travel with the task."
                   />
                 </div>
                 {media.length > 0 ? (
@@ -1376,7 +1376,7 @@ export function TaskCreateDialog({
                 : isProposal
                   ? "Create proposal"
                   : stayOpen
-                    ? "Enqueue"
+                    ? "Add task"
                     : "Create task"}
             </Button>
           </footer>
@@ -1386,7 +1386,7 @@ export function TaskCreateDialog({
   const header = (
     <OverlayHeader
       eyebrow={isProposal ? "new proposal" : stayOpen ? "quick enqueue" : "new task"}
-      title={stayOpen ? "Enqueue to queue" : "Define the work"}
+      title={stayOpen ? "Add to the queue" : "Define the work"}
       actions={
         <>
           {headerActions}
@@ -1979,10 +1979,10 @@ function TaskDetailPanel({
               <h3>{attentionRequired ? "Other status changes" : "Status"}</h3>
               <p>
                 {task.state === "completed"
-                  ? "Completed work can return to Queue only through the QA review above, or be deleted from the board entirely."
+                  ? "Completed work can go back to the queue through review, or be deleted."
                   : attentionRequired
                   ? "Use this only when the task should leave the response workflow without resuming."
-                  : "Move this task to another valid stage, or delete it from the board (soft-archive)."}
+                  : "Move this task to another stage, or delete it."}
               </p>
             </div>
             {task.state === "completed" &&
@@ -2388,7 +2388,7 @@ export function TaskBoard({
     if (!task || source.laneId === targetLane) return;
     const state = destinationState(targetLane);
     if (!state) {
-      setAnnouncement("Use the task actions menu to choose how this task should close.");
+      setAnnouncement("Choose how this task should close.");
       return;
     }
     void transitionTask(task, state);
@@ -2476,7 +2476,7 @@ export function TaskBoard({
                 data-testid="task-board-enqueue"
               >
                 <Plus size={12} />
-                Enqueue
+                Add task
               </Button>
               <IconButton aria-label="Close task flow" title="Close" onClick={onClose}>
                 <X size={14} />

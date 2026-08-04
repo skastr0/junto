@@ -291,14 +291,14 @@ export function GhostStationNode({ data, selected }: NodeProps<GhostStationFlowN
           <span className="fleet-machine__reticle" aria-hidden="true" />
           <span
             className={peer.online ? "fleet-pip fleet-pip--reachable" : "fleet-pip fleet-pip--unknown"}
-            title={peer.online ? "online" : "offline"}
+            title={peer.online ? "Online" : "Offline"}
           />
         </div>
         <div className="fleet-node__copy fleet-machine__copy">
           <div className="fleet-station__label">{peer.name}</div>
           <div className="fleet-node__meta">{peer.os ?? "unknown device"}</div>
           <div className="fleet-node__signal fleet-node__signal--discovered">
-            {peer.online ? "visible - not enrolled" : "offline - not enrolled"}
+            {peer.online ? "Visible, not enrolled" : "Offline, not enrolled"}
           </div>
         </div>
       </div>

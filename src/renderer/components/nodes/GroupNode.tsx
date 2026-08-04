@@ -42,7 +42,7 @@ function RegionToolbar({
       <IconButton
         className="nodrag nopan"
         aria-label={hasPaths ? "Region folder paths (set)" : "Region folder paths"}
-        title={hasPaths ? "folder paths (set)" : "folder paths"}
+        title={hasPaths ? "Folder paths set" : "Folder paths"}
         onPointerDown={stopDrag}
         onClick={(event) => { if (stopDrag(event)) return; onPaths(); }}
       >
@@ -52,7 +52,7 @@ function RegionToolbar({
         className="nodrag nopan"
         aria-label={connectionFocused ? "Clear node focus" : "Focus node"}
         aria-pressed={connectionFocused}
-        title={connectionFocused ? "clear connection focus" : "focus node connections"}
+        title={connectionFocused ? "Clear connection focus" : "Show this region's connections"}
         data-testid="node-toolbar-focus"
         data-focused={connectionFocused ? "true" : "false"}
         style={connectionFocused ? { color: HUE.cyan } : undefined}
@@ -65,7 +65,7 @@ function RegionToolbar({
         className="nodrag nopan"
         aria-label="Delete region"
         tone="danger"
-        title="delete region"
+        title="Delete region"
         onPointerDown={stopDrag}
         onClick={(event) => { if (stopDrag(event)) return; deleteNode(nodeId); }}
       >
@@ -210,7 +210,7 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
     <div
       className="region-drag-handle absolute left-2 top-2 flex cursor-grab items-center gap-1 active:cursor-grabbing"
       style={{ pointerEvents: "auto" }}
-      title="drag region"
+      title="Drag region"
       onPointerDownCapture={multiSelectCapture.onPointerDownCapture}
       onClickCapture={multiSelectCapture.onClickCapture}
     >

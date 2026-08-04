@@ -379,14 +379,14 @@ export function ObservabilityPanel() {
             <>
               <IconButton
                 aria-label={live ? "Pause live tail" : "Resume live tail"}
-                title={live ? "pause live" : "resume live"}
+                title={live ? "Pause live" : "Resume live"}
                 onClick={() => setLive((v) => !v)}
               >
                 {live ? <CirclePause size={14} /> : <Play size={14} />}
               </IconButton>
               <IconButton
                 aria-label="Scroll to latest"
-                title="scroll to latest"
+                title="Scroll to latest"
                 onClick={() => {
                   setStickBottom(true);
                   const el = listRef.current;
@@ -397,7 +397,7 @@ export function ObservabilityPanel() {
               </IconButton>
               <IconButton
                 aria-label="Clear ring"
-                title="clear ring"
+                title="Clear log"
                 onClick={() => void clear()}
               >
                 <Eraser size={14} />

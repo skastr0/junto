@@ -27,7 +27,7 @@ const DirectionMark = ({ direction }: { readonly direction: "out" | "in" }) => (
   <span
     className="actor-edges-glance__dir"
     aria-hidden
-    title={direction === "out" ? "outbound" : "inbound"}
+    title={direction === "out" ? "Outbound" : "Inbound"}
   >
     {direction === "out" ? "→" : "←"}
   </span>
@@ -80,17 +80,17 @@ function EdgeCard({ row }: { readonly row: ActorEdgeRow }) {
         row.relayState) && (
         <div className="actor-edges-glance__flags">
           {row.boardNotify === "on" ? (
-            <Chip tone="amber" title="board megaphone on">
+            <Chip tone="amber" title="Board wake on">
               notify
             </Chip>
           ) : null}
           {row.boardNotify === "off" ? (
-            <Chip tone="steel" title="board megaphone off">
+            <Chip tone="steel" title="Board wake off">
               quiet
             </Chip>
           ) : null}
           {row.relayState ? (
-            <Chip tone="crimson" title="relay state on">
+            <Chip tone="crimson" title="Relay flag on">
               relay
             </Chip>
           ) : null}

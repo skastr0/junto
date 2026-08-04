@@ -136,12 +136,12 @@ function AccentColorSwatches({
     <div
       className="rts-cmd-accents"
       aria-label="Accent color"
-      title={mixed ? "mixed accents — pick to apply to all" : undefined}
+      title={mixed ? "Mixed accents — pick one to apply to all" : undefined}
     >
       <button
         type="button"
         className={`rts-swatch${defaultActive ? " is-active" : ""}`}
-        title={mixed ? "set all to default accent" : "default accent"}
+        title={mixed ? "Set all to default accent" : "Default accent"}
         aria-label="Use default accent"
         aria-pressed={defaultActive}
         onClick={() => apply(undefined)}
@@ -665,7 +665,7 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
             (entityKind === "task" || entityKind === "requests" || entityKind === "artifacts") ? (
               <CmdKey
                 label="Open detail"
-                title="open the work surface"
+                title="Open the work surface"
                 onClick={() => openWorkDetail(node.id)}
               >
                 <Eye size={ICON} />
@@ -703,7 +703,7 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
             </CmdKey>
             <CmdKey
               label={copyStatus === "copied" ? "Copied" : copyStatus === "failed" ? "Copy failed" : "Copy reference"}
-              title={copyDetail || "copy stable node reference"}
+              title={copyDetail || "Copy node reference"}
               active={copyStatus === "copied"}
               onClick={() => void copyReference()}
             >

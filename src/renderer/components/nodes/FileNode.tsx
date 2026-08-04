@@ -81,7 +81,7 @@ export function FileNode({ data, selected }: NodeProps<FlowNode>) {
                 <IconButton
                   size="sm"
                   aria-label="Close image"
-                  title="close"
+                  title="Close"
                   onClick={() => setExpanded(false)}
                 >
                   <X size={13} />

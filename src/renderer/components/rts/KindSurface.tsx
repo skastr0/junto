@@ -109,7 +109,7 @@ function HerdrGlance({ node }: { readonly node: CanvasNode }) {
       </div>
       <KindKey
         label="Refresh herdr meta"
-        title="refresh pane meta"
+        title="Refresh"
         onClick={() => void refreshHerdrMeta(node.id, herdr)}
       >
         <RefreshCw size={ICON} />
@@ -530,7 +530,7 @@ export function KindSurface() {
         <div className="rts-kind-strip" role="toolbar" aria-label="Relation fields">
           <KindKey
             label={formOpen ? "Close fields" : "Open fields"}
-            title="ports — criteria — label"
+            title="Wire settings"
             active={formOpen}
             onClick={() => setFormOpen((open) => !open)}
           >

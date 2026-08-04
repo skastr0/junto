@@ -74,7 +74,7 @@ function CanvasPicker({
           disabled={busy}
           aria-busy={busy}
           aria-label="Active canvas"
-          title={busy ? "opening canvas…" : "switch canvas"}
+          title={busy ? "Opening canvas…" : "Switch canvas"}
           value={canvasName}
           uppercase
           emptyLabel="no canvases"
@@ -83,10 +83,10 @@ function CanvasPicker({
           onChange={onOpen}
         />
         {busy ? <span className="station-context__loading" role="status" aria-live="polite">opening</span> : null}
-        <button type="button" className="station-canvas__action" disabled={busy} title="new canvas" aria-label="New canvas" onClick={() => createOpen$.set(true)}>
+        <button type="button" className="station-canvas__action" disabled={busy} title="New canvas" aria-label="New canvas" onClick={() => createOpen$.set(true)}>
           <Plus size={14} />
         </button>
-        <button type="button" className="station-canvas__action station-canvas__action--danger" disabled={busy || !canvasName} title="delete canvas" aria-label="Delete canvas" onClick={openDelete}>
+        <button type="button" className="station-canvas__action station-canvas__action--danger" disabled={busy || !canvasName} title="Delete canvas" aria-label="Delete canvas" onClick={openDelete}>
           <Trash2 size={14} />
         </button>
       </div>
@@ -147,7 +147,7 @@ function SearchField({ canvasName }: { readonly canvasName: string }) {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
-  return <label className="station-search" title="Search nodes - / or ⌘K"><Search size={14} /><input ref={inputRef} aria-label={label} value={value} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); setSearch(""); inputRef.current?.blur(); } }} placeholder="search nodes" />{value ? <button type="button" className="station-search__clear" aria-label="Clear search" onClick={() => setSearch("")}><X size={13} /></button> : null}</label>;
+  return <label className="station-search" title="Search nodes (/ or ⌘K)"><Search size={14} /><input ref={inputRef} aria-label={label} value={value} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); setSearch(""); inputRef.current?.blur(); } }} placeholder="search nodes" />{value ? <button type="button" className="station-search__clear" aria-label="Clear search" onClick={() => setSearch("")}><X size={13} /></button> : null}</label>;
 }
 
 // Factory pause switch (app-state, main-owned). The canvas is born paused;
@@ -392,7 +392,7 @@ export function TopBar({
             data-testid="observability-logs"
             aria-label={observabilityOpen ? "Close logs explorer" : "Open logs explorer"}
             aria-pressed={observabilityOpen}
-            title="logs explorer"
+            title="Logs explorer"
             style={{
               borderColor: observabilityOpen
                 ? withAlpha(HUE.cyan, 0.45)
@@ -407,7 +407,7 @@ export function TopBar({
             <ScrollText size={15} />
           </button>
         ) : null}
-        <button type="button" className="station-icon-button" aria-label="Open fleet manager" title="fleet"
+        <button type="button" className="station-icon-button" aria-label="Open fleet manager" title="Fleet"
           style={{ borderColor: "rgba(237,230,218,0.16)", color: HUE.steel }}
           onPointerEnter={prefetchFleetChunk}
           onFocus={prefetchFleetChunk}
@@ -418,7 +418,7 @@ export function TopBar({
           <CircleHelp size={15} />
         </button>
         {helpOpen ? <CanvasInteractionMap onClose={() => setHelpOpen(false)} /> : null}
-        <button className="station-icon-button" aria-label="Open settings" style={{ borderColor: "rgba(237,230,218,0.16)", color: HUE.steel }} title="settings" onClick={() => { setHelpOpen(false); openSettings(); }}>
+        <button className="station-icon-button" aria-label="Open settings" style={{ borderColor: "rgba(237,230,218,0.16)", color: HUE.steel }} title="Settings" onClick={() => { setHelpOpen(false); openSettings(); }}>
           <Settings2 size={15} />
         </button>
       </div>

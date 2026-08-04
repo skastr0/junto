@@ -64,7 +64,7 @@ function PreambleBubble({
         type="button"
         className="vellum-node__preamble-close nodrag nopan"
         aria-label="Dismiss preamble"
-        title="dismiss preamble"
+        title="Dismiss"
         onPointerDown={(event) => {
           if (stopNodeGestureUnlessMultiSelect(event, { preventDefault: true })) return;
           event.preventDefault();
@@ -100,7 +100,7 @@ function MinimalNodeToolbar({
           className="nodrag nopan"
           tone="danger"
           aria-label="Delete label"
-          title="delete"
+          title="Delete"
           onPointerDown={(event) => {
             if (stopNodeGestureUnlessMultiSelect(event, { preventDefault: true })) return;
             event.preventDefault();
@@ -181,7 +181,7 @@ function NodeActions({
           <IconButton
             className="nodrag nopan"
             aria-label="Expand note editor"
-            title="expand editor"
+            title="Expand editor"
             onPointerDown={(event) => {
               if (stopNodeGestureUnlessMultiSelect(event, { preventDefault: true })) return;
               event.preventDefault();
@@ -196,7 +196,7 @@ function NodeActions({
           className="nodrag nopan"
           aria-label={connectionFocused ? "Clear node focus" : "Focus node"}
           aria-pressed={connectionFocused}
-          title={connectionFocused ? "clear connection focus" : "focus node connections"}
+          title={connectionFocused ? "Clear connection focus" : "Show this node's connections"}
           data-testid="node-toolbar-focus"
           data-focused={connectionFocused ? "true" : "false"}
           style={connectionFocused ? { color: HUE.cyan } : undefined}
@@ -274,7 +274,7 @@ function NodeActions({
           className="nodrag nopan"
           tone="danger"
           aria-label="Delete node"
-          title="delete node"
+          title="Delete node"
           onPointerDown={(event) => {
             if (stopNodeGestureUnlessMultiSelect(event, { preventDefault: true })) return;
             event.preventDefault();
@@ -462,7 +462,7 @@ export function NodeShell({
         <button
           className="vellum-node__open nodrag nopan absolute right-2 top-2 z-10 grid size-6 place-items-center rounded text-cyan-300/70 transition hover:bg-white/10 hover:text-cyan-200"
           aria-label={openTitle ?? "Open external link"}
-          title={openTitle ?? "open external link"}
+          title={openTitle ?? "Open link"}
           onPointerDown={(event) => {
             if (stopNodeGestureUnlessMultiSelect(event, { preventDefault: true })) return;
             event.preventDefault();
@@ -493,7 +493,7 @@ export function NodeShell({
             <span
               key="graph-blocked"
               className="vellum-node__flag vellum-node__flag--blocked-live"
-              title="blocked — waiting on upstream"
+              title="Blocked — waiting on connected work"
               style={{
                 color: FLAG_HUES.blocker,
                 borderColor: withAlpha(FLAG_HUES.blocker, 0.36),
@@ -507,7 +507,7 @@ export function NodeShell({
             <span
               key="herdr-blocked"
               className="vellum-node__flag vellum-node__flag--blocked-live"
-              title="herdr blocked (live)"
+              title="Blocked"
               style={{
                 color: FLAG_HUES.blocker,
                 borderColor: withAlpha(FLAG_HUES.blocker, 0.36),
@@ -518,7 +518,7 @@ export function NodeShell({
             </span>
           ) : null}
           {liveSeatAttention ? (
-            <Chip key="seat-attention" tone="amber" title="needs operator input">
+            <Chip key="seat-attention" tone="amber" title="Needs your input">
               needs input
             </Chip>
           ) : null}
