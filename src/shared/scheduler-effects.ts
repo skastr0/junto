@@ -266,14 +266,14 @@ const evaluateWatchAtom = (
   }
 
   if (kind === "page") {
-    // Page readiness is live browser state, not durable canvas truth.
-    // Kernel has no session projection here — stay pending with an honest label.
+    // Page load is live browser session state. Kernel watch has no session
+    // projection yet — not "waiting" (that would spin forever), just unknown.
     return {
-      status: "pending",
+      status: "unknown",
       detail:
         want === "failed"
-          ? "page failed not observed yet"
-          : "page ready not observed yet",
+          ? "page fail not connected yet"
+          : "page load not connected yet",
     };
   }
 

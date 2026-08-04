@@ -143,7 +143,7 @@ describe("scheduler-effects", () => {
           { word: "completes", equals: "failed" },
         ],
       }).status,
-    ).toBe("pending");
+    ).toBe("unknown");
   });
 
   it("keeps page ready and page failed as independent completes equals", () => {
@@ -157,12 +157,19 @@ describe("scheduler-effects", () => {
       height: 1,
       ether: { entity: { kind: "page" } },
     };
-    expect(
-      evaluateWatchWhen(page, { word: "completes", equals: "ready" }).detail,
-    ).toMatch(/ready/);
-    expect(
-      evaluateWatchWhen(page, { word: "completes", equals: "failed" }).detail,
-    ).toMatch(/failed/);
+    const ready = evaluateWatchWhen(page, {
+      word: "completes",
+      equals: "ready",
+    });
+    const failed = evaluateWatchWhen(page, {
+      word: "completes",
+      equals: "failed",
+    });
+    // Not pending — pending spins the card forever for an unconnected sensor.
+    expect(ready.status).toBe("unknown");
+    expect(failed.status).toBe("unknown");
+    expect(ready.detail).toMatch(/page load/);
+    expect(failed.detail).toMatch(/page fail/);
   });
 
   it("evaluates watch completes on task wire (no node body)", () => {
