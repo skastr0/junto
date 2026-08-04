@@ -261,7 +261,9 @@ export const digestCanvas = (
     }
   }
 
-  // completion — stamped proofs and cleared phase only. Never lists empty seats (I13).
+  // completion — retired proof/approval edge gates no longer appear.
+  // Keep the section shape only if stamps still clear via clearingStampsForDoc
+  // (currently always empty). Never lists empty seats (I13).
   {
     const completionLines = ["completion"];
     const cleared = clearingStampsForDoc(doc, live.stamps);
@@ -276,22 +278,6 @@ export const digestCanvas = (
       completionLines.push("cleared");
       for (const { edgeId, stamp } of cleared) {
         completionLines.push(`  proof edge ${edgeId} - step=${stamp.step}`);
-      }
-    }
-    // Human approvals that clear approval edges.
-    if (live.approvals && live.approvals.size > 0) {
-      const approvalClears: string[] = [];
-      for (const edge of doc.edges) {
-        const criteria = edge.ether?.stops;
-        if (!criteria || criteria.mode !== "approval") continue;
-        const grant = live.approvals.get(criteria.step);
-        if (grant && grant.principal === "human") {
-          approvalClears.push(`  approval edge ${edge.id} - step=${criteria.step}`);
-        }
-      }
-      if (approvalClears.length > 0) {
-        if (!completionLines.includes("cleared")) completionLines.push("cleared");
-        completionLines.push(...approvalClears);
       }
     }
     if (completionLines.length > 1) {

@@ -10,7 +10,6 @@ import {
   type LiveTrustViews,
 } from "../src/shared/execution-graph";
 import { groupMembers } from "../src/shared/graph";
-import type { ProofStamp, StampView } from "../src/shared/proof-stamps";
 import {
   ActorRef,
   type ActorRef as ActorRefValue,
@@ -72,8 +71,8 @@ const text = (
   ...(ether ? { ether } : {}),
 });
 
-describe("evaluateEdge — authorial modes", () => {
-  it("no criteria → relates", () => {
+describe("evaluateEdge — derived work-lane stoppage", () => {
+  it("non-work-lane access → relates", () => {
     const edge = { id: "e1", fromNode: "a", toNode: "b" };
     const result = evaluateEdge(
       edge,
@@ -97,12 +96,11 @@ describe("evaluateEdge — authorial modes", () => {
     expect(result.generates).toBe(false);
   });
 
-  it("tasks: queues relate; claimed attention blocks only its compiled seat", () => {
+  it("tasks: queues relate; claimed attention blocks without authorial stops", () => {
     const edge = {
       id: "e1",
       fromNode: "t1",
       toNode: "b",
-      ether: { stops: { mode: "tasks" as const } },
     };
     const worker = seat("b", "actor", { label: "B" });
     const workerIdentity = actorRef("b", "1");
@@ -165,7 +163,6 @@ describe("evaluateEdge — authorial modes", () => {
       id: "e-rev",
       fromNode: "b",
       toNode: "t1",
-      ether: { stops: { mode: "tasks" as const } },
     };
     expect(evaluateEdge(reverse, worker, heldHere, context).phase).toBe("blocks");
     expect(evaluateEdge(reverse, worker, heldHere, context).generates).toBe(true);
@@ -185,7 +182,6 @@ describe("evaluateEdge — authorial modes", () => {
       id: "e1",
       fromNode: "r1",
       toNode: "b",
-      ether: { stops: { mode: "tasks" as const } },
     };
     const worker = seat("b", "actor", { label: "B" });
     const workerIdentity = actorRef("b", "1");
@@ -287,14 +283,12 @@ describe("deriveExecutionGraph — no cascade", () => {
           id: "e1",
           fromNode: "t1",
           toNode: "a1",
-          ether: { stops: { mode: "tasks" } },
         },
-        // An actor has no task inventory, so this criteria edge relates.
+        // Actor↔actor is not a work lane — soft relates (no cascade).
         {
           id: "e2",
           fromNode: "a1",
           toNode: "a2",
-          ether: { stops: { mode: "tasks" } },
         },
       ],
     };
@@ -339,8 +333,8 @@ describe("deriveExecutionGraph — no cascade", () => {
         seat("a2", "actor", { label: "A2" }),
       ],
       edges: [
-        { id: "e1", fromNode: "t1", toNode: "a1", ether: { stops: { mode: "tasks" } } },
-        { id: "e2", fromNode: "t1", toNode: "a2", ether: { stops: { mode: "tasks" } } },
+        { id: "e1", fromNode: "t1", toNode: "a1" },
+        { id: "e2", fromNode: "t1", toNode: "a2" },
       ],
     });
     const a1 = actorRef("a1", "1");
@@ -376,25 +370,29 @@ describe("deriveExecutionGraph — no cascade", () => {
   });
 
   it("sink targets never join blocked set", () => {
+    const actor = actorRef("actor1", "1");
     const doc: CanvasDoc = {
       nodes: [
-        text("proof", "Proof", {
-          entity: { kind: "artifacts" },
-          artifacts: { items: [] },
+        text("t1", "Checklist", {
+          entity: { kind: "task" },
+          tasks: {
+            items: [
+              ownedTask(taskItem("i1", "x", "input-required"), actor),
+            ],
+          },
         }),
         seat("s1", "sink", { label: "sink" }),
       ],
       edges: [
         {
           id: "e1",
-          fromNode: "proof",
+          fromNode: "t1",
           toNode: "s1",
-          ether: { stops: { mode: "proof", step: "build" } },
         },
       ],
     };
-    const graph = deriveExecutionGraph(doc, contextFor());
-    expect(graph.phaseByEdgeId.get("e1")).toBe("blocks");
+    const graph = deriveExecutionGraph(doc, contextFor([actor]));
+    // Work-lane eval may generate blocks, but sinks are not blockable seats.
     expect(graph.blocked.has("s1")).toBe(false);
   });
 
@@ -409,7 +407,6 @@ describe("deriveExecutionGraph — no cascade", () => {
           id: "e-bc",
           fromNode: "b",
           toNode: "c",
-          ether: { stops: { mode: "tasks" } },
         },
       ],
     };
@@ -438,8 +435,8 @@ describe("deriveExecutionGraph — no cascade", () => {
         seat("actor1", "actor"),
       ],
       edges: [
-        { id: "e1", fromNode: "t1", toNode: "note1", ether: { stops: { mode: "tasks" } } },
-        { id: "e2", fromNode: "t1", toNode: "actor1", ether: { stops: { mode: "tasks" } } },
+        { id: "e1", fromNode: "t1", toNode: "note1" },
+        { id: "e2", fromNode: "t1", toNode: "actor1" },
       ],
     };
     const graph = deriveExecutionGraph(doc, contextFor([actor]));
@@ -474,7 +471,6 @@ describe("composeRegionExecutionContext", () => {
           id: "e-tb",
           fromNode: "t1",
           toNode: "b",
-          ether: { stops: { mode: "tasks" } },
         },
       ],
     };
@@ -491,82 +487,4 @@ describe("composeRegionExecutionContext", () => {
   });
 });
 
-describe("evaluateEdge — proof / approval", () => {
-  const sink = (id = "sink"): CanvasDoc["nodes"][number] =>
-    text(id, "Artifacts", { entity: { kind: "artifacts" }, artifacts: { items: [] } });
 
-  const stamp = (partial: Partial<ProofStamp> & Pick<ProofStamp, "step">): ProofStamp => ({
-    seat: "agent-1",
-    occupant: "pid:9",
-    inputsHash: "h1",
-    evidenceRefs: ["art-1"],
-    ts: 1,
-    ...partial,
-  });
-
-  it("proof missing → blocks actor; stamped → relates", () => {
-    const from = sink("sink");
-    const edge = {
-      id: "e1",
-      fromNode: "sink",
-      toNode: "down",
-      ether: { stops: { mode: "proof" as const, step: "build" } },
-    };
-    expect(
-      evaluateEdge(
-        edge,
-        from,
-        undefined,
-        contextFor([], { stamps: new Map() }),
-      ).phase,
-    ).toBe("blocks");
-
-    const down = actorRef("down", "1");
-    const doc: CanvasDoc = {
-      nodes: [from, seat("down", "actor", { label: "Downstream" })],
-      edges: [edge],
-    };
-    expect(
-      deriveExecutionGraph(
-        doc,
-        contextFor([down], { stamps: new Map() }),
-      ).blocked.has("down"),
-    ).toBe(true);
-
-    const stamps: StampView = new Map([
-      ["sink", [stamp({ step: "build", inputsHash: "h1" })]],
-    ]);
-    const cleared = evaluateEdge(
-      { ...edge, ether: { stops: { mode: "proof", step: "build", inputsHash: "h1" } } },
-      from,
-      undefined,
-      contextFor([], { stamps }),
-    );
-    expect(cleared.phase).toBe("relates");
-    expect(cleared.generates).toBe(false);
-  });
-
-  it("approval holds until human grant", () => {
-    const from = sink("sink");
-    const edge = {
-      id: "e1",
-      fromNode: "sink",
-      toNode: "down",
-      ether: { stops: { mode: "approval" as const, step: "ship" } },
-    };
-    expect(evaluateEdge(edge, from, undefined, contextFor()).phase).toBe(
-      "blocks",
-    );
-    const granted = evaluateEdge(
-      edge,
-      from,
-      undefined,
-      contextFor([], {
-        approvals: new Map([
-          ["ship", { step: "ship", principal: "human" as const, ts: 1 }],
-        ]),
-      }),
-    );
-    expect(granted.phase).toBe("relates");
-  });
-});

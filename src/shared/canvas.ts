@@ -386,11 +386,12 @@ export type EdgeEffect = typeof EdgeEffect.Type;
 // CanvasDoc shape, but authorial persistence and Station portfolio boundaries
 // reject them. Old checklist {id,text,done} is dead and fails decode.
 
-// Edge criteria. Absence → soft relates (capability only; never stoppage).
-// Retired modes (glyphs/wip criteria, depends phase) fail decode. No dependency cascade.
-// - tasks:    attention (input-required) generates blocks on actors
-// - proof:    holds until a matching runtime stamp on the source sink
-// - approval: holds until a human grant (external principal; never a node)
+// Edge criteria (decode-history only for tasks stops). Product stoppage for
+// actor ↔ task|requests is derived from the access relationship + claimed
+// attention — not authored via Hold. proof/approval are retired: scrub drops
+// them on load; they fail strict decode if reintroduced.
+// Retired modes (glyphs/wip criteria, depends phase, proof, approval) fail
+// decode. No dependency cascade.
 export const EdgeCriteriaTasks = Schema.Struct({
   mode: Schema.Literal("tasks"),
   // empty/absent itemIds = every item on the fromNode tasks/requests list
@@ -398,29 +399,7 @@ export const EdgeCriteriaTasks = Schema.Struct({
 });
 export type EdgeCriteriaTasks = typeof EdgeCriteriaTasks.Type;
 
-/** Phase holds until a matching stamp exists in source-sink runtime state. */
-export const EdgeCriteriaProof = Schema.Struct({
-  mode: Schema.Literal("proof"),
-  /** Step name the stamp must claim. */
-  step: Schema.String,
-  /**
-   * When set, stamp.inputsHash must equal this value (gates replay of an old
-   * stamp against new inputs). Absent = any stamp for `step` clears.
-   */
-  inputsHash: Schema.optionalKey(Schema.String),
-});
-export type EdgeCriteriaProof = typeof EdgeCriteriaProof.Type;
-
-/** Phase holds until a human grant is recorded for `step` (operator surface). */
-export const EdgeCriteriaApproval = Schema.Struct({
-  mode: Schema.Literal("approval"),
-  step: Schema.String,
-});
-export type EdgeCriteriaApproval = typeof EdgeCriteriaApproval.Type;
-
-export const EdgeCriteria = Schema.Union([EdgeCriteriaTasks,
-EdgeCriteriaProof,
-EdgeCriteriaApproval,]);
+export const EdgeCriteria = EdgeCriteriaTasks;
 export type EdgeCriteria = typeof EdgeCriteria.Type;
 
 /**
@@ -650,7 +629,16 @@ export const scrubCanvasDocInput = (input: unknown): unknown => {
           return edge;
         }
         const eth = etherIn as Record<string, unknown>;
-        const stops = eth.stops ?? eth.criteria;
+        const rawStops = eth.stops ?? eth.criteria;
+        // Retire authorable proof/approval gates — product stoppage is derived.
+        const stops =
+          rawStops !== null &&
+          typeof rawStops === "object" &&
+          !Array.isArray(rawStops) &&
+          ((rawStops as { readonly mode?: unknown }).mode === "proof" ||
+            (rawStops as { readonly mode?: unknown }).mode === "approval")
+            ? undefined
+            : rawStops;
         const does = eth.does ?? eth.effect;
         const wake = eth.wake ?? eth.notify;
         const next: Record<string, unknown> = {};
@@ -661,7 +649,7 @@ export const scrubCanvasDocInput = (input: unknown): unknown => {
         if (eth.when !== undefined) next.when = eth.when;
         if (does !== undefined) next.does = does;
         if (eth.kind !== undefined) next.kind = eth.kind;
-        // Drop: criteria, effect, notify, relayState, and any other dual keys.
+        // Drop: criteria, effect, notify, relayState, proof/approval stops, dual keys.
         if (Object.keys(next).length === 0) {
           const { ether: _e, ...rest } = e;
           return rest;

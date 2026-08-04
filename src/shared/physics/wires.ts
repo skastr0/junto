@@ -331,7 +331,13 @@ export const wordsOfEdge = (input: {
   const { family, ether, fromKind, toKind, hasMessages } = input;
   const words: WireWord[] = [];
   if (family === "access") {
-    if (ether?.stops != null) words.push("stops");
+    // Derived work-lane stoppage (actor ↔ task|requests) — not authorial ether.stops.
+    const workLane =
+      fromKind === "task" ||
+      fromKind === "requests" ||
+      toKind === "task" ||
+      toKind === "requests";
+    if (workLane || ether?.stops != null) words.push("stops");
     const touchesBoard = fromKind === "board" || toKind === "board";
     if (touchesBoard && ether?.wake !== false) words.push("wakes");
     if (hasMessages) words.push("messages");

@@ -3,7 +3,6 @@ import type {
   CanvasDoc,
   CanvasEdge,
   CanvasNode,
-  EdgeCriteria,
   EdgePhase,
 } from "./canvas";
 import type { ActorSeatId } from "./actor-seat";
@@ -16,8 +15,6 @@ import {
 } from "./attention";
 import { seatMayBeBlocked } from "./physics/phase-membership";
 import {
-  findApproval,
-  findMatchingStamp,
   type ApprovalView,
   type ProofStamp,
   type StampView,
@@ -26,22 +23,23 @@ import {
 // Live execution graph: pure function of (document + live views).
 // Derived state is never stored in the authored canvas document.
 //
-// Authorial edge model — `stops` only (no dual keys, no cascade property):
-//   - no stops → soft "relates" (never generates stoppage)
-//   - stops tasks → a CLAIMED attention item (input-required; residual auth-required)
-//     generates blocks on the claimant toNode actor only. Tasks are claimed
-//     by the pulling actor; requests are claimed by their raiser at creation.
-//     An unresolved toNode actor identity never substitutes its canvas node ID.
-//   - stops proof / approval → blocks until trust view clears
+// Stoppage model (derived, not authorable Hold):
+//   - access edge with either end task|requests → evaluate tasks stoppage:
+//     a CLAIMED attention item (input-required; residual auth-required)
+//     generates blocks on the claimant actor only. Tasks are claimed by the
+//     pulling actor; requests are claimed by their raiser at creation.
+//     An unresolved actor identity never substitutes its canvas node ID.
+//   - other access pairs → soft "relates" (capability only; never stoppage)
+//   - ether.stops is decode-history optional; product does not write it
+//   - proof/approval authoring is retired (scrubbed on load)
 //
 // Evaluation:
-//   - phase "blocks" + generates → mark toNode blocked (actors only)
+//   - phase "blocks" + generates → mark actor blocked (actors only)
 //   - manual blocker flag marks that actor only
 //   - work-plane seat blocks mark their actor only
 //   - stoppage never cascades via edge property — use a relay node + wires
-//   - no stops → relates
 
-/** Optional live views for proof/approval criteria (runtime, not document). */
+/** Optional live trust views (legacy stamp/approval surfaces; not product gates). */
 export type LiveTrustViews = {
   readonly stamps?: StampView;
   readonly approvals?: ApprovalView;
@@ -140,23 +138,23 @@ const softRelates = (detail = "relates"): EdgeEval => ({
   generates: false,
 });
 
-const evalTasksCriteria = (
-  criteria: Extract<EdgeCriteria, { mode: "tasks" }>,
+const evalTasksStoppage = (
   fromNode: CanvasNode | undefined,
   toActorSeatId: ActorSeatId | undefined,
+  itemIds?: ReadonlyArray<string>,
 ): EdgeEval => {
   const fromKind = fromNode?.ether?.entity?.kind;
   const items = workItemsOn(fromNode);
   const scoped =
-    criteria.itemIds && criteria.itemIds.length > 0
-      ? items.filter((item) => criteria.itemIds!.includes(item.id))
+    itemIds && itemIds.length > 0
+      ? items.filter((item) => itemIds.includes(item.id))
       : items;
   if (scoped.length === 0) {
     return softRelates(fromKind === "requests" ? "no pending requests" : "no open tasks");
   }
   const open = scoped.filter((item) => isAttentionTaskItem(item));
   // Blocking is actor-state for tasks AND requests: only an attention item
-  // claimed by this edge's compiled toNode seat stops it.
+  // claimed by this edge's compiled actor seat stops it.
   const held =
     toActorSeatId === undefined
       ? []
@@ -183,49 +181,6 @@ const evalTasksCriteria = (
   return {
     phase: "blocks",
     detail: `${held.length} ${noun} - ${sample}`,
-    generates: true,
-  };
-};
-
-const evalProofCriteria = (
-  criteria: Extract<EdgeCriteria, { mode: "proof" }>,
-  fromNode: CanvasNode | undefined,
-  stamps: StampView | undefined,
-): EdgeEval => {
-  const step = criteria.step.trim();
-  if (!step) {
-    return softRelates("proof criteria missing step");
-  }
-  const sinkId = fromNode?.id;
-  const sinkStamps = sinkId && stamps ? stamps.get(sinkId) : undefined;
-  const match = findMatchingStamp(sinkStamps, step, criteria.inputsHash);
-  if (match) {
-    return softRelates(`proof step "${step}" stamped`);
-  }
-  const hashHint =
-    criteria.inputsHash !== undefined ? ` (inputsHash=${criteria.inputsHash})` : "";
-  return {
-    phase: "blocks",
-    detail: `missing proof step "${step}"${hashHint}`,
-    generates: true,
-  };
-};
-
-const evalApprovalCriteria = (
-  criteria: Extract<EdgeCriteria, { mode: "approval" }>,
-  approvals: ApprovalView | undefined,
-): EdgeEval => {
-  const step = criteria.step.trim();
-  if (!step) {
-    return softRelates("approval criteria missing step");
-  }
-  const grant = findApproval(approvals, step);
-  if (grant && grant.principal === "human") {
-    return softRelates(`approval step "${step}" granted`);
-  }
-  return {
-    phase: "blocks",
-    detail: `missing human approval for step "${step}"`,
     generates: true,
   };
 };
@@ -261,55 +216,36 @@ export const evaluateEdge = (
   toNode: CanvasNode | undefined,
   context: ExecutionGraphContext,
 ): EdgeEval => {
-  const criteria = edge.ether?.stops;
-  if (!criteria) return softRelates();
-  switch (criteria.mode) {
-    case "tasks": {
-      // Direction-independent: items on the sink, block the actor.
-      const sink = workSinkOf(fromNode, toNode);
-      const actor = stoppageActorOf(fromNode, toNode);
-      return evalTasksCriteria(
-        criteria,
-        sink,
-        resolveCompiledActorRef(
-          context.resolveActorRef,
-          context.canvasName,
-          actor,
-        )?.seatId,
-      );
-    }
-    case "proof":
-      return evalProofCriteria(
-        criteria,
-        workSinkOf(fromNode, toNode) ?? fromNode,
-        context.stamps,
-      );
-    case "approval":
-      return evalApprovalCriteria(criteria, context.approvals);
+  // Work-lane stoppage is derived from endpoints (task|requests), not Hold.
+  if (!isWorkSinkKind(fromNode) && !isWorkSinkKind(toNode)) {
+    return softRelates();
   }
+  const sink = workSinkOf(fromNode, toNode);
+  const actor = stoppageActorOf(fromNode, toNode);
+  // Optional legacy itemIds from decode-history ether.stops.
+  const legacy = edge.ether?.stops;
+  const itemIds =
+    legacy?.mode === "tasks" && legacy.itemIds && legacy.itemIds.length > 0
+      ? legacy.itemIds
+      : undefined;
+  return evalTasksStoppage(
+    sink,
+    resolveCompiledActorRef(
+      context.resolveActorRef,
+      context.canvasName,
+      actor,
+    )?.seatId,
+    itemIds,
+  );
 };
 
 /**
- * List stamps that currently clear a proof edge (for digest completion).
- * Pure: document + StampView only.
+ * Proof edges are retired. Kept as a no-op export for digest callers.
  */
 export const clearingStampsForDoc = (
-  doc: CanvasDoc,
-  stamps: StampView | undefined,
-): ReadonlyArray<{ readonly edgeId: string; readonly stamp: ProofStamp }> => {
-  if (!stamps) return [];
-  const byId = new Map(doc.nodes.map((node) => [node.id, node] as const));
-  const out: Array<{ edgeId: string; stamp: ProofStamp }> = [];
-  for (const edge of doc.edges) {
-    const criteria = edge.ether?.stops;
-    if (!criteria || criteria.mode !== "proof") continue;
-    const from = byId.get(edge.fromNode);
-    if (!from) continue;
-    const match = findMatchingStamp(stamps.get(from.id), criteria.step, criteria.inputsHash);
-    if (match) out.push({ edgeId: edge.id, stamp: match });
-  }
-  return out;
-};
+  _doc: CanvasDoc,
+  _stamps: StampView | undefined,
+): ReadonlyArray<{ readonly edgeId: string; readonly stamp: ProofStamp }> => [];
 
 export const deriveExecutionGraph = (
   doc: CanvasDoc,

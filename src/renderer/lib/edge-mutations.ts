@@ -2,7 +2,6 @@ import { ulid } from "ulid";
 import type {
   CanvasEdge,
   CanvasNode,
-  EdgeCriteria,
   EdgeEffect,
   EdgeEnd,
   WatchWhen,
@@ -77,37 +76,9 @@ export const setEdgeColor = (id: string, color?: string): void => {
 };
 
 /**
- * Write stops only.
- * `undefined` means: restore auto work-lane stops if either end is task/requests,
- * otherwise clear. Never silently wipe auto tasks stops from Hold "None".
- */
-export const setEdgeCriteria = (id: string, criteria: EdgeCriteria | undefined): void => {
-  const doc = state$.doc.peek();
-  commitDoc({
-    ...doc,
-    edges: doc.edges.map((edge) => {
-      if (edge.id !== id) return edge;
-      let cleaned = criteria;
-      if (cleaned === undefined) {
-        const from = doc.nodes.find((n) => n.id === edge.fromNode);
-        const to = doc.nodes.find((n) => n.id === edge.toNode);
-        cleaned = inferEdgeCriteria(from, to);
-      }
-      if (!cleaned) {
-        if (!edge.ether) return edge;
-        const rest = without(without(edge.ether, "stops"), "kind");
-        return Object.keys(rest).length > 0 ? { ...edge, ether: rest } : without(edge, "ether");
-      }
-      const rest = edge.ether ? without(edge.ether, "kind") : {};
-      return { ...edge, ether: { ...rest, stops: cleaned } };
-    }),
-  });
-};
-
-/**
  * Set or clear edge.ether.ports (ocap attenuation).
  * `undefined` or empty array removes the field; absence ⇒ full offers at admit.
- * Does not strip criteria / derived kind.
+ * Does not strip derived kind.
  */
 export const setEdgePorts = (
   id: string,
@@ -157,30 +128,6 @@ export const toggleEdgeArrow = (id: string, side: "from" | "to"): void => {
       return next ? { ...edge, toEnd: next } : without(edge, "toEnd");
     }),
   });
-};
-
-/**
- * Infer access stops for a directed pair.
- * Work lanes (task/requests on either end) arm tasks stops so attention can
- * block the connected actor whether the edge was drawn agent→task or task→agent.
- * Board/page soft relates only. Proof/approval stay operator-authored via Hold.
- */
-export const inferEdgeCriteria = (
-  fromNode: CanvasNode | undefined,
-  toNode?: CanvasNode | undefined,
-): EdgeCriteria | undefined => {
-  const kindOf = (n: CanvasNode | undefined) => n?.ether?.entity?.kind;
-  const fromKind = kindOf(fromNode);
-  const toKind = kindOf(toNode);
-  if (
-    fromKind === "task" ||
-    fromKind === "requests" ||
-    toKind === "task" ||
-    toKind === "requests"
-  ) {
-    return { mode: "tasks" };
-  }
-  return undefined;
 };
 
 /** Author effect word on an edge — `does` only. */
@@ -320,7 +267,6 @@ export const addEdge = (params: {
   target: string;
   sourceHandle?: string | null;
   targetHandle?: string | null;
-  criteria?: EdgeCriteria;
 }): void => {
   if (params.source === params.target) {
     state$.error.set("A node cannot connect to itself.");
@@ -355,11 +301,7 @@ export const addEdge = (params: {
   });
   const does = inferSchedulerEdgeEffect(fromNode, toNode);
   const when = inferWatchWhen(fromNode, toNode);
-  // Access-only: tasks/requests stops never ride watch (sink→relay) wires.
-  const stops =
-    when === undefined && (fromRole === "sink" || toRole === "sink" || fromRole === "actor")
-      ? (params.criteria ?? inferEdgeCriteria(fromNode, toNode))
-      : undefined;
+  // Task stoppage is derived at eval time — never stamp ether.stops on draw.
   // Actor→relay OptIn needs an explicit port mask for relay.trigger grant.
   const ports =
     slot === "trigger" && toNode?.ether?.entity?.kind === "relay"
@@ -369,7 +311,6 @@ export const addEdge = (params: {
   const toSide = parseSide(params.targetHandle);
   const etherParts: NonNullable<CanvasEdge["ether"]> = {
     ...(slot ? { slot } : {}),
-    ...(stops ? { stops } : {}),
     ...(does ? { does } : {}),
     ...(when ? { when } : {}),
     ...(ports ? { ports: [...ports] } : {}),
@@ -392,9 +333,8 @@ export const addEdge = (params: {
 };
 
 // --- multi-source → one target (RTS-006) ------------------------------------
-// Pure plan + one commit mutator. Soft relates by default (tasks still auto-bind
-// via inferEdgeCriteria, matching single-edge connect). Direction is always
-// source → target (fromNode → toNode), same as addEdge / Inspector connect.
+// Pure plan + one commit mutator. No authorial stops — task stoppage is derived.
+// Direction is always source → target (fromNode → toNode).
 
 export type EdgeBatchSkipReason =
   | "self"
@@ -405,11 +345,10 @@ export type EdgeBatchSkipReason =
   | "invalid-target"
   | "refused-pair";
 
-/** Plan payload uses document words: stops / does / when / slot / ports. */
+/** Plan payload uses document words: does / when / slot / ports. */
 export type EdgeBatchCandidate = {
   readonly fromNode: string;
   readonly toNode: string;
-  readonly stops?: EdgeCriteria;
   readonly does?: EdgeEffect;
   readonly slot?: WireSlot;
   readonly when?: WatchWhen;
@@ -427,15 +366,13 @@ export type EdgeBatchPlan = {
  * - Skips self, groups-as-sources, missing sources, duplicates (existing or
  *   within the batch).
  * - Invalid target (missing / group) skips every source with `invalid-target`.
- * - Criteria: optional override per batch; else inferred per source (tasks →
- *   tasks criteria; otherwise none = soft relates).
+ * - Never stamps ether.stops (derived stoppage at eval).
  */
 export const planConnectToTarget = (
   sourceIds: ReadonlyArray<string>,
   targetId: string,
   nodes: ReadonlyArray<CanvasNode>,
   edges: ReadonlyArray<CanvasEdge>,
-  criteriaOverride?: EdgeCriteria,
 ): EdgeBatchPlan => {
   const nodeById = new Map(nodes.map((node) => [node.id, node] as const));
   const target = nodeById.get(targetId);
@@ -489,12 +426,6 @@ export const planConnectToTarget = (
       toKind: target.ether?.entity?.kind,
     });
     const when = inferWatchWhen(source, target);
-    // Access-only stops — never stamp tasks stops on watch wires.
-    const stops =
-      when === undefined &&
-      (fromRole === "sink" || toRole === "sink" || fromRole === "actor")
-        ? (criteriaOverride ?? inferEdgeCriteria(source, target))
-        : undefined;
     const ports =
       slot === "trigger" && target.ether?.entity?.kind === "relay"
         ? (["relay.trigger"] as const)
@@ -502,7 +433,6 @@ export const planConnectToTarget = (
     toAdd.push({
       fromNode: sourceId,
       toNode: targetId,
-      ...(stops ? { stops } : {}),
       ...(does ? { does } : {}),
       ...(slot ? { slot } : {}),
       ...(when ? { when } : {}),
@@ -521,10 +451,10 @@ export const planConnectToTarget = (
 export const connectAllToTarget = (
   sourceIds: ReadonlyArray<string>,
   targetId: string,
-  options?: { readonly keepSelection?: boolean; readonly criteria?: EdgeCriteria },
+  options?: { readonly keepSelection?: boolean },
 ): EdgeBatchPlan => {
   const doc = state$.doc.peek();
-  const plan = planConnectToTarget(sourceIds, targetId, doc.nodes, doc.edges, options?.criteria);
+  const plan = planConnectToTarget(sourceIds, targetId, doc.nodes, doc.edges);
   if (plan.toAdd.length === 0) {
     const reasons = new Set(plan.skipped.map((item) => item.reason));
     if (reasons.has("invalid-target")) {
@@ -542,7 +472,6 @@ export const connectAllToTarget = (
   const newEdges: CanvasEdge[] = plan.toAdd.map((candidate) => {
     const etherParts: NonNullable<CanvasEdge["ether"]> = {
       ...(candidate.slot ? { slot: candidate.slot } : {}),
-      ...(candidate.stops ? { stops: candidate.stops } : {}),
       ...(candidate.does ? { does: candidate.does } : {}),
       ...(candidate.when ? { when: candidate.when } : {}),
       ...(candidate.ports && candidate.ports.length > 0

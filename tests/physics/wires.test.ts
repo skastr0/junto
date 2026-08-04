@@ -123,7 +123,9 @@ describe("wires grammar", () => {
     expect(
       wordsOfEdge({
         family: "access",
-        ether: { stops: { mode: "tasks" } },
+        ether: {},
+        fromKind: "agent",
+        toKind: "task",
       }),
     ).toEqual(["stops"]);
     expect(
@@ -171,7 +173,9 @@ describe("wires grammar", () => {
 
     const wordedAccess = wirePresentation({
       family: "access",
-      ether: { stops: { mode: "tasks" } },
+      ether: {},
+      fromKind: "agent",
+      toKind: "task",
     });
     expect(wordedAccess.worded).toBe(true);
     expect(wordedAccess.words).toContain("stops");
@@ -192,7 +196,7 @@ describe("wires grammar", () => {
       fromKind: "agent",
       toKind: "task",
     });
-    expect(access.map((s) => s._tag)).toEqual(["ports", "hold", "delete"]);
+    expect(access.map((s) => s._tag)).toEqual(["ports", "delete"]);
     const board = sheetSectionsFor({
       family: "access",
       fromKind: "agent",

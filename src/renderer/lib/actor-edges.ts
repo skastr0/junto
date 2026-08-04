@@ -21,7 +21,7 @@ import { specOf } from "./node-spec";
 
 const decodePort = Schema.decodeUnknownOption(Port);
 
-export type ActorEdgeNature = "soft" | "tasks" | "proof" | "approval";
+export type ActorEdgeNature = "soft" | "tasks";
 
 export type ActorEdgeRow = {
   readonly edgeId: string;
@@ -38,9 +38,14 @@ export type ActorEdgeRow = {
   readonly livePhase: "blocks" | "relates" | null;
 };
 
-const natureOf = (edge: CanvasEdge): ActorEdgeNature => {
-  const mode = edge.ether?.stops?.mode;
-  if (mode === "tasks" || mode === "proof" || mode === "approval") return mode;
+/** Work-lane nature is derived from peer kind (task|requests), not ether.stops. */
+const natureOf = (
+  edge: CanvasEdge,
+  peer: CanvasNode | undefined,
+): ActorEdgeNature => {
+  const peerKind = peer?.ether?.entity?.kind;
+  if (peerKind === "task" || peerKind === "requests") return "tasks";
+  if (edge.ether?.stops?.mode === "tasks") return "tasks";
   return "soft";
 };
 
@@ -129,7 +134,7 @@ export const actorEdgeRows = (
       peerTitle: peer ? nodeTitle(peer) : peerId,
       peerKind: peerKindOf(peer),
       direction: out ? "out" : "in",
-      nature: natureOf(edge),
+      nature: natureOf(edge, peer),
       ports,
       boardNotify: boardNotifyOf(edge, actor, peer),
       livePhase: phase,

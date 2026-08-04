@@ -6,7 +6,6 @@ import type {
   CanvasDoc,
   CanvasEdge,
   CanvasNode,
-  EdgeCriteria,
   EdgeEffect,
   EtherFlag,
   EtherRegionDefaults,
@@ -35,7 +34,6 @@ import {
 } from "@shared/physics";
 import {
   addEdge,
-  setEdgeCriteria,
   setEdgeEffect,
   setEdgeNotify,
   setEdgePorts,
@@ -821,57 +819,6 @@ function EdgeWhenEditor({
         />
       </label>
     </div>
-  );
-}
-
-export function EdgeCriteriaEditor({
-  edgeId,
-  fromNode,
-  livePhase: _livePhase,
-  liveDetail: _liveDetail,
-}: {
-  readonly edgeId: string;
-  readonly fromNode: CanvasNode | undefined;
-  readonly livePhase?: string;
-  readonly liveDetail?: string;
-}) {
-  const doc = use$(state$.doc);
-  const edge = doc.edges.find((candidate) => candidate.id === edgeId);
-  const criteria = edge?.ether?.stops;
-  const toNode = doc.nodes.find((node) => node.id === edge?.toNode);
-  const fromKind = fromNode?.ether?.entity?.kind;
-  const fromIsTask = fromKind === "task" || fromKind === "requests";
-
-  type AuthoringMode = "none" | "tasks";
-  const mode: AuthoringMode = criteria?.mode === "tasks" ? "tasks" : "none";
-  const showStops = fromIsTask || criteria?.mode === "tasks";
-
-  return (
-    <>
-      <EdgeWhenEditor edgeId={edgeId} toNode={toNode} />
-      <EdgeEffectEditor edgeId={edgeId} fromNode={fromNode} toNode={toNode} />
-      {showStops ? (
-        <div className="inspector-section">
-          <div className="inspector-section__label">Blocks the agent</div>
-          <label className="inspector-editor">
-            <span>When</span>
-            <Select
-              dense
-              aria-label="When this link blocks the agent"
-              value={mode}
-              options={[
-                { value: "none", label: "Never" },
-                { value: "tasks", label: "Work needs input" },
-              ]}
-              onChange={(value) => {
-                if (value === "none") setEdgeCriteria(edgeId, undefined);
-                else setEdgeCriteria(edgeId, { mode: "tasks" });
-              }}
-            />
-          </label>
-        </div>
-      ) : null}
-    </>
   );
 }
 

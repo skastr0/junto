@@ -6,7 +6,6 @@ import { use$ } from "@legendapp/state/react";
 import type {
   CanvasEdge,
   CanvasNode,
-  EdgeCriteria,
   EtherFlag,
   WatchWhen,
   WatchWhenAtom,
@@ -35,7 +34,6 @@ import {
 import { Select } from "../ui";
 import {
   setAgentRelayMode,
-  setEdgeCriteria,
   setEdgeEffect,
   setEdgeWhen,
 } from "../../lib/edge-mutations";
@@ -277,76 +275,6 @@ function DoesSection({
   );
 }
 
-function HoldSection({
-  edgeId,
-  edge,
-}: {
-  readonly edgeId: string;
-  readonly edge: CanvasEdge;
-}) {
-  const criteria = edge.ether?.stops;
-  // Work-lane default is tasks stops (needs input) — not a wipeable "none".
-  const mode =
-    criteria?.mode === "proof"
-      ? "proof"
-      : criteria?.mode === "approval"
-        ? "approval"
-        : "tasks";
-  const step =
-    criteria && (criteria.mode === "proof" || criteria.mode === "approval")
-      ? criteria.step
-      : "gate";
-
-  return (
-    <div className="inspector-section">
-      <div className="inspector-section__label">Hold</div>
-      <label className="inspector-editor">
-        <span>Requires</span>
-        <Select
-          dense
-          aria-label="Hold on this link"
-          value={mode}
-          options={[
-            { value: "tasks", label: "Needs input" },
-            { value: "proof", label: "Proof step" },
-            { value: "approval", label: "Human approval" },
-          ]}
-          onChange={(value) => {
-            if (value === "tasks") {
-              // Restores auto work-lane stops — never wipes to soft relates.
-              setEdgeCriteria(edgeId, undefined);
-              return;
-            }
-            const next: EdgeCriteria =
-              value === "proof"
-                ? { mode: "proof", step: step || "gate" }
-                : { mode: "approval", step: step || "gate" };
-            setEdgeCriteria(edgeId, next);
-          }}
-        />
-      </label>
-      {mode === "proof" || mode === "approval" ? (
-        <label className="inspector-editor">
-          <span>Step name</span>
-          <input
-            aria-label="Gate step name"
-            value={step}
-            onChange={(event) => {
-              const nextStep = event.target.value.trim() || "gate";
-              setEdgeCriteria(
-                edgeId,
-                mode === "proof"
-                  ? { mode: "proof", step: nextStep }
-                  : { mode: "approval", step: nextStep },
-              );
-            }}
-          />
-        </label>
-      ) : null}
-    </div>
-  );
-}
-
 function TriggerReadout({
   fromNode,
   toNode,
@@ -557,8 +485,6 @@ export function WireSheetBody({
                 toNode={toNode}
               />
             );
-          case "hold":
-            return <HoldSection key="hold" edgeId={edge.id} edge={edge} />;
           case "trigger_readout":
             return (
               <TriggerReadout

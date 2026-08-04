@@ -19,7 +19,6 @@ import { Chip, Eyebrow, type ChipTone } from "../ui";
 
 const natureTone = (row: ActorEdgeRow): ChipTone => {
   if (row.livePhase === "blocks" || row.nature === "tasks") return "crimson";
-  if (row.nature === "proof" || row.nature === "approval") return "violet";
   return "steel";
 };
 

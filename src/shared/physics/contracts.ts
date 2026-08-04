@@ -261,8 +261,6 @@ export type SheetSection =
       readonly inputs: ReadonlyArray<ContractInput>;
     }
   | { readonly _tag: "trigger_readout" }
-  /** Deliberate gate: proof or human approval only. */
-  | { readonly _tag: "hold" }
   | { readonly _tag: "delete" };
 
 /**
@@ -274,6 +272,9 @@ export type SheetSection =
  * - effect → does inputs from the target's contract
  * - trigger → readout only (no settings)
  * Always ends with delete.
+ *
+ * Task stoppage is derived (access + task|requests + claimed attention) —
+ * never an authorable Hold section.
  */
 export const sheetSectionsFor = (input: {
   readonly family: WireFamily;
@@ -286,14 +287,6 @@ export const sheetSectionsFor = (input: {
     sections.push({ _tag: "ports" });
     if (fromKind === "board" || toKind === "board") {
       sections.push({ _tag: "wake" });
-    }
-    // Deliberate gates live on work lanes only — never board/page/terminal.
-    const holdKinds = new Set(["task", "requests"]);
-    if (
-      (fromKind !== undefined && holdKinds.has(fromKind)) ||
-      (toKind !== undefined && holdKinds.has(toKind))
-    ) {
-      sections.push({ _tag: "hold" });
     }
   } else if (family === "watch") {
     // Watch observes the source (sink → relay). Events from source contract.
