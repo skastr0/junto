@@ -84,7 +84,9 @@ import {
 import { WorkRepository } from "../work/repository";
 import { subscribeSeatBlocks } from "../work/blocked-seat";
 import {
+  applyNodeFlag,
   checkTimers,
+  clearRuntimeFlag,
   getExecutionByCanvas,
   getNextFire,
   getRuntimeFlagOverrides,
@@ -102,9 +104,11 @@ import {
   __setPhaseMirrorForTest,
   __setSnapshotsForTest,
   __setTimerSchedulerForTest,
+  setPageLoadDeps,
 } from "./cycle";
 import { setSchedulerEffectDeps } from "./effects";
 import type { EtherFlag } from "@shared/canvas";
+import { mainAuthoringGate } from "../main-authoring-gate";
 
 export class KernelService extends Context.Service<KernelService,
   {
@@ -132,12 +136,38 @@ export class KernelService extends Context.Service<KernelService,
     readonly getSnapshot: () => KernelSnapshot;
     // Pushed on cycle end — never per-watcher.
     readonly subscribe: (listener: (snapshot: KernelSnapshot) => void) => () => void;
-    /** Fire a scheduler node now (operator Fire now / agent relay.trigger). */
+    /** Fire one selected scheduler's outbound does edges (operator Fire now / agent relay.trigger). */
     readonly manualFire: (input: {
       readonly canvasName: string;
       readonly sourceNodeId: string;
       readonly kind?: "relay" | "cron" | "gauge";
-    }) => Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }>;
+    }) => Promise<
+      | {
+          readonly ok: true;
+          readonly sourceNodeId: string;
+          readonly kind: "relay" | "cron" | "gauge";
+          readonly applied: number;
+          readonly message: string;
+        }
+      | { readonly ok: false; readonly message: string }
+    >;
+    /**
+     * Demand a coalesced evaluation pass (page load ok/fail, external sensors).
+     * No-op until start(); ignored after suspend.
+     */
+    readonly requestCycle: () => void;
+    /**
+     * Bind the live browser page readiness map for page→relay watch.
+     * Call after browser composition starts; pass undefined to clear.
+     */
+    readonly setPageLoadProvider: (
+      snapshot:
+        | (() => ReadonlyMap<
+            string,
+            import("@shared/scheduler-effects").PageLoadStatus
+          >)
+        | undefined,
+    ) => void;
   }>()("@vellum/KernelService") {}
 
 const SAFETY_INTERVAL_MS = 30_000;
@@ -679,6 +709,12 @@ const makeKernelService = (
 
   let cachedStationRole: "" | "command-center" | "remote" = "";
 
+  /**
+   * Durable document flags (same truth as renderer toggleFlag).
+   * Command Center + playing only; Remote refuses authorial mutate.
+   * Also projects process-local runtime flags for same-tick kernel eval, then
+   * clears that override so the document remains sole product truth after write.
+   */
   const setNodeFlag = async (
     canvasName: string,
     nodeId: string,
@@ -694,9 +730,40 @@ const makeKernelService = (
         message: "flag effects require Command Center",
       };
     }
-    return setRuntimeFlag(canvasName, nodeId, flag, enabled)
-      ? { ok: true }
-      : { ok: false, message: "canvas or node is not in the live projection" };
+    const live = docs.get(canvasName);
+    if (live === undefined || !live.nodes.some((node) => node.id === nodeId)) {
+      return {
+        ok: false,
+        message: "canvas or node is not in the live projection",
+      };
+    }
+    try {
+      // Same-tick eval: project before durable commit settles / resyncs.
+      setRuntimeFlag(canvasName, nodeId, flag, enabled);
+      await mainAuthoringGate.run("kernel.flag-mirror", () =>
+        run(
+          canvases.mutate(canvasName, (doc) =>
+            applyNodeFlag(doc, nodeId, flag, enabled),
+          ),
+        ),
+      );
+      // Hot map shares identity with cycle after hydrate — keep it current.
+      const current = docs.get(canvasName);
+      if (current !== undefined) {
+        docs.set(canvasName, applyNodeFlag(current, nodeId, flag, enabled));
+      }
+      // Document is product truth; drop the process-local ghost override.
+      clearRuntimeFlag(canvasName, nodeId, flag);
+      return { ok: true };
+    } catch (error) {
+      clearRuntimeFlag(canvasName, nodeId, flag);
+      const message =
+        error instanceof Error ? error.message : String(error);
+      console.error(
+        `[kernel] setFlag failed for ${canvasName}/${nodeId}: ${message}`,
+      );
+      return { ok: false, message };
+    }
   };
 
   __setAutomationGateForTest({
@@ -1364,6 +1431,16 @@ const makeKernelService = (
     },
 
     manualFire: (input) => manualSchedulerFire(input),
+
+    requestCycle: () => {
+      scheduleCycle();
+    },
+
+    setPageLoadProvider: (snapshot) => {
+      setPageLoadDeps(
+        snapshot === undefined ? undefined : { snapshot },
+      );
+    },
   });
 };
 

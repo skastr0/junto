@@ -72,10 +72,18 @@ describe("main authoring architecture", () => {
     ].sort());
   });
 
-  it("keeps kernel execution out of the authorial canvas write path", () => {
+  it("routes durable set_flag through classified kernel.flag-mirror mutate only", () => {
     const kernel = source("src/main/vellum/kernel/service.ts");
-    expect(kernel).not.toContain("canvases.mutate(");
-    expect(kernel).not.toContain("mainAuthoringGate.run(");
+    // Product law: set_flag / flagOnUnsatisfied write document ether.flags on CC
+    // (same truth as toggleFlag), never ghost runtime-only overrides.
+    expect(kernel).toContain('mainAuthoringGate.run("kernel.flag-mirror"');
+    expect(kernel).toContain("canvases.mutate(");
+    expect(kernel).toContain("applyNodeFlag");
+    // Phase mirror stays projection-only (no authorial writeback).
+    expect(kernel).toContain("__setPhaseMirrorForTest(undefined)");
+    // No other authoring labels from kernel.
+    expect(kernel).not.toContain("kernel.phase-mirror");
+    expect(kernel).not.toContain("kernel.claim-tick");
   });
 
   it("keeps WorkService product ingress closed to the classified IPC and control planes", () => {

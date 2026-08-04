@@ -33,6 +33,7 @@ import {
   combineWatchEvaluations,
   evaluateWatchWhen,
   NO_WATCH_YET_DETAIL,
+  type PageLoadStatus,
 } from "@shared/scheduler-effects";
 import {
   expressionFromEveryMinutes,
@@ -139,6 +140,14 @@ export interface AutomationGateDeps {
   readonly canApplyFlagEffects: () => boolean;
 }
 
+/**
+ * Thin main→kernel page readiness map. Keys are `${canvasName}::${nodeId}`
+ * (see pageLoadMapKey). Built from live browser sessions (onLoadOk/onLoadFail).
+ */
+export interface PageLoadDeps {
+  readonly snapshot: () => ReadonlyMap<string, PageLoadStatus>;
+}
+
 // --- module-level state ------------------------------------------------------
 
 let docs: Map<string, CanvasDoc> = new Map();
@@ -147,6 +156,7 @@ let flagWriterDeps: FlagWriterDeps | undefined = undefined;
 let phaseMirrorDeps: PhaseMirrorDeps | undefined = undefined;
 let timerSchedulerDeps: TimerSchedulerDeps | undefined = undefined;
 let automationGateDeps: AutomationGateDeps | undefined = undefined;
+let pageLoadDeps: PageLoadDeps | undefined = undefined;
 let resolveActorRef: ActorRefResolver = () => undefined;
 const runtimeFlagOverrides = new Map<
   string,
@@ -192,6 +202,15 @@ export const __setAutomationGateForTest = (
   automationGateDeps = deps;
 };
 
+/** Production + test injection for the live browser page load map. */
+export const __setPageLoadForTest = (deps: PageLoadDeps | undefined): void => {
+  pageLoadDeps = deps;
+};
+
+export const setPageLoadDeps = (deps: PageLoadDeps | undefined): void => {
+  pageLoadDeps = deps;
+};
+
 export const __resetKernelMemoryForTest = (): void => {
   docs = new Map();
   snapshots = { bundles: [] };
@@ -199,6 +218,7 @@ export const __resetKernelMemoryForTest = (): void => {
   phaseMirrorDeps = undefined;
   timerSchedulerDeps = undefined;
   automationGateDeps = undefined;
+  pageLoadDeps = undefined;
   resolveActorRef = () => undefined;
   runtimeFlagOverrides.clear();
   nextFire.clear();
@@ -217,6 +237,36 @@ const flagsWithOverrides = (
     else effective.delete(flag);
   }
   return [...effective];
+};
+
+/**
+ * Pure document flag write — same truth as renderer toggleFlag / setFlagForNodes.
+ * Used by scheduler set_flag and flagOnUnsatisfied on Command Center.
+ * Returns the input doc unchanged when the target node is missing.
+ */
+export const applyNodeFlag = (
+  doc: CanvasDoc,
+  nodeId: string,
+  flag: EtherFlag,
+  enabled: boolean,
+): CanvasDoc => {
+  if (!doc.nodes.some((node) => node.id === nodeId)) return doc;
+  return {
+    ...doc,
+    nodes: doc.nodes.map((node) => {
+      if (node.id !== nodeId) return node;
+      const flags = new Set<EtherFlag>(node.ether?.flags ?? []);
+      if (enabled) flags.add(flag);
+      else flags.delete(flag);
+      const nextFlags = [...flags];
+      const ether = { ...(node.ether ?? {}) };
+      if (nextFlags.length === 0) delete ether.flags;
+      else ether.flags = nextFlags;
+      if (Object.keys(ether).length > 0) return { ...node, ether };
+      const { ether: _drop, ...withoutEther } = node;
+      return withoutEther;
+    }),
+  };
 };
 
 /** Runtime scheduler state projected over authorial intent, never persisted. */
@@ -242,6 +292,11 @@ export const projectRuntimeFlags = (
   };
 };
 
+/**
+ * Process-local flag projection for mid-cycle eval before durable resync.
+ * Product truth for set_flag is applyNodeFlag + CanvasesService.mutate; this
+ * stays available so the evaluation loop can see the write in the same tick.
+ */
 export const setRuntimeFlag = (
   canvasName: string,
   nodeId: string,
@@ -264,6 +319,21 @@ export const setRuntimeFlag = (
   }
   overrides.set(flag, enabled);
   return true;
+};
+
+/** Drop one process-local override so durable document flags are sole truth. */
+export const clearRuntimeFlag = (
+  canvasName: string,
+  nodeId: string,
+  flag: EtherFlag,
+): void => {
+  const byNode = runtimeFlagOverrides.get(canvasName);
+  if (byNode === undefined) return;
+  const overrides = byNode.get(nodeId);
+  if (overrides === undefined) return;
+  overrides.delete(flag);
+  if (overrides.size === 0) byNode.delete(nodeId);
+  if (byNode.size === 0) runtimeFlagOverrides.delete(canvasName);
 };
 
 export const getRuntimeFlagOverrides = (
@@ -495,6 +565,21 @@ export const runEvaluationCycle = async (): Promise<void> => {
         }
       }
 
+      // Page readiness: canvas-scoped slice of the live browser load map.
+      const pageLoadGlobal = pageLoadDeps?.snapshot();
+      const pageLoadByNodeId = new Map<string, PageLoadStatus>();
+      if (pageLoadGlobal !== undefined && pageLoadGlobal.size > 0) {
+        const prefix = `${canvasName}::`;
+        for (const [key, status] of pageLoadGlobal) {
+          if (!key.startsWith(prefix)) continue;
+          pageLoadByNodeId.set(key.slice(prefix.length), status);
+        }
+      }
+      const watchContext =
+        pageLoadByNodeId.size > 0
+          ? { pageLoadByNodeId }
+          : undefined;
+
       // Relay: watch is sink → relay wires only (`when` / default completes).
       for (const node of effectiveDoc.nodes) {
         if (node.type !== "text" || node.ether?.entity?.kind !== "relay") continue;
@@ -503,7 +588,9 @@ export const runEvaluationCycle = async (): Promise<void> => {
         const evaluation =
           watchEdges.length > 0
             ? combineWatchEvaluations(
-                watchEdges.map((w) => evaluateWatchWhen(w.source, w.when)),
+                watchEdges.map((w) =>
+                  evaluateWatchWhen(w.source, w.when, watchContext),
+                ),
               )
             : ({
                 status: "unknown" as const,
@@ -683,14 +770,38 @@ export const checkTimers = async (
 // --- utility exports (for tests) -----------------------------------------------
 
 /**
- * Operator / agent-triggered scheduler fire. Applies output-edge effects once
- * under a unique fireKey (no rising-edge gate). Canvas must be hydrated.
+ * Operator / agent-triggered fire for one selected scheduler.
+ * Applies that node's outbound `does` edges only (never other schedulers,
+ * never watch inputs, never trigger-chain walks). Unique fireKey; no
+ * rising-edge gate. Canvas must be hydrated and playing.
  */
+export type ManualSchedulerFireResult =
+  | {
+      readonly ok: true;
+      readonly sourceNodeId: string;
+      readonly kind: "relay" | "cron" | "gauge";
+      readonly applied: number;
+      readonly message: string;
+    }
+  | { readonly ok: false; readonly message: string };
+
+const resolveManualFireKind = (
+  node: { readonly ether?: { readonly entity?: { readonly kind?: string } } },
+  preferred?: "relay" | "cron" | "gauge",
+): "relay" | "cron" | "gauge" | undefined => {
+  if (preferred) return preferred;
+  const entityKind = node.ether?.entity?.kind;
+  if (entityKind === "cron" || entityKind === "timer") return "cron";
+  if (entityKind === "watcher" || entityKind === "gauge") return "gauge";
+  if (entityKind === "relay") return "relay";
+  return undefined;
+};
+
 export const manualSchedulerFire = async (input: {
   readonly canvasName: string;
   readonly sourceNodeId: string;
   readonly kind?: "relay" | "cron" | "gauge";
-}): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }> => {
+}): Promise<ManualSchedulerFireResult> => {
   const doc = docs.get(input.canvasName);
   if (!doc) {
     return { ok: false, message: "canvas is not hydrated in the kernel" };
@@ -699,22 +810,53 @@ export const manualSchedulerFire = async (input: {
   if (!node) {
     return { ok: false, message: `node "${input.sourceNodeId}" not found` };
   }
-  const kind =
-    input.kind ??
-    (node.ether?.entity?.kind === "cron" || node.ether?.entity?.kind === "timer"
-      ? "cron"
-      : node.ether?.entity?.kind === "watcher" || node.ether?.entity?.kind === "gauge"
-        ? "gauge"
-        : "relay");
+  const kind = resolveManualFireKind(node, input.kind);
+  if (!kind) {
+    return {
+      ok: false,
+      message: `node "${input.sourceNodeId}" is not a scheduler (cron, relay, or gauge)`,
+    };
+  }
   const fireKey = `manual:${input.canvasName}::${input.sourceNodeId}:${Date.now()}`;
-  await applySchedulerFire(doc, {
+  const result = await applySchedulerFire(doc, {
     canvasName: input.canvasName,
     sourceNodeId: input.sourceNodeId,
     kind,
     fireKey,
     status: "satisfied",
   });
-  return { ok: true };
+  if (result.skipped === "paused") {
+    return {
+      ok: false,
+      message:
+        "Factory must be playing with a station role set before Fire now can run actions",
+    };
+  }
+  if (result.skipped === "no_deps") {
+    return {
+      ok: false,
+      message: "Scheduler effects are not wired in this runtime",
+    };
+  }
+  if (result.skipped === "no_effects" || result.applied === 0) {
+    return {
+      ok: true,
+      sourceNodeId: input.sourceNodeId,
+      kind,
+      applied: 0,
+      message: `No effect wires from this ${kind} yet`,
+    };
+  }
+  return {
+    ok: true,
+    sourceNodeId: input.sourceNodeId,
+    kind,
+    applied: result.applied,
+    message:
+      result.applied === 1
+        ? `Ran 1 action from this ${kind}`
+        : `Ran ${result.applied} actions from this ${kind}`,
+  };
 };
 
 export const setDocs = (docsMap: Map<string, CanvasDoc>): void => {
