@@ -76,14 +76,23 @@ export const setEdgeColor = (id: string, color?: string): void => {
   });
 };
 
-/** Write stops only — one word for task/requests hold. */
+/**
+ * Write stops only.
+ * `undefined` means: restore auto work-lane stops if either end is task/requests,
+ * otherwise clear. Never silently wipe auto tasks stops from Hold "None".
+ */
 export const setEdgeCriteria = (id: string, criteria: EdgeCriteria | undefined): void => {
   const doc = state$.doc.peek();
-  const cleaned = criteria;
   commitDoc({
     ...doc,
     edges: doc.edges.map((edge) => {
       if (edge.id !== id) return edge;
+      let cleaned = criteria;
+      if (cleaned === undefined) {
+        const from = doc.nodes.find((n) => n.id === edge.fromNode);
+        const to = doc.nodes.find((n) => n.id === edge.toNode);
+        cleaned = inferEdgeCriteria(from, to);
+      }
       if (!cleaned) {
         if (!edge.ether) return edge;
         const rest = without(without(edge.ether, "stops"), "kind");
@@ -151,15 +160,26 @@ export const toggleEdgeArrow = (id: string, side: "from" | "to"): void => {
 };
 
 /**
- * Infer live criteria from the source node.
- * - tasks / requests node → tasks criteria
- * - otherwise → none (soft relates); proof/approval stay operator-authored
+ * Infer access stops for a directed pair.
+ * Work lanes (task/requests on either end) arm tasks stops so attention can
+ * block the connected actor whether the edge was drawn agent→task or task→agent.
+ * Board/page soft relates only. Proof/approval stay operator-authored via Hold.
  */
-export const inferEdgeCriteria = (fromNode: CanvasNode | undefined): EdgeCriteria | undefined => {
-  if (!fromNode) return undefined;
-  const kind = fromNode.ether?.entity?.kind;
-  if (kind === "task" || kind === "requests") return { mode: "tasks" };
-  // board → soft relates only (never stoppage)
+export const inferEdgeCriteria = (
+  fromNode: CanvasNode | undefined,
+  toNode?: CanvasNode | undefined,
+): EdgeCriteria | undefined => {
+  const kindOf = (n: CanvasNode | undefined) => n?.ether?.entity?.kind;
+  const fromKind = kindOf(fromNode);
+  const toKind = kindOf(toNode);
+  if (
+    fromKind === "task" ||
+    fromKind === "requests" ||
+    toKind === "task" ||
+    toKind === "requests"
+  ) {
+    return { mode: "tasks" };
+  }
   return undefined;
 };
 
@@ -297,8 +317,8 @@ export const addEdge = (params: {
   const when = inferWatchWhen(fromNode, toNode);
   // Access-only: tasks/requests stops never ride watch (sink→relay) wires.
   const stops =
-    when === undefined && (fromRole === "sink" || toRole === "sink")
-      ? (params.criteria ?? inferEdgeCriteria(fromNode))
+    when === undefined && (fromRole === "sink" || toRole === "sink" || fromRole === "actor")
+      ? (params.criteria ?? inferEdgeCriteria(fromNode, toNode))
       : undefined;
   // Actor→relay OptIn needs an explicit port mask for relay.trigger grant.
   const ports =
@@ -431,8 +451,9 @@ export const planConnectToTarget = (
     const when = inferWatchWhen(source, target);
     // Access-only stops — never stamp tasks stops on watch wires.
     const stops =
-      when === undefined && (fromRole === "sink" || toRole === "sink")
-        ? (criteriaOverride ?? inferEdgeCriteria(source))
+      when === undefined &&
+      (fromRole === "sink" || toRole === "sink" || fromRole === "actor")
+        ? (criteriaOverride ?? inferEdgeCriteria(source, target))
         : undefined;
     const ports =
       slot === "trigger" && target.ether?.entity?.kind === "relay"

@@ -151,25 +151,74 @@ const applyOne = async (
 };
 
 /**
- * Apply outbound `does` edges from one scheduler source only.
- * Never walks other nodes, trigger chains, or watch edges.
+ * Apply outbound `does` edges from one scheduler source, then cascade along
+ * directed **trigger** wires to downstream schedulers (cron→relay, relay→relay).
+ * Cycle-guarded with a hard depth budget so chains cannot recurse forever.
  */
 export type ApplySchedulerFireResult = {
   readonly applied: number;
+  readonly cascaded?: number;
   readonly skipped?: "no_deps" | "paused" | "no_effects";
+};
+
+/** Max trigger hops after the root fire (root is depth 0). */
+export const SCHEDULER_TRIGGER_CASCADE_MAX_DEPTH = 3;
+
+const isSchedulerKind = (node: CanvasNode | undefined): boolean => {
+  const kind = node?.ether?.entity?.kind;
+  return (
+    kind === "relay" ||
+    kind === "cron" ||
+    kind === "timer" ||
+    kind === "watcher"
+  );
+};
+
+/** Downstream schedulers reached by slot=trigger (or bare scheduler→scheduler). */
+export const collectTriggerCascadeTargets = (
+  doc: CanvasDoc,
+  sourceNodeId: string,
+): ReadonlyArray<string> => {
+  const out: string[] = [];
+  for (const edge of doc.edges) {
+    if (edge.fromNode !== sourceNodeId) continue;
+    const target = doc.nodes.find((n) => n.id === edge.toNode);
+    if (!isSchedulerKind(target)) continue;
+    const slot = edge.ether?.slot;
+    if (slot === "trigger") {
+      out.push(edge.toNode);
+      continue;
+    }
+    // Bare edge: cascade only when both ends are schedulers (chain).
+    if (slot === undefined) {
+      const from = doc.nodes.find((n) => n.id === edge.fromNode);
+      if (isSchedulerKind(from)) out.push(edge.toNode);
+    }
+  }
+  return out;
 };
 
 export const applySchedulerFire = async (
   doc: CanvasDoc,
   fire: SchedulerFireEvent,
+  opts?: {
+    readonly depth?: number;
+    readonly visited?: Set<string>;
+  },
 ): Promise<ApplySchedulerFireResult> => {
   if (!effectDeps) return { applied: 0, skipped: "no_deps" };
   if (!effectDeps.canAutomateCanvas(fire.canvasName)) {
     return { applied: 0, skipped: "paused" };
   }
+  const depth = opts?.depth ?? 0;
+  const visited = opts?.visited ?? new Set<string>();
+  if (visited.has(fire.sourceNodeId)) {
+    return { applied: 0, skipped: "no_effects" };
+  }
+  visited.add(fire.sourceNodeId);
+
   // Scope law: only edges with fromNode === sourceNodeId and ether.does.
   const bindings = collectEffectEdgesFrom(doc, fire.sourceNodeId);
-  if (bindings.length === 0) return { applied: 0, skipped: "no_effects" };
   let applied = 0;
   for (const binding of bindings) {
     try {
@@ -183,7 +232,29 @@ export const applySchedulerFire = async (
       );
     }
   }
-  return { applied };
+
+  let cascaded = 0;
+  if (depth < SCHEDULER_TRIGGER_CASCADE_MAX_DEPTH) {
+    for (const targetId of collectTriggerCascadeTargets(doc, fire.sourceNodeId)) {
+      if (visited.has(targetId)) continue;
+      const child = await applySchedulerFire(
+        doc,
+        {
+          ...fire,
+          sourceNodeId: targetId,
+          fireKey: `${fire.fireKey}:cascade:${targetId}`,
+        },
+        { depth: depth + 1, visited },
+      );
+      applied += child.applied;
+      cascaded += 1 + (child.cascaded ?? 0);
+    }
+  }
+
+  if (applied === 0 && cascaded === 0 && bindings.length === 0) {
+    return { applied: 0, cascaded: 0, skipped: "no_effects" };
+  }
+  return { applied, cascaded };
 };
 
 /** True when a node is a schedule carrier (timer body on cron/timer kinds). */

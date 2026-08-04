@@ -230,6 +230,31 @@ const evalApprovalCriteria = (
   };
 };
 
+/** Work sink endpoint for tasks stops — either end may hold the sink. */
+const workSinkOf = (
+  fromNode: CanvasNode | undefined,
+  toNode: CanvasNode | undefined,
+): CanvasNode | undefined => {
+  if (workItemsOn(fromNode).length > 0 || isWorkSinkKind(fromNode)) return fromNode;
+  if (workItemsOn(toNode).length > 0 || isWorkSinkKind(toNode)) return toNode;
+  return fromNode;
+};
+
+const isWorkSinkKind = (node: CanvasNode | undefined): boolean => {
+  const kind = node?.ether?.entity?.kind;
+  return kind === "task" || kind === "requests";
+};
+
+/** Actor seat endpoint for stoppage — either end may be the seat. */
+export const stoppageActorOf = (
+  fromNode: CanvasNode | undefined,
+  toNode: CanvasNode | undefined,
+): CanvasNode | undefined => {
+  if (isBlockableNode(toNode)) return toNode;
+  if (isBlockableNode(fromNode)) return fromNode;
+  return toNode;
+};
+
 export const evaluateEdge = (
   edge: CanvasEdge,
   fromNode: CanvasNode | undefined,
@@ -239,18 +264,26 @@ export const evaluateEdge = (
   const criteria = edge.ether?.stops;
   if (!criteria) return softRelates();
   switch (criteria.mode) {
-    case "tasks":
+    case "tasks": {
+      // Direction-independent: items on the sink, block the actor.
+      const sink = workSinkOf(fromNode, toNode);
+      const actor = stoppageActorOf(fromNode, toNode);
       return evalTasksCriteria(
         criteria,
-        fromNode,
+        sink,
         resolveCompiledActorRef(
           context.resolveActorRef,
           context.canvasName,
-          toNode,
+          actor,
         )?.seatId,
       );
+    }
     case "proof":
-      return evalProofCriteria(criteria, fromNode, context.stamps);
+      return evalProofCriteria(
+        criteria,
+        workSinkOf(fromNode, toNode) ?? fromNode,
+        context.stamps,
+      );
     case "approval":
       return evalApprovalCriteria(criteria, context.approvals);
   }
@@ -340,11 +373,16 @@ export const deriveExecutionGraph = (
   }
 
   // Generating edges only — no automatic relay through other edges.
+  // Stoppage lands on the actor seat (either end), not always toNode.
   for (const edge of doc.edges) {
     const evaluation = edgeEvalById.get(edge.id)!;
     if (!evaluation.generates) continue;
+    const from = byId.get(edge.fromNode);
+    const to = byId.get(edge.toNode);
+    const actor = stoppageActorOf(from, to);
+    const actorId = actor?.id ?? edge.toNode;
     markBlocked(
-      edge.toNode,
+      actorId,
       {
         kind: "edge",
         edgeId: edge.id,

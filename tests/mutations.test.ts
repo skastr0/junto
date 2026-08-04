@@ -417,14 +417,15 @@ describe("renderer graph mutations", () => {
     expect(beginOrder).toBeLessThan(finishOrder);
   });
 
-  it("creates schema-valid soft edges without criteria", () => {
+  it("arms tasks stops on agent→task access draw", () => {
     state$.canvasName.set("mutation-test");
     loadDoc(doc);
     addEdge({ source: "source", target: "target" });
 
     const edge = state$.doc.peek().edges[0];
     expect(edge).toMatchObject({ fromNode: "source", toNode: "target" });
-    expect(edge?.ether?.stops).toBeUndefined();
+    // Work-lane access: attention can block the actor either direction.
+    expect(edge?.ether?.stops).toEqual({ mode: "tasks" });
     expect(state$.selectedNodeId.peek()).toBe("");
     expect(state$.selectedEdgeId.peek()).toBe(edge?.id);
     expect(Object.hasOwn(edge ?? {}, "fromSide")).toBe(false);
@@ -536,7 +537,7 @@ describe("renderer graph mutations", () => {
     expect(edge?.ether?.stops).toEqual({ mode: "tasks" });
   });
 
-  it("sets tasks criteria and strips ether when cleared", () => {
+  it("Hold none restores auto tasks stops on work lanes (never wipe)", () => {
     state$.canvasName.set("mutation-test");
     loadDoc({
       ...doc,
@@ -545,6 +546,7 @@ describe("renderer graph mutations", () => {
           id: "edge-1",
           fromNode: "source",
           toNode: "target",
+          ether: { stops: { mode: "proof", step: "gate" } },
         },
       ],
     });
@@ -554,9 +556,9 @@ describe("renderer graph mutations", () => {
       mode: "tasks",
     });
 
+    // undefined = restore auto work-lane stops, not soft relates.
     setEdgeCriteria("edge-1", undefined);
-    expect(state$.doc.peek().edges[0]?.ether).toBeUndefined();
-    expect(Object.hasOwn(state$.doc.peek().edges[0] ?? {}, "ether")).toBe(false);
+    expect(state$.doc.peek().edges[0]?.ether?.stops).toEqual({ mode: "tasks" });
     expect(Result.isSuccess(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
   });
 
@@ -725,7 +727,9 @@ describe("renderer graph mutations", () => {
         batchNodes,
         [{ id: "e1", fromNode: "b", toNode: "c" }],
       );
-      expect(plan.toAdd).toEqual([{ fromNode: "a", toNode: "c" }]);
+      expect(plan.toAdd).toEqual([
+        { fromNode: "a", toNode: "c", stops: { mode: "tasks" } },
+      ]);
       expect(plan.skipped).toEqual([
         { source: "a", reason: "duplicate" },
         { source: "c", reason: "self" },
@@ -745,8 +749,10 @@ describe("renderer graph mutations", () => {
 
     it("infers tasks criteria per source when connecting a tasks node to an agent", () => {
       const plan = planConnectToTarget(["tasks", "a"], "c", batchNodes, []);
-      // tasks→task refused (sink-sink); agent→task ok
-      expect(plan.toAdd).toEqual([{ fromNode: "a", toNode: "c" }]);
+      // tasks→task refused (sink-sink); agent→task ok with work-lane stops
+      expect(plan.toAdd).toEqual([
+        { fromNode: "a", toNode: "c", stops: { mode: "tasks" } },
+      ]);
       expect(plan.skipped).toContainEqual({
         source: "tasks",
         reason: "refused-pair",
@@ -817,7 +823,7 @@ describe("renderer graph mutations", () => {
       { from: "b", to: "c" },
     ]);
     for (const edge of next) {
-      expect(edge.ether?.stops).toBeUndefined();
+      expect(edge.ether?.stops).toEqual({ mode: "tasks" });
     }
     expect(state$.selectedNodeId.peek()).toBe("");
     expect(state$.selectedEdgeId.peek()).toBe(next[1]?.id);

@@ -83,7 +83,7 @@ const board = (): CanvasDoc =>
           does: { mode: "enqueue_task", brief: "from-relay", reason: "scheduler" },
         },
       },
-      // Trigger chain only — must never make cron fire apply relay effects.
+      // Trigger chain: cron fire cascades into the relay's does edges.
       {
         id: "e-trigger",
         fromNode: "cron1",
@@ -122,7 +122,7 @@ describe("manualSchedulerFire scope", () => {
     __setSchedulerEffectDepsForTest(undefined);
   });
 
-  it("fires only the selected cron's does edges", async () => {
+  it("cron fire applies own does then cascades trigger→relay does", async () => {
     const result = await manualSchedulerFire({
       canvasName: "board",
       sourceNodeId: "cron1",
@@ -130,11 +130,12 @@ describe("manualSchedulerFire scope", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.kind).toBe("cron");
-    expect(result.applied).toBe(1);
-    expect(enqueues).toEqual(["from-cron"]);
+    // cron does + cascade into relay does
+    expect(result.applied).toBe(2);
+    expect(enqueues).toEqual(["from-cron", "from-relay"]);
   });
 
-  it("fires only the selected relay's does edges", async () => {
+  it("relay fire applies only that relay's does (no reverse cascade)", async () => {
     const result = await manualSchedulerFire({
       canvasName: "board",
       sourceNodeId: "relay1",

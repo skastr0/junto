@@ -40,8 +40,8 @@ function EdgeCard({ row }: { readonly row: ActorEdgeRow }) {
       ? row.ports.map((p) => p.replace(/^[a-z]+\./, "")).join(" - ")
       : null;
   const meta: string[] = [];
-  if (row.boardNotify === "on") meta.push("notify");
-  if (row.boardNotify === "off") meta.push("notify off");
+  if (row.boardNotify === "on") meta.push("wakes");
+  if (row.boardNotify === "off") meta.push("wakes off");
   const title = [
     `${row.direction === "out" ? "to" : "from"} ${row.peerTitle}`,
     `kind ${row.peerKind}`,
@@ -78,7 +78,7 @@ function EdgeCard({ row }: { readonly row: ActorEdgeRow }) {
         <div className="actor-edges-glance__flags">
           {row.boardNotify === "on" ? (
             <Chip tone="amber" title="Board wake on">
-              notify
+              wakes
             </Chip>
           ) : null}
           {row.boardNotify === "off" ? (

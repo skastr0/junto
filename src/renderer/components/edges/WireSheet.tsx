@@ -280,12 +280,13 @@ function HoldSection({
   readonly edge: CanvasEdge;
 }) {
   const criteria = edge.ether?.stops;
+  // Work-lane default is tasks stops (needs input) — not a wipeable "none".
   const mode =
     criteria?.mode === "proof"
       ? "proof"
       : criteria?.mode === "approval"
         ? "approval"
-        : "none";
+        : "tasks";
   const step =
     criteria && (criteria.mode === "proof" || criteria.mode === "approval")
       ? criteria.step
@@ -301,12 +302,13 @@ function HoldSection({
           aria-label="Hold on this link"
           value={mode}
           options={[
-            { value: "none", label: "None" },
+            { value: "tasks", label: "Needs input" },
             { value: "proof", label: "Proof step" },
             { value: "approval", label: "Human approval" },
           ]}
           onChange={(value) => {
-            if (value === "none") {
+            if (value === "tasks") {
+              // Restores auto work-lane stops — never wipes to soft relates.
               setEdgeCriteria(edgeId, undefined);
               return;
             }
@@ -318,7 +320,7 @@ function HoldSection({
           }}
         />
       </label>
-      {mode !== "none" ? (
+      {mode === "proof" || mode === "approval" ? (
         <label className="inspector-editor">
           <span>Step name</span>
           <input
