@@ -27,14 +27,14 @@ that reaches that power.
 | Plane | Question it answers | Lives in | Mutated by |
 |-------|---------------------|----------|------------|
 | **Capability** | What may this principal reach? | Drawn edges + ports + process-bind | Human draw/delete; admit/release of bound process |
-| **Phase** | Is work blocked or free to proceed? | Derived edge phase (`blocks` \| `relates`) from criteria + live worker/trust state | Recomputed; never authorial `ether.kind` input |
+| **Phase** | Is work blocked or free to proceed? | Derived edge phase (`blocks` \| `relates`) from `stops` + live worker/trust state | Recomputed; never authorial `ether.kind` input |
 | **Attention / occupancy** | Is the seat empty, busy, or needing a human? | Live runtime state on seats | Process lifecycle, task status, operator focus |
 
 Laws of plane separation:
 
 1. **Capability does not imply phase.** An open edge lets you reach a sink; it
    does not mean work is unblocked.
-2. **Phase does not imply attention.** Cleared criteria do not mean the
+2. **Phase does not imply attention.** Cleared `stops` do not mean the
    operator is looking.
 3. **Attention does not mint capability.** Focusing a node never grants edges.
 4. **Cross-plane leakage is a bug.** Do not encode occupancy in document
@@ -42,7 +42,7 @@ Laws of plane separation:
 
 ```text
 human draws edge ──► capability (ocap exists)
-criteria + live data ──► phase (blocks | relates)  // no depends / no cascade
+stops + live data ──► phase (blocks | relates)  // no depends / no edge cascade
 bound process + live work ──► occupancy (empty…gone)
 operator trust / focus ──► attention (org vs personal)
 ```
@@ -61,7 +61,7 @@ No “same region ⇒ power.”
 | Human **draws** edge | Mint ocap (document records the capability) |
 | Edge **ports** | Attenuate what the ocap may do (access filter) |
 | Human **deletes** edge | Revoke ocap immediately |
-| Soft edge (no criteria) | Capability to *relate*; never invents stoppage |
+| Soft edge (no `stops`) | Capability to *relate*; never invents stoppage |
 
 Wielding requires **process-bind**: a live registered descendant process of the
 host-local actor seat, admitted by Unix peer PID (+ PPID walk). The document
@@ -122,31 +122,36 @@ unclaimed attention item is inventory for a human — it stops nobody. Claims
 address the vellum node id (names are display labels, roles are routing tags).
 Manual `blocker` flags mark that actor only.
 There is **no** `depends` phase and **no** automatic multi-hop dependency
-cascade. Clear criteria → soft **relates**.
+cascade on edges. Clear `stops` → soft **relates**.
 
-**Opt-in actor↔actor state relay:** edge property `ether.relayState: true`
-(default off — not a Port, not criteria). When on between blockable actors, a
-blocked endpoint transmits its stoppage **and the same reason payloads** to the
-other endpoint; multi-hop along further `relayState` edges. Absent/false never
-relays.
+**Multi-hop stoppage is a relay node, not an edge flag.** There is no
+`ether.relayState` (or any cascade property on edges). To propagate stoppage
+beyond the direct claimant actor, author an explicit **relay** scheduler:
+sink→relay input wire carries `when` (watch); relay→target output wire carries
+`does` (effects). Stoppage evaluation marks only the edge’s `toNode` actor;
+further hops are wire automation, not phase cascade.
 
-**Retired (do not reintroduce):** well-known `project` kind; edge criteria
-modes `glyphs` / `wip`; `depends` phase; *automatic* dependency cascade/relay
-between packet-sinks or actors (opt-in `relayState` is the only exception).
+**Retired (do not reintroduce):** well-known `project` kind; stop modes
+`glyphs` / `wip`; `depends` phase; edge cascade flags (`relayState`); dual
+product keys `criteria` / `notify` / `effect` (scrub may map them once on
+decode — not authoring); node-body `ether.relay`; automatic dependency cascade
+between packet-sinks or actors.
 
-### 3. Ports vs criteria
+### 3. Ports vs stops
 
-Two filters on the same edge geometry; different jobs.
+Two filters on the same edge geometry; different jobs. Sibling wire areas:
+`wake` (board megaphone, default ON), `when` / `does` / `slot` (scheduler
+wires).
 
-| | **Ports** | **Criteria** |
-|---|-----------|--------------|
+| | **Ports** | **Stops** |
+|---|-----------|-----------|
 | Plane | Capability (access) | Phase (stoppage) |
 | Question | May this actor invoke this op on this sink? | Does live work still block progress? |
-| Absence | No port match → no access (fail closed on protected ops) | No criteria → soft **relates**; never generates blocks |
-| Modes (criteria) | — | `tasks`, `proof`, `approval` (see document contract) |
+| Absence | No port match → no access (fail closed on protected ops) | No `stops` → soft **relates**; never generates blocks |
+| Modes (`stops`) | — | `tasks`, `proof`, `approval` (see document contract) |
 | Authoring | Attenuation of the ocap | Phase filter on the ocap’s *progress semantics* |
 
-Criteria **stay on edges**. They do not become node-local ACLs. Ports never
+`stops` **stay on edges**. They do not become node-local ACLs. Ports never
 substitute for process-bind identity.
 
 ### 4. Seats vs occupants
@@ -164,7 +169,7 @@ Occupancy spectrum (live, derived — not stored as permanent document truth):
 | `idle` | Bound; no active work item |
 | `working` | Bound; active task / session in flight |
 | `attention` | Needs operator input (permission, review, focus) |
-| `activity_blocked` | Bound but phase plane says blocked (criteria stoppage on this seat) |
+| `activity_blocked` | Bound but phase plane says blocked (`stops` stoppage on this seat) |
 | `stalled` | Expected progress missing (timeout / heartbeat gap) |
 | `parked` | Intentionally held (flag / operator park) |
 | `gone` | Former occupant exited; seat vacant until rebind |
@@ -260,7 +265,7 @@ the act can touch the OS.
 | **Authorial `ether.role`** | Role is derived from kind; mirrors stay derived |
 | **Client-supplied identity** | Process-bind only; no `VELLUM_NODE_REF` claims |
 | **Encoding occupancy in the authorial document as authority** | Occupancy is live; restart re-baselines seats |
-| **Criteria as access control** | Criteria filter phase/stoppage only |
+| **Stops as access control** | `stops` filter phase/stoppage only |
 | **Attention as authz** | Operator focus never mints edges |
 
 ---
@@ -270,7 +275,9 @@ the act can touch the OS.
 | Surface | Factory physics reading |
 |---------|-------------------------|
 | Human draws edge in Command Center | Mint ocap |
-| `ether.criteria` on edge | Phase filter (stoppage) |
+| `ether.stops` on edge | Phase filter (stoppage) |
+| `ether.wake` on board edges | Operator megaphone eligibility (default ON) |
+| `ether.when` / `ether.does` / `ether.slot` | Scheduler watch / effect / wire-end role |
 | Work control socket + token | Transport; not identity |
 | Process-bind (peer PID) | Occupant admission to seat |
 | `authz` / `ScopeError` | Capability plane enforcement |
@@ -289,7 +296,8 @@ they are not degraded through a compatibility rewrite. Unknown
 
 | Area | Module |
 |------|--------|
-| Document + criteria | `src/shared/canvas.ts` |
+| Document + stops / wire areas | `src/shared/canvas.ts` (`EtherEdgeExtension`) |
+| Execution graph (phase from stops) | `src/shared/execution-graph.ts` |
 | Derived graph / phase | `src/shared/graph.ts` |
 | Work control authz | `src/main/vellum/work/authz.ts` |
 | Control socket + ScopeError | `src/main/vellum/work/control.ts` |
@@ -304,7 +312,7 @@ they are not degraded through a compatibility rewrite. Unknown
 Vellum Command is a **premium station**. The factory floor is legible:
 
 - what an agent can do is **what you drew**
-- what is stuck is **what criteria + live data say**
+- what is stuck is **what `stops` + live data say**
 - what needs you is **occupancy and attention**, not a hidden ACL
 - host power still sits behind machine-safety seals
 

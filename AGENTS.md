@@ -155,7 +155,7 @@ nodes.
 
 Ops go through WorkService (tasks/messages/requests/artifacts/board). That is the agent write path; freeform canvas authoring remains human/Command Center.
 
-**Board residency:** board is a **Command Center-homed global sink** (same residency class as actor mailboxes). Sink definition is in the fleet projection; material topics/posts live only on CC. Remote agents enqueue `board.topic.create` / `board.post.append`; Remotes store applied dispositions/events and do **not** rematerialize board rows. List/read the full board on Command Center. `board.mark_read` is install-local. Operator megaphone / edge `notify` is CC UI only; agent posts never wake.
+**Board residency:** board is a **Command Center-homed global sink** (same residency class as actor mailboxes). Sink definition is in the fleet projection; material topics/posts live only on CC. Remote agents enqueue `board.topic.create` / `board.post.append`; Remotes store applied dispositions/events and do **not** rematerialize board rows. List/read the full board on Command Center. `board.mark_read` is install-local. Operator megaphone / edge `wake` is CC UI only; agent posts never wake.
 
 ### Station roles
 
@@ -177,13 +177,19 @@ Standard JSON Canvas 1.0 (`nodes` of type `text`/`file`/`link`/`group`, `edges`)
   } }
 ```
 
-Edges: `{ "id", "fromNode", "toNode", "ether": { "criteria"?: EdgeCriteria, "ports"?: Port[] } }`.
+Edges: `{ "id", "fromNode", "toNode", "ether": { "stops"?: EdgeCriteria, "ports"?: Port[], "wake"?: boolean, "slot"?: WireSlot, "when"?: WatchWhen, "does"?: EdgeEffect } }`.
 
-**Edge product (criteria-only for stoppage; ports for capability):**
-- No `criteria` → soft **relates** (capability/ocap only; never generates stoppage).
-- `criteria.mode: "tasks"` → **blocking is worker-state, not a queue cascade.** `submitted`/`working` never block — an open queue is a factory humming. Stoppage is attention only: `input-required` on the source task/requests sink generates **blocks** on the **connected actor** (`toNode`). No automatic fan-out. Opt-in actor↔actor relay is `ether.relayState: true` on the edge (default off) — copies blocked reasons multi-hop. (Blockability is `role === "actor"` only — see [`architecture-factory-physics.md`](docs/architecture-factory-physics.md) §2a.)
-- `criteria.mode: "proof"` / `"approval"` → blocks until matching runtime stamp / human grant (trust plane).
-- **Retired (rejected by strict decode):** `glyphs`/`wip` criteria modes; glyph watcher kinds (`glyphs_done`/`glyphs_entered_state`); private-source watchers; `ether.view` project slices; `depends` phase; dependency cascade/relay. `project` is no longer well-known, though the open `entity.kind` vocabulary still permits it as inert furniture.
+Canonical edge ether words: **`stops` · `wake` · `does` · `when` · `slot` · `ports`**. One word per area. Writers emit only these; decode may scrub old dual keys once (`criteria`→`stops`, `notify`→`wake`, `effect`→`does`) — migration hygiene, not product authoring.
+
+**Edge product (stops for hold; ports for capability; wake/when/does/slot for wires):**
+- No `stops` → soft **relates** (capability/ocap only; never generates stoppage).
+- `stops.mode: "tasks"` → **blocking is worker-state, not a queue cascade.** `submitted`/`working` never block — an open queue is a factory humming. Stoppage is attention only: `input-required` on the source task/requests sink generates **blocks** on the **connected actor** (`toNode`). No automatic fan-out. Multi-hop stoppage is an explicit **relay** node plus watch/effect wires only — never an edge cascade flag. (Blockability is `role === "actor"` only — see [`architecture-factory-physics.md`](docs/architecture-factory-physics.md) §2a.)
+- `stops.mode: "proof"` / `"approval"` → blocks until matching runtime stamp / human grant (trust plane).
+- `wake` on board-linked edges — default **ON** (absent/true); explicit `false` opts the seat out of operator megaphone. Agent posts never wake.
+- `when` on sink→relay **input** wires (watch predicate: completes / flagged / any-OR).
+- `does` on scheduler **output** wires (fire actions).
+- `slot` assigns the wire end at the scheduler (`input` | `output` | `trigger` | `recipient`).
+- **Retired (fail strict decode; scrub drops dual keys):** `criteria` / `notify` / `effect` as product keys; `ether.relayState` cascade; node-body `ether.relay`; `glyphs`/`wip` stop modes; glyph watcher kinds (`glyphs_done`/`glyphs_entered_state`); private-source watchers; `ether.view` project slices; `depends` phase; automatic dependency cascade. `project` is no longer well-known, though the open `entity.kind` vocabulary still permits it as inert furniture.
 - Live **phase** is only `blocks` | `relates` (derived). Optional `ether.kind` is a phase mirror for offline JSON Canvas readers — never authorial input.
 
 **Two invariants** (enforced on every app/CLI write):
@@ -220,10 +226,13 @@ Only schedulers push; actors pull. Connect refused for sink–sink and geography
 
 **Not a product peer:** hermes **gauge** (`watcher`) is palette-hidden / dormant.
 
-**Wire areas (v2):** `ports` - `stops` - `wake` - `slot` - `when` - `does`. Legacy
-`criteria`/`notify`/`effect` still decode (dual-read). No `relayState` cascade.
+**Wire areas:** `ports` - `stops` - `wake` - `slot` - `when` - `does`. Product
+shape is one word per area (no dual-read product law). Scrub may map old dual
+keys once on load. No `relayState` cascade — multi-hop stoppage is a **relay**
+node + `when` / `does` wires only.
 
-**Effects (v1):** `enqueue_task` - `set_flag`. Claim assignment stays the factory tick.
+**Effects (v1):** `enqueue_task` - `set_flag` - `inject_prompt`. Claim assignment
+stays the factory tick.
 
 **Scheduler laws**: (1) Sensor truth is derived. (2) Single-home evaluation.
 (3) Interval catch-up ≤1 due tick. (4) **Automate only when station role is
