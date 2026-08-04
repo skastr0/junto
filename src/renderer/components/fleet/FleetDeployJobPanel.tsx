@@ -125,8 +125,8 @@ export function FleetDeployJobPanel({
 
       {job.status === "running" ? (
         <p className="fleet-deploy-job__note">
-          Running in Command Center main process. You can close this panel —
-          deploy continues; reopen this machine to watch progress.
+          The deploy keeps running if you close this panel. Reopen this
+          machine to watch progress.
         </p>
       ) : null}
     </section>

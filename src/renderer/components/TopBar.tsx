@@ -124,7 +124,7 @@ function CanvasPicker({
 
 function SearchField({ canvasName }: { readonly canvasName: string }) {
   const value = use$(state$.searchQuery);
-  const label = `Search ${canvasName || "factory"}`;
+  const label = `Search ${canvasName || "canvas"}`;
   const setSearch = (next: string) => {
     state$.searchQuery.set(next);
     state$.selectedNodeId.set("");

@@ -245,8 +245,8 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
     setActionLine(
       kind === "deploy"
         ? jobBridge
-          ? "Deploy accepted — live progress is at the top of this panel (main process; survives closing Fleet)."
-          : "Deploy accepted — restart Command Center fully to enable the live progress panel (preload/main not hot-reloaded)."
+          ? "Deploy accepted — live progress is at the top of this panel."
+          : "Deploy accepted — restart Command Center to see live progress."
         : "",
     );
     try {
@@ -433,7 +433,7 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
           <p className="fleet-detail__note">
             {deployEnabled
               ? autoWalkWouldRun
-                ? "Eligible for automatic managed update when idle (one Remote at a time)."
+                ? "Updates automatically when idle, one Remote at a time."
                 : remoteManagedInstalls
                   ? "Update available. Command Center must match this release before Remotes auto-update."
                   : "Update available. Enable “Allow remote managed installs” for fleet auto-update, or Deploy when ready."
