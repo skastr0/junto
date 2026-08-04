@@ -54,7 +54,6 @@ import { browser$ } from "../../lib/browser-state";
 import { formatNodeRef } from "@shared/node-ref";
 import { OpenHerdrMark } from "../herdr/OpenHerdrMark";
 import {
-  EdgeCriteriaEditor,
   PageBindingControl,
   PageUrlControl,
   RelayEditor,
@@ -62,6 +61,7 @@ import {
   TimerEditor,
   WatcherEditor,
 } from "../InspectorFields";
+import { edgeSheetSentence, edgeSheetTitle } from "../edges/WireSheet";
 import { CronScheduleSurface } from "../nodes/CronScheduleSurface";
 import "./rts-controls.css";
 
@@ -604,19 +604,10 @@ function SchedulerKindKeys({ node }: { readonly node: CanvasNode }) {
 
 export function EdgePairStrip({ edge }: { readonly edge: CanvasEdge }) {
   const doc = use$(state$.doc);
-  const execution = use$(kernel$.execution);
-  const [editorOpen, setEditorOpen] = useState(false);
-
-  useEffect(() => setEditorOpen(false), [edge.id]);
-
   const fromNode = doc.nodes.find((n) => n.id === edge.fromNode);
   const toNode = doc.nodes.find((n) => n.id === edge.toNode);
-  const criteria = edge.ether?.criteria;
-  const summary = !criteria
-    ? "soft relates"
-    : criteria.mode === "tasks"
-      ? "tasks — needs input blocks"
-      : `trust plane — ${criteria.mode}`;
+  const summary =
+    edgeSheetSentence(edge, fromNode, toNode) ?? edgeSheetTitle(edge, fromNode, toNode);
 
   return (
     <div className="rts-kind-strip" role="toolbar" aria-label="Relation pair actions">
@@ -624,24 +615,6 @@ export function EdgePairStrip({ edge }: { readonly edge: CanvasEdge }) {
         {fromNode ? nodeTitle(fromNode) : "?"} → {toNode ? nodeTitle(toNode) : "?"}
       </span>
       <span className="rts-kind-strip__meta">{summary}</span>
-      <KindKey
-        label={editorOpen ? "Close criteria editor" : "Edit stop criteria"}
-        title="edit when this relation stops flow"
-        active={editorOpen}
-        onClick={() => setEditorOpen((open) => !open)}
-      >
-        <SlidersHorizontal size={ICON} />
-      </KindKey>
-      {editorOpen ? (
-        <div className="rts-kind-pop rts-kind-pop--editor">
-          <EdgeCriteriaEditor
-            edgeId={edge.id}
-            fromNode={fromNode}
-            livePhase={execution?.phaseByEdgeId[edge.id]}
-            liveDetail={execution?.detailByEdgeId[edge.id]}
-          />
-        </div>
-      ) : null}
     </div>
   );
 }

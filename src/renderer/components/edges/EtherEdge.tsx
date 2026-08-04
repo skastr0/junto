@@ -9,10 +9,15 @@ import { accentColor, EDGE_COLOR, HUE } from "../../lib/theme";
 import { nodeBounds, routeWire, type WireRect } from "../../lib/wire-route";
 import type { WireFamily } from "@shared/physics";
 import {
+  chipPortsFromOffers,
+  edgeMaskAllows,
   familyColorToken,
   familyFromSlot,
+  offerPortsForAccessWire,
+  offersOf,
   resolveSpec,
   roleOf,
+  wirePresentation,
   wireRolePair,
 } from "@shared/physics";
 
@@ -114,26 +119,54 @@ export function EtherEdge({
     data?.edge.color && data.edge.color !== "1"
       ? accentColor(data.edge.color)
       : undefined;
-  // Family color (access/watch/trigger/effect) when slot/roles known; blocks still crimson.
+  // Family presentation (color, dash, worded halo, disabled dim) — pure grammar.
   const slot = data?.edge.ether?.slot;
   const doc = state$.doc.peek();
   const fromNode = doc.nodes.find((n) => n.id === source);
   const toNode = doc.nodes.find((n) => n.id === target);
-  const fromRole = roleOf(
-    resolveSpec({
-      isGroup: fromNode?.type === "group",
-      kind: fromNode?.ether?.entity?.kind,
-    }),
-  );
-  const toRole = roleOf(
-    resolveSpec({
-      isGroup: toNode?.type === "group",
-      kind: toNode?.ether?.entity?.kind,
-    }),
-  );
+  const fromKind = fromNode?.ether?.entity?.kind;
+  const toKind = toNode?.ether?.entity?.kind;
+  const fromSpec = resolveSpec({
+    isGroup: fromNode?.type === "group",
+    kind: fromKind,
+  });
+  const toSpec = resolveSpec({
+    isGroup: toNode?.type === "group",
+    kind: toKind,
+  });
+  const fromRole = roleOf(fromSpec);
+  const toRole = roleOf(toSpec);
   const family =
     familyFromSlot(slot, wireRolePair(fromRole, toRole)) ??
     (fromRole === "actor" || toRole === "actor" ? ("access" as const) : undefined);
+  const offerSet = offerPortsForAccessWire(
+    fromRole,
+    toRole,
+    offersOf(fromSpec),
+    offersOf(toSpec),
+  );
+  const offeredChips = chipPortsFromOffers(offerSet);
+  const edgeDoc = data?.edge;
+  const portsField = edgeDoc?.ether?.ports;
+  const activeChipCount: number | "full" =
+    !edgeDoc || portsField === undefined || portsField.length === 0
+      ? "full"
+      : offeredChips.filter((port) => edgeMaskAllows(edgeDoc, port)).length;
+  const hasMessages =
+    fromRole === "actor" &&
+    toRole === "actor" &&
+    Boolean(edgeDoc && edgeMaskAllows(edgeDoc, "msg.send"));
+  const presentation = family
+    ? wirePresentation({
+        family,
+        ether: edgeDoc?.ether,
+        fromKind,
+        toKind,
+        hasMessages,
+        offeredChipCount: offeredChips.length,
+        activeChipCount,
+      })
+    : undefined;
   const familyColor = familyHue(family);
   const color =
     phase === "blocks"
@@ -205,48 +238,51 @@ export function EtherEdge({
         : visualRole === "artifact-flow"
           ? 0.85
           : 1.2;
-  const baseOpacity =
-    visualRole === "artifact-flow"
+  const disabled = presentation?.disabled ?? false;
+  const baseOpacity = disabled
+    ? 0.25
+    : visualRole === "artifact-flow"
       ? 0.42
       : visualRole === "agent-msg"
         ? 0.88
-        : visualRole === "soft-relation" && !hasCriteria
+        : visualRole === "soft-relation" && !hasCriteria && !family
           ? 0.38
           : 0.9;
   const className = [
     "vellum-edge",
     `vellum-edge--${visualRole}`,
+    family ? `vellum-edge--family-${family}` : "",
+    presentation?.worded ? "vellum-edge--worded" : "",
+    disabled ? "vellum-edge--disabled" : "",
     blocked ? "vellum-edge--blocked" : "",
     rippling ? "vellum-edge-ripple" : "",
     impactIn ? "vellum-edge-impact-in" : "",
     routed?.detoured ? "vellum-edge--routed" : "",
   ].filter(Boolean).join(" ");
 
-  // Worded wire: carries a word-bearing config area. The halo extends the
-  // task-flow rail-bed treatment to every worded wire (coaxial, merges in
-  // bundles); task-flow already draws its bed, so it is excluded here.
-  const ether = data?.edge.ether;
-  const worded = Boolean(
-    ether?.stops ?? ether?.criteria ?? ether?.when ?? ether?.does ?? ether?.effect,
-  ) || ether?.wake !== undefined || ether?.notify !== undefined;
+  // Halo only when grammar says worded (and not disabled). Task-flow rail-bed
+  // remains for bare claim wires that still need construction weight.
+  const worded = presentation?.worded ?? false;
+  const strokeDasharray = presentation?.strokeDasharray;
 
   return (
     <>
-      {visualRole === "task-flow" ? (
+      {worded ? (
+        <path
+          d={path}
+          className="vellum-edge__word-bed"
+          fill="none"
+          stroke={color}
+          strokeWidth={8}
+          style={{ color }}
+        />
+      ) : visualRole === "task-flow" && !disabled ? (
         <path
           d={path}
           className="vellum-edge__rail-bed"
           fill="none"
           stroke={color}
           strokeWidth={5.4}
-        />
-      ) : worded ? (
-        <path
-          d={path}
-          className="vellum-edge__word-bed"
-          fill="none"
-          stroke={color}
-          strokeWidth={4.6}
         />
       ) : null}
       <BaseEdge
@@ -257,15 +293,27 @@ export function EtherEdge({
         style={{
           stroke: color,
           strokeWidth: impactIn ? Math.max(baseWidth, 2.1) : baseWidth,
-          opacity: impactIn ? 1 : baseOpacity,
+          opacity: impactIn && !disabled ? 1 : baseOpacity,
+          // Family lay always wins over soft-relation CSS dots.
+          ...(strokeDasharray
+            ? { strokeDasharray: strokeDasharray === "none" ? "none" : strokeDasharray }
+            : {}),
         }}
       />
-      {visualRole === "task-flow" || visualRole === "request-flow" || visualRole === "scheduler-flow" ? (
+      {!disabled &&
+      (visualRole === "task-flow" ||
+        visualRole === "request-flow" ||
+        visualRole === "scheduler-flow" ||
+        family === "effect") ? (
         <path
           d={path}
           fill="none"
           stroke={color}
-          className={`vellum-edge__signal vellum-edge__signal--${visualRole}`}
+          className={`vellum-edge__signal vellum-edge__signal--${
+            visualRole === "scheduler-flow" || family === "effect"
+              ? "scheduler-flow"
+              : visualRole
+          }`}
           pathLength={100}
         />
       ) : null}

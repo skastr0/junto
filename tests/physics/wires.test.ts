@@ -6,10 +6,20 @@ import {
   familiesForPair,
   familyColorToken,
   familyFromSlot,
+  familyStroke,
   formatWireSentence,
+  isAccessDisabled,
+  isWorded,
   sentenceOf,
+  wirePresentation,
   wireRolePair,
+  wordsOfEdge,
 } from "../../src/shared/physics/wires";
+import {
+  contractOf,
+  sheetSectionsFor,
+  sheetTitleFor,
+} from "../../src/shared/physics/contracts";
 
 describe("wires grammar", () => {
   it("allows actor–actor and actor–sink as access only", () => {
@@ -100,5 +110,110 @@ describe("wires grammar", () => {
     ).toBe("watch - completes");
     expect(familyColorToken("effect")).toBe("amber");
     expect(familyColorToken("access")).toBe("steel");
+  });
+
+  it("family stroke lay is solid / long-dash / dotted / solid", () => {
+    expect(familyStroke("access").dasharray).toBe("none");
+    expect(familyStroke("watch").dasharray).toBe("12 6");
+    expect(familyStroke("trigger").dasharray).toBe("3 6");
+    expect(familyStroke("effect").dasharray).toBe("none");
+  });
+
+  it("derives words and worded/disabled presentation", () => {
+    expect(
+      wordsOfEdge({
+        family: "access",
+        ether: { stops: { mode: "tasks" } },
+      }),
+    ).toEqual(["stops"]);
+    expect(
+      wordsOfEdge({
+        family: "access",
+        ether: {},
+        fromKind: "board",
+        toKind: "agent",
+      }),
+    ).toEqual(["wakes"]);
+    expect(wordsOfEdge({ family: "watch", ether: {} })).toEqual(["completes"]);
+    expect(
+      wordsOfEdge({
+        family: "effect",
+        ether: { does: { mode: "set_flag" } },
+      }),
+    ).toEqual(["flags"]);
+
+    expect(isWorded("access", [])).toBe(false);
+    expect(isWorded("access", ["stops"])).toBe(true);
+    expect(isWorded("watch", [])).toBe(true);
+    expect(isWorded("effect", [])).toBe(true);
+    expect(isWorded("trigger", [])).toBe(false);
+
+    expect(
+      isAccessDisabled({
+        family: "access",
+        offeredChipCount: 3,
+        activeChipCount: 0,
+      }),
+    ).toBe(true);
+    expect(
+      isAccessDisabled({
+        family: "access",
+        offeredChipCount: 3,
+        activeChipCount: "full",
+      }),
+    ).toBe(false);
+
+    const bareAccess = wirePresentation({ family: "access", ether: {} });
+    expect(bareAccess.worded).toBe(false);
+    expect(bareAccess.strokeDasharray).toBe("none");
+
+    const wordedAccess = wirePresentation({
+      family: "access",
+      ether: { stops: { mode: "tasks" } },
+    });
+    expect(wordedAccess.worded).toBe(true);
+    expect(wordedAccess.words).toContain("stops");
+
+    const watch = wirePresentation({ family: "watch", ether: {} });
+    expect(watch.worded).toBe(true);
+    expect(watch.strokeDasharray).toBe("12 6");
+    expect(watch.colorToken).toBe("cyan");
+  });
+
+  it("node contracts drive sheet sections by family", () => {
+    expect(contractOf("task")?.events.some((e) => e.word === "completes")).toBe(
+      true,
+    );
+    expect(sheetTitleFor("watch")).toBe("Watch");
+    const access = sheetSectionsFor({
+      family: "access",
+      fromKind: "agent",
+      toKind: "task",
+    });
+    expect(access.map((s) => s._tag)).toEqual(["ports", "delete"]);
+    const board = sheetSectionsFor({
+      family: "access",
+      fromKind: "agent",
+      toKind: "board",
+    });
+    expect(board.map((s) => s._tag)).toEqual(["ports", "wake", "delete"]);
+    const watch = sheetSectionsFor({
+      family: "watch",
+      fromKind: "task",
+      toKind: "relay",
+    });
+    expect(watch[0]?._tag).toBe("when");
+    const effect = sheetSectionsFor({
+      family: "effect",
+      fromKind: "cron",
+      toKind: "task",
+    });
+    expect(effect[0]?._tag).toBe("does");
+    const trigger = sheetSectionsFor({
+      family: "trigger",
+      fromKind: "agent",
+      toKind: "relay",
+    });
+    expect(trigger.map((s) => s._tag)).toEqual(["trigger_readout", "delete"]);
   });
 });

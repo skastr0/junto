@@ -81,25 +81,50 @@
   stroke-linejoin: round;
   pointer-events: none;
 }
-/* Worded-wire halo: same treatment as the rail-bed, softer — the one always-on
-   word bit. Coaxial with the hairline so bundles merge into a corridor glow. */
+/* Worded-wire halo: the one always-on word bit, on every family incl. claim
+   wires. Coaxial with the hairline so bundles merge into a corridor glow.
+   Tuned to be unmistakable at working zoom — a lit conduit, not a whisper. */
 .vellum-edge__word-bed {
-  opacity: .12;
+  opacity: .34;
   stroke-linecap: round;
   stroke-linejoin: round;
   pointer-events: none;
+  filter: drop-shadow(0 0 6px currentColor);
 }
 path.vellum-edge {
   transition:
     stroke 420ms cubic-bezier(.22,.61,.36,1),
     opacity 240ms ease-out;
 }
-path.vellum-edge--soft-relation { stroke-dasharray: 1.5 5; }
+/* Soft relation only when no wire family is known (fallback furniture). */
+path.vellum-edge--soft-relation:not([class*="vellum-edge--family-"]) {
+  stroke-dasharray: 1.5 5;
+}
 path.vellum-edge--artifact-flow { stroke-dasharray: 1 3; }
 /* Agent↔agent msg.send: solid medium stroke (not dotted soft-relation). */
 path.vellum-edge--agent-msg {
   stroke-dasharray: none;
   stroke-linecap: round;
+}
+/* Wire-family lay (artifact grammar) — always wins over soft-relation dots. */
+path.vellum-edge--family-access {
+  stroke-dasharray: none;
+  stroke-linecap: round;
+}
+path.vellum-edge--family-watch {
+  stroke-dasharray: 12 6;
+  stroke-linecap: round;
+}
+path.vellum-edge--family-trigger {
+  stroke-dasharray: 3 6;
+  stroke-linecap: round;
+}
+path.vellum-edge--family-effect {
+  stroke-dasharray: none;
+  stroke-linecap: round;
+}
+path.vellum-edge--disabled {
+  /* Opacity is set inline (~0.25); keep sparks/halos off via JS. */
 }
 .vellum-edge__signal {
   pointer-events: none;

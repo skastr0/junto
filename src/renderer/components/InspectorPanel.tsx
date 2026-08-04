@@ -1,14 +1,12 @@
 import { memo, useEffect, useState } from "react";
-import { Trash2, X } from "lucide-react";
+import { X } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
 import type { CanvasNode } from "@shared/canvas";
 import { isHarnessId } from "@shared/managed-terminal-templates";
-import { deriveExecutionGraph } from "@shared/execution-graph";
-import { executionGraphContextFromActorRefs } from "@shared/graph";
-import { deleteEdges, setEdgeCriteria } from "../lib/edge-mutations";
-import { EdgeCriteriaEditor, EdgePortsAttenuator, NodeCapabilityInventory, NodeFieldEditors, NodePlacementSection } from "./InspectorFields";
+import { deleteEdges } from "../lib/edge-mutations";
+import { NodeCapabilityInventory, NodeFieldEditors, NodePlacementSection } from "./InspectorFields";
+import { edgeSheetTitle, WireSheetBody } from "./edges/WireSheet";
 import { clearSelection, state$ } from "../lib/state";
-import { kernel$ } from "../lib/kernel-view";
 import { DIM, GREEN, HUE, INK, withAlpha } from "../lib/theme";
 import { nodeDetail, nodeTitle, nodeTypeLabel } from "../lib/presentation";
 import { HERDR_ENABLED } from "@shared/features";
@@ -160,34 +158,12 @@ const NodeInspector = memo(function NodeInspector({ node, onClose }: { readonly 
 
 function EdgeInspector({ onClose }: { readonly onClose: () => void }) {
   const doc = use$(state$.doc);
-  const canvasName = use$(state$.canvasName);
-  const actorRefs = use$(state$.actorRefs);
   const edgeId = use$(state$.selectedEdgeId);
-  const execution = use$(kernel$.execution);
   const edge = doc.edges.find((candidate) => candidate.id === edgeId);
   if (!edge) return null;
   const source = doc.nodes.find((node) => node.id === edge.fromNode);
   const target = doc.nodes.find((node) => node.id === edge.toNode);
-  // Match canvas: prefer kernel overlay, else cold derive (tasks work offline).
-  const cold = execution
-    ? null
-    : deriveExecutionGraph(
-        doc,
-        executionGraphContextFromActorRefs(canvasName, actorRefs),
-      );
-  const livePhase =
-    execution?.phaseByEdgeId?.[edge.id] ?? cold?.phaseByEdgeId.get(edge.id) ?? "relates";
-  const liveDetail =
-    execution?.detailByEdgeId?.[edge.id] ?? cold?.detailByEdgeId.get(edge.id) ?? "";
-  const criteria = edge.ether?.stops ?? edge.ether?.criteria;
-  const title =
-    edge.ether?.slot === "input"
-      ? "Watch"
-      : edge.ether?.slot === "output" || edge.ether?.slot === "recipient"
-        ? "On fire"
-        : edge.ether?.slot === "trigger"
-          ? "Trigger"
-          : "Access";
+  const title = edgeSheetTitle(edge, source, target);
   return (
     <aside className="inspector-panel">
       <InspectorHeader
@@ -200,24 +176,13 @@ function EdgeInspector({ onClose }: { readonly onClose: () => void }) {
         onClose={onClose}
       />
       <div className="inspector-body">
-        <EdgePortsAttenuator edge={edge} />
-        <EdgeCriteriaEditor
-          edgeId={edge.id}
+        <WireSheetBody
+          edge={edge}
           fromNode={source}
-          livePhase={livePhase}
-          liveDetail={liveDetail}
+          toNode={target}
+          showDelete
+          onDelete={() => deleteEdges([edge.id])}
         />
-        <div className="inspector-actions">
-          {criteria ? (
-            <button onClick={() => setEdgeCriteria(edge.id, undefined)}>
-              Clear stop condition
-            </button>
-          ) : null}
-          <button className="inspector-action--danger" onClick={() => deleteEdges([edge.id])}>
-            <Trash2 size={13} />
-            Delete link
-          </button>
-        </div>
       </div>
     </aside>
   );

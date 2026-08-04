@@ -24,7 +24,6 @@ import type { CanvasEdge, CanvasNode } from "@shared/canvas";
 import { HERDR_ENABLED } from "@shared/features";
 import { isHarnessId } from "@shared/managed-terminal-templates";
 import { state$ } from "../../lib/state";
-import { kernel$ } from "../../lib/kernel-view";
 import { nodeDetail, nodeTitle, nodeTypeLabel } from "../../lib/presentation";
 import { HUE } from "../../lib/theme";
 import { connectionStateOf, herdr$, refreshHerdrMeta } from "../../lib/herdr-state";
@@ -43,8 +42,6 @@ import { RegionPathsModal } from "../RegionPathsModal";
 import { ChatComposer } from "../chat/ChatComposer";
 import "../chat/chat.css";
 import {
-  EdgeCriteriaEditor,
-  EdgePortsAttenuator,
   NodeCapabilityInventory,
   NodeFieldEditors,
   NodePlacementSection,
@@ -52,7 +49,8 @@ import {
   RegionHerdrDefaultsControl,
   RegionPageDefaultsControl,
 } from "../InspectorFields";
-import { deleteEdges, setEdgeCriteria } from "../../lib/edge-mutations";
+import { deleteEdges } from "../../lib/edge-mutations";
+import { edgeSheetTitle, WireSheetBody } from "../edges/WireSheet";
 import { KindActions, EdgePairStrip, KindKey } from "./RtsControls";
 import "./rts-controls.css";
 
@@ -214,21 +212,9 @@ function EdgeFormFocus({
   readonly onClose: () => void;
 }) {
   const doc = use$(state$.doc);
-  const execution = use$(kernel$.execution);
   const fromNode = doc.nodes.find((n) => n.id === edge.fromNode);
   const toNode = doc.nodes.find((n) => n.id === edge.toNode);
-
-  const livePhase = execution?.phaseByEdgeId?.[edge.id] ?? "relates";
-  const liveDetail = execution?.detailByEdgeId?.[edge.id] ?? "";
-  const criteria = edge.ether?.stops ?? edge.ether?.criteria;
-  const title =
-    edge.ether?.slot === "input"
-      ? "Watch"
-      : edge.ether?.slot === "output" || edge.ether?.slot === "recipient"
-        ? "On fire"
-        : edge.ether?.slot === "trigger"
-          ? "Trigger"
-          : "Access";
+  const title = edgeSheetTitle(edge, fromNode, toNode);
   const pair = `${fromNode ? nodeTitle(fromNode) : edge.fromNode} → ${toNode ? nodeTitle(toNode) : edge.toNode}`;
 
   return (
@@ -252,30 +238,16 @@ function EdgeFormFocus({
         }
       />
       <div className="rts-kind-form-body inspector-body">
-        <EdgePortsAttenuator edge={edge} />
-        <EdgeCriteriaEditor
-          edgeId={edge.id}
+        <WireSheetBody
+          edge={edge}
           fromNode={fromNode}
-          livePhase={livePhase}
-          liveDetail={liveDetail}
+          toNode={toNode}
+          showDelete
+          onDelete={() => {
+            deleteEdges([edge.id]);
+            onClose();
+          }}
         />
-        <div className="inspector-actions">
-          {criteria ? (
-            <button type="button" onClick={() => setEdgeCriteria(edge.id, undefined)}>
-              Clear stop condition
-            </button>
-          ) : null}
-          <button
-            type="button"
-            className="inspector-action--danger"
-            onClick={() => {
-              deleteEdges([edge.id]);
-              onClose();
-            }}
-          >
-            Delete link
-          </button>
-        </div>
       </div>
     </FocusSurface>
   );

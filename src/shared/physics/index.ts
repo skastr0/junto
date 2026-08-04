@@ -130,17 +130,39 @@ export {
   familiesForPair,
   familyColorToken,
   familyFromSlot,
+  familyStroke,
   formatWireSentence,
+  isAccessDisabled,
+  isWorded,
   offerPortsForAccessWire,
   sentenceOf,
+  wirePresentation,
   wireRolePair,
+  wordsOfEdge,
 } from "./wires";
 export type {
   ConnectOk,
   ConnectRefusal,
+  FamilyStroke,
+  WireEtherView,
   WireFamily,
+  WirePresentation,
   WireRolePair,
   WireSentence,
   WireSlot,
   WireWord,
 } from "./wires";
+
+export {
+  NodeContracts,
+  contractOf,
+  sheetSectionsFor,
+  sheetTitleFor,
+  wordForSheetSection,
+} from "./contracts";
+export type {
+  ContractEvent,
+  ContractInput,
+  NodeContract,
+  SheetSection,
+} from "./contracts";

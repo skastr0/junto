@@ -279,3 +279,163 @@ export const sentenceOf = (input: {
   family: input.family,
   words: input.words ?? [],
 });
+
+/**
+ * Family stroke lay — fixed forever. Renderers map dasharray to SVG stroke.
+ * solid → explicit "none" so CSS soft-relation dots cannot win.
+ */
+export type FamilyStroke = {
+  readonly dasharray: "none" | "12 6" | "3 6";
+};
+
+export const familyStroke = (family: WireFamily): FamilyStroke => {
+  switch (family) {
+    case "access":
+      return { dasharray: "none" };
+    case "watch":
+      return { dasharray: "12 6" };
+    case "trigger":
+      return { dasharray: "3 6" };
+    case "effect":
+      return { dasharray: "none" };
+    default: {
+      const _exhaustive: never = family;
+      return _exhaustive;
+    }
+  }
+};
+
+/** Minimal ether surface for pure word derivation (no canvas import). */
+export type WireEtherView = {
+  readonly stops?: unknown;
+  readonly criteria?: unknown;
+  readonly wake?: boolean;
+  readonly notify?: boolean;
+  readonly when?: { readonly word?: string };
+  readonly does?: { readonly mode?: string };
+  readonly effect?: { readonly mode?: string };
+  readonly ports?: ReadonlyArray<string>;
+};
+
+/**
+ * Derive lexicon words from edge ether + endpoint kinds.
+ * Words are pure config presence — never phase/runtime.
+ */
+export const wordsOfEdge = (input: {
+  readonly family: WireFamily;
+  readonly ether?: WireEtherView;
+  readonly fromKind?: string;
+  readonly toKind?: string;
+  /** True when msg.* is effectively available on an actor–actor wire. */
+  readonly hasMessages?: boolean;
+}): ReadonlyArray<WireWord> => {
+  const { family, ether, fromKind, toKind, hasMessages } = input;
+  const words: WireWord[] = [];
+  if (family === "access") {
+    if (ether?.stops != null || ether?.criteria != null) words.push("stops");
+    const touchesBoard = fromKind === "board" || toKind === "board";
+    const wake = ether?.wake ?? ether?.notify;
+    if (touchesBoard && wake !== false) words.push("wakes");
+    if (hasMessages) words.push("messages");
+    return words;
+  }
+  if (family === "watch") {
+    const word = ether?.when?.word;
+    if (word === "completes") words.push("completes");
+    else if (word === "flagged") words.push("flagged");
+    // Watch always carries a word in product; default completes when unset
+    // so the sentence is never empty mid-draw.
+    else words.push("completes");
+    return words;
+  }
+  if (family === "effect") {
+    const mode = ether?.does?.mode ?? ether?.effect?.mode;
+    if (mode === "enqueue_task") words.push("enqueues");
+    else if (mode === "set_flag") words.push("flags");
+    // Effect always worded; default enqueues when mode absent (draw default).
+    else words.push("enqueues");
+    return words;
+  }
+  // trigger — no live words yet
+  return words;
+};
+
+/**
+ * Halo rule (artifact cold scan):
+ * - watch / effect → always worded (family always carries a word)
+ * - trigger → bare (no live words)
+ * - access → worded only when stops / wakes / messages present
+ */
+export const isWorded = (
+  family: WireFamily,
+  words: ReadonlyArray<WireWord>,
+): boolean => {
+  if (family === "watch" || family === "effect") return true;
+  if (family === "trigger") return false;
+  return words.length > 0;
+};
+
+/**
+ * Access disabled: no chip-ports remain effective.
+ * Full default with empty offers (e.g. terminal) also dims.
+ * Never crimson — only opacity.
+ */
+export const isAccessDisabled = (input: {
+  readonly family: WireFamily;
+  /** Chip ports the pair can offer (after PORTS_HIDDEN_FROM_CHIPS). */
+  readonly offeredChipCount: number;
+  /**
+   * Active granted chip count. `"full"` = unattenuated default
+   * (mask absent). Number = intersection size under an explicit mask.
+   */
+  readonly activeChipCount: number | "full";
+}): boolean => {
+  if (input.family !== "access") return false;
+  if (input.offeredChipCount === 0) return true;
+  if (input.activeChipCount === "full") return false;
+  return input.activeChipCount === 0;
+};
+
+/** Full cold-scan presentation for one wire. */
+export type WirePresentation = {
+  readonly family: WireFamily;
+  readonly colorToken: ReturnType<typeof familyColorToken>;
+  readonly strokeDasharray: FamilyStroke["dasharray"];
+  readonly words: ReadonlyArray<WireWord>;
+  readonly sentence: string;
+  readonly worded: boolean;
+  readonly disabled: boolean;
+};
+
+export const wirePresentation = (input: {
+  readonly family: WireFamily;
+  readonly ether?: WireEtherView;
+  readonly fromKind?: string;
+  readonly toKind?: string;
+  readonly hasMessages?: boolean;
+  readonly offeredChipCount?: number;
+  readonly activeChipCount?: number | "full";
+}): WirePresentation => {
+  const words = wordsOfEdge({
+    family: input.family,
+    ether: input.ether,
+    fromKind: input.fromKind,
+    toKind: input.toKind,
+    hasMessages: input.hasMessages,
+  });
+  const disabled = isAccessDisabled({
+    family: input.family,
+    offeredChipCount: input.offeredChipCount ?? 1,
+    activeChipCount: input.activeChipCount ?? "full",
+  });
+  const worded = !disabled && isWorded(input.family, words);
+  return {
+    family: input.family,
+    colorToken: familyColorToken(input.family),
+    strokeDasharray: familyStroke(input.family).dasharray,
+    words,
+    sentence: formatWireSentence(sentenceOf({ family: input.family, words })),
+    worded,
+    disabled,
+  };
+};
