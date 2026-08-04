@@ -4,6 +4,7 @@ import type { CanvasDoc, CanvasNode, GroupNode } from "./canvas";
 import type { SnapshotState } from "./entities";
 import {
   deriveExecutionGraph,
+  isBlockableNode,
   type LiveTrustViews,
   type WorkBlockedSeat,
 } from "./execution-graph";
@@ -163,8 +164,10 @@ const deriveMember = (
 
   const reasons: string[] = [];
 
-  // blocked: manual flag, execution-graph closure, or harness blocked.
-  if (flags.includes("blocker")) reasons.push("flag:blocker");
+  // blocked: seat flag (actors only), execution-graph closure, or harness blocked.
+  // Schedulers/pages with a stray flag:blocker are not stoppage seats.
+  const flagBlockerSeat = flags.includes("blocker") && isBlockableNode(node);
+  if (flagBlockerSeat) reasons.push("flag:blocker");
   const graphReasons = [...(graph.reasonsByNodeId.get(node.id) ?? [])].sort(
     (a, b) => GRAPH_REASON_RANK[a.kind] - GRAPH_REASON_RANK[b.kind],
   );
@@ -174,7 +177,8 @@ const deriveMember = (
     else reasons.push(`seed:${reason.detail}`);
   }
   if (surface.reason === "activity:blocked") reasons.push(surface.reason);
-  const blocked = flags.includes("blocker") || graph.blocked.has(node.id) || surface.blocked;
+  const blocked =
+    flagBlockerSeat || graph.blocked.has(node.id) || surface.blocked;
 
   // attention: manual flag, ACP permission pending, or explicit harness signal.
   if (flags.includes("attention")) reasons.push("flag:attention");

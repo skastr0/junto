@@ -184,36 +184,83 @@ const evaluateWatchAtom = (
       detail: has ? `flag ${flag} set` : `flag ${flag} absent`,
     };
   }
-  // completes
-  if (source.ether?.entity?.kind !== "task") {
-    return { status: "unknown", detail: "source is not a task sink" };
-  }
+  // completes — kind-specific. equals discriminates variants (ready vs failed).
+  const kind = source.ether?.entity?.kind;
   const want = when.equals ?? "completed";
-  const items = source.ether.tasks?.items ?? [];
-  if (items.length === 0) {
-    return { status: "pending", detail: "no tasks" };
-  }
-  if (when.itemId) {
-    const item = items.find((task) => task.id === when.itemId);
-    if (!item) {
-      return { status: "unknown", detail: `item ${when.itemId} missing` };
+
+  if (kind === "task" || kind === "requests") {
+    const items =
+      kind === "requests"
+        ? (source.ether?.requests?.items ?? [])
+        : (source.ether?.tasks?.items ?? []);
+    if (items.length === 0) {
+      return { status: "pending", detail: "no items" };
     }
-    const ok = item.state === want;
+    if (when.itemId) {
+      const item = items.find((task) => task.id === when.itemId);
+      if (!item) {
+        return { status: "unknown", detail: `item ${when.itemId} missing` };
+      }
+      const ok = item.state === want;
+      return {
+        status: ok ? "satisfied" : "pending",
+        detail: `${item.id} state ${item.state} (want ${want})`,
+      };
+    }
+    const match = items.find((task) => task.state === want);
+    if (match) {
+      return {
+        status: "satisfied",
+        detail: `${match.id} is ${want}`,
+      };
+    }
     return {
-      status: ok ? "satisfied" : "pending",
-      detail: `${item.id} state ${item.state} (want ${want})`,
+      status: "pending",
+      detail: `no item in state ${want}`,
     };
   }
-  const match = items.find((task) => task.state === want);
-  if (match) {
+
+  if (kind === "page") {
+    // Page readiness is live browser state, not durable canvas truth.
+    // Kernel has no session projection here — stay pending with an honest label.
     return {
-      status: "satisfied",
-      detail: `${match.id} is ${want}`,
+      status: "pending",
+      detail:
+        want === "failed"
+          ? "page failed not observed yet"
+          : "page ready not observed yet",
     };
   }
+
+  if (kind === "board") {
+    const board = source.ether?.board;
+    if (want === "topic") {
+      const n = board?.topics?.length ?? 0;
+      return n > 0
+        ? { status: "satisfied", detail: `${n} topic(s)` }
+        : { status: "pending", detail: "no topics yet" };
+    }
+    // post: any topic with posts, or board-level post count if present
+    const posts =
+      board?.topics?.reduce(
+        (sum, t) => sum + (typeof t.postCount === "number" ? t.postCount : 0),
+        0,
+      ) ?? 0;
+    return posts > 0
+      ? { status: "satisfied", detail: `${posts} post(s)` }
+      : { status: "pending", detail: "no posts yet" };
+  }
+
+  if (kind === "artifacts") {
+    const n = source.ether?.artifacts?.items?.length ?? 0;
+    return n > 0
+      ? { status: "satisfied", detail: `${n} artifact(s)` }
+      : { status: "pending", detail: "no artifacts yet" };
+  }
+
   return {
-    status: "pending",
-    detail: `no item in state ${want}`,
+    status: "unknown",
+    detail: `no completes rule for kind ${kind ?? "none"}`,
   };
 };
 

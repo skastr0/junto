@@ -24,6 +24,11 @@ export const ContractEvent = Schema.Struct({
   flag: Schema.optionalKey(
     Schema.Literals(["blocker", "attention", "parked"]),
   ),
+  /**
+   * Discriminator for completes variants on one wire (OR multi-select).
+   * Maps onto WatchWhenCompletes.equals — e.g. page ready vs failed.
+   */
+  equals: Schema.optionalKey(Schema.String),
 });
 export type ContractEvent = typeof ContractEvent.Type;
 
@@ -96,14 +101,8 @@ export const NodeContracts: {
   agent: {
     kind: "agent",
     ports: portsOf("agent"),
-    events: [
-      {
-        id: "agent.finishes",
-        label: "Finishes work",
-        word: "completes",
-      },
-      ...flagEvents,
-    ],
+    // Watch is sink→relay; agent is not a watch source. Flags only for effect/access.
+    events: [...flagEvents],
     inputs: [injectPromptInput, flagInput],
   },
   task: {
@@ -114,6 +113,7 @@ export const NodeContracts: {
         id: "task.completes",
         label: "A task completes",
         word: "completes",
+        equals: "completed",
       },
       ...flagEvents,
     ],
@@ -127,6 +127,7 @@ export const NodeContracts: {
         id: "request.answered",
         label: "A request is answered",
         word: "completes",
+        equals: "completed",
       },
       ...flagEvents,
     ],
@@ -140,8 +141,8 @@ export const NodeContracts: {
         id: "artifact.published",
         label: "An artifact is published",
         word: "completes",
+        equals: "published",
       },
-      ...flagEvents,
     ],
     inputs: [flagInput],
   },
@@ -153,38 +154,41 @@ export const NodeContracts: {
         id: "board.post",
         label: "A post lands",
         word: "completes",
+        equals: "post",
       },
       {
         id: "board.topic",
         label: "A topic is created",
         word: "completes",
+        equals: "topic",
       },
-      ...flagEvents,
     ],
     inputs: [flagInput],
   },
   page: {
     kind: "page",
     ports: portsOf("page"),
+    // Pages have no product attention/blocker state — only session outcomes.
     events: [
       {
         id: "page.ready",
         label: "Page ready",
         word: "completes",
+        equals: "ready",
       },
       {
         id: "page.failed",
         label: "Page failed",
         word: "completes",
+        equals: "failed",
       },
-      ...flagEvents,
     ],
     inputs: [flagInput],
   },
   terminal: {
     kind: "terminal",
     ports: portsOf("terminal"),
-    events: [...flagEvents],
+    events: [],
     inputs: [flagInput],
   },
   cron: {
@@ -283,7 +287,14 @@ export const sheetSectionsFor = (input: {
     if (fromKind === "board" || toKind === "board") {
       sections.push({ _tag: "wake" });
     }
-    sections.push({ _tag: "hold" });
+    // Deliberate gates live on work lanes only — never board/page/terminal.
+    const holdKinds = new Set(["task", "requests"]);
+    if (
+      (fromKind !== undefined && holdKinds.has(fromKind)) ||
+      (toKind !== undefined && holdKinds.has(toKind))
+    ) {
+      sections.push({ _tag: "hold" });
+    }
   } else if (family === "watch") {
     // Watch observes the source (sink → relay). Events from source contract.
     const source = contractOf(fromKind);

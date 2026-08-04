@@ -267,7 +267,7 @@ export const familyColorToken = (
 
 export const formatWireSentence = (sentence: WireSentence): string => {
   if (sentence.words.length === 0) return sentence.family;
-  return `${sentence.family} - ${sentence.words.join(" - ")}`;
+  return `${sentence.family} ${sentence.words.join(", ")}`;
 };
 
 /** Build a sentence from known areas (pure; no canvas). */
@@ -344,16 +344,14 @@ export const wordsOfEdge = (input: {
   if (family === "watch") {
     const when = ether?.when;
     if (when?.word === "any" && Array.isArray(when.any)) {
-      const seen = new Set<WireWord>();
+      let hasCompletes = false;
+      let hasFlagged = false;
       for (const atom of when.any) {
-        if (atom.word === "completes" && !seen.has("completes")) {
-          words.push("completes");
-          seen.add("completes");
-        } else if (atom.word === "flagged" && !seen.has("flagged")) {
-          words.push("flagged");
-          seen.add("flagged");
-        }
+        if (atom.word === "completes") hasCompletes = true;
+        else if (atom.word === "flagged") hasFlagged = true;
       }
+      if (hasCompletes) words.push("completes");
+      if (hasFlagged) words.push("flagged");
       if (words.length === 0) words.push("completes");
       return words;
     }

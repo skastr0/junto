@@ -76,13 +76,41 @@ const activityOf = (...entries: Array<[string, AgentActivity]>): ReadonlyMap<str
 
 describe("deriveRegionRollups — member severity ladder", () => {
   it("blocked via blocker flag", () => {
+    const seat = actorSeat("n", 10, 10, "hot");
     const doc: CanvasDoc = {
-      nodes: [group("r", 0, 0, 500, 500, "ops"), node("n", 10, 10, "hot", { flags: ["blocker"] })],
+      // Only actor seats elevate severity from flag:blocker.
+      nodes: [
+        group("r", 0, 0, 500, 500, "ops"),
+        {
+          ...seat,
+          ether: { ...seat.ether, flags: ["blocker" as const] },
+        },
+      ],
       edges: [],
     };
     const [rollup] = deriveRegionRollups({ doc });
     expect(rollup?.severity).toBe("blocked");
-    expect(rollup?.members[0]).toMatchObject({ nodeId: "n", severity: "blocked", reasons: ["flag:blocker"] });
+    expect(rollup?.members[0]).toMatchObject({
+      nodeId: "n",
+      severity: "blocked",
+      reasons: ["flag:blocker", "seed:blocker flag on hot"],
+    });
+  });
+
+  it("stray flag:blocker on non-seat (relay/page) does not elevate blocked severity", () => {
+    const doc: CanvasDoc = {
+      nodes: [
+        group("r", 0, 0, 500, 500, "ops"),
+        node("relay", 10, 10, "relay", {
+          entity: { kind: "relay" },
+          flags: ["blocker"],
+        }),
+      ],
+      edges: [],
+    };
+    const [rollup] = deriveRegionRollups({ doc });
+    expect(rollup?.severity).toBe("idle");
+    expect(rollup?.members[0]?.severity).toBe("idle");
   });
 
   it("blocked via execution graph: tasks criteria edge blocks its compiled actor target", () => {
@@ -395,13 +423,17 @@ describe("deriveRegionRollups — region shape", () => {
 
 describe("deriveRegionRollups — member ordering", () => {
   it("sorts by severity, then kind (agent, task/requests, rest), then document order", () => {
+    const blockedSeat = actorSeat("blocked-seat", 10, 300, "on fire");
     const doc: CanvasDoc = {
       nodes: [
         group("r", 0, 0, 800, 800, "ops"),
         node("idle1", 10, 10, "idle one"),
         projectNode("note-project", 10, 100, "prism", "prism"),
         agentNode("working-agent", 10, 200, "MIRA", "remote-a:mira"),
-        node("blocked-note", 10, 300, "on fire", { flags: ["blocker"] }),
+        {
+          ...blockedSeat,
+          ether: { ...blockedSeat.ether, flags: ["blocker" as const] },
+        },
         node("idle2", 10, 400, "idle two"),
       ],
       edges: [],
@@ -410,9 +442,9 @@ describe("deriveRegionRollups — member ordering", () => {
       doc,
       terminalStatusByNodeId: new Map([["working-agent", { session: "running", harness: "working" }]]),
     });
-    // blocked > working (agent) > idle furniture notes in document order
+    // blocked (seat) > working (agent) > idle furniture notes in document order
     expect(rollup?.members.map((member) => member.nodeId)).toEqual([
-      "blocked-note",
+      "blocked-seat",
       "working-agent",
       "idle1",
       "note-project",

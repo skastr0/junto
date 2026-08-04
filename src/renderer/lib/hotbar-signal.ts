@@ -5,6 +5,7 @@
 
 import { attentionOf } from "@shared/attention";
 import type { CanvasNode } from "@shared/canvas";
+import { isBlockableNode } from "@shared/execution-graph";
 import type { MemberSeverity } from "@shared/region-rollup";
 
 /**
@@ -26,7 +27,8 @@ export function hotbarNodeSeverity(
   }
 
   const flags = node.ether?.flags ?? [];
-  if (flags.includes("blocker")) return "blocked";
+  // Seat stoppage only — stray flag:blocker on relay/page is not blocked.
+  if (flags.includes("blocker") && isBlockableNode(node)) return "blocked";
   if (flags.includes("attention")) return "attention";
   if (flags.includes("parked")) return "parked";
 

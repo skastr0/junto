@@ -31,6 +31,7 @@ import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
 import type { CanvasNode, EtherFlag } from "@shared/canvas";
 import { HERDR_ENABLED } from "@shared/features";
 import { executionGraphContextFromActorRefs, groupMembers } from "@shared/graph";
+import { isBlockableNode } from "@shared/execution-graph";
 import type { MemberSeverity, RegionRollup } from "@shared/region-rollup";
 import { formatNodeRef } from "@shared/node-ref";
 import { state$, toggleFlagFilter } from "../../lib/state";
@@ -516,7 +517,8 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
     const shellBlocked =
       graph.blocked.has(node.id) ||
       graph.seedNodeIds.has(node.id) ||
-      (node.ether?.flags?.includes("blocker") ?? false) ||
+      ((node.ether?.flags?.includes("blocker") ?? false) &&
+        isBlockableNode(node)) ||
       (node.ether?.entity?.kind === "herdr" &&
         herdrMeta?.meta?.agentStatus === "blocked");
     if (!shellBlocked) return null;
@@ -962,7 +964,7 @@ function HotbarStrip({
     <div className="rts-region-strip" role="region" aria-label="Hotkey slots 1 to 9">
       {slots.length === 0 ? (
         <div className="rts-region-strip__empty">
-          No slots — select a node, then ⌘/Ctrl+1–9
+          Empty slots — assign a node with ⌘1–9
         </div>
       ) : (
         <div className="rts-region-strip__chips" role="toolbar" aria-label="Node hotbar">

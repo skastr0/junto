@@ -77,14 +77,20 @@ export const edgeSheetSentence = (
   }).sentence;
 };
 
+/** Stable id so page ready vs failed (both completes) stay independent chips. */
 const atomKey = (atom: WatchWhenAtom): string =>
-  atom.word === "flagged" ? `flagged:${atom.flag}` : "completes";
+  atom.word === "flagged"
+    ? `flagged:${atom.flag}`
+    : `completes:${atom.equals ?? ""}`;
 
 const eventToAtom = (event: ContractEvent): WatchWhenAtom => {
   if (event.word === "flagged" && event.flag) {
     return { word: "flagged", flag: event.flag };
   }
-  return { word: "completes" };
+  return {
+    word: "completes",
+    ...(event.equals !== undefined ? { equals: event.equals } : {}),
+  };
 };
 
 const atomsFromWhen = (when: WatchWhen | undefined): ReadonlyArray<WatchWhenAtom> => {
@@ -132,9 +138,6 @@ function WhenSection({
   return (
     <div className="inspector-section">
       <div className="inspector-section__label">Fires when</div>
-      <div className="inspector-detail" style={{ marginBottom: 8 }}>
-        Any selected condition (OR)
-      </div>
       <div className="inspector-flags" role="list" aria-label="Watch conditions">
         {section.events.map((event) => {
           const atom = eventToAtom(event);
@@ -244,11 +247,6 @@ function DoesSection({
           />
         </label>
       ) : null}
-      {effect?.mode === "enqueue_task" || effect?.mode === "inject_prompt" ? (
-        <div className="inspector-detail" style={{ marginTop: 8 }}>
-          Content is built from the firing event — no template on the wire.
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -274,12 +272,9 @@ function HoldSection({
 
   return (
     <div className="inspector-section">
-      <div className="inspector-section__label">Hold (gate)</div>
-      <div className="inspector-detail" style={{ marginBottom: 8 }}>
-        Optional deliberate gate. Work stoppage is automatic — not a toggle.
-      </div>
+      <div className="inspector-section__label">Hold</div>
       <label className="inspector-editor">
-        <span>Kind</span>
+        <span>Requires</span>
         <Select
           dense
           aria-label="Hold on this link"
@@ -375,7 +370,7 @@ function TriggerReadout({
     <div className="inspector-section">
       <div className="inspector-section__label">Trigger</div>
       <div className="inspector-detail" style={{ marginBottom: 8 }}>
-        {from} can fire {to}. Pipeline is the output wires leaving the scheduler.
+        {from} can fire {to}.
       </div>
       <button
         type="button"
@@ -393,11 +388,6 @@ function TriggerReadout({
       {status ? (
         <div className="inspector-detail" style={{ marginTop: 8 }}>
           {status}
-        </div>
-      ) : null}
-      {edge.ether?.ports?.includes("relay.trigger") ? (
-        <div className="inspector-detail" style={{ marginTop: 6 }}>
-          Agents with this link may call relay.trigger.
         </div>
       ) : null}
     </div>

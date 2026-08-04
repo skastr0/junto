@@ -166,11 +166,45 @@ describe("scheduler-effects", () => {
       evaluateWatchWhen(flagged, {
         word: "any",
         any: [
-          { word: "completes" },
+          { word: "completes", equals: "completed" },
           { word: "flagged", flag: "attention" },
         ],
       }).status,
     ).toBe("satisfied");
+  });
+
+  it("keeps page ready and page failed as independent completes equals", () => {
+    const page = {
+      id: "p1",
+      type: "link" as const,
+      url: "https://example.com",
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+      ether: { entity: { kind: "page" as const } },
+    };
+    const ready = evaluateWatchWhen(page, {
+      word: "completes",
+      equals: "ready",
+    });
+    const failed = evaluateWatchWhen(page, {
+      word: "completes",
+      equals: "failed",
+    });
+    expect(ready.detail).toMatch(/ready/i);
+    expect(failed.detail).toMatch(/failed/i);
+    expect(ready.detail).not.toBe(failed.detail);
+    // OR of both still pending until observed
+    expect(
+      evaluateWatchWhen(page, {
+        word: "any",
+        any: [
+          { word: "completes", equals: "ready" },
+          { word: "completes", equals: "failed" },
+        ],
+      }).status,
+    ).toBe("pending");
   });
 
   it("evaluates relay task_state", () => {
