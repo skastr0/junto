@@ -299,7 +299,7 @@ export const criteriaPhasesNeedMirror = (
   phaseByEdgeId: ReadonlyMap<string, EdgePhase>,
 ): boolean => {
   for (const edge of doc.edges) {
-    if (!edge.ether?.criteria) continue;
+    if (!(edge.ether?.stops ?? edge.ether?.criteria)) continue;
     const phase = phaseByEdgeId.get(edge.id);
     if (phase === undefined) continue;
     if (edge.ether.kind !== phase) return true;

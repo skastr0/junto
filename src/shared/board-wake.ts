@@ -47,7 +47,7 @@ export const edgeNotifyOn = (
       (edge.fromNode === a && edge.toNode === b) ||
       (edge.fromNode === b && edge.toNode === a);
     if (!pair) continue;
-    if (edge.ether?.notify !== false) return true;
+    if ((edge.ether?.wake ?? edge.ether?.notify) !== false) return true;
   }
   return false;
 };

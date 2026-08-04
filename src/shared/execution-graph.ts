@@ -239,7 +239,7 @@ export const evaluateEdge = (
   toNode: CanvasNode | undefined,
   context: ExecutionGraphContext,
 ): EdgeEval => {
-  const criteria = edge.ether?.criteria;
+  const criteria = edge.ether?.stops ?? edge.ether?.criteria;
   if (!criteria) return softRelates();
   switch (criteria.mode) {
     case "tasks":
@@ -271,7 +271,7 @@ export const clearingStampsForDoc = (
   const byId = new Map(doc.nodes.map((node) => [node.id, node] as const));
   const out: Array<{ edgeId: string; stamp: ProofStamp }> = [];
   for (const edge of doc.edges) {
-    const criteria = edge.ether?.criteria;
+    const criteria = edge.ether?.stops ?? edge.ether?.criteria;
     if (!criteria || criteria.mode !== "proof") continue;
     const from = byId.get(edge.fromNode);
     if (!from) continue;
