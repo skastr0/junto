@@ -477,7 +477,16 @@ export const registerVellumIpc = (): void => {
       _event,
       canvas: string,
       sourceNodeId: string,
-    ): Promise<{ ok: true } | { ok: false; error: string }> =>
+    ): Promise<
+      | {
+          ok: true;
+          sourceNodeId: string;
+          kind: "relay" | "cron" | "gauge";
+          applied: number;
+          message: string;
+        }
+      | { ok: false; error: string }
+    > =>
       AppRuntime.runPromise(
         Effect.gen(function* () {
           const kernel = yield* KernelService;
@@ -493,7 +502,13 @@ export const registerVellumIpc = (): void => {
           if (!result.ok) {
             return { ok: false as const, error: result.message };
           }
-          return { ok: true as const };
+          return {
+            ok: true as const,
+            sourceNodeId: result.sourceNodeId,
+            kind: result.kind,
+            applied: result.applied,
+            message: result.message,
+          };
         }),
       ),
   );

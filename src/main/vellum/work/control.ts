@@ -1283,6 +1283,8 @@ const dispatchOp = (
       return {
         target: decoded.success.target,
         fired: true as const,
+        applied: fired.applied,
+        message: fired.message,
         disposition: "applied" as const,
       };
     }

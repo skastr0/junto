@@ -231,7 +231,7 @@ export const defaultSlotForDraw = (input: {
   }
   // scheduler → sink = effect output
   if (fromRole === "scheduler" && toRole === "sink") return "output";
-  // actor → relay = trigger (port reserved; op not yet shipped)
+  // actor → relay = trigger (operator Fire now + agent relay.trigger)
   if (fromRole === "actor" && toRole === "scheduler" && toKind === "relay") {
     return "trigger";
   }

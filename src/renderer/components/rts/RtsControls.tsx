@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   ArrowRight,
   CheckCheck,
+  Flame,
   Gauge,
   Globe,
   Inbox,
@@ -525,12 +526,33 @@ function SchedulerKindKeys({ node }: { readonly node: CanvasNode }) {
   const kind = node.ether?.entity?.kind;
   const [configOpen, setConfigOpen] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [fireBusy, setFireBusy] = useState(false);
   const isCron = kind === "cron" || kind === "timer";
+  const canFire =
+    isCron || kind === "relay" || kind === "watcher" || kind === "gauge";
+  const fireTitle = isCron
+    ? "Run this cron's linked actions now"
+    : kind === "relay"
+      ? "Run this relay's linked actions now"
+      : "Run this scheduler's linked actions now";
 
   useEffect(() => {
     setConfigOpen(false);
     setScheduleOpen(false);
+    setFireBusy(false);
   }, [node.id]);
+
+  const fireNow = async () => {
+    const api = window.vellum;
+    const canvas = state$.canvasName.peek();
+    if (!api?.schedulerFire || !canvas || fireBusy) return;
+    setFireBusy(true);
+    try {
+      await api.schedulerFire(canvas, node.id);
+    } finally {
+      setFireBusy(false);
+    }
+  };
 
   const config =
     isCron
@@ -549,8 +571,8 @@ function SchedulerKindKeys({ node }: { readonly node: CanvasNode }) {
           }
         : kind === "relay"
           ? {
-              label: configOpen ? "Close source" : "Source",
-              title: "Node this relay watches",
+              label: configOpen ? "Close links" : "Links",
+              title: "Watch inputs and effect outputs",
               Icon: Radio,
               body: <RelayEditor node={node} />,
             }
@@ -578,6 +600,17 @@ function SchedulerKindKeys({ node }: { readonly node: CanvasNode }) {
           }}
         >
           <SlidersHorizontal size={ICON} />
+        </KindKey>
+      ) : null}
+      {canFire ? (
+        <KindKey
+          label={fireBusy ? "Firing…" : "Fire now"}
+          title={fireTitle}
+          disabled={fireBusy}
+          testId="scheduler-fire-now"
+          onClick={() => void fireNow()}
+        >
+          <Flame size={ICON} />
         </KindKey>
       ) : null}
       <KindKey

@@ -6,7 +6,10 @@ import {
   isValidCronExpression,
   nextCronOccurrence,
 } from "@shared/cron-expression";
+import { collectEffectEdgesFrom } from "@shared/scheduler-effects";
 import { setNodeTimer } from "../../lib/mutations";
+import { nodeTitle } from "../../lib/presentation";
+import { state$ } from "../../lib/state";
 import { DIM, HUE, INK } from "../../lib/theme";
 import { FocusSurface } from "../FocusSurface";
 import { Button } from "../ui/Button";
@@ -158,6 +161,8 @@ export function CronScheduleSurface({
   const [custom, setCustom] = useState(initialExpr);
   const [advancedOpen, setAdvancedOpen] = useState(initial.mode === "custom");
   const [error, setError] = useState("");
+  const [fireBusy, setFireBusy] = useState(false);
+  const [fireStatus, setFireStatus] = useState("");
 
   useEffect(() => {
     const expr = resolveExpression(node.ether?.timer);
@@ -169,6 +174,7 @@ export function CronScheduleSurface({
     setCustom(expr);
     setAdvancedOpen(next.mode === "custom");
     setError("");
+    setFireStatus("");
   }, [node.id, node.ether?.timer?.expression, node.ether?.timer?.everyMinutes]);
 
   const expression = useMemo(
@@ -221,6 +227,33 @@ export function CronScheduleSurface({
     : "—";
 
   const timeValue = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+
+  // Fire now scopes to this cron only — its outbound does wires, nothing else.
+  const effectCount = collectEffectEdgesFrom(state$.doc.peek(), node.id).length;
+  const cronLabel = nodeTitle(node);
+  const fireHint =
+    effectCount === 0
+      ? "No actions linked yet. Draw an effect wire out of this cron."
+      : `Runs this cron's ${effectCount} linked action${effectCount === 1 ? "" : "s"} now. Not a page watch.`;
+
+  const fireNow = async () => {
+    const api = window.vellum;
+    const canvas = state$.canvasName.peek();
+    if (!api?.schedulerFire || !canvas) {
+      setFireStatus("Fire is unavailable");
+      return;
+    }
+    setFireBusy(true);
+    setFireStatus("");
+    try {
+      const result = await api.schedulerFire(canvas, node.id);
+      setFireStatus(result.ok ? result.message : result.error);
+    } catch (error) {
+      setFireStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      setFireBusy(false);
+    }
+  };
 
   return (
     <FocusSurface
@@ -338,6 +371,30 @@ export function CronScheduleSurface({
             {error}
           </div>
         ) : null}
+
+        <div
+          className="flex flex-col gap-1.5 border-t pt-2"
+          style={{ borderColor: "rgba(237,230,218,.08)" }}
+        >
+          <div className="text-[11px] leading-snug" style={{ color: DIM }}>
+            {fireHint}
+          </div>
+          <Button
+            size="sm"
+            variant="chrome"
+            disabled={fireBusy}
+            onClick={() => void fireNow()}
+            data-testid="cron-fire-now"
+            title={`Run ${cronLabel}'s linked actions now`}
+          >
+            {fireBusy ? "Firing…" : "Fire this cron now"}
+          </Button>
+          {fireStatus ? (
+            <div className="text-[11px]" style={{ color: INK }}>
+              {fireStatus}
+            </div>
+          ) : null}
+        </div>
 
         <div className="flex justify-end gap-2 pt-1">
           <Button size="sm" variant="chrome" onClick={onClose}>

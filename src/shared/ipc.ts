@@ -585,12 +585,21 @@ export interface VellumApi extends LicenseApi, UpdateApi {
     scope: PauseScope,
     paused: boolean,
   ) => Promise<FactoryPauseSetResult>;
-  /** Fire a scheduler node now (relay/cron). Used by the trigger edge sheet. */
+  /**
+   * Fire one selected scheduler's outbound does edges only.
+   * Used by trigger sheet, cron schedule surface, and scheduler toolbar.
+   */
   readonly schedulerFire: (
     canvas: string,
     sourceNodeId: string,
   ) => Promise<
-    | { readonly ok: true }
+    | {
+        readonly ok: true;
+        readonly sourceNodeId: string;
+        readonly kind: "relay" | "cron" | "gauge";
+        readonly applied: number;
+        readonly message: string;
+      }
     | { readonly ok: false; readonly error: string }
   >;
   // Region severity rollups for the bottom bar, derived live per call from

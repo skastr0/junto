@@ -1,7 +1,8 @@
 /**
  * Dynamic edge config sheet — sections from family + node contracts.
  */
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { use$ } from "@legendapp/state/react";
 import type {
   CanvasEdge,
   CanvasNode,
@@ -23,6 +24,11 @@ import {
   type WireFamily,
 } from "@shared/physics";
 import {
+  collectEffectEdgesFrom,
+  isSchedulerNode,
+  type EffectEdgeBinding,
+} from "@shared/scheduler-effects";
+import {
   EdgeBoardNotifyToggle,
   EdgePortsAttenuator,
 } from "../InspectorFields";
@@ -31,6 +37,21 @@ import { setEdgeCriteria, setEdgeEffect, setEdgeWhen } from "../../lib/edge-muta
 import { nodeTitle } from "../../lib/presentation";
 import { state$ } from "../../lib/state";
 import { HUE, withAlpha } from "../../lib/theme";
+
+/** Plain consequence line for one outbound does edge (gold: "adds a task on Review"). */
+const describeEffectBinding = (binding: EffectEdgeBinding): string => {
+  const target = nodeTitle(binding.target);
+  switch (binding.effect.mode) {
+    case "enqueue_task":
+      return `adds a task on ${target}`;
+    case "inject_prompt":
+      return `sends a prompt to ${target}`;
+    case "set_flag":
+      return `sets ${binding.effect.flag} on ${target}`;
+    default:
+      return `acts on ${target}`;
+  }
+};
 
 export const resolveEdgeFamily = (
   edge: CanvasEdge,
@@ -320,7 +341,6 @@ function HoldSection({
 }
 
 function TriggerReadout({
-  edge,
   fromNode,
   toNode,
 }: {
@@ -330,21 +350,31 @@ function TriggerReadout({
 }) {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string>("");
+  const doc = use$(state$.doc);
+  // Fire the scheduler end of the trigger wire (prefer target; else source).
+  // Never fires the actor side; never cascades to other schedulers.
+  const scheduler = useMemo(() => {
+    if (isSchedulerNode(toNode)) return toNode;
+    if (isSchedulerNode(fromNode)) return fromNode;
+    return undefined;
+  }, [fromNode, toNode]);
   const from = fromNode ? nodeTitle(fromNode) : "This end";
-  const to = toNode ? nodeTitle(toNode) : "the scheduler";
-  const schedulerId =
-    toNode?.ether?.entity?.kind === "relay" ||
-    toNode?.ether?.entity?.kind === "cron" ||
-    toNode?.ether?.entity?.kind === "timer" ||
-    toNode?.ether?.entity?.kind === "watcher"
-      ? toNode.id
-      : fromNode?.ether?.entity?.kind === "relay" ||
-          fromNode?.ether?.entity?.kind === "cron"
-        ? fromNode.id
-        : toNode?.id;
+  const schedulerName = scheduler ? nodeTitle(scheduler) : "the scheduler";
+  // Outbound does wires of this scheduler only — not other nodes' effects.
+  const effects = useMemo(
+    () =>
+      scheduler
+        ? collectEffectEdgesFrom(doc, scheduler.id)
+        : ([] as ReadonlyArray<EffectEdgeBinding>),
+    [doc, scheduler],
+  );
+  const firingLine =
+    effects.length === 0
+      ? `Firing ${schedulerName} does nothing yet — draw an effect wire out.`
+      : `Firing ${schedulerName}: ${effects.map(describeEffectBinding).join("; ")}.`;
 
   const fireNow = async () => {
-    if (!schedulerId) {
+    if (!scheduler) {
       setStatus("No scheduler on this link");
       return;
     }
@@ -357,8 +387,8 @@ function TriggerReadout({
     setBusy(true);
     setStatus("");
     try {
-      const result = await api.schedulerFire(canvas, schedulerId);
-      setStatus(result.ok ? "Fired" : result.error);
+      const result = await api.schedulerFire(canvas, scheduler.id);
+      setStatus(result.ok ? result.message : result.error);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error));
     } finally {
@@ -370,12 +400,15 @@ function TriggerReadout({
     <div className="inspector-section">
       <div className="inspector-section__label">Trigger</div>
       <div className="inspector-detail" style={{ marginBottom: 8 }}>
-        {from} can fire {to}.
+        {from} can fire {schedulerName}.
+      </div>
+      <div className="inspector-detail" style={{ marginBottom: 8 }}>
+        {firingLine}
       </div>
       <button
         type="button"
         className="inspector-flag-toggle"
-        disabled={busy}
+        disabled={busy || !scheduler}
         style={{
           color: HUE.violet,
           borderColor: withAlpha(HUE.violet, 0.5),
@@ -383,7 +416,7 @@ function TriggerReadout({
         }}
         onClick={() => void fireNow()}
       >
-        {busy ? "Firing…" : "Fire now"}
+        {busy ? "Firing…" : `Fire ${schedulerName} now`}
       </button>
       {status ? (
         <div className="inspector-detail" style={{ marginTop: 8 }}>
