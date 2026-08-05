@@ -1,13 +1,12 @@
 # Theme system plan — tokenized themes, dark/bright modes, color roles
 
-Status: phases 0-2 **landed** (2026-08-05) — phase 0 `7d2c4be4`, phase 1
-`ed377704` + `3583ba38`, phase 2 `cc8a8835`. Phase 3 (bright craft pass +
-verification) is in progress. The enforcement layer (sync test, contrast
-test, lint guard) remains **tabled — build later**. The name "deep-field" is
-**retired entirely** — it is not a mode name and no longer names the design
-language. The system is just the Vellum Command design system; its modes are
-`dark` and `bright`. Stray "deep-field" references in docs/comments get
-cleaned as touched.
+Status: **landed** (2026-08-05) — phase 0 `7d2c4be4`, phase 1
+`ed377704` + `3583ba38`, phase 2 `cc8a8835`, phase 3 `3f98fd00`. The
+enforcement layer (sync test, contrast test, lint guard) remains
+**tabled — build later**. The name "deep-field" is retired from code and
+internal docs; marketing copy (README, assets/brand) keeps it pending an
+editorial decision. The system is just the Vellum Command design system;
+its modes are `dark` and `bright`.
 
 Scope: renderer design system, runtime palette consumers, SVG export,
 main-process chrome colors, settings schema.
