@@ -299,7 +299,7 @@ The fleet protocol has five bounded, schema-decoded operations:
 | `report` | Duplex exchange of strict Work commands, facts, dispositions, receipts, and cumulative full-route ACK cursors |
 | `status` | Report installation identity, configuration, projection, cursors, and readiness |
 
-Command Center invokes the fixed `vellum-station` executable through the
+Command Center invokes the `vellum station-stdio` executable through the
 operator's enrolled OpenSSH route. It is one persistent bounded framed session:
 the helper accepts no arbitrary command or path, connects to the Remote app's
 owner-local Station socket, and relays correlated frames without opening

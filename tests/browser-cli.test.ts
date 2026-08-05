@@ -292,7 +292,7 @@ describe("packaged browser CLI contract", () => {
 });
 
 describe("browser CLI packaging contract", () => {
-  it("packages the standalone helpers plus runtime policy and installs all stable command names exclusively", async () => {
+  it("packages one CLI plus runtime policy and installs only the vellum command", async () => {
     const pkg = JSON.parse(await readFile(join(repoRoot, "package.json"), "utf8")) as {
       readonly build: {
         readonly files: ReadonlyArray<string>;
@@ -305,9 +305,6 @@ describe("browser CLI packaging contract", () => {
 
     expect(pkg.build.extraResources).toEqual([
       { from: "dist/vellum", to: "bin/vellum" },
-      { from: "dist/vellum-browser", to: "bin/vellum-browser" },
-      { from: "dist/vellum-station", to: "bin/vellum-station" },
-      { from: "dist/vellum-content", to: "bin/vellum-content" },
       { from: "scripts/unix-peer-pid.py", to: "bin/unix-peer-pid.py" },
       {
         from: "scripts/electron-security-policy.json",
@@ -320,20 +317,19 @@ describe("browser CLI packaging contract", () => {
     expect(buildScript.indexOf('build_compiled_cli "$REPO_ROOT/dist/vellum"')).toBeLessThan(
       buildScript.indexOf('if [[ "$COMPILE_ONLY" -eq 1 ]]'),
     );
+    expect(buildScript).not.toContain("vellum-browser");
+    expect(buildScript).not.toContain("vellum-station");
+    expect(buildScript).not.toContain("vellum-content");
     expect(installScript).toContain('install_cli_link "vellum"');
-    expect(installScript).toContain('install_cli_link "vellum-browser"');
-    expect(installScript).toContain('install_cli_link "vellum-station"');
-    expect(installScript).toContain('install_cli_link "vellum-content"');
+    expect(installScript).not.toContain('install_cli_link "vellum-browser"');
+    expect(installScript).not.toContain('install_cli_link "vellum-station"');
+    expect(installScript).not.toContain('install_cli_link "vellum-content"');
     expect(installScript).toContain('local work_helper="$APP_DST/Contents/Resources/bin/vellum"');
-    expect(installScript).toContain('local browser_helper="$APP_DST/Contents/Resources/bin/vellum-browser"');
-    expect(installScript).toContain('local station_helper="$APP_DST/Contents/Resources/bin/vellum-station"');
-    expect(installScript).toContain('local content_helper="$APP_DST/Contents/Resources/bin/vellum-content"');
     expect(installScript).toContain('ln -s "$helper" "$target"');
     expect(installScript).toContain('CLI link changed identity during creation');
     expect(installScript).not.toContain('mv -f "$stage" "$target"');
     expect(installScript).toContain("refusing to replace non-symlink command");
     expect(installScript).toContain('[[ "$existing" != "$helper" ]]');
-    expect(installScript).not.toContain('!= *"/${PRODUCT_NAME}.app/Contents/Resources/bin/vellum-browser"');
     expect(browserCli).not.toMatch(
       /CONTROL_CAPABILITY|VELLUM_BROWSER_CAPABILITY|x-vellum-capability/u,
     );

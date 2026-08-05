@@ -138,13 +138,13 @@ describe("ssh read-commands product constructors", () => {
 
     expect(inspectRemoteCommand(run(remoteVellumStation(darwin)))).toEqual({
       executable: DARWIN_PACKAGED_STATION_EXECUTABLE,
-      args: [],
+      args: ["station-stdio"],
     });
     expect(
       inspectRemoteCommand(run(remoteVellumStationNegotiation(darwin))),
     ).toEqual({
       executable: DARWIN_PACKAGED_STATION_EXECUTABLE,
-      args: [STATION_PROTOCOL_NEGOTIATION_ARG],
+      args: ["station-stdio", STATION_PROTOCOL_NEGOTIATION_ARG],
     });
     expect(
       Result.isFailure(Effect.runSync(Effect.result(remoteVellumStation(linux)))),
@@ -162,8 +162,8 @@ describe("ssh read-commands product constructors", () => {
       "/home/remote station",
     ));
     expect(inspectRemoteCommand(run(remoteLinuxUserlandVellumStation(userland)))).toEqual({
-      executable: "/home/remote station/.local/bin/vellum-station",
-      args: [],
+      executable: "/home/remote station/.local/bin/vellum",
+      args: ["station-stdio"],
     });
     expect(Result.isFailure(Effect.runSync(Effect.result(bindLinuxRemoteUserland(
       observedPlatform("Darwin\n"),

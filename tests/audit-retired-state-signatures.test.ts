@@ -238,7 +238,7 @@ describe("first-party ASAR retired-state audit", () => {
 });
 
 describe("complete packaged runtime retired-state audit", () => {
-  it.each(["asar", "work", "browser", "station"] as const)(
+  it.each(["asar", "work"] as const)(
     "rejects a retired signature in the %s target",
     async (target) => {
       const root = await makeTempRoot();
@@ -247,23 +247,15 @@ describe("complete packaged runtime retired-state audit", () => {
           target === "asar" ? "incoming.frame" : "state_schema_identity",
         "station/plugin.json": '{"name":"vellum"}',
       });
-      const paths = {
-        work: join(root, "vellum"),
-        browser: join(root, "vellum-browser"),
-        station: join(root, "vellum-station"),
-      };
-      for (const [name, path] of Object.entries(paths)) {
-        await writeFile(
-          path,
-          name === target ? "incoming.frame" : "state_schema_identity",
-        );
-      }
+      const work = join(root, "vellum");
+      await writeFile(
+        work,
+        target === "work" ? "incoming.frame" : "state_schema_identity",
+      );
       await expect(
         auditRetiredStateRuntimeBundle({
           asarPath: archive,
-          workCliPath: paths.work,
-          browserCliPath: paths.browser,
-          stationCliPath: paths.station,
+          workCliPath: work,
         }),
       ).rejects.toMatchObject({
         code: "retired-signature",
@@ -273,7 +265,7 @@ describe("complete packaged runtime retired-state audit", () => {
 });
 
 describe("complete Linux packaged runtime retired-state audit", () => {
-  it.each(["asar", "work", "browser", "station", "installer", "bridge"] as const)(
+  it.each(["asar", "work", "installer", "bridge"] as const)(
     "rejects a retired signature in the %s target",
     async (target) => {
       const root = await makeTempRoot();
@@ -282,17 +274,15 @@ describe("complete Linux packaged runtime retired-state audit", () => {
         "station/plugin.json": '{"name":"vellum"}',
       });
       const paths = Object.fromEntries(await Promise.all(
-        ["work", "browser", "station", "installer", "bridge"].map(async (name) => {
+        ["work", "installer", "bridge"].map(async (name) => {
           const file = join(root, `vellum-${name}`);
           await writeFile(file, name === target ? "incoming.frame" : "safe");
           return [name, file];
         }),
-      )) as Record<"work" | "browser" | "station" | "installer" | "bridge", string>;
+      )) as Record<"work" | "installer" | "bridge", string>;
       await expect(auditLinuxRetiredStateRuntimeBundle({
         asarPath: archive,
         workCliPath: paths.work,
-        browserCliPath: paths.browser,
-        stationCliPath: paths.station,
         installerPath: paths.installer,
         bridgePath: paths.bridge,
       })).rejects.toMatchObject({ code: "retired-signature" });

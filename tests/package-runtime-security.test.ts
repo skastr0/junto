@@ -66,8 +66,8 @@ const linuxRuntimeAuditPresent = (source: string): boolean =>
   /resources\/bin\/node/u.test(source);
 
 describe("macOS packaged runtime policy", () => {
-  it("pins 28 Mach-O objects and only the four exact Electron JIT roles", () => {
-    expect(MACOS_RUNTIME_POLICY.machO).toHaveLength(28);
+  it("pins 25 Mach-O objects and only the four exact Electron JIT roles", () => {
+    expect(MACOS_RUNTIME_POLICY.machO).toHaveLength(25);
     expect(
       MACOS_RUNTIME_POLICY.machO
         .filter((entry) => entry.profile === "jit")
@@ -83,12 +83,12 @@ describe("macOS packaged runtime policy", () => {
       MACOS_RUNTIME_POLICY.machO.find(
         (entry) => entry.path === "Contents/Resources/bin/vellum-browser",
       ),
-    ).toMatchObject({ identifier: "vellum-browser", profile: "none" });
+    ).toBeUndefined();
     expect(
       MACOS_RUNTIME_POLICY.machO.find(
         (entry) => entry.path === "Contents/Resources/bin/vellum-station",
       ),
-    ).toMatchObject({ identifier: "vellum-station", profile: "none" });
+    ).toBeUndefined();
     expect(
       MACOS_RUNTIME_POLICY.machO.find(
         (entry) =>
@@ -111,15 +111,15 @@ describe("macOS packaged runtime policy", () => {
 
     const cliJit = structuredClone(rawRuntimePolicy);
     const cli = cliJit.machO.find(
-      (entry) => entry.path === "Contents/Resources/bin/vellum-browser",
+      (entry) => entry.path === "Contents/Resources/bin/vellum",
     );
-    if (cli === undefined) throw new Error("test fixture is missing vellum-browser");
+    if (cli === undefined) throw new Error("test fixture is missing vellum");
     cli.profile = "jit";
     expect(() => validateMacOSRuntimePolicy(cliJit)).toThrow(/JIT roles mismatch/u);
 
     const missing = structuredClone(rawRuntimePolicy);
     missing.machO.pop();
-    expect(() => validateMacOSRuntimePolicy(missing)).toThrow(/exactly 28/u);
+    expect(() => validateMacOSRuntimePolicy(missing)).toThrow(/exactly 25/u);
 
     const duplicate = structuredClone(rawRuntimePolicy);
     duplicate.machO[1].path = duplicate.machO[0].path;
@@ -242,7 +242,7 @@ Load command 9
       validateMachOMinimumSystemVersions(
         ["12.6", "13.0.1"],
         "13.0",
-        "Contents/Resources/bin/vellum-browser",
+        "Contents/Resources/bin/vellum",
       ),
     ).toThrow(/minos=13\.0\.1 declared=13\.0/u);
     expect(() => parseMachOArchitectures("arm64 arm64")).toThrow(
@@ -311,13 +311,6 @@ describe("electron-builder role-specific signing", () => {
       signingProfileForPath(
         appPath,
         path.join(appPath, "Contents/Resources/bin/vellum"),
-        MACOS_RUNTIME_POLICY,
-      ),
-    ).toBe("none");
-    expect(
-      signingProfileForPath(
-        appPath,
-        path.join(appPath, "Contents/Resources/bin/vellum-browser"),
         MACOS_RUNTIME_POLICY,
       ),
     ).toBe("none");
@@ -394,8 +387,6 @@ describe("electron-builder role-specific signing", () => {
     );
     expect(runtimeBundleAuditObjectKeys(macAudit)).toEqual([
         "asarPath",
-        "browserCliPath",
-        "stationCliPath",
         "workCliPath",
     ]);
     expect(linuxRuntimeAuditPresent(linuxAudit)).toBe(true);

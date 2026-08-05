@@ -7,7 +7,11 @@
  * a single bounded JSON line on the opposite stream of the byte direction.
  */
 
-export const CONTENT_HELPER_NAME = "vellum-content" as const;
+/** Unified CLI subcommand for content transfer (`vellum content-transfer …`). */
+export const CONTENT_TRANSFER_COMMAND = "content-transfer" as const;
+
+/** Packaged entry is `vellum content-transfer`; name retained for status labels. */
+export const CONTENT_HELPER_NAME = CONTENT_TRANSFER_COMMAND;
 
 /** First argv token selecting the sealed content mode. */
 export const CONTENT_HELPER_MODE_ARG = {

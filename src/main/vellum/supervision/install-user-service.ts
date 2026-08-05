@@ -1,11 +1,10 @@
 /**
- * Sealed owner-home install of the Linux Remote user service + station helper.
+ * Sealed owner-home install of the Linux Remote user service + unified CLI.
  *
  * Derives the immutable release root from this binary's absolute path only —
  * no caller-supplied paths. Writes only:
  *   ~/.config/systemd/user/vellum-remote.service
- *   ~/.local/bin/vellum-station
- *   ~/.local/bin/vellum-content
+ *   ~/.local/bin/vellum
  */
 import {
   chmodSync,
@@ -30,10 +29,8 @@ export const INSTALL_USER_SERVICE_SWITCH = "--install-user-service" as const;
 const RELEASE_WRAPPER_MARKER = "/resources/bin/vellum-remote" as const;
 /** Bundled Node entry (wrapper execs node on this path). */
 const RELEASE_ENTRY_MARKER = "/resources/app-remote/vellum-remote.js" as const;
-const STATION_RELATIVE = "resources/bin/vellum-station" as const;
-const CONTENT_RELATIVE = "resources/bin/vellum-content" as const;
-const HELPER_RELATIVE = ".local/bin/vellum-station" as const;
-const CONTENT_HELPER_RELATIVE = ".local/bin/vellum-content" as const;
+const CLI_RELATIVE = "resources/bin/vellum" as const;
+const CLI_HELPER_RELATIVE = ".local/bin/vellum" as const;
 
 /** Active immutable generation: ~/.vellum/runtime/releases/<semver>-<sha64>. */
 const RELEASE_DIRECTORY =
@@ -209,21 +206,8 @@ const installOwnedHelper = (
   }
 };
 
-const installStationHelper = (release: string, home: string): void => {
-  installOwnedHelper(
-    release,
-    home,
-    STATION_RELATIVE,
-    HELPER_RELATIVE,
-    "vellum-station",
-  );
-  installOwnedHelper(
-    release,
-    home,
-    CONTENT_RELATIVE,
-    CONTENT_HELPER_RELATIVE,
-    "vellum-content",
-  );
+const installUnifiedCli = (release: string, home: string): void => {
+  installOwnedHelper(release, home, CLI_RELATIVE, CLI_HELPER_RELATIVE, "vellum");
 };
 
 const enableUserService = (): void => {
@@ -267,11 +251,11 @@ export const installUserlandLinuxRemoteService = (
   const unitPath = join(home, USERLAND_LINUX_SERVICE_PATH);
   const unitBody = renderUserlandLinuxService({ releaseDirectory });
   atomicWriteFile(unitPath, unitBody, 0o600);
-  installStationHelper(releaseDirectory, home);
+  installUnifiedCli(releaseDirectory, home);
   enableUserService();
   return Object.freeze({
     releaseDirectory,
     unitPath,
-    helperPath: join(home, HELPER_RELATIVE),
+    helperPath: join(home, CLI_HELPER_RELATIVE),
   });
 };

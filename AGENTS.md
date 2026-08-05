@@ -147,11 +147,12 @@ to an exported document or the database:
 
 **How to use:** open the agent chat (or refresh local herdr pane meta) in Vellum Command so the process is registered, then run `dist/vellum` from that agent/tooling tree. `onboard` / `capabilities` report the live edge contract for the admitted principal.
 
-Browser control (`vellum browser`, with `vellum-browser` / `bun run browser`
-as compatibility and repo-dev entrypoints) uses the same process-bind identity
-on protected routes. There is **no enable-grant ceremony** and no client
+Browser control (`vellum browser` / `bun run browser`) uses the same process-bind
+identity on protected routes. There is **no enable-grant ceremony** and no client
 capability secret — only a live registered process + human-drawn edges to page
-nodes.
+nodes. Station wire entry is `vellum station-stdio`; content transfer is
+`vellum content-transfer …`. Packaged installs ship **one** CLI binary
+(`bin/vellum`) only.
 
 Ops go through WorkService (tasks/messages/requests/artifacts/board). That is the agent write path; freeform canvas authoring remains human/Command Center.
 

@@ -142,15 +142,11 @@ export type RetiredStateAsarAuditOptions = {
 export type RetiredStateRuntimeBundlePaths = {
   readonly asarPath: string;
   readonly workCliPath: string;
-  readonly browserCliPath: string;
-  readonly stationCliPath: string;
 };
 
 export type RetiredStateRuntimeBundleAuditReceipt = {
   readonly asar: RetiredStateAsarAuditReceipt;
   readonly work: RetiredStateBufferAuditReceipt;
-  readonly browser: RetiredStateBufferAuditReceipt;
-  readonly station: RetiredStateBufferAuditReceipt;
 };
 
 export type LinuxRetiredStateRuntimeBundlePaths =
@@ -288,8 +284,7 @@ export const auditRetiredStateBuffer = (
 };
 
 /**
- * Bounded regular-file adapter for the packaged vellum, vellum-browser, and
- * vellum-station executables.
+ * Bounded regular-file adapter for the packaged vellum CLI executable.
  */
 export const auditRetiredStateFile = async (
   filePath: string,
@@ -454,36 +449,20 @@ export const auditRetiredStateRuntimeBundle = async (
   paths: RetiredStateRuntimeBundlePaths,
 ): Promise<RetiredStateRuntimeBundleAuditReceipt> => {
   const asar = auditRetiredStateAsar(paths.asarPath);
-  const [work, browser, station] = await Promise.all([
-    auditRetiredStateFile(paths.workCliPath, {
-      label: "packaged vellum",
-    }),
-    auditRetiredStateFile(paths.browserCliPath, {
-      label: "packaged vellum-browser",
-    }),
-    auditRetiredStateFile(paths.stationCliPath, {
-      label: "packaged vellum-station",
-    }),
-  ]);
-  return { asar, work, browser, station };
+  const work = await auditRetiredStateFile(paths.workCliPath, {
+    label: "packaged vellum",
+  });
+  return { asar, work };
 };
 
-/** Complete Linux runtime gate: ASAR plus all five executable payloads. */
+/** Complete Linux runtime gate: ASAR plus packaged CLI and release tools. */
 export const auditLinuxRetiredStateRuntimeBundle = async (
   paths: LinuxRetiredStateRuntimeBundlePaths,
 ): Promise<LinuxRetiredStateRuntimeBundleAuditReceipt> => {
   const asar = auditRetiredStateAsar(paths.asarPath);
-  const [work, browser, station, installer, bridge] = await Promise.all([
+  const [work, installer, bridge] = await Promise.all([
     auditRetiredStateFile(paths.workCliPath, {
       label: "packaged vellum",
-      maxBytes: LINUX_RELEASE_HELPER_RETIRED_STATE_AUDIT_MAX_BYTES,
-    }),
-    auditRetiredStateFile(paths.browserCliPath, {
-      label: "packaged vellum-browser",
-      maxBytes: LINUX_RELEASE_HELPER_RETIRED_STATE_AUDIT_MAX_BYTES,
-    }),
-    auditRetiredStateFile(paths.stationCliPath, {
-      label: "packaged vellum-station",
       maxBytes: LINUX_RELEASE_HELPER_RETIRED_STATE_AUDIT_MAX_BYTES,
     }),
     auditRetiredStateFile(paths.installerPath, {
@@ -495,5 +474,5 @@ export const auditLinuxRetiredStateRuntimeBundle = async (
       maxBytes: LINUX_RELEASE_HELPER_RETIRED_STATE_AUDIT_MAX_BYTES,
     }),
   ]);
-  return { asar, work, browser, station, installer, bridge };
+  return { asar, work, installer, bridge };
 };

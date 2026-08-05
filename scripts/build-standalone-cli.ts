@@ -21,23 +21,11 @@ const controls = {
     source: "src/cli/main.ts",
     output: "dist/vellum",
   },
-  browser: {
-    source: "scripts/browser-cli.ts",
-    output: "dist/vellum-browser",
-  },
-  station: {
-    source: "scripts/station-cli.ts",
-    output: "dist/vellum-station",
-  },
-  content: {
-    source: "scripts/content-cli.ts",
-    output: "dist/vellum-content",
-  },
 } as const;
 
 export type StandaloneControl = keyof typeof controls;
 
-export const standaloneControlBuild = (control: StandaloneControl) => {
+export const standaloneControlBuild = (control: StandaloneControl = "vellum") => {
   const selected = controls[control];
   const resolvedFeatures = resolveBuildFeatures(process.env);
   return {
@@ -51,7 +39,7 @@ export const standaloneControlBuild = (control: StandaloneControl) => {
 const main = (): void => {
   const [rawControl, ...extraArgs] = process.argv.slice(2);
   if (!rawControl || extraArgs.length > 0 || !(rawControl in controls)) {
-    throw new Error("usage: bun scripts/build-standalone-cli.ts vellum|browser|station|content");
+    throw new Error("usage: bun scripts/build-standalone-cli.ts vellum");
   }
 
   const control = rawControl as StandaloneControl;

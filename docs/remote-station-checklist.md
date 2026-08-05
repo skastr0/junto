@@ -67,7 +67,7 @@ be shown as last acknowledged truth, but never as live health.
    - role is `remote`;
    - hostId and Command Center installation identity match;
    - database, work control, and simulation are ready.
-6. Confirm SSH invoked only fixed `vellum-station`, and the helper relayed to
+6. Confirm SSH invoked only `vellum station-stdio`, and the helper relayed to
    the running app instead of opening or writing the database. Invoke the same
    helper directly as the enrolled operator account and confirm a strict
    correlated `status` response over the owner-local socket. This handoff does
@@ -163,7 +163,7 @@ The Remote must never merge or author the projection.
 
 - Stop SSH: mark the Remote unreachable while retaining clearly labeled
   last-acknowledged generation and cursors.
-- Stop the Remote app: fixed `vellum-station` must report runtime down; it must
+- Stop the Remote app: `vellum station-stdio` must report runtime down; it must
   not fall back to files or direct database access.
 - Bind the endpoint to a different Station installation: identity mismatch
   must block propagation.

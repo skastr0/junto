@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 describe("app build userland artifact contract", () => {
-  it("compiles only the runtime controls required by the packaged app", async () => {
+  it("compiles only the single packaged CLI required by the app", async () => {
     const build = await readFile(
       new URL("../scripts/build-app.sh", import.meta.url),
       "utf8",
@@ -16,10 +16,10 @@ describe("app build userland artifact contract", () => {
 
     expect(compiledControls).toEqual([
       { artifact: "vellum", source: "src/cli/main.ts" },
-      { artifact: "vellum-browser", source: "scripts/browser-cli.ts" },
-      { artifact: "vellum-station", source: "scripts/station-cli.ts" },
-      { artifact: "vellum-content", source: "scripts/content-cli.ts" },
     ]);
+    expect(build).not.toContain("vellum-browser");
+    expect(build).not.toContain("vellum-station");
+    expect(build).not.toContain("vellum-content");
     expect(build).not.toContain("vellum-release-installer");
     expect(build).not.toContain("linux-release-installer.ts");
     expect(build).not.toContain("vellum-release-bridge");

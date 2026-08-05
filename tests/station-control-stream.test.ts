@@ -944,7 +944,7 @@ describe("packaged Station relay", () => {
   it("rejects arguments without emitting a protocol frame", async () => {
     const child = spawn(
       "bun",
-      ["scripts/station-cli.ts", "unexpected"],
+      ["src/cli/main.ts", "station-stdio", "unexpected"],
       {
         cwd: process.cwd(),
         stdio: ["ignore", "pipe", "pipe"],
@@ -959,13 +959,13 @@ describe("packaged Station relay", () => {
         child.once("error", reject);
         child.once("exit", resolve);
       }),
-      "vellum-station argument rejection timed out",
+      "vellum station-stdio argument rejection timed out",
     );
 
     expect(exitCode).toBe(64);
     expect(Buffer.concat(stdout)).toEqual(Buffer.alloc(0));
     expect(Buffer.concat(stderr).toString("utf8")).toBe(
-      "vellum-station: arguments are not accepted\n",
+      "vellum station-stdio: arguments are not accepted\n",
     );
   });
 

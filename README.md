@@ -234,17 +234,17 @@ Browser **page** nodes bind a URL to a profile. Cookies live in Electron partiti
 
 **Do not** grant browser automation on a profile that holds accounts you treat as primary vault material. Without that grant, the browser is a normal Chromium profile for testing and secondary accounts.
 
-### Browser CLI (`vellum-browser`)
+### Browser CLI (`vellum browser`)
 
 ```bash
-vellum-browser doctor
-vellum-browser profiles
-vellum-browser pages | sessions
-vellum-browser open <vellum-ref>
-vellum-browser goto | eval | shot | close | stop
+vellum browser doctor
+vellum browser profiles
+vellum browser pages | sessions
+vellum browser open <vellum-ref>
+vellum browser goto | eval | shot | close | stop
 ```
 
-App must be running. Control home: `~/.vellum/browser/` (override `VELLUM_BROWSER_HOME`). Packaged binary ships as `Contents/Resources/bin/vellum-browser`.
+App must be running. Control home: `~/.vellum/browser/` (override `VELLUM_BROWSER_HOME`). Packaged binary ships as `Contents/Resources/bin/vellum`.
 
 ### Profiles
 
@@ -299,7 +299,7 @@ Role is **never inferred** — you pick it. `hostId` identifies this machine (de
 | Host registry | App-owned rows in `vellum.db` (max 32) |
 | Local host | Auto-seeded with herdr + hermes |
 | Remote host | SSH endpoint + capabilities; optional hermesId remap |
-| Fleet sync | `pair` / `configure` / `project` / `report` / `status` through fixed `vellum-station` |
+| Fleet sync | `pair` / `configure` / `project` / `report` / `status` through `vellum station-stdio` |
 | Tailscale | Optional serve/peer catalog in Settings → Hosts |
 
 Advanced local, multi-host, and offline-island proof:
@@ -375,9 +375,9 @@ Page nodes bind a URL to a profile. Cookies live in `persist:vellum-profile-{id}
 Without granting automation, the browser is safe for testing and secondary accounts. **Do not** grant automation on profiles that hold primary credentials.
 
 ```bash
-vellum-browser doctor | profiles | pages | sessions
-vellum-browser open <vellum-ref>
-vellum-browser goto | eval | shot | close | stop
+vellum browser doctor | profiles | pages | sessions
+vellum browser open <vellum-ref>
+vellum browser goto | eval | shot | close | stop
 ```
 
 ---
@@ -480,9 +480,9 @@ Page nodes bind URL + profile. Cookies in `persist:vellum-profile-{id}` **surviv
 Without granting automation, use the browser freely for secondary accounts and testing.
 
 ```bash
-vellum-browser doctor | profiles | pages | sessions
-vellum-browser open <vellum-ref>
-vellum-browser goto | eval | shot | close | stop
+vellum browser doctor | profiles | pages | sessions
+vellum browser open <vellum-ref>
+vellum browser goto | eval | shot | close | stop
 ```
 
 ---
@@ -625,9 +625,9 @@ Page nodes + profiles. Cookies in `persist:vellum-profile-{id}` **survive quit**
 Without granting automation, use the browser freely for secondary accounts and testing.
 
 ```bash
-vellum-browser doctor | profiles | pages | sessions
-vellum-browser open <vellum-ref>
-vellum-browser goto | eval | shot | close | stop
+vellum browser doctor | profiles | pages | sessions
+vellum browser open <vellum-ref>
+vellum browser goto | eval | shot | close | stop
 ```
 
 ---

@@ -263,9 +263,9 @@ export const validateMacOSRuntimePolicy = (
       "macOS runtime policy must expose only empty and allow-jit profiles",
     );
   }
-  if (value.machO.length !== 28) {
+  if (value.machO.length !== 25) {
     throw new Error(
-      `macOS runtime policy must name exactly 28 Mach-O objects, got ${value.machO.length}`,
+      `macOS runtime policy must name exactly 25 Mach-O objects, got ${value.machO.length}`,
     );
   }
 
@@ -305,9 +305,6 @@ export const validateMacOSRuntimePolicy = (
 
   for (const cliPath of [
     "Contents/Resources/bin/vellum",
-    "Contents/Resources/bin/vellum-browser",
-    "Contents/Resources/bin/vellum-station",
-    "Contents/Resources/bin/vellum-content",
   ] as const) {
     const cli = value.machO.find(
       (entry) => isRecord(entry) && entry.path === cliPath,
@@ -982,19 +979,13 @@ export const auditPackagedApp = async (
   const appAsarPath = path.join(contentsPath, "Resources", "app.asar");
   const binPath = path.join(contentsPath, "Resources", "bin");
   const workCliPath = path.join(binPath, "vellum");
-  const browserCliPath = path.join(binPath, "vellum-browser");
-  const stationCliPath = path.join(binPath, "vellum-station");
   await requireRegularFile(infoPlistPath);
   await requireExecutable(mainExecutablePath);
   await requireRegularFile(appAsarPath);
   await requireExecutable(workCliPath);
-  await requireExecutable(browserCliPath);
-  await requireExecutable(stationCliPath);
   await auditRetiredStateRuntimeBundle({
     asarPath: appAsarPath,
     workCliPath,
-    browserCliPath,
-    stationCliPath,
   });
 
   runFixedCommand("/usr/bin/codesign", [

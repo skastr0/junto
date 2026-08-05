@@ -44,7 +44,7 @@ does not make mutable work multi-writer.
 ```text
 Command Center authors one full canvas generation
   → compiles one complete Station projection
-  → invokes fixed vellum-station over the enrolled SSH route
+  → invokes vellum station-stdio over the enrolled SSH route
   → Remote main validates, inserts station_projection_versions, and
     transactionally advances station_projection_head
   → Remote simulation reads that projection and its locally homed work
@@ -118,7 +118,7 @@ a fleet target preserves the host-to-installation tombstone; exact
 reactivation is permitted, but silently substituting a fresh installation is
 not.
 
-OpenSSH authenticates and transports the fixed `vellum-station` command. The
+OpenSSH authenticates and transports the `vellum station-stdio` command. The
 helper relays bounded correlated frames to the app's owner-local Station
 control socket. It accepts no path, shell program, settings body, or database
 location from the caller. OpenSSH authenticates the Remote host and operator

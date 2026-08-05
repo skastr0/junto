@@ -10,7 +10,11 @@
  */
 
 import { Effect, Schema } from "effect";
-import { STATION_PROTOCOL_NEGOTIATION_ARG } from "../station/helper-contract";
+import { CONTENT_TRANSFER_COMMAND } from "../content/helper-contract";
+import {
+  STATION_PROTOCOL_NEGOTIATION_ARG,
+  STATION_STDIO_COMMAND,
+} from "../station/helper-contract";
 import {
   inspectSshTarget,
   makeRemoteCommand,
@@ -26,15 +30,29 @@ import type { SshTransportShape } from "./service";
 // Clean absolute POSIX path: no shell metacharacters, no `..`, no NULs.
 const SAFE_ABS_PATH = /^\/(?:[A-Za-z0-9._+-]+\/)*[A-Za-z0-9._+-]+$/u;
 
-export const DARWIN_PACKAGED_STATION_EXECUTABLE =
-  "/Applications/Vellum Command.app/Contents/Resources/bin/vellum-station";
-export const DARWIN_PACKAGED_BROWSER_EXECUTABLE =
-  "/Applications/Vellum Command.app/Contents/Resources/bin/vellum-browser";
-export const DARWIN_PACKAGED_CONTENT_EXECUTABLE =
-  "/Applications/Vellum Command.app/Contents/Resources/bin/vellum-content";
+/** Single packaged CLI binary — station/browser/content-transfer are subcommands. */
+export const DARWIN_PACKAGED_CLI_EXECUTABLE =
+  "/Applications/Vellum Command.app/Contents/Resources/bin/vellum";
+/** @deprecated Use DARWIN_PACKAGED_CLI_EXECUTABLE — same binary. */
+export const DARWIN_PACKAGED_STATION_EXECUTABLE = DARWIN_PACKAGED_CLI_EXECUTABLE;
+/** @deprecated Use DARWIN_PACKAGED_CLI_EXECUTABLE — same binary. */
+export const DARWIN_PACKAGED_BROWSER_EXECUTABLE = DARWIN_PACKAGED_CLI_EXECUTABLE;
+/** @deprecated Use DARWIN_PACKAGED_CLI_EXECUTABLE — same binary. */
+export const DARWIN_PACKAGED_CONTENT_EXECUTABLE = DARWIN_PACKAGED_CLI_EXECUTABLE;
 export const DARWIN_PACKAGED_APP_EXECUTABLE =
   "/Applications/Vellum Command.app/Contents/MacOS/Vellum Command";
-export { STATION_PROTOCOL_NEGOTIATION_ARG };
+export { STATION_PROTOCOL_NEGOTIATION_ARG, STATION_STDIO_COMMAND, CONTENT_TRANSFER_COMMAND };
+
+const stationStdioArgs = (
+  mode: "session" | "negotiation",
+): ReadonlyArray<string> =>
+  mode === "negotiation"
+    ? [STATION_STDIO_COMMAND, STATION_PROTOCOL_NEGOTIATION_ARG]
+    : [STATION_STDIO_COMMAND];
+
+const contentTransferArgs = (
+  args: ReadonlyArray<string>,
+): ReadonlyArray<string> => [CONTENT_TRANSFER_COMMAND, ...args];
 
 const SAFE_REMOTE_HOME = /^\/(?:[^/\u0000-\u001f\u007f]+\/)*[^/\u0000-\u001f\u007f]+$/u;
 
@@ -678,7 +696,7 @@ const remoteVellumStationCommand = (
       }),
     );
   }
-  return makeRemoteCommand(DARWIN_PACKAGED_STATION_EXECUTABLE, args);
+  return makeRemoteCommand(DARWIN_PACKAGED_CLI_EXECUTABLE, args);
 };
 
 const remoteLinuxUserlandStationCommand = (
@@ -691,26 +709,26 @@ const remoteLinuxUserlandStationCommand = (
       message: "remote Linux userland witness is invalid",
     }));
   }
-  return makeRemoteCommand(`${home}/.local/bin/vellum-station`, args);
+  return makeRemoteCommand(`${home}/.local/bin/vellum`, args);
 };
 
 /** Exact owner-local Station helper, pinned by platform + HOME witnesses. */
 export const remoteLinuxUserlandVellumStation = (
   userland: RemoteLinuxUserland,
 ): Effect.Effect<RemoteCommand, SshInputError> =>
-  remoteLinuxUserlandStationCommand(userland, []);
+  remoteLinuxUserlandStationCommand(userland, stationStdioArgs("session"));
 
 /** Owner-local exact Station protocol preface helper. */
 export const remoteLinuxUserlandVellumStationNegotiation = (
   userland: RemoteLinuxUserland,
 ): Effect.Effect<RemoteCommand, SshInputError> =>
-  remoteLinuxUserlandStationCommand(userland, [STATION_PROTOCOL_NEGOTIATION_ARG]);
+  remoteLinuxUserlandStationCommand(userland, stationStdioArgs("negotiation"));
 
 /** Exact pre-negotiation-v2 helper invocation. */
 export const remoteVellumStation = (
   platform: RemotePackagedPlatform,
 ): Effect.Effect<RemoteCommand, SshInputError> =>
-  remoteVellumStationCommand(platform, []);
+  remoteVellumStationCommand(platform, stationStdioArgs("session"));
 
 /**
  * Fixed compatibility-preface helper invocation.
@@ -721,9 +739,7 @@ export const remoteVellumStation = (
 export const remoteVellumStationNegotiation = (
   platform: RemotePackagedPlatform,
 ): Effect.Effect<RemoteCommand, SshInputError> =>
-  remoteVellumStationCommand(platform, [
-    STATION_PROTOCOL_NEGOTIATION_ARG,
-  ]);
+  remoteVellumStationCommand(platform, stationStdioArgs("negotiation"));
 
 const decodeObservedRemoteHome = (
   output: string,
@@ -767,7 +783,7 @@ export const resolveRemoteStationHelper = (
     if (observed === "darwin") {
       return yield* remoteVellumStationCommand(
         platform,
-        mode === "negotiation" ? [STATION_PROTOCOL_NEGOTIATION_ARG] : [],
+        stationStdioArgs(mode),
       );
     }
     if (observed !== "linux") {
@@ -782,7 +798,7 @@ export const resolveRemoteStationHelper = (
     const userland = yield* bindLinuxRemoteUserland(platform, homeDirectory);
     return yield* remoteLinuxUserlandStationCommand(
       userland,
-      mode === "negotiation" ? [STATION_PROTOCOL_NEGOTIATION_ARG] : [],
+      stationStdioArgs(mode),
     );
   }).pipe(Effect.withSpan("ssh.remote-station-helper"));
 
@@ -846,9 +862,10 @@ const remoteVellumContentCommand = (
   }
   return Effect.gen(function* () {
     const safeArgs = yield* assertContentHelperArgs(args);
-    return yield* makeRemoteCommand(DARWIN_PACKAGED_CONTENT_EXECUTABLE, [
-      ...safeArgs,
-    ]);
+    return yield* makeRemoteCommand(
+      DARWIN_PACKAGED_CLI_EXECUTABLE,
+      contentTransferArgs(safeArgs),
+    );
   });
 };
 
@@ -866,9 +883,10 @@ const remoteLinuxUserlandContentCommand = (
   }
   return Effect.gen(function* () {
     const safeArgs = yield* assertContentHelperArgs(args);
-    return yield* makeRemoteCommand(`${home}/.local/bin/vellum-content`, [
-      ...safeArgs,
-    ]);
+    return yield* makeRemoteCommand(
+      `${home}/.local/bin/vellum`,
+      contentTransferArgs(safeArgs),
+    );
   });
 };
 

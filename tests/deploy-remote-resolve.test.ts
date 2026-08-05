@@ -180,17 +180,13 @@ describe("buildRemoteDeployScript", () => {
     expect(script).toContain("APP='/Applications/Vellum Command.app'");
     expect(script).toContain("IN='/Applications/Vellum Command.app.incoming'");
     expect(script).toContain(
-      "STATION_EXE='/Applications/Vellum Command.app/Contents/Resources/bin/vellum-station'",
+      "CLI_EXE='/Applications/Vellum Command.app/Contents/Resources/bin/vellum'",
     );
     expect(script).toContain(
-      "BROWSER_EXE='/Applications/Vellum Command.app/Contents/Resources/bin/vellum-browser'",
+      'test -f "$IN_CLI_EXE" && test ! -L "$IN_CLI_EXE" && test -x "$IN_CLI_EXE"',
     );
-    expect(script).toContain(
-      'test -f "$IN_STATION_EXE" && test ! -L "$IN_STATION_EXE" && test -x "$IN_STATION_EXE"',
-    );
-    expect(script).toContain(
-      'test -f "$IN_BROWSER_EXE" && test ! -L "$IN_BROWSER_EXE" && test -x "$IN_BROWSER_EXE"',
-    );
+    expect(script).not.toContain("IN_STATION_EXE");
+    expect(script).not.toContain("IN_BROWSER_EXE");
     expect(script).toContain(
       "TERM_SOCK='/Users/remote station/.vellum/term/control.sock'",
     );
@@ -597,13 +593,9 @@ describe("remote deploy transaction behavior", () => {
           'mkdir -p "$target/Contents/MacOS" "$target/Contents/Resources/bin"',
           "printf 'new-generation' > \"$target/Contents/MacOS/Vellum Command\"",
           'chmod 755 "$target/Contents/MacOS/Vellum Command"',
-          'if [ "$FAKE_MISSING_CONTROL_HELPER" != "station" ]; then',
-          "  printf 'station-helper' > \"$target/Contents/Resources/bin/vellum-station\"",
-          '  chmod 755 "$target/Contents/Resources/bin/vellum-station"',
-          "fi",
-          'if [ "$FAKE_MISSING_CONTROL_HELPER" != "browser" ]; then',
-          "  printf 'browser-helper' > \"$target/Contents/Resources/bin/vellum-browser\"",
-          '  chmod 755 "$target/Contents/Resources/bin/vellum-browser"',
+          'if [ "$FAKE_MISSING_CONTROL_HELPER" != "cli" ]; then',
+          "  printf 'cli-helper' > \"$target/Contents/Resources/bin/vellum\"",
+          '  chmod 755 "$target/Contents/Resources/bin/vellum"',
           "fi",
           "printf 'new-info' > \"$target/Contents/Info.plist\"",
           'touch "$FAKE_STATE/tar-ran"',
@@ -780,30 +772,25 @@ describe("remote deploy transaction behavior", () => {
   );
 
   it(
-    "refuses a fresh candidate missing either canonical control helper before stopping the old job",
+    "refuses a fresh candidate missing the packaged CLI before stopping the old job",
     () => {
-      for (const helper of ["station", "browser"]) {
-        const harness = makeHarness();
-        try {
-          const result = harness.run({
-            FAKE_MISSING_CONTROL_HELPER: helper,
-          });
-          const launchctlLogPath = join(
-            harness.state,
-            "launchctl.log",
-          );
-          const launchctlLog = existsSync(launchctlLogPath)
-            ? readFileSync(launchctlLogPath, "utf8")
-            : "";
-          expect(result.status, result.stderr).toBe(12);
-          expect(result.stderr).toContain("DEPLOY_NOT_STARTED");
-          expect(launchctlLog).not.toContain("bootout");
-          expect(readFileSync(harness.executablePath, "utf8")).toBe(
-            "old-generation",
-          );
-        } finally {
-          harness.cleanup();
-        }
+      const harness = makeHarness();
+      try {
+        const result = harness.run({
+          FAKE_MISSING_CONTROL_HELPER: "cli",
+        });
+        const launchctlLogPath = join(harness.state, "launchctl.log");
+        const launchctlLog = existsSync(launchctlLogPath)
+          ? readFileSync(launchctlLogPath, "utf8")
+          : "";
+        expect(result.status, result.stderr).toBe(12);
+        expect(result.stderr).toContain("DEPLOY_NOT_STARTED");
+        expect(launchctlLog).not.toContain("bootout");
+        expect(readFileSync(harness.executablePath, "utf8")).toBe(
+          "old-generation",
+        );
+      } finally {
+        harness.cleanup();
       }
     },
     35_000,

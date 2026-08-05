@@ -27,23 +27,21 @@ const runBuildPreflight = (environment = cleanFeatureEnvironment()) =>
   );
 
 describe("packaged feature build contract", () => {
-  it("defaults every standalone control compiler to explicit ship defines", () => {
-    const controls = ["vellum", "browser", "station", "content"] as const;
-    for (const control of controls) {
-      const build = standaloneControlBuild(control);
-      expect(build.profile).toBe("ship");
-      for (const feature of Object.values(FEATURE_CATALOG)) {
-        expect(build.featureDefines).toContain(`--define=${feature.define}=false`);
-      }
+  it("defaults the standalone CLI compiler to explicit ship defines", () => {
+    const build = standaloneControlBuild("vellum");
+    expect(build.profile).toBe("ship");
+    expect(build.output).toBe("dist/vellum");
+    for (const feature of Object.values(FEATURE_CATALOG)) {
+      expect(build.featureDefines).toContain(`--define=${feature.define}=false`);
     }
   });
 
   it("keeps package scripts on the profile-aware standalone compiler", async () => {
     const packageJson = await readFile(path.join(repoRoot, "package.json"), "utf8");
     expect(packageJson).toContain('"cli:build": "bun scripts/build-standalone-cli.ts vellum"');
-    expect(packageJson).toContain('"browser:build": "bun scripts/build-standalone-cli.ts browser"');
-    expect(packageJson).toContain('"station:build": "bun scripts/build-standalone-cli.ts station"');
-    expect(packageJson).toContain('"content:build": "bun scripts/build-standalone-cli.ts content"');
+    expect(packageJson).not.toContain("browser:build");
+    expect(packageJson).not.toContain("station:build");
+    expect(packageJson).not.toContain("content:build");
   });
 
   it("rejects ship deviations unless packaging receives explicit authority", () => {

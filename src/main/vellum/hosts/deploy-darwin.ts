@@ -69,19 +69,17 @@ const DEVELOPER_ID_REQUIREMENT =
   '=anchor apple generic and identifier "skastr0.vellumcommand" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "EXAMP12345"';
 const DEPLOY_TIMEOUT_MS = 20 * 60 * 1000;
 const REMOTE_APP_PATH = `/Applications/${APP_BUNDLE_NAME}`;
-const REMOTE_STATION_EXECUTABLE =
-  `${REMOTE_APP_PATH}/Contents/Resources/bin/vellum-station`;
-const REMOTE_BROWSER_EXECUTABLE =
-  `${REMOTE_APP_PATH}/Contents/Resources/bin/vellum-browser`;
+const REMOTE_CLI_EXECUTABLE =
+  `${REMOTE_APP_PATH}/Contents/Resources/bin/vellum`;
 const DARWIN_DEPLOY_READY_WITH_LOCK_WARNING_EXIT = 10;
 const DARWIN_DEPLOY_NOT_STARTED_EXIT = 12;
 const DARWIN_DEPLOY_INDETERMINATE_EXIT = 13;
 
 if (
-  REMOTE_STATION_EXECUTABLE !== DARWIN_PACKAGED_STATION_EXECUTABLE ||
-  REMOTE_BROWSER_EXECUTABLE !== DARWIN_PACKAGED_BROWSER_EXECUTABLE
+  REMOTE_CLI_EXECUTABLE !== DARWIN_PACKAGED_STATION_EXECUTABLE ||
+  REMOTE_CLI_EXECUTABLE !== DARWIN_PACKAGED_BROWSER_EXECUTABLE
 ) {
-  throw new Error("Darwin deployment and Station transport paths diverged");
+  throw new Error("Darwin deployment and packaged CLI paths diverged");
 }
 
 const shellLiteral = (value: string): string =>
@@ -556,49 +554,37 @@ export const admitLocalAppBundle = async (
     "MacOS",
     PRODUCT_NAME,
   );
-  const stationExecutablePath = join(
+  const cliExecutablePath = join(
     canonicalPath,
     "Contents",
     "Resources",
     "bin",
-    "vellum-station",
-  );
-  const browserExecutablePath = join(
-    canonicalPath,
-    "Contents",
-    "Resources",
-    "bin",
-    "vellum-browser",
+    "vellum",
   );
   const [
     plistMetadata,
     executableMetadata,
-    stationExecutableMetadata,
-    browserExecutableMetadata,
+    cliExecutableMetadata,
   ] = await Promise.all([
     lstat(infoPlistPath),
     lstat(executablePath),
-    lstat(stationExecutablePath),
-    lstat(browserExecutablePath),
+    lstat(cliExecutablePath),
   ]);
   if (
     !plistMetadata.isFile() ||
     plistMetadata.isSymbolicLink() ||
     !executableMetadata.isFile() ||
     executableMetadata.isSymbolicLink() ||
-    !stationExecutableMetadata.isFile() ||
-    stationExecutableMetadata.isSymbolicLink() ||
-    !browserExecutableMetadata.isFile() ||
-    browserExecutableMetadata.isSymbolicLink()
+    !cliExecutableMetadata.isFile() ||
+    cliExecutableMetadata.isSymbolicLink()
   ) {
     throw new Error(
-      "local bundle identity and packaged control helpers must be regular files",
+      "local bundle identity and packaged CLI must be regular files",
     );
   }
   await Promise.all([
     access(executablePath, fsConstants.X_OK),
-    access(stationExecutablePath, fsConstants.X_OK),
-    access(browserExecutablePath, fsConstants.X_OK),
+    access(cliExecutablePath, fsConstants.X_OK),
   ]);
 
   await runBundleAdmissionCommand("/usr/bin/codesign", [
@@ -920,10 +906,8 @@ const buildRemoteDeployScriptWithRuntime = (
   }
   const remoteAppPath = runtime.appPath;
   const remoteExecutablePath = `${remoteAppPath}/Contents/MacOS/${PRODUCT_NAME}`;
-  const remoteStationExecutablePath =
-    `${remoteAppPath}/Contents/Resources/bin/vellum-station`;
-  const remoteBrowserExecutablePath =
-    `${remoteAppPath}/Contents/Resources/bin/vellum-browser`;
+  const remoteCliExecutablePath =
+    `${remoteAppPath}/Contents/Resources/bin/vellum`;
   const appParentPath = dirname(remoteAppPath);
   const plistPath = `${remoteHome}/Library/LaunchAgents/${LABEL}.plist`;
   const logDir = `${remoteHome}/Library/Logs/${PRODUCT_NAME}`;
@@ -997,10 +981,8 @@ IN=${shellLiteral(incomingPath)}
 BUNDLE=${shellLiteral(APP_BUNDLE_NAME)}
 EXE=${shellLiteral(remoteExecutablePath)}
 IN_EXE=${shellLiteral(`${incomingPath}/${APP_BUNDLE_NAME}/Contents/MacOS/${PRODUCT_NAME}`)}
-STATION_EXE=${shellLiteral(remoteStationExecutablePath)}
-IN_STATION_EXE=${shellLiteral(`${incomingPath}/${APP_BUNDLE_NAME}/Contents/Resources/bin/vellum-station`)}
-BROWSER_EXE=${shellLiteral(remoteBrowserExecutablePath)}
-IN_BROWSER_EXE=${shellLiteral(`${incomingPath}/${APP_BUNDLE_NAME}/Contents/Resources/bin/vellum-browser`)}
+CLI_EXE=${shellLiteral(remoteCliExecutablePath)}
+IN_CLI_EXE=${shellLiteral(`${incomingPath}/${APP_BUNDLE_NAME}/Contents/Resources/bin/vellum`)}
 TERM_SOCK=${shellLiteral(termSock)}
 BROWSER_SOCK=${shellLiteral(browserSock)}
 PLIST=${shellLiteral(plistPath)}
@@ -1601,12 +1583,8 @@ else
   "$TAR" -C "$IN/$BUNDLE" -xf -
 fi
 test -x "$IN_EXE"
-test -f "$IN_STATION_EXE" && test ! -L "$IN_STATION_EXE" && test -x "$IN_STATION_EXE" || {
-  echo "INCOMING_STATION_HELPER_INVALID $IN_STATION_EXE" >&2
-  exit 3
-}
-test -f "$IN_BROWSER_EXE" && test ! -L "$IN_BROWSER_EXE" && test -x "$IN_BROWSER_EXE" || {
-  echo "INCOMING_BROWSER_HELPER_INVALID $IN_BROWSER_EXE" >&2
+test -f "$IN_CLI_EXE" && test ! -L "$IN_CLI_EXE" && test -x "$IN_CLI_EXE" || {
+  echo "INCOMING_CLI_INVALID $IN_CLI_EXE" >&2
   exit 3
 }
 "$CODESIGN" --verify --deep --strict --verbose=2 -R "$DEVELOPER_ID_REQUIREMENT" "$IN/$BUNDLE"
@@ -1956,12 +1934,8 @@ same_directory_identity "$APP" "$PUBLISHED_APP_ID" || {
   exit 5
 }
 test -x "$EXE" || { echo "PUBLISHED_EXECUTABLE_INVALID $EXE" >&2; exit 5; }
-test -f "$STATION_EXE" && test ! -L "$STATION_EXE" && test -x "$STATION_EXE" || {
-  echo "PUBLISHED_STATION_HELPER_INVALID $STATION_EXE" >&2
-  exit 5
-}
-test -f "$BROWSER_EXE" && test ! -L "$BROWSER_EXE" && test -x "$BROWSER_EXE" || {
-  echo "PUBLISHED_BROWSER_HELPER_INVALID $BROWSER_EXE" >&2
+test -f "$CLI_EXE" && test ! -L "$CLI_EXE" && test -x "$CLI_EXE" || {
+  echo "PUBLISHED_CLI_INVALID $CLI_EXE" >&2
   exit 5
 }
 

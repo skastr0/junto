@@ -664,8 +664,6 @@ export default async function afterPack(context) {
       );
       for (const name of [
         "vellum",
-        "vellum-browser",
-        "vellum-station",
         "unix-peer-pid.py",
       ]) {
         const resource = path.join(resourceDirectory, name);

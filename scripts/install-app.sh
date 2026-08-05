@@ -15,7 +15,7 @@
 #   Settings doctor metadata reports preferred vs LaunchAgent-loaded so Remote
 #   deploy (later) can decide to pass --supervised. No third binary.
 #
-# Installs `vellum …`, `vellum-browser …`, and `vellum-station` as atomic
+# Installs `vellum …` as the single atomic
 # symlinks under ~/.local/bin. Existing unrelated commands are
 # never overwritten.
 #
@@ -189,12 +189,7 @@ preflight_cli_link() {
   local name="${target##*/}"
   assert_scoped_directory_capability "CLI directory" "$BIN_DIR" || return 1
   assert_cli_path "CLI link" "$target" "$BIN_DIR/$name" || return 1
-  if [[
-    "$name" != "vellum" &&
-    "$name" != "vellum-browser" &&
-    "$name" != "vellum-station" &&
-    "$name" != "vellum-content"
-  ]]; then
+  if [[ "$name" != "vellum" ]]; then
     err "refusing unexpected CLI link name: $name"
     return 1
   fi
@@ -232,28 +227,14 @@ install_cli_link() {
 
 install_cli_tools() {
   local work_helper="$APP_DST/Contents/Resources/bin/vellum"
-  local browser_helper="$APP_DST/Contents/Resources/bin/vellum-browser"
-  local station_helper="$APP_DST/Contents/Resources/bin/vellum-station"
-  local content_helper="$APP_DST/Contents/Resources/bin/vellum-content"
-  if [[
-    ! -x "$work_helper" ||
-    ! -x "$browser_helper" ||
-    ! -x "$station_helper" ||
-    ! -x "$content_helper"
-  ]]; then
+  if [[ ! -x "$work_helper" ]]; then
     err "installed Vellum Command CLI helper missing or not executable"
     return 1
   fi
   ensure_scoped_directory "CLI directory" "$BIN_DIR"
   preflight_cli_link "$BIN_DIR/vellum" "$work_helper"
-  preflight_cli_link "$BIN_DIR/vellum-browser" "$browser_helper"
-  preflight_cli_link "$BIN_DIR/vellum-station" "$station_helper"
-  preflight_cli_link "$BIN_DIR/vellum-content" "$content_helper"
   install_cli_link "vellum" "$work_helper"
-  install_cli_link "vellum-browser" "$browser_helper"
-  install_cli_link "vellum-station" "$station_helper"
-  install_cli_link "vellum-content" "$content_helper"
-  log "commands → $BIN_DIR/{vellum,vellum-browser,vellum-station,vellum-content}"
+  log "commands → $BIN_DIR/vellum"
 }
 
 audit_app_bundle() {
@@ -287,13 +268,7 @@ audit_app_bundle "$APP_SRC"
 CANDIDATE_CDHASH="$(app_cdhash "$APP_SRC")"
 
 WORK_HELPER_TARGET="$APP_DST/Contents/Resources/bin/vellum"
-BROWSER_HELPER_TARGET="$APP_DST/Contents/Resources/bin/vellum-browser"
-STATION_HELPER_TARGET="$APP_DST/Contents/Resources/bin/vellum-station"
-CONTENT_HELPER_TARGET="$APP_DST/Contents/Resources/bin/vellum-content"
 preflight_cli_link "$BIN_DIR/vellum" "$WORK_HELPER_TARGET"
-preflight_cli_link "$BIN_DIR/vellum-browser" "$BROWSER_HELPER_TARGET"
-preflight_cli_link "$BIN_DIR/vellum-station" "$STATION_HELPER_TARGET"
-preflight_cli_link "$BIN_DIR/vellum-content" "$CONTENT_HELPER_TARGET"
 
 derive_install_transaction_paths "$$"
 ACTIVATION_STARTED=0

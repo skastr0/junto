@@ -684,7 +684,7 @@ const runtimeStationCli = (
 ): string =>
   path.posix.join(
     runtimeReleaseDirectory(machine, artifact),
-    "resources/bin/vellum-station",
+    "resources/bin/vellum",
   );
 
 const runGuest = (
@@ -1087,7 +1087,7 @@ const verifyPackageAbsent = async (
     "/bin/sh",
     [
       "-c",
-      'if [ -d "$HOME/.vellum/runtime/releases" ] && [ "$(/usr/bin/find "$HOME/.vellum/runtime/releases" -mindepth 1 -maxdepth 1 2>/dev/null | /usr/bin/wc -l)" != 0 ]; then exit 1; fi; if [ -x "$HOME/.local/bin/vellum-station" ]; then exit 1; fi; exit 0',
+      'if [ -d "$HOME/.vellum/runtime/releases" ] && [ "$(/usr/bin/find "$HOME/.vellum/runtime/releases" -mindepth 1 -maxdepth 1 2>/dev/null | /usr/bin/wc -l)" != 0 ]; then exit 1; fi; if [ -x "$HOME/.local/bin/vellum" ]; then exit 1; fi; exit 0',
     ],
   );
   if (result.exitCode !== 0) {
@@ -1112,7 +1112,7 @@ const observeInstalledPackage = async (
     "/bin/sh",
     [
       "-c",
-      `set -eu; RELEASE="$HOME/.vellum/runtime/releases/${release}"; test -x "$RELEASE/vellum"; test -x "$HOME/.local/bin/vellum-station"; printf 'vellum\t%s\tuserland\n' "${artifact.version}"`,
+      `set -eu; RELEASE="$HOME/.vellum/runtime/releases/${release}"; test -x "$RELEASE/vellum"; test -x "$HOME/.local/bin/vellum"; printf 'vellum\t%s\tuserland\n' "${artifact.version}"`,
     ],
   );
   const [packageName, version, architecture] =
@@ -1171,8 +1171,7 @@ const installPackage = async (
     'test -x "$TREE/resources/systemd/vellum-remote-launch"',
     'mv "$TREE" "$DEST"',
     'rm -rf -- "$STAGE"',
-    'ln -sfn "$DEST/resources/bin/vellum-station" "$HOME/.local/bin/vellum-station"',
-    'ln -sfn "$DEST/resources/bin/vellum-browser" "$HOME/.local/bin/vellum-browser"',
+    'ln -sfn "$DEST/resources/bin/vellum" "$HOME/.local/bin/vellum"',
     '"$DEST/resources/bin/vellum-remote" --install-user-service',
     "/usr/bin/systemctl --user daemon-reload",
     "/usr/bin/systemctl --user enable --now vellum-remote.service || true",
@@ -2942,10 +2941,10 @@ const parseFixedStationStatus = (
   output: string,
   expectedRequestId: string,
 ): Record<string, unknown> => {
-  const raw = parseJsonObject(output, "fixed vellum-station status");
+  const raw = parseJsonObject(output, "fixed vellum station-stdio status");
   const decoded = decodeStationSessionFrame(raw);
   if (Result.isFailure(decoded)) {
-    throw new Error("fixed vellum-station emitted a malformed Station frame");
+    throw new Error("fixed vellum station-stdio emitted a malformed Station frame");
   }
   const frame = decoded.success;
   if (
@@ -2954,7 +2953,7 @@ const parseFixedStationStatus = (
     !frame.envelope.ok ||
     frame.envelope.response.op !== "status"
   ) {
-    throw new Error("fixed vellum-station emitted the wrong status response");
+    throw new Error("fixed vellum station-stdio emitted the wrong status response");
   }
   return frame.envelope.response as unknown as Record<string, unknown>;
 };
@@ -2981,7 +2980,8 @@ const readFixedStationStatus = async (
         "-o",
         "ServerAliveCountMax=2",
         `${machine.username}@${machine.name}@orb`,
-        "/usr/bin/vellum-station",
+        "/usr/bin/vellum",
+        "station-stdio",
       ],
       input: stationStatusRequest(requestId),
     },

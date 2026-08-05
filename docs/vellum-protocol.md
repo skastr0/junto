@@ -1706,7 +1706,7 @@ The canonical SSH shape is:
 ```text
 Command Center
   └── opens one persistent SSH command session
-        └── fixed packaged vellum-station helper on Remote
+        └── fixed packaged vellum station-stdio entry on Remote
               └── owner-local Remote control socket
                     └── Remote main Station dispatcher
 ```
@@ -1722,7 +1722,7 @@ The OpenSSH adapter performs bootstrap as follows:
 
 1. the operator has already registered the exact Remote host and SSH route;
 2. Command Center resolves the packaged Remote platform and opens the same
-   fixed `vellum-station` framed SSH command used by ordinary sessions;
+   `vellum station-stdio` framed SSH command used by ordinary sessions;
 3. the bootstrap session admits exactly one correlated `status` request;
 4. Remote main returns its strict `StatusResponse`;
 5. Command Center records the returned `InstallationId` only as the identity

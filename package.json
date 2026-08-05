@@ -72,15 +72,12 @@
     "digest": "bun scripts/digest.ts",
     "canvas:ls": "bun scripts/canvas-ls.ts",
     "ref": "bun scripts/ref-cli.ts",
-    "browser": "bun scripts/browser-cli.ts",
-    "station": "bun scripts/station-cli.ts",
-    "content": "bun scripts/content-cli.ts",
+    "browser": "bun src/cli/main.ts browser",
+    "station": "bun src/cli/main.ts station-stdio",
+    "content-transfer": "bun src/cli/main.ts content-transfer",
     "render": "bun scripts/render.ts",
     "cli": "bun src/cli/main.ts",
     "cli:build": "bun scripts/build-standalone-cli.ts vellum",
-    "browser:build": "bun scripts/build-standalone-cli.ts browser",
-    "station:build": "bun scripts/build-standalone-cli.ts station",
-    "content:build": "bun scripts/build-standalone-cli.ts content",
     "remote:build": "bun scripts/build-vellum-remote.ts",
     "plugin:precompile": "bun scripts/precompile-vellum-plugin.ts"
   },
@@ -164,18 +161,6 @@
       {
         "from": "dist/vellum",
         "to": "bin/vellum"
-      },
-      {
-        "from": "dist/vellum-browser",
-        "to": "bin/vellum-browser"
-      },
-      {
-        "from": "dist/vellum-station",
-        "to": "bin/vellum-station"
-      },
-      {
-        "from": "dist/vellum-content",
-        "to": "bin/vellum-content"
       },
       {
         "from": "scripts/unix-peer-pid.py",

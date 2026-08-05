@@ -319,14 +319,8 @@ export const smokeLinuxCiPackagedRuntime = async (
   const installDirectory = path.dirname(executable);
   const resources = await realpath(path.join(installDirectory, "resources"));
   const workCli = path.join(resources, "bin", "vellum");
-  const browserCli = path.join(resources, "bin", "vellum-browser");
-  const stationCli = path.join(resources, "bin", "vellum-station");
-  if (
-    !(await isExecutable(workCli)) ||
-    !(await isExecutable(browserCli)) ||
-    !(await isExecutable(stationCli))
-  ) {
-    throw new Error("packaged work, browser, or station CLI is missing");
+  if (!(await isExecutable(workCli))) {
+    throw new Error("packaged CLI is missing");
   }
 
   const tempRoot = await mkdtemp("/tmp/vellum-linux-runtime-smoke-");
@@ -441,8 +435,8 @@ export const smokeLinuxCiPackagedRuntime = async (
     parseWorkCliSchemaReceipt(work.stdout.trim());
 
     const browserDoctor = runFixed(
-      browserCli,
-      ["doctor", "--json"],
+      workCli,
+      ["browser", "doctor", "--json"],
       environment,
     );
     if (browserDoctor.status !== 0) {
@@ -451,11 +445,11 @@ export const smokeLinuxCiPackagedRuntime = async (
     parseDoctorReceipt(browserDoctor.stdout.trim());
 
     for (const argv of [
-      ["station"],
-      ["station-trust"],
-      ["--host", "remote-a", "doctor", "--json"],
+      ["browser", "station"],
+      ["browser", "station-trust"],
+      ["browser", "--host", "remote-a", "doctor", "--json"],
     ] as const) {
-      const retired = runFixed(browserCli, [...argv], environment);
+      const retired = runFixed(workCli, [...argv], environment);
       if (retired.status !== 2) {
         throw new Error(
           `packaged browser CLI ${argv.join(" ")} did not reject retired remote mode`,
@@ -470,11 +464,12 @@ export const smokeLinuxCiPackagedRuntime = async (
 
     const stationStatus = await verifyPackagedStationOwnerLocalHandoff(
       processPlane,
-      stationCli,
+      workCli,
       {
         cwd: tempRoot,
         env: environment,
         timeoutMs: 15_000,
+        args: ["station-stdio"],
       },
     );
     if (

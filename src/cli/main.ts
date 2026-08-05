@@ -28,7 +28,9 @@ import {
   stationOperatorCommand,
 } from "./commands/operator";
 import { runBrowserCli } from "../../scripts/browser-cli";
-import { browserCliArgsFromArgv } from "./browser-argv";
+import { earlyDispatchFromArgv } from "./early-dispatch";
+import { runContentTransfer } from "./content-transfer";
+import { runStationStdio } from "./station-stdio";
 import { CLI_NAME, CLI_VERSION } from "./core/constants";
 import { BROWSER_ENABLED } from "@shared/features";
 
@@ -44,6 +46,8 @@ import { OperatorSocketLive } from "./core/operator-socket";
 import { WorkSocketLive } from "./core/socket";
 
 export { browserCliArgsFromArgv } from "./browser-argv";
+export { earlyDispatchFromArgv } from "./early-dispatch";
+
 
 export const rootCommand = Command.make(CLI_NAME).pipe(
   Command.withDescription(
@@ -96,12 +100,21 @@ if (import.meta.main) {
   // Bun puts user args at index 2 in both modes: source is
   // [bunPath, script, ...args], compiled is ["bun", "/$bunfs/root/vellum",
   // ...args]. V4 runWith takes user args only — never the full argv.
-  const browserArgs = browserCliArgsFromArgv(Bun.argv);
-  if (browserCliAvailable && browserArgs !== undefined) {
-    await runBrowserCli(browserArgs);
+  const dispatch = earlyDispatchFromArgv(Bun.argv);
+  if (dispatch.kind === "browser") {
+    if (!browserCliAvailable) {
+      process.stderr.write("vellum browser: disabled in this build\n");
+      process.exitCode = 2;
+    } else {
+      await runBrowserCli(dispatch.args);
+    }
+  } else if (dispatch.kind === "station-stdio") {
+    await runStationStdio(dispatch.args);
+  } else if (dispatch.kind === "content-transfer") {
+    await runContentTransfer(dispatch.args);
   } else {
     BunRuntime.runMain(
-      runCli(Bun.argv.slice(2)) as Effect.Effect<void, never, never>,
+      runCli(dispatch.args) as Effect.Effect<void, never, never>,
     );
   }
 }

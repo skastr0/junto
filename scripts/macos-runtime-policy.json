@@ -18,21 +18,6 @@
       "profile": "none"
     },
     {
-      "path": "Contents/Resources/bin/vellum-browser",
-      "identifier": "vellum-browser",
-      "profile": "none"
-    },
-    {
-      "path": "Contents/Resources/bin/vellum-station",
-      "identifier": "vellum-station",
-      "profile": "none"
-    },
-    {
-      "path": "Contents/Resources/bin/vellum-content",
-      "identifier": "vellum-content",
-      "profile": "none"
-    },
-    {
       "path": "Contents/Resources/app.asar.unpacked/node_modules/msgpackr-extract/build/Release/extract.node",
       "identifier": "extract",
       "profile": "none"

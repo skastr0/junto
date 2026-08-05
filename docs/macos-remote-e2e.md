@@ -33,7 +33,7 @@ mutable row and event has one installation authority home.
 1. Settings → Hosts → add remote (`id`, SSH endpoint).
 2. Install/start the app on the Remote so its owner-local Station control
    socket is available.
-3. **Configure as Remote** — Command Center invokes fixed `vellum-station`
+3. **Configure as Remote** — Command Center invokes `vellum station-stdio`
    over SSH and completes `status → pair → configure`. No remote file is read
    or written. The packaged helper carries the same strict Station session
    frames when invoked over SSH or directly by the operator account: its
