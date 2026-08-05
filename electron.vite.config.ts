@@ -5,6 +5,10 @@ import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 import {
   resolveLicenseBuildProfile,
 } from "./scripts/license-build-profile";
+import {
+  featureViteDefines,
+  resolveBuildFeatures,
+} from "./scripts/build-features";
 
 const alias = {
   "@main": resolve("src/main"),
@@ -43,15 +47,12 @@ const updateDefines = {
   __VELLUM_MAC_UPDATE_FEED_URL__: JSON.stringify(updateFeedUrl),
 };
 
-// Herdr product surface — default OFF. Opt in with VELLUM_HERDR=1 at build.
-const herdrDefines = {
-  __VELLUM_HERDR_ENABLED__: JSON.stringify(process.env.VELLUM_HERDR === "1"),
-};
+const resolvedBuildFeatures = resolveBuildFeatures(process.env);
 
 const productDefines = {
   ...licenseDefines,
   ...updateDefines,
-  ...herdrDefines,
+  ...featureViteDefines(resolvedBuildFeatures),
 };
 
 export default defineConfig({

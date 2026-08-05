@@ -11,6 +11,10 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { PRODUCTION_LICENSE_BUILD_PROFILE } from "./license-build-profile";
+import {
+  featureBunDefineArgs,
+  resolveBuildFeatures,
+} from "./build-features";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const entry = join(root, "src/main/vellum-remote.ts");
@@ -27,6 +31,7 @@ if (
 }
 const appVersion = JSON.parse(readFileSync(join(root, "package.json"), "utf8"))
   .version as string;
+const resolvedBuildFeatures = resolveBuildFeatures(process.env);
 
 mkdirSync(outDir, { recursive: true });
 
@@ -46,8 +51,7 @@ const result = spawnSync(
     `--define=__VELLUM_DODO_PRODUCT_ID__=${JSON.stringify(PRODUCTION_LICENSE_BUILD_PROFILE.productId)}`,
     `--define=__VELLUM_MAC_UPDATE_FEED_URL__=${JSON.stringify("")}`,
     `--define=__VELLUM_APP_VERSION__=${JSON.stringify(appVersion)}`,
-    // Product default: herdr surface off. Match electron-vite / VELLUM_HERDR.
-    `--define=__VELLUM_HERDR_ENABLED__=${JSON.stringify(process.env.VELLUM_HERDR === "1")}`,
+    ...featureBunDefineArgs(resolvedBuildFeatures),
   ],
   {
     cwd: root,

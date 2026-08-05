@@ -5,10 +5,19 @@
  * is absent (tsc, vitest without define), the env fallback applies so unit
  * tests and unbundled scripts stay deterministic.
  *
- * Herdr is legacy PTY-pane attach — not core product. Default OFF.
- * Re-enable a build with `VELLUM_HERDR=1`.
+ * Product surfaces default OFF. Each may be enabled for a build with its
+ * dedicated `VELLUM_*` environment variable. Official builders always inject
+ * every define; the environment fallback exists only for source-run tooling.
  */
 
+declare const __VELLUM_CRON_ENABLED__: boolean | undefined;
+declare const __VELLUM_RELAY_ENABLED__: boolean | undefined;
+declare const __VELLUM_BROWSER_ENABLED__: boolean | undefined;
+declare const __VELLUM_FLEET_UI_ENABLED__: boolean | undefined;
+declare const __VELLUM_USAGE_ENABLED__: boolean | undefined;
+declare const __VELLUM_HELP_MAP_ENABLED__: boolean | undefined;
+declare const __VELLUM_AUDIO_ENABLED__: boolean | undefined;
+declare const __VELLUM_HERMES_INTEGRATION_ENABLED__: boolean | undefined;
 declare const __VELLUM_HERDR_ENABLED__: boolean | undefined;
 
 const envEnabled = (key: string): boolean => {
@@ -31,6 +40,58 @@ export const HERDR_ENABLED: boolean =
   typeof __VELLUM_HERDR_ENABLED__ === "boolean"
     ? __VELLUM_HERDR_ENABLED__
     : envEnabled("VELLUM_HERDR");
+
+export const CRON_ENABLED: boolean =
+  typeof __VELLUM_CRON_ENABLED__ === "boolean"
+    ? __VELLUM_CRON_ENABLED__
+    : envEnabled("VELLUM_CRON");
+
+export const RELAY_ENABLED: boolean =
+  typeof __VELLUM_RELAY_ENABLED__ === "boolean"
+    ? __VELLUM_RELAY_ENABLED__
+    : envEnabled("VELLUM_RELAY");
+
+export const BROWSER_ENABLED: boolean =
+  typeof __VELLUM_BROWSER_ENABLED__ === "boolean"
+    ? __VELLUM_BROWSER_ENABLED__
+    : envEnabled("VELLUM_BROWSER");
+
+export const FLEET_UI_ENABLED: boolean =
+  typeof __VELLUM_FLEET_UI_ENABLED__ === "boolean"
+    ? __VELLUM_FLEET_UI_ENABLED__
+    : envEnabled("VELLUM_FLEET_UI");
+
+export const USAGE_ENABLED: boolean =
+  typeof __VELLUM_USAGE_ENABLED__ === "boolean"
+    ? __VELLUM_USAGE_ENABLED__
+    : envEnabled("VELLUM_USAGE");
+
+export const HELP_MAP_ENABLED: boolean =
+  typeof __VELLUM_HELP_MAP_ENABLED__ === "boolean"
+    ? __VELLUM_HELP_MAP_ENABLED__
+    : envEnabled("VELLUM_HELP_MAP");
+
+export const AUDIO_ENABLED: boolean =
+  typeof __VELLUM_AUDIO_ENABLED__ === "boolean"
+    ? __VELLUM_AUDIO_ENABLED__
+    : envEnabled("VELLUM_AUDIO");
+
+export const HERMES_INTEGRATION_ENABLED: boolean =
+  typeof __VELLUM_HERMES_INTEGRATION_ENABLED__ === "boolean"
+    ? __VELLUM_HERMES_INTEGRATION_ENABLED__
+    : envEnabled("VELLUM_HERMES");
+
+export const BUILD_FEATURES = {
+  cron: CRON_ENABLED,
+  relay: RELAY_ENABLED,
+  browser: BROWSER_ENABLED,
+  fleetUi: FLEET_UI_ENABLED,
+  usage: USAGE_ENABLED,
+  helpMap: HELP_MAP_ENABLED,
+  audio: AUDIO_ENABLED,
+  hermesIntegration: HERMES_INTEGRATION_ENABLED,
+  herdr: HERDR_ENABLED,
+} as const;
 
 /** Strip product-hidden capabilities from a host capability list for UI. */
 export const productHostCapabilities = <T extends string>(

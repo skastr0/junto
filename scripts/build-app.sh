@@ -89,11 +89,25 @@ fi
 export VELLUM_LICENSE_CHANNEL
 export VELLUM_DODO_BUSINESS_ID
 export VELLUM_DODO_PRODUCT_ID
+export VELLUM_FEATURE_PROFILE="${VELLUM_FEATURE_PROFILE:-ship}"
+FEATURE_DEVIATION="$(
+  "$BUN_EXECUTABLE" "$SCRIPT_DIR/build-features.ts" --ship-deviation
+)"
+if [[ -n "$FEATURE_DEVIATION" && "${VELLUM_ALLOW_FEATURE_OVERRIDES:-}" != "1" ]]; then
+  printf \
+    'vellum: error: ship feature deviation requires VELLUM_ALLOW_FEATURE_OVERRIDES=1 (%s)\n' \
+    "$FEATURE_DEVIATION" >&2
+  exit 1
+fi
+FEATURE_RECEIPT="$(
+  "$BUN_EXECUTABLE" "$SCRIPT_DIR/build-features.ts" --receipt
+)"
 printf \
   'vellum: license build profile %s → Dodo Live (%s / %s)\n' \
   "$VELLUM_LICENSE_CHANNEL" \
   "$VELLUM_DODO_BUSINESS_ID" \
   "$VELLUM_DODO_PRODUCT_ID"
+printf 'vellum: feature build receipt %s\n' "$FEATURE_RECEIPT"
 if [[ "$LICENSE_PREFLIGHT_ONLY" -eq 1 ]]; then
   exit 0
 fi
@@ -134,10 +148,14 @@ fi
 
 build_compiled_cli() {
   local output="$1" source="$2" stage="${1}.new.$$"
+  local feature_define_args=()
+  while IFS= read -r feature_define_arg; do
+    [[ -n "$feature_define_arg" ]] && feature_define_args+=("$feature_define_arg")
+  done < <("$BUN_EXECUTABLE" "$SCRIPT_DIR/build-features.ts" --bun-define-args)
   mkdir -p "$(dirname "$output")"
   bun build --compile --no-compile-autoload-dotenv --no-compile-autoload-bunfig \
     --no-compile-autoload-tsconfig --no-compile-autoload-package-json \
-    --outfile "$stage" "$source"
+    "${feature_define_args[@]}" --outfile "$stage" "$source"
   chmod 0755 "$stage"
   mv "$stage" "$output"
 }
