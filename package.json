@@ -29,6 +29,7 @@
     "build": "bash scripts/build-app.sh --fast",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit",
+    "theme:build": "bun scripts/theme-build.ts",
     "lint:product-name": "bun scripts/lint-product-name.ts",
     "lint:no-middot": "bun scripts/lint-no-middot.ts",
     "lint:effect-runpromise": "bun scripts/lint-effect-runpromise.ts",

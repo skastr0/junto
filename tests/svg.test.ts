@@ -84,7 +84,7 @@ describe("renderCanvasSvg", () => {
       ],
       edges: [{ id: "a2a", fromNode: "a1", toNode: "a2" }],
     });
-    expect(svg).toContain('stroke="#E8A33D"');
+    expect(svg).toContain('stroke="#e8a33d"');
   });
 
   it("escapes special characters in titles", () => {

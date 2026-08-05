@@ -5,30 +5,33 @@ import {
 } from "./execution-graph";
 import { isGroup } from "./graph";
 import { edgeMaskAllows } from "./physics";
+import { DARK_RUNTIME } from "./theme";
+import { hexAtAlpha } from "./theme/oklch";
 
-// Headless deep-field render of a canvas to SVG — the "screenshot for agents"
-// half of the agent surface (the text half is digest.ts). Pure and
-// deterministic: same doc + actor projection in, same SVG out. No DOM, no
-// Electron.
+// Headless render of a canvas to SVG — the "screenshot for agents" half of
+// the agent surface (the text half is digest.ts). Pure and deterministic:
+// same doc + actor projection in, same SVG out. No DOM, no Electron.
+// Palette comes from the single token source (./theme) — the dark runtime
+// projection, matching the app's default mode.
 
-const GROUND = "#0c0b0a";
-const TEXT = "#EDE6DA";
-const DIM = "#8a8378";
-const AMBER = "#E8A33D";
-const CRIMSON = "#E5484D";
-const STEEL = "#8FA3B0";
-const CARD_FILL = "rgba(255,255,255,0.03)";
-const STROKE = "rgba(237,230,218,0.16)";
-const GROUP_FILL = "rgba(143,163,176,0.05)";
+const GROUND = DARK_RUNTIME.ground!;
+const TEXT = DARK_RUNTIME.ink!;
+const DIM = DARK_RUNTIME.dim!;
+const AMBER = DARK_RUNTIME.amber!;
+const CRIMSON = DARK_RUNTIME.crimson!;
+const STEEL = DARK_RUNTIME.steel!;
+const CARD_FILL = DARK_RUNTIME["overlay-1"]!;
+const STROKE = DARK_RUNTIME.stroke!;
+const GROUP_FILL = hexAtAlpha(DARK_RUNTIME.steel!, 0.05);
 
 // JSON Canvas preset colors 1..6 -> border tint.
 const PRESET: Record<string, string> = {
   "1": CRIMSON,
-  "2": "#F07438",
-  "3": "#D4A94F",
-  "4": "#7BB661",
-  "5": "#39C6D6",
-  "6": "#8B7BEB",
+  "2": DARK_RUNTIME.orange!,
+  "3": DARK_RUNTIME.gold!,
+  "4": DARK_RUNTIME.green!,
+  "5": DARK_RUNTIME.cyan!,
+  "6": DARK_RUNTIME.violet!,
 };
 
 const EDGE_COLOR: Record<EtherEdgeKind, string> = {

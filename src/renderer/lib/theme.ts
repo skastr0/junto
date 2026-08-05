@@ -1,37 +1,46 @@
 import type { EtherEdgeKind } from "@shared/canvas";
+import { themeRuntime, type ThemeMode } from "@shared/theme";
 
-// Deep-field palette — the TS mirror of the `@theme` block in styles.css
-// (Tailwind utilities) for runtime consumers: canvas paint, xterm themes,
-// inline styles. One palette, two projections — never a second source.
+// Runtime projection of the single token source (src/shared/theme/) for
+// canvas paint, xterm themes, and inline styles. One palette, one source —
+// this module only re-shapes it for renderer consumers and keeps the
+// long-standing export names stable. `themeFor(mode)` serves mode-aware
+// consumers; the bare constants are the dark mode, the app's default.
 // Ground is never pure black. Roughly 95% amber, sparse others. Crimson is
 // reserved for blockers only.
+
+const dark = themeRuntime("dark");
+
+export const themeFor = (mode: ThemeMode): Record<string, string> =>
+  themeRuntime(mode);
+
 export const HUE = {
-  amber: "#E8A33D",
-  cyan: "#39C6D6",
-  violet: "#8B7BEB",
-  crimson: "#E5484D",
-  steel: "#8FA3B0",
-  indigo: "#6E7BF2",
-  gold: "#D4A94F",
-  orange: "#F07438",
+  amber: dark.amber!,
+  cyan: dark.cyan!,
+  violet: dark.violet!,
+  crimson: dark.crimson!,
+  steel: dark.steel!,
+  indigo: dark.indigo!,
+  gold: dark.gold!,
+  orange: dark.orange!,
 } as const;
 
-export const GROUND = "#0c0b0a";
-export const RAISE = "#16130f";
-export const RAISE_2 = "#141210";
-export const INSET = "#131110";
-export const WELL = "#090807";
-export const INK = "#EDE6DA";
-export const INK_2 = "#c8c0b0";
-export const DIM = "#8a8378";
-export const FAINT = "#68604a";
-export const GREEN = "#5FB98E";
+export const GROUND = dark.ground!;
+export const RAISE = dark.raise!;
+export const RAISE_2 = dark["raise-2"]!;
+export const INSET = dark.inset!;
+export const WELL = dark.well!;
+export const INK = dark.ink!;
+export const INK_2 = dark["ink-2"]!;
+export const DIM = dark.dim!;
+export const FAINT = dark.faint!;
+export const GREEN = dark.green!;
 
-// Translucent card fill — wireframe over solid.
-export const CARD_FILL = "rgba(255,255,255,0.03)";
-export const CARD_FILL_HI = "rgba(255,255,255,0.05)";
-export const STROKE = "rgba(237,230,218,0.14)";
-export const STROKE_HI = "rgba(237,230,218,0.28)";
+// Translucent card fill — ink at low alpha over the field.
+export const CARD_FILL = dark["overlay-1"]!;
+export const CARD_FILL_HI = dark["overlay-2"]!;
+export const STROKE = dark.stroke!;
+export const STROKE_HI = dark["stroke-hi"]!;
 
 // JSON Canvas 1.0 color presets '1'..'6'.
 const PRESET: Record<string, string> = {
