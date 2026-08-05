@@ -13,10 +13,17 @@ import {
 // (b5-races-canvases.test.ts) worked around the gap with its own per-file
 // `vi.mock("@shared/canvas", ...)` redirect; this makes that workaround
 // unnecessary for every test going forward.
+const testFeatureEnvironment: NodeJS.ProcessEnv = {
+  ...process.env,
+  ...(process.env.VELLUM_TEST_FEATURE_PROFILE
+    ? { VELLUM_FEATURE_PROFILE: process.env.VELLUM_TEST_FEATURE_PROFILE }
+    : {}),
+};
+
 export default defineConfig({
   // Tests default to the exact shipping profile. Feature-specific suites opt
   // into all-on or individual VELLUM_* overrides before Vitest starts.
-  define: featureViteDefines(resolveBuildFeatures(process.env)),
+  define: featureViteDefines(resolveBuildFeatures(testFeatureEnvironment)),
   test: {
     // e2e/ specs use @playwright/test's own `test`/`expect` and launch a
     // real Electron app — vitest's default glob would otherwise pick up

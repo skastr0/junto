@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  BROWSER_ENABLED,
   HERDR_ENABLED,
   HERMES_INTEGRATION_ENABLED,
   productHostCapabilities,
@@ -20,15 +19,9 @@ describe("HERDR product gate", () => {
   });
 
   it("local station capabilities mirror the gate", () => {
-    if (HERDR_ENABLED) {
-      expect(LOCAL_STATION_CAPABILITIES).toContain("herdr");
-    } else {
-      expect(LOCAL_STATION_CAPABILITIES).not.toContain("herdr");
-    }
+    expect(LOCAL_STATION_CAPABILITIES).toContain("herdr");
     expect(LOCAL_STATION_CAPABILITIES).toContain("terminal");
-    expect(LOCAL_STATION_CAPABILITIES.includes("browser")).toBe(BROWSER_ENABLED);
-    expect(LOCAL_STATION_CAPABILITIES.includes("hermes")).toBe(
-      HERMES_INTEGRATION_ENABLED,
-    );
+    expect(LOCAL_STATION_CAPABILITIES).toContain("browser");
+    expect(LOCAL_STATION_CAPABILITIES).toContain("hermes");
   });
 });

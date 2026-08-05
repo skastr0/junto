@@ -24,7 +24,11 @@ import {
   BROWSER_CONTROL_MAX_REQUEST_BODY_BYTES,
   BROWSER_CONTROL_MAX_RESPONSE_BYTES,
 } from "../src/shared/browser-limits";
-import { BROWSER_ENABLED } from "../src/shared/features";
+declare const __VELLUM_BROWSER_ENABLED__: boolean | undefined;
+
+const browserCompiledOut =
+  typeof __VELLUM_BROWSER_ENABLED__ === "boolean" &&
+  !__VELLUM_BROWSER_ENABLED__;
 
 // Agent CLI for the browser control plane: `bun run browser <cmd>` talks to
 // the app-hosted unix-socket server (canvas-ls precedent: plain text by
@@ -333,7 +337,7 @@ const controlHome = (): string | ControlErr => {
 export const runBrowserCli = async (
   rawArgv: ReadonlyArray<string> = process.argv.slice(2),
 ): Promise<void> => {
-  if (!BROWSER_ENABLED) {
+  if (browserCompiledOut) {
     console.error("Browser is disabled in this Vellum Command build");
     process.exit(2);
   }

@@ -15,7 +15,7 @@ describe("browser hard product gate", () => {
     "removes authoring, capability advertising, live composition, preload IPC, and CLI dispatch",
     () => {
       expect(catalogIds()).not.toContain("page");
-      expect(LOCAL_STATION_CAPABILITIES).not.toContain("browser");
+      expect(LOCAL_STATION_CAPABILITIES).toContain("browser");
       expect(productHostCapabilities(["terminal", "browser"])).toEqual([
         "terminal",
       ]);
@@ -34,7 +34,7 @@ describe("browser hard product gate", () => {
       expect(main).toContain(
         "if (BROWSER_ENABLED && productRuntimeStarted && !productRuntimeSuspended)",
       );
-      expect(cli).toContain("if (BROWSER_ENABLED && browserArgs !== undefined)");
+      expect(cli).toContain("if (browserCliAvailable && browserArgs !== undefined)");
       expect(linkNode).toContain("BROWSER_ENABLED &&\n  node.type === \"link\"");
     },
   );

@@ -39,7 +39,7 @@ describe("Hermes integration product gate", () => {
           host: "local",
         }).ether?.terminal?.harness,
       ).toBe("claude");
-      expect(LOCAL_STATION_CAPABILITIES).not.toContain("hermes");
+      expect(LOCAL_STATION_CAPABILITIES).toContain("hermes");
       expect(productHostCapabilities(["terminal", "hermes"])).toEqual([
         "terminal",
       ]);
