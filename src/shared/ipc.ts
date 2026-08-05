@@ -569,10 +569,6 @@ export interface VellumApi extends LicenseApi, UpdateApi {
   ) => Promise<CanvasReadResult>;
   readonly getSnapshots: () => Promise<SnapshotState>;
   readonly refreshSnapshots: (hints?: ReadonlyArray<BindingHint>) => Promise<SnapshotState>;
-  // Provider usage plane (beta: codexbar only). Fail-open: empty / hide HUD
-  // snapshots when the CLI is absent — renderer hides the HUD.
-  readonly getUsage: () => Promise<UsageState>;
-  readonly refreshUsage: () => Promise<UsageState>;
   // Hermes ACP messaging (legacy transport surface).
   readonly agentMessage: (key: string, text: string) => Promise<AgentReply>;
   // Kernel state and control (headless kernel in main process).
@@ -746,7 +742,6 @@ export interface VellumApi extends LicenseApi, UpdateApi {
   /** Optional for older renderer bridges; present in the current preload. */
   readonly onPreamble?: (listener: (event: PreambleEvent) => void) => () => void;
   readonly onSnapshotsChanged: (listener: (state: SnapshotState) => void) => () => void;
-  readonly onUsageChanged: (listener: (state: UsageState) => void) => () => void;
   readonly onKernelChanged: (listener: (snapshot: KernelSnapshot) => void) => () => void;
   // User settings document (main owns the SQLite row; renderer holds a live projection).
   readonly settingsGet: () => Promise<SettingsOpResult>;
@@ -823,6 +818,13 @@ export interface VellumApi extends LicenseApi, UpdateApi {
   readonly boxResume: (boxId: string) => Promise<BoxFleetResult>;
   /** Remove from Vellum Command ownership + fleet only; Box account machine remains. */
   readonly boxDetach: (boxId: string) => Promise<BoxFleetResult>;
+}
+
+/** Optional provider-usage product surface. Omitted from preload when disabled. */
+export interface VellumUsageApi {
+  readonly getUsage: () => Promise<UsageState>;
+  readonly refreshUsage: () => Promise<UsageState>;
+  readonly onUsageChanged: (listener: (state: UsageState) => void) => () => void;
 }
 
 export interface HostsOpResult {

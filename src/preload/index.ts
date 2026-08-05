@@ -20,6 +20,7 @@ import {
   type VellumDemoApi,
   type VellumHerdrApi,
   type VellumTerminalApi,
+  type VellumUsageApi,
   type KernelSnapshot,
   type NodeRefOpenedDelivery,
   type NodeRefOpenedEvent,
@@ -27,7 +28,7 @@ import {
   type ObservabilityQuery,
   type ObservabilitySnapshot,
 } from "@shared/ipc";
-import { HERDR_ENABLED } from "@shared/features";
+import { HERDR_ENABLED, USAGE_ENABLED } from "@shared/features";
 import type { SnapshotState } from "@shared/entities";
 import type { PreambleEvent } from "@shared/preamble";
 import type { Settings, SettingsOpResult, SettingsPatch, SettingsSectionKey } from "@shared/settings";
@@ -450,8 +451,6 @@ const vellumApi: VellumApi = {
     invoke(IPC_CHANNELS.generatePortfolio, IPC_TIMEOUT_MS, name, options),
   getSnapshots: () => invoke(IPC_CHANNELS.getSnapshots, IPC_TIMEOUT_MS),
   refreshSnapshots: (hints) => invoke(IPC_CHANNELS.refreshSnapshots, IPC_TIMEOUT_MS, hints),
-  getUsage: () => invoke(IPC_CHANNELS.getUsage, IPC_TIMEOUT_MS),
-  refreshUsage: () => invoke(IPC_CHANNELS.refreshUsage, USAGE_REFRESH_TIMEOUT_MS),
   agentMessage: (key, text) => invoke(IPC_CHANNELS.agentMessage, AGENT_MESSAGE_TIMEOUT_MS, key, text),
   getKernelState: () => invoke<KernelSnapshot>(IPC_CHANNELS.getKernelState, IPC_TIMEOUT_MS),
   factoryPauseState: (canvas) =>
@@ -579,7 +578,6 @@ const vellumApi: VellumApi = {
   onPreamble: (listener) => subscribe<PreambleEvent>(IPC_CHANNELS.preamble, listener),
   onSnapshotsChanged: (listener) =>
     subscribe<SnapshotState>(IPC_CHANNELS.snapshotsChanged, listener),
-  onUsageChanged: (listener) => subscribe<UsageState>(IPC_CHANNELS.usageChanged, listener),
   onKernelChanged: (listener) => subscribe<KernelSnapshot>(IPC_CHANNELS.kernelChanged, listener),
   hostsList: () => invoke(IPC_CHANNELS.hostsList, IPC_TIMEOUT_MS),
   hostsDiscoverPeers: () => invoke(IPC_CHANNELS.hostsDiscoverPeers, IPC_TIMEOUT_MS),
@@ -659,6 +657,13 @@ const vellumApi: VellumApi = {
       IPC_CHANNELS.observabilityCleared,
       listener,
     ),
+};
+
+const usageApi: VellumUsageApi = {
+  getUsage: () => invoke(IPC_CHANNELS.getUsage, IPC_TIMEOUT_MS),
+  refreshUsage: () => invoke(IPC_CHANNELS.refreshUsage, USAGE_REFRESH_TIMEOUT_MS),
+  onUsageChanged: (listener) =>
+    subscribe<UsageState>(IPC_CHANNELS.usageChanged, listener),
 };
 
 const chatApi: VellumChatApi = {
@@ -827,6 +832,7 @@ if (preloadLocation === undefined || isRendererPreloadCandidate(preloadLocation)
   contextBridge.exposeInMainWorld("vellum", {
     ...vellumApi,
     ...chatApi,
+    ...(USAGE_ENABLED ? usageApi : {}),
     ...(HERDR_ENABLED ? herdrApi : {}),
     ...terminalApi,
     ...browserApi,

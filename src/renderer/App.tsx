@@ -45,7 +45,7 @@ const FleetOverlay = lazy(async () => {
   return { default: mod.FleetOverlay };
 });
 import { StationRoleGate } from "./components/StationRoleGate";
-import { FLEET_UI_ENABLED, HERDR_ENABLED } from "@shared/features";
+import { FLEET_UI_ENABLED, HERDR_ENABLED, USAGE_ENABLED } from "@shared/features";
 import { HerdrWizard } from "./components/herdr/HerdrWizard";
 import { HerdrTerminalModal } from "./components/herdr/HerdrTerminalModal";
 import { HerdrToast } from "./components/herdr/HerdrToast";
@@ -304,13 +304,18 @@ export function App() {
     // already holds last-good cache + kicks primary poll on start). Do NOT
     // await refreshUsage here — that was waiting 30–60s on codexbar and made
     // the HUD feel deferred. Main `usage.start()` polls immediately.
-    const offUsage = vellum.onUsageChanged((state) => state$.usage.set(state));
-    void vellum
-      .getUsage()
-      .then((usage) => state$.usage.set(usage))
-      .catch(() => {
-        // Fail open: keep empty until a push lands.
-      });
+    const offUsage =
+      USAGE_ENABLED && vellum.onUsageChanged
+        ? vellum.onUsageChanged((state) => state$.usage.set(state))
+        : () => undefined;
+    if (USAGE_ENABLED && vellum.getUsage) {
+      void vellum
+        .getUsage()
+        .then((usage) => state$.usage.set(usage))
+        .catch(() => {
+          // Fail open: keep empty until a push lands.
+        });
+    }
 
     const boot = async () => {
       try {

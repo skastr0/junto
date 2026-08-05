@@ -147,7 +147,7 @@ export const executeBeat = (scenario: DemoScenario, beat: DemoBeat): void => {
             canvasName: state$.canvasName.peek(),
             nodeId: op.nodeId,
           });
-          void window.vellum?.browserOpen({ ref }).catch(() => undefined);
+          void window.vellum?.browserOpen?.({ ref }).catch(() => undefined);
         } catch {
           // Invalid canvas name / node id — surface nothing mid-take.
         }

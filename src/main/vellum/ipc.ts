@@ -20,7 +20,7 @@ import { BoxActivityPolicy } from "./box";
 import { registerChatIpc } from "./chat/ipc";
 import { ChatServiceContext } from "./chat/service";
 import { HermesPlane } from "./hermes/plane";
-import { HERDR_ENABLED } from "@shared/features";
+import { HERDR_ENABLED, USAGE_ENABLED } from "@shared/features";
 import { registerHerdrIpc } from "./herdr/ipc";
 import { KernelService } from "./kernel/service";
 import { RegionRollupService } from "./region-rollup";
@@ -401,13 +401,15 @@ export const registerVellumIpc = (): void => {
       ),
   );
 
-  privilegedIpc.handle(IPC_CHANNELS.getUsage, () =>
-    AppRuntime.runPromise(Effect.flatMap(UsageService, (usage) => usage.current)),
-  );
+  if (USAGE_ENABLED) {
+    privilegedIpc.handle(IPC_CHANNELS.getUsage, () =>
+      AppRuntime.runPromise(Effect.flatMap(UsageService, (usage) => usage.current)),
+    );
 
-  privilegedIpc.handle(IPC_CHANNELS.refreshUsage, () =>
-    AppRuntime.runPromise(Effect.flatMap(UsageService, (usage) => usage.refresh())),
-  );
+    privilegedIpc.handle(IPC_CHANNELS.refreshUsage, () =>
+      AppRuntime.runPromise(Effect.flatMap(UsageService, (usage) => usage.refresh())),
+    );
+  }
 
 
   privilegedIpc.handle(IPC_CHANNELS.agentMessage, (_event, key: string, text: string) =>
@@ -1043,7 +1045,9 @@ export const registerVellumIpc = (): void => {
         );
       });
       snapshots.subscribe((state) => broadcast(IPC_CHANNELS.snapshotsChanged, state));
-      usage.subscribe((state) => broadcast(IPC_CHANNELS.usageChanged, state));
+      if (USAGE_ENABLED) {
+        usage.subscribe((state) => broadcast(IPC_CHANNELS.usageChanged, state));
+      }
       kernel.subscribe((snapshot) => {
         broadcast(IPC_CHANNELS.kernelChanged, snapshot);
         // Fleet Doctor reads this bounded heartbeat over SSH. Never persist
@@ -1367,7 +1371,7 @@ export const registerVellumIpc = (): void => {
       snapshots.start();
       // First usage fetch is fire-and-forget off the boot critical path;
       // codexbar can take ~15-20s so it never blocks window open.
-      usage.start();
+      if (USAGE_ENABLED) usage.start();
       // V4-KERNEL + V4-PROGRAM: host-owned ManagedRuntime entry; factory
       // program is runFork (Effect control plane, not async IIFE).
       kernel.start({
