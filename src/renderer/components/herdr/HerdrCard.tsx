@@ -19,6 +19,7 @@ import { viewportBusy$ } from "../../lib/viewport-busy";
 import { harnessDisplayName } from "../../lib/harness-icons";
 import { resolvePageSpawnDefaults } from "@shared/region-defaults";
 import { resolveNodeHostId } from "@shared/station";
+import { BROWSER_ENABLED } from "@shared/features";
 import { addNode, editText } from "../../lib/mutations";
 import { makePageNode } from "../../lib/node-factories";
 import { resolveAuthoredPageHost } from "../../lib/page-authoring";
@@ -295,6 +296,7 @@ export function HerdrCard({
 
   const openServicePage = (e: SyntheticEvent) => {
     e.stopPropagation();
+    if (!BROWSER_ENABLED) return;
     const url = service?.url;
     if (!url) return;
     const width = node.width ?? 260;
@@ -430,7 +432,7 @@ export function HerdrCard({
             title={service?.url ?? serviceBadge}
           >
             <span className="truncate">{serviceBadge}</span>
-            {service?.url ? (
+            {BROWSER_ENABLED && service?.url ? (
               <button
                 type="button"
                 className="nodrag nopan shrink-0 rounded px-1 text-[9px] uppercase tracking-wide"

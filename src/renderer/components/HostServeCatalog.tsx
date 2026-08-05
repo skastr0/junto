@@ -4,6 +4,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { HerdrServeCatalogInfo, HerdrServeEntryInfo } from "@shared/ipc";
+import { BROWSER_ENABLED } from "@shared/features";
 import { resolvePageSpawnDefaults } from "@shared/region-defaults";
 import { addNode } from "../lib/mutations";
 import { makePageNode } from "../lib/node-factories";
@@ -79,6 +80,7 @@ export function HostServeCatalog({
   }, [expanded, load]);
 
   const openEntry = (entry: HerdrServeEntryInfo) => {
+    if (!BROWSER_ENABLED) return;
     const url = entry.publicUrl?.trim();
     if (!url) return;
     const doc = state$.doc.peek();
@@ -170,15 +172,21 @@ export function HostServeCatalog({
                       <span className="settings-host-services__local">→ :{svc.localPort}</span>
                     ) : null}
                   </div>
-                  <button
-                    type="button"
-                    className="settings-panel__ghost"
-                    disabled={!svc.publicUrl}
-                    title={svc.publicUrl ? `Open page - ${svc.publicUrl}` : "No public URL"}
-                    onClick={() => openEntry(svc)}
-                  >
-                    open page
-                  </button>
+                  {BROWSER_ENABLED ? (
+                    <button
+                      type="button"
+                      className="settings-panel__ghost"
+                      disabled={!svc.publicUrl}
+                      title={
+                        svc.publicUrl
+                          ? `Open page - ${svc.publicUrl}`
+                          : "No public URL"
+                      }
+                      onClick={() => openEntry(svc)}
+                    >
+                      open page
+                    </button>
+                  ) : null}
                 </li>
               ))}
             </ul>
@@ -194,15 +202,19 @@ export function HostServeCatalog({
                       <strong>{w.label}</strong>
                       <span title={w.publicUrl}>{w.publicUrl}</span>
                     </div>
-                    <button
-                      type="button"
-                      className="settings-panel__ghost"
-                      disabled={!w.publicUrl}
-                      title={w.publicUrl ? `Open page - ${w.publicUrl}` : undefined}
-                      onClick={() => openEntry(w)}
-                    >
-                      open page
-                    </button>
+                    {BROWSER_ENABLED ? (
+                      <button
+                        type="button"
+                        className="settings-panel__ghost"
+                        disabled={!w.publicUrl}
+                        title={
+                          w.publicUrl ? `Open page - ${w.publicUrl}` : undefined
+                        }
+                        onClick={() => openEntry(w)}
+                      >
+                        open page
+                      </button>
+                    ) : null}
                   </li>
                 ))}
               </ul>
@@ -219,19 +231,21 @@ export function HostServeCatalog({
                       <strong>{f.label}</strong>
                       <span title={f.publicUrl}>{f.publicUrl}</span>
                     </div>
-                    <button
-                      type="button"
-                      className="settings-panel__ghost"
-                      disabled={!f.publicUrl}
-                      title={
-                        f.publicUrl
-                          ? `Open page - ${f.publicUrl} (may be non-HTTP)`
-                          : undefined
-                      }
-                      onClick={() => openEntry(f)}
-                    >
-                      open page
-                    </button>
+                    {BROWSER_ENABLED ? (
+                      <button
+                        type="button"
+                        className="settings-panel__ghost"
+                        disabled={!f.publicUrl}
+                        title={
+                          f.publicUrl
+                            ? `Open page - ${f.publicUrl} (may be non-HTTP)`
+                            : undefined
+                        }
+                        onClick={() => openEntry(f)}
+                      >
+                        open page
+                      </button>
+                    ) : null}
                   </li>
                 ))}
               </ul>
@@ -239,8 +253,10 @@ export function HostServeCatalog({
           ) : null}
 
           <p className="settings-host-services__hint" style={{ color: DIM }}>
-            From <code>tailscale serve status</code> on {hostId}. Open page places a browser
-            node on the canvas.
+            From <code>tailscale serve status</code> on {hostId}.
+            {BROWSER_ENABLED
+              ? " Open page places a browser node on the canvas."
+              : ""}
           </p>
         </div>
       ) : null}

@@ -1,17 +1,33 @@
 import { useState, type FormEvent } from "react";
-import { HERDR_ENABLED } from "@shared/features";
+import { productHostCapabilities } from "@shared/features";
 import { refreshFleet } from "../../lib/fleet-state";
 import { getVellumApi } from "../../lib/vellum-api";
 import { Button, FieldLabel, Input } from "../ui";
 
 type Capability = "browser" | "terminal" | "herdr" | "hermes";
 
-const CAPABILITIES: ReadonlyArray<{ readonly id: Capability; readonly label: string }> = [
+const ALL_CAPABILITIES: ReadonlyArray<{ readonly id: Capability; readonly label: string }> = [
   { id: "terminal", label: "terminal" },
   { id: "browser", label: "browser" },
-  ...(HERDR_ENABLED ? ([{ id: "herdr", label: "herdr" }] as const) : []),
+  { id: "herdr", label: "herdr" },
   { id: "hermes", label: "hermes" },
 ];
+
+/** Feature-visible enrollment options. Durable host capability decode stays wider. */
+export const fleetEnrollCapabilities = (): ReadonlyArray<{
+  readonly id: Capability;
+  readonly label: string;
+}> => {
+  const visible = new Set(
+    productHostCapabilities(
+      ALL_CAPABILITIES.map((capability) => capability.id),
+    ),
+  );
+  return ALL_CAPABILITIES.filter((capability) => visible.has(capability.id));
+};
+
+export const defaultFleetEnrollCapabilities = (): ReadonlyArray<Capability> =>
+  productHostCapabilities(["terminal", "browser"]);
 
 /** Host ids must be option-safe: leading alnum, then [A-Za-z0-9._-]. */
 const slugifyHostId = (label: string): string => {
@@ -39,7 +55,9 @@ export function FleetHostForm({
 }) {
   const [label, setLabel] = useState(initialLabel);
   const [endpoint, setEndpoint] = useState(initialEndpoint);
-  const [capabilities, setCapabilities] = useState<ReadonlyArray<Capability>>(["terminal", "browser"]);
+  const [capabilities, setCapabilities] = useState<ReadonlyArray<Capability>>(
+    defaultFleetEnrollCapabilities,
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -125,7 +143,7 @@ export function FleetHostForm({
         <FieldLabel>
           capabilities
           <div className="fleet-form__capabilities" role="group" aria-label="Host capabilities">
-            {CAPABILITIES.map(({ id, label: capabilityLabel }) => (
+            {fleetEnrollCapabilities().map(({ id, label: capabilityLabel }) => (
               <Button
                 key={id}
                 size="xs"

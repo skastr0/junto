@@ -27,6 +27,14 @@ describe("browser hard product gate", () => {
         "src/renderer/components/nodes/LinkNode.tsx",
         "utf8",
       );
+      const herdrCard = readFileSync(
+        "src/renderer/components/herdr/HerdrCard.tsx",
+        "utf8",
+      );
+      const hostServeCatalog = readFileSync(
+        "src/renderer/components/HostServeCatalog.tsx",
+        "utf8",
+      );
       expect(preload).toContain("...(BROWSER_ENABLED ? browserApi : {})");
       expect(main).toContain(
         "if (BROWSER_ENABLED) try {\n      if (headless) await browserCompositionHost.ensureHeadlessHost();",
@@ -36,6 +44,10 @@ describe("browser hard product gate", () => {
       );
       expect(cli).toContain("if (browserCliAvailable && browserArgs !== undefined)");
       expect(linkNode).toContain("BROWSER_ENABLED &&\n  node.type === \"link\"");
+      expect(herdrCard).toContain("if (!BROWSER_ENABLED) return;");
+      expect(herdrCard).toContain("BROWSER_ENABLED && service?.url");
+      expect(hostServeCatalog).toContain("if (!BROWSER_ENABLED) return;");
+      expect(hostServeCatalog).toContain("{BROWSER_ENABLED ? (");
     },
   );
 
