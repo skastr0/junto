@@ -827,8 +827,7 @@
 }
 
 .task-create-dialog__media-list img,
-.task-detail-panel__media img,
-.task-detail-panel__media .content-media--image img {
+.task-detail-panel__media > li > img {
   width: 48px;
   height: 48px;
   object-fit: cover;
@@ -836,7 +835,8 @@
   background: var(--color-inset);
 }
 
-.task-detail-panel__media .content-media {
+.task-detail-panel__media > li > .content-media {
+  grid-column: 1 / -1;
   min-width: 0;
   width: 100%;
 }

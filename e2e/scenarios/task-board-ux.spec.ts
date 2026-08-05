@@ -285,3 +285,74 @@ test("Kanban enqueue opens the normal modal above the task flow", async () => {
     await vellum.close();
   }
 });
+
+test("task detail media uses the full panel width", async () => {
+  const vellum = await launchVellum();
+
+  try {
+    const { page } = vellum;
+    await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+
+    const contentRef = await page.evaluate(async () => {
+      const result = await window.vellum!.contentPutImage({
+        bytesBase64:
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+        mediaType: "image/png",
+        displayName: "task-proof.png",
+      });
+      if (!result.ok) throw new Error(result.error);
+      return result.ref;
+    });
+    await installBoard(page, canvasDoc([tasksNode({ id: "tasks", items: [] })]));
+    const canvasName = await page.evaluate(async () => {
+      const canvas = (await window.vellum!.listCanvases())[0];
+      if (!canvas) throw new Error("No canvas available for media fixture");
+      return canvas.name;
+    });
+    await page.evaluate(
+      async ({ canvas, ref }) => {
+        const result = await window.vellum!.workTaskCreate(
+          canvas,
+          "tasks",
+          "Task with media",
+          { details: "Task with media" },
+          undefined,
+          [{ kind: "content", ref }],
+        );
+        if (!result.ok) throw new Error(result.message);
+      },
+      { canvas: canvasName, ref: contentRef },
+    );
+
+    const tasksNodeCard = page.locator('.react-flow__node[data-id="tasks"]');
+    await expect(tasksNodeCard).toBeVisible({ timeout: 30_000 });
+    await tasksNodeCard.getByTestId("tasks-card").dispatchEvent("dblclick");
+
+    const board = page.getByRole("dialog", { name: "Task flow" });
+    await expect(board).toBeVisible();
+    await board.getByLabel("Open details for Task with media").click();
+
+    const details = board.getByRole("complementary", {
+      name: "Details for Task with media",
+    });
+    const media = details.locator(
+      ".task-detail-panel__media > li > .content-media",
+    );
+    await expect(media.locator("img")).toBeVisible();
+
+    const metrics = await media.evaluate((element) => {
+      const image = element.querySelector("img");
+      const panel = element.closest(".task-detail-panel");
+      if (!image || !panel) throw new Error("media layout is incomplete");
+      return {
+        mediaWidth: element.getBoundingClientRect().width,
+        panelWidth: panel.getBoundingClientRect().width,
+        imageObjectFit: getComputedStyle(image).objectFit,
+      };
+    });
+    expect(metrics.mediaWidth).toBeGreaterThan(metrics.panelWidth - 48);
+    expect(metrics.imageObjectFit).toBe("contain");
+  } finally {
+    await vellum.close();
+  }
+});
