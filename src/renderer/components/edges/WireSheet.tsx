@@ -62,6 +62,7 @@ import { noteSchedulerFire } from "../../lib/edge-sparks";
 import { nodeTitle } from "../../lib/presentation";
 import { state$ } from "../../lib/state";
 import { HUE, withAlpha } from "../../lib/theme";
+import { productNodeKindEnabled } from "@shared/features";
 
 /** Plain consequence line for one outbound does edge (gold: "adds a task on Review"). */
 const describeEffectBinding = (binding: EffectEdgeBinding): string => {
@@ -786,6 +787,22 @@ export function WireSheetBody({
   const family = resolveEdgeFamily(edge, fromNode, toNode);
   const fromKind = fromNode?.ether?.entity?.kind;
   const toKind = toNode?.ether?.entity?.kind;
+  const hiddenProductEndpoint =
+    !productNodeKindEnabled(fromKind) || !productNodeKindEnabled(toKind);
+
+  if (hiddenProductEndpoint) {
+    return showDelete && onDelete ? (
+      <div className="inspector-actions">
+        <button
+          type="button"
+          className="inspector-action--danger"
+          onClick={onDelete}
+        >
+          Delete link
+        </button>
+      </div>
+    ) : null;
+  }
   const agentRelay =
     fromKind === "agent" && toKind === "relay";
 

@@ -546,6 +546,23 @@ export type ChatFinishNodeDeleteResult =
   | { readonly ok: true }
   | { readonly ok: false; readonly error: string };
 
+export interface VellumSchedulerApi {
+  /** Fire one selected scheduler's outbound does edges only. */
+  readonly schedulerFire: (
+    canvas: string,
+    sourceNodeId: string,
+  ) => Promise<
+    | {
+        readonly ok: true;
+        readonly sourceNodeId: string;
+        readonly kind: "relay" | "cron" | "gauge";
+        readonly applied: number;
+        readonly message: string;
+      }
+    | { readonly ok: false; readonly error: string }
+  >;
+}
+
 export interface VellumApi extends LicenseApi, UpdateApi {
   /** Read-only platform marker for renderer geometry and copy. */
   readonly platform: NodeJS.Platform;
@@ -581,23 +598,6 @@ export interface VellumApi extends LicenseApi, UpdateApi {
     scope: PauseScope,
     paused: boolean,
   ) => Promise<FactoryPauseSetResult>;
-  /**
-   * Fire one selected scheduler's outbound does edges only.
-   * Used by trigger sheet, cron schedule surface, and scheduler toolbar.
-   */
-  readonly schedulerFire: (
-    canvas: string,
-    sourceNodeId: string,
-  ) => Promise<
-    | {
-        readonly ok: true;
-        readonly sourceNodeId: string;
-        readonly kind: "relay" | "cron" | "gauge";
-        readonly applied: number;
-        readonly message: string;
-      }
-    | { readonly ok: false; readonly error: string }
-  >;
   // Region severity rollups for the bottom bar, derived live per call from
   // the document + snapshots + ACP chat activity (shared/region-rollup.ts).
   readonly regionRollups: (name: string) => Promise<ReadonlyArray<RegionRollup>>;

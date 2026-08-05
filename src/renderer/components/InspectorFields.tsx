@@ -10,7 +10,7 @@ import type {
   EtherRegionDefaults,
   EtherWatch,
 } from "@shared/canvas";
-import { HERDR_ENABLED } from "@shared/features";
+import { CRON_ENABLED, HERDR_ENABLED, RELAY_ENABLED } from "@shared/features";
 import { isGroup } from "@shared/graph";
 import { workRolesInDoc } from "@shared/attention";
 import {
@@ -650,9 +650,9 @@ function KernelFieldEditors({ node }: { readonly node: CanvasNode }) {
   const kind = node.ether?.entity?.kind;
   return <>
     {node.type === "group" ? <RegionBriefingEditor node={node} /> : null}
-    {kind === "watcher" ? <WatcherEditor node={node} /> : null}
-    {kind === "timer" || kind === "cron" ? <TimerEditor node={node} /> : null}
-    {kind === "relay" ? <RelayEditor node={node} /> : null}
+    {RELAY_ENABLED && kind === "watcher" ? <WatcherEditor node={node} /> : null}
+    {CRON_ENABLED && (kind === "timer" || kind === "cron") ? <TimerEditor node={node} /> : null}
+    {RELAY_ENABLED && kind === "relay" ? <RelayEditor node={node} /> : null}
 
     {kind === "agent" ? <AgentMessagesPane node={node} /> : null}
   </>;
@@ -669,7 +669,7 @@ function EdgeWhenEditor({
   const edge = doc.edges.find((candidate) => candidate.id === edgeId);
   const when = edge?.ether?.when;
   // Only relay consumes watch — cron/gauge show no when editor.
-  if (toNode?.ether?.entity?.kind !== "relay") return null;
+  if (!RELAY_ENABLED || toNode?.ether?.entity?.kind !== "relay") return null;
 
   const value =
     when?.word === "flagged"

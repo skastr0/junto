@@ -86,6 +86,7 @@ import {
 } from "./blocked-seat";
 import { PausePlane } from "../pause-plane";
 import { seatPaused } from "@shared/pause";
+import { RELAY_ENABLED } from "@shared/features";
 
 /** Ops that act on the factory — refused for paused seats. Reads stay open. */
 const MUTATING_OPS: ReadonlySet<string> = new Set([
@@ -1233,6 +1234,13 @@ const dispatchOp = (
     }
 
     if (op === "relay.trigger") {
+      if (!RELAY_ENABLED) {
+        return yield* Effect.fail({
+          type: "ScopeError" as const,
+          message: "relay.trigger is disabled in this Vellum Command build",
+          details: { retryable: false, missing: "relay feature" },
+        });
+      }
       const decoded = decodeArgs(RelayTriggerArgs, args);
       if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
       const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);

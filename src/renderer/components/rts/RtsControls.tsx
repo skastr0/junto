@@ -25,7 +25,12 @@ import {
   Trash2,
 } from "lucide-react";
 import type { CanvasEdge, CanvasNode } from "@shared/canvas";
-import { HERDR_ENABLED } from "@shared/features";
+import {
+  CRON_ENABLED,
+  HERDR_ENABLED,
+  RELAY_ENABLED,
+  productNodeKindEnabled,
+} from "@shared/features";
 import { type PauseScope } from "@shared/pause";
 import { HUE } from "../../lib/theme";
 import { state$ } from "../../lib/state";
@@ -514,7 +519,7 @@ export function KindActions({ node }: { readonly node: CanvasNode }) {
     case "timer":
     case "cron":
     case "relay":
-      return <SchedulerKindKeys node={node} />;
+      return productNodeKindEnabled(kind) ? <SchedulerKindKeys node={node} /> : null;
     default:
       // Unknown / geography kinds: silence is semantic.
       return null;
@@ -528,6 +533,7 @@ function SchedulerKindKeys({ node }: { readonly node: CanvasNode }) {
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [fireBusy, setFireBusy] = useState(false);
   const isCron = kind === "cron" || kind === "timer";
+  if ((isCron && !CRON_ENABLED) || (!isCron && !RELAY_ENABLED)) return null;
   const canFire =
     isCron || kind === "relay" || kind === "watcher" || kind === "gauge";
   const fireTitle = isCron

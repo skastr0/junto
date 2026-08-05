@@ -18,6 +18,7 @@ import {
 } from "@shared/physics";
 import type { WorkErrorBody, WorkOpName } from "@shared/work-control";
 import { Result, Match } from "effect";
+import { RELAY_ENABLED } from "@shared/features";
 
 // Edges are the capability system. Kernel-enforced per call via factory physics
 // (admitPure + ports). Region co-members: {id, kind, title} visibility only.
@@ -148,7 +149,9 @@ const MSG_OPS: ReadonlyArray<WorkOpName> = [
  * `OPS_BY_SINK` record in the physics work vocabulary, so a new sink kind is a
  * compile error at the declaration rather than a silent empty op list here.
  */
-const RELAY_OPS: ReadonlyArray<WorkOpName> = ["relay.trigger"];
+const RELAY_OPS: ReadonlyArray<WorkOpName> = RELAY_ENABLED
+  ? ["relay.trigger"]
+  : [];
 
 const opsForSpec = (spec: NodeSpecValue): ReadonlyArray<WorkOpName> =>
   Match.value(spec).pipe(

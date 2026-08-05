@@ -43,6 +43,11 @@ import {
 import { applySchedulerFire } from "./effects";
 import { liveSeatBlocksForCanvas } from "../work/blocked-seat";
 import type { SnapshotState } from "../../../shared/entities";
+import {
+  CRON_ENABLED,
+  RELAY_ENABLED,
+  schedulerFeatureEnabled,
+} from "@shared/features";
 
 // --- frozen interface --------------------------------------------------------
 
@@ -523,7 +528,7 @@ export const runEvaluationCycle = async (): Promise<void> => {
       }
 
       const automate = canAutomateCanvas(canvasName);
-      for (const { nodeId, watch, result } of detectPulses(canvasName, effectiveDoc, snapshots, {
+      if (RELAY_ENABLED) for (const { nodeId, watch, result } of detectPulses(canvasName, effectiveDoc, snapshots, {
         consumeEdge: automate,
       })) {
         const source = effectiveDoc.nodes.find((node) => node.id === nodeId);
@@ -564,6 +569,8 @@ export const runEvaluationCycle = async (): Promise<void> => {
           });
         }
       }
+
+      if (!RELAY_ENABLED) continue;
 
       // Page readiness: canvas-scoped slice of the live browser load map.
       const pageLoadGlobal = pageLoadDeps?.snapshot();
@@ -653,6 +660,10 @@ const resolveTimerExpression = (
 export const checkTimers = async (
   nowEpochMs = Date.now(),
 ): Promise<void> => {
+  if (!CRON_ENABLED) {
+    nextFire.clear();
+    return;
+  }
   const activeTimerKeys: string[] = [];
   for (const [canvasName, doc] of docs.entries()) {
     for (const node of doc.nodes) {
@@ -823,6 +834,12 @@ export const manualSchedulerFire = async (input: {
     return {
       ok: false,
       message: `node "${input.sourceNodeId}" is not a scheduler (cron, relay, or gauge)`,
+    };
+  }
+  if (!schedulerFeatureEnabled(kind)) {
+    return {
+      ok: false,
+      message: `${kind} is disabled in this Vellum Command build`,
     };
   }
   const fireKey = `manual:${input.canvasName}::${input.sourceNodeId}:${Date.now()}`;

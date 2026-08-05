@@ -16,7 +16,12 @@ import {
   Workflow,
   type LucideIcon,
 } from "lucide-react";
-import { HERDR_ENABLED } from "@shared/features";
+import {
+  BROWSER_ENABLED,
+  CRON_ENABLED,
+  HERDR_ENABLED,
+  RELAY_ENABLED,
+} from "@shared/features";
 import { HUE } from "../../lib/theme";
 
 export type NodeCatalogCategory = "shell" | "sinks" | "schedule" | "canvas";
@@ -65,7 +70,7 @@ const ACCESS_PORT_LABEL: Record<Port, string> = {
   "board.create_topic": "Create topics",
   "board.post": "Post to board",
   "board.mark_read": "Mark board read",
-  "relay.trigger": "Fire the relay",
+  "relay.trigger": RELAY_ENABLED ? "Fire the relay" : "Trigger automation",
 };
 
 /** Catalog entry id → contract kind. Entries absent here have no wires. */
@@ -111,16 +116,21 @@ export const catalogWireLines = (entryId: string): readonly CatalogWireLine[] =>
       text: `Agents can: ${ports.map((port) => ACCESS_PORT_LABEL[port]).join(", ")}`,
     });
   }
-  if (contract.events.length > 0) {
+  if (RELAY_ENABLED && contract.events.length > 0) {
     lines.push({
       family: "watch",
       text: `A relay can watch: ${contract.events.map((event) => event.label).join(", ")}`,
     });
   }
-  if (contract.inputs.length > 0) {
+  if ((CRON_ENABLED || RELAY_ENABLED) && contract.inputs.length > 0) {
+    const actors = CRON_ENABLED && RELAY_ENABLED
+      ? "Cron and relay"
+      : CRON_ENABLED
+        ? "Cron"
+        : "Relay";
     lines.push({
       family: "effect",
-      text: `Cron and relay can: ${contract.inputs.map((input) => input.label).join(", ")}`,
+      text: `${actors} can: ${contract.inputs.map((input) => input.label).join(", ")}`,
     });
   }
   return lines;
@@ -161,26 +171,26 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     icon: Braces,
     purpose: "A shared board for topics, updates, and decisions.",
   },
-  {
+  ...(BROWSER_ENABLED ? [{
     id: "page", category: "canvas", label: "Page", subtitle: "a browser page",
     icon: Globe2,
     purpose: "A browser page that lives on the canvas.",
-  },
-  {
+  } satisfies NodeCatalogEntry] : []),
+  ...(CRON_ENABLED ? [{
     id: "cron", category: "schedule", label: "Cron", subtitle: "fires on a schedule",
     icon: Clock3,
     purpose: "Fires on a schedule to add tasks or set flags automatically.",
     behavior: "Runs only while the canvas is playing. Pausing keeps the next firing.",
-  },
+  } satisfies NodeCatalogEntry] : []),
   // Gauge (hermes stat_threshold) is product-hidden and not a product peer of
   // cron/relay. Hermes = fleet join, not automation. Future external-input
   // actuator (webhook / poll) is a new surface — not “fix this hermes stub.”
-  {
+  ...(RELAY_ENABLED ? [{
     id: "relay", category: "schedule", label: "Relay", subtitle: "reacts to changes",
     icon: Workflow,
     purpose: "Watches a connected node and acts when something happens.",
     behavior: "Runs only while the canvas is playing. Pausing keeps the next firing.",
-  },
+  } satisfies NodeCatalogEntry] : []),
   {
     id: "note", category: "canvas", label: "Note", subtitle: "freeform text",
     icon: FileText,

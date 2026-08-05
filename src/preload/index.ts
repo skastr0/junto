@@ -19,6 +19,7 @@ import {
   type VellumChatApi,
   type VellumDemoApi,
   type VellumHerdrApi,
+  type VellumSchedulerApi,
   type VellumTerminalApi,
   type VellumUsageApi,
   type KernelSnapshot,
@@ -28,7 +29,12 @@ import {
   type ObservabilityQuery,
   type ObservabilitySnapshot,
 } from "@shared/ipc";
-import { HERDR_ENABLED, USAGE_ENABLED } from "@shared/features";
+import {
+  CRON_ENABLED,
+  HERDR_ENABLED,
+  RELAY_ENABLED,
+  USAGE_ENABLED,
+} from "@shared/features";
 import type { SnapshotState } from "@shared/entities";
 import type { PreambleEvent } from "@shared/preamble";
 import type { Settings, SettingsOpResult, SettingsPatch, SettingsSectionKey } from "@shared/settings";
@@ -457,8 +463,6 @@ const vellumApi: VellumApi = {
     invoke(IPC_CHANNELS.factoryPauseState, IPC_TIMEOUT_MS, canvas),
   factoryPauseSet: (canvas, scope, paused) =>
     invoke(IPC_CHANNELS.factoryPauseSet, IPC_TIMEOUT_MS, canvas, scope, paused),
-  schedulerFire: (canvas, sourceNodeId) =>
-    invoke(IPC_CHANNELS.schedulerFire, IPC_TIMEOUT_MS, canvas, sourceNodeId),
   regionRollups: (name) =>
     invoke(IPC_CHANNELS.regionRollups, IPC_TIMEOUT_MS, name),
   contentPutImage: (input) =>
@@ -659,6 +663,11 @@ const vellumApi: VellumApi = {
     ),
 };
 
+const schedulerApi: VellumSchedulerApi = {
+  schedulerFire: (canvas, sourceNodeId) =>
+    invoke(IPC_CHANNELS.schedulerFire, IPC_TIMEOUT_MS, canvas, sourceNodeId),
+};
+
 const usageApi: VellumUsageApi = {
   getUsage: () => invoke(IPC_CHANNELS.getUsage, IPC_TIMEOUT_MS),
   refreshUsage: () => invoke(IPC_CHANNELS.refreshUsage, USAGE_REFRESH_TIMEOUT_MS),
@@ -833,6 +842,7 @@ if (preloadLocation === undefined || isRendererPreloadCandidate(preloadLocation)
     ...vellumApi,
     ...chatApi,
     ...(USAGE_ENABLED ? usageApi : {}),
+    ...(CRON_ENABLED || RELAY_ENABLED ? schedulerApi : {}),
     ...(HERDR_ENABLED ? herdrApi : {}),
     ...terminalApi,
     ...browserApi,

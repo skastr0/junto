@@ -20,7 +20,12 @@ import { BoxActivityPolicy } from "./box";
 import { registerChatIpc } from "./chat/ipc";
 import { ChatServiceContext } from "./chat/service";
 import { HermesPlane } from "./hermes/plane";
-import { HERDR_ENABLED, USAGE_ENABLED } from "@shared/features";
+import {
+  CRON_ENABLED,
+  HERDR_ENABLED,
+  RELAY_ENABLED,
+  USAGE_ENABLED,
+} from "@shared/features";
 import { registerHerdrIpc } from "./herdr/ipc";
 import { KernelService } from "./kernel/service";
 import { RegionRollupService } from "./region-rollup";
@@ -473,7 +478,7 @@ export const registerVellumIpc = (): void => {
       ),
   );
 
-  privilegedIpc.handle(
+  if (CRON_ENABLED || RELAY_ENABLED) privilegedIpc.handle(
     IPC_CHANNELS.schedulerFire,
     (
       _event,

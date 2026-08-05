@@ -93,6 +93,20 @@ export const BUILD_FEATURES = {
   herdr: HERDR_ENABLED,
 } as const;
 
+/** Whether an authored scheduler kind has a live product surface in this build. */
+export const schedulerFeatureEnabled = (
+  kind: "cron" | "relay" | "gauge",
+): boolean => kind === "cron" ? CRON_ENABLED : RELAY_ENABLED;
+
+/** Historical hidden kinds remain decodable, but cannot regain authoring controls. */
+export const productNodeKindEnabled = (kind: string | undefined): boolean => {
+  if (kind === "cron" || kind === "timer") return CRON_ENABLED;
+  if (kind === "relay" || kind === "watcher" || kind === "gauge") return RELAY_ENABLED;
+  if (kind === "page") return BROWSER_ENABLED;
+  if (kind === "herdr") return HERDR_ENABLED;
+  return true;
+};
+
 /** Strip product-hidden capabilities from a host capability list for UI. */
 export const productHostCapabilities = <T extends string>(
   capabilities: ReadonlyArray<T>,

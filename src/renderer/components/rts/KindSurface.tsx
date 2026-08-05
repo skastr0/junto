@@ -21,7 +21,7 @@ import {
   X,
 } from "lucide-react";
 import type { CanvasEdge, CanvasNode } from "@shared/canvas";
-import { HERDR_ENABLED } from "@shared/features";
+import { CRON_ENABLED, HERDR_ENABLED, RELAY_ENABLED } from "@shared/features";
 import { isHarnessId } from "@shared/managed-terminal-templates";
 import { state$ } from "../../lib/state";
 import { nodeDetail, nodeTitle, nodeTypeLabel } from "../../lib/presentation";
@@ -567,10 +567,8 @@ export function KindSurface() {
       "requests",
       "artifacts",
       "board",
-      "watcher",
-      "timer",
-      "cron",
-      "relay",
+      ...(RELAY_ENABLED ? (["watcher", "relay"] as const) : []),
+      ...(CRON_ENABLED ? (["timer", "cron"] as const) : []),
       "page",
     ].includes(kind);
   // Agent/herdr keep a live glance. Everything else is strip-only (kind once +
