@@ -19,7 +19,7 @@ describe("Hermes integration product gate", () => {
   });
 
   it.runIf(!HERMES_INTEGRATION_ENABLED)(
-    "removes Hermes authoring, spawn, adapter refresh, IPC, and host presentation",
+    "removes Hermes integration while retaining the independent ACP chat plane",
     () => {
       expect(allTemplates().map((template) => template.harness)).toEqual([
         "claude",
@@ -67,9 +67,15 @@ describe("Hermes integration product gate", () => {
       expect(preload).toContain(
         "...(HERMES_INTEGRATION_ENABLED ? hermesIntegrationApi : {})",
       );
+      expect(preload).toContain("...chatApi,");
       expect(ipc).toContain(
         "if (HERMES_INTEGRATION_ENABLED) privilegedIpc.handle(\n    IPC_CHANNELS.generatePortfolio",
       );
+      expect(ipc).toContain(
+        "if (HERMES_INTEGRATION_ENABLED) {\n    privilegedIpc.handle(IPC_CHANNELS.agentMessage",
+      );
+      expect(ipc).toContain("void registerChatIpc(");
+      expect(ipc).toContain("AppRuntime.runPromise(ChatServiceContext),");
       expect(snapshots).toContain(
         "HERMES_INTEGRATION_ENABLED\n        ? plane.fetchBundle",
       );
