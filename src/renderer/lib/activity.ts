@@ -14,7 +14,7 @@
  */
 
 import type { AgentSeatState } from "@shared/agent-seat-state";
-import { HUE } from "./theme";
+import { GREEN, HUE } from "./theme";
 
 export type ActivityTone = "amber" | "cyan" | "green" | "crimson" | "steel";
 /** wave = clockwise trail - pulse = soft breath (complete) - static = settled */
@@ -35,7 +35,7 @@ export interface ActivitySpec {
 export const ACTIVITY_TONE_HEX: Record<ActivityTone, string> = {
   amber: HUE.amber,
   cyan: HUE.cyan,
-  green: "#5FB98E",
+  green: GREEN,
   crimson: HUE.crimson,
   steel: HUE.steel,
 };
@@ -223,7 +223,7 @@ export function terminalActivity(input: {
     return {
       mode: "pulse",
       tone: "green",
-      label: "ready — waiting for look",
+      label: "Ready — waiting for review",
     };
   }
   if (input.seatState === "idle") {

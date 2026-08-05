@@ -56,9 +56,9 @@ describe("occupancyChrome — I12: three blocked-ish vocabularies never collapse
 });
 
 describe("occupancyChrome — I20: gone/unreachable chrome is honest", () => {
-  it("reads 'host unreachable — last intent stands', never stopped/revoked/compromised", () => {
+  it("reads 'Machine unreachable', never stopped/revoked/compromised", () => {
     const gone = occupancyChrome("gone");
-    expect(gone.label).toBe("host unreachable — last intent stands");
+    expect(gone.label).toBe("Machine unreachable");
     for (const forbidden of ["stopped", "revoked", "compromised", "banned", "terminated"]) {
       expect(gone.label.toLowerCase()).not.toContain(forbidden);
     }

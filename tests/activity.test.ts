@@ -28,7 +28,7 @@ describe("herdrActivity", () => {
     expect(herdrActivity({ agentStatus: "done" })).toMatchObject({
       mode: "pulse",
       tone: "green",
-      label: "done — waiting for look",
+      label: "Done — waiting for review",
     });
     // idle = Idle+seen → quiet; never animate the whole fleet
     expect(herdrActivity({ agentStatus: "idle" })).toMatchObject({
@@ -98,10 +98,11 @@ describe("browserActivity", () => {
     );
   });
 
-  it("static ready / failed / idle", () => {
+  it("live ready / failed / idle", () => {
     expect(browserActivity({ state: "ready" })).toMatchObject({
-      mode: "static",
+      mode: "pulse",
       tone: "green",
+      label: "live",
     });
     expect(browserActivity({ state: "failed" }).tone).toBe("crimson");
     expect(browserActivity({ state: "idle" }).mode).toBe("static");
@@ -134,7 +135,7 @@ describe("terminalActivity", () => {
     ).toMatchObject({
       mode: "pulse",
       tone: "green",
-      label: "ready — waiting for look",
+      label: "Ready — waiting for review",
     });
     // Seen idle stays quiet.
     expect(terminalActivity({ seatState: "idle", needsLook: false })).toMatchObject({
