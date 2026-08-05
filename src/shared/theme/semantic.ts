@@ -114,6 +114,11 @@ export const SEMANTIC_BRIGHT_OVERRIDES: Record<string, TokenValue> = {
   "overlay-4": mix("ink", 14),
   backdrop: mix("umbra", 18),
   "focus-ring": mix("second", 22),
+  "selection": mix("main-fg", 50),
+  "selection-inactive": mix("main-fg", 30),
+  // Strokes need more presence on bright — ink-at-14% is invisible on paper.
+  stroke: mix("ink", 55),
+  "stroke-hi": mix("ink", 70),
   // Shadows earn their keep on paper: softer than dark's occluding scrims,
   // warm-tinted via umbra.
   "shadow-1": mix("umbra", 28),

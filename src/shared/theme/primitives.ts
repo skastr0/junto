@@ -56,14 +56,14 @@ export const NEUTRALS: Record<"dark" | "bright", NeutralRamp> = {
   },
   bright: {
     ground: { l: 0.945, c: 0.012, h: 85 }, // warm paper — never pure white
-    raise: { l: 0.978, c: 0.007, h: 85 }, // panels lift toward light
+    raise: { l: 0.975, c: 0.008, h: 85 }, // panels lift toward light
     "raise-2": { l: 0.966, c: 0.009, h: 85 },
     inset: { l: 0.936, c: 0.011, h: 85 },
     well: { l: 0.908, c: 0.013, h: 85 }, // deepest inset
     ink: { l: 0.3, c: 0.014, h: 65 }, // warm near-black ink
     "ink-2": { l: 0.4, c: 0.014, h: 65 },
     dim: { l: 0.46, c: 0.013, h: 65 },
-    faint: { l: 0.53, c: 0.015, h: 70 }, // placeholder legibility floor
+    faint: { l: 0.49, c: 0.015, h: 70 }, // placeholder legibility floor
     umbra: { l: 0.3, c: 0.02, h: 60 }, // warm shadow source, never pure black
   },
 };
@@ -87,18 +87,18 @@ export const HUES: Record<"dark" | "bright", HueRamp> = {
   bright: {
     // Display variants stay in the same families; fg variants darken to the
     // functional inks of the daylight edition (rust, slate blue, deep red).
-    amber: { l: 0.72, c: 0.135, h: 72 },
-    "amber-hi": { l: 0.62, c: 0.13, h: 68 },
+    amber: { l: 0.63, c: 0.18, h: 72 },
+    "amber-hi": { l: 0.57, c: 0.13, h: 68 },
     "amber-fg": { l: 0.53, c: 0.11, h: 60 }, // burnished rust
-    cyan: { l: 0.68, c: 0.09, h: 220 },
+    cyan: { l: 0.60, c: 0.09, h: 220 },
     "cyan-fg": { l: 0.48, c: 0.075, h: 225 }, // slate blue
     crimson: { l: 0.56, c: 0.19, h: 25 },
     "crimson-fg": { l: 0.48, c: 0.17, h: 25 }, // deep red
     violet: { l: 0.52, c: 0.13, h: 295 },
-    steel: { l: 0.55, c: 0.03, h: 230 },
+    steel: { l: 0.53, c: 0.03, h: 230 },
     indigo: { l: 0.5, c: 0.12, h: 275 },
-    gold: { l: 0.62, c: 0.11, h: 80 },
-    orange: { l: 0.58, c: 0.15, h: 45 },
-    green: { l: 0.55, c: 0.1, h: 160 }, // teal-leaning
+    gold: { l: 0.55, c: 0.11, h: 80 },
+    orange: { l: 0.54, c: 0.15, h: 45 },
+    green: { l: 0.51, c: 0.1, h: 160 }, // teal-leaning
   },
 };
