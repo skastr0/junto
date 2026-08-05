@@ -260,8 +260,8 @@ describe("terminalActivity", () => {
 });
 
 describe("watcherActivity + timerActivity", () => {
-  it("watcher pending waves; satisfied static green", () => {
-    expect(watcherActivity("pending").mode).toBe("wave");
+  it("watcher pending is static (fire-once, no spin); satisfied static green", () => {
+    expect(watcherActivity("pending").mode).toBe("static");
     expect(watcherActivity("satisfied")).toMatchObject({
       mode: "static",
       tone: "green",
