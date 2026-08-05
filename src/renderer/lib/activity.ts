@@ -302,14 +302,22 @@ export function browserActivity(input: {
 
 export type WatcherStatus = "satisfied" | "pending" | "unknown" | string;
 
+/**
+ * Relay / gauge card motion.
+ * These sensors **fire** on a rising edge — they do not sustain work. A
+ * continuous wave/spin implied "busy forever" (wrong). Static for all levels;
+ * sparks on edges show the actual fire moment.
+ */
 export function watcherActivity(
   status: WatcherStatus | null | undefined,
 ): ActivitySpec {
   if (status === "pending") {
-    return { mode: "wave", tone: SEVERITY_TONE.attention, label: "pending" };
+    // Armed, condition not met — quiet wait, not a spinner.
+    return { mode: "static", tone: SEVERITY_TONE.idle, label: "armed" };
   }
   if (status === "satisfied") {
-    return { mode: "static", tone: "green", label: "satisfied" };
+    // Condition currently true (edge already consumed or not).
+    return { mode: "static", tone: "green", label: "met" };
   }
   return {
     mode: "static",
