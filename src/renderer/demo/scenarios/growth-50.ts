@@ -169,10 +169,8 @@ const C = [
 
 const FINALE = [
   crew(20, "local", "ward", "changelog", 600, 720),
-  crew(21, "local", "gauge", "icon pass", 900, 540),
-  crew(22, "remote-a", "relay", "backup verify", 1920, 540),
-  crew(23, "remote-a", "vector", "queue drain", 1920, 720),
-  crew(24, "local", "folio", "review sweep", 900, 720),
+  crew(21, "remote-a", "relay", "backup verify", 1920, 540),
+  crew(22, "remote-a", "vector", "queue drain", 1920, 720),
 ] as const;
 
 // --- work-plane fixtures ------------------------------------------------------
@@ -407,8 +405,7 @@ at(70, cameraFit(undefined, 2, 0.15));
 
 // Rung 8 — the factory hums; one last ambient block clears; slow pullback.
 at(74, ...spawn(FINALE[0], "working"), ...spawn(FINALE[1], "working"));
-at(76, ...spawn(FINALE[2], "working"), ...spawn(FINALE[3], "working"));
-at(78, ...spawn(FINALE[4], "working"), statusOp(B[0], "done"));
+at(76, ...spawn(FINALE[2], "working"), statusOp(B[0], "done"));
 at(80, statusOp(C[1], "blocked"), flagOp(["demo-g-h15"], "blocker", true));
 at(82, statusOp(C[1], "working"), flagOp(["demo-g-h15"], "blocker", false), sfxOp("clear"));
 at(84, statusOp(A[4], "done"), statusOp(C[0], "done"));
