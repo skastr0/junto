@@ -14,6 +14,22 @@ import {
   type InjectionTier,
   templateFor,
 } from "./managed-terminal-templates";
+import { BROWSER_ENABLED } from "./features";
+
+const BROWSER_CLI_ROWS = BROWSER_ENABLED
+  ? `
+| list granted pages | \`vellum browser pages --json\` |
+| open a granted page | \`vellum browser open <vellum-ref> --json\` |
+| navigate / inspect / capture | \`vellum browser goto\` - \`vellum browser eval\` - \`vellum browser shot\` |`
+  : "";
+
+const BROWSER_CLI_DOCTRINE = BROWSER_ENABLED
+  ? `\`browser.automate\` is a live edge grant realized by \`vellum browser\` from
+the managed agent's existing shell. Existing sessions may use it immediately
+after an edge appears — re-run \`vellum capabilities\` for the current command.
+
+`
+  : "";
 
 // ── Seat context (filled at spawn) ─────────────────────────────────────────
 
@@ -99,16 +115,10 @@ Call **\`vellum onboard\`** at session start and after every compaction (or when
 | read / write thread | \`vellum msg list\` - \`vellum msg send\` - \`vellum msg read\` - \`vellum msg reply\` |
 | factory mail | when mail arrives: \`msg list\` then \`msg reply\` (or \`msg read\` if no reply) — this stops repeat nudges |
 | escalate to human | \`vellum escalate\` |
-| ship output | \`vellum artifact publish\` |
-| list granted pages | \`vellum browser pages --json\` |
-| open a granted page | \`vellum browser open <vellum-ref> --json\` |
-| navigate / inspect / capture | \`vellum browser goto\` - \`vellum browser eval\` - \`vellum browser shot\` |
+| ship output | \`vellum artifact publish\` |${BROWSER_CLI_ROWS}
 | schemas / examples | \`vellum schema\` - \`vellum examples\` |
 
-\`browser.automate\` is a live edge grant realized by \`vellum browser\` from
-the managed agent's existing shell. Existing sessions may use it immediately
-after an edge appears — re-run \`vellum capabilities\` for the current command.
-
+${BROWSER_CLI_DOCTRINE}
 JSON-in/JSON-out. Errors are **ground truth** — do not invent around them:
 
 - \`ScopeError\` — not connected / not authorized for that target

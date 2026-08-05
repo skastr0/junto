@@ -8,6 +8,7 @@ import {
   ScreenshotRequest,
   StopRequest,
 } from "../../shared/browser-control";
+import { BROWSER_ENABLED } from "../../shared/features";
 import {
   ArtifactPublishCliArgs,
   ContentMaterializeArgs,
@@ -81,9 +82,10 @@ const invocationsForConnected = (value: unknown): unknown => {
   if (!Array.isArray(value)) return value;
   return value.map((entry) => {
     if (!isRecord(entry) || !Array.isArray(entry.grants)) return entry;
-    const invocations = entry.grants.includes("browser.automate")
-      ? [BROWSER_INVOCATION]
-      : [];
+    const invocations =
+      BROWSER_ENABLED && entry.grants.includes("browser.automate")
+        ? [BROWSER_INVOCATION]
+        : [];
     return invocations.length > 0 ? { ...entry, invocations } : entry;
   });
 };
@@ -334,13 +336,17 @@ export const allSchemas: ReadonlyArray<CommandSchemaContract> = [
   contentPathSchema,
   contentStatSchema,
   contentMaterializeSchema,
-  browserPagesSchema,
-  browserOpenSchema,
-  browserGotoSchema,
-  browserEvalSchema,
-  browserScreenshotSchema,
-  browserCloseSchema,
-  browserStopSchema,
+  ...(BROWSER_ENABLED
+    ? [
+        browserPagesSchema,
+        browserOpenSchema,
+        browserGotoSchema,
+        browserEvalSchema,
+        browserScreenshotSchema,
+        browserCloseSchema,
+        browserStopSchema,
+      ]
+    : []),
 ];
 
 export const allExamples: ReadonlyArray<CommandExample> = [
@@ -352,7 +358,10 @@ export const allExamples: ReadonlyArray<CommandExample> = [
     input: {
       target: "n7",
       brief: "Add keyboard navigation",
-      metadata: { title: "Keyboard navigation", details: "Cover the task board first." },
+      metadata: {
+        title: "Keyboard navigation",
+        details: "Cover the task board first.",
+      },
     },
     args: [
       "tasks",
@@ -470,7 +479,9 @@ export const allExamples: ReadonlyArray<CommandExample> = [
     command: "preamble",
     name: "share a brief thought",
     description: "Show a sentence above this agent node for about 30 seconds.",
-    input: { text: "Inspecting the task and choosing the smallest safe change." },
+    input: {
+      text: "Inspecting the task and choosing the smallest safe change.",
+    },
     args: [
       "preamble",
       '{"text":"Inspecting the task and choosing the smallest safe change."}',
@@ -577,20 +588,29 @@ export const allExamples: ReadonlyArray<CommandExample> = [
       '{"target":"n7","task":"t1","name":"record.bin","ref":{"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","byteLength":12,"mediaType":"application/octet-stream"}}',
     ],
   },
-  {
-    command_id: "browser.pages",
-    command: "browser pages",
-    name: "list granted pages",
-    args: ["browser", "pages", "--json"],
-    input: {},
-  },
-  {
-    command_id: "browser.open",
-    command: "browser open <vellum-ref>",
-    name: "open a granted page",
-    args: ["browser", "open", "vellum://canvas/work?node=page-1", "--json"],
-    input: { ref: "vellum://canvas/work?node=page-1" },
-  },
+  ...(BROWSER_ENABLED
+    ? [
+        {
+          command_id: "browser.pages",
+          command: "browser pages",
+          name: "list granted pages",
+          args: ["browser", "pages", "--json"],
+          input: {},
+        },
+        {
+          command_id: "browser.open",
+          command: "browser open <vellum-ref>",
+          name: "open a granted page",
+          args: [
+            "browser",
+            "open",
+            "vellum://canvas/work?node=page-1",
+            "--json",
+          ],
+          input: { ref: "vellum://canvas/work?node=page-1" },
+        },
+      ]
+    : []),
 ];
 
 export const commandCapabilities: ReadonlyArray<CommandCapability> = [
@@ -604,7 +624,8 @@ export const commandCapabilities: ReadonlyArray<CommandCapability> = [
     command_id: "doctor",
     command: "doctor",
     category: "diagnostic",
-    description: "Env socket+token present, perms 0600, protocol version match.",
+    description:
+      "Env socket+token present, perms 0600, protocol version match.",
   },
   {
     command_id: "capabilities",
@@ -616,7 +637,8 @@ export const commandCapabilities: ReadonlyArray<CommandCapability> = [
     command_id: "onboard",
     command: "onboard",
     category: "discovery",
-    description: "Node, region, connected, co-members, capabilities from live state.",
+    description:
+      "Node, region, connected, co-members, capabilities from live state.",
   },
   {
     command_id: "schema.list",
@@ -785,59 +807,66 @@ export const commandCapabilities: ReadonlyArray<CommandCapability> = [
     command_id: "content.materialize",
     command: "content materialize",
     category: "workflow",
-    description: "Materialize an authorized task ContentRef into the task workspace.",
+    description:
+      "Materialize an authorized task ContentRef into the task workspace.",
     schemas: [contentMaterializeSchema],
     examples: allExamples.filter((e) => e.command_id === "content.materialize"),
   },
-  {
-    command_id: "browser.pages",
-    command: "browser pages",
-    category: "discovery",
-    description: "List page nodes granted through browser.automate edges.",
-    schemas: [browserPagesSchema],
-    examples: allExamples.filter((e) => e.command_id === "browser.pages"),
-  },
-  {
-    command_id: "browser.open",
-    command: "browser open",
-    category: "workflow",
-    description: "Open or reuse a granted page session.",
-    schemas: [browserOpenSchema],
-    examples: allExamples.filter((e) => e.command_id === "browser.open"),
-  },
-  {
-    command_id: "browser.goto",
-    command: "browser goto",
-    category: "workflow",
-    description: "Navigate an admitted browser session.",
-    schemas: [browserGotoSchema],
-  },
-  {
-    command_id: "browser.eval",
-    command: "browser eval",
-    category: "workflow",
-    description: "Evaluate JavaScript in an admitted browser session.",
-    schemas: [browserEvalSchema],
-  },
-  {
-    command_id: "browser.screenshot",
-    command: "browser shot",
-    category: "workflow",
-    description: "Capture a server-owned page screenshot.",
-    schemas: [browserScreenshotSchema],
-  },
-  {
-    command_id: "browser.close",
-    command: "browser close",
-    category: "workflow",
-    description: "Detach a browser surface while keeping its session warm.",
-    schemas: [browserCloseSchema],
-  },
-  {
-    command_id: "browser.stop",
-    command: "browser stop",
-    category: "workflow",
-    description: "Destroy an admitted browser session.",
-    schemas: [browserStopSchema],
-  },
+  ...(BROWSER_ENABLED
+    ? [
+        {
+          command_id: "browser.pages",
+          command: "browser pages",
+          category: "discovery" as const,
+          description:
+            "List page nodes granted through browser.automate edges.",
+          schemas: [browserPagesSchema],
+          examples: allExamples.filter((e) => e.command_id === "browser.pages"),
+        },
+        {
+          command_id: "browser.open",
+          command: "browser open",
+          category: "workflow" as const,
+          description: "Open or reuse a granted page session.",
+          schemas: [browserOpenSchema],
+          examples: allExamples.filter((e) => e.command_id === "browser.open"),
+        },
+        {
+          command_id: "browser.goto",
+          command: "browser goto",
+          category: "workflow" as const,
+          description: "Navigate an admitted browser session.",
+          schemas: [browserGotoSchema],
+        },
+        {
+          command_id: "browser.eval",
+          command: "browser eval",
+          category: "workflow" as const,
+          description: "Evaluate JavaScript in an admitted browser session.",
+          schemas: [browserEvalSchema],
+        },
+        {
+          command_id: "browser.screenshot",
+          command: "browser shot",
+          category: "workflow" as const,
+          description: "Capture a server-owned page screenshot.",
+          schemas: [browserScreenshotSchema],
+        },
+        {
+          command_id: "browser.close",
+          command: "browser close",
+          category: "workflow" as const,
+          description:
+            "Detach a browser surface while keeping its session warm.",
+          schemas: [browserCloseSchema],
+        },
+        {
+          command_id: "browser.stop",
+          command: "browser stop",
+          category: "workflow" as const,
+          description: "Destroy an admitted browser session.",
+          schemas: [browserStopSchema],
+        },
+      ]
+    : []),
 ];

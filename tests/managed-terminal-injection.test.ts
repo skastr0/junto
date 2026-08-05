@@ -6,6 +6,7 @@ import {
   buildSeatContextSection,
   planManagedInjection,
 } from "../src/shared/managed-terminal-injection";
+import { BROWSER_ENABLED } from "../src/shared/features";
 import {
   resolveManagedLaunch,
   resolveManagedLaunchPlan,
@@ -34,8 +35,13 @@ describe("managed-terminal injection text", () => {
     expect(text!).toContain("ClaimConflict");
     expect(text!).toContain("RuntimeDown");
     expect(text!).toContain("Blocked");
-    expect(text!).toContain("vellum browser pages --json");
-    expect(text!).toContain("managed agent's existing shell");
+    if (BROWSER_ENABLED) {
+      expect(text!).toContain("vellum browser pages --json");
+      expect(text!).toContain("managed agent's existing shell");
+    } else {
+      expect(text!).not.toContain("vellum browser");
+      expect(text!).not.toContain("browser.automate");
+    }
     expect(text!).toContain("process-bind");
     expect(text!).toContain("canvas-a::worker-1");
     expect(text!).toContain("tasks-main");

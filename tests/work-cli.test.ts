@@ -19,8 +19,10 @@ import {
   allSchemas,
   allExamples,
   annotateCapabilityInvocations,
+  commandCapabilities,
   renderSchemaContract,
 } from "../src/cli/core/discovery";
+import { BROWSER_ENABLED } from "../src/shared/features";
 import { materializeArtifactParts } from "../src/cli/core/artifact-parts";
 import { writeFileSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
@@ -30,7 +32,11 @@ describe("work CLI envelopes", () => {
   it("success is exactly one JSON object on stdout shape", () => {
     const text = renderSuccessEnvelope("tasks claim", { id: "t1" });
     const parsed = JSON.parse(text);
-    expect(parsed).toEqual({ ok: true, command: "tasks claim", data: { id: "t1" } });
+    expect(parsed).toEqual({
+      ok: true,
+      command: "tasks claim",
+      data: { id: "t1" },
+    });
     // single line, no trailing prose
     expect(text.includes("\n")).toBe(false);
   });
@@ -68,11 +74,15 @@ describe("work CLI json input modes", () => {
     const dir = mkdtempSync(join(tmpdir(), "vellum-cli-json-"));
     const file = join(dir, "claim.json");
     writeFileSync(file, JSON.stringify({ target: "n7", task: "t2" }));
-    const fromFile = await Effect.runPromise(loadJsonInput(TasksClaimArgs, `@${file}`));
+    const fromFile = await Effect.runPromise(
+      loadJsonInput(TasksClaimArgs, `@${file}`),
+    );
     expect(fromFile.task).toBe("t2");
 
     const batch = await Effect.runPromise(
-      loadBatchJsonInput('[{"target":"n7","task":"t1"},{"target":"n7","task":"t2"}]'),
+      loadBatchJsonInput(
+        '[{"target":"n7","task":"t1"},{"target":"n7","task":"t2"}]',
+      ),
     );
     expect(batch).toHaveLength(2);
   });
@@ -202,28 +212,51 @@ describe("schema/examples from validating schemas", () => {
       expect(rendered.schema_id).toBe(contract.schema_id);
       expect(rendered.schema).toBeTypeOf("object");
       // examples reference real command ids
-      const related = allExamples.filter((e) => e.command_id === contract.command_id);
+      const related = allExamples.filter(
+        (e) => e.command_id === contract.command_id,
+      );
       for (const example of related) {
         if (example.input !== undefined && !Array.isArray(example.input)) {
-          const decoded = Schema.decodeUnknownResult(contract.schema as never)(example.input);
+          const decoded = Schema.decodeUnknownResult(contract.schema as never)(
+            example.input,
+          );
           expect(Result.isSuccess(decoded)).toBe(true);
         }
       }
     }
   });
 
-  it("discovers the browser surface from schema and live edge grants", () => {
-    expect(allSchemas.map((contract) => contract.command_id)).toEqual(
-      expect.arrayContaining([
-        "browser.pages",
-        "browser.open",
-        "browser.goto",
-        "browser.eval",
-        "browser.screenshot",
-        "browser.close",
-        "browser.stop",
-      ]),
+  it("matches browser discovery to the compiled product surface", () => {
+    const browserCommandIds = [
+      "browser.pages",
+      "browser.open",
+      "browser.goto",
+      "browser.eval",
+      "browser.screenshot",
+      "browser.close",
+      "browser.stop",
+    ];
+    const schemaIds = allSchemas.map((contract) => contract.command_id);
+    const capabilityIds = commandCapabilities.map(
+      (capability) => capability.command_id,
     );
+    const exampleIds = allExamples.map((example) => example.command_id);
+
+    if (BROWSER_ENABLED) {
+      expect(schemaIds).toEqual(expect.arrayContaining(browserCommandIds));
+      expect(capabilityIds).toEqual(expect.arrayContaining(browserCommandIds));
+      expect(exampleIds).toEqual(
+        expect.arrayContaining(["browser.pages", "browser.open"]),
+      );
+    } else {
+      expect(schemaIds).not.toEqual(expect.arrayContaining(browserCommandIds));
+      expect(capabilityIds).not.toEqual(
+        expect.arrayContaining(browserCommandIds),
+      );
+      expect(exampleIds).not.toEqual(
+        expect.arrayContaining(["browser.pages", "browser.open"]),
+      );
+    }
 
     const live = annotateCapabilityInvocations({
       connected: [
@@ -234,29 +267,44 @@ describe("schema/examples from validating schemas", () => {
         connected: [{ id: "page-1", grants: ["browser.automate"] }],
       },
     });
-    expect(live.connected[0]).toMatchObject({
-      id: "page-1",
-      invocations: [{
-        port: "browser.automate",
-        command: "vellum browser",
-        discover: "vellum browser pages --json",
-      }],
-    });
+    if (BROWSER_ENABLED) {
+      expect(live.connected[0]).toMatchObject({
+        id: "page-1",
+        invocations: [
+          {
+            port: "browser.automate",
+            command: "vellum browser",
+            discover: "vellum browser pages --json",
+          },
+        ],
+      });
+    } else {
+      expect(live.connected[0]).not.toHaveProperty("invocations");
+    }
     expect(live.connected[1]).not.toHaveProperty("invocations");
-    expect(live.capabilities.connected[0]).toHaveProperty("invocations");
+    if (BROWSER_ENABLED) {
+      expect(live.capabilities.connected[0]).toHaveProperty("invocations");
+    } else {
+      expect(live.capabilities.connected[0]).not.toHaveProperty("invocations");
+    }
   });
 
   it("exposes escalation as the sole agent request surface", () => {
     const commandIds = allSchemas.map((contract) => contract.command_id);
     expect(commandIds).toContain("request.escalate");
     expect(commandIds).not.toContain("request.create");
-    expect(allExamples.some((example) => example.command_id === "request.create"))
-      .toBe(false);
+    expect(
+      allExamples.some((example) => example.command_id === "request.create"),
+    ).toBe(false);
   });
 
   it("discovers the seat-local preamble command", () => {
-    expect(allSchemas.map((contract) => contract.command_id)).toContain("preamble");
-    expect(allExamples.some((example) => example.command_id === "preamble")).toBe(true);
+    expect(allSchemas.map((contract) => contract.command_id)).toContain(
+      "preamble",
+    );
+    expect(
+      allExamples.some((example) => example.command_id === "preamble"),
+    ).toBe(true);
   });
 });
 

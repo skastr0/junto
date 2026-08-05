@@ -21,6 +21,7 @@ import {
 import { __setSessionExistenceHomeForTest } from "../src/main/vellum/term/session-existence";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { createRequire } from "node:module";
+import { BROWSER_ENABLED } from "../src/shared/features";
 
 const require = createRequire(import.meta.url);
 
@@ -120,9 +121,7 @@ describe("managed spawn plan", () => {
         ether: { entity: { kind: "task" }, tasks: { items: [] } },
       },
     ],
-    edges: connected
-      ? [{ id: "e1", fromNode: "worker", toNode: "tasks" }]
-      : [],
+    edges: connected ? [{ id: "e1", fromNode: "worker", toNode: "tasks" }] : [],
   });
 
   it("detects work edges", () => {
@@ -134,33 +133,45 @@ describe("managed spawn plan", () => {
     const base = baseDoc(false);
     const artifacts: CanvasDoc = {
       ...base,
-      nodes: [...base.nodes, {
-        id: "artifacts",
-        type: "text",
-        text: "artifacts",
-        x: 200,
-        y: 0,
-        width: 100,
-        height: 80,
-        ether: { entity: { kind: "artifacts" }, artifacts: { items: [] } },
-      }],
-      edges: [...base.edges, { id: "artifact-edge", fromNode: "worker", toNode: "artifacts" }],
+      nodes: [
+        ...base.nodes,
+        {
+          id: "artifacts",
+          type: "text",
+          text: "artifacts",
+          x: 200,
+          y: 0,
+          width: 100,
+          height: 80,
+          ether: { entity: { kind: "artifacts" }, artifacts: { items: [] } },
+        },
+      ],
+      edges: [
+        ...base.edges,
+        { id: "artifact-edge", fromNode: "worker", toNode: "artifacts" },
+      ],
     };
     expect(nodeHasActionableFactoryEdge(artifacts, "worker")).toBe(true);
 
     const page: CanvasDoc = {
       ...base,
-      nodes: [...base.nodes, {
-        id: "page",
-        type: "link",
-        url: "https://example.test",
-        x: 200,
-        y: 0,
-        width: 100,
-        height: 80,
-        ether: { entity: { kind: "page" }, browser: { profile: "personal" } },
-      }],
-      edges: [...base.edges, { id: "page-edge", fromNode: "worker", toNode: "page" }],
+      nodes: [
+        ...base.nodes,
+        {
+          id: "page",
+          type: "link",
+          url: "https://example.test",
+          x: 200,
+          y: 0,
+          width: 100,
+          height: 80,
+          ether: { entity: { kind: "page" }, browser: { profile: "personal" } },
+        },
+      ],
+      edges: [
+        ...base.edges,
+        { id: "page-edge", fromNode: "worker", toNode: "page" },
+      ],
     };
     expect(nodeHasActionableFactoryEdge(page, "worker")).toBe(true);
     const { plan } = launchForManagedSpawn({
@@ -170,7 +181,13 @@ describe("managed spawn plan", () => {
       documentLaunch: { kind: "harness", argv: ["claude"] },
     });
     expect(plan?.injection.inject).toBe(true);
-    expect(plan?.injection.systemPrompt).toContain("vellum browser pages --json");
+    if (BROWSER_ENABLED) {
+      expect(plan?.injection.systemPrompt).toContain(
+        "vellum browser pages --json",
+      );
+    } else {
+      expect(plan?.injection.systemPrompt).not.toContain("vellum browser");
+    }
   });
 
   it("connected replan applies Tier A system prompt for claude", () => {
@@ -182,7 +199,9 @@ describe("managed spawn plan", () => {
     });
     expect(plan?.injection.inject).toBe(true);
     expect(plan?.injection.tier).toBe("A");
-    expect(launch?.argv?.some((a) => a === "--append-system-prompt")).toBe(true);
+    expect(launch?.argv?.some((a) => a === "--append-system-prompt")).toBe(
+      true,
+    );
   });
 
   it("unconnected replan stays silent", () => {
@@ -225,10 +244,17 @@ describe("managed spawn plan", () => {
         ],
       },
     });
-    expect(launch?.argv).toEqual(expect.arrayContaining([
-      "--model", "opus", "--effort", "high", "--permission-mode", "plan",
-      "--append-system-prompt",
-    ]));
+    expect(launch?.argv).toEqual(
+      expect.arrayContaining([
+        "--model",
+        "opus",
+        "--effort",
+        "high",
+        "--permission-mode",
+        "plan",
+        "--append-system-prompt",
+      ]),
+    );
     expect(launch?.argv).not.toContain("default");
   });
 
@@ -247,10 +273,17 @@ describe("managed spawn plan", () => {
         ],
       },
     });
-    expect(launch?.argv).toEqual(expect.arrayContaining([
-      "--model", "opus", "--effort", "high", "--permission-mode", "plan",
-      "--append-system-prompt",
-    ]));
+    expect(launch?.argv).toEqual(
+      expect.arrayContaining([
+        "--model",
+        "opus",
+        "--effort",
+        "high",
+        "--permission-mode",
+        "plan",
+        "--append-system-prompt",
+      ]),
+    );
     expect(launch?.argv).not.toContain("--model=opus");
   });
 
@@ -262,7 +295,9 @@ describe("managed spawn plan", () => {
       agentKey: "remote:research",
       documentLaunch: { kind: "harness", argv: ["hermes", "chat", "--tui"] },
     });
-    expect(launch?.argv).toEqual(expect.arrayContaining(["--profile", "research"]));
+    expect(launch?.argv).toEqual(
+      expect.arrayContaining(["--profile", "research"]),
+    );
   });
 
   it("re-passes Codex model, effort, and approval on resume", () => {
@@ -286,15 +321,28 @@ describe("managed spawn plan", () => {
         documentLaunch: {
           kind: "harness",
           argv: [
-            "codex", "-m", "gpt-5", "-c", 'model_reasoning_effort="high"',
-            "-a", "never",
+            "codex",
+            "-m",
+            "gpt-5",
+            "-c",
+            'model_reasoning_effort="high"',
+            "-a",
+            "never",
           ],
         },
       });
-      expect(launch?.argv).toEqual(expect.arrayContaining([
-        "resume", "thread_123", "-m", "gpt-5", "-c",
-        'model_reasoning_effort="high"', "-a", "never",
-      ]));
+      expect(launch?.argv).toEqual(
+        expect.arrayContaining([
+          "resume",
+          "thread_123",
+          "-m",
+          "gpt-5",
+          "-c",
+          'model_reasoning_effort="high"',
+          "-a",
+          "never",
+        ]),
+      );
     } finally {
       __setSessionExistenceHomeForTest(undefined);
       rmSync(home, { recursive: true, force: true });
@@ -328,9 +376,7 @@ describe("managed spawn plan", () => {
     expect(launch?.argv).toBeDefined();
     expect(launch?.argv).not.toContain("-r");
     expect(launch?.argv).not.toContain(prodSession);
-    expect(launch?.argv).toEqual(
-      expect.arrayContaining(["--session-id"]),
-    );
+    expect(launch?.argv).toEqual(expect.arrayContaining(["--session-id"]));
     const sidIdx = launch!.argv!.indexOf("--session-id");
     const fresh = launch!.argv![sidIdx + 1];
     expect(fresh).toMatch(
@@ -364,9 +410,7 @@ describe("managed spawn plan", () => {
           cwd: "/work",
         },
       });
-      expect(launch?.argv).toEqual(
-        expect.arrayContaining(["-r", sid]),
-      );
+      expect(launch?.argv).toEqual(expect.arrayContaining(["-r", sid]));
     } finally {
       __setSessionExistenceHomeForTest(undefined);
       rmSync(home, { recursive: true, force: true });
@@ -389,9 +433,16 @@ describe("managed spawn plan", () => {
         ],
       },
     });
-    expect(launch?.argv).toEqual(expect.arrayContaining([
-      "-m", "gpt-5", "-c", 'model_reasoning_effort="ultra"', "-a", "never",
-    ]));
+    expect(launch?.argv).toEqual(
+      expect.arrayContaining([
+        "-m",
+        "gpt-5",
+        "-c",
+        'model_reasoning_effort="ultra"',
+        "-a",
+        "never",
+      ]),
+    );
   });
 
   it("recovers Hermes --yolo permission mode for long-running seats", () => {
@@ -404,9 +455,7 @@ describe("managed spawn plan", () => {
         argv: ["hermes", "chat", "--tui", "--yolo"],
       },
     });
-    expect(launch?.argv).toEqual(expect.arrayContaining([
-      "--yolo",
-    ]));
+    expect(launch?.argv).toEqual(expect.arrayContaining(["--yolo"]));
   });
 });
 
