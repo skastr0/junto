@@ -263,9 +263,9 @@ export const validateMacOSRuntimePolicy = (
       "macOS runtime policy must expose only empty and allow-jit profiles",
     );
   }
-  if (value.machO.length !== 25) {
+  if (value.machO.length !== 24) {
     throw new Error(
-      `macOS runtime policy must name exactly 25 Mach-O objects, got ${value.machO.length}`,
+      `macOS runtime policy must name exactly 24 Mach-O objects, got ${value.machO.length}`,
     );
   }
 
