@@ -18,10 +18,14 @@ const errorMessage = (error: unknown): string => {
 };
 
 const main = async () => {
+  // Usage: bun run render [name] [--mode dark|bright]
+  const args = process.argv.slice(2);
+  const modeFlag = args.indexOf("--mode");
+  const mode =
+    modeFlag >= 0 && args[modeFlag + 1] === "bright" ? "bright" : "dark";
+  const name = args.find((a, i) => !a.startsWith("--") && args[i - 1] !== "--mode") ?? "portfolio";
   const read = await Effect.runPromise(
-    Effect.result(
-      readCanvasThroughControl(process.argv[2] ?? "portfolio"),
-    ),
+    Effect.result(readCanvasThroughControl(name)),
   );
   if (read._tag === "Failure") {
     console.error(`render: ${errorMessage(read.failure)}`);
@@ -29,13 +33,14 @@ const main = async () => {
     return;
   }
 
-  const { actorRefs, doc, name } = read.success;
+  const { actorRefs, doc, name: canvasName } = read.success;
   const svg = renderCanvasSvg(
     doc,
-    executionGraphContextFromActorRefs(name, actorRefs),
+    executionGraphContextFromActorRefs(canvasName, actorRefs),
+    mode,
   );
-  const out = await writeCanvasProjectionSidecar(name, "svg", svg);
-  console.error(`render: ${doc.nodes.length} nodes, ${doc.edges.length} edges → ${out}`);
+  const out = await writeCanvasProjectionSidecar(canvasName, "svg", svg);
+  console.error(`render: ${doc.nodes.length} nodes, ${doc.edges.length} edges (${mode}) → ${out}`);
 };
 
 await main();

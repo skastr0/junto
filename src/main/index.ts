@@ -21,6 +21,7 @@ import {
   type NodeRefOpenedDelivery,
 } from "@shared/ipc";
 import { PRODUCT_NAME } from "@shared/product-name";
+import { DARK_RUNTIME } from "@shared/theme";
 import type { PreambleEvent } from "@shared/preamble";
 import {
   resolveVellumHome,
@@ -839,7 +840,7 @@ const createWindow = () => {
     minWidth: 960,
     minHeight: 680,
     title: app.isPackaged ? PRODUCT_NAME : `${PRODUCT_NAME} Dev`,
-    backgroundColor: "#0c0b0a",
+    backgroundColor: DARK_RUNTIME.ground,
 
     // `hiddenInset` and traffic-light geometry are a macOS presentation
     // contract. Linux window managers receive Electron's native chrome.
@@ -1078,7 +1079,7 @@ const createRendererFailureWindow = (): BrowserWindow => {
     minWidth: 520,
     minHeight: 300,
     title: "Vellum Command recovery",
-    backgroundColor: "#0c0b0a",
+    backgroundColor: DARK_RUNTIME.ground,
     ...e2eMainWindowOptions(e2ePresentation),
     webPreferences: {
       contextIsolation: true,
@@ -1097,7 +1098,7 @@ const createRendererFailureWindow = (): BrowserWindow => {
   failureWindow.on("closed", () => {
     if (rendererFailureWindow === failureWindow) rendererFailureWindow = undefined;
   });
-  const html = `<!doctype html><meta charset="utf-8"><title>Vellum Command recovery</title><style>html{color-scheme:dark;background:#0c0b0a;color:#ede6da;font:15px system-ui}body{max-width:52ch;margin:72px auto;padding:0 28px}h1{font-size:22px}p{line-height:1.55;color:#bdb5a8}</style><h1>Vellum Command could not render its workspace.</h1><p>A trusted workspace could not be restored safely. Quit and reopen Vellum Command; your canvas documents and local sessions were not deleted.</p>`;
+  const html = `<!doctype html><meta charset="utf-8"><title>Vellum Command recovery</title><style>html{color-scheme:dark;background:${DARK_RUNTIME.ground};color:${DARK_RUNTIME.ink};font:15px system-ui}body{max-width:52ch;margin:72px auto;padding:0 28px}h1{font-size:22px}p{line-height:1.55;color:${DARK_RUNTIME["ink-2"]}}</style><h1>Vellum Command could not render its workspace.</h1><p>A trusted workspace could not be restored safely. Quit and reopen Vellum Command; your canvas documents and local sessions were not deleted.</p>`;
   void failureWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
   if (!e2eIsolateFocus) {
     failureWindow.show();

@@ -57,7 +57,7 @@ export function Textarea({
 
 /**
  * Form select — design-system Dropdown with field chrome.
- * Never a native &lt;select&gt; (OS menus break deep-field and overflow parents).
+ * Never a native &lt;select&gt; (OS menus break the theme and overflow parents).
  */
 export function Select({
   value,

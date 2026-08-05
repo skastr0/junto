@@ -24,8 +24,9 @@ import { getVellumApi } from "../../lib/vellum-api";
 import {
   VELLUM_XTERM_FONT_FAMILY,
   VELLUM_XTERM_FONT_SIZE,
-  VELLUM_XTERM_THEME,
+  xtermThemeFor,
 } from "../../lib/terminal-theme";
+import { themeMode$ } from "../../lib/theme-mode";
 import { ActivityMark } from "../ActivityMark";
 import { FocusSurface } from "../FocusSurface";
 import { Button, OverlayHeader } from "../ui";
@@ -344,7 +345,7 @@ export function HerdrTerminalPanel({
       fontSize: VELLUM_XTERM_FONT_SIZE,
       fontFamily: VELLUM_XTERM_FONT_FAMILY,
       lineHeight: 1.2,
-      theme: VELLUM_XTERM_THEME,
+      theme: xtermThemeFor(themeMode$.peek()),
       allowProposedApi: true,
       scrollback: 0,
       convertEol: false,
@@ -360,6 +361,11 @@ export function HerdrTerminalPanel({
     term.attachCustomWheelEventHandler(() => false);
     termRef.current = term;
     fitRef.current = fit;
+
+    // Live theme swap: repaint the terminal when the mode flips.
+    const unsubTheme = themeMode$.onChange(({ value }) => {
+      term.options.theme = xtermThemeFor(value);
+    });
 
     let cancelled = false;
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -768,6 +774,7 @@ export function HerdrTerminalPanel({
     return () => {
       cancelled = true;
       unsub();
+      unsubTheme();
       window.removeEventListener("resize", scheduleResize);
       resizeObs?.disconnect();
       hostEl.removeEventListener("wheel", onWheel, { capture: true });

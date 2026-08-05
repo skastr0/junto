@@ -5,48 +5,52 @@ import {
 } from "./execution-graph";
 import { isGroup } from "./graph";
 import { edgeMaskAllows } from "./physics";
-import { DARK_RUNTIME } from "./theme";
+import { themeRuntime, type ThemeMode } from "./theme";
 import { hexAtAlpha } from "./theme/oklch";
 
 // Headless render of a canvas to SVG — the "screenshot for agents" half of
 // the agent surface (the text half is digest.ts). Pure and deterministic:
 // same doc + actor projection in, same SVG out. No DOM, no Electron.
-// Palette comes from the single token source (./theme) — the dark runtime
-// projection, matching the app's default mode.
+// Palette comes from the single token source (./theme), projected per mode;
+// the default dark projection matches the app's default appearance.
 
-const GROUND = DARK_RUNTIME.ground!;
-const TEXT = DARK_RUNTIME.ink!;
-const DIM = DARK_RUNTIME.dim!;
-const AMBER = DARK_RUNTIME.amber!;
-const CRIMSON = DARK_RUNTIME.crimson!;
-const STEEL = DARK_RUNTIME.steel!;
-const CARD_FILL = DARK_RUNTIME["overlay-1"]!;
-const STROKE = DARK_RUNTIME.stroke!;
-const GROUP_FILL = hexAtAlpha(DARK_RUNTIME.steel!, 0.05);
-
-// JSON Canvas preset colors 1..6 -> border tint.
-const PRESET: Record<string, string> = {
-  "1": CRIMSON,
-  "2": DARK_RUNTIME.orange!,
-  "3": DARK_RUNTIME.gold!,
-  "4": DARK_RUNTIME.green!,
-  "5": DARK_RUNTIME.cyan!,
-  "6": DARK_RUNTIME.violet!,
+const svgPalette = (mode: ThemeMode) => {
+  const t = themeRuntime(mode);
+  return {
+    ground: t.ground!,
+    text: t.ink!,
+    dim: t.dim!,
+    amber: t.amber!,
+    crimson: t.crimson!,
+    steel: t.steel!,
+    cardFill: t["overlay-1"]!,
+    stroke: t.stroke!,
+    groupFill: hexAtAlpha(t.steel!, 0.05),
+    // JSON Canvas preset colors 1..6 -> border tint.
+    preset: {
+      "1": t.crimson!,
+      "2": t.orange!,
+      "3": t.gold!,
+      "4": t.green!,
+      "5": t.cyan!,
+      "6": t.violet!,
+    } as Record<string, string>,
+    edgeColor: { blocks: t.crimson!, relates: t.steel! } as Record<
+      EtherEdgeKind,
+      string
+    >,
+  };
 };
-
-const EDGE_COLOR: Record<EtherEdgeKind, string> = {
-  blocks: CRIMSON,
-  relates: STEEL,
-};
+type SvgPalette = ReturnType<typeof svgPalette>;
 
 const esc = (s: string): string =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-const nodeStroke = (node: CanvasNode): string => {
-  if (node.ether?.flags?.includes("blocker")) return CRIMSON;
-  if (node.color && PRESET[node.color]) return PRESET[node.color]!;
-  if (node.ether?.entity?.kind === "agent") return STEEL;
-  return STROKE;
+const nodeStroke = (node: CanvasNode, pal: SvgPalette): string => {
+  if (node.ether?.flags?.includes("blocker")) return pal.crimson;
+  if (node.color && pal.preset[node.color]) return pal.preset[node.color]!;
+  if (node.ether?.entity?.kind === "agent") return pal.steel;
+  return pal.stroke;
 };
 
 const nodeTitle = (node: CanvasNode): string => {
@@ -67,7 +71,9 @@ const center = (node: CanvasNode) => ({ x: node.x + node.width / 2, y: node.y + 
 export const renderCanvasSvg = (
   doc: CanvasDoc,
   context: ExecutionGraphContext,
+  mode: ThemeMode = "dark",
 ): string => {
+  const pal = svgPalette(mode);
   const nodesById = new Map(doc.nodes.map((n) => [n.id, n] as const));
   const graph = deriveExecutionGraph(doc, context);
   const blocked = graph.blocked;
@@ -87,17 +93,17 @@ export const renderCanvasSvg = (
   parts.push(
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${Math.round(minX)} ${Math.round(minY)} ${w} ${h}" width="${w}" height="${h}" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">`,
   );
-  parts.push(`<rect x="${Math.round(minX)}" y="${Math.round(minY)}" width="${w}" height="${h}" fill="${GROUND}"/>`);
+  parts.push(`<rect x="${Math.round(minX)}" y="${Math.round(minY)}" width="${w}" height="${h}" fill="${pal.ground}"/>`);
 
   // Groups behind everything.
   for (const node of doc.nodes.filter(isGroup)) {
     parts.push(
-      `<rect x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}" rx="10" fill="${GROUP_FILL}" stroke="${STROKE}" stroke-width="1"/>`,
+      `<rect x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}" rx="10" fill="${pal.groupFill}" stroke="${pal.stroke}" stroke-width="1"/>`,
     );
     const label = nodeTitle(node);
     if (label) {
       parts.push(
-        `<text x="${node.x + 12}" y="${node.y + 20}" fill="${DIM}" font-size="12" letter-spacing="1">${esc(label.toUpperCase())}</text>`,
+        `<text x="${node.x + 12}" y="${node.y + 20}" fill="${pal.dim}" font-size="12" letter-spacing="1">${esc(label.toUpperCase())}</text>`,
       );
     }
   }
@@ -117,7 +123,7 @@ export const renderCanvasSvg = (
       fromKind === "agent" &&
       toKind === "agent" &&
       edgeMaskAllows(edge, "msg.send");
-    const color = kind === "blocks" ? CRIMSON : agentMsg ? AMBER : kind ? EDGE_COLOR[kind] : STEEL;
+    const color = kind === "blocks" ? pal.crimson : agentMsg ? pal.amber : kind ? pal.edgeColor[kind] : pal.steel;
     const active = activeEdges.has(edge.id);
     const strokeW = active ? 2 : agentMsg ? 1.6 : 1;
     const opacity = active ? 0.9 : agentMsg ? 0.88 : 0.5;
@@ -127,7 +133,7 @@ export const renderCanvasSvg = (
     const label = edge.label ?? kind;
     if (label) {
       parts.push(
-        `<text x="${Math.round((a.x + b.x) / 2)}" y="${Math.round((a.y + b.y) / 2)}" fill="${DIM}" font-size="10" text-anchor="middle">${esc(label)}</text>`,
+        `<text x="${Math.round((a.x + b.x) / 2)}" y="${Math.round((a.y + b.y) / 2)}" fill="${pal.dim}" font-size="10" text-anchor="middle">${esc(label)}</text>`,
       );
     }
   }
@@ -135,15 +141,15 @@ export const renderCanvasSvg = (
   // Nodes.
   for (const node of doc.nodes) {
     if (isGroup(node)) continue;
-    const stroke = nodeStroke(node);
+    const stroke = nodeStroke(node, pal);
     const dim = blocked.has(node.id);
     parts.push(
-      `<rect x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}" rx="8" fill="${CARD_FILL}" stroke="${stroke}" stroke-width="1" opacity="${dim ? 0.85 : 1}"/>`,
+      `<rect x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}" rx="8" fill="${pal.cardFill}" stroke="${stroke}" stroke-width="1" opacity="${dim ? 0.85 : 1}"/>`,
     );
     const kind = node.ether?.entity?.kind;
     if (kind) {
       parts.push(
-        `<text x="${node.x + 12}" y="${node.y + 18}" fill="${DIM}" font-size="9" letter-spacing="1">${esc(kind.toUpperCase())}</text>`,
+        `<text x="${node.x + 12}" y="${node.y + 18}" fill="${pal.dim}" font-size="9" letter-spacing="1">${esc(kind.toUpperCase())}</text>`,
       );
     }
     const title = nodeTitle(node);
@@ -152,7 +158,7 @@ export const renderCanvasSvg = (
       const maxChars = Math.max(4, Math.floor((node.width - 24) / 7.5));
       const clipped = title.length > maxChars ? `${title.slice(0, maxChars - 1)}…` : title;
       parts.push(
-        `<text x="${node.x + 12}" y="${node.y + (kind ? 40 : 28)}" fill="${TEXT}" font-size="14">${esc(clipped)}</text>`,
+        `<text x="${node.x + 12}" y="${node.y + (kind ? 40 : 28)}" fill="${pal.text}" font-size="14">${esc(clipped)}</text>`,
       );
     }
   }

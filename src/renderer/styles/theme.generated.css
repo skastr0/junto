@@ -25,6 +25,7 @@
   --color-shadow-2: color-mix(in oklab, var(--color-umbra) 42%, transparent);
   --color-focus-ring: color-mix(in oklab, var(--color-second) 10%, transparent);
   --color-selection: color-mix(in oklab, var(--color-main) 28%, transparent);
+  --color-selection-inactive: color-mix(in oklab, var(--color-main) 16%, transparent);
   --color-amber: oklch(0.76490 0.13988 72.95);
   --color-amber-hi: oklch(0.89239 0.06852 85.73);
   --color-amber-fg: oklch(0.76490 0.13988 72.95);

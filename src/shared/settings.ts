@@ -28,7 +28,7 @@ import { DEFAULT_STATION_HOST_ID, STATION_ROLES } from "./station";
 
 export const SETTINGS_VERSION = 1 as const;
 
-export const SettingsTheme = Schema.Literals(["deep-field", "system"]);
+export const SettingsTheme = Schema.Literals(["dark", "bright", "system"]);
 export type SettingsTheme = typeof SettingsTheme.Type;
 
 export const SettingsDensity = Schema.Literals(["comfortable", "compact"]);
@@ -286,7 +286,7 @@ export const SettingsSectionKey = Schema.Literals(["appearance", "canvas",
 export type SettingsSectionKey = typeof SettingsSectionKey.Type;
 
 export const defaultAppearance = (): AppearanceSettings => ({
-  theme: "deep-field",
+  theme: "dark",
   density: "comfortable",
   reduceMotion: false,
 });

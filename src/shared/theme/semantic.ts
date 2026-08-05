@@ -63,6 +63,7 @@ export const SEMANTIC_DARK: Record<string, TokenValue> = {
   // interaction
   "focus-ring": mix("second", 10),
   selection: mix("main", 28),
+  "selection-inactive": mix("main", 16),
 
   // hues
   amber: solid(darkHues.amber),

@@ -19,8 +19,9 @@ import { surfaceById } from "../../lib/surface-registry";
 import { getVellumApi } from "../../lib/vellum-api";
 import {
   VELLUM_XTERM_FONT_FAMILY,
-  VELLUM_XTERM_THEME,
+  xtermThemeFor,
 } from "../../lib/terminal-theme";
+import { themeMode$ } from "../../lib/theme-mode";
 import { shouldNotifyPtyResize } from "../../lib/terminal-resize";
 import {
   bookmarkFromBuffer,
@@ -264,7 +265,7 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
       fontFamily: VELLUM_XTERM_FONT_FAMILY,
       fontSize: FONT_SIZE,
       lineHeight: 1.2,
-      theme: VELLUM_XTERM_THEME,
+      theme: xtermThemeFor(themeMode$.peek()),
     });
     // FitAddon still loaded for xterm internals; host measure is geometry authority.
     const fit = new FitAddon();
@@ -381,6 +382,16 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
       fitRef.current = null;
     };
   }, []);
+
+  // Live theme swap: repaint the terminal when the mode flips.
+  useEffect(
+    () =>
+      themeMode$.onChange(({ value }) => {
+        const term = termRef.current;
+        if (term) term.options.theme = xtermThemeFor(value);
+      }),
+    [],
+  );
 
   useEffect(() => {
     const api = getVellumApi() as VellumTerminalApi | undefined;

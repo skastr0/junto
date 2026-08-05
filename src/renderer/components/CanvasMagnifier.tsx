@@ -6,15 +6,8 @@ import { isBlockableNode } from "@shared/execution-graph";
 import type { FlowEdge, FlowNode } from "../lib/convert";
 import { nodeTitle, nodeTypeLabel } from "../lib/presentation";
 import { signalMark, identityHue } from "../lib/signal-mark";
-import {
-  DIM,
-  GROUND,
-  HUE,
-  INK,
-  RAISE,
-  STROKE_HI,
-  withAlpha,
-} from "../lib/theme";
+import { themeFor, withAlpha } from "../lib/theme";
+import { themeMode$ } from "../lib/theme-mode";
 import { state$ } from "../lib/state";
 import "./CanvasMagnifier.css";
 
@@ -23,6 +16,9 @@ const LENS_RADIUS = LENS_SIZE / 2;
 const CONTENT_RADIUS = LENS_RADIUS - 18;
 const INSPECTION_SCALE = 0.78;
 const MAX_VISIBLE_NODES = 64;
+
+// Canvas-2D paint reads the resolved mode's runtime palette at paint time.
+const paintTokens = (): Record<string, string> => themeFor(themeMode$.peek());
 
 type Point = { x: number; y: number };
 
@@ -133,10 +129,11 @@ const fitText = (
 };
 
 const drawField = (context: CanvasRenderingContext2D) => {
-  context.fillStyle = GROUND;
+  const t = paintTokens();
+  context.fillStyle = t.ground!;
   context.fillRect(0, 0, LENS_SIZE, LENS_SIZE);
 
-  context.fillStyle = withAlpha(INK, 0.07);
+  context.fillStyle = withAlpha(t.ink!, 0.07);
   for (let x = 10; x < LENS_SIZE; x += 26) {
     for (let y = 10; y < LENS_SIZE; y += 26) {
       context.beginPath();
@@ -153,8 +150,8 @@ const drawField = (context: CanvasRenderingContext2D) => {
     LENS_RADIUS,
     CONTENT_RADIUS,
   );
-  vignette.addColorStop(0, withAlpha(GROUND, 0));
-  vignette.addColorStop(1, withAlpha(GROUND, 0.64));
+  vignette.addColorStop(0, withAlpha(t.ground!, 0));
+  vignette.addColorStop(1, withAlpha(t.ground!, 0.64));
   context.fillStyle = vignette;
   context.fillRect(0, 0, LENS_SIZE, LENS_SIZE);
 };
@@ -166,6 +163,7 @@ const drawEdges = (
   center: Point,
 ) => {
   const byId = new Map(visible.map((node) => [node.flow.id, node]));
+  const t = paintTokens();
   context.lineCap = "round";
   for (const edge of edges) {
     const from = byId.get(edge.source);
@@ -176,8 +174,8 @@ const drawEdges = (
     const toX = LENS_RADIUS + (to.centerX - center.x) * INSPECTION_SCALE;
     const toY = LENS_RADIUS + (to.centerY - center.y) * INSPECTION_SCALE;
     context.strokeStyle = edge.data?.phase === "blocks"
-      ? withAlpha(HUE.crimson, 0.72)
-      : withAlpha(HUE.steel, 0.34);
+      ? withAlpha(t.crimson!, 0.72)
+      : withAlpha(t.steel!, 0.34);
     context.lineWidth = edge.data?.phase === "blocks" ? 1.8 : 1;
     context.beginPath();
     context.moveTo(fromX, fromY);
@@ -192,6 +190,7 @@ const drawNode = (
   center: Point,
 ) => {
   const { flow, severity } = visible;
+  const t = paintTokens();
   const source = flow.data.node;
   const x = LENS_RADIUS + (visible.x - center.x) * INSPECTION_SCALE;
   const y = LENS_RADIUS + (visible.y - center.y) * INSPECTION_SCALE;
@@ -203,9 +202,9 @@ const drawNode = (
   const accent = elevated ? mark.hue : identityHue(source);
 
   roundedRect(context, x, y, width, height, isGroup ? 4 : 7);
-  context.fillStyle = isGroup ? withAlpha(HUE.steel, 0.025) : RAISE;
+  context.fillStyle = isGroup ? withAlpha(t.steel!, 0.025) : t.raise!;
   context.fill();
-  context.strokeStyle = elevated ? withAlpha(accent, 0.92) : STROKE_HI;
+  context.strokeStyle = elevated ? withAlpha(accent, 0.92) : t["stroke-hi"]!;
   context.lineWidth = elevated ? 1.6 : 1;
   context.stroke();
 
@@ -219,7 +218,7 @@ const drawNode = (
   context.fillStyle = accent;
   context.fillRect(x, y, Math.min(width, 3), height);
 
-  context.fillStyle = INK;
+  context.fillStyle = t.ink!;
   context.font = "650 11px ui-monospace, SFMono-Regular, Menlo, monospace";
   context.fillText(
     fitText(context, nodeTitle(source), Math.max(width - 34, 8)),
@@ -228,7 +227,7 @@ const drawNode = (
   );
 
   if (height >= 38 && width >= 62) {
-    context.fillStyle = elevated ? withAlpha(accent, 0.9) : DIM;
+    context.fillStyle = elevated ? withAlpha(accent, 0.9) : t.dim!;
     context.font = "600 8px ui-monospace, SFMono-Regular, Menlo, monospace";
     const detail = elevated ? mark.label : nodeTypeLabel(source);
     context.fillText(
@@ -245,8 +244,9 @@ const drawNode = (
 };
 
 const drawHud = (context: CanvasRenderingContext2D) => {
-  context.strokeStyle = withAlpha(HUE.amber, 0.82);
-  context.fillStyle = HUE.amber;
+  const t = paintTokens();
+  context.strokeStyle = withAlpha(t.amber!, 0.82);
+  context.fillStyle = t.amber!;
   context.lineWidth = 1;
 
   context.beginPath();
@@ -405,6 +405,12 @@ export function CanvasMagnifier() {
     if (frameRef.current || !activeRef.current) return;
     frameRef.current = requestAnimationFrame(animate);
   }, [animate]);
+
+  // Repaint the lens when the theme mode flips while it is visible.
+  useEffect(
+    () => themeMode$.onChange(() => requestRender()),
+    [requestRender],
+  );
 
   const setActive = useCallback((active: boolean) => {
     if (activeRef.current === active) return;

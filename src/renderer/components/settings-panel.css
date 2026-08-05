@@ -516,3 +516,45 @@
 .settings-sfx-row .settings-field__control {
   min-width: 220px;
 }
+
+/* Appearance — theme mode segmented control */
+.settings-theme-modes {
+  display: flex;
+  gap: 6px;
+}
+.settings-theme-mode {
+  display: grid;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  padding: 9px 11px;
+  border-radius: 8px;
+  border: 1px solid var(--color-stroke);
+  background: var(--color-overlay-1);
+  color: var(--color-dim);
+  cursor: pointer;
+  transition: border-color 160ms ease-out, background 160ms ease-out, color 160ms ease-out;
+}
+.settings-theme-mode:hover {
+  background: var(--color-overlay-2);
+  color: var(--color-ink);
+}
+.settings-theme-mode.is-active {
+  border-color: color-mix(in oklab, var(--color-main) 45%, transparent);
+  background: color-mix(in oklab, var(--color-main) 10%, transparent);
+  color: var(--color-ink);
+}
+.settings-theme-mode__label {
+  font-size: 12px;
+  font-weight: 560;
+  letter-spacing: 0.04em;
+}
+.settings-theme-mode__blurb {
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--color-dim);
+}
+.settings-theme-mode.is-active .settings-theme-mode__blurb {
+  color: var(--color-ink-2);
+}

@@ -27,6 +27,7 @@ import {
 import { makeCanvasExternalReloadCoordinator } from "./lib/canvas-external-reload";
 import { startKernelBridge } from "./lib/kernel-view";
 import { startSettingsBridge, closeSettings } from "./lib/settings-state";
+import { startThemeMode } from "./lib/theme-mode";
 import { startUpdateBridge } from "./lib/update-state";
 import { subscribeAgentSeatState } from "./lib/agent-seat-state";
 import { reconcileDockFromLiveSessions } from "./lib/dock-state";
@@ -351,6 +352,7 @@ export function App() {
     void reconcileDockFromLiveSessions();
 
     const stopKernel = startKernelBridge();
+    startThemeMode();
     const stopSettings = startSettingsBridge();
     const stopUpdate = startUpdateBridge();
     // Managed-agent seat state (attention/working) — subscribe early so canvas

@@ -39,7 +39,7 @@ describe("settings contract", () => {
   it("defaultSettings is a valid v1 document", () => {
     const settings = defaultSettings();
     expect(settings.version).toBe(SETTINGS_VERSION);
-    expect(settings.appearance.theme).toBe("deep-field");
+    expect(settings.appearance.theme).toBe("dark");
     expect(settings.browser.maxVisibleSurfaces).toBe(2);
     expect(settings.browser.maxWarmSessions).toBe(3);
     expect(settings.fleet.ditherLevel).toBe("fine");
@@ -56,7 +56,7 @@ describe("settings contract", () => {
       },
     });
     expect(next.appearance.reduceMotion).toBe(true);
-    expect(next.appearance.theme).toBe("deep-field");
+    expect(next.appearance.theme).toBe("dark");
     expect(next.browser.maxVisibleSurfaces).toBe(4);
     expect(next.browser.maxWarmSessions).toBe(3);
     expect(next.fleet.ditherLevel).toBe("balanced");
@@ -108,6 +108,19 @@ describe("settings contract", () => {
         }),
       ),
     ).toBe(true);
+  });
+
+  it("maps the retired deep-field theme value to dark on decode", () => {
+    const { version: _version, station, ...preferences } = defaultSettings();
+    const decoded = decodeStoredSettings(
+      SETTINGS_VERSION,
+      {
+        ...preferences,
+        appearance: { ...preferences.appearance, theme: "deep-field" },
+      },
+      station,
+    );
+    expect(decoded.appearance.theme).toBe("dark");
   });
 
   it("rejects excess durable fields and patch fields instead of pruning them", () => {

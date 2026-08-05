@@ -71,6 +71,26 @@ export const preferencesFromSettings = (
   fleet: settings.fleet,
 });
 
+// Decode-admits-history: rows written before the theme rename may carry the
+// retired "deep-field" mode name; it is today's "dark". The rename is
+// value-level, so the stored document version and table DDL stay untouched;
+// the next persist rewrites the value.
+const migrateLegacyPreferences = (preferences: unknown): unknown => {
+  if (typeof preferences !== "object" || preferences === null) {
+    return preferences;
+  }
+  const appearance = (
+    preferences as { appearance?: { theme?: unknown } }
+  ).appearance;
+  if (appearance?.theme !== "deep-field") {
+    return preferences;
+  }
+  return {
+    ...preferences,
+    appearance: { ...appearance, theme: "dark" },
+  };
+};
+
 export const decodeStoredSettings = (
   version: unknown,
   preferences: unknown,
@@ -82,7 +102,9 @@ export const decodeStoredSettings = (
       message: `stored settings version is invalid: ${String(version)}`,
     });
   }
-  const decodedPreferences = decodePreferences(preferences);
+  const decodedPreferences = decodePreferences(
+    migrateLegacyPreferences(preferences),
+  );
   if (decodedPreferences._tag === "Failure") {
     throw new SettingsError({
       code: "corrupt",

@@ -43,6 +43,7 @@ import "./settings-panel.css";
 type PanelSection = SettingsSectionKey | "license" | "updates";
 
 const SECTIONS: ReadonlyArray<{ key: PanelSection; label: string; blurb: string }> = [
+  { key: "appearance", label: "Appearance", blurb: "theme mode" },
   { key: "station", label: "Machine", blurb: "Command Center or Remote role" },
   { key: "updates", label: "Updates", blurb: "check and install app updates" },
   ...(AUDIO_ENABLED
@@ -72,6 +73,41 @@ function FieldRow({
       </span>
       <span className="settings-field__control">{children}</span>
     </label>
+  );
+}
+
+function AppearanceSection() {
+  const appearance = use$(state$.settings.appearance);
+  const modes = [
+    { key: "dark", label: "Dark", blurb: "the default instrument" },
+    { key: "bright", label: "Bright", blurb: "daylight edition on warm paper" },
+    { key: "system", label: "System", blurb: "follow the macOS appearance" },
+  ] as const;
+  return (
+    <div className="settings-section">
+      <FieldRow label="Theme" hint="applies immediately, everywhere">
+        <div className="settings-theme-modes" role="radiogroup" aria-label="Theme mode">
+          {modes.map((mode) => {
+            const active = appearance.theme === mode.key;
+            return (
+              <button
+                key={mode.key}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                className={`settings-theme-mode${active ? " is-active" : ""}`}
+                onClick={() =>
+                  void patchSettings({ appearance: { theme: mode.key } })
+                }
+              >
+                <span className="settings-theme-mode__label">{mode.label}</span>
+                <span className="settings-theme-mode__blurb">{mode.blurb}</span>
+              </button>
+            );
+          })}
+        </div>
+      </FieldRow>
+    </div>
   );
 }
 
@@ -917,6 +953,8 @@ function StationSection() {
 
 function SectionBody({ section }: { readonly section: PanelSection }) {
   switch (section) {
+    case "appearance":
+      return <AppearanceSection />;
     case "station":
       return <StationSection />;
     case "updates":
