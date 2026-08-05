@@ -22,6 +22,7 @@ import { Button } from "../ui";
 import { ChatSurface } from "../chat/ChatSurface";
 import { TaskEnqueueSurface } from "../work/TaskEnqueueSurface";
 import { activateSurfaceOnMouseDown } from "../../lib/pointer-activation";
+import { BROWSER_ENABLED } from "@shared/features";
 
 function HerdrSurfaceSlot({
   surface,
@@ -82,6 +83,7 @@ function resolveSurfaceBody(
   onActivate: () => void,
 ): ReactNode {
   if (surface.kind === "browser") {
+    if (!BROWSER_ENABLED) return null;
     return (
       <BrowserSurfaceSlot
         pageRef={surface.id}

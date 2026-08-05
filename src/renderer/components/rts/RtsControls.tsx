@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import type { CanvasEdge, CanvasNode } from "@shared/canvas";
 import {
+  BROWSER_ENABLED,
   CRON_ENABLED,
   HERDR_ENABLED,
   RELAY_ENABLED,
@@ -455,7 +456,7 @@ export function KindActions({ node }: { readonly node: CanvasNode }) {
         </KindKey>
       );
     case "page":
-      return <PageKindKeys node={node} />;
+      return BROWSER_ENABLED ? <PageKindKeys node={node} /> : null;
     case "task":
       return <TaskKindKeys node={node} />;
     case "requests":

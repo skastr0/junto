@@ -110,7 +110,8 @@ export const productNodeKindEnabled = (kind: string | undefined): boolean => {
 /** Strip product-hidden capabilities from a host capability list for UI. */
 export const productHostCapabilities = <T extends string>(
   capabilities: ReadonlyArray<T>,
-): ReadonlyArray<T> =>
-  HERDR_ENABLED
-    ? capabilities
-    : capabilities.filter((c) => c !== "herdr");
+): ReadonlyArray<T> => capabilities.filter((capability) => {
+  if (!HERDR_ENABLED && capability === "herdr") return false;
+  if (!BROWSER_ENABLED && capability === "browser") return false;
+  return true;
+});

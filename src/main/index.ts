@@ -56,7 +56,7 @@ import { makeBrowserProductPathProbe } from "./vellum/browser/readiness-probe";
 import { installBrowserProductPathProbe } from "./vellum/station-readiness";
 import { findHostById, hostsSnapshot } from "./vellum/hosts/snapshot";
 import { hostHasCapability } from "@shared/remote-hosts";
-import { HERDR_ENABLED } from "@shared/features";
+import { BROWSER_ENABLED, HERDR_ENABLED } from "@shared/features";
 import { HerdrPlane } from "./vellum/herdr/plane";
 import { HermesPlane } from "./vellum/hermes/plane";
 import { termPlane, termPlaneBlocksAppExit } from "./vellum/term/plane";
@@ -850,7 +850,7 @@ const createWindow = () => {
       sandbox: true,
     },
   });
-  if (productRuntimeStarted && !productRuntimeSuspended) {
+  if (BROWSER_ENABLED && productRuntimeStarted && !productRuntimeSuspended) {
     void browserCompositionHost.bindVisibleWindow(mainWindow).catch(() => {
       if (!mainWindow.isDestroyed()) mainWindow.destroy();
       exitAfterDetach(1, "browser-composition-host-bind-failure");
@@ -1660,7 +1660,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     // Browser authority stays private until cold profile recovery completes.
     // The activation callback is the only place browser IPC, agent IPC, or
     // the local control socket can become reachable.
-    try {
+    if (BROWSER_ENABLED) try {
       if (headless) await browserCompositionHost.ensureHeadlessHost();
       browserComposition = await startBrowserComposition(
         async (composition) => {
@@ -1986,7 +1986,7 @@ const requireCleanBrowserShutdown = async (reason: string): Promise<void> => {
     unsubscribeCanvasEdgeGrants?.();
     unsubscribeCanvasEdgeGrants = undefined;
   }
-  await browserCompositionHost.shutdown();
+  if (BROWSER_ENABLED) await browserCompositionHost.shutdown();
 };
 
 const requireCleanWorkControlShutdown = async (): Promise<void> => {

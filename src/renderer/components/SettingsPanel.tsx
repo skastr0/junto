@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { BrowserProfileInfo, VellumBrowserApi } from "@shared/ipc";
 import type { SettingsSectionKey } from "@shared/settings";
-import { AUDIO_ENABLED } from "@shared/features";
+import { AUDIO_ENABLED, BROWSER_ENABLED } from "@shared/features";
 import {
   decodeStateBackupId,
   type StateBackupId,
@@ -45,7 +45,9 @@ const SECTIONS: ReadonlyArray<{ key: PanelSection; label: string; blurb: string 
     ? [{ key: "audio", label: "Audio", blurb: "RTS alert SFX mute and levels" } as const]
     : []),
   { key: "license", label: "License", blurb: "access, billing, and this installation" },
-  { key: "browser", label: "Browser", blurb: "surface and warm-session limits" },
+  ...(BROWSER_ENABLED
+    ? [{ key: "browser", label: "Browser", blurb: "surface and warm-session limits" } as const]
+    : []),
   { key: "advanced", label: "Advanced", blurb: "startup, recovery, developer tools" },
 ];
 
@@ -918,7 +920,7 @@ function SectionBody({ section }: { readonly section: PanelSection }) {
     case "audio":
       return AUDIO_ENABLED ? <AudioSection /> : null;
     case "browser":
-      return <BrowserSection />;
+      return BROWSER_ENABLED ? <BrowserSection /> : null;
     case "advanced":
       return <AdvancedSection />;
     case "license": {

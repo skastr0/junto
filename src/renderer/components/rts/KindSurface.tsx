@@ -21,7 +21,12 @@ import {
   X,
 } from "lucide-react";
 import type { CanvasEdge, CanvasNode } from "@shared/canvas";
-import { CRON_ENABLED, HERDR_ENABLED, RELAY_ENABLED } from "@shared/features";
+import {
+  BROWSER_ENABLED,
+  CRON_ENABLED,
+  HERDR_ENABLED,
+  RELAY_ENABLED,
+} from "@shared/features";
 import { isHarnessId } from "@shared/managed-terminal-templates";
 import { state$ } from "../../lib/state";
 import { nodeDetail, nodeTitle, nodeTypeLabel } from "../../lib/presentation";
@@ -370,19 +375,23 @@ function RegionKindSurface({ node }: { readonly node: CanvasNode }) {
               <Package size={ICON} />
             </KindKey>
           ) : null}
-          <KindKey
-            label={form === "page" ? "Close page defaults" : "Page defaults"}
-            title="Defaults for new page nodes in this region"
-            active={form === "page" || hasPage}
-            style={form === "page" || hasPage ? { color: HUE.cyan } : undefined}
-            onClick={() => toggleForm("page")}
-          >
-            <Globe size={ICON} />
-          </KindKey>
+          {BROWSER_ENABLED ? (
+            <KindKey
+              label={form === "page" ? "Close page defaults" : "Page defaults"}
+              title="Defaults for new page nodes in this region"
+              active={form === "page" || hasPage}
+              style={form === "page" || hasPage ? { color: HUE.cyan } : undefined}
+              onClick={() => toggleForm("page")}
+            >
+              <Globe size={ICON} />
+            </KindKey>
+          ) : null}
         </div>
       </div>
 
-      {form ? <RegionFieldFocus node={node} form={form} onClose={() => setForm(null)} /> : null}
+      {form && (form !== "page" || BROWSER_ENABLED) ? (
+        <RegionFieldFocus node={node} form={form} onClose={() => setForm(null)} />
+      ) : null}
       {pathsOpen ? <RegionPathsModal nodeId={node.id} onClose={() => setPathsOpen(false)} /> : null}
     </div>
   );
@@ -569,7 +578,7 @@ export function KindSurface() {
       "board",
       ...(RELAY_ENABLED ? (["watcher", "relay"] as const) : []),
       ...(CRON_ENABLED ? (["timer", "cron"] as const) : []),
-      "page",
+      ...(BROWSER_ENABLED ? (["page"] as const) : []),
     ].includes(kind);
   // Agent/herdr keep a live glance. Everything else is strip-only (kind once +
   // keys) so command title is not echoed three more times in the mid third.

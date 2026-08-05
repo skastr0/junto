@@ -21,6 +21,7 @@ import { registerChatIpc } from "./chat/ipc";
 import { ChatServiceContext } from "./chat/service";
 import { HermesPlane } from "./hermes/plane";
 import {
+  BROWSER_ENABLED,
   CRON_ENABLED,
   HERDR_ENABLED,
   RELAY_ENABLED,
@@ -1400,6 +1401,7 @@ export const registerVellumIpc = (): void => {
 
 /** Browser-only IPC is installed after cold profile recovery succeeds. */
 export const registerVellumBrowserIpc = (sessions: BrowserSessionService): void => {
+  if (!BROWSER_ENABLED) return;
   registerBrowserIpc(
     licensedRendererIpc(ipcMain),
     sessions,

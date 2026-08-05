@@ -30,6 +30,7 @@ import {
 import { runBrowserCli } from "../../scripts/browser-cli";
 import { browserCliArgsFromArgv } from "./browser-argv";
 import { CLI_NAME, CLI_VERSION } from "./core/constants";
+import { BROWSER_ENABLED } from "@shared/features";
 import {
   setExitCode,
   writeCauseEnvelope,
@@ -92,7 +93,7 @@ if (import.meta.main) {
   // [bunPath, script, ...args], compiled is ["bun", "/$bunfs/root/vellum",
   // ...args]. V4 runWith takes user args only — never the full argv.
   const browserArgs = browserCliArgsFromArgv(Bun.argv);
-  if (browserArgs !== undefined) {
+  if (BROWSER_ENABLED && browserArgs !== undefined) {
     await runBrowserCli(browserArgs);
   } else {
     BunRuntime.runMain(

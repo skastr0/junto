@@ -30,6 +30,7 @@ import {
   type ObservabilitySnapshot,
 } from "@shared/ipc";
 import {
+  BROWSER_ENABLED,
   CRON_ENABLED,
   HERDR_ENABLED,
   RELAY_ENABLED,
@@ -845,7 +846,7 @@ if (preloadLocation === undefined || isRendererPreloadCandidate(preloadLocation)
     ...(CRON_ENABLED || RELAY_ENABLED ? schedulerApi : {}),
     ...(HERDR_ENABLED ? herdrApi : {}),
     ...terminalApi,
-    ...browserApi,
+    ...(BROWSER_ENABLED ? browserApi : {}),
     ...demoApi,
   });
 }

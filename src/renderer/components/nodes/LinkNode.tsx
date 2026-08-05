@@ -17,8 +17,10 @@ import { hostOf } from "../../lib/presentation";
 import { state$ } from "../../lib/state";
 import { DIM, HUE, INK } from "../../lib/theme";
 import { NodeShell } from "./NodeShell";
+import { BROWSER_ENABLED } from "@shared/features";
 
 const isPageSurface = (node: FlowNode["data"]["node"]): boolean =>
+  BROWSER_ENABLED &&
   node.type === "link" &&
   node.ether?.entity?.kind === "page" &&
   Boolean(node.ether?.browser);

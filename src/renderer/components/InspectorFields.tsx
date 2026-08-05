@@ -10,7 +10,12 @@ import type {
   EtherRegionDefaults,
   EtherWatch,
 } from "@shared/canvas";
-import { CRON_ENABLED, HERDR_ENABLED, RELAY_ENABLED } from "@shared/features";
+import {
+  BROWSER_ENABLED,
+  CRON_ENABLED,
+  HERDR_ENABLED,
+  RELAY_ENABLED,
+} from "@shared/features";
 import { isGroup } from "@shared/graph";
 import { workRolesInDoc } from "@shared/attention";
 import {
@@ -534,7 +539,7 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
     {HERDR_ENABLED && node.type === "group" ? (
       <RegionHerdrDefaultsControl node={node} />
     ) : null}
-    {node.type === "group" ? <RegionPageDefaultsControl node={node} /> : null}
+    {BROWSER_ENABLED && node.type === "group" ? <RegionPageDefaultsControl node={node} /> : null}
     <KernelFieldEditors node={node} />
   </>;
 }
