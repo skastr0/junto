@@ -5,7 +5,7 @@ import { demoScenarios } from "./scenarios";
 import { demo$, startTake, stopTake } from "./conductor";
 import { demoHud$ } from "./ops";
 
-const TRAILER_SCENARIO_ID = "trailer-60";
+const DEFAULT_SCENARIO_ID = "trailer-60";
 // Indexed via a Record cast: demoScenarios' exact key type is derived from
 // each scenario's own `.id` literal, which this file has no reason to track.
 const scenariosById = demoScenarios as Readonly<Record<string, DemoScenario | undefined>>;
@@ -15,6 +15,7 @@ const scenariosById = demoScenarios as Readonly<Record<string, DemoScenario | un
 // VELLUM_DEMO=1, so product behavior with demo off is byte-identical.
 export function DemoLayer() {
   const [active, setActive] = useState(false);
+  const [scenarioId, setScenarioId] = useState(DEFAULT_SCENARIO_ID);
 
   useEffect(() => {
     const api = window.vellum;
@@ -26,10 +27,15 @@ export function DemoLayer() {
       .then((info) => {
         if (cancelled || !info.active) return;
         setActive(true);
+        const requested =
+          info.scenarioId !== undefined && scenariosById[info.scenarioId] !== undefined
+            ? info.scenarioId
+            : DEFAULT_SCENARIO_ID;
+        setScenarioId(requested);
         if (info.autoroll) {
           // Delay past first paint so the camera bridge is mounted before beat 0.
           rollTimer = window.setTimeout(() => {
-            const scenario = scenariosById[TRAILER_SCENARIO_ID];
+            const scenario = scenariosById[requested];
             if (scenario && !demo$.running.peek()) startTake(scenario);
           }, 2_000);
         }
@@ -48,7 +54,7 @@ export function DemoLayer() {
       if (target?.closest("input, textarea, [contenteditable='true']")) return;
       if (event.key === "F9") {
         event.preventDefault();
-        const scenario = scenariosById[TRAILER_SCENARIO_ID];
+        const scenario = scenariosById[scenarioId];
         if (scenario) startTake(scenario);
         return;
       }
@@ -59,7 +65,7 @@ export function DemoLayer() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [active]);
+  }, [active, scenarioId]);
 
   const running = use$(demo$.running);
   const beat = use$(demo$.beat);
@@ -82,7 +88,7 @@ export function DemoLayer() {
         border: "1px solid var(--color-stroke)",
       }}
     >
-      <div>DEMO - F9 to roll - trailer-60</div>
+      <div>DEMO - F9 to roll - {scenarioId}</div>
       {running ? <div>beat {beat}/{total}</div> : null}
     </div>
   );

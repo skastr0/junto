@@ -52,6 +52,9 @@ export interface DemoStateInfo {
   /** VELLUM_DEMO_AUTOROLL=1 — the take starts itself shortly after mount
    * (headless/scripted capture; also dodges any pre-mount beat-0 race). */
   readonly autoroll?: boolean;
+  /** VELLUM_DEMO_SCENARIO — scenario id to roll (F9 and autoroll). Unknown or
+   * absent falls back to the default scenario in the renderer registry. */
+  readonly scenarioId?: string;
 }
 
 // --- scenario ---------------------------------------------------------------
