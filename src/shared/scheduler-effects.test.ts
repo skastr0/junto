@@ -221,7 +221,7 @@ describe("scheduler-effects", () => {
     expect(ready.status).toBe("unknown");
     expect(failed.status).toBe("unknown");
     expect(ready.detail).toMatch(/watch for load/);
-    expect(failed.detail).toMatch(/page fail/);
+    expect(failed.detail).toMatch(/load failure/);
   });
 
   it("satisfies page ready/failed from live browser load map", () => {
