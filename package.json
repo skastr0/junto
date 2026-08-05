@@ -77,9 +77,10 @@
     "content": "bun scripts/content-cli.ts",
     "render": "bun scripts/render.ts",
     "cli": "bun src/cli/main.ts",
-    "cli:build": "bun build --compile --outfile dist/vellum src/cli/main.ts",
-    "station:build": "bun build --compile --outfile dist/vellum-station scripts/station-cli.ts",
-    "content:build": "bun build --compile --outfile dist/vellum-content scripts/content-cli.ts",
+    "cli:build": "bun scripts/build-standalone-cli.ts vellum",
+    "browser:build": "bun scripts/build-standalone-cli.ts browser",
+    "station:build": "bun scripts/build-standalone-cli.ts station",
+    "content:build": "bun scripts/build-standalone-cli.ts content",
     "remote:build": "bun scripts/build-vellum-remote.ts",
     "plugin:precompile": "bun scripts/precompile-vellum-plugin.ts"
   },

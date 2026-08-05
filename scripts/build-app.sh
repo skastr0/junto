@@ -142,6 +142,8 @@ if [[ "$VERIFY" -eq 1 ]]; then
   # still builds with VELLUM_LICENSE_* set for the real ship bundle.
   env -u VELLUM_LICENSE_CHANNEL -u VELLUM_DODO_BUSINESS_ID -u VELLUM_DODO_PRODUCT_ID \
     bun run test
+  env -u VELLUM_LICENSE_CHANNEL -u VELLUM_DODO_BUSINESS_ID -u VELLUM_DODO_PRODUCT_ID \
+    bun run test:features:ship
 elif [[ "$FAST" -eq 0 ]]; then
   bun run typecheck
 fi
