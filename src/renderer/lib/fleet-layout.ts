@@ -113,7 +113,7 @@ export interface FleetEdgeVisual {
   readonly width: number;
 }
 
-const UNKNOWN_GRAY = "#6b6f76";
+const UNKNOWN_GRAY = HUE.steel;
 
 /** Edge paint per probe status — mirrors canvas edge conventions. */
 export const edgePhase = (status: FleetEdgeStatus): FleetEdgeVisual => {

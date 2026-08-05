@@ -11,7 +11,7 @@
   width: fit-content;
   max-width: min(420px, 48vw);
   min-width: 0;
-  color: #ede6da;
+  color: var(--color-ink);
   -webkit-app-region: no-drag;
 }
 
@@ -26,9 +26,9 @@
   max-width: 100%;
   height: 34px;
   margin: 0;
-  border: 1px solid rgba(237, 230, 218, 0.12);
+  border: 1px solid var(--color-overlay-4);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--color-overlay-1);
   padding: 0 8px;
   color: inherit;
   cursor: pointer;
@@ -38,8 +38,8 @@
 
 .usage-hud__rail:hover,
 .usage-hud__rail:focus-visible {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(237, 230, 218, 0.2);
+  background: var(--color-overlay-2);
+  border-color: var(--color-stroke);
   outline: none;
 }
 
@@ -48,9 +48,9 @@
   cursor: default;
   background: linear-gradient(
     90deg,
-    rgba(255, 255, 255, 0.03) 0%,
-    rgba(255, 255, 255, 0.08) 50%,
-    rgba(255, 255, 255, 0.03) 100%
+    var(--color-overlay-1) 0%,
+    var(--color-overlay-3) 50%,
+    var(--color-overlay-1) 100%
   );
   background-size: 200% 100%;
   animation: usage-hud-shimmer 1.2s ease-in-out infinite;
@@ -59,8 +59,8 @@
 .usage-hud__rail--error {
   width: auto;
   max-width: 200px;
-  border-color: rgba(229, 72, 77, 0.35);
-  color: #e5484d;
+  border-color: color-mix(in oklab, var(--color-accent) 35%, transparent);
+  color: var(--color-crimson);
   cursor: default;
 }
 
@@ -75,7 +75,7 @@
 
 /* Last-good while live poll is pending or failed — keep the rail, signal age. */
 .usage-hud.is-stale .usage-hud__rail {
-  border-color: rgba(232, 163, 61, 0.28);
+  border-color: color-mix(in oklab, var(--color-main) 28%, transparent);
 }
 
 .usage-hud__stale-dot {
@@ -83,8 +83,8 @@
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: #e8a33d;
-  box-shadow: 0 0 6px rgba(232, 163, 61, 0.55);
+  background: var(--color-amber);
+  box-shadow: 0 0 6px color-mix(in oklab, var(--color-main) 55%, transparent);
   opacity: 0.9;
 }
 
@@ -121,7 +121,7 @@
   height: 3px;
   overflow: hidden;
   border-radius: 1px;
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--color-overlay-3);
 }
 
 .usage-hud__bar > i {
@@ -137,20 +137,20 @@
 .usage-hud__cell.is-tokens .usage-hud__bar {
   background: repeating-linear-gradient(
     -45deg,
-    rgba(255, 255, 255, 0.04),
-    rgba(255, 255, 255, 0.04) 1px,
-    rgba(232, 163, 61, 0.16) 1px,
-    rgba(232, 163, 61, 0.16) 2px
+    var(--color-overlay-1),
+    var(--color-overlay-1) 1px,
+    color-mix(in oklab, var(--color-main) 16%, transparent) 1px,
+    color-mix(in oklab, var(--color-main) 16%, transparent) 2px
   );
 }
 
 .usage-hud__cell.is-error .usage-hud__bar {
   background: repeating-linear-gradient(
     -45deg,
-    rgba(255, 255, 255, 0.04),
-    rgba(255, 255, 255, 0.04) 1px,
-    rgba(229, 72, 77, 0.18) 1px,
-    rgba(229, 72, 77, 0.18) 2px
+    var(--color-overlay-1),
+    var(--color-overlay-1) 1px,
+    color-mix(in oklab, var(--color-accent) 18%, transparent) 1px,
+    color-mix(in oklab, var(--color-accent) 18%, transparent) 2px
   );
 }
 
@@ -167,10 +167,10 @@
   width: max-content;
   min-width: 240px;
   max-width: min(380px, 70vw);
-  border: 1px solid rgba(237, 230, 218, 0.12);
+  border: 1px solid var(--color-overlay-4);
   border-radius: 8px;
-  background: rgba(14, 12, 11, 0.97);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+  background: color-mix(in oklab, var(--color-ground) 97%, transparent);
+  box-shadow: 0 10px 28px var(--color-shadow-1);
   padding: 6px 7px;
   display: grid;
   gap: 2px;
@@ -182,7 +182,7 @@
   gap: 8px;
   align-items: center;
   font-size: 9px;
-  color: #8a8378;
+  color: var(--color-dim);
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -195,7 +195,7 @@
 }
 
 .usage-hud__tooltip-row strong {
-  color: #ede6da;
+  color: var(--color-ink);
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -242,7 +242,7 @@
   flex-direction: column;
   min-height: 0;
   max-height: min(78vh, 900px);
-  color: #ede6da;
+  color: var(--color-ink);
 }
 
 .usage-hud-detail__header {
@@ -251,7 +251,7 @@
   justify-content: space-between;
   gap: 14px;
   flex: 0 0 auto;
-  border-bottom: 1px solid rgba(237, 230, 218, 0.1);
+  border-bottom: 1px solid var(--color-overlay-4);
   padding: 14px 16px 12px;
 }
 
@@ -264,7 +264,7 @@
 }
 
 .usage-hud-detail__header button {
-  color: #8a8378;
+  color: var(--color-dim);
   font-size: 18px;
   line-height: 1;
   background: none;
@@ -273,7 +273,7 @@
 }
 
 .usage-hud-detail__header button:hover {
-  color: #ede6da;
+  color: var(--color-ink);
 }
 
 .usage-hud-detail__body {
@@ -285,16 +285,16 @@
 }
 
 .usage-hud-detail__card {
-  border: 1px solid rgba(237, 230, 218, 0.1);
+  border: 1px solid var(--color-overlay-4);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.025);
+  background: var(--color-overlay-1);
   padding: 10px 11px;
   display: grid;
   gap: 8px;
 }
 
 .usage-hud-detail__card.is-error {
-  border-color: rgba(229, 72, 77, 0.28);
+  border-color: color-mix(in oklab, var(--color-accent) 28%, transparent);
 }
 
 .usage-hud-detail__card-head {
@@ -315,18 +315,18 @@
   font-size: 12px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: #ede6da;
+  color: var(--color-ink);
 }
 
 .usage-hud-detail__plan {
-  color: #8a8378;
+  color: var(--color-dim);
   font-size: 9px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
 .usage-hud-detail__error {
-  color: #e5484d;
+  color: var(--color-crimson);
   font-size: 11px;
   overflow-wrap: anywhere;
 }
@@ -340,14 +340,14 @@
   display: flex;
   justify-content: space-between;
   gap: 10px;
-  color: #8a8378;
+  color: var(--color-dim);
   font-size: 9px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
 .usage-hud-detail__window-meta strong {
-  color: #ede6da;
+  color: var(--color-ink);
   font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
@@ -356,7 +356,7 @@
   position: relative;
   height: 8px;
   border-radius: 3px;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--color-overlay-2);
   overflow: hidden;
 }
 
@@ -367,13 +367,13 @@
 }
 
 .usage-hud-detail__pace {
-  color: #68604a;
+  color: var(--color-faint);
   font-size: 10px;
   line-height: 1.35;
 }
 
 .usage-hud-detail__credits {
-  color: #39c6d6;
+  color: var(--color-cyan);
   font-size: 10px;
   letter-spacing: 0.06em;
 }

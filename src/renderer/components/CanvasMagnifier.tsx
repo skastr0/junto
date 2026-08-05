@@ -136,7 +136,7 @@ const drawField = (context: CanvasRenderingContext2D) => {
   context.fillStyle = GROUND;
   context.fillRect(0, 0, LENS_SIZE, LENS_SIZE);
 
-  context.fillStyle = "rgba(237,230,218,0.07)";
+  context.fillStyle = withAlpha(INK, 0.07);
   for (let x = 10; x < LENS_SIZE; x += 26) {
     for (let y = 10; y < LENS_SIZE; y += 26) {
       context.beginPath();
@@ -153,8 +153,8 @@ const drawField = (context: CanvasRenderingContext2D) => {
     LENS_RADIUS,
     CONTENT_RADIUS,
   );
-  vignette.addColorStop(0, "rgba(12,11,10,0)");
-  vignette.addColorStop(1, "rgba(12,11,10,0.64)");
+  vignette.addColorStop(0, withAlpha(GROUND, 0));
+  vignette.addColorStop(1, withAlpha(GROUND, 0.64));
   context.fillStyle = vignette;
   context.fillRect(0, 0, LENS_SIZE, LENS_SIZE);
 };
@@ -177,7 +177,7 @@ const drawEdges = (
     const toY = LENS_RADIUS + (to.centerY - center.y) * INSPECTION_SCALE;
     context.strokeStyle = edge.data?.phase === "blocks"
       ? withAlpha(HUE.crimson, 0.72)
-      : "rgba(143,163,176,0.34)";
+      : withAlpha(HUE.steel, 0.34);
     context.lineWidth = edge.data?.phase === "blocks" ? 1.8 : 1;
     context.beginPath();
     context.moveTo(fromX, fromY);
@@ -203,7 +203,7 @@ const drawNode = (
   const accent = elevated ? mark.hue : identityHue(source);
 
   roundedRect(context, x, y, width, height, isGroup ? 4 : 7);
-  context.fillStyle = isGroup ? "rgba(143,163,176,0.025)" : RAISE;
+  context.fillStyle = isGroup ? withAlpha(HUE.steel, 0.025) : RAISE;
   context.fill();
   context.strokeStyle = elevated ? withAlpha(accent, 0.92) : STROKE_HI;
   context.lineWidth = elevated ? 1.6 : 1;

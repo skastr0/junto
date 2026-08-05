@@ -97,7 +97,7 @@ describe("ditherPixelSize", () => {
 describe("edgePhase", () => {
   it("maps unknown to a faint gray dashed hairline", () => {
     expect(edgePhase("unknown")).toEqual({
-      hue: "#6b6f76",
+      hue: HUE.steel,
       dash: "3 7",
       animated: false,
       width: 1.1,

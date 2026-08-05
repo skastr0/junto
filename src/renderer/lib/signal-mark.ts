@@ -17,7 +17,7 @@ import type { MemberSeverity, MemberStatus } from "@shared/region-rollup";
 import type { CanvasNode } from "@shared/canvas";
 import type { ActivityMode, ActivityTone } from "./activity";
 import { ACTIVITY_TONE_HEX, SEVERITY_TONE } from "./activity";
-import { accentColor, HUE } from "./theme";
+import { accentColor, HUE, withAlpha } from "./theme";
 
 export type SignalKind = MemberSeverity;
 
@@ -117,7 +117,7 @@ export const identityHue = (node: CanvasNode | undefined): string => {
   if (node.color) return accentColor(node.color);
   const entity = node.ether?.entity;
   if (entity?.kind && KIND_HUE[entity.kind]) return KIND_HUE[entity.kind]!;
-  if (node.type === "group") return "rgba(143,163,176,0.45)";
+  if (node.type === "group") return withAlpha(HUE.steel, 0.45);
   return HUE.amber;
 };
 
