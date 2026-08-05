@@ -90,13 +90,14 @@ function useRelativeNow(intervalMs: number): number {
   return now;
 }
 
-function formatAgo(firedAt: number, now: number): string {
+/** Last effect run — product wording, not kernel debug. */
+function formatLastRun(firedAt: number, now: number): string {
   const minutes = Math.max(0, Math.round((now - firedAt) / 60000));
-  if (minutes < 1) return "fired just now";
-  if (minutes < 60) return `fired ${minutes}m ago`;
+  if (minutes < 1) return "Last ran just now";
+  if (minutes < 60) return `Last ran ${minutes}m ago`;
   const hours = Math.round(minutes / 60);
-  if (hours < 24) return `fired ${hours}h ago`;
-  return `fired ${Math.round(hours / 24)}d ago`;
+  if (hours < 24) return `Last ran ${hours}h ago`;
+  return `Last ran ${Math.round(hours / 24)}d ago`;
 }
 
 function formatCountdown(nextFire: number, now: number): string {
@@ -149,11 +150,18 @@ function WatcherCard({
   const status = runtime?.status ?? "unknown";
   const detail = runtime?.detail ?? "no watch yet";
   const activity = watcherActivity(status);
-  // Two product facts: current condition · last time this relay fired.
-  // Never glue debug phrases with a period mid-sentence.
-  const subtitle = runtime?.lastFiredAt
-    ? `${detail} · ${formatAgo(runtime.lastFiredAt, now)}`
-    : detail;
+  // Product: one line = what we're waiting on. Optional second line = last run.
+  // Never mid-dots, never wire jargon jammed onto fire history.
+  const subtitle = runtime?.lastFiredAt ? (
+    <span className="flex flex-col gap-0.5">
+      <span className="truncate">{detail}</span>
+      <span className="truncate opacity-80">
+        {formatLastRun(runtime.lastFiredAt, now)}
+      </span>
+    </span>
+  ) : (
+    detail
+  );
   return (
     <div className="flex h-full w-full flex-col justify-between overflow-hidden">
       <ExecutionCardHeader
