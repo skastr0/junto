@@ -46,6 +46,7 @@ import {
 } from "../../lib/pause-state";
 import { openWorkDetail } from "../../lib/work-detail-open";
 import { ACP_CHAT_SURFACE_HIDDEN } from "@shared/legacy-surfaces";
+import { resolveTerminalBinding } from "@shared/terminal";
 import { openAgentChatSurface, openDockBrowser, openTaskCreateSurface } from "../../lib/dock-state";
 import { openTerminal } from "../../lib/terminal-actions";
 import {
@@ -431,8 +432,20 @@ function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
 export function KindActions({ node }: { readonly node: CanvasNode }) {
   const kind = node.ether?.entity?.kind;
   switch (kind) {
-    case "agent":
-      // Managed terminal is the only agent surface; ACP chat is hard-hidden.
+    case "agent": {
+      // Managed terminal is the product surface; ACP chat stays hard-hidden.
+      const terminalBound = resolveTerminalBinding(node)?.kind === "native";
+      if (terminalBound) {
+        return (
+          <KindKey
+            label="Open terminal"
+            title="Open agent terminal (double-click node or re-tap slot)"
+            onClick={() => void openTerminal(node)}
+          >
+            <Terminal size={ICON} />
+          </KindKey>
+        );
+      }
       if (ACP_CHAT_SURFACE_HIDDEN) return null;
       return (
         <KindKey
@@ -443,6 +456,7 @@ export function KindActions({ node }: { readonly node: CanvasNode }) {
           <MessageSquareText size={ICON} />
         </KindKey>
       );
+    }
     case "herdr":
       return HERDR_ENABLED ? <HerdrKindKeys node={node} /> : null;
     case "terminal":

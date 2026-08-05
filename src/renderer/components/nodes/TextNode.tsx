@@ -28,11 +28,9 @@ import type { WatcherRuntimeState } from "../../lib/kernel-view";
 import { ACP_CHAT_SURFACE_HIDDEN } from "@shared/legacy-surfaces";
 import { isHarnessId } from "@shared/managed-terminal-templates";
 import { resolveTerminalBinding } from "@shared/terminal";
+import { activateNodeSurface } from "../../lib/activate-node-surface";
 import { agentSeat$ } from "../../lib/agent-seat-state";
 import { HERDR_ENABLED } from "@shared/features";
-import { openHerdrTerminal } from "../../lib/herdr-state";
-import { openTerminal } from "../../lib/terminal-actions";
-import { openAgentChatSurface } from "../../lib/dock-state";
 import { consumeWorkDetailOpen, workDetailOpen$ } from "../../lib/work-detail-open";
 import { onTerminalEvent } from "../../lib/terminal-events";
 import { terminal$ } from "../../lib/terminal-state";
@@ -597,12 +595,6 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
     setMaximized(true);
   };
 
-  const herdrBinding = isHerdr ? node.ether?.herdr : undefined;
-  const title = text.split("\n")[0] ?? "herdr";
-  const openHerdr = () => {
-    if (herdrBinding) openHerdrTerminal(node.id, herdrBinding, title);
-  };
-
   const labelHue = node.color ? accentColor(node.color) : INK;
 
   return (
@@ -756,22 +748,17 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
             if (event.shiftKey) return;
             event.preventDefault();
             event.stopPropagation();
-            // herdr / terminal / managed agent: double-click opens the live surface.
-            // ACP chat is hard-hidden — agent seats open the managed terminal.
-            if (isHerdr) {
-              openHerdr();
-              return;
-            }
-            if (managedTerminal) {
-              void openTerminal(node);
-              return;
-            }
-            if (isAgent) {
-              if (!ACP_CHAT_SURFACE_HIDDEN) openAgentChatSurface(node);
-              return;
-            }
-            if (isWorkSurface) {
-              setWorkDetail(true);
+            // Actors / terminals / sinks: open the live surface (same as
+            // command-group re-tap activate). Cron keeps its schedule modal.
+            if (isHerdr || managedTerminal || isAgent || isWorkSurface) {
+              const result = activateNodeSurface(node);
+              if (result.opened) return;
+              // Work surfaces also open via local state when the trigger path
+              // is unavailable (tests / no work-detail bus).
+              if (isWorkSurface) {
+                setWorkDetail(true);
+                return;
+              }
               return;
             }
             if (isCron) {

@@ -40,8 +40,10 @@ import { assignSlot, clearSlot, pruneSlotOrder, useRegionRollups } from "../../l
 import {
   membersInDocumentOrder,
   regionDigitVerdict,
+  REGION_RETAP_GAP_MS,
   type RegionRetapMemory,
 } from "../../lib/region-retap";
+import { activateNodeSurface } from "../../lib/activate-node-surface";
 import { hotbarNodeSeverity } from "../../lib/hotbar-signal";
 import { signalMark } from "../../lib/signal-mark";
 import {
@@ -784,6 +786,16 @@ const focusNode = (nodeId: string): void => {
   state$.focusNodeId.set(nodeId);
 };
 
+/** Focus then open the live surface when the node has one (actor model, etc.). */
+const focusAndActivate = (
+  nodeId: string,
+  nodes: ReadonlyArray<CanvasNode>,
+): void => {
+  focusNode(nodeId);
+  const node = nodes.find((n) => n.id === nodeId);
+  if (node) activateNodeSurface(node);
+};
+
 const cycleIdleHerdr = (queue: ReadonlyArray<IdleHerdrEntry>): void => {
   if (queue.length === 0) return;
   const current =
@@ -889,7 +901,13 @@ function HotbarChip({
       onDragOver={onDragOver}
       onDrop={onDrop}
       onClick={() => focusNode(nodeId)}
-      title={`${label} — ${paused ? "paused" : mark.label}`}
+      onDoubleClick={(event) => {
+        event.preventDefault();
+        // Double-click chip = focus + open model (actor/terminal/work).
+        const doc = state$.doc.peek();
+        focusAndActivate(nodeId, doc.nodes);
+      }}
+      title={`${label} — ${paused ? "paused" : mark.label} · double-click opens`}
     >
       <span className="rts-chip__slot" aria-hidden>
         {index + 1}
@@ -1212,7 +1230,9 @@ function useHotbarHotkeys(idleQueue: ReadonlyArray<IdleHerdrEntry>): void {
       event.preventDefault();
 
       const node = doc.nodes.find((n) => n.id === nodeId);
-      // Region re-tap cycles members; free nodes just focus.
+      const nowMs = performance.now();
+      // Region re-tap: first press → region; re-press → cycle members and
+      // activate openable surfaces (actor model / terminal / work sinks).
       if (node?.type === "group") {
         const memberIds = membersInDocumentOrder(
           groupMembers(doc).get(nodeId) ?? [],
@@ -1221,7 +1241,7 @@ function useHotbarHotkeys(idleQueue: ReadonlyArray<IdleHerdrEntry>): void {
         const { verdict, memory } = regionDigitVerdict(
           retap,
           slotIndex,
-          performance.now(),
+          nowMs,
           memberIds.length,
         );
         retap = memory;
@@ -1229,15 +1249,26 @@ function useHotbarHotkeys(idleQueue: ReadonlyArray<IdleHerdrEntry>): void {
         if (verdict.kind === "select-member") {
           const memberId = memberIds[verdict.index];
           if (memberId) {
-            focusNode(memberId);
+            focusAndActivate(memberId, doc.nodes);
             return;
           }
         }
-      } else {
-        retap = null;
+        focusNode(nodeId);
+        return;
       }
 
-      focusNode(nodeId);
+      // Free slotted node: first press focuses; re-tap within the gap opens
+      // the model when the node has an activatable surface (agent, terminal…).
+      const within =
+        retap !== null &&
+        retap.slotIndex === slotIndex &&
+        nowMs - retap.atMs <= REGION_RETAP_GAP_MS;
+      retap = { slotIndex, atMs: nowMs, memberCursor: -1 };
+      if (within) {
+        focusAndActivate(nodeId, doc.nodes);
+      } else {
+        focusNode(nodeId);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
