@@ -1,6 +1,7 @@
 import { state$ } from "./state";
 import type { LinuxHostCapabilityObservation } from "@shared/linux-host-capabilities";
 import type { StationProtocolObservation } from "@shared/station-status";
+import { FLEET_UI_ENABLED } from "@shared/features";
 
 /** Per-host reachability probe state for the fleet overlay. */
 export interface FleetProbeState {
@@ -14,6 +15,7 @@ export interface FleetProbeState {
 /** Warm the lazy fleet chunk (three.js) before the operator clicks. */
 let fleetChunkPrefetch: Promise<unknown> | null = null;
 export const prefetchFleetChunk = (): void => {
+  if (!FLEET_UI_ENABLED) return;
   if (fleetChunkPrefetch) return;
   fleetChunkPrefetch = import("../components/fleet/FleetOverlay").catch(() => {
     fleetChunkPrefetch = null;
@@ -21,6 +23,7 @@ export const prefetchFleetChunk = (): void => {
 };
 
 export const openFleet = (): void => {
+  if (!FLEET_UI_ENABLED) return;
   prefetchFleetChunk();
   state$.fleetOpen.set(true);
   // Load the fleet, then probe every remote host so edges show live link

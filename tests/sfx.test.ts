@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { defaultAudio, defaultSettings } from "@shared/settings";
+import { AUDIO_ENABLED } from "@shared/features";
 import {
   ALERT_SFX_IDS,
   playAlert,
@@ -101,7 +102,7 @@ describe("sfx catalog", () => {
     expect(htmlAudio).not.toHaveBeenCalled();
   });
 
-  it("per-clip disable skips playback", async () => {
+  it.runIf(AUDIO_ENABLED)("per-clip disable skips playback", async () => {
     const { createBufferSource, htmlAudio } = installWebAudioMocks();
     const audio = defaultAudio();
     state$.settings.audio.set({
@@ -118,7 +119,7 @@ describe("sfx catalog", () => {
     expect(htmlAudio).not.toHaveBeenCalled();
   });
 
-  it("plays via AudioBufferSourceNode, not HTMLAudioElement", async () => {
+  it.runIf(AUDIO_ENABLED)("plays via AudioBufferSourceNode, not HTMLAudioElement", async () => {
     const { sources, createBufferSource, htmlAudio, decodeAudioData } = installWebAudioMocks();
     playAlert("blocked");
     await vi.waitFor(() => {

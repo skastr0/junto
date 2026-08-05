@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { CircleHelp, Pause, Play, Plus, Radar, ScrollText, Search, Settings2, Trash2, X } from "lucide-react";
 import type { CanvasSummary } from "@shared/ipc";
 import type { CanvasPauseState } from "@shared/pause";
+import { FLEET_UI_ENABLED, HELP_MAP_ENABLED, USAGE_ENABLED } from "@shared/features";
 import { state$ } from "../lib/state";
 import { retrySave } from "../lib/mutations";
 import { openSettings } from "../lib/settings-state";
@@ -378,7 +379,7 @@ export function TopBar({
   }, [helpOpen]);
   return (
     <header className="station-bar">
-      <UsageHud />
+      {USAGE_ENABLED ? <UsageHud /> : null}
       <CanvasPicker canvases={canvases} canvasName={canvasName} busy={canvasLoading} onOpen={onOpen} onCreate={onCreate} onDelete={onDelete} />
       <SearchField canvasName={canvasName} />
       <SaveStatus />
@@ -407,17 +408,23 @@ export function TopBar({
             <ScrollText size={15} />
           </button>
         ) : null}
-        <button type="button" className="station-icon-button" aria-label="Open fleet manager" title="Fleet"
-          style={{ borderColor: "rgba(237,230,218,0.16)", color: HUE.steel }}
-          onPointerEnter={prefetchFleetChunk}
-          onFocus={prefetchFleetChunk}
-          onClick={() => { setHelpOpen(false); openFleet(); }}>
-          <Radar size={15} />
-        </button>
-        <button type="button" className="station-help-trigger" aria-label="Open interaction help" aria-expanded={helpOpen} aria-haspopup="dialog" onClick={() => setHelpOpen((open) => !open)}>
-          <CircleHelp size={15} />
-        </button>
-        {helpOpen ? <CanvasInteractionMap onClose={() => setHelpOpen(false)} /> : null}
+        {FLEET_UI_ENABLED ? (
+          <button type="button" className="station-icon-button" aria-label="Open fleet manager" title="Fleet"
+            style={{ borderColor: "rgba(237,230,218,0.16)", color: HUE.steel }}
+            onPointerEnter={prefetchFleetChunk}
+            onFocus={prefetchFleetChunk}
+            onClick={() => { setHelpOpen(false); openFleet(); }}>
+            <Radar size={15} />
+          </button>
+        ) : null}
+        {HELP_MAP_ENABLED ? (
+          <>
+            <button type="button" className="station-help-trigger" aria-label="Open interaction help" aria-expanded={helpOpen} aria-haspopup="dialog" onClick={() => setHelpOpen((open) => !open)}>
+              <CircleHelp size={15} />
+            </button>
+            {helpOpen ? <CanvasInteractionMap onClose={() => setHelpOpen(false)} /> : null}
+          </>
+        ) : null}
         <button className="station-icon-button" aria-label="Open settings" style={{ borderColor: "rgba(237,230,218,0.16)", color: HUE.steel }} title="Settings" onClick={() => { setHelpOpen(false); openSettings(); }}>
           <Settings2 size={15} />
         </button>

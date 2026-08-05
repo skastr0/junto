@@ -16,6 +16,7 @@ import permissionUrl from "../assets/sfx/permission.mp3?url";
 import type { AudioSettings, SfxClipsSettings } from "@shared/settings";
 import { defaultAudio } from "@shared/settings";
 import { state$ } from "./state";
+import { AUDIO_ENABLED } from "@shared/features";
 
 export const ALERT_SFX_IDS = [
   "blocked",
@@ -185,6 +186,7 @@ const startBuffer = (ctx: AudioContext, buffer: AudioBuffer, gain: number): void
  * surfaces the macOS Apple Music / media library permission dialog.
  */
 export const playAlert = (id: AlertSfxId | string): void => {
+  if (!AUDIO_ENABLED) return;
   if (!isAlertSfxId(id)) return;
   const gain = resolveSfxGain(id);
   if (gain === null) return;

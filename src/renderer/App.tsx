@@ -45,7 +45,7 @@ const FleetOverlay = lazy(async () => {
   return { default: mod.FleetOverlay };
 });
 import { StationRoleGate } from "./components/StationRoleGate";
-import { HERDR_ENABLED } from "@shared/features";
+import { FLEET_UI_ENABLED, HERDR_ENABLED } from "@shared/features";
 import { HerdrWizard } from "./components/herdr/HerdrWizard";
 import { HerdrTerminalModal } from "./components/herdr/HerdrTerminalModal";
 import { HerdrToast } from "./components/herdr/HerdrToast";
@@ -464,7 +464,7 @@ export function App() {
         <SettingsPanel />
         <ObservabilityPanel />
         {/* Mount fleet only while open — unmount destroys every WebGL machine. */}
-        {fleetOpen ? (
+        {FLEET_UI_ENABLED && fleetOpen ? (
           <Suspense
             fallback={
               <div className="fleet-chunk-fallback" role="status" aria-live="polite">
