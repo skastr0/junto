@@ -926,12 +926,51 @@
 .artifact-focus__meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px 14px;
+  align-items: center;
+  gap: 8px 16px;
   flex: none;
-  padding: 0 18px 12px;
+  padding: 10px 18px 12px;
   border-bottom: 1px solid var(--color-stroke);
   color: var(--color-dim);
   font-size: 10px;
+  line-height: 1.4;
+}
+
+.artifact-focus__meta-id {
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.artifact-focus__meta-kind {
+  margin-left: auto;
+  border: 1px solid var(--color-overlay-4);
+  border-radius: 999px;
+  padding: 1px 8px;
+  color: var(--color-violet);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* ContentRef parts already paint their own card — avoid double border/padding. */
+.work-ledger-part--content {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  overflow: visible;
+}
+
+.work-ledger-part--content .content-media {
+  width: 100%;
+}
+
+.artifact-focus__parts .work-ledger-part--content .content-media__body {
+  max-height: min(70vh, 640px);
+  font-size: 12px;
+  line-height: 1.65;
 }
 
 .artifact-focus__scroll {

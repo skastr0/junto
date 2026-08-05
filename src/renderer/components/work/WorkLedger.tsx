@@ -538,9 +538,9 @@ function ArtifactFocusModal({
       panelClassName="artifact-focus nowheel"
     >
       <OverlayHeader
-        eyebrow={`artifact - ${kind}`}
+        eyebrow={`artifact · ${kind}`}
         title={name}
-        status={artifactTaskReferenceLabel(artifact)}
+        status={artifactTaskReferenceLabel(artifact) ?? undefined}
         actions={
           <IconButton aria-label="Close artifact" title="Close" onClick={onClose}>
             <X size={14} />
@@ -548,10 +548,13 @@ function ArtifactFocusModal({
         }
       />
       <div className="artifact-focus__meta" data-testid="artifact-focus-meta">
-        <span>#{artifact.artifactId}</span>
+        <span className="artifact-focus__meta-id">#{artifact.artifactId}</span>
         <span>
           {artifact.parts.length} part{artifact.parts.length === 1 ? "" : "s"}
         </span>
+        {kind !== "image" ? (
+          <span className="artifact-focus__meta-kind">{kind}</span>
+        ) : null}
       </div>
       <div className="artifact-focus__scroll" data-testid="artifact-focus-body">
         <section>
@@ -670,8 +673,12 @@ export function ArtifactLibrary({
                       <span>
                         <strong>{name}</strong>
                         <small>
-                          {artifactTaskReferenceLabel(artifact)} -{" "}
-                          {artifact.parts.length} part{artifact.parts.length === 1 ? "" : "s"}
+                          {[
+                            artifactTaskReferenceLabel(artifact),
+                            `${artifact.parts.length} part${artifact.parts.length === 1 ? "" : "s"}`,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
                         </small>
                       </span>
                       <Chip tone="violet">{kind}</Chip>

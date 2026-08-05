@@ -22,7 +22,7 @@ const linked: Artifact = {
 describe("artifact TaskRef presentation", () => {
   it("renders the item and its complete sink identity", () => {
     expect(artifactTaskReferenceLabel(linked)).toBe(
-      "Task #task-1 - factory/tasks-remote",
+      "Task #task-1 · factory/tasks-remote",
     );
   });
 
@@ -40,12 +40,12 @@ describe("artifact TaskRef presentation", () => {
     }
   });
 
-  it("labels unbound artifacts honestly", () => {
+  it("omits status when the artifact has no task link (never says Unbound)", () => {
     expect(
       artifactTaskReferenceLabel({
-        artifactId: "artifact-unbound",
+        artifactId: "artifact-standalone",
         parts: [{ kind: "text", text: "standalone" }],
       }),
-    ).toBe("Unbound output");
+    ).toBeNull();
   });
 });
