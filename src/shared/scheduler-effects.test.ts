@@ -220,7 +220,7 @@ describe("scheduler-effects", () => {
     // Not pending — pending spins the card forever for an unconnected sensor.
     expect(ready.status).toBe("unknown");
     expect(failed.status).toBe("unknown");
-    expect(ready.detail).toMatch(/page load/);
+    expect(ready.detail).toMatch(/watch for load/);
     expect(failed.detail).toMatch(/page fail/);
   });
 

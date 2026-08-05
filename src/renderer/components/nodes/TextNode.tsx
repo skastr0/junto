@@ -147,10 +147,12 @@ function WatcherCard({
   const rawName = (node.type === "text" ? node.text : "").split("\n")[0] ?? "";
   const title = rawName || label;
   const status = runtime?.status ?? "unknown";
-  const detail = runtime?.detail ?? "watching";
+  const detail = runtime?.detail ?? "no watch yet";
   const activity = watcherActivity(status);
+  // Two product facts: current condition · last time this relay fired.
+  // Never glue debug phrases with a period mid-sentence.
   const subtitle = runtime?.lastFiredAt
-    ? `${detail}. ${formatAgo(runtime.lastFiredAt, now)}`
+    ? `${detail} · ${formatAgo(runtime.lastFiredAt, now)}`
     : detail;
   return (
     <div className="flex h-full w-full flex-col justify-between overflow-hidden">

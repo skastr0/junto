@@ -303,20 +303,39 @@ export const mergePageLoadStatus = (
   return rank(next) >= rank(previous) ? next : previous;
 };
 
+/** First line of node text, else kind — for operator-facing watch copy. */
+const watchSourceLabel = (source: CanvasNode): string => {
+  if (source.type === "text" && source.text.trim().length > 0) {
+    return source.text.trim().split("\n")[0]!;
+  }
+  return source.ether?.entity?.kind ?? "source";
+};
+
+/**
+ * Flag names as product words (not wire vocabulary).
+ * The relay is waiting on the *connected* node having this mark.
+ */
+const FLAG_PRODUCT = {
+  attention: "needs attention",
+  blocker: "blocker",
+  parked: "parked",
+} as const;
+
 const evaluatePageLoad = (
-  sourceId: string,
+  source: CanvasNode,
   want: string,
   pageLoadByNodeId: ReadonlyMap<string, PageLoadStatus> | undefined,
 ): RelayEvaluation => {
-  const load = pageLoadByNodeId?.get(sourceId);
+  const who = watchSourceLabel(source);
+  const load = pageLoadByNodeId?.get(source.id);
   if (load === undefined) {
     // Sensor absent — not pending (that would spin the card forever).
     return {
       status: "unknown",
       detail:
         want === "failed"
-          ? "page fail not connected yet"
-          : "page load not connected yet",
+          ? `open ${who} to watch for load failure`
+          : `open ${who} to watch for load`,
     };
   }
   const target = want === "failed" ? "failed" : "ready";
@@ -324,20 +343,29 @@ const evaluatePageLoad = (
     const ok = load === target;
     return {
       status: ok ? "satisfied" : "pending",
-      detail: ok ? `page ${load}` : `page ${load} (want ${target})`,
+      detail: ok
+        ? want === "failed"
+          ? `${who} failed to load`
+          : `${who} loaded`
+        : want === "failed"
+          ? `${who} loaded (watching for fail)`
+          : `${who} failed (watching for load)`,
     };
   }
   if (load === "loading") {
-    return { status: "pending", detail: "page loading" };
+    return { status: "pending", detail: `${who} loading` };
   }
   if (load === "detached") {
-    // Warm but not attached — not a completed load for watch purposes.
-    return { status: "pending", detail: "page detached" };
+    // Not a live load outcome — quiet, not "still waiting" forever-spin.
+    return {
+      status: "unknown",
+      detail: `${who} session idle`,
+    };
   }
-  // idle / destroyed: no live load outcome to score.
   return {
     status: "unknown",
-    detail: load === "destroyed" ? "page session gone" : "page not opened",
+    detail:
+      load === "destroyed" ? `${who} session closed` : `${who} not opened`,
   };
 };
 
@@ -346,22 +374,22 @@ const evaluateWatchAtom = (
   when: Extract<WatchWhen, { readonly word: "completes" | "flagged" }>,
   context?: WatchEvalContext,
 ): RelayEvaluation => {
+  const who = watchSourceLabel(source);
+
   if (when.word === "flagged") {
     const flag = when.flag;
     const has = source.ether?.flags?.includes(flag) ?? false;
-    const FLAG_DETAIL = {
-      attention: { on: "needs attention", off: "waiting for attention" },
-      blocker: { on: "blocked", off: "waiting for blocker" },
-      parked: { on: "parked", off: "waiting for parked" },
-    } as const;
-    const copy = FLAG_DETAIL[flag as keyof typeof FLAG_DETAIL];
+    const mark =
+      FLAG_PRODUCT[flag as keyof typeof FLAG_PRODUCT] ?? String(flag);
     return {
       status: has ? "satisfied" : "pending",
+      // Name the watched node — never imply the *relay* needs attention.
       detail: has
-        ? (copy?.on ?? `${flag} on`)
-        : (copy?.off ?? `waiting for ${flag}`),
+        ? `${who} is marked ${mark}`
+        : `watching ${who} for ${mark}`,
     };
   }
+
   // completes — kind-specific. equals discriminates variants (ready vs failed).
   const kind = source.ether?.entity?.kind;
   const want = when.equals ?? "completed";
@@ -371,35 +399,41 @@ const evaluateWatchAtom = (
       kind === "requests"
         ? (source.ether?.requests?.items ?? [])
         : (source.ether?.tasks?.items ?? []);
+    const lane = kind === "requests" ? "request" : "task";
     if (items.length === 0) {
-      return { status: "pending", detail: "no items" };
+      return { status: "pending", detail: `${who} has no ${lane}s yet` };
     }
     if (when.itemId) {
       const item = items.find((task) => task.id === when.itemId);
       if (!item) {
-        return { status: "unknown", detail: `item ${when.itemId} missing` };
+        return {
+          status: "unknown",
+          detail: `${who}: ${lane} gone`,
+        };
       }
       const ok = item.state === want;
       return {
         status: ok ? "satisfied" : "pending",
-        detail: `${item.id} state ${item.state} (want ${want})`,
+        detail: ok
+          ? `${who}: ${lane} ${want}`
+          : `${who}: waiting for ${lane} to ${want}`,
       };
     }
     const match = items.find((task) => task.state === want);
     if (match) {
       return {
         status: "satisfied",
-        detail: `${match.id} is ${want}`,
+        detail: `${who}: a ${lane} ${want}`,
       };
     }
     return {
       status: "pending",
-      detail: `no item in state ${want}`,
+      detail: `${who}: waiting for a ${lane} to ${want}`,
     };
   }
 
   if (kind === "page") {
-    return evaluatePageLoad(source.id, want, context?.pageLoadByNodeId);
+    return evaluatePageLoad(source, want, context?.pageLoadByNodeId);
   }
 
   if (kind === "board") {
@@ -407,30 +441,35 @@ const evaluateWatchAtom = (
     if (want === "topic") {
       const n = board?.topics?.length ?? 0;
       return n > 0
-        ? { status: "satisfied", detail: `${n} topic(s)` }
-        : { status: "pending", detail: "no topics yet" };
+        ? { status: "satisfied", detail: `${who}: ${n} topic${n === 1 ? "" : "s"}` }
+        : { status: "pending", detail: `${who}: waiting for a topic` };
     }
-    // post: any topic with posts, or board-level post count if present
     const posts =
       board?.topics?.reduce(
         (sum, t) => sum + (typeof t.postCount === "number" ? t.postCount : 0),
         0,
       ) ?? 0;
     return posts > 0
-      ? { status: "satisfied", detail: `${posts} post(s)` }
-      : { status: "pending", detail: "no posts yet" };
+      ? {
+          status: "satisfied",
+          detail: `${who}: ${posts} post${posts === 1 ? "" : "s"}`,
+        }
+      : { status: "pending", detail: `${who}: waiting for a post` };
   }
 
   if (kind === "artifacts") {
     const n = source.ether?.artifacts?.items?.length ?? 0;
     return n > 0
-      ? { status: "satisfied", detail: `${n} artifact(s)` }
-      : { status: "pending", detail: "no artifacts yet" };
+      ? {
+          status: "satisfied",
+          detail: `${who}: ${n} artifact${n === 1 ? "" : "s"}`,
+        }
+      : { status: "pending", detail: `${who}: waiting for an artifact` };
   }
 
   return {
     status: "unknown",
-    detail: `no completes rule for kind ${kind ?? "none"}`,
+    detail: `can't watch ${who} for completes`,
   };
 };
 
