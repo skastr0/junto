@@ -3,6 +3,7 @@ import type { ServiceCheck } from "@shared/contracts";
 import type { SnapshotBundle, SnapshotState } from "@shared/entities";
 import type { BindingHint } from "@shared/ipc";
 import { HermesPlane } from "./hermes/plane";
+import { HERMES_INTEGRATION_ENABLED } from "@shared/features";
 
 // Read-only data plane: hermes only. refresh never fails — a broken adapter
 // yields ok:false. Private source adapters are gone, not stubbed.
@@ -95,6 +96,7 @@ const isSubsumedBy = (
 
 export const makeSnapshotsLive = (
   fetchHermesBundle: () => Promise<SnapshotBundle>,
+  livePollingEnabled = true,
 ) => Layer.sync(SnapshotsService, () => {
   let state: SnapshotState = emptyState;
   let lastHints: ReadonlyArray<BindingHint> | undefined;
@@ -142,6 +144,19 @@ export const makeSnapshotsLive = (
 
   return SnapshotsService.of({
     doctor: Effect.sync(() => {
+      if (!livePollingEnabled) {
+        return {
+          id: "snapshots",
+          label: "Adapter Snapshots",
+          status: "ok" as const,
+          detail: "optional live adapters disabled for this build",
+          metadata: {
+            fleetBlind: "false",
+            freshFacts: "0",
+            staleFacts: "0",
+          } as Record<string, string>,
+        };
+      }
       const hermes = state.bundles.find((bundle) => bundle.source === "hermes");
       if (!hermes) {
         return {
@@ -190,6 +205,7 @@ export const makeSnapshotsLive = (
     start: () => {
       if (started) return;
       started = true;
+      if (!livePollingEnabled) return;
       void refresh(lastHints);
       setInterval(() => void refresh(lastHints), POLL_INTERVAL_MS);
     },
@@ -201,5 +217,17 @@ export const makeSnapshotsLive = (
 });
 
 export const SnapshotsLive = Layer.unwrap(
-  Effect.map(HermesPlane, (plane) => makeSnapshotsLive(plane.fetchBundle)),
+  Effect.map(HermesPlane, (plane) =>
+    makeSnapshotsLive(
+      HERMES_INTEGRATION_ENABLED
+        ? plane.fetchBundle
+        : async () => ({
+            source: "hermes" as const,
+            fetchedAt: new Date().toISOString(),
+            ok: true,
+            entities: [],
+          }),
+      HERMES_INTEGRATION_ENABLED,
+    ),
+  ),
 );

@@ -563,6 +563,17 @@ export interface VellumSchedulerApi {
   >;
 }
 
+export interface VellumHermesIntegrationApi {
+  readonly generatePortfolio: (
+    name: string,
+    options?: { all?: boolean },
+  ) => Promise<CanvasReadResult>;
+  readonly refreshSnapshots: (
+    hints?: ReadonlyArray<BindingHint>,
+  ) => Promise<SnapshotState>;
+  readonly agentMessage: (key: string, text: string) => Promise<AgentReply>;
+}
+
 export interface VellumApi extends LicenseApi, UpdateApi {
   /** Read-only platform marker for renderer geometry and copy. */
   readonly platform: NodeJS.Platform;
@@ -578,16 +589,7 @@ export interface VellumApi extends LicenseApi, UpdateApi {
   readonly createCanvas: (name: string) => Promise<CanvasReadResult>;
   readonly deleteCanvas: (name: string) => Promise<{ name: string }>;
   readonly exportDigest: (name: string) => Promise<DigestResult>;
-  // Merge live hermes agents onto the named canvas as identity cards.
-  // Preserves existing nodes; appends agents not already present.
-  readonly generatePortfolio: (
-    name: string,
-    options?: { all?: boolean },
-  ) => Promise<CanvasReadResult>;
   readonly getSnapshots: () => Promise<SnapshotState>;
-  readonly refreshSnapshots: (hints?: ReadonlyArray<BindingHint>) => Promise<SnapshotState>;
-  // Hermes ACP messaging (legacy transport surface).
-  readonly agentMessage: (key: string, text: string) => Promise<AgentReply>;
   // Kernel state and control (headless kernel in main process).
   readonly getKernelState: () => Promise<KernelSnapshot>;
   // Factory pause plane (app-state switch; the factory is born paused and the

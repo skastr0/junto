@@ -11,6 +11,10 @@ import type {
 } from "@shared/ipc";
 import { isHarnessId, templateFor, type HarnessId } from "@shared/managed-terminal-templates";
 import {
+  HERMES_INTEGRATION_ENABLED,
+  managedHarnessEnabled,
+} from "@shared/features";
+import {
   enumerateCodexModels,
   enumerateHermesProfiles,
   effortsFor,
@@ -46,6 +50,14 @@ export const enumerateManagedModels = async (
       models: [],
       source: "empty",
       error: `unknown harness: ${harnessRaw}`,
+      efforts: [],
+    };
+  }
+  if (!managedHarnessEnabled(harnessRaw)) {
+    return {
+      models: [],
+      source: "empty",
+      error: `harness disabled: ${harnessRaw}`,
       efforts: [],
     };
   }
@@ -109,6 +121,9 @@ export const enumerateManagedModels = async (
 };
 
 export const enumerateManagedProfiles = async (): Promise<ManagedTerminalProfilesResult> => {
+  if (!HERMES_INTEGRATION_ENABLED) {
+    return { profiles: [], source: "empty" };
+  }
   try {
     const result = await enumerateHermesProfiles(async () =>
       runCommand("hermes", ["profile", "list"]),

@@ -56,7 +56,11 @@ import { makeBrowserProductPathProbe } from "./vellum/browser/readiness-probe";
 import { installBrowserProductPathProbe } from "./vellum/station-readiness";
 import { findHostById, hostsSnapshot } from "./vellum/hosts/snapshot";
 import { hostHasCapability } from "@shared/remote-hosts";
-import { BROWSER_ENABLED, HERDR_ENABLED } from "@shared/features";
+import {
+  BROWSER_ENABLED,
+  HERDR_ENABLED,
+  HERMES_INTEGRATION_ENABLED,
+} from "@shared/features";
 import { HerdrPlane } from "./vellum/herdr/plane";
 import { HermesPlane } from "./vellum/hermes/plane";
 import { termPlane, termPlaneBlocksAppExit } from "./vellum/term/plane";
@@ -1547,10 +1551,12 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     // Plane stays in the Effect Layer graph (TerminalSessions), but product
     // start/warm/IPC are compile-gated when Herdr is off.
     herdrPlaneService = HERDR_ENABLED ? herdr : undefined;
-    hermesPlaneService = hermes;
+    hermesPlaneService = HERMES_INTEGRATION_ENABLED ? hermes : undefined;
     if (shutdownAdmissionClosed) {
       if (HERDR_ENABLED) herdr.beginShutdown();
-      hermesShutdown ??= hermes.shutdown.drainOnQuit();
+      if (HERMES_INTEGRATION_ENABLED) {
+        hermesShutdown ??= hermes.shutdown.drainOnQuit();
+      }
       return;
     }
   if (HERDR_ENABLED) {

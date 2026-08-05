@@ -16,7 +16,10 @@ import {
   LINUX_HOST_UNAVAILABLE_IN_RELEASE_LABEL,
   LINUX_REMOTE_DEPLOY_DISABLED_DETAIL,
 } from "@shared/release-capabilities";
-import { productHostCapabilities } from "@shared/features";
+import {
+  HERMES_INTEGRATION_ENABLED,
+  productHostCapabilities,
+} from "@shared/features";
 import type { RemoteHost } from "@shared/remote-hosts";
 import {
   deriveRemoteUpdateStatus,
@@ -319,7 +322,7 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
           <span>{host.sshEndpoint ?? "—"}</span>
           <span>kind</span>
           <span>{host.kind}</span>
-          {host.hermesId ? (
+          {HERMES_INTEGRATION_ENABLED && host.hermesId ? (
             <>
               <span>hermes id</span>
               <span>{host.hermesId}</span>

@@ -4,7 +4,11 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { BrowserProfileInfo, VellumBrowserApi } from "@shared/ipc";
 import type { SettingsSectionKey } from "@shared/settings";
-import { AUDIO_ENABLED, BROWSER_ENABLED } from "@shared/features";
+import {
+  AUDIO_ENABLED,
+  BROWSER_ENABLED,
+  HERMES_INTEGRATION_ENABLED,
+} from "@shared/features";
 import {
   decodeStateBackupId,
   type StateBackupId,
@@ -832,7 +836,7 @@ function StationSection() {
       >
         <span style={{ color: INK, fontSize: 13 }}>{station.hostId}</span>
       </FieldRow>
-      {role === "remote" ? (
+      {HERMES_INTEGRATION_ENABLED && role === "remote" ? (
         <FieldRow
           label="Agent host id"
           hint="Hermes identity installed by the Command Center"

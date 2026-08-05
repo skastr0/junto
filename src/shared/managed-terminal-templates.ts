@@ -9,6 +9,7 @@
  */
 
 import { Schema } from "effect";
+import { managedHarnessEnabled } from "./features";
 
 // ── Identity ───────────────────────────────────────────────────────────────
 
@@ -346,7 +347,9 @@ export const templateFor = (harness: HarnessId): ManagedTerminalTemplate =>
   MANAGED_TERMINAL_TEMPLATES[harness];
 
 export const allTemplates = (): readonly ManagedTerminalTemplate[] =>
-  HARNESS_IDS.map((id) => MANAGED_TERMINAL_TEMPLATES[id]);
+  HARNESS_IDS
+    .filter(managedHarnessEnabled)
+    .map((id) => MANAGED_TERMINAL_TEMPLATES[id]);
 
 /** Claude `--model` aliases (not from the cache; always offered as shortcuts). */
 export const CLAUDE_MODEL_ALIASES: readonly string[] = [

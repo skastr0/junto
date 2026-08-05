@@ -107,11 +107,16 @@ export const productNodeKindEnabled = (kind: string | undefined): boolean => {
   return true;
 };
 
+/** Durable HarnessId still admits Hermes rows; new product actions do not. */
+export const managedHarnessEnabled = (harness: string): boolean =>
+  harness !== "hermes" || HERMES_INTEGRATION_ENABLED;
+
 /** Strip product-hidden capabilities from a host capability list for UI. */
 export const productHostCapabilities = <T extends string>(
   capabilities: ReadonlyArray<T>,
 ): ReadonlyArray<T> => capabilities.filter((capability) => {
   if (!HERDR_ENABLED && capability === "herdr") return false;
   if (!BROWSER_ENABLED && capability === "browser") return false;
+  if (!HERMES_INTEGRATION_ENABLED && capability === "hermes") return false;
   return true;
 });

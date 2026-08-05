@@ -10,6 +10,7 @@ import type {
 } from "@shared/canvas";
 import type { HarnessId } from "@shared/managed-terminal-templates";
 import { templateFor } from "@shared/managed-terminal-templates";
+import { managedHarnessEnabled } from "@shared/features";
 import { resolveManagedLaunch } from "@shared/managed-terminal-launch";
 import { isValidStationHostId } from "@shared/station";
 import { AGENT_NODE_SIZE } from "./node-geometry";
@@ -104,6 +105,9 @@ export const makeManagedAgentNode = (
     readonly label?: string;
   },
 ): TextNode => {
+  if (!managedHarnessEnabled(options.harness)) {
+    throw new Error(`managed harness ${options.harness} is disabled in this build`);
+  }
   const host = requireHostId(options.host);
   const agentHost = requireHostId(options.agentHost ?? host);
   const template = templateFor(options.harness);

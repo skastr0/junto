@@ -3,6 +3,7 @@ import {
   LOCAL_HOST_ID,
   TERMINAL_HOST_CAPABILITY,
 } from "@shared/remote-hosts";
+import { HERMES_INTEGRATION_ENABLED } from "@shared/features";
 
 export type AgentHostChoice = {
   readonly id: string;
@@ -31,7 +32,9 @@ export const actorHostChoicesFromEnrollment = (
     })
     .map((host) => ({
       id: host.id,
-      agentHost: host.hermesId ?? host.id,
+      agentHost: HERMES_INTEGRATION_ENABLED
+        ? host.hermesId ?? host.id
+        : host.id,
       label:
         host.kind === "remote"
           ? `${host.label || host.id} (remote)`

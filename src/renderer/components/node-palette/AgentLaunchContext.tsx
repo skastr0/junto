@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { ChevronDown, FolderOpen, X } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
 import { LOCAL_HOST_ID } from "@shared/remote-hosts";
+import { HERMES_INTEGRATION_ENABLED } from "@shared/features";
 import { findContainingRegion, resolveRegionCwd } from "@shared/region-defaults";
 import { state$ } from "../../lib/state";
 import { getVellumApi } from "../../lib/vellum-api";
@@ -28,7 +29,9 @@ export const defaultAgentLaunchContext = (): AgentLaunchContextValue => {
   const host = state$.settings.station.hostId.peek() || LOCAL_HOST_ID;
   return {
     host,
-    agentHost: state$.settings.station.agentHostId.peek() || host,
+    agentHost: HERMES_INTEGRATION_ENABLED
+      ? state$.settings.station.agentHostId.peek() || host
+      : host,
     cwd: "",
   };
 };

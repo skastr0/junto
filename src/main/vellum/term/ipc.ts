@@ -1,6 +1,7 @@
 import type { IpcMain, IpcMainInvokeEvent, WebContents } from "electron";
 import { IPC_CHANNELS, type TerminalAttachInput } from "@shared/ipc";
 import { isHarnessId } from "@shared/managed-terminal-templates";
+import { managedHarnessEnabled } from "@shared/features";
 import type { TerminalLaunch } from "@shared/terminal";
 import { messageDelivery } from "../work/message-delivery";
 import type { ControlLease, LocalHostEvent } from "./local-host";
@@ -132,6 +133,9 @@ export const registerTerminalIpc = (
     // node instead of quietly becoming a terminal.
     if (!isHarnessId(harness)) {
       return deny(`terminal ipc: unknown harness template ${harness}`);
+    }
+    if (!managedHarnessEnabled(harness)) {
+      return deny(`terminal ipc: harness ${harness} is disabled in this build`);
     }
     const agentKey =
       typeof input?.agentKey === "string" ? input.agentKey.trim() : "";

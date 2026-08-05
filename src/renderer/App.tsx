@@ -45,7 +45,12 @@ const FleetOverlay = lazy(async () => {
   return { default: mod.FleetOverlay };
 });
 import { StationRoleGate } from "./components/StationRoleGate";
-import { FLEET_UI_ENABLED, HERDR_ENABLED, USAGE_ENABLED } from "@shared/features";
+import {
+  FLEET_UI_ENABLED,
+  HERDR_ENABLED,
+  HERMES_INTEGRATION_ENABLED,
+  USAGE_ENABLED,
+} from "@shared/features";
 import { HerdrWizard } from "./components/herdr/HerdrWizard";
 import { HerdrTerminalModal } from "./components/herdr/HerdrTerminalModal";
 import { HerdrToast } from "./components/herdr/HerdrToast";
@@ -69,7 +74,7 @@ const refreshList = async () => {
 };
 
 const refreshSnapshotsSoft = async (doc: CanvasDoc) => {
-  if (!window.vellum) return;
+  if (!HERMES_INTEGRATION_ENABLED || !window.vellum?.refreshSnapshots) return;
   try {
     const snapshots = await Promise.race([
       window.vellum.refreshSnapshots(identityHints([doc], state$.snapshots.peek())),

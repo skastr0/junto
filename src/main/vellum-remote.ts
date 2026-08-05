@@ -48,6 +48,7 @@ import {
 } from "./vellum/kernel/service";
 import { HerdrPlane } from "./vellum/herdr/plane";
 import { HermesPlane } from "./vellum/hermes/plane";
+import { HERMES_INTEGRATION_ENABLED } from "@shared/features";
 import { termPlane } from "./vellum/term/plane";
 import { configureTerminalRouterLayeredRunner } from "./vellum/term/router";
 import { compiledLicenseBuildConfig } from "./vellum/license/compiled-config";
@@ -336,7 +337,7 @@ const runProductBoot = async (): Promise<void> => {
     RemoteRuntime.runPromise(HermesPlane),
   ]);
   handles.herdr = herdr;
-  handles.hermes = hermes;
+  handles.hermes = HERMES_INTEGRATION_ENABLED ? hermes : undefined;
   await RemoteRuntime.runPromise(herdr.start);
 
   try {

@@ -19,6 +19,7 @@ import {
   type VellumChatApi,
   type VellumDemoApi,
   type VellumHerdrApi,
+  type VellumHermesIntegrationApi,
   type VellumSchedulerApi,
   type VellumTerminalApi,
   type VellumUsageApi,
@@ -33,6 +34,7 @@ import {
   BROWSER_ENABLED,
   CRON_ENABLED,
   HERDR_ENABLED,
+  HERMES_INTEGRATION_ENABLED,
   RELAY_ENABLED,
   USAGE_ENABLED,
 } from "@shared/features";
@@ -454,11 +456,7 @@ const vellumApi: VellumApi = {
   createCanvas: (name) => invokeCanvasCreate(name),
   deleteCanvas: (name) => invoke(IPC_CHANNELS.deleteCanvas, IPC_TIMEOUT_MS, name),
   exportDigest: (name) => invoke(IPC_CHANNELS.exportDigest, IPC_TIMEOUT_MS, name),
-  generatePortfolio: (name, options) =>
-    invoke(IPC_CHANNELS.generatePortfolio, IPC_TIMEOUT_MS, name, options),
   getSnapshots: () => invoke(IPC_CHANNELS.getSnapshots, IPC_TIMEOUT_MS),
-  refreshSnapshots: (hints) => invoke(IPC_CHANNELS.refreshSnapshots, IPC_TIMEOUT_MS, hints),
-  agentMessage: (key, text) => invoke(IPC_CHANNELS.agentMessage, AGENT_MESSAGE_TIMEOUT_MS, key, text),
   getKernelState: () => invoke<KernelSnapshot>(IPC_CHANNELS.getKernelState, IPC_TIMEOUT_MS),
   factoryPauseState: (canvas) =>
     invoke(IPC_CHANNELS.factoryPauseState, IPC_TIMEOUT_MS, canvas),
@@ -664,6 +662,15 @@ const vellumApi: VellumApi = {
     ),
 };
 
+const hermesIntegrationApi: VellumHermesIntegrationApi = {
+  generatePortfolio: (name, options) =>
+    invoke(IPC_CHANNELS.generatePortfolio, IPC_TIMEOUT_MS, name, options),
+  refreshSnapshots: (hints) =>
+    invoke(IPC_CHANNELS.refreshSnapshots, IPC_TIMEOUT_MS, hints),
+  agentMessage: (key, text) =>
+    invoke(IPC_CHANNELS.agentMessage, AGENT_MESSAGE_TIMEOUT_MS, key, text),
+};
+
 const schedulerApi: VellumSchedulerApi = {
   schedulerFire: (canvas, sourceNodeId) =>
     invoke(IPC_CHANNELS.schedulerFire, IPC_TIMEOUT_MS, canvas, sourceNodeId),
@@ -844,6 +851,7 @@ if (preloadLocation === undefined || isRendererPreloadCandidate(preloadLocation)
     ...chatApi,
     ...(USAGE_ENABLED ? usageApi : {}),
     ...(CRON_ENABLED || RELAY_ENABLED ? schedulerApi : {}),
+    ...(HERMES_INTEGRATION_ENABLED ? hermesIntegrationApi : {}),
     ...(HERDR_ENABLED ? herdrApi : {}),
     ...terminalApi,
     ...(BROWSER_ENABLED ? browserApi : {}),

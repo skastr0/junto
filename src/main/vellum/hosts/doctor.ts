@@ -3,7 +3,11 @@ import { constants } from "node:fs";
 import type { Context } from "effect";
 import { Effect } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
-import { HERDR_ENABLED } from "@shared/features";
+import {
+  BROWSER_ENABLED,
+  HERDR_ENABLED,
+  HERMES_INTEGRATION_ENABLED,
+} from "@shared/features";
 import { observeLinuxHostCapabilityDoctor } from "@shared/linux-host-capability-doctor";
 import type { LinuxHostCapabilityObservation } from "@shared/linux-host-capabilities";
 import type { StationRemoteObservation } from "@shared/station-status";
@@ -303,7 +307,7 @@ const probeSshHost = (
       parts.push(herdr.detail);
       if (!herdr.ok) raise("warning", herdr.detail);
     }
-    if (hostHasCapability(host, "hermes")) {
+    if (HERMES_INTEGRATION_ENABLED && hostHasCapability(host, "hermes")) {
       const hermes = yield* remoteBinary(ssh, host, "hermes");
       parts.push(hermes.detail);
       if (!hermes.ok) raise("warning", hermes.detail);
@@ -403,7 +407,7 @@ export const runRemoteHostsDoctorSnapshot = (
         lines.push(`local: ${herdr.detail}`);
         if (!herdr.ok) raise("warning");
       }
-      if (hostHasCapability(local, "hermes")) {
+      if (HERMES_INTEGRATION_ENABLED && hostHasCapability(local, "hermes")) {
         const hermes = yield* Effect.promise(() =>
           localBinary("hermes", run),
         );
@@ -459,14 +463,18 @@ export const runRemoteHostsDoctorSnapshot = (
       }
     }
 
-    const hermesKeys = hosts
-      .filter((host) => hostHasCapability(host, "hermes"))
-      .map((host) => hermesKeyFor(host))
-      .join(", ");
-    const browserHostIds = hosts
-      .filter((host) => hostHasCapability(host, "browser"))
-      .map((host) => host.id)
-      .join(", ");
+    const hermesKeys = HERMES_INTEGRATION_ENABLED
+      ? hosts
+          .filter((host) => hostHasCapability(host, "hermes"))
+          .map((host) => hermesKeyFor(host))
+          .join(", ")
+      : "";
+    const browserHostIds = BROWSER_ENABLED
+      ? hosts
+          .filter((host) => hostHasCapability(host, "browser"))
+          .map((host) => host.id)
+          .join(", ")
+      : "";
 
     return {
       check: {
@@ -539,7 +547,7 @@ export const testHostConnection = (
         if (HERDR_ENABLED && hostHasCapability(host, "herdr")) {
           probes.push(yield* Effect.promise(() => localBinary("herdr", run)));
         }
-        if (hostHasCapability(host, "hermes")) {
+        if (HERMES_INTEGRATION_ENABLED && hostHasCapability(host, "hermes")) {
           probes.push(
             yield* Effect.promise(() => localBinary("hermes", run)),
           );

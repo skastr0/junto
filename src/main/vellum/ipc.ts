@@ -24,6 +24,7 @@ import {
   BROWSER_ENABLED,
   CRON_ENABLED,
   HERDR_ENABLED,
+  HERMES_INTEGRATION_ENABLED,
   RELAY_ENABLED,
   USAGE_ENABLED,
 } from "@shared/features";
@@ -363,7 +364,7 @@ export const registerVellumIpc = (): void => {
     ),
   );
 
-  privilegedIpc.handle(
+  if (HERMES_INTEGRATION_ENABLED) privilegedIpc.handle(
     IPC_CHANNELS.generatePortfolio,
     (_event, name: string, options?: { all?: boolean }) =>
       runMainAuthoring(
@@ -399,7 +400,7 @@ export const registerVellumIpc = (): void => {
     AppRuntime.runPromise(Effect.flatMap(SnapshotsService, (snapshots) => snapshots.current)),
   );
 
-  privilegedIpc.handle(
+  if (HERMES_INTEGRATION_ENABLED) privilegedIpc.handle(
     IPC_CHANNELS.refreshSnapshots,
     (_event, hints?: ReadonlyArray<BindingHint>) =>
       AppRuntime.runPromise(
@@ -418,9 +419,11 @@ export const registerVellumIpc = (): void => {
   }
 
 
-  privilegedIpc.handle(IPC_CHANNELS.agentMessage, (_event, key: string, text: string) =>
-    AppRuntime.runPromise(HermesPlane).then((plane) => plane.fetchAgentMessage(key, text)),
-  );
+  if (HERMES_INTEGRATION_ENABLED) {
+    privilegedIpc.handle(IPC_CHANNELS.agentMessage, (_event, key: string, text: string) =>
+      AppRuntime.runPromise(HermesPlane).then((plane) => plane.fetchAgentMessage(key, text)),
+    );
+  }
 
   // The attached-chat plane (hermes ACP sessions per agent node). Shares its
   // ChatService instance with KernelService below — a pulse-driven turn and

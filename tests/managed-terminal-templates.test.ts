@@ -30,11 +30,16 @@ import {
   readGrokModels,
   readHermesModels,
 } from "../src/main/vellum/term/templates/enumerate-models";
+import { HERMES_INTEGRATION_ENABLED } from "../src/shared/features";
 
 describe("managed-terminal templates (data)", () => {
   it("exports exactly the four v1 harnesses", () => {
     expect(HARNESS_IDS).toEqual(["claude", "codex", "grok", "hermes"]);
-    expect(allTemplates()).toHaveLength(4);
+    expect(allTemplates().map((template) => template.harness)).toEqual(
+      HERMES_INTEGRATION_ENABLED
+        ? ["claude", "codex", "grok", "hermes"]
+        : ["claude", "codex", "grok"],
+    );
     for (const id of HARNESS_IDS) {
       expect(isHarnessId(id)).toBe(true);
       expect(templateFor(id)).toBe(MANAGED_TERMINAL_TEMPLATES[id]);

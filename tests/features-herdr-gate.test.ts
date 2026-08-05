@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  BROWSER_ENABLED,
   HERDR_ENABLED,
+  HERMES_INTEGRATION_ENABLED,
   productHostCapabilities,
 } from "../src/shared/features";
 import { LOCAL_STATION_CAPABILITIES } from "../src/shared/remote-hosts";
@@ -13,12 +15,8 @@ describe("HERDR product gate", () => {
   it("productHostCapabilities strips herdr when the surface is off", () => {
     const caps = ["terminal", "herdr", "hermes"] as const;
     const shown = productHostCapabilities(caps);
-    if (HERDR_ENABLED) {
-      expect(shown).toEqual(["terminal", "herdr", "hermes"]);
-    } else {
-      expect(shown).toEqual(["terminal", "hermes"]);
-      expect(shown).not.toContain("herdr");
-    }
+    expect(shown.includes("herdr")).toBe(HERDR_ENABLED);
+    expect(shown.includes("hermes")).toBe(HERMES_INTEGRATION_ENABLED);
   });
 
   it("local station capabilities mirror the gate", () => {
@@ -28,7 +26,9 @@ describe("HERDR product gate", () => {
       expect(LOCAL_STATION_CAPABILITIES).not.toContain("herdr");
     }
     expect(LOCAL_STATION_CAPABILITIES).toContain("terminal");
-    expect(LOCAL_STATION_CAPABILITIES).toContain("browser");
-    expect(LOCAL_STATION_CAPABILITIES).toContain("hermes");
+    expect(LOCAL_STATION_CAPABILITIES.includes("browser")).toBe(BROWSER_ENABLED);
+    expect(LOCAL_STATION_CAPABILITIES.includes("hermes")).toBe(
+      HERMES_INTEGRATION_ENABLED,
+    );
   });
 });
