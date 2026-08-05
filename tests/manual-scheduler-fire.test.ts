@@ -6,7 +6,12 @@ import {
   __setDocsForTest,
   manualSchedulerFire,
 } from "../src/main/vellum/kernel/cycle";
-import { __setSchedulerEffectDepsForTest } from "../src/main/vellum/kernel/effects";
+import {
+  __setSchedulerEffectDepsForTest,
+  applySchedulerFire,
+  collectTriggerCascadeTargets,
+} from "../src/main/vellum/kernel/effects";
+import { CRON_ENABLED, RELAY_ENABLED } from "../src/shared/features";
 
 const board = (): CanvasDoc =>
   ({
@@ -72,7 +77,14 @@ const board = (): CanvasDoc =>
         fromNode: "cron1",
         toNode: "tasks-cron",
         ether: {
-          does: { mode: "enqueue_task", data: { brief: "from-cron", metadata: { title: "from-cron", details: "from-cron" }, reason: "scheduler" } },
+          does: {
+            mode: "enqueue_task",
+            data: {
+              brief: "from-cron",
+              metadata: { title: "from-cron", details: "from-cron" },
+              reason: "scheduler",
+            },
+          },
         },
       },
       {
@@ -80,7 +92,14 @@ const board = (): CanvasDoc =>
         fromNode: "relay1",
         toNode: "tasks-relay",
         ether: {
-          does: { mode: "enqueue_task", data: { brief: "from-relay", metadata: { title: "from-relay", details: "from-relay" }, reason: "scheduler" } },
+          does: {
+            mode: "enqueue_task",
+            data: {
+              brief: "from-relay",
+              metadata: { title: "from-relay", details: "from-relay" },
+              reason: "scheduler",
+            },
+          },
         },
       },
       // Trigger chain: cron fire cascades into the relay's does edges.
@@ -124,30 +143,36 @@ describe("manualSchedulerFire scope", () => {
     __setSchedulerEffectDepsForTest(undefined);
   });
 
-  it("cron fire applies own does then cascades trigger→relay does", async () => {
-    const result = await manualSchedulerFire({
-      canvasName: "board",
-      sourceNodeId: "cron1",
-    });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.kind).toBe("cron");
-    // cron does + cascade into relay does
-    expect(result.applied).toBe(2);
-    expect(enqueues).toEqual(["from-cron", "from-relay"]);
-  });
+  it.runIf(CRON_ENABLED && RELAY_ENABLED)(
+    "cron fire applies own does then cascades trigger→relay does",
+    async () => {
+      const result = await manualSchedulerFire({
+        canvasName: "board",
+        sourceNodeId: "cron1",
+      });
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.kind).toBe("cron");
+      // cron does + cascade into relay does
+      expect(result.applied).toBe(2);
+      expect(enqueues).toEqual(["from-cron", "from-relay"]);
+    },
+  );
 
-  it("relay fire applies only that relay's does (no reverse cascade)", async () => {
-    const result = await manualSchedulerFire({
-      canvasName: "board",
-      sourceNodeId: "relay1",
-    });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.kind).toBe("relay");
-    expect(result.applied).toBe(1);
-    expect(enqueues).toEqual(["from-relay"]);
-  });
+  it.runIf(RELAY_ENABLED)(
+    "relay fire applies only that relay's does (no reverse cascade)",
+    async () => {
+      const result = await manualSchedulerFire({
+        canvasName: "board",
+        sourceNodeId: "relay1",
+      });
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.kind).toBe("relay");
+      expect(result.applied).toBe(1);
+      expect(enqueues).toEqual(["from-relay"]);
+    },
+  );
 
   it("refuses non-scheduler sources", async () => {
     const result = await manualSchedulerFire({
@@ -158,7 +183,7 @@ describe("manualSchedulerFire scope", () => {
     expect(enqueues).toEqual([]);
   });
 
-  it("reports paused factory honestly", async () => {
+  it.runIf(CRON_ENABLED)("reports paused factory honestly", async () => {
     __setAutomationGateForTest({
       canAutomateCanvas: () => false,
       canApplyFlagEffects: () => true,
@@ -186,30 +211,97 @@ describe("manualSchedulerFire scope", () => {
     expect(enqueues).toEqual([]);
   });
 
-  it("reports zero does edges without claiming work ran", async () => {
-    const bare: CanvasDoc = {
-      nodes: [
-        {
-          id: "r-empty",
-          type: "text",
-          text: "empty relay",
-          x: 0,
-          y: 0,
-          width: 1,
-          height: 1,
-          ether: { entity: { kind: "relay" } },
-        },
-      ],
-      edges: [],
-    } as CanvasDoc;
-    __setDocsForTest(new Map([["board", bare]]));
-    const result = await manualSchedulerFire({
-      canvasName: "board",
-      sourceNodeId: "r-empty",
-    });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.applied).toBe(0);
-    expect(result.message).toMatch(/No effect wires/i);
-  });
+  it.runIf(RELAY_ENABLED)(
+    "reports zero does edges without claiming work ran",
+    async () => {
+      const bare: CanvasDoc = {
+        nodes: [
+          {
+            id: "r-empty",
+            type: "text",
+            text: "empty relay",
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 1,
+            ether: { entity: { kind: "relay" } },
+          },
+        ],
+        edges: [],
+      } as CanvasDoc;
+      __setDocsForTest(new Map([["board", bare]]));
+      const result = await manualSchedulerFire({
+        canvasName: "board",
+        sourceNodeId: "r-empty",
+      });
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.applied).toBe(0);
+      expect(result.message).toMatch(/No effect wires/i);
+    },
+  );
+
+  it.runIf(CRON_ENABLED && !RELAY_ENABLED)(
+    "fires cron effects without crossing into a disabled relay",
+    async () => {
+      const doc = board();
+      expect(collectTriggerCascadeTargets(doc, "cron1")).toEqual([]);
+
+      const result = await manualSchedulerFire({
+        canvasName: "board",
+        sourceNodeId: "cron1",
+      });
+
+      expect(result).toMatchObject({ ok: true, applied: 1 });
+      expect(enqueues).toEqual(["from-cron"]);
+    },
+  );
+
+  it.runIf(RELAY_ENABLED && !CRON_ENABLED)(
+    "does not cascade from an enabled relay into a disabled cron",
+    async () => {
+      const base = board();
+      const doc: CanvasDoc = {
+        ...base,
+        edges: [
+          ...base.edges,
+          {
+            id: "e-relay-trigger-cron",
+            fromNode: "relay1",
+            toNode: "cron1",
+            ether: { slot: "trigger" },
+          },
+        ],
+      };
+      expect(collectTriggerCascadeTargets(doc, "relay1")).toEqual([]);
+
+      await expect(
+        applySchedulerFire(doc, {
+          canvasName: "board",
+          sourceNodeId: "relay1",
+          kind: "relay",
+          fireKey: "relay-to-disabled-cron",
+        }),
+      ).resolves.toMatchObject({ applied: 1, cascaded: 0 });
+      expect(enqueues).toEqual(["from-relay"]);
+    },
+  );
+
+  it.runIf(RELAY_ENABLED && !CRON_ENABLED)(
+    "rejects a direct disabled cron fire before it reaches an enabled relay",
+    async () => {
+      const doc = board();
+      expect(collectTriggerCascadeTargets(doc, "cron1")).toEqual([]);
+
+      await expect(
+        applySchedulerFire(doc, {
+          canvasName: "board",
+          sourceNodeId: "cron1",
+          kind: "cron",
+          fireKey: "disabled-cron-direct-fire",
+        }),
+      ).resolves.toEqual({ applied: 0, skipped: "disabled" });
+      expect(enqueues).toEqual([]);
+    },
+  );
 });
