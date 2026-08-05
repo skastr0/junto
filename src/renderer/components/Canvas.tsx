@@ -58,7 +58,7 @@ import {
 } from "../lib/node-factories";
 import { putImagesFromDataTransfer } from "../lib/image-content";
 import { contentObjectUrl } from "@shared/content-url";
-import { HERDR_ENABLED } from "@shared/features";
+import { BROWSER_ENABLED, HERDR_ENABLED } from "@shared/features";
 import { openHerdrWizard } from "../lib/herdr-state";
 import { describeConnectPreview } from "../lib/connect-preview";
 import { GROUND, HUE } from "../lib/theme";
@@ -755,6 +755,7 @@ const makeAddActions = (
     dismiss();
   },
   addPage: () => {
+    if (!BROWSER_ENABLED) return;
     const size = { width: 260, height: 110 };
     const position = positionFor(size);
     // Create-time stamp from containing region defaults (center-in-region).

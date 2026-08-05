@@ -87,6 +87,9 @@ const runCli = (
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       HOME: options.home,
+      // This suite exercises the browser-on compatibility contract. Source-run
+      // CLIs otherwise follow the same default-off policy as packaged controls.
+      VELLUM_BROWSER: "1",
       [CONTROL_HOME_ENV]: options.controlHome,
     };
     const entry =

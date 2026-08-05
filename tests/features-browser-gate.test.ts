@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
@@ -23,6 +24,10 @@ describe("browser hard product gate", () => {
       const preload = readFileSync("src/preload/index.ts", "utf8");
       const main = readFileSync("src/main/index.ts", "utf8");
       const cli = readFileSync("src/cli/main.ts", "utf8");
+      const canvas = readFileSync(
+        "src/renderer/components/Canvas.tsx",
+        "utf8",
+      );
       const linkNode = readFileSync(
         "src/renderer/components/nodes/LinkNode.tsx",
         "utf8",
@@ -43,11 +48,30 @@ describe("browser hard product gate", () => {
         "if (BROWSER_ENABLED && productRuntimeStarted && !productRuntimeSuspended)",
       );
       expect(cli).toContain("if (browserCliAvailable && browserArgs !== undefined)");
+      expect(canvas).toContain("addPage: () => {\n    if (!BROWSER_ENABLED) return;");
       expect(linkNode).toContain("BROWSER_ENABLED &&\n  node.type === \"link\"");
       expect(herdrCard).toContain("if (!BROWSER_ENABLED) return;");
       expect(herdrCard).toContain("BROWSER_ENABLED && service?.url");
       expect(hostServeCatalog).toContain("if (!BROWSER_ENABLED) return;");
       expect(hostServeCatalog).toContain("{BROWSER_ENABLED ? (");
+
+      const runtime = spawnSync(
+        "bun",
+        ["scripts/browser-cli.ts", "doctor", "--json"],
+        {
+          cwd: process.cwd(),
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            VELLUM_BROWSER: "0",
+          },
+        },
+      );
+      expect(runtime.status).toBe(2);
+      expect(runtime.stdout).toBe("");
+      expect(runtime.stderr).toContain(
+        "Browser is disabled in this Vellum Command build",
+      );
     },
   );
 
