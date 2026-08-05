@@ -404,25 +404,25 @@ export function NodeShell({
   const background = bare
     ? "transparent"
     : shellBlocked
-      ? `linear-gradient(135deg, ${withAlpha(HUE.crimson, 0.12)}, rgba(18,15,13,0.92))`
+      ? `linear-gradient(135deg, ${withAlpha(HUE.crimson, 0.12)}, color-mix(in oklab, var(--color-ground) 92%, transparent))`
       : primaryFlag === "attention"
-        ? `linear-gradient(135deg, ${withAlpha(HUE.amber, 0.09)}, rgba(14,13,12,0.96))`
+        ? `linear-gradient(135deg, ${withAlpha(HUE.amber, 0.09)}, color-mix(in oklab, var(--color-ground) 96%, transparent))`
         : primaryFlag === "parked"
-          ? `linear-gradient(135deg, ${withAlpha(HUE.violet, 0.09)}, rgba(14,13,12,0.96))`
-          : "linear-gradient(135deg, rgba(30,25,20,0.94), rgba(14,13,12,0.96))";
+          ? `linear-gradient(135deg, ${withAlpha(HUE.violet, 0.09)}, color-mix(in oklab, var(--color-ground) 96%, transparent))`
+          : "linear-gradient(135deg, color-mix(in oklab, var(--color-raise) 94%, transparent), color-mix(in oklab, var(--color-ground) 96%, transparent))";
   const shadow = bare
     ? selected
       ? `0 0 0 1px ${withAlpha(accent, 0.35)}`
       : "none"
     : selected
-      ? `0 0 0 1px ${withAlpha(shellBlocked ? HUE.crimson : accent, 0.25)}, 0 12px 30px rgba(0,0,0,0.22)`
+      ? `0 0 0 1px ${withAlpha(shellBlocked ? HUE.crimson : accent, 0.25)}, 0 12px 30px var(--color-shadow-2)`
       : shellBlocked
-        ? `0 0 0 1px ${withAlpha(HUE.crimson, 0.18)}, 0 10px 28px rgba(0,0,0,0.18)`
+        ? `0 0 0 1px ${withAlpha(HUE.crimson, 0.18)}, 0 10px 28px var(--color-shadow-2)`
         : primaryFlag === "attention"
-          ? `0 0 0 1px ${withAlpha(HUE.amber, 0.14)}, 0 10px 28px rgba(0,0,0,0.18)`
+          ? `0 0 0 1px ${withAlpha(HUE.amber, 0.14)}, 0 10px 28px var(--color-shadow-2)`
           : primaryFlag === "parked"
-            ? `0 0 0 1px ${withAlpha(HUE.violet, 0.14)}, 0 10px 28px rgba(0,0,0,0.18)`
-            : "0 10px 28px rgba(0,0,0,0.18)";
+            ? `0 0 0 1px ${withAlpha(HUE.violet, 0.14)}, 0 10px 28px var(--color-shadow-2)`
+            : "0 10px 28px var(--color-shadow-2)";
   // Shift+click multi-select dominates all node chrome (labels, open, edit).
   const multiSelectCapture = useShiftMultiSelectDominance(node.id);
   // Pulse + corner spin for any stoppage chrome (graph blocked, flag, herdr).

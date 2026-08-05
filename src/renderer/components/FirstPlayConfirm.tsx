@@ -53,7 +53,7 @@ export function FirstPlayConfirm({
         zIndex: 90,
         display: "grid",
         placeItems: "center",
-        background: "rgba(6,5,4,0.72)",
+        background: "var(--color-backdrop)",
         backdropFilter: "blur(2px)",
       }}
     >
@@ -69,7 +69,7 @@ export function FirstPlayConfirm({
           borderRadius: 10,
           border: `1px solid ${withAlpha(HUE.amber, 0.35)}`,
           background: GROUND,
-          boxShadow: `0 18px 60px rgba(0,0,0,.55), 0 0 0 4px ${withAlpha(HUE.amber, 0.06)}`,
+          boxShadow: `0 18px 60px var(--color-shadow-1), 0 0 0 4px ${withAlpha(HUE.amber, 0.06)}`,
           padding: "18px 20px 16px",
           color: INK_2,
         }}
@@ -107,7 +107,7 @@ export function FirstPlayConfirm({
               ...LABEL,
               color: INK_2,
               border: `1px solid ${STROKE}`,
-              background: "rgba(255,255,255,0.02)",
+              background: "var(--color-overlay-1)",
               borderRadius: 7,
               padding: "7px 12px",
               cursor: "pointer",

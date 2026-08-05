@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { HUE, withAlpha } from "../../lib/theme";
+import { GREEN, HUE, withAlpha } from "../../lib/theme";
 
 export type ChipTone = "amber" | "cyan" | "violet" | "crimson" | "steel" | "green";
 
@@ -9,7 +9,7 @@ const TONE_HEX: Record<ChipTone, string> = {
   violet: HUE.violet,
   crimson: HUE.crimson,
   steel: HUE.steel,
-  green: "#5FB98E",
+  green: GREEN,
 };
 
 /**

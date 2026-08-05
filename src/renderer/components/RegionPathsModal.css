@@ -15,14 +15,14 @@
   min-height: 0;
   flex: 1 1 auto;
   overflow: hidden;
-  border-top: 1px solid rgba(237, 230, 218, 0.08);
+  border-top: 1px solid var(--color-overlay-3);
 }
 
 .region-paths__sidebar {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-right: 1px solid rgba(237, 230, 218, 0.08);
+  border-right: 1px solid var(--color-overlay-3);
   background: var(--color-raise-2);
   padding: 8px;
   gap: 8px;
@@ -64,12 +64,12 @@
 }
 
 .region-paths__host-btn:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--color-overlay-1);
 }
 
 .region-paths__host-btn.is-active {
-  border-color: rgba(232, 163, 61, 0.35);
-  background: rgba(232, 163, 61, 0.08);
+  border-color: color-mix(in oklab, var(--color-main) 35%, transparent);
+  background: color-mix(in oklab, var(--color-main) 8%, transparent);
 }
 
 .region-paths__host-name {
@@ -141,7 +141,7 @@
   gap: 8px;
   flex-shrink: 0;
   padding: 10px 12px;
-  border-top: 1px solid rgba(237, 230, 218, 0.08);
+  border-top: 1px solid var(--color-overlay-3);
   background: var(--color-raise-2);
 }
 

@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import type { HostDeployJobSnapshot } from "@shared/ipc";
-import { HUE } from "../../lib/theme";
+import { GREEN, HUE } from "../../lib/theme";
 import { Chip, type ChipTone } from "../ui";
 
 const STATUS_TONE: Record<HostDeployJobSnapshot["status"], ChipTone> = {
@@ -20,7 +20,7 @@ const STATUS_LABEL: Record<HostDeployJobSnapshot["status"], string> = {
 const barColor = (status: HostDeployJobSnapshot["status"]): string => {
   switch (status) {
     case "succeeded":
-      return "#5FB98E";
+      return GREEN;
     case "failed":
       return HUE.crimson;
     case "auth_required":

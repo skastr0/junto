@@ -22,7 +22,7 @@ export function TerminalInventory() {
       {open ? (
         <section
           aria-label="Detached terminal sessions"
-          className="absolute right-0 top-[calc(100%+8px)] w-[330px] rounded-lg border border-stroke bg-raise p-3 shadow-[0_18px_50px_rgba(0,0,0,0.55)] backdrop-blur-md"
+          className="absolute right-0 top-[calc(100%+8px)] w-[330px] rounded-lg border border-stroke bg-raise p-3 shadow-[0_18px_50px_var(--color-shadow-1)] backdrop-blur-md"
         >
           <header className="flex items-center justify-between">
             <Eyebrow tone="steel">detached sessions</Eyebrow>

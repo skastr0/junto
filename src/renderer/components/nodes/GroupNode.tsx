@@ -189,8 +189,8 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
       border: `1px solid ${plateBorder}`,
       pointerEvents: "none",
       background: node.color
-        ? `linear-gradient(135deg, ${withAlpha(tint, 0.08)}, rgba(13,12,11,0.25))`
-        : "linear-gradient(135deg, rgba(33,27,21,0.22), rgba(11,11,10,0.12))",
+        ? `linear-gradient(135deg, ${withAlpha(tint, 0.08)}, color-mix(in oklab, var(--color-ground) 25%, transparent))`
+        : "linear-gradient(135deg, color-mix(in oklab, var(--color-raise) 22%, transparent), color-mix(in oklab, var(--color-ground) 12%, transparent))",
       boxShadow: selected ? `0 0 0 1px ${withAlpha(HUE.amber, 0.18)}` : "none",
     }}
   >

@@ -23,7 +23,7 @@ export function InspectorTabs({
 }) {
   if (tabs.length === 0) return null;
   return (
-    <div role="tablist" aria-label="Inspector sections" className="flex items-center gap-0.5" style={{ borderBottom: "1px solid rgba(237,230,218,.12)" }}>
+    <div role="tablist" aria-label="Inspector sections" className="flex items-center gap-0.5" style={{ borderBottom: "1px solid var(--color-overlay-4)" }}>
       {tabs.map((tab) => {
         const isActive = tab.id === active;
         return (

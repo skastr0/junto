@@ -169,7 +169,7 @@ export function AgentLaunchContext({
             role="dialog"
             aria-label="Choose starting folder"
             data-canvas-menu-surface
-            className="focus-surface-popover fixed w-[min(420px,calc(100vw-24px))] rounded-[7px] border border-stroke bg-ground p-3 shadow-[0_18px_42px_rgba(0,0,0,.48)]"
+            className="focus-surface-popover fixed w-[min(420px,calc(100vw-24px))] rounded-[7px] border border-stroke bg-ground p-3 shadow-[0_18px_42px_var(--color-shadow-1)]"
             style={{ left: Math.max(12, Math.min(rect.left, window.innerWidth - 432)), bottom: window.innerHeight - rect.top + 8 }}
           >
             <div className="mb-3 flex items-center justify-between border-b border-stroke pb-2">

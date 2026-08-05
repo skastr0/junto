@@ -175,9 +175,9 @@ export function EdgeBoardNotifyToggle({ edge }: { readonly edge: CanvasEdge }) {
         className="inspector-flag-toggle"
         aria-pressed={on}
         style={{
-          color: on ? HUE.amber : "#68604a",
-          borderColor: on ? withAlpha(HUE.amber, 0.5) : "rgba(237,230,218,.12)",
-          background: on ? withAlpha(HUE.amber, 0.1) : "rgba(255,255,255,.02)",
+          color: on ? HUE.amber : "var(--color-faint)",
+          borderColor: on ? withAlpha(HUE.amber, 0.5) : "var(--color-overlay-4)",
+          background: on ? withAlpha(HUE.amber, 0.1) : "var(--color-overlay-1)",
         }}
         onClick={() => setEdgeNotify(edge.id, !on)}
       >
@@ -275,9 +275,9 @@ export function EdgePortsAttenuator({ edge }: { readonly edge: CanvasEdge }) {
               className="inspector-flag-toggle"
               title={port}
               style={{
-                color: isActive ? HUE.cyan : "#68604a",
-                borderColor: isActive ? withAlpha(HUE.cyan, 0.5) : "rgba(237,230,218,.12)",
-                background: isActive ? withAlpha(HUE.cyan, 0.1) : "rgba(255,255,255,.02)",
+                color: isActive ? HUE.cyan : "var(--color-faint)",
+                borderColor: isActive ? withAlpha(HUE.cyan, 0.5) : "var(--color-overlay-4)",
+                background: isActive ? withAlpha(HUE.cyan, 0.1) : "var(--color-overlay-1)",
               }}
               onClick={() => toggle(port)}
             >
@@ -731,7 +731,7 @@ export function RegionHoldControl({ node }: { readonly node: CanvasNode }) {
         className="inspector-flag-toggle"
         aria-label="Hold contents"
         aria-pressed={hold}
-        style={{ color: hold ? HUE.amber : "#68604a", borderColor: hold ? withAlpha(HUE.amber, 0.5) : "rgba(237,230,218,.12)", background: hold ? withAlpha(HUE.amber, 0.1) : "rgba(255,255,255,.02)" }}
+        style={{ color: hold ? HUE.amber : "var(--color-faint)", borderColor: hold ? withAlpha(HUE.amber, 0.5) : "var(--color-overlay-4)", background: hold ? withAlpha(HUE.amber, 0.1) : "var(--color-overlay-1)" }}
         onClick={() => setRegionHold(node.id, !hold)}
       >hold contents</button>
     </div>
@@ -1175,7 +1175,7 @@ export function WatcherEditor({ node }: { readonly node: CanvasNode }) {
         className="inspector-flag-toggle"
         aria-label="Flag when unsatisfied"
         aria-pressed={flagOnUnsatisfied}
-        style={{ color: flagOnUnsatisfied ? HUE.crimson : "#68604a", borderColor: flagOnUnsatisfied ? withAlpha(HUE.crimson, 0.5) : "rgba(237,230,218,.12)", background: flagOnUnsatisfied ? withAlpha(HUE.crimson, 0.1) : "rgba(255,255,255,.02)" }}
+        style={{ color: flagOnUnsatisfied ? HUE.crimson : "var(--color-faint)", borderColor: flagOnUnsatisfied ? withAlpha(HUE.crimson, 0.5) : "var(--color-overlay-4)", background: flagOnUnsatisfied ? withAlpha(HUE.crimson, 0.1) : "var(--color-overlay-1)" }}
         onClick={() => { const next = !flagOnUnsatisfied; setFlagOnUnsatisfied(next); commit({ flagOnUnsatisfied: next }); }}
       >flag when unsatisfied</button>
     </div>
@@ -1295,7 +1295,7 @@ export function TimerEditor({ node }: { readonly node: CanvasNode }) {
 
 export function NodeFlagControls({ node }: { readonly node: CanvasNode }) {
   const flags = node.ether?.flags ?? [];
-  return <div className="inspector-section"><div className="inspector-section__label"><Flag size={11} /> flags</div><div className="inspector-flags">{FLAG_OPTIONS.map(({ flag, hue }) => { const active = flags.includes(flag); return <button key={flag} type="button" className="inspector-flag-toggle" aria-pressed={active} style={{ color: active ? hue : "#68604a", borderColor: active ? withAlpha(hue, 0.5) : "rgba(237,230,218,.12)", background: active ? withAlpha(hue, 0.1) : "rgba(255,255,255,.02)" }} onClick={() => toggleFlag(node.id, flag)}>{flag}</button>; })}</div></div>;
+  return <div className="inspector-section"><div className="inspector-section__label"><Flag size={11} /> flags</div><div className="inspector-flags">{FLAG_OPTIONS.map(({ flag, hue }) => { const active = flags.includes(flag); return <button key={flag} type="button" className="inspector-flag-toggle" aria-pressed={active} style={{ color: active ? hue : "var(--color-faint)", borderColor: active ? withAlpha(hue, 0.5) : "var(--color-overlay-4)", background: active ? withAlpha(hue, 0.1) : "var(--color-overlay-1)" }} onClick={() => toggleFlag(node.id, flag)}>{flag}</button>; })}</div></div>;
 }
 
 export function ConnectEditor({ node, doc, open, onOpenChange }: { readonly node: CanvasNode; readonly doc: CanvasDoc; readonly open: boolean; readonly onOpenChange: (open: boolean) => void }) {

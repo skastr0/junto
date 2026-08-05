@@ -212,9 +212,9 @@ function WhenSection({
               aria-pressed={on}
               className="inspector-flag-toggle"
               style={{
-                color: on ? HUE.cyan : "#68604a",
-                borderColor: on ? withAlpha(HUE.cyan, 0.5) : "rgba(237,230,218,.12)",
-                background: on ? withAlpha(HUE.cyan, 0.1) : "rgba(255,255,255,.02)",
+                color: on ? HUE.cyan : "var(--color-faint)",
+                borderColor: on ? withAlpha(HUE.cyan, 0.5) : "var(--color-overlay-4)",
+                background: on ? withAlpha(HUE.cyan, 0.1) : "var(--color-overlay-1)",
               }}
               onClick={() => toggle(event)}
             >

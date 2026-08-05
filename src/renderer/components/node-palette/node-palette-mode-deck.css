@@ -11,10 +11,10 @@
 }
 
 .node-deck {
-  --deck-line: rgb(237 230 218 / 0.14);
-  --deck-line-hi: rgb(237 230 218 / 0.28);
-  --deck-hover: rgb(237 230 218 / 0.055);
-  --deck-selected: rgb(232 163 61 / 0.10);
+  --deck-line: var(--color-stroke);
+  --deck-line-hi: var(--color-stroke-hi);
+  --deck-hover: var(--color-overlay-2);
+  --deck-selected: color-mix(in oklab, var(--color-main) 10%, transparent);
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
   width: 100%;
@@ -38,7 +38,7 @@
   color: var(--color-dim);
   padding: 0 11px;
 }
-.node-deck__search-row:focus-within { border-color: rgb(57 198 214 / 0.72); box-shadow: 0 0 0 3px rgb(57 198 214 / 0.09); }
+.node-deck__search-row:focus-within { border-color: color-mix(in oklab, var(--color-second) 72%, transparent); box-shadow: 0 0 0 3px var(--color-focus-ring); }
 .node-deck__search-row input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--color-ink); font: inherit; font-size: 12px; line-height: 38px; }
 .node-deck__search-row input::placeholder { color: var(--color-faint); }
 
@@ -55,7 +55,7 @@
 
 .node-deck__tabs button { display: inline-flex; flex: 0 0 auto; align-items: center; min-height: 30px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--color-dim); padding: 0 9px; font: inherit; font-size: 9px; font-weight: 650; letter-spacing: .1em; text-transform: uppercase; cursor: pointer; }
 .node-deck__tabs button:hover { background: var(--deck-hover); color: var(--color-ink); }
-.node-deck__tabs button[aria-selected="true"] { border-color: rgb(232 163 61 / .45); background: var(--deck-selected); color: var(--color-amber-hi); }
+.node-deck__tabs button[aria-selected="true"] { border-color: color-mix(in oklab, var(--color-main) 45%, transparent); background: var(--deck-selected); color: var(--color-amber-hi); }
 
 .node-deck__body {
   display: grid;
@@ -73,7 +73,7 @@
 
 .node-deck__agents {
   border-right: 1px solid var(--deck-line);
-  background: rgb(12 11 10 / 0.2);
+  background: color-mix(in oklab, var(--color-ground) 20%, transparent);
   padding: 15px 14px 14px;
 }
 
@@ -92,7 +92,7 @@
   overflow: auto;
   overscroll-behavior: contain;
   padding: 2px;
-  scrollbar-color: rgb(237 230 218 / 0.2) transparent;
+  scrollbar-color: var(--color-stroke) transparent;
   scrollbar-width: thin;
 }
 
@@ -121,7 +121,7 @@
 }
 .node-deck__agent:hover,
 .node-deck__agent:focus-visible,
-.node-deck__agent.is-expanded { border-color: rgb(232 163 61 / .42); background: var(--deck-selected); color: var(--color-ink); outline: 0; }
+.node-deck__agent.is-expanded { border-color: color-mix(in oklab, var(--color-main) 42%, transparent); background: var(--deck-selected); color: var(--color-ink); outline: 0; }
 .node-deck__agent strong { overflow: hidden; color: inherit; font-size: 12px; font-weight: 650; letter-spacing: .01em; text-overflow: ellipsis; white-space: nowrap; }
 
 /* These portals must clear the FocusSurface work layer while preserving their anchors. */
@@ -201,7 +201,7 @@
   overflow-x: hidden;
   overflow-y: auto;
   padding-right: 4px;
-  scrollbar-color: rgb(237 230 218 / .2) transparent;
+  scrollbar-color: var(--color-stroke) transparent;
   scrollbar-width: thin;
 }
 .node-deck-catalog__card { background: transparent !important; box-shadow: none !important; }

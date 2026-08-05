@@ -74,7 +74,7 @@ import {
   type PrimaryCommandAction,
 } from "../../lib/command-card";
 import { playAlert } from "../../lib/sfx";
-import { HUE, withAlpha } from "../../lib/theme";
+import { GREEN, HUE, withAlpha } from "../../lib/theme";
 import { useAlertAttention } from "../../lib/alert-attention";
 import { kernel$ } from "../../lib/kernel-view";
 import { specOf } from "../../lib/node-spec";
@@ -105,7 +105,7 @@ const COLOR_OPTIONS: ReadonlyArray<{ readonly value: string; readonly label: str
   { value: "1", label: "red", hue: HUE.crimson },
   { value: "2", label: "orange", hue: HUE.orange },
   { value: "3", label: "gold", hue: HUE.gold },
-  { value: "4", label: "green", hue: "#5FB98E" },
+  { value: "4", label: "green", hue: GREEN },
   { value: "5", label: "cyan", hue: HUE.cyan },
   { value: "6", label: "violet", hue: HUE.violet },
 ];

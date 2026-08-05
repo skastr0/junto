@@ -1,4 +1,4 @@
-import { HUE, withAlpha } from "../../lib/theme";
+import { DIM, GREEN, HUE, withAlpha } from "../../lib/theme";
 
 export type StatusTone = "amber" | "cyan" | "crimson" | "green" | "violet" | "steel" | "dim";
 
@@ -6,10 +6,10 @@ const TONE_HEX: Record<StatusTone, string> = {
   amber: HUE.amber,
   cyan: HUE.cyan,
   crimson: HUE.crimson,
-  green: "#5FB98E",
+  green: GREEN,
   violet: HUE.violet,
   steel: HUE.steel,
-  dim: "#8a8378",
+  dim: DIM,
 };
 
 /**

@@ -257,8 +257,8 @@ export function Dropdown({
             aria-label={ariaLabel}
             aria-activedescendant={options[highlight] ? `${listId}-opt-${highlight}` : undefined}
             className={[
-              "overflow-y-auto rounded-[8px] border border-stroke bg-[rgba(19,17,16,0.98)]",
-              "py-1 shadow-[0_18px_48px_rgba(0,0,0,0.55)] backdrop-blur-xl outline-none",
+              "overflow-y-auto rounded-[8px] border border-stroke bg-inset/[0.98]",
+              "py-1 shadow-[0_18px_48px_var(--color-shadow-1)] backdrop-blur-xl outline-none",
               menuClassName ?? "",
             ]
               .filter(Boolean)

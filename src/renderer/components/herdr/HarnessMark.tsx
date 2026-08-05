@@ -47,7 +47,7 @@ export function HarnessMark({
             : withAlpha(hue, tile.known ? 0.14 : 0.1),
         border: `1px solid ${
           treatment === "neutral"
-            ? "rgba(237, 230, 218, 0.14)"
+            ? "var(--color-stroke)"
             : withAlpha(hue, focused ? 0.6 : 0.28)
         }`,
       }}

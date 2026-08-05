@@ -289,7 +289,7 @@ function FactoryPauseControl({ canvasName }: { readonly canvasName: string }) {
               ? {
                   color: GREEN,
                   borderColor: withAlpha(GREEN, 0.28),
-                  background: "rgba(255,255,255,0.02)",
+                  background: "var(--color-overlay-1)",
                 }
               : {
                   color: HUE.amber,
@@ -397,7 +397,7 @@ export function TopBar({
             style={{
               borderColor: observabilityOpen
                 ? withAlpha(HUE.cyan, 0.45)
-                : "rgba(237,230,218,0.16)",
+                : "var(--color-stroke)",
               color: observabilityOpen ? HUE.cyan : HUE.steel,
             }}
             onClick={() => {
@@ -410,7 +410,7 @@ export function TopBar({
         ) : null}
         {FLEET_UI_ENABLED ? (
           <button type="button" className="station-icon-button" aria-label="Open fleet manager" title="Fleet"
-            style={{ borderColor: "rgba(237,230,218,0.16)", color: HUE.steel }}
+            style={{ borderColor: "var(--color-stroke)", color: HUE.steel }}
             onPointerEnter={prefetchFleetChunk}
             onFocus={prefetchFleetChunk}
             onClick={() => { setHelpOpen(false); openFleet(); }}>
@@ -425,7 +425,7 @@ export function TopBar({
             {helpOpen ? <CanvasInteractionMap onClose={() => setHelpOpen(false)} /> : null}
           </>
         ) : null}
-        <button className="station-icon-button" aria-label="Open settings" style={{ borderColor: "rgba(237,230,218,0.16)", color: HUE.steel }} title="Settings" onClick={() => { setHelpOpen(false); openSettings(); }}>
+        <button className="station-icon-button" aria-label="Open settings" style={{ borderColor: "var(--color-stroke)", color: HUE.steel }} title="Settings" onClick={() => { setHelpOpen(false); openSettings(); }}>
           <Settings2 size={15} />
         </button>
       </div>

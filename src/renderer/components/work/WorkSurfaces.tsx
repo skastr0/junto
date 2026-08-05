@@ -10,7 +10,7 @@ import type { BoardPost, BoardTopic } from "@shared/work-model";
 import { isTerminalTaskState, taskBrief } from "@shared/task";
 import { sinkGlance } from "@shared/attention";
 import { openTaskCreateSurface } from "../../lib/dock-state";
-import { DIM, HUE, INK } from "../../lib/theme";
+import { DIM, GREEN, HUE, INK } from "../../lib/theme";
 import { FocusSurface } from "../FocusSurface";
 import { Button } from "../ui/Button";
 import { Input, Textarea } from "../ui/Field";
@@ -175,7 +175,7 @@ const runWorkCanvasMutation = <T,>(
 export const stateHue = (state: TaskState): string => {
   switch (state) {
     case "completed":
-      return "#5FB98E";
+      return GREEN;
     case "working":
       return HUE.cyan;
     case "input-required":

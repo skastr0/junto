@@ -104,7 +104,7 @@ function HerdrSections({ node }: { readonly node: CanvasNode }) {
       <button
         type="button"
         className="rounded-md border px-2 py-1 text-[9px] uppercase tracking-[.12em] transition hover:bg-white/5"
-        style={{ borderColor: "rgba(237,230,218,.14)", color: DIM }}
+        style={{ borderColor: "var(--color-stroke)", color: DIM }}
         onClick={() => void refreshHerdrMeta(node.id, herdr)}
       >
         refresh

@@ -76,10 +76,10 @@ export function DemoLayer() {
         bottom: 12,
         padding: "4px 8px",
         borderRadius: 4,
-        background: "rgba(12,11,10,.85)",
-        color: "#EDE6DA",
+        background: "color-mix(in oklab, var(--color-ground) 85%, transparent)",
+        color: "var(--color-ink)",
         fontSize: 11,
-        border: "1px solid rgba(237,230,218,0.16)",
+        border: "1px solid var(--color-stroke)",
       }}
     >
       <div>DEMO - F9 to roll - trailer-60</div>

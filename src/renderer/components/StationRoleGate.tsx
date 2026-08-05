@@ -113,7 +113,7 @@ export function StationRoleGate() {
         zIndex: 10050,
         display: "grid",
         placeItems: "center",
-        background: "rgba(0, 0, 0, 0.72)",
+        background: "var(--color-backdrop)",
         backdropFilter: "blur(2px)",
       }}
     >
@@ -124,7 +124,7 @@ export function StationRoleGate() {
           border: `1px solid ${STROKE}`,
           background: RAISE,
           padding: "28px 28px 22px",
-          boxShadow: "0 24px 80px rgba(0,0,0,0.55)",
+          boxShadow: "0 24px 80px var(--color-shadow-1)",
         }}
       >
         <Eyebrow tone="amber" className="text-[11px] mb-2">

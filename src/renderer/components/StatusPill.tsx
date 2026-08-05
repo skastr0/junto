@@ -1,12 +1,12 @@
 import { CheckCircle2, CircleAlert, CircleHelp, XCircle } from "lucide-react";
 import type { ServiceHealth } from "@shared/contracts";
-import { HUE, withAlpha } from "../lib/theme";
+import { DIM, GREEN, HUE, withAlpha } from "../lib/theme";
 
 const statusHex: Record<ServiceHealth, string> = {
-  ok: "#5FB98E",
+  ok: GREEN,
   warning: HUE.amber,
   error: HUE.crimson,
-  unknown: "#8a8378",
+  unknown: DIM,
 };
 
 const statusIcon = {

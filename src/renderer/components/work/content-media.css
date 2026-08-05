@@ -37,8 +37,8 @@
 .content-media--corrupt,
 .content-media--unavailable,
 .content-media--error {
-  border-color: rgb(229 72 77 / 0.34);
-  background: rgb(229 72 77 / 0.08);
+  border-color: color-mix(in oklab, var(--color-accent) 34%, transparent);
+  background: color-mix(in oklab, var(--color-accent) 8%, transparent);
   color: var(--color-crimson);
 }
 
@@ -76,7 +76,7 @@
   max-height: none;
   border-radius: 0;
   object-fit: contain;
-  background: rgb(0 0 0 / 0.2);
+  background: var(--color-shadow-2);
 }
 
 .content-media--bare.content-media--loading,

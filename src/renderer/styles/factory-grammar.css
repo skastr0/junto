@@ -14,7 +14,7 @@
 .vellum-node[data-node-kind="requests"] { border-radius: 4px 9px 9px 4px; }
 .vellum-node[data-node-kind="artifacts"] {
   border-radius: 3px;
-  background: linear-gradient(135deg, rgba(25,23,20,.88), rgba(12,11,10,.96)) !important;
+  background: linear-gradient(135deg, color-mix(in oklab, var(--color-raise) 88%, transparent), color-mix(in oklab, var(--color-ground) 96%, transparent)) !important;
 }
 .vellum-node[data-node-kind="board"] { border-radius: 5px; }
 .vellum-node[data-node-kind="cron"], .vellum-node[data-node-kind="timer"] { border-radius: 7px 11px 11px 7px; }
@@ -29,17 +29,17 @@
   height: 18px;
   margin: 0;
   padding: 0;
-  border: 1px solid rgb(237 230 218 / 0.14);
+  border: 1px solid var(--color-stroke);
   border-radius: 4px;
-  background: rgb(237 230 218 / 0.05);
-  color: var(--color-amber, #e8b86d);
+  background: var(--color-overlay-2);
+  color: var(--color-amber);
   cursor: pointer;
 }
 .factory-glance__enqueue:hover,
 .factory-glance__enqueue:focus-visible {
-  border-color: rgb(232 184 109 / 0.45);
-  background: rgb(232 184 109 / 0.12);
-  color: var(--color-ink, #ede6da);
+  border-color: color-mix(in oklab, var(--color-main) 45%, transparent);
+  background: color-mix(in oklab, var(--color-main) 12%, transparent);
+  color: var(--color-ink);
   outline: none;
 }
 .factory-glance__list { position: relative; }
@@ -59,7 +59,7 @@
   top: 4px;
   width: 6px;
   height: 8px;
-  border: 1px solid rgba(200,192,176,.44);
+  border: 1px solid color-mix(in oklab, var(--color-ink-2) 44%, transparent);
   border-radius: 1px;
 }
 .factory-glance__row--topic { padding-left: 10px; }
@@ -70,7 +70,7 @@
   top: 5px;
   width: 4px;
   height: 4px;
-  border: 1px solid rgba(143,163,176,.3);
+  border: 1px solid color-mix(in oklab, var(--color-steel) 30%, transparent);
   border-radius: 50%;
 }
 .factory-glance__empty { padding: 3px 0; }
@@ -125,7 +125,7 @@ path.vellum-edge--disabled {
   stroke-linecap: square;
   stroke-dasharray: 4 96;
   stroke-dashoffset: -58;
-  filter: drop-shadow(0 0 3px rgba(229,72,77,.5));
+  filter: drop-shadow(0 0 3px color-mix(in oklab, var(--color-accent) 50%, transparent));
 }
 .vellum-edge__flare {
   pointer-events: none;
@@ -133,7 +133,7 @@ path.vellum-edge--disabled {
   stroke-width: 2.2;
   stroke-linecap: round;
   stroke-dasharray: 1.6 98.4;
-  filter: drop-shadow(0 0 2px rgba(229,72,77,.64));
+  filter: drop-shadow(0 0 2px color-mix(in oklab, var(--color-accent) 64%, transparent));
   animation: factory-edge-arrival 760ms cubic-bezier(.22,.61,.36,1) both;
 }
 .vellum-edge__arrival-ring {
@@ -164,7 +164,7 @@ path.vellum-edge--disabled {
   stroke-width: 2.4;
   stroke-linecap: round;
   stroke-dasharray: 2.2 97.8;
-  filter: drop-shadow(0 0 3px rgba(232, 163, 61, .72));
+  filter: drop-shadow(0 0 3px color-mix(in oklab, var(--color-main) 72%, transparent));
   animation: factory-edge-spark 780ms cubic-bezier(.22, .61, .36, 1) both;
 }
 .vellum-edge__spark-flare--rev {
@@ -173,7 +173,7 @@ path.vellum-edge--disabled {
 .vellum-edge__spark-core {
   pointer-events: none;
   opacity: 0;
-  filter: drop-shadow(0 0 4px rgba(232, 163, 61, .9));
+  filter: drop-shadow(0 0 4px color-mix(in oklab, var(--color-main) 90%, transparent));
   animation: factory-edge-spark-core 780ms cubic-bezier(.22, .61, .36, 1) both;
 }
 @keyframes factory-edge-spark {

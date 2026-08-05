@@ -378,7 +378,7 @@ export function CronScheduleSurface({
 
         <div
           className="flex flex-col gap-1.5 border-t pt-2"
-          style={{ borderColor: "rgba(237,230,218,.08)" }}
+          style={{ borderColor: "var(--color-overlay-3)" }}
         >
           <div className="text-[11px] leading-snug" style={{ color: DIM }}>
             {fireHint}

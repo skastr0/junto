@@ -12,22 +12,22 @@ import { Dropdown, type DropdownOption } from "./Dropdown";
 const FIELD_CLASS = [
   "w-full rounded-[5px] border border-stroke bg-inset px-2 py-1.5",
   "text-[12px] text-ink placeholder:text-faint outline-none transition-colors",
-  "focus:border-cyan/60 focus:shadow-[0_0_0_3px_rgba(57,198,214,0.1)]",
+  "focus:border-cyan/60 focus:shadow-[0_0_0_3px_var(--color-focus-ring)]",
 ].join(" ");
 
 /** Form-field trigger chrome shared by Select (design-system Dropdown). */
 export const FIELD_SELECT_TRIGGER_CLASS = [
   FIELD_CLASS,
   "cursor-pointer min-h-[34px]",
-  "aria-expanded:border-cyan/60 aria-expanded:shadow-[0_0_0_3px_rgba(57,198,214,0.1)]",
+  "aria-expanded:border-cyan/60 aria-expanded:shadow-[0_0_0_3px_var(--color-focus-ring)]",
 ].join(" ");
 
 /** Compact inspector/settings chrome for Dropdown triggers. */
 export const INSPECTOR_SELECT_TRIGGER_CLASS = [
   "w-full min-h-[30px] rounded-[4px] border border-stroke bg-inset px-2 py-1.5",
   "text-[10px] text-ink outline-none transition-colors cursor-pointer",
-  "focus:border-cyan/60 focus:shadow-[0_0_0_3px_rgba(57,198,214,0.08)]",
-  "aria-expanded:border-cyan/60 aria-expanded:shadow-[0_0_0_3px_rgba(57,198,214,0.08)]",
+  "focus:border-cyan/60 focus:shadow-[0_0_0_3px_var(--color-focus-ring)]",
+  "aria-expanded:border-cyan/60 aria-expanded:shadow-[0_0_0_3px_var(--color-focus-ring)]",
 ].join(" ");
 
 export function Input({

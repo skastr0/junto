@@ -43,7 +43,7 @@ import {
 } from "../../lib/fleet-machine-model";
 import { activateOnPointerUp } from "../../lib/pointer-activation";
 import { state$ } from "../../lib/state";
-import { HUE, withAlpha } from "../../lib/theme";
+import { DIM, GREEN, HUE, withAlpha } from "../../lib/theme";
 import { updateState$ } from "../../lib/update-state";
 import { getVellumApi } from "../../lib/vellum-api";
 import { LinuxHostCapabilities } from "../LinuxHostCapabilities";
@@ -90,7 +90,7 @@ function reachabilityLine(probe?: FleetProbeState): {
           ? `reachable - ${probe.latencyMs} ms`
           : "reachable",
         detail: probe.detail,
-        color: "#5FB98E",
+        color: GREEN,
       };
     case "unreachable":
       return {
@@ -99,7 +99,7 @@ function reachabilityLine(probe?: FleetProbeState): {
         color: HUE.crimson,
       };
     default:
-      return { text: "link untested", color: "#8a8378" };
+      return { text: "link untested", color: DIM };
   }
 }
 

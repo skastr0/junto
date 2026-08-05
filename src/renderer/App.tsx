@@ -434,7 +434,7 @@ export function App() {
   }, []);
 
   return (
-    <div className="vellum-app flex h-screen w-screen flex-col overflow-hidden" style={{ background: "#0c0b0a" }}>
+    <div className="vellum-app flex h-screen w-screen flex-col overflow-hidden" style={{ background: "var(--color-ground)" }}>
       <TopBar
         onOpen={(name) => void openCanvas(name)}
         onCreate={(name) => void createCanvas(name)}
@@ -448,7 +448,7 @@ export function App() {
           <div
             role="alert"
             className="error-banner absolute left-1/2 top-3 z-50 -translate-x-1/2 rounded-md border px-3 py-1.5 text-[11px]"
-            style={{ borderColor: "rgba(229,72,77,0.4)", background: "rgba(229,72,77,0.12)", color: "#EDE6DA" }}
+            style={{ borderColor: "color-mix(in oklab, var(--color-accent) 40%, transparent)", background: "color-mix(in oklab, var(--color-accent) 12%, transparent)", color: "var(--color-ink)" }}
           >
             <button type="button" className="error-banner__close" aria-label="Dismiss warning" onClick={() => state$.error.set("")}>×</button>
             <span className="error-banner__label">renderer / data warning</span>

@@ -54,7 +54,7 @@
   font-weight: 600;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: rgba(143, 163, 176, 0.85);
+  color: color-mix(in oklab, var(--color-steel) 85%, transparent);
   line-height: 1;
   flex-shrink: 0;
   padding-left: 2px;
@@ -79,8 +79,8 @@
   flex-shrink: 0;
   overflow: hidden;
   border-radius: 999px;
-  border: 1px solid rgba(237, 230, 218, 0.12);
-  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--color-overlay-4);
+  background: var(--color-overlay-1);
 }
 
 .rts-kind-id__avatar img {
@@ -103,7 +103,7 @@
 .rts-kind-id__name {
   font-size: 12px;
   font-weight: 600;
-  color: #ede6da;
+  color: var(--color-ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -114,7 +114,7 @@
   margin-top: 1px;
   font-size: 9px;
   letter-spacing: 0.04em;
-  color: rgba(143, 163, 176, 0.95);
+  color: color-mix(in oklab, var(--color-steel) 95%, transparent);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -127,10 +127,10 @@
   flex-direction: column;
   max-height: min(72vh, 640px);
   overflow: hidden;
-  border: 1px solid rgba(237, 230, 218, 0.12);
+  border: 1px solid var(--color-overlay-4);
   border-radius: 10px;
-  background: rgba(12, 11, 10, 0.96);
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+  background: color-mix(in oklab, var(--color-ground) 96%, transparent);
+  box-shadow: 0 16px 48px var(--color-shadow-1);
 }
 
 /* Fit panels size to content — body must not flex-fill empty height. */
@@ -179,7 +179,7 @@
   font-size: 8px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: rgba(138, 131, 120, 0.9);
+  color: color-mix(in oklab, var(--color-dim) 90%, transparent);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -197,9 +197,9 @@
   z-index: 40;
   padding: 8px;
   border-radius: 8px;
-  border: 1px solid rgba(237, 230, 218, 0.14);
-  background: rgba(12, 11, 10, 0.96);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  border: 1px solid var(--color-stroke);
+  background: color-mix(in oklab, var(--color-ground) 96%, transparent);
+  box-shadow: 0 12px 32px var(--color-shadow-1);
 }
 
 .rts-kind-pop--editor {
@@ -214,16 +214,16 @@
   font-size: 9px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: rgba(143, 163, 176, 0.9);
+  color: color-mix(in oklab, var(--color-steel) 90%, transparent);
 }
 
 .rts-kind-pop__field input {
   width: 100%;
   padding: 4px 6px;
   border-radius: 4px;
-  border: 1px solid rgba(237, 230, 218, 0.12);
-  background: rgba(0, 0, 0, 0.25);
-  color: #ede6da;
+  border: 1px solid var(--color-overlay-4);
+  background: var(--color-shadow-2);
+  color: var(--color-ink);
   font-size: 11px;
   text-transform: none;
   letter-spacing: normal;
@@ -234,7 +234,7 @@
   font-size: 9px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: rgba(229, 72, 77, 0.85);
+  color: color-mix(in oklab, var(--color-accent) 85%, transparent);
 }
 
 /* The criteria editor reuses inspector chrome inside the pop. */
@@ -253,20 +253,20 @@
   height: 14px;
   flex-shrink: 0;
   border-radius: 999px;
-  border: 1px solid rgba(237, 230, 218, 0.16);
-  background: rgba(255, 255, 255, 0.03);
-  color: rgba(143, 163, 176, 0.75);
+  border: 1px solid var(--color-stroke);
+  background: var(--color-overlay-1);
+  color: color-mix(in oklab, var(--color-steel) 75%, transparent);
   cursor: pointer;
   transition: border-color 0.1s ease, color 0.1s ease, background 0.1s ease;
 }
 
 .rts-chip__pause:hover {
-  border-color: rgba(237, 230, 218, 0.4);
-  color: #ede6da;
+  border-color: color-mix(in oklab, var(--color-ink) 40%, transparent);
+  color: var(--color-ink);
 }
 
 .rts-chip__pause.is-paused {
-  color: #e8a33d;
-  border-color: rgba(232, 163, 61, 0.55);
-  background: rgba(232, 163, 61, 0.12);
+  color: var(--color-amber);
+  border-color: color-mix(in oklab, var(--color-main) 55%, transparent);
+  background: color-mix(in oklab, var(--color-main) 12%, transparent);
 }

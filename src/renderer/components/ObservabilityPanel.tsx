@@ -123,7 +123,7 @@ function LogRow({ entry }: { readonly entry: ObservabilityLogEntry }) {
   return (
     <div
       className="border-b px-3 py-1.5 font-mono text-[11px] leading-relaxed"
-      style={{ borderColor: "rgba(237,230,218,0.06)" }}
+      style={{ borderColor: "var(--color-overlay-2)" }}
     >
       <button
         type="button"
@@ -358,7 +358,7 @@ export function ObservabilityPanel() {
         type="button"
         className="absolute inset-0"
         aria-label="Close logs explorer"
-        style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(2px)" }}
+        style={{ background: "color-mix(in oklab, var(--color-umbra) 55%, transparent)", backdropFilter: "blur(2px)" }}
         onClick={close}
       />
       <aside
@@ -367,7 +367,7 @@ export function ObservabilityPanel() {
         aria-label="Observability logs"
         className="relative z-10 flex h-full w-[min(720px,92vw)] flex-col border-l"
         style={{
-          borderColor: "rgba(237,230,218,0.12)",
+          borderColor: "var(--color-overlay-4)",
           background: WELL,
         }}
       >
@@ -411,7 +411,7 @@ export function ObservabilityPanel() {
 
         <div
           className="flex shrink-0 flex-col gap-2 border-b px-3 py-2"
-          style={{ borderColor: "rgba(237,230,218,0.1)", background: RAISE }}
+          style={{ borderColor: "var(--color-overlay-4)", background: RAISE }}
         >
           <label className="flex items-center gap-2">
             <Filter size={12} style={{ color: FAINT }} />
@@ -423,7 +423,7 @@ export function ObservabilityPanel() {
               aria-label="Filter logs"
               className="min-w-0 flex-1 rounded border bg-transparent px-2 py-1 font-mono text-[11px] outline-none"
               style={{
-                borderColor: "rgba(237,230,218,0.14)",
+                borderColor: "var(--color-stroke)",
                 color: INK,
               }}
             />

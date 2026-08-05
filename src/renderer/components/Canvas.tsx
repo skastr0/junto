@@ -61,7 +61,7 @@ import { contentObjectUrl } from "@shared/content-url";
 import { BROWSER_ENABLED, HERDR_ENABLED } from "@shared/features";
 import { openHerdrWizard } from "../lib/herdr-state";
 import { describeConnectPreview } from "../lib/connect-preview";
-import { GROUND, HUE } from "../lib/theme";
+import { GROUND, HUE, INK, withAlpha } from "../lib/theme";
 import type { MemberSeverity } from "@shared/region-rollup";
 import { minimapFill, signalMark } from "../lib/signal-mark";
 import { nodeTypes } from "./nodes";
@@ -1077,10 +1077,10 @@ function RtsMinimapStack() {
         nodeStrokeColor={(node) => {
           const severity = severityByNodeId[node.id] as MemberSeverity | undefined;
           if (severity && severity !== "idle") return signalMark(severity).hue;
-          return "rgba(12,11,10,0.85)";
+          return withAlpha(GROUND, 0.85);
         }}
         nodeStrokeWidth={1.5}
-        maskColor="rgba(12,11,10,0.72)"
+        maskColor={withAlpha(GROUND, 0.72)}
         onClick={onMiniMapClick}
         onNodeClick={onMiniMapNodeClick}
         ariaLabel="Strategic minimap — click to move camera, double-click to zoom, click a node to focus"
@@ -1088,7 +1088,7 @@ function RtsMinimapStack() {
         // *numbers* for viewScale + mask path math (`M${x}h${w}v${h}…`). A percent
         // string → NaN → console spam on every pan/scroll. Size the panel via
         // .rts-minimap-wrap CSS (100% inset); math falls back to 200×150 defaults.
-        style={{ background: "rgba(12,11,10,0.9)", border: "1px solid rgba(237,230,218,0.1)" }}
+        style={{ background: "color-mix(in oklab, var(--color-ground) 90%, transparent)", border: "1px solid var(--color-overlay-4)" }}
       />
       <FieldControls />
     </>
@@ -1421,7 +1421,7 @@ function CanvasGraph() {
       proOptions={{ hideAttribution: true }}
       style={{ background: GROUND }}
     >
-      <Background variant={BackgroundVariant.Dots} gap={26} size={1} color="rgba(237,230,218,0.07)" />
+      <Background variant={BackgroundVariant.Dots} gap={26} size={1} color={withAlpha(INK, 0.07)} />
       <CanvasMagnifier />
       <ImpactSeedChip />
       <ConnectPreviewChip />
