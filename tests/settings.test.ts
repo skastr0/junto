@@ -110,7 +110,7 @@ describe("settings contract", () => {
     ).toBe(true);
   });
 
-  it("maps the retired deep-field theme value to dark on decode", () => {
+  it("maps the pre-rename theme value to dark on decode", () => {
     const { version: _version, station, ...preferences } = defaultSettings();
     const decoded = decodeStoredSettings(
       SETTINGS_VERSION,

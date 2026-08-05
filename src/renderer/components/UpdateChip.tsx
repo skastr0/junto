@@ -7,7 +7,7 @@ import {
 } from "../lib/update-state";
 
 /**
- * Deep-field chrome chip: surfaces when an update is ready or installing.
+ * Chrome chip: surfaces when an update is ready or installing.
  * Explicit "Restart to update" only — never auto-installs on quit.
  */
 export function UpdateChip() {

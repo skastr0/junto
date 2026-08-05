@@ -1245,7 +1245,7 @@ html[data-vellum-platform="darwin"] .station-bar [role="listbox"] {
   }
 }
 
-/* --- React Flow surface, restyled for the deep field ------------------- */
+/* --- React Flow surface, restyled for the canvas ground ---------------- */
 .react-flow {
   background: transparent;
 }
@@ -2111,7 +2111,7 @@ html[data-surface-motion="paused"] .vellum-node[data-seat-attention="true"] {
 .vellum-modal__summary { cursor: pointer; color: var(--color-dim); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; }
 .vellum-modal__summary::marker { color: var(--color-faint); }
 
-/* Comment composer: one-line-growing textarea + submit, deep-field styled to
+/* Comment composer: one-line-growing textarea + submit, styled to
    match .inspector-editor's input/textarea treatment. */
 .vellum-modal__comment { margin-top: 14px; border-top: 1px solid var(--color-overlay-3); padding-top: 12px; }
 .vellum-modal__comment-row { display: flex; align-items: flex-end; gap: 6px; }
@@ -2264,7 +2264,7 @@ html[data-surface-motion="paused"] .vellum-node[data-seat-attention="true"] {
 }
 
 /* Freeform notes = survey plates on the field.
-   Deep-field ink ladder (not pure white). Structure from markdown only.
+   Ink ladder (not pure white). Structure from markdown only.
    System fonts stand in for brand faces: condensed display + mono body
    (Big Shoulders / Martian Mono on the public site; no webfont ship here).
    Parked: wiki links, source chips, task checkboxes, agent-shorthand. */
@@ -2448,7 +2448,7 @@ ol.note-md__list > .note-md__li::before {
   border-bottom-color: var(--color-amber);
 }
 
-/* Registration rule — deep-field plate divider. */
+/* Registration rule — plate divider. */
 .note-md__figure {
   margin: 0 0 0.55em;
   min-width: 0;
@@ -3006,7 +3006,7 @@ ol.note-md__list > .note-md__li::before {
 
 /* =============================================================================
    Fleet manager — clean fleet map. Command Center at the center, remote
-   stations on orbit, icon medallions tinted per host. Deep-field palette,
+   stations on orbit, icon medallions tinted per host. House palette,
    no scenic layers.
    ============================================================================= */
 .focus-surface__panel.fleet-panel {

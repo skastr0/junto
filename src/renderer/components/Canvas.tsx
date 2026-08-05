@@ -61,7 +61,8 @@ import { contentObjectUrl } from "@shared/content-url";
 import { BROWSER_ENABLED, HERDR_ENABLED } from "@shared/features";
 import { openHerdrWizard } from "../lib/herdr-state";
 import { describeConnectPreview } from "../lib/connect-preview";
-import { GROUND, HUE, INK, withAlpha } from "../lib/theme";
+import { HUE, themeFor, withAlpha } from "../lib/theme";
+import { themeMode$ } from "../lib/theme-mode";
 import type { MemberSeverity } from "@shared/region-rollup";
 import { minimapFill, signalMark } from "../lib/signal-mark";
 import { nodeTypes } from "./nodes";
@@ -1023,6 +1024,7 @@ function FieldControls() {
 function RtsMinimapStack() {
   const rf = useReactFlow<FlowNode, FlowEdge>();
   const severityByNodeId = use$(state$.regionSeverityByNodeId) as Readonly<Record<string, string>>;
+  const minimapTheme = themeFor(use$(themeMode$));
   const lastClickAt = useRef(0);
   const lastClickPos = useRef<{ x: number; y: number } | null>(null);
 
@@ -1077,10 +1079,10 @@ function RtsMinimapStack() {
         nodeStrokeColor={(node) => {
           const severity = severityByNodeId[node.id] as MemberSeverity | undefined;
           if (severity && severity !== "idle") return signalMark(severity).hue;
-          return withAlpha(GROUND, 0.85);
+          return withAlpha(minimapTheme.ground!, 0.85);
         }}
         nodeStrokeWidth={1.5}
-        maskColor={withAlpha(GROUND, 0.72)}
+        maskColor={withAlpha(minimapTheme.ground!, 0.72)}
         onClick={onMiniMapClick}
         onNodeClick={onMiniMapNodeClick}
         ariaLabel="Strategic minimap — click to move camera, double-click to zoom, click a node to focus"
@@ -1188,6 +1190,7 @@ function ConnectPreviewChip() {
 
 function CanvasGraph() {
   const { nodes, edges, onNodesChange, onEdgesChange, interactions, rf } = useCanvasGraph();
+  const fieldTheme = themeFor(use$(themeMode$));
   // While a connection drag is live, every card shows its dots so targets are
   // discoverable mid-gesture.
   const connecting = useConnection((connection) => connection.inProgress);
@@ -1419,9 +1422,9 @@ function CanvasGraph() {
       minZoom={0.15}
       maxZoom={2.5}
       proOptions={{ hideAttribution: true }}
-      style={{ background: GROUND }}
+      style={{ background: fieldTheme.ground }}
     >
-      <Background variant={BackgroundVariant.Dots} gap={26} size={1} color={withAlpha(INK, 0.07)} />
+      <Background variant={BackgroundVariant.Dots} gap={26} size={1} color={withAlpha(fieldTheme.ink!, 0.07)} />
       <CanvasMagnifier />
       <ImpactSeedChip />
       <ConnectPreviewChip />

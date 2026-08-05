@@ -72,9 +72,9 @@ export const preferencesFromSettings = (
 });
 
 // Decode-admits-history: rows written before the theme rename may carry the
-// retired "deep-field" mode name; it is today's "dark". The rename is
-// value-level, so the stored document version and table DDL stay untouched;
-// the next persist rewrites the value.
+// retired mode value; it is today's "dark". The rename is value-level, so the
+// stored document version and table DDL stay untouched; the next persist
+// rewrites the value.
 const migrateLegacyPreferences = (preferences: unknown): unknown => {
   if (typeof preferences !== "object" || preferences === null) {
     return preferences;

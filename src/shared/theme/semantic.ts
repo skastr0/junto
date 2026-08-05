@@ -93,7 +93,10 @@ export const SEMANTIC_DARK: Record<string, TokenValue> = {
 const brightNeutrals = NEUTRALS.bright;
 const brightHues = HUES.bright;
 
-// Only what differs from dark. Mixes of ink/ground/umbra flip by construction.
+// Only what differs from dark. Strokes flip by construction (ink-at-alpha);
+// the rest of this map is the daylight edition's own assignments: on paper a
+// scrim must DIM (toward umbra, not toward the paper), hover overlays need
+// roughly double the ink to register, and the focus halo needs more presence.
 export const SEMANTIC_BRIGHT_OVERRIDES: Record<string, TokenValue> = {
   ground: solid(brightNeutrals.ground),
   raise: solid(brightNeutrals.raise),
@@ -105,6 +108,12 @@ export const SEMANTIC_BRIGHT_OVERRIDES: Record<string, TokenValue> = {
   dim: solid(brightNeutrals.dim),
   faint: solid(brightNeutrals.faint),
   umbra: solid(brightNeutrals.umbra),
+  "overlay-1": mix("ink", 5),
+  "overlay-2": mix("ink", 8),
+  "overlay-3": mix("ink", 11),
+  "overlay-4": mix("ink", 14),
+  backdrop: mix("umbra", 18),
+  "focus-ring": mix("second", 22),
   // Shadows earn their keep on paper: softer than dark's occluding scrims,
   // warm-tinted via umbra.
   "shadow-1": mix("umbra", 28),

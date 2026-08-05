@@ -1,11 +1,13 @@
 # Theme system plan — tokenized themes, dark/bright modes, color roles
 
-Status: green-lit (2026-08-05), with amendments: the enforcement layer
-(sync test, contrast test, lint guard) is **tabled — build later**; the name
-"deep-field" is **retired entirely** — it is not a mode name and no longer
-names the design language. The system is just the Vellum Command design
-system; its modes are `dark` and `bright`. Stray "deep-field" references in
-docs/comments get cleaned as touched.
+Status: phases 0-2 **landed** (2026-08-05) — phase 0 `7d2c4be4`, phase 1
+`ed377704` + `3583ba38`, phase 2 `cc8a8835`. Phase 3 (bright craft pass +
+verification) is in progress. The enforcement layer (sync test, contrast
+test, lint guard) remains **tabled — build later**. The name "deep-field" is
+**retired entirely** — it is not a mode name and no longer names the design
+language. The system is just the Vellum Command design system; its modes are
+`dark` and `bright`. Stray "deep-field" references in docs/comments get
+cleaned as touched.
 
 Scope: renderer design system, runtime palette consumers, SVG export,
 main-process chrome colors, settings schema.
@@ -100,15 +102,15 @@ Tier 1 primitives (examples): `neutral-{0..1000}` per mode, `hue-amber-*`,
 | `ground` `raise` `raise-2` `inset` `well` | `#0c0b0a` `#16130f` `#141210` `#131110` `#090807` | field + elevation ladder |
 | `ink` `ink-2` `dim` `faint` | `#ede6da` `#c8c0b0` `#8a8378` `#68604a` | text ladder |
 | `stroke` `stroke-hi` | ink 14% / ink 28% | becomes `color-mix(in oklab, var(--color-ink) N%, transparent)` — flips for free |
-| `overlay-1/2/3` | ink 4% / 7% / 10% | absorbs `rgba(255,255,255,x)` and `bg-white/[0.04]` |
+| `overlay-1/2/3/4` | ink 3% / 5% / 7% / 10% | absorbs `rgba(255,255,255,x)` and `bg-white/[0.04]` |
 | `backdrop` | ground 72% | absorbs `rgba(0,0,0,0.72)` scrims |
-| `shadow-1/2` | toward-ground alphas | panel shadows, warm-tinted on bright |
+| `umbra` `shadow-1/2` | umbra 55% / 42% (bright: 28% / 18%) | panel shadows, warm-tinted on bright |
 | `focus-ring` | second 10% 3px ring | absorbs `shadow-[0_0_0_3px_rgba(57,198,214,0.1)]` |
 | `main` `main-hi` `main-fg` | amber family | primary identity, actions |
-| `second` `second-hi` `second-fg` | cyan family | info, focus, selection |
+| `second` `second-fg` | cyan family | info, focus, selection |
 | `accent` `accent-fg` | crimson | blockers only (law survives) |
-| `category-{violet,steel,indigo,gold,orange,green}` | existing hues | JSON Canvas presets, entity/source hues — named categories, not decoration |
-| `selection` | main 28%/16% | text + xterm selection |
+| `{violet,steel,indigo,gold,orange,green}` | existing hues | JSON Canvas presets, entity/source hues — named categories, not decoration |
+| `selection` `selection-inactive` | main 28% / 16% | text + xterm selection |
 
 Every hue role ships three variants per mode: **base** (display: dots, canvas
 accents, edge paint — saturation allowed), **fg** (text/icons, contrast-gated),
@@ -129,8 +131,10 @@ their resting surfaces ≥ 4.5, `accent-fg/ground` ≥ 4.5.
   (`lib/theme-mode.ts`) that sets the attribute and publishes the resolved
   mode on the settings store for runtime consumers (xterm, Three.js, canvas
   paint).
-- Settings schema: `SettingsTheme` becomes `"dark" | "bright" | "system"`;
-  `SETTINGS_VERSION` 1→2 with a migration mapping `deep-field → dark`.
+- Settings schema: `SettingsTheme` becomes `"dark" | "bright" | "system"`.
+  Landed as a value-level decode mapping (`deep-field → dark` in
+  `src/main/vellum/settings/state-schema.ts`); `SETTINGS_VERSION` stays 1 —
+  no stored-document version bump, the next persist rewrites the value.
   `SettingsPanel.tsx` gains the Appearance section (segmented mode control,
   composed from existing ui primitives).
 
@@ -187,13 +191,13 @@ Sequenced so the swarm only runs after the taxonomy it maps against exists.
 Dark mode must be pixel-identical through phases 1–2 — the design-audit e2e
 frames are the before/after proof.
 
-**Phase 0 — foundation (single thread, no swarm)**
+**Phase 0 — foundation (single thread, no swarm)** — landed `7d2c4be4`
 1. `src/shared/theme/` primitives + semantic (dark = today's exact values,
    converted to OKLCH losslessly; bright = first full draft).
 2. `scripts/theme-build.ts` + generated CSS + `theme.ts` re-export shim.
 3. `bun run typecheck && bun run test` green; design-audit frames unchanged.
 
-**Phase 1 — tokenization swarm (dark-mode-neutral, parallel by chunk)**
+**Phase 1 — tokenization swarm (dark-mode-neutral, parallel by chunk)** — landed `ed377704` + `3583ba38`
 Each swarm agent gets: the taxonomy table, the literal→token mapping rules
 (ink-alpha → `stroke`/`overlay-N`, white overlay → `overlay-N`, black scrim →
 `backdrop`, hue-alpha → `color-mix` of the role token), and one chunk:
@@ -212,15 +216,16 @@ Each swarm agent gets: the taxonomy table, the literal→token mapping rules
 Gate per chunk: typecheck green, targeted tests green, no visual change in
 dark mode. (The lint guard joins the gate when the enforcement layer lands.)
 
-**Phase 2 — mode plumbing (single thread)**
-Settings schema 1→2 + migration, `lib/theme-mode.ts`, Appearance section in
-SettingsPanel, xterm/fleet/magnifier/svg mode wiring, main-process colors.
+**Phase 2 — mode plumbing (single thread)** — landed `cc8a8835`
+Settings decode mapping (value-level, `SETTINGS_VERSION` stays 1),
+`lib/theme-mode.ts`, Appearance section in SettingsPanel,
+xterm/fleet/magnifier/svg mode wiring, main-process colors.
 
-**Phase 3 — bright craft pass + verification**
+**Phase 3 — bright craft pass + verification** — in progress
 Design-audit e2e in both modes; screenshot review of every surface on paper;
 tune bright values (fg variants, glows, shadows) until the bright frames hold
-up next to the Ether references; update `AGENTS.md` (design system section,
-including the retired "deep-field" name) and `docs/`.
+up next to the Ether references; update `AGENTS.md` (design system section —
+done, including the retired "deep-field" name) and `docs/`.
 
 ## Verification
 
@@ -235,7 +240,8 @@ including the retired "deep-field" name) and `docs/`.
 - **OKLCH in `@theme`**: fine in current Electron Chromium + Tailwind v4.
 - **`color-mix` tokens**: supported same engines; lets strokes/overlays flip
   for free. Fallback is per-mode literal alphas if a consumer chokes.
-- **Settings enum change** is a schema migration; `deep-field` retires as a
+- **Settings enum change** landed without a schema migration — a value-level
+  decode mapping, `SETTINGS_VERSION` stays 1. `deep-field` retires as a
   *mode name* — and the name itself retires from the design vocabulary
   entirely (operator call, 2026-08-05).
 - **Recovery HTML stays dark**: it renders before settings load; dark is the

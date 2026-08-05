@@ -2,7 +2,9 @@
  * Design-audit capture — NOT a correctness spec. Drives every reachable UI
  * surface with seeded fixtures + the fake herdr/hermes/codexbar binaries and
  * screenshots each one to test-results/design-audit/ for visual review.
+ *   VELLUM_FEATURE_PROFILE=all-on electron-vite build   # fleet/usage/help/herdr surfaces
  *   bun run test:e2e:fast e2e/scenarios/design-audit.spec.ts
+ * A plain ship-profile build hides those surfaces and fails this spec.
  * The screenshots are the artifact; assertions only prove a surface appeared.
  */
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
@@ -548,9 +550,7 @@ test("capture every surface for design review", async () => {
       }),
     ).toBeVisible();
     await shot(page, "06c-task-flow-details");
-    await taskFlow
-      .getByRole("button", { name: "Enqueue", exact: true })
-      .click();
+    await taskFlow.getByTestId("task-board-enqueue").click();
     const taskCreator = page.getByRole("dialog", { name: "Create task" });
     await expect(taskCreator).toBeVisible();
     await shot(page, "06d-task-flow-create");
@@ -620,15 +620,10 @@ test("capture every surface for design review", async () => {
       .locator(".react-flow__node", { hasText: "jsoncanvas.org" })
       .first();
     // PageCard's main action attaches the browser surface. Select its blank
-    // chrome instead, then inspect the bound host through the kind fields.
+    // chrome instead; page kinds no longer expose a fields sheet
+    // (showFieldsKey excludes "page"), so capture the selected kind strip.
     await pageNode.click({ position: { x: 120, y: 5 }, force: true });
-    await page.getByRole("button", { name: "Open fields" }).click();
-    await expect(page.getByLabel("Page browser host")).toBeVisible();
-    await shot(page, "08b-page-host-inspector");
-    await page.keyboard.press("Escape");
-    await expect(
-      page.getByRole("dialog", { name: "page fields" }),
-    ).toBeHidden();
+    await shot(page, "08b-page-kind-strip");
 
     // ACP chat is intentionally retired; agent seats use managed terminals.
     // The terminal focus capture below covers the remaining live-seat surface.
@@ -658,14 +653,15 @@ test("capture every surface for design review", async () => {
     await herdrPanel.getByRole("button", { name: "Close" }).click();
     await page.waitForTimeout(400);
 
-    // Settings panel.
+    // Settings panel. The Hosts section was retired; Browser is the
+    // deepest product section in an all-on build.
     await page.getByRole("button", { name: "Open settings" }).click();
     await shot(page, "13-settings");
-    await page.getByText("Hosts", { exact: true }).click();
+    await page.locator(".settings-nav__item", { hasText: "Browser" }).click();
     await expect(
-      page.getByText("Browser", { exact: true }).first(),
+      page.getByRole("heading", { name: "Browser", exact: true }),
     ).toBeVisible();
-    await shot(page, "13b-settings-hosts");
+    await shot(page, "13b-settings-browser");
     await page.keyboard.press("Escape");
     await page.waitForTimeout(300);
 
@@ -732,6 +728,10 @@ test("capture every surface for design review", async () => {
         await folder
           .getByRole("button", { name: "Close folder picker" })
           .click();
+        // The hover-opened cascade overlays the catalog and intercepts card
+        // clicks. Move to neutral deck chrome so closeCascadeSoon retires it.
+        await deck.getByLabel("Search nodes and agents").hover();
+        await models.waitFor({ state: "hidden" });
       }
       const termWiz = deck.getByRole("button", {
         name: /Terminal/,
@@ -950,7 +950,7 @@ test("capture the fleet manager overlay", async () => {
     await expect(page.getByText("Custom silhouette")).toBeVisible();
     await expect(resolvedModel).toHaveText("Mac Studio");
     await page
-      .getByRole("button", { name: "Automatically choose station silhouette" })
+      .getByRole("button", { name: "Automatically choose machine silhouette" })
       .click();
     await expect(page.getByText("Automatic silhouette")).toBeVisible();
     await expect(resolvedModel).toHaveText("Mac mini");

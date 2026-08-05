@@ -129,7 +129,7 @@ export const edgePhase = (status: FleetEdgeStatus): FleetEdgeVisual => {
   }
 };
 
-/** Deep-field accent rotation for fleet host nodes. */
+/** Accent rotation for fleet host nodes. */
 export const FLEET_COLORS: readonly string[] = [
   HUE.amber,
   HUE.cyan,

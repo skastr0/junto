@@ -2,14 +2,14 @@
 
 **This library is a seed, not a museum.** The token language below is binding — the palette, the elevation and ink ladders, the type system. The component implementations are the app's *current state*, imported so you can refine them: iterate boldly on composition, spacing, and structure, but stay inside the token language. Do not pixel-match the current components when a better design serves the same intent.
 
-## The deep field (non-negotiables)
+## The canvas ground (non-negotiables)
 
-- Dark only. The ground is never pure black — the field is `--color-ground` (#0c0b0a).
+- Two modes, one language: `dark` (default) and `bright` ride the same tokens via `html[data-theme="bright"]`; tokens come from `src/shared/theme/` through `bun run theme:build`. The ground is never pure black, never pure white — the field is `--color-ground`.
 - Amber is home: roughly 95% of accent usage is amber; the other hues are sparse punctuation.
 - **Crimson is reserved for blockers** — never decorative, never a generic "error red" wash.
 - Type is a mono instrument (`--font-mono`, SF Mono stack) with a condensed display stamp (`--font-display`, Arial Narrow stack) for eyebrows/stamps. Uppercase + wide tracking for labels and eyebrows.
 
-## Tokens (defined in styles.css — read it first)
+## Tokens (sourced in src/shared/theme/, projected to src/renderer/styles/theme.generated.css)
 
 - Elevation ladder: `--color-ground` (field) → `--color-raise` (cards/panels) → `--color-raise-2` (panel header strips) → `--color-inset` (sunken inputs, toolbar pills) → `--color-well` (deepest, code blocks).
 - Ink ladder: `--color-ink` (primary text) → `--color-ink-2` (secondary) → `--color-dim` (meta) → `--color-faint` (eyebrows, placeholders).

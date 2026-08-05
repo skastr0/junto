@@ -55,14 +55,14 @@ export const NEUTRALS: Record<"dark" | "bright", NeutralRamp> = {
     umbra: { l: 0, c: 0, h: 0 }, // shadow source
   },
   bright: {
-    ground: { l: 0.955, c: 0.012, h: 85 }, // warm paper — never pure white
+    ground: { l: 0.945, c: 0.012, h: 85 }, // warm paper — never pure white
     raise: { l: 0.978, c: 0.007, h: 85 }, // panels lift toward light
     "raise-2": { l: 0.966, c: 0.009, h: 85 },
     inset: { l: 0.936, c: 0.011, h: 85 },
     well: { l: 0.908, c: 0.013, h: 85 }, // deepest inset
     ink: { l: 0.3, c: 0.014, h: 65 }, // warm near-black ink
     "ink-2": { l: 0.4, c: 0.014, h: 65 },
-    dim: { l: 0.475, c: 0.013, h: 65 },
+    dim: { l: 0.46, c: 0.013, h: 65 },
     faint: { l: 0.53, c: 0.015, h: 70 }, // placeholder legibility floor
     umbra: { l: 0.3, c: 0.02, h: 60 }, // warm shadow source, never pure black
   },

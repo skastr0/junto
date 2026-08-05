@@ -54,16 +54,22 @@
 
 html[data-theme="bright"] {
   color-scheme: light;
-  --color-ground: oklch(0.95500 0.01200 85.00);
+  --color-ground: oklch(0.94500 0.01200 85.00);
   --color-raise: oklch(0.97800 0.00700 85.00);
   --color-raise-2: oklch(0.96600 0.00900 85.00);
   --color-inset: oklch(0.93600 0.01100 85.00);
   --color-well: oklch(0.90800 0.01300 85.00);
   --color-ink: oklch(0.30000 0.01400 65.00);
   --color-ink-2: oklch(0.40000 0.01400 65.00);
-  --color-dim: oklch(0.47500 0.01300 65.00);
+  --color-dim: oklch(0.46000 0.01300 65.00);
   --color-faint: oklch(0.53000 0.01500 70.00);
   --color-umbra: oklch(0.30000 0.02000 60.00);
+  --color-overlay-1: color-mix(in oklab, var(--color-ink) 5%, transparent);
+  --color-overlay-2: color-mix(in oklab, var(--color-ink) 8%, transparent);
+  --color-overlay-3: color-mix(in oklab, var(--color-ink) 11%, transparent);
+  --color-overlay-4: color-mix(in oklab, var(--color-ink) 14%, transparent);
+  --color-backdrop: color-mix(in oklab, var(--color-umbra) 18%, transparent);
+  --color-focus-ring: color-mix(in oklab, var(--color-second) 22%, transparent);
   --color-shadow-1: color-mix(in oklab, var(--color-umbra) 28%, transparent);
   --color-shadow-2: color-mix(in oklab, var(--color-umbra) 18%, transparent);
   --color-amber: oklch(0.72000 0.13500 72.00);
