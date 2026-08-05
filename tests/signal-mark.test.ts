@@ -45,7 +45,9 @@ describe("minimapFill", () => {
 
   it("prefers node accent over kind for identity", () => {
     const colored = { ...agent, color: "5" };
-    expect(identityHue(colored)).toBe(HUE.cyan);
-    expect(minimapFill(colored, "idle")).toBe(HUE.cyan);
+    // accentColor returns CSS variable references so they resolve against the
+    // active theme mode (dark/bright) rather than being frozen to dark hexes.
+    expect(identityHue(colored)).toBe("var(--color-cyan)");
+    expect(minimapFill(colored, "idle")).toBe("var(--color-cyan)");
   });
 });
