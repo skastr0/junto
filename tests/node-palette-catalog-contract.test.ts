@@ -50,7 +50,9 @@ describe("node palette catalog contract", () => {
     expect(lines.map((line) => line.family)).toEqual(["access", "watch", "effect"]);
     expect(lineFor("board", "watch")?.text).toContain("A post lands");
     expect(lineFor("board", "watch")?.text).toContain("A topic is created");
-    expect(lineFor("board", "effect")?.text).toBe("Cron and relay can: Set a flag");
+    expect(lineFor("board", "effect")?.text).toBe(
+      "Cron and relay can: Create a topic, Post to a topic, Set a flag",
+    );
   });
 
   it.each(["note", "label", "region"])("keeps %s off the wire grammar as map furniture", (id) => {

@@ -35,11 +35,7 @@ import {
   NO_WATCH_YET_DETAIL,
   type PageLoadStatus,
 } from "@shared/scheduler-effects";
-import {
-  expressionFromEveryMinutes,
-  isValidCronExpression,
-  nextCronOccurrence,
-} from "@shared/cron-expression";
+import { isValidCronExpression, nextCronOccurrence } from "@shared/cron-expression";
 import { applySchedulerFire } from "./effects";
 import { liveSeatBlocksForCanvas } from "../work/blocked-seat";
 import type { SnapshotState } from "../../../shared/entities";
@@ -643,20 +639,6 @@ export const isValidTimerInterval = (everyMinutes: number): boolean =>
   everyMinutes > 0 &&
   Number.isSafeInteger(everyMinutes * 60_000);
 
-const resolveTimerExpression = (
-  timer: { readonly everyMinutes?: number; readonly expression?: string },
-): string | undefined => {
-  const expr = timer.expression?.trim();
-  if (expr && isValidCronExpression(expr)) return expr.replace(/\s+/g, " ");
-  if (
-    typeof timer.everyMinutes === "number" &&
-    isValidTimerInterval(timer.everyMinutes)
-  ) {
-    return expressionFromEveryMinutes(timer.everyMinutes);
-  }
-  return undefined;
-};
-
 export const checkTimers = async (
   nowEpochMs = Date.now(),
 ): Promise<void> => {
@@ -708,23 +690,28 @@ export const checkTimers = async (
       if (!isNodeEligibleOnStation(node, stationHostId)) continue;
       const timerKey = `${canvasName}::${node.id}`;
 
-      // Prefer 5-field expression (legacy everyMinutes migrates via expressionFromEveryMinutes).
-      const expression = resolveTimerExpression(timer);
-      if (expression) {
+      const home = resolveNodeHostId(node);
+
+      const cronExpression = timer.expression?.trim();
+      if (
+        typeof cronExpression === "string" &&
+        cronExpression.length > 0 &&
+        isValidCronExpression(cronExpression)
+      ) {
         try {
           // Coalesce: walk to the latest due occurrence ≤ now (at most a few steps).
-          let due = nextCronOccurrence(expression, nowEpochMs - 60_000 * 24 * 7);
+          let due = nextCronOccurrence(cronExpression, nowEpochMs - 60_000 * 24 * 7);
           if (due === undefined) {
             nextFire.delete(timerKey);
             continue;
           }
           // Advance while the following occurrence is still in the past.
           for (let i = 0; i < 500; i += 1) {
-            const following = nextCronOccurrence(expression, due);
+            const following = nextCronOccurrence(cronExpression, due);
             if (following === undefined || following > nowEpochMs) break;
             due = following;
           }
-          const nextAfterDue = nextCronOccurrence(expression, due);
+          const nextAfterDue = nextCronOccurrence(cronExpression, due);
           if (due > nowEpochMs) {
             nextFire.set(timerKey, due);
             continue;
@@ -733,11 +720,10 @@ export const checkTimers = async (
           nextFire.set(timerKey, due);
           if (!canAutomateCanvas(canvasName)) continue;
           if (nextAfterDue === undefined) continue;
-          const home = resolveNodeHostId(node);
           const claimed = await timerSchedulerDeps.claimExpression({
             homeStation: home,
             timerKey,
-            scheduleId: `cron:${expression}`.slice(0, 256),
+            scheduleId: `cron:${cronExpression}`.slice(0, 256),
             dueAtEpochMs: due,
             nextDueAtEpochMs: nextAfterDue,
             nowEpochMs,
@@ -771,6 +757,64 @@ export const checkTimers = async (
           nextFire.delete(timerKey);
           console.error(
             `[kernel] expression timer claim failed for ${timerKey}:`,
+            error,
+          );
+        }
+        continue;
+      }
+
+      if (typeof timer.everyMinutes === "number" && isValidTimerInterval(timer.everyMinutes)) {
+        try {
+          const requestedInterval = timer.everyMinutes * 60_000;
+          const existing = await timerSchedulerDeps.readIntervalState(home, timerKey);
+          const shouldClaim =
+            existing === undefined ||
+            existing.intervalMilliseconds !== requestedInterval ||
+            (existing.nextDueAtEpochMs <= nowEpochMs &&
+              canAutomateCanvas(canvasName));
+          if (!shouldClaim) {
+            nextFire.set(timerKey, existing.nextDueAtEpochMs);
+            continue;
+          }
+          const claimed = await timerSchedulerDeps.claimInterval({
+            timerKey,
+            localStationId: stationHostId,
+            homeStationIds: [home],
+            nowEpochMs,
+            everyMinutes: timer.everyMinutes,
+          });
+          if (claimed._tag === "Ineligible") {
+            nextFire.delete(timerKey);
+            console.error(
+              `[kernel] interval timer ${timerKey} ineligible (${claimed.reason})`,
+            );
+          } else if (
+            claimed._tag === "Initialized" ||
+            claimed._tag === "NotDue"
+          ) {
+            nextFire.set(timerKey, claimed.state.nextDueAtEpochMs);
+          } else if (claimed._tag === "Firing") {
+            nextFire.set(timerKey, claimed.nextState.nextDueAtEpochMs);
+            await applySchedulerFire(doc, {
+              canvasName,
+              sourceNodeId: node.id,
+              kind: "cron",
+              fireKey: `cron:${home}:${timerKey}:${claimed.scheduledForEpochMs}`,
+              status: "satisfied",
+            });
+            // Project lastFiredAt so the renderer can spark cron→target edges
+            // (same channel as relay/gauge watchers).
+            const previous = watchers.get(timerKey);
+            watchers.set(timerKey, {
+              status: "satisfied",
+              detail: previous?.detail ?? "cron fired",
+              lastFiredAt: Date.now(),
+            });
+          }
+        } catch (error) {
+          nextFire.delete(timerKey);
+          console.error(
+            `[kernel] interval timer claim failed for ${timerKey}:`,
             error,
           );
         }

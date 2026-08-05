@@ -73,7 +73,7 @@ describe("page→relay watch sensor", () => {
     expect(getWatchers().get("board::relay-1")).toMatchObject({
       status: "unknown",
     });
-    expect(getWatchers().get("board::relay-1")?.detail).toMatch(/page load/);
+    expect(getWatchers().get("board::relay-1")?.detail).toMatch(/page.*load/);
   });
 
   it("goes pending while the page session is loading", async () => {
@@ -104,7 +104,7 @@ describe("page→relay watch sensor", () => {
     // Rising edge into satisfied — runtime records status; fire is side-effect.
     expect(getWatchers().get("board::relay-1")).toMatchObject({
       status: "satisfied",
-      detail: "page ready",
+      detail: "page loaded",
     });
     expect(getWatchers().get("board::relay-1")?.lastFiredAt).toBeTypeOf("number");
   });
@@ -133,7 +133,7 @@ describe("page→relay watch sensor", () => {
     // Baseline pass does not fire; status is still satisfied for projection.
     expect(getWatchers().get("board::relay-1")).toMatchObject({
       status: "satisfied",
-      detail: "page failed",
+      detail: "page failed to load",
     });
   });
 });

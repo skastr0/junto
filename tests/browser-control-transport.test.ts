@@ -18,6 +18,7 @@ import {
   controlTokenPath,
 } from "../src/shared/browser-control";
 import { BROWSER_CONTROL_MAX_RESPONSE_BYTES } from "../src/shared/browser-limits";
+import { BROWSER_ENABLED } from "../src/shared/features";
 import {
   startBrowserControlServer,
   type BrowserControlRuntime,
@@ -317,7 +318,7 @@ const runCli = (
   new Promise((resolveCli, rejectCli) => {
     const child = spawn("bun", [join(repoRoot, "scripts/browser-cli.ts"), ...args], {
       cwd: repoRoot,
-      env: { ...process.env, ...env, HOME: home },
+      env: { ...process.env, VELLUM_BROWSER: BROWSER_ENABLED ? "1" : "0", ...env, HOME: home },
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";

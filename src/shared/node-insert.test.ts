@@ -6,8 +6,14 @@ import {
   defaultEffectBoardCreateTopic,
   defaultEffectTasksCreate,
   effectTasksCreateToWorkArgs,
+  effectTasksRequireArtifacts,
+  effectTasksRequireGit,
   migrateToEffectTasksCreate,
   setEffectFormValue,
+  setEffectTasksArtifactInstruction,
+  setEffectTasksArtifactNames,
+  setEffectTasksRequireArtifacts,
+  setEffectTasksRequireGit,
 } from "./node-insert";
 
 describe("effect payloads (closed create contracts)", () => {
@@ -142,14 +148,6 @@ describe("effect payloads (closed create contracts)", () => {
   });
 
   it("git / artifact gates match TaskCreateDialog semantics", () => {
-    const {
-      setEffectTasksRequireGit,
-      effectTasksRequireGit,
-      setEffectTasksRequireArtifacts,
-      effectTasksRequireArtifacts,
-      setEffectTasksArtifactInstruction,
-      setEffectTasksArtifactNames,
-    } = require("./node-insert") as typeof import("./node-insert");
     let data: Record<string, unknown> = {
       ...defaultEffectTasksCreate("relay"),
     };

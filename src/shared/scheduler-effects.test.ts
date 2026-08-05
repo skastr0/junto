@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CanvasDoc } from "./canvas";
-import { defaultInsertData } from "./node-insert";
+import { defaultEffectTasksCreate, defaultInsertData } from "./node-insert";
 import {
   collectEffectEdgesFrom,
   collectWatchEdgesInto,
@@ -551,7 +551,6 @@ describe("scheduler-effects", () => {
     };
     const label = schedulerSourceLabel(source);
     expect(label).toBe("cron");
-    const { defaultEffectTasksCreate } = require("./node-insert") as typeof import("./node-insert");
     const data = defaultEffectTasksCreate(label);
     expect(data.brief).toContain("cron");
     expect(String(data.metadata?.details)).toContain("cron");
