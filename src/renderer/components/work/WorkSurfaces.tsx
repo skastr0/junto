@@ -3,12 +3,13 @@ import { Bell, Check, Inbox, ListChecks, MessageSquareText, Package, Plus, Send,
 import type {
   CanvasNode,
   Part,
+  TaskProposal,
   TaskState,
 } from "@shared/canvas";
 import type { WorkOpResult } from "@shared/ipc";
 import type { BoardPost, BoardTopic } from "@shared/work-model";
 import { isTerminalTaskState, taskBrief } from "@shared/task";
-import { sinkGlance } from "@shared/attention";
+import { sinkGlance, taskScanCounts } from "@shared/attention";
 import { openTaskCreateSurface } from "../../lib/dock-state";
 import { DIM, GREEN, HUE, INK } from "../../lib/theme";
 import { FocusSurface } from "../FocusSurface";
@@ -205,10 +206,43 @@ export function TasksCard({
   readonly node: CanvasNode;
 } & SinkRenameProps) {
   const items = node.ether?.tasks?.items ?? [];
+  const proposals = node.ether?.tasks?.proposals ?? [];
+  const pendingProposals = proposals.filter(
+    (proposal) => proposal.state === "pending",
+  );
   const { inFlight, needsInput } = sinkGlance(items);
+  const { proposals: proposalCount, completed: completedCount } = taskScanCounts(
+    items,
+    proposals,
+  );
   const hotItems = items.filter(
     (t) => t.state === "input-required" || t.state === "auth-required" || t.state === "working",
   );
+  const proposalBrief = (proposal: TaskProposal): string => {
+    for (const part of proposal.brief.parts) {
+      if (part.kind !== "text") continue;
+      const firstLine = part.text.split("\n")[0]?.trim();
+      if (firstLine) return firstLine;
+    }
+    return proposal.id;
+  };
+  const visibleItems = (
+    hotItems.length > 0 ? hotItems : items.filter((t) => !isTerminalTaskState(t.state))
+  ).map((item) => ({
+    id: item.id,
+    brief: taskBrief(item),
+    state: item.state,
+    kind: "task" as const,
+  }));
+  const visibleRows = [
+    ...visibleItems,
+    ...pendingProposals.map((proposal) => ({
+      id: proposal.id,
+      brief: proposalBrief(proposal),
+      state: "pending" as const,
+      kind: "proposal" as const,
+    })),
+  ].slice(0, 4);
   return (
     <div className="factory-glance factory-glance--tasks flex h-full w-full flex-col overflow-hidden" data-testid="tasks-card">
       <SinkGlanceHead
@@ -220,14 +254,32 @@ export function TasksCard({
         onRenameDone={onRenameDone}
         trailing={
           <>
-            <span
-              className="text-[9px] tabular-nums"
-              style={{ color: needsInput > 0 ? HUE.amber : DIM }}
-              data-testid="tasks-glance"
-            >
-              {inFlight} in flight
-              {needsInput > 0 ? ` - ${needsInput} need input` : ""}
-            </span>
+            <div className="flex min-w-0 max-w-[112px] flex-col items-end gap-0.5 text-right text-[9px] tabular-nums leading-tight">
+              <span
+                className="truncate"
+                style={{ color: needsInput > 0 ? HUE.amber : DIM }}
+                data-testid="tasks-glance"
+              >
+                {inFlight} in flight
+                {needsInput > 0 ? ` - ${needsInput} need input` : ""}
+              </span>
+              <span
+                className="truncate"
+                style={{ color: proposalCount > 0 ? HUE.violet : DIM }}
+                data-testid="tasks-glance-proposals"
+                aria-label={`${proposalCount} proposals`}
+              >
+                {proposalCount} proposals
+              </span>
+              <span
+                className="truncate"
+                style={{ color: completedCount > 0 ? GREEN : DIM }}
+                data-testid="tasks-glance-completed"
+                aria-label={`${completedCount} completed`}
+              >
+                {completedCount} done
+              </span>
+            </div>
             <button
               type="button"
               className="nodrag nowheel factory-glance__enqueue"
@@ -251,22 +303,28 @@ export function TasksCard({
         }
       />
       <div className="factory-glance__list mt-1.5 flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden">
-        {(hotItems.length > 0 ? hotItems : items.filter((t) => !isTerminalTaskState(t.state)))
-          .slice(0, 4)
-          .map((item) => (
+        {visibleRows.map((item) => (
             <div
               key={item.id}
               className="factory-glance__row factory-glance__row--task truncate text-[10px] leading-snug"
               style={{ color: INK }}
               data-state={item.state}
+              data-kind={item.kind}
               data-attention={
-                item.state === "input-required" || item.state === "auth-required" ? "fire" : "idle"
+                item.kind === "proposal"
+                  ? "idle"
+                  : item.state === "input-required" || item.state === "auth-required"
+                    ? "fire"
+                    : "idle"
               }
             >
-              <span style={{ color: stateHue(item.state) }}>●</span> {taskBrief(item)}
+              <span style={{ color: item.kind === "proposal" ? HUE.violet : stateHue(item.state) }}>
+                {item.kind === "proposal" ? "◆" : "●"}
+              </span>{" "}
+              {item.brief}
             </div>
           ))}
-        {items.length === 0 ? (
+        {items.length === 0 && pendingProposals.length === 0 ? (
           <div className="factory-glance__empty text-[9px]" style={{ color: DIM }}>
             empty
           </div>

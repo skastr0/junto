@@ -5,6 +5,7 @@ import {
   attentionOf,
   resolveCompiledActorRef,
   sinkGlance,
+  taskScanCounts,
   type ActorRefResolver,
 } from "../src/shared/attention";
 import { deriveExecutionGraph } from "../src/shared/execution-graph";
@@ -79,6 +80,21 @@ describe("sinkGlance + attention", () => {
       taskItem("d", "four", "completed"),
     ];
     expect(sinkGlance(items)).toEqual({ queued: 1, inFlight: 1, needsInput: 1, total: 4 });
+  });
+
+  it("counts pending proposals and completed work for TaskScan", () => {
+    const items = [
+      taskItem("queued", "queue", "submitted"),
+      taskItem("done", "done", "completed"),
+      taskItem("failed", "failed", "failed"),
+    ];
+    expect(
+      taskScanCounts(items, [
+        { state: "pending" },
+        { state: "approved" },
+        { state: "rejected" },
+      ]),
+    ).toEqual({ proposals: 1, completed: 1 });
   });
 
   it("task sink fires on input-required; ice when empty", () => {

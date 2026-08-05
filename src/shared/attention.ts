@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import type { Task, CanvasDoc, CanvasNode } from "./canvas";
+import type { Task, TaskProposal, CanvasDoc, CanvasNode } from "./canvas";
 import { claimedByOf, isTerminalTaskState } from "./task";
 import { isBlockableNode, type ExecutionGraph } from "./execution-graph";
 import { resolveSpec, roleOf } from "./physics/kinds";
@@ -55,6 +55,23 @@ export const sinkGlance = (
   }
   return { queued, inFlight: inFlightCount, needsInput, total: items.length };
 };
+
+/**
+ * Compact TaskScan counters. Proposals are planning inventory, so only
+ * pending proposals appear in the scan. Completed is executable work that
+ * reached its terminal success state; other terminal states stay out of this
+ * small history count.
+ */
+export const taskScanCounts = (
+  items: ReadonlyArray<Task>,
+  proposals: ReadonlyArray<Pick<TaskProposal, "state">> = [],
+): {
+  readonly proposals: number;
+  readonly completed: number;
+} => ({
+  proposals: proposals.filter((proposal) => proposal.state === "pending").length,
+  completed: items.filter((item) => item.state === "completed").length,
+});
 
 /**
  * Per-node attention signal for chrome (`data-attention`).
