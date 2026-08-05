@@ -349,9 +349,17 @@ const evaluateWatchAtom = (
   if (when.word === "flagged") {
     const flag = when.flag;
     const has = source.ether?.flags?.includes(flag) ?? false;
+    const FLAG_DETAIL = {
+      attention: { on: "needs attention", off: "waiting for attention" },
+      blocker: { on: "blocked", off: "waiting for blocker" },
+      parked: { on: "parked", off: "waiting for parked" },
+    } as const;
+    const copy = FLAG_DETAIL[flag as keyof typeof FLAG_DETAIL];
     return {
       status: has ? "satisfied" : "pending",
-      detail: has ? `flag ${flag} set` : `flag ${flag} absent`,
+      detail: has
+        ? (copy?.on ?? `${flag} on`)
+        : (copy?.off ?? `waiting for ${flag}`),
     };
   }
   // completes — kind-specific. equals discriminates variants (ready vs failed).
