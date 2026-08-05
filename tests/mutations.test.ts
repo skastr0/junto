@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Result } from "effect";
 import { decodeCanvasDoc, type CanvasDoc, type GroupNode } from "../src/shared/canvas";
-import { addNode, commitDoc, deleteNode, editLink, editText, loadDoc, redo, renameGroup, setFlagForNodes, setNodeColor, setNodeColorForNodes, setNodeHost, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag, undo } from "../src/renderer/lib/mutations";
+import { addNode, commitDoc, deleteNode, editLink, editText, loadDoc, redo, renameGroup, renameTerminalNode, setFlagForNodes, setNodeColor, setNodeColorForNodes, setNodeHost, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag, undo } from "../src/renderer/lib/mutations";
 import { addEdge, connectAllToTarget, deleteEdges, editEdgeLabel, planConnectToTarget, setEdgeColor, setEdgePorts, toggleEdgeArrow } from "../src/renderer/lib/edge-mutations";
 import { dragHoldMemberIds, findOpenPosition, resizeNode, syncPositions } from "../src/renderer/lib/geometry";
 import { clearGraphFilters, state$, toggleFlagFilter } from "../src/renderer/lib/state";
@@ -1187,6 +1187,46 @@ describe("renderer graph mutations", () => {
       expect.objectContaining({ id: "page", url: "https://after.example" }),
       expect.objectContaining({ id: "region", label: "After" }),
     ]));
+  });
+
+  it("renames a terminal node first line and ether.terminal.label together", () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc({
+      nodes: [
+        {
+          id: "term",
+          type: "text",
+          text: "terminal\nnotes stay",
+          x: 0,
+          y: 0,
+          width: 220,
+          height: 84,
+          ether: {
+            entity: { kind: "terminal" },
+            terminal: {
+              bindingId: "bind-1",
+              label: "terminal",
+            },
+          },
+        },
+      ],
+      edges: [],
+    });
+
+    renameTerminalNode("term", "Dev shell");
+
+    const node = state$.doc.peek().nodes.find((candidate) => candidate.id === "term");
+    expect(node).toMatchObject({
+      id: "term",
+      text: "Dev shell\nnotes stay",
+      ether: {
+        entity: { kind: "terminal" },
+        terminal: {
+          bindingId: "bind-1",
+          label: "Dev shell",
+        },
+      },
+    });
   });
 
   it("editLink ignores plain (non-page) link furniture", () => {

@@ -27,6 +27,7 @@ import { state$ } from "../../lib/state";
 import { getVellumApi } from "../../lib/vellum-api";
 import { DIM, HUE, INK, withAlpha } from "../../lib/theme";
 import { ExecutionCardHeader } from "../nodes/ExecutionCardHeader";
+import { FirstLineRenameInput } from "../nodes/FirstLineRenameInput";
 import { HarnessMark } from "./HarnessMark";
 
 type HerdrCardApi = ReturnType<typeof getVellumApi> & {
@@ -64,57 +65,7 @@ const isAutoDerivedLabel = (
   return false;
 };
 
-// First-line rename for the hero: auto-focus+select, Enter/blur commits via
-// editText (parent preserves lines below the first), Escape discards. The
-// fired ref coalesces Enter→blur and Escape→blur into one finish.
-function RenameInput({
-  initial,
-  onCommit,
-  onDone,
-}: {
-  readonly initial: string;
-  readonly onCommit: (firstLine: string) => void;
-  readonly onDone: () => void;
-}) {
-  const [value, setValue] = useState(initial);
-  const firedRef = useRef(false);
 
-  const finish = (commit: boolean) => {
-    if (firedRef.current) return;
-    firedRef.current = true;
-    const next = value.trim();
-    if (commit && next && next !== initial) onCommit(next);
-    onDone();
-  };
-
-  return (
-    <input
-      ref={(el) => {
-        el?.focus();
-        el?.select();
-      }}
-      aria-label="Rename agent node"
-      className="nodrag nopan nowheel w-full truncate bg-transparent text-left font-mono text-[14px] font-semibold leading-snug outline-none"
-      style={{ color: INK }}
-      value={value}
-      onChange={(event) => setValue(event.target.value)}
-      onBlur={() => finish(true)}
-      onKeyDown={(event) => {
-        if (event.key === "Enter") {
-          event.preventDefault();
-          finish(true);
-        }
-        if (event.key === "Escape") {
-          event.preventDefault();
-          finish(false);
-        }
-      }}
-      onPointerDown={(event) => event.stopPropagation()}
-      onClick={(event) => event.stopPropagation()}
-      onDoubleClick={(event) => event.stopPropagation()}
-    />
-  );
-}
 
 export function HerdrCard({
   node,
@@ -385,8 +336,9 @@ export function HerdrCard({
         }
         title={
           renaming ? (
-            <RenameInput
+            <FirstLineRenameInput
               initial={rawName}
+              ariaLabel="Rename agent node"
               onCommit={commitRename}
               onDone={onRenameDone}
             />

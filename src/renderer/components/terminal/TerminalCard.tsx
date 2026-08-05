@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import { SquareTerminal } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
@@ -13,57 +13,10 @@ import { terminalActivity } from "../../lib/activity";
 import { terminal$ } from "../../lib/terminal-state";
 import { onTerminalEvent } from "../../lib/terminal-events";
 import { getVellumApi } from "../../lib/vellum-api";
-import { editText } from "../../lib/mutations";
-import { INK } from "../../lib/theme";
+import { renameTerminalNode } from "../../lib/mutations";
 import { ClaimedTaskStrip } from "../nodes/ClaimedTaskStrip";
 import { ExecutionCardHeader } from "../nodes/ExecutionCardHeader";
-
-/** First-line rename — Enter/blur commits, Escape discards. */
-function RenameInput({
-  initial,
-  onCommit,
-  onDone,
-}: {
-  readonly initial: string;
-  readonly onCommit: (firstLine: string) => void;
-  readonly onDone: () => void;
-}) {
-  const [value, setValue] = useState(initial);
-  const firedRef = useRef(false);
-
-  const finish = (commit: boolean) => {
-    if (firedRef.current) return;
-    firedRef.current = true;
-    const next = value.trim();
-    if (commit && next && next !== initial) onCommit(next);
-    onDone();
-  };
-
-  return (
-    <input
-      ref={(el) => {
-        el?.focus();
-        el?.select();
-      }}
-      aria-label="Rename terminal"
-      className="nodrag nopan nowheel w-full truncate bg-transparent text-left font-mono text-[14px] font-semibold leading-snug outline-none"
-      style={{ color: INK }}
-      value={value}
-      onChange={(event) => setValue(event.target.value)}
-      onBlur={() => finish(true)}
-      onKeyDown={(event) => {
-        if (event.key === "Enter") {
-          event.preventDefault();
-          finish(true);
-        }
-        if (event.key === "Escape") {
-          event.preventDefault();
-          finish(false);
-        }
-      }}
-    />
-  );
-}
+import { FirstLineRenameInput } from "../nodes/FirstLineRenameInput";
 
 const launchSummary = (
   launch:
@@ -149,11 +102,12 @@ export function TerminalCard({
     return <div className="text-[11px] text-dim">unbound terminal</div>;
 
   const rawText = node.type === "text" ? node.text : "";
-  const firstLine = rawText.split("\n")[0] ?? "";
-  const label = native.label ?? (firstLine || "terminal");
+  const firstLine = rawText.split("\n")[0]?.trim() ?? "";
+  // Prefer the authorial first line (what rename writes). ether.terminal.label
+  // is a spawn-time fallback only — never let it hide a successful rename.
+  const label = firstLine || native.label || "terminal";
   const commitRename = (nextFirst: string) => {
-    const rest = rawText.split("\n").slice(1).join("\n");
-    editText(node.id, rest ? `${nextFirst}\n${rest}` : nextFirst);
+    renameTerminalNode(node.id, nextFirst);
   };
   const seatState = seatEvent?.state;
   const presentation = presentationForSeat(seatState, needsLook === true);
@@ -201,8 +155,9 @@ export function TerminalCard({
         }
         title={
           renaming && onRenameDone ? (
-            <RenameInput
-              initial={firstLine || label}
+            <FirstLineRenameInput
+              initial={label}
+              ariaLabel="Rename terminal"
               onCommit={commitRename}
               onDone={onRenameDone}
             />

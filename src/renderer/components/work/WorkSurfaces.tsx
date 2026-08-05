@@ -21,6 +21,7 @@ import { applyWorkCanvasWrite, editText } from "../../lib/mutations";
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import { state$ } from "../../lib/state";
 import { getVellumApi } from "../../lib/vellum-api";
+import { FirstLineRenameInput } from "../nodes/FirstLineRenameInput";
 import { TaskBoard } from "./TaskBoard";
 import { ArtifactLibrary, RequestInbox } from "./WorkLedger";
 import "./work-ledger.css";
@@ -36,54 +37,7 @@ function AmberDecal({ children }: { readonly children: ReactNode }) {
 
 const canvasName = (): string => state$.canvasName.peek() || "";
 
-/** First-line rename — Enter/blur commits, Escape discards. */
-function SinkRenameInput({
-  initial,
-  onCommit,
-  onDone,
-}: {
-  readonly initial: string;
-  readonly onCommit: (firstLine: string) => void;
-  readonly onDone: () => void;
-}) {
-  const [value, setValue] = useState(initial);
-  const firedRef = useRef(false);
 
-  const finish = (commit: boolean) => {
-    if (firedRef.current) return;
-    firedRef.current = true;
-    const next = value.trim();
-    if (commit && next && next !== initial) onCommit(next);
-    onDone();
-  };
-
-  return (
-    <input
-      ref={(el) => {
-        el?.focus();
-        el?.select();
-      }}
-      aria-label="Rename sink"
-      className="nodrag nopan nowheel w-full truncate bg-transparent text-left font-mono text-[14px] font-semibold leading-snug outline-none"
-      style={{ color: INK }}
-      value={value}
-      onChange={(event) => setValue(event.target.value)}
-      onBlur={() => finish(true)}
-      onKeyDown={(event) => {
-        if (event.key === "Enter") {
-          event.preventDefault();
-          finish(true);
-        }
-        if (event.key === "Escape") {
-          event.preventDefault();
-          finish(false);
-        }
-      }}
-      onClick={(event) => event.stopPropagation()}
-      onPointerDown={(event) => event.stopPropagation()}
-    />
-  );
-}
 
 type SinkRenameProps = {
   readonly renaming?: boolean;
@@ -117,7 +71,12 @@ function SinkGlanceHead({
       <AmberDecal>{decal}</AmberDecal>
       <div className="min-w-0 flex-1">
         {renaming && onRenameDone ? (
-          <SinkRenameInput initial={label} onCommit={commitRename} onDone={onRenameDone} />
+          <FirstLineRenameInput
+            initial={label}
+            ariaLabel="Rename sink"
+            onCommit={commitRename}
+            onDone={onRenameDone}
+          />
         ) : (
           <div
             className="truncate font-mono text-[14px] font-semibold leading-snug"

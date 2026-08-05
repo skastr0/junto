@@ -822,6 +822,63 @@ export const editText = (id: string, text: string): void => {
   });
 };
 
+/**
+ * Authorial display label on ether.terminal. Kept in lockstep with the first
+ * line of node.text when the operator renames a terminal/agent card.
+ * Does not touch entity.name (identity key — never rewritten by label edits).
+ */
+export const setTerminalLabel = (id: string, label: string): void => {
+  const next = label.trim();
+  if (!next) return;
+  const doc = state$.doc.peek();
+  commitDoc({
+    ...doc,
+    nodes: doc.nodes.map((n) => {
+      if (n.id !== id || n.type !== "text" || !n.ether?.terminal) return n;
+      return {
+        ...n,
+        ether: {
+          ...n.ether,
+          terminal: {
+            ...n.ether.terminal,
+            label: next,
+          },
+        },
+      };
+    }),
+  });
+};
+
+/**
+ * First-line rename for terminal/agent cards: updates node.text first line and
+ * ether.terminal.label in one commit so display never reverts to a stale spawn label.
+ */
+export const renameTerminalNode = (id: string, firstLine: string): void => {
+  const next = firstLine.trim();
+  if (!next) return;
+  const doc = state$.doc.peek();
+  commitDoc({
+    ...doc,
+    nodes: doc.nodes.map((n) => {
+      if (n.id !== id || n.type !== "text") return n;
+      const rest = n.text.split("\n").slice(1).join("\n");
+      const text = rest ? `${next}\n${rest}` : next;
+      if (!n.ether?.terminal) return { ...n, text };
+      return {
+        ...n,
+        text,
+        ether: {
+          ...n.ether,
+          terminal: {
+            ...n.ether.terminal,
+            label: next,
+          },
+        },
+      };
+    }),
+  });
+};
+
 /** Page URL edit only — plain link furniture is retired. */
 export const editLink = (id: string, url: string): void => {
   const next = url.trim();
