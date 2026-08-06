@@ -53,8 +53,28 @@ export interface Sandbox {
   readonly homeDir: string;
 }
 
+/**
+ * macOS caps AF_UNIX socket paths at roughly 104 bytes (sun_path). The work,
+ * station, canvas, term, and browser control sockets all live under
+ * `<home>/.vellum-command/<plane>/control.sock`; with the canonical renamed
+ * home that is 35 bytes of suffix, so the temp root must leave room. A stock
+ * `os.tmpdir()` on macOS expands to a long /var/folders/... path and pushes
+ * every control socket over the limit — bind() then fails EINVAL and the app
+ * fail-closes at boot. Prefer `os.tmpdir()`, but fall back to the short
+ * `/tmp` root (the same trick the browser containment probe uses) whenever
+ * the deepest control socket would not fit.
+ */
+const controlSocketFits = (root: string): boolean => {
+  // Longest control plane suffix under the canonical home.
+  const suffix = join("home", ".vellum-command", "station", "control.sock");
+  // 6 random chars from mkdtemp + the "vellum-e2e-" prefix.
+  const longest = join(root, "vellum-e2e-abcdef", suffix);
+  return Buffer.byteLength(longest) <= 103;
+};
+
 export const createSandbox = async (): Promise<Sandbox> => {
-  const root = await mkdtemp(join(tmpdir(), "vellum-e2e-"));
+  const tempRoot = controlSocketFits(tmpdir()) ? tmpdir() : "/tmp";
+  const root = await mkdtemp(join(tempRoot, "vellum-e2e-"));
   const userDataDir = join(root, "user-data");
   const homeDir = join(root, "home");
   const vellumDir = join(homeDir, ".vellum-command");
