@@ -190,8 +190,11 @@ export const writeFixtureCanvas = async (
           task: Task,
         ): ActorRef => {
           if (task.claimedBy === undefined) return adjacentActor(sinkNodeId);
+          // Fixtures claim by the authored node id (or the derived seat id);
+          // translate to the compiled ActorSeatId the work plane stores.
           const claimant = actorRefs.filter(
-            (actor) => actor.seatId === task.claimedBy,
+            (actor) =>
+              actor.seatId === task.claimedBy || actor.nodeId === task.claimedBy,
           );
           if (claimant.length !== 1) {
             throw new Error(
@@ -458,6 +461,14 @@ export const canvasDoc = (
 ): CanvasDoc => ({ nodes: [...nodes], edges: [...edges] });
 
 // --- work-plane fixtures (no legacy checklist shape) --------------------
+
+/**
+ * Fixture claim by authored node id. Branded as the derived ActorSeatId so
+ * typed Task fixtures compile; the sandbox resolves node id -> compiled seat
+ * id in actorForTask before any schema decode.
+ */
+export const claimByNodeId = (nodeId: string): Task["claimedBy"] =>
+  nodeId as Task["claimedBy"];
 
 export const taskItem = (
   id: string,

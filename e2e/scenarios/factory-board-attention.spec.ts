@@ -11,6 +11,7 @@
  */
 import type { Task, CanvasDoc } from "../../src/shared/canvas";
 import {
+  claimByNodeId,
   taskItem,
   agentTextNode,
   canvasDoc,
@@ -26,7 +27,7 @@ const seededTasks: ReadonlyArray<Task> = [
   // claimant. Claims address the node id.
   {
     ...taskItem("hot-1", "needs human", "input-required"),
-    metadata: { claimedBy: "worker" },
+    claimedBy: claimByNodeId("worker"),
   },
 ];
 
@@ -96,11 +97,14 @@ test("factory board: fire on claimed input-required, calm edges silent, tasks gl
   await expect(term).toBeVisible();
   await expect(term.locator("text=/pid \\d+/")).toHaveCount(0);
 
-  // Kind surface fields form replaces the old sidebar inspector.
+  // Kind surface replaced the old sidebar inspector. Shell nodes keep no
+  // fields sheet (config is kind-strip pops, rename is pencil), so the
+  // legacy browser-access fields must never resurface.
   await term.click();
   await expect(page.locator(".rts-kind-surface")).toBeVisible({ timeout: 10_000 });
-  await page.getByRole("button", { name: "Open fields" }).click();
-  await expect(page.locator(".rts-kind-form-panel")).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator(".rts-kind-kind-label")).toContainText("terminal");
+  await expect(page.getByRole("button", { name: "Open fields" })).toHaveCount(0);
+  await expect(page.locator(".rts-kind-form-panel")).toHaveCount(0);
   await expect(page.locator("text=/browser access/i")).toHaveCount(0);
   await expect(page.locator("text=/vellum-command-browser/i")).toHaveCount(0);
   await expect(page.locator("text=/holds keys/i")).toHaveCount(0);

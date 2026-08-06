@@ -20,6 +20,7 @@ import {
   agentTextNode,
   artifactsNode,
   canvasDoc,
+  claimByNodeId,
   requestsNode,
   taskItem,
   tasksNode,
@@ -101,9 +102,11 @@ const richTask = (
   const base = taskItem(id, brief, state);
   return {
     ...base,
+    // Claim is first-class domain state now; the sandbox resolves the
+    // authored node id to the derived ActorSeatId when seeding work.
+    ...(claimedBy ? { claimedBy: claimByNodeId(claimedBy) } : {}),
     metadata: {
       workRole,
-      ...(claimedBy ? { claimedBy } : {}),
       details: brief,
     },
   };
@@ -198,7 +201,7 @@ test("still 00 — factory hero board", async () => {
       x: ac0,
       y: ar0,
       items: [
-        richTask("t-a1", "draft hero section", "working", "Writer", "local:writer"),
+        richTask("t-a1", "draft hero section", "working", "Writer", "a-writer"),
         richTask("t-a2", "rewrite pricing faq", "submitted", "Writer"),
       ],
     }),
@@ -320,9 +323,9 @@ test("still 00 — factory hero board", async () => {
   // fan out from its right side along clean corridors.
   const security = agentTextNode({
     id: "a-security",
-    key: "remote-a:security",
+    key: "local:security",
     label: "security",
-    host: "remote-a",
+    host: "local",
     x: bc0,
     y: br0 + Math.round((CH + 16) / 2),
   });
@@ -370,8 +373,11 @@ test("still 00 — factory hero board", async () => {
   const scenarioPath = join(scenarioDir, "codexbar.json");
   await writeFile(scenarioPath, JSON.stringify(codexbarScenario));
 
+  // Demo mode mints an ephemeral SQLite authority (product change
+  // "consolidate demo state to ephemeral SQLite"), so seeded canvases are
+  // invisible to a demo launch. This still needs its seeded factory board,
+  // so it launches without demo mode; the mocked usage rail still renders.
   const vellumCommand = await launchVellum({
-    demo: true,
     seedCanvases: { factory: canvasDoc(nodes, edges) },
     extraEnv: { FAKE_CODEXBAR_SCENARIO: scenarioPath },
   });
