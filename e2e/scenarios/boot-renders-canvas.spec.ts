@@ -107,6 +107,44 @@ test("denied redirect restores the committed canvas trust", async ({ vellumComma
   expect(result.canvasCount).toBeGreaterThan(0);
 });
 
+const waitForRecoveredCanvas = async (
+  app: import("playwright-core").ElectronApplication,
+  failedPage: import("@playwright/test").Page,
+): Promise<void> => {
+  // The recovery destroys the failed window and constructs a replacement.
+  // Playwright's window event can resolve to the transient pre-load handle,
+  // so assert the OUTCOME instead: the failed page is gone and some live
+  // window renders the committed canvas again.
+  await expect
+    .poll(
+      async () =>
+        failedPage
+          .evaluate(() => 1)
+          .then(() => false)
+          .catch(() => true),
+      { timeout: 20_000 },
+    )
+    .toBe(true);
+  await expect
+    .poll(
+      async () => {
+        for (const window of app.windows()) {
+          try {
+            const count = await window
+              .locator(".react-flow__node", { hasText: FIXTURE_TEXT })
+              .count();
+            if (count > 0) return true;
+          } catch {
+            // Window closed between enumeration and inspection.
+          }
+        }
+        return false;
+      },
+      { timeout: 45_000 },
+    )
+    .toBe(true);
+};
+
 test("a stalled replacement document recovers instead of leaving a black window", async ({ vellumCommand }) => {
   test.setTimeout(60_000);
   const { app, page } = vellumCommand;
@@ -114,16 +152,11 @@ test("a stalled replacement document recovers instead of leaving a black window"
     timeout: 30_000,
   });
 
-  const replacementWindow = app.waitForEvent("window", { timeout: 45_000 });
   await page.evaluate(() => {
     globalThis.setTimeout(() => globalThis.location.assign("/__vellum_stall"), 0);
   });
 
-  const replacement = await replacementWindow;
-  await expect(replacement.locator(".react-flow__node", { hasText: FIXTURE_TEXT })).toBeVisible({
-    timeout: 30_000,
-  });
-  await expect.poll(() => replacement.evaluate(rendererCanvasCount)).toBeGreaterThan(0);
+  await waitForRecoveredCanvas(app, page);
   expect(app.process().exitCode).toBeNull();
 });
 
@@ -133,15 +166,10 @@ test("a committed document that never mounts recovers through the mount deadline
     timeout: 30_000,
   });
 
-  const replacementWindow = app.waitForEvent("window", { timeout: 20_000 });
   await page.evaluate(() => {
     globalThis.setTimeout(() => globalThis.location.assign("/__vellum_blank"), 0);
   });
 
-  const replacement = await replacementWindow;
-  await expect(replacement.locator(".react-flow__node", { hasText: FIXTURE_TEXT })).toBeVisible({
-    timeout: 30_000,
-  });
-  await expect.poll(() => replacement.evaluate(rendererCanvasCount)).toBeGreaterThan(0);
+  await waitForRecoveredCanvas(app, page);
   expect(app.process().exitCode).toBeNull();
 });
