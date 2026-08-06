@@ -1,46 +1,50 @@
 /**
- * When a canvas commit adds a new edge from an agent seat to a slot-bearing
- * target, inject that target's edge contract into the seat's mailbox so the
- * agent learns the new command surface without re-onboarding.
+ * One edge-notification theory: when a canvas commit adds or removes
+ * slot-bearing edges for an agent seat, deliver exactly one compact map-change
+ * notice — added contracts inline, removals as a re-orient hint. Never a full
+ * doctrine re-injection, never a duplicate from a parallel subsystem.
  *
- * Mirrors msg-send-enable-notify (rising edges only, skip on open/first paint).
- * Pure planning lives in shared (planEdgeSlotInjections / composeEdgeSlotInjectionText).
+ * The former actor↔actor msg.send-enable notice path is folded into this
+ * engine: an agent edge's msg contract arrives with the map change, so a
+ * separate link notice would be a second, equivalent notification from a
+ * different part of the program — the failure mode this module exists to
+ * prevent.
  */
 
 import { Effect } from "effect";
 import { ulid } from "ulid";
 import type { CanvasDoc } from "@shared/canvas";
 import {
-  composeEdgeSlotInjectionText,
-  planEdgeSlotInjections,
+  composeEdgeMapChangeNotice,
+  planEdgeMapChanges,
 } from "@shared/managed-terminal-injection";
 import { makeUserMessage } from "@shared/task";
 import type { CanvasChangeDetail } from "../canvases";
 import { WorkService } from "./service";
 
-export const deliverEdgeSlotInjections = (input: {
+export const deliverEdgeMapChangeNotices = (input: {
   readonly canvas: string;
   readonly previous: CanvasDoc;
   readonly next: CanvasDoc;
 }): Effect.Effect<number, never, WorkService> =>
   Effect.gen(function* () {
-    const plans = planEdgeSlotInjections(input.previous, input.next);
-    if (plans.length === 0) return 0;
+    const changes = planEdgeMapChanges(input.previous, input.next);
+    if (changes.length === 0) return 0;
     const work = yield* WorkService;
     let sent = 0;
-    for (const plan of plans) {
+    for (const change of changes) {
       const result = yield* work.workSystemMailboxNotify(
         input.canvas,
-        plan.seatId,
+        change.seatId,
         makeUserMessage({
           messageId: ulid(),
-          text: composeEdgeSlotInjectionText(plan.target),
+          text: composeEdgeMapChangeNotice(change),
           contextId: input.canvas,
           metadata: {
             factoryLink: true,
-            edgeSlot: true,
-            targetId: plan.target.id,
-            targetKind: plan.target.kind,
+            edgeMapChange: true,
+            addedIds: change.added.map((t) => t.id),
+            removedIds: change.removed.map((t) => t.id),
           },
         }),
       );
@@ -53,14 +57,14 @@ export const deliverEdgeSlotInjections = (input: {
  * Canvas change listener body. No previous doc ⇒ skip (open / first paint /
  * work-projection ticks without authorial topology delta).
  */
-export const onCanvasChangeForEdgeSlots = (
+export const onCanvasChangeForEdgeMap = (
   canvas: string,
   detail: CanvasChangeDetail | undefined,
 ): Effect.Effect<number, never, WorkService> => {
   if (detail?.previous === undefined || detail.next === undefined) {
     return Effect.succeed(0);
   }
-  return deliverEdgeSlotInjections({
+  return deliverEdgeMapChangeNotices({
     canvas,
     previous: detail.previous,
     next: detail.next,

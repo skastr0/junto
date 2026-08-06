@@ -100,10 +100,10 @@ describe("main authoring architecture", () => {
       "src/main/vellum/ipc.ts",
       "src/main/vellum/kernel/service.ts",
       "src/main/vellum/work/control.ts",
-      // Canvas topology changes can emit a bounded mailbox notice when a
-      // direct actor edge is newly granted; this is the classified authoring
-      // listener, not a renderer/control ingress.
-      "src/main/vellum/work/msg-send-enable-notify.ts",
+      // Canvas topology changes emit exactly one compact edge map-change
+      // notice per seat; this is the classified authoring listener, not a
+      // renderer/control ingress.
+      "src/main/vellum/work/edge-map-notify.ts",
     ]);
 
     const control = source("src/main/vellum/work/control.ts");

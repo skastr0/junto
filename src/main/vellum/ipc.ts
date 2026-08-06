@@ -47,8 +47,7 @@ import { WorkService } from "./work/service";
 import { ContentService } from "./content/service";
 import { messageDelivery } from "./work/message-delivery";
 import { mailboxMessageDeliveryId } from "./work/mailbox-receipts";
-import { onCanvasChangeForMsgSendEnable } from "./work/msg-send-enable-notify";
-import { onCanvasChangeForEdgeSlots } from "./work/edge-slot-inject-notify";
+import { onCanvasChangeForEdgeMap } from "./work/edge-map-notify";
 import { WorkRepository } from "./work/repository";
 import { kernelRecordFromSnapshot } from "@shared/station-status";
 import { HerdrPlane } from "./herdr/plane";
@@ -62,10 +61,6 @@ import {
 import { isManagedTerminalReady } from "./term/drive/readiness";
 import { seatStateRuntime } from "./term/agent-state";
 import { injectionSupervisor } from "./term/injection-supervisor";
-import {
-  connectedTargetsForNode,
-  nodeHasActionableFactoryEdge,
-} from "./term/managed-spawn-plan";
 import {
   peekFirstTypedMessage,
   takeFirstTypedMessage,
@@ -1054,18 +1049,13 @@ export const registerVellumIpc = (): void => {
       canvases.subscribeChanges(() => {
         Effect.runFork(fleetPropagation.request());
       });
-      // Rising-edge mailbox notify when actor↔actor msg.send is newly enabled.
+      // ONE edge-notification theory: canvas edge changes produce exactly one
+      // compact map-change notice per seat (added contracts inline, removals
+      // as a re-orient hint). The former msg.send-enable link notice was a
+      // second, equivalent notification from a parallel subsystem — removed.
       canvases.subscribeChanges((name, detail) => {
         void AppRuntime.runPromise(
-          onCanvasChangeForMsgSendEnable(name, detail),
-        );
-      });
-      // Rising-edge mailbox notify when an agent seat gains a slot-bearing edge:
-      // the new target's edge contract is injected so the seat learns its new
-      // command surface without re-onboarding.
-      canvases.subscribeChanges((name, detail) => {
-        void AppRuntime.runPromise(
-          onCanvasChangeForEdgeSlots(name, detail),
+          onCanvasChangeForEdgeMap(name, detail),
         );
       });
       snapshots.subscribe((state) => broadcast(IPC_CHANNELS.snapshotsChanged, state));
@@ -1182,36 +1172,7 @@ export const registerVellumIpc = (): void => {
       injectionSupervisor.setWriter((bindingId, text) =>
         writeManagedPrompt(bindingId, text),
       );
-      // The context provider resolves the seat's CURRENT edge reality so
-      // re-delivered doctrine is the same compiled body as spawn — one
-      // prompt, dynamic only by edges.
-      injectionSupervisor.setContextProvider(async (bindingId) => {
-        const rec = termPlane.host.get(bindingId);
-        if (!rec?.canvasName || !rec.nodeId) {
-          return { seatBound: true, connected: false, seatRef: bindingId };
-        }
-        const canvasName = rec.canvasName;
-        const nodeId = rec.nodeId;
-        try {
-          const result = await AppRuntime.runPromise(
-            Effect.flatMap(CanvasesService, (c) =>
-              c.read(canvasName).pipe(Effect.result),
-            ),
-          );
-          if (result._tag !== "Success") {
-            return { seatBound: true, connected: false, seatRef: nodeId };
-          }
-          const doc = result.success.doc;
-          return {
-            seatBound: true,
-            connected: nodeHasActionableFactoryEdge(doc, nodeId),
-            seatRef: nodeId,
-            connectedTargets: connectedTargetsForNode(doc, nodeId),
-          };
-        } catch {
-          return { seatBound: true, connected: false, seatRef: nodeId };
-        }
-      });
+
       injectionSupervisor.setEscalationHandler((bindingId, reason) => {
         seatStateRuntime.machine.force(
           bindingId,
