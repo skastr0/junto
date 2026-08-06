@@ -35,7 +35,7 @@
     "lint:effect-runpromise": "bun scripts/lint-effect-runpromise.ts",
     "test": "VELLUM_COMMAND_TEST_FEATURE_PROFILE=all-on vitest run",
     "test:features:ship": "VELLUM_COMMAND_TEST_FEATURE_PROFILE=ship vitest run tests/features-build-profile.test.ts tests/features-*-gate.test.ts",
-    "test:features:all-on": "VELLUM_COMMAND_FEATURE_PROFILE=all-on vitest run",
+    "test:features:all-on": "VELLUM_COMMAND_TEST_FEATURE_PROFILE=all-on vitest run",
     "test:sqlite:electron": "ELECTRON_RUN_AS_NODE=1 electron scripts/electron-sqlite-smoke.mjs",
     "doctor": "react-doctor --no-telemetry src/renderer",
     "test:e2e": "VELLUM_COMMAND_FEATURE_PROFILE=all-on electron-vite build && playwright test --config e2e/playwright.config.ts",
