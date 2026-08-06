@@ -29,7 +29,7 @@ The replacement runner:
 - invokes the signed payload's read-only host preflight as the intended
   ordinary users;
 - starts Remote only through the generation-pinned product unit
-  `vellum-remote.service` → `~/.vellum/runtime/releases/<ver>-<sha>/resources/bin/vellum-remote`
+  `vellum-command-remote.service` → `~/.vellum-command/runtime/releases/<ver>-<sha>/resources/bin/vellum-command-remote`
   (no Electron, Chromium, renderer, CDP, Xvfb, or display env on Remote);
 - proves the packaged Node Remote starts without `DISPLAY`, `Xvfb`, `xauth`,
   or `mcookie`, while browser automation remains `unavailable` independently

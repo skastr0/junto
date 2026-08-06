@@ -102,7 +102,7 @@ release instructions in [CONTRIBUTING.md](CONTRIBUTING.md).
 ## Canvas & document
 
 Canvases live in the app-owned SQLite database at
-`~/.vellum/state/vellum.db`. JSON Canvas is the explicit export and
+`~/.vellum-command/state/vellum.db`. JSON Canvas is the explicit export and
 interoperability format, not a watched source of live state.
 
 Standard **JSON Canvas 1.0** (`text`, `file`, `link`, `group`) plus optional `ether` on nodes and edges.
@@ -152,7 +152,7 @@ Derived state (blocked seats, region membership, binding health, live phase) is 
 | **View slice** | retired — project slice lens removed |
 | **Host stamp** | `ether.host` — multi-fleet execution locality |
 | **Region defaults** | Create-time defaults for herdr/page inside a region |
-| **Region hold / instruction** | Structural container + onboard briefing text (`vellum onboard` → `region.instruction`) |
+| **Region hold / instruction** | Structural container + onboard briefing text (`vellum-command onboard` → `region.instruction`) |
 
 Work contents never persist in authorial `ether`; task, request, message,
 artifact, and transition rows belong to the SQLite Work plane and are projected
@@ -191,27 +191,27 @@ While Vellum Command is running, agents talk to the **local** work control socke
 
 | | |
 |---|---|
-| Socket | `~/.vellum/work/control.sock` |
-| Token | `~/.vellum/work/token` |
-| Protocol | `vellum-work/v1` (NDJSON) |
+| Socket | `~/.vellum-command/work/control.sock` |
+| Token | `~/.vellum-command/work/token` |
+| Protocol | `vellum-command-work/v1` (NDJSON) |
 | Authz | **Edges** — an agent only acts on connected nodes |
 
 ### Vellum Command CLI
 
 ```bash
-vellum ping              # is the station up?
-vellum doctor            # socket / token / protocol health
-vellum capabilities      # live edge contract for this principal
-vellum onboard           # join the work plane
-vellum schema            # machine contracts
-vellum examples          # discoverability
-vellum tasks list|claim|update
-vellum msg list|send
-vellum request create
-vellum artifact publish
+vellum-command ping              # is the station up?
+vellum-command doctor            # socket / token / protocol health
+vellum-command capabilities      # live edge contract for this principal
+vellum-command onboard           # join the work plane
+vellum-command schema            # machine contracts
+vellum-command examples          # discoverability
+vellum-command tasks list|claim|update
+vellum-command msg list|send
+vellum-command request create
+vellum-command artifact publish
 ```
 
-Build the CLI: `bun run cli:build` → `dist/vellum`.
+Build the CLI: `bun run cli:build` → `dist/vellum-command`.
 
 **Process-bind:** the principal is the live ACP/herdr child PID — no freeform nodeRef identity claim. Draw edges from the agent to targets so authorization is spatial and honest.
 
@@ -234,17 +234,17 @@ Browser **page** nodes bind a URL to a profile. Cookies live in Electron partiti
 
 **Do not** grant browser automation on a profile that holds accounts you treat as primary vault material. Without that grant, the browser is a normal Chromium profile for testing and secondary accounts.
 
-### Browser CLI (`vellum browser`)
+### Browser CLI (`vellum-command browser`)
 
 ```bash
-vellum browser doctor
-vellum browser profiles
-vellum browser pages | sessions
-vellum browser open <vellum-ref>
-vellum browser goto | eval | shot | close | stop
+vellum-command browser doctor
+vellum-command browser profiles
+vellum-command browser pages | sessions
+vellum-command browser open <vellum-ref>
+vellum-command browser goto | eval | shot | close | stop
 ```
 
-App must be running. Control home: `~/.vellum/browser/` (override `VELLUM_BROWSER_HOME`). Packaged binary ships as `Contents/Resources/bin/vellum`.
+App must be running. Control home: `~/.vellum-command/browser/` (override `VELLUM_COMMAND_BROWSER_HOME`). Packaged binary ships as `Contents/Resources/bin/vellum-command`.
 
 ### Profiles
 
@@ -299,7 +299,7 @@ Role is **never inferred** — you pick it. `hostId` identifies this machine (de
 | Host registry | App-owned rows in `vellum.db` (max 32) |
 | Local host | Auto-seeded with herdr + hermes |
 | Remote host | SSH endpoint + capabilities; optional hermesId remap |
-| Fleet sync | `pair` / `configure` / `project` / `report` / `status` through `vellum station-stdio` |
+| Fleet sync | `pair` / `configure` / `project` / `report` / `status` through `vellum-command station-stdio` |
 | Tailscale | Optional serve/peer catalog in Settings → Hosts |
 
 Advanced local, multi-host, and offline-island proof:
@@ -310,7 +310,7 @@ Advanced local, multi-host, and offline-island proof:
 ## Settings & install
 
 Preferences, station topology, and host enrollment live as normalized rows in
-`~/.vellum/state/vellum.db`. The app is their only mutation path.
+`~/.vellum-command/state/vellum.db`. The app is their only mutation path.
 
 | Install | Command |
 |---|---|
@@ -329,7 +329,7 @@ App bundle: **Vellum Command.app** - protocol: `vellum://` node references.
 | `bun run digest [name]` | agents + operators | Text projection + live snapshots |
 | `bun run render [name]` | agents + operators | SVG deep-field image of the board |
 | `bun run canvas:ls` | agents + operators | List canvases (`--json`) |
-| `bun run canvas:rm` | **operator only** | Delete canvases (`VELLUM_AUTHORIAL_WRITE=1`) |
+| `bun run canvas:rm` | **operator only** | Delete canvases (`VELLUM_COMMAND_AUTHORIAL_WRITE=1`) |
 | `bun run ref` | tooling | `vellum://` node-ref CLI |
 | `bun run browser` | agents | Browser control CLI (app must be running) |
 | `bun run cli` / `cli:build` | agents | Work-plane CLI |
@@ -339,25 +339,25 @@ App bundle: **Vellum Command.app** - protocol: `vellum://` node references.
 ## Work plane & CLI
 
 ```bash
-vellum ping
-vellum doctor
-vellum capabilities
-vellum onboard
-vellum schema | examples
-vellum tasks list|claim|update
-vellum msg list|send
-vellum request create
-vellum artifact publish
+vellum-command ping
+vellum-command doctor
+vellum-command capabilities
+vellum-command onboard
+vellum-command schema | examples
+vellum-command tasks list|claim|update
+vellum-command msg list|send
+vellum-command request create
+vellum-command artifact publish
 ```
 
 | | |
 |---|---|
-| Socket | `~/.vellum/work/control.sock` |
-| Token | `~/.vellum/work/token` |
+| Socket | `~/.vellum-command/work/control.sock` |
+| Token | `~/.vellum-command/work/token` |
 | Authz | **Edges** — agent only acts on connected nodes |
 | Identity | Process-bind (live ACP/herdr PID), not freeform node claims |
 
-Build: `bun run cli:build` → `dist/vellum`.
+Build: `bun run cli:build` → `dist/vellum-command`.
 
 ---
 
@@ -375,9 +375,9 @@ Page nodes bind a URL to a profile. Cookies live in `persist:vellum-profile-{id}
 Without granting automation, the browser is safe for testing and secondary accounts. **Do not** grant automation on profiles that hold primary credentials.
 
 ```bash
-vellum browser doctor | profiles | pages | sessions
-vellum browser open <vellum-ref>
-vellum browser goto | eval | shot | close | stop
+vellum-command browser doctor | profiles | pages | sessions
+vellum-command browser open <vellum-ref>
+vellum-command browser goto | eval | shot | close | stop
 ```
 
 ---
@@ -419,7 +419,7 @@ Hosts.
 
 ## Settings & install
 
-`~/.vellum/state/vellum.db` owns preferences, station topology, host
+`~/.vellum-command/state/vellum.db` owns preferences, station topology, host
 enrollment, canvases, work, and Station coordination.
 
 | Install | Command |
@@ -439,7 +439,7 @@ Bundle: **Vellum Command.app** - scheme: `vellum://`
 | `bun run digest [name]` | agents + operators | Text projection + live snapshots |
 | `bun run render [name]` | agents + operators | SVG deep-field image |
 | `bun run canvas:ls` | agents + operators | List canvases |
-| `bun run canvas:rm` | operator only | Delete (`VELLUM_AUTHORIAL_WRITE=1`) |
+| `bun run canvas:rm` | operator only | Delete (`VELLUM_COMMAND_AUTHORIAL_WRITE=1`) |
 | `bun run ref` | tooling | `vellum://` node-ref CLI |
 | `bun run browser` | agents | Browser control (app running) |
 | `bun run cli` / `cli:build` | agents | Work-plane CLI |
@@ -449,18 +449,18 @@ Bundle: **Vellum Command.app** - scheme: `vellum://`
 ## Work plane & CLI
 
 ```bash
-vellum ping | doctor | capabilities | onboard
-vellum schema | examples
-vellum tasks list|claim|update
-vellum msg list|send
-vellum request create
-vellum artifact publish
+vellum-command ping | doctor | capabilities | onboard
+vellum-command schema | examples
+vellum-command tasks list|claim|update
+vellum-command msg list|send
+vellum-command request create
+vellum-command artifact publish
 ```
 
 | | |
 |---|---|
-| Socket | `~/.vellum/work/control.sock` |
-| Token | `~/.vellum/work/token` |
+| Socket | `~/.vellum-command/work/control.sock` |
+| Token | `~/.vellum-command/work/token` |
 | Authz | Edges — act only on connected nodes |
 | Identity | Process-bind (live ACP/herdr PID) |
 
@@ -480,9 +480,9 @@ Page nodes bind URL + profile. Cookies in `persist:vellum-profile-{id}` **surviv
 Without granting automation, use the browser freely for secondary accounts and testing.
 
 ```bash
-vellum browser doctor | profiles | pages | sessions
-vellum browser open <vellum-ref>
-vellum browser goto | eval | shot | close | stop
+vellum-command browser doctor | profiles | pages | sessions
+vellum-command browser open <vellum-ref>
+vellum-command browser goto | eval | shot | close | stop
 ```
 
 ---
@@ -525,14 +525,14 @@ serve catalog lives in Settings.
 
 | Path / env | What |
 |---|---|
-| `~/.vellum/state/vellum.db` | Sole durable product state |
-| `~/.vellum/canvases/` | Digest and SVG sidecar outputs only |
-| `~/.vellum/work/` | Work control sock + token |
-| `~/.vellum/browser/` | Browser control + profiles + shots |
-| `VELLUM_WORK_HOME` | Override work control dir |
-| `VELLUM_BROWSER_HOME` | Override browser control home |
-| `VELLUM_AUTHORIAL_WRITE` | Allow `canvas:rm` |
-| `VELLUM_DEMO` | Demo mode; by default SQLite and sidecars live in a process-owned OS-temporary directory removed on shutdown |
+| `~/.vellum-command/state/vellum.db` | Sole durable product state |
+| `~/.vellum-command/canvases/` | Digest and SVG sidecar outputs only |
+| `~/.vellum-command/work/` | Work control sock + token |
+| `~/.vellum-command/browser/` | Browser control + profiles + shots |
+| `VELLUM_COMMAND_WORK_HOME` | Override work control dir |
+| `VELLUM_COMMAND_BROWSER_HOME` | Override browser control home |
+| `VELLUM_COMMAND_AUTHORIAL_WRITE` | Allow `canvas:rm` |
+| `VELLUM_COMMAND_DEMO` | Demo mode; by default SQLite and sidecars live in a process-owned OS-temporary directory removed on shutdown |
 
 ---
 
@@ -593,28 +593,28 @@ See [Node types](#node-types) detail in prior sections of this README (native ty
 
 | Path / env | What |
 |---|---|
-| `~/.vellum/state/vellum.db` | Sole durable product state |
-| `~/.vellum/canvases/` | Digest and SVG sidecar outputs only |
-| `~/.vellum/work/` | Work control sock + token |
-| `~/.vellum/browser/` | Browser control + profiles + shots |
-| `VELLUM_WORK_HOME` | Override work control dir |
-| `VELLUM_BROWSER_HOME` | Override browser control home |
-| `VELLUM_AUTHORIAL_WRITE` | Allow `canvas:rm` |
+| `~/.vellum-command/state/vellum.db` | Sole durable product state |
+| `~/.vellum-command/canvases/` | Digest and SVG sidecar outputs only |
+| `~/.vellum-command/work/` | Work control sock + token |
+| `~/.vellum-command/browser/` | Browser control + profiles + shots |
+| `VELLUM_COMMAND_WORK_HOME` | Override work control dir |
+| `VELLUM_COMMAND_BROWSER_HOME` | Override browser control home |
+| `VELLUM_COMMAND_AUTHORIAL_WRITE` | Allow `canvas:rm` |
 
 ---
 
 ## Work plane & CLI
 
 ```bash
-vellum ping | doctor | capabilities | onboard
-vellum schema | examples
-vellum tasks list|claim|update
-vellum msg list|send
-vellum request create
-vellum artifact publish
+vellum-command ping | doctor | capabilities | onboard
+vellum-command schema | examples
+vellum-command tasks list|claim|update
+vellum-command msg list|send
+vellum-command request create
+vellum-command artifact publish
 ```
 
-Socket `~/.vellum/work/control.sock` - token `~/.vellum/work/token` - authz by **edges** - identity by process-bind.
+Socket `~/.vellum-command/work/control.sock` - token `~/.vellum-command/work/token` - authz by **edges** - identity by process-bind.
 
 ---
 
@@ -625,9 +625,9 @@ Page nodes + profiles. Cookies in `persist:vellum-profile-{id}` **survive quit**
 Without granting automation, use the browser freely for secondary accounts and testing.
 
 ```bash
-vellum browser doctor | profiles | pages | sessions
-vellum browser open <vellum-ref>
-vellum browser goto | eval | shot | close | stop
+vellum-command browser doctor | profiles | pages | sessions
+vellum-command browser open <vellum-ref>
+vellum-command browser goto | eval | shot | close | stop
 ```
 
 ---
@@ -645,13 +645,13 @@ vellum browser goto | eval | shot | close | stop
 
 | Path / env | What |
 |---|---|
-| `~/.vellum/state/vellum.db` | Sole durable product state |
-| `~/.vellum/canvases/` | Digest and SVG sidecar outputs only |
-| `~/.vellum/work/` | Work control sock + token |
-| `~/.vellum/browser/` | Browser control + profiles + shots |
-| `VELLUM_WORK_HOME` | Override work control dir |
-| `VELLUM_BROWSER_HOME` | Override browser control home |
-| `VELLUM_AUTHORIAL_WRITE` | Allow `canvas:rm` |
+| `~/.vellum-command/state/vellum.db` | Sole durable product state |
+| `~/.vellum-command/canvases/` | Digest and SVG sidecar outputs only |
+| `~/.vellum-command/work/` | Work control sock + token |
+| `~/.vellum-command/browser/` | Browser control + profiles + shots |
+| `VELLUM_COMMAND_WORK_HOME` | Override work control dir |
+| `VELLUM_COMMAND_BROWSER_HOME` | Override browser control home |
+| `VELLUM_COMMAND_AUTHORIAL_WRITE` | Allow `canvas:rm` |
 
 ---
 

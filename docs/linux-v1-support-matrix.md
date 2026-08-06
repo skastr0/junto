@@ -31,7 +31,7 @@ security-sensitive features fail closed.
 | Missing OS packages | Exact release-declared optional host actions | Target; never installed by Vellum Command |
 | Station API | five verbs only; OpenSSH transport | Implemented surfaces require rootless end-to-end requalification |
 | Browser automation | Optional future Linux Remote sidecar; host-local when introduced | Intentionally unavailable in first Beta; does not affect core health |
-| Work control | `vellum-work/v1`, owner-local Unix socket with process-bind | Implemented surfaces require exact rootless payload proof |
+| Work control | `vellum-command-work/v1`, owner-local Unix socket with process-bind | Implemented surfaces require exact rootless payload proof |
 | Linux arm64 / aarch64 | Outside v1 | Unsupported |
 | musl / Alpine | Outside v1 | Unsupported |
 | AppImage, RPM, Snap, Flatpak | Not v1 release units | Unsupported |

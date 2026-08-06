@@ -11,7 +11,7 @@ Vellum Command has one storage architecture:
 
 ```text
 one installation
-  └── ~/.vellum/state/vellum.db
+  └── ~/.vellum-command/state/vellum.db
         └── one normal-runtime app StateEngine connection
               ├── owner: Electron main (Command Center)
               │          or displayless packaged Node process (Remote)
@@ -299,7 +299,7 @@ The fleet protocol has five bounded, schema-decoded operations:
 | `report` | Duplex exchange of strict Work commands, facts, dispositions, receipts, and cumulative full-route ACK cursors |
 | `status` | Report installation identity, configuration, projection, cursors, and readiness |
 
-Command Center invokes the `vellum station-stdio` executable through the
+Command Center invokes the `vellum-command station-stdio` executable through the
 operator's enrolled OpenSSH route. It is one persistent bounded framed session:
 the helper accepts no arbitrary command or path, connects to the Remote app's
 owner-local Station socket, and relays correlated frames without opening
@@ -408,7 +408,7 @@ The bounded forward-recovery surface is inventory and export:
 This is portability and forensic evidence, not restore. No product path
 replaces `vellum.db`, launches an older binary, or downgrades installed state.
 Copying the live database, its WAL, its shared-memory file, or the wider
-`~/.vellum` directory is not a coherent product backup. Vellum Command currently has
+`~/.vellum-command` directory is not a coherent product backup. Vellum Command currently has
 no restore surface.
 
 Any app-owned backup protects only the current SQLite architecture. It does
@@ -417,7 +417,7 @@ layout, and it cannot become a compatibility path for one.
 
 When the content store holds binary objects, a coherent product unit is the
 StateEngine backup **plus** a content snapshot of every `content_refs` digest
-(`~/.vellum/content/snapshots/content-snapshot-<uuid>/`). The snapshot hardlinks
+(`~/.vellum-command/content/snapshots/content-snapshot-<uuid>/`). The snapshot hardlinks
 or copies immutable objects and refuses to mint when a referenced object is
 missing or corrupt. Export and forensic copy may carry both receipts; there is
 still no automatic restore that replaces the live `vellum.db`.

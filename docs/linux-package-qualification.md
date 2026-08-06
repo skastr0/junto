@@ -176,7 +176,7 @@ One passed receipt qualifies:
 
 - one exact Linux Remote with a Linux or supported macOS Command Center;
 - five-verb `pair`, `configure`, `project`, `report`, and `status` exchange;
-- distinct installation identities and the exact protocol 4 bundle;
+- distinct installation identities and the exact protocol 5 bundle;
 - complete replace-only projection and restart persistence;
 - bidirectional logical cursor convergence;
 - interrupted project/report retry;
@@ -192,7 +192,7 @@ The receipt remains bounded, redacted operator evidence. It is not
 self-proving automation and it may not be synthesized from single-host smoke.
 
 The structured receipt retains the established
-`vellum/station-two-installation-qualification/v1` shape:
+`vellum-command/station-two-installation-qualification/v1` shape:
 
 - each installation records a closed `nativePlatform`;
 - Remote is `linux` / `ubuntu` / `24.04` / `x64`;

@@ -97,14 +97,15 @@ prefers. `compatibleFrom` is the oldest exact codec it will accept.
 peer's threshold remains compatible but produces an operator-visible upgrade
 warning.
 
-The current baseline is Station protocol **4**, with support policy:
+The current baseline is Station protocol **5**, with support policy:
 
 ```text
-{ preferred: 4, compatibleFrom: 4, warnBelow: 4 }
+{ preferred: 5, compatibleFrom: 5, warnBelow: 5 }
 ```
 
 A new Station protocol number exists only when the actual closed wire bundle
-changes. Protocol 4 is the content-capable cut (ContentRef Work parts,
+changes. Protocol 5 is the Vellum Command namespace cut and content-capable
+release (ContentRef Work parts,
 verified receipt claim gates, no media in Station NDJSON).
 
 One negotiated integer selects the complete strict bundle: session framing,
@@ -116,7 +117,7 @@ There is no session-version array, Station-API-version array,
 Work-version array, projection-version array, fallback-protocol number, or
 capability array.
 
-Likewise, literals such as `vellum/station-protocol-preface/v1` and
+Likewise, literals such as `vellum-command/station-protocol-preface/v1` and
 closed message-shape discriminators (state-update preflight receipts are retired).
 They are not independently negotiated product version axes. Only the selected
 Station protocol integer chooses cross-installation wire behavior; the state
@@ -126,7 +127,7 @@ preflight receipt is local to one package update and never enters Station API.
 
 The canonical implementation has:
 
-1. one `~/.vellum/state/vellum.db` per installation;
+1. one `~/.vellum-command/state/vellum.db` per installation;
 2. one normal-runtime Electron-main `StateEngine` connection per database,
    plus the exact quiesced packaged-candidate read-only preflight described
    below;
@@ -964,13 +965,14 @@ The existing `WORK_PROTOCOL_MAX_RECORD_BYTES` bound remains a control-record
 bound, not a media-size limit. Because a content-capable record carries only
 bounded reference metadata, the size of the referenced object is governed by
 the content store, disk admission, and resumable transfer backpressure rather
-than JSON/Base64 expansion. Station protocol **4** is the content-capable
+than JSON/Base64 expansion. Station protocol **5** is the renamed,
+content-capable
 codec cut: Work records admit `ContentPart` references, reject inline Base64
 media on the wire, and keep control frames bounded regardless of object size.
 Legacy installed `RawPart` history remains decodable in local SQLite but is
 not a legal Station report body.
 
-### Content-capable ordering (protocol 4)
+### Content-capable ordering (protocol 5)
 
 Media availability is explicit and route-local. The ordered path is:
 
@@ -988,9 +990,9 @@ Media availability is explicit and route-local. The ordered path is:
    imply media availability.
 
 A task with missing, corrupt, unavailable, or unknown content remains
-non-runnable (claim rejected / visibly pending). Protocol-3 peers share no
-overlap with protocol-4 support `{ preferred: 4, compatibleFrom: 4,
-warnBelow: 4 }`; negotiation returns non-retryable `update-required`. The
+non-runnable (claim rejected / visibly pending). Protocol-4 and earlier peers
+share no overlap with protocol-5 support `{ preferred: 5, compatibleFrom: 5,
+warnBelow: 5 }`; negotiation returns non-retryable `update-required`. The
 older peer retains local work under its last valid projection. There is no
 partial down-conversion of ContentRefs into Base64 to satisfy an older peer.
 
@@ -1353,7 +1355,7 @@ ReportBatch {
 }
 
 ReportRequest {
-  protocol: "vellum/station-api/v4"
+  protocol: "vellum-command/station-api/v5"
   op: "report"
   senderInstallationId: InstallationId
   targetInstallationId: InstallationId
@@ -1361,7 +1363,7 @@ ReportRequest {
 }
 
 ReportResponse {
-  protocol: "vellum/station-api/v4"
+  protocol: "vellum-command/station-api/v5"
   op: "report"
   senderInstallationId: InstallationId
   targetInstallationId: InstallationId
@@ -1478,7 +1480,7 @@ Status includes:
 Cached status must be labelled last-observed. An unreachable Remote is
 `unknown/unreachable`, never optimistically healthy.
 
-These compatibility facts belong to the protocol-4 `StatusResponse`, session
+These compatibility facts belong to the protocol-5 `StatusResponse`, session
 supervisor, and operator status surfaces. They do not widen any retired codec:
 a protocol-2 peer has no installed decoder and fails compatibility before
 domain traffic.
@@ -1577,10 +1579,10 @@ Command Center and Remotes are installed applications and cannot be updated
 atomically. That is a proven runtime-skew constraint, not speculative backward
 compatibility.
 
-The exact Station protocol 4 bundle is the installed compatibility floor. Its
+The exact Station protocol 5 bundle is the installed compatibility floor. Its
 session, Station API, control, Work, and projection codecs are closed and are
-never widened in place. Protocol 4 adds content-capable Work parts and
-receipt-gated claim readiness. Protocol 3 cannot represent that media
+never widened in place. Protocol 5 adds the renamed namespace, content-capable
+Work parts, and receipt-gated claim readiness. Protocol 4 and Protocol 3 cannot represent that media
 boundary without partial down-conversion and is retired because no deployed
 Station or unreconciled route establishes an obligation to retain it.
 
@@ -1594,7 +1596,7 @@ preface before domain traffic:
 
 ```text
 CompatibilityOffer {
-  protocol: "vellum/station-protocol-preface/v1"
+  protocol: "vellum-command/station-protocol-preface/v1"
   frame: "offer"
   appVersion                 // display/diagnostic only
   stateSchemaVersion         // display/diagnostic only
@@ -1602,7 +1604,7 @@ CompatibilityOffer {
 }
 
 CompatibilityAccept {
-  protocol: "vellum/station-protocol-preface/v1"
+  protocol: "vellum-command/station-protocol-preface/v1"
   frame: "accept"
   appVersion
   stateSchemaVersion
@@ -1611,7 +1613,7 @@ CompatibilityAccept {
 }
 
 CompatibilityReject {
-  protocol: "vellum/station-protocol-preface/v1"
+  protocol: "vellum-command/station-protocol-preface/v1"
   frame: "reject"
   appVersion
   stateSchemaVersion
@@ -1664,10 +1666,10 @@ Rules:
 #### Retired protocol-2 and protocol-3 boundary
 
 There is no pre-negotiation protocol-2 or protocol-3 fallback in the
-protocol-4 cut. A legacy preface or domain frame is rejected before
+protocol-5 cut. A legacy preface or domain frame is rejected before
 interpretation, no fresh compatibility-mode connection is opened, and no
 mutation or acknowledgement is attempted. Coordination resumes only after the
-incompatible installation updates into the protocol-4 support interval.
+incompatible installation updates into the protocol-5 support interval.
 
 This is an intentional coordination lockdown, not a request to stop the
 Remote's host-local factory. The Remote continues already-homed work under its
@@ -1706,7 +1708,7 @@ The canonical SSH shape is:
 ```text
 Command Center
   └── opens one persistent SSH command session
-        └── fixed packaged vellum station-stdio entry on Remote
+        └── fixed packaged vellum-command station-stdio entry on Remote
               └── owner-local Remote control socket
                     └── Remote main Station dispatcher
 ```
@@ -1722,7 +1724,7 @@ The OpenSSH adapter performs bootstrap as follows:
 
 1. the operator has already registered the exact Remote host and SSH route;
 2. Command Center resolves the packaged Remote platform and opens the same
-   `vellum station-stdio` framed SSH command used by ordinary sessions;
+   `vellum-command station-stdio` framed SSH command used by ordinary sessions;
 3. the bootstrap session admits exactly one correlated `status` request;
 4. Remote main returns its strict `StatusResponse`;
 5. Command Center records the returned `InstallationId` only as the identity
@@ -2110,7 +2112,7 @@ The canonical protocol blocks release while any live path preserves:
 
 ## Implementation status
 
-Station protocol 4 is the sole live Station contract in source. Its
+Station protocol 5 is the sole live Station contract in source. Its
 implementation cut is closed:
 
 - the wire has exactly `pair | configure | project | report | status`;

@@ -127,7 +127,7 @@ adding `--no-sandbox` or weakening core health.
 
 ## Durable state
 
-Every installation uses `~/.vellum/state/vellum.db`, mode `0600`, inside an
+Every installation uses `~/.vellum-command/state/vellum.db`, mode `0600`, inside an
 owner-only state directory. The normal product main process—Electron on
 Command Center, packaged Node on Remote—owns the one Effect `StateEngine`
 connection. All services share that connection; renderers, CLIs, helpers, and
@@ -184,7 +184,7 @@ Center or another Remote. Tailscale may provide reachability; it grants no
 Vellum Command authority. Browser and actor control remain host-local.
 
 Installed version skew uses the one Station protocol descriptor. Current
-policy is protocol 4 with `4/4/4`. No overlap means `update required`; it does
+policy is protocol 5 with `5/5/5`. No overlap means `update required`; it does
 not authorize a privileged fallback or partial down-conversion.
 
 ## Production exit gates

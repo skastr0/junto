@@ -290,7 +290,7 @@ not inherently secret. It is not the canonical live authority store. Importing
 an edited document is an explicit operator action. Exporting a document does
 not grant the exported file live authority over a running factory.
 
-Canonical live and durable state is `~/.vellum/state/vellum.db`. During normal
+Canonical live and durable state is `~/.vellum-command/state/vellum.db`. During normal
 product operation it is an owner-only SQLite database opened by exactly one
 main-process `StateEngine`: Electron main on Command Center or packaged Node
 main on Remote. Renderers, CLIs, helpers, fleet callers, and other processes
@@ -635,7 +635,7 @@ bounded `report` traffic, but `report` is the only Station verb a configured
 Remote may initiate on that existing session.
 
 The first transport adapter is OpenSSH. Command Center invokes the fixed
-`vellum-station` command as one persistent framed session. The helper connects
+`vellum-command-station` command as one persistent framed session. The helper connects
 to the Remote app's owner-local control socket; Remote main strictly decodes
 and authorizes each frame and owns every database transaction. SSH never writes
 settings, projections, acknowledgements, status, or database files.
@@ -681,9 +681,9 @@ in the overlap of their support intervals and bind that one protocol before
 domain traffic. Selection below either warning threshold remains operational
 with an explicit upgrade warning.
 
-The current baseline and installed floor is Station protocol 4 with policy
-`{ preferred: 4, compatibleFrom: 4, warnBelow: 4 }`. Protocol 4 is the
-content-capable cut: Work carries ContentRef metadata only, claim readiness
+The current baseline and installed floor is Station protocol 5 with policy
+`{ preferred: 5, compatibleFrom: 5, warnBelow: 5 }`. Protocol 5 is the
+Vellum Command namespace cut and remains content-capable: Work carries ContentRef metadata only, claim readiness
 requires verified local content receipts, and media bytes never enter Station
 NDJSON. A protocol-3 peer cannot represent that media boundary without partial
 down-conversion and therefore has no compatibility overlap. One Station
@@ -695,7 +695,7 @@ capability arrays, or fallback-protocol number. Negotiation itself does not
 invent Base64 down-conversion for older peers.
 
 A release retains an older codec only while an enrolled, non-retired Station
-or unreconciled route proves that compatibility obligation. This protocol-4
+or unreconciled route proves that compatibility obligation. This protocol-5
 cut has no deployed Station obligation for protocol 2 or 3, so both are
 deliberately retired instead of becoming permanent fallbacks. Compatibility
 lives only at the transport/domain boundary and normalizes immediately into

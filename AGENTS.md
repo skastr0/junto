@@ -22,11 +22,16 @@ public or user-facing string must use the full name **Vellum Command** only.
 | Agent docs (this file, CLAUDE.md) | `Vellum Command` |
 | macOS app / executable | `Vellum Command.app` |
 | Release artifacts | `Vellum-Command-…` |
-| Code identifiers / paths / bins | unchanged — not brand |
+| Code identifiers / source paths | unchanged — not brand |
 
-**Not brand (keep as-is):** `VellumApi`, `resolveVellumHome`, `~/.vellum/`,
-`vellum.db`, `dist/vellum`, `vellum://`, `VELLUM_*` env keys, npm package name,
-appId.
+**Renamed runtime surfaces:** `VellumCommandApi`, `resolveVellumCommandHome`, `~/.vellum-command/`,
+`dist/vellum-command`, `bin/vellum-command`, `VELLUM_COMMAND_*` env keys,
+`window.vellumCommand`, and `vellum-command-*` protocol/control prefixes.
+
+**Preserved compatibility surfaces:** source paths under `src/main/vellum/`, the npm package name,
+the appId, the `vellum.db` product filename (moved by a byte-preserving home migration), and the
+external `vellum://` node-reference URI scheme. These remain stable in this mechanical runtime-surface
+migration.
 
 **Enforcement:** `bun run lint:product-name` — capital-V product token not
 followed by ` Command` or `-Command` is a lint error. Wired into `bun run verify`.
@@ -54,11 +59,11 @@ event convergence, the five Station verbs, and transport adapters.
 
 **Normative direction:** the protected document is the product; compiled
 projections and capability-bound tools are the agent API. **Sole product
-store** is `~/.vellum/state/vellum.db` — canvases, work, content manifests,
+store** is `~/.vellum-command/state/vellum.db` — canvases, work, content manifests,
 station, settings, and every other product durable fact. That law is about
 **product** durability, not process-internal bookkeeping: install-local
-internals (e.g. backfill ledgers in `~/.vellum/state/install-ops.db`, content
-object files under `~/.vellum/content/`) may use separate on-disk stores
+internals (e.g. backfill ledgers in `~/.vellum-command/state/install-ops.db`, content
+object files under `~/.vellum-command/content/`) may use separate on-disk stores
 owned by the same app runtime. Do not fold migration/backfill completeness
 markers into product rows so seeds and installs cannot lie about local
 walks. Each installation has one sole app runtime process as the normal
@@ -140,19 +145,19 @@ to an exported document or the database:
 
 | surface | detail |
 |---|---|
-| CLI | `dist/vellum` (`bun run cli:build`) — `ping`, `doctor`, `capabilities`, `onboard`, `tasks`, `msg`, `request`, `artifact`, board ops |
-| Socket | `~/.vellum/work/control.sock` + bearer token `~/.vellum/work/token` |
-| Identity | **process-bind** — CLI must run as a descendant of a live Vellum Command agent (ACP) or herdr pane process. Main registers those PIDs; control admits via Unix peer PID (+ PPID walk). No client-supplied nodeRef / `VELLUM_NODE_REF` identity claim. |
+| CLI | `dist/vellum-command` (`bun run cli:build`) — `ping`, `doctor`, `capabilities`, `onboard`, `tasks`, `msg`, `request`, `artifact`, board ops |
+| Socket | `~/.vellum-command/work/control.sock` + bearer token `~/.vellum-command/work/token` |
+| Identity | **process-bind** — CLI must run as a descendant of a live Vellum Command agent (ACP) or herdr pane process. Main registers those PIDs; control admits via Unix peer PID (+ PPID walk). No client-supplied nodeRef / `VELLUM_COMMAND_NODE_REF` identity claim. |
 | Authz | **edges** — agent only acts on connected nodes (kernel-enforced ScopeError otherwise); board ports are distinct (`board.create_topic` vs `board.post`) |
 
-**How to use:** open the agent chat (or refresh local herdr pane meta) in Vellum Command so the process is registered, then run `dist/vellum` from that agent/tooling tree. `onboard` / `capabilities` report the live edge contract for the admitted principal.
+**How to use:** open the agent chat (or refresh local herdr pane meta) in Vellum Command so the process is registered, then run `dist/vellum-command` from that agent/tooling tree. `onboard` / `capabilities` report the live edge contract for the admitted principal.
 
-Browser control (`vellum browser` / `bun run browser`) uses the same process-bind
+Browser control (`vellum-command browser` / `bun run browser`) uses the same process-bind
 identity on protected routes. There is **no enable-grant ceremony** and no client
 capability secret — only a live registered process + human-drawn edges to page
-nodes. Station wire entry is `vellum station-stdio`; content transfer is
-`vellum content-transfer …`. Packaged installs ship **one** CLI binary
-(`bin/vellum`) only.
+nodes. Station wire entry is `vellum-command station-stdio`; content transfer is
+`vellum-command content-transfer …`. Packaged installs ship **one** CLI binary
+(`bin/vellum-command`) only.
 
 Ops go through WorkService (tasks/messages/requests/artifacts/board). That is the agent write path; freeform canvas authoring remains human/Command Center.
 
@@ -325,7 +330,7 @@ phase, and attention/occupancy are separate planes.
 
 ## Discipline
 
-- `~/.vellum/state/vellum.db` is the only **product** state store. Do not add
+- `~/.vellum-command/state/vellum.db` is the only **product** state store. Do not add
   parallel product JSON stores, manifests, seals, pointer files, drop-file
   protocols, dual product reads/writes, legacy imports, or rollback paths.
   Install-local internals (backfill ledgers, content object files) are not

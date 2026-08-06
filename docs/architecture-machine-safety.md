@@ -101,7 +101,7 @@ Product code must not implement:
 - recursive deletes of arbitrary user paths
 - git history destruction
 
-Scoped lifecycle deletes (app sockets under `~/.vellum/…`, install staging,
+Scoped lifecycle deletes (app sockets under `~/.vellum-command/…`, install staging,
 tmpdir tests) are allowed when path-bounded.
 
 Process death is recoverable (reopen apps). **Data destruction is not an

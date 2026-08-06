@@ -7,9 +7,9 @@ Read `AGENTS.md` — it is the canonical project guide for this repository.
 **The product is Vellum Command. Never the short form without Command.**
 
 A different product owns the short one-word name. Every public / user-facing
-string in this repo must say **Vellum Command**. Code identifiers and paths
-(`VellumApi`, `~/.vellum/`, `vellum.db`, CLI bin `vellum`) are not brand — leave
-them.
+string in this repo must say **Vellum Command**. Source paths (`src/main/vellum/`), the npm package,
+and appId remain compatibility identifiers. Runtime surfaces use `VellumCommandApi`,
+`~/.vellum-command/`, `vellum.db`, and the canonical CLI bin `vellum-command`.
 
 Gate: `bun run lint:product-name` (also in `bun run verify`).
 Constant: `src/shared/product-name.ts`.
