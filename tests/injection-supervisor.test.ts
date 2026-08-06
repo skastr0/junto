@@ -138,8 +138,10 @@ describe("InjectionSupervisor", () => {
     turnCycle(6n);
     expect(escalate).toHaveBeenCalledTimes(1);
 
-    // New generation (resume): gone → fresh state.
+    // New generation (resume): gone evicts the per-generation entry, so a
+    // resumed generation starts fresh (no unbounded growth).
     s.noteSeatState(seatEvent({ state: "gone", epoch: "e1", at: now }));
+    expect((s as unknown as { seats: Map<string, unknown> }).seats.has("b1")).toBe(false);
     s.noteSeatState(seatEvent({ state: "idle", epoch: "e2", at: now + 1 }));
     s.onSnapshot(snap({ epoch: "e2", lines: ["", "❯ "], text: "fresh", seq: 100n }));
     expect(escalate).toHaveBeenCalledTimes(1); // not re-escalated from old budget

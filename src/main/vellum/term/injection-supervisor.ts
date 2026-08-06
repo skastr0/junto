@@ -186,28 +186,17 @@ export class InjectionSupervisor {
     const seat = this.ensure(event.bindingId, event.epoch);
     seat.state = event.state as SeatSignal;
     if (event.state === "gone") {
-      // Generation exited: per-generation state resets; a resumed generation
-      // must re-prove awareness. The spawn path re-arms the first typed
-      // message; we cleared the delivered registry so it can land again.
-      this.resetForGeneration(event.bindingId, seat);
+      // Generation exited: evict the per-generation entry (sticky binding
+      // proof + user-input maps persist, so a resumed generation is re-seeded
+      // correctly on its next snapshot and must re-prove awareness). The
+      // spawn path re-arms the first typed message; the wiring cleared the
+      // delivered registry so it can land again.
+      this.seats.delete(event.bindingId);
+      return;
     }
   }
 
-  private resetForGeneration(bindingId: string, seat: SeatSupervision): void {
-    // New generation: the new process must re-prove awareness, but sticky
-    // binding proof still suppresses re-engagement for previously proven
-    // seats (the resumed first-typed doctrine re-grounds them anyway).
-    seat.proven = this.provenBindings.has(bindingId);
-    seat.awareness = seat.proven ? "proven" : "unproven";
-    seat.awareness = "unproven";
-    seat.turnsWithoutProof = 0;
-    seat.prevTurn = "none";
-    seat.lastActedKind = undefined;
-    seat.lastCharterTurn = -1;
-    seat.repairedOnce = false;
-    seat.escalatedOnce = false;
-  }
-
+  
   /**
    * PTY snapshot feed (observer global listener). Derives interaction signals,
    * applies heuristics, and runs the decision matrix with dedup.
