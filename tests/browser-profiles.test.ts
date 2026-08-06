@@ -95,7 +95,7 @@ describe("browser profile registry", () => {
 
   const freshState = async () => {
     root = await mkdtemp(
-      join(tmpdir(), "vellum-browser-sqlite-"),
+      join(tmpdir(), "vellum-command-browser-sqlite-"),
     );
     registryRoot = join(root, "browser");
     runtime = ManagedRuntime.make(

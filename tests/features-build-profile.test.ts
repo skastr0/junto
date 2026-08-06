@@ -23,16 +23,16 @@ describe("compile-time feature profiles", () => {
 
   it("supports an explicit all-on regression profile", () => {
     expect(
-      resolveBuildFeatures({ VELLUM_FEATURE_PROFILE: "all-on" }).features,
+      resolveBuildFeatures({ VELLUM_COMMAND_FEATURE_PROFILE: "all-on" }).features,
     ).toEqual(ALL_FEATURES);
   });
 
   it("applies typed per-feature overrides over the selected profile", () => {
     const resolved = resolveBuildFeatures({
-      VELLUM_FEATURE_PROFILE: "all-on",
-      VELLUM_BROWSER: "0",
-      VELLUM_CRON: "0",
-      VELLUM_AUDIO: "1",
+      VELLUM_COMMAND_FEATURE_PROFILE: "all-on",
+      VELLUM_COMMAND_BROWSER: "0",
+      VELLUM_COMMAND_CRON: "0",
+      VELLUM_COMMAND_AUDIO: "1",
     });
     expect(resolved.features.browser).toBe(false);
     expect(resolved.features.cron).toBe(false);
@@ -42,17 +42,17 @@ describe("compile-time feature profiles", () => {
 
   it("rejects malformed profiles and overrides", () => {
     expect(() =>
-      resolveBuildFeatures({ VELLUM_FEATURE_PROFILE: "maybe" }),
+      resolveBuildFeatures({ VELLUM_COMMAND_FEATURE_PROFILE: "maybe" }),
     ).toThrow(/must be ship or all-on/u);
-    expect(() => resolveBuildFeatures({ VELLUM_RELAY: "true" })).toThrow(
-      /VELLUM_RELAY must be 0 or 1/u,
+    expect(() => resolveBuildFeatures({ VELLUM_COMMAND_RELAY: "true" })).toThrow(
+      /VELLUM_COMMAND_RELAY must be 0 or 1/u,
     );
   });
 
   it("generates identical Vite and Bun define values", () => {
     const resolved = resolveBuildFeatures({
-      VELLUM_BROWSER: "1",
-      VELLUM_USAGE: "1",
+      VELLUM_COMMAND_BROWSER: "1",
+      VELLUM_COMMAND_USAGE: "1",
     });
     const vite = featureViteDefines(resolved);
     const bun = featureBunDefineArgs(resolved);

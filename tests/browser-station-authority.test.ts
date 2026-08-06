@@ -107,7 +107,7 @@ describe("browser physical-station authority", () => {
     listener?.(settingsAt("remote", "studio"));
     loading.resolve(settingsAt("command-center", "local"));
     const lease = await preparing;
-    const root = await mkdtemp(join(tmpdir(), "vellum-browser-station-"));
+    const root = await mkdtemp(join(tmpdir(), "vellum-command-browser-station-"));
     roots.push(root);
     let adapterCalls = 0;
     const adapter: BrowserViewAdapter = () => {
@@ -154,7 +154,7 @@ describe("browser physical-station authority", () => {
       },
       (hostId) => hosts.find((host) => host.id === hostId),
     );
-    const root = await mkdtemp(join(tmpdir(), "vellum-browser-station-"));
+    const root = await mkdtemp(join(tmpdir(), "vellum-command-browser-station-"));
     roots.push(root);
     let adapterCalls = 0;
     const adapter: BrowserViewAdapter = () => {

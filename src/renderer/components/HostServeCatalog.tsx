@@ -11,7 +11,7 @@ import { makePageNode } from "../lib/node-factories";
 import { resolveAuthoredPageHost } from "../lib/page-authoring";
 import { closeSettings } from "../lib/settings-state";
 import { state$ } from "../lib/state";
-import { getVellumApi } from "../lib/vellum-api";
+import { getVellumCommandApi } from "../lib/vellum-api";
 import { DIM } from "../lib/theme";
 
 export function HostServeCatalog({
@@ -30,7 +30,7 @@ export function HostServeCatalog({
 
   const load = useCallback(
     async (force: boolean) => {
-      type Api = ReturnType<typeof getVellumApi> & {
+      type Api = ReturnType<typeof getVellumCommandApi> & {
         herdrServeCatalogGet?: (id: string) => Promise<{
           ok: boolean;
           data?: HerdrServeCatalogInfo;
@@ -42,7 +42,7 @@ export function HostServeCatalog({
           message?: string;
         }>;
       };
-      const api = getVellumApi() as Api | undefined;
+      const api = getVellumCommandApi() as Api | undefined;
       // Prefer refresh when force; Get also awaits a real fetch on main now.
       const fn = force ? api?.herdrServeCatalogRefresh : api?.herdrServeCatalogGet;
       if (!fn) {

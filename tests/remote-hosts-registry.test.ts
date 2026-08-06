@@ -79,8 +79,8 @@ afterEach(async () => {
   );
   resetDefaultHostsRegistryForTests();
   setHostsSnapshot(defaultRemoteHostsDocument().hosts);
-  delete process.env.VELLUM_ACP_VERBOSE;
-  delete process.env.VELLUM_DEBUG;
+  delete process.env.VELLUM_COMMAND_ACP_VERBOSE;
+  delete process.env.VELLUM_COMMAND_DEBUG;
   if (originalHome === undefined) delete process.env.HOME;
   else process.env.HOME = originalHome;
 });
@@ -320,7 +320,7 @@ describe("remote hosts registry", () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-hosts-boot-"));
     dirs.push(root);
     process.env.HOME = root;
-    const databasePath = join(root, ".vellum", "state", "vellum.db");
+    const databasePath = join(root, ".vellum-command", "state", "vellum.db");
     const setupRuntime = ManagedRuntime.make(makeStateEngineLive(databasePath));
     try {
       const state = await setupRuntime.runPromise(StateEngine);
@@ -469,7 +469,7 @@ describe("remote hosts registry", () => {
       ).not.toThrow();
       expect(reconciliations).toBe(1);
       expect(warning).toHaveBeenCalledWith(
-        "[vellum:hosts] routing snapshot listener failed",
+        "[vellum-command:hosts] routing snapshot listener failed",
       );
       expect(JSON.stringify(warning.mock.calls)).not.toContain(
         "private-endpoint",
@@ -615,8 +615,8 @@ describe("acp verbose logging gate", () => {
     expect(acpVerboseLogging()).toBe(false);
   });
 
-  it("enables via VELLUM_ACP_VERBOSE", () => {
-    process.env.VELLUM_ACP_VERBOSE = "1";
+  it("enables via VELLUM_COMMAND_ACP_VERBOSE", () => {
+    process.env.VELLUM_COMMAND_ACP_VERBOSE = "1";
     expect(acpVerboseLogging()).toBe(true);
   });
 });

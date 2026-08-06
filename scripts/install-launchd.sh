@@ -213,9 +213,9 @@ cat >&3 <<PLIST_EOF
   <key>AssociatedBundleIdentifiers</key>
   <string>$LABEL</string>
   <key>StandardOutPath</key>
-  <string>$LOG_DIR/vellum.out.log</string>
+  <string>$LOG_DIR/vellum-command.out.log</string>
   <key>StandardErrorPath</key>
-  <string>$LOG_DIR/vellum.err.log</string>
+  <string>$LOG_DIR/vellum-command.err.log</string>
 </dict>
 </plist>
 PLIST_EOF
@@ -280,7 +280,7 @@ if launchctl print "$DOMAIN/$LABEL" 2>/dev/null | grep -q "state = running"; the
   log "  logs: $LOG_DIR"
   log "  herdr panes are NOT killed by this reload (detach control only)"
 else
-  err "$LABEL loaded but not reported running — check $LOG_DIR/vellum.err.log"
+    err "$LABEL loaded but not reported running — check $LOG_DIR/vellum-command.err.log"
   launchctl print "$DOMAIN/$LABEL" 2>/dev/null | sed -n '1,12p' >&2 || true
   exit 1
 fi

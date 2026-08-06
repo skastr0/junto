@@ -1,12 +1,12 @@
 /**
- * Packaged content-transfer entry — `vellum content-transfer …`.
+ * Packaged content-transfer entry — `vellum-command content-transfer …`.
  *
- * Same receive|send|stat closed argv as the old vellum-content helper, now a
+ * Same receive|send|stat closed argv as the old vellum-command-content helper, now a
  * subcommand of the single packaged CLI binary.
  */
 import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
-import { resolveVellumHome } from "../shared/vellum-home";
+import { resolveVellumCommandHome } from "../shared/vellum-home";
 import {
   CONTENT_TRANSFER_COMMAND,
   parseContentHelperArgs,
@@ -37,13 +37,13 @@ export const runContentTransfer = async (
 ): Promise<void> => {
   const parsed = parseContentHelperArgs(argv);
   if ("exitCode" in parsed) {
-    process.stderr.write(`vellum content-transfer: ${parsed.error}\n`);
+    process.stderr.write(`vellum-command content-transfer: ${parsed.error}\n`);
     process.exitCode = parsed.exitCode;
     return;
   }
 
   const args = parsed;
-  const root = contentStoreRoot(resolveVellumHome());
+  const root = contentStoreRoot(resolveVellumCommandHome());
   const ref = contentRefForTransfer({
     sha256: args.sha256,
     byteLength: args.byteLength,

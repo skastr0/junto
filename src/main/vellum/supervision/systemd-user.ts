@@ -1,7 +1,7 @@
 import { Schema } from "effect";
 import { readFileSync } from "node:fs";
 import {
-  VELLUM_SYSTEMD_USER_UNIT,
+  VELLUM_COMMAND_SYSTEMD_USER_UNIT,
   showVellumSystemdUserUnit,
   startVellumSystemdUserUnit,
   systemdUserUnitTarget,
@@ -19,9 +19,9 @@ import {
 
 /** User-relative destination for the generated, generation-pinned service. */
 export const USERLAND_LINUX_SERVICE_PATH =
-  ".config/systemd/user/vellum-remote.service" as const;
+  ".config/systemd/user/vellum-command-remote.service" as const;
 
-const RELEASE_DIRECTORY = /^\/(?:[^/\u0000-\u001f\u007f]+\/)*\.vellum\/runtime\/releases\/(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)-[0-9a-f]{64}$/u;
+const RELEASE_DIRECTORY = /^\/(?:[^/\u0000-\u001f\u007f]+\/)*\.vellum-command\/runtime\/releases\/(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)-[0-9a-f]{64}$/u;
 
 const escapeSystemdArgument = (value: string): string =>
   Array.from(Buffer.from(value, "utf8"), (byte) =>
@@ -46,8 +46,8 @@ export const renderUserlandLinuxService = ({
     throw new Error("Linux Remote release directory is not a canonical immutable userland generation");
   }
   const release = escapeSystemdArgument(releaseDirectory);
-  const launcher = `${release}/resources/systemd/vellum-remote-launch`;
-  const remote = `${release}/resources/bin/vellum-remote`;
+  const launcher = `${release}/resources/systemd/vellum-command-remote-launch`;
+  const remote = `${release}/resources/bin/vellum-command-remote`;
   return `[Unit]
 Description=Vellum Command Remote headless station
 After=default.target
@@ -70,13 +70,13 @@ Environment=PATH=/usr/bin:/bin
 Environment=HOME=%h
 Environment=XDG_STATE_HOME=%h/.local/state
 Environment=XDG_RUNTIME_DIR=%t
-RuntimeDirectory=vellum-remote
+RuntimeDirectory=vellum-command-remote
 RuntimeDirectoryMode=0700
 RuntimeDirectoryPreserve=no
-UnsetEnvironment=BASH_ENV BASHOPTS BUN_BE_BUN BUN_CONFIG_LINK_NATIVE_BINS BUN_CONFIG_VERBOSE_FETCH BUN_DEBUG_QUIET_LOGS BUN_INSTALL BUN_OPTIONS BUN_RUNTIME_TRANSPILER_CACHE_PATH CHROME_WRAPPER DISPLAY ELECTRON_OZONE_PLATFORM_HINT ELECTRON_RUN_AS_NODE ENV GCONV_PATH GI_TYPELIB_PATH GIO_EXTRA_MODULES GLIBC_TUNABLES GTK_MODULES HOSTALIASES IFS LD_ASSUME_KERNEL LD_AUDIT LD_DEBUG LD_DEBUG_OUTPUT LD_LIBRARY_PATH LD_ORIGIN_PATH LD_PRELOAD LD_PROFILE LD_SHOW_AUXV LOCPATH MALLOC_TRACE NLSPATH NODE_OPTIONS NODE_PATH NODE_REPL_EXTERNAL_MODULE OZONE_PLATFORM PYTHONHOME PYTHONPATH QT_PLUGIN_PATH RESOLV_HOST_CONF SHELLOPTS TZDIR VELLUM_BROWSER_CAPABILITY VELLUM_BROWSER_HOME VELLUM_CANVASES_DIR VELLUM_E2E VELLUM_E2E_RENDERER_SURFACE_TIMEOUT_MS VELLUM_NODE_REF XAUTHORITY XDG_SESSION_TYPE
+UnsetEnvironment=BASH_ENV BASHOPTS BUN_BE_BUN BUN_CONFIG_LINK_NATIVE_BINS BUN_CONFIG_VERBOSE_FETCH BUN_DEBUG_QUIET_LOGS BUN_INSTALL BUN_OPTIONS BUN_RUNTIME_TRANSPILER_CACHE_PATH CHROME_WRAPPER DISPLAY ELECTRON_OZONE_PLATFORM_HINT ELECTRON_RUN_AS_NODE ENV GCONV_PATH GI_TYPELIB_PATH GIO_EXTRA_MODULES GLIBC_TUNABLES GTK_MODULES HOSTALIASES IFS LD_ASSUME_KERNEL LD_AUDIT LD_DEBUG LD_DEBUG_OUTPUT LD_LIBRARY_PATH LD_ORIGIN_PATH LD_PRELOAD LD_PROFILE LD_SHOW_AUXV LOCPATH MALLOC_TRACE NLSPATH NODE_OPTIONS NODE_PATH NODE_REPL_EXTERNAL_MODULE OZONE_PLATFORM PYTHONHOME PYTHONPATH QT_PLUGIN_PATH RESOLV_HOST_CONF SHELLOPTS TZDIR VELLUM_COMMAND_BROWSER_CAPABILITY VELLUM_COMMAND_BROWSER_HOME VELLUM_COMMAND_CANVASES_DIR VELLUM_COMMAND_E2E VELLUM_COMMAND_E2E_RENDERER_SURFACE_TIMEOUT_MS VELLUM_COMMAND_NODE_REF XAUTHORITY XDG_SESSION_TYPE
 StandardOutput=null
 StandardError=null
-SyslogIdentifier=vellum-remote
+SyslogIdentifier=vellum-command-remote
 
 [Install]
 WantedBy=default.target
@@ -118,7 +118,7 @@ type ParsedSystemdShow =
 const metadata: StationSupervisorMetadata = Object.freeze({
   provider: "systemd-user",
   displayName: "systemd user service",
-  serviceLabel: VELLUM_SYSTEMD_USER_UNIT,
+  serviceLabel: VELLUM_COMMAND_SYSTEMD_USER_UNIT,
   recovery: Object.freeze({
     title: "Repair Vellum Command Remote supervision",
     detail: "Install or repair the Vellum Command Remote user service on this host.",

@@ -25,10 +25,10 @@ afterEach(() => {
 });
 
 const makeGenerationTree = (home: string, generation: string): string => {
-  const release = join(home, ".vellum", "runtime", "releases", generation);
+  const release = join(home, ".vellum-command", "runtime", "releases", generation);
   const bin = join(release, "resources", "bin");
   mkdirSync(bin, { recursive: true, mode: 0o700 });
-  const remote = join(bin, "vellum-remote");
+  const remote = join(bin, "vellum-command-remote");
   writeFileSync(remote, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
   chmodSync(remote, 0o755);
   return remote;
@@ -41,7 +41,7 @@ describe("install-user-service path resolution", () => {
     const generation = `1.2.3-${"a".repeat(64)}`;
     const remote = makeGenerationTree(home, generation);
     const release = resolveReleaseDirectoryFromRemoteBinary(remote);
-    expect(release).toBe(join(home, ".vellum", "runtime", "releases", generation));
+    expect(release).toBe(join(home, ".vellum-command", "runtime", "releases", generation));
     expect(() =>
       renderUserlandLinuxService({ releaseDirectory: release }),
     ).not.toThrow();
@@ -52,7 +52,7 @@ describe("install-user-service path resolution", () => {
     roots.push(home);
     const stage = join(
       home,
-      ".vellum",
+      ".vellum-command",
       "runtime",
       "staging",
       `1.2.3-${"b".repeat(64)}-12345`,
@@ -60,7 +60,7 @@ describe("install-user-service path resolution", () => {
     );
     const bin = join(stage, "resources", "bin");
     mkdirSync(bin, { recursive: true, mode: 0o700 });
-    const remote = join(bin, "vellum-remote");
+    const remote = join(bin, "vellum-command-remote");
     writeFileSync(remote, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
     chmodSync(remote, 0o755);
 
@@ -71,7 +71,7 @@ describe("install-user-service path resolution", () => {
 
     const entryDir = join(stage, "resources", "app-remote");
     mkdirSync(entryDir, { recursive: true, mode: 0o700 });
-    const entry = join(entryDir, "vellum-remote.js");
+    const entry = join(entryDir, "vellum-command-remote.js");
     writeFileSync(entry, "export {};\n", { mode: 0o644 });
     expect(resolveCandidateRuntimeRootFromRemoteBinary(entry)).toBe(stage);
   });
@@ -81,7 +81,7 @@ describe("install-user-service path resolution", () => {
     roots.push(root);
     const bin = join(root, "resources", "bin");
     mkdirSync(bin, { recursive: true });
-    const remote = join(bin, "vellum-remote");
+    const remote = join(bin, "vellum-command-remote");
     writeFileSync(remote, "#!/bin/sh\n", { mode: 0o755 });
     chmodSync(remote, 0o755);
     expect(() => resolveReleaseDirectoryFromRemoteBinary(remote)).toThrow();

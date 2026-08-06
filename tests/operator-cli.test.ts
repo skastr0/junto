@@ -17,7 +17,7 @@ import {
   runOperatorDeployment,
 } from "../src/cli/commands/operator";
 import { browserCliArgsFromArgv } from "../src/cli/browser-argv";
-import { __resetVellumHomeCache } from "../src/shared/vellum-home";
+import { __resetVellumCommandHomeCache } from "../src/shared/vellum-home";
 
 const roots: string[] = [];
 const servers: Server[] = [];
@@ -29,8 +29,8 @@ afterEach(async () => {
   for (const root of roots.splice(0)) {
     await rm(root, { recursive: true, force: true });
   }
-  delete process.env.VELLUM_HOME;
-  __resetVellumHomeCache();
+  delete process.env.VELLUM_COMMAND_HOME;
+  __resetVellumCommandHomeCache();
   process.exitCode = 0;
 });
 
@@ -39,10 +39,10 @@ const startOperatorServer = async (
 ): Promise<void> => {
   const root = await mkdtemp("/tmp/vellum-op-");
   roots.push(root);
-  process.env.VELLUM_HOME = root;
-  __resetVellumHomeCache();
+  process.env.VELLUM_COMMAND_HOME = root;
+  __resetVellumCommandHomeCache();
   const socketPath = operatorControlSocketPath(root);
-  await mkdir(join(root, ".vellum", "operator"), { recursive: true });
+  await mkdir(join(root, ".vellum-command", "operator"), { recursive: true });
   const server = createServer((socket) => {
     let request = Buffer.alloc(0);
     socket.on("data", (chunk: Buffer) => {
@@ -155,7 +155,7 @@ describe("top-level browser dispatch", () => {
     expect(
       browserCliArgsFromArgv([
         "bun",
-        "/$bunfs/root/vellum",
+        "/$bunfs/root/vellum-command",
         "fleet",
         "add",
         "--capability",
@@ -165,7 +165,7 @@ describe("top-level browser dispatch", () => {
     expect(
       browserCliArgsFromArgv([
         "bun",
-        "/$bunfs/root/vellum",
+        "/$bunfs/root/vellum-command",
         "browser",
         "doctor",
         "--json",

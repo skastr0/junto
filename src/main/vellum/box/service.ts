@@ -1,5 +1,5 @@
 import { Context, Effect, Layer, Schema, Semaphore } from "effect";
-import { resolveVellumHome } from "@shared/vellum-home";
+import { resolveVellumCommandHome } from "@shared/vellum-home";
 import { join } from "node:path";
 import {
   BOX_FLEET_DISABLED_DETAIL,
@@ -501,7 +501,7 @@ export const BoxFleetServiceLive = Layer.effect(
             }),
       ),
     );
-    const identityFile = join(resolveVellumHome(), ".ssh", "ascii_box_ed25519");
+    const identityFile = join(resolveVellumCommandHome(), ".ssh", "ascii_box_ed25519");
     return makeBoxFleetService(cli, ownership, authorizeMutation, {
       identityFile,
       verify: (machine) =>

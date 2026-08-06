@@ -12,7 +12,7 @@ import {
 import { terminalActivity } from "../../lib/activity";
 import { terminal$ } from "../../lib/terminal-state";
 import { onTerminalEvent } from "../../lib/terminal-events";
-import { getVellumApi } from "../../lib/vellum-api";
+import { getVellumCommandApi } from "../../lib/vellum-api";
 import { renameTerminalNode } from "../../lib/mutations";
 import { ClaimedTaskStrip } from "../nodes/ClaimedTaskStrip";
 import { ExecutionCardHeader } from "../nodes/ExecutionCardHeader";
@@ -63,7 +63,7 @@ export function TerminalCard({
 
   const refresh = () =>
     native &&
-    getVellumApi()
+    getVellumCommandApi()
       ?.terminalGet?.(native.bindingId, native.hostId)
       .then((next) => {
         setSession(next);

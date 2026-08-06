@@ -53,9 +53,9 @@ const installBoard = async (page: Page, doc: CanvasDoc): Promise<void> => {
       async () =>
         page.evaluate(() => {
           const runtime = globalThis as unknown as {
-            readonly vellum?: { readonly listCanvases: () => Promise<unknown[]> };
+            readonly vellumCommand?: { readonly listCanvases: () => Promise<unknown[]> };
           };
-          return Boolean(runtime.vellum?.listCanvases);
+          return Boolean(runtime.vellumCommand?.listCanvases);
         }),
       { timeout: 30_000 },
     )
@@ -64,7 +64,7 @@ const installBoard = async (page: Page, doc: CanvasDoc): Promise<void> => {
   await page.evaluate(async (document) => {
     const api = (
       globalThis as unknown as {
-        readonly vellum: {
+        readonly vellumCommand: {
           readonly listCanvases: () => Promise<ReadonlyArray<{ name: string }>>;
           readonly createCanvas: (name: string) => Promise<{ name: string }>;
           readonly readCanvas: (name: string) => Promise<{ revision: string }>;
@@ -75,7 +75,7 @@ const installBoard = async (page: Page, doc: CanvasDoc): Promise<void> => {
           ) => Promise<unknown>;
         };
       }
-    ).vellum;
+    ).vellumCommand;
     const list = await api.listCanvases();
     const name = list[0]?.name ?? (await api.createCanvas("region-paths")).name;
     // Retry once on revision conflict (autosave / concurrent stamp).

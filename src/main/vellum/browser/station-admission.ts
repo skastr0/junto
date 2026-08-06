@@ -98,7 +98,7 @@ export const prepareBrowserStationAdmissionAuthority = async (
       try {
         listener();
       } catch {
-        console.warn("[vellum:browser] station admission listener failed");
+        console.warn("[vellum-command:browser] station admission listener failed");
       }
     }
   };

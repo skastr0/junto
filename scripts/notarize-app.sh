@@ -34,25 +34,25 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Notarization is allowed to replace only the artifacts produced in this
 # checkout's release directory.  Do not let an ambient RELEASE_DIR redirect
 # the write authority inherited from app-paths.sh.
-if [[ -n "${VELLUM_RELEASE_DIR+x}" ]]; then
-  printf 'vellum: error: VELLUM_RELEASE_DIR is not configurable for notarization\n' >&2
+if [[ -n "${VELLUM_COMMAND_RELEASE_DIR+x}" ]]; then
+  printf 'vellum-command: error: VELLUM_COMMAND_RELEASE_DIR is not configurable for notarization\n' >&2
   exit 1
 fi
 
 # These are read-only candidate selectors, not destination capabilities.  Keep
 # their values long enough to parse the CLI, then hide them from app-paths.sh
 # so its general-purpose APP_SRC selection cannot widen this script's scope.
-ENV_ZIP_SOURCE="${VELLUM_ZIP_SRC:-}"
-ENV_APP_SOURCE="${VELLUM_APP_SRC:-}"
-unset VELLUM_ZIP_SRC VELLUM_APP_SRC
+ENV_ZIP_SOURCE="${VELLUM_COMMAND_ZIP_SRC:-}"
+ENV_APP_SOURCE="${VELLUM_COMMAND_APP_SRC:-}"
+unset VELLUM_COMMAND_ZIP_SRC VELLUM_COMMAND_APP_SRC
 # shellcheck source=app-paths.sh
 source "$SCRIPT_DIR/app-paths.sh"
 
 ZIP_SRC="$ENV_ZIP_SOURCE"
 APP_PATH="$ENV_APP_SOURCE"
 SKIP_SPCTL=0
-TIMEOUT="${VELLUM_NOTARY_TIMEOUT:-45m}"
-POLL="${VELLUM_NOTARY_POLL:-15s}"
+TIMEOUT="${VELLUM_COMMAND_NOTARY_TIMEOUT:-45m}"
+POLL="${VELLUM_COMMAND_NOTARY_POLL:-15s}"
 RELEASE_ROOT="$REPO_ROOT/release"
 STAGING_DIR=""
 

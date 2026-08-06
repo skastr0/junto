@@ -5,7 +5,7 @@
  * test-results/marketing-shots/ for the landing site and store plates.
  *   bun run test:e2e:fast e2e/scenarios/marketing-shots.spec.ts
  * The screenshots are the artifact; assertions only prove surfaces appeared.
- * All fleet state is scripted (VELLUM_DEMO=1 + demoCommand) — no wall-clock
+ * All fleet state is scripted (VELLUM_COMMAND_DEMO=1 + demoCommand) — no wall-clock
  * scenario, so every frame is reproducible.
  */
 import { mkdir } from "node:fs/promises";

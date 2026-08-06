@@ -117,7 +117,7 @@ const capabilityOption = Flag.choice("capability", [
 ] as const).pipe(
   Flag.atLeast(0),
   Flag.withDescription(
-    "Repeat for each admitted host capability: terminal, browser, hermes, herdr (herdr is product-gated via VELLUM_HERDR=1)",
+    "Repeat for each admitted host capability: terminal, browser, hermes, herdr (herdr is product-gated via VELLUM_COMMAND_HERDR=1)",
   ),
 );
 

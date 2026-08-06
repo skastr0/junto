@@ -138,11 +138,11 @@ test("herdr xterm fills focus pane and stays filled after pin", async () => {
         async () =>
           page.evaluate(() => {
             const runtime = globalThis as unknown as {
-              readonly vellum?: {
+              readonly vellumCommand?: {
                 readonly listCanvases: () => Promise<ReadonlyArray<{ name: string }>>;
               };
             };
-            return Boolean(runtime.vellum);
+            return Boolean(runtime.vellumCommand);
           }),
         { timeout: 30_000 },
       )
@@ -150,7 +150,7 @@ test("herdr xterm fills focus pane and stays filled after pin", async () => {
 
     await page.evaluate(async (doc) => {
       const runtime = globalThis as unknown as {
-        readonly vellum: {
+        readonly vellumCommand: {
           readonly listCanvases: () => Promise<ReadonlyArray<{ name: string }>>;
           readonly createCanvas: (name: string) => Promise<{ name: string; revision: string }>;
           readonly readCanvas: (name: string) => Promise<{ name: string; revision: string }>;
@@ -161,7 +161,7 @@ test("herdr xterm fills focus pane and stays filled after pin", async () => {
           ) => Promise<unknown>;
         };
       };
-      const api = runtime.vellum;
+      const api = runtime.vellumCommand;
       let list = await api.listCanvases();
       let name = list[0]?.name;
       if (!name) {

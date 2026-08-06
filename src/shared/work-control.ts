@@ -9,7 +9,7 @@ import {
 import { ContentRef } from "./content";
 
 // Work control-plane wire contract: NDJSON frames over a local Unix domain
-// socket at ~/.vellum/work/control.sock. Pure module — no Node imports — so
+// socket at ~/.vellum-command/work/control.sock. Pure module — no Node imports — so
 // the Electron-hosted daemon, the standalone CLI, and tests share one source
 // of truth. Transport is owner-local only; every request carries a bearer
 // token. Domain mutations route through WorkService — this file only knows
@@ -18,8 +18,8 @@ import { ContentRef } from "./content";
 // ---------------------------------------------------------------------------
 // Paths (functions of home so the module stays platform-pure)
 
-/** Default dir: `~/.vellum/work`. Tests override with `VELLUM_WORK_HOME`. */
-export const workControlDir = (home: string): string => `${home}/.vellum/work`;
+/** Default dir: `~/.vellum-command/work`. Tests override with `VELLUM_COMMAND_WORK_HOME`. */
+export const workControlDir = (home: string): string => `${home}/.vellum-command/work`;
 
 export const workControlSocketPath = (workHome: string): string =>
   `${workHome}/control.sock`;
@@ -27,8 +27,8 @@ export const workControlSocketPath = (workHome: string): string =>
 export const workControlTokenPath = (workHome: string): string =>
   `${workHome}/token`;
 
-export const WORK_HOME_ENV = "VELLUM_WORK_HOME";
-export const WORK_PROTOCOL_VERSION = "vellum-work/v1";
+export const WORK_HOME_ENV = "VELLUM_COMMAND_WORK_HOME";
+export const WORK_PROTOCOL_VERSION = "vellum-command-work/v1";
 
 export const WORK_DEFAULT_BATCH_CONCURRENCY = 5;
 export const WORK_DEFAULT_TIMEOUT_MS = 30_000;
@@ -342,7 +342,7 @@ export const makeStopDirective = (input: {
   brief: input.brief,
   message: `You are blocked waiting on request ${input.requestId}. Stop work until the operator answers.`,
   next_step:
-    "Wait for the operator to answer the request, then retry work ops (re-run vellum onboard if your view is stale).",
+    "Wait for the operator to answer the request, then retry work ops (re-run vellum-command onboard if your view is stale).",
 });
 
 /** Artifact wire parts: text/data stay inline; binary media is a ContentRef. */

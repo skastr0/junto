@@ -275,7 +275,7 @@ describe("two-installation Station qualification contract", () => {
       Result.isFailure(
         decodeStationQualification({
           ...qualified(),
-          schema: "vellum/station-two-installation-qualification/v1",
+          schema: "vellum-command/station-two-installation-qualification/v1",
         }),
       ),
     ).toBe(true);

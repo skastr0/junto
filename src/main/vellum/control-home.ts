@@ -2,14 +2,14 @@
  * Control-plane home root resolution.
  *
  * Electron's `app.getPath("home")` ignores a sandboxed `HOME` env. E2E sets
- * `HOME` + `VELLUM_E2E=1` + `--user-data-dir`; writing browser/term control
+ * `HOME` + `VELLUM_COMMAND_E2E=1` + `--user-data-dir`; writing browser/term control
  * sockets under the real operator home fights live listeners and rotates the
- * operator token. Work control already prefers `VELLUM_WORK_HOME` /
+ * operator token. Work control already prefers `VELLUM_COMMAND_WORK_HOME` /
  * `os.homedir()` (which honors `HOME`); this helper keeps browser + term on
  * the same isolation contract.
  *
  * Precedence (first match wins):
- * 1. `explicitHome` — absolute override (tests / `VELLUM_BROWSER_HOME`)
+ * 1. `explicitHome` — absolute override (tests / `VELLUM_COMMAND_BROWSER_HOME`)
  * 2. Absolute `envHome` (`process.env.HOME`) — matches `os.homedir()` and the
  *    E2E harness (`sandboxControlSocketPath(sandbox.homeDir)`)
  * 3. Headless + unpackaged → `userData` (probes that only set `--user-data-dir`)
@@ -29,14 +29,14 @@ export interface ResolveControlHomeInput {
   readonly electronHome: string;
   /** `app.getPath("userData")` — sandboxed via `--user-data-dir`. */
   readonly userData: string;
-  /** `process.env.VELLUM_E2E === "1"`. */
+  /** `process.env.VELLUM_COMMAND_E2E === "1"`. */
   readonly e2e?: boolean;
   /** `--vellum-headless` present on argv. */
   readonly headless?: boolean;
   /** `app.isPackaged`. */
   readonly packaged?: boolean;
   /**
-   * Highest-priority absolute override (e.g. `VELLUM_BROWSER_HOME` for the
+   * Highest-priority absolute override (e.g. `VELLUM_COMMAND_BROWSER_HOME` for the
    * browser plane, or a test fixture root).
    */
   readonly explicitHome?: string | undefined;

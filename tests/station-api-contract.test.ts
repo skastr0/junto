@@ -391,7 +391,7 @@ describe("Station API v2 contract", () => {
     expect(
       Result.isFailure(
         decodeStationControlRequest({
-          protocol: "vellum/station-api/v1",
+          protocol: "vellum-command/station-api/v1",
           op: "pair",
           commandCenterInstallationId: cc,
           stationInstallationId: remote,

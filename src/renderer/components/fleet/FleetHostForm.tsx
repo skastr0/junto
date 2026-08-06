@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { productHostCapabilities } from "@shared/features";
 import { refreshFleet } from "../../lib/fleet-state";
-import { getVellumApi } from "../../lib/vellum-api";
+import { getVellumCommandApi } from "../../lib/vellum-api";
 import { Button, FieldLabel, Input } from "../ui";
 
 type Capability = "browser" | "terminal" | "herdr" | "hermes";
@@ -69,7 +69,7 @@ export function FleetHostForm({
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const api = getVellumApi();
+    const api = getVellumCommandApi();
     if (!api?.hostsUpsert) {
       setError("Hosts API unavailable.");
       return;

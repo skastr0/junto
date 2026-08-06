@@ -1,6 +1,6 @@
 import { chmodSync, existsSync, lstatSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
-import { resolveVellumHome } from "@shared/vellum-home";
+import { resolveVellumCommandHome } from "@shared/vellum-home";
 import {
   OPERATOR_MAX_REQUEST_BYTES,
   OPERATOR_MAX_RESPONSE_BYTES,
@@ -122,7 +122,7 @@ const operatorError = (
   message: string,
   request?: Pick<OperatorRequestEnvelope, "id" | "op">,
 ): OperatorErrorResponse => ({
-  protocol: "vellum-operator/v1",
+  protocol: "vellum-command-operator/v1",
   ...(request === undefined ? {} : { id: request.id, op: request.op }),
   ok: false,
   error: { type, message },
@@ -153,7 +153,7 @@ export const startOperatorControlServer = async (
   options: OperatorControlServerOptions,
   runtime: OperatorControlServerRuntime = {},
 ): Promise<OperatorControlServer> => {
-  const home = options.home ?? resolveVellumHome();
+  const home = options.home ?? resolveVellumCommandHome();
   const controlDir = operatorControlDir(home);
   const socketPath = operatorControlSocketPath(home);
   prepareControlDirectory(controlDir);

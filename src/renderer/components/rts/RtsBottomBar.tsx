@@ -907,7 +907,7 @@ function HotbarChip({
         const doc = state$.doc.peek();
         focusAndActivate(nodeId, doc.nodes);
       }}
-      title={`${label} — ${paused ? "paused" : mark.label} · double-click opens`}
+      title={`${label} — ${paused ? "paused" : mark.label} — double-click opens`}
     >
       <span className="rts-chip__slot" aria-hidden>
         {index + 1}

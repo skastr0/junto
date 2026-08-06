@@ -184,15 +184,15 @@ describe("Linux release dependency and SBOM evidence", () => {
           licenses: [{ expression: "MIT" }],
           properties: expect.arrayContaining([
             {
-              name: "vellum:license-source",
+              name: "vellum-command:license-source",
               value: "bundled-license-file",
             },
             {
-              name: "vellum:license-evidence-file",
+              name: "vellum-command:license-evidence-file",
               value: "LICENSE",
             },
             {
-              name: "vellum:license-evidence-sha256",
+              name: "vellum-command:license-evidence-sha256",
               value: createHash("sha256").update(MIT_LICENSE).digest("hex"),
             },
           ]),

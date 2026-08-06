@@ -27,7 +27,7 @@ describe("Linux userland runtime package contract", () => {
       expect(name).toBe("vellum-runtime-0.1.0-linux-x64");
       expect(linuxRuntimeArchiveName({ version: "0.1.0", arch: "x64" })).toBe(`${name}.tar.gz`);
       await mkdir(path.join(release, "linux-unpacked"));
-      await writeFile(path.join(release, "linux-unpacked", "vellum"), "runtime", { mode: 0o755 });
+      await writeFile(path.join(release, "linux-unpacked", "vellum-command"), "runtime", { mode: 0o755 });
       const result = await finalizeLinuxRuntimeArtifact({ releaseDirectory: release, version: "0.1.0", arch: "x64" });
       expect(result.artifact).toBe(path.join(release, name));
       expect((await readFile(result.archive)).byteLength).toBeGreaterThan(0);

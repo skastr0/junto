@@ -217,8 +217,8 @@ describe("refreshHerdrMeta coalesce", () => {
       ok: true as const,
       data: pane("working", { agent: "codex", cwd: "/proj" }),
     }));
-    (globalThis as unknown as { window: { vellum: { herdrGetMeta: typeof getMeta } } }).window = {
-      vellum: { herdrGetMeta: getMeta },
+    (globalThis as unknown as { window: { vellumCommand: { herdrGetMeta: typeof getMeta } } }).window = {
+      vellumCommand: { herdrGetMeta: getMeta },
     };
     const nodeId = "n-coalesce-1";
     await refreshHerdrMeta(nodeId, herdrOf());
@@ -240,8 +240,8 @@ describe("refreshHerdrMeta coalesce", () => {
           }
         }),
     );
-    (globalThis as unknown as { window: { vellum: { herdrGetMeta: typeof getMeta } } }).window = {
-      vellum: { herdrGetMeta: getMeta },
+    (globalThis as unknown as { window: { vellumCommand: { herdrGetMeta: typeof getMeta } } }).window = {
+      vellumCommand: { herdrGetMeta: getMeta },
     };
     const nodeId = "n-coalesce-2";
     const a = refreshHerdrMeta(nodeId, herdrOf());
@@ -260,8 +260,8 @@ describe("refreshHerdrMeta coalesce", () => {
       ok: true as const,
       data: pane("done", { agent: "codex" }),
     }));
-    (globalThis as unknown as { window: { vellum: { herdrGetMeta: typeof getMeta } } }).window = {
-      vellum: { herdrGetMeta: getMeta },
+    (globalThis as unknown as { window: { vellumCommand: { herdrGetMeta: typeof getMeta } } }).window = {
+      vellumCommand: { herdrGetMeta: getMeta },
     };
     const nodeId = "n-pending-1";
     herdr$.metaByNodeId[nodeId].set({

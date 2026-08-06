@@ -169,13 +169,13 @@ export type ManagedTerminalTemplate = {
 const SHARED_ENV_SPEC: EnvSpec = {
   scrub: SPAWN_ENV_SCRUB,
   // Seat/socket/token reach agent shell subprocesses on all four (verified).
-  // PATH inject so `dist/vellum` resolves for `vellum onboard`.
+  // PATH inject so `dist/vellum-command` resolves for `vellum-command onboard`.
   injectKeys: [
     "PATH",
-    "VELLUM_SOCKET",
-    "VELLUM_TOKEN",
-    "VELLUM_SEAT",
-    "VELLUM_NODE_REF",
+    "VELLUM_COMMAND_SOCKET",
+    "VELLUM_COMMAND_TOKEN",
+    "VELLUM_COMMAND_SEAT",
+    "VELLUM_COMMAND_NODE_REF",
   ],
 };
 

@@ -143,8 +143,8 @@ describe("resolveControlHome", () => {
     ).toBe(resolve(ELECTRON_HOME));
   });
 
-  it("matches the e2e harness contract: HOME sandbox + VELLUM_E2E non-headless", () => {
-    // e2e/harness/launch.ts sets HOME=sandbox.homeDir, VELLUM_E2E=1,
+  it("matches the e2e harness contract: HOME sandbox + VELLUM_COMMAND_E2E non-headless", () => {
+    // e2e/harness/launch.ts sets HOME=sandbox.homeDir, VELLUM_COMMAND_E2E=1,
     // --user-data-dir=sandbox.userDataDir; browser-control-client expects
     // sockets under sandbox.homeDir (not userData).
     const home = resolveControlHome({
@@ -160,7 +160,7 @@ describe("resolveControlHome", () => {
     expect(home).not.toBe(resolve(USER_DATA));
   });
 
-  it("matches headless probe isolation: no HOME, userData + optional VELLUM_BROWSER_HOME", () => {
+  it("matches headless probe isolation: no HOME, userData + optional VELLUM_COMMAND_BROWSER_HOME", () => {
     const withoutExplicit = resolveControlHome({
       ...base,
       headless: true,

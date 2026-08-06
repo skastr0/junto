@@ -44,16 +44,16 @@ describe("Linux packaged Xvfb smoke contract", () => {
 
   it("checks every renderer and rejects sandbox-disabling switches", async () => {
     const rows: ProcessRow[] = [
-      { pid: 10, ppid: 1, command: "/opt/Vellum Command/vellum" },
+      { pid: 10, ppid: 1, command: "/opt/Vellum Command/vellum-command" },
       {
         pid: 11,
         ppid: 10,
-        command: "/opt/Vellum Command/vellum --type=renderer",
+        command: "/opt/Vellum Command/vellum-command --type=renderer",
       },
       {
         pid: 12,
         ppid: 10,
-        command: "/opt/Vellum Command/vellum --type=renderer",
+        command: "/opt/Vellum Command/vellum-command --type=renderer",
       },
     ];
     const checked: number[] = [];
@@ -73,7 +73,7 @@ describe("Linux packaged Xvfb smoke contract", () => {
         {
           pid: 13,
           ppid: 10,
-          command: "/opt/Vellum Command/vellum --no-sandbox",
+          command: "/opt/Vellum Command/vellum-command --no-sandbox",
         },
       ],
       async () => sandboxStatus,
@@ -84,7 +84,7 @@ describe("Linux packaged Xvfb smoke contract", () => {
     expect(validateLinuxSandboxCapability({
       appArmorEnabled: "Y\n",
       appArmorSecurityPresent: true,
-      appArmorCurrent: "vellum (unconfined)\n",
+      appArmorCurrent: "vellum-command (unconfined)\n",
     })).toBe("apparmor");
     expect(validateLinuxSandboxCapability({
       appArmorEnabled: undefined,
@@ -95,7 +95,7 @@ describe("Linux packaged Xvfb smoke contract", () => {
       validateLinuxSandboxCapability({
         appArmorEnabled: "N\n",
         appArmorSecurityPresent: true,
-        appArmorCurrent: "vellum (unconfined)\n",
+        appArmorCurrent: "vellum-command (unconfined)\n",
       }),
     ).toThrow(/present but not enabled/u);
     expect(() =>

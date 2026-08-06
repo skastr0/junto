@@ -99,7 +99,7 @@ const openEngine = async (dbPath: string) => {
 
 const openStation = async (prefix: string) => {
   const home = await tempRoot(prefix);
-  const stateDir = join(home, ".vellum", "state");
+  const stateDir = join(home, ".vellum-command", "state");
   await mkdir(stateDir, { recursive: true });
   const dbPath = join(stateDir, "vellum.db");
   const contentRoot = contentStoreRoot(home);
@@ -741,7 +741,7 @@ describe("media transport e2e - Station projection + transfer + offline", () => 
 
   it("converges to the same verified content state after Station restart", async () => {
     const home = await tempRoot("vellum-media-offline-");
-    const stateDir = join(home, ".vellum", "state");
+    const stateDir = join(home, ".vellum-command", "state");
     await mkdir(stateDir, { recursive: true });
     const dbPath = join(stateDir, "vellum.db");
     const contentRoot = contentStoreRoot(home);

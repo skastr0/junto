@@ -72,10 +72,10 @@ describe("herdr connection state machine", () => {
 
 describe("herdr ipc channels", () => {
   it("declares stream event channel and control channels", () => {
-    expect(IPC_CHANNELS.herdrStreamEvent).toBe("vellum:herdr-stream-event");
-    expect(IPC_CHANNELS.herdrStreamOpen).toBe("vellum:herdr-stream-open");
-    expect(IPC_CHANNELS.herdrStreamPasteImage).toBe("vellum:herdr-stream-paste-image");
-    expect(IPC_CHANNELS.herdrHosts).toBe("vellum:herdr-hosts");
-    expect(IPC_CHANNELS.herdrGetMeta).toBe("vellum:herdr-get-meta");
+    expect(IPC_CHANNELS.herdrStreamEvent).toBe("vellum-command:herdr-stream-event");
+    expect(IPC_CHANNELS.herdrStreamOpen).toBe("vellum-command:herdr-stream-open");
+    expect(IPC_CHANNELS.herdrStreamPasteImage).toBe("vellum-command:herdr-stream-paste-image");
+    expect(IPC_CHANNELS.herdrHosts).toBe("vellum-command:herdr-hosts");
+    expect(IPC_CHANNELS.herdrGetMeta).toBe("vellum-command:herdr-get-meta");
   });
 });

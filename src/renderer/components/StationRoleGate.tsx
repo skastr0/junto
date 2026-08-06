@@ -61,7 +61,7 @@ export function StationRoleGate() {
     try {
       // Opt-in only. hostsDiscoverPeers is Tailscale status — peers are not
       // Command Centers. Do not promote them. No SSH reachability probes.
-      if (!window.vellum?.hostsDiscoverPeers) {
+      if (!window.vellumCommand?.hostsDiscoverPeers) {
         setScan({
           status: "done",
           commandCenterFound: false,
@@ -69,7 +69,7 @@ export function StationRoleGate() {
         });
         return;
       }
-      const result = await window.vellum.hostsDiscoverPeers();
+      const result = await window.vellumCommand.hostsDiscoverPeers();
       if (!result.ok) {
         setScan({
           status: "done",

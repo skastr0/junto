@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createConnection, type Socket } from "node:net";
-import { resolveVellumHome } from "@shared/vellum-home";
+import { resolveVellumCommandHome } from "@shared/vellum-home";
 import { Effect, Result, Schema } from "effect";
 import {
   CANVAS_CONTROL_DEFAULT_TIMEOUT_MS,
@@ -46,7 +46,7 @@ export const resolveCanvasControlHome = (
   if (controlHome?.trim()) return controlHome.trim();
   const configured = process.env[CANVAS_CONTROL_HOME_ENV]?.trim();
   if (configured) return configured;
-  return canvasControlDir(home ?? resolveVellumHome());
+  return canvasControlDir(home ?? resolveVellumCommandHome());
 };
 
 const runtimeDown = (message: string): CanvasControlClientError =>

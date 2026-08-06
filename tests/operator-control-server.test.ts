@@ -106,7 +106,7 @@ const start = async (
   runtime: OperatorControlServerRuntime = admittedRuntime,
 ): Promise<OperatorControlServer> => {
   // Darwin Unix-domain socket paths are capped near 104 bytes.
-  const home = await mkdtemp("/tmp/vellum-operator-");
+  const home = await mkdtemp("/tmp/vellum-command-operator-");
   roots.push(home);
   const server = await startOperatorControlServer({ home, dispatch }, runtime);
   servers.push(server);

@@ -12,7 +12,7 @@ import { STATION_PROTOCOL_BASELINE } from "./station-protocol";
  * socket paths, and OpenSSH timeouts live in `station-ssh-control.ts`.
  */
 export const STATION_CONTROL_PROTOCOL =
-  `vellum/station-control/v${STATION_PROTOCOL_BASELINE}` as const;
+  `vellum-command/station-control/v${STATION_PROTOCOL_BASELINE}` as const;
 
 export const StationControlErrorCode = Schema.Literals(["protocol_error", "authorization_denied",
 "request_rejected",

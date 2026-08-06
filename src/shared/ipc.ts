@@ -72,208 +72,208 @@ export const IPC_CHANNELS = {
   readDirectory: "chassis:read-directory",
   probeCodex: "chassis:probe-codex",
   prismDryRun: "chassis:prism-dry-run",
-  listCanvases: "vellum:list-canvases",
-  readCanvas: "vellum:read-canvas",
-  writeCanvas: "vellum:write-canvas",
-  createCanvas: "vellum:create-canvas",
-  deleteCanvas: "vellum:delete-canvas",
-  exportDigest: "vellum:export-digest",
-  generatePortfolio: "vellum:generate-portfolio",
-  getSnapshots: "vellum:get-snapshots",
-  refreshSnapshots: "vellum:refresh-snapshots",
-  getUsage: "vellum:get-usage",
-  refreshUsage: "vellum:refresh-usage",
-  agentMessage: "vellum:agent-message",
+  listCanvases: "vellum-command:list-canvases",
+  readCanvas: "vellum-command:read-canvas",
+  writeCanvas: "vellum-command:write-canvas",
+  createCanvas: "vellum-command:create-canvas",
+  deleteCanvas: "vellum-command:delete-canvas",
+  exportDigest: "vellum-command:export-digest",
+  generatePortfolio: "vellum-command:generate-portfolio",
+  getSnapshots: "vellum-command:get-snapshots",
+  refreshSnapshots: "vellum-command:refresh-snapshots",
+  getUsage: "vellum-command:get-usage",
+  refreshUsage: "vellum-command:refresh-usage",
+  agentMessage: "vellum-command:agent-message",
   /** Main → renderer: one ephemeral agent preamble. */
-  preamble: "vellum:preamble",
-  chatOpen: "vellum:chat-open",
-  chatPrompt: "vellum:chat-prompt",
-  chatPermission: "vellum:chat-permission",
-  chatSetModel: "vellum:chat-set-model",
-  chatClose: "vellum:chat-close",
+  preamble: "vellum-command:preamble",
+  chatOpen: "vellum-command:chat-open",
+  chatPrompt: "vellum-command:chat-prompt",
+  chatPermission: "vellum-command:chat-permission",
+  chatSetModel: "vellum-command:chat-set-model",
+  chatClose: "vellum-command:chat-close",
   /** Main-owned agent delete lease: lock + tombstone + close. */
-  chatBeginNodeDelete: "vellum:chat-begin-node-delete",
+  chatBeginNodeDelete: "vellum-command:chat-begin-node-delete",
   /** Release delete lease after document commit or abort. */
-  chatFinishNodeDelete: "vellum:chat-finish-node-delete",
-  getKernelState: "vellum:get-kernel-state",
+  chatFinishNodeDelete: "vellum-command:chat-finish-node-delete",
+  getKernelState: "vellum-command:get-kernel-state",
   /** Factory pause plane — canvas-level switch state (born paused). */
-  factoryPauseState: "vellum:factory-pause-state",
-  factoryPauseSet: "vellum:factory-pause-set",
+  factoryPauseState: "vellum-command:factory-pause-state",
+  factoryPauseSet: "vellum-command:factory-pause-set",
   /** Operator Fire now — apply scheduler output-edge effects immediately. */
-  schedulerFire: "vellum:scheduler-fire",
-  regionRollups: "vellum:region-rollups",
+  schedulerFire: "vellum-command:scheduler-fire",
+  regionRollups: "vellum-command:region-rollups",
   /**
    * Put image bytes into the local content store; returns a ContentRef.
    * Canvas notes and image file nodes author through this — never inline Base64
    * in the document.
    */
-  contentPutImage: "vellum:content-put-image",
+  contentPutImage: "vellum-command:content-put-image",
   // work plane (serialized canvas mutations)
-  workTaskCreate: "vellum:work-task-create",
-  workTaskPropose: "vellum:work-task-propose",
-  workTaskApproveProposal: "vellum:work-task-approve-proposal",
-  workTaskRejectProposal: "vellum:work-task-reject-proposal",
-  workTaskDescribe: "vellum:work-task-describe",
-  workTaskTransition: "vellum:work-task-transition",
-  workTaskRespond: "vellum:work-task-respond",
-  workTaskClaim: "vellum:work-task-claim",
-  workRequestResolve: "vellum:work-request-resolve",
-  workBoardList: "vellum:work-board-list",
-  workBoardCreateTopic: "vellum:work-board-create-topic",
-  workBoardPost: "vellum:work-board-post",
-  workBoardMarkRead: "vellum:work-board-mark-read",
-  workBoardNotify: "vellum:work-board-notify",
+  workTaskCreate: "vellum-command:work-task-create",
+  workTaskPropose: "vellum-command:work-task-propose",
+  workTaskApproveProposal: "vellum-command:work-task-approve-proposal",
+  workTaskRejectProposal: "vellum-command:work-task-reject-proposal",
+  workTaskDescribe: "vellum-command:work-task-describe",
+  workTaskTransition: "vellum-command:work-task-transition",
+  workTaskRespond: "vellum-command:work-task-respond",
+  workTaskClaim: "vellum-command:work-task-claim",
+  workRequestResolve: "vellum-command:work-request-resolve",
+  workBoardList: "vellum-command:work-board-list",
+  workBoardCreateTopic: "vellum-command:work-board-create-topic",
+  workBoardPost: "vellum-command:work-board-post",
+  workBoardMarkRead: "vellum-command:work-board-mark-read",
+  workBoardNotify: "vellum-command:work-board-notify",
   // herdr work surface
-  herdrHosts: "vellum:herdr-hosts",
-  herdrEnsureServer: "vellum:herdr-ensure-server",
-  herdrListSessions: "vellum:herdr-list-sessions",
-  herdrListWorkspaces: "vellum:herdr-list-workspaces",
-  herdrListTabs: "vellum:herdr-list-tabs",
-  herdrListPanes: "vellum:herdr-list-panes",
-  herdrListAgents: "vellum:herdr-list-agents",
-  herdrGetMeta: "vellum:herdr-get-meta",
+  herdrHosts: "vellum-command:herdr-hosts",
+  herdrEnsureServer: "vellum-command:herdr-ensure-server",
+  herdrListSessions: "vellum-command:herdr-list-sessions",
+  herdrListWorkspaces: "vellum-command:herdr-list-workspaces",
+  herdrListTabs: "vellum-command:herdr-list-tabs",
+  herdrListPanes: "vellum-command:herdr-list-panes",
+  herdrListAgents: "vellum-command:herdr-list-agents",
+  herdrGetMeta: "vellum-command:herdr-get-meta",
   /** Marks pane seen (done → idle). Stock: herdr agent focus <pane_id>. */
-  herdrMarkPaneSeen: "vellum:herdr-mark-pane-seen",
-  herdrCreateWorkspace: "vellum:herdr-create-workspace",
-  herdrCreateTab: "vellum:herdr-create-tab",
-  herdrCreatePane: "vellum:herdr-create-pane",
-  herdrKillPane: "vellum:herdr-kill-pane",
-  herdrKillTab: "vellum:herdr-kill-tab",
-  herdrMirrorState: "vellum:herdr-mirror-state",
-  herdrStreamOpen: "vellum:herdr-stream-open",
-  herdrStreamInput: "vellum:herdr-stream-input",
-  herdrStreamPasteImage: "vellum:herdr-stream-paste-image",
-  herdrStreamResize: "vellum:herdr-stream-resize",
-  herdrStreamScroll: "vellum:herdr-stream-scroll",
-  herdrStreamClose: "vellum:herdr-stream-close",
-  herdrObserveTouch: "vellum:herdr-observe-touch",
-  herdrObserveRetained: "vellum:herdr-observe-retained",
+  herdrMarkPaneSeen: "vellum-command:herdr-mark-pane-seen",
+  herdrCreateWorkspace: "vellum-command:herdr-create-workspace",
+  herdrCreateTab: "vellum-command:herdr-create-tab",
+  herdrCreatePane: "vellum-command:herdr-create-pane",
+  herdrKillPane: "vellum-command:herdr-kill-pane",
+  herdrKillTab: "vellum-command:herdr-kill-tab",
+  herdrMirrorState: "vellum-command:herdr-mirror-state",
+  herdrStreamOpen: "vellum-command:herdr-stream-open",
+  herdrStreamInput: "vellum-command:herdr-stream-input",
+  herdrStreamPasteImage: "vellum-command:herdr-stream-paste-image",
+  herdrStreamResize: "vellum-command:herdr-stream-resize",
+  herdrStreamScroll: "vellum-command:herdr-stream-scroll",
+  herdrStreamClose: "vellum-command:herdr-stream-close",
+  herdrObserveTouch: "vellum-command:herdr-observe-touch",
+  herdrObserveRetained: "vellum-command:herdr-observe-retained",
   /** Host-scoped process→port→URL projection (read cache). */
-  herdrServiceMapGet: "vellum:herdr-service-map-get",
+  herdrServiceMapGet: "vellum-command:herdr-service-map-get",
   /** Intent probe (open/sync) — rate-limited host queue. */
-  herdrServiceMapProbe: "vellum:herdr-service-map-probe",
-  herdrServiceMapEvent: "vellum:herdr-service-map-event",
+  herdrServiceMapProbe: "vellum-command:herdr-service-map-probe",
+  herdrServiceMapEvent: "vellum-command:herdr-service-map-event",
   /** Host Tailscale Serve / SVC catalog (cached). */
-  herdrServeCatalogGet: "vellum:herdr-serve-catalog-get",
-  herdrServeCatalogRefresh: "vellum:herdr-serve-catalog-refresh",
+  herdrServeCatalogGet: "vellum-command:herdr-serve-catalog-get",
+  herdrServeCatalogRefresh: "vellum-command:herdr-serve-catalog-refresh",
   // browser work surface (partitioned WebContentsView sessions)
-  browserProfiles: "vellum:browser-profiles",
-  browserOpen: "vellum:browser-open",
-  browserClose: "vellum:browser-close",
-  browserStop: "vellum:browser-stop",
-  browserWipeProfile: "vellum:browser-wipe-profile",
-  browserSessionState: "vellum:browser-session-state",
-  browserSessionList: "vellum:browser-session-list",
-  browserSetBounds: "vellum:browser-set-bounds",
-  browserSurfaceConfig: "vellum:browser-surface-config",
+  browserProfiles: "vellum-command:browser-profiles",
+  browserOpen: "vellum-command:browser-open",
+  browserClose: "vellum-command:browser-close",
+  browserStop: "vellum-command:browser-stop",
+  browserWipeProfile: "vellum-command:browser-wipe-profile",
+  browserSessionState: "vellum-command:browser-session-state",
+  browserSessionList: "vellum-command:browser-session-list",
+  browserSetBounds: "vellum-command:browser-set-bounds",
+  browserSurfaceConfig: "vellum-command:browser-surface-config",
   // demo/scripting engine (--vellum-demo only; inert otherwise)
-  demoState: "vellum:demo-state",
-  demoCommand: "vellum:demo-command",
-  demoWriteEdl: "vellum:demo-write-edl",
+  demoState: "vellum-command:demo-state",
+  demoCommand: "vellum-command:demo-command",
+  demoWriteEdl: "vellum-command:demo-write-edl",
   // user settings plane (app-owned SQLite state)
-  settingsGet: "vellum:settings-get",
-  settingsPatch: "vellum:settings-patch",
+  settingsGet: "vellum-command:settings-get",
+  settingsPatch: "vellum-command:settings-patch",
   /** Dedicated transition for normalized protected station topology. */
-  settingsSetStationTopology: "vellum:settings-set-station-topology",
-  settingsReset: "vellum:settings-reset",
+  settingsSetStationTopology: "vellum-command:settings-set-station-topology",
+  settingsReset: "vellum-command:settings-reset",
   // Verified state-backup inventory/export. Destination selection stays Main-owned.
-  stateBackupsList: "vellum:state-backups-list",
-  stateBackupExport: "vellum:state-backup-export",
+  stateBackupsList: "vellum-command:state-backups-list",
+  stateBackupExport: "vellum-command:state-backup-export",
   // OS login item (Electron get/setLoginItemSettings)
-  loginItemGet: "vellum:login-item-get",
-  loginItemSet: "vellum:login-item-set",
+  loginItemGet: "vellum-command:login-item-get",
+  loginItemSet: "vellum-command:login-item-set",
   // remote host registry (app-owned SQLite state)
-  hostsList: "vellum:hosts-list",
+  hostsList: "vellum-command:hosts-list",
   /** Tailscale peers visible on the mesh but not yet enrolled. */
-  hostsDiscoverPeers: "vellum:hosts-discover-peers",
-  hostsUpsert: "vellum:hosts-upsert",
-  hostsRemove: "vellum:hosts-remove",
-  hostsTest: "vellum:hosts-test",
+  hostsDiscoverPeers: "vellum-command:hosts-discover-peers",
+  hostsUpsert: "vellum-command:hosts-upsert",
+  hostsRemove: "vellum-command:hosts-remove",
+  hostsTest: "vellum-command:hosts-test",
   /** Command Center: stamp Remote station fields on a registered host over SSH. */
-  hostsConfigureRemote: "vellum:hosts-configure-remote",
+  hostsConfigureRemote: "vellum-command:hosts-configure-remote",
   /** Command Center: install/update .app + start Remote station over SSH. */
-  hostsDeployRemote: "vellum:hosts-deploy-remote",
+  hostsDeployRemote: "vellum-command:hosts-deploy-remote",
   /** Live / last deploy job for a host (main-owned; survives panel unmount). */
-  hostsDeployJobGet: "vellum:hosts-deploy-job-get",
-  hostsDeployJobsList: "vellum:hosts-deploy-jobs-list",
+  hostsDeployJobGet: "vellum-command:hosts-deploy-job-get",
+  hostsDeployJobsList: "vellum-command:hosts-deploy-jobs-list",
   /** Main → renderer: deploy job snapshot changed. */
-  hostsDeployJobChanged: "vellum:hosts-deploy-job-changed",
+  hostsDeployJobChanged: "vellum-command:hosts-deploy-job-changed",
   /** Effective Remote deploy capability (RELEASE ∩ operator ∩ role). */
-  hostsDeployCapabilities: "vellum:hosts-deploy-capabilities",
+  hostsDeployCapabilities: "vellum-command:hosts-deploy-capabilities",
   // Optional, user-owned Box CLI provider. Vellum Command never imports account inventory.
-  boxAvailability: "vellum:box-availability",
-  boxListOwned: "vellum:box-list-owned",
-  boxCreate: "vellum:box-create",
-  boxRefresh: "vellum:box-refresh",
-  boxPrepareSsh: "vellum:box-prepare-ssh",
-  boxStop: "vellum:box-stop",
-  boxResume: "vellum:box-resume",
+  boxAvailability: "vellum-command:box-availability",
+  boxListOwned: "vellum-command:box-list-owned",
+  boxCreate: "vellum-command:box-create",
+  boxRefresh: "vellum-command:box-refresh",
+  boxPrepareSsh: "vellum-command:box-prepare-ssh",
+  boxStop: "vellum-command:box-stop",
+  boxResume: "vellum-command:box-resume",
   /** Drop Vellum Command ownership + fleet host; does not destroy the provider Box. */
-  boxDetach: "vellum:box-detach",
+  boxDetach: "vellum-command:box-detach",
   // main -> renderer freshness challenge; renderer -> main bootstrap receipt.
   // The opaque challenge is generation identity, never product authority.
-  rendererSurfaceChallenge: "vellum:renderer-surface-challenge",
-  rendererSurfaceReady: "vellum:renderer-surface-ready",
+  rendererSurfaceChallenge: "vellum-command:renderer-surface-challenge",
+  rendererSurfaceReady: "vellum-command:renderer-surface-ready",
   // Installation-local product admission. Recovery channels stay reachable
   // while every product channel is denied.
-  licenseStatus: "vellum:license-status",
-  licenseActivate: "vellum:license-activate",
-  licenseRefresh: "vellum:license-refresh",
-  licenseDeactivate: "vellum:license-deactivate",
-  licenseOpenCustomerPortal: "vellum:license-open-customer-portal",
-  licenseRestart: "vellum:license-restart",
-  licenseChanged: "vellum:license-changed",
+  licenseStatus: "vellum-command:license-status",
+  licenseActivate: "vellum-command:license-activate",
+  licenseRefresh: "vellum-command:license-refresh",
+  licenseDeactivate: "vellum-command:license-deactivate",
+  licenseOpenCustomerPortal: "vellum-command:license-open-customer-portal",
+  licenseRestart: "vellum-command:license-restart",
+  licenseChanged: "vellum-command:license-changed",
   // Command Center auto-update (Mac; readiness-gated install)
-  updateGetState: "vellum:update-get-state",
-  updateCheck: "vellum:update-check",
-  updateRestartAndInstall: "vellum:update-restart-and-install",
-  updateStateChanged: "vellum:update-state-changed",
+  updateGetState: "vellum-command:update-get-state",
+  updateCheck: "vellum-command:update-check",
+  updateRestartAndInstall: "vellum-command:update-restart-and-install",
+  updateStateChanged: "vellum-command:update-state-changed",
   // main -> renderer pushes
-  nodeRefOpened: "vellum:node-ref-opened",
-  nodeRefOpenedAck: "vellum:node-ref-opened-ack",
-  canvasFlushRequested: "vellum:canvas-flush-requested",
-  canvasFlushComplete: "vellum:canvas-flush-complete",
-  canvasQuiesceAndFlushRequested: "vellum:canvas-quiesce-and-flush-requested",
-  canvasQuiesceAndFlushStarted: "vellum:canvas-quiesce-and-flush-started",
-  canvasQuiesceAndFlushComplete: "vellum:canvas-quiesce-and-flush-complete",
-  canvasChanged: "vellum:canvas-changed",
-  snapshotsChanged: "vellum:snapshots-changed",
-  usageChanged: "vellum:usage-changed",
-  settingsChanged: "vellum:settings-changed",
-  chatEvent: "vellum:chat-event",
-  kernelChanged: "vellum:kernel-changed",
-  herdrStreamEvent: "vellum:herdr-stream-event",
-  herdrMirrorEvent: "vellum:herdr-mirror-event",
-  terminalList: "vellum:terminal-list",
-  terminalCreate: "vellum:terminal-create",
-  terminalGet: "vellum:terminal-get",
-  terminalKill: "vellum:terminal-kill",
-  terminalBindCanvas: "vellum:terminal-bind-canvas",
-  terminalAttach: "vellum:terminal-attach",
-  terminalRelease: "vellum:terminal-release",
-  terminalWrite: "vellum:terminal-write",
-  terminalResize: "vellum:terminal-resize",
-  terminalShutdown: "vellum:terminal-shutdown",
-  terminalEvent: "vellum:terminal-event",
-  hostDirectoryRead: "vellum:host-directory-read",
+  nodeRefOpened: "vellum-command:node-ref-opened",
+  nodeRefOpenedAck: "vellum-command:node-ref-opened-ack",
+  canvasFlushRequested: "vellum-command:canvas-flush-requested",
+  canvasFlushComplete: "vellum-command:canvas-flush-complete",
+  canvasQuiesceAndFlushRequested: "vellum-command:canvas-quiesce-and-flush-requested",
+  canvasQuiesceAndFlushStarted: "vellum-command:canvas-quiesce-and-flush-started",
+  canvasQuiesceAndFlushComplete: "vellum-command:canvas-quiesce-and-flush-complete",
+  canvasChanged: "vellum-command:canvas-changed",
+  snapshotsChanged: "vellum-command:snapshots-changed",
+  usageChanged: "vellum-command:usage-changed",
+  settingsChanged: "vellum-command:settings-changed",
+  chatEvent: "vellum-command:chat-event",
+  kernelChanged: "vellum-command:kernel-changed",
+  herdrStreamEvent: "vellum-command:herdr-stream-event",
+  herdrMirrorEvent: "vellum-command:herdr-mirror-event",
+  terminalList: "vellum-command:terminal-list",
+  terminalCreate: "vellum-command:terminal-create",
+  terminalGet: "vellum-command:terminal-get",
+  terminalKill: "vellum-command:terminal-kill",
+  terminalBindCanvas: "vellum-command:terminal-bind-canvas",
+  terminalAttach: "vellum-command:terminal-attach",
+  terminalRelease: "vellum-command:terminal-release",
+  terminalWrite: "vellum-command:terminal-write",
+  terminalResize: "vellum-command:terminal-resize",
+  terminalShutdown: "vellum-command:terminal-shutdown",
+  terminalEvent: "vellum-command:terminal-event",
+  hostDirectoryRead: "vellum-command:host-directory-read",
   /** Fail-soft model list for the managed-terminal harness picker. */
-  managedTerminalModels: "vellum:managed-terminal-models",
+  managedTerminalModels: "vellum-command:managed-terminal-models",
   /** Fail-soft Hermes profile list for the harness picker. */
-  managedTerminalProfiles: "vellum:managed-terminal-profiles",
+  managedTerminalProfiles: "vellum-command:managed-terminal-profiles",
   /** Main → renderer: managed-agent seat state (idle/working/attention/unknown). */
-  agentSeatStateSnapshot: "vellum:agent-seat-state-snapshot",
-  agentSeatStateChanged: "vellum:agent-seat-state-changed",
-  browserSessionChanged: "vellum:browser-session-changed",
+  agentSeatStateSnapshot: "vellum-command:agent-seat-state-snapshot",
+  agentSeatStateChanged: "vellum-command:agent-seat-state-changed",
+  browserSessionChanged: "vellum-command:browser-session-changed",
   // Developer observability ring (process-local; UI gated by advanced.logsExplorer)
-  observabilityQuery: "vellum:observability-query",
-  observabilityClear: "vellum:observability-clear",
+  observabilityQuery: "vellum-command:observability-query",
+  observabilityClear: "vellum-command:observability-clear",
   /** Renderer interest: enable live push while the explorer is open. */
-  observabilityWatch: "vellum:observability-watch",
-  observabilityUnwatch: "vellum:observability-unwatch",
+  observabilityWatch: "vellum-command:observability-watch",
+  observabilityUnwatch: "vellum-command:observability-unwatch",
   /** Main → renderer: one structured log entry (only while watched). */
-  observabilityLog: "vellum:observability-log",
+  observabilityLog: "vellum-command:observability-log",
   /** Main → renderer: ring was cleared. */
-  observabilityCleared: "vellum:observability-cleared",
+  observabilityCleared: "vellum-command:observability-cleared",
 } as const;
 
 export interface ChassisApi {
@@ -466,7 +466,7 @@ export interface ChatTurnResult {
   readonly stopReason?: string; // end_turn | cancelled | refusal | ...
 }
 
-// Pushed on "vellum:chat-event" for every ACP notification / agent request.
+// Pushed on "vellum-command:chat-event" for every ACP notification / agent request.
 export interface ChatEvent {
   readonly agentKey: string;
   // ACP sessionUpdate kind (agent_message_chunk, agent_thought_chunk,
@@ -546,7 +546,7 @@ export type ChatFinishNodeDeleteResult =
   | { readonly ok: true }
   | { readonly ok: false; readonly error: string };
 
-export interface VellumSchedulerApi {
+export interface VellumCommandSchedulerApi {
   /** Fire one selected scheduler's outbound does edges only. */
   readonly schedulerFire: (
     canvas: string,
@@ -563,7 +563,7 @@ export interface VellumSchedulerApi {
   >;
 }
 
-export interface VellumHermesIntegrationApi {
+export interface VellumCommandHermesIntegrationApi {
   readonly generatePortfolio: (
     name: string,
     options?: { all?: boolean },
@@ -574,7 +574,7 @@ export interface VellumHermesIntegrationApi {
   readonly agentMessage: (key: string, text: string) => Promise<AgentReply>;
 }
 
-export interface VellumApi extends LicenseApi, UpdateApi {
+export interface VellumCommandApi extends LicenseApi, UpdateApi {
   /** Read-only platform marker for renderer geometry and copy. */
   readonly platform: NodeJS.Platform;
   /** Internal bootstrap receipt emitted after React commits the product shell. */
@@ -823,7 +823,7 @@ export interface VellumApi extends LicenseApi, UpdateApi {
 }
 
 /** Optional provider-usage product surface. Omitted from preload when disabled. */
-export interface VellumUsageApi {
+export interface VellumCommandUsageApi {
   readonly getUsage: () => Promise<UsageState>;
   readonly refreshUsage: () => Promise<UsageState>;
   readonly onUsageChanged: (listener: (state: UsageState) => void) => () => void;
@@ -993,8 +993,8 @@ export type {
 } from "./deploy-job";
 
 // The attached-chat surface is declared separately and merged into the
-// preload bridge alongside VellumApi.
-export interface VellumChatApi extends ChatApi {}
+// preload bridge alongside VellumCommandApi.
+export interface VellumCommandChatApi extends ChatApi {}
 
 // --- herdr work surface (PTY panes; not hermes ACP) -------------------------
 
@@ -1204,7 +1204,7 @@ export interface HerdrMirrorStateInfo {
   readonly lastSyncAt?: number;
 }
 
-export interface VellumHerdrApi {
+export interface VellumCommandHerdrApi {
   readonly herdrHosts: () => Promise<ReadonlyArray<HerdrHostInfo>>;
   readonly herdrEnsureServer: (
     hostId: string,
@@ -1376,7 +1376,7 @@ export interface TerminalAttachInput {
   readonly hostId?: string;
 }
 
-export interface VellumTerminalApi {
+export interface VellumCommandTerminalApi {
   readonly terminalList: (hostId?: string) => Promise<readonly TerminalSessionSummary[]>;
   readonly terminalCreate: (input: TerminalCreateInput) => Promise<TerminalSessionSummary>;
   readonly terminalGet: (bindingId: string, hostId?: string) => Promise<TerminalSessionSummary | undefined>;
@@ -1414,7 +1414,7 @@ export interface VellumTerminalApi {
 // Outside demo mode: demoState answers { active: false } and the other two
 // answer ok:false — handlers are always registered, behavior is flag-gated.
 
-export interface VellumDemoApi {
+export interface VellumCommandDemoApi {
   readonly demoState: () => Promise<DemoStateInfo>;
   readonly demoCommand: (command: DemoCommand) => Promise<DemoCommandResult>;
   readonly demoWriteEdl: (edl: DemoEdl) => Promise<DemoWriteEdlResult>;
@@ -1466,7 +1466,7 @@ export interface BrowserSurfaceConfigInfo {
   readonly maxWarmSessions: number;
 }
 
-export interface VellumBrowserApi {
+export interface VellumCommandBrowserApi {
   readonly browserProfiles: () => Promise<BrowserOpResult<ReadonlyArray<BrowserProfileInfo>>>;
   readonly browserSurfaceConfig: () => Promise<BrowserOpResult<BrowserSurfaceConfigInfo>>;
   readonly browserOpen: (input: BrowserOpenInput) => Promise<BrowserOpResult<BrowserSessionInfo>>;

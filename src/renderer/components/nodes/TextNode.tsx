@@ -34,7 +34,7 @@ import { HERDR_ENABLED } from "@shared/features";
 import { consumeWorkDetailOpen, workDetailOpen$ } from "../../lib/work-detail-open";
 import { onTerminalEvent } from "../../lib/terminal-events";
 import { terminal$ } from "../../lib/terminal-state";
-import { getVellumApi } from "../../lib/vellum-api";
+import { getVellumCommandApi } from "../../lib/vellum-api";
 import { HerdrCard } from "../herdr/HerdrCard";
 import { HarnessMark } from "../herdr/HarnessMark";
 import { TerminalCard } from "../terminal/TerminalCard";
@@ -259,7 +259,7 @@ function EntityCard({
   useEffect(() => {
     if (!bindingId) return;
     const refresh = () =>
-      getVellumApi()
+      getVellumCommandApi()
         ?.terminalGet?.(bindingId, hostId)
         .then((next) => {
           terminal$.sessionByBindingId[bindingId].set(next);

@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { isKnownHerdrHost, UnknownHerdrHostError } from "./hosts";
 
 /** Match common agent clipboard-image caps (16 MiB). */
-export const VELLUM_CLIPBOARD_IMAGE_MAX_BYTES = 16 * 1024 * 1024;
+export const VELLUM_COMMAND_CLIPBOARD_IMAGE_MAX_BYTES = 16 * 1024 * 1024;
 
 const ALLOWED_EXT = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp"]);
 
@@ -33,7 +33,7 @@ export const decodeClipboardImageBase64 = (
   }
   if (!dataBase64) return { ok: false, error: "clipboard image bytes required" };
   // Bound before decode so a hostile IPC caller cannot force huge peak alloc.
-  const maxB64 = Math.ceil((VELLUM_CLIPBOARD_IMAGE_MAX_BYTES * 4) / 3) + 8;
+  const maxB64 = Math.ceil((VELLUM_COMMAND_CLIPBOARD_IMAGE_MAX_BYTES * 4) / 3) + 8;
   if (dataBase64.length > maxB64) {
     return {
       ok: false,
@@ -42,10 +42,10 @@ export const decodeClipboardImageBase64 = (
   }
   const bytes = Buffer.from(dataBase64, "base64");
   if (bytes.byteLength === 0) return { ok: false, error: "empty image" };
-  if (bytes.byteLength > VELLUM_CLIPBOARD_IMAGE_MAX_BYTES) {
+  if (bytes.byteLength > VELLUM_COMMAND_CLIPBOARD_IMAGE_MAX_BYTES) {
     return {
       ok: false,
-      error: `image too large (${bytes.byteLength} bytes; max ${VELLUM_CLIPBOARD_IMAGE_MAX_BYTES})`,
+      error: `image too large (${bytes.byteLength} bytes; max ${VELLUM_COMMAND_CLIPBOARD_IMAGE_MAX_BYTES})`,
     };
   }
   return { ok: true, extension: ext, bytes };

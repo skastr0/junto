@@ -5,7 +5,7 @@ import { makeTerminalNode } from "../../lib/node-factories";
 import { addNode } from "../../lib/mutations";
 import { state$ } from "../../lib/state";
 import { openTerminal } from "../../lib/terminal-actions";
-import { getVellumApi } from "../../lib/vellum-api";
+import { getVellumCommandApi } from "../../lib/vellum-api";
 import { FocusSurface } from "../FocusSurface";
 import { Button, Eyebrow, FieldLabel, Select } from "../ui";
 
@@ -30,7 +30,7 @@ export function TerminalWizard({
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    const api = getVellumApi();
+    const api = getVellumCommandApi();
     void api
       ?.hostsList?.()
       .then((res) => {

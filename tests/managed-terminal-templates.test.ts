@@ -125,12 +125,12 @@ describe("scrubSpawnEnv + buildSpawnEnv", () => {
       CLAUDE_CODE_CHILD_SESSION: "yes",
       CLAUDE_CODE_ENTRYPOINT: "cli",
       NO_COLOR: "1",
-      VELLUM_TOKEN: "tok",
+      VELLUM_COMMAND_TOKEN: "tok",
       EMPTY: undefined,
     });
     expect(scrubbed).toEqual({
       PATH: "/usr/bin",
-      VELLUM_TOKEN: "tok",
+      VELLUM_COMMAND_TOKEN: "tok",
     });
   });
 
@@ -142,8 +142,8 @@ describe("scrubSpawnEnv + buildSpawnEnv", () => {
         HOME: "/home/op",
       },
       {
-        VELLUM_SOCKET: "/tmp/work.sock",
-        VELLUM_TOKEN: "t",
+        VELLUM_COMMAND_SOCKET: "/tmp/work.sock",
+        VELLUM_COMMAND_TOKEN: "t",
         CLAUDECODE: "evil",
         PATH: "/opt/vellum/bin:/usr/bin",
       },
@@ -151,7 +151,7 @@ describe("scrubSpawnEnv + buildSpawnEnv", () => {
     expect(env.CLAUDECODE).toBeUndefined();
     expect(env.NO_COLOR).toBeUndefined();
     expect(env.PATH).toBe("/opt/vellum/bin:/usr/bin");
-    expect(env.VELLUM_SOCKET).toBe("/tmp/work.sock");
+    expect(env.VELLUM_COMMAND_SOCKET).toBe("/tmp/work.sock");
     expect(env.HOME).toBe("/home/op");
   });
 });
@@ -167,10 +167,10 @@ describe("resolveManagedLaunch argv", () => {
         effort: "high",
         permissionMode: "acceptEdits",
         sessionId: "11111111-1111-1111-1111-111111111111",
-        systemPrompt: "call vellum onboard",
+        systemPrompt: "call vellum-command onboard",
         prompt: "start the task",
         cwd: "/repo",
-        env: { VELLUM_TOKEN: "t" },
+        env: { VELLUM_COMMAND_TOKEN: "t" },
       },
       bareAmbient,
     );
@@ -187,10 +187,10 @@ describe("resolveManagedLaunch argv", () => {
       "--session-id",
       "11111111-1111-1111-1111-111111111111",
       "--append-system-prompt",
-      "call vellum onboard",
+      "call vellum-command onboard",
       "start the task",
     ]);
-    expect(launch.env?.VELLUM_TOKEN).toBe("t");
+    expect(launch.env?.VELLUM_COMMAND_TOKEN).toBe("t");
     expect(launch.env?.CLAUDECODE).toBeUndefined();
   });
 

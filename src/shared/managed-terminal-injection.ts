@@ -18,15 +18,15 @@ import { BROWSER_ENABLED } from "./features";
 
 const BROWSER_CLI_ROWS = BROWSER_ENABLED
   ? `
-| list granted pages | \`vellum browser pages --json\` |
-| open a granted page | \`vellum browser open <vellum-ref> --json\` |
-| navigate / inspect / capture | \`vellum browser goto\` - \`vellum browser eval\` - \`vellum browser shot\` |`
+| list granted pages | \`vellum-command browser pages --json\` |
+| open a granted page | \`vellum-command browser open <vellum-ref> --json\` |
+| navigate / inspect / capture | \`vellum-command browser goto\` - \`vellum-command browser eval\` - \`vellum-command browser shot\` |`
   : "";
 
 const BROWSER_CLI_DOCTRINE = BROWSER_ENABLED
-  ? `\`browser.automate\` is a live edge grant realized by \`vellum browser\` from
+  ? `\`browser.automate\` is a live edge grant realized by \`vellum-command browser\` from
 the managed agent's existing shell. Existing sessions may use it immediately
-after an edge appears — re-run \`vellum capabilities\` for the current command.
+after an edge appears — re-run \`vellum-command capabilities\` for the current command.
 
 `
   : "";
@@ -101,22 +101,22 @@ Publishing artifacts is non-blocking product delivery. Ship intermediate and fin
  */
 export const CLI_CONTRACT = `## CLI contract
 
-Call **\`vellum onboard\`** at session start and after every compaction (or when tool/CLI results say the map changed).
+Call **\`vellum-command onboard\`** at session start and after every compaction (or when tool/CLI results say the map changed).
 
 | intent | command |
 |---|---|
-| orient | \`vellum onboard\` |
-| live contract | \`vellum capabilities\` |
-| share a brief preamble | \`vellum preamble '{"text":"..."}'\` |
-| list queue | \`vellum tasks list --target <id>\` |
-| propose work | \`vellum tasks create '{"target":"<id>","brief":"..."}'\` |
-| claim | \`vellum tasks claim --target <id> --task <id>\` |
-| progress / settle / block task | \`vellum tasks update --target <id> --task <id> --state <state>\` |
-| read / write thread | \`vellum msg list\` - \`vellum msg send\` - \`vellum msg read\` - \`vellum msg reply\` |
+| orient | \`vellum-command onboard\` |
+| live contract | \`vellum-command capabilities\` |
+| share a brief preamble | \`vellum-command preamble '{"text":"..."}'\` |
+| list queue | \`vellum-command tasks list --target <id>\` |
+| propose work | \`vellum-command tasks create '{"target":"<id>","brief":"..."}'\` |
+| claim | \`vellum-command tasks claim --target <id> --task <id>\` |
+| progress / settle / block task | \`vellum-command tasks update --target <id> --task <id> --state <state>\` |
+| read / write thread | \`vellum-command msg list\` - \`vellum-command msg send\` - \`vellum-command msg read\` - \`vellum-command msg reply\` |
 | factory mail | when mail arrives: \`msg list\` then \`msg reply\` (or \`msg read\` if no reply) — this stops repeat nudges |
-| escalate to human | \`vellum escalate\` |
-| ship output | \`vellum artifact publish\` |${BROWSER_CLI_ROWS}
-| schemas / examples | \`vellum schema\` - \`vellum examples\` |
+| escalate to human | \`vellum-command escalate\` |
+| ship output | \`vellum-command artifact publish\` |${BROWSER_CLI_ROWS}
+| schemas / examples | \`vellum-command schema\` - \`vellum-command examples\` |
 
 ${BROWSER_CLI_DOCTRINE}
 JSON-in/JSON-out. Errors are **ground truth** — do not invent around them:
@@ -134,7 +134,7 @@ const formatConnectedTargets = (
   targets: readonly InjectionConnectedTarget[] | undefined,
 ): string => {
   if (!targets || targets.length === 0) {
-    return "(none listed at spawn — call `vellum onboard` for the live map)";
+    return "(none listed at spawn — call `vellum-command onboard` for the live map)";
   }
   return targets
     .map((t) => {
@@ -152,14 +152,14 @@ export const buildSeatContextSection = (
   const seat =
     typeof ctx.seatRef === "string" && ctx.seatRef.trim().length > 0
       ? ctx.seatRef.trim()
-      : "(unknown at spawn — call `vellum onboard`)";
+      : "(unknown at spawn — call `vellum-command onboard`)";
   return `## Seat context
 
 - **Seat ref:** \`${seat}\` (context only; identity is process-bind)
 - **Connected targets (at spawn):**
 ${formatConnectedTargets(ctx.connectedTargets)}
 
-Re-run \`vellum onboard\` for the live map after compaction or edge changes.`;
+Re-run \`vellum-command onboard\` for the live map after compaction or edge changes.`;
 };
 
 /**

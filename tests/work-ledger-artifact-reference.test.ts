@@ -22,7 +22,7 @@ const linked: Artifact = {
 describe("artifact TaskRef presentation", () => {
   it("renders the item and its complete sink identity", () => {
     expect(artifactTaskReferenceLabel(linked)).toBe(
-      "Task #task-1 · factory/tasks-remote",
+      "Task #task-1 — factory/tasks-remote",
     );
   });
 

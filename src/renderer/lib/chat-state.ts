@@ -8,23 +8,23 @@ import type {
   ChatModelChoice,
   ChatOpenResult,
 } from "@shared/ipc";
-import { getVellumApi } from "./vellum-api";
+import { getVellumCommandApi } from "./vellum-api";
 
-// window.vellum is ambiently typed as VellumApi only (src/renderer/global.d.ts).
+// window.vellumCommand is ambiently typed as VellumCommandApi only (src/renderer/global.d.ts).
 // The ACP chat surface (ChatApi) is documented as "merged into the preload
-// bridge alongside VellumApi" at runtime, but that global declaration isn't
+// bridge alongside VellumCommandApi" at runtime, but that global declaration isn't
 // ours to widen (out of this file's lane) — so this module reads the chat
 // methods off the same object through a local cast. Every call site below
 // still gates on `typeof x === "function"` before calling, so an
 // over-optimistic type costs nothing: a method that isn't actually there yet
 // degrades to a quiet error state exactly like a genuinely absent one would.
-const getChatApi = (): ChatApi | undefined => getVellumApi() as unknown as ChatApi | undefined;
+const getChatApi = (): ChatApi | undefined => getVellumCommandApi() as unknown as ChatApi | undefined;
 
 // One live ACP session per agent node, keyed by agentKey ("<host>:<profile>").
 // ChatEvent payloads are forwarded verbatim from the ACP relay (see
 // @shared/ipc's comment on ChatEvent) — every read below narrows `unknown`
 // defensively. A payload that doesn't match the expected shape degrades to
-// "ignore this field" rather than throwing; a missing window.vellum method
+// "ignore this field" rather than throwing; a missing window.vellumCommand method
 // degrades to a quiet error state. Nothing in this module ever throws across
 // its public surface.
 
@@ -668,7 +668,7 @@ export function markRead(agentKey: string): void {
   chatState$[agentKey].unread.set(0);
 }
 
-// Singleton fan-out: window.vellum.onChatEvent -> the right agent's slot in
+// Singleton fan-out: window.vellumCommand.onChatEvent -> the right agent's slot in
 // chatState$. Safe to call from every ChatView mount; only the first call
 // actually subscribes. Absent onChatEvent (IPC not landed yet) degrades to a
 // no-op unsubscribe rather than throwing.

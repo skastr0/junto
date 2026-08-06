@@ -1,6 +1,6 @@
 /**
  * Demo growth-50 capture — NOT a correctness spec. Rolls the growth-ladder
- * demo scenario (VELLUM_DEMO=1, scenario via VELLUM_DEMO_SCENARIO) and
+ * demo scenario (VELLUM_COMMAND_DEMO=1, scenario via VELLUM_COMMAND_DEMO_SCENARIO) and
  * records the take as a CDP screencast frame sequence + manifest. Post
  * (label overlays, encode) aligns everything by epoch: screencast frame
  * timestamps and the EDL's startedAtEpochMs share the machine clock.
@@ -9,7 +9,7 @@
  * wedges renderer boot (window never paints). The CDP screencast attaches
  * after boot and has no such interaction — and needs no screen-recording TCC.
  *
- * The window is shown (VELLUM_E2E_SHOW=1) for the length of the take: hidden
+ * The window is shown (VELLUM_COMMAND_E2E_SHOW=1) for the length of the take: hidden
  * or occluded windows stop compositing and the screencast stalls with them.
  * Keep the window unobstructed while this spec runs.
  */
@@ -39,8 +39,8 @@ test("roll growth-50 and record the take", async () => {
   const vellum = await launchVellum({
     demo: true,
     extraEnv: {
-      VELLUM_DEMO_SCENARIO: "growth-50",
-      VELLUM_E2E_SHOW: "1",
+      VELLUM_COMMAND_DEMO_SCENARIO: "growth-50",
+      VELLUM_COMMAND_E2E_SHOW: "1",
     },
   });
 
@@ -113,7 +113,7 @@ test("roll growth-50 and record the take", async () => {
 
     // The EDL landing in the sandbox home is the take-completion receipt —
     // the conductor writes it only after the full beat map has executed.
-    const edlDir = join(sandbox.homeDir, ".vellum", "demo");
+    const edlDir = join(sandbox.homeDir, ".vellum-command", "demo");
     await expect
       .poll(
         async () => {

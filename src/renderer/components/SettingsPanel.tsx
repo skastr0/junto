@@ -2,7 +2,7 @@ import { use$ } from "@legendapp/state/react";
 import { RotateCcw, Settings2, X } from "lucide-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import type { BrowserProfileInfo, VellumBrowserApi } from "@shared/ipc";
+import type { BrowserProfileInfo, VellumCommandBrowserApi } from "@shared/ipc";
 import type { SettingsSectionKey } from "@shared/settings";
 import {
   AUDIO_ENABLED,
@@ -34,7 +34,7 @@ import {
   type AlertSfxId,
 } from "../lib/sfx";
 import { DIM, HUE, INK } from "../lib/theme";
-import { getVellumApi } from "../lib/vellum-api";
+import { getVellumCommandApi } from "../lib/vellum-api";
 import { LicenseSection } from "./license";
 import { Button, Select } from "./ui";
 import "./settings-panel.css";
@@ -122,10 +122,10 @@ function BrowserSection() {
     readonly kind: "success" | "error";
     readonly message: string;
   }>();
-  type BrowserApi = ReturnType<typeof getVellumApi> & Partial<VellumBrowserApi>;
+  type BrowserApi = ReturnType<typeof getVellumCommandApi> & Partial<VellumCommandBrowserApi>;
 
   const loadProfiles = useCallback(async () => {
-    const api = getVellumApi() as BrowserApi | undefined;
+    const api = getVellumCommandApi() as BrowserApi | undefined;
     if (!api?.browserProfiles) {
       setProfilesLoading(false);
       setWipeNotice({ kind: "error", message: "Browser profile API unavailable." });
@@ -152,7 +152,7 @@ function BrowserSection() {
 
   const wipeSelectedProfile = async () => {
     if (!selectedProfile || confirmation !== selectedProfile || wipeBusy) return;
-    const api = getVellumApi() as BrowserApi | undefined;
+    const api = getVellumCommandApi() as BrowserApi | undefined;
     if (!api?.browserWipeProfile) {
       setWipeNotice({ kind: "error", message: "Browser profile wipe API unavailable." });
       return;
@@ -289,7 +289,7 @@ function AdvancedSection() {
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const api = getVellumApi();
+      const api = getVellumCommandApi();
       if (!api?.loginItemGet) {
         if (!cancelled) {
           setLoginItemLoading(false);
@@ -323,7 +323,7 @@ function AdvancedSection() {
   }, []);
 
   const onToggleLoginItem = async (next: boolean) => {
-    const api = getVellumApi();
+    const api = getVellumCommandApi();
     if (!api?.loginItemSet) {
       setLoginItemError("Login item API unavailable.");
       return;
@@ -446,7 +446,7 @@ function InstallationFacts() {
       </FieldRow>
       <FieldRow label="Data location" hint="where Vellum Command stores its data">
         <span className="settings-mono-value" style={{ color: INK, fontSize: 12 }}>
-          ~/.vellum/state/vellum.db
+          ~/.vellum-command/state/vellum.db
         </span>
       </FieldRow>
     </div>
@@ -592,7 +592,7 @@ function StateRecoveryControls() {
   }>();
 
   const loadBackups = useCallback(async () => {
-    const api = getVellumApi();
+    const api = getVellumCommandApi();
     if (!api?.stateBackupsList) {
       setLoading(false);
       setNotice({
@@ -640,7 +640,7 @@ function StateRecoveryControls() {
 
   const exportSelected = async () => {
     if (selectedId === undefined || exporting) return;
-    const api = getVellumApi();
+    const api = getVellumCommandApi();
     if (!api?.stateBackupExport) {
       setNotice({
         kind: "error",
@@ -966,7 +966,7 @@ function SectionBody({ section }: { readonly section: PanelSection }) {
     case "advanced":
       return <AdvancedSection />;
     case "license": {
-      const api = getVellumApi();
+      const api = getVellumCommandApi();
       return api
         ? <LicenseSection api={api} />
         : <p className="settings-error">License service is unavailable.</p>;
@@ -1012,7 +1012,7 @@ export function SettingsPanel() {
           <div className="settings-panel__title">
             <Settings2 size={16} style={{ color: HUE.amber }} />
             <div>
-              <div className="settings-panel__eyebrow">vellum command</div>
+              <div className="settings-panel__eyebrow">Vellum Command</div>
               <strong style={{ color: INK }}>Settings</strong>
             </div>
           </div>

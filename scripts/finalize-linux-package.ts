@@ -49,12 +49,12 @@ export const validateLinuxRuntimeArchive = ({ archive, artifactName }: { readonl
 };
 
 const executableNames = new Set([
-  "vellum",
-  "resources/bin/vellum",
-  "resources/bin/vellum-remote",
+  "vellum-command",
+  "resources/bin/vellum-command",
+  "resources/bin/vellum-command-remote",
   "resources/bin/node",
   "resources/bin/unix-peer-pid.py",
-  "resources/systemd/vellum-remote-launch",
+  "resources/systemd/vellum-command-remote-launch",
 ]);
 
 const normalizeModes = async (root: string, relative = ""): Promise<void> => {

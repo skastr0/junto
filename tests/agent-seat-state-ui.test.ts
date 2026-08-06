@@ -236,8 +236,8 @@ describe("subscribeAgentSeatState renderer hydration", () => {
       at: 20,
     });
     const unsubscribe = vi.fn();
-    (globalThis as unknown as { window: { vellum: unknown } }).window = {
-      vellum: {
+    (globalThis as unknown as { window: { vellumCommand: unknown } }).window = {
+      vellumCommand: {
         onAgentSeatStateChanged: vi.fn(() => unsubscribe),
         agentSeatStateSnapshot: vi.fn(async () => [snapshot]),
       },
@@ -260,8 +260,8 @@ describe("subscribeAgentSeatState renderer hydration", () => {
     const snapshot = new Promise<ReadonlyArray<AgentSeatStateEvent>>((resolve) => {
       resolveSnapshot = resolve;
     });
-    (globalThis as unknown as { window: { vellum: unknown } }).window = {
-      vellum: {
+    (globalThis as unknown as { window: { vellumCommand: unknown } }).window = {
+      vellumCommand: {
         onAgentSeatStateChanged: vi.fn((next: (raw: unknown) => void) => {
           listener = next;
           return () => undefined;

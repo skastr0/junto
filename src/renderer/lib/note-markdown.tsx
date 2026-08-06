@@ -33,7 +33,7 @@ const IMAGE_LINE_RE = /^\s*!\[([^\]]*)\]\(([^)\s]+)\)\s*$/;
 
 /** Safe schemes for links and images — includes app content protocol. */
 const isSafeHref = (href: string): boolean =>
-  /^(https?:|mailto:|\/|#|vellum-content:)/i.test(href);
+  /^(https?:|mailto:|\/|#|vellum-command-content:)/i.test(href);
 
 export function parseInline(source: string): ReadonlyArray<InlineToken> {
   if (!source) return [];

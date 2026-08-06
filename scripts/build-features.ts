@@ -13,10 +13,10 @@ const FEATURE_KEYS = Object.keys(FEATURE_CATALOG) as ReadonlyArray<FeatureKey>;
 const featureProfileName = (
   env: Readonly<Record<string, string | undefined>>,
 ): FeatureProfileName => {
-  const raw = env.VELLUM_FEATURE_PROFILE?.trim() || "ship";
+  const raw = env.VELLUM_COMMAND_FEATURE_PROFILE?.trim() || "ship";
   if (raw === "ship" || raw === "all-on") return raw;
   throw new Error(
-    `VELLUM_FEATURE_PROFILE must be ship or all-on; received ${JSON.stringify(raw)}`,
+    `VELLUM_COMMAND_FEATURE_PROFILE must be ship or all-on; received ${JSON.stringify(raw)}`,
   );
 };
 

@@ -1,10 +1,10 @@
 /**
- * Managed-terminal seat env inject — PATH for dist/vellum + work-control paths.
+ * Managed-terminal seat env inject — PATH for dist/vellum-command + work-control paths.
  * Secrets stay file-backed (token on disk); we inject socket/home paths only.
  * Zero writes to harness configs.
  */
 import { existsSync } from "node:fs";
-import { resolveVellumHome } from "@shared/vellum-home";
+import { resolveVellumCommandHome } from "@shared/vellum-home";
 import { delimiter, join } from "node:path";
 import {
   WORK_HOME_ENV,
@@ -39,7 +39,7 @@ export const vellumCliPathPrefixes = (
 
 export const resolveWorkHomeForSeat = (
   env: NodeJS.ProcessEnv = process.env,
-  home: string = resolveVellumHome(),
+  home: string = resolveVellumCommandHome(),
 ): string => {
   const override = env[WORK_HOME_ENV]?.trim();
   if (override) return override;
@@ -63,16 +63,16 @@ export const buildManagedSeatInject = (
   }
 
   const workHome = resolveWorkHomeForSeat(env);
-  inject.VELLUM_WORK_HOME = workHome;
+  inject.VELLUM_COMMAND_WORK_HOME = workHome;
   const socket = workControlSocketPath(workHome);
-  inject.VELLUM_SOCKET = socket;
-  inject.VELLUM_WORK_SOCKET = socket;
+  inject.VELLUM_COMMAND_SOCKET = socket;
+  inject.VELLUM_COMMAND_WORK_SOCKET = socket;
 
   if (input.agentKey?.trim()) {
-    inject.VELLUM_SEAT = input.agentKey.trim();
+    inject.VELLUM_COMMAND_SEAT = input.agentKey.trim();
   }
   if (input.canvasName?.trim() && input.nodeId?.trim()) {
-    inject.VELLUM_NODE_REF = `${input.canvasName.trim()}:${input.nodeId.trim()}`;
+    inject.VELLUM_COMMAND_NODE_REF = `${input.canvasName.trim()}:${input.nodeId.trim()}`;
   }
 
   return inject;

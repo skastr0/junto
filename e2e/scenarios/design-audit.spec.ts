@@ -2,7 +2,7 @@
  * Design-audit capture — NOT a correctness spec. Drives every reachable UI
  * surface with seeded fixtures + the fake herdr/hermes/codexbar binaries and
  * screenshots each one to test-results/design-audit/ for visual review.
- *   VELLUM_FEATURE_PROFILE=all-on electron-vite build   # fleet/usage/help/herdr surfaces
+ *   VELLUM_COMMAND_FEATURE_PROFILE=all-on electron-vite build   # fleet/usage/help/herdr surfaces
  *   bun run test:e2e:fast e2e/scenarios/design-audit.spec.ts
  * A plain ship-profile build hides those surfaces and fails this spec.
  * The screenshots are the artifact; assertions only prove a surface appeared.

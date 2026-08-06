@@ -2,7 +2,7 @@
 # Official Vellum Command dev entry.
 #
 # Side-by-side with production:
-# - VELLUM_HOME=~/.vellum-dev isolates state + control sockets from ~/.vellum
+# - VELLUM_COMMAND_HOME=~/.vellum-command-dev isolates state + control sockets from ~/.vellum-command
 # - main pins Electron userData under that home so the single-instance lock
 #   does not fight /Applications/Vellum Command.app
 # When production already matches this build's current schema, prod state is
@@ -12,13 +12,13 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-ISOLATED_HOME="${HOME}/.vellum-dev"
+ISOLATED_HOME="${HOME}/.vellum-command-dev"
 
 mkdir -p "${ISOLATED_HOME}"
 
-printf 'vellum dev → VELLUM_HOME=%s (HOME unchanged; Electron userData isolated)\n' "${ISOLATED_HOME}" >&2
+printf 'vellum-command dev → VELLUM_COMMAND_HOME=%s (HOME unchanged; Electron userData isolated)\n' "${ISOLATED_HOME}" >&2
 
-export VELLUM_HOME="${ISOLATED_HOME}"
+export VELLUM_COMMAND_HOME="${ISOLATED_HOME}"
 cd "${ROOT}"
 bash scripts/dev-seed-from-prod.sh
 

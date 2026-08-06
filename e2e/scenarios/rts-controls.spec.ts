@@ -6,7 +6,7 @@
  * (agent chat, herdr terminal, task board, …); right = minimap. Node/region
  * pause toggles live on left / chips.
  *
- * Boards install at runtime via window.vellum (authority-only boot); pattern
+ * Boards install at runtime via window.vellumCommand (authority-only boot); pattern
  * copied from pause-surface.spec.ts.
  * Run: `bunx electron-vite build && bun run test:e2e:fast e2e/scenarios/rts-controls.spec.ts`
  */
@@ -52,9 +52,9 @@ const installBoard = async (page: import("@playwright/test").Page): Promise<stri
       async () =>
         page.evaluate(() => {
           const runtime = globalThis as unknown as {
-            readonly vellum?: { readonly listCanvases: () => Promise<unknown[]> };
+            readonly vellumCommand?: { readonly listCanvases: () => Promise<unknown[]> };
           };
-          return Boolean(runtime.vellum?.listCanvases);
+          return Boolean(runtime.vellumCommand?.listCanvases);
         }),
       { timeout: 30_000 },
     )
@@ -62,7 +62,7 @@ const installBoard = async (page: import("@playwright/test").Page): Promise<stri
   return page.evaluate(async (document) => {
     const api = (
       globalThis as unknown as {
-        readonly vellum: {
+        readonly vellumCommand: {
           readonly listCanvases: () => Promise<ReadonlyArray<{ name: string }>>;
           readonly createCanvas: (name: string) => Promise<{ name: string; revision: string }>;
           readonly readCanvas: (name: string) => Promise<{ name: string; revision: string }>;
@@ -73,7 +73,7 @@ const installBoard = async (page: import("@playwright/test").Page): Promise<stri
           ) => Promise<unknown>;
         };
       }
-    ).vellum;
+    ).vellumCommand;
     let list = await api.listCanvases();
     let name = list[0]?.name;
     if (!name) {

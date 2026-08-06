@@ -546,7 +546,7 @@ export class LocalSessionHost extends EventEmitter {
       !current.killed &&
       sessionStatusOf(current) !== "exited"
     ) {
-      // Isolated VELLUM_HOME (bun run dev) shares ~/.claude / ~/.grok with the
+      // Isolated VELLUM_COMMAND_HOME (bun run dev) shares ~/.claude / ~/.grok with the
       // production install. A generation started via shared --resume can stay
       // "running" with a dead/black TUI. Prefer one fresh pin spawn when the
       // live generation was a resume attempt (or the new plan still carries
@@ -592,7 +592,7 @@ export class LocalSessionHost extends EventEmitter {
           err,
         );
         throw new Error(
-          `isolated VELLUM_HOME refuses shared harness resume for ${input.harness}`,
+          `isolated VELLUM_COMMAND_HOME refuses shared harness resume for ${input.harness}`,
         );
       }
     }

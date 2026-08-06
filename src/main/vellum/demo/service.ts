@@ -5,7 +5,7 @@
  * this module has no flag check of its own so tests can exercise it directly.
  */
 import { mkdir, writeFile } from "node:fs/promises";
-import { resolveVellumHome } from "@shared/vellum-home";
+import { resolveVellumCommandHome } from "@shared/vellum-home";
 import { join } from "node:path";
 import type { DemoCommand, DemoCommandResult, DemoEdl, DemoWriteEdlResult } from "@shared/demo";
 import { ScriptedMirrorTransport } from "./scripted-mirror-transport";
@@ -45,7 +45,7 @@ export const applyDemoCommand = (cmd: DemoCommand): DemoCommandResult => {
 
 export const writeDemoEdl = async (edl: DemoEdl): Promise<DemoWriteEdlResult> => {
   try {
-    const dir = join(resolveVellumHome(), ".vellum", "demo");
+    const dir = join(resolveVellumCommandHome(), ".vellum-command", "demo");
     await mkdir(dir, { recursive: true });
     const path = join(dir, `edl-${edl.scenarioId}-${edl.startedAtEpochMs}.json`);
     await writeFile(path, JSON.stringify(edl, null, 2), "utf8");

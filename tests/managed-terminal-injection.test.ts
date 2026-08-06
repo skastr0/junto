@@ -29,17 +29,17 @@ describe("managed-terminal injection text", () => {
     expect(text).not.toBeNull();
     expect(text!).toContain(WORKER_DOCTRINE.slice(0, 40));
     expect(text!).toContain(CLI_CONTRACT.slice(0, 40));
-    expect(text!).toContain("vellum onboard");
-    expect(text!).toContain("vellum preamble");
+    expect(text!).toContain("vellum-command onboard");
+    expect(text!).toContain("vellum-command preamble");
     expect(text!).toContain("ScopeError");
     expect(text!).toContain("ClaimConflict");
     expect(text!).toContain("RuntimeDown");
     expect(text!).toContain("Blocked");
     if (BROWSER_ENABLED) {
-      expect(text!).toContain("vellum browser pages --json");
+      expect(text!).toContain("vellum-command browser pages --json");
       expect(text!).toContain("managed agent's existing shell");
     } else {
-      expect(text!).not.toContain("vellum browser");
+      expect(text!).not.toContain("vellum-command browser");
       expect(text!).not.toContain("browser.automate");
     }
     expect(text!).toContain("process-bind");
@@ -76,7 +76,7 @@ describe("managed-terminal injection text", () => {
   it("plans Tier A systemPrompt for claude/grok and Tier B firstTyped for codex/hermes", () => {
     const claude = planManagedInjection("claude", connectedCtx);
     expect(claude).toMatchObject({ inject: true, tier: "A" });
-    expect(claude.systemPrompt).toContain("vellum onboard");
+    expect(claude.systemPrompt).toContain("vellum-command onboard");
     expect(claude.firstTypedMessage).toBeUndefined();
 
     const grok = planManagedInjection("grok", connectedCtx);
@@ -85,7 +85,7 @@ describe("managed-terminal injection text", () => {
 
     const codex = planManagedInjection("codex", connectedCtx);
     expect(codex).toMatchObject({ inject: true, tier: "B" });
-    expect(codex.firstTypedMessage).toContain("vellum onboard");
+    expect(codex.firstTypedMessage).toContain("vellum-command onboard");
     expect(codex.systemPrompt).toBeUndefined();
 
     const hermes = planManagedInjection("hermes", connectedCtx);
@@ -119,7 +119,7 @@ describe("resolveManagedLaunchPlan Tier A flags", () => {
     const argv = launch.argv ?? [];
     const idx = argv.indexOf("--append-system-prompt");
     expect(idx).toBeGreaterThan(-1);
-    expect(argv[idx + 1]).toContain("vellum onboard");
+    expect(argv[idx + 1]).toContain("vellum-command onboard");
     expect(argv[idx + 1]).toContain("canvas-a::worker-1");
   });
 
@@ -146,7 +146,7 @@ describe("resolveManagedLaunchPlan Tier A flags", () => {
       );
       expect(plan.injection.inject).toBe(true);
       expect(plan.injection.tier).toBe("B");
-      expect(plan.firstTypedMessage).toContain("vellum onboard");
+      expect(plan.firstTypedMessage).toContain("vellum-command onboard");
       const argv = plan.launch.argv ?? [];
       expect(argv).not.toContain("--append-system-prompt");
       expect(argv).not.toContain("--rules");

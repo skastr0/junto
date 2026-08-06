@@ -22,7 +22,7 @@ describe("browser Electron containment authority", () => {
 
     for (const source of [probe, fixture]) {
       expect(source).not.toMatch(
-        /\.canvas\b|VELLUM_CANVASES_DIR|\bcanvasesDir\b|\bcanvasPath\b/u,
+        /\.canvas\b|VELLUM_COMMAND_CANVASES_DIR|\bcanvasesDir\b|\bcanvasPath\b/u,
       );
     }
   });

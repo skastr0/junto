@@ -17,6 +17,9 @@ import {
 } from "./actor-seat-compiler";
 
 export const STATION_PORTFOLIO_PROTOCOL =
+  "vellum-command/station-portfolio/v2" as const;
+/** Historical installed projections remain readable during the home rename. */
+const LEGACY_STATION_PORTFOLIO_PROTOCOL =
   "vellum/station-portfolio/v2" as const;
 export const STATION_PORTFOLIO_MAX_CANVASES = 256;
 export const STATION_PORTFOLIO_MAX_ACTOR_SEATS = 16_384;
@@ -197,7 +200,8 @@ export const decodeStationPortfolioBody = (
   if (
     !isPlainRecord(parsed) ||
     !hasExactKeys(parsed, ["protocol", "documents", "actorSeats"]) ||
-    parsed.protocol !== STATION_PORTFOLIO_PROTOCOL ||
+    parsed.protocol !== STATION_PORTFOLIO_PROTOCOL &&
+      parsed.protocol !== LEGACY_STATION_PORTFOLIO_PROTOCOL ||
     !Array.isArray(parsed.documents) ||
     parsed.documents.length > STATION_PORTFOLIO_MAX_CANVASES ||
     !Array.isArray(parsed.actorSeats) ||

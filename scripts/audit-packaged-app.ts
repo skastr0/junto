@@ -304,7 +304,7 @@ export const validateMacOSRuntimePolicy = (
   }
 
   for (const cliPath of [
-    "Contents/Resources/bin/vellum",
+    "Contents/Resources/bin/vellum-command",
   ] as const) {
     const cli = value.machO.find(
       (entry) => isRecord(entry) && entry.path === cliPath,
@@ -978,7 +978,7 @@ export const auditPackagedApp = async (
   );
   const appAsarPath = path.join(contentsPath, "Resources", "app.asar");
   const binPath = path.join(contentsPath, "Resources", "bin");
-  const workCliPath = path.join(binPath, "vellum");
+  const workCliPath = path.join(binPath, "vellum-command");
   await requireRegularFile(infoPlistPath);
   await requireExecutable(mainExecutablePath);
   await requireRegularFile(appAsarPath);
@@ -1049,7 +1049,7 @@ if (invokedPath === modulePath) {
       })
       .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : String(error);
-        console.error(`vellum package security audit failed: ${message}`);
+        console.error(`vellum-command package security audit failed: ${message}`);
         process.exitCode = 1;
       });
   }

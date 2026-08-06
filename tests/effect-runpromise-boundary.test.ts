@@ -142,7 +142,7 @@ describe("effect-runpromise boundary (S0)", () => {
 });
 
 describe("V4-ENTRY managed runtime domain entry", () => {
-  it("has zero bare Effect.runPromise in index/ipc/vellum-ipc/vellum-remote", () => {
+  it("has zero bare Effect.runPromise in index/ipc/vellum-ipc/vellum-command-remote", () => {
     const bad: string[] = [];
     for (const rel of ENTRY_SURFACES) {
       const source = readFileSync(path.join(ROOT, rel), "utf8");

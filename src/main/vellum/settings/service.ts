@@ -304,7 +304,7 @@ const publishAfterCommit = (
     try {
       listener(result.settings);
     } catch {
-      console.warn("[vellum:settings] subscriber failed");
+      console.warn("[vellum-command:settings] subscriber failed");
     }
   }
   return result.settings;

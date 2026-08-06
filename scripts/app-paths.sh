@@ -9,7 +9,7 @@ read_config_value() {
   if [[ -n "${!variable+x}" ]]; then
     value="${!variable}"
     if [[ -z "$value" ]]; then
-      printf 'vellum: error: %s must not be empty\n' "$variable" >&2
+      printf 'vellum-command: error: %s must not be empty\n' "$variable" >&2
       return 1
     fi
     printf '%s' "$value"
@@ -28,7 +28,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 
 # electron-builder macOS pack output (arm64 Mac primary). Zip lives beside this
 # under release/Vellum Command-*-mac.zip — see package.json artifactName.
-# Override with VELLUM_APP_SRC if packaging a different arch artifact.
+# Override with VELLUM_COMMAND_APP_SRC if packaging a different arch artifact.
 detect_macos_app_src() {
   local candidates=(
     "$REPO_ROOT/release/mac-arm64/${PRODUCT_NAME}.app"
@@ -54,7 +54,7 @@ detect_app_src() {
   detect_macos_app_src
 }
 
-APP_SRC="$(read_config_value VELLUM_APP_SRC "$(detect_macos_app_src)")" || return 1
+APP_SRC="$(read_config_value VELLUM_COMMAND_APP_SRC "$(detect_macos_app_src)")" || return 1
 APP_DST=""
 PLIST=""
 LOG_DIR=""
@@ -64,10 +64,10 @@ INSTALL_USER_ROOT=""
 INSTALL_SANDBOX_ROOT=""
 APP_DST_PARENT=""
 DOMAIN="gui/$(id -u)"
-RELEASE_DIR="$(read_config_value VELLUM_RELEASE_DIR "$REPO_ROOT/release")" || return 1
+RELEASE_DIR="$(read_config_value VELLUM_COMMAND_RELEASE_DIR "$REPO_ROOT/release")" || return 1
 
-log() { printf 'vellum: %s\n' "$*"; }
-err() { printf 'vellum: error: %s\n' "$*" >&2; }
+log() { printf 'vellum-command: %s\n' "$*"; }
+err() { printf 'vellum-command: error: %s\n' "$*" >&2; }
 
 assert_bundle_identifier() {
   local name="$1"
@@ -81,14 +81,14 @@ assert_bundle_identifier() {
 assert_product_name() {
   local value="$1"
   if [[ ${#value} -gt 64 || ! "$value" =~ ^[A-Za-z]([A-Za-z0-9._\ -]*[A-Za-z0-9])?$ ]]; then
-    err "VELLUM_PRODUCT_NAME contains unsafe characters"
+    err "VELLUM_COMMAND_PRODUCT_NAME contains unsafe characters"
     return 1
   fi
 }
 
 assert_no_identity_overrides() {
   local variable
-  for variable in VELLUM_LAUNCHD_LABEL VELLUM_PRODUCT_NAME VELLUM_APP_ID; do
+  for variable in VELLUM_COMMAND_LAUNCHD_LABEL VELLUM_COMMAND_PRODUCT_NAME VELLUM_COMMAND_APP_ID; do
     if [[ -n "${!variable+x}" ]]; then
       err "$variable is not configurable; installer identities are fixed"
       return 1
@@ -97,8 +97,8 @@ assert_no_identity_overrides() {
 }
 
 assert_no_identity_overrides || return 1
-assert_bundle_identifier "VELLUM_LAUNCHD_LABEL" "$LABEL" || return 1
-assert_bundle_identifier "VELLUM_APP_ID" "$APP_BUNDLE_ID" || return 1
+assert_bundle_identifier "VELLUM_COMMAND_LAUNCHD_LABEL" "$LABEL" || return 1
+assert_bundle_identifier "VELLUM_COMMAND_APP_ID" "$APP_BUNDLE_ID" || return 1
 assert_product_name "$PRODUCT_NAME" || return 1
 
 assert_safe_absolute_path_text() {
@@ -235,28 +235,28 @@ assert_app_destination_capability() {
 assert_installer_path_capabilities() {
   local sandbox_default app_default plist_default log_default bin_default
   local forbidden_override test_temp_root sandbox_name
-  for forbidden_override in VELLUM_APP_DST VELLUM_PLIST VELLUM_LOG_DIR VELLUM_BIN_DIR; do
+  for forbidden_override in VELLUM_COMMAND_APP_DST VELLUM_COMMAND_PLIST VELLUM_COMMAND_LOG_DIR VELLUM_COMMAND_BIN_DIR; do
     if [[ -n "${!forbidden_override+x}" ]]; then
       err "$forbidden_override is not configurable; installer write targets are derived"
       return 1
     fi
   done
-  assert_bundle_identifier "VELLUM_LAUNCHD_LABEL" "$LABEL" || return 1
-  assert_bundle_identifier "VELLUM_APP_ID" "$APP_BUNDLE_ID" || return 1
+  assert_bundle_identifier "VELLUM_COMMAND_LAUNCHD_LABEL" "$LABEL" || return 1
+  assert_bundle_identifier "VELLUM_COMMAND_APP_ID" "$APP_BUNDLE_ID" || return 1
   assert_product_name "$PRODUCT_NAME" || return 1
 
   ACCOUNT_HOME="$(current_account_home)" || return 1
   INSTALL_SANDBOX_ROOT=""
-  if [[ -n "${VELLUM_INSTALL_SANDBOX_ROOT+x}" ]]; then
-    if [[ -z "$VELLUM_INSTALL_SANDBOX_ROOT" ]]; then
-      err "VELLUM_INSTALL_SANDBOX_ROOT must not be empty"
+  if [[ -n "${VELLUM_COMMAND_INSTALL_SANDBOX_ROOT+x}" ]]; then
+    if [[ -z "$VELLUM_COMMAND_INSTALL_SANDBOX_ROOT" ]]; then
+      err "VELLUM_COMMAND_INSTALL_SANDBOX_ROOT must not be empty"
       return 1
     fi
     if [[ "${NODE_ENV:-}" != "test" ]]; then
-      err "VELLUM_INSTALL_SANDBOX_ROOT is available only with NODE_ENV=test"
+      err "VELLUM_COMMAND_INSTALL_SANDBOX_ROOT is available only with NODE_ENV=test"
       return 1
     fi
-    INSTALL_SANDBOX_ROOT="$(canonical_existing_directory "installer sandbox root" "$VELLUM_INSTALL_SANDBOX_ROOT")" || return 1
+    INSTALL_SANDBOX_ROOT="$(canonical_existing_directory "installer sandbox root" "$VELLUM_COMMAND_INSTALL_SANDBOX_ROOT")" || return 1
     assert_not_protected_root "installer sandbox root" "$INSTALL_SANDBOX_ROOT" || return 1
     test_temp_root="$(current_user_test_temp_root)" || return 1
     sandbox_name="${INSTALL_SANDBOX_ROOT##*/}"

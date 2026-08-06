@@ -27,7 +27,9 @@ interface SeenRequest {
 }
 
 const newRoot = async (): Promise<string> => {
-  const root = await mkdtemp(join(tmpdir(), "vellum-browser-cli-"));
+  // Unix-domain socket paths are capped at 104 bytes on macOS. Keep the
+  // fixture prefix short now that the canonical home directory is longer.
+  const root = await mkdtemp(join(tmpdir(), "vcb-"));
   roots.push(root);
   await mkdir(controlDir(root), { recursive: true });
   await writeFile(controlTokenPath(root), "transport-token\n", { mode: 0o600 });
@@ -80,7 +82,7 @@ const runCli = (
   options: {
     readonly home: string;
     readonly controlHome?: string;
-    readonly entry?: "browser" | "vellum";
+    readonly entry?: "browser" | "vellum-command";
   },
 ): Promise<{ readonly code: number | null; readonly stdout: string; readonly stderr: string }> =>
   new Promise((resolveRun, rejectRun) => {
@@ -89,11 +91,11 @@ const runCli = (
       HOME: options.home,
       // This suite exercises the browser-on compatibility contract. Source-run
       // CLIs otherwise follow the same default-off policy as packaged controls.
-      VELLUM_BROWSER: "1",
+      VELLUM_COMMAND_BROWSER: "1",
       [CONTROL_HOME_ENV]: options.controlHome,
     };
     const entry =
-      options.entry === "vellum"
+      options.entry === "vellum-command"
         ? [join(repoRoot, "src/cli/main.ts"), "browser"]
         : [join(repoRoot, "scripts/browser-cli.ts")];
     const child = spawn("bun", [...entry, ...args], {
@@ -127,7 +129,7 @@ afterEach(async () => {
 });
 
 describe("packaged browser CLI contract", () => {
-  it("supports the canonical vellum browser command and standalone compatibility helper", async () => {
+  it("supports the canonical vellum-command browser command and standalone compatibility helper", async () => {
     const root = await newRoot();
     const seen: SeenRequest[] = [];
     await startRogueControl(root, seen);
@@ -140,7 +142,7 @@ describe("packaged browser CLI contract", () => {
     });
     const canonical = await runCli(["doctor", "--json"], {
       home: root,
-      entry: "vellum",
+      entry: "vellum-command",
     });
 
     expect(direct.code, direct.stderr).toBe(0);
@@ -159,7 +161,7 @@ describe("packaged browser CLI contract", () => {
 
   it("honors an isolated control home without a client authority credential", async () => {
     const root = await newRoot();
-    const decoyHome = await mkdtemp(join(tmpdir(), "vellum-browser-cli-home-"));
+    const decoyHome = await mkdtemp(join(tmpdir(), "vcb-home-"));
     roots.push(decoyHome);
     const seen: SeenRequest[] = [];
     await startRogueControl(root, seen);
@@ -246,7 +248,7 @@ describe("packaged browser CLI contract", () => {
   });
 
   it("does not echo the control-home token path when the app is down", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-browser-cli-down-"));
+    const root = await mkdtemp(join(tmpdir(), "vcb-down-"));
     roots.push(root);
     const result = await runCli(["doctor", "--json"], { home: root });
     expect(result.code).toBe(1);
@@ -268,7 +270,7 @@ describe("packaged browser CLI contract", () => {
       ok: false,
       error: {
         _tag: "runtime_down",
-        message: "vellum app is not running",
+        message: "Vellum Command app is not running",
       },
     });
   });
@@ -285,14 +287,14 @@ describe("packaged browser CLI contract", () => {
       ok: false,
       error: {
         _tag: "runtime_down",
-        message: "vellum app is not running",
+        message: "Vellum Command app is not running",
       },
     });
   });
 });
 
 describe("browser CLI packaging contract", () => {
-  it("packages one CLI plus runtime policy and installs only the vellum command", async () => {
+  it("packages one CLI plus runtime policy and installs only the Vellum Command", async () => {
     const pkg = JSON.parse(await readFile(join(repoRoot, "package.json"), "utf8")) as {
       readonly build: {
         readonly files: ReadonlyArray<string>;
@@ -304,7 +306,7 @@ describe("browser CLI packaging contract", () => {
     const browserCli = await readFile(join(repoRoot, "scripts/browser-cli.ts"), "utf8");
 
     expect(pkg.build.extraResources).toEqual([
-      { from: "dist/vellum", to: "bin/vellum" },
+      { from: "dist/vellum-command", to: "bin/vellum-command" },
       { from: "scripts/unix-peer-pid.py", to: "bin/unix-peer-pid.py" },
       {
         from: "scripts/electron-security-policy.json",
@@ -314,24 +316,24 @@ describe("browser CLI packaging contract", () => {
     expect(pkg.build.files).not.toContain("scripts/**");
     expect(buildScript).toContain("--no-compile-autoload-dotenv");
     expect(buildScript).toContain("--no-compile-autoload-bunfig");
-    expect(buildScript.indexOf('build_compiled_cli "$REPO_ROOT/dist/vellum"')).toBeLessThan(
+    expect(buildScript.indexOf('build_compiled_cli "$REPO_ROOT/dist/vellum-command"')).toBeLessThan(
       buildScript.indexOf('if [[ "$COMPILE_ONLY" -eq 1 ]]'),
     );
-    expect(buildScript).not.toContain("vellum-browser");
-    expect(buildScript).not.toContain("vellum-station");
-    expect(buildScript).not.toContain("vellum-content");
-    expect(installScript).toContain('install_cli_link "vellum"');
-    expect(installScript).not.toContain('install_cli_link "vellum-browser"');
-    expect(installScript).not.toContain('install_cli_link "vellum-station"');
-    expect(installScript).not.toContain('install_cli_link "vellum-content"');
-    expect(installScript).toContain('local work_helper="$APP_DST/Contents/Resources/bin/vellum"');
+    expect(buildScript).not.toContain("vellum-command-browser");
+    expect(buildScript).not.toContain("vellum-command-station");
+    expect(buildScript).not.toContain("vellum-command-content");
+    expect(installScript).toContain('install_cli_link "vellum-command"');
+    expect(installScript).not.toContain('install_cli_link "vellum-command-browser"');
+    expect(installScript).not.toContain('install_cli_link "vellum-command-station"');
+    expect(installScript).not.toContain('install_cli_link "vellum-command-content"');
+    expect(installScript).toContain('local work_helper="$APP_DST/Contents/Resources/bin/vellum-command"');
     expect(installScript).toContain('ln -s "$helper" "$target"');
     expect(installScript).toContain('CLI link changed identity during creation');
     expect(installScript).not.toContain('mv -f "$stage" "$target"');
     expect(installScript).toContain("refusing to replace non-symlink command");
     expect(installScript).toContain('[[ "$existing" != "$helper" ]]');
     expect(browserCli).not.toMatch(
-      /CONTROL_CAPABILITY|VELLUM_BROWSER_CAPABILITY|x-vellum-capability/u,
+      /CONTROL_CAPABILITY|VELLUM_COMMAND_BROWSER_CAPABILITY|x-vellum-command-capability/u,
     );
   });
 });

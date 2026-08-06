@@ -232,7 +232,7 @@ export function ObservabilityPanel() {
   );
 
   const load = useCallback(async () => {
-    if (!window.vellum?.observabilityQuery) return;
+    if (!window.vellumCommand?.observabilityQuery) return;
     // Empty chip set → show nothing (avoid invalid IPC query).
     if (levels.length === 0 || sources.length === 0) {
       setEntries([]);
@@ -240,7 +240,7 @@ export function ObservabilityPanel() {
     }
     const gen = ++loadGen.current;
     try {
-      const snap = await window.vellum.observabilityQuery(queryRef.current);
+      const snap = await window.vellumCommand.observabilityQuery(queryRef.current);
       if (gen !== loadGen.current) return;
       applySnapshot(snap);
     } catch {
@@ -252,7 +252,7 @@ export function ObservabilityPanel() {
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    const api = window.vellum;
+    const api = window.vellumCommand;
     if (!api?.observabilityWatch) return;
     void api.observabilityWatch().then((snap) => {
       if (cancelled) return;
@@ -275,7 +275,7 @@ export function ObservabilityPanel() {
   // Live push while open + live.
   useEffect(() => {
     if (!open || !live) return;
-    const unsubLog = window.vellum?.onObservabilityLog?.((entry) => {
+    const unsubLog = window.vellumCommand?.onObservabilityLog?.((entry) => {
       if (!matchesObservabilityQuery(entry, queryRef.current)) return;
       setEntries((prev) => {
         const next = [...prev, entry];
@@ -289,7 +289,7 @@ export function ObservabilityPanel() {
         return t + 1;
       });
     });
-    const unsubClear = window.vellum?.onObservabilityCleared?.((payload) => {
+    const unsubClear = window.vellumCommand?.onObservabilityCleared?.((payload) => {
       setEntries([]);
       setTotal(payload.total);
       setDropped(payload.dropped);
@@ -332,8 +332,8 @@ export function ObservabilityPanel() {
   };
 
   const clear = async () => {
-    if (!window.vellum?.observabilityClear) return;
-    await window.vellum.observabilityClear();
+    if (!window.vellumCommand?.observabilityClear) return;
+    await window.vellumCommand.observabilityClear();
     setEntries([]);
     setTotal(0);
     setDropped(0);

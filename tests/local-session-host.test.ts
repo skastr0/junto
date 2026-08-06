@@ -206,7 +206,7 @@ describe("LocalSessionHost", () => {
             argv: ["codex"],
             env: {
               PATH: "/installed/bin:/usr/bin",
-              VELLUM_SOCKET: "/stale/work.sock",
+              VELLUM_COMMAND_SOCKET: "/stale/work.sock",
               CLAUDECODE: "nested",
             },
           },
@@ -214,14 +214,14 @@ describe("LocalSessionHost", () => {
         {
           seatInject: {
             PATH: "/repo/dist:/usr/bin",
-            VELLUM_SOCKET: "/live/work.sock",
+            VELLUM_COMMAND_SOCKET: "/live/work.sock",
           },
         },
       ),
     );
 
     expect(resolved.env.PATH).toBe("/repo/dist:/usr/bin");
-    expect(resolved.env.VELLUM_SOCKET).toBe("/live/work.sock");
+    expect(resolved.env.VELLUM_COMMAND_SOCKET).toBe("/live/work.sock");
     expect(resolved.env.CLAUDECODE).toBeUndefined();
   });
 
@@ -456,11 +456,11 @@ describe("LocalSessionHost", () => {
     expect(host.runningCount()).toBe(1);
   });
 
-  it("under VELLUM_HOME replaces a live shared-resume pin generation on create", () => {
-    const priorHome = process.env.VELLUM_HOME;
-    // Spawn the poisoned generation as production would (no VELLUM_HOME), then
+  it("under VELLUM_COMMAND_HOME replaces a live shared-resume pin generation on create", () => {
+    const priorHome = process.env.VELLUM_COMMAND_HOME;
+    // Spawn the poisoned generation as production would (no VELLUM_COMMAND_HOME), then
     // re-ensure under isolation — the live "running" resume must not stick.
-    delete process.env.VELLUM_HOME;
+    delete process.env.VELLUM_COMMAND_HOME;
     try {
       const fake = makeFakeTerminalProcessAuthority((_spec, index) => ({
         pid: trackSyntheticPid(42_460 + index),
@@ -486,7 +486,7 @@ describe("LocalSessionHost", () => {
         expect.arrayContaining(["--resume", shared]),
       );
 
-      process.env.VELLUM_HOME = "/tmp/vellum-dev-isolate-create-agent-seat";
+      process.env.VELLUM_COMMAND_HOME = "/tmp/vellum-dev-isolate-create-agent-seat";
       // Re-ensure with a fresh pin plan (what launchForManagedSpawn emits under
       // isolation). Must replace the poisoned shared-resume generation rather
       // than idempotently reattach to a black TUI.
@@ -510,14 +510,14 @@ describe("LocalSessionHost", () => {
       );
       expect(fake.controllers[1]?.spec.args).not.toContain("--resume");
     } finally {
-      if (priorHome === undefined) delete process.env.VELLUM_HOME;
-      else process.env.VELLUM_HOME = priorHome;
+      if (priorHome === undefined) delete process.env.VELLUM_COMMAND_HOME;
+      else process.env.VELLUM_COMMAND_HOME = priorHome;
     }
   });
 
-  it("under VELLUM_HOME strips shared resume argv even when create is first open", () => {
-    const priorHome = process.env.VELLUM_HOME;
-    process.env.VELLUM_HOME = "/tmp/vellum-dev-isolate-strip-resume";
+  it("under VELLUM_COMMAND_HOME strips shared resume argv even when create is first open", () => {
+    const priorHome = process.env.VELLUM_COMMAND_HOME;
+    process.env.VELLUM_COMMAND_HOME = "/tmp/vellum-dev-isolate-strip-resume";
     try {
       const fake = makeFakeTerminalProcessAuthority(() => ({
         pid: trackSyntheticPid(42_470),
@@ -540,8 +540,8 @@ describe("LocalSessionHost", () => {
       expect(args).not.toContain(shared);
       expect(args).toEqual(expect.arrayContaining(["--session-id"]));
     } finally {
-      if (priorHome === undefined) delete process.env.VELLUM_HOME;
-      else process.env.VELLUM_HOME = priorHome;
+      if (priorHome === undefined) delete process.env.VELLUM_COMMAND_HOME;
+      else process.env.VELLUM_COMMAND_HOME = priorHome;
     }
   });
 

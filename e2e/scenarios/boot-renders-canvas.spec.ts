@@ -5,11 +5,11 @@ const FIXTURE_TEXT = "Hello Vellum Command e2e";
 
 const rendererCanvasCount = async (): Promise<number> => {
   const runtime = globalThis as unknown as {
-    readonly vellum?: {
+    readonly vellumCommand?: {
       readonly listCanvases: () => Promise<ReadonlyArray<unknown>>;
     };
   };
-  return (await runtime.vellum?.listCanvases())?.length ?? 0;
+  return (await runtime.vellumCommand?.listCanvases())?.length ?? 0;
 };
 
 const probeCanceledNavigation = async (
@@ -20,7 +20,7 @@ const probeCanceledNavigation = async (
   page.evaluate(
     async ({ targetUrl, expectedUrl, fixtureText }) => {
       const runtime = globalThis as unknown as {
-        readonly vellum?: {
+        readonly vellumCommand?: {
           readonly listCanvases: () => Promise<ReadonlyArray<unknown>>;
         };
       };
@@ -29,7 +29,7 @@ const probeCanceledNavigation = async (
       // promise is destroyed and the test fails instead of inspecting a new
       // page after the fact.
       await new Promise((resolve) => globalThis.setTimeout(resolve, 150));
-      const canvases = await runtime.vellum?.listCanvases();
+      const canvases = await runtime.vellumCommand?.listCanvases();
       return {
         href: globalThis.location.href,
         canvasCount: canvases?.length ?? 0,
@@ -46,7 +46,7 @@ test.use({
       boot: canvasDoc([textNode("n1", FIXTURE_TEXT, 0, 0)]),
     },
     extraEnv: {
-      VELLUM_E2E_RENDERER_SURFACE_TIMEOUT_MS: "5000",
+      VELLUM_COMMAND_E2E_RENDERER_SURFACE_TIMEOUT_MS: "5000",
     },
   },
 });

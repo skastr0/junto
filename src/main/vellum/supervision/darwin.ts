@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 import {
-  VELLUM_LAUNCHD_LABEL,
+  VELLUM_COMMAND_LAUNCHD_LABEL,
   kickstartLaunchAgent,
   launchAgentTargetForCurrentUser,
   printLaunchAgent,
@@ -31,7 +31,7 @@ type ParsedLaunchdPid =
 const metadata: StationSupervisorMetadata = Object.freeze({
   provider: "launchd",
   displayName: "LaunchAgent",
-  serviceLabel: VELLUM_LAUNCHD_LABEL,
+  serviceLabel: VELLUM_COMMAND_LAUNCHD_LABEL,
   recovery: Object.freeze({
     title: "Repair Vellum Command LaunchAgent supervision",
     detail: "Reinstall Vellum Command with supervised startup enabled.",

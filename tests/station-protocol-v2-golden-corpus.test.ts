@@ -34,7 +34,7 @@ const legacy = JSON.parse(
 ) as LegacyCorpus;
 
 describe("retired Station protocol v2 golden wire corpus", () => {
-  it("has no installed codec after the protocol-4 content cut", () => {
+  it("has no installed codec after the protocol-5 Vellum Command cut", () => {
     expect(selectStationProtocolCodec(2)).toEqual(
       Result.fail("unsupported-station-protocol"),
     );
@@ -44,9 +44,11 @@ describe("retired Station protocol v2 golden wire corpus", () => {
   });
 
   it("fails closed before any legacy domain frame can be interpreted", () => {
-    expect(Result.isSuccess(decodeStationProtocolPreface(legacy.preface.offer)))
+    // The namespace cut rejects the preface itself before the retired v2
+    // domain/session frames can reach a decoder.
+    expect(Result.isFailure(decodeStationProtocolPreface(legacy.preface.offer)))
       .toBe(true);
-    expect(Result.isSuccess(decodeStationProtocolPreface(legacy.preface.accept)))
+    expect(Result.isFailure(decodeStationProtocolPreface(legacy.preface.accept)))
       .toBe(true);
     for (const wire of legacy.session.requests) {
       expect(Result.isFailure(decodeStationSessionFrame(wire))).toBe(true);

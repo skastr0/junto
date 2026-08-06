@@ -1,7 +1,7 @@
 /**
  * Host-aware terminal authority router.
  * - local → LocalSessionHost (this process)
- * - remote hostId → TermControlClient via SSH unix-forward of ~/.vellum/term/control.sock
+ * - remote hostId → TermControlClient via SSH unix-forward of ~/.vellum-command/term/control.sock
  *
  * Remote sessions are owned by the remote Vellum Command station; CC quit does not kill them.
  */
@@ -985,7 +985,7 @@ export class TerminalRouter extends EventEmitter {
             .forward(unixForward(sshEndpoint, remoteSock))
             .pipe(Scope.provide(scope));
           const tokenCmd = yield* remoteCat(
-            join(home, ".vellum", "term", "token"),
+            join(home, ".vellum-command", "term", "token"),
           );
           const tokenRes = yield* ssh.run(
             oneShot(sshEndpoint, tokenCmd, { budget: "short" }),
@@ -1016,7 +1016,7 @@ export class TerminalRouter extends EventEmitter {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         throw new Error(
-          `cannot reach term control on ${hostId} (${msg}). Ensure Vellum Command is running on that Mac and ~/.vellum/term/control.sock exists`,
+          `cannot reach term control on ${hostId} (${msg}). Ensure Vellum Command is running on that Mac and ~/.vellum-command/term/control.sock exists`,
         );
       }
 

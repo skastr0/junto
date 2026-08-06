@@ -32,9 +32,9 @@ const installBoard = async (page: import("@playwright/test").Page): Promise<void
       async () =>
         page.evaluate(() => {
           const runtime = globalThis as unknown as {
-            readonly vellum?: { readonly listCanvases: () => Promise<unknown[]> };
+            readonly vellumCommand?: { readonly listCanvases: () => Promise<unknown[]> };
           };
-          return Boolean(runtime.vellum?.listCanvases);
+          return Boolean(runtime.vellumCommand?.listCanvases);
         }),
       { timeout: 30_000 },
     )
@@ -42,7 +42,7 @@ const installBoard = async (page: import("@playwright/test").Page): Promise<void
   await page.evaluate(async (document) => {
     const api = (
       globalThis as unknown as {
-        readonly vellum: {
+        readonly vellumCommand: {
           readonly listCanvases: () => Promise<ReadonlyArray<{ name: string }>>;
           readonly createCanvas: (name: string) => Promise<{ name: string; revision: string }>;
           readonly readCanvas: (name: string) => Promise<{ name: string; revision: string }>;
@@ -53,7 +53,7 @@ const installBoard = async (page: import("@playwright/test").Page): Promise<void
           ) => Promise<unknown>;
         };
       }
-    ).vellum;
+    ).vellumCommand;
     let list = await api.listCanvases();
     let name = list[0]?.name;
     if (!name) {

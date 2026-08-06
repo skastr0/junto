@@ -9,7 +9,7 @@ import type {
   WatcherRuntimeState,
 } from "@shared/ipc";
 import type { EtherFlag } from "@shared/canvas";
-import { getVellumApi } from "./vellum-api";
+import { getVellumCommandApi } from "./vellum-api";
 import { state$ } from "./state";
 import { noteSchedulerFire } from "./edge-sparks";
 
@@ -151,7 +151,7 @@ export function startKernelBridge(): () => void {
   if (started) return stopKernelBridge;
   started = true;
 
-  const api = getVellumApi();
+  const api = getVellumCommandApi();
   if (!api) return stopKernelBridge;
 
   const offKernelChanged = api.onKernelChanged((snapshot) => {

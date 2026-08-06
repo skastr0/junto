@@ -29,7 +29,7 @@ const writeCanvas = vi.fn(
 );
 
 const runtimeWindow = {
-  vellum: {
+  vellumCommand: {
     writeCanvas,
     readCanvas: async (name: string) => ({
       name,

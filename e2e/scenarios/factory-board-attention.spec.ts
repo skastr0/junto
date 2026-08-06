@@ -102,7 +102,7 @@ test("factory board: fire on claimed input-required, calm edges silent, tasks gl
   await page.getByRole("button", { name: "Open fields" }).click();
   await expect(page.locator(".rts-kind-form-panel")).toBeVisible({ timeout: 10_000 });
   await expect(page.locator("text=/browser access/i")).toHaveCount(0);
-  await expect(page.locator("text=/vellum-browser/i")).toHaveCount(0);
+  await expect(page.locator("text=/vellum-command-browser/i")).toHaveCount(0);
   await expect(page.locator("text=/holds keys/i")).toHaveCount(0);
 });
 
@@ -119,7 +119,7 @@ test("submitted-only queue does not block edged actor", async ({ vellum }) => {
     async ({ name }) => {
       const api = (
         globalThis as unknown as {
-          readonly vellum: {
+          readonly vellumCommand: {
             readonly workTaskTransition: (
               canvas: string,
               nodeId: string,
@@ -128,7 +128,7 @@ test("submitted-only queue does not block edged actor", async ({ vellum }) => {
             ) => Promise<{ ok: boolean; code?: string; message?: string }>;
           };
         }
-      ).vellum;
+      ).vellumCommand;
       return api.workTaskTransition(name, "tasks", "hot-1", "completed");
     },
     { name: CANVAS_NAME },

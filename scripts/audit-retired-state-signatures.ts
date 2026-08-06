@@ -255,7 +255,7 @@ const firstRetiredSignature = (
 
 /**
  * Scan one first-party packaged payload without decoding it. This works for
- * JavaScript/text buffers and Bun-compiled vellum CLI executables alike.
+ * JavaScript/text buffers and Bun-compiled Vellum Command CLI executables alike.
  */
 export const auditRetiredStateBuffer = (
   bytes: Uint8Array,
@@ -284,7 +284,7 @@ export const auditRetiredStateBuffer = (
 };
 
 /**
- * Bounded regular-file adapter for the packaged vellum CLI executable.
+ * Bounded regular-file adapter for the packaged Vellum Command CLI executable.
  */
 export const auditRetiredStateFile = async (
   filePath: string,

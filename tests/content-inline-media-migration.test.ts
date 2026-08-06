@@ -40,7 +40,7 @@ const tempRoot = async (prefix: string): Promise<string> => {
 };
 
 const openEngines = async (home: string) => {
-  const stateDir = join(home, ".vellum", "state");
+  const stateDir = join(home, ".vellum-command", "state");
   await mkdir(stateDir, { recursive: true });
   const dbPath = join(stateDir, "vellum.db");
   const opsPath = join(stateDir, "install-ops.db");

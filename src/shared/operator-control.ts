@@ -34,7 +34,7 @@ import {
  * control mode and rejects registered agent process trees.
  */
 
-export const OPERATOR_PROTOCOL_VERSION = "vellum-operator/v1" as const;
+export const OPERATOR_PROTOCOL_VERSION = "vellum-command-operator/v1" as const;
 export const OPERATOR_DEFAULT_TIMEOUT_MS = 30_000;
 export const OPERATOR_SYNC_TIMEOUT_MS = 120_000;
 export const OPERATOR_DEPLOY_TIMEOUT_MS = 15 * 60_000;
@@ -43,7 +43,7 @@ export const OPERATOR_MAX_RESPONSE_BYTES = 512 * 1024;
 export const OPERATOR_MAX_ERROR_BYTES = 4 * 1024;
 
 export const operatorControlDir = (home: string): string =>
-  `${home}/.vellum/operator`;
+  `${home}/.vellum-command/operator`;
 
 export const operatorControlSocketPath = (home: string): string =>
   `${operatorControlDir(home)}/control.sock`;

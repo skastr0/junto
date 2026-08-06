@@ -1,39 +1,39 @@
 export const FEATURE_CATALOG = {
   cron: {
-    env: "VELLUM_CRON",
-    define: "__VELLUM_CRON_ENABLED__",
+    env: "VELLUM_COMMAND_CRON",
+    define: "__VELLUM_COMMAND_CRON_ENABLED__",
   },
   relay: {
-    env: "VELLUM_RELAY",
-    define: "__VELLUM_RELAY_ENABLED__",
+    env: "VELLUM_COMMAND_RELAY",
+    define: "__VELLUM_COMMAND_RELAY_ENABLED__",
   },
   browser: {
-    env: "VELLUM_BROWSER",
-    define: "__VELLUM_BROWSER_ENABLED__",
+    env: "VELLUM_COMMAND_BROWSER",
+    define: "__VELLUM_COMMAND_BROWSER_ENABLED__",
   },
   fleetUi: {
-    env: "VELLUM_FLEET_UI",
-    define: "__VELLUM_FLEET_UI_ENABLED__",
+    env: "VELLUM_COMMAND_FLEET_UI",
+    define: "__VELLUM_COMMAND_FLEET_UI_ENABLED__",
   },
   usage: {
-    env: "VELLUM_USAGE",
-    define: "__VELLUM_USAGE_ENABLED__",
+    env: "VELLUM_COMMAND_USAGE",
+    define: "__VELLUM_COMMAND_USAGE_ENABLED__",
   },
   helpMap: {
-    env: "VELLUM_HELP_MAP",
-    define: "__VELLUM_HELP_MAP_ENABLED__",
+    env: "VELLUM_COMMAND_HELP_MAP",
+    define: "__VELLUM_COMMAND_HELP_MAP_ENABLED__",
   },
   audio: {
-    env: "VELLUM_AUDIO",
-    define: "__VELLUM_AUDIO_ENABLED__",
+    env: "VELLUM_COMMAND_AUDIO",
+    define: "__VELLUM_COMMAND_AUDIO_ENABLED__",
   },
   hermesIntegration: {
-    env: "VELLUM_HERMES",
-    define: "__VELLUM_HERMES_INTEGRATION_ENABLED__",
+    env: "VELLUM_COMMAND_HERMES",
+    define: "__VELLUM_COMMAND_HERMES_INTEGRATION_ENABLED__",
   },
   herdr: {
-    env: "VELLUM_HERDR",
-    define: "__VELLUM_HERDR_ENABLED__",
+    env: "VELLUM_COMMAND_HERDR",
+    define: "__VELLUM_COMMAND_HERDR_ENABLED__",
   },
 } as const;
 

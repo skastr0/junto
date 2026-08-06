@@ -6,8 +6,8 @@ type TerminalBridge = {
 };
 
 const installBridge = (bridge: TerminalBridge): void => {
-  (globalThis as unknown as { window: { vellum: TerminalBridge } }).window = {
-    vellum: bridge,
+  (globalThis as unknown as { window: { vellumCommand: TerminalBridge } }).window = {
+    vellumCommand: bridge,
   };
 };
 

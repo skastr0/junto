@@ -11,7 +11,7 @@ import {
   ownedBoxesNeedRefresh,
   upsertCachedBox,
 } from "../../lib/box-fleet-state";
-import { getVellumApi } from "../../lib/vellum-api";
+import { getVellumCommandApi } from "../../lib/vellum-api";
 import { Button, Chip, StatusDot } from "../ui";
 
 const BOX_DASHBOARD_URL = "https://box.ascii.dev/box/dashboard";
@@ -41,7 +41,7 @@ export function FleetBoxPanel({
   const [message, setMessage] = useState("");
 
   const refreshAvailability = useCallback(async (force = false) => {
-    const api = getVellumApi();
+    const api = getVellumCommandApi();
     if (!api?.boxAvailability) {
       invalidateBoxAvailability();
       setMessage("Box integration is unavailable in this build.");
@@ -63,7 +63,7 @@ export function FleetBoxPanel({
   }, []);
 
   const refreshOwnedBoxes = useCallback(async (force = false) => {
-    const api = getVellumApi();
+    const api = getVellumCommandApi();
     if (!api?.boxListOwned) {
       invalidateOwnedBoxes();
       setMessage("Box integration is unavailable in this build.");
@@ -120,7 +120,7 @@ export function FleetBoxPanel({
   };
 
   const create = async () => {
-    const api = getVellumApi();
+    const api = getVellumCommandApi();
     if (!api?.boxCreate) return;
     setBusy("create");
     setMessage("");
@@ -156,7 +156,7 @@ export function FleetBoxPanel({
     operation: "refresh" | "prepare" | "stop" | "resume" | "detach",
     boxId: string,
   ) => {
-    const api = getVellumApi();
+    const api = getVellumCommandApi();
     const invoke =
       operation === "refresh"
         ? api?.boxRefresh

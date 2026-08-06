@@ -20,7 +20,7 @@ import { recreateHerdrPane } from "../../lib/herdr-actions";
 import { extractHerdrClipboardImage } from "../../lib/herdr-clipboard-image";
 import { dock$, herdrSurfaceId } from "../../lib/dock-state";
 import { MONO_CELL } from "../../lib/focus-measure";
-import { getVellumApi } from "../../lib/vellum-api";
+import { getVellumCommandApi } from "../../lib/vellum-api";
 import {
   VELLUM_XTERM_FONT_FAMILY,
   VELLUM_XTERM_FONT_SIZE,
@@ -148,7 +148,7 @@ const keyEventToPty = (e: KeyboardEvent): string | null => {
 
 import type { HerdrRetainedPayload } from "@shared/ipc";
 
-type HerdrApi = NonNullable<ReturnType<typeof getVellumApi>> & {
+type HerdrApi = NonNullable<ReturnType<typeof getVellumCommandApi>> & {
   herdrStreamOpen: (input: {
     hostId: string;
     session?: string | null;
@@ -331,7 +331,7 @@ export function HerdrTerminalPanel({
   useEffect(() => {
     if (!paneId || !hostRef.current) return;
     if (!terminalOpenRef.current) return;
-    const api = getVellumApi() as HerdrApi | undefined;
+    const api = getVellumCommandApi() as HerdrApi | undefined;
     apiRef.current = api;
     const hostEl = hostRef.current;
     if (!api?.herdrStreamOpen || !api.onHerdrStreamEvent) {

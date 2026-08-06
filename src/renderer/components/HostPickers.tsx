@@ -2,12 +2,12 @@
  * Shared enrolled-host + browser-profile Selects for node/region config.
  */
 import { useEffect, useState } from "react";
-import type { BrowserProfileInfo, VellumApi, VellumBrowserApi, VellumTerminalApi } from "@shared/ipc";
+import type { BrowserProfileInfo, VellumCommandApi, VellumCommandBrowserApi, VellumCommandTerminalApi } from "@shared/ipc";
 import { Select } from "./ui";
-import { getVellumApi } from "../lib/vellum-api";
+import { getVellumCommandApi } from "../lib/vellum-api";
 
 type HostOpt = { readonly value: string; readonly label: string };
-type BrowserApi = (VellumApi & Partial<VellumTerminalApi> & Partial<VellumBrowserApi>) | undefined;
+type BrowserApi = (VellumCommandApi & Partial<VellumCommandTerminalApi> & Partial<VellumCommandBrowserApi>) | undefined;
 
 export function EnrolledHostSelect({
   value,
@@ -29,7 +29,7 @@ export function EnrolledHostSelect({
 
   useEffect(() => {
     let current = true;
-    void getVellumApi()
+    void getVellumCommandApi()
       ?.hostsList?.()
       .then((result) => {
         if (!current || !result?.ok || !Array.isArray(result.hosts)) return;
@@ -97,7 +97,7 @@ export function BrowserProfileSelect({
 
   useEffect(() => {
     let current = true;
-    const api = getVellumApi() as BrowserApi;
+    const api = getVellumCommandApi() as BrowserApi;
     void api
       ?.browserProfiles?.()
       .then((result) => {

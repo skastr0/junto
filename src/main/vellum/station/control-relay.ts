@@ -1,5 +1,5 @@
 import { createConnection, type Socket } from "node:net";
-import { resolveVellumHome } from "@shared/vellum-home";
+import { resolveVellumCommandHome } from "@shared/vellum-home";
 import {
   STATION_CONTROL_HOME_ENV,
   stationControlDir,
@@ -25,7 +25,7 @@ export const resolveStationControlSocketPath = (
   const stationHome =
     configured && configured.length > 0
       ? configured
-      : stationControlDir(options.home ?? resolveVellumHome());
+      : stationControlDir(options.home ?? resolveVellumCommandHome());
   return stationControlSocketPath(stationHome);
 };
 

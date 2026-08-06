@@ -64,21 +64,21 @@ describe("named deploy compilers", () => {
     expect(parts.args[1]).toBe(compileLinuxUserlandDeploySource());
   });
 
-  it("hardens deploy around vellum-remote generation pin, sealed install, and member proof", () => {
+  it("hardens deploy around vellum-command-remote generation pin, sealed install, and member proof", () => {
     const source = compileLinuxUserlandDeploySource();
-    expect(source).toContain("resources/bin/vellum-remote");
+    expect(source).toContain("resources/bin/vellum-command-remote");
     expect(source).not.toContain("--vellum-state-preflight");
     expect(source).toContain("--install-user-service");
     expect(source).toContain("unit_pins_generation");
     expect(source).toContain("prove_activation");
     expect(source).toContain('GENERATION_MARKER="releases/$VERSION-$SHA"');
-    expect(source).toContain("$GENERATION_MARKER/resources/systemd/vellum-remote-launch");
-    expect(source).toContain("$GENERATION_MARKER/resources/bin/vellum-remote");
+    expect(source).toContain("$GENERATION_MARKER/resources/systemd/vellum-command-remote-launch");
+    expect(source).toContain("$GENERATION_MARKER/resources/bin/vellum-command-remote");
     expect(source).toContain("state=idempotent");
-    expect(source).toContain('"$HOME/.vellum/work/control.sock"');
-    expect(source).toContain('"$HOME/.vellum/work/token"');
+    expect(source).toContain('"$HOME/.vellum-command/work/control.sock"');
+    expect(source).toContain('"$HOME/.vellum-command/work/token"');
     expect(source).not.toContain('"$DEST/vellum"');
-    expect(source).not.toContain('"$RELEASE/vellum"');
+    expect(source).not.toContain('"$RELEASE/vellum-command"');
     expect(source).not.toMatch(/Xvfb|ozone-platform|--vellum-headless/u);
     expect(source).not.toContain("rm -rf");
     expect(source).toContain('/bin/rm -f -- "$ARCHIVE"');

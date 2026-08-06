@@ -95,20 +95,6 @@ const INCOMPATIBLE_PEER_DIAGNOSTICS = {
     warnBelow: 5,
   }),
 };
-const DEPRECATED_PROTOCOL = bindNegotiatedStationProtocol({
-  negotiatedProtocol: STATION_PROTOCOL_BASELINE,
-  local: {
-    appVersion: StationAppVersion.make("future-command-center"),
-    stateSchemaVersion: StationStateSchemaVersion.make(3),
-    support: StationProtocolSupport.make({
-      preferred: 5,
-      compatibleFrom: 4,
-      warnBelow: 5,
-    }),
-  },
-  peer: PROTOCOL_DIAGNOSTICS,
-});
-
 const target = (host: string, station: string): StationFleetTarget => ({
   hostId: hostId(host),
   stationInstallationId: installationId(station),
@@ -596,10 +582,10 @@ describe("StationFleetPropagation persistent supervisor", () => {
     });
   });
 
-  it("keeps a deprecated exact codec live and mutation-capable with a warning status", async () => {
-    const remote = target("deprecated-host", "deprecated-station");
+  it("keeps the renamed exact codec live and mutation-capable", async () => {
+    const remote = target("current-host", "current-station");
     const harness = makeHarness([remote], {
-      sessionProtocol: DEPRECATED_PROTOCOL,
+      sessionProtocol: PROTOCOL,
     });
 
     await withRuntime(harness, async (runtime) => {
@@ -615,7 +601,7 @@ describe("StationFleetPropagation persistent supervisor", () => {
           phase: "ready",
           sessionOpen: true,
           protocol: {
-            compatibility: "deprecated",
+            compatibility: "compatible",
             negotiatedProtocol: STATION_PROTOCOL_BASELINE,
           },
         });

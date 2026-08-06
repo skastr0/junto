@@ -90,11 +90,11 @@ const taskWithRef = (ref: ContentRef): Task => ({
   ],
 });
 
-describe("Station protocol 4 content wire corpus", () => {
-  it("installs only the content-capable protocol-4 codec", () => {
-    expect(STATION_PROTOCOL_BASELINE).toBe(4);
+describe("Station protocol 5 content wire corpus", () => {
+  it("installs only the renamed content-capable protocol-5 codec", () => {
+    expect(STATION_PROTOCOL_BASELINE).toBe(5);
     expect(CURRENT_STATION_PROTOCOL_SUPPORT).toEqual(corpus.protocol.support);
-    expect(selectStationProtocolCodec(4)).toEqual(Result.succeed(4));
+    expect(selectStationProtocolCodec(5)).toEqual(Result.succeed(5));
     for (const retired of corpus.protocol.retired) {
       expect(selectStationProtocolCodec(retired)).toEqual(
         Result.fail("unsupported-station-protocol"),

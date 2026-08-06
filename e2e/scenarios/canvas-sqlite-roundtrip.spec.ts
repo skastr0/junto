@@ -40,7 +40,7 @@ const expectSqliteAuthority = async (input: {
   readonly canvasesDir: string;
 }): Promise<void> => {
   expect(
-    await exists(join(input.homeDir, ".vellum", "state", "vellum.db")),
+    await exists(join(input.homeDir, ".vellum-command", "state", "vellum.db")),
     "unified SQLite state database",
   ).toBe(true);
 
@@ -76,7 +76,7 @@ test("operator UI write round-trips through main IPC and survives renderer reloa
     .poll(
       () =>
         page.evaluate(async (name) => {
-          const api = window.vellum;
+          const api = window.vellumCommand;
           if (!api) throw new Error("Vellum Command preload bridge is unavailable");
           const result = await api.readCanvas(name);
           const written = result.doc.nodes.find(
@@ -103,7 +103,7 @@ test("canvas list/read/write product paths persist through the unified SQLite au
 
   const result = await page.evaluate(
     async ({ name, addedText }) => {
-      const api = window.vellum;
+      const api = window.vellumCommand;
       if (!api) throw new Error("Vellum Command preload bridge is unavailable");
 
       const before = await api.readCanvas(name);

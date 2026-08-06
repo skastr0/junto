@@ -48,7 +48,7 @@ export {
  */
 /**
  * Existing task/request/message records retain their frozen v2 envelope.
- * Station protocol 4 admits ContentRef parts inside that envelope but never
+ * Station protocol 5 admits ContentRef parts inside that envelope but never
  * rewrites prior Work history or its durable representation. Media bytes stay
  * off the wire; only bounded reference metadata is carried.
  */

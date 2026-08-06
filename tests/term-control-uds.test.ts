@@ -44,7 +44,7 @@ const fakeAuthority = () => makeFakeTerminalProcessAuthority(() => ({
 describe("term control UDS", () => {
   it("auth + create + attach + write + kill over NDJSON with bigint journal", async () => {
     setProcessIdentityMapForTests(makeProcessIdentityMap());
-    const home = mkdtempSync(join(tmpdir(), "vellum-term-"));
+    const home = mkdtempSync(join(tmpdir(), "vt-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));
 
     const host = new LocalSessionHost(fakeAuthority());
@@ -119,7 +119,7 @@ describe("term control UDS", () => {
   });
 
   it("rejects bad token", async () => {
-    const home = mkdtempSync(join(tmpdir(), "vellum-term-bad-"));
+    const home = mkdtempSync(join(tmpdir(), "vtb-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));
     const host = new LocalSessionHost(fakeAuthority());
     cleanups.push(async () => {
@@ -138,7 +138,7 @@ describe("term control UDS", () => {
   });
 
   it("caps accepted peers before frame admission and recovers after close", async () => {
-    const home = mkdtempSync(join(tmpdir(), "vellum-term-cap-"));
+    const home = mkdtempSync(join(tmpdir(), "vtc-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));
     const host = new LocalSessionHost(fakeAuthority());
     cleanups.push(async () => { await host.shutdownAll("test"); });
@@ -156,7 +156,7 @@ describe("term control UDS", () => {
   });
 
   it("boundedly drains an active client when the control server closes", async () => {
-    const home = mkdtempSync(join(tmpdir(), "vellum-term-close-"));
+    const home = mkdtempSync(join(tmpdir(), "vtcl-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));
     const host = new LocalSessionHost(fakeAuthority());
     cleanups.push(async () => {
@@ -182,7 +182,7 @@ describe("term control UDS", () => {
 
   it("stops accepting late clients and commands when close begins", async () => {
     setProcessIdentityMapForTests(makeProcessIdentityMap());
-    const home = mkdtempSync(join(tmpdir(), "vellum-term-late-close-"));
+    const home = mkdtempSync(join(tmpdir(), "vtl-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));
     const host = new LocalSessionHost(fakeAuthority());
     cleanups.push(async () => {

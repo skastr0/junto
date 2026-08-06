@@ -14,15 +14,15 @@ import {
   type CanvasQuiesceAndFlushOutcome,
   type CanvasQuiesceAndFlushRequest,
   type LoginItemOpResult,
-  type VellumApi,
-  type VellumBrowserApi,
-  type VellumChatApi,
-  type VellumDemoApi,
-  type VellumHerdrApi,
-  type VellumHermesIntegrationApi,
-  type VellumSchedulerApi,
-  type VellumTerminalApi,
-  type VellumUsageApi,
+  type VellumCommandApi,
+  type VellumCommandBrowserApi,
+  type VellumCommandChatApi,
+  type VellumCommandDemoApi,
+  type VellumCommandHerdrApi,
+  type VellumCommandHermesIntegrationApi,
+  type VellumCommandSchedulerApi,
+  type VellumCommandTerminalApi,
+  type VellumCommandUsageApi,
   type KernelSnapshot,
   type NodeRefOpenedDelivery,
   type NodeRefOpenedEvent,
@@ -85,7 +85,7 @@ const CHAT_TURN_TIMEOUT_MS = 900_000;
 const invoke = <T>(channel: string, timeoutMs: number, ...args: unknown[]): Promise<T> =>
   new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
-      reject(new Error(`vellum: backend did not respond (${channel}). Try restarting the app.`));
+      reject(new Error(`vellum-command: backend did not respond (${channel}). Try restarting the app.`));
     }, timeoutMs);
     ipcRenderer.invoke(channel, ...args).then(
       (value) => {
@@ -414,7 +414,7 @@ ipcRenderer.on(IPC_CHANNELS.rendererSurfaceChallenge, (_event, candidate: unknow
   sendRendererSurfaceReceipt();
 });
 
-const vellumApi: VellumApi = {
+const vellumApi: VellumCommandApi = {
   platform: process.platform,
   licenseStatus: () =>
     invoke(IPC_CHANNELS.licenseStatus, IPC_TIMEOUT_MS),
@@ -662,7 +662,7 @@ const vellumApi: VellumApi = {
     ),
 };
 
-const hermesIntegrationApi: VellumHermesIntegrationApi = {
+const hermesIntegrationApi: VellumCommandHermesIntegrationApi = {
   generatePortfolio: (name, options) =>
     invoke(IPC_CHANNELS.generatePortfolio, IPC_TIMEOUT_MS, name, options),
   refreshSnapshots: (hints) =>
@@ -671,19 +671,19 @@ const hermesIntegrationApi: VellumHermesIntegrationApi = {
     invoke(IPC_CHANNELS.agentMessage, AGENT_MESSAGE_TIMEOUT_MS, key, text),
 };
 
-const schedulerApi: VellumSchedulerApi = {
+const schedulerApi: VellumCommandSchedulerApi = {
   schedulerFire: (canvas, sourceNodeId) =>
     invoke(IPC_CHANNELS.schedulerFire, IPC_TIMEOUT_MS, canvas, sourceNodeId),
 };
 
-const usageApi: VellumUsageApi = {
+const usageApi: VellumCommandUsageApi = {
   getUsage: () => invoke(IPC_CHANNELS.getUsage, IPC_TIMEOUT_MS),
   refreshUsage: () => invoke(IPC_CHANNELS.refreshUsage, USAGE_REFRESH_TIMEOUT_MS),
   onUsageChanged: (listener) =>
     subscribe<UsageState>(IPC_CHANNELS.usageChanged, listener),
 };
 
-const chatApi: VellumChatApi = {
+const chatApi: VellumCommandChatApi = {
   chatOpen: (agentKey, resumeSessionId) =>
     invoke(IPC_CHANNELS.chatOpen, IPC_TIMEOUT_MS, agentKey, resumeSessionId),
   chatPrompt: (agentKey, text, contextBlocks) =>
@@ -700,7 +700,7 @@ const chatApi: VellumChatApi = {
   onChatEvent: (listener) => subscribe<ChatEvent>(IPC_CHANNELS.chatEvent, listener),
 };
 
-const herdrApi: VellumHerdrApi = {
+const herdrApi: VellumCommandHerdrApi = {
   herdrHosts: () => invoke(IPC_CHANNELS.herdrHosts, IPC_TIMEOUT_MS),
   herdrEnsureServer: (hostId, session) =>
     invoke(IPC_CHANNELS.herdrEnsureServer, IPC_TIMEOUT_MS, hostId, session),
@@ -757,7 +757,7 @@ const herdrApi: VellumHerdrApi = {
     subscribe<HerdrMirrorEvent>(IPC_CHANNELS.herdrMirrorEvent, listener),
 };
 
-const browserApi: VellumBrowserApi = {
+const browserApi: VellumCommandBrowserApi = {
   browserProfiles: () => invoke(IPC_CHANNELS.browserProfiles, IPC_TIMEOUT_MS),
   browserSurfaceConfig: () => invoke(IPC_CHANNELS.browserSurfaceConfig, IPC_TIMEOUT_MS),
   browserOpen: (input: BrowserOpenInput) =>
@@ -779,7 +779,7 @@ const browserApi: VellumBrowserApi = {
     subscribe<BrowserSessionInfo>(IPC_CHANNELS.browserSessionChanged, listener),
 };
 
-const terminalApi: VellumTerminalApi = {
+const terminalApi: VellumCommandTerminalApi = {
   terminalList: (hostId) =>
     invoke(
       IPC_CHANNELS.terminalList,
@@ -829,7 +829,7 @@ const terminalApi: VellumTerminalApi = {
     subscribe(IPC_CHANNELS.agentSeatStateChanged, listener),
 };
 
-const demoApi: VellumDemoApi = {
+const demoApi: VellumCommandDemoApi = {
   demoState: () => invoke(IPC_CHANNELS.demoState, IPC_TIMEOUT_MS),
   demoCommand: (command) => invoke(IPC_CHANNELS.demoCommand, IPC_TIMEOUT_MS, command),
   demoWriteEdl: (edl) => invoke(IPC_CHANNELS.demoWriteEdl, IPC_TIMEOUT_MS, edl),
@@ -846,7 +846,7 @@ const preloadLocation = typeof globalThis.location === "undefined"
 
 if (preloadLocation === undefined || isRendererPreloadCandidate(preloadLocation)) {
   contextBridge.exposeInMainWorld("chassis", chassisApi);
-  contextBridge.exposeInMainWorld("vellum", {
+  contextBridge.exposeInMainWorld("vellumCommand", {
     ...vellumApi,
     ...chatApi,
     ...(USAGE_ENABLED ? usageApi : {}),

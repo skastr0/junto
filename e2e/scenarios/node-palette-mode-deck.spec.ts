@@ -300,10 +300,10 @@ test("one agent-row click creates exactly one configured agent without a legacy 
 
     await expect.poll(async () => {
       return page.evaluate(async () => {
-        const canvases = await window.vellum!.listCanvases();
+        const canvases = await window.vellumCommand!.listCanvases();
         const name = canvases[0]?.name;
         if (!name) return [];
-        const read = await window.vellum!.readCanvas(name);
+        const read = await window.vellumCommand!.readCanvas(name);
         return read.doc.nodes
           .filter((node) => node.ether?.entity?.kind === "agent")
           .map((node) => ({

@@ -746,7 +746,7 @@ const makeAddActions = (
   },
   addTerminal: () => {
     const position = positionFor({ width: 260, height: 110 });
-    window.dispatchEvent(new CustomEvent("vellum:new-terminal", { detail: position }));
+    window.dispatchEvent(new CustomEvent("vellum-command:new-terminal", { detail: position }));
     dismiss();
   },
   addHerdr: () => {
@@ -1199,9 +1199,9 @@ function CanvasGraph() {
   useEffect(() => {
     const openTerminal = (event: Event) =>
       setTerminalAnchor((event as CustomEvent<{ x: number; y: number }>).detail);
-    window.addEventListener("vellum:new-terminal", openTerminal);
+    window.addEventListener("vellum-command:new-terminal", openTerminal);
     return () => {
-      window.removeEventListener("vellum:new-terminal", openTerminal);
+      window.removeEventListener("vellum-command:new-terminal", openTerminal);
     };
   }, []);
   const [multiMenu, setMultiMenu] = useState<{ x: number; y: number } | null>(null);

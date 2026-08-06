@@ -24,7 +24,7 @@ import { PRODUCT_NAME } from "@shared/product-name";
 import { DARK_RUNTIME } from "@shared/theme";
 import type { PreambleEvent } from "@shared/preamble";
 import {
-  resolveVellumHome,
+  resolveVellumCommandHome,
   shouldPinUnpackagedElectronUserData,
   unpackagedElectronUserDataPath,
 } from "@shared/vellum-home";
@@ -187,18 +187,18 @@ app.commandLine.appendSwitch("no-proxy-server");
 // Defense in depth for every renderer, including future windows whose local
 // preferences might otherwise drift. This must run before app readiness.
 app.enableSandbox();
-// Official `bun run dev` sets VELLUM_HOME (~/.vellum-dev). Pin Electron
+// Official `bun run dev` sets VELLUM_COMMAND_HOME (~/.vellum-command-dev). Pin Electron
 // userData under that home *before* requestSingleInstanceLock so the
 // Chromium singleton does not fight the packaged production install.
 // Never override --user-data-dir (e2e/probes) or packaged installs.
 if (
   shouldPinUnpackagedElectronUserData({
     packaged: app.isPackaged,
-    vellumHomeEnv: process.env.VELLUM_HOME,
+    vellumHomeEnv: process.env.VELLUM_COMMAND_HOME,
     hasUserDataDirSwitch: app.commandLine.hasSwitch("user-data-dir"),
   })
 ) {
-  const isolatedUserData = unpackagedElectronUserDataPath(resolveVellumHome());
+  const isolatedUserData = unpackagedElectronUserDataPath(resolveVellumCommandHome());
   app.setPath("userData", isolatedUserData);
   // Dock / menu bar: still PRODUCT_NAME first for brand lint; "Dev" marks the
   // unpackaged process so it is visually distinct from production.
@@ -317,7 +317,7 @@ const operatorControlEnabledAtLaunch =
   operatorControlEnabledFromInitialArgv(process.argv);
 
 // Playwright E2E needs a real authoring renderer (not --vellum-headless), but
-// must never steal macOS focus or plant Dock icons. VELLUM_E2E_SHOW=1 opts out
+// must never steal macOS focus or plant Dock icons. VELLUM_COMMAND_E2E_SHOW=1 opts out
 // for visual debugging of a single scenario.
 const e2ePresentation = e2ePresentationFromEnv();
 const e2eIsolateFocus = e2eFocusIsolationActive(e2ePresentation);
@@ -720,8 +720,8 @@ const RECOVERY_WINDOW_MS = 5 * 60 * 1_000;
 const MAX_RECOVERIES = 3;
 const RENDERER_SURFACE_READY_TIMEOUT_MS = resolveRendererSurfaceTimeoutMs({
   packaged: app.isPackaged,
-  testHarness: process.env.VELLUM_E2E === "1",
-  override: process.env.VELLUM_E2E_RENDERER_SURFACE_TIMEOUT_MS,
+  testHarness: process.env.VELLUM_COMMAND_E2E === "1",
+  override: process.env.VELLUM_COMMAND_E2E_RENDERER_SURFACE_TIMEOUT_MS,
   fallbackMs: 30_000,
 });
 const rendererSurfaceRecovery = createRendererSurfaceRecovery({
@@ -1320,17 +1320,17 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       envHome: process.env.HOME,
       electronHome: app.getPath("home"),
       userData: app.getPath("userData"),
-      e2e: process.env.VELLUM_E2E === "1",
+      e2e: process.env.VELLUM_COMMAND_E2E === "1",
       headless,
       packaged: app.isPackaged,
     } as const;
     const termControlHome = resolveControlHome({
       ...controlHomeInput,
-      explicitHome: process.env.VELLUM_HOME,
+      explicitHome: process.env.VELLUM_COMMAND_HOME,
     });
     const browserControlHome = resolveControlHome({
       ...controlHomeInput,
-      explicitHome: process.env.VELLUM_BROWSER_HOME ?? process.env.VELLUM_HOME,
+      explicitHome: process.env.VELLUM_COMMAND_BROWSER_HOME ?? process.env.VELLUM_COMMAND_HOME,
     });
 
     const stations = await AppRuntime.runPromise(StationRepository);
@@ -1521,7 +1521,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     }
 
     // Work control socket: agent protocol surface over the work plane.
-    // Independent of browser composition; owns ~/.vellum/work/{control.sock,token}.
+    // Independent of browser composition; owns ~/.vellum-command/work/{control.sock,token}.
     try {
       workControl = await startWorkControlServer({
         version: app.getVersion(),

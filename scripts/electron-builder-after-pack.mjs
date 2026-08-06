@@ -39,8 +39,8 @@ const LINUX_FIXED_MODE_DIRECTORIES = [
 const LINUX_FIXED_MODE_FILES = new Map([
   ["resources/bin/unix-peer-pid.py", 0o755],
   ["resources/policy/electron-security-policy.json", 0o644],
-  ["resources/systemd/vellum-remote-launch-v1", 0o755],
-  ["resources/systemd/vellum-remote.service", 0o644],
+  ["resources/systemd/vellum-command-remote-launch-v1", 0o755],
+  ["resources/systemd/vellum-command-remote.service", 0o644],
 ]);
 
 const libraryFuseNames = () =>
@@ -374,7 +374,7 @@ const admitLinuxArtifact = async (candidate) => {
         throw error;
       }
     }
-    const executablePath = procDescriptorPath(rootHandle, "vellum");
+    const executablePath = procDescriptorPath(rootHandle, "vellum-command");
     const executablePathMetadata = await lstat(executablePath);
     if (
       executablePathMetadata.isSymbolicLink() ||
@@ -550,7 +550,7 @@ const assertLinuxArtifactIdentity = async (artifact) => {
     }
   }
   const [executablePathMetadata, executableHandleMetadata] = await Promise.all([
-    lstat(procDescriptorPath(artifact.root.handle, "vellum")),
+    lstat(procDescriptorPath(artifact.root.handle, "vellum-command")),
     artifact.executable.handle.stat(),
   ]);
   if (
@@ -645,9 +645,9 @@ export default async function afterPack(context) {
   }
   if (
     platform === "linux" &&
-    context.packager.executableName !== "vellum"
+    context.packager.executableName !== "vellum-command"
   ) {
-    throw new Error("Linux package executable identity is not vellum");
+    throw new Error("Linux package executable identity is not vellum-command");
   }
   const linuxArtifact =
     platform === "linux"
@@ -663,7 +663,7 @@ export default async function afterPack(context) {
         "bin",
       );
       for (const name of [
-        "vellum",
+        "vellum-command",
         "unix-peer-pid.py",
       ]) {
         const resource = path.join(resourceDirectory, name);

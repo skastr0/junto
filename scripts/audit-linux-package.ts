@@ -5,15 +5,15 @@ import { fileURLToPath } from "node:url";
 import { linuxRuntimeArtifactName } from "./finalize-linux-package";
 
 export const LINUX_RUNTIME_REQUIRED_FILES = [
-  "vellum",
+  "vellum-command",
   "resources/app.asar",
-  "resources/bin/vellum",
-  "resources/bin/vellum-remote",
+  "resources/bin/vellum-command",
+  "resources/bin/vellum-command-remote",
   "resources/bin/node",
   "resources/bin/unix-peer-pid.py",
-  "resources/app-remote/vellum-remote.js",
-  "resources/systemd/vellum-remote-launch",
-  "resources/systemd/vellum-remote.service.template",
+  "resources/app-remote/vellum-command-remote.js",
+  "resources/systemd/vellum-command-remote-launch",
+  "resources/systemd/vellum-command-remote.service.template",
 ] as const;
 const FORBIDDEN_SEGMENTS = new Set(["chrome-sandbox", "apparmor-profile", "vellum-release-installer", "vellum-release-bridge", "sudoers", "before-install.sh", "after-install.sh", "before-remove.sh", "after-remove.sh"]);
 
@@ -35,7 +35,7 @@ const walk = async (root: string, relative = ""): Promise<string[]> => {
 };
 
 export const validateUserServiceTemplate = (input: string): void => {
-  if (!input.includes("ExecStart=@VELLUM_RUNTIME_ROOT@/resources/systemd/vellum-remote-launch\n")) throw new Error("user service must retain the runtime-root placeholder");
+  if (!input.includes("ExecStart=@VELLUM_COMMAND_RUNTIME_ROOT@/resources/systemd/vellum-command-remote-launch\n")) throw new Error("user service must retain the runtime-root placeholder");
   if (/^\s*(?:User|Group|CapabilityBoundingSet|AmbientCapabilities|NoNewPrivileges)=/mu.test(input)) throw new Error("user service contains privileged directives");
 };
 
@@ -60,7 +60,7 @@ export const auditLinuxRuntime = async ({ runtimePath, version }: { readonly run
       validateElfX64(header, file); nativeObjects.push(file); requireLoadable(absolute);
     }
   }
-  validateUserServiceTemplate(await readFile(path.join(root, "resources/systemd/vellum-remote.service.template"), "utf8"));
+  validateUserServiceTemplate(await readFile(path.join(root, "resources/systemd/vellum-command-remote.service.template"), "utf8"));
   return { ok: true, artifact: path.basename(root), nativeObjects, chromeSandbox: "absent" };
 };
 

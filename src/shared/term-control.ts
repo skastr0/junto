@@ -3,7 +3,7 @@
 // SSH-forwarding this socket (same pattern as herdr mirror forward).
 
 import { join } from "node:path";
-import { resolveVellumHome } from "./vellum-home";
+import { resolveVellumCommandHome } from "./vellum-home";
 import {
   decodeLinuxReleaseFence,
   type LinuxReleaseFence,
@@ -16,13 +16,13 @@ export const TERM_MAX_FRAME_BYTES = 2 * 1024 * 1024;
 export const TERM_MAINTENANCE_OBSERVATION_BYTES = 8;
 export const TERM_MAINTENANCE_MAX_ACTIVE_SESSIONS = 1_000_000;
 
-export const termControlDir = (home = resolveVellumHome()): string => join(home, ".vellum", "term");
-export const termControlSocketPath = (home = resolveVellumHome()): string =>
+export const termControlDir = (home = resolveVellumCommandHome()): string => join(home, ".vellum-command", "term");
+export const termControlSocketPath = (home = resolveVellumCommandHome()): string =>
   join(termControlDir(home), "control.sock");
-export const termControlTokenPath = (home = resolveVellumHome()): string =>
+export const termControlTokenPath = (home = resolveVellumCommandHome()): string =>
   join(termControlDir(home), "token");
 /** Relative to remote $HOME — used for SSH unix forward. */
-export const TERM_REMOTE_SOCK_REL = ".vellum/term/control.sock";
+export const TERM_REMOTE_SOCK_REL = ".vellum-command/term/control.sock";
 
 export type TermControlRequest =
   | { readonly v: 1; readonly id: string; readonly op: "ping" }

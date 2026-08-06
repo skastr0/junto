@@ -447,7 +447,7 @@ describe("station status doctor", () => {
       "remote.studio.localStateSchemaVersion": "2",
       "remote.studio.peerAppVersion": "2.0.0",
       "remote.studio.peerStateSchemaVersion": "3",
-      "remote.studio.localProtocolPreferred": "4",
+      "remote.studio.localProtocolPreferred": "5",
       "remote.studio.peerProtocolCompatibleFrom": "3",
     });
   });

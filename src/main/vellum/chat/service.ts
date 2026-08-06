@@ -46,14 +46,14 @@ interface AgentSession {
 // Per-host ceiling for remote (SSH-backed) ACP sessions. Local is uncapped
 // by this policy — local children do not hold a ControlMaster TCP mux.
 const maxRemoteSessionsPerHost = (): number => {
-  const raw = Number(process.env.VELLUM_ACP_MAX_REMOTE_SESSIONS_PER_HOST ?? "8");
+  const raw = Number(process.env.VELLUM_COMMAND_ACP_MAX_REMOTE_SESSIONS_PER_HOST ?? "8");
   return Number.isFinite(raw) && raw >= 1 ? Math.min(Math.floor(raw), 64) : 8;
 };
 
 // Idle sessions with no in-flight turn and no pending permission are closed.
 // Active turns are never evicted. 0 disables idle eviction.
 const idleEvictMs = (): number => {
-  const raw = Number(process.env.VELLUM_ACP_IDLE_MS ?? String(15 * 60_000));
+  const raw = Number(process.env.VELLUM_COMMAND_ACP_IDLE_MS ?? String(15 * 60_000));
   return Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 15 * 60_000;
 };
 

@@ -267,14 +267,14 @@ const startTestServer = async (options: {
   readonly server: WorkControlServer;
   readonly authoringGate: MainAuthoringGate;
 }> => {
-  const root = await mkdtemp(join(tmpdir(), "vellum-work-ctl-"));
+  const root = await mkdtemp(join(tmpdir(), "vellum-command-work-ctl-"));
   roots.push(root);
   const canvasesDir = join(root, "canvases");
   const workHome = join(root, "work");
   mkdirSync(canvasesDir, { recursive: true });
   mkdirSync(workHome, { recursive: true });
-  process.env.VELLUM_CANVASES_DIR = canvasesDir;
-  process.env.VELLUM_WORK_HOME = workHome;
+  process.env.VELLUM_COMMAND_CANVASES_DIR = canvasesDir;
+  process.env.VELLUM_COMMAND_WORK_HOME = workHome;
 
   const runtime = makeWorkTestRuntime(root);
   runtimes.push(runtime);
@@ -331,12 +331,12 @@ afterEach(async () => {
     const root = roots.pop();
     if (root) await rm(root, { recursive: true, force: true });
   }
-  delete process.env.VELLUM_CANVASES_DIR;
-  delete process.env.VELLUM_WORK_HOME;
+  delete process.env.VELLUM_COMMAND_CANVASES_DIR;
+  delete process.env.VELLUM_COMMAND_WORK_HOME;
 });
 
 const token = (): string => {
-  const workHome = process.env.VELLUM_WORK_HOME!;
+  const workHome = process.env.VELLUM_COMMAND_WORK_HOME!;
   return readFileSync(workControlTokenPath(workHome), "utf8").trim();
 };
 
@@ -1088,14 +1088,14 @@ describe("work control transport", () => {
 
   it("denies an unbound peer", async () => {
     // Spin a one-off server with empty process map.
-    const root = await mkdtemp(join(tmpdir(), "vellum-work-unbound-"));
+    const root = await mkdtemp(join(tmpdir(), "vellum-command-work-unbound-"));
     roots.push(root);
     const workHome = join(root, "work");
     const canvasesDir = join(root, "canvases");
     mkdirSync(workHome, { recursive: true });
     mkdirSync(canvasesDir, { recursive: true });
-    process.env.VELLUM_CANVASES_DIR = canvasesDir;
-    process.env.VELLUM_WORK_HOME = workHome;
+    process.env.VELLUM_COMMAND_CANVASES_DIR = canvasesDir;
+    process.env.VELLUM_COMMAND_WORK_HOME = workHome;
     const runtime = makeWorkTestRuntime(root);
     runtimes.push(runtime);
     await seedCanonicalWork(runtime);

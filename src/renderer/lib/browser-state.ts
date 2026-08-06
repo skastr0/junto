@@ -1,7 +1,7 @@
 import { observable } from "@legendapp/state";
-import type { BrowserSessionInfo, VellumBrowserApi } from "@shared/ipc";
+import type { BrowserSessionInfo, VellumCommandBrowserApi } from "@shared/ipc";
 import { parseNodeRef } from "@shared/node-ref";
-import { getVellumApi } from "./vellum-api";
+import { getVellumCommandApi } from "./vellum-api";
 
 // Runtime-only browser meta cache. Canonical vellum:// refs are the durable
 // identity; nodeId is display metadata and must never become a session key.
@@ -10,12 +10,12 @@ export const browser$ = observable({
   sessionByRef: {} as Record<string, BrowserSessionInfo>,
 });
 
-// getVellumApi() narrows its return type to VellumApi proper; every browser
-// method lives on the sibling VellumBrowserApi slice that global.d.ts merges
-// onto window.vellum at runtime. Cast per-call like herdr-state.ts already
+// getVellumCommandApi() narrows its return type to VellumCommandApi proper; every browser
+// method lives on the sibling VellumCommandBrowserApi slice that global.d.ts merges
+// onto window.vellumCommand at runtime. Cast per-call like herdr-state.ts already
 // does for herdrGetMeta — Partial<> so a not-yet-landed method degrades to
 // undefined rather than a type error.
-type BrowserApi = ReturnType<typeof getVellumApi> & Partial<VellumBrowserApi>;
+type BrowserApi = ReturnType<typeof getVellumCommandApi> & Partial<VellumCommandBrowserApi>;
 
 export const isCanonicalBrowserRef = (ref: string): boolean => parseNodeRef(ref).ok;
 
@@ -96,7 +96,7 @@ export const clearBrowserSessionIfUnchanged = (
 /** One-shot hydration for a card that mounts after the session already opened. */
 export const refreshBrowserSession = async (ref: string): Promise<void> => {
   if (!isCanonicalBrowserRef(ref)) return;
-  const api = getVellumApi() as BrowserApi | undefined;
+  const api = getVellumCommandApi() as BrowserApi | undefined;
   if (!api?.browserSessionList) return;
   const observedSessionId = browserSessionIdForRef(ref);
   try {
@@ -116,7 +116,7 @@ export const refreshBrowserSession = async (ref: string): Promise<void> => {
   }
 };
 
-// Singleton fan-out: window.vellum.onBrowserSessionChanged -> sessionByRef,
+// Singleton fan-out: window.vellumCommand.onBrowserSessionChanged -> sessionByRef,
 // following the subscribeChatEvents precedent (chat-state.ts). Safe to call
 // from every PageCard mount; only the first call actually subscribes. Absent
 // the bridge method (IPC not landed yet) degrades to a no-op unsubscribe.
@@ -124,7 +124,7 @@ let activeUnsubscribe: (() => void) | undefined;
 
 export const subscribeBrowserSessionEvents = (): (() => void) => {
   if (activeUnsubscribe) return activeUnsubscribe;
-  const api = getVellumApi() as BrowserApi | undefined;
+  const api = getVellumCommandApi() as BrowserApi | undefined;
   if (!api?.onBrowserSessionChanged) return () => undefined;
   const unsubscribe = api.onBrowserSessionChanged((session) => {
     cacheBrowserSession(session);

@@ -8,8 +8,8 @@ import "./styles.css";
 // Dev-only render highlighter (https://github.com/aidenybai/react-scan).
 // Import before createRoot so the scanner can instrument React.
 // Off by default (heavy on React Flow canvases) — opt in per machine with:
-//   localStorage.setItem("vellum:react-scan", "on")
-if (import.meta.env.DEV && localStorage.getItem("vellum:react-scan") === "on") {
+//   localStorage.setItem("vellum-command:react-scan", "on")
+if (import.meta.env.DEV && localStorage.getItem("vellum-command:react-scan") === "on") {
   void import("react-scan").then(({ scan }) => {
     scan({ enabled: true, showToolbar: true, animationSpeed: "fast" });
   });
@@ -23,10 +23,10 @@ if (!root) {
 
 // Main owns platform-sensitive authority. This marker only selects renderer
 // geometry and copy; it never grants an OS capability.
-document.documentElement.dataset.vellumPlatform = window.vellum?.platform ?? "unknown";
+document.documentElement.dataset.vellumPlatform = window.vellumCommand?.platform ?? "unknown";
 
 function LicensedRoot() {
-  const api = window.vellum;
+  const api = window.vellumCommand;
 
   useEffect(() => {
     // Both the activation-only surface and the admitted product shell satisfy

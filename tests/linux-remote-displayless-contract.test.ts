@@ -1,7 +1,7 @@
 /**
  * Displayless Linux Remote product contract.
  *
- * Packaging ships bundled Node + resources/bin/vellum-remote + app-remote
+ * Packaging ships bundled Node + resources/bin/vellum-command-remote + app-remote
  * entry, rebuilds node-pty for that Node ABI, and never uses
  * ELECTRON_RUN_AS_NODE or Bun --compile for the product remote.
  */
@@ -62,7 +62,7 @@ describe("Linux remote displayless packaging helpers", () => {
   it("wrapper execs bundled node on app-remote entry without ELECTRON_RUN_AS_NODE", () => {
     const script = vellumRemoteWrapperScript();
     expect(script.startsWith("#!/bin/sh\n")).toBe(true);
-    expect(script).toContain("resources/bin/vellum-remote");
+    expect(script).toContain("resources/bin/vellum-command-remote");
     expect(script).toContain(REMOTE_NODE_RELATIVE);
     expect(script).toContain(REMOTE_ENTRY_RELATIVE);
     expect(script).toContain('exec "$node" "$entry" "$@"');
@@ -72,7 +72,7 @@ describe("Linux remote displayless packaging helpers", () => {
   });
 
   it("fails closed with a clear message when the remote JS entry is missing", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "vellum-remote-entry-"));
+    const root = await mkdtemp(path.join(tmpdir(), "vellum-command-remote-entry-"));
     try {
       const runtime = path.join(root, "runtime");
       await mkdir(runtime, { recursive: true });
@@ -84,7 +84,7 @@ describe("Linux remote displayless packaging helpers", () => {
           buildIfMissing: false,
           skipNativeRebuild: true,
         }),
-      ).rejects.toThrow(/out\/remote\/vellum-remote\.js/u);
+      ).rejects.toThrow(/out\/remote\/vellum-command-remote\.js/u);
       expect(remoteEntryMissingMessage(REMOTE_ENTRY_SOURCE_RELATIVE)).toContain(
         REMOTE_ENTRY_SOURCE_RELATIVE,
       );
@@ -97,7 +97,7 @@ describe("Linux remote displayless packaging helpers", () => {
   });
 
   it("stages wrapper + entry on any OS when native rebuild is skipped", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "vellum-remote-layout-"));
+    const root = await mkdtemp(path.join(tmpdir(), "vellum-command-remote-layout-"));
     try {
       const runtime = path.join(root, "runtime");
       await mkdir(runtime, { recursive: true });
@@ -129,15 +129,15 @@ describe("Linux remote displayless packaging helpers", () => {
 });
 
 describe("Linux remote displayless product contracts", () => {
-  it("audit requires bundled node, vellum-remote, and app-remote entry", () => {
+  it("audit requires bundled node, vellum-command-remote, and app-remote entry", () => {
     for (const required of LINUX_REMOTE_RUNTIME_REQUIRED_FILES) {
       expect(LINUX_RUNTIME_REQUIRED_FILES).toContain(required);
     }
     expect(LINUX_RUNTIME_REQUIRED_FILES).toEqual(
       expect.arrayContaining([
         "resources/bin/node",
-        "resources/bin/vellum-remote",
-        "resources/app-remote/vellum-remote.js",
+        "resources/bin/vellum-command-remote",
+        "resources/app-remote/vellum-command-remote.js",
       ]),
     );
   });
@@ -152,7 +152,7 @@ describe("Linux remote displayless product contracts", () => {
 
     const finalize = await readRepo("scripts/finalize-linux-package.ts");
     expect(finalize).toContain('"resources/bin/node"');
-    expect(finalize).toContain('"resources/bin/vellum-remote"');
+    expect(finalize).toContain('"resources/bin/vellum-command-remote"');
     expect(finalize).toContain("spawn-helper");
 
     const buildRemote = await readRepo("scripts/build-linux-remote-runtime.ts");
@@ -181,23 +181,23 @@ describe("Linux remote displayless product contracts", () => {
     }
   });
 
-  it("user service template is displayless and pinned to vellum-remote", async () => {
+  it("user service template is displayless and pinned to vellum-command-remote", async () => {
     const unit = await readRepo("build/linux/vellum-remote.service.template");
     expect(unit).toContain(
-      "ExecStart=@VELLUM_RUNTIME_ROOT@/resources/systemd/vellum-remote-launch",
+      "ExecStart=@VELLUM_COMMAND_RUNTIME_ROOT@/resources/systemd/vellum-command-remote-launch",
     );
     expect(unit).toContain(
-      "ConditionFileIsExecutable=@VELLUM_RUNTIME_ROOT@/resources/bin/vellum-remote",
+      "ConditionFileIsExecutable=@VELLUM_COMMAND_RUNTIME_ROOT@/resources/bin/vellum-command-remote",
     );
     expect(unit).not.toMatch(/Xvfb|xauth|mcookie/u);
     expect(unit).not.toMatch(/User=|Group=|Capability|\/opt\//u);
   });
 
-  it("launcher invokes resources/bin/vellum-remote without Xvfb", async () => {
+  it("launcher invokes resources/bin/vellum-command-remote without Xvfb", async () => {
     const launcher = await readRepo("build/linux/vellum-remote-launch");
-    expect(launcher).toContain("resources/bin/vellum-remote");
+    expect(launcher).toContain("resources/bin/vellum-command-remote");
     expect(launcher).toContain("unset DISPLAY WAYLAND_DISPLAY XAUTHORITY");
-    expect(launcher).toContain("displayless vellum-remote payload is unavailable");
+    expect(launcher).toContain("displayless vellum-command-remote payload is unavailable");
     expect(launcher).not.toMatch(/Xvfb|xauth|mcookie/u);
     expect(launcher).not.toMatch(/--ozone-platform|--vellum-headless|ELECTRON_RUN_AS_NODE/u);
   });

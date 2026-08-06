@@ -14,7 +14,7 @@ import { DisplayTimestamp } from "./work-protocol";
  * in that log, not in repeated per-phase witness wrappers.
  */
 export const STATION_QUALIFICATION_SCHEMA =
-  "vellum/station-two-installation-qualification/v2" as const;
+  "vellum-command/station-two-installation-qualification/v2" as const;
 export const STATION_QUALIFICATION_RECEIPT_FILE =
   "station-qualification-receipt.json" as const;
 export const STATION_QUALIFICATION_MANIFEST_FILE =

@@ -256,7 +256,7 @@ const launchElectron = async (options: {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     HOME: join(options.root, "home"),
-    VELLUM_BROWSER_DIR: options.browserRoot,
+    VELLUM_COMMAND_BROWSER_DIR: options.browserRoot,
   };
   delete env.ELECTRON_RENDERER_URL;
   delete env.ELECTRON_RUN_AS_NODE;

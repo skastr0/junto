@@ -218,9 +218,9 @@ describe("browser control envelopes (pure)", () => {
     });
   });
 
-  it("derives socket/token paths under ~/.vellum/browser", () => {
-    expect(controlSocketPath("/home/u")).toBe("/home/u/.vellum/browser/control.sock");
-    expect(controlTokenPath("/home/u")).toBe("/home/u/.vellum/browser/control.token");
+  it("derives socket/token paths under ~/.vellum-command/browser", () => {
+    expect(controlSocketPath("/home/u")).toBe("/home/u/.vellum-command/browser/control.sock");
+    expect(controlTokenPath("/home/u")).toBe("/home/u/.vellum-command/browser/control.token");
   });
 });
 

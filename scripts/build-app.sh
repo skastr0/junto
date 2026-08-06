@@ -25,7 +25,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --target)
       [[ $# -ge 2 && -n "$2" ]] || {
-        printf 'vellum: error: --target requires mac or linux\n' >&2
+        printf 'vellum-command: error: --target requires mac or linux\n' >&2
         exit 1
       }
       TARGET="$2"
@@ -39,7 +39,7 @@ while [[ $# -gt 0 ]]; do
     --compile-only) COMPILE_ONLY=1; shift ;;
     --license-preflight-only) LICENSE_PREFLIGHT_ONLY=1; shift ;;
     -h|--help) usage 0 ;;
-    *) printf 'vellum: error: unknown flag: %s\n' "$1" >&2; usage 1 ;;
+    *) printf 'vellum-command: error: unknown flag: %s\n' "$1" >&2; usage 1 ;;
   esac
 done
 
@@ -47,55 +47,55 @@ if [[ -z "$TARGET" ]]; then
   case "$(uname -s)" in
     Darwin) TARGET="mac" ;;
     Linux) TARGET="linux" ;;
-    *) printf 'vellum: error: unsupported host OS: %s\n' "$(uname -s)" >&2; exit 1 ;;
+    *) printf 'vellum-command: error: unsupported host OS: %s\n' "$(uname -s)" >&2; exit 1 ;;
   esac
 fi
-case "$TARGET" in mac|linux) ;; *) printf 'vellum: error: target must be mac or linux\n' >&2; exit 1 ;; esac
+case "$TARGET" in mac|linux) ;; *) printf 'vellum-command: error: target must be mac or linux\n' >&2; exit 1 ;; esac
 if [[ "$TARGET" == "mac" && "$(uname -s)" != "Darwin" ]] || [[ "$TARGET" == "linux" && "$(uname -s)" != "Linux" ]]; then
-  printf 'vellum: error: native %s packaging must run on its target OS\n' "$TARGET" >&2
+  printf 'vellum-command: error: native %s packaging must run on its target OS\n' "$TARGET" >&2
   exit 1
 fi
 if [[ "$NOTARIZE" -eq 1 && "$TARGET" != "mac" ]]; then
-  printf 'vellum: error: notarization is only available for the mac target\n' >&2
+  printf 'vellum-command: error: notarization is only available for the mac target\n' >&2
   exit 1
 fi
 
 BUN_EXECUTABLE="$(type -P bun || true)"
 if [[ -z "$BUN_EXECUTABLE" || ! -x "$BUN_EXECUTABLE" ]]; then
-  printf 'vellum: error: Bun is required to resolve the license build profile\n' >&2
+  printf 'vellum-command: error: Bun is required to resolve the license build profile\n' >&2
   exit 1
 fi
-if [[ -n "${VELLUM_LICENSE_CHANNEL:-}" && "$VELLUM_LICENSE_CHANNEL" != "production" ]]; then
-  printf 'vellum: error: packaged builds require VELLUM_LICENSE_CHANNEL=production\n' >&2
+if [[ -n "${VELLUM_COMMAND_LICENSE_CHANNEL:-}" && "$VELLUM_COMMAND_LICENSE_CHANNEL" != "production" ]]; then
+  printf 'vellum-command: error: packaged builds require VELLUM_COMMAND_LICENSE_CHANNEL=production\n' >&2
   exit 1
 fi
-export VELLUM_LICENSE_CHANNEL="production"
+export VELLUM_COMMAND_LICENSE_CHANNEL="production"
 LICENSE_PROFILE_FIELDS="$(
   "$BUN_EXECUTABLE" "$SCRIPT_DIR/license-build-profile.ts" --fields
 )"
 IFS=$'\t' read -r \
-  VELLUM_LICENSE_CHANNEL \
-  VELLUM_DODO_BUSINESS_ID \
-  VELLUM_DODO_PRODUCT_ID \
+  VELLUM_COMMAND_LICENSE_CHANNEL \
+  VELLUM_COMMAND_DODO_BUSINESS_ID \
+  VELLUM_COMMAND_DODO_PRODUCT_ID \
   <<< "$LICENSE_PROFILE_FIELDS"
 if [[
-  -z "$VELLUM_LICENSE_CHANNEL" ||
-  -z "$VELLUM_DODO_BUSINESS_ID" ||
-  -z "$VELLUM_DODO_PRODUCT_ID"
+  -z "$VELLUM_COMMAND_LICENSE_CHANNEL" ||
+  -z "$VELLUM_COMMAND_DODO_BUSINESS_ID" ||
+  -z "$VELLUM_COMMAND_DODO_PRODUCT_ID"
  ]]; then
-  printf 'vellum: error: license build profile resolver returned incomplete fields\n' >&2
+  printf 'vellum-command: error: license build profile resolver returned incomplete fields\n' >&2
   exit 1
 fi
-export VELLUM_LICENSE_CHANNEL
-export VELLUM_DODO_BUSINESS_ID
-export VELLUM_DODO_PRODUCT_ID
-export VELLUM_FEATURE_PROFILE="${VELLUM_FEATURE_PROFILE:-ship}"
+export VELLUM_COMMAND_LICENSE_CHANNEL
+export VELLUM_COMMAND_DODO_BUSINESS_ID
+export VELLUM_COMMAND_DODO_PRODUCT_ID
+export VELLUM_COMMAND_FEATURE_PROFILE="${VELLUM_COMMAND_FEATURE_PROFILE:-ship}"
 FEATURE_DEVIATION="$(
   "$BUN_EXECUTABLE" "$SCRIPT_DIR/build-features.ts" --ship-deviation
 )"
-if [[ -n "$FEATURE_DEVIATION" && "${VELLUM_ALLOW_FEATURE_OVERRIDES:-}" != "1" ]]; then
+if [[ -n "$FEATURE_DEVIATION" && "${VELLUM_COMMAND_ALLOW_FEATURE_OVERRIDES:-}" != "1" ]]; then
   printf \
-    'vellum: error: ship feature deviation requires VELLUM_ALLOW_FEATURE_OVERRIDES=1 (%s)\n' \
+    'vellum-command: error: ship feature deviation requires VELLUM_COMMAND_ALLOW_FEATURE_OVERRIDES=1 (%s)\n' \
     "$FEATURE_DEVIATION" >&2
   exit 1
 fi
@@ -103,11 +103,11 @@ FEATURE_RECEIPT="$(
   "$BUN_EXECUTABLE" "$SCRIPT_DIR/build-features.ts" --receipt
 )"
 printf \
-  'vellum: license build profile %s → Dodo Live (%s / %s)\n' \
-  "$VELLUM_LICENSE_CHANNEL" \
-  "$VELLUM_DODO_BUSINESS_ID" \
-  "$VELLUM_DODO_PRODUCT_ID"
-printf 'vellum: feature build receipt %s\n' "$FEATURE_RECEIPT"
+  'vellum-command: license build profile %s → Dodo Live (%s / %s)\n' \
+  "$VELLUM_COMMAND_LICENSE_CHANNEL" \
+  "$VELLUM_COMMAND_DODO_BUSINESS_ID" \
+  "$VELLUM_COMMAND_DODO_PRODUCT_ID"
+printf 'vellum-command: feature build receipt %s\n' "$FEATURE_RECEIPT"
 if [[ "$LICENSE_PREFLIGHT_ONLY" -eq 1 ]]; then
   exit 0
 fi
@@ -116,19 +116,19 @@ cd "$REPO_ROOT"
 ELECTRON_INSTALLER="$REPO_ROOT/node_modules/electron/install.js"
 NODE_EXECUTABLE="$(type -P node || true)"
 if [[ -z "$NODE_EXECUTABLE" || ! -x "$NODE_EXECUTABLE" ]]; then
-  printf 'vellum: error: Node is required to materialize the pinned Electron runtime\n' >&2
+  printf 'vellum-command: error: Node is required to materialize the pinned Electron runtime\n' >&2
   exit 1
 fi
 if [[ ! -f "$ELECTRON_INSTALLER" || -L "$ELECTRON_INSTALLER" ]]; then
-  printf 'vellum: error: Electron installer missing — run: bun install --frozen-lockfile\n' >&2
+  printf 'vellum-command: error: Electron installer missing — run: bun install --frozen-lockfile\n' >&2
   exit 1
 fi
-printf 'vellum: materializing pinned Electron runtime …\n'
+printf 'vellum-command: materializing pinned Electron runtime …\n'
 "$NODE_EXECUTABLE" "$ELECTRON_INSTALLER"
-printf 'vellum: validating checked-in Electron security policy …\n'
+printf 'vellum-command: validating checked-in Electron security policy …\n'
 bun "$SCRIPT_DIR/electron-security-policy.ts" validate
 if [[ ! -d node_modules/electron-builder ]]; then
-  printf 'vellum: error: electron-builder missing — run: bun install\n' >&2
+  printf 'vellum-command: error: electron-builder missing — run: bun install\n' >&2
   exit 1
 fi
 if [[ "$VERIFY" -eq 1 ]]; then
@@ -139,10 +139,10 @@ if [[ "$VERIFY" -eq 1 ]]; then
   # Tests that rebuild out/ (kernel headless probe) must not inherit the
   # packaged production license defines — those require activation in an
   # isolated HOME and deny headless Command Center startup. Packaging below
-  # still builds with VELLUM_LICENSE_* set for the real ship bundle.
-  env -u VELLUM_LICENSE_CHANNEL -u VELLUM_DODO_BUSINESS_ID -u VELLUM_DODO_PRODUCT_ID \
+  # still builds with VELLUM_COMMAND_LICENSE_* set for the real ship bundle.
+  env -u VELLUM_COMMAND_LICENSE_CHANNEL -u VELLUM_COMMAND_DODO_BUSINESS_ID -u VELLUM_COMMAND_DODO_PRODUCT_ID \
     bun run test
-  env -u VELLUM_LICENSE_CHANNEL -u VELLUM_DODO_BUSINESS_ID -u VELLUM_DODO_PRODUCT_ID \
+  env -u VELLUM_COMMAND_LICENSE_CHANNEL -u VELLUM_COMMAND_DODO_BUSINESS_ID -u VELLUM_COMMAND_DODO_PRODUCT_ID \
     bun run test:features:ship
 elif [[ "$FAST" -eq 0 ]]; then
   bun run typecheck
@@ -162,12 +162,12 @@ build_compiled_cli() {
   mv "$stage" "$output"
 }
 
-printf 'vellum: electron-vite build → out/ …\n'
+printf 'vellum-command: electron-vite build → out/ …\n'
 bunx electron-vite build
-printf 'vellum: standalone CLI → dist/vellum …\n'
-build_compiled_cli "$REPO_ROOT/dist/vellum" src/cli/main.ts
+printf 'vellum-command: standalone CLI → dist/vellum-command …\n'
+build_compiled_cli "$REPO_ROOT/dist/vellum-command" src/cli/main.ts
 if [[ "$COMPILE_ONLY" -eq 1 ]]; then
-  printf 'vellum: compile-only done (out/ + standalone CLI). Skip packaging.\n'
+  printf 'vellum-command: compile-only done (out/ + standalone CLI). Skip packaging.\n'
   exit 0
 fi
 

@@ -66,18 +66,18 @@ describe("ssh read-commands product constructors", () => {
 
   it("confines cat/test to clean absolute paths", () => {
     const cat = inspectRemoteCommand(
-      run(remoteCat("/run/user/501/vellum-remote/ready-aabbccdd")),
+      run(remoteCat("/run/user/501/vellum-command-remote/ready-aabbccdd")),
     );
     expect(cat).toEqual({
       executable: "/bin/cat",
-      args: ["/run/user/501/vellum-remote/ready-aabbccdd"],
+      args: ["/run/user/501/vellum-command-remote/ready-aabbccdd"],
     });
     const test = inspectRemoteCommand(
-      run(remoteTestFileExists("/Users/alice/.vellum/term/token")),
+      run(remoteTestFileExists("/Users/alice/.vellum-command/term/token")),
     );
     expect(test).toEqual({
       executable: "/bin/test",
-      args: ["-f", "/Users/alice/.vellum/term/token"],
+      args: ["-f", "/Users/alice/.vellum-command/term/token"],
     });
     expect(inspectRemoteCommand(run(remoteDarwinPackageExists()))).toEqual({
       executable: "/bin/test",
@@ -162,7 +162,7 @@ describe("ssh read-commands product constructors", () => {
       "/home/remote station",
     ));
     expect(inspectRemoteCommand(run(remoteLinuxUserlandVellumStation(userland)))).toEqual({
-      executable: "/home/remote station/.local/bin/vellum",
+      executable: "/home/remote station/.local/bin/vellum-command",
       args: ["station-stdio"],
     });
     expect(Result.isFailure(Effect.runSync(Effect.result(bindLinuxRemoteUserland(

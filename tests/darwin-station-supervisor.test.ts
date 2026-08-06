@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../src/main/vellum/settings/launchctl-runner", () => ({
-  VELLUM_LAUNCHD_LABEL: "skastr0.vellumcommand",
+  VELLUM_COMMAND_LAUNCHD_LABEL: "skastr0.vellumcommand",
   launchAgentTargetForCurrentUser: mocks.launchAgentTargetForCurrentUser,
   printLaunchAgent: mocks.printLaunchAgent,
   kickstartLaunchAgent: mocks.kickstartLaunchAgent,

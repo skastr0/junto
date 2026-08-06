@@ -101,8 +101,8 @@ describe("CanvasesService SQLite authority", () => {
   const installEnv = async (): Promise<void> => {
     canvasesDir = await mkdtemp(join(tmpdir(), "vellum-canvases-"));
     stateDir = await mkdtemp(join(tmpdir(), "vellum-state-live-"));
-    previousCanvases = process.env.VELLUM_CANVASES_DIR;
-    process.env.VELLUM_CANVASES_DIR = canvasesDir;
+    previousCanvases = process.env.VELLUM_COMMAND_CANVASES_DIR;
+    process.env.VELLUM_COMMAND_CANVASES_DIR = canvasesDir;
   };
 
   const restoreEnv = async (): Promise<void> => {
@@ -110,8 +110,8 @@ describe("CanvasesService SQLite authority", () => {
       await runtime.dispose();
       runtime = undefined;
     }
-    if (previousCanvases === undefined) delete process.env.VELLUM_CANVASES_DIR;
-    else process.env.VELLUM_CANVASES_DIR = previousCanvases;
+    if (previousCanvases === undefined) delete process.env.VELLUM_COMMAND_CANVASES_DIR;
+    else process.env.VELLUM_COMMAND_CANVASES_DIR = previousCanvases;
     if (canvasesDir) await rm(canvasesDir, { recursive: true, force: true });
     if (stateDir) await rm(stateDir, { recursive: true, force: true });
     canvasesDir = "";

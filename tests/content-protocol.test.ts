@@ -42,15 +42,15 @@ describe("content URL contract", () => {
   });
 
   it("rejects path injection and missing identity fields", () => {
-    expect(parseContentObjectUrl("vellum-content://object/../etc/passwd")).toBeUndefined();
+    expect(parseContentObjectUrl("vellum-command-content://object/../etc/passwd")).toBeUndefined();
     expect(
       parseContentObjectUrl(
-        `vellum-content://object/${"a".repeat(64)}?mediaType=image/png`,
+        `vellum-command-content://object/${"a".repeat(64)}?mediaType=image/png`,
       ),
     ).toBeUndefined();
     expect(
       parseContentObjectUrl(
-        `vellum-content://object/${"a".repeat(64)}?byteLength=1&mediaType=image/png&path=/etc/passwd`,
+        `vellum-command-content://object/${"a".repeat(64)}?byteLength=1&mediaType=image/png&path=/etc/passwd`,
       ),
     ).toBeUndefined();
   });
@@ -104,7 +104,7 @@ describe("content protocol handler", () => {
   let path = "";
 
   beforeEach(async () => {
-    home = await mkdtemp(join(tmpdir(), "vellum-content-protocol-"));
+    home = await mkdtemp(join(tmpdir(), "vellum-command-content-protocol-"));
     root = contentStoreRoot(home);
     ensureContentLayout(root);
     bytes = Buffer.from("0123456789abcdefghijklmnopqrstuvwxyz");
@@ -212,7 +212,7 @@ describe("content protocol handler", () => {
     expect(head.headers.get("access-control-allow-methods")).toMatch(/HEAD/);
     expect(head.headers.get("cross-origin-resource-policy")).toBe("cross-origin");
     expect(head.headers.get("access-control-expose-headers") ?? "").toMatch(
-      /x-vellum-content-state/i,
+      /x-vellum-command-content-state/i,
     );
 
     const preflight = await handler(

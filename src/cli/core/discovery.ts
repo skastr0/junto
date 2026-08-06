@@ -65,14 +65,14 @@ export interface CommandCapability {
 
 export interface CapabilityInvocation {
   readonly port: "browser.automate";
-  readonly command: "vellum browser";
-  readonly discover: "vellum browser pages --json";
+  readonly command: "vellum-command browser";
+  readonly discover: "vellum-command browser pages --json";
 }
 
 const BROWSER_INVOCATION: CapabilityInvocation = {
   port: "browser.automate",
-  command: "vellum browser",
-  discover: "vellum browser pages --json",
+  command: "vellum-command browser",
+  discover: "vellum-command browser pages --json",
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>

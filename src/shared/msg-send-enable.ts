@@ -123,7 +123,7 @@ export const composeMsgSendEnableMailboxText = (
     notice.peerTitle.trim().length > 0 ? notice.peerTitle.trim() : notice.peerId;
   return [
     `[factory - link] msg.send is now enabled to agent "${title}" (\`${notice.peerId}\`).`,
-    `Send a message with: vellum msg send '{"target":"${notice.peerId}","text":"..."}'`,
-    "If this agent is missing from your view, re-run `vellum onboard` (or `vellum capabilities`).",
+    `Send a message with: vellum-command msg send '{"target":"${notice.peerId}","text":"..."}'`,
+    "If this agent is missing from your view, re-run `vellum-command onboard` (or `vellum-command capabilities`).",
   ].join("\n");
 };

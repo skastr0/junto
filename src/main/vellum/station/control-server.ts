@@ -5,7 +5,7 @@ import {
   lstatSync,
 } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
-import { resolveVellumHome } from "@shared/vellum-home";
+import { resolveVellumCommandHome } from "@shared/vellum-home";
 import { Result, Schema } from "effect";
 import {
   ReportRequest as ReportRequestSchema,
@@ -230,7 +230,7 @@ export const resolveStationControlHome = (
   const configured = process.env[STATION_CONTROL_HOME_ENV]?.trim();
   return configured && configured.length > 0
     ? configured
-    : stationControlDir(home ?? resolveVellumHome());
+    : stationControlDir(home ?? resolveVellumCommandHome());
 };
 
 /** @deprecated Prefer importing from `./dispatcher` — re-exported for tests. */

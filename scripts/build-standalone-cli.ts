@@ -17,15 +17,21 @@ import {
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 const controls = {
-  vellum: {
+  "vellum-command": {
     source: "src/cli/main.ts",
-    output: "dist/vellum",
+    output: "dist/vellum-command",
+  },
+  "vellum-command-dev": {
+    source: "src/cli/main.ts",
+    output: "dist/vellum-command-dev",
   },
 } as const;
 
 export type StandaloneControl = keyof typeof controls;
 
-export const standaloneControlBuild = (control: StandaloneControl = "vellum") => {
+export const standaloneControlBuild = (
+  control: StandaloneControl = "vellum-command",
+) => {
   const selected = controls[control];
   const resolvedFeatures = resolveBuildFeatures(process.env);
   return {
@@ -39,7 +45,9 @@ export const standaloneControlBuild = (control: StandaloneControl = "vellum") =>
 const main = (): void => {
   const [rawControl, ...extraArgs] = process.argv.slice(2);
   if (!rawControl || extraArgs.length > 0 || !(rawControl in controls)) {
-    throw new Error("usage: bun scripts/build-standalone-cli.ts vellum");
+    throw new Error(
+      "usage: bun scripts/build-standalone-cli.ts vellum-command|vellum-command-dev",
+    );
   }
 
   const control = rawControl as StandaloneControl;

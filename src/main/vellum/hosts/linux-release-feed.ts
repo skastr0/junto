@@ -2,7 +2,7 @@
  * Linux release feed (Cloudflare Worker / R2) → local Command Center cache.
  *
  * Deploy Remote admits an owner-controlled directory under
- * ~/.vellum/releases/linux-x64-glibc/current. That directory is a *cache*, not
+ * ~/.vellum-command/releases/linux-x64-glibc/current. That directory is a *cache*, not
  * the product source of truth. This module pulls stable channel metadata and
  * the versioned archive from the same Worker that serves Mac updates, then
  * seats the extracted signed bundle at the fixed path.
@@ -21,22 +21,22 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { resolveVellumHome } from "@shared/vellum-home";
+import { resolveVellumCommandHome } from "@shared/vellum-home";
 import { join } from "node:path";
 
 /** Same Worker host as Mac arm64 feed; Linux channel lives under /linux/. */
 export const LINUX_RELEASE_FEED_BASE =
   "https://vellumreleasedistribution-rele2p3h3apcupwjim2zajqqmhyd.skastr052.workers.dev" as const;
 
-export const linuxRemoteArtifactBundleRoot = (home = resolveVellumHome()): string =>
-  join(home, ".vellum", "releases", "linux-x64-glibc", "current");
+export const linuxRemoteArtifactBundleRoot = (home = resolveVellumCommandHome()): string =>
+  join(home, ".vellum-command", "releases", "linux-x64-glibc", "current");
 
 export const linuxQualificationCandidateBundleRoot = (
-  home = resolveVellumHome(),
+  home = resolveVellumCommandHome(),
 ): string =>
   join(
     home,
-    ".vellum",
+    ".vellum-command",
     "releases",
     "linux-x64-glibc",
     "qualification",
@@ -174,7 +174,7 @@ export const seatLinuxReleaseCacheFromFeed = async (input?: {
   readonly bundleRoot: string;
   readonly channel: LinuxStableChannel;
 }> => {
-  const home = input?.home ?? resolveVellumHome();
+  const home = input?.home ?? resolveVellumCommandHome();
   const feedBase = input?.feedBase ?? LINUX_RELEASE_FEED_BASE;
   const channel = await fetchLinuxStableChannel(feedBase);
   const response = await fetch(channel.downloadLocator, {
@@ -195,7 +195,7 @@ export const seatLinuxReleaseCacheFromFeed = async (input?: {
     throw new Error("Linux release archive sha256 mismatch");
   }
 
-  const releasesRoot = join(home, ".vellum", "releases", "linux-x64-glibc");
+  const releasesRoot = join(home, ".vellum-command", "releases", "linux-x64-glibc");
   mkdirSync(releasesRoot, { recursive: true, mode: 0o700 });
   chmodSync(releasesRoot, 0o700);
 
@@ -302,7 +302,7 @@ export const ensureLinuxReleaseCache = async (input?: {
   readonly source: "feed" | "local";
   readonly channel?: LinuxStableChannel;
 }> => {
-  const home = input?.home ?? resolveVellumHome();
+  const home = input?.home ?? resolveVellumCommandHome();
   const bundleRoot = linuxRemoteArtifactBundleRoot(home);
   const source: unknown = input?.source ?? "stable-feed";
   if (source === "qualification-candidate") {

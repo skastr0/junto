@@ -16,6 +16,7 @@ import { Effect, ManagedRuntime } from "effect";
 import { afterEach, describe, expect, test } from "vitest";
 import {
   makeStateEngineLive,
+  migrateLegacyStateDatabase,
   StateEngine,
   StateEngineError,
 } from "../src/main/vellum/state/engine";
@@ -72,6 +73,25 @@ const seedVersionOneStateSchema = (path: string, version = 1): void => {
     database.close();
   }
 };
+
+test("copies legacy Vellum Command state into the renamed home without deleting the source", async () => {
+  const root = await makeTempDir("vellum-state-rename-");
+  const legacyDir = join(root, ".vellum", "state");
+  const targetDir = join(root, ".vellum-command", "state");
+  await mkdir(legacyDir, { recursive: true });
+  await mkdir(targetDir, { recursive: true });
+  const legacyPath = join(legacyDir, "vellum.db");
+  const targetPath = join(targetDir, "vellum.db");
+  await writeFile(legacyPath, "legacy-db", { mode: 0o600 });
+  await writeFile(`${legacyPath}-wal`, "legacy-wal", { mode: 0o600 });
+
+  expect(migrateLegacyStateDatabase({ legacyPath, targetPath })).toBe(true);
+  await expect(readFile(targetPath, "utf8")).resolves.toBe("legacy-db");
+  await expect(readFile(`${targetPath}-wal`, "utf8")).resolves.toBe("legacy-wal");
+  await expect(readFile(legacyPath, "utf8")).resolves.toBe("legacy-db");
+  await expect(readFile(`${legacyPath}-wal`, "utf8")).resolves.toBe("legacy-wal");
+  expect(migrateLegacyStateDatabase({ legacyPath, targetPath })).toBe(false);
+});
 
 const readAuthorityWitness = (path: string) => {
   const database = new DatabaseSync(path, { readOnly: true });

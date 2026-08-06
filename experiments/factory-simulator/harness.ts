@@ -326,7 +326,7 @@ export const runFactoryScenario = async (
           cwd: process.cwd(),
           env: {
             ...process.env,
-            VELLUM_WORK_HOME: server.workHome,
+            VELLUM_COMMAND_WORK_HOME: server.workHome,
           },
         });
         const response = decodeCliEnvelope(result.stdout, result.stderr);

@@ -902,7 +902,7 @@ describe("work pure transforms", () => {
 
 // --- service serialization under concurrent claims -------------------------
 
-const mockCanvasesHome = join(tmpdir(), `vellum-work-${randomUUID()}`);
+const mockCanvasesHome = join(tmpdir(), `vellum-command-work-${randomUUID()}`);
 
 vi.mock("node:os", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:os")>();
@@ -1570,7 +1570,7 @@ describe("WorkService — concurrent ops", () => {
   it("lets a Remote-local actor queue mail and create requests and artifacts offline", async () => {
     const isolatedRoot = join(
       tmpdir(),
-      `vellum-work-remote-mail-${randomUUID()}`
+      `vellum-command-work-remote-mail-${randomUUID()}`
     );
     const runtime = makeWorkRuntime(
       join(isolatedRoot, "state", "vellum.db")

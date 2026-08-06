@@ -15,11 +15,11 @@ describe("app build userland artifact contract", () => {
     }));
 
     expect(compiledControls).toEqual([
-      { artifact: "vellum", source: "src/cli/main.ts" },
+      { artifact: "vellum-command", source: "src/cli/main.ts" },
     ]);
-    expect(build).not.toContain("vellum-browser");
-    expect(build).not.toContain("vellum-station");
-    expect(build).not.toContain("vellum-content");
+    expect(build).not.toContain("vellum-command-browser");
+    expect(build).not.toContain("vellum-command-station");
+    expect(build).not.toContain("vellum-command-content");
     expect(build).not.toContain("vellum-release-installer");
     expect(build).not.toContain("linux-release-installer.ts");
     expect(build).not.toContain("vellum-release-bridge");

@@ -105,8 +105,8 @@ describe("resolvedSpawnEnvSync", () => {
 });
 
 // One guarded integration case — spawns the real login shell exactly once.
-// Skip with VELLUM_SKIP_SHELL_INTEGRATION=1 in shell-less CI.
-const skipShell = process.env.VELLUM_SKIP_SHELL_INTEGRATION === "1";
+// Skip with VELLUM_COMMAND_SKIP_SHELL_INTEGRATION=1 in shell-less CI.
+const skipShell = process.env.VELLUM_COMMAND_SKIP_SHELL_INTEGRATION === "1";
 describe("resolvedSpawnEnv (integration)", () => {
   const originalPath = process.env.PATH;
   afterAll(() => {

@@ -6,7 +6,7 @@ import {
   normalizeImageExtension,
   pastePathPayload,
   stageImageOnHost,
-  VELLUM_CLIPBOARD_IMAGE_MAX_BYTES,
+  VELLUM_COMMAND_CLIPBOARD_IMAGE_MAX_BYTES,
 } from "../src/main/vellum/herdr/stage-image";
 import { setHostsSnapshot } from "../src/main/vellum/hosts/snapshot";
 import { defaultRemoteHostsDocument } from "../src/shared/remote-hosts";
@@ -25,7 +25,7 @@ describe("herdr stage-image (vellum-owned)", () => {
     const empty = decodeClipboardImageBase64("png", "");
     expect(empty.ok).toBe(false);
 
-    const big = Buffer.alloc(VELLUM_CLIPBOARD_IMAGE_MAX_BYTES + 1, 1);
+    const big = Buffer.alloc(VELLUM_COMMAND_CLIPBOARD_IMAGE_MAX_BYTES + 1, 1);
     const oversized = decodeClipboardImageBase64("png", big.toString("base64"));
     expect(oversized.ok).toBe(false);
   });
@@ -51,7 +51,7 @@ describe("herdr stage-image (vellum-owned)", () => {
   });
 
   it("rejects oversized base64 before decode", () => {
-    const huge = "A".repeat(Math.ceil((VELLUM_CLIPBOARD_IMAGE_MAX_BYTES * 4) / 3) + 32);
+    const huge = "A".repeat(Math.ceil((VELLUM_COMMAND_CLIPBOARD_IMAGE_MAX_BYTES * 4) / 3) + 32);
     const res = decodeClipboardImageBase64("png", huge);
     expect(res.ok).toBe(false);
   });

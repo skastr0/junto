@@ -20,7 +20,7 @@ import { OverlayHeader } from "../ui/OverlayHeader";
 import { applyWorkCanvasWrite, editText } from "../../lib/mutations";
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import { state$ } from "../../lib/state";
-import { getVellumApi } from "../../lib/vellum-api";
+import { getVellumCommandApi } from "../../lib/vellum-api";
 import { FirstLineRenameInput } from "../nodes/FirstLineRenameInput";
 import { TaskBoard } from "./TaskBoard";
 import { ArtifactLibrary, RequestInbox } from "./WorkLedger";
@@ -471,7 +471,7 @@ export function BoardDetail({
   const selected: BoardTopic | undefined =
     topics.find((t) => t.topicId === selectedTopicId) ?? topics[0];
   const canvas = canvasName();
-  const api = getVellumApi();
+  const api = getVellumCommandApi();
   // Board node text is a live glance projection ("quiet" or recent topic
   // titles), not a stable sink name. Keep the work surface title predictable.
   const boardTitle = "Board";

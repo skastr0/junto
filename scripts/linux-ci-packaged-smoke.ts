@@ -179,7 +179,7 @@ export const validateLinuxSandboxCapability = (input: {
     }
     if (
       input.appArmorCurrent === undefined ||
-      !/^vellum(?:\s|\(|$)/u.test(input.appArmorCurrent.trim())
+      !/^vellum-command(?:\s|\(|$)/u.test(input.appArmorCurrent.trim())
     ) {
       throw new Error("packaged Vellum Command did not enter its installed AppArmor profile");
     }
@@ -311,14 +311,14 @@ export const smokeLinuxCiPackagedRuntime = async (
   const display = requireXvfbDisplay(process.env.DISPLAY);
   const executable = await realpath(path.resolve(requestedExecutable));
   if (
-    path.basename(executable) !== "vellum" ||
+    path.basename(executable) !== "vellum-command" ||
     !(await isExecutable(executable))
   ) {
-    throw new Error("Linux packaged runtime smoke requires packaged vellum");
+    throw new Error("Linux packaged runtime smoke requires packaged vellum-command");
   }
   const installDirectory = path.dirname(executable);
   const resources = await realpath(path.join(installDirectory, "resources"));
-  const workCli = path.join(resources, "bin", "vellum");
+  const workCli = path.join(resources, "bin", "vellum-command");
   if (!(await isExecutable(workCli))) {
     throw new Error("packaged CLI is missing");
   }
@@ -351,10 +351,10 @@ export const smokeLinuxCiPackagedRuntime = async (
     LANG: "C.UTF-8",
     LC_ALL: "C.UTF-8",
     XDG_CACHE_HOME: cache,
-    VELLUM_BROWSER_DIR: browser,
-    VELLUM_BROWSER_HOME: isolatedHome,
-    VELLUM_CANVASES_DIR: canvases,
-    VELLUM_WORK_HOME: path.join(isolatedHome, ".vellum", "work"),
+    VELLUM_COMMAND_BROWSER_DIR: browser,
+    VELLUM_COMMAND_BROWSER_HOME: isolatedHome,
+    VELLUM_COMMAND_CANVASES_DIR: canvases,
+    VELLUM_COMMAND_WORK_HOME: path.join(isolatedHome, ".vellum-command", "work"),
   };
 
   const processPlane = createAppProcessPlane();
@@ -584,7 +584,7 @@ if (modulePath === invokedPath) {
   const executable = process.argv[2];
   if (executable === undefined || process.argv.length !== 3) {
     console.error(
-      "usage: bun scripts/linux-ci-packaged-smoke.ts /path/to/installed/vellum",
+      "usage: bun scripts/linux-ci-packaged-smoke.ts /path/to/installed/vellum-command",
     );
     process.exitCode = 2;
   } else {
@@ -593,7 +593,7 @@ if (modulePath === invokedPath) {
       .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : String(error);
         console.error(
-          `vellum Linux packaged runtime smoke failed: ${message.slice(0, 1_000)}`,
+          `vellum-command Linux packaged runtime smoke failed: ${message.slice(0, 1_000)}`,
         );
         process.exitCode = 1;
       });

@@ -169,7 +169,7 @@ function FactoryPauseControl({ canvasName }: { readonly canvasName: string }) {
     setError("");
     if (!canvasName) return;
     let cancelled = false;
-    void window.vellum
+    void window.vellumCommand
       ?.factoryPauseState(canvasName)
       .then((state) => {
         if (!cancelled) setPauseState(state);
@@ -190,8 +190,8 @@ function FactoryPauseControl({ canvasName }: { readonly canvasName: string }) {
         status.access === "maintenance" || status.canPlayFactory === false,
       );
     };
-    void window.vellum?.licenseStatus?.().then(syncLicense).catch(() => undefined);
-    const unsub = window.vellum?.onLicenseChanged?.(syncLicense);
+    void window.vellumCommand?.licenseStatus?.().then(syncLicense).catch(() => undefined);
+    const unsub = window.vellumCommand?.onLicenseChanged?.(syncLicense);
     return () => {
       cancelled = true;
       unsub?.();
@@ -204,7 +204,7 @@ function FactoryPauseControl({ canvasName }: { readonly canvasName: string }) {
     if (busy || licenseMaintenance) return;
     setBusy(true);
     try {
-      const result = await window.vellum?.factoryPauseSet(
+      const result = await window.vellumCommand?.factoryPauseSet(
         canvasName,
         { kind: "canvas" },
         paused,

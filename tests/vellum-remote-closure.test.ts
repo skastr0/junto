@@ -26,7 +26,7 @@ const REMOTE_ENTRY_FILES: ReadonlyArray<string> = [
   "src/main/vellum/supervision/install-user-service.ts",
 ];
 
-describe("vellum-remote closure", () => {
+describe("vellum-command-remote closure", () => {
   it("keeps remote entry sources free of electron value imports and browser composition", () => {
     const violations: string[] = [];
     for (const rel of REMOTE_ENTRY_FILES) {
@@ -73,7 +73,7 @@ describe("vellum-remote closure", () => {
   });
 
   it("remote:build output forbids electron and browser composition when present", () => {
-    const bundle = join(root, "out/remote/vellum-remote.js");
+    const bundle = join(root, "out/remote/vellum-command-remote.js");
     if (!existsSync(bundle)) {
       // Bundle is produced by `bun run remote:build`. Absence is not a red
       // for unit CI that did not build; the build script itself rejects

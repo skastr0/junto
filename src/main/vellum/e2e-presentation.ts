@@ -7,13 +7,13 @@
  * E2E needs a renderer surface; it must simply never steal focus.
  *
  * Opt out of hiding (debug a failing scenario visually):
- *   VELLUM_E2E_SHOW=1 bun run test:e2e:fast e2e/scenarios/...
+ *   VELLUM_COMMAND_E2E_SHOW=1 bun run test:e2e:fast e2e/scenarios/...
  */
 
 export interface E2ePresentationInput {
-  /** `process.env.VELLUM_E2E === "1"` — harness launches always set this. */
+  /** `process.env.VELLUM_COMMAND_E2E === "1"` — harness launches always set this. */
   readonly e2e: boolean;
-  /** `process.env.VELLUM_E2E_SHOW === "1"` — operator asked for a visible window. */
+  /** `process.env.VELLUM_COMMAND_E2E_SHOW === "1"` — operator asked for a visible window. */
   readonly showWindows: boolean;
 }
 
@@ -40,7 +40,7 @@ const E2E_VISIBLE_WINDOW = Object.freeze({}) satisfies Readonly<
 /**
  * BrowserWindow options that keep the authoring surface off-screen and out of
  * the task switcher / Dock. Empty object when not isolating (production or
- * VELLUM_E2E_SHOW=1).
+ * VELLUM_COMMAND_E2E_SHOW=1).
  */
 export const e2eMainWindowOptions = (
   input: E2ePresentationInput,
@@ -51,8 +51,8 @@ export const e2eMainWindowOptions = (
 export const e2ePresentationFromEnv = (
   env: NodeJS.ProcessEnv = process.env,
 ): E2ePresentationInput => ({
-  e2e: env.VELLUM_E2E === "1",
-  showWindows: env.VELLUM_E2E_SHOW === "1",
+  e2e: env.VELLUM_COMMAND_E2E === "1",
+  showWindows: env.VELLUM_COMMAND_E2E_SHOW === "1",
 });
 
 /**

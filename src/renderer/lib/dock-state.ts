@@ -1,6 +1,6 @@
 import { observable, observe } from "@legendapp/state";
 import type { CanvasNode, EtherBrowser } from "@shared/canvas";
-import type { VellumBrowserApi } from "@shared/ipc";
+import type { VellumCommandBrowserApi } from "@shared/ipc";
 import {
   browser$,
   browserSessionIdForRef,
@@ -33,7 +33,7 @@ import {
   type WorkSurface,
   type WorkZone,
 } from "./surface-registry";
-import { getVellumApi } from "./vellum-api";
+import { getVellumCommandApi } from "./vellum-api";
 import { closeTerminalSurface, terminal$, terminalNodeIds } from "./terminal-state";
 
 // Workbench side effects: pure transitions live in surface-registry.ts; this
@@ -102,9 +102,9 @@ export const dock$ = observable({
   configHydrated: false,
 });
 
-type BrowserApi = ReturnType<typeof getVellumApi> & Partial<VellumBrowserApi>;
+type BrowserApi = ReturnType<typeof getVellumCommandApi> & Partial<VellumCommandBrowserApi>;
 
-const api = (): BrowserApi | undefined => getVellumApi() as BrowserApi | undefined;
+const api = (): BrowserApi | undefined => getVellumCommandApi() as BrowserApi | undefined;
 
 const detachCurrentSession = (ref: string): void => {
   const sessionId = browserSessionIdForRef(ref);

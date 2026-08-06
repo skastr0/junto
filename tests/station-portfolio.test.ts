@@ -212,7 +212,7 @@ describe("station portfolio body", () => {
     expect(() =>
       decodeStationPortfolioBody(
         JSON.stringify({
-          protocol: "vellum/station-portfolio/v1",
+          protocol: "vellum-command/station-portfolio/v1",
           documents: canonical.documents,
         }),
       )

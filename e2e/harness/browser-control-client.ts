@@ -2,11 +2,11 @@
  * Agent-side browser control-plane client for e2e — a minimal node:http
  * client over the unix-domain socket, built from the same wire contract
  * module (`@shared/browser-control`) real agents (scripts/browser-cli.ts,
- * the local vellum-browser CLI) use. Deliberately independent of the
+ * the local vellum-command-browser CLI) use. Deliberately independent of the
  * product's own CLI process so a test can hand-craft transport tokens and
  * request ids to exercise the denial paths.
  *
- * Never touches the operator's real ~/.vellum: every caller passes the
+ * Never touches the operator's real ~/.vellum-command: every caller passes the
  * sandbox's homeDir (HOME is already sandboxed by e2e/harness/launch.ts, so
  * the app's own control plane lives under that same temp home).
  */

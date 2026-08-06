@@ -39,7 +39,7 @@ const readCanvas = vi.fn(async (name: string) => ({
 }));
 
 const runtimeWindow = {
-  vellum: { createCanvas, listCanvases, writeCanvas, readCanvas },
+  vellumCommand: { createCanvas, listCanvases, writeCanvas, readCanvas },
   setTimeout: globalThis.setTimeout.bind(globalThis),
   clearTimeout: globalThis.clearTimeout.bind(globalThis),
   confirm: () => true,

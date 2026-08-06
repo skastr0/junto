@@ -17,34 +17,34 @@ const alias = {
   "@shared": resolve("src/shared"),
 };
 
-const licenseChannel = process.env.VELLUM_LICENSE_CHANNEL ?? "development";
+const licenseChannel = process.env.VELLUM_COMMAND_LICENSE_CHANNEL ?? "development";
 if (!["development", "production"].includes(licenseChannel)) {
-  throw new Error("VELLUM_LICENSE_CHANNEL must be development or production");
+  throw new Error("VELLUM_COMMAND_LICENSE_CHANNEL must be development or production");
 }
 const licenseProfile =
   licenseChannel === "development"
     ? undefined
     : resolveLicenseBuildProfile({
         channel: licenseChannel,
-        businessId: process.env.VELLUM_DODO_BUSINESS_ID,
-        productId: process.env.VELLUM_DODO_PRODUCT_ID,
+        businessId: process.env.VELLUM_COMMAND_DODO_BUSINESS_ID,
+        productId: process.env.VELLUM_COMMAND_DODO_PRODUCT_ID,
       });
 
 const licenseDefines = {
-  __VELLUM_LICENSE_CHANNEL__: JSON.stringify(licenseChannel),
-  __VELLUM_DODO_BUSINESS_ID__: JSON.stringify(
-    licenseProfile?.businessId ?? (process.env.VELLUM_DODO_BUSINESS_ID ?? ""),
+  __VELLUM_COMMAND_LICENSE_CHANNEL__: JSON.stringify(licenseChannel),
+  __VELLUM_COMMAND_DODO_BUSINESS_ID__: JSON.stringify(
+    licenseProfile?.businessId ?? (process.env.VELLUM_COMMAND_DODO_BUSINESS_ID ?? ""),
   ),
-  __VELLUM_DODO_PRODUCT_ID__: JSON.stringify(
-    licenseProfile?.productId ?? (process.env.VELLUM_DODO_PRODUCT_ID ?? ""),
+  __VELLUM_COMMAND_DODO_PRODUCT_ID__: JSON.stringify(
+    licenseProfile?.productId ?? (process.env.VELLUM_COMMAND_DODO_PRODUCT_ID ?? ""),
   ),
 };
 
 // Build-time update feed only — never honored as a runtime env override.
 // Empty → macArm64UpdateFeed() uses the interim/public default in compiled-config.
-const updateFeedUrl = (process.env.VELLUM_MAC_UPDATE_FEED_URL ?? "").trim();
+const updateFeedUrl = (process.env.VELLUM_COMMAND_MAC_UPDATE_FEED_URL ?? "").trim();
 const updateDefines = {
-  __VELLUM_MAC_UPDATE_FEED_URL__: JSON.stringify(updateFeedUrl),
+  __VELLUM_COMMAND_MAC_UPDATE_FEED_URL__: JSON.stringify(updateFeedUrl),
 };
 
 const resolvedBuildFeatures = resolveBuildFeatures(process.env);

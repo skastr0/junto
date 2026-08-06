@@ -1,25 +1,26 @@
 {
   "protocol": {
-    "baseline": 4,
+    "baseline": 5,
     "support": {
-      "preferred": 4,
-      "compatibleFrom": 4,
-      "warnBelow": 4
+      "preferred": 5,
+      "compatibleFrom": 5,
+      "warnBelow": 5
     },
     "retired": [
       2,
-      3
+      3,
+      4
     ],
     "noCommonWithProtocol3": {
       "local": {
+        "preferred": 5,
+        "compatibleFrom": 5,
+        "warnBelow": 5
+      },
+      "peer": {
         "preferred": 4,
         "compatibleFrom": 4,
         "warnBelow": 4
-      },
-      "peer": {
-        "preferred": 3,
-        "compatibleFrom": 3,
-        "warnBelow": 3
       },
       "outcome": "update-required"
     }

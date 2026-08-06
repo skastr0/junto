@@ -688,7 +688,7 @@ function TriggerReadout({
       setStatus("No scheduler on this link");
       return;
     }
-    const api = window.vellum;
+    const api = window.vellumCommand;
     const canvas = state$.canvasName.peek();
     if (!api?.schedulerFire || !canvas) {
       setStatus("Fire is unavailable");

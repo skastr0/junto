@@ -256,7 +256,7 @@ const openInstallation = async (
   localInstallationId: InstallationIdValue,
 ): Promise<InstallationHarness> => {
   const root = await mkdtemp(
-    join(tmpdir(), `vellum-station-offline-${localInstallationId}-`),
+    join(tmpdir(), `vellum-command-station-offline-${localInstallationId}-`),
   );
   const harness = await openInstallationAt(root, localInstallationId);
   opened.push(harness);

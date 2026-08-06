@@ -3,7 +3,7 @@
  * managed seat when a task becomes `working` on that actor.
  *
  * Law: an agent that only reads this string must be able to form a valid
- * `vellum tasks list` / `vellum tasks update` without schema discovery.
+ * `vellum-command tasks list` / `vellum-command tasks update` without schema discovery.
  * Claim delivery must never gate on a prior `/compact` harness turn.
  */
 
@@ -25,9 +25,9 @@ export const buildFactoryClaimPrompt = (
 ): string => {
   const { sinkNodeId, task } = input;
   const brief = taskBrief(task);
-  const listExample = `vellum tasks list '{"target":"${sinkNodeId}"}'`;
-  const updateExample = `vellum tasks update '{"target":"${sinkNodeId}","task":"${task.id}","state":"completed","note":"<what you did>"}'`;
-  const workingExample = `vellum tasks update '{"target":"${sinkNodeId}","task":"${task.id}","state":"working","note":"<progress>"}'`;
+  const listExample = `vellum-command tasks list '{"target":"${sinkNodeId}"}'`;
+  const updateExample = `vellum-command tasks update '{"target":"${sinkNodeId}","task":"${task.id}","state":"completed","note":"<what you did>"}'`;
+  const workingExample = `vellum-command tasks update '{"target":"${sinkNodeId}","task":"${task.id}","state":"working","note":"<progress>"}'`;
 
   const media = taskMediaParts(task);
   const mediaNote =
@@ -84,11 +84,11 @@ export const buildFactoryClaimPrompt = (
     `Task id: ${task.id}`,
     "",
     "CLI contract (copy-paste JSON — do not invent flags):",
-    `- orient:  vellum onboard`,
+    `- orient:  vellum-command onboard`,
     `- list:    ${listExample}`,
     `- progress:${workingExample}`,
     `- complete:${updateExample}`,
-    "- blocked: vellum escalate  (JSON per `vellum schema show request.escalate` / examples)",
+    "- blocked: vellum-command escalate  (JSON per `vellum-command schema show request.escalate` / examples)",
     "",
     "You can start from the task packet below; list is optional once you have target + task id.",
     ...mediaNote,

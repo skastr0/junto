@@ -218,7 +218,7 @@ function installMockVellum(overrides: Partial<MockVellum> = {}): MockVellum {
     browserSessionList: vi.fn(async () => ({ ok: true, data: [...sessions.values()] })),
     ...overrides,
   };
-  (globalThis as unknown as { window: { vellum: MockVellum } }).window = { vellum: mock };
+  (globalThis as unknown as { window: { vellumCommand: MockVellum } }).window = { vellumCommand: mock };
   return mock;
 }
 
@@ -531,7 +531,7 @@ describe("dock-state", () => {
     expect(browser$.sessionByRef[ref].peek()?.sessionId).toBe("new-push");
   });
 
-  it("degrades quietly when window.vellum is absent", async () => {
+  it("degrades quietly when window.vellumCommand is absent", async () => {
     const ref = refOf("n1");
     await expect(openDockBrowser(ref, payloadOf("n1", "https://a.example", "A", "p"))).resolves.toBeUndefined();
     expect(() => closeDockBrowser(ref)).not.toThrow();

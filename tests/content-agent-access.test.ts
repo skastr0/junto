@@ -57,7 +57,7 @@ describe("process-bound content access helpers", () => {
   });
 
   it("streams an immutable object into a stable task workspace", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-content-access-"));
+    const root = await mkdtemp(join(tmpdir(), "vellum-command-content-access-"));
     const contentRoot = join(root, "content");
     const workHome = join(root, "work");
     const bytes = Buffer.from("hello world");
@@ -105,7 +105,7 @@ describe("process-bound content access helpers", () => {
   });
 
   it("rejects traversal names and symlinked materialization roots", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-content-access-safe-"));
+    const root = await mkdtemp(join(tmpdir(), "vellum-command-content-access-safe-"));
     const contentRoot = join(root, "content");
     const workHome = join(root, "work");
     const bytes = Buffer.from("hello world");

@@ -61,7 +61,7 @@ describe("retired product-state signature boundary", () => {
       expect(() =>
         auditRetiredStateBuffer(
           Buffer.from(`runtime-prefix\0${signature}\0runtime-suffix`),
-          { label: "dist/vellum" },
+          { label: "dist/vellum-command" },
         )
       ).toThrowError(
         expect.objectContaining({
@@ -76,7 +76,7 @@ describe("retired product-state signature boundary", () => {
   it("allows the current SQLite authority vocabulary", () => {
     const current = Buffer.from(
       [
-        "~/.vellum/state/vellum.db",
+        "~/.vellum-command/state/vellum.db",
         "state_schema_identity",
         "canvas_generations",
         "work_events",
@@ -86,9 +86,9 @@ describe("retired product-state signature boundary", () => {
       ].join("\0"),
     );
     expect(
-      auditRetiredStateBuffer(current, { label: "dist/vellum-station" }),
+      auditRetiredStateBuffer(current, { label: "dist/vellum-command-station" }),
     ).toEqual({
-      label: "dist/vellum-station",
+      label: "dist/vellum-command-station",
       scannedBytes: current.byteLength,
     });
   });
@@ -119,26 +119,26 @@ describe("retired product-state signature boundary", () => {
 
   it("bounds executable buffers and regular-file reads before accepting them", async () => {
     const root = await makeTempRoot();
-    const executable = join(root, "vellum-browser");
+    const executable = join(root, "vellum-command-browser");
     await writeFile(executable, "state_schema_identity");
 
     await expect(
       auditRetiredStateFile(executable, {
-        label: "vellum-browser",
+        label: "vellum-command-browser",
         maxBytes: 21,
       }),
     ).resolves.toEqual({
-      label: "vellum-browser",
+      label: "vellum-command-browser",
       scannedBytes: 21,
     });
     await expect(
       auditRetiredStateFile(executable, {
-        label: "vellum-browser",
+        label: "vellum-command-browser",
         maxBytes: 20,
       }),
     ).rejects.toMatchObject({ code: "byte-bound" });
 
-    const linked = join(root, "linked-vellum-browser");
+    const linked = join(root, "linked-vellum-command-browser");
     await symlink(executable, linked);
     await expect(auditRetiredStateFile(linked)).rejects.toMatchObject({
       code: "not-regular-file",

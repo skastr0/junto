@@ -24,14 +24,14 @@ const makeChild = (): TestLocalAcpChild => {
 const spawnFn: SpawnFn = () => spawnedLocalAcp(makeChild());
 
 afterEach(() => {
-  delete process.env.VELLUM_ACP_MAX_REMOTE_SESSIONS_PER_HOST;
-  delete process.env.VELLUM_ACP_IDLE_MS;
+  delete process.env.VELLUM_COMMAND_ACP_MAX_REMOTE_SESSIONS_PER_HOST;
+  delete process.env.VELLUM_COMMAND_ACP_IDLE_MS;
   setHostsSnapshot(defaultRemoteHostsDocument().hosts);
 });
 
 describe("ChatService remote session policy", () => {
   it("evicts idle remote sessions but never busy ones", async () => { // async: closeCurrent settles teardown
-    process.env.VELLUM_ACP_IDLE_MS = "1000";
+    process.env.VELLUM_COMMAND_ACP_IDLE_MS = "1000";
     const service = new ChatService(spawnFn, (host) => host === "local");
     service.stopIdleSweep();
 
@@ -95,8 +95,8 @@ describe("ChatService remote session policy", () => {
   });
 
   it("enforces per-host remote ceiling by closing LRU idle peer", async () => {
-    process.env.VELLUM_ACP_MAX_REMOTE_SESSIONS_PER_HOST = "1";
-    process.env.VELLUM_ACP_IDLE_MS = "0"; // disable idle sweep noise
+    process.env.VELLUM_COMMAND_ACP_MAX_REMOTE_SESSIONS_PER_HOST = "1";
+    process.env.VELLUM_COMMAND_ACP_IDLE_MS = "0"; // disable idle sweep noise
     const service = new ChatService(spawnFn, (host) => host === "local");
     service.stopIdleSweep();
 
@@ -141,8 +141,8 @@ describe("ChatService remote session policy", () => {
   });
 
   it("counts an in-flight remote handshake before admitting another child", async () => {
-    process.env.VELLUM_ACP_MAX_REMOTE_SESSIONS_PER_HOST = "1";
-    process.env.VELLUM_ACP_IDLE_MS = "0";
+    process.env.VELLUM_COMMAND_ACP_MAX_REMOTE_SESSIONS_PER_HOST = "1";
+    process.env.VELLUM_COMMAND_ACP_IDLE_MS = "0";
     const children: TestLocalAcpChild[] = [];
     const service = new ChatService(() => {
       const child = makeChild();
