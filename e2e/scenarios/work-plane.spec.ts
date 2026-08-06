@@ -33,8 +33,21 @@ const fixtureDoc = canvasDoc(
       x: 320,
       y: 240,
     }),
+    agentTextNode({
+      id: "rival",
+      key: "local:rival",
+      label: "rival",
+      x: 320,
+      y: 380,
+    }),
   ],
-  [tasksCriteriaEdge("e-req", "req", "target")],
+  [
+    tasksCriteriaEdge("e-req", "req", "target"),
+    // Actor-seat law: a claim must come from a compiled seat that is
+    // connected to the sink (edge or region co-membership).
+    { id: "e-target-tasks", fromNode: "target", toNode: "tasks" },
+    { id: "e-rival-tasks", fromNode: "rival", toNode: "tasks" },
+  ],
 );
 
 /** Install authorial intent through the app-owned API. */
@@ -88,7 +101,7 @@ type WorkApi = {
     canvas: string,
     nodeId: string,
     taskId: string,
-    actor: string,
+    actorNodeId: string,
   ) => Promise<WorkOpResult<Task>>;
   workTaskTransition: (
     canvas: string,
@@ -115,10 +128,10 @@ const work = async (page: import("@playwright/test").Page): Promise<WorkApi> => 
         ([c, n, b]) => window.vellumCommand!.workTaskCreate(c, n, b, { details: b }),
         [canvas, nodeId, brief] as const,
       ),
-    workTaskClaim: (canvas, nodeId, taskId, actor) =>
+    workTaskClaim: (canvas, nodeId, taskId, actorNodeId) =>
       page.evaluate(
         ([c, n, t, a]) => window.vellumCommand!.workTaskClaim(c, n, t, a),
-        [canvas, nodeId, taskId, actor] as const,
+        [canvas, nodeId, taskId, actorNodeId] as const,
       ),
     workTaskTransition: (canvas, nodeId, taskId, state, note) =>
       page.evaluate(
@@ -164,12 +177,17 @@ test("work plane: renderer exposes operator task lifecycle only", async ({
   if (!created.ok) return;
   expect(created.data.state).toBe("submitted");
 
-  const claimed = await api.workTaskClaim(CANVAS, "tasks", created.data.id, "e2e-worker");
+  // Claim by the compiled actor seat the "target" node resolves to. The
+  // claim API takes a canvas node id that must identify exactly one compiled
+  // actor seat in the projection (never a free-form actor name).
+  const claimed = await api.workTaskClaim(CANVAS, "tasks", created.data.id, "target");
   expect(claimed.ok).toBe(true);
   if (!claimed.ok) return;
   expect(claimed.data.state).toBe("working");
-  expect(claimed.data.metadata?.claimedBy).toBe("e2e-worker");
+  expect(claimed.data.claimedBy).toMatch(/^seat_[a-f0-9]{64}$/);
 
+  // A node id that does not identify an actor seat cannot claim (the
+  // "operator" reserved-name concept is retired; only seats claim).
   const reservedTask = await api.workTaskCreate(CANVAS, "tasks", "never operator");
   expect(reservedTask.ok).toBe(true);
   if (!reservedTask.ok) return;
@@ -177,11 +195,13 @@ test("work plane: renderer exposes operator task lifecycle only", async ({
     CANVAS,
     "tasks",
     reservedTask.data.id,
-    "operator",
+    "req",
   );
   expect(reserved.ok).toBe(false);
 
-  const contended = await api.workTaskClaim(CANVAS, "tasks", created.data.id, "intruder");
+  // A second compiled actor seat cannot take a working task away from the
+  // first — contention keys on ActorSeatId.
+  const contended = await api.workTaskClaim(CANVAS, "tasks", created.data.id, "rival");
   expect(contended.ok).toBe(false);
   if (!contended.ok) expect(contended.code).toBe("claim_contention");
 
@@ -200,7 +220,7 @@ test("work plane: renderer exposes operator task lifecycle only", async ({
     const tasks = live.doc.nodes.find((n) => n.id === "tasks");
     const item = tasks?.ether?.tasks?.items?.find((t) => t.id === created.data.id);
     expect(item?.state).toBe("completed");
-    expect(item?.metadata?.claimedBy).toBe("e2e-worker");
+    expect(item?.claimedBy).toBe(claimed.data.claimedBy);
   }).toPass({ timeout: 10_000 });
 
 });

@@ -1,5 +1,11 @@
 import type { CanvasDoc } from "../../src/shared/canvas";
-import { canvasDoc, taskItem, tasksNode } from "../harness/sandbox";
+import {
+  agentTextNode,
+  canvasDoc,
+  claimByNodeId,
+  taskItem,
+  tasksNode,
+} from "../harness/sandbox";
 import { expect, launchVellum, test } from "../harness/launch";
 
 const installBoard = async (
@@ -42,57 +48,83 @@ const installBoard = async (
 };
 
 test("task board supports creation, operator responses, layered status, and body dragging", async () => {
-  const fixture = canvasDoc([
-    tasksNode({
-      id: "tasks",
-      x: 80,
-      y: 80,
-      items: [
-        taskItem("queued", "Queued task", "submitted"),
-        {
-          ...taskItem("working", "Working task", "working"),
-          metadata: {
-            claimedBy: "local:builder",
-            workRole: "Builder",
-            details: "A claimed task ready for a whole-card drag.",
-          },
-        },
-        {
-          ...taskItem("input", "Clarify release scope", "input-required"),
-          metadata: {
-            claimedBy: "local:builder",
-            workRole: "Release Engineer",
-          },
-          history: [
-            ...taskItem("input", "Clarify release scope", "input-required").history,
-            {
-              messageId: "input-question",
-              role: "agent",
-              parts: [
-                {
-                  kind: "text",
-                  text: "Should the release include the experimental station adapter?",
-                },
-              ],
-              taskId: "input",
+  // The canvas write path strips ether.tasks (work lives in the repository),
+  // so the layered-status fixture is seeded through the sandbox's work-plane
+  // seed: claims translate node id -> compiled ActorSeatId (claimByNodeId).
+  const fixture = canvasDoc(
+    [
+      tasksNode({
+        id: "tasks",
+        x: 80,
+        y: 80,
+        items: [
+          taskItem("queued", "Queued task", "submitted"),
+          {
+            ...taskItem("working", "Working task", "working"),
+            claimedBy: claimByNodeId("builder-1"),
+            metadata: {
+              workRole: "Builder",
+              details: "A claimed task ready for a whole-card drag.",
             },
-          ],
-        },
-        {
-          ...taskItem("completed", "Completed task", "completed"),
-          metadata: {
-            details: "Review the worker's proof before accepting the completion.",
           },
-        },
-      ],
-    }),
-  ]);
-  const vellumCommand = await launchVellum();
+          {
+            ...taskItem("input", "Clarify release scope", "input-required"),
+            claimedBy: claimByNodeId("builder-2"),
+            metadata: {
+              workRole: "Release Engineer",
+            },
+            history: [
+              ...taskItem("input", "Clarify release scope", "input-required").history,
+              {
+                messageId: "input-question",
+                role: "agent",
+                parts: [
+                  {
+                    kind: "text",
+                    text: "Should the release include the experimental station adapter?",
+                  },
+                ],
+                taskId: "input",
+              },
+            ],
+          },
+          {
+            ...taskItem("completed", "Completed task", "completed"),
+            metadata: {
+              details: "Review the worker's proof before accepting the completion.",
+            },
+          },
+        ],
+      }),
+      // Two builder seats: the work repository allows one active task per
+      // actor, so the claimed working + input-required fixtures need two.
+      agentTextNode({
+        id: "builder-1",
+        key: "local:builder-1",
+        label: "builder one",
+        x: 520,
+        y: 300,
+      }),
+      agentTextNode({
+        id: "builder-2",
+        key: "local:builder-2",
+        label: "builder two",
+        x: 820,
+        y: 300,
+      }),
+    ],
+    [
+      { id: "e-builder1-tasks", fromNode: "builder-1", toNode: "tasks" },
+      { id: "e-builder2-tasks", fromNode: "builder-2", toNode: "tasks" },
+    ],
+  );
+  const vellumCommand = await launchVellum({
+    seedCanvases: { factory: fixture },
+  });
 
   try {
     const { page } = vellumCommand;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
-    await installBoard(page, fixture);
     await expect(page.locator('.react-flow__node[data-id="tasks"]')).toBeVisible({
       timeout: 30_000,
     });
@@ -104,7 +136,7 @@ test("task board supports creation, operator responses, layered status, and body
     const board = page.getByRole("dialog", { name: "Task flow" });
     await expect(board).toBeVisible();
 
-    await board.getByRole("button", { name: "Enqueue", exact: true }).click();
+    await board.getByTestId("task-board-enqueue").click();
     const creator = page.getByRole("dialog", { name: "Create task" });
     await expect(creator).toBeVisible();
     const creatorPanel = creator.locator(".focus-surface__panel");

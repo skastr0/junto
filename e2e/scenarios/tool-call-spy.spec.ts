@@ -44,8 +44,10 @@ test("protected control routes deny without process-bind; request-id contract ho
     const node = page.locator(".react-flow__node", { hasText: AGENT_LABEL });
     await expect(node).toBeVisible({ timeout: 30_000 });
     await node.click();
-    await page.getByRole("tab", { name: "details" }).click();
-    // Browser instructional wall removed; ceremony controls stay absent.
+    // No inspector tabs remain — the agent selection surface is the RTS
+    // command/kind strip. Browser instructional wall removed; ceremony
+    // controls stay absent.
+    await expect(page.getByRole("tab", { name: "details" })).toHaveCount(0);
     await expect(page.locator(".inspector-section", { hasText: "browser access" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: /enable browser access/i })).toHaveCount(0);
 

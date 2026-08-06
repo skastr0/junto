@@ -100,11 +100,12 @@ test("rts shell: role left, kind middle, region strip, pause everywhere", async 
   // Select the actor seat.
   await seat.click();
 
-  // Left bar: role-derived command card with the node pause toggle (actor).
+  // Left bar: command card with the node pause toggle; the kind label
+  // ("agent") lives in the middle kind strip now (no .rts-panel__label).
   const leftPause = page.getByTestId("rts-pause-node");
   await expect(leftPause).toBeVisible();
   await expect(leftPause).toHaveAttribute("data-paused", "false");
-  await expect(page.locator(".rts-panel--cmd .rts-panel__label")).toContainText("actor");
+  await expect(page.locator(".rts-kind-kind-label")).toContainText("agent");
 
   // Middle bar: kind surface (identity/actions + fields key).
   // ACP chat is hard-hidden (LEGACY_SURFACES_HIDDEN) — strip still labels the kind.
@@ -112,7 +113,8 @@ test("rts shell: role left, kind middle, region strip, pause everywhere", async 
   await expect(kindSurface).toBeVisible();
   const kindStrip = kindSurface.locator(".rts-kind-strip");
   await expect(kindStrip).toBeVisible();
-  await expect(kindStrip).toContainText("agent");
+  // Kind label lives beside the strip (span.rts-kind-kind-label), not inside it.
+  await expect(kindSurface.locator(".rts-kind-kind-label")).toContainText("agent");
   await expect(kindStrip.getByRole("button", { name: "Open chat" })).toHaveCount(0);
   await expect(kindStrip.getByRole("button", { name: "Open fields" })).toBeVisible();
 
@@ -139,14 +141,19 @@ test("rts shell: role left, kind middle, region strip, pause everywhere", async 
   await expect(leftPause).toHaveAttribute("data-paused", "false");
   await expect(toolbarPause).toHaveAttribute("data-paused", "false");
 
-  // Task sink: left gains open-detail, middle gains board + add-task keys.
+  // Task sink: left gains open-detail, middle kind strip labels the sink
+  // kind and gains board + add-task keys.
   await page.locator(".react-flow__node", { hasText: "tasks" }).first().click();
-  await expect(page.locator(".rts-panel--cmd .rts-panel__label")).toContainText("sink");
+  await expect(page.locator(".rts-kind-kind-label")).toContainText("task");
   await expect(
     page.locator(".rts-panel--cmd").getByRole("button", { name: "Open detail" }),
   ).toBeVisible();
   await expect(kindStrip.getByRole("button", { name: "Open task board" })).toBeVisible();
   await expect(kindStrip.getByRole("button", { name: "Add task" })).toBeVisible();
+  // The install-time fit centers the region, so the tasks sink sits outside
+  // the viewport and its floating toolbar (fixed-position) cannot be clicked.
+  // Frame the selected node through the command card first.
+  await page.locator(".rts-panel--cmd").getByRole("button", { name: "Focus" }).click();
   const taskToolbarEnqueue = page.getByTestId("node-toolbar-task-enqueue");
   await expect(taskToolbarEnqueue).toBeVisible();
   await taskToolbarEnqueue.click();
@@ -157,19 +164,32 @@ test("rts shell: role left, kind middle, region strip, pause everywhere", async 
   await page.screenshot({ path: join(SHOTS, "03-task-sink.png"), fullPage: false });
 
   // Add-task pop: submits through the work service; the sink card shows it.
+  // The workbench enqueue stays open after create (form clears for the next).
   await kindStrip.getByRole("button", { name: "Add task" }).click();
-  const brief = page.getByLabel("New task brief");
+  const brief = page.getByPlaceholder("What needs doing?");
   await expect(brief).toBeVisible();
   await page.screenshot({ path: join(SHOTS, "03b-add-task-pop.png"), fullPage: false });
   await brief.fill("wire the loop");
+  await page.getByPlaceholder(/Context, constraints/).fill("wire the loop end to end");
   await brief.press("Enter");
-  await expect(brief).not.toBeVisible();
+  await expect(brief).toHaveValue("");
   await expect(
     page.locator(".react-flow__node", { hasText: "wire the loop" }).first(),
   ).toBeVisible();
+  await page.getByRole("button", { name: "Close task enqueue" }).click();
+  await expect(page.getByTestId("task-enqueue-surface")).toBeHidden();
 
-  // Assign region to slot 1 (⌘/Ctrl+1), then pause via command card.
-  await page.locator(".react-flow__node", { hasText: "ops" }).first().click();
+  // The canvas is still framed on the tasks sink — assign it to slot 2.
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+2" : "Control+2");
+  const tasksChip = regionStrip.locator('.rts-chip--strip[data-node-id="tasks"]');
+  await expect(tasksChip).toBeVisible();
+  await page.screenshot({ path: join(SHOTS, "05-tasks-slotted.png"), fullPage: false });
+
+  // Reframe to the readable field (region-centered), then assign region to
+  // slot 1 (⌘/Ctrl+1) and pause via command card. Click the region plate at
+  // its top-left corner — the center is covered by the ops-seat member node.
+  await page.getByRole("button", { name: "Fit readable view" }).click();
+  await page.locator(".react-flow__node", { hasText: "ops" }).first().click({ position: { x: 24, y: 24 } });
   await page.keyboard.press(process.platform === "darwin" ? "Meta+1" : "Control+1");
   const regionChip = regionStrip.locator(".rts-chip--strip").first();
   await expect(regionChip).toBeVisible();
@@ -184,11 +204,4 @@ test("rts shell: role left, kind middle, region strip, pause everywhere", async 
   await page.screenshot({ path: join(SHOTS, "04-region-paused.png"), fullPage: false });
   await regionPause.click();
   await expect(regionPause).toHaveAttribute("data-paused", "false");
-
-  // Any node: assign the tasks sink to slot 2.
-  await page.locator(".react-flow__node", { hasText: "tasks" }).first().click();
-  await page.keyboard.press(process.platform === "darwin" ? "Meta+2" : "Control+2");
-  const tasksChip = regionStrip.locator('.rts-chip--strip[data-node-id="tasks"]');
-  await expect(tasksChip).toBeVisible();
-  await page.screenshot({ path: join(SHOTS, "05-tasks-slotted.png"), fullPage: false });
 });
