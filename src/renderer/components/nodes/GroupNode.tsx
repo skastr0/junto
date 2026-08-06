@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { use$ } from "@legendapp/state/react";
-import { NodeResizer, NodeToolbar, Position } from "@xyflow/react";
+import { NodeResizer, NodeToolbar, Position, useReactFlow, useStoreApi } from "@xyflow/react";
 import type { NodeProps } from "@xyflow/react";
 import { Crosshair, FolderOpen, Lock, ScrollText, Trash2 } from "lucide-react";
 import type { FlowNode } from "../../lib/convert";
 import { deleteNode, renameGroup } from "../../lib/mutations";
-import { resizeNode } from "../../lib/geometry";
+import { dragHoldMemberIds, resizeNode, syncPositions } from "../../lib/geometry";
 import { state$, toggleConnectionFocus } from "../../lib/state";
 import { accentColor, borderColor, HUE, INK, withAlpha } from "../../lib/theme";
+import { markViewportBusy, releaseViewportBusy } from "../../lib/viewport-busy";
 import {
+  isMultiSelectGesture,
   stopNodeGestureUnlessMultiSelect,
   useShiftMultiSelectDominance,
 } from "../../lib/multi-select-gesture";
@@ -179,9 +181,85 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
   // Selection chrome stays amber; unselected border + tint follow JSON Canvas
   // `color`. Region plate images are retired — color wash only.
   //
-  // pointer-events: plate none + chrome auto so rubber-band can start in empty
-  // interior without dragging the region (dragHandle lives on the label strip).
+  // The whole wrapper is pointer-transparent (see convert.ts) so rubber-band
+  // can start in the empty interior and reach the pane. The label strip is the
+  // only movable chrome: it implements its own drag (React Flow never sees
+  // wrapper events for this node) and click-select, and keeps the
+  // shift-multi-select capture handlers for additive toggling.
   const multiSelectCapture = useShiftMultiSelectDominance(node.id);
+  const rf = useReactFlow();
+  const rfStore = useStoreApi();
+  const regionDragRef = useRef<{
+    readonly startFlow: { readonly x: number; readonly y: number };
+    readonly startPos: { readonly x: number; readonly y: number };
+    readonly members: ReadonlyMap<string, { readonly x: number; readonly y: number }>;
+  } | null>(null);
+
+  const beginRegionDrag = (event: React.PointerEvent): void => {
+    if (event.button !== 0 || isMultiSelectGesture(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const flowNode = rf.getNode(node.id);
+    if (flowNode === undefined) return;
+    markViewportBusy();
+    const startFlow = rf.screenToFlowPosition({
+      x: event.clientX,
+      y: event.clientY,
+    });
+    const startPos = { ...flowNode.position };
+    const members = new Map<string, { readonly x: number; readonly y: number }>();
+    if (node.ether?.region?.hold) {
+      const doc = state$.doc.peek();
+      const regionDoc = doc.nodes.find((candidate) => candidate.id === node.id);
+      if (regionDoc === undefined || regionDoc.type !== "group") return;
+      for (const memberId of dragHoldMemberIds(doc, regionDoc)) {
+        const member = rf.getNode(memberId);
+        if (member !== undefined) members.set(memberId, { ...member.position });
+      }
+    }
+    regionDragRef.current = { startFlow, startPos, members };
+    const onMove = (event: PointerEvent): void => {
+      const drag = regionDragRef.current;
+      if (drag === null) return;
+      const now = rf.screenToFlowPosition({ x: event.clientX, y: event.clientY });
+      const dx = now.x - drag.startFlow.x;
+      const dy = now.y - drag.startFlow.y;
+      rf.updateNode(node.id, {
+        position: { x: drag.startPos.x + dx, y: drag.startPos.y + dy },
+      });
+      for (const [memberId, position] of drag.members) {
+        rf.updateNode(memberId, {
+          position: { x: position.x + dx, y: position.y + dy },
+        });
+      }
+    };
+    const onUp = (): void => {
+      regionDragRef.current = null;
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      releaseViewportBusy();
+      // Persist positions into the document, mirroring RF's onNodeDragStop.
+      const positions = new Map<string, { readonly x: number; readonly y: number }>();
+      for (const flow of rf.getNodes()) {
+        positions.set(flow.id, flow.position);
+      }
+      syncPositions(positions);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+  };
+
+  const selectRegionOnClick = (event: React.MouseEvent): void => {
+    if (isMultiSelectGesture(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const state = rfStore.getState();
+    if (state.nodeLookup.get(node.id)?.selected !== true) {
+      state.addSelectedNodes([node.id]);
+    }
+  };
   const plateBorder = selected ? withAlpha(HUE.amber, 0.6) : stroke;
   return <div
     className="vellum-group relative h-full w-full rounded-[14px]"
@@ -211,6 +289,8 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
       className="region-drag-handle absolute left-2 top-2 flex cursor-grab items-center gap-1 active:cursor-grabbing"
       style={{ pointerEvents: "auto" }}
       title="Drag region"
+      onPointerDown={beginRegionDrag}
+      onClick={selectRegionOnClick}
       onPointerDownCapture={multiSelectCapture.onPointerDownCapture}
       onClickCapture={multiSelectCapture.onClickCapture}
     >

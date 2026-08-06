@@ -186,10 +186,11 @@ test("rts shell: role left, kind middle, region strip, pause everywhere", async 
   await page.screenshot({ path: join(SHOTS, "05-tasks-slotted.png"), fullPage: false });
 
   // Reframe to the readable field (region-centered), then assign region to
-  // slot 1 (⌘/Ctrl+1) and pause via command card. Click the region plate at
-  // its top-left corner — the center is covered by the ops-seat member node.
+  // slot 1 (⌘/Ctrl+1) and pause via command card. Region interiors are inert
+  // background (rubber-band surface), so select the region through its label
+  // drag handle — the only movable chrome.
   await page.getByRole("button", { name: "Fit readable view" }).click();
-  await page.locator(".react-flow__node", { hasText: "ops" }).first().click({ position: { x: 24, y: 24 } });
+  await page.locator(".region-drag-handle", { hasText: "ops" }).first().click();
   await page.keyboard.press(process.platform === "darwin" ? "Meta+1" : "Control+1");
   const regionChip = regionStrip.locator(".rts-chip--strip").first();
   await expect(regionChip).toBeVisible();

@@ -94,7 +94,9 @@ const installBoard = async (page: Page, doc: CanvasDoc): Promise<void> => {
 const openRegionPaths = async (page: Page, regionNodeId: string) => {
   const region = page.getByTestId(`rf__node-${regionNodeId}`);
   await expect(region).toBeVisible({ timeout: 30_000 });
-  await region.click({ position: { x: 24, y: 24 } });
+  // Region interiors are inert background (rubber-band surface) — select the
+  // region through its label drag handle, the only movable chrome.
+  await region.locator(".region-drag-handle").click();
   const pathsBtn = page.getByRole("button", { name: /Region folder paths/i });
   await expect(pathsBtn).toBeVisible({ timeout: 10_000 });
   await pathsBtn.click();

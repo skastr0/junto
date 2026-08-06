@@ -123,10 +123,16 @@ export const toFlow = (
       ariaLabel: nodeTitle(node),
       focusable: true,
       selectable: true,
-      draggable: true,
-      // Region body must not steal rubber-band / empty-interior drags — only the
-      // chrome handle moves the region (see GroupNode `.region-drag-handle`).
-      ...(isGroup ? { dragHandle: ".region-drag-handle" } : {}),
+      draggable: !isGroup,
+      // Region body must read as plain background: the whole wrapper is
+      // pointer-transparent so a rubber-band drag can start inside the region
+      // and reach the pane. Only the chrome inside GroupNode re-enables
+      // pointer events (label drag handle, resizer, toolbar); the handle
+      // implements its own drag + click-select since React Flow never sees
+      // wrapper events for the node.
+      ...(isGroup
+        ? { style: { ...visualSize, pointerEvents: "none" as const } }
+        : {}),
     };
     cache?.nodes.set(node.id, flowNode);
     return flowNode;

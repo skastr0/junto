@@ -13,6 +13,7 @@ import {
   useEdgesState,
   useNodesState,
   useReactFlow,
+  useStoreApi,
 } from "@xyflow/react";
 import type { Connection, EdgeMouseHandler, FinalConnectionState, Node, OnNodeDrag } from "@xyflow/react";
 import { use$ } from "@legendapp/state/react";
@@ -33,6 +34,7 @@ import {
   type ImpactSelection,
 } from "../lib/impact-mode";
 import { markViewportBusy, releaseViewportBusy, viewportBusy$ } from "../lib/viewport-busy";
+import { isEditableEventTarget } from "../lib/multi-select-gesture";
 import { nodeTitle } from "../lib/presentation";
 import { AGENT_NODE_SIZE } from "../lib/node-geometry";
 import { addNode, deleteNodes, setFlagForNodes } from "../lib/mutations";
@@ -1353,6 +1355,47 @@ function CanvasGraph() {
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
   }, [rf, placeImagesAt]);
+
+  // Shift multi-select is product law: a shift+primary press on a node is
+  // additive selection — never open, rename, edit, or React Flow's own
+  // marquee. React Flow's pane capture handler (an ancestor of the node
+  // shell) runs before the per-node shell handlers and would swallow the
+  // event, so the dominance handler lives at window capture: it fires first,
+  // toggles the node in the selection, and stops the event from ever
+  // reaching the pane or any node chrome.
+  const rfStore = useStoreApi();
+  useEffect(() => {
+    const dominateShiftMultiSelect = (event: PointerEvent): void => {
+      if (!event.shiftKey || event.button !== 0) return;
+      if (isEditableEventTarget(event.target)) return;
+      const target = event.target instanceof Element ? event.target : null;
+      const nodeElement = target?.closest(".react-flow__node") ?? null;
+      const nodeId = nodeElement?.getAttribute("data-id");
+      if (nodeElement === null || nodeId === null || nodeId === undefined) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      const state = rfStore.getState();
+      if (!state.multiSelectionActive) {
+        rfStore.setState({ multiSelectionActive: true });
+      }
+      const node = state.nodeLookup.get(nodeId);
+      if (node === undefined) return;
+      if (!node.selected) {
+        state.addSelectedNodes([nodeId]);
+      } else {
+        state.unselectNodesAndEdges({ nodes: [node], edges: [] });
+      }
+    };
+    window.addEventListener("pointerdown", dominateShiftMultiSelect, {
+      capture: true,
+    });
+    return () =>
+      window.removeEventListener("pointerdown", dominateShiftMultiSelect, {
+        capture: true,
+      });
+  }, [rfStore]);
 
   // Boolean only — flips when a cone appears/clears, not on every kernel tick.
   const impactMode = use$(impactModeActive$);
