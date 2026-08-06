@@ -141,6 +141,7 @@ import {
   summarizeNode,
 } from "./authz";
 import { resolveCallerAcrossCanvases } from "./caller-resolve";
+import { injectionSupervisor } from "../term/injection-supervisor";
 import {
   admitProcessIdentity,
   getProcessIdentityMap,
@@ -1755,6 +1756,10 @@ export const startWorkControlServer = async (
                   },
                 });
               }
+              // Bootstrap proof: any work-plane call from the seat's own
+              // process is definitive evidence the agent knows the factory
+              // CLI — the injection supervisor stops re-engaging on this.
+              injectionSupervisor.noteWorkPlaneCall(admission.principal.bindingId);
               const occupant =
                 occupantKeyForPrincipal(
                   admission.principal,

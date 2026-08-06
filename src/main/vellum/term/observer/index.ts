@@ -56,6 +56,14 @@ export class TerminalObserverPlane {
     return observer;
   }
 
+  /** Register a global snapshot listener (supervisor, diagnostics). */
+  subscribeGlobal(listener: ObserverListener): () => void {
+    this.globalListeners.add(listener);
+    return () => {
+      this.globalListeners.delete(listener);
+    };
+  }
+
   detach(bindingId: string, epoch?: string): void {
     const obs = this.byBinding.get(bindingId);
     if (!obs) return;

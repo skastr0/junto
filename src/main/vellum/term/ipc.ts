@@ -6,6 +6,7 @@ import type { TerminalLaunch } from "@shared/terminal";
 import { messageDelivery } from "../work/message-delivery";
 import type { ControlLease, LocalHostEvent } from "./local-host";
 import type { TermPlane } from "./plane";
+import { injectionSupervisor } from "./injection-supervisor";
 
 type LeaseOwner = {
   readonly lease: ControlLease;
@@ -281,7 +282,12 @@ export const registerTerminalIpc = (
       if (!owner) return false;
       const decoded =
         encoding === "base64" ? Buffer.from(data, "base64").toString("utf8") : data;
-      return router.write(owner.lease, decoded, owner.hostId);
+      const written = router.write(owner.lease, decoded, owner.hostId);
+      // Input-origin tagging: user keystrokes must suppress injection.
+      void written.then((ok) => {
+        if (ok) injectionSupervisor.noteUserInput(owner.lease.bindingId);
+      });
+      return written;
     },
   );
 

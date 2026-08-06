@@ -48,6 +48,7 @@ import { ContentService } from "./content/service";
 import { messageDelivery } from "./work/message-delivery";
 import { mailboxMessageDeliveryId } from "./work/mailbox-receipts";
 import { onCanvasChangeForMsgSendEnable } from "./work/msg-send-enable-notify";
+import { onCanvasChangeForEdgeSlots } from "./work/edge-slot-inject-notify";
 import { WorkRepository } from "./work/repository";
 import { kernelRecordFromSnapshot } from "@shared/station-status";
 import { HerdrPlane } from "./herdr/plane";
@@ -60,9 +61,15 @@ import {
 } from "./term/drive/claude-startup";
 import { isManagedTerminalReady } from "./term/drive/readiness";
 import { seatStateRuntime } from "./term/agent-state";
+import { injectionSupervisor } from "./term/injection-supervisor";
+import {
+  connectedTargetsForNode,
+  nodeHasActionableFactoryEdge,
+} from "./term/managed-spawn-plan";
 import {
   peekFirstTypedMessage,
   takeFirstTypedMessage,
+  clearDeliveredForBinding,
 } from "./term/first-typed";
 import {
   makeManagedPulseDeliver,
@@ -1053,6 +1060,14 @@ export const registerVellumIpc = (): void => {
           onCanvasChangeForMsgSendEnable(name, detail),
         );
       });
+      // Rising-edge mailbox notify when an agent seat gains a slot-bearing edge:
+      // the new target's edge contract is injected so the seat learns its new
+      // command surface without re-onboarding.
+      canvases.subscribeChanges((name, detail) => {
+        void AppRuntime.runPromise(
+          onCanvasChangeForEdgeSlots(name, detail),
+        );
+      });
       snapshots.subscribe((state) => broadcast(IPC_CHANNELS.snapshotsChanged, state));
       if (USAGE_ENABLED) {
         usage.subscribe((state) => broadcast(IPC_CHANNELS.usageChanged, state));
@@ -1161,6 +1176,53 @@ export const registerVellumIpc = (): void => {
           ready: options?.ready ?? driveReady(bindingId),
           ...(options ?? {}),
         });
+      // Supervisor transport wiring: re-delivered doctrine goes through the
+      // same drive as first-typed doctrine; escalation surfaces on the canvas
+      // via the seat state machine (attention with an operator-facing reason).
+      injectionSupervisor.setWriter((bindingId, text) =>
+        writeManagedPrompt(bindingId, text),
+      );
+      // The context provider resolves the seat's CURRENT edge reality so
+      // re-delivered doctrine is the same compiled body as spawn — one
+      // prompt, dynamic only by edges.
+      injectionSupervisor.setContextProvider(async (bindingId) => {
+        const rec = termPlane.host.get(bindingId);
+        if (!rec?.canvasName || !rec.nodeId) {
+          return { seatBound: true, connected: false, seatRef: bindingId };
+        }
+        const canvasName = rec.canvasName;
+        const nodeId = rec.nodeId;
+        try {
+          const result = await AppRuntime.runPromise(
+            Effect.flatMap(CanvasesService, (c) =>
+              c.read(canvasName).pipe(Effect.result),
+            ),
+          );
+          if (result._tag !== "Success") {
+            return { seatBound: true, connected: false, seatRef: nodeId };
+          }
+          const doc = result.success.doc;
+          return {
+            seatBound: true,
+            connected: nodeHasActionableFactoryEdge(doc, nodeId),
+            seatRef: nodeId,
+            connectedTargets: connectedTargetsForNode(doc, nodeId),
+          };
+        } catch {
+          return { seatBound: true, connected: false, seatRef: nodeId };
+        }
+      });
+      injectionSupervisor.setEscalationHandler((bindingId, reason) => {
+        seatStateRuntime.machine.force(
+          bindingId,
+          "attention",
+          reason,
+          "high",
+        );
+      });
+      terminalObserverPlane.subscribeGlobal((snap) => {
+        injectionSupervisor.onSnapshot(snap);
+      });
       const writeManagedPulse = makeManagedPulseDeliver(
         (bindingId, text, options) =>
           managedDrive.writePrompt(bindingId, text, options),
@@ -1216,6 +1278,13 @@ export const registerVellumIpc = (): void => {
       }, { replayCurrentSessions: true });
       seatStateRuntime.subscribe((event) => {
         broadcast(IPC_CHANNELS.agentSeatStateChanged, event);
+        // Injection supervisor: event-driven re-engagement policy.
+        injectionSupervisor.noteSeatState(event);
+        if (event.state === "gone") {
+          // Generation exited: a resumed generation must be able to receive
+          // the doctrine again (cold resume must not re-zero the seat).
+          clearDeliveredForBinding(event.bindingId);
+        }
         if (
           event.state === "attention" &&
           !productAutomationSuspended &&

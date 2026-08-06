@@ -35,6 +35,18 @@ export const clearFirstTypedMessage = (bindingId: string): void => {
   delivered.delete(id);
 };
 
+/**
+ * Clear the delivered registry for one binding so a resumed generation can
+ * receive the doctrine again (cold resume must not re-zero the seat).
+ * Called when the supervisor observes a generation change.
+ */
+export const clearDeliveredForBinding = (bindingId: string): void => {
+  const id = bindingId.trim();
+  if (!id) return;
+  pending.delete(id);
+  delivered.delete(id);
+};
+
 /** Test seam. */
 export const resetFirstTypedForTest = (): void => {
   pending.clear();
