@@ -94,11 +94,43 @@ describe("finish criteria", () => {
       canvasName: "board",
       evidence: normalizeCompletionEvidence({
         artifacts: [{ artifactId: "a1", nodeId: "art1" }],
-        git: { commits: ["abc123"] },
+        git: { commits: ["3f8a2c9d1b4e5f60718293a4b5c6d7e8f9012345"] },
       }),
       artifactsByNode: new Map([["art1", [art]]]),
     });
     expect(fail).toBeUndefined();
+  });
+
+  it("rejects git evidence that is not a real object id format", () => {
+    const art = artifact();
+    const fail = evaluateFinishCriteria({
+      task: baseTask({
+        finishCriteria: { git: { minCommits: 1 } },
+      }),
+      taskNodeId: "tasks",
+      canvasName: "board",
+      evidence: normalizeCompletionEvidence({
+        artifacts: [],
+        git: { commits: ["abc123", "xyz"] },
+      }),
+      artifactsByNode: new Map([["art1", [art]]]),
+    });
+    expect(fail?.missing).toBe("git.sha_format");
+  });
+
+  it("rejects duplicate git evidence padding the count", () => {
+    const art = artifact();
+    const dupes = ["3f8a2c9d1b4e5f60718293a4b5c6d7e8f9012345", "3f8a2c9d1b4e5f60718293a4b5c6d7e8f9012345"];
+    const fail = evaluateFinishCriteria({
+      task: baseTask({
+        finishCriteria: { git: { minCommits: 2 } },
+      }),
+      taskNodeId: "tasks",
+      canvasName: "board",
+      evidence: normalizeCompletionEvidence({ artifacts: [], git: { commits: dupes } }),
+      artifactsByNode: new Map([["art1", [art]]]),
+    });
+    expect(fail?.missing).toBe("git.commits");
   });
 
   it("rejects unlinked artifact", () => {

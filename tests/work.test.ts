@@ -656,9 +656,9 @@ describe("work pure transforms", () => {
       "completed",
       undefined,
       ids,
-      { artifacts: [], git: { commits: ["abc"] } }
+      { artifacts: [], git: { commits: ["3f8a2c9d1b4e5f60718293a4b5c6d7e8f9012345"] } }
     );
-    expect(withEvidence.task.completionEvidence?.git?.commits).toEqual(["abc"]);
+    expect(withEvidence.task.completionEvidence?.git?.commits).toEqual(["3f8a2c9d1b4e5f60718293a4b5c6d7e8f9012345"]);
   });
 
   it("rejects the retired metadata claimant instead of tolerating a dual shape", () => {

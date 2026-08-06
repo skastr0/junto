@@ -191,10 +191,20 @@ export const evaluateFinishCriteria = (params: {
 
   if (criteria.git !== undefined) {
     const commits = evidence?.git?.commits ?? [];
-    if (commits.length < criteria.git.minCommits) {
+    const unique = [...new Set(commits.filter((c) => c.length > 0))];
+    const invalid = unique.filter((c) => !/^[0-9a-fA-F]{40}$/.test(c) && !/^[0-9a-fA-F]{64}$/.test(c));
+    if (invalid.length > 0) {
+      return {
+        missing: "git.sha_format",
+        message: `task "${params.task.id}" cites ${invalid.length} git commit(s) that are not valid SHA-1 (40 hex) or SHA-256 (64 hex) object ids`,
+        next_step:
+          "Cite real commit object ids from the work repository (git rev-parse HEAD), then complete with completionEvidence.git.commits",
+      };
+    }
+    if (unique.length < criteria.git.minCommits) {
       return {
         missing: "git.commits",
-        message: `task "${params.task.id}" requires at least ${criteria.git.minCommits} git commit(s); got ${commits.length}`,
+        message: `task "${params.task.id}" requires at least ${criteria.git.minCommits} distinct git commit(s); got ${unique.length}`,
         next_step:
           "Commit work, then complete with completionEvidence.git.commits: [\"<sha>\", ...]",
       };
