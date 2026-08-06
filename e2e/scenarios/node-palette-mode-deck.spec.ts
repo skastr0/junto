@@ -76,11 +76,16 @@ test("Mode Deck exposes the searchable catalog and keeps launch context dense at
     await expect(deck.getByRole("button", { name: /herdr/i })).toBeVisible();
 
     await deck.getByRole("tab", { name: "Schedule", exact: true }).click();
-    for (const scheduler of ["Cron", "Gauge", "Relay"]) {
+    // Gauge (hermes stat_threshold) is palette-hidden — cron and relay are
+    // the product scheduler peers.
+    for (const scheduler of ["Cron", "Relay"]) {
       await expect(
         deck.locator(".node-deck-catalog__card").filter({ hasText: scheduler }),
       ).toBeVisible();
     }
+    await expect(
+      deck.locator(".node-deck-catalog__card").filter({ hasText: "Gauge" }),
+    ).toHaveCount(0);
 
     const agentPane = deck.locator('aside[aria-label="Agents"]');
     const launchContext = agentPane.getByRole("region", {
@@ -110,11 +115,8 @@ test("Mode Deck exposes the searchable catalog and keeps launch context dense at
       name: "Agent connection summary",
     });
     await expect(wiring).toContainText("Tasks");
-    for (const port of ["tasks.list", "tasks.claim", "tasks.update"]) {
-      await expect(wiring.locator("code").filter({ hasText: port })).toBeVisible();
-    }
+    await expect(wiring).toContainText("claims and completes work");
     await expect(wiring).toContainText("Requests and Artifacts");
-    await expect(wiring).toContainText("Schedulers enqueue at Tasks");
 
     const lastAgentBox = await agentRows.at(-1)!.boundingBox();
     const wiringBox = await wiring.boundingBox();
@@ -122,12 +124,13 @@ test("Mode Deck exposes the searchable catalog and keeps launch context dense at
     expect(lastAgentBox).not.toBeNull();
     expect(wiringBox).not.toBeNull();
     expect(launchBox).not.toBeNull();
+    // The agent list absorbs leftover column height (free space lives inside
+    // its scroll region), so wiring sits at the pane foot — below the last
+    // row but not necessarily adjacent. The launch context must stay dense
+    // under the wiring.
     expect(wiringBox!.y).toBeGreaterThanOrEqual(
       lastAgentBox!.y + lastAgentBox!.height,
     );
-    expect(
-      wiringBox!.y - (lastAgentBox!.y + lastAgentBox!.height),
-    ).toBeLessThanOrEqual(24);
     expect(launchBox!.y).toBeGreaterThanOrEqual(
       wiringBox!.y + wiringBox!.height,
     );
@@ -334,12 +337,13 @@ test("node detail rail preserves navigation while explaining primary and seconda
       name: "Terminal details",
     });
     await expect(detail).toBeVisible();
-    await expect(detail).toContainText(/managed shell/i);
+    await expect(detail).toContainText(/shell on the selected machine/i);
     await expect(detail.locator(".node-deck-catalog__detail-copy strong"))
       .toHaveCSS("text-transform", "none");
-    const connectionMap = detail.locator(".node-deck-catalog__connection-map");
-    await expect(connectionMap).not.toHaveCount(0);
-    await expect(connectionMap).toHaveCSS("text-transform", "none");
+    const wireMap = detail.locator(".node-deck-catalog__wires");
+    await expect(wireMap).not.toHaveCount(0);
+    await expect(wireMap).toHaveCSS("text-transform", "none");
+    await expect(wireMap).toContainText("No wires — open it and work by hand.");
     await expect(page.getByRole("tooltip")).toHaveCount(0);
     await expect(deck).not.toContainText(/inspect - click to add/i);
 
@@ -357,17 +361,19 @@ test("node detail rail preserves navigation while explaining primary and seconda
       name: "Tasks details",
     });
     await expect(taskDetail).toBeVisible();
-    await expect(taskDetail).toContainText("Agent");
-    await expect(taskDetail).toContainText("Scheduler");
-    await expect(taskDetail).toContainText("tasks.claim");
-    await expect(taskDetail.locator(".node-deck-catalog__connection--primary"))
-      .toHaveCount(1);
-    await expect(taskDetail.locator(".node-deck-catalog__connection--secondary"))
-      .not.toHaveCount(0);
+    // Wire explainer: one access line (agent ports) + watch/effect lines.
+    await expect(taskDetail).toContainText("Agents can:");
+    await expect(taskDetail).toContainText("Claim tasks");
+    await expect(taskDetail).toContainText("A relay can watch:");
+    await expect(taskDetail).toContainText("Cron and relay can:");
+    await expect(
+      taskDetail.locator(".node-deck-catalog__wire-family").filter({ hasText: "access" }),
+    ).toHaveCount(1);
+    await expect(taskDetail.locator(".node-deck-catalog__wire-family")).not.toHaveCount(0);
 
-    const relationships = taskDetail.locator(".node-deck-catalog__relationships");
-    await expect(relationships).toBeVisible();
-    await expect(relationships.locator("img")).toHaveCount(0);
+    const wires = taskDetail.locator(".node-deck-catalog__wires");
+    await expect(wires).toBeVisible();
+    await expect(wires.locator("img")).toHaveCount(0);
   } finally {
     await vellumCommand.close();
   }

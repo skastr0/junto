@@ -118,8 +118,8 @@ test("region folder paths — empty, save, escape", async ({ vellumCommand }) =>
   let dialog = await openRegionPaths(page, regionEmpty.id);
   await expect(dialog.getByText("Folder paths", { exact: true })).toBeVisible();
   // Empty bag seeds one local host row + host directory picker (not a bare text field).
-  await expect(dialog.getByRole("list", { name: "Host folder paths" })).toBeVisible();
-  await expect(dialog.getByRole("textbox", { name: /Default path for local/i })).toBeVisible();
+  await expect(dialog.getByRole("listbox", { name: "Hosts with paths" })).toBeVisible();
+  await expect(dialog.getByRole("textbox", { name: /Working directory for /i })).toBeVisible();
   await expect(dialog.getByRole("button", { name: /use this folder/i })).toBeVisible();
   await expect(dialog.getByRole("button", { name: /add host/i })).toBeVisible();
   await expect(dialog.getByRole("button", { name: /save/i })).toBeVisible();
@@ -130,15 +130,15 @@ test("region folder paths — empty, save, escape", async ({ vellumCommand }) =>
     fullPage: false,
   });
 
-  const pathInput = dialog.getByRole("textbox", { name: /Default path for local/i });
+  const pathInput = dialog.getByRole("textbox", { name: /Working directory for /i });
   await pathInput.fill("/Users/operator/Projects/forge");
   await dialog.getByRole("button", { name: /^save$/i }).click();
   await expect(dialog).toHaveCount(0);
 
   dialog = await openRegionPaths(page, regionEmpty.id);
-  await expect(dialog.getByRole("textbox", { name: /Default path for local/i })).toHaveValue(
-    "/Users/operator/Projects/forge",
-  );
+  await expect(
+    dialog.getByRole("textbox", { name: /Working directory for /i }),
+  ).toHaveValue("/Users/operator/Projects/forge");
   await page.screenshot({
     path: join(SHOTS, "21-region-paths-saved.png"),
     fullPage: false,
@@ -157,12 +157,14 @@ test("region folder paths — multi-host seed + remove", async ({ vellumCommand 
   });
 
   let dialog = await openRegionPaths(page, regionFilled.id);
-  await expect(dialog.getByRole("list", { name: "Host folder paths" })).toBeVisible();
+  await expect(dialog.getByRole("listbox", { name: "Hosts with paths" })).toBeVisible();
+  // The picker shows the selected host only — local is the first stored key.
   await expect(
-    dialog.getByRole("textbox", { name: /Default path for local/i }),
+    dialog.getByRole("textbox", { name: /Working directory for /i }),
   ).toHaveValue("/Users/operator/Projects/vellum");
+  await dialog.getByRole("option", { name: /remote-a/i }).click();
   await expect(
-    dialog.getByRole("textbox", { name: /Default path for remote-a/i }),
+    dialog.getByRole("textbox", { name: /Working directory for remote-a/i }),
   ).toHaveValue("/home/operator/vellum");
   await expect(dialog.getByRole("button", { name: /use this folder/i }).first()).toBeVisible();
   await page.screenshot({
@@ -170,14 +172,14 @@ test("region folder paths — multi-host seed + remove", async ({ vellumCommand 
     fullPage: false,
   });
 
-  await dialog.getByRole("button", { name: /Remove path for remote-a/i }).click();
-  await expect(dialog.getByRole("textbox", { name: /Default path for remote-a/i })).toHaveCount(0);
+  await dialog.getByRole("button", { name: /Remove remote-a/i }).click();
+  await expect(dialog.getByRole("option", { name: /remote-a/i })).toHaveCount(0);
   await dialog.getByRole("button", { name: /^save$/i }).click();
   await expect(dialog).toHaveCount(0);
 
   dialog = await openRegionPaths(page, regionFilled.id);
   await expect(
-    dialog.getByRole("textbox", { name: /Default path for local/i }),
+    dialog.getByRole("textbox", { name: /Working directory for /i }),
   ).toHaveValue("/Users/operator/Projects/vellum");
-  await expect(dialog.getByRole("textbox", { name: /Default path for remote-a/i })).toHaveCount(0);
+  await expect(dialog.getByRole("option", { name: /remote-a/i })).toHaveCount(0);
 });

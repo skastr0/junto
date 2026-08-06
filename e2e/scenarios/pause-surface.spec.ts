@@ -92,11 +92,11 @@ test("pause surface: born paused in top bar, first play confirms, confirm flips 
   await control.click();
   const confirm = page.getByTestId("first-play-confirm");
   await expect(confirm).toBeVisible();
-  await expect(confirm).toContainText("Play the factory");
-  await expect(confirm).toContainText("Timers and watchers");
+  await expect(confirm).toContainText("Start");
+  await expect(confirm).toContainText("Cron and relay nodes start firing");
   await expect(confirm).toContainText("Vellum Command CLI");
-  await expect(confirm).toContainText("Queued messages will deliver");
-  await expect(confirm).toContainText("claim tick");
+  await expect(confirm).toContainText("Queued messages deliver to their targets");
+  await expect(confirm).toContainText("Queued tasks are handed to free connected agents");
   await page.screenshot({ path: join(SHOTS, "02-first-play-confirm.png"), fullPage: false });
 
   // Cancel changes nothing.
