@@ -178,10 +178,11 @@ JSON-in/JSON-out — every command takes one JSON argument (inline, \`@file\`, o
 | live contract / grants | \`vellum-command capabilities\` |
 | thought bubble | \`vellum-command preamble '{"text":"..."}'\` |
 | schemas / examples | \`vellum-command schema show <command>\` - \`vellum-command examples show <command>\` |
+| full documentation | \`vellum-command docs\` - \`vellum-command docs node <kind>\` — the complete doctrine and per-node-kind docs (ports, data models, events) |
 
 ### Tool law
 
-For an unfamiliar command, in order: \`examples show <command>\` → \`schema show <command>\` → execute. Prefer copy-paste JSON over inventing flags.
+For an unfamiliar command, in order: \`examples show <command>\` → \`schema show <command>\` → execute. Prefer copy-paste JSON over inventing flags. For the full picture — doctrine, node kinds, ports, data models, events — pull \`vellum-command docs\`; the CLI is stateful and current, the injection is only the pointer.
 
 Errors are **ground truth** — do not invent around them. Read \`type\` and \`next_step\`:
 

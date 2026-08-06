@@ -1,0 +1,140 @@
+// V4: Args→Argument, Options→Flag. Map: ../effect-v4-import-map.ts
+import { Argument, Command } from "effect/unstable/cli";
+import { Effect } from "effect";
+import {
+  buildConceptsDoc,
+  buildDoctrineDoc,
+  buildDocsTopicList,
+  buildNodeKindDoc,
+  buildNodesCatalogDoc,
+  DOC_TOPICS,
+} from "@shared/vellum-docs";
+import { commandCapabilities } from "../core/discovery";
+import { InputError } from "../core/errors";
+import { executeJsonCommand } from "../core/output";
+
+const topicArg = Argument.string("topic").pipe(
+  Argument.withDescription("Documentation topic id"),
+);
+
+const kindArg = Argument.string("kind").pipe(
+  Argument.withDescription("Node kind (task, requests, artifacts, board, agent, page, terminal, cron, relay, timer, watcher)"),
+);
+
+const docsListCommand = Command.make("list", {}, () =>
+  executeJsonCommand(
+    "docs list",
+    Effect.succeed({
+      topics: DOC_TOPICS.map((t) => ({ id: t.id, title: t.title, description: t.description })),
+    }),
+  ),
+).pipe(Command.withDescription("List documentation topics"));
+
+const docsDoctrineCommand = Command.make("doctrine", {}, () =>
+  executeJsonCommand(
+    "docs doctrine",
+    Effect.succeed({ topic: "doctrine", content: buildDoctrineDoc() }),
+  ),
+).pipe(Command.withDescription("Full doctrine: injected body + expansions"));
+
+const docsNodesCommand = Command.make("nodes", {}, () =>
+  executeJsonCommand(
+    "docs nodes",
+    Effect.succeed({ topic: "nodes", content: buildNodesCatalogDoc() }),
+  ),
+).pipe(Command.withDescription("Node catalog: role + ports per kind"));
+
+const docsNodeCommand = Command.make(
+  "node",
+  { kind: kindArg },
+  ({ kind }) =>
+    executeJsonCommand(
+      "docs node",
+      Effect.gen(function* () {
+        const content = buildNodeKindDoc(kind);
+        if (content === undefined) {
+          return yield* Effect.fail(
+            new InputError({
+              message: `unknown node kind ${kind}`,
+              path: "kind",
+            }),
+          );
+        }
+        return { topic: "node", kind, content };
+      }),
+    ),
+).pipe(Command.withDescription("One node kind in depth: role, ports, data model, events"));
+
+const docsConceptsCommand = Command.make("concepts", {}, () =>
+  executeJsonCommand(
+    "docs concepts",
+    Effect.succeed({ topic: "concepts", content: buildConceptsDoc() }),
+  ),
+).pipe(Command.withDescription("Concepts: seats, grants, factory, earned completion, identity"));
+
+const docsContractCommand = Command.make("contract", {}, () =>
+  executeJsonCommand(
+    "docs contract",
+    Effect.succeed({
+      topic: "contract",
+      content: [
+        "# CLI contract — full surface",
+        "",
+        "| command | category | description |",
+        "|---|---|---|",
+        ...commandCapabilities.map(
+          (c) => `| \`vellum-command ${c.command}\` | ${c.category} | ${c.description} |`,
+        ),
+      ].join("\n"),
+    }),
+  ),
+).pipe(Command.withDescription("Full command surface"));
+
+const docsShowCommand = Command.make(
+  "show",
+  { topic: topicArg },
+  ({ topic }) =>
+    executeJsonCommand(
+      "docs show",
+      Effect.gen(function* () {
+        switch (topic) {
+          case "doctrine":
+            return { topic, content: buildDoctrineDoc() };
+          case "nodes":
+            return { topic, content: buildNodesCatalogDoc() };
+          case "concepts":
+            return { topic, content: buildConceptsDoc() };
+          case "contract":
+            return yield* Effect.fail(
+              new InputError({
+                message: "use `docs contract` for the command surface",
+                path: "topic",
+              }),
+            );
+          default:
+            return yield* Effect.fail(
+              new InputError({
+                message: `unknown topic ${topic} — docs list`,
+                path: "topic",
+              }),
+            );
+        }
+      }),
+    ),
+).pipe(Command.withDescription("Show one documentation topic"));
+
+export const docsCommand = Command.make("docs").pipe(
+  Command.withDescription("Vellum Command documentation — the full doctrine and node catalog"),
+  Command.withSubcommands([
+    docsListCommand,
+    docsDoctrineCommand,
+    docsNodesCommand,
+    docsNodeCommand,
+    docsConceptsCommand,
+    docsContractCommand,
+    docsShowCommand,
+  ]),
+);
+
+// Keep buildDocsTopicList referenced for tests/smoke.
+void buildDocsTopicList;

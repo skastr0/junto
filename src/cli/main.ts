@@ -22,6 +22,7 @@ import {
   tasksCommand,
 } from "./commands/work";
 import { contentCommand } from "./commands/content";
+import { docsCommand } from "./commands/docs";
 import {
   fleetOperatorCommand,
   qualificationOperatorCommand,
@@ -66,6 +67,7 @@ export const rootCommand = Command.make(CLI_NAME).pipe(
     escalateCommand,
     artifactCommand,
     contentCommand,
+    docsCommand,
     boardCommand,
     stationOperatorCommand,
     fleetOperatorCommand,
