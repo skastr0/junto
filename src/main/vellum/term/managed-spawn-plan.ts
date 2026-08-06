@@ -239,6 +239,9 @@ export const planManagedSpawn = (input: SpawnPlanInput): ManagedLaunchPlan | und
     });
   const choices: ManagedLaunchChoices = {
     injection: {
+      // A canvas seat is always seat-bound: base doctrine injects even with no
+      // actionable edge; edge contracts compile in when edges connect.
+      seatBound: Boolean(input.doc && input.nodeId),
       connected,
       ...(input.nodeId
         ? { seatRef: input.nodeId }
@@ -339,7 +342,8 @@ export const planFreshPinSession = (input: {
     (input.harness === "hermes" ? profileFromAgentKey(input.agentKey) : undefined);
   const cwd = input.cwd?.trim() || input.documentLaunch?.cwd?.trim() || undefined;
   return resolveManagedLaunchPlan(input.harness, {
-    injection: { connected: false },
+    // Fresh-pin recovery: no seat context — detached silence.
+    injection: { seatBound: false, connected: false },
     sessionId: input.sessionId,
     ...(profile ? { profile } : {}),
     ...(recovered.model ? { model: recovered.model } : {}),

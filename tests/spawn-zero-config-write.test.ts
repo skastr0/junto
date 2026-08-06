@@ -28,7 +28,7 @@ describe("zero-config-write spawn audit", () => {
     };
     for (const h of harnesses) {
       const plan = resolveManagedLaunchPlan(h, {
-        injection: { connected: true },
+        injection: { seatBound: true, connected: true },
         model: "m",
       }, ambient);
       const env = plan.launch.env ?? {};
@@ -63,7 +63,7 @@ describe("zero-config-write spawn audit", () => {
       resolveManagedLaunchPlan(
         h,
         {
-          injection: { connected: true },
+          injection: { seatBound: true, connected: true },
           sessionId: "11111111-1111-1111-1111-111111111111",
           cwd: tmp,
         },

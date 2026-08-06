@@ -119,7 +119,7 @@ export const makeManagedAgentNode = (
       ...(options.model ? { model: options.model } : {}),
       ...(options.effort ? { effort: options.effort } : {}),
       ...(options.cwd ? { cwd: options.cwd } : {}),
-      injection: { connected: false },
+      injection: { seatBound: false, connected: false },
     },
     {},
   );
@@ -155,7 +155,7 @@ export const makeManagedAgentNode = (
             ...(options.effort ? { effort: options.effort } : {}),
             ...(options.cwd ? { cwd: options.cwd } : {}),
             sessionId: pinSession,
-            injection: { connected: false },
+            injection: { seatBound: false, connected: false },
           },
           {},
         );
