@@ -538,7 +538,7 @@ function ArtifactFocusModal({
       panelClassName="artifact-focus nowheel"
     >
       <OverlayHeader
-        eyebrow={`artifact · ${kind}`}
+        eyebrow={`artifact - ${kind}`}
         title={name}
         status={artifactTaskReferenceLabel(artifact) ?? undefined}
         actions={
@@ -678,7 +678,7 @@ export function ArtifactLibrary({
                             `${artifact.parts.length} part${artifact.parts.length === 1 ? "" : "s"}`,
                           ]
                             .filter(Boolean)
-                            .join(" · ")}
+                            .join(" - ")}
                         </small>
                       </span>
                       <Chip tone="violet">{kind}</Chip>

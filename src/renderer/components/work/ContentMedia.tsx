@@ -389,7 +389,7 @@ export function ContentMedia({
           <span>{formatBytes(contentRef.byteLength)}</span>
           <small>
             {textError
-              ? `Could not preview · ${textError}`
+              ? `Could not preview - ${textError}`
               : isTextLikeMediaType(contentRef.mediaType)
                 ? "Loading preview…"
                 : contentRef.mediaType}
