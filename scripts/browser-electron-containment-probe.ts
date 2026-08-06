@@ -996,7 +996,7 @@ const assertContainment = (
 ): void => {
   const globals = report.globals;
   if (!isRecord(globals)) throw new Error("hostile page did not report globals");
-  for (const name of ["require", "process", "Buffer", "module", "vellum", "chassis"]) {
+  for (const name of ["require", "process", "Buffer", "module", "vellumCommand", "chassis"]) {
     if (globals[name] !== "undefined") {
       throw new Error(`hostile page observed privileged global ${name}=${String(globals[name])}`);
     }
