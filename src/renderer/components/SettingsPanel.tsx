@@ -79,9 +79,9 @@ function FieldRow({
 function AppearanceSection() {
   const appearance = use$(state$.settings.appearance);
   const modes = [
+    { key: "system", label: "Auto", blurb: "follow macOS" },
     { key: "dark", label: "Dark", blurb: "deep field" },
     { key: "bright", label: "Bright", blurb: "warm paper" },
-    { key: "system", label: "System", blurb: "follow macOS" },
   ] as const;
   return (
     <div className="settings-section">
