@@ -25,7 +25,6 @@ const KEY_ID = /^[a-z0-9][a-z0-9._-]{7,63}$/u;
 const SHA256 = /^[0-9a-f]{64}$/u;
 const SEMVER = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u;
 const LIBC_VERSION = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u;
-const TRUST_MAX_VALIDITY_MS = 31 * 24 * 60 * 60 * 1_000;
 const productionCandidateBrand: unique symbol = Symbol(
   "ProductionLinuxDeployBundleCandidate",
 );
@@ -123,12 +122,10 @@ const compareDottedVersion = (left: string, right: string): number => {
 };
 
 const embeddedProductionLinuxReleaseTrust =
-  (now: number): EmbeddedProductionLinuxReleaseTrust => {
+  (): EmbeddedProductionLinuxReleaseTrust => {
     const policy = embeddedReleaseTrustPolicy as {
       readonly schema?: unknown;
       readonly state?: unknown;
-      readonly issuedAt?: unknown;
-      readonly expiresAt?: unknown;
       readonly trustedKeyringRevision?: unknown;
       readonly trustedKeyringSha256?: unknown;
       readonly trustedKeyId?: unknown;
@@ -140,8 +137,6 @@ const embeddedProductionLinuxReleaseTrust =
         [
           "schema",
           "state",
-          "issuedAt",
-          "expiresAt",
           "trustedKeyringRevision",
           "trustedKeyringSha256",
           "trustedKeyFingerprintSha256",
@@ -152,8 +147,6 @@ const embeddedProductionLinuxReleaseTrust =
     }
     if (policy.state === "unconfigured") {
       if (
-        policy.issuedAt !== null ||
-        policy.expiresAt !== null ||
         policy.trustedKeyringRevision !== null ||
         policy.trustedKeyringSha256 !== null ||
         policy.trustedKeyId !== null ||
@@ -167,15 +160,6 @@ const embeddedProductionLinuxReleaseTrust =
     }
     if (
       policy.state !== "configured" ||
-      typeof policy.issuedAt !== "string" ||
-      typeof policy.expiresAt !== "string" ||
-      new Date(policy.issuedAt).toISOString() !== policy.issuedAt ||
-      new Date(policy.expiresAt).toISOString() !== policy.expiresAt ||
-      Date.parse(policy.expiresAt) <= Date.parse(policy.issuedAt) ||
-      Date.parse(policy.expiresAt) - Date.parse(policy.issuedAt) >
-        TRUST_MAX_VALIDITY_MS ||
-      now < Date.parse(policy.issuedAt) ||
-      now > Date.parse(policy.expiresAt) ||
       typeof policy.trustedKeyringRevision !== "number" ||
       !Number.isSafeInteger(policy.trustedKeyringRevision) ||
       policy.trustedKeyringRevision < 1 ||
@@ -291,7 +275,7 @@ const verifyLinuxDeployBundle = async (
   if (!Number.isSafeInteger(now) || now < 0) {
     throw new Error("Linux deploy verification time is invalid");
   }
-  const trust = embeddedProductionLinuxReleaseTrust(now);
+  const trust = embeddedProductionLinuxReleaseTrust();
   const packageIdentity = await readCandidateManifestIdentity(
     bundleDirectory,
     purpose,
