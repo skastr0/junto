@@ -16,9 +16,16 @@
 import { writeFileSync } from "node:fs";
 import { copyFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { expect, launchVellum, test } from "../harness/launch";
 
-const OUT = process.env.DEMO_CAPTURE_DIR ?? join(process.cwd(), "test-results", "demo-capture");
+// Playwright deletes its output dir at every run start, so a capture under
+// test-results/ is wiped by ANY concurrent playwright invocation (and even
+// by the next full run before the frames are consumed). Default to a stable
+// path outside the repo; set DEMO_CAPTURE_DIR for durable storage.
+const OUT =
+  process.env.DEMO_CAPTURE_DIR ??
+  join(tmpdir(), "vellum-command-demo-capture");
 // Same 16:10 frame as marketing-shots; Retina compositor yields 2x frames.
 const FRAME = { width: 1760, height: 1100 };
 // growth-50 runs ~52s at 112 BPM (+2-beat tail); generous ceiling for drift.
