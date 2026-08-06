@@ -12,6 +12,14 @@ import {
 } from "../../../src/main/vellum/state/engine";
 import { WorkRepositoryLive } from "../../../src/main/vellum/work/repository";
 import {
+  StationRepository,
+  StationRepositoryLive,
+} from "../../../src/main/vellum/station/repository";
+import {
+  makeStationFleetTargetRepositoryLive,
+  StationFleetTargetRepository,
+} from "../../../src/main/vellum/station/fleet-target-repository";
+import {
   BROWSER_CAPABILITY_ACTIONS,
   makeBrowserCapabilityRegistry,
   type BrowserAutomationPrincipal,
@@ -95,8 +103,16 @@ const makeCanvasRuntime = () => {
     join(controlHome, ".vellum", "state", "vellum.db"),
   );
   const repositoriesLive = Layer.provideMerge(WorkRepositoryLive, stateLive);
+  const stationLive = Layer.provideMerge(StationRepositoryLive, stateLive);
+  const fleetLive = Layer.provideMerge(
+    makeStationFleetTargetRepositoryLive(),
+    stationLive,
+  );
   return ManagedRuntime.make(
-    Layer.provideMerge(CanvasesLive, repositoriesLive),
+    Layer.provideMerge(
+      CanvasesLive,
+      Layer.provideMerge(repositoriesLive, fleetLive),
+    ),
   );
 };
 const capabilityTargets = [
@@ -577,6 +593,24 @@ void app.whenReady().then(async () => {
   const activeCanvasRuntime = makeCanvasRuntime();
   canvasRuntime = activeCanvasRuntime;
   const state = await activeCanvasRuntime.runPromise(StateEngine);
+  // The actor-seat compiler resolves every agent seat against the station
+  // topology, so the sandbox portfolio must bind host "local" to a Station
+  // installation exactly like a configured Command Center fleet does.
+  const stationRepository = await activeCanvasRuntime.runPromise(
+    StationRepository,
+  );
+  const installationId = await activeCanvasRuntime.runPromise(
+    stationRepository.installationId,
+  );
+  const fleetTargets = await activeCanvasRuntime.runPromise(
+    StationFleetTargetRepository,
+  );
+  await activeCanvasRuntime.runPromise(
+    fleetTargets.bind({
+      hostId: "local",
+      stationInstallationId: installationId,
+    }),
+  );
   const harness = makeBrowserTestOnlyElectronHarness(exactOrigin, downloadPath);
   const profiles = makeBrowserProfileService(state, browserRoot);
   sessions = new BrowserSessionService(

@@ -1770,6 +1770,13 @@ const main = async (): Promise<void> => {
         height: 96,
         ether: {
           entity: { kind: "agent", name: "browser-containment-probe" },
+          // The actor-seat law: kind "agent" is a managed terminal seat.
+          // A bare agent node fails portfolio compilation, so the fixture
+          // canvas carries a complete surface like any authored agent.
+          terminal: {
+            bindingId: "browser-containment-probe",
+            harness: "codex",
+          },
         },
       },
       ...pageTargets.map(({ nodeId, profile, url }, index) => ({
