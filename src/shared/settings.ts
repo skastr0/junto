@@ -286,7 +286,7 @@ export const SettingsSectionKey = Schema.Literals(["appearance", "canvas",
 export type SettingsSectionKey = typeof SettingsSectionKey.Type;
 
 export const defaultAppearance = (): AppearanceSettings => ({
-  theme: "dark",
+  theme: "system",
   density: "comfortable",
   reduceMotion: false,
 });

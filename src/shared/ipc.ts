@@ -223,6 +223,10 @@ export const IPC_CHANNELS = {
   licenseOpenCustomerPortal: "vellum-command:license-open-customer-portal",
   licenseRestart: "vellum-command:license-restart",
   licenseChanged: "vellum-command:license-changed",
+  // Gate-local appearance: the one preference readable/writable before
+  // admission so the license surface itself honors the saved theme.
+  licenseGateThemeGet: "vellum-command:license-gate-theme-get",
+  licenseGateThemeSet: "vellum-command:license-gate-theme-set",
   // Command Center auto-update (Mac; readiness-gated install)
   updateGetState: "vellum-command:update-get-state",
   updateCheck: "vellum-command:update-check",

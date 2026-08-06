@@ -1445,6 +1445,20 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       onReturnToFull: returnFromLicenseMaintenance,
       onAccessRevoked: suspendProductRuntimeForLicenseRevocation,
       remoteLastCheckInAtMs: () => remoteLeaseState.read(),
+      // The license gate renders before product admission; theme is the one
+      // preference it may read and write, straight through SettingsService.
+      gateTheme: {
+        get: () =>
+          AppRuntime.runPromise(
+            Effect.flatMap(SettingsService, (settings) => settings.get),
+          ).then((settings) => settings.appearance.theme),
+        set: (theme) =>
+          AppRuntime.runPromise(
+            Effect.flatMap(SettingsService, (settings) =>
+              settings.patch({ appearance: { theme } }),
+            ),
+          ),
+      },
     });
     licenseCoordinator = coordinator;
     unregisterLicenseIpc = coordinator.registerIpc(ipcMain);

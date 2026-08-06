@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import "@xyflow/react/dist/style.css";
 import { App } from "./App";
 import { LicenseGate } from "./components/license";
+import { seedGateThemePreference, startThemeMode } from "./lib/theme-mode";
 import "./styles.css";
 
 // Dev-only render highlighter (https://github.com/aidenybai/react-scan).
@@ -32,12 +33,20 @@ function LicensedRoot() {
     // Both the activation-only surface and the admitted product shell satisfy
     // main's renderer-readiness challenge.
     api?.rendererSurfaceReady();
+    // The gate mounts before product admission (settings IPC still closed),
+    // so its saved theme arrives through the license recovery plane. Both
+    // starters are idempotent; App re-runs them post-admission.
+    startThemeMode();
+    void api
+      ?.licenseGateThemeGet()
+      .then(seedGateThemePreference)
+      .catch(() => undefined);
   }, [api]);
 
   if (!api) {
     return (
       <main className="license-gate">
-        <section className="license-gate__panel" role="alert">
+        <section className="license-gate__fallback" role="alert">
           Electron preload bridge is not available.
         </section>
       </main>

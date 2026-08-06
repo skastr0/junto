@@ -5,6 +5,7 @@ import type {
   StationPatch,
 } from "@shared/settings";
 import { state$ } from "./state";
+import { noteSettingsHydrated } from "./theme-mode";
 
 /** Hydrate settings from main and subscribe for push updates. Idempotent. */
 let bridgeStarted = false;
@@ -16,6 +17,7 @@ export const startSettingsBridge = (): (() => void) | undefined => {
   const unsub = window.vellumCommand.onSettingsChanged((settings) => {
     state$.settings.set(settings);
     state$.settingsError.set("");
+    noteSettingsHydrated();
   });
 
   void (async () => {
@@ -25,6 +27,7 @@ export const startSettingsBridge = (): (() => void) | undefined => {
       if (result.ok && result.settings) {
         state$.settings.set(result.settings);
         state$.settingsError.set("");
+        noteSettingsHydrated();
       } else {
         state$.settingsError.set(result.message ?? "failed to load settings");
       }

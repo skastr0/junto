@@ -435,6 +435,10 @@ const vellumApi: VellumCommandApi = {
     ),
   licenseRestart: () =>
     invoke(IPC_CHANNELS.licenseRestart, IPC_TIMEOUT_MS),
+  licenseGateThemeGet: () =>
+    invoke(IPC_CHANNELS.licenseGateThemeGet, IPC_TIMEOUT_MS),
+  licenseGateThemeSet: (theme) =>
+    invoke(IPC_CHANNELS.licenseGateThemeSet, IPC_TIMEOUT_MS, theme),
   onLicenseChanged: (listener) =>
     subscribe<LicenseStatus>(IPC_CHANNELS.licenseChanged, listener),
   updateGetState: () =>

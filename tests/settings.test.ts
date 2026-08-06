@@ -39,7 +39,7 @@ describe("settings contract", () => {
   it("defaultSettings is a valid v1 document", () => {
     const settings = defaultSettings();
     expect(settings.version).toBe(SETTINGS_VERSION);
-    expect(settings.appearance.theme).toBe("dark");
+    expect(settings.appearance.theme).toBe("system");
     expect(settings.browser.maxVisibleSurfaces).toBe(2);
     expect(settings.browser.maxWarmSessions).toBe(3);
     expect(settings.fleet.ditherLevel).toBe("fine");
@@ -56,7 +56,7 @@ describe("settings contract", () => {
       },
     });
     expect(next.appearance.reduceMotion).toBe(true);
-    expect(next.appearance.theme).toBe("dark");
+    expect(next.appearance.theme).toBe("system");
     expect(next.browser.maxVisibleSurfaces).toBe(4);
     expect(next.browser.maxWarmSessions).toBe(3);
     expect(next.fleet.ditherLevel).toBe("balanced");
