@@ -14,7 +14,6 @@ const agentWithTerminal = (id = "agent-1"): CanvasNode => ({
     entity: { kind: "agent", name: "local:grok" },
     terminal: {
       bindingId: "bind-agent-1",
-      hostId: "local",
       launch: { kind: "shell" },
       harness: "grok",
     },
