@@ -51,12 +51,12 @@ describe("content object contract", () => {
       Schema.decodeUnknownSync(ContentLocalPathProjection)({
         kind: "local-path",
         ref,
-        path: "/Users/operator/.vellum/content/aa/bb/object",
+        path: "/Users/operator/.vellum-command/content/aa/bb/object",
       }),
     ).toEqual({
       kind: "local-path",
       ref,
-      path: "/Users/operator/.vellum/content/aa/bb/object",
+      path: "/Users/operator/.vellum-command/content/aa/bb/object",
     });
   });
 

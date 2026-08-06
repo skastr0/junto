@@ -11,8 +11,8 @@ test.use({
   },
 });
 
-test("clicking a node opens the inspector showing that node's content", async ({ vellum }) => {
-  const { page } = vellum;
+test("clicking a node opens the inspector showing that node's content", async ({ vellumCommand }) => {
+  const { page } = vellumCommand;
 
   const node = page.locator(".react-flow__node", { hasText: FIXTURE_TEXT });
   await expect(node).toBeVisible({ timeout: 30_000 });

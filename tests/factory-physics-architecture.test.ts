@@ -115,8 +115,8 @@ describe("factory physics architecture", () => {
     );
     expect(kernel).toContain("buildFactoryClaimPrompt");
     expect(claimPrompt).toContain("[factory claim]");
-    expect(claimPrompt).toContain("vellum tasks list");
-    expect(claimPrompt).toContain("vellum tasks update");
+    expect(claimPrompt).toContain("vellum-command tasks list");
+    expect(claimPrompt).toContain("vellum-command tasks update");
     expect(claimPrompt).toContain('"target"');
     expect(claimPrompt).toContain('"task"');
   });

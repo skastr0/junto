@@ -1713,15 +1713,15 @@ const validateSbomInventoryConsistency = (
       ? undefined
       : record(dependency.licenseEvidence, "dependency license evidence");
     const expectedProperties = new Map([
-      ["vellum:direct", String(dependency.direct)],
-      ["vellum:development", String(dependency.development)],
-      ["vellum:license-source", String(dependency.licenseSource)],
+      ["vellum-command:direct", String(dependency.direct)],
+      ["vellum-command:development", String(dependency.development)],
+      ["vellum-command:license-source", String(dependency.licenseSource)],
       ...(evidence === undefined
         ? []
         : [
-          ["vellum:license-evidence-file", String(evidence.file)] as const,
+          ["vellum-command:license-evidence-file", String(evidence.file)] as const,
           [
-            "vellum:license-evidence-sha256",
+            "vellum-command:license-evidence-sha256",
             String(evidence.sha256),
           ] as const,
         ]),
@@ -2004,7 +2004,7 @@ const validateEvidenceReceipt = (
       : [];
     const revision = properties.some((property) => {
       const decoded = record(property, "SBOM property");
-      return decoded.name === "vellum:source-revision" &&
+      return decoded.name === "vellum-command:source-revision" &&
         decoded.value === manifest.source.revision;
     });
     if (

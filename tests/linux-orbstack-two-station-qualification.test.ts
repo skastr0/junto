@@ -66,10 +66,10 @@ describe("Linux OrbStack two-station qualification (userland archive)", () => {
 
   it("stages the managed bundle under the owner-home release cache", () => {
     expect(managedBundleRelativeDestination("qualification-candidate")).toBe(
-      ".vellum/releases/linux-x64-glibc/qualification/current/",
+      ".vellum-command/releases/linux-x64-glibc/qualification/current/",
     );
     expect(managedBundleRelativeDestination("final-release")).toBe(
-      ".vellum/releases/linux-x64-glibc/current/",
+      ".vellum-command/releases/linux-x64-glibc/current/",
     );
   });
 
@@ -86,11 +86,11 @@ describe("Linux OrbStack two-station qualification (userland archive)", () => {
     expect(source).not.toContain("debFile");
   });
 
-  it("starts Remote only via generation-pinned vellum-remote.service", () => {
+  it("starts Remote only via generation-pinned vellum-command-remote.service", () => {
     const source = readFileSync(SCRIPT, "utf8");
     expect(source).toContain("ensureRemoteUserlandService");
-    expect(source).toContain("resources/bin/vellum-remote");
-    expect(source).toContain("vellum-remote.service");
+    expect(source).toContain("resources/bin/vellum-command-remote");
+    expect(source).toContain("vellum-command-remote.service");
     expect(source).toContain("--install-user-service");
     // Remote must never be launched through Electron/Xvfb/ozone.
     expect(source).not.toMatch(
@@ -100,7 +100,7 @@ describe("Linux OrbStack two-station qualification (userland archive)", () => {
     expect(source).not.toContain("launchRemoteQualificationRuntime");
     // Command Center may still use Xvfb for trusted-renderer activation.
     expect(source).toContain("xvfb-run");
-    expect(source).toContain("--vellum-operator-control");
+    expect(source).toContain("--vellum-command-operator-control");
   });
 
   it("observes Remote as displayless Node without renderer/CDP/Xvfb gates", () => {

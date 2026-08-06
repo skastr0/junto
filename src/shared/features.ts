@@ -6,19 +6,19 @@
  * tests and unbundled scripts stay deterministic.
  *
  * Product surfaces default OFF. Each may be enabled for a build with its
- * dedicated `VELLUM_*` environment variable. Official builders always inject
+ * dedicated `VELLUM_COMMAND_*` environment variable. Official builders always inject
  * every define; the environment fallback exists only for source-run tooling.
  */
 
-declare const __VELLUM_CRON_ENABLED__: boolean | undefined;
-declare const __VELLUM_RELAY_ENABLED__: boolean | undefined;
-declare const __VELLUM_BROWSER_ENABLED__: boolean | undefined;
-declare const __VELLUM_FLEET_UI_ENABLED__: boolean | undefined;
-declare const __VELLUM_USAGE_ENABLED__: boolean | undefined;
-declare const __VELLUM_HELP_MAP_ENABLED__: boolean | undefined;
-declare const __VELLUM_AUDIO_ENABLED__: boolean | undefined;
-declare const __VELLUM_HERMES_INTEGRATION_ENABLED__: boolean | undefined;
-declare const __VELLUM_HERDR_ENABLED__: boolean | undefined;
+declare const __VELLUM_COMMAND_CRON_ENABLED__: boolean | undefined;
+declare const __VELLUM_COMMAND_RELAY_ENABLED__: boolean | undefined;
+declare const __VELLUM_COMMAND_BROWSER_ENABLED__: boolean | undefined;
+declare const __VELLUM_COMMAND_FLEET_UI_ENABLED__: boolean | undefined;
+declare const __VELLUM_COMMAND_USAGE_ENABLED__: boolean | undefined;
+declare const __VELLUM_COMMAND_HELP_MAP_ENABLED__: boolean | undefined;
+declare const __VELLUM_COMMAND_AUDIO_ENABLED__: boolean | undefined;
+declare const __VELLUM_COMMAND_HERMES_INTEGRATION_ENABLED__: boolean | undefined;
+declare const __VELLUM_COMMAND_HERDR_ENABLED__: boolean | undefined;
 
 const envEnabled = (key: string): boolean => {
   try {
@@ -37,49 +37,49 @@ const envEnabled = (key: string): boolean => {
  * historical `herdr` rows; they render as inert furniture.
  */
 export const HERDR_ENABLED: boolean =
-  typeof __VELLUM_HERDR_ENABLED__ === "boolean"
-    ? __VELLUM_HERDR_ENABLED__
-    : envEnabled("VELLUM_HERDR");
+  typeof __VELLUM_COMMAND_HERDR_ENABLED__ === "boolean"
+    ? __VELLUM_COMMAND_HERDR_ENABLED__
+    : envEnabled("VELLUM_COMMAND_HERDR");
 
 export const CRON_ENABLED: boolean =
-  typeof __VELLUM_CRON_ENABLED__ === "boolean"
-    ? __VELLUM_CRON_ENABLED__
-    : envEnabled("VELLUM_CRON");
+  typeof __VELLUM_COMMAND_CRON_ENABLED__ === "boolean"
+    ? __VELLUM_COMMAND_CRON_ENABLED__
+    : envEnabled("VELLUM_COMMAND_CRON");
 
 export const RELAY_ENABLED: boolean =
-  typeof __VELLUM_RELAY_ENABLED__ === "boolean"
-    ? __VELLUM_RELAY_ENABLED__
-    : envEnabled("VELLUM_RELAY");
+  typeof __VELLUM_COMMAND_RELAY_ENABLED__ === "boolean"
+    ? __VELLUM_COMMAND_RELAY_ENABLED__
+    : envEnabled("VELLUM_COMMAND_RELAY");
 
 export const BROWSER_ENABLED: boolean =
-  typeof __VELLUM_BROWSER_ENABLED__ === "boolean"
-    ? __VELLUM_BROWSER_ENABLED__
-    : envEnabled("VELLUM_BROWSER");
+  typeof __VELLUM_COMMAND_BROWSER_ENABLED__ === "boolean"
+    ? __VELLUM_COMMAND_BROWSER_ENABLED__
+    : envEnabled("VELLUM_COMMAND_BROWSER");
 
 export const FLEET_UI_ENABLED: boolean =
-  typeof __VELLUM_FLEET_UI_ENABLED__ === "boolean"
-    ? __VELLUM_FLEET_UI_ENABLED__
-    : envEnabled("VELLUM_FLEET_UI");
+  typeof __VELLUM_COMMAND_FLEET_UI_ENABLED__ === "boolean"
+    ? __VELLUM_COMMAND_FLEET_UI_ENABLED__
+    : envEnabled("VELLUM_COMMAND_FLEET_UI");
 
 export const USAGE_ENABLED: boolean =
-  typeof __VELLUM_USAGE_ENABLED__ === "boolean"
-    ? __VELLUM_USAGE_ENABLED__
-    : envEnabled("VELLUM_USAGE");
+  typeof __VELLUM_COMMAND_USAGE_ENABLED__ === "boolean"
+    ? __VELLUM_COMMAND_USAGE_ENABLED__
+    : envEnabled("VELLUM_COMMAND_USAGE");
 
 export const HELP_MAP_ENABLED: boolean =
-  typeof __VELLUM_HELP_MAP_ENABLED__ === "boolean"
-    ? __VELLUM_HELP_MAP_ENABLED__
-    : envEnabled("VELLUM_HELP_MAP");
+  typeof __VELLUM_COMMAND_HELP_MAP_ENABLED__ === "boolean"
+    ? __VELLUM_COMMAND_HELP_MAP_ENABLED__
+    : envEnabled("VELLUM_COMMAND_HELP_MAP");
 
 export const AUDIO_ENABLED: boolean =
-  typeof __VELLUM_AUDIO_ENABLED__ === "boolean"
-    ? __VELLUM_AUDIO_ENABLED__
-    : envEnabled("VELLUM_AUDIO");
+  typeof __VELLUM_COMMAND_AUDIO_ENABLED__ === "boolean"
+    ? __VELLUM_COMMAND_AUDIO_ENABLED__
+    : envEnabled("VELLUM_COMMAND_AUDIO");
 
 export const HERMES_INTEGRATION_ENABLED: boolean =
-  typeof __VELLUM_HERMES_INTEGRATION_ENABLED__ === "boolean"
-    ? __VELLUM_HERMES_INTEGRATION_ENABLED__
-    : envEnabled("VELLUM_HERMES");
+  typeof __VELLUM_COMMAND_HERMES_INTEGRATION_ENABLED__ === "boolean"
+    ? __VELLUM_COMMAND_HERMES_INTEGRATION_ENABLED__
+    : envEnabled("VELLUM_COMMAND_HERMES");
 
 export const BUILD_FEATURES = {
   cron: CRON_ENABLED,

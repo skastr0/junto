@@ -14,14 +14,14 @@ import { ActorRef } from "@shared/work-protocol";
  * socket. The surface is projection-only: it cannot mutate authorial intent.
  */
 export const CANVAS_CONTROL_PROTOCOL_VERSION = "vellum-canvas-control/v1";
-export const CANVAS_CONTROL_HOME_ENV = "VELLUM_CANVAS_CONTROL_HOME";
+export const CANVAS_CONTROL_HOME_ENV = "VELLUM_COMMAND_CANVAS_CONTROL_HOME";
 export const CANVAS_CONTROL_DEFAULT_TIMEOUT_MS = 30_000;
 export const CANVAS_CONTROL_MAX_REQUEST_BYTES = 64 * 1024;
 export const CANVAS_CONTROL_MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
 export const CANVAS_CONTROL_MAX_ERROR_BYTES = 4_096;
 
 export const canvasControlDir = (home: string): string =>
-  `${home}/.vellum/canvas`;
+  `${home}/.vellum-command/canvas`;
 
 export const canvasControlSocketPath = (controlHome: string): string =>
   `${controlHome}/control.sock`;

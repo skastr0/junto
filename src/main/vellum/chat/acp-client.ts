@@ -107,7 +107,7 @@ export type SpawnedAcpChild =
 
 /** True when ACP may log raw stderr / non-JSON lines (sensitive material risk). */
 export const acpVerboseLogging = (): boolean => {
-  const value = process.env.VELLUM_ACP_VERBOSE ?? process.env.VELLUM_DEBUG ?? "";
+  const value = process.env.VELLUM_COMMAND_ACP_VERBOSE ?? process.env.VELLUM_COMMAND_DEBUG ?? "";
   return value === "1" || value.toLowerCase() === "true";
 };
 
@@ -584,7 +584,7 @@ export class AcpClient {
 
   private onStderr(chunk: string): void {
     // Privacy: remote tools may print secrets/tokens on stderr. Default is
-    // silent; opt in with VELLUM_ACP_VERBOSE=1 or VELLUM_DEBUG=1.
+    // silent; opt in with VELLUM_COMMAND_ACP_VERBOSE=1 or VELLUM_COMMAND_DEBUG=1.
     if (!acpVerboseLogging()) return;
     for (const line of chunk.split("\n")) {
       if (line.trim().length > 0) {

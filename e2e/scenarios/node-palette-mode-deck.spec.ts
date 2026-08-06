@@ -58,10 +58,10 @@ const openFolderPicker = async (
 };
 
 test("Mode Deck exposes the searchable catalog and keeps launch context dense at the foot of the agent pane", async () => {
-  const vellum = await launchVellum();
+  const vellumCommand = await launchVellum();
 
   try {
-    const { page } = vellum;
+    const { page } = vellumCommand;
     const deck = await openModeDeck(page);
 
     for (const category of ["All", "Shell"]) {
@@ -135,15 +135,15 @@ test("Mode Deck exposes the searchable catalog and keeps launch context dense at
       launchBox!.y - (wiringBox!.y + wiringBox!.height),
     ).toBeLessThanOrEqual(24);
   } finally {
-    await vellum.close();
+    await vellumCommand.close();
   }
 });
 
 test("model and effort choices remain visually attached to the active agent row", async () => {
-  const vellum = await launchVellum();
+  const vellumCommand = await launchVellum();
 
   try {
-    const { page } = vellum;
+    const { page } = vellumCommand;
     const deck = await openModeDeck(page);
     const agent = deck.getByRole("button", { name: "Add Claude Code agent" });
     await agent.hover();
@@ -201,17 +201,17 @@ test("model and effort choices remain visually attached to the active agent row"
     expect(horizontalGap(modelBox!, effortBox!)).toBeLessThanOrEqual(24);
     expect(verticallyOverlaps(agentBox!, modelBox!)).toBe(true);
   } finally {
-    await vellum.close();
+    await vellumCommand.close();
   }
 });
 
 test("starting-folder modal reuses live directory browsing and can save a containing-region default", async () => {
-  const vellum = await launchVellum({
+  const vellumCommand = await launchVellum({
     seedCanvases: { portfolio: canvasDoc([containingRegion]) },
   });
 
   try {
-    const { page } = vellum;
+    const { page } = vellumCommand;
     const deck = await openModeDeck(page);
     const picker = await openFolderPicker(page, deck);
     const input = picker.getByLabel("Agent working directory");
@@ -237,17 +237,17 @@ test("starting-folder modal reuses live directory browsing and can save a contai
     await expect(regionDefault).toBeEnabled();
     await regionDefault.check({ force: true });
   } finally {
-    await vellum.close();
+    await vellumCommand.close();
   }
 });
 
 test("region-default promotion fails closed with actionable guidance outside a region", async () => {
-  const vellum = await launchVellum({
+  const vellumCommand = await launchVellum({
     seedCanvases: { portfolio: canvasDoc([]) },
   });
 
   try {
-    const { page } = vellum;
+    const { page } = vellumCommand;
     const deck = await openModeDeck(page);
     const picker = await openFolderPicker(page, deck);
     const regionDefault = picker.getByRole("checkbox", {
@@ -259,17 +259,17 @@ test("region-default promotion fails closed with actionable guidance outside a r
       /add a region to set up defaults and shared context/i,
     );
   } finally {
-    await vellum.close();
+    await vellumCommand.close();
   }
 });
 
 test("one agent-row click creates exactly one configured agent without a legacy location step", async () => {
-  const vellum = await launchVellum({
+  const vellumCommand = await launchVellum({
     seedCanvases: { portfolio: canvasDoc([]) },
   });
 
   try {
-    const { page } = vellum;
+    const { page } = vellumCommand;
     const deck = await openModeDeck(page);
     const picker = await openFolderPicker(page, deck);
     const input = picker.getByLabel("Agent working directory");
@@ -300,10 +300,10 @@ test("one agent-row click creates exactly one configured agent without a legacy 
 
     await expect.poll(async () => {
       return page.evaluate(async () => {
-        const canvases = await window.vellum!.listCanvases();
+        const canvases = await window.vellumCommand!.listCanvases();
         const name = canvases[0]?.name;
         if (!name) return [];
-        const read = await window.vellum!.readCanvas(name);
+        const read = await window.vellumCommand!.readCanvas(name);
         return read.doc.nodes
           .filter((node) => node.ether?.entity?.kind === "agent")
           .map((node) => ({
@@ -313,15 +313,15 @@ test("one agent-row click creates exactly one configured agent without a legacy 
       });
     }).toEqual([{ harness: "claude", cwd: join(REPO_ROOT, "src") }]);
   } finally {
-    await vellum.close();
+    await vellumCommand.close();
   }
 });
 
 test("node detail rail preserves navigation while explaining primary and secondary connections", async () => {
-  const vellum = await launchVellum();
+  const vellumCommand = await launchVellum();
 
   try {
-    const { page } = vellum;
+    const { page } = vellumCommand;
     const deck = await openModeDeck(page);
     const terminal = deck.locator(".node-deck-catalog__card").filter({
       hasText: "Terminal",
@@ -369,6 +369,6 @@ test("node detail rail preserves navigation while explaining primary and seconda
     await expect(relationships).toBeVisible();
     await expect(relationships.locator("img")).toHaveCount(0);
   } finally {
-    await vellum.close();
+    await vellumCommand.close();
   }
 });

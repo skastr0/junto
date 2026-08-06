@@ -11,7 +11,7 @@
  *   workers.dev base + /mac/arm64
  */
 
-declare const __VELLUM_MAC_UPDATE_FEED_URL__: string | undefined;
+declare const __VELLUM_COMMAND_MAC_UPDATE_FEED_URL__: string | undefined;
 
 /** Custom-domain production generic provider base (DNS still pending). */
 export const MAC_ARM64_UPDATE_FEED_URL_CUSTOM_DOMAIN =
@@ -41,10 +41,10 @@ export type UpdateFeedConfig = {
 const compiledFeedUrl = (): string | undefined => {
   try {
     if (
-      typeof __VELLUM_MAC_UPDATE_FEED_URL__ === "string" &&
-      __VELLUM_MAC_UPDATE_FEED_URL__.trim().length > 0
+      typeof __VELLUM_COMMAND_MAC_UPDATE_FEED_URL__ === "string" &&
+      __VELLUM_COMMAND_MAC_UPDATE_FEED_URL__.trim().length > 0
     ) {
-      return __VELLUM_MAC_UPDATE_FEED_URL__.trim().replace(/\/+$/u, "");
+      return __VELLUM_COMMAND_MAC_UPDATE_FEED_URL__.trim().replace(/\/+$/u, "");
     }
   } catch {
     // Symbol may be undefined in unit tests without vite define.

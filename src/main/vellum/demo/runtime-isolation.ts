@@ -35,7 +35,7 @@ const acquireDemoDirectory = (): EphemeralDirectory => {
 /** Absolute path to this process's ephemeral demo database, if demo is on. */
 export const demoStateDatabasePath = (): string | undefined =>
   isDemoMode()
-    ? join(acquireDemoDirectory().path, "vellum.db")
+    ? join(acquireDemoDirectory().path, "vellum-command.db")
     : undefined;
 
 /**
@@ -55,8 +55,8 @@ export const releaseDemoRuntimeIsolation = (): void => {
 
 // Demo sidecars are outputs, but they must not overwrite the operator's normal
 // digest/SVG projections. E2E may supply its own already-minted output root.
-if (isDemoMode() && !process.env.VELLUM_CANVASES_DIR) {
-  process.env.VELLUM_CANVASES_DIR = join(
+if (isDemoMode() && !process.env.VELLUM_COMMAND_CANVASES_DIR) {
+  process.env.VELLUM_COMMAND_CANVASES_DIR = join(
     acquireDemoDirectory().path,
     "projections",
   );

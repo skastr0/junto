@@ -6,7 +6,7 @@
  *   boot  → ManagedRuntime.make(RemoteRootLayer) once  // RemoteRuntime below
  *   entry → RemoteRuntime.runPromise(handler)          // remote boot / station APIs
  *   loops → RemoteRuntime.runFork / same warm Context  // factory program (V4-PROGRAM)
- *   quit  → RemoteRuntime.dispose()                    // vellum-remote drainAndExit
+ *   quit  → RemoteRuntime.dispose()                    // vellum-command-remote drainAndExit
  *
  * Same laws as Command Center AppRuntime (src/main/runtime.ts):
  * - One ManagedRuntime per process; never rebuild per call.
@@ -14,7 +14,7 @@
  *   Effect.runPromise (empty Context; S0 fitness gate).
  * - V4-ENTRY: src/main/vellum-remote.ts has zero bare Effect.runPromise; only
  *   RemoteRuntime for product domain work.
- * - Sole product store: StateEngine → vellum.db. InstallOps co-composed for
+ * - Sole product store: StateEngine → vellum-command.db. InstallOps co-composed for
  *   ContentService; install-ops.db is install-local, not product truth.
  *
  * Intentionally has no Electron shell, renderer host, browser host, update, or
@@ -89,13 +89,13 @@ import { resolve } from "node:path";
 /**
  * True when this process is a release-tree candidate or forced via env.
  * Used for license build config and product packaging checks.
- * Staging extracts under ~/.vellum/runtime/staging/… count as packaged
+ * Staging extracts under ~/.vellum-command/runtime/staging/… count as packaged
  * candidates during remote install cutover.
  */
 export const isRemotePackaged = (
   binaryPath: string = process.argv[1] ?? process.execPath,
 ): boolean => {
-  if (process.env.VELLUM_PACKAGED === "1") return true;
+  if (process.env.VELLUM_COMMAND_PACKAGED === "1") return true;
   const absolute = resolve(binaryPath);
   try {
     resolveReleaseDirectoryFromRemoteBinary(absolute);
@@ -113,22 +113,22 @@ export const isRemotePackaged = (
 
 /**
  * Product version for protocol/station advertisements. Build injects
- * `__VELLUM_APP_VERSION__`; env override is for tests only.
+ * `__VELLUM_COMMAND_APP_VERSION__`; env override is for tests only.
  */
-declare const __VELLUM_APP_VERSION__: string | undefined;
+declare const __VELLUM_COMMAND_APP_VERSION__: string | undefined;
 
 export const remoteAppVersion = (): string => {
   if (
-    typeof process.env.VELLUM_APP_VERSION === "string" &&
-    process.env.VELLUM_APP_VERSION.trim().length > 0
+    typeof process.env.VELLUM_COMMAND_APP_VERSION === "string" &&
+    process.env.VELLUM_COMMAND_APP_VERSION.trim().length > 0
   ) {
-    return process.env.VELLUM_APP_VERSION.trim();
+    return process.env.VELLUM_COMMAND_APP_VERSION.trim();
   }
   if (
-    typeof __VELLUM_APP_VERSION__ === "string" &&
-    __VELLUM_APP_VERSION__.trim().length > 0
+    typeof __VELLUM_COMMAND_APP_VERSION__ === "string" &&
+    __VELLUM_COMMAND_APP_VERSION__.trim().length > 0
   ) {
-    return __VELLUM_APP_VERSION__.trim();
+    return __VELLUM_COMMAND_APP_VERSION__.trim();
   }
   return "0.0.0";
 };
@@ -286,7 +286,7 @@ const RemoteRootLayer = Layer.provideMerge(
 );
 
 // RemoteRuntime is the sole warm ManagedRuntime for the displayless Remote
-// process. Constructed once at module load; never remake. Callers: vellum-remote
+// process. Constructed once at module load; never remake. Callers: vellum-command-remote
 // boot, station/work control bridges, product planes. Dispose exactly once on
 // SIGTERM/SIGINT via RemoteRuntime.dispose() in drainAndExit.
 const RemoteAppLayer = Layer.mergeAll(RemoteRootLayer, ObservabilityLoggerLive);

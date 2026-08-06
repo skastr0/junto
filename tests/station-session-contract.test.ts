@@ -176,7 +176,7 @@ describe("Station session v2 frame contract", () => {
     expect(
       Result.isFailure(
         decodeStationSessionFrame({
-          protocol: "vellum/station-session/v1",
+          protocol: "vellum-command/station-session/v1",
           frame: "request",
           requestId,
           request: {
@@ -193,7 +193,7 @@ describe("Station session v2 frame contract", () => {
           frame: "request",
           requestId,
           request: {
-            protocol: "vellum/station-api/v1",
+            protocol: "vellum-command/station-api/v1",
             op: "status",
           },
         }),
@@ -206,7 +206,7 @@ describe("Station session v2 frame contract", () => {
           frame: "response",
           requestId,
           envelope: {
-            protocol: "vellum/station-control/v1",
+            protocol: "vellum-command/station-control/v1",
             ok: true,
             response: {
               protocol: STATION_API_PROTOCOL,
@@ -251,11 +251,11 @@ describe("Station session v2 frame contract", () => {
       ),
     ).toBe(true);
 
-    expect(STATION_SESSION_PROTOCOL).toBe("vellum/station-session/v4");
-    expect(STATION_CONTROL_PROTOCOL).toBe("vellum/station-control/v4");
+    expect(STATION_SESSION_PROTOCOL).toBe("vellum-command/station-session/v5");
+    expect(STATION_CONTROL_PROTOCOL).toBe("vellum-command/station-control/v5");
   });
 
-  it("keeps the protocol preface outside the frozen v4 session frame", () => {
+  it("keeps the protocol preface outside the frozen v5 session frame", () => {
     const preface = StationProtocolOffer.make({
       protocol: STATION_PROTOCOL_PREFACE,
       frame: "offer",

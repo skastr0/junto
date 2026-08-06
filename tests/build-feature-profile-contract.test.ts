@@ -13,8 +13,8 @@ const repoRoot = path.resolve(
 
 const cleanFeatureEnvironment = (): NodeJS.ProcessEnv => {
   const environment = { ...process.env };
-  delete environment.VELLUM_FEATURE_PROFILE;
-  delete environment.VELLUM_ALLOW_FEATURE_OVERRIDES;
+  delete environment.VELLUM_COMMAND_FEATURE_PROFILE;
+  delete environment.VELLUM_COMMAND_ALLOW_FEATURE_OVERRIDES;
   for (const feature of Object.values(FEATURE_CATALOG)) delete environment[feature.env];
   return environment;
 };
@@ -28,9 +28,9 @@ const runBuildPreflight = (environment = cleanFeatureEnvironment()) =>
 
 describe("packaged feature build contract", () => {
   it("defaults the standalone CLI compiler to explicit ship defines", () => {
-    const build = standaloneControlBuild("vellum");
+    const build = standaloneControlBuild("vellum-command");
     expect(build.profile).toBe("ship");
-    expect(build.output).toBe("dist/vellum");
+    expect(build.output).toBe("dist/vellum-command");
     for (const feature of Object.values(FEATURE_CATALOG)) {
       expect(build.featureDefines).toContain(`--define=${feature.define}=false`);
     }
@@ -38,7 +38,7 @@ describe("packaged feature build contract", () => {
 
   it("keeps package scripts on the profile-aware standalone compiler", async () => {
     const packageJson = await readFile(path.join(repoRoot, "package.json"), "utf8");
-    expect(packageJson).toContain('"cli:build": "bun scripts/build-standalone-cli.ts vellum"');
+    expect(packageJson).toContain('"cli:build": "bun scripts/build-standalone-cli.ts vellum-command"');
     expect(packageJson).not.toContain("browser:build");
     expect(packageJson).not.toContain("station:build");
     expect(packageJson).not.toContain("content:build");
@@ -46,12 +46,12 @@ describe("packaged feature build contract", () => {
 
   it("rejects ship deviations unless packaging receives explicit authority", () => {
     const deviation = cleanFeatureEnvironment();
-    deviation.VELLUM_BROWSER = "1";
+    deviation.VELLUM_COMMAND_BROWSER = "1";
     const rejected = runBuildPreflight(deviation);
     expect(rejected.status).toBe(1);
-    expect(rejected.stderr).toContain("ship feature deviation requires VELLUM_ALLOW_FEATURE_OVERRIDES=1");
+    expect(rejected.stderr).toContain("ship feature deviation requires VELLUM_COMMAND_ALLOW_FEATURE_OVERRIDES=1");
 
-    deviation.VELLUM_ALLOW_FEATURE_OVERRIDES = "1";
+    deviation.VELLUM_COMMAND_ALLOW_FEATURE_OVERRIDES = "1";
     const authorized = runBuildPreflight(deviation);
     expect(authorized.status).toBe(0);
     expect(authorized.stdout).toContain('"profile":"ship"');

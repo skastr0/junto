@@ -4,7 +4,7 @@ import type {
   ContentAvailabilityReason,
   ContentRef,
 } from "@shared/content";
-import { resolveVellumHome } from "@shared/vellum-home";
+import { resolveVellumCommandHome } from "@shared/vellum-home";
 import {
   StateEngine,
   StateEngineError,
@@ -143,7 +143,7 @@ export type ContentServiceShape = {
 
 /**
  * Local content store + SQLite manifest. Main owns the only DB connection;
- * this service never opens `vellum.db` itself.
+ * this service never opens `vellum-command.db` itself.
  *
  * - Canonical id: `@vellum/ContentService` — single `Context.Service` definition.
  * - Layer: `makeContentServiceLive`.
@@ -393,9 +393,10 @@ export const makeContentServiceLive = (options?: {
     Effect.gen(function* () {
       const state = yield* StateEngine;
       const installOps = yield* InstallOpsService;
+      const home = options?.home ?? resolveVellumCommandHome();
       const root =
         options?.root ??
-        contentStoreRoot(options?.home ?? resolveVellumHome());
+        contentStoreRoot(home);
       ensureContentLayout(root);
       if (options?.skipInlineMediaMigration !== true) {
         // Install-ops marker-gated walk over product projections only. A

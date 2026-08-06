@@ -4,7 +4,7 @@ import {
   extensionFromMime,
   extractHerdrClipboardImage,
   fileToHerdrClipboardImage,
-  VELLUM_CLIPBOARD_IMAGE_MAX_BYTES,
+  VELLUM_COMMAND_CLIPBOARD_IMAGE_MAX_BYTES,
   uint8ToBase64,
 } from "../src/renderer/lib/herdr-clipboard-image";
 
@@ -31,7 +31,7 @@ describe("herdr clipboard image helpers", () => {
     expect(await fileToHerdrClipboardImage(empty)).toEqual({ error: "empty image" });
 
     const oversized = new File(
-      [new Uint8Array(VELLUM_CLIPBOARD_IMAGE_MAX_BYTES + 1)],
+      [new Uint8Array(VELLUM_COMMAND_CLIPBOARD_IMAGE_MAX_BYTES + 1)],
       "big.png",
       { type: "image/png" },
     );

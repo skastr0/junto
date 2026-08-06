@@ -22,11 +22,16 @@ public or user-facing string must use the full name **Vellum Command** only.
 | Agent docs (this file, CLAUDE.md) | `Vellum Command` |
 | macOS app / executable | `Vellum Command.app` |
 | Release artifacts | `Vellum-Command-…` |
-| Code identifiers / paths / bins | unchanged — not brand |
+| Code identifiers / source paths | unchanged — not brand |
 
-**Not brand (keep as-is):** `VellumApi`, `resolveVellumHome`, `~/.vellum/`,
-`vellum.db`, `dist/vellum`, `vellum://`, `VELLUM_*` env keys, npm package name,
-appId.
+**Renamed runtime surfaces:** `VellumCommandApi`, `resolveVellumCommandHome`, `~/.vellum-command/`,
+`dist/vellum-command`, `bin/vellum-command`, `VELLUM_COMMAND_*` env keys,
+`window.vellumCommand`, and `vellum-command-*` protocol/control prefixes.
+
+**Implementation boundaries:** source paths under `src/main/vellum/`, the npm package name, the appId,
+Context service identifiers, internal `@vellum/*` tags, checked-in helper source filenames, and Linux release
+archive names remain implementation/release identities. They are not legacy readers or compatibility aliases.
+The active product state and node-reference URI use the canonical `vellum-command` names above.
 
 **Enforcement:** `bun run lint:product-name` — capital-V product token not
 followed by ` Command` or `-Command` is a lint error. Wired into `bun run verify`.
@@ -42,10 +47,13 @@ product trust model. It defines Vellum Command as a single-operator factory,
 attached agents as trusted but fallible, edges as enforceable operator intent
 inside Vellum Command, and Stations as single-home executors of Command Center
 intent. If a review, backlog item, test, or older architecture note conflicts
-with it, the conflict is migration work. Compatibility exists only at the two
-proven external boundaries: installed SQLite state and independently updated
-Station wire peers. It must not preserve an obsolete internal domain or file
-store.
+with it, the conflict is migration work. This fresh-app rename has no old-home
+importers, dual writers, or internal runtime aliases. Station protocol
+negotiation remains a product contract for independently updated peers when
+those peers are deployed; newly emitted traffic has no legacy codec or
+namespace. The sole historical decode exception is the portfolio body stored
+inside frozen v1 SQLite fixtures, required by the immutable installed-state
+proof and never emitted or negotiated.
 
 [`docs/vellum-protocol.md`](docs/vellum-protocol.md) is the canonical
 multi-installation contract: identity, complete intent projection, sink/item
@@ -54,16 +62,16 @@ event convergence, the five Station verbs, and transport adapters.
 
 **Normative direction:** the protected document is the product; compiled
 projections and capability-bound tools are the agent API. **Sole product
-store** is `~/.vellum/state/vellum.db` — canvases, work, content manifests,
+store** is `~/.vellum-command/state/vellum-command.db` — canvases, work, content manifests,
 station, settings, and every other product durable fact. That law is about
 **product** durability, not process-internal bookkeeping: install-local
-internals (e.g. backfill ledgers in `~/.vellum/state/install-ops.db`, content
-object files under `~/.vellum/content/`) may use separate on-disk stores
+internals (e.g. backfill ledgers in `~/.vellum-command/state/install-ops.db`, content
+object files under `~/.vellum-command/content/`) may use separate on-disk stores
 owned by the same app runtime. Do not fold migration/backfill completeness
 markers into product rows so seeds and installs cannot lie about local
 walks. Each installation has one sole app runtime process as the normal
 opener of product and install-ops databases, and one `StateEngine`
-connection for `vellum.db`: Electron main on Command Center, or the
+connection for `vellum-command.db`: Electron main on Command Center, or the
 displayless packaged Node Remote process on Remote. Renderers, CLIs,
 helpers, and remote callers use IPC/control APIs and never open product or
 install-ops databases. Every app version has one role-independent product
@@ -79,8 +87,9 @@ JSON Canvas exports and agent sidecars (`*.digest.txt`, `*.svg`) are outputs,
 not durability or input watched by the app.
 
 Install/update stages and cutovers without a sealed clone preflight.
-Schema+data migration runs on normal app open; failures surface in the normal
-startup recovery flow. There is no second database opener for update proofs.
+Schema evolution runs on normal app open; failures surface in the normal
+startup recovery flow. There is no second database opener for update proofs,
+and the rename itself has no startup data-copy step.
 
 **SQLite evolution law:** version 1 is the frozen durable baseline; version 5
 is current through immutable `1 → 2`, `2 → 3`, `3 → 4`, and `4 → 5` steps.
@@ -102,7 +111,7 @@ Routine migrations are **expand → preserve → deprecate**:
 Physical retirement is not a startup migration. It requires a separate
 reviewed compaction, a verified coherent backup, replacement-parity proof,
 fleet compatibility evidence, and explicit operator approval. Never ask an
-installed system to delete `vellum.db`; never add a downgrade, old-schema
+installed system to delete `vellum-command.db`; never add a downgrade, old-schema
 runtime reader, dual write, or file-store compatibility path.
 
 **Station skew law:** app release, local SQLite schema, and Station protocol
@@ -122,7 +131,7 @@ reconciled.
 **Agents never write the canvas.** The canvas is human-authored (Command Center). Agents consume compiled projections and local Vellum Command tools.
 
 Headless CLIs reach `CanvasesService` through the running app's owner-local
-canvas control socket. They do not open `vellum.db`. Agents remain strictly
+canvas control socket. They do not open `vellum-command.db`. Agents remain strictly
 read-only for authorial intent. Current headless CLIs:
 
 | command | who | what it does |
@@ -140,19 +149,19 @@ to an exported document or the database:
 
 | surface | detail |
 |---|---|
-| CLI | `dist/vellum` (`bun run cli:build`) — `ping`, `doctor`, `capabilities`, `onboard`, `tasks`, `msg`, `request`, `artifact`, board ops |
-| Socket | `~/.vellum/work/control.sock` + bearer token `~/.vellum/work/token` |
-| Identity | **process-bind** — CLI must run as a descendant of a live Vellum Command agent (ACP) or herdr pane process. Main registers those PIDs; control admits via Unix peer PID (+ PPID walk). No client-supplied nodeRef / `VELLUM_NODE_REF` identity claim. |
+| CLI | `dist/vellum-command` (`bun run cli:build`) — `ping`, `doctor`, `capabilities`, `onboard`, `tasks`, `msg`, `request`, `artifact`, board ops |
+| Socket | `~/.vellum-command/work/control.sock` + bearer token `~/.vellum-command/work/token` |
+| Identity | **process-bind** — CLI must run as a descendant of a live Vellum Command agent (ACP) or herdr pane process. Main registers those PIDs; control admits via Unix peer PID (+ PPID walk). No client-supplied nodeRef / `VELLUM_COMMAND_NODE_REF` identity claim. |
 | Authz | **edges** — agent only acts on connected nodes (kernel-enforced ScopeError otherwise); board ports are distinct (`board.create_topic` vs `board.post`) |
 
-**How to use:** open the agent chat (or refresh local herdr pane meta) in Vellum Command so the process is registered, then run `dist/vellum` from that agent/tooling tree. `onboard` / `capabilities` report the live edge contract for the admitted principal.
+**How to use:** open the agent chat (or refresh local herdr pane meta) in Vellum Command so the process is registered, then run `dist/vellum-command` from that agent/tooling tree. `onboard` / `capabilities` report the live edge contract for the admitted principal.
 
-Browser control (`vellum browser` / `bun run browser`) uses the same process-bind
+Browser control (`vellum-command browser` / `bun run browser`) uses the same process-bind
 identity on protected routes. There is **no enable-grant ceremony** and no client
 capability secret — only a live registered process + human-drawn edges to page
-nodes. Station wire entry is `vellum station-stdio`; content transfer is
-`vellum content-transfer …`. Packaged installs ship **one** CLI binary
-(`bin/vellum`) only.
+nodes. Station wire entry is `vellum-command station-stdio`; content transfer is
+`vellum-command content-transfer …`. Packaged installs ship **one** CLI binary
+(`bin/vellum-command`) only.
 
 Ops go through WorkService (tasks/messages/requests/artifacts/board). That is the agent write path; freeform canvas authoring remains human/Command Center.
 
@@ -325,7 +334,7 @@ phase, and attention/occupancy are separate planes.
 
 ## Discipline
 
-- `~/.vellum/state/vellum.db` is the only **product** state store. Do not add
+- `~/.vellum-command/state/vellum-command.db` is the only **product** state store. Do not add
   parallel product JSON stores, manifests, seals, pointer files, drop-file
   protocols, dual product reads/writes, legacy imports, or rollback paths.
   Install-local internals (backfill ledgers, content object files) are not
@@ -353,7 +362,7 @@ Two kinds of migration exist and they never mix:
 2. **Data backfills** — marker-gated, idempotent walks that run after
    StateEngine is up (e.g. `content/inline-media-migration.ts`). Completeness
    markers live in install-ops (`install-ops.db` / `InstallOpsService`), not
-   in product tables. Dev seeds may copy `vellum.db` + content files; they
+   in product tables. Dev seeds may copy `vellum-command.db` + content files; they
    must never copy install-ops ledgers.
 
 Backfill laws (each one broke, or nearly broke, a real release):
@@ -370,7 +379,7 @@ Backfill laws (each one broke, or nearly broke, a real release):
   transactions, safe resume from any interruption.
 - **Install-local ledger.** Backfill completeness is install-local
   bookkeeping, not product state — separate Effect layer/service and
-  separate on-disk store from `vellum.db`.
+  separate on-disk store from `vellum-command.db`.
 - **Proven against the real schema before it ships.** Every migration or
   backfill ships with a test that runs it on the production DDL — triggers
   active — seeded with historical-shaped rows *including rows in the immutable

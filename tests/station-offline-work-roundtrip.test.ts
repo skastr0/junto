@@ -157,7 +157,7 @@ const makeInstallationRuntime = (
   databasePath: string,
   localInstallationId: InstallationIdValue,
 ) => {
-  // databasePath is `<tmp>/vellum.db`; content + install-ops live beside it.
+  // databasePath is `<tmp>/vellum-command.db`; content + install-ops live beside it.
   const installRoot = join(databasePath, "..");
   const state = makeStateEngineLive(databasePath);
   const repositories = Layer.provideMerge(
@@ -256,7 +256,7 @@ const openInstallation = async (
   localInstallationId: InstallationIdValue,
 ): Promise<InstallationHarness> => {
   const root = await mkdtemp(
-    join(tmpdir(), `vellum-station-offline-${localInstallationId}-`),
+    join(tmpdir(), `vellum-command-station-offline-${localInstallationId}-`),
   );
   const harness = await openInstallationAt(root, localInstallationId);
   opened.push(harness);
@@ -268,7 +268,7 @@ const openInstallationAt = async (
   localInstallationId: InstallationIdValue,
 ): Promise<InstallationHarness> => {
   const runtime = makeInstallationRuntime(
-    join(root, "vellum.db"),
+    join(root, "vellum-command.db"),
     localInstallationId,
   );
   const services = await runtime.runPromise(

@@ -49,8 +49,8 @@ test.use({
   },
 });
 
-test("dense canvas: selection stays under interaction budget", async ({ vellum }) => {
-  const { page } = vellum;
+test("dense canvas: selection stays under interaction budget", async ({ vellumCommand }) => {
+  const { page } = vellumCommand;
 
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
   const first = page.getByTestId("rf__node-n0");
@@ -79,8 +79,8 @@ test("dense canvas: selection stays under interaction budget", async ({ vellum }
   expect(median, `selection samples ms=${JSON.stringify(samples)}`).toBeLessThan(250);
 });
 
-test("dense canvas: drag commits without mid-gesture snap-back", async ({ vellum }) => {
-  const { page } = vellum;
+test("dense canvas: drag commits without mid-gesture snap-back", async ({ vellumCommand }) => {
+  const { page } = vellumCommand;
 
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
   const node = page.getByTestId("rf__node-n1");

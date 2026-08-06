@@ -256,7 +256,7 @@ const launchElectron = async (options: {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     HOME: join(options.root, "home"),
-    VELLUM_BROWSER_DIR: options.browserRoot,
+    VELLUM_COMMAND_BROWSER_DIR: options.browserRoot,
   };
   delete env.ELECTRON_RENDERER_URL;
   delete env.ELECTRON_RUN_AS_NODE;
@@ -390,7 +390,7 @@ const main = async (): Promise<void> => {
   const home = join(root, "home");
   const userData = join(root, "electron");
   const browserRoot = join(root, "browser");
-  const stateDatabasePath = join(root, "state", "vellum.db");
+  const stateDatabasePath = join(root, "state", "vellum-command.db");
   const downloads = join(root, "downloads");
   const reports = {
     A: join(root, "reports", "phase-a.json"),

@@ -33,15 +33,15 @@ import {
   pickFromPointer as decidePickFromPointer,
   type HerdrPickGuardState,
 } from "../../lib/herdr-pick-guard";
-import { getVellumApi } from "../../lib/vellum-api";
+import { getVellumCommandApi } from "../../lib/vellum-api";
 import { HUE } from "../../lib/theme";
 import { ActivityMark } from "../ActivityMark";
 
 type Step = HerdrWizardStep;
 
 const api = () =>
-  getVellumApi() as
-    | (ReturnType<typeof getVellumApi> & {
+  getVellumCommandApi() as
+    | (ReturnType<typeof getVellumCommandApi> & {
         herdrHosts: () => Promise<ReadonlyArray<HerdrHostInfo>>;
         herdrEnsureServer: (
           hostId: string,

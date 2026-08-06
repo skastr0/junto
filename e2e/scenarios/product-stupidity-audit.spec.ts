@@ -114,11 +114,11 @@ const EDGES: CanvasEdge[] = [
 test("walk every product surface and screenshot it", async () => {
   test.setTimeout(600_000);
   await mkdir(SHOTS, { recursive: true });
-  const vellum = await launchVellum({
+  const vellumCommand = await launchVellum({
     seedCanvases: { "stupidity-audit": canvasDoc(NODES, EDGES) },
   });
 
-  const { page } = vellum;
+  const { page } = vellumCommand;
   const shot = async (name: string) => {
     await page.waitForTimeout(450);
     await page.screenshot({ path: join(SHOTS, `${name}.png`), fullPage: false });
@@ -216,6 +216,6 @@ test("walk every product surface and screenshot it", async () => {
       await escapeAll();
     }
   } finally {
-    await vellum.close();
+    await vellumCommand.close();
   }
 });

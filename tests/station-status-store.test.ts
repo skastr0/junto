@@ -96,8 +96,8 @@ describe("SQLite station status receipts", () => {
   let runtime: TestRuntime;
 
   beforeEach(async () => {
-    root = mkdtempSync(join(tmpdir(), "vellum-station-status-"));
-    databasePath = join(root, "vellum.db");
+    root = mkdtempSync(join(tmpdir(), "vellum-command-station-status-"));
+    databasePath = join(root, "vellum-command.db");
     runtime = makeTestRuntime(databasePath);
     await acquireStatus(runtime);
   });

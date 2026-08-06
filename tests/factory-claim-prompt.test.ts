@@ -31,15 +31,15 @@ describe("buildFactoryClaimPrompt", () => {
     expect(text).toContain(`[factory claim] task ${task.id}: Ship claim packet contract`);
     expect(text).toContain(`Sink target (tasks node id): ${sink}`);
     expect(text).toContain(`Task id: ${task.id}`);
-    expect(text).toContain(`vellum tasks list '{"target":"${sink}"}'`);
+    expect(text).toContain(`vellum-command tasks list '{"target":"${sink}"}'`);
     expect(text).toContain(
-      `vellum tasks update '{"target":"${sink}","task":"${task.id}","state":"completed"`,
+      `vellum-command tasks update '{"target":"${sink}","task":"${task.id}","state":"completed"`,
     );
     expect(text).toContain(
-      `vellum tasks update '{"target":"${sink}","task":"${task.id}","state":"working"`,
+      `vellum-command tasks update '{"target":"${sink}","task":"${task.id}","state":"working"`,
     );
-    expect(text).toContain("vellum onboard");
-    expect(text).toContain("vellum escalate");
+    expect(text).toContain("vellum-command onboard");
+    expect(text).toContain("vellum-command escalate");
     expect(text).toContain("Finish criteria (hard gate on complete):");
     expect(text).toContain("packet is complete");
     expect(text).toContain("git: at least 1 commit(s)");
@@ -47,7 +47,7 @@ describe("buildFactoryClaimPrompt", () => {
     expect(text).toContain(`"sinkTarget": "${sink}"`);
     expect(text).toContain(`"taskId": "${task.id}"`);
     // Must not tell agents to invent bare CLI without JSON.
-    expect(text).not.toMatch(/Run `vellum tasks list`(?! ')/u);
+    expect(text).not.toMatch(/Run `vellum-command tasks list`(?! ')/u);
   });
 
   it("embeds enough packet that list is optional to start", () => {

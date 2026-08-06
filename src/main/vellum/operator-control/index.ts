@@ -1,4 +1,4 @@
-export const OPERATOR_CONTROL_SWITCH = "--vellum-operator-control";
+export const OPERATOR_CONTROL_SWITCH = "--vellum-command-operator-control";
 
 export const operatorControlEnabledFromInitialArgv = (
   argv: ReadonlyArray<string>,

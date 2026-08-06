@@ -10,11 +10,11 @@ import { ManagedRuntime } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RETIRED_PRODUCT_STATE_SIGNATURES } from "../scripts/audit-retired-state-signatures";
 
-const originalDemo = process.env.VELLUM_DEMO;
-const originalE2E = process.env.VELLUM_E2E;
+const originalDemo = process.env.VELLUM_COMMAND_DEMO;
+const originalE2E = process.env.VELLUM_COMMAND_E2E;
 const originalVitest = process.env.VITEST;
-const originalStateDatabase = process.env.VELLUM_STATE_DB;
-const originalProjectionRoot = process.env.VELLUM_CANVASES_DIR;
+const originalStateDatabase = process.env.VELLUM_COMMAND_STATE_DB;
+const originalProjectionRoot = process.env.VELLUM_COMMAND_CANVASES_DIR;
 
 let releaseDemo: (() => void) | undefined;
 
@@ -43,28 +43,28 @@ const runtimeSources = (root: string): ReadonlyArray<string> => {
 beforeEach(() => {
   vi.resetModules();
   releaseDemo = undefined;
-  delete process.env.VELLUM_DEMO;
-  delete process.env.VELLUM_E2E;
+  delete process.env.VELLUM_COMMAND_DEMO;
+  delete process.env.VELLUM_COMMAND_E2E;
   delete process.env.VITEST;
-  delete process.env.VELLUM_STATE_DB;
-  delete process.env.VELLUM_CANVASES_DIR;
+  delete process.env.VELLUM_COMMAND_STATE_DB;
+  delete process.env.VELLUM_COMMAND_CANVASES_DIR;
 });
 
 afterEach(() => {
   releaseDemo?.();
   releaseDemo = undefined;
-  restore("VELLUM_DEMO", originalDemo);
-  restore("VELLUM_E2E", originalE2E);
+  restore("VELLUM_COMMAND_DEMO", originalDemo);
+  restore("VELLUM_COMMAND_E2E", originalE2E);
   restore("VITEST", originalVitest);
-  restore("VELLUM_STATE_DB", originalStateDatabase);
-  restore("VELLUM_CANVASES_DIR", originalProjectionRoot);
+  restore("VELLUM_COMMAND_STATE_DB", originalStateDatabase);
+  restore("VELLUM_COMMAND_CANVASES_DIR", originalProjectionRoot);
   vi.resetModules();
 });
 
 describe("demo runtime isolation", () => {
   it("owns one OS-temporary database and removes it after SQLite closes", async () => {
-    process.env.VELLUM_DEMO = "1";
-    process.env.VELLUM_STATE_DB = "/tmp/caller-selected-state.db";
+    process.env.VELLUM_COMMAND_DEMO = "1";
+    process.env.VELLUM_COMMAND_STATE_DB = "/tmp/caller-selected-state.db";
 
     const isolation = await import(
       "../src/main/vellum/demo/runtime-isolation"
@@ -81,12 +81,12 @@ describe("demo runtime isolation", () => {
     const ownedRoot = dirname(databasePath);
     expect(databasePath).not.toBe("/tmp/caller-selected-state.db");
     expect(databasePath).not.toBe(
-      join(homedir(), ".vellum", "demo", "state", "vellum.db"),
+      join(homedir(), ".vellum-command", "demo", "state", "vellum-command.db"),
     );
     expect(relative(tmpdir(), ownedRoot)).toMatch(
       /^vellum-demo-runtime-[^/]+$/u,
     );
-    expect(process.env.VELLUM_CANVASES_DIR).toBe(
+    expect(process.env.VELLUM_COMMAND_CANVASES_DIR).toBe(
       join(ownedRoot, "projections"),
     );
 
@@ -102,8 +102,8 @@ describe("demo runtime isolation", () => {
   });
 
   it("preserves only an explicit derivative-sidecar output root", async () => {
-    process.env.VELLUM_DEMO = "1";
-    process.env.VELLUM_CANVASES_DIR = "/tmp/vellum-demo-sidecars";
+    process.env.VELLUM_COMMAND_DEMO = "1";
+    process.env.VELLUM_COMMAND_CANVASES_DIR = "/tmp/vellum-demo-sidecars";
 
     const isolation = await import(
       "../src/main/vellum/demo/runtime-isolation"
@@ -115,7 +115,7 @@ describe("demo runtime isolation", () => {
     expect(relative(tmpdir(), dirname(databasePath!))).toMatch(
       /^vellum-demo-runtime-[^/]+$/u,
     );
-    expect(process.env.VELLUM_CANVASES_DIR).toBe(
+    expect(process.env.VELLUM_COMMAND_CANVASES_DIR).toBe(
       "/tmp/vellum-demo-sidecars",
     );
   });
@@ -127,23 +127,23 @@ describe("demo runtime isolation", () => {
     releaseDemo = isolation.releaseDemoRuntimeIsolation;
 
     expect(isolation.demoStateDatabasePath()).toBeUndefined();
-    expect(process.env.VELLUM_CANVASES_DIR).toBeUndefined();
+    expect(process.env.VELLUM_COMMAND_CANVASES_DIR).toBeUndefined();
   });
 
   it("ignores database redirection even under test-looking environment flags", async () => {
-    process.env.VELLUM_E2E = "1";
+    process.env.VELLUM_COMMAND_E2E = "1";
     process.env.VITEST = "true";
-    process.env.VELLUM_STATE_DB = "/tmp/untrusted-second-home.db";
+    process.env.VELLUM_COMMAND_STATE_DB = "/tmp/untrusted-second-home.db";
 
     const { stateDatabasePath } = await import(
       "../src/main/vellum/state/engine"
     );
-    const { resolveVellumHome } = await import("../src/shared/vellum-home");
+    const { resolveVellumCommandHome } = await import("../src/shared/vellum-home");
 
-    // VELLUM_HOME is the only product redirect (test setup / dev use it).
-    // Retired flags like VELLUM_STATE_DB must not open a second store.
+    // VELLUM_COMMAND_HOME is the only product redirect (test setup / dev use it).
+    // Retired flags like VELLUM_COMMAND_STATE_DB must not open a second store.
     expect(stateDatabasePath()).toBe(
-      join(resolveVellumHome(), ".vellum", "state", "vellum.db"),
+      join(resolveVellumCommandHome(), ".vellum-command", "state", "vellum-command.db"),
     );
     expect(stateDatabasePath()).not.toBe("/tmp/untrusted-second-home.db");
   });
@@ -152,11 +152,13 @@ describe("demo runtime isolation", () => {
     const mainRoot = join(import.meta.dirname, "..", "src", "main");
     const offenders = runtimeSources(mainRoot)
       .filter((path) =>
-        readFileSync(path, "utf8").includes("VELLUM_STATE_DB")
+        readFileSync(path, "utf8").includes("VELLUM_COMMAND_STATE_DB")
       )
       .map((path) => relative(mainRoot, path));
 
     expect(offenders).toEqual([]);
+    // The retired-signature audit remains anchored to the historical token so
+    // an old packaged payload cannot silently reintroduce the override.
     expect(RETIRED_PRODUCT_STATE_SIGNATURES).toContain("VELLUM_STATE_DB");
   });
 
@@ -181,7 +183,7 @@ describe("demo runtime isolation", () => {
     expect(indexSource).toContain(
       ".finally(releaseDemoRuntimeIsolation)",
     );
-    expect(engineSource).not.toContain("VELLUM_E2E");
+    expect(engineSource).not.toContain("VELLUM_COMMAND_E2E");
     expect(engineSource).not.toContain("VITEST");
     expect(engineSource).not.toContain("process.env");
   });

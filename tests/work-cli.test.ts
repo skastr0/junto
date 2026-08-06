@@ -273,8 +273,8 @@ describe("schema/examples from validating schemas", () => {
         invocations: [
           {
             port: "browser.automate",
-            command: "vellum browser",
-            discover: "vellum browser pages --json",
+            command: "vellum-command browser",
+            discover: "vellum-command browser pages --json",
           },
         ],
       });

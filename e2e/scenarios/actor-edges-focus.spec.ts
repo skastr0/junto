@@ -49,12 +49,12 @@ const fixture = canvasDoc(
 
 test("actor terminal focus shows read-only edge inventory", async () => {
   await mkdir(SHOTS, { recursive: true });
-  const vellum = await launchVellum({
+  const vellumCommand = await launchVellum({
     seedCanvases: { [CANVAS]: fixture },
   });
 
   try {
-    const { page } = vellum;
+    const { page } = vellumCommand;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
 
     const agentNode = page.locator('.react-flow__node[data-id="worker"]');
@@ -94,6 +94,6 @@ test("actor terminal focus shows read-only edge inventory", async () => {
       fullPage: false,
     });
   } finally {
-    await vellum.close();
+    await vellumCommand.close();
   }
 });

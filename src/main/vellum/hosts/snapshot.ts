@@ -34,7 +34,7 @@ export const setHostsSnapshot = (hosts: ReadonlyArray<RemoteHost>): void => {
     } catch {
       // A durable mutation has already committed. Keep notifying independent
       // consumers and never echo host data or endpoint-bearing exceptions.
-      console.warn("[vellum:hosts] routing snapshot listener failed");
+      console.warn("[vellum-command:hosts] routing snapshot listener failed");
     }
   }
 };

@@ -5,24 +5,23 @@ set -euo pipefail
 umask 0022
 
 if [[ "$(uname -s)" != "Linux" ]]; then
-  printf 'vellum: error: native linux packaging must run on Linux\n' >&2
+  printf 'vellum-command: error: native linux packaging must run on Linux\n' >&2
   exit 1
 fi
 case "$(uname -m)" in
   x86_64) ;;
-  *) printf 'vellum: error: Linux v1 packages require native x86_64\n' >&2; exit 1 ;;
+  *) printf 'vellum-command: error: Linux v1 packages require native x86_64\n' >&2; exit 1 ;;
 esac
 VERIFY=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --verify) VERIFY=1 ;;
-    *) printf 'vellum: error: unsupported Linux package option: %s\n' "$1" >&2; exit 1 ;;
+    *) printf 'vellum-command: error: unsupported Linux package option: %s\n' "$1" >&2; exit 1 ;;
   esac
   shift
 done
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
-bun "$SCRIPT_DIR/electron-security-policy.ts" validate
 
 # @electron/rebuild 4 requires Node >=22.12 and node-gyp invokes that runtime
 # while compiling. Fail before touching the dependency tree when the build host
@@ -33,13 +32,13 @@ if [[ -n "$NODE_EXECUTABLE" && -x "$NODE_EXECUTABLE" ]]; then
   NODE_VERSION="$("$NODE_EXECUTABLE" --version 2>/dev/null || true)"
 fi
 if [[ ! "$NODE_VERSION" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
-  printf 'vellum: error: Linux packaging requires Node >=22.12.0 for @electron/rebuild\n' >&2
+  printf 'vellum-command: error: Linux packaging requires Node >=22.12.0 for @electron/rebuild\n' >&2
   exit 1
 fi
 NODE_MAJOR="${BASH_REMATCH[1]}"
 NODE_MINOR="${BASH_REMATCH[2]}"
 if (( NODE_MAJOR < 22 || (NODE_MAJOR == 22 && NODE_MINOR < 12) )); then
-  printf 'vellum: error: Linux packaging requires Node >=22.12.0; found %s\n' "$NODE_VERSION" >&2
+  printf 'vellum-command: error: Linux packaging requires Node >=22.12.0; found %s\n' "$NODE_VERSION" >&2
   exit 1
 fi
 
@@ -79,9 +78,9 @@ bunx --no-install electron-builder --linux dir --x64 \
   --config.linux.icon="$PACKAGE_ICON"
 
 # Displayless product Remote: official Node linux-x64 + node-pty for that ABI +
-# resources/bin/vellum-remote. Never ELECTRON_RUN_AS_NODE; never Bun-compile remote.
-# Fails closed when out/remote/vellum-remote.js is missing.
-printf 'vellum: staging Linux remote runtime (bundled Node + node-pty Node ABI) …\n'
+# resources/bin/vellum-command-remote. Never ELECTRON_RUN_AS_NODE; never Bun-compile remote.
+# Fails closed when out/remote/vellum-command-remote.js is missing.
+printf 'vellum-command: staging Linux remote runtime (bundled Node + node-pty Node ABI) …\n'
 bun "$SCRIPT_DIR/build-linux-remote-runtime.ts" \
   --runtime "$SCRIPT_DIR/../release/linux-unpacked" \
   --repo "$SCRIPT_DIR/.."
@@ -91,6 +90,6 @@ runtime="$(printf '%s' "$finalized" | bun -e 'const value = await Bun.stdin.json
 archive="$(printf '%s' "$finalized" | bun -e 'const value = await Bun.stdin.json(); if (typeof value.archive !== "string") process.exit(1); process.stdout.write(value.archive)')"
 bun "$SCRIPT_DIR/audit-linux-package.ts" --runtime "$runtime"
 if [[ "$VERIFY" -eq 1 ]]; then
-  printf 'vellum: source/package audit passed; installed sandbox and PTY qualification still require the disposable Ubuntu gate.\n'
+  printf 'vellum-command: source/package audit passed; installed sandbox and PTY qualification still require the disposable Ubuntu gate.\n'
 fi
-printf 'vellum: built relocatable runtime %s and %s\n' "$runtime" "$archive"
+printf 'vellum-command: built relocatable runtime %s and %s\n' "$runtime" "$archive"

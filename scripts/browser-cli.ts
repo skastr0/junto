@@ -33,11 +33,11 @@ import { BROWSER_ENABLED } from "../src/shared/features";
 // 0 on ok envelopes, 1 on error envelopes. Remote Station-browser is deleted;
 // `--host`, hidden `station` mode, and station-trust exit 2 before transport.
 
-const usage = `vellum browser control
+const usage = `vellum-command browser control
 
 usage:
-  vellum browser <command> [args] [--json]
-  vellum-browser <command> [args] [--json]
+  vellum-command browser <command> [args] [--json]
+  vellum-command-browser <command> [args] [--json]
   bun run browser <command> [args] [--json]
 
 auth:
@@ -64,7 +64,7 @@ host-local only:
 // through `eval`) wedges the HTTP handler forever and the CLI hangs with no
 // typed error, contradicting the runtime_down contract this file documents.
 const requestTimeoutMs = (): number => {
-  const configured = process.env.VELLUM_BROWSER_REQUEST_TIMEOUT_MS;
+  const configured = process.env.VELLUM_COMMAND_BROWSER_REQUEST_TIMEOUT_MS;
   if (configured === undefined || !/^[1-9][0-9]*$/.test(configured)) {
     return BROWSER_CLI_REQUEST_TIMEOUT_MS;
   }
@@ -207,7 +207,7 @@ const httpOverSocket = (
       // a reset after acceptance means the server failed mid-response.
       settle(
         isRuntimeDownTransportError(error)
-          ? controlErr("runtime_down", "vellum app is not running")
+          ? controlErr("runtime_down", "Vellum Command app is not running")
           : controlErr("failed", "browser control request failed"),
       );
     });
@@ -227,7 +227,7 @@ const parseArgs = (
   argv: ReadonlyArray<string>,
 ): { call: Call; json: boolean } | { error: string } => {
   // The standalone compatibility helper receives the command directly. The
-  // canonical `vellum browser` dispatcher calls this same parser and may leave
+  // canonical `vellum-command browser` dispatcher calls this same parser and may leave
   // its one dispatch word in argv.
   let commandArgv = argv[0] === "browser" ? argv.slice(1) : [...argv];
   const json = commandArgv.includes("--json");

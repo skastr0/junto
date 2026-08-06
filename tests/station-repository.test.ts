@@ -65,9 +65,9 @@ afterEach(async () => {
 });
 
 const testDatabase = async (): Promise<string> => {
-  const root = await mkdtemp(join(tmpdir(), "vellum-station-repository-"));
+  const root = await mkdtemp(join(tmpdir(), "vellum-command-station-repository-"));
   roots.push(root);
-  return join(root, "vellum.db");
+  return join(root, "vellum-command.db");
 };
 
 const makeRuntime = (

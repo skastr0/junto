@@ -71,7 +71,7 @@ describe("zero-config-write spawn audit", () => {
       );
       buildSpawnEnv(
         { HOME: tmp, CLAUDE_CODE_CHILD_SESSION: "1", PATH: "/usr/bin" },
-        { VELLUM_SOCKET: path.join(tmp, "sock") },
+        { VELLUM_COMMAND_SOCKET: path.join(tmp, "sock") },
       );
     }
 

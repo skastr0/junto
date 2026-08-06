@@ -34,7 +34,7 @@ import { makeStateEngineLive } from "../src/main/vellum/state/engine";
 import { WorkRepositoryLive } from "../src/main/vellum/work/repository";
 
 const stateLive = makeStateEngineLive(
-  join(mockCanvasesHome, ".vellum", "state", "vellum.db"),
+  join(mockCanvasesHome, ".vellum-command", "state", "vellum-command.db"),
 );
 const repositoriesLive = Layer.provideMerge(WorkRepositoryLive, stateLive);
 const canvasesLive = Layer.provideMerge(CanvasesLive, repositoriesLive);
@@ -42,7 +42,7 @@ const runtime = ManagedRuntime.make(
   canvasesLive,
 );
 let canvases: Context.Service.Shape<typeof CanvasesService>;
-const previousCanvasesDirectory = process.env.VELLUM_CANVASES_DIR;
+const previousCanvasesDirectory = process.env.VELLUM_COMMAND_CANVASES_DIR;
 
 const emptyDoc = { nodes: [], edges: [] } as const;
 const rejected = async (effect: Effect.Effect<unknown, unknown>): Promise<void> => {
@@ -59,7 +59,7 @@ const runHeadless = async (script: "digest.ts" | "render.ts", name: string) => {
         cwd: globalThis.process.cwd(),
         env: {
           ...globalThis.process.env,
-          VELLUM_CANVASES_DIR: join(mockCanvasesHome, ".vellum", "canvases"),
+          VELLUM_COMMAND_CANVASES_DIR: join(mockCanvasesHome, ".vellum-command", "canvases"),
         },
       },
       (error, stdout, stderr) => {
@@ -72,9 +72,9 @@ const runHeadless = async (script: "digest.ts" | "render.ts", name: string) => {
 };
 
 beforeAll(async () => {
-  process.env.VELLUM_CANVASES_DIR = join(
+  process.env.VELLUM_COMMAND_CANVASES_DIR = join(
     mockCanvasesHome,
-    ".vellum",
+    ".vellum-command",
     "canvases",
   );
   canvases = await runtime.runPromise(CanvasesService);
@@ -83,9 +83,9 @@ beforeAll(async () => {
 afterAll(async () => {
   await runtime.dispose();
   if (previousCanvasesDirectory === undefined) {
-    delete process.env.VELLUM_CANVASES_DIR;
+    delete process.env.VELLUM_COMMAND_CANVASES_DIR;
   } else {
-    process.env.VELLUM_CANVASES_DIR = previousCanvasesDirectory;
+    process.env.VELLUM_COMMAND_CANVASES_DIR = previousCanvasesDirectory;
   }
   await rm(mockCanvasesHome, { recursive: true, force: true });
 });
@@ -117,7 +117,7 @@ describe("canvas path capability boundary", () => {
     await runtime.runPromise(canvases.list);
 
     await expect(
-      access(join(mockCanvasesHome, ".vellum", "canvases")),
+      access(join(mockCanvasesHome, ".vellum-command", "canvases")),
     ).rejects.toThrow();
   });
 
@@ -136,7 +136,7 @@ describe("canvas path capability boundary", () => {
       access(
         join(
           mockCanvasesHome,
-          ".vellum",
+          ".vellum-command",
           "canvases",
           "projection-sink.canvas",
         ),
@@ -145,14 +145,14 @@ describe("canvas path capability boundary", () => {
   });
 
   it("keeps one checked output root for the complete projection write", async () => {
-    const previousRoot = process.env.VELLUM_CANVASES_DIR;
+    const previousRoot = process.env.VELLUM_COMMAND_CANVASES_DIR;
     const rootA = join(mockCanvasesHome, "root-a");
     const outside = join(mockCanvasesHome, "outside-root");
     const swapped = join(mockCanvasesHome, "swapped-root");
     await mkdir(rootA, { recursive: true });
     await mkdir(outside, { recursive: true });
     await symlink(outside, swapped);
-    process.env.VELLUM_CANVASES_DIR = rootA;
+    process.env.VELLUM_COMMAND_CANVASES_DIR = rootA;
     try {
       await runtime.runPromise(canvases.create("stable-root"));
       const pending = writeCanvasProjectionSidecar(
@@ -160,14 +160,14 @@ describe("canvas path capability boundary", () => {
         "svg",
         "<svg/>",
       );
-      process.env.VELLUM_CANVASES_DIR = swapped;
+      process.env.VELLUM_COMMAND_CANVASES_DIR = swapped;
       const written = await pending;
 
       expect(written).toBe(join(rootA, "stable-root.svg"));
       await expect(access(join(outside, "stable-root.svg"))).rejects.toThrow();
     } finally {
-      if (previousRoot === undefined) delete process.env.VELLUM_CANVASES_DIR;
-      else process.env.VELLUM_CANVASES_DIR = previousRoot;
+      if (previousRoot === undefined) delete process.env.VELLUM_COMMAND_CANVASES_DIR;
+      else process.env.VELLUM_COMMAND_CANVASES_DIR = previousRoot;
     }
   });
 
@@ -198,7 +198,7 @@ describe("canvas path capability boundary", () => {
   });
 
   it("does not follow projection symlinks outside the output root", async () => {
-    const root = join(mockCanvasesHome, ".vellum", "canvases");
+    const root = join(mockCanvasesHome, ".vellum-command", "canvases");
     const outsideProjection = join(mockCanvasesHome, "outside.digest.txt");
     const projectionPath = join(root, "safe.digest.txt");
     await runtime.runPromise(canvases.create("safe"));
@@ -230,7 +230,7 @@ describe("canvas path capability boundary", () => {
       access(
         join(
           mockCanvasesHome,
-          ".vellum",
+          ".vellum-command",
           "canvases",
           "portfolio-2026.canvas",
         ),

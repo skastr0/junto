@@ -3,7 +3,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import type { CanvasNode } from "@shared/canvas";
-import type { VellumTerminalApi } from "@shared/ipc";
+import type { VellumCommandTerminalApi } from "@shared/ipc";
 import { resolveTerminalBinding } from "@shared/terminal";
 import { taskBrief } from "@shared/task";
 import { MONO_CELL } from "../../lib/focus-measure";
@@ -16,7 +16,7 @@ import {
   unpinWorkbenchSurface,
 } from "../../lib/dock-state";
 import { surfaceById } from "../../lib/surface-registry";
-import { getVellumApi } from "../../lib/vellum-api";
+import { getVellumCommandApi } from "../../lib/vellum-api";
 import {
   VELLUM_XTERM_FONT_FAMILY,
   xtermThemeFor,
@@ -170,7 +170,7 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
   const fitRef = useRef<FitAddon | null>(null);
   const leaseRef = useRef<string | undefined>(undefined);
   const epochRef = useRef<string | undefined>(undefined);
-  const apiRef = useRef<VellumTerminalApi | undefined>(undefined);
+  const apiRef = useRef<VellumCommandTerminalApi | undefined>(undefined);
   const lastGeom = useRef<{ cols: number; rows: number }>({ cols: 0, rows: 0 });
   const [status, setStatus] = useState("attaching…");
   const [geomLabel, setGeomLabel] = useState("");
@@ -394,7 +394,7 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
   );
 
   useEffect(() => {
-    const api = getVellumApi() as VellumTerminalApi | undefined;
+    const api = getVellumCommandApi() as VellumCommandTerminalApi | undefined;
     const term = termRef.current;
     apiRef.current = api;
     if (!api || !term || !bindingId) {
@@ -654,7 +654,7 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
     }
     setKillPhase("stopping");
     setStatus("stopping…");
-    void getVellumApi()
+    void getVellumCommandApi()
       ?.terminalKill?.(bindingId, hostId)
       .then(() => {
         setKillPhase("stopped");

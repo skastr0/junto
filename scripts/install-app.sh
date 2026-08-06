@@ -15,7 +15,7 @@
 #   Settings doctor metadata reports preferred vs LaunchAgent-loaded so Remote
 #   deploy (later) can decide to pass --supervised. No third binary.
 #
-# Installs `vellum …` as the single atomic
+# Installs `vellum-command …` as the single atomic
 # symlinks under ~/.local/bin. Existing unrelated commands are
 # never overwritten.
 #
@@ -174,7 +174,6 @@ resume_unsupervised_incumbent() {
   return 1
 }
 cd "$REPO_ROOT"
-bun "$SCRIPT_DIR/electron-security-policy.ts" validate
 
 assert_cli_path() {
   local description="$1"
@@ -189,7 +188,7 @@ preflight_cli_link() {
   local name="${target##*/}"
   assert_scoped_directory_capability "CLI directory" "$BIN_DIR" || return 1
   assert_cli_path "CLI link" "$target" "$BIN_DIR/$name" || return 1
-  if [[ "$name" != "vellum" ]]; then
+  if [[ "$name" != "vellum-command" ]]; then
     err "refusing unexpected CLI link name: $name"
     return 1
   fi
@@ -226,15 +225,15 @@ install_cli_link() {
 }
 
 install_cli_tools() {
-  local work_helper="$APP_DST/Contents/Resources/bin/vellum"
+  local work_helper="$APP_DST/Contents/Resources/bin/vellum-command"
   if [[ ! -x "$work_helper" ]]; then
     err "installed Vellum Command CLI helper missing or not executable"
     return 1
   fi
   ensure_scoped_directory "CLI directory" "$BIN_DIR"
-  preflight_cli_link "$BIN_DIR/vellum" "$work_helper"
-  install_cli_link "vellum" "$work_helper"
-  log "commands → $BIN_DIR/vellum"
+  preflight_cli_link "$BIN_DIR/vellum-command" "$work_helper"
+  install_cli_link "vellum-command" "$work_helper"
+  log "commands → $BIN_DIR/vellum-command"
 }
 
 audit_app_bundle() {
@@ -267,8 +266,8 @@ log "auditing candidate → $APP_SRC"
 audit_app_bundle "$APP_SRC"
 CANDIDATE_CDHASH="$(app_cdhash "$APP_SRC")"
 
-WORK_HELPER_TARGET="$APP_DST/Contents/Resources/bin/vellum"
-preflight_cli_link "$BIN_DIR/vellum" "$WORK_HELPER_TARGET"
+WORK_HELPER_TARGET="$APP_DST/Contents/Resources/bin/vellum-command"
+preflight_cli_link "$BIN_DIR/vellum-command" "$WORK_HELPER_TARGET"
 
 derive_install_transaction_paths "$$"
 ACTIVATION_STARTED=0

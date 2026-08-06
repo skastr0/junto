@@ -85,7 +85,7 @@ describe("Linux v1 operator documentation", () => {
     );
 
     // State custody + forward-only repair.
-    expect(runbook).toContain("`~/.vellum/state/vellum.db`");
+    expect(runbook).toContain("`~/.vellum-command/state/vellum-command.db`");
     expect(text).toContain("repair is forward-only with a newer signed payload");
     expect(text).toContain(
       "An older binary is never activated against advanced state",
@@ -192,10 +192,10 @@ describe("Linux v1 operator documentation", () => {
       /systemctl\s+disable\s+apparmor/u,
       /sysctl\b.*unprivileged_userns/u,
       /sudo\s+(?:\/opt\/[^\n]*vellum|vellum)(?:\s|$)/iu,
-      /VELLUM_CONTROL_TCP/u,
+      /VELLUM_COMMAND_CONTROL_TCP/u,
       /ssh\s+-[A-Za-z]*L[^\n]*control\.sock/u,
       /socat[^\n]*control\.sock/u,
-      /rm\s+-rf[^\n]*\.vellum/u,
+      /rm\s+-rf[^\n]*\.vellum-command/u,
       /sudo\s+apt-get\s+(?:install|remove|purge)\b[^\n]*vellum/iu,
       /dpkg\s+-i\b/u,
     ]) {
@@ -249,7 +249,7 @@ describe("Linux v1 operator documentation", () => {
       "Wayland/XWayland",
       "five verbs only",
       "host-local",
-      "`vellum-work/v1`",
+      "`vellum-command-work/v1`",
       "Intentionally unavailable in first Beta",
     ]) {
       expect(matrix).toContain(supported);

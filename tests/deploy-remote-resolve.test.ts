@@ -180,7 +180,7 @@ describe("buildRemoteDeployScript", () => {
     expect(script).toContain("APP='/Applications/Vellum Command.app'");
     expect(script).toContain("IN='/Applications/Vellum Command.app.incoming'");
     expect(script).toContain(
-      "CLI_EXE='/Applications/Vellum Command.app/Contents/Resources/bin/vellum'",
+      "CLI_EXE='/Applications/Vellum Command.app/Contents/Resources/bin/vellum-command'",
     );
     expect(script).toContain(
       'test -f "$IN_CLI_EXE" && test ! -L "$IN_CLI_EXE" && test -x "$IN_CLI_EXE"',
@@ -188,10 +188,10 @@ describe("buildRemoteDeployScript", () => {
     expect(script).not.toContain("IN_STATION_EXE");
     expect(script).not.toContain("IN_BROWSER_EXE");
     expect(script).toContain(
-      "TERM_SOCK='/Users/remote station/.vellum/term/control.sock'",
+      "TERM_SOCK='/Users/remote station/.vellum-command/term/control.sock'",
     );
     expect(script).toContain(
-      "BROWSER_SOCK='/Users/remote station/.vellum/browser/control.sock'",
+      "BROWSER_SOCK='/Users/remote station/.vellum-command/browser/control.sock'",
     );
 
     const recursiveRemovals = script
@@ -394,7 +394,7 @@ describe("buildRemoteDeployScript", () => {
       { kind: "app-tar", expectedPackageState: "present" },
     );
     expect(shellActive).toContain(
-      "TERM_SOCK='/Users/remote$(touch should-not-run)/.vellum/term/control.sock'",
+      "TERM_SOCK='/Users/remote$(touch should-not-run)/.vellum-command/term/control.sock'",
     );
     const apostrophe = buildRemoteDeployScript(
       "/Users/o'malley",
@@ -402,7 +402,7 @@ describe("buildRemoteDeployScript", () => {
       { kind: "app-tar", expectedPackageState: "present" },
     );
     expect(apostrophe).toContain(
-      `TERM_SOCK='/Users/o'"'"'malley/.vellum/term/control.sock'`,
+      `TERM_SOCK='/Users/o'"'"'malley/.vellum-command/term/control.sock'`,
     );
 
     expect(isSafeRemoteHomePath("/Users/remote station")).toBe(true);
@@ -468,7 +468,7 @@ describe("remote deploy transaction behavior", () => {
     );
     const termSocketPath = join(
       remoteHome,
-      ".vellum",
+      ".vellum-command",
       "term",
       "control.sock",
     );
@@ -594,8 +594,8 @@ describe("remote deploy transaction behavior", () => {
           "printf 'new-generation' > \"$target/Contents/MacOS/Vellum Command\"",
           'chmod 755 "$target/Contents/MacOS/Vellum Command"',
           'if [ "$FAKE_MISSING_CONTROL_HELPER" != "cli" ]; then',
-          "  printf 'cli-helper' > \"$target/Contents/Resources/bin/vellum\"",
-          '  chmod 755 "$target/Contents/Resources/bin/vellum"',
+          "  printf 'cli-helper' > \"$target/Contents/Resources/bin/vellum-command\"",
+          '  chmod 755 "$target/Contents/Resources/bin/vellum-command"',
           "fi",
           "printf 'new-info' > \"$target/Contents/Info.plist\"",
           'touch "$FAKE_STATE/tar-ran"',

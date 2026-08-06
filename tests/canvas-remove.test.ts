@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 const { mockCanvasesHome } = vi.hoisted(() => {
   const tempRoot = (process.env.TMPDIR ?? "/tmp").replace(/\/+$/, "");
   const home = `${tempRoot}/vellum-canvas-remove-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  process.env.VELLUM_HOME = home;
+  process.env.VELLUM_COMMAND_HOME = home;
   return { mockCanvasesHome: home };
 });
 
@@ -23,7 +23,7 @@ import { makeStateEngineLive } from "../src/main/vellum/state/engine";
 import { WorkRepositoryLive } from "../src/main/vellum/work/repository";
 
 const stateLive = makeStateEngineLive(
-  join(mockCanvasesHome, ".vellum", "state", "vellum.db"),
+  join(mockCanvasesHome, ".vellum-command", "state", "vellum-command.db"),
 );
 const repositoriesLive = Layer.provideMerge(WorkRepositoryLive, stateLive);
 const canvasesLive = Layer.provideMerge(CanvasesLive, repositoriesLive);
@@ -58,7 +58,7 @@ describe("canvases.ts remove()", () => {
     const listBefore = await runtime.runPromise(canvases.list);
     expect(listBefore.some((row) => row.name === name)).toBe(true);
 
-    const dir = join(mockCanvasesHome, ".vellum", "canvases");
+    const dir = join(mockCanvasesHome, ".vellum-command", "canvases");
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, `${name}.digest.txt`), "digest body", "utf8");
     await writeFile(join(dir, `${name}.svg`), "<svg/>", "utf8");

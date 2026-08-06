@@ -12,9 +12,9 @@ fail() { printf 'LINUX_USERLAND_PREFLIGHT_V1 ok=0 reason=%s\n' "$1"; exit 0; }
 UID_VALUE=$(/usr/bin/id -u) || fail identity
 case "$UID_VALUE" in ''|0|*[!0-9]*) fail identity;; esac
 /usr/bin/systemctl --user show-environment >/dev/null 2>&1 || fail systemd-user
-[ ! -L "$HOME/.vellum" ] || fail home-link
-mkdir -p "$HOME/.vellum/runtime/releases" "$HOME/.vellum/runtime/staging" || fail runtime
-chmod 700 "$HOME/.vellum" "$HOME/.vellum/runtime" "$HOME/.vellum/runtime/releases" "$HOME/.vellum/runtime/staging" || fail runtime
+[ ! -L "$HOME/.vellum-command" ] || fail home-link
+mkdir -p "$HOME/.vellum-command/runtime/releases" "$HOME/.vellum-command/runtime/staging" || fail runtime
+chmod 700 "$HOME/.vellum-command" "$HOME/.vellum-command/runtime" "$HOME/.vellum-command/runtime/releases" "$HOME/.vellum-command/runtime/staging" || fail runtime
 FREE=$(/usr/bin/df -PB1 "$HOME" | /usr/bin/awk 'NR == 2 { print $4 }')
 case "$FREE" in ''|*[!0-9]*) fail disk;; esac
 printf 'LINUX_USERLAND_PREFLIGHT_V1 ok=1 uid=%s free=%s\n' "$UID_VALUE" "$FREE"
@@ -43,30 +43,30 @@ printf '%s\n' "$VERSION" | /usr/bin/awk -F. 'NF == 3 && $1 ~ /^(0|[1-9][0-9]*)$/
 case "$SHA" in ????????????????????????????????????????????????????????????????) ;; *) fail header;; esac
 case "$BYTES" in ''|0|*[!0-9]*) fail header;; esac
 [ "$BYTES" -le 3221225472 ] || fail header
-ROOT="$HOME/.vellum/runtime"
-[ ! -L "$HOME/.vellum" ] && [ ! -L "$ROOT" ] || fail home-link
+ROOT="$HOME/.vellum-command/runtime"
+[ ! -L "$HOME/.vellum-command" ] && [ ! -L "$ROOT" ] || fail home-link
 mkdir -p "$ROOT/releases" "$ROOT/staging" || fail stage
 chmod 700 "$ROOT" "$ROOT/releases" "$ROOT/staging" || fail stage
 DEST="$ROOT/releases/$VERSION-$SHA"
 case "$DEST" in "$ROOT"/releases/*) ;; *) fail path;; esac
-UNIT="$HOME/.config/systemd/user/vellum-remote.service"
-REMOTE_BIN="$DEST/resources/bin/vellum-remote"
-LAUNCHER="$DEST/resources/systemd/vellum-remote-launch"
+UNIT="$HOME/.config/systemd/user/vellum-command-remote.service"
+REMOTE_BIN="$DEST/resources/bin/vellum-command-remote"
+LAUNCHER="$DEST/resources/systemd/vellum-command-remote-launch"
 GENERATION_MARKER="releases/$VERSION-$SHA"
 unit_pins_generation() {
   [ -f "$UNIT" ] && [ ! -L "$UNIT" ] || return 1
-  /usr/bin/grep -F "ExecStart=" "$UNIT" | /usr/bin/grep -F "$GENERATION_MARKER/resources/systemd/vellum-remote-launch" >/dev/null 2>&1 || return 1
-  /usr/bin/grep -F "ConditionFileIsExecutable=" "$UNIT" | /usr/bin/grep -F "$GENERATION_MARKER/resources/bin/vellum-remote" >/dev/null 2>&1 || return 1
+  /usr/bin/grep -F "ExecStart=" "$UNIT" | /usr/bin/grep -F "$GENERATION_MARKER/resources/systemd/vellum-command-remote-launch" >/dev/null 2>&1 || return 1
+  /usr/bin/grep -F "ConditionFileIsExecutable=" "$UNIT" | /usr/bin/grep -F "$GENERATION_MARKER/resources/bin/vellum-command-remote" >/dev/null 2>&1 || return 1
   return 0
 }
 prove_activation() {
   /usr/bin/systemctl --user daemon-reload >/dev/null 2>&1 || return 1
-  /usr/bin/systemctl --user restart vellum-remote.service >/dev/null 2>&1 || return 1
-  /usr/bin/systemctl --user is-active --quiet vellum-remote.service || return 1
-  [ -S "$HOME/.vellum/work/control.sock" ] && [ ! -L "$HOME/.vellum/work/control.sock" ] || return 1
-  [ -f "$HOME/.vellum/work/token" ] && [ ! -L "$HOME/.vellum/work/token" ] || return 1
-  [ "$(/usr/bin/stat -c '%a' "$HOME/.vellum/work/control.sock" 2>/dev/null || true)" = 600 ] || return 1
-  [ "$(/usr/bin/stat -c '%a' "$HOME/.vellum/work/token" 2>/dev/null || true)" = 600 ] || return 1
+  /usr/bin/systemctl --user restart vellum-command-remote.service >/dev/null 2>&1 || return 1
+  /usr/bin/systemctl --user is-active --quiet vellum-command-remote.service || return 1
+  [ -S "$HOME/.vellum-command/work/control.sock" ] && [ ! -L "$HOME/.vellum-command/work/control.sock" ] || return 1
+  [ -f "$HOME/.vellum-command/work/token" ] && [ ! -L "$HOME/.vellum-command/work/token" ] || return 1
+  [ "$(/usr/bin/stat -c '%a' "$HOME/.vellum-command/work/control.sock" 2>/dev/null || true)" = 600 ] || return 1
+  [ "$(/usr/bin/stat -c '%a' "$HOME/.vellum-command/work/token" 2>/dev/null || true)" = 600 ] || return 1
   return 0
 }
 if [ -d "$DEST" ] && [ ! -L "$DEST" ] && [ -x "$REMOTE_BIN" ] && [ ! -L "$REMOTE_BIN" ] && [ -x "$LAUNCHER" ] && [ ! -L "$LAUNCHER" ]; then
@@ -95,16 +95,16 @@ chmod 700 "$STAGE"
     if ($1 !~ /^[-d]/ || $0 ~ / -> / || $0 ~ / link to / || $NF ~ /^\// || $NF ~ /(^|\/)\.\.($|\/)/) { ok=0; next }
     if ($NF !~ /^vellum-runtime-[0-9]+\.[0-9]+\.[0-9]+-linux-x64(\/|$)/) { ok=0; next }
     if (root == "" && $1 ~ /^d/ && $NF ~ /^vellum-runtime-[0-9]+\.[0-9]+\.[0-9]+-linux-x64\/?$/) root=$NF
-    if ($NF ~ /\/resources\/bin\/vellum-remote$/ && $1 ~ /^-/) remote=1
-    if ($NF ~ /\/resources\/systemd\/vellum-remote-launch$/ && $1 ~ /^-/) launch=1
+    if ($NF ~ /\/resources\/bin\/vellum-command-remote$/ && $1 ~ /^-/) remote=1
+    if ($NF ~ /\/resources\/systemd\/vellum-command-remote-launch$/ && $1 ~ /^-/) launch=1
   }
   END { exit (ok && remote && launch) ? 0 : 1 }
 ' || fail members
 /usr/bin/tar -xzf "$ARCHIVE" -C "$STAGE" --no-same-owner --no-same-permissions || fail extract
 RELEASE="$STAGE/vellum-runtime-$VERSION-linux-x64"
-CANDIDATE_REMOTE="$RELEASE/resources/bin/vellum-remote"
+CANDIDATE_REMOTE="$RELEASE/resources/bin/vellum-command-remote"
 [ -d "$RELEASE" ] && [ ! -L "$RELEASE" ] && [ -x "$CANDIDATE_REMOTE" ] && [ ! -L "$CANDIDATE_REMOTE" ] || fail candidate
-[ -x "$RELEASE/resources/systemd/vellum-remote-launch" ] && [ ! -L "$RELEASE/resources/systemd/vellum-remote-launch" ] || fail candidate
+[ -x "$RELEASE/resources/systemd/vellum-command-remote-launch" ] && [ ! -L "$RELEASE/resources/systemd/vellum-command-remote-launch" ] || fail candidate
 if [ -e "$DEST" ] || [ -L "$DEST" ]; then
   fail install
 fi

@@ -47,7 +47,7 @@ describe("Linux generation readiness contract", () => {
       expect(source).not.toContain("vellum-release-installer");
     }
     expect(preflight).toContain("systemctl --user");
-    expect(deploy).toContain('ROOT="$HOME/.vellum/runtime"');
+    expect(deploy).toContain('ROOT="$HOME/.vellum-command/runtime"');
     expect(deploy).toContain("$ROOT/releases");
   });
 
@@ -55,7 +55,7 @@ describe("Linux generation readiness contract", () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-ready-path-"));
     roots.push(root);
     const generation = "11111111111111111111111111111111";
-    const dir = join(root, "vellum-remote");
+    const dir = join(root, "vellum-command-remote");
     await mkdir(dir, { recursive: true });
     const path = join(dir, `ready-${generation}`);
     await writeFile(path, `${generation}\n`, { mode: 0o600 });

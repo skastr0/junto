@@ -11,7 +11,7 @@ import { chatCoarse$ } from "./chat-state";
 import { herdr$ } from "./herdr-state";
 import { viewportBusy$ } from "./viewport-busy";
 
-// Coarse poll of window.vellum.regionRollups for main-process graph enrichment.
+// Coarse poll of window.vellumCommand.regionRollups for main-process graph enrichment.
 // Client always re-derives with herdr$ meta + chat activity so chips match
 // HerdrCard/inspector (same status source). Live IPC never blanks herdr.
 
@@ -219,11 +219,11 @@ export function useRegionRollups(): ReadonlyArray<RegionRollup> {
   const genRef = useRef(0);
 
   useEffect(() => {
-    if (!canvasName || !window.vellum?.regionRollups) {
+    if (!canvasName || !window.vellumCommand?.regionRollups) {
       setLive([]);
       return;
     }
-    const api = window.vellum;
+    const api = window.vellumCommand;
     if (!api?.regionRollups) {
       setLive([]);
       return;

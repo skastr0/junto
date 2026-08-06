@@ -91,7 +91,7 @@ export interface ScenarioRun {
 }
 
 const makeRuntime = (root: string) => {
-  const state = makeStateEngineLive(join(root, "state", "vellum.db"));
+  const state = makeStateEngineLive(join(root, "state", "vellum-command.db"));
   const installOps = makeInstallOpsLive(join(root, "state", "install-ops.db"));
   const repositories = Layer.provideMerge(
     Layer.mergeAll(
@@ -326,7 +326,7 @@ export const runFactoryScenario = async (
           cwd: process.cwd(),
           env: {
             ...process.env,
-            VELLUM_WORK_HOME: server.workHome,
+            VELLUM_COMMAND_WORK_HOME: server.workHome,
           },
         });
         const response = decodeCliEnvelope(result.stdout, result.stderr);

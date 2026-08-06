@@ -65,7 +65,7 @@ const chatFinishNodeDelete = vi.fn(
 );
 
 const runtimeWindow = {
-  vellum: {
+  vellumCommand: {
     writeCanvas: async () => ({ revision: "test-revision" }),
     browserStop,
     browserSessionList: async () => ({ ok: true, data: [] }),

@@ -3,8 +3,8 @@
  *
  * Derives the immutable release root from this binary's absolute path only —
  * no caller-supplied paths. Writes only:
- *   ~/.config/systemd/user/vellum-remote.service
- *   ~/.local/bin/vellum
+ *   ~/.config/systemd/user/vellum-command-remote.service
+ *   ~/.local/bin/vellum-command
  */
 import {
   chmodSync,
@@ -26,22 +26,22 @@ import {
 export const INSTALL_USER_SERVICE_SWITCH = "--install-user-service" as const;
 
 /** Shell wrapper path (preferred product argv0 under a release). */
-const RELEASE_WRAPPER_MARKER = "/resources/bin/vellum-remote" as const;
+const RELEASE_WRAPPER_MARKER = "/resources/bin/vellum-command-remote" as const;
 /** Bundled Node entry (wrapper execs node on this path). */
-const RELEASE_ENTRY_MARKER = "/resources/app-remote/vellum-remote.js" as const;
-const CLI_RELATIVE = "resources/bin/vellum" as const;
-const CLI_HELPER_RELATIVE = ".local/bin/vellum" as const;
+const RELEASE_ENTRY_MARKER = "/resources/app-remote/vellum-command-remote.js" as const;
+const CLI_RELATIVE = "resources/bin/vellum-command" as const;
+const CLI_HELPER_RELATIVE = ".local/bin/vellum-command" as const;
 
-/** Active immutable generation: ~/.vellum/runtime/releases/<semver>-<sha64>. */
+/** Active immutable generation: ~/.vellum-command/runtime/releases/<semver>-<sha64>. */
 const RELEASE_DIRECTORY =
-  /^\/(?:[^/\u0000-\u001f\u007f]+\/)*\.vellum\/runtime\/releases\/(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)-[0-9a-f]{64}$/u;
+  /^\/(?:[^/\u0000-\u001f\u007f]+\/)*\.vellum-command\/runtime\/releases\/(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)-[0-9a-f]{64}$/u;
 
 /**
  * Candidate tree under userland runtime (releases or staging extract).
  * Staging holds `vellum-runtime-<semver>-linux-x64` before activation.
  */
 const CANDIDATE_RUNTIME_ROOT =
-  /^\/(?:[^/\u0000-\u001f\u007f]+\/)*\.vellum\/runtime\/(?:releases\/(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)-[0-9a-f]{64}|staging\/[^/\u0000-\u001f\u007f]+\/vellum-runtime-(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)-linux-x64)$/u;
+  /^\/(?:[^/\u0000-\u001f\u007f]+\/)*\.vellum-command\/runtime\/(?:releases\/(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)-[0-9a-f]{64}|staging\/[^/\u0000-\u001f\u007f]+\/vellum-runtime-(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)-linux-x64)$/u;
 
 const isOwnedNonLinkFile = (path: string, executable = false): boolean => {
   try {
@@ -76,27 +76,27 @@ const resolveRemoteBinaryRoot = (
   label: string,
 ): string => {
   if (!binaryPath.startsWith("/")) {
-    throw new Error("vellum-remote binary path must be absolute");
+    throw new Error("vellum-command-remote binary path must be absolute");
   }
   let real: string;
   try {
     real = realpathSync(binaryPath);
   } catch {
-    throw new Error("vellum-remote binary path is not resolvable");
+    throw new Error("vellum-command-remote binary path is not resolvable");
   }
   const isWrapper = real.endsWith(RELEASE_WRAPPER_MARKER);
   const isEntry = real.endsWith(RELEASE_ENTRY_MARKER);
   if (!isWrapper && !isEntry) {
     throw new Error(
-      "vellum-remote is not at resources/bin/vellum-remote or resources/app-remote/vellum-remote.js under a release",
+      "vellum-command-remote is not at resources/bin/vellum-command-remote or resources/app-remote/vellum-command-remote.js under a release",
     );
   }
   // Wrapper must be executable; the JS entry is loaded by bundled Node (may be 0644).
   if (!isOwnedNonLinkFile(real, isWrapper)) {
     throw new Error(
       isWrapper
-        ? "vellum-remote binary must be an owned non-symlink executable"
-        : "vellum-remote entry must be an owned non-symlink file",
+        ? "vellum-command-remote binary must be an owned non-symlink executable"
+        : "vellum-command-remote entry must be an owned non-symlink file",
     );
   }
   const marker = isWrapper ? RELEASE_WRAPPER_MARKER : RELEASE_ENTRY_MARKER;
@@ -125,7 +125,7 @@ export const resolveCandidateRuntimeRootFromRemoteBinary = (
 
 /**
  * Resolve the generation-pinned release root from the absolute path of this
- * `vellum-remote` binary. Rejects anything outside the immutable userland layout.
+ * `vellum-command-remote` binary. Rejects anything outside the immutable userland layout.
  */
 export const resolveReleaseDirectoryFromRemoteBinary = (
   binaryPath: string,
@@ -207,7 +207,7 @@ const installOwnedHelper = (
 };
 
 const installUnifiedCli = (release: string, home: string): void => {
-  installOwnedHelper(release, home, CLI_RELATIVE, CLI_HELPER_RELATIVE, "vellum");
+  installOwnedHelper(release, home, CLI_RELATIVE, CLI_HELPER_RELATIVE, "vellum-command");
 };
 
 const enableUserService = (): void => {
@@ -223,7 +223,7 @@ const enableUserService = (): void => {
   }
   const enable = spawnSync(
     "/usr/bin/systemctl",
-    ["--user", "enable", "vellum-remote.service"],
+    ["--user", "enable", "vellum-command-remote.service"],
     { encoding: "utf8", shell: false },
   );
   if (enable.status !== 0) {
@@ -235,7 +235,7 @@ const enableUserService = (): void => {
 
 /**
  * Sealed install: write the generation-pinned unit and owner-local station helper.
- * `binaryPath` must be the absolute path of this process's vellum-remote binary.
+ * `binaryPath` must be the absolute path of this process's vellum-command-remote binary.
  */
 export const installUserlandLinuxRemoteService = (
   binaryPath: string = process.execPath,

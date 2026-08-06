@@ -31,14 +31,14 @@ const fixtureDoc = canvasDoc(
 
 test("an agent node shows the task its seat has claimed", async () => {
   await mkdir(SHOTS, { recursive: true });
-  const vellum = await launchVellum();
+  const vellumCommand = await launchVellum();
 
   try {
-    const { page } = vellum;
+    const { page } = vellumCommand;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
 
     const canvas = await page.evaluate(async (document) => {
-      const api = window.vellum!;
+      const api = window.vellumCommand!;
       const list = await api.listCanvases();
       const name = list[0]?.name ?? (await api.createCanvas("work")).name;
       const read = await api.readCanvas(name);
@@ -54,14 +54,14 @@ test("an agent node shows the task its seat has claimed", async () => {
     // The claimant is the compiled seat for this node — node identity alone is
     // never claim authority, so the strip must resolve through the projection.
     const seatId = await page.evaluate(async (name) => {
-      const read = await window.vellum!.readCanvas(name);
+      const read = await window.vellumCommand!.readCanvas(name);
       return read.actorRefs.find((actor) => actor.nodeId === "worker")?.seatId;
     }, canvas);
     expect(seatId, "the agent node must compile to exactly one actor seat")
       .toBeTruthy();
 
     const created = await page.evaluate(
-      ([name]) => window.vellum!.workTaskCreate(name, "tasks", "Display claim task on the node", { details: "Display claim task on the node" }),
+      ([name]) => window.vellumCommand!.workTaskCreate(name, "tasks", "Display claim task on the node", { details: "Display claim task on the node" }),
       [canvas] as const,
     );
     expect(created.ok).toBe(true);
@@ -69,7 +69,7 @@ test("an agent node shows the task its seat has claimed", async () => {
 
     const claimed = await page.evaluate(
       ([name, taskId, actor]) =>
-        window.vellum!.workTaskClaim(name, "tasks", taskId, actor),
+        window.vellumCommand!.workTaskClaim(name, "tasks", taskId, actor),
       [canvas, created.data.id, "worker"] as const,
     );
     expect(JSON.stringify(claimed)).toContain('"ok":true');
@@ -83,6 +83,6 @@ test("an agent node shows the task its seat has claimed", async () => {
       fullPage: false,
     });
   } finally {
-    await vellum.close();
+    await vellumCommand.close();
   }
 });

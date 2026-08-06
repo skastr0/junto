@@ -33,7 +33,7 @@ mutable row and event has one installation authority home.
 1. Settings → Hosts → add remote (`id`, SSH endpoint).
 2. Install/start the app on the Remote so its owner-local Station control
    socket is available.
-3. **Configure as Remote** — Command Center invokes `vellum station-stdio`
+3. **Configure as Remote** — Command Center invokes `vellum-command station-stdio`
    over SSH and completes `status → pair → configure`. No remote file is read
    or written. The packaged helper carries the same strict Station session
    frames when invoked over SSH or directly by the operator account: its
@@ -45,8 +45,8 @@ mutable row and event has one installation authority home.
 4. **Deploy Remote** (only when the release capability is enabled) — stage the
    app bundle + LaunchAgent, start it, configure through Station API, and wait
    for:
-   - `~/.vellum/term/control.sock`
-   - `~/.vellum/browser/control.sock` (best-effort host-local plane; term alone still succeeds)
+   - `~/.vellum-command/term/control.sock`
+   - `~/.vellum-command/browser/control.sock` (best-effort host-local plane; term alone still succeeds)
    - the Station API status to report database/work/simulation readiness
 5. Canvas → New terminal → **Host** = remote → Start → Open.
 6. CC quit does **not** kill remote PTYs (local quit only). Explicit Kill does.
@@ -55,19 +55,19 @@ mutable row and event has one installation authority home.
 
 ```text
 CC TerminalRouter(hostId)
-  → SSH forward remote ~/.vellum/term/control.sock
+  → SSH forward remote ~/.vellum-command/term/control.sock
   → TermControlClient (NDJSON + token)
   → operator terminal surface only; does not bind a CC actor to a Remote seat
 
 Remote host-local browser (same installation as page + actor)
-  → ~/.vellum/browser/control.sock on the Remote only
+  → ~/.vellum-command/browser/control.sock on the Remote only
   → WebContentsView on that Remote (needs BrowserWindow — deploy starts GUI app)
 
 CC fleet coordination
-  → SSH fixed command vellum-station
+  → SSH fixed command vellum-command-station
   → owner-local Station control socket
   → Remote main process
-  → ~/.vellum/state/vellum.db
+  → ~/.vellum-command/state/vellum-command.db
 ```
 
 Station API verbs remain `pair`, `configure`, `project`, `report`, and
@@ -95,7 +95,7 @@ browser RPC.
       from the Remote SQLite database; no new CC-home task is claimed
 - [ ] Permitted Remote-home request/artifact creation persists offline and
       reconciles idempotently by logical cursor after CC returns
-- [ ] `ssh remote 'test -S ~/.vellum/term/control.sock && echo ok'`
+- [ ] `ssh remote 'test -S ~/.vellum-command/term/control.sock && echo ok'`
 - [ ] Remote terminal create/type/resize from CC
 - [ ] Quit CC → remote shell still running (ssh/process list)
 - [ ] Reopen CC → reattach same binding

@@ -10,7 +10,7 @@ import type { CanvasDoc } from "../src/shared/canvas";
 const writeCanvas = vi.fn(async (_name: string, _doc: CanvasDoc) => ({ revision: "next" }));
 
 const runtimeWindow = {
-  vellum: { writeCanvas },
+  vellumCommand: { writeCanvas },
   setTimeout: globalThis.setTimeout.bind(globalThis),
   clearTimeout: globalThis.clearTimeout.bind(globalThis),
   confirm: () => true,

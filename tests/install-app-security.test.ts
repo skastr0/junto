@@ -32,15 +32,15 @@ const makeSandbox = (): string => {
 };
 
 const forbiddenEnvironment = [
-  "VELLUM_APP_DST",
-  "VELLUM_PLIST",
-  "VELLUM_LOG_DIR",
-  "VELLUM_BIN_DIR",
-  "VELLUM_LAUNCHD_LABEL",
-  "VELLUM_PRODUCT_NAME",
-  "VELLUM_APP_ID",
-  "VELLUM_APP_SRC",
-  "VELLUM_INSTALL_SANDBOX_ROOT",
+  "VELLUM_COMMAND_APP_DST",
+  "VELLUM_COMMAND_PLIST",
+  "VELLUM_COMMAND_LOG_DIR",
+  "VELLUM_COMMAND_BIN_DIR",
+  "VELLUM_COMMAND_LAUNCHD_LABEL",
+  "VELLUM_COMMAND_PRODUCT_NAME",
+  "VELLUM_COMMAND_APP_ID",
+  "VELLUM_COMMAND_APP_SRC",
+  "VELLUM_COMMAND_INSTALL_SANDBOX_ROOT",
 ] as const;
 
 const runPaths = (
@@ -52,7 +52,7 @@ const runPaths = (
   for (const variable of forbiddenEnvironment) delete environment[variable];
   Object.assign(environment, {
     NODE_ENV: "test",
-    VELLUM_INSTALL_SANDBOX_ROOT: sandbox,
+    VELLUM_COMMAND_INSTALL_SANDBOX_ROOT: sandbox,
     ...extraEnvironment,
   });
   return spawnSync(
@@ -63,7 +63,7 @@ const runPaths = (
       "vellum-path-test",
       pathsFile,
       sandbox,
-      join(sandbox, ".vellum", "state", "vellum.db"),
+      join(sandbox, ".vellum-command", "state", "vellum-command.db"),
     ],
     {
       cwd: root,
@@ -116,11 +116,11 @@ describe("hardened app installer", () => {
     expect(paths).toContain('APP_BUNDLE_ID="skastr0.vellumcommand"');
     expect(paths).toContain("installer identities are fixed");
     expect(paths).toContain("installer write targets are derived");
-    expect(paths).toContain('APP_SRC="$(read_config_value VELLUM_APP_SRC');
-    expect(paths).not.toContain('APP_DST="${VELLUM_APP_DST');
-    expect(paths).not.toContain('PLIST="${VELLUM_PLIST');
-    expect(paths).not.toContain('LOG_DIR="${VELLUM_LOG_DIR');
-    expect(install).not.toContain("VELLUM_BIN_DIR:-");
+    expect(paths).toContain('APP_SRC="$(read_config_value VELLUM_COMMAND_APP_SRC');
+    expect(paths).not.toContain('APP_DST="${VELLUM_COMMAND_APP_DST');
+    expect(paths).not.toContain('PLIST="${VELLUM_COMMAND_PLIST');
+    expect(paths).not.toContain('LOG_DIR="${VELLUM_COMMAND_LOG_DIR');
+    expect(install).not.toContain("VELLUM_COMMAND_BIN_DIR:-");
   });
 
   it("uses one canonical test-only sandbox capability for every writable path", () => {
@@ -138,7 +138,7 @@ mkdir -m 0700 "$STAGE_ROOT"
 bind_install_stage
 assert_install_transaction_capabilities
 safe_remove_install_stage
-STATE_DATABASE="$INSTALL_USER_ROOT/.vellum/state/vellum.db"
+STATE_DATABASE="$INSTALL_USER_ROOT/.vellum-command/state/vellum-command.db"
 if [[ "$INSTALL_USER_ROOT" != "$2" || "$STATE_DATABASE" != "$3" ]]; then
   exit 90
 fi
@@ -152,7 +152,7 @@ printf '%s\n' "$APP_DST" "$PLIST" "$LOG_DIR" "$BIN_DIR" "$STATE_DATABASE"`,
       join(sandbox, "Library", "LaunchAgents", "skastr0.vellumcommand.plist"),
       join(sandbox, "Library", "Logs", "Vellum Command"),
       join(sandbox, ".local", "bin"),
-      join(sandbox, ".vellum", "state", "vellum.db"),
+      join(sandbox, ".vellum-command", "state", "vellum-command.db"),
     ]);
   });
 
@@ -167,7 +167,7 @@ printf '%s\n' "$APP_DST" "$PLIST" "$LOG_DIR" "$BIN_DIR" "$STATE_DATABASE"`,
     const result = runPaths(
       sandbox,
       'set -euo pipefail; source "$1"; assert_installer_path_capabilities',
-      { VELLUM_INSTALL_SANDBOX_ROOT: sandboxOverride },
+      { VELLUM_COMMAND_INSTALL_SANDBOX_ROOT: sandboxOverride },
     );
     expect(result.status).not.toBe(0);
   });
@@ -191,7 +191,7 @@ printf '%s\n' "$APP_DST" "$PLIST" "$LOG_DIR" "$BIN_DIR" "$STATE_DATABASE"`,
     const result = runPaths(
       sandbox,
       'set -euo pipefail; source "$1"; assert_installer_path_capabilities',
-      { VELLUM_INSTALL_SANDBOX_ROOT: nested },
+      { VELLUM_COMMAND_INSTALL_SANDBOX_ROOT: nested },
     );
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("OS user temporary root");
@@ -212,10 +212,10 @@ printf '%s\n' "$APP_DST" "$PLIST" "$LOG_DIR" "$BIN_DIR" "$STATE_DATABASE"`,
   });
 
   it.each([
-    ["VELLUM_APP_DST", "/"],
-    ["VELLUM_PLIST", ""],
-    ["VELLUM_LOG_DIR", "../escape"],
-    ["VELLUM_BIN_DIR", "/tmp/bin;touch-pwned"],
+    ["VELLUM_COMMAND_APP_DST", "/"],
+    ["VELLUM_COMMAND_PLIST", ""],
+    ["VELLUM_COMMAND_LOG_DIR", "../escape"],
+    ["VELLUM_COMMAND_BIN_DIR", "/tmp/bin;touch-pwned"],
   ])("refuses the ambient writable override %s", (variable, value) => {
     const sandbox = makeSandbox();
     const result = runPaths(
@@ -228,9 +228,9 @@ printf '%s\n' "$APP_DST" "$PLIST" "$LOG_DIR" "$BIN_DIR" "$STATE_DATABASE"`,
   });
 
   it.each([
-    ["VELLUM_PRODUCT_NAME", 'Vellum Command"; touch pwned'],
-    ["VELLUM_LAUNCHD_LABEL", "../../LaunchAgents/evil"],
-    ["VELLUM_APP_ID", ""],
+    ["VELLUM_COMMAND_PRODUCT_NAME", 'Vellum Command"; touch pwned'],
+    ["VELLUM_COMMAND_LAUNCHD_LABEL", "../../LaunchAgents/evil"],
+    ["VELLUM_COMMAND_APP_ID", ""],
   ])("refuses the ambient identity override %s", (variable, value) => {
     const sandbox = makeSandbox();
     const result = runPaths(sandbox, 'set -euo pipefail; source "$1"', {
@@ -422,15 +422,15 @@ derive_install_transaction_paths 4242`,
   it("rejects empty or invalid candidates before installer mutation", () => {
     const sandbox = makeSandbox();
     const empty = runPaths(sandbox, 'set -euo pipefail; source "$1"', {
-      VELLUM_APP_SRC: "",
+      VELLUM_COMMAND_APP_SRC: "",
     });
     expect(empty.status).not.toBe(0);
-    expect(empty.stderr).toContain("VELLUM_APP_SRC must not be empty");
+    expect(empty.stderr).toContain("VELLUM_COMMAND_APP_SRC must not be empty");
 
     const missing = runPaths(
       sandbox,
       'set -euo pipefail; source "$1"; assert_installer_path_capabilities; assert_app_bundle "$APP_SRC"',
-      { VELLUM_APP_SRC: join(sandbox, "missing.app") },
+      { VELLUM_COMMAND_APP_SRC: join(sandbox, "missing.app") },
     );
     expect(missing.status).not.toBe(0);
     expect(missing.stderr).toContain("missing app bundle");

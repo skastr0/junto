@@ -92,7 +92,7 @@ describe("Linux release cache selection", () => {
     expect(bundleRoot).toBe(
       join(
         home,
-        ".vellum",
+        ".vellum-command",
         "releases",
         "linux-x64-glibc",
         "qualification",

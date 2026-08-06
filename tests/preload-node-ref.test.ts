@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   NodeRefOpenedDelivery,
   NodeRefOpenedEvent,
-  VellumApi,
+  VellumCommandApi,
 } from "../src/shared/ipc";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { IPC_CHANNELS } from "../src/shared/ipc";
@@ -49,9 +49,9 @@ const delivery = (nodeId: string, deliveryId: string): NodeRefOpenedDelivery => 
   deliveryId,
 });
 
-const loadPreload = async (): Promise<VellumApi> => {
+const loadPreload = async (): Promise<VellumCommandApi> => {
   await import("../src/preload/index");
-  const api = electron.exposed.get("vellum") as VellumApi | undefined;
+  const api = electron.exposed.get("vellumCommand") as VellumCommandApi | undefined;
   if (api === undefined) throw new Error("preload did not expose Vellum Command API");
   return api;
 };
@@ -162,7 +162,7 @@ describe("preload node-reference delivery", () => {
     });
     try {
       await import("../src/preload/index");
-      expect(electron.exposed.has("vellum")).toBe(false);
+      expect(electron.exposed.has("vellumCommand")).toBe(false);
       expect(electron.exposed.has("chassis")).toBe(false);
     } finally {
       if (prior === undefined) delete (globalThis as { location?: unknown }).location;

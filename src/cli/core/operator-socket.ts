@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createConnection, type Socket } from "node:net";
-import { resolveVellumHome } from "@shared/vellum-home";
+import { resolveVellumCommandHome } from "@shared/vellum-home";
 import { Context, Effect, Layer } from "effect";
 import {
   OPERATOR_DEFAULT_TIMEOUT_MS,
@@ -23,7 +23,7 @@ import { AuthError, RuntimeDown, WireError } from "./errors";
 type OperatorSocketError = RuntimeDown | AuthError | WireError;
 
 export const resolveOperatorSocketPath = (): string =>
-  operatorControlSocketPath(resolveVellumHome());
+  operatorControlSocketPath(resolveVellumCommandHome());
 
 export const defaultOperatorTimeout = (op: OperatorOpName): number => {
   if (op === "fleet.deploy" || op === "fleet.qualify") {
@@ -44,7 +44,7 @@ const runtimeDown = () =>
   new RuntimeDown({
     message: "Vellum Command operator control is unavailable",
     next_step:
-      "launch Vellum Command with `--vellum-operator-control`, then retry this command",
+      "launch Vellum Command with `--vellum-command-operator-control`, then retry this command",
   });
 
 const appendBounded = (
@@ -303,7 +303,7 @@ export const OperatorSocketLive = Layer.succeed(
     ) =>
       Effect.gen(function* () {
         const rawRequest = {
-          protocol: "vellum-operator/v1",
+          protocol: "vellum-command-operator/v1",
           id: randomUUID(),
           op,
           args,

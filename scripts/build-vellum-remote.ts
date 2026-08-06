@@ -1,5 +1,5 @@
 /**
- * Bundle the Node-only Linux Remote entry to out/remote/vellum-remote.js.
+ * Bundle the Node-only Linux Remote entry to out/remote/vellum-command-remote.js.
  *
  * - Target: node (not bun compile, not ELECTRON_RUN_AS_NODE)
  * - electron is external; deploy-darwin/linux stay external (CC-only providers)
@@ -19,14 +19,14 @@ import {
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const entry = join(root, "src/main/vellum-remote.ts");
 const outDir = join(root, "out/remote");
-const outfile = join(outDir, "vellum-remote.js");
+const outfile = join(outDir, "vellum-command-remote.js");
 
 if (
-  process.env.VELLUM_LICENSE_CHANNEL !== undefined &&
-  process.env.VELLUM_LICENSE_CHANNEL !== "production"
+  process.env.VELLUM_COMMAND_LICENSE_CHANNEL !== undefined &&
+  process.env.VELLUM_COMMAND_LICENSE_CHANNEL !== "production"
 ) {
   throw new Error(
-    "remote packaging requires VELLUM_LICENSE_CHANNEL=production",
+    "remote packaging requires VELLUM_COMMAND_LICENSE_CHANNEL=production",
   );
 }
 const appVersion = JSON.parse(readFileSync(join(root, "package.json"), "utf8"))
@@ -46,11 +46,11 @@ const result = spawnSync(
     "--packages=bundle",
     // Never ship Electron into the Node Remote process.
     "--external=electron",
-    `--define=__VELLUM_LICENSE_CHANNEL__=${JSON.stringify(PRODUCTION_LICENSE_BUILD_PROFILE.channel)}`,
-    `--define=__VELLUM_DODO_BUSINESS_ID__=${JSON.stringify(PRODUCTION_LICENSE_BUILD_PROFILE.businessId)}`,
-    `--define=__VELLUM_DODO_PRODUCT_ID__=${JSON.stringify(PRODUCTION_LICENSE_BUILD_PROFILE.productId)}`,
-    `--define=__VELLUM_MAC_UPDATE_FEED_URL__=${JSON.stringify("")}`,
-    `--define=__VELLUM_APP_VERSION__=${JSON.stringify(appVersion)}`,
+    `--define=__VELLUM_COMMAND_LICENSE_CHANNEL__=${JSON.stringify(PRODUCTION_LICENSE_BUILD_PROFILE.channel)}`,
+    `--define=__VELLUM_COMMAND_DODO_BUSINESS_ID__=${JSON.stringify(PRODUCTION_LICENSE_BUILD_PROFILE.businessId)}`,
+    `--define=__VELLUM_COMMAND_DODO_PRODUCT_ID__=${JSON.stringify(PRODUCTION_LICENSE_BUILD_PROFILE.productId)}`,
+    `--define=__VELLUM_COMMAND_MAC_UPDATE_FEED_URL__=${JSON.stringify("")}`,
+    `--define=__VELLUM_COMMAND_APP_VERSION__=${JSON.stringify(appVersion)}`,
     ...featureBunDefineArgs(resolvedBuildFeatures),
   ],
   {
@@ -77,7 +77,7 @@ let body = readFileSync(outfile, "utf8");
 // resolves the electron package (even inside an unreachable branch).
 body = body.replace(
   /(?:__require|require)\s*\(\s*["']electron["']\s*\)/gu,
-  '(() => { throw new Error("electron is forbidden in vellum-remote"); })()',
+  '(() => { throw new Error("electron is forbidden in vellum-command-remote"); })()',
 );
 // ESM external imports that slipped through (should be none after graph trim).
 if (/(?:^|\n)\s*import\s+[^;]*\bfrom\s+["']electron["']/u.test(body)) {

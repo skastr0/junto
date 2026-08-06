@@ -8,11 +8,12 @@ import { Result, Schema } from "effect";
  * connection selects one exact wire version from the overlap.
  */
 /**
- * Station protocol 4 is the content-capable wire cut: Work records carry
- * ContentRef parts, control frames stay bounded, and media bytes never ride
- * Station NDJSON. Protocol 3 is retired with no partial down-conversion.
+ * Station protocol 5 is the Vellum Command wire cut: the renamed protocol
+ * namespace is content-capable, Work records carry ContentRef parts, control
+ * frames stay bounded, and media bytes never ride Station NDJSON. Protocol 4
+ * and earlier are retired with no partial down-conversion.
  */
-export const STATION_PROTOCOL_BASELINE = 4 as const;
+export const STATION_PROTOCOL_BASELINE = 5 as const;
 
 export const StationProtocolVersion = Schema.Number.pipe(Schema.check(Schema.isInt()), 
   Schema.check(Schema.isGreaterThan(0)),
@@ -91,7 +92,7 @@ export const StationStateSchemaVersion = Schema.Number.pipe(Schema.check(Schema.
 export type StationStateSchemaVersion = typeof StationStateSchemaVersion.Type;
 
 export const STATION_PROTOCOL_PREFACE =
-  "vellum/station-protocol-preface/v1" as const;
+  "vellum-command/station-protocol-preface/v1" as const;
 
 const StationProtocolPeerDiagnostics = {
   appVersion: StationAppVersion,

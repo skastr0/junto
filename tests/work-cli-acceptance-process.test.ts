@@ -239,7 +239,7 @@ describe("work CLI acceptance process safety", () => {
 
   it("turns spawn failure into a typed failure instead of an apparent exit", async () => {
     const plane = makePlane();
-    const root = await mkdtemp(join(tmpdir(), "vellum-work-cli-missing-"));
+    const root = await mkdtemp(join(tmpdir(), "vellum-command-work-cli-missing-"));
     try {
       const command = runBoundedWorkCliCommand(plane, {
         command: join(root, "missing-child"),

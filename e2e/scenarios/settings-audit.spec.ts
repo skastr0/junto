@@ -9,11 +9,11 @@ const SHOTS = join(process.cwd(), "test-results", "settings-audit");
 test("walk every settings section", async () => {
   test.setTimeout(240_000);
   await mkdir(SHOTS, { recursive: true });
-  const vellum = await launchVellum({
+  const vellumCommand = await launchVellum({
     seedCanvases: { "settings-audit": canvasDoc([textNode("n1", "note", 0, 0)]) },
   });
   try {
-    const { page } = vellum;
+    const { page } = vellumCommand;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
     const gear = page.getByRole("button", { name: /settings/i }).first();
     await gear.click();
@@ -29,6 +29,6 @@ test("walk every settings section", async () => {
       await page.screenshot({ path: join(SHOTS, `10-${String(i).padStart(2, "0")}-${name}.png`) });
     }
   } finally {
-    await vellum.close();
+    await vellumCommand.close();
   }
 });

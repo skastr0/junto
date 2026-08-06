@@ -3,8 +3,9 @@
  *
  * Public product name is always **Vellum Command** — never the bare product
  * token without Command.
- * Code identifiers (`VellumApi`, `~/.vellum/`, `vellum.db`, package names)
- * are not product brand; they stay as-is. Every user-facing / public string
+ * Runtime identifiers (`VellumCommandApi`, `~/.vellum-command/`, `vellum-command.db`,
+ * `vellum-command://`, and `vellum-command`) are canonical surfaces. Source paths and package names
+ * remain implementation identifiers only. Every user-facing / public string
  * that names the product must use PRODUCT_NAME.
  *
  * Enforced by `bun run lint:product-name` (see scripts/lint-product-name.ts).

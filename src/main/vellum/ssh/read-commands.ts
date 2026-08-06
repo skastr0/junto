@@ -32,7 +32,7 @@ const SAFE_ABS_PATH = /^\/(?:[A-Za-z0-9._+-]+\/)*[A-Za-z0-9._+-]+$/u;
 
 /** Single packaged CLI binary — station/browser/content-transfer are subcommands. */
 export const DARWIN_PACKAGED_CLI_EXECUTABLE =
-  "/Applications/Vellum Command.app/Contents/Resources/bin/vellum";
+  "/Applications/Vellum Command.app/Contents/Resources/bin/vellum-command";
 /** @deprecated Use DARWIN_PACKAGED_CLI_EXECUTABLE — same binary. */
 export const DARWIN_PACKAGED_STATION_EXECUTABLE = DARWIN_PACKAGED_CLI_EXECUTABLE;
 /** @deprecated Use DARWIN_PACKAGED_CLI_EXECUTABLE — same binary. */
@@ -462,8 +462,8 @@ if [ -x /usr/bin/systemctl ]; then
   else
     user_systemd=not-running
   fi
-  load_state=$(/usr/bin/systemctl --user show vellum-remote.service --property=LoadState --value 2>/dev/null)
-  active_state=$(/usr/bin/systemctl --user is-active vellum-remote.service 2>/dev/null)
+  load_state=$(/usr/bin/systemctl --user show vellum-command-remote.service --property=LoadState --value 2>/dev/null)
+  active_state=$(/usr/bin/systemctl --user is-active vellum-command-remote.service 2>/dev/null)
   case "$load_state:$active_state" in
     not-found:*) remote_service=missing ;;
     *:active) remote_service=active ;;
@@ -709,7 +709,7 @@ const remoteLinuxUserlandStationCommand = (
       message: "remote Linux userland witness is invalid",
     }));
   }
-  return makeRemoteCommand(`${home}/.local/bin/vellum`, args);
+  return makeRemoteCommand(`${home}/.local/bin/vellum-command`, args);
 };
 
 /** Exact owner-local Station helper, pinned by platform + HOME witnesses. */
@@ -884,7 +884,7 @@ const remoteLinuxUserlandContentCommand = (
   return Effect.gen(function* () {
     const safeArgs = yield* assertContentHelperArgs(args);
     return yield* makeRemoteCommand(
-      `${home}/.local/bin/vellum`,
+      `${home}/.local/bin/vellum-command`,
       contentTransferArgs(safeArgs),
     );
   });

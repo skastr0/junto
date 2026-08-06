@@ -49,11 +49,11 @@ describe("herdr-browse pure cache core", () => {
 });
 
 describe("herdr-browse fetchers (stale-while-revalidate)", () => {
-  const runtimeWindow = { vellum: undefined as unknown };
+  const runtimeWindow = { vellumCommand: undefined as unknown };
   (globalThis as unknown as { window: typeof runtimeWindow }).window = runtimeWindow;
 
   afterEach(() => {
-    runtimeWindow.vellum = undefined;
+    runtimeWindow.vellumCommand = undefined;
     invalidateHerdrBrowse();
     vi.restoreAllMocks();
   });
@@ -62,7 +62,7 @@ describe("herdr-browse fetchers (stale-while-revalidate)", () => {
 
   it("misses cold, returns fromCache:false, and caches the rows", async () => {
     const herdrListSessions = vi.fn(async () => ({ ok: true, data: [sess("a")] }));
-    runtimeWindow.vellum = { herdrListSessions };
+    runtimeWindow.vellumCommand = { herdrListSessions };
     vi.spyOn(Date, "now").mockReturnValue(1_000_000);
 
     const first = await fetchHerdrSessions("h1");
@@ -76,7 +76,7 @@ describe("herdr-browse fetchers (stale-while-revalidate)", () => {
   it("serves stale rows first on a hit, then delivers fresh rows via onUpdate", async () => {
     let call = 0;
     const herdrListSessions = vi.fn(async () => ({ ok: true, data: call++ === 0 ? [sess("a")] : [sess("a"), sess("b")] }));
-    runtimeWindow.vellum = { herdrListSessions };
+    runtimeWindow.vellumCommand = { herdrListSessions };
     vi.spyOn(Date, "now").mockReturnValue(2_000_000);
 
     await fetchHerdrSessions("h1");
@@ -99,7 +99,7 @@ describe("herdr-browse fetchers (stale-while-revalidate)", () => {
       ok: true,
       data: [],
     }));
-    runtimeWindow.vellum = { herdrListWorkspaces };
+    runtimeWindow.vellumCommand = { herdrListWorkspaces };
     vi.spyOn(Date, "now").mockReturnValue(3_000_000);
 
     // Cold miss is a lone foreground fetch (no background revalidate on a miss).
@@ -115,7 +115,7 @@ describe("herdr-browse fetchers (stale-while-revalidate)", () => {
 
   it("invalidateHerdrBrowse(host) forces the next fetch to reach the bridge", async () => {
     const herdrListSessions = vi.fn(async () => ({ ok: true, data: [sess("a")] }));
-    runtimeWindow.vellum = { herdrListSessions };
+    runtimeWindow.vellumCommand = { herdrListSessions };
     vi.spyOn(Date, "now").mockReturnValue(4_000_000);
 
     await fetchHerdrSessions("h1");
@@ -131,7 +131,7 @@ describe("herdr-browse fetchers (stale-while-revalidate)", () => {
   it("rejects when a list call reports failure, keeping stale rows for a background failure", async () => {
     let ok = true;
     const herdrListSessions = vi.fn(async () => (ok ? { ok: true, data: [sess("a")] } : { ok: false, message: "boom" }));
-    runtimeWindow.vellum = { herdrListSessions };
+    runtimeWindow.vellumCommand = { herdrListSessions };
     vi.spyOn(Date, "now").mockReturnValue(5_000_000);
 
     await fetchHerdrSessions("h1");
@@ -148,7 +148,7 @@ describe("herdr-browse fetchers (stale-while-revalidate)", () => {
   });
 
   it("throws when the herdr bridge is absent", async () => {
-    runtimeWindow.vellum = undefined;
+    runtimeWindow.vellumCommand = undefined;
     await expect(fetchHerdrSessions("h1")).rejects.toThrow(/unavailable/);
   });
 });

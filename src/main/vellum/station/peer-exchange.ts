@@ -14,7 +14,7 @@ import { StationContextTagIds } from "./context-services";
 import type { StationPeerSession } from "./peer-session";
 
 const StationPeerRouteTypeId: unique symbol = Symbol(
-  "@vellum/station/StationPeerRoute",
+  "@vellum-command/station/StationPeerRoute",
 );
 
 /**

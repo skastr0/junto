@@ -362,7 +362,7 @@ const unlinkExactFile = (
 /**
  * Export one verified backup to an explicit new operator destination.
  *
- * This is portability/evidence, not restore. It never replaces vellum.db,
+ * This is portability/evidence, not restore. It never replaces vellum-command.db,
  * never accepts a database source path, and refuses to overwrite output.
  */
 export const exportStateBackup = (

@@ -13,7 +13,7 @@ export const SYSTEMCTL_DEADLINE_MS = 3_000;
 export const SYSTEMCTL_STDOUT_CAP_BYTES = 16 * 1024;
 export const SYSTEMCTL_STDERR_CAP_BYTES = 16 * 1024;
 /** The systemd provider owns one fixed Vellum Command user-service name. */
-export const VELLUM_SYSTEMD_USER_UNIT = "vellum-remote.service";
+export const VELLUM_COMMAND_SYSTEMD_USER_UNIT = "vellum-command-remote.service";
 
 const VellumSystemdUserUnitTargetTypeId: unique symbol = Symbol(
   "@vellum/VellumSystemdUserUnitTarget",
@@ -27,7 +27,7 @@ export interface VellumSystemdUserUnitTarget {
 
 const systemdUserUnitTargets = new WeakMap<
   VellumSystemdUserUnitTarget,
-  typeof VELLUM_SYSTEMD_USER_UNIT
+  typeof VELLUM_COMMAND_SYSTEMD_USER_UNIT
 >();
 
 type SystemctlAction = "show" | "start";
@@ -143,7 +143,7 @@ export const systemdUserUnitTarget = (): VellumSystemdUserUnitTarget => {
   const target: VellumSystemdUserUnitTarget = {
     [VellumSystemdUserUnitTargetTypeId]: VellumSystemdUserUnitTargetTypeId,
   };
-  systemdUserUnitTargets.set(target, VELLUM_SYSTEMD_USER_UNIT);
+  systemdUserUnitTargets.set(target, VELLUM_COMMAND_SYSTEMD_USER_UNIT);
   return Object.freeze(target);
 };
 
@@ -172,7 +172,7 @@ const systemctlEnvironment = (): Readonly<NodeJS.ProcessEnv> => {
 
 const actionArgs = (
   action: SystemctlAction,
-  unit: typeof VELLUM_SYSTEMD_USER_UNIT,
+  unit: typeof VELLUM_COMMAND_SYSTEMD_USER_UNIT,
 ): readonly string[] => action === "show"
   ? [
     "--user",

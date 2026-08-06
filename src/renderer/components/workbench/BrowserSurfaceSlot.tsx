@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { use$ } from "@legendapp/state/react";
-import type { VellumBrowserApi } from "@shared/ipc";
+import type { VellumCommandBrowserApi } from "@shared/ipc";
 import { browser$ } from "../../lib/browser-state";
 import {
   closeDockBrowser,
@@ -10,11 +10,11 @@ import {
   unpinWorkbenchSurface,
 } from "../../lib/dock-state";
 import type { WorkZone } from "../../lib/surface-registry";
-import { getVellumApi } from "../../lib/vellum-api";
+import { getVellumCommandApi } from "../../lib/vellum-api";
 import { activateSurfaceOnMouseDown } from "../../lib/pointer-activation";
 import { Button, OverlayHeader } from "../ui";
 
-type BrowserApi = ReturnType<typeof getVellumApi> & Partial<VellumBrowserApi>;
+type BrowserApi = ReturnType<typeof getVellumCommandApi> & Partial<VellumCommandBrowserApi>;
 
 const ZERO_BOUNDS = { x: 0, y: 0, width: 0, height: 0 } as const;
 
@@ -49,7 +49,7 @@ export function BrowserSurfaceSlot({
       setStatus("waiting for session…");
       return;
     }
-    const api = getVellumApi() as BrowserApi | undefined;
+    const api = getVellumCommandApi() as BrowserApi | undefined;
     if (!api?.browserSetBounds) {
       setStatus("browser surface API unavailable");
       return;

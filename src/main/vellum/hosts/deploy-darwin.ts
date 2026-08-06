@@ -70,7 +70,7 @@ const DEVELOPER_ID_REQUIREMENT =
 const DEPLOY_TIMEOUT_MS = 20 * 60 * 1000;
 const REMOTE_APP_PATH = `/Applications/${APP_BUNDLE_NAME}`;
 const REMOTE_CLI_EXECUTABLE =
-  `${REMOTE_APP_PATH}/Contents/Resources/bin/vellum`;
+  `${REMOTE_APP_PATH}/Contents/Resources/bin/vellum-command`;
 const DARWIN_DEPLOY_READY_WITH_LOCK_WARNING_EXIT = 10;
 const DARWIN_DEPLOY_NOT_STARTED_EXIT = 12;
 const DARWIN_DEPLOY_INDETERMINATE_EXIT = 13;
@@ -324,8 +324,8 @@ export const admitDarwinDeployArtifact = async (
  */
 export const resolveProductionDarwinArtifactInput =
   (): DarwinDeployArtifactInput => {
-    const zipPath = process.env.VELLUM_REMOTE_RELEASE_ZIP?.trim();
-    const sha256 = process.env.VELLUM_REMOTE_RELEASE_ZIP_SHA256?.trim();
+    const zipPath = process.env.VELLUM_COMMAND_REMOTE_RELEASE_ZIP?.trim();
+    const sha256 = process.env.VELLUM_COMMAND_REMOTE_RELEASE_ZIP_SHA256?.trim();
     if (zipPath && sha256) {
       return { kind: "release-zip", zipPath, sha256 };
     }
@@ -670,7 +670,7 @@ const push = (stages: string[], line: string): void => {
 
 /** Resolve the local .app bundle Command Center will push. */
 export const resolveLocalAppBundle = (): string | null => {
-  const env = process.env.VELLUM_APP_SRC?.trim();
+  const env = process.env.VELLUM_COMMAND_APP_SRC?.trim();
   if (env && existsSync(join(env, "Contents", "MacOS", PRODUCT_NAME)))
     return env;
 
@@ -907,7 +907,7 @@ const buildRemoteDeployScriptWithRuntime = (
   const remoteAppPath = runtime.appPath;
   const remoteExecutablePath = `${remoteAppPath}/Contents/MacOS/${PRODUCT_NAME}`;
   const remoteCliExecutablePath =
-    `${remoteAppPath}/Contents/Resources/bin/vellum`;
+    `${remoteAppPath}/Contents/Resources/bin/vellum-command`;
   const appParentPath = dirname(remoteAppPath);
   const plistPath = `${remoteHome}/Library/LaunchAgents/${LABEL}.plist`;
   const logDir = `${remoteHome}/Library/Logs/${PRODUCT_NAME}`;
@@ -949,8 +949,8 @@ const buildRemoteDeployScriptWithRuntime = (
 <key>RunAtLoad</key><true/>
 <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
 <key>ProcessType</key><string>Interactive</string>
-<key>StandardOutPath</key><string>${xmlText(logDir)}/vellum.out.log</string>
-<key>StandardErrorPath</key><string>${xmlText(logDir)}/vellum.err.log</string>
+<key>StandardOutPath</key><string>${xmlText(logDir)}/vellum-command.out.log</string>
+<key>StandardErrorPath</key><string>${xmlText(logDir)}/vellum-command.err.log</string>
 </dict></plist>
 `;
   const plistB64 = Buffer.from(plistBody, "utf8").toString("base64");
@@ -982,7 +982,7 @@ BUNDLE=${shellLiteral(APP_BUNDLE_NAME)}
 EXE=${shellLiteral(remoteExecutablePath)}
 IN_EXE=${shellLiteral(`${incomingPath}/${APP_BUNDLE_NAME}/Contents/MacOS/${PRODUCT_NAME}`)}
 CLI_EXE=${shellLiteral(remoteCliExecutablePath)}
-IN_CLI_EXE=${shellLiteral(`${incomingPath}/${APP_BUNDLE_NAME}/Contents/Resources/bin/vellum`)}
+IN_CLI_EXE=${shellLiteral(`${incomingPath}/${APP_BUNDLE_NAME}/Contents/Resources/bin/vellum-command`)}
 TERM_SOCK=${shellLiteral(termSock)}
 BROWSER_SOCK=${shellLiteral(browserSock)}
 PLIST=${shellLiteral(plistPath)}

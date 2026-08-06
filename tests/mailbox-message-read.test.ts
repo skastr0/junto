@@ -47,7 +47,7 @@ afterEach(async () => {
 });
 
 const makeRuntime = (root: string) => {
-  const stateLive = makeStateEngineLive(join(root, "state", "vellum.db"));
+  const stateLive = makeStateEngineLive(join(root, "state", "vellum-command.db"));
   const repositoriesLive = Layer.provideMerge(
     Layer.mergeAll(
       WorkRepositoryLive,
@@ -108,7 +108,7 @@ describe("mailbox message read receipts", () => {
     roots.push(root);
     mkdirSync(join(root, "state"), { recursive: true });
     mkdirSync(join(root, "canvases"), { recursive: true });
-    process.env.VELLUM_CANVASES_DIR = join(root, "canvases");
+    process.env.VELLUM_COMMAND_CANVASES_DIR = join(root, "canvases");
     const runtime = makeRuntime(root);
     runtimes.push(runtime);
 
@@ -186,7 +186,7 @@ describe("mailbox message read receipts", () => {
     roots.push(root);
     mkdirSync(join(root, "state"), { recursive: true });
     mkdirSync(join(root, "canvases"), { recursive: true });
-    process.env.VELLUM_CANVASES_DIR = join(root, "canvases");
+    process.env.VELLUM_COMMAND_CANVASES_DIR = join(root, "canvases");
     const runtime = makeRuntime(root);
     runtimes.push(runtime);
 

@@ -41,8 +41,8 @@ const clients: AcpClient[] = [];
 
 afterEach(() => {
   for (const client of clients.splice(0)) client.close();
-  delete process.env.VELLUM_ACP_VERBOSE;
-  delete process.env.VELLUM_DEBUG;
+  delete process.env.VELLUM_COMMAND_ACP_VERBOSE;
+  delete process.env.VELLUM_COMMAND_DEBUG;
   vi.useRealTimers();
 });
 
@@ -238,7 +238,7 @@ describe("agent -> client requests and notifications", () => {
   });
 
   it("forwards stderr only under the explicit verbose diagnostic opt-in", async () => {
-    process.env.VELLUM_ACP_VERBOSE = "1";
+    process.env.VELLUM_COMMAND_ACP_VERBOSE = "1";
     const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
     const onNotification = vi.fn();
     const { child } = await startedClient({ onNotification, onAgentRequest: vi.fn(), onLifecycle: vi.fn() });

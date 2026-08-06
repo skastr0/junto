@@ -52,7 +52,7 @@ import {
 } from "../work/service";
 
 export const QUALIFICATION_WORK_PROTOCOL =
-  "vellum/operator-qualification-work/v1" as const;
+  "vellum-command/operator-qualification-work/v1" as const;
 export const QUALIFICATION_WORK_MARKER_KEY =
   "vellumQualificationWork" as const;
 export const QUALIFICATION_WORK_SINK_NODE_ID =

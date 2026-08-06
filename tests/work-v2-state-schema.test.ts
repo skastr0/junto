@@ -501,7 +501,7 @@ describe("Work v2 exact-current SQLite schema", () => {
       notnull: 1,
     });
     expect(WORK_STATE_SCHEMA_SQL).not.toMatch(
-      /home_station|vellum:command-center|payload_json/u,
+      /home_station|vellum-command:command-center|payload_json/u,
     );
   });
 

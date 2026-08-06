@@ -115,7 +115,9 @@ const makeServer = async (options: {
   readonly requestTimeoutMs?: number;
   readonly admitRequest?: StationControlRequestAdmission;
 } = {}): Promise<ServerFixture> => {
-  const root = await mkdtemp(join(tmpdir(), "vellum-station-stream-"));
+  // macOS Unix-domain socket paths are capped at 104 bytes; keep fixture
+  // roots short now that station homes use the canonical Vellum Command name.
+  const root = await mkdtemp(join(tmpdir(), "vcs-"));
   roots.push(root);
   let handled = 0;
   let readiness: StationReadiness | undefined;
@@ -611,9 +613,9 @@ describe("persistent Station control stream", () => {
           appVersion: "future-command-center",
           stateSchemaVersion: 4,
           support: StationProtocolSupport.make({
-            preferred: 5,
-            compatibleFrom: 5,
-            warnBelow: 5,
+            preferred: 4,
+            compatibleFrom: 4,
+            warnBelow: 4,
           }),
         }),
       ),
@@ -890,7 +892,7 @@ describe("persistent Station control stream", () => {
 
 describe("packaged Station relay", () => {
   it("relays arbitrary bytes unchanged in both directions until session close", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-station-relay-"));
+    const root = await mkdtemp(join(tmpdir(), "vcr-"));
     roots.push(root);
     const stationHome = join(root, "station");
     await mkdir(stationHome, { recursive: true });
@@ -959,13 +961,13 @@ describe("packaged Station relay", () => {
         child.once("error", reject);
         child.once("exit", resolve);
       }),
-      "vellum station-stdio argument rejection timed out",
+      "vellum-command station-stdio argument rejection timed out",
     );
 
     expect(exitCode).toBe(64);
     expect(Buffer.concat(stdout)).toEqual(Buffer.alloc(0));
     expect(Buffer.concat(stderr).toString("utf8")).toBe(
-      "vellum station-stdio: arguments are not accepted\n",
+      "vellum-command station-stdio: arguments are not accepted\n",
     );
   });
 

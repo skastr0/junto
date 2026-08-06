@@ -5,11 +5,11 @@ const FIXTURE_TEXT = "Hello Vellum Command e2e";
 
 const rendererCanvasCount = async (): Promise<number> => {
   const runtime = globalThis as unknown as {
-    readonly vellum?: {
+    readonly vellumCommand?: {
       readonly listCanvases: () => Promise<ReadonlyArray<unknown>>;
     };
   };
-  return (await runtime.vellum?.listCanvases())?.length ?? 0;
+  return (await runtime.vellumCommand?.listCanvases())?.length ?? 0;
 };
 
 const probeCanceledNavigation = async (
@@ -20,7 +20,7 @@ const probeCanceledNavigation = async (
   page.evaluate(
     async ({ targetUrl, expectedUrl, fixtureText }) => {
       const runtime = globalThis as unknown as {
-        readonly vellum?: {
+        readonly vellumCommand?: {
           readonly listCanvases: () => Promise<ReadonlyArray<unknown>>;
         };
       };
@@ -29,7 +29,7 @@ const probeCanceledNavigation = async (
       // promise is destroyed and the test fails instead of inspecting a new
       // page after the fact.
       await new Promise((resolve) => globalThis.setTimeout(resolve, 150));
-      const canvases = await runtime.vellum?.listCanvases();
+      const canvases = await runtime.vellumCommand?.listCanvases();
       return {
         href: globalThis.location.href,
         canvasCount: canvases?.length ?? 0,
@@ -46,13 +46,13 @@ test.use({
       boot: canvasDoc([textNode("n1", FIXTURE_TEXT, 0, 0)]),
     },
     extraEnv: {
-      VELLUM_E2E_RENDERER_SURFACE_TIMEOUT_MS: "5000",
+      VELLUM_COMMAND_E2E_RENDERER_SURFACE_TIMEOUT_MS: "5000",
     },
   },
 });
 
-test("boots straight into the seeded canvas and renders its node", async ({ vellum }) => {
-  const { page } = vellum;
+test("boots straight into the seeded canvas and renders its node", async ({ vellumCommand }) => {
+  const { page } = vellumCommand;
 
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
   const node = page.locator(".react-flow__node", { hasText: FIXTURE_TEXT });
@@ -70,11 +70,11 @@ test("boots straight into the seeded canvas and renders its node", async ({ vell
   // the active deadline rather than merely winning a short test race.
   await page.waitForTimeout(5_500);
   await expect(page.locator(".react-flow__node", { hasText: FIXTURE_TEXT })).toBeVisible();
-  expect(vellum.app.process().exitCode).toBeNull();
+  expect(vellumCommand.app.process().exitCode).toBeNull();
 });
 
-test("denied off-authority navigation keeps the committed canvas trusted", async ({ vellum }) => {
-  const { page } = vellum;
+test("denied off-authority navigation keeps the committed canvas trusted", async ({ vellumCommand }) => {
+  const { page } = vellumCommand;
   await expect(page.locator(".react-flow__node", { hasText: FIXTURE_TEXT })).toBeVisible({
     timeout: 30_000,
   });
@@ -89,8 +89,8 @@ test("denied off-authority navigation keeps the committed canvas trusted", async
   expect(result.canvasCount).toBeGreaterThan(0);
 });
 
-test("denied redirect restores the committed canvas trust", async ({ vellum }) => {
-  const { page } = vellum;
+test("denied redirect restores the committed canvas trust", async ({ vellumCommand }) => {
+  const { page } = vellumCommand;
   await expect(page.locator(".react-flow__node", { hasText: FIXTURE_TEXT })).toBeVisible({
     timeout: 30_000,
   });
@@ -107,9 +107,9 @@ test("denied redirect restores the committed canvas trust", async ({ vellum }) =
   expect(result.canvasCount).toBeGreaterThan(0);
 });
 
-test("a stalled replacement document recovers instead of leaving a black window", async ({ vellum }) => {
+test("a stalled replacement document recovers instead of leaving a black window", async ({ vellumCommand }) => {
   test.setTimeout(60_000);
-  const { app, page } = vellum;
+  const { app, page } = vellumCommand;
   await expect(page.locator(".react-flow__node", { hasText: FIXTURE_TEXT })).toBeVisible({
     timeout: 30_000,
   });
@@ -127,8 +127,8 @@ test("a stalled replacement document recovers instead of leaving a black window"
   expect(app.process().exitCode).toBeNull();
 });
 
-test("a committed document that never mounts recovers through the mount deadline", async ({ vellum }) => {
-  const { app, page } = vellum;
+test("a committed document that never mounts recovers through the mount deadline", async ({ vellumCommand }) => {
+  const { app, page } = vellumCommand;
   await expect(page.locator(".react-flow__node", { hasText: FIXTURE_TEXT })).toBeVisible({
     timeout: 30_000,
   });

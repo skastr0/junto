@@ -15,7 +15,7 @@ import type { BrowserProfileServiceApi } from "../src/main/vellum/browser/profil
 import { LOCAL_BROWSER_TEST_AUTHORITY } from "./browser-host-test-authority";
 
 type InvokeHandler = (event: unknown, ...args: ReadonlyArray<unknown>) => unknown;
-const PAGE_REF = "vellum://canvas/work?node=page-1";
+const PAGE_REF = "vellum-command://canvas/work?node=page-1";
 const UNUSED_PROFILE_SERVICE = Object.freeze({}) as BrowserProfileServiceApi;
 
 const session = (): BrowserSessionInfo => ({

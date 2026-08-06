@@ -95,11 +95,11 @@ describe("browser profile registry", () => {
 
   const freshState = async () => {
     root = await mkdtemp(
-      join(tmpdir(), "vellum-browser-sqlite-"),
+      join(tmpdir(), "vellum-command-browser-sqlite-"),
     );
     registryRoot = join(root, "browser");
     runtime = ManagedRuntime.make(
-      makeStateEngineLive(join(root, "vellum.db")),
+      makeStateEngineLive(join(root, "vellum-command.db")),
     );
     state = await runtime.runPromise(StateEngine);
     return state;
@@ -220,7 +220,7 @@ describe("browser profile registry", () => {
 
     await runtime?.dispose();
     runtime = ManagedRuntime.make(
-      makeStateEngineLive(join(root, "vellum.db")),
+      makeStateEngineLive(join(root, "vellum-command.db")),
     );
     state = await runtime.runPromise(StateEngine);
     const restarted = makeBrowserProfileService(

@@ -19,14 +19,14 @@ test("attaching chat to a fake hermes agent round-trips a scripted reply", async
   const scenarioPath = join(scenarioDir, "scenario.json");
   await writeScenario(scenarioPath, oneReplyScenario(SCRIPTED_REPLY));
 
-  const vellum = await launchVellum({
+  const vellumCommand = await launchVellum({
     extraEnv: { FAKE_HERMES_SCENARIO: scenarioPath },
     seedCanvases: {
       chat: canvasDoc([agentTextNode({ id: "a1", key: AGENT_KEY, label: LABEL })]),
     },
   });
   try {
-    const { page } = vellum;
+    const { page } = vellumCommand;
 
     const node = page.locator(".react-flow__node", { hasText: LABEL });
     await expect(node).toBeVisible({ timeout: 30_000 });
@@ -43,6 +43,6 @@ test("attaching chat to a fake hermes agent round-trips a scripted reply", async
 
     await expect(page.locator(".chat-message--assistant")).toContainText(SCRIPTED_REPLY, { timeout: 30_000 });
   } finally {
-    await vellum.close();
+    await vellumCommand.close();
   }
 });

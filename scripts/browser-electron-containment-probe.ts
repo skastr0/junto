@@ -729,8 +729,8 @@ const main = async () => {
       method: "GET",
       path: "/profiles",
       headers: {
-        "x-vellum-token": input.token,
-        "x-vellum-request-id": input.requestId,
+        "x-vellum-command-token": input.token,
+        "x-vellum-command-request-id": input.requestId,
       },
     }, (res) => {
       const chunks = [];

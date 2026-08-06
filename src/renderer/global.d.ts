@@ -1,29 +1,29 @@
 import type {
   ChassisApi,
-  VellumApi,
-  VellumBrowserApi,
-  VellumChatApi,
-  VellumDemoApi,
-  VellumHerdrApi,
-  VellumHermesIntegrationApi,
-  VellumSchedulerApi,
-  VellumTerminalApi,
-  VellumUsageApi,
+  VellumCommandApi,
+  VellumCommandBrowserApi,
+  VellumCommandChatApi,
+  VellumCommandDemoApi,
+  VellumCommandHerdrApi,
+  VellumCommandHermesIntegrationApi,
+  VellumCommandSchedulerApi,
+  VellumCommandTerminalApi,
+  VellumCommandUsageApi,
 } from "@shared/ipc";
 
 declare global {
   interface Window {
     readonly chassis?: ChassisApi;
-    readonly vellum?: VellumApi &
-      VellumChatApi &
-      VellumTerminalApi &
-      VellumDemoApi &
+    readonly vellumCommand?: VellumCommandApi &
+      VellumCommandChatApi &
+      VellumCommandTerminalApi &
+      VellumCommandDemoApi &
       Partial<
-        VellumHerdrApi &
-          VellumBrowserApi &
-          VellumUsageApi &
-          VellumSchedulerApi &
-          VellumHermesIntegrationApi
+        VellumCommandHerdrApi &
+          VellumCommandBrowserApi &
+          VellumCommandUsageApi &
+          VellumCommandSchedulerApi &
+          VellumCommandHermesIntegrationApi
       >;
   }
 }

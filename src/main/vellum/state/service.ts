@@ -113,7 +113,7 @@ export type StateEngineShape = {
 };
 
 /**
- * Sole product SQLite engine (vellum.db).
+ * Sole product SQLite engine (vellum-command.db).
  *
  * - Canonical id: `@vellum/StateEngine` — single `Context.Service` definition.
  * - Layer: `StateEngineLive` / `makeStateEngineLive` (engine.ts).

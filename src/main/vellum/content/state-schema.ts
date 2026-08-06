@@ -1,7 +1,7 @@
 /**
  * Local content-object manifest (expand-only, schema v12).
  *
- * Bytes live under `~/.vellum/content/v1/sha256/<2hex>/<digest>`. SQLite holds
+ * Bytes live under `~/.vellum-command/content/v1/sha256/<2hex>/<digest>`. SQLite holds
  * only identity, references, verification receipts, and transfer bookkeeping.
  * A reference row is inserted only after the object file is durable and the
  * object row exists — crash before commit may leave an orphan file, never a

@@ -15,7 +15,7 @@ quit  → runtime.dispose()
 
 Product interior is pure Effect + Layers/Services. No bare `Effect.runPromise` in product paths (allowlist only for true host/post-dispose adapters).
 
-**Sole product store** remains `vellum.db`. Install-ops / content files stay install-local (see AGENTS.md).
+**Sole product store** remains `vellum-command.db`. Install-ops / content files stay install-local (see AGENTS.md).
 
 ## V4 substrate
 
@@ -156,7 +156,7 @@ Task detail UI maps fields as follows (not the free-text `brief` alone):
 | **Reason** | `reason` |
 | **Finish criteria** | `finishCriteria.description` + git/artifacts arms |
 
-`vellum tasks create` must always set:
+`vellum-command tasks create` must always set:
 
 ```json
 {

@@ -7,7 +7,7 @@ import { STATION_API_MAX_PROJECTION_CHARS } from "./station-api";
  * This module is the OpenSSH adapter surface (paths, framing, timeouts) —
  * not a second protocol.
  */
-export const STATION_CONTROL_HOME_ENV = "VELLUM_STATION_HOME";
+export const STATION_CONTROL_HOME_ENV = "VELLUM_COMMAND_STATION_HOME";
 export const STATION_CONTROL_REQUEST_TIMEOUT_MS = 30_000;
 export const STATION_CONTROL_MAX_CLIENTS = 8;
 
@@ -18,7 +18,7 @@ export const STATION_CONTROL_MAX_FRAME_BYTES =
   STATION_API_MAX_PROJECTION_CHARS * 4 + 1024 * 1024;
 
 export const stationControlDir = (home: string): string =>
-  `${home}/.vellum/station`;
+  `${home}/.vellum-command/station`;
 
 export const stationControlSocketPath = (stationHome: string): string =>
   `${stationHome}/control.sock`;

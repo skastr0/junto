@@ -66,7 +66,7 @@ const opTag = (op: DemoOp): string => {
 };
 
 const resetHost = (host: string): Promise<unknown> =>
-  window.vellum?.demoCommand({ kind: "reset-host", host }).catch(() => undefined) ??
+  window.vellumCommand?.demoCommand({ kind: "reset-host", host }).catch(() => undefined) ??
   Promise.resolve(undefined);
 
 const runTake = async (scenario: DemoScenario): Promise<void> => {
@@ -87,7 +87,7 @@ const runTake = async (scenario: DemoScenario): Promise<void> => {
     pendingTimer = null;
     demo$.running.set(false);
     const edl: DemoEdl = { scenarioId: scenario.id, bpm: scenario.bpm, startedAtEpochMs, entries };
-    void window.vellum?.demoWriteEdl(edl).catch(() => undefined);
+    void window.vellumCommand?.demoWriteEdl(edl).catch(() => undefined);
   };
 
   const scheduleAt = (targetBeat: number, action: () => void): void => {

@@ -10,10 +10,10 @@ import { state$ } from "./state";
 let bridgeStarted = false;
 
 export const startSettingsBridge = (): (() => void) | undefined => {
-  if (bridgeStarted || !window.vellum?.settingsGet) return undefined;
+  if (bridgeStarted || !window.vellumCommand?.settingsGet) return undefined;
   bridgeStarted = true;
 
-  const unsub = window.vellum.onSettingsChanged((settings) => {
+  const unsub = window.vellumCommand.onSettingsChanged((settings) => {
     state$.settings.set(settings);
     state$.settingsError.set("");
   });
@@ -21,7 +21,7 @@ export const startSettingsBridge = (): (() => void) | undefined => {
   void (async () => {
     state$.settingsLoading.set(true);
     try {
-      const result = await window.vellum!.settingsGet();
+      const result = await window.vellumCommand!.settingsGet();
       if (result.ok && result.settings) {
         state$.settings.set(result.settings);
         state$.settingsError.set("");
@@ -50,12 +50,12 @@ export const closeSettings = (): void => {
 };
 
 export const patchSettings = async (patch: SettingsPatch): Promise<boolean> => {
-  if (!window.vellum?.settingsPatch) {
+  if (!window.vellumCommand?.settingsPatch) {
     state$.settingsError.set("settings API unavailable");
     return false;
   }
   try {
-    const result = await window.vellum.settingsPatch(patch);
+    const result = await window.vellumCommand.settingsPatch(patch);
     if (result.ok && result.settings) {
       state$.settings.set(result.settings);
       state$.settingsError.set("");
@@ -70,12 +70,12 @@ export const patchSettings = async (patch: SettingsPatch): Promise<boolean> => {
 };
 
 export const resetSettings = async (section?: SettingsSectionKey): Promise<boolean> => {
-  if (!window.vellum?.settingsReset) {
+  if (!window.vellumCommand?.settingsReset) {
     state$.settingsError.set("settings API unavailable");
     return false;
   }
   try {
-    const result = await window.vellum.settingsReset(section);
+    const result = await window.vellumCommand.settingsReset(section);
     if (result.ok && result.settings) {
       state$.settings.set(result.settings);
       state$.settingsError.set("");
@@ -94,12 +94,12 @@ export const resetSettings = async (section?: SettingsSectionKey): Promise<boole
  * Uses the dedicated protected-topology IPC — never generic settingsPatch.
  */
 export const setStationTopology = async (station: StationPatch): Promise<boolean> => {
-  if (!window.vellum?.settingsSetStationTopology) {
+  if (!window.vellumCommand?.settingsSetStationTopology) {
     state$.settingsError.set("station topology API unavailable");
     return false;
   }
   try {
-    const result = await window.vellum.settingsSetStationTopology(station);
+    const result = await window.vellumCommand.settingsSetStationTopology(station);
     if (result.ok && result.settings) {
       state$.settings.set(result.settings);
       state$.settingsError.set("");

@@ -1,8 +1,8 @@
 /**
- * Packaged station wire entry — `vellum station-stdio`.
+ * Packaged station wire entry — `vellum-command station-stdio`.
  *
  * One binary: agents and ssh forced-commands invoke this subcommand instead of
- * a separate vellum-station executable.
+ * a separate vellum-command-station executable.
  */
 import { relayStationControlSession } from "../main/vellum/station/control-relay";
 import {
@@ -26,7 +26,7 @@ export const runStationStdio = async (
   args: ReadonlyArray<string>,
 ): Promise<void> => {
   if (!admitStationStdioArgs(args)) {
-    process.stderr.write("vellum station-stdio: arguments are not accepted\n");
+    process.stderr.write("vellum-command station-stdio: arguments are not accepted\n");
     process.exitCode = 64;
     return;
   }
@@ -34,7 +34,7 @@ export const runStationStdio = async (
   try {
     await relayStationControlSession();
   } catch {
-    process.stderr.write("vellum station-stdio: relay failed\n");
+    process.stderr.write("vellum-command station-stdio: relay failed\n");
     process.exitCode = 1;
   }
 };

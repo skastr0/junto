@@ -17,7 +17,7 @@ import type {
   ManagedTerminalModelOption,
   ManagedTerminalProfileOption,
 } from "@shared/ipc";
-import { getVellumApi } from "../../lib/vellum-api";
+import { getVellumCommandApi } from "../../lib/vellum-api";
 
 export type AgentConfigurationChoices = {
   readonly harness: HarnessId;
@@ -228,7 +228,7 @@ export function AgentCascadeMenu({
 
   useEffect(() => {
     let live = true;
-    const api = getVellumApi();
+    const api = getVellumCommandApi();
     void api
       ?.managedTerminalModels?.(harness)
       .then((result) => {

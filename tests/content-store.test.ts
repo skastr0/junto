@@ -102,7 +102,7 @@ const openEngine = async (dbPath: string) => {
 
 describe("content layout + stream ingest", () => {
   it("streams chunks without buffering the full body and publishes by digest", async () => {
-    const home = await tempRoot("vellum-content-ingest-");
+    const home = await tempRoot("vellum-command-content-ingest-");
     const root = contentStoreRoot(home);
     const payload = Buffer.alloc(256 * 1024 + 17, 0x5a);
     payload[0] = 0x01;
@@ -137,7 +137,7 @@ describe("content layout + stream ingest", () => {
   });
 
   it("is idempotent when the verified digest already exists", async () => {
-    const home = await tempRoot("vellum-content-idem-");
+    const home = await tempRoot("vellum-command-content-idem-");
     const root = contentStoreRoot(home);
     const payload = Buffer.from("same-bytes-twice");
     const first = await ingestContentBytes({
@@ -157,7 +157,7 @@ describe("content layout + stream ingest", () => {
   });
 
   it("fails closed on expected digest mismatch and leaves no published object", async () => {
-    const home = await tempRoot("vellum-content-corrupt-");
+    const home = await tempRoot("vellum-command-content-corrupt-");
     const root = contentStoreRoot(home);
     const payload = Buffer.from("actual-bytes");
     await expect(
@@ -177,7 +177,7 @@ describe("content layout + stream ingest", () => {
   });
 
   it("refuses symlink substitution on the object tree", async () => {
-    const home = await tempRoot("vellum-content-symlink-");
+    const home = await tempRoot("vellum-command-content-symlink-");
     const root = contentStoreRoot(home);
     ensureContentLayout(root);
     const outside = join(home, "outside");
@@ -403,10 +403,10 @@ describe("content schema migration 11 → current", () => {
 
 describe("content service put + restart survival", () => {
   it("puts stream, records manifest, survives engine restart", async () => {
-    const home = await tempRoot("vellum-content-svc-");
-    const stateDir = join(home, ".vellum", "state");
+    const home = await tempRoot("vellum-command-content-svc-");
+    const stateDir = join(home, ".vellum-command", "state");
     await mkdir(stateDir, { recursive: true });
-    const dbPath = join(stateDir, "vellum.db");
+    const dbPath = join(stateDir, "vellum-command.db");
     const contentRoot = contentStoreRoot(home);
 
     const payload = Buffer.from("restart-me-please");
@@ -466,10 +466,10 @@ describe("content service put + restart survival", () => {
   });
 
   it("does not create a ref when owner is omitted (orphan-safe object only)", async () => {
-    const home = await tempRoot("vellum-content-no-ref-");
-    const stateDir = join(home, ".vellum", "state");
+    const home = await tempRoot("vellum-command-content-no-ref-");
+    const stateDir = join(home, ".vellum-command", "state");
     await mkdir(stateDir, { recursive: true });
-    const dbPath = join(stateDir, "vellum.db");
+    const dbPath = join(stateDir, "vellum-command.db");
     const contentRoot = contentStoreRoot(home);
     const { state } = await openEngine(dbPath);
     const service = createContentService(state, contentRoot);

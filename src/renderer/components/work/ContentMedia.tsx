@@ -77,7 +77,7 @@ const isTextLikeMediaType = (mediaType: string): boolean => {
 };
 
 /**
- * Open a content stream: download via blob (vellum-content:// anchors with
+ * Open a content stream: download via blob (vellum-command-content:// anchors with
  * download= do not work reliably in Electron).
  */
 const openContentStream = async (

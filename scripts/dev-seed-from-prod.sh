@@ -2,8 +2,8 @@
 # Seed isolated dev state from production when schema versions match.
 #
 # Copies product durability only:
-#   - ~/.vellum/state/vellum.db  →  $VELLUM_HOME/.vellum/state/vellum.db
-#   - ~/.vellum/content/         →  $VELLUM_HOME/.vellum/content/
+#   - ~/.vellum-command/state/vellum-command.db  →  $VELLUM_COMMAND_HOME/.vellum-command/state/vellum-command.db
+#   - ~/.vellum-command/content/         →  $VELLUM_COMMAND_HOME/.vellum-command/content/
 #
 # Never copies install-ops.db (backfill ledgers). That file is install-local:
 # a fresh install-ops on dev re-runs pending walks against the seeded product
@@ -14,16 +14,16 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PROD_HOME="${HOME}/.vellum"
-PROD_DB="${PROD_HOME}/state/vellum.db"
+PROD_HOME="${HOME}/.vellum-command"
+PROD_DB="${PROD_HOME}/state/vellum-command.db"
 PROD_CONTENT="${PROD_HOME}/content"
-VELLUM_HOME="${VELLUM_HOME:-${HOME}/.vellum-dev}"
-DEV_DB="${VELLUM_HOME}/.vellum/state/vellum.db"
-DEV_CONTENT="${VELLUM_HOME}/.vellum/content"
-DEV_OPS_DB="${VELLUM_HOME}/.vellum/state/install-ops.db"
+VELLUM_COMMAND_HOME="${VELLUM_COMMAND_HOME:-${HOME}/.vellum-command-dev}"
+DEV_DB="${VELLUM_COMMAND_HOME}/.vellum-command/state/vellum-command.db"
+DEV_CONTENT="${VELLUM_COMMAND_HOME}/.vellum-command/content"
+DEV_OPS_DB="${VELLUM_COMMAND_HOME}/.vellum-command/state/install-ops.db"
 
 log() {
-  printf 'vellum dev: %s\n' "$*" >&2
+  printf 'vellum-command dev: %s\n' "$*" >&2
 }
 
 if [[ ! -f "${PROD_DB}" ]]; then

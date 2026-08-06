@@ -116,7 +116,7 @@ Run as the intended ordinary Station user. Prove:
 
 Snapshot the Station user's Vellum Command state before each release operation.
 Package activity must not copy, replace, archive, or synthesize
-`vellum.db`, its WAL, or its shared-memory file.
+`vellum-command.db`, its WAL, or its shared-memory file.
 
 No Vellum Command process may open a privileged prompt or receive an administrator
 credential during the run. Checking that no password was persisted is
@@ -176,7 +176,7 @@ One passed receipt qualifies:
 
 - one exact Linux Remote with a Linux or supported macOS Command Center;
 - five-verb `pair`, `configure`, `project`, `report`, and `status` exchange;
-- distinct installation identities and the exact protocol 4 bundle;
+- distinct installation identities and the exact protocol 5 bundle;
 - complete replace-only projection and restart persistence;
 - bidirectional logical cursor convergence;
 - interrupted project/report retry;
@@ -192,7 +192,7 @@ The receipt remains bounded, redacted operator evidence. It is not
 self-proving automation and it may not be synthesized from single-host smoke.
 
 The structured receipt retains the established
-`vellum/station-two-installation-qualification/v1` shape:
+`vellum-command/station-two-installation-qualification/v1` shape:
 
 - each installation records a closed `nativePlatform`;
 - Remote is `linux` / `ubuntu` / `24.04` / `x64`;

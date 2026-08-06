@@ -1,7 +1,7 @@
 import { join } from "node:path";
-import { resolveVellumHome } from "@shared/vellum-home";
+import { resolveVellumCommandHome } from "@shared/vellum-home";
 
-/** Layout generation under `~/.vellum/content/`. */
+/** Layout generation under `~/.vellum-command/content/`. */
 export const CONTENT_LAYOUT_VERSION = "v1" as const;
 
 /** Algorithm directory name for the current content-addressed store. */
@@ -9,10 +9,10 @@ export const CONTENT_DIGEST_ALGORITHM = "sha256" as const;
 
 /**
  * Root of the local content store for one Vellum Command installation.
- * Default: `<VELLUM_HOME>/.vellum/content/v1`.
+ * Default: `<VELLUM_COMMAND_HOME>/.vellum-command/content/v1`.
  */
-export const contentStoreRoot = (home: string = resolveVellumHome()): string =>
-  join(home, ".vellum", "content", CONTENT_LAYOUT_VERSION);
+export const contentStoreRoot = (home: string = resolveVellumCommandHome()): string =>
+  join(home, ".vellum-command", "content", CONTENT_LAYOUT_VERSION);
 
 /** Private staging area for in-flight partial writes. */
 export const contentIncomingDir = (root: string): string =>

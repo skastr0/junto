@@ -12,7 +12,7 @@ import { DIM, GROUND, HUE, INK, INK_2, STROKE, withAlpha } from "../lib/theme";
 /** What play actually does — honest consequences, no softeners. */
 const CONSEQUENCES: ReadonlyArray<string> = [
   "Cron and relay nodes start firing, and may spend real agent turns.",
-  "Agents can act through the vellum CLI.",
+  "Agents can act through the Vellum Command CLI.",
   "Queued messages deliver to their targets.",
   "Queued tasks are handed to free connected agents.",
 ];

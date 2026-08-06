@@ -11,9 +11,9 @@ const installBoard = async (
       async () =>
         page.evaluate(() => {
           const runtime = globalThis as unknown as {
-            readonly vellum?: { readonly listCanvases: () => Promise<unknown[]> };
+            readonly vellumCommand?: { readonly listCanvases: () => Promise<unknown[]> };
           };
-          return Boolean(runtime.vellum?.listCanvases);
+          return Boolean(runtime.vellumCommand?.listCanvases);
         }),
       { timeout: 30_000 },
     )
@@ -22,7 +22,7 @@ const installBoard = async (
   await page.evaluate(async (document) => {
     const api = (
       globalThis as unknown as {
-        readonly vellum: {
+        readonly vellumCommand: {
           readonly listCanvases: () => Promise<ReadonlyArray<{ name: string }>>;
           readonly createCanvas: (name: string) => Promise<{ name: string }>;
           readonly readCanvas: (name: string) => Promise<{ revision: string }>;
@@ -33,7 +33,7 @@ const installBoard = async (
           ) => Promise<unknown>;
         };
       }
-    ).vellum;
+    ).vellumCommand;
     const list = await api.listCanvases();
     const name = list[0]?.name ?? (await api.createCanvas("task-board-ux")).name;
     const read = await api.readCanvas(name);
@@ -87,10 +87,10 @@ test("task board supports creation, operator responses, layered status, and body
       ],
     }),
   ]);
-  const vellum = await launchVellum();
+  const vellumCommand = await launchVellum();
 
   try {
-    const { page } = vellum;
+    const { page } = vellumCommand;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
     await installBoard(page, fixture);
     await expect(page.locator('.react-flow__node[data-id="tasks"]')).toBeVisible({
@@ -126,7 +126,7 @@ test("task board supports creation, operator responses, layered status, and body
     // used to flush and blur the active task input. The caret must stay in the
     // creator while the board receives that live update.
     await page.evaluate(async () => {
-      const api = window.vellum!;
+      const api = window.vellumCommand!;
       const canvas = (await api.listCanvases())[0];
       if (!canvas) throw new Error("No canvas available for focus regression");
       const result = await api.workTaskCreate(canvas.name, "tasks", "Background projection update", { details: "Background projection update" });
@@ -236,7 +236,7 @@ test("task board supports creation, operator responses, layered status, and body
       timeout: 10_000,
     });
   } finally {
-    await vellum.close();
+    await vellumCommand.close();
   }
 });
 
@@ -249,10 +249,10 @@ test("Kanban enqueue opens the normal modal above the task flow", async () => {
       items: [],
     }),
   ]);
-  const vellum = await launchVellum();
+  const vellumCommand = await launchVellum();
 
   try {
-    const { page } = vellum;
+    const { page } = vellumCommand;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
     await installBoard(page, fixture);
     const tasksNodeCard = page.locator('.react-flow__node[data-id="tasks"]');
@@ -282,19 +282,19 @@ test("Kanban enqueue opens the normal modal above the task flow", async () => {
     await expect(creator).toBeHidden();
     await expect(board).toBeVisible();
   } finally {
-    await vellum.close();
+    await vellumCommand.close();
   }
 });
 
 test("task detail media uses the full panel width", async () => {
-  const vellum = await launchVellum();
+  const vellumCommand = await launchVellum();
 
   try {
-    const { page } = vellum;
+    const { page } = vellumCommand;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
 
     const contentRef = await page.evaluate(async () => {
-      const result = await window.vellum!.contentPutImage({
+      const result = await window.vellumCommand!.contentPutImage({
         bytesBase64:
           "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
         mediaType: "image/png",
@@ -305,13 +305,13 @@ test("task detail media uses the full panel width", async () => {
     });
     await installBoard(page, canvasDoc([tasksNode({ id: "tasks", items: [] })]));
     const canvasName = await page.evaluate(async () => {
-      const canvas = (await window.vellum!.listCanvases())[0];
+      const canvas = (await window.vellumCommand!.listCanvases())[0];
       if (!canvas) throw new Error("No canvas available for media fixture");
       return canvas.name;
     });
     await page.evaluate(
       async ({ canvas, ref }) => {
-        const result = await window.vellum!.workTaskCreate(
+        const result = await window.vellumCommand!.workTaskCreate(
           canvas,
           "tasks",
           "Task with media",
@@ -353,6 +353,6 @@ test("task detail media uses the full panel width", async () => {
     expect(metrics.mediaWidth).toBeGreaterThan(metrics.panelWidth - 48);
     expect(metrics.imageObjectFit).toBe("contain");
   } finally {
-    await vellum.close();
+    await vellumCommand.close();
   }
 });

@@ -34,7 +34,7 @@ const makeRuntime = async (databasePath?: string) => {
       ? await mkdtemp(join(tmpdir(), "vellum-scheduler-"))
       : undefined;
   if (root !== undefined) roots.push(root);
-  const path = databasePath ?? join(root!, "vellum.db");
+  const path = databasePath ?? join(root!, "vellum-command.db");
   const runtime = ManagedRuntime.make(
     Layer.provideMerge(
       makeSchedulerRepositoryLive({

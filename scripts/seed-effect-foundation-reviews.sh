@@ -12,16 +12,16 @@ set -euo pipefail
 
 PARALLEL_SINK="${PARALLEL_SINK:-task-01KZ210AXM2WAC3W7XA69BVE3D}"
 DEEP_SINK="${DEEP_SINK:-task-01KZ212Q9DC84S8SM0N16ENV5A}"
-VELLUM_BIN="${VELLUM_BIN:-vellum}"
+VELLUM_COMMAND_BIN="${VELLUM_COMMAND_BIN:-vellum-command}"
 
 log() { printf 'effect-foundation-reviews: %s\n' "$*" >&2; }
 
-if ! command -v "$VELLUM_BIN" >/dev/null 2>&1; then
-  log "vellum CLI not found"
+if ! command -v "$VELLUM_COMMAND_BIN" >/dev/null 2>&1; then
+  log "Vellum Command CLI not found"
   exit 1
 fi
 
-python3 - "$PARALLEL_SINK" "$DEEP_SINK" "$VELLUM_BIN" <<'PY'
+python3 - "$PARALLEL_SINK" "$DEEP_SINK" "$VELLUM_COMMAND_BIN" <<'PY'
 import json, subprocess, sys
 
 parallel_sink, deep_sink, vellum = sys.argv[1], sys.argv[2], sys.argv[3]

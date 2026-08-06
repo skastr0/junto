@@ -70,7 +70,7 @@ describe("CanvasesService Station projection", () => {
     roots.push(root);
     const local = decodeInstallationId("remote-installation");
     const commandCenter = decodeInstallationId("command-installation");
-    const state = makeStateEngineLive(join(root, "vellum.db"));
+    const state = makeStateEngineLive(join(root, "vellum-command.db"));
     const repositories = Layer.provideMerge(
       Layer.mergeAll(
         WorkRepositoryLive,

@@ -93,7 +93,7 @@ const run = async (): Promise<void> => {
     const browserRoot = join(root, "browser");
     const downloadPath = join(root, "downloads");
     const reportPath = join(root, "report.json");
-    const stateDatabasePath = join(root, "state", "vellum.db");
+    const stateDatabasePath = join(root, "state", "vellum-command.db");
     const home = join(root, "home");
     await mkdir(home, { recursive: true });
     await mkdir(join(root, "state"), { recursive: true });

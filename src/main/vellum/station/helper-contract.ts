@@ -1,6 +1,6 @@
 /**
  * Unified CLI subcommand for the station wire endpoint.
- * Packaged path is always `bin/vellum station-stdio`.
+ * Packaged path is always `bin/vellum-command station-stdio`.
  */
 export const STATION_STDIO_COMMAND = "station-stdio" as const;
 

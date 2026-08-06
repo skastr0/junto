@@ -13,10 +13,10 @@ import { Schema } from "effect";
  * Bytes never enter renderer state as Base64. The main process streams from
  * the local content store; the URL carries only ContentRef metadata.
  *
- * Form: `vellum-content://object/<sha256>?byteLength=N&mediaType=...`
+ * Form: `vellum-command-content://object/<sha256>?byteLength=N&mediaType=...`
  * Optional: `displayName`
  */
-export const CONTENT_PROTOCOL_SCHEME = "vellum-content" as const;
+export const CONTENT_PROTOCOL_SCHEME = "vellum-command-content" as const;
 export const CONTENT_PROTOCOL_HOST = "object" as const;
 
 export type ContentMediaKind = "image" | "audio" | "video" | "binary";
@@ -107,6 +107,6 @@ export const parseContentObjectUrl = (url: string): ContentRef | undefined => {
 };
 
 /** Response header names used by the content protocol (stable for renderer UX). */
-export const CONTENT_STATE_HEADER = "X-Vellum-Content-State" as const;
-export const CONTENT_REASON_HEADER = "X-Vellum-Content-Reason" as const;
-export const CONTENT_SHA256_HEADER = "X-Vellum-Content-Sha256" as const;
+export const CONTENT_STATE_HEADER = "X-Vellum-Command-Content-State" as const;
+export const CONTENT_REASON_HEADER = "X-Vellum-Command-Content-Reason" as const;
+export const CONTENT_SHA256_HEADER = "X-Vellum-Command-Content-Sha256" as const;

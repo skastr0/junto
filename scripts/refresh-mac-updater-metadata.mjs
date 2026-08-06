@@ -41,7 +41,7 @@ function fail(message) {
 }
 
 function die(message) {
-  process.stderr.write(`vellum: error: ${message}\n`);
+  process.stderr.write(`vellum-command: error: ${message}\n`);
   process.exit(1);
 }
 

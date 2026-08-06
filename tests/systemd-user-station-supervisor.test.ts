@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../src/main/vellum/supervision/systemctl-runner", () => ({
-  VELLUM_SYSTEMD_USER_UNIT: "vellum-remote.service",
+  VELLUM_COMMAND_SYSTEMD_USER_UNIT: "vellum-command-remote.service",
   systemdUserUnitTarget: mocks.systemdUserUnitTarget,
   showVellumSystemdUserUnit: mocks.showVellumSystemdUserUnit,
   startVellumSystemdUserUnit: mocks.startVellumSystemdUserUnit,
@@ -33,7 +33,7 @@ const showOutput = (overrides: Partial<Record<
     ActiveState: "active",
     SubState: "running",
     MainPID: String(process.pid),
-    ControlGroup: "/user.slice/user-1000.slice/user@1000.service/app.slice/vellum-remote.service",
+    ControlGroup: "/user.slice/user-1000.slice/user@1000.service/app.slice/vellum-command-remote.service",
     InvocationID: "0123456789abcdef0123456789abcdef",
     ...overrides,
   };
@@ -44,7 +44,7 @@ const showOutput = (overrides: Partial<Record<
 
 const successful = (stdout = showOutput()): SystemctlRunResult => ({
   action: "show",
-  unit: "vellum-remote.service",
+  unit: "vellum-command-remote.service",
   stdout,
   stderr: "",
   clean: true,
@@ -57,7 +57,7 @@ const failed = (
   stdout = "",
 ): SystemctlRunResult => ({
   action: "show",
-  unit: "vellum-remote.service",
+  unit: "vellum-command-remote.service",
   stdout,
   stderr: "bounded diagnostic",
   clean: kind !== "close-timeout",
@@ -76,18 +76,18 @@ beforeEach(() => {
 });
 
 describe("userland Linux service rendering", () => {
-  const release = "/home/remote/.vellum/runtime/releases/1.2.3-" + "a".repeat(64);
+  const release = "/home/remote/.vellum-command/runtime/releases/1.2.3-" + "a".repeat(64);
 
   it("pins the unit to one immutable release without a shell or current link", () => {
     const service = renderUserlandLinuxService({ releaseDirectory: release });
     expect(USERLAND_LINUX_SERVICE_PATH).toBe(
-      ".config/systemd/user/vellum-remote.service",
+      ".config/systemd/user/vellum-command-remote.service",
     );
     expect(service).toContain(
-      `ConditionFileIsExecutable=${release}/resources/bin/vellum-remote`,
+      `ConditionFileIsExecutable=${release}/resources/bin/vellum-command-remote`,
     );
     expect(service).toContain(
-      `ExecStart=${release}/resources/systemd/vellum-remote-launch`,
+      `ExecStart=${release}/resources/systemd/vellum-command-remote-launch`,
     );
     expect(service).toContain("Type=notify");
     expect(service).toContain("RuntimeDirectoryMode=0700");
@@ -100,13 +100,13 @@ describe("userland Linux service rendering", () => {
 
   it("escapes a safe home path and rejects paths outside the immutable layout", () => {
     expect(renderUserlandLinuxService({
-      releaseDirectory: "/home/remote station/.vellum/runtime/releases/1.2.3-" + "b".repeat(64),
-    })).toContain("/home/remote\\x20station/.vellum/runtime/releases/");
+      releaseDirectory: "/home/remote station/.vellum-command/runtime/releases/1.2.3-" + "b".repeat(64),
+    })).toContain("/home/remote\\x20station/.vellum-command/runtime/releases/");
     expect(() => renderUserlandLinuxService({
-      releaseDirectory: "/home/remote/.vellum/runtime/current",
+      releaseDirectory: "/home/remote/.vellum-command/runtime/current",
     })).toThrow(/canonical immutable/u);
     expect(() => renderUserlandLinuxService({
-      releaseDirectory: "/home/remote/.vellum/runtime/releases/1.2.3-" + "A".repeat(64),
+      releaseDirectory: "/home/remote/.vellum-command/runtime/releases/1.2.3-" + "A".repeat(64),
     })).toThrow(/canonical immutable/u);
   });
 });
@@ -119,7 +119,7 @@ describe("systemd user station supervisor observation", () => {
     const current = await supervisor.observe();
     expect(supervisor.metadata).toMatchObject({
       provider: "systemd-user",
-      serviceLabel: "vellum-remote.service",
+      serviceLabel: "vellum-command-remote.service",
     });
     expect(current).toEqual({
       provider: "systemd-user",

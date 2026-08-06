@@ -15,10 +15,10 @@ describe("operator control main lifecycle", () => {
   it("enables only from the frozen initial argv", () => {
     expect(
       operatorControlEnabledFromInitialArgv(
-        ["vellum", OPERATOR_CONTROL_SWITCH],
+        ["vellum-command", OPERATOR_CONTROL_SWITCH],
       ),
     ).toBe(true);
-    expect(operatorControlEnabledFromInitialArgv(["vellum"])).toBe(false);
+    expect(operatorControlEnabledFromInitialArgv(["vellum-command"])).toBe(false);
 
     const freeze = source.indexOf("const operatorControlEnabledAtLaunch =");
     const singleton = source.indexOf("app.requestSingleInstanceLock()");

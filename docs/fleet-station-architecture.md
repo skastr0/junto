@@ -23,7 +23,7 @@ does not make mutable work multi-writer.
 
 1. Every installation has a durable installation identity and belongs to at
    most one factory and one role.
-2. Role is chosen by the operator and stored in `vellum.db`; hardware and
+2. Role is chosen by the operator and stored in `vellum-command.db`; hardware and
    network discovery never infer it.
 3. A machine is not both Command Center and Remote.
 4. No Command Center is created through SSH, a canvas edit, or a Station API
@@ -44,7 +44,7 @@ does not make mutable work multi-writer.
 ```text
 Command Center authors one full canvas generation
   → compiles one complete Station projection
-  → invokes vellum station-stdio over the enrolled SSH route
+  → invokes vellum-command station-stdio over the enrolled SSH route
   → Remote main validates, inserts station_projection_versions, and
     transactionally advances station_projection_head
   → Remote simulation reads that projection and its locally homed work
@@ -118,7 +118,7 @@ a fleet target preserves the host-to-installation tombstone; exact
 reactivation is permitted, but silently substituting a fresh installation is
 not.
 
-OpenSSH authenticates and transports the `vellum station-stdio` command. The
+OpenSSH authenticates and transports the `vellum-command station-stdio` command. The
 helper relays bounded correlated frames to the app's owner-local Station
 control socket. It accepts no path, shell program, settings body, or database
 location from the caller. OpenSSH authenticates the Remote host and operator

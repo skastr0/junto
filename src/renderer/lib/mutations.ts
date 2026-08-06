@@ -107,7 +107,7 @@ const nextRecoveryName = (): string => {
 // and graph membership, take work stores from authority, write at its revision.
 // Falls through to recovery-canvas only when rebase cannot complete.
 const rebaseLocalOverDisk = async (failed: PendingCanvasSave): Promise<void> => {
-  const api = window.vellum;
+  const api = window.vellumCommand;
   if (!api) throw new Error("Electron preload bridge is not available.");
 
   const localSnapshot =
@@ -154,7 +154,7 @@ const rebaseLocalOverDisk = async (failed: PendingCanvasSave): Promise<void> => 
 // Last resort: keep the external original untouched and make the newest local
 // snapshot durable under a new canvas name.
 const recoverRevisionConflict = async (failed: PendingCanvasSave): Promise<void> => {
-  const api = window.vellum;
+  const api = window.vellumCommand;
   if (!api) throw new Error("Electron preload bridge is not available.");
 
   const snapshot = pendingSave?.name === failed.name ? pendingSave : failed;
@@ -233,7 +233,7 @@ const handleSaveFailure = async (
 
 const runSave = async (request: PendingCanvasSave): Promise<void> => {
   const { name, doc } = request;
-  const api = window.vellum;
+  const api = window.vellumCommand;
   if (!api) throw new Error("Electron preload bridge is not available.");
   if (abandonedNames.has(name)) return;
 
@@ -418,7 +418,7 @@ export const scheduleSave = (): void => {
   if (!canvasMutationAdmissionOpen) return;
   if (saveTimer) clearTimeout(saveTimer);
   const name = state$.canvasName.peek();
-  if (!name || !window.vellum || abandonedNames.has(name)) return;
+  if (!name || !window.vellumCommand || abandonedNames.has(name)) return;
   pendingSave = { name, doc: roundDoc(state$.doc.peek()) };
   state$.saveState.set("saving");
   saveTimer = setTimeout(() => {

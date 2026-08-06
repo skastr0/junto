@@ -7,15 +7,15 @@
  *
  * Isolation invariants (never relaxed):
  *  - throwaway --user-data-dir + HOME per test (sandbox.ts); the app still
- *    resolves its one canonical $HOME/.vellum/state/vellum.db
+ *    resolves its one canonical $HOME/.vellum-command/state/vellum-command.db
  *  - HOME sandboxed to the same temp root + SHELL=/bin/sh, so the adapters'
  *    login-shell PATH probe (src/main/vellum/adapters/exec.ts) cannot
  *    resolve the operator's real CLIs
  *  - renderer served from a local static server (127.0.0.1, ephemeral port)
  *    since the trusted renderer protocol only installs when app.isPackaged
- *  - focus isolation: VELLUM_E2E=1 creates off-screen, non-focusable windows
+ *  - focus isolation: VELLUM_COMMAND_E2E=1 creates off-screen, non-focusable windows
  *    + accessory Dock policy so Playwright never steals macOS focus. Opt into
- *    a visible window for debugging with VELLUM_E2E_SHOW=1 (not --vellum-headless —
+ *    a visible window for debugging with VELLUM_COMMAND_E2E_SHOW=1 (not --vellum-headless —
  *    that mode has no authoring renderer at all).
  */
 import { lstat, unlink } from "node:fs/promises";
@@ -475,17 +475,17 @@ export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumH
 
     // Drop live seat / work-control env that a factory agent inherits. Spreading
     // process.env would otherwise point the e2e app at the operator's real
-    // ~/.vellum/work lock (VELLUM_WORK_HOME) and fail work-control startup.
+    // ~/.vellum-command/work lock (VELLUM_COMMAND_WORK_HOME) and fail work-control startup.
     const inherited = { ...(process.env as Record<string, string>) };
     for (const key of [
-      "VELLUM_HOME",
-      "VELLUM_WORK_HOME",
-      "VELLUM_WORK_SOCKET",
-      "VELLUM_SOCKET",
-      "VELLUM_NODE_REF",
-      "VELLUM_SEAT",
-      "VELLUM_TOKEN",
-      "VELLUM_WORK_TOKEN",
+      "VELLUM_COMMAND_HOME",
+      "VELLUM_COMMAND_WORK_HOME",
+      "VELLUM_COMMAND_WORK_SOCKET",
+      "VELLUM_COMMAND_SOCKET",
+      "VELLUM_COMMAND_NODE_REF",
+      "VELLUM_COMMAND_SEAT",
+      "VELLUM_COMMAND_TOKEN",
+      "VELLUM_COMMAND_WORK_TOKEN",
     ] as const) {
       delete inherited[key];
     }
@@ -494,15 +494,15 @@ export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumH
       ...inherited,
       HOME: sandbox.homeDir,
       SHELL: "/bin/sh",
-      VELLUM_CANVASES_DIR: sandbox.canvasesDir,
-      VELLUM_E2E: "1",
+      VELLUM_COMMAND_CANVASES_DIR: sandbox.canvasesDir,
+      VELLUM_COMMAND_E2E: "1",
       // Match electron-vite's real development contract exactly. It supplies
       // the loopback authority without a trailing slash; using a normalized
       // test-only URL here previously hid a black-window startup regression.
       ELECTRON_RENDERER_URL: server.url.endsWith("/")
         ? server.url.slice(0, -1)
         : server.url,
-      ...(options.demo ? { VELLUM_DEMO: "1" } : {}),
+      ...(options.demo ? { VELLUM_COMMAND_DEMO: "1" } : {}),
       // Restrict PATH to e2e/fakes/bin + the system floor on every launch — no
       // operator CLI, no real host, no AI tokens. Never opt-in: app boot
       // unconditionally starts the usage-HUD poller (ipc.ts), which shells out
@@ -542,8 +542,8 @@ export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumH
 
     // Defense in depth: if a window was somehow shown, re-hide Dock and do not
     // activate. Main already applies accessory policy + show:false when
-    // VELLUM_E2E=1 without VELLUM_E2E_SHOW.
-    if (process.env.VELLUM_E2E_SHOW !== "1") {
+    // VELLUM_COMMAND_E2E=1 without VELLUM_COMMAND_E2E_SHOW.
+    if (process.env.VELLUM_COMMAND_E2E_SHOW !== "1") {
       await app.evaluate(({ app: electronApp, BrowserWindow }) => {
         try {
           electronApp.dock?.hide();
@@ -597,15 +597,15 @@ export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumH
 
 export interface VellumFixtures {
   vellumOptions: LaunchOptions;
-  vellum: VellumHandle;
+  vellumCommand: VellumHandle;
 }
 
 /** Extended `test`: `test.use({ vellumOptions: {...} })` per spec/describe,
- * then destructure `{ vellum: { app, page, sandbox } }` — launch + teardown
+ * then destructure `{ vellumCommand: { app, page, sandbox } }` — launch + teardown
  * are owned by the fixture, never by the spec. */
 export const test = base.extend<VellumFixtures>({
   vellumOptions: [{}, { option: true }],
-  vellum: async ({ vellumOptions }, use) => {
+  vellumCommand: async ({ vellumOptions }, use) => {
     const handle = await launchVellum(vellumOptions);
     try {
       await use(handle);

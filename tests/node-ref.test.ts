@@ -76,28 +76,28 @@ describe("canonical Vellum Command node references", () => {
     }
     expect(formatNodeRef(refs[1]!)).toContain("r%C3%A9sum%C3%A9%20100%25");
     expect(formatNodeRef(refs[2]!)).toContain("folder%2Fpage%5Cdraft");
-    expect(formatNodeRef(refs[3]!)).toBe("vellum://canvas/portfolio?node=.");
-    expect(formatNodeRef(refs[4]!)).toBe("vellum://canvas/portfolio?node=..");
+    expect(formatNodeRef(refs[3]!)).toBe("vellum-command://canvas/portfolio?node=.");
+    expect(formatNodeRef(refs[4]!)).toBe("vellum-command://canvas/portfolio?node=..");
   });
 
   it.each([
     ["https://canvas/portfolio?node=n1", "scheme"],
     ["VELLUM://canvas/portfolio?node=n1", "scheme"],
-    ["vellum://evil/portfolio?node=n1", "authority"],
-    ["vellum://user@canvas/portfolio?node=n1", "authority"],
-    ["vellum://canvas:443/portfolio?node=n1", "authority"],
-    ["vellum://canvas/Portfolio?node=n1", "canvas_name"],
-    ["vellum://canvas/portfolio", "shape"],
-    ["vellum://canvas/portfolio/?node=n1", "shape"],
-    ["vellum://canvas/portfolio/node/n1?node=n1", "shape"],
-    ["vellum://canvas/portfolio?node=n1&open=true", "shape"],
-    ["vellum://canvas/portfolio?node=n1&node=n2", "shape"],
-    ["vellum://canvas/portfolio?node=n1#fragment", "shape"],
-    ["vellum://canvas/portfolio?node=%", "encoding"],
-    ["vellum://canvas/portfolio?node=a%00b", "node_id"],
-    ["vellum://canvas/portfolio?node=r%c3%a9sum%c3%a9", "canonical"],
-    ["vellum://canvas/portfolio?node=%61", "canonical"],
-    ["vellum://canvas/portfolio?node=a+b", "canonical"],
+    ["vellum-command://evil/portfolio?node=n1", "authority"],
+    ["vellum-command://user@canvas/portfolio?node=n1", "authority"],
+    ["vellum-command://canvas:443/portfolio?node=n1", "authority"],
+    ["vellum-command://canvas/Portfolio?node=n1", "canvas_name"],
+    ["vellum-command://canvas/portfolio", "shape"],
+    ["vellum-command://canvas/portfolio/?node=n1", "shape"],
+    ["vellum-command://canvas/portfolio/node/n1?node=n1", "shape"],
+    ["vellum-command://canvas/portfolio?node=n1&open=true", "shape"],
+    ["vellum-command://canvas/portfolio?node=n1&node=n2", "shape"],
+    ["vellum-command://canvas/portfolio?node=n1#fragment", "shape"],
+    ["vellum-command://canvas/portfolio?node=%", "encoding"],
+    ["vellum-command://canvas/portfolio?node=a%00b", "node_id"],
+    ["vellum-command://canvas/portfolio?node=r%c3%a9sum%c3%a9", "canonical"],
+    ["vellum-command://canvas/portfolio?node=%61", "canonical"],
+    ["vellum-command://canvas/portfolio?node=a+b", "canonical"],
   ])("rejects noncanonical or unsafe input: %s", (input, code) => {
     const result = parseNodeRef(input);
     expect(result.ok).toBe(false);
@@ -124,8 +124,8 @@ describe("Vellum Command node reference resolver", () => {
     const beta = await Effect.runPromise(
       resolveNodeRef(canvases, { canvasName: "beta", nodeId: "shared" }),
     );
-    expect(alpha.key).toBe("vellum://canvas/alpha?node=shared");
-    expect(beta.key).toBe("vellum://canvas/beta?node=shared");
+    expect(alpha.key).toBe("vellum-command://canvas/alpha?node=shared");
+    expect(beta.key).toBe("vellum-command://canvas/beta?node=shared");
     expect(alpha.key).not.toBe(beta.key);
   });
 

@@ -3,13 +3,13 @@ import { Effect } from "effect";
 import { readCanvasThroughControl } from "../src/main/vellum/canvas-control/client";
 import { formatNodeRef, nodeRefKey, parseNodeRef } from "../src/shared/node-ref";
 
-const usage = `vellum node references
+const usage = `vellum-command node references
 
 usage: bun run ref <command> [args] [--json]
 
 commands:
   format <canvas-name> <node-id>  print a canonical Vellum Command node reference
-  resolve <vellum-uri>            resolve a reference without mutating the canvas`;
+  resolve <vellum-command-uri>    resolve a reference without mutating the canvas`;
 
 type CliError = {
   readonly code: string;

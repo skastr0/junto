@@ -3,7 +3,7 @@
  * linux-unpacked (or finalized) tree:
  *
  *   resources/bin/node              — official Node linux-x64 binary
- *   resources/bin/vellum-remote     — wrapper that exec's bundled node on the entry
+ *   resources/bin/vellum-command-remote     — wrapper that exec's bundled node on the entry
  *   resources/app-remote/…          — remote JS entry + node-pty rebuilt for Node ABI
  *
  * Product remote is Node, never ELECTRON_RUN_AS_NODE and never Bun --compile.
@@ -56,15 +56,15 @@ export const pinnedNodeLinuxX64ArchiveSha256 = (
 };
 
 export const REMOTE_NODE_RELATIVE = "resources/bin/node";
-export const REMOTE_WRAPPER_RELATIVE = "resources/bin/vellum-remote";
+export const REMOTE_WRAPPER_RELATIVE = "resources/bin/vellum-command-remote";
 export const REMOTE_APP_DIR_RELATIVE = "resources/app-remote";
-export const REMOTE_ENTRY_RELATIVE = "resources/app-remote/vellum-remote.js";
+export const REMOTE_ENTRY_RELATIVE = "resources/app-remote/vellum-command-remote.js";
 export const REMOTE_NODE_PTY_RELATIVE =
   "resources/app-remote/node_modules/node-pty";
 export const REMOTE_APP_PACKAGE_RELATIVE = "resources/app-remote/package.json";
 
 /** Repo-side build output copied into the runtime when present. */
-export const REMOTE_ENTRY_SOURCE_RELATIVE = "out/remote/vellum-remote.js";
+export const REMOTE_ENTRY_SOURCE_RELATIVE = "out/remote/vellum-command-remote.js";
 /** TypeScript product entry compiled by --entry-only. */
 export const REMOTE_ENTRY_TS_RELATIVE = "src/main/vellum-remote.ts";
 
@@ -100,16 +100,16 @@ export const nodeLinuxX64ArchiveUrl = (version: string): string =>
   `https://nodejs.org/dist/v${requireNodeRemoteVersion(version)}/${nodeLinuxX64ArchiveName(version)}`;
 
 /**
- * Wrapper executed as resources/bin/vellum-remote. Resolves the release root
+ * Wrapper executed as resources/bin/vellum-command-remote. Resolves the release root
  * from argv0, never uses system node, never sets ELECTRON_RUN_AS_NODE.
  */
 export const vellumRemoteWrapperScript = (): string => `#!/bin/sh
 # Displayless product Remote: bundled Node + app-remote entry. No system Node,
 # no Bun compile, no ELECTRON_RUN_AS_NODE.
 set -eu
-fail() { printf '%s\\n' "vellum-remote: $1" >&2; exit "\${2:-69}"; }
+fail() { printf '%s\\n' "vellum-command-remote: $1" >&2; exit "\${2:-69}"; }
 case "\${0}" in
-  */resources/bin/vellum-remote) release=\${0%/resources/bin/vellum-remote} ;;
+  */resources/bin/vellum-command-remote) release=\${0%/resources/bin/vellum-command-remote} ;;
   *) fail 'launcher path is not a release resource' 73 ;;
 esac
 case "$release" in
@@ -123,7 +123,7 @@ entry="$release/${REMOTE_ENTRY_RELATIVE}"
 # Prefer release-local node_modules so node-pty resolves to the Node-ABI rebuild.
 export NODE_PATH="$release/${REMOTE_APP_DIR_RELATIVE}/node_modules\${NODE_PATH:+:$NODE_PATH}"
 # Preserve the generation-pinned wrapper path after exec replaces argv0 with node.
-export VELLUM_REMOTE_BINARY="$release/${REMOTE_WRAPPER_RELATIVE}"
+export VELLUM_COMMAND_REMOTE_BINARY="$release/${REMOTE_WRAPPER_RELATIVE}"
 unset ELECTRON_RUN_AS_NODE
 exec "$node" "$entry" "$@"
 `;
@@ -199,7 +199,7 @@ const sha256File = async (file: string): Promise<string> => {
 };
 
 /**
- * Bundle src/main/vellum-remote.ts → out/remote/vellum-remote.js (CJS, Node target).
+ * Bundle src/main/vellum-remote.ts → out/remote/vellum-command-remote.js (CJS, Node target).
  * Not Bun --compile — product remote loads under the official Node binary.
  */
 export const buildRemoteEntryBundle = async (input: {
@@ -442,7 +442,7 @@ export const stageRemoteEntry = async (input: {
   // CJS entry can resolve node-pty via NODE_PATH; package.json documents the surface.
   await writeFile(
     path.join(input.runtimeRoot, REMOTE_APP_PACKAGE_RELATIVE),
-    `${JSON.stringify({ name: "vellum-app-remote", private: true, main: "vellum-remote.js" }, null, 2)}\n`,
+    `${JSON.stringify({ name: "vellum-app-remote", private: true, main: "vellum-command-remote.js" }, null, 2)}\n`,
     { encoding: "utf8", mode: 0o644 },
   );
   return { entryPath: destination };

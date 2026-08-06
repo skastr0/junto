@@ -116,7 +116,7 @@ describe("msg-send enable notices", () => {
     });
     expect(text).toContain("msg.send is now enabled");
     expect(text).toContain("`a2`");
-    expect(text).toContain("vellum msg send");
-    expect(text).toContain("vellum onboard");
+    expect(text).toContain("vellum-command msg send");
+    expect(text).toContain("vellum-command onboard");
   });
 });

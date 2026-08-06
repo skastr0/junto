@@ -2,7 +2,7 @@
  * Per-test sandbox: a throwaway temp root holding the Electron user-data
  * dir, the agent-facing canvases directory, and a sandboxed HOME — plus
  * fixture builders. Nothing here ever reads or writes the operator's real
- * ~/.vellum or userData; every path lives under os.tmpdir().
+ * ~/.vellum-command or userData; every path lives under os.tmpdir().
  */
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -57,7 +57,7 @@ export const createSandbox = async (): Promise<Sandbox> => {
   const root = await mkdtemp(join(tmpdir(), "vellum-e2e-"));
   const userDataDir = join(root, "user-data");
   const homeDir = join(root, "home");
-  const vellumDir = join(homeDir, ".vellum");
+  const vellumDir = join(homeDir, ".vellum-command");
   const canvasesDir = join(vellumDir, "canvases");
   const stateDir = join(vellumDir, "state");
   await Promise.all([
@@ -90,11 +90,11 @@ export const writeFixtureCanvas = async (
   name: string,
   doc: CanvasDoc,
 ): Promise<void> => {
-  const previousCanvasesDir = process.env.VELLUM_CANVASES_DIR;
-  process.env.VELLUM_CANVASES_DIR = sandbox.canvasesDir;
+  const previousCanvasesDir = process.env.VELLUM_COMMAND_CANVASES_DIR;
+  process.env.VELLUM_COMMAND_CANVASES_DIR = sandbox.canvasesDir;
 
   const state = makeStateEngineLive(
-    join(sandbox.homeDir, ".vellum", "state", "vellum.db"),
+    join(sandbox.homeDir, ".vellum-command", "state", "vellum-command.db"),
   );
   const repositories = Layer.provideMerge(
     Layer.mergeAll(
@@ -297,9 +297,9 @@ export const writeFixtureCanvas = async (
       await runtime.dispose();
     } finally {
       if (previousCanvasesDir === undefined) {
-        delete process.env.VELLUM_CANVASES_DIR;
+        delete process.env.VELLUM_COMMAND_CANVASES_DIR;
       } else {
-        process.env.VELLUM_CANVASES_DIR = previousCanvasesDir;
+        process.env.VELLUM_COMMAND_CANVASES_DIR = previousCanvasesDir;
       }
     }
   }
@@ -312,7 +312,7 @@ export const writeFixtureHosts = async (
 ): Promise<void> => {
   const runtime = ManagedRuntime.make(
     makeStateEngineLive(
-      join(sandbox.homeDir, ".vellum", "state", "vellum.db"),
+      join(sandbox.homeDir, ".vellum-command", "state", "vellum-command.db"),
     ),
   );
   try {

@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
-import { resolveVellumHome } from "@shared/vellum-home";
+import { resolveVellumCommandHome } from "@shared/vellum-home";
 import { join } from "node:path";
 import { Effect, Result, Option, Schema } from "effect";
 import { ulid } from "ulid";
@@ -170,7 +170,7 @@ import {
   type ControlSocketPathIdentity,
 } from "../control-filesystem";
 // Local work control plane for agents: NDJSON over a Unix domain socket at
-// ~/.vellum/work/control.sock. Token + process-bind identity + edge authz;
+// ~/.vellum-command/work/control.sock. Token + process-bind identity + edge authz;
 // mutations route through WorkService. One admission path, no second identity.
 
 // ---------------------------------------------------------------------------
@@ -178,9 +178,9 @@ import {
 
 export const resolveWorkHome = (home?: string, workHome?: string): string => {
   if (workHome && workHome.trim().length > 0) return workHome.trim();
-  const env = process.env.VELLUM_WORK_HOME?.trim();
+  const env = process.env.VELLUM_COMMAND_WORK_HOME?.trim();
   if (env) return env;
-  return workControlDir(home ?? resolveVellumHome());
+  return workControlDir(home ?? resolveVellumCommandHome());
 };
 
 export const rotateWorkToken = (tokenPath: string): string => {
@@ -202,7 +202,7 @@ const systemdReadinessReceipt = (): { readonly generation: string; readonly path
   }
   return Object.freeze({
     generation,
-    path: join(runtimeDirectory, "vellum-remote", `ready-${generation}`),
+    path: join(runtimeDirectory, "vellum-command-remote", `ready-${generation}`),
   });
 };
 
@@ -423,7 +423,7 @@ type RunEffect = <A, E>(
 
 const PREAMBLE_TOOL = Object.freeze({
   id: "preamble",
-  command: "vellum preamble",
+  command: "vellum-command preamble",
   description: "Show a short-lived thought bubble above this agent node.",
   input: { text: "..." },
 });
@@ -1683,7 +1683,7 @@ export const startWorkControlServer = async (
               admission.message,
               {
                 retryable: true,
-                next_step: "your token is invalid or stale; run `vellum doctor`, and if Vellum Command is not running ask the operator to start it",
+                next_step: "your token is invalid or stale; run `vellum-command doctor`, and if Vellum Command is not running ask the operator to start it",
               },
               req.op,
               req.id,

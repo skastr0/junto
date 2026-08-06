@@ -1,7 +1,7 @@
 import type { EtherHerdr } from "@shared/canvas";
 import { resolveHerdrOnDelete } from "@shared/canvas";
 import { herdrDeleteAction } from "@shared/herdr";
-import { getVellumApi } from "./vellum-api";
+import { getVellumCommandApi } from "./vellum-api";
 import {
   closeHerdrTerminal,
   herdr$,
@@ -14,8 +14,8 @@ import { commitDoc } from "./mutations";
 export { resolveHerdrOnDelete };
 
 const herdrApi = () =>
-  getVellumApi() as
-    | (ReturnType<typeof getVellumApi> & {
+  getVellumCommandApi() as
+    | (ReturnType<typeof getVellumCommandApi> & {
         herdrKillPane?: (
           hostId: string,
           session: string | null | undefined,

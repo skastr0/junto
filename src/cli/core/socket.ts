@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { createConnection, type Socket } from "node:net";
-import { resolveVellumHome } from "@shared/vellum-home";
+import { resolveVellumCommandHome } from "@shared/vellum-home";
 import { Context, Effect, Layer, Schema } from "effect";
 import {
   WORK_DEFAULT_TIMEOUT_MS,
@@ -19,7 +19,7 @@ import { AuthError, RuntimeDown, WireError } from "./errors";
 export const resolveWorkHome = (): string => {
   const env = process.env[WORK_HOME_ENV]?.trim();
   if (env) return env;
-  return workControlDir(resolveVellumHome());
+  return workControlDir(resolveVellumCommandHome());
 };
 
 /**
@@ -46,7 +46,7 @@ const readToken = (tokenPath: string) =>
     catch: () =>
       new RuntimeDown({
         message: "work control token unavailable — is Vellum Command running?",
-        next_step: "launch Vellum Command, then `vellum doctor`",
+        next_step: "launch Vellum Command, then `vellum-command doctor`",
       }),
   });
 
@@ -95,7 +95,7 @@ const ndjsonCall = (
           new RuntimeDown({
             message:
               error instanceof Error ? error.message : "failed to open work control socket",
-            next_step: "launch Vellum Command, then `vellum doctor`",
+            next_step: "launch Vellum Command, then `vellum-command doctor`",
           }),
         ),
       );
@@ -164,8 +164,8 @@ const ndjsonCall = (
         settle(
           Effect.fail(
             new RuntimeDown({
-              message: "vellum app is not running (work socket down)",
-              next_step: "launch Vellum Command, then `vellum doctor`",
+              message: "Vellum Command app is not running (work socket down)",
+              next_step: "launch Vellum Command, then `vellum-command doctor`",
             }),
           ),
         );
@@ -206,7 +206,7 @@ export const WorkSocketLive = Layer.succeed(
           return yield* Effect.fail(
             new RuntimeDown({
               message: "work control token empty — is Vellum Command running?",
-              next_step: "launch Vellum Command, then `vellum doctor`",
+              next_step: "launch Vellum Command, then `vellum-command doctor`",
             }),
           );
         }

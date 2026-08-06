@@ -113,7 +113,7 @@ describe("Linux CI log safety", () => {
     const input = [
       "/home/runner/work/vellum/vellum/src/main.ts",
       "/opt/actions/temp/build.log",
-      "/Users/operator/.vellum/work/token",
+      "/Users/operator/.vellum-command/work/token",
       "Authorization: Bearer abcdefghijklmnopqrstuvwxyz012345",
     ].join("\n");
     const result = redactLinuxCiLog(input, {
@@ -124,7 +124,7 @@ describe("Linux CI log safety", () => {
     expect(result.secretDetected).toBe(true);
     expect(result.output).toContain("<workspace>/src/main.ts");
     expect(result.output).toContain("<runner-temp>/build.log");
-    expect(result.output).toContain("<home>/.vellum/work/token");
+    expect(result.output).toContain("<home>/.vellum-command/work/token");
     expect(result.output).toContain("<redacted-secret>");
     expect(result.output).not.toContain("operator");
     expect(findSecretBearingOutput(result.output)).toBe(false);

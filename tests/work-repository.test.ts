@@ -29,11 +29,11 @@ import {
 } from "../src/main/vellum/state/engine";
 import { IntentFactBasis } from "../src/shared/work-protocol";
 
-const root = join(tmpdir(), `vellum-work-v2-${randomUUID()}`);
+const root = join(tmpdir(), `vellum-command-work-v2-${randomUUID()}`);
 const runtime = ManagedRuntime.make(
   Layer.provideMerge(
     WorkRepositoryLive,
-    makeStateEngineLive(join(root, "vellum.db")),
+    makeStateEngineLive(join(root, "vellum-command.db")),
   ),
 );
 
@@ -197,11 +197,11 @@ afterAll(async () => {
 
 describe("WorkRepository v2 local authority", () => {
   it("persists ContentRef parts on new work writes", async () => {
-    const isolatedRoot = join(tmpdir(), `vellum-content-contract-${randomUUID()}`);
+    const isolatedRoot = join(tmpdir(), `vellum-command-content-contract-${randomUUID()}`);
     const isolatedRuntime = ManagedRuntime.make(
       Layer.provideMerge(
         WorkRepositoryLive,
-        makeStateEngineLive(join(isolatedRoot, "vellum.db")),
+        makeStateEngineLive(join(isolatedRoot, "vellum-command.db")),
       ),
     );
     try {
@@ -343,12 +343,12 @@ describe("WorkRepository v2 local authority", () => {
   it("rejects unconfigured local mutation without writing any Work row", async () => {
     const unconfiguredRoot = join(
       tmpdir(),
-      `vellum-work-v2-unconfigured-${randomUUID()}`,
+      `vellum-command-work-v2-unconfigured-${randomUUID()}`,
     );
     const unconfiguredRuntime = ManagedRuntime.make(
       Layer.provideMerge(
         WorkRepositoryLive,
-        makeStateEngineLive(join(unconfiguredRoot, "vellum.db")),
+        makeStateEngineLive(join(unconfiguredRoot, "vellum-command.db")),
       ),
     );
     try {
@@ -1629,12 +1629,12 @@ describe("WorkRepository board CC-homed facts", () => {
   it("rejects board writes when local authority is Remote", async () => {
     const remoteRoot = join(
       tmpdir(),
-      `vellum-work-board-remote-${randomUUID()}`,
+      `vellum-command-work-board-remote-${randomUUID()}`,
     );
     const remoteRuntime = ManagedRuntime.make(
       Layer.provideMerge(
         WorkRepositoryLive,
-        makeStateEngineLive(join(remoteRoot, "vellum.db")),
+        makeStateEngineLive(join(remoteRoot, "vellum-command.db")),
       ),
     );
     try {

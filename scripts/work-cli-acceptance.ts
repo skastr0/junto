@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Live acceptance for the work control plane + compiled `dist/vellum`.
+ * Live acceptance for the work control plane + compiled `dist/vellum-command`.
  *
  * Boots the real NDJSON work control daemon (WorkService + CanvasesService)
  * against a sandboxed work home, then drives the compiled CLI from a cwd
@@ -54,7 +54,7 @@ import { WORK_MAX_FRAME_BYTES } from "../src/shared/work-control";
 import { IntentFactBasis } from "../src/shared/work-protocol";
 
 const REPO = process.cwd();
-const CLI = join(REPO, "dist/vellum");
+const CLI = join(REPO, "dist/vellum-command");
 const CANVAS = "work-acc";
 const AGENT = "agent";
 const TASKS = "tasks";
@@ -426,10 +426,10 @@ const log = (label: string, body: string) => {
 
 const main = async () => {
   if (!existsSync(CLI)) {
-    throw new Error("missing dist/vellum — run bun run cli:build");
+    throw new Error("missing dist/vellum-command — run bun run cli:build");
   }
 
-  const root = await mkdtemp(join(tmpdir(), "vellum-work-acc-"));
+  const root = await mkdtemp(join(tmpdir(), "vellum-command-work-acc-"));
   const canvases = join(root, "canvases");
   const workHome = join(root, "work");
   const outside = join(root, "outside");
@@ -439,10 +439,10 @@ const main = async () => {
   const artifactPath = join(outside, "report.txt");
   writeFileSync(artifactPath, "acceptance artifact body\n");
 
-  const previousCanvasesDir = process.env.VELLUM_CANVASES_DIR;
-  const previousWorkHome = process.env.VELLUM_WORK_HOME;
-  process.env.VELLUM_CANVASES_DIR = canvases;
-  process.env.VELLUM_WORK_HOME = workHome;
+  const previousCanvasesDir = process.env.VELLUM_COMMAND_CANVASES_DIR;
+  const previousWorkHome = process.env.VELLUM_COMMAND_WORK_HOME;
+  process.env.VELLUM_COMMAND_CANVASES_DIR = canvases;
+  process.env.VELLUM_COMMAND_WORK_HOME = workHome;
 
   const processPlane = createAppProcessPlane({
     termGraceMs: CLI_TERM_GRACE_MS,
@@ -455,7 +455,7 @@ const main = async () => {
       StationFleetTargetRepositoryLive,
       SettingsLive,
     ),
-    makeStateEngineLive(join(root, "state", "vellum.db")),
+    makeStateEngineLive(join(root, "state", "vellum-command.db")),
   );
   const canvasesLive = Layer.provideMerge(CanvasesLive, repositoriesLive);
   const workLive = Layer.provideMerge(
@@ -533,8 +533,8 @@ const main = async () => {
 
     const env: NodeJS.ProcessEnv = {
       ...process.env,
-      VELLUM_WORK_HOME: workHome,
-      // Identity is process-bind — no VELLUM_NODE_REF.
+      VELLUM_COMMAND_WORK_HOME: workHome,
+      // Identity is process-bind — no VELLUM_COMMAND_NODE_REF.
     };
 
     const sockMode = (await stat(server.socketPath)).mode & 0o777;
@@ -793,10 +793,10 @@ const main = async () => {
     } catch (error) {
       cleanupFailures.push(new Error("work CLI acceptance runtime dispose failed", { cause: error }));
     }
-    if (previousCanvasesDir === undefined) delete process.env.VELLUM_CANVASES_DIR;
-    else process.env.VELLUM_CANVASES_DIR = previousCanvasesDir;
-    if (previousWorkHome === undefined) delete process.env.VELLUM_WORK_HOME;
-    else process.env.VELLUM_WORK_HOME = previousWorkHome;
+    if (previousCanvasesDir === undefined) delete process.env.VELLUM_COMMAND_CANVASES_DIR;
+    else process.env.VELLUM_COMMAND_CANVASES_DIR = previousCanvasesDir;
+    if (previousWorkHome === undefined) delete process.env.VELLUM_COMMAND_WORK_HOME;
+    else process.env.VELLUM_COMMAND_WORK_HOME = previousWorkHome;
     const controlClean = server === undefined || controlDrain?.clean === true;
     if (
       cleanupFailures.length === 0 &&

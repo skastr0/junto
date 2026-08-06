@@ -64,7 +64,7 @@ import {
   type HerdrClipboardImage,
 } from "../../lib/herdr-clipboard-image";
 import { state$ } from "../../lib/state";
-import { getVellumApi } from "../../lib/vellum-api";
+import { getVellumCommandApi } from "../../lib/vellum-api";
 import "./task-board.css";
 
 /** Prefer artifacts sinks edge-linked to the task node; else first on canvas. */
@@ -2062,7 +2062,7 @@ export function TaskBoard({
   });
   const [error, setError] = useState("");
   const [announcement, setAnnouncement] = useState("");
-  const api = getVellumApi();
+  const api = getVellumCommandApi();
   const name = canvasName();
   const actorRefs = use$(state$.actorRefs);
   const activeActorSeatIds = useMemo(

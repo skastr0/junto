@@ -53,9 +53,9 @@ const installBoard = async (page: Page, doc: CanvasDoc): Promise<void> => {
       async () =>
         page.evaluate(() => {
           const runtime = globalThis as unknown as {
-            readonly vellum?: { readonly listCanvases: () => Promise<unknown[]> };
+            readonly vellumCommand?: { readonly listCanvases: () => Promise<unknown[]> };
           };
-          return Boolean(runtime.vellum?.listCanvases);
+          return Boolean(runtime.vellumCommand?.listCanvases);
         }),
       { timeout: 30_000 },
     )
@@ -64,7 +64,7 @@ const installBoard = async (page: Page, doc: CanvasDoc): Promise<void> => {
   await page.evaluate(async (document) => {
     const api = (
       globalThis as unknown as {
-        readonly vellum: {
+        readonly vellumCommand: {
           readonly listCanvases: () => Promise<ReadonlyArray<{ name: string }>>;
           readonly createCanvas: (name: string) => Promise<{ name: string }>;
           readonly readCanvas: (name: string) => Promise<{ revision: string }>;
@@ -75,7 +75,7 @@ const installBoard = async (page: Page, doc: CanvasDoc): Promise<void> => {
           ) => Promise<unknown>;
         };
       }
-    ).vellum;
+    ).vellumCommand;
     const list = await api.listCanvases();
     const name = list[0]?.name ?? (await api.createCanvas("region-paths")).name;
     // Retry once on revision conflict (autosave / concurrent stamp).
@@ -107,8 +107,8 @@ test.beforeAll(async () => {
   await mkdir(SHOTS, { recursive: true });
 });
 
-test("region folder paths — empty, save, escape", async ({ vellum }) => {
-  const { page } = vellum;
+test("region folder paths — empty, save, escape", async ({ vellumCommand }) => {
+  const { page } = vellumCommand;
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
   await installBoard(page, canvasDoc([regionEmpty]));
   await expect(page.getByTestId(`rf__node-${regionEmpty.id}`)).toBeVisible({
@@ -148,8 +148,8 @@ test("region folder paths — empty, save, escape", async ({ vellum }) => {
   await expect(page.getByRole("dialog", { name: "Region folder paths" })).toHaveCount(0);
 });
 
-test("region folder paths — multi-host seed + remove", async ({ vellum }) => {
-  const { page } = vellum;
+test("region folder paths — multi-host seed + remove", async ({ vellumCommand }) => {
+  const { page } = vellumCommand;
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
   await installBoard(page, canvasDoc([regionFilled]));
   await expect(page.getByTestId(`rf__node-${regionFilled.id}`)).toBeVisible({

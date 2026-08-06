@@ -26,7 +26,7 @@ import { StatusDot } from "../ui/StatusDot";
 import { applyWorkCanvasWrite } from "../../lib/mutations";
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import { state$ } from "../../lib/state";
-import { getVellumApi } from "../../lib/vellum-api";
+import { getVellumCommandApi } from "../../lib/vellum-api";
 import {
   artifactSearchText,
   artifactTaskReferenceLabel,
@@ -359,7 +359,7 @@ export function RequestInbox({
   });
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const api = getVellumApi();
+  const api = getVellumCommandApi();
   const name = canvasName();
   const normalized = query.trim().toLowerCase();
   const visible = normalized

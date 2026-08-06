@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { StationSupervisor } from "../src/main/vellum/supervision/contract";
-import { VELLUM_LAUNCHD_LABEL } from "../src/main/vellum/settings/launchctl-runner";
+import { VELLUM_COMMAND_LAUNCHD_LABEL } from "../src/main/vellum/settings/launchctl-runner";
 import { createSupervisedProbe } from "../src/main/vellum/settings/supervised-probe";
 
 const supervisor = (state: unknown) =>
@@ -19,9 +19,9 @@ describe("supervised station probe", () => {
       join(root, "src/main/vellum/settings/supervised-probe.ts"),
       "utf8",
     );
-    expect(VELLUM_LAUNCHD_LABEL).toBe("skastr0.vellumcommand");
-    expect(runner.match(/skastr0\.vellum/gu)).toHaveLength(1);
-    expect(probe).not.toContain("VELLUM_LAUNCHD_LABEL");
+    expect(VELLUM_COMMAND_LAUNCHD_LABEL).toBe("skastr0.vellumcommand");
+    expect(runner.match(/skastr0\.vellumcommand/gu)).toHaveLength(1);
+    expect(probe).not.toContain("VELLUM_COMMAND_LAUNCHD_LABEL");
     expect(probe).not.toContain("skastr0.vellumcommand");
   });
 

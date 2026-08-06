@@ -4,7 +4,7 @@
  *
  * Bun places user args at index 2 in both execution modes:
  *   source   = [bunPath, "/…/src/cli/main.ts", ...args]
- *   compiled = ["bun", "/$bunfs/root/vellum", ...args]
+ *   compiled = ["bun", "/$bunfs/root/vellum-command", ...args]
  * Only the top-level command dispatches Browser; a later `browser` value
  * (for example `--capability browser`) remains CLI data.
  */

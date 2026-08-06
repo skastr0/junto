@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { HostDeployJobSnapshot } from "@shared/ipc";
-import { getVellumApi } from "./vellum-api";
+import { getVellumCommandApi } from "./vellum-api";
 
 /**
  * Mirror of the main-owned deploy job for a host.
@@ -16,7 +16,7 @@ export const useHostDeployJob = (
       setJob(null);
       return;
     }
-    const api = getVellumApi();
+    const api = getVellumCommandApi();
     if (!api?.hostsDeployJobGet || !api.onHostsDeployJobChanged) {
       setJob(null);
       return;
@@ -47,7 +47,7 @@ export const useRunningDeployJobs = (): ReadonlyArray<HostDeployJobSnapshot> => 
   const [jobs, setJobs] = useState<ReadonlyArray<HostDeployJobSnapshot>>([]);
 
   useEffect(() => {
-    const api = getVellumApi();
+    const api = getVellumCommandApi();
     if (!api?.hostsDeployJobsList || !api.onHostsDeployJobChanged) {
       setJobs([]);
       return;

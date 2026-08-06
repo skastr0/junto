@@ -300,13 +300,13 @@ test("still 01 — one region factory close", async () => {
     hEdge("e3", "agent", "req"),
   ];
 
-  const vellum = await launchVellum({
+  const vellumCommand = await launchVellum({
     demo: true,
     seedCanvases: { portfolio: canvasDoc(nodes, edges) },
   });
 
   try {
-    const { app, page } = vellum;
+    const { app, page } = vellumCommand;
     await resizeFrame(app, page);
     await expect(page.locator(".react-flow__node").first()).toBeVisible({ timeout: 30_000 });
     await lightPanes(page, panes);
@@ -314,7 +314,7 @@ test("still 01 — one region factory close", async () => {
     await fitAll(page);
     await shot(page, "01-canvas-one-region");
   } finally {
-    await vellum.close();
+    await vellumCommand.close();
   }
 });
 
@@ -436,13 +436,13 @@ test("still 02 — multi-host work board", async () => {
     hEdge("e-b2", "tasks-beacon", "a-release"),
   ];
 
-  const vellum = await launchVellum({
+  const vellumCommand = await launchVellum({
     demo: true,
     seedCanvases: { portfolio: canvasDoc(nodes, edges) },
   });
 
   try {
-    const { app, page } = vellum;
+    const { app, page } = vellumCommand;
     await resizeFrame(app, page);
     await expect(page.locator(".react-flow__node").first()).toBeVisible({ timeout: 30_000 });
     await lightPanes(page, panes);
@@ -450,7 +450,7 @@ test("still 02 — multi-host work board", async () => {
     await fitAll(page);
     await shot(page, "02-canvas-multi-host-work");
   } finally {
-    await vellum.close();
+    await vellumCommand.close();
   }
 });
 
@@ -627,13 +627,13 @@ test("still 03 — five region factory map", async () => {
 
   const allNodes: CanvasNode[] = [...regions, ...panes.map(paneNode), ...nodes];
 
-  const vellum = await launchVellum({
+  const vellumCommand = await launchVellum({
     demo: true,
     seedCanvases: { portfolio: canvasDoc(allNodes, edges) },
   });
 
   try {
-    const { app, page } = vellum;
+    const { app, page } = vellumCommand;
     await resizeFrame(app, page);
     await expect(page.locator(".react-flow__node").first()).toBeVisible({ timeout: 30_000 });
     await lightPanes(page, panes);
@@ -641,7 +641,7 @@ test("still 03 — five region factory map", async () => {
     await fitAll(page);
     await shot(page, "03-canvas-five-regions");
   } finally {
-    await vellum.close();
+    await vellumCommand.close();
   }
 });
 
@@ -650,7 +650,7 @@ test("still 03 — five region factory map", async () => {
 test("still 04 — six machine fleet manager", async () => {
   await mkdir(SHOTS, { recursive: true });
 
-  const vellum = await launchVellum({
+  const vellumCommand = await launchVellum({
     seedCanvases: { fleet: canvasDoc([]) },
     seedHosts: [
         {
@@ -703,7 +703,7 @@ test("still 04 — six machine fleet manager", async () => {
   });
 
   try {
-    const { app, page } = vellum;
+    const { app, page } = vellumCommand;
     await resizeFrame(app, page);
     await expect(page.locator(".react-flow").first()).toBeVisible({ timeout: 30_000 });
     await page.getByRole("button", { name: "Open fleet manager" }).click();
@@ -722,7 +722,7 @@ test("still 04 — six machine fleet manager", async () => {
       await shot(page, "04b-fleet-station-focus");
     }
   } finally {
-    await vellum.close();
+    await vellumCommand.close();
   }
 });
 
@@ -994,13 +994,13 @@ test("still 05 — five regions agent square", async () => {
 
   const allNodes: CanvasNode[] = [...nodes, ...panes.map(paneNode)];
 
-  const vellum = await launchVellum({
+  const vellumCommand = await launchVellum({
     demo: true,
     seedCanvases: { portfolio: canvasDoc(allNodes, edges) },
   });
 
   try {
-    const { app, page } = vellum;
+    const { app, page } = vellumCommand;
     await resizeFrame(app, page);
     await expect(page.locator(".react-flow__node").first()).toBeVisible({ timeout: 30_000 });
     await lightPanes(page, panes);
@@ -1008,7 +1008,7 @@ test("still 05 — five regions agent square", async () => {
     await fitAll(page);
     await shot(page, "05-canvas-five-regions-agent-square");
   } finally {
-    await vellum.close();
+    await vellumCommand.close();
   }
 });
 
@@ -1154,12 +1154,12 @@ test("still 06 — work UI grid", async () => {
     }),
   ]);
 
-  const vellum = await launchVellum({
+  const vellumCommand = await launchVellum({
     seedCanvases: { portfolio: doc },
   });
 
   try {
-    const { app, page } = vellum;
+    const { app, page } = vellumCommand;
     await resizeFrame(app, page);
     await expect(page.locator(".react-flow__node").first()).toBeVisible({ timeout: 30_000 });
     await hideFilmChrome(page);
@@ -1207,7 +1207,7 @@ test("still 06 — work UI grid", async () => {
 
     compositeGrid([kanbanPath, reqPath, artPath], join(SHOTS, "06-ui-work-grid.png"), 3, 32);
   } finally {
-    await vellum.close();
+    await vellumCommand.close();
   }
 });
 
@@ -1245,7 +1245,7 @@ test("still 07 — open terminal and ACP UIs", async () => {
     }),
   ];
 
-  const vellum = await launchVellum({
+  const vellumCommand = await launchVellum({
     seedCanvases: { portfolio: canvasDoc(nodes) },
     extraEnv: {
       FAKE_HERMES_SCENARIO: hermesPath,
@@ -1253,7 +1253,7 @@ test("still 07 — open terminal and ACP UIs", async () => {
   });
 
   try {
-    const { app, page } = vellum;
+    const { app, page } = vellumCommand;
     await resizeFrame(app, page);
     await expect(page.locator(".react-flow__node").first()).toBeVisible({ timeout: 30_000 });
     await hideFilmChrome(page);
@@ -1304,6 +1304,6 @@ test("still 07 — open terminal and ACP UIs", async () => {
     // Open-UI grid only — ACP chat + native terminal workbench (not canvas cards).
     compositeGrid([acpPath, termPath], join(SHOTS, "07-ui-surfaces-grid.png"), 2, 32);
   } finally {
-    await vellum.close();
+    await vellumCommand.close();
   }
 });

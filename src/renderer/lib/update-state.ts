@@ -9,10 +9,10 @@ export const updateState$ = observable({
 let bridgeStarted = false;
 
 export const startUpdateBridge = (): (() => void) | undefined => {
-  if (bridgeStarted || !window.vellum?.updateGetState) return undefined;
+  if (bridgeStarted || !window.vellumCommand?.updateGetState) return undefined;
   bridgeStarted = true;
 
-  const unsub = window.vellum.onUpdateStateChanged((status) => {
+  const unsub = window.vellumCommand.onUpdateStateChanged((status) => {
     updateState$.status.set(status);
     updateState$.busy.set(
       status.phase === "checking" ||
@@ -23,7 +23,7 @@ export const startUpdateBridge = (): (() => void) | undefined => {
 
   void (async () => {
     try {
-      const status = await window.vellum!.updateGetState();
+      const status = await window.vellumCommand!.updateGetState();
       updateState$.status.set(status);
     } catch {
       // Fail soft — update UI is optional chrome.
@@ -37,10 +37,10 @@ export const startUpdateBridge = (): (() => void) | undefined => {
 };
 
 export const checkForUpdates = async (): Promise<UpdateStatus | undefined> => {
-  if (!window.vellum?.updateCheck) return undefined;
+  if (!window.vellumCommand?.updateCheck) return undefined;
   updateState$.busy.set(true);
   try {
-    const status = await window.vellum.updateCheck();
+    const status = await window.vellumCommand.updateCheck();
     updateState$.status.set(status);
     return status;
   } finally {
@@ -51,10 +51,10 @@ export const checkForUpdates = async (): Promise<UpdateStatus | undefined> => {
 export const restartAndInstallUpdate = async (): Promise<
   UpdateStatus | undefined
 > => {
-  if (!window.vellum?.updateRestartAndInstall) return undefined;
+  if (!window.vellumCommand?.updateRestartAndInstall) return undefined;
   updateState$.busy.set(true);
   try {
-    const status = await window.vellum.updateRestartAndInstall();
+    const status = await window.vellumCommand.updateRestartAndInstall();
     updateState$.status.set(status);
     return status;
   } finally {

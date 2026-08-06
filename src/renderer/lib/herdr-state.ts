@@ -16,7 +16,7 @@ import type {
 } from "@shared/ipc";
 import { HERDR_ENABLED } from "@shared/features";
 import { state$ } from "./state";
-import { getVellumApi } from "./vellum-api";
+import { getVellumCommandApi } from "./vellum-api";
 import { viewportBusy$ } from "./viewport-busy";
 
 export interface HerdrMetaCache {
@@ -90,8 +90,8 @@ export const focusedHerdrTerminal = (): HerdrTerminalOpen | undefined => {
 
 const closeStreamIfAny = (streamId: string | undefined): void => {
   if (!streamId) return;
-  const api = getVellumApi() as
-    | (ReturnType<typeof getVellumApi> & {
+  const api = getVellumCommandApi() as
+    | (ReturnType<typeof getVellumCommandApi> & {
         herdrStreamClose?: (streamId: string) => Promise<unknown>;
       })
     | undefined;
@@ -287,14 +287,14 @@ export const probeHerdrServiceMap = async (
   herdr: EtherHerdr,
 ): Promise<void> => {
   if (!herdr.paneId) return;
-  type Api = ReturnType<typeof getVellumApi> & {
+  type Api = ReturnType<typeof getVellumCommandApi> & {
     herdrServiceMapProbe?: (
       hostId: string,
       session: string | null | undefined,
       paneId: string,
     ) => Promise<{ ok: boolean; data?: HerdrServiceMapInfo }>;
   };
-  const api = getVellumApi() as Api | undefined;
+  const api = getVellumCommandApi() as Api | undefined;
   if (!api?.herdrServiceMapProbe) return;
   try {
     const result = await api.herdrServiceMapProbe(
@@ -324,10 +324,10 @@ let serviceMapUnsub: (() => void) | undefined;
 /** One app-wide subscription for service-map pushes. Idempotent. */
 export const subscribeHerdrServiceMap = (): (() => void) => {
   if (serviceMapUnsub) return serviceMapUnsub;
-  type Api = ReturnType<typeof getVellumApi> & {
+  type Api = ReturnType<typeof getVellumCommandApi> & {
     onHerdrServiceMapEvent?: (listener: (event: HerdrServiceMapInfo) => void) => () => void;
   };
-  const api = getVellumApi() as Api | undefined;
+  const api = getVellumCommandApi() as Api | undefined;
   if (!api?.onHerdrServiceMapEvent) return () => undefined;
   const unsubscribe = api.onHerdrServiceMapEvent((event) => {
     applyHerdrServiceMap(event);
@@ -339,7 +339,7 @@ export const subscribeHerdrServiceMap = (): (() => void) => {
   return serviceMapUnsub;
 };
 
-type HerdrMirrorApi = ReturnType<typeof getVellumApi> & {
+type HerdrMirrorApi = ReturnType<typeof getVellumCommandApi> & {
   herdrMirrorState?: () => Promise<ReadonlyArray<HerdrMirrorStateInfo>>;
   onHerdrMirrorEvent?: (listener: (event: HerdrMirrorEvent) => void) => () => void;
 };
@@ -357,7 +357,7 @@ const mirrorChangeListeners = new Set<(event: HerdrMirrorEvent) => void>();
  */
 export const subscribeHerdrMirror = (): (() => void) => {
   if (mirrorUnsub) return mirrorUnsub;
-  const api = getVellumApi() as HerdrMirrorApi | undefined;
+  const api = getVellumCommandApi() as HerdrMirrorApi | undefined;
   if (!api?.onHerdrMirrorEvent) return () => undefined;
   if (api.herdrMirrorState) {
     void api
@@ -601,8 +601,8 @@ export const markHerdrPaneSeenRemote = async (
   nodeId?: string,
 ): Promise<void> => {
   if (!herdr.paneId) return;
-  const api = getVellumApi() as
-    | (ReturnType<typeof getVellumApi> & {
+  const api = getVellumCommandApi() as
+    | (ReturnType<typeof getVellumCommandApi> & {
         herdrMarkPaneSeen?: (
           hostId: string,
           session: string | null | undefined,
@@ -759,8 +759,8 @@ const refreshHerdrMetaOnce = async (
   nodeId: string,
   herdr: EtherHerdr,
 ): Promise<void> => {
-  const api = getVellumApi() as
-    | (ReturnType<typeof getVellumApi> & {
+  const api = getVellumCommandApi() as
+    | (ReturnType<typeof getVellumCommandApi> & {
         herdrGetMeta?: (
           hostId: string,
           session: string | null | undefined,

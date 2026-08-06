@@ -57,7 +57,7 @@ export const RELEASE_CAPABILITIES: ReleaseCapabilities = Object.freeze({
 
 /**
  * Unpackaged development may re-enable Linux/Box via
- * `VELLUM_ENABLE_LINUX_FLEET=1`. Packaged builds always keep production policy.
+ * `VELLUM_COMMAND_ENABLE_LINUX_FLEET=1`. Packaged builds always keep production policy.
  */
 export type ReleaseCapabilityResolveInput = {
   readonly packaged: boolean;

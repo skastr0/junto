@@ -36,7 +36,7 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 const ACK_TIMEOUT_MS = 15_000;
 
 let idSeq = 0;
-const nextId = (): string => `vellum:mirror:${Date.now()}:${++idSeq}`;
+const nextId = (): string => `vellum-command:mirror:${Date.now()}:${++idSeq}`;
 
 export const defaultHerdrSocketPath = (): string =>
   join(homedir(), ".config", "herdr", "herdr.sock");

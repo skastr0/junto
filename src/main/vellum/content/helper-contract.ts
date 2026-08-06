@@ -3,14 +3,14 @@
  *
  * The helper never accepts host paths or free-form shell.  Modes are closed
  * argv records that operate only on the local Vellum Command content layout under
- * `$HOME/.vellum/content/…`.  Bytes travel on stdin/stdout; control/status is
+ * `$HOME/.vellum-command/content/…`.  Bytes travel on stdin/stdout; control/status is
  * a single bounded JSON line on the opposite stream of the byte direction.
  */
 
-/** Unified CLI subcommand for content transfer (`vellum content-transfer …`). */
+/** Unified CLI subcommand for content transfer (`vellum-command content-transfer …`). */
 export const CONTENT_TRANSFER_COMMAND = "content-transfer" as const;
 
-/** Packaged entry is `vellum content-transfer`; name retained for status labels. */
+/** Packaged entry is `vellum-command content-transfer`; name retained for status labels. */
 export const CONTENT_HELPER_NAME = CONTENT_TRANSFER_COMMAND;
 
 /** First argv token selecting the sealed content mode. */

@@ -2,7 +2,7 @@
  * Canvas + note image authoring helpers.
  *
  * Durable form is always a ContentRef in the content store, projected into the
- * document as a `vellum-content://` object URL (file node `file` field, or
+ * document as a `vellum-command-content://` object URL (file node `file` field, or
  * markdown `![alt](url)` in free notes). No Base64 in CanvasDoc.
  */
 
@@ -54,7 +54,7 @@ export const putClipboardImage = async (
   image: HerdrClipboardImage,
   displayName?: string,
 ): Promise<PutImageResult> => {
-  const api = window.vellum;
+  const api = window.vellumCommand;
   if (!api?.contentPutImage) {
     return { ok: false, error: "content put is unavailable" };
   }

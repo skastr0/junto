@@ -30,7 +30,7 @@ import {
 // ---------------------------------------------------------------------------
 // Paths (functions of the home dir so the module stays platform-pure)
 
-export const controlDir = (home: string): string => `${home}/.vellum/browser`;
+export const controlDir = (home: string): string => `${home}/.vellum-command/browser`;
 export const controlSocketPath = (home: string): string => `${controlDir(home)}/control.sock`;
 export const controlTokenPath = (home: string): string => `${controlDir(home)}/control.token`;
 export const controlShotsDir = (home: string): string => `${controlDir(home)}/shots`;
@@ -357,11 +357,11 @@ export const CONTROL_ROUTES = {
 } as const;
 export type ControlRouteName = keyof typeof CONTROL_ROUTES;
 
-export const CONTROL_TOKEN_HEADER = "x-vellum-token";
-export const CONTROL_REQUEST_ID_HEADER = "x-vellum-request-id";
+export const CONTROL_TOKEN_HEADER = "x-vellum-command-token";
+export const CONTROL_REQUEST_ID_HEADER = "x-vellum-command-request-id";
 
 /** Child-only environment inputs. Values never enter argv or query strings. */
-export const CONTROL_HOME_ENV = "VELLUM_BROWSER_HOME";
+export const CONTROL_HOME_ENV = "VELLUM_COMMAND_BROWSER_HOME";
 
 /** UUID or 32-byte hex ids are accepted; both remain header-bounded. */
 export const isValidControlRequestId = (value: string): boolean =>

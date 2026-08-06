@@ -17,7 +17,7 @@ Versions probed: claude 2.1.220 - codex-cli 0.145.0 - grok build (grok-4.5 era, 
 | # | fact | key receipt / trap |
 |---|---|---|
 | K1 | PreToolUse deny works in the real TUI via inline `--settings`; reason reaches the model verbatim; holds under `bypassPermissions` | grid showed `⎿ Error: PROBE_DENY_REASON_XYZ`, model echoed it |
-| K2 | `permissions.allow` via `--settings` suppresses prompts | `Bash(vellum:*)` proven on a real binary; control command still prompted |
+| K2 | `permissions.allow` via `--settings` suppresses prompts | `Bash(vellum-command:*)` proven on a real binary; control command still prompted |
 | K3 | Typing recipe: bracketed paste + CR submits at 0ms delay; LF never submits | ⚠ single Ctrl+C at idle clears the composer |
 | K4 | Typed `/compact` fires PreCompact + PostCompact; completion visible | `PostCompact` carried `trigger:"manual"` |
 | K5 | Effort at spawn: `--effort` and `CLAUDE_EFFORT` (flag wins); 6 levels incl. `ultracode` | models NOT enumerable by command — read `~/.claude.json → additionalModelOptionsCache` + aliases |

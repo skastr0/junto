@@ -9,7 +9,7 @@ import {
 
 const sessionOf = (ref: string) => browser$.sessionByRef[ref].peek();
 
-// --- window.vellum mocked exactly like tests/chat-state.test.ts; one unique
+// --- window.vellumCommand mocked exactly like tests/chat-state.test.ts; one unique
 // nodeId per test so browser$.sessionByRef never bleeds between cases. ---
 
 interface MockVellum {
@@ -44,7 +44,7 @@ function installMockVellum(overrides: Partial<MockVellum> = {}): MockVellum {
     onBrowserSessionChanged: vi.fn(() => () => undefined),
     ...overrides,
   };
-  (globalThis as unknown as { window: { vellum: MockVellum } }).window = { vellum: mock };
+  (globalThis as unknown as { window: { vellumCommand: MockVellum } }).window = { vellumCommand: mock };
   return mock;
 }
 
@@ -189,7 +189,7 @@ describe("refreshBrowserSession", () => {
     unsubscribe();
   });
 
-  it("degrades quietly when window.vellum is absent", async () => {
+  it("degrades quietly when window.vellumCommand is absent", async () => {
     clearWindow();
     await expect(refreshBrowserSession(refOf(freshNodeId()))).resolves.toBeUndefined();
   });

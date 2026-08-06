@@ -34,9 +34,9 @@ import { runStationStdio } from "./station-stdio";
 import { CLI_NAME, CLI_VERSION } from "./core/constants";
 import { BROWSER_ENABLED } from "@shared/features";
 
-declare const __VELLUM_BROWSER_ENABLED__: boolean | undefined;
+declare const __VELLUM_COMMAND_BROWSER_ENABLED__: boolean | undefined;
 const browserCliAvailable =
-  typeof __VELLUM_BROWSER_ENABLED__ !== "boolean" || BROWSER_ENABLED;
+  typeof __VELLUM_COMMAND_BROWSER_ENABLED__ !== "boolean" || BROWSER_ENABLED;
 import {
   setExitCode,
   writeCauseEnvelope,
@@ -98,12 +98,12 @@ export const runCli = (args: ReadonlyArray<string>) =>
 // When executed as the CLI entrypoint (bun / compiled binary).
 if (import.meta.main) {
   // Bun puts user args at index 2 in both modes: source is
-  // [bunPath, script, ...args], compiled is ["bun", "/$bunfs/root/vellum",
+  // [bunPath, script, ...args], compiled is ["bun", "/$bunfs/root/vellum-command",
   // ...args]. V4 runWith takes user args only — never the full argv.
   const dispatch = earlyDispatchFromArgv(Bun.argv);
   if (dispatch.kind === "browser") {
     if (!browserCliAvailable) {
-      process.stderr.write("vellum browser: disabled in this build\n");
+      process.stderr.write("vellum-command browser: disabled in this build\n");
       process.exitCode = 2;
     } else {
       await runBrowserCli(dispatch.args);

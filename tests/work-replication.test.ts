@@ -108,12 +108,12 @@ const openInstallation = async (
 ) => {
   const root = join(
     tmpdir(),
-    `vellum-work-replication-v2-${local}-${randomUUID()}`,
+    `vellum-command-work-replication-v2-${local}-${randomUUID()}`,
   );
   const runtime = ManagedRuntime.make(
     Layer.provideMerge(
       WorkRepositoryLive,
-      makeStateEngineLive(join(root, "vellum.db")),
+      makeStateEngineLive(join(root, "vellum-command.db")),
     ),
   );
   opened.push({

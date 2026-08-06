@@ -20,8 +20,8 @@ test.use({
   },
 });
 
-test("Option reveals the bounded semantic scanner and release dismisses it", async ({ vellum }) => {
-  const { page } = vellum;
+test("Option reveals the bounded semantic scanner and release dismisses it", async ({ vellumCommand }) => {
+  const { page } = vellumCommand;
   const node = page.getByTestId("rf__node-worker");
   const magnifier = page.getByTestId("canvas-magnifier");
 

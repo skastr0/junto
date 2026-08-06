@@ -17,22 +17,22 @@ import {
   type HarnessId,
 } from "@shared/managed-terminal-templates";
 import type { TerminalLaunch } from "@shared/terminal";
-import { usableVellumHome } from "@shared/vellum-home";
+import { usableVellumCommandHome } from "@shared/vellum-home";
 import {
   isPinSessionHarness,
   shouldResumeHarnessSession,
 } from "./session-existence";
 
 /**
- * Official `bun run dev` sets `VELLUM_HOME` (e.g. ~/.vellum-dev) while leaving
+ * Official `bun run dev` sets `VELLUM_COMMAND_HOME` (e.g. ~/.vellum-command-dev) while leaving
  * `HOME` alone so harness state still lives under ~/.grok / ~/.claude.
  * Seeded canvases therefore carry production session pins that may already be
  * owned by a live production seat. Resuming them in the isolated process
  * yields a dead/black TUI — refuse shared resume and pin a fresh id instead.
  */
 export const shouldAvoidSharedHarnessResume = (
-  vellumHomeEnv: string | undefined = process.env.VELLUM_HOME,
-): boolean => usableVellumHome(vellumHomeEnv) !== undefined;
+  vellumHomeEnv: string | undefined = process.env.VELLUM_COMMAND_HOME,
+): boolean => usableVellumCommandHome(vellumHomeEnv) !== undefined;
 
 // Capability sinks that make an actor seat operational. Browser automation is
 // a factory tool even though it uses the browser-control socket rather than the
@@ -282,7 +282,7 @@ export const launchForManagedSpawn = (
     }
   }
 
-  // Isolated VELLUM_HOME (dev) shares harness homes with production. Never
+  // Isolated VELLUM_COMMAND_HOME (dev) shares harness homes with production. Never
   // resume a pin session that production may still own; mint a fresh pin so
   // the agent TUI actually comes up.
   const isolateShared = shouldAvoidSharedHarnessResume();

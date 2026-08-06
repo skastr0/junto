@@ -9,7 +9,7 @@ import { closeFleet, refreshFleet } from "../../lib/fleet-state";
 import { activateOnPointerUp } from "../../lib/pointer-activation";
 import { patchSettings } from "../../lib/settings-state";
 import { state$ } from "../../lib/state";
-import { getVellumApi } from "../../lib/vellum-api";
+import { getVellumCommandApi } from "../../lib/vellum-api";
 import { FocusSurface } from "../FocusSurface";
 import { Button, OverlayHeader } from "../ui";
 import { FleetDeployJobPanel } from "./FleetDeployJobPanel";
@@ -52,7 +52,7 @@ function FleetOverlayInner() {
 
   useEffect(() => {
     let cancelled = false;
-    const api = getVellumApi();
+    const api = getVellumCommandApi();
     if (!api?.settingsGet) return;
     void api
       .settingsGet()
@@ -67,7 +67,7 @@ function FleetOverlayInner() {
 
   useEffect(() => {
     let cancelled = false;
-    const api = getVellumApi();
+    const api = getVellumCommandApi();
     if (!api?.hostsDeployCapabilities) {
       setBoxFleetEnabled(false);
       return;

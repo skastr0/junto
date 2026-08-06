@@ -241,7 +241,7 @@ const createFixture = async (options: {
         component: {
           version: VERSION,
           properties: [
-            { name: "vellum:source-revision", value: REVISION },
+            { name: "vellum-command:source-revision", value: REVISION },
           ],
         },
       },
@@ -252,9 +252,9 @@ const createFixture = async (options: {
         purl: "pkg:npm/effect@3.0.0",
         licenses: [{ expression: options.sbomLicense ?? "MIT" }],
         properties: [
-          { name: "vellum:direct", value: "true" },
-          { name: "vellum:development", value: "false" },
-          { name: "vellum:license-source", value: "package-metadata" },
+          { name: "vellum-command:direct", value: "true" },
+          { name: "vellum-command:development", value: "false" },
+          { name: "vellum-command:license-source", value: "package-metadata" },
         ],
       }],
     }),
@@ -732,9 +732,9 @@ describe("signed Linux release bundle", () => {
       ]),
     );
     expect(manifest.stationProtocol).toEqual({
-      preferred: 4,
-      compatibleFrom: 4,
-      warnBelow: 4,
+      preferred: 5,
+      compatibleFrom: 5,
+      warnBelow: 5,
     });
     await expect(verifyFixture(fixture.directory)).resolves.toEqual({
       schema: "vellum/linux-release-verification-receipt/v1",
@@ -910,7 +910,7 @@ describe("signed Linux release bundle", () => {
           preferred: 2,
           compatibleFrom: 2,
           warnBelow: 2,
-          stationApi: "vellum/station-api/v3",
+          stationApi: "vellum-command/station-api/v3",
         } as unknown as StationProtocolSupport,
       },
       { trustedKeyId: "vellum-linux-other" },
@@ -952,8 +952,8 @@ describe("signed Linux release bundle", () => {
         ...withoutStationProtocol,
         schema: "vellum/linux-release-manifest/v3",
         protocols: {
-          stationApi: "vellum/station-api/v3",
-          workControl: "vellum-work/v1",
+          stationApi: "vellum-command/station-api/v3",
+          workControl: "vellum-command-work/v1",
           minimumPeerVersion: VERSION,
         },
       })

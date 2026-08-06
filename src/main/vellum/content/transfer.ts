@@ -13,7 +13,7 @@
 
 import { Context, Effect, Fiber, Layer, Stream } from "effect";
 import type { ContentRef } from "@shared/content";
-import { resolveVellumHome } from "@shared/vellum-home";
+import { resolveVellumCommandHome } from "@shared/vellum-home";
 import type { SshError, SshTarget } from "../ssh/domain";
 import { SshInputError } from "../ssh/domain";
 import { dedicatedStream, oneShot } from "../ssh/program";
@@ -665,7 +665,7 @@ export const makeContentTransferServiceLive = (options?: {
       const ssh = yield* SshTransport;
       const root =
         options?.root ??
-        contentStoreRoot(options?.home ?? resolveVellumHome());
+        contentStoreRoot(options?.home ?? resolveVellumCommandHome());
       return makeContentTransferService(state, ssh, root);
     }),
   );

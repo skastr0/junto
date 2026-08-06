@@ -5,7 +5,7 @@
 import type { CanvasNode } from "@shared/canvas";
 import { resolveTerminalBinding } from "@shared/terminal";
 import { markAgentSeatSeen } from "./agent-seat-state";
-import { getVellumApi } from "./vellum-api";
+import { getVellumCommandApi } from "./vellum-api";
 import { state$ } from "./state";
 import type { WorkZone } from "./surface-registry";
 import { openTerminalSurface, terminal$ } from "./terminal-state";
@@ -18,13 +18,13 @@ export const ensureTerminalRunning = async (
   if (binding?.kind !== "native") {
     return { ok: false, message: "unbound terminal" };
   }
-  const api = getVellumApi();
+  const api = getVellumCommandApi();
   if (!api?.terminalCreate) {
     return { ok: false, message: "terminal API unavailable — restart Vellum Command" };
   }
   // Always go through terminalCreate for harness seats. Create is the
   // ensure boundary (idempotent for healthy lives) and is where isolated
-  // VELLUM_HOME can replace a shared-resume generation that is still
+  // VELLUM_COMMAND_HOME can replace a shared-resume generation that is still
   // "running" but paints a dead/black TUI beside production.
   // Geography shells may short-circuit on a live generation — they never
   // share pin/resume state with another Vellum Command process.
@@ -118,9 +118,9 @@ export const openTerminal = async (
 export const killTerminal = async (node: CanvasNode): Promise<void> => {
   const binding = resolveTerminalBinding(node);
   if (binding?.kind !== "native") return;
-  await getVellumApi()?.terminalKill?.(binding.bindingId, binding.hostId);
+  await getVellumCommandApi()?.terminalKill?.(binding.bindingId, binding.hostId);
   try {
-    const next = await getVellumApi()?.terminalGet?.(binding.bindingId, binding.hostId);
+    const next = await getVellumCommandApi()?.terminalGet?.(binding.bindingId, binding.hostId);
     terminal$.sessionByBindingId[binding.bindingId].set(next);
   } catch {
     terminal$.sessionByBindingId[binding.bindingId].set(undefined);

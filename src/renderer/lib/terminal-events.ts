@@ -1,5 +1,5 @@
-import type { VellumTerminalApi } from "@shared/ipc";
-import { getVellumApi } from "./vellum-api";
+import type { VellumCommandTerminalApi } from "@shared/ipc";
+import { getVellumCommandApi } from "./vellum-api";
 
 type TerminalEventListener = (event: unknown) => void;
 
@@ -8,7 +8,7 @@ let unsubscribeIpc: (() => void) | undefined;
 
 const ensureIpcSubscription = (): void => {
   if (unsubscribeIpc || listeners.size === 0) return;
-  const api = getVellumApi() as VellumTerminalApi | undefined;
+  const api = getVellumCommandApi() as VellumCommandTerminalApi | undefined;
   if (!api?.onTerminalEvent) return;
   unsubscribeIpc = api.onTerminalEvent((event) => {
     for (const listener of [...listeners]) {

@@ -81,7 +81,7 @@ export const executeBeat = (scenario: DemoScenario, beat: DemoBeat): void => {
         state$.selectedNodeId.set(op.nodeIds[0] ?? "");
         break;
       case "herdr": {
-        const result = window.vellum?.demoCommand(op.command);
+        const result = window.vellumCommand?.demoCommand(op.command);
         if (result) herdrPromises.push(result.catch(() => undefined));
         break;
       }
@@ -147,7 +147,7 @@ export const executeBeat = (scenario: DemoScenario, beat: DemoBeat): void => {
             canvasName: state$.canvasName.peek(),
             nodeId: op.nodeId,
           });
-          void window.vellum?.browserOpen?.({ ref }).catch(() => undefined);
+          void window.vellumCommand?.browserOpen?.({ ref }).catch(() => undefined);
         } catch {
           // Invalid canvas name / node id — surface nothing mid-take.
         }

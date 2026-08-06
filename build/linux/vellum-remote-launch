@@ -4,7 +4,7 @@
 set -eu
 set -f
 umask 077
-fail() { printf '%s\n' "vellum-remote: $1" >&2; exit "${2:-69}"; }
+fail() { printf '%s\n' "vellum-command-remote: $1" >&2; exit "${2:-69}"; }
 owned_dir() { [ -d "$1" ] && [ ! -L "$1" ] && [ -O "$1" ]; }
 owned_exec() { [ -f "$1" ] && [ ! -L "$1" ] && [ -O "$1" ] && [ -x "$1" ]; }
 owned_socket() { [ -S "$1" ] && [ ! -L "$1" ] && [ -O "$1" ] && [ "$(/usr/bin/stat -c '%a' "$1" 2>/dev/null || true)" = 600 ]; }
@@ -21,8 +21,8 @@ if [ "$#" -eq 0 ]; then
 fi
 [ "$#" -eq 2 ] && [ "$1" = --clean ] || fail 'clean launcher sentinel is required' 64
 notify_socket="$2"; home="${HOME:?HOME required}"; runtime="${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR required}"; generation="${INVOCATION_ID:?INVOCATION_ID required}"
-case "$0" in */resources/systemd/vellum-remote-launch) release=${0%/resources/systemd/vellum-remote-launch} ;; *) fail 'launcher path is not a release resource' 73 ;; esac
-case "$release" in "$home"/.vellum/runtime/releases/*) ;; *) fail 'release is outside station user runtime' 73 ;; esac
+case "$0" in */resources/systemd/vellum-command-remote-launch) release=${0%/resources/systemd/vellum-command-remote-launch} ;; *) fail 'launcher path is not a release resource' 73 ;; esac
+case "$release" in "$home"/.vellum-command/runtime/releases/*) ;; *) fail 'release is outside station user runtime' 73 ;; esac
 name=${release##*/}; digest=${name##*-}
 case "$name" in *[!0-9.a-f-]*|*-|*--*|'') fail 'release is not a canonical generation' 73 ;; esac
 [ "${#digest}" -eq 64 ] || fail 'release is not a canonical generation' 73
@@ -32,17 +32,17 @@ owned_dir "$home" && [ ! -L "$home" ] && owned_dir "$release" && [ ! -L "$releas
 
 # Prefer the Node remote binary; never fall back to Electron.
 remote=""
-if owned_exec "$release/resources/bin/vellum-remote"; then
-  remote="$release/resources/bin/vellum-remote"
-elif owned_exec "$release/resources/bin/node" && [ -f "$release/resources/bin/vellum-remote.js" ] && [ ! -L "$release/resources/bin/vellum-remote.js" ]; then
+if owned_exec "$release/resources/bin/vellum-command-remote"; then
+  remote="$release/resources/bin/vellum-command-remote"
+elif owned_exec "$release/resources/bin/node" && [ -f "$release/resources/bin/vellum-command-remote.js" ] && [ ! -L "$release/resources/bin/vellum-command-remote.js" ]; then
   remote="$release/resources/bin/node"
-  remote_args="$release/resources/bin/vellum-remote.js"
+  remote_args="$release/resources/bin/vellum-command-remote.js"
 else
-  fail 'displayless vellum-remote payload is unavailable' 69
+  fail 'displayless vellum-command-remote payload is unavailable' 69
 fi
 owned_exec /usr/bin/setsid || fail 'setsid is unavailable' 69
 
-service_runtime="$runtime/vellum-remote"; [ ! -L "$service_runtime" ] && owned_dir "$service_runtime" && [ "$(/usr/bin/stat -c '%a' "$service_runtime" 2>/dev/null || true)" = 700 ] || fail 'systemd runtime directory is unavailable' 73
+service_runtime="$runtime/vellum-command-remote"; [ ! -L "$service_runtime" ] && owned_dir "$service_runtime" && [ "$(/usr/bin/stat -c '%a' "$service_runtime" 2>/dev/null || true)" = 700 ] || fail 'systemd runtime directory is unavailable' 73
 receipt="$service_runtime/ready-$generation"; [ ! -e "$receipt" ] && [ ! -L "$receipt" ] || fail 'generation readiness receipt already exists' 75
 
 # Explicitly clear any inherited display variables. Core Remote is displayless.
@@ -61,7 +61,7 @@ fi
 vellum_pid=$!; deadline=$(( $(/bin/date +%s) + 30 ))
 while :; do
   alive "$vellum_pid" || wait "$vellum_pid"
-  if owned_socket "$home/.vellum/work/control.sock" && owned_file "$home/.vellum/work/token" && owned_file "$receipt" && /usr/bin/printf '%s\n' "$generation" | /usr/bin/cmp -s - "$receipt"; then
+  if owned_socket "$home/.vellum-command/work/control.sock" && owned_file "$home/.vellum-command/work/token" && owned_file "$receipt" && /usr/bin/printf '%s\n' "$generation" | /usr/bin/cmp -s - "$receipt"; then
     [ -x /usr/bin/systemd-notify ] || fail 'systemd notification utility is unavailable' 69
     NOTIFY_SOCKET="$notify_socket" /usr/bin/systemd-notify --ready || fail 'could not publish readiness' 70
     break

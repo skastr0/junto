@@ -53,7 +53,7 @@ test("ready/complete shows corner green pulse only (no card wash)", async () => 
   };
   await writeScenario(herdrScenario, { world: doneWorld });
 
-  const vellum = await launchVellum({
+  const vellumCommand = await launchVellum({
     seedCanvases: {
       "complete-wash": canvasDoc([
         herdrTextNode({
@@ -71,7 +71,7 @@ test("ready/complete shows corner green pulse only (no card wash)", async () => 
   });
 
   try {
-    const { page } = vellum;
+    const { page } = vellumCommand;
 
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
     await expect(page.locator(".react-flow__node").first()).toBeVisible({
@@ -106,6 +106,6 @@ test("ready/complete shows corner green pulse only (no card wash)", async () => 
       fullPage: false,
     });
   } finally {
-    await vellum.close();
+    await vellumCommand.close();
   }
 });

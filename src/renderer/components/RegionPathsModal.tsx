@@ -6,7 +6,7 @@ import { stripEmptyRegionPaths } from "@shared/region-defaults";
 import { trimTrailingSlash } from "../lib/directory-picker";
 import { setRegionDefaults } from "../lib/mutations";
 import { state$ } from "../lib/state";
-import { getVellumApi } from "../lib/vellum-api";
+import { getVellumCommandApi } from "../lib/vellum-api";
 import { FocusSurface } from "./FocusSurface";
 import { HostDirectoryPicker } from "./node-palette/HostDirectoryPicker";
 import { Button, IconButton, OverlayHeader } from "./ui";
@@ -76,7 +76,7 @@ export function RegionPathsModal({
   }, [nodeId, pathsFingerprint]);
 
   useEffect(() => {
-    const api = getVellumApi();
+    const api = getVellumCommandApi();
     void api
       ?.hostsList?.()
       .then((res) => {

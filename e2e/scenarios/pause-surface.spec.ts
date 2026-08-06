@@ -6,7 +6,7 @@
  * surface the explicit confirmation (honest consequences), and confirming
  * must flip the control to playing.
  *
- * Boards install at runtime via window.vellum (disk seedCanvases is dead —
+ * Boards install at runtime via window.vellumCommand (disk seedCanvases is dead —
  * authority-only boot); pattern copied from work-plane.spec.ts.
  * Run: `bunx electron-vite build && bun run test:e2e:fast e2e/scenarios/pause-surface.spec.ts`
  */
@@ -35,9 +35,9 @@ const installBoard = async (page: import("@playwright/test").Page): Promise<stri
       async () =>
         page.evaluate(() => {
           const runtime = globalThis as unknown as {
-            readonly vellum?: { readonly listCanvases: () => Promise<unknown[]> };
+            readonly vellumCommand?: { readonly listCanvases: () => Promise<unknown[]> };
           };
-          return Boolean(runtime.vellum?.listCanvases);
+          return Boolean(runtime.vellumCommand?.listCanvases);
         }),
       { timeout: 30_000 },
     )
@@ -45,7 +45,7 @@ const installBoard = async (page: import("@playwright/test").Page): Promise<stri
   return page.evaluate(async (document) => {
     const api = (
       globalThis as unknown as {
-        readonly vellum: {
+        readonly vellumCommand: {
           readonly listCanvases: () => Promise<ReadonlyArray<{ name: string }>>;
           readonly createCanvas: (name: string) => Promise<{ name: string; revision: string }>;
           readonly readCanvas: (name: string) => Promise<{ name: string; revision: string }>;
@@ -56,7 +56,7 @@ const installBoard = async (page: import("@playwright/test").Page): Promise<stri
           ) => Promise<unknown>;
         };
       }
-    ).vellum;
+    ).vellumCommand;
     let list = await api.listCanvases();
     let name = list[0]?.name;
     if (!name) {
@@ -70,9 +70,9 @@ const installBoard = async (page: import("@playwright/test").Page): Promise<stri
 };
 
 test("pause surface: born paused in top bar, first play confirms, confirm flips to playing", async ({
-  vellum,
+  vellumCommand,
 }) => {
-  const { page } = vellum;
+  const { page } = vellumCommand;
   await mkdir(SHOTS, { recursive: true });
 
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
@@ -94,7 +94,7 @@ test("pause surface: born paused in top bar, first play confirms, confirm flips 
   await expect(confirm).toBeVisible();
   await expect(confirm).toContainText("Play the factory");
   await expect(confirm).toContainText("Timers and watchers");
-  await expect(confirm).toContainText("vellum CLI");
+  await expect(confirm).toContainText("Vellum Command CLI");
   await expect(confirm).toContainText("Queued messages will deliver");
   await expect(confirm).toContainText("claim tick");
   await page.screenshot({ path: join(SHOTS, "02-first-play-confirm.png"), fullPage: false });

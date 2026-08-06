@@ -2,7 +2,7 @@ import { canvasDoc, herdrTextNode } from "../harness/sandbox";
 import { demoCommand } from "../harness/demo";
 import { expect, test } from "../harness/launch";
 
-// Demo/scripting engine only (VELLUM_DEMO=1) — a scripted herdr mirror
+// Demo/scripting engine only (VELLUM_COMMAND_DEMO=1) — a scripted herdr mirror
 // transport stands in for the real herdr socket (src/main/vellum/demo). The
 // canvas node must be bound (ether.herdr) to the same host+paneId the
 // scripted transport ensures, exactly like the product's own trailer
@@ -24,8 +24,8 @@ test.use({
   },
 });
 
-test("herdr pane reflects working then blocked status transitions", async ({ vellum }) => {
-  const { page } = vellum;
+test("herdr pane reflects working then blocked status transitions", async ({ vellumCommand }) => {
+  const { page } = vellumCommand;
 
   const node = page.locator(".react-flow__node", { hasText: LABEL });
   await expect(node).toBeVisible({ timeout: 30_000 });

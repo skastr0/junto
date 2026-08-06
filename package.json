@@ -33,9 +33,9 @@
     "lint:product-name": "bun scripts/lint-product-name.ts",
     "lint:no-middot": "bun scripts/lint-no-middot.ts",
     "lint:effect-runpromise": "bun scripts/lint-effect-runpromise.ts",
-    "test": "VELLUM_TEST_FEATURE_PROFILE=all-on vitest run",
-    "test:features:ship": "VELLUM_TEST_FEATURE_PROFILE=ship vitest run tests/features-build-profile.test.ts tests/features-*-gate.test.ts",
-    "test:features:all-on": "VELLUM_FEATURE_PROFILE=all-on vitest run",
+    "test": "VELLUM_COMMAND_TEST_FEATURE_PROFILE=all-on vitest run",
+    "test:features:ship": "VELLUM_COMMAND_TEST_FEATURE_PROFILE=ship vitest run tests/features-build-profile.test.ts tests/features-*-gate.test.ts",
+    "test:features:all-on": "VELLUM_COMMAND_FEATURE_PROFILE=all-on vitest run",
     "test:sqlite:electron": "ELECTRON_RUN_AS_NODE=1 electron scripts/electron-sqlite-smoke.mjs",
     "doctor": "react-doctor --no-telemetry src/renderer",
     "test:e2e": "VELLUM_FEATURE_PROFILE=all-on electron-vite build && playwright test --config e2e/playwright.config.ts",
@@ -44,9 +44,7 @@
     "test:browser:electron": "bun scripts/browser-electron-containment-probe.ts",
     "test:browser:crash-recovery": "bun scripts/browser-electron-renderer-crash-recovery-probe.ts",
     "test:browser:profile-wipe": "bun scripts/browser-electron-profile-wipe-probe.ts",
-    "verify": "bun scripts/electron-security-policy.ts validate && bun run lint:product-name && bun run lint:no-middot && bun run lint:effect-runpromise && bun run typecheck && bun run test && bun run test:features:ship && electron-vite build",
-    "electron:policy:validate": "bun scripts/electron-security-policy.ts validate",
-    "electron:policy:check": "bun scripts/electron-security-policy.ts check",
+    "verify": "bun run lint:product-name && bun run lint:no-middot && bun run lint:effect-runpromise && bun run typecheck && bun run test && bun run test:features:ship && electron-vite build",
     "app:build": "bash scripts/build-app.sh",
     "app:build:mac": "bash scripts/build-app.sh --target mac",
     "app:build:linux": "bash scripts/build-app.sh --target linux",
@@ -60,7 +58,7 @@
     "linux:release:create": "bun scripts/linux-release-tool.ts create",
     "linux:release:sign": "bun scripts/linux-release-tool.ts sign",
     "linux:release:verify": "bun scripts/linux-release-verify.ts",
-    "linux:release:verify:build": "bun build --compile --outfile dist/vellum-linux-verify-x64 scripts/linux-release-verify.ts",
+    "linux:release:verify:build": "bun build --compile --outfile dist/vellum-command-linux-verify-x64 scripts/linux-release-verify.ts",
     "linux:release:archive": "bun scripts/linux-release-archive.ts create",
     "linux:qualify:orbstack": "bun scripts/linux-orbstack-two-station-qualification.ts",
     "app:notarize": "bash scripts/notarize-app.sh",
@@ -78,7 +76,8 @@
     "content-transfer": "bun src/cli/main.ts content-transfer",
     "render": "bun scripts/render.ts",
     "cli": "bun src/cli/main.ts",
-    "cli:build": "bun scripts/build-standalone-cli.ts vellum",
+    "cli:build": "bun scripts/build-standalone-cli.ts vellum-command",
+    "cli:build:dev": "bun scripts/build-standalone-cli.ts vellum-command-dev",
     "remote:build": "bun scripts/build-vellum-remote.ts",
     "plugin:precompile": "bun scripts/precompile-vellum-plugin.ts"
   },
@@ -160,23 +159,19 @@
     ],
     "extraResources": [
       {
-        "from": "dist/vellum",
-        "to": "bin/vellum"
+        "from": "dist/vellum-command",
+        "to": "bin/vellum-command"
       },
       {
         "from": "scripts/unix-peer-pid.py",
         "to": "bin/unix-peer-pid.py"
-      },
-      {
-        "from": "scripts/electron-security-policy.json",
-        "to": "policy/electron-security-policy.json"
       }
     ],
     "protocols": [
       {
         "name": "Vellum Command node reference",
         "schemes": [
-          "vellum"
+          "vellum-command"
         ],
         "role": "Viewer"
       }
@@ -203,7 +198,7 @@
       "target": [
         "dir"
       ],
-      "executableName": "vellum",
+      "executableName": "vellum-command",
       "category": "Development",
       "synopsis": "Spatial command station for multi-agent fleets",
       "icon": "assets/brand/vellum-command-icon.png",
@@ -217,11 +212,11 @@
       "extraResources": [
         {
           "from": "build/linux/vellum-remote-launch",
-          "to": "systemd/vellum-remote-launch"
+          "to": "systemd/vellum-command-remote-launch"
         },
         {
           "from": "build/linux/vellum-remote.service.template",
-          "to": "systemd/vellum-remote.service.template"
+          "to": "systemd/vellum-command-remote.service.template"
         }
       ],
       "desktop": {

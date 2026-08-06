@@ -2,7 +2,7 @@ import type { Task } from "@shared/work-model";
 import type { WorkOpResult } from "@shared/ipc";
 import { runCanvasAuthoringOperation } from "./canvas-editor-flush";
 import { applyWorkCanvasWrite } from "./mutations";
-import { getVellumApi } from "./vellum-api";
+import { getVellumCommandApi } from "./vellum-api";
 
 /** Operator release: one WorkService transition atomically requeues + unclaims. */
 export const releaseTaskToQueue = async (
@@ -10,7 +10,7 @@ export const releaseTaskToQueue = async (
   sinkNodeId: string,
   taskId: string,
 ): Promise<WorkOpResult<Task> | undefined> => {
-  const api = getVellumApi();
+  const api = getVellumCommandApi();
   if (!api) {
     return {
       ok: false,

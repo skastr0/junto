@@ -6,10 +6,10 @@
  * be immediately followed by ` Command` or `-Command` (artifact prefix).
  *
  * Not in scope (word-boundary / casing):
- * - identifiers glued on: VellumApi, resolveVellumHome
- * - lowercase paths / bins: ~/.vellum/, vellum.db, dist/vellum
- * - env / package keys: VELLUM_*, @skastr0/vellum
- * - hyphenated internal protocol/header tokens: X-Vellum-Content-State
+ * - identifiers glued on: VellumCommandApi, resolveVellumCommandHome
+ * - lowercase paths / bins: ~/.vellum-command/, vellum-command.db, dist/vellum-command
+ * - env / package keys: VELLUM_COMMAND_*, @skastr0/vellum
+ * - hyphenated internal protocol/header tokens: X-Vellum-Command-Content-State
  *   (local wire labels, not product brand — do not rename for lint alone)
  *
  * Run: `bun run lint:product-name`

@@ -25,10 +25,10 @@ import { BROWSER_ENABLED } from "../src/shared/features";
 
 const require = createRequire(import.meta.url);
 
-const originalVellumHome = process.env.VELLUM_HOME;
+const originalVellumHome = process.env.VELLUM_COMMAND_HOME;
 afterEach(() => {
-  if (originalVellumHome === undefined) delete process.env.VELLUM_HOME;
-  else process.env.VELLUM_HOME = originalVellumHome;
+  if (originalVellumHome === undefined) delete process.env.VELLUM_COMMAND_HOME;
+  else process.env.VELLUM_COMMAND_HOME = originalVellumHome;
 });
 
 describe("CJS headless interop (boot gate)", () => {
@@ -183,10 +183,10 @@ describe("managed spawn plan", () => {
     expect(plan?.injection.inject).toBe(true);
     if (BROWSER_ENABLED) {
       expect(plan?.injection.systemPrompt).toContain(
-        "vellum browser pages --json",
+        "vellum-command browser pages --json",
       );
     } else {
-      expect(plan?.injection.systemPrompt).not.toContain("vellum browser");
+      expect(plan?.injection.systemPrompt).not.toContain("vellum-command browser");
     }
   });
 
@@ -223,7 +223,7 @@ describe("managed spawn plan", () => {
       documentLaunch: { kind: "harness", argv: ["codex"] },
     });
     expect(plan?.injection.tier).toBe("B");
-    expect(plan?.firstTypedMessage).toContain("vellum onboard");
+    expect(plan?.firstTypedMessage).toContain("vellum-command onboard");
   });
 
   it("preserves picker choices while adding connected injection", () => {
@@ -301,8 +301,8 @@ describe("managed spawn plan", () => {
   });
 
   it("re-passes Codex model, effort, and approval on resume", () => {
-    // Isolation (VELLUM_HOME) forces resume off; this case is production path.
-    delete process.env.VELLUM_HOME;
+    // Isolation (VELLUM_COMMAND_HOME) forces resume off; this case is production path.
+    delete process.env.VELLUM_COMMAND_HOME;
     const home = mkdtempSync(join(tmpdir(), "vellum-codex-resume-"));
     __setSessionExistenceHomeForTest(home);
     try {
@@ -349,8 +349,8 @@ describe("managed spawn plan", () => {
     }
   });
 
-  it("isolated VELLUM_HOME refuses shared pin resume and mints a fresh session", () => {
-    process.env.VELLUM_HOME = "/tmp/vellum-dev-isolated-home";
+  it("isolated VELLUM_COMMAND_HOME refuses shared pin resume and mints a fresh session", () => {
+    process.env.VELLUM_COMMAND_HOME = "/tmp/vellum-dev-isolated-home";
     expect(shouldAvoidSharedHarnessResume()).toBe(true);
     const prodSession = "0c813489-ff73-4f9d-af00-96adc0d63d94";
     const { launch } = launchForManagedSpawn({
@@ -385,8 +385,8 @@ describe("managed spawn plan", () => {
     expect(fresh).not.toBe(prodSession);
   });
 
-  it("production (no VELLUM_HOME) still resumes a proven Grok pin", () => {
-    delete process.env.VELLUM_HOME;
+  it("production (no VELLUM_COMMAND_HOME) still resumes a proven Grok pin", () => {
+    delete process.env.VELLUM_COMMAND_HOME;
     const home = mkdtempSync(join(tmpdir(), "vellum-grok-resume-"));
     __setSessionExistenceHomeForTest(home);
     try {

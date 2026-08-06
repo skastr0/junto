@@ -6,7 +6,7 @@ import { LOCAL_HOST_ID } from "@shared/remote-hosts";
 import { HERMES_INTEGRATION_ENABLED } from "@shared/features";
 import { findContainingRegion, resolveRegionCwd } from "@shared/region-defaults";
 import { state$ } from "../../lib/state";
-import { getVellumApi } from "../../lib/vellum-api";
+import { getVellumCommandApi } from "../../lib/vellum-api";
 import { AGENT_NODE_SIZE } from "../../lib/node-geometry";
 import {
   actorHostChoicesFromEnrollment,
@@ -89,7 +89,7 @@ export function AgentLaunchContext({
 
   useEffect(() => {
     let live = true;
-    void getVellumApi()?.hostsList?.().then((result) => {
+    void getVellumCommandApi()?.hostsList?.().then((result) => {
       if (!live || !result.ok || !result.hosts) return;
       const next = actorHostChoicesFromEnrollment(result.hosts, configured);
       setHosts(next);

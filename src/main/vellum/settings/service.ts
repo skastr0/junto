@@ -304,7 +304,7 @@ const publishAfterCommit = (
     try {
       listener(result.settings);
     } catch {
-      console.warn("[vellum:settings] subscriber failed");
+      console.warn("[vellum-command:settings] subscriber failed");
     }
   }
   return result.settings;
@@ -574,7 +574,7 @@ export const makeSettingsService = (
           supervised.status === "warning"
             ? ("warning" as const)
             : ("ok" as const),
-        detail: `vellum.db - settings v${settings.version} - ${supervised.detail}`,
+        detail: `vellum-command.db - settings v${settings.version} - ${supervised.detail}`,
         metadata: {
           version: String(settings.version),
           ...supervised.metadata,

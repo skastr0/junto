@@ -22,7 +22,7 @@ const PAGE_URL = "https://example.com/";
 const PROFILE = "personal";
 
 test("browser access UI is process-bind + edges; no enable grant ceremony", async () => {
-  const vellum = await launchVellum({
+  const vellumCommand = await launchVellum({
     seedCanvases: {
       "browser-authorization-granted": canvasDoc([
         browserAgentNode({ id: "a1", agentKey: "local:default", label: AGENT_LABEL }),
@@ -34,7 +34,7 @@ test("browser access UI is process-bind + edges; no enable grant ceremony", asyn
   });
 
   try {
-    const { app, page, sandbox } = vellum;
+    const { app, page, sandbox } = vellumCommand;
     const socketPath = sandboxControlSocketPath(sandbox.homeDir);
     const token = await readSandboxControlToken(sandbox.homeDir);
     await waitForControlDoctor(socketPath, token);
@@ -53,6 +53,6 @@ test("browser access UI is process-bind + edges; no enable grant ceremony", asyn
     const denied = await controlCall(socketPath, token, "profiles");
     expect(denied.envelope.ok).toBe(false);
   } finally {
-    await vellum.close();
+    await vellumCommand.close();
   }
 });

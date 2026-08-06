@@ -24,13 +24,13 @@ import { addNode, editText } from "../../lib/mutations";
 import { makePageNode } from "../../lib/node-factories";
 import { resolveAuthoredPageHost } from "../../lib/page-authoring";
 import { state$ } from "../../lib/state";
-import { getVellumApi } from "../../lib/vellum-api";
+import { getVellumCommandApi } from "../../lib/vellum-api";
 import { DIM, HUE, INK, withAlpha } from "../../lib/theme";
 import { ExecutionCardHeader } from "../nodes/ExecutionCardHeader";
 import { FirstLineRenameInput } from "../nodes/FirstLineRenameInput";
 import { HarnessMark } from "./HarnessMark";
 
-type HerdrCardApi = ReturnType<typeof getVellumApi> & {
+type HerdrCardApi = ReturnType<typeof getVellumCommandApi> & {
   herdrObserveTouch?: (
     input: HerdrObserveTouchInput,
   ) => Promise<{ readonly pooled: boolean }>;
@@ -309,7 +309,7 @@ export function HerdrCard({
     )
       return;
     preWarmRef.current = { terminalId, at: now };
-    const api = getVellumApi() as HerdrCardApi | undefined;
+    const api = getVellumCommandApi() as HerdrCardApi | undefined;
     void api?.herdrObserveTouch?.({
       hostId: herdr.host,
       session: herdr.session ?? null,
