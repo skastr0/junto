@@ -20,7 +20,7 @@ The enemy is friction. Every design call below resolves toward: fewer ways to do
 Verbatim from the operator; this is the test:
 
 1. Create an agent node. Open it. Use the picker. **It opens fine and I can talk to it.** (Standalone terminal-with-a-harness works, connected to nothing.)
-2. Open an unconnected agent → **nothing is injected, no message is sent.** Silence is correct.
+2. Open an unconnected agent node → the **base doctrine** is injected (Vellum Command intro, seat doctrine, worker loop, base CLI contract) with no edge contracts; detached terminals (no canvas node) get **silence**. Edge contracts are compiled from the node's edge reality at spawn, and injected per-edge as new edges connect (rising-edge slot injection).
 3. Create a Claude Code node, connect it to a tasks node, add a task, **start the simulation.**
 4. The task is **claimed by the agent**, which **starts working autonomously.**
 5. Double-click the node → **the already-running TUI**, live, mid-session.
