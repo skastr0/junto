@@ -294,7 +294,7 @@ describe("packaged browser CLI contract", () => {
 });
 
 describe("browser CLI packaging contract", () => {
-  it("packages one CLI plus runtime policy and installs only the Vellum Command", async () => {
+  it("packages one CLI and installs only the Vellum Command", async () => {
     const pkg = JSON.parse(await readFile(join(repoRoot, "package.json"), "utf8")) as {
       readonly build: {
         readonly files: ReadonlyArray<string>;
@@ -308,10 +308,6 @@ describe("browser CLI packaging contract", () => {
     expect(pkg.build.extraResources).toEqual([
       { from: "dist/vellum-command", to: "bin/vellum-command" },
       { from: "scripts/unix-peer-pid.py", to: "bin/unix-peer-pid.py" },
-      {
-        from: "scripts/electron-security-policy.json",
-        to: "policy/electron-security-policy.json",
-      },
     ]);
     expect(pkg.build.files).not.toContain("scripts/**");
     expect(buildScript).toContain("--no-compile-autoload-dotenv");

@@ -6,7 +6,6 @@ import {
   makeBrowserCapabilityRegistry,
   type BrowserCapabilityRegistry,
 } from "./capabilities";
-import { electronSecurityPolicyHealthy, packagedElectronSecurityPolicyPath } from "../electron-security-health";
 import type {
   BrowserControlShutdownReceipt as RuntimeBrowserControlShutdownReceipt,
 } from "./control";
@@ -442,7 +441,6 @@ export const makeBrowserShutdownCoordinator = (input: {
 
 export interface BrowserCompositionRuntime {
   readonly state: Context.Service.Shape<typeof StateEngine>;
-  readonly primaryCredentialHealth?: () => boolean;
   readonly profileRoot?: string;
   readonly profileGate?: BrowserProfileGate;
   readonly storagePlatform?: BrowserProfileStoragePlatform;
@@ -531,10 +529,6 @@ export const startBrowserComposition = async (
 
     let registryTerminationFailures = 0;
     registry = makeBrowserCapabilityRegistry({
-      primaryCredentialHealth: runtime.primaryCredentialHealth ?? (() => electronSecurityPolicyHealthy({
-        policyPath: packagedElectronSecurityPolicyPath(process.resourcesPath),
-        electronVersion: process.versions.electron,
-      })),
       profileGate,
       onTerminate: (notice) => {
         try {

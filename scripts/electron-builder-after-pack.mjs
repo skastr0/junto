@@ -33,12 +33,10 @@ const LINUX_ARTIFACT_ROOT = fileURLToPath(
 const LINUX_FIXED_MODE_DIRECTORIES = [
   "resources",
   "resources/bin",
-  "resources/policy",
   "resources/systemd",
 ];
 const LINUX_FIXED_MODE_FILES = new Map([
   ["resources/bin/unix-peer-pid.py", 0o755],
-  ["resources/policy/electron-security-policy.json", 0o644],
   ["resources/systemd/vellum-command-remote-launch-v1", 0o755],
   ["resources/systemd/vellum-command-remote.service", 0o644],
 ]);

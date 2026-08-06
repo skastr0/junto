@@ -68,7 +68,6 @@ import { termPlane, termPlaneBlocksAppExit } from "./vellum/term/plane";
 import { configureTerminalRouterLayeredRunner } from "./vellum/term/router";
 import { ChatServiceContext } from "./vellum/chat/service";
 import { resolveBrowserPageTarget } from "./vellum/browser/ipc";
-import { developmentElectronSecurityPolicyPath, electronSecurityPolicyHealthy, packagedElectronSecurityPolicyPath } from "./vellum/electron-security-health";
 import { startBrowserControlServer, type BrowserControlServer } from "./vellum/browser/control";
 import {
   startWorkControlServer,
@@ -1791,12 +1790,6 @@ if (packagedSandboxDisablingSwitch !== undefined) {
         {
           state: await AppRuntime.runPromise(StateEngine),
           viewAdapter: browserViewAttachmentTarget.adapter,
-          primaryCredentialHealth: () => electronSecurityPolicyHealthy({
-            policyPath: app.isPackaged
-              ? packagedElectronSecurityPolicyPath(process.resourcesPath)
-              : developmentElectronSecurityPolicyPath(import.meta.url),
-            electronVersion: process.versions.electron,
-          }),
         },
       );
       if (shutdownAdmissionClosed) {

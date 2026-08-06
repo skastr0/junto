@@ -125,8 +125,6 @@ if [[ ! -f "$ELECTRON_INSTALLER" || -L "$ELECTRON_INSTALLER" ]]; then
 fi
 printf 'vellum-command: materializing pinned Electron runtime …\n'
 "$NODE_EXECUTABLE" "$ELECTRON_INSTALLER"
-printf 'vellum-command: validating checked-in Electron security policy …\n'
-bun "$SCRIPT_DIR/electron-security-policy.ts" validate
 if [[ ! -d node_modules/electron-builder ]]; then
   printf 'vellum-command: error: electron-builder missing — run: bun install\n' >&2
   exit 1

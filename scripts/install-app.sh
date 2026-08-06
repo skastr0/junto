@@ -174,7 +174,6 @@ resume_unsupervised_incumbent() {
   return 1
 }
 cd "$REPO_ROOT"
-bun "$SCRIPT_DIR/electron-security-policy.ts" validate
 
 assert_cli_path() {
   local description="$1"

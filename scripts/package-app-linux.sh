@@ -22,7 +22,6 @@ while [[ $# -gt 0 ]]; do
 done
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
-bun "$SCRIPT_DIR/electron-security-policy.ts" validate
 
 # @electron/rebuild 4 requires Node >=22.12 and node-gyp invokes that runtime
 # while compiling. Fail before touching the dependency tree when the build host

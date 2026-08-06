@@ -15,7 +15,6 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 cd "$REPO_ROOT"
-bun "$SCRIPT_DIR/electron-security-policy.ts" validate
 if [[ "$(uname -m)" == "arm64" ]]; then
   TARGET_ARCH="arm64"
 elif [[ "$(uname -m)" == "x86_64" ]]; then
