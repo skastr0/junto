@@ -5,6 +5,9 @@ const blockedWorker = {
   ...textNode("worker", "Blocked worker\nNeeds operator input", 0, 0),
   ether: {
     entity: { kind: "agent", name: "local:worker" },
+    // Actor-seat law: an agent node is a managed terminal seat. Without a
+    // bindingId + harness the portfolio compiler rejects the whole canvas.
+    terminal: { bindingId: "local:worker", harness: "codex" as const },
     flags: ["blocker"] as const,
   },
 };

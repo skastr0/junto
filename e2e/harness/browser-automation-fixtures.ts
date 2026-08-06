@@ -19,7 +19,12 @@ export const browserAgentNode = (input: {
   y: input.y ?? 0,
   width: 240,
   height: 96,
-  ether: { entity: { kind: "agent", name: input.agentKey } },
+  ether: {
+    entity: { kind: "agent", name: input.agentKey },
+    // Actor-seat law: kind "agent" is a managed terminal seat; the portfolio
+    // compiler rejects a bare agent node, so the seat carries a full surface.
+    terminal: { bindingId: input.agentKey, harness: "codex" },
+  },
 });
 
 /** A "page" link node — the browser-automation target scope. `url` must
