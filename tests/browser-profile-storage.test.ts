@@ -733,7 +733,7 @@ describe("browser profile storage lifecycle", () => {
     });
     const registryRoot = join(layout.root, "registry");
     stateRuntime = ManagedRuntime.make(
-      makeStateEngineLive(join(layout.root, "vellum.db")),
+      makeStateEngineLive(join(layout.root, "vellum-command.db")),
     );
     const state = await stateRuntime.runPromise(StateEngine);
     const registry = makeBrowserProfileService(state, registryRoot, {

@@ -124,12 +124,12 @@ test("herdr xterm fills focus pane and stays filled after pin", async () => {
     }),
   ]);
 
-  const vellum = await launchVellum({
+  const vellumCommand = await launchVellum({
     extraEnv: { FAKE_HERDR_SCENARIO: scenarioPath },
   });
 
   try {
-    const { page } = vellum;
+    const { page } = vellumCommand;
 
     // Authority-only boot: disk seedCanvases no longer admit into live map.
     // Install the fixture through the app write path after boot settles.
@@ -229,6 +229,6 @@ test("herdr xterm fills focus pane and stays filled after pin", async () => {
       expect(pinnedProbe.xterm.h).toBeGreaterThan(pinnedProbe.host.h * 0.95);
     }
   } finally {
-    await vellum.close();
+    await vellumCommand.close();
   }
 });

@@ -604,10 +604,10 @@ export const allExamples: ReadonlyArray<CommandExample> = [
           args: [
             "browser",
             "open",
-            "vellum://canvas/work?node=page-1",
+            "vellum-command://canvas/work?node=page-1",
             "--json",
           ],
-          input: { ref: "vellum://canvas/work?node=page-1" },
+          input: { ref: "vellum-command://canvas/work?node=page-1" },
         },
       ]
     : []),

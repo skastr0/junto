@@ -31,10 +31,10 @@ const fixtureDoc = canvasDoc(
 
 test("an agent node shows the task its seat has claimed", async () => {
   await mkdir(SHOTS, { recursive: true });
-  const vellum = await launchVellum();
+  const vellumCommand = await launchVellum();
 
   try {
-    const { page } = vellum;
+    const { page } = vellumCommand;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
 
     const canvas = await page.evaluate(async (document) => {
@@ -83,6 +83,6 @@ test("an agent node shows the task its seat has claimed", async () => {
       fullPage: false,
     });
   } finally {
-    await vellum.close();
+    await vellumCommand.close();
   }
 });

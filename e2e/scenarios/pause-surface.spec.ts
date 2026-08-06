@@ -70,9 +70,9 @@ const installBoard = async (page: import("@playwright/test").Page): Promise<stri
 };
 
 test("pause surface: born paused in top bar, first play confirms, confirm flips to playing", async ({
-  vellum,
+  vellumCommand,
 }) => {
-  const { page } = vellum;
+  const { page } = vellumCommand;
   await mkdir(SHOTS, { recursive: true });
 
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });

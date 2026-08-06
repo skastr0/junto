@@ -123,8 +123,8 @@ test.use({
   },
 });
 
-test("native terminal xterm fills focus pane and stays filled after pin", async ({ vellum }) => {
-  const { page } = vellum;
+test("native terminal xterm fills focus pane and stays filled after pin", async ({ vellumCommand }) => {
+  const { page } = vellumCommand;
 
   const node = page.locator(".react-flow__node", { hasText: LABEL });
   await expect(node).toBeVisible({ timeout: 30_000 });

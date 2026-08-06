@@ -87,10 +87,10 @@ test("task board supports creation, operator responses, layered status, and body
       ],
     }),
   ]);
-  const vellum = await launchVellum();
+  const vellumCommand = await launchVellum();
 
   try {
-    const { page } = vellum;
+    const { page } = vellumCommand;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
     await installBoard(page, fixture);
     await expect(page.locator('.react-flow__node[data-id="tasks"]')).toBeVisible({
@@ -236,7 +236,7 @@ test("task board supports creation, operator responses, layered status, and body
       timeout: 10_000,
     });
   } finally {
-    await vellum.close();
+    await vellumCommand.close();
   }
 });
 
@@ -249,10 +249,10 @@ test("Kanban enqueue opens the normal modal above the task flow", async () => {
       items: [],
     }),
   ]);
-  const vellum = await launchVellum();
+  const vellumCommand = await launchVellum();
 
   try {
-    const { page } = vellum;
+    const { page } = vellumCommand;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
     await installBoard(page, fixture);
     const tasksNodeCard = page.locator('.react-flow__node[data-id="tasks"]');
@@ -282,15 +282,15 @@ test("Kanban enqueue opens the normal modal above the task flow", async () => {
     await expect(creator).toBeHidden();
     await expect(board).toBeVisible();
   } finally {
-    await vellum.close();
+    await vellumCommand.close();
   }
 });
 
 test("task detail media uses the full panel width", async () => {
-  const vellum = await launchVellum();
+  const vellumCommand = await launchVellum();
 
   try {
-    const { page } = vellum;
+    const { page } = vellumCommand;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
 
     const contentRef = await page.evaluate(async () => {
@@ -353,6 +353,6 @@ test("task detail media uses the full panel width", async () => {
     expect(metrics.mediaWidth).toBeGreaterThan(metrics.panelWidth - 48);
     expect(metrics.imageObjectFit).toBe("contain");
   } finally {
-    await vellum.close();
+    await vellumCommand.close();
   }
 });

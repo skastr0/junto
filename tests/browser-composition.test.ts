@@ -119,7 +119,7 @@ describe("browser composition (no ceremony)", () => {
   it("awaits physical-station identity before composition and adapter activation", async () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-command-browser-composition-"));
     const stateRuntime = ManagedRuntime.make(
-      makeStateEngineLive(join(root, "vellum.db")),
+      makeStateEngineLive(join(root, "vellum-command.db")),
     );
     const state = await stateRuntime.runPromise(StateEngine);
     const authority = deferred<BrowserHostCapabilityAuthorityLease>();
@@ -130,7 +130,7 @@ describe("browser composition (no ceremony)", () => {
         activated = true;
         expect(
           await composition.sessions.open({
-            ref: "vellum://canvas/work?node=legacy-local",
+            ref: "vellum-command://canvas/work?node=legacy-local",
             nodeId: "legacy-local",
             hostId: "local",
             url: "https://example.com/",

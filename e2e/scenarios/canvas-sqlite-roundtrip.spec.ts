@@ -40,7 +40,7 @@ const expectSqliteAuthority = async (input: {
   readonly canvasesDir: string;
 }): Promise<void> => {
   expect(
-    await exists(join(input.homeDir, ".vellum-command", "state", "vellum.db")),
+    await exists(join(input.homeDir, ".vellum-command", "state", "vellum-command.db")),
     "unified SQLite state database",
   ).toBe(true);
 
@@ -58,9 +58,9 @@ const expectSqliteAuthority = async (input: {
 };
 
 test("operator UI write round-trips through main IPC and survives renderer reload", async ({
-  vellum,
+  vellumCommand,
 }) => {
-  const { page, sandbox } = vellum;
+  const { page, sandbox } = vellumCommand;
 
   const node = page.locator(".react-flow__node", { hasText: ORIGINAL_TEXT });
   await expect(node).toBeVisible({ timeout: 30_000 });
@@ -97,9 +97,9 @@ test("operator UI write round-trips through main IPC and survives renderer reloa
 });
 
 test("canvas list/read/write product paths persist through the unified SQLite authority", async ({
-  vellum,
+  vellumCommand,
 }) => {
-  const { page, sandbox } = vellum;
+  const { page, sandbox } = vellumCommand;
 
   const result = await page.evaluate(
     async ({ name, addedText }) => {

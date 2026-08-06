@@ -50,7 +50,7 @@ const capabilityRegistries: BrowserCapabilityRegistry[] = [];
 const rogueServers: HttpServer[] = [];
 const stateRuntimes: ManagedRuntime.ManagedRuntime<StateEngine, unknown>[] = [];
 const states = new Map<string, Context.Service.Shape<typeof StateEngine>>();
-const PAGE_REF = "vellum://canvas/work?node=cli-node";
+const PAGE_REF = "vellum-command://canvas/work?node=cli-node";
 const AGENT_KEY = "local:cli";
 const deferred = <A>() => {
   let resolve!: (value: A | PromiseLike<A>) => void;
@@ -171,7 +171,7 @@ const makeSessions = (root: string): BrowserSessionService => {
 const newRoot = async (): Promise<string> => {
   const root = await mkdtemp(TEST_ROOT_PREFIX);
   const runtime = ManagedRuntime.make(
-    makeStateEngineLive(join(root, "vellum.db")),
+    makeStateEngineLive(join(root, "vellum-command.db")),
   );
   states.set(root, await runtime.runPromise(StateEngine));
   stateRuntimes.push(runtime);

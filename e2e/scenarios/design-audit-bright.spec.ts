@@ -113,11 +113,11 @@ const edges: CanvasEdge[] = [
 ];
 
 test("capture key surfaces in bright mode", async () => {
-  const vellum = await launchVellum({
+  const vellumCommand = await launchVellum({
     seedCanvases: { "design-audit-bright": canvasDoc(nodes, edges) },
   });
   try {
-    const { page } = vellum;
+    const { page } = vellumCommand;
     await mkdir(SHOTS, { recursive: true });
 
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
@@ -177,6 +177,6 @@ test("capture key surfaces in bright mode", async () => {
     await page.locator(".settings-panel__close").click();
     await page.waitForTimeout(300);
   } finally {
-    await vellum.close();
+    await vellumCommand.close();
   }
 });

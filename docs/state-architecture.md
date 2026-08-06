@@ -11,7 +11,7 @@ Vellum Command has one storage architecture:
 
 ```text
 one installation
-  └── ~/.vellum-command/state/vellum.db
+  └── ~/.vellum-command/state/vellum-command.db
         └── one normal-runtime app StateEngine connection
               ├── owner: Electron main (Command Center)
               │          or displayless packaged Node process (Remote)
@@ -25,7 +25,7 @@ rollback to files.
 
 ## Ownership
 
-- The state directory is mode `0700`; `vellum.db` is mode `0600`.
+- The state directory is mode `0700`; `vellum-command.db` is mode `0600`.
 - During normal operation each installation has one sole app runtime database
   owner: Electron main on Command Center or the displayless packaged Node
   Remote process on Remote.
@@ -117,7 +117,7 @@ drift, and final-schema mismatch fail without mutation.
 
 This is schema evolution of the sole current store, not compatibility mode.
 There is no downgrade, old-schema runtime reader, dual write, file-store
-importer, or “delete `vellum.db` and retry” product instruction. Every real
+importer, or “delete `vellum-command.db` and retry” product instruction. Every real
 migration requires an old-version fixture and a repository-level proof that
 meaningful existing rows and old column values survive byte-for-byte.
 
@@ -136,7 +136,7 @@ transaction:
    the incumbent may continue running. This phase does not open the canonical
    database.
 2. **Quiesce.** Stop the incumbent and prove it released SQLite before another
-   process opens `vellum.db`.
+   process opens `vellum-command.db`.
 3. **Mint evidence.** Invoke the exact staged packaged product executable in
    normal app-open migration path. For installed state it is now the
    sole opener, reads the fixed canonical database without write authority,
@@ -303,7 +303,7 @@ Command Center invokes the `vellum-command station-stdio` executable through the
 operator's enrolled OpenSSH route. It is one persistent bounded framed session:
 the helper accepts no arbitrary command or path, connects to the Remote app's
 owner-local Station socket, and relays correlated frames without opening
-`vellum.db`. Command Center initiates the connection; once authenticated, the
+`vellum-command.db`. Command Center initiates the connection; once authenticated, the
 Remote may initiate only `report` on that same duplex session. It never dials
 Command Center or another Remote. OpenSSH authenticates the Remote host and
 operator account. The fixed helper's owner-local socket handoff is trusted
@@ -406,7 +406,7 @@ The bounded forward-recovery surface is inventory and export:
   returns a content SHA-256 receipt.
 
 This is portability and forensic evidence, not restore. No product path
-replaces `vellum.db`, launches an older binary, or downgrades installed state.
+replaces `vellum-command.db`, launches an older binary, or downgrades installed state.
 Copying the live database, its WAL, its shared-memory file, or the wider
 `~/.vellum-command` directory is not a coherent product backup. Vellum Command currently has
 no restore surface.
@@ -420,7 +420,7 @@ StateEngine backup **plus** a content snapshot of every `content_refs` digest
 (`~/.vellum-command/content/snapshots/content-snapshot-<uuid>/`). The snapshot hardlinks
 or copies immutable objects and refuses to mint when a referenced object is
 missing or corrupt. Export and forensic copy may carry both receipts; there is
-still no automatic restore that replaces the live `vellum.db`.
+still no automatic restore that replaces the live `vellum-command.db`.
 
 ## Forbidden paths
 

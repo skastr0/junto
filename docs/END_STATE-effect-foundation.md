@@ -15,7 +15,7 @@ quit  → runtime.dispose()
 
 Product interior is pure Effect + Layers/Services. No bare `Effect.runPromise` in product paths (allowlist only for true host/post-dispose adapters).
 
-**Sole product store** remains `vellum.db`. Install-ops / content files stay install-local (see AGENTS.md).
+**Sole product store** remains `vellum-command.db`. Install-ops / content files stay install-local (see AGENTS.md).
 
 ## V4 substrate
 

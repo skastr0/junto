@@ -446,7 +446,7 @@ function InstallationFacts() {
       </FieldRow>
       <FieldRow label="Data location" hint="where Vellum Command stores its data">
         <span className="settings-mono-value" style={{ color: INK, fontSize: 12 }}>
-          ~/.vellum-command/state/vellum.db
+          ~/.vellum-command/state/vellum-command.db
         </span>
       </FieldRow>
     </div>

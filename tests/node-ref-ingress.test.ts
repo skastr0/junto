@@ -30,7 +30,7 @@ describe("node-reference ingress", () => {
       code: "invalid",
     });
     await expect(
-      ingress.accept("vellum://canvas/portfolio?node=%70age"),
+      ingress.accept("vellum-command://canvas/portfolio?node=%70age"),
     ).resolves.toMatchObject({
       ok: false,
       code: "invalid",
@@ -50,7 +50,7 @@ describe("node-reference ingress", () => {
       ok: true,
       delivery: "emitted",
       target: {
-        ref: "vellum://canvas/portfolio?node=page%2Fa",
+        ref: "vellum-command://canvas/portfolio?node=page%2Fa",
         canvasName: "portfolio",
         nodeId: "page/a",
       },
@@ -96,7 +96,7 @@ describe("node-reference ingress", () => {
     const ingress = makeNodeRefIngress(() => first.promise);
     const older = ingress.accept(nodeRefKey(ref("portfolio", "first")));
 
-    await expect(ingress.accept("vellum://canvas/portfolio?node=%ZZ")).resolves.toMatchObject({
+    await expect(ingress.accept("vellum-command://canvas/portfolio?node=%ZZ")).resolves.toMatchObject({
       ok: false,
       code: "invalid",
     });
@@ -143,7 +143,7 @@ describe("owner-memory open-url selection", () => {
     const second = nodeRefKey(ref("portfolio", "second"));
 
     expect(canonicalNodeRefUri(first)).toBe(first);
-    expect(canonicalNodeRefUri("vellum://canvas/portfolio?node=%73econd")).toBeUndefined();
+    expect(canonicalNodeRefUri("vellum-command://canvas/portfolio?node=%73econd")).toBeUndefined();
     expect(latestNodeRefUri(["vellum", first, "--flag", second])).toBe(second);
     expect(latestNodeRefUri(["vellum", "https://example.com/"])).toBeUndefined();
   });

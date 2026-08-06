@@ -12,7 +12,6 @@ import {
   contentIncomingDir,
   contentObjectPath,
   contentStoreRoot,
-  migrateLegacyContentStore,
 } from "../src/main/vellum/content/paths";
 import {
   createContentService,
@@ -100,24 +99,6 @@ const openEngine = async (dbPath: string) => {
   const state = await runtime.runPromise(StateEngine);
   return { runtime, state };
 };
-
-describe("content home migration", () => {
-  it("copies immutable objects into the renamed home without deleting the source", async () => {
-    const home = await tempRoot("vellum-command-content-rename-");
-    const payload = Buffer.from("legacy-content-object");
-    const digest = sha256Hex(payload);
-    const legacyRoot = join(home, ".vellum", "content", "v1");
-    const legacyPath = join(legacyRoot, "sha256", digest.slice(0, 2), digest);
-    await mkdir(join(legacyRoot, "sha256", digest.slice(0, 2)), { recursive: true });
-    await writeFile(legacyPath, payload, { mode: 0o444 });
-
-    expect(migrateLegacyContentStore(home)).toBe(true);
-    const targetRoot = contentStoreRoot(home);
-    await expect(readFile(contentObjectPath(targetRoot, digest))).resolves.toEqual(payload);
-    await expect(readFile(legacyPath)).resolves.toEqual(payload);
-    expect(migrateLegacyContentStore(home)).toBe(false);
-  });
-});
 
 describe("content layout + stream ingest", () => {
   it("streams chunks without buffering the full body and publishes by digest", async () => {
@@ -425,7 +406,7 @@ describe("content service put + restart survival", () => {
     const home = await tempRoot("vellum-command-content-svc-");
     const stateDir = join(home, ".vellum-command", "state");
     await mkdir(stateDir, { recursive: true });
-    const dbPath = join(stateDir, "vellum.db");
+    const dbPath = join(stateDir, "vellum-command.db");
     const contentRoot = contentStoreRoot(home);
 
     const payload = Buffer.from("restart-me-please");
@@ -488,7 +469,7 @@ describe("content service put + restart survival", () => {
     const home = await tempRoot("vellum-command-content-no-ref-");
     const stateDir = join(home, ".vellum-command", "state");
     await mkdir(stateDir, { recursive: true });
-    const dbPath = join(stateDir, "vellum.db");
+    const dbPath = join(stateDir, "vellum-command.db");
     const contentRoot = contentStoreRoot(home);
     const { state } = await openEngine(dbPath);
     const service = createContentService(state, contentRoot);

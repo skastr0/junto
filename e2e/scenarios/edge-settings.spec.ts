@@ -19,8 +19,8 @@ test.use({
   },
 });
 
-test("double-clicking an edge opens its settings fields", async ({ vellum }) => {
-  const { page } = vellum;
+test("double-clicking an edge opens its settings fields", async ({ vellumCommand }) => {
+  const { page } = vellumCommand;
   const flowEdge = page.getByTestId("rf__edge-e-settings");
   const source = page.getByTestId("rf__node-source");
   const target = page.getByTestId("rf__node-target");

@@ -69,7 +69,7 @@ const roots: string[] = [];
 const servers: WorkControlServer[] = [];
 const rogueServers: NetServer[] = [];
 const makeWorkTestRuntime = (root: string) => {
-  const stateLive = makeStateEngineLive(join(root, "state", "vellum.db"));
+  const stateLive = makeStateEngineLive(join(root, "state", "vellum-command.db"));
   const repositoriesLive = Layer.provideMerge(
     Layer.mergeAll(
       WorkRepositoryLive,
@@ -1038,7 +1038,7 @@ describe("work control transport", () => {
     const server = servers[0]!;
     const response = (await call(server.socketPath, {
       token: token(),
-      nodeRef: "vellum://canvas/other?node=impostor",
+      nodeRef: "vellum-command://canvas/other?node=impostor",
       op: "capabilities",
     })) as {
       ok: false;

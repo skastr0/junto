@@ -36,8 +36,8 @@ import type { ProcessPrincipal } from "../src/main/vellum/process-identity";
 import { isValidControlRequestId } from "../src/shared/browser-control";
 import { makeStateEngineLive, StateEngine } from "../src/main/vellum/state/engine";
 
-const REF_P1 = "vellum://canvas/work?node=p1";
-const REF_P2 = "vellum://canvas/work?node=p2";
+const REF_P1 = "vellum-command://canvas/work?node=p1";
+const REF_P2 = "vellum-command://canvas/work?node=p2";
 const TARGET_P1: ResolvedPageTarget = {
   ref: REF_P1,
   nodeId: "p1",
@@ -222,7 +222,7 @@ describe("browser edge-delete session teardown", () => {
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), "vellum-edge-delete-"));
     stateRuntime = ManagedRuntime.make(
-      makeStateEngineLive(join(root, "vellum.db")),
+      makeStateEngineLive(join(root, "vellum-command.db")),
     );
     state = await stateRuntime.runPromise(StateEngine);
     registries = [];

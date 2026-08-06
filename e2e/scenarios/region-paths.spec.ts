@@ -107,8 +107,8 @@ test.beforeAll(async () => {
   await mkdir(SHOTS, { recursive: true });
 });
 
-test("region folder paths — empty, save, escape", async ({ vellum }) => {
-  const { page } = vellum;
+test("region folder paths — empty, save, escape", async ({ vellumCommand }) => {
+  const { page } = vellumCommand;
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
   await installBoard(page, canvasDoc([regionEmpty]));
   await expect(page.getByTestId(`rf__node-${regionEmpty.id}`)).toBeVisible({
@@ -148,8 +148,8 @@ test("region folder paths — empty, save, escape", async ({ vellum }) => {
   await expect(page.getByRole("dialog", { name: "Region folder paths" })).toHaveCount(0);
 });
 
-test("region folder paths — multi-host seed + remove", async ({ vellum }) => {
-  const { page } = vellum;
+test("region folder paths — multi-host seed + remove", async ({ vellumCommand }) => {
+  const { page } = vellumCommand;
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
   await installBoard(page, canvasDoc([regionFilled]));
   await expect(page.getByTestId(`rf__node-${regionFilled.id}`)).toBeVisible({

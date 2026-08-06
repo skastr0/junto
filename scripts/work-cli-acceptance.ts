@@ -455,7 +455,7 @@ const main = async () => {
       StationFleetTargetRepositoryLive,
       SettingsLive,
     ),
-    makeStateEngineLive(join(root, "state", "vellum.db")),
+    makeStateEngineLive(join(root, "state", "vellum-command.db")),
   );
   const canvasesLive = Layer.provideMerge(CanvasesLive, repositoriesLive);
   const workLive = Layer.provideMerge(

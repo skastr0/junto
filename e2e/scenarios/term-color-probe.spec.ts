@@ -75,8 +75,8 @@ test.use({
   },
 });
 
-test("xterm paints SGR colors, not flat ink", async ({ vellum }) => {
-  const { page } = vellum;
+test("xterm paints SGR colors, not flat ink", async ({ vellumCommand }) => {
+  const { page } = vellumCommand;
 
   const node = page.locator(".react-flow__node", { hasText: LABEL });
   await expect(node).toBeVisible({ timeout: 30_000 });

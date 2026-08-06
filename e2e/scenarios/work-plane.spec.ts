@@ -6,7 +6,7 @@
  * live projection, and blocked-edge paint from runtime state.
  *
  * Isolation: throwaway HOME (harness/launch.ts), so the app's canonical
- * $HOME/.vellum-command/state/vellum.db remains hermetic without a database override.
+ * $HOME/.vellum-command/state/vellum-command.db remains hermetic without a database override.
  * Run: `bun run test:e2e` (builds) or `bun run test:e2e:fast` (uses out/).
  */
 import type { Task } from "../../src/shared/canvas";
@@ -134,9 +134,9 @@ const work = async (page: import("@playwright/test").Page): Promise<WorkApi> => 
 };
 
 test("work plane: renderer exposes operator task lifecycle only", async ({
-  vellum,
+  vellumCommand,
 }) => {
-  const { page } = vellum;
+  const { page } = vellumCommand;
   const api = await work(page);
 
   const actorOperations = await page.evaluate(() => ({
@@ -205,8 +205,8 @@ test("work plane: renderer exposes operator task lifecycle only", async ({
 
 });
 
-test("work plane: bad ids reject without mutating the live doc", async ({ vellum }) => {
-  const { page } = vellum;
+test("work plane: bad ids reject without mutating the live doc", async ({ vellumCommand }) => {
+  const { page } = vellumCommand;
   const api = await work(page);
 
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });

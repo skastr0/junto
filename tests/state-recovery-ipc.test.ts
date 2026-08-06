@@ -67,7 +67,7 @@ describe("state recovery IPC", () => {
   it("passes only the main-selected path to core export and hides it from the receipt", async () => {
     const operations = makeOperations();
     const handlers = createStateRecoveryIpcHandlers(operations);
-    const destination = "/Users/operator/portable-vellum.db";
+    const destination = "/Users/operator/portable-vellum-command.db";
 
     const result = await handlers.export(id, async (suggested) => {
       expect(suggested).toBe(`vellum-state-backup-${id}.db`);
@@ -81,7 +81,7 @@ describe("state recovery IPC", () => {
     expect(result).toEqual({
       outcome: "exported",
       backup,
-      fileName: "portable-vellum.db",
+      fileName: "portable-vellum-command.db",
       sha256: "b".repeat(64),
     });
     expect(result).not.toHaveProperty("destination");

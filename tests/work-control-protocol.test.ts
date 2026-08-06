@@ -55,7 +55,7 @@ describe("work-control wire schemas", () => {
   it("rejects the retired client nodeRef field", () => {
     const decoded = decodeWorkRequest({
       token: "t",
-      nodeRef: "vellum://canvas/demo?node=agent-1",
+      nodeRef: "vellum-command://canvas/demo?node=agent-1",
       op: "ping",
     });
     expect(Result.isFailure(decoded)).toBe(true);

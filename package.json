@@ -177,7 +177,7 @@
       {
         "name": "Vellum Command node reference",
         "schemes": [
-          "vellum"
+          "vellum-command"
         ],
         "role": "Viewer"
       }

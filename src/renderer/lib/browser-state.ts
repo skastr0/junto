@@ -3,10 +3,10 @@ import type { BrowserSessionInfo, VellumCommandBrowserApi } from "@shared/ipc";
 import { parseNodeRef } from "@shared/node-ref";
 import { getVellumCommandApi } from "./vellum-api";
 
-// Runtime-only browser meta cache. Canonical vellum:// refs are the durable
+// Runtime-only browser meta cache. Canonical vellum-command:// refs are the durable
 // identity; nodeId is display metadata and must never become a session key.
 export const browser$ = observable({
-  /** canonical vellum:// ref -> last known session info. */
+  /** canonical vellum-command:// ref -> last known session info. */
   sessionByRef: {} as Record<string, BrowserSessionInfo>,
 });
 

@@ -30,7 +30,7 @@ const makeRoot = async (): Promise<string> => {
 };
 
 const makeRuntime = (root: string) => {
-  const state = makeStateEngineLive(join(root, "vellum.db"));
+  const state = makeStateEngineLive(join(root, "vellum-command.db"));
   const repositories = Layer.provideMerge(
     Layer.mergeAll(KernelStateRepositoryLive, FactoryPauseRepositoryLive),
     state,

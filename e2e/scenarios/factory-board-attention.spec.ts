@@ -72,9 +72,9 @@ test.use({
 });
 
 test("factory board: fire on claimed input-required, calm edges silent, tasks glance", async ({
-  vellum,
+  vellumCommand,
 }) => {
-  const { page } = vellum;
+  const { page } = vellumCommand;
 
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
 
@@ -106,8 +106,8 @@ test("factory board: fire on claimed input-required, calm edges silent, tasks gl
   await expect(page.locator("text=/holds keys/i")).toHaveCount(0);
 });
 
-test("submitted-only queue does not block edged actor", async ({ vellum }) => {
-  const { page } = vellum;
+test("submitted-only queue does not block edged actor", async ({ vellumCommand }) => {
+  const { page } = vellumCommand;
 
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
 

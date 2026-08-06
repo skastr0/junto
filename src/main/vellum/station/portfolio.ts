@@ -18,7 +18,7 @@ import {
 
 export const STATION_PORTFOLIO_PROTOCOL =
   "vellum-command/station-portfolio/v2" as const;
-/** Historical installed projections remain readable during the home rename. */
+/** Frozen SQLite projections may contain the pre-rename protocol body. */
 const LEGACY_STATION_PORTFOLIO_PROTOCOL =
   "vellum/station-portfolio/v2" as const;
 export const STATION_PORTFOLIO_MAX_CANVASES = 256;

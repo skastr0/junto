@@ -54,10 +54,10 @@ describe("canonical browser page target resolution", () => {
         home: { nodes: [page("same", "https://home.example.com", "personal")], edges: [] },
       }),
     );
-    expect(await resolve("vellum://canvas/work?node=same")).toEqual({
+    expect(await resolve("vellum-command://canvas/work?node=same")).toEqual({
       ok: true,
       data: {
-        ref: "vellum://canvas/work?node=same",
+        ref: "vellum-command://canvas/work?node=same",
         nodeId: "same",
         hostId: "local",
         url: "https://work.example.com",
@@ -79,11 +79,11 @@ describe("canonical browser page target resolution", () => {
       }),
     );
 
-    expect(await resolve("vellum://canvas/work?node=legacy")).toMatchObject({
+    expect(await resolve("vellum-command://canvas/work?node=legacy")).toMatchObject({
       ok: true,
       data: { hostId: "local" },
     });
-    expect(await resolve("vellum://canvas/work?node=remote")).toMatchObject({
+    expect(await resolve("vellum-command://canvas/work?node=remote")).toMatchObject({
       ok: true,
       data: { hostId: "studio" },
     });
@@ -93,9 +93,9 @@ describe("canonical browser page target resolution", () => {
     const resolve = makePageTargetResolver(reader({ work: { nodes: [], edges: [] } }));
     for (const ref of [
       "https://canvas/work?node=n1",
-      "vellum://canvas/WORK?node=n1",
-      "vellum://canvas/work?node=%6e1",
-      { ref: "vellum://canvas/work?node=n1" },
+      "vellum-command://canvas/WORK?node=n1",
+      "vellum-command://canvas/work?node=%6e1",
+      { ref: "vellum-command://canvas/work?node=n1" },
     ]) {
       expect(await resolve(ref)).toMatchObject({ ok: false, code: "invalid" });
     }
@@ -103,11 +103,11 @@ describe("canonical browser page target resolution", () => {
 
   it("returns not_found for a missing canvas or missing node", async () => {
     const resolve = makePageTargetResolver(reader({ work: { nodes: [], edges: [] } }));
-    expect(await resolve("vellum://canvas/missing?node=n1")).toMatchObject({
+    expect(await resolve("vellum-command://canvas/missing?node=n1")).toMatchObject({
       ok: false,
       code: "not_found",
     });
-    expect(await resolve("vellum://canvas/work?node=n1")).toMatchObject({
+    expect(await resolve("vellum-command://canvas/work?node=n1")).toMatchObject({
       ok: false,
       code: "not_found",
     });
@@ -139,7 +139,7 @@ describe("canonical browser page target resolution", () => {
       }),
     );
     for (const id of ["plain", "text-page", "unbound", "bad-profile", "duplicate"]) {
-      expect(await resolve(`vellum://canvas/work?node=${id}`)).toMatchObject({
+      expect(await resolve(`vellum-command://canvas/work?node=${id}`)).toMatchObject({
         ok: false,
         code: "invalid",
       });
@@ -153,7 +153,7 @@ describe("canonical browser page target resolution", () => {
       ]),
       read: () => Effect.fail(new CanvasError({ message: "secret filesystem detail" })),
     };
-    expect(await makePageTargetResolver(failing)("vellum://canvas/work?node=n1")).toEqual({
+    expect(await makePageTargetResolver(failing)("vellum-command://canvas/work?node=n1")).toEqual({
       ok: false,
       code: "failed",
       message: "canvas could not be read",

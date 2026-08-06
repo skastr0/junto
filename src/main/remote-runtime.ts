@@ -14,7 +14,7 @@
  *   Effect.runPromise (empty Context; S0 fitness gate).
  * - V4-ENTRY: src/main/vellum-remote.ts has zero bare Effect.runPromise; only
  *   RemoteRuntime for product domain work.
- * - Sole product store: StateEngine → vellum.db. InstallOps co-composed for
+ * - Sole product store: StateEngine → vellum-command.db. InstallOps co-composed for
  *   ContentService; install-ops.db is install-local, not product truth.
  *
  * Intentionally has no Electron shell, renderer host, browser host, update, or

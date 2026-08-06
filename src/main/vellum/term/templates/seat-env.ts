@@ -19,7 +19,7 @@ export type SeatEnvInjectInput = {
 };
 
 /**
- * Directories that may hold `vellum` CLI binary. Fail-soft — missing dirs omitted.
+ * Directories that may hold the `vellum-command` CLI binary. Fail-soft — missing dirs omitted.
  */
 export const vellumCliPathPrefixes = (
   cwd: string = process.cwd(),
@@ -29,7 +29,7 @@ export const vellumCliPathPrefixes = (
 ): readonly string[] => {
   const out: string[] = [];
   const dist = join(cwd, "dist");
-  if (existsSync(join(dist, "vellum"))) out.push(dist);
+  if (existsSync(join(dist, "vellum-command"))) out.push(dist);
   if (resourcesPath) {
     const bin = join(resourcesPath, "bin");
     if (existsSync(bin)) out.push(bin);

@@ -39,7 +39,7 @@ import type {
 import type { BrowserHostCapabilityAuthority } from "../src/main/vellum/browser/host-capability";
 import { makeStateEngineLive, StateEngine } from "../src/main/vellum/state/engine";
 
-const REF_PAGE = "vellum://canvas/work?node=p1";
+const REF_PAGE = "vellum-command://canvas/work?node=p1";
 const TARGET: ResolvedPageTarget = {
   ref: REF_PAGE,
   nodeId: "p1",
@@ -173,7 +173,7 @@ describe("browser edge-grant process-bind dual admit", () => {
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), "vellum-edge-grant-"));
     stateRuntime = ManagedRuntime.make(
-      makeStateEngineLive(join(root, "vellum.db")),
+      makeStateEngineLive(join(root, "vellum-command.db")),
     );
     state = await stateRuntime.runPromise(StateEngine);
     registries = [];

@@ -67,7 +67,7 @@ CC fleet coordination
   → SSH fixed command vellum-command-station
   → owner-local Station control socket
   → Remote main process
-  → ~/.vellum-command/state/vellum.db
+  → ~/.vellum-command/state/vellum-command.db
 ```
 
 Station API verbs remain `pair`, `configure`, `project`, `report`, and

@@ -5,7 +5,7 @@ import { describe, expect, test } from "vitest";
 const root = process.cwd();
 const allowed = new Set([
   "scripts/electron-sqlite-smoke.mjs",
-  // Dev-only seed that copies a prod vellum.db into an isolated dev tree.
+  // Dev-only seed that copies a prod vellum-command.db into an isolated dev tree.
   "scripts/dev-seed-from-prod.ts",
   "src/main/vellum/state/backup.ts",
   "src/main/vellum/state/engine.ts",

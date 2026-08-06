@@ -1,7 +1,7 @@
 /**
  * Keep unbound StateEngine defaults off the operator's production tree.
  *
- * Product default: resolveVellumCommandHome() → ~/.vellum-command/state/vellum.db
+ * Product default: resolveVellumCommandHome() → ~/.vellum-command/state/vellum-command.db
  * Dev: scripts/dev.sh sets VELLUM_COMMAND_HOME=~/.vellum-command-dev
  * Tests: a process-private temp home so makeStateEngineLive() without a path
  * cannot open or migrate the real DB. Individual tests that inject paths are

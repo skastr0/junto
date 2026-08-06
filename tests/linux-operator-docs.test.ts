@@ -85,7 +85,7 @@ describe("Linux v1 operator documentation", () => {
     );
 
     // State custody + forward-only repair.
-    expect(runbook).toContain("`~/.vellum-command/state/vellum.db`");
+    expect(runbook).toContain("`~/.vellum-command/state/vellum-command.db`");
     expect(text).toContain("repair is forward-only with a newer signed payload");
     expect(text).toContain(
       "An older binary is never activated against advanced state",

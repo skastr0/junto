@@ -31,7 +31,7 @@ const hosts: ReadonlyArray<RemoteHost> = [
 ];
 
 const target = (nodeId: string, hostId: string): ResolvedPageTarget => ({
-  ref: `vellum://canvas/work?node=${nodeId}`,
+  ref: `vellum-command://canvas/work?node=${nodeId}`,
   nodeId,
   hostId,
   url: `https://${nodeId}.example.com`,
@@ -64,7 +64,7 @@ describe("browser physical-station authority", () => {
 
   const makeProfiles = async (root: string) => {
     const runtime = ManagedRuntime.make(
-      makeStateEngineLive(join(root, "vellum.db")),
+      makeStateEngineLive(join(root, "vellum-command.db")),
     );
     const state: Context.Service.Shape<typeof StateEngine> =
       await runtime.runPromise(StateEngine);

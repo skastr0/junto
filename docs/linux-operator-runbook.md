@@ -92,7 +92,7 @@ attempt.
 
 ## State custody boundary
 
-The sole durable store remains `~/.vellum-command/state/vellum.db`. Install, update,
+The sole durable store remains `~/.vellum-command/state/vellum-command.db`. Install, update,
 removal, host preparation, and support do not copy, archive, synchronize, or
 replace it, its WAL, or its shared-memory file.
 
@@ -251,7 +251,7 @@ The canonical removal flow must run as the Station user:
 1. stop and disable the owner-local Vellum Command user service;
 2. remove only the selected Vellum Command userland release and its activation
    metadata;
-3. preserve `~/.vellum-command/state/vellum.db` and browser profiles unless an explicit
+3. preserve `~/.vellum-command/state/vellum-command.db` and browser profiles unless an explicit
    app-owned data-removal workflow separately says otherwise;
 4. rerun Doctor or inventory to confirm no Vellum Command process or control socket
    remains.
@@ -270,7 +270,7 @@ do not copy, archive, restore, or remove profile directories by hand.
 ## Disaster recovery
 
 Linux v1 has no operator state-restore or downgrade surface. Do not copy,
-replace, reconstruct, or delete `vellum.db`, its WAL, or its shared-memory file
+replace, reconstruct, or delete `vellum-command.db`, its WAL, or its shared-memory file
 as install, update, or repair.
 
 If the database remains intact, use a newer signed release that supports its

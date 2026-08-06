@@ -23,7 +23,7 @@ import { makeStateEngineLive } from "../src/main/vellum/state/engine";
 import { WorkRepositoryLive } from "../src/main/vellum/work/repository";
 
 const stateLive = makeStateEngineLive(
-  join(mockCanvasesHome, ".vellum-command", "state", "vellum.db"),
+  join(mockCanvasesHome, ".vellum-command", "state", "vellum-command.db"),
 );
 const repositoriesLive = Layer.provideMerge(WorkRepositoryLive, stateLive);
 const canvasesLive = Layer.provideMerge(CanvasesLive, repositoriesLive);

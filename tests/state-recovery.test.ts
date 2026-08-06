@@ -49,7 +49,7 @@ const makeLayout = async () => {
   return {
     root,
     state,
-    database: join(state, "vellum.db"),
+    database: join(state, "vellum-command.db"),
     exports,
   };
 };
@@ -104,7 +104,7 @@ describe("state recovery", () => {
     const layout = await makeLayout();
     await createBackup(layout.database);
     await symlink(
-      join(layout.state, "vellum.db"),
+      join(layout.state, "vellum-command.db"),
       join(
         layout.state,
         "backups",

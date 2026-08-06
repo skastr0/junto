@@ -63,7 +63,7 @@ const runPaths = (
       "vellum-path-test",
       pathsFile,
       sandbox,
-      join(sandbox, ".vellum-command", "state", "vellum.db"),
+      join(sandbox, ".vellum-command", "state", "vellum-command.db"),
     ],
     {
       cwd: root,
@@ -138,7 +138,7 @@ mkdir -m 0700 "$STAGE_ROOT"
 bind_install_stage
 assert_install_transaction_capabilities
 safe_remove_install_stage
-STATE_DATABASE="$INSTALL_USER_ROOT/.vellum-command/state/vellum.db"
+STATE_DATABASE="$INSTALL_USER_ROOT/.vellum-command/state/vellum-command.db"
 if [[ "$INSTALL_USER_ROOT" != "$2" || "$STATE_DATABASE" != "$3" ]]; then
   exit 90
 fi
@@ -152,7 +152,7 @@ printf '%s\n' "$APP_DST" "$PLIST" "$LOG_DIR" "$BIN_DIR" "$STATE_DATABASE"`,
       join(sandbox, "Library", "LaunchAgents", "skastr0.vellumcommand.plist"),
       join(sandbox, "Library", "Logs", "Vellum Command"),
       join(sandbox, ".local", "bin"),
-      join(sandbox, ".vellum-command", "state", "vellum.db"),
+      join(sandbox, ".vellum-command", "state", "vellum-command.db"),
     ]);
   });
 

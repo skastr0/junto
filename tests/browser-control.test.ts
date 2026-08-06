@@ -55,7 +55,7 @@ import {
 } from "../src/main/vellum/browser/capabilities";
 import { makeStateEngineLive, StateEngine } from "../src/main/vellum/state/engine";
 
-const REF = "vellum://canvas/work?node=n1";
+const REF = "vellum-command://canvas/work?node=n1";
 const DEFAULT_TARGET: ResolvedPageTarget = {
   ref: REF,
   nodeId: "n1",
@@ -278,7 +278,7 @@ describe("control route handlers", () => {
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), "vellum-control-"));
     stateRuntime = ManagedRuntime.make(
-      makeStateEngineLive(join(root, "vellum.db")),
+      makeStateEngineLive(join(root, "vellum-command.db")),
     );
     state = await stateRuntime.runPromise(StateEngine);
     sessionCounter = 0;
@@ -861,7 +861,7 @@ describe("control route handlers", () => {
     };
     const { call } = makeStack(makeSpyAdapter().adapter, resolver);
     expect(
-      await call("POST", "/open", { ref: "vellum://canvas/work?node=other" }),
+      await call("POST", "/open", { ref: "vellum-command://canvas/work?node=other" }),
     ).toMatchObject({
       status: 403,
       envelope: { ok: false, error: { _tag: "forbidden" } },
@@ -923,7 +923,7 @@ describe("control route handlers", () => {
   });
 
   it("enforces the URL allowlist on the document-derived target", async () => {
-    const badRef = "vellum://canvas/work?node=bad";
+    const badRef = "vellum-command://canvas/work?node=bad";
     const { call } = makeStack(
       makeSpyAdapter().adapter,
       resolverFor({
@@ -1131,7 +1131,7 @@ describe("listPageNodes", () => {
       }]),
     ).toEqual([
       {
-        ref: "vellum://canvas/work?node=p1",
+        ref: "vellum-command://canvas/work?node=p1",
         sessionId: null,
         canvas: "work",
         nodeId: "p1",
@@ -1208,7 +1208,7 @@ describe("listPageNodes", () => {
       { name: "bounded", doc: bounded },
     ]);
     expect(boundedRows).toEqual([{
-      ref: "vellum://canvas/bounded?node=good",
+      ref: "vellum-command://canvas/bounded?node=good",
       sessionId: null,
       canvas: "bounded",
       nodeId: "good",
@@ -1279,7 +1279,7 @@ describe("listPageNodes", () => {
     );
     expect(rows).toEqual([
       {
-        ref: "vellum://canvas/work?node=p1",
+        ref: "vellum-command://canvas/work?node=p1",
         sessionId: null,
         canvas: "work",
         nodeId: "p1",

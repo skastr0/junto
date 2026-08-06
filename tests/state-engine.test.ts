@@ -16,7 +16,6 @@ import { Effect, ManagedRuntime } from "effect";
 import { afterEach, describe, expect, test } from "vitest";
 import {
   makeStateEngineLive,
-  migrateLegacyStateDatabase,
   StateEngine,
   StateEngineError,
 } from "../src/main/vellum/state/engine";
@@ -73,25 +72,6 @@ const seedVersionOneStateSchema = (path: string, version = 1): void => {
     database.close();
   }
 };
-
-test("copies legacy Vellum Command state into the renamed home without deleting the source", async () => {
-  const root = await makeTempDir("vellum-state-rename-");
-  const legacyDir = join(root, ".vellum", "state");
-  const targetDir = join(root, ".vellum-command", "state");
-  await mkdir(legacyDir, { recursive: true });
-  await mkdir(targetDir, { recursive: true });
-  const legacyPath = join(legacyDir, "vellum.db");
-  const targetPath = join(targetDir, "vellum.db");
-  await writeFile(legacyPath, "legacy-db", { mode: 0o600 });
-  await writeFile(`${legacyPath}-wal`, "legacy-wal", { mode: 0o600 });
-
-  expect(migrateLegacyStateDatabase({ legacyPath, targetPath })).toBe(true);
-  await expect(readFile(targetPath, "utf8")).resolves.toBe("legacy-db");
-  await expect(readFile(`${targetPath}-wal`, "utf8")).resolves.toBe("legacy-wal");
-  await expect(readFile(legacyPath, "utf8")).resolves.toBe("legacy-db");
-  await expect(readFile(`${legacyPath}-wal`, "utf8")).resolves.toBe("legacy-wal");
-  expect(migrateLegacyStateDatabase({ legacyPath, targetPath })).toBe(false);
-});
 
 const readAuthorityWitness = (path: string) => {
   const database = new DatabaseSync(path, { readOnly: true });
@@ -170,7 +150,7 @@ afterEach(async () => {
 describe("StateEngine", () => {
   test("opens the sole database with exact schema identity and private SQLite settings", async () => {
     const root = await makeTempDir("vellum-state-engine-");
-    const path = join(root, "state", "vellum.db");
+    const path = join(root, "state", "vellum-command.db");
     const runtime = makeRuntime(path);
 
     const info = await runtime.runPromise(
@@ -221,7 +201,7 @@ describe("StateEngine", () => {
 
   test("treats SQLite-only implementation objects as a fresh authority schema", async () => {
     const root = await makeTempDir("vellum-state-sqlite-internal-");
-    const path = join(root, "vellum.db");
+    const path = join(root, "vellum-command.db");
     const sqliteOnly = new DatabaseSync(path);
     try {
       sqliteOnly.exec(`
@@ -260,7 +240,7 @@ describe("StateEngine", () => {
 
   test("reopens idempotently without losing committed state", async () => {
     const root = await makeTempDir("vellum-state-reopen-");
-    const path = join(root, "state", "vellum.db");
+    const path = join(root, "state", "vellum-command.db");
     const firstRuntime = makeRuntime(path);
     const firstEngine = await firstRuntime.runPromise(StateEngine);
 
@@ -315,7 +295,7 @@ describe("StateEngine", () => {
 
   test("adopts the exact unversioned baseline in place without losing state", async () => {
     const root = await makeTempDir("vellum-state-adopt-v1-");
-    const path = join(root, "vellum.db");
+    const path = join(root, "vellum-command.db");
     seedVersionOneStateSchema(path, 0);
     const unversioned = new DatabaseSync(path);
     try {
@@ -400,7 +380,7 @@ describe("StateEngine", () => {
 
   test("does not create a backup for fresh initialization or exact-current reopen", async () => {
     const root = await makeTempDir("vellum-state-no-startup-backup-");
-    const path = join(root, "vellum.db");
+    const path = join(root, "vellum-command.db");
     const fresh = makeRuntime(path);
     await fresh.runPromise(StateEngine);
     await disposeRuntime(fresh);
@@ -418,7 +398,7 @@ describe("StateEngine", () => {
 
   test("aborts an installed schema advance before live mutation when backup verification cannot start", async () => {
     const root = await makeTempDir("vellum-state-migration-backup-failure-");
-    const path = join(root, "vellum.db");
+    const path = join(root, "vellum-command.db");
     seedVersionOneStateSchema(path);
     const external = join(root, "external");
     await mkdir(external, { mode: 0o755 });
@@ -446,7 +426,7 @@ describe("StateEngine", () => {
 
   test("commits a complete transaction and rolls every write back on failure", async () => {
     const root = await makeTempDir("vellum-state-transaction-");
-    const runtime = makeRuntime(join(root, "vellum.db"));
+    const runtime = makeRuntime(join(root, "vellum-command.db"));
     const engine = await runtime.runPromise(StateEngine);
 
     await runtime.runPromise(
@@ -519,7 +499,7 @@ describe("StateEngine", () => {
 
   test("writes large resumable work in bounded chunks and preserves every row", async () => {
     const root = await makeTempDir("vellum-state-chunks-");
-    const runtime = makeRuntime(join(root, "vellum.db"));
+    const runtime = makeRuntime(join(root, "vellum-command.db"));
     const engine = await runtime.runPromise(StateEngine);
     const values = Array.from({ length: 17 }, (_, index) => index + 1);
     const chunks: number[] = [];
@@ -568,7 +548,7 @@ describe("StateEngine", () => {
 
   test("VACUUM INTO captures WAL commits in fresh engine-owned backup files", async () => {
     const root = await makeTempDir("vellum-state-backup-");
-    const livePath = join(root, "live", "vellum.db");
+    const livePath = join(root, "live", "vellum-command.db");
     const runtime = makeRuntime(livePath);
     const engine = await runtime.runPromise(StateEngine);
     await runtime.runPromise(
@@ -666,7 +646,7 @@ describe("StateEngine", () => {
     const root = await makeTempDir("vellum-state-backup-failure-cleanup-");
     const stateDirectory = join(root, "state");
     await mkdir(stateDirectory);
-    const database = new DatabaseSync(join(stateDirectory, "vellum.db"));
+    const database = new DatabaseSync(join(stateDirectory, "vellum-command.db"));
     try {
       database.exec(`
         PRAGMA foreign_keys = OFF;
@@ -706,7 +686,7 @@ describe("StateEngine", () => {
     await mkdir(shared, { mode: 0o755 });
     await chmod(shared, 0o755);
     const forgedPath = join(shared, "forged.db");
-    const runtime = makeRuntime(join(root, "owned", "vellum.db"));
+    const runtime = makeRuntime(join(root, "owned", "vellum-command.db"));
     const engine = await runtime.runPromise(StateEngine);
 
     const forgedBackup = engine.backup as unknown as (
@@ -726,7 +706,7 @@ describe("StateEngine", () => {
     const external = join(root, "external");
     await mkdir(external, { mode: 0o755 });
     await chmod(external, 0o755);
-    const runtime = makeRuntime(join(stateDirectory, "vellum.db"));
+    const runtime = makeRuntime(join(stateDirectory, "vellum-command.db"));
     const engine = await runtime.runPromise(StateEngine);
     await symlink(external, join(stateDirectory, "backups"));
 
@@ -739,7 +719,7 @@ describe("StateEngine", () => {
 
   test("rejects an unknown schema object before committing current DDL", async () => {
     const root = await makeTempDir("vellum-state-unknown-schema-");
-    const path = join(root, "vellum.db");
+    const path = join(root, "vellum-command.db");
     const drifted = new DatabaseSync(path);
     try {
       drifted.exec("CREATE TABLE unexpected_state (value TEXT) STRICT");
@@ -771,7 +751,7 @@ describe("StateEngine", () => {
 
   test("rejects a newer database without persisting WAL or other mutations", async () => {
     const root = await makeTempDir("vellum-state-newer-version-");
-    const path = join(root, "vellum.db");
+    const path = join(root, "vellum-command.db");
     await seedCurrentStateSchema(path);
 
     const newer = new DatabaseSync(path);
@@ -792,7 +772,7 @@ describe("StateEngine", () => {
 
   test("rejects a current database missing a table without repairing it", async () => {
     const root = await makeTempDir("vellum-state-missing-table-");
-    const path = join(root, "vellum.db");
+    const path = join(root, "vellum-command.db");
     await seedCurrentStateSchema(path);
 
     const drifted = new DatabaseSync(path);
@@ -810,7 +790,7 @@ describe("StateEngine", () => {
 
   test("rejects a current database missing an index without repairing it", async () => {
     const root = await makeTempDir("vellum-state-missing-index-");
-    const path = join(root, "vellum.db");
+    const path = join(root, "vellum-command.db");
     await seedCurrentStateSchema(path);
 
     const drifted = new DatabaseSync(path);
@@ -828,7 +808,7 @@ describe("StateEngine", () => {
 
   test("rejects a current database missing a trigger without repairing it", async () => {
     const root = await makeTempDir("vellum-state-missing-trigger-");
-    const path = join(root, "vellum.db");
+    const path = join(root, "vellum-command.db");
     await seedCurrentStateSchema(path);
 
     const drifted = new DatabaseSync(path);
@@ -846,7 +826,7 @@ describe("StateEngine", () => {
 
   test("rejects a current table missing constraints without replacing it", async () => {
     const root = await makeTempDir("vellum-state-shape-drift-");
-    const path = join(root, "vellum.db");
+    const path = join(root, "vellum-command.db");
     await seedCurrentStateSchema(path);
 
     const drifted = new DatabaseSync(path);
@@ -873,7 +853,7 @@ describe("StateEngine", () => {
 
   test("rejects a partial current database without completing or stamping it", async () => {
     const root = await makeTempDir("vellum-state-partial-schema-");
-    const path = join(root, "vellum.db");
+    const path = join(root, "vellum-command.db");
     const partial = new DatabaseSync(path);
     try {
       partial.exec(`
@@ -908,7 +888,7 @@ describe("StateEngine", () => {
 
   test("fails closed on a corrupt pre-existing database", async () => {
     const root = await makeTempDir("vellum-state-path-");
-    const fakeDatabase = join(root, "vellum.db");
+    const fakeDatabase = join(root, "vellum-command.db");
     await writeFile(fakeDatabase, "not sqlite");
     const bytes = await readFile(fakeDatabase);
     expect(bytes.byteLength).toBeGreaterThan(0);
@@ -923,7 +903,7 @@ describe("StateEngine", () => {
   test("refuses a symlinked database without touching its target", async () => {
     const root = await makeTempDir("vellum-state-symlink-");
     const target = join(root, "operator-file");
-    const databasePath = join(root, "vellum.db");
+    const databasePath = join(root, "vellum-command.db");
     await writeFile(target, "keep");
     await symlink(target, databasePath);
 
@@ -937,14 +917,14 @@ describe("StateEngine", () => {
   test("refuses a dangling database symlink without creating its target", async () => {
     const root = await makeTempDir("vellum-state-dangling-symlink-");
     const target = join(root, "operator-file");
-    const databasePath = join(root, "vellum.db");
+    const databasePath = join(root, "vellum-command.db");
     await symlink(target, databasePath);
 
     const runtime = makeRuntime(databasePath);
     await expect(runtime.runPromise(StateEngine)).rejects.toThrow(
       "state database is not a regular file",
     );
-    expect(await readdir(root)).toEqual(["vellum.db"]);
+    expect(await readdir(root)).toEqual(["vellum-command.db"]);
   });
 
   test("refuses a symlinked state directory without creating a database", async () => {
@@ -954,7 +934,7 @@ describe("StateEngine", () => {
     await mkdir(target, { mode: 0o755 });
     await symlink(target, linkedState);
 
-    const runtime = makeRuntime(join(linkedState, "vellum.db"));
+    const runtime = makeRuntime(join(linkedState, "vellum-command.db"));
     await expect(runtime.runPromise(StateEngine)).rejects.toThrow(
       "state path is not a real directory",
     );
@@ -964,7 +944,7 @@ describe("StateEngine", () => {
 
   test("closes the captured service when its scoped runtime is disposed", async () => {
     const root = await makeTempDir("vellum-state-disposal-");
-    const runtime = makeRuntime(join(root, "vellum.db"));
+    const runtime = makeRuntime(join(root, "vellum-command.db"));
     const engine = await runtime.runPromise(StateEngine);
     await disposeRuntime(runtime);
 

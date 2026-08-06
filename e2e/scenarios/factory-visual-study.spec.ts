@@ -140,7 +140,7 @@ const edges: CanvasEdge[] = [
 
 test("capture the implementation-near factory grammar", async () => {
   await mkdir(SHOTS, { recursive: true });
-  const vellum = await launchVellum({
+  const vellumCommand = await launchVellum({
     seedCanvases: {
       "factory-visual-study": canvasDoc(
         [taskSink, ...actors, requestSink, artifactSink, cron, board, terminal],
@@ -150,7 +150,7 @@ test("capture the implementation-near factory grammar", async () => {
   });
 
   try {
-    const { page } = vellum;
+    const { page } = vellumCommand;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
     await expect(page.locator('.react-flow__node[data-id="tasks"]')).toBeVisible({ timeout: 30_000 });
     const fit = page.getByRole("button", { name: /fit all/i });
@@ -161,6 +161,6 @@ test("capture the implementation-near factory grammar", async () => {
       fullPage: false,
     });
   } finally {
-    await vellum.close();
+    await vellumCommand.close();
   }
 });

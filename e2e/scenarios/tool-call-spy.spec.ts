@@ -23,7 +23,7 @@ const PAGE_URL = "https://example.org/";
 const PROFILE = "work";
 
 test("protected control routes deny without process-bind; request-id contract holds", async () => {
-  const vellum = await launchVellum({
+  const vellumCommand = await launchVellum({
     seedCanvases: {
       "tool-call-spy": canvasDoc(
         [
@@ -36,7 +36,7 @@ test("protected control routes deny without process-bind; request-id contract ho
   });
 
   try {
-    const { page, sandbox } = vellum;
+    const { page, sandbox } = vellumCommand;
     const socketPath = sandboxControlSocketPath(sandbox.homeDir);
     const token = await readSandboxControlToken(sandbox.homeDir);
     await waitForControlDoctor(socketPath, token);
@@ -64,6 +64,6 @@ test("protected control routes deny without process-bind; request-id contract ho
     // Either 400 bad_request or 401 process-unbound depending on order — both fail closed.
     expect(malformed.envelope.ok).toBe(false);
   } finally {
-    await vellum.close();
+    await vellumCommand.close();
   }
 });

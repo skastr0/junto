@@ -150,7 +150,7 @@ const edges: CanvasEdge[] = [
 
 test("capture current wires rendering — dense scene", async () => {
   await mkdir(SHOTS, { recursive: true });
-  const vellum = await launchVellum({
+  const vellumCommand = await launchVellum({
     seedCanvases: {
       "wires-visual-study": canvasDoc(
         [work, ...actors, board, relay, cron, flagged, review],
@@ -160,7 +160,7 @@ test("capture current wires rendering — dense scene", async () => {
   });
 
   try {
-    const { page } = vellum;
+    const { page } = vellumCommand;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
     await expect(page.locator('.react-flow__node[data-id="work"]')).toBeVisible({ timeout: 30_000 });
     const fit = page.getByRole("button", { name: /fit all/i });
@@ -180,6 +180,6 @@ test("capture current wires rendering — dense scene", async () => {
       await page.screenshot({ path: join(SHOTS, "01-wires-bundle-zoom.png"), fullPage: false });
     }
   } finally {
-    await vellum.close();
+    await vellumCommand.close();
   }
 });

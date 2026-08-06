@@ -140,7 +140,7 @@ const target = (
   nodeId: string,
   overrides: Partial<ResolvedPageTarget> = {},
 ): ResolvedPageTarget => ({
-  ref: `vellum://canvas/work?node=${nodeId}`,
+  ref: `vellum-command://canvas/work?node=${nodeId}`,
   nodeId,
   url: `https://${nodeId}.example.com`,
   hostId: "local",
@@ -228,7 +228,7 @@ describe("BrowserSessionService", () => {
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), "vellum-command-browser-sessions-"));
     stateRuntime = ManagedRuntime.make(
-      makeStateEngineLive(join(root, "vellum.db")),
+      makeStateEngineLive(join(root, "vellum-command.db")),
     );
     state = await stateRuntime.runPromise(StateEngine);
     clock = 0;
@@ -281,7 +281,7 @@ describe("BrowserSessionService", () => {
       ok: true,
       data: {
         sessionId: "session-1",
-        ref: "vellum://canvas/work?node=n1",
+        ref: "vellum-command://canvas/work?node=n1",
         nodeId: "n1",
         profile: "personal",
       },

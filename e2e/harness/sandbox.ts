@@ -94,7 +94,7 @@ export const writeFixtureCanvas = async (
   process.env.VELLUM_COMMAND_CANVASES_DIR = sandbox.canvasesDir;
 
   const state = makeStateEngineLive(
-    join(sandbox.homeDir, ".vellum-command", "state", "vellum.db"),
+    join(sandbox.homeDir, ".vellum-command", "state", "vellum-command.db"),
   );
   const repositories = Layer.provideMerge(
     Layer.mergeAll(
@@ -312,7 +312,7 @@ export const writeFixtureHosts = async (
 ): Promise<void> => {
   const runtime = ManagedRuntime.make(
     makeStateEngineLive(
-      join(sandbox.homeDir, ".vellum-command", "state", "vellum.db"),
+      join(sandbox.homeDir, ".vellum-command", "state", "vellum-command.db"),
     ),
   );
   try {

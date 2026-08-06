@@ -36,7 +36,7 @@ test("roll growth-50 and record the take", async () => {
   const framesDir = join(OUT, "frames");
   await mkdir(framesDir, { recursive: true });
 
-  const vellum = await launchVellum({
+  const vellumCommand = await launchVellum({
     demo: true,
     extraEnv: {
       VELLUM_COMMAND_DEMO_SCENARIO: "growth-50",
@@ -44,7 +44,7 @@ test("roll growth-50 and record the take", async () => {
     },
   });
 
-  const { app, page, sandbox } = vellum;
+  const { app, page, sandbox } = vellumCommand;
   try {
     await app.evaluate(({ BrowserWindow }, size) => {
       const win = BrowserWindow.getAllWindows()[0];
@@ -150,6 +150,6 @@ test("roll growth-50 and record the take", async () => {
       `CAPTURE frames=${frames.length} first=${frames[0]?.ts} last=${frames[frames.length - 1]?.ts} takeT0=${edl ? edl.startedAtEpochMs / 1000 : "?"}`,
     );
   } finally {
-    await vellum.close();
+    await vellumCommand.close();
   }
 });

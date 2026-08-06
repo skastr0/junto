@@ -7,7 +7,7 @@
  *
  * Isolation invariants (never relaxed):
  *  - throwaway --user-data-dir + HOME per test (sandbox.ts); the app still
- *    resolves its one canonical $HOME/.vellum-command/state/vellum.db
+ *    resolves its one canonical $HOME/.vellum-command/state/vellum-command.db
  *  - HOME sandboxed to the same temp root + SHELL=/bin/sh, so the adapters'
  *    login-shell PATH probe (src/main/vellum/adapters/exec.ts) cannot
  *    resolve the operator's real CLIs
@@ -598,8 +598,6 @@ export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumH
 export interface VellumFixtures {
   vellumOptions: LaunchOptions;
   vellumCommand: VellumHandle;
-  /** Temporary fixture alias for scenarios that still use the legacy name. */
-  vellum: VellumHandle;
 }
 
 /** Extended `test`: `test.use({ vellumOptions: {...} })` per spec/describe,
@@ -614,9 +612,6 @@ export const test = base.extend<VellumFixtures>({
     } finally {
       await handle.close();
     }
-  },
-  vellum: async ({ vellumCommand }, use) => {
-    await use(vellumCommand);
   },
 });
 

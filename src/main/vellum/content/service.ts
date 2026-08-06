@@ -43,7 +43,7 @@ import {
   runInlineMediaMigration,
 } from "./inline-media-migration";
 import { InstallOpsService } from "../install-ops/engine";
-import { contentStoreRoot, migrateLegacyContentStore } from "./paths";
+import { contentStoreRoot } from "./paths";
 import {
   ContentStoreError,
   ensureContentLayout,
@@ -143,7 +143,7 @@ export type ContentServiceShape = {
 
 /**
  * Local content store + SQLite manifest. Main owns the only DB connection;
- * this service never opens `vellum.db` itself.
+ * this service never opens `vellum-command.db` itself.
  *
  * - Canonical id: `@vellum/ContentService` — single `Context.Service` definition.
  * - Layer: `makeContentServiceLive`.
@@ -394,19 +394,6 @@ export const makeContentServiceLive = (options?: {
       const state = yield* StateEngine;
       const installOps = yield* InstallOpsService;
       const home = options?.home ?? resolveVellumCommandHome();
-      if (options?.root === undefined && options?.home === undefined) {
-        try {
-          migrateLegacyContentStore(home);
-        } catch (cause) {
-          // Home migration is a retryable install-local walk. The service
-          // still opens so missing/corrupt objects surface through integrity
-          // and the walk retries on the next normal boot.
-          console.error(
-            "[content] legacy home migration deferred to next boot:",
-            cause,
-          );
-        }
-      }
       const root =
         options?.root ??
         contentStoreRoot(home);

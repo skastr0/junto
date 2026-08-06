@@ -91,7 +91,7 @@ export interface ScenarioRun {
 }
 
 const makeRuntime = (root: string) => {
-  const state = makeStateEngineLive(join(root, "state", "vellum.db"));
+  const state = makeStateEngineLive(join(root, "state", "vellum-command.db"));
   const installOps = makeInstallOpsLive(join(root, "state", "install-ops.db"));
   const repositories = Layer.provideMerge(
     Layer.mergeAll(

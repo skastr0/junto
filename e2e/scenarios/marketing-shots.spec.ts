@@ -126,13 +126,13 @@ const shot = async (page: Page, name: string) => {
 test("compose a staged fleet board and capture marketing frames", async () => {
   await mkdir(SHOTS, { recursive: true });
 
-  const vellum = await launchVellum({
+  const vellumCommand = await launchVellum({
     demo: true,
     seedCanvases: { portfolio: canvasDoc(nodes, edges) },
   });
 
   try {
-    const { app, page } = vellum;
+    const { app, page } = vellumCommand;
 
     // Marketing frame size — the default 1320x900 window is too tight for a
     // hero plate. Resize before any capture so layout settles once.
@@ -215,6 +215,6 @@ test("compose a staged fleet board and capture marketing frames", async () => {
     await page.locator(".react-flow__node", { hasText: "vellum - typecheck" }).first().click();
     await shot(page, "10-board-selected");
   } finally {
-    await vellum.close();
+    await vellumCommand.close();
   }
 });

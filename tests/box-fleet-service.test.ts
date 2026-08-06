@@ -57,7 +57,7 @@ const machine = (
 const fixture = async () => {
   const root = await mkdtemp(join(tmpdir(), "vellum-box-fleet-"));
   roots.push(root);
-  const stateLive = makeStateEngineLive(join(root, "vellum.db"));
+  const stateLive = makeStateEngineLive(join(root, "vellum-command.db"));
   const complete = ManagedRuntime.make(
     Layer.provideMerge(BoxOwnershipRepositoryLive, stateLive),
   );

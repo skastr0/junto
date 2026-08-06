@@ -65,8 +65,8 @@ const installBoard = async (page: import("@playwright/test").Page): Promise<void
   }, fixtureDoc);
 };
 
-test("shift multi-select: RTS multi command + multi-prompt", async ({ vellum }) => {
-  const { page } = vellum;
+test("shift multi-select: RTS multi command + multi-prompt", async ({ vellumCommand }) => {
+  const { page } = vellumCommand;
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
   await installBoard(page);
 

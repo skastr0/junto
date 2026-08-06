@@ -1,7 +1,8 @@
 /**
  * Packaged content-transfer entry — `vellum-command content-transfer …`.
  *
- * Same receive|send|stat closed argv as the old vellum-command-content helper, now a
+ * Same receive|send|stat closed argv as the unified vellum-command content-transfer
+ * station, with no helper alias or legacy process surface.
  * subcommand of the single packaged CLI binary.
  */
 import { createReadStream } from "node:fs";

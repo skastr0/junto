@@ -81,7 +81,7 @@ describe("demo runtime isolation", () => {
     const ownedRoot = dirname(databasePath);
     expect(databasePath).not.toBe("/tmp/caller-selected-state.db");
     expect(databasePath).not.toBe(
-      join(homedir(), ".vellum-command", "demo", "state", "vellum.db"),
+      join(homedir(), ".vellum-command", "demo", "state", "vellum-command.db"),
     );
     expect(relative(tmpdir(), ownedRoot)).toMatch(
       /^vellum-demo-runtime-[^/]+$/u,
@@ -143,7 +143,7 @@ describe("demo runtime isolation", () => {
     // VELLUM_COMMAND_HOME is the only product redirect (test setup / dev use it).
     // Retired flags like VELLUM_COMMAND_STATE_DB must not open a second store.
     expect(stateDatabasePath()).toBe(
-      join(resolveVellumCommandHome(), ".vellum-command", "state", "vellum.db"),
+      join(resolveVellumCommandHome(), ".vellum-command", "state", "vellum-command.db"),
     );
     expect(stateDatabasePath()).not.toBe("/tmp/untrusted-second-home.db");
   });

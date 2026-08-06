@@ -91,7 +91,7 @@ export const parseHerdrSurfaceId = (id: string): string | null => {
 
 export const dock$ = observable({
   registry: initialWorkbenchState() as WorkbenchState,
-  /** canonical vellum:// ref -> display payload for browser slots. */
+  /** canonical vellum-command:// ref -> display payload for browser slots. */
   browserByRef: {} as Record<string, DockBrowserPayload>,
   /** chat:<nodeId> -> ACP surface identity. ACP runtime state remains keyed by agentKey. */
   chatById: {} as Record<string, DockChatPayload>,

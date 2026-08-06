@@ -469,7 +469,7 @@ test("capture every surface for design review", async () => {
     "utf8",
   );
 
-  const vellum = await launchVellum({
+  const vellumCommand = await launchVellum({
     // Seed before Electron owns the StateEngine. The harness splits work
     // projections into WorkRepository rows; writing this fixture through the
     // canvas API after startup would intentionally discard its task/request/
@@ -482,7 +482,7 @@ test("capture every surface for design review", async () => {
   });
 
   try {
-    const { page } = vellum;
+    const { page } = vellumCommand;
 
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
 
@@ -779,16 +779,16 @@ test("capture every surface for design review", async () => {
     await page.waitForTimeout(700);
     await shot(page, "09b-native-terminal-pinned");
   } finally {
-    await vellum.close();
+    await vellumCommand.close();
   }
 });
 
 test("capture Board empty and populated states", async () => {
-  const vellum = await launchVellum({
+  const vellumCommand = await launchVellum({
     seedCanvases: { "board-audit": canvasDoc([boardNode]) },
   });
   try {
-    const { page } = vellum;
+    const { page } = vellumCommand;
     await mkdir(SHOTS, { recursive: true });
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
     const boardNodeCard = page.locator('.react-flow__node[data-id="board1"]');
@@ -841,23 +841,23 @@ test("capture Board empty and populated states", async () => {
       .click();
     await expect(bulletinBoard).toBeHidden();
   } finally {
-    await vellum.close();
+    await vellumCommand.close();
   }
 });
 
 // Empty field — the boot state every operator sees on a fresh canvas.
 test("capture the empty field state", async () => {
-  const vellum = await launchVellum({
+  const vellumCommand = await launchVellum({
     seedCanvases: { empty: canvasDoc([]) },
   });
   try {
-    const { page } = vellum;
+    const { page } = vellumCommand;
     await mkdir(SHOTS, { recursive: true });
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
     await page.waitForTimeout(800);
     await shot(page, "24-empty-field");
   } finally {
-    await vellum.close();
+    await vellumCommand.close();
   }
 });
 
@@ -865,7 +865,7 @@ test("capture the empty field state", async () => {
 // custom appearance) into the sandbox's SQLite database. The fake ssh binary
 // answers reachability probes, so edges settle into reachable state.
 test("capture the fleet manager overlay", async () => {
-  const vellum = await launchVellum({
+  const vellumCommand = await launchVellum({
     seedCanvases: { fleet: canvasDoc([]) },
     seedHosts: [
       {
@@ -909,7 +909,7 @@ test("capture the fleet manager overlay", async () => {
     ],
   });
   try {
-    const { page } = vellum;
+    const { page } = vellumCommand;
     await mkdir(SHOTS, { recursive: true });
     await expect(page.locator(".react-flow").first()).toBeVisible({
       timeout: 30_000,
@@ -968,6 +968,6 @@ test("capture the fleet manager overlay", async () => {
       await shot(page, "27-fleet-ghost-detail");
     }
   } finally {
-    await vellum.close();
+    await vellumCommand.close();
   }
 });

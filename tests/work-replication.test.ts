@@ -113,7 +113,7 @@ const openInstallation = async (
   const runtime = ManagedRuntime.make(
     Layer.provideMerge(
       WorkRepositoryLive,
-      makeStateEngineLive(join(root, "vellum.db")),
+      makeStateEngineLive(join(root, "vellum-command.db")),
     ),
   );
   opened.push({

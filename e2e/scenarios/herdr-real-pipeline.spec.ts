@@ -35,7 +35,7 @@ test("herdr pane renders the real scripted world, then degrades on a scripted mi
     },
   });
 
-  const vellum = await launchVellum({
+  const vellumCommand = await launchVellum({
     extraEnv: { FAKE_HERDR_SCENARIO: scenarioPath },
     seedCanvases: {
       herdr: canvasDoc([
@@ -44,7 +44,7 @@ test("herdr pane renders the real scripted world, then degrades on a scripted mi
     },
   });
   try {
-    const { page } = vellum;
+    const { page } = vellumCommand;
 
     const node = page.locator(".react-flow__node", { hasText: LABEL });
     await expect(node).toBeVisible({ timeout: 30_000 });
@@ -59,6 +59,6 @@ test("herdr pane renders the real scripted world, then degrades on a scripted mi
 
     await expect(panel.locator(".herdr-modal-status")).toContainText("degraded", { timeout: 20_000 });
   } finally {
-    await vellum.close();
+    await vellumCommand.close();
   }
 });

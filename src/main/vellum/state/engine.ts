@@ -1,11 +1,7 @@
 import {
   chmodSync,
-  copyFileSync,
-  existsSync,
   lstatSync,
   mkdirSync,
-  renameSync,
-  unlinkSync,
 } from "node:fs";
 import { resolveVellumCommandHome } from "@shared/vellum-home";
 import { dirname, join, resolve } from "node:path";
@@ -74,7 +70,7 @@ const stateEngineError = (
 export const stateDatabasePath = (): string =>
   resolve(
     demoStateDatabasePath() ??
-      join(resolveVellumCommandHome(), ".vellum-command", "state", "vellum.db"),
+      join(resolveVellumCommandHome(), ".vellum-command", "state", "vellum-command.db"),
   );
 
 const assertRealDirectory = (path: string): void => {
@@ -106,86 +102,6 @@ const assertRegularOrMissing = (path: string): boolean => {
   }
 };
 
-/**
- * Preserve the installed SQLite state across the runtime-home rename.
- *
- * The old file is never removed or opened by a second StateEngine. When the
- * canonical Vellum Command home has no database, copy the old database and
- * any SQLite journal sidecars into the same filename under the new home before
- * the sole runtime opener starts. This is deliberately limited to the default
- * product path; injected test/demo databases have their own explicit lifecycle.
- */
-export const migrateLegacyStateDatabase = ({
-  legacyPath,
-  targetPath,
-}: {
-  readonly legacyPath: string;
-  readonly targetPath: string;
-}): boolean => {
-  const sidecars = ["-wal", "-shm"] as const;
-  if (assertRegularOrMissing(targetPath)) return false;
-  for (const suffix of sidecars) {
-    if (assertRegularOrMissing(`${targetPath}${suffix}`)) {
-      throw new Error(`target state sidecar already exists: ${targetPath}${suffix}`);
-    }
-  }
-  if (!assertRegularOrMissing(legacyPath)) return false;
-
-  const stagedTarget = `${targetPath}.migration-${process.pid}`;
-  const stagedSidecars = sidecars.map((suffix) => `${targetPath}${suffix}.migration-${process.pid}`);
-  try {
-    if (assertRegularOrMissing(stagedTarget)) {
-      throw new Error(`state migration staging file already exists: ${stagedTarget}`);
-    }
-    copyFileSync(legacyPath, stagedTarget);
-    chmodSync(stagedTarget, STATE_FILE_MODE);
-    for (const [index, suffix] of sidecars.entries()) {
-      const source = `${legacyPath}${suffix}`;
-      if (!assertRegularOrMissing(source)) continue;
-      if (assertRegularOrMissing(stagedSidecars[index]!)) {
-        throw new Error(`state migration staging file already exists: ${stagedSidecars[index]!}`);
-      }
-      copyFileSync(source, stagedSidecars[index]!);
-      chmodSync(stagedSidecars[index]!, STATE_FILE_MODE);
-    }
-
-    if (assertRegularOrMissing(targetPath)) {
-      throw new Error(`target state database already exists: ${targetPath}`);
-    }
-    renameSync(stagedTarget, targetPath);
-    chmodSync(targetPath, STATE_FILE_MODE);
-    for (const [index, suffix] of sidecars.entries()) {
-      const staged = stagedSidecars[index]!;
-      if (!existsSync(staged)) continue;
-      const target = `${targetPath}${suffix}`;
-      if (assertRegularOrMissing(target)) {
-        throw new Error(`target state sidecar appeared during migration: ${target}`);
-      }
-      renameSync(staged, target);
-    }
-    return true;
-  } catch (error) {
-    for (const path of [stagedTarget, ...stagedSidecars]) {
-      try {
-        unlinkSync(path);
-      } catch {
-        // Best-effort cleanup; the original database remains untouched.
-      }
-    }
-    throw error;
-  }
-};
-
-const migrateDefaultLegacyStateDatabase = (targetPath: string): void => {
-  const legacyPath = join(
-    resolveVellumCommandHome(),
-    ".vellum",
-    "state",
-    "vellum.db",
-  );
-  migrateLegacyStateDatabase({ legacyPath, targetPath });
-};
-
 const applyBindings = <A>(
   statement: StatementSync,
   bindings: StateBindings | undefined,
@@ -212,9 +128,6 @@ const openStateEngine = (
       const path = resolve(configuredPath ?? stateDatabasePath());
       const directory = dirname(path);
       assertRealDirectory(directory);
-      if (configuredPath === undefined && demoStateDatabasePath() === undefined) {
-        migrateDefaultLegacyStateDatabase(path);
-      }
       assertRegularOrMissing(path);
 
       const database = new DatabaseSync(path, {

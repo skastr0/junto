@@ -370,20 +370,20 @@ test("still 00 — factory hero board", async () => {
   const scenarioPath = join(scenarioDir, "codexbar.json");
   await writeFile(scenarioPath, JSON.stringify(codexbarScenario));
 
-  const vellum = await launchVellum({
+  const vellumCommand = await launchVellum({
     demo: true,
     seedCanvases: { factory: canvasDoc(nodes, edges) },
     extraEnv: { FAKE_CODEXBAR_SCENARIO: scenarioPath },
   });
 
   try {
-    const { app, page } = vellum;
+    const { app, page } = vellumCommand;
     await resizeFrame(app, page);
     await expect(page.locator(".react-flow__node").first()).toBeVisible({ timeout: 30_000 });
     await hideDemoChip(page);
     await fitAll(page);
     await shot(page, "00-canvas-factory-hero");
   } finally {
-    await vellum.close();
+    await vellumCommand.close();
   }
 });

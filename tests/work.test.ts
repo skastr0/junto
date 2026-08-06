@@ -989,7 +989,7 @@ const activeIntentBasis = async (
 };
 
 const workRuntime = makeWorkRuntime(
-  join(mockCanvasesHome, "state", "vellum.db")
+  join(mockCanvasesHome, "state", "vellum-command.db")
 );
 let work: Context.Service.Shape<typeof WorkService>;
 let canvases: Context.Service.Shape<typeof CanvasesService>;
@@ -1573,7 +1573,7 @@ describe("WorkService — concurrent ops", () => {
       `vellum-command-work-remote-mail-${randomUUID()}`
     );
     const runtime = makeWorkRuntime(
-      join(isolatedRoot, "state", "vellum.db")
+      join(isolatedRoot, "state", "vellum-command.db")
     );
     const commandCenter = installationId("command-center-mail");
     const hostId = stationHostId("studio");

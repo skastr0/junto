@@ -102,7 +102,7 @@ release instructions in [CONTRIBUTING.md](CONTRIBUTING.md).
 ## Canvas & document
 
 Canvases live in the app-owned SQLite database at
-`~/.vellum-command/state/vellum.db`. JSON Canvas is the explicit export and
+`~/.vellum-command/state/vellum-command.db`. JSON Canvas is the explicit export and
 interoperability format, not a watched source of live state.
 
 Standard **JSON Canvas 1.0** (`text`, `file`, `link`, `group`) plus optional `ether` on nodes and edges.
@@ -263,7 +263,7 @@ App must be running. Control home: `~/.vellum-command/browser/` (override `VELLU
 | **Bind** | Herdr wizard: host → session → workspace → tab → pane |
 | **Delete** | Default **detach** (panes survive); optional kill-pane |
 | **Quit** | Detaches control streams only — fleet keeps running |
-| **Hosts** | Settings → Hosts; registry rows live in `vellum.db`; local is seeded with herdr+hermes |
+| **Hosts** | Settings → Hosts; registry rows live in `vellum-command.db`; local is seeded with herdr+hermes |
 
 Connection states: connected - degraded - lost - failed - reconnect. Clipboard image paste supported (bounded).
 
@@ -296,7 +296,7 @@ Role is **never inferred** — you pick it. `hostId` identifies this machine (de
 
 | Config | Contract |
 |---|---|
-| Host registry | App-owned rows in `vellum.db` (max 32) |
+| Host registry | App-owned rows in `vellum-command.db` (max 32) |
 | Local host | Auto-seeded with herdr + hermes |
 | Remote host | SSH endpoint + capabilities; optional hermesId remap |
 | Fleet sync | `pair` / `configure` / `project` / `report` / `status` through `vellum-command station-stdio` |
@@ -310,7 +310,7 @@ Advanced local, multi-host, and offline-island proof:
 ## Settings & install
 
 Preferences, station topology, and host enrollment live as normalized rows in
-`~/.vellum-command/state/vellum.db`. The app is their only mutation path.
+`~/.vellum-command/state/vellum-command.db`. The app is their only mutation path.
 
 | Install | Command |
 |---|---|
@@ -318,7 +318,7 @@ Preferences, station topology, and host enrollment live as normalized rows in
 | Supervised (LaunchAgent, crash-only KeepAlive) | `bun run app:install:supervised` |
 | Unload agent, keep app | `bun run app:uninstall-agent` |
 
-App bundle: **Vellum Command.app** - protocol: `vellum://` node references.
+App bundle: **Vellum Command.app** - protocol: `vellum-command://` node references.
 
 ---
 
@@ -330,7 +330,7 @@ App bundle: **Vellum Command.app** - protocol: `vellum://` node references.
 | `bun run render [name]` | agents + operators | SVG deep-field image of the board |
 | `bun run canvas:ls` | agents + operators | List canvases (`--json`) |
 | `bun run canvas:rm` | **operator only** | Delete canvases (`VELLUM_COMMAND_AUTHORIAL_WRITE=1`) |
-| `bun run ref` | tooling | `vellum://` node-ref CLI |
+| `bun run ref` | tooling | `vellum-command://` node-ref CLI |
 | `bun run browser` | agents | Browser control CLI (app must be running) |
 | `bun run cli` / `cli:build` | agents | Work-plane CLI |
 
@@ -419,7 +419,7 @@ Hosts.
 
 ## Settings & install
 
-`~/.vellum-command/state/vellum.db` owns preferences, station topology, host
+`~/.vellum-command/state/vellum-command.db` owns preferences, station topology, host
 enrollment, canvases, work, and Station coordination.
 
 | Install | Command |
@@ -428,7 +428,7 @@ enrollment, canvases, work, and Station coordination.
 | Supervised LaunchAgent | `bun run app:install:supervised` |
 | Unload agent | `bun run app:uninstall-agent` |
 
-Bundle: **Vellum Command.app** - scheme: `vellum://`
+Bundle: **Vellum Command.app** - scheme: `vellum-command://`
 
 ---
 
@@ -440,7 +440,7 @@ Bundle: **Vellum Command.app** - scheme: `vellum://`
 | `bun run render [name]` | agents + operators | SVG deep-field image |
 | `bun run canvas:ls` | agents + operators | List canvases |
 | `bun run canvas:rm` | operator only | Delete (`VELLUM_COMMAND_AUTHORIAL_WRITE=1`) |
-| `bun run ref` | tooling | `vellum://` node-ref CLI |
+| `bun run ref` | tooling | `vellum-command://` node-ref CLI |
 | `bun run browser` | agents | Browser control (app running) |
 | `bun run cli` / `cli:build` | agents | Work-plane CLI |
 
@@ -525,7 +525,7 @@ serve catalog lives in Settings.
 
 | Path / env | What |
 |---|---|
-| `~/.vellum-command/state/vellum.db` | Sole durable product state |
+| `~/.vellum-command/state/vellum-command.db` | Sole durable product state |
 | `~/.vellum-command/canvases/` | Digest and SVG sidecar outputs only |
 | `~/.vellum-command/work/` | Work control sock + token |
 | `~/.vellum-command/browser/` | Browser control + profiles + shots |
@@ -593,7 +593,7 @@ See [Node types](#node-types) detail in prior sections of this README (native ty
 
 | Path / env | What |
 |---|---|
-| `~/.vellum-command/state/vellum.db` | Sole durable product state |
+| `~/.vellum-command/state/vellum-command.db` | Sole durable product state |
 | `~/.vellum-command/canvases/` | Digest and SVG sidecar outputs only |
 | `~/.vellum-command/work/` | Work control sock + token |
 | `~/.vellum-command/browser/` | Browser control + profiles + shots |
@@ -645,7 +645,7 @@ vellum-command browser goto | eval | shot | close | stop
 
 | Path / env | What |
 |---|---|
-| `~/.vellum-command/state/vellum.db` | Sole durable product state |
+| `~/.vellum-command/state/vellum-command.db` | Sole durable product state |
 | `~/.vellum-command/canvases/` | Digest and SVG sidecar outputs only |
 | `~/.vellum-command/work/` | Work control sock + token |
 | `~/.vellum-command/browser/` | Browser control + profiles + shots |
