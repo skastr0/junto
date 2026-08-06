@@ -37,9 +37,8 @@ import {
 import {
   appendBootstrapMarker,
   buildBootstrapMarker,
-  buildInjectionText,
+  buildOrientNotice,
   buildRepairEnvNudge,
-  type InjectionContext,
 } from "@shared/managed-terminal-injection";
 import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
 import { vellumCliPathPrefixes } from "./templates/seat-env";
@@ -65,8 +64,8 @@ type SeatSupervision = {
   /** Last decision we acted on, to dedup identical repeats. */
   lastActedKind: Intervention["kind"] | undefined;
   /** Only re-inject a charter when a NEW turn completed since the last one. */
-  lastCharterTurn: number;
   repairedOnce: boolean;
+  orientedOnce: boolean;
   escalatedOnce: boolean;
   hadDelivery: boolean;
   lastText: string | undefined;
@@ -75,16 +74,8 @@ type SeatSupervision = {
   lastTurnSignal: TurnSignal | undefined;
 };
 
-export type DoctrineWriter = (bindingId: string, text: string) => boolean | Promise<boolean>;
+export type NoticeWriter = (bindingId: string, text: string) => boolean | Promise<boolean>;
 export type EscalationHandler = (bindingId: string, reason: string) => void;
-/**
- * Resolves the seat's CURRENT edge context so re-delivered doctrine is the
- * same compiled body the seat would receive at spawn — one prompt, dynamic
- * only by edges. Wired by main/vellum/ipc.ts from the live canvas.
- */
-export type ContextProvider = (
-  bindingId: string,
-) => InjectionContext | Promise<InjectionContext>;
 
 /**
  * Pure per-seat supervision state. The class owns state + event handling;
@@ -100,21 +91,16 @@ export class InjectionSupervisor {
    */
   private readonly provenBindings = new Set<string>();
   private readonly userInputBindings = new Map<string, number>();
-  private writer: DoctrineWriter | undefined;
+  private writer: NoticeWriter | undefined;
   private escalationHandler: EscalationHandler | undefined;
-  private contextProvider: ContextProvider | undefined;
   private now: () => number = Date.now;
 
-  setWriter(writer: DoctrineWriter): void {
+  setWriter(writer: NoticeWriter): void {
     this.writer = writer;
   }
 
   setEscalationHandler(handler: EscalationHandler): void {
     this.escalationHandler = handler;
-  }
-
-  setContextProvider(provider: ContextProvider): void {
-    this.contextProvider = provider;
   }
 
   setNow(now: () => number): void {
@@ -140,8 +126,8 @@ export class InjectionSupervisor {
         lastUserInputAt: this.userInputBindings.get(bindingId),
         lastOutputAt: undefined,
         lastActedKind: undefined,
-        lastCharterTurn: -1,
         repairedOnce: false,
+        orientedOnce: false,
         escalatedOnce: false,
         hadDelivery: false,
         lastText: undefined,
@@ -303,18 +289,10 @@ export class InjectionSupervisor {
     };
     const decision = decideIntervention(ctx);
 
-    // Doctrine re-delivery only on new completed turns since the last one.
+    // Dedup: identical decisions are not re-acted. notify-orient is governed
+    // by the once-per-generation flag, so it is exempt from same-kind dedup.
     if (
-      decision.kind === "inject-doctrine" &&
-      seat.turnsWithoutProof <= seat.lastCharterTurn
-    ) {
-      return;
-    }
-    // Dedup: identical decisions are not re-acted. Doctrine re-delivery is
-    // governed by the new-turn check above, so it is exempt from same-kind
-    // dedup.
-    if (
-      decision.kind !== "inject-doctrine" &&
+      decision.kind !== "notify-orient" &&
       decision.kind === seat.lastActedKind &&
       decision.kind !== "escalate"
     ) {
@@ -326,24 +304,15 @@ export class InjectionSupervisor {
         return;
       case "hold":
         return;
-      case "inject-doctrine": {
-        seat.lastActedKind = "inject-doctrine";
-        seat.lastCharterTurn = seat.turnsWithoutProof;
-        // Synchronous when no provider (deterministic, testable); async via
-        // the live-canvas provider in production.
-        if (this.contextProvider === undefined) {
-          const body = buildInjectionText({
-            seatBound: true,
-            connected: false,
-            seatRef: bindingId,
-          });
-          if (body !== null) {
-            const payload = appendBootstrapMarker(body, bindingId);
-            void this.writer?.(bindingId, payload);
-          }
-        } else {
-          void this.deliverDoctrine(bindingId);
-        }
+      case "notify-orient": {
+        if (seat.orientedOnce) return;
+        seat.orientedOnce = true;
+        seat.lastActedKind = "notify-orient";
+        const payload = appendBootstrapMarker(
+          buildOrientNotice(bindingId),
+          bindingId,
+        );
+        void this.writer?.(bindingId, payload);
         return;
       }
       case "repair-env": {
@@ -373,32 +342,6 @@ export class InjectionSupervisor {
         return;
       }
     }
-  }
-
-  /**
-   * Deliver the SAME compiled doctrine the seat would receive at spawn —
-   * buildInjectionText(ctx) resolved from the seat's current edge context.
-   * Marker is a transport tag appended by the delivery layer, not content.
-   */
-  private async deliverDoctrine(bindingId: string): Promise<void> {
-    const ctx = await this.resolveContext(bindingId);
-    const body = buildInjectionText(ctx);
-    if (body === null) return;
-    const payload = appendBootstrapMarker(body, bindingId);
-    void this.writer?.(bindingId, payload);
-  }
-
-  private async resolveContext(
-    bindingId: string,
-  ): Promise<InjectionContext> {
-    if (this.contextProvider !== undefined) {
-      try {
-        return await this.contextProvider(bindingId);
-      } catch {
-        // Fall through to the base context — a seat is always a seat.
-      }
-    }
-    return { seatBound: true, connected: false, seatRef: bindingId };
   }
 
   private resolveCliAbsolutePath(): string | undefined {

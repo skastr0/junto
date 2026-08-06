@@ -71,26 +71,30 @@ describe("InjectionSupervisor", () => {
       s.onSnapshot(snap({ lines: ["", "❯ "], text: "done", seq: n + 1n }));
     };
 
-    turnCycle(2n); // turn 1 → doctrine
+    turnCycle(2n); // turn 1 → one compact orient notice
     expect(writer).toHaveBeenCalledTimes(1);
-    expect(String(writer.mock.calls[0][1])).toContain("[vc-");
+    const payload = String(writer.mock.calls[0][1]);
+    expect(payload).toContain("[vc-");
+    expect(payload).toContain("vellum-command onboard");
+    // Compact: an orient notice, never the full doctrine.
+    expect(payload.length).toBeLessThan(600);
 
-    turnCycle(4n); // turn 2 → doctrine again (new turn)
-    expect(writer).toHaveBeenCalledTimes(2);
-
+    turnCycle(4n); // turn 2 → no repeat (once per generation)
     turnCycle(6n); // turn 3 → budget exhausted → escalate, no write
-    expect(writer).toHaveBeenCalledTimes(2);
+    expect(writer).toHaveBeenCalledTimes(1);
     expect(escalate).toHaveBeenCalledTimes(1);
     expect(escalate.mock.calls[0][1]).toMatch(/unguided/);
   });
 
-  it("confusion heuristic triggers a doctrine (awareness react)", () => {
+  it("confusion heuristic triggers a compact orient notice (awareness react)", () => {
     const s = new InjectionSupervisor();
     const writer = vi.fn();
     s.setWriter(writer);
     s.onSnapshot(snap({ text: "what is vellum? is it a tool?" }));
     expect(writer).toHaveBeenCalledTimes(1);
-    expect(String(writer.mock.calls[0][1])).toContain("vellum-command onboard");
+    const payload = String(writer.mock.calls[0][1]);
+    expect(payload).toContain("vellum-command onboard");
+    expect(payload.length).toBeLessThan(600); // compact, not the full doctrine
   });
 
   it("env-broken heuristic triggers a repair-env nudge with the absolute CLI path", () => {

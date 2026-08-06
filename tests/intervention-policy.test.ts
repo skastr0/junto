@@ -69,7 +69,7 @@ const BUDGET_EXHAUSTED_AWARENESS: ReadonlyArray<(typeof AWARENESS_SIGNALS)[numbe
 describe("intervention policy", () => {
   it("exposes the turn budget and PTY write kinds", () => {
     expect(MAX_TURNS_WITHOUT_PROOF).toBe(3);
-    expect([...PTY_WRITE_KINDS].sort()).toEqual(["inject-doctrine", "repair-env"]);
+    expect([...PTY_WRITE_KINDS].sort()).toEqual(["notify-orient", "repair-env"]);
   });
 
   it("documents at least 25 key combos in POLICY_TABLE", () => {

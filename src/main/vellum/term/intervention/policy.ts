@@ -17,8 +17,8 @@
  *   seat attention    → hold("modal")
  *   ── writes (all write-gated above) ──
  *   env-broken        → repair-env        (first repair attempt, budget not spent)
- *   confused          → inject-doctrine
- *   turn ended + unproven → inject-doctrine (one quiet doctrine re-delivery)
+ *   confused          → notify-orient
+ *   turn ended + unproven → notify-orient (one quiet orient notice)
  *   else              → hold("turn")
  *
  * The write-gates ALWAYS override every would-be PTY write: when a gate is
@@ -115,15 +115,15 @@ export type InteractionContext = typeof InteractionContext.Type;
 // Intervention — the decision
 
 /**
- * What the drive layer may do next. `inject-doctrine` and `repair-env` are the
+ * What the drive layer may do next. `notify-orient` and `repair-env` are the
  * only PTY writes (`PTY_WRITE_KINDS`); `escalate` surfaces on the canvas only.
  */
 export const Intervention = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("silent") }),
   Schema.Struct({ kind: Schema.Literal("hold"), reason: Schema.String }),
   Schema.Struct({
-    kind: Schema.Literal("inject-doctrine"),
-    payload: Schema.Literal("doctrine"),
+    kind: Schema.Literal("notify-orient"),
+    payload: Schema.Literal("orient"),
   }),
   Schema.Struct({ kind: Schema.Literal("repair-env") }),
   Schema.Struct({
@@ -135,7 +135,7 @@ export type Intervention = typeof Intervention.Type;
 
 /** The intervention kinds that physically write to the PTY. */
 export const PTY_WRITE_KINDS: ReadonlySet<string> = new Set([
-  "inject-doctrine",
+  "notify-orient",
   "repair-env",
 ]);
 
@@ -145,7 +145,7 @@ export const PTY_WRITE_KINDS: ReadonlySet<string> = new Set([
 /**
  * Total, exhaustive policy evaluation. Every input combination maps to
  * exactly one Intervention; the write-gates always win over every would-be
- * PTY write (repair-env / inject-doctrine), while escalate stays reachable
+ * PTY write (repair-env / notify-orient), while escalate stays reachable
  * because it only surfaces on the canvas.
  */
 export const decideIntervention = (ctx: InteractionContext): Intervention => {
@@ -160,7 +160,7 @@ export const decideIntervention = (ctx: InteractionContext): Intervention => {
   // ── turn budget ──────────────────────────────────────────────────────────
   // Budget exhausted without proof: escalate. Escalate is canvas-only — NOT a
   // PTY write — so the write-gates never block it (a live operator surface
-  // still never gets written to: only inject-doctrine/repair-env are writes).
+  // still never gets written to: only notify-orient/repair-env are writes).
   if (turnsWithoutProof >= MAX_TURNS_WITHOUT_PROOF) {
     if (awareness === "unproven") {
       return {
@@ -208,7 +208,7 @@ export const decideIntervention = (ctx: InteractionContext): Intervention => {
   // ── write-gates ──────────────────────────────────────────────────────────
   // The gates guard PTY writes only. Any live operator surface (user at the
   // seat, our own injection still pending, or a modal) ALWAYS overrides a
-  // would-be write (repair-env / inject-doctrine) regardless of awareness or
+  // would-be write (repair-env / notify-orient) regardless of awareness or
   // budget — the decision becomes hold.
   if (user === "present" || user === "drafted" || user === "submitted") {
     return { kind: "hold", reason: "user" };
@@ -219,13 +219,15 @@ export const decideIntervention = (ctx: InteractionContext): Intervention => {
   // ── awareness-driven writes (all write-gated above) ──────────────────────
   // First repair attempt before escalating repeat failures.
   if (awareness === "env-broken") return { kind: "repair-env" };
-  // Confused about what vellum is: re-inject the doctrine.
+  // Confused about what vellum is: a compact orient notice — the full
+  // doctrine was already delivered at spawn; re-injecting it is noise.
   if (awareness === "confused") {
-    return { kind: "inject-doctrine", payload: "doctrine" };
+    return { kind: "notify-orient", payload: "orient" };
   }
-  // Turn over, still unproven: one quiet doctrine re-delivery.
+  // Turn over, still unproven: one compact orient notice, never the full
+  // doctrine (agents reported repeated full re-injection as spam).
   if (turn === "ended" && awareness === "unproven") {
-    return { kind: "inject-doctrine", payload: "doctrine" };
+    return { kind: "notify-orient", payload: "orient" };
   }
 
   // Default: hold until a turn boundary or a signal change.
@@ -241,7 +243,7 @@ export const decideIntervention = (ctx: InteractionContext): Intervention => {
  *   { seat: "idle", user: "absent", injection: "none", turn: "none",
  *     awareness: "unproven", turnsWithoutProof: 0 }
  *
- * Gate semantics: gates block PTY writes (inject-doctrine / repair-env) only;
+ * Gate semantics: gates block PTY writes (notify-orient / repair-env) only;
  * escalate (canvas-only) passes them — see the socket-down / budget rows
  * combined with user/injection/attention below.
  */
@@ -265,17 +267,17 @@ export const POLICY_TABLE: ReadonlyArray<{
   { ctx: { awareness: "env-broken", turnsWithoutProof: 8 }, expected: "escalate" },
 
   // ── L2: confused ──────────────────────────────────────────────────────────
-  { ctx: { awareness: "confused" }, expected: "inject-doctrine" },
-  { ctx: { awareness: "confused", turn: "in-turn" }, expected: "inject-doctrine" },
-  { ctx: { awareness: "confused", turnsWithoutProof: 2 }, expected: "inject-doctrine" },
-  // Budget exhaustion beats the doctrine re-delivery.
+  { ctx: { awareness: "confused" }, expected: "notify-orient" },
+  { ctx: { awareness: "confused", turn: "in-turn" }, expected: "notify-orient" },
+  { ctx: { awareness: "confused", turnsWithoutProof: 2 }, expected: "notify-orient" },
+  // Budget exhaustion beats the orient notice.
   { ctx: { awareness: "confused", turnsWithoutProof: 3 }, expected: "escalate" },
   { ctx: { awareness: "confused", turnsWithoutProof: 8, turn: "none" }, expected: "escalate" },
 
   // ── L1: unproven, turn ended ──────────────────────────────────────────────
-  { ctx: { turn: "ended" }, expected: "inject-doctrine" },
-  { ctx: { turn: "ended", turnsWithoutProof: 2 }, expected: "inject-doctrine" },
-  // Budget exhaustion beats the end-of-turn doctrine re-delivery.
+  { ctx: { turn: "ended" }, expected: "notify-orient" },
+  { ctx: { turn: "ended", turnsWithoutProof: 2 }, expected: "notify-orient" },
+  // Budget exhaustion beats the end-of-turn orient notice.
   { ctx: { turn: "ended", turnsWithoutProof: 3 }, expected: "escalate" },
   { ctx: { turn: "ended", turnsWithoutProof: 8 }, expected: "escalate" },
 
