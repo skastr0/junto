@@ -42,6 +42,9 @@ test("double-clicking an edge opens its settings fields", async ({ vellumCommand
 
   const fields = page.locator(".rts-kind-form-panel");
   await expect(fields).toBeVisible({ timeout: 10_000 });
-  await expect(fields.getByText("execution edge", { exact: true })).toBeVisible();
-  await expect(fields.getByLabel("Edit edge label")).toBeVisible();
+  // The retired edge inspector is replaced by the Link settings focus
+  // surface: pair eyebrow, plain "Link" sheet title, and the delete action.
+  await expect(page.getByRole("dialog", { name: "Link settings" })).toBeVisible();
+  await expect(fields.getByText("Source node → Target node", { exact: false })).toBeVisible();
+  await expect(fields.getByRole("button", { name: "Delete link" })).toBeVisible();
 });

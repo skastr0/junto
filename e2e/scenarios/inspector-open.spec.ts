@@ -11,14 +11,16 @@ test.use({
   },
 });
 
-test("clicking a node opens the inspector showing that node's content", async ({ vellumCommand }) => {
+test("clicking a node shows its content in the RTS command bar", async ({ vellumCommand }) => {
   const { page } = vellumCommand;
 
   const node = page.locator(".react-flow__node", { hasText: FIXTURE_TEXT });
   await expect(node).toBeVisible({ timeout: 30_000 });
   await node.click();
 
-  const title = page.locator(".inspector-title");
-  await expect(title).toBeVisible();
-  await expect(title).toHaveText(FIXTURE_TEXT);
+  // The sidebar inspector is retired; node selection now surfaces in the RTS
+  // command bar, which shows the selected node's content.
+  const bar = page.locator(".rts-shell");
+  await expect(bar).toBeVisible({ timeout: 10_000 });
+  await expect(bar).toContainText(FIXTURE_TEXT);
 });

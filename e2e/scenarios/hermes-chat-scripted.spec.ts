@@ -2,27 +2,52 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { oneReplyScenario, writeScenario } from "../fakes/hermes-scenario";
-import { agentTextNode, canvasDoc } from "../harness/sandbox";
+import { canvasDoc } from "../harness/sandbox";
 import { expect, launchVellum, test } from "../harness/launch";
+import type { TextNode } from "../../src/shared/canvas";
 
-// Real spawn->ACP pipeline against a fake `hermes acp` on PATH — no demo
-// mode. The canvas node carries ether.entity {kind:"agent", name: AGENT_KEY}
-// directly, so opening it mounts the real ChatView without
-// depending on the hermes-fleet discovery poll to have landed first.
+// Real spawn->terminal pipeline against a fake `hermes` on PATH — no demo
+// mode. The ACP chat surface is retired product (ACP_CHAT_SURFACE_HIDDEN),
+// so the managed terminal is the one agent work surface: double-clicking
+// the agent seat spawns the hermes harness (fake `hermes` on the sandbox
+// PATH) into the native terminal surface.
 
 const AGENT_KEY = "local:default";
 const LABEL = "Fake Hermes Agent";
-const SCRIPTED_REPLY = "Hello from the fake hermes agent!";
 
-test("attaching chat to a fake hermes agent round-trips a scripted reply", async () => {
-  const scenarioDir = await mkdtemp(join(tmpdir(), "vellum-command-e2e-hermes-"));
+/** Managed hermes seat — actor-seat law: kind "agent" carries
+ * ether.terminal.bindingId + harness so the portfolio compiler admits it. */
+const hermesAgentNode = (input: {
+  readonly id: string;
+  readonly key: string;
+  readonly label: string;
+}): TextNode => ({
+  id: input.id,
+  type: "text",
+  text: input.label,
+  x: 0,
+  y: 0,
+  width: 240,
+  height: 96,
+  ether: {
+    entity: { kind: "agent", name: input.key },
+    host: "local",
+    terminal: {
+      bindingId: input.key,
+      harness: "hermes",
+    },
+  },
+});
+
+test("double-clicking a fake hermes agent opens its managed terminal seat", async () => {
+  const scenarioDir = await mkdtemp(join(tmpdir(), "vellum-e2e-hermes-"));
   const scenarioPath = join(scenarioDir, "scenario.json");
-  await writeScenario(scenarioPath, oneReplyScenario(SCRIPTED_REPLY));
+  await writeScenario(scenarioPath, oneReplyScenario("managed-terminal"));
 
   const vellumCommand = await launchVellum({
     extraEnv: { FAKE_HERMES_SCENARIO: scenarioPath },
     seedCanvases: {
-      chat: canvasDoc([agentTextNode({ id: "a1", key: AGENT_KEY, label: LABEL })]),
+      chat: canvasDoc([hermesAgentNode({ id: "a1", key: AGENT_KEY, label: LABEL })]),
     },
   });
   try {
@@ -32,16 +57,11 @@ test("attaching chat to a fake hermes agent round-trips a scripted reply", async
     await expect(node).toBeVisible({ timeout: 30_000 });
     await node.dblclick();
 
-    await expect(page.locator(".chat-view")).toBeVisible();
-    await page.getByRole("button", { name: "attach" }).click();
-
-    const chat = page.locator(".chat-view");
-    const composer = chat.getByRole("textbox", { name: "Message", exact: true });
-    await expect(composer).toBeVisible({ timeout: 30_000 });
-    await composer.fill("hello there");
-    await chat.getByRole("button", { name: "send", exact: true }).click();
-
-    await expect(page.locator(".chat-message--assistant")).toContainText(SCRIPTED_REPLY, { timeout: 30_000 });
+    // Chat attach is retired; the managed terminal is the agent work
+    // surface and spawns the hermes harness from the sandbox PATH.
+    const surface = page.locator(".native-terminal-surface");
+    await expect(surface).toBeVisible({ timeout: 20_000 });
+    await expect(surface).toContainText(LABEL);
   } finally {
     await vellumCommand.close();
   }

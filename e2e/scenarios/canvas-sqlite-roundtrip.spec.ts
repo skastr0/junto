@@ -65,12 +65,14 @@ test("operator UI write round-trips through main IPC and survives renderer reloa
   const node = page.locator(".react-flow__node", { hasText: ORIGINAL_TEXT });
   await expect(node).toBeVisible({ timeout: 30_000 });
   await node.click();
-  await node.getByRole("button", { name: "Edit item" }).first().click();
+  // Cards carry no action buttons; free-note editing lives on the RTS kind
+  // strip ("Edit note") and opens the note editor focus surface.
+  await page.getByRole("button", { name: "Edit note" }).click();
 
-  const textarea = page.getByLabel("Edit note");
+  const textarea = page.getByLabel("Note markdown");
   await expect(textarea).toBeVisible();
   await textarea.fill(UI_EDITED_TEXT);
-  await textarea.blur();
+  await page.getByRole("button", { name: "done", exact: true }).click();
 
   await expect
     .poll(
