@@ -6,7 +6,7 @@
  *   04  six-machine fleet manager
  *   05  five-region - large forge with 2×2 agents → tasks/requests/artifacts
  *   06  work UI grid - kanban + requests + artifacts (composited)
- *   07  open UIs grid - ACP chat + native terminal + herdr modal
+ *   07  open UIs grid - managed agent terminal + native terminal
  *
  * Layout rules for canvas plates:
  *   - fixed card size 260×110; column pitch with ≥120px gaps
@@ -15,17 +15,16 @@
  *
  *   MARKETING_SHOTS_DIR=/path bun run test:e2e:fast e2e/scenarios/marketing-stills.spec.ts
  */
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import type { Page } from "@playwright/test";
 import { demoCommand } from "../harness/demo";
-import { oneReplyScenario, writeScenario as writeHermesScenario } from "../fakes/hermes-scenario";
 import {
   agentTextNode,
   artifactsNode,
   canvasDoc,
+  claimByNodeId,
   herdrTextNode,
   requestsNode,
   taskItem,
@@ -109,9 +108,11 @@ const richTask = (
   const base = taskItem(id, brief, state);
   return {
     ...base,
+    // Claim is first-class domain state now; the sandbox resolves the
+    // authored node id to the derived ActorSeatId when seeding work.
+    ...(claimedBy ? { claimedBy: claimByNodeId(claimedBy) } : {}),
     metadata: {
       workRole,
-      ...(claimedBy ? { claimedBy } : {}),
       details: brief,
     },
   };
@@ -274,7 +275,7 @@ test("still 01 — one region factory close", async () => {
       x: c1,
       y: y0,
       items: [
-        richTask("t-1", "ship design tokens", "working", "Builder", "local:builder"),
+        richTask("t-1", "ship design tokens", "working", "Builder", "agent"),
         richTask("t-2", "wire checkout", "submitted", "Builder"),
       ],
     }),
@@ -399,7 +400,7 @@ test("still 02 — multi-host work board", async () => {
       x: f1,
       y: fy0,
       items: [
-        richTask("t-1", "ship tokens", "working", "Builder", "local:builder"),
+        richTask("t-1", "ship tokens", "working", "Builder", "a-builder"),
         richTask("t-2", "green e2e", "submitted", "Builder"),
       ],
     }),
@@ -416,7 +417,7 @@ test("still 02 — multi-host work board", async () => {
       x: b1,
       y: by0,
       items: [
-        richTask("t-3", "founder pricing", "input-required", "Release", "remote-a:release"),
+        richTask("t-3", "founder pricing", "input-required", "Release", "a-release"),
       ],
     }),
     agentTextNode({
@@ -610,7 +611,16 @@ test("still 03 — five region factory map", async () => {
         id: tasksId,
         x: c1,
         y: y0,
-        items: [richTask(`${o.id}-task`, o.taskBrief, o.taskState, o.agentLabel, o.agentKey)],
+        items: [
+          richTask(
+            `${o.id}-task`,
+            o.taskBrief,
+            o.taskState,
+            o.agentLabel,
+            // Claim by the authored agent node id; submitted tasks carry no claim.
+            o.taskState === "submitted" ? undefined : `a-${o.id}`,
+          ),
+        ],
       }),
       agentTextNode({
         id: agentId,
@@ -895,10 +905,10 @@ test("still 05 — five regions agent square", async () => {
       x: sx,
       y: sy0,
       items: [
-        richTask("t-1", "ship design tokens", "working", "Builder", "local:builder"),
+        richTask("t-1", "ship design tokens", "working", "Builder", "a-builder"),
         richTask("t-2", "wire founder checkout", "submitted", "Builder"),
-        richTask("t-3", "authorize signing", "input-required", "Security", "local:security"),
-        richTask("t-4", "green e2e stills", "working", "Reviewer", "remote-a:review"),
+        richTask("t-3", "authorize signing", "input-required", "Security", "a-security"),
+        richTask("t-4", "green e2e stills", "working", "Reviewer", "a-review"),
       ],
     }),
     requestsNode({
@@ -906,8 +916,8 @@ test("still 05 — five regions agent square", async () => {
       x: sx,
       y: sy1,
       items: [
-        richTask("r-1", "approve founder pricing", "input-required", "Release", "remote-a:release2"),
-        richTask("r-2", "confirm palette", "input-required", "Design", "local:builder"),
+        richTask("r-1", "approve founder pricing", "input-required", "Release", "a-release"),
+        richTask("r-2", "confirm palette", "input-required", "Design", "a-builder"),
       ],
     }),
     artifactsNode({
@@ -945,6 +955,7 @@ test("still 05 — five regions agent square", async () => {
   edges.push(
     hEdge("e-sec-tasks", "a-security", "tasks-forge"),
     hEdge("e-rel-req", "a-release", "req-forge"),
+    hEdge("e-rel-art", "a-release", "art-forge"),
     vEdge("e-tasks-req", "tasks-forge", "req-forge"),
     vEdge("e-req-art", "req-forge", "art-forge"),
   );
@@ -1042,20 +1053,24 @@ test("still 06 — work UI grid", async () => {
     };
   };
 
-  const doc = canvasDoc([
+  // Work-plane seeds require compiled local actor seats to raise claims,
+  // requests, and artifacts; each seat owns at most one active task, so the
+  // claimed kanban items are spread across four seats under the sink row.
+  const doc = canvasDoc(
+    [
     tasksNode({
       id: "tasks1",
       x: 40,
       y: 40,
       items: [
         auditTask("t-1", "Ship browser containment probe", "submitted", "Builder"),
-        auditTask("t-2", "Fix stale host badge", "working", "Builder", "local:builder"),
+        auditTask("t-2", "Fix stale host badge", "working", "Builder", "a-builder"),
         auditTask(
           "t-3",
           "Clarify claim tick rules",
           "input-required",
           "Release Engineer",
-          "local:builder",
+          "a-security",
           "Which worker should own tasks without a matching role?",
         ),
         auditTask(
@@ -1063,16 +1078,16 @@ test("still 06 — work UI grid", async () => {
           "Enable remote session capture",
           "input-required",
           "Security Agent",
-          "local:security",
+          "a-ops",
           "Operator authorization is required before opening the remote capability.",
         ),
-        auditTask("t-5", "Rotate service key material", "completed", "Security Agent", "local:security"),
+        auditTask("t-5", "Rotate service key material", "completed", "Security Agent", "a-review"),
         auditTask(
           "t-6",
           "Reject unsafe host cleanup",
           "rejected",
           "Security Agent",
-          "local:security",
+          "a-review",
           "The proposed operation exceeded the connected capability scope.",
         ),
       ],
@@ -1152,7 +1167,45 @@ test("still 06 — work UI grid", async () => {
         },
       ] satisfies Artifact[],
     }),
-  ]);
+    agentTextNode({
+      id: "a-builder",
+      key: "local:builder",
+      label: "builder",
+      host: "local",
+      x: 40,
+      y: 200,
+    }),
+    agentTextNode({
+      id: "a-security",
+      key: "local:security",
+      label: "security",
+      host: "local",
+      x: 300,
+      y: 200,
+    }),
+    agentTextNode({
+      id: "a-ops",
+      key: "local:ops",
+      label: "ops",
+      host: "local",
+      x: 560,
+      y: 200,
+    }),
+    agentTextNode({
+      id: "a-review",
+      key: "local:review",
+      label: "review",
+      host: "local",
+      x: 820,
+      y: 200,
+    }),
+  ],
+    [
+      hEdge("e-t1-builder", "tasks1", "a-builder"),
+      hEdge("e-r1-security", "req1", "a-security"),
+      hEdge("e-a1-ops", "art1", "a-ops"),
+    ],
+  );
 
   const vellumCommand = await launchVellum({
     seedCanvases: { portfolio: doc },
@@ -1211,19 +1264,15 @@ test("still 06 — work UI grid", async () => {
   }
 });
 
-// ── 07 - open surfaces grid - ACP chat + native terminal (+ herdr modal) ────
-// Minimal seed nodes only exist so the open UIs can be launched. The plate is
-// the opened workbench/modals, not a board of terminal/agent cards.
+// ── 07 - open surfaces grid - managed agent terminal + native terminal ─────
+// The ACP chat UI is unshipped product (ACP_CHAT_SURFACE_HIDDEN): the managed
+// terminal is the one agent work surface. Minimal seed nodes only exist so
+// the open workbenches can be launched. The plate is the opened workbench,
+// not a board of terminal/agent cards.
 
 test("still 07 — open terminal and ACP UIs", async () => {
   test.setTimeout(120_000);
   await mkdir(SHOTS, { recursive: true });
-
-  const hermesPath = join(await mkdtemp(join(tmpdir(), "vellum-mkt-surfaces-")), "hermes.json");
-  await writeHermesScenario(
-    hermesPath,
-    oneReplyScenario("Factory stills ready — tokens, board, fleet map."),
-  );
 
   // Minimal seed — only what we open. The plate is the open workbench, not the cards.
   const nodes: CanvasNode[] = [
@@ -1247,9 +1296,6 @@ test("still 07 — open terminal and ACP UIs", async () => {
 
   const vellumCommand = await launchVellum({
     seedCanvases: { portfolio: canvasDoc(nodes) },
-    extraEnv: {
-      FAKE_HERMES_SCENARIO: hermesPath,
-    },
   });
 
   try {
@@ -1268,27 +1314,24 @@ test("still 07 — open terminal and ACP UIs", async () => {
 
     // Real pointer dblclick (React onDoubleClick) — dispatchEvent does not open these surfaces.
 
-    // 1 - ACP chat workbench
+    // 1 - Managed agent terminal workbench (the one agent work surface).
     const agentNode = page.locator(".react-flow__node", { hasText: "builder" }).first();
     await expect(agentNode).toBeVisible({ timeout: 15_000 });
     await agentNode.dblclick();
-    await expect(page.locator(".chat-view")).toBeVisible({ timeout: 15_000 });
-    // Attach starts the fake hermes ACP session (same path as hermes-chat-scripted).
-    const attach = page.getByRole("button", { name: "attach" });
-    if (await attach.isVisible().catch(() => false)) await attach.click();
-    const chat = page.locator(".chat-view");
-    const composer = chat.getByRole("textbox", { name: "Message", exact: true });
-    await expect(composer).toBeVisible({ timeout: 30_000 });
-    await composer.fill("ship the factory stills");
-    await chat.getByRole("button", { name: "send", exact: true }).click();
-    await expect(page.locator(".chat-message--assistant")).toContainText("Factory stills", {
-      timeout: 30_000,
+    const agentSurface = page.locator(".native-terminal-surface");
+    await expect(agentSurface).toBeVisible({ timeout: 15_000 });
+    await expect(
+      agentSurface.locator(".native-terminal-surface__status"),
+    ).toContainText(/control|attaching|ready|live|running|connected/i, {
+      timeout: 20_000,
     });
-    const acpPath = await grab("07a-ui-acp-chat.png");
-    await page.getByRole("button", { name: "Close ACP chat" }).click();
+    await page.waitForTimeout(800);
+    const agentTermPath = await grab("07a-ui-agent-terminal.png");
+    await agentSurface.getByRole("button", { name: "Close view" }).click();
+    await expect(agentSurface).toBeHidden();
     await page.waitForTimeout(400);
 
-    // 2 - Native terminal focus surface
+    // 2 - Native terminal workbench
     const termNode = page.locator(".react-flow__node", { hasText: "build - typecheck" }).first();
     await expect(termNode).toBeVisible({ timeout: 15_000 });
     await termNode.dblclick();
@@ -1301,8 +1344,9 @@ test("still 07 — open terminal and ACP UIs", async () => {
     await page.waitForTimeout(800);
     const termPath = await grab("07b-ui-native-terminal.png");
 
-    // Open-UI grid only — ACP chat + native terminal workbench (not canvas cards).
-    compositeGrid([acpPath, termPath], join(SHOTS, "07-ui-surfaces-grid.png"), 2, 32);
+    // Open-UI grid only — managed agent terminal + native terminal workbench
+    // (not canvas cards).
+    compositeGrid([agentTermPath, termPath], join(SHOTS, "07-ui-surfaces-grid.png"), 2, 32);
   } finally {
     await vellumCommand.close();
   }

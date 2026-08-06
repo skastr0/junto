@@ -14,6 +14,7 @@ import type { Page } from "@playwright/test";
 import { demoCommand } from "../harness/demo";
 import {
   taskItem,
+  agentTextNode,
   artifactsNode,
   canvasDoc,
   herdrTextNode,
@@ -61,7 +62,7 @@ const fleet: readonly FleetPane[] = [
 ];
 
 const regions: readonly GroupNode[] = [
-  { id: "rg-forge", type: "group", label: "forge - build lane", x: -80, y: -80, width: 1220, height: 460, ether: { region: { hold: true } } },
+  { id: "rg-forge", type: "group", label: "forge - build lane", x: -80, y: -80, width: 1220, height: 500, ether: { region: { hold: true } } },
   { id: "rg-beacon", type: "group", label: "beacon - launch", x: -80, y: 500, width: 940, height: 440, ether: { region: { hold: true } } },
   { id: "rg-research", type: "group", label: "deep research", x: 880, y: 500, width: 660, height: 440, ether: { region: { hold: true } } },
 ];
@@ -90,6 +91,9 @@ const notes: readonly CanvasNode[] = [
   },
 ];
 
+// The forge lane carries one agent seat so the seeded work plane has a
+// compiled local actor to raise claims and requests (herdr panes are
+// geography and hold no seat).
 const nodes: readonly CanvasNode[] = [
   ...regions,
   ...fleet.map((p) =>
@@ -100,6 +104,7 @@ const nodes: readonly CanvasNode[] = [
     x: 300, y: 180,
     items: [taskItem("t-1", "ship design tokens", "working"), taskItem("t-2", "wire founder checkout", "submitted")],
   }),
+  agentTextNode({ id: "a-forge", key: "local:forge", label: "forge", x: 300, y: 300 }),
   projectNode({ id: "proj-vellum", name: "vellum", x: 680, y: 190 }),
   requestsNode({
     id: "req-beacon",
@@ -113,6 +118,8 @@ const nodes: readonly CanvasNode[] = [
 
 const edges: readonly CanvasEdge[] = [
   tasksCriteriaEdge("e-criteria", "tasks-forge", "proj-vellum"),
+  { id: "e-agent-tasks", fromNode: "a-forge", toNode: "tasks-forge", fromSide: "top", toSide: "bottom" },
+  { id: "e-agent-req", fromNode: "a-forge", toNode: "req-beacon", fromSide: "right", toSide: "left" },
   { id: "e-depends", fromNode: "proj-vellum", toNode: "proj-launch", fromSide: "bottom", toSide: "top", ether: { kind: "relates" } },
   { id: "e-blocks", fromNode: "note-blocker", toNode: "proj-launch", fromSide: "right", toSide: "left", ether: { kind: "blocks" } },
   { id: "e-relates", fromNode: "h7", toNode: "note-attn", fromSide: "right", toSide: "left", ether: { kind: "relates" } },

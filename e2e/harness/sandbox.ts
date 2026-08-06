@@ -39,6 +39,10 @@ import {
   StationRepositoryLive,
 } from "../../src/main/vellum/station/repository";
 import {
+  StationFleetTargetRepository,
+  StationFleetTargetRepositoryLive,
+} from "../../src/main/vellum/station/fleet-target-repository";
+import {
   compileActorSeatRegistry,
 } from "../../src/main/vellum/station/actor-seat-compiler";
 import {
@@ -67,14 +71,14 @@ export interface Sandbox {
 const controlSocketFits = (root: string): boolean => {
   // Longest control plane suffix under the canonical home.
   const suffix = join("home", ".vellum-command", "station", "control.sock");
-  // 6 random chars from mkdtemp + the "vellum-e2e-" prefix.
-  const longest = join(root, "vellum-e2e-abcdef", suffix);
+  // 6 random chars from mkdtemp + the "vellum-command-e2e-" prefix.
+  const longest = join(root, "vellum-command-e2e-abcdef", suffix);
   return Buffer.byteLength(longest) <= 103;
 };
 
 export const createSandbox = async (): Promise<Sandbox> => {
   const tempRoot = controlSocketFits(tmpdir()) ? tmpdir() : "/tmp";
-  const root = await mkdtemp(join(tempRoot, "vellum-e2e-"));
+  const root = await mkdtemp(join(tempRoot, "vellum-command-e2e-"));
   const userDataDir = join(root, "user-data");
   const homeDir = join(root, "home");
   const vellumDir = join(homeDir, ".vellum-command");
@@ -109,18 +113,24 @@ export const writeFixtureCanvas = async (
   sandbox: Sandbox,
   name: string,
   doc: CanvasDoc,
+  databasePath?: string,
 ): Promise<void> => {
   const previousCanvasesDir = process.env.VELLUM_COMMAND_CANVASES_DIR;
   process.env.VELLUM_COMMAND_CANVASES_DIR = sandbox.canvasesDir;
 
+  // Default to the sandbox's canonical product database. Demo-mode apps
+  // isolate product state in a process-minted ephemeral SQLite file, so
+  // launchVellum re-seeds the same fixtures into that database after boot.
   const state = makeStateEngineLive(
-    join(sandbox.homeDir, ".vellum-command", "state", "vellum-command.db"),
+    databasePath ??
+      join(sandbox.homeDir, ".vellum-command", "state", "vellum-command.db"),
   );
   const repositories = Layer.provideMerge(
     Layer.mergeAll(
       WorkRepositoryLive,
       StationRepositoryLive,
       SettingsLive,
+      StationFleetTargetRepositoryLive,
     ),
     state,
   );
@@ -134,12 +144,43 @@ export const writeFixtureCanvas = async (
         const workRepository = yield* WorkRepository;
         const stations = yield* StationRepository;
         const settings = yield* SettingsService;
+        const fleetTargets = yield* StationFleetTargetRepository;
 
         yield* settings.setStationTopology({
           role: "command-center",
           hostId: "local",
           supervisedPreferred: true,
         });
+        const installationId = yield* stations.installationId;
+
+        // The actor-seat compiler resolves every agent seat against the
+        // station topology, so multi-host fixtures must bind each host they
+        // place agents on BEFORE the first portfolio read. "local" is the
+        // configured Command Center host; every other agent host is bound
+        // as a fleet target of this sandbox installation (same rows the
+        // app reads at boot).
+        const agentHosts = new Set<string>();
+        for (const node of doc.nodes) {
+          if (node.ether?.entity?.kind !== "agent") continue;
+          const host =
+            typeof node.ether.host === "string" &&
+            node.ether.host.trim().length > 0
+              ? node.ether.host.trim()
+              : "local";
+          agentHosts.add(host);
+        }
+        const installationByHostId = new Map<string, typeof installationId>([
+          ["local", installationId],
+        ]);
+        for (const host of agentHosts) {
+          if (host === "local") continue;
+          yield* fleetTargets.bind({
+            hostId: host,
+            stationInstallationId: installationId,
+          });
+          installationByHostId.set(host, installationId);
+        }
+
         yield* canvasService.write(name, doc);
         const intentWitness = yield* canvasService.activeIntentWitness();
         const basis = Schema.decodeUnknownSync(IntentFactBasis, {
@@ -150,11 +191,10 @@ export const writeFixtureCanvas = async (
           contentSha256: intentWitness.contentSha256,
         });
 
-        const installationId = yield* stations.installationId;
         const actorRefs: ReadonlyArray<ActorRef> =
           compileActorSeatRegistry(
             new Map([[name, doc]]),
-            new Map([["local", installationId]]),
+            installationByHostId,
           ).flatMap((seat) =>
             seat.refs.map((ref) => ({
               seatId: seat.seatId,
@@ -312,6 +352,55 @@ export const writeFixtureCanvas = async (
               publishedBy: adjacentActor(node.id),
             });
           }
+        }
+      }),
+    );
+  } finally {
+    try {
+      await runtime.dispose();
+    } finally {
+      if (previousCanvasesDir === undefined) {
+        delete process.env.VELLUM_COMMAND_CANVASES_DIR;
+      } else {
+        process.env.VELLUM_COMMAND_CANVASES_DIR = previousCanvasesDir;
+      }
+    }
+  }
+};
+
+/**
+ * Remove canvases from an explicit database, keeping only the seeded names.
+ * Demo-mode apps mint an ephemeral product database and create an empty
+ * default canvas at first boot; launchVellum removes it so the renderer
+ * boots onto the seeded canvas instead of the empty default.
+ */
+export const removeFixtureCanvases = async (
+  sandbox: Sandbox,
+  databasePath: string,
+  keep: ReadonlySet<string>,
+): Promise<void> => {
+  const previousCanvasesDir = process.env.VELLUM_COMMAND_CANVASES_DIR;
+  process.env.VELLUM_COMMAND_CANVASES_DIR = sandbox.canvasesDir;
+  const state = makeStateEngineLive(databasePath);
+  const repositories = Layer.provideMerge(
+    Layer.mergeAll(
+      WorkRepositoryLive,
+      StationRepositoryLive,
+      SettingsLive,
+      StationFleetTargetRepositoryLive,
+    ),
+    state,
+  );
+  const canvases = Layer.provideMerge(CanvasesLive, repositories);
+  const runtime = ManagedRuntime.make(canvases);
+  try {
+    await runtime.runPromise(
+      Effect.gen(function* () {
+        const canvasService = yield* CanvasesService;
+        const documents = yield* canvasService.liveDocuments();
+        for (const { canvasName } of documents) {
+          if (keep.has(canvasName)) continue;
+          yield* canvasService.remove(canvasName);
         }
       }),
     );

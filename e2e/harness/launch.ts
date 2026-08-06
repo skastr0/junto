@@ -18,9 +18,10 @@
  *    a visible window for debugging with VELLUM_COMMAND_E2E_SHOW=1 (not --vellum-headless —
  *    that mode has no authoring renderer at all).
  */
-import { lstat, unlink } from "node:fs/promises";
+import { lstat, readdir, stat, unlink } from "node:fs/promises";
 import { connect } from "node:net";
 import { dirname, join } from "node:path";
+import { tmpdir } from "node:os";
 import { test as base, type Page } from "@playwright/test";
 import { _electron as electron, type ElectronApplication } from "playwright-core";
 import type { CanvasDoc } from "../../src/shared/canvas";
@@ -28,6 +29,7 @@ import type { RemoteHost } from "../../src/shared/remote-hosts";
 import {
   createSandbox,
   destroySandbox,
+  removeFixtureCanvases,
   writeFixtureCanvas,
   writeFixtureHosts,
   type Sandbox,
@@ -379,6 +381,41 @@ const socketExists = async (socketPath: string): Promise<boolean> =>
     },
   );
 
+/**
+ * Demo-mode apps isolate product state in a process-minted ephemeral SQLite
+ * database (src/main/vellum/demo/runtime-isolation.ts): no environment
+ * variable can redirect product authority. The seeded sandbox database is
+ * therefore invisible to a demo-mode app. After boot the minted file exists
+ * under os.tmpdir(); find the newest demo runtime directory so launchVellum
+ * can re-seed the same fixtures into it.
+ */
+const findDemoRuntimeDatabase = async (): Promise<string | undefined> => {
+  let entries;
+  try {
+    entries = await readdir(tmpdir(), { withFileTypes: true });
+  } catch {
+    return undefined;
+  }
+  const candidates = await Promise.all(
+    entries
+      .filter(
+        (entry) =>
+          entry.isDirectory() && entry.name.startsWith("vellum-command-demo-runtime-"),
+      )
+      .map(async (entry) => {
+        const full = join(tmpdir(), entry.name);
+        const info = await stat(full).catch(() => undefined);
+        return { full, mtimeMs: info?.mtimeMs ?? 0 };
+      }),
+  );
+  candidates.sort((left, right) => right.mtimeMs - left.mtimeMs);
+  for (const candidate of candidates) {
+    const database = join(candidate.full, "vellum-command.db");
+    if (await socketExists(database)) return database;
+  }
+  return undefined;
+};
+
 const waitForSocketRemoval = async (socketPath: string): Promise<void> => {
   const deadline = Date.now() + FAKE_HERDR_SHUTDOWN_TIMEOUT_MS;
   while (await socketExists(socketPath)) {
@@ -393,7 +430,7 @@ export const shutdownSandboxHerdrServer = async (sandbox: Sandbox): Promise<void
   const socketPath = join(sandbox.homeDir, ".config", "herdr", "herdr.sock");
   if (!(await socketExists(socketPath))) return;
 
-  const requestId = "vellum-e2e-server-shutdown";
+  const requestId = "vellum-command-e2e-server-shutdown";
   const acknowledged = await new Promise<boolean>((resolve, reject) => {
     const socket = connect(socketPath);
     let buffer = "";
@@ -527,6 +564,32 @@ export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumH
     };
 
     const page = await app.firstWindow();
+
+    // Demo mode runs on a process-minted ephemeral database, so the
+    // pre-launch sandbox seed is invisible to the app. Re-seed the same
+    // fixtures into the minted file, drop the empty first-run default
+    // canvas, then reload the renderer so it boots onto the seeded canvas.
+    if (options.demo === true) {
+      const seeds = Object.entries(options.seedCanvases ?? {});
+      if (seeds.length > 0) {
+        const demoDatabase = await findDemoRuntimeDatabase();
+        if (demoDatabase === undefined) {
+          throw new Error(
+            "demo-mode seed: the app's ephemeral demo database was not found under os.tmpdir()",
+          );
+        }
+        for (const [name, doc] of seeds) {
+          await writeFixtureCanvas(sandbox, name, doc, demoDatabase);
+        }
+        await removeFixtureCanvases(
+          sandbox,
+          demoDatabase,
+          new Set(seeds.map(([name]) => name)),
+        );
+        await page.reload();
+      }
+    }
+
     await dismissStationRoleGate(page);
 
     // Native confirm dialogs (honest-quit live-work gate, browser-automation
