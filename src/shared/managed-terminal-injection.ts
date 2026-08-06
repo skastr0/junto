@@ -346,6 +346,27 @@ ${formatConnectedTargets(ctx.connectedTargets)}
 Re-run \`vellum-command onboard\` for the live map after compaction or edge changes.`;
 };
 
+// ── Operational notices (NOT doctrine variants) ────────────────────────────
+//
+// The doctrine has exactly ONE body: buildInjectionText, dynamic only by
+// edges. Operational notices below are transport events — compact, targeted
+// instructions (like the claim packet), never a second version of the prompt.
+
+/**
+ * Compact orient notice: tells an unproven seat to run onboard. Delivered by
+ * the supervisor at most once per generation, and on awareness heuristics —
+ * never the full doctrine (the agent already received it at spawn).
+ */
+export const buildOrientNotice = (seatRef?: string): string =>
+  [
+    "Your seat's factory CLI: `vellum-command onboard`.",
+    seatRef ? `Seat: \`${seatRef}\`.` : "",
+    "Run it before anything else — it returns your seat, region, connected targets with grants.",
+    "If `vellum-command` is not found in your environment, say so — a repair is available.",
+  ]
+    .filter((l) => l.length > 0)
+    .join("\n");
+
 // ── Builders ───────────────────────────────────────────────────────────────
 
 /**
@@ -381,37 +402,49 @@ export const buildInjectionText = (ctx: InjectionContext): string | null => {
 
 // ── Rising-edge slot injection (mid-session edge connect) ──────────────────
 
-/**
- * Single-slot injection for a newly connected target — delivered to the seat
- * via mailbox notice + drive when an edge appears after spawn.
- */
-export const composeEdgeSlotInjectionText = (
-  target: InjectionConnectedTarget,
-): string => {
-  const slot = target.kind ? KIND_TO_SLOT[target.kind] : undefined;
-  const body =
-    slot !== undefined && (BROWSER_ENABLED || slot !== "browser")
-      ? EDGE_SLOT_BUILDERS[slot]([target])
-      : "New connection registered — re-run `vellum-command onboard` for its contract.";
-  return [
-    "[factory - edge] You are now connected to a new target.",
-    `Target: \`${target.id}\`${target.kind ? ` (kind: ${target.kind})` : ""}`,
-    "",
-    body,
-    "",
-    "Re-run `vellum-command capabilities` for the live grant list.",
-  ].join("\n");
+export type EdgeMapChange = {
+  readonly seatId: string;
+  readonly added: readonly InjectionConnectedTarget[];
+  readonly removed: readonly InjectionConnectedTarget[];
 };
 
 /**
- * Rising edges only: for each actor seat in `next` that gained a neighbor with
- * a known slot kind (and did not have it in `previous`), plan a slot injection.
+ * Compact map-change notice — the operational event the agent asked for:
+ * contract changes are announced (new contracts inline, removals as a
+ * re-orient hint), never a full doctrine re-injection.
+ */
+export const composeEdgeMapChangeNotice = (change: EdgeMapChange): string => {
+  const lines: string[] = ["[factory - map] your edge contracts changed."];
+  if (change.added.length > 0) {
+    lines.push("Added:");
+    for (const t of change.added) {
+      lines.push(`- \`${t.id}\`${t.kind ? ` (${t.kind})` : ""}`);
+      const slot = t.kind ? KIND_TO_SLOT[t.kind] : undefined;
+      if (slot !== undefined && (BROWSER_ENABLED || slot !== "browser")) {
+        lines.push("", EDGE_SLOT_BUILDERS[slot]([t]));
+      }
+    }
+  }
+  if (change.removed.length > 0) {
+    lines.push(
+      `Removed: ${change.removed.map((t) => `\`${t.id}\``).join(", ")} — re-run \`vellum-command onboard\` for the current map.`,
+    );
+  }
+  if (change.added.length === 0 && change.removed.length === 0) {
+    return "[factory - map] edge map unchanged — re-run `vellum-command onboard` for the current map.";
+  }
+  lines.push("", "Re-run `vellum-command capabilities` for the live grant list.");
+  return lines.join("\n");
+};
+
+/**
+ * Edge-map diff for actor seats: added AND removed slot-bearing neighbors.
  * Pure — no I/O. Callers skip when `previous` is missing (open / first paint).
  */
-export const planEdgeSlotInjections = (
+export const planEdgeMapChanges = (
   previous: CanvasDoc,
   next: CanvasDoc,
-): ReadonlyArray<{ readonly seatId: string; readonly target: InjectionConnectedTarget }> => {
+): ReadonlyArray<EdgeMapChange> => {
   const adjacency = (doc: CanvasDoc): Map<string, InjectionConnectedTarget[]> => {
     const out = new Map<string, InjectionConnectedTarget[]>();
     for (const edge of doc.edges) {
@@ -424,10 +457,7 @@ export const planEdgeSlotInjections = (
         const kind = node.ether?.entity?.kind;
         if (kind === undefined || KIND_TO_SLOT[kind] === undefined) continue;
         const list = out.get(a);
-        const target: InjectionConnectedTarget = {
-          id: b,
-          ...(kind !== undefined ? { kind } : {}),
-        };
+        const target: InjectionConnectedTarget = { id: b, ...(kind !== undefined ? { kind } : {}) };
         if (list) list.push(target);
         else out.set(a, [target]);
       }
@@ -439,21 +469,22 @@ export const planEdgeSlotInjections = (
   const after = adjacency(next);
   const isSeat = (doc: CanvasDoc, id: string): boolean =>
     doc.nodes.find((n) => n.id === id)?.ether?.entity?.kind === "agent";
-  const plans: Array<{ seatId: string; target: InjectionConnectedTarget }> = [];
-  for (const [seatId, targets] of after) {
-    if (!isSeat(next, seatId)) continue;
-    const prev = new Set((before.get(seatId) ?? []).map((t) => `${t.kind ?? ""}:${t.id}`));
-    for (const t of targets) {
-      const key = `${t.kind ?? ""}:${t.id}`;
-      if (!prev.has(key)) {
-        plans.push({ seatId, target: t });
-      }
-    }
+  const key = (t: InjectionConnectedTarget): string => `${t.kind ?? ""}:${t.id}`;
+  const changes: EdgeMapChange[] = [];
+  for (const seatId of new Set([...before.keys(), ...after.keys()])) {
+    if (!isSeat(next, seatId) && !isSeat(previous, seatId)) continue;
+    const prev = new Set((before.get(seatId) ?? []).map(key));
+    const nextSet = new Set((after.get(seatId) ?? []).map(key));
+    const added = (after.get(seatId) ?? []).filter((t) => !prev.has(key(t)));
+    const removed = (before.get(seatId) ?? []).filter((t) => !nextSet.has(key(t)));
+    if (added.length === 0 && removed.length === 0) continue;
+    changes.push({
+      seatId,
+      added: [...added].sort((a, b) => a.id.localeCompare(b.id)),
+      removed: [...removed].sort((a, b) => a.id.localeCompare(b.id)),
+    });
   }
-  plans.sort((a, b) =>
-    a.seatId.localeCompare(b.seatId) || a.target.id.localeCompare(b.target.id),
-  );
-  return plans;
+  return changes.sort((a, b) => a.seatId.localeCompare(b.seatId));
 };
 
 // ── Plan (tier + body for spawn / drive) ───────────────────────────────────

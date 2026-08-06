@@ -9,8 +9,8 @@ import {
   planManagedInjection,
   compileEdgeSlots,
   targetsBySlot,
-  composeEdgeSlotInjectionText,
-  planEdgeSlotInjections,
+  composeEdgeMapChangeNotice,
+  planEdgeMapChanges,
 } from "../src/shared/managed-terminal-injection";
 import { BROWSER_ENABLED } from "../src/shared/features";
 import type { CanvasDoc } from "../src/shared/canvas";
@@ -130,7 +130,7 @@ describe("compiled doctrine — base and slots", () => {
   });
 });
 
-describe("rising-edge slot injection", () => {
+describe("edge-map change injection", () => {
   const doc = (edges: Array<[string, string]>): CanvasDoc => ({
     nodes: [
       { id: "seat-a", type: "text", text: "a", x: 0, y: 0, width: 1, height: 1, ether: { entity: { kind: "agent" } } },
@@ -141,30 +141,42 @@ describe("rising-edge slot injection", () => {
     edges: edges.map(([fromNode, toNode], i) => ({ id: `e${i}`, fromNode, toNode })),
   });
 
-  it("plans injections only for rising edges with slot-bearing kinds", () => {
+  it("plans added and removed slot-bearing edges per seat", () => {
     const before = doc([["seat-a", "n-tasks"]]);
     const after = doc([
-      ["seat-a", "n-tasks"],
       ["seat-a", "n-req"],
       ["seat-a", "n-art"],
     ]);
-    const plans = planEdgeSlotInjections(before, after);
-    expect(plans.length).toBe(2);
-    expect(plans.map((p) => p.target.id).sort()).toEqual(["n-art", "n-req"]);
-    expect(plans.every((p) => p.seatId === "seat-a")).toBe(true);
+    const changes = planEdgeMapChanges(before, after);
+    expect(changes.length).toBe(1);
+    expect(changes[0].seatId).toBe("seat-a");
+    expect(changes[0].added.map((t) => t.id).sort()).toEqual(["n-art", "n-req"]);
+    expect(changes[0].removed.map((t) => t.id)).toEqual(["n-tasks"]);
   });
 
-  it("does not re-plan existing edges", () => {
+  it("does not plan when the edge map is unchanged", () => {
     const same = doc([["seat-a", "n-tasks"]]);
-    expect(planEdgeSlotInjections(same, same)).toEqual([]);
+    expect(planEdgeMapChanges(same, same)).toEqual([]);
   });
 
-  it("composes a self-contained slot injection for a new target", () => {
-    const text = composeEdgeSlotInjectionText({ id: "n-tasks", kind: "task" });
-    expect(text).toContain("[factory - edge]");
+  it("composes a compact map-change notice with inline contracts for additions", () => {
+    const text = composeEdgeMapChangeNotice({
+      seatId: "seat-a",
+      added: [{ id: "n-tasks", kind: "task" }],
+      removed: [{ id: "n-req", kind: "requests" }],
+    });
+    expect(text).toContain("[factory - map]");
     expect(text).toContain("n-tasks");
     expect(text).toContain("### Edge contract — tasks");
     expect(text).toContain("vellum-command tasks list");
+    expect(text).toContain("Removed: `n-req`");
+    expect(text).not.toContain("### Edge contract — requests");
+  });
+
+  it("map-unchanged notice is a one-line orient hint", () => {
+    const text = composeEdgeMapChangeNotice({ seatId: "s", added: [], removed: [] });
+    expect(text).toContain("edge map unchanged");
+    expect(text.split("\n").length).toBe(1);
   });
 });
 
