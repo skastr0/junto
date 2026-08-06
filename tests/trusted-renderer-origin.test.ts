@@ -10,7 +10,7 @@ describe("trusted renderer boot authority", () => {
     const authority = resolveTrustedRendererOrigin(true, "https://attacker.invalid/");
     expect(authority.initialUrl).toBe(TRUSTED_RENDERER_URL);
     expect(authority.allows(TRUSTED_RENDERER_URL)).toBe(true);
-    expect(authority.allows("vellum-app://renderer/other.html")).toBe(false);
+    expect(authority.allows("vellum-command-app://renderer/other.html")).toBe(false);
     expect(authority.allows("https://attacker.invalid/")).toBe(false);
   });
 

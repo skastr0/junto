@@ -121,8 +121,8 @@ printf 'LINUX_USERLAND_DEPLOY_V1 ok=1 state=ready release=%s\n' "$VERSION-$SHA"
 export const compileLinuxUserlandDeploy = (): Effect.Effect<RemoteCommand, SshInputError> =>
   makeRemoteCommand("/bin/sh", ["-c", compileLinuxUserlandDeploySource(), "vellum-plan:linux-userland-deploy"]);
 
-export const HERDR_IMAGE_STAGE_DIR = "/tmp/vellum-herdr-images" as const;
-const HERDR_NAME = /^vellum-clip-[a-z0-9]{1,24}-[a-f0-9]{8}\.(png|jpg|gif|webp|bmp)$/u;
+export const HERDR_IMAGE_STAGE_DIR = "/tmp/vellum-command-herdr-images" as const;
+const HERDR_NAME = /^vellum-command-clip-[a-z0-9]{1,24}-[a-f0-9]{8}\.(png|jpg|gif|webp|bmp)$/u;
 export const confineHerdrStagePath = (name: string): Effect.Effect<string, SshInputError> =>
   typeof name === "string" && HERDR_NAME.test(name) && !name.includes("..")
     ? Effect.succeed(`${HERDR_IMAGE_STAGE_DIR}/${name}`)

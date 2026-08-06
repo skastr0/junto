@@ -27,7 +27,7 @@ if [[ -z "$BUN_EXECUTABLE" || ! -x "$BUN_EXECUTABLE" ]]; then
   err "an executable Bun runtime is required"
   exit 1
 fi
-NODE_SHIM_DIR="$(mktemp -d /tmp/vellum-node-shim.XXXXXXXXXX)"
+NODE_SHIM_DIR="$(mktemp -d /tmp/vellum-command-node-shim.XXXXXXXXXX)"
 cleanup_node_shim() {
   if [[ -L "$NODE_SHIM_DIR/node" ]] && [[ "$(readlink -- "$NODE_SHIM_DIR/node")" == "$BUN_EXECUTABLE" ]]; then
     rm -f -- "$NODE_SHIM_DIR/node"

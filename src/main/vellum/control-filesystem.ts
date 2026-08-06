@@ -486,7 +486,7 @@ export const removeObservedSocket = async (
     throw new Error("control socket liveness became ambiguous before quarantine");
   }
   requireListenerLease(lease);
-  const quarantine = mkdtempSync(join(dirname(path), ".vellum-stale-"));
+  const quarantine = mkdtempSync(join(dirname(path), ".vellum-command-stale-"));
   const quarantined = join(quarantine, basename(path));
   try {
     const qdir = lstatSync(quarantine);

@@ -30,7 +30,7 @@ export type TerminalHarnessState = typeof TerminalHarnessState.Type;
 export const WorkSurfaceActivity = Schema.Struct({
   session: TerminalSessionStatus,
   harness: Schema.optionalKey(TerminalHarnessState),
-  source: Schema.optionalKey(Schema.Literals(["vellum-cli", "herdr", "native"])),
+  source: Schema.optionalKey(Schema.Literals(["vellum-command", "herdr", "native"])),
 });
 export type WorkSurfaceActivity = typeof WorkSurfaceActivity.Type;
 

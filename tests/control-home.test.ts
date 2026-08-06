@@ -6,8 +6,8 @@ import {
 } from "../src/main/vellum/control-home";
 
 const ELECTRON_HOME = "/Users/operator";
-const USER_DATA = "/tmp/vellum-e2e-xyz/user-data";
-const SANDBOX_HOME = "/tmp/vellum-e2e-xyz/home";
+const USER_DATA = "/tmp/vellum-command-e2e-xyz/user-data";
+const SANDBOX_HOME = "/tmp/vellum-command-e2e-xyz/home";
 const EXPLICIT = "/tmp/probe/control-root";
 
 const base = {

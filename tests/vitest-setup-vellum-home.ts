@@ -12,6 +12,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { __resetVellumCommandHomeCache } from "../src/shared/vellum-home";
 
-const isolatedHome = mkdtempSync(join(tmpdir(), "vellum-vitest-home-"));
+const isolatedHome = mkdtempSync(join(tmpdir(), "vellum-command-vitest-home-"));
 process.env.VELLUM_COMMAND_HOME = isolatedHome;
 __resetVellumCommandHomeCache();

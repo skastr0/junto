@@ -294,7 +294,7 @@ export interface BrowserSessionAuthorizationSnapshot {
   readonly navigationInFlight: boolean;
 }
 
-export const BROWSER_UI_SESSION_OWNER = "vellum-ui";
+export const BROWSER_UI_SESSION_OWNER = "vellum-command-ui";
 
 const err = (code: BrowserErrorCode, message: string): BrowserResultErr => ({
   ok: false,

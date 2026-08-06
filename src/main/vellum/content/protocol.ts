@@ -34,7 +34,7 @@ const safeReason = (reason: string): string =>
 
 /**
  * Content is intentionally loaded by the app renderer, which lives on a
- * different origin (dev: loopback Vite; packaged: vellum-app://). CORP must
+ * different origin (dev: loopback Vite; packaged: vellum-command-app://). CORP must
  * allow cross-origin embedding, and CORS headers must allow fetch HEAD probes
  * from ContentMedia.
  */
@@ -118,7 +118,7 @@ export const CONTENT_PROTOCOL_SCHEME_REGISTRATION = {
     supportFetchAPI: true,
     bypassCSP: false,
     allowServiceWorkers: false,
-    // Renderer (vellum-app / Vite loopback) is a different origin; HEAD probes
+    // Renderer (vellum-command-app / Vite loopback) is a different origin; HEAD probes
     // and element loads need CORS participation on this scheme.
     corsEnabled: true,
     stream: true,

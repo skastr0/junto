@@ -3,7 +3,7 @@
  * assets from. Keep this module platform-neutral so both main and preload use
  * the same conservative URL grammar.
  */
-export const TRUSTED_RENDERER_SCHEME = "vellum-app";
+export const TRUSTED_RENDERER_SCHEME = "vellum-command-app";
 export const TRUSTED_RENDERER_HOST = "renderer";
 export const TRUSTED_RENDERER_URL = `${TRUSTED_RENDERER_SCHEME}://${TRUSTED_RENDERER_HOST}/index.html`;
 

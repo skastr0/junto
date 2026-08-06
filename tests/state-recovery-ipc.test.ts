@@ -10,7 +10,7 @@ const id = decodeStateBackupId(
 );
 const backup = {
   id,
-  file: "vellum-backup-22222222-2222-4222-8222-222222222222.db",
+  file: "vellum-command-backup-22222222-2222-4222-8222-222222222222.db",
   bytes: 8_192,
   modifiedAtEpochMs: 1_700_000_000_000,
   schemaVersion: 1,

@@ -74,7 +74,7 @@ describe("trusted renderer protocol", () => {
     expect(html.headers.get("referrer-policy")).toBe("no-referrer");
     expect(await html.text()).toContain("./assets/app.js");
 
-    const scriptUrl = "vellum-app://renderer/assets/app.js";
+    const scriptUrl = "vellum-command-app://renderer/assets/app.js";
     const script = await handler(new Request(scriptUrl));
     expect(script.headers.get("content-type")).toBe("text/javascript; charset=utf-8");
     const expectedLength = script.headers.get("content-length");
@@ -86,14 +86,14 @@ describe("trusted renderer protocol", () => {
     expect(await head.text()).toBe("");
 
     // Packaged fleet GLBs and sfx must not 415 — the protocol is an explicit MIME allowlist.
-    const glb = await handler(new Request("vellum-app://renderer/assets/machine.glb"));
+    const glb = await handler(new Request("vellum-command-app://renderer/assets/machine.glb"));
     expect(glb.status).toBe(200);
     expect(glb.headers.get("content-type")).toBe("model/gltf-binary");
     expect(new Uint8Array(await glb.arrayBuffer())).toEqual(
       new Uint8Array(Buffer.from("glTF-binary-fixture")),
     );
 
-    const mp3 = await handler(new Request("vellum-app://renderer/assets/clip.mp3"));
+    const mp3 = await handler(new Request("vellum-command-app://renderer/assets/clip.mp3"));
     expect(mp3.status).toBe(200);
     expect(mp3.headers.get("content-type")).toBe("audio/mpeg");
     expect(new Uint8Array(await mp3.arrayBuffer())).toEqual(
@@ -103,20 +103,20 @@ describe("trusted renderer protocol", () => {
 
   it.each([
     ["method", new Request(TRUSTED_RENDERER_URL, { method: "POST" }), 405],
-    ["host", new Request("vellum-app://attacker/index.html"), 400],
+    ["host", new Request("vellum-command-app://attacker/index.html"), 400],
     [
       "credentials",
-      { method: "GET", url: "vellum-app://user:pass@renderer/index.html" } as Request,
+      { method: "GET", url: "vellum-command-app://user:pass@renderer/index.html" } as Request,
       400,
     ],
-    ["port", new Request("vellum-app://renderer:123/index.html"), 400],
-    ["query", new Request("vellum-app://renderer/index.html?file=../secret"), 400],
-    ["encoded separator", new Request("vellum-app://renderer/assets%2fapp.js"), 400],
-    ["encoded backslash", new Request("vellum-app://renderer/assets%5capp.js"), 400],
-    ["recursive encoding", new Request("vellum-app://renderer/%252e%252e/secret.js"), 400],
-    ["double slash", new Request("vellum-app://renderer/assets//app.js"), 400],
-    ["unknown extension", new Request("vellum-app://renderer/assets/app.exe"), 415],
-    ["missing file", new Request("vellum-app://renderer/assets/missing.js"), 404],
+    ["port", new Request("vellum-command-app://renderer:123/index.html"), 400],
+    ["query", new Request("vellum-command-app://renderer/index.html?file=../secret"), 400],
+    ["encoded separator", new Request("vellum-command-app://renderer/assets%2fapp.js"), 400],
+    ["encoded backslash", new Request("vellum-command-app://renderer/assets%5capp.js"), 400],
+    ["recursive encoding", new Request("vellum-command-app://renderer/%252e%252e/secret.js"), 400],
+    ["double slash", new Request("vellum-command-app://renderer/assets//app.js"), 400],
+    ["unknown extension", new Request("vellum-command-app://renderer/assets/app.exe"), 415],
+    ["missing file", new Request("vellum-command-app://renderer/assets/missing.js"), 404],
   ])("rejects %s without exposing a path", async (_case, request, status) => {
     const handler = await createTrustedRendererHandler(root);
     const response = await handler(request);
@@ -131,7 +131,7 @@ describe("trusted renderer protocol", () => {
     try {
       const handler = await createTrustedRendererHandler(root);
       const response = await handler(
-        new Request("vellum-app://renderer/assets/escape.js"),
+        new Request("vellum-command-app://renderer/assets/escape.js"),
       );
       expect(response.status).toBe(403);
       expect(await response.text()).not.toContain(outside);
@@ -202,7 +202,7 @@ describe("trusted renderer permissions", () => {
       check?.(
         trustedContents,
         "clipboard-sanitized-write",
-        "vellum-app://renderer",
+        "vellum-command-app://renderer",
         details,
       ),
     ).toBe(true);

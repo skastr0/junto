@@ -108,7 +108,7 @@ describe("state recovery", () => {
       join(
         layout.state,
         "backups",
-        "vellum-backup-22222222-2222-4222-8222-222222222222.db",
+        "vellum-command-backup-22222222-2222-4222-8222-222222222222.db",
       ),
     );
 

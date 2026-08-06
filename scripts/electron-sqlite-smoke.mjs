@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-const root = mkdtempSync(join(tmpdir(), "vellum-electron-sqlite-"));
+const root = mkdtempSync(join(tmpdir(), "vellum-command-electron-sqlite-"));
 const stateDir = join(root, "state");
 const databasePath = join(stateDir, "vellum-command.db");
 const backupPath = join(root, "vellum-command.backup.db");

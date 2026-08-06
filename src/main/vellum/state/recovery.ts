@@ -42,7 +42,7 @@ export {
 
 const STATE_BACKUP_DIRECTORY = "backups";
 const STATE_BACKUP_FILE_PATTERN =
-  /^vellum-backup-([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.db$/;
+  /^vellum-command-backup-([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.db$/;
 const STATE_FILE_MODE = 0o600;
 const COPY_BUFFER_BYTES = 1024 * 1024;
 

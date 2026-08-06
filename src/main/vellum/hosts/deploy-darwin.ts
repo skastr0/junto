@@ -241,7 +241,7 @@ export const admitReleaseZipArtifact = async (
     throw new Error("release ZIP digest does not match expected sha256");
   }
 
-  const stageRoot = await mkdtemp(join(tmpdir(), "vellum-darwin-release-zip-"));
+  const stageRoot = await mkdtemp(join(tmpdir(), "vellum-command-darwin-release-zip-"));
   let disposed = false;
   const dispose = async (): Promise<void> => {
     if (disposed) return;

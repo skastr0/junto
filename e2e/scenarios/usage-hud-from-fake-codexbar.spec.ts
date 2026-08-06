@@ -10,7 +10,7 @@ import { expect, launchVellum, test } from "../harness/launch";
 // hidden — no error chip).
 
 test("usage HUD renders fake codexbar quotas, then hides on malformed output", async () => {
-  const scenarioDir = await mkdtemp(join(tmpdir(), "vellum-e2e-codexbar-"));
+  const scenarioDir = await mkdtemp(join(tmpdir(), "vellum-command-e2e-codexbar-"));
 
   const healthyScenarioPath = join(scenarioDir, "healthy.json");
   await writeScenario(healthyScenarioPath, {

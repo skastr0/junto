@@ -104,7 +104,7 @@ const assertFillsPane = (probe: LayoutProbe, where: string): void => {
 };
 
 test("herdr xterm fills focus pane and stays filled after pin", async () => {
-  const scenarioDir = await mkdtemp(join(tmpdir(), "vellum-e2e-herdr-layout-"));
+  const scenarioDir = await mkdtemp(join(tmpdir(), "vellum-command-e2e-herdr-layout-"));
   const scenarioPath = join(scenarioDir, "scenario.json");
 
   await writeScenario(scenarioPath, {

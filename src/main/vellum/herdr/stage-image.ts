@@ -56,7 +56,7 @@ export const pastePathPayload = (absolutePath: string): string =>
   `\x1b[200~${absolutePath}\x1b[201~`;
 
 const uniqueName = (extension: string): string =>
-  `vellum-clip-${Date.now().toString(36)}-${randomBytes(4).toString("hex")}.${extension}`;
+  `vellum-command-clip-${Date.now().toString(36)}-${randomBytes(4).toString("hex")}.${extension}`;
 
 export type StageRemoteImage = (
   hostId: string,
@@ -70,8 +70,8 @@ export type StageImageDeps = {
 
 /**
  * Write image bytes onto the host that owns the herdr pane.
- * local: $TMPDIR/vellum-herdr-images-<uid>/file
- * remote: /tmp/vellum-herdr-images/file via typed remote-plan stage + binary stdin
+ * local: $TMPDIR/vellum-command-herdr-images-<uid>/file
+ * remote: /tmp/vellum-command-herdr-images/file via typed remote-plan stage + binary stdin
  *
  * The remote implementation is supplied by the scoped Herdr transport layer.
  */
@@ -93,7 +93,7 @@ export const stageImageOnHost = async (
   if (hostId === "local") {
     const uid =
       typeof process.getuid === "function" ? String(process.getuid()) : String(process.pid);
-    const dir = join(tmpdir(), `vellum-herdr-images-${uid}`);
+    const dir = join(tmpdir(), `vellum-command-herdr-images-${uid}`);
     try {
       await mkdir(dir, { recursive: true, mode: 0o700 });
       const path = join(dir, name);

@@ -84,7 +84,7 @@ describe("demo runtime isolation", () => {
       join(homedir(), ".vellum-command", "demo", "state", "vellum-command.db"),
     );
     expect(relative(tmpdir(), ownedRoot)).toMatch(
-      /^vellum-demo-runtime-[^/]+$/u,
+      /^vellum-command-demo-runtime-[^/]+$/u,
     );
     expect(process.env.VELLUM_COMMAND_CANVASES_DIR).toBe(
       join(ownedRoot, "projections"),
@@ -113,7 +113,7 @@ describe("demo runtime isolation", () => {
 
     expect(databasePath).toBeDefined();
     expect(relative(tmpdir(), dirname(databasePath!))).toMatch(
-      /^vellum-demo-runtime-[^/]+$/u,
+      /^vellum-command-demo-runtime-[^/]+$/u,
     );
     expect(process.env.VELLUM_COMMAND_CANVASES_DIR).toBe(
       "/tmp/vellum-demo-sidecars",

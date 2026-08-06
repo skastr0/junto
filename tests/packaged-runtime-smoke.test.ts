@@ -285,7 +285,7 @@ describe("packaged runtime smoke receipts", () => {
     expect(() => assertDarwinUnixSocketPathFits(tooLong)).toThrow(/Darwin 103-byte limit/u);
     expect(() =>
       assertDarwinUnixSocketPathFits(
-        "/private/tmp/vellum-smoke-XXXXXX/home/.vellum-command/browser/control.sock",
+        "/private/tmp/vellum-command-smoke-XXXXXX/home/.vellum-command/browser/control.sock",
       ),
     ).not.toThrow();
   });
@@ -380,7 +380,7 @@ describe("packaged runtime smoke child lifecycle", () => {
   });
 
   it("retains the sandbox and returns a bounded straggler when group admission was refused", async () => {
-    const tempRoot = await mkdtemp(join(tmpdir(), "vellum-smoke-refused-"));
+    const tempRoot = await mkdtemp(join(tmpdir(), "vellum-command-smoke-refused-"));
     tempRoots.add(tempRoot);
     vi.useFakeTimers();
     const child = new FakeRuntimeChild();
@@ -422,7 +422,7 @@ describe("packaged runtime smoke child lifecycle", () => {
   });
 
   it("retains the sandbox when a fallback root closes but descendants remain unproven", async () => {
-    const tempRoot = await mkdtemp(join(tmpdir(), "vellum-smoke-root-only-"));
+    const tempRoot = await mkdtemp(join(tmpdir(), "vellum-command-smoke-root-only-"));
     tempRoots.add(tempRoot);
     vi.useFakeTimers();
     const child = new FakeRuntimeChild();
@@ -460,7 +460,7 @@ describe("packaged runtime smoke child lifecycle", () => {
   });
 
   it("retains an unclosed runtime after epoch revalidation refuses both signal phases", async () => {
-    const tempRoot = await mkdtemp(join(tmpdir(), "vellum-smoke-epoch-"));
+    const tempRoot = await mkdtemp(join(tmpdir(), "vellum-command-smoke-epoch-"));
     tempRoots.add(tempRoot);
     vi.useFakeTimers();
     const child = new FakeRuntimeChild();
@@ -501,7 +501,7 @@ describe("packaged runtime smoke child lifecycle", () => {
   });
 
   it("removes the sandbox only after a clean central group drain", async () => {
-    const tempRoot = await mkdtemp(join(tmpdir(), "vellum-smoke-clean-"));
+    const tempRoot = await mkdtemp(join(tmpdir(), "vellum-command-smoke-clean-"));
     tempRoots.add(tempRoot);
     vi.useFakeTimers();
     const child = new FakeRuntimeChild();

@@ -25,7 +25,7 @@ const releaseOnExit = (): void => {
 const acquireDemoDirectory = (): EphemeralDirectory => {
   if (demoDirectory !== undefined) return demoDirectory;
   demoDirectory = mkdtempDisposableSync(
-    join(tmpdir(), "vellum-demo-runtime-"),
+    join(tmpdir(), "vellum-command-demo-runtime-"),
   );
   process.once("exit", releaseOnExit);
   exitCleanupRegistered = true;

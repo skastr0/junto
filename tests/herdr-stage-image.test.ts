@@ -39,7 +39,7 @@ describe("herdr stage-image (vellum-owned)", () => {
     const staged = await stageImageOnHost("local", "png", bytes.toString("base64"));
     expect(staged.ok).toBe(true);
     if (!staged.ok) return;
-    expect(staged.path).toMatch(/vellum-herdr-images-/);
+    expect(staged.path).toMatch(/vellum-command-herdr-images-/);
     expect(staged.path.endsWith(".png")).toBe(true);
     expect(readFileSync(staged.path)).toEqual(bytes);
     rmSync(staged.path, { force: true });
@@ -77,17 +77,17 @@ describe("herdr stage-image (vellum-owned)", () => {
       const calls: Array<{ name: string; bytes: Uint8Array }> = [];
       const stageRemote: StageRemoteImage = async (_hostId, name, input) => {
         calls.push({ name, bytes: Uint8Array.from(input) });
-        return `/tmp/vellum-herdr-images/${name}`;
+        return `/tmp/vellum-command-herdr-images/${name}`;
       };
 
       const staged = await stageImageOnHost("studio", "png", b64, { stageRemote });
       expect(staged.ok).toBe(true);
       if (!staged.ok) return;
 
-      expect(staged.path).toMatch(/^\/tmp\/vellum-herdr-images\/vellum-clip-.+\.png$/);
+      expect(staged.path).toMatch(/^\/tmp\/vellum-command-herdr-images\/vellum-command-clip-.+\.png$/);
       expect(staged.byteLength).toBe(bytes.byteLength);
       expect(calls).toHaveLength(1);
-      expect(calls[0]?.name).toMatch(/^vellum-clip-.+\.png$/);
+      expect(calls[0]?.name).toMatch(/^vellum-command-clip-.+\.png$/);
       expect(Buffer.from(calls[0]?.bytes ?? [])).toEqual(bytes);
     });
 

@@ -109,7 +109,7 @@ describe("named deploy compilers", () => {
 });
 
 describe("herdr image stage plan", () => {
-  const productName = "vellum-clip-lk9abc12-deadbeef.png";
+  const productName = "vellum-command-clip-lk9abc12-deadbeef.png";
 
   it("admits product basenames under the fixed stage root", () => {
     expect(run(confineHerdrStagePath(productName))).toBe(
@@ -121,10 +121,10 @@ describe("herdr image stage plan", () => {
     for (const bad of [
       "../etc/passwd",
       "evil.png",
-      "vellum-clip-x-deadbeef.sh",
-      "vellum-clip-x-deadbeef.png;rm",
-      "vellum-clip-x-$(id)-deadbeef.png",
-      "vellum-clip-x-deadbeef.png/../y",
+      "vellum-command-clip-x-deadbeef.sh",
+      "vellum-command-clip-x-deadbeef.png;rm",
+      "vellum-command-clip-x-$(id)-deadbeef.png",
+      "vellum-command-clip-x-deadbeef.png/../y",
       "",
     ]) {
       expect(

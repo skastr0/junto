@@ -18,7 +18,7 @@ const LABEL = "e2e real herdr pane";
 const FRAME_TEXT = "hello from fake herdr\n";
 
 test("herdr pane renders the real scripted world, then degrades on a scripted mid-stream close", async () => {
-  const scenarioDir = await mkdtemp(join(tmpdir(), "vellum-e2e-herdr-"));
+  const scenarioDir = await mkdtemp(join(tmpdir(), "vellum-command-e2e-herdr-"));
   const scenarioPath = join(scenarioDir, "scenario.json");
   const closeTrigger = join(scenarioDir, "close-trigger");
 

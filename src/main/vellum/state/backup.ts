@@ -20,10 +20,10 @@ import type { StateBackupReceipt } from "./service";
 const STATE_DIRECTORY_MODE = 0o700;
 const STATE_FILE_MODE = 0o600;
 const STATE_BACKUP_DIRECTORY = "backups";
-const STATE_BACKUP_FILE_PREFIX = "vellum-backup-";
+const STATE_BACKUP_FILE_PREFIX = "vellum-command-backup-";
 const STATE_BACKUP_PENDING_SUFFIX = ".pending";
 const STATE_BACKUP_PENDING_FILE =
-  /^vellum-backup-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.db\.pending$/u;
+  /^vellum-command-backup-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.db\.pending$/u;
 
 type BackupSchemaIdentity = {
   readonly actualSchemaSha256: string;
@@ -206,7 +206,7 @@ const assertPrivateBackupDirectory = (stateDirectory: string): string => {
 
 /**
  * Remove only incomplete backup artifacts minted by this module. Final
- * `vellum-backup-<uuid>.db` files are immutable retained evidence and are
+ * `vellum-command-backup-<uuid>.db` files are immutable retained evidence and are
  * never considered cleanup candidates.
  */
 export const reconcilePendingStateBackups = (

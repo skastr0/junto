@@ -775,7 +775,7 @@ export const smokePackagedRuntime = async (
   // overflow sockaddr_un before the browser control server binds. Canonical
   // /private/tmp keeps the isolated, random root well inside the kernel limit.
   const shortTempParent = await realpath("/tmp");
-  const tempRoot = await mkdtemp(path.join(shortTempParent, "vellum-smoke-"));
+  const tempRoot = await mkdtemp(path.join(shortTempParent, "vellum-command-smoke-"));
   await chmod(tempRoot, 0o700);
   const isolatedHome = path.join(tempRoot, "home");
   const userData = path.join(tempRoot, "user-data");

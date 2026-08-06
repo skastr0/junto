@@ -1275,7 +1275,7 @@ describe("listPageNodes", () => {
       async () => [{ name: "work", doc }],
       undefined,
       {},
-      "vellum-ui",
+      "vellum-command-ui",
     );
     expect(rows).toEqual([
       {

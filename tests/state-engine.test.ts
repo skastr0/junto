@@ -593,7 +593,7 @@ describe("StateEngine", () => {
     expect(firstReceipt.schemaVersion).toBe(engine.info.schemaVersion);
     expect(dirname(backupPath)).toBe(join(root, "live", "backups"));
     expect(basename(backupPath)).toMatch(
-      /^vellum-backup-[a-f0-9-]{36}\.db$/u,
+      /^vellum-command-backup-[a-f0-9-]{36}\.db$/u,
     );
     expect((await lstat(join(root, "live", "backups"))).mode & 0o777).toBe(
       0o700,

@@ -121,7 +121,7 @@ export const expandMacUpdateZip = (
           throw new Error("update ZIP is not a regular file");
         }
         const stagingRoot = mkdtempSync(
-          join(tmpdir(), "vellum-update-proof-"),
+          join(tmpdir(), "vellum-command-update-proof-"),
         );
         chmodSync(stagingRoot, STAGING_MODE);
         try {

@@ -47,10 +47,10 @@ class FakeElectronApplication extends EventEmitter {
 }
 
 const sandbox: Sandbox = {
-  root: "/tmp/vellum-e2e-harness-test",
-  userDataDir: "/tmp/vellum-e2e-harness-test/user-data",
-  canvasesDir: "/tmp/vellum-e2e-harness-test/canvases",
-  homeDir: "/tmp/vellum-e2e-harness-test/home",
+  root: "/tmp/vellum-command-e2e-harness-test",
+  userDataDir: "/tmp/vellum-command-e2e-harness-test/user-data",
+  canvasesDir: "/tmp/vellum-command-e2e-harness-test/canvases",
+  homeDir: "/tmp/vellum-command-e2e-harness-test/home",
 };
 
 const shortTimeouts: HarnessCleanupTimeouts = {

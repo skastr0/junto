@@ -15,7 +15,7 @@ const LABEL = "Fake Hermes Agent";
 const SCRIPTED_REPLY = "Hello from the fake hermes agent!";
 
 test("attaching chat to a fake hermes agent round-trips a scripted reply", async () => {
-  const scenarioDir = await mkdtemp(join(tmpdir(), "vellum-e2e-hermes-"));
+  const scenarioDir = await mkdtemp(join(tmpdir(), "vellum-command-e2e-hermes-"));
   const scenarioPath = join(scenarioDir, "scenario.json");
   await writeScenario(scenarioPath, oneReplyScenario(SCRIPTED_REPLY));
 
