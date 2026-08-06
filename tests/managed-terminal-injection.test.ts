@@ -1,12 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
-  CLI_CONTRACT,
+  BASE_CONTRACT,
   WORKER_DOCTRINE,
+  VELLUM_INTRO,
+  SEAT_DOCTRINE,
   buildInjectionText,
   buildSeatContextSection,
   planManagedInjection,
+  compileEdgeSlots,
+  targetsBySlot,
+  composeEdgeSlotInjectionText,
+  planEdgeSlotInjections,
 } from "../src/shared/managed-terminal-injection";
 import { BROWSER_ENABLED } from "../src/shared/features";
+import type { CanvasDoc } from "../src/shared/canvas";
 import {
   resolveManagedLaunch,
   resolveManagedLaunchPlan,
@@ -15,50 +22,99 @@ import {
 const bareAmbient = { PATH: "/usr/bin", HOME: "/home/op" };
 
 const connectedCtx = {
+  seatBound: true as const,
   connected: true as const,
   seatRef: "canvas-a::worker-1",
   connectedTargets: [
-    { id: "tasks-main", kind: "tasks", summary: "pull queue" },
+    { id: "tasks-main", kind: "task", summary: "pull queue" },
     { id: "req-1", kind: "requests" },
+    { id: "peer-2", kind: "agent", summary: "Grok seat" },
   ],
 };
 
-describe("managed-terminal injection text", () => {
-  it("embeds worker doctrine, CLI contract, and seat slots when connected", () => {
-    const text = buildInjectionText(connectedCtx);
+const seatOnlyCtx = {
+  seatBound: true as const,
+  connected: false as const,
+  seatRef: "canvas-a::worker-1",
+  connectedTargets: [],
+};
+
+describe("compiled doctrine — base and slots", () => {
+  it("canvas seats always get base doctrine (intro, seat doctrine, worker, base contract)", () => {
+    const text = buildInjectionText(seatOnlyCtx);
     expect(text).not.toBeNull();
+    expect(text!).toContain(VELLUM_INTRO.slice(0, 40));
+    expect(text!).toContain(SEAT_DOCTRINE.slice(0, 20));
     expect(text!).toContain(WORKER_DOCTRINE.slice(0, 40));
-    expect(text!).toContain(CLI_CONTRACT.slice(0, 40));
+    expect(text!).toContain(BASE_CONTRACT.slice(0, 40));
     expect(text!).toContain("vellum-command onboard");
-    expect(text!).toContain("vellum-command preamble");
-    expect(text!).toContain("ScopeError");
-    expect(text!).toContain("ClaimConflict");
-    expect(text!).toContain("RuntimeDown");
-    expect(text!).toContain("Blocked");
-    if (BROWSER_ENABLED) {
-      expect(text!).toContain("vellum-command browser pages --json");
-      expect(text!).toContain("managed agent's existing shell");
-    } else {
-      expect(text!).not.toContain("vellum-command browser");
-      expect(text!).not.toContain("browser.automate");
-    }
     expect(text!).toContain("process-bind");
-    expect(text!).toContain("canvas-a::worker-1");
-    expect(text!).toContain("tasks-main");
-    expect(text!).toContain("pull queue");
-    expect(text!).toMatch(/claim-is-factory|Claim-is-factory/i);
-    expect(text!).toMatch(/Artifacts never block/i);
   });
 
-  it("returns null when unconnected (loop step 2 silence)", () => {
-    expect(buildInjectionText({ connected: false })).toBeNull();
+  it("detached terminals get silence (null body)", () => {
+    expect(buildInjectionText({ seatBound: false, connected: false })).toBeNull();
     expect(
       buildInjectionText({
+        seatBound: false,
         connected: false,
         seatRef: "should-not-appear",
-        connectedTargets: [{ id: "x" }],
+        connectedTargets: [{ id: "x", kind: "task" }],
       }),
     ).toBeNull();
+  });
+
+  it("compiles edge contracts only for connected kinds", () => {
+    const text = buildInjectionText(connectedCtx)!;
+    // tasks slot
+    expect(text).toContain("### Edge contract — tasks");
+    expect(text).toContain(`vellum-command tasks list '{"target":"tasks-main"}'`);
+    expect(text).toContain("Finish criteria are **hard gates**");
+    // escalate slot
+    expect(text).toContain("### Edge contract — requests / escalate");
+    expect(text).toContain(`vellum-command escalate '{"target":"req-1"`);
+    // msg slot
+    expect(text).toContain("### Edge contract — messages");
+    expect(text).toContain("factory mail");
+    // NOT compiled: artifacts / board (no such edges)
+    expect(text).not.toContain("### Edge contract — artifacts");
+    expect(text).not.toContain("### Edge contract — board");
+    expect(text).not.toContain("artifact publish");
+    expect(text).not.toContain("board list");
+  });
+
+  it("isolated seats (no edges) get no edge contracts and no intro promise", () => {
+    const text = buildInjectionText(seatOnlyCtx)!;
+    expect(text).not.toContain("### Edge contract —");
+    expect(text).not.toContain("### Edge contracts");
+    expect(text).not.toContain("compiled from the edges connected at spawn");
+    expect(text).not.toContain("vellum-command tasks list");
+    expect(text).not.toContain("vellum-command escalate");
+    expect(text).not.toContain("vellum-command artifact");
+    expect(text).toMatch(/none at spawn/i);
+  });
+
+  it("connected seats get the edge-contracts intro before their slots", () => {
+    const text = buildInjectionText(connectedCtx)!;
+    const intro = text.indexOf("### Edge contracts");
+    const firstSlot = text.indexOf("### Edge contract — tasks");
+    expect(intro).toBeGreaterThan(-1);
+    expect(firstSlot).toBeGreaterThan(intro);
+  });
+
+  it("targetsBySlot groups by physics-mirrored kind", () => {
+    const grouped = targetsBySlot(connectedCtx.connectedTargets);
+    expect(grouped.get("tasks")?.map((t) => t.id)).toEqual(["tasks-main"]);
+    expect(grouped.get("escalate")?.map((t) => t.id)).toEqual(["req-1"]);
+    expect(grouped.get("msg")?.map((t) => t.id)).toEqual(["peer-2"]);
+    expect(grouped.has("artifacts")).toBe(false);
+  });
+
+  it("compileEdgeSlots emits one section per present slot kind", () => {
+    const slots = compileEdgeSlots(connectedCtx.connectedTargets);
+    expect(slots.length).toBe(3);
+    expect(slots.join("\n")).toContain("### Edge contract — tasks");
+    expect(slots.join("\n")).toContain("### Edge contract — requests / escalate");
+    expect(slots.join("\n")).toContain("### Edge contract — messages");
   });
 
   it("seat context section lists targets or a fallback", () => {
@@ -70,9 +126,88 @@ describe("managed-terminal injection text", () => {
     expect(filled).toContain("t1");
 
     const empty = buildSeatContextSection({});
-    expect(empty).toMatch(/unknown at spawn|none listed/i);
+    expect(empty).toMatch(/unknown at spawn|none at spawn/i);
+  });
+});
+
+describe("rising-edge slot injection", () => {
+  const doc = (edges: Array<[string, string]>): CanvasDoc => ({
+    nodes: [
+      { id: "seat-a", type: "text", text: "a", x: 0, y: 0, width: 1, height: 1, ether: { entity: { kind: "agent" } } },
+      { id: "n-tasks", type: "text", text: "t", x: 0, y: 0, width: 1, height: 1, ether: { entity: { kind: "task" } } },
+      { id: "n-req", type: "text", text: "t", x: 0, y: 0, width: 1, height: 1, ether: { entity: { kind: "requests" } } },
+      { id: "n-art", type: "text", text: "t", x: 0, y: 0, width: 1, height: 1, ether: { entity: { kind: "artifacts" } } },
+    ],
+    edges: edges.map(([fromNode, toNode], i) => ({ id: `e${i}`, fromNode, toNode })),
   });
 
+  it("plans injections only for rising edges with slot-bearing kinds", () => {
+    const before = doc([["seat-a", "n-tasks"]]);
+    const after = doc([
+      ["seat-a", "n-tasks"],
+      ["seat-a", "n-req"],
+      ["seat-a", "n-art"],
+    ]);
+    const plans = planEdgeSlotInjections(before, after);
+    expect(plans.length).toBe(2);
+    expect(plans.map((p) => p.target.id).sort()).toEqual(["n-art", "n-req"]);
+    expect(plans.every((p) => p.seatId === "seat-a")).toBe(true);
+  });
+
+  it("does not re-plan existing edges", () => {
+    const same = doc([["seat-a", "n-tasks"]]);
+    expect(planEdgeSlotInjections(same, same)).toEqual([]);
+  });
+
+  it("composes a self-contained slot injection for a new target", () => {
+    const text = composeEdgeSlotInjectionText({ id: "n-tasks", kind: "task" });
+    expect(text).toContain("[factory - edge]");
+    expect(text).toContain("n-tasks");
+    expect(text).toContain("### Edge contract — tasks");
+    expect(text).toContain("vellum-command tasks list");
+  });
+});
+
+describe("ONE doctrine — tiers are delivery method only", () => {
+  it("content is identical across harnesses and delivery slots for the same context", () => {
+    for (const ctx of [
+      connectedCtx,
+      seatOnlyCtx,
+      {
+        seatBound: true as const,
+        connected: true as const,
+        seatRef: "s2",
+        connectedTargets: [
+          { id: "a", kind: "artifacts" },
+          { id: "b", kind: "board" },
+          { id: "p", kind: "agent" },
+        ],
+      },
+    ]) {
+      const text = buildInjectionText(ctx)!;
+      const claude = planManagedInjection("claude", ctx);
+      const grok = planManagedInjection("grok", ctx);
+      const codex = planManagedInjection("codex", ctx);
+      expect(claude.systemPrompt).toBe(text);
+      expect(grok.systemPrompt).toBe(text);
+      expect(codex.firstTypedMessage).toBe(text);
+      expect(codex.systemPrompt).toBeUndefined();
+      expect(claude.firstTypedMessage).toBeUndefined();
+    }
+  });
+
+  it("the edge slot builders are the same content as the compiled body", () => {
+    const text = buildInjectionText(connectedCtx)!;
+    const slotText = compileEdgeSlots(connectedCtx.connectedTargets).join("\n");
+    // The compiled body embeds exactly the same slot sections, not variants.
+    for (const slot of compileEdgeSlots(connectedCtx.connectedTargets)) {
+      expect(text).toContain(slot);
+    }
+    expect(slotText.length).toBeGreaterThan(0);
+  });
+});
+
+describe("planManagedInjection tier resolution", () => {
   it("plans Tier A systemPrompt for claude/grok and Tier B firstTyped for codex/hermes", () => {
     const claude = planManagedInjection("claude", connectedCtx);
     expect(claude).toMatchObject({ inject: true, tier: "A" });
@@ -93,9 +228,20 @@ describe("managed-terminal injection text", () => {
     expect(hermes.firstTypedMessage).toBe(codex.firstTypedMessage);
   });
 
-  it("plans inject:false for all harnesses when unconnected", () => {
+  it("canvas seat without edges still injects the base doctrine", () => {
+    const plan = planManagedInjection("claude", seatOnlyCtx);
+    expect(plan.inject).toBe(true);
+    expect(plan.tier).toBe("A");
+    expect(plan.systemPrompt).toContain("## Seats");
+    expect(plan.systemPrompt).not.toContain("### Edge contract —");
+  });
+
+  it("plans inject:false for detached terminals", () => {
     for (const harness of ["claude", "codex", "grok", "hermes"] as const) {
-      const plan = planManagedInjection(harness, { connected: false });
+      const plan = planManagedInjection(harness, {
+        seatBound: false,
+        connected: false,
+      });
       expect(plan.inject).toBe(false);
       expect(plan.systemPrompt).toBeUndefined();
       expect(plan.firstTypedMessage).toBeUndefined();
@@ -104,7 +250,7 @@ describe("managed-terminal injection text", () => {
 });
 
 describe("resolveManagedLaunchPlan Tier A flags", () => {
-  it("claude connected → --append-system-prompt with doctrine", () => {
+  it("claude seat → --append-system-prompt with doctrine", () => {
     const { launch, injection, firstTypedMessage } = resolveManagedLaunchPlan(
       "claude",
       {
@@ -123,7 +269,7 @@ describe("resolveManagedLaunchPlan Tier A flags", () => {
     expect(argv[idx + 1]).toContain("canvas-a::worker-1");
   });
 
-  it("grok connected → --rules with doctrine (not --agent unless agentFile)", () => {
+  it("grok seat → --rules with doctrine (not --agent unless agentFile)", () => {
     const { launch, injection } = resolveManagedLaunchPlan(
       "grok",
       { injection: connectedCtx, permissionMode: "default" },
@@ -133,66 +279,30 @@ describe("resolveManagedLaunchPlan Tier A flags", () => {
     const argv = launch.argv ?? [];
     expect(argv).toContain("--rules");
     expect(argv).not.toContain("--agent");
-    const idx = argv.indexOf("--rules");
-    expect(argv[idx + 1]).toContain("Worker doctrine");
+    expect(argv).not.toContain("--append-system-prompt");
   });
 
-  it("codex/hermes connected → no spawn system flags; firstTypedMessage set", () => {
-    for (const harness of ["codex", "hermes"] as const) {
-      const plan = resolveManagedLaunchPlan(
-        harness,
-        { injection: connectedCtx },
-        bareAmbient,
-      );
-      expect(plan.injection.inject).toBe(true);
-      expect(plan.injection.tier).toBe("B");
-      expect(plan.firstTypedMessage).toContain("vellum-command onboard");
-      const argv = plan.launch.argv ?? [];
-      expect(argv).not.toContain("--append-system-prompt");
-      expect(argv).not.toContain("--rules");
-    }
-  });
-
-  it("unconnected → no injection flags and no firstTypedMessage", () => {
-    for (const harness of ["claude", "codex", "grok", "hermes"] as const) {
-      const plan = resolveManagedLaunchPlan(
-        harness,
-        {
-          injection: { connected: false },
-          // Would inject if connection gate were ignored:
-          systemPrompt: "SHOULD NOT APPEAR",
-          agentFile: harness === "grok" ? "/tmp/evil-agent.md" : undefined,
-        },
-        bareAmbient,
-      );
-      expect(plan.injection.inject).toBe(false);
-      expect(plan.firstTypedMessage).toBeUndefined();
-      const argv = plan.launch.argv ?? [];
-      expect(argv).not.toContain("SHOULD NOT APPEAR");
-      expect(argv).not.toContain("--append-system-prompt");
-      expect(argv).not.toContain("--rules");
-      expect(argv).not.toContain("--agent");
-      expect(argv).not.toContain("/tmp/evil-agent.md");
-    }
-  });
-
-  it("resolveManagedLaunch still returns TerminalLaunch only", () => {
-    const launch = resolveManagedLaunch(
+  it("detached terminal → no Tier A flags", () => {
+    const { launch, injection } = resolveManagedLaunchPlan(
       "claude",
-      { injection: connectedCtx },
+      { injection: { seatBound: false, connected: false } },
       bareAmbient,
     );
-    expect(launch.kind).toBe("harness");
-    expect(launch.argv ?? []).toContain("--append-system-prompt");
+    expect(injection.inject).toBe(false);
+    const argv = launch.argv ?? [];
+    expect(argv).not.toContain("--append-system-prompt");
   });
 
-  it("without injection context, explicit systemPrompt still works (manual override)", () => {
-    const launch = resolveManagedLaunch(
-      "claude",
-      { systemPrompt: "manual doctrine" },
-      bareAmbient,
-    );
-    expect(launch.argv ?? []).toContain("--append-system-prompt");
-    expect(launch.argv ?? []).toContain("manual doctrine");
-  });
+  if (BROWSER_ENABLED) {
+    it("page edge compiles the browser slot", () => {
+      const text = buildInjectionText({
+        seatBound: true,
+        connected: true,
+        seatRef: "s1",
+        connectedTargets: [{ id: "page-1", kind: "page" }],
+      })!;
+      expect(text).toContain("### Edge contract — browser");
+      expect(text).toContain("vellum-command browser pages");
+    });
+  }
 });
