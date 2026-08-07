@@ -60,7 +60,7 @@ import {
 } from "../lib/node-factories";
 import { putImagesFromDataTransfer } from "../lib/image-content";
 import { contentObjectUrl } from "@shared/content-url";
-import { BROWSER_ENABLED, HERDR_ENABLED } from "@shared/features";
+import { BROWSER_ENABLED, FLEET_UI_ENABLED, HERDR_ENABLED } from "@shared/features";
 import { openHerdrWizard } from "../lib/herdr-state";
 import { describeConnectPreview } from "../lib/connect-preview";
 import { HUE, themeFor, withAlpha } from "../lib/theme";
@@ -70,7 +70,7 @@ import { minimapFill, signalMark } from "../lib/signal-mark";
 import { nodeTypes } from "./nodes";
 import { edgeTypes } from "./edges/EtherEdge";
 import { RtsBottomBar } from "./rts/RtsBottomBar";
-import { TerminalWizard } from "./terminal/TerminalWizard";
+import { TerminalWizard, createTerminalAt } from "./terminal/TerminalWizard";
 import { CanvasMagnifier } from "./CanvasMagnifier";
 import { NodePaletteModeDeck, type ModeDeckActions } from "./node-palette/NodePaletteModeDeck";
 import { FocusSurface } from "./FocusSurface";
@@ -1212,8 +1212,15 @@ function CanvasGraph() {
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [terminalAnchor, setTerminalAnchor] = useState<{ x: number; y: number } | null>(null);
   useEffect(() => {
-    const openTerminal = (event: Event) =>
-      setTerminalAnchor((event as CustomEvent<{ x: number; y: number }>).detail);
+    const openTerminal = (event: Event) => {
+      const anchor = (event as CustomEvent<{ x: number; y: number }>).detail;
+      // Host choice is a fleet surface; without it there is nothing to ask.
+      if (!FLEET_UI_ENABLED) {
+        void createTerminalAt(anchor);
+        return;
+      }
+      setTerminalAnchor(anchor);
+    };
     window.addEventListener("vellum-command:new-terminal", openTerminal);
     return () => {
       window.removeEventListener("vellum-command:new-terminal", openTerminal);

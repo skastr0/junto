@@ -13,6 +13,36 @@ type HostOpt = { readonly id: string; readonly label: string };
 
 const TERMINAL_SIZE = { width: 260, height: 110 } as const;
 
+const defaultHostId = (): string => {
+  const stationHost = state$.settings.station.hostId.peek() || LOCAL_HOST_ID;
+  return stationHost === LOCAL_HOST_ID ? LOCAL_HOST_ID : stationHost;
+};
+
+/** Create a terminal node at the anchor and open it — no host dialog. */
+export const createTerminalAt = (
+  anchor: { readonly x: number; readonly y: number },
+  hostId: string = defaultHostId(),
+): Promise<void> => {
+  const host = hostId || LOCAL_HOST_ID;
+  // Create-time cwd from containing region paths for the chosen host.
+  const cwd = resolveRegionCwd(
+    state$.doc.peek(),
+    anchor.x + TERMINAL_SIZE.width / 2,
+    anchor.y + TERMINAL_SIZE.height / 2,
+    host,
+  );
+  const node = makeTerminalNode(
+    anchor.x,
+    anchor.y,
+    { kind: "shell", ...(cwd ? { cwd } : {}) },
+    "terminal",
+    host,
+  );
+  addNode(node, { edit: false });
+  state$.focusNodeId.set(node.id);
+  return openTerminal(node);
+};
+
 export function TerminalWizard({
   anchor,
   onClose,
@@ -20,13 +50,10 @@ export function TerminalWizard({
   readonly anchor: { x: number; y: number };
   readonly onClose: () => void;
 }) {
-  const stationHost = state$.settings.station.hostId.peek() || LOCAL_HOST_ID;
   const [hostOptions, setHostOptions] = useState<HostOpt[]>([
     { id: LOCAL_HOST_ID, label: "this machine" },
   ]);
-  const [hostId, setHostId] = useState(
-    stationHost === LOCAL_HOST_ID ? LOCAL_HOST_ID : stationHost,
-  );
+  const [hostId, setHostId] = useState(defaultHostId);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -80,24 +107,7 @@ export function TerminalWizard({
   const create = () => {
     if (busy) return;
     setBusy(true);
-    const host = hostId || LOCAL_HOST_ID;
-    // Create-time cwd from containing region paths for the chosen host.
-    const cwd = resolveRegionCwd(
-      state$.doc.peek(),
-      anchor.x + TERMINAL_SIZE.width / 2,
-      anchor.y + TERMINAL_SIZE.height / 2,
-      host,
-    );
-    const node = makeTerminalNode(
-      anchor.x,
-      anchor.y,
-      { kind: "shell", ...(cwd ? { cwd } : {}) },
-      "terminal",
-      host,
-    );
-    addNode(node, { edit: false });
-    state$.focusNodeId.set(node.id);
-    void openTerminal(node).finally(() => {
+    void createTerminalAt(anchor, hostId).finally(() => {
       setBusy(false);
       onClose();
     });

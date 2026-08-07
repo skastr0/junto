@@ -18,6 +18,11 @@
   border-top: 1px solid var(--color-overlay-3);
 }
 
+/* No host sidebar — the directory picker owns the full width. */
+.region-paths__body--single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .region-paths__sidebar {
   display: flex;
   flex-direction: column;

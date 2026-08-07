@@ -13,6 +13,7 @@ import type {
 import {
   BROWSER_ENABLED,
   CRON_ENABLED,
+  FLEET_UI_ENABLED,
   HERDR_ENABLED,
   RELAY_ENABLED,
 } from "@shared/features";
@@ -582,18 +583,20 @@ export function PageBindingControl({ node }: { readonly node: CanvasNode }) {
   return (
     <div className="inspector-section" style={{ marginTop: 0 }}>
       <div className="inspector-section__label">browser binding</div>
-      <label className="inspector-editor">
-        <span>host</span>
-        <EnrolledHostSelect
-          ariaLabel="Page browser host"
-          value={host}
-          capability="browser"
-          onChange={(next) => {
-            setHost(next);
-            commit(profile, next);
-          }}
-        />
-      </label>
+      {FLEET_UI_ENABLED ? (
+        <label className="inspector-editor">
+          <span>host</span>
+          <EnrolledHostSelect
+            ariaLabel="Page browser host"
+            value={host}
+            capability="browser"
+            onChange={(next) => {
+              setHost(next);
+              commit(profile, next);
+            }}
+          />
+        </label>
+      ) : null}
       <label className="inspector-editor">
         <span>profile</span>
         <BrowserProfileSelect
@@ -804,17 +807,19 @@ export function RegionHerdrDefaultsControl({ node }: { readonly node: CanvasNode
       <div className="inspector-detail mb-1">
         Applied when a new herdr node is created inside this region. Edit the node after create to override.
       </div>
-      <label className="inspector-editor">
-        <span>host</span>
-        <EnrolledHostSelect
-          ariaLabel="Region herdr host default"
-          value={host}
-          onChange={(next) => {
-            setHost(next);
-            writeHerdr(next, session, workspaceId, tabId);
-          }}
-        />
-      </label>
+      {FLEET_UI_ENABLED ? (
+        <label className="inspector-editor">
+          <span>host</span>
+          <EnrolledHostSelect
+            ariaLabel="Region herdr host default"
+            value={host}
+            onChange={(next) => {
+              setHost(next);
+              writeHerdr(next, session, workspaceId, tabId);
+            }}
+          />
+        </label>
+      ) : null}
       <label className="inspector-editor">
         <span>session</span>
         <input
@@ -933,18 +938,20 @@ export function RegionPageDefaultsControl({ node }: { readonly node: CanvasNode 
           }}
         />
       </label>
-      <label className="inspector-editor">
-        <span>host</span>
-        <EnrolledHostSelect
-          ariaLabel="Region page browser host default"
-          value={pageHost}
-          capability="browser"
-          onChange={(next) => {
-            setPageHost(next);
-            writePage(pageUrl, pageProfile, next);
-          }}
-        />
-      </label>
+      {FLEET_UI_ENABLED ? (
+        <label className="inspector-editor">
+          <span>host</span>
+          <EnrolledHostSelect
+            ariaLabel="Region page browser host default"
+            value={pageHost}
+            capability="browser"
+            onChange={(next) => {
+              setPageHost(next);
+              writePage(pageUrl, pageProfile, next);
+            }}
+          />
+        </label>
+      ) : null}
       {hasPageDefaults ? (
         <div className="inspector-flags" style={{ marginTop: 14 }}>
           <button type="button" className="inspector-flag-toggle" onClick={clearPage}>

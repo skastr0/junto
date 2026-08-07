@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { ChevronDown, FolderOpen, X } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
 import { LOCAL_HOST_ID } from "@shared/remote-hosts";
-import { HERMES_INTEGRATION_ENABLED } from "@shared/features";
+import { FLEET_UI_ENABLED, HERMES_INTEGRATION_ENABLED } from "@shared/features";
 import { findContainingRegion, resolveRegionCwd } from "@shared/region-defaults";
 import { state$ } from "../../lib/state";
 import { getVellumCommandApi } from "../../lib/vellum-api";
@@ -73,7 +73,9 @@ export function AgentLaunchContext({
   const anchorRef = useRef<HTMLDivElement>(null);
   const configured = useMemo(configuredHost, []);
   const [hosts, setHosts] = useState<ReadonlyArray<AgentHostChoice>>([configured]);
-  const [hostId, setHostId] = useState(initialHostId || configured.id);
+  const [hostId, setHostId] = useState(
+    FLEET_UI_ENABLED ? initialHostId || configured.id : configured.id,
+  );
   const center = centerOf(position);
   const region = useMemo(
     () => findContainingRegion(doc, center.x, center.y),
@@ -88,6 +90,7 @@ export function AgentLaunchContext({
   const [folderOpen, setFolderOpen] = useState(false);
 
   useEffect(() => {
+    if (!FLEET_UI_ENABLED) return;
     let live = true;
     void getVellumCommandApi()?.hostsList?.().then((result) => {
       if (!live || !result.ok || !result.hosts) return;
@@ -210,16 +213,24 @@ export function AgentLaunchContext({
         <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink">Launch context</span>
         <span className="text-[10px] text-dim">applies to next agent</span>
       </div>
-      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)] gap-2">
-        <label className="grid gap-1 text-[10px] uppercase tracking-[0.1em] text-dim">
-          Agent host
-          <Select
-            aria-label="Agent host"
-            value={hostId}
-            options={hosts.map((host) => ({ value: host.id, label: host.label }))}
-            onChange={selectHost}
-          />
-        </label>
+      <div
+        className={
+          FLEET_UI_ENABLED
+            ? "grid grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)] gap-2"
+            : "grid gap-2"
+        }
+      >
+        {FLEET_UI_ENABLED ? (
+          <label className="grid gap-1 text-[10px] uppercase tracking-[0.1em] text-dim">
+            Agent host
+            <Select
+              aria-label="Agent host"
+              value={hostId}
+              options={hosts.map((host) => ({ value: host.id, label: host.label }))}
+              onChange={selectHost}
+            />
+          </label>
+        ) : null}
         <label className="grid gap-1 text-[10px] uppercase tracking-[0.1em] text-dim">
           Agent working directory
           <div ref={anchorRef} className="relative flex min-w-0">

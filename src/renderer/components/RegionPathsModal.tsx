@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Plus, Trash2, X } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
+import { FLEET_UI_ENABLED } from "@shared/features";
 import { LOCAL_HOST_ID } from "@shared/remote-hosts";
 import { stripEmptyRegionPaths } from "@shared/region-defaults";
 import { trimTrailingSlash } from "../lib/directory-picker";
@@ -58,24 +59,37 @@ export function RegionPathsModal({
   const [pathsByHost, setPathsByHost] = useState<Record<string, string>>(() => ({
     ...(storedPaths ?? {}),
   }));
-  /** Hosts present in the sidebar (order preserved). */
+  /** Hosts present in the sidebar (order preserved). Without the fleet
+      surface, local is always present and selected; stored remote paths ride
+      along untouched so save never drops them. */
   const [hostIds, setHostIds] = useState<string[]>(() => {
     const ids = Object.keys(storedPaths ?? {});
+    if (!FLEET_UI_ENABLED) {
+      return ids.includes(LOCAL_HOST_ID) ? ids : [...ids, LOCAL_HOST_ID];
+    }
     return ids.length > 0 ? ids : [LOCAL_HOST_ID];
   });
-  const [selectedHostId, setSelectedHostId] = useState<string>(
-    () => Object.keys(storedPaths ?? {})[0] ?? LOCAL_HOST_ID,
+  const [selectedHostId, setSelectedHostId] = useState<string>(() =>
+    FLEET_UI_ENABLED
+      ? Object.keys(storedPaths ?? {})[0] ?? LOCAL_HOST_ID
+      : LOCAL_HOST_ID,
   );
 
   useEffect(() => {
     const next = { ...(storedPaths ?? {}) };
     const ids = Object.keys(next);
     setPathsByHost(next);
+    if (!FLEET_UI_ENABLED) {
+      setHostIds(ids.includes(LOCAL_HOST_ID) ? ids : [...ids, LOCAL_HOST_ID]);
+      setSelectedHostId(LOCAL_HOST_ID);
+      return;
+    }
     setHostIds(ids.length > 0 ? ids : [LOCAL_HOST_ID]);
     setSelectedHostId(ids[0] ?? LOCAL_HOST_ID);
   }, [nodeId, pathsFingerprint]);
 
   useEffect(() => {
+    if (!FLEET_UI_ENABLED) return;
     const api = getVellumCommandApi();
     void api
       ?.hostsList?.()
@@ -176,7 +190,10 @@ export function RegionPathsModal({
           }
         />
 
-        <div className="region-paths__body">
+        <div
+          className={`region-paths__body${FLEET_UI_ENABLED ? "" : " region-paths__body--single"}`}
+        >
+          {FLEET_UI_ENABLED ? (
           <aside className="region-paths__sidebar" aria-label="Hosts">
             <ul className="region-paths__host-list" role="listbox" aria-label="Hosts with paths">
               {hostIds.map((hostId) => {
@@ -225,11 +242,14 @@ export function RegionPathsModal({
               add host
             </Button>
           </aside>
+          ) : null}
 
           <section className="region-paths__main" aria-label="Directory">
-            <div className="region-paths__main-label">
-              {labelForHost(selectedHostId, enrolled)}
-            </div>
+            {FLEET_UI_ENABLED ? (
+              <div className="region-paths__main-label">
+                {labelForHost(selectedHostId, enrolled)}
+              </div>
+            ) : null}
             <div className="region-paths__picker">
               <HostDirectoryPicker
                 key={selectedHostId}

@@ -28,6 +28,7 @@ import type { CanvasEdge, CanvasNode } from "@shared/canvas";
 import {
   BROWSER_ENABLED,
   CRON_ENABLED,
+  FLEET_UI_ENABLED,
   HERDR_ENABLED,
   RELAY_ENABLED,
   productNodeKindEnabled,
@@ -411,15 +412,18 @@ function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
       >
         <Pencil size={ICON} />
       </KindKey>
-      <KindKey
-        label={homeOpen ? "Close queue home" : "Queue home"}
-        title="Host for new tasks"
-        active={homeOpen}
-        onClick={() => setHomeOpen((open) => !open)}
-      >
-        <Server size={ICON} />
-      </KindKey>
-      {homeOpen ? (
+      {/* Queue home is pure host choice — a fleet surface. */}
+      {FLEET_UI_ENABLED ? (
+        <KindKey
+          label={homeOpen ? "Close queue home" : "Queue home"}
+          title="Host for new tasks"
+          active={homeOpen}
+          onClick={() => setHomeOpen((open) => !open)}
+        >
+          <Server size={ICON} />
+        </KindKey>
+      ) : null}
+      {FLEET_UI_ENABLED && homeOpen ? (
         <div className="rts-kind-pop rts-kind-pop--queue-home">
           <TaskQueueHomeControl node={node} />
         </div>
