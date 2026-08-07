@@ -276,25 +276,21 @@ describe("preload canvas close gate", () => {
 });
 
 describe("preload canvas quiesce gate", () => {
-  it("binds write/create privately to only the active main request and clears in finally", async () => {
+  it("sends canvas write/create with a fixed wire shape in and out of the flush", async () => {
     const api = await loadPreload();
     const doc = { nodes: [], edges: [] } as CanvasDoc;
 
-    const rendererForgedMetadata = {
-      __vellumFinalWrite: {
-        requestId: "00000000-0000-4000-8000-000000000099",
-        operation: "canvas.write",
-      },
-    };
+    // The renderer can pass surplus arguments; preload's fixed arity drops them
+    // so nothing beyond the declared canvas payload ever crosses the boundary.
     await (api.writeCanvas as unknown as (...args: ReadonlyArray<unknown>) => Promise<unknown>)(
       "ordinary",
       doc,
       "r0",
-      rendererForgedMetadata,
+      { surplus: true },
     );
     await (api.createCanvas as unknown as (...args: ReadonlyArray<unknown>) => Promise<unknown>)(
       "ordinary-create",
-      rendererForgedMetadata,
+      { surplus: true },
     );
     expect(electron.invoked).toEqual([
       [IPC_CHANNELS.writeCanvas, "ordinary", doc, "r0"],
@@ -315,21 +311,12 @@ describe("preload canvas quiesce gate", () => {
     emitCanvasQuiesceAndFlush({ requestId });
     await settle();
 
+    // The quit flush rides the ordinary channels: main's one-way authoring gate
+    // is the only thing that admits it, so preload adds nothing to the wire.
     expect(electron.invoked).toEqual([
-      [
-        IPC_CHANNELS.writeCanvas,
-        "final",
-        doc,
-        "r1",
-        { __vellumFinalWrite: { requestId, operation: "canvas.write" } },
-      ],
-      [
-        IPC_CHANNELS.createCanvas,
-        "final-create",
-        { __vellumFinalWrite: { requestId, operation: "canvas.create" } },
-      ],
+      [IPC_CHANNELS.writeCanvas, "final", doc, "r1"],
+      [IPC_CHANNELS.createCanvas, "final-create"],
     ]);
-    expect(Object.keys(api)).not.toContain("__vellumFinalWrite");
 
     durable.resolve();
     await settle();

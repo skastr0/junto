@@ -256,48 +256,6 @@ let pendingCanvasQuiesceAndFlush: CanvasQuiesceAndFlushRequest | undefined;
 let activeCanvasQuiesceAndFlushRequestId: string | undefined;
 const seenCanvasQuiesceAndFlushRequestIds = new Set<string>();
 
-type PrivateFinalWriteOperation = "canvas.write" | "canvas.create";
-
-const finalWriteMetadata = (
-  operation: PrivateFinalWriteOperation,
-): Readonly<{
-  __vellumFinalWrite: Readonly<{
-    requestId: string;
-    operation: PrivateFinalWriteOperation;
-  }>;
-}> | undefined => {
-  const requestId = activeCanvasQuiesceAndFlushRequestId;
-  if (requestId === undefined) return undefined;
-  return Object.freeze({
-    __vellumFinalWrite: Object.freeze({ requestId, operation }),
-  });
-};
-
-const invokeCanvasWrite = <T>(
-  name: string,
-  doc: unknown,
-  expectedRevision: string | undefined,
-): Promise<T> => {
-  const metadata = finalWriteMetadata("canvas.write");
-  if (metadata === undefined) {
-    return invoke(IPC_CHANNELS.writeCanvas, IPC_TIMEOUT_MS, name, doc, expectedRevision);
-  }
-  return invoke(
-    IPC_CHANNELS.writeCanvas,
-    IPC_TIMEOUT_MS,
-    name,
-    doc,
-    expectedRevision,
-    metadata,
-  );
-};
-
-const invokeCanvasCreate = <T>(name: string): Promise<T> => {
-  const metadata = finalWriteMetadata("canvas.create");
-  if (metadata === undefined) return invoke(IPC_CHANNELS.createCanvas, IPC_TIMEOUT_MS, name);
-  return invoke(IPC_CHANNELS.createCanvas, IPC_TIMEOUT_MS, name, metadata);
-};
-
 const decodeCanvasQuiesceAndFlushRequest = (
   payload: unknown,
 ): CanvasQuiesceAndFlushRequest | undefined => decodeCanvasFlushRequest(payload);
@@ -456,8 +414,8 @@ const vellumApi: VellumCommandApi = {
   listCanvases: () => invoke(IPC_CHANNELS.listCanvases, IPC_TIMEOUT_MS),
   readCanvas: (name) => invoke(IPC_CHANNELS.readCanvas, IPC_TIMEOUT_MS, name),
   writeCanvas: (name, doc, expectedRevision) =>
-    invokeCanvasWrite(name, doc, expectedRevision),
-  createCanvas: (name) => invokeCanvasCreate(name),
+    invoke(IPC_CHANNELS.writeCanvas, IPC_TIMEOUT_MS, name, doc, expectedRevision),
+  createCanvas: (name) => invoke(IPC_CHANNELS.createCanvas, IPC_TIMEOUT_MS, name),
   deleteCanvas: (name) => invoke(IPC_CHANNELS.deleteCanvas, IPC_TIMEOUT_MS, name),
   exportDigest: (name) => invoke(IPC_CHANNELS.exportDigest, IPC_TIMEOUT_MS, name),
   getSnapshots: () => invoke(IPC_CHANNELS.getSnapshots, IPC_TIMEOUT_MS),

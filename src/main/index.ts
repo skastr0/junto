@@ -886,6 +886,11 @@ const createWindow = () => {
     event.preventDefault();
     if (quitPreparationArbiter.signalPrecommit()) return;
     const proceedWithClose = (): void => {
+      // The window can already be gone by the time the flush settles — the
+      // `closed` listener rejects any pending flush, and that rejection lands
+      // in the fail-open branch below. Calling into a destroyed BrowserWindow
+      // throws, and here that throw would surface as an unhandled rejection.
+      if (mainWindow.isDestroyed()) return;
       // A signal may claim global quit while this ordinary flush is in
       // flight. Its renderer handshake now owns the only close authority.
       if (quitPreparationArbiter.signalPrecommit()) return;
