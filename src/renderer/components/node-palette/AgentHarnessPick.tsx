@@ -14,7 +14,9 @@ import {
   type HarnessId,
   type ManagedTerminalTemplate,
 } from "@shared/managed-terminal-templates";
+import { harnessVisibleInPalette } from "@shared/harness-settings";
 import { getVellumCommandApi } from "../../lib/vellum-api";
+import { state$ } from "../../lib/state";
 import { HarnessMark } from "../herdr/HarnessMark";
 import type { AgentConfigurationChoices } from "./agent-launch-model";
 import { AgentCascadeMenu } from "./AgentCascadeMenu";
@@ -143,12 +145,15 @@ export function AgentHarnessPick({
 
   const matchingTemplates: readonly ManagedTerminalTemplate[] = useMemo(() => {
     const q = query.trim().toLowerCase();
+    const settings = state$.settings.get();
     return featureTemplates.filter((template) => {
       if (installedHarnesses !== null && !installedHarnesses.has(template.harness)) {
         return false;
       }
       // While probe is in flight, show nothing (avoid flash of uninstalled rows).
       if (installedHarnesses === null) return false;
+      // Settings → Agents user opt-out (when harnessSettings feature is live).
+      if (!harnessVisibleInPalette(settings, template.harness)) return false;
       if (!q) return true;
       return template.displayName.toLowerCase().includes(q);
     });

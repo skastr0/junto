@@ -23,6 +23,7 @@ declare const __VELLUM_COMMAND_DEV_TOOLS_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HARNESS_KIMI_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HARNESS_MUSE_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HARNESS_PRIME_AGENT_ENABLED__: boolean | undefined;
+declare const __VELLUM_COMMAND_HARNESS_SETTINGS_ENABLED__: boolean | undefined;
 
 const envEnabled = (key: string): boolean => {
   try {
@@ -113,6 +114,15 @@ export const HARNESS_PRIME_AGENT_ENABLED: boolean =
     ? __VELLUM_COMMAND_HARNESS_PRIME_AGENT_ENABLED__
     : envEnabled("VELLUM_COMMAND_HARNESS_PRIME_AGENT");
 
+/**
+ * Settings → Agents surface: scan harness CLIs/options and persist per-harness
+ * spawn defaults. Ship/prod off.
+ */
+export const HARNESS_SETTINGS_ENABLED: boolean =
+  typeof __VELLUM_COMMAND_HARNESS_SETTINGS_ENABLED__ === "boolean"
+    ? __VELLUM_COMMAND_HARNESS_SETTINGS_ENABLED__
+    : envEnabled("VELLUM_COMMAND_HARNESS_SETTINGS");
+
 export const BUILD_FEATURES = {
   cron: CRON_ENABLED,
   relay: RELAY_ENABLED,
@@ -127,6 +137,7 @@ export const BUILD_FEATURES = {
   harnessKimi: HARNESS_KIMI_ENABLED,
   harnessMuse: HARNESS_MUSE_ENABLED,
   harnessPrimeAgent: HARNESS_PRIME_AGENT_ENABLED,
+  harnessSettings: HARNESS_SETTINGS_ENABLED,
 } as const;
 
 /** Whether an authored scheduler kind has a live product surface in this build. */

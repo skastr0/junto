@@ -61,6 +61,14 @@ export const FEATURE_CATALOG = {
     env: "VELLUM_COMMAND_HARNESS_PRIME_AGENT",
     define: "__VELLUM_COMMAND_HARNESS_PRIME_AGENT_ENABLED__",
   },
+  /**
+   * Settings → Agents: scan install/options and set per-harness spawn defaults
+   * (model, effort, permission). Ship/prod off until the surface is ready.
+   */
+  harnessSettings: {
+    env: "VELLUM_COMMAND_HARNESS_SETTINGS",
+    define: "__VELLUM_COMMAND_HARNESS_SETTINGS_ENABLED__",
+  },
 } as const;
 
 export type FeatureKey = keyof typeof FEATURE_CATALOG;
@@ -82,6 +90,7 @@ export const SHIP_FEATURES: FeatureSet = {
   harnessKimi: false,
   harnessMuse: false,
   harnessPrimeAgent: false,
+  harnessSettings: false,
 };
 
 export const ALL_FEATURES: FeatureSet = {
@@ -98,4 +107,5 @@ export const ALL_FEATURES: FeatureSet = {
   harnessKimi: true,
   harnessMuse: true,
   harnessPrimeAgent: true,
+  harnessSettings: true,
 };

@@ -104,6 +104,33 @@ export const AdvancedSettings = Schema.Struct({
 });
 export type AdvancedSettings = typeof AdvancedSettings.Type;
 
+const harnessPrefString = (max: number) =>
+  Schema.String.pipe(Schema.check(Schema.isMaxLength(max)));
+
+/**
+ * Per-harness spawn defaults (Settings → Agents when harnessSettings is on).
+ * Absent fields mean "use product / cascade defaults".
+ * `enabled: false` hides the harness from the palette even when the build flag
+ * allows it (user opt-out). Absent or true = offer when installed.
+ */
+export const HarnessInstancePrefs = Schema.Struct({
+  enabled: Schema.optionalKey(Schema.Boolean),
+  model: Schema.optionalKey(harnessPrefString(200)),
+  effort: Schema.optionalKey(harnessPrefString(64)),
+  permissionMode: Schema.optionalKey(harnessPrefString(64)),
+});
+export type HarnessInstancePrefs = typeof HarnessInstancePrefs.Type;
+
+/**
+ * Operator fine-config for managed harness instantiation.
+ * Keys are HarnessId strings; unknown keys are ignored at apply time.
+ * Optional on stored rows written before this section existed.
+ */
+export const HarnessesSettings = Schema.Struct({
+  byHarness: Schema.Record(Schema.String, HarnessInstancePrefs),
+});
+export type HarnessesSettings = typeof HarnessesSettings.Type;
+
 export const FleetDitherLevel = Schema.Literals(["fine", "balanced",
 "coarse",]);
 export type FleetDitherLevel = typeof FleetDitherLevel.Type;
@@ -206,6 +233,11 @@ export const Settings = Schema.Struct({
   audio: AudioSettings,
   station: StationSettings,
   fleet: FleetSettings,
+  /**
+   * Optional so rows written before the Agents settings surface still decode.
+   * Absent ≡ empty byHarness (product defaults for every seat).
+   */
+  harnesses: Schema.optionalKey(HarnessesSettings),
 });
 export type Settings = typeof Settings.Type;
 
@@ -243,6 +275,25 @@ export const AdvancedPatch = Schema.Struct({
   logsExplorer: Schema.optionalKey(Schema.Boolean),
 });
 export type AdvancedPatch = typeof AdvancedPatch.Type;
+
+export const HarnessInstancePrefsPatch = Schema.Struct({
+  enabled: Schema.optionalKey(Schema.Boolean),
+  model: Schema.optionalKey(harnessPrefString(200)),
+  effort: Schema.optionalKey(harnessPrefString(64)),
+  permissionMode: Schema.optionalKey(harnessPrefString(64)),
+});
+export type HarnessInstancePrefsPatch = typeof HarnessInstancePrefsPatch.Type;
+
+export const HarnessesPatch = Schema.Struct({
+  /**
+   * Per-harness shallow merge. Pass `null` values are not supported — omit a
+   * field to leave it; set model/effort/permissionMode to "" to clear.
+   */
+  byHarness: Schema.optionalKey(
+    Schema.Record(Schema.String, HarnessInstancePrefsPatch),
+  ),
+});
+export type HarnessesPatch = typeof HarnessesPatch.Type;
 
 export const FleetPatch = Schema.Struct({
   ditherLevel: Schema.optionalKey(FleetDitherLevel),
@@ -290,6 +341,7 @@ export const SettingsPatch = Schema.Struct({
   audio: Schema.optionalKey(AudioPatch),
   station: Schema.optionalKey(StationPatch),
   fleet: Schema.optionalKey(FleetPatch),
+  harnesses: Schema.optionalKey(HarnessesPatch),
 });
 export type SettingsPatch = typeof SettingsPatch.Type;
 
@@ -299,7 +351,8 @@ export const SettingsSectionKey = Schema.Literals(["appearance", "canvas",
 "advanced",
 "audio",
 "station",
-"fleet",]);
+"fleet",
+"harnesses",]);
 export type SettingsSectionKey = typeof SettingsSectionKey.Type;
 
 export const defaultAppearance = (): AppearanceSettings => ({
@@ -327,6 +380,10 @@ export const defaultBrowser = (): BrowserPrefs => ({
 export const defaultAdvanced = (): AdvancedSettings => ({
   openLastCanvas: true,
   logsExplorer: false,
+});
+
+export const defaultHarnesses = (): HarnessesSettings => ({
+  byHarness: {},
 });
 
 /** Fail-closed: managed Remote deployment requires explicit operator opt-in. */
@@ -368,6 +425,7 @@ export const defaultSettings = (): Settings => ({
   audio: defaultAudio(),
   station: defaultStation(),
   fleet: defaultFleet(),
+  harnesses: defaultHarnesses(),
 });
 
 export const defaultSection = (key: SettingsSectionKey): Settings[SettingsSectionKey] => {
@@ -388,8 +446,28 @@ export const defaultSection = (key: SettingsSectionKey): Settings[SettingsSectio
       return defaultStation();
     case "fleet":
       return defaultFleet();
+    case "harnesses":
+      return defaultHarnesses();
   }
 };
+
+/** Read prefs for one harness; empty when unset. */
+export const harnessPrefsFor = (
+  settings: Settings | undefined,
+  harness: string,
+): HarnessInstancePrefs => {
+  const row = settings?.harnesses?.byHarness?.[harness];
+  return row ?? {};
+};
+
+/**
+ * Whether the operator has opted a feature-enabled harness out of the palette.
+ * Feature flags still own build-level presence; this is user fine-control only.
+ */
+export const harnessUserEnabled = (
+  settings: Settings | undefined,
+  harness: string,
+): boolean => harnessPrefsFor(settings, harness).enabled !== false;
 
 /** Shallow field merge: defined patch keys overwrite current. */
 export const mergeSection = <S extends Record<string, unknown>>(
@@ -447,6 +525,33 @@ export const applySettingsPatch = (current: Settings, patch: SettingsPatch): Set
       audio = { ...audio, clips };
     }
     next = { ...next, audio };
+  }
+  if (patch.harnesses?.byHarness) {
+    const current = next.harnesses ?? defaultHarnesses();
+    const byHarness = { ...current.byHarness };
+    for (const [id, prefsPatch] of Object.entries(patch.harnesses.byHarness)) {
+      if (!prefsPatch || id.trim().length === 0) continue;
+      const prior = byHarness[id] ?? {};
+      const merged: HarnessInstancePrefs = { ...prior };
+      if (prefsPatch.enabled !== undefined) merged.enabled = prefsPatch.enabled;
+      const applyOptionalString = (
+        key: "model" | "effort" | "permissionMode",
+        raw: string | undefined,
+      ): void => {
+        if (raw === undefined) return;
+        const trimmed = raw.trim();
+        if (trimmed.length === 0) {
+          delete merged[key];
+          return;
+        }
+        merged[key] = trimmed;
+      };
+      applyOptionalString("model", prefsPatch.model);
+      applyOptionalString("effort", prefsPatch.effort);
+      applyOptionalString("permissionMode", prefsPatch.permissionMode);
+      byHarness[id] = merged;
+    }
+    next = { ...next, harnesses: { byHarness } };
   }
   return next;
 };

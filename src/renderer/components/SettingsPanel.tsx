@@ -9,7 +9,9 @@ import {
   BROWSER_ENABLED,
   DEV_TOOLS_ENABLED,
   FLEET_UI_ENABLED,
+  HARNESS_SETTINGS_ENABLED,
 } from "@shared/features";
+import { HarnessesSettingsSection } from "./settings/HarnessesSettingsSection";
 import {
   decodeStateBackupId,
   type StateBackupId,
@@ -56,6 +58,15 @@ const SECTIONS: ReadonlyArray<{ key: PanelSection; label: string; blurb: string 
   { key: "license", label: "License", blurb: "access, billing, and this installation" },
   ...(BROWSER_ENABLED
     ? [{ key: "browser", label: "Browser", blurb: "surface and warm-session limits" } as const]
+    : []),
+  ...(HARNESS_SETTINGS_ENABLED
+    ? [
+        {
+          key: "harnesses",
+          label: "Agents",
+          blurb: "scan CLIs and set spawn defaults per harness",
+        } as const,
+      ]
     : []),
   {
     key: "advanced",
@@ -1065,6 +1076,8 @@ function SectionBody({ section }: { readonly section: PanelSection }) {
       return AUDIO_ENABLED ? <AudioSection /> : null;
     case "browser":
       return BROWSER_ENABLED ? <BrowserSection /> : null;
+    case "harnesses":
+      return HARNESS_SETTINGS_ENABLED ? <HarnessesSettingsSection /> : null;
     case "advanced":
       return <AdvancedSection />;
     case "license": {
@@ -1073,6 +1086,9 @@ function SectionBody({ section }: { readonly section: PanelSection }) {
         ? <LicenseSection api={api} />
         : <p className="settings-error">License service is unavailable.</p>;
     }
+    case "kernel":
+    case "canvas":
+      return null;
   }
 }
 

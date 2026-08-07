@@ -5,6 +5,8 @@ import {
 } from "@shared/remote-hosts";
 import { HERMES_INTEGRATION_ENABLED } from "@shared/features";
 import type { HarnessId } from "@shared/managed-terminal-templates";
+import { mergeHarnessLaunchDefaults } from "@shared/harness-settings";
+import type { Settings } from "@shared/settings";
 
 /** Palette / re-seat harness configuration (model, effort, hermes profile). */
 export type AgentConfigurationChoices = {
@@ -12,6 +14,26 @@ export type AgentConfigurationChoices = {
   readonly profile?: string;
   readonly model?: string;
   readonly effort?: string;
+  readonly permissionMode?: string;
+};
+
+/**
+ * Apply Settings → Agents defaults under cascade/explicit picks.
+ * Call at configure time so seats store the resolved launch prefs.
+ */
+export const withHarnessSettingsDefaults = (
+  choices: AgentConfigurationChoices,
+  settings: Settings | undefined,
+): AgentConfigurationChoices => {
+  const merged = mergeHarnessLaunchDefaults(settings, choices.harness, {
+    model: choices.model,
+    effort: choices.effort,
+    permissionMode: choices.permissionMode,
+  });
+  return {
+    ...choices,
+    ...merged,
+  };
 };
 
 export type AgentHostChoice = {

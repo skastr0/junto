@@ -94,6 +94,7 @@ export type ManagedAgentSeatOptions = {
   readonly profile?: string;
   readonly model?: string;
   readonly effort?: string;
+  readonly permissionMode?: string;
   readonly cwd?: string;
   readonly label?: string;
 };
@@ -125,6 +126,9 @@ export const buildManagedAgentSeat = (
       ...(options.profile ? { profile: options.profile } : {}),
       ...(options.model ? { model: options.model } : {}),
       ...(options.effort ? { effort: options.effort } : {}),
+      ...(options.permissionMode
+        ? { permissionMode: options.permissionMode }
+        : {}),
       ...(options.cwd ? { cwd: options.cwd } : {}),
       injection: { seatBound: false, connected: false },
     },
@@ -160,6 +164,9 @@ export const buildManagedAgentSeat = (
             ...(options.profile ? { profile: options.profile } : {}),
             ...(options.model ? { model: options.model } : {}),
             ...(options.effort ? { effort: options.effort } : {}),
+            ...(options.permissionMode
+              ? { permissionMode: options.permissionMode }
+              : {}),
             ...(options.cwd ? { cwd: options.cwd } : {}),
             sessionId: pinSession,
             injection: { seatBound: false, connected: false },

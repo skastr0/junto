@@ -5,7 +5,11 @@ import {
   defaultAgentLaunchContext,
   type AgentLaunchContextValue,
 } from "./AgentLaunchContext";
-import type { AgentConfigurationChoices } from "./agent-launch-model";
+import {
+  withHarnessSettingsDefaults,
+  type AgentConfigurationChoices,
+} from "./agent-launch-model";
+import { state$ } from "../../lib/state";
 import { AgentHarnessPick } from "./AgentHarnessPick";
 import {
   NodeCatalogGrid,
@@ -86,8 +90,12 @@ export function NodePaletteModeDeck({
   }, []);
 
   const configureAgent = useCallback((choices: AgentConfigurationChoices) => {
+    const withDefaults = withHarnessSettingsDefaults(
+      choices,
+      state$.settings.get(),
+    );
     actions.addConfiguredAgent({
-      ...choices,
+      ...withDefaults,
       ...launchContext,
     }, agentPosition);
   }, [actions, agentPosition, launchContext]);

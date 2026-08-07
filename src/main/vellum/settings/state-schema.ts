@@ -6,10 +6,12 @@ import {
   BrowserPrefs,
   CanvasSettings,
   FleetSettings,
+  HarnessesSettings,
   KernelSettings,
   SETTINGS_VERSION,
   SettingsError,
   StationSettings,
+  defaultHarnesses,
   type Settings,
 } from "@shared/settings";
 
@@ -44,6 +46,8 @@ export const StoredSettingsPreferences = Schema.Struct({
   advanced: AdvancedSettings,
   audio: AudioSettings,
   fleet: FleetSettings,
+  /** Absent on rows written before the Agents settings surface. */
+  harnesses: Schema.optionalKey(HarnessesSettings),
 });
 export type StoredSettingsPreferences =
   typeof StoredSettingsPreferences.Type;
@@ -69,6 +73,7 @@ export const preferencesFromSettings = (
   advanced: settings.advanced,
   audio: settings.audio,
   fleet: settings.fleet,
+  harnesses: settings.harnesses ?? defaultHarnesses(),
 });
 
 // Decode-admits-history: rows written before the theme rename may carry the
@@ -124,9 +129,17 @@ export const decodeStoredSettings = (
         }`,
     });
   }
+  const prefs = decodedPreferences.success;
   return {
     version: SETTINGS_VERSION,
-    ...decodedPreferences.success,
+    appearance: prefs.appearance,
+    canvas: prefs.canvas,
+    kernel: prefs.kernel,
+    browser: prefs.browser,
+    advanced: prefs.advanced,
+    audio: prefs.audio,
+    fleet: prefs.fleet,
+    harnesses: prefs.harnesses ?? defaultHarnesses(),
     station: decodedTopology.success,
   };
 };

@@ -15,6 +15,7 @@ declare const __VELLUM_COMMAND_DEV_TOOLS_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HARNESS_KIMI_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HARNESS_MUSE_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HARNESS_PRIME_AGENT_ENABLED__: boolean | undefined;
+declare const __VELLUM_COMMAND_HARNESS_SETTINGS_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_LICENSE_CHANNEL__: string | undefined;
 declare const __VELLUM_COMMAND_DODO_BUSINESS_ID__: string | undefined;
 declare const __VELLUM_COMMAND_DODO_PRODUCT_IDS__: ReadonlyArray<string> | undefined;
