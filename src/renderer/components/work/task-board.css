@@ -540,13 +540,6 @@
   overflow: auto;
 }
 
-.task-create-dialog__stay-hint {
-  margin-right: auto;
-  color: var(--color-dim);
-  font-size: 10px;
-  letter-spacing: 0.04em;
-}
-
 .task-description-focus--inline {
   position: absolute;
   inset: 0;

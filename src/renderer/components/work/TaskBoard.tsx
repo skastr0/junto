@@ -995,7 +995,6 @@ export function TaskCreateDialog({
   const [formError, setFormError] = useState("");
   const [dragOver, setDragOver] = useState(false);
   const [descriptionOpen, setDescriptionOpen] = useState(false);
-  const [flash, setFlash] = useState("");
 
   useEffect(() => {
     if (resetToken === 0) return;
@@ -1012,14 +1011,7 @@ export function TaskCreateDialog({
     setFormError("");
     setDragOver(false);
     setDescriptionOpen(false);
-    setFlash(isProposal ? "Proposed — ready for next" : "Queued — ready for next");
-  }, [resetToken, isProposal]);
-
-  useEffect(() => {
-    if (!flash) return;
-    const t = window.setTimeout(() => setFlash(""), 2200);
-    return () => window.clearTimeout(t);
-  }, [flash]);
+  }, [resetToken]);
 
   const appendMedia = (draft: TaskMediaDraft) => {
     setMedia((current) => {
@@ -1347,11 +1339,7 @@ export function TaskCreateDialog({
           ) : null}
 
           <footer>
-            {stayOpen ? (
-              <span className="task-create-dialog__stay-hint" aria-live="polite">
-                {flash || "Stays open after create"}
-              </span>
-            ) : (
+            {stayOpen ? null : (
               <Button type="button" variant="subtle" onClick={onClose} disabled={pending}>
                 Cancel
               </Button>
