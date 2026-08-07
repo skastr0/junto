@@ -27,6 +27,7 @@ import {
   xtermThemeFor,
 } from "../../lib/terminal-theme";
 import { themeMode$ } from "../../lib/theme-mode";
+import { attachXtermAutoCopy } from "../../lib/xterm-auto-copy";
 import { ActivityMark } from "../ActivityMark";
 import { FocusSurface } from "../FocusSurface";
 import { Button, OverlayHeader } from "../ui";
@@ -769,10 +770,14 @@ export function HerdrTerminalPanel({
     hostEl.addEventListener("dragover", onDragOver);
     hostEl.addEventListener("drop", onDrop);
 
+    // Drag-select → system clipboard on mouseup (shared with native PTY).
+    const detachAutoCopy = attachXtermAutoCopy(hostEl, term);
+
     void openStream();
 
     return () => {
       cancelled = true;
+      detachAutoCopy();
       unsub();
       unsubTheme();
       window.removeEventListener("resize", scheduleResize);

@@ -29,6 +29,7 @@ import {
   storeTerminalViewport,
   takeTerminalViewport,
 } from "../../lib/terminal-viewport";
+import { attachXtermAutoCopy } from "../../lib/xterm-auto-copy";
 import { claimedTaskForActorNode } from "../../lib/claimed-task";
 import { state$ } from "../../lib/state";
 import {
@@ -304,6 +305,9 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
     };
     host.addEventListener("pointerdown", onPointerDownCapture, { capture: true });
 
+    // Drag-select → system clipboard on mouseup (shared with herdr PTY).
+    const detachAutoCopy = attachXtermAutoCopy(host, term);
+
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
     const settleTimers: ReturnType<typeof setTimeout>[] = [];
     /** Last real host box — detect pin reflow size jumps. */
@@ -371,6 +375,7 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
     }
 
     return () => {
+      detachAutoCopy();
       host.removeEventListener("wheel", onWheelBubble);
       host.removeEventListener("pointerdown", onPointerDownCapture, { capture: true });
       window.removeEventListener("resize", onWindowResize);
