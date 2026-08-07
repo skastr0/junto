@@ -1408,9 +1408,19 @@ function CanvasGraph() {
   // Boolean only — flips when a cone appears/clears, not on every kernel tick.
   const impactMode = use$(impactModeActive$);
   const connectionFocusNodeId = use$(state$.connectionFocusNodeId);
-  // Viewport freeze: boolean flip at gesture edges only (never per-frame setState).
-  // Does not unmount MiniMap/Background — chrome stays live.
-  const viewportBusy = use$(viewportBusy$);
+  // Viewport freeze without React: the busy class flips on the ReactFlow
+  // wrapper's classList directly, so a pan gesture costs zero renders. The
+  // sync runs on every busy change AND after every render, so a className
+  // prop rewrite can never strand the class. MiniMap/Background stay mounted.
+  const rfRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const syncBusy = (): void => {
+      rfRef.current?.classList.toggle("is-viewport-busy", viewportBusy$.peek());
+    };
+    syncBusy();
+    const unsubscribe = viewportBusy$.onChange(syncBusy);
+    return unsubscribe;
+  });
   const onMoveStart = useCallback(() => {
     markViewportBusy();
     closeMenus();
@@ -1426,10 +1436,10 @@ function CanvasGraph() {
   return <>
     {terminalAnchor ? <TerminalWizard anchor={terminalAnchor} onClose={() => setTerminalAnchor(null)} /> : null}
     <ReactFlow
+      ref={rfRef}
       className={[
         connecting ? "is-connecting" : "",
         impactMode ? (connectionFocusNodeId ? "connection-focus-mode" : "impact-mode") : "",
-        viewportBusy ? "is-viewport-busy" : "",
       ].filter(Boolean).join(" ") || undefined}
       nodes={nodes}
       edges={edges}
