@@ -18,13 +18,9 @@ import type {
   ManagedTerminalProfileOption,
 } from "@shared/ipc";
 import { getVellumCommandApi } from "../../lib/vellum-api";
+import type { AgentConfigurationChoices } from "./agent-launch-model";
 
-export type AgentConfigurationChoices = {
-  readonly harness: HarnessId;
-  readonly profile?: string;
-  readonly model?: string;
-  readonly effort?: string;
-};
+export type { AgentConfigurationChoices };
 
 type CascadeSide = "end" | "start";
 

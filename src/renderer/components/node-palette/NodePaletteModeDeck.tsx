@@ -1,22 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowRight, Search } from "lucide-react";
 import {
-  allTemplates,
-  templateFor,
-  type HarnessId,
-} from "@shared/managed-terminal-templates";
-import {
-  AgentCascadeMenu,
-  cascadeEnterKey,
-  cascadeSideFor,
-  type AgentConfigurationChoices,
-} from "./AgentCascadeMenu";
-import { HarnessMark } from "../herdr/HarnessMark";
-import {
   AgentLaunchContext,
   defaultAgentLaunchContext,
   type AgentLaunchContextValue,
 } from "./AgentLaunchContext";
+import type { AgentConfigurationChoices } from "./agent-launch-model";
+import { AgentHarnessPick } from "./AgentHarnessPick";
 import {
   NodeCatalogGrid,
   type NodeCatalogCategory,
@@ -89,47 +79,11 @@ export function NodePaletteModeDeck({
   const [launchContext, setLaunchContext] = useState<AgentLaunchContextValue>(
     defaultAgentLaunchContext,
   );
-  const [agentCascade, setAgentCascade] = useState<{
-    readonly harness: HarnessId;
-    readonly anchor: HTMLButtonElement;
-    readonly focusOnOpen: boolean;
-  } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const cascadeCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     inputRef.current?.focus();
-    return () => {
-      if (cascadeCloseTimer.current) clearTimeout(cascadeCloseTimer.current);
-    };
   }, []);
-
-  const keepCascadeOpen = useCallback(() => {
-    if (!cascadeCloseTimer.current) return;
-    clearTimeout(cascadeCloseTimer.current);
-    cascadeCloseTimer.current = null;
-  }, []);
-  const closeCascade = useCallback(() => {
-    keepCascadeOpen();
-    setAgentCascade(null);
-  }, [keepCascadeOpen]);
-  const closeCascadeSoon = useCallback(() => {
-    keepCascadeOpen();
-    cascadeCloseTimer.current = setTimeout(() => {
-      const active = document.activeElement;
-      if (active instanceof Element && active.closest(".agent-cascade, .node-deck")) return;
-      setAgentCascade(null);
-    }, 140);
-  }, [keepCascadeOpen]);
-  const openCascade = useCallback((harness: HarnessId, anchor: HTMLButtonElement, focusOnOpen = false) => {
-    keepCascadeOpen();
-    setAgentCascade({ harness, anchor, focusOnOpen });
-  }, [keepCascadeOpen]);
-  const exitCascade = useCallback(() => {
-    const anchor = agentCascade?.anchor;
-    closeCascade();
-    requestAnimationFrame(() => (anchor?.isConnected ? anchor : inputRef.current)?.focus());
-  }, [agentCascade?.anchor, closeCascade]);
 
   const configureAgent = useCallback((choices: AgentConfigurationChoices) => {
     actions.addConfiguredAgent({
@@ -137,12 +91,6 @@ export function NodePaletteModeDeck({
       ...launchContext,
     }, agentPosition);
   }, [actions, agentPosition, launchContext]);
-  const matchingTemplates = allTemplates().filter((template) =>
-    !query.trim() || template.displayName.toLowerCase().includes(query.trim().toLowerCase()),
-  );
-  const activeAgentName = agentCascade
-    ? templateFor(agentCascade.harness).displayName
-    : "Agent";
 
   return (
     <section className="node-deck" aria-label="Add canvas item" onWheel={(event) => event.stopPropagation()}>
@@ -172,47 +120,18 @@ export function NodePaletteModeDeck({
       <div className="node-deck__body">
         <aside className="node-deck__agents" aria-label="Agents">
           <div className="node-deck__pane-label"><span>Agents</span></div>
-          <div className="node-deck__agent-list" role="list">
-            {matchingTemplates.map((template) => {
-              const selected = agentCascade?.harness === template.harness;
-              return (
-                <div key={template.harness} role="listitem">
-                <button
-                  type="button"
-                  className={`node-deck__agent${selected ? " is-expanded" : ""}`}
-                  aria-label={`Add ${template.displayName} agent`}
-                  aria-haspopup="menu"
-                  aria-expanded={selected}
-                  onFocus={(event) => openCascade(template.harness, event.currentTarget)}
-                  onBlur={closeCascadeSoon}
-                  onMouseEnter={(event) => openCascade(template.harness, event.currentTarget)}
-                  onMouseLeave={closeCascadeSoon}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === cascadeEnterKey(cascadeSideFor(event.currentTarget))) {
-                      event.preventDefault();
-                      openCascade(template.harness, event.currentTarget, true);
-                    }
-                  }}
-                  onClick={() => configureAgent({ harness: template.harness })}
-                >
-                  <HarnessMark
-                    agent={template.harness}
-                    size={28}
-                    title={false}
-                    treatment="neutral"
-                  />
-                  <strong>{template.displayName}</strong>
-                </button>
-                </div>
-              );
-            })}
-          </div>
+          <AgentHarnessPick
+            className="node-deck__harness-pick"
+            query={query}
+            listLabel="Agents"
+            onConfigure={configureAgent}
+          />
           <section
             className="node-deck__agent-wiring"
-            aria-label={`${activeAgentName} connection summary`}
+            aria-label="Agent connection summary"
           >
             <div className="node-deck__agent-route">
-              <span>{activeAgentName}</span>
+              <span>Agent</span>
               <ArrowRight size={13} aria-hidden />
               <strong>Tasks</strong>
               <small>claims and completes work</small>
@@ -239,18 +158,6 @@ export function NodePaletteModeDeck({
           />
         </div>
       </div>
-      {agentCascade ? (
-        <AgentCascadeMenu
-          key={agentCascade.harness}
-          harness={agentCascade.harness}
-          anchor={agentCascade.anchor}
-          focusOnOpen={agentCascade.focusOnOpen}
-          onConfigure={configureAgent}
-          onPointerEnter={keepCascadeOpen}
-          onPointerLeave={closeCascadeSoon}
-          onExit={exitCascade}
-        />
-      ) : null}
     </section>
   );
 }

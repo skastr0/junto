@@ -4,6 +4,15 @@ import {
   TERMINAL_HOST_CAPABILITY,
 } from "@shared/remote-hosts";
 import { HERMES_INTEGRATION_ENABLED } from "@shared/features";
+import type { HarnessId } from "@shared/managed-terminal-templates";
+
+/** Palette / re-seat harness configuration (model, effort, hermes profile). */
+export type AgentConfigurationChoices = {
+  readonly harness: HarnessId;
+  readonly profile?: string;
+  readonly model?: string;
+  readonly effort?: string;
+};
 
 export type AgentHostChoice = {
   readonly id: string;

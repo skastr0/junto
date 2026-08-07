@@ -83,7 +83,8 @@
  * Agent list absorbs leftover column height so free space sits in the scroll
  * region — never as empty well under the host / path launch controls.
  */
-.node-deck__agent-list {
+.node-deck__agent-list,
+.node-deck__harness-pick .agent-harness-pick__list {
   display: grid;
   flex: 1 1 0;
   align-content: start;
@@ -94,6 +95,143 @@
   padding: 2px;
   scrollbar-color: var(--color-stroke) transparent;
   scrollbar-width: thin;
+}
+
+/* Shared harness pick (palette + re-seat) — same chrome as legacy .node-deck__agent */
+.agent-harness-pick {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+.node-deck__harness-pick {
+  flex: 1 1 0;
+  min-height: 0;
+}
+.agent-harness-pick__item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-ink-2);
+  padding: 5px 8px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.agent-harness-pick__item:hover,
+.agent-harness-pick__item:focus-visible,
+.agent-harness-pick__item.is-expanded {
+  border-color: color-mix(in oklab, var(--color-main) 42%, transparent);
+  background: var(--deck-selected, color-mix(in oklab, var(--color-main) 10%, transparent));
+  color: var(--color-ink);
+  outline: 0;
+}
+.agent-harness-pick__item.is-current {
+  border-color: color-mix(in oklab, var(--color-cyan) 35%, transparent);
+}
+.agent-harness-pick__item strong {
+  overflow: hidden;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-harness-pick__current {
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-cyan);
+}
+
+/* Re-seat pop from RTS command card */
+.agent-reseat-pop {
+  position: absolute;
+  z-index: 40;
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: min(280px, 80vw);
+  max-height: min(360px, 50vh);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--color-stroke);
+  border-radius: 10px;
+  background: var(--color-raise);
+  box-shadow: 0 16px 40px var(--color-shadow-1);
+}
+.agent-reseat-pop__title {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+.agent-reseat-pop .agent-harness-pick__list {
+  flex: 1 1 auto;
+  max-height: 280px;
+}
+
+.agent-reseat-confirm {
+  position: fixed;
+  inset: 0;
+  z-index: 10020;
+  display: grid;
+  place-items: center;
+  pointer-events: auto;
+}
+.agent-reseat-confirm__backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  background: var(--color-backdrop);
+  cursor: default;
+}
+.agent-reseat-confirm__card {
+  position: relative;
+  z-index: 1;
+  width: min(420px, calc(100vw - 32px));
+  padding: 18px 18px 14px;
+  border: 1px solid var(--color-stroke);
+  border-radius: 12px;
+  background: var(--color-raise);
+  box-shadow: 0 24px 64px var(--color-shadow-1);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.agent-reseat-confirm__card strong {
+  font-size: 14px;
+  color: var(--color-ink);
+}
+.agent-reseat-confirm__card p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--color-dim);
+}
+.agent-reseat-confirm__check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--color-ink-2);
+}
+.agent-reseat-confirm__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
 }
 
 .node-deck__launch-slot {

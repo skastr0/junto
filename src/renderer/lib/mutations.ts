@@ -6,6 +6,7 @@ import type {
   EtherTimer,
   EtherWatch,
   NodeSide,
+  TextNode,
 } from "@shared/canvas";
 import { resolveBrowserOnDelete } from "@shared/canvas";
 import { mergeLocalCanvasWithWorkWrite } from "@shared/work-canvas-merge";
@@ -846,6 +847,20 @@ export const setTerminalLabel = (id: string, label: string): void => {
         },
       };
     }),
+  });
+};
+
+/**
+ * Replace an agent node's harness seat (new bindingId + launch) in one commit.
+ * Caller kills the previous process and may reopen the surface.
+ */
+export const applyManagedAgentReseat = (next: TextNode): void => {
+  if (next.ether?.entity?.kind !== "agent") return;
+  const doc = state$.doc.peek();
+  if (!doc.nodes.some((n) => n.id === next.id)) return;
+  commitDoc({
+    ...doc,
+    nodes: doc.nodes.map((n) => (n.id === next.id ? next : n)),
   });
 };
 

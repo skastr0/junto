@@ -84,27 +84,34 @@ export const makeGroupNode = (
   height: Math.round(size?.height ?? 320),
 });
 
+/** Shared options for authoring or re-seating a managed agent. */
+export type ManagedAgentSeatOptions = {
+  readonly harness: HarnessId;
+  /** Enrolled HostId used for placement and Station projection. */
+  readonly host: string;
+  /** Hermes routing prefix when the enrolled host declares a distinct key. */
+  readonly agentHost?: string;
+  readonly profile?: string;
+  readonly model?: string;
+  readonly effort?: string;
+  readonly cwd?: string;
+  readonly label?: string;
+};
+
+export type ManagedAgentSeatFields = {
+  readonly text: string;
+  readonly ether: NonNullable<TextNode["ether"]>;
+};
+
 /**
- * Managed-terminal actor seat — the only legal agent authoring form.
- * Kind `agent` ⇒ required ports: entity.name + terminal.bindingId + terminal.harness.
- * Opens via managed terminal (not ACP). Secrets never stored in launch.env.
+ * Pure seat fields (label + ether) for a managed agent.
+ * Shared by node creation and re-seat — one place for harness launch rules.
+ * Kind `agent` ⇒ entity.name + terminal.bindingId + terminal.harness.
+ * Secrets never stored in launch.env.
  */
-export const makeManagedAgentNode = (
-  x: number,
-  y: number,
-  options: {
-    readonly harness: HarnessId;
-    /** Enrolled HostId used for placement and Station projection. */
-    readonly host: string;
-    /** Hermes routing prefix when the enrolled host declares a distinct key. */
-    readonly agentHost?: string;
-    readonly profile?: string;
-    readonly model?: string;
-    readonly effort?: string;
-    readonly cwd?: string;
-    readonly label?: string;
-  },
-): TextNode => {
+export const buildManagedAgentSeat = (
+  options: ManagedAgentSeatOptions,
+): ManagedAgentSeatFields => {
   if (!managedHarnessEnabled(options.harness)) {
     throw new Error(`managed harness ${options.harness} is disabled in this build`);
   }
@@ -167,13 +174,7 @@ export const makeManagedAgentNode = (
       })()
     : launch;
   return {
-    id: `agent-${ulid()}`,
-    type: "text",
     text: label,
-    x: Math.round(x),
-    y: Math.round(y),
-    width: AGENT_NODE_SIZE.width,
-    height: AGENT_NODE_SIZE.height,
     ether: {
       entity: { kind: "agent", name: agentKey },
       host,
@@ -184,6 +185,59 @@ export const makeManagedAgentNode = (
         launch: launchWithSession,
         ...(pinSession ? { sessionId: pinSession } : {}),
       },
+    },
+  };
+};
+
+/**
+ * Managed-terminal actor seat — the only legal agent authoring form.
+ * Opens via managed terminal (not ACP).
+ */
+export const makeManagedAgentNode = (
+  x: number,
+  y: number,
+  options: ManagedAgentSeatOptions,
+): TextNode => {
+  const seat = buildManagedAgentSeat(options);
+  return {
+    id: `agent-${ulid()}`,
+    type: "text",
+    text: seat.text,
+    x: Math.round(x),
+    y: Math.round(y),
+    width: AGENT_NODE_SIZE.width,
+    height: AGENT_NODE_SIZE.height,
+    ether: seat.ether,
+  };
+};
+
+/**
+ * Re-seat an existing agent node onto a new harness (new binding + launch).
+ * Preserves id, geometry, and flags; mints a fresh bindingId so the old
+ * process can be killed without colliding with the new seat.
+ */
+export const reseatManagedAgentNode = (
+  node: TextNode,
+  options: Omit<ManagedAgentSeatOptions, "host"> & {
+    readonly host?: string;
+  },
+): TextNode => {
+  if (node.ether?.entity?.kind !== "agent") {
+    throw new Error("reseatManagedAgentNode requires an agent node");
+  }
+  const host =
+    options.host?.trim() ||
+    (typeof node.ether.host === "string" && node.ether.host.trim().length > 0
+      ? node.ether.host
+      : "local");
+  const seat = buildManagedAgentSeat({ ...options, host });
+  const flags = node.ether.flags;
+  return {
+    ...node,
+    text: seat.text,
+    ether: {
+      ...seat.ether,
+      ...(flags && flags.length > 0 ? { flags } : {}),
     },
   };
 };

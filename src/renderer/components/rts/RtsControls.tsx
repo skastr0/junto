@@ -72,7 +72,9 @@ import {
 } from "../InspectorFields";
 import { edgeSheetSentence, edgeSheetTitle } from "../edges/WireSheet";
 import { CronScheduleSurface } from "../nodes/CronScheduleSurface";
+import { AgentReseatControl } from "./AgentReseatControl";
 import "./rts-controls.css";
+import "../node-palette/node-palette-mode-deck.css";
 
 const ICON = 12;
 
@@ -458,6 +460,7 @@ export function KindActions({ node }: { readonly node: CanvasNode }) {
             >
               <Terminal size={ICON} />
             </KindKey>
+            <AgentReseatControl node={node} />
             {rename}
           </>
         );
