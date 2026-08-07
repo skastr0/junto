@@ -11,7 +11,11 @@ import {
   type LoomPlan,
   type LoomStrand,
 } from "../src/renderer/lib/wire-loom";
-import { polylineHitsObstacles, routeWire } from "../src/renderer/lib/wire-route";
+import {
+  polylineHitsObstacles,
+  routeWire,
+  segmentHitsRect,
+} from "../src/renderer/lib/wire-route";
 import type { WireDirection, WirePoint, WireRect } from "../src/renderer/lib/wire-route";
 
 const HUB: WirePoint = { x: 0, y: 0 };
@@ -103,6 +107,120 @@ function crossingCount(segments: ReadonlyArray<Segment>): number {
     }
   }
   return found;
+}
+
+/** Every strand of a plan, stitched against its own planned endpoints. */
+function stitchAll(
+  plan: LoomPlan,
+  edges: ReadonlyArray<LoomEdgeInput>,
+): Array<{ readonly edge: LoomEdgeInput; readonly strand: LoomStrand; readonly points: ReadonlyArray<WirePoint> }> {
+  const byId = new Map(edges.map((edge) => [edge.id, edge] as const));
+  return [...plan.strands].map(([edgeId, strand]) => {
+    const edge = byId.get(edgeId)!;
+    return {
+      edge,
+      strand,
+      points: stitchStrand(strand, {
+        sourceX: edge.sourceAnchor.x,
+        sourceY: edge.sourceAnchor.y,
+        targetX: edge.targetAnchor.x,
+        targetY: edge.targetAnchor.y,
+      }).points,
+    };
+  });
+}
+
+/**
+ * Segments of two DIFFERENT cables that run on the same line, closer than the
+ * spacing the strands of one cable hold. Two cables laid on top of each other
+ * paint as one, and every wire under the top one becomes invisible.
+ */
+function stackedCables(
+  plan: LoomPlan,
+  edges: ReadonlyArray<LoomEdgeInput>,
+): Array<readonly [string, string]> {
+  const segments = stitchAll(plan, edges).flatMap(({ strand, points }) =>
+    points.slice(0, -1).map((a, index) => ({
+      bundle: strand.bundleKey,
+      edgeId: strand.edgeId,
+      a,
+      b: points[index + 1]!,
+    })),
+  );
+  const found: Array<readonly [string, string]> = [];
+  for (let i = 0; i < segments.length; i++) {
+    for (let j = i + 1; j < segments.length; j++) {
+      const s = segments[i]!;
+      const t = segments[j]!;
+      if (s.bundle === t.bundle) continue;
+      const axis = Math.abs(s.a.y - s.b.y) <= 1e-6 ? "y" : "x";
+      const other = Math.abs(t.a.y - t.b.y) <= 1e-6 ? "y" : "x";
+      if (axis !== other) continue;
+      const across = axis === "y" ? "y" : "x";
+      const along = axis === "y" ? "x" : "y";
+      if (Math.abs(s.a[across] - t.a[across]) >= LANE_GAP) continue;
+      const overlap =
+        Math.min(Math.max(s.a[along], s.b[along]), Math.max(t.a[along], t.b[along])) -
+        Math.max(Math.min(s.a[along], s.b[along]), Math.min(t.a[along], t.b[along]));
+      if (overlap > LANE_GAP) found.push([s.edgeId, t.edgeId] as const);
+    }
+  }
+  return found;
+}
+
+/** A three-member right-side fan, hubbed at `x=0` on `hubY`, facing right. */
+function fanAt(
+  nodeId: string,
+  hubY: number,
+  targets: ReadonlyArray<WirePoint>,
+): LoomEdgeInput[] {
+  return targets.map((target, index) => ({
+    id: `${nodeId}${index}`,
+    blocked: false,
+    sourceNodeId: nodeId,
+    sourceSide: "right",
+    sourceAnchor: { x: 0, y: hubY },
+    targetNodeId: `${nodeId}n${index}`,
+    targetSide: "left",
+    targetAnchor: target,
+  }));
+}
+
+/**
+ * Two fans a wall pushes onto the same detour: without the shared corridor
+ * they would take separate straight trunks, and once bent they compete for one
+ * line. Each hub is its own cable, so their lanes must stay apart.
+ */
+function sameDetourCanvas(gap: number): {
+  edges: LoomEdgeInput[];
+  obstacles: LoomObstacle[];
+} {
+  return {
+    edges: [
+      ...fanAt("A", -100, [{ x: 900, y: -200 }, { x: 900, y: -100 }, { x: 900, y: 0 }]),
+      ...fanAt("B", -100 + gap, [
+        { x: 920, y: -260 },
+        { x: 920, y: -160 },
+        { x: 920, y: -60 },
+      ]),
+    ],
+    // Reaches far above both hubs, so the only way past is underneath it.
+    obstacles: [{ nodeId: "wall", x: 300, y: -2000, width: 60, height: 2100 }],
+  };
+}
+
+/** Two fans a single card pushes onto detours in opposite directions. */
+function oppositeDetourCanvas(): {
+  edges: LoomEdgeInput[];
+  obstacles: LoomObstacle[];
+} {
+  return {
+    edges: [
+      ...fanAt("A", -150, [{ x: 900, y: -300 }, { x: 900, y: -200 }, { x: 900, y: -100 }]),
+      ...fanAt("B", 150, [{ x: 920, y: 100 }, { x: 920, y: 200 }, { x: 920, y: 300 }]),
+    ],
+    obstacles: [{ nodeId: "slot", x: 300, y: -40, width: 60, height: 80 }],
+  };
 }
 
 /** A three-member right-side fan hubbed on `nodeId`, far endpoints at x=700. */
@@ -399,6 +517,67 @@ describe("wire-loom planning", () => {
     expect(aside.strands.size).toBe(3);
   });
 
+  it("never lays two cables on one line, detour or not", () => {
+    // The lane band used to be the straight hub-to-trunk-end box whatever the
+    // spine did, so once two fans bent into the same corridor nothing saw the
+    // collision: six wires painted as one three-line cable. The band is the
+    // legs the cable actually took, so the discipline holds on a detour too.
+    for (const gap of [40, 60, 80, 120, 160]) {
+      const canvas = sameDetourCanvas(gap);
+      const plan = planLoom(canvas);
+      expect({ gap, stacked: stackedCables(plan, canvas.edges) }).toEqual({ gap, stacked: [] });
+    }
+
+    // And the discipline is not a blanket dissolve: two cables that bend away
+    // from each other both hold, both detour, and neither shares a line.
+    const apart = oppositeDetourCanvas();
+    const plan = planLoom(apart);
+    expect(plan.strands.size).toBe(6);
+    expect(new Set([...plan.strands.values()].map((s) => s.bundleKey)).size).toBe(2);
+    expect([...plan.strands.values()].filter((s) => s.lane.length > 2).length).toBeGreaterThan(0);
+    expect(stackedCables(plan, apart.edges)).toEqual([]);
+  });
+
+  it("never draws a detoured cable through a card", () => {
+    // The straight trunk is checked on the fixture below; this is the path the
+    // route-around adds, where the lanes are parallel offsets of a bent spine
+    // rather than of a line, and an offset corner is where a lane would leave
+    // the corridor the spine was cleared for.
+    for (const canvas of [sameDetourCanvas(60), sameDetourCanvas(160), oppositeDetourCanvas()]) {
+      const plan = planLoom(canvas);
+      expect(plan.strands.size).toBeGreaterThan(0);
+      for (const { edge, points } of stitchAll(plan, canvas.edges)) {
+        const field = canvas.obstacles.filter(
+          (rect) => rect.nodeId !== edge.sourceNodeId && rect.nodeId !== edge.targetNodeId,
+        );
+        for (let i = 0; i < points.length - 1; i++) {
+          const hit = field.find((rect) => segmentHitsRect(points[i]!, points[i + 1]!, rect));
+          expect({ edgeId: edge.id, segment: i, through: hit?.nodeId ?? null }).toEqual({
+            edgeId: edge.id,
+            segment: i,
+            through: null,
+          });
+        }
+      }
+    }
+  });
+
+  it("plans the same detour whatever order the canvas is walked in", () => {
+    // The router's visibility graph is built in array order and its tie-breaks
+    // follow, so an unsorted obstacle field would make a BENT cable's corners a
+    // property of the walk rather than of the canvas. The fixture's cables are
+    // all straight, so only a detoured canvas can prove this.
+    const canvas = oppositeDetourCanvas();
+    const settled = entriesOf(planLoom(canvas));
+    expect([...planLoom(canvas).strands.values()].some((s) => s.lane.length > 2)).toBe(true);
+    expect(
+      entriesOf(planLoom({ ...canvas, obstacles: [...canvas.obstacles].reverse() })),
+    ).toEqual(settled);
+    expect(entriesOf(planLoom({ ...canvas, edges: [...canvas.edges].reverse() }))).toEqual(
+      settled,
+    );
+  });
+
   it("dissolves a fan the router cannot serve", () => {
     // A card parked over the comb leaves nowhere to split: the cable has no
     // spine to route to, so every member falls back to the per-edge router.
@@ -510,22 +689,36 @@ describe("wire-loom on the real factory canvas", () => {
     expect(plan.strands.size).toBeGreaterThanOrEqual(30);
     expect(sizes.size).toBeGreaterThanOrEqual(6);
 
-    // Two nine-wide fans comb complete, cards and all.
+    // Three nine-wide fans comb complete, cards and all.
     expect(sizes.get("board-01KZ21G6JN9RYSSZ4EWKZBJGQ6|left|t") ?? 0).toBeGreaterThanOrEqual(6);
     expect(sizes.get("task-01KZ210AXM2WAC3W7XA69BVE3D|right|t") ?? 0).toBeGreaterThanOrEqual(6);
+    expect(sizes.get("requests-01KZ21FNY7XVAZMR5ZHT6G474R|left|t") ?? 0).toBeGreaterThanOrEqual(
+      6,
+    );
     // The six-wide source fan on the first task keeps its cable too.
     expect(sizes.get("task-01KYPY4EX9DYTB238RDYGEX7QK|right|s") ?? 0).toBeGreaterThanOrEqual(4);
 
-    // Two hubs on this canvas cannot carry a cable at all, and the reason is
-    // the layout, not the planner: `artifacts-01KZ21FTGZ...` has its left
-    // handle 17px from the `requests-01KZ21FNY7...` card, which no 24px-wide
-    // nine-lane bundle can turn inside; `requests-01KZ21FNY7...` sits 80px
-    // from a wall of agent cards where its own comb needs 85. Both are proved
-    // below as measurements, so a layout that later opens up reads as a gain
-    // rather than a test break.
+    // The fourth nine-wide hub carries no cable, and the reason is the layout
+    // rather than the planner. `artifacts-01KZ21FTGZ...` opens its left handle
+    // 17px from the `requests-01KZ21FNY7...` card, at a height inside that
+    // card's body, so the whole trunk axis is card: there is no run to lane
+    // along, straight or bent, and even the minimum lead out of the handle is
+    // already inside the neighbour. Proved with the router's own hit test, so
+    // a layout that later opens up reads as a gain rather than a test break.
     const artifacts = bounds.get("artifacts-01KZ21FTGZ4313NN8M3XM00RQ7")!;
     const requests = bounds.get("requests-01KZ21FNY7XVAZMR5ZHT6G474R")!;
+    const handle = anchorOn(artifacts, "left");
     expect(artifacts.x - (requests.x + requests.width)).toBe(17);
+    expect(handle.y).toBeGreaterThan(requests.y);
+    expect(handle.y).toBeLessThan(requests.y + requests.height);
+    expect(
+      segmentHitsRect(handle, { x: handle.x - LOOM_LEAD, y: handle.y }, {
+        x: requests.x,
+        y: requests.y,
+        width: requests.width,
+        height: requests.height,
+      }),
+    ).toBe(true);
   });
 
   it("plans the same detours whatever order the canvas is walked in", () => {

@@ -227,6 +227,11 @@ export function CanvasLoom({ edges }: { readonly edges: ReadonlyArray<FlowEdge> 
   specsRef.current = specs;
   // Non-null while the plan is frozen, holding the dragged-node signature.
   const freezeRef = useRef<string | null>(null);
+  // Geometry and topology the standing plan was built from. `viewportBusy` is a
+  // dependency, so a pan or a zoom re-runs this effect on release; without this
+  // the loom would replan the whole canvas at the end of every gesture, on the
+  // main thread, with nothing having moved.
+  const plannedRef = useRef<{ geometry: LoomNode[]; specsKey: string } | null>(null);
   // Subscribed, not peeked. A geometry tick that lands inside a pan freezes the
   // plan, and nothing else would re-run this effect when the pan releases —
   // the loom would stay stale (or never plan at all on a first-load pan) until
@@ -261,11 +266,21 @@ export function CanvasLoom({ edges }: { readonly edges: ReadonlyArray<FlowEdge> 
         if (!moving.has(spec.sourceNodeId) && !moving.has(spec.targetNodeId)) continue;
         loomStrands$[spec.id]!.delete();
       }
+      // Those strands are gone from the standing plan, so it is no longer what
+      // this geometry says: the release has to replan.
+      plannedRef.current = null;
       return;
     }
     // Drag stop lands here: the dragging flags clear, so this is the one
     // recompute that closes the gesture.
     freezeRef.current = null;
+
+    // A pan or a zoom moves nothing on the canvas. The standing plan is still
+    // the plan, and planning is the expensive half of a geometry tick.
+    const planned = plannedRef.current;
+    if (planned && planned.specsKey === specsKey && sameGeometry(planned.geometry, geometry)) {
+      return;
+    }
 
     const byId = new Map(geometry.map((node) => [node.nodeId, node] as const));
     const inputs: LoomEdgeInput[] = [];
@@ -299,6 +314,7 @@ export function CanvasLoom({ edges }: { readonly edges: ReadonlyArray<FlowEdge> 
     if (!sameRects(loomCorridors$.peek(), plan.corridors)) {
       loomCorridors$.set([...plan.corridors]);
     }
+    plannedRef.current = { geometry, specsKey };
   }, [geometry, specsKey, viewportBusy]);
 
   return null;

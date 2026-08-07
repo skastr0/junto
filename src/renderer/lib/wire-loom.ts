@@ -204,15 +204,14 @@ function offsetPolyline(
 }
 
 /**
- * A shared spine is usable only if it starts and ends on the hub axis with room
- * for the splay wedge and the comb — every station is then a cut on the last
- * leg rather than a corner the lanes would have to negotiate.
+ * A shared spine is usable only if it is orthogonal, never doubles back toward
+ * the hub, and ends on the hub axis with a run long enough to hold every
+ * station — the cut is then on the last leg rather than a corner the lanes
+ * would have to negotiate. Where the splay wedge rides is decided separately by
+ * `splayLegOf`: a handle parked against a neighbouring card leaves the hub
+ * sideways, and the lanes then separate on the first leg with room for them.
  */
-function spineIsSound(
-  spine: ReadonlyArray<WirePoint>,
-  minLead: number,
-  minRun: number,
-): boolean {
+function spineIsSound(spine: ReadonlyArray<WirePoint>, minRun: number): boolean {
   if (spine.length < 2) return false;
   const directions: WirePoint[] = [];
   for (let i = 0; i < spine.length - 1; i++) {
@@ -223,19 +222,21 @@ function spineIsSound(
     if (Math.abs(dx) > 1e-6 && Math.abs(dy) > 1e-6) return false;
     const length = Math.hypot(dx, dy);
     if (length <= 1e-6) return false;
+    // Never back toward the hub: a cable that retreats runs inside its own
+    // splay wedge, and the stations stop being monotone along the trunk.
+    if (dx < -1e-6) return false;
     directions.push({ x: dx / length, y: dy / length });
   }
   for (let i = 1; i < directions.length; i++) {
     const before = directions[i - 1]!;
     const after = directions[i]!;
+    // A spike: out and straight back on the same line, which no lane can hold.
     if (before.x * after.x + before.y * after.y < 0) return false;
   }
-  const first = directions[0]!;
   const last = directions[directions.length - 1]!;
-  if (first.x < 0.5 || last.x < 0.5) return false;
-  const lead = spine[1]!.x - spine[0]!.x;
+  if (last.x < 0.5) return false;
   const run = spine[spine.length - 1]!.x - spine[spine.length - 2]!.x;
-  return lead >= minLead && run >= minRun;
+  return run >= minRun;
 }
 
 function frameRect(
@@ -260,6 +261,14 @@ function frameRect(
     width: Math.max(...xs) - minX,
     height: Math.max(...ys) - minY,
   };
+}
+
+/** Unit vector of spine leg `index`, in the hub frame. */
+function legUnit(spine: ReadonlyArray<WirePoint>, index: number): WirePoint {
+  const a = spine[index]!;
+  const b = spine[index + 1]!;
+  const length = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+  return { x: (b.x - a.x) / length, y: (b.y - a.y) / length };
 }
 
 function polylineMidpoint(points: ReadonlyArray<WirePoint>): WirePoint {
@@ -370,19 +379,44 @@ function obstacleField(
     .map((o) => inflateRect(o, pad));
 }
 
-/** A fan's lane band in absolute canvas coords, for cross-fan lane discipline. */
-type FanBand = {
+/** `point` sits strictly inside some card once the cable's moat is added. */
+function swallows(
+  field: ReadonlyArray<WireRect>,
+  pad: number,
+  point: WirePoint,
+): boolean {
+  return field.some(
+    (rect) =>
+      point.x > rect.x - pad &&
+      point.x < rect.x + rect.width + pad &&
+      point.y > rect.y - pad &&
+      point.y < rect.y + rect.height + pad,
+  );
+}
+
+/** One straight stretch of a cable's lane footprint, in absolute canvas coords. */
+type BandLeg = {
   readonly orientation: "h" | "v";
-  /** Interval along the trunk. */
+  /** Interval along the stretch. */
   readonly axial: readonly [number, number];
   /** Interval across the lanes. */
   readonly perp: readonly [number, number];
 };
 
+/**
+ * Every stretch the lanes occupy — one leg for a straight cable, one per spine
+ * leg for a routed one. A single straight box would describe a detoured cable
+ * as running where it does not, and cross-fan lane discipline would be blind
+ * exactly where two cables are most likely to share a corridor.
+ */
+type FanBand = ReadonlyArray<BandLeg>;
+
 type FanPlan = {
   readonly strands: ReadonlyArray<LoomStrand>;
   readonly corridors: ReadonlyArray<WireRect>;
   readonly band: FanBand;
+  /** Orientation of the legs a perpendicular bias actually moves. */
+  readonly biasOn: "h" | "v";
 };
 
 function planFan(
@@ -480,8 +514,14 @@ function planFan(
     const minus = pool.filter((lane) => quantize(lane.perp) < 0);
     const plus = pool.filter((lane) => quantize(lane.perp) >= 0);
     const maxGroup = Math.max(minus.length, plus.length);
+    const spans = Math.max(1, maxGroup - 1);
+    // Stations spread over the whole trunk when there is room. Where that
+    // would push the earliest one back into the splay wedge the comb closes
+    // up instead of the fan dissolving — a tighter comb still reads as a comb,
+    // and on a canvas whose fans sit one card apart it is the difference
+    // between a cable and nine loose wires.
     const stationGap = clamp(
-      (trunkEnd - LOOM_LEAD) / Math.max(1, maxGroup - 1),
+      Math.min((trunkEnd - LOOM_LEAD) / spans, (trunkEnd - maxSplay - LANE_GAP) / spans),
       laneGap,
       STATION_GAP_MAX,
     );
@@ -507,15 +547,44 @@ function planFan(
     const splayOf = (lane: Lane): number =>
       LOOM_LEAD + (maxOffset - Math.abs(lane.laneOffset));
 
-    /** This strand's own lane: the spine shifted, led in from the hub, cut at its station. */
-    const laneOf = (spine: ReadonlyArray<WirePoint>, lane: Lane): WirePoint[] | null => {
-      const shifted = offsetPolyline(spine, lane.laneOffset);
+    /**
+     * The spine leg the splay wedge rides — the first one long enough to hold
+     * it. A straight corridor always answers leg 0, which is the plain
+     * lead-splay-trunk shape. A handle parked against a neighbouring card has
+     * no room to fan out before it turns, so the lanes stay coincident (one
+     * line, which is what a cable looks like) until the leg that has room.
+     * Returns -1 when no leg does, and the fan is not a cable here.
+     */
+    const splayLegOf = (spine: ReadonlyArray<WirePoint>): number => {
+      for (let i = 0; i < spine.length - 1; i++) {
+        const a = spine[i]!;
+        const b = spine[i + 1]!;
+        const length = Math.hypot(b.x - a.x, b.y - a.y);
+        // The last leg also carries every station; an inner leg only has to
+        // clear the corner miter, which moves by at most one lane offset.
+        const needed =
+          i === spine.length - 2 ? maxSplay : maxSplay + maxOffset;
+        if (length >= needed) return i;
+      }
+      return -1;
+    };
+
+    /** This strand's own lane: the spine shifted from the splay leg on, cut at its station. */
+    const laneOf = (
+      spine: ReadonlyArray<WirePoint>,
+      splayLeg: number,
+      lane: Lane,
+    ): WirePoint[] | null => {
+      const tail = spine.slice(splayLeg);
+      const shifted = offsetPolyline(tail, lane.laneOffset);
       if (!shifted) return null;
+      const from = tail[0]!;
+      const { x: ux, y: uy } = legUnit(spine, splayLeg);
       const splay = splayOf(lane);
       const points = simplifyPolyline([
-        { x: 0, y: 0 },
-        { x: splay, y: 0 },
-        { x: splay, y: lane.laneOffset },
+        ...spine.slice(0, splayLeg + 1),
+        { x: from.x + ux * splay, y: from.y + uy * splay },
+        { x: shifted[0]!.x + ux * splay, y: shifted[0]!.y + uy * splay },
         ...shifted.slice(1),
       ]);
       // The spine ends on the hub axis after a run long enough to hold every
@@ -572,9 +641,11 @@ function planFan(
     };
 
     const build = (spine: ReadonlyArray<WirePoint>): FanPlan | null => {
+      const splayLeg = splayLegOf(spine);
+      if (splayLeg < 0) return null;
       const laneOfEdge = new Map<string, WirePoint[]>();
       for (const lane of pool) {
-        const own = laneOf(spine, lane);
+        const own = laneOf(spine, splayLeg, lane);
         if (!own) return null;
         // Shared geometry: one hit and this spine is not the cable's spine.
         if (polylineHitsObstacles(absolute(own), spineField)) return null;
@@ -603,75 +674,102 @@ function planFan(
           laneIndex: lane.laneIndex,
           laneCount,
           laneOffset: lane.laneOffset,
-          splayAt: splayOf(lane),
+          splayAt: spine[splayLeg]!.x + splayOf(lane) * legUnit(spine, splayLeg).x,
           stationAt: stationOf.get(lane.candidate.edge.id)!,
           lane: laneOfEdge.get(lane.candidate.edge.id)!,
           comb: combOfEdge.get(lane.candidate.edge.id)!,
         }));
 
-      // Corridor rects cover wherever the cable actually runs: one band box per
-      // spine leg, so a routed detour is furniture for an ejected wire exactly
-      // as a straight trunk is.
-      const corridors: WireRect[] = [];
-      for (let i = 0; i < spine.length - 1; i++) {
-        const a = spine[i]!;
-        const b = spine[i + 1]!;
+      /** The leg swept over a perpendicular interval, as an absolute rect. */
+      const legBox = (
+        a: WirePoint,
+        b: WirePoint,
+        low: number,
+        high: number,
+      ): WireRect => {
         const dx = b.x - a.x;
         const dy = b.y - a.y;
         const length = Math.hypot(dx, dy) || 1;
         const nx = -dy / length;
         const ny = dx / length;
         const corners = [a, b].flatMap((point) => [
-          framePoint(hub, frame, point.x + bandLow * nx, point.y + bandLow * ny),
-          framePoint(hub, frame, point.x + bandHigh * nx, point.y + bandHigh * ny),
+          framePoint(hub, frame, point.x + low * nx, point.y + low * ny),
+          framePoint(hub, frame, point.x + high * nx, point.y + high * ny),
         ]);
         const xs = corners.map((corner) => corner.x);
         const ys = corners.map((corner) => corner.y);
         const minX = Math.min(...xs);
         const minY = Math.min(...ys);
-        corridors.push({
+        return {
           x: minX,
           y: minY,
           width: Math.max(...xs) - minX,
           height: Math.max(...ys) - minY,
-        });
+        };
+      };
+
+      // Corridor rects cover wherever the cable actually runs: one band box per
+      // spine leg, so a routed detour is furniture for an ejected wire exactly
+      // as a straight trunk is. The band is the same sweep over the lanes only
+      // (not the hub axis), so two fans separated by one lane gap read at
+      // exactly the spacing their own strands hold — and a detoured cable
+      // reports the corridor it took, never the straight one it did not.
+      const corridors: WireRect[] = [];
+      const band: BandLeg[] = [];
+      for (let i = 0; i < spine.length - 1; i++) {
+        const a = spine[i]!;
+        const b = spine[i + 1]!;
+        corridors.push(legBox(a, b, bandLow, bandHigh));
+        const box = legBox(a, b, laneLow, laneHigh);
+        const from = framePoint(hub, frame, a.x, a.y);
+        const to = framePoint(hub, frame, b.x, b.y);
+        band.push(
+          Math.abs(to.y - from.y) <= 1e-6
+            ? {
+                orientation: "h",
+                axial: [box.x, box.x + box.width],
+                perp: [box.y, box.y + box.height],
+              }
+            : {
+                orientation: "v",
+                axial: [box.y, box.y + box.height],
+                perp: [box.x, box.x + box.width],
+              },
+        );
       }
       const combMinPerp = Math.min(bandLow, ...pool.map((lane) => lane.perp));
       const combMaxPerp = Math.max(bandHigh, ...pool.map((lane) => lane.perp));
       corridors.push(frameRect(hub, frame, [minStation, trunkEnd], [combMinPerp, combMaxPerp]));
 
-      // The band is the lanes only (not the hub lead), so two fans separated by
-      // one lane gap read at exactly the spacing their own strands hold.
-      const laneRect = frameRect(hub, frame, [0, trunkEnd], [laneLow, laneHigh]);
-      const band: FanBand = horizontal
-        ? {
-            orientation: "h",
-            axial: [laneRect.x, laneRect.x + laneRect.width],
-            perp: [laneRect.y, laneRect.y + laneRect.height],
-          }
-        : {
-            orientation: "v",
-            axial: [laneRect.y, laneRect.y + laneRect.height],
-            perp: [laneRect.x, laneRect.x + laneRect.width],
-          };
-      return { strands, corridors, band };
+      return { strands, corridors, band, biasOn: horizontal ? "h" : "v" };
     };
 
     const straight = build([{ x: 0, y: 0 }, { x: trunkEnd, y: 0 }]);
     if (straight) return straight;
 
     // Blocked straight, so the group's shared path goes through the same
-    // obstacle-avoiding router every individual wire uses. It is asked for a
-    // moat wide enough that the outermost lane still clears a card, and the
-    // detour is only accepted once the lanes themselves come back clean.
-    const leadEnd = maxSplay + SPINE_RADIUS;
+    // obstacle-avoiding router every individual wire uses. It runs from the
+    // hub itself: a handle parked against a neighbouring card has no clear
+    // point down its own axis to start from, and asking for one is what used
+    // to make every detour on a real canvas fail before it was tried. It is
+    // asked for a moat wide enough that the outermost lane still clears a
+    // card, and the detour is only accepted once the lanes come back clean.
     const combAnchor = minStation - maxOffset - SPINE_RADIUS;
-    if (combAnchor - leadEnd < LOOM_LEAD) return null;
+    if (combAnchor < LOOM_LEAD) return null;
+    const spineMoat = LOOM_CLEARANCE + maxOffset;
+    const anchor = framePoint(hub, frame, combAnchor, 0);
+    // A route whose own ends the moat swallows cannot exist, and finding that
+    // out costs a whole visibility graph over every card in the corridor. On a
+    // dense canvas most detour attempts are exactly this shape, so the cheap
+    // proof runs first.
+    if (swallows(routeField, spineMoat, hub) || swallows(routeField, spineMoat, anchor)) {
+      return null;
+    }
     const routed = routeWire({
-      source: framePoint(hub, frame, leadEnd, 0),
-      target: framePoint(hub, frame, combAnchor, 0),
+      source: hub,
+      target: anchor,
       obstacles: routeField,
-      padding: LOOM_CLEARANCE + maxOffset,
+      padding: spineMoat,
       borderRadius: SPINE_RADIUS,
       sourceDirection: hubAxis,
       targetDirection: OPPOSITE[hubAxis],
@@ -682,7 +780,7 @@ function planFan(
       ...pathWaypoints(routed.path).map((point) => frameOf(hub, frame, point)),
       { x: trunkEnd, y: 0 },
     ]);
-    if (!spineIsSound(spine, maxSplay + maxOffset, trunkEnd - combAnchor)) return null;
+    if (!spineIsSound(spine, trunkEnd - combAnchor)) return null;
     return build(spine);
   };
 
@@ -724,10 +822,16 @@ function planFan(
   return best;
 }
 
-function bandsClash(a: FanBand, b: FanBand): boolean {
+/** Two stretches run alongside each other closer than one lane gap. */
+function legsClash(a: BandLeg, b: BandLeg): boolean {
   if (a.orientation !== b.orientation) return false;
   if (a.axial[1] <= b.axial[0] || b.axial[1] <= a.axial[0]) return false;
   return a.perp[0] - LANE_GAP < b.perp[1] && b.perp[0] - LANE_GAP < a.perp[1];
+}
+
+/** Any stretch of one cable running alongside any stretch of the other. */
+function bandsClash(a: FanBand, b: FanBand): boolean {
+  return a.some((leg) => b.some((other) => legsClash(leg, other)));
 }
 
 /**
@@ -735,17 +839,35 @@ function bandsClash(a: FanBand, b: FanBand): boolean {
  * lane gap clear of every already-placed band it overlaps. Bundling is by
  * shared endpoint alone, so two unrelated trunks in one corridor must not
  * merge: they step onto neighbouring lane bands and read as parallel cables.
+ *
+ * The shift runs along one absolute axis, so it only separates the stretches
+ * whose own across-the-lanes interval lies on that axis — `orientation`. A
+ * detour's cross legs slide along themselves instead, which is why the caller
+ * re-tests the whole band afterwards rather than trusting this number.
  */
-function laneBias(band: FanBand, placed: ReadonlyArray<FanBand>): number {
+function laneBias(
+  band: FanBand,
+  placed: ReadonlyArray<FanBand>,
+  orientation: "h" | "v",
+): number {
+  const own = band.filter((leg) => leg.orientation === orientation);
+  if (own.length === 0) return 0;
+  const others = placed.flatMap((other) =>
+    other.filter((leg) => leg.orientation === orientation),
+  );
   let shift = 0;
   for (let pass = 0; pass < 4; pass++) {
-    const moved: FanBand = { ...band, perp: [band.perp[0] + shift, band.perp[1] + shift] };
-    const hits = placed.filter((other) => bandsClash(moved, other));
+    const moved = own.map(
+      (leg): BandLeg => ({ ...leg, perp: [leg.perp[0] + shift, leg.perp[1] + shift] }),
+    );
+    const hits = others.filter((other) => moved.some((leg) => legsClash(leg, other)));
     if (hits.length === 0) break;
     const low = Math.min(...hits.map((hit) => hit.perp[0]));
     const high = Math.max(...hits.map((hit) => hit.perp[1]));
-    const up = high + LANE_GAP - moved.perp[0];
-    const down = low - LANE_GAP - moved.perp[1];
+    const movedLow = Math.min(...moved.map((leg) => leg.perp[0]));
+    const movedHigh = Math.max(...moved.map((leg) => leg.perp[1]));
+    const up = high + LANE_GAP - movedLow;
+    const down = low - LANE_GAP - movedHigh;
     shift += Math.abs(up) <= Math.abs(down) ? up : down;
   }
   return shift;
@@ -801,7 +923,7 @@ export function planLoom(input: {
     if (!centred) continue;
     // Fans are visited in stable key order, so which one holds the centre line
     // and which one steps aside is a property of the document, not of a drag.
-    const bias = laneBias(centred.band, bands);
+    const bias = laneBias(centred.band, bands, centred.biasOn);
     const planned = bias === 0 ? centred : planFan(key, members, input.obstacles, bias);
     if (!planned) continue;
     // Lane discipline is a guarantee, not a best effort: a fan that cannot be
