@@ -407,7 +407,7 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
     };
   }, []);
 
-  // Live theme swap: re-apply Vellum palette + optional CSI ?997 report.
+  // Live theme swap: re-apply Vellum Command palette + optional CSI ?997 report.
   useEffect(
     () =>
       themeMode$.onChange(({ value }) => {

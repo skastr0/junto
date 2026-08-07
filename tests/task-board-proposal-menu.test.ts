@@ -36,7 +36,7 @@ describe("proposal card menu must not offer task transitions", () => {
         role: "user",
         parts: [{ kind: "text", text: "x" }],
         taskId: "01KYWFY6RM38QG3EGW3WPCFZ8D",
-        contextId: "Vellum",
+        contextId: "Vellum Command",
       },
       proposedBy: {
         seatId: seat,

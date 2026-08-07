@@ -17,7 +17,7 @@ import { xtermThemeFor } from "./terminal-theme";
  * as keyboard input (colour reports from xterm use the same channel).
  *
  * Policy:
- * - `follow` (default): re-apply Vellum theme on every mode flip.
+ * - `follow` (default): re-apply Vellum Command theme on every mode flip.
  * - `agent`: still answer protocol queries; skip forced theme re-apply so an
  *   agent that painted its own palette is not overwritten mid-session.
  */

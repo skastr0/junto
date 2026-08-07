@@ -230,7 +230,7 @@ function AppearanceSection() {
               {
                 key: "follow" as const,
                 label: "Follow Vellum Command",
-                hint: "Recommended. Terminals use Vellum colours and the live appearance protocol. Grok spawns with --minimal for palette-native UI (not --no-alt-screen).",
+                hint: "Recommended. Terminals use Vellum Command colours and the live appearance protocol. Grok spawns with --minimal for palette-native UI (not --no-alt-screen).",
               },
               {
                 key: "agent" as const,

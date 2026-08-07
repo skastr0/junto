@@ -3,7 +3,7 @@ import { colorFgBgFor, schemeDsrFor, themeRuntime } from "@shared/theme";
 import { xtermThemeFor } from "../src/renderer/lib/terminal-theme";
 
 describe("xtermThemeFor", () => {
-  it("projects a complete 16-colour ANSI table from Vellum tokens (dark)", () => {
+  it("projects a complete 16-colour ANSI table from Vellum Command tokens (dark)", () => {
     const t = themeRuntime("dark");
     const theme = xtermThemeFor("dark");
     expect(theme.background).toBe(t.ground);

@@ -364,7 +364,7 @@ export function HerdrTerminalPanel({
     termRef.current = term;
     fitRef.current = fit;
 
-    // Live appearance: full Vellum palette + CSI ?996n/?2031/?997 protocol.
+    // Live appearance: full Vellum Command palette + CSI ?996n/?2031/?997 protocol.
     const appearance = attachXtermAppearance(term, {
       initialMode: themeMode$.peek(),
       policy: "follow",
