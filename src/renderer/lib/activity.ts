@@ -146,10 +146,13 @@ export function herdrActivity(input: {
 
 /**
  * One status grammar for raw native terminals and managed agent terminals.
- * A seat event carries richer intent than process liveness and therefore wins.
+ * A seat event carries richer intent than bare process liveness and therefore
+ * wins for attention / actor working — but a live PTY still paints a distinct
+ * green process wave (not actor cyan snake) so idle shells are visible.
  *
  * Pre-ownership spawn failures (`exitReason`) beat the idle "stopped" fallback
- * so a missing harness CLI never looks like a clean stop.
+ * so a missing harness CLI never looks like a clean stop. Those errors are
+ * crimson status — not graph-blocked (arrow-up / "blocked" label stays reserved).
  */
 export function terminalActivity(input: {
   readonly seatState?: AgentSeatState | null;
@@ -177,6 +180,8 @@ export function terminalActivity(input: {
   readonly exitReason?: "cli-missing" | "spawn_failed" | null;
   /** Operator-facing copy when exitReason is set (harness display name). */
   readonly exitMessage?: string | null;
+  /** Best-effort process label for accessible name only (OSC title / argv). */
+  readonly processName?: string | null;
 }): ActivitySpec {
   if (input.seatState === "attention") {
     const stalled =
@@ -201,6 +206,7 @@ export function terminalActivity(input: {
       label: "blocked",
     };
   }
+  // Actor harness turn — cyan snake (distinct from green process wave below).
   if (input.seatState === "working") {
     return {
       mode: "wave",
@@ -209,12 +215,27 @@ export function terminalActivity(input: {
       label: "working",
     };
   }
+  // Live PTY process (raw terminal, or agent seat idle while shell still up).
+  // Green wave + diagonal/ripple — never cyan snake (that is actor working).
+  const processLabel = input.processName?.trim();
   if (input.starting) {
     return {
       mode: "wave",
-      tone: SEVERITY_TONE.working,
+      tone: "green",
       pattern: "diagonal",
-      label: "starting",
+      label: processLabel
+        ? `starting · ${processLabel}`
+        : "starting process",
+    };
+  }
+  if (input.running) {
+    return {
+      mode: "wave",
+      tone: "green",
+      pattern: "ripple",
+      label: processLabel
+        ? `process · ${processLabel}`
+        : "process running",
     };
   }
   // Ready/complete: idle after work, operator has not looked (herdr done).
@@ -229,14 +250,12 @@ export function terminalActivity(input: {
   if (input.seatState === "idle") {
     return { mode: "static", tone: SEVERITY_TONE.idle, label: "idle" };
   }
-  if (input.running) {
-    return { mode: "static", tone: "green", label: "running" };
-  }
-  // Missing CLI / spawn fail: amber attention — never steel "stopped".
+  // Spawn / CLI failures: crimson error status — not graph-blocked.
   if (input.exitReason === "cli-missing") {
     return {
-      mode: "static",
-      tone: SEVERITY_TONE.attention,
+      mode: "wave",
+      tone: "crimson",
+      pattern: "diagonal",
       label:
         input.exitMessage?.trim() ||
         "CLI is not installed on this machine",
@@ -244,8 +263,9 @@ export function terminalActivity(input: {
   }
   if (input.exitReason === "spawn_failed") {
     return {
-      mode: "static",
-      tone: SEVERITY_TONE.attention,
+      mode: "wave",
+      tone: "crimson",
+      pattern: "diagonal",
       label: input.exitMessage?.trim() || "failed to start",
     };
   }

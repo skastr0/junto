@@ -286,6 +286,7 @@ function EntityCard({
         graphBlocked,
         exitReason,
         exitMessage,
+        processName: session?.processName ?? session?.title,
       })
     : graphBlocked
       ? {

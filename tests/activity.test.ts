@@ -121,11 +121,13 @@ describe("terminalActivity", () => {
       tone: "amber",
       pattern: "ripple",
     });
+    // Live PTY under an idle seat still paints green process wave (not steel idle).
     expect(
       terminalActivity({ seatState: "idle", running: true }),
     ).toMatchObject({
-      mode: "static",
-      tone: "steel",
+      mode: "wave",
+      tone: "green",
+      pattern: "ripple",
     });
   });
 
@@ -202,38 +204,49 @@ describe("terminalActivity", () => {
   it("falls back to process lifecycle for raw terminals", () => {
     expect(terminalActivity({ starting: true })).toMatchObject({
       mode: "wave",
-      tone: "cyan",
+      tone: "green",
       pattern: "diagonal",
     });
     expect(terminalActivity({ running: true })).toMatchObject({
-      mode: "static",
+      mode: "wave",
       tone: "green",
+      pattern: "ripple",
     });
+    // Process green ripple ≠ actor cyan snake.
+    expect(terminalActivity({ running: true }).pattern).not.toBe("snake");
+    expect(terminalActivity({ seatState: "working" }).pattern).toBe("snake");
+    expect(terminalActivity({ running: true, processName: "zsh" }).label).toBe(
+      "process · zsh",
+    );
     expect(terminalActivity({})).toMatchObject({
       mode: "static",
       tone: "steel",
     });
   });
 
-  it("surfaces missing harness CLI as amber attention, never steel stopped", () => {
+  it("surfaces missing harness CLI as crimson error (not blocked, not steel stopped)", () => {
     const missing = terminalActivity({
       exitReason: "cli-missing",
       exitMessage: "Claude Code is not installed on this machine",
     });
     expect(missing).toMatchObject({
-      mode: "static",
-      tone: "amber",
+      mode: "wave",
+      tone: "crimson",
+      pattern: "diagonal",
       label: "Claude Code is not installed on this machine",
     });
-    expect(missing.label).not.toMatch(/stopped|gone/i);
+    expect(missing.label).not.toMatch(/stopped|gone|blocked/i);
+    // Graph-blocked keeps arrow-up "blocked" — spawn errors do not.
+    expect(missing.pattern).not.toBe("arrow-up");
 
     const spawnFailed = terminalActivity({
       exitReason: "spawn_failed",
       exitMessage: "Codex failed to start",
     });
     expect(spawnFailed).toMatchObject({
-      mode: "static",
-      tone: "amber",
+      mode: "wave",
+      tone: "crimson",
+      pattern: "diagonal",
       label: "Codex failed to start",
     });
 

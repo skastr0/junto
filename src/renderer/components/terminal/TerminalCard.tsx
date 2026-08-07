@@ -113,6 +113,14 @@ export function TerminalCard({
   const presentation = presentationForSeat(seatState, needsLook === true);
   const exitReason = session?.exitReason;
   const exitMessage = session?.exitMessage;
+  const processLive =
+    session?.status === "running" || session?.status === "starting";
+  // Best-effort process label: OSC/live processName → spawn title → launch argv.
+  const processName =
+    session?.processName?.trim() ||
+    session?.title?.trim() ||
+    (processLive ? launchSummary(native.launch) : undefined) ||
+    undefined;
   const activity = terminalActivity({
     seatState,
     needsLook: needsLook === true,
@@ -122,6 +130,7 @@ export function TerminalCard({
     graphBlocked,
     exitReason,
     exitMessage,
+    processName,
   });
   // Prefer spawn-failure / attention reason over the raw launch argv line.
   // turn-stalled keeps operator-facing "stalled" wording (not raw reason id).
@@ -132,9 +141,19 @@ export function TerminalCard({
         ? "stalled — needs operator look"
         : seatEvent?.reason
       : undefined;
+  const processSubtitle = processLive
+    ? processName
+      ? session?.pid !== undefined
+        ? `${processName} · pid ${session.pid}`
+        : processName
+      : session?.pid !== undefined
+        ? `pid ${session.pid}`
+        : "process live"
+    : undefined;
   const subtitle =
     (exitReason && exitMessage) ||
     attentionSubtitle ||
+    processSubtitle ||
     (presentation === "done" ? "ready — review response" : undefined) ||
     launchSummary(native.launch);
 
@@ -145,6 +164,8 @@ export function TerminalCard({
       title="Open terminal"
       data-seat-state={presentation ?? seatState}
       data-exit-reason={exitReason}
+      data-process-live={processLive ? "true" : undefined}
+      data-process-name={processName}
       data-seat-complete={complete ? "true" : undefined}
     >
       <ExecutionCardHeader

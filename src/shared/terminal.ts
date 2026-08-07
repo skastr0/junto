@@ -226,6 +226,12 @@ export type TerminalSessionSummary = {
    */
   readonly stopping?: true;
   readonly title?: string;
+  /**
+   * Best-effort live process label for canvas chrome: OSC window title when
+   * the harness sets one, else spawn argv basename. Never required for
+   * correctness — display only.
+   */
+  readonly processName?: string;
   readonly cwd?: string;
   readonly pid?: number;
   readonly detached: boolean;

@@ -8,7 +8,7 @@
 import { EventEmitter } from "node:events";
 import { existsSync, statSync } from "node:fs";
 import * as os from "node:os";
-import { isAbsolute, join } from "node:path";
+import { basename, isAbsolute, join } from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
 import { Result } from "effect";
 import type { HarnessId } from "@shared/managed-terminal-templates";
@@ -223,6 +223,8 @@ type SessionRec = {
   rows: number;
   cwd: string;
   title?: string;
+  /** Spawn argv basename — display fallback when OSC title is empty. */
+  processName?: string;
   label?: string;
   backend: "pty" | undefined;
   canvasName?: string;
@@ -714,6 +716,9 @@ export class LocalSessionHost extends EventEmitter {
       return this.summaryOf(rec);
     }
     const launch = resolved.success;
+    // Best-effort display name until OSC title updates (shell basename etc.).
+    const spawnName = basename(launch.file).trim();
+    if (spawnName.length > 0) rec.processName = spawnName;
     if (!isUsableCwd(launch.cwd)) {
       // node-pty exits the child with code 1 and no output for a missing or
       // non-directory cwd (including a literal unexpanded `~/…` before expand).
@@ -1549,13 +1554,24 @@ export class LocalSessionHost extends EventEmitter {
   }
 
   private summaryOf(rec: SessionRec): TerminalSessionSummary {
+    // Prefer live OSC window title (shell/app set) over spawn basename.
+    const oscTitle =
+      this.observerPlane.snapshot(rec.bindingId)?.signals.title?.trim() ||
+      undefined;
+    const processName =
+      (oscTitle && oscTitle.length > 0 ? oscTitle : undefined) ||
+      rec.processName ||
+      (typeof rec.title === "string" && rec.title.trim().length > 0
+        ? rec.title.trim()
+        : undefined);
     return {
       bindingId: rec.bindingId,
       epoch: rec.epoch,
       hostId: rec.hostId,
       status: sessionStatusOf(rec),
       ...(rec.killed ? { stopping: true as const } : {}),
-      title: rec.title,
+      title: rec.title ?? oscTitle,
+      ...(processName ? { processName } : {}),
       cwd: rec.cwd,
       pid: rec.pid,
       detached: rec.detached,
