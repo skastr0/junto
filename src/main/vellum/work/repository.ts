@@ -1606,7 +1606,7 @@ const loadArtifacts = (
           metadata_json
         FROM work_artifacts
         WHERE canvas_name = ? AND node_id = ?
-        ORDER BY artifact_id
+        ORDER BY origin_at DESC, artifact_id ASC
       `,
       [sink.canvasName, sink.nodeId],
     )

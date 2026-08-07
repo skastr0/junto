@@ -1019,6 +1019,46 @@ describe("WorkRepository v2 local authority", () => {
     ).toEqual([artifact.value]);
   });
 
+  it("lists artifacts newest first by publication timestamp", async () => {
+    const sink = { canvasName: "factory", nodeId: "artifacts-latest-first" };
+    await runtime.runPromise(
+      repository.publishArtifact({
+        sink,
+        basis: authorialBasis,
+        publishedBy: actor,
+        artifact: {
+          artifactId: "artifact-older",
+          name: "older",
+          parts: [{ kind: "text", text: "older" }],
+        },
+        originAt: "2026-07-27T18:00:00.000Z",
+        receivedAt: "2026-07-27T18:00:01.000Z",
+      }),
+    );
+    await runtime.runPromise(
+      repository.publishArtifact({
+        sink,
+        basis: authorialBasis,
+        publishedBy: actor,
+        artifact: {
+          artifactId: "artifact-newer",
+          name: "newer",
+          parts: [{ kind: "text", text: "newer" }],
+        },
+        originAt: "2026-07-27T19:00:00.000Z",
+        receivedAt: "2026-07-27T19:00:01.000Z",
+      }),
+    );
+
+    const snapshot = await runtime.runPromise(
+      repository.readSnapshot(sink.canvasName, sink.nodeId),
+    );
+    expect(snapshot.artifacts.items.map((item) => item.artifactId)).toEqual([
+      "artifact-newer",
+      "artifact-older",
+    ]);
+  });
+
   it("links artifact provenance to one exact claimed same-home task", async () => {
     const taskSink = {
       canvasName: "factory",
