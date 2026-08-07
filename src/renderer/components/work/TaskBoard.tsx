@@ -974,7 +974,10 @@ export function TaskCreateDialog({
    */
   readonly stayOpen?: boolean;
   readonly resetToken?: number;
-  /** Extra header actions (pin/close) for workbench chrome. */
+  /**
+   * Workbench chrome (pin + close). When set, replaces the default header
+   * close button so the shell does not double up identical dismiss controls.
+   */
   readonly headerActions?: ReactNode;
 }) {
   const isProposal = mode === "proposal";
@@ -1373,17 +1376,19 @@ export function TaskCreateDialog({
       eyebrow={isProposal ? "new proposal" : stayOpen ? "quick enqueue" : "new task"}
       title={stayOpen ? "Add to the queue" : "Define the work"}
       actions={
-        <>
-          {headerActions}
+        headerActions !== undefined ? (
+          headerActions
+        ) : (
           <IconButton
             aria-label={isProposal ? "Close proposal creator" : "Close task creator"}
             title="Close"
             onClick={onClose}
             disabled={pending}
+            data-testid="task-create-close"
           >
             <X size={14} />
           </IconButton>
-        </>
+        )
       }
     />
   );
