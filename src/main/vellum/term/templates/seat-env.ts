@@ -68,6 +68,17 @@ export const buildManagedSeatInject = (
   inject.VELLUM_COMMAND_SOCKET = socket;
   inject.VELLUM_COMMAND_WORK_SOCKET = socket;
 
+  // The ONE canonical CLI location for this seat. There is no second path:
+  // the seat's CLI is the binary the seat was launched with. Agents reference
+  // this variable when their shell reset PATH; the message never prints the
+  // literal path (machine-specific internals stay out of agent context).
+  const cliPrefix = vellumCliPathPrefixes().find((prefix) =>
+    existsSync(join(prefix, "vellum-command")),
+  );
+  if (cliPrefix !== undefined) {
+    inject.VELLUM_COMMAND_CLI = join(cliPrefix, "vellum-command");
+  }
+
   if (input.agentKey?.trim()) {
     inject.VELLUM_COMMAND_SEAT = input.agentKey.trim();
   }

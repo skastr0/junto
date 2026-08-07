@@ -9,7 +9,7 @@
  * never a PTY write.
  *
  * Driven by events, never wall clock: seat-state transitions, PTY snapshots
- * (marker echo, output heuristics, turn boundaries), user input, work-plane
+ * (marker echo, turn boundaries), user input, work-plane
  * calls (process-bound proof), claim acceptance, generation changes.
  */
 
@@ -172,7 +172,7 @@ export class InjectionSupervisor {
   
   /**
    * PTY snapshot feed (observer global listener). Derives interaction signals,
-   * applies heuristics, and runs the decision matrix with dedup.
+   * runs the decision matrix with dedup.
    */
   onSnapshot(snap: ObserverGridSnapshot): void {
     const seat = this.ensure(snap.bindingId, snap.epoch);

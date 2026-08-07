@@ -355,7 +355,7 @@ Re-run \`vellum-command onboard\` for the live map after compaction or edge chan
 
 /**
  * Compact orient notice: tells an unproven seat to run onboard. Delivered by
- * the supervisor at most once per generation, and on awareness heuristics —
+ * the supervisor at most once per generation —
  * never the full doctrine (the agent already received it at spawn).
  */
 export const buildOrientNotice = (seatRef?: string): string =>
