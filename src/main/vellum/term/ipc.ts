@@ -5,6 +5,7 @@ import { managedHarnessEnabled } from "@shared/features";
 import type { TerminalLaunch } from "@shared/terminal";
 import { messageDelivery } from "../work/message-delivery";
 import type { ControlLease, LocalHostEvent } from "./local-host";
+import { TerminalStreamCoalescer, terminalBindingKey } from "./stream-coalescer";
 import type { TermPlane } from "./plane";
 import { injectionSupervisor } from "./injection-supervisor";
 
@@ -64,7 +65,23 @@ export const registerTerminalIpc = (
   const release = (leaseId: string): void => {
     const owner = owners.get(leaseId);
     if (!owner) return;
+    // Deliver any pending coalesced output to the releasing owner before the
+    // lease tears down, then drop the buffer once no owner shares the binding.
+    coalescer.flush(terminalBindingKey(owner.lease.bindingId, owner.lease.epoch));
     owners.delete(leaseId);
+    let sharedBinding = false;
+    for (const other of owners.values()) {
+      if (
+        other.lease.bindingId === owner.lease.bindingId &&
+        other.lease.epoch === owner.lease.epoch
+      ) {
+        sharedBinding = true;
+        break;
+      }
+    }
+    if (!sharedBinding) {
+      coalescer.drop(owner.lease.bindingId, owner.lease.epoch);
+    }
     if (
       owner.lease.mode === "control" &&
       controlByBinding.get(owner.lease.bindingId) === leaseId
@@ -88,7 +105,11 @@ export const registerTerminalIpc = (
     return owner?.sender === sender && !sender.isDestroyed() ? owner : undefined;
   };
 
-  router.on("event", (payload: LocalHostEvent) => {
+  // PTY output reaches renderers coalesced per binding+epoch: one event per
+  // flush window instead of one per OS chunk. Observation (journal, seat
+  // state) is untouched; this bounds redraw + compositor damage per open
+  // surface, which is what lets stream presentation scale to many agents.
+  const coalescer = new TerminalStreamCoalescer((payload: LocalHostEvent) => {
     for (const [leaseId, owner] of owners) {
       if (owner.lease.bindingId !== payload.bindingId || owner.lease.epoch !== payload.epoch) {
         continue;
@@ -103,6 +124,9 @@ export const registerTerminalIpc = (
         release(leaseId);
       }
     }
+  });
+  router.on("event", (payload: LocalHostEvent) => {
+    coalescer.push(payload);
   });
 
   ipcMain.handle(IPC_CHANNELS.terminalList, async (event, hostId?: string) => {
