@@ -93,8 +93,9 @@ function MinimalNodeToolbar({
   readonly nodeId: string;
 }) {
   const multiSelect = use$(() => state$.selectedNodeIds.get().length > 1);
+  if (!selected || multiSelect) return null;
   return (
-    <NodeToolbar isVisible={selected && !multiSelect} position={Position.Top} offset={8}>
+    <NodeToolbar isVisible position={Position.Top} offset={8}>
       <ToolbarPill>
         <IconButton
           className="nodrag nopan"
@@ -176,8 +177,9 @@ function NodeActions({
     actorRefs,
   ]);
 
+  if (!selected || multiSelect) return null;
   return (
-    <NodeToolbar isVisible={selected && !multiSelect} position={Position.Top} offset={8}>
+    <NodeToolbar isVisible position={Position.Top} offset={8}>
       <ToolbarPill>
         {onMaximize ? (
           <IconButton
