@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { WELL_KNOWN_ENTITY_KINDS, type CanvasDoc } from "../src/shared/canvas";
 import { resolveSpec, roleOf } from "../src/shared/physics";
 import { toFlow } from "../src/renderer/lib/convert";
-import { makeLabelNode, makeTextNode } from "../src/renderer/lib/node-factories";
+import { makeGroupNode, makeLabelNode, makeTextNode } from "../src/renderer/lib/node-factories";
 import { isLabelNode } from "../src/renderer/lib/presentation";
 import { planConnectToTarget } from "../src/renderer/lib/edge-mutations";
 import {
@@ -47,6 +47,13 @@ describe("label geography node", () => {
     const flowNote = nodes.find((n) => n.id === note.id);
     expect(flowLabel?.connectable).toBe(false);
     expect(flowNote?.connectable).toBe(true);
+  });
+
+  it("toFlow keeps regions out of React Flow marquee hit-testing", () => {
+    const region = makeGroupNode(0, 0);
+    const { nodes } = toFlow({ nodes: [region], edges: [] }, emptyContext);
+
+    expect(nodes[0]?.selectable).toBe(false);
   });
 
   it("planConnectToTarget refuses labels as source or target", () => {

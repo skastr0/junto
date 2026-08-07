@@ -118,11 +118,15 @@ export const toFlow = (
       style: visualSize,
       // Groups behind wires; furniture above edges so strokes never cover faces.
       zIndex: isGroup ? 0 : 2,
-      // Regions and bare labels never grow connectors.
+      // Regions are map furniture: they never grow connectors or participate
+      // in React Flow's marquee hit-test. Region chrome still selects them
+      // explicitly through GroupNode's label gesture, while the transparent
+      // body stays a true marquee surface. Bare labels keep their existing
+      // selectable behavior.
       connectable: !isGroup && !label,
       ariaLabel: nodeTitle(node),
       focusable: true,
-      selectable: true,
+      selectable: !isGroup,
       draggable: !isGroup,
       // Region body must read as plain background: the whole wrapper is
       // pointer-transparent so a rubber-band drag can start inside the region

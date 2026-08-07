@@ -165,6 +165,7 @@ test("rubber-band marquee selects inside a region's interior", async ({ vellumCo
 
   await expect(alpha).toHaveClass(/selected/);
   await expect(beta).toHaveClass(/selected/);
+  await expect(region).not.toHaveClass(/selected/);
   await expect(page.getByTestId("rts-multi-command")).toBeVisible();
 
   // The region itself moves only through its label handle: dragging the
