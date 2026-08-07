@@ -476,6 +476,8 @@ export const parseProviderModelTable = (
   for (const rawLine of stdout.split("\n")) {
     const trimmed = rawLine.trim();
     if (!trimmed) continue;
+    // Node banner lines ("(node:12345) Warning: …") are never model rows.
+    if (trimmed.startsWith("(node:")) continue;
     const parts = trimmed.split(/\s+/);
     if (parts.length < 2) continue;
     const provider = parts[0];

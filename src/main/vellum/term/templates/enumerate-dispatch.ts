@@ -33,13 +33,18 @@ const runCommand = async (
   args: readonly string[],
 ): Promise<string> => {
   try {
-    const { stdout } = await execFileAsync(binary, [...args], {
+    const { stdout, stderr } = await execFileAsync(binary, [...args], {
       encoding: "utf8",
       timeout: 8_000,
       maxBuffer: 4 * 1024 * 1024,
       env: process.env,
     });
-    return typeof stdout === "string" ? stdout : "";
+    const out = typeof stdout === "string" ? stdout : "";
+    if (out.trim()) return out;
+    // Some harness CLIs print their table to stderr (prime-agent model list).
+    // Prefer stdout so ambient stderr warnings (NO_COLOR/FORCE_COLOR banner)
+    // never pollute a stdout table; fall back only when stdout is empty.
+    return typeof stderr === "string" ? stderr : "";
   } catch {
     return "";
   }
