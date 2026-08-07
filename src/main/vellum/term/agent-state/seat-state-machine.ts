@@ -17,7 +17,10 @@ import type {
 } from "../../../../shared/agent-seat-state";
 import type { ObserverGridSnapshot } from "../observer/types";
 import { evaluate, type EvaluateOptions } from "./engine";
-import type { HarnessId } from "../../../../shared/managed-terminal-templates";
+import {
+  isHarnessId,
+  type HarnessId,
+} from "../../../../shared/managed-terminal-templates";
 import type { SeatEvaluation } from "./types";
 
 /** Debounce constants — ported from herdr agent_detection design (values only). */
@@ -455,11 +458,7 @@ export class SeatStateMachine {
       skipStateUpdate: false,
       ruleId: null,
       harness:
-        typeof slot.harness === "string" &&
-        (slot.harness === "claude" ||
-          slot.harness === "codex" ||
-          slot.harness === "grok" ||
-          slot.harness === "hermes")
+        typeof slot.harness === "string" && isHarnessId(slot.harness)
           ? slot.harness
           : "claude",
     };
