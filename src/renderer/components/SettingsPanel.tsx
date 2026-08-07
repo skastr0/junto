@@ -498,13 +498,13 @@ function InstallationFacts() {
       ? "—"
       : install.packaged
         ? `packaged - ${install.providerKind} updater`
-        : "development (self-update disabled)";
+        : "development";
   const feedLabel =
     install?.feedUrl !== undefined && install.feedUrl.length > 0
       ? install.feedUrl
       : install?.packaged
         ? "no feed for this platform"
-        : "n/a in development builds";
+        : "—";
 
   return (
     <div className="settings-install-facts" aria-label="Installation identity">
@@ -645,11 +645,6 @@ function UpdatesSection() {
           {localError ?? status.error?.message}
         </p>
       ) : null}
-      <p className="settings-note">
-        Packaged installs contact the Vellum Command release server. Dev builds cannot
-        self-update. No update telemetry is sent. Full install provenance is
-        under Advanced.
-      </p>
     </div>
   );
 }
