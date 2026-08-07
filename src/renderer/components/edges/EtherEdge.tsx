@@ -10,7 +10,7 @@ import {
   loomObstacles$,
   loomStrands$,
 } from "../../lib/loom-view";
-import { LANE_GAP, stitchStrand } from "../../lib/wire-loom";
+import { corridorsClearOf, LANE_GAP, stitchStrand } from "../../lib/wire-loom";
 import { state$ } from "../../lib/state";
 import { accentColor, EDGE_COLOR, HUE } from "../../lib/theme";
 import { routeWire, type WireRect } from "../../lib/wire-route";
@@ -156,11 +156,18 @@ export function EtherEdge({
   );
 
   // An ejected (stoppage) wire treats the cable corridors as furniture, so
-  // crimson crosses a cable rather than running parallel inside one.
-  const routeObstacles = useMemo<WireRect[]>(
-    () => (blocked && corridors.length > 0 ? [...obstacles, ...corridors] : obstacles),
-    [blocked, corridors, obstacles],
-  );
+  // crimson crosses a cable rather than running parallel inside one. Its own
+  // fan's trunk starts at the handle it is leaving, so that corridor holds this
+  // wire's endpoint and is dropped — feeding it back would kink the route at
+  // the port instead of clearing it of the cable.
+  const routeObstacles = useMemo<WireRect[]>(() => {
+    if (!blocked || corridors.length === 0) return obstacles;
+    const clear = corridorsClearOf(corridors, [
+      { x: sourceX, y: sourceY },
+      { x: targetX, y: targetY },
+    ]);
+    return clear.length > 0 ? [...obstacles, ...clear] : obstacles;
+  }, [blocked, corridors, obstacles, sourceX, sourceY, targetX, targetY]);
 
   const [fallbackPath, fallbackLabelX, fallbackLabelY] = getSmoothStepPath({
     sourceX,

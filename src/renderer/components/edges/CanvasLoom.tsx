@@ -10,6 +10,7 @@
  */
 import { useEffect, useMemo, useRef } from "react";
 import { useStore } from "@xyflow/react";
+import { use$ } from "@legendapp/state/react";
 import type { FlowEdge } from "../../lib/convert";
 import {
   LOOM_ENABLED,
@@ -223,6 +224,11 @@ export function CanvasLoom({ edges }: { readonly edges: ReadonlyArray<FlowEdge> 
   specsRef.current = specs;
   // Non-null while the plan is frozen, holding the dragged-node signature.
   const freezeRef = useRef<string | null>(null);
+  // Subscribed, not peeked. A geometry tick that lands inside a pan freezes the
+  // plan, and nothing else would re-run this effect when the pan releases —
+  // the loom would stay stale (or never plan at all on a first-load pan) until
+  // some unrelated change happened to move a node.
+  const viewportBusy = use$(viewportBusy$);
 
   useEffect(() => {
     const obstacles: LoomObstacle[] = [];
@@ -244,7 +250,7 @@ export function CanvasLoom({ edges }: { readonly edges: ReadonlyArray<FlowEdge> 
 
     const specsNow = specsRef.current;
     const dragging = geometry.filter((node) => node.dragging).map((node) => node.nodeId);
-    if (dragging.length > 0 || viewportBusy$.peek()) {
+    if (dragging.length > 0 || viewportBusy) {
       // Frozen: nothing reflows during a gesture. Edges incident to a dragged
       // node drop to the per-edge router once, at the start of the freeze.
       const signature = dragging.join(",");
@@ -296,7 +302,7 @@ export function CanvasLoom({ edges }: { readonly edges: ReadonlyArray<FlowEdge> 
     if (!sameRects(loomCorridors$.peek(), plan.corridors)) {
       loomCorridors$.set([...plan.corridors]);
     }
-  }, [geometry, specsKey]);
+  }, [geometry, specsKey, viewportBusy]);
 
   return null;
 }

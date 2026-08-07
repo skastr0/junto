@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  corridorsClearOf,
   LANE_GAP,
   LOOM_LEAD,
   planLoom,
@@ -9,7 +10,8 @@ import {
   type LoomPlan,
   type LoomStrand,
 } from "../src/renderer/lib/wire-loom";
-import type { WirePoint } from "../src/renderer/lib/wire-route";
+import { routeWire } from "../src/renderer/lib/wire-route";
+import type { WirePoint, WireRect } from "../src/renderer/lib/wire-route";
 
 const HUB: WirePoint = { x: 0, y: 0 };
 
@@ -51,6 +53,69 @@ function contains(rect: { x: number; y: number; width: number; height: number },
   return (
     p.x >= rect.x && p.x <= rect.x + rect.width && p.y >= rect.y && p.y <= rect.y + rect.height
   );
+}
+
+type Segment = { readonly a: WirePoint; readonly b: WirePoint; readonly edgeId: string };
+
+function turn(o: WirePoint, a: WirePoint, b: WirePoint): number {
+  return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+}
+
+/** Transversal intersection only — a shared point or a collinear run is not a crossing. */
+function crosses(s: Segment, t: Segment): boolean {
+  const d1 = turn(s.a, s.b, t.a);
+  const d2 = turn(s.a, s.b, t.b);
+  const d3 = turn(t.a, t.b, s.a);
+  const d4 = turn(t.a, t.b, s.b);
+  return (
+    ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))
+  );
+}
+
+/** Every strand of the fan, stitched against its own far endpoint. */
+function fanSegments(ys: ReadonlyArray<number>): Segment[] {
+  const plan = planLoom({ edges: fanOf(ys), obstacles: [] });
+  expect(plan.strands.size).toBe(ys.length);
+  const out: Segment[] = [];
+  for (const [edgeId, strand] of plan.strands) {
+    const stitched = stitchStrand(strand, {
+      sourceX: HUB.x,
+      sourceY: HUB.y,
+      targetX: 400,
+      targetY: ys[Number(edgeId.slice(1))]!,
+    });
+    for (let i = 0; i < stitched.points.length - 1; i++) {
+      out.push({ a: stitched.points[i]!, b: stitched.points[i + 1]!, edgeId });
+    }
+  }
+  return out;
+}
+
+function crossingCount(segments: ReadonlyArray<Segment>): number {
+  let found = 0;
+  for (let i = 0; i < segments.length; i++) {
+    for (let j = i + 1; j < segments.length; j++) {
+      const s = segments[i]!;
+      const t = segments[j]!;
+      if (s.edgeId === t.edgeId) continue;
+      if (crosses(s, t)) found++;
+    }
+  }
+  return found;
+}
+
+/** A three-member right-side fan hubbed on `nodeId`, far endpoints at x=700. */
+function fanFrom(nodeId: string, hub: WirePoint): LoomEdgeInput[] {
+  return [-100, 0, 100].map((offset, index) => ({
+    id: `${nodeId}${index}`,
+    blocked: false,
+    sourceNodeId: nodeId,
+    sourceSide: "right",
+    sourceAnchor: hub,
+    targetNodeId: `${nodeId}n${index}`,
+    targetSide: "left",
+    targetAnchor: { x: 700, y: hub.y + offset },
+  }));
 }
 
 describe("wire-loom planning", () => {
@@ -215,6 +280,133 @@ describe("wire-loom planning", () => {
     expect(plan.strands.get("e4")!.stationAt).toBe(Math.min(...plus.map((s) => s.stationAt)));
     // The least extreme rides the trunk to its end; the reverse order crosses.
     expect(plan.strands.get("e2")!.stationAt).toBe(Math.max(...plus.map((s) => s.stationAt)));
+  });
+
+  it("turns the outermost lane off the axis first, so the comb reads as one cable", () => {
+    const plan = planLoom({ edges: fanOf([...FIVE_FAN_YS]), obstacles: [] });
+    const bySplay = [...plan.strands.values()].sort((a, b) => a.splayAt - b.splayAt);
+    // Splay is monotone DOWN in |laneOffset|: the extreme strand leaves the
+    // axis first, so its jog only sweeps lanes that have not settled yet.
+    expect(bySplay.map((s) => Math.abs(s.laneOffset))).toEqual([6, 6, 3, 3, 0]);
+    expect(bySplay[0]!.splayAt).toBe(LOOM_LEAD);
+
+    expect(crossingCount(fanSegments(FIVE_FAN_YS))).toBe(0);
+    // A dense fan is where the braid would show: twelve strands, still planar.
+    const twelve = Array.from({ length: 12 }, (_, index) => (index - 5.5) * 40);
+    expect(crossingCount(fanSegments(twelve))).toBe(0);
+  });
+
+  it("resolves fan membership from topology alone, never from stoppage", () => {
+    // A-right and M-left both hold four candidates, so A wins on the key. e4
+    // going into stoppage must not hand e1 and e2 to a trunk 600px away.
+    const edges: LoomEdgeInput[] = [
+      { id: "e1", blocked: false, sourceNodeId: "A", sourceSide: "right", sourceAnchor: HUB, targetNodeId: "M", targetSide: "left", targetAnchor: { x: 600, y: 0 } },
+      { id: "e2", blocked: false, sourceNodeId: "A", sourceSide: "right", sourceAnchor: HUB, targetNodeId: "M", targetSide: "left", targetAnchor: { x: 600, y: 0 } },
+      { id: "e3", blocked: false, sourceNodeId: "A", sourceSide: "right", sourceAnchor: HUB, targetNodeId: "X", targetSide: "left", targetAnchor: { x: 600, y: 300 } },
+      { id: "e4", blocked: false, sourceNodeId: "A", sourceSide: "right", sourceAnchor: HUB, targetNodeId: "Y", targetSide: "left", targetAnchor: { x: 600, y: -300 } },
+      { id: "e5", blocked: false, sourceNodeId: "B", sourceSide: "right", sourceAnchor: { x: 0, y: 300 }, targetNodeId: "M", targetSide: "left", targetAnchor: { x: 600, y: 0 } },
+      { id: "e6", blocked: false, sourceNodeId: "C", sourceSide: "right", sourceAnchor: { x: 0, y: -300 }, targetNodeId: "M", targetSide: "left", targetAnchor: { x: 600, y: 0 } },
+    ];
+    const clear = planLoom({ edges, obstacles: [] });
+    expect(clear.strands.size).toBe(4);
+
+    const stopped = planLoom({
+      edges: edges.map((e) => (e.id === "e4" ? { ...e, blocked: true } : e)),
+      obstacles: [],
+    });
+    expect(stopped.strands.size).toBe(3);
+    for (const id of ["e1", "e2", "e3"]) {
+      const before = clear.strands.get(id)!;
+      const after = stopped.strands.get(id)!;
+      // Same cable, same lane, same trunk: the ejected wire leaves a hole and
+      // nothing else in the document moves.
+      expect(after.bundleKey).toBe(before.bundleKey);
+      expect(after.laneOffset).toBe(before.laneOffset);
+      expect(after.stationAt).toBe(before.stationAt);
+    }
+  });
+
+  it("keeps unrelated fans in one corridor on parallel lanes", () => {
+    // Two hubs 6px apart on the same axis — an s-handle and a t-handle share a
+    // node side this closely. Proximity must never merge them into one cable.
+    const plan = planLoom({
+      edges: [...fanFrom("A", { x: 200, y: 50 }), ...fanFrom("B", { x: 200, y: 56 })],
+      obstacles: [],
+    });
+    expect(plan.strands.size).toBe(6);
+    expect(plan.strands.get("A0")!.bundleKey).not.toBe(plan.strands.get("B0")!.bundleKey);
+
+    const lanes = [...plan.strands.entries()]
+      .map(([id, strand]) => (id.startsWith("A") ? 50 : 56) + strand.laneOffset)
+      .sort((a, b) => a - b);
+    for (let i = 1; i < lanes.length; i++) {
+      // Consistent spacing across the whole corridor, and never coincident.
+      expect(lanes[i]! - lanes[i - 1]!).toBeCloseTo(LANE_GAP, 6);
+    }
+
+    // A fan with the corridor to itself stays centred on its own hub axis.
+    const alone = planLoom({ edges: fanFrom("A", { x: 200, y: 50 }), obstacles: [] });
+    expect(byLane(alone).map((s) => s.laneOffset)).toEqual([-3, 0, 3]);
+  });
+
+  it("plans the spine around every card, its own far endpoints included", () => {
+    // D is the far node of a member of this very fan, and it sits on the
+    // trunk. Edges paint below nodes, so a spine planned blind to D would
+    // disappear into the card.
+    const edges: LoomEdgeInput[] = [
+      ...[0, 1, 2].map((index): LoomEdgeInput => ({
+        id: `f${index}`,
+        blocked: false,
+        sourceNodeId: "hub",
+        sourceSide: "right",
+        sourceAnchor: HUB,
+        targetNodeId: `n${index}`,
+        targetSide: "left",
+        targetAnchor: { x: 500, y: (index - 1) * 60 },
+      })),
+      { id: "fD", blocked: true, sourceNodeId: "hub", sourceSide: "right", sourceAnchor: HUB, targetNodeId: "D", targetSide: "left", targetAnchor: { x: 120, y: 100 } },
+    ];
+    const onTrunk: LoomObstacle = { nodeId: "D", x: 120, y: -10, width: 200, height: 220 };
+    expect(planLoom({ edges, obstacles: [onTrunk] }).strands.size).toBe(0);
+
+    // The same card clear of the spine leaves the cable intact.
+    const aside = planLoom({ edges, obstacles: [{ ...onTrunk, y: 300 }] });
+    expect(aside.strands.size).toBe(3);
+  });
+});
+
+describe("stoppage clearance", () => {
+  const trunk: WireRect = { x: 0, y: -6, width: 352, height: 12 };
+  const crossing: WireRect = { x: 352, y: -206, width: 48, height: 412 };
+
+  it("hands an ejected wire only the cables it does not start inside", () => {
+    // A blocked member holds its lane hole, so it leaves the same handle its
+    // fan's trunk starts at: that corridor holds its own endpoint.
+    const kept = corridorsClearOf([trunk, crossing], [HUB, { x: 400, y: 320 }]);
+    expect(kept).toEqual([crossing]);
+    // A wire with no stake in either corridor still treats both as furniture.
+    expect(corridorsClearOf([trunk, crossing], [{ x: 0, y: 400 }, { x: 400, y: 500 }])).toEqual([
+      trunk,
+      crossing,
+    ]);
+  });
+
+  it("lets an ejected wire leave along its own port", () => {
+    const routed = routeWire({
+      source: HUB,
+      target: { x: 400, y: 320 },
+      obstacles: corridorsClearOf([trunk, crossing], [HUB, { x: 400, y: 320 }]),
+      padding: 14,
+      borderRadius: 8,
+      sourceDirection: "right",
+      targetDirection: "left",
+    });
+    const lead = routed!.path.match(/^M (-?[\d.]+),(-?[\d.]+) L (-?[\d.]+),(-?[\d.]+)/);
+    expect(lead).not.toBeNull();
+    const [, x0, y0, x1, y1] = lead!.map(Number);
+    // The first move runs out of the right-side handle, not down its border.
+    expect(y1).toBe(y0);
+    expect(x1!).toBeGreaterThan(x0!);
   });
 });
 

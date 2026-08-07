@@ -231,15 +231,27 @@ function obstacleField(
     .map((o) => inflateRect(o, pad));
 }
 
+/** A fan's lane band in absolute canvas coords, for cross-fan lane discipline. */
+type FanBand = {
+  readonly orientation: "h" | "v";
+  /** Interval along the trunk. */
+  readonly axial: readonly [number, number];
+  /** Interval across the lanes. */
+  readonly perp: readonly [number, number];
+};
+
 type FanPlan = {
   readonly strands: ReadonlyArray<LoomStrand>;
   readonly corridors: ReadonlyArray<WireRect>;
+  readonly band: FanBand;
 };
 
 function planFan(
   key: string,
   members: ReadonlyArray<Candidate>,
   obstacles: ReadonlyArray<LoomObstacle>,
+  /** Perpendicular shift in absolute canvas units — see `laneBias`. */
+  biasAbsolute: number,
 ): FanPlan | null {
   // The bundle shares one DOM handle, so any member's anchor is the hub. Pick
   // it by edge id so a shuffled input cannot change the plan.
@@ -267,6 +279,11 @@ function planFan(
       return compareIds(a.candidate.edge.id, b.candidate.edge.id);
     });
 
+  // The bias arrives in absolute canvas units so the caller can compare bands
+  // across fans that run on different axes. `v` is an axis-aligned unit vector,
+  // so resolving it into the hub frame is a single sign flip.
+  const bias = biasAbsolute * (frame.v.x + frame.v.y);
+
   // Lanes are assigned over every candidate, blocked included: a wire entering
   // stoppage leaves its hole rather than reshuffling the cable.
   const laneCount = placed.length;
@@ -274,7 +291,7 @@ function planFan(
   const lanes: Lane[] = placed.map((p, laneIndex) => ({
     ...p,
     laneIndex,
-    laneOffset: (laneIndex - (laneCount - 1) / 2) * laneGap,
+    laneOffset: bias + (laneIndex - (laneCount - 1) / 2) * laneGap,
   }));
 
   const eligible = lanes.filter(
@@ -288,7 +305,14 @@ function planFan(
   const trunkEnd = Math.min(...eligible.map((lane) => lane.along)) - SPLIT_BACKOFF;
   if (trunkEnd <= LOOM_LEAD) return null;
 
-  const maxOffset = ((laneCount - 1) / 2) * laneGap;
+  const halfSpan = ((laneCount - 1) / 2) * laneGap;
+  const laneLow = bias - halfSpan;
+  const laneHigh = bias + halfSpan;
+  // Every strand leaves the hub on the axis, so the cable footprint spans the
+  // lanes and the axis both — a biased fan is off-centre, never off-axis.
+  const bandLow = Math.min(0, laneLow);
+  const bandHigh = Math.max(0, laneHigh);
+  const maxOffset = Math.max(Math.abs(laneLow), Math.abs(laneHigh));
   const maxSplay = LOOM_LEAD + maxOffset;
 
   // Extreme perp takes the outermost lane and the earliest turn. Both are
@@ -316,7 +340,12 @@ function planFan(
     });
   }
 
-  const splayOf = (lane: Lane): number => LOOM_LEAD + Math.abs(lane.laneOffset);
+  // The outermost lane turns off the axis FIRST: its jog then sweeps only
+  // lanes that are still on the axis. The opposite monotonicity drags the
+  // outer jog across every inner lane that has already settled, which is a
+  // visible braid in the one place the cable is supposed to read as one line.
+  const splayOf = (lane: Lane): number =>
+    LOOM_LEAD + (maxOffset - Math.abs(lane.laneOffset));
   const tailOf = (lane: Lane): WirePoint[] => {
     const station = stationOf.get(lane.candidate.edge.id)!;
     return [
@@ -328,15 +357,21 @@ function planFan(
 
   // Straight-spine clearance oracle. v1 has no bent spine: any hit dissolves
   // the whole fan and every member falls back to the per-edge router.
-  const pad = LOOM_CLEARANCE + Math.ceil(maxOffset);
-  const fanExcluded = new Set<string>([hubNodeId, ...members.map((m) => m.farNodeId)]);
-  const fanField = obstacleField(obstacles, fanExcluded, pad);
-  const combMinPerp = Math.min(-maxOffset, ...eligible.map((lane) => lane.perp));
-  const combMaxPerp = Math.max(maxOffset, ...eligible.map((lane) => lane.perp));
+  //
+  // The trunk and the comb are tested against every card except the hub's own.
+  // A member's far card is NOT excluded here: the fan's own endpoints are the
+  // cards most likely to sit in the way, and edges paint below nodes, so a
+  // trunk planned blind to them disappears into a card body. Only the tails,
+  // which end on a far border by construction, exclude their own far card.
+  // The ribbon lines already sit on the outer lanes, so the moat is the
+  // router's own clearance — inflating by the lane span too would double count.
+  const spineField = obstacleField(obstacles, new Set<string>([hubNodeId]), LOOM_CLEARANCE);
+  const combMinPerp = Math.min(bandLow, ...eligible.map((lane) => lane.perp));
+  const combMaxPerp = Math.max(bandHigh, ...eligible.map((lane) => lane.perp));
   const combBox = frameRect(hub, frame, [minStation, trunkEnd], [combMinPerp, combMaxPerp]);
   const ribbon: WirePoint[][] = [
-    [framePoint(hub, frame, 0, maxOffset), framePoint(hub, frame, trunkEnd, maxOffset)],
-    [framePoint(hub, frame, 0, -maxOffset), framePoint(hub, frame, trunkEnd, -maxOffset)],
+    [framePoint(hub, frame, 0, bandHigh), framePoint(hub, frame, trunkEnd, bandHigh)],
+    [framePoint(hub, frame, 0, bandLow), framePoint(hub, frame, trunkEnd, bandLow)],
     [
       { x: combBox.x, y: combBox.y },
       { x: combBox.x + combBox.width, y: combBox.y },
@@ -344,14 +379,16 @@ function planFan(
       { x: combBox.x, y: combBox.y + combBox.height },
       { x: combBox.x, y: combBox.y },
     ],
-    ...eligible.map(tailOf),
   ];
-  if (ribbon.some((line) => polylineHitsObstacles(line, fanField))) return null;
+  if (ribbon.some((line) => polylineHitsObstacles(line, spineField))) return null;
 
   // A single tail that still collides ejects on its own; the cable holds.
   const emitted = eligible.filter((lane) => {
     const excluded = new Set<string>([hubNodeId, lane.candidate.farNodeId]);
-    return !polylineHitsObstacles(tailOf(lane), obstacleField(obstacles, excluded, pad));
+    return !polylineHitsObstacles(
+      tailOf(lane),
+      obstacleField(obstacles, excluded, LOOM_CLEARANCE),
+    );
   });
   if (emitted.length < MIN_FAN) return null;
 
@@ -367,8 +404,50 @@ function planFan(
     stationAt: stationOf.get(lane.candidate.edge.id)!,
   }));
 
-  const trunkBox = frameRect(hub, frame, [0, trunkEnd], [-maxOffset, maxOffset]);
-  return { strands, corridors: [trunkBox, combBox] };
+  const trunkBox = frameRect(hub, frame, [0, trunkEnd], [bandLow, bandHigh]);
+  // The band is the lanes only (not the hub lead), so two fans separated by one
+  // lane gap read at exactly the spacing their own strands hold.
+  const laneRect = frameRect(hub, frame, [0, trunkEnd], [laneLow, laneHigh]);
+  const horizontal = hubAxis === "left" || hubAxis === "right";
+  const band: FanBand = horizontal
+    ? {
+        orientation: "h",
+        axial: [laneRect.x, laneRect.x + laneRect.width],
+        perp: [laneRect.y, laneRect.y + laneRect.height],
+      }
+    : {
+        orientation: "v",
+        axial: [laneRect.y, laneRect.y + laneRect.height],
+        perp: [laneRect.x, laneRect.x + laneRect.width],
+      };
+  return { strands, corridors: [trunkBox, combBox], band };
+}
+
+function bandsClash(a: FanBand, b: FanBand): boolean {
+  if (a.orientation !== b.orientation) return false;
+  if (a.axial[1] <= b.axial[0] || b.axial[1] <= a.axial[0]) return false;
+  return a.perp[0] - LANE_GAP < b.perp[1] && b.perp[0] - LANE_GAP < a.perp[1];
+}
+
+/**
+ * Perpendicular shift, in absolute canvas units, that moves `band` one whole
+ * lane gap clear of every already-placed band it overlaps. Bundling is by
+ * shared endpoint alone, so two unrelated trunks in one corridor must not
+ * merge: they step onto neighbouring lane bands and read as parallel cables.
+ */
+function laneBias(band: FanBand, placed: ReadonlyArray<FanBand>): number {
+  let shift = 0;
+  for (let pass = 0; pass < 4; pass++) {
+    const moved: FanBand = { ...band, perp: [band.perp[0] + shift, band.perp[1] + shift] };
+    const hits = placed.filter((other) => bandsClash(moved, other));
+    if (hits.length === 0) break;
+    const low = Math.min(...hits.map((hit) => hit.perp[0]));
+    const high = Math.max(...hits.map((hit) => hit.perp[1]));
+    const up = high + LANE_GAP - moved.perp[0];
+    const down = low - LANE_GAP - moved.perp[1];
+    shift += Math.abs(up) <= Math.abs(down) ? up : down;
+  }
+  return shift;
 }
 
 /**
@@ -393,16 +472,17 @@ export function planLoom(input: {
   }
 
   // Candidate counts are fixed before membership resolves, so the tie-break
-  // never depends on the order edges happen to be visited in.
-  const unblocked = new Map<string, number>();
-  for (const [key, bucket] of candidates) {
-    unblocked.set(key, bucket.filter((c) => !c.edge.blocked).length);
-  }
+  // never depends on the order edges happen to be visited in. They count every
+  // candidate, blocked included: stoppage is transient paint, and letting it
+  // decide which fan WINS would relocate a trunk and swap members on a ripple.
+  // A blocked member still never emits — it only holds its lane hole.
+  const sizes = new Map<string, number>();
+  for (const [key, bucket] of candidates) sizes.set(key, bucket.length);
 
   const fans = new Map<string, Candidate[]>();
   for (const [source, target] of paired) {
-    const sourceCount = unblocked.get(source.key) ?? 0;
-    const targetCount = unblocked.get(target.key) ?? 0;
+    const sourceCount = sizes.get(source.key) ?? 0;
+    const targetCount = sizes.get(target.key) ?? 0;
     let winner: Candidate;
     if (sourceCount !== targetCount) winner = sourceCount > targetCount ? source : target;
     else winner = compareIds(source.key, target.key) <= 0 ? source : target;
@@ -413,13 +493,53 @@ export function planLoom(input: {
 
   const strands = new Map<string, LoomStrand>();
   const corridors: WireRect[] = [];
+  const bands: FanBand[] = [];
   for (const key of [...fans.keys()].sort(compareIds)) {
-    const planned = planFan(key, fans.get(key)!, input.obstacles);
+    const members = fans.get(key)!;
+    const centred = planFan(key, members, input.obstacles, 0);
+    if (!centred) continue;
+    // Fans are visited in stable key order, so which one holds the centre line
+    // and which one steps aside is a property of the document, not of a drag.
+    const bias = laneBias(centred.band, bands);
+    const planned = bias === 0 ? centred : planFan(key, members, input.obstacles, bias);
     if (!planned) continue;
+    // Lane discipline is a guarantee, not a best effort: a fan that cannot be
+    // shifted clear of the bands already placed dissolves instead of painting
+    // a second cable on top of one.
+    if (bands.some((other) => bandsClash(planned.band, other))) continue;
+    bands.push(planned.band);
     for (const strand of planned.strands) strands.set(strand.edgeId, strand);
     corridors.push(...planned.corridors);
   }
   return { strands, corridors };
+}
+
+/**
+ * The corridors an ejected (stoppage) wire may treat as furniture.
+ *
+ * A blocked member keeps its reserved lane hole, so it leaves the very handle
+ * its fan's trunk starts at — and that trunk corridor therefore contains the
+ * wire's own endpoint. Handing it back as an obstacle makes every candidate
+ * leaving along the port axis a collision: the router relaxes to zero moat and
+ * the crimson wire kinks at the port or loops around the whole cable. Any rect
+ * within `pad` of an endpoint is dropped, so what is left is only the cables
+ * the wire genuinely crosses.
+ */
+export function corridorsClearOf(
+  corridors: ReadonlyArray<WireRect>,
+  ends: ReadonlyArray<WirePoint>,
+  pad: number = LOOM_CLEARANCE,
+): WireRect[] {
+  return corridors.filter(
+    (rect) =>
+      !ends.some(
+        (point) =>
+          point.x >= rect.x - pad &&
+          point.x <= rect.x + rect.width + pad &&
+          point.y >= rect.y - pad &&
+          point.y <= rect.y + rect.height + pad,
+      ),
+  );
 }
 
 export type LoomStitch = {
