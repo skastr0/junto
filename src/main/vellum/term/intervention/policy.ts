@@ -5,21 +5,22 @@
  *
  * Decision ladder (highest priority first):
  *
- *   L4  proven        → silent            (vellum awareness proven — nothing to do)
+ *   L2  proven        → silent            (vellum awareness proven — nothing to do)
  *   gone              → silent            (seat vanished — no reachable PTY)
  *   ── escalate (canvas-only, NOT a PTY write — never gated) ──
- *   turnsWithoutProof ≥ MAX_TURNS_WITHOUT_PROOF (and still unproven/confused/
- *       env-broken/socket-down) → escalate
- *   socket-down       → escalate
+ *   turnsWithoutProof ≥ MAX_TURNS_WITHOUT_PROOF (still unproven) → escalate
  *   ── write-gates: guard PTY writes only ──
  *   user present/drafted/submitted → hold("user")
  *   injection live    → hold("one-live")
  *   seat attention    → hold("modal")
  *   ── writes (all write-gated above) ──
- *   env-broken        → repair-env        (first repair attempt, budget not spent)
- *   confused          → notify-orient
- *   turn ended + unproven → notify-orient (one quiet orient notice)
+ *   turn ended + unproven → notify-orient (one quiet orient notice, once per generation)
  *   else              → hold("turn")
+ *
+ * Structural-only: awareness is binary (unproven | proven). Text heuristics
+ * were removed (live false alert) — no phrase scanning, no repair-env,
+ * no socket-down inference. VELLUM_COMMAND_CLI is the one canonical CLI
+ * location, injected at spawn; agent-facing messages never print host paths.
  *
  * The write-gates ALWAYS override every would-be PTY write: when a gate is
  * violated the decision is hold (or silent for proven/gone) regardless of
