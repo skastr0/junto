@@ -33,12 +33,22 @@ import {
 import { HERMES_INTEGRATION_ENABLED } from "../src/shared/features";
 
 describe("managed-terminal templates (data)", () => {
-  it("exports exactly the four v1 harnesses", () => {
-    expect(HARNESS_IDS).toEqual(["claude", "codex", "grok", "hermes"]);
+  const ALL_NINE = [
+    "claude",
+    "codex",
+    "grok",
+    "hermes",
+    "pi",
+    "prime-agent",
+    "kimi",
+    "muse",
+    "devin",
+  ] as const;
+
+  it("exports exactly the nine managed harnesses", () => {
+    expect(HARNESS_IDS).toEqual([...ALL_NINE]);
     expect(allTemplates().map((template) => template.harness)).toEqual(
-      HERMES_INTEGRATION_ENABLED
-        ? ["claude", "codex", "grok", "hermes"]
-        : ["claude", "codex", "grok"],
+      HERMES_INTEGRATION_ENABLED ? [...ALL_NINE] : ALL_NINE.filter((h) => h !== "hermes"),
     );
     for (const id of HARNESS_IDS) {
       expect(isHarnessId(id)).toBe(true);
@@ -104,6 +114,7 @@ describe("managed-terminal templates (data)", () => {
       "CLAUDECODE",
       "CLAUDE_CODE_ENTRYPOINT",
       "NO_COLOR",
+      "FORCE_COLOR",
     ]);
     for (const t of allTemplates()) {
       expect(t.envSpec.scrub).toEqual(SPAWN_ENV_SCRUB);

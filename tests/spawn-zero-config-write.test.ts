@@ -15,7 +15,17 @@ import * as path from "node:path";
  * Resolve + env scrub only produce argv/env — no fs writes under ~/.claude etc.
  */
 describe("zero-config-write spawn audit", () => {
-  const harnesses: HarnessId[] = ["claude", "codex", "grok", "hermes"];
+  const harnesses: HarnessId[] = [
+    "claude",
+    "codex",
+    "grok",
+    "hermes",
+    "pi",
+    "prime-agent",
+    "kimi",
+    "muse",
+    "devin",
+  ];
 
   it("every harness spawn scrub strips nested Claude markers", () => {
     const ambient = {
@@ -50,6 +60,11 @@ describe("zero-config-write spawn audit", () => {
       codex: path.join(tmp, ".codex"),
       grok: path.join(tmp, ".grok"),
       hermes: path.join(tmp, ".hermes"),
+      pi: path.join(tmp, ".pi"),
+      "prime-agent": path.join(tmp, ".prime"),
+      kimi: path.join(tmp, ".kimi-code"),
+      muse: path.join(tmp, ".config", "muse"),
+      devin: path.join(tmp, ".config", "devin"),
     };
     for (const p of Object.values(homes)) fs.mkdirSync(p, { recursive: true });
     const before = new Map(

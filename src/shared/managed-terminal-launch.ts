@@ -185,11 +185,14 @@ const buildArgv = (
     pushFlag(argv, spec.systemPromptFlag, choices.systemPrompt);
   }
 
-  // Prompt last (positional) or as -q for Hermes TUI auto-submit.
+  // Prompt last (positional, with optional separator), as -q for Hermes TUI
+  // auto-submit, or not at all when the harness has no argv prompt slot
+  // (kimi — the drive delivers Tier-B first-typed messages instead).
   if (choices.prompt) {
     if (spec.promptMode === "flag-q") {
       argv.push("-q", choices.prompt);
-    } else {
+    } else if (spec.promptMode === "positional") {
+      if (spec.promptSeparator) argv.push(spec.promptSeparator);
       argv.push(choices.prompt);
     }
   }

@@ -14,14 +14,27 @@ import { managedHarnessEnabled } from "./features";
 // ── Identity ───────────────────────────────────────────────────────────────
 
 /**
- * The four v1 managed-terminal harnesses. OpenClaw is out by construction.
+ * The managed-terminal harnesses. OpenClaw is out by construction.
+ *
+ * v1 (2026-07): claude, codex, grok, hermes. Extended 2026-08: pi,
+ * prime-agent, kimi, muse, devin (agent-CLI sweep — docs/research/agent-cli-sweep/).
  *
  * Closed literal, and the *only* declaration of the set: a harness id names a
  * template in this file or it does not decode. Every document, IPC input, and
  * seat slot that carries a harness carries this type — there is no second list
  * to drift.
  */
-export const HarnessId = Schema.Literals(["claude", "codex", "grok", "hermes"]);
+export const HarnessId = Schema.Literals([
+  "claude",
+  "codex",
+  "grok",
+  "hermes",
+  "pi",
+  "prime-agent",
+  "kimi",
+  "muse",
+  "devin",
+]);
 export type HarnessId = typeof HarnessId.Type;
 
 export const HARNESS_IDS: readonly HarnessId[] = HarnessId.literals;
@@ -61,10 +74,17 @@ export type ArgvSpec = {
   readonly prefix: readonly string[];
   /**
    * How the optional initial prompt is attached:
-   * - `positional` — last argv token (claude/codex/grok)
+   * - `positional` — last argv token (claude/codex/grok/pi/prime-agent/muse/devin)
    * - `flag-q` — `-q <prompt>` (hermes TUI auto-submit)
+   * - `none` — no argv prompt slot (kimi TUI waits for typed input; the drive
+   *   delivers Tier-B first-typed messages instead)
    */
-  readonly promptMode: "positional" | "flag-q";
+  readonly promptMode: "positional" | "flag-q" | "none";
+  /**
+   * Separator pushed immediately before the positional prompt. Devin requires
+   * `--` (`devin -- <prompt>`); everything else needs none.
+   */
+  readonly promptSeparator?: string;
   /** Model flag, e.g. `-m` or `--model`. */
   readonly modelFlag?: string;
   /**
@@ -107,6 +127,9 @@ export const SPAWN_ENV_SCRUB: readonly string[] = [
   "CLAUDECODE",
   "CLAUDE_CODE_ENTRYPOINT",
   "NO_COLOR",
+  // Ambient FORCE_COLOR defeats the NO_COLOR scrub on chalk-based TUIs
+  // (pi, prime-agent, cursor, amp) — it must go with it.
+  "FORCE_COLOR",
 ] as const;
 
 export type EnvSpec = {
@@ -334,6 +357,222 @@ export const HERMES_TEMPLATE: ManagedTerminalTemplate = {
   efforts: [],
 };
 
+// ── Five 2026-08 harnesses (agent-CLI sweep: docs/research/agent-cli-sweep/) ─────
+
+/**
+ * Pi (earendil-works pi-coding-agent) — Tier A, session pin, RPC/JSON embed.
+ * Verified 0.83.0: positional prompt; --thinking effort (7 levels);
+ * --session-id pin (create-if-missing, uuidv7); non-interactive resume is
+ * `--session <path|partial-id>` (NOT -r, which opens a picker);
+ * --append-system-prompt repeatable; --tools/--exclude-tools allowlists;
+ * no per-command permission mode (--approve gates project-local trust only).
+ */
+export const PI_TEMPLATE: ManagedTerminalTemplate = {
+  harness: "pi",
+  displayName: "Pi",
+  probedVersion: "0.83.0",
+  argvSpec: {
+    binary: "pi",
+    prefix: [],
+    promptMode: "positional",
+    modelFlag: "--model",
+    effortFlag: "--thinking",
+    sessionIdFlag: "--session-id",
+    resumeMode: "flag",
+    resumeFlag: "--session",
+    systemPromptFlag: "--append-system-prompt",
+  },
+  envSpec: SHARED_ENV_SPEC,
+  injectionSpec: {
+    tier: "A",
+    flags: ["--append-system-prompt"],
+    description: "System prompt appended at spawn via --append-system-prompt (repeatable)",
+  },
+  capabilityBadges: {
+    instructionInjection: "A",
+    hooks: false,
+    effortAtSpawn: true,
+    sessionId: "pin",
+    remote: false,
+    requiresGitCwd: false,
+    stateFeed: "grid → OSC133 (extension/RPC optional)",
+    attentionSource: "grid (trust/confirm dialogs)",
+    labels: ["injection A", "grid + OSC133", "effort", "session pin"],
+  },
+  efforts: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
+};
+
+/**
+ * Prime Agent (npm prime-agent, formerly pi) — Tier A, capture session,
+ * built-in herdr socket reporter (idle/working/blocked + session id).
+ * Verified 0.7.0: positional prompt; --thinking effort (7 levels); resume
+ * `-r <path|id>` / `-c` (no pin flag — capture from JSONL header / list --json);
+ * --append-system-prompt repeatable; no permission-mode flag (--autonomous
+ * is unattended mode, not an approval enum); sessions persist via a per-user
+ * daemon — app quit must `prime-agent stop`/`shutdown` the seat's sessions.
+ */
+export const PRIME_AGENT_TEMPLATE: ManagedTerminalTemplate = {
+  harness: "prime-agent",
+  displayName: "Prime Agent",
+  probedVersion: "0.7.0",
+  argvSpec: {
+    binary: "prime-agent",
+    prefix: [],
+    promptMode: "positional",
+    modelFlag: "--model",
+    effortFlag: "--thinking",
+    resumeMode: "flag",
+    resumeFlag: "-r",
+    systemPromptFlag: "--append-system-prompt",
+  },
+  envSpec: SHARED_ENV_SPEC,
+  injectionSpec: {
+    tier: "A",
+    flags: ["--append-system-prompt"],
+    description: "System prompt appended at spawn via --append-system-prompt (repeatable)",
+  },
+  capabilityBadges: {
+    instructionInjection: "A",
+    hooks: false,
+    effortAtSpawn: true,
+    sessionId: "capture",
+    remote: false,
+    requiresGitCwd: false,
+    stateFeed: "socket (herdr reporter) → OSC9/133 + grid",
+    attentionSource: "socket blocked events → grid overlays",
+    labels: ["injection A", "socket feed", "effort", "capture session"],
+  },
+  efforts: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
+};
+
+/**
+ * Kimi Code (Moonshot) — Tier B, capture session, native hook feed.
+ * Verified 0.29.0: NO argv prompt slot in the TUI (promptMode "none" — the
+ * drive delivers the first typed message); -m model; --yolo/--auto approval
+ * (no enum); resume `-S <id>` / `-c`; no pin (capture via SessionStart hook
+ * stdin or the welcome-card "Session: <uuid>" line); 20-event JSON-stdin
+ * hooks (PermissionRequest→blocked) — but hooks live in the user's config,
+ * so Vellum never installs them (badge hooks: false).
+ */
+export const KIMI_TEMPLATE: ManagedTerminalTemplate = {
+  harness: "kimi",
+  displayName: "Kimi Code",
+  probedVersion: "0.29.0",
+  argvSpec: {
+    binary: "kimi",
+    prefix: [],
+    promptMode: "none",
+    modelFlag: "-m",
+    permissionModeFlag: "--yolo",
+    resumeMode: "flag",
+    resumeFlag: "-S",
+  },
+  envSpec: SHARED_ENV_SPEC,
+  injectionSpec: {
+    tier: "B",
+    flags: [],
+    description: "No system-prompt flag — doctrine delivered as the first typed message",
+  },
+  capabilityBadges: {
+    instructionInjection: "B",
+    hooks: false,
+    effortAtSpawn: false,
+    sessionId: "capture",
+    remote: false,
+    requiresGitCwd: false,
+    stateFeed: "hook feed → grid",
+    attentionSource: "PermissionRequest hook → grid approval panel",
+    labels: ["injection B", "hook feed", "capture session"],
+  },
+  efforts: [],
+};
+
+/**
+ * Muse Code (Meta; codex-fork family) — Tier B, capture session, grid feed.
+ * Verified 0.1.0-R708.1: positional prompt; --model; --reasoning-effort
+ * (none..ultra); --yolo/--approval-mode safety stack; resume is a
+ * SUBCOMMAND (`muse resume <uuid>` — root options allowed on either side);
+ * no pin (capture via `exec --json` first line / session dirs); TUI needs a
+ * responsive host (bracketed paste + OSC palette + DSR cursor-position).
+ */
+export const MUSE_TEMPLATE: ManagedTerminalTemplate = {
+  harness: "muse",
+  displayName: "Muse",
+  probedVersion: "0.1.0-R708.1",
+  argvSpec: {
+    binary: "muse",
+    prefix: [],
+    promptMode: "positional",
+    modelFlag: "--model",
+    effortFlag: "--reasoning-effort",
+    permissionModeFlag: "--yolo",
+    resumeMode: "subcommand",
+  },
+  envSpec: SHARED_ENV_SPEC,
+  injectionSpec: {
+    tier: "B",
+    flags: [],
+    description: "No system-prompt flag — doctrine delivered as the first typed message",
+  },
+  capabilityBadges: {
+    instructionInjection: "B",
+    hooks: false,
+    effortAtSpawn: true,
+    sessionId: "capture",
+    remote: false,
+    requiresGitCwd: false,
+    stateFeed: "grid (positive-signal readiness)",
+    attentionSource: "grid (approval/trust dialogs)",
+    labels: ["injection B", "grid", "effort", "capture session"],
+  },
+  efforts: ["none", "minimal", "low", "medium", "high", "xhigh", "ultra"],
+};
+
+/**
+ * Devin CLI (Cognition) — Tier B v1, capture session, grid feed.
+ * Verified 3000.3.27: positional prompt REQUIRES `--` separator; --model;
+ * --permission-mode enum (normal|accept-edits|smart|dangerous|autonomous);
+ * resume `-r <id>` exact / `-c`; no pin (capture via hook payload session_id,
+ * `devin list --format json`, sessions.db, session_locks); --agent-config
+ * (system instructions + tool visibility + permissions, strict parse) is the
+ * Tier-A upgrade path — deferred until a per-harness config builder exists.
+ */
+export const DEVIN_TEMPLATE: ManagedTerminalTemplate = {
+  harness: "devin",
+  displayName: "Devin",
+  probedVersion: "3000.3.27",
+  argvSpec: {
+    binary: "devin",
+    prefix: [],
+    promptMode: "positional",
+    promptSeparator: "--",
+    modelFlag: "--model",
+    permissionModeFlag: "--permission-mode",
+    resumeMode: "flag",
+    resumeFlag: "-r",
+  },
+  envSpec: SHARED_ENV_SPEC,
+  injectionSpec: {
+    tier: "B",
+    flags: [],
+    description:
+      "No system-prompt flag in v1 — doctrine delivered as the first typed message (--agent-config upgrade path documented)",
+  },
+  capabilityBadges: {
+    instructionInjection: "B",
+    hooks: false,
+    effortAtSpawn: false,
+    sessionId: "capture",
+    remote: false,
+    requiresGitCwd: false,
+    stateFeed: "grid (❭ prompt + footers)",
+    attentionSource: "grid (permission/trust footers)",
+    labels: ["injection B", "grid", "permission enum", "capture session"],
+  },
+  efforts: [],
+  defaultPermissionMode: "normal",
+};
+
 export const MANAGED_TERMINAL_TEMPLATES: Readonly<
   Record<HarnessId, ManagedTerminalTemplate>
 > = {
@@ -341,6 +580,11 @@ export const MANAGED_TERMINAL_TEMPLATES: Readonly<
   codex: CODEX_TEMPLATE,
   grok: GROK_TEMPLATE,
   hermes: HERMES_TEMPLATE,
+  pi: PI_TEMPLATE,
+  "prime-agent": PRIME_AGENT_TEMPLATE,
+  kimi: KIMI_TEMPLATE,
+  muse: MUSE_TEMPLATE,
+  devin: DEVIN_TEMPLATE,
 };
 
 export const templateFor = (harness: HarnessId): ManagedTerminalTemplate =>

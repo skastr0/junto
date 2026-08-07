@@ -196,6 +196,14 @@ const recoverDocumentLaunchChoices = (
         ...(valueForFlag(argv, spec.modelFlag) ? { model: valueForFlag(argv, spec.modelFlag) } : {}),
         ...(permissionMode ? { permissionMode } : {}),
       };
+    // pi / prime-agent / kimi / muse / devin: generic template slots
+    // (model/effort/permission from the template's own flags; no profile).
+    default:
+      return {
+        ...(valueForFlag(argv, spec.modelFlag) ? { model: valueForFlag(argv, spec.modelFlag) } : {}),
+        ...(effort ? { effort } : {}),
+        ...(permissionMode ? { permissionMode } : {}),
+      };
   }
 };
 

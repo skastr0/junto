@@ -25,7 +25,17 @@ const agentDoc = (terminal: Record<string, unknown>) => ({
 
 describe("HarnessId is closed at the document seam", () => {
   it("decodes every harness the template table declares", () => {
-    expect(HARNESS_IDS).toEqual(["claude", "codex", "grok", "hermes"]);
+    expect(HARNESS_IDS).toEqual([
+      "claude",
+      "codex",
+      "grok",
+      "hermes",
+      "pi",
+      "prime-agent",
+      "kimi",
+      "muse",
+      "devin",
+    ]);
     for (const harness of HARNESS_IDS) {
       const decoded = decodeCanvasDoc(agentDoc({ bindingId: "b1", harness }));
       expect(decoded._tag).toBe("Success");
