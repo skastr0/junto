@@ -1,22 +1,35 @@
 /**
  * Wire: rising-edge alert queue → SFX + Space/` cycle → focusNodeId.
  *
- * Pure model lives in alert-queue.ts. This module collects actionable region
- * member signals, observes the queue, plays SFX on rise, and cycles focus.
+ * Pure model lives in alert-queue.ts. This module collects cycle targets
+ * (notifications → ready/complete → working), observes the queue, plays SFX
+ * on notification rises only, and cycles focus.
  */
 
+import { use$ } from "@legendapp/state/react";
 import { useEffect, useRef } from "react";
+import type { CanvasNode } from "@shared/canvas";
 import type { RegionRollup } from "@shared/region-rollup";
+import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
+import {
+  agentSeat$,
+  bindingIdForNode,
+  presentationForSeat,
+} from "./agent-seat-state";
 import {
   alertId,
+  alertKindHasRiseSfx,
   cycleNext,
   emptyAlertQueue,
   observeSignals,
   resolveFocusNodeId,
   type AlertItem,
+  type AlertKind,
   type AlertQueue,
   type AlertSignal,
 } from "./alert-queue";
+import { herdr$ } from "./herdr-state";
+import { nodeTitle } from "./presentation";
 import { playAlert } from "./sfx";
 import { state$ } from "./state";
 
@@ -55,7 +68,24 @@ export const shouldCycleAlertOnKey = (
   return true;
 };
 
-/** Build one stable, actionable signal per non-idle region member. */
+/** Severity ladder for cycle kinds — higher wins when the same node appears twice. */
+const KIND_LEVEL: Readonly<Record<AlertKind, number>> = {
+  blocked: 4,
+  attention: 3,
+  ready: 2,
+  working: 1,
+};
+
+const severityToCycleKind = (
+  severity: RegionRollup["members"][number]["severity"],
+): AlertKind | undefined => {
+  if (severity === "blocked") return "blocked";
+  if (severity === "attention") return "attention";
+  if (severity === "working") return "working";
+  return undefined;
+};
+
+/** Build one stable, actionable signal per cycle-worthy region member. */
 export const collectAlertSignals = (
   rollups: ReadonlyArray<RegionRollup>,
 ): ReadonlyArray<AlertSignal> => {
@@ -70,19 +100,118 @@ export const collectAlertSignals = (
   // A node can be a member of overlapping regions. Its highest severity wins.
   for (const rollup of rollups) {
     for (const member of rollup.members) {
-      const level = member.severity === "blocked" ? 2 : member.severity === "attention" ? 1 : 0;
-      if (level === 0) continue;
+      const kind = severityToCycleKind(member.severity);
+      if (!kind) continue;
       push({
         id: alertId.node(member.nodeId),
-        kind: level === 2 ? "blocked" : "attention",
+        kind,
         subjectKey: member.nodeId,
         nodeId: member.nodeId,
         label: member.label,
-        level,
+        level: KIND_LEVEL[kind],
       });
     }
   }
 
+  return [...byId.values()];
+};
+
+/**
+ * Ready/complete + working from managed seats and herdr (presentation "done"
+ * is idle+needsLook / herdr done — not a region-rollup severity).
+ */
+export const collectReadyWorkingSignals = (
+  nodes: ReadonlyArray<CanvasNode>,
+  seats: Readonly<Record<string, AgentSeatStateEvent | undefined>>,
+  needsLookByBindingId: Readonly<Record<string, boolean | undefined>>,
+  herdrMetaByNodeId: Readonly<
+    Record<
+      string,
+      | {
+          readonly meta?: { readonly agentStatus?: string };
+          readonly pendingSeen?: boolean;
+        }
+      | undefined
+    >
+  >,
+): ReadonlyArray<AlertSignal> => {
+  const byId = new Map<string, AlertSignal>();
+  const push = (signal: AlertSignal): void => {
+    const previous = byId.get(signal.id);
+    if (previous !== undefined && (previous.level ?? 0) >= (signal.level ?? 0)) return;
+    byId.set(signal.id, signal);
+  };
+
+  for (const node of nodes) {
+    const label = nodeTitle(node);
+    const bindingId = bindingIdForNode(node);
+    if (bindingId) {
+      const event = seats[bindingId];
+      const presentation = presentationForSeat(
+        event?.state,
+        needsLookByBindingId[bindingId] === true,
+      );
+      if (presentation === "done") {
+        push({
+          id: alertId.node(node.id),
+          kind: "ready",
+          subjectKey: node.id,
+          nodeId: node.id,
+          label,
+          level: KIND_LEVEL.ready,
+        });
+      } else if (presentation === "working") {
+        push({
+          id: alertId.node(node.id),
+          kind: "working",
+          subjectKey: node.id,
+          nodeId: node.id,
+          label,
+          level: KIND_LEVEL.working,
+        });
+      }
+      // attention/blocked from seats already surface via region rollups + notify.
+    }
+
+    const herdr = herdrMetaByNodeId[node.id];
+    if (!herdr) continue;
+    const status = herdr.meta?.agentStatus;
+    if (status === "done" && herdr.pendingSeen !== true) {
+      push({
+        id: alertId.node(node.id),
+        kind: "ready",
+        subjectKey: node.id,
+        nodeId: node.id,
+        label,
+        level: KIND_LEVEL.ready,
+      });
+    } else if (status === "working") {
+      push({
+        id: alertId.node(node.id),
+        kind: "working",
+        subjectKey: node.id,
+        nodeId: node.id,
+        label,
+        level: KIND_LEVEL.working,
+      });
+    }
+  }
+
+  return [...byId.values()];
+};
+
+/** Merge rollup + ready/working signals; worst kind wins per node. */
+export const mergeCycleSignals = (
+  ...groups: ReadonlyArray<ReadonlyArray<AlertSignal>>
+): ReadonlyArray<AlertSignal> => {
+  const byId = new Map<string, AlertSignal>();
+  for (const group of groups) {
+    for (const signal of group) {
+      const previous = byId.get(signal.id);
+      if (previous !== undefined && (previous.level ?? 0) >= (signal.level ?? 0)) continue;
+      byId.set(signal.id, signal);
+    }
+  }
   return [...byId.values()];
 };
 
@@ -103,11 +232,12 @@ const focusAlertItem = (item: AlertItem | undefined): void => {
   state$.focusNodeId.set(nodeId);
 };
 
-/** Observe live signals; play rising-edge SFX. */
+/** Observe live signals; play rising-edge SFX for notifications only. */
 export const observeAlertSignals = (signals: ReadonlyArray<AlertSignal>): void => {
   const result = observeSignals(queue, signals);
   queue = result.queue;
   for (const item of result.risen) {
+    if (!alertKindHasRiseSfx(item.kind)) continue;
     playAlert(item.kind === "blocked" ? "blocked" : "attention");
   }
 };
@@ -122,16 +252,48 @@ export const cycleAlertFocus = (): boolean => {
   return true;
 };
 
+const collectLiveCycleSignals = (
+  rollups: ReadonlyArray<RegionRollup>,
+): ReadonlyArray<AlertSignal> => {
+  const nodes = state$.doc.peek().nodes;
+  const seats = agentSeat$.byBindingId.peek() as Record<
+    string,
+    AgentSeatStateEvent | undefined
+  >;
+  const needsLook = agentSeat$.needsLookByBindingId.peek() as Record<
+    string,
+    boolean | undefined
+  >;
+  const herdrMeta = herdr$.metaByNodeId.peek() as Record<
+    string,
+    | {
+        readonly meta?: { readonly agentStatus?: string };
+        readonly pendingSeen?: boolean;
+      }
+    | undefined
+  >;
+  return mergeCycleSignals(
+    collectAlertSignals(rollups),
+    collectReadyWorkingSignals(nodes, seats, needsLook, herdrMeta ?? {}),
+  );
+};
+
 /**
  * Mount in RTS chrome: subscribe live planes, observe queue, bind Space / `.
- * Rollups come from the parent (already computed for chips).
+ * Rollups come from the parent (already computed for chips). Ready/working
+ * seats and herdr done come from live stores so completes enter the tour.
  */
 export function useAlertAttention(rollups: ReadonlyArray<RegionRollup>): void {
   const rollupsRef = useRef(rollups);
   rollupsRef.current = rollups;
+  // Re-run observe when seats / herdr / doc identity change (ready+working).
+  const seatByBinding = use$(agentSeat$.byBindingId);
+  const needsLookByBinding = use$(agentSeat$.needsLookByBindingId);
+  const herdrMetaByNodeId = use$(herdr$.metaByNodeId);
+  const docNodes = use$(state$.doc.nodes);
 
   useEffect(() => {
-    observeAlertSignals(collectAlertSignals(rollupsRef.current));
+    observeAlertSignals(collectLiveCycleSignals(rollupsRef.current));
 
     return () => {
       // Full unmount of RTS chrome only. Must NOT run when `rollups` identity
@@ -142,10 +304,10 @@ export function useAlertAttention(rollups: ReadonlyArray<RegionRollup>): void {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- rollups via ref; see comment above
   }, []);
 
-  // Re-observe when rollups change without tearing down subscriptions/baseline.
+  // Re-observe when rollups or seat/herdr planes change without wiping baseline.
   useEffect(() => {
-    observeAlertSignals(collectAlertSignals(rollupsRef.current));
-  }, [rollups]);
+    observeAlertSignals(collectLiveCycleSignals(rollupsRef.current));
+  }, [rollups, seatByBinding, needsLookByBinding, herdrMetaByNodeId, docNodes]);
 
   // Hotkey: Space or backtick. Capture phase so Space isn't eaten by focused
   // RF nodes / RTS buttons (those match [role=button] and previously no-op'd).

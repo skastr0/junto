@@ -1,16 +1,20 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   collectAlertSignals,
+  collectReadyWorkingSignals,
   cycleAlertFocus,
   isTypingSurface,
+  mergeCycleSignals,
   observeAlertSignals,
   resetAlertQueue,
   shouldCycleAlertOnKey,
 } from "../src/renderer/lib/alert-attention";
-import { alertId } from "../src/renderer/lib/alert-queue";
+import { alertId, cycleNext, emptyAlertQueue, observeSignals } from "../src/renderer/lib/alert-queue";
 import * as sfx from "../src/renderer/lib/sfx";
 import { state$ } from "../src/renderer/lib/state";
 import type { RegionRollup } from "../src/shared/region-rollup";
+import type { CanvasNode } from "../src/shared/canvas";
+import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
 
 const rollup = (members: RegionRollup["members"]): RegionRollup => ({
   regionId: "r1",
@@ -21,12 +25,13 @@ const rollup = (members: RegionRollup["members"]): RegionRollup => ({
 });
 
 describe("collectAlertSignals", () => {
-  it("builds stable node signals for attention and blocked members", () => {
+  it("builds stable node signals for blocked, attention, and working members", () => {
     const signals = collectAlertSignals([
       rollup([
         { nodeId: "n-attention", label: "review", kind: "agent", severity: "attention", reasons: [] },
         { nodeId: "n-blocked", label: "deploy", kind: "task", severity: "blocked", reasons: [] },
         { nodeId: "n-working", label: "build", kind: "agent", severity: "working", reasons: [] },
+        { nodeId: "n-idle", label: "idle", kind: "agent", severity: "idle", reasons: [] },
       ]),
     ]);
 
@@ -37,7 +42,7 @@ describe("collectAlertSignals", () => {
         subjectKey: "n-attention",
         nodeId: "n-attention",
         label: "review",
-        level: 1,
+        level: 3,
       },
       {
         id: alertId.node("n-blocked"),
@@ -45,7 +50,15 @@ describe("collectAlertSignals", () => {
         subjectKey: "n-blocked",
         nodeId: "n-blocked",
         label: "deploy",
-        level: 2,
+        level: 4,
+      },
+      {
+        id: alertId.node("n-working"),
+        kind: "working",
+        subjectKey: "n-working",
+        nodeId: "n-working",
+        label: "build",
+        level: 1,
       },
     ]);
   });
@@ -57,7 +70,7 @@ describe("collectAlertSignals", () => {
     ]);
 
     expect(signals).toEqual([
-      expect.objectContaining({ id: alertId.node("shared"), kind: "blocked", level: 2, label: "second" }),
+      expect.objectContaining({ id: alertId.node("shared"), kind: "blocked", level: 4, label: "second" }),
     ]);
   });
 });
@@ -106,6 +119,114 @@ describe("observeAlertSignals + cycleAlertFocus", () => {
     observeAlertSignals([]);
     observeAlertSignals([signal]);
     expect(play).toHaveBeenCalledWith("attention");
+  });
+
+  it("does not play rising-edge SFX for ready or working", () => {
+    const play = vi.spyOn(sfx, "playAlert").mockImplementation(() => undefined);
+    observeAlertSignals([]);
+    observeAlertSignals([
+      { id: alertId.node("r"), kind: "ready", subjectKey: "r", nodeId: "r", level: 2 },
+      { id: alertId.node("w"), kind: "working", subjectKey: "w", nodeId: "w", level: 1 },
+    ]);
+    expect(play).not.toHaveBeenCalled();
+  });
+});
+
+describe("ready/working cycle order", () => {
+  it("collectReadyWorkingSignals maps seat done→ready and working→working", async () => {
+    const { agentSeat$, resetAgentSeatState } = await import(
+      "../src/renderer/lib/agent-seat-state"
+    );
+    resetAgentSeatState();
+    agentSeat$.bindingIdByNodeId.set({
+      "agent-1": "bind-1",
+      "agent-2": "bind-2",
+    });
+    try {
+      const nodes = [
+        {
+          id: "agent-1",
+          type: "text",
+          x: 0,
+          y: 0,
+          width: 80,
+          height: 40,
+          text: "coder",
+        },
+        {
+          id: "agent-2",
+          type: "text",
+          x: 0,
+          y: 0,
+          width: 80,
+          height: 40,
+          text: "reviewer",
+        },
+      ] as unknown as ReadonlyArray<CanvasNode>;
+      const seats: Record<string, AgentSeatStateEvent> = {
+        "bind-1": {
+          bindingId: "bind-1",
+          epoch: "e1",
+          state: "idle",
+          reason: "turn-end",
+          confidence: "high",
+          at: 1,
+        },
+        "bind-2": {
+          bindingId: "bind-2",
+          epoch: "e2",
+          state: "working",
+          reason: "turn",
+          confidence: "high",
+          at: 1,
+        },
+      };
+      const signals = collectReadyWorkingSignals(
+        nodes,
+        seats,
+        { "bind-1": true },
+        {},
+      );
+      expect(signals).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ nodeId: "agent-1", kind: "ready" }),
+          expect.objectContaining({ nodeId: "agent-2", kind: "working" }),
+        ]),
+      );
+    } finally {
+      resetAgentSeatState();
+    }
+  });
+
+  it("cycle walks notifications then ready then working", () => {
+    let q = observeSignals(emptyAlertQueue(), [], 1).queue;
+    const merged = mergeCycleSignals(
+      collectAlertSignals([
+        rollup([
+          { nodeId: "b", label: "b", kind: "agent", severity: "blocked", reasons: [] },
+          { nodeId: "a", label: "a", kind: "agent", severity: "attention", reasons: [] },
+          { nodeId: "w", label: "w", kind: "agent", severity: "working", reasons: [] },
+        ]),
+      ]),
+      [
+        {
+          id: alertId.node("r"),
+          kind: "ready",
+          subjectKey: "r",
+          nodeId: "r",
+          label: "r",
+          level: 2,
+        },
+      ],
+    );
+    q = observeSignals(q, merged, 2).queue;
+    const order: string[] = [];
+    for (let i = 0; i < 4; i += 1) {
+      const step = cycleNext(q);
+      q = step.queue;
+      if (step.item?.nodeId) order.push(step.item.nodeId);
+    }
+    expect(order).toEqual(["b", "a", "r", "w"]);
   });
 });
 

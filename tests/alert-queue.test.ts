@@ -67,10 +67,21 @@ describe("alert-queue", () => {
   });
 
   describe("priority and cycling", () => {
-    it("orders blocked before attention", () => {
+    it("orders blocked before attention before ready before working", () => {
       let q = observeSignals(emptyAlertQueue(), [], 1).queue;
-      q = observeSignals(q, [attention("a"), blocked("b")], 2).queue;
-      expect(q.items.map((item) => item.kind)).toEqual(["blocked", "attention"]);
+      const ready = (nodeId: string): AlertSignal => sig({
+        id: alertId.node(nodeId), kind: "ready", subjectKey: nodeId, nodeId, level: 2,
+      });
+      const working = (nodeId: string): AlertSignal => sig({
+        id: alertId.node(nodeId), kind: "working", subjectKey: nodeId, nodeId, level: 1,
+      });
+      q = observeSignals(q, [working("w"), attention("a"), ready("r"), blocked("b")], 2).queue;
+      expect(q.items.map((item) => item.kind)).toEqual([
+        "blocked",
+        "attention",
+        "ready",
+        "working",
+      ]);
     });
 
     it("cycleNext skips unfocusable items", () => {

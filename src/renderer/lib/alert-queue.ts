@@ -12,23 +12,35 @@
  * - Every alert is anchored to an actionable canvas node.
  */
 
-export const ALERT_KINDS = ["attention", "blocked"] as const;
+/**
+ * Cycle kinds — operator notifications first, then ready/complete, then working.
+ * Space / ` walks this ladder in priority order.
+ */
+export const ALERT_KINDS = ["blocked", "attention", "ready", "working"] as const;
 
 export type AlertKind = (typeof ALERT_KINDS)[number];
 
 /**
  * Cycle order priority — lower first.
- * Blocked needs attention before attention.
+ * Notifications (blocked, attention) → ready/complete → working.
  */
 export const ALERT_KIND_PRIORITY: Readonly<Record<AlertKind, number>> = {
   blocked: 0,
   attention: 1,
+  ready: 2,
+  working: 3,
 };
 
 export const ALERT_KIND_LABEL: Readonly<Record<AlertKind, string>> = {
-  attention: "attention",
   blocked: "blocked",
+  attention: "attention",
+  ready: "ready",
+  working: "working",
 };
+
+/** Rising-edge SFX only for operator notifications — not ready/working tour. */
+export const alertKindHasRiseSfx = (kind: AlertKind): boolean =>
+  kind === "blocked" || kind === "attention";
 
 const compareAlertItems = (a: AlertItem, b: AlertItem): number => {
   const pr = ALERT_KIND_PRIORITY[a.kind] - ALERT_KIND_PRIORITY[b.kind];

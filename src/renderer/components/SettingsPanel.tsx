@@ -872,8 +872,8 @@ function AudioSection() {
   return (
     <div className="settings-section">
       <p className="settings-note">
-        Space / ` cycles actionable node states (blocked first, then attention).
-        Each clip can be muted or leveled independently.
+        Space / ` cycles notifications first (blocked, attention), then ready
+        completes, then working. Each clip can be muted or leveled independently.
       </p>
       <FieldRow label="Mute all alerts" hint="master mute for the RTS SFX pack">
         <input
