@@ -1725,3 +1725,50 @@ describe("WorkRepository board CC-homed facts", () => {
     }
   });
 });
+
+  it("archives a task off the board projection (soft-delete)", async () => {
+    const sink = { canvasName: "factory", nodeId: "tasks-archive" };
+    const created = await runtime.runPromise(
+      repository.createTask({
+        sink,
+        basis: authorialBasis,
+        task: {
+          id: "task-archive-me",
+          state: "submitted",
+          history: [
+            message("brief-archive", "user", "delete me", "task-archive-me"),
+          ],
+        },
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    const claimed = await runtime.runPromise(
+      repository.claimLocalTask({
+        sink,
+        basis: authorialBasis,
+        taskId: created.value.id,
+        actor,
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    expect(claimed.value.state).toBe("working");
+
+    const archived = await runtime.runPromise(
+      repository.transitionTask({
+        sink,
+        basis: authorialBasis,
+        taskId: created.value.id,
+        state: "archived",
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    expect(archived.value.state).toBe("archived");
+
+    const snapshot = await runtime.runPromise(
+      repository.readSnapshot(sink.canvasName, sink.nodeId),
+    );
+    expect(snapshot.tasks.items.find((t) => t.id === "task-archive-me")).toBeUndefined();
+  });

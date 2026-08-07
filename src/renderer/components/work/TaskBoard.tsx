@@ -555,20 +555,25 @@ function TaskActionsMenu({
   const hardFinishGate =
     task.finishCriteria?.artifacts !== undefined ||
     task.finishCriteria?.git !== undefined;
-  const terminalActions = (
-    [
-      ["completed", "Complete task"],
-      ["failed", "Mark as failed"],
-      ["rejected", "Reject task"],
-      ["canceled", "Cancel task"],
-      ["archived", "Delete from board"],
-    ] as const
-  ).filter(([state]) => {
-    if (!canTransitionTaskState(task.state, state)) return false;
-    // Hard finish criteria require completionEvidence (CLI/agent only for now).
-    if (state === "completed" && hardFinishGate) return false;
-    return true;
-  });
+  // Proposals are display-mapped to submitted WorkTasks; they must not get
+  // task transition actions (Delete/Complete/…) — that calls workTaskTransition
+  // with a proposal id and yields "task … not found". Use Reject proposal only.
+  const terminalActions = isProposal
+    ? ([] as ReadonlyArray<readonly [TaskState, string]>)
+    : (
+        [
+          ["completed", "Complete task"],
+          ["failed", "Mark as failed"],
+          ["rejected", "Reject task"],
+          ["canceled", "Cancel task"],
+          ["archived", "Delete from board"],
+        ] as const
+      ).filter(([state]) => {
+        if (!canTransitionTaskState(task.state, state)) return false;
+        // Hard finish criteria require completionEvidence (CLI/agent only for now).
+        if (state === "completed" && hardFinishGate) return false;
+        return true;
+      });
 
   const show = (trigger: HTMLButtonElement) => {
     const menu = menuRef.current;
@@ -636,36 +641,45 @@ function TaskActionsMenu({
             Edit title
           </button>
         ) : null}
-        {availableMoves.map((destination) => (
-          <button
-            key={destination.id}
-            type="button"
-            role="menuitem"
-            disabled={pending}
-            onClick={() =>
-              commit(() => {
-                if (destination.state) onMove(task, destination.state);
-              })
-            }
-          >
-            {destination.id === "queue" ? "Unclaim to Queue" : `Move to ${destination.label}`}
-          </button>
-        ))}
-        {terminalActions.length > 0 ? (
+        {!isProposal
+          ? availableMoves.map((destination) => (
+              <button
+                key={destination.id}
+                type="button"
+                role="menuitem"
+                disabled={pending}
+                onClick={() =>
+                  commit(() => {
+                    if (destination.state) onMove(task, destination.state);
+                  })
+                }
+              >
+                {destination.id === "queue"
+                  ? "Unclaim to Queue"
+                  : `Move to ${destination.label}`}
+              </button>
+            ))
+          : null}
+        {!isProposal && terminalActions.length > 0 ? (
           <div className="task-board-card__menu-separator" aria-hidden />
         ) : null}
-        {terminalActions.map(([state, label]) => (
-          <button
-            key={state}
-            type="button"
-            role="menuitem"
-            disabled={pending}
-            data-terminal-action={state}
-            onClick={() => commit(() => onMove(task, state))}
-          >
-            {label}
-          </button>
-        ))}
+        {!isProposal
+          ? terminalActions.map(([state, label]) => (
+              <button
+                key={state}
+                type="button"
+                role="menuitem"
+                disabled={pending}
+                data-terminal-action={state}
+                data-testid={
+                  state === "archived" ? "task-menu-delete-from-board" : undefined
+                }
+                onClick={() => commit(() => onMove(task, state))}
+              >
+                {label}
+              </button>
+            ))
+          : null}
       </div>
     </>
   );
