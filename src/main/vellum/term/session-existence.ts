@@ -27,6 +27,24 @@ export const __setSessionExistenceHomeForTest = (home: string | undefined): void
 
 const resolveHome = (home?: string): string => home ?? homeForTest ?? homedir();
 
+/**
+ * Sessions root with a harness env override (KIMI_CODE_HOME, PI_CODING_AGENT_DIR
+ * — both are the parent dir of `sessions`). The override applies only when the
+ * caller did not pin a root (explicit probe.home or the test home root); pinned
+ * roots win so tests stay hermetic against ambient machine env.
+ */
+const sessionsRootWithEnvOverride = (
+  probe: SessionExistenceProbe,
+  envKey: string,
+  fallbackRoot: string,
+): string => {
+  if (probe.home !== undefined || homeForTest !== undefined) {
+    return fallbackRoot;
+  }
+  const env = process.env[envKey]?.trim();
+  return env ? join(env, "sessions") : fallbackRoot;
+};
+
 /** Grok stores sessions under ~/.grok/sessions/<encodeURIComponent(cwd)>/<id>/. */
 export const encodeGrokSessionCwd = (cwd: string): string =>
   encodeURIComponent(resolve(cwd));
@@ -34,6 +52,15 @@ export const encodeGrokSessionCwd = (cwd: string): string =>
 /** Claude project dir: /Users/foo/bar → -Users-foo-bar */
 export const encodeClaudeProjectCwd = (cwd: string): string =>
   resolve(cwd).replace(/\//g, "-");
+
+/**
+ * Pi cwd encoding for the session dir: strip leading "/", map "/" and ":" to
+ * "-", wrap in "--…--". /Users/me/proj → --Users-me-proj--
+ */
+export const encodePiSessionCwd = (cwd: string): string => {
+  const absolute = isAbsolute(cwd) ? cwd : resolve(cwd);
+  return `--${absolute.replace(/^\//, "").replace(/[/:]/g, "-")}--`;
+};
 
 const isDir = (path: string): boolean => {
   try {
@@ -72,6 +99,30 @@ export const harnessSessionExists = (probe: SessionExistenceProbe): boolean => {
         return codexSessionExists(sessionId, home);
       case "hermes":
         return false;
+      // Pi is a pin harness; sessions live under
+      // ~/.pi/agent/sessions/--<cwd-encoded>--/<ts>_<uuidv7>.jsonl.
+      case "pi":
+        return piSessionExists(
+          sessionId,
+          probe.cwd,
+          piSessionsRoot(probe, home),
+        );
+      // Capture harnesses with filesystem cold-proof layouts (2026-08 sweep).
+      case "prime-agent":
+        return primeAgentSessionExists(sessionId, home);
+      case "kimi":
+        return kimiSessionExists(
+          sessionId,
+          sessionsRootWithEnvOverride(
+            probe,
+            "KIMI_CODE_HOME",
+            join(home, ".kimi-code", "sessions"),
+          ),
+        );
+      case "muse":
+        return museSessionExists(sessionId, home);
+      case "devin":
+        return devinSessionExists(sessionId, home);
       default:
         return false;
     }
@@ -178,6 +229,132 @@ const codexTreeContainsSession = (
 };
 
 /**
+ * Pi sessions: ~/.pi/agent/sessions/--<cwd-encoded>--/<ISO-ts>_<uuidv7>.jsonl.
+ * Session id is the uuidv7 part of the filename; resume accepts partial ids,
+ * so a filename containing the id is proof. Prefer the cwd-encoded dir when
+ * cwd is given, then fall back to scanning every cwd dir (superset).
+ */
+/**
+ * Pi sessions root. Default ~/.pi/agent/sessions. Env overrides (production
+ * only — pinned probe roots win): PI_CODING_AGENT_SESSION_DIR replaces the
+ * root outright; PI_CODING_AGENT_DIR relocates the agent dir (~/.pi/agent),
+ * so sessions live under <agentDir>/sessions.
+ */
+const piSessionsRoot = (
+  probe: SessionExistenceProbe,
+  home: string,
+): string => {
+  if (probe.home === undefined && homeForTest === undefined) {
+    const sessionDir = process.env.PI_CODING_AGENT_SESSION_DIR?.trim();
+    if (sessionDir) return sessionDir;
+    const agentDir = process.env.PI_CODING_AGENT_DIR?.trim();
+    if (agentDir) return join(agentDir, "sessions");
+  }
+  return join(home, ".pi", "agent", "sessions");
+};
+
+const piSessionExists = (
+  sessionId: string,
+  cwd: string | undefined,
+  root: string,
+): boolean => {
+  if (!isDir(root)) return false;
+
+  if (cwd && cwd.trim()) {
+    const direct = join(root, encodePiSessionCwd(cwd));
+    if (isDir(direct) && codexTreeContainsSession(direct, sessionId, 0)) {
+      return true;
+    }
+  }
+
+  let entries: string[];
+  try {
+    entries = readdirSync(root);
+  } catch {
+    return false;
+  }
+  for (const enc of entries) {
+    const candidate = join(root, enc);
+    if (isDir(candidate) && codexTreeContainsSession(candidate, sessionId, 0)) {
+      return true;
+    }
+  }
+  return false;
+};
+
+/**
+ * Prime Agent sessions: ~/.prime/agent/sessions/<uuid>.jsonl (flat). Resume
+ * accepts id prefix/suffix, so a filename containing the id is proof.
+ */
+const primeAgentSessionExists = (sessionId: string, home: string): boolean => {
+  const root = join(home, ".prime", "agent", "sessions");
+  if (!isDir(root)) return false;
+  return codexTreeContainsSession(root, sessionId, 0);
+};
+
+/**
+ * Kimi sessions: $KIMI_CODE_HOME/sessions/<workDirKey>/<sessionId>/ (dir name
+ * equals the session id, ses_<uuid> or session_<uuid>). Probe any workDirKey.
+ */
+const kimiSessionExists = (sessionId: string, root: string): boolean => {
+  if (!isDir(root)) return false;
+  let entries: string[];
+  try {
+    entries = readdirSync(root);
+  } catch {
+    return false;
+  }
+  for (const workDirKey of entries) {
+    if (isDir(join(root, workDirKey, sessionId))) return true;
+  }
+  return false;
+};
+
+/**
+ * Muse sessions: ~/.local/share/muse/sessions/<yyyy>/<mm>/<dd>/<uuid>/. The
+ * session id is the date-nested dir name; bounded walk finds it.
+ */
+const museSessionExists = (sessionId: string, home: string): boolean => {
+  const root = join(home, ".local", "share", "muse", "sessions");
+  if (!isDir(root)) return false;
+  return dirExactlyNamed(root, sessionId, 0);
+};
+
+const dirExactlyNamed = (
+  dir: string,
+  name: string,
+  depth: number,
+): boolean => {
+  if (depth > 4) return false;
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return false;
+  }
+  for (const entry of entries) {
+    const child = join(dir, entry);
+    if (!isDir(child)) continue;
+    if (entry === name) return true;
+    if (dirExactlyNamed(child, name, depth + 1)) return true;
+  }
+  return false;
+};
+
+/**
+ * Devin sessions: ~/.local/share/devin/cli/transcripts/<id>.json and
+ * session_locks/<id>.lock; ids are adjective-noun (sample-session). File name
+ * equals the id (with extension) — exact match, not contains.
+ */
+const devinSessionExists = (sessionId: string, home: string): boolean => {
+  const root = join(home, ".local", "share", "devin", "cli");
+  if (!isDir(root)) return false;
+  if (isFile(join(root, "transcripts", `${sessionId}.json`))) return true;
+  if (isFile(join(root, "session_locks", `${sessionId}.lock`))) return true;
+  return false;
+};
+
+/**
  * Harness-printed resume failure (Grok remote 404, missing Claude session, …).
  * Used for fail-open: abandon -r and open a fresh pin session.
  */
@@ -208,8 +385,8 @@ export const launchArgvUsesResume = (
   return false;
 };
 
-/** Pin harnesses that mint a UUID at node create. */
+/** Pin harnesses that mint a UUID at node create. Pi pins via --session-id. */
 export const isPinSessionHarness = (harness: string): boolean =>
-  harness === "claude" || harness === "grok";
+  harness === "claude" || harness === "grok" || harness === "pi";
 
 export type { HarnessId };

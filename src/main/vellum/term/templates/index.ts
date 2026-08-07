@@ -23,6 +23,11 @@ export {
   parseHermesProfileList,
   parseHermesProviderModelsCache,
   readHermesModels,
+  parseProviderModelTable,
+  enumeratePiModels,
+  enumeratePrimeAgentModels,
+  parseDevinModelsList,
+  enumerateDevinModels,
   effortsFor,
   type ModelOption,
   type ProfileOption,
@@ -30,5 +35,6 @@ export {
   type ProfileEnumerateResult,
   type CodexModelsRunner,
   type HermesProfilesRunner,
+  type ModelsCommandRunner,
   type ReadText,
 } from "./enumerate-models";

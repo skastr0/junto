@@ -457,6 +457,153 @@ export const readHermesModels = (
   };
 };
 
+// ── Pi / Prime Agent: provider/model CLI table ─────────────────────────────
+
+/**
+ * Parse the `pi --list-models` / `prime-agent model list` table:
+ *
+ *   provider      model              context  max-out  thinking  images
+ *   google        gemini-2.5-flash   1.0M     65.5K    yes       yes
+ *
+ * Both harnesses accept a `provider/id` `--model` pattern (pi documented;
+ * prime-agent resolves canonical provider/model references), so the picker id
+ * carries the provider prefix; the label stays the bare model id.
+ */
+export const parseProviderModelTable = (
+  stdout: string,
+): { models: ModelOption[]; error?: string } => {
+  const models: ModelOption[] = [];
+  for (const rawLine of stdout.split("\n")) {
+    const trimmed = rawLine.trim();
+    if (!trimmed) continue;
+    const parts = trimmed.split(/\s+/);
+    if (parts.length < 2) continue;
+    const provider = parts[0];
+    const model = parts[1];
+    if (!model) continue;
+    // Header row ("provider      model …") — never a real model row.
+    if (provider === "provider" && model === "model") continue;
+    models.push({
+      id: `${provider}/${model}`,
+      label: model,
+      description: provider,
+    });
+  }
+  models.sort((a, b) => a.id.localeCompare(b.id));
+  return { models };
+};
+
+export type ModelsCommandRunner = () => Promise<string>;
+
+const enumerateTableModels = async (
+  run: ModelsCommandRunner,
+  commandLabel: string,
+): Promise<ModelEnumerateResult> => {
+  try {
+    const stdout = await run();
+    if (!stdout.trim()) {
+      return {
+        models: [],
+        source: "empty",
+        error: `${commandLabel} produced no output (stub or unavailable)`,
+      };
+    }
+    const parsed = parseProviderModelTable(stdout);
+    return {
+      models: parsed.models,
+      source: parsed.models.length > 0 ? "command" : "empty",
+      error: parsed.error,
+    };
+  } catch (err) {
+    return {
+      models: [],
+      source: "empty",
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+};
+
+export const enumeratePiModels = (
+  run: ModelsCommandRunner = async () => "",
+): Promise<ModelEnumerateResult> => enumerateTableModels(run, "pi --list-models");
+
+export const enumeratePrimeAgentModels = (
+  run: ModelsCommandRunner = async () => "",
+): Promise<ModelEnumerateResult> =>
+  enumerateTableModels(run, "prime-agent model list");
+
+// ── Devin: `devin models list` price table ─────────────────────────────────
+
+/**
+ * Parse `devin models list` (ANSI-colored, family-grouped):
+ *
+ *   Claude Opus 5 (claude-opus-5)
+ *     aliases: opus
+ *     claude-opus-5-medium                   Claude Opus 5 Medium  [1M context, $5 / MTok In, $25 / MTok Out]
+ *
+ * Model rows are the indented lines; the id is the first token and the label
+ * is the bold display name. The bracket carries context + prices and becomes
+ * the description (middot separators scrubbed to commas, copy law).
+ */
+const ANSI_ESCAPE_RE = /\x1b\[[0-9;]*m/g;
+const MIDDOT_RE = /\u00B7/g;
+
+export const parseDevinModelsList = (
+  stdout: string,
+): { models: ModelOption[]; error?: string } => {
+  const models: ModelOption[] = [];
+  for (const rawLine of stdout.split("\n")) {
+    const line = rawLine.replace(ANSI_ESCAPE_RE, "").replace(/\r$/, "");
+    // Model rows are indented two spaces; family headers and aliases are not rows.
+    if (!/^\s{2}/.test(line)) continue;
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("aliases:")) continue;
+    const parts = trimmed.split(/\s{2,}|\t/);
+    const id = parts[0];
+    if (!id) continue;
+    const rest = parts.slice(1).join(" ").trim();
+    const bracket = rest.match(/\[.*\]$/);
+    const description = bracket
+      ? bracket[0].replace(MIDDOT_RE, ",")
+      : undefined;
+    const label = bracket ? rest.slice(0, bracket.index).trim() : rest;
+    models.push({
+      id,
+      label: label || id,
+      description: description && description.length > 0 ? description : undefined,
+    });
+  }
+  models.sort((a, b) => a.id.localeCompare(b.id));
+  return { models };
+};
+
+export const enumerateDevinModels = async (
+  run: ModelsCommandRunner = async () => "",
+): Promise<ModelEnumerateResult> => {
+  try {
+    const stdout = await run();
+    if (!stdout.trim()) {
+      return {
+        models: [],
+        source: "empty",
+        error: "devin models list produced no output (stub or unavailable)",
+      };
+    }
+    const parsed = parseDevinModelsList(stdout);
+    return {
+      models: parsed.models,
+      source: parsed.models.length > 0 ? "command" : "empty",
+      error: parsed.error,
+    };
+  } catch (err) {
+    return {
+      models: [],
+      source: "empty",
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+};
+
 // ── Dispatch ───────────────────────────────────────────────────────────────
 
 /**

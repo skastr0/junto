@@ -16,7 +16,10 @@ import {
 } from "@shared/features";
 import {
   enumerateCodexModels,
+  enumerateDevinModels,
   enumerateHermesProfiles,
+  enumeratePiModels,
+  enumeratePrimeAgentModels,
   effortsFor,
   readClaudeModels,
   readGrokModels,
@@ -102,6 +105,60 @@ export const enumerateManagedModels = async (
         models: result.models,
         source: result.source,
         error: result.error,
+        efforts: templateEfforts as string[],
+      };
+    }
+    // pi — `pi --list-models`; provider/model rows (provider prefix in the id).
+    if (harness === "pi") {
+      const result = await enumeratePiModels(async () =>
+        runCommand("pi", ["--list-models"]),
+      );
+      return {
+        models: result.models,
+        source: result.source,
+        error: result.error,
+        efforts: templateEfforts as string[],
+      };
+    }
+    // prime-agent — `prime-agent model list`; same provider/model table shape.
+    if (harness === "prime-agent") {
+      const result = await enumeratePrimeAgentModels(async () =>
+        runCommand("prime-agent", ["model", "list"]),
+      );
+      return {
+        models: result.models,
+        source: result.source,
+        error: result.error,
+        efforts: templateEfforts as string[],
+      };
+    }
+    // devin — `devin models list`; per-model price lines (ANSI-scrubbed).
+    if (harness === "devin") {
+      const result = await enumerateDevinModels(async () =>
+        runCommand("devin", ["models", "list"]),
+      );
+      return {
+        models: result.models,
+        source: result.source,
+        error: result.error,
+        efforts: templateEfforts as string[],
+      };
+    }
+    // kimi — models are config-managed (config.toml [models.*]); no CLI list.
+    // Picker shows the template efforts only (empty for kimi in v1).
+    if (harness === "kimi") {
+      return {
+        models: [],
+        source: "empty",
+        efforts: templateEfforts as string[],
+      };
+    }
+    // muse — a model-catalog file exists on disk but the shape is not stable
+    // enough for v1; leave the picker on template defaults.
+    if (harness === "muse") {
+      return {
+        models: [],
+        source: "empty",
         efforts: templateEfforts as string[],
       };
     }
