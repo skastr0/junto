@@ -403,7 +403,6 @@ let appProcessShutdown:
   | Promise<Awaited<ReturnType<typeof appProcessPlane.drainOnQuit>>>
   | undefined;
 let unsubscribeCanvasEdgeGrants: (() => void) | undefined;
-let mainAuthoringPrecommitEpoch: number | undefined;
 const signalQuitState = createSignalQuitState();
 const quitPreparationArbiter = createQuitPreparationArbiter();
 const signalQuiescedWindows = new WeakSet<BrowserWindow>();
@@ -493,20 +492,45 @@ const returnFromLicenseMaintenance = (): void => {
   // Operator re-plays / unblocks explicitly after entitlement returns.
 };
 
-const CANVAS_FLUSH_TIMEOUT_MS = 45_000;
+/**
+ * The renderer either answers this handshake or it does not. A renderer that
+ * cannot answer within this window is unreachable, and waiting longer only
+ * trades an honest log line for a wedged app the operator must SIGKILL.
+ */
+const CANVAS_FLUSH_TIMEOUT_MS = 10_000;
+/** Bound on awaiting already-admitted main-process authoring during quit. */
+const QUIT_DRAIN_TIMEOUT_MS = 5_000;
+
+class CanvasFlushError extends Error {
+  constructor(message: string, readonly saveFailed: boolean) {
+    super(message);
+    this.name = "CanvasFlushError";
+  }
+}
+
 const pendingCanvasFlushes = new Map<
   number,
   {
     readonly requestId: string;
     readonly promise: Promise<void>;
     readonly resolve: () => void;
-    readonly reject: (error: Error) => void;
+    readonly reject: (error: CanvasFlushError) => void;
     readonly timer: ReturnType<typeof setTimeout>;
   }
 >();
 
+/**
+ * `saveFailed` is the one distinction that decides quit: the renderer answered
+ * that its data is still alive but the write did not land. Every other failure
+ * (timeout, dead renderer, destroyed window) means the data is unreachable, so
+ * blocking would only end in SIGKILL.
+ */
 class CanvasQuiesceAndFlushError extends Error {
-  constructor(message: string, readonly quiesced: boolean) {
+  constructor(
+    message: string,
+    readonly quiesced: boolean,
+    readonly saveFailed = false,
+  ) {
     super(message);
     this.name = "CanvasQuiesceAndFlushError";
   }
@@ -562,7 +586,7 @@ const requestCanvasFlush = (mainWindow: BrowserWindow): Promise<void> => {
 
   const requestId = randomUUID();
   let resolve!: () => void;
-  let reject!: (error: Error) => void;
+  let reject!: (error: CanvasFlushError) => void;
   const promise = new Promise<void>((resolvePromise, rejectPromise) => {
     resolve = resolvePromise;
     reject = rejectPromise;
@@ -571,7 +595,7 @@ const requestCanvasFlush = (mainWindow: BrowserWindow): Promise<void> => {
     const pending = pendingCanvasFlushes.get(webContentsId);
     if (pending?.requestId !== requestId) return;
     pendingCanvasFlushes.delete(webContentsId);
-    reject(new Error("renderer canvas flush timed out"));
+    reject(new CanvasFlushError("renderer canvas flush timed out", false));
   }, CANVAS_FLUSH_TIMEOUT_MS);
   pendingCanvasFlushes.set(webContentsId, { requestId, promise, resolve, reject, timer });
   mainWindow.webContents.send(IPC_CHANNELS.canvasFlushRequested, { requestId });
@@ -587,13 +611,14 @@ ipcMain.on(IPC_CHANNELS.canvasFlushComplete, (event, payload: unknown) => {
   clearTimeout(pending.timer);
   pendingCanvasFlushes.delete(event.sender.id);
   if (result.ok) pending.resolve();
-  else pending.reject(new Error("renderer rejected close because canvas save failed"));
+  else {
+    pending.reject(
+      new CanvasFlushError("renderer rejected close because canvas save failed", true),
+    );
+  }
 });
 
-const requestCanvasQuiesceAndFlush = (
-  mainWindow: BrowserWindow,
-  finalWriteEpoch?: number,
-): Promise<void> => {
+const requestCanvasQuiesceAndFlush = (mainWindow: BrowserWindow): Promise<void> => {
   if (mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) {
     return Promise.reject(new CanvasQuiesceAndFlushError(
       "renderer unavailable before canvas quiesce request",
@@ -630,38 +655,17 @@ const requestCanvasQuiesceAndFlush = (
     timer,
     quiesced: false,
   });
-  const finalWriteBinding = finalWriteEpoch === undefined
-    ? undefined
-    : { senderId: mainWindow.webContents.id, requestId };
   try {
-    if (finalWriteBinding !== undefined) {
-      mainAuthoringGate.mintFinalWritePermit(finalWriteEpoch!, finalWriteBinding);
-    }
     mainWindow.webContents.send(IPC_CHANNELS.canvasQuiesceAndFlushRequested, { requestId });
   } catch (error) {
     clearTimeout(timer);
     pendingCanvasQuiesceAndFlushes.delete(webContentsId);
-    if (finalWriteBinding !== undefined) {
-      try {
-        mainAuthoringGate.revokeFinalWritePermit(finalWriteEpoch!, finalWriteBinding);
-      } catch {
-        // A failed send is already blocking quit. Permit revocation stays best-effort.
-      }
-    }
     reject(new CanvasQuiesceAndFlushError(
       error instanceof Error ? error.message : String(error),
       false,
     ));
   }
-  if (finalWriteBinding === undefined) return promise;
-  return promise.finally(() => {
-    try {
-      mainAuthoringGate.revokeFinalWritePermit(finalWriteEpoch!, finalWriteBinding);
-    } catch {
-      // The caller still performs the post-flush drain and surfaces any retained
-      // final authority there. This revocation cannot silently mark the flush clean.
-    }
-  });
+  return promise;
 };
 
 ipcMain.on(IPC_CHANNELS.canvasQuiesceAndFlushStarted, (event, payload: unknown) => {
@@ -690,8 +694,11 @@ ipcMain.on(IPC_CHANNELS.canvasQuiesceAndFlushComplete, (event, payload: unknown)
     return;
   }
   pending.reject(new CanvasQuiesceAndFlushError(
-    "renderer rejected quit because canvas save failed",
+    result.ok
+      ? "renderer completed canvas flush without closing authoring admission"
+      : "renderer rejected quit because canvas save failed",
     quiesced,
+    !result.ok,
   ));
 });
 
@@ -878,16 +885,29 @@ const createWindow = () => {
     ) return;
     event.preventDefault();
     if (quitPreparationArbiter.signalPrecommit()) return;
+    const proceedWithClose = (): void => {
+      // A signal may claim global quit while this ordinary flush is in
+      // flight. Its renderer handshake now owns the only close authority.
+      if (quitPreparationArbiter.signalPrecommit()) return;
+      closeAfterCanvasFlush = true;
+      mainWindow.close();
+    };
     closeFlush ??= requestCanvasFlush(mainWindow)
-      .then(() => {
-        // A signal may claim global quit while this ordinary flush is in
-        // flight. Its renderer handshake now owns the only close authority.
-        if (quitPreparationArbiter.signalPrecommit()) return;
-        closeAfterCanvasFlush = true;
-        mainWindow.close();
-      })
-      .catch((error) => {
-        console.error("[canvas] window close blocked:", error);
+      .then(proceedWithClose)
+      .catch((error: unknown) => {
+        // Only an explicit save failure keeps live data hostage; block that
+        // close so the operator can see it. Anything else means the renderer
+        // is unreachable, and holding the window open changes nothing.
+        if (error instanceof CanvasFlushError && error.saveFailed) {
+          console.error("[canvas] window close blocked:", error);
+          return;
+        }
+        console.error(
+          `[canvas] window close flush unproven: ${
+            error instanceof Error ? error.message : String(error)
+          } — closing anyway`,
+        );
+        proceedWithClose();
       })
       .finally(() => {
         closeFlush = undefined;
@@ -1027,7 +1047,9 @@ const createWindow = () => {
     if (pending !== undefined) {
       clearTimeout(pending.timer);
       pendingCanvasFlushes.delete(mainWebContentsId);
-      pending.reject(new Error("renderer closed before canvas flush completed"));
+      pending.reject(
+        new CanvasFlushError("renderer closed before canvas flush completed", false),
+      );
     }
     rejectPendingCanvasQuiesce(
       mainWebContentsId,
@@ -1496,7 +1518,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     // electron-updater quitAndInstall is not blocked by before-quit re-commit.
     installUpdateHostHooks({
       quiesceForInstall: async () => {
-        await commitMainAuthoringOnQuit();
+        await flushCanvasOnQuit();
         detachRuntimeOnQuit("update-install");
         await disposeRuntimeFailClosed("update-install");
         runtimeDisposed = true;
@@ -1915,48 +1937,50 @@ const beginShutdownAdmission = (reason: string): void => {
   appProcessPlane.beginShutdown();
 };
 
-const ensureMainAuthoringPrecommit = (): number => {
-  if (mainAuthoringPrecommitEpoch !== undefined) return mainAuthoringPrecommitEpoch;
-  const precommit = mainAuthoringGate.beginPrecommit();
-  mainAuthoringPrecommitEpoch = precommit.epoch;
-  return precommit.epoch;
+const logUnfinishedDrain = (
+  stage: string,
+  report: Awaited<ReturnType<typeof mainAuthoringGate.drain>>,
+): void => {
+  if (!report.timedOut) return;
+  console.error(
+    `[quit] ${stage} authoring drain unfinished: ${
+      report.remaining.join(", ") || "unknown work"
+    } — quitting anyway`,
+  );
 };
 
-const recoverMainAuthoringPrecommit = (): void => {
-  const epoch = mainAuthoringPrecommitEpoch;
-  if (epoch === undefined) return;
-  mainAuthoringPrecommitEpoch = undefined;
-  try {
-    mainAuthoringGate.recover(epoch);
-  } catch {
-    // Recovery is best-effort only after a failed quit attempt. The caller
-    // still uses quiesced/committed state to decide whether authoring may reopen.
-  }
-};
-
-const commitMainAuthoringOnQuit = async (): Promise<void> => {
+/**
+ * The honest quit boundary.
+ *
+ * Only one failure blocks: the renderer answering that the save itself failed.
+ * That data is still alive in the renderer, so discarding it would be sloppy,
+ * and the attempt is retryable — beginFinalFlush is idempotent and nothing here
+ * poisons a second try. Every other outcome (timeout, dead renderer, destroyed
+ * window, IPC send failure) leaves the data unreachable regardless: log one
+ * line and let the process exit, because blocking ends in SIGKILL instead.
+ */
+const flushCanvasOnQuit = async (): Promise<void> => {
   // Activation-only and revoked renderers never own a live authoring surface.
   // Waiting for a canvas flush there would strand quit on an IPC channel that
   // was intentionally never opened (or has already been revoked).
   if (!productRuntimeStarted || productRuntimeSuspended) return;
-  const epoch = ensureMainAuthoringPrecommit();
-  const preDrain = await mainAuthoringGate.drain(epoch);
-  if (!preDrain.clean) {
-    throw new Error(
-      `main authoring pre-drain retained ${preDrain.activeLabels.join(", ") || "unknown work"}`,
-    );
-  }
+  mainAuthoringGate.beginFinalFlush();
+  logUnfinishedDrain("pre-flush", await mainAuthoringGate.drain(QUIT_DRAIN_TIMEOUT_MS));
   const mainWindow = trustedMainWindow;
   if (mainWindow !== undefined && !mainWindow.isDestroyed()) {
-    await requestCanvasQuiesceAndFlush(mainWindow, epoch);
+    try {
+      await requestCanvasQuiesceAndFlush(mainWindow);
+    } catch (error) {
+      if (error instanceof CanvasQuiesceAndFlushError && error.saveFailed) throw error;
+      console.error(
+        `[quit] canvas flush unproven: ${
+          error instanceof Error ? error.message : String(error)
+        } — quitting anyway`,
+      );
+    }
   }
-  const postDrain = await mainAuthoringGate.drain(epoch);
-  if (!postDrain.clean) {
-    throw new Error(
-      `main authoring post-drain retained ${postDrain.activeLabels.join(", ") || "final write authority"}`,
-    );
-  }
-  mainAuthoringGate.commit(epoch);
+  mainAuthoringGate.close();
+  logUnfinishedDrain("post-flush", await mainAuthoringGate.drain(QUIT_DRAIN_TIMEOUT_MS));
 };
 
 let runtimeDetachedForQuit = false;
@@ -2267,7 +2291,7 @@ const beginSignalCanvasQuiesceAndFlush = async (generation: number): Promise<voi
   // Authorization belongs to this signal attempt, never to an earlier normal
   // quit. A second signal after the app remained open must prove current
   // renderer state durable again.
-  await commitMainAuthoringOnQuit();
+  await flushCanvasOnQuit();
   if (!signalQuitState.isCurrent(generation)) {
     throw new Error("signal shutdown attempt superseded");
   }
@@ -2352,7 +2376,7 @@ app.on("before-quit", (event) => {
         terminalClean: () => requireCleanLocalTerminalShutdown("before-quit"),
         finalRendererQuiesce: async () => {
           if (canvasAlreadyDurable) return;
-          await commitMainAuthoringOnQuit();
+          await flushCanvasOnQuit();
         },
         destroyRenderer: destroyQuiescedRenderer,
         detachRuntime: () => {
@@ -2397,9 +2421,10 @@ app.on("before-quit", (event) => {
           console.error("[canvas] quiesced canvas drain must retry before normal quit:", error);
           return;
         }
-        recoverMainAuthoringPrecommit();
+        // Only an explicit renderer save failure reaches here. Give the
+        // operator their surface back; the next Cmd+Q retries the same flush.
         recreateWindowIfEmpty();
-        console.error("[canvas] quit blocked:", error);
+        console.error("[canvas] quit blocked by canvas save failure:", error);
       });
   };
 
@@ -2525,7 +2550,6 @@ installProcessSignalTermination({
       }
       const disposition = signalQuitState.fail(generation);
       if (disposition === "recover") {
-        recoverMainAuthoringPrecommit();
         quitPreparationArbiter.recoverSignal();
         skipQuitConfirm = false;
         quitConfirmed = false;

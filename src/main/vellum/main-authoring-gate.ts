@@ -50,7 +50,22 @@ export const MAIN_AUTHORING_LABELS = [
 
 export type MainAuthoringLabel = (typeof MAIN_AUTHORING_LABELS)[number];
 
-export type MainAuthoringPhase = "open" | "precommit-closed" | "committed-closed";
+/**
+ * One-way lifecycle. `final-flush` still admits the renderer's own canvas save
+ * so an open editor draft can land; `closed` admits nothing. There is no
+ * reopen: the gate only leaves `open` after the operator has confirmed quit.
+ */
+export type MainAuthoringPhase = "open" | "final-flush" | "closed";
+
+/**
+ * The renderer's quit flush lands through the ordinary canvas IPC handlers.
+ * Sender trust is already proven at the IPC boundary
+ * (isTrustedMainWebContents), so the label alone is the admission fact here.
+ */
+const FINAL_FLUSH_LABELS: ReadonlySet<MainAuthoringLabel> = new Set([
+  "ipc.canvas.write",
+  "ipc.canvas.create",
+]);
 
 export type MainAuthoringWorkClassification = "read" | "authorial";
 
@@ -135,79 +150,18 @@ export class MainAuthoringRefused extends Error {
 
   constructor(
     readonly phase: Exclude<MainAuthoringPhase, "open">,
-    readonly epoch: number,
     readonly label: MainAuthoringLabel,
   ) {
-    super(`main authoring is ${phase} for epoch ${epoch}; refused ${label}`);
+    super(`main authoring is ${phase}; refused ${label}`);
     this.name = "MainAuthoringRefused";
   }
 }
 
-export class MainAuthoringTransitionError extends Error {
-  readonly _tag = "MainAuthoringTransitionError";
-
-  constructor(
-    readonly code:
-      | "precommit_already_active"
-      | "already_committed"
-      | "stale_epoch"
-      | "active_operations"
-      | "final_permit_active"
-      | "final_permit_used"
-      | "drain_required"
-      | "invalid_final_permit"
-      | "unsupported_final_operation",
-    message: string,
-  ) {
-    super(message);
-    this.name = "MainAuthoringTransitionError";
-  }
-}
-
-export interface MainAuthoringPrecommitReceipt {
-  readonly epoch: number;
-  readonly phase: "precommit-closed";
-  readonly closedAt: number;
-  readonly activeLabels: ReadonlyArray<MainAuthoringLabel>;
-}
-
-export interface MainAuthoringCommitReceipt {
-  readonly epoch: number;
-  readonly phase: "committed-closed";
-  readonly committedAt: number;
-}
-
-export interface MainAuthoringRecoveryReceipt {
-  readonly epoch: number;
-  readonly phase: "open";
-  readonly recoveredAt: number;
-}
-
-export interface MainAuthoringDrainReceipt {
-  readonly epoch: number;
-  readonly phase: Exclude<MainAuthoringPhase, "open">;
-  /** Every operation observed across the fixed-point drain, in admission order. */
-  readonly labels: ReadonlyArray<MainAuthoringLabel>;
+/** Honest, small drain report: what settled, what did not, and whether time ran out. */
+export interface MainAuthoringDrainReport {
   readonly settled: number;
-  readonly fulfilled: number;
-  readonly rejected: number;
-  readonly rounds: number;
-  /** Empty on a completed fixed-point drain; explicit for fail-closed consumers. */
-  readonly activeLabels: ReadonlyArray<MainAuthoringLabel>;
-  readonly finalPermitsActive: number;
-  readonly clean: boolean;
-}
-
-export type MainAuthoringFinalOperation = "canvas.write" | "canvas.create";
-
-export interface MainAuthoringFinalPermitBinding {
-  readonly senderId: number;
-  readonly requestId: string;
-}
-
-export interface MainAuthoringFinalPermitReceipt extends MainAuthoringFinalPermitBinding {
-  readonly epoch: number;
-  readonly issuedAt: number;
+  readonly remaining: ReadonlyArray<MainAuthoringLabel>;
+  readonly timedOut: boolean;
 }
 
 interface ActiveOperation {
@@ -216,119 +170,38 @@ interface ActiveOperation {
   promise: Promise<unknown>;
 }
 
-interface FinalPermitRecord extends MainAuthoringFinalPermitReceipt {
-  used: boolean;
-}
-
 export interface MainAuthoringGate {
   /** Admit and strongly retain the actual main-process promise until settlement. */
   readonly run: <A>(label: MainAuthoringLabel, operation: () => Promise<A>) => Promise<A>;
-  /** Synchronously closes ordinary authorial admission for a reversible epoch. */
-  readonly beginPrecommit: () => MainAuthoringPrecommitReceipt;
-  /** Reopen only an unused, fully drained precommit epoch. */
-  readonly recover: (epoch: number) => MainAuthoringRecoveryReceipt;
-  /** Make an already-closed, fully drained epoch irreversible. */
-  readonly commit: (epoch: number) => MainAuthoringCommitReceipt;
-  /** Await admitted work to a true fixed point using allSettled semantics. */
-  readonly drain: (epoch: number) => Promise<MainAuthoringDrainReceipt>;
-  /** Mint narrow final-write authority for one exact renderer request. */
-  readonly mintFinalWritePermit: (
-    epoch: number,
-    binding: MainAuthoringFinalPermitBinding,
-  ) => MainAuthoringFinalPermitReceipt;
-  /** Revoke the exact permit before the post-flush drain. */
-  readonly revokeFinalWritePermit: (
-    epoch: number,
-    binding: MainAuthoringFinalPermitBinding,
-  ) => void;
   /**
-   * Admit a final renderer write/create while ordinary admission is closed.
-   * A flush request may perform multiple calls (conflict rebase or recovery
-   * create+write); every call remains bound to the same sender/request until
-   * the main process explicitly revokes that permit.
+   * Idempotent. Closes ordinary authorial admission and leaves only the
+   * renderer's final canvas save admitted.
    */
-  readonly runFinalWrite: <A>(
-    binding: MainAuthoringFinalPermitBinding,
-    operation: MainAuthoringFinalOperation,
-    label: Extract<MainAuthoringLabel, "ipc.canvas.write" | "ipc.canvas.create">,
-    task: () => Promise<A>,
-  ) => Promise<A>;
+  readonly beginFinalFlush: () => void;
+  /** Idempotent. Full close, canvas saves included. */
+  readonly close: () => void;
+  /** Await in-flight work up to a deadline. Never blocks quit past that deadline. */
+  readonly drain: (timeoutMs: number) => Promise<MainAuthoringDrainReport>;
   readonly snapshot: () => Readonly<{
     phase: MainAuthoringPhase;
-    epoch: number;
     activeLabels: ReadonlyArray<MainAuthoringLabel>;
-    finalPermitsActive: number;
-    finalPermitUsed: boolean;
   }>;
 }
 
-const bindingKey = (binding: MainAuthoringFinalPermitBinding): string =>
-  `${binding.senderId}\u0000${binding.requestId}`;
-
-const validateBinding = (binding: MainAuthoringFinalPermitBinding): void => {
-  if (!Number.isSafeInteger(binding.senderId) || binding.senderId <= 0) {
-    throw new MainAuthoringTransitionError(
-      "invalid_final_permit",
-      "final-write permit senderId must be a positive safe integer",
-    );
-  }
-  if (
-    typeof binding.requestId !== "string" ||
-    binding.requestId.length === 0 ||
-    binding.requestId.length > 256 ||
-    /[\u0000-\u001f\u007f]/u.test(binding.requestId)
-  ) {
-    throw new MainAuthoringTransitionError(
-      "invalid_final_permit",
-      "final-write permit requestId must be non-empty, bounded, and control-free",
-    );
-  }
-};
-
 export const createMainAuthoringGate = (): MainAuthoringGate => {
   let phase: MainAuthoringPhase = "open";
-  let epoch = 0;
-  let closedAt = 0;
   let nextOperationId = 0;
-  let finalPermitUsed = false;
-  let admissionVersion = 0;
-  let lastCleanDrain:
-    | { readonly epoch: number; readonly admissionVersion: number }
-    | undefined;
   const active = new Map<number, ActiveOperation>();
-  // Closed-epoch journal: unlike the live registry, this retains even a fast
-  // settlement until a drain has explicitly observed it. That makes a final
-  // write admitted and settled between drain rounds visible in the receipt.
-  const closedAdmissions = new Map<number, ActiveOperation>();
-  const finalPermits = new Map<string, FinalPermitRecord>();
-  let drainFlight:
-    | {
-        readonly epoch: number;
-        promise: Promise<MainAuthoringDrainReceipt>;
-        completed: boolean;
-      }
-    | undefined;
 
   const activeLabels = (): ReadonlyArray<MainAuthoringLabel> =>
     [...active.values()].sort((a, b) => a.id - b.id).map((entry) => entry.label);
 
-  const requireClosedEpoch = (attemptedEpoch: number): void => {
-    if (attemptedEpoch !== epoch || phase === "open") {
-      throw new MainAuthoringTransitionError(
-        "stale_epoch",
-        `main authoring epoch ${attemptedEpoch} does not own closed epoch ${epoch}`,
-      );
-    }
-  };
-
   const retain = <A>(label: MainAuthoringLabel, operation: () => Promise<A>): Promise<A> => {
     const id = ++nextOperationId;
-    admissionVersion += 1;
-    lastCleanDrain = undefined;
 
     // Publish a settlement token before invoking caller code. A task factory
-    // may synchronously re-enter quit preparation; commit/recovery must see
-    // this lifetime before any user code gets that chance.
+    // may synchronously re-enter quit preparation; a drain started from there
+    // must already see this lifetime.
     let resolveStarted!: (value: A) => void;
     let rejectStarted!: (error: unknown) => void;
     const started = new Promise<A>((resolve, reject) => {
@@ -340,7 +213,6 @@ export const createMainAuthoringGate = (): MainAuthoringGate => {
     void started.catch(() => undefined);
     const record: ActiveOperation = { id, label, promise: started };
     active.set(id, record);
-    if (phase !== "open") closedAdmissions.set(id, record);
 
     let promise: Promise<A>;
     try {
@@ -364,344 +236,61 @@ export const createMainAuthoringGate = (): MainAuthoringGate => {
   };
 
   const run = <A>(label: MainAuthoringLabel, operation: () => Promise<A>): Promise<A> => {
-    if (phase !== "open") {
-      return Promise.reject(new MainAuthoringRefused(phase, epoch, label));
+    if (phase !== "open" && !(phase === "final-flush" && FINAL_FLUSH_LABELS.has(label))) {
+      return Promise.reject(new MainAuthoringRefused(phase, label));
     }
-    // License maintenance: canvas stays readable; authorial mutations refuse.
-    // Final-write permits during precommit flush remain available so the
-    // flush→commit transaction can land pending edits before custody sticks.
-    const license = productLicenseAdmission.snapshot();
-    if (
-      license.admitted &&
-      license.mode === "maintenance"
-    ) {
-      return Promise.reject(new ProductLicenseAuthoringRefused());
+    if (phase === "open") {
+      // License maintenance: canvas stays readable; authorial mutations refuse.
+      // The final flush stays admitted so pending edits can land before custody
+      // sticks — quit must never wedge on an expired entitlement.
+      const license = productLicenseAdmission.snapshot();
+      if (license.admitted && license.mode === "maintenance") {
+        return Promise.reject(new ProductLicenseAuthoringRefused());
+      }
     }
     return retain(label, operation);
   };
 
-  const beginPrecommit = (): MainAuthoringPrecommitReceipt => {
-    if (phase === "committed-closed") {
-      throw new MainAuthoringTransitionError(
-        "already_committed",
-        `main authoring is irreversibly closed at epoch ${epoch}`,
-      );
-    }
-    if (phase === "precommit-closed") {
-      throw new MainAuthoringTransitionError(
-        "precommit_already_active",
-        `main authoring precommit epoch ${epoch} is already active`,
-      );
-    }
-    epoch += 1;
-    phase = "precommit-closed";
-    closedAt = Date.now();
-    finalPermitUsed = false;
-    lastCleanDrain = undefined;
-    finalPermits.clear();
-    closedAdmissions.clear();
-    for (const [id, entry] of active) closedAdmissions.set(id, entry);
-    return Object.freeze({
-      epoch,
-      phase,
-      closedAt,
-      activeLabels: Object.freeze([...activeLabels()]),
-    });
+  const beginFinalFlush = (): void => {
+    if (phase === "open") phase = "final-flush";
   };
 
-  const recover = (attemptedEpoch: number): MainAuthoringRecoveryReceipt => {
-    requireClosedEpoch(attemptedEpoch);
-    if (phase === "committed-closed") {
-      throw new MainAuthoringTransitionError(
-        "already_committed",
-        `main authoring epoch ${epoch} is irreversibly committed`,
-      );
-    }
-    if (active.size > 0) {
-      throw new MainAuthoringTransitionError(
-        "active_operations",
-        `cannot recover main authoring epoch ${epoch} with active operations: ${activeLabels().join(", ")}`,
-      );
-    }
-    if (finalPermits.size > 0) {
-      throw new MainAuthoringTransitionError(
-        "final_permit_active",
-        `cannot recover main authoring epoch ${epoch} with active final-write permits`,
-      );
-    }
-    if (finalPermitUsed) {
-      throw new MainAuthoringTransitionError(
-        "final_permit_used",
-        `cannot recover main authoring epoch ${epoch} after a final-write permit was used`,
-      );
-    }
-    if (
-      lastCleanDrain?.epoch !== attemptedEpoch ||
-      lastCleanDrain.admissionVersion !== admissionVersion
-    ) {
-      throw new MainAuthoringTransitionError(
-        "drain_required",
-        `cannot recover main authoring epoch ${epoch} before its current admissions are drained`,
-      );
-    }
-    phase = "open";
-    closedAdmissions.clear();
-    lastCleanDrain = undefined;
-    return Object.freeze({
-      epoch,
-      phase,
-      recoveredAt: Date.now(),
-    });
+  const close = (): void => {
+    phase = "closed";
   };
 
-  const commit = (attemptedEpoch: number): MainAuthoringCommitReceipt => {
-    requireClosedEpoch(attemptedEpoch);
-    if (phase === "committed-closed") {
-      throw new MainAuthoringTransitionError(
-        "already_committed",
-        `main authoring epoch ${epoch} is already committed`,
-      );
+  const drain = async (timeoutMs: number): Promise<MainAuthoringDrainReport> => {
+    const inFlight = [...active.values()].sort((a, b) => a.id - b.id);
+    if (inFlight.length === 0) {
+      return Object.freeze({ settled: 0, remaining: Object.freeze([]), timedOut: false });
     }
-    if (active.size > 0) {
-      throw new MainAuthoringTransitionError(
-        "active_operations",
-        `cannot commit main authoring epoch ${epoch} with active operations: ${activeLabels().join(", ")}`,
-      );
-    }
-    if (finalPermits.size > 0) {
-      throw new MainAuthoringTransitionError(
-        "final_permit_active",
-        `cannot commit main authoring epoch ${epoch} with active final-write permits`,
-      );
-    }
-    if (
-      lastCleanDrain?.epoch !== attemptedEpoch ||
-      lastCleanDrain.admissionVersion !== admissionVersion
-    ) {
-      throw new MainAuthoringTransitionError(
-        "drain_required",
-        `cannot commit main authoring epoch ${epoch} before its current admissions are drained`,
-      );
-    }
-    phase = "committed-closed";
-    closedAdmissions.clear();
-    lastCleanDrain = undefined;
-    return Object.freeze({
-      epoch,
-      phase,
-      committedAt: Date.now(),
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<"deadline">((resolve) => {
+      timer = setTimeout(() => resolve("deadline"), Math.max(0, timeoutMs));
     });
-  };
-
-  const drain = (attemptedEpoch: number): Promise<MainAuthoringDrainReceipt> => {
-    requireClosedEpoch(attemptedEpoch);
-    if (drainFlight?.epoch === attemptedEpoch && !drainFlight.completed) {
-      return drainFlight.promise;
-    }
-
-    // Publish the mutable flight before its async body can settle. New work in
-    // the promise-resolution microtask window must see `completed` and start a
-    // fresh drain rather than inherit the just-completed receipt.
-    const flight: NonNullable<typeof drainFlight> = {
-      epoch: attemptedEpoch,
-      promise: Promise.resolve(undefined as never),
-      completed: false,
-    };
-    drainFlight = flight;
-
-    const promise = (async (): Promise<MainAuthoringDrainReceipt> => {
-      const observedIds = new Set<number>();
-      const observedLabels: MainAuthoringLabel[] = [];
-      let settled = 0;
-      let fulfilled = 0;
-      let rejected = 0;
-      let rounds = 0;
-
-      while (true) {
-        requireClosedEpoch(attemptedEpoch);
-        const round = [...closedAdmissions.values()]
-          .filter((entry) => !observedIds.has(entry.id))
-          .sort((a, b) => a.id - b.id);
-        if (round.length === 0) {
-          // Let settlement continuations enqueue permit-backed final writes,
-          // then verify the registry once more before issuing a receipt.
-          await Promise.resolve();
-          const unseen = [...closedAdmissions.values()].some(
-            (entry) => !observedIds.has(entry.id),
-          );
-          if (!unseen) break;
-          continue;
-        }
-        rounds += 1;
-        for (const entry of round) {
-          observedIds.add(entry.id);
-          observedLabels.push(entry.label);
-        }
-        const outcomes = await Promise.allSettled(round.map((entry) => entry.promise));
-        settled += outcomes.length;
-        for (const outcome of outcomes) {
-          if (outcome.status === "fulfilled") fulfilled += 1;
-          else rejected += 1;
-        }
-      }
-
-      const remaining = activeLabels();
-      const permits = finalPermits.size;
-      for (const id of observedIds) closedAdmissions.delete(id);
-      const clean = remaining.length === 0 && permits === 0;
-      if (clean) {
-        lastCleanDrain = {
-          epoch: attemptedEpoch,
-          admissionVersion,
-        };
-      }
-      flight.completed = true;
-      return Object.freeze({
-        epoch: attemptedEpoch,
-        phase: phase as Exclude<MainAuthoringPhase, "open">,
-        labels: Object.freeze(observedLabels),
-        settled,
-        fulfilled,
-        rejected,
-        rounds,
-        activeLabels: Object.freeze([...remaining]),
-        finalPermitsActive: permits,
-        clean,
-      });
-    })();
-
-    flight.promise = promise;
-    void promise.then(
-      () => {
-        if (drainFlight?.promise === promise) drainFlight = undefined;
-      },
-      () => {
-        if (drainFlight?.promise === promise) drainFlight = undefined;
-      },
+    const settlement = Promise.allSettled(inFlight.map((entry) => entry.promise)).then(
+      () => "settled" as const,
     );
-    return promise;
-  };
-
-  const mintFinalWritePermit = (
-    attemptedEpoch: number,
-    binding: MainAuthoringFinalPermitBinding,
-  ): MainAuthoringFinalPermitReceipt => {
-    requireClosedEpoch(attemptedEpoch);
-    if (phase !== "precommit-closed") {
-      throw new MainAuthoringTransitionError(
-        "already_committed",
-        "final-write permits cannot be minted after main authoring commit",
-      );
-    }
-    validateBinding(binding);
-    const key = bindingKey(binding);
-    if (finalPermits.has(key)) {
-      throw new MainAuthoringTransitionError(
-        "invalid_final_permit",
-        "a final-write permit already exists for this sender and request",
-      );
-    }
-    const receipt: FinalPermitRecord = {
-      epoch: attemptedEpoch,
-      senderId: binding.senderId,
-      requestId: binding.requestId,
-      issuedAt: Date.now(),
-      used: false,
-    };
-    lastCleanDrain = undefined;
-    finalPermits.set(key, receipt);
+    const outcome = await Promise.race([settlement, deadline]);
+    if (timer !== undefined) clearTimeout(timer);
+    const remaining = inFlight
+      .filter((entry) => active.get(entry.id) === entry)
+      .map((entry) => entry.label);
     return Object.freeze({
-      epoch: receipt.epoch,
-      senderId: receipt.senderId,
-      requestId: receipt.requestId,
-      issuedAt: receipt.issuedAt,
+      settled: inFlight.length - remaining.length,
+      remaining: Object.freeze(remaining),
+      timedOut: outcome === "deadline",
     });
-  };
-
-  const revokeFinalWritePermit = (
-    attemptedEpoch: number,
-    binding: MainAuthoringFinalPermitBinding,
-  ): void => {
-    requireClosedEpoch(attemptedEpoch);
-    validateBinding(binding);
-    const key = bindingKey(binding);
-    const permit = finalPermits.get(key);
-    if (permit === undefined || permit.epoch !== attemptedEpoch) {
-      throw new MainAuthoringTransitionError(
-        "invalid_final_permit",
-        "no exact final-write permit exists for this sender, request, and epoch",
-      );
-    }
-    finalPermits.delete(key);
-  };
-
-  const runFinalWrite = <A>(
-    binding: MainAuthoringFinalPermitBinding,
-    operation: MainAuthoringFinalOperation,
-    label: Extract<MainAuthoringLabel, "ipc.canvas.write" | "ipc.canvas.create">,
-    task: () => Promise<A>,
-  ): Promise<A> => {
-    if (operation !== "canvas.write" && operation !== "canvas.create") {
-      return Promise.reject(
-        new MainAuthoringTransitionError(
-          "unsupported_final_operation",
-          `unsupported final-write operation ${String(operation)}`,
-        ),
-      );
-    }
-    if (
-      (operation === "canvas.write" && label !== "ipc.canvas.write") ||
-      (operation === "canvas.create" && label !== "ipc.canvas.create")
-    ) {
-      return Promise.reject(
-        new MainAuthoringTransitionError(
-          "unsupported_final_operation",
-          `final-write operation ${operation} does not match ${label}`,
-        ),
-      );
-    }
-    if (phase !== "precommit-closed") {
-      return Promise.reject(
-        new MainAuthoringTransitionError(
-          "invalid_final_permit",
-          `final writes require a precommit-closed epoch; current phase is ${phase}`,
-        ),
-      );
-    }
-    try {
-      validateBinding(binding);
-    } catch (error) {
-      return Promise.reject(error);
-    }
-    const permit = finalPermits.get(bindingKey(binding));
-    if (permit === undefined || permit.epoch !== epoch) {
-      return Promise.reject(
-        new MainAuthoringTransitionError(
-          "invalid_final_permit",
-          "final-write binding does not match an active main-minted permit",
-        ),
-      );
-    }
-    permit.used = true;
-    finalPermitUsed = true;
-    return retain(label, task);
   };
 
   return {
     run,
-    beginPrecommit,
-    recover,
-    commit,
+    beginFinalFlush,
+    close,
     drain,
-    mintFinalWritePermit,
-    revokeFinalWritePermit,
-    runFinalWrite,
     snapshot: () => Object.freeze({
       phase,
-      epoch,
       activeLabels: Object.freeze([...activeLabels()]),
-      finalPermitsActive: finalPermits.size,
-      finalPermitUsed,
     }),
   };
 };

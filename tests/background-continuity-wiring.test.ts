@@ -63,15 +63,15 @@ describe("background continuity wiring", () => {
     const start = indexSrc.indexOf('app.on("before-quit"');
     const end = indexSrc.indexOf('app.on("will-quit"', start);
     const block = indexSrc.slice(start, end);
-    const commitStart = indexSrc.indexOf("const commitMainAuthoringOnQuit");
-    const commitEnd = indexSrc.indexOf("let runtimeDetachedForQuit", commitStart);
-    const commitBlock = indexSrc.slice(commitStart, commitEnd);
+    const flushStart = indexSrc.indexOf("const flushCanvasOnQuit");
+    const flushEnd = indexSrc.indexOf("let runtimeDetachedForQuit", flushStart);
+    const flushBlock = indexSrc.slice(flushStart, flushEnd);
     expect(block).toMatch(/assessLiveWork|hasLiveWork|buildQuitConfirmPrompt/);
     expect(block).toMatch(/QUIT_CONFIRM_ACCEPT_INDEX|showMessageBox/);
     expect(block).toMatch(/runNormalQuitPreparation/);
-    expect(block).toMatch(/finalRendererQuiesce[\s\S]*commitMainAuthoringOnQuit/);
-    expect(commitBlock).toMatch(/requestCanvasQuiesceAndFlush\(mainWindow,\s*epoch\)/);
-    expect(commitBlock).toMatch(/mainAuthoringGate\.commit\(epoch\)/);
+    expect(block).toMatch(/finalRendererQuiesce[\s\S]*flushCanvasOnQuit/);
+    expect(flushBlock).toMatch(/requestCanvasQuiesceAndFlush\(mainWindow\)/);
+    expect(flushBlock).toMatch(/mainAuthoringGate\.close\(\)/);
     expect(block).toMatch(/detachRuntime[\s\S]*detachRuntimeOnQuit\("before-quit"\)/);
 
     // Sacred ordering is centralized in the normal-quit runner.
@@ -104,7 +104,9 @@ describe("background continuity wiring", () => {
     // Consume on force path.
     expect(block).toMatch(/skipQuitConfirm\s*=\s*false/);
     // Prep catch also clears sticky skip.
-    const catchIdx = block.indexOf('console.error("[canvas] quit blocked:"');
+    const catchIdx = block.indexOf(
+      'console.error("[canvas] quit blocked by canvas save failure:"',
+    );
     expect(catchIdx).toBeGreaterThanOrEqual(0);
     expect(block.slice(0, catchIdx)).toMatch(/skipQuitConfirm\s*=\s*false/);
   });

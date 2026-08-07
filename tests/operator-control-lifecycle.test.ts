@@ -64,7 +64,7 @@ describe("operator control main lifecycle", () => {
 
     const shutdownStart = source.indexOf("const beginShutdownAdmission");
     const shutdownEnd = source.indexOf(
-      "const ensureMainAuthoringPrecommit",
+      "const logUnfinishedDrain",
       shutdownStart,
     );
     const shutdown = source.slice(shutdownStart, shutdownEnd);

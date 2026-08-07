@@ -167,7 +167,7 @@ describe.skipIf(process.platform === "win32")("adapter execution lifecycle", () 
       "utf8",
     );
     const admissionStart = indexSource.indexOf("const beginShutdownAdmission");
-    const admissionEnd = indexSource.indexOf("const ensureMainAuthoringPrecommit", admissionStart);
+    const admissionEnd = indexSource.indexOf("const logUnfinishedDrain", admissionStart);
     const admissionBlock = indexSource.slice(admissionStart, admissionEnd);
 
     expect(admissionBlock.indexOf("terminateAdapterChildrenOnQuit()"))

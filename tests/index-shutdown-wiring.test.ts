@@ -23,7 +23,7 @@ describe("index shutdown wiring", () => {
 
   it("suspends kernel admission before normal product teardown begins", () => {
     const start = source.indexOf("const beginShutdownAdmission");
-    const end = source.indexOf("const ensureMainAuthoringPrecommit", start);
+    const end = source.indexOf("const logUnfinishedDrain", start);
     const block = source.slice(start, end);
     const admissionCut = block.indexOf("shutdownAdmissionClosed = true");
     const kernelCut = block.indexOf("kernelService?.suspend()");

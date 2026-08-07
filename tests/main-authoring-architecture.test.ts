@@ -44,7 +44,6 @@ describe("main authoring architecture", () => {
       ipcPath,
       new Set([
         "runMainAuthoring",
-        "runRendererCanvasAuthoring",
         "runRendererWorkAuthoring",
       ]),
     );
@@ -138,35 +137,16 @@ describe("main authoring architecture", () => {
     );
   });
 
-  it("keeps the final-write authority narrow and out of renderer/preload surfaces", () => {
+  it("keeps the quit flush admission to the renderer's own canvas save", () => {
     const gate = source("src/main/vellum/main-authoring-gate.ts");
-    expect(gate).toContain(
-      'export type MainAuthoringFinalOperation = "canvas.write" | "canvas.create"',
+    const finalFlush = gate.slice(
+      gate.indexOf("const FINAL_FLUSH_LABELS"),
+      gate.indexOf("export type MainAuthoringWorkClassification"),
     );
-    expect(gate).toContain("senderId");
-    expect(gate).toContain("requestId");
 
-    for (const path of [
-      "src/preload/index.ts",
-      "src/renderer/App.tsx",
-      "src/shared/ipc.ts",
-    ]) {
-      expect(source(path)).not.toContain("mintFinalWritePermit");
-      expect(source(path)).not.toContain("runFinalWrite");
-    }
-  });
-
-  it("confines the private final-write wire envelope to main IPC and preload", () => {
-    const holders = filesUnder(join(root, "src"))
-      .filter((path) => readFileSync(path, "utf8").includes("__vellumFinalWrite"))
-      .map((path) => relative(root, path))
-      .sort();
-
-    expect(holders).toEqual([
-      "src/main/vellum/ipc.ts",
-      "src/preload/index.ts",
-    ]);
-    expect(source("src/shared/ipc.ts")).not.toContain("__vellumFinalWrite");
-    expect(source("src/renderer/App.tsx")).not.toContain("__vellumFinalWrite");
+    expect(finalFlush).toContain('"ipc.canvas.write"');
+    expect(finalFlush).toContain('"ipc.canvas.create"');
+    expect(gate).toContain("readonly beginFinalFlush: () => void");
+    expect(gate).toContain("readonly close: () => void");
   });
 });

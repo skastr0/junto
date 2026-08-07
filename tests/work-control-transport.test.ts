@@ -1003,7 +1003,15 @@ describe("work control transport", () => {
   it("keeps reads available while returning typed RuntimeDown for authorial ops", async () => {
     const server = servers[0]!;
     const gate = authoringGates[0]!;
-    const precommit = gate.beginPrecommit();
+
+    const admitted = (await call(server.socketPath, {
+      token: token(),
+      op: "tasks.claim",
+      args: { target: "tasks", task: "t1" },
+    })) as { ok: boolean };
+    expect(admitted.ok).toBe(true);
+
+    gate.beginFinalFlush();
 
     const ping = (await call(server.socketPath, {
       token: token(),
@@ -1021,17 +1029,13 @@ describe("work control transport", () => {
     };
     expect(refused.ok).toBe(false);
     expect(refused.error.type).toBe("RuntimeDown");
-    expect(refused.error.message).toMatch(/precommit-closed|refused/);
+    expect(refused.error.message).toMatch(/final-flush|refused/);
     expect(refused.error.details?.retryable).toBe(false);
 
-    await gate.drain(precommit.epoch);
-    gate.recover(precommit.epoch);
-    const admitted = (await call(server.socketPath, {
-      token: token(),
-      op: "tasks.claim",
-      args: { target: "tasks", task: "t1" },
-    })) as { ok: boolean };
-    expect(admitted.ok).toBe(true);
+    await expect(gate.drain(1_000)).resolves.toMatchObject({
+      remaining: [],
+      timedOut: false,
+    });
   });
 
   it("rejects the retired client nodeRef field", async () => {

@@ -8,23 +8,22 @@ describe("canvas quit durability wiring", () => {
     join(import.meta.dirname, "..", "src/main/vellum/process-signal-termination.ts"),
     "utf8",
   );
+  const flushHelper = source.slice(
+    source.indexOf("const flushCanvasOnQuit"),
+    source.indexOf("let runtimeDetachedForQuit"),
+  );
 
   it("terminal-cleans then quiesces the renderer before normal runtime detach", () => {
     const start = source.indexOf('app.on("before-quit"');
     const end = source.indexOf('app.on("will-quit"', start);
     const block = source.slice(start, end);
-    const commitStart = source.indexOf("const commitMainAuthoringOnQuit");
-    const commitEnd = source.indexOf("let runtimeDetachedForQuit", commitStart);
-    const commitBlock = source.slice(commitStart, commitEnd);
     const runnerStart = terminationSource.indexOf("export const runNormalQuitPreparation");
     const runnerEnd = terminationSource.indexOf("/**\n * Generation-scoped", runnerStart);
     const runner = terminationSource.slice(runnerStart, runnerEnd);
 
     expect(block.indexOf('requireCleanLocalTerminalShutdown("before-quit")'))
       .toBeGreaterThanOrEqual(0);
-    expect(block).toContain("commitMainAuthoringOnQuit()");
-    expect(commitBlock).toContain("requestCanvasQuiesceAndFlush(mainWindow, epoch)");
-    expect(commitBlock).toContain("mainAuthoringGate.commit(epoch)");
+    expect(block).toContain("flushCanvasOnQuit()");
     expect(block).toContain("destroyRenderer: destroyQuiescedRenderer");
     expect(runner.indexOf("await steps.terminalClean()"))
       .toBeLessThan(runner.indexOf("await steps.finalRendererQuiesce()"));
@@ -36,6 +35,64 @@ describe("canvas quit durability wiring", () => {
       .toBeLessThan(runner.indexOf("steps.detachRuntime()"));
     expect(runner.indexOf("steps.detachRuntime()"))
       .toBeLessThan(runner.indexOf("await steps.disposeRuntime()"));
+  });
+
+  it("closes the gate around the renderer flush and drains under a deadline", () => {
+    expect(flushHelper.indexOf("mainAuthoringGate.beginFinalFlush()"))
+      .toBeLessThan(flushHelper.indexOf("requestCanvasQuiesceAndFlush(mainWindow)"));
+    expect(flushHelper.indexOf("requestCanvasQuiesceAndFlush(mainWindow)"))
+      .toBeLessThan(flushHelper.indexOf("mainAuthoringGate.close()"));
+    expect(flushHelper.match(/mainAuthoringGate\.drain\(QUIT_DRAIN_TIMEOUT_MS\)/gu))
+      .toHaveLength(2);
+    expect(source).toContain("const QUIT_DRAIN_TIMEOUT_MS = 5_000");
+  });
+
+  it("blocks quit only on an explicit renderer save failure", () => {
+    expect(flushHelper).toContain(
+      "if (error instanceof CanvasQuiesceAndFlushError && error.saveFailed) throw error;",
+    );
+    expect(flushHelper).toContain("[quit] canvas flush unproven:");
+    expect(flushHelper).toContain("quitting anyway");
+    // saveFailed is set from the renderer's own ok:false answer, never a timeout.
+    const complete = source.slice(
+      source.indexOf("ipcMain.on(IPC_CHANNELS.canvasQuiesceAndFlushComplete"),
+      source.indexOf("const rejectPendingCanvasQuiesce"),
+    );
+    expect(complete).toContain("!result.ok");
+    const timeoutReject = source.slice(
+      source.indexOf("const requestCanvasQuiesceAndFlush"),
+      source.indexOf("ipcMain.on(IPC_CHANNELS.canvasQuiesceAndFlushStarted"),
+    );
+    expect(timeoutReject).toContain("renderer canvas quiesce timed out");
+    expect(timeoutReject).not.toContain("saveFailed");
+  });
+
+  it("bounds every renderer handshake at ten seconds", () => {
+    expect(source).toContain("const CANVAS_FLUSH_TIMEOUT_MS = 10_000");
+    const flushRequest = source.slice(
+      source.indexOf("const requestCanvasFlush"),
+      source.indexOf("ipcMain.on(IPC_CHANNELS.canvasFlushComplete"),
+    );
+    const quiesceRequest = source.slice(
+      source.indexOf("const requestCanvasQuiesceAndFlush"),
+      source.indexOf("ipcMain.on(IPC_CHANNELS.canvasQuiesceAndFlushStarted"),
+    );
+    expect(flushRequest).toContain("CANVAS_FLUSH_TIMEOUT_MS");
+    expect(quiesceRequest).toContain("CANVAS_FLUSH_TIMEOUT_MS");
+  });
+
+  it("closes a window on an unproven flush and blocks only on save failure", () => {
+    const start = source.indexOf('mainWindow.on("close"');
+    const end = source.indexOf("mainWindow.webContents.setWindowOpenHandler", start);
+    const block = source.slice(start, end);
+
+    expect(block).toContain("event.preventDefault()");
+    expect(block).toContain("requestCanvasFlush(mainWindow)");
+    expect(block).toContain("error instanceof CanvasFlushError && error.saveFailed");
+    expect(block.indexOf("error instanceof CanvasFlushError && error.saveFailed"))
+      .toBeLessThan(block.indexOf("[canvas] window close flush unproven:"));
+    expect(block).toContain("proceedWithClose()");
+    expect(block).toContain("quitPreparationArbiter.signalPrecommit()");
   });
 
   it("never authorizes the signal fallback before final flush and renderer quiesce", () => {
@@ -55,7 +112,6 @@ describe("canvas quit durability wiring", () => {
       .toBeLessThan(block.indexOf("signalQuitState.authorizeForceExit(generation)"));
     expect(block).toContain("allowForceExit:");
     expect(block).toContain("signalQuitState.forceExitAllowed()");
-    expect(block).not.toContain("await beginSignalCanvasFlush(generation)");
   });
 
   it("commits signal quit in terminal, flush, quiesce, authorize, detach order", () => {
@@ -83,7 +139,6 @@ describe("canvas quit durability wiring", () => {
     expect(beforeQuit).toContain("durableSignalGeneration");
     expect(beforeQuit).toContain("if (canvasAlreadyDurable) return");
     expect(beforeQuit).toContain("signalQuitState.reusableDurabilityGeneration()");
-    expect(beforeQuit).not.toContain("signalTermination?.cancel()");
   });
 
   it("blocks every exit path after the bounded terminal shutdown returns unclean", () => {
@@ -102,11 +157,11 @@ describe("canvas quit durability wiring", () => {
     // Non-host retention (control UDS) must not trap the operator.
     expect(helper).toContain("quit continues with non-host terminal retention");
     expect(helper).not.toContain("waitForAllLocalExited");
+    expect(directExit).not.toContain(".finally(");
     expect(directExit.indexOf("requireCleanLocalTerminalShutdown(reason)"))
       .toBeLessThan(directExit.indexOf("detachRuntimeOnQuit(reason)"));
     expect(directExit.indexOf("requireCleanLocalTerminalShutdown(reason)"))
       .toBeLessThan(directExit.indexOf("app.exit(exitCode)"));
-    expect(directExit).not.toContain(".finally(");
     expect(directExit).toContain("recreateWindowIfEmpty()");
     expect(signalBlock.indexOf("requireCleanLocalTerminalShutdown(signal)"))
       .toBeLessThan(signalBlock.indexOf("signalQuitState.markTerminalClean(generation)"));
@@ -131,15 +186,12 @@ describe("canvas quit durability wiring", () => {
     const start = source.indexOf("const beginSignalCanvasQuiesceAndFlush");
     const end = source.indexOf("const quiesceSignalRenderer", start);
     const block = source.slice(start, end);
-    const commitStart = source.indexOf("const commitMainAuthoringOnQuit");
-    const commitEnd = source.indexOf("let runtimeDetachedForQuit", commitStart);
-    const commitHelper = source.slice(commitStart, commitEnd);
 
-    expect(block).toContain("commitMainAuthoringOnQuit()");
-    expect(commitHelper).toContain("requestCanvasQuiesceAndFlush(mainWindow, epoch)");
+    expect(block).toContain("flushCanvasOnQuit()");
+    expect(flushHelper).toContain("requestCanvasQuiesceAndFlush(mainWindow)");
     expect(block).not.toContain("requestCanvasFlush(mainWindow)");
     expect(block.indexOf("signalQuitState.isCurrent(generation)"))
-      .toBeGreaterThan(block.indexOf("commitMainAuthoringOnQuit()"));
+      .toBeGreaterThan(block.indexOf("flushCanvasOnQuit()"));
     expect(block).not.toContain("disposeRuntime");
   });
 
@@ -169,7 +221,6 @@ describe("canvas quit durability wiring", () => {
     expect(block).toContain("canvasQuiesceAndFlushStarted");
     expect(block).toContain("pending.quiesced = true");
     expect(source).toContain("pending.quiesced || result.quiesced");
-    expect(block).not.toContain('timed out", true');
   });
 
   it("recovers a crashed pre-ack renderer but never reloads after final ack", () => {
@@ -242,7 +293,6 @@ describe("canvas quit durability wiring", () => {
     expect(recover).toBeGreaterThan(committed);
     expect(beforeQuit.slice(committed, recover)).not.toContain("recreateWindowIfEmpty()");
     expect(beforeQuit.slice(committed, recover)).not.toContain("skipQuitConfirm = false");
-    expect(beforeQuit).not.toContain("signalTermination?.cancel()");
   });
 
   it("serializes normal quit continuations behind signal precommit", () => {
@@ -279,7 +329,7 @@ describe("canvas quit durability wiring", () => {
     const signalStart = source.indexOf("installProcessSignalTermination({");
     const signal = source.slice(signalStart);
 
-    expect(beforeQuit).toContain("commitMainAuthoringOnQuit()");
+    expect(beforeQuit).toContain("flushCanvasOnQuit()");
     expect(runner.indexOf("await steps.finalRendererQuiesce()"))
       .toBeLessThan(runner.indexOf("arbiter.commitNormal(generation)"));
     expect(beforeQuit).toContain("quitPreparationArbiter.normalCommitted(preparationGeneration)");
@@ -293,33 +343,6 @@ describe("canvas quit durability wiring", () => {
     expect(joined).not.toContain("detachRuntimeOnQuit(signal)");
     expect(joined).not.toContain("recreateWindowIfEmpty()");
     expect(signal).toContain("quitPreparationArbiter.committed()");
-  });
-
-  it("mints an exact final-write permit around renderer quiesce", () => {
-    const start = source.indexOf("const requestCanvasQuiesceAndFlush");
-    const end = source.indexOf(
-      "ipcMain.on(IPC_CHANNELS.canvasQuiesceAndFlushStarted",
-      start,
-    );
-    const block = source.slice(start, end);
-
-    expect(block).toContain("mainAuthoringGate.mintFinalWritePermit");
-    expect(block).toContain("mainAuthoringGate.revokeFinalWritePermit");
-    expect(block).toContain("finalWriteEpoch");
-  });
-
-  it("blocks window teardown until a canvas flush acknowledgement arrives", () => {
-    const start = source.indexOf('mainWindow.on("close"');
-    const end = source.indexOf('mainWindow.webContents.setWindowOpenHandler', start);
-    const block = source.slice(start, end);
-
-    expect(block).toContain("event.preventDefault()");
-    expect(block).toContain("requestCanvasFlush(mainWindow)");
-    expect(block.indexOf("requestCanvasFlush(mainWindow)"))
-      .toBeLessThan(block.indexOf("mainWindow.close()"));
-    expect(block).toContain("quitPreparationArbiter.signalPrecommit()");
-    expect(block.lastIndexOf("quitPreparationArbiter.signalPrecommit()"))
-      .toBeLessThan(block.indexOf("mainWindow.close()"));
   });
 
   it("never dereferences destroyed WebContents from the BrowserWindow closed event", () => {

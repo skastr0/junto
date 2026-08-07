@@ -44,11 +44,6 @@ vi.mock("../src/main/vellum/settings/ipc", () => ({ registerSettingsIpc: vi.fn()
 vi.mock("../src/main/vellum/term/ipc", () => ({ registerTerminalIpc: vi.fn() }));
 vi.mock("../src/main/vellum/term/plane", () => ({ termPlane: {} }));
 
-const finalMetadata = (
-  requestId: string,
-  operation: "canvas.write" | "canvas.create",
-): unknown => ({ __vellumFinalWrite: { requestId, operation } });
-
 const handlerFor = (channel: string): InvokeHandler => {
   const handler = electron.handlers.get(channel);
   if (handler === undefined) throw new Error(`${channel} handler was not registered`);
@@ -69,7 +64,7 @@ afterEach(async () => {
   productLicenseAdmission.revoke();
 });
 
-describe("renderer canvas final-write IPC", () => {
+describe("renderer canvas authoring IPC", () => {
   it("resolves only one exact projected actor reference", async () => {
     const { resolveProjectedIpcActorRef } = await import(
       "../src/main/vellum/ipc"
@@ -96,7 +91,7 @@ describe("renderer canvas final-write IPC", () => {
     ).toBeUndefined();
   });
 
-  it("binds one exact main permit to Electron sender, request, and operation", async () => {
+  it("lands the renderer flush through the same handlers while the gate is closing", async () => {
     const { registerVellumIpc } = await import("../src/main/vellum/ipc");
     const { productLicenseAdmission } = await import(
       "../src/main/vellum/license/admission"
@@ -124,84 +119,43 @@ describe("renderer canvas final-write IPC", () => {
 
     const write = handlerFor(IPC_CHANNELS.writeCanvas);
     const create = handlerFor(IPC_CHANNELS.createCanvas);
+    const remove = handlerFor(IPC_CHANNELS.deleteCanvas);
     const sender = { sender: trustedSender } as const;
     const doc = { nodes: [], edges: [] } as CanvasDoc;
 
-    // No private metadata is the ordinary renderer path while admission is open.
     await expect(write(sender, "ordinary", doc, "r0")).resolves.toBe("executed");
     const callsAfterOrdinary = runtime.runPromise.mock.calls.length;
 
-    const precommit = mainAuthoringGate.beginPrecommit();
-    await expect(write(sender, "late-ordinary", doc, "r1")).rejects.toBeInstanceOf(
-      MainAuthoringRefused,
-    );
-    expect(runtime.runPromise).toHaveBeenCalledTimes(callsAfterOrdinary);
+    // Quit begins: the operator's open drafts still have a save path.
+    mainAuthoringGate.beginFinalFlush();
+    await expect(write(sender, "final", doc, "r1")).resolves.toBe("executed");
+    await expect(create(sender, "recovery")).resolves.toBe("executed");
+    expect(runtime.runPromise).toHaveBeenCalledTimes(callsAfterOrdinary + 2);
 
-    const requestId = "00000000-0000-4000-8000-000000000031";
-    mainAuthoringGate.mintFinalWritePermit(precommit.epoch, {
-      senderId: sender.sender.id,
-      requestId,
-    });
+    // Nothing else may author during that window.
+    await expect(remove(sender, "doomed")).rejects.toBeInstanceOf(MainAuthoringRefused);
+    expect(runtime.runPromise).toHaveBeenCalledTimes(callsAfterOrdinary + 2);
 
-    const rejected = [
-      // A renderer cannot supply a sender identity; surplus envelope fields fail closed.
-      write(sender, "forged-sender", doc, "r1", {
-        __vellumFinalWrite: { requestId, operation: "canvas.write" },
-        senderId: sender.sender.id,
-      }),
-      // Nor can it smuggle a sender field into the private nested envelope.
-      write(sender, "nested-forge", doc, "r1", {
-        __vellumFinalWrite: {
-          requestId,
-          operation: "canvas.write",
-          senderId: sender.sender.id,
-        },
-      }),
-      write(sender, "stale-request", doc, "r1", finalMetadata(
-        "00000000-0000-4000-8000-000000000032",
-        "canvas.write",
-      )),
-      write(sender, "wrong-operation", doc, "r1", finalMetadata(
-        requestId,
-        "canvas.create",
-      )),
-      create(sender, "wrong-create-operation", finalMetadata(requestId, "canvas.write")),
-      write(sender, "malformed", doc, "r1", {
-        __vellumFinalWrite: { requestId: [requestId], operation: "canvas.write" },
-      }),
-    ];
-
-    for (const refusal of rejected) {
-      await expect(refusal).rejects.toMatchObject({
-        name: expect.stringMatching(/MainAuthoringTransitionError|TrustedRendererRefused/u),
-      });
-    }
+    // Only the trusted renderer reaches these handlers at all.
     expect(() =>
       write(
-        { sender: { id: 72, isDestroyed: () => false, getURL: () => "vellum-app://renderer/index.html" } },
+        {
+          sender: {
+            id: 72,
+            isDestroyed: () => false,
+            getURL: () => "vellum-app://renderer/index.html",
+          },
+        },
         "cross-sender",
         doc,
         "r1",
-        finalMetadata(requestId, "canvas.write"),
       ),
     ).toThrow(TrustedRendererRefused);
-    expect(runtime.runPromise).toHaveBeenCalledTimes(callsAfterOrdinary);
 
-    await expect(
-      write(sender, "final", doc, "r1", finalMetadata(requestId, "canvas.write")),
-    ).resolves.toBe("executed");
-    await expect(
-      create(sender, "recovery", finalMetadata(requestId, "canvas.create")),
-    ).resolves.toBe("executed");
-    expect(runtime.runPromise).toHaveBeenCalledTimes(callsAfterOrdinary + 2);
-
-    mainAuthoringGate.revokeFinalWritePermit(precommit.epoch, {
-      senderId: sender.sender.id,
-      requestId,
-    });
-    await expect(
-      write(sender, "after-revoke", doc, "r1", finalMetadata(requestId, "canvas.write")),
-    ).rejects.toMatchObject({ code: "invalid_final_permit" });
+    mainAuthoringGate.close();
+    await expect(write(sender, "after-close", doc, "r1")).rejects.toBeInstanceOf(
+      MainAuthoringRefused,
+    );
     expect(runtime.runPromise).toHaveBeenCalledTimes(callsAfterOrdinary + 2);
   });
 });
