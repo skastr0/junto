@@ -1244,6 +1244,11 @@ html[data-vellum-platform="darwin"] .station-bar [role="listbox"] {
   }
 }
 
+/* GPU-promote the viewport layer: pan/zoom becomes a compositor translate
+   instead of repainting routed SVG wires and cards (xyflow #4617). Always-on —
+   toggling mid-gesture defeats the promotion. */
+.react-flow__viewport { will-change: transform; }
+
 /* --- React Flow surface, restyled for the canvas ground ---------------- */
 .react-flow {
   background: transparent;

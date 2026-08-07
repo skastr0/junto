@@ -1464,7 +1464,6 @@ function CanvasGraph() {
       // Shift+click / Shift+marquee additive multi-select (RF default is Meta/Ctrl).
       multiSelectionKeyCode="Shift"
       zoomOnDoubleClick={false}
-      onlyRenderVisibleElements
       deleteKeyCode={["Backspace", "Delete"]}
       elevateNodesOnSelect={false}
       elevateEdgesOnSelect
