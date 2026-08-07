@@ -2714,14 +2714,22 @@ ol.note-md__list > .note-md__li::before {
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
-  padding: 6px 8px;
-  min-height: 32px;
+  padding: 6px 10px 6px 6px;
+  min-height: 34px;
   border-bottom: 1px solid color-mix(in srgb, var(--color-stroke) 70%, transparent);
 }
 .actor-edges-glance--collapsed .actor-edges-glance__chrome {
   justify-content: center;
-  padding: 6px 4px;
+  padding: 8px 4px 4px;
   border-bottom: 0;
+}
+/* Expand / collapse stays on the leading (left) edge of the right pane. */
+.actor-edges-glance__toggle {
+  flex-shrink: 0;
+  color: var(--color-dim);
+}
+.actor-edges-glance__toggle:hover {
+  color: var(--color-ink);
 }
 .actor-edges-glance__count {
   margin-left: auto;

@@ -10,7 +10,7 @@
  */
 import { useMemo, useState } from "react";
 import { use$ } from "@legendapp/state/react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { PanelRightClose, PanelRightOpen } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
 import { isGroup } from "@shared/graph";
 import { resolveSpec, roleOf } from "@shared/physics";
@@ -127,6 +127,8 @@ export function ActorEdgesGlance({ node }: { readonly node: CanvasNode }) {
 
   if (!isActor || rows.length === 0) return null;
 
+  const listId = `actor-connections-list-${node.id}`;
+
   return (
     <aside
       className={[
@@ -134,53 +136,52 @@ export function ActorEdgesGlance({ node }: { readonly node: CanvasNode }) {
         expanded ? "actor-edges-glance--expanded" : "actor-edges-glance--collapsed",
       ].join(" ")}
       data-testid="actor-edges-glance"
-      aria-label="Connected edges"
+      aria-label="Connections"
     >
       <header className="actor-edges-glance__chrome">
         {expanded ? (
           <>
+            <IconButton
+              size="sm"
+              className="actor-edges-glance__toggle"
+              title="Collapse connections"
+              aria-label="Collapse connections pane"
+              aria-expanded
+              aria-controls={listId}
+              onClick={() => setExpanded(false)}
+            >
+              <PanelRightClose size={15} strokeWidth={1.75} />
+            </IconButton>
             <Eyebrow tone="steel" size="xs">
-              edges
+              connections
             </Eyebrow>
             <span className="actor-edges-glance__count" aria-hidden>
               {rows.length}
             </span>
-            <IconButton
-              size="sm"
-              title="Collapse edges pane"
-              aria-label="Collapse edges pane"
-              aria-expanded
-              aria-controls={`actor-edges-list-${node.id}`}
-              onClick={() => setExpanded(false)}
-            >
-              <ChevronRight size={14} />
-            </IconButton>
           </>
         ) : (
           <IconButton
             size="sm"
-            title={`Expand edges (${rows.length})`}
-            aria-label={`Expand edges, ${rows.length} connections`}
+            className="actor-edges-glance__toggle"
+            title={`Expand connections (${rows.length})`}
+            aria-label={`Expand connections, ${rows.length} items`}
             aria-expanded={false}
-            aria-controls={`actor-edges-list-${node.id}`}
+            aria-controls={listId}
             onClick={() => setExpanded(true)}
           >
-            <ChevronLeft size={14} />
+            <PanelRightOpen size={15} strokeWidth={1.75} />
           </IconButton>
         )}
       </header>
       {expanded ? (
-        <ul
-          id={`actor-edges-list-${node.id}`}
-          className="actor-edges-glance__list"
-        >
+        <ul id={listId} className="actor-edges-glance__list">
           {rows.map((row) => (
             <EdgeCard key={row.edgeId} row={row} />
           ))}
         </ul>
       ) : (
         <div className="actor-edges-glance__rail" aria-hidden>
-          <span className="actor-edges-glance__rail-label">edges</span>
+          <span className="actor-edges-glance__rail-label">connections</span>
           <span className="actor-edges-glance__count">{rows.length}</span>
         </div>
       )}
