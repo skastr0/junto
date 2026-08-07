@@ -32,7 +32,7 @@ import {
   sfxIdToClipKey,
   type AlertSfxId,
 } from "../lib/sfx";
-import { DIM, HUE, INK } from "../lib/theme";
+import { HUE, INK, themeFor } from "../lib/theme";
 import { getVellumCommandApi } from "../lib/vellum-api";
 import { LicenseSection } from "./license";
 import { Button, Select } from "./ui";
@@ -42,7 +42,7 @@ import "./settings-panel.css";
 type PanelSection = SettingsSectionKey | "license" | "updates";
 
 const SECTIONS: ReadonlyArray<{ key: PanelSection; label: string; blurb: string }> = [
-  { key: "appearance", label: "Appearance", blurb: "theme mode" },
+  { key: "appearance", label: "Appearance", blurb: "" },
   { key: "station", label: "Machine", blurb: "this installation" },
   { key: "updates", label: "Updates", blurb: "check and install app updates" },
   ...(AUDIO_ENABLED
@@ -75,37 +75,96 @@ function FieldRow({
   );
 }
 
+type ThemeChoice = "system" | "dark" | "bright";
+
+/** Mini in-button palette so the choice is the preview — no extra copy block. */
+function ThemeModePreview({ mode }: { readonly mode: "dark" | "bright" }) {
+  const palette = themeFor(mode);
+  return (
+    <span
+      className="settings-theme-preview"
+      aria-hidden
+      style={{
+        background: palette.ground,
+        borderColor: palette.stroke,
+      }}
+    >
+      <span
+        className="settings-theme-preview__raise"
+        style={{ background: palette.raise, borderColor: palette.stroke }}
+      >
+        <span
+          className="settings-theme-preview__ink"
+          style={{ background: palette.ink }}
+        />
+        <span
+          className="settings-theme-preview__amber"
+          style={{ background: palette.amber }}
+        />
+      </span>
+    </span>
+  );
+}
+
+function ThemeModeButton({
+  choice,
+  label,
+  active,
+  onSelect,
+}: {
+  readonly choice: ThemeChoice;
+  readonly label: string;
+  readonly active: boolean;
+  readonly onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={active}
+      aria-label={label}
+      className={`settings-theme-mode${active ? " is-active" : ""}`}
+      onClick={onSelect}
+    >
+      {choice === "system" ? (
+        <span className="settings-theme-preview settings-theme-preview--split" aria-hidden>
+          <span className="settings-theme-preview__half">
+            <ThemeModePreview mode="dark" />
+          </span>
+          <span className="settings-theme-preview__half">
+            <ThemeModePreview mode="bright" />
+          </span>
+        </span>
+      ) : (
+        <ThemeModePreview mode={choice} />
+      )}
+      <span className="settings-theme-mode__label">{label}</span>
+    </button>
+  );
+}
+
 function AppearanceSection() {
   const appearance = use$(state$.settings.appearance);
   const modes = [
-    { key: "system", label: "Auto", blurb: "follow macOS" },
-    { key: "dark", label: "Dark", blurb: "deep field" },
-    { key: "bright", label: "Bright", blurb: "warm paper" },
-  ] as const;
+    { key: "system" as const, label: "Auto" },
+    { key: "dark" as const, label: "Dark" },
+    { key: "bright" as const, label: "Bright" },
+  ];
   return (
     <div className="settings-section">
-      <FieldRow label="Theme" hint="applies immediately, everywhere">
-        <div className="settings-theme-modes" role="radiogroup" aria-label="Theme mode">
-          {modes.map((mode) => {
-            const active = appearance.theme === mode.key;
-            return (
-              <button
-                key={mode.key}
-                type="button"
-                role="radio"
-                aria-checked={active}
-                className={`settings-theme-mode${active ? " is-active" : ""}`}
-                onClick={() =>
-                  void patchSettings({ appearance: { theme: mode.key } })
-                }
-              >
-                <span className="settings-theme-mode__label">{mode.label}</span>
-                <span className="settings-theme-mode__blurb">{mode.blurb}</span>
-              </button>
-            );
-          })}
-        </div>
-      </FieldRow>
+      <div className="settings-theme-modes" role="radiogroup" aria-label="Theme">
+        {modes.map((mode) => (
+          <ThemeModeButton
+            key={mode.key}
+            choice={mode.key}
+            label={mode.label}
+            active={appearance.theme === mode.key}
+            onSelect={() =>
+              void patchSettings({ appearance: { theme: mode.key } })
+            }
+          />
+        ))}
+      </div>
     </div>
   );
 }
@@ -905,8 +964,6 @@ export function SettingsPanel() {
   const open = use$(state$.settingsOpen);
   const loading = use$(state$.settingsLoading);
   const error = use$(state$.settingsError);
-  const settingsVersion = use$(state$.settings.version);
-  const appVersion = use$(updateState$.status.currentVersion);
   const [section, setSection] = useState<PanelSection>("station");
 
   useEffect(() => {
@@ -985,7 +1042,7 @@ export function SettingsPanel() {
           <div className="settings-content">
             <div className="settings-content__head">
               <h2>{meta.label}</h2>
-              <p>{meta.blurb}</p>
+              {meta.blurb ? <p>{meta.blurb}</p> : null}
             </div>
             {loading ? <p className="settings-note">loading…</p> : <SectionBody section={section} />}
             {error ? (
@@ -993,9 +1050,6 @@ export function SettingsPanel() {
                 {error}
               </p>
             ) : null}
-            <p className="settings-foot" style={{ color: DIM }}>
-              Vellum Command {appVersion}
-            </p>
           </div>
         </div>
       </div>
