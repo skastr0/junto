@@ -3,8 +3,15 @@
  *
  * Distinct from the rising-edge alert queue (SFX + Space cycle): this is the
  * always-on set of blocked / needs-input nodes that must stay visible even when
- * the subject is off-canvas. Collect from region rollups + freestanding seats;
- * worst severity wins.
+ * the subject is off-canvas.
+ *
+ * Sources (worst severity wins per node):
+ *  1. region rollups (members inside groups)
+ *  2. freestanding canvas signals — graph-blocked seats, harness attention/
+ *     blocked, and explicit `flag:attention` — including nodes **outside every
+ *     region** (region rollups alone miss those)
+ *
+ * SFX is a separate opt-in product surface; this strip must work with audio off.
  */
 
 import type { MemberSeverity, RegionRollup } from "@shared/region-rollup";
@@ -105,6 +112,80 @@ export const freestandingFromTerminalStatus = (
       reasons: [`activity:${harness}`],
     });
   }
+  return out;
+};
+
+export type CanvasAttentionNode = {
+  readonly id: string;
+  readonly label: string;
+  /** Authorial flags (e.g. attention, blocker). */
+  readonly flags?: ReadonlyArray<string>;
+};
+
+/**
+ * Canvas-wide freestanding attention for the notify strip.
+ *
+ * Region rollups only enumerate group members — operators still need pills for
+ * graph-blocked / needs-input seats that sit outside every region (or when live
+ * IPC rollups lag). Graph blocked > harness blocked > harness/flag attention.
+ */
+export const freestandingFromCanvasAttention = (
+  nodes: ReadonlyArray<CanvasAttentionNode>,
+  input: {
+    readonly blockedNodeIds: ReadonlySet<string>;
+    /** Optional short reasons keyed by node id (first reason wins for chrome). */
+    readonly blockedReasonsByNodeId?: ReadonlyMap<
+      string,
+      ReadonlyArray<string>
+    >;
+    readonly terminalStatusByNodeId?: ReadonlyMap<
+      string,
+      { readonly harness?: string | null | undefined }
+    >;
+    readonly alreadyCovered?: ReadonlySet<string>;
+  },
+): ReadonlyArray<OperatorAttentionItem> => {
+  const covered = input.alreadyCovered ?? new Set<string>();
+  const terminal = input.terminalStatusByNodeId;
+  const out: OperatorAttentionItem[] = [];
+
+  for (const node of nodes) {
+    if (covered.has(node.id)) continue;
+    const label = node.label.trim() || node.id;
+    const harness = terminal?.get(node.id)?.harness;
+    const graphBlocked = input.blockedNodeIds.has(node.id);
+    const harnessBlocked = harness === "blocked";
+    const harnessAttention = harness === "attention";
+    const flagAttention = node.flags?.includes("attention") === true;
+
+    if (graphBlocked || harnessBlocked) {
+      const reasons =
+        input.blockedReasonsByNodeId?.get(node.id) ??
+        (harnessBlocked ? ["activity:blocked"] : ["graph:blocked"]);
+      out.push({
+        id: `op-attn:${node.id}`,
+        nodeId: node.id,
+        kind: "blocked",
+        label,
+        reasons: [...reasons],
+      });
+      continue;
+    }
+
+    if (harnessAttention || flagAttention) {
+      out.push({
+        id: `op-attn:${node.id}`,
+        nodeId: node.id,
+        kind: "attention",
+        label,
+        reasons: [
+          ...(harnessAttention ? (["activity:attention"] as const) : []),
+          ...(flagAttention ? (["flag:attention"] as const) : []),
+        ],
+      });
+    }
+  }
+
   return out;
 };
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   collectOperatorAttention,
+  freestandingFromCanvasAttention,
   freestandingFromTerminalStatus,
   OPERATOR_ATTENTION_HEADLINE,
 } from "../src/renderer/lib/operator-attention";
@@ -141,6 +142,69 @@ describe("freestandingFromTerminalStatus", () => {
     );
     expect(items).toEqual([
       expect.objectContaining({ nodeId: "b", kind: "blocked" }),
+    ]);
+  });
+});
+
+describe("freestandingFromCanvasAttention", () => {
+  it("surfaces graph-blocked nodes outside any region", () => {
+    const items = freestandingFromCanvasAttention(
+      [
+        { id: "solo-blocked", label: "Solo seat" },
+        { id: "idle", label: "Quiet" },
+      ],
+      {
+        blockedNodeIds: new Set(["solo-blocked"]),
+        blockedReasonsByNodeId: new Map([
+          ["solo-blocked", ["work:input-required"]],
+        ]),
+      },
+    );
+    expect(items).toEqual([
+      expect.objectContaining({
+        nodeId: "solo-blocked",
+        kind: "blocked",
+        label: "Solo seat",
+        reasons: ["work:input-required"],
+      }),
+    ]);
+  });
+
+  it("surfaces harness attention and flag:attention when not covered", () => {
+    const terminal = new Map([
+      ["seat-attn", { harness: "attention" as const }],
+    ]);
+    const items = freestandingFromCanvasAttention(
+      [
+        { id: "seat-attn", label: "Needs me" },
+        { id: "flagged", label: "Flagged", flags: ["attention"] },
+        { id: "covered", label: "Already in rollup", flags: ["attention"] },
+      ],
+      {
+        blockedNodeIds: new Set(),
+        terminalStatusByNodeId: terminal,
+        alreadyCovered: new Set(["covered"]),
+      },
+    );
+    expect(items.map((i) => i.nodeId).sort()).toEqual(["flagged", "seat-attn"]);
+    expect(items.find((i) => i.nodeId === "seat-attn")?.kind).toBe("attention");
+    expect(items.find((i) => i.nodeId === "flagged")?.reasons).toContain(
+      "flag:attention",
+    );
+  });
+
+  it("prefers blocked over attention for the same node", () => {
+    const items = freestandingFromCanvasAttention(
+      [{ id: "both", label: "Both", flags: ["attention"] }],
+      {
+        blockedNodeIds: new Set(["both"]),
+        terminalStatusByNodeId: new Map([
+          ["both", { harness: "attention" }],
+        ]),
+      },
+    );
+    expect(items).toEqual([
+      expect.objectContaining({ nodeId: "both", kind: "blocked" }),
     ]);
   });
 });

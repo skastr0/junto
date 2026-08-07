@@ -36,7 +36,7 @@ import type { MemberSeverity, RegionRollup } from "@shared/region-rollup";
 import { formatNodeRef } from "@shared/node-ref";
 import { state$, toggleFlagFilter } from "../../lib/state";
 import { viewportBusy$ } from "../../lib/viewport-busy";
-import { assignSlot, clearSlot, pruneSlotOrder, useRegionRollups } from "../../lib/region-rollups";
+import { useRegionRollups } from "../../lib/region-rollups";
 import {
   membersInDocumentOrder,
   regionDigitVerdict,
@@ -44,6 +44,15 @@ import {
   type RegionRetapMemory,
 } from "../../lib/region-retap";
 import { activateNodeSurface } from "../../lib/activate-node-surface";
+import {
+  assignFixedSlot,
+  clearHotbarNode,
+  fixedOrderOf,
+  nodeIdAt,
+  resolveHotbarSlots,
+  slotIndexOf as hotbarSlotIndexOfNode,
+  touchActiveMru,
+} from "../../lib/hotbar-slots";
 import { hotbarNodeSeverity } from "../../lib/hotbar-signal";
 import { signalMark } from "../../lib/signal-mark";
 import {
@@ -70,9 +79,9 @@ import {
 } from "../../lib/idle-herdr-queue";
 import {
   commandSelectionKind,
+  hotbarSlotIndexOf,
   primaryCommandActions,
   regionSlotCueLabel,
-  slotIndexOf,
   type PrimaryCommandAction,
 } from "../../lib/command-card";
 import { playAlert } from "../../lib/sfx";
@@ -97,7 +106,7 @@ import {
 } from "../../lib/agent-seat-state";
 import {
   collectOperatorAttention,
-  freestandingFromTerminalStatus,
+  freestandingFromCanvasAttention,
   OPERATOR_ATTENTION_HEADLINE,
   OPERATOR_ATTENTION_STRIP_MAX,
 } from "../../lib/operator-attention";
@@ -226,25 +235,51 @@ const isTextEditing = (target: EventTarget | null): boolean =>
 const liveNodeIds = (doc: { readonly nodes: ReadonlyArray<{ readonly id: string }> }): string[] =>
   doc.nodes.map((n) => n.id);
 
-/** Assign node to first free slot 0–8 (or end if full). No-op if already slotted. */
+/** Recompute leases after fixed mutations or activity MRU changes. */
+const recomputeHotbar = (): void => {
+  const doc = state$.doc.peek();
+  const live = liveNodeIds(doc);
+  const next = resolveHotbarSlots(
+    state$.hotbarSlots.peek(),
+    live,
+    state$.hotbarActiveMru.peek(),
+  );
+  state$.hotbarSlots.set(next);
+  // Compat mirror: dense fixed-only order for any remaining legacy readers.
+  state$.regionSlotOrder.set(fixedOrderOf(next));
+};
+
+/** Assign node to first empty slot as fixed. No-op if already fixed. */
 const assignToFirstFreeSlot = (nodeId: string): void => {
-  const order = pruneSlotOrder(state$.regionSlotOrder.peek(), liveNodeIds(state$.doc.peek()));
-  if (slotIndexOf(order, nodeId) !== null) return;
-  let target = Math.min(order.length, 8);
+  const slots = state$.hotbarSlots.peek();
+  if (hotbarSlotIndexOfNode(slots, nodeId) !== null) {
+    // Already fixed or leased — promote lease to fixed in place.
+    const index = hotbarSlotIndexOfNode(slots, nodeId)!;
+    if (slots[index]?.kind === "leased") {
+      state$.hotbarSlots.set(assignFixedSlot(slots, nodeId, index));
+      recomputeHotbar();
+    }
+    return;
+  }
+  let target = 0;
   for (let i = 0; i < 9; i++) {
-    if (!order[i]) {
+    if (slots[i]?.kind === "empty") {
       target = i;
       break;
     }
+    target = Math.min(i + 1, 8);
   }
-  state$.regionSlotOrder.set(assignSlot(order, nodeId, target));
+  state$.hotbarSlots.set(assignFixedSlot(slots, nodeId, target));
+  recomputeHotbar();
 };
 
-/** Toggle hotkey slot: assign first free, or clear if already slotted. */
+/** Toggle fixed assignment: clear if fixed, else fix into first free. */
 const toggleSlotAssignment = (nodeId: string): void => {
-  const order = pruneSlotOrder(state$.regionSlotOrder.peek(), liveNodeIds(state$.doc.peek()));
-  if (slotIndexOf(order, nodeId) !== null) {
-    state$.regionSlotOrder.set(clearSlot(order, nodeId));
+  const slots = state$.hotbarSlots.peek();
+  const index = hotbarSlotIndexOfNode(slots, nodeId);
+  if (index !== null && slots[index]?.kind === "fixed") {
+    state$.hotbarSlots.set(clearHotbarNode(slots, nodeId));
+    recomputeHotbar();
     return;
   }
   assignToFirstFreeSlot(nodeId);
@@ -374,8 +409,8 @@ function RegionCommandCard({
   readonly regionRollup: RegionRollup;
 }) {
   const hold = Boolean(node.ether?.region?.hold);
-  const slotOrder = use$(state$.regionSlotOrder);
-  const slot = slotIndexOf(slotOrder, node.id);
+  const hotbarSlots = use$(state$.hotbarSlots);
+  const slot = hotbarSlotIndexOf(hotbarSlots, node.id);
   const primary = primaryCommandActions("region");
   const title = regionRollup.label || "unnamed region";
   const [renaming, setRenaming] = useState(false);
@@ -605,8 +640,8 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
     }
   };
 
-  const slotOrder = use$(state$.regionSlotOrder);
-  const slot = slotIndexOf(slotOrder, nodeId);
+  const hotbarSlots = use$(state$.hotbarSlots);
+  const slot = hotbarSlotIndexOf(hotbarSlots, nodeId);
 
   // Kind-specific primaries + slot cue (any node). Entity actions live mid-strip.
   const renderPrimary = (action: PrimaryCommandAction) => {
@@ -784,6 +819,10 @@ const focusNode = (nodeId: string): void => {
   state$.selectedNodeIds.set([nodeId]);
   state$.selectedEdgeId.set("");
   state$.focusNodeId.set(nodeId);
+  state$.hotbarActiveMru.set(
+    touchActiveMru(state$.hotbarActiveMru.peek(), nodeId),
+  );
+  recomputeHotbar();
 };
 
 /** Focus then open the live surface when the node has one (actor model, etc.). */
@@ -843,10 +882,11 @@ function IdleHerdrButton({ queue }: { readonly queue: ReadonlyArray<IdleHerdrEnt
 
 /**
  * Hotbar chip: slot digit + name + signal motion.
- * Any node id (region or free). Severity from rollup / member map / flags / sinks.
+ * `tenure`: empty | leased (opportunistic) | fixed (operator).
  */
 function HotbarChip({
   index,
+  tenure,
   nodeId,
   label,
   severity,
@@ -857,7 +897,8 @@ function HotbarChip({
   onDrop,
 }: {
   readonly index: number;
-  readonly nodeId: string;
+  readonly tenure: "empty" | "fixed" | "leased";
+  readonly nodeId?: string;
   readonly label: string;
   readonly severity: MemberSeverity;
   readonly isRegion: boolean;
@@ -866,19 +907,27 @@ function HotbarChip({
   readonly onDragOver: (event: DragEvent) => void;
   readonly onDrop: () => void;
 }) {
+  const empty = tenure === "empty" || !nodeId;
   const mark = signalMark(severity);
   const paused = use$(() =>
-    isRegion ? regionPausedIn(pause$.state.get(), nodeId) : false,
+    !empty && isRegion && nodeId
+      ? regionPausedIn(pause$.state.get(), nodeId)
+      : false,
   );
-  const live = mark.mode === "wave" && !paused;
-  const sev = paused ? "paused" : mark.kind;
+  const live = !empty && mark.mode === "wave" && !paused;
+  const sev = empty ? "idle" : paused ? "paused" : mark.kind;
 
-  const chipStyle = {
-    ["--rts-chip-hue" as string]: mark.hue,
-    ["--rts-chip-hue-soft" as string]: withAlpha(mark.hue, 0.14),
-    ["--rts-chip-hue-mid" as string]: withAlpha(mark.hue, 0.45),
-    ["--rts-chip-hue-glow" as string]: withAlpha(mark.hue, 0.22),
-  } as CSSProperties;
+  const chipStyle = empty
+    ? undefined
+    : ({
+        ["--rts-chip-hue" as string]: mark.hue,
+        ["--rts-chip-hue-soft" as string]: withAlpha(mark.hue, 0.14),
+        ["--rts-chip-hue-mid" as string]: withAlpha(mark.hue, 0.45),
+        ["--rts-chip-hue-glow" as string]: withAlpha(mark.hue, 0.22),
+      } as CSSProperties);
+
+  const tenureLabel =
+    tenure === "fixed" ? "fixed" : tenure === "leased" ? "leased" : "empty";
 
   return (
     <button
@@ -886,28 +935,43 @@ function HotbarChip({
       className={[
         "rts-chip",
         "rts-chip--strip",
-        selected ? "is-active" : "",
+        `is-tenure-${tenure}`,
+        selected && !empty ? "is-active" : "",
         `is-sev-${sev}`,
       ]
         .filter(Boolean)
         .join(" ")}
       data-severity={sev}
+      data-tenure={tenure}
       data-node-id={nodeId}
+      data-testid={`hotbar-slot-${index + 1}`}
       style={chipStyle}
-      draggable
-      aria-label={`Slot ${index + 1}: ${label}, ${paused ? "paused" : mark.label}`}
-      aria-pressed={selected}
+      draggable={!empty && tenure === "fixed"}
+      aria-label={
+        empty
+          ? `Slot ${index + 1}: empty — assign with ⌘${index + 1}`
+          : `Slot ${index + 1}: ${label}, ${tenureLabel}, ${paused ? "paused" : mark.label}`
+      }
+      aria-pressed={selected && !empty}
       onDragStart={onDragStart}
       onDragOver={onDragOver}
       onDrop={onDrop}
-      onClick={() => focusNode(nodeId)}
+      onClick={() => {
+        if (nodeId) focusNode(nodeId);
+      }}
       onDoubleClick={(event) => {
         event.preventDefault();
-        // Double-click chip = focus + open model (actor/terminal/work).
+        if (!nodeId) return;
         const doc = state$.doc.peek();
         focusAndActivate(nodeId, doc.nodes);
       }}
-      title={`${label} — ${paused ? "paused" : mark.label} - double-click opens`}
+      title={
+        empty
+          ? `Empty slot ${index + 1} — ⌘${index + 1} fixes selection here; active nodes may lease it`
+          : `${label} · ${tenureLabel} · ${paused ? "paused" : mark.label}${
+              tenure === "leased" ? " · auto" : ""
+            }`
+      }
     >
       <span className="rts-chip__slot" aria-hidden>
         {index + 1}
@@ -921,14 +985,14 @@ function HotbarChip({
           className="rts-chip__activity"
         />
       ) : null}
-      <span className="rts-chip__label">{label}</span>
+      <span className="rts-chip__label">{empty ? "·" : label}</span>
     </button>
   );
 }
 
 /**
- * Permanent thin hotbar above command + kind: slots 1–9 (any node).
- * Fully controlled — empty until operator assigns.
+ * Permanent thin hotbar above command + kind: always 9 slots.
+ * Fixed = operator; leased = recent active nodes; empty = available.
  */
 function HotbarStrip({
   byId,
@@ -940,7 +1004,7 @@ function HotbarStrip({
   readonly severityByNodeId: ReadonlyMap<string, MemberSeverity>;
 }) {
   const selectedNodeId = use$(state$.selectedNodeId);
-  const slotOrder = use$(state$.regionSlotOrder);
+  const hotbarSlots = use$(state$.hotbarSlots);
   const doc = use$(state$.doc);
   const canvasName = use$(state$.canvasName);
   const dragFrom = useRef<number | null>(null);
@@ -949,84 +1013,89 @@ function HotbarStrip({
     if (canvasName) ensurePauseState(canvasName);
   }, [canvasName]);
 
-  // Prune deleted nodes only — never auto-fill from regions.
+  // Prune dead ids + refresh opportunistic leases when the document changes.
   useEffect(() => {
-    const live = liveNodeIds(doc);
-    const prev = state$.regionSlotOrder.peek();
-    const next = pruneSlotOrder(prev, live);
-    if (next.length !== prev.length || next.some((id, i) => id !== prev[i])) {
-      state$.regionSlotOrder.set(next);
-    }
+    recomputeHotbar();
   }, [doc]);
 
   const slots = useMemo(() => {
-    const ids = pruneSlotOrder(slotOrder, liveNodeIds(doc));
     const nodeById = new Map(doc.nodes.map((n) => [n.id, n] as const));
-    return ids
-      .map((id, index) => {
-        const node = nodeById.get(id);
-        if (!node) return undefined;
-        const isRegion = node.type === "group";
-        const rollup = byId.get(id);
-        const severity = hotbarNodeSeverity(node, {
-          regionSeverity: rollup?.severity,
-          memberSeverity: severityByNodeId.get(id),
-        });
+    return hotbarSlots.map((slot, index) => {
+      if (slot.kind === "empty") {
         return {
           index,
-          nodeId: id,
-          label: isRegion ? (rollup?.label ?? nodeTitle(node)) : nodeTitle(node),
-          severity,
-          isRegion,
+          tenure: "empty" as const,
+          nodeId: undefined as string | undefined,
+          label: "",
+          severity: "idle" as MemberSeverity,
+          isRegion: false,
         };
-      })
-      .filter(
-        (s): s is {
-          index: number;
-          nodeId: string;
-          label: string;
-          severity: MemberSeverity;
-          isRegion: boolean;
-        } => s !== undefined,
-      )
-      .slice(0, 9);
-  }, [slotOrder, doc, byId, severityByNodeId]);
+      }
+      const node = nodeById.get(slot.nodeId);
+      if (!node) {
+        return {
+          index,
+          tenure: slot.kind,
+          nodeId: slot.nodeId,
+          label: slot.nodeId.slice(0, 8),
+          severity: "idle" as MemberSeverity,
+          isRegion: false,
+        };
+      }
+      const isRegion = node.type === "group";
+      const rollup = byId.get(slot.nodeId);
+      const severity = hotbarNodeSeverity(node, {
+        regionSeverity: rollup?.severity,
+        memberSeverity: severityByNodeId.get(slot.nodeId),
+      });
+      return {
+        index,
+        tenure: slot.kind,
+        nodeId: slot.nodeId,
+        label: isRegion
+          ? (rollup?.label ?? nodeTitle(node))
+          : nodeTitle(node),
+        severity,
+        isRegion,
+      };
+    });
+  }, [hotbarSlots, doc, byId, severityByNodeId]);
 
   return (
     <div className="rts-region-strip" role="region" aria-label="Hotkey slots 1 to 9">
-      {slots.length === 0 ? (
-        <div className="rts-region-strip__empty">
-          Empty slots — assign a node with ⌘1–9
-        </div>
-      ) : (
-        <div className="rts-region-strip__chips" role="toolbar" aria-label="Node hotbar">
-          {slots.map((slot) => (
-            <HotbarChip
-              key={slot.nodeId}
-              index={slot.index}
-              nodeId={slot.nodeId}
-              label={slot.label}
-              severity={slot.severity}
-              isRegion={slot.isRegion}
-              selected={selectedNodeId === slot.nodeId}
-              onDragStart={() => {
-                dragFrom.current = slot.index;
-              }}
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={() => {
-                const from = dragFrom.current;
-                dragFrom.current = null;
-                if (from === null || from === slot.index) return;
-                const order = slots.map((s) => s.nodeId);
-                const [moved] = order.splice(from, 1);
-                if (!moved) return;
-                order.splice(slot.index, 0, moved);
-                state$.regionSlotOrder.set(order.slice(0, 9));
-              }}
-            />
-          ))}
-        </div>
-      )}
+      <div className="rts-region-strip__chips" role="toolbar" aria-label="Node hotbar">
+        {slots.map((slot) => (
+          <HotbarChip
+            key={`slot-${slot.index}`}
+            index={slot.index}
+            tenure={slot.tenure}
+            nodeId={slot.nodeId}
+            label={slot.label}
+            severity={slot.severity}
+            isRegion={slot.isRegion}
+            selected={
+              slot.nodeId !== undefined && selectedNodeId === slot.nodeId
+            }
+            onDragStart={() => {
+              if (slot.tenure === "fixed") dragFrom.current = slot.index;
+            }}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={() => {
+              const from = dragFrom.current;
+              dragFrom.current = null;
+              if (from === null || from === slot.index) return;
+              const current = state$.hotbarSlots.peek();
+              const fromSlot = current[from];
+              if (!fromSlot || fromSlot.kind !== "fixed") return;
+              // Swap fixed assignment into drop index (promote target if needed).
+              const movedId = fromSlot.nodeId;
+              let next = assignFixedSlot(current, movedId, slot.index);
+              state$.hotbarSlots.set(next);
+              recomputeHotbar();
+            }}
+          />
+        ))}
+      </div>
       {HERDR_ENABLED ? <IdleHerdrButton queue={idleQueue} /> : null}
     </div>
   );
@@ -1082,8 +1151,9 @@ function MinimapChrome({ children }: { readonly children: ReactNode }) {
 
 /**
  * Permanent attention pills in the notify strip (needs-input + blocked).
- * Sole permanent attention surface — region rollups + freestanding seats.
- * Complements StoppageRank (blast-radius stoppage).
+ * Sole permanent visual attention surface (SFX is a separate opt-in product
+ * gate). Sources: region rollups + canvas-wide graph/harness/flag freestanding
+ * so nodes outside every region still appear. Complements StoppageRank.
  */
 function OperatorAttentionPills({
   rollups,
@@ -1091,6 +1161,10 @@ function OperatorAttentionPills({
   readonly rollups: ReadonlyArray<RegionRollup>;
 }) {
   const doc = use$(state$.doc);
+  const canvasName = use$(state$.canvasName);
+  const actorRefs = use$(state$.actorRefs);
+  const execution = use$(kernel$.execution);
+  const executionRev = use$(kernel$.executionRev);
   const seatByBinding = use$(agentSeat$.byBindingId) as Record<
     string,
     AgentSeatStateEvent | undefined
@@ -1108,13 +1182,46 @@ function OperatorAttentionPills({
       seatByBinding ?? {},
       needsLookByBinding ?? {},
     );
-    const freestanding = freestandingFromTerminalStatus(
-      doc.nodes.map((n) => ({ id: n.id, label: nodeTitle(n) })),
-      terminalStatus,
-      covered,
+    const context = executionGraphContextFromActorRefs(canvasName, actorRefs);
+    const graph = executionGraphForImpact(doc, execution, context);
+    const blockedReasonsByNodeId = new Map<string, ReadonlyArray<string>>();
+    for (const [nodeId, reasons] of graph.reasonsByNodeId) {
+      blockedReasonsByNodeId.set(
+        nodeId,
+        reasons.map((reason) =>
+          reason.kind === "work"
+            ? `work:${reason.detail}`
+            : reason.kind === "edge"
+              ? `edge:${reason.detail}`
+              : `seed:${reason.detail}`,
+        ),
+      );
+    }
+    const freestanding = freestandingFromCanvasAttention(
+      doc.nodes.map((n) => ({
+        id: n.id,
+        label: nodeTitle(n),
+        flags: n.ether?.flags,
+      })),
+      {
+        blockedNodeIds: graph.blocked,
+        blockedReasonsByNodeId,
+        terminalStatusByNodeId: terminalStatus,
+        alreadyCovered: covered,
+      },
     );
     return collectOperatorAttention(rollups, freestanding);
-  }, [rollups, doc, seatByBinding, needsLookByBinding]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- executionRev stamps kernel execution
+  }, [
+    rollups,
+    doc,
+    seatByBinding,
+    needsLookByBinding,
+    canvasName,
+    actorRefs,
+    execution,
+    executionRev,
+  ]);
 
   if (items.length === 0) return null;
   const visible = items.slice(0, OPERATOR_ATTENTION_STRIP_MAX);
@@ -1203,9 +1310,9 @@ function useHotbarHotkeys(idleQueue: ReadonlyArray<IdleHerdrEntry>): void {
       if (digit === null) return;
       const slotIndex = digit - 1;
       const doc = state$.doc.peek();
-      const order = pruneSlotOrder(state$.regionSlotOrder.peek(), liveNodeIds(doc));
+      const slots = state$.hotbarSlots.peek();
 
-      // ⌘/Ctrl+1–9: assign the single selected node (any type) into the slot.
+      // ⌘/Ctrl+1–9: fix the single selected node into this slot.
       if (event.metaKey || event.ctrlKey) {
         if (event.altKey || event.shiftKey) return;
         event.preventDefault();
@@ -1218,14 +1325,15 @@ function useHotbarHotkeys(idleQueue: ReadonlyArray<IdleHerdrEntry>): void {
               ? single
               : undefined;
         if (!nodeId || !doc.nodes.some((n) => n.id === nodeId)) return;
-        state$.regionSlotOrder.set(assignSlot(order, nodeId, slotIndex));
+        state$.hotbarSlots.set(assignFixedSlot(slots, nodeId, slotIndex));
+        recomputeHotbar();
         focusNode(nodeId);
         retap = null;
         return;
       }
 
       if (event.altKey || event.shiftKey) return;
-      const nodeId = order[slotIndex];
+      const nodeId = nodeIdAt(slots, slotIndex);
       if (!nodeId) return;
       event.preventDefault();
 
