@@ -25,6 +25,74 @@
   background: linear-gradient(to top, color-mix(in oklab, var(--color-ground) 92%, transparent) 55%, color-mix(in oklab, var(--color-ground) 0%, transparent));
 }
 
+/* Completed-task stack: bottom-right, above notify + minimap cluster. */
+.completed-task-notify {
+  position: absolute;
+  right: 10px;
+  bottom: 100%;
+  margin-bottom: 8px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: min(320px, 40vw);
+  max-height: min(36vh, 280px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  pointer-events: auto;
+  scrollbar-width: thin;
+}
+.completed-task-notify__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in oklab, var(--color-green, #3d8b6e) 35%, var(--color-stroke));
+  border-radius: 9px;
+  background: color-mix(in oklab, var(--color-ground) 90%, transparent);
+  box-shadow: 0 8px 22px var(--color-shadow-2);
+  color: var(--color-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.completed-task-notify__item:hover {
+  border-color: color-mix(in oklab, var(--color-green, #3d8b6e) 55%, var(--color-stroke));
+  background: color-mix(in oklab, var(--color-raise) 92%, transparent);
+}
+.completed-task-notify__icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--color-green, #3d8b6e);
+}
+.completed-task-notify__body {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+.completed-task-notify__eyebrow {
+  font-size: 8px;
+  font-weight: 650;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: color-mix(in oklab, var(--color-green, #3d8b6e) 80%, var(--color-faint));
+  line-height: 1.2;
+}
+.completed-task-notify__brief {
+  overflow: hidden;
+  color: var(--color-ink);
+  font-size: 11px;
+  font-weight: 550;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .rts-shell > * {
   pointer-events: auto;
   min-width: 0;

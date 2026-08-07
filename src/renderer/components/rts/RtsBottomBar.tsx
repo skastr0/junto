@@ -95,6 +95,7 @@ import { focusBlockerCause, resolveBlockerCause } from "../../lib/blocker-cause"
 import { executionGraphForImpact } from "../../lib/impact-mode";
 import { ConnectEditor } from "../InspectorFields";
 import { StoppageRank } from "./StoppageRank";
+import { CompletedTaskNotifyStack } from "./CompletedTaskNotify";
 import { EdgeCommandCard, PauseScopeKey } from "./RtsControls";
 import { ensurePauseState, pause$, regionPausedIn } from "../../lib/pause-state";
 import { ActivityMark } from "../ActivityMark";
@@ -1439,6 +1440,8 @@ export function RtsBottomBar({ minimap, tools }: { readonly minimap: ReactNode; 
 
   return (
     <div className="rts-shell" role="region" aria-label="RTS bottom bar">
+      {/* Above notify + minimap cluster (bottom-right stack). */}
+      <CompletedTaskNotifyStack />
       {/* Top row: ops strip spans command+kind; notify strip sits over minimap. */}
       <HotbarStrip
         byId={byId}
