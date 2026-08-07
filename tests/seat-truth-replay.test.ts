@@ -221,6 +221,7 @@ describe("replay - paste re-check", () => {
     const attention: string[] = [];
     let idle = true;
     const drive = new ManagedTerminalDrive({
+      pasteToCrSettleMs: 0,
       write: (_id, data) => {
         writes.push(data);
         return true;
@@ -235,6 +236,7 @@ describe("replay - paste re-check", () => {
     idle = true;
     let checks = 0;
     const drive2 = new ManagedTerminalDrive({
+      pasteToCrSettleMs: 0,
       write: (_id, data) => {
         writes.push(data);
         return true;
@@ -262,6 +264,7 @@ describe("replay - sticky working clearance", () => {
     const writes: string[] = [];
     let seatIdle = false;
     const drive = new ManagedTerminalDrive({
+      pasteToCrSettleMs: 0,
       write: (_id, data) => {
         writes.push(data);
         return true;
@@ -345,6 +348,7 @@ describe("replay - happy-path working→idle drain", () => {
     const writes: Array<{ data: string }> = [];
     let idle = false;
     const drive = new ManagedTerminalDrive({
+      pasteToCrSettleMs: 0,
       write: (_id, data) => {
         writes.push({ data });
         return true;

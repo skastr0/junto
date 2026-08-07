@@ -273,6 +273,7 @@ describe("SeatStateRuntime mid-turn stall", () => {
 
     const writes: string[] = [];
     const drive = new ManagedTerminalDrive({
+      pasteToCrSettleMs: 0,
       write: (_id, data) => {
         writes.push(data);
         return true;

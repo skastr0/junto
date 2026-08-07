@@ -124,6 +124,11 @@ export type ManagedTerminalDriveOptions = {
    * mid-turn.
    */
   readonly stallWatch?: boolean;
+  /**
+   * Delay after paste-end before the first CR (default PASTE_TO_CR_SETTLE_MS).
+   * Tests set 0 so write counts stay paste+CR without fake timers.
+   */
+  readonly pasteToCrSettleMs?: number;
 };
 
 export class ManagedTerminalDrive {
@@ -136,6 +141,7 @@ export class ManagedTerminalDrive {
   private readonly idleInterruptGapMs: number;
   private readonly queueTimeoutMs: number;
   private readonly stallWatch: boolean;
+  private readonly pasteToCrSettleMs: number;
 
   private readonly queues = new Map<string, QueuedPrompt[]>();
   private readonly writing = new Set<string>();
@@ -162,6 +168,7 @@ export class ManagedTerminalDrive {
     this.idleInterruptGapMs = options.idleInterruptGapMs ?? MIN_IDLE_INTERRUPT_GAP_MS;
     this.queueTimeoutMs = options.queueTimeoutMs ?? DEFAULT_QUEUE_TIMEOUT_MS;
     this.stallWatch = options.stallWatch ?? true;
+    this.pasteToCrSettleMs = options.pasteToCrSettleMs ?? PASTE_TO_CR_SETTLE_MS;
   }
 
   /** Mark a binding as just spawned — enforces min delay before first paste. */
@@ -625,9 +632,9 @@ export class ManagedTerminalDrive {
     }
     // Let paste-end settle before CR — racing ESC[201~ leaves Claude/Devin
     // with a stuck "[Pasted text …]" chip and never submits.
-    if (PASTE_TO_CR_SETTLE_MS > 0) {
+    if (this.pasteToCrSettleMs > 0) {
       await new Promise<void>((r) => {
-        const t = setTimeout(r, PASTE_TO_CR_SETTLE_MS);
+        const t = setTimeout(r, this.pasteToCrSettleMs);
         t.unref?.();
       });
       if (!this.activeBinding(bindingId, generation, bindingGeneration)) {

@@ -489,6 +489,7 @@ describe("writePrompt queue timeout", () => {
     vi.useFakeTimers();
     try {
       const drive = new ManagedTerminalDrive({
+      pasteToCrSettleMs: 0,
         write: () => true,
         isSeatIdle: () => false,
         queueTimeoutMs: 50,

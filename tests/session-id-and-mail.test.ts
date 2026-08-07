@@ -132,6 +132,7 @@ describe("Grok post-spawn delay", () => {
     const writes: string[] = [];
     let now = 1_000;
     const drive = new ManagedTerminalDrive({
+      pasteToCrSettleMs: 0,
       write: (_id, data) => {
         writes.push(data);
         return true;
@@ -146,6 +147,7 @@ describe("Grok post-spawn delay", () => {
     drive.resetForTest();
     // Re-test with 0 delay mark equivalent
     const drive2 = new ManagedTerminalDrive({
+      pasteToCrSettleMs: 0,
       write: (_id, data) => {
         writes.push(data);
         return true;

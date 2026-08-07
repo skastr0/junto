@@ -60,6 +60,8 @@ describe("ManagedTerminalDrive", () => {
       isSeatIdle: () => idle,
       now: () => clock,
       stallWatch: false,
+      // Unit tests assert paste+CR write counts without advancing real timers.
+      pasteToCrSettleMs: 0,
       ...over,
     });
 
@@ -328,7 +330,7 @@ describe("ManagedTerminalDrive", () => {
     ]);
   });
 
-  it("stall: no turn-start → false + attention with one physical paste+CR maximum", async () => {
+  it("stall: no turn-start → false + attention; one CR retry then refuse", async () => {
     vi.useFakeTimers();
     const attention: string[] = [];
     drive = makeDrive({
@@ -345,11 +347,16 @@ describe("ManagedTerminalDrive", () => {
     expect(writes).toHaveLength(2); // paste + CR
     expect(settled).toBe(false);
 
+    // First stall window → second CR retry → second stall window.
+    await vi.advanceTimersByTimeAsync(5_000);
+    await flushMicrotasks(4);
+    expect(writes).toHaveLength(3); // + retry CR
     await vi.advanceTimersByTimeAsync(5_000);
     await expect(result).resolves.toBe(false);
-    expect(attention).toEqual(["prompt-stalled"]);
+    expect(attention).toEqual(["prompt-stalled", "prompt-stalled"]);
     expect(writes).toEqual([
       { bindingId: "b1", data: encodeBracketedPaste("stalled") },
+      { bindingId: "b1", data: CR },
       { bindingId: "b1", data: CR },
     ]);
 
@@ -448,8 +455,11 @@ describe("ManagedTerminalDrive", () => {
       expect(writes).toHaveLength(2);
 
       await vi.advanceTimersByTimeAsync(5_000);
+      await flushMicrotasks(4);
+      expect(writes).toHaveLength(3); // CR retry after first stall
+      await vi.advanceTimersByTimeAsync(5_000);
       await expect(accepted).resolves.toBe(false);
-      expect(writes).toHaveLength(2);
+      expect(writes).toHaveLength(3);
     } finally {
       vi.useRealTimers();
     }
