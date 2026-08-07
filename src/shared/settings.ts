@@ -108,8 +108,9 @@ export const FleetSettings = Schema.Struct({
 });
 export type FleetSettings = typeof FleetSettings.Type;
 
-// Station role: user-selected Command Center or Remote. Empty role means
-// onboarding has not completed — UI must not guess.
+// Station role: Command Center (v1 default) or Remote (Station-API pairing only).
+// Empty role is a transient pre-configuration state; SettingsService auto-establishes
+// Command Center on first boot when unpaired.
 export const StationRoleSetting = Schema.Literals([...STATION_ROLES, ""]);
 export type StationRoleSetting = typeof StationRoleSetting.Type;
 
@@ -134,7 +135,7 @@ const WithoutRetiredTopologyIntegrity = Schema.Unknown.pipe(
 );
 
 const StationSettingsValue = Schema.Struct({
-  /** "" until the human picks a role at onboarding. */
+  /** "" only before auto Command Center establish (or paired Remote). */
   role: StationRoleSetting,
   /** This machine's host id in the fleet registry (usually "local" on first box). */
   hostId: StationHostIdSetting,

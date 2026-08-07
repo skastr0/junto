@@ -15,6 +15,7 @@ import { HarnessMark } from "./herdr/HarnessMark";
 import { NoteMarkdown } from "../lib/note-markdown";
 import { WaitingOnSection } from "./WaitingOnSection";
 
+
 const COLOR_OPTIONS: ReadonlyArray<{ readonly value: string; readonly label: string; readonly hue: string }> = [
   { value: "1", label: "red", hue: HUE.crimson },
   { value: "2", label: "orange", hue: HUE.orange },
@@ -124,6 +125,7 @@ function HerdrSections({ node }: { readonly node: CanvasNode }) {
 // Memoized so parent re-renders from unrelated doc churn (other-node drag stops
 // that leave this node reference stable) do not rebuild the inspector tree.
 const NodeInspector = memo(function NodeInspector({ node, onClose }: { readonly node: CanvasNode; readonly onClose: () => void }) {
+
   const isEntity = Boolean(node.ether?.entity);
   const isAgent = isEntity && node.ether?.entity?.kind === "agent";
   const isLabel = node.ether?.entity?.kind === "label";
@@ -152,6 +154,7 @@ const NodeInspector = memo(function NodeInspector({ node, onClose }: { readonly 
       ) : null}
       {!isLabel ? <NodeCapabilityInventory key={`cap:${node.id}`} node={node} /> : null}
       <NodeFieldEditors node={node} />
+
     </div>
   </aside>;
 });

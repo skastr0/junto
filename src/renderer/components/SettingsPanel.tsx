@@ -7,7 +7,6 @@ import type { SettingsSectionKey } from "@shared/settings";
 import {
   AUDIO_ENABLED,
   BROWSER_ENABLED,
-  HERMES_INTEGRATION_ENABLED,
 } from "@shared/features";
 import {
   decodeStateBackupId,
@@ -44,7 +43,7 @@ type PanelSection = SettingsSectionKey | "license" | "updates";
 
 const SECTIONS: ReadonlyArray<{ key: PanelSection; label: string; blurb: string }> = [
   { key: "appearance", label: "Appearance", blurb: "theme mode" },
-  { key: "station", label: "Machine", blurb: "Command Center or Remote role" },
+  { key: "station", label: "Machine", blurb: "this installation" },
   { key: "updates", label: "Updates", blurb: "check and install app updates" },
   ...(AUDIO_ENABLED
     ? [{ key: "audio", label: "Audio", blurb: "RTS alert SFX mute and levels" } as const]
@@ -850,103 +849,31 @@ function AudioSection() {
 
 function StationSection() {
   const station = use$(state$.settings.station);
-  const fleet = use$(state$.settings.fleet);
-  const role = station.role;
-  const roleLabel =
-    role === "command-center"
-      ? "Command Center"
-      : role === "remote"
-        ? "Remote"
-        : "Not set yet";
+  // v1: single-machine product. Remote enrollment UI is intentionally absent.
   return (
     <div className="settings-section">
       <FieldRow
-        label="Role"
-        hint="Chosen during setup"
-      >
-        <span style={{ color: INK, fontSize: 13 }}>{roleLabel}</span>
-      </FieldRow>
-      <FieldRow
         label="This machine's host id"
-        hint="How this machine is identified across the fleet"
+        hint="How this installation is identified"
       >
         <span style={{ color: INK, fontSize: 13 }}>{station.hostId}</span>
       </FieldRow>
-      {HERMES_INTEGRATION_ENABLED && role === "remote" ? (
-        <FieldRow
-          label="Agent host id"
-          hint="Hermes identity installed by the Command Center"
-        >
-          <span style={{ color: INK, fontSize: 13 }}>
-            {station.agentHostId}
-          </span>
-        </FieldRow>
-      ) : null}
-      {role === "command-center" ? (
-        <FieldRow
-          label="Allow remote managed installs"
-          hint="Allow deploying Vellum Command to enrolled Remotes. Off by default."
-        >
-          <input
-            type="checkbox"
-            checked={fleet.remoteManagedInstalls}
-            aria-label="Allow remote managed installs"
-            onChange={(event) =>
-              void patchSettings({
-                fleet: { remoteManagedInstalls: event.target.checked },
-              })
-            }
-          />
-        </FieldRow>
-      ) : null}
-      {role === "command-center" ? (
-        <FieldRow
-          label="Prefer supervised runtime"
-          hint="Keep this Command Center alive under the platform supervisor"
-        >
-          <input
-            type="checkbox"
-            checked={station.supervisedPreferred}
-            aria-label="Prefer supervised runtime"
-            onChange={(event) =>
-              void setStationTopology({
-                supervisedPreferred: event.target.checked,
-              })
-            }
-          />
-        </FieldRow>
-      ) : null}
-      {role === "remote" ? (
-        <FieldRow
-          label="Configuration authority"
-          hint="Remote identity cannot be changed locally"
-        >
-          <span className="settings-note" style={{ color: DIM }}>
-            Managed by the paired Command Center
-          </span>
-        </FieldRow>
-      ) : null}
-      {station.role === "" ? (
-        <FieldRow
-          label="Configuration"
-          hint="This machine has no role yet"
-        >
-          <span className="settings-note" style={{ color: DIM }}>
-            Set this machine up as a Command Center, or enroll it from an existing one
-          </span>
-        </FieldRow>
-      ) : (
-        <FieldRow
-          label="Changing role"
-          hint="Roles can't be changed from Settings"
-        >
-          <span className="settings-note" style={{ color: DIM }}>
-            {station.role === "remote"
-              ? "This machine's role is managed by its paired Command Center."
-              : "Handing the Command Center role to another machine is a separate, explicit operation."}
-          </span>
-        </FieldRow>
-      )}
+      <FieldRow
+        label="Prefer supervised runtime"
+        hint="Keep Vellum Command alive under the platform supervisor"
+      >
+        <input
+          type="checkbox"
+          checked={station.supervisedPreferred}
+          aria-label="Prefer supervised runtime"
+          disabled={station.role !== "command-center" && station.role !== ""}
+          onChange={(event) =>
+            void setStationTopology({
+              supervisedPreferred: event.target.checked,
+            })
+          }
+        />
+      </FieldRow>
     </div>
   );
 }

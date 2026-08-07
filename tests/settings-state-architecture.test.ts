@@ -72,8 +72,8 @@ describe("settings state architecture", () => {
     expect(source).not.toContain("encodedTopology");
   });
 
-  it("does not expose local Remote configuration controls", async () => {
-    const [gate, panel] = await Promise.all([
+  it("does not expose local Remote configuration or station-role onboarding", async () => {
+    const [gate, panel, app, service] = await Promise.all([
       readFile(
         new URL(
           "../src/renderer/components/StationRoleGate.tsx",
@@ -88,22 +88,27 @@ describe("settings state architecture", () => {
         ),
         "utf8",
       ),
+      readFile(
+        new URL("../src/renderer/App.tsx", import.meta.url),
+        "utf8",
+      ),
+      readFile(
+        new URL("../src/main/vellum/settings/service.ts", import.meta.url),
+        "utf8",
+      ),
     ]);
+    // First-run role UI is retired; main auto-establishes Command Center.
+    expect(gate).toContain("retired for v1");
+    expect(gate).not.toContain("Look for a Command Center");
     expect(gate).not.toContain('pick("remote")');
     expect(gate).not.toContain("Continue as Remote");
-    expect(gate).not.toContain("hostsConfigureRemote");
-    expect(gate).not.toMatch(/hostsTest\s*\(/);
-    expect(gate).not.toContain("Claim this host from Command Center on");
-    expect(gate).not.toContain("MESH MACHINES VISIBLE");
-    expect(gate).toContain("Station API");
-    expect(gate).toContain("hostsDiscoverPeers");
-    expect(gate).toContain("Look for a Command Center");
-    expect(gate).toContain("No Command Center found");
-    expect(gate).toContain("commandCenterFound: false");
-    expect(gate).toContain('role: "command-center"');
-    expect(gate).not.toContain('role: "remote"');
+    expect(app).not.toContain("StationRoleGate");
+    expect(service).toContain("ensureDefaultCommandCenter");
+    expect(service).toContain('role: "command-center"');
     expect(panel).not.toContain("Pull from Command Center");
-    expect(panel).toContain("Remote identity cannot be changed locally");
+    expect(panel).not.toContain("Allow remote managed installs");
+    expect(panel).not.toContain("Remote identity cannot be changed locally");
+    expect(panel).not.toContain("enroll it from an existing one");
   });
 
   it("boots the settings fragment in the sole StateEngine schema", async () => {

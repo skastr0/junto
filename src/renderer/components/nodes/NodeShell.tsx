@@ -123,6 +123,7 @@ function NodeActions({
   liveHerdrBlocked,
   shellBlocked,
   nodePaused,
+
 }: {
   readonly node: CanvasNode;
   readonly selected: boolean;
@@ -136,6 +137,7 @@ function NodeActions({
   readonly shellBlocked: boolean;
   /** Node-scope pause (undefined = not an executable seat, no toggle). */
   readonly nodePaused?: boolean;
+
 }) {
   // Toolbar toggle only mutates the document flag. Live herdr blocked paints
   // crimson but clear still means "clear flag" (or no-op if flag absent).
@@ -200,6 +202,7 @@ function NodeActions({
           data-testid="node-toolbar-focus"
           data-focused={connectionFocused ? "true" : "false"}
           style={connectionFocused ? { color: HUE.cyan } : undefined}
+
           onPointerDown={(event) => {
             if (stopNodeGestureUnlessMultiSelect(event, { preventDefault: true })) return;
             event.preventDefault();
@@ -307,6 +310,7 @@ export function NodeShell({
   bare = false,
   /** Full factory toolbar vs delete-only (labels). */
   toolbar = "full",
+
   children,
 }: {
   readonly node: CanvasNode;
@@ -322,6 +326,7 @@ export function NodeShell({
   readonly showHandles?: boolean;
   readonly bare?: boolean;
   readonly toolbar?: "full" | "minimal";
+
   readonly children: ReactNode;
 }) {
   // Live herdr meta: agent_status blocked paints shell chrome without a doc flag.
@@ -463,6 +468,7 @@ export function NodeShell({
           className="vellum-node__open nodrag nopan absolute right-2 top-2 z-10 grid size-6 place-items-center rounded text-cyan-300/70 transition hover:bg-white/10 hover:text-cyan-200"
           aria-label={openTitle ?? "Open external link"}
           title={openTitle ?? "Open link"}
+
           onPointerDown={(event) => {
             if (stopNodeGestureUnlessMultiSelect(event, { preventDefault: true })) return;
             event.preventDefault();
@@ -488,6 +494,7 @@ export function NodeShell({
         />
       )}
       {!bare && (flags.length > 0 || liveHerdrBlocked || liveSeatAttention || (shellBlocked && !flagBlocker && !liveHerdrBlocked)) ? (
+
         <div className="vellum-node__flag-rail">
           {shellBlocked && !flagBlocker && !liveHerdrBlocked ? (
             <span

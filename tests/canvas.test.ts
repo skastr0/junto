@@ -110,7 +110,7 @@ describe("canvas contract", () => {
     retired.nodes[0]!.ether = {
       ...retired.nodes[0]!.ether,
       workRole: "builder",
-    } as typeof retired.nodes[0]["ether"];
+    } as unknown as typeof retired.nodes[0]["ether"];
 
     expect(Result.isFailure(decodeCanvasDoc(retired))).toBe(true);
   });

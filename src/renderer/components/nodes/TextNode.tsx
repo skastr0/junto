@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import type { NodeProps } from "@xyflow/react";
 import { Gauge, Radio, Settings2, Timer, X } from "lucide-react";
+
 import type { CanvasNode } from "@shared/canvas";
 import {
   describeCronExpression,
@@ -55,6 +56,7 @@ import {
 } from "../work/WorkSurfaces";
 import { TaskToolbarActions } from "../work/TaskToolbarActions";
 import { ClaimedTaskStrip } from "./ClaimedTaskStrip";
+
 import { NodeShell } from "./NodeShell";
 
 function CronScheduleToolbarAction({ onOpen }: { readonly onOpen: () => void }) {
@@ -493,6 +495,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
     Boolean(node.ether?.terminal?.bindingId) && (isTerminal || isAgent);
   // Boolean selector: only this node re-renders when edit intent targets it.
   const isEditTarget = use$(() => state$.editNodeId.get() === node.id);
+
   const [editing, setEditing] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [maximized, setMaximized] = useState(false);
@@ -560,6 +563,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
     setWorkDetail(true);
   }, [isWorkDetailTarget, isWorkSurface, node.id]);
 
+
   const commit = () => {
     setEditing(false);
     setMaximized(false);
@@ -586,6 +590,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
 
   const labelHue = node.color ? accentColor(node.color) : INK;
 
+
   return (
     <NodeShell
       node={node}
@@ -609,6 +614,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
           <CronScheduleToolbarAction onOpen={() => setCronScheduleOpen(true)} />
         ) : undefined
       }
+
     >
       {maximized && !isLabel ? (
         <NoteEditModal
@@ -710,6 +716,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
         !isHerdr &&
         !managedTerminal &&
         !isWorkSurface ? (
+
         <textarea
           ref={ref}
           autoFocus
@@ -756,6 +763,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
             }
             // Relay/gauge: RTS config pops; no card dbl-click surface yet.
             if (entityKind === "watcher" || entityKind === "relay") {
+
               return;
             }
             openInline();
@@ -817,12 +825,14 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
           ) : (
             <NoteMarkdown source={text} />
           )}
+
         </div>
       ) : (
         <div
           role="button"
           tabIndex={0}
           className="note-surface nopan h-full w-full cursor-text overflow-hidden border-0 bg-transparent p-0 text-left font-mono items-stretch justify-start"
+
           onClick={(event) => {
             if (event.shiftKey) return;
             if (!selected) return;
@@ -837,6 +847,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
           }}
           onKeyDown={(event) => {
             if (event.shiftKey) return;
+
             if (!selected) return;
             if (event.key === "Enter" || event.key === " ") {
               event.preventDefault();

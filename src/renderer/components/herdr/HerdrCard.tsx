@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type SyntheticEvent } from "react";
+
 import { use$ } from "@legendapp/state/react";
 import type { CanvasNode, EtherHerdr } from "@shared/canvas";
 import type { HerdrObserveTouchInput } from "@shared/ipc";
@@ -67,6 +68,7 @@ const isAutoDerivedLabel = (
 
 
 
+
 export function HerdrCard({
   node,
   selected,
@@ -102,6 +104,7 @@ export function HerdrCard({
   const pushDriven = Boolean(
     herdr?.host && herdr.paneId && !herdr.session && fresh,
   );
+
 
   useEffect(() => {
     if (!herdr?.host || !herdr.paneId) return;
@@ -163,7 +166,7 @@ export function HerdrCard({
   }
 
   const meta = metaCache?.meta;
-  const agent = meta?.agent ?? herdr.label;
+  const agent = meta?.agent;
   const agentStatus = meta?.agentStatus;
   const cwd = meta?.cwd;
   const cwdBase = cwdBaseOf(cwd);
@@ -238,6 +241,7 @@ export function HerdrCard({
 
   const open = () => {
     openHerdrTerminal(node.id, herdr, rawName);
+
   };
 
   const syncService = (e: SyntheticEvent) => {
@@ -423,6 +427,7 @@ export function HerdrCard({
           ) : (
             bottomFallback
           )}
+
         </div>
       </div>
     </div>

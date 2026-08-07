@@ -2351,18 +2351,21 @@ html[data-surface-motion="paused"] .vellum-node[data-seat-attention="true"] {
   padding-left: 0;
   list-style: none;
   color: var(--color-ink-2);
+
 }
 .note-md__li {
   position: relative;
   margin: 0.32em 0;
   padding-left: 1.05em;
   color: var(--color-ink-2);
+
 }
 ul.note-md__list > .note-md__li::before {
   content: "–";
   position: absolute;
   left: 0;
   color: var(--color-dim);
+
 }
 ol.note-md__list {
   counter-reset: note-md-ol;
@@ -2380,6 +2383,7 @@ ol.note-md__list > .note-md__li::before {
 }
 
 /* Inline / fenced code — inset instrument glass. */
+
 .note-md__code {
   border: 1px solid var(--color-stroke);
   border-radius: 3px;

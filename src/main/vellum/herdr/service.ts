@@ -532,6 +532,7 @@ export class HerdrService {
     // Foreground processes: exec-only and expensive. Mirror path never has
     // them; client merge sticky-keeps the last list so inspector PROCESS does
     // not flash empty on every fresh-mirror tick after a stale exec.
+
     let processes: ReadonlyArray<HerdrProcessInfo> | undefined;
     const processInfo = await runEnvelope(
       this.runner,
@@ -585,6 +586,7 @@ export class HerdrService {
       ok: true,
       data: { paneId, agentStatus: status },
     };
+
   }
 
   async createWorkspace(

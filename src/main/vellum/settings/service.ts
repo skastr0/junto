@@ -1,6 +1,9 @@
 import { Context, Effect, Result, Layer, Schema } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
-import { CommandCenterConfiguration } from "@shared/station-api";
+import {
+  CommandCenterConfiguration,
+  StationHostId,
+} from "@shared/station-api";
 import {
   SETTINGS_MAX_SERIALIZED_BYTES,
   SettingsError,
@@ -9,7 +12,10 @@ import {
   type Settings,
   type SettingsSectionKey,
 } from "@shared/settings";
-import { assessSupervisedRuntime } from "@shared/station";
+import {
+  assessSupervisedRuntime,
+  DEFAULT_STATION_HOST_ID,
+} from "@shared/station";
 import {
   StateEngine,
   StateEngineError,
@@ -287,6 +293,40 @@ const initializeSettings = (
     Effect.withSpan("settings.initialize"),
   );
 
+/**
+ * v1 is single-machine: every unset, unpaired installation becomes the local
+ * Command Center. Remote pairing remains possible only via Station API (not
+ * a first-run product path). Idempotent.
+ */
+const ensureDefaultCommandCenter = (
+  state: StateService,
+): Effect.Effect<void, SettingsError> =>
+  state
+    .transaction("settings.ensure-command-center", (writer) => {
+      const pairing = writer.get<StateRow>(
+        `SELECT 1 AS paired
+           FROM station_pairing
+          WHERE singleton = 1`,
+      );
+      if (pairing !== undefined) return;
+      if (selectStationConfiguration(writer) !== undefined) return;
+      writeStationConfiguration(
+        writer,
+        {
+          role: "command-center",
+          hostId: Schema.decodeUnknownSync(StationHostId)(
+            DEFAULT_STATION_HOST_ID,
+          ),
+          supervisedPreferred: false,
+        },
+        new Date().toISOString(),
+      );
+    })
+    .pipe(
+      Effect.mapError(stateFailure),
+      Effect.withSpan("settings.ensure-command-center"),
+    );
+
 type MutationResult = {
   readonly settings: Settings;
   readonly changed: boolean;
@@ -324,6 +364,7 @@ export const makeSettingsService = (
     const probeSupervised =
       options.probeSupervised ?? probeSupervisedRuntime;
     yield* initializeSettings(state);
+    yield* ensureDefaultCommandCenter(state);
 
     const listeners = new Set<(settings: Settings) => void>();
 

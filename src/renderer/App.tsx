@@ -45,7 +45,6 @@ const FleetOverlay = lazy(async () => {
   const mod = await import("./components/fleet/FleetOverlay");
   return { default: mod.FleetOverlay };
 });
-import { StationRoleGate } from "./components/StationRoleGate";
 import {
   FLEET_UI_ENABLED,
   HERDR_ENABLED,
@@ -487,7 +486,6 @@ export function App() {
             <FleetOverlay />
           </Suspense>
         ) : null}
-        <StationRoleGate />
         {HERDR_ENABLED ? (
           <>
             <HerdrWizard />

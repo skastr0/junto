@@ -93,9 +93,9 @@ release instructions in [CONTRIBUTING.md](CONTRIBUTING.md).
 ## Quick start
 
 1. Download and open **Vellum Command** from the [Vellum Command download page](https://vellumcommand.com/download).
-2. Pick a **station role** (Command Center or Remote) on first run.
-3. Author the board — drop agents, herdr panes, pages, tasks, regions.
-4. Open an agent or herdr surface; drive work via the **Vellum Command CLI** or in-app chat.
+2. Activate with your license key (in-app). The install becomes the local Command Center automatically.
+3. Author the board — drop agents, tasks, regions, and edges.
+4. Open an agent surface; drive work via the **Vellum Command CLI** or in-app chat.
 
 ---
 

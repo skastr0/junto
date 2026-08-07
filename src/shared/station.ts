@@ -12,8 +12,9 @@ import type { HostId } from "./remote-hosts";
  * - Command Center — human authors the canvas; manages fleet via host registry.
  * - Remote — local capability host; pulls canvases; host-scoped execution only.
  *
- * Role is user-selected only. Never inferred from hardware, open windows, or
- * network topology.
+ * Role is never inferred from hardware, open windows, or network topology.
+ * v1 product path auto-establishes Command Center on first boot; Remote is
+ * Station-API pairing only (not a first-run choice).
  */
 
 export const STATION_ROLES = ["command-center", "remote"] as const;

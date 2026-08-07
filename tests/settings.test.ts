@@ -214,10 +214,17 @@ describe("SQLite settings service", () => {
     return harness;
   };
 
-  it("initializes defaults in SQLite", async () => {
+  it("initializes defaults in SQLite and auto-establishes Command Center", async () => {
     const { service, state } = await openService();
     const settings = await run(service.get);
-    expect(settings).toEqual(defaultSettings());
+    expect(settings).toEqual({
+      ...defaultSettings(),
+      station: {
+        role: "command-center",
+        hostId: "local",
+        supervisedPreferred: false,
+      },
+    });
 
     const counts = await run(
       state.read("test.settings.count", (reader) => ({
@@ -240,7 +247,7 @@ describe("SQLite settings service", () => {
     );
     expect(counts).toEqual({
       preferences: 1,
-      stationConfiguration: 0,
+      stationConfiguration: 1,
       initialization: 1,
     });
   });
@@ -432,7 +439,7 @@ describe("SQLite settings service", () => {
       expect(result.failure.code).toBe("validation");
       expect(result.failure.message).toContain("settingsSetStationTopology");
     }
-    expect((await run(service.get)).station.role).toBe("");
+    expect((await run(service.get)).station.role).toBe("command-center");
   });
 
   it("freezes established Command Center identity but permits supervisor preference", async () => {
@@ -478,7 +485,12 @@ describe("SQLite settings service", () => {
     if (Result.isFailure(result)) {
       expect(result.failure.message).toContain("Station API");
     }
-    expect((await run(service.get)).station).toEqual(defaultSettings().station);
+    // v1 auto-establishes Command Center; remote invent still fails and leaves CC.
+    expect((await run(service.get)).station).toEqual({
+      role: "command-center",
+      hostId: "local",
+      supervisedPreferred: false,
+    });
     expect(
       await run(
         state.read("test.settings.no-remote", (reader) =>
@@ -487,7 +499,7 @@ describe("SQLite settings service", () => {
           )
         ),
       ),
-    ).toBeUndefined();
+    ).toEqual({ role: "command-center" });
   });
 
   it("rejects the retired topologyIntegrity field instead of ignoring it", async () => {
@@ -504,7 +516,7 @@ describe("SQLite settings service", () => {
         /topologyIntegrity|Unexpected key/i,
       );
     }
-    expect((await run(service.get)).station.role).toBe("");
+    expect((await run(service.get)).station.role).toBe("command-center");
   });
 
   it("reset preserves protected topology and refuses station reset", async () => {
@@ -538,7 +550,7 @@ describe("SQLite settings service", () => {
     expect(check.detail).not.toContain(root);
     expect(check.metadata).toMatchObject({
       version: "1",
-      role: "unset",
+      role: "command-center",
       hostId: "local",
       supervisedPreferred: "false",
       supervisedInstalled: "absent",
@@ -557,6 +569,7 @@ describe("SQLite settings service", () => {
            ) VALUES ('command-id', ?)`,
           ["2026-07-27T12:00:00.000Z"],
         );
+        // Replace auto-established CC with a malformed Remote row.
         writer.run(
           `INSERT INTO station_configuration(
              singleton,
@@ -566,7 +579,15 @@ describe("SQLite settings service", () => {
              command_center_installation_id,
              supervised_preferred,
              configured_at
-           ) VALUES (1, 'remote', ?, 'studio', 'command-id', 1, ?)`,
+           ) VALUES (1, 'remote', ?, 'studio', 'command-id', 1, ?)
+           ON CONFLICT(singleton) DO UPDATE SET
+             role = excluded.role,
+             host_id = excluded.host_id,
+             agent_host_id = excluded.agent_host_id,
+             command_center_installation_id =
+               excluded.command_center_installation_id,
+             supervised_preferred = excluded.supervised_preferred,
+             configured_at = excluded.configured_at`,
           [
             "-invalid-host",
             "2026-07-27T12:00:00.000Z",
