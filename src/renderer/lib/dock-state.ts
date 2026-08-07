@@ -397,7 +397,7 @@ export const setWorkbenchPinnedWidthFrac = (frac: number): void => {
 };
 
 export const setWorkbenchFocusSize = (
-  size: { readonly width: number; readonly height: number } | null,
+  size: Parameters<typeof setFocusSize>[1],
 ): void => {
   applyTransition(setFocusSize(dock$.registry.peek(), size));
 };

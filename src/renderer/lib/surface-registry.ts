@@ -21,6 +21,23 @@ export interface WorkSurface {
   readonly zone: WorkZone;
 }
 
+/**
+ * Which focus-shell layout a remembered width applies to.
+ * Must match WorkFocusShell's measure derivation so a narrow terminal resize
+ * never poisons task-create / chat / workspace width (or the reverse).
+ */
+export type WorkFocusSizeKey =
+  | "terminal"
+  | "workspace"
+  | "chat"
+  | "task-create";
+
+export type WorkFocusSize = {
+  readonly key: WorkFocusSizeKey;
+  readonly width: number;
+  readonly height: number;
+};
+
 export interface WorkbenchState {
   readonly surfaces: ReadonlyArray<WorkSurface>;
   /** MRU per zone; index 0 is frontmost. */
@@ -28,7 +45,11 @@ export interface WorkbenchState {
   readonly pinnedMru: ReadonlyArray<string>;
   readonly focusLayout: LayoutMode;
   readonly pinnedLayout: LayoutMode;
-  readonly focusSize: { readonly width: number; readonly height: number } | null;
+  /**
+   * Last user-resized focus panel box, keyed by shell layout family.
+   * Null / missing key → CSS measure owns width (no inline override).
+   */
+  readonly focusSize: WorkFocusSize | null;
   /** Fraction of stage width for the pinned dock (0.25–0.70). */
   readonly pinnedWidthFrac: number;
 }
@@ -235,22 +256,34 @@ export const setPinnedWidthFrac = (
 
 export const setFocusSize = (
   state: WorkbenchState,
-  size: { readonly width: number; readonly height: number } | null,
+  size: WorkFocusSize | null,
 ): WorkbenchTransition => {
-  if (
-    size === null && state.focusSize === null
-  ) {
+  if (size === null && state.focusSize === null) {
     return { state, evicted: [] };
   }
   if (
     size &&
     state.focusSize &&
+    size.key === state.focusSize.key &&
     size.width === state.focusSize.width &&
     size.height === state.focusSize.height
   ) {
     return { state, evicted: [] };
   }
   return { state: { ...state, focusSize: size }, evicted: [] };
+};
+
+/** Resolve focus-shell size key from the surfaces currently in the focus zone. */
+export const workFocusSizeKeyForSurfaces = (
+  focusSurfaces: ReadonlyArray<WorkSurface>,
+): WorkFocusSizeKey => {
+  if (focusSurfaces.length === 0) return "workspace";
+  if (focusSurfaces.every((s) => s.kind === "herdr" || s.kind === "terminal")) {
+    return "terminal";
+  }
+  if (focusSurfaces.every((s) => s.kind === "chat")) return "chat";
+  if (focusSurfaces.every((s) => s.kind === "task-create")) return "task-create";
+  return "workspace";
 };
 
 export const workbenchInteractiveSurface = (

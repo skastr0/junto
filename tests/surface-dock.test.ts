@@ -8,11 +8,13 @@ import {
   isInteractiveSurface,
   openSurface,
   pinSurface,
+  setFocusSize,
   setLayout,
   unpinSurface,
   visiblePanes,
   workbenchBrowserSurfaces,
   workbenchInteractiveSurface,
+  workFocusSizeKeyForSurfaces,
   type WorkbenchState,
 } from "../src/renderer/lib/surface-registry";
 import {
@@ -150,6 +152,49 @@ describe("surface-registry (pure workbench)", () => {
     ]);
     t = pinSurface(t.state, "task-create:tasks-1");
     expect(t.state.pinnedMru).toEqual(["task-create:tasks-1", "terminal:n1"]);
+  });
+
+  it("keys remembered focus width by surface family so pin/resize cannot poison enqueue", () => {
+    expect(
+      workFocusSizeKeyForSurfaces([{ id: "t1", kind: "terminal", zone: "focus" }]),
+    ).toBe("terminal");
+    expect(
+      workFocusSizeKeyForSurfaces([
+        { id: "task-create:x", kind: "task-create", zone: "focus" },
+      ]),
+    ).toBe("task-create");
+    expect(
+      workFocusSizeKeyForSurfaces([
+        { id: "c1", kind: "chat", zone: "focus" },
+        { id: "c2", kind: "chat", zone: "focus" },
+      ]),
+    ).toBe("chat");
+    expect(
+      workFocusSizeKeyForSurfaces([
+        { id: "t1", kind: "terminal", zone: "focus" },
+        { id: "task-create:x", kind: "task-create", zone: "focus" },
+      ]),
+    ).toBe("workspace");
+
+    let state = initialWorkbenchState();
+    state = setFocusSize(state, {
+      key: "terminal",
+      width: 480,
+      height: 800,
+    }).state;
+    expect(state.focusSize?.key).toBe("terminal");
+    expect(state.focusSize?.width).toBe(480);
+    // Writing a different family replaces memory (shell only restores matching key).
+    state = setFocusSize(state, {
+      key: "task-create",
+      width: 1080,
+      height: 800,
+    }).state;
+    expect(state.focusSize).toEqual({
+      key: "task-create",
+      width: 1080,
+      height: 800,
+    });
   });
 });
 

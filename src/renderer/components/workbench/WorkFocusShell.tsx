@@ -10,8 +10,11 @@ import { actorEdgeRows } from "../../lib/actor-edges";
 import {
   surfaceById,
   visiblePanes,
+  workFocusSizeKeyForSurfaces,
   zoneHasSurfaces,
+  type WorkFocusSizeKey,
 } from "../../lib/surface-registry";
+import type { FocusMeasure } from "../../lib/focus-measure";
 import { state$ } from "../../lib/state";
 import { terminal$ } from "../../lib/terminal-state";
 import { FocusSurface } from "../FocusSurface";
@@ -19,9 +22,22 @@ import { ActorEdgesGlance } from "../terminal/ActorEdgesGlance";
 import { WorkbenchChrome } from "./WorkbenchChrome";
 import { WorkbenchPanes } from "./WorkbenchPanes";
 
+/** Map shell size family → FocusSurface measure token. */
+const measureForSizeKey = (key: WorkFocusSizeKey): FocusMeasure => {
+  switch (key) {
+    case "terminal":
+      return "terminal";
+    case "chat":
+    case "task-create":
+    case "workspace":
+      return "workspace";
+  }
+};
+
 /**
  * Centered focus-zone shell. Mounts when focus zone is non-empty.
- * Measure: terminal when only herdr; workspace otherwise (browser / split).
+ * Measure / remembered width is keyed by surface family so a resized
+ * terminal cannot leave task-create (or other) modals stuck narrow.
  * Herdr slots are registered synchronously via dock-state observe.
  */
 export function WorkFocusShell() {
@@ -29,16 +45,11 @@ export function WorkFocusShell() {
 
   const hasFocus = zoneHasSurfaces(registry, "focus");
   const focusSurfaces = registry.surfaces.filter((s) => s.zone === "focus");
-  const onlyTerminals =
-    focusSurfaces.length > 0 &&
-    focusSurfaces.every((s) => s.kind === "herdr" || s.kind === "terminal");
-  const onlyChats =
-    focusSurfaces.length > 0 &&
-    focusSurfaces.every((s) => s.kind === "chat");
-  const onlyTaskCreate =
-    focusSurfaces.length > 0 &&
-    focusSurfaces.every((s) => s.kind === "task-create");
-  const measure = onlyTerminals ? "terminal" : "workspace";
+  const sizeKey = workFocusSizeKeyForSurfaces(focusSurfaces);
+  const onlyTerminals = sizeKey === "terminal";
+  const onlyChats = sizeKey === "chat";
+  const onlyTaskCreate = sizeKey === "task-create";
+  const measure = measureForSizeKey(sizeKey);
   // Dock chrome (tabs / split / pin-all) is for multi-surface browser work.
   // Pure terminal/herdr focus uses surface-local Pin + Close — reusing the
   // side-dock strip here was noise (fake single tab + split toggle).
@@ -78,20 +89,27 @@ export function WorkFocusShell() {
         ".focus-surface__panel.work-focus-shell__panel",
       ) as HTMLElement | null;
       if (!panel) return;
-      // Width only: height is stage-fixed in CSS so the shell opens at the
-      // same height every time. A remembered height made each open inherit
-      // the last resize (and the last surface kind's natural box).
+      // Width only, and only when memory matches this surface family.
+      // Mismatched keys clear inline width so CSS measure (terminal / workspace
+      // / task-create) owns the box after pin/unpin or kind switches.
       const stored = dock$.registry.peek().focusSize;
-      if (stored) {
+      if (stored && stored.key === sizeKey) {
         panel.style.width = `${stored.width}px`;
         lastWritten.current = stored.width;
+      } else {
+        panel.style.removeProperty("width");
+        lastWritten.current = null;
       }
       panelObserverRef.current?.disconnect();
       const obs = new ResizeObserver(() => {
         const w = panel.offsetWidth;
         if (lastWritten.current === w) return;
         lastWritten.current = w;
-        setWorkbenchFocusSize({ width: w, height: panel.offsetHeight });
+        setWorkbenchFocusSize({
+          key: sizeKey,
+          width: w,
+          height: panel.offsetHeight,
+        });
       });
       obs.observe(panel);
       panelObserverRef.current = obs;
@@ -101,7 +119,7 @@ export function WorkFocusShell() {
       panelObserverRef.current?.disconnect();
       panelObserverRef.current = null;
     };
-  }, [hasFocus, measure]);
+  }, [hasFocus, sizeKey]);
 
   if (!hasFocus) return null;
 
