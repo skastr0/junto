@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { use$ } from "@legendapp/state/react";
 import { Bell, Check, Inbox, ListChecks, MessageSquareText, Package, Plus, Send, X } from "lucide-react";
 import type {
   CanvasNode,
@@ -24,6 +25,7 @@ import { OverlayHeader } from "../ui/OverlayHeader";
 import { applyWorkCanvasWrite, editText } from "../../lib/mutations";
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import { state$ } from "../../lib/state";
+import { boardAuthorLabel } from "../../lib/board-author";
 import { getVellumCommandApi } from "../../lib/vellum-api";
 import { FirstLineRenameInput } from "../nodes/FirstLineRenameInput";
 import { TaskBoard } from "./TaskBoard";
@@ -101,10 +103,6 @@ const boardTextOf = (parts: ReadonlyArray<Part>): string =>
     .filter((part): part is Extract<Part, { kind: "text" }> => part.kind === "text")
     .map((part) => part.text)
     .join("\n");
-
-const boardAuthorLabel = (author: BoardPost["author"] | BoardTopic["openedBy"]): string =>
-  author.label ??
-  (author.kind === "operator" ? "operator" : (author.nodeId ?? author.kind));
 
 const boardTimestamp = (value: string): string => {
   const date = new Date(value);
@@ -474,6 +472,7 @@ export function BoardDetail({
     [],
   );
   const [loading, setLoading] = useState(false);
+  const doc = use$(state$.doc);
   /** Full topics from SQLite list; glance only used as empty-state labels. */
   const topics = detailTopics;
   const selected: BoardTopic | undefined =
@@ -673,7 +672,7 @@ export function BoardDetail({
                       <strong>{topic.title}</strong>
                       {boardTopicPreview(topic) ? <span>{boardTopicPreview(topic)}</span> : null}
                       <small>
-                        {boardAuthorLabel(topic.openedBy)} - {boardTimestamp(topic.lastActivityAt)}
+                        {boardAuthorLabel(topic.openedBy, doc.nodes)} - {boardTimestamp(topic.lastActivityAt)}
                       </small>
                     </span>
                     <span className="board-topic-row__count" aria-label={`${topic.postCount} posts`}>
@@ -691,7 +690,7 @@ export function BoardDetail({
                   <div>
                     <h2>{selected.title}</h2>
                     <p>
-                      Opened by {boardAuthorLabel(selected.openedBy)} - {boardTimestamp(selected.openedAt)} - {selected.postCount}{" "}
+                      Opened by {boardAuthorLabel(selected.openedBy, doc.nodes)} - {boardTimestamp(selected.openedAt)} - {selected.postCount}{" "}
                       {selected.postCount === 1 ? "post" : "posts"}
                       {loading ? " - loading…" : ""}
                     </p>
@@ -726,11 +725,11 @@ export function BoardDetail({
                     ).map((post, index) => (
                       <article key={post.postId} className="board-post" data-testid="board-post">
                         <div className="board-post__avatar" aria-hidden>
-                          {boardAuthorLabel(post.author).slice(0, 1).toUpperCase()}
+                          {boardAuthorLabel(post.author, doc.nodes).slice(0, 1).toUpperCase()}
                         </div>
                         <div className="board-post__body">
                           <header>
-                            <strong>{boardAuthorLabel(post.author)}</strong>
+                            <strong>{boardAuthorLabel(post.author, doc.nodes)}</strong>
                             {index === 0 ? <span className="board-post__opening">opened topic</span> : null}
                             <time dateTime={post.createdAt}>{boardTimestamp(post.createdAt)}</time>
                           </header>

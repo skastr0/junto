@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { Effect, Result, Option, Schema } from "effect";
 import { ulid } from "ulid";
 import type { Artifact, CanvasDoc, Message, Part } from "@shared/canvas";
+import type { BoardAuthor } from "@shared/work-model";
 import {
   normalizePreambleText,
   PREAMBLE_MAX_TEXT_LENGTH,
@@ -137,6 +138,7 @@ import {
   factoryRoleOfNode,
   findNode,
   nodeKind,
+  nodeTitle,
   regionVisibility,
   summarizeNode,
 } from "./authz";
@@ -500,6 +502,17 @@ export const resolveProcessBoundActorRef = (
         "your process does not resolve to exactly one agent node; ask the operator to check this agent on the canvas",
     },
   });
+};
+
+/** Bind board display metadata to the authored title, not the opaque node id. */
+const boardAuthorForActor = (doc: CanvasDoc, actor: ActorRef): BoardAuthor => {
+  const node = findNode(doc, actor.nodeId);
+  return {
+    kind: "actor",
+    seatId: actor.seatId,
+    nodeId: actor.nodeId,
+    label: node ? nodeTitle(node) : actor.nodeId,
+  };
 };
 
 const dispatchOp = (
@@ -1169,12 +1182,7 @@ const dispatchOp = (
       if ("type" in gate) return yield* Effect.fail(gate);
       const bound = resolveProcessBoundActorRef(read.actorRefs, caller);
       if (Result.isFailure(bound)) return yield* Effect.fail(bound.failure);
-      const author = {
-        kind: "actor" as const,
-        seatId: bound.success.seatId,
-        nodeId: bound.success.nodeId,
-        label: caller.nodeId,
-      };
+      const author = boardAuthorForActor(board, bound.success);
       // Agents never wake the floor — notify flag ignored.
       const result = yield* work.workBoardCreateTopic(
         caller.canvasName,
@@ -1196,12 +1204,7 @@ const dispatchOp = (
       if ("type" in gate) return yield* Effect.fail(gate);
       const bound = resolveProcessBoundActorRef(read.actorRefs, caller);
       if (Result.isFailure(bound)) return yield* Effect.fail(bound.failure);
-      const author = {
-        kind: "actor" as const,
-        seatId: bound.success.seatId,
-        nodeId: bound.success.nodeId,
-        label: caller.nodeId,
-      };
+      const author = boardAuthorForActor(board, bound.success);
       const result = yield* work.workBoardPost(
         caller.canvasName,
         decoded.success.target,
