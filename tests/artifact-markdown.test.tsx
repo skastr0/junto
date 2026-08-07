@@ -36,6 +36,15 @@ describe("ArtifactMarkdown", () => {
     expect(html).not.toContain("<script");
     expect(html).toContain("visible");
   });
+
+  it("renders unsafe links as inert text", () => {
+    const html = renderToStaticMarkup(
+      <ArtifactMarkdown source="[run](javascript:alert(1))" />,
+    );
+
+    expect(html).not.toContain("javascript:");
+    expect(html).toContain("artifact-markdown__blocked-link");
+  });
 });
 
 describe("safeArtifactMarkdownUrl", () => {
