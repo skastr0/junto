@@ -2687,41 +2687,33 @@ ol.note-md__list > .note-md__li::before {
   .vellum-tooltip { transition: none; }
 }
 
-/* Actor focus — outside-the-plate right rail (FocusSurface aside).
-   Never overlays the terminal subject. */
+/* Actor terminal — edges nested under OverlayHeader (same modal plate as xterm).
+   Not a floating FocusSurface aside; works in focus and pinned dock. */
 .actor-edges-glance {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  width: 248px;
-  height: 100%;
-  max-height: 100%;
-  padding: 12px 12px 10px;
-  border: 1px solid color-mix(in srgb, var(--color-stroke) 88%, transparent);
-  border-radius: 12px;
-  background:
-    linear-gradient(
-      165deg,
-      color-mix(in srgb, var(--color-raise) 94%, transparent),
-      color-mix(in srgb, var(--color-ground) 90%, transparent)
-    );
-  box-shadow:
-    0 1px 0 color-mix(in srgb, var(--color-ink) 4%, transparent) inset,
-    0 18px 48px var(--color-shadow-1);
-  backdrop-filter: blur(10px);
-  pointer-events: auto;
+  gap: 0;
+  flex-shrink: 0;
+  width: 100%;
+  min-width: 0;
+  max-height: min(36%, 220px);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-stroke) 88%, transparent);
+  background: color-mix(in srgb, var(--color-raise-2) 92%, transparent);
   overflow: hidden;
+}
+.actor-edges-glance--collapsed {
+  max-height: none;
 }
 .actor-edges-glance__chrome {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
+  align-items: center;
+  gap: 6px;
   flex-shrink: 0;
-  padding: 0 2px 2px;
-  border-bottom: 1px solid color-mix(in srgb, var(--color-stroke) 70%, transparent);
+  padding: 4px 10px 4px 8px;
+  min-height: 28px;
 }
 .actor-edges-glance__count {
+  margin-left: auto;
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: 10px;
   letter-spacing: 0.04em;
@@ -2730,10 +2722,11 @@ ol.note-md__list > .note-md__li::before {
 }
 .actor-edges-glance__list {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  flex-wrap: wrap;
   gap: 6px;
   margin: 0;
-  padding: 0 0 2px;
+  padding: 0 10px 8px;
   list-style: none;
   min-height: 0;
   overflow-y: auto;
@@ -2744,8 +2737,10 @@ ol.note-md__list > .note-md__li::before {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  min-width: 0;
-  padding: 8px 9px;
+  min-width: 140px;
+  max-width: 220px;
+  flex: 1 1 140px;
+  padding: 6px 8px;
   border: 1px solid color-mix(in srgb, var(--color-stroke) 80%, transparent);
   border-radius: 7px;
   background: color-mix(in srgb, var(--color-inset) 78%, transparent);
@@ -2802,11 +2797,6 @@ ol.note-md__list > .note-md__li::before {
   flex-wrap: wrap;
   gap: 4px;
   margin-top: 2px;
-}
-@media (prefers-reduced-motion: reduce) {
-  .actor-edges-glance {
-    backdrop-filter: none;
-  }
 }
 
 /* Native terminal — fill focus/dock body.

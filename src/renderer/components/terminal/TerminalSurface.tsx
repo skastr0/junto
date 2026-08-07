@@ -21,6 +21,7 @@ import {
   VELLUM_XTERM_FONT_FAMILY,
   xtermThemeFor,
 } from "../../lib/terminal-theme";
+import { attachXtermAppearance } from "../../lib/xterm-appearance";
 import { themeMode$ } from "../../lib/theme-mode";
 import { shouldNotifyPtyResize } from "../../lib/terminal-resize";
 import {
@@ -52,6 +53,7 @@ import {
 import { releaseTaskToQueue } from "../../lib/work-actions";
 import { ActivityMark } from "../ActivityMark";
 import { Button, Eyebrow, OverlayHeader } from "../ui";
+import { ActorEdgesGlance } from "./ActorEdgesGlance";
 import { SessionLoadSpinner } from "./SessionLoadSpinner";
 
 type AttachResult = {
@@ -169,6 +171,9 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
+  const appearanceRef = useRef<ReturnType<typeof attachXtermAppearance> | null>(
+    null,
+  );
   const leaseRef = useRef<string | undefined>(undefined);
   const epochRef = useRef<string | undefined>(undefined);
   const apiRef = useRef<VellumCommandTerminalApi | undefined>(undefined);
@@ -308,6 +313,18 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
     // Drag-select → system clipboard on mouseup (shared with herdr PTY).
     const detachAutoCopy = attachXtermAutoCopy(host, term);
 
+    // Live appearance protocol: OSC 10/11 via xterm theme; CSI ?996n / ?2031
+    // / live ?997 reports. Policy from settings (follow Vellum Command default).
+    const agentAppearance =
+      state$.settings.appearance.agentAppearance?.peek() === "agent"
+        ? "agent"
+        : "follow";
+    const appearance = attachXtermAppearance(term, {
+      initialMode: themeMode$.peek(),
+      policy: agentAppearance,
+    });
+    appearanceRef.current = appearance;
+
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
     const settleTimers: ReturnType<typeof setTimeout>[] = [];
     /** Last real host box — detect pin reflow size jumps. */
@@ -382,18 +399,19 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
       observer.disconnect();
       if (resizeTimer) clearTimeout(resizeTimer);
       for (const t of settleTimers) clearTimeout(t);
+      appearance.dispose();
+      appearanceRef.current = null;
       term.dispose();
       termRef.current = null;
       fitRef.current = null;
     };
   }, []);
 
-  // Live theme swap: repaint the terminal when the mode flips.
+  // Live theme swap: re-apply Vellum palette + optional CSI ?997 report.
   useEffect(
     () =>
       themeMode$.onChange(({ value }) => {
-        const term = termRef.current;
-        if (term) term.options.theme = xtermThemeFor(value);
+        appearanceRef.current?.setMode(value);
       }),
     [],
   );
@@ -830,6 +848,8 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
           </>
         }
       />
+      {/* Edges nested under the top bar (same plate as xterm); also when pinned. */}
+      <ActorEdgesGlance node={node} />
       {claimedTask ? (
         <div
           className="flex items-center gap-2 border-b border-stroke bg-cyan/[0.045] px-3 py-1.5 text-[11px]"

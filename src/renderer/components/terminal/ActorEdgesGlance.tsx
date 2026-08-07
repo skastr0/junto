@@ -1,13 +1,16 @@
 /**
- * Outside-the-plate right-rail edge inventory for an actor on focus.
- * Mounted as FocusSurface `aside` (sibling of the modal panel) so the TUI
- * stays unobscured while the operator still sees connected peers + ports.
+ * Nested edge inventory for an actor terminal surface.
+ *
+ * Lives under the modal top bar (same plate as xterm), not a floating aside.
+ * Collapse / expand with a small control; still available when the surface is
+ * pinned (TerminalSurface hosts it in both focus and dock).
  *
  * No "soft" / "tasks" edge nature — those were authorial relationship modes.
  * Live stoppage is a derived chip only when the kernel reports blocks.
  */
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { use$ } from "@legendapp/state/react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
 import { isGroup } from "@shared/graph";
 import { resolveSpec, roleOf } from "@shared/physics";
@@ -18,7 +21,7 @@ import {
 } from "../../lib/actor-edges";
 import { state$ } from "../../lib/state";
 import { kernel$ } from "../../lib/kernel-view";
-import { Chip, Eyebrow } from "../ui";
+import { Chip, Eyebrow, IconButton } from "../ui";
 
 const DirectionMark = ({ direction }: { readonly direction: "out" | "in" }) => (
   <span
@@ -98,6 +101,7 @@ export function ActorEdgesGlance({ node }: { readonly node: CanvasNode }) {
   const doc = use$(state$.doc);
   const execution = use$(kernel$.execution);
   const executionRev = use$(kernel$.executionRev);
+  const [expanded, setExpanded] = useState(true);
 
   const isActor = useMemo(() => {
     const role = roleOf(
@@ -124,13 +128,25 @@ export function ActorEdgesGlance({ node }: { readonly node: CanvasNode }) {
   if (!isActor || rows.length === 0) return null;
 
   return (
-    <aside
-      className="actor-edges-glance"
+    <section
+      className={[
+        "actor-edges-glance",
+        expanded ? "actor-edges-glance--expanded" : "actor-edges-glance--collapsed",
+      ].join(" ")}
       data-testid="actor-edges-glance"
-      role="region"
       aria-label="Connected edges"
     >
       <header className="actor-edges-glance__chrome">
+        <IconButton
+          size="sm"
+          title={expanded ? "Collapse edges" : "Expand edges"}
+          aria-label={expanded ? "Collapse edges" : "Expand edges"}
+          aria-expanded={expanded}
+          aria-controls={`actor-edges-list-${node.id}`}
+          onClick={() => setExpanded((v) => !v)}
+        >
+          {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        </IconButton>
         <Eyebrow tone="steel" size="xs">
           edges
         </Eyebrow>
@@ -138,11 +154,16 @@ export function ActorEdgesGlance({ node }: { readonly node: CanvasNode }) {
           {rows.length}
         </span>
       </header>
-      <ul className="actor-edges-glance__list">
-        {rows.map((row) => (
-          <EdgeCard key={row.edgeId} row={row} />
-        ))}
-      </ul>
-    </aside>
+      {expanded ? (
+        <ul
+          id={`actor-edges-list-${node.id}`}
+          className="actor-edges-glance__list"
+        >
+          {rows.map((row) => (
+            <EdgeCard key={row.edgeId} row={row} />
+          ))}
+        </ul>
+      ) : null}
+    </section>
   );
 }
