@@ -1,13 +1,20 @@
 /**
  * Shared harness pick UI (palette agents column + agent re-seat).
  * One cascade menu + template list — do not fork harness rules.
+ *
+ * Listing rules (in order):
+ *  1. compile-time feature gate (`managedHarnessEnabled` via allTemplates)
+ *  2. local CLI install probe (main PATH + known install homes)
+ * Never offer a harness that would spawn a broken/missing binary.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   allTemplates,
   templateFor,
   type HarnessId,
+  type ManagedTerminalTemplate,
 } from "@shared/managed-terminal-templates";
+import { getVellumCommandApi } from "../../lib/vellum-api";
 import { HarnessMark } from "../herdr/HarnessMark";
 import type { AgentConfigurationChoices } from "./agent-launch-model";
 import { AgentCascadeMenu } from "./AgentCascadeMenu";
@@ -101,11 +108,51 @@ export function AgentHarnessPick({
     [closeCascade, onConfigure],
   );
 
-  const matchingTemplates = allTemplates().filter(
-    (template) =>
-      !query.trim() ||
-      template.displayName.toLowerCase().includes(query.trim().toLowerCase()),
-  );
+  /** Feature-enabled templates; install filter applied after probe. */
+  const featureTemplates = useMemo(() => allTemplates(), []);
+  const [installedHarnesses, setInstalledHarnesses] = useState<
+    ReadonlySet<HarnessId> | null
+  >(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const api = getVellumCommandApi();
+    if (!api?.managedTerminalHarnesses) {
+      // No probe API (tests / degraded preload): fail closed — hide all until
+      // we can prove install. Feature gate still applied via empty set.
+      setInstalledHarnesses(new Set());
+      return;
+    }
+    void api
+      .managedTerminalHarnesses()
+      .then((result) => {
+        if (cancelled) return;
+        const installed = new Set<HarnessId>();
+        for (const row of result.harnesses) {
+          if (row.installed) installed.add(row.harness as HarnessId);
+        }
+        setInstalledHarnesses(installed);
+      })
+      .catch(() => {
+        if (!cancelled) setInstalledHarnesses(new Set());
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const matchingTemplates: readonly ManagedTerminalTemplate[] = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return featureTemplates.filter((template) => {
+      if (installedHarnesses !== null && !installedHarnesses.has(template.harness)) {
+        return false;
+      }
+      // While probe is in flight, show nothing (avoid flash of uninstalled rows).
+      if (installedHarnesses === null) return false;
+      if (!q) return true;
+      return template.displayName.toLowerCase().includes(q);
+    });
+  }, [featureTemplates, installedHarnesses, query]);
 
   return (
     <div
@@ -113,6 +160,18 @@ export function AgentHarnessPick({
       aria-label={listLabel}
     >
       <div className="agent-harness-pick__list" role="list">
+        {installedHarnesses === null ? (
+          <div className="agent-harness-pick__loading" role="status" aria-label="Detecting installed agents">
+            Detecting installed agents…
+          </div>
+        ) : null}
+        {installedHarnesses !== null && matchingTemplates.length === 0 ? (
+          <div className="agent-harness-pick__empty" role="status">
+            {featureTemplates.length === 0
+              ? "No agent harnesses enabled in this build."
+              : "No installed agent CLIs found on this machine."}
+          </div>
+        ) : null}
         {matchingTemplates.map((template) => {
           const selected = agentCascade?.harness === template.harness;
           const current = currentHarness === template.harness;

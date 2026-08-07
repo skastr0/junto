@@ -20,6 +20,9 @@ declare const __VELLUM_COMMAND_AUDIO_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HERMES_INTEGRATION_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HERDR_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_DEV_TOOLS_ENABLED__: boolean | undefined;
+declare const __VELLUM_COMMAND_HARNESS_KIMI_ENABLED__: boolean | undefined;
+declare const __VELLUM_COMMAND_HARNESS_MUSE_ENABLED__: boolean | undefined;
+declare const __VELLUM_COMMAND_HARNESS_PRIME_AGENT_ENABLED__: boolean | undefined;
 
 const envEnabled = (key: string): boolean => {
   try {
@@ -92,6 +95,24 @@ export const DEV_TOOLS_ENABLED: boolean =
     ? __VELLUM_COMMAND_DEV_TOOLS_ENABLED__
     : envEnabled("VELLUM_COMMAND_DEV_TOOLS");
 
+/** Experimental Kimi Code managed seat — ship/prod off. */
+export const HARNESS_KIMI_ENABLED: boolean =
+  typeof __VELLUM_COMMAND_HARNESS_KIMI_ENABLED__ === "boolean"
+    ? __VELLUM_COMMAND_HARNESS_KIMI_ENABLED__
+    : envEnabled("VELLUM_COMMAND_HARNESS_KIMI");
+
+/** Experimental Muse Code managed seat — ship/prod off. */
+export const HARNESS_MUSE_ENABLED: boolean =
+  typeof __VELLUM_COMMAND_HARNESS_MUSE_ENABLED__ === "boolean"
+    ? __VELLUM_COMMAND_HARNESS_MUSE_ENABLED__
+    : envEnabled("VELLUM_COMMAND_HARNESS_MUSE");
+
+/** Experimental Prime Agent managed seat — ship/prod off. */
+export const HARNESS_PRIME_AGENT_ENABLED: boolean =
+  typeof __VELLUM_COMMAND_HARNESS_PRIME_AGENT_ENABLED__ === "boolean"
+    ? __VELLUM_COMMAND_HARNESS_PRIME_AGENT_ENABLED__
+    : envEnabled("VELLUM_COMMAND_HARNESS_PRIME_AGENT");
+
 export const BUILD_FEATURES = {
   cron: CRON_ENABLED,
   relay: RELAY_ENABLED,
@@ -103,6 +124,9 @@ export const BUILD_FEATURES = {
   hermesIntegration: HERMES_INTEGRATION_ENABLED,
   herdr: HERDR_ENABLED,
   devTools: DEV_TOOLS_ENABLED,
+  harnessKimi: HARNESS_KIMI_ENABLED,
+  harnessMuse: HARNESS_MUSE_ENABLED,
+  harnessPrimeAgent: HARNESS_PRIME_AGENT_ENABLED,
 } as const;
 
 /** Whether an authored scheduler kind has a live product surface in this build. */
@@ -119,9 +143,18 @@ export const productNodeKindEnabled = (kind: string | undefined): boolean => {
   return true;
 };
 
-/** Durable HarnessId still admits Hermes rows; new product actions do not. */
-export const managedHarnessEnabled = (harness: string): boolean =>
-  harness !== "hermes" || HERMES_INTEGRATION_ENABLED;
+/**
+ * Whether a harness may be authored / spawned in this build.
+ * Durable HarnessId still decodes historical canvas rows; this only gates
+ * palette, seat factory, and terminal create IPC.
+ */
+export const managedHarnessEnabled = (harness: string): boolean => {
+  if (harness === "hermes") return HERMES_INTEGRATION_ENABLED;
+  if (harness === "kimi") return HARNESS_KIMI_ENABLED;
+  if (harness === "muse") return HARNESS_MUSE_ENABLED;
+  if (harness === "prime-agent") return HARNESS_PRIME_AGENT_ENABLED;
+  return true;
+};
 
 /** Strip product-hidden capabilities from a host capability list for UI. */
 export const productHostCapabilities = <T extends string>(

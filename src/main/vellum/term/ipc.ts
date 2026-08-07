@@ -162,6 +162,14 @@ export const registerTerminalIpc = (
     if (!managedHarnessEnabled(harness)) {
       return deny(`terminal ipc: harness ${harness} is disabled in this build`);
     }
+    {
+      const { isManagedHarnessInstalled } = await import("./templates/harness-install");
+      if (!isManagedHarnessInstalled(harness)) {
+        return deny(
+          `terminal ipc: harness ${harness} CLI is not installed on this machine`,
+        );
+      }
+    }
     const agentKey =
       typeof input?.agentKey === "string" ? input.agentKey.trim() : "";
     if (!agentKey) return deny("terminal ipc: agent seat requires an agent key");
@@ -232,6 +240,12 @@ export const registerTerminalIpc = (
     assertTrusted(event);
     const { enumerateManagedProfiles } = await import("./templates/enumerate-dispatch");
     return enumerateManagedProfiles();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.managedTerminalHarnesses, async (event) => {
+    assertTrusted(event);
+    const { probeManagedHarnessInstalls } = await import("./templates/harness-install");
+    return { harnesses: probeManagedHarnessInstalls() };
   });
 
   ipcMain.handle(

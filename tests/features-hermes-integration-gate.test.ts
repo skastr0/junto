@@ -21,17 +21,19 @@ describe("Hermes integration product gate", () => {
   it.runIf(!HERMES_INTEGRATION_ENABLED)(
     "removes Hermes integration while retaining the independent ACP chat plane",
     () => {
+      // Ship/default: experimental harnesses (kimi/muse/prime-agent) and Hermes
+      // are compile-time off. Durable HARNESS_IDS still include them for decode.
       expect(allTemplates().map((template) => template.harness)).toEqual([
         "claude",
         "codex",
         "grok",
         "pi",
-        "prime-agent",
-        "kimi",
-        "muse",
         "devin",
       ]);
       expect(managedHarnessEnabled("hermes")).toBe(false);
+      expect(managedHarnessEnabled("kimi")).toBe(false);
+      expect(managedHarnessEnabled("muse")).toBe(false);
+      expect(managedHarnessEnabled("prime-agent")).toBe(false);
       expect(() =>
         makeManagedAgentNode(0, 0, {
           harness: "hermes",

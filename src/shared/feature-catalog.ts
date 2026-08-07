@@ -44,6 +44,23 @@ export const FEATURE_CATALOG = {
     env: "VELLUM_COMMAND_DEV_TOOLS",
     define: "__VELLUM_COMMAND_DEV_TOOLS_ENABLED__",
   },
+  /**
+   * Experimental managed harnesses — seat rules / process-bind still unfinished.
+   * Ship/prod keeps them off; all-on and explicit env overrides re-enable.
+   * Durable HarnessId decode still admits historical canvas rows.
+   */
+  harnessKimi: {
+    env: "VELLUM_COMMAND_HARNESS_KIMI",
+    define: "__VELLUM_COMMAND_HARNESS_KIMI_ENABLED__",
+  },
+  harnessMuse: {
+    env: "VELLUM_COMMAND_HARNESS_MUSE",
+    define: "__VELLUM_COMMAND_HARNESS_MUSE_ENABLED__",
+  },
+  harnessPrimeAgent: {
+    env: "VELLUM_COMMAND_HARNESS_PRIME_AGENT",
+    define: "__VELLUM_COMMAND_HARNESS_PRIME_AGENT_ENABLED__",
+  },
 } as const;
 
 export type FeatureKey = keyof typeof FEATURE_CATALOG;
@@ -62,6 +79,9 @@ export const SHIP_FEATURES: FeatureSet = {
   hermesIntegration: false,
   herdr: false,
   devTools: false,
+  harnessKimi: false,
+  harnessMuse: false,
+  harnessPrimeAgent: false,
 };
 
 export const ALL_FEATURES: FeatureSet = {
@@ -75,4 +95,7 @@ export const ALL_FEATURES: FeatureSet = {
   hermesIntegration: true,
   herdr: true,
   devTools: true,
+  harnessKimi: true,
+  harnessMuse: true,
+  harnessPrimeAgent: true,
 };

@@ -787,6 +787,8 @@ const terminalApi: VellumCommandTerminalApi = {
     invoke(IPC_CHANNELS.managedTerminalModels, IPC_TIMEOUT_MS, harness),
   managedTerminalProfiles: () =>
     invoke(IPC_CHANNELS.managedTerminalProfiles, IPC_TIMEOUT_MS),
+  managedTerminalHarnesses: () =>
+    invoke(IPC_CHANNELS.managedTerminalHarnesses, IPC_TIMEOUT_MS),
   agentSeatStateSnapshot: () =>
     invoke(IPC_CHANNELS.agentSeatStateSnapshot, IPC_TIMEOUT_MS),
   onAgentSeatStateChanged: (listener) =>

@@ -266,6 +266,11 @@ export const IPC_CHANNELS = {
   managedTerminalModels: "vellum-command:managed-terminal-models",
   /** Fail-soft Hermes profile list for the harness picker. */
   managedTerminalProfiles: "vellum-command:managed-terminal-profiles",
+  /**
+   * Feature-enabled harnesses + local CLI install probe for the palette.
+   * Only `installed: true` rows should be offered for authoring.
+   */
+  managedTerminalHarnesses: "vellum-command:managed-terminal-harnesses",
   /** Main → renderer: managed-agent seat state (idle/working/attention/unknown). */
   agentSeatStateSnapshot: "vellum-command:agent-seat-state-snapshot",
   agentSeatStateChanged: "vellum-command:agent-seat-state-changed",
@@ -1374,6 +1379,18 @@ export interface ManagedTerminalProfilesResult {
   readonly error?: string;
 }
 
+/** One feature-enabled harness with local install status for the palette. */
+export interface ManagedTerminalHarnessOption {
+  readonly harness: string;
+  readonly displayName: string;
+  readonly binary: string;
+  readonly installed: boolean;
+}
+
+export interface ManagedTerminalHarnessesResult {
+  readonly harnesses: readonly ManagedTerminalHarnessOption[];
+}
+
 export interface TerminalAttachInput {
   readonly bindingId: string;
   readonly mode: "control" | "observe";
@@ -1419,6 +1436,11 @@ export interface VellumCommandTerminalApi {
   ) => Promise<ManagedTerminalModelsResult>;
   /** Fail-soft Hermes profile enumeration. */
   readonly managedTerminalProfiles: () => Promise<ManagedTerminalProfilesResult>;
+  /**
+   * Feature-enabled harnesses with local CLI install status.
+   * Palette filters to `installed` before offering a seat.
+   */
+  readonly managedTerminalHarnesses: () => Promise<ManagedTerminalHarnessesResult>;
   /** Current managed-seat projection for renderer restart hydration. */
   readonly agentSeatStateSnapshot: () => Promise<ReadonlyArray<AgentSeatStateEvent>>;
   /** Main → renderer: managed-agent seat state (idle/working/attention/unknown). */

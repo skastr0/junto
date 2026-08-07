@@ -30,7 +30,13 @@ import {
   readGrokModels,
   readHermesModels,
 } from "../src/main/vellum/term/templates/enumerate-models";
-import { HERMES_INTEGRATION_ENABLED } from "../src/shared/features";
+import {
+  HARNESS_KIMI_ENABLED,
+  HARNESS_MUSE_ENABLED,
+  HARNESS_PRIME_AGENT_ENABLED,
+  HERMES_INTEGRATION_ENABLED,
+  managedHarnessEnabled,
+} from "../src/shared/features";
 
 describe("managed-terminal templates (data)", () => {
   const ALL_NINE = [
@@ -47,9 +53,19 @@ describe("managed-terminal templates (data)", () => {
 
   it("exports exactly the nine managed harnesses", () => {
     expect(HARNESS_IDS).toEqual([...ALL_NINE]);
-    expect(allTemplates().map((template) => template.harness)).toEqual(
-      HERMES_INTEGRATION_ENABLED ? [...ALL_NINE] : ALL_NINE.filter((h) => h !== "hermes"),
-    );
+    const expected = ALL_NINE.filter((h) => managedHarnessEnabled(h));
+    expect(allTemplates().map((template) => template.harness)).toEqual([
+      ...expected,
+    ]);
+    // Ship defaults: experimental seats off (unless profile/env override).
+    if (!HERMES_INTEGRATION_ENABLED) {
+      expect(expected).not.toContain("hermes");
+    }
+    if (!HARNESS_KIMI_ENABLED) expect(expected).not.toContain("kimi");
+    if (!HARNESS_MUSE_ENABLED) expect(expected).not.toContain("muse");
+    if (!HARNESS_PRIME_AGENT_ENABLED) {
+      expect(expected).not.toContain("prime-agent");
+    }
     for (const id of HARNESS_IDS) {
       expect(isHarnessId(id)).toBe(true);
       expect(templateFor(id)).toBe(MANAGED_TERMINAL_TEMPLATES[id]);
