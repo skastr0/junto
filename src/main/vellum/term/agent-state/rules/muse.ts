@@ -1,26 +1,24 @@
 /**
- * Muse seat rules — deliberately minimal. The sweep
- * (docs/research/agent-cli-sweep/muse.md, 2026-08-06 fast-track) verified the
- * terminal handshake surface (bracketed paste, focus events, OSC palette
- * queries, cursor DSR) but captured NO TUI text: no OSC title, no alt screen,
- * working-state signals unverified, no live approval-modal capture, and no
- * herdr manifest. Approval dialogs exist by construction
- * (--approval-mode on-request default; workspace trust is file-managed in
- * ~/.config/muse/trust.json) but their screen text is not evidenced, so no
- * attention rule can be cited. There is no herdr manifest to mirror.
+ * Muse seat rules.
  *
- * The pack therefore ships zero rules: the engine reports low-confidence idle
- * (the seat stays effectively unknown and never publishes visible chrome)
- * until a live muse TUI is probed (free `--provider echo` runs) and real
- * literals land here. Readiness signals (bracketed paste / DSR / palette
- * queries) live in ObserverGridSnapshot.signals, which rule matchers cannot
- * see yet — a future modes-aware rule surface would unlock them.
+ * Sweep (docs/research/agent-cli-sweep/muse.md) + 2026-08 probe:
+ * - Handshake surface verified: bracketed paste, focus, OSC palette, DSR.
+ * - No OSC title, no alt screen, no evidenced attention/working literals.
+ * - `--agents <JSON>` CLI accepts an object shape, but the binary reports
+ *   "Session Agent Definition decoder is not implemented" — not a Tier A path
+ *   on Muse Code 0.1.0-R708.1.
+ *
+ * Doctrine is Tier B firstTyped. Screen matchers cannot yet express
+ * handshake-only idle, so the typeable gate for the armed firstTyped body
+ * lives in SeatStateRuntime.isSeatIdle (muse + bracketedPaste + pending
+ * firstTyped). Keep this pack empty of inventing unproven chrome strings;
+ * when live TUI literals land, add attention/working/idle rules here.
  */
 
 import type { SeatRulePack } from "../types";
 
 export const museRules: SeatRulePack = {
   harness: "muse",
-  version: "2026.08.06.1",
+  version: "2026.08.07.1",
   rules: [],
 };

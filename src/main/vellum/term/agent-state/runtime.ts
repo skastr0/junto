@@ -7,6 +7,7 @@
 import type { AgentSeatState, AgentSeatStateEvent } from "../../../../shared/agent-seat-state";
 import { terminalObserverPlane } from "../observer";
 import type { ObserverGridSnapshot } from "../observer/types";
+import { peekFirstTypedMessage } from "../first-typed";
 import { FALLBACK_IDLE } from "./engine";
 import { hookStateFromSnapshot } from "./hook-feed";
 import { SeatStateMachine } from "./seat-state-machine";
@@ -45,6 +46,8 @@ export class SeatStateRuntime {
   /** Sticky mid-turn stall: hold attention until progress or a non-working leave. */
   private readonly turnStalled = new Set<string>();
   private readonly lastProgressFp = new Map<string, string>();
+  /** Last observer snapshot per binding — used for Muse handshake paste gate. */
+  private readonly lastSnapshot = new Map<string, ObserverGridSnapshot>();
 
   constructor(opts: SeatStateRuntimeOptions = {}) {
     this.now = opts.now ?? (() => Date.now());
@@ -88,6 +91,7 @@ export class SeatStateRuntime {
     this.progressWatch?.dispose();
     this.turnStalled.clear();
     this.lastProgressFp.clear();
+    this.lastSnapshot.clear();
     this.machine.dispose();
     this.harnessByBinding.clear();
     this.eventListeners.clear();
@@ -112,6 +116,7 @@ export class SeatStateRuntime {
     if (epoch !== undefined && current?.epoch !== epoch) return;
     const event = this.machine.unbind(bindingId, { epoch, reason });
     this.clearTurnWatch(bindingId);
+    this.lastSnapshot.delete(bindingId);
     if (!event) return;
     this.harnessByBinding.delete(bindingId);
   }
@@ -121,14 +126,35 @@ export class SeatStateRuntime {
    * Fail closed: unknown/unbound/attention/working refuse.
    * Low-confidence bare `default_known_agent_idle_fallback` is **not** typeable —
    * only high-confidence idle or visible idle chrome authorizes paste.
+   *
+   * Muse exception: Tier B doctrine is firstTyped only (no `--agents` decoder on
+   * 0.1.0-R708.1). museRules has no screen idle chrome, so the seat sits on
+   * fallback idle forever. Open the paste gate **only while** a firstTyped body
+   * is armed and the TUI handshake shows bracketed paste — one-shot doctrine
+   * delivery, not permanent mid-turn injectability.
    */
   isSeatIdle(bindingId: string): boolean {
     const slot = this.machine.getSlot(bindingId);
     if (!slot || slot.state !== "idle") return false;
     if (slot.visibleIdle) return true;
     if (slot.confidence === "high") return true;
-    // Low-confidence fallback idle: refuse paste (dialog / unmatched chrome).
-    if (slot.reason === FALLBACK_IDLE || slot.reason.startsWith(`${FALLBACK_IDLE}+`)) {
+    // Low-confidence fallback idle: refuse paste (dialog / unmatched chrome),
+    // except Muse firstTyped doctrine (handshake-gated, one-shot).
+    if (
+      slot.reason === FALLBACK_IDLE ||
+      slot.reason.startsWith(`${FALLBACK_IDLE}+`)
+    ) {
+      const harness =
+        this.harnessByBinding.get(bindingId) ?? slot.harness;
+      if (
+        harness === "muse" &&
+        peekFirstTypedMessage(bindingId) !== undefined
+      ) {
+        const snap =
+          this.lastSnapshot.get(bindingId) ??
+          terminalObserverPlane.snapshot(bindingId);
+        if (snap?.signals.modes.bracketedPaste) return true;
+      }
       return false;
     }
     return false;
@@ -167,6 +193,7 @@ export class SeatStateRuntime {
     if (!harness) {
       return null;
     }
+    this.lastSnapshot.set(snap.bindingId, snap);
     const now = this.now();
     // Same-tick hook: null clears sticky prior OSC working/idle.
     const hook = hookStateFromSnapshot(snap, String(harness), now);

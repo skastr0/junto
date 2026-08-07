@@ -1,6 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { SeatStateRuntime } from "../src/main/vellum/term/agent-state/runtime";
 import type { ObserverGridSnapshot } from "../src/main/vellum/term/observer/types";
+import {
+  armFirstTypedMessage,
+  clearFirstTypedMessage,
+  resetFirstTypedForTest,
+  takeFirstTypedMessage,
+} from "../src/main/vellum/term/first-typed";
+
+afterEach(() => {
+  resetFirstTypedForTest();
+});
 
 const snap = (
   bindingId: string,
@@ -110,6 +120,80 @@ describe("SeatStateRuntime idle gate", () => {
       state: "gone",
     });
     expect(rt.getState("b1")).toBeUndefined();
+    rt.stop();
+  });
+
+  it("muse fallback idle stays non-typeable without firstTyped doctrine", () => {
+    const rt = new SeatStateRuntime({ now: () => 3_000 });
+    rt.bindHarness("muse1", "muse", "e1");
+    rt.observe(
+      snap("muse1", {
+        lines: ["Muse Code 0.1.0"],
+        signals: {
+          title: "",
+          osc9: "",
+          modes: {
+            bracketedPaste: true,
+            synchronizedOutput: false,
+            altScreen: false,
+            mouseModes: [],
+          },
+        },
+      }),
+    );
+    expect(rt.getState("muse1")).toBe("idle");
+    expect(rt.machine.getSlot("muse1")?.confidence).toBe("low");
+    expect(rt.isSeatIdle("muse1")).toBe(false);
+    rt.stop();
+  });
+
+  it("muse is typeable for firstTyped only when handshake paste is on", () => {
+    const rt = new SeatStateRuntime({ now: () => 4_000 });
+    rt.bindHarness("muse1", "muse", "e1");
+    armFirstTypedMessage("muse1", "## Worker doctrine\nonboard …");
+    rt.observe(
+      snap("muse1", {
+        lines: ["Muse Code 0.1.0"],
+        signals: {
+          title: "",
+          osc9: "",
+          modes: {
+            bracketedPaste: true,
+            synchronizedOutput: false,
+            altScreen: false,
+            mouseModes: [],
+          },
+        },
+      }),
+    );
+    expect(rt.isSeatIdle("muse1")).toBe(true);
+    // After doctrine is taken, gate closes again (no permanent inject).
+    takeFirstTypedMessage("muse1");
+    expect(rt.isSeatIdle("muse1")).toBe(false);
+    rt.stop();
+  });
+
+  it("muse firstTyped does not open paste before bracketed-paste handshake", () => {
+    const rt = new SeatStateRuntime({ now: () => 5_000 });
+    rt.bindHarness("muse1", "muse", "e1");
+    armFirstTypedMessage("muse1", "doctrine");
+    rt.observe(
+      snap("muse1", {
+        lines: ["booting"],
+        signals: {
+          title: "",
+          osc9: "",
+          modes: {
+            bracketedPaste: false,
+            synchronizedOutput: false,
+            altScreen: false,
+            mouseModes: [],
+          },
+        },
+      }),
+    );
+    expect(rt.isSeatIdle("muse1")).toBe(false);
+    clearFirstTypedMessage("muse1");
     rt.stop();
   });
 });
