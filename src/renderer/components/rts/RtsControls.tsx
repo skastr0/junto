@@ -439,26 +439,41 @@ export function KindActions({ node }: { readonly node: CanvasNode }) {
     case "agent": {
       // Managed terminal is the product surface; ACP chat stays hard-hidden.
       const terminalBound = resolveTerminalBinding(node)?.kind === "native";
+      const rename = (
+        <KindKey
+          label="Rename"
+          title="Rename"
+          onClick={() => state$.editNodeId.set(node.id)}
+        >
+          <Pencil size={ICON} />
+        </KindKey>
+      );
       if (terminalBound) {
         return (
-          <KindKey
-            label="Open terminal"
-            title="Open agent terminal (double-click node or re-tap slot)"
-            onClick={() => void openTerminal(node)}
-          >
-            <Terminal size={ICON} />
-          </KindKey>
+          <>
+            <KindKey
+              label="Open terminal"
+              title="Open agent terminal (double-click node or re-tap slot)"
+              onClick={() => void openTerminal(node)}
+            >
+              <Terminal size={ICON} />
+            </KindKey>
+            {rename}
+          </>
         );
       }
-      if (ACP_CHAT_SURFACE_HIDDEN) return null;
+      if (ACP_CHAT_SURFACE_HIDDEN) return rename;
       return (
-        <KindKey
-          label="Open chat"
-          title="Open chat"
-          onClick={() => openAgentChatSurface(node)}
-        >
-          <MessageSquareText size={ICON} />
-        </KindKey>
+        <>
+          <KindKey
+            label="Open chat"
+            title="Open chat"
+            onClick={() => openAgentChatSurface(node)}
+          >
+            <MessageSquareText size={ICON} />
+          </KindKey>
+          {rename}
+        </>
       );
     }
     case "herdr":

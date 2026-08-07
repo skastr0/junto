@@ -584,10 +584,12 @@ export function KindSurface() {
   // keys) so command title is not echoed three more times in the mid third.
   const showSeatGlance =
     kind === "agent" || (HERDR_ENABLED && kind === "herdr");
-  // Free notes / work sinks / schedulers / page / shell: no fields sheet.
-  // Config is kind-strip pops; rename is pencil. Placement chips are noise.
+  // Free notes / agents / work sinks / schedulers / page / shell: no fields
+  // sheet. Config is kind-strip pops; rename is pencil. Placement chips are
+  // noise.
   const showFieldsKey =
     !isFreeNote &&
+    kind !== "agent" &&
     kind !== "terminal" &&
     kind !== "label" &&
     kind !== "task" &&
