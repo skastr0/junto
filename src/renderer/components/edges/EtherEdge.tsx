@@ -1,12 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { EdgeProps, EdgeTypes } from "@xyflow/react";
-import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath, useStore } from "@xyflow/react";
+import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath } from "@xyflow/react";
 import { use$ } from "@legendapp/state/react";
 import type { FlowEdge } from "../../lib/convert";
 import { edgeSparks$ } from "../../lib/edge-sparks";
+import {
+  LOOM_ENABLED,
+  loomCorridors$,
+  loomObstacles$,
+  loomStrands$,
+} from "../../lib/loom-view";
+import { LANE_GAP, stitchStrand } from "../../lib/wire-loom";
 import { state$ } from "../../lib/state";
 import { accentColor, EDGE_COLOR, HUE } from "../../lib/theme";
-import { nodeBounds, routeWire, type WireRect } from "../../lib/wire-route";
+import { routeWire, type WireRect } from "../../lib/wire-route";
 import type { WireFamily } from "@shared/physics";
 import {
   chipPortsFromOffers,
@@ -30,56 +37,6 @@ const FAMILY_HUE: Record<ReturnType<typeof familyColorToken>, string> = {
 
 const familyHue = (family: WireFamily | undefined): string | undefined =>
   family ? FAMILY_HUE[familyColorToken(family)] : undefined;
-
-/** Minimal node fields needed for obstacle bounds (xyflow InternalNode shape). */
-type RouteNode = {
-  readonly id: string;
-  readonly type?: string;
-  readonly hidden?: boolean;
-  readonly width?: number | null;
-  readonly height?: number | null;
-  readonly measured?: { readonly width?: number; readonly height?: number };
-  readonly style?: { readonly width?: number | string; readonly height?: number | string };
-  readonly internals: { readonly positionAbsolute: { readonly x: number; readonly y: number } };
-};
-
-function readNodeSize(node: RouteNode): { width: number; height: number } | null {
-  const measuredW = node.measured?.width;
-  const measuredH = node.measured?.height;
-  if (typeof measuredW === "number" && typeof measuredH === "number" && measuredW > 0 && measuredH > 0) {
-    return { width: measuredW, height: measuredH };
-  }
-  const style = node.style;
-  const styleW = typeof style?.width === "number" ? style.width : undefined;
-  const styleH = typeof style?.height === "number" ? style.height : undefined;
-  if (typeof styleW === "number" && typeof styleH === "number" && styleW > 0 && styleH > 0) {
-    return { width: styleW, height: styleH };
-  }
-  const w = typeof node.width === "number" ? node.width : undefined;
-  const h = typeof node.height === "number" ? node.height : undefined;
-  if (typeof w === "number" && typeof h === "number" && w > 0 && h > 0) {
-    return { width: w, height: h };
-  }
-  return null;
-}
-
-function collectObstacles(
-  nodeLookup: Iterable<RouteNode>,
-  sourceId: string,
-  targetId: string,
-): WireRect[] {
-  const out: WireRect[] = [];
-  for (const node of nodeLookup) {
-    if (node.id === sourceId || node.id === targetId) continue;
-    // Groups are geography, not furniture to route around — edges live inside them.
-    if (node.type === "group") continue;
-    if (node.hidden) continue;
-    const size = readNodeSize(node);
-    if (!size) continue;
-    out.push(nodeBounds(node.internals.positionAbsolute, size));
-  }
-  return out;
-}
 
 export function EtherEdge({
   id,
@@ -178,27 +135,31 @@ export function EtherEdge({
   // Selection impact mode — only "in" is stamped (CSS dims the rest).
   const impactIn = data?.impact === "in";
 
-  // Absolute node bounds for wire routing — re-run when graph geometry moves.
-  const obstacles = useStore(
-    (store) => collectObstacles(store.nodeLookup.values() as Iterable<RouteNode>, source, target),
-    // Shallow geometry key so we don't rebuild on every unrelated store tick.
-    (a, b) => {
-      if (a === b) return true;
-      if (a.length !== b.length) return false;
-      for (let i = 0; i < a.length; i++) {
-        const x = a[i]!;
-        const y = b[i]!;
-        if (
-          x.x !== y.x ||
-          x.y !== y.y ||
-          x.width !== y.width ||
-          x.height !== y.height
-        ) {
-          return false;
-        }
-      }
-      return true;
-    },
+  // Absolute node bounds for wire routing — collected once at canvas level
+  // (CanvasLoom) and sliced here. Own endpoints are never obstacles.
+  const allRects = use$(loomObstacles$);
+  const corridors = use$(loomCorridors$);
+  const obstacles = useMemo(
+    () => allRects.filter((rect) => rect.nodeId !== source && rect.nodeId !== target),
+    [allRects, source, target],
+  );
+
+  // Bundled fan member: lane geometry planned once, stitched here against the
+  // live endpoints so the few-px anchor delta never shows.
+  const strand = use$(loomStrands$[id]);
+  const stitched = useMemo(
+    () =>
+      LOOM_ENABLED && strand
+        ? stitchStrand(strand, { sourceX, sourceY, targetX, targetY })
+        : null,
+    [strand, sourceX, sourceY, targetX, targetY],
+  );
+
+  // An ejected (stoppage) wire treats the cable corridors as furniture, so
+  // crimson crosses a cable rather than running parallel inside one.
+  const routeObstacles = useMemo<WireRect[]>(
+    () => (blocked && corridors.length > 0 ? [...obstacles, ...corridors] : obstacles),
+    [blocked, corridors, obstacles],
   );
 
   const [fallbackPath, fallbackLabelX, fallbackLabelY] = getSmoothStepPath({
@@ -213,21 +174,26 @@ export function EtherEdge({
 
   const routed = useMemo(
     () =>
-      routeWire({
-        source: { x: sourceX, y: sourceY },
-        target: { x: targetX, y: targetY },
-        obstacles,
-        padding: 14,
-        borderRadius: 8,
-        sourceDirection: sourcePosition,
-        targetDirection: targetPosition,
-      }),
-    [sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, obstacles],
+      stitched
+        ? null
+        : routeWire({
+            source: { x: sourceX, y: sourceY },
+            target: { x: targetX, y: targetY },
+            obstacles: routeObstacles,
+            padding: 14,
+            borderRadius: 8,
+            sourceDirection: sourcePosition,
+            targetDirection: targetPosition,
+          }),
+    [stitched, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, routeObstacles],
   );
 
-  const path = routed?.path ?? fallbackPath;
-  const labelX = routed?.labelX ?? fallbackLabelX;
-  const labelY = routed?.labelY ?? fallbackLabelY;
+  const path = stitched?.path ?? routed?.path ?? fallbackPath;
+  const labelX = stitched?.labelX ?? routed?.labelX ?? fallbackLabelX;
+  const labelY = stitched?.labelY ?? routed?.labelY ?? fallbackLabelY;
+  // Twelve 8px halos at 3px lane spacing merge into an opaque slab, so the
+  // trunk carries centerlines only and the worded paint lands on the tail.
+  const overlayPath = stitched?.tailPath ?? path;
 
   // One paint grammar: wire family. Equal hairline weight for every pair.
   const baseWidth = 1.2;
@@ -254,7 +220,7 @@ export function EtherEdge({
     <>
       {showWordBed ? (
         <path
-          d={path}
+          d={overlayPath}
           className="vellum-edge__word-bed"
           fill="none"
           stroke={wordBedColor}
@@ -267,6 +233,9 @@ export function EtherEdge({
         path={path}
         markerEnd={markerEnd}
         className={className}
+        // The 20px default straddles six neighbours at 3px lane spacing; the
+        // tail label button stays the reliable strand-level hit target.
+        interactionWidth={stitched ? LANE_GAP : undefined}
         style={{
           stroke: color,
           strokeWidth: impactIn ? Math.max(baseWidth, 1.6) : baseWidth,
@@ -278,7 +247,7 @@ export function EtherEdge({
       />
       {!disabled && family === "effect" ? (
         <path
-          d={path}
+          d={overlayPath}
           fill="none"
           stroke={color}
           className="vellum-edge__signal vellum-edge__signal--effect"

@@ -69,6 +69,7 @@ import type { MemberSeverity } from "@shared/region-rollup";
 import { minimapFill, signalMark } from "../lib/signal-mark";
 import { nodeTypes } from "./nodes";
 import { edgeTypes } from "./edges/EtherEdge";
+import { CanvasLoom } from "./edges/CanvasLoom";
 import { RtsBottomBar } from "./rts/RtsBottomBar";
 import { TerminalWizard, createTerminalAt } from "./terminal/TerminalWizard";
 import { CanvasMagnifier } from "./CanvasMagnifier";
@@ -1488,6 +1489,7 @@ function CanvasGraph() {
       style={{ background: fieldTheme.ground }}
     >
       <Background variant={BackgroundVariant.Dots} gap={26} size={1} color={withAlpha(fieldTheme.ink!, 0.07)} />
+      <CanvasLoom edges={edges} />
       <CanvasMagnifier />
       <ImpactSeedChip />
       <ConnectPreviewChip />

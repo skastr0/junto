@@ -118,6 +118,12 @@ path.vellum-edge--disabled {
   stroke-dasharray: .7 8.3;
   opacity: .4;
 }
+/* Selection glow reads at cable lane spacing through paint, never through lane
+   order: a lit strand never floats to the edge of its bundle, because lane
+   index must stay a function of geometry alone. */
+path.vellum-edge-impact-in {
+  filter: drop-shadow(0 0 3.5px color-mix(in oklab, var(--color-accent) 55%, transparent));
+}
 .vellum-edge__interruption {
   pointer-events: none;
   stroke: var(--color-crimson);
