@@ -425,7 +425,7 @@ export function NodeShell({
             : "0 10px 28px var(--color-shadow-2)";
   // Shift+click multi-select dominates all node chrome (labels, open, edit).
   const multiSelectCapture = useShiftMultiSelectDominance(node.id);
-  // Pulse + corner spin for any stoppage chrome (graph blocked, flag, herdr).
+  // Pulse wash for stoppage chrome (graph blocked, flag, herdr).
   // isBlocker alone used to skip actors blocked only by upstream criteria.
   return (
     <div

@@ -28,7 +28,7 @@ export const liveHerdrBlocked = (
 export type NodeBlockPresentation = {
   /** Crimson border / vellum-blocker pulse / primary stoppage paint. */
   readonly isBlocker: boolean;
-  /** Crimson wash + pulse + corner spinner (seat stoppage only). */
+  /** Crimson wash + pulse (seat stoppage only). */
   readonly shellBlocked: boolean;
   /** Live herdr only — not a document flag. */
   readonly liveHerdrBlocked: boolean;

@@ -1277,7 +1277,6 @@ html[data-surface-motion="paused"] *::after {
   animation: none !important;
 }
 .react-flow.is-viewport-busy .vellum-blocker,
-.react-flow.is-viewport-busy .vellum-blocker::after,
 .react-flow.is-viewport-busy .vellum-node__flag--blocked-live,
 .react-flow.is-viewport-busy .vellum-status-dot-pulse,
 .react-flow.is-viewport-busy .vellum-edge-ripple .react-flow__edge-path,
@@ -1719,27 +1718,10 @@ html[data-surface-motion="paused"] *::after {
   border-color: var(--color-stroke-hi);
 }
 
-/* --- Blocker pulse + corner spin: readable stoppage without bounce ---- */
+/* --- Blocker pulse: readable stoppage without bounce (no corner decal) ---- */
 .vellum-blocker {
   animation: vellumPulse 1.6s ease-in-out infinite;
   position: relative;
-}
-/* Corner spinner: continuous crimson tick so blocked seats don't read as static. */
-.vellum-blocker::after {
-  content: "";
-  position: absolute;
-  top: -5px;
-  right: -5px;
-  width: 11px;
-  height: 11px;
-  border-radius: 999px;
-  border: 1.5px solid color-mix(in oklab, var(--color-accent) 88%, transparent);
-  border-top-color: transparent;
-  border-left-color: color-mix(in oklab, var(--color-accent) 28%, transparent);
-  box-shadow: 0 0 8px color-mix(in oklab, var(--color-accent) 35%, transparent);
-  animation: vellumBlockerSpin 0.75s linear infinite;
-  pointer-events: none;
-  z-index: 3;
 }
 
 @keyframes vellumPulse {
@@ -1753,12 +1735,6 @@ html[data-surface-motion="paused"] *::after {
     box-shadow:
       0 0 0 4px color-mix(in oklab, var(--color-accent) 30%, transparent),
       0 0 18px 2px color-mix(in oklab, var(--color-accent) 16%, transparent);
-  }
-}
-
-@keyframes vellumBlockerSpin {
-  to {
-    transform: rotate(360deg);
   }
 }
 
@@ -1827,7 +1803,6 @@ html[data-surface-motion="paused"] *::after {
 html[data-surface-motion="paused"] .vellum-status-dot-pulse,
 html[data-surface-motion="paused"] .vellum-activity-pulse-cell,
 html[data-surface-motion="paused"] .vellum-blocker,
-html[data-surface-motion="paused"] .vellum-blocker::after,
 html[data-surface-motion="paused"] .vellum-node__flag--blocked-live,
 html[data-surface-motion="paused"] .vellum-edge-ripple .react-flow__edge-path,
 html[data-surface-motion="paused"] path.vellum-edge-ripple,
@@ -1838,7 +1813,6 @@ html[data-surface-motion="paused"] .vellum-herdr-working-dot {
 
 @media (prefers-reduced-motion: reduce) {
   .vellum-blocker,
-  .vellum-blocker::after,
   .vellum-node__flag--blocked-live,
   .vellum-status-dot-pulse,
   .vellum-activity-pulse-cell,
@@ -1904,12 +1878,9 @@ html[data-surface-motion="paused"] .vellum-node[data-seat-attention="true"] {
 }
 
 /* --- Occupancy chrome: the eight-state alphabet (S5 cut 2) ------------
-   Keyed off data-occupancy (see NodeShell.tsx), the same pattern as
-   data-blocked / data-herdr-blocked. Every rule uses outline / pseudo-
-   elements so it layers over the node's own inline border/background/
-   box-shadow without fighting them. Three "something's wrong" states
-   (attention / activity_blocked / stalled) stay visually distinct per I12 —
-   ring offset, rim offset, and a corner meter never collapse into one look.
+   Keyed off data-occupancy (see NodeShell.tsx). Outline-only — no top-right
+   corner pie/spin decals (those fought state borders). Three "something's
+   wrong" states stay distinct by ring offset / rim offset only.
    `gone` is muted, not crimson — I20 forbids implying revoke/compromise. */
 .vellum-node[data-occupancy="idle"] {
   outline: 1px solid color-mix(in oklab, var(--color-steel) 22%, transparent);
@@ -1927,25 +1898,10 @@ html[data-surface-motion="paused"] .vellum-node[data-seat-attention="true"] {
   outline: 2.5px solid color-mix(in oklab, var(--color-accent) 75%, transparent);
   outline-offset: 0;
 }
-/* stalled = the clock; a small corner meter, not a ring or rim. */
+/* stalled = quiet steel ring only (corner clock meter removed). */
 .vellum-node[data-occupancy="stalled"] {
   outline: 1.5px solid color-mix(in oklab, var(--color-steel) 40%, transparent);
   outline-offset: 3px;
-  position: relative;
-}
-.vellum-node[data-occupancy="stalled"]::after {
-  content: "";
-  position: absolute;
-  top: -6px;
-  right: -6px;
-  width: 9px;
-  height: 9px;
-  border-radius: 999px;
-  background: conic-gradient(
-    color-mix(in oklab, var(--color-steel) 90%, transparent) 0deg 270deg,
-    color-mix(in oklab, var(--color-steel) 15%, transparent) 270deg 360deg
-  );
-  pointer-events: none;
 }
 .vellum-node[data-occupancy="parked"] {
   outline: 1.5px solid color-mix(in oklab, var(--color-violet) 40%, transparent);
@@ -1964,28 +1920,12 @@ html[data-surface-motion="paused"] .vellum-node[data-seat-attention="true"] {
   );
   pointer-events: none;
 }
-/* gone = host unreachable, last intent stands (I20) — muted, broken ring,
+/* gone = host unreachable, last intent stands (I20) — muted outline only,
    never crimson (that would read as revoked/compromised). */
 .vellum-node[data-occupancy="gone"] {
   outline: 1px solid color-mix(in oklab, var(--color-steel) 22%, transparent);
   outline-offset: 2px;
   opacity: 0.78;
-  position: relative;
-}
-.vellum-node[data-occupancy="gone"]::after {
-  content: "";
-  position: absolute;
-  top: -7px;
-  right: -7px;
-  width: 11px;
-  height: 11px;
-  border-radius: 999px;
-  background: conic-gradient(
-    color-mix(in oklab, var(--color-steel) 85%, transparent) 0deg 300deg,
-    transparent 300deg 330deg,
-    color-mix(in oklab, var(--color-steel) 85%, transparent) 330deg 360deg
-  );
-  pointer-events: none;
 }
 /* Scrollbars kept faint. */
 ::-webkit-scrollbar {
