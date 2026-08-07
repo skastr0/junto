@@ -145,6 +145,24 @@
   gap: 12px;
   align-items: center;
 }
+.settings-field__label-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.settings-field__help {
+  display: inline-flex;
+  align-items: center;
+  color: color-mix(in oklab, var(--color-dim) 90%, transparent);
+  cursor: help;
+  flex-shrink: 0;
+}
+
+.settings-field__help:hover {
+  color: var(--color-amber);
+}
+
 .settings-field__label {
   display: flex;
   flex-direction: column;

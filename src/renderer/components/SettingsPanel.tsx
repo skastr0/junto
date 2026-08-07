@@ -1,5 +1,5 @@
 import { use$ } from "@legendapp/state/react";
-import { RotateCcw, Settings2, X } from "lucide-react";
+import { CircleHelp, RotateCcw, Settings2, X } from "lucide-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { BrowserProfileInfo, VellumCommandBrowserApi } from "@shared/ipc";
@@ -7,6 +7,7 @@ import type { SettingsSectionKey } from "@shared/settings";
 import {
   AUDIO_ENABLED,
   BROWSER_ENABLED,
+  FLEET_UI_ENABLED,
 } from "@shared/features";
 import {
   decodeStateBackupId,
@@ -43,7 +44,10 @@ type PanelSection = SettingsSectionKey | "license" | "updates";
 
 const SECTIONS: ReadonlyArray<{ key: PanelSection; label: string; blurb: string }> = [
   { key: "appearance", label: "Appearance", blurb: "" },
-  { key: "station", label: "Machine", blurb: "this installation" },
+  // Machine/station topology is fleet-adjacent (host id, supervised runtime).
+  ...(FLEET_UI_ENABLED
+    ? [{ key: "station", label: "Machine", blurb: "this installation" } as const]
+    : []),
   { key: "updates", label: "Updates", blurb: "check and install app updates" },
   ...(AUDIO_ENABLED
     ? [{ key: "audio", label: "Audio", blurb: "RTS alert SFX mute and levels" } as const]
@@ -55,19 +59,55 @@ const SECTIONS: ReadonlyArray<{ key: PanelSection; label: string; blurb: string 
   { key: "advanced", label: "Advanced", blurb: "startup, recovery, developer tools" },
 ];
 
+/** Prefer first nav item when Machine is fleet-gated out. */
+const DEFAULT_SETTINGS_SECTION: PanelSection = FLEET_UI_ENABLED
+  ? "station"
+  : "appearance";
+
+/**
+ * Supervisor preference tradeoffs. Checkbox only records intent — install is
+ * separate (packaged supervised install / app:install:supervised). See
+ * assessSupervisedRuntime + ensureSupervised handoff.
+ */
+const SUPERVISED_RUNTIME_HELP =
+  "Records whether this installation prefers a platform supervisor " +
+  "(macOS LaunchAgent; Linux Remote systemd user unit) to own the long-running " +
+  "process — auto-restart after crashes and keep-alive across logout/reboot. " +
+  "This toggle does not install or remove the supervisor; install supervised " +
+  "startup via the packaged installer or `bun run app:install:supervised`. " +
+  "Doctor warns if preference and actual LaunchAgent/unit state disagree. " +
+  "Tradeoff: supervised is more durable for a Command Center or Remote left " +
+  "running unattended; unsupervised is simpler for local development and " +
+  "attaching a debugger.";
+
 function FieldRow({
   label,
   hint,
+  help,
   children,
 }: {
   readonly label: string;
   readonly hint?: string;
+  /** Longer explanation shown on the ? control (native title tooltip). */
+  readonly help?: string;
   readonly children: ReactNode;
 }) {
   return (
     <label className="settings-field">
       <span className="settings-field__label">
-        <span>{label}</span>
+        <span className="settings-field__label-row">
+          <span>{label}</span>
+          {help ? (
+            <span
+              className="settings-field__help"
+              title={help}
+              role="img"
+              aria-label={help}
+            >
+              <CircleHelp size={12} aria-hidden />
+            </span>
+          ) : null}
+        </span>
         {hint ? <span className="settings-field__hint">{hint}</span> : null}
       </span>
       <span className="settings-field__control">{children}</span>
@@ -447,7 +487,6 @@ function AdvancedSection() {
 
 function InstallationFacts() {
   const status = use$(updateState$.status);
-  const settingsVersion = use$(state$.settings.version);
   const station = use$(state$.settings.station);
   const install = status.install;
   const platformLabel =
@@ -498,9 +537,6 @@ function InstallationFacts() {
         <span style={{ color: INK, fontSize: 13 }}>
           {station.hostId.length > 0 ? station.hostId : "—"}
         </span>
-      </FieldRow>
-      <FieldRow label="Settings version" hint="internal settings format">
-        <span style={{ color: INK, fontSize: 13 }}>v{settingsVersion}</span>
       </FieldRow>
       <FieldRow label="Data location" hint="where Vellum Command stores its data">
         <span className="settings-mono-value" style={{ color: INK, fontSize: 12 }}>
@@ -908,18 +944,21 @@ function AudioSection() {
 
 function StationSection() {
   const station = use$(state$.settings.station);
-  // v1: single-machine product. Remote enrollment UI is intentionally absent.
+  // Fleet UI: host identity + supervised preference. Remote enrollment stays
+  // Command Center–driven, not a free-form Settings form.
+  if (!FLEET_UI_ENABLED) return null;
   return (
-    <div className="settings-section">
+    <div className="settings-section" data-testid="settings-machine-section">
       <FieldRow
         label="This machine's host id"
-        hint="How this installation is identified"
+        hint="How this installation is identified across the fleet"
       >
         <span style={{ color: INK, fontSize: 13 }}>{station.hostId}</span>
       </FieldRow>
       <FieldRow
         label="Prefer supervised runtime"
-        hint="Keep Vellum Command alive under the platform supervisor"
+        hint="Preference only — does not install the supervisor"
+        help={SUPERVISED_RUNTIME_HELP}
       >
         <input
           type="checkbox"
@@ -933,6 +972,11 @@ function StationSection() {
           }
         />
       </FieldRow>
+      <p className="settings-note" role="note">
+        Supervisor install is separate from this checkbox. Packaged installs can
+        enable LaunchAgent/systemd; Doctor reports when preference and actual
+        supervisor state disagree.
+      </p>
     </div>
   );
 }
@@ -964,7 +1008,7 @@ export function SettingsPanel() {
   const open = use$(state$.settingsOpen);
   const loading = use$(state$.settingsLoading);
   const error = use$(state$.settingsError);
-  const [section, setSection] = useState<PanelSection>("station");
+  const [section, setSection] = useState<PanelSection>(DEFAULT_SETTINGS_SECTION);
 
   useEffect(() => {
     if (!open) return;
@@ -980,7 +1024,12 @@ export function SettingsPanel() {
 
   if (!open) return null;
 
-  const meta = SECTIONS.find((item) => item.key === section)!;
+  // Fleet-gated Machine may be absent — always render a nav-visible section.
+  const activeSection: PanelSection = SECTIONS.some((item) => item.key === section)
+    ? section
+    : DEFAULT_SETTINGS_SECTION;
+  const meta =
+    SECTIONS.find((item) => item.key === activeSection) ?? SECTIONS[0]!;
 
   return createPortal(
     <div className="settings-surface" role="dialog" aria-modal="true" aria-label="Settings">
@@ -1001,13 +1050,13 @@ export function SettingsPanel() {
             </div>
           </div>
           <div className="settings-panel__header-actions">
-            {section !== "license" && section !== "updates" ? (
+            {activeSection !== "license" && activeSection !== "updates" ? (
               <button
                 type="button"
                 className="settings-panel__ghost"
                 title={`Reset ${meta.label} to defaults`}
                 aria-label={`Reset ${meta.label}`}
-                onClick={() => void resetSettings(section)}
+                onClick={() => void resetSettings(activeSection)}
               >
                 <RotateCcw size={14} />
                 <span>reset section</span>
@@ -1030,8 +1079,8 @@ export function SettingsPanel() {
               <button
                 key={item.key}
                 type="button"
-                className={`settings-nav__item${section === item.key ? " is-active" : ""}`}
-                aria-current={section === item.key ? "page" : undefined}
+                className={`settings-nav__item${activeSection === item.key ? " is-active" : ""}`}
+                aria-current={activeSection === item.key ? "page" : undefined}
                 onClick={() => setSection(item.key)}
               >
                 <span className="settings-nav__label">{item.label}</span>
@@ -1044,7 +1093,11 @@ export function SettingsPanel() {
               <h2>{meta.label}</h2>
               {meta.blurb ? <p>{meta.blurb}</p> : null}
             </div>
-            {loading ? <p className="settings-note">loading…</p> : <SectionBody section={section} />}
+            {loading ? (
+              <p className="settings-note">loading…</p>
+            ) : (
+              <SectionBody section={activeSection} />
+            )}
             {error ? (
               <p className="settings-error" role="alert">
                 {error}
