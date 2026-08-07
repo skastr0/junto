@@ -116,3 +116,48 @@ export const deliverBoardWake = (input: {
       }),
     );
   }).pipe(Effect.catch(() => Effect.succeed(0)));
+
+/**
+ * Soft actor tag notify — only the given seats (already filtered to tagged +
+ * wake). Uses the same managed-prompt transport as operator megaphone but with
+ * async no-reply copy. Best-effort; never throws.
+ */
+export const softBoardTagNotify = async (input: {
+  readonly canvas: string;
+  readonly boardNodeId: string;
+  readonly seats: ReadonlyArray<BoardWakeSeat>;
+  readonly topicId: string;
+  readonly postId: string;
+  readonly excerpt: string;
+  readonly authorLabel: string;
+  readonly topicTitle?: string;
+}): Promise<number> => {
+  if (!transport || input.seats.length === 0) return 0;
+  const wake: BoardWakeEvent = {
+    wakeEventId: ulid(),
+    canvasName: input.canvas,
+    boardNodeId: input.boardNodeId,
+    kind: "actor.tag",
+    topicId: input.topicId,
+    postId: input.postId,
+    excerptSource: input.excerpt,
+    createdAt: Date.now(),
+    ...(input.topicTitle ? { topicTitle: input.topicTitle } : {}),
+  };
+  const who = input.authorLabel.trim() || "someone";
+  const payload = composeBoardInjectEnvelope({
+    ...wake,
+    excerptSource: `${who} tagged you: ${input.excerpt}`,
+  });
+  try {
+    return await deliverBoardWakeSeats({
+      canvas: input.canvas,
+      wake,
+      payload,
+      seats: input.seats,
+      transport,
+    });
+  } catch {
+    return 0;
+  }
+};

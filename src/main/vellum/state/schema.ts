@@ -19,6 +19,7 @@ import {
 } from "../content/state-schema";
 import {
   WORK_BOARD_STATE_SCHEMA_SQL,
+  WORK_BOARD_STATE_SCHEMA_WITH_TAGS_SQL,
   WORK_PROPOSAL_PLANNING_STATE_SCHEMA_SQL,
   WORK_STATE_SCHEMA_BOARD_VOCAB_SQL,
   WORK_STATE_SCHEMA_PROPOSAL_REJECT_SQL,
@@ -218,15 +219,27 @@ export const STATE_SCHEMA_V14_FRAGMENTS = STATE_SCHEMA_V13_FRAGMENTS.map(
 export const STATE_SCHEMA_V14_SQL = STATE_SCHEMA_V14_FRAGMENTS.join("\n");
 
 /**
- * Current: v14 + task `archived` soft-delete on work_tasks /
- * work_task_transitions state CHECKs.
+ * Schema at version 15: task archived; board posts without tags_json.
+ * Frozen so 15→16 migration can start from a known identity.
  */
-export const STATE_SCHEMA_FRAGMENTS = STATE_SCHEMA_V13_FRAGMENTS.map(
+export const STATE_SCHEMA_V15_FRAGMENTS = STATE_SCHEMA_V13_FRAGMENTS.map(
   (fragment) =>
     fragment === WORK_STATE_SCHEMA_BOARD_VOCAB_SQL
       ? WORK_STATE_SCHEMA_TASK_ARCHIVED_SQL
       : fragment,
 ) as unknown as typeof STATE_SCHEMA_V13_FRAGMENTS;
+
+export const STATE_SCHEMA_V15_SQL = STATE_SCHEMA_V15_FRAGMENTS.join("\n");
+
+/**
+ * Current: v15 + board post tags_json (collaboration tags).
+ */
+export const STATE_SCHEMA_FRAGMENTS = STATE_SCHEMA_V15_FRAGMENTS.map(
+  (fragment) =>
+    fragment === WORK_BOARD_STATE_SCHEMA_SQL
+      ? WORK_BOARD_STATE_SCHEMA_WITH_TAGS_SQL
+      : fragment,
+) as unknown as typeof STATE_SCHEMA_V15_FRAGMENTS;
 
 /**
  * Fresh-install and final-verification target for the current version.

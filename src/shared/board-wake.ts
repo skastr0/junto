@@ -14,7 +14,9 @@ import { sanitizeDeliveryLine } from "./message-delivery";
 export type BoardWakeKind =
   | "operator.topic.notify"
   | "operator.notify.all"
-  | "scheduler.pulse";
+  | "scheduler.pulse"
+  /** Soft actor-to-actor tag; only tagged seats, async no-reply copy. */
+  | "actor.tag";
 
 export type BoardWakeEvent = {
   readonly wakeEventId: string;
@@ -99,6 +101,11 @@ export const composeBoardInjectEnvelope = (wake: BoardWakeEvent): string => {
         : "board";
   const excerpt = sanitizeDeliveryLine(wake.excerptSource).slice(0, EXCERPT_MAX);
   const body = excerpt.length > 0 ? excerpt : "(empty)";
+  if (wake.kind === "actor.tag") {
+    return sanitizeDeliveryLine(
+      `[board-tag - ${topic}] ${body} (async — no reply required)`,
+    );
+  }
   const prefix =
     wake.kind === "operator.notify.all"
       ? `[board - notify-all - ${topic}]`

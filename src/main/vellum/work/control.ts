@@ -38,6 +38,7 @@ import {
   BoardListArgs,
   BoardMarkReadArgs,
   BoardPostArgs,
+  BoardTagsListArgs,
   ContentMaterializeArgs,
   ContentPathArgs,
   ContentStatArgs,
@@ -1170,8 +1171,48 @@ const dispatchOp = (
       );
       const mapped = fromWorkResult(result);
       if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
+      const { resolveBoardConnectedActors } = yield* Effect.promise(
+        () => import("@shared/board-actors"),
+      );
+      const actors = resolveBoardConnectedActors(
+        board,
+        decoded.success.target,
+      );
       return {
         topics: mapped.success.value.topics,
+        /** Connected actor roster for collaboration (node ids + labels). */
+        actors,
+      };
+    }
+
+    if (op === "board.tags") {
+      const decoded = decodeArgs(BoardTagsListArgs, args);
+      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
+      const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
+      if ("type" in gate) return yield* Effect.fail(gate);
+      const result = yield* work.workBoardList(
+        caller.canvasName,
+        decoded.success.target,
+        decoded.success.topicId,
+      );
+      const mapped = fromWorkResult(result);
+      if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
+      const me = caller.nodeId;
+      const posts = mapped.success.value.topics.flatMap((topic) =>
+        (topic.posts ?? [])
+          .filter(
+            (post) =>
+              Array.isArray(post.tags) && post.tags.includes(me),
+          )
+          .map((post) => ({
+            topicId: topic.topicId,
+            topicTitle: topic.title,
+            post,
+          })),
+      );
+      return {
+        actorNodeId: me,
+        posts,
       };
     }
 
@@ -1205,15 +1246,62 @@ const dispatchOp = (
       const bound = resolveProcessBoundActorRef(read.actorRefs, caller);
       if (Result.isFailure(bound)) return yield* Effect.fail(bound.failure);
       const author = boardAuthorForActor(board, bound.success);
+      const {
+        resolveBoardConnectedActors,
+        normalizeBoardTags,
+        filterTagsToConnected,
+        tagNotifyNodeIds,
+      } = yield* Effect.promise(() => import("@shared/board-actors"));
+      const { resolveBoardWakeSet } = yield* Effect.promise(
+        () => import("@shared/board-wake"),
+      );
+      const actors = resolveBoardConnectedActors(
+        board,
+        decoded.success.target,
+      );
+      const tags = filterTagsToConnected(
+        normalizeBoardTags(decoded.success.tags),
+        actors,
+      );
       const result = yield* work.workBoardPost(
         caller.canvasName,
         decoded.success.target,
         decoded.success.topicId,
         decoded.success.text,
         author,
+        tags,
       );
       const mapped = fromWorkResult(result);
       if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
+
+      // Soft tag notify: only tagged seats with edge wake; async no-reply inject.
+      if (tags.length > 0) {
+        const notifyIds = new Set(
+          tagNotifyNodeIds(tags, actors, bound.success.nodeId),
+        );
+        if (notifyIds.size > 0) {
+          const seats = resolveBoardWakeSet(board, decoded.success.target).filter(
+            (s) => notifyIds.has(s.nodeId),
+          );
+          if (seats.length > 0) {
+            const excerpt = decoded.success.text.trim();
+            void import("./board-delivery")
+              .then(({ softBoardTagNotify }) =>
+                softBoardTagNotify({
+                  canvas: caller.canvasName,
+                  boardNodeId: decoded.success.target,
+                  seats,
+                  topicId: decoded.success.topicId,
+                  postId: mapped.success.value.post.postId,
+                  excerpt,
+                  authorLabel: author.label ?? bound.success.nodeId,
+                }),
+              )
+              .catch(() => undefined);
+          }
+        }
+      }
+
       return exposeWorkMutation(mapped.success);
     }
 

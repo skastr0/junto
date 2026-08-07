@@ -178,7 +178,13 @@ export const STATE_SCHEMA_V15_IDENTITY = {
     "419206d0b4a3e52fa7d24a04c0cf07fb17f25cbf60b83e64e6d89bb32d4fb5c9",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 15;
+/** Exact witness of schema version 16 (board post tags_json). */
+export const STATE_SCHEMA_V16_IDENTITY = {
+  actualSchemaSha256:
+    "68c01a84360fe399ea98c2963aa763f86cfd0c2c5262ecea9996ee984a3cb3bb",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 16;
 
 export const STATE_SCHEMA_MIGRATIONS =
   [
@@ -409,6 +415,71 @@ export const STATE_SCHEMA_MIGRATIONS =
             SELECT * FROM work_task_transitions__migrate_bak;
           DROP TABLE work_tasks__migrate_bak;
           DROP TABLE work_task_transitions__migrate_bak;
+        `);
+      },
+    },
+    {
+      fromVersion: 15,
+      toVersion: 16,
+      name: "board-post-tags",
+      safety: STATE_SCHEMA_MIGRATION_SAFETY,
+      fromIdentity: STATE_SCHEMA_V15_IDENTITY,
+      replacesTables: ["work_board_posts"],
+      migrate: (database) => {
+        // Rebuild posts with optional tags_json so live DDL matches fresh CREATE
+        // (ALTER ADD COLUMN leaves a different sqlite_schema sql fingerprint).
+        database.exec(`
+          CREATE TABLE work_board_posts__migrate_bak AS
+            SELECT * FROM work_board_posts;
+          DROP TABLE work_board_posts;
+        `);
+        database.exec(`
+          CREATE TABLE work_board_posts (
+            canvas_name TEXT NOT NULL CHECK (length(canvas_name) BETWEEN 1 AND 256),
+            node_id TEXT NOT NULL CHECK (length(node_id) BETWEEN 1 AND 256),
+            topic_id TEXT NOT NULL CHECK (length(topic_id) BETWEEN 1 AND 256),
+            post_id TEXT NOT NULL CHECK (length(post_id) BETWEEN 1 AND 256),
+            position INTEGER NOT NULL CHECK (position >= 0),
+            author_kind TEXT NOT NULL CHECK (author_kind IN ('operator', 'actor')),
+            author_seat_id TEXT
+              CHECK (
+                author_seat_id IS NULL
+                OR (
+                  length(author_seat_id) = 69
+                  AND substr(author_seat_id, 1, 5) = 'seat_'
+                  AND substr(author_seat_id, 6) NOT GLOB '*[^a-f0-9]*'
+                )
+              ),
+            author_node_id TEXT
+              CHECK (author_node_id IS NULL OR length(author_node_id) BETWEEN 1 AND 256),
+            author_label TEXT
+              CHECK (author_label IS NULL OR length(author_label) BETWEEN 1 AND 256),
+            parts_json TEXT NOT NULL CHECK (json_valid(parts_json)),
+            tags_json TEXT
+              CHECK (tags_json IS NULL OR json_valid(tags_json)),
+            created_at TEXT NOT NULL CHECK (length(created_at) BETWEEN 1 AND 64),
+            PRIMARY KEY (canvas_name, node_id, topic_id, post_id),
+            UNIQUE (canvas_name, node_id, topic_id, position),
+            FOREIGN KEY (canvas_name, node_id, topic_id)
+              REFERENCES work_board_topics(canvas_name, node_id, topic_id)
+              ON DELETE RESTRICT
+              ON UPDATE RESTRICT
+          ) STRICT, WITHOUT ROWID;
+          CREATE INDEX IF NOT EXISTS work_board_posts_thread
+            ON work_board_posts(canvas_name, node_id, topic_id, position);
+        `);
+        database.exec(`
+          INSERT INTO work_board_posts(
+            canvas_name, node_id, topic_id, post_id, position,
+            author_kind, author_seat_id, author_node_id, author_label,
+            parts_json, tags_json, created_at
+          )
+          SELECT
+            canvas_name, node_id, topic_id, post_id, position,
+            author_kind, author_seat_id, author_node_id, author_label,
+            parts_json, NULL, created_at
+          FROM work_board_posts__migrate_bak;
+          DROP TABLE work_board_posts__migrate_bak;
         `);
       },
     },

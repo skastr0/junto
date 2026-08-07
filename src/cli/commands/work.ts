@@ -7,6 +7,7 @@ import {
   BoardListArgs,
   BoardMarkReadArgs,
   BoardPostArgs,
+  BoardTagsListArgs,
   MsgListArgs,
   MsgReadArgs,
   MsgReplyArgs,
@@ -348,6 +349,23 @@ const boardReadCommand = Command.make(
     ),
 ).pipe(Command.withDescription("Mark a topic read without replying"));
 
+const boardTagsCommand = Command.make(
+  "tags",
+  { input: jsonInputArg, timeout: timeoutOption },
+  ({ input, timeout }) =>
+    executeJsonCommand(
+      "board tags",
+      Effect.gen(function* () {
+        const item = yield* loadJsonInput(BoardTagsListArgs, input);
+        return yield* callDomain("board.tags", item, toUndefined(timeout));
+      }),
+    ),
+).pipe(
+  Command.withDescription(
+    "List posts that tag this seat (async collab inbox — no ack required)",
+  ),
+);
+
 export const boardCommand = Command.make("board").pipe(
   Command.withDescription(
     "Bulletin board ops — optional shared context; never a decision inbox",
@@ -357,6 +375,7 @@ export const boardCommand = Command.make("board").pipe(
     boardTopicCommand,
     boardPostCommand,
     boardReadCommand,
+    boardTagsCommand,
   ]),
 );
 

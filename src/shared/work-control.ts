@@ -59,6 +59,7 @@ export const WorkOpName = Schema.Literals(["ping", "doctor",
 "board.create_topic",
 "board.post",
 "board.mark_read",
+"board.tags",
 /** Agent → relay: fire the scheduler pipeline now (port relay.trigger). */
 "relay.trigger",]);
 export type WorkOpName = typeof WorkOpName.Type;
@@ -424,8 +425,21 @@ export const BoardPostArgs = Schema.Struct({
   target: Schema.String,
   topicId: Schema.String,
   text: Schema.String,
+  /**
+   * Canvas actor node ids to tag (soft notify via board edge wake).
+   * Unknown / non-connected ids are dropped server-side.
+   */
+  tags: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 export type BoardPostArgs = typeof BoardPostArgs.Type;
+
+/** List posts on a board that tag this process-bound seat (own tags). */
+export const BoardTagsListArgs = Schema.Struct({
+  target: Schema.String,
+  /** Optional topic filter. */
+  topicId: Schema.optionalKey(Schema.String),
+});
+export type BoardTagsListArgs = typeof BoardTagsListArgs.Type;
 
 export const BoardMarkReadArgs = Schema.Struct({
   target: Schema.String,

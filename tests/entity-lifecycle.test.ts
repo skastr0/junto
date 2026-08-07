@@ -116,7 +116,7 @@ describe("canvas entity registry", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V8_SQL)).toEqual(
       STATE_SCHEMA_V8_IDENTITY,
     );
-    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(15);
+    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(16);
 
     const root = await mkdtemp(join(tmpdir(), "vellum-entity-fresh-"));
     roots.push(root);

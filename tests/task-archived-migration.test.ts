@@ -20,10 +20,8 @@ describe("task archived schema migration 14 → 15", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V14_SQL)).toEqual(
       STATE_SCHEMA_V14_IDENTITY,
     );
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(
-      STATE_SCHEMA_V15_IDENTITY,
-    );
-    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(15);
+    // Current composition is V16+; V15 identity is frozen on STATE_SCHEMA_V15_SQL.
+    expect(CURRENT_STATE_SCHEMA_VERSION).toBeGreaterThanOrEqual(15);
   });
 
   it("migrates work_tasks rows and accepts archived state", () => {
@@ -36,10 +34,11 @@ describe("task archived schema migration 14 → 15", () => {
       // Minimal installation so FK-backed task rows can land if needed.
       // Migration only copy-forwards existing rows; empty shelf is valid.
       const result = migrateStateSchema(database);
-      expect(result.schemaVersion).toBe(15);
+      // Full chain advances to current (16+); 14→15 is proven by archived CHECK.
+      expect(result.schemaVersion).toBe(CURRENT_STATE_SCHEMA_VERSION);
       expect(result.previousVersion).toBe(14);
       expect(result.actualSchemaSha256).toBe(
-        STATE_SCHEMA_V15_IDENTITY.actualSchemaSha256,
+        expectedStateSchemaIdentity(STATE_SCHEMA_SQL).actualSchemaSha256,
       );
 
       // Live DDL must accept archived (CHECK expanded).

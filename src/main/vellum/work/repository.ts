@@ -1489,6 +1489,7 @@ const loadBoardPosts = (
         readonly author_node_id: string | null;
         readonly author_label: string | null;
         readonly parts_json: string;
+        readonly tags_json: string | null;
         readonly created_at: string;
       }
     >(
@@ -1502,6 +1503,7 @@ const loadBoardPosts = (
           author_node_id,
           author_label,
           parts_json,
+          tags_json,
           created_at
         FROM work_board_posts
         WHERE canvas_name = ? AND node_id = ? AND topic_id = ?
@@ -1509,16 +1511,23 @@ const loadBoardPosts = (
       `,
       [sink.canvasName, sink.nodeId, topicId],
     )
-    .map((row) =>
-      Schema.decodeUnknownSync(BoardPost, strictDecode)({
+    .map((row) => {
+      const tagsRaw =
+        typeof row.tags_json === "string" ? parseJson(row.tags_json) : undefined;
+      const tags =
+        Array.isArray(tagsRaw) && tagsRaw.every((t) => typeof t === "string")
+          ? (tagsRaw as string[])
+          : undefined;
+      return Schema.decodeUnknownSync(BoardPost, strictDecode)({
         postId: row.post_id,
         topicId: row.topic_id,
         author: boardAuthorFromRow(row),
         parts: parseJson(row.parts_json),
         position: row.position,
         createdAt: row.created_at,
-      }),
-    );
+        ...(tags && tags.length > 0 ? { tags } : {}),
+      });
+    });
 
 const loadBoardTopics = (
   reader: StateReader,
@@ -3212,13 +3221,15 @@ const materializeFact = (
         ],
       );
       for (const post of topic.posts ?? []) {
+        const tags =
+          post.tags && post.tags.length > 0 ? post.tags : undefined;
         writer.run(
           `
             INSERT INTO work_board_posts(
               canvas_name, node_id, topic_id, post_id, position,
               author_kind, author_seat_id, author_node_id, author_label,
-              parts_json, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              parts_json, tags_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `,
           [
             fact.item.sink.canvasName,
@@ -3231,6 +3242,7 @@ const materializeFact = (
             createdBy.nodeId ?? null,
             createdBy.label ?? null,
             JSON.stringify(post.parts),
+            tags ? JSON.stringify(tags) : null,
             post.createdAt,
           ],
         );
@@ -3241,13 +3253,15 @@ const materializeFact = (
       // Position authority is the fact body (assigned at apply/mint time).
       const post = fact.body.post;
       const createdBy = fact.body.createdBy;
+      const tags =
+        post.tags && post.tags.length > 0 ? post.tags : undefined;
       const inserted = writer.run(
         `
           INSERT INTO work_board_posts(
             canvas_name, node_id, topic_id, post_id, position,
             author_kind, author_seat_id, author_node_id, author_label,
-            parts_json, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            parts_json, tags_json, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(canvas_name, node_id, topic_id, post_id) DO NOTHING
         `,
         [
@@ -3261,6 +3275,7 @@ const materializeFact = (
           createdBy.nodeId ?? null,
           createdBy.label ?? null,
           JSON.stringify(post.parts),
+          tags ? JSON.stringify(tags) : null,
           post.createdAt,
         ],
       );

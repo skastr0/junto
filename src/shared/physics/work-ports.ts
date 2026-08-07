@@ -35,6 +35,8 @@ export const PortForWorkOp = {
   "board.create_topic": "board.create_topic",
   "board.post": "board.post",
   "board.mark_read": "board.mark_read",
+  // Own tags is a board read — reuses list grant (no new capability surface).
+  "board.tags": "board.list",
   "relay.trigger": "relay.trigger",
 } as const satisfies Record<TargetWorkOpName, Port>;
 
@@ -63,6 +65,7 @@ export const TARGET_WORK_OPS: ReadonlyArray<TargetWorkOpName> = [
   "board.create_topic",
   "board.post",
   "board.mark_read",
+  "board.tags",
   "relay.trigger",
 ];
 
@@ -104,6 +107,7 @@ export const OPS_BY_SINK = {
     "board.create_topic",
     "board.post",
     "board.mark_read",
+    "board.tags",
   ],
   page: [],
   terminal: [],

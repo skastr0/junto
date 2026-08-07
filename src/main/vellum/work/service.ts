@@ -400,6 +400,7 @@ export interface WorkServiceShape {
       topicId: string,
       text: string,
       author: import("@shared/work-model").BoardAuthor,
+      tags?: ReadonlyArray<string>,
     ) => Effect.Effect<
       WorkOpResult<{ readonly post: import("@shared/work-model").BoardPost }>
     >;
@@ -2027,7 +2028,7 @@ export const WorkLive = Layer.effect(
           }),
         ),
 
-      workBoardPost: (canvas, nodeId, topicId, text, author) =>
+      workBoardPost: (canvas, nodeId, topicId, text, author, tags) =>
         asResult(
           Effect.gen(function* () {
             const [context, read] = yield* Effect.all([
@@ -2046,6 +2047,10 @@ export const WorkLive = Layer.effect(
               );
             }
             const now = new Date().toISOString();
+            const cleanTags =
+              tags && tags.length > 0
+                ? tags.filter((t) => typeof t === "string" && t.trim().length > 0)
+                : undefined;
             const post = {
               postId: ids.messageId(),
               topicId,
@@ -2053,6 +2058,9 @@ export const WorkLive = Layer.effect(
               parts: [{ kind: "text" as const, text: text.trim() }],
               position: 0,
               createdAt: now,
+              ...(cleanTags && cleanTags.length > 0
+                ? { tags: cleanTags.map((t) => t.trim()) }
+                : {}),
             };
             const home =
               context.configuration.role === "command-center"

@@ -322,6 +322,13 @@ export const BoardPost = Schema.Struct({
   /** Monotone per-topic position (0-based). */
   position: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
   createdAt: Schema.String,
+  /**
+   * Optional actor node ids tagged in this post (canvas card ids).
+   * Expand-only — historical posts omit. Soft tag-notify uses these.
+   */
+  tags: Schema.optionalKey(
+    Schema.Array(Schema.String.pipe(Schema.check(Schema.isMinLength(1)))),
+  ),
 });
 export type BoardPost = typeof BoardPost.Type;
 
