@@ -22,6 +22,7 @@ import {
   isPinSessionHarness,
   shouldResumeHarnessSession,
 } from "./session-existence";
+import { containingRegion } from "../work/authz";
 
 /**
  * Official `bun run dev` sets `VELLUM_COMMAND_HOME` (e.g. ~/.vellum-command-dev) while leaving
@@ -256,6 +257,15 @@ export const planManagedSpawn = (input: SpawnPlanInput): ManagedLaunchPlan | und
         : {}),
       ...(input.doc && input.nodeId
         ? { connectedTargets: connectedTargetsForNode(input.doc, input.nodeId) }
+        : {}),
+      // Region briefing (operator-authored instruction) travels into the ONE
+      // doctrine body at spawn; onboard remains the live fallback when a
+      // region appears or changes mid-session.
+      ...(input.doc && input.nodeId
+        ? (() => {
+            const region = containingRegion(input.doc, input.nodeId);
+            return region?.instruction ? { regionInstruction: region.instruction } : {};
+          })()
         : {}),
     },
     ...(profile ? { profile } : {}),

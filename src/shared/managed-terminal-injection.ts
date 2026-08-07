@@ -27,6 +27,13 @@ import {
 } from "./managed-terminal-templates";
 import { BROWSER_ENABLED } from "./features";
 import type { CanvasDoc } from "./canvas";
+import {
+  FEW_SHOT_CLAIM,
+  FEW_SHOT_COMPLETE_EVIDENCE,
+  FEW_SHOT_ESCALATE,
+  FEW_SHOT_PROGRESS,
+  type DoctrineFewShotPayload,
+} from "./doctrine-few-shots";
 
 // ── Seat context (filled at spawn) ─────────────────────────────────────────
 
@@ -51,6 +58,13 @@ export type InjectionContext = {
   readonly seatRef?: string;
   /** Edge-connected work surfaces the seat may act on. */
   readonly connectedTargets?: readonly InjectionConnectedTarget[];
+  /**
+   * Operator-authored region briefing (EtherRegion.instruction). Appended as
+   * a clearly-marked supplemental layer at the end of the doctrine — the
+   * base body stays immutable; the region is the operator's steering surface
+   * for a group of seats. Absent → no section (onboard still carries it).
+   */
+  readonly regionInstruction?: string;
 };
 
 // ── Slot kinds ─────────────────────────────────────────────────────────────
@@ -358,6 +372,57 @@ Re-run \`vellum-command onboard\` for the live map after compaction or edge chan
  * the supervisor at most once per generation —
  * never the full doctrine (the agent already received it at spawn).
  */
+/**
+ * Worked examples for the doctrine — rendered from the canonical few-shot
+ * payloads (shared/doctrine-few-shots.ts) that also feed the CLI examples
+ * catalog, so the doctrine can never teach a JSON shape the catalog does not
+ * print. Only compiled in for the slots the seat actually holds.
+ */
+const fewShotsForTargets = (
+  targets: readonly InjectionConnectedTarget[] | undefined,
+): readonly DoctrineFewShotPayload[] => {
+  if (!targets) return [];
+  const out: DoctrineFewShotPayload[] = [];
+  const kinds = new Set(targets.map((t) => t.kind));
+  if (kinds.has("tasks")) {
+    out.push(FEW_SHOT_CLAIM, FEW_SHOT_PROGRESS, FEW_SHOT_COMPLETE_EVIDENCE);
+  }
+  if (kinds.has("requests")) {
+    out.push(FEW_SHOT_ESCALATE);
+  }
+  return out;
+};
+
+export const buildFewShotsSection = (
+  targets: readonly InjectionConnectedTarget[] | undefined,
+): string => {
+  const shots = fewShotsForTargets(targets);
+  if (shots.length === 0) return "";
+  const lines = ["## Worked examples", ""];
+  for (const shot of shots) {
+    // args are the full argv (["tasks", "claim", "{...}"]); render the whole
+    // command so the copy-paste line is complete.
+    lines.push(`\`vellum-command ${shot.args.join(" ")}\``);
+    lines.push(`- ${shot.lesson}`);
+    lines.push("");
+  }
+  return lines.join("\n").replace(/\n\n$/, "");
+};
+
+/**
+ * Region briefing — operator-authored steering for a group of seats.
+ * Deliberately a supplemental layer: marked, optional, and only present when
+ * the seat's region actually carries an instruction at spawn.
+ */
+export const buildRegionBriefingSection = (
+  instruction: string,
+): string =>
+  [
+    "## Region briefing (operator-authored)",
+    "",
+    instruction.trim(),
+  ].join("\n");
+
 export const buildOrientNotice = (seatRef?: string): string =>
   [
     "Your seat's factory CLI: `vellum-command onboard`.",
@@ -396,8 +461,16 @@ export const buildInjectionText = (ctx: InjectionContext): string | null => {
     // The edge-contracts intro only appears when contracts actually follow —
     // isolated seats are never promised commands that are not compiled in.
     ...(slots.length > 0 ? [EDGE_CONTRACTS_INTRO, ...slots] : []),
+    // Worked examples (only for the slots compiled above — same source as the
+    // CLI examples catalog, so they cannot drift).
+    ...(ctx.connected ? [buildFewShotsSection(ctx.connectedTargets)] : []),
     "",
     buildSeatContextSection(ctx),
+    // Operator-authored region briefing — supplemental layer, last on purpose
+    // (the base doctrine stays immutable; this is per-region operator intent).
+    ...(ctx.regionInstruction?.trim()
+      ? ["", buildRegionBriefingSection(ctx.regionInstruction)]
+      : []),
   ].join("\n");
 };
 

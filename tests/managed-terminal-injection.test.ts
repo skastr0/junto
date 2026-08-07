@@ -317,4 +317,48 @@ describe("resolveManagedLaunchPlan Tier A flags", () => {
       expect(text).toContain("vellum-command browser pages");
     });
   }
+  it("appends the operator-authored region briefing as the final supplemental section", () => {
+    const body = buildInjectionText({
+      seatBound: true,
+      connected: false,
+      seatRef: "n3",
+      regionInstruction: "Squad A: keep changes small; ask before touching licensing.",
+    });
+    expect(body).toContain("## Region briefing (operator-authored)");
+    expect(body).toContain("Squad A: keep changes small; ask before touching licensing.");
+    // Last section: the base doctrine stays immutable; the region is the tail layer.
+    expect(body?.trimEnd().endsWith("ask before touching licensing.")).toBe(true);
+  });
+
+  it("omits the region briefing when the seat has none", () => {
+    const body = buildInjectionText({ seatBound: true, connected: false, seatRef: "n3" });
+    expect(body).not.toContain("Region briefing");
+  });
+
+  it("compiles worked examples only for the slots the seat holds", () => {
+    const tasksOnly = buildInjectionText({
+      seatBound: true,
+      connected: true,
+      seatRef: "n3",
+      connectedTargets: [{ id: "n7", kind: "tasks", summary: "Sprint board" }],
+    });
+    expect(tasksOnly).toContain("## Worked examples");
+    expect(tasksOnly).toContain('tasks claim {"target":"n7","task":"t1"}');
+    expect(tasksOnly).toContain("completionEvidence");
+    expect(tasksOnly).not.toContain('"target":"req1"');
+
+    const requestsOnly = buildInjectionText({
+      seatBound: true,
+      connected: true,
+      seatRef: "n3",
+      connectedTargets: [{ id: "n8", kind: "requests", summary: "Requests" }],
+    });
+    expect(requestsOnly).toContain('vellum-command escalate {"target":"req1","brief":"need API key for staging","reason":"cannot continue without operator secret"}');
+    expect(requestsOnly).not.toContain("tasks claim");
+  });
+
+  it("never promises worked examples to isolated seats", () => {
+    const body = buildInjectionText({ seatBound: true, connected: false, seatRef: "n3" });
+    expect(body).not.toContain("Worked examples");
+  });
 });

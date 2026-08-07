@@ -27,6 +27,11 @@ import {
   TasksUpdateArgs,
 } from "../../shared/work-control";
 import { DEFAULT_BATCH_CONCURRENCY } from "./constants";
+import {
+  FEW_SHOT_CLAIM,
+  FEW_SHOT_COMPLETE_EVIDENCE,
+  FEW_SHOT_ESCALATE,
+} from "../../shared/doctrine-few-shots";
 
 export type CommandCategory = "workflow" | "diagnostic" | "discovery";
 
@@ -400,7 +405,7 @@ export const allExamples: ReadonlyArray<CommandExample> = [
     command: "tasks claim",
     name: "claim one",
     description: "Claim task t1 on target node n7.",
-    args: ["tasks", "claim", '{"target":"n7","task":"t1"}'],
+    args: FEW_SHOT_CLAIM.args,
     input: { target: "n7", task: "t1" },
   },
   {
@@ -439,11 +444,7 @@ export const allExamples: ReadonlyArray<CommandExample> = [
         git: { commits: ["abc123"] },
       },
     },
-    args: [
-      "tasks",
-      "update",
-      '{"target":"n7","task":"t1","state":"completed","completionEvidence":{"artifacts":[{"artifactId":"a1","nodeId":"art1"}],"git":{"commits":["abc123"]}}}',
-    ],
+    args: FEW_SHOT_COMPLETE_EVIDENCE.args,
   },
   {
     command_id: "msg.send",
@@ -498,10 +499,7 @@ export const allExamples: ReadonlyArray<CommandExample> = [
       brief: "need API key for staging",
       reason: "cannot continue without operator secret",
     },
-    args: [
-      "escalate",
-      '{"target":"req1","brief":"need API key for staging","reason":"cannot continue without operator secret"}',
-    ],
+    args: FEW_SHOT_ESCALATE.args,
   },
   {
     command_id: "artifact.publish",
