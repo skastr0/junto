@@ -9,7 +9,7 @@ import {
   presentationForSeat,
   subscribeAgentSeatState,
 } from "../../lib/agent-seat-state";
-import { terminalActivity } from "../../lib/activity";
+import { isActiveProcessLabel, terminalActivity } from "../../lib/activity";
 import { terminal$ } from "../../lib/terminal-state";
 import { onTerminalEvent } from "../../lib/terminal-events";
 import { getVellumCommandApi } from "../../lib/vellum-api";
@@ -115,12 +115,13 @@ export function TerminalCard({
   const exitMessage = session?.exitMessage;
   const processLive =
     session?.status === "running" || session?.status === "starting";
-  // Best-effort process label: OSC/live processName → spawn title → launch argv.
+  // Foreground label only — never launch argv basename (zsh) as "the process".
+  // Idle shell OSC titles (user@host:path) are filtered by isActiveProcessLabel.
   const processName =
-    session?.processName?.trim() ||
-    session?.title?.trim() ||
-    (processLive ? launchSummary(native.launch) : undefined) ||
-    undefined;
+    session?.processName?.trim() || session?.title?.trim() || undefined;
+  const activeProcess =
+    session?.status === "starting" ||
+    (session?.status === "running" && isActiveProcessLabel(processName));
   const activity = terminalActivity({
     seatState,
     needsLook: needsLook === true,
@@ -141,20 +142,19 @@ export function TerminalCard({
         ? "stalled — needs operator look"
         : seatEvent?.reason
       : undefined;
-  const processSubtitle = processLive
-    ? processName
+  // Process line only when a non-shell command is running — not shell pid chrome.
+  const processSubtitle =
+    activeProcess && processName
       ? session?.pid !== undefined
         ? `${processName} · pid ${session.pid}`
         : processName
-      : session?.pid !== undefined
-        ? `pid ${session.pid}`
-        : "process live"
-    : undefined;
+      : undefined;
   const subtitle =
     (exitReason && exitMessage) ||
     attentionSubtitle ||
     processSubtitle ||
     (presentation === "done" ? "ready — review response" : undefined) ||
+    (processLive && !activeProcess ? "seated" : undefined) ||
     launchSummary(native.launch);
 
   const complete = activity.mode === "pulse" && activity.tone === "green";

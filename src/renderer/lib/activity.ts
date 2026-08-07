@@ -144,11 +144,57 @@ export function herdrActivity(input: {
 
 // --- native terminal / managed seat -----------------------------------------
 
+/** Shells / idle OSC titles — not "a process the operator cares about". */
+const SHELL_BASENAMES = new Set([
+  "zsh",
+  "bash",
+  "sh",
+  "fish",
+  "csh",
+  "tcsh",
+  "dash",
+  "ksh",
+  "pwsh",
+  "powershell",
+  "login",
+  "-zsh",
+  "-bash",
+]);
+
+/**
+ * True when the label names real foreground work (npm, vim, node, …),
+ * not an idle shell or a cwd/prompt-style OSC title.
+ *
+ * Metadata monitors *commands*, not PTY liveness: a seated idle shell is
+ * quiet steel, not a green "process running" wave.
+ */
+export const isActiveProcessLabel = (
+  processName: string | null | undefined,
+): boolean => {
+  const raw = processName?.trim();
+  if (!raw) return false;
+  // user@host:path or user@host path — common idle shell OSC titles.
+  if (/^[^@\s/]+@[^:\s]+[:\s]/.test(raw)) return false;
+  // Bare path / home titles (OSC often sets cwd only).
+  if (raw === "~" || raw.startsWith("~/") || raw.startsWith("/")) return false;
+  // Take last path segment, then first token (e.g. /bin/zsh → zsh, "npm run" → npm).
+  const base =
+    raw
+      .split(/[/\\]/)
+      .pop()
+      ?.trim()
+      .split(/\s+/)[0]
+      ?.toLowerCase() ?? "";
+  if (!base) return false;
+  if (SHELL_BASENAMES.has(base)) return false;
+  return true;
+};
+
 /**
  * One status grammar for raw native terminals and managed agent terminals.
  * A seat event carries richer intent than bare process liveness and therefore
- * wins for attention / actor working — but a live PTY still paints a distinct
- * green process wave (not actor cyan snake) so idle shells are visible.
+ * wins for attention / actor working. Green process wave is only for a
+ * *non-shell* foreground label — an idle seated PTY is quiet, not "working".
  *
  * Pre-ownership spawn failures (`exitReason`) beat the idle "stopped" fallback
  * so a missing harness CLI never looks like a clean stop. Those errors are
@@ -180,7 +226,10 @@ export function terminalActivity(input: {
   readonly exitReason?: "cli-missing" | "spawn_failed" | null;
   /** Operator-facing copy when exitReason is set (harness display name). */
   readonly exitMessage?: string | null;
-  /** Best-effort process label for accessible name only (OSC title / argv). */
+  /**
+   * Best-effort foreground label (OSC title / argv). Shell names and
+   * user@host:path titles do not count as active process work.
+   */
   readonly processName?: string | null;
 }): ActivitySpec {
   if (input.seatState === "attention") {
@@ -215,27 +264,26 @@ export function terminalActivity(input: {
       label: "working",
     };
   }
-  // Live PTY process (raw terminal, or agent seat idle while shell still up).
-  // Green wave + diagonal/ripple — never cyan snake (that is actor working).
-  const processLabel = input.processName?.trim();
+  const processLabel = input.processName?.trim() || undefined;
+  const activeProcess = isActiveProcessLabel(processLabel);
+  // Spawn in flight — brief green diagonal until the seat settles.
   if (input.starting) {
     return {
       mode: "wave",
       tone: "green",
       pattern: "diagonal",
-      label: processLabel
+      label: activeProcess && processLabel
         ? `starting · ${processLabel}`
         : "starting process",
     };
   }
-  if (input.running) {
+  // Real foreground work only — not shell/PTY liveness (zsh, user@host:cwd, …).
+  if (input.running && activeProcess && processLabel) {
     return {
       mode: "wave",
       tone: "green",
       pattern: "ripple",
-      label: processLabel
-        ? `process · ${processLabel}`
-        : "process running",
+      label: `process · ${processLabel}`,
     };
   }
   // Ready/complete: idle after work, operator has not looked (herdr done).
@@ -268,6 +316,10 @@ export function terminalActivity(input: {
       pattern: "diagonal",
       label: input.exitMessage?.trim() || "failed to start",
     };
+  }
+  // Live PTY with no agent seat and no active command — seated, not "working".
+  if (input.running) {
+    return { mode: "static", tone: SEVERITY_TONE.idle, label: "seated" };
   }
   return {
     mode: "static",

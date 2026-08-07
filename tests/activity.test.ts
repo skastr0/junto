@@ -3,6 +3,7 @@ import {
   browserActivity,
   chatActivity,
   herdrActivity,
+  isActiveProcessLabel,
   loadingActivity,
   terminalActivity,
   timerActivity,
@@ -121,13 +122,26 @@ describe("terminalActivity", () => {
       tone: "amber",
       pattern: "ripple",
     });
-    // Live PTY under an idle seat still paints green process wave (not steel idle).
+    // Live idle shell under an idle seat is quiet — not a green process wave.
     expect(
       terminalActivity({ seatState: "idle", running: true }),
+    ).toMatchObject({
+      mode: "static",
+      tone: "steel",
+      label: "idle",
+    });
+    // A real command still paints green process wave.
+    expect(
+      terminalActivity({
+        seatState: "idle",
+        running: true,
+        processName: "npm",
+      }),
     ).toMatchObject({
       mode: "wave",
       tone: "green",
       pattern: "ripple",
+      label: "process · npm",
     });
   });
 
@@ -207,21 +221,49 @@ describe("terminalActivity", () => {
       tone: "green",
       pattern: "diagonal",
     });
+    // Bare running shell → seated quiet (not process wave).
     expect(terminalActivity({ running: true })).toMatchObject({
+      mode: "static",
+      tone: "steel",
+      label: "seated",
+    });
+    expect(
+      terminalActivity({ running: true, processName: "zsh" }),
+    ).toMatchObject({
+      mode: "static",
+      tone: "steel",
+      label: "seated",
+    });
+    expect(
+      terminalActivity({
+        running: true,
+        processName: "developer@dev-laptop:/Projects/vellum",
+      }),
+    ).toMatchObject({ mode: "static", tone: "steel", label: "seated" });
+    // Named non-shell process → green ripple (≠ actor cyan snake).
+    expect(
+      terminalActivity({ running: true, processName: "node" }),
+    ).toMatchObject({
       mode: "wave",
       tone: "green",
       pattern: "ripple",
+      label: "process · node",
     });
-    // Process green ripple ≠ actor cyan snake.
-    expect(terminalActivity({ running: true }).pattern).not.toBe("snake");
     expect(terminalActivity({ seatState: "working" }).pattern).toBe("snake");
-    expect(terminalActivity({ running: true, processName: "zsh" }).label).toBe(
-      "process · zsh",
-    );
     expect(terminalActivity({})).toMatchObject({
       mode: "static",
       tone: "steel",
     });
+  });
+
+  it("isActiveProcessLabel rejects shells and prompt-style OSC titles", () => {
+    expect(isActiveProcessLabel(undefined)).toBe(false);
+    expect(isActiveProcessLabel("zsh")).toBe(false);
+    expect(isActiveProcessLabel("/bin/bash")).toBe(false);
+    expect(isActiveProcessLabel("user@host:~/proj")).toBe(false);
+    expect(isActiveProcessLabel("~/Projects/vellum")).toBe(false);
+    expect(isActiveProcessLabel("npm")).toBe(true);
+    expect(isActiveProcessLabel("vim src/main.ts")).toBe(true);
   });
 
   it("surfaces missing harness CLI as crimson error (not blocked, not steel stopped)", () => {
