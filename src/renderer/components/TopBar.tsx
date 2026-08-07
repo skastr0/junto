@@ -3,7 +3,12 @@ import { useEffect, useRef, useState } from "react";
 import { CircleHelp, Pause, Play, Plus, Radar, ScrollText, Search, Settings2, Trash2, X } from "lucide-react";
 import type { CanvasSummary } from "@shared/ipc";
 import type { CanvasPauseState } from "@shared/pause";
-import { FLEET_UI_ENABLED, HELP_MAP_ENABLED, USAGE_ENABLED } from "@shared/features";
+import {
+  DEV_TOOLS_ENABLED,
+  FLEET_UI_ENABLED,
+  HELP_MAP_ENABLED,
+  USAGE_ENABLED,
+} from "@shared/features";
 import { state$ } from "../lib/state";
 import { retrySave } from "../lib/mutations";
 import { openSettings } from "../lib/settings-state";
@@ -386,7 +391,7 @@ export function TopBar({
       <div className="station-actions relative ml-auto flex items-center gap-3">
         <UpdateChip />
         <FactoryPauseControl canvasName={canvasName} />
-        {logsExplorer ? (
+        {DEV_TOOLS_ENABLED && logsExplorer ? (
           <button
             type="button"
             className="station-icon-button"

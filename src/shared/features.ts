@@ -19,6 +19,7 @@ declare const __VELLUM_COMMAND_HELP_MAP_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_AUDIO_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HERMES_INTEGRATION_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HERDR_ENABLED__: boolean | undefined;
+declare const __VELLUM_COMMAND_DEV_TOOLS_ENABLED__: boolean | undefined;
 
 const envEnabled = (key: string): boolean => {
   try {
@@ -81,6 +82,16 @@ export const HERMES_INTEGRATION_ENABLED: boolean =
     ? __VELLUM_COMMAND_HERMES_INTEGRATION_ENABLED__
     : envEnabled("VELLUM_COMMAND_HERMES");
 
+/**
+ * Developer diagnostics in Advanced settings + logs explorer chrome.
+ * Compile-time only: ship profile injects false; prod never shows install
+ * feed URLs, build/updater provenance, data paths, or logs explorer.
+ */
+export const DEV_TOOLS_ENABLED: boolean =
+  typeof __VELLUM_COMMAND_DEV_TOOLS_ENABLED__ === "boolean"
+    ? __VELLUM_COMMAND_DEV_TOOLS_ENABLED__
+    : envEnabled("VELLUM_COMMAND_DEV_TOOLS");
+
 export const BUILD_FEATURES = {
   cron: CRON_ENABLED,
   relay: RELAY_ENABLED,
@@ -91,6 +102,7 @@ export const BUILD_FEATURES = {
   audio: AUDIO_ENABLED,
   hermesIntegration: HERMES_INTEGRATION_ENABLED,
   herdr: HERDR_ENABLED,
+  devTools: DEV_TOOLS_ENABLED,
 } as const;
 
 /** Whether an authored scheduler kind has a live product surface in this build. */

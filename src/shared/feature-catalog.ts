@@ -35,6 +35,15 @@ export const FEATURE_CATALOG = {
     env: "VELLUM_COMMAND_HERDR",
     define: "__VELLUM_COMMAND_HERDR_ENABLED__",
   },
+  /**
+   * Advanced diagnostics for developers: install provenance (build/updater,
+   * update feed URL, host id, data path), logs explorer chrome. Never on
+   * ship/prod — only all-on and explicit dev overrides.
+   */
+  devTools: {
+    env: "VELLUM_COMMAND_DEV_TOOLS",
+    define: "__VELLUM_COMMAND_DEV_TOOLS_ENABLED__",
+  },
 } as const;
 
 export type FeatureKey = keyof typeof FEATURE_CATALOG;
@@ -52,6 +61,7 @@ export const SHIP_FEATURES: FeatureSet = {
   audio: false,
   hermesIntegration: false,
   herdr: false,
+  devTools: false,
 };
 
 export const ALL_FEATURES: FeatureSet = {
@@ -64,4 +74,5 @@ export const ALL_FEATURES: FeatureSet = {
   audio: true,
   hermesIntegration: true,
   herdr: true,
+  devTools: true,
 };

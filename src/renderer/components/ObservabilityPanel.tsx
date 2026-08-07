@@ -17,6 +17,7 @@ import {
   type ObservabilityLogSource,
   type ObservabilityQuery,
 } from "@shared/observability";
+import { DEV_TOOLS_ENABLED } from "@shared/features";
 import { state$ } from "../lib/state";
 import { DIM, FAINT, GREEN, HUE, INK, RAISE, WELL, withAlpha } from "../lib/theme";
 import { IconButton, OverlayHeader } from "./ui";
@@ -347,7 +348,7 @@ export function ObservabilityPanel() {
     return parts.join(" - ");
   }, [entries.length, total, capacity, dropped, live]);
 
-  if (!open) return null;
+  if (!DEV_TOOLS_ENABLED || !open) return null;
 
   return createPortal(
     <div

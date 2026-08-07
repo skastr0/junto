@@ -11,6 +11,7 @@ declare const __VELLUM_COMMAND_USAGE_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HELP_MAP_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_AUDIO_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HERMES_INTEGRATION_ENABLED__: boolean | undefined;
+declare const __VELLUM_COMMAND_DEV_TOOLS_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_LICENSE_CHANNEL__: string | undefined;
 declare const __VELLUM_COMMAND_DODO_BUSINESS_ID__: string | undefined;
 declare const __VELLUM_COMMAND_DODO_PRODUCT_IDS__: ReadonlyArray<string> | undefined;

@@ -19,6 +19,8 @@ mkdir -p "${ISOLATED_HOME}"
 printf 'vellum-command dev → VELLUM_COMMAND_HOME=%s (HOME unchanged; Electron userData isolated)\n' "${ISOLATED_HOME}" >&2
 
 export VELLUM_COMMAND_HOME="${ISOLATED_HOME}"
+# Advanced diagnostics (install provenance, logs explorer) — never on ship/prod.
+export VELLUM_COMMAND_DEV_TOOLS="${VELLUM_COMMAND_DEV_TOOLS:-1}"
 cd "${ROOT}"
 bash scripts/dev-seed-from-prod.sh
 

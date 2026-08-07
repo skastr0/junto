@@ -7,6 +7,7 @@ import type { SettingsSectionKey } from "@shared/settings";
 import {
   AUDIO_ENABLED,
   BROWSER_ENABLED,
+  DEV_TOOLS_ENABLED,
   FLEET_UI_ENABLED,
 } from "@shared/features";
 import {
@@ -56,7 +57,13 @@ const SECTIONS: ReadonlyArray<{ key: PanelSection; label: string; blurb: string 
   ...(BROWSER_ENABLED
     ? [{ key: "browser", label: "Browser", blurb: "surface and warm-session limits" } as const]
     : []),
-  { key: "advanced", label: "Advanced", blurb: "startup, recovery, developer tools" },
+  {
+    key: "advanced",
+    label: "Advanced",
+    blurb: DEV_TOOLS_ENABLED
+      ? "startup, recovery, developer tools"
+      : "startup and recovery",
+  },
 ];
 
 /** Prefer first nav item when Machine is fleet-gated out. */
@@ -447,21 +454,23 @@ function AdvancedSection() {
   return (
     <div className="settings-section">
       <InstallationFacts />
-      <FieldRow
-        label="Logs explorer"
-        hint="show the developer logs panel in the top bar"
-      >
-        <input
-          type="checkbox"
-          checked={advanced.logsExplorer}
-          aria-label="Logs explorer"
-          onChange={(event) => {
-            const enabled = event.target.checked;
-            void patchSettings({ advanced: { logsExplorer: enabled } });
-            if (!enabled) state$.observabilityOpen.set(false);
-          }}
-        />
-      </FieldRow>
+      {DEV_TOOLS_ENABLED ? (
+        <FieldRow
+          label="Logs explorer"
+          hint="show the developer logs panel in the top bar"
+        >
+          <input
+            type="checkbox"
+            checked={advanced.logsExplorer}
+            aria-label="Logs explorer"
+            onChange={(event) => {
+              const enabled = event.target.checked;
+              void patchSettings({ advanced: { logsExplorer: enabled } });
+              if (!enabled) state$.observabilityOpen.set(false);
+            }}
+          />
+        </FieldRow>
+      ) : null}
       {usesAppleLoginItems ? (
         <FieldRow label="Start Vellum Command at login" hint="macOS Login Items">
           <input type="checkbox" checked={openAtLogin} disabled={loginItemLoading || loginItemBusy} aria-label="Start Vellum Command at login" onChange={(event) => void onToggleLoginItem(event.target.checked)} />
@@ -492,7 +501,9 @@ function InstallationFacts() {
   const platformLabel =
     install === undefined
       ? "—"
-      : `${install.platform}/${install.arch} - electron ${install.electronVersion}`;
+      : DEV_TOOLS_ENABLED
+        ? `${install.platform}/${install.arch} - electron ${install.electronVersion}`
+        : `${install.platform}/${install.arch}`;
   const buildLabel =
     install === undefined
       ? "—"
@@ -511,38 +522,48 @@ function InstallationFacts() {
       <div className="settings-install-facts__head">
         <span>Installation</span>
         <span>
-          App version and release provenance. Check for updates lives under
-          Updates.
+          {DEV_TOOLS_ENABLED
+            ? "App version and release provenance. Check for updates lives under Updates."
+            : "App version and platform for this installation."}
         </span>
       </div>
-      <FieldRow label="App version" hint="running Vellum Command build">
+      <FieldRow label="App version" hint="currently running Vellum Command">
         <span style={{ color: INK, fontSize: 13 }}>{status.currentVersion}</span>
       </FieldRow>
-      <FieldRow label="Build" hint="packaged vs development">
-        <span style={{ color: INK, fontSize: 13 }}>{buildLabel}</span>
-      </FieldRow>
-      <FieldRow label="Platform" hint="OS, architecture, Electron runtime">
+      {DEV_TOOLS_ENABLED ? (
+        <FieldRow label="Build" hint="packaged vs development">
+          <span style={{ color: INK, fontSize: 13 }}>{buildLabel}</span>
+        </FieldRow>
+      ) : null}
+      <FieldRow
+        label="Platform"
+        hint={DEV_TOOLS_ENABLED ? "OS, architecture, Electron runtime" : "OS and architecture"}
+      >
         <span style={{ color: INK, fontSize: 13 }}>{platformLabel}</span>
       </FieldRow>
-      <FieldRow label="Update feed" hint="packaged release channel only">
-        <span
-          className="settings-mono-value"
-          style={{ color: INK, fontSize: 12 }}
-          title={install?.feedUrl}
-        >
-          {feedLabel}
-        </span>
-      </FieldRow>
-      <FieldRow label="Host id" hint="this machine across the fleet">
-        <span style={{ color: INK, fontSize: 13 }}>
-          {station.hostId.length > 0 ? station.hostId : "—"}
-        </span>
-      </FieldRow>
-      <FieldRow label="Data location" hint="where Vellum Command stores its data">
-        <span className="settings-mono-value" style={{ color: INK, fontSize: 12 }}>
-          ~/.vellum-command/state/vellum-command.db
-        </span>
-      </FieldRow>
+      {DEV_TOOLS_ENABLED ? (
+        <>
+          <FieldRow label="Update feed" hint="packaged release channel only">
+            <span
+              className="settings-mono-value"
+              style={{ color: INK, fontSize: 12 }}
+              title={install?.feedUrl}
+            >
+              {feedLabel}
+            </span>
+          </FieldRow>
+          <FieldRow label="Host id" hint="this machine across the fleet">
+            <span style={{ color: INK, fontSize: 13 }}>
+              {station.hostId.length > 0 ? station.hostId : "—"}
+            </span>
+          </FieldRow>
+          <FieldRow label="Data location" hint="where Vellum Command stores its data">
+            <span className="settings-mono-value" style={{ color: INK, fontSize: 12 }}>
+              ~/.vellum-command/state/vellum-command.db
+            </span>
+          </FieldRow>
+        </>
+      ) : null}
     </div>
   );
 }
