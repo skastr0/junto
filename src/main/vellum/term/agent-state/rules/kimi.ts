@@ -14,16 +14,16 @@ import type { SeatRulePack } from "../types";
 
 export const kimiRules: SeatRulePack = {
   harness: "kimi",
-  version: "2026.08.06.1",
+  version: "2026.08.07.2",
   rules: [
-    // "↵ confirm" + a question ("run this command?" / "write this file?" /
-    // "apply these edits?" / "stop this task?" / "ready to build with this
-    // plan?") + " choose" + approve/reject/revise.
+    // "↵ confirm" + a question + " choose" + approve/reject/revise.
+    // Bottom-scoped: transcript replay of an old approval must not pin NEEDS INPUT.
     {
       id: "current_approval_panel",
       state: "attention",
       priority: 1200,
-      region: "whole_recent",
+      region: "bottom_non_empty_lines",
+      regionN: 16,
       visibleAttention: true,
       matchers: {
         contains: ["↵ confirm"],
@@ -52,7 +52,8 @@ export const kimiRules: SeatRulePack = {
       id: "question_panel",
       state: "attention",
       priority: 1190,
-      region: "whole_recent",
+      region: "bottom_non_empty_lines",
+      regionN: 16,
       visibleAttention: true,
       matchers: {
         contains: ["↑↓ select", "esc cancel"],
@@ -70,7 +71,8 @@ export const kimiRules: SeatRulePack = {
       id: "legacy_approval_panel",
       state: "attention",
       priority: 1150,
-      region: "whole_recent",
+      region: "bottom_non_empty_lines",
+      regionN: 16,
       visibleAttention: true,
       matchers: {
         contains: ["requesting approval", "reject"],
@@ -102,23 +104,28 @@ export const kimiRules: SeatRulePack = {
         ],
       },
     },
-    // Moon-phase spinner: a lone 🌕…🌔 line.
+    // Moon-phase spinner: a lone 🌕…🌔 line in the live status strip only.
+    // Never whole_recent — a prior turn's moon glyph in scrollback would pin
+    // working forever after the agent returned to the prompt.
     {
       id: "moon_spinner_working",
       state: "working",
       priority: 190,
-      region: "whole_recent",
+      region: "bottom_non_empty_lines",
+      regionN: 6,
       visibleWorking: true,
       matchers: {
         lineRegex: ["^\\s*(🌕|🌖|🌗|🌘|🌑|🌒|🌓|🌔)\\s*$"],
       },
     },
     // Braille spinner + thinking.../working.../using (tool status lines).
+    // Bottom-scoped for the same scrollback-pin reason as moon_spinner.
     {
       id: "braille_spinner_working",
       state: "working",
       priority: 180,
-      region: "whole_recent",
+      region: "bottom_non_empty_lines",
+      regionN: 6,
       visibleWorking: true,
       matchers: {
         lineRegex: [
@@ -127,7 +134,9 @@ export const kimiRules: SeatRulePack = {
       },
     },
     // Prompt box "> " + status footer "context: 0% (0/1M)" — always-on idle
-    // chrome. Below every working rule: the footer renders during turns too.
+    // chrome. Below live working rules (bottom-scoped): when the agent is
+    // truly idle the status strip has no moon/braille, so this fires cleanly.
+    // Keep priority under working so a live spinner in the same strip still wins.
     {
       id: "prompt_footer_idle",
       state: "idle",

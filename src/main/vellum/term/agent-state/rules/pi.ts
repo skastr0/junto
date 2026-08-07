@@ -17,7 +17,7 @@ import type { SeatRulePack } from "../types";
 
 export const piRules: SeatRulePack = {
   harness: "pi",
-  version: "2026.08.06.1",
+  version: "2026.08.07.2",
   rules: [
     // Startup project-trust selector: "Trust project folder?" + Trust options
     // + "↑↓ navigate - save - cancel" hints (trust-selector chrome).
@@ -93,8 +93,10 @@ export const piRules: SeatRulePack = {
       matchers: { contains: ["Summarizing branch..."] },
     },
     // Static OSC 0 title "π - <sessionName> - <cwdBasename>" ("pi - …" on
-    // forked dists). Below every grid working rule: the title does not churn
-    // while streaming, so it must never outrank the status line.
+    // forked dists). Below live status-line working rules (200–170): the title
+    // does not churn while streaming. When the status strip is clean, the
+    // static title is the idle proof — raise above residual footer noise that
+    // is not a Working.../Compacting line.
     {
       id: "osc_title_idle",
       state: "idle",
@@ -102,6 +104,32 @@ export const piRules: SeatRulePack = {
       region: "osc_title",
       visibleIdle: true,
       matchers: { regex: ["^π - |^pi - "] },
+    },
+    // Positive idle chrome: editor caret / empty prompt at bottom without a
+    // live "Working..." status. Covers the common idle surface when thinking
+    // blocks remain expanded in scrollback but the agent is waiting for input.
+    {
+      id: "editor_prompt_idle",
+      state: "idle",
+      priority: 160,
+      region: "bottom_non_empty_lines",
+      regionN: 4,
+      visibleIdle: true,
+      matchers: {
+        // Footer model/context line is always present when the editor is live.
+        any: [
+          { contains: ["context"] },
+          { lineRegex: ["\\d+(\\.\\d+)?%"] },
+          { contains: ["tokens"] },
+        ],
+        // Refuse if a live working status is still in the same strip.
+        not: [
+          { contains: ["Working..."] },
+          { contains: ["Compacting context..."] },
+          { contains: ["Summarizing branch..."] },
+          { lineRegex: ["^\\s*[Rr]etrying\\s*\\("] },
+        ],
+      },
     },
   ],
 };

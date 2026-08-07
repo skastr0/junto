@@ -78,6 +78,14 @@ export type WritePromptOptions = {
    * the seat reports idle so a mail burst cannot double-tap Ctrl+C.
    */
   readonly interruptIfBusy?: boolean;
+  /**
+   * When false, a successful paste+CR resolves true without waiting for
+   * onTurnStart. Tier B firstTyped doctrine uses this: harnesses with empty
+   * or weak working chrome (Muse) never publish working, so stallWatch would
+   * force attention, leave firstTyped armed, and re-paste forever.
+   * Defaults to the drive-level stallWatch constructor option.
+   */
+  readonly awaitTurnStart?: boolean;
 };
 
 /** Grok TUI trap: paste before ~1.5s post-spawn is swallowed. */
@@ -85,6 +93,7 @@ export const GROK_MIN_POST_SPAWN_MS = 1_500;
 
 type QueuedPrompt = {
   readonly text: string;
+  readonly awaitTurnStart: boolean;
   readonly resolve: (ok: boolean) => void;
   timer: ReturnType<typeof setTimeout> | undefined;
 };
@@ -223,6 +232,7 @@ export class ManagedTerminalDrive {
     }
     const ready = opts.ready ?? true;
     const queueIfBusy = opts.queueIfBusy ?? true;
+    const awaitTurnStart = opts.awaitTurnStart ?? this.stallWatch;
     if (!ready) {
       this.onAttention?.(bindingId, "not-ready");
       return false;
@@ -317,6 +327,7 @@ export class ManagedTerminalDrive {
           text,
           generation,
           bindingGeneration,
+          awaitTurnStart,
         );
       }
       const timeoutMs = opts.queueTimeoutMs ?? this.queueTimeoutMs;
@@ -327,6 +338,7 @@ export class ManagedTerminalDrive {
         }
         const entry: QueuedPrompt = {
           text,
+          awaitTurnStart,
           resolve: (ok) => {
             if (entry.timer !== undefined) clearTimeout(entry.timer);
             entry.timer = undefined;
@@ -365,6 +377,7 @@ export class ManagedTerminalDrive {
       text,
       generation,
       bindingGeneration,
+      awaitTurnStart,
     );
   }
 
@@ -503,6 +516,7 @@ export class ManagedTerminalDrive {
       next.text,
       generation,
       bindingGeneration,
+      next.awaitTurnStart,
     );
     next.resolve(ok);
   }
@@ -512,6 +526,7 @@ export class ManagedTerminalDrive {
     text: string,
     generation: number,
     bindingGeneration: number,
+    awaitTurnStart: boolean = this.stallWatch,
   ): Promise<boolean> {
     if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
       return false;
@@ -544,7 +559,7 @@ export class ManagedTerminalDrive {
         this.onAttention?.(bindingId, "write-failed");
         return false;
       }
-      if (this.stallWatch) {
+      if (awaitTurnStart) {
         // Observer delivery can race the CR writer's promise resolution.
         // Preserve a turn-start seen anywhere during the physical sequence.
         if ((this.turnStartCounts.get(bindingId) ?? 0) !== turnStartCount) {

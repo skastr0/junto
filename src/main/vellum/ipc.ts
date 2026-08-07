@@ -1091,12 +1091,16 @@ export const registerVellumIpc = (): void => {
           readonly queueTimeoutMs?: number;
           readonly ready?: boolean;
           readonly interruptIfBusy?: boolean;
+          /** See ManagedTerminalDrive WritePromptOptions.awaitTurnStart. */
+          readonly awaitTurnStart?: boolean;
         },
       ) =>
         managedDrive.writePrompt(bindingId, text, {
           ready: options?.ready ?? driveReady(bindingId),
           ...(options ?? {}),
         });
+      /** In-flight firstTyped deliveries — one arm at a time per binding. */
+      const firstTypedInFlight = new Set<string>();
       // Operator multi-prompt (RTS): wake lazy seat + paste+CR without a
       // renderer control lease. Same drive as board megaphone / mailbox.
       privilegedIpc.handle(
@@ -1261,13 +1265,26 @@ export const registerVellumIpc = (): void => {
         }
         if (event.state === "idle") {
           // Tier B doctrine: first typed message once seat is ready+idle.
-          // Peek first — only consume after a successful write so not-ready
-          // / queue-timeout can retry on the next idle event.
+          // Peek first — only consume after a successful physical paste+CR.
+          // Do NOT await turn-start: Muse (and other weak-chrome harnesses)
+          // never publish working, so stallWatch would force attention, leave
+          // the arm live, and re-paste on every idle re-entry (infinite loop).
           const first = peekFirstTypedMessage(event.bindingId);
-          if (first && driveReady(event.bindingId)) {
-            void writeManagedPrompt(event.bindingId, first).then((ok) => {
-              if (ok) takeFirstTypedMessage(event.bindingId);
-            });
+          if (
+            first &&
+            driveReady(event.bindingId) &&
+            !firstTypedInFlight.has(event.bindingId)
+          ) {
+            firstTypedInFlight.add(event.bindingId);
+            void writeManagedPrompt(event.bindingId, first, {
+              awaitTurnStart: false,
+            })
+              .then((ok) => {
+                if (ok) takeFirstTypedMessage(event.bindingId);
+              })
+              .finally(() => {
+                firstTypedInFlight.delete(event.bindingId);
+              });
           }
           managedDrive.onSeatIdle(event.bindingId);
           messageDelivery.onManagedTerminalIdle(event.bindingId);

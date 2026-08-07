@@ -714,3 +714,77 @@ describe("ruleMatches unit", () => {
     expect(ruleMatches(rule, snap({ title: "idle title" }))).toBe(false);
   });
 });
+
+describe("evaluate — kimi / pi / prime-agent scrollback hygiene", () => {
+  it("kimi: historical moon spinner does not pin working over prompt footer", () => {
+    const result = evaluate(
+      snap({
+        lines: [
+          "🌕",
+          "old tool output with moon above",
+          "line a",
+          "line b",
+          "line c",
+          "line d",
+          "line e",
+          "line f",
+          "line g",
+          "line h",
+          "> ",
+          "context: 6% (58k/1M)",
+        ],
+        title: "Kimi Code",
+      }),
+      { harness: "kimi" },
+    );
+    expect(result.state).toBe("idle");
+    expect(result.ruleId).toBe("prompt_footer_idle");
+  });
+
+  it("kimi: live braille spinner in status strip is still working", () => {
+    const result = evaluate(
+      snap({
+        lines: [
+          "previous turn text",
+          "  ⠋ Thinking...",
+          "context: 6% (58k/1M)",
+        ],
+        title: "Kimi Code",
+      }),
+      { harness: "kimi" },
+    );
+    expect(result.state).toBe("working");
+    expect(result.ruleId).toBe("braille_spinner_working");
+  });
+
+  it("prime-agent: historical diamond markers do not pin working when OSC title is idle", () => {
+    const result = evaluate(
+      snap({
+        lines: [
+          "◇ old tool call",
+          "◈ more history",
+          "ready for input",
+        ],
+        title: "prime-agent - session - vellum",
+        osc9: "4;0",
+      }),
+      { harness: "prime-agent" },
+    );
+    expect(result.state).toBe("idle");
+  });
+
+  it("pi: footer chrome without Working... is idle even with Thinking block above", () => {
+    const result = evaluate(
+      snap({
+        lines: [
+          "Thinking...",
+          "some reasoning text in scrollback",
+          "  12% · 7.7k · sonnet",
+        ],
+        title: "π - main - vellum",
+      }),
+      { harness: "pi" },
+    );
+    expect(result.state).toBe("idle");
+  });
+});

@@ -16,7 +16,7 @@ import type { SeatRulePack } from "../types";
 
 export const primeAgentRules: SeatRulePack = {
   harness: "prime-agent",
-  version: "2026.08.06.1",
+  version: "2026.08.07.2",
   rules: [
     // OSC 9;4;3 (indeterminate) while a turn streams; cleared 4;0 on
     // agent_end / compaction_end / exit.
@@ -48,31 +48,36 @@ export const primeAgentRules: SeatRulePack = {
         ],
       },
     },
-    // Manifest mirror (pi.toml): "Working..." literal (agents-view list).
+    // Manifest mirror (pi.toml): "Working..." literal — status strip only.
+    // whole_recent would pin working after any prior turn that printed it.
     {
       id: "working_literal",
       state: "working",
       priority: 200,
-      region: "whole_recent",
+      region: "bottom_non_empty_lines",
+      regionN: 6,
       visibleWorking: true,
       matchers: { contains: ["Working..."] },
     },
-    // In-place tool markers animate ◇◈◆◈ at 250 ms while working.
+    // In-place tool markers animate ◇◈◆◈ at 250 ms while working (status strip).
     {
       id: "tool_marker_working",
       state: "working",
       priority: 150,
-      region: "whole_recent",
+      region: "bottom_non_empty_lines",
+      regionN: 8,
       visibleWorking: true,
       matchers: { lineRegex: ["[◇◈◆]"] },
     },
     // Static OSC 0 title "π|prime-agent - <sessionName> - <cwdBasename>"
     // (APP_TITLE π by default; prime-agent when a piConfigName is set).
     // Below the working rules: the title does not churn while streaming.
+    // Raised above tool_marker so an idle title beats leftover diamond glyphs
+    // when OSC 9 has cleared (agent_end / 4;0).
     {
       id: "osc_title_idle",
       state: "idle",
-      priority: 120,
+      priority: 160,
       region: "osc_title",
       visibleIdle: true,
       matchers: { regex: ["^π - |^pi - |^prime-agent - "] },
