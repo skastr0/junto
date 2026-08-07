@@ -86,15 +86,6 @@ by stamping a role overlay.
 current entity kind. ACP, terminal transport, SSH, and a provider harness are
 transports or facilities, never additional actor kinds.
 
-**Physics role ≠ work role.** The role above (actor/sink/scheduler/…) is the
-*physics* role — derived from kind, never authorial, governs capability. It is
-**not** the same thing as a **work role** (e.g. `frontend`, `reviewer`): an
-operator-authored label on a node used only by the **simulation** for task
-claim-routing. The work role does not touch capability, edges, or ports; it is a
-routing tag the tick reads to decide which actor may claim which task. Two distinct
-fields, two distinct layers. "No authorial role" forbids authoring the *physics*
-role — it does not forbid the work-routing label.
-
 ### 2a. Blockability is a role property — never a per-kind list
 
 "Blocked" is defined at the **physics-role level**, derived, never a

@@ -16,7 +16,6 @@ import { editText } from "../../lib/mutations";
 import { NoteMarkdown } from "../../lib/note-markdown";
 import { isLabelNode } from "../../lib/presentation";
 import { state$ } from "../../lib/state";
-import { workRoleOf } from "@shared/attention";
 import {
   terminalActivity,
   timerActivity,
@@ -232,7 +231,6 @@ function EntityCard({
 }) {
   const rawName = (node.type === "text" ? node.text : "").split("\n")[0] ?? "";
   const nameHue = node.color ? accentColor(node.color) : INK;
-  const workRole = workRoleOf(node);
   const managedHarness =
     kind === "agent" && typeof node.ether?.terminal?.harness === "string"
       ? node.ether.terminal.harness
@@ -298,10 +296,7 @@ function EntityCard({
   // Host is deliberately absent: which machine a seat sits on is not what the
   // operator reads an agent node for, and it crowded out the claimed task.
   // Spawn failures surface as a context line so the mark + copy both land.
-  const context = [
-    workRole,
-    managed && exitReason && exitMessage ? exitMessage : undefined,
-  ].filter((value): value is string => Boolean(value));
+  const context = managed && exitReason && exitMessage ? exitMessage : undefined;
 
   const complete = activity.mode === "pulse" && activity.tone === "green";
   return (
@@ -333,15 +328,9 @@ function EntityCard({
           style={{
             color: managed && exitReason ? HUE.amber : DIM,
           }}
-          title={
-            managed && exitMessage
-              ? exitMessage
-              : workRole
-                ? `work role: ${workRole}`
-                : undefined
-          }
+          title={context}
         >
-          {context.join(" › ")}
+          {context}
         </div>
       ) : null}
       {kind === "agent" ? <ClaimedTaskStrip node={node} /> : null}

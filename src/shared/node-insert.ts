@@ -207,12 +207,6 @@ export const EFFECT_TASKS_CREATE_FIELDS: ReadonlyArray<EffectFormField> = [
     required: true,
   },
   {
-    path: "metadata.workRole",
-    label: "Role",
-    kind: "text",
-    required: false,
-  },
-  {
     path: "dependsOn",
     label: "Depends on",
     kind: "text",

@@ -150,7 +150,6 @@ const auditTask = (
     ...(claimedBy
       ? {
           metadata: {
-            workRole: "Security Agent",
             details:
               "Validate the task against the station capability boundary, preserve the operator’s declared intent, and return concrete proof with the result.",
           },
@@ -201,7 +200,7 @@ const nodes: CanvasNode[] = [
         "Clarify claim tick rules",
         "input-required",
         "remote-a:profile-06",
-        "Which worker should own tasks without a matching role?",
+        "Which connected agent should take this next?",
       ),
       auditTask(
         "t-4",

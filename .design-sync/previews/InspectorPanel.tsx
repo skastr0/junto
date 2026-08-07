@@ -24,7 +24,7 @@ const Frame = ({ children }: { children: React.ReactNode }) => (
 
 // Agent seat selected — the AgentSeatSection branch (harness + title), plus
 // the shared node sections every non-label node gets: placement chip,
-// capability inventory (empty here — no edges), work-role field, and the
+// capability inventory (empty here — no edges), and the
 // per-agent messages pane. `text` is the seat's display name, per the
 // nodeTitle first-line convention (nodeTitle reads a text node's first line).
 export const AgentSeatSelected = () => (

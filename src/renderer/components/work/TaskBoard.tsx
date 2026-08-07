@@ -32,7 +32,7 @@ import {
 import { useSortable } from "@dnd-kit/react/sortable";
 import type { CanvasDoc, CanvasNode, Part, TaskState, WorkMetadata } from "@shared/canvas";
 import type { WorkOpResult } from "@shared/ipc";
-import { sinkGlance, workRoleOf, workRolesInDoc } from "@shared/attention";
+import { sinkGlance } from "@shared/attention";
 import {
   canTransitionTaskState,
   claimedByOf,
@@ -56,7 +56,7 @@ import { IconButton } from "../ui/IconButton";
 import { Input, Textarea } from "../ui/Field";
 import { OverlayHeader } from "../ui/OverlayHeader";
 import { StatusDot, type StatusTone } from "../ui/StatusDot";
-import { applyWorkCanvasWrite, setNodeWorkRole } from "../../lib/mutations";
+import { applyWorkCanvasWrite } from "../../lib/mutations";
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import {
   extractHerdrClipboardImage,
@@ -334,9 +334,6 @@ const taskTitle = (task: WorkTask): string =>
 
 const taskDetails = (task: WorkTask): string | undefined =>
   metadataText(task.metadata, "details");
-
-const taskRole = (task: WorkTask): string | undefined =>
-  metadataText(task.metadata, "workRole");
 
 const depGlance = (
   status: TaskDepStatus,
@@ -731,7 +728,6 @@ function TaskCard({
     claim,
     activeActorSeatIds,
   );
-  const role = taskRole(task);
   const context = latestText(task);
   const mediaCount =
     taskMediaParts(task).length + taskContentParts(task).length;
@@ -835,7 +831,6 @@ function TaskCard({
                       : `Proposed by ${proposalBy}`
                     : claim ?? "Unclaimed"}
                 </span>
-                {role ? <span className="task-board-card__role">{role}</span> : null}
                 {mediaCount > 0 ? (
                   <span
                     className="task-board-card__media"
@@ -937,7 +932,6 @@ export type TaskCreateShell = "focus" | "inline";
 
 export function TaskCreateDialog({
   mode,
-  roles,
   pending,
   artifactsNodeId,
   onClose,
@@ -948,7 +942,6 @@ export function TaskCreateDialog({
   headerActions,
 }: {
   readonly mode: CreateDialogMode;
-  readonly roles: ReadonlyArray<string>;
   readonly pending: boolean;
   /** Resolved from canvas; not operator-authored at create. */
   readonly artifactsNodeId: string | undefined;
@@ -956,7 +949,6 @@ export function TaskCreateDialog({
   readonly onCreate: (
     title: string,
     details: string,
-    role: string,
     media: ReadonlyArray<Extract<Part, { kind: "raw" }>>,
     dependsOn: ReadonlyArray<string>,
     finishCriteria: import("@shared/work-model").FinishCriteria | undefined,
@@ -972,11 +964,9 @@ export function TaskCreateDialog({
   readonly headerActions?: ReactNode;
 }) {
   const isProposal = mode === "proposal";
-  const roleListId = `task-role-options-${useId().replaceAll(":", "")}`;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState("");
   const [details, setDetails] = useState("");
-  const [role, setRole] = useState("");
   const [dependsOnText, setDependsOnText] = useState("");
   const [criteriaText, setCriteriaText] = useState("");
   const [requireArtifacts, setRequireArtifacts] = useState(false);
@@ -994,7 +984,6 @@ export function TaskCreateDialog({
     if (resetToken === 0) return;
     setTitle("");
     setDetails("");
-    setRole("");
     setDependsOnText("");
     setCriteriaText("");
     setRequireArtifacts(false);
@@ -1105,7 +1094,6 @@ export function TaskCreateDialog({
             onCreate(
               title.trim(),
               details.trim(),
-              role.trim(),
               parts,
               dependsOn,
               finishCriteria,
@@ -1175,23 +1163,6 @@ export function TaskCreateDialog({
             </div>
 
             <aside className="task-create-dialog__aside" aria-label="Details and hard gates">
-              <label>
-                <FieldCaption
-                  label="Role"
-                  help="Specialization this work should be routed to."
-                />
-                <Input
-                  value={role}
-                  onChange={(event) => setRole(event.target.value)}
-                  placeholder="e.g. Security Agent"
-                  list={roleListId}
-                />
-                <datalist id={roleListId}>
-                  {roles.map((knownRole) => (
-                    <option key={knownRole} value={knownRole} />
-                  ))}
-                </datalist>
-              </label>
               <label>
                 <FieldCaption
                   label="Depends on"
@@ -1537,7 +1508,6 @@ function TaskDetailPanel({
   const [title, setTitle] = useState(() => taskTitle(task));
   const [response, setResponse] = useState("");
   const [rejectionComment, setRejectionComment] = useState("");
-  const role = taskRole(task);
   const claim = claimedByOf(task);
   const details = taskDetails(task);
   const legacyMedia = taskMediaParts(task);
@@ -1669,7 +1639,6 @@ function TaskDetailPanel({
           <UserRound size={12} aria-hidden />
           {isProposal ? (proposedByLabel ?? "Proposed") : (claim ?? "Unclaimed")}
         </span>
-        <span>{role ?? "No task role"}</span>
         {rejectedTimes !== undefined ? (
           <span title="Times returned to Queue after QA rejection">
             QA rejects: {rejectedTimes}
@@ -2043,7 +2012,6 @@ export function TaskBoard({
   const [hideClosed, setHideClosed] = useState(false);
   const [creating, setCreating] = useState<CreateDialogMode | null>(null);
   const [creatingPending, setCreatingPending] = useState(false);
-  const [roleDraft, setRoleDraft] = useState(workRoleOf(node) ?? "");
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [activeLane, setActiveLane] = useState<LaneId | null>(null);
   const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
@@ -2078,7 +2046,6 @@ export function TaskBoard({
       return (
         taskTitle(task).toLowerCase().includes(normalized) ||
         Boolean(taskDetails(task)?.toLowerCase().includes(normalized)) ||
-        Boolean(taskRole(task)?.toLowerCase().includes(normalized)) ||
         claim.includes(normalized)
       );
     });
@@ -2114,7 +2081,6 @@ export function TaskBoard({
   const selectedIsProposal =
     selectedTask !== undefined && proposalById.has(selectedTask.id);
   const doc = use$(state$.doc);
-  const knownRoles = useMemo(() => workRolesInDoc(doc), [doc]);
   /** Region-scoped tasks for dep glance (cross-sink prereqs in the same region). */
   const scopeTasks = useMemo(
     () => dependencyScopeTasks(doc, node.id),
@@ -2124,7 +2090,6 @@ export function TaskBoard({
   const createTask = async (
     title: string,
     details: string,
-    role: string,
     media: ReadonlyArray<Extract<Part, { kind: "raw" }>>,
     dependsOn: ReadonlyArray<string> = [],
     finishCriteria?: import("@shared/work-model").FinishCriteria,
@@ -2136,7 +2101,6 @@ export function TaskBoard({
       const metadata: WorkMetadata = {
         title: title.trim(),
         details: details.trim(),
-        ...(role.trim() ? { workRole: role.trim() } : {}),
       };
       const result = await runWorkCanvasMutation(name, () =>
         api.workTaskCreate(
@@ -2168,7 +2132,6 @@ export function TaskBoard({
   const createProposal = async (
     title: string,
     details: string,
-    role: string,
     media: ReadonlyArray<Extract<Part, { kind: "raw" }>>,
     dependsOn: ReadonlyArray<string> = [],
     finishCriteria?: import("@shared/work-model").FinishCriteria,
@@ -2180,7 +2143,6 @@ export function TaskBoard({
       const metadata: WorkMetadata = {
         title: title.trim(),
         details: details.trim(),
-        ...(role.trim() ? { workRole: role.trim() } : {}),
       };
       const result = await runWorkCanvasMutation(name, () =>
         api.workTaskPropose(
@@ -2426,22 +2388,6 @@ export function TaskBoard({
           }
           actions={
             <>
-              <label className="task-board-role">
-                <span>Work role</span>
-                <Input
-                  aria-label="Queue work role"
-                  placeholder="Any role"
-                  value={roleDraft}
-                  onChange={(event) => setRoleDraft(event.target.value)}
-                  onBlur={() => setNodeWorkRole(node.id, roleDraft.trim() || undefined)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      setNodeWorkRole(node.id, roleDraft.trim() || undefined);
-                      event.currentTarget.blur();
-                    }
-                  }}
-                />
-              </label>
               <IconButton
                 tone={searchOpen ? "accent" : "default"}
                 aria-label={searchOpen ? "Close task search" : "Search tasks"}
@@ -2512,25 +2458,23 @@ export function TaskBoard({
         {creating ? (
           <TaskCreateDialog
             mode={creating}
-            roles={knownRoles}
             pending={creatingPending}
             artifactsNodeId={resolveArtifactsNodeId(node.id, doc)}
             onClose={() => {
               if (!creatingPending) setCreating(null);
             }}
-            onCreate={(title, details, role, media, dependsOn, finishCriteria) => {
+            onCreate={(title, details, media, dependsOn, finishCriteria) => {
               if (creating === "proposal") {
                 void createProposal(
                   title,
                   details,
-                  role,
                   media,
                   dependsOn,
                   finishCriteria,
                 );
                 return;
               }
-              void createTask(title, details, role, media, dependsOn, finishCriteria);
+              void createTask(title, details, media, dependsOn, finishCriteria);
             }}
           />
         ) : null}

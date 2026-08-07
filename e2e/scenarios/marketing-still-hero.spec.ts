@@ -96,7 +96,6 @@ const richTask = (
   id: string,
   brief: string,
   state: Task["state"],
-  workRole: string,
   claimedBy?: string,
 ): Task => {
   const base = taskItem(id, brief, state);
@@ -106,7 +105,6 @@ const richTask = (
     // authored node id to the derived ActorSeatId when seeding work.
     ...(claimedBy ? { claimedBy: claimByNodeId(claimedBy) } : {}),
     metadata: {
-      workRole,
       details: brief,
     },
   };
@@ -201,8 +199,8 @@ test("still 00 — factory hero board", async () => {
       x: ac0,
       y: ar0,
       items: [
-        richTask("t-a1", "draft hero section", "working", "Writer", "a-writer"),
-        richTask("t-a2", "rewrite pricing faq", "submitted", "Writer"),
+        richTask("t-a1", "draft hero section", "working", "a-writer"),
+        richTask("t-a2", "rewrite pricing faq", "submitted"),
       ],
     }),
     agentTextNode({ id: "a-writer", key: "local:writer", label: "writer", host: "local", x: ac1, y: ar0 }),
@@ -336,8 +334,8 @@ test("still 00 — factory hero board", async () => {
       x: bc1,
       y: br0,
       items: [
-        richTask("t-b1", "sign release build", "working", "Security", "a-security"),
-        richTask("t-b2", "rotate signing key", "submitted", "Security"),
+        richTask("t-b1", "sign release build", "working", "a-security"),
+        richTask("t-b2", "rotate signing key", "submitted"),
       ],
     }),
     requestsNode({
@@ -345,7 +343,7 @@ test("still 00 — factory hero board", async () => {
       x: bc1,
       y: br1,
       items: [
-        richTask("r-b1", "authorize signing identity", "input-required", "Security", "a-security"),
+        richTask("r-b1", "authorize signing identity", "input-required", "a-security"),
       ],
     }),
   );

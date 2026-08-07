@@ -182,8 +182,7 @@ Standard JSON Canvas 1.0 (`nodes` of type `text`/`file`/`link`/`group`, `edges`)
 { "id": "n1", "type": "text", "x": 0, "y": 0, "width": 220, "height": 84, "text": "worker",
   "ether": {
     "entity": { "kind": "agent", "name": "local:worker" },  // open vocab; well-known product: agent|terminal|herdr|task|requests|artifacts|page|cron|relay (+ dormant watcher/gauge; timer aliases cron)
-    "flags": ["blocker"],                                    // blocker|parked|attention
-    "workRole": "frontend"                                   // optional claim-routing label (not physics role)
+    "flags": ["blocker"]                                     // blocker|parked|attention
   } }
 ```
 
@@ -321,7 +320,7 @@ host-destructive call? If yes, the change is not done.*
 seat. Roles derive from entity kind — never authorial `ether.role`. Capability,
 phase, and attention/occupancy are separate planes.
 
-- **The law:** four roles, and **exactly one actor kind — `agent`**, the
+- **The law:** four derived physics roles, and **exactly one actor kind — `agent`**, the
   Vellum Command-spawned template terminal. A raw user-opened terminal is
   `geography/"terminal"`; `worker` is reserved for a future native agent UI and
   must not appear as a kind. Geography holds no seat, no ports, no inbox, and no

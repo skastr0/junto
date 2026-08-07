@@ -540,7 +540,7 @@ whose authority installation is a Remote.
 For a submitted task homed on Command Center:
 
 1. Command Center's simulation selects one eligible, idle actor under the
-   current canvas edges, ports, work role, pause state, and placement.
+   current canvas edges, ports, pause state, and placement.
 2. Command Center requires a live authenticated session to that actor's
    Remote. If the Remote is already unreachable, the claim attempt does not
    enqueue future work.

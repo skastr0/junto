@@ -5,11 +5,7 @@ import type { ActorSeatId } from "./actor-seat";
 import { claimedByOf } from "./task";
 import { dependencyScopeIndex } from "./task-dep-scope";
 import { taskIsClaimReady } from "./task-deps";
-import {
-  resolveCompiledActorRef,
-  workRoleOf,
-  type ActorRefResolver,
-} from "./attention";
+import { resolveCompiledActorRef, type ActorRefResolver } from "./attention";
 import {
   admitPure,
   asNodeId,
@@ -69,8 +65,7 @@ export type FactoryClaimSelection = {
  * Select one deterministic claim batch over the current projection.
  *
  * For each tasks sink, for each submitted unclaimed item, find a free actor
- * whose edge grants `tasks.claim` and whose workRole matches the sink's
- * workRole (or either side is unassigned).
+ * whose edge grants `tasks.claim`.
  *
  * The selector reserves a seat in-memory only for the rest of this returned
  * batch. The caller remains responsible for exactly one durable claim attempt
@@ -115,7 +110,6 @@ export const selectFactoryClaims = (
 
   for (const node of sinks) {
     if (isPausedSeat(node.id)) continue;
-    const sinkRole = workRoleOf(node);
     const items = node.ether?.tasks?.items ?? [];
     const counts = new Map<string, number>();
     for (const task of items) {
@@ -154,14 +148,10 @@ export const selectFactoryClaims = (
         );
         return actor === undefined ? [] : [{ node, actor }];
       })
-      .filter(({ node, actor }) => {
-        if (isPausedSeat(node.id)) return false;
-        if (busy.has(actor.seatId)) return false;
-        const actorRole = workRoleOf(node);
-        // Match when either side unassigned, or roles equal.
-        if (!sinkRole || !actorRole) return true;
-        return sinkRole === actorRole;
-      })
+      .filter(
+        ({ node, actor }) =>
+          !isPausedSeat(node.id) && !busy.has(actor.seatId),
+      )
       .sort((a, b) => a.node.id.localeCompare(b.node.id));
 
     for (const task of open) {

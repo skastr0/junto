@@ -102,7 +102,6 @@ const richTask = (
   id: string,
   brief: string,
   state: Task["state"],
-  workRole: string,
   claimedBy?: string,
 ): Task => {
   const base = taskItem(id, brief, state);
@@ -112,7 +111,6 @@ const richTask = (
     // authored node id to the derived ActorSeatId when seeding work.
     ...(claimedBy ? { claimedBy: claimByNodeId(claimedBy) } : {}),
     metadata: {
-      workRole,
       details: brief,
     },
   };
@@ -275,8 +273,8 @@ test("still 01 — one region factory close", async () => {
       x: c1,
       y: y0,
       items: [
-        richTask("t-1", "ship design tokens", "working", "Builder", "agent"),
-        richTask("t-2", "wire checkout", "submitted", "Builder"),
+        richTask("t-1", "ship design tokens", "working", "agent"),
+        richTask("t-2", "wire checkout", "submitted"),
       ],
     }),
     agentTextNode({
@@ -291,7 +289,7 @@ test("still 01 — one region factory close", async () => {
       id: "req",
       x: c3,
       y: y0,
-      items: [richTask("r-1", "approve palette", "input-required", "Design")],
+      items: [richTask("r-1", "approve palette", "input-required")],
     }),
   ];
 
@@ -400,8 +398,8 @@ test("still 02 — multi-host work board", async () => {
       x: f1,
       y: fy0,
       items: [
-        richTask("t-1", "ship tokens", "working", "Builder", "a-builder"),
-        richTask("t-2", "green e2e", "submitted", "Builder"),
+        richTask("t-1", "ship tokens", "working", "a-builder"),
+        richTask("t-2", "green e2e", "submitted"),
       ],
     }),
     agentTextNode({
@@ -417,7 +415,7 @@ test("still 02 — multi-host work board", async () => {
       x: b1,
       y: by0,
       items: [
-        richTask("t-3", "founder pricing", "input-required", "Release", "a-release"),
+        richTask("t-3", "founder pricing", "input-required", "a-release"),
       ],
     }),
     agentTextNode({
@@ -616,7 +614,6 @@ test("still 03 — five region factory map", async () => {
             `${o.id}-task`,
             o.taskBrief,
             o.taskState,
-            o.agentLabel,
             // Claim by the authored agent node id; submitted tasks carry no claim.
             o.taskState === "submitted" ? undefined : `a-${o.id}`,
           ),
@@ -905,10 +902,10 @@ test("still 05 — five regions agent square", async () => {
       x: sx,
       y: sy0,
       items: [
-        richTask("t-1", "ship design tokens", "working", "Builder", "a-builder"),
-        richTask("t-2", "wire founder checkout", "submitted", "Builder"),
-        richTask("t-3", "authorize signing", "input-required", "Security", "a-security"),
-        richTask("t-4", "green e2e stills", "working", "Reviewer", "a-review"),
+        richTask("t-1", "ship design tokens", "working", "a-builder"),
+        richTask("t-2", "wire founder checkout", "submitted"),
+        richTask("t-3", "authorize signing", "input-required", "a-security"),
+        richTask("t-4", "green e2e stills", "working", "a-review"),
       ],
     }),
     requestsNode({
@@ -916,8 +913,8 @@ test("still 05 — five regions agent square", async () => {
       x: sx,
       y: sy1,
       items: [
-        richTask("r-1", "approve founder pricing", "input-required", "Release", "a-release"),
-        richTask("r-2", "confirm palette", "input-required", "Design", "a-builder"),
+        richTask("r-1", "approve founder pricing", "input-required", "a-release"),
+        richTask("r-2", "confirm palette", "input-required", "a-builder"),
       ],
     }),
     artifactsNode({
@@ -1032,11 +1029,10 @@ test("still 06 — work UI grid", async () => {
     id: string,
     brief: string,
     state: Task["state"],
-    workRole: string,
     claimedBy?: string,
     update?: string,
   ): Task => {
-    const task = richTask(id, brief, state, workRole, claimedBy);
+    const task = richTask(id, brief, state, claimedBy);
     if (!update) return task;
     return {
       ...task,
@@ -1063,30 +1059,27 @@ test("still 06 — work UI grid", async () => {
       x: 40,
       y: 40,
       items: [
-        auditTask("t-1", "Ship browser containment probe", "submitted", "Builder"),
-        auditTask("t-2", "Fix stale host badge", "working", "Builder", "a-builder"),
+        auditTask("t-1", "Ship browser containment probe", "submitted"),
+        auditTask("t-2", "Fix stale host badge", "working", "a-builder"),
         auditTask(
           "t-3",
           "Clarify claim tick rules",
           "input-required",
-          "Release Engineer",
           "a-security",
-          "Which worker should own tasks without a matching role?",
+          "Which connected agent should take this next?",
         ),
         auditTask(
           "t-4",
           "Enable remote session capture",
           "input-required",
-          "Security Agent",
           "a-ops",
           "Operator authorization is required before opening the remote capability.",
         ),
-        auditTask("t-5", "Rotate service key material", "completed", "Security Agent", "a-review"),
+        auditTask("t-5", "Rotate service key material", "completed", "a-review"),
         auditTask(
           "t-6",
           "Reject unsafe host cleanup",
           "rejected",
-          "Security Agent",
           "a-review",
           "The proposed operation exceeded the connected capability scope.",
         ),

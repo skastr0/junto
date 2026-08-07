@@ -54,7 +54,6 @@ const tasksNode = (
       ? I
       : never
     : never,
-  workRole?: string,
 ): CanvasDoc["nodes"][number] => ({
   id,
   type: "text",
@@ -66,7 +65,6 @@ const tasksNode = (
   ether: {
     entity: { kind: "task" },
     tasks: { items: [...items] },
-    ...(workRole ? { workRole } : {}),
   },
 });
 
@@ -192,14 +190,8 @@ describe("selectFactoryClaims", () => {
     const worker = actorRef("w1", "1");
     const doc: CanvasDoc = {
       nodes: [
-        tasksNode("t", [taskItem("i1", "ship", "submitted")], "builder"),
-        {
-          ...seat("w1", "actor", { label: "worker" }),
-          ether: {
-            ...seat("w1", "actor").ether,
-            workRole: "builder",
-          },
-        },
+        tasksNode("t", [taskItem("i1", "ship", "submitted")]),
+        seat("w1", "actor", { label: "worker" }),
       ],
       edges: [{ id: "e1", fromNode: "t", toNode: "w1" }],
     };
@@ -223,20 +215,15 @@ describe("selectFactoryClaims", () => {
     expect(doc).toEqual(before);
   });
 
-  it("two seats sharing a role are distinct workers — one claim each per tick", () => {
-    const withRole = (id: string) => ({
-      ...seat(id, "actor"),
-      ether: { ...seat(id, "actor").ether, workRole: "builder" },
-    });
+  it("two edged seats are distinct workers — one claim each per tick", () => {
     const doc: CanvasDoc = {
       nodes: [
         tasksNode(
           "t",
           [taskItem("i1", "ship", "submitted"), taskItem("i2", "docs", "submitted")],
-          "builder",
         ),
-        withRole("w1"),
-        withRole("w2"),
+        seat("w1", "actor"),
+        seat("w2", "actor"),
       ],
       edges: [
         { id: "e1", fromNode: "t", toNode: "w1" },
@@ -266,15 +253,8 @@ describe("selectFactoryClaims", () => {
         tasksNode(
           "t",
           [taskItem("i1", "first", "submitted"), blocked],
-          "builder",
         ),
-        {
-          ...seat("w1", "actor", { label: "worker" }),
-          ether: {
-            ...seat("w1", "actor").ether,
-            workRole: "builder",
-          },
-        },
+        seat("w1", "actor", { label: "worker" }),
       ],
       edges: [{ id: "e1", fromNode: "t", toNode: "w1" }],
     };
@@ -289,15 +269,8 @@ describe("selectFactoryClaims", () => {
             { ...taskItem("i1", "first", "submitted"), state: "completed" },
             blocked,
           ],
-          "builder",
         ),
-        {
-          ...seat("w1", "actor", { label: "worker" }),
-          ether: {
-            ...seat("w1", "actor").ether,
-            workRole: "builder",
-          },
-        },
+        seat("w1", "actor", { label: "worker" }),
       ],
       edges: [{ id: "e1", fromNode: "t", toNode: "w1" }],
     };
@@ -406,10 +379,6 @@ describe("selectFactoryClaims", () => {
   });
 
   it("one executable seat gets no backlog through canvas aliases", () => {
-    const withRole = (id: string) => ({
-      ...seat(id, "actor"),
-      ether: { ...seat(id, "actor").ether, workRole: "builder" },
-    });
     const doc: CanvasDoc = {
       nodes: [
         tasksNode(
@@ -418,10 +387,9 @@ describe("selectFactoryClaims", () => {
             taskItem("i1", "ship", "submitted"),
             taskItem("i2", "docs", "submitted"),
           ],
-          "builder",
         ),
-        withRole("w1"),
-        withRole("w1-alias"),
+        seat("w1", "actor"),
+        seat("w1-alias", "actor"),
       ],
       edges: [
         { id: "e1", fromNode: "t", toNode: "w1" },
@@ -439,25 +407,6 @@ describe("selectFactoryClaims", () => {
 
     expect(selected).toHaveLength(1);
     expect(selected[0]?.actor.seatId).toBe(primary.seatId);
-  });
-
-  it("does not claim when roles mismatch", () => {
-    const doc: CanvasDoc = {
-      nodes: [
-        tasksNode("t", [taskItem("i1", "ship", "submitted")], "builder"),
-        {
-          ...seat("w1", "actor"),
-          ether: { ...seat("w1", "actor").ether, workRole: "reviewer" },
-        },
-      ],
-      edges: [{ id: "e1", fromNode: "t", toNode: "w1" }],
-    };
-    const selected = selectFactoryClaims(
-      doc,
-      "c",
-      resolverFor([actorRef("w1", "1")]),
-    );
-    expect(selected).toEqual([]);
   });
 
   it("does not claim through an unresolved or ambiguous actor reference", () => {

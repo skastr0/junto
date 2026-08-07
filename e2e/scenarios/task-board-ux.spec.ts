@@ -63,16 +63,12 @@ test("task board supports creation, operator responses, layered status, and body
             ...taskItem("working", "Working task", "working"),
             claimedBy: claimByNodeId("builder-1"),
             metadata: {
-              workRole: "Builder",
               details: "A claimed task ready for a whole-card drag.",
             },
           },
           {
             ...taskItem("input", "Clarify release scope", "input-required"),
             claimedBy: claimByNodeId("builder-2"),
-            metadata: {
-              workRole: "Release Engineer",
-            },
             history: [
               ...taskItem("input", "Clarify release scope", "input-required").history,
               {
@@ -168,7 +164,6 @@ test("task board supports creation, operator responses, layered status, and body
     await expect(titleInput).toBeFocused();
     await expect(titleInput).toHaveValue("Audit");
     await titleInput.pressSequentially(" release authority");
-    await creator.getByPlaceholder("e.g. Security Agent").fill("Security Agent");
     await creator
       .getByPlaceholder(/Context, constraints/)
       .fill("Verify the signing boundary and return the exact proof receipt.");
@@ -180,7 +175,6 @@ test("task board supports creation, operator responses, layered status, and body
     const createdDetails = board.getByRole("complementary", {
       name: "Details for Audit release authority",
     });
-    await expect(createdDetails).toContainText("Security Agent");
     await expect(createdDetails).toContainText(
       "Verify the signing boundary and return the exact proof receipt.",
     );

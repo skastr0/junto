@@ -18,7 +18,6 @@ import {
   RELAY_ENABLED,
 } from "@shared/features";
 import { isGroup } from "@shared/graph";
-import { workRolesInDoc } from "@shared/attention";
 import {
   Port,
   asNodeId,
@@ -44,7 +43,7 @@ import {
   setEdgeWhen,
 } from "../lib/edge-mutations";
 import { specOf } from "../lib/node-spec";
-import { commitDoc, editLink, editText, renameGroup, setNodeHost, setNodeTimer, setNodeWatch, setNodeWorkRole, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag } from "../lib/mutations";
+import { commitDoc, editLink, editText, renameGroup, setNodeHost, setNodeTimer, setNodeWatch, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag } from "../lib/mutations";
 import {
   describeCronExpression,
   isValidCronExpression,
@@ -426,79 +425,15 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
   const groupLabelValue = node.type === "group" ? node.label ?? "" : "";
   const [textDraft, setTextDraft] = useState(textValue);
   const [groupLabelDraft, setGroupLabelDraft] = useState(groupLabelValue);
-  const workRoleValue = node.ether?.workRole ?? "";
-  const [workRoleDraft, setWorkRoleDraft] = useState(workRoleValue);
-  // Work role is claim-routing on actor seats only — not sinks or furniture.
-  const showWorkRole = node.ether?.entity?.kind === "agent";
-  const knownWorkRoles = use$(() => workRolesInDoc(state$.doc.get()));
-
   useEffect(() => {
     setTextDraft(textValue);
     setGroupLabelDraft(groupLabelValue);
-    setWorkRoleDraft(workRoleValue);
-  }, [groupLabelValue, node.id, textValue, workRoleValue]);
+  }, [groupLabelValue, node.id, textValue]);
 
   const commitText = () => { if (node.type === "text" && textDraft !== textValue) editText(node.id, textDraft); };
   const commitGroupLabel = () => { if (node.type === "group" && groupLabelDraft !== groupLabelValue) renameGroup(node.id, groupLabelDraft.trim()); };
 
   return <>
-    {showWorkRole ? (
-      <div className="inspector-editor">
-        <span>work role - routes task claims</span>
-        <input
-          aria-label="Work role for claim routing"
-          placeholder="type a role or pick below"
-          list="work-role-options"
-          value={workRoleDraft}
-          onChange={(event) => setWorkRoleDraft(event.target.value)}
-          onBlur={() => setNodeWorkRole(node.id, workRoleDraft || undefined)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              setNodeWorkRole(node.id, workRoleDraft || undefined);
-              event.currentTarget.blur();
-            }
-            if (event.key === "Escape") {
-              setWorkRoleDraft(workRoleValue);
-              event.currentTarget.blur();
-            }
-          }}
-        />
-        <datalist id="work-role-options">
-          {knownWorkRoles.map((role) => (
-            <option key={role} value={role} />
-          ))}
-        </datalist>
-        {knownWorkRoles.length > 0 ? (
-          <div className="mt-1 flex flex-wrap gap-1">
-            {knownWorkRoles.map((role) => {
-              const active = role === workRoleValue;
-              const hex = active ? HUE.amber : DIM;
-              return (
-                <button
-                  key={role}
-                  type="button"
-                  title={active ? `Clear role ${role}` : `Assign role ${role}`}
-                  className="inline-flex cursor-pointer items-center rounded-[3px] border px-1.5 py-0.5 text-[8px] leading-none tracking-[0.13em] uppercase select-none"
-                  style={{
-                    color: hex,
-                    borderColor: withAlpha(hex, active ? 0.5 : 0.36),
-                    background: withAlpha(hex, active ? 0.14 : 0.06),
-                  }}
-                  onClick={() => {
-                    const next = active ? undefined : role;
-                    setWorkRoleDraft(next ?? "");
-                    setNodeWorkRole(node.id, next);
-                  }}
-                >
-                  {role}
-                </button>
-              );
-            })}
-          </div>
-        ) : null}
-      </div>
-    ) : null}
     {/* Work sinks / schedulers rename via kind-strip pencil — no fat label field. */}
     {node.type === "text" &&
     node.ether?.entity?.kind !== "task" &&

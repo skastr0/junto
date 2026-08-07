@@ -3,7 +3,6 @@ import { use$ } from "@legendapp/state/react";
 import { Pin, PinOff, X } from "lucide-react";
 import type { CanvasNode, Part, WorkMetadata } from "@shared/canvas";
 import type { WorkOpResult } from "@shared/ipc";
-import { workRolesInDoc } from "@shared/attention";
 import type { WorkSurface, WorkZone } from "../../lib/surface-registry";
 import {
   closeWorkbenchSurface,
@@ -65,7 +64,6 @@ export function TaskEnqueueSurface({
     return doc.nodes.find((entry) => entry.id === payload.nodeId);
   }, [doc.nodes, payload]);
 
-  const roles = useMemo(() => workRolesInDoc(doc), [doc]);
   const artifactsNodeId = useMemo(
     () => (node ? resolveArtifactsNodeId(node.id, doc) : undefined),
     [doc, node],
@@ -85,7 +83,6 @@ export function TaskEnqueueSurface({
   const create = async (
     title: string,
     details: string,
-    role: string,
     media: ReadonlyArray<Extract<Part, { kind: "raw" }>>,
     dependsOn: ReadonlyArray<string>,
     finishCriteria: import("@shared/work-model").FinishCriteria | undefined,
@@ -97,7 +94,6 @@ export function TaskEnqueueSurface({
       const metadata: WorkMetadata = {
         title: title.trim(),
         details: details.trim(),
-        ...(role.trim() ? { workRole: role.trim() } : {}),
       };
       if (mode === "proposal") {
         const result = await runWorkCanvasMutation(name, () =>
@@ -189,7 +185,6 @@ export function TaskEnqueueSurface({
       ) : null}
       <TaskCreateDialog
         mode={mode}
-        roles={roles}
         pending={pending}
         artifactsNodeId={artifactsNodeId}
         shell="inline"
@@ -199,8 +194,8 @@ export function TaskEnqueueSurface({
         onClose={() => {
           if (!pending) closeWorkbenchSurface(surface.id);
         }}
-        onCreate={(title, details, role, media, dependsOn, finishCriteria) => {
-          void create(title, details, role, media, dependsOn, finishCriteria);
+        onCreate={(title, details, media, dependsOn, finishCriteria) => {
+          void create(title, details, media, dependsOn, finishCriteria);
         }}
       />
     </section>

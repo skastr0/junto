@@ -1103,24 +1103,6 @@ export const setRegionDefaults = (id: string, defaults: EtherRegionDefaults | un
   });
 };
 
-/** Operator-assigned claim-routing role (not physics FactoryRole). */
-export const setNodeWorkRole = (id: string, workRole: string | undefined): void => {
-  const doc = state$.doc.peek();
-  const cleaned = workRole?.trim() || undefined;
-  commitDoc({
-    ...doc,
-    nodes: doc.nodes.map((n) => {
-      if (n.id !== id) return n;
-      if (cleaned) {
-        return { ...n, ether: { ...(n.ether ?? {}), workRole: cleaned } };
-      }
-      if (!n.ether) return n;
-      const nextEther = without(n.ether, "workRole");
-      return (Object.keys(nextEther).length ? { ...n, ether: nextEther } : without(n, "ether")) as CanvasNode;
-    }),
-  });
-};
-
 // The claim tick runs in the kernel only (kernel/service.ts runClaimTicks,
 // pause-gated). The old renderer-side tick wrapper is gone — a canvas-door
 // tick would bypass the pause plane.

@@ -105,6 +105,16 @@ describe("canvas contract", () => {
     ).toBe(true);
   });
 
+  it("rejects the retired work-role field", () => {
+    const retired = structuredClone(rawDoc);
+    retired.nodes[0]!.ether = {
+      ...retired.nodes[0]!.ether,
+      workRole: "builder",
+    } as typeof retired.nodes[0]["ether"];
+
+    expect(Result.isFailure(decodeCanvasDoc(retired))).toBe(true);
+  });
+
   it("rejects retired nested bindings instead of stripping them", () => {
     const legacy = {
       nodes: [

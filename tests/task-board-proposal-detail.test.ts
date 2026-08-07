@@ -34,7 +34,6 @@ describe("proposalAsDisplayTask", () => {
       metadata: {
         title: "Proposal task details",
         details: "I can't open proposal details.",
-        workRole: "frontend",
       },
       reason: "parity with normal tasks",
       dependsOn: ["task-dep-1"],
@@ -50,7 +49,6 @@ describe("proposalAsDisplayTask", () => {
     expect(display.metadata).toEqual({
       title: "Proposal task details",
       details: "I can't open proposal details.",
-      workRole: "frontend",
     });
     expect(display.reason).toBe("parity with normal tasks");
     expect(display.dependsOn).toEqual(["task-dep-1"]);

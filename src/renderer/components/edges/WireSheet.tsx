@@ -29,7 +29,6 @@ import {
   setEffectTasksRequireGit,
   type EffectFormField,
 } from "@shared/node-insert";
-import { workRolesInDoc } from "@shared/attention";
 import {
   familyFromSlot,
   resolveSpec,
@@ -445,9 +444,6 @@ function DoesSection({
   ];
   const fields = effectFormFields(effect?.mode);
   const label = fromNode ? schedulerSourceLabel(fromNode) : "scheduler";
-  const doc = use$(state$.doc);
-  const roles = useMemo(() => workRolesInDoc(doc), [doc]);
-  const roleListId = `effect-role-opts-${edgeId}`;
 
   const patchPayload = (next: EdgeEffect) => {
     setEdgeEffect(edgeId, next);
@@ -538,24 +534,6 @@ function DoesSection({
                 ),
               );
             };
-            if (field.path === "metadata.workRole") {
-              return (
-                <label key={field.path} className="inspector-editor">
-                  <span>
-                    {field.label}
-                    {field.required ? "" : " (optional)"}
-                  </span>
-                  <Input
-                    id={id}
-                    aria-label={field.label}
-                    list={roleListId}
-                    value={value}
-                    placeholder="e.g. Security Agent"
-                    onChange={(event) => onRaw(event.target.value)}
-                  />
-                </label>
-              );
-            }
             if (field.kind === "textarea") {
               return (
                 <label key={field.path} className="inspector-editor">
@@ -602,11 +580,6 @@ function DoesSection({
               </label>
             );
           })}
-          <datalist id={roleListId}>
-            {roles.map((r) => (
-              <option key={r} value={r} />
-            ))}
-          </datalist>
           <TaskCreateGates
             edgeId={edgeId}
             dataRecord={dataRecord}

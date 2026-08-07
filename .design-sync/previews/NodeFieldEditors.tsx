@@ -39,10 +39,8 @@ export const FileReference = () => (
   </Frame>
 );
 
-// Agent-kind text node: work role editor + label textarea + "actor
-// placement" note + AgentMessagesPane. knownWorkRoles/suggestion chips read
-// the global doc (always empty here) so no chips render, but the bound
-// workRole value and the messages list are prop-driven and show truthfully.
+// Agent-kind text node: label textarea + actor placement note +
+// AgentMessagesPane. The messages list is prop-driven and shows truthfully.
 export const AgentSeat = () => (
   <Frame>
     <NodeFieldEditors
@@ -56,7 +54,6 @@ export const AgentSeat = () => (
         text: "research agent",
         ether: {
           entity: { kind: "agent", name: "remote-a:research" },
-          workRole: "researcher",
           messages: {
             items: [
               {

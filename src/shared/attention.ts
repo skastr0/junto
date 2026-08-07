@@ -120,21 +120,6 @@ export const attentionOf = (
   return "idle";
 };
 
-export const workRoleOf = (node: CanvasNode | undefined): string | undefined => {
-  const raw = node?.ether?.workRole;
-  return typeof raw === "string" && raw.trim().length > 0 ? raw.trim() : undefined;
-};
-
-/** Sorted unique work roles authored anywhere in the document. */
-export const workRolesInDoc = (doc: CanvasDoc): ReadonlyArray<string> => {
-  const roles = new Set<string>();
-  for (const node of doc.nodes) {
-    const role = workRoleOf(node);
-    if (role) roles.add(role);
-  }
-  return [...roles].sort((a, b) => a.localeCompare(b));
-};
-
 /**
  * Compiler-owned actor lookup.
  *

@@ -267,7 +267,7 @@ offers only what is installed there.
 
 Also untouched: authoring `entity.kind` at creation (role-from-kind is the
 doctrine); presentation-by-kind in the renderer; `promote` outside the physics
-domain; work role (`ether.workRole`) as an operator-authored routing label.
+domain.
 
 ## 8 - Settled 2026-07-26
 

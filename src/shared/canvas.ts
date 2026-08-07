@@ -424,14 +424,6 @@ export type EdgeCriteriaTasks = typeof EdgeCriteriaTasks.Type;
 export const EdgeCriteria = EdgeCriteriaTasks;
 export type EdgeCriteria = typeof EdgeCriteria.Type;
 
-/**
- * Operator-assigned claim-routing label on a seat or task sink.
- * Distinct from physics FactoryRole (actor/sink/… derived from kind).
- * Empty/absent = unassigned (any free edged actor may claim if tick allows).
- */
-export const WorkRole = Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(64)));
-export type WorkRole = typeof WorkRole.Type;
-
 export const EtherNodeExtension = Schema.Struct({
   entity: Schema.optionalKey(EtherEntity),
   flags: Schema.optionalKey(Schema.Array(EtherFlag)),
@@ -460,8 +452,6 @@ export const EtherNodeExtension = Schema.Struct({
   browser: Schema.optionalKey(EtherBrowser),
   // Host that may execute/tool this node. Optional for graceful degradation.
   host: Schema.optionalKey(EtherHostId),
-  // Operator-authored claim-routing role (not physics FactoryRole).
-  workRole: Schema.optionalKey(WorkRole),
 });
 export type EtherNodeExtension = typeof EtherNodeExtension.Type;
 
