@@ -366,6 +366,209 @@ describe("resolveManagedLaunch argv", () => {
     );
     expect(off.argv).not.toContain("--yolo");
   });
+  it("pi: model, thinking effort, session pin, append-system-prompt, positional prompt", () => {
+    const launch = resolveManagedLaunch(
+      "pi",
+      {
+        model: "sonnet",
+        effort: "high",
+        sessionId: "019fd402-9e75-75e2-bca4-18bff1f2d5cc",
+        systemPrompt: "call vellum-command onboard",
+        prompt: "start the task",
+      },
+      bareAmbient,
+    );
+    expect(launch.argv).toEqual([
+      "pi",
+      "--model",
+      "sonnet",
+      "--thinking",
+      "high",
+      "--session-id",
+      "019fd402-9e75-75e2-bca4-18bff1f2d5cc",
+      "--append-system-prompt",
+      "call vellum-command onboard",
+      "start the task",
+    ]);
+  });
+
+  it("pi resume is --session (not -r, which opens the interactive picker)", () => {
+    const launch = resolveManagedLaunch(
+      "pi",
+      { resumeId: "019fd402-9e75-75e2-bca4-18bff1f2d5cc", effort: "high" },
+      bareAmbient,
+    );
+    expect(launch.argv).toEqual([
+      "pi",
+      "--session",
+      "019fd402-9e75-75e2-bca4-18bff1f2d5cc",
+      "--thinking",
+      "high",
+    ]);
+  });
+
+  it("pi has no permission-mode flag (--approve is project trust, not an enum)", () => {
+    const launch = resolveManagedLaunch("pi", { permissionMode: "yolo" }, bareAmbient);
+    expect(launch.argv).toEqual(["pi"]);
+  });
+
+  it("prime-agent: model, thinking effort, append-system-prompt, positional prompt", () => {
+    const launch = resolveManagedLaunch(
+      "prime-agent",
+      {
+        model: "gpt-5.5",
+        effort: "medium",
+        systemPrompt: "doctrine text",
+        prompt: "proceed",
+      },
+      bareAmbient,
+    );
+    expect(launch.argv).toEqual([
+      "prime-agent",
+      "--model",
+      "gpt-5.5",
+      "--thinking",
+      "medium",
+      "--append-system-prompt",
+      "doctrine text",
+      "proceed",
+    ]);
+  });
+
+  it("prime-agent resume re-passes flags via -r", () => {
+    const launch = resolveManagedLaunch(
+      "prime-agent",
+      { resumeId: "8f3c2a1e-b4d5-4e6f-9a0b-1c2d3e4f5a6b", model: "gpt-5.5" },
+      bareAmbient,
+    );
+    expect(launch.argv).toEqual([
+      "prime-agent",
+      "-r",
+      "8f3c2a1e-b4d5-4e6f-9a0b-1c2d3e4f5a6b",
+      "--model",
+      "gpt-5.5",
+    ]);
+  });
+
+  it("prime-agent has no permission-mode flag (--autonomous is unattended mode, not an enum)", () => {
+    const launch = resolveManagedLaunch(
+      "prime-agent",
+      { permissionMode: "yolo" },
+      bareAmbient,
+    );
+    expect(launch.argv).toEqual(["prime-agent"]);
+  });
+
+  it("kimi promptMode none drops the argv prompt entirely", () => {
+    const launch = resolveManagedLaunch("kimi", { prompt: "hello" }, bareAmbient);
+    expect(launch.argv).toEqual(["kimi"]);
+    expect((launch.argv ?? []).join(" ")).not.toContain("hello");
+  });
+
+  it("kimi: -m model and bare --yolo only when enabled", () => {
+    const on = resolveManagedLaunch(
+      "kimi",
+      { model: "kimi-k3", permissionMode: "yolo" },
+      bareAmbient,
+    );
+    expect(on.argv).toEqual(["kimi", "-m", "kimi-k3", "--yolo"]);
+    const off = resolveManagedLaunch(
+      "kimi",
+      { model: "kimi-k3", permissionMode: "off" },
+      bareAmbient,
+    );
+    expect(off.argv).toEqual(["kimi", "-m", "kimi-k3"]);
+    expect(off.argv).not.toContain("--yolo");
+  });
+
+  it("kimi resume re-passes -m via -S", () => {
+    const launch = resolveManagedLaunch(
+      "kimi",
+      { resumeId: "session_c2da0425-9e75-75e2-bca4-18bff1f2d5cc", model: "kimi-k3" },
+      bareAmbient,
+    );
+    expect(launch.argv).toEqual([
+      "kimi",
+      "-S",
+      "session_c2da0425-9e75-75e2-bca4-18bff1f2d5cc",
+      "-m",
+      "kimi-k3",
+    ]);
+  });
+
+  it("muse: model, reasoning effort, bare --yolo, positional prompt", () => {
+    const launch = resolveManagedLaunch(
+      "muse",
+      {
+        model: "muse-1",
+        effort: "high",
+        permissionMode: "yolo",
+        prompt: "do the thing",
+      },
+      bareAmbient,
+    );
+    expect(launch.argv).toEqual([
+      "muse",
+      "--model",
+      "muse-1",
+      "--reasoning-effort",
+      "high",
+      "--yolo",
+      "do the thing",
+    ]);
+  });
+
+  it("muse resume is a subcommand and re-passes flags", () => {
+    const launch = resolveManagedLaunch(
+      "muse",
+      { resumeId: "f47ac10b-58cc-4372-a567-0e02b2c3d479", effort: "low" },
+      bareAmbient,
+    );
+    expect(launch.argv).toEqual([
+      "muse",
+      "resume",
+      "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+      "--reasoning-effort",
+      "low",
+    ]);
+  });
+
+  it("muse omits --yolo by default", () => {
+    const launch = resolveManagedLaunch("muse", { prompt: "hi" }, bareAmbient);
+    expect(launch.argv).toEqual(["muse", "hi"]);
+    expect(launch.argv).not.toContain("--yolo");
+  });
+
+  it("devin: --permission-mode default and -- separator before positional prompt", () => {
+    const launch = resolveManagedLaunch("devin", { prompt: "make it" }, bareAmbient);
+    expect(launch.argv).toEqual([
+      "devin",
+      "--permission-mode",
+      "normal",
+      "--",
+      "make it",
+    ]);
+    const bare = resolveManagedLaunch("devin", {}, bareAmbient);
+    expect(bare.argv).toEqual(["devin", "--permission-mode", "normal"]);
+  });
+
+  it("devin resume re-passes --model and default permission via -r", () => {
+    const launch = resolveManagedLaunch(
+      "devin",
+      { resumeId: "sample-session", model: "devin-3" },
+      bareAmbient,
+    );
+    expect(launch.argv).toEqual([
+      "devin",
+      "-r",
+      "sample-session",
+      "--model",
+      "devin-3",
+      "--permission-mode",
+      "normal",
+    ]);
+  });
+
 
   it("defaults: click harness → argv with default permission only", () => {
     const launch = resolveManagedLaunch("claude", {}, bareAmbient);

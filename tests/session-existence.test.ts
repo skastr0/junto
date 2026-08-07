@@ -114,6 +114,156 @@ describe("harness session existence (external proof)", () => {
     expect(launchArgvUsesResume(["codex", "resume", "abc"])).toBe(true);
     expect(launchArgvUsesResume(["grok", "--session-id", "abc"])).toBe(false);
   });
+  it("proves pi session when a jsonl under ~/.pi/agent/sessions contains the uuid", () => {
+    const home = tempHome();
+    const cwd = "/Users/me/proj";
+    const sid = "019fd402-9e75-75e2-bca4-18bff1f2d5cc";
+    expect(
+      harnessSessionExists({ harness: "pi", sessionId: sid, cwd, home }),
+    ).toBe(false);
+
+    // Layout: ~/.pi/agent/sessions/--<cwd-dashed>--/<ISO-ts>_<uuidv7>.jsonl
+    const dir = join(home, ".pi", "agent", "sessions", "--Users-me-proj--");
+    mkdirSync(dir, { recursive: true });
+    expect(
+      harnessSessionExists({ harness: "pi", sessionId: sid, cwd, home }),
+    ).toBe(false);
+    writeFileSync(
+      join(dir, "2026-08-05T22-19-29-269Z_" + sid + ".jsonl"),
+      '{"type":"session","version":3}\n',
+    );
+    expect(
+      harnessSessionExists({ harness: "pi", sessionId: sid, cwd, home }),
+    ).toBe(true);
+    // cwd omitted — one-level scan still finds the encoded dir.
+    expect(
+      harnessSessionExists({ harness: "pi", sessionId: sid, home }),
+    ).toBe(true);
+    expect(
+      harnessSessionExists({ harness: "pi", sessionId: "no-such", home }),
+    ).toBe(false);
+  });
+
+  it("proves prime-agent session when ~/.prime/agent/sessions/<uuid>.jsonl exists", () => {
+    const home = tempHome();
+    const sid = "8f3c2a1e-b4d5-4e6f-9a0b-1c2d3e4f5a6b";
+    expect(
+      harnessSessionExists({ harness: "prime-agent", sessionId: sid, home }),
+    ).toBe(false);
+
+    const dir = join(home, ".prime", "agent", "sessions");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, `${sid}.jsonl`),
+      '{"type":"session","version":3,"id":"' + sid + '"}\n',
+    );
+    expect(
+      harnessSessionExists({ harness: "prime-agent", sessionId: sid, home }),
+    ).toBe(true);
+    expect(
+      harnessSessionExists({ harness: "prime-agent", sessionId: "deadbeef", home }),
+    ).toBe(false);
+  });
+
+  it("proves kimi session when ~/.kimi-code/sessions/<workDirKey>/<id>/ holds state", () => {
+    const home = tempHome();
+    const sid = "session_c2da0425-9e75-75e2-bca4-18bff1f2d5cc";
+    expect(
+      harnessSessionExists({ harness: "kimi", sessionId: sid, home }),
+    ).toBe(false);
+
+    // Layout: $KIMI_CODE_HOME/sessions/<workDirKey>/<sessionId>/{state.json, agents/...}
+    const dir = join(home, ".kimi-code", "sessions", "wd_vellum", sid);
+    mkdirSync(join(dir, "agents", "main"), { recursive: true });
+    writeFileSync(join(dir, "state.json"), "{}");
+    writeFileSync(join(dir, "agents", "main", "wire.jsonl"), "");
+    expect(
+      harnessSessionExists({ harness: "kimi", sessionId: sid, home }),
+    ).toBe(true);
+    expect(
+      harnessSessionExists({ harness: "kimi", sessionId: "ses_00000000", home }),
+    ).toBe(false);
+  });
+
+  it("proves muse session when ~/.local/share/muse/sessions/<date>/<uuid>/session.jsonl exists", () => {
+    const home = tempHome();
+    const sid = "f47ac10b-58cc-4372-a567-0e02b2c3d479";
+    expect(
+      harnessSessionExists({ harness: "muse", sessionId: sid, home }),
+    ).toBe(false);
+
+    // Layout: ~/.local/share/muse/sessions/<yyyy>/<mm>/<dd>/<uuid>/session.jsonl.
+    // The session dir itself is the proof (bounded walk matches the uuid dir
+    // name), so the first true assertion is after mkdir, not after the file.
+    const dir = join(
+      home,
+      ".local",
+      "share",
+      "muse",
+      "sessions",
+      "2026",
+      "08",
+      "06",
+      sid,
+    );
+    expect(
+      harnessSessionExists({ harness: "muse", sessionId: sid, home }),
+    ).toBe(false);
+    mkdirSync(dir, { recursive: true });
+    expect(
+      harnessSessionExists({ harness: "muse", sessionId: sid, home }),
+    ).toBe(true);
+    writeFileSync(join(dir, "session.jsonl"), '{"runtime":{"session":{"metadata":{}}}}\n');
+    expect(
+      harnessSessionExists({ harness: "muse", sessionId: sid, home }),
+    ).toBe(true);
+  });
+
+  it("proves devin session via transcript or lock under ~/.local/share/devin/cli", () => {
+    const home = tempHome();
+    const sid = "sample-session";
+    expect(
+      harnessSessionExists({ harness: "devin", sessionId: sid, home }),
+    ).toBe(false);
+
+    // Transcript: transcripts/<session-id>.json (ATIF-v1.7).
+    const transcripts = join(home, ".local", "share", "devin", "cli", "transcripts");
+    mkdirSync(transcripts, { recursive: true });
+    writeFileSync(
+      join(transcripts, `${sid}.json`),
+      '{"schema_version":"1.7","session_id":"' + sid + '"}\n',
+    );
+    expect(
+      harnessSessionExists({ harness: "devin", sessionId: sid, home }),
+    ).toBe(true);
+
+    // Lock-only layout: session_locks/<session-id>.lock.
+    const locks = join(home, ".local", "share", "devin", "cli", "session_locks");
+    const lockId = "sample-bird";
+    expect(
+      harnessSessionExists({ harness: "devin", sessionId: lockId, home }),
+    ).toBe(false);
+    mkdirSync(locks, { recursive: true });
+    writeFileSync(join(locks, `${lockId}.lock`), "60753");
+    expect(
+      harnessSessionExists({ harness: "devin", sessionId: lockId, home }),
+    ).toBe(true);
+  });
+
+  it("honors the injectable test home override for the five probes", () => {
+    const home = tempHome();
+    __setSessionExistenceHomeForTest(home);
+    const sid = "8f3c2a1e-b4d5-4e6f-9a0b-1c2d3e4f5a6b";
+    expect(
+      harnessSessionExists({ harness: "prime-agent", sessionId: sid }),
+    ).toBe(false);
+    const dir = join(home, ".prime", "agent", "sessions");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, `${sid}.jsonl`), "");
+    expect(
+      harnessSessionExists({ harness: "prime-agent", sessionId: sid }),
+    ).toBe(true);
+  });
 });
 
 describe("spawn replan resume gate", () => {
