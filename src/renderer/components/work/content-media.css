@@ -238,6 +238,10 @@
   background: var(--color-inset);
 }
 
+.content-media__body--markdown {
+  white-space: normal;
+}
+
 .content-media__error {
   margin: 0;
   padding: 6px 12px 10px;

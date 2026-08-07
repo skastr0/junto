@@ -1,0 +1,170 @@
+.artifact-markdown {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--color-ink-2);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.artifact-markdown > :first-child {
+  margin-top: 0;
+}
+
+.artifact-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.artifact-markdown :is(h1, h2, h3, h4, h5, h6) {
+  margin: 1.1em 0 0.45em;
+  color: var(--color-ink);
+  font-family: "Arial Narrow", "Avenir Next Condensed", "Helvetica Neue", sans-serif;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.2;
+  text-wrap: balance;
+}
+
+.artifact-markdown h1 {
+  padding-bottom: 0.4em;
+  border-bottom: 1px solid var(--color-overlay-4);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.artifact-markdown h2 {
+  font-size: 15px;
+}
+
+.artifact-markdown h3 {
+  color: var(--color-dim);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.artifact-markdown p {
+  margin: 0 0 0.8em;
+}
+
+.artifact-markdown :is(ul, ol) {
+  margin: 0 0 0.8em;
+  padding-left: 1.5em;
+}
+
+.artifact-markdown li {
+  margin: 0.25em 0;
+}
+
+.artifact-markdown li > p {
+  margin-bottom: 0.25em;
+}
+
+.artifact-markdown :is(code, pre) {
+  font-family: var(--font-mono);
+}
+
+.artifact-markdown :is(code:not(pre code)) {
+  border: 1px solid var(--color-stroke);
+  border-radius: 3px;
+  background: var(--color-well);
+  color: var(--color-amber);
+  padding: 0.08em 0.32em;
+  font-size: 0.9em;
+}
+
+.artifact-markdown pre {
+  max-width: 100%;
+  margin: 0 0 0.8em;
+  overflow: auto;
+  border: 1px solid var(--color-stroke);
+  border-radius: 5px;
+  background: var(--color-well);
+  color: var(--color-ink-2);
+  padding: 10px 12px;
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: pre;
+}
+
+.artifact-markdown pre code {
+  color: inherit;
+  font-size: inherit;
+}
+
+.artifact-markdown blockquote {
+  margin: 0 0 0.8em;
+  border-left: 2px solid var(--color-amber);
+  padding: 0.15em 0 0.15em 1em;
+  color: var(--color-dim);
+}
+
+.artifact-markdown blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+.artifact-markdown hr {
+  margin: 1.2em 0;
+  border: 0;
+  border-top: 1px solid var(--color-overlay-4);
+}
+
+.artifact-markdown a {
+  color: var(--color-amber);
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in oklab, var(--color-main) 35%, transparent);
+}
+
+.artifact-markdown a:hover {
+  color: var(--color-amber-hi);
+  border-bottom-color: var(--color-amber);
+}
+
+.artifact-markdown :is(table, img) {
+  max-width: 100%;
+}
+
+.artifact-markdown table {
+  display: block;
+  margin: 0 0 0.8em;
+  overflow-x: auto;
+  border-collapse: collapse;
+  white-space: nowrap;
+}
+
+.artifact-markdown :is(th, td) {
+  border: 1px solid var(--color-stroke);
+  padding: 6px 9px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.artifact-markdown th {
+  background: var(--color-well);
+  color: var(--color-ink);
+  font-weight: 600;
+}
+
+.artifact-markdown img {
+  display: block;
+  max-height: min(70vh, 720px);
+  margin: 0 0 0.8em;
+  border: 1px solid var(--color-stroke);
+  border-radius: 4px;
+  background: var(--color-inset);
+  object-fit: contain;
+}
+
+.artifact-markdown__blocked-link,
+.artifact-markdown__blocked-image {
+  color: var(--color-crimson);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.artifact-markdown input[type="checkbox"] {
+  accent-color: var(--color-cyan);
+  margin-right: 0.45em;
+  vertical-align: -0.1em;
+}

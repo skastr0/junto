@@ -31,6 +31,7 @@ import {
   artifactSearchText,
   artifactTaskReferenceLabel,
 } from "./artifact-reference";
+import { ArtifactMarkdown } from "./ArtifactMarkdown";
 import { ContentMedia } from "./ContentMedia";
 import "./work-ledger.css";
 
@@ -109,6 +110,20 @@ const isTextMediaType = (mediaType: string | undefined): boolean => {
   return known.has(clean);
 };
 
+const isMarkdownMediaType = (mediaType: string | undefined): boolean => {
+  if (mediaType === undefined) return false;
+  const clean = mediaType.split(";", 1)[0]?.trim().toLowerCase();
+  return (
+    clean === "text/markdown" ||
+    clean === "application/markdown" ||
+    clean === "text/x-markdown" ||
+    clean === "application/x-md"
+  );
+};
+
+const isMarkdownFilename = (filename: string): boolean =>
+  /\.(?:md|markdown|mdown|mkdn)$/iu.test(filename.trim());
+
 const bytesOfBase64 = (b64: string): Uint8Array => {
   const binary = atob(b64);
   const bytes = new Uint8Array(binary.length);
@@ -134,9 +149,11 @@ function downloadRaw(part: Extract<Part, { kind: "raw" }>, filename: string) {
 function PartView({
   part,
   filename,
+  markdown = false,
 }: {
   readonly part: Part;
   readonly filename: string;
+  readonly markdown?: boolean;
 }) {
   const bytes = useMemo(() => {
     if (part.kind === "raw" && !isImagePart(part)) return bytesOfBase64(part.bytesBase64);
@@ -158,6 +175,13 @@ function PartView({
   }, [part, bytes]);
 
   if (part.kind === "text") {
+    if (markdown) {
+      return (
+        <div className="work-ledger-part work-ledger-part--markdown">
+          <ArtifactMarkdown source={part.text} />
+        </div>
+      );
+    }
     return <pre className="work-ledger-part work-ledger-part--text">{part.text}</pre>;
   }
   if (part.kind === "url") {
@@ -205,7 +229,13 @@ function PartView({
               Save
             </Button>
           </div>
-          <pre className="work-ledger-part__body">{text}</pre>
+          {markdown || isMarkdownMediaType(part.mediaType) || isMarkdownFilename(filename) ? (
+            <div className="work-ledger-part__body work-ledger-part__body--markdown">
+              <ArtifactMarkdown source={text} />
+            </div>
+          ) : (
+            <pre className="work-ledger-part__body">{text}</pre>
+          )}
         </div>
       );
     }
@@ -229,6 +259,11 @@ function PartView({
         <ContentMedia
           contentRef={part.ref}
           alt={part.ref.displayName ?? filename}
+          renderMarkdown={
+            markdown ||
+            isMarkdownMediaType(part.ref.mediaType) ||
+            isMarkdownFilename(part.ref.displayName ?? filename)
+          }
         />
       </div>
     );
@@ -560,9 +595,22 @@ function ArtifactFocusModal({
         <section>
           <h3>Contents</h3>
           <div className="work-ledger-parts artifact-focus__parts">
-            {artifact.parts.map((part, index) => (
-              <PartView key={index} part={part} filename={`${name}-${index + 1}`} />
-            ))}
+            {artifact.parts.map((part, index) => {
+              const filename = `${name}-${index + 1}`;
+              return (
+                <PartView
+                  key={index}
+                  part={part}
+                  filename={filename}
+                  markdown={
+                    part.kind === "text" ||
+                    isMarkdownFilename(name) ||
+                    (part.kind === "raw" && isMarkdownMediaType(part.mediaType)) ||
+                    (part.kind === "content" && isMarkdownMediaType(part.ref.mediaType))
+                  }
+                />
+              );
+            })}
           </div>
         </section>
         {artifact.metadata && Object.keys(artifact.metadata).length > 0 ? (

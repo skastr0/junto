@@ -16,6 +16,7 @@ import {
   contentObjectUrl,
 } from "@shared/content-url";
 import { Button } from "../ui/Button";
+import { ArtifactMarkdown } from "./ArtifactMarkdown";
 import "./content-media.css";
 
 export type ContentMediaStatus =
@@ -31,6 +32,8 @@ type ContentMediaProps = {
   readonly alt?: string;
   readonly className?: string;
   readonly controls?: boolean;
+  /** Render text-like content as inert Markdown instead of a raw preview. */
+  readonly renderMarkdown?: boolean;
   /**
    * Canvas / note chrome: image fills the parent, no media-type caption or
    * ledger padding. Work ledger keeps the default (false).
@@ -115,6 +118,7 @@ export function ContentMedia({
   className,
   controls = true,
   bare = false,
+  renderMarkdown = false,
 }: ContentMediaProps) {
   const url = contentObjectUrl(contentRef);
   const kind = contentMediaKind(contentRef.mediaType);
@@ -359,7 +363,13 @@ export function ContentMedia({
             {opening ? "Opening…" : "Save"}
           </Button>
         </div>
-        <pre className="content-media__body">{textPreview}</pre>
+        {renderMarkdown ? (
+          <div className="content-media__body content-media__body--markdown">
+            <ArtifactMarkdown source={textPreview} />
+          </div>
+        ) : (
+          <pre className="content-media__body">{textPreview}</pre>
+        )}
         {openError ? (
           <p className="content-media__error" role="alert">
             {openError}

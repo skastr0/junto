@@ -697,6 +697,10 @@
   scrollbar-width: thin;
 }
 
+.work-ledger-part--markdown {
+  padding: 12px 14px;
+}
+
 .work-ledger-part--data {
   color: var(--color-cyan);
 }
@@ -806,6 +810,10 @@
   font-size: 9px;
   line-height: 1.6;
   scrollbar-width: thin;
+}
+
+.work-ledger-part__body--markdown {
+  white-space: normal;
 }
 
 .work-ledger-metadata {
