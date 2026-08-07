@@ -528,28 +528,36 @@ export const applySettingsPatch = (current: Settings, patch: SettingsPatch): Set
   }
   if (patch.harnesses?.byHarness) {
     const current = next.harnesses ?? defaultHarnesses();
-    const byHarness = { ...current.byHarness };
+    const byHarness: Record<string, HarnessInstancePrefs> = {
+      ...current.byHarness,
+    };
     for (const [id, prefsPatch] of Object.entries(patch.harnesses.byHarness)) {
       if (!prefsPatch || id.trim().length === 0) continue;
       const prior = byHarness[id] ?? {};
-      const merged: HarnessInstancePrefs = { ...prior };
-      if (prefsPatch.enabled !== undefined) merged.enabled = prefsPatch.enabled;
-      const applyOptionalString = (
-        key: "model" | "effort" | "permissionMode",
-        raw: string | undefined,
-      ): void => {
-        if (raw === undefined) return;
-        const trimmed = raw.trim();
-        if (trimmed.length === 0) {
-          delete merged[key];
-          return;
-        }
-        merged[key] = trimmed;
+      // Build a fresh prefs object — Schema.Type fields are readonly.
+      let enabled = prior.enabled;
+      let model = prior.model;
+      let effort = prior.effort;
+      let permissionMode = prior.permissionMode;
+      if (prefsPatch.enabled !== undefined) enabled = prefsPatch.enabled;
+      if (prefsPatch.model !== undefined) {
+        const trimmed = prefsPatch.model.trim();
+        model = trimmed.length === 0 ? undefined : trimmed;
+      }
+      if (prefsPatch.effort !== undefined) {
+        const trimmed = prefsPatch.effort.trim();
+        effort = trimmed.length === 0 ? undefined : trimmed;
+      }
+      if (prefsPatch.permissionMode !== undefined) {
+        const trimmed = prefsPatch.permissionMode.trim();
+        permissionMode = trimmed.length === 0 ? undefined : trimmed;
+      }
+      byHarness[id] = {
+        ...(enabled !== undefined ? { enabled } : {}),
+        ...(model !== undefined ? { model } : {}),
+        ...(effort !== undefined ? { effort } : {}),
+        ...(permissionMode !== undefined ? { permissionMode } : {}),
       };
-      applyOptionalString("model", prefsPatch.model);
-      applyOptionalString("effort", prefsPatch.effort);
-      applyOptionalString("permissionMode", prefsPatch.permissionMode);
-      byHarness[id] = merged;
     }
     next = { ...next, harnesses: { byHarness } };
   }
