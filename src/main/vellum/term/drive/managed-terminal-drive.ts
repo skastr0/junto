@@ -10,9 +10,11 @@
 import {
   buildPromptWriteSequence,
   canSendIdleInterrupt,
+  CR,
   DEFAULT_PROMPT_STALL_MS,
   INTERRUPT_BYTE,
   MIN_IDLE_INTERRUPT_GAP_MS,
+  PASTE_TO_CR_SETTLE_MS,
 } from "./typing";
 
 /** Returns true when the managed seat may accept a typed prompt. */
@@ -571,6 +573,24 @@ export class ManagedTerminalDrive {
         ) {
           return true;
         }
+        const started = await this.awaitTurnStart(
+          bindingId,
+          text,
+          generation,
+          bindingGeneration,
+        );
+        if (started) return true;
+        if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
+          return false;
+        }
+        // Paste chip without submit: one extra CR (Claude/Devin collapse
+        // multi-line paste into a chip that needs a second Enter).
+        if (!(await this.writeSubmitCr(bindingId, generation, bindingGeneration))) {
+          return false;
+        }
+        if ((this.turnStartCounts.get(bindingId) ?? 0) !== turnStartCount) {
+          return true;
+        }
         return await this.awaitTurnStart(
           bindingId,
           text,
@@ -603,9 +623,35 @@ export class ManagedTerminalDrive {
     if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
       return false;
     }
+    // Let paste-end settle before CR — racing ESC[201~ leaves Claude/Devin
+    // with a stuck "[Pasted text …]" chip and never submits.
+    if (PASTE_TO_CR_SETTLE_MS > 0) {
+      await new Promise<void>((r) => {
+        const t = setTimeout(r, PASTE_TO_CR_SETTLE_MS);
+        t.unref?.();
+      });
+      if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
+        return false;
+      }
+      if (!this.isSeatIdle(bindingId)) {
+        return false;
+      }
+    }
     // …then a SEPARATE CR write. Never join; never LF.
     if (!(await Promise.resolve(this.writeFn(bindingId, cr)))) return false;
     return this.activeBinding(bindingId, generation, bindingGeneration);
+  }
+
+  /** One extra CR when the first paste+CR did not produce turn-start. */
+  private async writeSubmitCr(
+    bindingId: string,
+    generation: number,
+    bindingGeneration: number,
+  ): Promise<boolean> {
+    if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
+      return false;
+    }
+    return Boolean(await Promise.resolve(this.writeFn(bindingId, CR)));
   }
 
   private awaitTurnStart(

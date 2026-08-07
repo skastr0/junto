@@ -222,15 +222,33 @@ describe("managed spawn plan", () => {
     expect(prompt).not.toContain("Edge contracts");
   });
 
-  it("connected codex arms firstTypedMessage", () => {
-    const { plan } = launchForManagedSpawn({
+  it("connected codex delivers doctrine as argv prompt (not firstTyped paste)", () => {
+    const { plan, launch } = launchForManagedSpawn({
       doc: baseDoc(true),
       nodeId: "worker",
       harness: "codex",
       documentLaunch: { kind: "harness", argv: ["codex"] },
     });
     expect(plan?.injection.tier).toBe("B");
-    expect(plan?.firstTypedMessage).toContain("vellum-command onboard");
+    // positional promptMode → doctrine rides argv, auto-submits at spawn
+    expect(plan?.firstTypedMessage).toBeUndefined();
+    const argv = launch?.argv ?? [];
+    expect(argv.some((a) => a.includes("vellum-command onboard"))).toBe(true);
+  });
+
+  it("connected devin delivers doctrine as positional prompt after --", () => {
+    const { plan, launch } = launchForManagedSpawn({
+      doc: baseDoc(true),
+      nodeId: "worker",
+      harness: "devin",
+      documentLaunch: { kind: "harness", argv: ["devin"] },
+    });
+    expect(plan?.injection.tier).toBe("B");
+    expect(plan?.firstTypedMessage).toBeUndefined();
+    const argv = launch?.argv ?? [];
+    const sep = argv.indexOf("--");
+    expect(sep).toBeGreaterThan(-1);
+    expect(argv[sep + 1]).toContain("vellum-command onboard");
   });
 
   it("preserves picker choices while adding connected injection", () => {

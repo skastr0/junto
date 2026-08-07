@@ -248,7 +248,26 @@ const applyInjectionChoices = (
     return { choices: rest, plan };
   }
   if (!plan.systemPrompt) {
-    // Tier B: firstTypedMessage on plan; no spawn system-prompt flags.
+    // Tier B: prefer argv prompt when the harness auto-submits it
+    // (Devin `devin -- <prompt>`, Hermes `-q`). Otherwise firstTyped paste.
+    // Avoids the stuck "[Pasted text …]" chip when paste+CR races the TUI.
+    const template = templateFor(harness);
+    const mode = template.argvSpec.promptMode;
+    const body = plan.firstTypedMessage?.trim();
+    if (
+      body &&
+      (mode === "positional" || mode === "flag-q") &&
+      !choices.prompt?.trim()
+    ) {
+      return {
+        choices: { ...choices, prompt: body },
+        plan: {
+          inject: true,
+          tier: plan.tier,
+          // No firstTyped — body rides argv and auto-submits at spawn.
+        },
+      };
+    }
     return { choices, plan };
   }
   // Tier A connected: doctrine is SoT for systemPrompt unless agentFile wins.

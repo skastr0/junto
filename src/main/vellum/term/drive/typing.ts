@@ -27,6 +27,16 @@ export const MIN_IDLE_INTERRUPT_GAP_MS = 1_000;
 /** Bounded wait for turn-start acknowledgement after a prompt write. */
 export const DEFAULT_PROMPT_STALL_MS = 5_000;
 
+/**
+ * Settle after paste-end (`ESC[201~`) before the first CR.
+ * Claude/Devin (and other ink TUIs) collapse multi-line paste into a chip;
+ * a CR that races the paste-end handler lands in the composer and never
+ * submits — the operator sees `[Pasted text #N +k lines]` stuck forever.
+ * Verified Claude window was 0–150ms; 40ms is inside the safe band and
+ * far under Grok's 1.5s post-spawn gate.
+ */
+export const PASTE_TO_CR_SETTLE_MS = 40;
+
 /** Wrap text in a bracketed-paste envelope (single write payload). */
 export const encodeBracketedPaste = (text: string): string =>
   `${BRACKETED_PASTE_START}${text}${BRACKETED_PASTE_END}`;

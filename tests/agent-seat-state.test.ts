@@ -82,9 +82,21 @@ describe("evaluate — claude", () => {
       { harness: "claude" },
     );
     expect(r.state).toBe("idle");
-    expect(r.reason).toBe("rule:live_prompt_box");
+    expect(r.reason).toMatch(/rule:(live_prompt_box|composer_draft_idle)/);
     expect(r.visibleIdle).toBe(true);
     expect(r.confidence).toBe("high");
+  });
+
+  it("paste chip outranks OSC working title (no false running dots)", () => {
+    const r = evaluate(
+      snap({
+        title: "⠋ Claude",
+        lines: [HR, "> [Pasted text #1 +5 lines]", HR, "vellum git:(main)"],
+      }),
+      { harness: "claude" },
+    );
+    expect(r.state).toBe("idle");
+    expect(r.visibleIdle).toBe(true);
   });
 
   it("permission form → attention, never idle", () => {

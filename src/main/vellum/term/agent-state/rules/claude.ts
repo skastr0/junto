@@ -7,7 +7,7 @@ import type { SeatRulePack } from "../types";
 
 export const claudeRules: SeatRulePack = {
   harness: "claude",
-  version: "2026.07.26.1",
+  version: "2026.08.07.3",
   rules: [
     {
       id: "osc_title_working",
@@ -97,13 +97,32 @@ export const claudeRules: SeatRulePack = {
       region: "prompt_box_body",
       visibleIdle: true,
       matchers: {
-        lineRegex: ["^\\s*❯"],
+        // Claude Code has used both ❯ (U+276F) and ASCII `>` as the composer
+        // glyph across versions — match either so idle is not lost to OSC
+        // title "working" while a paste chip sits unsubmitted.
+        lineRegex: ["^\\s*[❯>]"],
         not: [
           { contains: ["enter to select"] },
           { contains: ["esc to cancel"] },
           { contains: ["tab/arrow keys"] },
           { contains: ["arrow keys to navigate"] },
           { contains: ["↑/↓ to navigate"] },
+        ],
+      },
+    },
+    // Composer has draft/paste content → idle for chrome, outrank OSC spinner.
+    // Prevents "working" dots while `[Pasted text …]` sits in the box.
+    {
+      id: "composer_draft_idle",
+      state: "idle",
+      priority: 1150,
+      region: "prompt_box_body",
+      visibleIdle: true,
+      matchers: {
+        lineRegex: ["^\\s*[❯>]\\s*\\S"],
+        not: [
+          { contains: ["enter to select"] },
+          { contains: ["esc to cancel"] },
         ],
       },
     },
