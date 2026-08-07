@@ -89,3 +89,22 @@ export function slotIndexOf(
   const index = order.indexOf(nodeId);
   return index >= 0 && index <= 8 ? index : null;
 }
+
+/** Index of nodeId on a 9-slot hotbar (fixed or leased), or null. */
+export function hotbarSlotIndexOf(
+  slots: ReadonlyArray<
+    | { readonly kind: "empty" }
+    | { readonly kind: "fixed"; readonly nodeId: string }
+    | { readonly kind: "leased"; readonly nodeId: string }
+  >,
+  nodeId: string,
+): number | null {
+  const fixed = slots.findIndex(
+    (slot) => slot.kind === "fixed" && slot.nodeId === nodeId,
+  );
+  if (fixed >= 0 && fixed <= 8) return fixed;
+  const leased = slots.findIndex(
+    (slot) => slot.kind === "leased" && slot.nodeId === nodeId,
+  );
+  return leased >= 0 && leased <= 8 ? leased : null;
+}

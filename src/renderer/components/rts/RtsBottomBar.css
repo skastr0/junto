@@ -127,6 +127,30 @@
     opacity 0.15s ease;
 }
 
+/* Tenure: empty / leased (auto) / fixed (operator). */
+.rts-chip--strip.is-tenure-empty {
+  opacity: 0.55;
+  border-style: dashed;
+  border-color: color-mix(in oklab, var(--color-stroke) 70%, transparent);
+  background: transparent;
+  max-width: 52px;
+  min-width: 40px;
+}
+
+.rts-chip--strip.is-tenure-empty .rts-chip__label {
+  color: color-mix(in oklab, var(--color-dim) 80%, transparent);
+}
+
+.rts-chip--strip.is-tenure-leased {
+  border-style: dashed;
+  border-color: color-mix(in oklab, var(--color-cyan) 45%, var(--color-stroke));
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-cyan) 18%, transparent);
+}
+
+.rts-chip--strip.is-tenure-fixed {
+  border-style: solid;
+}
+
 .rts-chip--strip .rts-chip__label {
   max-width: 96px;
 }

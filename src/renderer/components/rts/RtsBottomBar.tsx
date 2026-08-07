@@ -239,11 +239,14 @@ const liveNodeIds = (doc: { readonly nodes: ReadonlyArray<{ readonly id: string 
 const recomputeHotbar = (): void => {
   const doc = state$.doc.peek();
   const live = liveNodeIds(doc);
-  const next = resolveHotbarSlots(
-    state$.hotbarSlots.peek(),
-    live,
-    state$.hotbarActiveMru.peek(),
-  );
+  // Selection counts as activity even when focusNode was not used (canvas click).
+  let mru = state$.hotbarActiveMru.peek();
+  const selected = state$.selectedNodeId.peek();
+  if (selected && live.includes(selected)) {
+    mru = touchActiveMru(mru, selected);
+    state$.hotbarActiveMru.set(mru);
+  }
+  const next = resolveHotbarSlots(state$.hotbarSlots.peek(), live, mru);
   state$.hotbarSlots.set(next);
   // Compat mirror: dense fixed-only order for any remaining legacy readers.
   state$.regionSlotOrder.set(fixedOrderOf(next));
@@ -1013,10 +1016,10 @@ function HotbarStrip({
     if (canvasName) ensurePauseState(canvasName);
   }, [canvasName]);
 
-  // Prune dead ids + refresh opportunistic leases when the document changes.
+  // Prune dead ids + refresh opportunistic leases on doc / selection changes.
   useEffect(() => {
     recomputeHotbar();
-  }, [doc]);
+  }, [doc, selectedNodeId]);
 
   const slots = useMemo(() => {
     const nodeById = new Map(doc.nodes.map((n) => [n.id, n] as const));

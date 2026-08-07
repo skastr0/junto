@@ -96,6 +96,10 @@ const resetCanvasView = (): void => {
     state$.selectedEdgeId.set("");
     state$.connectionFocusNodeId.set("");
     state$.focusNodeId.set("");
+    state$.hotbarSlots.set(
+      Array.from({ length: 9 }, () => ({ kind: "empty" as const })),
+    );
+    state$.hotbarActiveMru.set([]);
     state$.regionSlotOrder.set([]);
     state$.regionSeverityByNodeId.set({});
     impactModeActive$.set(false);

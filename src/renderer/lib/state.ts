@@ -40,9 +40,24 @@ export const state$ = observable({
   // neighborhood and is never persisted to the canvas document.
   connectionFocusNodeId: "",
   focusNodeId: "",
-  // Presentational hotbar order of any node ids for slots 1–9.
-  // Fully controlled: empty until operator assigns (⌘1–9 / slot cue).
-  // App-local only — never written into the authorial canvas document.
+  /**
+   * Presentational hotbar (slots 1–9): empty | fixed (operator) | leased
+   * (opportunistic active nodes). App-local only — never authorial.
+   * @see hotbar-slots.ts
+   */
+  hotbarSlots: Array.from({ length: 9 }, () => ({
+    kind: "empty" as const,
+  })) as ReadonlyArray<
+    | { readonly kind: "empty" }
+    | { readonly kind: "fixed"; readonly nodeId: string }
+    | { readonly kind: "leased"; readonly nodeId: string }
+  >,
+  /** Most-recently-active node ids (front = newest) for opportunistic leases. */
+  hotbarActiveMru: [] as ReadonlyArray<string>,
+  /**
+   * @deprecated Prefer hotbarSlots. Dense fixed-only ids kept briefly for
+   * any remaining readers; updated when hotbar recompute runs.
+   */
   regionSlotOrder: [] as ReadonlyArray<string>,
   // Per-node severity for minimap dots (from region rollups). App-local.
   regionSeverityByNodeId: {} as Readonly<Record<string, string>>,
