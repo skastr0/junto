@@ -114,6 +114,18 @@ describe("LocalSessionHost", () => {
     expect(launch.env.NO_COLOR).toBeUndefined();
     expect(launch.env.TERM).toMatch(/^(xterm|screen)/);
     expect(launch.env.COLORTERM).toBe("truecolor");
+    expect(launch.env.COLORFGBG).toBe("15;0");
+  });
+
+  it("sets COLORFGBG from the Vellum theme mode at spawn", () => {
+    const dark = Result.getOrThrow(
+      resolveLaunch({ kind: "terminal" }, { themeMode: "dark" }),
+    );
+    expect(dark.env.COLORFGBG).toBe("15;0");
+    const bright = Result.getOrThrow(
+      resolveLaunch({ kind: "terminal" }, { themeMode: "bright" }),
+    );
+    expect(bright.env.COLORFGBG).toBe("0;15");
   });
 
   it("fails before ownership when the launch cwd is missing", async () => {

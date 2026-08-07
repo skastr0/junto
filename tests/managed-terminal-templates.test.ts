@@ -286,6 +286,7 @@ describe("resolveManagedLaunch argv", () => {
     );
     expect(launch.argv).toEqual([
       "grok",
+      "--minimal",
       "-m",
       "grok-4.5",
       "--reasoning-effort",
@@ -300,6 +301,10 @@ describe("resolveManagedLaunch argv", () => {
     ]);
     expect(launch.cwd).toBe("/repo/git-project");
     expect(GROK_TEMPLATE.capabilityBadges.requiresGitCwd).toBe(true);
+    expect(GROK_TEMPLATE.argvSpec.prefix).toEqual(["--minimal"]);
+    expect(GROK_TEMPLATE.capabilityBadges.labels).toEqual(
+      expect.arrayContaining(["minimal palette"]),
+    );
   });
 
   it("grok prefers --rules when systemPrompt is set without agentFile", () => {
@@ -308,9 +313,13 @@ describe("resolveManagedLaunch argv", () => {
       { systemPrompt: "doctrine text", permissionMode: "default" },
       bareAmbient,
     );
-    expect(launch.argv).toContain("--rules");
-    expect(launch.argv).toContain("doctrine text");
-    expect(launch.argv).not.toContain("--agent");
+    const argv = launch.argv ?? [];
+    expect(argv[0]).toBe("grok");
+    expect(argv).toContain("--minimal");
+    expect(argv).not.toContain("--no-alt-screen");
+    expect(argv).toContain("--rules");
+    expect(argv).toContain("doctrine text");
+    expect(argv).not.toContain("--agent");
   });
 
   it("hermes: chat --tui -q with profile and model", () => {

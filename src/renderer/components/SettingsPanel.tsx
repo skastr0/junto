@@ -37,7 +37,7 @@ import {
 import { HUE, INK, themeFor } from "../lib/theme";
 import { getVellumCommandApi } from "../lib/vellum-api";
 import { LicenseSection } from "./license";
-import { Button, Select } from "./ui";
+import { Button, Eyebrow, Select } from "./ui";
 import "./settings-panel.css";
 
 /** Settings sections: prefs sections + non-prefs panels (hosts/license/updates). */
@@ -197,6 +197,7 @@ function AppearanceSection() {
     { key: "dark" as const, label: "Dark" },
     { key: "bright" as const, label: "Bright" },
   ];
+  const agentAppearance = appearance.agentAppearance ?? "follow";
   return (
     <div className="settings-section">
       <div className="settings-theme-modes" role="radiogroup" aria-label="Theme">
@@ -211,6 +212,61 @@ function AppearanceSection() {
             }
           />
         ))}
+      </div>
+      <div style={{ marginTop: 20 }}>
+        <Eyebrow>Managed agent appearance</Eyebrow>
+        <div
+          role="radiogroup"
+          aria-label="Managed agent appearance"
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 8,
+            marginTop: 10,
+          }}
+        >
+          {(
+            [
+              {
+                key: "follow" as const,
+                label: "Follow Vellum Command",
+                hint: "Recommended. Terminals use Vellum colours and the live appearance protocol. Grok spawns with --minimal for palette-native UI (not --no-alt-screen).",
+              },
+              {
+                key: "agent" as const,
+                label: "Use agent theme",
+                hint: "Preserve each harness's own configuration. Do not re-paint mid-session over agent colours.",
+              },
+            ] as const
+          ).map((opt) => {
+            const active = agentAppearance === opt.key;
+            return (
+              <button
+                key={opt.key}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                className={`settings-theme-mode${active ? " is-active" : ""}`}
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "flex-start",
+                  textAlign: "left",
+                  padding: "10px 12px",
+                  gap: 4,
+                }}
+                onClick={() =>
+                  void patchSettings({
+                    appearance: { agentAppearance: opt.key },
+                  })
+                }
+              >
+                <span className="settings-theme-mode__label">{opt.label}</span>
+                <span className="settings-field__hint">{opt.hint}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

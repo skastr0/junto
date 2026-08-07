@@ -26,6 +26,7 @@ import {
   VELLUM_XTERM_FONT_SIZE,
   xtermThemeFor,
 } from "../../lib/terminal-theme";
+import { attachXtermAppearance } from "../../lib/xterm-appearance";
 import { themeMode$ } from "../../lib/theme-mode";
 import { attachXtermAutoCopy } from "../../lib/xterm-auto-copy";
 import { ActivityMark } from "../ActivityMark";
@@ -363,9 +364,13 @@ export function HerdrTerminalPanel({
     termRef.current = term;
     fitRef.current = fit;
 
-    // Live theme swap: repaint the terminal when the mode flips.
+    // Live appearance: full Vellum palette + CSI ?996n/?2031/?997 protocol.
+    const appearance = attachXtermAppearance(term, {
+      initialMode: themeMode$.peek(),
+      policy: "follow",
+    });
     const unsubTheme = themeMode$.onChange(({ value }) => {
-      term.options.theme = xtermThemeFor(value);
+      appearance.setMode(value);
     });
 
     let cancelled = false;
@@ -780,6 +785,7 @@ export function HerdrTerminalPanel({
       detachAutoCopy();
       unsub();
       unsubTheme();
+      appearance.dispose();
       window.removeEventListener("resize", scheduleResize);
       resizeObs?.disconnect();
       hostEl.removeEventListener("wheel", onWheel, { capture: true });

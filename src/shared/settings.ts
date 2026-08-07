@@ -37,10 +37,25 @@ export type SettingsDensity = typeof SettingsDensity.Type;
 const positiveInt = (min: number, max: number) =>
   Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isBetween({ minimum: min, maximum: max })));
 
+/**
+ * Managed-agent appearance policy:
+ * - `follow` — leverage Vellum Command's xterm theme + live appearance
+ *   protocol (recommended). Grok spawns with `--minimal` for palette-native UI.
+ * - `agent` — preserve explicit user harness configuration; do not force
+ *   palette-native spawn flags or re-paint mid-session over agent colours.
+ */
+export const AgentAppearancePolicy = Schema.Literals(["follow", "agent"]);
+export type AgentAppearancePolicy = typeof AgentAppearancePolicy.Type;
+
 export const AppearanceSettings = Schema.Struct({
   theme: SettingsTheme,
   density: SettingsDensity,
   reduceMotion: Schema.Boolean,
+  /**
+   * Optional so installed rows written before this field still decode.
+   * Absent ≡ `follow` (recommended default).
+   */
+  agentAppearance: Schema.optionalKey(AgentAppearancePolicy),
 });
 export type AppearanceSettings = typeof AppearanceSettings.Type;
 
@@ -201,6 +216,7 @@ export const AppearancePatch = Schema.Struct({
   theme: Schema.optionalKey(SettingsTheme),
   density: Schema.optionalKey(SettingsDensity),
   reduceMotion: Schema.optionalKey(Schema.Boolean),
+  agentAppearance: Schema.optionalKey(AgentAppearancePolicy),
 });
 export type AppearancePatch = typeof AppearancePatch.Type;
 
@@ -290,6 +306,7 @@ export const defaultAppearance = (): AppearanceSettings => ({
   theme: "system",
   density: "comfortable",
   reduceMotion: false,
+  agentAppearance: "follow",
 });
 
 export const defaultCanvas = (): CanvasSettings => ({

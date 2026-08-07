@@ -14,6 +14,7 @@ import { Result } from "effect";
 import type { HarnessId } from "@shared/managed-terminal-templates";
 import { classifySpawnFailure } from "@shared/spawn-failure";
 import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
+import { colorFgBgFor, type ThemeMode } from "@shared/theme";
 import {
   productStatusFromSessionPhase,
   sessionPhaseAllowsWrite,
@@ -422,6 +423,11 @@ export const resolveLaunch = (
   seat: TerminalSeat,
   options?: {
     readonly seatInject?: Readonly<Record<string, string>>;
+    /**
+     * Active Vellum Command theme for COLORFGBG fallback. Defaults dark —
+     * renderer OSC 10/11 + CSI ?996n are the live authority once attached.
+     */
+    readonly themeMode?: ThemeMode;
   },
 ): Result.Result<ResolvedLaunch, AgentLaunchUnresolvable> => {
   const launch = seat.launch;
@@ -436,6 +442,9 @@ export const resolveLaunch = (
     ambientTerm.startsWith("xterm") || ambientTerm.startsWith("screen")
       ? ambientTerm
       : "xterm-256color";
+  // COLORFGBG is a coarse spawn hint (fg;bg ANSI indices). Live theme comes
+  // from xterm ITheme + OSC 10/11 + CSI ?996n/?2031 on the renderer surface.
+  const colorFgBg = colorFgBgFor(options?.themeMode ?? "dark");
   const env: Record<string, string> =
     seat.kind === "agent"
       ? {
@@ -449,12 +458,14 @@ export const resolveLaunch = (
           }),
           TERM: term,
           COLORTERM: process.env.COLORTERM || "truecolor",
+          COLORFGBG: colorFgBg,
         }
       : {
           ...(process.env as Record<string, string>),
           ...(launch?.env ?? {}),
           TERM: term,
           COLORTERM: process.env.COLORTERM || "truecolor",
+          COLORFGBG: colorFgBg,
         };
   // Defensive: never let scrubbed keys re-enter via TERM/COLORTERM path.
   if (seat.kind === "agent") {

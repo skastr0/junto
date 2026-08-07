@@ -287,7 +287,10 @@ export const GROK_TEMPLATE: ManagedTerminalTemplate = {
   probedVersion: "0.2.x",
   argvSpec: {
     binary: "grok",
-    prefix: [],
+    // `--minimal` = palette-native / scrollback-native integration with the
+    // host xterm theme. Not the same as `--no-alt-screen` (inline vs alt
+    // buffer). Vellum Command's recommended appearance policy is follow.
+    prefix: ["--minimal"],
     promptMode: "positional",
     modelFlag: "-m",
     effortFlag: "--reasoning-effort",
@@ -314,7 +317,14 @@ export const GROK_TEMPLATE: ManagedTerminalTemplate = {
     requiresGitCwd: true,
     stateFeed: "OSC → grid",
     attentionSource: "OSC title Action Required + footer/grid",
-    labels: ["injection A", "OSC + grid", "effort", "session pin", "git cwd"],
+    labels: [
+      "injection A",
+      "OSC + grid",
+      "effort",
+      "session pin",
+      "git cwd",
+      "minimal palette",
+    ],
   },
   efforts: ["high", "medium", "low"],
   defaultPermissionMode: "default",

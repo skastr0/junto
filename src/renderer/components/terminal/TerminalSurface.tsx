@@ -316,7 +316,7 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
     // Live appearance protocol: OSC 10/11 via xterm theme; CSI ?996n / ?2031
     // / live ?997 reports. Policy from settings (follow Vellum Command default).
     const agentAppearance =
-      state$.settings.appearance.agentAppearance?.peek() === "agent"
+      state$.settings.peek().appearance.agentAppearance === "agent"
         ? "agent"
         : "follow";
     const appearance = attachXtermAppearance(term, {

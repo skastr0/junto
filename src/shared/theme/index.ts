@@ -78,3 +78,18 @@ export const DARK_RUNTIME: Record<string, string> = themeRuntime("dark");
 
 /** Token names in declaration order (dark is the complete set). */
 export const TOKEN_NAMES: readonly string[] = Object.keys(SEMANTIC_DARK);
+
+/**
+ * COLORFGBG spawn hint: classic `fg;bg` ANSI indices.
+ * Dark (light ink on dark ground) → 15;0. Bright (dark ink on paper) → 0;15.
+ * Main-process spawn and renderer share this — do not invent a second mapping.
+ */
+export const colorFgBgFor = (mode: ThemeMode): string =>
+  mode === "bright" ? "0;15" : "15;0";
+
+/**
+ * CSI ?997;1n (dark) / ?997;2n (light) — Contour/Kitty colour-scheme DSR.
+ * Vellum Command dark ≡ dark scheme; bright ≡ light scheme.
+ */
+export const schemeDsrFor = (mode: ThemeMode): string =>
+  mode === "bright" ? "\x1b[?997;2n" : "\x1b[?997;1n";
