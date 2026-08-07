@@ -616,7 +616,6 @@ html[data-vellum-platform="darwin"] .focus-surface.focus-surface--contain-parent
   border-bottom: 1px solid var(--color-overlay-4);
   background: color-mix(in oklab, var(--color-ground) 88%, transparent);
   padding: 0 18px;
-  backdrop-filter: blur(16px);
 }
 
 html[data-vellum-platform="darwin"] .station-bar {

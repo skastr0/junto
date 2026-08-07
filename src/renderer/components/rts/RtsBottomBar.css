@@ -42,7 +42,6 @@
   border: 1px solid var(--color-overlay-4);
   border-radius: 8px;
   background: color-mix(in oklab, var(--color-ground) 88%, transparent);
-  backdrop-filter: blur(12px);
   box-shadow: 0 6px 18px var(--color-shadow-2);
   overflow: hidden;
 }
@@ -836,7 +835,6 @@
   border: 1px solid var(--color-overlay-4);
   border-radius: 8px;
   background: color-mix(in oklab, var(--color-ground) 88%, transparent);
-  backdrop-filter: blur(12px);
   box-shadow: 0 8px 24px var(--color-shadow-2);
   overflow: hidden;
 }
