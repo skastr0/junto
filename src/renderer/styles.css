@@ -2687,7 +2687,7 @@ ol.note-md__list > .note-md__li::before {
   .vellum-tooltip { transition: none; }
 }
 
-/* Actor terminal — edges as a collapsible *side pane* beside xterm.
+/* Actor terminal — edges as a collapsible *right* side pane beside xterm.
    Same modal plate (header full-width); not a horizontal bar under chrome,
    not a floating FocusSurface aside. Works in focus and pinned dock. */
 .actor-edges-glance {
@@ -2699,7 +2699,7 @@ ol.note-md__list > .note-md__li::before {
   max-width: 232px;
   min-height: 0;
   height: 100%;
-  border-right: 1px solid color-mix(in srgb, var(--color-stroke) 88%, transparent);
+  border-left: 1px solid color-mix(in srgb, var(--color-stroke) 88%, transparent);
   background: color-mix(in srgb, var(--color-raise-2) 92%, transparent);
   overflow: hidden;
 }

@@ -874,9 +874,8 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
           </Button>
         </div>
       ) : null}
-      {/* Body: edges side pane + xterm stage (unified modal plate). */}
+      {/* Body: xterm stage + edges side pane on the RIGHT (unified modal plate). */}
       <div className="native-terminal-surface__body">
-        <ActorEdgesGlance node={node} />
         <div className="native-terminal-surface__stage">
           <div
             ref={hostRef}
@@ -939,6 +938,7 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
             </div>
           ) : null}
         </div>
+        <ActorEdgesGlance node={node} />
       </div>
     </div>
   );

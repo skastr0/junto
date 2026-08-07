@@ -1,9 +1,9 @@
 /**
- * Side-pane edge inventory for an actor terminal surface.
+ * Right side-pane edge inventory for an actor terminal surface.
  *
- * Sits beside the xterm stage inside the same modal plate (not a horizontal
- * strip under the header, not a floating FocusSurface aside). Collapse /
- * expand; still present when pinned.
+ * Sits to the right of the xterm stage inside the same modal plate (not a
+ * horizontal strip under the header, not a floating FocusSurface aside).
+ * Collapse / expand; still present when pinned.
  *
  * No "soft" / "tasks" edge nature — those were authorial relationship modes.
  * Live stoppage is a derived chip only when the kernel reports blocks.
@@ -153,7 +153,7 @@ export function ActorEdgesGlance({ node }: { readonly node: CanvasNode }) {
               aria-controls={`actor-edges-list-${node.id}`}
               onClick={() => setExpanded(false)}
             >
-              <ChevronLeft size={14} />
+              <ChevronRight size={14} />
             </IconButton>
           </>
         ) : (
@@ -165,7 +165,7 @@ export function ActorEdgesGlance({ node }: { readonly node: CanvasNode }) {
             aria-controls={`actor-edges-list-${node.id}`}
             onClick={() => setExpanded(true)}
           >
-            <ChevronRight size={14} />
+            <ChevronLeft size={14} />
           </IconButton>
         )}
       </header>
