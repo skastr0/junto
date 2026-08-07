@@ -1,4 +1,4 @@
-import { useEffect, useMemo, type ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { Handle, NodeResizer, NodeToolbar, Position } from "@xyflow/react";
 import { use$ } from "@legendapp/state/react";
 import {
@@ -152,30 +152,23 @@ function NodeActions({
       ? "herdr blocked (live) — flag to pin"
       : "flag blocker";
 
-  // Only resolve the waiting-on path while selected + blocked — keeps idle
-  // cards off the kernel/doc subscription for this walk.
-  const doc = use$(state$.doc);
-  const execution = use$(kernel$.execution);
-  const executionRev = use$(kernel$.executionRev);
-  const canvasName = use$(state$.canvasName);
-  const actorRefs = use$(state$.actorRefs);
-  const cause = useMemo(() => {
+  // Only resolve the waiting-on path while selected + blocked. One selector:
+  // Legend State tracks only what a selector actually reads, so an
+  // unselected/unblocked card reads no observables and never re-renders on
+  // kernel ticks or doc changes (the old five use$ subscriptions re-rendered
+  // every card per tick; the memo only skipped the cause walk).
+  const cause = use$(() => {
     if (!selected || !shellBlocked) return null;
+    const doc = state$.doc.get();
+    const execution = kernel$.execution.get();
+    kernel$.executionRev.get(); // kernel-tick dep: execution identity can stay stable while blocked/reasons flip
+    const canvasName = state$.canvasName.get();
+    const actorRefs = state$.actorRefs.get();
     const context = executionGraphContextFromActorRefs(canvasName, actorRefs);
     const graph = executionGraphForImpact(doc, execution, context);
     const blockedActorSeatId = actorRefs.find((ref) => ref.nodeId === node.id)?.seatId;
     return resolveBlockerCause(doc, graph, node.id, { blockedActorSeatId });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- executionRev is the kernel tick; execution object identity alone can stay stable while blocked/reasons flip
-  }, [
-    selected,
-    shellBlocked,
-    node.id,
-    doc,
-    execution,
-    executionRev,
-    canvasName,
-    actorRefs,
-  ]);
+  });
 
   if (!selected || multiSelect) return null;
   return (
