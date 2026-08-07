@@ -177,6 +177,14 @@ function anchorOn(bounds: LoomNode, side: WireDirection): WirePoint {
   }
 }
 
+function samePoints(a: ReadonlyArray<WirePoint>, b: ReadonlyArray<WirePoint>): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i]!.x !== b[i]!.x || a[i]!.y !== b[i]!.y) return false;
+  }
+  return true;
+}
+
 function sameStrand(a: LoomStrand, b: LoomStrand): boolean {
   return (
     a.bundleKey === b.bundleKey &&
@@ -186,7 +194,9 @@ function sameStrand(a: LoomStrand, b: LoomStrand): boolean {
     a.laneCount === b.laneCount &&
     a.laneOffset === b.laneOffset &&
     a.splayAt === b.splayAt &&
-    a.stationAt === b.stationAt
+    a.stationAt === b.stationAt &&
+    samePoints(a.lane, b.lane) &&
+    samePoints(a.comb, b.comb)
   );
 }
 

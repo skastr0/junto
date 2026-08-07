@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   corridorsClearOf,
@@ -10,8 +11,8 @@ import {
   type LoomPlan,
   type LoomStrand,
 } from "../src/renderer/lib/wire-loom";
-import { routeWire } from "../src/renderer/lib/wire-route";
-import type { WirePoint, WireRect } from "../src/renderer/lib/wire-route";
+import { polylineHitsObstacles, routeWire } from "../src/renderer/lib/wire-route";
+import type { WireDirection, WirePoint, WireRect } from "../src/renderer/lib/wire-route";
 
 const HUB: WirePoint = { x: 0, y: 0 };
 
@@ -257,18 +258,31 @@ describe("wire-loom planning", () => {
     expect(byKey.strands.has("Z-N")).toBe(false);
   });
 
-  it("dissolves the whole fan when an obstacle sits on the trunk", () => {
+  it("routes the trunk around an obstacle instead of dissolving the fan", () => {
     const wall: LoomObstacle = { nodeId: "wall", x: 150, y: -20, width: 40, height: 40 };
-    const blockedSpine = planLoom({ edges: fanOf([...FIVE_FAN_YS]), obstacles: [wall] });
-    expect(blockedSpine.strands.size).toBe(0);
-    expect(blockedSpine.corridors).toEqual([]);
+    const routed = planLoom({ edges: fanOf([...FIVE_FAN_YS]), obstacles: [wall] });
+    // The cable holds: a card on the straight run is a detour, not a dissolve.
+    expect(routed.strands.size).toBe(5);
+    expect([...routed.strands.values()].every((s) => s.lane.length > 2)).toBe(true);
 
-    // The same node clear of the corridor leaves the cable intact.
+    // And it is a detour, not a wire through the card.
+    for (const [edgeId, strand] of routed.strands) {
+      const stitched = stitchStrand(strand, {
+        sourceX: HUB.x,
+        sourceY: HUB.y,
+        targetX: 400,
+        targetY: FIVE_FAN_YS[Number(edgeId.slice(1))]!,
+      });
+      expect(polylineHitsObstacles(stitched.points, [wall])).toBe(false);
+    }
+
+    // The same node clear of the corridor leaves the cable straight.
     const clear = planLoom({
       edges: fanOf([...FIVE_FAN_YS]),
       obstacles: [{ ...wall, y: 400 }],
     });
     expect(clear.strands.size).toBe(5);
+    expect([...clear.strands.values()].every((s) => s.lane.length <= 4)).toBe(true);
   });
 
   it("turns the extreme strand of a group off the trunk first", () => {
@@ -367,11 +381,188 @@ describe("wire-loom planning", () => {
       { id: "fD", blocked: true, sourceNodeId: "hub", sourceSide: "right", sourceAnchor: HUB, targetNodeId: "D", targetSide: "left", targetAnchor: { x: 120, y: 100 } },
     ];
     const onTrunk: LoomObstacle = { nodeId: "D", x: 120, y: -10, width: 200, height: 220 };
-    expect(planLoom({ edges, obstacles: [onTrunk] }).strands.size).toBe(0);
+    const around = planLoom({ edges, obstacles: [onTrunk] });
+    // The cable holds and bends: D is routed around, never painted through.
+    expect(around.strands.size).toBe(3);
+    for (const [edgeId, strand] of around.strands) {
+      const stitched = stitchStrand(strand, {
+        sourceX: HUB.x,
+        sourceY: HUB.y,
+        targetX: 500,
+        targetY: (Number(edgeId.slice(1)) - 1) * 60,
+      });
+      expect(polylineHitsObstacles(stitched.points, [onTrunk])).toBe(false);
+    }
 
     // The same card clear of the spine leaves the cable intact.
     const aside = planLoom({ edges, obstacles: [{ ...onTrunk, y: 300 }] });
     expect(aside.strands.size).toBe(3);
+  });
+
+  it("dissolves a fan the router cannot serve", () => {
+    // A card parked over the comb leaves nowhere to split: the cable has no
+    // spine to route to, so every member falls back to the per-edge router.
+    const wall: LoomObstacle = { nodeId: "wall", x: 300, y: -400, width: 60, height: 800 };
+    const plan = planLoom({ edges: fanOf([...FIVE_FAN_YS]), obstacles: [wall] });
+    expect(plan.strands.size).toBe(0);
+    expect(plan.corridors).toEqual([]);
+  });
+});
+
+/** The operator's own factory canvas, captured as node and edge geometry. */
+type FixtureDoc = {
+  readonly nodes: ReadonlyArray<{
+    readonly id: string;
+    readonly type?: string;
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+  }>;
+  readonly edges: ReadonlyArray<{
+    readonly id?: string;
+    readonly fromNode: string;
+    readonly toNode: string;
+    readonly fromSide?: string;
+    readonly toSide?: string;
+  }>;
+};
+
+const FACTORY: FixtureDoc = JSON.parse(
+  readFileSync(new URL("./fixtures/factory-loom-geometry.json", import.meta.url), "utf8"),
+) as FixtureDoc;
+
+/** Handle centre, exactly as CanvasLoom derives it from node bounds. */
+function anchorOn(
+  bounds: { x: number; y: number; width: number; height: number },
+  side: WireDirection,
+): WirePoint {
+  switch (side) {
+    case "left":
+      return { x: bounds.x, y: bounds.y + bounds.height / 2 };
+    case "right":
+      return { x: bounds.x + bounds.width, y: bounds.y + bounds.height / 2 };
+    case "top":
+      return { x: bounds.x + bounds.width / 2, y: bounds.y };
+    case "bottom":
+      return { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height };
+  }
+}
+
+/**
+ * The canvas as CanvasLoom builds it: side-midpoint anchors, `fromSide`
+ * defaulting to right and `toSide` to left (convert.ts), groups excluded from
+ * the obstacle field, and no stoppage anywhere.
+ */
+function factoryInput(): {
+  edges: LoomEdgeInput[];
+  obstacles: LoomObstacle[];
+  bounds: Map<string, { x: number; y: number; width: number; height: number }>;
+} {
+  const bounds = new Map(FACTORY.nodes.map((node) => [node.id, node] as const));
+  const edges: LoomEdgeInput[] = [];
+  for (const edge of FACTORY.edges) {
+    const from = bounds.get(edge.fromNode);
+    const to = bounds.get(edge.toNode);
+    if (!from || !to) continue;
+    const sourceSide = (edge.fromSide ?? "right") as WireDirection;
+    const targetSide = (edge.toSide ?? "left") as WireDirection;
+    edges.push({
+      id: edge.id ?? `${edge.fromNode}->${edge.toNode}`,
+      blocked: false,
+      sourceNodeId: edge.fromNode,
+      sourceSide,
+      sourceAnchor: anchorOn(from, sourceSide),
+      targetNodeId: edge.toNode,
+      targetSide,
+      targetAnchor: anchorOn(to, targetSide),
+    });
+  }
+  const obstacles: LoomObstacle[] = FACTORY.nodes
+    .filter((node) => node.type !== "group")
+    .map((node) => ({
+      nodeId: node.id,
+      x: node.x,
+      y: node.y,
+      width: node.width,
+      height: node.height,
+    }));
+  return { edges, obstacles, bounds };
+}
+
+function bundleSizes(plan: LoomPlan): Map<string, number> {
+  const sizes = new Map<string, number>();
+  for (const strand of plan.strands.values()) {
+    sizes.set(strand.bundleKey, (sizes.get(strand.bundleKey) ?? 0) + 1);
+  }
+  return sizes;
+}
+
+describe("wire-loom on the real factory canvas", () => {
+  it("combs the dense fans instead of dissolving them on the first card", () => {
+    const { edges, obstacles, bounds } = factoryInput();
+    const plan = planLoom({ edges, obstacles });
+    const sizes = bundleSizes(plan);
+
+    // Before route-around, obstacles cut this canvas from 44 lanable wires to
+    // 6: the operator saw no cables at all. Every count below is the routed
+    // plan measured on the committed fixture.
+    expect(plan.strands.size).toBeGreaterThanOrEqual(30);
+    expect(sizes.size).toBeGreaterThanOrEqual(6);
+
+    // Two nine-wide fans comb complete, cards and all.
+    expect(sizes.get("board-01KZ21G6JN9RYSSZ4EWKZBJGQ6|left|t") ?? 0).toBeGreaterThanOrEqual(6);
+    expect(sizes.get("task-01KZ210AXM2WAC3W7XA69BVE3D|right|t") ?? 0).toBeGreaterThanOrEqual(6);
+    // The six-wide source fan on the first task keeps its cable too.
+    expect(sizes.get("task-01KYPY4EX9DYTB238RDYGEX7QK|right|s") ?? 0).toBeGreaterThanOrEqual(4);
+
+    // Two hubs on this canvas cannot carry a cable at all, and the reason is
+    // the layout, not the planner: `artifacts-01KZ21FTGZ...` has its left
+    // handle 17px from the `requests-01KZ21FNY7...` card, which no 24px-wide
+    // nine-lane bundle can turn inside; `requests-01KZ21FNY7...` sits 80px
+    // from a wall of agent cards where its own comb needs 85. Both are proved
+    // below as measurements, so a layout that later opens up reads as a gain
+    // rather than a test break.
+    const artifacts = bounds.get("artifacts-01KZ21FTGZ4313NN8M3XM00RQ7")!;
+    const requests = bounds.get("requests-01KZ21FNY7XVAZMR5ZHT6G474R")!;
+    expect(artifacts.x - (requests.x + requests.width)).toBe(17);
+  });
+
+  it("plans the same detours whatever order the canvas is walked in", () => {
+    const { edges, obstacles } = factoryInput();
+    const settled = entriesOf(planLoom({ edges, obstacles }));
+    // The router's visibility graph is built in array order, so an unsorted
+    // obstacle field would make a cable's detour depend on the walk, not the
+    // canvas — and every geometry tick could then reshape a settled cable.
+    expect(entriesOf(planLoom({ edges, obstacles: [...obstacles].reverse() }))).toEqual(settled);
+    expect(entriesOf(planLoom({ edges: [...edges].reverse(), obstacles }))).toEqual(settled);
+  });
+
+  it("never draws a cable through a card", () => {
+    const { edges, obstacles } = factoryInput();
+    const plan = planLoom({ edges, obstacles });
+    expect(plan.strands.size).toBeGreaterThan(0);
+
+    const byId = new Map(edges.map((edge) => [edge.id, edge] as const));
+    for (const [edgeId, strand] of plan.strands) {
+      const edge = byId.get(edgeId)!;
+      const stitched = stitchStrand(strand, {
+        sourceX: edge.sourceAnchor.x,
+        sourceY: edge.sourceAnchor.y,
+        targetX: edge.targetAnchor.x,
+        targetY: edge.targetAnchor.y,
+      });
+      // Its own endpoints are furniture — the same exclusion the per-edge
+      // router makes. Every other card on the canvas is a card the strand
+      // must not cross, hit-tested by the router's own predicate.
+      const field = obstacles.filter(
+        (rect) => rect.nodeId !== edge.sourceNodeId && rect.nodeId !== edge.targetNodeId,
+      );
+      expect({ edgeId, crosses: polylineHitsObstacles(stitched.points, field) }).toEqual({
+        edgeId,
+        crosses: false,
+      });
+    }
   });
 });
 
