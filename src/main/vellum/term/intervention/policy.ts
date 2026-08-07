@@ -83,13 +83,7 @@ export const TurnSignal = Schema.Literals(["none", "in-turn", "ended"]);
 export type TurnSignal = typeof TurnSignal.Type;
 
 /** Vellum comprehension: has the seat proven it knows vellum? */
-export const AwarenessSignal = Schema.Literals([
-  "unproven",
-  "proven",
-  "confused",
-  "env-broken",
-  "socket-down",
-]);
+export const AwarenessSignal = Schema.Literals(["unproven", "proven"]);
 export type AwarenessSignal = typeof AwarenessSignal.Type;
 
 // ---------------------------------------------------------------------------
@@ -115,7 +109,7 @@ export type InteractionContext = typeof InteractionContext.Type;
 // Intervention — the decision
 
 /**
- * What the drive layer may do next. `notify-orient` and `repair-env` are the
+ * What the drive layer may do next. `notify-orient` is the only
  * only PTY writes (`PTY_WRITE_KINDS`); `escalate` surfaces on the canvas only.
  */
 export const Intervention = Schema.Union([
@@ -125,7 +119,6 @@ export const Intervention = Schema.Union([
     kind: Schema.Literal("notify-orient"),
     payload: Schema.Literal("orient"),
   }),
-  Schema.Struct({ kind: Schema.Literal("repair-env") }),
   Schema.Struct({
     kind: Schema.Literal("escalate"),
     diagnostics: Schema.Array(Schema.String),
@@ -134,10 +127,7 @@ export const Intervention = Schema.Union([
 export type Intervention = typeof Intervention.Type;
 
 /** The intervention kinds that physically write to the PTY. */
-export const PTY_WRITE_KINDS: ReadonlySet<string> = new Set([
-  "notify-orient",
-  "repair-env",
-]);
+export const PTY_WRITE_KINDS: ReadonlySet<string> = new Set(["notify-orient"]);
 
 // ---------------------------------------------------------------------------
 // Decision
@@ -160,7 +150,7 @@ export const decideIntervention = (ctx: InteractionContext): Intervention => {
   // ── turn budget ──────────────────────────────────────────────────────────
   // Budget exhausted without proof: escalate. Escalate is canvas-only — NOT a
   // PTY write — so the write-gates never block it (a live operator surface
-  // still never gets written to: only notify-orient/repair-env are writes).
+  // still never gets written to: only notify-orient is a write).
   if (turnsWithoutProof >= MAX_TURNS_WITHOUT_PROOF) {
     if (awareness === "unproven") {
       return {
@@ -170,45 +160,12 @@ export const decideIntervention = (ctx: InteractionContext): Intervention => {
         ],
       };
     }
-    if (awareness === "confused") {
-      return {
-        kind: "escalate",
-        diagnostics: [
-          `seat still confused about vellum after ${MAX_TURNS_WITHOUT_PROOF} turns without proof`,
-        ],
-      };
-    }
-    if (awareness === "env-broken") {
-      return {
-        kind: "escalate",
-        diagnostics: [
-          `environment still broken after ${MAX_TURNS_WITHOUT_PROOF} turns without proof`,
-          "repair-env did not converge",
-        ],
-      };
-    }
-    if (awareness === "socket-down") {
-      return {
-        kind: "escalate",
-        diagnostics: [
-          `vellum control socket still down after ${MAX_TURNS_WITHOUT_PROOF} turns without proof`,
-        ],
-      };
-    }
-  }
-
-  // Control socket unreachable: escalate at any budget (canvas-only surface).
-  if (awareness === "socket-down") {
-    return {
-      kind: "escalate",
-      diagnostics: ["vellum control socket down; seat cannot reach the work plane"],
-    };
   }
 
   // ── write-gates ──────────────────────────────────────────────────────────
   // The gates guard PTY writes only. Any live operator surface (user at the
   // seat, our own injection still pending, or a modal) ALWAYS overrides a
-  // would-be write (repair-env / notify-orient) regardless of awareness or
+  // would-be write (notify-orient) regardless of awareness or
   // budget — the decision becomes hold.
   if (user === "present" || user === "drafted" || user === "submitted") {
     return { kind: "hold", reason: "user" };
@@ -216,14 +173,7 @@ export const decideIntervention = (ctx: InteractionContext): Intervention => {
   if (injection === "live") return { kind: "hold", reason: "one-live" };
   if (seat === "attention") return { kind: "hold", reason: "modal" };
 
-  // ── awareness-driven writes (all write-gated above) ──────────────────────
-  // First repair attempt before escalating repeat failures.
-  if (awareness === "env-broken") return { kind: "repair-env" };
-  // Confused about what vellum is: a compact orient notice — the full
-  // doctrine was already delivered at spawn; re-injecting it is noise.
-  if (awareness === "confused") {
-    return { kind: "notify-orient", payload: "orient" };
-  }
+  // ── orient (all write-gated above) ────────────────────────────────────────
   // Turn over, still unproven: one compact orient notice, never the full
   // doctrine (agents reported repeated full re-injection as spam).
   if (turn === "ended" && awareness === "unproven") {
@@ -258,21 +208,9 @@ export const POLICY_TABLE: ReadonlyArray<{
   { ctx: { awareness: "proven", turnsWithoutProof: 8 }, expected: "silent" },
 
   // ── L3: environment / socket ──────────────────────────────────────────────
-  { ctx: { awareness: "socket-down" }, expected: "escalate" },
-  { ctx: { awareness: "socket-down", turnsWithoutProof: 5 }, expected: "escalate" },
-  { ctx: { awareness: "env-broken" }, expected: "repair-env" },
-  { ctx: { awareness: "env-broken", turn: "ended" }, expected: "repair-env" },
   // Budget exhaustion beats the first repair attempt.
-  { ctx: { awareness: "env-broken", turnsWithoutProof: 3 }, expected: "escalate" },
-  { ctx: { awareness: "env-broken", turnsWithoutProof: 8 }, expected: "escalate" },
 
-  // ── L2: confused ──────────────────────────────────────────────────────────
-  { ctx: { awareness: "confused" }, expected: "notify-orient" },
-  { ctx: { awareness: "confused", turn: "in-turn" }, expected: "notify-orient" },
-  { ctx: { awareness: "confused", turnsWithoutProof: 2 }, expected: "notify-orient" },
-  // Budget exhaustion beats the orient notice.
-  { ctx: { awareness: "confused", turnsWithoutProof: 3 }, expected: "escalate" },
-  { ctx: { awareness: "confused", turnsWithoutProof: 8, turn: "none" }, expected: "escalate" },
+    // Budget exhaustion beats the orient notice.
 
   // ── L1: unproven, turn ended ──────────────────────────────────────────────
   { ctx: { turn: "ended" }, expected: "notify-orient" },
@@ -290,31 +228,19 @@ export const POLICY_TABLE: ReadonlyArray<{
   { ctx: { turnsWithoutProof: 8, turn: "none" }, expected: "escalate" },
 
   // ── escalate passes the write-gates (canvas-only, not a PTY write) ────────
-  { ctx: { user: "present", awareness: "socket-down" }, expected: "escalate" },
   { ctx: { user: "present", turnsWithoutProof: 3 }, expected: "escalate" },
-  { ctx: { injection: "live", turnsWithoutProof: 8, awareness: "socket-down" }, expected: "escalate" },
-  { ctx: { seat: "attention", turnsWithoutProof: 8, awareness: "confused" }, expected: "escalate" },
 
   // ── write-gates: user (block PTY writes, always) ──────────────────────────
-  { ctx: { user: "present", awareness: "confused" }, expected: "hold" },
-  { ctx: { user: "drafted", awareness: "env-broken" }, expected: "hold" },
-  { ctx: { user: "submitted", awareness: "env-broken" }, expected: "hold" },
   { ctx: { user: "drafted", turn: "ended" }, expected: "hold" },
-  { ctx: { user: "present", awareness: "confused", turnsWithoutProof: 2 }, expected: "hold" },
 
   // ── write-gates: injection live ───────────────────────────────────────────
-  { ctx: { injection: "live", awareness: "env-broken" }, expected: "hold" },
-  { ctx: { injection: "live", awareness: "confused", turn: "ended" }, expected: "hold" },
   { ctx: { injection: "live", awareness: "unproven", turnsWithoutProof: 2 }, expected: "hold" },
 
   // ── write-gates: seat attention ───────────────────────────────────────────
-  { ctx: { seat: "attention", awareness: "env-broken" }, expected: "hold" },
-  { ctx: { seat: "attention", awareness: "confused" }, expected: "hold" },
 
   // ── seat gone ─────────────────────────────────────────────────────────────
   { ctx: { seat: "gone" }, expected: "silent" },
   { ctx: { seat: "gone", user: "present" }, expected: "silent" },
-  { ctx: { seat: "gone", turnsWithoutProof: 8, awareness: "env-broken" }, expected: "silent" },
 ];
 
 // ---------------------------------------------------------------------------

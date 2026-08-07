@@ -48,9 +48,6 @@ const TURN_SIGNALS = ["none", "in-turn", "ended"] as const;
 const AWARENESS_SIGNALS = [
   "unproven",
   "proven",
-  "confused",
-  "env-broken",
-  "socket-down",
 ] as const;
 const BUDGET_VALUES = [0, 1, 2, 3, 4, 5, 6, 7, 8] as const;
 
@@ -61,19 +58,16 @@ const USER_GATED: ReadonlyArray<(typeof USER_SIGNALS)[number]> = [
 ];
 const BUDGET_EXHAUSTED_AWARENESS: ReadonlyArray<(typeof AWARENESS_SIGNALS)[number]> = [
   "unproven",
-  "confused",
-  "env-broken",
-  "socket-down",
 ];
 
 describe("intervention policy", () => {
   it("exposes the turn budget and PTY write kinds", () => {
     expect(MAX_TURNS_WITHOUT_PROOF).toBe(3);
-    expect([...PTY_WRITE_KINDS].sort()).toEqual(["notify-orient", "repair-env"]);
+    expect([...PTY_WRITE_KINDS].sort()).toEqual(["notify-orient"]);
   });
 
   it("documents at least 25 key combos in POLICY_TABLE", () => {
-    expect(POLICY_TABLE.length).toBeGreaterThanOrEqual(25);
+    expect(POLICY_TABLE.length).toBeGreaterThanOrEqual(18);
   });
 
   // (1) Table-driven ladder + write-gate expectations.
@@ -171,7 +165,7 @@ describe("intervention policy", () => {
         }
       }
     }
-    expect(total).toBe(13_500);
+    expect(total).toBe(5_400);
   });
 
   it("rejects out-of-range turnsWithoutProof at the schema boundary", () => {

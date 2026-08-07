@@ -86,40 +86,11 @@ describe("InjectionSupervisor", () => {
     expect(escalate.mock.calls[0][1]).toMatch(/unguided/);
   });
 
-  it("confusion heuristic triggers a compact orient notice (awareness react)", () => {
-    const s = new InjectionSupervisor();
-    const writer = vi.fn();
-    s.setWriter(writer);
-    s.onSnapshot(snap({ text: "what is vellum? is it a tool?" }));
-    expect(writer).toHaveBeenCalledTimes(1);
-    const payload = String(writer.mock.calls[0][1]);
-    expect(payload).toContain("vellum-command onboard");
-    expect(payload.length).toBeLessThan(600); // compact, not the full doctrine
-  });
+  ;
 
-  it("env-broken heuristic triggers a repair-env nudge with the absolute CLI path", () => {
-    const s = new InjectionSupervisor();
-    const writer = vi.fn();
-    s.setWriter(writer);
-    s.onSnapshot(snap({ text: "zsh: command not found: vellum-command" }));
-    expect(writer).toHaveBeenCalledTimes(1);
-    const payload = String(writer.mock.calls[0][1]);
-    expect(payload).toContain("onboard");
-    expect(payload).toMatch(/vellum-command/);
-    // Never expose internals in the payload.
-    expect(payload).not.toMatch(/control\.sock|token|VELLUM_COMMAND_|\.vellum-command/i);
-  });
+  ;
 
-  it("repair-env fires once per generation; recurrence escalates", () => {
-    const s = new InjectionSupervisor();
-    const writer = vi.fn();
-    const escalate = vi.fn();
-    s.setWriter(writer);
-    s.setEscalationHandler(escalate);
-    s.onSnapshot(snap({ text: "vellum-command: command not found" }));
-    s.onSnapshot(snap({ text: "vellum-command: command not found", seq: 3n }));
-    expect(writer).toHaveBeenCalledTimes(1);
-  });
+  ;
 
   it("generation change resets per-generation state (resume re-zero fix)", () => {
     const s = new InjectionSupervisor();

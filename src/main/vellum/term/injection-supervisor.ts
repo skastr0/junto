@@ -13,7 +13,6 @@
  * calls (process-bound proof), claim acceptance, generation changes.
  */
 
-import { existsSync } from "node:fs";
 import type { ObserverGridSnapshot } from "./observer/types";
 import {
   deriveInteraction,
@@ -22,11 +21,6 @@ import {
   type TurnSignal,
   type UserSignal,
 } from "./observer/interaction";
-import {
-  scanHeuristics,
-  type HeuristicHit,
-  type HeuristicClass,
-} from "./observer/heuristics";
 import {
   InteractionContext,
   decideIntervention,
@@ -38,17 +32,10 @@ import {
   appendBootstrapMarker,
   buildBootstrapMarker,
   buildOrientNotice,
-  buildRepairEnvNudge,
 } from "@shared/managed-terminal-injection";
 import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
-import { vellumCliPathPrefixes } from "./templates/seat-env";
 
-export type AwarenessSignal =
-  | "unproven"
-  | "proven"
-  | "confused"
-  | "env-broken"
-  | "socket-down";
+export type AwarenessSignal = "unproven" | "proven";
 
 type SeatSupervision = {
   readonly epoch: string;
@@ -218,16 +205,6 @@ export class InjectionSupervisor {
     }
     seat.prevTurn = inter.turn;
 
-    // Output-region heuristics (awareness / env / protocol failure classes).
-    // Only rescan when the screen text actually changed.
-    const textChanged = seat.lastText !== snap.text;
-    if (textChanged) {
-      seat.lastText = snap.text;
-      for (const hit of scanHeuristics(snap.text)) {
-        this.applyHeuristic(seat, hit);
-      }
-    }
-
     if (inter.injection === "live" || inter.injection === "in-flight") {
       seat.hadDelivery = true;
     }
@@ -239,7 +216,6 @@ export class InjectionSupervisor {
     // something decision-relevant changed — text, interaction signals, or
     // turn state. Identical frames are skipped; no wall clock involved.
     const signalsChanged =
-      textChanged ||
       inter.user !== seat.lastUserSignal ||
       inter.injection !== seat.lastInjectionSignal ||
       inter.turn !== seat.lastTurnSignal;
@@ -249,29 +225,6 @@ export class InjectionSupervisor {
     seat.lastTurnSignal = inter.turn;
 
     this.runDecision(snap.bindingId, seat, inter);
-  }
-
-  private applyHeuristic(seat: SeatSupervision, hit: HeuristicHit): void {
-    // Proof is final: once the seat's process called the work plane, no
-    // screen phrase can downgrade it back to confused/env-broken.
-    if (seat.proven) return;
-    switch (hit.class) {
-      case "awareness":
-        if (seat.awareness === "unproven" || seat.awareness === "proven") {
-          seat.awareness = "confused";
-        }
-        break;
-      case "env":
-        if (seat.awareness === "unproven" || seat.awareness === "confused") {
-          seat.awareness = "env-broken";
-        }
-        break;
-      case "protocol":
-        if (seat.awareness === "unproven") {
-          seat.awareness = "socket-down";
-        }
-        break;
-    }
   }
 
   private runDecision(
@@ -315,22 +268,6 @@ export class InjectionSupervisor {
         void this.writer?.(bindingId, payload);
         return;
       }
-      case "repair-env": {
-        if (seat.repairedOnce) return;
-        seat.repairedOnce = true;
-        seat.lastActedKind = "repair-env";
-        const cliPath = this.resolveCliAbsolutePath();
-        if (cliPath === undefined) {
-          seat.awareness = "env-broken";
-          return;
-        }
-        const payload = appendBootstrapMarker(
-          buildRepairEnvNudge(cliPath, bindingId),
-          bindingId,
-        );
-        void this.writer?.(bindingId, payload);
-        return;
-      }
       case "escalate": {
         if (seat.escalatedOnce) return;
         seat.escalatedOnce = true;
@@ -344,23 +281,6 @@ export class InjectionSupervisor {
     }
   }
 
-  private resolveCliAbsolutePath(): string | undefined {
-    const prefixes = vellumCliPathPrefixes();
-    for (const prefix of prefixes) {
-      const candidate = `${prefix}/vellum-command`;
-      try {
-        if (existsSync(candidate)) return candidate;
-      } catch {
-        return undefined;
-      }
-    }
-    return undefined;
-  }
-
-  /** Resolve the binary path for tests / callers. */
-  resolveCliPathForTest(): string | undefined {
-    return this.resolveCliAbsolutePath();
-  }
 }
 
 const seatStateOf = (seat: SeatSupervision): SeatSignal => seat.state;

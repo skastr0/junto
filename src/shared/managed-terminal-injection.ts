@@ -363,7 +363,7 @@ export const buildOrientNotice = (seatRef?: string): string =>
     "Your seat's factory CLI: `vellum-command onboard`.",
     seatRef ? `Seat: \`${seatRef}\`.` : "",
     "Run it before anything else — it returns your seat, region, connected targets with grants.",
-    "If `vellum-command` is not found in your environment, say so — a repair is available.",
+    "If the CLI is unavailable in your shell, tell the operator.",
   ]
     .filter((l) => l.length > 0)
     .join("\n");
@@ -527,11 +527,10 @@ export const planManagedInjection = (
   return { inject: true, tier, firstTypedMessage: text };
 };
 
-// ── Bootstrap marker + repair-env note ────────────────────────────────
-// Marker: transport tag for echo-tracking typed payloads — NOT doctrine content.
-// Repair note: operational message for a broken environment — NOT a doctrine
-// variant. The doctrine has exactly ONE body: buildInjectionText, which is
-// dynamic only by edges (InjectionContext).────────
+// ── Bootstrap marker ────────────────────────────────────────────────────
+// Marker: transport tag for echo-tracking typed payloads — NOT doctrine
+// content. The doctrine has exactly ONE body: buildInjectionText, dynamic
+// only by edges (InjectionContext).
 
 /**
  * Marker prefix for bootstrap charters. Each binding gets a deterministic
@@ -569,24 +568,4 @@ export const appendBootstrapMarker = (
   bindingId: string,
 ): string => [buildBootstrapMarker(bindingId), "", text].join("\n");
 
-export const buildRepairEnvNudge = (
-  cliAbsolutePath: string,
-  bindingId: string,
-  ctx?: Pick<InjectionContext, "seatRef">,
-): string => {
-  const seat =
-    ctx !== undefined &&
-    typeof ctx.seatRef === "string" &&
-    ctx.seatRef.trim().length > 0
-      ? ` (this seat: \`${ctx.seatRef.trim()}\`)`
-      : "";
-  const body = [
-    "Your environment could not find the vellum-command CLI on its usual lookup.",
-    "",
-    `Use its full path: \`${cliAbsolutePath}\``,
-    `Then run: \`${cliAbsolutePath} onboard\``,
-    "",
-    `The CLI above is the factory tool for this seat${seat} — use it for all factory operations.`,
-  ].join("\n");
-  return appendBootstrapMarker(body, bindingId);
-};
+
