@@ -322,7 +322,7 @@ function EntityCard({
             : activity
         }
       />
-      {context.length > 0 ? (
+      {context !== undefined && context.length > 0 ? (
         <div
           className="mt-1 truncate text-[10px] tabular-nums"
           style={{
