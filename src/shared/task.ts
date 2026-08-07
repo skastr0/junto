@@ -24,6 +24,25 @@ export const taskBrief = (task: Task): string => {
   return task.id;
 };
 
+/**
+ * Sort key for "latest activity first": last history messageId (ULID), else
+ * task id. Newer ULIDs sort after older ones lexicographically.
+ */
+export const taskLatestActivityKey = (task: Task): string => {
+  const last = task.history.at(-1);
+  return last?.messageId ?? task.id;
+};
+
+/** Newest activity first (Closed lane, glance rows, etc.). */
+export const compareTasksByLatestActivityDesc = (a: Task, b: Task): number =>
+  taskLatestActivityKey(b).localeCompare(taskLatestActivityKey(a));
+
+/**
+ * Activity after the brief (history[0]), newest first for the task detail rail.
+ */
+export const taskActivityNewestFirst = (task: Task): ReadonlyArray<Message> =>
+  task.history.length <= 1 ? [] : [...task.history.slice(1)].reverse();
+
 /** Settled for workers/dragging; completed has the separate QA requeue exit. */
 export const isTerminalTaskState = (state: TaskState): boolean =>
   state === "completed" ||

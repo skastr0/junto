@@ -36,6 +36,8 @@ import { sinkGlance } from "@shared/attention";
 import {
   canTransitionTaskState,
   claimedByOf,
+  compareTasksByLatestActivityDesc,
+  taskActivityNewestFirst,
   taskBrief,
   taskContentParts,
   taskMediaParts,
@@ -1522,6 +1524,7 @@ function TaskDetailPanel({
   const attentionRequired =
     !isProposal && (task.state === "input-required" || task.state === "auth-required");
   const requestContext = latestText(task);
+  const activityMessages = taskActivityNewestFirst(task);
   const hardFinishGate =
     task.finishCriteria?.artifacts !== undefined ||
     task.finishCriteria?.git !== undefined;
@@ -1892,8 +1895,8 @@ function TaskDetailPanel({
             Activity
           </h3>
           <ol className="task-detail-panel__activity">
-            {task.history.slice(1).length > 0 ? (
-              task.history.slice(1).map((message) => (
+            {activityMessages.length > 0 ? (
+              activityMessages.map((message) => (
                 <li key={message.messageId}>
                   <div>
                     <div className="task-detail-panel__activity-actor">
@@ -2075,6 +2078,10 @@ export function TaskBoard({
       }),
     );
     for (const task of visibleItems) grouped[laneForTask(task)].push(task);
+    // Latest activity first in every lane (Closed especially: complete by latest).
+    for (const laneId of Object.keys(grouped) as LaneId[]) {
+      grouped[laneId].sort(compareTasksByLatestActivityDesc);
+    }
     return grouped;
   }, [proposalTasks, query, visibleItems]);
 

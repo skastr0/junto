@@ -8,7 +8,11 @@ import type {
 } from "@shared/canvas";
 import type { WorkOpResult } from "@shared/ipc";
 import type { BoardPost, BoardTopic } from "@shared/work-model";
-import { isTerminalTaskState, taskBrief } from "@shared/task";
+import {
+  compareTasksByLatestActivityDesc,
+  isTerminalTaskState,
+  taskBrief,
+} from "@shared/task";
 import { sinkGlance, taskScanCounts } from "@shared/attention";
 import { openTaskCreateSurface } from "../../lib/dock-state";
 import { DIM, GREEN, HUE, INK } from "../../lib/theme";
@@ -185,9 +189,13 @@ export function TasksCard({
     }
     return proposal.id;
   };
-  const visibleItems = (
+  // Latest activity first on the glance list (and Closed / complete elsewhere).
+  const glancePool = (
     hotItems.length > 0 ? hotItems : items.filter((t) => !isTerminalTaskState(t.state))
-  ).map((item) => ({
+  )
+    .slice()
+    .sort(compareTasksByLatestActivityDesc);
+  const visibleItems = glancePool.map((item) => ({
     id: item.id,
     brief: taskBrief(item),
     state: item.state,
