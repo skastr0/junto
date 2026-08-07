@@ -13,7 +13,6 @@ import { useStore } from "@xyflow/react";
 import { use$ } from "@legendapp/state/react";
 import type { FlowEdge } from "../../lib/convert";
 import {
-  LOOM_ENABLED,
   loomCorridors$,
   loomObstacles$,
   loomStrands$,
@@ -201,12 +200,6 @@ function sameRects(a: ReadonlyArray<WireRect>, b: ReadonlyArray<WireRect>): bool
   return true;
 }
 
-function clearPlan(): void {
-  const held = loomStrands$.peek();
-  for (const id of Object.keys(held)) loomStrands$[id]!.delete();
-  if (loomCorridors$.peek().length > 0) loomCorridors$.set([]);
-}
-
 /**
  * `edges` is the rendered, already filtered array — hidden, filtered, and
  * searched-out nodes are handled by never reaching here.
@@ -239,14 +232,8 @@ export function CanvasLoom({ edges }: { readonly edges: ReadonlyArray<FlowEdge> 
         ...nodeBounds({ x: node.x, y: node.y }, { width: node.width, height: node.height }),
       });
     }
-    // Published unconditionally: this is the per-edge router's field, and with
-    // the loom off every edge still routes against it exactly as before.
+    // Published unconditionally: this is the per-edge router's field.
     loomObstacles$.set(obstacles);
-
-    if (!LOOM_ENABLED) {
-      clearPlan();
-      return;
-    }
 
     const specsNow = specsRef.current;
     const dragging = geometry.filter((node) => node.dragging).map((node) => node.nodeId);

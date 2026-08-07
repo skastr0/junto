@@ -22,16 +22,3 @@ export const loomObstacles$ = observable<LoomObstacle[]>([]);
 
 /** Trunk and comb bounds. Obstacles for ejected (stoppage) wires only. */
 export const loomCorridors$ = observable<WireRect[]>([]);
-
-/**
- * Read once at module scope, default ON. Flippable without a rebuild:
- * `localStorage.setItem("vellum-command:loom", "off")` then reload. One code
- * path then serves off, cannot-route, and not-planned-yet.
- */
-export const LOOM_ENABLED: boolean = (() => {
-  try {
-    return localStorage.getItem("vellum-command:loom") !== "off";
-  } catch {
-    return true;
-  }
-})();

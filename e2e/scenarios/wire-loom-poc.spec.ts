@@ -4,9 +4,8 @@
  * Seeds one hub node fanning out to six agent-like nodes, all six of which
  * also connect to two shared sink nodes (task queues), plus one blocks-phase
  * edge (a claimed input-required item on sink1 stops one agent's wire into
- * it). Captures the same seeded canvas with the loom toggled off and on via
- * its localStorage gate (`vellum-command:loom`), so the before/after is a
- * real render over identical topology — not a synthetic mock.
+ * it). Captures the rendered canvas — a real render over real topology, not
+ * a synthetic mock. The loom is always on; there is no toggle.
  *
  * Paint/geometry only: this scenario authors no new edge semantics. The
  * blocks-phase edge reuses the exact `tasksNode` + claimed input-required
@@ -98,7 +97,7 @@ const sinkEdges = (sinkId: string): CanvasEdge[] =>
 
 const edges: CanvasEdge[] = [...hubEdges, ...sinkEdges("sink1"), ...sinkEdges("sink2")];
 
-test("wire loom PoC — hub and spoke, loom off vs on", async () => {
+test("wire loom PoC — hub and spoke rendered capture", async () => {
   await mkdir(SHOTS, { recursive: true });
   const vellumCommand = await launchVellum({
     seedCanvases: {
@@ -117,17 +116,8 @@ test("wire loom PoC — hub and spoke, loom off vs on", async () => {
       await page.waitForTimeout(900);
     };
 
-    // Loom defaults on — capture it first.
     await fitAll();
     await page.screenshot({ path: join(SHOTS, "loom_on.png"), fullPage: false });
-
-    // Flip the localStorage gate off and reload onto the same seeded doc.
-    await page.evaluate(() => localStorage.setItem("vellum-command:loom", "off"));
-    await page.reload({ waitUntil: "domcontentloaded" });
-    await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
-    await expect(page.locator('.react-flow__node[data-id="hub"]')).toBeVisible({ timeout: 30_000 });
-    await fitAll();
-    await page.screenshot({ path: join(SHOTS, "loom_off.png"), fullPage: false });
   } finally {
     await vellumCommand.close();
   }

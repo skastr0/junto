@@ -5,7 +5,6 @@ import { use$ } from "@legendapp/state/react";
 import type { FlowEdge } from "../../lib/convert";
 import { edgeSparks$ } from "../../lib/edge-sparks";
 import {
-  LOOM_ENABLED,
   loomCorridors$,
   loomObstacles$,
   loomStrands$,
@@ -149,7 +148,7 @@ export function EtherEdge({
   const strand = use$(loomStrands$[id]);
   const stitched = useMemo(
     () =>
-      LOOM_ENABLED && strand
+      strand
         ? stitchStrand(strand, { sourceX, sourceY, targetX, targetY })
         : null,
     [strand, sourceX, sourceY, targetX, targetY],
