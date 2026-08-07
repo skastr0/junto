@@ -452,7 +452,7 @@ export const PRIME_AGENT_TEMPLATE: ManagedTerminalTemplate = {
  * (no enum); resume `-S <id>` / `-c`; no pin (capture via SessionStart hook
  * stdin or the welcome-card "Session: <uuid>" line); 20-event JSON-stdin
  * hooks (PermissionRequest→blocked) — but hooks live in the user's config,
- * so Vellum never installs them (badge hooks: false).
+ * so Vellum Command never installs them (badge hooks: false).
  */
 export const KIMI_TEMPLATE: ManagedTerminalTemplate = {
   harness: "kimi",

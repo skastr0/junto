@@ -83,7 +83,7 @@ export type InjectionSignal = typeof InjectionSignal.Type;
 export const TurnSignal = Schema.Literals(["none", "in-turn", "ended"]);
 export type TurnSignal = typeof TurnSignal.Type;
 
-/** Vellum comprehension: has the seat proven it knows vellum? */
+/** Vellum Command comprehension: has the seat proven it knows vellum? */
 export const AwarenessSignal = Schema.Literals(["unproven", "proven"]);
 export type AwarenessSignal = typeof AwarenessSignal.Type;
 

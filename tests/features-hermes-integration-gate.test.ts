@@ -25,6 +25,11 @@ describe("Hermes integration product gate", () => {
         "claude",
         "codex",
         "grok",
+        "pi",
+        "prime-agent",
+        "kimi",
+        "muse",
+        "devin",
       ]);
       expect(managedHarnessEnabled("hermes")).toBe(false);
       expect(() =>

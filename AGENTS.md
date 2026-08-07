@@ -132,11 +132,11 @@ reconciled.
 
 **ALL THIRD-PARTY DEPENDENCIES MUST BE STOCK / BASELINE / PRODUCTION VERSIONS.**
 
-- **NO** Vellum feature may be developed on top of patched, nightly, fork, pin-to-PR, or unofficial branches of a dependency.
+- **NO** Vellum Command feature may be developed on top of patched, nightly, fork, pin-to-PR, or unofficial branches of a dependency.
 - **Always** consume the stable production release that normal users install (npm/registry tag, published CLI version, released binary — not a local checkout with private patches).
 - If a capability exists only on a patched/nightly/unofficial line, **do not build the feature**. Cap the product at what stable production exposes. Wait for upstream stable, or drop the capability.
 
-**Example — herdr:** Vellum’s herdr integration must target **stable production herdr only**. Do not design, implement, or ship browser/terminal/agent features against a custom fork, patched daemon, or nightly protocol surface. If stable herdr cannot do X, Vellum cannot do X via herdr until stable does.
+**Example — herdr:** Vellum Command’s herdr integration must target **stable production herdr only**. Do not design, implement, or ship browser/terminal/agent features against a custom fork, patched daemon, or nightly protocol surface. If stable herdr cannot do X, Vellum Command cannot do X via herdr until stable does.
 
 This is non-negotiable for agents and humans. Violating it creates unshippable private-stack debt.
 
