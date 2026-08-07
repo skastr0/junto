@@ -152,14 +152,9 @@
   color: var(--color-cyan);
 }
 
-/* Re-seat pop from RTS command card */
+/* Re-seat pop — always portaled to body (fixed + z-index 10001 via style).
+   Must clear React Flow / stage paint; nested under .rts-shell cannot. */
 .agent-reseat-pop {
-  position: absolute;
-  z-index: 40;
-  bottom: calc(100% + 8px);
-  left: 0;
-  width: min(280px, 80vw);
-  max-height: min(360px, 50vh);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -168,6 +163,8 @@
   border-radius: 10px;
   background: var(--color-raise);
   box-shadow: 0 16px 40px var(--color-shadow-1);
+  pointer-events: auto;
+  overflow: hidden;
 }
 .agent-reseat-pop__title {
   font-size: 10px;
@@ -175,9 +172,15 @@
   text-transform: uppercase;
   color: var(--color-faint);
 }
+.agent-reseat-pop .agent-harness-pick {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
 .agent-reseat-pop .agent-harness-pick__list {
   flex: 1 1 auto;
-  max-height: 280px;
+  max-height: none;
+  overflow: auto;
 }
 
 .agent-reseat-confirm {

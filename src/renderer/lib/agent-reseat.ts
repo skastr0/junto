@@ -40,6 +40,14 @@ export const writeSkipReseatConfirm = (skip: boolean): void => {
 export const harnessDisplayName = (harness: HarnessId): string =>
   templateFor(harness).displayName;
 
+/** Working directory stamped on the seat launch (if any). */
+export const seatLaunchCwd = (node: TextNode): string | undefined => {
+  const cwd = node.ether?.terminal?.launch?.cwd;
+  if (typeof cwd !== "string") return undefined;
+  const trimmed = cwd.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+};
+
 export const reseatChoicesFromConfiguration = (
   choices: AgentConfigurationChoices,
   cwd?: string,
@@ -53,6 +61,8 @@ export const reseatChoicesFromConfiguration = (
 
 /**
  * Stop the old process, commit the reseated node, reopen if the surface was open.
+ * Preserves the prior launch cwd (and host) so the new harness lands in the
+ * same workspace path.
  */
 export const performManagedAgentReseat = async (
   node: TextNode,
@@ -63,6 +73,7 @@ export const performManagedAgentReseat = async (
   }
   const priorBinding = resolveTerminalBinding(node);
   const surfaceWasOpen = Boolean(terminal$.openByNodeId[node.id].peek());
+  const priorCwd = seatLaunchCwd(node);
 
   try {
     if (priorBinding?.kind === "native") {
@@ -84,7 +95,10 @@ export const performManagedAgentReseat = async (
 
   let next: TextNode;
   try {
-    next = reseatManagedAgentNode(node, reseatChoicesFromConfiguration(choices));
+    next = reseatManagedAgentNode(
+      node,
+      reseatChoicesFromConfiguration(choices, priorCwd),
+    );
   } catch (error: unknown) {
     return {
       ok: false,
