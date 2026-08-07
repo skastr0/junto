@@ -127,6 +127,7 @@ export const requiresConnection = (op: WorkOpName): boolean => {
     case "request.escalate":
     case "artifact.publish":
     case "board.list":
+    case "board.tags":
     case "board.create_topic":
     case "board.post":
     case "board.mark_read":

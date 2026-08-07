@@ -203,6 +203,7 @@ describe("work-control main authoring classification", () => {
       "request.escalate": "authorial",
       "artifact.publish": "authorial",
       "board.list": "read",
+      "board.tags": "read",
       "board.create_topic": "authorial",
       "board.post": "authorial",
       "board.mark_read": "authorial",

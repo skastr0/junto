@@ -95,6 +95,7 @@ const WORK_OPERATION_CLASSIFICATION = {
   "request.escalate": "authorial",
   "artifact.publish": "authorial",
   "board.list": "read",
+  "board.tags": "read",
   "board.create_topic": "authorial",
   "board.post": "authorial",
   "board.mark_read": "authorial",

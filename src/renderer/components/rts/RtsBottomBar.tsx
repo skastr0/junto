@@ -241,7 +241,7 @@ const recomputeHotbar = (): void => {
   const doc = state$.doc.peek();
   const live = liveNodeIds(doc);
   // Selection counts as activity even when focusNode was not used (canvas click).
-  let mru = state$.hotbarActiveMru.peek();
+  let mru: ReadonlyArray<string> = [...state$.hotbarActiveMru.peek()];
   const selected = state$.selectedNodeId.peek();
   if (selected && live.includes(selected)) {
     mru = touchActiveMru(mru, selected);

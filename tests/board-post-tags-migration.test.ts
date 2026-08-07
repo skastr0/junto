@@ -61,7 +61,7 @@ describe("board post tags schema migration 15 → 16", () => {
 
       const cols = database
         .prepare(`PRAGMA table_info(work_board_posts)`)
-        .all() as ReadonlyArray<{ name: string }>;
+        .all() as unknown as ReadonlyArray<{ name: string }>;
       expect(cols.some((c) => c.name === "tags_json")).toBe(true);
 
       const row = database
