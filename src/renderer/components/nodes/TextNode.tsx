@@ -41,6 +41,7 @@ import { TerminalCard } from "../terminal/TerminalCard";
 import { TerminalToolbarActions } from "../terminal/TerminalToolbarActions";
 import { HerdrToolbarActions } from "../herdr/HerdrToolbarActions";
 import { AgentChatToolbarActions } from "../chat/AgentChatToolbarActions";
+import { FirstLineRenameInput } from "./FirstLineRenameInput";
 import { FocusSurface } from "../FocusSurface";
 import { Button, Eyebrow, IconButton } from "../ui";
 import { ExecutionCardHeader } from "./ExecutionCardHeader";
@@ -225,11 +226,15 @@ function EntityCard({
   node,
   kind,
   graphBlocked = false,
+  renaming = false,
+  onRenameDone,
 }: {
   readonly node: CanvasNode;
   readonly kind: string;
   /** Execution-graph blocked — crimson spinner even when seat is idle. */
   readonly graphBlocked?: boolean;
+  readonly renaming?: boolean;
+  readonly onRenameDone?: () => void;
 }) {
   const rawName = (node.type === "text" ? node.text : "").split("\n")[0] ?? "";
   const nameHue = node.color ? accentColor(node.color) : INK;
@@ -300,6 +305,11 @@ function EntityCard({
   // operator reads an agent node for, and it crowded out the claimed task.
   // Spawn failures surface as a context line so the mark + copy both land.
   const context = managed && exitReason && exitMessage ? exitMessage : undefined;
+  const commitRename = (firstLine: string) => {
+    if (node.type !== "text") return;
+    const rest = node.text.split("\n").slice(1).join("\n");
+    editText(node.id, rest ? `${firstLine}\n${rest}` : firstLine);
+  };
 
   const complete = activity.mode === "pulse" && activity.tone === "green";
   return (
@@ -311,13 +321,22 @@ function EntityCard({
       <ExecutionCardHeader
         decal={<HarnessMark agent={managed ? managedHarness : undefined} size={28} />}
         title={
-          <div
-            className="truncate font-mono text-[14px] font-semibold leading-snug"
-            style={{ color: nameHue }}
-            title={rawName}
-          >
-            {rawName}
-          </div>
+          renaming && onRenameDone ? (
+            <FirstLineRenameInput
+              initial={rawName}
+              ariaLabel="Rename agent node"
+              onCommit={commitRename}
+              onDone={onRenameDone}
+            />
+          ) : (
+            <div
+              className="truncate font-mono text-[14px] font-semibold leading-snug"
+              style={{ color: nameHue }}
+              title={rawName}
+            >
+              {rawName}
+            </div>
+          )
         }
         activity={
           seatEvent?.state === "attention" && seatEvent.reason
@@ -822,7 +841,13 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
               onRenameDone={() => setRenaming(false)}
             />
           ) : entityKind === "agent" ? (
-            <EntityCard node={node} kind="agent" graphBlocked={data.blocked} />
+            <EntityCard
+              node={node}
+              kind="agent"
+              graphBlocked={data.blocked}
+              renaming={renaming}
+              onRenameDone={() => setRenaming(false)}
+            />
           ) : (
             <NoteMarkdown source={text} />
           )}

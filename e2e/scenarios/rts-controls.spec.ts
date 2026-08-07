@@ -107,7 +107,7 @@ test("rts shell: role left, kind middle, region strip, pause everywhere", async 
   await expect(leftPause).toHaveAttribute("data-paused", "false");
   await expect(page.locator(".rts-kind-kind-label")).toContainText("agent");
 
-  // Middle bar: kind surface (identity/actions + fields key).
+  // Middle bar: kind surface (identity + kind actions).
   // ACP chat is hard-hidden (LEGACY_SURFACES_HIDDEN) — strip still labels the kind.
   const kindSurface = page.locator(".rts-kind-surface");
   await expect(kindSurface).toBeVisible();
@@ -116,12 +116,23 @@ test("rts shell: role left, kind middle, region strip, pause everywhere", async 
   // Kind label lives beside the strip (span.rts-kind-kind-label), not inside it.
   await expect(kindSurface.locator(".rts-kind-kind-label")).toContainText("agent");
   await expect(kindStrip.getByRole("button", { name: "Open chat" })).toHaveCount(0);
-  await expect(kindStrip.getByRole("button", { name: "Open fields" })).toBeVisible();
+  await expect(kindStrip.getByRole("button", { name: "Open fields" })).toHaveCount(0);
+  await expect(kindStrip.getByRole("button", { name: "Rename" })).toHaveCount(1);
+  await expect(page.locator(".rts-panel--cmd").getByRole("button", { name: "Edit" })).toHaveCount(0);
 
-  // Hotbar strip above command+kind — empty until operator assigns a slot.
+  await kindStrip.getByRole("button", { name: "Rename" }).click();
+  const renameInput = page.getByRole("textbox", { name: "Rename agent node" });
+  await expect(renameInput).toBeVisible();
+  await renameInput.fill("renamed worker");
+  await renameInput.press("Enter");
+  await expect(renameInput).toBeHidden();
+  await expect(page.locator(".react-flow__node", { hasText: "renamed worker" }).first()).toBeVisible();
+
+  // Hotbar strip above command+kind — nine slots, with recent nodes leased
+  // opportunistically and fixed assignments owned by the operator.
   const regionStrip = page.locator(".rts-region-strip");
   await expect(regionStrip).toBeVisible();
-  await expect(regionStrip.locator(".rts-region-strip__empty")).toBeVisible();
+  await expect(regionStrip.locator('[data-testid^="hotbar-slot-"]')).toHaveCount(9);
 
   // Floating node toolbar carries the same pause toggle.
   const toolbarPause = page.getByTestId("node-toolbar-pause");

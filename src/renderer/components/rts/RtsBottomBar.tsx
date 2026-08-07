@@ -745,9 +745,11 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
             <CmdKey label="Focus" onClick={() => state$.focusNodeId.set(nodeId)}>
               <Crosshair size={ICON} />
             </CmdKey>
-            <CmdKey label="Edit" onClick={() => state$.editNodeId.set(nodeId)}>
-              <Pencil size={ICON} />
-            </CmdKey>
+            {entityKind !== "agent" ? (
+              <CmdKey label="Edit" onClick={() => state$.editNodeId.set(nodeId)}>
+                <Pencil size={ICON} />
+              </CmdKey>
+            ) : null}
             <CmdKey
               label={connectOpen ? "Close connect" : "Connect"}
               active={connectOpen}
