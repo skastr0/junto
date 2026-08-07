@@ -2687,30 +2687,41 @@ ol.note-md__list > .note-md__li::before {
   .vellum-tooltip { transition: none; }
 }
 
-/* Actor terminal — edges nested under OverlayHeader (same modal plate as xterm).
-   Not a floating FocusSurface aside; works in focus and pinned dock. */
+/* Actor terminal — edges as a collapsible *side pane* beside xterm.
+   Same modal plate (header full-width); not a horizontal bar under chrome,
+   not a floating FocusSurface aside. Works in focus and pinned dock. */
 .actor-edges-glance {
   display: flex;
   flex-direction: column;
-  gap: 0;
-  flex-shrink: 0;
-  width: 100%;
-  min-width: 0;
-  max-height: min(36%, 220px);
-  border-bottom: 1px solid color-mix(in srgb, var(--color-stroke) 88%, transparent);
+  flex: 0 0 232px;
+  width: 232px;
+  min-width: 232px;
+  max-width: 232px;
+  min-height: 0;
+  height: 100%;
+  border-right: 1px solid color-mix(in srgb, var(--color-stroke) 88%, transparent);
   background: color-mix(in srgb, var(--color-raise-2) 92%, transparent);
   overflow: hidden;
 }
 .actor-edges-glance--collapsed {
-  max-height: none;
+  flex: 0 0 36px;
+  width: 36px;
+  min-width: 36px;
+  max-width: 36px;
 }
 .actor-edges-glance__chrome {
   display: flex;
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
-  padding: 4px 10px 4px 8px;
-  min-height: 28px;
+  padding: 6px 8px;
+  min-height: 32px;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-stroke) 70%, transparent);
+}
+.actor-edges-glance--collapsed .actor-edges-glance__chrome {
+  justify-content: center;
+  padding: 6px 4px;
+  border-bottom: 0;
 }
 .actor-edges-glance__count {
   margin-left: auto;
@@ -2722,13 +2733,13 @@ ol.note-md__list > .note-md__li::before {
 }
 .actor-edges-glance__list {
   display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 6px;
   margin: 0;
-  padding: 0 10px 8px;
+  padding: 8px;
   list-style: none;
   min-height: 0;
+  flex: 1 1 0;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
@@ -2737,9 +2748,8 @@ ol.note-md__list > .note-md__li::before {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  min-width: 140px;
-  max-width: 220px;
-  flex: 1 1 140px;
+  min-width: 0;
+  width: 100%;
   padding: 6px 8px;
   border: 1px solid color-mix(in srgb, var(--color-stroke) 80%, transparent);
   border-radius: 7px;
@@ -2798,6 +2808,27 @@ ol.note-md__list > .note-md__li::before {
   gap: 4px;
   margin-top: 2px;
 }
+.actor-edges-glance__rail {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0 10px;
+  min-height: 0;
+}
+.actor-edges-glance__rail-label {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-faint);
+  user-select: none;
+}
+.actor-edges-glance--collapsed .actor-edges-glance__count {
+  margin-left: 0;
+}
 
 /* Native terminal — fill focus/dock body.
    Critical: flex:1 1 0 + height:0 so the host gets the pane's flex-assigned
@@ -2816,6 +2847,17 @@ ol.note-md__list > .note-md__li::before {
   background: var(--color-ground);
   overflow: hidden;
 }
+/* Row under header: optional edges side pane + xterm stage. */
+.native-terminal-surface__body {
+  display: flex;
+  flex-direction: row;
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  height: 0;
+  overflow: hidden;
+}
 /* Stage holds xterm + dead overlay so Stop never leaves a live-looking TUI. */
 .native-terminal-surface__stage {
   position: relative;
@@ -2824,8 +2866,8 @@ ol.note-md__list > .note-md__li::before {
   flex: 1 1 0;
   min-height: 0;
   min-width: 0;
-  width: 100%;
-  height: 0;
+  width: auto;
+  height: 100%;
 }
 .native-terminal-surface__xterm {
   position: relative;

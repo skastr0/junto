@@ -1,16 +1,16 @@
 /**
- * Nested edge inventory for an actor terminal surface.
+ * Side-pane edge inventory for an actor terminal surface.
  *
- * Lives under the modal top bar (same plate as xterm), not a floating aside.
- * Collapse / expand with a small control; still available when the surface is
- * pinned (TerminalSurface hosts it in both focus and dock).
+ * Sits beside the xterm stage inside the same modal plate (not a horizontal
+ * strip under the header, not a floating FocusSurface aside). Collapse /
+ * expand; still present when pinned.
  *
  * No "soft" / "tasks" edge nature — those were authorial relationship modes.
  * Live stoppage is a derived chip only when the kernel reports blocks.
  */
 import { useMemo, useState } from "react";
 import { use$ } from "@legendapp/state/react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
 import { isGroup } from "@shared/graph";
 import { resolveSpec, roleOf } from "@shared/physics";
@@ -128,7 +128,7 @@ export function ActorEdgesGlance({ node }: { readonly node: CanvasNode }) {
   if (!isActor || rows.length === 0) return null;
 
   return (
-    <section
+    <aside
       className={[
         "actor-edges-glance",
         expanded ? "actor-edges-glance--expanded" : "actor-edges-glance--collapsed",
@@ -137,22 +137,37 @@ export function ActorEdgesGlance({ node }: { readonly node: CanvasNode }) {
       aria-label="Connected edges"
     >
       <header className="actor-edges-glance__chrome">
-        <IconButton
-          size="sm"
-          title={expanded ? "Collapse edges" : "Expand edges"}
-          aria-label={expanded ? "Collapse edges" : "Expand edges"}
-          aria-expanded={expanded}
-          aria-controls={`actor-edges-list-${node.id}`}
-          onClick={() => setExpanded((v) => !v)}
-        >
-          {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        </IconButton>
-        <Eyebrow tone="steel" size="xs">
-          edges
-        </Eyebrow>
-        <span className="actor-edges-glance__count" aria-hidden>
-          {rows.length}
-        </span>
+        {expanded ? (
+          <>
+            <Eyebrow tone="steel" size="xs">
+              edges
+            </Eyebrow>
+            <span className="actor-edges-glance__count" aria-hidden>
+              {rows.length}
+            </span>
+            <IconButton
+              size="sm"
+              title="Collapse edges pane"
+              aria-label="Collapse edges pane"
+              aria-expanded
+              aria-controls={`actor-edges-list-${node.id}`}
+              onClick={() => setExpanded(false)}
+            >
+              <ChevronLeft size={14} />
+            </IconButton>
+          </>
+        ) : (
+          <IconButton
+            size="sm"
+            title={`Expand edges (${rows.length})`}
+            aria-label={`Expand edges, ${rows.length} connections`}
+            aria-expanded={false}
+            aria-controls={`actor-edges-list-${node.id}`}
+            onClick={() => setExpanded(true)}
+          >
+            <ChevronRight size={14} />
+          </IconButton>
+        )}
       </header>
       {expanded ? (
         <ul
@@ -163,7 +178,12 @@ export function ActorEdgesGlance({ node }: { readonly node: CanvasNode }) {
             <EdgeCard key={row.edgeId} row={row} />
           ))}
         </ul>
-      ) : null}
-    </section>
+      ) : (
+        <div className="actor-edges-glance__rail" aria-hidden>
+          <span className="actor-edges-glance__rail-label">edges</span>
+          <span className="actor-edges-glance__count">{rows.length}</span>
+        </div>
+      )}
+    </aside>
   );
 }

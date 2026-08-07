@@ -848,8 +848,6 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
           </>
         }
       />
-      {/* Edges nested under the top bar (same plate as xterm); also when pinned. */}
-      <ActorEdgesGlance node={node} />
       {claimedTask ? (
         <div
           className="flex items-center gap-2 border-b border-stroke bg-cyan/[0.045] px-3 py-1.5 text-[11px]"
@@ -876,67 +874,71 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
           </Button>
         </div>
       ) : null}
-      <div className="native-terminal-surface__stage">
-        <div
-          ref={hostRef}
-          className={[
-            "native-terminal-surface__xterm",
-            showDeadOverlay ? "native-terminal-surface__xterm--dim" : "",
-            showLoadOverlay ? "native-terminal-surface__xterm--dim" : "",
-          ]
-            .filter(Boolean)
-            .join(" ")}
-          aria-hidden={showDeadOverlay || showLoadOverlay || undefined}
-        />
-        {showLoadOverlay && loadPresentation ? (
-          <div className="native-terminal-surface__load">
-            <SessionLoadSpinner
-              phase={loadPresentation.phase}
-              sessionId={pinSessionId}
-            />
-          </div>
-        ) : null}
-        {showDeadOverlay ? (
+      {/* Body: edges side pane + xterm stage (unified modal plate). */}
+      <div className="native-terminal-surface__body">
+        <ActorEdgesGlance node={node} />
+        <div className="native-terminal-surface__stage">
           <div
-            className="native-terminal-surface__dead"
-            role="status"
-            aria-live="polite"
-          >
-            <div className="native-terminal-surface__dead-card">
-              <Eyebrow tone="amber">
-                {processStopping ? "stopping" : "ended"}
-              </Eyebrow>
-              <strong className="native-terminal-surface__dead-title">
-                {processStopping ? "Stopping process…" : deadCopy.headline}
-              </strong>
-              <p className="native-terminal-surface__dead-detail">
-                {processStopping
-                  ? "Stopping the process…"
-                  : deadCopy.detail}
-              </p>
-              {!processStopping ? (
-                <div className="native-terminal-surface__dead-actions">
-                  <Button
-                    size="sm"
-                    variant="primary"
-                    disabled={reopenPending}
-                    onClick={() => void reopenProcess()}
-                  >
-                    {reopenPending ? "Opening…" : deadCopy.reopenLabel}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="chrome"
-                    title="Close view only"
-                    onClick={closeSurface}
-                  >
-                    {deadCopy.closeViewLabel}
-                  </Button>
-                </div>
-              ) : null}
+            ref={hostRef}
+            className={[
+              "native-terminal-surface__xterm",
+              showDeadOverlay ? "native-terminal-surface__xterm--dim" : "",
+              showLoadOverlay ? "native-terminal-surface__xterm--dim" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+            aria-hidden={showDeadOverlay || showLoadOverlay || undefined}
+          />
+          {showLoadOverlay && loadPresentation ? (
+            <div className="native-terminal-surface__load">
+              <SessionLoadSpinner
+                phase={loadPresentation.phase}
+                sessionId={pinSessionId}
+              />
             </div>
-          </div>
-        ) : null}
+          ) : null}
+          {showDeadOverlay ? (
+            <div
+              className="native-terminal-surface__dead"
+              role="status"
+              aria-live="polite"
+            >
+              <div className="native-terminal-surface__dead-card">
+                <Eyebrow tone="amber">
+                  {processStopping ? "stopping" : "ended"}
+                </Eyebrow>
+                <strong className="native-terminal-surface__dead-title">
+                  {processStopping ? "Stopping process…" : deadCopy.headline}
+                </strong>
+                <p className="native-terminal-surface__dead-detail">
+                  {processStopping
+                    ? "Stopping the process…"
+                    : deadCopy.detail}
+                </p>
+                {!processStopping ? (
+                  <div className="native-terminal-surface__dead-actions">
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      disabled={reopenPending}
+                      onClick={() => void reopenProcess()}
+                    >
+                      {reopenPending ? "Opening…" : deadCopy.reopenLabel}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="chrome"
+                      title="Close view only"
+                      onClick={closeSurface}
+                    >
+                      {deadCopy.closeViewLabel}
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+        </div>
       </div>
     </div>
   );
