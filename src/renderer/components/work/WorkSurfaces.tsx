@@ -480,7 +480,7 @@ export function BoardDetail({
     topics.find((t) => t.topicId === selectedTopicId) ?? topics[0];
   const canvas = canvasName();
   const api = getVellumCommandApi();
-  // Board node text is a live glance projection ("quiet" or recent topic
+  // Board node text is a live glance projection ("board" when empty, or recent topic
   // titles), not a stable sink name. Keep the work surface title predictable.
   const boardTitle = "Board";
 

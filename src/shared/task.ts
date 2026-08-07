@@ -162,6 +162,21 @@ export const mirrorArtifactsText = (items: ReadonlyArray<Artifact>): string => {
   return items.map((item) => item.name?.trim() || item.artifactId).join("\n");
 };
 
+/**
+ * Board node text mirror: recent topic titles for offline glance.
+ * Empty → kind name ("board"), never a mood word like "quiet" (that leaked
+ * into card titles and edge labels).
+ */
+export const mirrorBoardText = (
+  topics: ReadonlyArray<{ readonly title: string }>,
+): string => {
+  if (topics.length === 0) return "board";
+  return topics
+    .slice(0, 4)
+    .map((t) => `- ${t.title}`)
+    .join("\n");
+};
+
 export const countByTaskState = (
   items: ReadonlyArray<Task>,
 ): Readonly<Record<TaskState, number>> => {

@@ -39,6 +39,7 @@ import { StationHostId } from "@shared/station-api";
 import type { ActorRef } from "@shared/work-protocol";
 import {
   mirrorArtifactsText,
+  mirrorBoardText,
   mirrorRequestsText,
   mirrorTasksText,
 } from "@shared/task";
@@ -666,7 +667,7 @@ const stripRuntimeWorkProjection = (doc: CanvasDoc): CanvasDoc => ({
             : kind === "artifacts"
               ? mirrorArtifactsText([])
               : kind === "board"
-                ? "quiet"
+                ? mirrorBoardText([])
                 : node.text;
 
     if (Object.keys(ether).length === 0) {

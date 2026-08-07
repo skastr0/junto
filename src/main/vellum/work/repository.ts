@@ -66,6 +66,7 @@ import {
 import {
   canTransitionTaskState,
   mirrorArtifactsText,
+  mirrorBoardText,
   mirrorRequestsText,
   mirrorTasksText,
   taskWithTransitionState,
@@ -798,15 +799,7 @@ export const projectWorkSnapshots = (
           ? { text: mirrorArtifactsText(snapshot.artifacts.items) }
           : {}),
         ...(node.type === "text" && kind === "board"
-          ? {
-              text:
-                snapshot.board.topics.length === 0
-                  ? "quiet"
-                  : snapshot.board.topics
-                      .slice(0, 4)
-                      .map((t) => `- ${t.title}`)
-                      .join("\n"),
-            }
+          ? { text: mirrorBoardText(snapshot.board.topics) }
           : {}),
         ether,
       } as CanvasNode;
