@@ -204,15 +204,22 @@ describe("managed spawn plan", () => {
     );
   });
 
-  it("unconnected replan stays silent", () => {
+  it("unconnected canvas seat still injects base doctrine (no edge contracts)", () => {
     const { plan, launch } = launchForManagedSpawn({
       doc: baseDoc(false),
       nodeId: "worker",
       harness: "claude",
       documentLaunch: { kind: "harness", argv: ["claude"] },
     });
-    expect(plan?.injection.inject).toBe(false);
-    expect(launch?.argv?.includes("--append-system-prompt")).toBe(false);
+    // Seat-bound seats always get base doctrine; edges only add contracts.
+    expect(plan?.injection.inject).toBe(true);
+    expect(plan?.injection.tier).toBe("A");
+    expect(launch?.argv?.some((a) => a === "--append-system-prompt")).toBe(
+      true,
+    );
+    const prompt = plan?.injection.systemPrompt ?? "";
+    expect(prompt).toContain("Vellum Command");
+    expect(prompt).not.toContain("Edge contracts");
   });
 
   it("connected codex arms firstTypedMessage", () => {

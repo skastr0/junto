@@ -58,7 +58,7 @@ import {
   CanvasesService,
 } from "../src/main/vellum/canvases";
 import {
-  SettingsLive,
+  makeSettingsLive,
   SettingsService,
 } from "../src/main/vellum/settings/service";
 import {
@@ -168,7 +168,8 @@ const makeInstallationRuntime = (
         now: () => now,
       }),
       StationFleetTargetRepositoryLive,
-      SettingsLive,
+      // Pairing/configure fixtures need blank topology (no auto-CC freeze).
+      makeSettingsLive({ ensureDefaultCommandCenter: false }),
       makeContentServiceLive({
         root: join(installRoot, "content"),
         skipInlineMediaMigration: true,

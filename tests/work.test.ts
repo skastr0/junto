@@ -932,7 +932,7 @@ import {
   StationLivePeerRegistryLive,
 } from "../src/main/vellum/station/session-registry";
 import {
-  SettingsLive,
+  makeSettingsLive,
   SettingsService,
 } from "../src/main/vellum/settings/service";
 import {
@@ -951,7 +951,8 @@ const makeWorkRuntime = (databasePath: string) => {
       WorkRepositoryLive,
       StationRepositoryLive,
       StationFleetTargetRepositoryLive,
-      SettingsLive,
+      // Blank-slate station for Remote offline fixtures; tests configure role.
+      makeSettingsLive({ ensureDefaultCommandCenter: false }),
       makeContentServiceLive({
         root: join(installRoot, "content"),
         skipInlineMediaMigration: true,

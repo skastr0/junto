@@ -13,7 +13,10 @@ describe("node palette launch spacing", () => {
   );
 
   it("lets the agent list absorb free column height", () => {
-    const block = css.match(/\.node-deck__agent-list\s*\{[^}]+\}/);
+    // Grouped selector: `.node-deck__agent-list, .node-deck__harness-pick …`
+    const block = css.match(
+      /\.node-deck__agent-list(?:\s*,\s*[^{]+)?\s*\{[^}]+\}/,
+    );
     expect(block?.[0]).toMatch(/flex:\s*1\s+1\s+0/);
     expect(block?.[0]).toMatch(/min-height:\s*0/);
     expect(block?.[0]).toMatch(/overflow:\s*auto/);

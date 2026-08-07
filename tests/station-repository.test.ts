@@ -26,7 +26,7 @@ import {
 } from "../src/shared/station-api";
 import { ProjectedIntentFactBasis } from "../src/shared/work-protocol";
 import {
-  SettingsLive,
+  makeSettingsLive,
   SettingsService,
 } from "../src/main/vellum/settings/service";
 import { findHostById } from "../src/main/vellum/hosts/snapshot";
@@ -82,7 +82,10 @@ const makeRuntime = (
           makeInstallationId: () => generatedId,
           now: () => "2026-07-27T12:00:00.000Z",
         }),
-        SettingsLive,
+        // Station pairing/configure tests need a blank slate. Product SettingsLive
+        // auto-establishes Command Center; that freezes topology and breaks Remote
+        // fixtures. Opt out only in this suite.
+        makeSettingsLive({ ensureDefaultCommandCenter: false }),
         WorkRepositoryLive,
       ),
       stateLive,

@@ -1768,6 +1768,15 @@ describe("WorkRepository board CC-homed facts", () => {
 
   it("archives a task off the board projection (soft-delete)", async () => {
     const sink = { canvasName: "factory", nodeId: "tasks-archive" };
+    // Dedicated seat — shared `actor` may already hold a pending remote claim
+    // from earlier cases in this suite.
+    const archiveActor = {
+      seatId: Schema.decodeUnknownSync(ActorSeatId)(
+        `seat_${"d".repeat(64)}`,
+      ),
+      canvasName: "factory",
+      nodeId: "archive-worker",
+    };
     const created = await runtime.runPromise(
       repository.createTask({
         sink,
@@ -1788,7 +1797,7 @@ describe("WorkRepository board CC-homed facts", () => {
         sink,
         basis: authorialBasis,
         taskId: created.value.id,
-        actor,
+        actor: archiveActor,
         originAt: observedAt,
         receivedAt: observedAt,
       }),

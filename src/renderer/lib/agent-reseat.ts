@@ -1,6 +1,7 @@
 /**
  * Re-seat a managed agent onto another harness (kill old process, new binding).
- * Confirmation skip is a local operator preference (not product state).
+ * Confirmation skip is a process-local operator preference (not product state;
+ * not durable browser storage — see settings-state architecture).
  */
 import type { TextNode } from "@shared/canvas";
 import { resolveTerminalBinding } from "@shared/terminal";
@@ -18,23 +19,13 @@ import {
   terminalSurfaceId,
 } from "./dock-state";
 
-const SKIP_CONFIRM_KEY = "vellum-command.skip-reseat-confirm";
+/** Process-local only — resets on app restart. */
+let skipReseatConfirm = false;
 
-export const readSkipReseatConfirm = (): boolean => {
-  try {
-    return globalThis.localStorage?.getItem(SKIP_CONFIRM_KEY) === "1";
-  } catch {
-    return false;
-  }
-};
+export const readSkipReseatConfirm = (): boolean => skipReseatConfirm;
 
 export const writeSkipReseatConfirm = (skip: boolean): void => {
-  try {
-    if (skip) globalThis.localStorage?.setItem(SKIP_CONFIRM_KEY, "1");
-    else globalThis.localStorage?.removeItem(SKIP_CONFIRM_KEY);
-  } catch {
-    // private mode / unavailable storage — confirm every time
-  }
+  skipReseatConfirm = skip;
 };
 
 export const harnessDisplayName = (harness: HarnessId): string =>

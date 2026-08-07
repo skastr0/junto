@@ -88,6 +88,11 @@ export interface SettingsServiceApi {
 export type SettingsServiceOptions = {
   /** Override supervisor probe in tests. */
   readonly probeSupervised?: SupervisedProbe;
+  /**
+   * When false, skip v1 auto-Command-Center (tests that exercise blank-slate
+   * Remote pairing / configuration). Production always leaves this default.
+   */
+  readonly ensureDefaultCommandCenter?: boolean;
 };
 
 type StateService = Context.Service.Shape<typeof StateEngine>;
@@ -364,7 +369,9 @@ export const makeSettingsService = (
     const probeSupervised =
       options.probeSupervised ?? probeSupervisedRuntime;
     yield* initializeSettings(state);
-    yield* ensureDefaultCommandCenter(state);
+    if (options.ensureDefaultCommandCenter !== false) {
+      yield* ensureDefaultCommandCenter(state);
+    }
 
     const listeners = new Set<(settings: Settings) => void>();
 
