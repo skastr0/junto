@@ -33,12 +33,14 @@ import { nodeDetail, nodeTitle, nodeTypeLabel } from "../../lib/presentation";
 import { HUE } from "../../lib/theme";
 import { connectionStateOf, herdr$, refreshHerdrMeta } from "../../lib/herdr-state";
 import {
-  agentKeysFromNodes,
   classifyMultiSelection,
   multiSelectionLabel,
   surfaceLabel,
 } from "../../lib/multi-selection";
-import { multiPromptAgents } from "../../lib/multi-prompt";
+import {
+  multiPromptAgents,
+  multiPromptTargetsFromNodes,
+} from "../../lib/multi-prompt";
 import { FocusSurface } from "../FocusSurface";
 import { OverlayHeader, IconButton } from "../ui";
 import { HarnessMark } from "../herdr/HarnessMark";
@@ -399,7 +401,8 @@ function RegionKindSurface({ node }: { readonly node: CanvasNode }) {
 
 /**
  * Multi-select kind surface: generic cue for mixed; kind actions when homogeneous.
- * Agents get multi-prompt (same text → every selected actor seat) via ChatComposer.
+ * Agents get multi-prompt (same text → every selected managed seat) via ChatComposer.
+ * Send / label / status float over the textarea so the mid panel never clips them.
  */
 function MultiKindSurface({ nodes }: { readonly nodes: ReadonlyArray<CanvasNode> }) {
   const selectionKey = nodes.map((n) => n.id).join("|");
@@ -407,7 +410,7 @@ function MultiKindSurface({ nodes }: { readonly nodes: ReadonlyArray<CanvasNode>
   const targets = useMemo(
     () =>
       classified.mode === "homogeneous" && classified.surface === "kind:agent"
-        ? agentKeysFromNodes(classified.nodes)
+        ? multiPromptTargetsFromNodes(classified.nodes)
         : [],
     [classified],
   );
@@ -438,24 +441,21 @@ function MultiKindSurface({ nodes }: { readonly nodes: ReadonlyArray<CanvasNode>
   }
 
   if (classified.surface === "kind:agent" && targets.length > 0) {
+    const label = `multi-prompt — ${targets.length} agent${targets.length === 1 ? "" : "s"}`;
     return (
-      <div className="rts-kind-surface" data-testid="rts-multi-prompt">
-        <div className="rts-kind-id rts-kind-id--compact">
-          <div className="rts-kind-id__text">
-            <div className="rts-kind-id__name">multi-prompt</div>
-            <div className="rts-kind-id__live">
-              {targets.length} agent{targets.length === 1 ? "" : "s"} — same text to all
-            </div>
-          </div>
-        </div>
+      <div
+        className="rts-kind-surface rts-kind-surface--multi-prompt"
+        data-testid="rts-multi-prompt"
+      >
         <ChatComposer
           key={selectionKey}
-          className="chat-composer--rts"
+          className="chat-composer--rts chat-composer--overlay"
           ariaLabel="Prompt all selected agents"
           placeholder="Message all selected agents…"
           hint="⌘↵ send to all"
           sendLabel="Send to all selected agents"
           disabled={busy}
+          eyebrow={label}
           status={status}
           onSend={async (text) => {
             setBusy(true);
@@ -485,7 +485,7 @@ function MultiKindSurface({ nodes }: { readonly nodes: ReadonlyArray<CanvasNode>
     return (
       <div className="rts-kind-surface">
         <div className="rts-quiet rts-quiet--compact">
-          agents missing keys — multi-prompt needs entity.name
+          agents missing managed seats — multi-prompt needs terminal.bindingId
         </div>
       </div>
     );

@@ -33,6 +33,13 @@
   justify-content: flex-start;
 }
 
+/* Multi-prompt fills the mid panel; composer overlay owns chrome. */
+.rts-kind-surface--multi-prompt {
+  gap: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
 /*
  * Region + simple kinds: kind label + keys top-left (no second title block).
  */

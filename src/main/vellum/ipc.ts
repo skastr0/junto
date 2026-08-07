@@ -1097,6 +1097,63 @@ export const registerVellumIpc = (): void => {
           ready: options?.ready ?? driveReady(bindingId),
           ...(options ?? {}),
         });
+      // Operator multi-prompt (RTS): wake lazy seat + paste+CR without a
+      // renderer control lease. Same drive as board megaphone / mailbox.
+      privilegedIpc.handle(
+        IPC_CHANNELS.terminalManagedPrompt,
+        async (
+          _event,
+          input: {
+            readonly bindingId?: string;
+            readonly text?: string;
+            readonly canvasName?: string;
+            readonly nodeId?: string;
+          },
+        ) => {
+          const bindingId =
+            typeof input?.bindingId === "string" ? input.bindingId.trim() : "";
+          const text = typeof input?.text === "string" ? input.text.trim() : "";
+          if (!bindingId) return { ok: false as const, error: "binding required" };
+          if (!text) return { ok: false as const, error: "empty prompt" };
+          const canvasName =
+            typeof input?.canvasName === "string" ? input.canvasName.trim() : "";
+          const nodeId =
+            typeof input?.nodeId === "string" ? input.nodeId.trim() : "";
+          if (canvasName && nodeId) {
+            try {
+              const woke = await kernel.wakeManagedSeat(canvasName, nodeId);
+              if (!woke) {
+                return {
+                  ok: false as const,
+                  error: "could not start managed seat",
+                };
+              }
+            } catch (error) {
+              return {
+                ok: false as const,
+                error:
+                  error instanceof Error
+                    ? error.message
+                    : "could not start managed seat",
+              };
+            }
+          }
+          try {
+            const ok = await writeManagedPrompt(bindingId, text, {
+              ready: true,
+            });
+            return ok
+              ? { ok: true as const }
+              : { ok: false as const, error: "prompt refused" };
+          } catch (error) {
+            return {
+              ok: false as const,
+              error:
+                error instanceof Error ? error.message : "prompt write failed",
+            };
+          }
+        },
+      );
       // Supervisor transport wiring: re-delivered doctrine goes through the
       // same drive as first-typed doctrine; escalation surfaces on the canvas
       // via the seat state machine (attention with an operator-facing reason).

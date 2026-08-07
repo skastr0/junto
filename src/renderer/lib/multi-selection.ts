@@ -89,7 +89,10 @@ export function surfaceLabel(surface: MultiSurfaceKey): string {
   return surface;
 }
 
-/** Agent keys for multi-prompt — only nodes with entity.kind agent + name. */
+/**
+ * Agent keys for multi-prompt label/display.
+ * Managed-prompt fan-out needs binding ids — use multiPromptTargetsFromNodes.
+ */
 export function agentKeysFromNodes(
   nodes: ReadonlyArray<CanvasNode>,
 ): ReadonlyArray<{ readonly nodeId: string; readonly agentKey: string }> {

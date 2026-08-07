@@ -543,10 +543,85 @@
   padding: 6px;
   flex: 1 1 auto;
   min-width: 0;
+  min-height: 0;
 }
 .chat-composer--rts .chat-composer__input {
   min-height: 32px;
   font-size: 11px;
+}
+
+/*
+ * Overlay chrome for multi-prompt (and any short host):
+ * eyebrow + status + send float over the textarea so the mid panel
+ * overflow:hidden never swallows the CTA.
+ */
+.chat-composer--overlay {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+}
+.chat-composer__eyebrow {
+  display: none;
+}
+.chat-composer--overlay .chat-composer__eyebrow {
+  display: block;
+  position: absolute;
+  top: 6px;
+  left: 10px;
+  right: 10px;
+  z-index: 2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+  color: color-mix(in oklab, var(--color-steel) 90%, transparent);
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+.chat-composer--overlay .chat-composer__input {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  height: 100%;
+  max-height: none;
+  box-sizing: border-box;
+  padding: 22px 10px 36px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  resize: none;
+}
+.chat-composer--overlay .chat-composer__footer {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  left: 6px;
+  z-index: 2;
+  gap: 6px;
+  pointer-events: none;
+  background: linear-gradient(
+    to top,
+    color-mix(in oklab, var(--color-inset) 96%, transparent) 40%,
+    color-mix(in oklab, var(--color-inset) 0%, transparent)
+  );
+  padding-top: 10px;
+}
+.chat-composer--overlay .chat-composer__tools,
+.chat-composer--overlay .chat-composer__submit,
+.chat-composer--overlay .chat-composer__send,
+.chat-composer--overlay .chat-composer__status {
+  pointer-events: auto;
+}
+.chat-composer--overlay .chat-composer__status {
+  max-width: min(52vw, 220px);
+  white-space: normal;
+  line-height: 1.25;
 }
 
 .chat-empty {

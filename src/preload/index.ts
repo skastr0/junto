@@ -779,6 +779,8 @@ const terminalApi: VellumCommandTerminalApi = {
     ),
   terminalRelease: (leaseId) => invoke(IPC_CHANNELS.terminalRelease, IPC_TIMEOUT_MS, leaseId),
   terminalWrite: (leaseId, data, encoding) => invoke(IPC_CHANNELS.terminalWrite, IPC_TIMEOUT_MS, leaseId, data, encoding),
+  terminalManagedPrompt: (input) =>
+    invoke(IPC_CHANNELS.terminalManagedPrompt, AGENT_MESSAGE_TIMEOUT_MS, input),
   terminalResize: (leaseId, cols, rows) => invoke(IPC_CHANNELS.terminalResize, IPC_TIMEOUT_MS, leaseId, cols, rows),
   onTerminalEvent: (listener) => subscribe(IPC_CHANNELS.terminalEvent, listener),
   managedTerminalModels: (harness) =>
