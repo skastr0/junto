@@ -76,19 +76,19 @@ LICENSE_PROFILE_FIELDS="$(
 IFS=$'\t' read -r \
   VELLUM_COMMAND_LICENSE_CHANNEL \
   VELLUM_COMMAND_DODO_BUSINESS_ID \
-  VELLUM_COMMAND_DODO_PRODUCT_ID \
+  VELLUM_COMMAND_DODO_PRODUCT_IDS \
   <<< "$LICENSE_PROFILE_FIELDS"
 if [[
   -z "$VELLUM_COMMAND_LICENSE_CHANNEL" ||
   -z "$VELLUM_COMMAND_DODO_BUSINESS_ID" ||
-  -z "$VELLUM_COMMAND_DODO_PRODUCT_ID"
+  -z "$VELLUM_COMMAND_DODO_PRODUCT_IDS"
  ]]; then
   printf 'vellum-command: error: license build profile resolver returned incomplete fields\n' >&2
   exit 1
 fi
 export VELLUM_COMMAND_LICENSE_CHANNEL
 export VELLUM_COMMAND_DODO_BUSINESS_ID
-export VELLUM_COMMAND_DODO_PRODUCT_ID
+export VELLUM_COMMAND_DODO_PRODUCT_IDS
 export VELLUM_COMMAND_FEATURE_PROFILE="${VELLUM_COMMAND_FEATURE_PROFILE:-ship}"
 FEATURE_DEVIATION="$(
   "$BUN_EXECUTABLE" "$SCRIPT_DIR/build-features.ts" --ship-deviation
@@ -106,7 +106,7 @@ printf \
   'vellum-command: license build profile %s → Dodo Live (%s / %s)\n' \
   "$VELLUM_COMMAND_LICENSE_CHANNEL" \
   "$VELLUM_COMMAND_DODO_BUSINESS_ID" \
-  "$VELLUM_COMMAND_DODO_PRODUCT_ID"
+  "$VELLUM_COMMAND_DODO_PRODUCT_IDS"
 printf 'vellum-command: feature build receipt %s\n' "$FEATURE_RECEIPT"
 if [[ "$LICENSE_PREFLIGHT_ONLY" -eq 1 ]]; then
   exit 0
@@ -138,9 +138,9 @@ if [[ "$VERIFY" -eq 1 ]]; then
   # packaged production license defines — those require activation in an
   # isolated HOME and deny headless Command Center startup. Packaging below
   # still builds with VELLUM_COMMAND_LICENSE_* set for the real ship bundle.
-  env -u VELLUM_COMMAND_LICENSE_CHANNEL -u VELLUM_COMMAND_DODO_BUSINESS_ID -u VELLUM_COMMAND_DODO_PRODUCT_ID \
+  env -u VELLUM_COMMAND_LICENSE_CHANNEL -u VELLUM_COMMAND_DODO_BUSINESS_ID -u VELLUM_COMMAND_DODO_PRODUCT_IDS \
     bun run test
-  env -u VELLUM_COMMAND_LICENSE_CHANNEL -u VELLUM_COMMAND_DODO_BUSINESS_ID -u VELLUM_COMMAND_DODO_PRODUCT_ID \
+  env -u VELLUM_COMMAND_LICENSE_CHANNEL -u VELLUM_COMMAND_DODO_BUSINESS_ID -u VELLUM_COMMAND_DODO_PRODUCT_IDS \
     bun run test:features:ship
 elif [[ "$FAST" -eq 0 ]]; then
   bun run typecheck

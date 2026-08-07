@@ -48,7 +48,7 @@ const result = spawnSync(
     "--external=electron",
     `--define=__VELLUM_COMMAND_LICENSE_CHANNEL__=${JSON.stringify(PRODUCTION_LICENSE_BUILD_PROFILE.channel)}`,
     `--define=__VELLUM_COMMAND_DODO_BUSINESS_ID__=${JSON.stringify(PRODUCTION_LICENSE_BUILD_PROFILE.businessId)}`,
-    `--define=__VELLUM_COMMAND_DODO_PRODUCT_ID__=${JSON.stringify(PRODUCTION_LICENSE_BUILD_PROFILE.productId)}`,
+    `--define=__VELLUM_COMMAND_DODO_PRODUCT_IDS__=${JSON.stringify(PRODUCTION_LICENSE_BUILD_PROFILE.productIds)}`,
     `--define=__VELLUM_COMMAND_MAC_UPDATE_FEED_URL__=${JSON.stringify("")}`,
     `--define=__VELLUM_COMMAND_APP_VERSION__=${JSON.stringify(appVersion)}`,
     ...featureBunDefineArgs(resolvedBuildFeatures),

@@ -13,6 +13,6 @@ declare const __VELLUM_COMMAND_AUDIO_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HERMES_INTEGRATION_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_LICENSE_CHANNEL__: string | undefined;
 declare const __VELLUM_COMMAND_DODO_BUSINESS_ID__: string | undefined;
-declare const __VELLUM_COMMAND_DODO_PRODUCT_ID__: string | undefined;
+declare const __VELLUM_COMMAND_DODO_PRODUCT_IDS__: ReadonlyArray<string> | undefined;
 declare const __VELLUM_COMMAND_MAC_UPDATE_FEED_URL__: string | undefined;
 declare const __VELLUM_COMMAND_APP_VERSION__: string | undefined;

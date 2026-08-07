@@ -27,7 +27,7 @@ const licenseProfile =
     : resolveLicenseBuildProfile({
         channel: licenseChannel,
         businessId: process.env.VELLUM_COMMAND_DODO_BUSINESS_ID,
-        productId: process.env.VELLUM_COMMAND_DODO_PRODUCT_ID,
+        productIds: process.env.VELLUM_COMMAND_DODO_PRODUCT_IDS,
       });
 
 const licenseDefines = {
@@ -35,8 +35,12 @@ const licenseDefines = {
   __VELLUM_COMMAND_DODO_BUSINESS_ID__: JSON.stringify(
     licenseProfile?.businessId ?? (process.env.VELLUM_COMMAND_DODO_BUSINESS_ID ?? ""),
   ),
-  __VELLUM_COMMAND_DODO_PRODUCT_ID__: JSON.stringify(
-    licenseProfile?.productId ?? (process.env.VELLUM_COMMAND_DODO_PRODUCT_ID ?? ""),
+  __VELLUM_COMMAND_DODO_PRODUCT_IDS__: JSON.stringify(
+    licenseProfile?.productIds ??
+      (process.env.VELLUM_COMMAND_DODO_PRODUCT_IDS ?? "")
+        .split(",")
+        .map((productId) => productId.trim())
+        .filter((productId) => productId.length > 0),
   ),
 };
 

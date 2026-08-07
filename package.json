@@ -1,6 +1,6 @@
 {
   "name": "@skastr0/vellum",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "Vellum Command \u2014 the deep-field station for multi-agent fleets.",
   "author": {
     "name": "Guilherme Castro",
@@ -26,6 +26,11 @@
   "scripts": {
     "postinstall": "bun scripts/ensure-node-pty-perms.ts",
     "dev": "bash scripts/dev.sh",
+    "dev:license": "bash scripts/dev-license.sh",
+    "license:status": "bun scripts/license-state.ts status",
+    "license:backup": "bun scripts/license-state.ts backup",
+    "license:clear": "bun scripts/license-state.ts clear --yes",
+    "license:restore": "bun scripts/license-state.ts restore --yes",
     "build": "bash scripts/build-app.sh --fast",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit",
