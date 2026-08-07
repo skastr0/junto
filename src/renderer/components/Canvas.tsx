@@ -15,7 +15,7 @@ import {
   useReactFlow,
   useStoreApi,
 } from "@xyflow/react";
-import type { Connection, EdgeMouseHandler, FinalConnectionState, Node, OnNodeDrag } from "@xyflow/react";
+import type { Connection, EdgeMouseHandler, FinalConnectionState, Node, NodeChange, OnNodeDrag } from "@xyflow/react";
 import { use$ } from "@legendapp/state/react";
 import type { CanvasDoc, EtherEdgeKind, EtherFlag } from "@shared/canvas";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
@@ -1109,6 +1109,19 @@ function useCanvasGraph() {
   const [nodes, setNodes, onNodesChange] = useNodesState<FlowNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<FlowEdge>([]);
   const rf = useReactFlow<FlowNode, FlowEdge>();
+  const rfStore = useStoreApi<FlowNode, FlowEdge>();
+  // A rubber-band box drawn inside a region always intersects it, so the
+  // region would join every marquee selection. While the user-selection rect
+  // is live (pointer-down through pointer-up — set before the first select
+  // change fires), drop region selects; a direct click never opens the rect,
+  // so click-selecting a region still works.
+  const onNodesChangeMarqueeAware = useCallback((changes: NodeChange<FlowNode>[]) => {
+    const { userSelectionRect, nodeLookup } = rfStore.getState();
+    onNodesChange(userSelectionRect
+      ? changes.filter((change) =>
+          !(change.type === "select" && change.selected && nodeLookup.get(change.id)?.type === "group"))
+      : changes);
+  }, [onNodesChange, rfStore]);
   const dragInProgressRef = useRef(false);
   const pendingRebuildRef = useRef(false);
   const flowCacheRef = useRef(createFlowIdentityCache());
@@ -1132,7 +1145,7 @@ function useCanvasGraph() {
   return {
     nodes,
     edges,
-    onNodesChange,
+    onNodesChange: onNodesChangeMarqueeAware,
     onEdgesChange,
     interactions: useCanvasInteractions(rf, setNodes, dragInProgressRef, pendingRebuildRef, flushRebuild),
     rf,
