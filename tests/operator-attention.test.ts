@@ -207,4 +207,33 @@ describe("freestandingFromCanvasAttention", () => {
       expect.objectContaining({ nodeId: "both", kind: "blocked" }),
     ]);
   });
+
+  it("surfaces live attention reasons outside every region", () => {
+    const items = freestandingFromCanvasAttention(
+      [
+        { id: "permission", label: "Agent permission" },
+        { id: "task", label: "Task queue" },
+      ],
+      {
+        blockedNodeIds: new Set(),
+        attentionReasonsByNodeId: new Map([
+          ["permission", ["permission:pending"]],
+          ["task", ["work:input-required"]],
+        ]),
+      },
+    );
+
+    expect(items).toEqual([
+      expect.objectContaining({
+        nodeId: "permission",
+        kind: "attention",
+        reasons: ["permission:pending"],
+      }),
+      expect.objectContaining({
+        nodeId: "task",
+        kind: "attention",
+        reasons: ["work:input-required"],
+      }),
+    ]);
+  });
 });

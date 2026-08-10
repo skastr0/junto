@@ -89,6 +89,13 @@ test("factory board: fire on claimed input-required, calm edges silent, tasks gl
   await expect(workerShell).toHaveAttribute("data-blocked", "true", { timeout: 15_000 });
   await expect(workerShell).toHaveAttribute("data-attention", "fire");
 
+  // The permanent notify strip must include both the blocked claimant and
+  // the attention-bearing sink, even though neither node is inside a region.
+  const attentionPills = page.getByTestId("notify-attention-pills");
+  await expect(attentionPills).toBeVisible({ timeout: 15_000 });
+  await expect(attentionPills).toContainText("worker");
+  await expect(attentionPills).toContainText("queue work");
+
   // Soft edges stay silent — no face label text "relates" on edge chips.
   const edgeFace = await page.locator(".vellum-edge-label").allTextContents();
   expect(edgeFace.every((t) => t.trim().toLowerCase() !== "relates")).toBe(true);

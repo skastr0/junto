@@ -8,8 +8,9 @@
  * Sources (worst severity wins per node):
  *  1. region rollups (members inside groups)
  *  2. freestanding canvas signals — graph-blocked seats, harness attention/
- *     blocked, and explicit `flag:attention` — including nodes **outside every
- *     region** (region rollups alone miss those)
+ *     blocked, explicit `flag:attention`, and other live attention reasons —
+ *     including nodes **outside every region** (region rollups alone miss
+ *     those)
  *
  * SFX is a separate opt-in product surface; this strip must work with audio off.
  */
@@ -127,7 +128,8 @@ export type CanvasAttentionNode = {
  *
  * Region rollups only enumerate group members — operators still need pills for
  * graph-blocked / needs-input seats that sit outside every region (or when live
- * IPC rollups lag). Graph blocked > harness blocked > harness/flag attention.
+ * IPC rollups lag). Graph blocked > harness blocked > harness/flag/live
+ * attention.
  */
 export const freestandingFromCanvasAttention = (
   nodes: ReadonlyArray<CanvasAttentionNode>,
@@ -142,11 +144,17 @@ export const freestandingFromCanvasAttention = (
       string,
       { readonly harness?: string | null | undefined }
     >;
+    /** Additional live attention reasons not represented by a terminal seat. */
+    readonly attentionReasonsByNodeId?: ReadonlyMap<
+      string,
+      ReadonlyArray<string>
+    >;
     readonly alreadyCovered?: ReadonlySet<string>;
   },
 ): ReadonlyArray<OperatorAttentionItem> => {
   const covered = input.alreadyCovered ?? new Set<string>();
   const terminal = input.terminalStatusByNodeId;
+  const liveAttention = input.attentionReasonsByNodeId;
   const out: OperatorAttentionItem[] = [];
 
   for (const node of nodes) {
@@ -157,6 +165,7 @@ export const freestandingFromCanvasAttention = (
     const harnessBlocked = harness === "blocked";
     const harnessAttention = harness === "attention";
     const flagAttention = node.flags?.includes("attention") === true;
+    const liveReasons = liveAttention?.get(node.id) ?? [];
 
     if (graphBlocked || harnessBlocked) {
       const reasons =
@@ -172,7 +181,7 @@ export const freestandingFromCanvasAttention = (
       continue;
     }
 
-    if (harnessAttention || flagAttention) {
+    if (harnessAttention || flagAttention || liveReasons.length > 0) {
       out.push({
         id: `op-attn:${node.id}`,
         nodeId: node.id,
@@ -181,6 +190,7 @@ export const freestandingFromCanvasAttention = (
         reasons: [
           ...(harnessAttention ? (["activity:attention"] as const) : []),
           ...(flagAttention ? (["flag:attention"] as const) : []),
+          ...liveReasons,
         ],
       });
     }
