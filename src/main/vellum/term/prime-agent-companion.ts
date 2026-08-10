@@ -43,7 +43,10 @@ shift 2
 attempt=0
 while [ "$attempt" -lt 3 ]; do
   if "$prime_agent" list --json --daemon-socket "$socket_path" >/dev/null 2>&1; then
-    exec "$prime_agent" --daemon-socket "$socket_path" "$@"
+    case "$1" in
+      stop|rename) exec "$prime_agent" --daemon-socket "$socket_path" -- "$@" ;;
+      *) exec "$prime_agent" --daemon-socket "$socket_path" "$@" ;;
+    esac
   fi
   attempt=$((attempt + 1))
   sleep 0.1
@@ -250,6 +253,32 @@ const normalizedText = (value: unknown, label: string): string => {
     throw new Error(`${label} required`);
   }
   return value.trim();
+};
+
+/**
+ * These flags select the daemon topology itself. Authored launch argv may use
+ * normal Prime Agent session flags, but can never replace the app-owned socket
+ * or turn the managed PTY client into another low-level server.
+ */
+const assertManagedClientArgs = (args: readonly string[]): void => {
+  let positionalOnly = false;
+  for (const arg of args) {
+    if (positionalOnly) continue;
+    if (arg === "--") {
+      positionalOnly = true;
+      continue;
+    }
+    if (
+      arg === "--daemon-socket" ||
+      arg.startsWith("--daemon-socket=") ||
+      arg === "--mode" ||
+      arg.startsWith("--mode=")
+    ) {
+      throw new Error(
+        `Prime Agent managed seats reserve ${arg.split("=", 1)[0]} for Vellum Command`,
+      );
+    }
+  }
 };
 
 const boundedInteger = (
@@ -992,6 +1021,7 @@ export const makePrimeAgentCompanionManager = (
     const epoch = normalizedText(input.epoch, "epoch");
     const file = normalizedText(input.launch.file, "Prime Agent executable");
     const cwd = normalizedText(input.launch.cwd, "Prime Agent cwd");
+    assertManagedClientArgs(input.launch.args);
     // Local replacement is synchronous: identity revocation and old-generation
     // stop admission happen before the new PTY is opened, but exact cleanup is
     // asynchronous. Permit a distinct epoch only after that old stop cut exists.

@@ -394,6 +394,9 @@ describe("Prime Agent companion manager", () => {
     expect(wrapper).toContain(
       'exec "$prime_agent" --daemon-socket "$socket_path" "$@"',
     );
+    expect(wrapper).toContain(
+      'stop|rename) exec "$prime_agent" --daemon-socket "$socket_path" -- "$@"',
+    );
     expect(wrapper).toContain('while [ "$attempt" -lt 3 ]');
     expect(wrapper.indexOf(" list --json ")).toBeLessThan(
       wrapper.indexOf("exec "),
@@ -406,6 +409,29 @@ describe("Prime Agent companion manager", () => {
     await second.stop("test_cleanup");
     expect(existsSync(dirname(first.socketPath))).toBe(false);
     expect(existsSync(dirname(second.socketPath))).toBe(false);
+  });
+
+  it("rejects authored overrides of the managed socket and daemon mode", () => {
+    const plane = new FakeProcessPlane();
+    const reporter = new FakeReporterPort();
+    const manager = makePrimeAgentCompanionManager(
+      testOptions(plane, reporter),
+    );
+
+    for (const args of [
+      ["--daemon-socket", "/tmp/shared.sock"],
+      ["--daemon-socket=/tmp/shared.sock"],
+      ["--mode", "daemon"],
+      ["--mode=daemon"],
+    ]) {
+      expect(() => manager.start({
+        bindingId: `reserved-${args[0]}`,
+        epoch: "epoch-reserved",
+        launch: launch({ args }),
+      })).toThrow(/reserve .* for Vellum Command/u);
+    }
+    expect(plane.spawns).toEqual([]);
+    expect(reporter.registrations).toEqual([]);
   });
 
   it("admits a new exact epoch while the prior generation cleanup is pending", async () => {
