@@ -90,12 +90,13 @@ export function slotIndexOf(
   return index >= 0 && index <= 8 ? index : null;
 }
 
-/** Index of nodeId on a 9-slot hotbar (fixed or leased), or null. */
+/** Index of nodeId on a 9-slot hotbar (fixed, leased, or evicted soft-hold). */
 export function hotbarSlotIndexOf(
   slots: ReadonlyArray<
     | { readonly kind: "empty" }
     | { readonly kind: "fixed"; readonly nodeId: string }
     | { readonly kind: "leased"; readonly nodeId: string }
+    | { readonly kind: "evicted"; readonly nodeId: string }
   >,
   nodeId: string,
 ): number | null {
@@ -106,5 +107,9 @@ export function hotbarSlotIndexOf(
   const leased = slots.findIndex(
     (slot) => slot.kind === "leased" && slot.nodeId === nodeId,
   );
-  return leased >= 0 && leased <= 8 ? leased : null;
+  if (leased >= 0 && leased <= 8) return leased;
+  const evicted = slots.findIndex(
+    (slot) => slot.kind === "evicted" && slot.nodeId === nodeId,
+  );
+  return evicted >= 0 && evicted <= 8 ? evicted : null;
 }

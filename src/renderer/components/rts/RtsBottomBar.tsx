@@ -34,6 +34,7 @@ import { executionGraphContextFromActorRefs, groupMembers } from "@shared/graph"
 import { isBlockableNode } from "@shared/execution-graph";
 import type { MemberSeverity, RegionRollup } from "@shared/region-rollup";
 import { formatNodeRef } from "@shared/node-ref";
+import type { WorkSurfaceActivity } from "@shared/terminal";
 import { state$, toggleFlagFilter } from "../../lib/state";
 import { viewportBusy$ } from "../../lib/viewport-busy";
 import { useRegionRollups } from "../../lib/region-rollups";
@@ -71,6 +72,7 @@ import {
 } from "../../lib/multi-selection";
 import { nodeTitle, nodeTypeLabel } from "../../lib/presentation";
 import { herdr$ } from "../../lib/herdr-state";
+import { chatCoarse$ } from "../../lib/chat-state";
 import {
   deriveIdleHerdrQueue,
   nextIdleHerdrNodeId,
@@ -276,25 +278,35 @@ const recomputeHotbar = (): void => {
   state$.regionSlotOrder.set(fixedOrderOf(next));
 };
 
-/** Assign node to first empty slot as fixed. No-op if already fixed. */
+/** Assign node to first free slot as fixed. Empty preferred; then evicted. */
 const assignToFirstFreeSlot = (nodeId: string): void => {
   const slots = state$.hotbarSlots.peek();
   if (hotbarSlotIndexOfNode(slots, nodeId) !== null) {
-    // Already fixed or leased — promote lease to fixed in place.
+    // Already on bar (fixed / leased / evicted) — promote to fixed in place.
     const index = hotbarSlotIndexOfNode(slots, nodeId)!;
-    if (slots[index]?.kind === "leased") {
+    if (slots[index]?.kind !== "fixed") {
       state$.hotbarSlots.set(assignFixedSlot(slots, nodeId, index));
       recomputeHotbar();
     }
     return;
   }
   let target = 0;
+  let foundEmpty = false;
   for (let i = 0; i < 9; i++) {
     if (slots[i]?.kind === "empty") {
       target = i;
+      foundEmpty = true;
       break;
     }
-    target = Math.min(i + 1, 8);
+  }
+  if (!foundEmpty) {
+    for (let i = 0; i < 9; i++) {
+      if (slots[i]?.kind === "evicted") {
+        target = i;
+        break;
+      }
+      target = Math.min(i + 1, 8);
+    }
   }
   state$.hotbarSlots.set(assignFixedSlot(slots, nodeId, target));
   recomputeHotbar();
@@ -911,7 +923,7 @@ function IdleHerdrButton({ queue }: { readonly queue: ReadonlyArray<IdleHerdrEnt
 
 /**
  * Hotbar chip: slot digit + name + signal motion.
- * `tenure`: empty | leased (opportunistic) | fixed (operator).
+ * `tenure`: empty | leased (active) | evicted (idle soft-hold) | fixed (operator).
  */
 function HotbarChip({
   index,
@@ -926,7 +938,7 @@ function HotbarChip({
   onDrop,
 }: {
   readonly index: number;
-  readonly tenure: "empty" | "fixed" | "leased";
+  readonly tenure: "empty" | "fixed" | "leased" | "evicted";
   readonly nodeId?: string;
   readonly label: string;
   readonly severity: MemberSeverity;
@@ -943,7 +955,7 @@ function HotbarChip({
       ? regionPausedIn(pause$.state.get(), nodeId)
       : false,
   );
-  const live = !empty && mark.mode === "wave" && !paused;
+  const live = !empty && tenure !== "evicted" && mark.mode === "wave" && !paused;
   const sev = empty ? "idle" : paused ? "paused" : mark.kind;
 
   const chipStyle = empty
@@ -956,7 +968,13 @@ function HotbarChip({
       } as CSSProperties);
 
   const tenureLabel =
-    tenure === "fixed" ? "fixed" : tenure === "leased" ? "leased" : "empty";
+    tenure === "fixed"
+      ? "fixed"
+      : tenure === "leased"
+        ? "leased"
+        : tenure === "evicted"
+          ? "idle hold"
+          : "empty";
 
   return (
     <button
@@ -998,7 +1016,11 @@ function HotbarChip({
         empty
           ? `Empty slot ${index + 1} — ⌘${index + 1} fixes selection here; active nodes may lease it`
           : `${label} · ${tenureLabel} · ${paused ? "paused" : mark.label}${
-              tenure === "leased" ? " · auto" : ""
+              tenure === "leased"
+                ? " · auto"
+                : tenure === "evicted"
+                  ? " · soft (yields to new activity)"
+                  : ""
             }`
       }
     >
@@ -1021,7 +1043,7 @@ function HotbarChip({
 
 /**
  * Permanent thin hotbar above command + kind: always 9 slots.
- * Fixed = operator; leased = recent active nodes; empty = available.
+ * Fixed = operator; leased = active; evicted = idle soft-hold; empty = free.
  */
 function HotbarStrip({
   byId,
@@ -1045,7 +1067,7 @@ function HotbarStrip({
   }, [canvasName]);
 
   // Prune dead ids + refresh leases on doc / selection / seat sticky changes.
-  // Seat transitions free sticky leases when agents go idle.
+  // Idle sticky seats demote to soft-hold (evicted), not vanish.
   useEffect(() => {
     recomputeHotbar();
   }, [doc, selectedNodeId, seatByBinding, herdrMetaByNodeId]);
@@ -1205,6 +1227,14 @@ function OperatorAttentionPills({
     string,
     boolean | undefined
   >;
+  const chatByAgent = use$(chatCoarse$) as Record<
+    string,
+    { readonly pendingPermissionId?: string } | undefined
+  >;
+  const herdrMetaByNodeId = use$(herdr$.metaByNodeId) as Record<
+    string,
+    { readonly meta?: { readonly agentStatus?: string } } | undefined
+  >;
 
   const items = useMemo(() => {
     const fromRollups = collectOperatorAttention(rollups);
@@ -1214,6 +1244,48 @@ function OperatorAttentionPills({
       seatByBinding ?? {},
       needsLookByBinding ?? {},
     );
+    const liveAttentionReasonsByNodeId = new Map<string, ReadonlyArray<string>>();
+    const addAttentionReason = (nodeId: string, reason: string): void => {
+      const reasons = liveAttentionReasonsByNodeId.get(nodeId) ?? [];
+      if (reasons.includes(reason)) return;
+      liveAttentionReasonsByNodeId.set(nodeId, [...reasons, reason]);
+    };
+
+    // Keep freestanding pills in lockstep with the card's fire state. Region
+    // rollups already cover grouped ACP permissions, while this map covers
+    // agents and work sinks outside every region.
+    for (const node of doc.nodes) {
+      const entityKind = node.ether?.entity?.kind;
+      if (entityKind === "task" || entityKind === "requests") {
+        const items =
+          entityKind === "task"
+            ? node.ether?.tasks?.items ?? []
+            : node.ether?.requests?.items ?? [];
+        for (const item of items) {
+          if (item.state === "input-required" || item.state === "auth-required") {
+            addAttentionReason(node.id, `work:${item.state}`);
+            break;
+          }
+        }
+      }
+
+      const agentKey =
+        entityKind === "agent" ? node.ether?.entity?.name : undefined;
+      if (agentKey && chatByAgent?.[agentKey]?.pendingPermissionId) {
+        addAttentionReason(node.id, "permission:pending");
+      }
+
+      const herdrStatus = herdrMetaByNodeId?.[node.id]?.meta?.agentStatus;
+      if (herdrStatus === "blocked" || herdrStatus === "attention") {
+        // Herdr is a display surface, but its live status still needs the
+        // same permanent operator affordance as the card chrome.
+        terminalStatus.set(node.id, {
+          session: "running",
+          harness: herdrStatus,
+          source: "herdr",
+        } satisfies WorkSurfaceActivity);
+      }
+    }
     const context = executionGraphContextFromActorRefs(canvasName, actorRefs);
     const graph = executionGraphForImpact(doc, execution, context);
     const blockedReasonsByNodeId = new Map<string, ReadonlyArray<string>>();
@@ -1239,6 +1311,7 @@ function OperatorAttentionPills({
         blockedNodeIds: graph.blocked,
         blockedReasonsByNodeId,
         terminalStatusByNodeId: terminalStatus,
+        attentionReasonsByNodeId: liveAttentionReasonsByNodeId,
         alreadyCovered: covered,
       },
     );
@@ -1249,6 +1322,8 @@ function OperatorAttentionPills({
     doc,
     seatByBinding,
     needsLookByBinding,
+    chatByAgent,
+    herdrMetaByNodeId,
     canvasName,
     actorRefs,
     execution,

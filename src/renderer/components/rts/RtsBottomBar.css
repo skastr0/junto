@@ -194,7 +194,7 @@
     opacity 0.15s ease;
 }
 
-/* Tenure: empty / leased (auto) / fixed (operator). */
+/* Tenure: empty / leased (active) / evicted (idle soft-hold) / fixed (operator). */
 .rts-chip--strip.is-tenure-empty {
   opacity: 0.55;
   border-style: dashed;
@@ -212,6 +212,19 @@
   border-style: dashed;
   border-color: color-mix(in oklab, var(--color-cyan) 45%, var(--color-stroke));
   box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-cyan) 18%, transparent);
+}
+
+/* Idle soft-hold: still a real chip, quieter — yields to new activity. */
+.rts-chip--strip.is-tenure-evicted {
+  opacity: 0.72;
+  border-style: dashed;
+  border-color: color-mix(in oklab, var(--color-stroke) 85%, transparent);
+  box-shadow: none;
+  filter: saturate(0.55);
+}
+
+.rts-chip--strip.is-tenure-evicted .rts-chip__label {
+  color: color-mix(in oklab, var(--color-dim) 90%, transparent);
 }
 
 .rts-chip--strip.is-tenure-fixed {

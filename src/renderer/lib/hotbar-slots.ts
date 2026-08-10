@@ -1,6 +1,11 @@
 /**
- * Hotbar slots 1–9: empty | fixed (operator) | leased (active-node opportunistic).
+ * Hotbar slots 1–9: empty | fixed (operator) | leased (active) | evicted (idle soft-hold).
  * Presentational only — never written into the authorial canvas.
+ *
+ * Evicted = was leased, node still live, no longer lease-worthy (idle / left MRU).
+ * Still shows and still occupies the digit visually, but counts as fillable for
+ * new active leases — so working with a few agents does not make chips vanish
+ * the moment they go idle.
  */
 import { Schema } from "effect";
 
@@ -23,10 +28,18 @@ export const LeasedHotbarSlot = Schema.Struct({
 });
 export type LeasedHotbarSlot = typeof LeasedHotbarSlot.Type;
 
+/** Idle soft-hold: still painted, still pressable, fillable by new activity. */
+export const EvictedHotbarSlot = Schema.Struct({
+  kind: Schema.Literal("evicted"),
+  nodeId: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+});
+export type EvictedHotbarSlot = typeof EvictedHotbarSlot.Type;
+
 export const HotbarSlot = Schema.Union([
   EmptyHotbarSlot,
   FixedHotbarSlot,
   LeasedHotbarSlot,
+  EvictedHotbarSlot,
 ]);
 export type HotbarSlot = typeof HotbarSlot.Type;
 
@@ -53,10 +66,17 @@ export const isFixedSlot = (slot: HotbarSlot): slot is FixedHotbarSlot =>
 export const isLeasedSlot = (slot: HotbarSlot): slot is LeasedHotbarSlot =>
   slot.kind === "leased";
 
+export const isEvictedSlot = (slot: HotbarSlot): slot is EvictedHotbarSlot =>
+  slot.kind === "evicted";
+
+/** Soft-hold or empty — new opportunistic leases may take this index. */
+export const isFillableSlot = (slot: HotbarSlot): boolean =>
+  slot.kind === "empty" || slot.kind === "evicted";
+
 export const slotNodeId = (slot: HotbarSlot): string | undefined =>
   slot.kind === "empty" ? undefined : slot.nodeId;
 
-/** Index of node in slots (fixed preferred if ever duplicated — should not be). */
+/** Index of node in slots (fixed preferred, then leased, then evicted). */
 export function slotIndexOf(
   slots: ReadonlyArray<HotbarSlot>,
   nodeId: string,
@@ -68,7 +88,11 @@ export function slotIndexOf(
   const leased = slots.findIndex(
     (slot) => slot.kind === "leased" && slot.nodeId === nodeId,
   );
-  return leased >= 0 && leased < HOTBAR_SLOT_COUNT ? leased : null;
+  if (leased >= 0 && leased < HOTBAR_SLOT_COUNT) return leased;
+  const evicted = slots.findIndex(
+    (slot) => slot.kind === "evicted" && slot.nodeId === nodeId,
+  );
+  return evicted >= 0 && evicted < HOTBAR_SLOT_COUNT ? evicted : null;
 }
 
 export function nodeIdAt(
@@ -95,7 +119,7 @@ export function pruneHotbarSlots(
 
 /**
  * Operator assignment: fix `nodeId` at `slotIndex`. Removes that node from
- * every other slot. Empty/leased at target become fixed.
+ * every other slot. Empty/leased/evicted at target become fixed.
  */
 export function assignFixedSlot(
   slots: ReadonlyArray<HotbarSlot>,
@@ -124,7 +148,7 @@ export function clearHotbarSlotAt(
   return padSlots(next);
 }
 
-/** Remove a node wherever it appears (fixed or leased). */
+/** Remove a node wherever it appears (fixed, leased, or evicted). */
 export function clearHotbarNode(
   slots: ReadonlyArray<HotbarSlot>,
   nodeId: string,
@@ -139,19 +163,20 @@ export function clearHotbarNode(
 }
 
 /**
- * Opportunistic leases: fill empty slots with recent/active nodes.
+ * Opportunistic leases with idle soft-hold.
  *
  * Stability rules (operator law — least perplexing):
  * 1. Fixed slots never change here.
- * 2. An existing lease keeps its **slot index** while the node is still live
- *    and lease-worthy (working-sticky or still in the active MRU). No reshuffle
- *    when focus hops between nodes (pressing "2" must not reassign slot 2).
- * 3. Working-sticky nodes stay leased even when not most-recent in MRU; they
- *    only free when they leave the sticky set (e.g. go idle) and drop out of MRU.
- * 4. Empty slots fill from sticky-first then MRU, skipping already-placed ids.
+ * 2. An active lease keeps its **slot index** while lease-worthy (sticky or
+ *    still in the active MRU). No reshuffle on focus hops.
+ * 3. When a lease stops being lease-worthy (idle / left MRU) it becomes
+ *    **evicted** at the same index — still painted and pressable.
+ * 4. Evicted slots are fillable: new sticky/MRU entries take empty first,
+ *    then displace evicted (left-to-right). Hard leases never displace each other.
+ * 5. Evicted → leased if the same node becomes lease-worthy again (in place).
  *
  * @param activeNodeIdsMru most-recently-active first
- * @param stickyWorkingIds nodes that must keep a lease while working
+ * @param stickyWorkingIds nodes that must keep a hard lease while working
  */
 export function applyHotbarLeases(
   slots: ReadonlyArray<HotbarSlot>,
@@ -160,14 +185,9 @@ export function applyHotbarLeases(
   stickyWorkingIds: ReadonlyArray<string> = [],
 ): HotbarSlot[] {
   const live = new Set(liveNodeIds);
-  const sticky = new Set(
-    stickyWorkingIds.filter((id) => live.has(id)),
-  );
-  const active = new Set(
-    activeNodeIdsMru.filter((id) => live.has(id)),
-  );
-  const isLeaseWorthy = (id: string): boolean =>
-    sticky.has(id) || active.has(id);
+  const sticky = new Set(stickyWorkingIds.filter((id) => live.has(id)));
+  const active = new Set(activeNodeIdsMru.filter((id) => live.has(id)));
+  const isLeaseWorthy = (id: string): boolean => sticky.has(id) || active.has(id);
 
   const fixedIds = new Set(
     slots
@@ -176,59 +196,87 @@ export function applyHotbarLeases(
       .filter((id) => live.has(id)),
   );
 
-  // Pass 1: keep fixed; preserve lease-worthy leases at the same index.
+  // Pass 1: fixed stay; leased/evicted promote/demote in place; dead → empty.
   const preserved: HotbarSlot[] = padSlots(
     slots.map((slot) => {
       if (slot.kind === "fixed") {
         return live.has(slot.nodeId) ? slot : { kind: "empty" as const };
       }
-      if (slot.kind === "leased") {
+      if (slot.kind === "leased" || slot.kind === "evicted") {
         const id = slot.nodeId;
-        if (live.has(id) && !fixedIds.has(id) && isLeaseWorthy(id)) {
-          return slot;
-        }
-        return { kind: "empty" as const };
+        if (!live.has(id) || fixedIds.has(id)) return { kind: "empty" as const };
+        if (isLeaseWorthy(id)) return { kind: "leased" as const, nodeId: id };
+        // Soft-hold: still show, still fillable.
+        return { kind: "evicted" as const, nodeId: id };
       }
       return { kind: "empty" as const };
     }),
   );
 
-  // Pass 2: fill empties without moving preserved leases.
-  const onBoard = new Set<string>(fixedIds);
+  // Hard occupants block re-placement of the same id elsewhere.
+  const hardOnBoard = new Set<string>(fixedIds);
   for (const slot of preserved) {
-    if (slot.kind === "leased") onBoard.add(slot.nodeId);
+    if (slot.kind === "leased") hardOnBoard.add(slot.nodeId);
   }
+  // Soft occupants: still "on the bar" for dedupe until displaced.
+  const softOnBoard = new Set<string>();
+  for (const slot of preserved) {
+    if (slot.kind === "evicted") softOnBoard.add(slot.nodeId);
+  }
+
   const fillOrder: string[] = [];
   const fillSeen = new Set<string>();
   for (const id of stickyWorkingIds) {
-    if (live.has(id) && !onBoard.has(id) && !fillSeen.has(id)) {
+    if (live.has(id) && !hardOnBoard.has(id) && !fillSeen.has(id)) {
       fillOrder.push(id);
       fillSeen.add(id);
     }
   }
   for (const id of activeNodeIdsMru) {
-    if (live.has(id) && !onBoard.has(id) && !fillSeen.has(id)) {
+    if (live.has(id) && !hardOnBoard.has(id) && !fillSeen.has(id)) {
       fillOrder.push(id);
       fillSeen.add(id);
     }
   }
 
   let candidateIndex = 0;
-  const next = preserved.map((slot) => {
-    if (slot.kind !== "empty") return slot;
+  const takeNextCandidate = (): string | undefined => {
     while (candidateIndex < fillOrder.length) {
       const id = fillOrder[candidateIndex]!;
       candidateIndex += 1;
-      if (onBoard.has(id)) continue;
-      onBoard.add(id);
-      return { kind: "leased" as const, nodeId: id };
+      // Already hard-leased or fixed — skip. Soft same-id is promoted in pass 1.
+      if (hardOnBoard.has(id)) continue;
+      // Already soft-held at some index: pass 1 should have promoted if worthy.
+      // If still in fillOrder while soft, it was not lease-worthy (shouldn't happen).
+      if (softOnBoard.has(id)) continue;
+      return id;
     }
-    return { kind: "empty" as const };
+    return undefined;
+  };
+
+  // Pass 2a: fill true empties first (prefer empty over displacing soft holds).
+  const afterEmpty = preserved.map((slot) => {
+    if (slot.kind !== "empty") return slot;
+    const id = takeNextCandidate();
+    if (!id) return slot;
+    hardOnBoard.add(id);
+    return { kind: "leased" as const, nodeId: id };
   });
+
+  // Pass 2b: remaining candidates displace evicted left-to-right.
+  const next = afterEmpty.map((slot) => {
+    if (slot.kind !== "evicted") return slot;
+    const id = takeNextCandidate();
+    if (!id) return slot;
+    softOnBoard.delete(slot.nodeId);
+    hardOnBoard.add(id);
+    return { kind: "leased" as const, nodeId: id };
+  });
+
   return padSlots(next);
 }
 
-/** prune dead → re-lease from MRU (sticky working leases hold their slots). */
+/** prune dead → re-lease / soft-hold from MRU + sticky. */
 export function resolveHotbarSlots(
   slots: ReadonlyArray<HotbarSlot>,
   liveNodeIds: ReadonlyArray<string>,
