@@ -3,7 +3,11 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { FEATURE_CATALOG } from "../src/shared/feature-catalog";
+import {
+  FEATURE_CATALOG,
+  SHIP_FEATURES,
+  type FeatureKey,
+} from "../src/shared/feature-catalog";
 import { standaloneControlBuild } from "../scripts/build-standalone-cli";
 
 const repoRoot = path.resolve(
@@ -31,8 +35,12 @@ describe("packaged feature build contract", () => {
     const build = standaloneControlBuild("vellum-command");
     expect(build.profile).toBe("ship");
     expect(build.output).toBe("dist/vellum-command");
-    for (const feature of Object.values(FEATURE_CATALOG)) {
-      expect(build.featureDefines).toContain(`--define=${feature.define}=false`);
+    for (const [key, feature] of Object.entries(FEATURE_CATALOG) as Array<
+      [FeatureKey, (typeof FEATURE_CATALOG)[FeatureKey]]
+    >) {
+      expect(build.featureDefines).toContain(
+        `--define=${feature.define}=${String(SHIP_FEATURES[key])}`,
+      );
     }
   });
 
