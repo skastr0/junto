@@ -482,9 +482,11 @@ const sessionIdsFromList = (value: unknown): ScopedList | undefined => {
   const roots: string[] = [];
   const active: string[] = [];
   for (const session of value.sessions) {
-    if (!isObject(session)) continue;
+    // This command is `list` without `--all`: every row is an active runtime
+    // entry. A malformed or saved-only-looking row is uncertainty about a live
+    // root, never evidence that the scoped daemon is empty.
+    if (!isObject(session)) return undefined;
     const activeSessionId = session.activeSessionId;
-    if (activeSessionId === undefined) continue;
     if (typeof activeSessionId !== "string") return undefined;
     const id = activeSessionId.trim();
     if (
@@ -677,7 +679,7 @@ export const makePrimeAgentCompanionManager = (
     if (list === undefined) {
       return Object.freeze({
         ok: false as const,
-        message: "scoped Prime Agent list omitted its sessions array",
+        message: "scoped Prime Agent list returned a malformed active sessions roster",
         command,
       });
     }
@@ -1136,10 +1138,15 @@ export const makePrimeAgentCompanionManager = (
         record.unexpectedScheduled = true;
         queueMicrotask(() => {
           if (record.stopFlight !== undefined) return;
-          const cleanup = stopRecord(
-            record,
-            "daemon_unexpected_exit",
-            true,
+          // Record crash semantics before the owner callback can coalesce the
+          // same stop flight under its own reason.
+          record.unexpected = true;
+          // Publish the cleanup flight now, but defer its first instruction to
+          // the next microtask. The LocalSessionHost callback therefore gets a
+          // synchronous cut line to revoke both process identities and stop the
+          // PTY before reporter release or any scoped cleanup child can start.
+          const cleanup = Promise.resolve().then(() =>
+            stopRecord(record, "daemon_unexpected_exit", true)
           );
           try {
             record.onUnexpectedExit?.(

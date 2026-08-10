@@ -512,7 +512,6 @@ describe("Prime Agent companion manager", () => {
               runtimeKind: "top-level",
               rlmDepth: 1,
             },
-            { id: "saved-only", runtimeKind: "top-level", rlmDepth: 0 },
           ],
         }),
       },
@@ -621,6 +620,35 @@ describe("Prime Agent companion manager", () => {
     );
   });
 
+  it("fails closed when an active roster row omits its full active session id", async () => {
+    const plane = new FakeProcessPlane();
+    const reporter = new FakeReporterPort();
+    const manager = makePrimeAgentCompanionManager(
+      testOptions(plane, reporter),
+    );
+    const handle = manager.start({
+      bindingId: "seat-missing-active-id",
+      epoch: "epoch-missing-active-id",
+      launch: launch(),
+    });
+    remember(handle);
+    plane.enqueue({
+      stdout: JSON.stringify({
+        sessions: [{ id: "short-display-id", runtimeKind: "top-level", rlmDepth: 0 }],
+      }),
+    });
+
+    const receipt = await handle.stop("malformed_active_roster");
+
+    expect(receipt.clean).toBe(false);
+    expect(plane.commands).toHaveLength(1);
+    expect(plane.terminations).toEqual([]);
+    expect(plane.forceTerminations).toEqual([]);
+    expect(receipt.diagnostics[0]?.message).toContain(
+      "malformed active sessions roster",
+    );
+  });
+
   it("rejects an unbounded or unsafe active id instead of reusing it as argv", async () => {
     const plane = new FakeProcessPlane();
     const reporter = new FakeReporterPort();
@@ -645,7 +673,7 @@ describe("Prime Agent companion manager", () => {
     expect(plane.commands).toHaveLength(1);
     expect(plane.commands[0]!.spec.args?.[0]).toBe("list");
     expect(plane.terminations).toEqual([]);
-    expect(receipt.diagnostics[0]?.message).toContain("sessions array");
+    expect(receipt.diagnostics[0]?.message).toContain("malformed active sessions roster");
   });
 
   it("on unexpected exit waits for a replacement, stops its roots, and never adopts it", async () => {
@@ -654,9 +682,15 @@ describe("Prime Agent companion manager", () => {
     const manager = makePrimeAgentCompanionManager(
       testOptions(plane, reporter),
     );
-    const onUnexpectedExit = vi.fn<
-      (event: PrimeAgentCompanionUnexpectedExit) => void
-    >();
+    const cleanupCut: Array<{ releases: number; commands: number }> = [];
+    const onUnexpectedExit = vi.fn(
+      (_event: PrimeAgentCompanionUnexpectedExit): void => {
+        cleanupCut.push({
+          releases: reporter.registrations[0]?.releases ?? 0,
+          commands: plane.commands.length,
+        });
+      },
+    );
     const handle = manager.start({
       bindingId: "seat-crash",
       epoch: "epoch-crash",
@@ -676,6 +710,7 @@ describe("Prime Agent companion manager", () => {
     retainedDaemon.finish(9, null);
 
     await vi.waitFor(() => expect(onUnexpectedExit).toHaveBeenCalledOnce());
+    expect(cleanupCut).toEqual([{ releases: 0, commands: 0 }]);
     const event = onUnexpectedExit.mock.calls[0]![0];
     const receipt = await event.cleanup;
 
