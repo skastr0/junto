@@ -108,7 +108,7 @@ export const HARNESS_MUSE_ENABLED: boolean =
     ? __VELLUM_COMMAND_HARNESS_MUSE_ENABLED__
     : envEnabled("VELLUM_COMMAND_HARNESS_MUSE");
 
-/** Experimental Prime Agent managed seat — ship/prod off. */
+/** Stock Prime Agent 0.7.1 managed seat; separately installed CLI required. */
 export const HARNESS_PRIME_AGENT_ENABLED: boolean =
   typeof __VELLUM_COMMAND_HARNESS_PRIME_AGENT_ENABLED__ === "boolean"
     ? __VELLUM_COMMAND_HARNESS_PRIME_AGENT_ENABLED__

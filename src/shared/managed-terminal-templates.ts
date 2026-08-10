@@ -426,8 +426,8 @@ export const PI_TEMPLATE: ManagedTerminalTemplate = {
 };
 
 /**
- * Prime Agent (stock package `prime-agent`) — shipped Tier A, capture session,
- * with a built-in socket reporter (idle/working/blocked + session id).
+ * Prime Agent (stock separately installed `prime-agent` CLI) — shipped Tier A,
+ * capture session, with a built-in reporter (idle/working/blocked + session id).
  * Verified 0.7.1: positional prompt; --thinking effort (7 levels); resume
  * `-r <path|id>` / `-c` (no pin flag — capture from reporter / list --json);
  * --append-system-prompt repeatable; no permission-mode flag (--autonomous is
