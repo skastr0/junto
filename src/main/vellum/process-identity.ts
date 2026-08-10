@@ -123,6 +123,8 @@ export const processAlive = (pid: number): boolean => {
 export interface ProcessIdentityMapOptions {
   readonly processAlive?: (pid: number) => boolean;
   readonly readProcessStartKey?: (pid: number) => string | undefined;
+  /** Deterministic ancestry seam for tests; production uses the sealed ps reader. */
+  readonly readParentPid?: (pid: number) => number | undefined;
 }
 
 export const makeProcessIdentityMap = (
@@ -133,6 +135,7 @@ export const makeProcessIdentityMap = (
   const listeners = new Set<(principal: ProcessPrincipal) => void>();
   const isAlive = options.processAlive ?? processAlive;
   const startKeyOf = options.readProcessStartKey ?? readProcessStartKey;
+  const parentOf = options.readParentPid ?? readParentPid;
 
   const notify = (principal: ProcessPrincipal): void => {
     for (const listener of listeners) listener(principal);
@@ -256,7 +259,7 @@ export const makeProcessIdentityMap = (
     ) {
       const hit = resolveLive(current);
       if (hit !== undefined) return hit;
-      current = readParentPid(current);
+      current = parentOf(current);
     }
     return undefined;
   };
