@@ -1262,7 +1262,7 @@ export class LocalSessionHost extends EventEmitter {
   }
 
   runningCount(): number {
-    return this.liveRecords.size;
+    return this.outstandingGenerationCount();
   }
 
   /**
@@ -1272,7 +1272,7 @@ export class LocalSessionHost extends EventEmitter {
    * mint.
    */
   acquireMaintenanceLease(): LocalTerminalMaintenanceAcquireResult {
-    const activeTerminalSessions = this.liveRecords.size;
+    const activeTerminalSessions = this.outstandingGenerationCount();
     const evidence = Object.freeze({
       activeTerminalSessions,
       observationId: mintMaintenanceObservation(),
@@ -1481,11 +1481,20 @@ export class LocalSessionHost extends EventEmitter {
     // never a mutable binding lookup, so an old daemon cannot stop a replacement.
     this.revokeProcessIdentities(rec);
     if (this.sessions.get(rec.bindingId) === rec) {
+      const data =
+        "\r\n[vellum] Prime Agent companion exited unexpectedly; stopping client\r\n";
       rec.seq = rec.seq + 1n;
       this.pushJournal(rec, {
         seq: rec.seq,
         type: "output",
-        data: "\r\n[vellum] Prime Agent companion exited unexpectedly; stopping client\r\n",
+        data,
+      });
+      this.safeEmitEvent({
+        type: "output",
+        bindingId: rec.bindingId,
+        epoch: rec.epoch,
+        seq: rec.seq,
+        data,
       });
     }
     this.requestStop(rec, "companion_unexpected_exit");
@@ -1564,6 +1573,10 @@ export class LocalSessionHost extends EventEmitter {
         this.companionManagerShutdownError = errorMessage(error);
       },
     );
+  }
+
+  private outstandingGenerationCount(): number {
+    return new Set([...this.liveRecords, ...this.companionRecords]).size;
   }
 
   private shutdownQuiescent(): boolean {

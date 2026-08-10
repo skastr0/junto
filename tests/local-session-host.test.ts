@@ -776,9 +776,14 @@ describe("LocalSessionHost", () => {
     );
     expect(companion.records[0]?.stopReasons).toContain("terminal_exit");
     expect(identities.snapshot()).toEqual([]);
-    // The PTY is gone, but LocalSessionHost.shutdownAll must still wait for the
-    // independently tracked companion cleanup receipt.
-    expect(host.runningCount()).toBe(0);
+    // The PTY is gone, but the exact companion generation still prevents a
+    // false zero-session maintenance cut and remains in the shutdown fence.
+    expect(host.runningCount()).toBe(1);
+    expect(host.acquireMaintenanceLease()).toMatchObject({
+      acquired: false,
+      reason: "active_sessions",
+      evidence: { activeTerminalSessions: 1 },
+    });
     const shutdown = host.shutdownAll("client_exit_cleanup");
     let settled = false;
     void shutdown.then(() => {
@@ -789,6 +794,7 @@ describe("LocalSessionHost", () => {
 
     companion.records[0]?.resolveStop();
     await expect(shutdown).resolves.toEqual({ clean: true, stragglers: [] });
+    expect(host.runningCount()).toBe(0);
   });
 
   it("revokes both Prime generations immediately and stops only its PTY when the daemon crashes", async () => {
@@ -806,7 +812,15 @@ describe("LocalSessionHost", () => {
       companionManager: companion.manager,
       killGraceMs: 100,
     });
-    host.createAgentSeat({
+    const outputEvents: Array<{
+      readonly bindingId: string;
+      readonly epoch: string;
+      readonly data: string;
+    }> = [];
+    host.on("event", (event) => {
+      if (event.type === "output") outputEvents.push(event);
+    });
+    const created = host.createAgentSeat({
       bindingId: "prime-crash",
       harness: "prime-agent",
       agentKey: "local:prime-crash",
@@ -820,6 +834,15 @@ describe("LocalSessionHost", () => {
     expect(identities.snapshot()).toEqual([]);
     expect(fake.controllers[0]?.signals).toEqual(["SIGTERM"]);
     expect(host.get("prime-crash")?.stopping).toBe(true);
+    expect(outputEvents).toMatchObject([
+      {
+        bindingId: "prime-crash",
+        epoch: created.epoch,
+        data: expect.stringContaining(
+          "Prime Agent companion exited unexpectedly; stopping client",
+        ),
+      },
+    ]);
 
     companion.records[0]?.resolveStop();
     fake.controllers[0]?.exit(1);
@@ -1172,6 +1195,10 @@ describe("LocalSessionHost", () => {
       exitOnSignal: false,
     }));
     const host = hostWith(fake, { companionManager: companion.manager });
+    const crashOutputs: string[] = [];
+    host.on("event", (event) => {
+      if (event.type === "output") crashOutputs.push(event.data);
+    });
     const input = {
       bindingId: "prime-replacement",
       harness: "prime-agent" as const,
@@ -1198,6 +1225,7 @@ describe("LocalSessionHost", () => {
     expect(getCapturedSessionId(input.bindingId)).toBe("replacement-session");
     companion.records[0]?.crash();
     expect(fake.controllers[1]?.signals).toEqual([]);
+    expect(crashOutputs).toEqual([]);
 
     fake.controllers[0]?.exit();
     await Promise.resolve();
