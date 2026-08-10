@@ -10,12 +10,19 @@ import {
 import type { LocalHostShutdownResult } from "./local-host";
 import type { TerminalRouterShutdownReceipt } from "./router";
 import { performance } from "node:perf_hooks";
+import { primeAgentCompanionManager } from "./prime-agent-companion";
+import {
+  PrimeAgentReporterPlane,
+  primeAgentReporterPlane,
+  type PrimeAgentReporterShutdownReceipt,
+} from "./prime-agent-reporter";
 
 export interface TermPlaneShutdownReceipt {
   readonly clean: boolean;
   readonly local?: LocalHostShutdownResult;
   readonly router?: TerminalRouterShutdownReceipt;
   readonly control?: TermControlServerShutdownReceipt;
+  readonly reporter?: PrimeAgentReporterShutdownReceipt;
   readonly retainedLabels: ReadonlyArray<string>;
   readonly diagnostics: ReadonlyArray<string>;
 }
@@ -30,7 +37,10 @@ export const termPlaneBlocksAppExit = (
   receipt: TermPlaneShutdownReceipt,
 ): boolean =>
   receipt.retainedLabels.includes("local-sessions") ||
-  (receipt.local !== undefined && !receipt.local.clean);
+  (receipt.local?.clean === false &&
+    receipt.local.stragglers.some(
+      (straggler) => straggler.ownedPtyOutstanding === true,
+    ));
 
 export interface TermPlaneStartOptions {
   /**
@@ -82,12 +92,21 @@ const settledBefore = async <A>(
 const productionLocalSessionHost = (): LocalSessionHost =>
   new LocalSessionHost(undefined, {
     externalMaintenanceFence: linuxReleaseFenceActive,
+    companionManager: primeAgentCompanionManager,
   });
+
+export interface TermPrimeAgentReporterPlane {
+  readonly start: (options?: { readonly home?: string }) => Promise<void>;
+  readonly beginShutdown: () => void;
+  readonly shutdown: () => Promise<PrimeAgentReporterShutdownReceipt>;
+}
 
 export class TermPlane {
   readonly host: LocalSessionHost;
   readonly router: TerminalRouter;
   private control: TermControlServer | undefined;
+  private readonly reporter: TermPrimeAgentReporterPlane;
+  private reporterStartupFailure: unknown;
   private controlStartupFailure: TermControlStartupError | undefined;
   private starting: Promise<void> | undefined;
   private productAutomationSuspension:
@@ -99,9 +118,18 @@ export class TermPlane {
   private localShutdownFlight: Promise<LocalHostShutdownResult> | undefined;
   private drainFlight: Promise<TermPlaneShutdownReceipt> | undefined;
 
-  constructor(host = productionLocalSessionHost()) {
-    this.host = host;
-    this.router = new TerminalRouter(host);
+  constructor(
+    host?: LocalSessionHost,
+    reporter?: TermPrimeAgentReporterPlane,
+  ) {
+    const production = host === undefined;
+    this.host = host ?? productionLocalSessionHost();
+    // Explicit test hosts receive an isolated lifecycle by default. Production
+    // must share the singleton used by primeAgentCompanionManager.
+    this.reporter =
+      reporter ??
+      (production ? primeAgentReporterPlane : new PrimeAgentReporterPlane());
+    this.router = new TerminalRouter(this.host);
   }
 
   /**
@@ -162,6 +190,19 @@ export class TermPlane {
     let current!: Promise<void>;
     current = (async () => {
       try {
+        // The companion manager registers synchronously while a managed Prime
+        // Agent seat opens. Its receiver must be bound and permission-hardened
+        // before any control surface can admit such a create.
+        try {
+          await this.reporter.start({ home: options?.controlHome });
+        } catch (error) {
+          // Structured reporting is a Prime Agent prerequisite, not the
+          // terminal plane itself. Retain the failure for quit diagnostics and
+          // leave reporter registration closed; unrelated shells/harnesses and
+          // the owner-local control server remain available.
+          this.reporterStartupFailure = error;
+          console.error("[term] Prime Agent reporter startup failed:", error);
+        }
         const control = await startTermControlServer(this.host, {
           home: options?.controlHome,
         });
@@ -226,10 +267,15 @@ export class TermPlane {
       const deadline = performance.now() + TERM_PLANE_SHUTDOWN_DEADLINE_MS;
       const diagnostics: string[] = [];
       const retainedLabels = new Set<string>();
+      if (this.reporterStartupFailure !== undefined) {
+        retainedLabels.add("prime-agent-reporter-start");
+        diagnostics.push(
+          `prime-agent-reporter-start: ${this.reporterStartupFailure instanceof Error ? this.reporterStartupFailure.message : String(this.reporterStartupFailure)}`,
+        );
+      }
 
       const localFlight = this.startLocalShutdown(this.shutdownReason);
       const routerFlight = this.router.drainOnQuit();
-
       // A start admitted before the cut may publish a control server in its
       // continuation. Retain that exact promise before taking the control
       // component snapshot.
@@ -245,14 +291,36 @@ export class TermPlane {
         }
       }
 
+      // Prime Agent daemon/session cleanup is part of LocalSessionHost drain.
+      // Keep the reporter accepting release/state packets until that exact
+      // cleanup settles. Construct this flight only after a concurrently
+      // admitted start has settled, so a late listener cannot appear behind an
+      // already-clean shutdown receipt.
+      const reporterFlight = localFlight.then(
+        () => {
+          this.reporter.beginShutdown();
+          return this.reporter.shutdown();
+        },
+        () => {
+          this.reporter.beginShutdown();
+          return this.reporter.shutdown();
+        },
+      );
+
       this.control?.beginShutdown();
       const controlFlight = this.control?.drainOnQuit();
-      const [localOutcome, routerOutcome, controlOutcome] = await Promise.all([
+      const [
+        localOutcome,
+        routerOutcome,
+        controlOutcome,
+        reporterOutcome,
+      ] = await Promise.all([
         settledBefore(localFlight, deadline),
         settledBefore(routerFlight, deadline),
         controlFlight === undefined
           ? Promise.resolve(undefined)
           : settledBefore(controlFlight, deadline),
+        settledBefore(reporterFlight, deadline),
       ]);
 
       let local: LocalHostShutdownResult | undefined;
@@ -264,7 +332,20 @@ export class TermPlane {
         );
       } else {
         local = localOutcome.value;
-        if (!local.clean) retainedLabels.add("local-sessions");
+        if (!local.clean) {
+          for (const straggler of local.stragglers) {
+            if (straggler.ownedPtyOutstanding === true) {
+              retainedLabels.add("local-sessions");
+            }
+            if (straggler.companion !== undefined) {
+              retainedLabels.add("prime-agent-companion");
+              const companion = straggler.companion;
+              diagnostics.push(
+                `prime-agent-companion: ${straggler.bindingId}@${straggler.epoch} ${companion.state}${companion.daemonPid === undefined ? "" : ` pid=${companion.daemonPid}`}${companion.message === undefined ? "" : `, ${companion.message}`}`,
+              );
+            }
+          }
+        }
       }
 
       let router: TerminalRouterShutdownReceipt | undefined;
@@ -302,17 +383,45 @@ export class TermPlane {
         }
       }
 
+      let reporter: PrimeAgentReporterShutdownReceipt | undefined;
+      if (reporterOutcome === undefined) {
+        retainedLabels.add("prime-agent-reporter");
+        diagnostics.push("prime-agent-reporter: shutdown timed out");
+      } else if (reporterOutcome.status === "rejected") {
+        retainedLabels.add("prime-agent-reporter");
+        diagnostics.push(
+          `prime-agent-reporter: ${reporterOutcome.reason instanceof Error ? reporterOutcome.reason.message : String(reporterOutcome.reason)}`,
+        );
+      } else {
+        reporter = reporterOutcome.value;
+        if (!reporter.clean) {
+          retainedLabels.add("prime-agent-reporter");
+        }
+        if (reporter.retainedLabels.length > 0) {
+          diagnostics.push(
+            `prime-agent-reporter-retained: ${reporter.retainedLabels.join(", ")}`,
+          );
+        }
+        diagnostics.push(
+          ...reporter.diagnostics.map(
+            (item) => `prime-agent-reporter: ${item}`,
+          ),
+        );
+      }
+
       const clean =
         retainedLabels.size === 0 &&
         diagnostics.length === 0 &&
         local?.clean === true &&
         router?.clean === true &&
-        (controlFlight === undefined || control?.clean === true);
+        (controlFlight === undefined || control?.clean === true) &&
+        reporter?.clean === true;
       return Object.freeze({
         clean,
         ...(local === undefined ? {} : { local }),
         ...(router === undefined ? {} : { router }),
         ...(control === undefined ? {} : { control }),
+        ...(reporter === undefined ? {} : { reporter }),
         retainedLabels: Object.freeze([...retainedLabels].sort()),
         diagnostics: Object.freeze(diagnostics),
       });

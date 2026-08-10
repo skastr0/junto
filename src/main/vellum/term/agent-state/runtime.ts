@@ -4,7 +4,11 @@
  * progress watchdog (turn-stalled attention, never idle).
  */
 
-import type { AgentSeatState, AgentSeatStateEvent } from "../../../../shared/agent-seat-state";
+import type {
+  AgentSeatHookState,
+  AgentSeatState,
+  AgentSeatStateEvent,
+} from "../../../../shared/agent-seat-state";
 import { terminalObserverPlane } from "../observer";
 import type { ObserverGridSnapshot } from "../observer/types";
 import { peekFirstTypedMessage } from "../first-typed";
@@ -19,6 +23,18 @@ import {
   TurnProgressWatch,
   progressFingerprint,
 } from "./turn-progress-watch";
+
+export type StructuredSeatHookInput = Readonly<{
+  readonly bindingId: string;
+  readonly epoch: string;
+  readonly state: "idle" | "working" | "attention";
+  readonly reason: string;
+}>;
+
+type StructuredSeatHookAuthority = Readonly<{
+  readonly epoch: string;
+  readonly hook: AgentSeatHookState;
+}>;
 
 export type SeatStateRuntimeOptions = {
   readonly now?: () => number;
@@ -48,6 +64,15 @@ export class SeatStateRuntime {
   private readonly lastProgressFp = new Map<string, string>();
   /** Last observer snapshot per binding — used for Muse handshake paste gate. */
   private readonly lastSnapshot = new Map<string, ObserverGridSnapshot>();
+  /**
+   * Full-lifecycle structured authority by exact terminal generation.
+   * While present, screen and OSC ticks remain diagnostic progress only and
+   * cannot replace the reporter's state.
+   */
+  private readonly structuredHookByBinding = new Map<
+    string,
+    StructuredSeatHookAuthority
+  >();
 
   constructor(opts: SeatStateRuntimeOptions = {}) {
     this.now = opts.now ?? (() => Date.now());
@@ -92,6 +117,7 @@ export class SeatStateRuntime {
     this.turnStalled.clear();
     this.lastProgressFp.clear();
     this.lastSnapshot.clear();
+    this.structuredHookByBinding.clear();
     this.machine.dispose();
     this.harnessByBinding.clear();
     this.eventListeners.clear();
@@ -103,6 +129,10 @@ export class SeatStateRuntime {
     harness: HarnessId | string,
     epoch?: string,
   ): void {
+    const structured = this.structuredHookByBinding.get(bindingId);
+    if (structured !== undefined && structured.epoch !== (epoch ?? "")) {
+      this.structuredHookByBinding.delete(bindingId);
+    }
     this.harnessByBinding.set(bindingId, harness);
     this.machine.bind(bindingId, { harness, epoch });
   }
@@ -117,8 +147,79 @@ export class SeatStateRuntime {
     const event = this.machine.unbind(bindingId, { epoch, reason });
     this.clearTurnWatch(bindingId);
     this.lastSnapshot.delete(bindingId);
+    const structured = this.structuredHookByBinding.get(bindingId);
+    if (
+      structured !== undefined &&
+      (epoch === undefined || structured.epoch === epoch)
+    ) {
+      this.structuredHookByBinding.delete(bindingId);
+    }
     if (!event) return;
     this.harnessByBinding.delete(bindingId);
+  }
+
+  /**
+   * Install one exact generation's full-lifecycle structured authority.
+   *
+   * Unlike OSC-derived hook hints, this feed publishes immediately and owns
+   * idle/working/attention until explicitly released. Old-generation packets
+   * are total no-ops and cannot create or replace a machine slot.
+   */
+  observeStructuredHook(
+    input: StructuredSeatHookInput,
+  ): AgentSeatStateEvent | null {
+    const slot = this.machine.getSlot(input.bindingId);
+    if (slot === undefined || slot.epoch !== input.epoch) return null;
+    const hook: AgentSeatHookState = Object.freeze({
+      state: input.state,
+      reason: input.reason,
+      at: this.now(),
+      fullLifecycle: true,
+    });
+    this.structuredHookByBinding.set(input.bindingId, {
+      epoch: input.epoch,
+      hook,
+    });
+    this.machine.setHookState(input.bindingId, hook);
+    // A fresh structured transition supersedes a heuristic stall latch. A
+    // later watchdog fire cannot persist over the next authoritative report.
+    this.clearTurnWatch(input.bindingId);
+    return this.machine.force(
+      input.bindingId,
+      input.state,
+      input.reason,
+      "high",
+    );
+  }
+
+  /**
+   * Release only the matching generation's structured authority.
+   * Re-evaluate the newest exact-generation screen immediately when one is
+   * available; otherwise publish unknown until the next observer tick.
+   */
+  clearStructuredHook(
+    bindingId: string,
+    epoch: string,
+    reason = "structured_hook_released",
+  ): AgentSeatStateEvent | null {
+    const slot = this.machine.getSlot(bindingId);
+    const structured = this.structuredHookByBinding.get(bindingId);
+    if (
+      slot === undefined ||
+      slot.epoch !== epoch ||
+      structured === undefined ||
+      structured.epoch !== epoch
+    ) {
+      return null;
+    }
+    this.structuredHookByBinding.delete(bindingId);
+    this.machine.setHookState(bindingId, null);
+    this.clearTurnWatch(bindingId);
+    const snapshot = this.lastSnapshot.get(bindingId);
+    if (snapshot !== undefined && snapshot.epoch === epoch) {
+      return this.observe(snapshot);
+    }
+    return this.machine.force(bindingId, "unknown", reason, "low");
   }
 
   /**
@@ -193,9 +294,49 @@ export class SeatStateRuntime {
     if (!harness) {
       return null;
     }
+    const slot = this.machine.getSlot(snap.bindingId);
+    if (
+      slot !== undefined &&
+      snap.epoch.length > 0 &&
+      slot.epoch.length > 0 &&
+      snap.epoch !== slot.epoch
+    ) {
+      // The observer detach/attach boundary is epoch-gated. A late snapshot
+      // from the old process must not rebind or perturb the new seat.
+      return null;
+    }
     this.lastSnapshot.set(snap.bindingId, snap);
     const now = this.now();
-    // Same-tick hook: null clears sticky prior OSC working/idle.
+    const structured = this.structuredHookByBinding.get(snap.bindingId);
+    if (structured !== undefined && structured.epoch === slot?.epoch) {
+      const fp = progressFingerprint(snap, structured.hook);
+      const priorFp = this.lastProgressFp.get(snap.bindingId);
+      const progressed = priorFp !== undefined && priorFp !== fp;
+      this.lastProgressFp.set(snap.bindingId, fp);
+      if (progressed) {
+        this.progressWatch?.noteProgress(snap.bindingId);
+        this.turnStalled.delete(snap.bindingId);
+      }
+      this.machine.setHookState(snap.bindingId, structured.hook);
+      let event: AgentSeatStateEvent | null = null;
+      const published = this.machine.getSlot(snap.bindingId);
+      if (
+        published?.state !== structured.hook.state ||
+        published.reason !== structured.hook.reason
+      ) {
+        event = this.machine.force(
+          snap.bindingId,
+          structured.hook.state,
+          structured.hook.reason,
+          "high",
+        );
+      }
+      this.syncWatchWithPublished(snap.bindingId);
+      return event;
+    }
+
+    // Same-tick OSC hook: null clears sticky prior OSC working/idle only when
+    // no full-lifecycle structured source owns this generation.
     const hook = hookStateFromSnapshot(snap, String(harness), now);
     const fp = progressFingerprint(snap, hook);
     const priorFp = this.lastProgressFp.get(snap.bindingId);
@@ -233,13 +374,24 @@ export class SeatStateRuntime {
   }
 
   private fireTurnStalled(bindingId: string): void {
-    if (!this.machine.getSlot(bindingId)) return;
+    const slot = this.machine.getSlot(bindingId);
+    if (!slot) return;
+    const structured = this.structuredHookByBinding.get(bindingId);
+    if (structured !== undefined && structured.epoch === slot.epoch) return;
     // Never idle: attention refuses paste and does not call onSeatIdle.
     this.turnStalled.add(bindingId);
     this.machine.force(bindingId, "attention", TURN_STALLED_REASON, "high");
   }
 
   private syncWatchWithEvent(event: AgentSeatStateEvent): void {
+    // A full-lifecycle feed owns liveness too; a heuristic screen-silence
+    // watchdog must not override it between structured transitions.
+    const structured = this.structuredHookByBinding.get(event.bindingId);
+    if (structured !== undefined && structured.epoch === event.epoch) {
+      this.progressWatch?.clear(event.bindingId);
+      this.turnStalled.delete(event.bindingId);
+      return;
+    }
     // force()/bind publish through onEvent; keep arm/clear consistent when
     // tests call machine.force directly.
     if (event.state === "working") {
@@ -258,6 +410,12 @@ export class SeatStateRuntime {
     const slot = this.machine.getSlot(bindingId);
     if (!slot) {
       this.clearTurnWatch(bindingId);
+      return;
+    }
+    const structured = this.structuredHookByBinding.get(bindingId);
+    if (structured !== undefined && structured.epoch === slot.epoch) {
+      this.progressWatch?.clear(bindingId);
+      this.turnStalled.delete(bindingId);
       return;
     }
     if (slot.state === "working") {
