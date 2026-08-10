@@ -1,6 +1,14 @@
 import type { IpcMain, IpcMainInvokeEvent, WebContents } from "electron";
-import { IPC_CHANNELS, type TerminalAttachInput } from "@shared/ipc";
-import { isHarnessId } from "@shared/managed-terminal-templates";
+import {
+  IPC_CHANNELS,
+  type TerminalAttachInput,
+  type TerminalFinishNodeDeleteOutcome,
+  type TerminalNodeDeleteResource,
+} from "@shared/ipc";
+import {
+  isHarnessId,
+  templateFor,
+} from "@shared/managed-terminal-templates";
 import { managedHarnessEnabled } from "@shared/features";
 import type { TerminalLaunch } from "@shared/terminal";
 import { messageDelivery } from "../work/message-delivery";
@@ -8,6 +16,7 @@ import type { ControlLease, LocalHostEvent } from "./local-host";
 import { TerminalStreamCoalescer, terminalBindingKey } from "./stream-coalescer";
 import type { TermPlane } from "./plane";
 import { injectionSupervisor } from "./injection-supervisor";
+import { TerminalNodeDeleteService } from "./node-delete";
 
 type LeaseOwner = {
   readonly lease: ControlLease;
@@ -39,6 +48,7 @@ export const registerTerminalIpc = (
   const owners = new Map<string, LeaseOwner>();
   const controlByBinding = new Map<string, string>();
   const router = plane.router;
+  const nodeDelete = new TerminalNodeDeleteService(router);
 
   const assertTrusted = (event: IpcMainInvokeEvent): WebContents => {
     const sender = event.sender;
@@ -147,11 +157,21 @@ export const registerTerminalIpc = (
 
   ipcMain.handle(IPC_CHANNELS.terminalCreate, async (event, input) => {
     assertTrusted(event);
-    await ensureHostAvailable(input?.hostId);
+    // Capture before the first await. Node deletion increments this exact
+    // host/binding revision synchronously and the final assertion prevents an
+    // older create from materializing after teardown.
+    const createAdmission = nodeDelete.admitCreate(
+      input?.bindingId,
+      input?.hostId,
+    );
     const harness =
       typeof input?.harness === "string" ? input.harness.trim() : "";
     // No harness on the wire ⇒ the node is geography; it opens a shell.
-    if (!harness) return router.create(input);
+    if (!harness) {
+      await ensureHostAvailable(input?.hostId);
+      nodeDelete.assertCreate(createAdmission);
+      return router.create(input);
+    }
 
     // Everything below is the actor seat. Its harness and key are required here
     // rather than reconstructed at spawn, so an unnamed template errors on the
@@ -162,6 +182,12 @@ export const registerTerminalIpc = (
     if (!managedHarnessEnabled(harness)) {
       return deny(`terminal ipc: harness ${harness} is disabled in this build`);
     }
+    if (!templateFor(harness).capabilityBadges.remote && !router.isLocalHostId(input?.hostId)) {
+      return deny(
+        `terminal ipc: harness ${harness} is local-only and cannot use a Remote host`,
+      );
+    }
+    await ensureHostAvailable(input?.hostId);
     {
       const { isManagedHarnessInstalled } = await import("./templates/harness-install");
       if (!isManagedHarnessInstalled(harness)) {
@@ -211,6 +237,7 @@ export const registerTerminalIpc = (
     }
     // Named field by field so the seat is built from the wire, never spread
     // from it — an untyped echo is how a loose harness field got its authority.
+    nodeDelete.assertCreate(createAdmission);
     return router.createAgentSeat({
       harness,
       agentKey,
@@ -262,6 +289,29 @@ export const registerTerminalIpc = (
     async (event, bindingId: string, hostId?: string) => {
       assertTrusted(event);
       return router.kill(bindingId, hostId);
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.terminalBeginNodeDelete,
+    (
+      event,
+      resources: ReadonlyArray<TerminalNodeDeleteResource>,
+    ) => {
+      assertTrusted(event);
+      return nodeDelete.beginNodeDelete(resources);
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.terminalFinishNodeDelete,
+    (
+      event,
+      leaseId: string,
+      outcome: TerminalFinishNodeDeleteOutcome,
+    ) => {
+      assertTrusted(event);
+      return nodeDelete.finishNodeDelete(leaseId, outcome);
     },
   );
 

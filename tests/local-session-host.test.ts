@@ -1131,6 +1131,44 @@ describe("LocalSessionHost", () => {
     await expect(shutdown).resolves.toEqual({ clean: true, stragglers: [] });
   });
 
+  it("node deletion awaits the exact Prime PTY and companion receipt", async () => {
+    const companion = makeFakeCompanionManager({
+      manualStop: true,
+      daemonPidBase: 53_600,
+    });
+    const fake = makeFakeTerminalProcessAuthority(() => ({
+      pid: trackSyntheticPid(53_700),
+      exitOnSignal: "SIGTERM",
+    }));
+    const host = hostWith(fake, {
+      companionManager: companion.manager,
+      shutdownGraceMs: 100,
+      lateExitGraceMs: 100,
+    });
+    host.createAgentSeat({
+      bindingId: "prime-node-delete",
+      harness: "prime-agent",
+      agentKey: "local:prime-node-delete",
+      launch: { kind: "harness", argv: ["prime-agent"] },
+      canvasName: "factory",
+      nodeId: "prime-node-delete-node",
+    });
+
+    const deletion = host.deleteBinding("prime-node-delete");
+    let settled = false;
+    void deletion.then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    expect(companion.records[0]?.stopReasons).toEqual(["node_delete"]);
+    expect(fake.controllers[0]?.signals).toEqual(["SIGTERM"]);
+    expect(settled).toBe(false);
+
+    companion.records[0]?.resolveStop();
+    await expect(deletion).resolves.toBe(true);
+    expect(host.runningCount()).toBe(0);
+  });
+
   it("keeps two Prime seats isolated across reporter, socket, identity, and crash lifecycle", async () => {
     const identities = makeSyntheticIdentityMap();
     setProcessIdentityMapForTests(identities);

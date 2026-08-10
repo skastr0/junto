@@ -15,8 +15,22 @@ type AgentDeleteResource = {
 };
 
 const confirmDelete = vi.fn(() => true);
-const terminalKill = vi.fn(
-  async (_bindingId: string, _hostId?: string): Promise<boolean> => true,
+type TerminalDeleteResource = { readonly bindingId: string; readonly hostId?: string };
+const cleanTerminalDelete = (resources: ReadonlyArray<TerminalDeleteResource>) => ({
+  ok: true as const,
+  leaseId: "terminal-delete-lease",
+  closeResults: resources.map((resource) => ({
+    bindingId: resource.bindingId,
+    hostId: resource.hostId ?? "local",
+    clean: true as const,
+  })),
+});
+const terminalBeginNodeDelete = vi.fn(
+  async (resources: ReadonlyArray<TerminalDeleteResource>) =>
+    cleanTerminalDelete(resources),
+);
+const terminalFinishNodeDelete = vi.fn(
+  async () => ({ ok: true as const }),
 );
 const writeCanvas = vi.fn(async () => ({ revision: "written" }));
 const chatBeginNodeDelete = vi.fn(
@@ -37,7 +51,8 @@ const chatFinishNodeDelete = vi.fn(
 const runtimeWindow = {
   vellumCommand: {
     writeCanvas,
-    terminalKill,
+    terminalBeginNodeDelete,
+    terminalFinishNodeDelete,
     chatBeginNodeDelete,
     chatFinishNodeDelete,
   },
@@ -87,8 +102,12 @@ describe.sequential("managed agent node terminal teardown", () => {
     state$.error.set("");
     confirmDelete.mockReset();
     confirmDelete.mockReturnValue(true);
-    terminalKill.mockReset();
-    terminalKill.mockResolvedValue(true);
+    terminalBeginNodeDelete.mockReset();
+    terminalBeginNodeDelete.mockImplementation(async (resources) =>
+      cleanTerminalDelete(resources)
+    );
+    terminalFinishNodeDelete.mockReset();
+    terminalFinishNodeDelete.mockResolvedValue({ ok: true });
     writeCanvas.mockReset();
     writeCanvas.mockResolvedValue({ revision: "written" });
     chatBeginNodeDelete.mockReset();
@@ -112,27 +131,33 @@ describe.sequential("managed agent node terminal teardown", () => {
       hostId: "studio",
     });
     open(agentDoc(node));
-    let finishKill!: (stopped: boolean) => void;
-    terminalKill.mockImplementationOnce(
-      () => new Promise<boolean>((resolve) => {
-        finishKill = resolve;
+    let finishTerminalDelete!: () => void;
+    terminalBeginNodeDelete.mockImplementationOnce(
+      (resources) => new Promise((resolve) => {
+        finishTerminalDelete = () => resolve(cleanTerminalDelete(resources));
       }),
     );
 
     deleteNode("seat-a");
 
     await vi.waitFor(() => {
-      expect(terminalKill).toHaveBeenCalledWith("binding-a", "studio");
+      expect(terminalBeginNodeDelete).toHaveBeenCalledWith([
+        { bindingId: "binding-a", hostId: "studio" },
+      ]);
     });
     expect(state$.doc.peek()).toEqual(agentDoc(node));
     expect(confirmDelete.mock.invocationCallOrder[0]).toBeLessThan(
-      terminalKill.mock.invocationCallOrder[0]!,
+      terminalBeginNodeDelete.mock.invocationCallOrder[0]!,
     );
 
-    finishKill(true);
+    finishTerminalDelete();
     await vi.waitFor(() => expect(state$.doc.peek().nodes).toEqual([]));
     expect(chatFinishNodeDelete).toHaveBeenCalledWith(
       "managed-delete-lease",
+      "committed",
+    );
+    expect(terminalFinishNodeDelete).toHaveBeenCalledWith(
+      "terminal-delete-lease",
       "committed",
     );
   });
@@ -141,12 +166,14 @@ describe.sequential("managed agent node terminal teardown", () => {
     const node = managedAgent({ id: "seat-a", bindingId: "binding-a" });
     const original = agentDoc(node);
     open(original);
-    terminalKill.mockRejectedValueOnce(new Error("terminal IPC rejected"));
+    terminalBeginNodeDelete.mockRejectedValueOnce(
+      new Error("terminal IPC rejected"),
+    );
 
     deleteNode("seat-a");
 
     await vi.waitFor(() => expect(state$.error.peek()).toBe(
-      "Vellum Command could not stop the managed terminal; the agent node was not deleted.",
+      "Vellum Command could not stop the managed terminal cleanly; the agent node was not deleted.",
     ));
     expect(state$.doc.peek()).toEqual(original);
     expect(chatFinishNodeDelete).toHaveBeenCalledWith(
@@ -175,9 +202,10 @@ describe.sequential("managed agent node terminal teardown", () => {
     await vi.waitFor(() => {
       expect(state$.doc.peek().nodes.map((node) => node.id)).toEqual(["seat-b"]);
     });
-    expect(terminalKill).toHaveBeenCalledTimes(1);
-    expect(terminalKill).toHaveBeenCalledWith("binding-a", "station-a");
-    expect(terminalKill).not.toHaveBeenCalledWith("binding-b", "station-b");
+    expect(terminalBeginNodeDelete).toHaveBeenCalledTimes(1);
+    expect(terminalBeginNodeDelete).toHaveBeenCalledWith([
+      { bindingId: "binding-a", hostId: "station-a" },
+    ]);
     expect(chatBeginNodeDelete).toHaveBeenCalledWith([
       { kind: "agent", agentKey: "local:duplicate" },
     ]);
@@ -201,41 +229,44 @@ describe.sequential("managed agent node terminal teardown", () => {
     deleteNodes(["seat-a", "seat-alias"]);
 
     await vi.waitFor(() => expect(state$.doc.peek().nodes).toEqual([]));
-    expect(terminalKill).toHaveBeenCalledTimes(1);
-    expect(terminalKill).toHaveBeenCalledWith("binding-shared", "studio");
+    expect(terminalBeginNodeDelete).toHaveBeenCalledTimes(1);
+    expect(terminalBeginNodeDelete).toHaveBeenCalledWith([
+      { bindingId: "binding-shared", hostId: "studio" },
+    ]);
   });
 
-  it("accepts false as already clean for a never-opened managed terminal", async () => {
+  it("accepts an exact clean receipt for a never-opened managed terminal", async () => {
     const node = managedAgent({ id: "never-opened", bindingId: "binding-cold" });
     open(agentDoc(node));
-    terminalKill.mockResolvedValueOnce(false);
 
     deleteNode("never-opened");
 
     await vi.waitFor(() => expect(state$.doc.peek().nodes).toEqual([]));
-    expect(terminalKill).toHaveBeenCalledWith("binding-cold", "local");
+    expect(terminalBeginNodeDelete).toHaveBeenCalledWith([
+      { bindingId: "binding-cold", hostId: "local" },
+    ]);
     expect(state$.error.peek()).toBe("");
   });
 
   it("refuses a late commit when the canvas epoch changes during terminal stop", async () => {
     const node = managedAgent({ id: "seat-a", bindingId: "binding-a" });
     open(agentDoc(node));
-    let finishKill!: (stopped: boolean) => void;
-    terminalKill.mockImplementationOnce(
-      () => new Promise<boolean>((resolve) => {
-        finishKill = resolve;
+    let finishTerminalDelete!: () => void;
+    terminalBeginNodeDelete.mockImplementationOnce(
+      (resources) => new Promise((resolve) => {
+        finishTerminalDelete = () => resolve(cleanTerminalDelete(resources));
       }),
     );
 
     deleteNode("seat-a");
-    await vi.waitFor(() => expect(terminalKill).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(terminalBeginNodeDelete).toHaveBeenCalledTimes(1));
     const replacement = managedAgent({
       id: "replacement",
       bindingId: "replacement-binding",
       agentKey: "local:replacement",
     });
     loadDoc(agentDoc(replacement), "revision-2", "managed-agent-delete");
-    finishKill(true);
+    finishTerminalDelete();
 
     await vi.waitFor(() => expect(state$.error.peek()).toBe(
       "Canvas changed before deletion completed; no nodes were deleted.",
@@ -252,15 +283,15 @@ describe.sequential("managed agent node terminal teardown", () => {
     const node = managedAgent({ id: "seat-a", bindingId: "binding-a" });
     const original = agentDoc(node);
     open(original);
-    let finishKill!: (stopped: boolean) => void;
-    terminalKill.mockImplementationOnce(
-      () => new Promise<boolean>((resolve) => {
-        finishKill = resolve;
+    let finishTerminalDelete!: () => void;
+    terminalBeginNodeDelete.mockImplementationOnce(
+      (resources) => new Promise((resolve) => {
+        finishTerminalDelete = () => resolve(cleanTerminalDelete(resources));
       }),
     );
 
     deleteNode("seat-a");
-    await vi.waitFor(() => expect(terminalKill).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(terminalBeginNodeDelete).toHaveBeenCalledTimes(1));
 
     let acknowledged = false;
     const quiescence = quiesceAndFlushCanvasEdits().then(() => {
@@ -270,7 +301,7 @@ describe.sequential("managed agent node terminal teardown", () => {
     await Promise.resolve();
     expect(acknowledged).toBe(false);
 
-    finishKill(true);
+    finishTerminalDelete();
     await quiescence;
 
     expect(state$.doc.peek()).toEqual(original);

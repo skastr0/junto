@@ -252,6 +252,10 @@ export const IPC_CHANNELS = {
   terminalCreate: "vellum-command:terminal-create",
   terminalGet: "vellum-command:terminal-get",
   terminalKill: "vellum-command:terminal-kill",
+  /** Fence terminal creates and await exact owned teardown before node commit. */
+  terminalBeginNodeDelete: "vellum-command:terminal-begin-node-delete",
+  /** Release the terminal node-delete fence after commit or abort. */
+  terminalFinishNodeDelete: "vellum-command:terminal-finish-node-delete",
   terminalBindCanvas: "vellum-command:terminal-bind-canvas",
   terminalAttach: "vellum-command:terminal-attach",
   terminalRelease: "vellum-command:terminal-release",
@@ -1391,6 +1395,29 @@ export interface ManagedTerminalHarnessesResult {
   readonly harnesses: readonly ManagedTerminalHarnessOption[];
 }
 
+export type TerminalNodeDeleteResource = {
+  readonly bindingId: string;
+  readonly hostId?: string;
+};
+
+export type TerminalBeginNodeDeleteResult =
+  | {
+      readonly ok: true;
+      readonly leaseId: string;
+      readonly closeResults: ReadonlyArray<{
+        readonly bindingId: string;
+        readonly hostId: string;
+        readonly clean: true;
+      }>;
+    }
+  | { readonly ok: false; readonly error: string };
+
+export type TerminalFinishNodeDeleteOutcome = "committed" | "aborted";
+
+export type TerminalFinishNodeDeleteResult =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly error: string };
+
 export interface TerminalAttachInput {
   readonly bindingId: string;
   readonly mode: "control" | "observe";
@@ -1404,6 +1431,13 @@ export interface VellumCommandTerminalApi {
   readonly terminalCreate: (input: TerminalCreateInput) => Promise<TerminalSessionSummary>;
   readonly terminalGet: (bindingId: string, hostId?: string) => Promise<TerminalSessionSummary | undefined>;
   readonly terminalKill: (bindingId: string, hostId?: string) => Promise<boolean>;
+  readonly terminalBeginNodeDelete: (
+    resources: ReadonlyArray<TerminalNodeDeleteResource>,
+  ) => Promise<TerminalBeginNodeDeleteResult>;
+  readonly terminalFinishNodeDelete: (
+    leaseId: string,
+    outcome: TerminalFinishNodeDeleteOutcome,
+  ) => Promise<TerminalFinishNodeDeleteResult>;
   /** Read one bounded directory page on the selected local or Remote host. */
   readonly hostDirectoryRead: (
     hostId: string,

@@ -720,15 +720,30 @@ const deleteNodesInternal = async (
     const hostId = authoredHost || "local";
     managedTerminalBindings.set(`${hostId}\0${bindingId}`, { bindingId, hostId });
   }
-  let deleteLeaseId: string | undefined;
-  const finishDeleteLease = async (
+  let chatDeleteLeaseId: string | undefined;
+  let terminalDeleteLeaseId: string | undefined;
+  const finishDeleteLeases = async (
     outcome: "committed" | "aborted",
   ): Promise<void> => {
-    if (deleteLeaseId === undefined) return;
-    const leaseId = deleteLeaseId;
-    deleteLeaseId = undefined;
-    const { finishAgentNodeDelete } = await import("./chat-state");
-    await finishAgentNodeDelete(leaseId, outcome);
+    const chatLease = chatDeleteLeaseId;
+    const terminalLease = terminalDeleteLeaseId;
+    chatDeleteLeaseId = undefined;
+    terminalDeleteLeaseId = undefined;
+    const finishes: Array<Promise<unknown>> = [];
+    if (chatLease !== undefined) {
+      finishes.push(
+        import("./chat-state").then(({ finishAgentNodeDelete }) =>
+          finishAgentNodeDelete(chatLease, outcome)
+        ),
+      );
+    }
+    if (terminalLease !== undefined) {
+      const finish = window.vellumCommand?.terminalFinishNodeDelete;
+      if (typeof finish === "function") {
+        finishes.push(finish(terminalLease, outcome));
+      }
+    }
+    await Promise.all(finishes);
   };
 
   if (agentKeys.length > 0) {
@@ -743,13 +758,13 @@ const deleteNodesInternal = async (
       }
       return;
     }
-    deleteLeaseId = began.leaseId;
+    chatDeleteLeaseId = began.leaseId;
     if (!canvasMutationAdmissionOpen) {
-      await finishDeleteLease("aborted");
+      await finishDeleteLeases("aborted");
       return;
     }
-    if (!began.closeResults.every((result) => result.ok)) {
-      await finishDeleteLease("aborted");
+    if (!began.closeResults.every((result) => result.ok && result.clean)) {
+      await finishDeleteLeases("aborted");
       state$.error.set(
         "Agent session teardown failed or was unclean; the agent node was not deleted.",
       );
@@ -760,7 +775,7 @@ const deleteNodesInternal = async (
   const canvasGenerationMatches = (): boolean =>
     state$.canvasName.peek() === canvasName && state$.docEpoch.peek() === docEpoch;
   const abortForCanvasChange = async (): Promise<void> => {
-    await finishDeleteLease("aborted");
+    await finishDeleteLeases("aborted");
     if (canvasMutationAdmissionOpen) {
       state$.error.set(
         "Canvas changed before deletion completed; no nodes were deleted.",
@@ -776,55 +791,61 @@ const deleteNodesInternal = async (
     return;
   }
   if (!canvasMutationAdmissionOpen) {
-    await finishDeleteLease("aborted");
+    await finishDeleteLeases("aborted");
     return;
   }
 
   // A managed agent card owns a native terminal generation in addition to the
-  // ACP/chat delete fence above. Stop each exact binding while the old document
-  // is still authoritative. `false` means no generation was running, which is
-  // already the required clean state for a never-opened card.
+  // ACP/chat delete fence. Main locks every exact host/binding before teardown,
+  // invalidates creates that were awaiting IPC work, and returns only after the
+  // owned PTY plus any Prime Agent companion have a clean exact receipt.
   if (managedTerminalBindings.size > 0) {
-    const terminalKill = window.vellumCommand?.terminalKill;
-    if (typeof terminalKill !== "function") {
-      await finishDeleteLease("aborted");
+    const beginTerminalDelete =
+      window.vellumCommand?.terminalBeginNodeDelete;
+    if (typeof beginTerminalDelete !== "function") {
+      await finishDeleteLeases("aborted");
       if (canvasMutationAdmissionOpen) {
         state$.error.set(
-          "Vellum Command could not stop the managed terminal; the agent node was not deleted.",
+          "Vellum Command could not fence the managed terminal; the agent node was not deleted.",
         );
       }
       return;
     }
-    for (const binding of managedTerminalBindings.values()) {
-      if (!canvasMutationAdmissionOpen) {
-        await finishDeleteLease("aborted");
-        return;
+    let began;
+    try {
+      began = await beginTerminalDelete([
+        ...managedTerminalBindings.values(),
+      ]);
+    } catch {
+      await finishDeleteLeases("aborted");
+      if (canvasMutationAdmissionOpen) {
+        state$.error.set(
+          canvasGenerationMatches()
+            ? "Vellum Command could not stop the managed terminal cleanly; the agent node was not deleted."
+            : "Canvas changed before deletion completed; no nodes were deleted.",
+        );
       }
-      if (!canvasGenerationMatches()) {
-        await abortForCanvasChange();
-        return;
+      return;
+    }
+    if (!began.ok) {
+      await finishDeleteLeases("aborted");
+      if (canvasMutationAdmissionOpen) {
+        state$.error.set(
+          canvasGenerationMatches()
+            ? "Vellum Command could not stop the managed terminal cleanly; the agent node was not deleted."
+            : "Canvas changed before deletion completed; no nodes were deleted.",
+        );
       }
-      try {
-        await terminalKill(binding.bindingId, binding.hostId);
-      } catch {
-        await finishDeleteLease("aborted");
-        if (canvasMutationAdmissionOpen) {
-          state$.error.set(
-            canvasGenerationMatches()
-              ? "Vellum Command could not stop the managed terminal; the agent node was not deleted."
-              : "Canvas changed before deletion completed; no nodes were deleted.",
-          );
-        }
-        return;
-      }
-      if (!canvasMutationAdmissionOpen) {
-        await finishDeleteLease("aborted");
-        return;
-      }
-      if (!canvasGenerationMatches()) {
-        await abortForCanvasChange();
-        return;
-      }
+      return;
+    }
+    terminalDeleteLeaseId = began.leaseId;
+    if (!canvasMutationAdmissionOpen) {
+      await finishDeleteLeases("aborted");
+      return;
+    }
+    if (!canvasGenerationMatches()) {
+      await abortForCanvasChange();
+      return;
     }
   }
 
@@ -835,7 +856,7 @@ const deleteNodesInternal = async (
     return;
   }
   if (!canvasMutationAdmissionOpen) {
-    await finishDeleteLease("aborted");
+    await finishDeleteLeases("aborted");
     return;
   }
 
@@ -865,7 +886,7 @@ const deleteNodesInternal = async (
   if (nonHerdr.size === 0) {
     // Pure herdr delete — async path owns the doc mutation.
     if (herdrIds.some((id) => id === state$.selectedNodeId.peek())) state$.selectedNodeId.set("");
-    await finishDeleteLease("aborted");
+    await finishDeleteLeases("aborted");
     await Promise.all(sideEffects);
     return;
   }
@@ -879,7 +900,7 @@ const deleteNodesInternal = async (
     edges: liveDoc.edges.filter((e) => !nonHerdr.has(e.fromNode) && !nonHerdr.has(e.toNode)),
   });
   // Release only after the document commit so reopen cannot race the card.
-  await finishDeleteLease("committed");
+  await finishDeleteLeases("committed");
   await Promise.all(sideEffects);
 };
 

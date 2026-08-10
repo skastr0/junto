@@ -358,6 +358,12 @@ type AllExitedWaiter = {
   readonly resolve: (clean: boolean) => void;
 };
 
+type RecordExitWaiter = {
+  readonly record: SessionRec;
+  timer: ReturnType<typeof setTimeout> | undefined;
+  readonly resolve: (clean: boolean) => void;
+};
+
 const DEFAULT_COLS = 120;
 const DEFAULT_ROWS = 32;
 const MAX_JOURNAL_BYTES = 512 * 1024;
@@ -626,6 +632,8 @@ export class LocalSessionHost extends EventEmitter {
   private readonly companionRecords = new Set<SessionRec>();
   /** Bounded waiters used only after shutdown has prevented further creates. */
   private readonly allExitedWaiters = new Set<AllExitedWaiter>();
+  /** Exact-generation deletion waiters; unrelated seats never hold these open. */
+  private readonly recordExitWaiters = new Set<RecordExitWaiter>();
   private maintenanceLease: LocalTerminalMaintenanceLease | undefined;
   private shuttingDown = false;
   private shutdownFlight: Promise<LocalHostShutdownResult> | undefined;
@@ -1261,6 +1269,24 @@ export class LocalSessionHost extends EventEmitter {
     return this.killBinding(bindingId, "explicit_kill");
   }
 
+  /**
+   * Node deletion is stronger than an interactive Stop click: synchronously cut
+   * the exact current generation, then wait for both its PTY witness and any
+   * Prime Agent companion receipt. A missing binding is already clean.
+   */
+  async deleteBinding(bindingId: string): Promise<boolean> {
+    const rec = this.sessions.get(bindingId.trim());
+    if (rec === undefined) return true;
+    this.requestStop(rec, "node_delete");
+    if (await this.waitForRecordExitWithin(rec, this.shutdownGraceMs)) return true;
+    if (this.recordCleanupFailed(rec)) return false;
+
+    if (this.liveRecords.has(rec)) this.forceKill(rec, "SIGKILL");
+    if (await this.waitForRecordExitWithin(rec, this.shutdownGraceMs)) return true;
+    if (this.recordCleanupFailed(rec)) return false;
+    return this.waitForRecordExitWithin(rec, this.lateExitGraceMs);
+  }
+
   runningCount(): number {
     return this.outstandingGenerationCount();
   }
@@ -1538,6 +1564,7 @@ export class LocalSessionHost extends EventEmitter {
       `[term] Prime Agent companion cleanup failed for ${rec.bindingId}@${rec.epoch}:`,
       error,
     );
+    this.notifyQuiescentWaiters();
     // Keep the record outstanding. A bounded shutdown must report it non-clean.
   }
 
@@ -1585,6 +1612,44 @@ export class LocalSessionHost extends EventEmitter {
     }
     return this.companionManager === undefined ||
       this.companionManagerShutdownState === "clean";
+  }
+
+  private recordQuiescent(rec: SessionRec): boolean {
+    return !this.liveRecords.has(rec) && !this.companionRecords.has(rec);
+  }
+
+  private recordCleanupFailed(rec: SessionRec): boolean {
+    return !this.liveRecords.has(rec) &&
+      rec.companionCleanupState === "failed";
+  }
+
+  private waitForRecordExitWithin(
+    rec: SessionRec,
+    timeoutMs: number,
+  ): Promise<boolean> {
+    if (this.recordQuiescent(rec)) return Promise.resolve(true);
+    if (this.recordCleanupFailed(rec) || timeoutMs <= 0) {
+      return Promise.resolve(false);
+    }
+    return new Promise<boolean>((resolve) => {
+      const waiter: RecordExitWaiter = {
+        record: rec,
+        timer: undefined,
+        resolve,
+      };
+      waiter.timer = setTimeout(() => {
+        if (!this.recordExitWaiters.delete(waiter)) return;
+        resolve(this.recordQuiescent(rec));
+      }, timeoutMs);
+      this.recordExitWaiters.add(waiter);
+      if (
+        (this.recordQuiescent(rec) || this.recordCleanupFailed(rec)) &&
+        this.recordExitWaiters.delete(waiter)
+      ) {
+        if (waiter.timer !== undefined) clearTimeout(waiter.timer);
+        resolve(this.recordQuiescent(rec));
+      }
+    });
   }
 
   private waitForAllExitsWithin(timeoutMs: number): Promise<boolean> {
@@ -1880,6 +1945,15 @@ export class LocalSessionHost extends EventEmitter {
   }
 
   private notifyQuiescentWaiters(): void {
+    for (const waiter of [...this.recordExitWaiters]) {
+      if (
+        !this.recordQuiescent(waiter.record) &&
+        !this.recordCleanupFailed(waiter.record)
+      ) continue;
+      this.recordExitWaiters.delete(waiter);
+      if (waiter.timer !== undefined) clearTimeout(waiter.timer);
+      waiter.resolve(this.recordQuiescent(waiter.record));
+    }
     if (!this.shutdownQuiescent()) return;
     const waiters = [...this.allExitedWaiters];
     this.allExitedWaiters.clear();
