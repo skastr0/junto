@@ -27,7 +27,11 @@ import {
   type TermMaintenanceEvidence,
   type TermMaintenanceQuiescenceEvidence,
 } from "@shared/term-control";
-import { getProcessIdentityMap } from "../process-identity";
+import {
+  getProcessIdentityMap,
+  type ProcessIdentityBinding,
+  type ProcessPrincipal,
+} from "../process-identity";
 import {
   TerminalLaunchError,
   validateExecutableShell,
@@ -67,6 +71,11 @@ import {
 } from "./managed-spawn-plan";
 import { buildSpawnEnv, scrubSpawnEnv } from "./templates/resolve-launch";
 import { buildManagedSeatInject } from "./templates/seat-env";
+import {
+  primeAgentCompanionManager,
+  type PrimeAgentCompanionHandle,
+  type PrimeAgentCompanionManager,
+} from "./prime-agent-companion";
 
 /**
  * What a terminal generation *is*. Decided by the caller from the node's
@@ -207,6 +216,11 @@ export type LocalTerminalProcessAuthority = Pick<
   "spawnTerminal" | "terminate" | "forceTerminate"
 >;
 
+type CompanionCleanupState = "none" | "pending" | "clean" | "failed";
+type PrimeAgentCompanionReport = Parameters<
+  NonNullable<Parameters<PrimeAgentCompanionManager["start"]>[0]["onReport"]>
+>[0];
+
 type SessionRec = {
   bindingId: string;
   epoch: string;
@@ -220,6 +234,14 @@ type SessionRec = {
   exitWitness: Promise<AppTerminalExit> | undefined;
   listenerCleanups: Array<() => void>;
   pid: number | undefined;
+  /** Exact PID/start-key authorities; never replace these with numeric revocation. */
+  ptyIdentityBinding: ProcessIdentityBinding | undefined;
+  daemonIdentityBinding: ProcessIdentityBinding | undefined;
+  /** Prime Agent's per-seat foreground daemon + reporter registration. */
+  companion: PrimeAgentCompanionHandle | undefined;
+  companionStopFlight: Promise<void> | undefined;
+  companionCleanupState: CompanionCleanupState;
+  companionCleanupError: string | undefined;
   cols: number;
   rows: number;
   cwd: string;
@@ -286,8 +308,16 @@ export type LocalHostShutdownStraggler = {
   readonly epoch: string;
   readonly status: "starting" | "running";
   readonly pid?: number;
+  /** True only while the app process plane still owns an unobserved PTY exit. */
+  readonly ownedPtyOutstanding?: true;
   readonly term?: AppProcessSignalReceipt;
   readonly kill?: AppProcessSignalReceipt;
+  /** Present when a per-seat companion receipt is still pending or failed. */
+  readonly companion?: {
+    readonly daemonPid?: number;
+    readonly state: "pending" | "failed" | "manager_pending" | "manager_failed";
+    readonly message?: string;
+  };
 };
 
 export type LocalHostShutdownResult =
@@ -315,6 +345,12 @@ export type LocalSessionHostOptions = {
    * Tests may inject an isolated plane.
    */
   readonly observerPlane?: TerminalObserverPlane;
+  /**
+   * Per-seat Prime Agent companion. Production passes the singleton explicitly;
+   * omission selects it only for the exact app process plane. `null` disables
+   * the integration for isolated tests without ever launching a real CLI.
+   */
+  readonly companionManager?: PrimeAgentCompanionManager | null;
 };
 
 type AllExitedWaiter = {
@@ -336,6 +372,76 @@ const mintEpoch = (): string =>
 const mintLease = (): string => `ls_${randomBytes(8).toString("hex")}`;
 const mintMaintenanceObservation = (): string =>
   `tm_${randomBytes(TERM_MAINTENANCE_OBSERVATION_BYTES).toString("hex")}`;
+
+const CLEANUP_DIAGNOSTIC_MESSAGE_BYTES = 512;
+
+const boundedCleanupMessage = (message: string): string =>
+  Buffer.from(message, "utf8")
+    .subarray(0, CLEANUP_DIAGNOSTIC_MESSAGE_BYTES)
+    .toString("utf8");
+
+const cleanupFailureMessage = (receipt: unknown): string | undefined => {
+  if (
+    typeof receipt !== "object" ||
+    receipt === null ||
+    !("clean" in receipt) ||
+    receipt.clean !== false
+  ) return undefined;
+  if ("message" in receipt && typeof receipt.message === "string") {
+    return boundedCleanupMessage(receipt.message);
+  }
+  if ("diagnostics" in receipt && Array.isArray(receipt.diagnostics)) {
+    const first = receipt.diagnostics.find(
+      (value): value is { readonly stage?: unknown; readonly message: string } =>
+        typeof value === "object" &&
+        value !== null &&
+        "message" in value &&
+        typeof value.message === "string" &&
+        value.message.trim().length > 0,
+    );
+    if (first !== undefined) {
+      const stage = typeof first.stage === "string" && first.stage.trim().length > 0
+        ? `${first.stage.trim()}: `
+        : "";
+      return boundedCleanupMessage(`${stage}${first.message.trim()}`);
+    }
+  }
+  // Manager shutdown receipts carry the actionable detail on the first
+  // non-clean per-seat child receipt rather than at the top level.
+  if ("receipts" in receipt && Array.isArray(receipt.receipts)) {
+    for (const child of receipt.receipts) {
+      const detail = cleanupFailureMessage(child);
+      if (detail !== undefined) return detail;
+    }
+  }
+  return "companion cleanup returned a non-clean receipt";
+};
+
+const errorMessage = (error: unknown): string =>
+  boundedCleanupMessage(error instanceof Error ? error.message : String(error));
+
+/** Reporter fields are authoritative, but still bounded before display storage. */
+const safeStructuredSessionId = (report: {
+  readonly sessionId?: string;
+  readonly sessionPath?: string;
+}): string | undefined => {
+  const safeToken = (value: string): string | undefined => {
+    const token = value.trim();
+    if (
+      token.length === 0 ||
+      token.length > 256 ||
+      !/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(token)
+    ) return undefined;
+    return token;
+  };
+  if (typeof report.sessionId === "string") {
+    const direct = safeToken(report.sessionId);
+    if (direct !== undefined) return direct;
+  }
+  if (typeof report.sessionPath !== "string") return undefined;
+  const leaf = report.sessionPath.trim().split(/[\\/]/u).at(-1) ?? "";
+  return safeToken(leaf.replace(/\.jsonl$/iu, ""));
+};
 
 export { TerminalLaunchError };
 export type { TerminalLaunchFailureCode };
@@ -516,6 +622,8 @@ export class LocalSessionHost extends EventEmitter {
   private readonly sessions = new Map<string, SessionRec>();
   /** Every terminal generation remains live until its exact witness settles. */
   private readonly liveRecords = new Set<SessionRec>();
+  /** Companion authority remains outstanding until its exact stop receipt settles. */
+  private readonly companionRecords = new Set<SessionRec>();
   /** Bounded waiters used only after shutdown has prevented further creates. */
   private readonly allExitedWaiters = new Set<AllExitedWaiter>();
   private maintenanceLease: LocalTerminalMaintenanceLease | undefined;
@@ -527,6 +635,14 @@ export class LocalSessionHost extends EventEmitter {
   private readonly lateExitGraceMs: number;
   private readonly externalMaintenanceFence: () => boolean;
   private readonly observerPlane: TerminalObserverPlane;
+  private readonly companionManager: PrimeAgentCompanionManager | undefined;
+  private companionManagerShutdownState:
+    | "idle"
+    | "pending"
+    | "clean"
+    | "failed" = "idle";
+  private companionManagerShutdownError: string | undefined;
+  private companionManagerShutdownFlight: Promise<void> | undefined;
 
   constructor(
     processAuthority: LocalTerminalProcessAuthority = appProcessPlane,
@@ -540,6 +656,11 @@ export class LocalSessionHost extends EventEmitter {
     this.externalMaintenanceFence =
       options.externalMaintenanceFence ?? (() => false);
     this.observerPlane = options.observerPlane ?? terminalObserverPlane;
+    this.companionManager = options.companionManager === undefined
+      ? processAuthority === appProcessPlane
+        ? primeAgentCompanionManager
+        : undefined
+      : options.companionManager ?? undefined;
   }
 
   /** Open a geography terminal. A shell — it can hold no harness. */
@@ -570,7 +691,7 @@ export class LocalSessionHost extends EventEmitter {
       const liveWasSharedResume = current.resumeAttempt === true;
       const planStillResumes = launchArgvUsesResume(input.launch?.argv);
       if (isolateShared && pinHarness && (liveWasSharedResume || planStillResumes)) {
-        this.killBinding(bindingId);
+        this.killBinding(bindingId, "shared_resume_replacement");
         // Fall through to open a replacement generation.
       } else {
         // One binding owns one live actor generation. Create is an idempotent
@@ -657,7 +778,7 @@ export class LocalSessionHost extends EventEmitter {
 
     const prior = this.sessions.get(bindingId);
     if (prior && sessionStatusOf(prior) !== "exited") {
-      this.killBinding(bindingId);
+      this.killBinding(bindingId, "replacement");
     }
 
     const cols = Math.max(20, Math.min(300, input.cols ?? DEFAULT_COLS));
@@ -677,6 +798,16 @@ export class LocalSessionHost extends EventEmitter {
         : {},
     );
     const epoch = mintEpoch();
+    const requestedCanvasName = input.canvasName?.trim() || undefined;
+    const requestedNodeId = input.nodeId?.trim() || undefined;
+    // A partial anchor names no principal. Keep the generation intentionally
+    // unbound until bindCanvas supplies both halves together.
+    const canvasName = requestedCanvasName && requestedNodeId
+      ? requestedCanvasName
+      : undefined;
+    const nodeId = requestedCanvasName && requestedNodeId
+      ? requestedNodeId
+      : undefined;
     const rec: SessionRec = {
       bindingId,
       epoch,
@@ -686,17 +817,23 @@ export class LocalSessionHost extends EventEmitter {
       exitWitness: undefined,
       listenerCleanups: [],
       pid: undefined,
+      ptyIdentityBinding: undefined,
+      daemonIdentityBinding: undefined,
+      companion: undefined,
+      companionStopFlight: undefined,
+      companionCleanupState: "none",
+      companionCleanupError: undefined,
       cols,
       rows,
       cwd: Result.isSuccess(resolved) ? resolved.success.cwd : resolveCwd(seat.launch),
       title: input.title,
       label: input.label,
       backend: undefined,
-      canvasName: input.canvasName,
-      nodeId: input.nodeId,
+      canvasName,
+      nodeId,
       agentKey,
       harness,
-      detached: !(input.canvasName && input.nodeId),
+      detached: canvasName === undefined,
       createdAt: Date.now(),
       seq: 0n,
       journal: [],
@@ -714,6 +851,10 @@ export class LocalSessionHost extends EventEmitter {
     };
     this.sessions.set(bindingId, rec);
     this.liveRecords.add(rec);
+    // Binding-scoped stores are not epoch-keyed. Clear them at the authority
+    // handoff so an old generation's late callbacks cannot leak into the new.
+    clearFirstTypedMessage(bindingId);
+    clearCapturedSessionId(bindingId);
 
     if (Result.isFailure(resolved)) {
       // An actor whose launch does not resolve stops here and shows the error
@@ -727,7 +868,8 @@ export class LocalSessionHost extends EventEmitter {
       return this.summaryOf(rec);
     }
     const launch = resolved.success;
-    // Best-effort display name until OSC title updates (shell basename etc.).
+    // Best-effort display name until OSC title updates (the companion wrapper is
+    // transport, not the process name the operator chose).
     const spawnName = basename(launch.file).trim();
     if (spawnName.length > 0) rec.processName = spawnName;
     if (!isUsableCwd(launch.cwd)) {
@@ -741,20 +883,65 @@ export class LocalSessionHost extends EventEmitter {
       return this.summaryOf(rec);
     }
 
+    let terminalLaunch: ResolvedLaunch = launch;
+    if (
+      seat.kind === "agent" &&
+      seat.harness === "prime-agent" &&
+      this.companionManager !== undefined
+    ) {
+      try {
+        const companion = this.companionManager.start({
+          bindingId,
+          epoch,
+          launch,
+          onReport: (report) => this.observePrimeAgentReport(rec, report),
+          onUnexpectedExit: () => this.observeCompanionUnexpectedExit(rec),
+        });
+        rec.companion = companion;
+        this.companionRecords.add(rec);
+        terminalLaunch = companion.terminalLaunch;
+        // The daemon must wield the exact seat principal before its socket-routed
+        // client is spawned and can release the initial prompt.
+        if (!this.bindDaemonProcessIdentity(rec)) {
+          throw new Error("Prime Agent daemon process identity bind failed");
+        }
+        if (rec.killed || !this.liveRecords.has(rec)) {
+          throw new Error("Prime Agent companion exited during startup");
+        }
+      } catch (error) {
+        this.revokeProcessIdentities(rec);
+        this.requestCompanionStop(rec, "companion_start_failed");
+        this.failBeforeOwnership(rec, error);
+        return this.summaryOf(rec);
+      }
+    }
+
+    if (!isUsableCwd(terminalLaunch.cwd)) {
+      const error = new Error(
+        `working directory is not a usable directory: ${terminalLaunch.cwd}`,
+      );
+      this.revokeProcessIdentities(rec);
+      this.requestCompanionStop(rec, "companion_launch_invalid");
+      this.failBeforeOwnership(rec, error);
+      return this.summaryOf(rec);
+    }
+
     let lease: AppTerminalLease;
     try {
       const spec: AppTerminalSpawnSpec = {
         source: `term:${bindingId}`,
         purpose: `local terminal ${bindingId}@${epoch}`,
-        command: launch.file,
-        args: launch.args,
-        cwd: launch.cwd,
-        env: launch.env,
+        command: terminalLaunch.file,
+        args: terminalLaunch.args,
+        cwd: terminalLaunch.cwd,
+        env: terminalLaunch.env,
         cols,
         rows,
       };
       lease = this.processAuthority.spawnTerminal(spec);
     } catch (err) {
+      this.revokeProcessIdentities(rec);
+      this.requestCompanionStop(rec, "terminal_spawn_failed");
       this.failBeforeOwnership(rec, err);
       return this.summaryOf(rec);
     }
@@ -772,6 +959,11 @@ export class LocalSessionHost extends EventEmitter {
         (event) => this.observeExit(rec, event.code, event.signal),
         (error) => this.observeWitnessFailure(rec, error),
       );
+      // The terminal is a second exact generation for the same principal. A
+      // missing/failed bind is a setup failure, never permission to run ambient.
+      if (!this.bindPtyProcessIdentity(rec)) {
+        throw new Error("terminal process identity bind failed");
+      }
       rec.listenerCleanups.push(
         lease.io.onData((data) => this.observeData(rec, data)),
         lease.io.onError((error) => this.observeTerminalError(rec, error)),
@@ -789,7 +981,6 @@ export class LocalSessionHost extends EventEmitter {
       }
       const firstTyped = input.firstTypedMessage?.trim();
       if (firstTyped) {
-        clearFirstTypedMessage(bindingId);
         armFirstTypedMessage(bindingId, firstTyped);
       }
       if (!this.liveRecords.has(rec)) {
@@ -797,11 +988,12 @@ export class LocalSessionHost extends EventEmitter {
         if (seat.kind === "agent") {
           seatStateRuntime.unbind(bindingId, epoch, "generation_aborted");
         }
-        clearFirstTypedMessage(bindingId);
+        if (this.sessions.get(bindingId) === rec) {
+          clearFirstTypedMessage(bindingId);
+        }
         return this.summaryOf(rec);
       }
 
-      this.bindProcessIdentity(rec);
       this.emitEvent({ type: "session", bindingId, epoch, status: "starting" });
       this.emitEvent({
         type: "session",
@@ -812,7 +1004,7 @@ export class LocalSessionHost extends EventEmitter {
       });
     } catch (err) {
       this.recordPostSpawnFailure(rec, err);
-      this.requestStop(rec);
+      this.requestStop(rec, "terminal_setup_failed");
     }
 
     return this.summaryOf(rec);
@@ -868,19 +1060,31 @@ export class LocalSessionHost extends EventEmitter {
     ref: { canvasName?: string; nodeId?: string } | null,
   ): void {
     const rec = this.sessions.get(bindingId);
-    if (!rec) return;
-    if (rec.killed) return;
-    if (!ref || !ref.canvasName || !ref.nodeId) {
-      if (rec.pid !== undefined) getProcessIdentityMap().unbind(rec.pid);
+    if (!rec || rec.killed || sessionStatusOf(rec) === "exited") return;
+    const canvasName = ref?.canvasName?.trim() || undefined;
+    const nodeId = ref?.nodeId?.trim() || undefined;
+
+    // Rebinding is two exact-generation retirements followed by two exact
+    // mints. A partial anchor is deliberately no principal at all.
+    this.revokeProcessIdentities(rec);
+    if (canvasName === undefined || nodeId === undefined) {
       rec.canvasName = undefined;
       rec.nodeId = undefined;
       rec.detached = true;
       return;
     }
-    rec.canvasName = ref.canvasName.trim();
-    rec.nodeId = ref.nodeId.trim();
+
+    rec.canvasName = canvasName;
+    rec.nodeId = nodeId;
     rec.detached = false;
-    this.bindProcessIdentity(rec);
+    if (!this.bindAllProcessIdentities(rec)) {
+      this.revokeProcessIdentities(rec);
+      this.recordPostSpawnFailure(
+        rec,
+        new Error("canvas rebind could not bind every exact process generation"),
+      );
+      this.requestStop(rec, "canvas_identity_rebind_failed");
+    }
   }
 
   async attach(input: {
@@ -1054,7 +1258,7 @@ export class LocalSessionHost extends EventEmitter {
   }
 
   kill(bindingId: string): boolean {
-    return this.killBinding(bindingId);
+    return this.killBinding(bindingId, "explicit_kill");
   }
 
   runningCount(): number {
@@ -1124,8 +1328,9 @@ export class LocalSessionHost extends EventEmitter {
 
   private async performShutdown(reason: string): Promise<LocalHostShutdownResult> {
     for (const rec of [...this.liveRecords]) {
-      this.requestStop(rec);
+      this.requestStop(rec, reason);
     }
+    this.requestCompanionManagerShutdown(reason);
     if (await this.waitForAllExitsWithin(this.shutdownGraceMs)) {
       return { clean: true, stragglers: [] };
     }
@@ -1136,20 +1341,58 @@ export class LocalSessionHost extends EventEmitter {
       return { clean: true, stragglers: [] };
     }
     // Some process wrappers report exit just after a successful KILL. Give
-    // that observed callback one final bounded, event-driven window.
+    // that observed callback one final bounded, event-driven window. Companion
+    // stop receipts share the same bound; a hung daemon can never yield clean.
     if (await this.waitForAllExitsWithin(this.lateExitGraceMs)) {
       return { clean: true, stragglers: [] };
     }
-    const stragglers = [...this.liveRecords].map((rec) => ({
-      bindingId: rec.bindingId,
-      epoch: rec.epoch,
-      status: activeSessionStatusOf(rec),
-      ...(rec.pid === undefined ? {} : { pid: rec.pid }),
-      ...(rec.termReceipt === undefined ? {} : { term: rec.termReceipt }),
-      ...(rec.killReceipt === undefined ? {} : { kill: rec.killReceipt }),
-    })) as LocalHostShutdownStraggler[];
+    const retained = new Set([...this.liveRecords, ...this.companionRecords]);
+    const stragglers = [...retained].map((rec) => {
+      const status = sessionStatusOf(rec) === "exited"
+        ? "running" as const
+        : activeSessionStatusOf(rec);
+      const companion = this.companionRecords.has(rec)
+        ? {
+            daemonPid: rec.companion?.daemonPid,
+            state: rec.companionCleanupState === "failed"
+              ? "failed" as const
+              : "pending" as const,
+            ...(rec.companionCleanupError === undefined
+              ? {}
+              : { message: rec.companionCleanupError }),
+          }
+        : undefined;
+      return {
+        bindingId: rec.bindingId,
+        epoch: rec.epoch,
+        status,
+        ...(rec.pid === undefined ? {} : { pid: rec.pid }),
+        ...(this.liveRecords.has(rec) ? { ownedPtyOutstanding: true as const } : {}),
+        ...(rec.termReceipt === undefined ? {} : { term: rec.termReceipt }),
+        ...(rec.killReceipt === undefined ? {} : { kill: rec.killReceipt }),
+        ...(companion === undefined ? {} : { companion }),
+      };
+    }) as LocalHostShutdownStraggler[];
+    if (
+      this.companionManagerShutdownState === "pending" ||
+      this.companionManagerShutdownState === "failed"
+    ) {
+      stragglers.push({
+        bindingId: "prime-agent-companion-manager",
+        epoch: "shutdown",
+        status: "running",
+        companion: {
+          state: this.companionManagerShutdownState === "failed"
+            ? "manager_failed"
+            : "manager_pending",
+          ...(this.companionManagerShutdownError === undefined
+            ? {}
+            : { message: this.companionManagerShutdownError }),
+        },
+      });
+    }
     console.error(
-      `[term] ${reason} retained ${stragglers.length} local terminal generation(s): ${stragglers
+      `[term] ${reason} retained ${stragglers.length} local generation cleanup(s): ${stragglers
         .map((rec) => `${rec.bindingId}@${rec.epoch}${rec.pid === undefined ? "" : ` pid=${rec.pid}`}`)
         .join(", ")}`,
     );
@@ -1158,26 +1401,29 @@ export class LocalSessionHost extends EventEmitter {
     return { clean: false, stragglers };
   }
 
-  private killBinding(bindingId: string): boolean {
+  private killBinding(bindingId: string, reason: string): boolean {
     const rec = this.sessions.get(bindingId);
     if (!rec) return false;
-    if (sessionStatusOf(rec) === "exited") return true;
-    this.requestStop(rec);
+    if (sessionStatusOf(rec) === "exited") {
+      this.revokeProcessIdentities(rec);
+      this.requestCompanionStop(rec, reason);
+      return true;
+    }
+    this.requestStop(rec, reason);
     return true;
   }
 
-  private requestStop(rec: SessionRec): void {
-    if (sessionStatusOf(rec) === "exited") return;
-    if (rec.killed) return;
+  private requestStop(rec: SessionRec, reason: string): void {
+    const alreadyKilled = rec.killed;
     rec.killed = true;
     rec.controlLeaseId = undefined;
-    if (rec.pid !== undefined) {
-      try {
-        getProcessIdentityMap().unbind(rec.pid);
-      } catch (error) {
-        console.error(`[term] identity revoke failed for ${rec.bindingId}@${rec.epoch}:`, error);
-      }
-    }
+    // Identity revocation is synchronous and exact. Neither daemon shutdown nor
+    // terminal TERM may begin while a dying generation still wields the seat.
+    this.revokeProcessIdentities(rec);
+    this.clearPrimeAgentReporterHook(rec, reason);
+    this.requestCompanionStop(rec, reason);
+    if (alreadyKilled || sessionStatusOf(rec) === "exited") return;
+
     this.forceKill(rec, "SIGTERM");
     if (rec.escalationTimer === undefined && this.liveRecords.has(rec)) {
       rec.escalationTimer = setTimeout(() => {
@@ -1190,8 +1436,146 @@ export class LocalSessionHost extends EventEmitter {
     }
   }
 
+  private observePrimeAgentReport(
+    rec: SessionRec,
+    report: PrimeAgentCompanionReport,
+  ): void {
+    // Reporter sockets are per generation, but the host independently fences the
+    // callback because a released registration may already have queued a frame.
+    if (
+      this.sessions.get(rec.bindingId) !== rec ||
+      !this.liveRecords.has(rec) ||
+      rec.killed ||
+      report.bindingId !== rec.bindingId ||
+      report.epoch !== rec.epoch
+    ) return;
+
+    const sessionId = safeStructuredSessionId(report);
+    if (sessionId !== undefined) {
+      recordCapturedSessionId(rec.bindingId, sessionId);
+    }
+    if (report.released === true) {
+      seatStateRuntime.clearStructuredHook(
+        rec.bindingId,
+        rec.epoch,
+        report.reason,
+      );
+      return;
+    }
+    seatStateRuntime.observeStructuredHook({
+      bindingId: rec.bindingId,
+      epoch: rec.epoch,
+      state: report.state,
+      reason: report.reason,
+    });
+  }
+
+  private clearPrimeAgentReporterHook(rec: SessionRec, reason: string): void {
+    if (rec.harness !== "prime-agent") return;
+    seatStateRuntime.clearStructuredHook(rec.bindingId, rec.epoch, reason);
+  }
+
+  private observeCompanionUnexpectedExit(rec: SessionRec): void {
+    if (!this.liveRecords.has(rec)) return;
+    // Exact bindings are retired before terminal TERM. The callback owns `rec`,
+    // never a mutable binding lookup, so an old daemon cannot stop a replacement.
+    this.revokeProcessIdentities(rec);
+    if (this.sessions.get(rec.bindingId) === rec) {
+      rec.seq = rec.seq + 1n;
+      this.pushJournal(rec, {
+        seq: rec.seq,
+        type: "output",
+        data: "\r\n[vellum] Prime Agent companion exited unexpectedly; stopping client\r\n",
+      });
+    }
+    this.requestStop(rec, "companion_unexpected_exit");
+  }
+
+  private requestCompanionStop(rec: SessionRec, reason: string): void {
+    const companion = rec.companion;
+    if (
+      companion === undefined ||
+      rec.companionStopFlight !== undefined ||
+      rec.companionCleanupState !== "none"
+    ) return;
+    rec.companionCleanupState = "pending";
+    let stopReceipt: ReturnType<PrimeAgentCompanionHandle["stop"]>;
+    try {
+      stopReceipt = companion.stop(reason);
+    } catch (error) {
+      this.markCompanionCleanupFailed(rec, error);
+      return;
+    }
+    rec.companionStopFlight = Promise.resolve(stopReceipt).then(
+      (receipt) => {
+        const failure = cleanupFailureMessage(receipt);
+        if (failure !== undefined) {
+          this.markCompanionCleanupFailed(rec, failure);
+          return;
+        }
+        rec.companionCleanupState = "clean";
+        rec.companionCleanupError = undefined;
+        this.companionRecords.delete(rec);
+        this.notifyQuiescentWaiters();
+      },
+      (error) => this.markCompanionCleanupFailed(rec, error),
+    );
+  }
+
+  private markCompanionCleanupFailed(rec: SessionRec, error: unknown): void {
+    rec.companionCleanupState = "failed";
+    rec.companionCleanupError = errorMessage(error);
+    console.error(
+      `[term] Prime Agent companion cleanup failed for ${rec.bindingId}@${rec.epoch}:`,
+      error,
+    );
+    // Keep the record outstanding. A bounded shutdown must report it non-clean.
+  }
+
+  private requestCompanionManagerShutdown(reason: string): void {
+    const manager = this.companionManager;
+    if (manager === undefined || this.companionManagerShutdownFlight !== undefined) {
+      return;
+    }
+    this.companionManagerShutdownState = "pending";
+    let shutdownReceipt: ReturnType<PrimeAgentCompanionManager["shutdownAll"]>;
+    try {
+      shutdownReceipt = manager.shutdownAll(reason);
+    } catch (error) {
+      this.companionManagerShutdownState = "failed";
+      this.companionManagerShutdownError = errorMessage(error);
+      this.companionManagerShutdownFlight = Promise.resolve();
+      return;
+    }
+    this.companionManagerShutdownFlight = Promise.resolve(shutdownReceipt).then(
+      (receipt) => {
+        const failure = cleanupFailureMessage(receipt);
+        if (failure !== undefined) {
+          this.companionManagerShutdownState = "failed";
+          this.companionManagerShutdownError = failure;
+          return;
+        }
+        this.companionManagerShutdownState = "clean";
+        this.companionManagerShutdownError = undefined;
+        this.notifyQuiescentWaiters();
+      },
+      (error) => {
+        this.companionManagerShutdownState = "failed";
+        this.companionManagerShutdownError = errorMessage(error);
+      },
+    );
+  }
+
+  private shutdownQuiescent(): boolean {
+    if (this.liveRecords.size !== 0 || this.companionRecords.size !== 0) {
+      return false;
+    }
+    return this.companionManager === undefined ||
+      this.companionManagerShutdownState === "clean";
+  }
+
   private waitForAllExitsWithin(timeoutMs: number): Promise<boolean> {
-    if (this.liveRecords.size === 0) return Promise.resolve(true);
+    if (this.shutdownQuiescent()) return Promise.resolve(true);
     if (timeoutMs <= 0) return Promise.resolve(false);
     return new Promise<boolean>((resolve) => {
       const waiter: AllExitedWaiter = {
@@ -1200,11 +1584,11 @@ export class LocalSessionHost extends EventEmitter {
       };
       waiter.timer = setTimeout(() => {
         if (!this.allExitedWaiters.delete(waiter)) return;
-        resolve(this.liveRecords.size === 0);
+        resolve(this.shutdownQuiescent());
       }, timeoutMs);
       this.allExitedWaiters.add(waiter);
       // Defensive totality if future code makes registration re-entrant.
-      if (this.liveRecords.size === 0 && this.allExitedWaiters.delete(waiter)) {
+      if (this.shutdownQuiescent() && this.allExitedWaiters.delete(waiter)) {
         if (waiter.timer !== undefined) clearTimeout(waiter.timer);
         resolve(true);
       }
@@ -1275,17 +1659,13 @@ export class LocalSessionHost extends EventEmitter {
         // Listener disposal never weakens the exact central exit witness.
       }
     }
+    // Natural client exit owns the same cleanup contract as explicit stop.
+    // Revoke exact identities before asking the daemon to drain.
+    this.revokeProcessIdentities(rec);
+    this.clearPrimeAgentReporterHook(rec, "terminal_exit");
+    this.requestCompanionStop(rec, "terminal_exit");
     this.removeLiveRecord(rec);
     const current = this.sessions.get(rec.bindingId);
-    // A reused numeric PID may already belong to the replacement. Never let
-    // the old generation's late exit erase that newer identity.
-    if (rec.pid !== undefined && (current === rec || current?.pid !== rec.pid)) {
-      try {
-        getProcessIdentityMap().unbind(rec.pid);
-      } catch (error) {
-        console.error(`[term] identity unbind failed for ${rec.bindingId}@${rec.epoch}:`, error);
-      }
-    }
     rec.phase = SessionPhase.Closed({
       surface: "native",
       reason: signal !== undefined ? `signal_${signal}` : `exit_${code ?? "null"}`,
@@ -1468,16 +1848,26 @@ export class LocalSessionHost extends EventEmitter {
   }
 
   private removeLiveRecord(rec: SessionRec): void {
-    // Drop headless grid for this exact generation (epoch-gated).
+    // Drop headless grid and structured authority for this exact epoch.
     this.observerPlane.detach(rec.bindingId, rec.epoch);
+    this.clearPrimeAgentReporterHook(rec, "generation_exited");
     seatStateRuntime.unbind(
       rec.bindingId,
       rec.epoch,
       "generation_exited",
     );
-    clearFirstTypedMessage(rec.bindingId);
-    clearCapturedSessionId(rec.bindingId);
-    if (!this.liveRecords.delete(rec) || this.liveRecords.size !== 0) return;
+    // These two stores are binding-keyed rather than epoch-keyed. An old exact
+    // exit must never clear a replacement generation's prompt/session.
+    if (this.sessions.get(rec.bindingId) === rec) {
+      clearFirstTypedMessage(rec.bindingId);
+      clearCapturedSessionId(rec.bindingId);
+    }
+    if (!this.liveRecords.delete(rec)) return;
+    this.notifyQuiescentWaiters();
+  }
+
+  private notifyQuiescentWaiters(): void {
+    if (!this.shutdownQuiescent()) return;
     const waiters = [...this.allExitedWaiters];
     this.allExitedWaiters.clear();
     for (const waiter of waiters) {
@@ -1538,30 +1928,88 @@ export class LocalSessionHost extends EventEmitter {
     }
   }
 
-  private bindProcessIdentity(rec: SessionRec): void {
-    if (
-      !rec.pid ||
-      !rec.canvasName ||
-      !rec.nodeId ||
-      sessionStatusOf(rec) !== "running"
-    ) return;
-    const identities = getProcessIdentityMap();
-    // Unbind only this PID so a replaced epoch's late exit cannot wipe the new bind.
-    identities.unbind(rec.pid);
+  private processPrincipal(rec: SessionRec): ProcessPrincipal | undefined {
+    if (rec.canvasName === undefined || rec.nodeId === undefined) return undefined;
     // Managed actor seats bind as agent so work-control process-bind matches the card.
-    if (rec.agentKey) {
-      identities.bind(rec.pid, {
-        agentKey: rec.agentKey,
-        canvasName: rec.canvasName,
-        nodeId: rec.nodeId,
-      });
-      return;
+    return rec.agentKey
+      ? {
+          agentKey: rec.agentKey,
+          canvasName: rec.canvasName,
+          nodeId: rec.nodeId,
+        }
+      : {
+          bindingId: rec.bindingId,
+          canvasName: rec.canvasName,
+          nodeId: rec.nodeId,
+        };
+  }
+
+  private bindDaemonProcessIdentity(rec: SessionRec): boolean {
+    const companion = rec.companion;
+    const principal = this.processPrincipal(rec);
+    if (principal === undefined || companion === undefined) return true;
+    try {
+      const binding = getProcessIdentityMap().bindGeneration(
+        companion.daemonPid,
+        principal,
+      );
+      if (binding === undefined) return false;
+      rec.daemonIdentityBinding = binding;
+      return true;
+    } catch (error) {
+      console.error(
+        `[term] daemon identity bind failed for ${rec.bindingId}@${rec.epoch}:`,
+        error,
+      );
+      return false;
     }
-    identities.bind(rec.pid, {
-      bindingId: rec.bindingId,
-      canvasName: rec.canvasName,
-      nodeId: rec.nodeId,
-    });
+  }
+
+  private bindPtyProcessIdentity(rec: SessionRec): boolean {
+    const principal = this.processPrincipal(rec);
+    if (principal === undefined) return true;
+    if (rec.pid === undefined || sessionStatusOf(rec) !== "running") return false;
+    try {
+      const binding = getProcessIdentityMap().bindGeneration(rec.pid, principal);
+      if (binding === undefined) return false;
+      rec.ptyIdentityBinding = binding;
+      return true;
+    } catch (error) {
+      console.error(
+        `[term] terminal identity bind failed for ${rec.bindingId}@${rec.epoch}:`,
+        error,
+      );
+      return false;
+    }
+  }
+
+  private bindAllProcessIdentities(rec: SessionRec): boolean {
+    if (!this.bindDaemonProcessIdentity(rec)) return false;
+    if (this.bindPtyProcessIdentity(rec)) return true;
+    this.revokeProcessIdentities(rec);
+    return false;
+  }
+
+  private revokeProcessIdentities(rec: SessionRec): void {
+    const identities = getProcessIdentityMap();
+    const bindings = [
+      rec.daemonIdentityBinding,
+      rec.ptyIdentityBinding,
+    ].filter((binding): binding is ProcessIdentityBinding => binding !== undefined);
+    rec.daemonIdentityBinding = undefined;
+    rec.ptyIdentityBinding = undefined;
+    for (const binding of bindings) {
+      try {
+        // False means this exact capability is already stale/revoked. It never
+        // authorizes a numeric fallback that could erase a replacement.
+        identities.unbindGeneration(binding);
+      } catch (error) {
+        console.error(
+          `[term] exact identity revoke failed for ${rec.bindingId}@${rec.epoch}:`,
+          error,
+        );
+      }
+    }
   }
 
   private summaryOf(rec: SessionRec): TerminalSessionSummary {
