@@ -18,7 +18,10 @@ import {
 import { seatStateRuntime } from "../src/main/vellum/term/agent-state";
 import { LocalSessionHost } from "../src/main/vellum/term/local-host";
 import { TerminalObserverPlane } from "../src/main/vellum/term/observer";
-import { makePrimeAgentCompanionManager } from "../src/main/vellum/term/prime-agent-companion";
+import {
+  makePrimeAgentCompanionManager,
+  type PrimeAgentCompanionUnexpectedExit,
+} from "../src/main/vellum/term/prime-agent-companion";
 import {
   PrimeAgentReporterPlane,
   primeAgentReporterSocketPath,
@@ -470,4 +473,90 @@ describe("Prime Agent two-seat real-process integration", () => {
       rmSync(testRoot, { recursive: true, force: true });
     }
   }, 30_000);
+
+  it("rejects an installed Prime Agent executable that is not exact 0.7.1", async () => {
+    const testRoot = mkdtempSync(join("/tmp", "vc-prime-agent-version-"));
+    const reporterHome = join(testRoot, "reporter-home");
+    const logPath = join(testRoot, "fake-prime-agent.ndjson");
+    const reporterPlane = new PrimeAgentReporterPlane({
+      shutdownGraceMs: 100,
+      shutdownDeadlineMs: 2_000,
+    });
+    const processPlane = createAppProcessPlane({
+      termGraceMs: 1_000,
+      killGraceMs: 1_000,
+    });
+    const manager = makePrimeAgentCompanionManager({
+      processPlane,
+      reporterPort: reporterPlane,
+      commandTimeoutMs: 500,
+      commandTermGraceMs: 50,
+      commandKillGraceMs: 100,
+      daemonTermGraceMs: 100,
+      daemonKillGraceMs: 100,
+      listAttempts: 1,
+      listRetryMs: 0,
+      replacementProbes: 1,
+      replacementRetryMs: 10,
+    });
+    let handleDirectory: string | undefined;
+    try {
+      await reporterPlane.start({ home: reporterHome });
+      let resolveUnexpected!: (
+        event: PrimeAgentCompanionUnexpectedExit,
+      ) => void;
+      const unexpected = new Promise<PrimeAgentCompanionUnexpectedExit>(
+        (resolve) => {
+          resolveUnexpected = resolve;
+        },
+      );
+      const handle = manager.start({
+        bindingId: "prime-agent-version-mismatch",
+        epoch: "version-mismatch-epoch",
+        launch: {
+          file: FAKE_PRIME_AGENT,
+          args: ["this prompt must never run"],
+          cwd: testRoot,
+          env: {
+            ...process.env,
+            FAKE_PRIME_AGENT_LOG: logPath,
+            FAKE_PRIME_AGENT_VERSION: "0.8.0",
+          },
+        },
+        onUnexpectedExit: resolveUnexpected,
+      });
+      handleDirectory = dirname(handle.socketPath);
+
+      const crash = await unexpected;
+      const receipt = await crash.cleanup;
+      expect(crash.exit.code).toBe(69);
+      expect(crash.stderr).toContain(
+        "managed Prime Agent requires exact version 0.7.1 (found: 0.8.0)",
+      );
+      expect(receipt.clean).toBe(false);
+      expect(receipt.diagnostics[0]).toMatchObject({
+        stage: "daemon-exit",
+        stderr: expect.stringContaining("requires exact version 0.7.1"),
+      });
+      expect(readFakeEvents(logPath).some((event) =>
+        event.event === "daemon.start" || event.event === "client.start"
+      )).toBe(false);
+      expect(existsSync(handle.socketPath)).toBe(false);
+
+      const managerReceipt = await manager.shutdownAll("version_test_cleanup");
+      expect(managerReceipt.clean).toBe(false);
+      const reporterReceipt = await reporterPlane.shutdown();
+      expect(reporterReceipt.clean).toBe(true);
+      const processReceipt = await processPlane.drainOnQuit();
+      expect(processReceipt.clean).toBe(true);
+    } finally {
+      await manager.shutdownAll("version_test_finally").catch(() => undefined);
+      await reporterPlane.shutdown().catch(() => undefined);
+      await processPlane.drainOnQuit().catch(() => undefined);
+      if (handleDirectory !== undefined) {
+        rmSync(handleDirectory, { recursive: true, force: true });
+      }
+      rmSync(testRoot, { recursive: true, force: true });
+    }
+  }, 10_000);
 });

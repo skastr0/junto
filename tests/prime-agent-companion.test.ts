@@ -169,8 +169,7 @@ class FakeProcessPlane {
   }
 
   spawnChild = (spec: AppProcessChildSpawnSpec): AppProcessLease => {
-    const isDaemon =
-      spec.args?.[0] === "--mode" && spec.args?.[1] === "daemon";
+    const isDaemon = spec.purpose.startsWith("managed Prime Agent daemon ");
     const child = new FakeChild(
       spec,
       this.nextPid++,
@@ -355,13 +354,20 @@ describe("Prime Agent companion manager", () => {
     expect(existsSync(dirname(first.socketPath))).toBe(true);
 
     const daemon = plane.daemons[0]!;
-    expect(daemon.spec.command).toBe("/opt/bin/prime-agent");
-    expect(daemon.spec.args).toEqual([
-      "--mode",
-      "daemon",
-      "--daemon-socket",
-      first.socketPath,
+    expect(daemon.spec.command).toBe("/bin/sh");
+    expect(daemon.spec.args?.slice(0, 4)).toEqual([
+      "-c",
+      expect.stringContaining("--version"),
+      "vellum-command-prime-agent-daemon",
+      "/opt/bin/prime-agent",
     ]);
+    expect(daemon.spec.args?.slice(4)).toEqual([
+      first.socketPath,
+      "0.7.1",
+    ]);
+    expect(daemon.spec.args?.[1]).toContain(
+      'exec "$prime_agent" --mode daemon --daemon-socket "$socket_path"',
+    );
     expect(daemon.spec.isolateProcessGroup).toBe(true);
     expect(daemon.spec.cwd).toBe("/tmp");
     expect(daemon.spec.env).toMatchObject({
@@ -480,7 +486,7 @@ describe("Prime Agent companion manager", () => {
       "epoch-prior",
       "epoch-replacement",
     ]);
-    expect(new Set(plane.daemons.map((daemon) => daemon.spec.args?.[3]))).toEqual(
+    expect(new Set(plane.daemons.map((daemon) => daemon.spec.args?.[4]))).toEqual(
       new Set([prior.socketPath, replacement.socketPath]),
     );
   });
@@ -573,11 +579,10 @@ describe("Prime Agent companion manager", () => {
     expect(plane.terminations[0]!.child).toBe(daemon);
     expect(plane.forceTerminations).toHaveLength(1);
     expect(plane.forceTerminations[0]!.child).toBe(daemon);
-    expect(plane.forceTerminations[0]!.child.spec.args).toEqual([
-      "--mode",
-      "daemon",
-      "--daemon-socket",
+    expect(plane.forceTerminations[0]!.child.spec.args?.slice(3)).toEqual([
+      "/opt/bin/prime-agent",
       handle.socketPath,
+      "0.7.1",
     ]);
   });
 

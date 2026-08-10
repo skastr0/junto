@@ -30,6 +30,25 @@ const PRIME_AGENT_LIST_ATTEMPTS = 3;
 const PRIME_AGENT_LIST_RETRY_MS = 50;
 const PRIME_AGENT_REPLACEMENT_PROBES = 6;
 const PRIME_AGENT_REPLACEMENT_RETRY_MS = 500;
+const PRIME_AGENT_REQUIRED_VERSION = "0.7.1";
+
+/**
+ * Version validation and daemon exec share one app-owned foreground process
+ * generation. Stock 0.7.1 writes its version to stderr, so capture both streams
+ * and compare the complete trimmed command-substitution value exactly.
+ */
+const PRIME_AGENT_DAEMON_WRAPPER = String.raw`prime_agent=$1
+socket_path=$2
+required_version=$3
+version=$("$prime_agent" --version 2>&1)
+status=$?
+if [ "$status" -ne 0 ] || [ "$version" != "$required_version" ]; then
+  printf '%s\n' "Vellum Command: managed Prime Agent requires exact version $required_version (found: $version)." >&2
+  exit 69
+fi
+exec "$prime_agent" --mode daemon --daemon-socket "$socket_path"`;
+
+const PRIME_AGENT_DAEMON_WRAPPER_ARG0 = "vellum-command-prime-agent-daemon";
 
 /**
  * The PTY wrapper does readiness work in its own process. Electron main only
@@ -1054,8 +1073,15 @@ export const makePrimeAgentCompanionManager = (
       lease = processPlane.spawnChild({
         source: `term:prime-agent:${bindingId}`,
         purpose: `managed Prime Agent daemon ${bindingId}@${epoch}`,
-        command: file,
-        args: ["--mode", "daemon", "--daemon-socket", socketPath],
+        command: "/bin/sh",
+        args: [
+          "-c",
+          PRIME_AGENT_DAEMON_WRAPPER,
+          PRIME_AGENT_DAEMON_WRAPPER_ARG0,
+          file,
+          socketPath,
+          PRIME_AGENT_REQUIRED_VERSION,
+        ],
         cwd,
         env: { ...env },
         isolateProcessGroup: true,

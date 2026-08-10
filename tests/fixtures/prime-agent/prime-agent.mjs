@@ -80,7 +80,7 @@ const connectRequest = (request) => new Promise((resolve, reject) => {
 });
 
 if (argv.includes("--version")) {
-  process.stdout.write("0.7.1\n");
+  process.stderr.write(`${process.env.FAKE_PRIME_AGENT_VERSION ?? "0.7.1"}\n`);
   process.exit(0);
 } else if (argv[0] === "list") {
   try {
