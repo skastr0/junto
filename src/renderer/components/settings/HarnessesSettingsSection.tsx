@@ -180,8 +180,8 @@ export function HarnessesSettingsSection() {
                   <strong style={{ color: INK }}>{row.displayName}</strong>
                   <span className="settings-field__hint">
                     {row.installed
-                      ? `CLI ${row.binary} · installed`
-                      : `CLI ${row.binary} · not found on PATH`}
+                      ? `CLI ${row.binary} — installed`
+                      : `CLI ${row.binary} — not found on PATH`}
                   </span>
                 </div>
 

@@ -55,4 +55,4 @@ import { SeedState, InspectorPanel } from "@skastr0/vellum";
 
 ## Where truth lives
 
-`styles.css` (tokens + compiled utilities + component CSS via its imports) · `components/<group>/<Name>/<Name>.d.ts` (props) · `components/<group>/<Name>/<Name>.prompt.md` (usage).
+`styles.css` (tokens + compiled utilities + component CSS via its imports) — `components/<group>/<Name>/<Name>.d.ts` (props) — `components/<group>/<Name>/<Name>.prompt.md` (usage).

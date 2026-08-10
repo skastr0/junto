@@ -2,7 +2,7 @@ import { EdgeCommandCard, SeedState } from "@skastr0/vellum";
 
 // EdgeCommandCard resolves edgeId against the app's global doc + kernel
 // execution stores (`if (!edge) return null`). SeedState seeds both so the
-// real command · relation card renders — idle (soft relates) and live
+// real command — relation card renders — idle (soft relates) and live
 // (kernel-reported "blocks" phase) are genuinely different visual states.
 const Frame = ({ children }: { children: React.ReactNode }) => (
   <div style={{ background: "var(--color-ground)", padding: 20, width: 440 }}>{children}</div>

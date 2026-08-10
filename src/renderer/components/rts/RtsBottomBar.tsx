@@ -1015,11 +1015,11 @@ function HotbarChip({
       title={
         empty
           ? `Empty slot ${index + 1} — ⌘${index + 1} fixes selection here; active nodes may lease it`
-          : `${label} · ${tenureLabel} · ${paused ? "paused" : mark.label}${
+          : `${label} — ${tenureLabel} — ${paused ? "paused" : mark.label}${
               tenure === "leased"
-                ? " · auto"
+                ? " — auto"
                 : tenure === "evicted"
-                  ? " · soft (yields to new activity)"
+                  ? " — soft (yields to new activity)"
                   : ""
             }`
       }
@@ -1036,7 +1036,7 @@ function HotbarChip({
           className="rts-chip__activity"
         />
       ) : null}
-      <span className="rts-chip__label">{empty ? "·" : label}</span>
+      <span className="rts-chip__label">{empty ? "—" : label}</span>
     </button>
   );
 }

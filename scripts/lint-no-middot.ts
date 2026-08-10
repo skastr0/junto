@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Forbid U+00B7 MIDDLE DOT (·) anywhere in product text surfaces.
+ * Forbid U+00B7 MIDDLE DOT anywhere in product text surfaces.
  *
  * Operators banned middot staccato from Vellum Command UI and copy.
  * Run: `bun run lint:no-middot`
@@ -11,7 +11,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const MIDDOT = "\u00B7"; // ·
+const MIDDOT = "\u00B7";
 
 const SKIP_DIR_NAMES = new Set([
   ".git",
@@ -135,7 +135,7 @@ const main = async (): Promise<void> => {
     console.error(`  … +${hits.length - 200} more`);
   }
   console.error(
-    "\nReplace with ASCII separators ( -  /  |  , ). Never reintroduce ·",
+    "\nReplace with ASCII separators ( -  /  |  , ). Never reintroduce U+00B7",
   );
   process.exit(1);
 };

@@ -62,7 +62,7 @@ const cmdProfileList = () => {
 };
 
 const cmdVersion = () => {
-  process.stdout.write("Hermes Agent v0.16.0 (2026.6.5) · upstream fake0000\n");
+  process.stdout.write("Hermes Agent v0.16.0 (2026.6.5) \u00b7 upstream fake0000\n");
 };
 
 // --- acp: ndjson JSON-RPC 2.0 over stdio -------------------------------------

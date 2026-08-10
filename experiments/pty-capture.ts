@@ -680,7 +680,7 @@ async function scenarioPasteChip(ctx: Ctx, s0: number): Promise<void> {
     if (glyphIdx >= 0) {
       const rest = tail.slice(glyphIdx + 1);
       const eol = rest.search(/[\r\n]/);
-      const line = (eol === -1 ? rest : rest.slice(0, eol)).replace(/[\u2500-\u257f·]/g, "");
+      const line = (eol === -1 ? rest : rest.slice(0, eol)).replace(/[\u2500-\u257f\u00b7]/g, "");
       composerEmpty = /^[\s\xa0]*$/.test(line);
     }
     // turn evidence: claude randomizes the verb ("Sautéed for 0s") — match "X for Ns";

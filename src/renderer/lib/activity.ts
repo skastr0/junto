@@ -273,7 +273,7 @@ export function terminalActivity(input: {
       tone: "green",
       pattern: "diagonal",
       label: activeProcess && processLabel
-        ? `starting · ${processLabel}`
+        ? `starting — ${processLabel}`
         : "starting process",
     };
   }
@@ -291,7 +291,7 @@ export function terminalActivity(input: {
       mode: "wave",
       tone: "green",
       pattern: "ripple",
-      label: `process · ${processLabel}`,
+      label: `process — ${processLabel}`,
     };
   }
   // Ready/complete: idle after work, operator has not looked (herdr done).

@@ -144,7 +144,7 @@ describe("terminalActivity", () => {
       mode: "wave",
       tone: "green",
       pattern: "ripple",
-      label: "process · npm",
+      label: "process — npm",
     });
   });
 
@@ -250,7 +250,7 @@ describe("terminalActivity", () => {
       mode: "wave",
       tone: "green",
       pattern: "ripple",
-      label: "process · node",
+      label: "process — node",
     });
     expect(terminalActivity({ seatState: "working" }).pattern).toBe("snake");
     expect(terminalActivity({})).toMatchObject({

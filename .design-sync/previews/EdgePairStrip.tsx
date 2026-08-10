@@ -22,23 +22,23 @@ const edge = (id: string, fromNode: string, toNode: string, criteria?: Record<st
 // prop's id strings — captions above name the intended relation instead.
 export const SoftRelates = () => (
   <Frame>
-    <Caption>claude-agent → release-checklist · no criteria authored</Caption>
+    <Caption>claude-agent → release-checklist — no criteria authored</Caption>
     <EdgePairStrip edge={edge("e1", "claude-agent", "release-checklist") as never} />
   </Frame>
 );
 
 export const TasksCriteria = () => (
   <Frame>
-    <Caption>intake-agent → triage-tasks · stops flow until tasks clear</Caption>
+    <Caption>intake-agent → triage-tasks — stops flow until tasks clear</Caption>
     <EdgePairStrip edge={edge("e2", "intake-agent", "triage-tasks", { mode: "tasks" }) as never} />
   </Frame>
 );
 
 export const TrustPlane = () => (
   <Frame>
-    <Caption>reviewer → release-gate · proof required</Caption>
+    <Caption>reviewer → release-gate — proof required</Caption>
     <EdgePairStrip edge={edge("e3", "reviewer", "release-gate", { mode: "proof", step: "smoke-test" }) as never} />
-    <Caption>ops → prod-deploy · human approval required</Caption>
+    <Caption>ops → prod-deploy — human approval required</Caption>
     <EdgePairStrip edge={edge("e4", "ops", "prod-deploy", { mode: "approval", step: "deploy" }) as never} />
   </Frame>
 );

@@ -329,7 +329,7 @@ export const BUILTIN_FIXTURES: ReadonlyArray<Fixture> = [
             "3. No, and tell Codex what to do differently (esc)\r\n",
         ),
       },
-      { t: 100, b64: b64("› \r\nImprove documentation in @filename\r\ngpt-5.4-mini low · cwd\r\n") },
+      { t: 100, b64: b64("› \r\nImprove documentation in @filename\r\ngpt-5.4-mini low \u00b7 cwd\r\n") },
       { t: 150, b64: b64("\x1b]0;codex\x07") },
     ],
     expectedScreen: {

@@ -146,7 +146,7 @@ export function TerminalCard({
   const processSubtitle =
     activeProcess && processName
       ? session?.pid !== undefined
-        ? `${processName} · pid ${session.pid}`
+        ? `${processName} — pid ${session.pid}`
         : processName
       : undefined;
   const subtitle =
