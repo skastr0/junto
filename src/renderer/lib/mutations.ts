@@ -705,6 +705,21 @@ const deleteNodesInternal = async (
   const agentKeys = agentNodes
     .map((n) => n.ether?.entity?.name)
     .filter((name): name is string => typeof name === "string" && name.length > 0);
+  // Managed terminal authority is the exact (host, binding) pair, never the
+  // agent key. Two cards may temporarily share an agent key while still owning
+  // distinct seats, and duplicate references to one seat must stop it once.
+  const managedTerminalBindings = new Map<
+    string,
+    { readonly bindingId: string; readonly hostId: string }
+  >();
+  for (const node of agentNodes) {
+    const bindingId = node.ether?.terminal?.bindingId?.trim();
+    if (!bindingId) continue;
+    const authoredHost =
+      typeof node.ether?.host === "string" ? node.ether.host.trim() : "";
+    const hostId = authoredHost || "local";
+    managedTerminalBindings.set(`${hostId}\0${bindingId}`, { bindingId, hostId });
+  }
   let deleteLeaseId: string | undefined;
   const finishDeleteLease = async (
     outcome: "committed" | "aborted",
@@ -742,17 +757,81 @@ const deleteNodesInternal = async (
     }
   }
 
-  // After any await (page stop / agent close), the operator may have switched
-  // canvases. Re-check identity before mutating — never write canvas A's
-  // filtered document over canvas B via commitDoc → scheduleSave.
-  if (
-    state$.canvasName.peek() !== canvasName ||
-    state$.docEpoch.peek() !== docEpoch
-  ) {
+  const canvasGenerationMatches = (): boolean =>
+    state$.canvasName.peek() === canvasName && state$.docEpoch.peek() === docEpoch;
+  const abortForCanvasChange = async (): Promise<void> => {
     await finishDeleteLease("aborted");
-    state$.error.set(
-      "Canvas changed before deletion completed; no nodes were deleted.",
-    );
+    if (canvasMutationAdmissionOpen) {
+      state$.error.set(
+        "Canvas changed before deletion completed; no nodes were deleted.",
+      );
+    }
+  };
+
+  // After any await (page stop / agent close), the operator may have switched
+  // canvases. Re-check identity before starting another destructive operation —
+  // never stop a binding captured from canvas A after canvas B became current.
+  if (!canvasGenerationMatches()) {
+    await abortForCanvasChange();
+    return;
+  }
+  if (!canvasMutationAdmissionOpen) {
+    await finishDeleteLease("aborted");
+    return;
+  }
+
+  // A managed agent card owns a native terminal generation in addition to the
+  // ACP/chat delete fence above. Stop each exact binding while the old document
+  // is still authoritative. `false` means no generation was running, which is
+  // already the required clean state for a never-opened card.
+  if (managedTerminalBindings.size > 0) {
+    const terminalKill = window.vellumCommand?.terminalKill;
+    if (typeof terminalKill !== "function") {
+      await finishDeleteLease("aborted");
+      if (canvasMutationAdmissionOpen) {
+        state$.error.set(
+          "Vellum Command could not stop the managed terminal; the agent node was not deleted.",
+        );
+      }
+      return;
+    }
+    for (const binding of managedTerminalBindings.values()) {
+      if (!canvasMutationAdmissionOpen) {
+        await finishDeleteLease("aborted");
+        return;
+      }
+      if (!canvasGenerationMatches()) {
+        await abortForCanvasChange();
+        return;
+      }
+      try {
+        await terminalKill(binding.bindingId, binding.hostId);
+      } catch {
+        await finishDeleteLease("aborted");
+        if (canvasMutationAdmissionOpen) {
+          state$.error.set(
+            canvasGenerationMatches()
+              ? "Vellum Command could not stop the managed terminal; the agent node was not deleted."
+              : "Canvas changed before deletion completed; no nodes were deleted.",
+          );
+        }
+        return;
+      }
+      if (!canvasMutationAdmissionOpen) {
+        await finishDeleteLease("aborted");
+        return;
+      }
+      if (!canvasGenerationMatches()) {
+        await abortForCanvasChange();
+        return;
+      }
+    }
+  }
+
+  // The awaited terminal stops are also generation boundaries. Keep the final
+  // commit fenced even when there were no managed bindings to stop.
+  if (!canvasGenerationMatches()) {
+    await abortForCanvasChange();
     return;
   }
   if (!canvasMutationAdmissionOpen) {
