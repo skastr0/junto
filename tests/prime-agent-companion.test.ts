@@ -408,6 +408,57 @@ describe("Prime Agent companion manager", () => {
     expect(existsSync(dirname(second.socketPath))).toBe(false);
   });
 
+  it("admits a new exact epoch while the prior generation cleanup is pending", async () => {
+    const plane = new FakeProcessPlane();
+    const reporter = new FakeReporterPort();
+    const manager = makePrimeAgentCompanionManager(
+      testOptions(plane, reporter),
+    );
+    const prior = manager.start({
+      bindingId: "seat-replaced",
+      epoch: "epoch-prior",
+      launch: launch(),
+    });
+    remember(prior);
+
+    plane.enqueue({ hang: true });
+    const priorStop = prior.stop("synchronous_replacement");
+    const delayedPriorList = plane.commands[0]!;
+    const replacement = manager.start({
+      bindingId: "seat-replaced",
+      epoch: "epoch-replacement",
+      launch: launch(),
+    });
+    remember(replacement);
+
+    expect(replacement.socketPath).not.toBe(prior.socketPath);
+    expect(() => manager.start({
+      bindingId: "seat-replaced",
+      epoch: "epoch-third",
+      launch: launch(),
+    })).toThrow("already owns managed seat");
+    expect(plane.daemons[1]!.exitEvent).toBeUndefined();
+    delayedPriorList.completePlan({
+      stdout: JSON.stringify({ sessions: [] }),
+    });
+    await expect(priorStop).resolves.toMatchObject({ clean: true });
+    expect(plane.terminations.map(({ child }) => child)).toEqual([
+      plane.daemons[0],
+    ]);
+    expect(plane.daemons[1]!.exitEvent).toBeUndefined();
+    expect(reporter.registrations[1]!.releases).toBe(0);
+    await expect(replacement.stop("test_cleanup")).resolves.toMatchObject({
+      clean: true,
+    });
+    expect(reporter.registrations.map((entry) => entry.input.epoch)).toEqual([
+      "epoch-prior",
+      "epoch-replacement",
+    ]);
+    expect(new Set(plane.daemons.map((daemon) => daemon.spec.args?.[3]))).toEqual(
+      new Set([prior.socketPath, replacement.socketPath]),
+    );
+  });
+
   it("selects only top-level depth-zero full ids and uses scoped public commands", async () => {
     const plane = new FakeProcessPlane();
     const reporter = new FakeReporterPort();

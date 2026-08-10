@@ -992,8 +992,14 @@ export const makePrimeAgentCompanionManager = (
     const epoch = normalizedText(input.epoch, "epoch");
     const file = normalizedText(input.launch.file, "Prime Agent executable");
     const cwd = normalizedText(input.launch.cwd, "Prime Agent cwd");
+    // Local replacement is synchronous: identity revocation and old-generation
+    // stop admission happen before the new PTY is opened, but exact cleanup is
+    // asynchronous. Permit a distinct epoch only after that old stop cut exists.
     for (const record of records) {
-      if (record.bindingId === bindingId) {
+      if (
+        record.bindingId === bindingId &&
+        (record.epoch === epoch || record.stopFlight === undefined)
+      ) {
         throw new Error(
           `Prime Agent companion already owns managed seat ${bindingId}@${record.epoch}`,
         );
