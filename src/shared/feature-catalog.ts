@@ -57,6 +57,11 @@ export const FEATURE_CATALOG = {
     env: "VELLUM_COMMAND_HARNESS_MUSE",
     define: "__VELLUM_COMMAND_HARNESS_MUSE_ENABLED__",
   },
+  /**
+   * Shipped stock Prime Agent managed seat. The ship baseline enables authoring;
+   * an explicit build override may still disable it. HarnessId decode remains
+   * independent of the authoring gate in every profile.
+   */
   harnessPrimeAgent: {
     env: "VELLUM_COMMAND_HARNESS_PRIME_AGENT",
     define: "__VELLUM_COMMAND_HARNESS_PRIME_AGENT_ENABLED__",
@@ -75,7 +80,7 @@ export type FeatureKey = keyof typeof FEATURE_CATALOG;
 
 export type FeatureSet = Readonly<Record<FeatureKey, boolean>>;
 
-/** Public release baseline. Every non-core product surface is opt-in. */
+/** Public release baseline. Experimental surfaces stay off; shipped harnesses may be on. */
 export const SHIP_FEATURES: FeatureSet = {
   cron: false,
   relay: false,
@@ -89,7 +94,7 @@ export const SHIP_FEATURES: FeatureSet = {
   devTools: false,
   harnessKimi: false,
   harnessMuse: false,
-  harnessPrimeAgent: false,
+  harnessPrimeAgent: true,
   harnessSettings: false,
 };
 

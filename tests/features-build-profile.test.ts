@@ -12,19 +12,35 @@ import {
 } from "../src/shared/feature-catalog";
 
 describe("compile-time feature profiles", () => {
-  it("keeps every ship-cut surface off by default", () => {
+  it("uses the shipping baseline with Prime Agent enabled", () => {
     const resolved = resolveBuildFeatures({});
     expect(resolved.profile).toBe("ship");
     expect(resolved.features).toEqual(SHIP_FEATURES);
-    expect(Object.values(resolved.features)).toEqual(
-      Object.values(resolved.features).map(() => false),
-    );
+    expect(resolved.features.harnessPrimeAgent).toBe(true);
+    expect(resolved.features.harnessKimi).toBe(false);
+    expect(resolved.features.harnessMuse).toBe(false);
+    expect(
+      Object.entries(resolved.features)
+        .filter(([, enabled]) => enabled)
+        .map(([key]) => key),
+    ).toEqual(["harnessPrimeAgent"]);
   });
 
   it("supports an explicit all-on regression profile", () => {
-    expect(
-      resolveBuildFeatures({ VELLUM_COMMAND_FEATURE_PROFILE: "all-on" }).features,
-    ).toEqual(ALL_FEATURES);
+    const resolved = resolveBuildFeatures({
+      VELLUM_COMMAND_FEATURE_PROFILE: "all-on",
+    });
+    expect(resolved.features).toEqual(ALL_FEATURES);
+    expect(resolved.features.harnessPrimeAgent).toBe(true);
+  });
+
+  it("applies an explicit false override to the shipped Prime Agent gate", () => {
+    const resolved = resolveBuildFeatures({
+      VELLUM_COMMAND_HARNESS_PRIME_AGENT: "0",
+    });
+    expect(resolved.profile).toBe("ship");
+    expect(resolved.features.harnessPrimeAgent).toBe(false);
+    expect(resolved.overrides).toEqual(["harnessPrimeAgent"]);
   });
 
   it("applies typed per-feature overrides over the selected profile", () => {

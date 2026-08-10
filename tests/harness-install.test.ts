@@ -41,6 +41,20 @@ describe("harnessBinaryInstalled", () => {
     ).toBe(true);
   });
 
+  it("finds the shipped stock Prime Agent binary on PATH", () => {
+    const dir = makeScratch();
+    const bin = join(dir, "prime-agent");
+    writeFileSync(bin, "#!/bin/sh\nexit 0\n");
+    chmodSync(bin, 0o755);
+    expect(
+      harnessBinaryInstalled("prime-agent", "prime-agent", {
+        pathEnv: dir,
+        home: makeScratch(),
+        pathSep: ":",
+      }),
+    ).toBe(true);
+  });
+
   it("returns false when binary is absent", () => {
     const empty = makeScratch();
     expect(
