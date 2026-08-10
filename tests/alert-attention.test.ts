@@ -133,7 +133,7 @@ describe("observeAlertSignals + cycleAlertFocus", () => {
 });
 
 describe("ready/working cycle order", () => {
-  it("collectReadyWorkingSignals maps seat done→ready and working→working", async () => {
+  it("collectReadyWorkingSignals maps seat done→ready, attention, and working", async () => {
     const { agentSeat$, resetAgentSeatState } = await import(
       "../src/renderer/lib/agent-seat-state"
     );
@@ -141,6 +141,7 @@ describe("ready/working cycle order", () => {
     agentSeat$.bindingIdByNodeId.set({
       "agent-1": "bind-1",
       "agent-2": "bind-2",
+      "agent-3": "bind-3",
     });
     try {
       const nodes = [
@@ -162,6 +163,25 @@ describe("ready/working cycle order", () => {
           height: 40,
           text: "reviewer",
         },
+        {
+          id: "agent-3",
+          type: "text",
+          x: 0,
+          y: 0,
+          width: 80,
+          height: 40,
+          text: "blocked-writer",
+        },
+        {
+          id: "flagged",
+          type: "text",
+          x: 0,
+          y: 0,
+          width: 80,
+          height: 40,
+          text: "flagged note",
+          ether: { flags: ["attention"] },
+        },
       ] as unknown as ReadonlyArray<CanvasNode>;
       const seats: Record<string, AgentSeatStateEvent> = {
         "bind-1": {
@@ -180,6 +200,14 @@ describe("ready/working cycle order", () => {
           confidence: "high",
           at: 1,
         },
+        "bind-3": {
+          bindingId: "bind-3",
+          epoch: "e3",
+          state: "attention",
+          reason: "needs-input",
+          confidence: "high",
+          at: 1,
+        },
       };
       const signals = collectReadyWorkingSignals(
         nodes,
@@ -191,6 +219,9 @@ describe("ready/working cycle order", () => {
         expect.arrayContaining([
           expect.objectContaining({ nodeId: "agent-1", kind: "ready" }),
           expect.objectContaining({ nodeId: "agent-2", kind: "working" }),
+          // freestanding attention must enter Space cycle (not only region members)
+          expect.objectContaining({ nodeId: "agent-3", kind: "attention" }),
+          expect.objectContaining({ nodeId: "flagged", kind: "attention" }),
         ]),
       );
     } finally {

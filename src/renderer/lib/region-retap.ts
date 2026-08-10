@@ -1,8 +1,11 @@
 // Pure helpers for region slot digit re-tap: first press → region; re-press
 // same slot within the gap → cycle members (document order). No camera math.
 
-/** Max gap (ms) between same-digit presses that still counts as a re-tap cycle. */
-export const REGION_RETAP_GAP_MS = 200;
+/**
+ * Max gap (ms) between same-digit presses that still counts as a re-tap cycle.
+ * 200ms was too tight to cycle members reliably; ~1s is still intentional.
+ */
+export const REGION_RETAP_GAP_MS = 1000;
 
 export type RegionRetapMemory = {
   readonly slotIndex: number;

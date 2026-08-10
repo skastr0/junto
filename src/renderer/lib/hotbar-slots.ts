@@ -139,18 +139,36 @@ export function clearHotbarNode(
 }
 
 /**
- * Opportunistic leases: fill empty slots with recent active nodes that are
- * not already fixed. Most-recent-first. Leases for inactive nodes clear.
- * Fixed slots never change here.
+ * Opportunistic leases: fill empty slots with recent/active nodes.
+ *
+ * Stability rules (operator law — least perplexing):
+ * 1. Fixed slots never change here.
+ * 2. An existing lease keeps its **slot index** while the node is still live
+ *    and lease-worthy (working-sticky or still in the active MRU). No reshuffle
+ *    when focus hops between nodes (pressing "2" must not reassign slot 2).
+ * 3. Working-sticky nodes stay leased even when not most-recent in MRU; they
+ *    only free when they leave the sticky set (e.g. go idle) and drop out of MRU.
+ * 4. Empty slots fill from sticky-first then MRU, skipping already-placed ids.
  *
  * @param activeNodeIdsMru most-recently-active first
+ * @param stickyWorkingIds nodes that must keep a lease while working
  */
 export function applyHotbarLeases(
   slots: ReadonlyArray<HotbarSlot>,
   activeNodeIdsMru: ReadonlyArray<string>,
   liveNodeIds: ReadonlyArray<string>,
+  stickyWorkingIds: ReadonlyArray<string> = [],
 ): HotbarSlot[] {
   const live = new Set(liveNodeIds);
+  const sticky = new Set(
+    stickyWorkingIds.filter((id) => live.has(id)),
+  );
+  const active = new Set(
+    activeNodeIdsMru.filter((id) => live.has(id)),
+  );
+  const isLeaseWorthy = (id: string): boolean =>
+    sticky.has(id) || active.has(id);
+
   const fixedIds = new Set(
     slots
       .filter(isFixedSlot)
@@ -158,29 +176,51 @@ export function applyHotbarLeases(
       .filter((id) => live.has(id)),
   );
 
-  const candidates = activeNodeIdsMru.filter(
-    (id) => live.has(id) && !fixedIds.has(id),
-  );
-
-  // Start from pruned fixed + empty (drop stale leases first).
-  const base: HotbarSlot[] = padSlots(
+  // Pass 1: keep fixed; preserve lease-worthy leases at the same index.
+  const preserved: HotbarSlot[] = padSlots(
     slots.map((slot) => {
       if (slot.kind === "fixed") {
         return live.has(slot.nodeId) ? slot : { kind: "empty" as const };
+      }
+      if (slot.kind === "leased") {
+        const id = slot.nodeId;
+        if (live.has(id) && !fixedIds.has(id) && isLeaseWorthy(id)) {
+          return slot;
+        }
+        return { kind: "empty" as const };
       }
       return { kind: "empty" as const };
     }),
   );
 
-  const used = new Set(fixedIds);
+  // Pass 2: fill empties without moving preserved leases.
+  const onBoard = new Set<string>(fixedIds);
+  for (const slot of preserved) {
+    if (slot.kind === "leased") onBoard.add(slot.nodeId);
+  }
+  const fillOrder: string[] = [];
+  const fillSeen = new Set<string>();
+  for (const id of stickyWorkingIds) {
+    if (live.has(id) && !onBoard.has(id) && !fillSeen.has(id)) {
+      fillOrder.push(id);
+      fillSeen.add(id);
+    }
+  }
+  for (const id of activeNodeIdsMru) {
+    if (live.has(id) && !onBoard.has(id) && !fillSeen.has(id)) {
+      fillOrder.push(id);
+      fillSeen.add(id);
+    }
+  }
+
   let candidateIndex = 0;
-  const next = base.map((slot) => {
-    if (slot.kind === "fixed") return slot;
-    while (candidateIndex < candidates.length) {
-      const id = candidates[candidateIndex]!;
+  const next = preserved.map((slot) => {
+    if (slot.kind !== "empty") return slot;
+    while (candidateIndex < fillOrder.length) {
+      const id = fillOrder[candidateIndex]!;
       candidateIndex += 1;
-      if (used.has(id)) continue;
-      used.add(id);
+      if (onBoard.has(id)) continue;
+      onBoard.add(id);
       return { kind: "leased" as const, nodeId: id };
     }
     return { kind: "empty" as const };
@@ -188,16 +228,18 @@ export function applyHotbarLeases(
   return padSlots(next);
 }
 
-/** prune dead → re-lease from MRU. */
+/** prune dead → re-lease from MRU (sticky working leases hold their slots). */
 export function resolveHotbarSlots(
   slots: ReadonlyArray<HotbarSlot>,
   liveNodeIds: ReadonlyArray<string>,
   activeNodeIdsMru: ReadonlyArray<string>,
+  stickyWorkingIds: ReadonlyArray<string> = [],
 ): HotbarSlot[] {
   return applyHotbarLeases(
     pruneHotbarSlots(slots, liveNodeIds),
     activeNodeIdsMru,
     liveNodeIds,
+    stickyWorkingIds,
   );
 }
 

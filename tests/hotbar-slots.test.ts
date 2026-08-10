@@ -68,12 +68,41 @@ describe("applyHotbarLeases", () => {
     expect(next.filter((s) => s.kind !== "empty" && s.nodeId === "fixed-1")).toHaveLength(1);
   });
 
-  it("clears leases when nodes leave the active set", () => {
+  it("preserves lease slot indices when MRU reorders (no reshuffle on focus)", () => {
+    let slots = emptyHotbarSlots();
+    slots = applyHotbarLeases(slots, ["a", "b", "c"], ["a", "b", "c"]);
+    expect(slots.slice(0, 3).map((s) => (s.kind === "empty" ? null : s.nodeId))).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
+    // Focus hops reorder MRU to c, a, b — slots must stay put.
+    const next = applyHotbarLeases(slots, ["c", "a", "b"], ["a", "b", "c"]);
+    expect(next.slice(0, 3).map((s) => (s.kind === "empty" ? null : s.nodeId))).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
+  });
+
+  it("keeps lease at same index when sticky working, even if dropped from MRU", () => {
+    let slots = emptyHotbarSlots();
+    slots = applyHotbarLeases(slots, ["a", "b"], ["a", "b"]);
+    expect(slots[0]).toEqual({ kind: "leased", nodeId: "a" });
+    const next = applyHotbarLeases(slots, ["b"], ["a", "b"], ["a"]);
+    // a sticky at 0; b still at 1 — not compacted to front
+    expect(next[0]).toEqual({ kind: "leased", nodeId: "a" });
+    expect(next[1]).toEqual({ kind: "leased", nodeId: "b" });
+  });
+
+  it("frees non-sticky leases that leave the active set without compacting others", () => {
     let slots = emptyHotbarSlots();
     slots = applyHotbarLeases(slots, ["a", "b"], ["a", "b"]);
     expect(slots[0]?.kind).toBe("leased");
     const next = applyHotbarLeases(slots, ["b"], ["a", "b"]);
+    // a not sticky + not MRU → free; b keeps index 1 (no reshuffle into 0)
     expect(next.map((s) => (s.kind === "empty" ? null : s.nodeId))).toEqual([
+      null,
       "b",
       null,
       null,
@@ -82,8 +111,19 @@ describe("applyHotbarLeases", () => {
       null,
       null,
       null,
-      null,
     ]);
+  });
+
+  it("fills empty slots sticky-first then MRU", () => {
+    const slots = emptyHotbarSlots();
+    const next = applyHotbarLeases(
+      slots,
+      ["mru-only"],
+      ["sticky-w", "mru-only", "other"],
+      ["sticky-w"],
+    );
+    expect(next[0]).toEqual({ kind: "leased", nodeId: "sticky-w" });
+    expect(next[1]).toEqual({ kind: "leased", nodeId: "mru-only" });
   });
 
   it("leaves all empty when there is no activity", () => {

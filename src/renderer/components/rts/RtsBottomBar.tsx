@@ -103,6 +103,7 @@ import { KindSurface } from "./KindSurface";
 import { RollCall } from "./RollCall";
 import {
   agentSeat$,
+  seatEventForNode,
   terminalStatusByNodeIdFromSeats,
 } from "../../lib/agent-seat-state";
 import {
@@ -236,7 +237,28 @@ const isTextEditing = (target: EventTarget | null): boolean =>
 const liveNodeIds = (doc: { readonly nodes: ReadonlyArray<{ readonly id: string }> }): string[] =>
   doc.nodes.map((n) => n.id);
 
-/** Recompute leases after fixed mutations or activity MRU changes. */
+/**
+ * Nodes that keep a leased digit while busy. Working / attention seats stick
+ * until idle — pressing another hotkey must not reassign their slot.
+ */
+const stickyWorkingNodeIds = (
+  nodes: ReadonlyArray<Pick<CanvasNode, "id" | "ether">>,
+): string[] => {
+  const out: string[] = [];
+  for (const node of nodes) {
+    const seat = seatEventForNode(node);
+    if (seat?.state === "working" || seat?.state === "attention") {
+      out.push(node.id);
+      continue;
+    }
+    if (!HERDR_ENABLED) continue;
+    const status = herdr$.metaByNodeId[node.id].peek()?.meta?.agentStatus;
+    if (status === "working") out.push(node.id);
+  }
+  return out;
+};
+
+/** Recompute leases after fixed mutations, activity MRU, or seat sticky set changes. */
 const recomputeHotbar = (): void => {
   const doc = state$.doc.peek();
   const live = liveNodeIds(doc);
@@ -247,7 +269,8 @@ const recomputeHotbar = (): void => {
     mru = touchActiveMru(mru, selected);
     state$.hotbarActiveMru.set(mru);
   }
-  const next = resolveHotbarSlots(state$.hotbarSlots.peek(), live, mru);
+  const sticky = stickyWorkingNodeIds(doc.nodes);
+  const next = resolveHotbarSlots(state$.hotbarSlots.peek(), live, mru, sticky);
   state$.hotbarSlots.set(next);
   // Compat mirror: dense fixed-only order for any remaining legacy readers.
   state$.regionSlotOrder.set(fixedOrderOf(next));
@@ -1013,16 +1036,19 @@ function HotbarStrip({
   const hotbarSlots = use$(state$.hotbarSlots);
   const doc = use$(state$.doc);
   const canvasName = use$(state$.canvasName);
+  const seatByBinding = use$(agentSeat$.byBindingId);
+  const herdrMetaByNodeId = use$(herdr$.metaByNodeId);
   const dragFrom = useRef<number | null>(null);
 
   useEffect(() => {
     if (canvasName) ensurePauseState(canvasName);
   }, [canvasName]);
 
-  // Prune dead ids + refresh opportunistic leases on doc / selection changes.
+  // Prune dead ids + refresh leases on doc / selection / seat sticky changes.
+  // Seat transitions free sticky leases when agents go idle.
   useEffect(() => {
     recomputeHotbar();
-  }, [doc, selectedNodeId]);
+  }, [doc, selectedNodeId, seatByBinding, herdrMetaByNodeId]);
 
   const slots = useMemo(() => {
     const nodeById = new Map(doc.nodes.map((n) => [n.id, n] as const));

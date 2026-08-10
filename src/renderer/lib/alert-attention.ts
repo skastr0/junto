@@ -117,8 +117,12 @@ export const collectAlertSignals = (
 };
 
 /**
- * Ready/complete + working from managed seats and herdr (presentation "done"
- * is idle+needsLook / herdr done — not a region-rollup severity).
+ * Canvas-wide cycle targets from managed seats, herdr, and authorial flags.
+ *
+ * Region rollups only cover group members — freestanding agents outside every
+ * region still need Space/` to land on them (parity with the notify strip).
+ * Emits ready / working / attention (not graph-blocked; that stays on rollups
+ * + notify freestanding).
  */
 export const collectReadyWorkingSignals = (
   nodes: ReadonlyArray<CanvasNode>,
@@ -160,6 +164,16 @@ export const collectReadyWorkingSignals = (
           label,
           level: KIND_LEVEL.ready,
         });
+      } else if (presentation === "attention") {
+        // Needs-input freestanding seats — not only region members.
+        push({
+          id: alertId.node(node.id),
+          kind: "attention",
+          subjectKey: node.id,
+          nodeId: node.id,
+          label,
+          level: KIND_LEVEL.attention,
+        });
       } else if (presentation === "working") {
         push({
           id: alertId.node(node.id),
@@ -170,7 +184,18 @@ export const collectReadyWorkingSignals = (
           level: KIND_LEVEL.working,
         });
       }
-      // attention/blocked from seats already surface via region rollups + notify.
+    }
+
+    // Authorial flag:attention (furniture / non-seat nodes) still cycles.
+    if (node.ether?.flags?.includes("attention") === true) {
+      push({
+        id: alertId.node(node.id),
+        kind: "attention",
+        subjectKey: node.id,
+        nodeId: node.id,
+        label,
+        level: KIND_LEVEL.attention,
+      });
     }
 
     const herdr = herdrMetaByNodeId[node.id];
@@ -184,6 +209,24 @@ export const collectReadyWorkingSignals = (
         nodeId: node.id,
         label,
         level: KIND_LEVEL.ready,
+      });
+    } else if (status === "blocked") {
+      push({
+        id: alertId.node(node.id),
+        kind: "blocked",
+        subjectKey: node.id,
+        nodeId: node.id,
+        label,
+        level: KIND_LEVEL.blocked,
+      });
+    } else if (status === "attention") {
+      push({
+        id: alertId.node(node.id),
+        kind: "attention",
+        subjectKey: node.id,
+        nodeId: node.id,
+        label,
+        level: KIND_LEVEL.attention,
       });
     } else if (status === "working") {
       push({

@@ -39,8 +39,9 @@ export const CANVAS_HELP_KEYS: ReadonlyArray<HelpMapKeyRow> = [
   { keys: "Escape", action: "close overlays / clear selection" },
   { keys: "⌘Z - ⌘⇧Z", action: "undo - redo" },
   { keys: "⌫ - Del", action: "delete multi or single selection" },
-  { keys: "1–9", action: "focus hotbar slot - re-tap cycles members + opens actor model" },
+  { keys: "1–9", action: "focus hotbar slot - re-tap (~1s) cycles region members + opens actor model" },
   { keys: "⌘1–9", action: "assign selected node → slot (any node)" },
+  { keys: "Space - `", action: "cycle notifications → ready → working (all canvas seats)" },
   { keys: "double-click actor", action: "open managed terminal (agent model)" },
   ...(HERDR_ENABLED
     ? ([{ keys: "F1 - .", action: "cycle idle herdr workers needing you" }] as const)
