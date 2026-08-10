@@ -174,11 +174,14 @@ export const decideIntervention = (ctx: InteractionContext): Intervention => {
   if (injection === "live") return { kind: "hold", reason: "one-live" };
   if (seat === "attention") return { kind: "hold", reason: "modal" };
 
-  // ── orient (all write-gated above) ────────────────────────────────────────
-  // Turn over, still unproven: one compact orient notice, never the full
-  // doctrine (agents reported repeated full re-injection as spam).
+  // ── unproven after a turn ─────────────────────────────────────────────────
+  // Do NOT paste an orient notice into the PTY. Multi-line bracketed paste
+  // often lands as a stuck "[Pasted text #N]" chip (Claude/Devin) — operators
+  // cannot read it and cannot trust it. Spawn already delivered doctrine
+  // (Tier A flags / Tier B argv prompt). Proof still comes from onboard /
+  // work-plane calls; budget exhaustion escalates to the canvas above.
   if (turn === "ended" && awareness === "unproven") {
-    return { kind: "notify-orient", payload: "orient" };
+    return { kind: "hold", reason: "turn" };
   }
 
   // Default: hold until a turn boundary or a signal change.
@@ -213,10 +216,10 @@ export const POLICY_TABLE: ReadonlyArray<{
 
     // Budget exhaustion beats the orient notice.
 
-  // ── L1: unproven, turn ended ──────────────────────────────────────────────
-  { ctx: { turn: "ended" }, expected: "notify-orient" },
-  { ctx: { turn: "ended", turnsWithoutProof: 2 }, expected: "notify-orient" },
-  // Budget exhaustion beats the end-of-turn orient notice.
+  // ── L1: unproven, turn ended — hold (no PTY orient paste) ─────────────────
+  { ctx: { turn: "ended" }, expected: "hold" },
+  { ctx: { turn: "ended", turnsWithoutProof: 2 }, expected: "hold" },
+  // Budget exhaustion escalates to the canvas (never a PTY write).
   { ctx: { turn: "ended", turnsWithoutProof: 3 }, expected: "escalate" },
   { ctx: { turn: "ended", turnsWithoutProof: 8 }, expected: "escalate" },
 

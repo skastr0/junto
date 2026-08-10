@@ -578,9 +578,10 @@ const dispatchOp = (
     // node, a containing region, or the whole canvas — canvases are born
     // paused) may read but never act. Reads stay open so a paused agent can
     // still see the board.
+    const pauseState = pausePlane.stateFor(caller.canvasName);
+    const paused = seatPaused(pauseState, board, caller.nodeId);
     if (MUTATING_OPS.has(op)) {
-      const pauseState = pausePlane.stateFor(caller.canvasName);
-      if (seatPaused(pauseState, board, caller.nodeId)) {
+      if (paused) {
         return yield* Effect.fail<WorkErrorBody>({
           type: "Paused",
           message: `agent "${caller.nodeId}" is paused and cannot act`,
@@ -627,6 +628,12 @@ const dispatchOp = (
         protocol_version: WORK_PROTOCOL_VERSION,
         connected,
         co_members: regionVisibility(board, caller.nodeId),
+        // Pause surface: a paused seat must distinguish pause from a broken
+        // grant. Reads stay open; mutating ops still refuse with Paused.
+        paused,
+        ...(paused
+          ? { next_step: "wait for the operator to resume this agent, its region, or the canvas" }
+          : {}),
       };
     }
 
@@ -653,6 +660,12 @@ const dispatchOp = (
           grants: c.grants,
         })),
         co_members: regionVisibility(board, caller.nodeId),
+        // Pause surface: a paused seat must distinguish pause from a broken
+        // grant. Reads stay open; mutating ops still refuse with Paused.
+        paused,
+        ...(paused
+          ? { next_step: "wait for the operator to resume this agent, its region, or the canvas" }
+          : {}),
         capabilities: {
           protocol_version: WORK_PROTOCOL_VERSION,
           connected,

@@ -159,7 +159,10 @@ describe("edge-map change injection", () => {
     expect(planEdgeMapChanges(same, same)).toEqual([]);
   });
 
-  it("composes a compact map-change notice with inline contracts for additions", () => {
+  it("composes a compact ids-only map-change notice (no contract tables)", () => {
+    // law-aligned: inline contract sections ("### Edge contract — tasks",
+    // "vellum-command tasks list") → ids-only one-liner; contracts live in
+    // `vellum-command onboard` / `vellum-command capabilities` (PROTO-5).
     const text = composeEdgeMapChangeNotice({
       seatId: "seat-a",
       added: [{ id: "n-tasks", kind: "task" }],
@@ -167,9 +170,10 @@ describe("edge-map change injection", () => {
     });
     expect(text).toContain("[factory - map]");
     expect(text).toContain("n-tasks");
-    expect(text).toContain("### Edge contract — tasks");
-    expect(text).toContain("vellum-command tasks list");
     expect(text).toContain("Removed: `n-req`");
+    expect(text).not.toContain("### Edge contract");
+    expect(text).not.toContain("| intent | command |");
+    expect(text).not.toContain("tasks list");
     expect(text).not.toContain("### Edge contract — requests");
   });
 

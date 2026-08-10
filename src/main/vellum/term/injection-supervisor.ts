@@ -44,6 +44,12 @@ type SeatSupervision = {
   awareness: AwarenessSignal;
   /** Completed agent turns without any factory proof (turn budget). */
   turnsWithoutProof: number;
+  /**
+   * A marker lifecycle was observed on screen (injection seen live/in-flight
+   * at some point) — the only turn evidence that survives without an
+   * operator at the seat. Reset when a turn is counted.
+   */
+  markerLifecycleObserved: boolean;
   prevTurn: "none" | "in-turn" | "ended";
   lastSeenSeq: bigint | undefined;
   lastUserInputAt: number | undefined;
@@ -108,6 +114,7 @@ export class InjectionSupervisor {
         proven: this.provenBindings.has(bindingId),
         awareness: "unproven",
         turnsWithoutProof: 0,
+        markerLifecycleObserved: false,
         prevTurn: "none",
         lastSeenSeq: undefined,
         lastUserInputAt: this.userInputBindings.get(bindingId),
@@ -195,22 +202,35 @@ export class InjectionSupervisor {
       now,
     );
 
-    // Turn-boundary counting (turn budget, never wall clock).
-    if (
-      seat.prevTurn === "in-turn" &&
-      inter.turn === "ended" &&
-      !seat.proven
-    ) {
-      seat.turnsWithoutProof += 1;
-    }
-    seat.prevTurn = inter.turn;
-
+    // Marker lifecycle: seeing our marker live/in-flight is the only turn
+    // evidence that survives without an operator at the seat.
     if (inter.injection === "live" || inter.injection === "in-flight") {
       seat.hadDelivery = true;
+      seat.markerLifecycleObserved = true;
     }
     if (inter.injection === "consumed") {
       seat.hadDelivery = true;
     }
+
+    // Turn-boundary counting (turn budget, never wall clock). A working→idle
+    // flip counts as a turn ONLY when real activity corroborates it: our
+    // marker lifecycle completed (seen live/in-flight, then cleared/output —
+    // the marker left the prompt region), or the operator is at the seat
+    // (recent user input — operator-driven turns need no marker). Bare title
+    // flips with neither are NOT turns: they must not fake the budget into
+    // escalation (POL-2).
+    if (
+      seat.prevTurn === "in-turn" &&
+      inter.turn === "ended" &&
+      !seat.proven &&
+      ((seat.markerLifecycleObserved && inter.injection !== "live") ||
+        inter.user === "present")
+    ) {
+      seat.turnsWithoutProof += 1;
+      // The lifecycle is per-turn: the next count needs a fresh observation.
+      seat.markerLifecycleObserved = false;
+    }
+    seat.prevTurn = inter.turn;
 
     // Event-gate (not a throttle): the full policy decision only runs when
     // something decision-relevant changed — text, interaction signals, or

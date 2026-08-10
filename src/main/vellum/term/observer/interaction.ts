@@ -63,9 +63,63 @@ export const promptRegionLines = (
 /** Leading prompt glyph — chrome, not content. */
 const PROMPT_GLYPH = /^\s*❯(?:\s+|$)/u;
 
+/** Any harness prompt glyph (❯ Claude / › Codex) — chrome, not content. */
+const ANY_PROMPT_GLYPH = /^\s*(?:❯|›)(?:\s+|$)/u;
+
+/**
+ * Harness paste-chip literal. Claude and Devin collapse a multi-line
+ * bracketed paste into an opaque `[Pasted text #N +k lines]` chip in the
+ * composer that needs a second CR to submit. While the chip is on screen our
+ * text is STILL pending in the prompt box — never "consumed".
+ */
+const PASTE_CHIP_LITERAL = "[Pasted";
+
+/**
+ * No-rules grids (Codex never draws ─── rules): our bracketed paste renders
+ * inside the composer as `marker\n\nbody…` — the marker line sits directly
+ * above a blank-separated trailing block of consecutive non-empty lines (the
+ * pasted body). A marker at that head position, inside the composer area
+ * (at or below the last prompt-glyph line), is still pending in the prompt
+ * box — not output history.
+ */
+const markerAtPasteHead = (
+  lines: readonly string[],
+  markerToken: string,
+): boolean => {
+  // Ruled grids already get the prompt-box region; the paste-head layout is
+  // specific to no-rules harnesses.
+  let ruleCount = 0;
+  for (const line of lines) {
+    if (isHorizontalRule(line)) ruleCount++;
+  }
+  if (ruleCount > 0) return false;
+
+  // Trailing block of consecutive non-empty lines (the pasted body).
+  let end = lines.length;
+  while (end > 0 && lines[end - 1]!.trim().length === 0) end -= 1;
+  if (end === 0) return false;
+  let start = end;
+  while (start > 0 && lines[start - 1]!.trim().length > 0) start -= 1;
+
+  // Head: the last non-empty line directly above the block (blanks skipped).
+  let head = start - 1;
+  while (head >= 0 && lines[head]!.trim().length === 0) head -= 1;
+  if (head < 0 || !lines[head]!.includes(markerToken)) return false;
+
+  // The head must sit inside the composer (at or below the last prompt
+  // glyph), so a marker scrolled into output history above the box is not
+  // mistaken for pending text.
+  for (let i = head; i >= 0; i--) {
+    if (ANY_PROMPT_GLYPH.test(lines[i]!)) return true;
+  }
+  return false;
+};
+
 /**
  * Marker scan over the grid tail.
- *  - `prompt`  — marker inside the prompt region (our injection pending submit);
+ *  - `prompt`  — marker inside the prompt region, or our paste-chip literal
+ *                in the prompt box, or the marker at the head of our pasted
+ *                block on a no-rules grid (injection pending submit);
  *  - `output`  — marker present elsewhere on screen (submitted, in history);
  *  - `cleared` — marker absent but we had delivered (consumed / scrolled away);
  *  - `none`    — marker absent and nothing was ever delivered.
@@ -78,8 +132,11 @@ export const scanMarker = (
   if (markerToken.length === 0) return hadDelivered ? "cleared" : "none";
   const promptRegion = promptRegionLines(lines);
   for (const line of promptRegion) {
-    if (line.includes(markerToken)) return "prompt";
+    if (line.includes(markerToken) || line.includes(PASTE_CHIP_LITERAL)) {
+      return "prompt";
+    }
   }
+  if (markerAtPasteHead(lines, markerToken)) return "prompt";
   for (const line of lines) {
     if (line.includes(markerToken)) return "output";
   }

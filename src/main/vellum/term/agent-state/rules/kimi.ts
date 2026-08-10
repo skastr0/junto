@@ -138,6 +138,33 @@ export const kimiRules: SeatRulePack = {
     // truly idle the status strip has no moon/braille, so this fires cleanly.
     // Keep priority under working so a live spinner in the same strip still wins.
     {
+      id: "osc9_working",
+      state: "working",
+      priority: 300,
+      region: "osc9",
+      visibleWorking: true,
+      // Real kimi emits OSC 9;4;3 progress windows during turns
+      // (working-turn.jsonl: 4;3 across the 3–16KB buckets) and 4;0; at
+      // idle. 4;3 is the harness's deterministic mid-turn flag — above all
+      // idle chrome (welcome box / prompt footer).
+      matchers: { regex: ["^4;3;?$"] },
+    },
+    {
+      id: "welcome_idle",
+      state: "idle",
+      priority: 160,
+      region: "whole_recent",
+      visibleIdle: true,
+      // Real kimi 0.34.0 startup (startup-idle.jsonl): welcome box
+      // "Welcome to Kimi Code!" + "context: 0% (0/1M)" footer, composer
+      // glyph hidden inside a frame (prompt_footer_idle's `^\s*>` line
+      // gate cannot fire). The welcome box is always-on kimi chrome; a live
+      // working strip outranks it via osc9_working / moon / braille rules.
+      matchers: {
+        contains: ["welcome to kimi code!", "context:"],
+      },
+    },
+    {
       id: "prompt_footer_idle",
       state: "idle",
       priority: 150,

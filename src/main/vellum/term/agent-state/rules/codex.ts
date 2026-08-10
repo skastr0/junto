@@ -58,6 +58,12 @@ export const codexRules: SeatRulePack = {
           // Startup modals (no OSC title): directory trust + hooks review.
           { contains: ["do you trust the files in this folder"] },
           { contains: ["trust this directory"] },
+          // Real codex v0.147.0 directory-trust modal (pre-TUI, blocking):
+          // "Do you trust the contents of this directory?" / "Working with
+          // untrusted contents comes with higher risk of prompt injection."
+          // — captured verbatim (P1 startup-idle fixture).
+          { contains: ["do you trust the contents of this directory"] },
+          { contains: ["working with untrusted contents"] },
           { contains: ["review the hooks that will run"] },
           { contains: ["hooks will run for this project"] },
         ],
@@ -67,8 +73,13 @@ export const codexRules: SeatRulePack = {
       id: "weak_attention",
       state: "attention",
       priority: 600,
-      region: "whole_recent",
+      region: "bottom_non_empty_lines",
+      regionN: 8,
       visibleAttention: true,
+      // Bottom-scoped: a stale approval modal in the scrollback tail (a
+      // previous turn's "Would you like to run…" form) must not pin
+      // attention over the live idle composer (GAP-OBS-5b). The live
+      // approval form always paints in the bottom strip.
       matchers: {
         any: [
           { contains: ["[y/n]"] },

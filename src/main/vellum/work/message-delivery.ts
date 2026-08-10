@@ -71,6 +71,44 @@ export type MessageDeliveryClock = () => number;
 const flightKey = (canvas: string, nodeId: string, messageId: string): string =>
   `${canvas}::${nodeId}::${messageId}`;
 
+/** Edge-map grant claim carried by a notice (metadata.addedIds), narrowed. */
+const edgeMapAddedIds = (message: Message): ReadonlyArray<string> => {
+  const added = message.metadata?.addedIds;
+  return Array.isArray(added)
+    ? added.filter((id): id is string => typeof id === "string")
+    : [];
+};
+
+/** True when the current doc still connects `seatId` to `targetId` (undirected edge, target present). */
+const isConnectedTarget = (
+  doc: CanvasDoc,
+  seatId: string,
+  targetId: string,
+): boolean =>
+  doc.nodes.some((n) => n.id === targetId) &&
+  doc.edges.some(
+    (e) =>
+      (e.fromNode === seatId && e.toNode === targetId) ||
+      (e.fromNode === targetId && e.toNode === seatId),
+  );
+
+/**
+ * Cheap canonical fingerprint of the canvas edge map (edges + node kinds).
+ * Detects a REAL state change before re-driving a grant-claiming notice that
+ * was already attempted in this process: no edge-map delta, no re-paste.
+ */
+const docTopologySignature = (doc: CanvasDoc): string => {
+  const edges = doc.edges
+    .map((e) => `${e.fromNode}->${e.toNode}`)
+    .sort()
+    .join(",");
+  const kinds = doc.nodes
+    .map((n) => `${n.id}:${n.ether?.entity?.kind ?? ""}`)
+    .sort()
+    .join(",");
+  return `${edges}|${kinds}`;
+};
+
 export class MessageDeliveryService {
   private readonly inFlight = new Set<string>();
   /**
@@ -78,6 +116,25 @@ export class MessageDeliveryService {
    * Later attach/idle re-drives must stamp only — never re-send (at-most-once).
    */
   private readonly transportAccepted = new Set<string>();
+  /**
+   * Process-local transport-attempt count per message (flightKey). Backstop
+   * bound for ALL messages (live duplicate fix): after MAX_TRANSPORT_ATTEMPTS
+   * failed transport attempts the message is parked — no further transport
+   * hits — until the durable receipt lands, the message is removed, or the
+   * seat resumes (operator action). Edge-map notices are additionally bounded
+   * per canvas edge-map state (attemptedClaims).
+   */
+  private readonly transportAttempts = new Map<string, number>();
+  private static readonly MAX_TRANSPORT_ATTEMPTS = 3;
+  /**
+   * Process-local bounded re-drive for grant-claiming edge-map notices: after
+   * one transport attempt, the identical un-receipted notice must not be
+   * re-pasted on every idle — re-drives are suppressed until the canvas edge
+   * map changes (a real state change; the notice is then re-validated against
+   * the current doc before any paste). Cleared on reset, suspension, and
+   * pause release (resume is an operator action — a real state change).
+   */
+  private readonly attemptedClaims = new Map<string, { readonly signature: string }>();
   private readonly pendingRequestResponses = new Map<
     string,
     {
@@ -114,6 +171,8 @@ export class MessageDeliveryService {
     this.lifecycleGeneration += 1;
     this.inFlight.clear();
     this.transportAccepted.clear();
+    this.transportAttempts.clear();
+    this.attemptedClaims.clear();
     this.pendingRequestResponses.clear();
     this.transport = undefined;
     this.store = undefined;
@@ -138,6 +197,8 @@ export class MessageDeliveryService {
     this.seatPausedLookup = undefined;
     this.inFlight.clear();
     this.transportAccepted.clear();
+    this.transportAttempts.clear();
+    this.attemptedClaims.clear();
     this.pendingRequestResponses.clear();
   }
 
@@ -197,6 +258,10 @@ export class MessageDeliveryService {
   /** Pause released — re-drive everything held pending while paused. */
   onResumed(): void {
     if (this.suspended) return;
+    // Operator action: release the bounded re-drive marks so every held
+    // notice gets one fresh attempt (re-validated against the current doc).
+    this.attemptedClaims.clear();
+    this.transportAttempts.clear();
     void this.retryRequestResponses();
     void this.scanAndDeliver(() => true);
   }
@@ -314,6 +379,7 @@ export class MessageDeliveryService {
       // Durable receipt is the stop condition (not canvas metadata.deliveredAt).
       if (await store.hasAcceptedMessageDelivery(canvas, nodeId, message.messageId)) {
         this.transportAccepted.delete(key);
+        this.attemptedClaims.delete(key);
         return;
       }
       if (!this.active(generation)) return;
@@ -327,8 +393,14 @@ export class MessageDeliveryService {
       // Paused target: leave the message pending; resume re-drives it.
       if (this.seatPausedLookup?.(canvas, doc, nodeId)) return;
       const live = node.ether?.messages?.items.find((m) => m.messageId === message.messageId);
-      if (!live) return;
+      if (!live) {
+        // Message gone — drop the bounded re-drive mark so a re-appended
+        // message with this id starts fresh (at-most-once is moot).
+        this.attemptedClaims.delete(key);
+        return;
+      }
       if (isPendingDelivery(live) === false) {
+        this.attemptedClaims.delete(key);
         // Projected metadata already shows delivered — still ensure durable receipt.
         if (!this.transportAccepted.has(key)) {
           const accepted = await store.acceptMessageDelivery(canvas, nodeId, live.messageId);
@@ -350,6 +422,45 @@ export class MessageDeliveryService {
       // At-most-once: never re-hit the transport after a prior accept.
       if (!this.transportAccepted.has(key)) {
         if (!this.active(generation)) return;
+        // Live duplicate fix — per-message transport bound (ALL messages):
+        // a message whose transport attempts keep failing is parked after the
+        // cap; only a receipt, removal, or resume re-arms it.
+        const attempts = this.transportAttempts.get(key) ?? 0;
+        if (attempts >= MessageDeliveryService.MAX_TRANSPORT_ATTEMPTS) {
+          return;
+        }
+        // Edge-map notice law (bounded re-drive + stale re-validation):
+        // before any paste, re-validate a grant-claiming notice
+        // (metadata.addedIds) against the CURRENT doc — an added target that
+        // is no longer connected means the claim is stale (edge removed after
+        // the notice was composed): refuse delivery, keep the message
+        // pending. And the identical claim is attempted at most once per
+        // canvas edge-map state: after a refused attempt, idle/attach
+        // re-drives are suppressed until the edge map changes, so a wedged
+        // PTY is never flooded with the same un-receipted notice on every
+        // idle. Pure-removal notices (no added claim) carry no grant claim —
+        // re-delivery is idempotent truth and stays re-driveable so a removal
+        // is never lost. Receipt-only re-drives (transport accepted, stamp
+        // lagging) are never blocked by this law.
+        if (live.metadata?.edgeMapChange === true) {
+          const addedIds = edgeMapAddedIds(live);
+          if (addedIds.length > 0) {
+            if (
+              addedIds.some((targetId) => !isConnectedTarget(doc, nodeId, targetId))
+            ) {
+              return; // stale claim — refuse; a later topology change re-validates
+            }
+            const signature = docTopologySignature(doc);
+            const prior = this.attemptedClaims.get(key);
+            if (prior !== undefined && prior.signature === signature) {
+              return; // already attempted against this edge-map state — bounded
+            }
+            // Record the transport attempt so re-drives stay bounded until
+            // the edge map changes. Only the first attempt per map state may
+            // paste (and the durable receipt still lands on a later success).
+            this.attemptedClaims.set(key, { signature });
+          }
+        }
         const payload = composeMessageDeliveryPayload(live);
         const promptOptions =
           transport.wakeManagedSeat || live.metadata?.factoryMail === true
@@ -362,6 +473,7 @@ export class MessageDeliveryService {
                   : {}),
               }
             : undefined;
+        this.transportAttempts.set(key, (this.transportAttempts.get(key) ?? 0) + 1);
         const delivered = await this.deliver(
           transport,
           target,
@@ -374,8 +486,19 @@ export class MessageDeliveryService {
       }
 
       const accepted = await store.acceptMessageDelivery(canvas, nodeId, live.messageId);
-      if (accepted) this.transportAccepted.delete(key);
-      // Accept fail: keep transportAccepted so attach/idle only re-receipts.
+      if (accepted) {
+        this.transportAccepted.delete(key);
+        this.attemptedClaims.delete(key);
+        this.transportAttempts.delete(key);
+      } else {
+        // Accept fail: keep transportAccepted so attach/idle only re-receipts.
+        // Make the failure LOUD — a silent missing receipt is what let the
+        // same message re-paste in production.
+        console.error(
+          `[delivery] receipt stamp FAILED for ${canvas}/${nodeId}/${live.messageId} ` +
+            `(transport accepted; message stays pending; re-paste suppressed by transportAccepted)`,
+        );
+      }
     } catch {
       // Best-effort: leave pending; inFlight cleared so idle/attach can retry.
     } finally {

@@ -37,14 +37,11 @@ export const hookStateFromSnapshot = (
   }
 
   if (h === "claude") {
-    if (/^[\u2800-\u28FF]/.test(title)) {
-      return {
-        state: "working",
-        reason: "osc_title_braille",
-        at: now,
-        fullLifecycle: false,
-      };
-    }
+    // OSC 9;4;x is the deterministic working/idle flag (K9) and wins over
+    // the title: the title may stay on a stale braille frame after the turn
+    // ended (4;0 + braille = false busy, must be idle) and a genuinely
+    // working seat keeps an empty composer with braille + 4;3 (must be
+    // working). The braille title is the no-OSC9 fallback below.
     if (/^4;3/.test(osc9) || /^4;1/.test(osc9)) {
       return {
         state: "working",
@@ -57,6 +54,14 @@ export const hookStateFromSnapshot = (
       return {
         state: "idle",
         reason: "osc9_idle",
+        at: now,
+        fullLifecycle: false,
+      };
+    }
+    if (/^[\u2800-\u28FF]/.test(title)) {
+      return {
+        state: "working",
+        reason: "osc_title_braille",
         at: now,
         fullLifecycle: false,
       };

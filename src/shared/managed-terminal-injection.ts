@@ -112,7 +112,7 @@ A **seat** is your identity on the factory floor: the node you occupy, bound to 
 
 - **Grants** come from edges: each edge hands you the ports that node offers (a tasks edge grants \`tasks.list\` / \`tasks.claim\` / \`tasks.update\`; a requests edge grants \`request.escalate\`; an artifacts edge grants \`artifact.publish\`). No edge, no grant — \`ScopeError\` is the factory saying so.
 - **Identity** is process-bind: the OS proves who you are. You cannot claim another seat, and no env var makes you someone else.
-- **Orientation** is one command: \`vellum-command onboard\` returns your seat, role, region briefing, connected targets with grants, and co-members. Re-run it whenever your view may be stale.`;
+- **Orientation** is one command: \`vellum-command onboard\` returns your seat, role, region briefing, connected targets with grants, and co-members. Re-run it whenever your view may be stale.\n\n**Map-change notices are informational.** \`[factory - map]\` notices announce grant changes — they are not a command to re-run \`onboard\`/\`capabilities\` every time. Re-orient once at session start and whenever you actually need the live map to act. Idle chatter (ack-for-ack) is wasteful: acknowledge once, then stay quiet until real work or a new request arrives.`;
 
 // ── Worker doctrine (base) ─────────────────────────────────────────────────
 
@@ -442,7 +442,7 @@ export const buildOrientNotice = (seatRef?: string): string =>
  */
 export const EDGE_CONTRACTS_INTRO = `### Edge contracts
 
-The contracts below are **compiled from the edges connected at spawn** — you are only taught the commands your seat is authorized to run. When a new edge appears mid-session, its contract is injected as it connects; re-run \`vellum-command capabilities\` for the live grant list at any time.`;
+The contracts below are **compiled from the edges connected at spawn** — you are only taught the commands your seat is authorized to run. When edges change mid-session, a compact map-change notice names the added/removed targets; the live command set is always \`vellum-command onboard\` / \`vellum-command capabilities\`.`;
 
 export const buildInjectionText = (ctx: InjectionContext): string | null => {
   if (!ctx.seatBound) return null;
@@ -484,31 +484,25 @@ export type EdgeMapChange = {
 
 /**
  * Compact map-change notice — the operational event the agent asked for:
- * contract changes are announced (new contracts inline, removals as a
- * re-orient hint), never a full doctrine re-injection.
+ * a one-line orient with ids only (Added/Removed). Command recipes and
+ * contract tables are NOT in the notice — they live in `vellum-command
+ * onboard` / `vellum-command capabilities`, which the notice points at.
+ * Never a full doctrine re-injection, never a second doctrine variant.
  */
 export const composeEdgeMapChangeNotice = (change: EdgeMapChange): string => {
-  const lines: string[] = ["[factory - map] your edge contracts changed."];
+  const fmt = (targets: readonly InjectionConnectedTarget[]): string =>
+    targets.map((t) => `\`${t.id}\``).join(", ");
+  const parts: string[] = [];
   if (change.added.length > 0) {
-    lines.push("Added:");
-    for (const t of change.added) {
-      lines.push(`- \`${t.id}\`${t.kind ? ` (${t.kind})` : ""}`);
-      const slot = t.kind ? KIND_TO_SLOT[t.kind] : undefined;
-      if (slot !== undefined && (BROWSER_ENABLED || slot !== "browser")) {
-        lines.push("", EDGE_SLOT_BUILDERS[slot]([t]));
-      }
-    }
+    parts.push(`Added: ${fmt(change.added)}`);
   }
   if (change.removed.length > 0) {
-    lines.push(
-      `Removed: ${change.removed.map((t) => `\`${t.id}\``).join(", ")} — re-run \`vellum-command onboard\` for the current map.`,
-    );
+    parts.push(`Removed: ${fmt(change.removed)}`);
   }
-  if (change.added.length === 0 && change.removed.length === 0) {
-    return "[factory - map] edge map unchanged — re-run `vellum-command onboard` for the current map.";
+  if (parts.length === 0) {
+    return "[factory - map] edge map unchanged — re-run `vellum-command capabilities` for the live grant list.";
   }
-  lines.push("", "Re-run `vellum-command capabilities` for the live grant list.");
-  return lines.join("\n");
+  return `[factory - map] edge contracts changed — ${parts.join(". ")}. Re-run \`vellum-command capabilities\` for the live grant list.`;
 };
 
 /**

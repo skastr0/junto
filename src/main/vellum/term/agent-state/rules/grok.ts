@@ -84,6 +84,24 @@ export const grokRules: SeatRulePack = {
       matchers: { regex: ["^4;1;-1$"] },
     },
     {
+      id: "grid_thinking_working",
+      state: "working",
+      priority: 1120,
+      region: "bottom_non_empty_lines",
+      regionN: 4,
+      visibleWorking: true,
+      // Real mid-turn capture (grok/working-turn.jsonl, cut 20000): the live
+      // status line "⠧ Thinking… 0.2s    1.4s ⇣55.4k" sits in the bottom
+      // strip above the prompt/footer while the OSC title stays static
+      // "grok". Anchored on braille+Thinking so the static splash logo
+      // (braille, top box) and idle screens (title "grok", no status
+      // spinner) never match — outranks osc_title_idle so a static "grok"
+      // title mid-turn cannot publish idle.
+      matchers: {
+        lineRegex: ["^\\s*[\\u2800-\\u28FF]\\s*[Tt]hinking"],
+      },
+    },
+    {
       id: "osc_title_idle",
       state: "idle",
       priority: 1100,

@@ -87,7 +87,7 @@ export const claudeRules: SeatRulePack = {
       regionN: 5,
       visibleWorking: true,
       matchers: {
-        lineRegex: ["^\\s*/btw(?:\\s|$)", "(?i)esc to close\\s*$"],
+        lineRegex: ["^\\s*/btw(?:\\s|$)", "[Ee][Ss][Cc] to close\\s*$"],
       },
     },
     {
@@ -101,6 +101,27 @@ export const claudeRules: SeatRulePack = {
         // glyph across versions — match either so idle is not lost to OSC
         // title "working" while a paste chip sits unsubmitted.
         lineRegex: ["^\\s*[❯>]"],
+        not: [
+          { contains: ["enter to select"] },
+          { contains: ["esc to cancel"] },
+          { contains: ["tab/arrow keys"] },
+          { contains: ["arrow keys to navigate"] },
+          { contains: ["↑/↓ to navigate"] },
+        ],
+      },
+    },
+    // EMPTY composer glyph (❯ or > with only whitespace) is Claude's idle
+    // chrome. Outranks the stale braille working title (1100) so an empty
+    // prompt box never reads "working" off a lagging OSC title (R1 / OBS-18),
+    // while live dialog text in the box still blocks it via the not-gates.
+    {
+      id: "empty_prompt_idle",
+      state: "idle",
+      priority: 1160,
+      region: "prompt_box_body",
+      visibleIdle: true,
+      matchers: {
+        lineRegex: ["^\\s*[❯>]\\s*$"],
         not: [
           { contains: ["enter to select"] },
           { contains: ["esc to cancel"] },
@@ -144,7 +165,11 @@ export const claudeRules: SeatRulePack = {
       id: "bash_permission_prompt",
       state: "attention",
       priority: 1180,
-      region: "whole_recent",
+      // Live K2 dialog only: the dialog panel renders at the bottom of the
+      // grid (same region as live_permission_form). whole_recent let a
+      // previous turn's dialog text in the scrollback pin attention over a
+      // fresh idle composer (OBS-4/OBS-5a).
+      region: "after_last_horizontal_rule",
       visibleAttention: true,
       matchers: {
         contains: ["do you want to proceed?"],
@@ -158,9 +183,9 @@ export const claudeRules: SeatRulePack = {
         all: [
           {
             any: [
-              { lineRegex: ["(?i)^\\s*❯?\\s*yes\\b"] },
-              { lineRegex: ["(?i)^\\s*1\\.\\s*yes\\b"] },
-              { lineRegex: ["(?i)^\\s*2\\.\\s*no\\b"] },
+              { lineRegex: ["^\\s*[❯>]?\\s*[Yy]es\\b"] },
+              { lineRegex: ["^\\s*1\\.\\s*[Yy]es\\b"] },
+              { lineRegex: ["^\\s*2\\.\\s*[Nn]o\\b"] },
             ],
           },
         ],
@@ -177,10 +202,10 @@ export const claudeRules: SeatRulePack = {
         all: [
           {
             any: [
-              { lineRegex: ["(?i)^\\s*❯?\\s*1\\.\\s*yes\\b"] },
-              { lineRegex: ["(?i)^\\s*2\\.\\s*yes\\b"] },
-              { lineRegex: ["(?i)^\\s*2\\.\\s*no\\b"] },
-              { lineRegex: ["(?i)^\\s*3\\.\\s*no\\b"] },
+              { lineRegex: ["^\\s*[❯>]?\\s*1\\.\\s*[Yy]es\\b"] },
+              { lineRegex: ["^\\s*2\\.\\s*[Yy]es\\b"] },
+              { lineRegex: ["^\\s*2\\.\\s*[Nn]o\\b"] },
+              { lineRegex: ["^\\s*3\\.\\s*[Nn]o\\b"] },
             ],
           },
         ],
@@ -190,7 +215,10 @@ export const claudeRules: SeatRulePack = {
       id: "legacy_permission_blocker",
       state: "attention",
       priority: 1150,
-      region: "whole_recent",
+      // Live dialog chrome only, like live_permission_form: the permission
+      // panel is drawn at the bottom of the grid. A stale dialog in the
+      // scrollback tail must not pin attention over a live composer.
+      region: "after_last_horizontal_rule",
       visibleAttention: true,
       matchers: {
         any: [
@@ -210,7 +238,7 @@ export const claudeRules: SeatRulePack = {
           { contains: ["review your answers"] },
           { contains: ["skip interview and plan immediately"] },
         ],
-        not: [{ regex: ["(?m)^\\s*❯\\s*$"] }],
+        not: [{ lineRegex: ["^\\s*[❯>]\\s*$"] }],
       },
     },
     {
@@ -224,10 +252,13 @@ export const claudeRules: SeatRulePack = {
     },
     {
       // Claude leaves OSC 9;4;3 stuck while permission is open — only 4;0 is idle.
+      // Deterministic protocol idle (K9): visible so an OSC-9-only idle seat
+      // authorizes paste on the rule path (BUG-R3a), matching grok/prime-agent.
       id: "osc9_idle",
       state: "idle",
       priority: 250,
       region: "osc9",
+      visibleIdle: true,
       matchers: { regex: ["^4;0"] },
     },
   ],

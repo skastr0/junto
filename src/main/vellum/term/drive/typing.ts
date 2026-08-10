@@ -35,7 +35,7 @@ export const DEFAULT_PROMPT_STALL_MS = 5_000;
  * Verified Claude window was 0–150ms; 40ms is inside the safe band and
  * far under Grok's 1.5s post-spawn gate.
  */
-export const PASTE_TO_CR_SETTLE_MS = 40;
+export const PASTE_TO_CR_SETTLE_MS = 80;
 
 /** Wrap text in a bracketed-paste envelope (single write payload). */
 export const encodeBracketedPaste = (text: string): string =>

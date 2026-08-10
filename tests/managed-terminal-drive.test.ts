@@ -353,11 +353,19 @@ describe("ManagedTerminalDrive", () => {
     expect(writes).toHaveLength(3); // + retry CR
     await vi.advanceTimersByTimeAsync(5_000);
     await expect(result).resolves.toBe(false);
-    expect(attention).toEqual(["prompt-stalled", "prompt-stalled"]);
+    // Law-aligned: the second stall ends the episode with ONE idle Ctrl+C
+    // clear (product law — never leave a paste chip) and its attention fire;
+    // the single-clear invariant is covered by the pty-e2e D6 scenarios.
+    expect(attention).toEqual([
+      "prompt-stalled",
+      "prompt-stalled",
+      "prompt-stalled",
+    ]);
     expect(writes).toEqual([
       { bindingId: "b1", data: encodeBracketedPaste("stalled") },
       { bindingId: "b1", data: CR },
       { bindingId: "b1", data: CR },
+      { bindingId: "b1", data: INTERRUPT_BYTE },
     ]);
 
     vi.useRealTimers();
@@ -459,7 +467,9 @@ describe("ManagedTerminalDrive", () => {
       expect(writes).toHaveLength(3); // CR retry after first stall
       await vi.advanceTimersByTimeAsync(5_000);
       await expect(accepted).resolves.toBe(false);
-      expect(writes).toHaveLength(3);
+      // Law-aligned: one idle Ctrl+C clear after the stalled episode.
+      expect(writes).toHaveLength(4);
+      expect(writes[3]).toMatchObject({ data: INTERRUPT_BYTE });
     } finally {
       vi.useRealTimers();
     }

@@ -53,6 +53,21 @@ export type ClipboardSafeAssert = (
   bindingId: string,
 ) => boolean | Promise<boolean>;
 
+/**
+ * Optional prompt-pending evidence: does the seat's prompt box STILL hold
+ * text this drive pasted (harness chip, marker, or payload head)? Consumed
+ * from the terminal observer snapshot through promptStillPending.
+ *
+ * When configured, acknowledgement becomes evidence-gated:
+ *  - onTurnStart only resolves a pending turn while evidence says the text
+ *    is GONE (a false-working repaint on an unsubmitted chip must not ack);
+ *  - clearFailedSubmit skips the Ctrl+C when evidence says there is nothing
+ *    left to clear (the submit landed; only the working repaint is late);
+ *  - the awaitTurnStart:false fast path refuses to receipt a prompt whose
+ *    text is still in the composer.
+ */
+export type PromptPendingLookup = (bindingId: string) => boolean;
+
 export type WritePromptOptions = {
   /**
    * Positive UI readiness (not a quiet-gap). When false, abort to attention
@@ -129,6 +144,8 @@ export type ManagedTerminalDriveOptions = {
    * Tests set 0 so write counts stay paste+CR without fake timers.
    */
   readonly pasteToCrSettleMs?: number;
+  /** Evidence-gated acknowledgement (see PromptPendingLookup). */
+  readonly pendingText?: PromptPendingLookup;
 };
 
 export class ManagedTerminalDrive {
@@ -142,6 +159,7 @@ export class ManagedTerminalDrive {
   private readonly queueTimeoutMs: number;
   private readonly stallWatch: boolean;
   private readonly pasteToCrSettleMs: number;
+  private readonly pendingText: PromptPendingLookup | undefined;
 
   private readonly queues = new Map<string, QueuedPrompt[]>();
   private readonly writing = new Set<string>();
@@ -169,6 +187,7 @@ export class ManagedTerminalDrive {
     this.queueTimeoutMs = options.queueTimeoutMs ?? DEFAULT_QUEUE_TIMEOUT_MS;
     this.stallWatch = options.stallWatch ?? true;
     this.pasteToCrSettleMs = options.pasteToCrSettleMs ?? PASTE_TO_CR_SETTLE_MS;
+    this.pendingText = options.pendingText;
   }
 
   /** Mark a binding as just spawned — enforces min delay before first paste. */
@@ -441,6 +460,11 @@ export class ManagedTerminalDrive {
       bindingId,
       (this.turnStartCounts.get(bindingId) ?? 0) + 1,
     );
+    if (this.pendingText && this.pendingText(bindingId)) {
+      // Evidence: our text is still in the prompt box. A working repaint on
+      // an unsubmitted chip is a FALSE turn-start — never receipt it.
+      return;
+    }
     this.resolvePendingTurn(bindingId, true);
   }
 
@@ -565,7 +589,18 @@ export class ManagedTerminalDrive {
         return false;
       }
       if (!ok) {
-        this.onAttention?.(bindingId, "write-failed");
+        if (this.pendingText && this.pendingText(bindingId)) {
+          // The paste landed (chip/payload visible) but a later write in the
+          // sequence was refused: clear the chip this sequence created so the
+          // operator never sees a stuck `[Pasted text #N]` (DRV-4 law).
+          await this.clearFailedSubmit(
+            bindingId,
+            generation,
+            bindingGeneration,
+          );
+        } else {
+          this.onAttention?.(bindingId, "write-failed");
+        }
         return false;
       }
       if (awaitTurnStart) {
@@ -590,25 +625,94 @@ export class ManagedTerminalDrive {
         if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
           return false;
         }
+        // FIRED-LAW (live duplicate fix): the stall window closed without a
+        // turn-start ack, but our text has already LEFT the composer — the
+        // paste submitted and only the working repaint is late. That is
+        // "Fired" per the product law: resolve TRUE, never clear, never
+        // attention, never false. Resolving false here is what made the
+        // delivery layer re-paste the same message on every idle (the live
+        // 4x duplicate report).
+        if (this.pendingText && !this.pendingText(bindingId)) {
+          return true;
+        }
         // Paste chip without submit: one extra CR (Claude/Devin collapse
         // multi-line paste into a chip that needs a second Enter).
         if (!(await this.writeSubmitCr(bindingId, generation, bindingGeneration))) {
+          await this.clearFailedSubmit(bindingId, generation, bindingGeneration);
           return false;
         }
         if ((this.turnStartCounts.get(bindingId) ?? 0) !== turnStartCount) {
           return true;
         }
-        return await this.awaitTurnStart(
+        const startedRetry = await this.awaitTurnStart(
           bindingId,
           text,
           generation,
           bindingGeneration,
         );
+        if (startedRetry) return true;
+        // FIRED-LAW (retry path): the retry CR submitted and our text left
+        // the composer — the ack is just late. Fired = delivered.
+        if (this.pendingText && !this.pendingText(bindingId)) {
+          return true;
+        }
+        // Law: never leave Vellum Command-authored text as a stuck paste chip.
+        await this.clearFailedSubmit(bindingId, generation, bindingGeneration);
+        return false;
+      }
+      // awaitTurnStart false is forbidden for product pastes that can chip —
+      // callers must opt into proof or accept clear-on-fail via stallWatch.
+      if (this.pendingText && this.pendingText(bindingId)) {
+        // Evidence: the paste chip/text still sits in the composer. Never
+        // receipt it — the caller (firstTyped doctrine) keeps its arm and
+        // the next attempt re-checks current evidence.
+        return false;
       }
       return true;
     } finally {
       this.writing.delete(bindingId);
     }
+  }
+
+  /**
+   * After a failed paste+CR, clear residual composer text so operators never
+   * see an opaque `[Pasted text #N]` chip from Vellum Command.
+   * Claude: idle Ctrl+C with text clears the composer (verification C13);
+   * a second idle Ctrl+C on an empty composer can exit — send only one.
+   */
+  private async clearFailedSubmit(
+    bindingId: string,
+    generation: number,
+    bindingGeneration: number,
+  ): Promise<void> {
+    if (!this.activeBinding(bindingId, generation, bindingGeneration)) return;
+    if (this.pendingText && !this.pendingText(bindingId)) {
+      // Evidence: our text already left the composer (the submit landed and
+      // only the working repaint is late — D3's ackDelay case). Writing an
+      // idle Ctrl+C now would interrupt a WORKING agent. Still raise the
+      // stall attention exactly once per call site (D1/D3 both expect the
+      // clear attempt to publish prompt-stalled).
+      this.onAttention?.(bindingId, "prompt-stalled");
+      return;
+    }
+    const now = this.now();
+    if (
+      !canSendIdleInterrupt(
+        this.lastIdleInterruptAt.get(bindingId),
+        now,
+        this.idleInterruptGapMs,
+      )
+    ) {
+      this.onAttention?.(bindingId, "prompt-stalled");
+      return;
+    }
+    const ok = await Promise.resolve(
+      this.writeFn(bindingId, INTERRUPT_BYTE),
+    );
+    if (ok) {
+      this.lastIdleInterruptAt.set(bindingId, now);
+    }
+    this.onAttention?.(bindingId, "prompt-stalled");
   }
 
   private async writePasteAndCr(

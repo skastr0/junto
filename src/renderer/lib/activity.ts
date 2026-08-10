@@ -278,7 +278,15 @@ export function terminalActivity(input: {
     };
   }
   // Real foreground work only — not shell/PTY liveness (zsh, user@host:cwd, …).
-  if (input.running && activeProcess && processLabel) {
+  // Managed seats follow the seat grammar (idle → static steel); the green
+  // process wave is reserved for unmanaged terminals, which never receive
+  // seat events (seatState stays undefined/null there).
+  if (
+    (input.seatState === undefined || input.seatState === null) &&
+    input.running &&
+    activeProcess &&
+    processLabel
+  ) {
     return {
       mode: "wave",
       tone: "green",

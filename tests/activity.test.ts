@@ -130,10 +130,13 @@ describe("terminalActivity", () => {
       tone: "steel",
       label: "idle",
     });
-    // A real command still paints green process wave.
+    // A real command still paints green process wave — on an unmanaged
+    // terminal (no seat events, seatState undefined). Managed seats follow
+    // the seat grammar: idle is static steel, never a green process wave.
+    // law-aligned: seatState: "idle" → undefined (idle managed seat ⇒ steel)
     expect(
       terminalActivity({
-        seatState: "idle",
+        seatState: undefined,
         running: true,
         processName: "npm",
       }),

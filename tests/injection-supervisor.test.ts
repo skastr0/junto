@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { InjectionSupervisor } from "../src/main/vellum/term/injection-supervisor";
+import { buildBootstrapMarker } from "../src/shared/managed-terminal-injection";
 import type { ObserverGridSnapshot } from "../src/main/vellum/term/observer/types";
 import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
 
@@ -64,24 +65,25 @@ describe("InjectionSupervisor", () => {
     const now = 1_000_000;
     s.setNow(() => now);
 
+    const marker = buildBootstrapMarker("b1");
+    // law-aligned: pre-law counted every working→idle flip as a turn and
+    // wrote one PTY orient notice at turn 1 → the product law counts only
+    // marker-observed turns and never writes the PTY (policy.ts: orient is
+    // dead), escalating on the canvas at the 3rd turn.
     const turnCycle = (n: bigint): void => {
+      // Marker-observed turn: our injection is live in the prompt box…
       s.noteSeatState(seatEvent({ state: "working", at: now }));
-      s.onSnapshot(snap({ lines: ["working line"], text: "work", seq: n }));
+      s.onSnapshot(snap({ lines: [`❯ ${marker}`], text: marker, seq: n }));
+      // …submits and completes: seat idle, marker cleared.
       s.noteSeatState(seatEvent({ state: "idle", at: now }));
       s.onSnapshot(snap({ lines: ["", "❯ "], text: "done", seq: n + 1n }));
     };
 
-    turnCycle(2n); // turn 1 → one compact orient notice
-    expect(writer).toHaveBeenCalledTimes(1);
-    const payload = String(writer.mock.calls[0][1]);
-    expect(payload).toContain("[vc-");
-    expect(payload).toContain("vellum-command onboard");
-    // Compact: an orient notice, never the full doctrine.
-    expect(payload.length).toBeLessThan(600);
-
-    turnCycle(4n); // turn 2 → no repeat (once per generation)
-    turnCycle(6n); // turn 3 → budget exhausted → escalate, no write
-    expect(writer).toHaveBeenCalledTimes(1);
+    turnCycle(2n); // turn 1 → no PTY write ever (orient is gone per law)
+    turnCycle(5n); // turn 2 → no repeat (once per generation)
+    expect(writer).not.toHaveBeenCalled();
+    turnCycle(8n); // turn 3 → budget exhausted → escalate, no write
+    expect(writer).not.toHaveBeenCalled();
     expect(escalate).toHaveBeenCalledTimes(1);
     expect(escalate.mock.calls[0][1]).toMatch(/unguided/);
   });
@@ -101,16 +103,20 @@ describe("InjectionSupervisor", () => {
     const now = 1_000_000;
     s.setNow(() => now);
 
+    const marker = buildBootstrapMarker("b1");
+    // law-aligned: pre-law counted markerless flips as turns → the product
+    // law counts only marker-observed turns, so the turn cycle feeds the
+    // marker through the live→cleared lifecycle.
     const turnCycle = (n: bigint): void => {
       s.noteSeatState(seatEvent({ state: "working", at: now }));
-      s.onSnapshot(snap({ lines: ["working line"], text: "work", seq: n }));
+      s.onSnapshot(snap({ lines: [`❯ ${marker}`], text: marker, seq: n }));
       s.noteSeatState(seatEvent({ state: "idle", at: now }));
       s.onSnapshot(snap({ lines: ["", "❯ "], text: "done", seq: n + 1n }));
     };
 
     turnCycle(2n);
-    turnCycle(4n);
-    turnCycle(6n);
+    turnCycle(5n);
+    turnCycle(8n);
     expect(escalate).toHaveBeenCalledTimes(1);
 
     // New generation (resume): gone evicts the per-generation entry, so a

@@ -88,8 +88,22 @@ export const markAgentSeatSeen = (bindingId: string | undefined): void => {
   agentSeat$.needsLookByBindingId[bindingId].set(false);
 };
 
-const isActiveWorkState = (state: AgentSeatState | undefined): boolean =>
-  state === "working" || state === "attention";
+/**
+ * Prompt-box idle reasons — the seat settled at a live composer prompt box.
+ * A working→idle flip that lands here is a TITLE RESTORE, not a finished
+ * turn: the harness repaints the prompt box whenever the title reverts
+ * (braille → ✳), and an unsubmitted chip/draft may still sit in the box.
+ * needsLook ("done — waiting for review") arms only when the seat settles on
+ * its canonical non-composer idle (OSC title / OSC9 / hook / footer), which
+ * is what a real turn end publishes.
+ */
+const isPromptBoxIdleReason = (reason: string): boolean =>
+  reason.includes("prompt_box") ||
+  reason.includes("composer") ||
+  // Deterministic-protocol idle (OSC 9;4;0 → hook/rule osc9_idle): the
+  // harness's idle flag also fires on title-restore repaints of the composer,
+  // which is the false-flip shape (braille → ✳). Done chrome must not ride it.
+  reason.includes("osc9_idle");
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
@@ -176,10 +190,18 @@ export const applyAgentSeatStateEvent = (event: AgentSeatStateEvent): void => {
   if (epochChanged || event.state === "gone") {
     // New generation / vacated seat: never inherit a stale ready/complete flag.
     needsLook = false;
-  } else if (event.state === "idle" && isActiveWorkState(prevState)) {
-    // Finished a turn (working|attention → idle). If the operator is already
-    // looking, stay quiet; otherwise arm ready/complete chrome.
+  } else if (event.state === "idle" && prevState === "attention") {
+    // Real product state (stall / needs-input) resolved — keep the existing
+    // arm: attention is never a title artifact.
     needsLook = !isBindingSurfaceOpen(event.bindingId);
+  } else if (event.state === "idle" && prevState === "working") {
+    // Finished a turn (working → idle). A working event that ends on a
+    // prompt-box idle is a false title flip (composer back at the prompt,
+    // nothing submitted) — done chrome must not ride it. If the operator is
+    // already looking, stay quiet; otherwise arm ready/complete chrome.
+    needsLook =
+      !isPromptBoxIdleReason(event.reason) &&
+      !isBindingSurfaceOpen(event.bindingId);
   }
 
   agentSeat$.byBindingId[event.bindingId].set(event);

@@ -18,7 +18,10 @@ export {
   type DriveAttentionCallback,
   type DriveAttentionReason,
   type ManagedTerminalDriveOptions,
+  type PromptPendingLookup,
   type SeatIdleLookup,
   type TerminalWriter,
   type WritePromptOptions,
 } from "./managed-terminal-drive";
+
+export { promptStillPending } from "./prompt-evidence";
