@@ -2761,6 +2761,47 @@ ol.note-md__list > .note-md__li::before {
   gap: 4px;
   margin-top: 2px;
 }
+/* Mirror chip: the li is layout-neutral so the button IS the row. */
+.actor-edges-glance__item {
+  display: contents;
+}
+.actor-edges-glance__row--mirror {
+  appearance: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease,
+    transform 90ms ease;
+}
+.actor-edges-glance__row--mirror:hover {
+  border-color: color-mix(in srgb, var(--color-amber) 45%, var(--color-stroke));
+  background: color-mix(in srgb, var(--color-inset) 92%, var(--color-amber) 8%);
+}
+.actor-edges-glance__row--mirror:hover .actor-edges-glance__title {
+  color: var(--color-amber);
+}
+.actor-edges-glance__row--mirror:active {
+  transform: translateY(1px);
+}
+.actor-edges-glance__row--mirror:focus-visible {
+  outline: 1px solid var(--color-amber);
+  outline-offset: 1px;
+}
+.actor-edges-glance__seat-mark {
+  flex-shrink: 0;
+}
+.actor-edges-glance__cycle-hint {
+  flex-shrink: 0;
+  padding: 5px 10px 7px;
+  border-top: 1px solid color-mix(in srgb, var(--color-stroke) 70%, transparent);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  color: var(--color-faint);
+  user-select: none;
+}
 .actor-edges-glance__rail {
   display: flex;
   flex: 1 1 0;

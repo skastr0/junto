@@ -30,6 +30,7 @@ import { startSettingsBridge, closeSettings } from "./lib/settings-state";
 import { startThemeMode } from "./lib/theme-mode";
 import { startUpdateBridge } from "./lib/update-state";
 import { subscribeAgentSeatState } from "./lib/agent-seat-state";
+import { installActorMirrorHotkeys } from "./lib/actor-mirrors";
 import { reconcileDockFromLiveSessions } from "./lib/dock-state";
 import { startSurfaceMotionGate } from "./lib/surface-motion";
 import { noteWorkDocChange } from "./lib/edge-sparks";
@@ -407,6 +408,10 @@ export function App() {
       stopSurfaceMotion();
     };
   }, []);
+
+  // Cmd+] / Cmd+[ swap the front terminal between connected actors. Capture
+  // phase (installed here, checked there) so the chord never reaches xterm.
+  useEffect(() => installActorMirrorHotkeys(), []);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {

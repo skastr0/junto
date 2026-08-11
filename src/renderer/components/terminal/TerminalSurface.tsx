@@ -938,7 +938,7 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
             </div>
           ) : null}
         </div>
-        <ActorEdgesGlance node={node} />
+        <ActorEdgesGlance node={node} zone={pinned ? "pinned" : "focus"} />
       </div>
     </div>
   );
