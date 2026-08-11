@@ -47,8 +47,8 @@ const CHROME: Record<Harness, { readonly idle: RegExp; readonly working: RegExp 
   claude: { idle: /^\s*❯/mu, working: /\(\d+s[^)]*thinking\)/u },
   codex: { idle: /^\s*›/mu, working: /Working \(\d+s\s*•\s*esc to interrupt\)/u },
   grok: { idle: /^\s*❯/mu, working: /(Responding…|◆ Thinking…)/u },
-  pi: { idle: /%\/400k \(auto\)/u, working: /·\s*\d+s\s*\(esc to interrupt\)/u },
-  devin: { idle: /^\s*❭/mu, working: /·\s*\d+s\s*\(esc to interrupt\)/u },
+  pi: { idle: /%\/400k \(auto\)/u, working: /·\s*\d+s\s*\(esc (?:twice )?to interrupt\)/u },
+  devin: { idle: /^\s*❭/mu, working: /·\s*\d+s\s*\(esc (?:twice )?to interrupt\)/u },
 };
 
 const decode = (fixture: LoadedFixture): string =>
@@ -219,6 +219,20 @@ describe("HC — pasted payload is observable and never classified by the fallba
 describe("HC — a screen showing working chrome must classify working", () => {
   for (const harness of HARNESSES) {
     it(`HC-working: ${harness}/working-turn — mid-turn screen is working, not idle`, async () => {
+      const declared = captureDeclaration(harness, "working-turn");
+      if (declared?.status === "skip") {
+        // Same reviewed-absence contract as paste-chip: the declaration is the
+        // assertion, so it stays visible and falsifiable rather than silent.
+        expect(
+          declared.reason?.trim().length ?? 0,
+          `[${harness}/working-turn] declared skip must carry a reason`,
+        ).toBeGreaterThan(0);
+        expect(
+          existsSync(capturePath(harness, "working-turn")),
+          `[${harness}/working-turn] declared skip but bytes exist — declaration and corpus disagree`,
+        ).toBe(false);
+        return;
+      }
       const blob = decode(load(harness, "working-turn"));
       const hits = await workingCuts(harness, blob);
 
