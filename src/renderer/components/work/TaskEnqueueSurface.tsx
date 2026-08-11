@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import { Pin, PinOff, X } from "lucide-react";
-import type { CanvasNode, Part, WorkMetadata } from "@shared/canvas";
+import type { Part, WorkMetadata } from "@shared/canvas";
 import type { WorkOpResult } from "@shared/ipc";
 import type { WorkSurface, WorkZone } from "../../lib/surface-registry";
 import {
@@ -51,25 +51,25 @@ export function TaskEnqueueSurface({
   readonly visible: boolean;
   readonly onActivate: () => void;
 }) {
-  const payload = dock$.taskCreateById[surface.id].peek();
-  const doc = use$(state$.doc);
+  const payload = use$(dock$.taskCreateById[surface.id]);
+  const nodeId = payload?.nodeId;
+  const nodeExists = use$(() =>
+    nodeId ? state$.doc.nodes.get().some((entry) => entry.id === nodeId) : false,
+  );
+  const artifactsNodeId = use$(() => {
+    if (!nodeId) return undefined;
+    return resolveArtifactsNodeId(nodeId, {
+      nodes: state$.doc.nodes.get(),
+      edges: state$.doc.edges.get(),
+    });
+  });
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [resetToken, setResetToken] = useState(0);
   const api = getVellumCommandApi();
   const name = canvasName();
 
-  const node = useMemo((): CanvasNode | undefined => {
-    if (!payload) return undefined;
-    return doc.nodes.find((entry) => entry.id === payload.nodeId);
-  }, [doc.nodes, payload]);
-
-  const artifactsNodeId = useMemo(
-    () => (node ? resolveArtifactsNodeId(node.id, doc) : undefined),
-    [doc, node],
-  );
-
-  if (!payload || !node) {
+  if (!payload || !nodeExists) {
     return (
       <section className="dock-slot workbench-surface">
         <div className="workbench-surface__placeholder">task enqueue - unbound</div>
@@ -99,7 +99,7 @@ export function TaskEnqueueSurface({
         const result = await runWorkCanvasMutation(name, () =>
           api.workTaskPropose(
             name,
-            node.id,
+            nodeId,
             title.trim(),
             metadata,
             undefined,
@@ -117,7 +117,7 @@ export function TaskEnqueueSurface({
         const result = await runWorkCanvasMutation(name, () =>
           api.workTaskCreate(
             name,
-            node.id,
+            nodeId,
             title.trim(),
             metadata,
             undefined,
@@ -172,6 +172,7 @@ export function TaskEnqueueSurface({
       className="dock-slot dock-slot--task-create workbench-surface"
       aria-label={`Quick enqueue - ${payload.title}`}
       aria-hidden={!visible}
+      data-focus-owner="interactive"
       data-testid="task-enqueue-surface"
       onMouseDown={activateSurfaceOnMouseDown(onActivate)}
     >

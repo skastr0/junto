@@ -177,20 +177,54 @@ test("rts shell: role left, kind middle, region strip, pause everywhere", async 
   // Add-task pop: submits through the work service; the sink card shows it.
   // The workbench enqueue stays open after create (form clears for the next).
   await kindStrip.getByRole("button", { name: "Add task" }).click();
-  const brief = page.getByPlaceholder("What needs doing?");
+  const pinnedEnqueue = page.getByTestId("task-enqueue-surface");
+  await pinnedEnqueue.getByRole("button", { name: "Pin task enqueue" }).click();
+  await expect(
+    pinnedEnqueue.getByRole("button", { name: "Unpin task enqueue" }),
+  ).toBeVisible();
+  const brief = pinnedEnqueue.getByPlaceholder("What needs doing?");
   await expect(brief).toBeVisible();
   await page.screenshot({ path: join(SHOTS, "03b-add-task-pop.png"), fullPage: false });
+  await brief.fill("wire");
+
+  // Work-plane projection updates must not blur or remount a pinned interactive
+  // surface. Preserve both the active element and its in-progress draft.
+  await page.evaluate(async () => {
+    const api = window.vellumCommand!;
+    const canvas = (await api.listCanvases())[0];
+    if (!canvas) throw new Error("No canvas available for focus regression");
+    const result = await api.workTaskCreate(
+      canvas.name,
+      "tasks",
+      "Background pinned projection update",
+      { details: "Background pinned projection update" },
+    );
+    if (!result.ok) throw new Error(result.message);
+  });
+  await expect(
+    page
+      .locator(".react-flow__node", { hasText: "Background pinned projection update" })
+      .first(),
+  ).toBeVisible();
+  await expect(brief).toBeFocused();
+  await expect(brief).toHaveValue("wire");
+
   await brief.fill("wire the loop");
-  await page.getByPlaceholder(/Context, constraints/).fill("wire the loop end to end");
+  await pinnedEnqueue
+    .getByPlaceholder(/Context, constraints/)
+    .fill("wire the loop end to end");
   await brief.press("Enter");
   await expect(brief).toHaveValue("");
   await expect(
     page.locator(".react-flow__node", { hasText: "wire the loop" }).first(),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Close task enqueue" }).click();
+  await pinnedEnqueue.getByRole("button", { name: "Close task enqueue" }).click();
   await expect(page.getByTestId("task-enqueue-surface")).toBeHidden();
 
-  // The canvas is still framed on the tasks sink — assign it to slot 2.
+  // The canvas is still framed on the tasks sink. The background projection
+  // reload does not promise to retain selection, so make the hotkey target
+  // explicit before assigning it to slot 2.
+  await page.locator('.react-flow__node[data-id="tasks"]').click();
   await page.keyboard.press(process.platform === "darwin" ? "Meta+2" : "Control+2");
   const tasksChip = regionStrip.locator('.rts-chip--strip[data-node-id="tasks"]');
   await expect(tasksChip).toBeVisible();
