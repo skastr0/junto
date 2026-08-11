@@ -279,6 +279,7 @@ function resetDock(): void {
   herdr$.focusedNodeId.set(null);
   terminal$.openByNodeId.set({});
   terminal$.preferredZoneByNodeId.set({});
+  terminal$.lastOpenNodeId.set(null);
 }
 
 const nativeTerminalNode = (id = "term-1"): CanvasNode =>
@@ -756,6 +757,23 @@ describe("dock-state", () => {
       expect(dock$.registry.peek().surfaces.find((s) => s.id === terminalSurfaceId("t2"))?.zone).toBe(
         "focus",
       );
+    });
+
+    it("a manual tab activation survives later terminal opens (one-shot promote)", () => {
+      openTerminalSurface(nativeTerminalNode("t1"), "focus");
+      openTerminalSurface(nativeTerminalNode("t2"), "focus");
+      // Operator clicks tab t1 — a path that bypasses lastOpenNodeId.
+      dock$.registry.set(
+        focusSurface(dock$.registry.peek(), terminalSurfaceId("t1")).state,
+      );
+      // A later open re-runs the observe; the stale t2 promote must not
+      // replay and yank the operator's choice back behind t2.
+      openTerminalSurface(nativeTerminalNode("t3"), "focus");
+      expect(dock$.registry.peek().focusMru).toEqual([
+        terminalSurfaceId("t3"),
+        terminalSurfaceId("t1"),
+        terminalSurfaceId("t2"),
+      ]);
     });
   });
 

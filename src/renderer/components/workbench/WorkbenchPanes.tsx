@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
 import { animate } from "motion";
 import { surfaceMotionLive$ } from "../../lib/surface-motion";
@@ -173,7 +173,9 @@ export function WorkbenchPanes({ zone }: { readonly zone: WorkZone }) {
   const paneRefs = useRef(new Map<string, HTMLDivElement>());
   const prevFrontRef = useRef<string | null>(null);
   const front = zone === "focus" ? (panes.pane0 ?? null) : null;
-  useEffect(() => {
+  // Layout effect: the entry animation must start before the browser paints
+  // the new front pane, or it flashes one frame at full opacity first.
+  useLayoutEffect(() => {
     if (zone !== "focus") return;
     const prev = prevFrontRef.current;
     prevFrontRef.current = front;

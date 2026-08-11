@@ -31,8 +31,10 @@ export const openTerminalSurface = (
   if (resolveTerminalBinding(node)?.kind !== "native") return;
   // One-shot zone for the next dock reconcile (consumed there).
   terminal$.preferredZoneByNodeId[node.id].set(zone);
-  terminal$.openByNodeId[node.id].set(node);
+  // One-shot promote target — must be set BEFORE openByNodeId: that set
+  // triggers the dock observe synchronously, which consumes this value.
   terminal$.lastOpenNodeId.set(node.id);
+  terminal$.openByNodeId[node.id].set(node);
   terminal$.openSeq.set(terminal$.openSeq.peek() + 1);
 };
 

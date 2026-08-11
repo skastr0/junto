@@ -123,11 +123,15 @@ export const openActorMirror = (
   fromNodeId: string,
   zone: "focus" | "pinned" = "focus",
 ): void => {
-  const doc = state$.doc.peek();
-  const anchor = mirrorAnchor$.peek();
-  const standing = anchor !== null ? actorRingOf(doc, anchor) : null;
-  if (!standing || !standing.memberIds.includes(peer.id)) {
-    mirrorAnchor$.set(fromNodeId);
+  // The anchor orders the FOCUS cycle ring; a pinned rail click must not
+  // silently reorder it (membership re-derives live either way).
+  if (zone === "focus") {
+    const doc = state$.doc.peek();
+    const anchor = mirrorAnchor$.peek();
+    const standing = anchor !== null ? actorRingOf(doc, anchor) : null;
+    if (!standing || !standing.memberIds.includes(peer.id)) {
+      mirrorAnchor$.set(fromNodeId);
+    }
   }
   void openTerminal(peer, zone);
 };

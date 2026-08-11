@@ -369,13 +369,16 @@ observe(() => {
       terminal$.preferredZoneByNodeId[nodeId].delete();
     }
   }
-  // Promote exactly the requested surface. Focusing every open surface in
-  // Set insertion order made the newest-inserted terminal win the MRU front
-  // on every pass, so re-opening an earlier terminal (canvas re-open, mirror
-  // swap back to the hub) could never surface it.
+  // Promote exactly the requested surface, ONCE — a one-shot consumed like
+  // preferredZone. Replaying it on every pass yanked the front back over a
+  // manual tab click whenever any terminal opened or closed elsewhere, and
+  // could fire mid-teardown of a batch close. Peeked (untracked), so the
+  // consume does not re-trigger this observe; openTerminalSurface sets it
+  // before openByNodeId so the run this set triggers sees the fresh value.
   const lastOpened = terminal$.lastOpenNodeId.peek();
   if (lastOpened !== null && openIds.has(lastOpened)) {
     registry = focusSurface(registry, terminalSurfaceId(lastOpened)).state;
+    terminal$.lastOpenNodeId.set(null);
   }
   dock$.registry.set(registry);
 });
