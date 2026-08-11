@@ -120,6 +120,19 @@ const clearStoppedSurface = (ref: string, observedSessionId: string | undefined)
 };
 
 /**
+ * Drop residual renderer page UI for a ref when the browser plane cannot (or
+ * need not) stop a live session. Prefer `clearStoppedSurface` when an observed
+ * handle race-guards the clear; use this only for "no plane / nothing live".
+ */
+const forceClearStoppedSurface = (ref: string): void => {
+  const current = browserSessionIdForRef(ref);
+  clearBrowserSessionIfUnchanged(ref, current);
+  browser$.sessionByRef[ref].delete();
+  dock$.registry.set(closeSurface(dock$.registry.peek(), ref).state);
+  dock$.browserByRef[ref].delete();
+};
+
+/**
  * One-shot hydrate marker. maxVisibleSurfaces is not a UI admission cap
  * (tabs + keep-alive); warm session limits still live in main.
  */
@@ -417,19 +430,26 @@ export const closeWorkbenchSurface = (id: string): void => {
 /**
  * Explicitly stop one page runtime by exact opaque handle. Surface remains
  * visible on failure; removed only after authoritative destruction.
+ *
+ * When the browser product surface is compile-time off (preload omits
+ * browserStop), no page runtime can exist under this app process. Clear any
+ * residual renderer furniture and succeed so page-node document delete is not
+ * blocked by historical nodes from a build that had the flag on.
  */
 export const stopDockBrowser = async (ref: string): Promise<boolean> => {
   dock$.stopErrorByRef[ref].delete();
   const a = api();
   if (!a?.browserStop) {
-    dock$.stopErrorByRef[ref].set("Stop Page is unavailable.");
-    return false;
+    forceClearStoppedSurface(ref);
+    return true;
   }
   let sessionId = browserSessionIdForRef(ref);
   if (!sessionId) {
     if (!a.browserSessionList) {
-      dock$.stopErrorByRef[ref].set("Could not verify whether this page is still running.");
-      return false;
+      // Stop API present but list missing and no cached handle: nothing to
+      // kill; clear residual UI and allow document delete.
+      forceClearStoppedSurface(ref);
+      return true;
     }
     try {
       const listed = await a.browserSessionList();
@@ -443,9 +463,10 @@ export const stopDockBrowser = async (ref: string): Promise<boolean> => {
       sessionId = live?.sessionId;
       if (live) cacheBrowserSessionIfUnchanged(live, undefined);
       if (!sessionId) {
-        if (clearStoppedSurface(ref, undefined)) return true;
-        dock$.stopErrorByRef[ref].set("Page runtime changed while stopping; retry Stop Page.");
-        return false;
+        // Authoritative absence — clear residual UI even if a stale handle
+        // was in the cache race window (observed undefined vs stale id).
+        forceClearStoppedSurface(ref);
+        return true;
       }
     } catch {
       dock$.stopErrorByRef[ref].set("Could not verify whether this page is still running.");

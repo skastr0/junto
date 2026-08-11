@@ -502,6 +502,24 @@ describe("dock-state", () => {
     expect(dock$.browserByRef[ref].peek()).toBeUndefined();
   });
 
+  it("succeeds and clears residual state when browserStop is feature-flagged off", async () => {
+    // BROWSER_ENABLED=false omits the browser slice from preload.
+    (globalThis as unknown as { window: { vellumCommand: Record<string, never> } }).window = {
+      vellumCommand: {},
+    };
+    const ref = refOf("flag-off");
+    dock$.browserByRef[ref].set(payloadOf("flag-off", "https://stop.example", "Stop"));
+    dock$.registry.set(openSurface(dock$.registry.peek(), browserSlot(ref)).state);
+    cacheBrowserSession(baseSession(ref, "flag-off", "ghost-handle"));
+
+    await expect(stopDockBrowser(ref)).resolves.toBe(true);
+
+    expect(dock$.registry.peek().surfaces).toEqual([]);
+    expect(dock$.browserByRef[ref].peek()).toBeUndefined();
+    expect(browser$.sessionByRef[ref].peek()).toBeUndefined();
+    expect(dock$.stopErrorByRef[ref].peek()).toBeUndefined();
+  });
+
   it("clears a stale cached handle when Stop Page returns not_found and the session list proves absence", async () => {
     const mock = installMockVellum({
       browserStop: vi.fn(async () => ({

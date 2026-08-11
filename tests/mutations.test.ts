@@ -216,6 +216,58 @@ describe("renderer graph mutations", () => {
     expect(browserStop).toHaveBeenCalledWith("page-session");
   });
 
+  it("deletes a kill-session page when browserStop is feature-flagged off", async () => {
+    // Prod build with BROWSER_ENABLED=false strips browser IPC from preload.
+    // Historical page furniture must still be deletable.
+    const api = runtimeWindow.vellumCommand as {
+      browserStop?: typeof browserStop;
+      browserSessionList?: () => Promise<{ ok: true; data: [] }>;
+    };
+    const savedStop = api.browserStop;
+    const savedList = api.browserSessionList;
+    delete api.browserStop;
+    delete api.browserSessionList;
+
+    state$.canvasName.set("mutation-test");
+    const ref = formatNodeRef({ canvasName: "mutation-test", nodeId: "page" });
+    loadDoc({
+      nodes: [{
+        id: "page",
+        type: "link",
+        url: "https://example.com",
+        x: 0,
+        y: 0,
+        width: 320,
+        height: 180,
+        ether: {
+          entity: { kind: "page" },
+          browser: { profile: "personal", onDelete: "kill-session" },
+        },
+      }],
+      edges: [],
+    });
+    cacheBrowserSession({
+      sessionId: "ghost-session",
+      ref,
+      nodeId: "page",
+      url: "https://example.com",
+      hostId: "local",
+      profile: "personal",
+      state: "ready",
+      attached: false,
+    });
+
+    try {
+      deleteNode("page");
+      await waitFor(() => expect(state$.doc.peek().nodes).toHaveLength(0));
+      expect(state$.error.peek()).toBe("");
+      expect(browser$.sessionByRef[ref].peek()).toBeUndefined();
+    } finally {
+      if (savedStop) api.browserStop = savedStop;
+      if (savedList) api.browserSessionList = savedList;
+    }
+  });
+
   it("keeps a kill-session node after failure and deletes it only when Stop Page retry succeeds", async () => {
     state$.canvasName.set("mutation-test");
     const ref = formatNodeRef({ canvasName: "mutation-test", nodeId: "page" });
