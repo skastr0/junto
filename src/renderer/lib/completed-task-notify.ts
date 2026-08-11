@@ -332,3 +332,41 @@ export const activateCompletedTaskNotify = (item: CompletedTaskNotifyItem): void
   state$.focusNodeId.set(item.nodeId);
   openWorkDetail(item.nodeId, { itemId: item.id });
 };
+
+/**
+ * Design / e2e capture hook — plant a stack without work transitions.
+ * No-op surface in production unless the runner calls it; install is cheap.
+ */
+export const installCompletedNotifyTestHook = (): void => {
+  if (typeof window === "undefined") return;
+  (
+    window as unknown as {
+      __vellumTestInjectCompletedNotify?: (
+        items: ReadonlyArray<{
+          readonly id: string;
+          readonly nodeId: string;
+          readonly brief: string;
+        }>,
+      ) => void;
+    }
+  ).__vellumTestInjectCompletedNotify = (items) => {
+    const at = Date.now();
+    const known: Record<string, TaskState> = {};
+    const stack = items.map((item, index) => {
+      known[item.id] = "completed";
+      return {
+        id: item.id,
+        nodeId: item.nodeId,
+        brief: item.brief,
+        at: at - index,
+      };
+    });
+    notifyState = {
+      baselined: true,
+      known,
+      dismissed: {},
+      stack,
+    };
+    completedTaskNotify$.items.set(stack);
+  };
+};
