@@ -136,14 +136,17 @@ function EdgeCard({
   }
 
   // Live mirror: same status grammar as the peer's canvas card. No seat event
-  // yet means no glyph — the chip never guesses a state it does not have.
-  const activity = seatEvent
+  // yet means no glyph, and quiet states (idle steel) render nothing either —
+  // only live signal (working, attention, done) marks a chip.
+  const seatActivity = seatEvent
     ? terminalActivity({
         seatState: seatEvent.state,
         needsLook,
         seatReason: seatEvent.reason,
       })
     : null;
+  const activity =
+    seatActivity !== null && seatActivity.tone !== "steel" ? seatActivity : null;
 
   return (
     <li
