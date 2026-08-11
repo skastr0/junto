@@ -1,18 +1,12 @@
 /**
- * Completed-task notifications: a **deck** of cards stacked on top of each
- * other (not a vertical list). Newest sits on top; cards underneath peek with
- * a slight offset. Wheel / trackpad cycles which card is face-up. Click the
- * face card to open + dismiss.
+ * Stack of completed-task notifications above the notify / minimap cluster.
+ * Click focuses the tasks node, opens the board with the task selected, and
+ * durably dismisses this entry.
  *
- * No plate chrome, no "completed" copy — icon + brief only.
+ * Visual: one “completed” label on the plate; each card is icon + brief only.
+ * Boundless vertical stack — scroll the list; cards are never mid-clipped.
  */
-import {
-  useEffect,
-  useMemo,
-  useState,
-  type CSSProperties,
-  type WheelEvent,
-} from "react";
+import { useEffect } from "react";
 import { use$ } from "@legendapp/state/react";
 import { CheckCircle2 } from "lucide-react";
 import {
@@ -23,123 +17,49 @@ import {
 } from "../../lib/completed-task-notify";
 import { state$ } from "../../lib/state";
 
-/** How many under-cards peek below the face card. */
-const PEEK_COUNT = 4;
-
 export function CompletedTaskNotifyStack() {
   const doc = use$(state$.doc);
   const items = use$(completedTaskNotify$.items);
-  const [faceIndex, setFaceIndex] = useState(0);
 
   useEffect(() => {
     syncCompletedTaskNotifyFromDoc(doc.nodes);
   }, [doc]);
 
-  // Clamp face when the stack shrinks (dismiss).
-  useEffect(() => {
-    if (items.length === 0) {
-      setFaceIndex(0);
-      return;
-    }
-    setFaceIndex((i) => Math.min(i, items.length - 1));
-  }, [items.length]);
-
-  const deck = useMemo(() => {
-    if (items.length === 0) return [];
-    // Face card first, then the rest in order — true deck order for stacking.
-    const rotated = [
-      ...items.slice(faceIndex),
-      ...items.slice(0, faceIndex),
-    ];
-    // Only face + peek layers need DOM (deeper cards sit under the same silhouette).
-    return rotated.slice(0, PEEK_COUNT + 1);
-  }, [items, faceIndex]);
-
   if (items.length === 0) return null;
-
-  const onWheel = (event: WheelEvent<HTMLDivElement>) => {
-    if (items.length <= 1) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const dir = event.deltaY > 0 || event.deltaX > 0 ? 1 : -1;
-    setFaceIndex((i) => (i + dir + items.length) % items.length);
-  };
 
   return (
     <div
       className="completed-task-notify"
       role="region"
-      aria-label="Finished tasks"
-      aria-roledescription="card stack"
+      aria-label="Completed tasks"
       data-testid="completed-task-notify"
-      data-stack-count={items.length}
-      onWheel={onWheel}
     >
-      <div
-        className="completed-task-notify__deck"
-        style={
-          {
-            // Reserve room for face card + peeks so nothing is clipped.
-            "--stack-peeks": String(Math.min(PEEK_COUNT, Math.max(0, items.length - 1))),
-          } as CSSProperties
-        }
-      >
-        {deck.map((item, stackI) => (
-          <CompletedTaskNotifyCard
-            key={item.id}
-            item={item}
-            stackIndex={stackI}
-            isFace={stackI === 0}
-            depthLabel={
-              stackI === 0
-                ? `${faceIndex + 1} of ${items.length}`
-                : undefined
-            }
-          />
+      <div className="completed-task-notify__chrome">
+        <span className="completed-task-notify__chrome-label">completed</span>
+        <span className="completed-task-notify__chrome-count" aria-live="polite">
+          {items.length}
+        </span>
+      </div>
+      <div className="completed-task-notify__list">
+        {items.map((item) => (
+          <CompletedTaskNotifyCard key={item.id} item={item} />
         ))}
       </div>
     </div>
   );
 }
 
-function CompletedTaskNotifyCard({
-  item,
-  stackIndex,
-  isFace,
-  depthLabel,
-}: {
-  readonly item: CompletedTaskNotifyItem;
-  readonly stackIndex: number;
-  readonly isFace: boolean;
-  readonly depthLabel?: string;
-}) {
+function CompletedTaskNotifyCard({ item }: { readonly item: CompletedTaskNotifyItem }) {
   return (
     <button
       type="button"
       className="completed-task-notify__item"
-      data-stack-index={stackIndex}
-      data-face={isFace ? "true" : "false"}
-      style={{ "--stack-i": String(stackIndex) } as CSSProperties}
-      tabIndex={isFace ? 0 : -1}
-      aria-hidden={isFace ? undefined : true}
-      title={isFace ? `${item.brief} — open task` : undefined}
-      aria-label={
-        isFace
-          ? `Open finished task: ${item.brief}${depthLabel ? ` (${depthLabel})` : ""}`
-          : undefined
-      }
-      onClick={() => {
-        if (!isFace) return;
-        activateCompletedTaskNotify(item);
-      }}
+      title={`${item.brief} — open task`}
+      aria-label={`Completed: ${item.brief}. Open task board.`}
+      onClick={() => activateCompletedTaskNotify(item)}
     >
       <CheckCircle2 size={15} className="completed-task-notify__icon" aria-hidden />
       <span className="completed-task-notify__brief">{item.brief}</span>
-      {isFace && depthLabel ? (
-        <span className="completed-task-notify__depth" aria-hidden>
-          {depthLabel}
-        </span>
-      ) : null}
     </button>
   );
 }

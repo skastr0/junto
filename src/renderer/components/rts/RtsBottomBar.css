@@ -26,82 +26,97 @@
 }
 
 /*
- * Completed-task DECK — cards stacked on top of each other (not a list).
- * Face card fully visible; under-cards peek with offset + scale.
- * Wheel cycles the face. No plate, no "completed" chrome.
+ * Completed-task stack — floating panel above minimap / notify.
+ * One “completed” label on the plate; cards are icon + brief only.
+ * List scrolls freely; each card is flex-shrink: 0 so nothing mid-clips.
  */
 .completed-task-notify {
-  --stack-card-h: 40px;
-  --stack-peek: 9px;
   position: absolute;
   right: 10px;
   bottom: 100%;
   margin-bottom: 8px;
   z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
   width: min(280px, 40vw);
   max-width: min(280px, 40vw);
+  /* Plate grows with content up to this; then list scrolls. */
+  max-height: min(48vh, 380px);
   padding: 0;
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-  overflow: visible;
-  pointer-events: auto;
-}
-.completed-task-notify__deck {
-  position: relative;
-  width: 100%;
-  /* Face height + peek room for under-cards — nothing is clipped. */
-  height: calc(
-    var(--stack-card-h) + (var(--stack-peeks, 0) * var(--stack-peek))
-  );
-  /* Extra air for shadow so the lowest peek isn't cut by a parent clip. */
-  padding-bottom: 6px;
-  box-sizing: content-box;
-}
-.completed-task-notify__item {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: calc(40 - var(--stack-i, 0));
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: var(--stack-card-h);
-  margin: 0;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 10px;
+  border: 1px solid var(--color-stroke-hi);
+  border-radius: 12px;
   background: var(--color-raise);
   box-shadow:
-    0 10px 24px var(--color-shadow-2),
-    0 0 0 1px color-mix(in oklab, var(--color-ink) 10%, transparent);
+    0 14px 36px var(--color-shadow-1),
+    0 0 0 1px color-mix(in oklab, var(--color-green, #3d8b6e) 18%, transparent);
+  /* Clip only the plate corner radius — list owns scrolling. */
+  overflow: hidden;
+  pointer-events: auto;
+}
+.completed-task-notify__chrome {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px 6px;
+  border-bottom: 1px solid var(--color-stroke);
+  background: color-mix(in oklab, var(--color-raise-2) 88%, var(--color-ground));
+}
+.completed-task-notify__chrome-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: color-mix(in oklab, var(--color-green, #3d8b6e) 75%, var(--color-faint));
+}
+.completed-task-notify__chrome-count {
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-dim);
+}
+.completed-task-notify__list {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  /* Boundless scroll: plate max-height caps the viewport; list takes the rest. */
+  padding: 8px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scroll-padding-block: 8px;
+  scroll-snap-type: y proximity;
+}
+.completed-task-notify__item {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in oklab, var(--color-green, #3d8b6e) 28%, var(--color-stroke));
+  border-radius: 9px;
+  background: var(--color-raise-2);
+  box-shadow: 0 1px 0 color-mix(in oklab, var(--color-ink) 6%, transparent);
   color: var(--color-ink);
   font: inherit;
   text-align: left;
   cursor: pointer;
-  transform: translateY(calc(var(--stack-i, 0) * var(--stack-peek)))
-    scale(calc(1 - var(--stack-i, 0) * 0.03));
-  transform-origin: top center;
-  opacity: calc(1 - var(--stack-i, 0) * 0.12);
-  transition:
-    transform 160ms ease,
-    opacity 160ms ease,
-    background 120ms ease,
-    box-shadow 120ms ease;
-  /* Only the face card receives clicks; peeks are pure depth. */
-  pointer-events: none;
+  scroll-snap-align: start;
+  transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
 }
-.completed-task-notify__item[data-face="true"] {
-  pointer-events: auto;
-  cursor: pointer;
-}
-.completed-task-notify__item[data-face="true"]:hover,
-.completed-task-notify__item[data-face="true"]:focus-visible {
-  background: var(--color-raise-2);
-  box-shadow:
-    0 12px 28px var(--color-shadow-1),
-    0 0 0 1px color-mix(in oklab, var(--color-green, #3d8b6e) 30%, transparent);
+.completed-task-notify__item:hover,
+.completed-task-notify__item:focus-visible {
+  border-color: color-mix(in oklab, var(--color-green, #3d8b6e) 55%, var(--color-stroke));
+  background: color-mix(in oklab, var(--color-raise-2) 70%, var(--color-ground));
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--color-green, #3d8b6e) 22%, transparent);
   outline: none;
 }
 .completed-task-notify__icon {
@@ -115,17 +130,9 @@
   color: var(--color-ink);
   font-size: 11px;
   font-weight: 550;
-  line-height: 1.3;
+  line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.completed-task-notify__depth {
-  flex-shrink: 0;
-  font-size: 9px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  color: var(--color-faint);
-  letter-spacing: 0.02em;
 }
 
 .rts-shell > * {
