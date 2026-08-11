@@ -891,18 +891,28 @@ export const workRequestCreate = (
   requireSink(node, ["requests"]);
   const trimmed = brief.trim();
   if (!trimmed) throw new WorkError("invalid", "brief must be non-empty");
+  const why = reason?.trim() ?? "";
+  const detailsRaw = metadata?.details;
+  const details = typeof detailsRaw === "string" ? detailsRaw.trim() : "";
+  if (!why && !details) {
+    throw new WorkError(
+      "invalid",
+      "request body required: provide reason and/or metadata.details (not title-only)",
+    );
+  }
   rejectRetiredClaimMetadata(metadata);
   // A request is actor-originated and claimed by its raiser at birth. The
   // raiser is the worker waiting on the answer, so stoppage lands on it.
   const taskId = ids.id();
   const contextId = regionContextId(doc, nodeId, canvasName);
+  // Message body prefers details, then reason, then brief — never title alone.
+  const bodyText = details || why || trimmed;
   const briefMessage = makeUserMessage({
     messageId: ids.messageId(),
-    text: trimmed,
+    text: bodyText === trimmed ? trimmed : `${trimmed}\n\n${bodyText}`,
     contextId,
     taskId,
   });
-  const why = reason?.trim();
   const task: Task = {
     id: taskId,
     state: "input-required",

@@ -177,13 +177,16 @@ describe("work claimant policy", () => {
       "alpha",
       "requests",
       "need approval",
-      { class: "review" },
+      { class: "review", details: "operator must approve before continue" },
       ids,
       actor
     );
 
     expect(raised.task.state).toBe("input-required");
     expect(raised.task.claimedBy).toBe(actor.seatId);
-    expect(raised.task.metadata).toEqual({ class: "review" });
+    expect(raised.task.metadata).toEqual({
+      class: "review",
+      details: "operator must approve before continue",
+    });
   });
 });

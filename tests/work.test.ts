@@ -692,6 +692,44 @@ describe("work pure transforms", () => {
     expect(raised.task.reason).toBe("signing is gated on the operator's key");
   });
 
+  it("rejects title-only request create (no reason and no metadata.details)", () => {
+    const doc: CanvasDoc = { nodes: [emptyRequestsNode()], edges: [] };
+    expect(() =>
+      workRequestCreate(
+        doc,
+        "c",
+        "req",
+        "title only is not enough",
+        { class: "review" },
+        ids,
+        actorRef("7", "actor-7", "c"),
+      ),
+    ).toThrow(/request body required/);
+    expect(() =>
+      workRequestCreate(
+        doc,
+        "c",
+        "req",
+        "title only is not enough",
+        undefined,
+        ids,
+        actorRef("7", "actor-7", "c"),
+      ),
+    ).toThrow(/request body required/);
+    expect(() =>
+      workRequestCreate(
+        doc,
+        "c",
+        "req",
+        "title only is not enough",
+        { details: "   " },
+        ids,
+        actorRef("7", "actor-7", "c"),
+        "   ",
+      ),
+    ).toThrow(/request body required/);
+  });
+
   it("task create records its reason first-class", () => {
     const doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
     const created = workTaskCreate(doc, "c", "tasks", "port the map", { details: "port the map" }, ids, "fleet epic");
@@ -737,7 +775,7 @@ describe("work pure transforms", () => {
       "c",
       "req",
       "need approval",
-      { class: "review" },
+      { class: "review", details: "ship checklist before release" },
       ids,
       actorRef("4", "actor-4", "c")
     );
@@ -1279,7 +1317,8 @@ describe("WorkService — concurrent ops", () => {
         "requests",
         "approve release",
         undefined,
-        actor
+        actor,
+        "cannot ship without sign-off"
       )
     );
     expect(request.ok).toBe(true);
@@ -1387,7 +1426,8 @@ describe("WorkService — concurrent ops", () => {
         "requests",
         "Thread request",
         undefined,
-        sender
+        sender,
+        "need operator thread context"
       )
     );
     if (!task.ok || !request.ok) {
@@ -1527,7 +1567,8 @@ describe("WorkService — concurrent ops", () => {
           "requests",
           "forged request",
           undefined,
-          remoteActor
+          remoteActor,
+          "forged body for locality test"
         )
       ),
       workRuntime.runPromise(
@@ -1766,7 +1807,8 @@ describe("WorkService — concurrent ops", () => {
           "requests",
           "need operator input",
           undefined,
-          sender
+          sender,
+          "blocked without operator decision"
         )
       );
       expect(request).toMatchObject({

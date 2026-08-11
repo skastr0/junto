@@ -1193,6 +1193,11 @@ const loadLaneTasks = (
     lane === "task" ? loadTaskDependsOnMap(reader, sink) : undefined;
   const finishMap =
     lane === "task" ? loadTaskFinishMap(reader, sink) : undefined;
+  // Requests: newest first (operator triage). Tasks keep oldest-first claim order.
+  const orderBy =
+    lane === "request"
+      ? `ORDER BY created_at DESC, ${id} DESC`
+      : `ORDER BY created_at, ${id}`;
   return reader
     .all<TaskRow>(
       `
@@ -1213,7 +1218,7 @@ const loadLaneTasks = (
           created_at
         FROM ${table}
         WHERE canvas_name = ? AND node_id = ?
-        ORDER BY created_at, ${id}
+        ${orderBy}
       `,
       [sink.canvasName, sink.nodeId],
     )

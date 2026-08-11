@@ -64,6 +64,52 @@ const requestTitle = (request: Task): string =>
 const requestDetails = (request: Task): string | undefined =>
   metadataText(request.metadata, "details");
 
+/** List titles clip at this length; full text lives in the detail pane. */
+const REQUEST_TITLE_LIST_LIMIT = 72;
+
+/** Newer requests first (ULID time order = birth order). */
+const compareRequestsNewestFirst = (a: Task, b: Task): number =>
+  b.id.localeCompare(a.id);
+
+function RequestListTitle({ title }: { readonly title: string }) {
+  const [expanded, setExpanded] = useState(false);
+  if (title.length <= REQUEST_TITLE_LIST_LIMIT) {
+    return <strong className="work-ledger-row__title">{title}</strong>;
+  }
+  if (expanded) {
+    return (
+      <strong className="work-ledger-row__title work-ledger-row__title--expanded">
+        {title}{" "}
+        <button
+          type="button"
+          className="work-ledger-read-more"
+          onClick={(event) => {
+            event.stopPropagation();
+            setExpanded(false);
+          }}
+        >
+          less
+        </button>
+      </strong>
+    );
+  }
+  return (
+    <strong className="work-ledger-row__title">
+      {`${title.slice(0, REQUEST_TITLE_LIST_LIMIT).trimEnd()}…`}{" "}
+      <button
+        type="button"
+        className="work-ledger-read-more"
+        onClick={(event) => {
+          event.stopPropagation();
+          setExpanded(true);
+        }}
+      >
+        read more
+      </button>
+    </strong>
+  );
+}
+
 const textOf = (parts: ReadonlyArray<Part>): string =>
   parts
     .filter((part): part is Extract<Part, { kind: "text" }> => part.kind === "text")
@@ -402,7 +448,10 @@ export function RequestInbox({
   /** Pre-select this request when opened from jump-to-cause. */
   readonly initialItemId?: string;
 }) {
-  const items = node.ether?.requests?.items ?? [];
+  const items = useMemo(
+    () => [...(node.ether?.requests?.items ?? [])].sort(compareRequestsNewestFirst),
+    [node.ether?.requests?.items],
+  );
   const pendingItems = items.filter((request) => request.state === "input-required");
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(() => {
@@ -416,11 +465,16 @@ export function RequestInbox({
   const api = getVellumCommandApi();
   const name = canvasName();
   const normalized = query.trim().toLowerCase();
-  const visible = normalized
-    ? items.filter((request) =>
-        `${requestTitle(request)} ${requestDetails(request) ?? ""}`.toLowerCase().includes(normalized),
-      )
-    : items;
+  const visible = useMemo(() => {
+    const filtered = normalized
+      ? items.filter((request) =>
+          `${requestTitle(request)} ${requestDetails(request) ?? ""}`
+            .toLowerCase()
+            .includes(normalized),
+        )
+      : items;
+    return filtered;
+  }, [items, normalized]);
   const selected = selectedId ? items.find((request) => request.id === selectedId) : undefined;
 
   const resolve = async (
@@ -514,7 +568,7 @@ export function RequestInbox({
                       }
                     />
                     <span>
-                      <strong>{requestTitle(request)}</strong>
+                      <RequestListTitle title={requestTitle(request)} />
                       <small>{requestDetails(request) ?? `Request ${request.id}`}</small>
                     </span>
                     <Chip

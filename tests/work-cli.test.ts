@@ -6,6 +6,7 @@ import {
   TasksUpdateArgs,
   ArtifactPublishCliArgs,
   PreambleArgs,
+  RequestEscalateArgs,
 } from "../src/shared/work-control";
 import { loadBatchJsonInput, loadJsonInput } from "../src/cli/core/json";
 import { runMutationBatch } from "../src/cli/core/batch";
@@ -156,6 +157,50 @@ describe("work CLI json input modes", () => {
         loadJsonInput(PreambleArgs, '{"text":"x","target":"agent"}'),
       ),
     ).rejects.toThrow(/target|unexpected/i);
+  });
+
+  it("request escalate rejects title-only and accepts reason or metadata.details", async () => {
+    await expect(
+      Effect.runPromise(
+        loadJsonInput(
+          RequestEscalateArgs,
+          '{"target":"requests","brief":"need a decision"}',
+        ),
+      ),
+    ).rejects.toThrow(/request body required|title-only/i);
+
+    await expect(
+      Effect.runPromise(
+        loadJsonInput(
+          RequestEscalateArgs,
+          '{"target":"requests","brief":"need a decision","reason":"   ","metadata":{"details":""}}',
+        ),
+      ),
+    ).rejects.toThrow(/request body required|title-only/i);
+
+    const viaReason = await Effect.runPromise(
+      loadJsonInput(
+        RequestEscalateArgs,
+        JSON.stringify({
+          target: "requests",
+          brief: "need a decision",
+          reason: "blocked without operator sign-off",
+        }),
+      ),
+    );
+    expect(viaReason.reason).toBe("blocked without operator sign-off");
+
+    const viaDetails = await Effect.runPromise(
+      loadJsonInput(
+        RequestEscalateArgs,
+        JSON.stringify({
+          target: "requests",
+          brief: "need a decision",
+          metadata: { details: "checklist items remain open" },
+        }),
+      ),
+    );
+    expect(viaDetails.metadata?.details).toBe("checklist items remain open");
   });
 });
 

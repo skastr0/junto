@@ -311,12 +311,35 @@ export const PreambleArgs = Schema.Struct({
 });
 export type PreambleArgs = typeof PreambleArgs.Type;
 
+/**
+ * Escalate to the operator. Brief is the title line; agents must also supply
+ * a body via `reason` and/or `metadata.details` — title-only escalations are
+ * rejected (same spirit as task `metadata.details` required).
+ */
 export const RequestEscalateArgs = Schema.Struct({
   target: Schema.String,
   brief: Schema.String,
-  /** Why the caller is raising this — lands first-class on the request. */
+  /** Why the caller is raising this — first-class body (preferred). */
   reason: Schema.optionalKey(Schema.String),
   metadata: Schema.optionalKey(Schema.Record(Schema.String, Schema.Unknown)),
+}).pipe(
+  Schema.check(
+    Schema.makeFilter((args) => {
+      const brief = args.brief.trim();
+      if (!brief) return "brief must be non-empty";
+      const reason =
+        typeof args.reason === "string" ? args.reason.trim() : "";
+      const detailsRaw = args.metadata?.details;
+      const details =
+        typeof detailsRaw === "string" ? detailsRaw.trim() : "";
+      if (!reason && !details) {
+        return "request body required: provide reason and/or metadata.details (not title-only)";
+      }
+      return true;
+    }),
+  ),
+).annotate({
+  parseOptions: { onExcessProperty: "error" },
 });
 export type RequestEscalateArgs = typeof RequestEscalateArgs.Type;
 
