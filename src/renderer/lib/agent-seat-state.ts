@@ -235,7 +235,11 @@ export const seatEventForBinding = (
 
 /**
  * Build terminalStatusByNodeId for client region rollups from live seat store
- * + document terminal bindings. Pure given inputs (testable).
+ * + document terminal bindings / inventory joins.
+ *
+ * Uses the same binding resolution as card chrome (`bindingIdForNode`): native
+ * `ether.terminal.bindingId` first, then inventory `bindingIdByNodeId`. That
+ * keeps hotbar / region chips in lockstep with the canvas seat wave.
  */
 export const terminalStatusByNodeIdFromSeats = (
   nodes: ReadonlyArray<Pick<CanvasNode, "id" | "ether">>,
@@ -244,11 +248,11 @@ export const terminalStatusByNodeIdFromSeats = (
 ): Map<string, WorkSurfaceActivity> => {
   const out = new Map<string, WorkSurfaceActivity>();
   for (const node of nodes) {
-    const native = resolveTerminalBinding(node as CanvasNode);
-    if (native?.kind !== "native") continue;
+    const bindingId = bindingIdForNode(node);
+    if (!bindingId) continue;
     const surface = workSurfaceFromSeat(
-      seats[native.bindingId],
-      needsLookByBindingId[native.bindingId] === true,
+      seats[bindingId],
+      needsLookByBindingId[bindingId] === true,
     );
     if (surface) out.set(node.id, surface);
   }

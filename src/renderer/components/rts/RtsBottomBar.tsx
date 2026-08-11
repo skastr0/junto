@@ -54,7 +54,7 @@ import {
   slotIndexOf as hotbarSlotIndexOfNode,
   touchActiveMru,
 } from "../../lib/hotbar-slots";
-import { hotbarNodeSeverity } from "../../lib/hotbar-signal";
+import { hotbarNodeSeverity, liveActivitySeverity } from "../../lib/hotbar-signal";
 import { signalMark } from "../../lib/signal-mark";
 import {
   deleteNode,
@@ -1098,9 +1098,18 @@ function HotbarStrip({
       }
       const isRegion = node.type === "group";
       const rollup = byId.get(slot.nodeId);
+      // Live seat / herdr plane — same source as canvas ActivityMark so the
+      // digit chip stays synchronized even for freestanding agents (Pi, etc.).
+      const seat = seatEventForNode(node);
+      const herdrStatus = herdrMetaByNodeId[slot.nodeId]?.meta?.agentStatus;
+      const liveSeverity = liveActivitySeverity({
+        seatState: seat?.state,
+        herdrAgentStatus: herdrStatus,
+      });
       const severity = hotbarNodeSeverity(node, {
         regionSeverity: rollup?.severity,
         memberSeverity: severityByNodeId.get(slot.nodeId),
+        liveSeverity,
       });
       return {
         index,
@@ -1113,7 +1122,7 @@ function HotbarStrip({
         isRegion,
       };
     });
-  }, [hotbarSlots, doc, byId, severityByNodeId]);
+  }, [hotbarSlots, doc, byId, severityByNodeId, seatByBinding, herdrMetaByNodeId]);
 
   return (
     <div className="rts-region-strip" role="region" aria-label="Hotkey slots 1 to 9">
