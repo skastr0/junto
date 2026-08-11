@@ -99,6 +99,20 @@ test("xterm measures against a laid-out box, and the painted screen matches the 
     "the character cell fell back to a hardcoded guess, so cols/rows are computed from a made-up cell size",
   ).toEqual([]);
 
+  // CONTRACT 0 — the child PTY and the painted grid must agree on the width.
+  // This is the one that produces visible corruption: the harness wraps its
+  // lines at the width the PTY reports, the renderer paints at termCols, and
+  // anything emitted while they disagree is wrapped at the wrong column and
+  // written into the scrollback permanently. A later resize does not un-wrap it.
+  const diverged = resizes.filter((r) => r.data.ptyDiverged === true);
+  const bigDivergence = diverged.filter(
+    (r) => Math.abs((r.data.cols as number) - (r.data.ptyCols as number)) > 2,
+  );
+  expect(
+    bigDivergence.slice(0, 5).map((r) => JSON.stringify(r.data)),
+    "the renderer painted a grid the child PTY was never told about — output emitted in this window wraps at the wrong column",
+  ).toEqual([]);
+
   // CONTRACT 2 — the painted screen must match the character grid.
   const mismatched = resizes.filter(
     (r) => typeof r.data.screenGridDeltaPx === "number" && Math.abs(r.data.screenGridDeltaPx as number) > 1,

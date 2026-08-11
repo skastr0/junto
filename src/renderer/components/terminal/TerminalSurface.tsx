@@ -280,6 +280,13 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
         screenW,
         gridW: Math.round(cols * cellW),
         screenGridDeltaPx: screenW < 0 ? -1 : Math.round(screenW - cols * cellW),
+        // What the PTY was last TOLD. The child wraps at this width, xterm
+        // paints at termCols. If they diverge, the harness breaks its lines at
+        // a column the renderer is not painting — the reported symptom where a
+        // word splits mid-token onto the next row.
+        ptyCols: lastGeom.current.cols,
+        ptyRows: lastGeom.current.rows,
+        ptyDiverged: lastGeom.current.cols !== cols || lastGeom.current.rows !== rows,
       });
     }
 

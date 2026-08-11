@@ -71,6 +71,13 @@ export interface LaunchOptions {
   /** Enrolled fleet rows seeded into the sandbox's explicit SQLite database. */
   readonly seedHosts?: ReadonlyArray<RemoteHost>;
   readonly extraEnv?: Readonly<Record<string, string>>;
+  /**
+   * Extra Chromium switches. The operator runs on a scaled Retina display;
+   * the harness window defaults to device-pixel-ratio 1, so anything that only
+   * misbehaves at a fractional scale factor is invisible to every spec unless
+   * a spec asks for it (`--force-device-scale-factor=1.5`).
+   */
+  readonly electronArgs?: ReadonlyArray<string>;
 }
 
 export interface VellumWorld {
@@ -559,7 +566,11 @@ export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumH
     application = { kind: "launch-unobserved" };
     const app = await electron.launch({
       executablePath: ELECTRON_BINARY,
-      args: [MAIN_ENTRY, `--user-data-dir=${sandbox.userDataDir}`],
+      args: [
+        MAIN_ENTRY,
+        `--user-data-dir=${sandbox.userDataDir}`,
+        ...(options.electronArgs ?? []),
+      ],
       env,
       timeout: 60_000,
     });
