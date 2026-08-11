@@ -1,0 +1,208 @@
+{
+  "harness": "codex",
+  "displayName": "Codex",
+  "source": "P1-real-capture",
+  "capturedAt": "2026-08-11T19:04:08.431Z",
+  "pty": {
+    "cols": 120,
+    "rows": 32,
+    "term": "xterm-256color"
+  },
+  "sanitized": true,
+  "scrub": [
+    "<HOME>",
+    "<USER>",
+    "<HOST>",
+    "<CWD>",
+    "<CAPTURE>",
+    "<SESSION>",
+    "<EMAIL>",
+    "<TOKEN>"
+  ],
+  "scenarios": [
+    {
+      "harness": "codex",
+      "scenario": "startup-idle",
+      "status": "complete",
+      "observed": {
+        "title": "⠏ codex",
+        "osc9": "",
+        "glyphs": [
+          "•",
+          "›",
+          "─",
+          "│",
+          "╭",
+          "╮",
+          "╯",
+          "╰",
+          "⚠",
+          "⠇",
+          "⠏",
+          "⠧"
+        ],
+        "modes": {
+          "set": [
+            2004,
+            1004,
+            2026,
+            25
+          ],
+          "reset": [
+            2026
+          ],
+          "kittyPush": false,
+          "kittyPop": false
+        },
+        "promptGlyph": "›",
+        "bytes": 6125,
+        "lines": 1,
+        "stableQuietMs": 1400
+      },
+      "expectedScreen": {
+        "title": "⠏ codex",
+        "osc9": "",
+        "promptGlyph": "›",
+        "description": "idle composer of the bare TUI"
+      }
+    },
+    {
+      "harness": "codex",
+      "scenario": "type-echo",
+      "status": "complete",
+      "observed": {
+        "title": "⠦ codex",
+        "osc9": "",
+        "glyphs": [
+          "•",
+          "›",
+          "⠋",
+          "⠏",
+          "⠙",
+          "⠦",
+          "⠴",
+          "⠸",
+          "⠹",
+          "⠼"
+        ],
+        "modes": {
+          "set": [
+            2004,
+            1004,
+            2026,
+            25
+          ],
+          "reset": [
+            2026
+          ],
+          "kittyPush": false,
+          "kittyPop": false
+        },
+        "promptGlyph": "›",
+        "lines": 2,
+        "idleReturned": true,
+        "exited": false
+      },
+      "expectedScreen": {
+        "title": "⠦ codex",
+        "osc9": "",
+        "promptGlyph": "›",
+        "description": "typed 'hello' echoed in composer, CR submits, idle returns",
+        "echoText": "hello"
+      }
+    },
+    {
+      "harness": "codex",
+      "scenario": "paste-chip",
+      "status": "complete",
+      "observed": {
+        "chipText40ms": null,
+        "chipAfterCr40ms": false,
+        "submitted40ms": false,
+        "chipTextSlow": null,
+        "submittedSlow": false,
+        "clearedByCtrlC": false,
+        "ctrlCSent": false,
+        "osc9s": [],
+        "lines": 4,
+        "pasteLines": 15,
+        "settleMs": 40
+      },
+      "expectedScreen": {
+        "title": "⠦ codex",
+        "osc9": "",
+        "promptGlyph": null,
+        "description": "round1: paste+CR@40ms (vellum timing); round2: paste, chip render, CR; ONE Ctrl+C clear",
+        "pasteText": "PASTE_LINE_00\nPASTE_LINE_01\nPASTE_LINE_02\nPASTE_LINE_03\nPASTE_LINE_04\nPASTE_LINE_05\nPASTE_LINE_06\nPASTE_LINE_07\nPASTE_LINE_08\nPASTE_LINE_09\nPASTE_LINE_10\nPASTE_LINE_11\nPASTE_LINE_12\nPASTE_LINE_13\nPASTE_LINE_14",
+        "chipObserved": false
+      }
+    },
+    {
+      "harness": "codex",
+      "scenario": "working-turn",
+      "status": "complete",
+      "observed": {
+        "workingSeen": true,
+        "interrupted": false,
+        "osc9s": [],
+        "titles": [
+          "⠸ codex",
+          "⠼ codex",
+          "⠴ codex",
+          "⠦ codex",
+          "⠧ codex",
+          "codex"
+        ],
+        "glyphs": [
+          "•",
+          "›",
+          "⠇",
+          "⠏",
+          "⠦",
+          "⠧",
+          "⠴",
+          "⠼"
+        ],
+        "lines": 4,
+        "exited": false
+      },
+      "expectedScreen": {
+        "title": "⠦ codex",
+        "osc9": "",
+        "promptGlyph": "›",
+        "description": "working turn: OSC title churn / spinner / progress frames then interrupt",
+        "prompt": "say hi, nothing else"
+      }
+    },
+    {
+      "harness": "codex",
+      "scenario": "osc9-empty-composer",
+      "status": "skip",
+      "reason": "real OSC 9;4;3 with an empty composer was not observed",
+      "observed": {
+        "osc9s": []
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "codex",
+      "scenario": "permission-returns-idle",
+      "status": "skip",
+      "reason": "composer never ready",
+      "observed": {},
+      "expectedScreen": {}
+    }
+  ],
+  "sanitization": {
+    "method": "decoded-jsonl-scan",
+    "fixtures": 4,
+    "decodedBytes": 203214,
+    "checks": [
+      "home-path",
+      "username",
+      "hostname",
+      "email",
+      "token"
+    ]
+  }
+}

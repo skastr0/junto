@@ -1,0 +1,228 @@
+{
+  "harness": "claude",
+  "displayName": "Claude Code",
+  "source": "P1-real-capture",
+  "capturedAt": "2026-08-11T19:02:59.143Z",
+  "pty": {
+    "cols": 120,
+    "rows": 32,
+    "term": "xterm-256color"
+  },
+  "sanitized": true,
+  "scrub": [
+    "<HOME>",
+    "<USER>",
+    "<HOST>",
+    "<CWD>",
+    "<CAPTURE>",
+    "<SESSION>",
+    "<EMAIL>",
+    "<TOKEN>"
+  ],
+  "scenarios": [
+    {
+      "harness": "claude",
+      "scenario": "startup-idle",
+      "status": "complete",
+      "observed": {
+        "title": "✳ Claude Code",
+        "osc9": "",
+        "glyphs": [
+          " ",
+          "…",
+          "←",
+          "⏸",
+          "─",
+          "│",
+          "╭",
+          "╮",
+          "╯",
+          "╰",
+          "█",
+          "▌",
+          "▐",
+          "▘",
+          "▛",
+          "▜",
+          "▝",
+          "✳",
+          "❯"
+        ],
+        "modes": {
+          "set": [
+            25,
+            2004,
+            1004,
+            2031
+          ],
+          "reset": [
+            25
+          ],
+          "kittyPush": false,
+          "kittyPop": false
+        },
+        "promptGlyph": "❯",
+        "bytes": 3608,
+        "lines": 1,
+        "stableQuietMs": 1400
+      },
+      "expectedScreen": {
+        "title": "✳ Claude Code",
+        "osc9": "",
+        "promptGlyph": "❯",
+        "description": "idle composer of the bare TUI"
+      }
+    },
+    {
+      "harness": "claude",
+      "scenario": "type-echo",
+      "status": "complete",
+      "observed": {
+        "title": "⠐ Claude Code",
+        "osc9": "",
+        "glyphs": [
+          " ",
+          "…",
+          "←",
+          "↓",
+          "⏸",
+          "⏺",
+          "─",
+          "│",
+          "╯",
+          "╰",
+          "✢",
+          "✳",
+          "✶",
+          "✻",
+          "✽",
+          "❯",
+          "⠂",
+          "⠐"
+        ],
+        "modes": {
+          "set": [
+            25,
+            2004,
+            1004,
+            2031
+          ],
+          "reset": [
+            25
+          ],
+          "kittyPush": false,
+          "kittyPop": false
+        },
+        "promptGlyph": "❯",
+        "lines": 1,
+        "idleReturned": true,
+        "exited": false
+      },
+      "expectedScreen": {
+        "title": "⠐ Claude Code",
+        "osc9": "",
+        "promptGlyph": "❯",
+        "description": "typed 'hello' echoed in composer, CR submits, idle returns",
+        "echoText": "hello"
+      }
+    },
+    {
+      "harness": "claude",
+      "scenario": "paste-chip",
+      "status": "complete",
+      "observed": {
+        "chipText40ms": null,
+        "chipAfterCr40ms": false,
+        "submitted40ms": true,
+        "chipTextSlow": "[Pasted text #2 +14 lines]",
+        "submittedSlow": true,
+        "clearedByCtrlC": false,
+        "ctrlCSent": false,
+        "osc9s": [],
+        "lines": 1,
+        "pasteLines": 15,
+        "settleMs": 40
+      },
+      "expectedScreen": {
+        "title": "✳ Untitled session",
+        "osc9": "",
+        "promptGlyph": "❯",
+        "description": "round1: paste+CR@40ms (vellum timing); round2: paste, chip render, CR; ONE Ctrl+C clear",
+        "pasteText": "PASTE_LINE_00\nPASTE_LINE_01\nPASTE_LINE_02\nPASTE_LINE_03\nPASTE_LINE_04\nPASTE_LINE_05\nPASTE_LINE_06\nPASTE_LINE_07\nPASTE_LINE_08\nPASTE_LINE_09\nPASTE_LINE_10\nPASTE_LINE_11\nPASTE_LINE_12\nPASTE_LINE_13\nPASTE_LINE_14",
+        "chipObserved": true
+      }
+    },
+    {
+      "harness": "claude",
+      "scenario": "working-turn",
+      "status": "complete",
+      "observed": {
+        "workingSeen": true,
+        "interrupted": false,
+        "osc9s": [],
+        "titles": [
+          "⠐ Untitled session",
+          "⠂ Untitled session",
+          "✳ Untitled session"
+        ],
+        "glyphs": [
+          " ",
+          "…",
+          "←",
+          "↓",
+          "⎿",
+          "⏸",
+          "⏺",
+          "─",
+          "✢",
+          "✳",
+          "✶",
+          "✻",
+          "✽",
+          "❯",
+          "⠂",
+          "⠐"
+        ],
+        "lines": 2,
+        "exited": false
+      },
+      "expectedScreen": {
+        "title": "✳ Untitled session",
+        "osc9": "",
+        "promptGlyph": "❯",
+        "description": "working turn: OSC title churn / spinner / progress frames then interrupt",
+        "prompt": "say hi, nothing else"
+      }
+    },
+    {
+      "harness": "claude",
+      "scenario": "osc9-empty-composer",
+      "status": "skip",
+      "reason": "real OSC 9;4;3 with an empty composer was not observed",
+      "observed": {
+        "osc9s": []
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "claude",
+      "scenario": "permission-returns-idle",
+      "status": "skip",
+      "reason": "a real permission dialog was not observed",
+      "observed": {},
+      "expectedScreen": {}
+    }
+  ],
+  "sanitization": {
+    "method": "decoded-jsonl-scan",
+    "fixtures": 4,
+    "decodedBytes": 65504,
+    "checks": [
+      "home-path",
+      "username",
+      "hostname",
+      "email",
+      "token"
+    ]
+  }
+}

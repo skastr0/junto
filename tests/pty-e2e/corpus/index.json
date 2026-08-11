@@ -1,0 +1,222 @@
+{
+  "claude": {
+    "scenarios": [
+      {
+        "scenario": "startup-idle",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "type-echo",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "paste-chip",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "working-turn",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "osc9-empty-composer",
+        "status": "skip",
+        "reason": "real OSC 9;4;3 with an empty composer was not observed"
+      },
+      {
+        "scenario": "permission-returns-idle",
+        "status": "skip",
+        "reason": "a real permission dialog was not observed"
+      }
+    ],
+    "session": {
+      "harness": "claude",
+      "scenario": "__session__",
+      "status": "complete",
+      "observed": {
+        "bytes": 45687,
+        "elapsedMs": 84526
+      },
+      "expectedScreen": {}
+    }
+  },
+  "codex": {
+    "scenarios": [
+      {
+        "scenario": "startup-idle",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "type-echo",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "paste-chip",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "working-turn",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "osc9-empty-composer",
+        "status": "skip",
+        "reason": "real OSC 9;4;3 with an empty composer was not observed"
+      },
+      {
+        "scenario": "permission-returns-idle",
+        "status": "skip",
+        "reason": "composer never ready"
+      }
+    ],
+    "session": {
+      "harness": "codex",
+      "scenario": "__session__",
+      "status": "complete",
+      "observed": {
+        "bytes": 222831,
+        "elapsedMs": 51040
+      },
+      "expectedScreen": {}
+    }
+  },
+  "devin": {
+    "scenarios": [
+      {
+        "scenario": "startup-idle",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "type-echo",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "paste-chip",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "working-turn",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "osc9-empty-composer",
+        "status": "skip",
+        "reason": "real OSC 9;4;3 with an empty composer was not observed"
+      },
+      {
+        "scenario": "permission-returns-idle",
+        "status": "skip",
+        "reason": "a real permission dialog was not observed"
+      }
+    ],
+    "session": {
+      "harness": "devin",
+      "scenario": "__session__",
+      "status": "complete",
+      "observed": {
+        "bytes": 126336,
+        "elapsedMs": 90330
+      },
+      "expectedScreen": {}
+    }
+  },
+  "grok": {
+    "scenarios": [
+      {
+        "scenario": "startup-idle",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "type-echo",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "paste-chip",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "working-turn",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "osc9-empty-composer",
+        "status": "skip",
+        "reason": "real OSC 9;4;3 with an empty composer was not observed"
+      },
+      {
+        "scenario": "permission-returns-idle",
+        "status": "complete",
+        "reason": null
+      }
+    ],
+    "session": {
+      "harness": "grok",
+      "scenario": "__session__",
+      "status": "complete",
+      "observed": {
+        "bytes": 106032,
+        "elapsedMs": 63896
+      },
+      "expectedScreen": {}
+    }
+  },
+  "pi": {
+    "scenarios": [
+      {
+        "scenario": "startup-idle",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "type-echo",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "paste-chip",
+        "status": "skip",
+        "reason": "neither pasted payload nor a real paste chip was visible"
+      },
+      {
+        "scenario": "working-turn",
+        "status": "skip",
+        "reason": "no rendered working chrome or progress signal was observed"
+      },
+      {
+        "scenario": "osc9-empty-composer",
+        "status": "skip",
+        "reason": "real OSC 9;4;3 with an empty composer was not observed"
+      },
+      {
+        "scenario": "permission-returns-idle",
+        "status": "skip",
+        "reason": "a real permission dialog was not observed"
+      }
+    ],
+    "session": {
+      "harness": "pi",
+      "scenario": "__session__",
+      "status": "complete",
+      "observed": {
+        "bytes": 74440,
+        "elapsedMs": 85633
+      },
+      "expectedScreen": {}
+    }
+  }
+}

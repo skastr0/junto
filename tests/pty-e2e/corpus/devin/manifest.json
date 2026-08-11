@@ -1,0 +1,203 @@
+{
+  "harness": "devin",
+  "displayName": "Devin",
+  "source": "P1-real-capture",
+  "capturedAt": "2026-08-11T19:17:56.233Z",
+  "pty": {
+    "cols": 120,
+    "rows": 32,
+    "term": "xterm-256color"
+  },
+  "sanitized": true,
+  "scrub": [
+    "<HOME>",
+    "<USER>",
+    "<HOST>",
+    "<CWD>",
+    "<CAPTURE>",
+    "<SESSION>",
+    "<EMAIL>",
+    "<TOKEN>"
+  ],
+  "scenarios": [
+    {
+      "harness": "devin",
+      "scenario": "startup-idle",
+      "status": "complete",
+      "observed": {
+        "title": "devin: devin",
+        "osc9": "",
+        "glyphs": [
+          "─",
+          "│",
+          "┌",
+          "┐",
+          "└",
+          "┘",
+          "❭"
+        ],
+        "modes": {
+          "set": [
+            2004,
+            1004,
+            2026,
+            25
+          ],
+          "reset": [
+            2026
+          ],
+          "kittyPush": false,
+          "kittyPop": false
+        },
+        "promptGlyph": "❭",
+        "bytes": 5585,
+        "lines": 1,
+        "stableQuietMs": 1400
+      },
+      "expectedScreen": {
+        "title": "devin: devin",
+        "osc9": "",
+        "promptGlyph": "❭",
+        "description": "idle composer of the bare TUI"
+      }
+    },
+    {
+      "harness": "devin",
+      "scenario": "type-echo",
+      "status": "complete",
+      "observed": {
+        "title": "devin: hello",
+        "osc9": "",
+        "glyphs": [
+          "─",
+          "❭",
+          "⠀",
+          "⠇",
+          "⠋",
+          "⠙",
+          "⠠",
+          "⠤",
+          "⠸",
+          "⡀",
+          "⡄",
+          "⡆",
+          "⢀",
+          "⢠",
+          "⢤",
+          "⢰",
+          "⣀",
+          "⣄",
+          "⣠"
+        ],
+        "modes": {
+          "set": [
+            2004,
+            1004,
+            2026,
+            25
+          ],
+          "reset": [
+            2026
+          ],
+          "kittyPush": false,
+          "kittyPop": false
+        },
+        "promptGlyph": "❭",
+        "lines": 1,
+        "idleReturned": true,
+        "exited": false
+      },
+      "expectedScreen": {
+        "title": "devin: hello",
+        "osc9": "",
+        "promptGlyph": "❭",
+        "description": "typed 'hello' echoed in composer, CR submits, idle returns",
+        "echoText": "hello"
+      }
+    },
+    {
+      "harness": "devin",
+      "scenario": "paste-chip",
+      "status": "complete",
+      "observed": {
+        "chipText40ms": "[Pasted text #1 +39 lines]",
+        "chipAfterCr40ms": false,
+        "submitted40ms": true,
+        "chipTextSlow": "[Pasted text #1 +39 lines]",
+        "submittedSlow": true,
+        "clearedByCtrlC": false,
+        "ctrlCSent": false,
+        "osc9s": [],
+        "lines": 2,
+        "pasteLines": 40,
+        "settleMs": 40
+      },
+      "expectedScreen": {
+        "title": "devin: hello",
+        "osc9": "",
+        "promptGlyph": "❭",
+        "description": "round1: paste+CR@40ms (vellum timing); round2: paste, chip render, CR; ONE Ctrl+C clear",
+        "pasteText": "PASTE_LINE_00\nPASTE_LINE_01\nPASTE_LINE_02\nPASTE_LINE_03\nPASTE_LINE_04\nPASTE_LINE_05\nPASTE_LINE_06\nPASTE_LINE_07\nPASTE_LINE_08\nPASTE_LINE_09\nPASTE_LINE_10\nPASTE_LINE_11\nPASTE_LINE_12\nPASTE_LINE_13\nPASTE_LINE_14\nPASTE_LINE_15\nPASTE_LINE_16\nPASTE_LINE_17\nPASTE_LINE_18\nPASTE_LINE_19\nPASTE_LINE_20\nPASTE_LINE_21\nPASTE_LINE_22\nPASTE_LINE_23\nPASTE_LINE_24\nPASTE_LINE_25\nPASTE_LINE_26\nPASTE_LINE_27\nPASTE_LINE_28\nPASTE_LINE_29\nPASTE_LINE_30\nPASTE_LINE_31\nPASTE_LINE_32\nPASTE_LINE_33\nPASTE_LINE_34\nPASTE_LINE_35\nPASTE_LINE_36\nPASTE_LINE_37\nPASTE_LINE_38\nPASTE_LINE_39",
+        "payloadVisible": true,
+        "chipObserved": true
+      }
+    },
+    {
+      "harness": "devin",
+      "scenario": "working-turn",
+      "status": "complete",
+      "observed": {
+        "workingSeen": true,
+        "interrupted": false,
+        "osc9s": [],
+        "titles": [],
+        "glyphs": [
+          "─",
+          "❭",
+          "⠁",
+          "⠉",
+          "⠋"
+        ],
+        "lines": 4,
+        "exited": false
+      },
+      "expectedScreen": {
+        "title": "devin: hello",
+        "osc9": "",
+        "promptGlyph": "❭",
+        "description": "working turn: OSC title churn / spinner / progress frames then interrupt",
+        "prompt": "forty numbered VELLUM CAPTURE lines"
+      }
+    },
+    {
+      "harness": "devin",
+      "scenario": "osc9-empty-composer",
+      "status": "skip",
+      "reason": "real OSC 9;4;3 with an empty composer was not observed",
+      "observed": {
+        "osc9s": []
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "devin",
+      "scenario": "permission-returns-idle",
+      "status": "skip",
+      "reason": "a real permission dialog was not observed",
+      "observed": {},
+      "expectedScreen": {}
+    }
+  ],
+  "sanitization": {
+    "method": "decoded-jsonl-scan",
+    "fixtures": 4,
+    "decodedBytes": 177421,
+    "checks": [
+      "home-path",
+      "username",
+      "hostname",
+      "email",
+      "token"
+    ]
+  }
+}

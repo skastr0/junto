@@ -1,0 +1,148 @@
+{
+  "harness": "pi",
+  "displayName": "Pi",
+  "source": "P1-real-capture",
+  "capturedAt": "2026-08-11T19:09:41.718Z",
+  "pty": {
+    "cols": 120,
+    "rows": 32,
+    "term": "xterm-256color"
+  },
+  "sanitized": true,
+  "scrub": [
+    "<HOME>",
+    "<USER>",
+    "<HOST>",
+    "<CWD>",
+    "<CAPTURE>",
+    "<SESSION>",
+    "<EMAIL>",
+    "<TOKEN>"
+  ],
+  "scenarios": [
+    {
+      "harness": "pi",
+      "scenario": "startup-idle",
+      "status": "complete",
+      "observed": {
+        "title": "π - pi",
+        "osc9": "",
+        "glyphs": [
+          "•",
+          "─"
+        ],
+        "modes": {
+          "set": [
+            2004,
+            2026
+          ],
+          "reset": [
+            25,
+            2026
+          ],
+          "kittyPush": false,
+          "kittyPop": false
+        },
+        "promptGlyph": "0.0%/400k (auto)",
+        "bytes": 23011,
+        "lines": 1,
+        "stableQuietMs": 1400
+      },
+      "expectedScreen": {
+        "title": "π - pi",
+        "osc9": "",
+        "promptGlyph": "0.0%/400k (auto)",
+        "description": "idle composer of the bare TUI"
+      }
+    },
+    {
+      "harness": "pi",
+      "scenario": "type-echo",
+      "status": "complete",
+      "observed": {
+        "title": "π - pi",
+        "osc9": "",
+        "glyphs": [
+          "•",
+          "─"
+        ],
+        "modes": {
+          "set": [
+            2004,
+            2026
+          ],
+          "reset": [
+            25,
+            2026
+          ],
+          "kittyPush": false,
+          "kittyPop": false
+        },
+        "promptGlyph": "0.0%/400k (auto)",
+        "lines": 2,
+        "idleReturned": true,
+        "exited": false
+      },
+      "expectedScreen": {
+        "title": "π - pi",
+        "osc9": "",
+        "promptGlyph": "0.0%/400k (auto)",
+        "description": "typed 'hello' echoed in composer, CR submits, idle returns",
+        "echoText": "hello"
+      }
+    },
+    {
+      "harness": "pi",
+      "scenario": "paste-chip",
+      "status": "skip",
+      "reason": "neither pasted payload nor a real paste chip was visible",
+      "observed": {
+        "payloadVisible": false,
+        "chipObserved": false
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "pi",
+      "scenario": "working-turn",
+      "status": "skip",
+      "reason": "no rendered working chrome or progress signal was observed",
+      "observed": {
+        "workingSeen": false,
+        "osc9s": [],
+        "titles": []
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "pi",
+      "scenario": "osc9-empty-composer",
+      "status": "skip",
+      "reason": "real OSC 9;4;3 with an empty composer was not observed",
+      "observed": {
+        "osc9s": []
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "pi",
+      "scenario": "permission-returns-idle",
+      "status": "skip",
+      "reason": "a real permission dialog was not observed",
+      "observed": {},
+      "expectedScreen": {}
+    }
+  ],
+  "sanitization": {
+    "method": "decoded-jsonl-scan",
+    "fixtures": 2,
+    "decodedBytes": 54015,
+    "checks": [
+      "home-path",
+      "username",
+      "hostname",
+      "email",
+      "token"
+    ]
+  }
+}

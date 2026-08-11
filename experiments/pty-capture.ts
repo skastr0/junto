@@ -3,18 +3,19 @@
  * pty-capture.ts — canonical PTY byte-stream capture for the Vellum Command PTY E2E corpus.
  *
  * Spawns each real harness TUI inside a node-pty (120x32, TERM=xterm-256color,
- * isolated cwd under /tmp/vellum-capture-cwd/<harness>), drives the four
- * canonical scenarios, scrubs every byte stream, and writes:
+ * isolated cwd under /tmp/vellum-capture-cwd/<harness>), drives the canonical
+ * scenarios, scrubs every byte stream, and writes:
  *
- *   /tmp/vellum-pty-fixtures/<harness>/<scenario>.jsonl   {"t":ms,"b64":...}
- *   /tmp/vellum-pty-fixtures/<harness>/manifest.json      per-scenario manifests
+ *   tests/pty-e2e/corpus/<harness>/<scenario>.jsonl   {"t":ms,"b64":...}
+ *   tests/pty-e2e/corpus/<harness>/manifest.json      per-scenario manifests
  *   /tmp/vellum-capture-report.md                         receipts + canonicality
  *
  * Standalone script — NOT part of the vitest suite. Run directly:
  *
- *   node experiments/pty-capture.ts                # capture all 9 harnesses
+ *   node experiments/pty-capture.ts                # capture all shipped harnesses
  *   node experiments/pty-capture.ts <harness>      # capture one harness
  *   node experiments/pty-capture.ts list           # list harnesses
+ *   node experiments/pty-capture.ts verify         # decode + scrub-gate corpus
  *
  * Canonicality gate (feeds a fixture through the REAL SessionObserver):
  *
@@ -40,17 +41,18 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(__dirname, "..");
 
 // ── corpus / capture constants ──────────────────────────────────────────────
-const OUT_ROOT = "/tmp/vellum-pty-fixtures";
+const OUT_ROOT = path.join(REPO, "tests", "pty-e2e", "corpus");
+const CAPTURE_ROOT = path.join(REPO, "tests", "pty-e2e", `.corpus-stage-${process.pid}-${randomUUID()}`);
 const CWD_ROOT = "/tmp/vellum-capture-cwd";
-const REPORT = "/tmp/vellum-capture-report.md";
 const FAKE_UUID = "00000000-0000-4000-8000-000000000000"; // fallback; random per spawn
 const COLS = 120;
 const ROWS = 32;
-const HARNESS_TIMEOUT_MS = 90_000; // hard timebox per harness
+const HARNESS_TIMEOUT_MS = 210_000; // hard timebox per harness
 const IDLE_WAIT_CAP_MS = 50_000;   // startup idle wait cap
 const TURN_WAIT_CAP_MS = 30_000;   // post-CR idle-return cap
 const WORKING_WAIT_CAP_MS = 20_000; // working-signal wait cap
 const QUIET_MS = 1400;             // bytes-quiet threshold for "stable"
+const SHIPPED_HARNESSES = new Set(["claude", "codex", "grok", "pi", "devin"]);
 
 // ── scrub source material ───────────────────────────────────────────────────
 const HOME = os.homedir();
@@ -179,7 +181,20 @@ const HARNESSES: readonly HarnessDef[] = [
 const UUID_RE = /\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b/g;
 const EMAIL_RE = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g;
 const SK_RE = /\bsk-[A-Za-z0-9_-]{12,}\b/g;
+const PROVIDER_TOKEN_RE = /\b(?:gh[opsu]_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{12,}|AKIA[A-Z0-9]{12,})\b/g;
+const BEARER_TOKEN_RE = /\bBearer\s+[A-Za-z0-9._~-]{12,}/gi;
 const LONG_TOKEN_RE = /(?<![A-Za-z0-9])[A-Za-z0-9_-]{32,}(?![A-Za-z0-9])/g;
+const USER_HOME_RE = /\/Users\/[^/\s\x1b]+/g;
+const LINUX_HOME_RE = /\/home\/[^/\s\x1b]+/g;
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function replaceLiteralInsensitive(text: string, value: string, replacement: string): string {
+  if (!value) return text;
+  return text.replace(new RegExp(escapeRegExp(value), "gi"), replacement);
+}
 
 /** Deterministic, idempotent path/token scrub. Applied per capture chunk. */
 export function scrub(text: string, cwd: string): string {
@@ -192,19 +207,93 @@ export function scrub(text: string, cwd: string): string {
   s = s.split(path.join("/tmp", "vellum-capture-cwd")).join("<CAPTURE>");
   s = s.split(HOME).join("<HOME>");
   s = s.split("~" + path.sep + USER).join("<HOME>");
-  s = s.split(`/Users/${USER}`).join("<HOME>");
+  // Harnesses can print cached/configured paths belonging to another account.
+  // The corpus must not preserve any absolute user-home identity, not only the
+  // account running this capture.
+  s = s.replace(USER_HOME_RE, "<HOME>");
+  s = s.replace(LINUX_HOME_RE, "<HOME>");
   s = s.split(`/private/var/${USER}`).join("<HOME>");
   s = s.split(`/${USER}`).join("/<USER>");
-  s = s.split(HOST).join("<HOST>");
-  s = s.split(HOST_CMD).join("<HOST>");
+  s = replaceLiteralInsensitive(s, HOST, "<HOST>");
+  s = replaceLiteralInsensitive(s, HOST_CMD, "<HOST>");
   // ids / tokens
   s = s.split(FAKE_UUID).join("<SESSION>");
   s = s.replace(UUID_RE, "<SESSION>");
   s = s.replace(/session_([0-9a-fA-F]{8,})/g, "session_<SESSION>");
   s = s.replace(EMAIL_RE, "<EMAIL>");
   s = s.replace(SK_RE, "<TOKEN>");
+  s = s.replace(PROVIDER_TOKEN_RE, "<TOKEN>");
+  s = s.replace(BEARER_TOKEN_RE, "Bearer <TOKEN>");
   s = s.replace(LONG_TOKEN_RE, "<TOKEN>");
+  s = s.replace(new RegExp(`\\b${escapeRegExp(USER)}\\b`, "gi"), "<USER>");
   return s;
+}
+
+type ScrubReceipt = {
+  readonly fixtures: number;
+  readonly decodedBytes: number;
+  readonly checks: readonly string[];
+};
+
+const SCRUB_CHECKS = ["home-path", "username", "hostname", "email", "token"] as const;
+
+function decodedFixture(file: string): Buffer {
+  const source = fs.readFileSync(file, "utf8");
+  const chunks: Buffer[] = [];
+  for (const [index, line] of source.split("\n").entries()) {
+    if (!line.trim()) continue;
+    let value: unknown;
+    try {
+      value = JSON.parse(line);
+    } catch {
+      throw new Error(`${path.relative(REPO, file)}:${index + 1}: invalid JSON`);
+    }
+    if (typeof value !== "object" || value === null ||
+        typeof (value as { t?: unknown }).t !== "number" ||
+        typeof (value as { b64?: unknown }).b64 !== "string") {
+      throw new Error(`${path.relative(REPO, file)}:${index + 1}: expected {t:number,b64:string}`);
+    }
+    const b64 = (value as { b64: string }).b64;
+    if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(b64)) {
+      throw new Error(`${path.relative(REPO, file)}:${index + 1}: invalid base64`);
+    }
+    chunks.push(Buffer.from(b64, "base64"));
+  }
+  if (chunks.length === 0) throw new Error(`${path.relative(REPO, file)}: empty fixture`);
+  return Buffer.concat(chunks);
+}
+
+function survivingSensitiveKinds(text: string): string[] {
+  const kinds: string[] = [];
+  if (text.includes(HOME) || /\/Users\/[^/\s\x1b]+/.test(text) || /\/home\/[^/\s\x1b]+/.test(text)) kinds.push("home-path");
+  if (new RegExp(`\\b${escapeRegExp(USER)}\\b`, "i").test(text)) kinds.push("username");
+  if ((HOST && new RegExp(escapeRegExp(HOST), "i").test(text)) ||
+      (HOST_CMD && new RegExp(escapeRegExp(HOST_CMD), "i").test(text))) kinds.push("hostname");
+  if (/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/.test(text)) kinds.push("email");
+  if (/\bsk-[A-Za-z0-9_-]{12,}\b/.test(text) ||
+      /\b(?:gh[opsu]_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{12,}|AKIA[A-Z0-9]{12,})\b/.test(text) ||
+      /\bBearer\s+(?!<TOKEN>)[A-Za-z0-9._~-]{12,}/i.test(text) ||
+      /(?<![A-Za-z0-9<])[A-Za-z0-9_-]{32,}(?![A-Za-z0-9>])/.test(text)) kinds.push("token");
+  return kinds;
+}
+
+function certifyHarness(root: string, harness: string): ScrubReceipt {
+  const dir = path.join(root, harness);
+  const files = fs.readdirSync(dir).filter((file) => file.endsWith(".jsonl")).sort();
+  if (files.length === 0) throw new Error(`${harness}: no JSONL fixtures to certify`);
+  let decodedBytes = 0;
+  const failures: string[] = [];
+  for (const file of files) {
+    const decoded = decodedFixture(path.join(dir, file));
+    decodedBytes += decoded.length;
+    const kinds = survivingSensitiveKinds(decoded.toString("utf8"));
+    if (kinds.length > 0) failures.push(`${harness}/${file}: ${kinds.join(", ")}`);
+  }
+  if (failures.length > 0) {
+    throw new Error(`scrub certification failed\n${failures.join("\n")}`);
+  }
+  console.log(`[${harness}] SCRUB PASS: ${files.length} decoded fixtures, ${decodedBytes} bytes; ${SCRUB_CHECKS.join(", ")}`);
+  return { fixtures: files.length, decodedBytes, checks: SCRUB_CHECKS };
 }
 
 // ── VT signal extraction (for manifests + report receipts) ──────────────────
@@ -551,6 +640,41 @@ type ScenarioResult = {
   expectedScreen: Record<string, unknown>;
 };
 
+function expectedScreenFor(
+  def: HarnessDef,
+  bytes: Buffer,
+  description: string,
+  extra: Record<string, unknown> = {},
+): Record<string, unknown> {
+  const sig = extractSignals(bytes);
+  const text = tailText(bytes, 8000);
+  return {
+    title: sig.titles[sig.titles.length - 1] ?? "",
+    osc9: sig.osc9s[sig.osc9s.length - 1] ?? "",
+    promptGlyph: def.promptGlyphs.find((glyph) => text.includes(glyph)) ?? null,
+    description,
+    ...extra,
+  };
+}
+
+function composerIsEmpty(def: HarnessDef, bytes: Buffer): boolean {
+  const text = tailText(bytes, 3000);
+  let glyphIndex = -1;
+  let glyphLength = 0;
+  for (const glyph of def.promptGlyphs) {
+    const index = text.lastIndexOf(glyph);
+    if (index > glyphIndex) {
+      glyphIndex = index;
+      glyphLength = glyph.length;
+    }
+  }
+  if (glyphIndex < 0) return false;
+  const rest = text.slice(glyphIndex + glyphLength);
+  const end = rest.search(/[\r\n]/);
+  const line = (end < 0 ? rest : rest.slice(0, end)).replace(/[\u2500-\u257f]/g, "").trim();
+  return line === "";
+}
+
 // ── scenario steps (shared by single-session and fresh-spawn modes) ─────────
 type Ctx = {
   def: HarnessDef;
@@ -579,7 +703,7 @@ async function scenarioStartupIdle(ctx: Ctx, s0: number): Promise<void> {
   })();
   if (!sess.exited && remaining() > 0) {
     const block = sess.detectBlock();
-    if (block && !sess.promptVisible()) {
+    if (block) {
       sess.blocked = true;
       sess.blockReason = block;
       console.log(`[${def.name}] BLOCKED: ${block}`);
@@ -600,7 +724,8 @@ async function scenarioStartupIdle(ctx: Ctx, s0: number): Promise<void> {
   if (process.env.PTY_CAPTURE_DEBUG) console.log(`[${def.name}] idleText tail:`, JSON.stringify(idleText.slice(-220)), "| glyphHits:", def.promptGlyphs.map((g) => [g, idleText.includes(g)]));
   const idleTitle = sig.titles[sig.titles.length - 1] ?? "";
   const idleOsc9 = sig.osc9s[sig.osc9s.length - 1] ?? "";
-  const lines1 = sess.writeFixture(s0, idleEnd, path.join(OUT_ROOT, def.name, "startup-idle.jsonl"), "startup-idle");
+  const idleBytes = Buffer.concat(sess.events.slice(s0, idleEnd).map((e) => e.buf));
+  const lines1 = sess.writeFixture(s0, idleEnd, path.join(CAPTURE_ROOT, def.name, "startup-idle.jsonl"), "startup-idle");
   results.push({
     harness: def.name, scenario: "startup-idle", status: idleOk ? "complete" : "complete",
     reason: idleOk ? undefined : "idle not fully confirmed (prompt glyph absent)",
@@ -609,10 +734,7 @@ async function scenarioStartupIdle(ctx: Ctx, s0: number): Promise<void> {
       modes: sig.modes, promptGlyph: idleGlyph, bytes: sess.bytes,
       lines: lines1, stableQuietMs: QUIET_MS,
     },
-    expectedScreen: {
-      promptGlyph: idleGlyph, idleTitle, osc9Idle: idleOsc9,
-      description: "idle composer of the bare TUI",
-    },
+    expectedScreen: expectedScreenFor(def, idleBytes, "idle composer of the bare TUI"),
   });
 }
 
@@ -624,7 +746,6 @@ async function scenarioTypeEcho(ctx: Ctx, s0: number): Promise<void> {
   }
   sess.write("\u0015");          // clear any first-run suggestion (codex etc.)
   await sess.wait(200);
-  const te0 = Date.now();
   sess.write("hello");
   await sess.wait(1200);
   sess.write("\r");
@@ -632,7 +753,8 @@ async function scenarioTypeEcho(ctx: Ctx, s0: number): Promise<void> {
   const teEnd = Math.min(sess.events.length, sess.sliceIndexAt(Date.now() + 1200));
   const sig = extractSignals(Buffer.concat(sess.events.slice(s0, teEnd).map((e) => e.buf)));
   const teGlyph = def.promptGlyphs.find((g) => tailText(Buffer.concat(sess.events.slice(s0, teEnd).map((e) => e.buf))).includes(g)) ?? null;
-  const lines2 = sess.writeFixture(s0, teEnd, path.join(OUT_ROOT, def.name, "type-echo.jsonl"), "type-echo");
+  const teBytes = Buffer.concat(sess.events.slice(s0, teEnd).map((e) => e.buf));
+  const lines2 = sess.writeFixture(s0, teEnd, path.join(CAPTURE_ROOT, def.name, "type-echo.jsonl"), "type-echo");
   results.push({
     harness: def.name, scenario: "type-echo",
     status: teTurnOk ? "complete" : "complete",
@@ -642,10 +764,7 @@ async function scenarioTypeEcho(ctx: Ctx, s0: number): Promise<void> {
       glyphs: sig.glyphs, modes: sig.modes, promptGlyph: teGlyph, lines: lines2,
       idleReturned: teTurnOk, exited: sess.exited,
     },
-    expectedScreen: {
-      promptGlyph: teGlyph, echoText: "hello",
-      description: "typed 'hello' echoed in composer, CR submits, idle returns",
-    },
+    expectedScreen: expectedScreenFor(def, teBytes, "typed 'hello' echoed in composer, CR submits, idle returns", { echoText: "hello" }),
   });
 }
 
@@ -658,9 +777,11 @@ async function scenarioPasteChip(ctx: Ctx, s0: number): Promise<void> {
   sess.write("\u0015");
   await sess.wait(200);
   const pc0 = Date.now();
-  // 15 lines: enough to trigger the "[Pasted text #N +k lines]" chip on
-  // claude-model TUIs (3 lines render inline); harmless elsewhere.
-  const pasteText = Array.from({ length: 15 }, (_, i) => `PASTE_LINE_${String(i).padStart(2, "0")}`).join("\n");
+  // Pi collapses small bracketed pastes without ever painting their payload.
+  // Use a materially larger paste there; other shipped TUIs still receive
+  // enough lines to force either visible payload or their real paste chip.
+  const pasteLines = def.name === "pi" ? 80 : 40;
+  const pasteText = Array.from({ length: pasteLines }, (_, i) => `PASTE_LINE_${String(i).padStart(2, "0")}`).join("\n");
   const P = `\x1b[200~${pasteText}\x1b[201~`;
 
   const snapshotSince = (t: number) => {
@@ -680,7 +801,7 @@ async function scenarioPasteChip(ctx: Ctx, s0: number): Promise<void> {
     if (glyphIdx >= 0) {
       const rest = tail.slice(glyphIdx + 1);
       const eol = rest.search(/[\r\n]/);
-      const line = (eol === -1 ? rest : rest.slice(0, eol)).replace(/[\u2500-\u257f·]/g, "");
+      const line = (eol === -1 ? rest : rest.slice(0, eol)).replace(/[\u2500-\u257f\u00b7]/g, "");
       composerEmpty = /^[\s\xa0]*$/.test(line);
     }
     // turn evidence: claude randomizes the verb ("Sautéed for 0s") — match "X for Ns";
@@ -730,19 +851,29 @@ async function scenarioPasteChip(ctx: Ctx, s0: number): Promise<void> {
   }
 
   const pcEnd = Math.min(sess.events.length, sess.sliceIndexAt(Date.now() + 400));
-  const lines3 = sess.writeFixture(s0, pcEnd, path.join(OUT_ROOT, def.name, "paste-chip.jsonl"), "paste-chip");
+  const pcBytes = Buffer.concat(sess.events.slice(s0, pcEnd).map((e) => e.buf));
+  const payloadVisible = pcBytes.includes(Buffer.from("PASTE_LINE_00", "utf8"));
+  const chipObserved = !!(chip1 || chip2);
+  if (!payloadVisible && !chipObserved) {
+    results.push({
+      harness: def.name, scenario: "paste-chip", status: "skip",
+      reason: "neither pasted payload nor a real paste chip was visible",
+      observed: { payloadVisible: false, chipObserved: false }, expectedScreen: {},
+    });
+    return;
+  }
+  const lines3 = sess.writeFixture(s0, pcEnd, path.join(CAPTURE_ROOT, def.name, "paste-chip.jsonl"), "paste-chip");
   results.push({
     harness: def.name, scenario: "paste-chip", status: "complete",
     observed: {
       chipText40ms: chip1, chipAfterCr40ms: chip1AfterCr, submitted40ms: submitted1,
       chipTextSlow: chip2, submittedSlow: submitted2,
       clearedByCtrlC: cleared, ctrlCSent,
-      osc9s: r1.sig.osc9s, lines: lines3, pasteLines: 15, settleMs: 40,
+      osc9s: r1.sig.osc9s, lines: lines3, pasteLines, settleMs: 40,
     },
-    expectedScreen: {
-      pasteText, chipObserved: !!(chip1 || chip2),
-      description: "round1: paste+CR@40ms (vellum timing); round2: paste, chip render, CR; ONE Ctrl+C clear",
-    },
+    expectedScreen: expectedScreenFor(def, pcBytes, "round1: paste+CR@40ms (vellum timing); round2: paste, chip render, CR; ONE Ctrl+C clear", {
+      pasteText, payloadVisible, chipObserved,
+    }),
   });
 }
 async function scenarioWorkingTurn(ctx: Ctx, s0: number): Promise<void> {
@@ -754,19 +885,20 @@ async function scenarioWorkingTurn(ctx: Ctx, s0: number): Promise<void> {
   sess.write("\u0015");
   await sess.wait(200);
   const wt0 = Date.now();
-  sess.write("say hi, nothing else");
+  sess.write("Write forty numbered lines. Each line must contain the words VELLUM CAPTURE and its line number.");
   await sess.wait(250);
   sess.write("\r");
   const workingSeen = await (async () => {
     const start = Date.now();
-    const baseTitle = extractSignals(sess.currentBytes()).titles.length;
-    const baseOsc9 = extractSignals(sess.currentBytes()).osc9s.length;
+    const baseline = extractSignals(sess.currentBytes());
+    const baseTitles = new Set(baseline.titles);
+    const baseOsc9s = new Set(baseline.osc9s);
     while (Date.now() - start < Math.min(WORKING_WAIT_CAP_MS, remaining())) {
       const sig = extractSignals(sess.currentBytes());
       if (sig.osc9s.includes("4;3")) return true;
-      if (sig.titles.length > baseTitle) return true;
-      if (sig.osc9s.length > baseOsc9) return true;
-      if (/working|waiting for response|thinking|\u23f3|[\u2800-\u28ff]/.test(tailText(sess.currentBytes(), 2000).toLowerCase())) return true;
+      if (sig.titles.some((title) => !baseTitles.has(title))) return true;
+      if (sig.osc9s.some((osc9) => !baseOsc9s.has(osc9))) return true;
+      if (/\bworking\b|waiting for response|\bthinking\b|esc to interrupt|\u23f3/.test(tailText(sess.currentBytes(), 2000).toLowerCase())) return true;
       await sess.wait(120);
     }
     return false;
@@ -775,7 +907,7 @@ async function scenarioWorkingTurn(ctx: Ctx, s0: number): Promise<void> {
   const wtStillWorking = (() => {
     const sig = extractSignals(sess.currentBytes());
     if (sig.osc9s.includes("4;3")) return true;
-    return /working|waiting for response|[\u2800-\u28ff]/.test(tailText(sess.currentBytes(), 2000));
+    return /\bworking\b|waiting for response|\bthinking\b|esc to interrupt/.test(tailText(sess.currentBytes(), 2000).toLowerCase());
   })();
   if (wtStillWorking) {
     sess.write("\u0003");
@@ -783,8 +915,17 @@ async function scenarioWorkingTurn(ctx: Ctx, s0: number): Promise<void> {
   }
   const wtIdx = sess.sliceIndexAt(wt0);
   const sig = extractSignals(Buffer.concat(sess.events.slice(wtIdx).map((e) => e.buf)));
+  if (!workingSeen) {
+    results.push({
+      harness: def.name, scenario: "working-turn", status: "skip",
+      reason: "no explicit working chrome or progress signal was observed",
+      observed: { osc9s: sig.osc9s, titles: sig.titles.slice(-6) }, expectedScreen: {},
+    });
+    return;
+  }
   const wtEnd = Math.min(sess.events.length, sess.sliceIndexAt(Date.now() + 600));
-  const lines4 = sess.writeFixture(s0, wtEnd, path.join(OUT_ROOT, def.name, "working-turn.jsonl"), "working-turn");
+  const wtBytes = Buffer.concat(sess.events.slice(s0, wtEnd).map((e) => e.buf));
+  const lines4 = sess.writeFixture(s0, wtEnd, path.join(CAPTURE_ROOT, def.name, "working-turn.jsonl"), "working-turn");
   results.push({
     harness: def.name, scenario: "working-turn", status: "complete",
     observed: {
@@ -792,10 +933,113 @@ async function scenarioWorkingTurn(ctx: Ctx, s0: number): Promise<void> {
       titles: sig.titles.slice(-6), glyphs: sig.glyphs, lines: lines4,
       exited: sess.exited,
     },
-    expectedScreen: {
-      prompt: "say hi, nothing else",
-      description: "working turn: OSC title churn / spinner / progress frames then interrupt",
-    },
+    expectedScreen: expectedScreenFor(def, wtBytes, "working turn: OSC title churn / spinner / progress frames then interrupt", {
+      prompt: "forty numbered VELLUM CAPTURE lines",
+    }),
+  });
+}
+
+async function scenarioOsc9EmptyComposer(ctx: Ctx, s0: number): Promise<void> {
+  const { def, sess, results, remaining } = ctx;
+  if (remaining() < 12_000 || !(await sess.waitPrompt(Math.min(15_000, remaining())))) {
+    results.push({ harness: def.name, scenario: "osc9-empty-composer", status: "skip", reason: "composer never ready", observed: {}, expectedScreen: {} });
+    return;
+  }
+  sess.write("\u0015");
+  await sess.wait(200);
+  const turnStart = Date.now();
+  sess.write("Wait ten seconds, then reply with the word done.");
+  await sess.wait(250);
+  sess.write("\r");
+  let end = -1;
+  const deadline = Date.now() + Math.min(25_000, remaining());
+  while (Date.now() < deadline && !sess.exited) {
+    const bytes = sess.currentBytes();
+    if (extractSignals(bytes).osc9s.includes("4;3") && composerIsEmpty(def, bytes)) {
+      end = sess.events.length;
+      break;
+    }
+    await sess.wait(80);
+  }
+  if (end < 0) {
+    results.push({
+      harness: def.name, scenario: "osc9-empty-composer", status: "skip",
+      reason: "real OSC 9;4;3 with an empty composer was not observed",
+      observed: { osc9s: extractSignals(Buffer.concat(sess.events.slice(sess.sliceIndexAt(turnStart)).map((event) => event.buf))).osc9s },
+      expectedScreen: {},
+    });
+    sess.write("\u0003");
+    await sess.wait(1200);
+    return;
+  }
+  const bytes = Buffer.concat(sess.events.slice(s0, end).map((event) => event.buf));
+  const lines = sess.writeFixture(s0, end, path.join(CAPTURE_ROOT, def.name, "osc9-empty-composer.jsonl"), "osc9-empty-composer");
+  results.push({
+    harness: def.name, scenario: "osc9-empty-composer", status: "complete",
+    observed: { osc9: "4;3", composerEmpty: true, lines },
+    expectedScreen: expectedScreenFor(def, bytes, "OSC 9;4;3 reports working while the composer is empty", {
+      osc9: "4;3", composerEmpty: true,
+    }),
+  });
+  sess.write("\u0003");
+  await sess.wait(1200);
+}
+
+async function scenarioPermissionReturnsIdle(ctx: Ctx, s0: number): Promise<void> {
+  const { def, sess, results, remaining } = ctx;
+  if (remaining() < 15_000 || !(await sess.waitPrompt(Math.min(15_000, remaining())))) {
+    results.push({ harness: def.name, scenario: "permission-returns-idle", status: "skip", reason: "composer never ready", observed: {}, expectedScreen: {} });
+    return;
+  }
+  sess.write("\u0015");
+  await sess.wait(200);
+  const turnStart = Date.now();
+  sess.write("Use the shell tool to run pwd, then report only its exit code.");
+  await sess.wait(250);
+  sess.write("\r");
+  const permissionRe = /allow(?: once)?|approve|do you want to proceed|yes,? and|esc to cancel|permission required/i;
+  let permissionSeen = false;
+  const permissionDeadline = Date.now() + Math.min(35_000, remaining());
+  while (Date.now() < permissionDeadline && !sess.exited) {
+    const bytes = Buffer.concat(sess.events.slice(sess.sliceIndexAt(turnStart)).map((event) => event.buf));
+    if (permissionRe.test(tailText(bytes, 5000))) {
+      permissionSeen = true;
+      break;
+    }
+    await sess.wait(120);
+  }
+  if (!permissionSeen) {
+    results.push({
+      harness: def.name, scenario: "permission-returns-idle", status: "skip",
+      reason: "a real permission dialog was not observed",
+      observed: {}, expectedScreen: {},
+    });
+    sess.write("\u0003");
+    await sess.wait(1200);
+    return;
+  }
+  sess.write("\u001b");
+  await sess.wait(500);
+  sess.write("\u0003");
+  const idleReturned = await sess.waitPrompt(Math.min(15_000, remaining()));
+  await sess.wait(Math.min(1800, Math.max(0, remaining())));
+  if (!idleReturned) {
+    results.push({
+      harness: def.name, scenario: "permission-returns-idle", status: "skip",
+      reason: "permission dialog appeared but idle did not return reliably",
+      observed: { permissionSeen: true }, expectedScreen: {},
+    });
+    return;
+  }
+  const end = sess.events.length;
+  const bytes = Buffer.concat(sess.events.slice(s0, end).map((event) => event.buf));
+  const lines = sess.writeFixture(s0, end, path.join(CAPTURE_ROOT, def.name, "permission-returns-idle.jsonl"), "permission-returns-idle");
+  results.push({
+    harness: def.name, scenario: "permission-returns-idle", status: "complete",
+    observed: { permissionSeen: true, idleReturned: true, lines },
+    expectedScreen: expectedScreenFor(def, bytes, "permission dialog clears and the idle composer returns", {
+      permissionDialogCleared: true,
+    }),
   });
 }
 
@@ -815,8 +1059,6 @@ async function runHarness(def: HarnessDef): Promise<ScenarioResult[]> {
   const tStart = Date.now();
   const deadline = tStart + HARNESS_TIMEOUT_MS;
   const remaining = () => deadline - Date.now();
-  const outDir = path.join(OUT_ROOT, def.name);
-
   const finish = async (sess: Session) => {
     await sess.killTree();
     const alive = !sess.exited && sess.pty ? (() => {
@@ -844,7 +1086,6 @@ async function runHarness(def: HarnessDef): Promise<ScenarioResult[]> {
         continue;
       }
       const sess = new Session(def);
-      const s0mark = Date.now();
       try {
         sess.spawn();
         const ctx: Ctx = { def, sess, results, remaining };
@@ -886,6 +1127,10 @@ async function runHarness(def: HarnessDef): Promise<ScenarioResult[]> {
       await finish(sess); return results;
     }
     await scenarioWorkingTurn({ def, sess, results, remaining }, s0);
+    if (remaining() >= 12_000) await scenarioOsc9EmptyComposer({ def, sess, results, remaining }, s0);
+    else results.push({ harness: def.name, scenario: "osc9-empty-composer", status: "skip", reason: "timebox", observed: {}, expectedScreen: {} });
+    if (remaining() >= 15_000) await scenarioPermissionReturnsIdle({ def, sess, results, remaining }, s0);
+    else results.push({ harness: def.name, scenario: "permission-returns-idle", status: "skip", reason: "timebox", observed: {}, expectedScreen: {} });
     await exitTui(def, sess, remaining);
   } catch (err) {
     console.error(`[${def.name}] ERROR:`, err);
@@ -897,7 +1142,7 @@ async function runHarness(def: HarnessDef): Promise<ScenarioResult[]> {
 }
 // ── manifest writing ────────────────────────────────────────────────────────
 function writeManifests(def: HarnessDef, results: ScenarioResult[]): void {
-  const outDir = path.join(OUT_ROOT, def.name);
+  const outDir = path.join(CAPTURE_ROOT, def.name);
   fs.mkdirSync(outDir, { recursive: true });
   const scenarios = results.filter((r) => r.scenario !== "__session__");
   const manifest = {
@@ -906,11 +1151,82 @@ function writeManifests(def: HarnessDef, results: ScenarioResult[]): void {
     source: "P1-real-capture",
     capturedAt: new Date().toISOString(),
     pty: { cols: COLS, rows: ROWS, term: "xterm-256color" },
-    sanitized: true,
+    sanitized: false,
     scrub: ["<HOME>", "<USER>", "<HOST>", "<CWD>", "<CAPTURE>", "<SESSION>", "<EMAIL>", "<TOKEN>"],
     scenarios,
   };
   fs.writeFileSync(path.join(outDir, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
+}
+
+function earnSanitizedStamp(root: string, harness: string, receipt: ScrubReceipt): void {
+  const file = path.join(root, harness, "manifest.json");
+  const manifest = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
+  manifest.sanitized = true;
+  manifest.sanitization = {
+    method: "decoded-jsonl-scan",
+    fixtures: receipt.fixtures,
+    decodedBytes: receipt.decodedBytes,
+    checks: receipt.checks,
+  };
+  fs.writeFileSync(file, JSON.stringify(manifest, null, 2) + "\n");
+}
+
+function promoteHarness(harness: string): void {
+  fs.mkdirSync(OUT_ROOT, { recursive: true });
+  const source = path.join(CAPTURE_ROOT, harness);
+  const destination = path.join(OUT_ROOT, harness);
+  const backup = path.join(OUT_ROOT, `.${harness}.backup-${process.pid}`);
+  let hadExisting = false;
+  try {
+    if (fs.existsSync(destination)) {
+      fs.renameSync(destination, backup);
+      hadExisting = true;
+    }
+    fs.renameSync(source, destination);
+    if (hadExisting) fs.rmSync(backup, { recursive: true, force: true });
+  } catch (error) {
+    if (!fs.existsSync(destination) && hadExisting && fs.existsSync(backup)) {
+      fs.renameSync(backup, destination);
+    }
+    throw error;
+  }
+}
+
+function updateCorpusIndex(harness: string, results: ScenarioResult[]): void {
+  const file = path.join(OUT_ROOT, "index.json");
+  let index: Record<string, unknown> = {};
+  if (fs.existsSync(file)) {
+    const decoded = JSON.parse(fs.readFileSync(file, "utf8"));
+    if (typeof decoded === "object" && decoded !== null && !Array.isArray(decoded)) {
+      index = decoded as Record<string, unknown>;
+    }
+  }
+  index[harness] = {
+    scenarios: results.filter((result) => result.scenario !== "__session__").map((result) => ({
+      scenario: result.scenario, status: result.status, reason: result.reason ?? null,
+    })),
+    session: results.find((result) => result.scenario === "__session__") ?? null,
+  };
+  const ordered = Object.fromEntries(Object.entries(index).sort(([left], [right]) => left.localeCompare(right)));
+  fs.writeFileSync(file, JSON.stringify(ordered, null, 2) + "\n");
+}
+
+function verifyCorpus(root: string, harnesses: readonly string[]): void {
+  for (const harness of harnesses) {
+    const manifestFile = path.join(root, harness, "manifest.json");
+    if (!fs.existsSync(manifestFile)) throw new Error(`${harness}: manifest.json missing`);
+    const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf8")) as {
+      sanitized?: unknown;
+      sanitization?: { fixtures?: unknown; decodedBytes?: unknown; checks?: unknown };
+    };
+    if (manifest.sanitized !== true) throw new Error(`${harness}: sanitized stamp is not earned`);
+    const receipt = certifyHarness(root, harness);
+    if (manifest.sanitization?.fixtures !== receipt.fixtures ||
+        manifest.sanitization?.decodedBytes !== receipt.decodedBytes ||
+        JSON.stringify(manifest.sanitization?.checks) !== JSON.stringify(receipt.checks)) {
+      throw new Error(`${harness}: sanitization receipt does not match decoded corpus`);
+    }
+  }
 }
 
 // ── canonicality check (real SessionObserver) ───────────────────────────────
@@ -950,7 +1266,16 @@ async function checkFixture(harness: string, scenario: string, glyphArg?: string
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   if (args[0] === "list") {
-    for (const h of HARNESSES) console.log(h.name.padEnd(12), h.displayName);
+    for (const h of HARNESSES.filter((harness) => SHIPPED_HARNESSES.has(harness.name))) {
+      console.log(h.name.padEnd(12), h.displayName);
+    }
+    return;
+  }
+  if (args[0] === "verify") {
+    const present = [...SHIPPED_HARNESSES].filter((harness) => fs.existsSync(path.join(OUT_ROOT, harness)));
+    if (present.length === 0) throw new Error(`no shipped harness corpus found at ${OUT_ROOT}`);
+    verifyCorpus(OUT_ROOT, present);
+    console.log(`CORPUS SCRUB: PASS (${present.length} harnesses at ${path.relative(REPO, OUT_ROOT)})`);
     return;
   }
   if (args[0] === "check") {
@@ -965,7 +1290,7 @@ async function main(): Promise<void> {
   }
   if (args[0] === "check-all") {
     let allOk = true;
-    for (const h of HARNESSES) {
+    for (const h of HARNESSES.filter((harness) => SHIPPED_HARNESSES.has(harness.name))) {
       const dir = path.join(OUT_ROOT, h.name);
       if (!fs.existsSync(dir)) continue;
       for (const f of fs.readdirSync(dir).filter((f) => f.endsWith(".jsonl"))) {
@@ -984,28 +1309,28 @@ async function main(): Promise<void> {
 
   // capture mode
   const only = args[0];
-  const defs = only ? HARNESSES.filter((h) => h.name === only) : [...HARNESSES];
-  if (only && defs.length === 0) { console.error(`unknown harness '${only}'. Try: list`); process.exit(2); }
-  fs.mkdirSync(OUT_ROOT, { recursive: true });
-  const all: { harness: string; results: ScenarioResult[] }[] = [];
-  for (const def of defs) {
-    console.log(`\n========== ${def.name} (${def.displayName}) ==========`);
-    const results = await runHarness(def);
-    writeManifests(def, results);
-    all.push({ harness: def.name, results });
+  const shipped = HARNESSES.filter((harness) => SHIPPED_HARNESSES.has(harness.name));
+  const defs = only ? shipped.filter((harness) => harness.name === only) : shipped;
+  if (only && defs.length === 0) {
+    console.error(`unknown or unshipped harness '${only}'. Try: list`);
+    process.exit(2);
   }
-  // corpus index
-  const index: Record<string, unknown> = {};
-  for (const { harness, results } of all) {
-    index[harness] = {
-      scenarios: results.filter((r) => r.scenario !== "__session__").map((r) => ({
-        scenario: r.scenario, status: r.status, reason: r.reason ?? null,
-      })),
-      session: results.find((r) => r.scenario === "__session__") ?? null,
-    };
+  fs.mkdirSync(CAPTURE_ROOT, { recursive: true });
+  try {
+    for (const def of defs) {
+      console.log(`\n========== ${def.name} (${def.displayName}) ==========`);
+      const results = await runHarness(def);
+      writeManifests(def, results);
+      const receipt = certifyHarness(CAPTURE_ROOT, def.name);
+      earnSanitizedStamp(CAPTURE_ROOT, def.name, receipt);
+      promoteHarness(def.name);
+      updateCorpusIndex(def.name, results);
+    }
+    verifyCorpus(OUT_ROOT, defs.map((definition) => definition.name));
+    console.log("\ncorpus written to", OUT_ROOT);
+  } finally {
+    fs.rmSync(CAPTURE_ROOT, { recursive: true, force: true });
   }
-  fs.writeFileSync(path.join(OUT_ROOT, "index.json"), JSON.stringify(index, null, 2) + "\n");
-  console.log("\ncorpus written to", OUT_ROOT);
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });
