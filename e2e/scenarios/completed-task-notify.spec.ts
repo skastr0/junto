@@ -97,23 +97,22 @@ test("completed task notify plate has solid boundaries and stacks cards", async 
 
   const stack = page.getByTestId("completed-task-notify");
   await expect(stack).toBeVisible({ timeout: 10_000 });
-  // Boundless stack: every item present, no plate chrome / no "completed" copy.
-  await expect(stack.locator(".completed-task-notify__item")).toHaveCount(8);
+  // Deck: face + up to 4 peeks (not a full vertical list of 8).
+  await expect(stack.locator(".completed-task-notify__deck")).toBeVisible();
+  await expect(stack.locator(".completed-task-notify__item")).toHaveCount(5);
+  await expect(stack.locator('.completed-task-notify__item[data-face="true"]')).toHaveCount(1);
   await expect(stack.locator(".completed-task-notify__chrome")).toHaveCount(0);
-  await expect(stack.locator(".completed-task-notify__eyebrow")).toHaveCount(0);
-  // Visible UI: no plate header / no per-card "completed" word (a11y labels ok).
-  await expect(stack.locator(".completed-task-notify__chrome-label")).toHaveCount(0);
   await expect(stack.getByText("completed", { exact: true })).toHaveCount(0);
 
   await page.waitForTimeout(250);
-  await stack.screenshot({ path: join(SHOTS, "06-boundless-stack.png") });
+  await stack.screenshot({ path: join(SHOTS, "09-deck-stack.png") });
   await page.screenshot({
-    path: join(SHOTS, "07-boundless-in-hud.png"),
+    path: join(SHOTS, "10-deck-in-hud.png"),
     fullPage: false,
   });
-  await stack.locator(".completed-task-notify__list").evaluate((el) => {
-    el.scrollTop = Math.floor(el.scrollHeight / 3);
-  });
-  await page.waitForTimeout(150);
-  await stack.screenshot({ path: join(SHOTS, "08-boundless-scrolled.png") });
+  // Wheel cycles face card through the deck.
+  await stack.hover();
+  await page.mouse.wheel(0, 120);
+  await page.waitForTimeout(200);
+  await stack.screenshot({ path: join(SHOTS, "11-deck-cycled.png") });
 });

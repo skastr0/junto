@@ -26,21 +26,20 @@
 }
 
 /*
- * Completed-task stack — boundless floating cards above minimap / notify.
- * No plate border, no top bar, no "completed" copy. Cards only: icon + brief.
- * The stack scrolls; each card is flex-shrink: 0 so nothing mid-clips.
+ * Completed-task DECK — cards stacked on top of each other (not a list).
+ * Face card fully visible; under-cards peek with offset + scale.
+ * Wheel cycles the face. No plate, no "completed" chrome.
  */
 .completed-task-notify {
+  --stack-card-h: 40px;
+  --stack-peek: 9px;
   position: absolute;
   right: 10px;
   bottom: 100%;
   margin-bottom: 8px;
   z-index: 2;
-  display: flex;
-  flex-direction: column;
   width: min(280px, 40vw);
   max-width: min(280px, 40vw);
-  max-height: min(48vh, 380px);
   padding: 0;
   border: 0;
   background: transparent;
@@ -48,56 +47,61 @@
   overflow: visible;
   pointer-events: auto;
 }
-.completed-task-notify__list {
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  gap: 6px;
-  min-height: 0;
-  max-height: min(48vh, 380px);
-  padding: 2px 2px 4px;
-  overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-width: thin;
-  scroll-padding-block: 8px;
-  scroll-snap-type: y proximity;
-  /* Soft fade at stack edges so scroll feels boundless, not box-cut. */
-  mask-image: linear-gradient(
-    to bottom,
-    transparent 0,
-    #000 10px,
-    #000 calc(100% - 10px),
-    transparent 100%
+.completed-task-notify__deck {
+  position: relative;
+  width: 100%;
+  /* Face height + peek room for under-cards — nothing is clipped. */
+  height: calc(
+    var(--stack-card-h) + (var(--stack-peeks, 0) * var(--stack-peek))
   );
+  /* Extra air for shadow so the lowest peek isn't cut by a parent clip. */
+  padding-bottom: 6px;
+  box-sizing: content-box;
 }
 .completed-task-notify__item {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: calc(40 - var(--stack-i, 0));
   display: flex;
-  flex-shrink: 0;
   align-items: center;
   gap: 8px;
-  width: 100%;
+  height: var(--stack-card-h);
   margin: 0;
-  padding: 8px 10px;
+  padding: 0 12px;
   border: 0;
   border-radius: 10px;
   background: var(--color-raise);
   box-shadow:
-    0 8px 22px var(--color-shadow-2),
+    0 10px 24px var(--color-shadow-2),
     0 0 0 1px color-mix(in oklab, var(--color-ink) 10%, transparent);
   color: var(--color-ink);
   font: inherit;
   text-align: left;
   cursor: pointer;
-  scroll-snap-align: start;
-  transition: background 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+  transform: translateY(calc(var(--stack-i, 0) * var(--stack-peek)))
+    scale(calc(1 - var(--stack-i, 0) * 0.03));
+  transform-origin: top center;
+  opacity: calc(1 - var(--stack-i, 0) * 0.12);
+  transition:
+    transform 160ms ease,
+    opacity 160ms ease,
+    background 120ms ease,
+    box-shadow 120ms ease;
+  /* Only the face card receives clicks; peeks are pure depth. */
+  pointer-events: none;
 }
-.completed-task-notify__item:hover,
-.completed-task-notify__item:focus-visible {
+.completed-task-notify__item[data-face="true"] {
+  pointer-events: auto;
+  cursor: pointer;
+}
+.completed-task-notify__item[data-face="true"]:hover,
+.completed-task-notify__item[data-face="true"]:focus-visible {
   background: var(--color-raise-2);
   box-shadow:
-    0 10px 26px var(--color-shadow-1),
-    0 0 0 1px color-mix(in oklab, var(--color-green, #3d8b6e) 28%, transparent);
+    0 12px 28px var(--color-shadow-1),
+    0 0 0 1px color-mix(in oklab, var(--color-green, #3d8b6e) 30%, transparent);
   outline: none;
 }
 .completed-task-notify__icon {
@@ -111,9 +115,17 @@
   color: var(--color-ink);
   font-size: 11px;
   font-weight: 550;
-  line-height: 1.35;
+  line-height: 1.3;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.completed-task-notify__depth {
+  flex-shrink: 0;
+  font-size: 9px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-faint);
+  letter-spacing: 0.02em;
 }
 
 .rts-shell > * {
