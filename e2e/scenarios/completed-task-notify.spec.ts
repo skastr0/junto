@@ -88,18 +88,32 @@ test("completed task notify plate has solid boundaries and stacks cards", async 
       { id: "t2", nodeId: "tasks", brief: "Sticky hotbar leases for actors" },
       { id: "t3", nodeId: "tasks", brief: "Page delete behind feature flag" },
       { id: "t4", nodeId: "tasks", brief: "Durable completed-task dismiss" },
+      { id: "t5", nodeId: "tasks", brief: "Tooltip dual native strip" },
+      { id: "t6", nodeId: "tasks", brief: "Actor-only hotbar leases" },
+      { id: "t7", nodeId: "tasks", brief: "Region re-tap gap reliability" },
+      { id: "t8", nodeId: "tasks", brief: "Notify plate boundaries v2" },
     ]);
   });
 
   const stack = page.getByTestId("completed-task-notify");
   await expect(stack).toBeVisible({ timeout: 10_000 });
-  await expect(stack.locator(".completed-task-notify__item")).toHaveCount(4);
-  await expect(stack.locator(".completed-task-notify__chrome-count")).toHaveText("4");
+  // All items rendered (boundless scroll) — no +N more truncation.
+  await expect(stack.locator(".completed-task-notify__item")).toHaveCount(8);
+  await expect(stack.locator(".completed-task-notify__chrome-label")).toHaveText("completed");
+  await expect(stack.locator(".completed-task-notify__chrome-count")).toHaveText("8");
+  // Per-card eyebrow removed — only one "completed" string in the plate chrome.
+  await expect(stack.locator(".completed-task-notify__eyebrow")).toHaveCount(0);
 
   await page.waitForTimeout(250);
-  await stack.screenshot({ path: join(SHOTS, "01-stack-plate.png") });
+  await stack.screenshot({ path: join(SHOTS, "03-single-completed-label.png") });
   await page.screenshot({
-    path: join(SHOTS, "02-stack-in-hud.png"),
+    path: join(SHOTS, "04-stack-in-hud-scroll.png"),
     fullPage: false,
   });
+  // Scroll mid-list — cards stay whole (no mid-card clip at plate edge).
+  await stack.locator(".completed-task-notify__list").evaluate((el) => {
+    el.scrollTop = Math.floor(el.scrollHeight / 3);
+  });
+  await page.waitForTimeout(150);
+  await stack.screenshot({ path: join(SHOTS, "05-stack-scrolled.png") });
 });
