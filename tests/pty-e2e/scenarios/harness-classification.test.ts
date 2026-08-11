@@ -19,11 +19,17 @@
  *
  * A missing corpus is a RED suite, never a skip (see requireCapture).
  */
+import { existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { SessionObserver } from "../../../src/main/vellum/term/observer";
 import { SeatStateRuntime } from "../../../src/main/vellum/term/agent-state/runtime";
 import { FALLBACK_IDLE } from "../../../src/main/vellum/term/agent-state/engine";
-import { capturePath, requireCapture, type LoadedFixture } from "../runner";
+import {
+  capturePath,
+  captureDeclaration,
+  requireCapture,
+  type LoadedFixture,
+} from "../runner";
 
 /** The five non-flagged harnesses. */
 const HARNESSES = ["claude", "codex", "grok", "pi", "devin"] as const;
@@ -122,6 +128,17 @@ describe("HC — corpus contract (a missing capture is red, never a skip)", () =
   for (const harness of HARNESSES) {
     it(`HC-corpus: ${harness} has all four real scenarios`, () => {
       for (const scenario of ["startup-idle", "type-echo", "paste-chip", "working-turn"]) {
+        const declared = captureDeclaration(harness, scenario);
+        if (declared?.status === "skip") {
+          // A harness that CANNOT paint the screen is a reviewed absence, not
+          // a gap — but it only counts when the committed manifest says so and
+          // says why. An undeclared missing file still fails below.
+          expect(
+            declared.reason?.trim().length ?? 0,
+            `${harness}/${scenario} is declared skip with no reason — an absence must justify itself`,
+          ).toBeGreaterThan(0);
+          continue;
+        }
         const fixture = requireCapture(harness, scenario);
         expect(
           fixture.events.length,
@@ -161,6 +178,22 @@ describe("HC — idle chrome publishes a NAMED idle (never the fallback)", () =>
 describe("HC — pasted payload is observable and never classified by the fallback", () => {
   for (const harness of HARNESSES) {
     it(`HC-paste: ${harness}/paste-chip — payload on screen, named classification`, async () => {
+      const declared = captureDeclaration(harness, "paste-chip");
+      if (declared?.status === "skip") {
+        // pi is the live case: an 80-line bracketed paste painted neither the
+        // payload nor a chip, so the corpus records the absence instead of
+        // shipping bytes that prove nothing. Assert the declaration — the
+        // claim is visible and falsifiable, never a silent pass.
+        expect(
+          declared.reason?.trim().length ?? 0,
+          `[${harness}/paste-chip] declared skip must carry a reason`,
+        ).toBeGreaterThan(0);
+        expect(
+          existsSync(capturePath(harness, "paste-chip")),
+          `[${harness}/paste-chip] declared skip but bytes exist — declaration and corpus disagree`,
+        ).toBe(false);
+        return;
+      }
       const blob = decode(load(harness, "paste-chip"));
       // The capture pastes PASTE_LINE_00..14. Somewhere in the stream the
       // harness must render it — expanded, or collapsed into its own chip.

@@ -516,6 +516,32 @@ export const capturePath = (harness: string, scenario: string): string =>
   join(corpusRoot(), harness, `${scenario}.jsonl`);
 
 /**
+ * What the committed manifest DECLARES about one scenario.
+ *
+ * A harness can genuinely be unable to produce a screen (pi renders no paste
+ * chip at all), and the capture tool records that as `status: "skip"` with a
+ * reason. That is a reviewed, auditable absence — different in kind from
+ * "nobody captured it yet", and the only absence a test may accept. It is
+ * still not a silent skip: the declaration itself is what gets asserted.
+ */
+export const captureDeclaration = (
+  harness: string,
+  scenario: string,
+): { readonly status?: string; readonly reason?: string } | null => {
+  const manifestPath = join(corpusRoot(), harness, "manifest.json");
+  if (!existsSync(manifestPath)) return null;
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+    scenarios?: Array<Record<string, unknown>>;
+  };
+  const entry = manifest.scenarios?.find((s) => s.scenario === scenario);
+  if (!entry) return null;
+  return {
+    ...(typeof entry.status === "string" ? { status: entry.status } : {}),
+    ...(typeof entry.reason === "string" ? { reason: entry.reason } : {}),
+  };
+};
+
+/**
  * Resolve one real capture or THROW. The loud half of the corpus contract:
  * an absent corpus fails the suite red instead of passing as a silent skip.
  */
@@ -837,10 +863,24 @@ export function gateFixture(
   const composerGlyphs = /^\s*[❯>❭›]/u;
   const hasGlyph = snapshot.lines.some((l) => composerGlyphs.test(l));
   if (esc.promptGlyph !== undefined) {
+    // Assert the DECLARED literal, not a shared glyph class. The class form
+    // passed on the wrong harness (codex prints ›, claude ❯, devin ❭) and
+    // outright failed for a harness whose declared idle chrome is a footer
+    // string rather than a glyph (pi: "0.0%/400k (auto)").
+    const declared = esc.promptGlyph;
+    const onScreen = snapshot.lines.some((l) => l.includes(declared));
     expect(
-      hasGlyph,
-      `[gate ${fixture.harness}/${fixture.scenario}] prompt glyph ${JSON.stringify(esc.promptGlyph)} on screen`,
+      onScreen,
+      `[gate ${fixture.harness}/${fixture.scenario}] declared idle chrome ${JSON.stringify(declared)} not on screen`,
     ).toBe(true);
+    // When the declaration IS a composer glyph, it must open a line — a glyph
+    // buried mid-transcript is scrollback, not the live composer.
+    if (composerGlyphs.test(declared)) {
+      expect(
+        snapshot.lines.some((l) => l.trimStart().startsWith(declared)),
+        `[gate ${fixture.harness}/${fixture.scenario}] composer glyph ${JSON.stringify(declared)} must start a line`,
+      ).toBe(true);
+    }
   }
   if (esc.noPromptGlyph === true) {
     expect(
