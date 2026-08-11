@@ -512,9 +512,14 @@ export const loadDoc = (
   const edgeIds = options.preserveValidInteraction
     ? new Set(doc.edges.map((edge) => edge.id))
     : undefined;
-  const selectedNodeIds = nodeIds
-    ? state$.selectedNodeIds.peek().filter((id) => nodeIds.has(id))
+  const previousSelectedNodeIds = state$.selectedNodeIds.peek();
+  const retainedSelectedNodeIds = nodeIds
+    ? previousSelectedNodeIds.filter((id) => nodeIds.has(id))
     : [];
+  const selectedNodeIds =
+    retainedSelectedNodeIds.length === previousSelectedNodeIds.length
+      ? previousSelectedNodeIds
+      : retainedSelectedNodeIds;
   const previousSelectedNodeId = state$.selectedNodeId.peek();
   const selectedNodeId = nodeIds?.has(previousSelectedNodeId)
     ? previousSelectedNodeId
