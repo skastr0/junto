@@ -1026,7 +1026,7 @@ const withArtifactArchivedFlag = (
   artifact: Artifact,
   archived: boolean,
 ): Artifact => {
-  const nextMeta: WorkMetadata = { ...(artifact.metadata ?? {}) };
+  const nextMeta: Record<string, unknown> = { ...(artifact.metadata ?? {}) };
   if (archived) {
     nextMeta.archived = true;
   } else {
@@ -1036,7 +1036,7 @@ const withArtifactArchivedFlag = (
     const { metadata: _drop, ...rest } = artifact;
     return rest;
   }
-  return { ...artifact, metadata: nextMeta };
+  return { ...artifact, metadata: nextMeta as WorkMetadata };
 };
 
 /** Operator soft-archive / restore. Does not delete parts or content refs. */

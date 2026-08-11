@@ -28,6 +28,8 @@ export const MAIN_AUTHORING_LABELS = [
   "ipc.work.request-create",
   "ipc.work.request-resolve",
   "ipc.work.artifact-publish",
+  "ipc.work.artifact-archive",
+  "ipc.work.artifact-delete",
   "control.work.tasks-claim",
   "control.work.tasks-create",
   "control.work.tasks-update",
