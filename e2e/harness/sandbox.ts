@@ -524,6 +524,7 @@ export const agentTextNode = (input: {
   readonly key: string;
   readonly label: string;
   readonly host?: string;
+  readonly harness?: import("../../src/shared/managed-terminal-templates").HarnessId;
   readonly x?: number;
   readonly y?: number;
 }): TextNode => ({
@@ -539,7 +540,7 @@ export const agentTextNode = (input: {
     host: input.host ?? "local",
     terminal: {
       bindingId: input.key,
-      harness: "codex",
+      harness: input.harness ?? "codex",
     },
   },
 });
