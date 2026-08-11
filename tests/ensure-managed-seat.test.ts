@@ -30,13 +30,19 @@ describe("managed-seat wake decision", () => {
     });
   });
 
-  it("an explicitly stopped seat stays stopped — reopen is the restart authority", () => {
-    const decision = managedSeatWakeDecision({
-      ...base,
-      status: "exited",
-      stopping: true,
-    });
-    expect(decision.kind).toBe("refuse");
+  it("a stopped seat revives on demand once its process is gone — one rule, mail wakes seats", () => {
+    expect(
+      managedSeatWakeDecision({ ...base, status: "exited", stopping: true }),
+    ).toEqual({ kind: "spawn", restart: true });
+  });
+
+  it("mid-exit refuses transiently — never two processes on one binding", () => {
+    expect(
+      managedSeatWakeDecision({ ...base, status: "running", stopping: true }).kind,
+    ).toBe("refuse");
+    expect(
+      managedSeatWakeDecision({ ...base, status: "starting", stopping: true }).kind,
+    ).toBe("refuse");
   });
 
   it("a pre-ownership spawn failure is not respawned", () => {

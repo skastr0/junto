@@ -38,30 +38,31 @@ export type ManagedSeatWakeDecision =
   | { readonly kind: "refuse"; readonly reason: string };
 
 /**
- * Automatic factory operation owns start-on-demand and prompt injection, not
- * process supervision. Two hard stops remain: an explicitly stopped seat
- * (operator kill — reopening the terminal is the restart authority) and a
- * pre-ownership spawn failure (missing CLI will not fix itself). Everything
- * else is wakeable: a demand signal (mail, board wake, task claim) may replace
- * an exited generation under a bounded per-binding budget with backoff, so a
- * crash-looping harness converges to "refused, needs a look" instead of an
- * unbounded respawn loop — and a peacefully dead seat answers its mail.
+ * ONE rule: mail wakes seats. A dead seat — stopped, crashed, app-restarted,
+ * it does not matter — is started by any demand signal (mail, board wake,
+ * task claim) under a bounded per-binding budget with backoff. No hidden
+ * stop-provenance decides behavior. The only refusals are mechanical: the
+ * budget is exhausted (crash loop converges to "needs a look"), the binary
+ * cannot spawn (missing CLI will not fix itself), or the old process is
+ * still mid-exit (the deferred retry catches it seconds later).
  */
 export const managedSeatWakeDecision = (input: {
   readonly status: "starting" | "running" | "exited" | "missing" | undefined;
-  /** Operator (or shutdown) explicitly stopped this generation. */
+  /** A kill signal is in flight for this generation. */
   readonly stopping: boolean;
   readonly exitReason?: "cli-missing" | "spawn_failed" | undefined;
   readonly budget: AutoRestartBudget | undefined;
   readonly nowMs: number;
 }): ManagedSeatWakeDecision => {
-  if (input.stopping) {
+  if (input.stopping && input.status !== "exited") {
+    // Mechanical, transient: the previous process is still dying. Never two
+    // processes on one binding — the deferred retry lands after the exit.
     return {
       kind: "refuse",
-      reason: "seat was explicitly stopped — reopen the terminal to restart it",
+      reason: "previous process is still exiting — delivery retries shortly",
     };
   }
-  if (input.status === "starting" || input.status === "running") {
+  if (!input.stopping && (input.status === "starting" || input.status === "running")) {
     return { kind: "reuse" };
   }
   if (input.status === undefined) {
