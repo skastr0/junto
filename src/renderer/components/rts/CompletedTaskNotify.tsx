@@ -3,8 +3,8 @@
  * Click focuses the tasks node, opens the board with the task selected, and
  * durably dismisses this entry.
  *
- * Visual: one “completed” label on the plate; each card is icon + brief only.
- * Boundless vertical stack — scroll the list; cards are never mid-clipped.
+ * Visual: boundless card stack only — no plate chrome, no "completed" copy.
+ * Each card is icon + brief; the list scrolls without mid-card clip.
  */
 import { useEffect } from "react";
 import { use$ } from "@legendapp/state/react";
@@ -31,15 +31,9 @@ export function CompletedTaskNotifyStack() {
     <div
       className="completed-task-notify"
       role="region"
-      aria-label="Completed tasks"
+      aria-label="Finished tasks"
       data-testid="completed-task-notify"
     >
-      <div className="completed-task-notify__chrome">
-        <span className="completed-task-notify__chrome-label">completed</span>
-        <span className="completed-task-notify__chrome-count" aria-live="polite">
-          {items.length}
-        </span>
-      </div>
       <div className="completed-task-notify__list">
         {items.map((item) => (
           <CompletedTaskNotifyCard key={item.id} item={item} />
@@ -55,7 +49,7 @@ function CompletedTaskNotifyCard({ item }: { readonly item: CompletedTaskNotifyI
       type="button"
       className="completed-task-notify__item"
       title={`${item.brief} — open task`}
-      aria-label={`Completed: ${item.brief}. Open task board.`}
+      aria-label={`Open finished task: ${item.brief}`}
       onClick={() => activateCompletedTaskNotify(item)}
     >
       <CheckCircle2 size={15} className="completed-task-notify__icon" aria-hidden />

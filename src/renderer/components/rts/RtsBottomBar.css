@@ -26,9 +26,9 @@
 }
 
 /*
- * Completed-task stack — floating panel above minimap / notify.
- * One “completed” label on the plate; cards are icon + brief only.
- * List scrolls freely; each card is flex-shrink: 0 so nothing mid-clips.
+ * Completed-task stack — boundless floating cards above minimap / notify.
+ * No plate border, no top bar, no "completed" copy. Cards only: icon + brief.
+ * The stack scrolls; each card is flex-shrink: 0 so nothing mid-clips.
  */
 .completed-task-notify {
   position: absolute;
@@ -38,44 +38,15 @@
   z-index: 2;
   display: flex;
   flex-direction: column;
-  gap: 0;
   width: min(280px, 40vw);
   max-width: min(280px, 40vw);
-  /* Plate grows with content up to this; then list scrolls. */
   max-height: min(48vh, 380px);
   padding: 0;
-  border: 1px solid var(--color-stroke-hi);
-  border-radius: 12px;
-  background: var(--color-raise);
-  box-shadow:
-    0 14px 36px var(--color-shadow-1),
-    0 0 0 1px color-mix(in oklab, var(--color-green, #3d8b6e) 18%, transparent);
-  /* Clip only the plate corner radius — list owns scrolling. */
-  overflow: hidden;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
   pointer-events: auto;
-}
-.completed-task-notify__chrome {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 7px 10px 6px;
-  border-bottom: 1px solid var(--color-stroke);
-  background: color-mix(in oklab, var(--color-raise-2) 88%, var(--color-ground));
-}
-.completed-task-notify__chrome-label {
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: color-mix(in oklab, var(--color-green, #3d8b6e) 75%, var(--color-faint));
-}
-.completed-task-notify__chrome-count {
-  font-size: 10px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  color: var(--color-dim);
 }
 .completed-task-notify__list {
   display: flex;
@@ -83,15 +54,22 @@
   flex-direction: column;
   gap: 6px;
   min-height: 0;
-  /* Boundless scroll: plate max-height caps the viewport; list takes the rest. */
-  padding: 8px;
+  max-height: min(48vh, 380px);
+  padding: 2px 2px 4px;
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-gutter: stable;
   scrollbar-width: thin;
   scroll-padding-block: 8px;
   scroll-snap-type: y proximity;
+  /* Soft fade at stack edges so scroll feels boundless, not box-cut. */
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 10px,
+    #000 calc(100% - 10px),
+    transparent 100%
+  );
 }
 .completed-task-notify__item {
   display: flex;
@@ -101,22 +79,25 @@
   width: 100%;
   margin: 0;
   padding: 8px 10px;
-  border: 1px solid color-mix(in oklab, var(--color-green, #3d8b6e) 28%, var(--color-stroke));
-  border-radius: 9px;
-  background: var(--color-raise-2);
-  box-shadow: 0 1px 0 color-mix(in oklab, var(--color-ink) 6%, transparent);
+  border: 0;
+  border-radius: 10px;
+  background: var(--color-raise);
+  box-shadow:
+    0 8px 22px var(--color-shadow-2),
+    0 0 0 1px color-mix(in oklab, var(--color-ink) 10%, transparent);
   color: var(--color-ink);
   font: inherit;
   text-align: left;
   cursor: pointer;
   scroll-snap-align: start;
-  transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+  transition: background 120ms ease, box-shadow 120ms ease, transform 120ms ease;
 }
 .completed-task-notify__item:hover,
 .completed-task-notify__item:focus-visible {
-  border-color: color-mix(in oklab, var(--color-green, #3d8b6e) 55%, var(--color-stroke));
-  background: color-mix(in oklab, var(--color-raise-2) 70%, var(--color-ground));
-  box-shadow: 0 0 0 1px color-mix(in oklab, var(--color-green, #3d8b6e) 22%, transparent);
+  background: var(--color-raise-2);
+  box-shadow:
+    0 10px 26px var(--color-shadow-1),
+    0 0 0 1px color-mix(in oklab, var(--color-green, #3d8b6e) 28%, transparent);
   outline: none;
 }
 .completed-task-notify__icon {
