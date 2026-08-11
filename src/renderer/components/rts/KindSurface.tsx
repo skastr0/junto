@@ -8,7 +8,7 @@
  * Regions: ops on the command card. Kind strip is field keys only —
  * briefing, herdr defaults, page defaults, folder paths. No plate, no placement.
  */
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
 import {
   FolderOpen,
@@ -404,51 +404,44 @@ function RegionKindSurface({ node }: { readonly node: CanvasNode }) {
  * Agents get multi-prompt (same text → every selected managed seat) via ChatComposer.
  * Send / label / status float over the textarea so the mid panel never clips them.
  */
-function MultiKindSurface({ nodes }: { readonly nodes: ReadonlyArray<CanvasNode> }) {
-  const selectionKey = nodes.map((n) => n.id).join("|");
-  const classified = useMemo(() => classifyMultiSelection(nodes), [nodes]);
-  const targets = useMemo(
-    () =>
-      classified.mode === "homogeneous" && classified.surface === "kind:agent"
-        ? multiPromptTargetsFromNodes(classified.nodes)
-        : [],
-    [classified],
+const canonicalSelection = (nodes: ReadonlyArray<CanvasNode>): ReadonlyArray<CanvasNode> =>
+  [...new Map(nodes.map((node) => [node.id, node])).values()].sort((left, right) =>
+    left.id.localeCompare(right.id),
   );
-  const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState<string>("");
 
-  useEffect(() => {
-    setBusy(false);
-    setStatus("");
-  }, [selectionKey]);
+const promptOwnerIdentity = (
+  nodes: ReadonlyArray<CanvasNode>,
+  targets: ReturnType<typeof multiPromptTargetsFromNodes>,
+): string =>
+  JSON.stringify([
+    nodes.map((node) => node.id),
+    targets.map((target) => [target.nodeId, target.bindingId, target.agentKey]),
+  ]);
 
-  if (classified.mode === "heterogeneous") {
-    return (
-      <div className="rts-kind-surface">
-        <div className="rts-quiet rts-quiet--compact">
-          {multiSelectionLabel(classified)} — colors & flags on command card
-        </div>
-      </div>
-    );
-  }
-
-  if (classified.mode !== "homogeneous") {
-    return (
-      <div className="rts-quiet rts-quiet--compact">
-        Multi-select — kind actions need a single node
-      </div>
-    );
-  }
-
-  if (classified.surface === "kind:agent" && targets.length > 0) {
+/**
+ * Interactive leaf: projection churn above the RTS rail must not re-render the
+ * active textarea. A real selection or target change gets a new keyed owner,
+ * which intentionally drops the old draft instead of sending it to new seats.
+ */
+const MultiPromptComposer = memo(
+  function MultiPromptComposer({
+    ownerIdentity: _ownerIdentity,
+    targets,
+  }: {
+    readonly ownerIdentity: string;
+    readonly targets: ReturnType<typeof multiPromptTargetsFromNodes>;
+  }) {
+    const [busy, setBusy] = useState(false);
+    const [status, setStatus] = useState<string>("");
     const label = `multi-prompt — ${targets.length} agent${targets.length === 1 ? "" : "s"}`;
+
     return (
       <div
         className="rts-kind-surface rts-kind-surface--multi-prompt"
+        data-focus-owner="interactive"
         data-testid="rts-multi-prompt"
       >
         <ChatComposer
-          key={selectionKey}
           className="chat-composer--rts chat-composer--overlay"
           ariaLabel="Prompt all selected agents"
           placeholder="Message all selected agents…"
@@ -478,6 +471,51 @@ function MultiKindSurface({ nodes }: { readonly nodes: ReadonlyArray<CanvasNode>
           }}
         />
       </div>
+    );
+  },
+  (previous, next) => previous.ownerIdentity === next.ownerIdentity,
+);
+
+function MultiKindSurface({ nodes }: { readonly nodes: ReadonlyArray<CanvasNode> }) {
+  const selectedNodes = useMemo(() => canonicalSelection(nodes), [nodes]);
+  const classified = useMemo(() => classifyMultiSelection(selectedNodes), [selectedNodes]);
+  const targets = useMemo(
+    () =>
+      classified.mode === "homogeneous" && classified.surface === "kind:agent"
+        ? multiPromptTargetsFromNodes(classified.nodes)
+        : [],
+    [classified],
+  );
+  const ownerIdentity = useMemo(
+    () => promptOwnerIdentity(selectedNodes, targets),
+    [selectedNodes, targets],
+  );
+
+  if (classified.mode === "heterogeneous") {
+    return (
+      <div className="rts-kind-surface">
+        <div className="rts-quiet rts-quiet--compact">
+          {multiSelectionLabel(classified)} — colors & flags on command card
+        </div>
+      </div>
+    );
+  }
+
+  if (classified.mode !== "homogeneous") {
+    return (
+      <div className="rts-quiet rts-quiet--compact">
+        Multi-select — kind actions need a single node
+      </div>
+    );
+  }
+
+  if (classified.surface === "kind:agent" && targets.length > 0) {
+    return (
+      <MultiPromptComposer
+        key={ownerIdentity}
+        ownerIdentity={ownerIdentity}
+        targets={targets}
+      />
     );
   }
 
