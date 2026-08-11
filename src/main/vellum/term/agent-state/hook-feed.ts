@@ -7,6 +7,17 @@ import type { AgentSeatHookState } from "../../../../shared/agent-seat-state";
 import type { ObserverGridSnapshot } from "../observer/types";
 import type { SeatStateMachine } from "./seat-state-machine";
 
+/**
+ * Leading spinner glyph in Claude's OSC title while a turn runs.
+ *
+ * The family is version-dependent: 2.1.227 spun braille (⠂ ⠐), 2.1.228 spins
+ * half-circles (◐ ◑) and emits no braille at all — which silently removed the
+ * only working signal Claude has, since it emits no OSC 9;4 progress either.
+ * Kept in sync with `osc_title_working` in rules/claude.ts.
+ */
+const CLAUDE_TITLE_SPINNER =
+  /^[⠀-⣿◐-◓◴-◷○-●]/;
+
 export const hookStateFromSnapshot = (
   snap: ObserverGridSnapshot,
   harness: string,
@@ -58,10 +69,10 @@ export const hookStateFromSnapshot = (
         fullLifecycle: false,
       };
     }
-    if (/^[\u2800-\u28FF]/.test(title)) {
+    if (CLAUDE_TITLE_SPINNER.test(title)) {
       return {
         state: "working",
-        reason: "osc_title_braille",
+        reason: "osc_title_spinner",
         at: now,
         fullLifecycle: false,
       };

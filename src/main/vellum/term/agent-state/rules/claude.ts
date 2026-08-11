@@ -7,7 +7,7 @@ import type { SeatRulePack } from "../types";
 
 export const claudeRules: SeatRulePack = {
   harness: "claude",
-  version: "2026.08.07.3",
+  version: "2026.08.11.1",
   rules: [
     {
       id: "osc_title_working",
@@ -15,8 +15,54 @@ export const claudeRules: SeatRulePack = {
       priority: 1100,
       region: "osc_title",
       visibleWorking: true,
-      // Leading braille spinner glyph + space (Claude title churn while working).
-      matchers: { regex: ["^[\\u2800-\\u28FF] "] },
+      // Leading spinner glyph + space (Claude title churn while working).
+      // The glyph FAMILY is version-dependent and has already changed once:
+      // 2.1.227 spun braille (⠂ ⠐), 2.1.228 spins half-circles (◐ ◑) and emits
+      // no braille at all. Both families are matched, plus the quadrant and
+      // clock variants of the same Unicode spinner sets. Do not rely on this
+      // list alone — `live_status_line_working` below is the glyph-independent
+      // signal that survives the next spinner change.
+      matchers: {
+        regex: ["^[\\u2800-\\u28FF\\u25D0-\\u25D3\\u25F4-\\u25F7\\u25CB-\\u25CF] "],
+      },
+    },
+    // Glyph-independent working chrome. Claude keeps an EMPTY composer while it
+    // works, so `empty_prompt_idle` (1160) would otherwise pin a live turn to
+    // idle whenever the title spinner is not recognised — which is exactly what
+    // 2.1.228 did by dropping braille. These key on Claude's live status line
+    // instead: the elapsed-time form ("Puzzling… (54s, 2.7k tokens)")
+    // and the queued-input hint. Both are behaviour, not decoration, and
+    // neither appears on an idle screen.
+    // NOT keyed on "esc to interrupt": real Claude only prints it mid-turn, but
+    // it is version-variable (absent from the 2.1.228 footer) and the scripted
+    // TUI paints it as a constant footer, so it cannot separate the two states.
+    // Priority sits above both idle prompt-box rules and below every permission
+    // rule (1170+); the `not` gate keeps live dialog chrome winning regardless.
+    {
+      id: "live_status_line_working",
+      state: "working",
+      priority: 1161,
+      region: "bottom_non_empty_lines",
+      regionN: 12,
+      visibleWorking: true,
+      matchers: {
+        // "<verb>… (<N>s" — the running form. Deliberately excludes the
+        // COMPLETED form ("✻ Sautéed for 2s"): no ellipsis, no parenthesis.
+        lineRegex: ["…\\s*\\(\\d+s\\b"],
+        not: [
+          { contains: ["esc to cancel"] },
+          { contains: ["do you want to proceed?"] },
+        ],
+      },
+    },
+    {
+      id: "queued_input_working",
+      state: "working",
+      priority: 1163,
+      region: "prompt_box_body",
+      visibleWorking: true,
+      // Claude only offers to edit QUEUED messages while a turn is running.
+      matchers: { contains: ["press up to edit queued messages"] },
     },
     {
       id: "transcript_viewer",
