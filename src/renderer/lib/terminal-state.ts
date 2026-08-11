@@ -14,6 +14,12 @@ export const terminal$ = observable({
   preferredZoneByNodeId: {} as Record<string, WorkZone>,
   /** Bumps on every open so dock observe re-runs even for re-open-with-zone. */
   openSeq: 0,
+  /**
+   * Node of the most recent open request. The dock observe promotes exactly
+   * this surface to MRU front — promoting every open surface in insertion
+   * order meant re-opening an earlier terminal could never reach the front.
+   */
+  lastOpenNodeId: null as string | null,
   sessionByBindingId: {} as Record<string, TerminalSessionSummary | undefined>,
   inventoryOpen: false,
 });
@@ -26,6 +32,7 @@ export const openTerminalSurface = (
   // One-shot zone for the next dock reconcile (consumed there).
   terminal$.preferredZoneByNodeId[node.id].set(zone);
   terminal$.openByNodeId[node.id].set(node);
+  terminal$.lastOpenNodeId.set(node.id);
   terminal$.openSeq.set(terminal$.openSeq.peek() + 1);
 };
 

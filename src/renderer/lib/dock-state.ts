@@ -363,12 +363,18 @@ observe(() => {
     } else if (zone === "pinned" && existing.zone !== "pinned") {
       // Open-pinned from the toolbar: move an already-open focus surface over.
       registry = pinSurface(registry, id).state;
-    } else {
-      registry = focusSurface(registry, id).state;
     }
     if (preferred !== undefined) {
       terminal$.preferredZoneByNodeId[nodeId].delete();
     }
+  }
+  // Promote exactly the requested surface. Focusing every open surface in
+  // Set insertion order made the newest-inserted terminal win the MRU front
+  // on every pass, so re-opening an earlier terminal (canvas re-open, mirror
+  // swap back to the hub) could never surface it.
+  const lastOpened = terminal$.lastOpenNodeId.peek();
+  if (lastOpened !== null && openIds.has(lastOpened)) {
+    registry = focusSurface(registry, terminalSurfaceId(lastOpened)).state;
   }
   dock$.registry.set(registry);
 });
