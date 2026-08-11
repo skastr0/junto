@@ -68,6 +68,17 @@ export type MessageDeliveryStore = {
 
 export type MessageDeliveryClock = () => number;
 
+/** Deferred-retry seam — injectable so tests never sleep. */
+export type MessageDeliveryTimers = {
+  readonly set: (fn: () => void, ms: number) => unknown;
+  readonly clear: (handle: unknown) => void;
+};
+
+const defaultTimers: MessageDeliveryTimers = {
+  set: (fn, ms) => setTimeout(fn, ms),
+  clear: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+};
+
 const flightKey = (canvas: string, nodeId: string, messageId: string): string =>
   `${canvas}::${nodeId}::${messageId}`;
 
@@ -135,6 +146,19 @@ export class MessageDeliveryService {
    * pause release (resume is an operator action — a real state change).
    */
   private readonly attemptedClaims = new Map<string, { readonly signature: string }>();
+  /**
+   * Wake-refused messages get a bounded chain of deferred re-attempts —
+   * without one, mail appended to a cold seat that refuses its first wake
+   * (restart backoff, transient authority miss) has NO future trigger and
+   * parks forever. Doubling delays step through the seat restart backoff.
+   */
+  private readonly wakeRetryTimers = new Map<string, unknown>();
+  private readonly wakeRetryCounts = new Map<string, number>();
+  private static readonly WAKE_RETRY_MAX = 5;
+  private static readonly WAKE_RETRY_BASE_MS = 45_000;
+  /** One refusal log per pending message, not one per idle-scan re-attempt. */
+  private readonly wakeRefusalLogged = new Set<string>();
+  private timers: MessageDeliveryTimers = defaultTimers;
   private readonly pendingRequestResponses = new Map<
     string,
     {
@@ -158,12 +182,14 @@ export class MessageDeliveryService {
     readonly now?: MessageDeliveryClock;
     /** Pause plane: a paused target keeps its messages pending (delivered on resume). */
     readonly seatPaused?: (canvas: string, doc: CanvasDoc, nodeId: string) => boolean;
+    readonly timers?: MessageDeliveryTimers;
   }): void {
     if (this.suspended) return;
     this.transport = input.transport;
     this.store = input.store;
     if (input.now) this.now = input.now;
     this.seatPausedLookup = input.seatPaused;
+    if (input.timers) this.timers = input.timers;
   }
 
   /** Test seam — drop all in-flight marks and deps. */
@@ -174,10 +200,13 @@ export class MessageDeliveryService {
     this.transportAttempts.clear();
     this.attemptedClaims.clear();
     this.pendingRequestResponses.clear();
+    this.clearWakeRetries();
+    this.wakeRefusalLogged.clear();
     this.transport = undefined;
     this.store = undefined;
     this.now = () => Date.now();
     this.seatPausedLookup = undefined;
+    this.timers = defaultTimers;
     this.suspended = false;
   }
 
@@ -200,6 +229,16 @@ export class MessageDeliveryService {
     this.transportAttempts.clear();
     this.attemptedClaims.clear();
     this.pendingRequestResponses.clear();
+    this.clearWakeRetries();
+    this.wakeRefusalLogged.clear();
+  }
+
+  private clearWakeRetries(): void {
+    for (const handle of this.wakeRetryTimers.values()) {
+      this.timers.clear(handle);
+    }
+    this.wakeRetryTimers.clear();
+    this.wakeRetryCounts.clear();
   }
 
   private active(generation: number): boolean {
@@ -262,6 +301,20 @@ export class MessageDeliveryService {
     // notice gets one fresh attempt (re-validated against the current doc).
     this.attemptedClaims.clear();
     this.transportAttempts.clear();
+    this.wakeRetryCounts.clear();
+    this.wakeRefusalLogged.clear();
+    void this.retryRequestResponses();
+    void this.scanAndDeliver(() => true);
+  }
+
+  /**
+   * Process boot — deliver the durable backlog. Mail appended while a previous
+   * process was alive (or while no process ran at all) has no attach/idle
+   * event left to re-drive it; without this scan a restart silently strands
+   * every pending message until an unrelated trigger happens to fire.
+   */
+  onBooted(): void {
+    if (this.suspended) return;
     void this.retryRequestResponses();
     void this.scanAndDeliver(() => true);
   }
@@ -380,6 +433,8 @@ export class MessageDeliveryService {
       if (await store.hasAcceptedMessageDelivery(canvas, nodeId, message.messageId)) {
         this.transportAccepted.delete(key);
         this.attemptedClaims.delete(key);
+        this.wakeRetryCounts.delete(key);
+        this.wakeRefusalLogged.delete(key);
         return;
       }
       if (!this.active(generation)) return;
@@ -417,7 +472,20 @@ export class MessageDeliveryService {
         canvas,
         nodeId,
       );
-      if (!woke) return;
+      if (!woke) {
+        // Refused wake: the message stays pending. Say so once, and arm a
+        // bounded deferred re-attempt — a cold seat has no attach/idle event
+        // coming, so without this the mail would park forever in silence.
+        if (!this.wakeRefusalLogged.has(key)) {
+          this.wakeRefusalLogged.add(key);
+          console.error(
+            `[delivery] wake refused — message ${message.messageId} for ${canvas}/${nodeId} stays pending (reason logged by [wake] above)`,
+          );
+        }
+        this.scheduleWakeRetry(generation, canvas, nodeId, message, key);
+        return;
+      }
+      this.wakeRefusalLogged.delete(key);
 
       // At-most-once: never re-hit the transport after a prior accept.
       if (!this.transportAccepted.has(key)) {
@@ -490,6 +558,8 @@ export class MessageDeliveryService {
         this.transportAccepted.delete(key);
         this.attemptedClaims.delete(key);
         this.transportAttempts.delete(key);
+        this.wakeRetryCounts.delete(key);
+        this.wakeRefusalLogged.delete(key);
       } else {
         // Accept fail: keep transportAccepted so attach/idle only re-receipts.
         // Make the failure LOUD — a silent missing receipt is what let the
@@ -531,6 +601,32 @@ export class MessageDeliveryService {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * One deferred re-attempt per pending message at a time, doubling delay,
+   * bounded count. Delays step past the seat's automatic-restart backoff so a
+   * crashed seat gets its budgeted restarts without an operator trigger.
+   */
+  private scheduleWakeRetry(
+    generation: number,
+    canvas: string,
+    nodeId: string,
+    message: Message,
+    key: string,
+  ): void {
+    if (!this.active(generation)) return;
+    if (this.wakeRetryTimers.has(key)) return;
+    const spent = this.wakeRetryCounts.get(key) ?? 0;
+    if (spent >= MessageDeliveryService.WAKE_RETRY_MAX) return;
+    this.wakeRetryCounts.set(key, spent + 1);
+    const delay = MessageDeliveryService.WAKE_RETRY_BASE_MS * 2 ** spent;
+    const handle = this.timers.set(() => {
+      this.wakeRetryTimers.delete(key);
+      if (!this.active(generation)) return;
+      void this.attemptOne(canvas, nodeId, message);
+    }, delay);
+    this.wakeRetryTimers.set(key, handle);
   }
 }
 

@@ -668,4 +668,99 @@ describe("MessageDeliveryService", () => {
 
     expect(sendCount).toBe(0);
   });
+
+  it("a refused wake arms a deferred retry that delivers when the seat wakes", async () => {
+    const msg = userMsg("wake-retry", "hello again");
+    const store = makeStore({ c: agentDoc([msg]) });
+    const scheduled: Array<{ readonly fn: () => void; readonly ms: number }> = [];
+    let wakeSucceeds = false;
+    let sends = 0;
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        wakeManagedSeat: async () => wakeSucceeds,
+        sendManagedTerminalPrompt: async () => {
+          sends += 1;
+          return true;
+        },
+      },
+      store,
+      timers: {
+        set: (fn, ms) => {
+          scheduled.push({ fn, ms });
+          return scheduled.length - 1;
+        },
+        clear: () => undefined,
+      },
+    });
+
+    service.notifyAppended("c", "agent", msg);
+    await waitUntil(() => scheduled.length === 1);
+    expect(sends).toBe(0);
+
+    // Seat becomes wakeable; the deferred attempt delivers and stops the chain.
+    wakeSucceeds = true;
+    scheduled[0]!.fn();
+    await waitUntil(() => sends === 1);
+    await waitUntil(() =>
+      store.hasAcceptedMessageDelivery("c", "agent", msg.messageId),
+    );
+    expect(scheduled.length).toBe(1);
+  });
+
+  it("deferred wake retries are bounded and double their delay", async () => {
+    const msg = userMsg("wake-retry-cap", "still cold");
+    const store = makeStore({ c: agentDoc([msg]) });
+    const scheduled: Array<{ readonly fn: () => void; readonly ms: number }> = [];
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        wakeManagedSeat: async () => false,
+        sendManagedTerminalPrompt: async () => true,
+      },
+      store,
+      timers: {
+        set: (fn, ms) => {
+          scheduled.push({ fn, ms });
+          return scheduled.length - 1;
+        },
+        clear: () => undefined,
+      },
+    });
+
+    service.notifyAppended("c", "agent", msg);
+    await waitUntil(() => scheduled.length === 1);
+    // Drain the chain: each fired retry re-attempts, wake keeps refusing.
+    for (let i = 0; i < 8 && i < scheduled.length; i++) {
+      scheduled[i]!.fn();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(scheduled.length).toBe(5);
+    expect(scheduled.map((s) => s.ms)).toEqual([
+      45_000, 90_000, 180_000, 360_000, 720_000,
+    ]);
+  });
+
+  it("onBooted delivers the durable backlog with no other trigger", async () => {
+    const msg = userMsg("boot-backlog", "sent before restart");
+    const store = makeStore({ c: agentDoc([msg]) });
+    let sends = 0;
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        wakeManagedSeat: async () => true,
+        sendManagedTerminalPrompt: async () => {
+          sends += 1;
+          return true;
+        },
+      },
+      store,
+    });
+
+    service.onBooted();
+    await waitUntil(() => sends === 1);
+    await waitUntil(() =>
+      store.hasAcceptedMessageDelivery("c", "agent", msg.messageId),
+    );
+  });
 });

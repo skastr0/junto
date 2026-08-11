@@ -1275,36 +1275,43 @@ const makeKernelService = (
       const generation = activeGeneration();
       if (!generationIsActive(generation)) return false;
 
-      const read = yield* Effect.result(canvases.read(canvasName));
-      if (!generationIsActive(generation) || read._tag === "Failure") {
+      // Every refusal below names itself: a silent false here previously left
+      // mail pending forever with no operator-visible trace anywhere.
+      const refuse = (reason: string): false => {
+        console.error(`[wake] refused ${canvasName}/${nodeId}: ${reason}`);
         return false;
-      }
+      };
+      const read = yield* Effect.result(canvases.read(canvasName));
+      if (!generationIsActive(generation)) return false;
+      if (read._tag === "Failure") return refuse("canvas read failed");
       const doc = read.success.doc;
       const node = doc.nodes.find((candidate) => candidate.id === nodeId);
-      if (node === undefined) return false;
+      if (node === undefined) return refuse("node is not on the canvas");
 
       const scope = yield* refreshStationScope(stations, () =>
         generationIsActive(generation),
       );
-      if (!generationIsActive(generation) || scope.role === "") return false;
+      if (!generationIsActive(generation)) return false;
+      if (scope.role === "") return refuse("station scope unavailable");
 
       const actorRefs = yield* Effect.result(canvases.activeActorRefs());
-      if (!generationIsActive(generation) || actorRefs._tag === "Failure") {
-        return false;
+      if (!generationIsActive(generation)) return false;
+      if (actorRefs._tag === "Failure") {
+        return refuse("active actor portfolio unavailable");
       }
       const registry = activeActorRegistry(actorRefs.success);
       const authority = runtimeAuthority(scope, registry, canvasName, node);
-      if (
-        authority === undefined ||
-        !isManagedSeatRuntimeLocal(canvasName, node, authority)
-      ) {
-        return false;
+      if (authority === undefined) {
+        return refuse("actor reference is not in the compiled portfolio");
       }
-      if (
-        !pause.stateFor(canvasName).playing ||
-        seatPaused(pause.stateFor(canvasName), doc, node.id)
-      ) {
-        return false;
+      if (!isManagedSeatRuntimeLocal(canvasName, node, authority)) {
+        return refuse("seat is not local to this installation");
+      }
+      if (!pause.stateFor(canvasName).playing) {
+        return refuse("canvas is not playing");
+      }
+      if (seatPaused(pause.stateFor(canvasName), doc, node.id)) {
+        return refuse("seat is paused");
       }
 
       return ensureManagedSeatRunning(canvasName, doc, node, authority);

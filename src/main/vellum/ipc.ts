@@ -1429,6 +1429,10 @@ export const registerVellumIpc = (): void => {
       pause.subscribe((canvas) => {
         if (pause.stateFor(canvas).playing) messageDelivery.onResumed();
       });
+      // Boot rescan: pending mail from a previous process lifetime has no
+      // attach/idle event left — deliver the durable backlog once the canvas
+      // and station planes have settled. Every gate re-checks inside.
+      setTimeout(() => messageDelivery.onBooted(), 10_000);
 
       canvases.start();
       snapshots.start();
