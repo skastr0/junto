@@ -44,7 +44,12 @@ const ELECTRON_BINARY = join(
   REPO_ROOT,
   "node_modules/electron/dist/Electron.app/Contents/MacOS/Electron",
 );
-const MAIN_ENTRY = join(REPO_ROOT, "out/main/index.js");
+// Launch with the repo root as the app path (Electron resolves the app dir
+// from the main-script's package.json walk): the app must see itself at the
+// repo root so resources like scripts/unix-peer-pid.py resolve (process-bind
+// identity). Launching `out/main/index.js` directly makes Electron resolve
+// the app dir as out/main and every work-socket connection is refused.
+const MAIN_ENTRY = REPO_ROOT;
 const RENDERER_DIR = join(REPO_ROOT, "out/renderer");
 
 // e2e/fakes/bin/{herdr,ssh,hermes,codexbar} — stock-protocol emulators (see
