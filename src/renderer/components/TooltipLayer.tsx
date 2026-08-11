@@ -30,12 +30,55 @@ type TooltipPosition = {
 const triggerFor = (target: EventTarget | null): HTMLElement | null =>
   target instanceof Element ? target.closest<HTMLElement>(TRIGGER_SELECTOR) : null;
 
-const tooltipText = (target: HTMLElement): string =>
-  (target.dataset.tooltip
+/** Minimal surface for absorb — HTMLElement in product, duck type in unit tests. */
+export type TitleHost = {
+  getAttribute: (name: string) => string | null;
+  removeAttribute: (name: string) => void;
+  dataset: { tooltip?: string; vellumTooltip?: string };
+  querySelectorAll?: (selectors: string) => Iterable<TitleHost>;
+};
+
+/**
+ * Move native `title` → data-vellum-tooltip and strip the attribute so the
+ * browser never paints a second OS tooltip beside our branded surface.
+ * Safe to call repeatedly (idempotent).
+ */
+export const absorbNativeTitle = (element: TitleHost): void => {
+  const title = element.getAttribute("title")?.trim();
+  if (!title) return;
+  if (!element.dataset.tooltip) element.dataset.vellumTooltip = title;
+  element.removeAttribute("title");
+};
+
+/** Absorb titles on a root and every descendant that still carries `title`. */
+export const absorbNativeTitlesInTree = (root: TitleHost | null | undefined): void => {
+  if (!root) return;
+  absorbNativeTitle(root);
+  const kids = root.querySelectorAll?.("[title]");
+  if (kids) {
+    for (const child of kids) absorbNativeTitle(child);
+  }
+};
+
+const tooltipText = (target: HTMLElement): string => {
+  // Always strip native title first so a late React write cannot flash dual tips.
+  absorbNativeTitle(target);
+  const branded = (
+    target.dataset.tooltip
     ?? target.dataset.vellumTooltip
-    ?? target.getAttribute("title")
-    ?? target.getAttribute("aria-label")
-    ?? "").trim();
+    ?? ""
+  ).trim();
+  if (branded) return branded;
+
+  const aria = (target.getAttribute("aria-label") ?? "").trim();
+  // Icon-only controls: aria-label is the accessible name and the tip text.
+  // Skip when the control already exposes the same string as visible text
+  // (avoids a redundant tip on labeled text buttons).
+  if (!aria) return "";
+  const visible = (target.textContent ?? "").replace(/\s+/g, " ").trim();
+  if (visible.length > 0 && visible === aria) return "";
+  return aria;
+};
 
 const removeDescription = (target: HTMLElement): void => {
   const ids = (target.getAttribute("aria-describedby") ?? "")
@@ -50,6 +93,10 @@ const removeDescription = (target: HTMLElement): void => {
  * attributes become fast, styled tooltips; icon-only controls fall back to
  * their accessible name. Keeping one portal avoids a component and listener
  * per icon on dense canvases.
+ *
+ * Native titles are absorbed on mount, on attribute mutation, on subtree
+ * insert (React remounts), and again at show-time so the OS tip never races
+ * our branded surface.
  */
 export function TooltipLayer() {
   const [active, setActive] = useState<ActiveTooltip | null>(null);
@@ -103,19 +150,29 @@ export function TooltipLayer() {
   };
 
   useEffect(() => {
-    const absorbNativeTitle = (element: Element) => {
-      if (!(element instanceof HTMLElement)) return;
-      const title = element.getAttribute("title")?.trim();
-      if (!title) return;
-      if (!element.dataset.tooltip) element.dataset.vellumTooltip = title;
-      element.removeAttribute("title");
-    };
+    absorbNativeTitlesInTree(document.body);
 
-    document.querySelectorAll("[title]").forEach(absorbNativeTitle);
     const observer = new MutationObserver((records) => {
-      records.forEach((record) => absorbNativeTitle(record.target as Element));
+      for (const record of records) {
+        if (record.type === "attributes" && record.attributeName === "title") {
+          absorbNativeTitle(record.target as Element);
+          continue;
+        }
+        if (record.type === "childList") {
+          record.addedNodes.forEach((node) => {
+            if (node instanceof Element || node instanceof DocumentFragment) {
+              absorbNativeTitlesInTree(node);
+            }
+          });
+        }
+      }
     });
-    observer.observe(document.body, { attributes: true, attributeFilter: ["title"], subtree: true });
+    observer.observe(document.body, {
+      attributes: true,
+      attributeFilter: ["title"],
+      childList: true,
+      subtree: true,
+    });
 
     const onPointerOver = (event: PointerEvent) => {
       if (event.pointerType === "touch") return;
