@@ -103,6 +103,29 @@ const base64ToUtf8 = (b64: string): string => {
   }
 };
 
+const HERDR_EDITABLE_CONTROL_SELECTOR =
+  "input, textarea, select, button, [contenteditable]:not([contenteditable='false'])";
+
+/**
+ * Logical Herdr focus may lag the operator's real DOM focus. Window capture
+ * must therefore yield to every editable/control outside this panel while
+ * still admitting xterm's helper textarea and Herdr chrome inside the panel.
+ */
+export function shouldHerdrCaptureWindowTarget(
+  target: EventTarget | null,
+  host: HTMLElement | null,
+): boolean {
+  if (target == null || typeof (target as Element).closest !== "function") {
+    return true;
+  }
+
+  const control = (target as Element).closest(
+    HERDR_EDITABLE_CONTROL_SELECTOR,
+  );
+  if (!control) return true;
+  return host?.contains(control) === true;
+}
+
 /** Browser key → PTY bytes. Escape goes to the PTY (TUIs need it); close is ⌘W / Close / backdrop. */
 const keyEventToPty = (e: KeyboardEvent): string | null => {
   if (e.isComposing) return null;
@@ -228,6 +251,8 @@ export function HerdrTerminalPanel({
     if (!terminalOpen || !isFocused) return;
 
     const onKeyDown = (e: KeyboardEvent) => {
+      if (!shouldHerdrCaptureWindowTarget(e.target, hostRef.current)) return;
+
       // Close on ⌘W/Ctrl+W only — Escape belongs to the terminal (agent TUIs
       // use it to interrupt); Close button and backdrop remain pointer exits.
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "w") {
@@ -291,6 +316,8 @@ export function HerdrTerminalPanel({
     };
 
     const onPaste = (e: ClipboardEvent) => {
+      if (!shouldHerdrCaptureWindowTarget(e.target, hostRef.current)) return;
+
       const t = e.target as HTMLElement | null;
       if (t?.closest?.("[data-herdr-chrome]")) return;
       const id = streamIdRef.current;
