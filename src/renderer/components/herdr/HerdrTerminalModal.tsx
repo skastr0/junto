@@ -939,9 +939,9 @@ export function HerdrTerminalPanel({
  */
 export function HerdrTerminalModal() {
   const terminals = use$(herdr$.terminals);
-  const registry = use$(dock$.registry);
+  const surfaces = use$(dock$.registry.surfaces);
   const hosted = new Set(
-    registry.surfaces.filter((s) => s.kind === "herdr").map((s) => s.id),
+    surfaces.filter((s) => s.kind === "herdr").map((s) => s.id),
   );
   const orphanIds = Object.keys(terminals).filter((id) => !hosted.has(herdrSurfaceId(id)));
   if (orphanIds.length === 0) return null;

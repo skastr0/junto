@@ -15,7 +15,6 @@ import {
   terminalSurfaceId,
   unpinWorkbenchSurface,
 } from "../../lib/dock-state";
-import { surfaceById } from "../../lib/surface-registry";
 import { getVellumCommandApi } from "../../lib/vellum-api";
 import {
   VELLUM_XTERM_FONT_FAMILY,
@@ -822,9 +821,9 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
 
   const label = node.type === "text" ? node.text : "terminal";
   const surfaceId = terminalSurfaceId(node.id);
-  const registry = use$(dock$.registry);
-  const surface = surfaceById(registry, surfaceId);
-  const pinned = surface?.zone === "pinned";
+  const pinned = use$(() =>
+    dock$.registry.surfaces.get().find((surface) => surface.id === surfaceId)?.zone === "pinned",
+  );
   // Modal semantics: dismisses the whole chrome-less focus stack (cycled
   // mirror views park behind the front pane), one press. Views only.
   const closeSurface = () => closeFocusModalSurface(surfaceId);
