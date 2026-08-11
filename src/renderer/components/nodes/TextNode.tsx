@@ -681,6 +681,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
           <textarea
             ref={ref}
             autoFocus
+            data-focus-owner="canvas-draft"
             aria-label="Edit label"
             className="label-edit-inline nodrag nowheel h-full w-full resize-none bg-transparent font-display outline-none"
             style={{ color: labelHue, fontSize: "15px", fontWeight: 650, letterSpacing: "0.02em", lineHeight: 1.25 }}
@@ -740,6 +741,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
         <textarea
           ref={ref}
           autoFocus
+          data-focus-owner="canvas-draft"
           aria-label="Edit note"
           className="note-edit-inline nodrag nowheel h-full w-full resize-none bg-transparent font-mono outline-none"
           style={{ color: INK }}

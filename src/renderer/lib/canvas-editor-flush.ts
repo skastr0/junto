@@ -4,6 +4,7 @@ import {
   flushPendingCanvasSave,
   quiesceCanvasMutations,
 } from "./mutations";
+import { ownsCanvasDraftFocus } from "./focus-ownership";
 
 export { runCanvasAuthoringOperation } from "./mutations";
 
@@ -14,18 +15,14 @@ type ActiveElement = Pick<HTMLElement, "blur"> & {
   readonly closest?: (selectors: string) => unknown;
 };
 
-const FOCUS_SURFACE_SELECTOR = "[data-focus-surface='1']";
-
 /**
- * External canvas notifications also flush local editors. Work surfaces are
- * part of that notification path, but their inputs are not canvas editors:
- * blurring one would move the caret every time a task or request projection
- * changes underneath the open dialog.
+ * External canvas notifications also flush local editors. Focus is protected
+ * by default: only a known canvas authoring draft may opt into blur-to-commit.
+ * Work surfaces, RTS prompts, and future unmarked controls therefore cannot be
+ * blurred by projection churn.
  */
 export const shouldBlurCanvasFlushTarget = (element: ActiveElement | null): boolean => {
-  if (!element) return false;
-  const closest = element.closest;
-  return typeof closest !== "function" || !closest.call(element, FOCUS_SURFACE_SELECTOR);
+  return ownsCanvasDraftFocus(element);
 };
 
 // Most canvas editors commit on blur. Editors that intentionally cannot do

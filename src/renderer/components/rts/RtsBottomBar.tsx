@@ -551,6 +551,7 @@ function RegionCommandCard({
             {renaming ? (
               <input
                 ref={nameRef}
+                data-focus-owner="canvas-draft"
                 className="rts-cmd__title-input"
                 aria-label="Region name"
                 value={nameDraft}

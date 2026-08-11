@@ -447,6 +447,7 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
       <label className="inspector-editor">
         <span>{node.ether?.entity ? "label" : "note text"}</span>
         <textarea
+          data-focus-owner="canvas-draft"
           aria-label={node.ether?.entity ? "Node label" : "Note text"}
           value={textDraft}
           onChange={(event) => setTextDraft(event.target.value)}
@@ -468,7 +469,7 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
           </div>
         </div>
       : null}
-    {node.type === "group" ? <label className="inspector-editor"><span>region label</span><input aria-label="Region label" value={groupLabelDraft} placeholder="unnamed region" onChange={(event) => setGroupLabelDraft(event.target.value)} onBlur={commitGroupLabel} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitGroupLabel(); event.currentTarget.blur(); } if (event.key === "Escape") { setGroupLabelDraft(groupLabelValue); event.currentTarget.blur(); } }} /></label> : null}
+    {node.type === "group" ? <label className="inspector-editor"><span>region label</span><input data-focus-owner="canvas-draft" aria-label="Region label" value={groupLabelDraft} placeholder="unnamed region" onChange={(event) => setGroupLabelDraft(event.target.value)} onBlur={commitGroupLabel} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitGroupLabel(); event.currentTarget.blur(); } if (event.key === "Escape") { setGroupLabelDraft(groupLabelValue); event.currentTarget.blur(); } }} /></label> : null}
     {/* Region dense fields: kind-strip keys are preferred (briefing / herdr /
         page / paths). Hold stays on the command card; plate + placement are gone. */}
     {node.type === "group" ? <RegionHoldControl node={node} /> : null}
@@ -565,6 +566,7 @@ export function PageUrlControl({ node }: { readonly node: CanvasNode }) {
       <label className="inspector-editor">
         <span>url</span>
         <input
+          data-focus-owner="canvas-draft"
           aria-label="Page URL"
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
@@ -758,6 +760,7 @@ export function RegionHerdrDefaultsControl({ node }: { readonly node: CanvasNode
       <label className="inspector-editor">
         <span>session</span>
         <input
+          data-focus-owner="canvas-draft"
           aria-label="Region herdr session default"
           value={session}
           placeholder="default (unnamed)"
@@ -769,6 +772,7 @@ export function RegionHerdrDefaultsControl({ node }: { readonly node: CanvasNode
       <label className="inspector-editor">
         <span>workspace id</span>
         <input
+          data-focus-owner="canvas-draft"
           aria-label="Region herdr workspace default"
           value={workspaceId}
           placeholder="workspace id from herdr"
@@ -780,6 +784,7 @@ export function RegionHerdrDefaultsControl({ node }: { readonly node: CanvasNode
       <label className="inspector-editor">
         <span>tab id</span>
         <input
+          data-focus-owner="canvas-draft"
           aria-label="Region herdr tab default"
           value={tabId}
           placeholder="optional tab id"
@@ -853,6 +858,7 @@ export function RegionPageDefaultsControl({ node }: { readonly node: CanvasNode 
       <label className="inspector-editor">
         <span>url</span>
         <input
+          data-focus-owner="canvas-draft"
           aria-label="Region page url default"
           value={pageUrl}
           placeholder="https://…"
@@ -951,6 +957,7 @@ export function RegionBriefingEditor({ node }: { readonly node: CanvasNode }) {
         {" "}command inside the region.
       </p>
       <textarea
+        data-focus-owner="canvas-draft"
         className="region-briefing__editor"
         aria-label="Region briefing"
         placeholder="What should agents inside this region know?"
@@ -1015,11 +1022,11 @@ function StatThresholdFields({ source, entityKey, stat, op, valueText, onSourceC
     </label>
     <label className="inspector-editor">
       <span>key</span>
-      <input aria-label="Watcher entity key" value={entityKey} placeholder="bound entity key" onChange={(event) => onKey(event.target.value)} onBlur={onCommit} onKeyDown={onEnter} />
+      <input data-focus-owner="canvas-draft" aria-label="Watcher entity key" value={entityKey} placeholder="bound entity key" onChange={(event) => onKey(event.target.value)} onBlur={onCommit} onKeyDown={onEnter} />
     </label>
     <label className="inspector-editor">
       <span>stat</span>
-      <input aria-label="Watcher stat name" value={stat} placeholder="e.g. signals" onChange={(event) => onStat(event.target.value)} onBlur={onCommit} onKeyDown={onEnter} />
+      <input data-focus-owner="canvas-draft" aria-label="Watcher stat name" value={stat} placeholder="e.g. signals" onChange={(event) => onStat(event.target.value)} onBlur={onCommit} onKeyDown={onEnter} />
     </label>
     <label className="inspector-editor">
       <span>op</span>
@@ -1033,7 +1040,7 @@ function StatThresholdFields({ source, entityKey, stat, op, valueText, onSourceC
     </label>
     <label className="inspector-editor">
       <span>value</span>
-      <input aria-label="Watcher threshold value" type="number" value={valueText} onChange={(event) => onValue(event.target.value)} onBlur={onCommit} onKeyDown={onEnter} />
+      <input data-focus-owner="canvas-draft" aria-label="Watcher threshold value" type="number" value={valueText} onChange={(event) => onValue(event.target.value)} onBlur={onCommit} onKeyDown={onEnter} />
     </label>
   </>;
 }
@@ -1202,6 +1209,7 @@ export function TimerEditor({ node }: { readonly node: CanvasNode }) {
       <label className="inspector-editor">
         <span>expression</span>
         <input
+          data-focus-owner="canvas-draft"
           aria-label="Cron expression"
           className="font-mono"
           value={draft}
