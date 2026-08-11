@@ -48,8 +48,10 @@ import { activateNodeSurface } from "../../lib/activate-node-surface";
 import {
   assignFixedSlot,
   clearHotbarNode,
+  filterLeaseCandidateIds,
   fixedOrderOf,
   nodeIdAt,
+  purgeNonEligibleSoftSlots,
   resolveHotbarSlots,
   slotIndexOf as hotbarSlotIndexOfNode,
   touchActiveMru,
@@ -240,22 +242,37 @@ const liveNodeIds = (doc: { readonly nodes: ReadonlyArray<{ readonly id: string 
   doc.nodes.map((n) => n.id);
 
 /**
- * Nodes that keep a leased digit while busy. Working / attention seats stick
+ * Opportunistic hotbar leases are **actors only** (factory role).
+ * Well-known: `agent`. Notes, tasks, regions, pages, etc. never auto-lease.
+ * Operator fixed slots (⌘1–9) remain unrestricted.
+ */
+const isHotbarLeaseActor = (node: CanvasNode | undefined): boolean =>
+  node !== undefined && roleOf(specOf(node)) === "actor";
+
+const leaseEligibleActorIds = (
+  nodes: ReadonlyArray<CanvasNode>,
+): Set<string> => {
+  const out = new Set<string>();
+  for (const node of nodes) {
+    if (isHotbarLeaseActor(node)) out.add(node.id);
+  }
+  return out;
+};
+
+/**
+ * Actors that keep a leased digit while busy. Working / attention seats stick
  * until idle — pressing another hotkey must not reassign their slot.
  */
 const stickyWorkingNodeIds = (
-  nodes: ReadonlyArray<Pick<CanvasNode, "id" | "ether">>,
+  nodes: ReadonlyArray<CanvasNode>,
 ): string[] => {
   const out: string[] = [];
   for (const node of nodes) {
+    if (!isHotbarLeaseActor(node)) continue;
     const seat = seatEventForNode(node);
     if (seat?.state === "working" || seat?.state === "attention") {
       out.push(node.id);
-      continue;
     }
-    if (!HERDR_ENABLED) continue;
-    const status = herdr$.metaByNodeId[node.id].peek()?.meta?.agentStatus;
-    if (status === "working") out.push(node.id);
   }
   return out;
 };
@@ -264,15 +281,22 @@ const stickyWorkingNodeIds = (
 const recomputeHotbar = (): void => {
   const doc = state$.doc.peek();
   const live = liveNodeIds(doc);
-  // Selection counts as activity even when focusNode was not used (canvas click).
-  let mru: ReadonlyArray<string> = [...state$.hotbarActiveMru.peek()];
+  const actors = leaseEligibleActorIds(doc.nodes);
+  // Selection counts as lease activity only for actors (not notes/tasks/…).
+  let mru: ReadonlyArray<string> = filterLeaseCandidateIds(
+    state$.hotbarActiveMru.peek(),
+    actors,
+  );
   const selected = state$.selectedNodeId.peek();
-  if (selected && live.includes(selected)) {
+  if (selected && live.includes(selected) && actors.has(selected)) {
     mru = touchActiveMru(mru, selected);
-    state$.hotbarActiveMru.set(mru);
   }
+  state$.hotbarActiveMru.set([...mru]);
   const sticky = stickyWorkingNodeIds(doc.nodes);
-  const next = resolveHotbarSlots(state$.hotbarSlots.peek(), live, mru, sticky);
+  const next = purgeNonEligibleSoftSlots(
+    resolveHotbarSlots(state$.hotbarSlots.peek(), live, mru, sticky),
+    actors,
+  );
   state$.hotbarSlots.set(next);
   // Compat mirror: dense fixed-only order for any remaining legacy readers.
   state$.regionSlotOrder.set(fixedOrderOf(next));
@@ -860,9 +884,13 @@ const focusNode = (nodeId: string): void => {
   state$.selectedNodeIds.set([nodeId]);
   state$.selectedEdgeId.set("");
   state$.focusNodeId.set(nodeId);
-  state$.hotbarActiveMru.set(
-    touchActiveMru(state$.hotbarActiveMru.peek(), nodeId),
-  );
+  // Only actors enter the opportunistic lease MRU. Regions / sinks / notes do not.
+  const node = state$.doc.peek().nodes.find((n) => n.id === nodeId);
+  if (isHotbarLeaseActor(node)) {
+    state$.hotbarActiveMru.set(
+      touchActiveMru(state$.hotbarActiveMru.peek(), nodeId),
+    );
+  }
   recomputeHotbar();
 };
 

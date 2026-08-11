@@ -304,6 +304,38 @@ export function touchActiveMru(
 }
 
 /**
+ * Keep only lease-eligible ids (actors). Fixed slots are operator-owned and
+ * are not filtered here.
+ */
+export function filterLeaseCandidateIds(
+  ids: ReadonlyArray<string>,
+  leaseEligibleIds: ReadonlySet<string>,
+): string[] {
+  return ids.filter((id) => leaseEligibleIds.has(id));
+}
+
+/**
+ * Drop leased/evicted entries that are not actors. Operator fixed slots stay.
+ * Used when law changes from "any focus" → "actors only" so the bar does not
+ * soft-hold notes, tasks, regions, etc.
+ */
+export function purgeNonEligibleSoftSlots(
+  slots: ReadonlyArray<HotbarSlot>,
+  leaseEligibleIds: ReadonlySet<string>,
+): HotbarSlot[] {
+  return padSlots(
+    slots.map((slot) => {
+      if (slot.kind === "leased" || slot.kind === "evicted") {
+        return leaseEligibleIds.has(slot.nodeId)
+          ? slot
+          : ({ kind: "empty" as const });
+      }
+      return slot;
+    }),
+  );
+}
+
+/**
  * Migrate legacy dense order (operator assignments as 0..n-1 fixed) into
  * a 9-slot board. Remaining indices empty (leases applied later).
  */

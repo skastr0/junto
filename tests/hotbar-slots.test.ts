@@ -7,11 +7,13 @@ import {
   assignFixedSlot,
   clearHotbarNode,
   emptyHotbarSlots,
+  filterLeaseCandidateIds,
   fixedOrderOf,
   hotbarSlotsFromLegacyOrder,
   isFillableSlot,
   nodeIdAt,
   pruneHotbarSlots,
+  purgeNonEligibleSoftSlots,
   resolveHotbarSlots,
   slotIndexOf,
   touchActiveMru,
@@ -216,6 +218,35 @@ describe("legacy + MRU helpers", () => {
   it("touchActiveMru moves node to front", () => {
     expect(touchActiveMru(["a", "b"], "b")).toEqual(["b", "a"]);
     expect(touchActiveMru(["a", "b"], "c").slice(0, 3)).toEqual(["c", "a", "b"]);
+  });
+
+  it("filterLeaseCandidateIds keeps only actors", () => {
+    const actors = new Set(["agent-1", "agent-2"]);
+    expect(filterLeaseCandidateIds(["note", "agent-1", "task", "agent-2"], actors)).toEqual([
+      "agent-1",
+      "agent-2",
+    ]);
+  });
+
+  it("purgeNonEligibleSoftSlots drops non-actor leased/evicted but keeps fixed", () => {
+    let slots = emptyHotbarSlots();
+    slots = applyHotbarLeases(slots, ["agent", "note"], ["agent", "note"]);
+    slots = assignFixedSlot(slots, "task-fixed", 5);
+    const next = purgeNonEligibleSoftSlots(slots, new Set(["agent"]));
+    expect(next[0]).toEqual({ kind: "leased", nodeId: "agent" });
+    // note was leased at index 1 — not an actor → empty
+    expect(next[1]).toEqual({ kind: "empty" });
+    expect(next[5]).toEqual({ kind: "fixed", nodeId: "task-fixed" });
+  });
+
+  it("non-actor mru ids never receive leases when filtered at the call site", () => {
+    const actors = new Set(["agent-a"]);
+    const mru = filterLeaseCandidateIds(["note", "task", "agent-a", "region"], actors);
+    const sticky = filterLeaseCandidateIds(["working-note"], actors);
+    const next = applyHotbarLeases(emptyHotbarSlots(), mru, ["note", "task", "agent-a", "region"], sticky);
+    expect(next.filter((s) => s.kind === "leased")).toEqual([
+      { kind: "leased", nodeId: "agent-a" },
+    ]);
   });
 
   it("slotIndexOf prefers fixed then leased then evicted", () => {
