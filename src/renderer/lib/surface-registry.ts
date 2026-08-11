@@ -197,6 +197,7 @@ export const focusSurface = (state: WorkbenchState, id: string): WorkbenchTransi
   const target = surfaceById(state, id);
   if (!target) return { state, evicted: [] };
   const key = mruKey(target.zone);
+  if (state[key][0] === id) return { state, evicted: [] };
   return {
     state: { ...state, [key]: prependMru(state[key], id) },
     evicted: [],

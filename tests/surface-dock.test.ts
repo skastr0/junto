@@ -133,6 +133,16 @@ describe("surface-registry (pure workbench)", () => {
     expect(visiblePanes(state, "focus").pane0).toBe("a");
   });
 
+  it("focusing the frontmost surface preserves the identical state", () => {
+    let state = openSurface(initialWorkbenchState(), browserSlot("a")).state;
+    state = openSurface(state, browserSlot("b")).state;
+
+    const focused = focusSurface(state, "b");
+
+    expect(focused.state).toBe(state);
+    expect(focused.evicted).toEqual([]);
+  });
+
   it("classifies browser as non-interactive; herdr/chat/task-create as interactive", () => {
     expect(isInteractiveSurface("browser")).toBe(false);
     expect(isInteractiveSurface("herdr")).toBe(true);
