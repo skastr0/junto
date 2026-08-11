@@ -15,6 +15,7 @@ import type { HarnessId } from "@shared/managed-terminal-templates";
 import { classifySpawnFailure } from "@shared/spawn-failure";
 import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
 import { colorFgBgFor, type ThemeMode } from "@shared/theme";
+import { currentThemeMode } from "../theme-state";
 import {
   productStatusFromSessionPhase,
   sessionPhaseAllowsWrite,
@@ -442,9 +443,14 @@ export const resolveLaunch = (
     ambientTerm.startsWith("xterm") || ambientTerm.startsWith("screen")
       ? ambientTerm
       : "xterm-256color";
-  // COLORFGBG is a coarse spawn hint (fg;bg ANSI indices). Live theme comes
-  // from xterm ITheme + OSC 10/11 + CSI ?996n/?2031 on the renderer surface.
-  const colorFgBg = colorFgBgFor(options?.themeMode ?? "dark");
+  // COLORFGBG is the spawn hint a TUI reads when it never asks the terminal
+  // what colour it is (Grok: its real captures carry no OSC 10/11 query). It
+  // comes from main's theme state, which is the source of truth for every seat
+  // on every canvas — a seat woken with no surface attached is told exactly
+  // what a hand-opened one is told. The renderer's OSC 10/11 + CSI ?996n stay
+  // the live update path once a surface exists; they are no longer the only
+  // way the harness ever learns the theme.
+  const colorFgBg = colorFgBgFor(options?.themeMode ?? currentThemeMode());
   const env: Record<string, string> =
     seat.kind === "agent"
       ? {

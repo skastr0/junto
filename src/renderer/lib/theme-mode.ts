@@ -1,6 +1,6 @@
 import { observable } from "@legendapp/state";
 import type { SettingsTheme } from "@shared/settings";
-import type { ThemeMode } from "@shared/theme";
+import { resolveThemeMode, type ThemeMode } from "@shared/theme";
 import { state$ } from "./state";
 
 /**
@@ -26,9 +26,10 @@ let settingsHydrated = false;
 const resolve = (): ThemeMode => {
   const stored = state$.settings.peek()?.appearance?.theme;
   const pref = settingsHydrated ? stored : (gateThemePref$.peek() ?? stored);
-  if (pref === "dark" || pref === "bright") return pref;
-  // "system", or settings not yet loaded: follow the OS, default dark.
-  return window.matchMedia(MEDIA).matches ? "bright" : "dark";
+  // Same rule main uses (shared/theme resolveThemeMode) so the two can never
+  // drift. Main is the source of truth for spawned harnesses; this resolves
+  // the identical inputs for what the renderer paints.
+  return resolveThemeMode(pref, !window.matchMedia(MEDIA).matches);
 };
 
 const apply = (): void => {
