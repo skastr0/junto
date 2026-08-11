@@ -3,8 +3,16 @@
  *
  * Pure observe model + process-local store. First observation baselines
  * existing completed tasks (no spam on open). Later transitions into
- * `completed` push a stack entry; dismiss only on click. Leaving completed
- * clears the dismiss latch so a later re-complete can notify again.
+ * `completed` push a stack entry; dismiss only on click.
+ *
+ * Stability laws (anti-spam):
+ * 1. Retain last-known state for tasks that drop out of a snapshot tick
+ *    (projection flicker / canvas switch). Do not treat reappearance of an
+ *    already-completed id as a rising edge.
+ * 2. Clear dismiss only when we **observe** an explicit non-completed state —
+ *    never when the task is merely absent from this tick.
+ * 3. Stack UI lists only currently projected completed ids; retained known
+ *    still prevents re-rise if the row returns after a gap.
  */
 
 import { observable } from "@legendapp/state";
@@ -31,7 +39,7 @@ export type CompletedTaskSnapshot = {
 
 export type CompletedNotifyState = {
   readonly baselined: boolean;
-  /** Last observed state per taskId. */
+  /** Last observed state per taskId (retained across absent ticks). */
   readonly known: Readonly<Record<string, TaskState>>;
   /** Task ids dismissed while still completed (no re-show until leave completed). */
   readonly dismissed: Readonly<Record<string, true>>;
@@ -74,7 +82,10 @@ export const observeCompletedTasks = (
   snapshots: ReadonlyArray<CompletedTaskSnapshot>,
   now: number = Date.now(),
 ): CompletedNotifyState => {
-  const nextKnown: Record<string, TaskState> = {};
+  const presentIds = new Set(snapshots.map((snap) => snap.taskId));
+
+  // Retain prior known for ids missing this tick so a flicker cannot re-rise.
+  const nextKnown: Record<string, TaskState> = { ...state.known };
   for (const snap of snapshots) {
     nextKnown[snap.taskId] = snap.state;
   }
@@ -89,24 +100,27 @@ export const observeCompletedTasks = (
   }
 
   const nextDismissed: Record<string, true> = { ...state.dismissed };
-  // Clear dismiss when a task leaves completed (or disappears).
-  for (const taskId of Object.keys(nextDismissed)) {
-    const stateNow = nextKnown[taskId];
-    if (stateNow === undefined || stateNow !== "completed") {
-      delete nextDismissed[taskId];
+  // Clear dismiss only on an explicit observed non-completed state.
+  // Absence alone must not forget a click-dismiss (projection gaps spam otherwise).
+  for (const snap of snapshots) {
+    if (nextDismissed[snap.taskId] && snap.state !== "completed") {
+      delete nextDismissed[snap.taskId];
     }
   }
 
-  // Keep undismissed stack entries still completed.
+  // Stack: still completed, not dismissed, and currently projected.
   const kept = state.stack.filter(
     (item) =>
-      nextKnown[item.id] === "completed" && !nextDismissed[item.id],
+      presentIds.has(item.id) &&
+      nextKnown[item.id] === "completed" &&
+      !nextDismissed[item.id],
   );
   const keptIds = new Set(kept.map((item) => item.id));
 
   const risen: CompletedTaskNotifyItem[] = [];
   for (const snap of snapshots) {
     if (snap.state !== "completed") continue;
+    // Rising edge only when prior known was not already completed.
     if (state.known[snap.taskId] === "completed") continue;
     if (nextDismissed[snap.taskId]) continue;
     if (keptIds.has(snap.taskId)) continue;

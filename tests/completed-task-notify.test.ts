@@ -138,4 +138,74 @@ describe("completed-task-notify", () => {
     );
     expect(state.stack.map((i) => i.id)).toEqual(["t1"]);
   });
+
+  it("does not re-spam after a temporary projection gap (dismiss held)", () => {
+    // Bug shape: work projection empty for a tick clears known+dismissed,
+    // then completed rows reappear as "new" rising edges.
+    let state: CompletedNotifyState = observeCompletedTasks(
+      emptyCompletedNotifyState(),
+      collectTaskSnapshots([
+        taskNode("sink", [{ id: "t1", state: "working", brief: "A" }]),
+      ]),
+      1,
+    );
+    state = observeCompletedTasks(
+      state,
+      collectTaskSnapshots([
+        taskNode("sink", [{ id: "t1", state: "completed", brief: "A" }]),
+      ]),
+      2,
+    );
+    state = dismissCompletedNotify(state, "t1");
+    expect(state.stack).toEqual([]);
+
+    // Gap: sink has no items this tick (or canvas briefly empty).
+    state = observeCompletedTasks(state, collectTaskSnapshots([]), 3);
+    expect(state.dismissed.t1).toBe(true);
+    expect(state.known.t1).toBe("completed");
+
+    // Same completed task returns — must stay quiet.
+    state = observeCompletedTasks(
+      state,
+      collectTaskSnapshots([
+        taskNode("sink", [{ id: "t1", state: "completed", brief: "A" }]),
+      ]),
+      4,
+    );
+    expect(state.stack).toEqual([]);
+    expect(state.dismissed.t1).toBe(true);
+  });
+
+  it("does not re-rise completed ids after a gap without dismiss", () => {
+    let state: CompletedNotifyState = observeCompletedTasks(
+      emptyCompletedNotifyState(),
+      collectTaskSnapshots([
+        taskNode("sink", [{ id: "t1", state: "working", brief: "A" }]),
+      ]),
+      1,
+    );
+    state = observeCompletedTasks(
+      state,
+      collectTaskSnapshots([
+        taskNode("sink", [{ id: "t1", state: "completed", brief: "A" }]),
+      ]),
+      2,
+    );
+    expect(state.stack).toHaveLength(1);
+
+    // Gap drops stack UI (not projected) but retains known completed.
+    state = observeCompletedTasks(state, collectTaskSnapshots([]), 3);
+    expect(state.stack).toEqual([]);
+    expect(state.known.t1).toBe("completed");
+
+    state = observeCompletedTasks(
+      state,
+      collectTaskSnapshots([
+        taskNode("sink", [{ id: "t1", state: "completed", brief: "A" }]),
+      ]),
+      4,
+    );
+    // No second rise — operator already saw it this session; they can open the board.
+    expect(state.stack).toEqual([]);
+  });
 });
