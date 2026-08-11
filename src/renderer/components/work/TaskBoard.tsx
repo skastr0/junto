@@ -1754,8 +1754,18 @@ function TaskDetailPanel({
               <Textarea
                 value={response}
                 onChange={(event) => setResponse(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter") return;
+                  if (!(event.metaKey || event.ctrlKey)) return;
+                  event.preventDefault();
+                  if (pending || !response.trim()) return;
+                  void onRespond(task, response.trim(), "working").then((ok) => {
+                    if (ok) setResponse("");
+                  });
+                }}
                 placeholder="Give the worker the context, decision, or answer needed to continue…"
                 rows={5}
+                aria-keyshortcuts="Meta+Enter Control+Enter"
               />
             </label>
 
@@ -1767,6 +1777,7 @@ function TaskDetailPanel({
                 onClick={async () => {
                   if (await onRespond(task, response.trim(), "working")) setResponse("");
                 }}
+                title="⌘↵ / Ctrl+Enter"
               >
                 <Reply size={13} />
                 Send input &amp; resume

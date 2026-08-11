@@ -291,6 +291,11 @@ function RequestDetail({
   const attachments = request.history
     .flatMap((message) => message.parts)
     .filter((part) => part.kind !== "text");
+  const canSend = !pending && response.trim().length > 0;
+  const sendResponse = (): void => {
+    if (!canSend) return;
+    onResolve(request, response.trim(), "completed");
+  };
 
   return (
     <aside className="work-ledger-detail" aria-label={`Request details for ${requestTitle(request)}`}>
@@ -343,9 +348,22 @@ function RequestDetail({
             <Textarea
               value={response}
               onChange={(event) => setResponse(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter") return;
+                if (!(event.metaKey || event.ctrlKey)) return;
+                event.preventDefault();
+                sendResponse();
+              }}
               placeholder="Provide the decision, information, or authorization the agent needs…"
               rows={7}
+              aria-keyshortcuts="Meta+Enter Control+Enter"
             />
+            <p className="work-ledger-detail__shortcut-hint">
+              <kbd>⌘</kbd>
+              <kbd>↵</kbd>
+              {" "}
+              send response
+            </p>
           </section>
         ) : null}
       </div>
@@ -353,7 +371,7 @@ function RequestDetail({
         <footer className="work-ledger-detail__actions">
           <Button
             variant="danger"
-            disabled={pending || !response.trim()}
+            disabled={!canSend}
             onClick={() => onResolve(request, response.trim(), "rejected")}
           >
             <Ban size={12} />
@@ -361,8 +379,9 @@ function RequestDetail({
           </Button>
           <Button
             variant="primary"
-            disabled={pending || !response.trim()}
-            onClick={() => onResolve(request, response.trim(), "completed")}
+            disabled={!canSend}
+            onClick={sendResponse}
+            title="⌘↵ / Ctrl+Enter"
           >
             <Check size={12} />
             Send response
