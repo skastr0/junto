@@ -219,7 +219,7 @@ describe("renderer graph mutations", () => {
   it("deletes a kill-session page when browserStop is feature-flagged off", async () => {
     // Prod build with BROWSER_ENABLED=false strips browser IPC from preload.
     // Historical page furniture must still be deletable.
-    const api = runtimeWindow.vellumCommand as {
+    const api = runtimeWindow.vellumCommand as unknown as {
       browserStop?: typeof browserStop;
       browserSessionList?: () => Promise<{ ok: true; data: [] }>;
     };

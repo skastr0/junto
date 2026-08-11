@@ -155,13 +155,19 @@ export function TooltipLayer() {
     const observer = new MutationObserver((records) => {
       for (const record of records) {
         if (record.type === "attributes" && record.attributeName === "title") {
-          absorbNativeTitle(record.target as Element);
+          if (record.target instanceof HTMLElement) {
+            absorbNativeTitle(record.target);
+          }
           continue;
         }
         if (record.type === "childList") {
           record.addedNodes.forEach((node) => {
-            if (node instanceof Element || node instanceof DocumentFragment) {
+            if (node instanceof HTMLElement) {
               absorbNativeTitlesInTree(node);
+            } else if (node instanceof Element || node instanceof DocumentFragment) {
+              for (const child of node.querySelectorAll("[title]")) {
+                if (child instanceof HTMLElement) absorbNativeTitle(child);
+              }
             }
           });
         }

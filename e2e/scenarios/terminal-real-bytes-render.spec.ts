@@ -109,7 +109,7 @@ for (const { harness, scenario } of CASES) {
 
     // Ground truth: the app's own headless terminal, same bytes, same geometry.
     const { SessionObserver } = (await import(
-      "../../src/main/vellum/term/observer/index.ts"
+      "../../src/main/vellum/term/observer/index"
     )) as {
       SessionObserver: new (o: {
         bindingId: string;
