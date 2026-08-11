@@ -1,5 +1,5 @@
 import type { IpcMain, SaveDialogOptions } from "electron";
-import { app, BrowserWindow, dialog, nativeTheme } from "electron";
+import { app, BrowserWindow, dialog } from "electron";
 import { Effect, Result } from "effect";
 import { IPC_CHANNELS } from "@shared/ipc";
 import {
@@ -45,28 +45,12 @@ export const registerSettingsIpc = (
     exportBackup: (id, destination) =>
       AppRuntime.runPromise(exportStateBackup(id, destination)),
   });
-  /**
-   * Mirror the operator's theme onto Electron's nativeTheme.
-   *
-   * Harnesses that never query the terminal (Grok) read COLORFGBG at spawn,
-   * and a factory-woken seat has no surface to correct it afterwards. Main
-   * resolves that hint from nativeTheme, so nativeTheme has to know the real
-   * choice rather than reporting only the OS preference.
-   */
-  const syncNativeTheme = (theme: unknown): void => {
-    if (theme === "dark" || theme === "bright" || theme === "system") {
-      nativeTheme.themeSource = theme === "bright" ? "light" : theme;
-    }
-  };
-
   ipcMain.handle(IPC_CHANNELS.settingsGet, () =>
     AppRuntime.runPromise(
       Effect.gen(function* () {
         const settings = yield* SettingsService;
         const result = yield* Effect.result(settings.get);
-        const op = toOpResult(result);
-        syncNativeTheme((op as { readonly value?: { readonly theme?: unknown } })?.value?.theme);
-        return op;
+        return toOpResult(result);
       }),
     ),
   );
@@ -81,9 +65,7 @@ export const registerSettingsIpc = (
           return settingsOpFail("validation", "settings patch must be a plain object");
         }
         const result = yield* Effect.result(settings.patch(patch));
-        const op = toOpResult(result);
-        syncNativeTheme((op as { readonly value?: { readonly theme?: unknown } })?.value?.theme);
-        return op;
+        return toOpResult(result);
       }),
     ),
   );

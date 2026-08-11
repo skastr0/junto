@@ -419,27 +419,6 @@ export type ResolvedLaunch = {
  * A seat is what the node says it is; nothing about the launch payload can
  * make one variant behave like the other.
  */
-/**
- * The app's current theme, for harnesses that read COLORFGBG at spawn instead
- * of querying the terminal. Electron's nativeTheme is the authority: the
- * settings layer mirrors the operator's choice onto `themeSource`, so this is
- * correct for an explicit dark/bright pick and follows the OS on "system".
- * Falls back to dark only when Electron is unavailable (unit tests, tooling).
- */
-export const ambientThemeMode = (): ThemeMode => {
-  try {
-    // Lazy so this module stays importable outside an Electron main process.
-    const electron = require("electron") as {
-      readonly nativeTheme?: { readonly shouldUseDarkColors?: boolean };
-    };
-    const dark = electron.nativeTheme?.shouldUseDarkColors;
-    if (typeof dark === "boolean") return dark ? "dark" : "bright";
-  } catch {
-    // not running under Electron
-  }
-  return "dark";
-};
-
 export const resolveLaunch = (
   seat: TerminalSeat,
   options?: {
@@ -463,18 +442,9 @@ export const resolveLaunch = (
     ambientTerm.startsWith("xterm") || ambientTerm.startsWith("screen")
       ? ambientTerm
       : "xterm-256color";
-  // COLORFGBG is the spawn hint a TUI reads when it never asks the terminal
-  // what colour it is. Grok is exactly that case (its real captures contain no
-  // OSC 10/11 query, only a cursor-position request), so this value decides its
-  // palette for the whole session.
-  //
-  // It used to default to "dark". The comment said the renderer's OSC 10/11 and
-  // CSI ?996n were the live authority "once attached" — but a seat woken by the
-  // factory has no surface attached and may never get one, so nothing ever
-  // corrects the hint and the harness paints a dark theme into a bright UI.
-  // Opening the same seat by hand looked fine only because attaching a surface
-  // delivered the real theme afterwards.
-  const colorFgBg = colorFgBgFor(options?.themeMode ?? ambientThemeMode());
+  // COLORFGBG is a coarse spawn hint (fg;bg ANSI indices). Live theme comes
+  // from xterm ITheme + OSC 10/11 + CSI ?996n/?2031 on the renderer surface.
+  const colorFgBg = colorFgBgFor(options?.themeMode ?? "dark");
   const env: Record<string, string> =
     seat.kind === "agent"
       ? {
