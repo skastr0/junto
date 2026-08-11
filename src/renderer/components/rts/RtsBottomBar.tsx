@@ -260,17 +260,27 @@ const leaseEligibleActorIds = (
 };
 
 /**
- * Actors that keep a leased digit while busy. Working / attention seats stick
- * until idle — pressing another hotkey must not reassign their slot.
+ * Actors that keep a hard lease while busy. Seat working/attention, or herdr
+ * working/blocked, stick until idle — so idle soft-holds demote and newly
+ * active actors without a lease can take those digits.
  */
 const stickyWorkingNodeIds = (
   nodes: ReadonlyArray<CanvasNode>,
+  herdrMetaByNodeId: Record<
+    string,
+    { meta?: { agentStatus?: string } } | undefined
+  > = {},
 ): string[] => {
   const out: string[] = [];
   for (const node of nodes) {
     if (!isHotbarLeaseActor(node)) continue;
     const seat = seatEventForNode(node);
     if (seat?.state === "working" || seat?.state === "attention") {
+      out.push(node.id);
+      continue;
+    }
+    const herdr = herdrMetaByNodeId[node.id]?.meta?.agentStatus;
+    if (herdr === "working" || herdr === "blocked") {
       out.push(node.id);
     }
   }
@@ -282,7 +292,7 @@ const recomputeHotbar = (): void => {
   const doc = state$.doc.peek();
   const live = liveNodeIds(doc);
   const actors = leaseEligibleActorIds(doc.nodes);
-  // Selection counts as lease activity only for actors (not notes/tasks/…).
+  // Focus MRU orders fill among sticky actors only — it does not pin hard leases.
   let mru: ReadonlyArray<string> = filterLeaseCandidateIds(
     state$.hotbarActiveMru.peek(),
     actors,
@@ -292,7 +302,7 @@ const recomputeHotbar = (): void => {
     mru = touchActiveMru(mru, selected);
   }
   state$.hotbarActiveMru.set([...mru]);
-  const sticky = stickyWorkingNodeIds(doc.nodes);
+  const sticky = stickyWorkingNodeIds(doc.nodes, herdr$.metaByNodeId.peek());
   const next = purgeNonEligibleSoftSlots(
     resolveHotbarSlots(state$.hotbarSlots.peek(), live, mru, sticky),
     actors,
