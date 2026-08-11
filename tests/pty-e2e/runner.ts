@@ -18,7 +18,8 @@
  */
 
 import { readFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { expect } from "vitest";
 import { SessionObserver } from "../../src/main/vellum/term/observer";
 import { SeatStateRuntime } from "../../src/main/vellum/term/agent-state/runtime";
@@ -497,19 +498,80 @@ const BUILTIN_BY_KEY = new Map(
 // Fixture loading: P1 corpus first, then built-in P2/P3 tables
 // ---------------------------------------------------------------------------
 
-const P1_ROOT = "/tmp/vellum-pty-fixtures";
+/**
+ * Canonical corpus root: `tests/pty-e2e/corpus/<harness>/<scenario>.jsonl`
+ * (+ per-harness `manifest.json`). `VELLUM_PTY_CORPUS` overrides it — the
+ * transition hatch while the captures move in-repo; it must name a real
+ * directory or resolution fails.
+ *
+ * A missing corpus is NEVER a skip. Callers that need real bytes use
+ * `requireCapture`, which throws with the path it looked for.
+ */
+const CORPUS_DIR = join(dirname(fileURLToPath(import.meta.url)), "corpus");
+
+export const corpusRoot = (): string => process.env.VELLUM_PTY_CORPUS ?? CORPUS_DIR;
+
+/** Absolute path of one capture. Does not check existence. */
+export const capturePath = (harness: string, scenario: string): string =>
+  join(corpusRoot(), harness, `${scenario}.jsonl`);
+
+/**
+ * Resolve one real capture or THROW. The loud half of the corpus contract:
+ * an absent corpus fails the suite red instead of passing as a silent skip.
+ */
+export function requireCapture(harness: string, scenario: string): LoadedFixture {
+  const fixture = loadP1Fixture(harness, scenario);
+  if (fixture) return fixture;
+  const file = capturePath(harness, scenario);
+  throw new Error(
+    `real capture missing: ${harness}/${scenario}\n` +
+      `  looked for: ${file}\n` +
+      `  corpus root: ${corpusRoot()}${process.env.VELLUM_PTY_CORPUS ? " (VELLUM_PTY_CORPUS)" : " (canonical)"}\n` +
+      `  capture it with experiments/pty-capture.ts — a missing corpus is a red suite, never a skip.`,
+  );
+}
 
 export interface LoadedFixture extends Fixture {
   /** Absolute path of the P1 corpus file, when source === "P1". */
   readonly corpusPath?: string;
 }
 
+/**
+ * Manifest `expectedScreen` → the gate's key names.
+ *
+ * The capture manifests wrote `idleTitle` / `osc9Idle` while `gateFixture`
+ * reads `title` / `osc9`, and every gate assertion is guarded by an
+ * undefined-check — so on a real capture the title and osc9 checks silently
+ * never ran. Normalizing here means a legacy manifest still gates; the
+ * capture side emits the canonical names going forward.
+ */
+const normalizeExpectedScreen = (raw: Record<string, unknown>): ExpectedScreen => {
+  const pick = (...keys: ReadonlyArray<string>): string | undefined => {
+    for (const key of keys) {
+      const value = raw[key];
+      if (typeof value === "string") return value;
+    }
+    return undefined;
+  };
+  const title = pick("title", "idleTitle");
+  const osc9 = pick("osc9", "osc9Idle");
+  const promptGlyph = pick("promptGlyph");
+  const description = pick("description");
+  return {
+    description: description ?? "P1 corpus manifest expectedScreen",
+    ...(title !== undefined ? { title } : {}),
+    ...(osc9 !== undefined ? { osc9 } : {}),
+    ...(promptGlyph !== undefined ? { promptGlyph } : {}),
+    ...(raw.noPromptGlyph === true ? { noPromptGlyph: true as const } : {}),
+  };
+};
+
 /** Read a P1 jsonl corpus scenario (with manifest, when present). */
 export function loadP1Fixture(
   harness: string,
   scenario: string,
 ): LoadedFixture | null {
-  const file = join(P1_ROOT, harness, `${scenario}.jsonl`);
+  const file = capturePath(harness, scenario);
   if (!existsSync(file)) return null;
   const events: FixtureEvent[] = [];
   for (const line of readFileSync(file, "utf8").split("\n")) {
@@ -518,7 +580,7 @@ export function loadP1Fixture(
     const parsed = JSON.parse(t) as FixtureEvent;
     events.push({ t: parsed.t, b64: parsed.b64 });
   }
-  const manifestPath = join(P1_ROOT, harness, "manifest.json");
+  const manifestPath = join(corpusRoot(), harness, "manifest.json");
   let expectedScreen: ExpectedScreen = {
     description: "P1 corpus manifest did not specify screen truth",
   };
@@ -527,8 +589,8 @@ export function loadP1Fixture(
       scenarios?: Array<Record<string, unknown>>;
     };
     const entry = manifest.scenarios?.find((s) => s.scenario === scenario);
-    const esc = entry?.expectedScreen as ExpectedScreen | undefined;
-    if (esc && typeof esc === "object") expectedScreen = esc;
+    const esc = entry?.expectedScreen as Record<string, unknown> | undefined;
+    if (esc && typeof esc === "object") expectedScreen = normalizeExpectedScreen(esc);
   }
   return {
     harness,
@@ -746,6 +808,20 @@ export function gateFixture(
   fixture: Fixture,
 ): void {
   const esc = fixture.expectedScreen;
+  // A gate that asserts nothing is not a gate. Every check below is guarded by
+  // an undefined-check, so an expectedScreen carrying none of the assertable
+  // keys used to pass silently — that is the vacuity this refuses.
+  const assertable =
+    esc.title !== undefined ||
+    esc.osc9 !== undefined ||
+    esc.promptGlyph !== undefined ||
+    esc.noPromptGlyph === true;
+  expect(
+    assertable,
+    `[gate ${fixture.harness}/${fixture.scenario}] expectedScreen carries no assertable key ` +
+      `(title / osc9 / promptGlyph / noPromptGlyph) — the canonicality gate would assert nothing. ` +
+      `Fix the manifest entry rather than gating on an empty shape.`,
+  ).toBe(true);
   if (esc.title !== undefined) {
     expect(
       snapshot.signals.title,

@@ -10,19 +10,40 @@
 import { describe, expect, it } from "vitest";
 import path from "node:path";
 import fs from "node:fs";
-import os from "node:os";
+import { fileURLToPath } from "node:url";
 import { SessionObserver } from "../../../src/main/vellum/term/observer/session-observer";
 import { SeatStateRuntime } from "../../../src/main/vellum/term/agent-state/runtime";
 
-const FIXTURE_ROOT = "/tmp/vellum-pty-fixtures"; // captures land here (macOS /tmp → /private/tmp)
+const FIXTURE_ROOT =
+  process.env.VELLUM_PTY_CORPUS ??
+  path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "corpus");
 
 type FixtureEntry = { t: number; b64: string };
 
-const loadFixture = (harness: string, scenario: string): FixtureEntry[] | null => {
+/**
+ * Load a real capture or THROW.
+ *
+ * This used to return null and every caller did
+ * `if (!entries) return console.warn("SKIP: ...")` — which vitest counts as a
+ * PASSING test. With the corpus absent every assertion in this file was a
+ * no-op reported green. A missing corpus is a red suite, never a skip.
+ */
+const loadFixture = (harness: string, scenario: string): FixtureEntry[] => {
   const p = path.join(FIXTURE_ROOT, harness, `${scenario}.jsonl`);
-  if (!fs.existsSync(p)) return null;
-  return fs.readFileSync(p, "utf8").split("\n").filter((l) => l.trim())
+  if (!fs.existsSync(p)) {
+    throw new Error(
+      `real capture missing: ${harness}/${scenario}\n  looked for: ${p}\n` +
+        `  corpus root: ${FIXTURE_ROOT}` +
+        `${process.env.VELLUM_PTY_CORPUS ? " (VELLUM_PTY_CORPUS)" : " (canonical)"}\n` +
+        `  capture it with experiments/pty-capture.ts.`,
+    );
+  }
+  const entries = fs.readFileSync(p, "utf8").split("\n").filter((l) => l.trim())
     .map((l) => JSON.parse(l) as FixtureEntry);
+  if (entries.length === 0) {
+    throw new Error(`real capture is empty: ${p}`);
+  }
+  return entries;
 };
 
 const decode = (entries: FixtureEntry[]): string =>
@@ -43,7 +64,6 @@ const feedAll = async (obs: SessionObserver, blob: string, chunkSize = 512) => {
 describe("R7 — real P1 captures (canonicality + honest state)", () => {
   it("claude/startup-idle: real ✳ title + OSC 9;4;0 + welcome composer → idle + pasteable", async () => {
     const entries = loadFixture("claude", "startup-idle");
-    if (!entries) return console.warn("SKIP: claude/startup-idle absent");
     const obs = makeObserver();
     try {
       await feedAll(obs, decode(entries));
@@ -68,7 +88,6 @@ describe("R7 — real P1 captures (canonicality + honest state)", () => {
 
   it("claude/paste-chip: real '[Pasted text #1 +14 lines]' chip renders → chip visible, seat idle (pasteable)", async () => {
     const entries = loadFixture("claude", "paste-chip");
-    if (!entries) return console.warn("SKIP: claude/paste-chip absent");
     const blob = decode(entries);
     const idx = blob.indexOf("[Pasted");
     expect(idx).toBeGreaterThan(0); // the real chip must be in the capture
@@ -95,7 +114,6 @@ describe("R7 — real P1 captures (canonicality + honest state)", () => {
 
   it("claude/paste-chip tail: after Ctrl+C clear the composer is empty again", async () => {
     const entries = loadFixture("claude", "paste-chip");
-    if (!entries) return console.warn("SKIP: claude/paste-chip absent");
     const obs = makeObserver();
     try {
       await feedAll(obs, decode(entries));
@@ -109,7 +127,6 @@ describe("R7 — real P1 captures (canonicality + honest state)", () => {
 
   it("muse/startup-idle: real P1 muse capture renders and publishes fallback idle (documented)", async () => {
     const entries = loadFixture("muse", "startup-idle");
-    if (!entries) return console.warn("SKIP: muse/startup-idle absent");
     const obs = makeObserver();
     try {
       await feedAll(obs, decode(entries));
@@ -128,7 +145,6 @@ describe("R7 — real P1 captures (canonicality + honest state)", () => {
 
   it("codex/startup-idle: REAL trust modal bytes → attention (not idle/working)", async () => {
     const entries = loadFixture("codex", "startup-idle");
-    if (!entries) return console.warn("SKIP: codex/startup-idle absent");
     const obs = makeObserver();
     try {
       await feedAll(obs, decode(entries));
@@ -151,7 +167,6 @@ describe("R7 — real P1 captures (canonicality + honest state)", () => {
     // Real kimi 0.34.0 startup: welcome box + "context: 0% (0/1M)" footer, NO "> " composer
     // line on screen → kimi's prompt_footer_idle cannot fire → fallback idle refuses paste.
     const entries = loadFixture("kimi", "startup-idle");
-    if (!entries) return console.warn("SKIP: kimi/startup-idle absent");
     const obs = makeObserver();
     try {
       await feedAll(obs, decode(entries));
@@ -171,7 +186,6 @@ describe("R7 — real P1 captures (canonicality + honest state)", () => {
 
   it("prime-agent/startup-idle (real): OSC title 'prime-agent - prime-agent' → idle + pasteable (sanity)", async () => {
     const entries = loadFixture("prime-agent", "startup-idle");
-    if (!entries) return console.warn("SKIP: prime-agent/startup-idle absent");
     const obs = makeObserver();
     try {
       await feedAll(obs, decode(entries));
@@ -189,7 +203,6 @@ describe("R7 — real P1 captures (canonicality + honest state)", () => {
 
   it("devin/startup-idle (real): workspace-trust prompt → attention (sanity — real trust modal detected)", async () => {
     const entries = loadFixture("devin", "startup-idle");
-    if (!entries) return console.warn("SKIP: devin/startup-idle absent");
     const obs = makeObserver();
     try {
       await feedAll(obs, decode(entries));
@@ -208,7 +221,6 @@ describe("R7 — real P1 captures (canonicality + honest state)", () => {
     // Real capture: 152 braille frames animate on the grid while the OSC title stays
     // static "grok" for the whole session; no "[stop]" chip on this version.
     const entries = loadFixture("grok", "working-turn");
-    if (!entries) return console.warn("SKIP: grok/working-turn absent");
     const blob = decode(entries);
     const midCut = blob.indexOf("press Ctrl+c again to quit"); // everything before exit-confirm
     const mid = midCut > 0 ? blob.slice(0, Math.min(midCut, 20_000)) : blob;
@@ -237,7 +249,6 @@ describe("R7 — real P1 captures (canonicality + honest state)", () => {
 
   const workingTurnState = async (harness: string, label: string, cutAt: number) => {
     const entries = loadFixture(harness, "working-turn");
-    if (!entries) { console.warn(`SKIP: ${harness}/working-turn absent`); return null; }
     const blob = decode(entries);
     const mid = blob.slice(0, Math.min(cutAt, blob.length));
     const obs = makeObserver();
@@ -264,7 +275,6 @@ describe("R7 — real P1 captures (canonicality + honest state)", () => {
   it("codex/working-turn (real): animated spinner title mid-turn → working (sanity)", async () => {
     // Real codex churns the OSC title (⠴ ⠦ ⠧ ⠇ ⠏ codex) through the turn (~3KB–24KB+).
     const r = await workingTurnState("codex", "codex", 12_000);
-    if (!r) return;
     expect(r.state).toBe("working");
   });
 
@@ -272,20 +282,17 @@ describe("R7 — real P1 captures (canonicality + honest state)", () => {
     // Hermes shows ⏳ gpt-5.4-mini while working; its rule pack has no ⏳ rule and the
     // working evidence here is grid braille in the first KBs.
     const r = await workingTurnState("hermes", "hermes", 3_500);
-    if (!r) return;
     expect(r.state).toBe("working");
   });
 
   it("kimi/working-turn (real): OSC 9;4;3 progress window → working (sanity)", async () => {
     // Kimi emits OSC 9;4;3 during the turn (buckets 3–16KB) — but kimi's pack has no osc9 rule.
     const r = await workingTurnState("kimi", "kimi", 10_000);
-    if (!r) return;
     expect(r.state).toBe("working");
   });
 
   it("muse/working-turn (real): spinner title mid-turn → working (today: fallback idle — muse pack empty, chrome lies)", async () => {
     const r = await workingTurnState("muse", "muse", 6_500);
-    if (!r) return;
     // museRules is empty → fallback idle is the DOCUMENTED behavior (fail-closed).
     console.log("  (muse working detection is intentionally absent — pack empty; document)");
     expect(r.state).toBe("working");
@@ -297,7 +304,6 @@ describe("R7 — real P1 captures (canonicality + honest state)", () => {
     // second CR also does not submit, ONE Ctrl+C clears. The fixture must show the
     // chip render in the composer — the drive must NOT assume a 2nd CR collapses it.
     const entries = loadFixture("hermes", "paste-chip");
-    if (!entries) return console.warn("SKIP: hermes/paste-chip absent");
     const blob = decode(entries);
     const chipIdx = blob.indexOf("[[ PASTE_LINE_00");
     expect(chipIdx).toBeGreaterThan(0); // real chip render present in bytes

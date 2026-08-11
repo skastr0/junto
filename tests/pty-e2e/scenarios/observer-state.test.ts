@@ -341,22 +341,22 @@ describe("R5 — braille title churn is progress (turn-stall never fires while c
 // ---------------------------------------------------------------------------
 
 describe("R6 — P1 captures present at run time + cross-harness idle coverage", () => {
-  const P1_AVAILABLE = [
-    ["muse", "startup-idle"],
-    ["muse", "paste-chip"],
-    ["muse", "working-turn"],
-    ["muse", "type-echo"],
-  ] as const;
-
-  it("skips cleanly when a P1 capture is absent (codex/grok/kimi/pi/prime-agent not captured yet)", () => {
-    // The P1 corpus today holds muse only (see /tmp/vellum-pty-fixtures/index.json).
-    // Anything the corpus lacks falls back to P2/P3 built-ins; a missing
-    // BUILTIN entry would throw here — that is the skip-with-reason contract.
-    const p1Present = new Set(
-      P1_AVAILABLE.map(([h, s]) => `${h}/${s}`),
-    );
+  it("built-in fixtures are real P2/P3 receipt tables, never P1 stand-ins", () => {
+    // Replaces an assertion that could not fail: it compared BUILTIN_FIXTURES
+    // against a hardcoded muse-only P1 list, and since no builtin carries
+    // source "P1" the `|| f.source !== "P1"` arm made every row pass. The
+    // real invariant is that the builtin table stays what it claims to be —
+    // synthesized receipts with actual bytes — so a P1 capture is never
+    // silently shadowed by a mock of the same name.
+    expect(BUILTIN_FIXTURES.length).toBeGreaterThan(0);
     for (const f of BUILTIN_FIXTURES) {
-      expect(p1Present.has(`${f.harness}/${f.scenario}`) || f.source !== "P1").toBe(true);
+      const id = `${f.harness}/${f.scenario}`;
+      expect(f.source, `[${id}] builtins are P2/P3 receipts, never labelled P1`).not.toBe("P1");
+      expect(f.events.length, `[${id}] builtin carries no bytes`).toBeGreaterThan(0);
+      expect(
+        f.provenance?.trim().length ?? 0,
+        `[${id}] builtin must cite where its bytes came from`,
+      ).toBeGreaterThan(0);
     }
   });
 
