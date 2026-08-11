@@ -25,7 +25,10 @@ export const worseMemberSeverity = (
 
 /**
  * Map live managed-seat / herdr agent status → chip severity.
- * Idle / gone / unknown do not force a chip quiet when another source is busier.
+ *
+ * Idle is an **authoritative quiet** for harness activity — return "idle" so
+ * hotbar can demote lagging rollup attention/working (seat is truth for that
+ * plane). Herdr done is ready/complete green on the card, not chip attention.
  */
 export function liveActivitySeverity(input: {
   readonly seatState?: AgentSeatState;
@@ -33,10 +36,11 @@ export function liveActivitySeverity(input: {
 }): MemberSeverity | undefined {
   if (input.seatState === "attention") return "attention";
   if (input.seatState === "working") return "working";
+  if (input.seatState === "idle" || input.seatState === "gone") return "idle";
   const herdr = input.herdrAgentStatus ?? undefined;
   if (herdr === "blocked") return "blocked";
   if (herdr === "working") return "working";
-  // herdr "done" is ready/complete (green pulse on card) — not attention on chips
+  if (herdr === "idle" || herdr === "done") return "idle";
   return undefined;
 }
 
@@ -93,10 +97,23 @@ export function hotbarNodeSeverity(
   }
 
   if (options.liveSeverity !== undefined) {
-    severity =
-      severity === undefined
-        ? options.liveSeverity
-        : worseMemberSeverity(severity, options.liveSeverity);
+    if (options.liveSeverity === "idle") {
+      // Seat is quiet — drop harness-tier lag from rollups (attention/working).
+      // Keep blocked/parked (graph stoppage / flags), which are not seat waves.
+      if (
+        severity === undefined ||
+        severity === "attention" ||
+        severity === "working" ||
+        severity === "idle"
+      ) {
+        severity = "idle";
+      }
+    } else {
+      severity =
+        severity === undefined
+          ? options.liveSeverity
+          : worseMemberSeverity(severity, options.liveSeverity);
+    }
   }
 
   return severity ?? "idle";

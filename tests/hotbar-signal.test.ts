@@ -78,13 +78,35 @@ describe("liveActivitySeverity", () => {
   it("maps seat working and attention", () => {
     expect(liveActivitySeverity({ seatState: "working" })).toBe("working");
     expect(liveActivitySeverity({ seatState: "attention" })).toBe("attention");
-    expect(liveActivitySeverity({ seatState: "idle" })).toBeUndefined();
+    expect(liveActivitySeverity({ seatState: "idle" })).toBe("idle");
   });
 
   it("maps herdr working and blocked", () => {
     expect(liveActivitySeverity({ herdrAgentStatus: "working" })).toBe("working");
     expect(liveActivitySeverity({ herdrAgentStatus: "blocked" })).toBe("blocked");
-    expect(liveActivitySeverity({ herdrAgentStatus: "done" })).toBeUndefined();
+    expect(liveActivitySeverity({ herdrAgentStatus: "done" })).toBe("idle");
+  });
+});
+
+describe("hotbarNodeSeverity seat quiet demotion", () => {
+  it("demotes lagging rollup attention when seat is idle", () => {
+    const node = { ...base, type: "text", text: "Pi" } as CanvasNode;
+    expect(
+      hotbarNodeSeverity(node, {
+        memberSeverity: "attention",
+        liveSeverity: "idle",
+      }),
+    ).toBe("idle");
+  });
+
+  it("keeps graph blocked even when seat is idle", () => {
+    const node = { ...base, type: "text", text: "Pi" } as CanvasNode;
+    expect(
+      hotbarNodeSeverity(node, {
+        memberSeverity: "blocked",
+        liveSeverity: "idle",
+      }),
+    ).toBe("blocked");
   });
 });
 

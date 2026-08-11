@@ -83,6 +83,15 @@ export const fuseRegionRollups = (
       // A host-local lifecycle tombstone is newer and more specific than a
       // cached main rollup. Never preserve activity from its dead generation.
       if (clientAuthoritativeNodeIds.has(am.nodeId)) return am;
+      // Client seat plane is live on the renderer. A quiet client seat must not
+      // lose to a lagging main rollup still carrying attention/working — that
+      // desync paints "needs input" / hotkeys amber while the seat is idle.
+      if (
+        (am.severity === "idle" || am.severity === "parked") &&
+        (bm.severity === "attention" || bm.severity === "working")
+      ) {
+        return am;
+      }
       return SEVERITY_RANK[am.severity] <= SEVERITY_RANK[bm.severity] ? am : bm;
     });
     // Members only on live (shouldn't happen often) — append.
