@@ -6,6 +6,7 @@ import {
   setWorkbenchFocusSize,
 } from "../../lib/dock-state";
 import {
+  focusDockChromeVisible,
   surfaceById,
   visiblePanes,
   workFocusSizeKeyForSurfaces,
@@ -48,7 +49,7 @@ export function WorkFocusShell() {
   // Dock chrome (tabs / split / pin-all) is for multi-surface browser work.
   // Pure terminal/herdr focus uses surface-local Pin + Close — reusing the
   // side-dock strip here was noise (fake single tab + split toggle).
-  const showDockChrome = focusSurfaces.length > 1 && !onlyTerminals;
+  const showDockChrome = focusDockChromeVisible(registry);
 
   const panes = visiblePanes(registry, "focus");
   const activeId = panes.pane0;

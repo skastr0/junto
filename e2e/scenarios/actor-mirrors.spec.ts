@@ -7,6 +7,8 @@
  *   - clicking a mirror swaps the front modal to that actor in place
  *   - the previous surface parks (stays mounted — keep-alive proof)
  *   - Cmd+] / Cmd+[ cycle the sticky ring (hub plus its actor peers), wrapping
+ *   - ONE Close press after cycling dismisses the whole modal — the parked
+ *     stack never pops one press per cycled actor
  */
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -135,6 +137,16 @@ test("connections rail mirrors swap the modal and Cmd+] cycles the ring", async 
     await page.screenshot({
       path: join(SHOTS, "after_cycle.png"),
       fullPage: false,
+    });
+
+    // Modal semantics: one Close press dismisses the whole stack — front pane
+    // AND both parked mirror views — never one press per cycled actor.
+    await front
+      .locator("header")
+      .getByRole("button", { name: "Close view" })
+      .click();
+    await expect(page.locator(".native-terminal-surface")).toHaveCount(0, {
+      timeout: 10_000,
     });
   } finally {
     await vellumCommand.close();

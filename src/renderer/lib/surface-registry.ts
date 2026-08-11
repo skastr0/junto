@@ -286,6 +286,17 @@ export const workFocusSizeKeyForSurfaces = (
   return "workspace";
 };
 
+/**
+ * Whether the focus zone renders the dock chrome (tab / split strip).
+ * Single source for close semantics: without this chrome, stacked focus
+ * surfaces are invisible — the zone presents as ONE modal, and Close must
+ * dismiss it whole rather than pop the hidden MRU one press at a time.
+ */
+export const focusDockChromeVisible = (state: WorkbenchState): boolean => {
+  const focus = state.surfaces.filter((s) => s.zone === "focus");
+  return focus.length > 1 && workFocusSizeKeyForSurfaces(focus) !== "terminal";
+};
+
 export const workbenchInteractiveSurface = (
   state: WorkbenchState,
 ): WorkSurface | undefined => state.surfaces.find((s) => isInteractiveSurface(s.kind));

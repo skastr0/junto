@@ -18,6 +18,7 @@ import {
 } from "./herdr-state";
 import {
   closeSurface,
+  focusDockChromeVisible,
   focusSurface,
   initialWorkbenchState,
   openSurface,
@@ -421,6 +422,11 @@ export const setWorkbenchFocusSize = (
   applyTransition(setFocusSize(dock$.registry.peek(), size));
 };
 
+/**
+ * Close one workbench surface (view only). Browser closes detach over IPC;
+ * herdr closes release that nodeId's stream; terminal closes drop the view
+ * while the PTY keeps running.
+ */
 export const closeWorkbenchSurface = (id: string): void => {
   const surface = dock$.registry.peek().surfaces.find((s) => s.id === id);
   if (!surface) return;
@@ -431,6 +437,27 @@ export const closeWorkbenchSurface = (id: string): void => {
   // herdr: closeSurface + applyTransition releases that nodeId's stream and
   // drops the slot immediately (no async lag).
   applyTransition(closeSurface(dock$.registry.peek(), id));
+};
+
+/**
+ * Close a focus surface with MODAL semantics. Without the dock chrome the
+ * focus zone presents as ONE modal — mirror cycling parks siblings invisibly
+ * behind the front pane, and the shell's backdrop click already dismisses
+ * them all — so a single Close must dismiss the whole stack, never pop the
+ * hidden MRU one press per cycled actor. With tab chrome visible, tabs are
+ * real affordances and close stays per-surface. Views only; processes,
+ * warm browser sessions, and PTYs keep running.
+ */
+export const closeFocusModalSurface = (id: string): void => {
+  const registry = dock$.registry.peek();
+  const surface = surfaceById(registry, id);
+  if (!surface || surface.zone !== "focus" || focusDockChromeVisible(registry)) {
+    closeWorkbenchSurface(id);
+    return;
+  }
+  for (const s of registry.surfaces) {
+    if (s.zone === "focus") closeWorkbenchSurface(s.id);
+  }
 };
 
 /**

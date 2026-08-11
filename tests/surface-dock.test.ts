@@ -19,6 +19,7 @@ import {
 } from "../src/renderer/lib/surface-registry";
 import {
   closeDockBrowser,
+  closeFocusModalSurface,
   closeWorkbenchSurface,
   chatSurfaceId,
   dock$,
@@ -755,6 +756,56 @@ describe("dock-state", () => {
       expect(dock$.registry.peek().surfaces.find((s) => s.id === terminalSurfaceId("t2"))?.zone).toBe(
         "focus",
       );
+    });
+  });
+
+  describe("closeFocusModalSurface — Close dismisses the whole chrome-less modal", () => {
+    it("one press closes a stack of cycled mirror terminals, views included", () => {
+      // Mirror cycling: three actors opened in sequence, all parked in focus.
+      for (const id of ["t1", "t2", "t3"]) {
+        openTerminalSurface(nativeTerminalNode(id), "focus");
+      }
+      expect(dock$.registry.peek().surfaces).toHaveLength(3);
+      closeFocusModalSurface(terminalSurfaceId("t3"));
+      expect(dock$.registry.peek().surfaces).toEqual([]);
+      expect(terminal$.openByNodeId.peek()).toEqual({});
+    });
+
+    it("never reaches into the pinned zone", () => {
+      openTerminalSurface(nativeTerminalNode("dock"), "pinned");
+      openTerminalSurface(nativeTerminalNode("t1"), "focus");
+      openTerminalSurface(nativeTerminalNode("t2"), "focus");
+      closeFocusModalSurface(terminalSurfaceId("t2"));
+      expect(dock$.registry.peek().surfaces).toEqual([
+        { id: terminalSurfaceId("dock"), kind: "terminal", zone: "pinned" },
+      ]);
+    });
+
+    it("closing a pinned surface stays per-surface", () => {
+      openTerminalSurface(nativeTerminalNode("dock"), "pinned");
+      openTerminalSurface(nativeTerminalNode("t1"), "focus");
+      closeFocusModalSurface(terminalSurfaceId("dock"));
+      expect(dock$.registry.peek().surfaces).toEqual([
+        { id: terminalSurfaceId("t1"), kind: "terminal", zone: "focus" },
+      ]);
+    });
+
+    it("with tab chrome visible (mixed kinds) close stays per-surface", () => {
+      openTerminalSurface(nativeTerminalNode("t1"), "focus");
+      openAgentChatSurface({
+        id: "agent-1",
+        type: "text",
+        x: 0,
+        y: 0,
+        width: 240,
+        height: 96,
+        text: "PROFILE-01",
+        ether: { entity: { kind: "agent", name: "remote-a:profile-01" } },
+      });
+      closeFocusModalSurface(terminalSurfaceId("t1"));
+      expect(dock$.registry.peek().surfaces).toEqual([
+        { id: chatSurfaceId("agent-1"), kind: "chat", zone: "focus" },
+      ]);
     });
   });
 });

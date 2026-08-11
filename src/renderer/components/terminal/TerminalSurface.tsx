@@ -9,7 +9,7 @@ import { taskBrief } from "@shared/task";
 import { MONO_CELL } from "../../lib/focus-measure";
 import { use$ } from "@legendapp/state/react";
 import {
-  closeWorkbenchSurface,
+  closeFocusModalSurface,
   dock$,
   pinWorkbenchSurface,
   terminalSurfaceId,
@@ -819,7 +819,9 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
   const registry = use$(dock$.registry);
   const surface = surfaceById(registry, surfaceId);
   const pinned = surface?.zone === "pinned";
-  const closeSurface = () => closeWorkbenchSurface(surfaceId);
+  // Modal semantics: dismisses the whole chrome-less focus stack (cycled
+  // mirror views park behind the front pane), one press. Views only.
+  const closeSurface = () => closeFocusModalSurface(surfaceId);
   const togglePin = () => {
     if (pinned) unpinWorkbenchSurface(surfaceId);
     else pinWorkbenchSurface(surfaceId);
