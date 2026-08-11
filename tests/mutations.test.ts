@@ -137,6 +137,66 @@ describe("renderer graph mutations", () => {
     loadDoc({ nodes: [], edges: [] });
   });
 
+  it("preserves still-valid interaction state across a same-canvas projection", () => {
+    loadDoc(doc, "r1", "mutation-test");
+    state$.selectedNodeId.set("");
+    state$.selectedNodeIds.set(["source", "target"]);
+    state$.focusNodeId.set("source");
+    state$.editNodeId.set("target");
+
+    loadDoc(
+      {
+        ...doc,
+        nodes: [
+          ...doc.nodes,
+          {
+            id: "background-task",
+            type: "text",
+            text: "background task",
+            x: 600,
+            y: 0,
+            width: 200,
+            height: 80,
+          },
+        ],
+      },
+      "r2",
+      "mutation-test",
+      { preserveValidInteraction: true },
+    );
+
+    expect(state$.selectedNodeId.peek()).toBe("");
+    expect(state$.selectedNodeIds.peek()).toEqual(["source", "target"]);
+    expect(state$.focusNodeId.peek()).toBe("source");
+    expect(state$.editNodeId.peek()).toBe("target");
+  });
+
+  it("drops interaction references removed by a same-canvas projection", () => {
+    const edgeDoc: CanvasDoc = {
+      ...doc,
+      edges: [{ id: "edge", fromNode: "source", toNode: "target" }],
+    };
+    loadDoc(edgeDoc, "r1", "mutation-test");
+    state$.selectedNodeId.set("source");
+    state$.selectedNodeIds.set(["source"]);
+    state$.selectedEdgeId.set("edge");
+    state$.focusNodeId.set("source");
+    state$.editNodeId.set("source");
+
+    loadDoc(
+      { nodes: [doc.nodes[1]!], edges: [] },
+      "r2",
+      "mutation-test",
+      { preserveValidInteraction: true },
+    );
+
+    expect(state$.selectedNodeId.peek()).toBe("");
+    expect(state$.selectedNodeIds.peek()).toEqual([]);
+    expect(state$.selectedEdgeId.peek()).toBe("");
+    expect(state$.focusNodeId.peek()).toBe("");
+    expect(state$.editNodeId.peek()).toBe("");
+  });
+
   it("keeps a kill-session page node visible when Stop Page fails", async () => {
     state$.canvasName.set("mutation-test");
     const ref = formatNodeRef({ canvasName: "mutation-test", nodeId: "page" });

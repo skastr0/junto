@@ -158,19 +158,39 @@ const projectRuntimeFlagOverrides = (
   }),
 });
 
+/**
+ * Legend mirrors React Flow's full selection separately from its single-node
+ * inspector subject. Resolve the live set once so structural rebuilds cannot
+ * collapse a multi-selection back to the single-node channel.
+ */
+const selectedNodeSet = (
+  selectedNodeId: string,
+  selectedNodeIds: ReadonlyArray<string>,
+): ReadonlySet<string> => {
+  const multiSelectionIsCurrent =
+    selectedNodeIds.length > 1 &&
+    (selectedNodeId === "" || selectedNodeIds.includes(selectedNodeId));
+  if (multiSelectionIsCurrent) return new Set(selectedNodeIds);
+  const single =
+    selectedNodeId || (selectedNodeIds.length === 1 ? selectedNodeIds[0] ?? "" : "");
+  return single ? new Set([single]) : new Set();
+};
+
 function stampImpactShell(
   nodes: FlowNode[],
   edges: FlowEdge[],
   selectedNodeId: string,
+  selectedNodeIds: ReadonlyArray<string>,
   selectedEdgeId: string,
 ): { nodes: FlowNode[]; edges: FlowEdge[]; impact: ImpactSelection } {
   const context = currentExecutionGraphContext();
   const impact = selectionForCanvas(selectedNodeId, context);
+  const selectedIds = selectedNodeSet(selectedNodeId, selectedNodeIds);
   if (impactModeActive$.peek() !== impact.active) impactModeActive$.set(impact.active);
   return {
     impact,
     nodes: nodes.map((node) => {
-      const selected = node.id === selectedNodeId;
+      const selected = selectedIds.has(node.id);
       const className = nodeImpactClass(impact.active, impact.cone, node.id);
       if (node.selected === selected && node.className === className) return node;
       return { ...node, selected, className };
@@ -215,6 +235,7 @@ function applyStructuralRebuild(
     flowCache,
   );
   const nodeId = state$.selectedNodeId.peek();
+  const nodeIds = state$.selectedNodeIds.peek();
   const edgeId = state$.selectedEdgeId.peek();
   const visibleNodes = flagFilter
     ? built.nodes.filter((node) => node.type === "group" || node.data?.node.ether?.flags?.includes(flagFilter))
@@ -227,7 +248,7 @@ function applyStructuralRebuild(
       (!edgeFilter || (edge.data?.phase ?? edge.data?.edge.ether?.kind ?? "relates") === edgeFilter),
   );
   // Selection + impact cone classes live on the RF shell (not Flow data).
-  const stamped = stampImpactShell(visibleNodes, filteredEdges, nodeId, edgeId);
+  const stamped = stampImpactShell(visibleNodes, filteredEdges, nodeId, nodeIds, edgeId);
   const query = searchQuery.trim().toLowerCase();
   const nextNodes = query
     ? stamped.nodes.filter((flowNode) => searchText(flowNode.data.node).includes(query))
@@ -335,24 +356,17 @@ function useCanvasDocument(
       }
       pendingSelection = false;
       const selectedNodeId = state$.selectedNodeId.peek();
+      const selectedNodeIds = state$.selectedNodeIds.peek();
       const selectedEdgeId = state$.selectedEdgeId.peek();
       const context = currentExecutionGraphContext();
       const impact: ImpactSelection = selectionForCanvas(selectedNodeId, context);
+      const selectedIds = selectedNodeSet(selectedNodeId, selectedNodeIds);
       if (impactModeActive$.peek() !== impact.active) impactModeActive$.set(impact.active);
 
       setNodes((nodes) => {
-        if (!selectedNodeId && nodes.filter((node) => node.selected).length > 1) {
-          let dirty = false;
-          const next = nodes.map((node) => {
-            if (!node.className) return node;
-            dirty = true;
-            return { ...node, className: undefined };
-          });
-          return dirty ? next : nodes;
-        }
         let dirty = false;
         const next = nodes.map((node) => {
-          const selected = node.id === selectedNodeId;
+          const selected = selectedIds.has(node.id);
           const className = nodeImpactClass(impact.active, impact.cone, node.id);
           if (node.selected === selected && node.className === className) return node;
           dirty = true;
@@ -388,6 +402,7 @@ function useCanvasDocument(
     syncSelection();
     const offs = [
       state$.selectedNodeId.onChange(syncSelection),
+      state$.selectedNodeIds.onChange(syncSelection),
       state$.selectedEdgeId.onChange(syncSelection),
       state$.connectionFocusNodeId.onChange(syncSelection),
       viewportBusy$.onChange(() => {

@@ -480,9 +480,22 @@ export const commitDoc = (next: CanvasDoc, structural = true, recordHistory = st
   scheduleSave();
 };
 
+export interface LoadDocOptions {
+  /**
+   * Same-canvas projections retain interaction state only while its referenced
+   * node or edge still exists. Canvas navigation keeps the reset default.
+   */
+  readonly preserveValidInteraction?: boolean;
+}
+
 // Replace the document from an authoritative source (open / external reload).
 // Always structural; never triggers a save (it mirrors what's already committed).
-export const loadDoc = (doc: CanvasDoc, revision?: string, name = state$.canvasName.peek()): void => {
+export const loadDoc = (
+  doc: CanvasDoc,
+  revision?: string,
+  name = state$.canvasName.peek(),
+  options: LoadDocOptions = {},
+): void => {
   if (!canvasMutationAdmissionOpen) return;
   if (pendingSave?.name === name) pendingSave = null;
   if (saveTimer && pendingSave === null) {
@@ -493,14 +506,37 @@ export const loadDoc = (doc: CanvasDoc, revision?: string, name = state$.canvasN
   else revisionsByName.set(name, revision);
   past.length = 0;
   future.length = 0;
-  state$.editNodeId.set("");
-  state$.selectedNodeId.set("");
-  state$.selectedNodeIds.set([]);
-  state$.selectedEdgeId.set("");
-  state$.focusNodeId.set("");
+  const nodeIds = options.preserveValidInteraction
+    ? new Set(doc.nodes.map((node) => node.id))
+    : undefined;
+  const edgeIds = options.preserveValidInteraction
+    ? new Set(doc.edges.map((edge) => edge.id))
+    : undefined;
+  const selectedNodeIds = nodeIds
+    ? state$.selectedNodeIds.peek().filter((id) => nodeIds.has(id))
+    : [];
+  const previousSelectedNodeId = state$.selectedNodeId.peek();
+  const selectedNodeId = nodeIds?.has(previousSelectedNodeId)
+    ? previousSelectedNodeId
+    : selectedNodeIds.length === 1
+      ? selectedNodeIds[0] ?? ""
+      : "";
+  const previousSelectedEdgeId = state$.selectedEdgeId.peek();
+  const selectedEdgeId = edgeIds?.has(previousSelectedEdgeId)
+    ? previousSelectedEdgeId
+    : "";
+  const previousFocusNodeId = state$.focusNodeId.peek();
+  const focusNodeId = nodeIds?.has(previousFocusNodeId) ? previousFocusNodeId : "";
+  const previousEditNodeId = state$.editNodeId.peek();
+  const editNodeId = nodeIds?.has(previousEditNodeId) ? previousEditNodeId : "";
   syncHistoryState();
   state$.saveState.set("saved");
   state$.doc.set(doc);
+  state$.editNodeId.set(editNodeId);
+  state$.selectedNodeId.set(selectedNodeId);
+  state$.selectedNodeIds.set(selectedNodeIds);
+  state$.selectedEdgeId.set(selectedEdgeId);
+  state$.focusNodeId.set(focusNodeId);
   // `loadDoc` without a corresponding CanvasReadResult must fail closed.
   // App installs the exact compiled refs in the same Legend batch.
   state$.actorRefs.set([]);
