@@ -105,15 +105,14 @@ test("completed task notify plate has solid boundaries and stacks cards", async 
   await expect(stack.locator(".completed-task-notify__eyebrow")).toHaveCount(0);
 
   await page.waitForTimeout(250);
-  await stack.screenshot({ path: join(SHOTS, "03-single-completed-label.png") });
+  await stack.screenshot({ path: join(SHOTS, "12-subtle-plate.png") });
   await page.screenshot({
-    path: join(SHOTS, "04-stack-in-hud-scroll.png"),
+    path: join(SHOTS, "13-subtle-in-hud.png"),
     fullPage: false,
   });
-  // Scroll mid-list — cards stay whole (no mid-card clip at plate edge).
   await stack.locator(".completed-task-notify__list").evaluate((el) => {
     el.scrollTop = Math.floor(el.scrollHeight / 3);
   });
   await page.waitForTimeout(150);
-  await stack.screenshot({ path: join(SHOTS, "05-stack-scrolled.png") });
+  await stack.screenshot({ path: join(SHOTS, "14-subtle-scrolled.png") });
 });
