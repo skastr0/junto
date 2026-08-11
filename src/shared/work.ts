@@ -1017,3 +1017,71 @@ export const workArtifactPublish = (
   const items = [...existing, artifact];
   return { doc: withArtifacts(doc, nodeId, items), artifact };
 };
+
+/** Soft-archive flag lives in metadata so decode admits history without schema migration. */
+export const isArtifactArchived = (artifact: Artifact): boolean =>
+  artifact.metadata?.archived === true;
+
+const withArtifactArchivedFlag = (
+  artifact: Artifact,
+  archived: boolean,
+): Artifact => {
+  const nextMeta: WorkMetadata = { ...(artifact.metadata ?? {}) };
+  if (archived) {
+    nextMeta.archived = true;
+  } else {
+    delete nextMeta.archived;
+  }
+  if (Object.keys(nextMeta).length === 0) {
+    const { metadata: _drop, ...rest } = artifact;
+    return rest;
+  }
+  return { ...artifact, metadata: nextMeta };
+};
+
+/** Operator soft-archive / restore. Does not delete parts or content refs. */
+export const workArtifactArchive = (
+  doc: CanvasDoc,
+  nodeId: string,
+  artifactId: string,
+  archived: boolean,
+): WorkArtifactResult => {
+  const node = requireNode(doc, nodeId);
+  requireSink(node, ["artifacts"]);
+  const id = artifactId.trim();
+  if (!id) throw new WorkError("invalid", "artifactId must be non-empty");
+  const items = node.ether?.artifacts?.items ?? [];
+  const index = items.findIndex((item) => item.artifactId === id);
+  if (index < 0) {
+    throw new WorkError("task_not_found", `artifact "${id}" not found`);
+  }
+  const current = items[index]!;
+  const artifact = withArtifactArchivedFlag(current, archived);
+  const next = [...items];
+  next[index] = artifact;
+  return { doc: withArtifacts(doc, nodeId, next), artifact };
+};
+
+/** Hard-remove an artifact from the sink (operator). Content objects are retained. */
+export const workArtifactDelete = (
+  doc: CanvasDoc,
+  nodeId: string,
+  artifactId: string,
+): { readonly doc: CanvasDoc; readonly artifactId: string } => {
+  const node = requireNode(doc, nodeId);
+  requireSink(node, ["artifacts"]);
+  const id = artifactId.trim();
+  if (!id) throw new WorkError("invalid", "artifactId must be non-empty");
+  const items = node.ether?.artifacts?.items ?? [];
+  if (!items.some((item) => item.artifactId === id)) {
+    throw new WorkError("task_not_found", `artifact "${id}" not found`);
+  }
+  return {
+    doc: withArtifacts(
+      doc,
+      nodeId,
+      items.filter((item) => item.artifactId !== id),
+    ),
+    artifactId: id,
+  };
+};

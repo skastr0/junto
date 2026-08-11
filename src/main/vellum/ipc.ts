@@ -801,6 +801,54 @@ export const registerVellumIpc = (): void => {
   );
 
   privilegedIpc.handle(
+    IPC_CHANNELS.workArtifactArchive,
+    (
+      _event,
+      canvas: string,
+      nodeId: string,
+      artifactId: string,
+      archived: boolean,
+    ) =>
+      runRendererWorkAuthoring(
+        "ipc.work.artifact-archive",
+        () => AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const denied = yield* denyRemoteWork;
+            if (denied) return denied;
+            const work = yield* WorkService;
+            return yield* work.workArtifactArchive(
+              canvas,
+              nodeId,
+              artifactId,
+              archived,
+            );
+          }),
+        ),
+      ),
+  );
+
+  privilegedIpc.handle(
+    IPC_CHANNELS.workArtifactDelete,
+    (
+      _event,
+      canvas: string,
+      nodeId: string,
+      artifactId: string,
+    ) =>
+      runRendererWorkAuthoring(
+        "ipc.work.artifact-delete",
+        () => AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const denied = yield* denyRemoteWork;
+            if (denied) return denied;
+            const work = yield* WorkService;
+            return yield* work.workArtifactDelete(canvas, nodeId, artifactId);
+          }),
+        ),
+      ),
+  );
+
+  privilegedIpc.handle(
     IPC_CHANNELS.workBoardList,
     (
       _event,

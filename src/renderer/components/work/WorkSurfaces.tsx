@@ -392,7 +392,9 @@ export function ArtifactsCard({
 }: {
   readonly node: CanvasNode;
 } & SinkRenameProps) {
-  const items = node.ether?.artifacts?.items ?? [];
+  const items = (node.ether?.artifacts?.items ?? []).filter(
+    (item) => item.metadata?.archived !== true,
+  );
   return (
     <div className="factory-glance factory-glance--artifacts flex h-full w-full flex-col overflow-hidden" data-testid="artifacts-card">
       <SinkGlanceHead

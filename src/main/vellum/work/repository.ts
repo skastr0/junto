@@ -5685,6 +5685,17 @@ export interface WorkRepositoryShape {
       readonly lastReadPosition: number;
       readonly updatedAt?: string;
     }) => Effect.Effect<void, RepositoryFailure>;
+    /** Operator soft-archive / restore via metadata.archived (no work fact). */
+    readonly setArtifactArchived: (input: {
+      readonly sink: SinkRefValue;
+      readonly artifactId: string;
+      readonly archived: boolean;
+    }) => Effect.Effect<ArtifactValue, RepositoryFailure>;
+    /** Operator hard-delete of an artifact row (content objects retained). */
+    readonly deleteArtifact: (input: {
+      readonly sink: SinkRefValue;
+      readonly artifactId: string;
+    }) => Effect.Effect<{ readonly artifactId: string }, RepositoryFailure>;
     readonly reserveRemoteTaskClaim: (
       input: ReserveRemoteTaskClaimInput,
     ) => Effect.Effect<WorkCommandValue, RepositoryFailure>;
@@ -6763,6 +6774,108 @@ export const WorkRepositoryLive = Layer.effect(
       });
     };
 
+    const setArtifactArchived = (input: {
+      readonly sink: SinkRefValue;
+      readonly artifactId: string;
+      readonly archived: boolean;
+    }): Effect.Effect<ArtifactValue, RepositoryFailure> =>
+      transaction("work.artifact.set_archived", input.sink, (writer) => {
+        const row = writer.get<ArtifactRow>(
+          `
+            SELECT
+              artifact_id,
+              name,
+              parts_json,
+              task_canvas_name,
+              task_node_id,
+              task_id,
+              task_entity_home,
+              metadata_json
+            FROM work_artifacts
+            WHERE canvas_name = ? AND node_id = ? AND artifact_id = ?
+          `,
+          [input.sink.canvasName, input.sink.nodeId, input.artifactId],
+        );
+        if (row === undefined) {
+          throw authorityError(
+            "missing-entity",
+            `artifact "${input.artifactId}" not found`,
+          );
+        }
+        const metadata =
+          row.metadata_json === null
+            ? ({} as Record<string, unknown>)
+            : (parseJson(row.metadata_json) as Record<string, unknown>);
+        if (input.archived) {
+          metadata.archived = true;
+        } else {
+          delete metadata.archived;
+        }
+        const metadataJson =
+          Object.keys(metadata).length === 0
+            ? null
+            : canonicalJson(metadata);
+        writer.run(
+          `
+            UPDATE work_artifacts
+            SET metadata_json = ?
+            WHERE canvas_name = ? AND node_id = ? AND artifact_id = ?
+          `,
+          [
+            metadataJson,
+            input.sink.canvasName,
+            input.sink.nodeId,
+            input.artifactId,
+          ],
+        );
+        return Schema.decodeUnknownSync(Artifact, strictDecode)({
+          artifactId: row.artifact_id,
+          ...(row.name === null ? {} : { name: row.name }),
+          parts: parseJson(row.parts_json),
+          ...(row.task_id === null
+            ? {}
+            : {
+                task: {
+                  kind: "task",
+                  itemId: row.task_id,
+                  sink: {
+                    canvasName: row.task_canvas_name,
+                    nodeId: row.task_node_id,
+                  },
+                },
+              }),
+          ...(metadataJson === null ? {} : { metadata }),
+        });
+      });
+
+    const deleteArtifact = (input: {
+      readonly sink: SinkRefValue;
+      readonly artifactId: string;
+    }): Effect.Effect<{ readonly artifactId: string }, RepositoryFailure> =>
+      transaction("work.artifact.delete", input.sink, (writer) => {
+        const row = writer.get<StateRow>(
+          `
+            SELECT 1 FROM work_artifacts
+            WHERE canvas_name = ? AND node_id = ? AND artifact_id = ?
+          `,
+          [input.sink.canvasName, input.sink.nodeId, input.artifactId],
+        );
+        if (row === undefined) {
+          throw authorityError(
+            "missing-entity",
+            `artifact "${input.artifactId}" not found`,
+          );
+        }
+        writer.run(
+          `
+            DELETE FROM work_artifacts
+            WHERE canvas_name = ? AND node_id = ? AND artifact_id = ?
+          `,
+          [input.sink.canvasName, input.sink.nodeId, input.artifactId],
+        );
+        return { artifactId: input.artifactId };
+      });
+
     const reserveRemoteTaskClaim = (
       input: ReserveRemoteTaskClaimInput,
     ): Effect.Effect<WorkCommandValue, RepositoryFailure> => {
@@ -7445,6 +7558,8 @@ export const WorkRepositoryLive = Layer.effect(
       createBoardTopic,
       appendBoardPost,
       markBoardRead,
+      setArtifactArchived,
+      deleteArtifact,
       reserveRemoteTaskClaim,
       enqueueRemoteCommand,
       enqueueRemoteProposalApproval,

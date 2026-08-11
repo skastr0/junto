@@ -493,6 +493,23 @@ const vellumApi: VellumCommandApi = {
       responseText,
       disposition,
     ),
+  workArtifactArchive: (canvas, nodeId, artifactId, archived) =>
+    invoke(
+      IPC_CHANNELS.workArtifactArchive,
+      IPC_TIMEOUT_MS,
+      canvas,
+      nodeId,
+      artifactId,
+      archived,
+    ),
+  workArtifactDelete: (canvas, nodeId, artifactId) =>
+    invoke(
+      IPC_CHANNELS.workArtifactDelete,
+      IPC_TIMEOUT_MS,
+      canvas,
+      nodeId,
+      artifactId,
+    ),
   workBoardList: (canvas, nodeId, topicId) =>
     invoke(
       IPC_CHANNELS.workBoardList,

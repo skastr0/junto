@@ -415,6 +415,11 @@
   overflow: hidden;
 }
 
+/* Artifacts library: compact rail (~20%) + side detail. */
+.work-ledger-workspace--artifacts {
+  align-items: stretch;
+}
+
 .work-ledger-list {
   min-width: 0;
   flex: 1 1 0;
@@ -426,6 +431,105 @@
     var(--color-ground);
   scrollbar-color: var(--color-stroke) transparent;
   scrollbar-width: thin;
+}
+
+.work-ledger-list--artifacts-rail {
+  flex: 0 0 clamp(180px, 20%, 260px);
+  width: clamp(180px, 20%, 260px);
+  max-width: 28%;
+  border-right: 1px solid var(--color-stroke);
+  background: var(--color-raise);
+  padding: 8px 8px 20px;
+}
+
+.work-ledger-list--artifacts-rail > section {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.work-ledger-row--artifact-compact {
+  display: grid;
+  min-height: 48px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px;
+  padding: 4px;
+  cursor: default;
+}
+
+.work-ledger-row__select {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 5px;
+  padding: 5px 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.work-ledger-row__select:hover {
+  background: var(--color-overlay-1);
+}
+
+.work-ledger-row--artifact-compact strong {
+  font-size: 10px;
+}
+
+.work-ledger-row--artifact-compact.is-archived {
+  opacity: 0.72;
+}
+
+.work-ledger-row--artifact-compact .work-ledger-row__icon {
+  width: 24px;
+  height: 24px;
+}
+
+.work-ledger-detail--empty {
+  display: grid;
+  flex: 1 1 0;
+  min-width: 0;
+  place-items: center;
+  color: var(--color-faint);
+  font-size: 10px;
+  background: var(--color-ground);
+}
+
+.work-ledger-detail--artifact {
+  flex: 1 1 0;
+  width: auto;
+  min-width: 0;
+  max-width: none;
+}
+
+.work-ledger-detail__actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+}
+
+.work-ledger-row__expand {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  color: var(--color-faint);
+  opacity: 0.65;
+  cursor: pointer;
+}
+
+.work-ledger-row__expand:hover {
+  color: var(--color-violet);
+  background: color-mix(in oklab, var(--color-violet) 10%, transparent);
+  opacity: 1;
 }
 
 .work-ledger-list > section {

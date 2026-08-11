@@ -376,6 +376,19 @@ export interface WorkServiceShape {
       artifact: Artifact,
       publishedBy: ActorRef,
     ) => Effect.Effect<WorkOpResult<Artifact>>;
+    /** Operator soft-archive / restore (metadata.archived). */
+    readonly workArtifactArchive: (
+      canvas: string,
+      nodeId: string,
+      artifactId: string,
+      archived: boolean,
+    ) => Effect.Effect<WorkOpResult<Artifact>>;
+    /** Operator hard-delete from the artifacts sink. */
+    readonly workArtifactDelete: (
+      canvas: string,
+      nodeId: string,
+      artifactId: string,
+    ) => Effect.Effect<WorkOpResult<{ readonly artifactId: string }>>;
     readonly workBoardList: (
       canvas: string,
       nodeId: string,
@@ -1924,6 +1937,39 @@ export const WorkLive = Layer.effect(
                 artifact: materializedArtifact,
                 publishedBy,
               }),
+            );
+            return yield* complete(canvas, outcome);
+          }),
+        ),
+
+      workArtifactArchive: (canvas, nodeId, artifactId, archived) =>
+        asResult(
+          Effect.gen(function* () {
+            yield* stationContext;
+            const outcome = yield* local(
+              repository
+                .setArtifactArchived({
+                  sink: sinkRef(canvas, nodeId),
+                  artifactId,
+                  archived,
+                })
+                .pipe(Effect.map((artifact) => ({ value: artifact }))),
+            );
+            return yield* complete(canvas, outcome);
+          }),
+        ),
+
+      workArtifactDelete: (canvas, nodeId, artifactId) =>
+        asResult(
+          Effect.gen(function* () {
+            yield* stationContext;
+            const outcome = yield* local(
+              repository
+                .deleteArtifact({
+                  sink: sinkRef(canvas, nodeId),
+                  artifactId,
+                })
+                .pipe(Effect.map((value) => ({ value }))),
             );
             return yield* complete(canvas, outcome);
           }),

@@ -118,6 +118,8 @@ export const IPC_CHANNELS = {
   workTaskRespond: "vellum-command:work-task-respond",
   workTaskClaim: "vellum-command:work-task-claim",
   workRequestResolve: "vellum-command:work-request-resolve",
+  workArtifactArchive: "vellum-command:work-artifact-archive",
+  workArtifactDelete: "vellum-command:work-artifact-delete",
   workBoardList: "vellum-command:work-board-list",
   workBoardCreateTopic: "vellum-command:work-board-create-topic",
   workBoardPost: "vellum-command:work-board-post",
@@ -699,6 +701,17 @@ export interface VellumCommandApi extends LicenseApi, UpdateApi {
     responseText: string,
     disposition: "completed" | "rejected",
   ) => Promise<WorkOpResult<Task>>;
+  readonly workArtifactArchive: (
+    canvas: string,
+    nodeId: string,
+    artifactId: string,
+    archived: boolean,
+  ) => Promise<WorkOpResult<import("./work-model").Artifact>>;
+  readonly workArtifactDelete: (
+    canvas: string,
+    nodeId: string,
+    artifactId: string,
+  ) => Promise<WorkOpResult<{ readonly artifactId: string }>>;
   /** Full topics+posts from SQLite (operator detail). Glance stays titles-only. */
   readonly workBoardList: (
     canvas: string,

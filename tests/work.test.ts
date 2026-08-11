@@ -5,6 +5,9 @@ import { join } from "node:path";
 import { Context, Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
+  isArtifactArchived,
+  workArtifactArchive,
+  workArtifactDelete,
   workArtifactPublish,
   workMessageAppend,
   workRequestCreate,
@@ -922,6 +925,46 @@ describe("work pure transforms", () => {
         },
       })
     ).toThrow(/artifact canvas/);
+  });
+
+  it("artifact archive soft-hides and delete removes from the sink", () => {
+    const artifactNode: CanvasNode = {
+      id: "artifacts",
+      type: "text",
+      x: 0,
+      y: 0,
+      width: 200,
+      height: 100,
+      ether: { entity: { kind: "artifacts" } },
+    };
+    let doc: CanvasDoc = { nodes: [artifactNode], edges: [] };
+    const published = workArtifactPublish(doc, "alpha", "artifacts", {
+      artifactId: "a1",
+      name: "proof.md",
+      parts: [{ kind: "text", text: "body" }],
+    });
+    doc = published.doc;
+    expect(isArtifactArchived(published.artifact)).toBe(false);
+
+    const archived = workArtifactArchive(doc, "artifacts", "a1", true);
+    doc = archived.doc;
+    expect(isArtifactArchived(archived.artifact)).toBe(true);
+    expect(
+      doc.nodes[0]?.ether?.artifacts?.items.find((a) => a.artifactId === "a1")
+        ?.metadata?.archived,
+    ).toBe(true);
+
+    const restored = workArtifactArchive(doc, "artifacts", "a1", false);
+    doc = restored.doc;
+    expect(isArtifactArchived(restored.artifact)).toBe(false);
+    expect(restored.artifact.metadata?.archived).toBeUndefined();
+
+    const deleted = workArtifactDelete(doc, "artifacts", "a1");
+    expect(deleted.artifactId).toBe("a1");
+    expect(deleted.doc.nodes[0]?.ether?.artifacts?.items).toEqual([]);
+    expect(() => workArtifactDelete(deleted.doc, "artifacts", "a1")).toThrow(
+      /not found/,
+    );
   });
 
   it("state machine: completed work only exits through the QA Queue path", () => {

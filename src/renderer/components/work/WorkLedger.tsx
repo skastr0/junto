@@ -1,5 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
+  Archive,
+  ArchiveRestore,
   Ban,
   Check,
   Download,
@@ -11,10 +13,12 @@ import {
   MessageSquareWarning,
   PanelRightClose,
   Search,
+  Trash2,
   X,
 } from "lucide-react";
 import type { Artifact, CanvasNode, Part, Task, WorkMetadata } from "@shared/canvas";
 import type { WorkOpResult } from "@shared/ipc";
+import { isArtifactArchived } from "@shared/work";
 import { taskBrief } from "@shared/task";
 import { FocusSurface } from "../FocusSurface";
 import { Button } from "../ui/Button";
@@ -623,9 +627,79 @@ const artifactIcon = {
   data: FileBox,
 } as const;
 
+/** Shared body for side detail + expanded focus modal. */
+function ArtifactContents({
+  artifact,
+  bodyTestId,
+}: {
+  readonly artifact: Artifact;
+  readonly bodyTestId?: string;
+}) {
+  const name = artifact.name?.trim() || artifact.artifactId;
+  const kind = artifactKind(artifact);
+  const metaEntries = Object.entries(artifact.metadata ?? {}).filter(
+    ([key]) => key !== "archived",
+  );
+  return (
+    <>
+      <div className="artifact-focus__meta" data-testid="artifact-focus-meta">
+        <span className="artifact-focus__meta-id">#{artifact.artifactId}</span>
+        <span>
+          {artifact.parts.length} part{artifact.parts.length === 1 ? "" : "s"}
+        </span>
+        {kind !== "image" ? (
+          <span className="artifact-focus__meta-kind">{kind}</span>
+        ) : null}
+        {isArtifactArchived(artifact) ? (
+          <Chip tone="steel">archived</Chip>
+        ) : null}
+      </div>
+      <div
+        className="artifact-focus__scroll"
+        data-testid={bodyTestId ?? "artifact-focus-body"}
+      >
+        <section>
+          <h3>Contents</h3>
+          <div className="work-ledger-parts artifact-focus__parts">
+            {artifact.parts.map((part, index) => {
+              const filename = `${name}-${index + 1}`;
+              return (
+                <PartView
+                  key={index}
+                  part={part}
+                  filename={filename}
+                  markdown={
+                    part.kind === "text" ||
+                    isMarkdownFilename(name) ||
+                    (part.kind === "raw" && isMarkdownMediaType(part.mediaType)) ||
+                    (part.kind === "content" && isMarkdownMediaType(part.ref.mediaType))
+                  }
+                />
+              );
+            })}
+          </div>
+        </section>
+        {metaEntries.length > 0 ? (
+          <section>
+            <h3>Metadata</h3>
+            <dl className="work-ledger-metadata">
+              {metaEntries.map(([key, value]) => (
+                <div key={key}>
+                  <dt>{key}</dt>
+                  <dd>{typeof value === "string" ? value : JSON.stringify(value)}</dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+        ) : null}
+      </div>
+    </>
+  );
+}
+
 /**
- * Full-reading surface for one artifact. Side-rail previews are too narrow for
- * markdown/research/proof bodies — document FocusSurface is the product reader.
+ * Immersive reader — only opened from the expand / zoom control.
+ * Default selection uses the in-library side pane, not this modal.
  */
 function ArtifactFocusModal({
   artifact,
@@ -655,52 +729,69 @@ function ArtifactFocusModal({
           </IconButton>
         }
       />
-      <div className="artifact-focus__meta" data-testid="artifact-focus-meta">
-        <span className="artifact-focus__meta-id">#{artifact.artifactId}</span>
-        <span>
-          {artifact.parts.length} part{artifact.parts.length === 1 ? "" : "s"}
-        </span>
-        {kind !== "image" ? (
-          <span className="artifact-focus__meta-kind">{kind}</span>
-        ) : null}
-      </div>
-      <div className="artifact-focus__scroll" data-testid="artifact-focus-body">
-        <section>
-          <h3>Contents</h3>
-          <div className="work-ledger-parts artifact-focus__parts">
-            {artifact.parts.map((part, index) => {
-              const filename = `${name}-${index + 1}`;
-              return (
-                <PartView
-                  key={index}
-                  part={part}
-                  filename={filename}
-                  markdown={
-                    part.kind === "text" ||
-                    isMarkdownFilename(name) ||
-                    (part.kind === "raw" && isMarkdownMediaType(part.mediaType)) ||
-                    (part.kind === "content" && isMarkdownMediaType(part.ref.mediaType))
-                  }
-                />
-              );
-            })}
-          </div>
-        </section>
-        {artifact.metadata && Object.keys(artifact.metadata).length > 0 ? (
-          <section>
-            <h3>Metadata</h3>
-            <dl className="work-ledger-metadata">
-              {Object.entries(artifact.metadata).map(([key, value]) => (
-                <div key={key}>
-                  <dt>{key}</dt>
-                  <dd>{typeof value === "string" ? value : JSON.stringify(value)}</dd>
-                </div>
-              ))}
-            </dl>
-          </section>
-        ) : null}
-      </div>
+      <ArtifactContents artifact={artifact} />
     </FocusSurface>
+  );
+}
+
+/** In-library side detail (~80% of the surface). */
+function ArtifactSideDetail({
+  artifact,
+  pending,
+  onExpand,
+  onArchive,
+  onDelete,
+}: {
+  readonly artifact: Artifact;
+  readonly pending: boolean;
+  readonly onExpand: () => void;
+  readonly onArchive: (archived: boolean) => void;
+  readonly onDelete: () => void;
+}) {
+  const name = artifact.name?.trim() || artifact.artifactId;
+  const kind = artifactKind(artifact);
+  const archived = isArtifactArchived(artifact);
+  return (
+    <aside
+      className="work-ledger-detail work-ledger-detail--artifact"
+      aria-label={`Artifact ${name}`}
+      data-testid="artifact-side-detail"
+    >
+      <header>
+        <div>
+          <Chip tone="violet">{kind}</Chip>
+          {archived ? <Chip tone="steel">archived</Chip> : null}
+          <h2>{name}</h2>
+        </div>
+        <div className="work-ledger-detail__actions">
+          <IconButton
+            aria-label="Expand artifact"
+            title="Expand"
+            onClick={onExpand}
+            disabled={pending}
+          >
+            <Maximize2 size={14} />
+          </IconButton>
+          <IconButton
+            aria-label={archived ? "Restore artifact" : "Archive artifact"}
+            title={archived ? "Restore" : "Archive"}
+            onClick={() => onArchive(!archived)}
+            disabled={pending}
+          >
+            {archived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
+          </IconButton>
+          <IconButton
+            aria-label="Delete artifact"
+            title="Delete"
+            onClick={onDelete}
+            disabled={pending}
+          >
+            <Trash2 size={14} />
+          </IconButton>
+        </div>
+      </header>
+      <ArtifactContents artifact={artifact} bodyTestId="artifact-side-body" />
+    </aside>
   );
 }
 
@@ -713,23 +804,83 @@ export function ArtifactLibrary({
 }) {
   const items = node.ether?.artifacts?.items ?? [];
   const [query, setQuery] = useState("");
-  /** Opened in document FocusSurface — not the old narrow side rail. */
-  const [focusedId, setFocusedId] = useState<string | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
+  /** Selected for the side pane (not the expand modal). */
+  const [selectedId, setSelectedId] = useState<string | null>(() => {
+    const firstLive = items.find((item) => !isArtifactArchived(item));
+    return firstLive?.artifactId ?? items[0]?.artifactId ?? null;
+  });
+  /** Expanded immersive reader only. */
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  const api = getVellumCommandApi();
+  const name = canvasName();
   const normalized = query.trim().toLowerCase();
-  const visible = useMemo(
-    () =>
-      normalized
-        ? items.filter((artifact) =>
-            artifactSearchText(artifact)
-              .toLowerCase()
-              .includes(normalized),
-          )
-        : items,
-    [items, normalized],
-  );
-  const focused = focusedId
-    ? items.find((artifact) => artifact.artifactId === focusedId)
+  const archivedCount = items.filter(isArtifactArchived).length;
+  const liveCount = items.length - archivedCount;
+
+  const visible = useMemo(() => {
+    const base = showArchived
+      ? items
+      : items.filter((artifact) => !isArtifactArchived(artifact));
+    if (!normalized) return base;
+    return base.filter((artifact) =>
+      artifactSearchText(artifact).toLowerCase().includes(normalized),
+    );
+  }, [items, normalized, showArchived]);
+
+  // Keep selection valid when list filters or items change.
+  useEffect(() => {
+    if (selectedId && visible.some((a) => a.artifactId === selectedId)) return;
+    setSelectedId(visible[0]?.artifactId ?? null);
+  }, [visible, selectedId]);
+
+  const selected = selectedId
+    ? items.find((artifact) => artifact.artifactId === selectedId)
     : undefined;
+  const expanded = expandedId
+    ? items.find((artifact) => artifact.artifactId === expandedId)
+    : undefined;
+
+  const runArtifactMutation = async (
+    artifactId: string,
+    operation: () => Promise<WorkOpResult<unknown>>,
+  ): Promise<void> => {
+    if (!api) return;
+    setPendingId(artifactId);
+    setError("");
+    try {
+      const result = await runWorkCanvasMutation(name, operation);
+      if (result === undefined) return;
+      if (!result.ok) setError(result.message);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setPendingId(null);
+    }
+  };
+
+  const archiveArtifact = (artifact: Artifact, archived: boolean): void => {
+    if (!api) return;
+    void runArtifactMutation(artifact.artifactId, () =>
+      api.workArtifactArchive(name, node.id, artifact.artifactId, archived),
+    );
+  };
+
+  const deleteArtifact = (artifact: Artifact): void => {
+    if (!api) return;
+    const label = artifact.name?.trim() || artifact.artifactId;
+    if (!window.confirm(`Delete artifact “${label}”? This cannot be undone.`)) {
+      return;
+    }
+    void runArtifactMutation(artifact.artifactId, () =>
+      api.workArtifactDelete(name, node.id, artifact.artifactId),
+    ).then(() => {
+      if (selectedId === artifact.artifactId) setSelectedId(null);
+      if (expandedId === artifact.artifactId) setExpandedId(null);
+    });
+  };
 
   return (
     <>
@@ -739,16 +890,26 @@ export function ArtifactLibrary({
         layer="work"
         label="Artifacts"
         onClose={onClose}
-        closeOnEscape={focused === undefined}
-        closeOnBackdrop={focused === undefined}
-        panelClassName="work-ledger-surface nowheel"
+        closeOnEscape={expanded === undefined}
+        closeOnBackdrop={expanded === undefined}
+        panelClassName="work-ledger-surface work-ledger-surface--artifacts nowheel"
       >
         <OverlayHeader
           eyebrow="artifacts"
           title="Artifact library"
-          status={`${items.length} published output${items.length === 1 ? "" : "s"}`}
+          status={`${liveCount} active${archivedCount > 0 ? ` - ${archivedCount} archived` : ""}`}
           actions={
             <>
+              <Button
+                size="xs"
+                variant={showArchived ? "primary" : "subtle"}
+                aria-pressed={showArchived}
+                data-testid="artifact-show-archived"
+                onClick={() => setShowArchived((value) => !value)}
+              >
+                <Archive size={12} />
+                {showArchived ? "Hide archived" : "Show archived"}
+              </Button>
               <div className="work-ledger-search">
                 <Search size={13} aria-hidden />
                 <Input
@@ -764,67 +925,123 @@ export function ArtifactLibrary({
             </>
           }
         />
-        <div className="work-ledger-workspace" data-detail-open="false">
-          <div className="work-ledger-list work-ledger-list--artifacts">
+        {error ? (
+          <div className="work-ledger-error" role="alert">
+            <MessageSquareWarning size={14} />
+            {error}
+            <button type="button" onClick={() => setError("")}>
+              Dismiss
+            </button>
+          </div>
+        ) : null}
+        <div
+          className="work-ledger-workspace work-ledger-workspace--artifacts"
+          data-detail-open={selected ? "true" : "false"}
+        >
+          <div className="work-ledger-list work-ledger-list--artifacts-rail">
             <section>
               <header>
-                <h2>Published</h2>
+                <h2>{showArchived ? "All" : "Published"}</h2>
                 <span>{visible.length}</span>
               </header>
               <div role="list">
                 {visible.map((artifact) => {
                   const kind = artifactKind(artifact);
                   const Icon = artifactIcon[kind];
-                  const name = artifact.name?.trim() || artifact.artifactId;
-                  const isFocused = focusedId === artifact.artifactId;
+                  const rowName = artifact.name?.trim() || artifact.artifactId;
+                  const isSelected = selectedId === artifact.artifactId;
+                  const archived = isArtifactArchived(artifact);
                   return (
-                    <button
+                    <div
                       key={artifact.artifactId}
-                      type="button"
                       role="listitem"
-                      className="work-ledger-row work-ledger-row--artifact"
-                      aria-current={isFocused ? "true" : undefined}
+                      className={[
+                        "work-ledger-row",
+                        "work-ledger-row--artifact",
+                        "work-ledger-row--artifact-compact",
+                        archived ? "is-archived" : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                      aria-current={isSelected ? "true" : undefined}
                       data-testid="artifact-row"
                       data-artifact-id={artifact.artifactId}
-                      onClick={() => setFocusedId(artifact.artifactId)}
                     >
-                      <span className="work-ledger-row__icon">
-                        <Icon size={15} />
-                      </span>
-                      <span>
-                        <strong>{name}</strong>
-                        <small>
-                          {[
-                            artifactTaskReferenceLabel(artifact),
-                            `${artifact.parts.length} part${artifact.parts.length === 1 ? "" : "s"}`,
-                          ]
-                            .filter(Boolean)
-                            .join(" - ")}
-                        </small>
-                      </span>
-                      <Chip tone="violet">{kind}</Chip>
-                      <span className="work-ledger-row__expand" aria-hidden>
-                        <Maximize2 size={13} />
-                      </span>
-                    </button>
+                      <button
+                        type="button"
+                        className="work-ledger-row__select"
+                        aria-label={`Select ${rowName}`}
+                        onClick={() => setSelectedId(artifact.artifactId)}
+                      >
+                        <span className="work-ledger-row__icon">
+                          <Icon size={14} />
+                        </span>
+                        <span>
+                          <strong>{rowName}</strong>
+                          <small>
+                            {[
+                              archived ? "archived" : undefined,
+                              artifactTaskReferenceLabel(artifact),
+                              `${artifact.parts.length} part${artifact.parts.length === 1 ? "" : "s"}`,
+                            ]
+                              .filter(Boolean)
+                              .join(" - ")}
+                          </small>
+                        </span>
+                        <Chip tone={archived ? "steel" : "violet"}>{kind}</Chip>
+                      </button>
+                      <button
+                        type="button"
+                        className="work-ledger-row__expand"
+                        title="Expand"
+                        aria-label={`Expand ${rowName}`}
+                        data-testid="artifact-row-expand"
+                        onClick={() => {
+                          setSelectedId(artifact.artifactId);
+                          setExpandedId(artifact.artifactId);
+                        }}
+                      >
+                        <Maximize2 size={12} />
+                      </button>
+                    </div>
                   );
                 })}
                 {visible.length === 0 ? (
                   <div className="work-ledger-list__empty">
-                    {normalized ? "No matching artifacts" : "No artifacts published yet"}
+                    {normalized
+                      ? "No matching artifacts"
+                      : showArchived
+                        ? "No artifacts yet"
+                        : archivedCount > 0
+                          ? "No active artifacts — show archived to browse"
+                          : "No artifacts published yet"}
                   </div>
                 ) : null}
               </div>
             </section>
           </div>
+          {selected ? (
+            <ArtifactSideDetail
+              key={selected.artifactId}
+              artifact={selected}
+              pending={pendingId === selected.artifactId}
+              onExpand={() => setExpandedId(selected.artifactId)}
+              onArchive={(archived) => archiveArtifact(selected, archived)}
+              onDelete={() => deleteArtifact(selected)}
+            />
+          ) : (
+            <div className="work-ledger-detail work-ledger-detail--empty" aria-hidden>
+              <p>Select an artifact to preview</p>
+            </div>
+          )}
         </div>
       </FocusSurface>
 
-      {focused ? (
+      {expanded ? (
         <ArtifactFocusModal
-          key={focused.artifactId}
-          artifact={focused}
-          onClose={() => setFocusedId(null)}
+          key={expanded.artifactId}
+          artifact={expanded}
+          onClose={() => setExpandedId(null)}
         />
       ) : null}
     </>
