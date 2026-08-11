@@ -1,5 +1,7 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
+import { animate } from "motion";
+import { surfaceMotionLive$ } from "../../lib/surface-motion";
 import {
   activateWorkbenchSurface,
   dock$,
@@ -164,6 +166,38 @@ export function WorkbenchPanes({ zone }: { readonly zone: WorkZone }) {
     [panes.pane0, panes.pane1].filter((id): id is string => Boolean(id)),
   );
 
+  // Front-swap entry animation (focus zone). Panes never unmount — keep-alive
+  // holds xterm instances and PTY leases in parked panes — so the swap is a
+  // brief settle on the pane that just became front, not a mount transition.
+  // Styles are cleared on finish: a lingering transform blurs the xterm canvas.
+  const paneRefs = useRef(new Map<string, HTMLDivElement>());
+  const prevFrontRef = useRef<string | null>(null);
+  const front = zone === "focus" ? (panes.pane0 ?? null) : null;
+  useEffect(() => {
+    if (zone !== "focus") return;
+    const prev = prevFrontRef.current;
+    prevFrontRef.current = front;
+    // First paint of the zone is not a swap; hidden page / reduced motion skip.
+    if (!front || prev === null || prev === front) return;
+    if (!surfaceMotionLive$.peek()) return;
+    const el = paneRefs.current.get(front);
+    if (!el) return;
+    const controls = animate(
+      el,
+      { opacity: [0.4, 1], transform: ["translateY(6px)", "translateY(0px)"] },
+      { duration: 0.14, ease: "easeOut" },
+    );
+    const clear = (): void => {
+      el.style.removeProperty("opacity");
+      el.style.removeProperty("transform");
+    };
+    void controls.finished.then(clear, clear);
+    return () => {
+      controls.stop();
+      clear();
+    };
+  }, [zone, front]);
+
   if (mru.length === 0) return null;
 
   return (
@@ -180,6 +214,10 @@ export function WorkbenchPanes({ zone }: { readonly zone: WorkZone }) {
         return (
           <div
             key={id}
+            ref={(el) => {
+              if (el) paneRefs.current.set(id, el);
+              else paneRefs.current.delete(id);
+            }}
             className={[
               "workbench-pane",
               visible ? "" : "workbench-pane--parked",
@@ -187,6 +225,7 @@ export function WorkbenchPanes({ zone }: { readonly zone: WorkZone }) {
               .filter(Boolean)
               .join(" ")}
             data-pane={paneSlot}
+            data-surface-id={id}
             aria-hidden={!visible}
           >
             {resolveSurfaceBody(surface, zone, visible, () =>
