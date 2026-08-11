@@ -126,6 +126,28 @@ type XtermCore = {
   };
 };
 
+/**
+ * Terminal geometry diagnostic.
+ *
+ * xterm measures the character cell during `open()` and its docs require the
+ * parent to be visible with real dimensions at that moment. If it is not, the
+ * cell metrics are wrong and every later row paint inherits the error, which
+ * looks like scrambled/overlapping rows that only settle once something forces
+ * a full repaint. This records what the box and the cell actually were, so the
+ * question is answered from the real app instead of inferred.
+ *
+ * Renderer console is captured into the observability ring
+ * (installObservabilityConsoleHook -> recordRendererConsole), so these lines
+ * are queryable. Grep tag: vellum:term-geom
+ */
+const logTermGeom = (event: string, data: Record<string, unknown>): void => {
+  try {
+    console.warn(`[vellum:term-geom] ${event} ${JSON.stringify(data)}`);
+  } catch {
+    // diagnostics must never break the surface
+  }
+};
+
 const readCellSize = (term: Terminal): { cellW: number; cellH: number } => {
   const core = term as unknown as { _core?: XtermCore };
   const cell = core._core?._renderService?.dimensions?.css?.cell;
@@ -224,10 +246,42 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
     if (!term || !host) return;
 
     const measured = measureHost(host, term);
-    if (!measured) return;
+    if (!measured) {
+      logTermGeom("measure-rejected", {
+        hostW: Math.round(host.getBoundingClientRect().width),
+        hostH: Math.round(host.getBoundingClientRect().height),
+        termCols: term.cols,
+        termRows: term.rows,
+      });
+      return;
+    }
 
     const cols = Math.max(20, Math.min(300, measured.cols));
     const rows = Math.max(5, Math.min(120, measured.rows));
+
+    {
+      const { cellW, cellH } = readCellSize(term);
+      const screen = host.querySelector<HTMLElement>(".xterm-screen");
+      const screenW = screen ? Math.round(screen.getBoundingClientRect().width) : -1;
+      logTermGeom("resize", {
+        measuredW: Math.round(measured.w),
+        measuredH: Math.round(measured.h),
+        cellW: Number(cellW.toFixed(3)),
+        cellH: Number(cellH.toFixed(3)),
+        cellIsFallback:
+          Math.abs(cellW - FALLBACK_CELL_W) < 0.001 && Math.abs(cellH - FALLBACK_CELL_H) < 0.001,
+        cols,
+        rows,
+        termCols: term.cols,
+        termRows: term.rows,
+        // The painted screen vs the character grid it is supposed to be. CSS
+        // forces .xterm-screen to width:100%, so a gap here means backgrounds
+        // and rows are painted to a different width than the grid.
+        screenW,
+        gridW: Math.round(cols * cellW),
+        screenGridDeltaPx: screenW < 0 ? -1 : Math.round(screenW - cols * cellW),
+      });
+    }
 
     if (term.cols !== cols || term.rows !== rows) {
       try {
@@ -277,7 +331,27 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
     const fit = new FitAddon();
     term.loadAddon(fit);
     host.replaceChildren();
+    // The measurement moment. xterm requires the parent to be visible with real
+    // dimensions here; a 0-size or not-yet-laid-out box poisons the cell metrics
+    // for the life of this terminal.
+    const openRect = host.getBoundingClientRect();
     term.open(host);
+    {
+      const { cellW, cellH } = readCellSize(term);
+      logTermGeom("open", {
+        hostW: Math.round(openRect.width),
+        hostH: Math.round(openRect.height),
+        hostVisible: openRect.width > 0 && openRect.height > 0,
+        connected: host.isConnected,
+        cellW: Number(cellW.toFixed(3)),
+        cellH: Number(cellH.toFixed(3)),
+        // true => xterm's own measurement was unavailable and a guess is in use
+        cellIsFallback:
+          Math.abs(cellW - FALLBACK_CELL_W) < 0.001 && Math.abs(cellH - FALLBACK_CELL_H) < 0.001,
+        termCols: term.cols,
+        termRows: term.rows,
+      });
+    }
     termRef.current = term;
     fitRef.current = fit;
 
