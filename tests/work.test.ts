@@ -22,7 +22,7 @@ import {
   workTaskTransition,
   WorkError,
 } from "../src/shared/work";
-import type { Artifact, CanvasDoc, Message } from "../src/shared/canvas";
+import type { Artifact, CanvasDoc, CanvasNode, Message } from "../src/shared/canvas";
 import {
   canTransitionTaskState,
 } from "../src/shared/task";
