@@ -1,13 +1,24 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import type { CanvasNode } from "../src/shared/canvas";
 import type { Task } from "../src/shared/work-model";
 import {
+  activateCompletedTaskNotify,
+  clearCompletedNotifyPersistForTests,
   collectTaskSnapshots,
+  completedTaskNotify$,
   dismissCompletedNotify,
+  emptyCompletedNotifyPersist,
   emptyCompletedNotifyState,
+  hydrateNotifyStateFromPersist,
   observeCompletedTasks,
+  persistFromNotifyState,
+  resetCompletedTaskNotify,
+  setCompletedNotifyStorageForTests,
+  syncCompletedTaskNotifyFromDoc,
   type CompletedNotifyState,
+  type CompletedNotifyStorage,
 } from "../src/renderer/lib/completed-task-notify";
+import { state$ } from "../src/renderer/lib/state";
 
 const taskNode = (
   nodeId: string,
@@ -40,7 +51,27 @@ const taskNode = (
     },
   }) as CanvasNode;
 
+const memoryStore = (): CompletedNotifyStorage & { data: ReturnType<typeof emptyCompletedNotifyPersist> } => {
+  let data = emptyCompletedNotifyPersist();
+  return {
+    get data() {
+      return data;
+    },
+    load: () => data,
+    save: (next) => {
+      data = {
+        dismissed: [...next.dismissed],
+        completedSeen: [...next.completedSeen],
+      };
+    },
+  };
+};
+
 describe("completed-task-notify", () => {
+  afterEach(() => {
+    clearCompletedNotifyPersistForTests();
+  });
+
   it("baselines existing completed without stacking", () => {
     const snaps = collectTaskSnapshots([
       taskNode("sink", [
@@ -140,8 +171,6 @@ describe("completed-task-notify", () => {
   });
 
   it("does not re-spam after a temporary projection gap (dismiss held)", () => {
-    // Bug shape: work projection empty for a tick clears known+dismissed,
-    // then completed rows reappear as "new" rising edges.
     let state: CompletedNotifyState = observeCompletedTasks(
       emptyCompletedNotifyState(),
       collectTaskSnapshots([
@@ -159,12 +188,10 @@ describe("completed-task-notify", () => {
     state = dismissCompletedNotify(state, "t1");
     expect(state.stack).toEqual([]);
 
-    // Gap: sink has no items this tick (or canvas briefly empty).
     state = observeCompletedTasks(state, collectTaskSnapshots([]), 3);
     expect(state.dismissed.t1).toBe(true);
     expect(state.known.t1).toBe("completed");
 
-    // Same completed task returns — must stay quiet.
     state = observeCompletedTasks(
       state,
       collectTaskSnapshots([
@@ -193,7 +220,6 @@ describe("completed-task-notify", () => {
     );
     expect(state.stack).toHaveLength(1);
 
-    // Gap drops stack UI (not projected) but retains known completed.
     state = observeCompletedTasks(state, collectTaskSnapshots([]), 3);
     expect(state.stack).toEqual([]);
     expect(state.known.t1).toBe("completed");
@@ -205,7 +231,103 @@ describe("completed-task-notify", () => {
       ]),
       4,
     );
-    // No second rise — operator already saw it this session; they can open the board.
     expect(state.stack).toEqual([]);
+  });
+
+  it("baseline preserves hydrated dismiss (cold open after click)", () => {
+    const hydrated = hydrateNotifyStateFromPersist({
+      dismissed: ["t1"],
+      completedSeen: ["t1"],
+    });
+    expect(hydrated.dismissed.t1).toBe(true);
+    expect(hydrated.known.t1).toBe("completed");
+
+    const baselined = observeCompletedTasks(
+      hydrated,
+      collectTaskSnapshots([
+        taskNode("sink", [{ id: "t1", state: "completed", brief: "A" }]),
+      ]),
+      1,
+    );
+    expect(baselined.stack).toEqual([]);
+    expect(baselined.dismissed.t1).toBe(true);
+
+    // Still quiet after baseline when rows keep flowing.
+    const again = observeCompletedTasks(
+      baselined,
+      collectTaskSnapshots([
+        taskNode("sink", [{ id: "t1", state: "completed", brief: "A" }]),
+      ]),
+      2,
+    );
+    expect(again.stack).toEqual([]);
+  });
+
+  it("persist + hydrate round-trip keeps dismiss", () => {
+    let state: CompletedNotifyState = observeCompletedTasks(
+      emptyCompletedNotifyState(),
+      collectTaskSnapshots([
+        taskNode("sink", [{ id: "t1", state: "working", brief: "A" }]),
+      ]),
+      1,
+    );
+    state = observeCompletedTasks(
+      state,
+      collectTaskSnapshots([
+        taskNode("sink", [{ id: "t1", state: "completed", brief: "A" }]),
+      ]),
+      2,
+    );
+    state = dismissCompletedNotify(state, "t1");
+    const persist = persistFromNotifyState(state);
+    expect(persist.dismissed).toContain("t1");
+    expect(persist.completedSeen).toContain("t1");
+
+    const cold = hydrateNotifyStateFromPersist(persist);
+    const after = observeCompletedTasks(
+      cold,
+      collectTaskSnapshots([
+        taskNode("sink", [{ id: "t1", state: "completed", brief: "A" }]),
+      ]),
+      3,
+    );
+    expect(after.stack).toEqual([]);
+  });
+
+  it("activateCompletedTaskNotify writes durable dismiss and survives re-hydrate", () => {
+    const store = memoryStore();
+    const restore = setCompletedNotifyStorageForTests(store);
+    try {
+      clearCompletedNotifyPersistForTests();
+      const working = [
+        taskNode("sink", [{ id: "t1", state: "working", brief: "A" }]),
+      ];
+      const done = [
+        taskNode("sink", [{ id: "t1", state: "completed", brief: "A" }]),
+      ];
+      state$.doc.set({ nodes: working, edges: [] });
+      syncCompletedTaskNotifyFromDoc(working, 1);
+      state$.doc.set({ nodes: done, edges: [] });
+      syncCompletedTaskNotifyFromDoc(done, 2);
+
+      activateCompletedTaskNotify({
+        id: "t1",
+        nodeId: "sink",
+        brief: "A",
+        at: 2,
+      });
+      expect(store.data.dismissed).toContain("t1");
+      expect(store.data.completedSeen).toContain("t1");
+      expect(completedTaskNotify$.items.peek()).toEqual([]);
+
+      // Cold process: re-hydrate from durable store, re-sync same completed.
+      resetCompletedTaskNotify();
+      syncCompletedTaskNotifyFromDoc(done, 3);
+      expect(completedTaskNotify$.items.peek()).toEqual([]);
+      expect(store.data.dismissed).toContain("t1");
+    } finally {
+      restore();
+      clearCompletedNotifyPersistForTests();
+    }
   });
 });

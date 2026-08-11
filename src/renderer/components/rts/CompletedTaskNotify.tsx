@@ -1,7 +1,10 @@
 /**
  * Stack of completed-task notifications above the notify / minimap cluster.
  * Click focuses the tasks node, opens the board with the task selected, and
- * dismisses this entry.
+ * durably dismisses this entry (survives remount / restart).
+ *
+ * Do not reset module state on unmount — that wiped click-dismiss and caused
+ * completed tasks to re-spam the stack.
  */
 import { useEffect } from "react";
 import { use$ } from "@legendapp/state/react";
@@ -9,7 +12,6 @@ import { CheckCircle2 } from "lucide-react";
 import {
   activateCompletedTaskNotify,
   completedTaskNotify$,
-  resetCompletedTaskNotify,
   syncCompletedTaskNotifyFromDoc,
 } from "../../lib/completed-task-notify";
 import { state$ } from "../../lib/state";
@@ -21,13 +23,6 @@ export function CompletedTaskNotifyStack() {
   useEffect(() => {
     syncCompletedTaskNotifyFromDoc(doc.nodes);
   }, [doc]);
-
-  useEffect(() => {
-    return () => {
-      // Full unmount of RTS chrome — re-baseline next mount.
-      resetCompletedTaskNotify();
-    };
-  }, []);
 
   if (items.length === 0) return null;
 

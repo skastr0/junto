@@ -1,18 +1,17 @@
 /**
  * Rising-edge completed-task notifications for the RTS HUD.
  *
- * Pure observe model + process-local store. First observation baselines
- * existing completed tasks (no spam on open). Later transitions into
- * `completed` push a stack entry; dismiss only on click.
+ * First observation baselines existing completed tasks (no spam on open).
+ * Later transitions into `completed` push a stack entry; click dismisses.
  *
- * Stability laws (anti-spam):
- * 1. Retain last-known state for tasks that drop out of a snapshot tick
- *    (projection flicker / canvas switch). Do not treat reappearance of an
- *    already-completed id as a rising edge.
- * 2. Clear dismiss only when we **observe** an explicit non-completed state —
- *    never when the task is merely absent from this tick.
- * 3. Stack UI lists only currently projected completed ids; retained known
- *    still prevents re-rise if the row returns after a gap.
+ * Stability laws (anti-spam + durable clear):
+ * 1. Retain last-known state across absent snapshot ticks (projection gaps).
+ * 2. Clear dismiss only when a non-completed state is **observed** — not when
+ *    the row is merely missing for a tick.
+ * 3. Click-dismiss is **persisted** (local install UI store) so remounts,
+ *    renderer restarts, and RTS chrome remounts do not re-fire the same id.
+ * 4. Completed-seen ids are also persisted so a cold open does not re-stack
+ *    rows the operator already lived through this install.
  */
 
 import { observable } from "@legendapp/state";
@@ -46,12 +45,133 @@ export type CompletedNotifyState = {
   readonly stack: ReadonlyArray<CompletedTaskNotifyItem>;
 };
 
+export type CompletedNotifyPersist = {
+  readonly dismissed: ReadonlyArray<string>;
+  /** Task ids that have already been observed as completed (anti re-rise). */
+  readonly completedSeen: ReadonlyArray<string>;
+};
+
 export const emptyCompletedNotifyState = (): CompletedNotifyState => ({
   baselined: false,
   known: {},
   dismissed: {},
   stack: [],
 });
+
+export const emptyCompletedNotifyPersist = (): CompletedNotifyPersist => ({
+  dismissed: [],
+  completedSeen: [],
+});
+
+/** Cap persisted id lists so localStorage cannot grow without bound. */
+export const COMPLETED_NOTIFY_PERSIST_CAP = 500;
+
+export const COMPLETED_NOTIFY_STORAGE_KEY =
+  "vellum-command:completed-task-notify:v1";
+
+export type CompletedNotifyStorage = {
+  readonly load: () => CompletedNotifyPersist;
+  readonly save: (data: CompletedNotifyPersist) => void;
+};
+
+const memoryStorage = (): CompletedNotifyStorage => {
+  let data = emptyCompletedNotifyPersist();
+  return {
+    load: () => data,
+    save: (next) => {
+      data = {
+        dismissed: [...next.dismissed],
+        completedSeen: [...next.completedSeen],
+      };
+    },
+  };
+};
+
+const browserLocalStorage = (): CompletedNotifyStorage => ({
+  load: () => {
+    try {
+      if (typeof localStorage === "undefined") return emptyCompletedNotifyPersist();
+      const raw = localStorage.getItem(COMPLETED_NOTIFY_STORAGE_KEY);
+      if (!raw) return emptyCompletedNotifyPersist();
+      const parsed = JSON.parse(raw) as Partial<CompletedNotifyPersist>;
+      const dismissed = Array.isArray(parsed.dismissed)
+        ? parsed.dismissed.filter((id): id is string => typeof id === "string" && id.length > 0)
+        : [];
+      const completedSeen = Array.isArray(parsed.completedSeen)
+        ? parsed.completedSeen.filter(
+            (id): id is string => typeof id === "string" && id.length > 0,
+          )
+        : [];
+      return { dismissed, completedSeen };
+    } catch {
+      return emptyCompletedNotifyPersist();
+    }
+  },
+  save: (data) => {
+    try {
+      if (typeof localStorage === "undefined") return;
+      localStorage.setItem(
+        COMPLETED_NOTIFY_STORAGE_KEY,
+        JSON.stringify({
+          dismissed: data.dismissed.slice(-COMPLETED_NOTIFY_PERSIST_CAP),
+          completedSeen: data.completedSeen.slice(-COMPLETED_NOTIFY_PERSIST_CAP),
+        }),
+      );
+    } catch {
+      // Quota / private mode — in-memory state still holds for the session.
+    }
+  },
+});
+
+let notifyStorage: CompletedNotifyStorage =
+  typeof localStorage === "undefined" ? memoryStorage() : browserLocalStorage();
+
+/** Test seam — inject memory storage; returns restore fn. */
+export const setCompletedNotifyStorageForTests = (
+  storage: CompletedNotifyStorage,
+): (() => void) => {
+  const prev = notifyStorage;
+  notifyStorage = storage;
+  return () => {
+    notifyStorage = prev;
+  };
+};
+
+export const persistFromNotifyState = (
+  state: CompletedNotifyState,
+): CompletedNotifyPersist => {
+  const dismissed = Object.keys(state.dismissed);
+  const completedSeen = Object.entries(state.known)
+    .filter(([, st]) => st === "completed")
+    .map(([id]) => id);
+  // Keep dismissed ids that are not currently known completed (gap) so a
+  // later reappearance still respects the click.
+  const seen = new Set([...completedSeen, ...dismissed]);
+  return {
+    dismissed,
+    completedSeen: [...seen],
+  };
+};
+
+export const hydrateNotifyStateFromPersist = (
+  persist: CompletedNotifyPersist,
+): CompletedNotifyState => {
+  const dismissed: Record<string, true> = {};
+  for (const id of persist.dismissed) dismissed[id] = true;
+  const known: Record<string, TaskState> = {};
+  for (const id of persist.completedSeen) known[id] = "completed";
+  // Also mark dismissed as known completed so re-open cannot re-rise them
+  // until we observe a non-completed transition.
+  for (const id of persist.dismissed) {
+    if (known[id] === undefined) known[id] = "completed";
+  }
+  return {
+    baselined: false,
+    known,
+    dismissed,
+    stack: [],
+  };
+};
 
 /** Collect completed-capable task rows from all task sinks on the canvas. */
 export const collectTaskSnapshots = (
@@ -91,17 +211,17 @@ export const observeCompletedTasks = (
   }
 
   if (!state.baselined) {
+    // Preserve hydrated dismiss + completed-seen across first open.
     return {
       baselined: true,
       known: nextKnown,
-      dismissed: {},
+      dismissed: { ...state.dismissed },
       stack: [],
     };
   }
 
   const nextDismissed: Record<string, true> = { ...state.dismissed };
   // Clear dismiss only on an explicit observed non-completed state.
-  // Absence alone must not forget a click-dismiss (projection gaps spam otherwise).
   for (const snap of snapshots) {
     if (nextDismissed[snap.taskId] && snap.state !== "completed") {
       delete nextDismissed[snap.taskId];
@@ -132,7 +252,6 @@ export const observeCompletedTasks = (
     });
   }
 
-  // Newest first: risen (this tick) then prior stack by at.
   const nextStack = [...risen, ...kept].sort((a, b) => b.at - a.at);
 
   return {
@@ -148,19 +267,42 @@ export const dismissCompletedNotify = (
   taskId: string,
 ): CompletedNotifyState => ({
   ...state,
+  // Ensure known stays completed so a gap cannot re-rise this id.
+  known: {
+    ...state.known,
+    [taskId]: state.known[taskId] ?? "completed",
+  },
   dismissed: { ...state.dismissed, [taskId]: true },
   stack: state.stack.filter((item) => item.id !== taskId),
 });
 
-// --- process-local store ----------------------------------------------------
+// --- process store (survives RTS remount; dismiss persisted to localStorage) -
 
-let notifyState: CompletedNotifyState = emptyCompletedNotifyState();
+const writePersist = (state: CompletedNotifyState): void => {
+  notifyStorage.save(persistFromNotifyState(state));
+};
+
+let notifyState: CompletedNotifyState = hydrateNotifyStateFromPersist(
+  notifyStorage.load(),
+);
 
 export const completedTaskNotify$ = observable({
   items: [] as ReadonlyArray<CompletedTaskNotifyItem>,
 });
 
+/**
+ * Test / full process teardown only. Does **not** clear durable dismiss —
+ * call clearCompletedNotifyPersistForTests for that. Product RTS unmount must
+ * not wipe operator dismissals.
+ */
 export const resetCompletedTaskNotify = (): void => {
+  notifyState = hydrateNotifyStateFromPersist(notifyStorage.load());
+  completedTaskNotify$.items.set([]);
+};
+
+/** Test helper — empty durable + memory state. */
+export const clearCompletedNotifyPersistForTests = (): void => {
+  notifyStorage.save(emptyCompletedNotifyPersist());
   notifyState = emptyCompletedNotifyState();
   completedTaskNotify$.items.set([]);
 };
@@ -174,12 +316,14 @@ export const syncCompletedTaskNotifyFromDoc = (
     collectTaskSnapshots(nodes),
     now,
   );
+  writePersist(notifyState);
   completedTaskNotify$.items.set(notifyState.stack);
 };
 
-/** Click handler: dismiss + focus canvas + open tasks board on this item. */
+/** Click handler: durable dismiss + focus canvas + open tasks board. */
 export const activateCompletedTaskNotify = (item: CompletedTaskNotifyItem): void => {
   notifyState = dismissCompletedNotify(notifyState, item.id);
+  writePersist(notifyState);
   completedTaskNotify$.items.set(notifyState.stack);
 
   state$.selectedNodeId.set(item.nodeId);
