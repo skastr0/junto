@@ -23,6 +23,14 @@ import {
   XCircle,
 } from "lucide-react";
 import {
+  applyTaskBoardSelection,
+  columnSelectionState,
+  resolveTaskBoardBulkActions,
+  toggleSelectAllInColumn,
+  type TaskBoardBulkAction,
+  type TaskBoardSelectMode,
+} from "./task-board-selection";
+import {
   DragDropProvider,
   DragOverlay,
   useDroppable,
@@ -400,12 +408,15 @@ function TaskLane({
   pendingTaskId,
   editingTaskId,
   selectedTaskId,
+  selectedTaskIds,
   activeActorSeatIds,
   proposalById,
   onCreate,
   onApprove,
   onRejectProposal,
   onSelect,
+  onToggleSelect,
+  onSelectAllInLane,
   onMove,
   onEdit,
   onCancelEdit,
@@ -419,12 +430,15 @@ function TaskLane({
   readonly pendingTaskId: string | null;
   readonly editingTaskId: string | null;
   readonly selectedTaskId: string | null;
+  readonly selectedTaskIds: ReadonlySet<string>;
   readonly activeActorSeatIds: ReadonlySet<string>;
   readonly proposalById: ReadonlyMap<string, string>;
   readonly onCreate: () => void;
   readonly onApprove: (task: WorkTask) => void;
   readonly onRejectProposal?: (task: WorkTask) => void;
   readonly onSelect: (taskId: string) => void;
+  readonly onToggleSelect: (taskId: string) => void;
+  readonly onSelectAllInLane: () => void;
   readonly onMove: (task: WorkTask, state: TaskState) => void;
   readonly onEdit: (task: WorkTask) => void;
   readonly onCancelEdit: () => void;
@@ -438,6 +452,12 @@ function TaskLane({
   });
   const Icon = lane.icon;
   const isTarget = laneDrop.isDropTarget || activeLane === lane.id;
+  const columnIds = tasks.map((task) => task.id);
+  const selectState = columnSelectionState(selectedTaskIds, columnIds);
+  const selectAllLabel =
+    selectState === "all"
+      ? `Deselect all ${lane.label.toLowerCase()}`
+      : `Select all ${tasks.length} in ${lane.label}`;
 
   return (
     <section
@@ -455,6 +475,25 @@ function TaskLane({
     >
       <header className="task-board-lane__header">
         <div className="task-board-lane__title-wrap">
+          {tasks.length > 0 ? (
+            <label
+              className="task-board-lane__select-all"
+              title={selectAllLabel}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <input
+                type="checkbox"
+                className="task-board-select"
+                data-testid={`task-lane-select-all-${lane.id}`}
+                checked={selectState === "all"}
+                ref={(el) => {
+                  if (el) el.indeterminate = selectState === "partial";
+                }}
+                aria-label={selectAllLabel}
+                onChange={onSelectAllInLane}
+              />
+            </label>
+          ) : null}
           <Icon size={13} aria-hidden />
           <h2 id={`task-lane-${lane.id}`} className="task-board-lane__title">
             {lane.label}
@@ -490,9 +529,11 @@ function TaskLane({
             pending={pendingTaskId === task.id}
             editing={editingTaskId === task.id}
             selected={selectedTaskId === task.id}
+            checked={selectedTaskIds.has(task.id)}
             activeActorSeatIds={activeActorSeatIds}
             proposalBy={proposalById.get(task.id)}
             onSelect={onSelect}
+            onToggleSelect={onToggleSelect}
             onMove={onMove}
             onApprove={onApprove}
             onRejectProposal={onRejectProposal}
@@ -695,9 +736,11 @@ function TaskCard({
   pending,
   editing,
   selected,
+  checked,
   activeActorSeatIds,
   proposalBy,
   onSelect,
+  onToggleSelect,
   onMove,
   onApprove,
   onRejectProposal,
@@ -712,9 +755,11 @@ function TaskCard({
   readonly pending: boolean;
   readonly editing: boolean;
   readonly selected: boolean;
+  readonly checked: boolean;
   readonly activeActorSeatIds: ReadonlySet<string>;
   readonly proposalBy?: string;
   readonly onSelect: (taskId: string) => void;
+  readonly onToggleSelect: (taskId: string) => void;
   readonly onMove: (task: WorkTask, state: TaskState) => void;
   readonly onApprove: (task: WorkTask) => void;
   readonly onRejectProposal?: (task: WorkTask) => void;
@@ -773,26 +818,50 @@ function TaskCard({
           : "true"
       }
       data-testid="task-board-card"
+      data-checked={checked ? "true" : "false"}
       role="listitem"
       tabIndex={0}
       aria-busy={pending}
+      aria-selected={checked}
       aria-label={`Open details for ${brief}${
         mediaCount > 0 ? `, ${mediaCount} media attachment${mediaCount === 1 ? "" : "s"}` : ""
       }${
         claimantRetired ? ", stalled because its claimed seat is retired" : ""
       }`}
       aria-current={selected ? "true" : undefined}
-      onClick={() => {
-        if (!editing) onSelect(task.id);
+      onClick={(event) => {
+        if (editing) return;
+        // Meta/ctrl-click toggles multi-select without leaving the card focus path.
+        if (event.metaKey || event.ctrlKey) {
+          onToggleSelect(task.id);
+          return;
+        }
+        onSelect(task.id);
       }}
       onKeyDown={(event) => {
         if (!editing && (event.key === "Enter" || event.key === " ")) {
           event.preventDefault();
-          onSelect(task.id);
+          if (event.metaKey || event.ctrlKey) onToggleSelect(task.id);
+          else onSelect(task.id);
         }
       }}
     >
       <div className="task-board-card__topline">
+        <label
+          className="task-board-card__check"
+          title="Select for bulk actions"
+          onClick={(event) => event.stopPropagation()}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          <input
+            type="checkbox"
+            className="task-board-select"
+            data-testid="task-board-card-check"
+            checked={checked}
+            aria-label={`Select ${brief}`}
+            onChange={() => onToggleSelect(task.id)}
+          />
+        </label>
         <span
           className="task-board-card__handle"
           aria-hidden
@@ -2038,6 +2107,11 @@ export function TaskBoard({
     }
     return null;
   });
+  /** Multi-select for column bulk actions (independent of detail focus). */
+  const [selectedTaskIds, setSelectedTaskIds] = useState<ReadonlySet<string>>(
+    () => (initialItemId ? new Set([initialItemId]) : new Set()),
+  );
+  const [bulkPending, setBulkPending] = useState(false);
   const [error, setError] = useState("");
   const [announcement, setAnnouncement] = useState("");
   const api = getVellumCommandApi();
@@ -2094,6 +2168,35 @@ export function TaskBoard({
     : undefined;
   const selectedIsProposal =
     selectedTask !== undefined && proposalById.has(selectedTask.id);
+  const selectedBulkItems = useMemo(() => {
+    if (selectedTaskIds.size === 0) return [];
+    const out: Array<{
+      task: WorkTask;
+      isProposal: boolean;
+    }> = [];
+    for (const id of selectedTaskIds) {
+      const task =
+        items.find((entry) => entry.id === id) ??
+        proposalTasks.find((entry) => entry.id === id);
+      if (!task) continue;
+      out.push({ task, isProposal: proposalById.has(task.id) });
+    }
+    return out;
+  }, [items, proposalById, proposalTasks, selectedTaskIds]);
+  const bulkActions = useMemo(
+    () =>
+      resolveTaskBoardBulkActions(
+        selectedBulkItems.map(({ task, isProposal }) => ({
+          id: task.id,
+          state: task.state,
+          isProposal,
+          hardFinishGate:
+            task.finishCriteria?.artifacts !== undefined ||
+            task.finishCriteria?.git !== undefined,
+        })),
+      ),
+    [selectedBulkItems],
+  );
   const doc = use$(state$.doc);
   /** Region-scoped tasks for dep glance (cross-sink prereqs in the same region). */
   const scopeTasks = useMemo(
@@ -2185,6 +2288,19 @@ export function TaskBoard({
     }
   };
 
+  const focusTask = (taskId: string, mode: TaskBoardSelectMode = "replace") => {
+    setSelectedTaskId(taskId);
+    setSelectedTaskIds((current) => applyTaskBoardSelection(current, taskId, mode));
+  };
+
+  const toggleTaskChecked = (taskId: string) => {
+    setSelectedTaskIds((current) => applyTaskBoardSelection(current, taskId, "toggle"));
+  };
+
+  const clearTaskSelection = () => {
+    setSelectedTaskIds(new Set());
+  };
+
   const transitionTask = async (
     task: WorkTask,
     state: TaskState,
@@ -2206,7 +2322,13 @@ export function TaskBoard({
       if (task.state === "completed" && state === "submitted") {
         setAnnouncement(`Rejected ${taskTitle(task)} and returned it to Queue.`);
       } else if (state === "archived") {
-        setSelectedTaskId(null);
+        setSelectedTaskId((current) => (current === task.id ? null : current));
+        setSelectedTaskIds((current) => {
+          if (!current.has(task.id)) return current;
+          const next = new Set(current);
+          next.delete(task.id);
+          return next;
+        });
         setAnnouncement(`Deleted ${taskTitle(task)} from the board.`);
       } else {
         setAnnouncement(`Moved ${taskTitle(task)} to ${stateLabel(state)}.`);
@@ -2218,6 +2340,83 @@ export function TaskBoard({
       setAnnouncement(`Could not move ${taskTitle(task)}. ${message}`);
       return false;
     } finally {
+      setPendingTaskId(null);
+    }
+  };
+
+  const runBulkAction = async (action: TaskBoardBulkAction) => {
+    if (selectedBulkItems.length === 0 || bulkPending) return;
+    setBulkPending(true);
+    setError("");
+    let okCount = 0;
+    let failCount = 0;
+    let lastError = "";
+    try {
+      for (const { task, isProposal } of selectedBulkItems) {
+        let ok = false;
+        if (action.kind === "approve_proposals") {
+          if (!isProposal) continue;
+          if (!api) {
+            failCount += 1;
+            continue;
+          }
+          setPendingTaskId(task.id);
+          try {
+            const result = await runWorkCanvasMutation(name, () =>
+              api.workTaskApproveProposal(name, node.id, task.id),
+            );
+            ok = result !== undefined && result.ok;
+            if (result && !result.ok) lastError = result.message;
+          } finally {
+            setPendingTaskId(null);
+          }
+        } else if (action.kind === "reject_proposals") {
+          if (!isProposal || !api?.workTaskRejectProposal) continue;
+          setPendingTaskId(task.id);
+          try {
+            const result = await runWorkCanvasMutation(name, () =>
+              api.workTaskRejectProposal!(name, node.id, task.id),
+            );
+            ok = result !== undefined && result.ok;
+            if (result && !result.ok) lastError = result.message;
+          } finally {
+            setPendingTaskId(null);
+          }
+        } else {
+          if (isProposal) continue;
+          ok = await transitionTask(task, action.state);
+        }
+        if (ok) okCount += 1;
+        else failCount += 1;
+      }
+      if (okCount > 0 && failCount === 0) {
+        setAnnouncement(`${action.label} — ${okCount} done.`);
+        clearTaskSelection();
+        if (
+          action.kind === "reject_proposals" ||
+          (action.kind === "transition" && action.state === "archived")
+        ) {
+          setSelectedTaskId(null);
+        }
+      } else if (okCount > 0) {
+        setAnnouncement(
+          `${action.label}: ${okCount} ok, ${failCount} failed${
+            lastError ? ` — ${lastError}` : ""
+          }.`,
+        );
+        if (lastError) setError(lastError);
+      } else {
+        setAnnouncement(
+          `Could not run bulk action${lastError ? `: ${lastError}` : "."}`,
+        );
+        if (lastError) setError(lastError);
+      }
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      setError(message);
+      setAnnouncement(`Bulk action failed. ${message}`);
+    } finally {
+      setBulkPending(false);
       setPendingTaskId(null);
     }
   };
@@ -2503,6 +2702,58 @@ export function TaskBoard({
           </div>
         ) : null}
 
+        {selectedTaskIds.size > 0 ? (
+          <div
+            className="task-board-bulk-bar"
+            data-testid="task-board-bulk-bar"
+            role="toolbar"
+            aria-label="Bulk task actions"
+          >
+            <span className="task-board-bulk-bar__count">
+              {selectedTaskIds.size} selected
+            </span>
+            <div className="task-board-bulk-bar__actions">
+              {bulkActions.map((action) => {
+                const key =
+                  action.kind === "transition"
+                    ? `transition:${action.state}`
+                    : action.kind;
+                return (
+                  <Button
+                    key={key}
+                    size="xs"
+                    variant={
+                      action.kind === "reject_proposals" ||
+                      (action.kind === "transition" &&
+                        (action.state === "archived" ||
+                          action.state === "canceled" ||
+                          action.state === "failed" ||
+                          action.state === "rejected"))
+                        ? "danger"
+                        : action.kind === "approve_proposals"
+                          ? "primary"
+                          : "subtle"
+                    }
+                    disabled={bulkPending}
+                    data-testid={`task-board-bulk-${key}`}
+                    onClick={() => void runBulkAction(action)}
+                  >
+                    {action.label}
+                  </Button>
+                );
+              })}
+            </div>
+            <button
+              type="button"
+              className="task-board-bulk-bar__clear"
+              disabled={bulkPending}
+              onClick={clearTaskSelection}
+            >
+              Clear selection
+            </button>
+          </div>
+        ) : null}
+
         <div className="task-board-workspace" data-detail-open={selectedTask ? "true" : "false"}>
           <div
             className="task-board-grid"
@@ -2521,12 +2772,20 @@ export function TaskBoard({
                 pendingTaskId={pendingTaskId}
                 editingTaskId={editingTaskId}
                 selectedTaskId={selectedTaskId}
+                selectedTaskIds={selectedTaskIds}
                 activeActorSeatIds={activeActorSeatIds}
                 proposalById={proposalById}
                 onCreate={() =>
                   setCreating(lane.id === "proposal" ? "proposal" : "task")
                 }
-                onSelect={setSelectedTaskId}
+                onSelect={(taskId) => focusTask(taskId, "replace")}
+                onToggleSelect={toggleTaskChecked}
+                onSelectAllInLane={() => {
+                  const columnIds = tasksByLane[lane.id].map((task) => task.id);
+                  setSelectedTaskIds((current) =>
+                    toggleSelectAllInColumn(current, columnIds),
+                  );
+                }}
                 onMove={(task, state) => void transitionTask(task, state)}
                 onApprove={(task) => void approveProposal(task)}
                 onRejectProposal={(task) => void rejectProposal(task)}

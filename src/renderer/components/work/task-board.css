@@ -139,6 +139,70 @@
   gap: 7px;
 }
 
+.task-board-lane__select-all,
+.task-board-card__check {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  cursor: pointer;
+}
+
+.task-board-select {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: var(--color-cyan);
+  cursor: pointer;
+}
+
+.task-board-bulk-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--color-stroke);
+  background: color-mix(in oklab, var(--color-second) 8%, var(--color-raise-2));
+  color: var(--color-ink);
+}
+
+.task-board-bulk-bar__count {
+  flex: none;
+  color: var(--color-ink);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.task-board-bulk-bar__actions {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.task-board-bulk-bar__clear {
+  flex: none;
+  margin-left: auto;
+  border: 0;
+  padding: 4px 6px;
+  background: transparent;
+  color: var(--color-cyan);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.task-board-bulk-bar__clear:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .task-board-lane[data-lane="queue"] .task-board-lane__title-wrap {
   color: var(--color-amber);
 }
@@ -241,6 +305,11 @@
   border-color: var(--color-cyan);
   outline: none;
   box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-second) 16%, transparent);
+}
+
+.task-board-card[data-checked="true"] {
+  border-color: color-mix(in oklab, var(--color-cyan) 55%, var(--color-stroke));
+  background: color-mix(in oklab, var(--color-second) 6%, var(--color-raise));
 }
 
 .task-board-card--queue {
