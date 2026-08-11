@@ -6,6 +6,12 @@
  *
  * Corpus: /tmp/vellum-pty-fixtures/<harness>/<scenario>.jsonl (P1).
  * If a fixture is absent the test skips with a reason (repeatable contract).
+ *
+ * kimi is deliberately ABSENT. It is behind HARNESS_KIMI_ENABLED
+ * (src/shared/features.ts managedHarnessEnabled) so it cannot be authored or
+ * spawned in a shipping build, and the corpus carries no kimi bytes. Legs that
+ * throw "real capture missing" for a harness we do not ship are noise, not
+ * coverage — if kimi ships, capture it and restore the legs from git history.
  */
 import { describe, expect, it } from "vitest";
 import path from "node:path";
@@ -163,27 +169,6 @@ describe("R7 — real P1 captures (canonicality + honest state)", () => {
   });
 
 
-  it("kimi/startup-idle (real, v0.34.0): welcome screen has NO composer glyph → must be pasteable idle", async () => {
-    // Real kimi 0.34.0 startup: welcome box + "context: 0% (0/1M)" footer, NO "> " composer
-    // line on screen → kimi's prompt_footer_idle cannot fire → fallback idle refuses paste.
-    const entries = loadFixture("kimi", "startup-idle");
-    const obs = makeObserver();
-    try {
-      await feedAll(obs, decode(entries));
-      const snap = await obs.snapshot();
-      const hasComposerGlyph = /^\s*[❯>]/.test(snap.lines[snap.lines.length - 4] ?? "");
-      console.log("  kimi: title=", JSON.stringify(snap.signals.title),
-        "| footer:", JSON.stringify(snap.lines[snap.lines.length - 1]), "| composerGlyph:", hasComposerGlyph);
-      const runtime = new SeatStateRuntime({ now: () => 1_000_000 });
-      runtime.bindHarness("b1", "kimi", "e1");
-      runtime.observe(snap);
-      const state = runtime.getState("b1");
-      console.log("  → kimi state:", state, "| isSeatIdle:", runtime.isSeatIdle("b1"));
-      expect(state).toBe("idle");
-      expect(runtime.isSeatIdle("b1")).toBe(true); // FAILS today: real kimi idle is not pasteable
-    } finally { obs.dispose(); }
-  });
-
   it("prime-agent/startup-idle (real): OSC title 'prime-agent - prime-agent' → idle + pasteable (sanity)", async () => {
     const entries = loadFixture("prime-agent", "startup-idle");
     const obs = makeObserver();
@@ -282,12 +267,6 @@ describe("R7 — real P1 captures (canonicality + honest state)", () => {
     // Hermes shows ⏳ gpt-5.4-mini while working; its rule pack has no ⏳ rule and the
     // working evidence here is grid braille in the first KBs.
     const r = await workingTurnState("hermes", "hermes", 3_500);
-    expect(r.state).toBe("working");
-  });
-
-  it("kimi/working-turn (real): OSC 9;4;3 progress window → working (sanity)", async () => {
-    // Kimi emits OSC 9;4;3 during the turn (buckets 3–16KB) — but kimi's pack has no osc9 rule.
-    const r = await workingTurnState("kimi", "kimi", 10_000);
     expect(r.state).toBe("working");
   });
 
