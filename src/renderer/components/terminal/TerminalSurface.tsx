@@ -51,6 +51,7 @@ import {
   type SessionLoadPhase,
 } from "../../lib/session-load";
 import { releaseTaskToQueue } from "../../lib/work-actions";
+import { canClaimFocusAfterAsyncWork } from "../../lib/focus-ownership";
 import { ActivityMark } from "../ActivityMark";
 import { Button, Eyebrow, OverlayHeader } from "../ui";
 import { ActorEdgesGlance } from "./ActorEdgesGlance";
@@ -703,7 +704,12 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
             requestAnimationFrame(() => {
               if (!alive) return;
               pushResize();
-              if (!sawExit) term.focus();
+              if (
+                !sawExit &&
+                canClaimFocusAfterAsyncWork(hostRef.current)
+              ) {
+                term.focus();
+              }
             });
             for (const ms of SETTLE_FITS_MS) {
               settleTimers.push(
