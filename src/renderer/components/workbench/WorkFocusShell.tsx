@@ -7,10 +7,9 @@ import {
 } from "../../lib/dock-state";
 import {
   focusDockChromeVisible,
+  panesForLayout,
   surfaceById,
-  visiblePanes,
   workFocusSizeKeyForSurfaces,
-  zoneHasSurfaces,
   type WorkFocusSizeKey,
 } from "../../lib/surface-registry";
 import type { FocusMeasure } from "../../lib/focus-measure";
@@ -37,12 +36,23 @@ const measureForSizeKey = (key: WorkFocusSizeKey): FocusMeasure => {
  * Herdr slots are registered synchronously via dock-state observe.
  */
 export function WorkFocusShell() {
-  const registry = use$(dock$.registry);
+  // A primitive fingerprint lets Legend recompute on registry surface writes
+  // without rerendering this shell for pinned-only churn.
+  const focusSurfaceFingerprint = use$(() =>
+    JSON.stringify(
+      dock$.registry.surfaces
+        .get()
+        .filter((surface) => surface.zone === "focus")
+        .map((surface) => [surface.id, surface.kind]),
+    ),
+  );
+  const focusMru = use$(dock$.registry.focusMru);
+  const focusLayout = use$(dock$.registry.focusLayout);
 
-  const hasFocus = zoneHasSurfaces(registry, "focus");
+  const registry = dock$.registry.peek();
+  const hasFocus = focusSurfaceFingerprint !== "[]";
   const focusSurfaces = registry.surfaces.filter((s) => s.zone === "focus");
   const sizeKey = workFocusSizeKeyForSurfaces(focusSurfaces);
-  const onlyTerminals = sizeKey === "terminal";
   const onlyChats = sizeKey === "chat";
   const onlyTaskCreate = sizeKey === "task-create";
   const measure = measureForSizeKey(sizeKey);
@@ -51,8 +61,11 @@ export function WorkFocusShell() {
   // side-dock strip here was noise (fake single tab + split toggle).
   const showDockChrome = focusDockChromeVisible(registry);
 
-  const panes = visiblePanes(registry, "focus");
-  const activeId = panes.pane0;
+  const paneCount = panesForLayout(focusLayout);
+  const pane0 = focusMru[0];
+  const pane1 = paneCount === 2 ? focusMru[1] : undefined;
+  const tabs = focusMru.slice(paneCount);
+  const activeId = pane0;
   const active = activeId ? surfaceById(registry, activeId) : undefined;
 
   const closeAllFocus = useCallback(() => {
@@ -125,8 +138,8 @@ export function WorkFocusShell() {
         {showDockChrome ? (
           <WorkbenchChrome
             zone="focus"
-            paneIds={[panes.pane0, panes.pane1]}
-            tabs={panes.tabs}
+            paneIds={[pane0, pane1]}
+            tabs={tabs}
             activeId={activeId}
           />
         ) : null}
