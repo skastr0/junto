@@ -39,6 +39,7 @@ test.use({
 
 test("a TUI status line lands on the real last row, not a stale one", async ({ vellumCommand }) => {
   const { page } = vellumCommand;
+  page.on("console", (m) => { const t = m.text(); if (t.includes("[vellum:term-geom]")) console.log("LOG " + t.slice(t.indexOf("[vellum:term-geom]"))); });
   const node = page.locator(".react-flow__node", { hasText: LABEL });
   await expect(node).toBeVisible({ timeout: 30_000 });
   await node.dblclick();
@@ -50,7 +51,7 @@ test("a TUI status line lands on the real last row, not a stale one", async ({ v
   // re-reading the size each iteration, exactly as a TUI does on SIGWINCH.
   await surface.locator(".xterm-screen").click();
   await page.keyboard.type(
-    "i=1; while [ $i -le 2000 ]; do printf 'F%04d ....\\n' $i; " +
+    "i=1; while true; do printf 'F%04d ....\\n' $i; " +
       "R=$(stty size | cut -d\" \" -f1); printf '\\033[%d;1H\\033[2KSTATUS-ROW-%d\\033[u' \"$R\" \"$R\"; " +
       "i=$((i+1)); done",
   );
@@ -79,10 +80,16 @@ test("a TUI status line lands on the real last row, not a stale one", async ({ v
   await page.screenshot({ path: "/tmp/vellum-absolute-row.png" });
 
   expect(statusAt.length, "status marker never rendered").toBeGreaterThan(0);
-  // The status line must be on the LAST row, and there must be exactly one.
-  const stray = statusAt.filter((s) => s.i < rows.length - 2);
+  // Judge only the CURRENT status line. Earlier ones legitimately remain in the
+  // scrollback: they were written at the row that was last at the time, and a
+  // later resize does not (and must not) rewrite history. Flagging those made
+  // this spec report residue as a live fault.
+  const current = statusAt[statusAt.length - 1]!;
+  const claimedRow = Number(/STATUS-ROW-(\d+)/.exec(current.t)?.[1] ?? "0");
   expect(
-    stray.map((s) => `rendered row ${s.i} of ${rows.length}: ${s.t.slice(0, 60)}`),
-    "a status line written at the PTY-reported last row landed in the middle of the screen — the PTY and the painted grid disagree on height",
+    claimedRow > 0 && Math.abs(claimedRow - rows.length) <= 1
+      ? []
+      : [`current status says row ${claimedRow}, but the surface renders ${rows.length} rows`],
+    "the child is drawing its status line at a row that is not the real last row — it was told a height the renderer is not painting",
   ).toEqual([]);
 });

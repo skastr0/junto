@@ -99,6 +99,12 @@ const XTERM_PAD_Y = 12; // 6 + 6
 const RESIZE_DEBOUNCE_MS = 48;
 /** After open/attach, wait for focus-shell enter + stored size apply. */
 const SETTLE_FITS_MS = [0, 50, 160, 320, 600] as const;
+/**
+ * Trailing window before the child is told a new size. Must outlast the
+ * SETTLE_FITS_MS ladder's last step so one open produces one SIGWINCH, not one
+ * per settle tick.
+ */
+const PTY_NOTIFY_SETTLE_MS = 120;
 
 const applyViewportBookmark = (
   term: Terminal,
@@ -200,6 +206,8 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
   const epochRef = useRef<string | undefined>(undefined);
   const apiRef = useRef<VellumCommandTerminalApi | undefined>(undefined);
   const lastGeom = useRef<{ cols: number; rows: number }>({ cols: 0, rows: 0 });
+  /** Trailing timer that coalesces child SIGWINCH into one settled size. */
+  const ptyNotifyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [status, setStatus] = useState("attaching…");
   const [geomLabel, setGeomLabel] = useState("");
   const [releasePending, setReleasePending] = useState(false);
@@ -290,11 +298,79 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
       });
     }
 
-    if (term.cols !== cols || term.rows !== rows) {
-      try {
-        term.resize(cols, rows);
-      } catch {
-        return;
+    // Tell the CHILD first, then paint. A TUI positions its output by absolute
+    // row/column using the size the PTY reports, so if xterm is resized first
+    // the child keeps writing against the old geometry and lands its status
+    // line in the middle of the scrollback (proved in
+    // e2e/scenarios/terminal-absolute-row.spec.ts: told 30 rows, painted 39,
+    // status line rendered 9 rows above the bottom). Ordering the SIGWINCH
+    // ahead of the local resize closes that window instead of widening it.
+    {
+      const lease = leaseRef.current;
+      const api = apiRef.current;
+      const nextGeom = { cols, rows };
+      if (!lease || !api) {
+        logTermGeom("pty-notify-skipped", { cols, rows, hasLease: Boolean(lease), hasApi: Boolean(api) });
+      } else if (shouldNotifyPtyResize(lastGeom.current, nextGeom)) {
+        // COALESCE. Opening a surface runs pushResize through the whole
+        // SETTLE_FITS_MS ladder plus ResizeObserver ticks, and each distinct
+        // geometry used to become its own SIGWINCH — measured at four per open
+        // (135x30, 136x30, 137x30, 137x39). Every SIGWINCH makes a full-screen
+        // TUI clear and repaint at that geometry, so four of them in flight
+        // repaint over each other and leave the wreckage on screen.
+        //
+        // The local xterm resize stays immediate so the surface still feels
+        // responsive; only the child notification waits for layout to settle,
+        // and only the final size is ever sent.
+        if (ptyNotifyTimer.current !== undefined) clearTimeout(ptyNotifyTimer.current);
+        ptyNotifyTimer.current = setTimeout(() => {
+          ptyNotifyTimer.current = undefined;
+          const liveLease = leaseRef.current;
+          const liveApi = apiRef.current;
+          if (!liveLease || !liveApi) return;
+          if (!shouldNotifyPtyResize(lastGeom.current, nextGeom)) return;
+          void (async () => {
+            try {
+              // Record the belief only once the child has actually accepted the
+              // size — setting it up front means a dropped or dead-lease resize
+              // is remembered as delivered and never retried.
+              const ok = (await liveApi.terminalResize(liveLease, cols, rows)) !== false;
+              logTermGeom("pty-notify", { cols, rows, lease: liveLease.slice(0, 8), ok });
+              if (!ok) return;
+              lastGeom.current = nextGeom;
+              // ONLY NOW paint the new grid. A real terminal resizes its grid
+              // and signals the child atomically; here the two are separated by
+              // IPC, so the local resize waits for the child's acknowledgement.
+              // Resizing first opens a window where the child positions output
+              // by absolute row against a height nobody is painting, and that
+              // output is written into the scrollback permanently.
+              const live = termRef.current;
+              if (!live) return;
+              if (live.cols !== cols || live.rows !== rows) {
+                try {
+                  live.resize(cols, rows);
+                } catch {
+                  return;
+                }
+              }
+              try {
+                live.refresh(0, Math.max(0, live.rows - 1));
+              } catch {
+                // older paint paths still usable
+              }
+            } catch {
+              logTermGeom("pty-notify-failed", { cols, rows });
+            }
+          })();
+        }, PTY_NOTIFY_SETTLE_MS);
+      } else if (term.cols !== cols || term.rows !== rows) {
+        // Child already agrees on this geometry (e.g. a remount painting the
+        // size it was last told) — safe to size the grid locally.
+        try {
+          term.resize(cols, rows);
+        } catch {
+          return;
+        }
       }
     }
 
@@ -308,16 +384,6 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
     }
 
     setGeomLabel(`${cols}×${rows}`);
-
-    const lease = leaseRef.current;
-    const api = apiRef.current;
-    if (!lease || !api) return;
-
-    const nextGeom = { cols, rows };
-    if (!shouldNotifyPtyResize(lastGeom.current, nextGeom)) return;
-
-    lastGeom.current = nextGeom;
-    void api.terminalResize(lease, cols, rows);
   };
 
   useLayoutEffect(() => {
@@ -599,10 +665,13 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
           }
           leaseRef.current = result.lease.leaseId;
           epochRef.current = result.lease.epoch;
-          lastGeom.current = {
-            cols: result.screen?.cols ?? result.cols ?? 0,
-            rows: result.screen?.rows ?? result.rows ?? 0,
-          };
+          // The child's geometry is UNKNOWN until this surface has told it.
+          // Seeding from the session snapshot records what the child was at
+          // some earlier moment, and if the pane has since changed size the
+          // gate reads "no change" and the SIGWINCH is never sent — the child
+          // then positions output against a size nobody is painting. Starting
+          // at 0 makes the first measurement always notify.
+          lastGeom.current = { cols: 0, rows: 0 };
           let lastSeq: bigint | undefined;
           // Live sessions have exactly one attach representation: serialized VT
           // state. Journal is only for failures before an observer existed.
@@ -648,6 +717,27 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
             // Serialized xterm VT state restores cells, SGR/color, cursor,
             // normal/alternate buffers, and terminal modes in one representation.
             // Viewport restore must wait for write's parse callback.
+            // Size the grid to the SNAPSHOT before replaying it. Serialized VT
+            // carries hard-wrapped rows and absolute cursor positions recorded
+            // at the captured geometry; replaying it into a differently sized
+            // grid mangles those rows. This is a local-only resize — the child
+            // is not involved, so it does not go through the ack-then-paint
+            // path that user-driven resizes use.
+            const snapCols = result.screen?.cols;
+            const snapRows = result.screen?.rows;
+            if (
+              typeof snapCols === "number" &&
+              typeof snapRows === "number" &&
+              snapCols > 0 &&
+              snapRows > 0 &&
+              (term.cols !== snapCols || term.rows !== snapRows)
+            ) {
+              try {
+                term.resize(snapCols, snapRows);
+              } catch {
+                // fall through — replay into the current grid
+              }
+            }
             term.reset();
             if (result.screen?.seq !== undefined) lastSeq = result.screen.seq;
             term.write(serializedScreen, finishAttach);
