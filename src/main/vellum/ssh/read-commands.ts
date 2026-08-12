@@ -249,6 +249,14 @@ export const remoteTestFileExists = (
     Effect.flatMap((safe) => makeRemoteCommand("/bin/test", ["-f", safe])),
   );
 
+/** Socket existence probe: `/bin/test -S <path>`. */
+export const remoteTestSocketExists = (
+  path: string,
+): Effect.Effect<RemoteCommand, SshInputError> =>
+  admitReadPath(path).pipe(
+    Effect.flatMap((safe) => makeRemoteCommand("/bin/test", ["-S", safe])),
+  );
+
 /** Fixed package-presence probe; callers cannot redirect it to a host path. */
 export const remoteDarwinPackageExists = (): Effect.Effect<
   RemoteCommand,

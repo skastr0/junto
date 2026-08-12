@@ -40,12 +40,14 @@ import {
 import { REMOTE_UPDATE_IDLE_PRODUCT_COPY } from "@shared/remote-update-status";
 import { stationControlDir, stationControlSocketPath } from "@shared/station-ssh-control";
 import { TERM_REMOTE_SOCK_REL } from "@shared/term-control";
-import { SshExitError, type SshTarget } from "../ssh/domain";
+import { formatSshFailure } from "../ssh/format";
+import { SshExitError, type SshError, type SshTarget } from "../ssh/domain";
 import { homeDirectoryLookup, oneShot, sharedStream } from "../ssh/program";
 import {
   DARWIN_PACKAGED_BROWSER_EXECUTABLE,
   DARWIN_PACKAGED_STATION_EXECUTABLE,
   remoteDarwinPackageExists,
+  remoteTestSocketExists,
 } from "../ssh/read-commands";
 import {
   compileDarwinRemoteActivationScript,
@@ -356,6 +358,16 @@ export const makeProductionDarwinArtifactAuthority = (
  * Existing installations only: first install has no Remote terminal plane to
  * quiesce, while updates must prove zero active sessions before replacement.
  */
+const describeLiveWorkAcquireFailure = (error: unknown): string => {
+  if (error !== null && typeof error === "object" && "_tag" in error) {
+    return formatSshFailure(error as SshError);
+  }
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+  return "terminal route maintenance failed";
+};
+
 export const makeProductionDarwinLiveWorkAuthority =
   (): DarwinRemoteLiveWorkAuthority =>
     Object.freeze({
@@ -387,8 +399,7 @@ export const makeProductionDarwinLiveWorkAuthority =
               }),
             };
           },
-          catch: (error) =>
-            error instanceof Error ? error : new Error(String(error)),
+          catch: (error) => new Error(describeLiveWorkAcquireFailure(error)),
         }),
     });
 
@@ -2656,6 +2667,56 @@ export const makeDarwinRemoteDeploymentProvider = (deps: {
           };
         }
         if (installedPresent) {
+          // A published .app is not a live terminal plane. Quiesce only when
+          // the Remote term control socket exists.
+          const termSock = join(home, TERM_REMOTE_SOCK_REL);
+          const termProbeCmd = yield* remoteTestSocketExists(termSock).pipe(
+            Effect.result,
+          );
+          if (termProbeCmd._tag === "Failure") {
+            return {
+              ok: false,
+              detail: `${host.label}: could not construct the Remote terminal-plane probe — ${termProbeCmd.failure.message}`,
+              code: "io" as const,
+              message: termProbeCmd.failure.message,
+              stages,
+              disposition: "not-started" as const,
+              version: admission.localApp.version,
+            };
+          }
+          const termProbe = yield* ssh
+            .run(
+              oneShot(target.sshTarget, termProbeCmd.success, {
+                budget: "short",
+              }),
+            )
+            .pipe(Effect.result);
+          const termPlanePresent = termProbe._tag === "Success";
+          const termPlaneAbsent =
+            termProbe._tag === "Failure" &&
+            termProbe.failure instanceof SshExitError &&
+            termProbe.failure.code === 1;
+          if (!termPlanePresent && !termPlaneAbsent) {
+            const message =
+              termProbe._tag === "Failure"
+                ? describeLiveWorkAcquireFailure(termProbe.failure)
+                : "terminal-plane probe returned an unknown result";
+            return {
+              ok: false,
+              detail: `${host.label}: could not determine whether the Remote terminal plane is live — ${message}`,
+              code: "io" as const,
+              message,
+              stages,
+              disposition: "not-started" as const,
+              version: admission.localApp.version,
+            };
+          }
+          if (!termPlanePresent) {
+            push(
+              stages,
+              "remote terminal plane absent; package replacement admitted",
+            );
+          } else {
           // Updates only: never force-close active Remote sessions.
           const maintenance = yield* Effect.acquireRelease(
             deps.liveWorkAuthority.acquire(providerInput),
@@ -2664,7 +2725,7 @@ export const makeDarwinRemoteDeploymentProvider = (deps: {
           if (maintenance._tag === "Failure") {
             return {
               ok: false,
-              detail: `${host.label}: could not acquire Remote terminal maintenance — ${maintenance.failure.message}`,
+              detail: `${host.label}: could not acquire Remote terminal maintenance — ${describeLiveWorkAcquireFailure(maintenance.failure)}`,
               code: "conflict" as const,
               message: maintenance.failure.message,
               stages,
@@ -2685,6 +2746,7 @@ export const makeDarwinRemoteDeploymentProvider = (deps: {
             stages,
             `terminal route cut held observation=${liveWork.evidence.observationId}`,
           );
+          }
         } else {
           push(stages, "remote package absent; first install admitted");
         }

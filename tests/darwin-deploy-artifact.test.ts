@@ -252,6 +252,7 @@ describe("Darwin deployment first-install boundary", () => {
       .mockReturnValueOnce(
         Effect.succeed({ stdout: "/Users/operator\n", stderr: "" }),
       )
+      .mockReturnValueOnce(Effect.succeed({ stdout: "", stderr: "" }))
       .mockReturnValueOnce(Effect.succeed({ stdout: "", stderr: "" }));
 
     const result = await Effect.runPromise(
@@ -285,6 +286,7 @@ describe("Darwin deployment first-install boundary", () => {
       .mockReturnValueOnce(
         Effect.succeed({ stdout: "/Users/operator\n", stderr: "" }),
       )
+      .mockReturnValueOnce(Effect.succeed({ stdout: "", stderr: "" }))
       .mockReturnValueOnce(Effect.succeed({ stdout: "", stderr: "" }));
 
     const result = await Effect.runPromise(
@@ -298,6 +300,42 @@ describe("Darwin deployment first-install boundary", () => {
       expectedPackageState: "present",
     });
     expect(released).toHaveBeenCalledOnce();
+  });
+
+  it("replaces a published app with no terminal plane without a maintenance cut", async () => {
+    const acquire = vi.fn(() =>
+      Effect.die(new Error("absent terminal plane must not acquire maintenance")),
+    );
+    const { provider, streamArtifact } = providerWith({ acquire });
+    const run = vi
+      .fn()
+      .mockReturnValueOnce(
+        Effect.succeed({ stdout: "/Users/operator\n", stderr: "" }),
+      )
+      .mockReturnValueOnce(Effect.succeed({ stdout: "", stderr: "" }))
+      .mockReturnValueOnce(
+        Effect.fail(
+          new SshExitError({
+            endpoint: String(endpoint),
+            operation: "probe terminal plane",
+            code: 1,
+          }),
+        ),
+      );
+
+    const result = await Effect.runPromise(
+      provider.deploy(deploymentInput(run)),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.stages).toContain(
+      "remote terminal plane absent; package replacement admitted",
+    );
+    expect(acquire).not.toHaveBeenCalled();
+    expect(streamArtifact).toHaveBeenCalledOnce();
+    expect(streamArtifact.mock.calls[0]?.[2]).toMatchObject({
+      expectedPackageState: "present",
+    });
   });
 
   it.each([
