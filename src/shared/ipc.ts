@@ -45,6 +45,7 @@ import type { AgentSeatStateEvent } from "./agent-seat-state";
 import type { TerminalSessionSummary, TerminalLaunch } from "./terminal";
 import type { HostDirectorySnapshot } from "./host-directory";
 import type { ActorRef } from "./work-protocol";
+import type { WorkSeatRecentOpsFeed } from "./work-recent-ops";
 import type { LicenseApi } from "./license";
 import type {
   StateBackupId,
@@ -120,6 +121,7 @@ export const IPC_CHANNELS = {
   workRequestResolve: "vellum-command:work-request-resolve",
   workArtifactArchive: "vellum-command:work-artifact-archive",
   workArtifactDelete: "vellum-command:work-artifact-delete",
+  workSeatRecentOps: "vellum-command:work-seat-recent-ops",
   workBoardList: "vellum-command:work-board-list",
   workBoardCreateTopic: "vellum-command:work-board-create-topic",
   workBoardPost: "vellum-command:work-board-post",
@@ -712,6 +714,11 @@ export interface VellumCommandApi extends LicenseApi, UpdateApi {
     nodeId: string,
     artifactId: string,
   ) => Promise<WorkOpResult<{ readonly artifactId: string }>>;
+  readonly workSeatRecentOps: (
+    canvas: string,
+    nodeId: string,
+    limit?: number,
+  ) => Promise<WorkOpResult<WorkSeatRecentOpsFeed>>;
   /** Full topics+posts from SQLite (operator detail). Glance stays titles-only. */
   readonly workBoardList: (
     canvas: string,

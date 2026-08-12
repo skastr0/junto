@@ -510,6 +510,14 @@ const vellumApi: VellumCommandApi = {
       nodeId,
       artifactId,
     ),
+  workSeatRecentOps: (canvas, nodeId, limit) =>
+    invoke(
+      IPC_CHANNELS.workSeatRecentOps,
+      IPC_TIMEOUT_MS,
+      canvas,
+      nodeId,
+      limit,
+    ),
   workBoardList: (canvas, nodeId, topicId) =>
     invoke(
       IPC_CHANNELS.workBoardList,

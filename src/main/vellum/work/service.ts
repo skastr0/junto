@@ -18,6 +18,7 @@ import type {
   FinishCriteria,
   TaskProposal,
 } from "@shared/work-model";
+import type { WorkSeatRecentOpsFeed } from "@shared/work-recent-ops";
 import type { ContentPart } from "@shared/content";
 import type {
   CanvasReadResult,
@@ -389,6 +390,11 @@ export interface WorkServiceShape {
       nodeId: string,
       artifactId: string,
     ) => Effect.Effect<WorkOpResult<{ readonly artifactId: string }>>;
+    readonly workSeatRecentOps: (
+      canvas: string,
+      nodeId: string,
+      limit?: number,
+    ) => Effect.Effect<WorkOpResult<WorkSeatRecentOpsFeed>>;
     readonly workBoardList: (
       canvas: string,
       nodeId: string,
@@ -1971,6 +1977,35 @@ export const WorkLive = Layer.effect(
                 })
                 .pipe(Effect.map((value) => ({ value }))),
             );
+            return yield* complete(canvas, outcome);
+          }),
+        ),
+
+      workSeatRecentOps: (canvas, nodeId, limit) =>
+        asResult(
+          Effect.gen(function* () {
+            const read = yield* readCanvas(canvas);
+            const actors = read.actorRefs.filter(
+              (actor) =>
+                actor.canvasName === canvas && actor.nodeId === nodeId,
+            );
+            if (actors.length !== 1) {
+              return yield* Effect.fail(
+                new WorkServiceError({
+                  code: "illegal_kind",
+                  message:
+                    `node "${nodeId}" does not identify exactly one compiled actor seat`,
+                }),
+              );
+            }
+            const feed = yield* repository
+              .recentOpsForSeat({
+                canvasName: canvas,
+                actorSeatId: actors[0]!.seatId,
+                ...(limit === undefined ? {} : { limit }),
+              })
+              .pipe(Effect.mapError(toWorkServiceError));
+            const outcome = yield* local(Effect.succeed({ value: feed }));
             return yield* complete(canvas, outcome);
           }),
         ),

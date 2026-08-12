@@ -28,6 +28,15 @@ import {
   BoardPost,
 } from "@shared/work-model";
 import {
+  WORK_SEAT_RECENT_OPS_COVERAGE,
+  WORK_SEAT_RECENT_OP_DEFAULT_LIMIT,
+  WORK_SEAT_RECENT_OP_MAX_LABEL_CHARS,
+  WORK_SEAT_RECENT_OP_MAX_LIMIT,
+  WorkSeatRecentOp,
+  type WorkSeatRecentOp as WorkSeatRecentOpValue,
+  type WorkSeatRecentOpsFeed,
+} from "@shared/work-recent-ops";
+import {
   ActorRef as ActorRefSchema,
   DisplayTimestamp,
   LogicalSequence,
@@ -550,6 +559,19 @@ type DispositionRow = StateRow & {
   readonly fact_sha256: string | null;
   readonly rejection_reason: WorkRejectionReason | null;
   readonly rejection_message: string | null;
+};
+
+type RecentSeatOpRow = StateRow & {
+  readonly operation: WorkSeatRecentOpValue["operation"];
+  readonly origin_at: string;
+  readonly applied_at: string;
+  readonly target_node_id: string;
+  readonly item_kind: WorkItemRef["kind"];
+  readonly item_id: string;
+  readonly summary_label: string | null;
+  readonly related_kind: WorkItemRef["kind"] | null;
+  readonly related_id: string | null;
+  readonly related_node_id: string | null;
 };
 
 type TaskRow = StateRow & {
@@ -1721,6 +1743,272 @@ const snapshotsForCanvas = (
   return nodes.map(({ node_id }) =>
     loadSnapshot(reader, { canvasName, nodeId: node_id }),
   );
+};
+
+const normalizeRecentOpsLimit = (limit: number | undefined): number => {
+  if (limit === undefined || !Number.isFinite(limit)) {
+    return WORK_SEAT_RECENT_OP_DEFAULT_LIMIT;
+  }
+  return Math.min(
+    WORK_SEAT_RECENT_OP_MAX_LIMIT,
+    Math.max(1, Math.trunc(limit)),
+  );
+};
+
+const boundedRecentOpLabel = (value: string | null): string | undefined => {
+  if (value === null || value.length === 0) return undefined;
+  const clipped = value.slice(0, WORK_SEAT_RECENT_OP_MAX_LABEL_CHARS);
+  const lastCodeUnit = clipped.charCodeAt(clipped.length - 1);
+  return lastCodeUnit >= 0xd800 && lastCodeUnit <= 0xdbff
+    ? clipped.slice(0, -1)
+    : clipped;
+};
+
+const recentOpSummary = (row: RecentSeatOpRow): WorkSeatRecentOpValue["summary"] => {
+  switch (row.operation) {
+    case "proposal.create":
+      return { kind: "proposal", proposalId: row.item_id };
+    case "task.claim":
+      return { kind: "task", taskId: row.item_id };
+    case "request.create":
+      return { kind: "request", requestId: row.item_id };
+    case "message.append":
+      return { kind: "message", messageId: row.item_id };
+    case "artifact.publish":
+      const artifactName = boundedRecentOpLabel(row.summary_label);
+      return {
+        kind: "artifact",
+        artifactId: row.item_id,
+        ...(artifactName === undefined ? {} : { name: artifactName }),
+        ...(row.related_id === null ? {} : { taskId: row.related_id }),
+      };
+    case "delivery.accepted":
+      if (
+        row.related_kind === null ||
+        row.related_id === null ||
+        row.related_node_id === null
+      ) {
+        throw new Error("delivery receipt summary is incomplete");
+      }
+      return {
+        kind: "delivery",
+        deliveryId: row.item_id,
+        delivered: {
+          kind: row.related_kind,
+          itemId: row.related_id,
+          targetNodeId: row.related_node_id,
+        },
+      };
+    case "board.topic.create":
+      const topicTitle = boundedRecentOpLabel(row.summary_label);
+      if (topicTitle === undefined) {
+        throw new Error("board topic summary is missing its title");
+      }
+      return {
+        kind: "topic",
+        topicId: row.item_id,
+        title: topicTitle,
+      };
+    case "board.post.append":
+      if (row.related_id === null) {
+        throw new Error("board post summary is missing its topic id");
+      }
+      return {
+        kind: "post",
+        postId: row.item_id,
+        topicId: row.related_id,
+      };
+  }
+};
+
+/**
+ * Actor attribution comes only from the successful fact's explicit actor
+ * field. A task claimant is deliberately not used for describe/transition:
+ * operator IPC may issue the same mutation against that actor's task.
+ */
+const recentOpsForSeat = (
+  reader: StateReader,
+  input: {
+    readonly canvasName: string;
+    readonly actorSeatId: ActorSeatId;
+    readonly limit?: number;
+  },
+): WorkSeatRecentOpsFeed => {
+  const rows = reader.all<RecentSeatOpRow>(
+    `
+      WITH fact_rows AS (
+        SELECT
+          fact_event.operation,
+          coalesce(command_event.origin_at, fact_event.origin_at) AS origin_at,
+          fact_event.origin_at AS applied_at,
+          fact_event.received_at AS observed_at,
+          fact_event.item_node_id AS target_node_id,
+          fact_event.item_kind AS item_kind,
+          fact_event.item_id AS item_id,
+          fact.result_json AS result_json,
+          fact_event.event_home,
+          fact_event.entity_home,
+          fact_event.seq
+        FROM work_events AS fact_event
+        JOIN work_facts AS fact
+          ON fact.event_home = fact_event.event_home
+          AND fact.entity_home = fact_event.entity_home
+          AND fact.seq = fact_event.seq
+        LEFT JOIN work_events AS command_event
+          ON fact.basis_kind = 'command'
+          AND command_event.record_type = 'command'
+          AND command_event.event_home = fact.basis_command_event_home
+          AND command_event.entity_home = fact.basis_command_entity_home
+          AND command_event.seq = fact.basis_command_seq
+        WHERE fact_event.record_type = 'fact'
+          AND fact_event.item_canvas_name = ?
+          AND fact_event.operation IN (
+            'task.claim',
+            'request.create',
+            'message.append',
+            'artifact.publish',
+            'delivery.accepted',
+            'board.topic.create',
+            'board.post.append'
+          )
+
+        UNION ALL
+
+        SELECT
+          fact_event.operation,
+          coalesce(command_event.origin_at, fact_event.origin_at) AS origin_at,
+          fact_event.origin_at AS applied_at,
+          fact_event.received_at AS observed_at,
+          fact_event.node_id AS target_node_id,
+          'proposal' AS item_kind,
+          fact_event.proposal_id AS item_id,
+          json_extract(fact_event.record_json, '$.body') AS result_json,
+          fact_event.event_home,
+          fact_event.entity_home,
+          fact_event.seq
+        FROM work_proposal_events AS fact_event
+        LEFT JOIN work_proposal_events AS command_event
+          ON json_extract(fact_event.record_json, '$.basis.kind') = 'command'
+          AND command_event.record_type = 'command'
+          AND command_event.event_home = json_extract(
+            fact_event.record_json,
+            '$.basis.command.route.eventHome'
+          )
+          AND command_event.entity_home = json_extract(
+            fact_event.record_json,
+            '$.basis.command.route.entityHome'
+          )
+          AND command_event.seq = json_extract(
+            fact_event.record_json,
+            '$.basis.command.seq'
+          )
+        WHERE fact_event.record_type = 'fact'
+          AND fact_event.operation = 'proposal.create'
+          AND fact_event.canvas_name = ?
+      ),
+      attributed AS (
+        SELECT
+          *,
+          CASE operation
+            WHEN 'proposal.create' THEN
+              json_extract(result_json, '$.proposal.proposedBy.seatId')
+            WHEN 'task.claim' THEN
+              json_extract(result_json, '$.claimedBy.seatId')
+            WHEN 'request.create' THEN
+              json_extract(result_json, '$.request.claimedBy')
+            WHEN 'message.append' THEN
+              json_extract(result_json, '$.sentBy.seatId')
+            WHEN 'artifact.publish' THEN
+              json_extract(result_json, '$.publishedBy.seatId')
+            WHEN 'delivery.accepted' THEN
+              json_extract(result_json, '$.receipt.actor.seatId')
+            WHEN 'board.topic.create' THEN
+              CASE
+                WHEN json_extract(result_json, '$.createdBy.kind') = 'actor'
+                  THEN json_extract(result_json, '$.createdBy.seatId')
+                ELSE NULL
+              END
+            WHEN 'board.post.append' THEN
+              CASE
+                WHEN json_extract(result_json, '$.createdBy.kind') = 'actor'
+                  THEN json_extract(result_json, '$.createdBy.seatId')
+                ELSE NULL
+              END
+            ELSE NULL
+          END AS actor_seat_id
+        FROM fact_rows
+      )
+      SELECT
+        operation,
+        origin_at,
+        applied_at,
+        target_node_id,
+        item_kind,
+        item_id,
+        CASE operation
+          WHEN 'artifact.publish' THEN substr(
+            json_extract(result_json, '$.artifact.name'),
+            1,
+            ${WORK_SEAT_RECENT_OP_MAX_LABEL_CHARS}
+          )
+          WHEN 'board.topic.create' THEN substr(
+            json_extract(result_json, '$.topic.title'),
+            1,
+            ${WORK_SEAT_RECENT_OP_MAX_LABEL_CHARS}
+          )
+          ELSE NULL
+        END AS summary_label,
+        CASE operation
+          WHEN 'delivery.accepted' THEN
+            json_extract(result_json, '$.receipt.deliveredItem.kind')
+          ELSE NULL
+        END AS related_kind,
+        CASE operation
+          WHEN 'artifact.publish' THEN
+            json_extract(result_json, '$.artifact.task.itemId')
+          WHEN 'delivery.accepted' THEN
+            json_extract(result_json, '$.receipt.deliveredItem.itemId')
+          WHEN 'board.post.append' THEN
+            json_extract(result_json, '$.post.topicId')
+          ELSE NULL
+        END AS related_id,
+        CASE operation
+          WHEN 'delivery.accepted' THEN
+            json_extract(result_json, '$.receipt.deliveredItem.sink.nodeId')
+          ELSE NULL
+        END AS related_node_id
+      FROM attributed
+      WHERE actor_seat_id = ?
+      ORDER BY
+        applied_at DESC,
+        observed_at DESC,
+        event_home DESC,
+        entity_home DESC,
+        length(seq) DESC,
+        seq DESC
+      LIMIT ?
+    `,
+    [
+      input.canvasName,
+      input.canvasName,
+      input.actorSeatId,
+      normalizeRecentOpsLimit(input.limit),
+    ],
+  );
+  const operations = rows.map((row) =>
+    Schema.decodeUnknownSync(WorkSeatRecentOp, strictDecode)({
+      operation: row.operation,
+      originAt: row.origin_at,
+      appliedAt: row.applied_at,
+      targetNodeId: row.target_node_id,
+      summary: recentOpSummary(row),
+    }),
+  );
+  return {
+    operations,
+    lastOpAt: operations[0]?.appliedAt ?? null,
+    coverage: WORK_SEAT_RECENT_OPS_COVERAGE,
+  };
 };
 
 /**
@@ -5678,6 +5966,11 @@ export interface WorkRepositoryShape {
     readonly snapshotsForCanvas: (
       canvasName: string,
     ) => Effect.Effect<ReadonlyArray<WorkSnapshotValue>, WorkRepositoryError>;
+    readonly recentOpsForSeat: (input: {
+      readonly canvasName: string;
+      readonly actorSeatId: ActorSeatId;
+      readonly limit?: number;
+    }) => Effect.Effect<WorkSeatRecentOpsFeed, WorkRepositoryError>;
     readonly itemHome: (
       lane: "task" | "proposal" | "request",
       canvasName: string,
@@ -5840,6 +6133,21 @@ export const WorkRepositoryLive = Layer.effect(
         .pipe(
           Effect.mapError((error) =>
             toRepositoryError("work.snapshotsForCanvas", error),
+          ),
+        );
+
+    const readRecentOpsForSeat = (input: {
+      readonly canvasName: string;
+      readonly actorSeatId: ActorSeatId;
+      readonly limit?: number;
+    }): Effect.Effect<WorkSeatRecentOpsFeed, WorkRepositoryError> =>
+      state
+        .read("work.recentOpsForSeat", (reader) =>
+          recentOpsForSeat(reader, input),
+        )
+        .pipe(
+          Effect.mapError((error) =>
+            toRepositoryError("work.recentOpsForSeat", error),
           ),
         );
 
@@ -7618,6 +7926,7 @@ export const WorkRepositoryLive = Layer.effect(
     return WorkRepository.of({
       readSnapshot,
       snapshotsForCanvas: readSnapshotsForCanvas,
+      recentOpsForSeat: readRecentOpsForSeat,
       itemHome,
       hasAcceptedDelivery,
       acceptedDeliveryAt,

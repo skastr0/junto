@@ -854,6 +854,24 @@ export const registerVellumIpc = (): void => {
   );
 
   privilegedIpc.handle(
+    IPC_CHANNELS.workSeatRecentOps,
+    (
+      _event,
+      canvas: string,
+      nodeId: string,
+      limit?: number,
+    ) =>
+      AppRuntime.runPromise(
+        Effect.gen(function* () {
+          const denied = yield* denyRemoteWork;
+          if (denied) return denied;
+          const work = yield* WorkService;
+          return yield* work.workSeatRecentOps(canvas, nodeId, limit);
+        }),
+      ),
+  );
+
+  privilegedIpc.handle(
     IPC_CHANNELS.workBoardList,
     (
       _event,
