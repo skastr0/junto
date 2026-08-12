@@ -476,13 +476,17 @@ const suspendProductRuntimeForLicenseRevocation = (): void => {
  *
  * Factory hold (coordinator) forces the play control into maintenance and
  * seatPaused=true; productLicenseAdmission mode=maintenance refuses authorial
- * mutations. Owned PTYs/agents are not killed — they stay blocked by pause.
- * Kernel/term monotonic suspend is reserved for hard denial only so full
- * access can return seamlessly without a restart.
+ * mutations and holds renewal-producing fleet synchronize (status/project) so
+ * a lapsed CC cannot keep Remote check-in leases alive. Owned PTYs/agents are
+ * not killed — they stay blocked by pause. Kernel/term monotonic suspend is
+ * reserved for hard denial only so full access can return seamlessly without
+ * a restart (fleet hold clears when mode returns to full).
  */
 const enterLicenseMaintenance = (): void => {
-  // Hooks exist for future flush orchestration / UI telemetry. Law is already
-  // enforced by licenseFactoryHold + productLicenseAdmission mode.
+  // productLicenseAdmission.setMode("maintenance") already ran in the
+  // coordinator before this hook. StationPropagation.synchronize refuses
+  // while fleetPropagationHeldByLicense() is true — no permanent fleet
+  // beginShutdown (that would block seamless full-access return).
 };
 
 /**
