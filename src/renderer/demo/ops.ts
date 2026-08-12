@@ -6,7 +6,7 @@ import { formatNodeRef } from "@shared/node-ref";
 import { cycleAlertFocus } from "../lib/alert-attention";
 import { closeHerdrTerminal, openHerdrTerminal } from "../lib/herdr-state";
 import { commitDoc } from "../lib/mutations";
-import { state$ } from "../lib/state";
+import { selectNodes, state$ } from "../lib/state";
 import { playAlert } from "../lib/sfx";
 import { demoCamera } from "./camera-bridge";
 
@@ -77,8 +77,7 @@ export const executeBeat = (scenario: DemoScenario, beat: DemoBeat): void => {
   for (const op of beat.ops) {
     switch (op.kind) {
       case "select":
-        state$.selectedNodeIds.set(op.nodeIds);
-        state$.selectedNodeId.set(op.nodeIds[0] ?? "");
+        selectNodes(op.nodeIds);
         break;
       case "herdr": {
         const result = window.vellumCommand?.demoCommand(op.command);

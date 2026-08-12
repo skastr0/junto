@@ -5,7 +5,7 @@ import type { CanvasDoc } from "@shared/canvas";
 import { batch } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
 import { impactModeActive$ } from "./lib/impact-mode";
-import { state$ } from "./lib/state";
+import { clearSelection, selectNode, state$ } from "./lib/state";
 import {
   acceptCanvasRevision,
   canvasMutationsQuiesced,
@@ -93,9 +93,7 @@ const resetCanvasView = (): void => {
     state$.searchQuery.set("");
     state$.edgeFilter.set("");
     state$.flagFilter.set("");
-    state$.selectedNodeId.set("");
-    state$.selectedNodeIds.set([]);
-    state$.selectedEdgeId.set("");
+    clearSelection();
     state$.connectionFocusNodeId.set("");
     state$.focusNodeId.set("");
     state$.hotbarSlots.set(
@@ -167,8 +165,7 @@ const nodeRefNavigation = makeNodeRefNavigationCoordinator({
       replaceActiveActorRefs(result.actorRefs);
     });
     externalCanvasReload.accept(result);
-    state$.selectedNodeId.set(event.nodeId);
-    state$.selectedNodeIds.set([event.nodeId]);
+    selectNode(event.nodeId);
     state$.focusNodeId.set(event.nodeId);
     state$.canvasLoading.set(false);
     state$.error.set("");
@@ -429,9 +426,7 @@ export function App() {
         }
         if (state$.selectedNodeId.peek() || state$.selectedEdgeId.peek() || state$.selectedNodeIds.peek().length > 0) {
           event.preventDefault();
-          state$.selectedNodeId.set("");
-          state$.selectedNodeIds.set([]);
-          state$.selectedEdgeId.set("");
+          clearSelection();
           return;
         }
         return;

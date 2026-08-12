@@ -35,7 +35,12 @@ import { isBlockableNode } from "@shared/execution-graph";
 import type { MemberSeverity, RegionRollup } from "@shared/region-rollup";
 import { formatNodeRef } from "@shared/node-ref";
 import type { WorkSurfaceActivity } from "@shared/terminal";
-import { state$, toggleFlagFilter } from "../../lib/state";
+import {
+  clearSelection,
+  selectNode,
+  state$,
+  toggleFlagFilter,
+} from "../../lib/state";
 import { viewportBusy$ } from "../../lib/viewport-busy";
 import { useRegionRollups } from "../../lib/region-rollups";
 import {
@@ -840,9 +845,7 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
               <CmdKey
                 label="Select only this node"
                 onClick={() => {
-                  state$.selectedNodeId.set(nodeId);
-                  state$.selectedNodeIds.set([nodeId]);
-                  state$.selectedEdgeId.set("");
+                  selectNode(nodeId);
                 }}
               >
                 <CircleDot size={ICON} />
@@ -891,9 +894,7 @@ const collectIdleHerdrInputs = (
 };
 
 const focusNode = (nodeId: string): void => {
-  state$.selectedNodeId.set(nodeId);
-  state$.selectedNodeIds.set([nodeId]);
-  state$.selectedEdgeId.set("");
+  selectNode(nodeId);
   state$.focusNodeId.set(nodeId);
   // Only actors enter the opportunistic lease MRU. Regions / sinks / notes do not.
   const node = state$.doc.peek().nodes.find((n) => n.id === nodeId);
@@ -1242,7 +1243,7 @@ function MinimapChrome({ children }: { readonly children: ReactNode }) {
           ) : null,
         )}
         {flagFilter ? (
-          <button type="button" onClick={() => { state$.flagFilter.set(""); state$.selectedNodeId.set(""); state$.selectedNodeIds.set([]); state$.selectedEdgeId.set(""); }}>
+          <button type="button" onClick={() => { state$.flagFilter.set(""); clearSelection(); }}>
             all
           </button>
         ) : null}
@@ -1395,9 +1396,7 @@ function OperatorAttentionPills({
           title={`${OPERATOR_ATTENTION_HEADLINE[item.kind]} — ${item.label}`}
           aria-label={`${OPERATOR_ATTENTION_HEADLINE[item.kind]}: ${item.label}. Focus node.`}
           onClick={() => {
-            state$.selectedNodeId.set(item.nodeId);
-            state$.selectedNodeIds.set([item.nodeId]);
-            state$.selectedEdgeId.set("");
+            selectNode(item.nodeId);
             state$.focusNodeId.set(item.nodeId);
           }}
         >

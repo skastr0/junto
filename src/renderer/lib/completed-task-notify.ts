@@ -19,7 +19,7 @@ import type { CanvasNode } from "@shared/canvas";
 import type { Task, TaskState } from "@shared/work-model";
 import { taskBrief } from "@shared/task";
 import { openWorkDetail } from "./work-detail-open";
-import { state$ } from "./state";
+import { selectNode, state$ } from "./state";
 
 export type CompletedTaskNotifyItem = {
   /** Stable id for the stack entry (task id — unique). */
@@ -326,9 +326,7 @@ export const activateCompletedTaskNotify = (item: CompletedTaskNotifyItem): void
   writePersist(notifyState);
   completedTaskNotify$.items.set(notifyState.stack);
 
-  state$.selectedNodeId.set(item.nodeId);
-  state$.selectedNodeIds.set([item.nodeId]);
-  state$.selectedEdgeId.set("");
+  selectNode(item.nodeId);
   state$.focusNodeId.set(item.nodeId);
   openWorkDetail(item.nodeId, { itemId: item.id });
 };

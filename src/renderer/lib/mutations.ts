@@ -18,7 +18,13 @@ import { formatNodeRef } from "@shared/node-ref";
 import { isValidStationHostId } from "@shared/station";
 import { noteWorkDocChange } from "./edge-sparks";
 import { licenseCustody } from "./license-custody";
-import { state$ } from "./state";
+import {
+  removeEdgesFromSelection,
+  removeNodesFromSelection,
+  replaceSelection,
+  selectNode,
+  state$,
+} from "./state";
 
 const past: CanvasDoc[] = [];
 const future: CanvasDoc[] = [];
@@ -140,9 +146,7 @@ const rebaseLocalOverDisk = async (failed: PendingCanvasSave): Promise<void> => 
     state$.doc.set(merged);
     state$.docVersion.set(state$.docVersion.peek() + 1);
     state$.docEpoch.set(state$.docEpoch.peek() + 1);
-    state$.selectedNodeId.set(selectedNodeId);
-    state$.selectedNodeIds.set(selectedNodeIds);
-    state$.selectedEdgeId.set(selectedEdgeId);
+    replaceSelection({ nodeId: selectedNodeId, nodeIds: selectedNodeIds, edgeId: selectedEdgeId });
     state$.focusNodeId.set(focusNodeId);
     state$.editNodeId.set(editNodeId);
     state$.actorRefs.set([...authority.actorRefs]);
@@ -384,9 +388,7 @@ export const applyWorkCanvasWrite = (
   state$.doc.set(merged);
   state$.docVersion.set(state$.docVersion.peek() + 1);
   state$.docEpoch.set(state$.docEpoch.peek() + 1);
-  state$.selectedNodeId.set(selectedNodeId);
-  state$.selectedNodeIds.set(selectedNodeIds);
-  state$.selectedEdgeId.set(selectedEdgeId);
+  replaceSelection({ nodeId: selectedNodeId, nodeIds: selectedNodeIds, edgeId: selectedEdgeId });
   state$.focusNodeId.set(focusNodeId);
   state$.editNodeId.set(editNodeId);
   state$.error.set("");
@@ -538,9 +540,7 @@ export const loadDoc = (
   state$.saveState.set("saved");
   state$.doc.set(doc);
   state$.editNodeId.set(editNodeId);
-  state$.selectedNodeId.set(selectedNodeId);
-  state$.selectedNodeIds.set(selectedNodeIds);
-  state$.selectedEdgeId.set(selectedEdgeId);
+  replaceSelection({ nodeId: selectedNodeId, nodeIds: selectedNodeIds, edgeId: selectedEdgeId });
   state$.focusNodeId.set(focusNodeId);
   // `loadDoc` without a corresponding CanvasReadResult must fail closed.
   // App installs the exact compiled refs in the same Legend batch.
@@ -580,9 +580,7 @@ export const addNode = (
     state$.flagFilter.set("");
     // Keep the single/multi selection pair coherent so RTS flag keys target
     // this node only (stale selectedNodeIds would open multi bulk-flags).
-    state$.selectedNodeId.set(node.id);
-    state$.selectedNodeIds.set([node.id]);
-    state$.selectedEdgeId.set("");
+    selectNode(node.id);
   });
   const doc = state$.doc.peek();
   commitDoc({ ...doc, nodes: [...doc.nodes, node] });
@@ -824,9 +822,9 @@ const deleteNodesInternal = async (
   const nonHerdr = new Set(
     existingNodes.filter((n) => n.ether?.entity?.kind !== "herdr").map((n) => n.id),
   );
+  removeNodesFromSelection(new Set(existingNodes.map((node) => node.id)));
   if (nonHerdr.size === 0) {
     // Pure herdr delete — async path owns the doc mutation.
-    if (herdrIds.some((id) => id === state$.selectedNodeId.peek())) state$.selectedNodeId.set("");
     await finishDeleteLease("aborted");
     await Promise.all(sideEffects);
     return;
@@ -834,8 +832,11 @@ const deleteNodesInternal = async (
   // Re-read doc only if still on the same canvas epoch; filter from the
   // capture used for identity checks (same epoch ⇒ same doc generation).
   const liveDoc = state$.doc.peek();
-  if (nonHerdr.has(state$.selectedNodeId.peek())) state$.selectedNodeId.set("");
-  if (removed.has(state$.selectedEdgeId.peek())) state$.selectedEdgeId.set("");
+  removeEdgesFromSelection(new Set(
+    liveDoc.edges
+      .filter((edge) => nonHerdr.has(edge.fromNode) || nonHerdr.has(edge.toNode))
+      .map((edge) => edge.id),
+  ));
   commitDoc({
     nodes: liveDoc.nodes.filter((n) => !nonHerdr.has(n.id)),
     edges: liveDoc.edges.filter((e) => !nonHerdr.has(e.fromNode) && !nonHerdr.has(e.toNode)),

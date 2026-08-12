@@ -1,4 +1,5 @@
 import { use$, useObservable } from "@legendapp/state/react";
+import { batch } from "@legendapp/state";
 import { useEffect, useRef, useState } from "react";
 import { CircleHelp, Pause, Play, Plus, Radar, ScrollText, Search, Settings2, Trash2, X } from "lucide-react";
 import type { CanvasSummary } from "@shared/ipc";
@@ -9,7 +10,7 @@ import {
   HELP_MAP_ENABLED,
   USAGE_ENABLED,
 } from "@shared/features";
-import { state$ } from "../lib/state";
+import { clearSelection, state$ } from "../lib/state";
 import { retrySave } from "../lib/mutations";
 import { openSettings } from "../lib/settings-state";
 import { openFleet, prefetchFleetChunk } from "../lib/fleet-state";
@@ -132,9 +133,10 @@ function SearchField({ canvasName }: { readonly canvasName: string }) {
   const value = use$(state$.searchQuery);
   const label = `Search ${canvasName || "canvas"}`;
   const setSearch = (next: string) => {
-    state$.searchQuery.set(next);
-    state$.selectedNodeId.set("");
-    state$.selectedEdgeId.set("");
+    batch(() => {
+      state$.searchQuery.set(next);
+      clearSelection();
+    });
   };
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {

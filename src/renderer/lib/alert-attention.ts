@@ -31,7 +31,7 @@ import {
 import { herdr$ } from "./herdr-state";
 import { nodeTitle } from "./presentation";
 import { playAlert } from "./sfx";
-import { state$ } from "./state";
+import { selectNode, state$ } from "./state";
 
 const TYPING_SURFACE_SELECTOR =
   "input, textarea, [contenteditable='true'], .xterm, .xterm-helper-textarea, .native-terminal-surface, .herdr-xterm, .herdr-terminal-panel, [data-terminal-surface]";
@@ -269,9 +269,7 @@ const focusAlertItem = (item: AlertItem | undefined): void => {
   const nodeId = resolveFocusNodeId(item);
   if (!nodeId) return;
   if (!state$.doc.peek().nodes.some((n) => n.id === nodeId)) return;
-  state$.selectedNodeId.set(nodeId);
-  state$.selectedNodeIds.set([nodeId]);
-  state$.selectedEdgeId.set("");
+  selectNode(nodeId);
   state$.focusNodeId.set(nodeId);
 };
 

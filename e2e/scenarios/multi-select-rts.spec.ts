@@ -149,6 +149,16 @@ test("multi-select: RTS multi command + multi-prompt", async ({ vellumCommand })
   await expect(promptInput).toBeFocused();
   await expect(promptInput).toHaveValue("Keep this draft with the selected seats");
 
+  // Search is an explicit selection reset. The stale multi channel must not
+  // keep the prompt mounted after the single-node channel is cleared.
+  const search = page.locator(".station-search input");
+  await search.fill("a");
+  await expect(page.getByTestId("rts-multi-prompt")).toHaveCount(0);
+  await search.fill("");
+  await shiftClick(alpha);
+  await shiftClick(beta);
+  await expect(page.getByTestId("rts-multi-prompt")).toBeVisible();
+
   // Mixed selection drops kind multi-prompt, keeps generic multi command.
   await shiftClick(tasks);
   await expect(page.getByTestId("rts-multi-command")).toBeVisible();

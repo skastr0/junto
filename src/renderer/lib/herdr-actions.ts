@@ -8,7 +8,11 @@ import {
   setConnectionEvent,
   setHerdrToast,
 } from "./herdr-state";
-import { state$ } from "./state";
+import {
+  removeEdgesFromSelection,
+  removeNodesFromSelection,
+  state$,
+} from "./state";
 import { commitDoc } from "./mutations";
 
 export { resolveHerdrOnDelete };
@@ -46,7 +50,12 @@ const herdrApi = () =>
 export const detachHerdrNode = (nodeId: string): void => {
   void closeHerdrTerminal(nodeId);
   const doc = state$.doc.peek();
-  if (state$.selectedNodeId.peek() === nodeId) state$.selectedNodeId.set("");
+  removeNodesFromSelection(new Set([nodeId]));
+  removeEdgesFromSelection(new Set(
+    doc.edges
+      .filter((edge) => edge.fromNode === nodeId || edge.toNode === nodeId)
+      .map((edge) => edge.id),
+  ));
   commitDoc({
     nodes: doc.nodes.filter((n) => n.id !== nodeId),
     edges: doc.edges.filter((e) => e.fromNode !== nodeId && e.toNode !== nodeId),

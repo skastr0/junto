@@ -532,11 +532,13 @@ describe("renderer graph mutations", () => {
   it("draws agent→task access", () => {
     state$.canvasName.set("mutation-test");
     loadDoc(doc);
+    state$.selectedNodeIds.set(["source", "target"]);
     addEdge({ source: "source", target: "target" });
 
     const edge = state$.doc.peek().edges[0];
     expect(edge).toMatchObject({ fromNode: "source", toNode: "target" });
     expect(state$.selectedNodeId.peek()).toBe("");
+    expect(state$.selectedNodeIds.peek()).toEqual([]);
     expect(state$.selectedEdgeId.peek()).toBe(edge?.id);
     expect(Object.hasOwn(edge ?? {}, "fromSide")).toBe(false);
     expect(Object.hasOwn(edge ?? {}, "toSide")).toBe(false);
@@ -949,6 +951,19 @@ describe("renderer graph mutations", () => {
     connectAllToTarget(["a"], "t2", { keepSelection: true });
     expect(state$.doc.peek().edges).toHaveLength(2);
     expect(state$.selectedNodeIds.peek()).toEqual(["a"]);
+  });
+
+  it("removes deleted nodes from both selection channels", async () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc(doc);
+    state$.selectedNodeId.set("");
+    state$.selectedNodeIds.set(["source", "target"]);
+
+    deleteNode("target");
+
+    await waitFor(() => expect(state$.doc.peek().nodes.map((node) => node.id)).toEqual(["source"]));
+    expect(state$.selectedNodeId.peek()).toBe("source");
+    expect(state$.selectedNodeIds.peek()).toEqual(["source"]);
   });
 
   it("requires confirmation before deleting signals and connected relations", () => {

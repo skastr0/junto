@@ -20,7 +20,13 @@ import { use$ } from "@legendapp/state/react";
 import type { CanvasDoc, EtherEdgeKind, EtherFlag } from "@shared/canvas";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
 import { Ban, Boxes, Expand, Link2, Plus, ScanLine, SquareDashed, Trash2, X } from "lucide-react";
-import { state$ } from "../lib/state";
+import {
+  clearSelection,
+  replaceSelection,
+  selectEdge,
+  selectNode,
+  state$,
+} from "../lib/state";
 import { kernel$ } from "../lib/kernel-view";
 import type { FlowEdge, FlowNode } from "../lib/convert";
 import { createFlowIdentityCache, searchText, toFlow } from "../lib/convert";
@@ -458,13 +464,9 @@ function useCanvasFocus(rf: CanvasFlow) {
         }
         // React Flow emits an empty selection while the canvas mounts. Re-apply
         // the focus target only after it is present in the live graph.
-        state$.selectedNodeId.set(focusNodeId);
-        state$.selectedNodeIds.set([focusNodeId]);
-        state$.selectedEdgeId.set("");
+        selectNode(focusNodeId);
         void rf.fitView({ nodes: [node], padding: 0.35, maxZoom: 1.45, duration: 360 }).catch(() => undefined).finally(() => {
-          state$.selectedNodeId.set(focusNodeId);
-          state$.selectedNodeIds.set([focusNodeId]);
-          state$.selectedEdgeId.set("");
+          selectNode(focusNodeId);
           state$.focusNodeId.set("");
         });
       };
@@ -625,11 +627,7 @@ function useCanvasInteractions(
   const onEdgeDoubleClick: EdgeMouseHandler<FlowEdge> = useCallback((event, edge) => {
     event.preventDefault();
     event.stopPropagation();
-    state$.selectedNodeId.set("");
-    state$.selectedNodeIds.set([]);
-    state$.selectedEdgeId.set(edge.id);
-    state$.edgeSettingsRequestId.set(edge.id);
-    state$.connectionFocusNodeId.set("");
+    selectEdge(edge.id, { openSettings: true });
   }, []);
   const onSelectionChange = useCallback(({ nodes: selectedNodes, edges: selectedEdges }: { readonly nodes: ReadonlyArray<FlowNode>; readonly edges: ReadonlyArray<FlowEdge> }) => {
     // React Flow emits empty selections while the graph remounts. A pane
@@ -643,27 +641,26 @@ function useCanvasInteractions(
     ) {
       state$.connectionFocusNodeId.set("");
     }
-    // Mirror the full RF set for Ctrl+N / command card multi-actions.
-    state$.selectedNodeIds.set(selectedNodes.map((node) => node.id));
+    const nextSelectedNodeIds = selectedNodes.map((node) => node.id);
     // A rubber-band multi-selection has no single inspector subject; keep the
     // inspector closed and let React Flow own the selection set.
     if (selectedNodes.length > 1) {
-      state$.selectedNodeId.set("");
-      state$.selectedEdgeId.set("");
+      replaceSelection({ nodeIds: nextSelectedNodeIds });
       return;
     }
     const nextSelectedEdgeId = selectedNodes.length === 0 ? selectedEdges[0]?.id ?? "" : "";
     if (state$.edgeSettingsRequestId.peek() && state$.edgeSettingsRequestId.peek() !== nextSelectedEdgeId) {
       state$.edgeSettingsRequestId.set("");
     }
-    state$.selectedNodeId.set(nextSelectedNodeId);
-    state$.selectedEdgeId.set(nextSelectedEdgeId);
+    replaceSelection({
+      nodeId: nextSelectedNodeId,
+      nodeIds: nextSelectedNodeIds,
+      edgeId: nextSelectedEdgeId,
+    });
   }, []);
   const onPaneClick = useCallback((event: React.MouseEvent) => {
     if (event.detail === 1) {
-      state$.selectedNodeId.set("");
-      state$.selectedNodeIds.set([]);
-      state$.selectedEdgeId.set("");
+      clearSelection();
       state$.edgeSettingsRequestId.set("");
       state$.connectionFocusNodeId.set("");
       return;
@@ -1080,9 +1077,7 @@ function RtsMinimapStack() {
   const onMiniMapNodeClick = useCallback((event: React.MouseEvent, node: Node) => {
     // Prefer unit pick over empty-map click bubbling.
     event.stopPropagation();
-    state$.selectedNodeId.set(node.id);
-    state$.selectedNodeIds.set([node.id]);
-    state$.selectedEdgeId.set("");
+    selectNode(node.id);
     // Focus path = camera fit on the entity (same as command Focus / chip).
     state$.focusNodeId.set(node.id);
   }, []);

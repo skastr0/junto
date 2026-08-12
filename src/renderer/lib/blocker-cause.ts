@@ -13,7 +13,7 @@ import { formatWaitingOnLines, waitingOnPath } from "@shared/impact";
 import { claimedByOf, taskBrief } from "@shared/task";
 import { nodeTitle } from "./presentation";
 import { openWorkDetail } from "./work-detail-open";
-import { state$ } from "./state";
+import { selectNode, state$ } from "./state";
 
 const WORK_SINK_KINDS = new Set(["task", "requests", "artifacts"]);
 
@@ -175,9 +175,7 @@ export const resolveBlockerCause = (
 
 /** Select, camera-focus, and optionally open the work-plane detail for a cause. */
 export const focusBlockerCause = (cause: BlockerCause): void => {
-  state$.selectedNodeId.set(cause.causeNodeId);
-  state$.selectedNodeIds.set([cause.causeNodeId]);
-  state$.selectedEdgeId.set("");
+  selectNode(cause.causeNodeId);
   state$.focusNodeId.set(cause.causeNodeId);
   if (cause.openWorkDetail) {
     openWorkDetail(cause.causeNodeId, {

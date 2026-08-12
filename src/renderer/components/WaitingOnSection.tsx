@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { use$ } from "@legendapp/state/react";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
 import { waitingOnPath, formatWaitingOnLines } from "@shared/impact";
-import { state$ } from "../lib/state";
+import { selectNode, state$ } from "../lib/state";
 import { kernel$ } from "../lib/kernel-view";
 import { executionGraphForImpact } from "../lib/impact-mode";
 import { HUE } from "../lib/theme";
@@ -72,9 +72,7 @@ export function WaitingOnSection({ nodeId }: { readonly nodeId: string }) {
                 title={hop ? `Focus ${hop.nodeId}` : undefined}
                 onClick={() => {
                   if (!hop) return;
-                  state$.selectedNodeId.set(hop.nodeId);
-                  state$.selectedNodeIds.set([hop.nodeId]);
-                  state$.selectedEdgeId.set("");
+                  selectNode(hop.nodeId);
                   state$.focusNodeId.set(hop.nodeId);
                 }}
               >
