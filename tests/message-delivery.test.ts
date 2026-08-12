@@ -127,15 +127,15 @@ describe("message-delivery pure helpers", () => {
   it("composerBlocksMailInject: harness chrome is NOT draft; only paste chip blocks", () => {
     expect(composerBlocksMailInject("")).toBe(false);
     expect(composerBlocksMailInject("   ")).toBe(false);
-    expect(composerBlocksMailInject("[message - user] mail · 01abc · vellum-command msg list")).toBe(
+    expect(composerBlocksMailInject("[message - user] mail — 01abc — vellum-command msg list")).toBe(
       false,
     );
     // Real startup-idle chrome must not kill mail (review BLOCK #1).
     expect(composerBlocksMailInject('Try "fix typecheck errors"')).toBe(false);
-    expect(composerBlocksMailInject("Grok 4.5 (low) · 22K / 500K (4%) · ctrl+o transcript")).toBe(
+    expect(composerBlocksMailInject("Grok 4.5 (low) \u00b7 22K / 500K (4%) \u00b7 ctrl+o transcript")).toBe(
       false,
     );
-    expect(composerBlocksMailInject("gpt-5.4-mini low · /tmp")).toBe(false);
+    expect(composerBlocksMailInject("gpt-5.4-mini low \u00b7 /tmp")).toBe(false);
     expect(composerBlocksMailInject("please fix the seat brick")).toBe(false);
     expect(composerBlocksMailInject("[Pasted text #3 +12 lines]")).toBe(true);
   });

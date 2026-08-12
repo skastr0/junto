@@ -95,7 +95,7 @@ function MailRowItem({
       >
         <span className="actor-ledger__mail-head">
           <span className="actor-ledger__mail-dir" aria-hidden>
-            {inbound ? "←" : "·"}
+            {inbound ? "←" : "—"}
           </span>
           <span className="actor-ledger__mail-from">
             {inbound ? row.fromLabel : "self"}

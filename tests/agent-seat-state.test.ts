@@ -791,7 +791,7 @@ describe("evaluate — kimi / pi / prime-agent scrollback hygiene", () => {
         lines: [
           "Thinking...",
           "some reasoning text in scrollback",
-          "  12% · 7.7k · sonnet",
+          "  12% \u00b7 7.7k \u00b7 sonnet",
         ],
         title: "π - main - vellum",
       }),

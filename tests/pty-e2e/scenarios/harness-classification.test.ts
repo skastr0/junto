@@ -47,8 +47,8 @@ const CHROME: Record<Harness, { readonly idle: RegExp; readonly working: RegExp 
   claude: { idle: /^\s*❯/mu, working: /\(\d+s[^)]*thinking\)/u },
   codex: { idle: /^\s*›/mu, working: /Working \(\d+s\s*•\s*esc to interrupt\)/u },
   grok: { idle: /^\s*❯/mu, working: /(Responding…|◆ Thinking…)/u },
-  pi: { idle: /%\/400k \(auto\)/u, working: /·\s*\d+s\s*\(esc (?:twice )?to interrupt\)/u },
-  devin: { idle: /^\s*❭/mu, working: /·\s*\d+s\s*\(esc (?:twice )?to interrupt\)/u },
+  pi: { idle: /%\/400k \(auto\)/u, working: /\u00b7\s*\d+s\s*\(esc (?:twice )?to interrupt\)/u },
+  devin: { idle: /^\s*❭/mu, working: /\u00b7\s*\d+s\s*\(esc (?:twice )?to interrupt\)/u },
 };
 
 const decode = (fixture: LoadedFixture): string =>

@@ -299,7 +299,7 @@ describe("GAP-POL-4: multi-line codex prompt must scan as one prompt region", ()
         await obs.snapshot();
       };
       await feed(
-        "\x1b[?2004h\r\nsession text\r\n› \r\nImprove documentation in @filename\r\ngpt-5.4-mini low · cwd\r\n",
+        "\x1b[?2004h\r\nsession text\r\n› \r\nImprove documentation in @filename\r\ngpt-5.4-mini low \u00b7 cwd\r\n",
       );
       await feed(`\x1b[200~${payload}\x1b[201~`);
       await feed("\x1b]0;codex\x07");

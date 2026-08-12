@@ -931,6 +931,7 @@ describe("work pure transforms", () => {
     const artifactNode: CanvasNode = {
       id: "artifacts",
       type: "text",
+      text: "artifacts",
       x: 0,
       y: 0,
       width: 200,

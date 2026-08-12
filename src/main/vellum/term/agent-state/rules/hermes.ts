@@ -53,7 +53,7 @@ export const hermesRules: SeatRulePack = {
       region: "osc_title",
       visibleWorking: true,
       // Real hermes working-turn capture: the OSC title flips to a ⏳ prefix
-      // ("⏳ gpt-5.4-mini · ~/Projects" / "⏳ Greeting and Assistance · …")
+      // ("⏳ gpt-5.4-mini / ~/Projects" or "⏳ Greeting and Assistance / …")
       // while the agent works; idle titles carry ✓. Working-evidence only —
       // hermes idle intentionally stays fallback-unpasteable (GAP-DRV-6b).
       matchers: { regex: ["^⏳"] },

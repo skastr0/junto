@@ -104,9 +104,9 @@ export const composeMessageDeliverySummary = (
       previewRaw.length > MESSAGE_PTY_SUMMARY_PREVIEW_MAX
         ? `${previewRaw.slice(0, MESSAGE_PTY_SUMMARY_PREVIEW_MAX)}…`
         : previewRaw;
-    const previewBit = preview.length > 0 ? ` · ${preview}` : "";
+    const previewBit = preview.length > 0 ? ` — ${preview}` : "";
     return sanitizeDeliveryLine(
-      `[message - ${sender}] ${kind}${fromBit} · ${id}${previewBit} · vellum-command msg list`,
+      `[message - ${sender}] ${kind}${fromBit} — ${id}${previewBit} — vellum-command msg list`,
     );
   }
   const factoryCount = messages.filter((m) => isFactoryMailMessage(m)).length;
@@ -119,7 +119,7 @@ export const composeMessageDeliverySummary = (
   const more =
     messages.length > 3 ? ` +${String(messages.length - 3)}` : "";
   return sanitizeDeliveryLine(
-    `[message - user] ${String(messages.length)} pending${factoryBit} · ${ids}${more} · vellum-command msg list`,
+    `[message - user] ${String(messages.length)} pending${factoryBit} — ${ids}${more} — vellum-command msg list`,
   );
 };
 

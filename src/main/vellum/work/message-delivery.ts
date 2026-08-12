@@ -452,7 +452,7 @@ export class MessageDeliveryService {
       const payload =
         sanitizeDeliveryLine(raw).length > MESSAGE_PTY_FULL_BODY_MAX
           ? sanitizeDeliveryLine(
-              `[request resolved - ${pending.requestId}] · vellum-command msg list`,
+              `[request resolved - ${pending.requestId}] — vellum-command msg list`,
             )
           : sanitizeDeliveryLine(raw);
       const delivered = await this.deliver(

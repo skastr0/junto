@@ -156,7 +156,7 @@ export class ScriptedTui {
     this.cols = options.cols ?? 60;
     this.rows = options.rows ?? 24;
     if (this.harness === "codex") this.title = "Codex";
-    if (this.harness === "hermes") this.title = "✓ gpt-5.4-mini · proj";
+    if (this.harness === "hermes") this.title = "✓ gpt-5.4-mini \u00b7 proj";
   }
 
   /** Internal truth: is an unsubmitted chip currently held? */
@@ -187,11 +187,11 @@ export class ScriptedTui {
   boot(): void {
     if (this.harness === "hermes") {
       // E2 receipt (hermes/paste-chip.jsonl + capture report): idle title
-      // `✓ <model> · <cwd>`, ready footer, `│` composer glyph.
+      // `✓ <model> / <cwd>`, ready footer, `│` composer glyph.
       this.send(
         `\x1b[?2004h` +
           this.repaintBytes(
-            "✓ gpt-5.4-mini · proj",
+            "✓ gpt-5.4-mini \u00b7 proj",
             "",
             this.idleScreen(["│ "]),
           ),
@@ -441,7 +441,7 @@ export class ScriptedTui {
         if (!ignorePhase && this.phase !== "working") return;
         this.title =
           this.harness === "hermes"
-            ? "⏳ gpt-5.4-mini · proj"
+            ? "⏳ gpt-5.4-mini \u00b7 proj"
             : frame % 2 === 1
               ? "⠂ Claude Code"
               : "⠐ Claude Code";
@@ -489,7 +489,7 @@ export class ScriptedTui {
         : this.composer.length > 0
           ? this.composer.map((line, i) => (i === 0 ? `│ ${line}` : `  ${line}`))
           : ["│ "];
-      this.title = "✓ gpt-5.4-mini · proj";
+      this.title = "✓ gpt-5.4-mini \u00b7 proj";
       this.osc9 = "";
       this.repaintWithComposer(composer);
       return;
