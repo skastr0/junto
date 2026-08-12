@@ -75,11 +75,11 @@ export type FeatureKey = keyof typeof FEATURE_CATALOG;
 
 export type FeatureSet = Readonly<Record<FeatureKey, boolean>>;
 
-/** Public release baseline. Fleet is part of the shipped operator surface; other non-core surfaces remain opt-in. */
+/** Public release baseline. Fleet and its host-local Browser plane ship together. */
 export const SHIP_FEATURES: FeatureSet = {
   cron: false,
   relay: false,
-  browser: false,
+  browser: true,
   fleetUi: true,
   usage: false,
   helpMap: false,
