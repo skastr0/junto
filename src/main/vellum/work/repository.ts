@@ -2905,14 +2905,58 @@ const writeThreadMessage = (
   );
 };
 
+/**
+ * Mailbox admission gate for caller-supplied message metadata.
+ *
+ * `deliveredAt` / `readAt` are projection-only: loadInbox stamps them from
+ * durable delivery receipts after decode, and the delivery service plus the
+ * renderer ledger treat them as truth. A caller-supplied value is a forgery
+ * vector — a forged `deliveredAt` reads as "already delivered" and suppresses
+ * real delivery; a forged `readAt` lies about read state — so admission drops
+ * both keys before the row is written. Ingest-only: existing rows are never
+ * rewritten.
+ *
+ * `fromSeat` is the sender node identity the renderer trusts (actor-ledger,
+ * edge-sparks). The durable sender is `sentBy` (the actor_seat_id column);
+ * when a caller supplies a `fromSeat` that disagrees with the durable
+ * sender's node, admission rebinds it to `sentBy.nodeId`. The msg.send /
+ * msg.reply control path already stamps `fromSeat = caller.nodeId`, which
+ * resolves to the same node as `sentBy` — the rebind is a no-op there.
+ */
+const admitMailboxMessage = (
+  message: MessageValue,
+  sentBy: ActorRef,
+): MessageValue => {
+  const metadata = message.metadata;
+  if (metadata === undefined) return message;
+  const hasReserved =
+    Object.prototype.hasOwnProperty.call(metadata, "deliveredAt") ||
+    Object.prototype.hasOwnProperty.call(metadata, "readAt");
+  const forgedFromSeat =
+    Object.prototype.hasOwnProperty.call(metadata, "fromSeat") &&
+    metadata.fromSeat !== sentBy.nodeId;
+  if (!hasReserved && !forgedFromSeat) return message;
+  const { deliveredAt: _deliveredAt, readAt: _readAt, ...rest } = metadata;
+  const admitted = {
+    ...rest,
+    ...(forgedFromSeat ? { fromSeat: sentBy.nodeId } : {}),
+  };
+  if (Object.keys(admitted).length === 0) {
+    const { metadata: _metadata, ...withoutMetadata } = message;
+    return withoutMetadata;
+  }
+  return { ...message, metadata: admitted };
+};
+
 const writeInboxMessage = (
   writer: StateWriter,
   sink: SinkRefValue,
-  message: MessageValue,
+  incoming: MessageValue,
   sentBy: ActorRef,
   fact: WorkFactValue,
   receivedAt: DisplayTimestampValue,
 ): void => {
+  const message = admitMailboxMessage(incoming, sentBy);
   const position = Number(
     writer.get<StateRow & { readonly next_position: number }>(
       `
@@ -6458,7 +6502,7 @@ export const WorkRepositoryLive = Layer.effect(
     ): Effect.Effect<LocalFactResult<MessageValue>, RepositoryFailure> => {
       const originAt = timestamp(input.originAt);
       const receivedAt = timestamp(input.receivedAt);
-      const message = Schema.decodeUnknownSync(
+      const decodedMessage = Schema.decodeUnknownSync(
         Message,
         strictDecode,
       )(input.message);
@@ -6470,6 +6514,14 @@ export const WorkRepositoryLive = Layer.effect(
         MessageAppendDestinationSchema,
         strictDecode,
       )(input.destination);
+      // Admit before the fact is minted so the durable fact body and the
+      // returned value (which drives the delivery nudge) never carry forged
+      // reserved keys. writeInboxMessage re-admits as the universal row gate
+      // for facts that arrive from other ingest paths.
+      const message =
+        destination.kind === "mailbox"
+          ? admitMailboxMessage(decodedMessage, sentBy)
+          : decodedMessage;
       return transaction("work.message.append", input.sink, (writer) => {
         const authority = canonicalLocalWorkAuthority(writer);
         const localInstallationId = authority.installationId;
