@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Schema } from "effect";
 import {
+  artifactRowsForSeat,
   claimedTaskRow,
   proposalRowsForSeat,
   requestRowsForSeat,
@@ -293,5 +294,70 @@ describe("requestRowsForSeat", () => {
   it("is empty for docs without request containers", () => {
     expect(requestRowsForSeat(emptyDoc, actor.seatId)).toEqual([]);
     expect(requestRowsForSeat(docOf([]), actor.seatId)).toEqual([]);
+  });
+});
+
+describe("artifactRowsForSeat", () => {
+  const artifact = (
+    artifactId: string,
+    metadata: Record<string, unknown> | undefined,
+    parts: ReadonlyArray<{ readonly kind: "text"; readonly text: string }> = [
+      { kind: "text", text: "body" },
+    ],
+    name?: string,
+  ) => ({
+    artifactId,
+    parts,
+    ...(name !== undefined ? { name } : {}),
+    ...(metadata !== undefined ? { metadata } : {}),
+  });
+
+  it("keeps only this seat's live artifacts, newest first", () => {
+    const doc = docOf([
+      sinkNode("shelf", {
+        entity: { kind: "artifacts" },
+        artifacts: {
+          items: [
+            artifact("01A", { publishedBySeatId: actor.seatId }, undefined, "older"),
+            artifact("01B", { publishedBySeatId: otherActor.seatId }, undefined, "foreign"),
+            artifact("01C", { publishedBySeatId: actor.seatId }, undefined, "newer"),
+            artifact("01D", { publishedBySeatId: actor.seatId, archived: true }, undefined, "hidden"),
+            artifact("01E", undefined, undefined, "unstamped"),
+          ],
+        },
+      }),
+    ]);
+    const rows = artifactRowsForSeat(doc, actor.seatId);
+    expect(rows.map((row) => row.name)).toEqual(["newer", "older"]);
+    expect(rows[0]).toMatchObject({
+      artifactId: "01C",
+      sinkNodeId: "shelf",
+      partCount: 1,
+      textPreview: "body",
+      archived: false,
+    });
+  });
+
+  it("falls back to the artifact id for the name and handles textless parts", () => {
+    const doc = docOf([
+      sinkNode("shelf", {
+        entity: { kind: "artifacts" },
+        artifacts: {
+          items: [
+            {
+              artifactId: "01F",
+              parts: [{ kind: "url", url: "https://example.com/x.png" }],
+              metadata: { publishedBySeatId: actor.seatId },
+            },
+          ],
+        },
+      }),
+    ]);
+    const rows = artifactRowsForSeat(doc, actor.seatId);
+    expect(rows[0]).toMatchObject({ name: "01F", textPreview: undefined });
+  });
+
+  it("is empty without artifact containers", () => {
+    expect(artifactRowsForSeat(emptyDoc, actor.seatId)).toEqual([]);
   });
 });

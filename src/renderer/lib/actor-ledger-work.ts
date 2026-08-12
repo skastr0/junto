@@ -2,12 +2,14 @@ import type { CanvasDoc } from "@shared/canvas";
 import type { ActorSeatId } from "@shared/actor-seat";
 import type {
   Message,
+  Part,
   Task,
   TaskProposalState,
   TaskState,
 } from "@shared/work-model";
 import type { ActorRef } from "@shared/work-protocol";
 import { taskBrief } from "@shared/task";
+import { isArtifactArchived } from "@shared/work";
 import { claimedTaskForActorNode } from "./claimed-task";
 
 /**
@@ -40,6 +42,16 @@ export type RequestRow = {
   readonly title: string;
   readonly needsInput: boolean;
   readonly response?: string;
+};
+
+export type ArtifactRow = {
+  readonly artifactId: string;
+  readonly sinkNodeId: string;
+  readonly name: string;
+  readonly partCount: number;
+  /** First text part, clipped by the caller for display. */
+  readonly textPreview: string | undefined;
+  readonly archived: boolean;
 };
 
 /** First non-empty text line across a message's parts. */
@@ -150,4 +162,42 @@ export const requestRowsForSeat = (
     }
   }
   return rows.sort(compareRequestRows);
+};
+
+const firstTextPart = (parts: ReadonlyArray<Part>): string | undefined => {
+  for (const part of parts) {
+    if (part.kind === "text") {
+      const text = part.text.trim();
+      if (text) return text;
+    }
+  }
+  return undefined;
+};
+
+/**
+ * Artifacts this seat published, across every artifacts sink in the doc.
+ * Publisher identity is the projection-stamped metadata.publishedBySeatId
+ * (never durable row data). Newest first; archived excluded.
+ */
+export const artifactRowsForSeat = (
+  doc: CanvasDoc,
+  seatId: ActorSeatId,
+): ReadonlyArray<ArtifactRow> => {
+  const rows: ArtifactRow[] = [];
+  for (const node of doc.nodes) {
+    for (const artifact of node.ether?.artifacts?.items ?? []) {
+      if (artifact.metadata?.["publishedBySeatId"] !== seatId) continue;
+      const archived = isArtifactArchived(artifact);
+      if (archived) continue;
+      rows.push({
+        artifactId: artifact.artifactId,
+        sinkNodeId: node.id,
+        name: artifact.name?.trim() || artifact.artifactId,
+        partCount: artifact.parts.length,
+        textPreview: firstTextPart(artifact.parts),
+        archived,
+      });
+    }
+  }
+  return rows.sort((a, b) => b.artifactId.localeCompare(a.artifactId));
 };

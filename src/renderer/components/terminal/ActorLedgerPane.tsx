@@ -26,6 +26,7 @@ import {
   type MailRow,
 } from "../../lib/actor-ledger";
 import {
+  artifactRowsForSeat,
   claimedTaskRow,
   proposalRowsForSeat,
   requestRowsForSeat,
@@ -278,6 +279,10 @@ export function ActorLedgerPane({ node }: { readonly node: CanvasNode }) {
     () => (isActor && seatId !== undefined ? proposalRowsForSeat(doc, seatId) : []),
     [doc, seatId, isActor],
   );
+  const artifacts = useMemo(
+    () => (isActor && seatId !== undefined ? artifactRowsForSeat(doc, seatId) : []),
+    [doc, seatId, isActor],
+  );
   const rows = useMemo(
     () => (isActor ? mailboxRows(doc, liveNode) : []),
     [doc, liveNode, isActor],
@@ -473,6 +478,52 @@ export function ActorLedgerPane({ node }: { readonly node: CanvasNode }) {
                       )
                     }
                   />
+                ))}
+              </ul>
+            </section>
+          ) : null}
+          {artifacts.length > 0 ? (
+            <section className="actor-ledger__section" aria-label="Artifacts">
+              <header className="actor-ledger__section-head">
+                <span className="actor-ledger__section-title">artifacts</span>
+                <span className="actor-ledger__section-meta">
+                  {artifacts.length}
+                </span>
+              </header>
+              <ul className="actor-ledger__list">
+                {artifacts.map((row) => (
+                  <li
+                    key={`${row.sinkNodeId}:${row.artifactId}`}
+                    className="actor-ledger__item"
+                    data-testid="actor-ledger-artifact-row"
+                    data-artifact-id={row.artifactId}
+                  >
+                    <button
+                      type="button"
+                      className="actor-ledger__item-row"
+                      aria-expanded={openId === row.artifactId}
+                      title={`${row.name} - ${row.partCount} part${row.partCount === 1 ? "" : "s"} on ${row.sinkNodeId}`}
+                      onClick={() =>
+                        setOpenId((current) =>
+                          current === row.artifactId ? null : row.artifactId,
+                        )
+                      }
+                    >
+                      <span className="actor-ledger__item-title">{row.name}</span>
+                      <span className="actor-ledger__item-detail">
+                        {row.partCount} part{row.partCount === 1 ? "" : "s"}
+                      </span>
+                    </button>
+                    {openId === row.artifactId ? (
+                      <div className="actor-ledger__mail-body">
+                        {row.textPreview
+                          ? row.textPreview.length > 600
+                            ? `${row.textPreview.slice(0, 600)}…`
+                            : row.textPreview
+                          : "No text parts — open the artifact library on the sink to view."}
+                      </div>
+                    ) : null}
+                  </li>
                 ))}
               </ul>
             </section>
