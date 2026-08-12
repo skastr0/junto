@@ -18,12 +18,15 @@ import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
 import type { WorkOpResult } from "@shared/ipc";
 import type { TaskProposalState, TaskState } from "@shared/work-model";
+import type { WorkSeatRecentOpsFeed } from "@shared/work-recent-ops";
 import { isGroup } from "@shared/graph";
 import { resolveSpec, roleOf } from "@shared/physics";
 import {
   mailAgeLabel,
   mailboxCounts,
   mailboxRows,
+  recentOpAtMs,
+  recentOpLabel,
   type MailRow,
 } from "../../lib/actor-ledger";
 import {
@@ -373,6 +376,33 @@ export function ActorLedgerPane({
     requests.filter((row) => row.needsInput).length +
     proposals.filter((row) => row.state === "pending").length;
 
+  // Recent-ops receipt feed: identity-backed CLI activity from the kernel
+  // (coverage excludes unattributed ops - see work-recent-ops.ts). IPC read,
+  // fetched only while actually on screen; 30s refresh.
+  const [opsFeed, setOpsFeed] = useState<WorkSeatRecentOpsFeed | null>(null);
+  useEffect(() => {
+    if (!visible || !expanded || !isActor || !canvasMatches) return;
+    const api = getVellumCommandApi();
+    if (!api?.workSeatRecentOps) return;
+    let stale = false;
+    const pull = (): void => {
+      void api
+        .workSeatRecentOps(canvas, node.id)
+        .then((result) => {
+          if (!stale && result.ok) setOpsFeed(result.data);
+        })
+        .catch(() => {
+          /* feed is telemetry; a failed pull renders the last snapshot */
+        });
+    };
+    pull();
+    const timer = window.setInterval(pull, 30_000);
+    return () => {
+      stale = true;
+      window.clearInterval(timer);
+    };
+  }, [visible, expanded, isActor, canvasMatches, canvas, node.id]);
+
   // Ages are display-only; refresh once a minute while actually on screen.
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
@@ -692,6 +722,42 @@ export function ActorLedgerPane({
               <p className="actor-ledger__empty">No mail yet</p>
             )}
           </section>
+          {opsFeed !== null && opsFeed.operations.length > 0 ? (
+            <section
+              className="actor-ledger__section"
+              aria-label="Recent activity"
+              title="Identity-backed CLI activity only - task updates are not attributed"
+            >
+              <header className="actor-ledger__section-head">
+                <span className="actor-ledger__section-title">activity</span>
+                <span className="actor-ledger__section-meta">
+                  {opsFeed.lastOpAt !== null &&
+                  mailAgeLabel(nowMs, Date.parse(opsFeed.lastOpAt) || undefined)
+                    ? `last op ${mailAgeLabel(nowMs, Date.parse(opsFeed.lastOpAt) || undefined)}`
+                    : ""}
+                </span>
+              </header>
+              <ul className="actor-ledger__ops" data-testid="actor-ledger-ops">
+                {opsFeed.operations.map((op, index) => {
+                  const age = mailAgeLabel(nowMs, recentOpAtMs(op));
+                  return (
+                    <li
+                      key={`${op.appliedAt}:${index}`}
+                      className="actor-ledger__op"
+                      title={`${op.operation} on ${op.targetNodeId} at ${op.appliedAt}`}
+                    >
+                      <span className="actor-ledger__op-label">
+                        {recentOpLabel(op)}
+                      </span>
+                      {age ? (
+                        <span className="actor-ledger__op-age">{age}</span>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          ) : null}
         </div>
       ) : (
         <div className="actor-ledger__rail" aria-hidden>

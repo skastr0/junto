@@ -12,6 +12,7 @@
 import { decodeTime } from "ulid";
 import type { CanvasDoc, CanvasNode } from "@shared/canvas";
 import type { Message, Part } from "@shared/work-model";
+import type { WorkSeatRecentOp } from "@shared/work-recent-ops";
 import { nodeTitle } from "./presentation";
 
 export type MailRow = {
@@ -144,6 +145,44 @@ export const unreadMailByPeer = (
     counts.set(row.fromNodeId, (counts.get(row.fromNodeId) ?? 0) + 1);
   }
   return counts;
+};
+
+/** Applied time of a recent-op entry, defensively parsed. */
+export const recentOpAtMs = (op: WorkSeatRecentOp): number | undefined => {
+  const ms = Date.parse(op.appliedAt);
+  return Number.isFinite(ms) ? ms : undefined;
+};
+
+/**
+ * One plain line per receipt. The feed is identity-backed CLI activity only
+ * (its coverage names what it cannot see); labels stay in product words.
+ */
+export const recentOpLabel = (op: WorkSeatRecentOp): string => {
+  const summary = op.summary;
+  switch (op.operation) {
+    case "message.append":
+      return "sent mail";
+    case "artifact.publish":
+      return summary.kind === "artifact" && summary.name
+        ? `published ${summary.name}`
+        : "published an artifact";
+    case "task.claim":
+      return "claimed a task";
+    case "proposal.create":
+      return "proposed a task";
+    case "request.create":
+      return "raised a request";
+    case "delivery.accepted":
+      return summary.kind === "delivery"
+        ? `delivery accepted - ${summary.delivered.kind}`
+        : "delivery accepted";
+    case "board.topic.create":
+      return summary.kind === "topic"
+        ? `opened topic ${summary.title}`
+        : "opened a topic";
+    case "board.post.append":
+      return "posted to the board";
+  }
 };
 
 /** Compact age for list rows: now, 45s, 12m, 3h, 5d. */

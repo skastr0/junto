@@ -1248,10 +1248,14 @@ html[data-vellum-platform="darwin"] .station-bar [role="listbox"] {
   }
 }
 
-/* GPU-promote the viewport layer: pan/zoom becomes a compositor translate
-   instead of repainting routed SVG wires and cards (xyflow #4617). Always-on —
-   toggling mid-gesture defeats the promotion. */
-.react-flow__viewport { will-change: transform; }
+/* GPU-promote the viewport only while the camera is interacting
+   (is-viewport-busy). Permanent will-change kept the full node/edge/shadow
+   subtree promoted at idle (xyflow #4617 — promote during pan/zoom only).
+   Class is toggled on the ReactFlow root via viewport-busy (DOM classList,
+   zero React graph rerenders). */
+.react-flow.is-viewport-busy .react-flow__viewport {
+  will-change: transform;
+}
 
 /* --- React Flow surface, restyled for the canvas ground ---------------- */
 .react-flow {
@@ -2872,6 +2876,20 @@ ol.note-md__list > .note-md__li::before {
 .actor-edges-glance__seat-mark {
   flex-shrink: 0;
 }
+/* Unread-from-peer mail badge on mirror chips — who is waiting on this seat. */
+.actor-edges-glance__mail-count {
+  flex-shrink: 0;
+  min-width: 14px;
+  padding: 0 4px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--color-amber) 18%, transparent);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 9.5px;
+  line-height: 14px;
+  text-align: center;
+  color: var(--color-amber);
+  font-variant-numeric: tabular-nums;
+}
 .actor-edges-glance__cycle-hint {
   flex-shrink: 0;
   padding: 5px 10px 7px;
@@ -3230,6 +3248,38 @@ button.actor-ledger__item-row:focus-visible {
   overflow-wrap: anywhere;
   user-select: text;
 }
+/* Receipt stream — one quiet mono line per identity-backed op. */
+.actor-ledger__ops {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+.actor-ledger__op {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 10px;
+  color: var(--color-dim);
+}
+.actor-ledger__op-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.actor-ledger__op-age {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--color-faint);
+  font-variant-numeric: tabular-nums;
+}
+
 .actor-ledger__rail {
   display: flex;
   flex: 1 1 0;
