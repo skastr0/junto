@@ -7,6 +7,12 @@ import type { WorkZone } from "./surface-registry";
 export const terminal$ = observable({
   openByNodeId: {} as Record<string, CanvasNode>,
   /**
+   * Canvas each surface was opened from. Node-keyed surfaces survive canvas
+   * navigation; canvas-scoped consumers (the actor ledger) must not project
+   * or mutate a different ambient canvas onto a surviving surface.
+   */
+  canvasByNodeId: {} as Record<string, string | undefined>,
+  /**
    * Zone preferred on the next open/reconcile for that node.
    * Consumed by dock-state when registering the workbench surface so open can
    * land in pinned without a focus flash.
@@ -27,8 +33,12 @@ export const terminal$ = observable({
 export const openTerminalSurface = (
   node: CanvasNode,
   zone: WorkZone = "focus",
+  canvasName?: string,
 ): void => {
   if (resolveTerminalBinding(node)?.kind !== "native") return;
+  if (canvasName !== undefined) {
+    terminal$.canvasByNodeId[node.id].set(canvasName);
+  }
   // One-shot zone for the next dock reconcile (consumed there).
   terminal$.preferredZoneByNodeId[node.id].set(zone);
   // One-shot promote target — must be set BEFORE openByNodeId: that set

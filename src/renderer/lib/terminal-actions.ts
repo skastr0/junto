@@ -113,7 +113,7 @@ export const openTerminal = async (
 
   if (agentSeat) {
     // Surface owns ensure + attach (spinner covers the full path).
-    openTerminalSurface(node, zone);
+    openTerminalSurface(node, zone, state$.canvasName.peek());
     return;
   }
 
@@ -126,7 +126,7 @@ export const openTerminal = async (
     const session = terminal$.sessionByBindingId[binding.bindingId].peek();
     if (!session) return;
   }
-  openTerminalSurface(node, zone);
+  openTerminalSurface(node, zone, state$.canvasName.peek());
 };
 
 export const killTerminal = async (node: CanvasNode): Promise<void> => {

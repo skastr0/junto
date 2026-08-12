@@ -195,7 +195,14 @@ const measureHost = (
   return { cols, rows, w, h };
 };
 
-export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
+export function TerminalSurface({
+  node,
+  visible = true,
+}: {
+  readonly node: CanvasNode;
+  /** False in parked keep-alive panes — children may pause cosmetic work. */
+  readonly visible?: boolean;
+}) {
   const rootRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -1193,7 +1200,7 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
       {/* Body: ledger pane LEFT (focus only), xterm stage, edges pane RIGHT —
           one modal plate. The pinned dock keeps just the connections pane. */}
       <div className="native-terminal-surface__body">
-        {!pinned ? <ActorLedgerPane node={node} /> : null}
+        {!pinned ? <ActorLedgerPane node={node} visible={visible} /> : null}
         <div className="native-terminal-surface__stage">
           <div
             ref={hostRef}

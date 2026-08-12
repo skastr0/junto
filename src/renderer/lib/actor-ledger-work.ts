@@ -33,6 +33,10 @@ export type ProposalRow = {
   readonly state: TaskProposalState;
   readonly title: string;
   readonly reason?: string;
+  /** Full brief text — the decision contract shown before approve/reject. */
+  readonly details?: string;
+  readonly dependsOnCount: number;
+  readonly hasFinishCriteria: boolean;
 };
 
 export type RequestRow = {
@@ -42,6 +46,8 @@ export type RequestRow = {
   readonly title: string;
   readonly needsInput: boolean;
   readonly response?: string;
+  /** Full request text — the decision contract shown before resolve/reject. */
+  readonly details?: string;
 };
 
 export type ArtifactRow = {
@@ -65,16 +71,35 @@ const firstTextLine = (message: Message | undefined): string | undefined => {
   return undefined;
 };
 
+/** All text across a message's parts (the full decision contract). */
+const fullText = (message: Message | undefined): string | undefined => {
+  const text = (message?.parts ?? [])
+    .filter((part): part is Extract<Part, { kind: "text" }> => part.kind === "text")
+    .map((part) => part.text)
+    .join("\n")
+    .trim();
+  return text || undefined;
+};
+
+/** Full text only when it says more than the already-shown title. */
+const detailsBeyondTitle = (
+  text: string | undefined,
+  title: string,
+): string | undefined =>
+  text !== undefined && text !== title ? text : undefined;
+
 /** taskBrief falls back to the task id when the brief has no text; map that to the fallback. */
 const taskTitle = (task: Task, fallback: string): string => {
   const line = taskBrief(task).split(/\r?\n/, 1)[0]?.trim();
   return line === undefined || line === "" || line === task.id ? fallback : line;
 };
 
-const metadataTitle = (task: Task): string | undefined => {
-  const value = task.metadata?.["title"];
+const metadataText = (task: Task, key: string): string | undefined => {
+  const value = task.metadata?.[key];
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 };
+
+const metadataTitle = (task: Task): string | undefined => metadataText(task, "title");
 
 /** Seat identity for an actor node from the compiled seat projection. */
 export const seatIdForActorNode = (
@@ -118,12 +143,17 @@ export const proposalRowsForSeat = (
   for (const node of doc.nodes) {
     for (const proposal of node.ether?.tasks?.proposals ?? []) {
       if (proposal.proposedBy?.seatId !== seatId) continue;
+      const title = firstTextLine(proposal.brief) ?? "Untitled proposal";
+      const details = detailsBeyondTitle(fullText(proposal.brief), title);
       rows.push({
         proposalId: proposal.id,
         sinkNodeId: node.id,
         state: proposal.state,
-        title: firstTextLine(proposal.brief) ?? "Untitled proposal",
+        title,
         ...(proposal.reason !== undefined ? { reason: proposal.reason } : {}),
+        ...(details !== undefined ? { details } : {}),
+        dependsOnCount: proposal.dependsOn?.length ?? 0,
+        hasFinishCriteria: proposal.finishCriteria !== undefined,
       });
     }
   }
@@ -151,13 +181,18 @@ export const requestRowsForSeat = (
   for (const node of doc.nodes) {
     for (const request of node.ether?.requests?.items ?? []) {
       if (request.claimedBy !== seatId) continue;
+      const title = metadataTitle(request) ?? taskTitle(request, "Untitled request");
+      const details =
+        metadataText(request, "details") ??
+        detailsBeyondTitle(fullText(request.history[0]), title);
       rows.push({
         requestId: request.id,
         sinkNodeId: node.id,
         state: request.state,
-        title: metadataTitle(request) ?? taskTitle(request, "Untitled request"),
+        title,
         needsInput: request.state === "input-required",
         ...(request.response !== undefined ? { response: request.response } : {}),
+        ...(details !== undefined ? { details } : {}),
       });
     }
   }

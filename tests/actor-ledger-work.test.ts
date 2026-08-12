@@ -178,6 +178,8 @@ describe("proposalRowsForSeat", () => {
       sinkNodeId: "tasks-b",
       state: "pending",
       title: "Newest pending",
+      dependsOnCount: 0,
+      hasFinishCriteria: false,
     });
     expect(rows[3]).toMatchObject({ state: "rejected", reason: "risky" });
   });
@@ -205,6 +207,8 @@ describe("proposalRowsForSeat", () => {
         sinkNodeId: "tasks",
         state: "pending",
         title: "Untitled proposal",
+        dependsOnCount: 0,
+        hasFinishCriteria: false,
       },
     ]);
   });
@@ -268,6 +272,7 @@ describe("requestRowsForSeat", () => {
       title: "Access to prod",
       needsInput: false,
       response: "Approved, go ahead",
+      details: "Request 01A body",
     });
   });
 

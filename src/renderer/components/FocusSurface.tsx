@@ -36,6 +36,7 @@ export function FocusSurface({
   closeOnBackdrop = true,
   label,
   panelClassName,
+  terminalRailsPx,
   aside,
   children,
 }: {
@@ -49,6 +50,11 @@ export function FocusSurface({
   readonly closeOnBackdrop?: boolean;
   readonly label: string;
   readonly panelClassName?: string;
+  /**
+   * Extra panel width budgeted for in-panel side rails (actor terminal
+   * ledger + connections). Zero for rail-less surfaces.
+   */
+  readonly terminalRailsPx?: number;
   /**
    * Optional rail outside the modal plate (sibling of the panel, still above
    * the dim backdrop). Used for actor edge inventory so it never covers the
@@ -115,7 +121,7 @@ export function FocusSurface({
       role="dialog"
       aria-modal={contain === "viewport" ? "true" : undefined}
       aria-label={label}
-      style={focusMeasureCssVars(measure)}
+      style={focusMeasureCssVars(measure, { terminalRailsPx })}
     >
       <button
         type="button"

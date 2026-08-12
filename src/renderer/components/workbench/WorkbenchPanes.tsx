@@ -113,7 +113,7 @@ function resolveSurfaceBody(
         onMouseDown={activateSurfaceOnMouseDown(onActivate)}
       >
         {node ? (
-          <TerminalSurface node={node} />
+          <TerminalSurface node={node} visible={visible} />
         ) : (
           <div className="workbench-surface__placeholder">terminal - unbound</div>
         )}

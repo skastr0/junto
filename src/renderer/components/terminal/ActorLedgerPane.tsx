@@ -7,9 +7,10 @@
  * the connections pane on the right. Focus modal only by operator ruling; the
  * pinned dock keeps just the connections pane.
  *
- * Sections: claimed task, escalations (respond/reject inline), proposals
- * (approve/reject inline), mail. Empty sections hide; mail anchors the pane
- * with its own empty state.
+ * Canvas binding: terminal surfaces are node-keyed and survive canvas
+ * navigation, but the ledger projects from — and mutates — the ambient
+ * canvas. The pane therefore renders only while the ambient canvas is the
+ * one the surface was opened from (terminal$.canvasByNodeId).
  */
 import { useEffect, useMemo, useState } from "react";
 import { use$ } from "@legendapp/state/react";
@@ -37,6 +38,7 @@ import {
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import { applyWorkCanvasWrite } from "../../lib/mutations";
 import { state$ } from "../../lib/state";
+import { terminal$ } from "../../lib/terminal-state";
 import { getVellumCommandApi } from "../../lib/vellum-api";
 import { Button, Chip, Eyebrow, IconButton, type ChipTone } from "../ui";
 import { Textarea } from "../ui/Field";
@@ -152,44 +154,57 @@ function RequestRowItem({
           </Chip>
         </span>
         <span className="actor-ledger__item-title">{row.title}</span>
-        {!row.needsInput && row.response ? (
+        {!open && !row.needsInput && row.response ? (
           <span className="actor-ledger__item-detail">{row.response}</span>
         ) : null}
       </button>
-      {open && row.needsInput ? (
+      {open ? (
         <div className="actor-ledger__respond">
-          <Textarea
-            value={response}
-            onChange={(event) => setResponse(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key !== "Enter") return;
-              if (!(event.metaKey || event.ctrlKey)) return;
-              event.preventDefault();
-              if (canSend) onResolve(response.trim(), "completed");
-            }}
-            placeholder="Decision, information, or authorization…"
-            rows={3}
-            aria-keyshortcuts="Meta+Enter Control+Enter"
-          />
-          <div className="actor-ledger__actions">
-            <Button
-              size="xs"
-              variant="danger"
-              disabled={!canSend}
-              onClick={() => onResolve(response.trim(), "rejected")}
-            >
-              Reject
-            </Button>
-            <Button
-              size="xs"
-              variant="primary"
-              disabled={!canSend}
-              title="⌘↵ / Ctrl+Enter"
-              onClick={() => onResolve(response.trim(), "completed")}
-            >
-              Send response
-            </Button>
-          </div>
+          {/* The full decision contract precedes any action. */}
+          {row.details ? (
+            <div className="actor-ledger__contract">{row.details}</div>
+          ) : null}
+          {row.response ? (
+            <div className="actor-ledger__contract actor-ledger__contract--response">
+              {row.response}
+            </div>
+          ) : null}
+          {row.needsInput ? (
+            <>
+              <Textarea
+                value={response}
+                onChange={(event) => setResponse(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter") return;
+                  if (!(event.metaKey || event.ctrlKey)) return;
+                  event.preventDefault();
+                  if (canSend) onResolve(response.trim(), "completed");
+                }}
+                placeholder="Decision, information, or authorization…"
+                rows={3}
+                aria-keyshortcuts="Meta+Enter Control+Enter"
+              />
+              <div className="actor-ledger__actions">
+                <Button
+                  size="xs"
+                  variant="danger"
+                  disabled={!canSend}
+                  onClick={() => onResolve(response.trim(), "rejected")}
+                >
+                  Reject
+                </Button>
+                <Button
+                  size="xs"
+                  variant="primary"
+                  disabled={!canSend}
+                  title="⌘↵ / Ctrl+Enter"
+                  onClick={() => onResolve(response.trim(), "completed")}
+                >
+                  Send response
+                </Button>
+              </div>
+            </>
+          ) : null}
         </div>
       ) : null}
     </li>
@@ -199,11 +214,15 @@ function RequestRowItem({
 function ProposalRowItem({
   row,
   pending,
+  open,
+  onToggle,
   onApprove,
   onReject,
 }: {
   readonly row: ProposalRow;
   readonly pending: boolean;
+  readonly open: boolean;
+  readonly onToggle: () => void;
   readonly onApprove: () => void;
   readonly onReject: () => void;
 }) {
@@ -213,24 +232,53 @@ function ProposalRowItem({
       data-testid="actor-ledger-proposal-row"
       data-proposal-id={row.proposalId}
     >
-      <div className="actor-ledger__item-row">
+      <button
+        type="button"
+        className="actor-ledger__item-row"
+        aria-expanded={open}
+        onClick={onToggle}
+      >
         <span className="actor-ledger__item-head">
           <Chip tone={proposalStateTone(row.state)}>{row.state}</Chip>
+          {row.hasFinishCriteria ? (
+            <Chip tone="steel" title="Has finish criteria">
+              criteria
+            </Chip>
+          ) : null}
+          {row.dependsOnCount > 0 ? (
+            <Chip
+              tone="steel"
+              title={`${row.dependsOnCount} prerequisite task${row.dependsOnCount === 1 ? "" : "s"}`}
+            >
+              deps {row.dependsOnCount}
+            </Chip>
+          ) : null}
         </span>
-        <span className="actor-ledger__item-title" title={row.reason ?? row.title}>
-          {row.title}
-        </span>
-        {row.state === "pending" ? (
-          <div className="actor-ledger__actions">
-            <Button size="xs" variant="danger" disabled={pending} onClick={onReject}>
-              Reject
-            </Button>
-            <Button size="xs" variant="primary" disabled={pending} onClick={onApprove}>
-              Approve
-            </Button>
-          </div>
-        ) : null}
-      </div>
+        <span className="actor-ledger__item-title">{row.title}</span>
+      </button>
+      {open ? (
+        <div className="actor-ledger__respond">
+          {/* The full decision contract precedes any action. */}
+          {row.details ? (
+            <div className="actor-ledger__contract">{row.details}</div>
+          ) : null}
+          {row.reason ? (
+            <div className="actor-ledger__contract actor-ledger__contract--reason">
+              Why: {row.reason}
+            </div>
+          ) : null}
+          {row.state === "pending" ? (
+            <div className="actor-ledger__actions">
+              <Button size="xs" variant="danger" disabled={pending} onClick={onReject}>
+                Reject
+              </Button>
+              <Button size="xs" variant="primary" disabled={pending} onClick={onApprove}>
+                Approve
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </li>
   );
 }
@@ -239,13 +287,23 @@ function ProposalRowItem({
  * Renders only for actor-role nodes. Unlike the connections pane it does not
  * require edges: every actor has a mailbox with the kernel.
  */
-export function ActorLedgerPane({ node }: { readonly node: CanvasNode }) {
+export function ActorLedgerPane({
+  node,
+  visible = true,
+}: {
+  readonly node: CanvasNode;
+  /** Parked keep-alive panes pause projection and timers; drafts survive. */
+  readonly visible?: boolean;
+}) {
   const doc = use$(state$.doc);
   const actorRefs = use$(state$.actorRefs);
   const canvas = use$(state$.canvasName);
+  const boundCanvas = use$(terminal$.canvasByNodeId[node.id]);
   const [expanded, setExpanded] = useState(true);
-  const [openId, setOpenId] = useState<string | null>(null);
-  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [openKey, setOpenKey] = useState<string | null>(null);
+  const [pendingKeys, setPendingKeys] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   const [error, setError] = useState("");
 
   const isActor = useMemo(() => {
@@ -258,6 +316,14 @@ export function ActorLedgerPane({ node }: { readonly node: CanvasNode }) {
     return role === "actor";
   }, [node]);
 
+  // Node-keyed surfaces survive canvas switches; the ledger must not project
+  // another canvas's doc onto this seat or aim mutations at it. Unstamped
+  // surfaces (pre-existing sessions) keep the old permissive behavior.
+  const canvasMatches = boundCanvas === undefined || boundCanvas === canvas;
+  // Parked panes keep projecting (sections stay mounted so typed drafts
+  // survive re-show); only the age timer pauses off-screen.
+  const live = isActor && canvasMatches;
+
   // The prop node is the open-time snapshot; work containers live on the doc.
   const liveNode = useMemo(
     () => doc.nodes.find((candidate) => candidate.id === node.id) ?? node,
@@ -268,48 +334,50 @@ export function ActorLedgerPane({ node }: { readonly node: CanvasNode }) {
     [actorRefs, node.id],
   );
   const claim = useMemo(
-    () => (isActor ? claimedTaskRow(doc, actorRefs, node.id) : undefined),
-    [doc, actorRefs, node.id, isActor],
+    () => (live ? claimedTaskRow(doc, actorRefs, node.id) : undefined),
+    [doc, actorRefs, node.id, live],
   );
   const requests = useMemo(
-    () => (isActor && seatId !== undefined ? requestRowsForSeat(doc, seatId) : []),
-    [doc, seatId, isActor],
+    () => (live && seatId !== undefined ? requestRowsForSeat(doc, seatId) : []),
+    [doc, seatId, live],
   );
   const proposals = useMemo(
-    () => (isActor && seatId !== undefined ? proposalRowsForSeat(doc, seatId) : []),
-    [doc, seatId, isActor],
+    () => (live && seatId !== undefined ? proposalRowsForSeat(doc, seatId) : []),
+    [doc, seatId, live],
   );
   const artifacts = useMemo(
-    () => (isActor && seatId !== undefined ? artifactRowsForSeat(doc, seatId) : []),
-    [doc, seatId, isActor],
+    () => (live && seatId !== undefined ? artifactRowsForSeat(doc, seatId) : []),
+    [doc, seatId, live],
   );
   const rows = useMemo(
-    () => (isActor ? mailboxRows(doc, liveNode) : []),
-    [doc, liveNode, isActor],
+    () => (live ? mailboxRows(doc, liveNode) : []),
+    [doc, liveNode, live],
   );
   const counts = useMemo(() => mailboxCounts(rows), [rows]);
+  // Operator attention only: unread mail is the SEAT's backlog, not yours.
   const needsYou =
-    counts.unread +
+    (claim?.needsInput ? 1 : 0) +
     requests.filter((row) => row.needsInput).length +
     proposals.filter((row) => row.state === "pending").length;
 
-  // Ages are display-only; refresh once a minute while visible.
+  // Ages are display-only; refresh once a minute while actually on screen.
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
-    if (!expanded || rows.length === 0) return;
+    if (!visible || !expanded || rows.length === 0) return;
+    setNowMs(Date.now());
     const timer = window.setInterval(() => setNowMs(Date.now()), 60_000);
     return () => window.clearInterval(timer);
-  }, [expanded, rows.length]);
+  }, [visible, expanded, rows.length]);
 
-  if (!isActor) return null;
+  if (!isActor || !canvasMatches) return null;
 
   const api = getVellumCommandApi();
   const runWork = async (
-    id: string,
+    key: string,
     operation: () => Promise<WorkOpResult<unknown>>,
   ): Promise<void> => {
     if (!api) return;
-    setPendingId(id);
+    setPendingKeys((current) => new Set(current).add(key));
     setError("");
     try {
       const result = await runCanvasAuthoringOperation(async () => {
@@ -321,9 +389,15 @@ export function ActorLedgerPane({ node }: { readonly node: CanvasNode }) {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
-      setPendingId(null);
+      setPendingKeys((current) => {
+        const next = new Set(current);
+        next.delete(key);
+        return next;
+      });
     }
   };
+  const toggleOpen = (key: string): void =>
+    setOpenKey((current) => (current === key ? null : key));
 
   const listId = `actor-ledger-mail-${node.id}`;
 
@@ -418,30 +492,29 @@ export function ActorLedgerPane({ node }: { readonly node: CanvasNode }) {
                 </span>
               </header>
               <ul className="actor-ledger__list">
-                {requests.map((row) => (
-                  <RequestRowItem
-                    key={row.requestId}
-                    row={row}
-                    pending={pendingId === row.requestId}
-                    open={openId === row.requestId}
-                    onToggle={() =>
-                      setOpenId((current) =>
-                        current === row.requestId ? null : row.requestId,
-                      )
-                    }
-                    onResolve={(response, disposition) =>
-                      void runWork(row.requestId, () =>
-                        api!.workRequestResolve(
-                          canvas,
-                          row.sinkNodeId,
-                          row.requestId,
-                          response,
-                          disposition,
-                        ),
-                      )
-                    }
-                  />
-                ))}
+                {requests.map((row) => {
+                  const key = `request:${row.sinkNodeId}:${row.requestId}`;
+                  return (
+                    <RequestRowItem
+                      key={key}
+                      row={row}
+                      pending={pendingKeys.has(key)}
+                      open={openKey === key}
+                      onToggle={() => toggleOpen(key)}
+                      onResolve={(response, disposition) =>
+                        void runWork(key, () =>
+                          api!.workRequestResolve(
+                            canvas,
+                            row.sinkNodeId,
+                            row.requestId,
+                            response,
+                            disposition,
+                          ),
+                        )
+                      }
+                    />
+                  );
+                })}
               </ul>
             </section>
           ) : null}
@@ -454,31 +527,36 @@ export function ActorLedgerPane({ node }: { readonly node: CanvasNode }) {
                 </span>
               </header>
               <ul className="actor-ledger__list">
-                {proposals.map((row) => (
-                  <ProposalRowItem
-                    key={row.proposalId}
-                    row={row}
-                    pending={pendingId === row.proposalId}
-                    onApprove={() =>
-                      void runWork(row.proposalId, () =>
-                        api!.workTaskApproveProposal(
-                          canvas,
-                          row.sinkNodeId,
-                          row.proposalId,
-                        ),
-                      )
-                    }
-                    onReject={() =>
-                      void runWork(row.proposalId, () =>
-                        api!.workTaskRejectProposal(
-                          canvas,
-                          row.sinkNodeId,
-                          row.proposalId,
-                        ),
-                      )
-                    }
-                  />
-                ))}
+                {proposals.map((row) => {
+                  const key = `proposal:${row.sinkNodeId}:${row.proposalId}`;
+                  return (
+                    <ProposalRowItem
+                      key={key}
+                      row={row}
+                      pending={pendingKeys.has(key)}
+                      open={openKey === key}
+                      onToggle={() => toggleOpen(key)}
+                      onApprove={() =>
+                        void runWork(key, () =>
+                          api!.workTaskApproveProposal(
+                            canvas,
+                            row.sinkNodeId,
+                            row.proposalId,
+                          ),
+                        )
+                      }
+                      onReject={() =>
+                        void runWork(key, () =>
+                          api!.workTaskRejectProposal(
+                            canvas,
+                            row.sinkNodeId,
+                            row.proposalId,
+                          ),
+                        )
+                      }
+                    />
+                  );
+                })}
               </ul>
             </section>
           ) : null}
@@ -491,40 +569,39 @@ export function ActorLedgerPane({ node }: { readonly node: CanvasNode }) {
                 </span>
               </header>
               <ul className="actor-ledger__list">
-                {artifacts.map((row) => (
-                  <li
-                    key={`${row.sinkNodeId}:${row.artifactId}`}
-                    className="actor-ledger__item"
-                    data-testid="actor-ledger-artifact-row"
-                    data-artifact-id={row.artifactId}
-                  >
-                    <button
-                      type="button"
-                      className="actor-ledger__item-row"
-                      aria-expanded={openId === row.artifactId}
-                      title={`${row.name} - ${row.partCount} part${row.partCount === 1 ? "" : "s"} on ${row.sinkNodeId}`}
-                      onClick={() =>
-                        setOpenId((current) =>
-                          current === row.artifactId ? null : row.artifactId,
-                        )
-                      }
+                {artifacts.map((row) => {
+                  const key = `artifact:${row.sinkNodeId}:${row.artifactId}`;
+                  return (
+                    <li
+                      key={key}
+                      className="actor-ledger__item"
+                      data-testid="actor-ledger-artifact-row"
+                      data-artifact-id={row.artifactId}
                     >
-                      <span className="actor-ledger__item-title">{row.name}</span>
-                      <span className="actor-ledger__item-detail">
-                        {row.partCount} part{row.partCount === 1 ? "" : "s"}
-                      </span>
-                    </button>
-                    {openId === row.artifactId ? (
-                      <div className="actor-ledger__mail-body">
-                        {row.textPreview
-                          ? row.textPreview.length > 600
-                            ? `${row.textPreview.slice(0, 600)}…`
-                            : row.textPreview
-                          : "No text parts — open the artifact library on the sink to view."}
-                      </div>
-                    ) : null}
-                  </li>
-                ))}
+                      <button
+                        type="button"
+                        className="actor-ledger__item-row"
+                        aria-expanded={openKey === key}
+                        title={`${row.name} - ${row.partCount} part${row.partCount === 1 ? "" : "s"} on ${row.sinkNodeId}`}
+                        onClick={() => toggleOpen(key)}
+                      >
+                        <span className="actor-ledger__item-title">{row.name}</span>
+                        <span className="actor-ledger__item-detail">
+                          {row.partCount} part{row.partCount === 1 ? "" : "s"}
+                        </span>
+                      </button>
+                      {openKey === key ? (
+                        <div className="actor-ledger__mail-body">
+                          {row.textPreview
+                            ? row.textPreview.length > 600
+                              ? `${row.textPreview.slice(0, 600)}…`
+                              : row.textPreview
+                            : "No text parts — open the artifact library on the sink to view."}
+                        </div>
+                      ) : null}
+                    </li>
+                  );
+                })}
               </ul>
             </section>
           ) : null}
@@ -550,12 +627,8 @@ export function ActorLedgerPane({ node }: { readonly node: CanvasNode }) {
                     key={row.messageId}
                     row={row}
                     nowMs={nowMs}
-                    open={openId === row.messageId}
-                    onToggle={() =>
-                      setOpenId((current) =>
-                        current === row.messageId ? null : row.messageId,
-                      )
-                    }
+                    open={openKey === `mail:${row.messageId}`}
+                    onToggle={() => toggleOpen(`mail:${row.messageId}`)}
                   />
                 ))}
               </ul>

@@ -12,10 +12,31 @@ import {
   workFocusSizeKeyForSurfaces,
   type WorkFocusSizeKey,
 } from "../../lib/surface-registry";
-import type { FocusMeasure } from "../../lib/focus-measure";
+import { actorTerminalRailsPx, type FocusMeasure } from "../../lib/focus-measure";
+import { parseTerminalSurfaceId } from "../../lib/dock-state";
+import { terminal$ } from "../../lib/terminal-state";
+import { isGroup } from "@shared/graph";
+import { resolveSpec, roleOf } from "@shared/physics";
 import { FocusSurface } from "../FocusSurface";
 import { WorkbenchChrome } from "./WorkbenchChrome";
 import { WorkbenchPanes } from "./WorkbenchPanes";
+
+/**
+ * Actor terminals carry in-panel side rails (ledger + connections); the panel
+ * budgets their width so the xterm keeps its target columns. Raw shells and
+ * herdr panes stay at the bare terminal measure.
+ */
+const railsForFrontSurface = (frontId: string | undefined): number => {
+  if (!frontId) return 0;
+  const nodeId = parseTerminalSurfaceId(frontId);
+  if (!nodeId) return 0;
+  const node = terminal$.openByNodeId[nodeId].peek();
+  if (!node) return 0;
+  const role = roleOf(
+    resolveSpec({ isGroup: isGroup(node), kind: node.ether?.entity?.kind }),
+  );
+  return role === "actor" ? actorTerminalRailsPx() : 0;
+};
 
 /** Map shell size family → FocusSurface measure token. */
 const measureForSizeKey = (key: WorkFocusSizeKey): FocusMeasure => {
@@ -63,6 +84,8 @@ export function WorkFocusShell() {
 
   const paneCount = panesForLayout(focusLayout);
   const pane0 = focusMru[0];
+  const terminalRailsPx =
+    sizeKey === "terminal" ? railsForFrontSurface(pane0) : 0;
   const pane1 = paneCount === 2 ? focusMru[1] : undefined;
   const tabs = focusMru.slice(paneCount);
   const activeId = pane0;
@@ -128,6 +151,7 @@ export function WorkFocusShell() {
       height="immersive"
       layer="work"
       contain="parent"
+      terminalRailsPx={terminalRailsPx}
       label={active ? `Workbench - ${active.kind}` : "Workbench focus"}
       onClose={closeAllFocus}
       closeOnEscape={false}
