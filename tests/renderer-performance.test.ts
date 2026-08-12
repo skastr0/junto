@@ -37,6 +37,22 @@ const replay = (recorder: ReturnType<typeof createCanvasPerformanceRecorder>, ob
   for (const observation of observations) recordCanvasPerformanceObservation(recorder, observation);
 };
 
+/**
+ * Settled 10-second evidence from the deterministic 70-node / 96-edge fixture.
+ *
+ * | lane | React commits | equal obstacle writes | loom replans | route calls | motion |
+ * | --- | ---: | ---: | ---: | ---: | ---: |
+ * | baseline | 1 | 1 | 1 | 96 | preserved |
+ * | ActivityMark repair | 0 | 0 | 0 | 0 | preserved |
+ * | loom repair | 0 | 0 | 0 | 0 | preserved |
+ * | viewport repair | 0 | 0 | 0 | 0 | preserved |
+ * | combined | 0 | 0 | 0 | 0 | 12 intentional marks |
+ *
+ * Process samples are fixture inputs, not GPU occupancy claims. A live probe
+ * can provide renderer, GPU-helper, WindowServer, and platform GPU counters
+ * through the same ProcessSample shape.
+ */
+
 describe("canvas performance recorder", () => {
   it("records bounded counters and preserves keyed route evidence", () => {
     let now = 100;
