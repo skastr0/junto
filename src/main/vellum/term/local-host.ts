@@ -615,7 +615,7 @@ export class LocalSessionHost extends EventEmitter {
         );
       }
     }
-    return this.open(
+    const opened = this.open(
       {
         kind: "agent",
         harness: input.harness,
@@ -634,6 +634,13 @@ export class LocalSessionHost extends EventEmitter {
         },
       },
     );
+    // Fail-open after a dead resume can replace this binding during open (or
+    // immediately after exit). Create must return the authoritative generation
+    // for the binding — never the exited resume row that is no longer current.
+    // Returning the dead summary is what painted "Agent stopped" while a live
+    // replacement was already running (Reopen then attached instantly).
+    const head = this.sessions.get(bindingId);
+    return head ? this.summaryOf(head) : opened;
   }
 
   private open(
@@ -804,6 +811,15 @@ export class LocalSessionHost extends EventEmitter {
           seatStateRuntime.unbind(bindingId, epoch, "generation_aborted");
         }
         clearFirstTypedMessage(bindingId);
+        // Resume fail-open may already own this binding with a live generation.
+        const replacement = this.sessions.get(bindingId);
+        if (
+          replacement &&
+          replacement !== rec &&
+          sessionStatusOf(replacement) !== "exited"
+        ) {
+          return this.summaryOf(replacement);
+        }
         return this.summaryOf(rec);
       }
 
@@ -821,7 +837,9 @@ export class LocalSessionHost extends EventEmitter {
       this.requestStop(rec);
     }
 
-    return this.summaryOf(rec);
+    // Prefer the map head: fail-open may have swapped the binding mid-open.
+    const head = this.sessions.get(bindingId);
+    return this.summaryOf(head && this.liveRecords.has(head) ? head : rec);
   }
 
   list(): readonly TerminalSessionSummary[] {
@@ -915,7 +933,7 @@ export class LocalSessionHost extends EventEmitter {
       }
     | { readonly ok: false; readonly message: string }
   > {
-    const rec = this.sessions.get(input.bindingId);
+    let rec = this.sessions.get(input.bindingId);
     if (!rec) return { ok: false, message: "session not found" };
     if (rec.killed) {
       return { ok: false, message: "session interaction revoked during stop" };
@@ -923,7 +941,23 @@ export class LocalSessionHost extends EventEmitter {
 
     // One canonical live attach representation: xterm's serialized VT state.
     // Never reconstruct a terminal from observer text.
-    const screen = await this.observerPlane.attachScreen(rec.bindingId);
+    let screen = await this.observerPlane.attachScreen(rec.bindingId);
+
+    // attachScreen awaits the headless grid. A resume generation can die and
+    // be fail-open replaced while we waited — the map head is then a NEW live
+    // epoch. Returning the stale exited rec is exactly "Agent stopped" with a
+    // live pin already running (Reopen only re-attached). Re-resolve once.
+    const head = this.sessions.get(input.bindingId);
+    if (head && head !== rec) {
+      rec = head;
+      if (rec.killed) {
+        return { ok: false, message: "session interaction revoked during stop" };
+      }
+      if (sessionStatusOf(rec) !== "exited") {
+        screen = await this.observerPlane.attachScreen(rec.bindingId);
+      }
+    }
+
     const screenPayload = screen
       ? {
           bindingId: screen.bindingId,
@@ -936,7 +970,12 @@ export class LocalSessionHost extends EventEmitter {
       : undefined;
     // A live observer owns presentation. Journal is retained only for
     // pre-observer spawn/setup failures, never as an alternate live painter.
-    const journal = screenPayload ? ([] as const) : rec.journal.slice();
+    // Drop a screen snapshot that belongs to a different (dead) epoch.
+    const screenForRec =
+      screenPayload && screenPayload.epoch === rec.epoch
+        ? screenPayload
+        : undefined;
+    const journal = screenForRec ? ([] as const) : rec.journal.slice();
 
     if (input.mode === "control") {
       if (rec.controlLeaseId && !input.takeover) {
@@ -953,7 +992,7 @@ export class LocalSessionHost extends EventEmitter {
         },
         cols: rec.cols,
         rows: rec.rows,
-        ...(screenPayload ? { screen: screenPayload } : {}),
+        ...(screenForRec ? { screen: screenForRec } : {}),
         journal,
         status: sessionStatusOf(rec),
         pid: rec.pid,
@@ -970,7 +1009,7 @@ export class LocalSessionHost extends EventEmitter {
       },
       cols: rec.cols,
       rows: rec.rows,
-      ...(screenPayload ? { screen: screenPayload } : {}),
+      ...(screenForRec ? { screen: screenForRec } : {}),
       journal,
       status: sessionStatusOf(rec),
       pid: rec.pid,
@@ -1371,48 +1410,51 @@ export class LocalSessionHost extends EventEmitter {
         `\r\n[vellum] resume failed for prior session; starting fresh session ${freshId}\r\n`,
     });
 
-    // Defer so exit bookkeeping finishes before the replacement generation.
-    queueMicrotask(() => {
-      if (this.shuttingDown) return;
-      const live = this.sessions.get(rec.bindingId);
-      if (live && sessionStatusOf(live) !== "exited") return;
-      try {
-        this.open(
-          {
-            kind: "agent",
-            harness: seed.harness,
-            agentKey: seed.agentKey,
+    // Spawn the replacement on this turn — not on a microtask. Exit bookkeeping
+    // above is complete; deferring let createAgentSeat return the dead resume
+    // summary while the live pin was still "about to" start. The renderer then
+    // painted Agent stopped, and Reopen only re-attached to the generation that
+    // was already running. Keep fail-open on the create/exit stack so ensure
+    // and attach see the live generation immediately.
+    if (this.shuttingDown) return;
+    const live = this.sessions.get(rec.bindingId);
+    if (live && live !== rec && sessionStatusOf(live) !== "exited") return;
+    try {
+      this.open(
+        {
+          kind: "agent",
+          harness: seed.harness,
+          agentKey: seed.agentKey,
+          ...(freshLaunch ? { launch: freshLaunch } : {}),
+        },
+        {
+          bindingId: seed.bindingId,
+          ...(seed.hostId ? { hostId: seed.hostId } : {}),
+          ...(seed.cols !== undefined ? { cols: seed.cols } : {}),
+          ...(seed.rows !== undefined ? { rows: seed.rows } : {}),
+          ...(seed.canvasName ? { canvasName: seed.canvasName } : {}),
+          ...(seed.nodeId ? { nodeId: seed.nodeId } : {}),
+          ...(seed.label ? { label: seed.label } : {}),
+          ...(seed.title ? { title: seed.title } : {}),
+          ...(seed.firstTypedMessage
+            ? { firstTypedMessage: seed.firstTypedMessage }
+            : {}),
+        },
+        {
+          resumeAttempt: false,
+          failOpenSeed: {
+            ...seed,
             ...(freshLaunch ? { launch: freshLaunch } : {}),
           },
-          {
-            bindingId: seed.bindingId,
-            ...(seed.hostId ? { hostId: seed.hostId } : {}),
-            ...(seed.cols !== undefined ? { cols: seed.cols } : {}),
-            ...(seed.rows !== undefined ? { rows: seed.rows } : {}),
-            ...(seed.canvasName ? { canvasName: seed.canvasName } : {}),
-            ...(seed.nodeId ? { nodeId: seed.nodeId } : {}),
-            ...(seed.label ? { label: seed.label } : {}),
-            ...(seed.title ? { title: seed.title } : {}),
-            ...(seed.firstTypedMessage
-              ? { firstTypedMessage: seed.firstTypedMessage }
-              : {}),
-          },
-          {
-            resumeAttempt: false,
-            failOpenSeed: {
-              ...seed,
-              ...(freshLaunch ? { launch: freshLaunch } : {}),
-            },
-            failOpenUsed: true,
-          },
-        );
-      } catch (err) {
-        console.error(
-          `[term] fail-open respawn failed for ${rec.bindingId}:`,
-          err,
-        );
-      }
-    });
+          failOpenUsed: true,
+        },
+      );
+    } catch (err) {
+      console.error(
+        `[term] fail-open respawn failed for ${rec.bindingId}:`,
+        err,
+      );
+    }
   }
 
   private failBeforeOwnership(rec: SessionRec, error: unknown): void {

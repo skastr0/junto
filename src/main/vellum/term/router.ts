@@ -335,9 +335,15 @@ export class TerminalRouter extends EventEmitter {
     input: LocalHostAgentSeatInput & { hostId?: string },
   ): Promise<TerminalSessionSummary> {
     const hostId = this.admitSessionHost(input);
-    return this.isLocalHostId(hostId)
-      ? this.local.createAgentSeat({ ...input, hostId: "local" })
-      : this.createRemote(hostId, input);
+    if (!this.isLocalHostId(hostId)) {
+      return this.createRemote(hostId, input);
+    }
+    const summary = this.local.createAgentSeat({ ...input, hostId: "local" });
+    // exitWitness.then is always a microtask — even when the child already
+    // died during spawn. Flush one turn so resume fail-open can replace the
+    // binding before the renderer latches create's summary as final.
+    await Promise.resolve();
+    return this.local.get(input.bindingId.trim()) ?? summary;
   }
 
   private async createRemote(

@@ -468,6 +468,101 @@ describe("LocalSessionHost", () => {
     expect(host.runningCount()).toBe(1);
   });
 
+  it("fail-open after an immediately-dead resume settles the binding on the live pin", async () => {
+    // Production path (no isolation) — resume argv is allowed.
+    const priorHome = process.env.VELLUM_COMMAND_HOME;
+    delete process.env.VELLUM_COMMAND_HOME;
+    try {
+      const fake = makeFakeTerminalProcessAuthority((_spec, index) => ({
+        pid: trackSyntheticPid(42_490 + index),
+        // First generation is already dead when open attaches exitWitness.
+        ...(index === 0 ? { exitImmediately: true as const } : {}),
+        exitOnSignal: false,
+      }));
+      const host = hostWith(fake);
+      const bindingId = "fail-open-create-returns-live";
+      const created = host.createAgentSeat({
+        bindingId,
+        harness: "claude",
+        agentKey: "local:claude",
+        launch: {
+          kind: "harness",
+          argv: ["claude", "--resume", "dead-session-aaaaaaaa"],
+        },
+        canvasName: "factory",
+        nodeId: "agent-node",
+      });
+      // exitWitness.then is a microtask even when already resolved — same
+      // flush the router awaits after local create so IPC never hands the
+      // renderer a stale resume row.
+      await Promise.resolve();
+
+      const live = host.get(bindingId);
+      expect(live?.status).toBe("running");
+      expect(fake.controllers.length).toBeGreaterThanOrEqual(2);
+      expect(live?.epoch).not.toBe(created.epoch);
+      // Replacement is a fresh pin, never another --resume.
+      expect(fake.controllers[1]?.spec.args).not.toContain("--resume");
+      expect(fake.controllers[1]?.spec.args).not.toContain("dead-session-aaaaaaaa");
+    } finally {
+      if (priorHome === undefined) delete process.env.VELLUM_COMMAND_HOME;
+      else process.env.VELLUM_COMMAND_HOME = priorHome;
+    }
+  });
+
+  it("fail-open after a late resume death replaces the binding with a live pin", async () => {
+    const priorHome = process.env.VELLUM_COMMAND_HOME;
+    delete process.env.VELLUM_COMMAND_HOME;
+    try {
+      const fake = makeFakeTerminalProcessAuthority((_spec, index) => ({
+        pid: trackSyntheticPid(42_495 + index),
+        exitOnSignal: false,
+      }));
+      const host = hostWith(fake);
+      const bindingId = "fail-open-late-resume-death";
+      const first = host.createAgentSeat({
+        bindingId,
+        harness: "claude",
+        agentKey: "local:claude",
+        launch: {
+          kind: "harness",
+          argv: ["claude", "--resume", "gone-session-bbbbbbbb"],
+        },
+      });
+      expect(first.status).toBe("running");
+
+      fake.controllers[0]?.emitData(
+        "Error: No conversation found with the provided resume id\n",
+      );
+      fake.controllers[0]?.exit(1);
+
+      await vi.waitFor(() => {
+        const live = host.get(bindingId);
+        expect(live?.status).toBe("running");
+        expect(live?.epoch).not.toBe(first.epoch);
+      });
+      expect(fake.controllers).toHaveLength(2);
+      expect(fake.controllers[1]?.spec.args).not.toContain("--resume");
+
+      // ensure / reopen path: create is idempotent on the live pin.
+      const again = host.createAgentSeat({
+        bindingId,
+        harness: "claude",
+        agentKey: "local:claude",
+        launch: {
+          kind: "harness",
+          argv: ["claude", "--resume", "gone-session-bbbbbbbb"],
+        },
+      });
+      expect(again.status).toBe("running");
+      expect(again.epoch).toBe(host.get(bindingId)?.epoch);
+      expect(fake.controllers).toHaveLength(2);
+    } finally {
+      if (priorHome === undefined) delete process.env.VELLUM_COMMAND_HOME;
+      else process.env.VELLUM_COMMAND_HOME = priorHome;
+    }
+  });
+
   it("under VELLUM_COMMAND_HOME replaces a live shared-resume pin generation on create", () => {
     const priorHome = process.env.VELLUM_COMMAND_HOME;
     // Spawn the poisoned generation as production would (no VELLUM_COMMAND_HOME), then

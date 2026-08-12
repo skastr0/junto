@@ -43,7 +43,7 @@ export const ensureTerminalRunning = async (
     }
   }
   try {
-    const next = await api.terminalCreate({
+    let next = await api.terminalCreate({
       bindingId: binding.bindingId,
       hostId: binding.hostId,
       launch: binding.launch,
@@ -56,6 +56,20 @@ export const ensureTerminalRunning = async (
         ? { resume: options?.resume ?? true }
         : {}),
     });
+    // A resume generation can die and be fail-open replaced before or just
+    // after create returns. Prefer the live binding head over a stale exited
+    // snapshot so the surface does not paint dead while a pin is already up.
+    if (next.status === "exited" && binding.harness) {
+      const deadline = Date.now() + 4_000;
+      while (Date.now() < deadline) {
+        const live = await api.terminalGet?.(binding.bindingId, binding.hostId);
+        if (live && (live.status === "running" || live.status === "starting")) {
+          next = live;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    }
     terminal$.sessionByBindingId[binding.bindingId].set(next);
     // Create is still allowed to open the surface for journal/error replay
     // when the generation dies before the first attach (bad cwd, missing

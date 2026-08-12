@@ -24,6 +24,8 @@ export interface FakeTerminalSpawnOptions {
   readonly pid?: number;
   readonly output?: string;
   readonly autoExitMs?: number;
+  /** Resolve exit before spawn returns so host attach of exitWitness runs sync. */
+  readonly exitImmediately?: boolean;
   readonly exitOnSignal?: FakeTerminalSignal | false;
   readonly resizable?: boolean;
   readonly signalAttempted?: boolean;
@@ -168,6 +170,11 @@ export const makeFakeTerminalProcessAuthority = (
     }
     if (options.autoExitMs !== undefined) {
       setTimeout(() => controller.exit(), options.autoExitMs);
+    }
+    if (options.exitImmediately === true) {
+      // Resolve before spawn returns so LocalSessionHost's exitWitness.then
+      // runs synchronously during open — the create/fail-open race.
+      controller.exit(1);
     }
     return lease;
   };
