@@ -42,7 +42,7 @@ import { WorkRepositoryLive } from "./vellum/work/repository";
 import { makeContentServiceLive } from "./vellum/content/service";
 import { InstallOpsLive } from "./vellum/install-ops/engine";
 import { RegionRollupLive } from "./vellum/region-rollup";
-import { SettingsLive } from "./vellum/settings/service";
+import { makeSettingsLive } from "./vellum/settings/service";
 import { SnapshotsLive } from "./vellum/snapshots";
 import { UsageLive } from "./vellum/usage/live";
 import { HostsServiceLive } from "./vellum/hosts";
@@ -143,7 +143,7 @@ const StateRepositoriesLive = Layer.provideMerge(
     FactoryPauseRepositoryLive,
     WorkRepositoryLive,
     UsageLive,
-    SettingsLive,
+    makeSettingsLive({ ensureDefaultCommandCenter: false }),
     SchedulerRepositoryLive,
     StationStatusLive,
     StationRepositoryLive,

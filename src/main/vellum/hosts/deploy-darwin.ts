@@ -858,13 +858,21 @@ export const captureTarStderr = (stream: {
   return () => Buffer.concat(chunks, bytes).toString("utf8");
 };
 
+const lastDeployScriptTag = (text: string): string | undefined =>
+  text
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .findLast((line) => /^[A-Z][A-Z0-9_]{3,}/u.test(line));
+
 export const describeDeployTransferFailure = (error: unknown): string => {
   if (error instanceof SshTransferExitError) {
-    const diagnostic = (error.stderr || error.stdout).trim().slice(0, 900);
+    const diagnostic = (error.stderr || error.stdout).trim();
     if (diagnostic.includes("REMOTE_NOT_DARWIN")) {
       return "remote host is not macOS — full-app Deploy Remote is Darwin-only (Linux Electron station is a separate track)";
     }
-    return diagnostic || error.message;
+    const tagged = lastDeployScriptTag(diagnostic);
+    if (tagged !== undefined) return tagged.slice(0, 900);
+    return diagnostic.slice(0, 900) || error.message;
   }
   return error instanceof Error ? error.message : String(error);
 };
@@ -1457,6 +1465,7 @@ resume_incumbent_before_activation() {
       echo "INCUMBENT_CHANGED_BEFORE_RESUME app=$APP plist=$PLIST" >&2
       return 1
     }
+  "$LAUNCHCTL" enable "$JOB" 2>/dev/null || true
   if ! "$LAUNCHCTL" bootstrap "$DOMAIN" "$PLIST" 2>/dev/null; then
     "$LAUNCHCTL" load -w "$PLIST" || {
       echo "INCUMBENT_RELOAD_FAILED $PLIST" >&2
@@ -1660,7 +1669,11 @@ test -f "$IN_CLI_EXE" && test ! -L "$IN_CLI_EXE" && test -x "$IN_CLI_EXE" || {
   echo "INCOMING_CLI_INVALID $IN_CLI_EXE" >&2
   exit 3
 }
-"$CODESIGN" --verify --deep --strict --verbose=2 -R "$DEVELOPER_ID_REQUIREMENT" "$IN/$BUNDLE"
+INCOMING_VERIFY="$("$CODESIGN" --verify --deep --strict --verbose=2 -R "$DEVELOPER_ID_REQUIREMENT" "$IN/$BUNDLE" 2>&1)" || {
+  echo "INCOMING_SIGNATURE_VERIFY_FAILED" >&2
+  echo "$INCOMING_VERIFY" >&2
+  exit 3
+}
 REMOTE_CODESIGN_METADATA="$("$CODESIGN" -d --verbose=4 "$IN/$BUNDLE" 2>&1)" || {
   echo "REMOTE_SIGNATURE_METADATA_UNAVAILABLE" >&2
   exit 3
@@ -2064,6 +2077,7 @@ remove_bound_file "$PLIST_IN" "$PLIST_IN_ID" || {
 }
 PLIST_IN_CREATED=0
 PLIST_IN_ID=""
+"$LAUNCHCTL" enable "$JOB" 2>/dev/null || true
 if ! "$LAUNCHCTL" bootstrap "$DOMAIN" "$PLIST" 2>/dev/null; then
   "$LAUNCHCTL" load -w "$PLIST"
 fi
@@ -2223,6 +2237,7 @@ if "$LAUNCHCTL" print "$JOB" >/dev/null 2>&1; then
     "$SLEEP" 1
   done
 fi
+"$LAUNCHCTL" enable "$JOB" 2>/dev/null || true
 if ! "$LAUNCHCTL" bootstrap "$DOMAIN" "$PLIST" 2>/dev/null; then
   "$LAUNCHCTL" load -w "$PLIST"
 fi

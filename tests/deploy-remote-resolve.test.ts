@@ -246,6 +246,8 @@ describe("buildRemoteDeployScript", () => {
     expect(script).toContain(
       '"$CODESIGN" --verify --deep --strict --verbose=2 -R "$DEVELOPER_ID_REQUIREMENT"',
     );
+    expect(script).toContain("INCOMING_SIGNATURE_VERIFY_FAILED");
+    expect(script).toContain('"$LAUNCHCTL" enable "$JOB"');
     const provider = readFileSync(
       new URL(
         "../src/main/vellum/hosts/deploy-darwin.ts",
@@ -1302,6 +1304,16 @@ describe("deploy transfer lifecycle", () => {
       "ENROLLMENT_PARTIAL pid=9 station=0",
     );
     expect(describeDeployTransferFailure(timeout)).toContain("ENROLLMENT_PARTIAL");
+
+    const noisy = new SshTransferExitError(
+      "remote" as never,
+      2,
+      "",
+      "--prepared:/Applications/Vellum Command.app.incoming/Vellum Command.app\nENROLLMENT_SOCKET_TIMEOUT pid=9 station=0\n",
+    );
+    expect(describeDeployTransferFailure(noisy)).toBe(
+      "ENROLLMENT_SOCKET_TIMEOUT pid=9 station=0",
+    );
   });
 
   it("maps remote transaction exit receipts by cutover phase", () => {

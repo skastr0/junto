@@ -22,6 +22,7 @@ import {
 } from "../src/main/vellum/settings/state-schema";
 import {
   makeSettingsService,
+  shouldEnsureDefaultCommandCenter,
   type SettingsServiceApi,
 } from "../src/main/vellum/settings/service";
 import {
@@ -213,6 +214,13 @@ describe("SQLite settings service", () => {
     active = harness;
     return harness;
   };
+
+  it("does not infer Command Center for headless enrollment argv", () => {
+    expect(shouldEnsureDefaultCommandCenter(["node", "app"])).toBe(true);
+    expect(
+      shouldEnsureDefaultCommandCenter(["node", "app", "--vellum-headless"]),
+    ).toBe(false);
+  });
 
   it("initializes defaults in SQLite and auto-establishes Command Center", async () => {
     const { service, state } = await openService();
