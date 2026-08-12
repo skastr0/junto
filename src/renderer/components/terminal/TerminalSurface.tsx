@@ -217,6 +217,13 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
   const [killPhase, setKillPhase] = useState<KillUxPhase>("idle");
   const [reopenPending, setReopenPending] = useState(false);
   const killArmTimer = useRef<number | null>(null);
+  /**
+   * An agent seat is LAZY. A dead seat is not a broken thing that needs a
+   * human to press a button — it is a cold seat, and looking at it is demand.
+   * Only an explicit operator Stop keeps it down; everything else wakes.
+   */
+  const operatorStopped = useRef(false);
+  const autoWakes = useRef(0);
   const canvasName = use$(state$.canvasName);
   const doc = use$(state$.doc);
   const actorRefs = use$(state$.actorRefs);
@@ -853,6 +860,9 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
       window.clearTimeout(killArmTimer.current);
       killArmTimer.current = null;
     }
+    // The operator asked for this one to stay down. This is the only thing
+    // that suppresses the lazy wake below.
+    operatorStopped.current = true;
     setKillPhase("stopping");
     setStatus("stopping…");
     void getVellumCommandApi()
@@ -868,6 +878,8 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
   };
   const reopenProcess = async (): Promise<void> => {
     if (reopenPending) return;
+    operatorStopped.current = false;
+    autoWakes.current = 0;
     setReopenPending(true);
     // Agent seats: attach effect owns ensure + load spinner. Geography shells
     // still ensure here so attach finds a live generation.
@@ -950,11 +962,28 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
   }, [attached]);
 
   useEffect(() => {
-    if (status === "exited") {
-      setKillPhase("stopped");
-      setLoadPhase(null);
+    if (status !== "exited") return;
+    // Lazy wake: the seat died with the app, crashed, or was never started in
+    // this process — it does not matter which. Opening it is the demand signal,
+    // so bring it back instead of painting a dead end. Bounded so a seat that
+    // cannot start (missing CLI, bad launch) still settles into the stopped
+    // state rather than spinning.
+    if (agentSeat && !operatorStopped.current && autoWakes.current < 2) {
+      autoWakes.current += 1;
+      setKillPhase("idle");
+      setLoadPhase(initialSessionLoadPhase({ agentSeat, sessionId: pinSessionId }));
+      setStatus(
+        sessionLoadPresentation({
+          phase: initialSessionLoadPhase({ agentSeat, sessionId: pinSessionId }),
+          sessionId: pinSessionId,
+        }).label,
+      );
+      setAttachKey((key) => key + 1);
+      return;
     }
-  }, [status]);
+    setKillPhase("stopped");
+    setLoadPhase(null);
+  }, [status, agentSeat, pinSessionId]);
 
   return (
     <div
