@@ -185,7 +185,8 @@ describe("SSH policy surface", () => {
     expect(args).toContain("StdinNull=no");
     expect(args).toContain("ClearAllForwardings=yes");
     expect(args).toContain("ControlMaster=auto");
-    expect(args.some((arg) => arg.includes("/cm-v1-%C"))).toBe(true);
+    expect(args.some((arg) => arg.startsWith("ControlPath=") && arg.endsWith("/%C"))).toBe(true);
+    expect(args.some((arg) => arg.includes("cm-v1-"))).toBe(false);
     expect(args.filter((arg) => arg.startsWith("ControlPersist="))).toEqual([
       "ControlPersist=no",
     ]);

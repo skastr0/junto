@@ -13,7 +13,6 @@ import {
   Stream,
 } from "effect";
 import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -119,7 +118,7 @@ const testLayer = async (
   releases: Command.StandardCommand[],
   options?: { readonly global?: number; readonly perEndpoint?: number },
 ) => {
-  const root = await mkdtemp(join(tmpdir(), "vellum-ssh-test-"));
+  const root = await mkdtemp("/tmp/vellum-ssh-test-");
   temporaryDirs.push(root);
   let nextPid = 100;
   const spawner = ProcessSpawner.of({
@@ -214,6 +213,44 @@ describe("SshTransport", () => {
       expect((result.failure as SshExitError).code).toBe(255);
       expect(JSON.stringify(result.failure)).not.toContain("secret-token");
       expect(JSON.stringify(result.failure)).not.toContain("\\u001b");
+      expect((result.failure as SshExitError).detail).toBeUndefined();
+    }
+  });
+
+  it("classifies a known OpenSSH stderr line onto the exit error", async () => {
+    const calls: Command.StandardCommand[] = [];
+    const releases: Command.StandardCommand[] = [];
+    const layer = await testLayer(
+      (command) =>
+        command.args.includes("-O")
+          ? {}
+          : {
+              code: 255,
+              stderr: encoder.encode(
+                'unix_listener: path "/tmp/secret.sock" too long for Unix domain socket\n',
+              ),
+            },
+      calls,
+      releases,
+    );
+
+    const result = await runPromise(
+      Effect.result(
+        Effect.gen(function* () {
+          const endpoint = yield* parseSshEndpoint("remote-a");
+          const remote = yield* makeRemoteCommand("false");
+          return yield* (yield* SshTransport).run(oneShot(endpoint, remote));
+        }).pipe(Effect.provide(layer)),
+      ),
+    );
+
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure).toBeInstanceOf(SshExitError);
+      expect((result.failure as SshExitError).detail).toBe(
+        "SSH control socket path is too long for this OS",
+      );
+      expect(JSON.stringify(result.failure)).not.toContain("/tmp/secret.sock");
     }
   });
 
@@ -890,7 +927,7 @@ describe("SshTransport", () => {
     let maxActive = 0;
     const activeByEndpoint = new Map<string, number>();
     const maxByEndpoint = new Map<string, number>();
-    const root = await mkdtemp(join(tmpdir(), "vellum-ssh-admission-"));
+    const root = await mkdtemp("/tmp/vellum-ssh-admission-");
     temporaryDirs.push(root);
     let pid = 1_000;
     const spawner = ProcessSpawner.of({

@@ -92,6 +92,7 @@ export class SshExitError extends Schema.TaggedErrorClass<SshExitError>()("SshEx
   endpoint: Schema.String,
   operation: Schema.String,
   code: Schema.Number,
+  detail: Schema.optionalKey(Schema.String),
 }) {}
 
 export class SshForwardError extends Schema.TaggedErrorClass<SshForwardError>()("SshForwardError", {

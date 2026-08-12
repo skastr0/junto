@@ -7,6 +7,8 @@ import {
   decodeRemotePlatformEvidence,
   makeRemoteDeploymentDispatcher,
 } from "../src/main/vellum/hosts/deploy-remote";
+import { resolveRemoteDeploymentTarget } from "../src/main/vellum/hosts/remote-platform";
+import { SshExitError } from "../src/main/vellum/ssh/domain";
 import {
   deployConfiguredRemoteHost,
   type ConfiguredRemoteDeployOperations,
@@ -395,6 +397,41 @@ describe("Remote deployment dispatcher", () => {
     });
     expect(replay.detail).toMatch(/not admitted by this dispatcher/u);
     expect(darwin.deploy).toHaveBeenCalledOnce();
+  });
+
+  it("surfaces the OpenSSH diagnostic when SSH warm fails", async () => {
+    const ssh = {
+      warm: vi.fn(() =>
+        Effect.fail(
+          new SshExitError({
+            endpoint: "studio-box",
+            operation: "master-warm",
+            code: 255,
+            detail: "SSH control socket path is too long for this OS",
+          }),
+        ),
+      ),
+      run: vi.fn(),
+    } as unknown as Ssh;
+
+    const preparation = await Effect.runPromise(
+      resolveRemoteDeploymentTarget(ssh, host, "darwin"),
+    );
+
+    expect(preparation.ok).toBe(false);
+    if (preparation.ok) return;
+    expect(preparation.result).toMatchObject({
+      ok: false,
+      code: "io",
+      disposition: "not-started",
+      stages: ["endpoint ok"],
+    });
+    expect(preparation.result.detail).toContain(
+      "SSH control socket path is too long for this OS",
+    );
+    expect(preparation.result.detail).not.toContain(
+      "check SSH config, VPN, and keys",
+    );
   });
 
   it("refuses a non-Darwin Command Center before touching SSH", async () => {

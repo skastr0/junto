@@ -120,7 +120,7 @@ packaged app digest before treating the path as qualified.
 |---------|----------------|
 | no local Vellum Command.app | Install/package on CC first |
 | remote not Darwin | Linux host — use Linux station track |
-| SSH warm failed | VPN/Tailscale/keys/`~/.ssh/config` |
+| SSH warm failed | ControlPath too long, host key, keys, or `~/.ssh/config` — read the OpenSSH detail on the deploy step |
 | TERM_SOCK_TIMEOUT | App didn’t start; check remote logs under `~/Library/Logs/Vellum Command/` |
 | browser sock missing | Activation is incomplete; check the Remote error log and browser composition readiness |
 

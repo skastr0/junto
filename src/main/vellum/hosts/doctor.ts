@@ -125,6 +125,9 @@ const classifySshFailure = (message: string): string => {
   if (/Connection refused/i.test(message)) {
     return "Connection refused — sshd not listening on the remote, or wrong port.";
   }
+  if (/too long for Unix domain socket|unix_listener/i.test(message)) {
+    return "SSH control socket path is too long for this OS.";
+  }
   return message;
 };
 
@@ -135,7 +138,9 @@ const describeSshError = (error: SshError): string => {
         `Connection timed out after ${error.timeoutMs}ms`,
       );
     case "SshExitError":
-      return classifySshFailure(`ssh exited with code ${error.code}`);
+      return classifySshFailure(
+        error.detail ?? `ssh exited with code ${error.code}`,
+      );
     case "SshInputError":
       return `Invalid endpoint: ${error.message}`;
     case "SshOutputLimitError":

@@ -2,6 +2,10 @@
 // Map: src/cli/effect-v4-import-map.ts
 import * as Command from "effect/unstable/process/ChildProcess";
 import { join } from "node:path";
+import {
+  assertMuxControlDirBudget,
+  sshMuxControlPathTemplate,
+} from "./control-dir";
 import type {
   RemoteCommand,
   RemoteStdin,
@@ -264,7 +268,6 @@ const BASE_OPTIONS = [
   "-o", "StdinNull=no",
 ] as const;
 
-const CONTROL_SOCKET_VERSION = "cm-v1-%C";
 const OWNED_SOCKET_PATTERN = /^\/[A-Za-z0-9._+@/-]+$/u;
 const NONCE_PATTERN = /^[a-f0-9]{32}$/u;
 const ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/u;
@@ -310,6 +313,8 @@ const assertOwnedSocket = (path: string): string => {
  * @internal consumed only by SshTransportLayer
  */
 export const createSshProgramCompiler = (policy: SshExecutionPolicy) => {
+  assertMuxControlDirBudget(policy.controlDir);
+  const muxControlPath = sshMuxControlPathTemplate(policy.controlDir);
   const environment = Object.entries(policy.environment)
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([name, value]) => {
@@ -329,7 +334,7 @@ export const createSshProgramCompiler = (policy: SshExecutionPolicy) => {
 
   const sharedOptions = [
     "-o", "ControlMaster=auto",
-    "-o", `ControlPath=${join(policy.controlDir, CONTROL_SOCKET_VERSION)}`,
+    "-o", `ControlPath=${muxControlPath}`,
     "-o", "ControlPersist=no",
   ] as const;
 
@@ -467,7 +472,7 @@ export const createSshProgramCompiler = (policy: SshExecutionPolicy) => {
     masterExit(endpoint: SshEndpoint): Command.Command {
       return ssh([
         ...BASE_OPTIONS,
-        "-o", `ControlPath=${join(policy.controlDir, CONTROL_SOCKET_VERSION)}`,
+        "-o", `ControlPath=${muxControlPath}`,
         "-O", "exit",
         endpoint,
       ]);

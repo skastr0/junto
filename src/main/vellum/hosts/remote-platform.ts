@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import type { RemoteHost } from "@shared/remote-hosts";
 import { inspectSshTarget, parseHostSshRoute } from "../ssh/domain";
+import { formatSshFailure } from "../ssh/format";
 import { oneShot } from "../ssh/program";
 import { remoteUname } from "../ssh/read-commands";
 import type { SshTransportShape } from "../ssh/service";
@@ -160,7 +161,7 @@ export const resolveRemoteDeploymentTarget = (
       return {
         ok: false,
         result: remoteDeploymentFailure(
-          `${host.label}: SSH connection failed — check SSH config, VPN, and keys`,
+          `${host.label}: SSH connection failed — ${formatSshFailure(warm.failure)}`,
           { code: "io", stages },
         ),
       };

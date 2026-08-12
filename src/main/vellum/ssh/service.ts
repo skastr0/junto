@@ -31,6 +31,7 @@ import type {
   OneShotProgram,
   ScopedStreamProgram,
 } from "./program";
+import { classifySshStderr } from "./format";
 import { createSshProgramCompiler } from "./program";
 import {
   ProcessFailure,
@@ -402,11 +403,18 @@ export const SshTransportLayer = Layer.effect(
       input?: Uint8Array,
     ): Effect.Effect<SshCommandResult, SshError> =>
       runProcess(endpoint, operation, command, input).pipe(
-        Effect.flatMap(({ result, code }) =>
-          code === 0
-            ? Effect.succeed(result)
-            : Effect.fail(new SshExitError({ endpoint, operation, code })),
-        ),
+        Effect.flatMap(({ result, code }) => {
+          if (code === 0) return Effect.succeed(result);
+          const detail = classifySshStderr(result.stderr);
+          return Effect.fail(
+            new SshExitError({
+              endpoint,
+              operation,
+              code,
+              ...(detail === undefined ? {} : { detail }),
+            }),
+          );
+        }),
         Effect.timeoutOrElse({
           duration: timeoutMs,
           orElse: () => Effect.fail(new SshTimeoutError({ endpoint, operation, timeoutMs })),}),
