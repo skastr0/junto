@@ -639,6 +639,15 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
       if (event.epoch !== epochRef.current) return;
       if (event.type === "output" && event.data) term.write(event.data);
       if (event.type === "exit") {
+        // Lazy seat: a generation ending is not the seat ending. Unless the
+        // operator stopped it, re-attach (which re-ensures a live generation)
+        // rather than latching a dead card the operator has to dismiss.
+        if (agentSeat && !operatorStopped.current && autoWakes.current < 2) {
+          autoWakes.current += 1;
+          setKillPhase("idle");
+          setAttachKey((key) => key + 1);
+          return;
+        }
         setStatus("exited");
         setKillPhase("stopped");
         setLoadPhase(null);
@@ -702,6 +711,29 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
               if (event.type === "exit") sawExit = true;
             }
             discardPending();
+            // An attach that lands on an EXITED generation is not a dead seat.
+            // ensureTerminalRunning ran just above, and createAgentSeat only
+            // reuses a record that is still alive — so re-running the attach
+            // spawns a fresh generation. That is precisely what the Reopen
+            // button does (it sets killPhase idle and bumps attachKey, nothing
+            // more), which is why Reopen always worked while the first open
+            // painted a dead card over a seat that was never broken.
+            //
+            // An agent seat is lazy: opening it IS the demand signal, so it
+            // recovers itself instead of asking for a click. Bounded so a seat
+            // that genuinely cannot start still settles into the stopped state.
+            if (
+              sawExit &&
+              agentSeat &&
+              !operatorStopped.current &&
+              autoWakes.current < 2
+            ) {
+              autoWakes.current += 1;
+              clearLoad();
+              setKillPhase("idle");
+              setAttachKey((key) => key + 1);
+              return;
+            }
             // Retained exited generations may expose their final raw journal.
             // Never paint those as a live control lease.
             setStatus(sawExit ? "exited" : "control");
