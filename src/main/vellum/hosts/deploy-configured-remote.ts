@@ -111,7 +111,7 @@ const defaultOperations: ConfiguredRemoteDeployOperations = {
       artifactSource,
     ),
   configure: configureRemoteHost,
-  activateRuntime: (ssh, host, deployed) =>
+  activateRuntime: (ssh, host, deployed, target) =>
     Effect.gen(function* () {
       if (deployed.disposition !== "configuration-required") {
         return {

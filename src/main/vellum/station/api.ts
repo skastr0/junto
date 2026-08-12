@@ -1635,7 +1635,7 @@ export const StationApiLive = Layer.effect(
      */
     const stampRemoteLeaseIfEligible = (
       op: "pair" | "configure" | "project" | "status",
-    ): Effect.Effect<void> =>
+    ): Effect.Effect<void, StationRepositoryError> =>
       Effect.gen(function* () {
         const pairing = yield* repository.pairing;
         if (

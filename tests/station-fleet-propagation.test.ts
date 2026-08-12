@@ -12,7 +12,7 @@ import { describe, expect, it } from "vitest";
 import { HostId, type HostId as HostIdValue } from "../src/shared/remote-hosts";
 import {
   InstallationId,
-  LogicalSequence,
+  LogicalSequence as StationLogicalSequence,
   ReportRequest,
   ReportResponse,
   STATION_API_PROTOCOL,
@@ -22,6 +22,7 @@ import {
   type ReportRequest as ReportRequestValue,
   type StationReadiness,
 } from "../src/shared/station-api";
+import { LogicalSequence as WorkLogicalSequence } from "../src/shared/work-protocol";
 import type { StationControlEnvelope } from "../src/shared/station-api-envelope";
 import { CanvasesService } from "../src/main/vellum/canvases";
 import { WorkRepository } from "../src/main/vellum/work/repository";
@@ -71,7 +72,8 @@ import {
 
 const hostId = Schema.decodeUnknownSync(HostId);
 const installationId = Schema.decodeUnknownSync(InstallationId);
-const sequence = Schema.decodeUnknownSync(LogicalSequence);
+const stationSequence = Schema.decodeUnknownSync(StationLogicalSequence);
+const workSequence = Schema.decodeUnknownSync(WorkLogicalSequence);
 const sha256 = Schema.decodeUnknownSync(StationSha256);
 const stationHostId = Schema.decodeUnknownSync(StationHostId);
 
@@ -104,12 +106,12 @@ const target = (host: string, station: string): StationFleetTarget => ({
 const receipt = (
   stationInstallationId: ReturnType<typeof installationId>,
   options: {
-    readonly generation?: ReturnType<typeof sequence>;
+    readonly generation?: ReturnType<typeof stationSequence>;
     /** Per-Remote logical report cursor (never wall-clock). */
     readonly reportCursor?: number;
   } = {},
 ): StationPropagationReceipt => {
-  const generation = options.generation ?? sequence("1");
+  const generation = options.generation ?? stationSequence("1");
   const reportCursor = options.reportCursor ?? 0;
   const receivedThrough =
     reportCursor > 0
@@ -117,7 +119,7 @@ const receipt = (
           {
             eventHome: stationInstallationId,
             entityHome: stationInstallationId,
-            through: sequence(String(reportCursor)),
+            through: workSequence(String(reportCursor)),
           },
         ]
       : [];
@@ -317,7 +319,7 @@ const makeHarness = (
           (reportCursors.get(input.stationInstallationId) ?? 0) + 1;
         reportCursors.set(input.stationInstallationId, cursor);
         return receipt(input.stationInstallationId, {
-          generation: sequence("1"),
+          generation: stationSequence("1"),
           reportCursor: cursor,
         });
       }),
@@ -1382,4 +1384,3 @@ describe("FLEET-P4 two-Remote Station topology", () => {
     });
   });
 });
-
