@@ -11,6 +11,8 @@ logical propagation, and revocation
 
 **Canonical protocol:** [vellum-protocol.md](vellum-protocol.md)
 
+**Operator evidence:** [fleet-observability.md](fleet-observability.md)
+
 ## Product sentence
 
 One sovereign operator; one Command Center per factory; every installation

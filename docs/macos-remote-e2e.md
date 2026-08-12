@@ -1,14 +1,18 @@
 # macOS Remote station — end-to-end (terminals + host-local browser)
 
-**Status:** required operator qualification; not yet a recorded two-host pass
+**Status:** required operator qualification; clean Mac mini available, no
+recorded two-host pass for the next packaged build
+
+Capture and interpret every run through
+[Fleet observability and qualification](fleet-observability.md).
 
 Command Center (this Mac) deploys the **same** `Vellum Command.app` to a **macOS**
 remote (e.g. Mac mini), starts it under LaunchAgent, and uses SSH for the
 Station API and for terminal capability sockets.
 
 Linux is **out of scope** for this path (separate Electron/Linux station track).
-Darwin managed deploy remains release-gated; this checklist qualifies the path
-before that capability may be enabled.
+Darwin managed deploy is enabled in the ship release profile. This checklist
+qualifies the exact packaged pair before release promotion.
 
 Browser automation is host-local on the Remote. Command Center does not forward
 or relay browser control sockets; a page on the Remote is driven only by actors
@@ -46,7 +50,7 @@ mutable row and event has one installation authority home.
    app bundle + LaunchAgent, start it, configure through Station API, and wait
    for:
    - `~/.vellum-command/term/control.sock`
-   - `~/.vellum-command/browser/control.sock` (best-effort host-local plane; term alone still succeeds)
+   - `~/.vellum-command/browser/control.sock`
    - the Station API status to report database/work/simulation readiness
 5. Canvas → New terminal → **Host** = remote → Start → Open.
 6. CC quit does **not** kill remote PTYs (local quit only). Explicit Kill does.
@@ -118,7 +122,7 @@ packaged app digest before treating the path as qualified.
 | remote not Darwin | Linux host — use Linux station track |
 | SSH warm failed | VPN/Tailscale/keys/`~/.ssh/config` |
 | TERM_SOCK_TIMEOUT | App didn’t start; check remote logs under `~/Library/Logs/Vellum Command/` |
-| browser sock missing | App still starting; or composition failed — check remote main log |
+| browser sock missing | Activation is incomplete; check the Remote error log and browser composition readiness |
 
 ## Code map
 
