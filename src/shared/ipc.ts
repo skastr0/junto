@@ -956,6 +956,8 @@ export interface HostsTestResult {
    * Present only when the remote probe returned a closed capability record.
    */
   readonly linuxCapabilities?: import("./linux-host-capabilities").LinuxHostCapabilityObservation;
+  /** Complete bounded Station observation used by Fleet detail and Doctor. */
+  readonly observation?: import("./station-status").StationRemoteObservation;
   readonly code?: string;
   readonly message?: string;
 }

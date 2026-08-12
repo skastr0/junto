@@ -6,6 +6,7 @@ import {
   defaultStationStatus,
   deployRecordFromResult,
   kernelRecordFromSnapshot,
+  redactStationDiagnostic,
   STATION_KERNEL_STALE_AFTER_MS,
   type StationRemoteObservation,
 } from "../src/shared/station-status";
@@ -548,6 +549,108 @@ describe("station status doctor", () => {
       "remote.studio.apiState": "unavailable",
       "remote.studio.state": "error",
     });
+  });
+
+  it("projects bounded recovery facts for stale, mismatched, and leased Remotes", () => {
+    const check = assessStationDoctor({
+      ...localDoctorInput(),
+      registeredRemoteEndpoints: { studio: "studio-box" },
+      remoteObservations: [
+        observedRemote({
+          expectedInstallationId: "station-enrolled",
+          observedAt: "2026-07-23T11:40:00.000Z",
+          route: {
+            phase: "backoff",
+            sessionOpen: false,
+            attempt: 3,
+            updatedAt: "2026-07-23T11:40:00.000Z",
+            nextRetryAt: "2026-07-23T12:01:00.000Z",
+          },
+          lease: {
+            state: "expired",
+            source: "last-acknowledged",
+            lastCheckInAt: "2026-07-19T12:00:00.000Z",
+            expiresAt: "2026-07-22T12:00:00.000Z",
+          },
+          readiness: { terminal: false, browser: true },
+        }),
+      ],
+    });
+
+    expect(check.status).toBe("error");
+    expect(check.detail).toContain("installation identity mismatch");
+    expect(check.detail).toContain("route backoff");
+    expect(check.detail).toContain("lease expired");
+    expect(check.metadata).toMatchObject({
+      "remote.studio.expectedInstallationId": "station-enrolled",
+      "remote.studio.observedInstallationId": "station-studio",
+      "remote.studio.routePhase": "backoff",
+      "remote.studio.routeSession": "closed",
+      "remote.studio.routeAttempt": "3",
+      "remote.studio.terminalReady": "false",
+      "remote.studio.browserReady": "true",
+      "remote.studio.leaseState": "expired",
+      "remote.studio.recoveryKind": "identity-conflict",
+    });
+    expect(check.metadata?.["remote.studio.recoveryNextStep"]).toMatch(
+      /re-enroll/u,
+    );
+  });
+
+  it("keeps partial and stale observations explicit instead of inventing readiness", () => {
+    const check = assessStationDoctor({
+      ...localDoctorInput(),
+      registeredRemoteEndpoints: { studio: "studio-box" },
+      remoteObservations: [
+        observedRemote({
+          station: undefined,
+          reachability: "unreachable",
+          reachabilityError: "socket token=secret at /Users/operator/.vellum-command/work/control.sock",
+          observationError: "bearer=secret",
+        }),
+      ],
+    });
+
+    expect(check.status).toBe("error");
+    expect(check.metadata).toMatchObject({
+      "remote.studio.databaseReady": "unknown",
+      "remote.studio.workControlReady": "unknown",
+      "remote.studio.simulationReady": "unknown",
+      "remote.studio.terminalReady": "unknown",
+      "remote.studio.browserReady": "unknown",
+      "remote.studio.recoveryKind": "retryable",
+    });
+    expect(check.detail).not.toContain("secret");
+    expect(check.detail).not.toContain("/Users/operator");
+  });
+
+  it("marks an otherwise usable Remote observation stale without clearing its facts", () => {
+    const check = assessStationDoctor({
+      ...localDoctorInput(),
+      registeredRemoteEndpoints: { studio: "studio-box" },
+      remoteObservations: [
+        observedRemote({ observedAt: "2026-07-23T11:40:00.000Z" }),
+      ],
+    });
+
+    expect(check.detail).toContain("Station observation stale");
+    expect(check.metadata).toMatchObject({
+      "remote.studio.state": "stale",
+      "remote.studio.recoveryKind": "retryable",
+      "remote.studio.databaseReady": "true",
+    });
+  });
+
+  it("redacts credentials, board references, and local paths at the diagnostic boundary", () => {
+    const diagnostic = redactStationDiagnostic(
+      "bearer=secret authorization:abc token=xyz license_key=license-secret dodo_activation_id=dodo-secret vellum-command://canvas?node=agent-123 node-01KZ12345678 /Users/operator/.vellum-command/state/vellum-command.db",
+    );
+    expect(diagnostic).not.toContain("secret");
+    expect(diagnostic).not.toContain("agent-123");
+    expect(diagnostic).not.toContain("node-01KZ12345678");
+    expect(diagnostic).not.toContain("/Users/operator");
+    expect(diagnostic).toContain("[redacted]");
+    expect(diagnostic).toContain("[path redacted]");
   });
 
   it("reports stale live kernel truth without any retired pull status", () => {

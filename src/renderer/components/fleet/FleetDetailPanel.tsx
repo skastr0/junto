@@ -20,6 +20,7 @@ import {
   HERMES_INTEGRATION_ENABLED,
   productHostCapabilities,
 } from "@shared/features";
+import type { StationRemoteObservation } from "@shared/station-status";
 import type { RemoteHost } from "@shared/remote-hosts";
 import {
   deriveRemoteUpdateStatus,
@@ -120,6 +121,101 @@ function CommandCenterDetail({ hostId }: { readonly hostId: string }) {
         </p>
       </section>
     </div>
+  );
+}
+
+const diagnosticText = (value: string | number | boolean | undefined): string =>
+  value === undefined ? "unknown" : String(value);
+
+function StationDiagnostics({
+  observation,
+}: {
+  readonly observation?: StationRemoteObservation;
+}) {
+  const station = observation?.station;
+  const route = observation?.route;
+  const lease = observation?.lease;
+  const protocol = observation?.protocol;
+  const recovery = observation?.recovery;
+  return (
+    <section className="fleet-detail__section">
+      <div className="fleet-detail__section-label">Station diagnostics</div>
+      <div className="fleet-detail__kv">
+        <span>reachability</span>
+        <span>{diagnosticText(observation?.reachability)}</span>
+        <span>fact source</span>
+        <span>{diagnosticText(observation?.source)}</span>
+        <span>configured role / host</span>
+        <span>
+          {diagnosticText(station?.configuration?.role)} / {diagnosticText(station?.configuration?.hostId)}
+        </span>
+        <span>expected installation</span>
+        <span>{diagnosticText(observation?.expectedInstallationId)}</span>
+        <span>observed installation</span>
+        <span>{diagnosticText(station?.installationId)}</span>
+        <span>Command Center binding</span>
+        <span>
+          {diagnosticText(
+            station?.configuration?.role === "remote"
+              ? station.configuration.commandCenterInstallationId
+              : undefined,
+          )}
+        </span>
+        <span>observation timestamp</span>
+        <span>{diagnosticText(observation?.observedAt ?? station?.observedAt)}</span>
+        <span>route</span>
+        <span>
+          {diagnosticText(route?.phase)} / session {route === undefined ? "unknown" : route.sessionOpen ? "open" : "closed"}
+        </span>
+        <span>route attempt / updated</span>
+        <span>{diagnosticText(route?.attempt)} / {diagnosticText(route?.updatedAt)}</span>
+        <span>next retry</span>
+        <span>{diagnosticText(route?.nextRetryAt)}</span>
+        <span>protocol</span>
+        <span>
+          {protocol === undefined
+            ? "unknown"
+            : protocol.compatibility === "update-required"
+              ? "update-required"
+              : `${protocol.compatibility} / negotiated ${protocol.negotiatedProtocol}`}
+        </span>
+        <span>projection receipt</span>
+        <span>
+          {diagnosticText(station?.projection?.generation)} / {diagnosticText(station?.projection?.contentSha256)} / {diagnosticText(station?.projection?.receivedAt)}
+        </span>
+        <span>package / deploy receipt</span>
+        <span>
+          {diagnosticText(observation?.packageGeneration)} / {diagnosticText(observation?.deployReceiptAt)}
+        </span>
+        <span>received cursors</span>
+        <span>{diagnosticText(station?.receivedThrough.length)}</span>
+        <span>peer acknowledged cursors</span>
+        <span>{diagnosticText(station?.peerAcknowledgedThrough.length)}</span>
+        <span>readiness</span>
+        <span>
+          database {diagnosticText(station?.readiness.database)}, work {diagnosticText(station?.readiness.workControl)}, simulation {diagnosticText(station?.readiness.simulation)}, terminal {diagnosticText(observation?.readiness?.terminal)}, browser {diagnosticText(observation?.readiness?.browser)}
+        </span>
+        <span>last check-in</span>
+        <span>{diagnosticText(lease?.lastCheckInAt)}</span>
+        <span>lease</span>
+        <span>
+          {diagnosticText(lease?.state)} / expires {diagnosticText(lease?.expiresAt)} / {diagnosticText(lease?.source)}
+        </span>
+        <span>recovery</span>
+        <span>{diagnosticText(recovery?.kind)}</span>
+      </div>
+      {recovery ? (
+        <p className="fleet-detail__note">
+          Next safe action: {recovery.nextStep}
+        </p>
+      ) : null}
+      {observation?.observationError ? (
+        <details className="fleet-detail__diagnostic">
+          <summary>Observation detail</summary>
+          <p>{observation.observationError}</p>
+        </details>
+      ) : null}
+    </section>
   );
 }
 
@@ -396,6 +492,8 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
           {probing ? "probing…" : "Test link"}
         </Button>
       </section>
+
+      <StationDiagnostics observation={probe?.observation} />
 
       {probe?.linuxCapabilities ? (
         <section className="fleet-detail__section">

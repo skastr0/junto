@@ -603,6 +603,9 @@ export const registerHostsIpc = (
                 ...(result.success.linuxCapabilities === undefined
                   ? {}
                   : { linuxCapabilities: result.success.linuxCapabilities }),
+                ...(result.success.observation === undefined
+                  ? {}
+                  : { observation: result.success.observation }),
               } satisfies HostsTestResult;
             }
             return {

@@ -49,6 +49,51 @@ const AppVersion = Schema.String.pipe(
   Schema.check(Schema.isMaxLength(128)),
 );
 
+export const StationRecoveryKind = Schema.Literals([
+  "retryable",
+  "update-required",
+  "identity-conflict",
+  "lease-expired",
+  "runtime-down",
+]);
+export type StationRecoveryKind = typeof StationRecoveryKind.Type;
+
+export type StationRecoveryGuidance = {
+  readonly kind: StationRecoveryKind;
+  readonly nextStep: string;
+};
+
+export type StationLeaseObservation = {
+  /** Lease state is explicit; absent evidence is never rendered as expired. */
+  readonly state: "active" | "expired" | "never" | "unknown";
+  /** Last successful Command Center contact, or the last acknowledged value. */
+  readonly lastCheckInAt?: string;
+  readonly expiresAt?: string;
+  readonly source: "live" | "last-acknowledged";
+};
+
+export type StationRouteObservation = {
+  readonly phase:
+    | "connecting"
+    | "synchronizing"
+    | "ready"
+    | "update-required"
+    | "backoff"
+    | "stopped";
+  readonly sessionOpen: boolean;
+  readonly attempt: number;
+  readonly updatedAt: string;
+  readonly nextRetryAt?: string;
+};
+
+export type StationReadinessObservation = {
+  readonly database?: boolean;
+  readonly workControl?: boolean;
+  readonly simulation?: boolean;
+  readonly terminal?: boolean;
+  readonly browser?: boolean;
+};
+
 export const StationDeployOutcome = Schema.Literals(["ready", "failed",
 "indeterminate",]);
 export type StationDeployOutcome = typeof StationDeployOutcome.Type;
@@ -66,6 +111,8 @@ export const StationDeployRecord = Schema.Struct({
   configurationOk: Schema.Boolean,
   detail: Diagnostic,
   stages: Schema.Array(Stage).pipe(Schema.check(Schema.isMaxLength(32))),
+  recoveryKind: Schema.optionalKey(StationRecoveryKind),
+  recoveryDetail: Schema.optionalKey(Diagnostic),
 });
 export type StationDeployRecord = typeof StationDeployRecord.Type;
 
@@ -120,8 +167,21 @@ export type StationRemoteObservation = {
   readonly hostId: string;
   readonly endpoint: string;
   readonly reachability: "reachable" | "unreachable" | "unknown";
+  /** Whether these facts came from the current probe or a retained receipt. */
+  readonly source?: "live" | "last-acknowledged";
+  readonly observedAt?: string;
+  /** Installation bound by the Command Center fleet target. */
+  readonly expectedInstallationId?: string;
   readonly reachabilityError?: string;
   readonly protocol?: StationProtocolObservation;
+  readonly route?: StationRouteObservation;
+  readonly lease?: StationLeaseObservation;
+  readonly readiness?: StationReadinessObservation;
+  /** Package/deploy receipt facts are optional when the fleet has no receipt. */
+  readonly packageGeneration?: string;
+  readonly deployReceiptAt?: string;
+  readonly deployRecoveryKind?: StationRecoveryKind;
+  readonly recovery?: StationRecoveryGuidance;
   /** Exact typed response from the Remote's Station API. */
   readonly station?: StatusResponseValue;
   readonly observationError?: string;
@@ -159,6 +219,8 @@ export const deployRecordFromResult = (input: {
   readonly configurationOk: boolean;
   readonly detail: string;
   readonly stages?: ReadonlyArray<string>;
+  readonly recoveryKind?: StationRecoveryKind;
+  readonly recoveryDetail?: string;
   readonly at?: string;
 }): StationDeployRecord =>
   decodeDeploy({
@@ -172,10 +234,16 @@ export const deployRecordFromResult = (input: {
     version: input.version?.trim() || "unknown",
     ...(input.lastSeen ? { lastSeen: input.lastSeen } : {}),
     configurationOk: input.configurationOk,
-    detail: input.detail.slice(0, 4_096),
+    detail: redactStationDiagnostic(input.detail).slice(0, 4_096),
     stages: (input.stages ?? [])
       .slice(-32)
-      .map((stage) => stage.slice(0, 512)),
+      .map((stage) => redactStationDiagnostic(stage).slice(0, 512)),
+    ...(input.recoveryKind === undefined
+      ? {}
+      : { recoveryKind: input.recoveryKind }),
+    ...(input.recoveryDetail === undefined
+      ? {}
+      : { recoveryDetail: redactStationDiagnostic(input.recoveryDetail).slice(0, 4_096) }),
   });
 
 /**
@@ -228,13 +296,89 @@ const timestampIsStale = (
   );
 };
 
+/** Remove credential, socket, path, and board-reference material at the
+ * diagnostic boundary. Operator diagnostics are evidence, never a log dump. */
+export const redactStationDiagnostic = (value: string): string =>
+  value
+    .replaceAll(
+      /((?:bearer|authorization|access[_ -]?token|socket[_ -]?token|token|password|license(?:[_ -]?key)?|dodo(?:[_ -]?(?:key|activation)(?:[_ -]?id)?|[_ -]?id)?))\s*[:=]\s*[^\s,;]+/giu,
+      "$1=[redacted]",
+    )
+    .replaceAll(/vellum-command:\/\/[^\s)]+/giu, "vellum-command://[redacted]")
+    .replaceAll(
+      /\b(?:agent|terminal|task|board|requests|artifacts|node)-[0-9A-Z]{8,}\b/giu,
+      "[node redacted]",
+    )
+    .replaceAll(
+      /(?:\/Users\/[^\s,;]+|\/home\/[^\s,;]+|[A-Za-z]:\\[^\s,;]+)/gu,
+      "[path redacted]",
+    );
+
 const boundedDiagnostic = (
   value: string | undefined,
   fallback: string,
 ): string => {
   const normalized = value?.replaceAll(/\s+/gu, " ").trim();
-  return (normalized || fallback).slice(0, 512);
+  return redactStationDiagnostic(normalized || fallback).slice(0, 512);
 };
+
+const knownBoolean = (value: boolean | undefined): string =>
+  value === undefined ? "unknown" : value ? "true" : "false";
+
+const cursorText = (cursors: ReadonlyArray<RouteCursorValue> | undefined): string =>
+  cursors
+    ?.map((cursor) => `${cursor.eventHome}->${cursor.entityHome}:${cursor.through}`)
+    .join(",") ?? "unknown";
+
+const recoveryForRemote = (input: {
+  readonly identityConflict: boolean;
+  readonly protocol?: StationProtocolObservation;
+  readonly lease?: StationLeaseObservation;
+  readonly unreachable: boolean;
+  readonly stationAvailable: boolean;
+  readonly readinessFailed: boolean;
+  readonly stale: boolean;
+}): StationRecoveryGuidance | undefined => {
+  if (input.identityConflict) {
+    return {
+      kind: "identity-conflict",
+      nextStep: "Verify the enrolled installation identity, then re-enroll the intended Remote.",
+    };
+  }
+  if (input.protocol?.compatibility === "update-required") {
+    return {
+      kind: "update-required",
+      nextStep: "Upgrade Command Center and Remote to a compatible Station protocol, then test the link.",
+    };
+  }
+  if (input.lease?.state === "expired" || input.lease?.state === "never") {
+    return {
+      kind: "lease-expired",
+      nextStep: "Reconnect the Remote to its paired Command Center; never copy a license key or activation identifier.",
+    };
+  }
+  if (input.unreachable) {
+    return {
+      kind: "retryable",
+      nextStep: "Verify the SSH route and host availability, then retry the bounded link test.",
+    };
+  }
+  if (!input.stationAvailable) {
+    return {
+      kind: "runtime-down",
+      nextStep: "Start the supervised Vellum Command Remote, then retry the link test.",
+    };
+  }
+  if (input.readinessFailed || input.stale) {
+    return {
+      kind: "retryable",
+      nextStep: "Restore the named readiness component or wait for a fresh Station observation, then retry.",
+    };
+  }
+  return undefined;
+};
+
+export const stationRecoveryForRemote = recoveryForRemote;
 
 type RemoteProjection = {
   readonly line: string;
@@ -242,6 +386,7 @@ type RemoteProjection = {
   readonly fleetBlind: boolean;
   readonly stale: boolean;
   readonly error: boolean;
+  readonly recovery?: StationRecoveryGuidance;
 };
 
 const localConfigurationDetail = (
@@ -403,10 +548,17 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
       : undefined;
     const station = observation?.station;
     const protocol = observation?.protocol;
+    const route = observation?.route;
+    const lease = observation?.lease;
+    const observedAt = observation?.observedAt ?? station?.observedAt;
+    const expectedInstallationId = observation?.expectedInstallationId;
+    const observedInstallationId = station?.installationId;
     const problems: string[] = [];
     let hardError = false;
     let fleetBlind = false;
     let stale = false;
+    let identityConflict = false;
+    let readinessFailed = false;
 
     if (deployment === undefined) {
       problems.push("registered but no managed deployment receipt");
@@ -421,6 +573,14 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
       }
       if (deployment.packageState !== "present") {
         problems.push(`package state ${deployment.packageState}`);
+      }
+      if (deployment.recoveryKind !== undefined) {
+        problems.push(
+          `recovery ${deployment.recoveryKind}: ${boundedDiagnostic(
+            deployment.recoveryDetail,
+            "deployment recovery required",
+          )}`,
+        );
       }
       if (
         deployment.lastSeen !== undefined &&
@@ -479,10 +639,26 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
         );
         hardError = true;
       }
-      const notReady = Object.entries(station.readiness)
+      if (
+        expectedInstallationId !== undefined &&
+        observedInstallationId !== undefined &&
+        expectedInstallationId !== observedInstallationId
+      ) {
+        identityConflict = true;
+        problems.push(
+          `installation identity mismatch (expected ${expectedInstallationId}, observed ${observedInstallationId})`,
+        );
+        hardError = true;
+      }
+      const readiness = {
+        ...station.readiness,
+        ...(observation?.readiness ?? {}),
+      };
+      const notReady = Object.entries(readiness)
         .filter(([, ready]) => !ready)
         .map(([name]) => name);
       if (notReady.length > 0) {
+        readinessFailed = true;
         problems.push(`not ready: ${notReady.join(", ")}`);
       }
       if (station.state === "degraded") problems.push("Station API degraded");
@@ -490,6 +666,32 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
         problems.push("projection absent");
       }
     }
+
+    if (route !== undefined && route.phase !== "ready") {
+      problems.push(`route ${route.phase}`);
+      if (route.phase === "update-required") fleetBlind = true;
+    }
+    if (lease?.state === "expired" || lease?.state === "never") {
+      problems.push(`lease ${lease.state}`);
+      hardError = true;
+    }
+    if (
+      observedAt !== undefined &&
+      timestampIsStale(observedAt, now, STATION_KERNEL_STALE_AFTER_MS)
+    ) {
+      problems.push("Station observation stale");
+      stale = true;
+    }
+
+    const recovery = observation?.recovery ?? recoveryForRemote({
+      identityConflict,
+      protocol,
+      lease,
+      unreachable: observation?.reachability === "unreachable",
+      stationAvailable: station !== undefined,
+      readinessFailed,
+      stale,
+    });
 
     const state = hardError
       ? "error"
@@ -516,12 +718,23 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
               : `/${protocol.negotiatedProtocol}`
           } - `) +
         `projection ${station?.projection?.generation ?? "absent"} - ` +
-        `received ${station?.receivedThrough.length ?? 0} - ` +
-        `peer-acked ${station?.peerAcknowledgedThrough.length ?? 0} - ` +
-        `errors ${problems.join("; ") || "none"}`,
+        `received ${station === undefined ? "unknown" : station.receivedThrough.length} - ` +
+        `peer-acked ${station === undefined ? "unknown" : station.peerAcknowledgedThrough.length} - ` +
+        `errors ${problems.join("; ") || "none"} - ` +
+        `binding expected ${expectedInstallationId ?? "unknown"} observed ${observedInstallationId ?? "unknown"} - ` +
+        `facts ${observation?.source ?? "unknown"} - ` +
+        `route ${route?.phase ?? "unknown"} session ${route === undefined ? "unknown" : route.sessionOpen ? "open" : "closed"} - ` +
+        `projection hash ${station?.projection?.contentSha256 ?? "unknown"} receivedAt ${station?.projection?.receivedAt ?? "unknown"} - ` +
+        `package ${observation?.packageGeneration ?? deployment?.version ?? "unknown"} deploy-receipt ${observation?.deployReceiptAt ?? deployment?.at ?? "unknown"} - ` +
+        `logical cursors ${cursorText(station?.receivedThrough)} peer cursors ${cursorText(station?.peerAcknowledgedThrough)} - ` +
+        `readiness database=${knownBoolean(station?.readiness.database)} work=${knownBoolean(station?.readiness.workControl)} simulation=${knownBoolean(station?.readiness.simulation)} terminal=${knownBoolean(observation?.readiness?.terminal)} browser=${knownBoolean(observation?.readiness?.browser)} - ` +
+        `lease ${lease?.state ?? "unknown"} last-check-in ${lease?.lastCheckInAt ?? "unknown"} expires ${lease?.expiresAt ?? "unknown"} - ` +
+        `recovery ${recovery?.kind ?? "none"}${recovery === undefined ? "" : `: ${recovery.nextStep}`} - ` +
+        `observation ${observedAt ?? "unknown"}`,
       metadata: {
         [`${prefix}state`]: state,
         [`${prefix}reachability`]: observation?.reachability ?? "unknown",
+        [`${prefix}factSource`]: observation?.source ?? "unknown",
         [`${prefix}apiState`]: station?.state ?? "unavailable",
         [`${prefix}protocolCompatibility`]:
           protocol?.compatibility ?? "unknown",
@@ -529,80 +742,101 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
           protocol !== undefined &&
             protocol.compatibility !== "update-required"
             ? String(protocol.negotiatedProtocol)
-            : "",
+            : "unknown",
         [`${prefix}localAppVersion`]:
-          protocol?.local.appVersion ?? "",
+          protocol?.local.appVersion ?? "unknown",
         [`${prefix}localStateSchemaVersion`]:
           protocol === undefined
-            ? ""
+            ? "unknown"
             : String(protocol.local.stateSchemaVersion),
         [`${prefix}localProtocolPreferred`]:
           protocol === undefined
-            ? ""
+            ? "unknown"
             : String(protocol.local.support.preferred),
         [`${prefix}localProtocolCompatibleFrom`]:
           protocol === undefined
-            ? ""
+            ? "unknown"
             : String(protocol.local.support.compatibleFrom),
         [`${prefix}localProtocolWarnBelow`]:
           protocol === undefined
-            ? ""
+            ? "unknown"
             : String(protocol.local.support.warnBelow),
         [`${prefix}peerAppVersion`]:
-          protocol?.peer?.appVersion ?? "",
+          protocol?.peer?.appVersion ?? "unknown",
         [`${prefix}peerStateSchemaVersion`]:
           protocol?.peer === undefined
-            ? ""
+            ? "unknown"
             : String(protocol.peer.stateSchemaVersion),
         [`${prefix}peerProtocolPreferred`]:
           protocol?.peer === undefined
-            ? ""
+            ? "unknown"
             : String(protocol.peer.support.preferred),
         [`${prefix}peerProtocolCompatibleFrom`]:
           protocol?.peer === undefined
-            ? ""
+            ? "unknown"
             : String(protocol.peer.support.compatibleFrom),
         [`${prefix}peerProtocolWarnBelow`]:
           protocol?.peer === undefined
-            ? ""
+            ? "unknown"
             : String(protocol.peer.support.warnBelow),
-        [`${prefix}installationId`]: station?.installationId ?? "",
+        [`${prefix}installationId`]: station?.installationId ?? "unknown",
+        [`${prefix}expectedInstallationId`]: expectedInstallationId ?? "unknown",
+        [`${prefix}observedInstallationId`]: observedInstallationId ?? "unknown",
+        [`${prefix}observedAt`]: observedAt ?? "unknown",
         [`${prefix}role`]: station?.configuration?.role ?? "unknown",
+        [`${prefix}commandCenterInstallationId`]:
+          station?.configuration?.role === "remote"
+            ? station.configuration.commandCenterInstallationId
+            : "unknown",
+        [`${prefix}routePhase`]: route?.phase ?? "unknown",
+        [`${prefix}routeSession`]: route === undefined ? "unknown" : route.sessionOpen ? "open" : "closed",
+        [`${prefix}routeAttempt`]: route === undefined ? "unknown" : String(route.attempt),
+        [`${prefix}routeUpdatedAt`]: route?.updatedAt ?? "unknown",
+        [`${prefix}routeNextRetryAt`]: route?.nextRetryAt ?? "unknown",
         [`${prefix}projectionGeneration`]:
-          station?.projection?.generation ?? "",
-        [`${prefix}receivedCursorCount`]: String(
-          station?.receivedThrough.length ?? 0,
-        ),
+          station?.projection?.generation ?? "unknown",
+        [`${prefix}projectionContentSha256`]:
+          station?.projection?.contentSha256 ?? "unknown",
+        [`${prefix}projectionReceivedAt`]:
+          station?.projection?.receivedAt ?? "unknown",
+        [`${prefix}packageGeneration`]:
+          observation?.packageGeneration ?? deployment?.version ?? "unknown",
+        [`${prefix}deployReceiptAt`]:
+          observation?.deployReceiptAt ?? deployment?.at ?? "unknown",
+        [`${prefix}deployRecoveryKind`]:
+          observation?.deployRecoveryKind ?? deployment?.recoveryKind ?? "none",
+        [`${prefix}receivedCursorCount`]:
+          station === undefined ? "unknown" : String(station.receivedThrough.length),
         [`${prefix}receivedThrough`]:
-          station?.receivedThrough
-            .map(
-              (cursor) =>
-                `${cursor.eventHome}->${cursor.entityHome}:${cursor.through}`,
-            )
-            .join(",") ?? "",
-        [`${prefix}peerAcknowledgedCursorCount`]: String(
-          station?.peerAcknowledgedThrough.length ?? 0,
-        ),
+          cursorText(station?.receivedThrough),
+        [`${prefix}peerAcknowledgedCursorCount`]:
+          station === undefined
+            ? "unknown"
+            : String(station.peerAcknowledgedThrough.length),
         [`${prefix}peerAcknowledgedThrough`]:
-          station?.peerAcknowledgedThrough
-            .map(
-              (cursor) =>
-                `${cursor.eventHome}->${cursor.entityHome}:${cursor.through}`,
-            )
-            .join(",") ?? "",
+          cursorText(station?.peerAcknowledgedThrough),
         [`${prefix}databaseReady`]:
-          station?.readiness.database === true ? "true" : "false",
+          knownBoolean(station?.readiness.database),
         [`${prefix}workControlReady`]:
-          station?.readiness.workControl === true ? "true" : "false",
+          knownBoolean(station?.readiness.workControl),
         [`${prefix}simulationReady`]:
-          station?.readiness.simulation === true ? "true" : "false",
+          knownBoolean(station?.readiness.simulation),
         [`${prefix}sessionReady`]:
-          station?.readiness.session === true ? "true" : "false",
+          knownBoolean(station?.readiness.session),
+        [`${prefix}terminalReady`]: knownBoolean(observation?.readiness?.terminal),
+        [`${prefix}browserReady`]: knownBoolean(observation?.readiness?.browser),
+        [`${prefix}leaseState`]: lease?.state ?? "unknown",
+        [`${prefix}leaseSource`]: lease?.source ?? "unknown",
+        [`${prefix}lastCheckInAt`]: lease?.lastCheckInAt ?? "unknown",
+        [`${prefix}leaseExpiresAt`]: lease?.expiresAt ?? "unknown",
+        [`${prefix}recoveryKind`]: recovery?.kind ?? "none",
+        [`${prefix}recoveryNextStep`]: recovery?.nextStep ?? "none",
         [`${prefix}errorCount`]: String(problems.length),
       },
       fleetBlind,
       stale,
       error: hardError,
+      ...(recovery === undefined ? {} : { recovery }),
     });
   }
   lines.push(...remotes.map((remote) => remote.line));
@@ -623,15 +857,18 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
         configuration === undefined ? "unconfigured" : "configured",
       role: role || "unset",
       hostId,
-      configuredAt: input.configuredAt ?? "",
-      projectionGeneration: input.projection?.generation ?? "",
-      projectionContentSha256: input.projection?.contentSha256 ?? "",
+      configuredAt: input.configuredAt ?? "unknown",
+      projectionGeneration: input.projection?.generation ?? "unknown",
+      projectionContentSha256: input.projection?.contentSha256 ?? "unknown",
+      projectionReceivedAt: input.projection?.receivedAt ?? "unknown",
       receivedCursorCount: String(input.receivedThrough.length),
       receivedThrough: localCursors,
       databaseReady: input.readiness.database ? "true" : "false",
       workControlReady: input.readiness.workControl ? "true" : "false",
       simulationReady: input.readiness.simulation ? "true" : "false",
       sessionReady: input.readiness.session ? "true" : "false",
+      terminalReady: "unknown",
+      browserReady: "unknown",
       supervisedPreferred: supervised.metadata.supervisedPreferred,
       supervisedInstalled: supervised.metadata.supervisedInstalled,
       supervisedAligned: supervised.metadata.supervisedAligned,

@@ -10,7 +10,13 @@ import {
 } from "@shared/features";
 import { observeLinuxHostCapabilityDoctor } from "@shared/linux-host-capability-doctor";
 import type { LinuxHostCapabilityObservation } from "@shared/linux-host-capabilities";
-import type { StationRemoteObservation } from "@shared/station-status";
+import {
+  type StationLeaseObservation,
+  type StationRemoteObservation,
+  type StationRouteObservation,
+  redactStationDiagnostic,
+  stationRecoveryForRemote,
+} from "@shared/station-status";
 import {
   hermesKeyFor,
   hostHasCapability,
@@ -31,10 +37,15 @@ import type { SshTransportShape } from "../ssh/service";
 import {
   StationFleetPropagation,
   type StationFleetPeerUnavailable,
+  type StationFleetPropagationResult,
 } from "../station/fleet-propagation";
+import { REMOTE_LEASE_TTL_MS, evaluateRemoteLease } from "../license/remote-lease";
 import type { HostsRegistry } from "./registry";
 
 const HOST_PROBE_TOTAL_TIMEOUT_MS = 20_000;
+
+const boundedDoctorDetail = (value: string, limit = 1_024): string =>
+  redactStationDiagnostic(value.replaceAll(/\s+/gu, " ").trim()).slice(0, limit);
 
 type Ssh = SshTransportShape;
 type Fleet = Context.Service.Shape<typeof StationFleetPropagation>;
@@ -54,6 +65,36 @@ type RemoteHostProbeResult = {
   readonly detail: string;
   readonly observation: StationRemoteObservation;
 };
+
+const liveLeaseObservation = (lastCheckInAt: string): StationLeaseObservation => {
+  const checkInMs = Date.parse(lastCheckInAt);
+  if (!Number.isFinite(checkInMs)) {
+    return { state: "unknown", source: "live", lastCheckInAt };
+  }
+  const decision = evaluateRemoteLease(
+    checkInMs,
+    { now: Date.now },
+    REMOTE_LEASE_TTL_MS,
+  );
+  return {
+    state: decision.ok ? "active" : "expired",
+    source: "live",
+    lastCheckInAt,
+    ...(decision.expiresAtMs === null
+      ? {}
+      : { expiresAt: new Date(decision.expiresAtMs).toISOString() }),
+  };
+};
+
+const routeObservation = (
+  status: NonNullable<StationFleetPropagationResult["status"]>,
+): StationRouteObservation => ({
+  phase: status.phase,
+  sessionOpen: status.sessionOpen,
+  attempt: status.attempt,
+  updatedAt: status.updatedAt,
+  ...(status.nextRetryAt === undefined ? {} : { nextRetryAt: status.nextRetryAt }),
+});
 
 const binaryVersionArgs = (
   binary: "herdr" | "hermes",
@@ -203,8 +244,16 @@ const probeSshHost = (
           hostId: host.id,
           endpoint: "",
           reachability: "unknown" as const,
+          source: "live" as const,
           reachabilityError: "remote host missing endpoint",
           observationError: "remote host missing endpoint",
+          recovery: stationRecoveryForRemote({
+            identityConflict: false,
+            unreachable: true,
+            stationAvailable: false,
+            readinessFailed: false,
+            stale: false,
+          }),
         },
       };
     }
@@ -218,24 +267,44 @@ const probeSshHost = (
       const updateRequired =
         result?.ok === false &&
         result.error.reason === "update-required";
+      const route = result?.status === undefined
+        ? undefined
+        : routeObservation(result.status);
+      const protocol = result?.status?.protocol;
+      const reachability = updateRequired
+        ? "reachable" as const
+        : result?.ok === false && result.error.reason === "not-enrolled"
+          ? "unknown" as const
+          : "unreachable" as const;
+      const recovery = stationRecoveryForRemote({
+        identityConflict: false,
+        protocol,
+        unreachable: reachability === "unreachable",
+        stationAvailable: false,
+        readinessFailed: false,
+        stale: false,
+      });
       return {
         status: updateRequired ? "warning" as const : "error" as const,
-        detail: `${host.label}: ${detail}`,
+        detail: `${host.label}: ${boundedDoctorDetail(detail)}`,
         observation: {
           hostId: host.id,
           endpoint: host.sshEndpoint,
-          reachability:
-            updateRequired
-              ? "reachable" as const
-              : result?.ok === false &&
-              result.error.reason === "not-enrolled"
-              ? "unknown" as const
-              : "unreachable" as const,
-          ...(updateRequired ? {} : { reachabilityError: detail }),
-          ...(result?.status?.protocol === undefined
+          reachability,
+          source: result?.status === undefined ? "live" as const : "last-acknowledged" as const,
+          ...(updateRequired ? {} : { reachabilityError: boundedDoctorDetail(detail) }),
+          ...(protocol === undefined
             ? {}
-            : { protocol: result.status.protocol }),
-          observationError: detail,
+            : { protocol }),
+          ...(result?.stationInstallationId === undefined
+            ? {}
+            : { expectedInstallationId: result.stationInstallationId }),
+          ...(route === undefined ? {} : { route }),
+          ...(result?.status?.updatedAt === undefined
+            ? {}
+            : { observedAt: result.status.updatedAt }),
+          ...(recovery === undefined ? {} : { recovery }),
+          observationError: boundedDoctorDetail(detail),
         },
       };
     }
@@ -247,6 +316,9 @@ const probeSshHost = (
       `installation ${station.installationId}`,
     ];
     const protocol = result.status.protocol;
+    const observedAt = new Date().toISOString();
+    const lease = liveLeaseObservation(observedAt);
+    const route = routeObservation(result.status);
     let worst: "ok" | "warning" | "error" = "ok";
     const problems: string[] = [];
     const raise = (severity: "warning" | "error", problem: string) => {
@@ -313,18 +385,45 @@ const probeSshHost = (
       if (!hermes.ok) raise("warning", hermes.detail);
     }
 
+    const recovery = stationRecoveryForRemote({
+      identityConflict:
+        configuration?.role !== "remote" || configuration.hostId !== host.id,
+      protocol,
+      lease,
+      unreachable: false,
+      stationAvailable: true,
+      readinessFailed: ready.length > 0,
+      stale: false,
+    });
+
     return {
       status: worst,
-      detail: `${host.label} (${host.sshEndpoint}): ${parts.join(" - ")}`,
+      detail: boundedDoctorDetail(
+        `${host.label} (${host.sshEndpoint}): ${parts.join(" - ")}`,
+      ),
       observation: {
         hostId: host.id,
         endpoint: host.sshEndpoint,
         reachability: "reachable" as const,
+        source: "live" as const,
+        observedAt,
+        expectedInstallationId: result.stationInstallationId,
         ...(protocol === undefined ? {} : { protocol }),
+        route,
+        lease,
+        readiness: {
+          database: station.readiness.database,
+          workControl: station.readiness.workControl,
+          simulation: station.readiness.simulation,
+        },
+        ...(protocol?.peer?.appVersion === undefined
+          ? {}
+          : { packageGeneration: protocol.peer.appVersion }),
         station,
+        ...(recovery === undefined ? {} : { recovery }),
         ...(problems.length === 0
           ? {}
-          : { observationError: problems.join("; ").slice(0, 1_024) }),
+          : { observationError: boundedDoctorDetail(problems.join("; ")) }),
       },
     };
   }).pipe(
@@ -343,8 +442,16 @@ const probeSshHost = (
           hostId: host.id,
           endpoint: host.sshEndpoint ?? "",
           reachability: "unreachable" as const,
-          reachabilityError: detail,
-          observationError: detail,
+          source: "live" as const,
+          reachabilityError: boundedDoctorDetail(detail),
+          observationError: boundedDoctorDetail(detail),
+          recovery: stationRecoveryForRemote({
+            identityConflict: false,
+            unreachable: true,
+            stationAvailable: false,
+            readinessFailed: false,
+            stale: false,
+          }),
         },
       });
     }),
@@ -367,9 +474,17 @@ const boundedProbeSshHost = (
           hostId: host.id,
           endpoint: host.sshEndpoint ?? "",
           reachability: "unreachable" as const,
+          source: "live" as const,
           reachabilityError: `probe timed out after ${HOST_PROBE_TOTAL_TIMEOUT_MS}ms`,
           observationError:
             `probe timed out after ${HOST_PROBE_TOTAL_TIMEOUT_MS}ms`,
+          recovery: stationRecoveryForRemote({
+            identityConflict: false,
+            unreachable: true,
+            stationAvailable: false,
+            readinessFailed: false,
+            stale: false,
+          }),
         },
       }),
     ),
@@ -531,6 +646,7 @@ export const testHostConnection = (
   readonly reachability?: "reachable" | "unreachable" | "unknown";
   readonly protocol?: StationRemoteObservation["protocol"];
   readonly linuxCapabilities?: LinuxHostCapabilityObservation;
+  readonly observation?: StationRemoteObservation;
 }> =>
   host.kind === "local"
     ? Effect.gen(function* () {
@@ -569,12 +685,13 @@ export const testHostConnection = (
           ok: result.status === "ok" && coreReady,
           detail:
             linuxCapabilities === undefined
-              ? result.detail
-              : `${result.detail} - host ${linuxCapabilities.status}: ${linuxCapabilities.summary}`,
+              ? boundedDoctorDetail(result.detail)
+              : boundedDoctorDetail(`${result.detail} - host ${linuxCapabilities.status}: ${linuxCapabilities.summary}`),
           reachability: result.observation.reachability,
           ...(result.observation.protocol === undefined
             ? {}
             : { protocol: result.observation.protocol }),
+          observation: result.observation,
           ...(linuxCapabilities === undefined
             ? {}
             : { linuxCapabilities }),

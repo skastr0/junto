@@ -366,12 +366,26 @@ describe("remote hosts doctor", () => {
 
     expect(snapshot.check.status).toBe("ok");
     expect(snapshot.observations).toEqual([
-      {
+      expect.objectContaining({
         hostId: "studio",
         endpoint: "studio-box",
         reachability: "reachable",
+        source: "live",
+        expectedInstallationId: "station-studio",
         station: stationStatus("studio"),
-      },
+        route: {
+          phase: "ready",
+          sessionOpen: true,
+          attempt: 1,
+          updatedAt: "2026-07-27T12:00:01.000Z",
+        },
+        readiness: {
+          database: true,
+          workControl: true,
+          simulation: true,
+        },
+        lease: expect.objectContaining({ state: "active", source: "live" }),
+      }),
     ]);
     expect(snapshot.check.detail).toContain(
       "readiness database=true work=true simulation=true",
@@ -414,13 +428,15 @@ describe("remote hosts doctor", () => {
 
     expect(snapshot.check.status).toBe("error");
     expect(snapshot.observations).toEqual([
-      {
+      expect.objectContaining({
         hostId: "studio",
         endpoint: "studio-box",
         reachability: "unreachable",
+        source: "live",
+        expectedInstallationId: "station-studio",
         reachabilityError: "station runtime down",
         observationError: "station runtime down",
-      },
+      }),
     ]);
     expect(snapshot.observations[0]).not.toHaveProperty("station");
     expect(snapshot.observations[0]).not.toHaveProperty("settingsState");
@@ -491,14 +507,22 @@ describe("remote hosts doctor", () => {
     expect(snapshot.check.status).toBe("warning");
     expect(snapshot.check.detail).toContain("running locally");
     expect(snapshot.observations).toEqual([
-      {
+      expect.objectContaining({
         hostId: "studio",
         endpoint: "studio-box",
         reachability: "reachable",
+        source: "last-acknowledged",
+        expectedInstallationId: "station-studio",
         protocol,
+        route: {
+          phase: "update-required",
+          sessionOpen: false,
+          attempt: 1,
+          updatedAt: "2026-07-27T12:00:01.000Z",
+        },
         observationError:
           "Remote is running locally — Station protocol update required",
-      },
+      }),
     ]);
   });
 

@@ -1,6 +1,9 @@
 import { Context, Effect, Result, Layer, Schema, Semaphore } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
-import type { StationProtocolObservation } from "@shared/station-status";
+import type {
+  StationProtocolObservation,
+  StationRemoteObservation,
+} from "@shared/station-status";
 import {
   defaultRemoteHostsDocument,
   RemoteHost,
@@ -78,6 +81,7 @@ export class HostsService extends Context.Service<HostsService,
         readonly reachability?: "reachable" | "unreachable" | "unknown";
         readonly protocol?: StationProtocolObservation;
         readonly linuxCapabilities?: import("@shared/linux-host-capabilities").LinuxHostCapabilityObservation;
+        readonly observation?: StationRemoteObservation;
       },
       RemoteHostsError
     >;
