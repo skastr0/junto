@@ -12,25 +12,26 @@ import {
   decideStationSessionCorrelation,
   type StationSessionFrame,
 } from "@shared/station-session";
+import {
+  CURRENT_STATION_PROTOCOL_SUPPORT,
+  STATION_PROTOCOL_PREFACE,
+  StationProtocolOffer,
+  decideStationProtocolPreface,
+} from "@shared/station-protocol";
 import { STATION_CONTROL_REQUEST_TIMEOUT_MS } from "@shared/station-ssh-control";
+import { CURRENT_STATE_SCHEMA_VERSION } from "../state/migrations";
 import type { SshError, SshTarget } from "../ssh/domain";
 import { sharedStream } from "../ssh/program";
 import {
   resolveRemoteStationHelper,
   type RemotePackagedPlatform,
 } from "../ssh/read-commands";
-import {
-  SshTransport,
-  type SshLease,
-} from "../ssh/service";
+import { SshTransport } from "../ssh/service";
 import {
   STATION_OPENSSH_MAX_FRAME_BYTES,
-  makeOpenSshStationFrameTransport,
+  makeOpenSshConnectionFrameTransport,
 } from "./openssh-peer-exchange";
-import type {
-  StationSessionFrameTransport,
-  StationSessionTransportError,
-} from "./peer-session";
+import type { StationSessionTransportError } from "./peer-session";
 
 type Ssh = typeof SshTransport.Service;
 
@@ -53,10 +54,7 @@ export interface OpenSshStationBootstrapOptions {
   readonly maxFrameBytes?: number;
 }
 
-interface OpenBootstrapConnection {
-  readonly lease: SshLease;
-  readonly transport: StationSessionFrameTransport;
-}
+
 
 const bootstrapError = (
   reason: OpenSshStationBootstrapError["reason"],
@@ -87,6 +85,15 @@ const makeStatusFrame = (): StationSessionRequestFrame =>
       protocol: STATION_API_PROTOCOL,
       op: "status",
     }),
+  });
+
+const makeProtocolOffer = (): StationProtocolOffer =>
+  StationProtocolOffer.make({
+    protocol: STATION_PROTOCOL_PREFACE,
+    frame: "offer",
+    appVersion: "vellum-command",
+    stateSchemaVersion: CURRENT_STATE_SCHEMA_VERSION,
+    support: CURRENT_STATION_PROTOCOL_SUPPORT,
   });
 
 const statusFromFrame = (
@@ -135,9 +142,10 @@ const statusFromFrame = (
  *
  * This is deliberately not a Station peer session: a normal peer session
  * requires the enrolled installation identity that this single exchange
- * discovers. The fixed helper receives exactly one status request; input then
- * closes, every additional frame is rejected, and the whole SSH scope closes
- * before the returned routing fact can be admitted as a known peer.
+ * discovers. The preface helper receives one protocol offer, then exactly
+ * one status request; input then closes, every additional session frame is
+ * rejected, and the whole SSH scope closes before the returned routing fact
+ * can be admitted as a known peer.
  */
 export const bootstrapOpenSshStationStatus = (
   ssh: Ssh,
@@ -156,32 +164,62 @@ export const bootstrapOpenSshStationStatus = (
         ssh,
         endpoint,
         platform,
-        "session",
+        "negotiation",
       );
       const connection = yield* ssh.connect(
         sharedStream(endpoint, command, "agent"),
         (lease, confirm) =>
-          makeOpenSshStationFrameTransport(lease, {
+          makeOpenSshConnectionFrameTransport(lease, {
             maxFrameBytes,
             maxQueuedBytes: maxFrameBytes,
           }).pipe(
-            Effect.map((transport) =>
-              confirm({ lease, transport } satisfies OpenBootstrapConnection)
-            ),
+            Effect.map((transport) => confirm({ lease, transport })),
           ),
       );
+      const offer = makeProtocolOffer();
       const request = makeStatusFrame();
       let status: StatusResponse | undefined;
+      let accepted = false;
 
-      yield* connection.transport.send(request);
+      yield* connection.transport.send(offer);
       yield* Stream.runForEach(
         connection.transport.incoming,
         (frame) =>
           Effect.gen(function* () {
+            if (!accepted) {
+              if (frame.frame !== "accept" && frame.frame !== "reject") {
+                return yield* bootstrapError(
+                  "response-mismatch",
+                  "OpenSSH Station bootstrap first frame was not a protocol decision",
+                );
+              }
+              if (frame.frame === "reject") {
+                return yield* bootstrapError(
+                  "remote-rejected",
+                  "Remote rejected Station protocol negotiation",
+                );
+              }
+              const decision = decideStationProtocolPreface(offer, frame);
+              if (decision._tag !== "accepted") {
+                return yield* bootstrapError(
+                  "response-mismatch",
+                  "OpenSSH Station bootstrap protocol accept was inconsistent",
+                );
+              }
+              accepted = true;
+              yield* connection.transport.send(request);
+              return;
+            }
             if (status !== undefined) {
               return yield* bootstrapError(
                 "second-frame",
                 "OpenSSH Station bootstrap received more than one frame",
+              );
+            }
+            if (frame.frame !== "response" && frame.frame !== "request") {
+              return yield* bootstrapError(
+                "response-mismatch",
+                "OpenSSH Station bootstrap expected a session response",
               );
             }
             status = yield* statusFromFrame(request, frame);
@@ -189,6 +227,12 @@ export const bootstrapOpenSshStationStatus = (
           }),
       );
 
+      if (!accepted) {
+        return yield* bootstrapError(
+          "missing-response",
+          "OpenSSH Station bootstrap ended without a protocol accept",
+        );
+      }
       if (status === undefined) {
         return yield* bootstrapError(
           "missing-response",

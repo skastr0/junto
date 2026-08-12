@@ -661,6 +661,17 @@ export const makeOpenSshStationFrameTransport = (
     options,
   );
 
+/** Preface + session frames on one SSH helper — used by status bootstrap. */
+export const makeOpenSshConnectionFrameTransport = (
+  lease: SshLease,
+  options: OpenSshStationFrameTransportOptions = {},
+) =>
+  makeOpenSshFrameTransport(
+    lease,
+    stationConnectionFrameCodec,
+    options,
+  );
+
 const exchangeError = (
   peerInstallationId: InstallationIdValue,
   reason: StationPeerExchangeError["reason"],
