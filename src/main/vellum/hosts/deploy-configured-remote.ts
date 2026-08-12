@@ -80,6 +80,19 @@ export type ConfiguredRemoteDeployOperations = {
     host: RemoteHost,
     options: ConfigureRemoteOptions,
   ) => Effect.Effect<ConfigureRemoteResult, RemoteHostsError>;
+  /**
+   * After configure, promote enrollment-only package to full supervised runtime
+   * (Darwin: drop --vellum-headless, prove term+browser). No-op when package
+   * deploy already returned disposition `ready` (e.g. Linux userland).
+   */
+  readonly activateRuntime?: (
+    ssh: Ssh,
+    host: RemoteHost,
+    deployed: DeployRemoteResult,
+  ) => Effect.Effect<
+    { readonly ok: boolean; readonly detail: string },
+    never
+  >;
 };
 
 const defaultOperations: ConfiguredRemoteDeployOperations = {
@@ -97,6 +110,74 @@ const defaultOperations: ConfiguredRemoteDeployOperations = {
       artifactSource,
     ),
   configure: configureRemoteHost,
+  activateRuntime: (ssh, host, deployed) =>
+    Effect.gen(function* () {
+      if (deployed.disposition !== "configuration-required") {
+        return {
+          ok: true as const,
+          detail: "runtime already admitted by package deploy",
+        };
+      }
+      if (host.kind !== "remote" || !host.sshEndpoint) {
+        return {
+          ok: false as const,
+          detail: "host is not a registered Remote endpoint",
+        };
+      }
+      // Lazy import avoids a circular module graph with deploy-darwin.
+      const darwin = yield* Effect.promise(
+        () => import("./deploy-darwin"),
+      );
+      const { parseHostSshRoute } = yield* Effect.promise(
+        () => import("../ssh/domain"),
+      );
+      const { homeDirectoryLookup } = yield* Effect.promise(
+        () => import("../ssh/program"),
+      );
+      const endpointResult = yield* parseHostSshRoute(host).pipe(
+        Effect.result,
+      );
+      if (endpointResult._tag === "Failure") {
+        return {
+          ok: false as const,
+          detail: `invalid SSH route: ${endpointResult.failure.message}`,
+        };
+      }
+      const homeResult = yield* ssh
+        .run(homeDirectoryLookup(endpointResult.success))
+        .pipe(Effect.result);
+      if (homeResult._tag === "Failure") {
+        return {
+          ok: false as const,
+          detail: `could not resolve remote home: ${homeResult.failure.message}`,
+        };
+      }
+      const { decodeRemoteHomeDirectoryOutput } = yield* Effect.promise(
+        () => import("./remote-home"),
+      );
+      const home = decodeRemoteHomeDirectoryOutput(
+        homeResult.success.stdout,
+      );
+      if (home === null) {
+        return {
+          ok: false as const,
+          detail: "remote home is not a canonical absolute path",
+        };
+      }
+      const activated = yield* darwin
+        .activateDarwinRemoteRuntime(ssh, endpointResult.success, home)
+        .pipe(Effect.result);
+      if (activated._tag === "Failure") {
+        return {
+          ok: false as const,
+          detail:
+            activated.failure instanceof Error
+              ? activated.failure.message
+              : String(activated.failure),
+        };
+      }
+      return activated.success;
+    }),
 };
 
 const failedBeforeMutation = (
@@ -260,7 +341,11 @@ export const deployConfiguredRemoteHost = (
       options.artifactSource,
     );
 
-    if (!deployed.ok || deployed.disposition !== "ready") {
+    const packageAdmitted =
+      deployed.ok &&
+      (deployed.disposition === "ready" ||
+        deployed.disposition === "configuration-required");
+    if (!packageAdmitted) {
       return failedPackageResult(host, deployed);
     }
 
@@ -272,6 +357,49 @@ export const deployConfiguredRemoteHost = (
     }
     if (!configured.success.ok || configured.success.station === undefined) {
       return configurationFailure(host, deployed, configured.success);
+    }
+
+    // Enrollment-only package: relaunch supervised GUI/runtime after configure.
+    if (deployed.disposition === "configuration-required") {
+      const activated =
+        operations.activateRuntime === undefined
+          ? { ok: true as const, detail: "runtime activation not required" }
+          : yield* operations.activateRuntime(ssh, host, deployed);
+      if (!activated.ok) {
+        return {
+          ...deployed,
+          ok: false,
+          detail: `${host.label}: Station configured as remote, but supervised runtime activate failed — ${activated.detail}`,
+          code: "io" as const,
+          message: activated.detail,
+          hostEndpoint: host.sshEndpoint,
+          disposition: "indeterminate" as const,
+          outcome: "indeterminate" as const,
+          packageState: "present" as const,
+          role: "remote" as const,
+          lastSeen: configured.success.configuredAt ?? new Date().toISOString(),
+          station: configured.success.station,
+          ...(configured.success.stationInstallationId === undefined
+            ? {}
+            : {
+                stationInstallationId: configured.success.stationInstallationId,
+              }),
+          configuration: {
+            ok: true,
+            detail: configured.success.detail,
+          },
+        };
+      }
+      const finished = finishWithConfiguration(
+        host,
+        deployed,
+        configured.success,
+      );
+      return {
+        ...finished,
+        detail: `${finished.detail} - ${activated.detail}`,
+        message: activated.detail,
+      };
     }
 
     return finishWithConfiguration(host, deployed, configured.success);

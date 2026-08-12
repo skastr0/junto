@@ -131,6 +131,19 @@ export const compileHerdrImageStage = (name: string): Effect.Effect<{ readonly c
   confineHerdrStagePath(name).pipe(Effect.flatMap((path) => makeRemoteCommand("/bin/sh", ["-c", `set -eu; umask 077; mkdir -p ${quote(HERDR_IMAGE_STAGE_DIR)}; cat > ${quote(path)}; chmod 600 ${quote(path)}`, "vellum-plan:herdr-image-stage"]).pipe(Effect.map((command) => ({ command, path })))));
 
 export const compileDarwinRemoteDeployScript = (script: string): Effect.Effect<RemoteCommand, SshInputError> =>
-  typeof script === "string" && script.includes("begin_candidate_activation()") && script.includes("STATION_READY")
+  typeof script === "string" &&
+    script.includes("begin_candidate_activation()") &&
+    (script.includes("ENROLLMENT_READY") || script.includes("STATION_READY"))
     ? makeRemoteCommand("/bin/bash", ["-lc", script])
     : Effect.fail(new SshInputError({ message: "darwin deploy script is not a product stream program" }));
+
+/** Compile the post-configure GUI-domain relaunch, kept separate from the
+ * artifact transaction so an enrollment script cannot be mistaken for a
+ * runtime activation command. */
+export const compileDarwinRemoteActivationScript = (script: string): Effect.Effect<RemoteCommand, SshInputError> =>
+  typeof script === "string" &&
+    script.includes("RUNTIME_LAUNCHD_PID_NOT_PROVEN") &&
+    script.includes("RUNTIME_SOCKET_TIMEOUT") &&
+    script.includes("STATION_READY")
+    ? makeRemoteCommand("/bin/bash", ["-lc", script])
+    : Effect.fail(new SshInputError({ message: "darwin activation script is not a product runtime program" }));

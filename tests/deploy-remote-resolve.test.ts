@@ -135,7 +135,20 @@ describe("validateLocalBundleProvenance", () => {
 });
 
 describe("parseDeployTransferResult", () => {
-  it("recognizes only full readiness with both fresh control sockets", () => {
+  it("recognizes enrollment control readiness (package phase)", () => {
+    expect(
+      parseDeployTransferResult({
+        stdout: "ENROLLMENT_READY pid=4312 station=1",
+        stderr: "",
+      }),
+    ).toMatchObject({
+      ok: true,
+      phase: "enrollment",
+      detail: expect.stringContaining("enrollment-only"),
+    });
+  });
+
+  it("still recognizes runtime term+browser as package success (legacy activate)", () => {
     expect(
       parseDeployTransferResult({
         stdout: "STATION_READY pid=4312 term=1 browser=1",
@@ -143,12 +156,15 @@ describe("parseDeployTransferResult", () => {
       }),
     ).toMatchObject({
       ok: true,
+      phase: "runtime",
       detail: expect.stringContaining("term + browser"),
     });
   });
 
   it("refuses legacy, invalid-pid, and absent generation markers", () => {
     for (const stdout of [
+      "ENROLLMENT_READY station=1",
+      "ENROLLMENT_READY pid=0 station=1",
       "STATION_READY term=1 browser=1",
       "STATION_READY pid=0 term=1 browser=1",
       "TERM_SOCK_OK browser=0",
@@ -159,7 +175,7 @@ describe("parseDeployTransferResult", () => {
       expect(
         parseDeployTransferResult({
           stdout,
-          stderr: "STATION_PARTIAL term=0 browser=0",
+          stderr: "ENROLLMENT_PARTIAL station=0",
         }),
       ).toMatchObject({
         ok: false,
@@ -193,6 +209,11 @@ describe("buildRemoteDeployScript", () => {
     expect(script).toContain(
       "BROWSER_SOCK='/Users/remote station/.vellum-command/browser/control.sock'",
     );
+    expect(script).toContain(
+      "STATION_SOCK='/Users/remote station/.vellum-command/station/control.sock'",
+    );
+    expect(script).toContain("--vellum-headless");
+    expect(script).toContain("ENROLLMENT_READY");
 
     const recursiveRemovals = script
       .split("\n")
@@ -318,6 +339,9 @@ describe("buildRemoteDeployScript", () => {
     const bootstrap = script.lastIndexOf(
       'if ! "$LAUNCHCTL" bootstrap "$DOMAIN" "$PLIST"',
     );
+    const stationWitness = script.indexOf(
+      'socket_owned_by_pid "$STATION_SOCK" "$NEW_PID"',
+    );
     const termWitness = script.indexOf(
       'socket_owned_by_pid "$TERM_SOCK" "$NEW_PID"',
     );
@@ -328,8 +352,11 @@ describe("buildRemoteDeployScript", () => {
     expect(termRemoval).toBeGreaterThan(0);
     expect(browserRemoval).toBeGreaterThan(termRemoval);
     expect(bootstrap).toBeGreaterThan(browserRemoval);
-    expect(termWitness).toBeGreaterThan(bootstrap);
-    expect(browserWitness).toBeGreaterThan(termWitness);
+    // Package phase proves enrollment station socket only; term/browser wait
+    // moves to post-configure runtime activate.
+    expect(stationWitness).toBeGreaterThan(bootstrap);
+    expect(termWitness).toBe(-1);
+    expect(browserWitness).toBe(-1);
     expect(script).toContain(
       '"$LSOF" -n -a -U -Fp -- "$1"',
     );
@@ -656,7 +683,8 @@ describe("remote deploy transaction behavior", () => {
           'case "$*" in',
           '  *CFBundleIdentifier*) echo "skastr0.vellumcommand" ;;',
           '  *CFBundleExecutable*) echo "Vellum Command" ;;',
-          '  *ProgramArguments.1*) exit 1 ;;',
+          '  *ProgramArguments.2*) exit 1 ;;',
+          '  *ProgramArguments.1*) echo "--vellum-headless" ;;',
           '  *ProgramArguments.0*)',
           '    if [ "$FAKE_EXISTING_PLIST_INVALID" = "1" ] && [ "$target" = "$FAKE_PLIST" ]; then echo "/unowned/executable"; else echo "$FAKE_EXE"; fi',
           "    ;;",
@@ -859,7 +887,7 @@ describe("remote deploy transaction behavior", () => {
           ? readFileSync(launchctlLogPath, "utf8")
           : "";
         expect(result.status, result.stderr).toBe(13);
-        expect(result.stderr).toContain("CONTROL_SOCKET_TIMEOUT");
+        expect(result.stderr).toContain("ENROLLMENT_SOCKET_TIMEOUT");
         expect(result.stderr).toContain("DEPLOY_FORWARD_REPAIR_REQUIRED");
         expect(result.stderr).not.toContain("PACKAGE_STATE_CHANGED_BEFORE_DEPLOY");
         expect(launchctlLog).not.toContain("bootout");
@@ -1092,7 +1120,7 @@ describe("remote deploy transaction behavior", () => {
       try {
         const result = harness.run();
         expect(result.status).toBe(13);
-        expect(result.stderr).toContain("CONTROL_SOCKET_TIMEOUT");
+        expect(result.stderr).toContain("ENROLLMENT_SOCKET_TIMEOUT");
         expect(result.stderr).toContain("DEPLOY_FORWARD_REPAIR_REQUIRED");
         expect(readFileSync(harness.executablePath, "utf8")).toBe(
           "new-generation",
@@ -1264,10 +1292,10 @@ describe("deploy transfer lifecycle", () => {
     const timeout = new SshTransferExitError(
       "remote" as never,
       2,
-      "TERM_SOCK_TIMEOUT",
-      "STATION_PARTIAL term=0 browser=0",
+      "ENROLLMENT_SOCKET_TIMEOUT",
+      "ENROLLMENT_PARTIAL pid=9 station=0",
     );
-    expect(describeDeployTransferFailure(timeout)).toContain("STATION_PARTIAL");
+    expect(describeDeployTransferFailure(timeout)).toContain("ENROLLMENT_PARTIAL");
   });
 
   it("maps remote transaction exit receipts by cutover phase", () => {

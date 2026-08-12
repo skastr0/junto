@@ -433,6 +433,11 @@ describe("Remote deployment dispatcher", () => {
       prepare: dispatcher.prepare,
       deployPrepared,
       configure,
+      activateRuntime: () =>
+        Effect.succeed({
+          ok: true,
+          detail: "runtime already admitted by package deploy",
+        }),
     };
 
     const result = await Effect.runPromise(

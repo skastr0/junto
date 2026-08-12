@@ -64,6 +64,11 @@ const operations = (
       version: "1.2.3",
     }),
   configure: () => Effect.succeed(successfulConfiguration as never),
+  activateRuntime: () =>
+    Effect.succeed({
+      ok: true,
+      detail: "runtime already admitted by package deploy",
+    }),
   ...overrides,
 });
 
@@ -144,5 +149,97 @@ describe("configured remote deploy (userland)", () => {
     expect(result.ok).toBe(false);
     expect(admitted).toBe(false);
     expect(packageMutated).toBe(false);
+  });
+
+  it("enrollment package admits configure then supervised runtime activate", async () => {
+    const activate = vi.fn(() =>
+      Effect.succeed({
+        ok: true,
+        detail: "supervised Remote runtime ready; term + browser control sockets",
+      }),
+    );
+    const result = await Effect.runPromise(
+      deployConfiguredRemoteHost(
+        unusedSsh,
+        host,
+        options,
+        operations({
+          deployPrepared: () =>
+            Effect.succeed({
+              ok: true,
+              detail: "app installed; enrollment-only station control ready",
+              stages: ["target admitted", "enrollment"],
+              disposition: "configuration-required" as const,
+              version: "1.2.3",
+            }),
+          activateRuntime: activate,
+        }),
+      ),
+    );
+    expect(result.ok).toBe(true);
+    expect(result.role).toBe("remote");
+    expect(result.disposition).toBe("ready");
+    expect(result.detail).toContain("supervised Remote runtime ready");
+    expect(activate).toHaveBeenCalledOnce();
+  });
+
+  it("fails closed when enrollment configure succeeds but runtime activate fails", async () => {
+    const result = await Effect.runPromise(
+      deployConfiguredRemoteHost(
+        unusedSsh,
+        host,
+        options,
+        operations({
+          deployPrepared: () =>
+            Effect.succeed({
+              ok: true,
+              detail: "enrollment-only station control ready",
+              stages: ["enrollment"],
+              disposition: "configuration-required" as const,
+              version: "1.2.3",
+            }),
+          activateRuntime: () =>
+            Effect.succeed({
+              ok: false,
+              detail: "runtime activate did not prove term + browser sockets",
+            }),
+        }),
+      ),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.packageState).toBe("present");
+    expect(result.role).toBe("remote");
+    expect(result.configuration.ok).toBe(true);
+    expect(result.detail).toContain("runtime activate failed");
+  });
+
+  it("does not activate when package never reaches enrollment readiness", async () => {
+    const activate = vi.fn(() =>
+      Effect.succeed({ ok: true, detail: "should not run" }),
+    );
+    const configure = vi.fn(() =>
+      Effect.succeed(successfulConfiguration as never),
+    );
+    const result = await Effect.runPromise(
+      deployConfiguredRemoteHost(
+        unusedSsh,
+        host,
+        options,
+        operations({
+          deployPrepared: () =>
+            Effect.succeed({
+              ok: false,
+              detail: "enrollment socket timeout",
+              stages: ["target admitted"],
+              disposition: "indeterminate" as const,
+            }),
+          configure,
+          activateRuntime: activate,
+        }),
+      ),
+    );
+    expect(result.ok).toBe(false);
+    expect(configure).not.toHaveBeenCalled();
+    expect(activate).not.toHaveBeenCalled();
   });
 });

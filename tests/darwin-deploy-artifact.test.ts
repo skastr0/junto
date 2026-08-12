@@ -61,7 +61,11 @@ const providerWith = (
   liveWorkAuthority: DarwinRemoteLiveWorkAuthority,
 ) => {
   const streamArtifact = vi.fn((..._args: readonly unknown[]) =>
-    Effect.succeed({ ok: true, detail: "first generation ready" }),
+    Effect.succeed({
+      ok: true as const,
+      phase: "enrollment" as const,
+      detail: "first generation ready",
+    }),
   );
   return {
     streamArtifact,

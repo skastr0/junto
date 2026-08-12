@@ -1,12 +1,19 @@
 /**
  * Darwin deployment provider: install/update Vellum Command.app over SSH and start it.
  *
- * Streams tar over ssh stdin. After install: LaunchAgent + start station + probe
- * term + browser control sockets.
+ * Enrollment-to-runtime state machine (FLEET-D1):
+ * 1. Admit exact signed package + target.
+ * 2. Install without threatening an incumbent generation.
+ * 3. Start enrollment-only LaunchAgent (`--vellum-headless`) so packaged
+ *    unconfigured boot exposes only status/pair/configure (no license gate).
+ * 4. Prove enrollment control socket (`ENROLLMENT_READY`) — disposition
+ *    `configuration-required`.
+ * 5. Command Center pair/configure via Station API (no Dodo key on Remote).
+ * 6. `activateDarwinRemoteRuntime` rewrites LaunchAgent without headless,
+ *    relaunches supervised GUI-domain Remote, then proves term+browser
+ *    (`STATION_READY`).
  *
- * Starts WITHOUT --vellum-headless so BrowserWindow exists for WebContentsView
- * (host-local browser automation). Headless-only is terminal-capable but not
- * browser-capable until an offscreen parent window lands.
+ * Browser/WebContentsView readiness is never required before configure.
  */
 
 import { createHash } from "node:crypto";
@@ -31,6 +38,7 @@ import {
   RELEASE_CAPABILITIES,
 } from "@shared/release-capabilities";
 import { REMOTE_UPDATE_IDLE_PRODUCT_COPY } from "@shared/remote-update-status";
+import { stationControlDir, stationControlSocketPath } from "@shared/station-ssh-control";
 import { TERM_REMOTE_SOCK_REL } from "@shared/term-control";
 import { SshExitError, type SshTarget } from "../ssh/domain";
 import { homeDirectoryLookup, oneShot, sharedStream } from "../ssh/program";
@@ -39,7 +47,10 @@ import {
   DARWIN_PACKAGED_STATION_EXECUTABLE,
   remoteDarwinPackageExists,
 } from "../ssh/read-commands";
-import { compileDarwinRemoteDeployScript } from "../ssh/remote-plan";
+import {
+  compileDarwinRemoteActivationScript,
+  compileDarwinRemoteDeployScript,
+} from "../ssh/remote-plan";
 import {
   SshTransferExitError,
   type SshTransportShape,
@@ -53,6 +64,7 @@ import {
   type DeployRemoteResult,
   type RemoteDeploymentProvider,
   type RemoteDeploymentProviderInput,
+  type RemoteDeploymentTarget,
 } from "./remote-deployment";
 import {
   decodeRemoteHomeDirectoryOutput,
@@ -688,20 +700,64 @@ export const resolveLocalAppBundle = (): string | null => {
   return null;
 };
 
+export type DeployTransferParse =
+  | {
+      readonly ok: true;
+      readonly phase: "enrollment" | "runtime";
+      readonly detail: string;
+    }
+  | {
+      readonly ok: false;
+      readonly detail: string;
+    };
+
+/**
+ * Package-phase success is enrollment control only. Full term+browser is
+ * proven by activateDarwinRemoteRuntime after Station configure.
+ */
 export const parseDeployTransferResult = (input: {
   readonly stdout: string;
   readonly stderr: string;
-}): { readonly ok: boolean; readonly detail: string } => {
+}): DeployTransferParse => {
+  if (
+    /^ENROLLMENT_READY pid=[1-9][0-9]* station=1$/mu.test(input.stdout)
+  ) {
+    return {
+      ok: true,
+      phase: "enrollment",
+      detail:
+        "app installed; enrollment-only station control ready (status/pair/configure)",
+    };
+  }
+  // Legacy / activate-phase marker (runtime script may emit this).
   if (/^STATION_READY pid=[1-9][0-9]* term=1 browser=1$/mu.test(input.stdout)) {
     return {
       ok: true,
+      phase: "runtime",
       detail: "app installed; term + browser control sockets ready",
     };
   }
   return {
     ok: false,
     detail:
-      "remote install did not prove a fresh launchd process generation and control socket",
+      "remote install did not prove a fresh launchd process generation and enrollment control socket",
+  };
+};
+
+export const parseRuntimeActivateResult = (input: {
+  readonly stdout: string;
+  readonly stderr: string;
+}): { readonly ok: boolean; readonly detail: string } => {
+  if (/^STATION_READY pid=[1-9][0-9]* term=1 browser=1$/mu.test(input.stdout)) {
+    return {
+      ok: true,
+      detail: "supervised Remote runtime ready; term + browser control sockets",
+    };
+  }
+  return {
+    ok: false,
+    detail:
+      "runtime activate did not prove a fresh launchd generation with term + browser sockets",
   };
 };
 
@@ -913,6 +969,7 @@ const buildRemoteDeployScriptWithRuntime = (
   const logDir = `${remoteHome}/Library/Logs/${PRODUCT_NAME}`;
   const termSock = `${remoteHome}/${TERM_REMOTE_SOCK_REL}`;
   const browserSock = browserControlSocketPath(remoteHome);
+  const stationSock = stationControlSocketPath(stationControlDir(remoteHome));
   const incomingPath = `${remoteAppPath}.incoming`;
   // Hermetic tests stub `sleep` to return immediately, so full production poll
   // budgets only add subprocess churn and can exceed the outer spawn timeout
@@ -938,13 +995,17 @@ const buildRemoteDeployScriptWithRuntime = (
   const generationProofLimit = String(waitLimits.generationProof);
   const socketReadyLimit = String(waitLimits.socketReady);
 
-  // No --vellum-headless: WebContentsView needs a GUI-domain LaunchAgent.
+  // Enrollment-only: --vellum-headless so packaged unconfigured boot never
+  // reaches the Command Center license gate. Full GUI (term+browser) is a
+  // separate activate step after Station configure.
+  const enrollmentFlag = "--vellum-headless";
   const plistBody = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>Label</key><string>${LABEL}</string>
 <key>ProgramArguments</key><array>
 <string>${xmlText(remoteExecutablePath)}</string>
+<string>${xmlText(enrollmentFlag)}</string>
 </array>
 <key>RunAtLoad</key><true/>
 <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
@@ -985,6 +1046,8 @@ CLI_EXE=${shellLiteral(remoteCliExecutablePath)}
 IN_CLI_EXE=${shellLiteral(`${incomingPath}/${APP_BUNDLE_NAME}/Contents/Resources/bin/vellum-command`)}
 TERM_SOCK=${shellLiteral(termSock)}
 BROWSER_SOCK=${shellLiteral(browserSock)}
+STATION_SOCK=${shellLiteral(stationSock)}
+ENROLLMENT_FLAG=${shellLiteral(enrollmentFlag)}
 PLIST=${shellLiteral(plistPath)}
 PLIST_IN=${shellLiteral(`${plistPath}.incoming`)}
 FORBIDDEN_PLIST_PREVIOUS=${shellLiteral(`${plistPath}.previous`)}
@@ -1180,23 +1243,33 @@ admit_existing_app() {
   }
 }
 
+# Admit product LaunchAgent: exe only, or exe + exact enrollment flag.
+# No other argv shapes (no third arg, no non-enrollment second arg).
+admit_plist_program_arguments() {
+  local plist_path="$1"
+  local label_value exe_value arg1_value
+  label_value="$("$PLUTIL" -extract Label raw -o - "$plist_path")" || return 1
+  exe_value="$("$PLUTIL" -extract ProgramArguments.0 raw -o - "$plist_path")" || return 1
+  [ "$label_value" = "${LABEL}" ] && [ "$exe_value" = "$EXE" ] || return 1
+  if "$PLUTIL" -extract ProgramArguments.2 raw -o - "$plist_path" >/dev/null 2>&1; then
+    return 1
+  fi
+  if arg1_value="$("$PLUTIL" -extract ProgramArguments.1 raw -o - "$plist_path" 2>/dev/null)"; then
+    [ "$arg1_value" = "$ENROLLMENT_FLAG" ] || return 1
+  fi
+  return 0
+}
+
 admit_existing_plist() {
   PLIST_ID="$(owned_file_identity "$PLIST" 2>/dev/null || true)"
   [ -n "$PLIST_ID" ] || {
     echo "EXISTING_PLIST_NOT_OWNED $PLIST" >&2
     return 1
   }
-  EXISTING_PLIST_LABEL="$("$PLUTIL" -extract Label raw -o - "$PLIST")" || return 1
-  EXISTING_PLIST_EXE="$("$PLUTIL" -extract ProgramArguments.0 raw -o - "$PLIST")" || return 1
-  if "$PLUTIL" -extract ProgramArguments.1 raw -o - "$PLIST" >/dev/null 2>&1; then
-    echo "EXISTING_PLIST_ARGUMENTS_INVALID $PLIST" >&2
+  admit_plist_program_arguments "$PLIST" || {
+    echo "EXISTING_PLIST_PRODUCT_IDENTITY_MISMATCH $PLIST" >&2
     return 1
-  fi
-  [ "$EXISTING_PLIST_LABEL" = "${LABEL}" ] &&
-    [ "$EXISTING_PLIST_EXE" = "$EXE" ] || {
-      echo "EXISTING_PLIST_PRODUCT_IDENTITY_MISMATCH $PLIST" >&2
-      return 1
-    }
+  }
   same_file_identity "$PLIST" "$PLIST_ID" || {
     echo "EXISTING_PLIST_CHANGED_DURING_ADMISSION $PLIST" >&2
     return 1
@@ -1678,14 +1751,14 @@ same_file_identity "$PLIST_IN" "$PLIST_IN_ID" || {
   echo "PLIST_INCOMING_CHANGED_DURING_CREATION $PLIST_IN" >&2
   exit 3
 }
-NEXT_PLIST_LABEL="$("$PLUTIL" -extract Label raw -o - "$PLIST_IN")"
-NEXT_PLIST_EXE="$("$PLUTIL" -extract ProgramArguments.0 raw -o - "$PLIST_IN")"
-if "$PLUTIL" -extract ProgramArguments.1 raw -o - "$PLIST_IN" >/dev/null 2>&1; then
-  echo "PLIST_INCOMING_ARGUMENTS_INVALID $PLIST_IN" >&2
-  exit 3
-fi
-[ "$NEXT_PLIST_LABEL" = "${LABEL}" ] && [ "$NEXT_PLIST_EXE" = "$EXE" ] || {
+admit_plist_program_arguments "$PLIST_IN" || {
   echo "PLIST_INCOMING_PRODUCT_IDENTITY_MISMATCH $PLIST_IN" >&2
+  exit 3
+}
+# Incoming enrollment LaunchAgent must carry the headless flag.
+NEXT_PLIST_ARG1="$("$PLUTIL" -extract ProgramArguments.1 raw -o - "$PLIST_IN" 2>/dev/null || true)"
+[ "$NEXT_PLIST_ARG1" = "$ENROLLMENT_FLAG" ] || {
+  echo "PLIST_INCOMING_ENROLLMENT_FLAG_MISSING $PLIST_IN" >&2
   exit 3
 }
 same_file_identity "$PLIST_IN" "$PLIST_IN_ID" || {
@@ -1972,17 +2045,15 @@ same_file_identity "$PLIST" "$PUBLISHED_PLIST_ID" || {
   echo "PUBLISHED_PLIST_CHANGED_DURING_PUBLICATION $PLIST" >&2
   exit 5
 }
-PUBLISHED_PLIST_LABEL="$("$PLUTIL" -extract Label raw -o - "$PLIST")"
-PUBLISHED_PLIST_EXE="$("$PLUTIL" -extract ProgramArguments.0 raw -o - "$PLIST")"
-if "$PLUTIL" -extract ProgramArguments.1 raw -o - "$PLIST" >/dev/null 2>&1; then
-  echo "PUBLISHED_PLIST_ARGUMENTS_INVALID $PLIST" >&2
+admit_plist_program_arguments "$PLIST" || {
+  echo "PUBLISHED_PLIST_PRODUCT_IDENTITY_MISMATCH $PLIST" >&2
   exit 5
-fi
-[ "$PUBLISHED_PLIST_LABEL" = "${LABEL}" ] &&
-  [ "$PUBLISHED_PLIST_EXE" = "$EXE" ] || {
-    echo "PUBLISHED_PLIST_PRODUCT_IDENTITY_MISMATCH $PLIST" >&2
-    exit 5
-  }
+}
+PUBLISHED_PLIST_ARG1="$("$PLUTIL" -extract ProgramArguments.1 raw -o - "$PLIST" 2>/dev/null || true)"
+[ "$PUBLISHED_PLIST_ARG1" = "$ENROLLMENT_FLAG" ] || {
+  echo "PUBLISHED_PLIST_ENROLLMENT_FLAG_MISSING $PLIST" >&2
+  exit 5
+}
 same_file_identity "$PLIST_IN" "$PLIST_IN_ID" || {
   echo "PLIST_INCOMING_CHANGED_AFTER_PUBLICATION $PLIST_IN" >&2
   exit 5
@@ -2015,21 +2086,18 @@ done
   exit 6
 }
 
-TERM_OK=0
-BROWSER_OK=0
+STATION_OK=0
 WAIT_INDEX=0
 while [ "$WAIT_INDEX" -lt ${socketReadyLimit} ]; do
   if ! job_exists || ! exact_exe_has_pid "$NEW_PID"; then
     echo "NEW_LAUNCHD_GENERATION_LOST expected_pid=$NEW_PID" >&2
     exit 7
   fi
-  TERM_OK=0
-  BROWSER_OK=0
-  if socket_owned_by_pid "$TERM_SOCK" "$NEW_PID"; then TERM_OK=1; fi
-  if socket_owned_by_pid "$BROWSER_SOCK" "$NEW_PID"; then BROWSER_OK=1; fi
-  if [ "$TERM_OK" = "1" ] && [ "$BROWSER_OK" = "1" ]; then
-    if job_exists && exact_exe_has_pid "$NEW_PID" && socket_owned_by_pid "$TERM_SOCK" "$NEW_PID" && socket_owned_by_pid "$BROWSER_SOCK" "$NEW_PID"; then
-      echo "STATION_READY pid=$NEW_PID term=1 browser=1"
+  STATION_OK=0
+  if socket_owned_by_pid "$STATION_SOCK" "$NEW_PID"; then STATION_OK=1; fi
+  if [ "$STATION_OK" = "1" ]; then
+    if job_exists && exact_exe_has_pid "$NEW_PID" && socket_owned_by_pid "$STATION_SOCK" "$NEW_PID"; then
+      echo "ENROLLMENT_READY pid=$NEW_PID station=1"
       exit 0
     fi
   fi
@@ -2040,12 +2108,10 @@ if ! job_exists || ! exact_exe_has_pid "$NEW_PID"; then
   echo "NEW_LAUNCHD_GENERATION_LOST expected_pid=$NEW_PID" >&2
   exit 7
 fi
-TERM_OK=0
-BROWSER_OK=0
-if socket_owned_by_pid "$TERM_SOCK" "$NEW_PID"; then TERM_OK=1; fi
-if socket_owned_by_pid "$BROWSER_SOCK" "$NEW_PID"; then BROWSER_OK=1; fi
-echo "STATION_PARTIAL pid=$NEW_PID term=$TERM_OK browser=$BROWSER_OK" >&2
-echo "CONTROL_SOCKET_TIMEOUT pid=$NEW_PID term=$TERM_OK browser=$BROWSER_OK" >&2
+STATION_OK=0
+if socket_owned_by_pid "$STATION_SOCK" "$NEW_PID"; then STATION_OK=1; fi
+echo "ENROLLMENT_PARTIAL pid=$NEW_PID station=$STATION_OK" >&2
+echo "ENROLLMENT_SOCKET_TIMEOUT pid=$NEW_PID station=$STATION_OK" >&2
 exit 2
 `.trim();
 };
@@ -2087,6 +2153,207 @@ export const buildRemoteDeployScriptForTest = (
   );
 };
 
+/**
+ * After Station pair/configure, drop enrollment headless and prove full
+ * supervised Remote readiness (term + browser sockets).
+ */
+export const buildRemoteRuntimeActivateScript = (
+  remoteHome: string,
+): string => {
+  if (!isSafeRemoteHomePath(remoteHome)) {
+    throw new Error("remote home must be a canonical absolute path");
+  }
+  const remoteAppPath = REMOTE_APP_PATH;
+  const remoteExecutablePath = `${remoteAppPath}/Contents/MacOS/${PRODUCT_NAME}`;
+  const plistPath = `${remoteHome}/Library/LaunchAgents/${LABEL}.plist`;
+  const logDir = `${remoteHome}/Library/Logs/${PRODUCT_NAME}`;
+  const termSock = `${remoteHome}/${TERM_REMOTE_SOCK_REL}`;
+  const browserSock = browserControlSocketPath(remoteHome);
+  const runtime = PRODUCTION_DEPLOY_SCRIPT_RUNTIME;
+  const plistBody = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>Label</key><string>${LABEL}</string>
+<key>ProgramArguments</key><array>
+<string>${xmlText(remoteExecutablePath)}</string>
+</array>
+<key>RunAtLoad</key><true/>
+<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+<key>ProcessType</key><string>Interactive</string>
+<key>StandardOutPath</key><string>${xmlText(logDir)}/vellum-command.out.log</string>
+<key>StandardErrorPath</key><string>${xmlText(logDir)}/vellum-command.err.log</string>
+</dict></plist>
+`;
+  const plistB64 = Buffer.from(plistBody, "utf8").toString("base64");
+  return `
+set -euo pipefail
+umask 022
+LAUNCHCTL=${shellLiteral(runtime.commands.launchctl)}
+LSOF=${shellLiteral(runtime.commands.lsof)}
+PLUTIL=${shellLiteral(runtime.commands.plutil)}
+SLEEP=${shellLiteral(runtime.commands.sleep)}
+ID=${shellLiteral(runtime.commands.id)}
+test "$("${shellLiteral(runtime.commands.uname)}" -s)" = "Darwin" || { echo "REMOTE_NOT_DARWIN" >&2; exit 3; }
+EXE=${shellLiteral(remoteExecutablePath)}
+TERM_SOCK=${shellLiteral(termSock)}
+BROWSER_SOCK=${shellLiteral(browserSock)}
+PLIST=${shellLiteral(plistPath)}
+DOMAIN="gui/$("$ID" -u)"
+JOB="$DOMAIN/${LABEL}"
+test -x "$EXE" || { echo "RUNTIME_EXE_MISSING $EXE" >&2; exit 4; }
+/bin/mkdir -p ${shellLiteral(logDir)} "$(/usr/bin/dirname "$PLIST")"
+/usr/bin/printf '%s' ${shellLiteral(plistB64)} | /usr/bin/base64 -d > "$PLIST"
+/bin/chmod 644 "$PLIST"
+PUBLISHED_LABEL="$("$PLUTIL" -extract Label raw -o - "$PLIST")"
+PUBLISHED_EXE="$("$PLUTIL" -extract ProgramArguments.0 raw -o - "$PLIST")"
+[ "$PUBLISHED_LABEL" = "${LABEL}" ] && [ "$PUBLISHED_EXE" = "$EXE" ] || {
+  echo "RUNTIME_PLIST_IDENTITY_MISMATCH $PLIST" >&2
+  exit 5
+}
+if "$PLUTIL" -extract ProgramArguments.1 raw -o - "$PLIST" >/dev/null 2>&1; then
+  echo "RUNTIME_PLIST_STILL_ENROLLMENT $PLIST" >&2
+  exit 5
+fi
+if "$LAUNCHCTL" print "$JOB" >/dev/null 2>&1; then
+  "$LAUNCHCTL" bootout "$JOB" 2>/dev/null || true
+  WAIT_INDEX=0
+  while [ "$WAIT_INDEX" -lt 30 ]; do
+    "$LAUNCHCTL" print "$JOB" >/dev/null 2>&1 || break
+    WAIT_INDEX=$((WAIT_INDEX + 1))
+    "$SLEEP" 1
+  done
+fi
+if ! "$LAUNCHCTL" bootstrap "$DOMAIN" "$PLIST" 2>/dev/null; then
+  "$LAUNCHCTL" load -w "$PLIST"
+fi
+NEW_PID="$("$LAUNCHCTL" kickstart -p "$JOB")" || {
+  echo "RUNTIME_LAUNCHD_PID_NOT_PROVEN" >&2
+  exit 6
+}
+case "$NEW_PID" in
+  ''|*[!0-9]*|0) echo "RUNTIME_LAUNCHD_PID_INVALID $NEW_PID" >&2; exit 6 ;;
+esac
+socket_owned_by_pid() {
+  local sock="$1" pid="$2" out
+  out="$("$LSOF" -n -P -F p -U -- "$sock" 2>/dev/null || true)"
+  printf '%s\\n' "$out" | /usr/bin/grep -qx "p$pid"
+}
+TERM_OK=0
+BROWSER_OK=0
+WAIT_INDEX=0
+while [ "$WAIT_INDEX" -lt 60 ]; do
+  TERM_OK=0
+  BROWSER_OK=0
+  if socket_owned_by_pid "$TERM_SOCK" "$NEW_PID"; then TERM_OK=1; fi
+  if socket_owned_by_pid "$BROWSER_SOCK" "$NEW_PID"; then BROWSER_OK=1; fi
+  if [ "$TERM_OK" = "1" ] && [ "$BROWSER_OK" = "1" ]; then
+    echo "STATION_READY pid=$NEW_PID term=1 browser=1"
+    exit 0
+  fi
+  WAIT_INDEX=$((WAIT_INDEX + 1))
+  "$SLEEP" 1
+done
+echo "RUNTIME_SOCKET_TIMEOUT pid=$NEW_PID term=$TERM_OK browser=$BROWSER_OK" >&2
+exit 2
+`.trim();
+};
+
+/** Run post-configure supervised relaunch on a Darwin Remote. */
+export const activateDarwinRemoteRuntime = (
+  ssh: Ssh,
+  endpoint: SshTarget,
+  remoteHome: string,
+): Effect.Effect<
+  { readonly ok: boolean; readonly detail: string },
+  Error | import("../ssh/domain").SshError
+> =>
+  Effect.gen(function* () {
+    const script = buildRemoteRuntimeActivateScript(remoteHome);
+    const command = yield* compileDarwinRemoteActivationScript(script);
+    // Empty transfer body: long DEPLOY_TIMEOUT_MS covers kickstart + socket poll.
+    const output = yield* ssh.transfer(
+      sharedStream(endpoint, command),
+      Stream.empty,
+      DEPLOY_TIMEOUT_MS,
+    );
+    return parseRuntimeActivateResult({
+      stdout: output.stdout,
+      stderr: "",
+    });
+  });
+
+/** Activate a prepared Darwin target after Station pair/configure succeeds. */
+export const activateDarwinRemoteRuntimeForTarget = (
+  ssh: Ssh,
+  target: RemoteDeploymentTarget,
+): Effect.Effect<DeployRemoteResult, never> =>
+  Effect.gen(function* () {
+    const stages = [...target.progress];
+    const homeResult = yield* ssh
+      .run(homeDirectoryLookup(target.sshTarget))
+      .pipe(Effect.result);
+    if (homeResult._tag === "Failure") {
+      const detail = `${target.host.label}: Remote runtime home lookup failed after Station configuration`;
+      return {
+        ok: false,
+        detail,
+        code: "io" as const,
+        message: detail,
+        stages,
+        disposition: "indeterminate" as const,
+      } satisfies DeployRemoteResult;
+    }
+    const remoteHome = decodeRemoteHomeDirectoryOutput(
+      homeResult.success.stdout,
+    );
+    if (remoteHome === null) {
+      const detail = `${target.host.label}: Remote runtime home is not a canonical absolute path`;
+      return {
+        ok: false,
+        detail,
+        code: "io" as const,
+        message: detail,
+        stages,
+        disposition: "indeterminate" as const,
+      } satisfies DeployRemoteResult;
+    }
+    stages.push(`Remote runtime relaunch admitted for ${remoteHome}`);
+    const activated = yield* activateDarwinRemoteRuntime(
+      ssh,
+      target.sshTarget,
+      remoteHome,
+    ).pipe(Effect.result);
+    if (activated._tag === "Failure") {
+      const detail = `${target.host.label}: supervised Remote relaunch failed — ${activated.failure.message}`;
+      return {
+        ok: false,
+        detail,
+        code: "io" as const,
+        message: detail,
+        stages,
+        disposition: "indeterminate" as const,
+      } satisfies DeployRemoteResult;
+    }
+    if (!activated.success.ok) {
+      const detail = `${target.host.label}: ${activated.success.detail}`;
+      return {
+        ok: false,
+        detail,
+        code: "io" as const,
+        message: detail,
+        stages,
+        disposition: "indeterminate" as const,
+      } satisfies DeployRemoteResult;
+    }
+    stages.push(activated.success.detail);
+    return {
+      ok: true,
+      detail: activated.success.detail,
+      stages,
+      disposition: "ready" as const,
+    } satisfies DeployRemoteResult;
+  });
+
 const streamArtifactToRemote = (
   ssh: Ssh,
   endpoint: SshTarget,
@@ -2096,7 +2363,7 @@ const streamArtifactToRemote = (
     readonly expectedPackageState: "absent" | "present";
   },
 ): Effect.Effect<
-  { readonly ok: boolean; readonly detail: string },
+  DeployTransferParse,
   Error | import("../ssh/domain").SshError
 > =>
   Effect.scoped(
@@ -2198,10 +2465,28 @@ const streamArtifactToRemote = (
     }),
   );
 
+type DarwinStreamArtifactResult =
+  | DeployTransferParse
+  // Test seams may return the pre-enrollment boolean marker shape. Treating
+  // that shape as runtime-ready keeps the seam backwards-compatible without
+  // weakening the production parser.
+  | { readonly ok: boolean; readonly detail: string };
+
 export const makeDarwinRemoteDeploymentProvider = (deps: {
   readonly artifactAuthority: DarwinRemoteArtifactAuthority;
   readonly liveWorkAuthority: DarwinRemoteLiveWorkAuthority;
-  readonly streamArtifact: typeof streamArtifactToRemote;
+  readonly streamArtifact: (
+    ssh: Ssh,
+    endpoint: SshTarget,
+    input: {
+      readonly admission: DarwinDeployArtifactAdmission;
+      readonly remoteHome: string;
+      readonly expectedPackageState: "absent" | "present";
+    },
+  ) => Effect.Effect<
+    DarwinStreamArtifactResult,
+    Error | import("../ssh/domain").SshError
+  >;
   readonly localPlatform: NodeJS.Platform;
 }): RemoteDeploymentProvider => ({
   platform: "darwin",
@@ -2424,11 +2709,18 @@ export const makeDarwinRemoteDeploymentProvider = (deps: {
           };
         }
 
+        // Enrollment control plane is enough for Station pair/configure.
+        // Full term+browser readiness is a separate activate step.
+        const disposition =
+          ("phase" in streamed.success && streamed.success.phase === "enrollment")
+            ? ("configuration-required" as const)
+            : ("ready" as const);
+
         return {
           ok: true,
           detail: `${host.label} (${host.sshEndpoint}): ${streamed.success.detail}`,
           stages,
-          disposition: "ready",
+          disposition,
           version: admission.localApp.version,
         } satisfies DeployRemoteResult;
       }),
