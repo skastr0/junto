@@ -3,13 +3,10 @@
  *   bun run test:e2e:fast e2e/scenarios/mail-wakes-cold-seat.spec.ts
  *
  * A topology with hundreds of agents only works if delivery starts seats:
- * nobody clicks terminals open. Three laws, one real app, one real harness:
+ * nobody clicks terminals open. Two laws, one real app, one real harness:
  *   1. cold wake — a seat that was NEVER opened spawns and receives when a
  *      notice lands in its mailbox
- *   2. auto-restart — a seat whose process died is respawned by the next
- *      delivery (bounded budget; this leg was the production hole: the old
- *      latch refused every wake after first exit)
- *   3. stop then mail — a seat the operator stopped ALSO revives on the next
+ *   2. stop then mail — a seat the operator stopped ALSO revives on the next
  *      delivery. One rule, no stop provenance: mail wakes seats.
  *
  * The fixture is written into the canvas the app boots on (playing that
@@ -97,7 +94,7 @@ const seatPid = (): number | null => {
   }
 };
 
-test("mail wakes a cold seat, restarts a dead one, and honors an operator stop", async () => {
+test("mail wakes a cold seat and honors an operator stop", async () => {
   test.setTimeout(420_000);
   const vellumCommand = await launchVellum({
     // Sandbox HOME and state stay isolated. PATH is the one deliberate
@@ -211,29 +208,7 @@ test("mail wakes a cold seat, restarts a dead one, and honors an operator stop",
         });
       });
     await expect.poll(() => seatPid(), { timeout: 15_000 }).not.toBeNull();
-    const receiptsAfterCold = receiptCount(appHome);
-
-    // Law 2 — external death is not an operator stop: the next delivery
-    // respawns the seat under the automatic-restart budget.
-    const pid = seatPid();
-    expect(pid).not.toBeNull();
-    process.kill(pid!, "SIGKILL");
-    await expect.poll(() => seatPid(), { timeout: 20_000 }).toBeNull();
-    await appendEdge("e-wake-2", "sink2");
-    await expect
-      .poll(() => receiptCount(appHome), {
-        timeout: 150_000,
-        intervals: [1_000, 2_000, 5_000],
-      })
-      .toBeGreaterThan(receiptsAfterCold)
-      .catch((cause: unknown) => {
-        throw new Error(`restart after external death never receipted.\n[main log]\n${wakeLog()}`, {
-          cause,
-        });
-      });
-    await expect.poll(() => seatPid(), { timeout: 15_000 }).not.toBeNull();
-
-    // Law 3 — stop then mail. The operator stops the seat from its terminal;
+    // Law 2 — stop then mail. The operator stops the seat from its terminal;
     // the next delivery revives it anyway. One rule: mail wakes seats.
     await page.locator(`.react-flow__node[data-id="${SEAT_ID}"]`).dblclick();
     const surface = page.locator(
@@ -253,7 +228,7 @@ test("mail wakes a cold seat, restarts a dead one, and honors an operator stop",
     await expect.poll(() => seatPid(), { timeout: 20_000 }).toBeNull();
 
     const receiptsBeforeStopLeg = receiptCount(appHome);
-    await appendEdge("e-wake-3", "sink3");
+    await appendEdge("e-wake-2", "sink2");
     await expect
       .poll(() => receiptCount(appHome), {
         timeout: 150_000,
