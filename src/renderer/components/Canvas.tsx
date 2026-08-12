@@ -39,7 +39,14 @@ import {
   selectionImpact,
   type ImpactSelection,
 } from "../lib/impact-mode";
-import { markViewportBusy, releaseViewportBusy, viewportBusy$ } from "../lib/viewport-busy";
+import {
+  bindViewportBusyHost,
+  markViewportBusy,
+  releaseViewportBusy,
+  resetViewportBusy,
+  viewportBusy$,
+  withViewportBusy,
+} from "../lib/viewport-busy";
 import { isEditableEventTarget } from "../lib/multi-select-gesture";
 import { nodeTitle } from "../lib/presentation";
 import { AGENT_NODE_SIZE } from "../lib/node-geometry";
@@ -100,7 +107,12 @@ const fitReadableField = (rf: CanvasFlow, duration = 320): void => {
     return Boolean(label) && !["n", "new region", "unnamed region"].includes(label);
   });
   const anchors = meaningfulRegions.length > 0 ? meaningfulRegions : regions.length > 0 ? regions : graphNodes.slice(0, 24);
-  void rf.fitView({ nodes: anchors, padding: 0.18, duration, maxZoom: regions.length > 0 ? 1.15 : 1.35 }).catch(() => undefined);
+  void withViewportBusy(() => rf.fitView({
+    nodes: anchors,
+    padding: 0.18,
+    duration,
+    maxZoom: regions.length > 0 ? 1.15 : 1.35,
+  })).catch(() => undefined);
 };
 
 /** Apply/clear in-cone impact token without reminting when unchanged. */
@@ -441,7 +453,11 @@ function useCanvasSearchViewport(searchQuery: string, nodeCount: number, rf: Can
     }
     if (nodeCount === 0) return;
     const frame = requestAnimationFrame(() => {
-      void rf.fitView({ padding: 0.25, duration: 260, maxZoom: 1.5 }).catch(() => undefined);
+      void withViewportBusy(() => rf.fitView({
+        padding: 0.25,
+        duration: 260,
+        maxZoom: 1.5,
+      })).catch(() => undefined);
     });
     return () => cancelAnimationFrame(frame);
   }, [searchQuery, nodeCount, rf, viewKey]);
@@ -465,7 +481,12 @@ function useCanvasFocus(rf: CanvasFlow) {
         // React Flow emits an empty selection while the canvas mounts. Re-apply
         // the focus target only after it is present in the live graph.
         selectNode(focusNodeId);
-        void rf.fitView({ nodes: [node], padding: 0.35, maxZoom: 1.45, duration: 360 }).catch(() => undefined).finally(() => {
+        void withViewportBusy(() => rf.fitView({
+          nodes: [node],
+          padding: 0.35,
+          maxZoom: 1.45,
+          duration: 360,
+        })).catch(() => undefined).finally(() => {
           selectNode(focusNodeId);
           state$.focusNodeId.set("");
         });
@@ -912,7 +933,13 @@ function CanvasFieldTools() {
         className="rts-field-tools__fit"
         aria-label="Fit all nodes"
         title="Fit all nodes"
-        onClick={() => void rf.fitView({ padding: 0.18, duration: 320, maxZoom: 1.35 })}
+        onClick={() => {
+          void withViewportBusy(() => rf.fitView({
+            padding: 0.18,
+            duration: 320,
+            maxZoom: 1.35,
+          })).catch(() => undefined);
+        }}
       >
         <Expand size={12} />fit all
       </button>
@@ -1068,10 +1095,16 @@ function RtsMinimapStack() {
     const zoom = rf.getZoom();
     if (isDouble) {
       const nextZoom = Math.min(Math.max(zoom * 1.55, 0.35), 1.6);
-      void rf.setCenter(position.x, position.y, { zoom: nextZoom, duration: 280 });
+      void withViewportBusy(() => rf.setCenter(position.x, position.y, {
+        zoom: nextZoom,
+        duration: 280,
+      })).catch(() => undefined);
       return;
     }
-    void rf.setCenter(position.x, position.y, { zoom, duration: 240 });
+    void withViewportBusy(() => rf.setCenter(position.x, position.y, {
+      zoom,
+      duration: 240,
+    })).catch(() => undefined);
   }, [rf]);
 
   const onMiniMapNodeClick = useCallback((event: React.MouseEvent, node: Node) => {
@@ -1434,18 +1467,12 @@ function CanvasGraph() {
   const impactMode = use$(impactModeActive$);
   const connectionFocusNodeId = use$(state$.connectionFocusNodeId);
   // Viewport freeze without React: the busy class flips on the ReactFlow
-  // wrapper's classList directly, so a pan gesture costs zero renders. The
-  // sync runs on every busy change AND after every render, so a className
-  // prop rewrite can never strand the class. MiniMap/Background stay mounted.
+  // wrapper's classList directly, so a pan gesture costs zero renders. Re-bind
+  // after every render because React may rewrite className. MiniMap/Background
+  // stay mounted.
   const rfRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    const syncBusy = (): void => {
-      rfRef.current?.classList.toggle("is-viewport-busy", viewportBusy$.peek());
-    };
-    syncBusy();
-    const unsubscribe = viewportBusy$.onChange(syncBusy);
-    return unsubscribe;
-  });
+  useEffect(() => bindViewportBusyHost(rfRef.current));
+  useEffect(() => () => resetViewportBusy(), []);
   const onMoveStart = useCallback(() => {
     markViewportBusy();
     closeMenus();
