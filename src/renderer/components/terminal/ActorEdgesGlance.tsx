@@ -24,6 +24,7 @@ import {
   actorEdgeRows,
   type ActorEdgeRow,
 } from "../../lib/actor-edges";
+import { mailboxRows, unreadMailByPeer } from "../../lib/actor-ledger";
 import { isMirrorablePeer, openActorMirror } from "../../lib/actor-mirrors";
 import { terminalActivity } from "../../lib/activity";
 import { agentSeat$, bindingIdForNode } from "../../lib/agent-seat-state";
@@ -95,11 +96,14 @@ function EdgeCard({
   peer,
   actorNodeId,
   zone,
+  unreadFromPeer,
 }: {
   readonly row: ActorEdgeRow;
   readonly peer: CanvasNode | undefined;
   readonly actorNodeId: string;
   readonly zone: "focus" | "pinned";
+  /** Inbound mail from this peer the seat has not read yet. */
+  readonly unreadFromPeer: number;
 }) {
   const mirror = isMirrorablePeer(peer);
   const bindingId = mirror ? bindingIdForNode(peer) : undefined;
@@ -169,15 +173,25 @@ function EdgeCard({
         <EdgeCardBody
           row={row}
           seatMark={
-            activity ? (
-              <ActivityMark
-                mode={activity.mode}
-                tone={activity.tone}
-                label={activity.label}
-                size="inline"
-                className="actor-edges-glance__seat-mark"
-              />
-            ) : null
+            <>
+              {unreadFromPeer > 0 ? (
+                <span
+                  className="actor-edges-glance__mail-count"
+                  title={`${unreadFromPeer} unread message${unreadFromPeer === 1 ? "" : "s"} from ${row.peerTitle}`}
+                >
+                  {unreadFromPeer}
+                </span>
+              ) : null}
+              {activity ? (
+                <ActivityMark
+                  mode={activity.mode}
+                  tone={activity.tone}
+                  label={activity.label}
+                  size="inline"
+                  className="actor-edges-glance__seat-mark"
+                />
+              ) : null}
+            </>
           }
         />
       </button>
@@ -228,6 +242,14 @@ export function ActorEdgesGlance({
     () => new Map(doc.nodes.map((n) => [n.id, n] as const)),
     [doc],
   );
+
+  // Mail is edge-shaped: unread-from-peer badges answer "who is waiting on
+  // this seat" right on the navigation chips.
+  const unreadByPeer = useMemo(() => {
+    if (!isActor) return new Map<string, number>();
+    const live = doc.nodes.find((n) => n.id === node.id);
+    return unreadMailByPeer(live ? mailboxRows(doc, live) : []);
+  }, [doc, node.id, isActor]);
 
   if (!isActor || rows.length === 0) return null;
 
@@ -288,6 +310,7 @@ export function ActorEdgesGlance({
                 peer={peersById.get(row.peerId)}
                 actorNodeId={node.id}
                 zone={zone}
+                unreadFromPeer={unreadByPeer.get(row.peerId) ?? 0}
               />
             ))}
           </ul>

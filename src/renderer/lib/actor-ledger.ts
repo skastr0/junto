@@ -127,6 +127,25 @@ export const mailboxCounts = (rows: ReadonlyArray<MailRow>): MailCounts => {
   return { total: rows.length, queued, unread };
 };
 
+/**
+ * Per-peer unread counts over this actor's inbound mail — for the
+ * connections rail: "which wired peer is waiting on this seat". Keys are
+ * sender node ids (metadata.fromSeat, process-bound since admission strips
+ * spoofed values); read state is the seat's durable read-ack projection.
+ */
+export const unreadMailByPeer = (
+  rows: ReadonlyArray<MailRow>,
+): ReadonlyMap<string, number> => {
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    if (row.direction !== "in" || row.read || row.fromNodeId === undefined) {
+      continue;
+    }
+    counts.set(row.fromNodeId, (counts.get(row.fromNodeId) ?? 0) + 1);
+  }
+  return counts;
+};
+
 /** Compact age for list rows: now, 45s, 12m, 3h, 5d. */
 export const mailAgeLabel = (
   nowMs: number,

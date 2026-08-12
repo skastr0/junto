@@ -1281,10 +1281,15 @@ html[data-surface-motion="paused"] *::after {
   animation: none !important;
 }
 .react-flow.is-viewport-busy .vellum-blocker,
+.react-flow.is-viewport-busy .vellum-blocker::after,
 .react-flow.is-viewport-busy .vellum-node__flag--blocked-live,
 .react-flow.is-viewport-busy .vellum-status-dot-pulse,
+.react-flow.is-viewport-busy .vellum-activity-wave-head,
+.react-flow.is-viewport-busy .vellum-activity-pulse-layer,
 .react-flow.is-viewport-busy .vellum-edge-ripple .react-flow__edge-path,
 .react-flow.is-viewport-busy path.vellum-edge-ripple,
+.react-flow.is-viewport-busy .vellum-node[data-seat-attention="true"]::after,
+.react-flow.is-viewport-busy .vellum-node[data-attention="fire"]::after,
 .react-flow.is-viewport-busy .vellum-dot--pulse,
 .react-flow.is-viewport-busy .vellum-herdr-working-dot {
   animation: none !important;
@@ -1722,23 +1727,36 @@ html[data-surface-motion="paused"] *::after {
   border-color: var(--color-stroke-hi);
 }
 
-/* --- Blocker pulse: readable stoppage without bounce (no corner decal) ---- */
+/* --- Blocker pulse: static card shadow + one composited halo layer -------
+   Base card must not repaint every frame — never animate box-shadow/filter
+   on .vellum-blocker itself. Halo is transform+opacity only on ::after. */
 .vellum-blocker {
-  animation: vellumPulse 1.6s ease-in-out infinite;
   position: relative;
+  box-shadow:
+    0 0 0 2px color-mix(in oklab, var(--color-accent) 22%, transparent),
+    0 0 12px 0 color-mix(in oklab, var(--color-accent) 12%, transparent);
 }
-
-@keyframes vellumPulse {
+.vellum-blocker::after {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  border-radius: inherit;
+  pointer-events: none;
+  border: 2px solid color-mix(in oklab, var(--color-accent) 55%, transparent);
+  opacity: 0.35;
+  transform: scale(0.98);
+  animation: vellumBlockerHalo 1.6s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+@keyframes vellumBlockerHalo {
   0%,
   100% {
-    box-shadow:
-      0 0 0 0 color-mix(in oklab, var(--color-accent) 0%, transparent),
-      0 0 10px 0 color-mix(in oklab, var(--color-accent) 0%, transparent);
+    opacity: 0.22;
+    transform: scale(0.98);
   }
   50% {
-    box-shadow:
-      0 0 0 4px color-mix(in oklab, var(--color-accent) 30%, transparent),
-      0 0 18px 2px color-mix(in oklab, var(--color-accent) 16%, transparent);
+    opacity: 0.9;
+    transform: scale(1.03);
   }
 }
 
@@ -1756,32 +1774,71 @@ html[data-surface-motion="paused"] *::after {
   }
 }
 
-/* StatusDot live pulse — opacity only (never filter/box-shadow animation). */
-.vellum-activity-clock-cell {
-  opacity: .1;
-  transform: scale(.82);
-  animation: vellumActivityClock 720ms linear infinite;
-  animation-delay: calc(var(--activity-clock-step) * 90ms);
+/* --- ActivityMark: one infinite-animated layer per mark (PERF-P1) ---------
+   Static track cells may exist; only .vellum-activity-wave-head /
+   .vellum-activity-pulse-layer own continuous animation (transform/opacity). */
+.vellum-activity-wave-cell {
+  opacity: 0.12;
+}
+.vellum-activity-wave-head {
+  opacity: 1;
+  transform: translate(0, 0);
+  animation: vellumActivityWaveHead 720ms linear infinite;
+  will-change: transform;
+  box-shadow: 0 0 4px color-mix(in oklab, currentColor 40%, transparent);
+  /* box-shadow is static — never keyframed */
+}
+/* Eight discrete clockwise steps on transform only (--activity-step from JSX). */
+@keyframes vellumActivityWaveHead {
+  0%,
+  11.5% {
+    transform: translate(0, 0);
+  }
+  12.5%,
+  24% {
+    transform: translate(var(--activity-step), 0);
+  }
+  25%,
+  36.5% {
+    transform: translate(calc(var(--activity-step) * 2), 0);
+  }
+  37.5%,
+  49% {
+    transform: translate(calc(var(--activity-step) * 2), var(--activity-step));
+  }
+  50%,
+  61.5% {
+    transform: translate(calc(var(--activity-step) * 2), calc(var(--activity-step) * 2));
+  }
+  62.5%,
+  74% {
+    transform: translate(var(--activity-step), calc(var(--activity-step) * 2));
+  }
+  75%,
+  86.5% {
+    transform: translate(0, calc(var(--activity-step) * 2));
+  }
+  87.5%,
+  99% {
+    transform: translate(0, var(--activity-step));
+  }
+  100% {
+    transform: translate(0, 0);
+  }
 }
 
-@keyframes vellumActivityClock {
-  0% { opacity: 1; transform: scale(1); }
-  14% { opacity: .48; transform: scale(.94); }
-  42%, 100% { opacity: .1; transform: scale(.82); }
-}
-
-/* Ready/complete: all cells breathe together — never the clockwise trail. */
-.vellum-activity-pulse-cell {
-  opacity: .28;
-  transform: scale(.9);
+/* Ready/complete: single soft breath — never a multi-cell clockwise trail. */
+.vellum-activity-pulse-layer {
+  opacity: 0.28;
+  transform: scale(0.9);
   animation: vellumActivityPulse 1.6s ease-in-out infinite;
+  will-change: transform, opacity;
 }
-
 @keyframes vellumActivityPulse {
   0%,
   100% {
-    opacity: .22;
-    transform: scale(.88);
+    opacity: 0.22;
+    transform: scale(0.88);
   }
   50% {
     opacity: 1;
@@ -1792,7 +1849,6 @@ html[data-surface-motion="paused"] *::after {
 .vellum-status-dot-pulse {
   animation: vellumStatusDotPulse 2.4s ease-in-out infinite;
 }
-
 @keyframes vellumStatusDotPulse {
   0%,
   100% {
@@ -1803,75 +1859,97 @@ html[data-surface-motion="paused"] *::after {
   }
 }
 
-/* Hidden/reduced-motion: freeze continuous status/edge paint entirely. */
+/* Hidden/reduced-motion: freeze continuous status/edge motion entirely.
+   ActivityMark also unmounts animated layers when surfaceMotionLive$ is false. */
 html[data-surface-motion="paused"] .vellum-status-dot-pulse,
-html[data-surface-motion="paused"] .vellum-activity-pulse-cell,
-html[data-surface-motion="paused"] .vellum-blocker,
+html[data-surface-motion="paused"] .vellum-activity-wave-head,
+html[data-surface-motion="paused"] .vellum-activity-pulse-layer,
+html[data-surface-motion="paused"] .vellum-blocker::after,
 html[data-surface-motion="paused"] .vellum-node__flag--blocked-live,
 html[data-surface-motion="paused"] .vellum-edge-ripple .react-flow__edge-path,
 html[data-surface-motion="paused"] path.vellum-edge-ripple,
+html[data-surface-motion="paused"] .vellum-node[data-seat-attention="true"]::after,
+html[data-surface-motion="paused"] .vellum-node[data-attention="fire"]::after,
 html[data-surface-motion="paused"] .vellum-dot--pulse,
 html[data-surface-motion="paused"] .vellum-herdr-working-dot {
   animation: none !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .vellum-blocker,
+  .vellum-blocker::after,
   .vellum-node__flag--blocked-live,
   .vellum-status-dot-pulse,
-  .vellum-activity-pulse-cell,
+  .vellum-activity-wave-head,
+  .vellum-activity-pulse-layer,
   .vellum-edge-ripple .react-flow__edge-path,
-  path.vellum-edge-ripple {
+  path.vellum-edge-ripple,
+  .vellum-node[data-seat-attention="true"]::after,
+  .vellum-node[data-attention="fire"]::after {
     animation: none;
   }
 }
 
-/* --- Blocked ripple: slow dash-flow along the edge ------------------- */
+/* --- Blocked ripple: static dash pattern + opacity breath -----------------
+   stroke-dashoffset forces recurring paint on the edge path. Keep dashes
+   for “interrupted flow” direction along the edge; pulse opacity only. */
 .vellum-edge-ripple .react-flow__edge-path,
 path.vellum-edge-ripple {
   stroke-dasharray: 5 6;
-  animation: vellumDash 3s linear infinite;
+  animation: vellumEdgeRippleOpacity 1.8s ease-in-out infinite;
 }
-
-@keyframes vellumDash {
-  to {
-    stroke-dashoffset: -44;
+@keyframes vellumEdgeRippleOpacity {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
   }
 }
 
 /* --- Fire / ice attention (glance language) ---------------------------
-   data-attention on .vellum-node: fire = needs human; ice = calm capacity. */
+   data-attention on .vellum-node: fire = needs human; ice = calm capacity.
+   Static shadow on the card + one ::after halo (transform/opacity only). */
 .vellum-node[data-attention="fire"],
 .vellum-node[data-seat-attention="true"] {
+  position: relative;
   box-shadow:
     0 0 0 2px color-mix(in oklab, var(--color-main) 55%, transparent),
-    0 0 22px 2px color-mix(in oklab, var(--color-main) 22%, transparent),
+    0 0 18px 2px color-mix(in oklab, var(--color-main) 18%, transparent),
     0 10px 28px var(--color-shadow-2);
-  animation: vellumSeatAttentionPulse 1.5s ease-in-out infinite;
 }
-@keyframes vellumSeatAttentionPulse {
+.vellum-node[data-attention="fire"]::after,
+.vellum-node[data-seat-attention="true"]::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: inherit;
+  pointer-events: none;
+  border: 2px solid color-mix(in oklab, var(--color-main) 70%, transparent);
+  opacity: 0.4;
+  transform: scale(0.99);
+  animation: vellumSeatAttentionHalo 1.5s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+@keyframes vellumSeatAttentionHalo {
   0%,
   100% {
-    box-shadow:
-      0 0 0 2px color-mix(in oklab, var(--color-main) 45%, transparent),
-      0 0 14px 0 color-mix(in oklab, var(--color-main) 12%, transparent),
-      0 10px 28px var(--color-shadow-2);
+    opacity: 0.28;
+    transform: scale(0.99);
   }
   50% {
-    box-shadow:
-      0 0 0 4px color-mix(in oklab, var(--color-main) 70%, transparent),
-      0 0 28px 4px color-mix(in oklab, var(--color-main) 28%, transparent),
-      0 10px 28px var(--color-shadow-2);
+    opacity: 0.85;
+    transform: scale(1.04);
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .vellum-node[data-attention="fire"],
-  .vellum-node[data-seat-attention="true"] {
+  .vellum-node[data-attention="fire"]::after,
+  .vellum-node[data-seat-attention="true"]::after {
     animation: none;
   }
 }
-html[data-surface-motion="paused"] .vellum-node[data-attention="fire"],
-html[data-surface-motion="paused"] .vellum-node[data-seat-attention="true"] {
+html[data-surface-motion="paused"] .vellum-node[data-attention="fire"]::after,
+html[data-surface-motion="paused"] .vellum-node[data-seat-attention="true"]::after {
   animation: none;
 }
 .vellum-node[data-attention="ice"] {
@@ -2795,6 +2873,20 @@ ol.note-md__list > .note-md__li::before {
 }
 .actor-edges-glance__seat-mark {
   flex-shrink: 0;
+}
+/* Unread-from-peer mail badge on mirror chips — who is waiting on this seat. */
+.actor-edges-glance__mail-count {
+  flex-shrink: 0;
+  min-width: 14px;
+  padding: 0 4px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--color-amber) 18%, transparent);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 9.5px;
+  line-height: 14px;
+  text-align: center;
+  color: var(--color-amber);
+  font-variant-numeric: tabular-nums;
 }
 .actor-edges-glance__cycle-hint {
   flex-shrink: 0;

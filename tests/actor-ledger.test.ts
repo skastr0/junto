@@ -6,6 +6,7 @@ import {
   mailAgeLabel,
   mailboxCounts,
   mailboxRows,
+  unreadMailByPeer,
 } from "../src/renderer/lib/actor-ledger";
 
 const T0 = 1_700_000_000_000;
@@ -146,5 +147,32 @@ describe("mailAgeLabel", () => {
     expect(mailAgeLabel(T0 + 3 * 3_600_000, T0)).toBe("3h");
     expect(mailAgeLabel(T0 + 5 * 86_400_000, T0)).toBe("5d");
     expect(mailAgeLabel(T0, T0 + 60_000)).toBe("now");
+  });
+});
+
+describe("unreadMailByPeer", () => {
+  it("counts inbound unread per sender, skipping read mail, notes, and system", () => {
+    const fromBravoUnread = mail(T0, { metadata: { fromSeat: "bravo" } });
+    const fromBravoUnread2 = mail(T0 + 1000, { metadata: { fromSeat: "bravo" } });
+    const fromBravoRead = mail(T0 + 2000, {
+      metadata: { fromSeat: "bravo", deliveredAt: T0 + 3000, readAt: T0 + 4000 },
+    });
+    const fromCharlie = mail(T0 + 3000, { metadata: { fromSeat: "charlie" } });
+    const system = mail(T0 + 4000, {});
+    const note = mail(T0 + 5000, { role: "agent", metadata: { fromSeat: "bravo" } });
+    const doc = docOf([
+      agent("hub", "Hub", [
+        fromBravoUnread,
+        fromBravoUnread2,
+        fromBravoRead,
+        fromCharlie,
+        system,
+        note,
+      ]),
+    ]);
+    const counts = unreadMailByPeer(mailboxRows(doc, doc.nodes[0]!));
+    expect(counts.get("bravo")).toBe(2);
+    expect(counts.get("charlie")).toBe(1);
+    expect(counts.size).toBe(2);
   });
 });
