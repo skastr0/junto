@@ -216,6 +216,8 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
   const [attachKey, setAttachKey] = useState(0);
   const [killPhase, setKillPhase] = useState<KillUxPhase>("idle");
   const [reopenPending, setReopenPending] = useState(false);
+  /** Why the last generation ended, read from the host when the seat is dead. */
+  const [deadInfo, setDeadInfo] = useState<{ reason?: string; message?: string }>({});
   const killArmTimer = useRef<number | null>(null);
   /**
    * An agent seat is LAZY. A dead seat is not a broken thing that needs a
@@ -933,6 +935,16 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
     agentSeat,
   });
   const deadCopy = deadStateCopy({ agentSeat });
+  /**
+   * The real reason this generation ended: the harness's exit message, the
+   * classified exit reason, or whatever the last status said. The generic
+   * headline alone gives the operator nothing to act on.
+   */
+  const deadReason = [deadInfo.reason, deadInfo.message, status !== "exited" ? status : ""]
+    .map((part) => (typeof part === "string" ? part.trim() : ""))
+    .filter((part) => part.length > 0)
+    .join(" — ")
+    .slice(0, 300);
   const releaseClaim = async (): Promise<void> => {
     if (!claimedTask || releasePending) return;
     setReleasePending(true);
@@ -960,6 +972,25 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
   useEffect(() => {
     if (!attached) disarmKill();
   }, [attached]);
+
+  useEffect(() => {
+    if (status !== "exited" && killPhase !== "stopped") return;
+    if (!bindingId) return;
+    let alive = true;
+    void getVellumCommandApi()
+      ?.terminalGet?.(bindingId, hostId)
+      .then((live) => {
+        if (!alive || !live) return;
+        setDeadInfo({
+          ...(live.exitReason ? { reason: live.exitReason } : {}),
+          ...(live.exitMessage ? { message: live.exitMessage } : {}),
+        });
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [status, killPhase, bindingId, hostId]);
 
   useEffect(() => {
     if (status !== "exited") return;
@@ -1121,6 +1152,15 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
                     ? "Stopping the process…"
                     : deadCopy.detail}
                 </p>
+                {/* Why it ended. Without this the card says "Agent stopped" and
+                    hides the harness's own error behind the overlay, so a seat
+                    that cannot start looks identical to one that was stopped on
+                    purpose — and there is nothing to act on. */}
+                {!processStopping && deadReason ? (
+                  <p className="native-terminal-surface__dead-detail font-mono text-[11px] opacity-80">
+                    {deadReason}
+                  </p>
+                ) : null}
                 {!processStopping ? (
                   <div className="native-terminal-surface__dead-actions">
                     <Button
