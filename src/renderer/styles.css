@@ -1785,8 +1785,6 @@ html[data-surface-motion="paused"] *::after {
   transform: translate(0, 0);
   animation: vellumActivityWaveHead 720ms linear infinite;
   will-change: transform;
-  box-shadow: 0 0 4px color-mix(in oklab, currentColor 40%, transparent);
-  /* box-shadow is static — never keyframed */
 }
 /* Eight discrete clockwise steps on transform only (--activity-step from JSX). */
 @keyframes vellumActivityWaveHead {
@@ -2873,20 +2871,6 @@ ol.note-md__list > .note-md__li::before {
 }
 .actor-edges-glance__seat-mark {
   flex-shrink: 0;
-}
-/* Unread-from-peer mail badge on mirror chips — who is waiting on this seat. */
-.actor-edges-glance__mail-count {
-  flex-shrink: 0;
-  min-width: 14px;
-  padding: 0 4px;
-  border-radius: 7px;
-  background: color-mix(in srgb, var(--color-amber) 18%, transparent);
-  font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: 9.5px;
-  line-height: 14px;
-  text-align: center;
-  color: var(--color-amber);
-  font-variant-numeric: tabular-nums;
 }
 .actor-edges-glance__cycle-hint {
   flex-shrink: 0;
