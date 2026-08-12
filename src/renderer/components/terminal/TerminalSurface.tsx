@@ -54,6 +54,7 @@ import { canClaimFocusAfterAsyncWork } from "../../lib/focus-ownership";
 import { ActivityMark } from "../ActivityMark";
 import { Button, Eyebrow, OverlayHeader } from "../ui";
 import { ActorEdgesGlance } from "./ActorEdgesGlance";
+import { ActorLedgerPane } from "./ActorLedgerPane";
 import { SessionLoadSpinner } from "./SessionLoadSpinner";
 
 type AttachResult = {
@@ -1189,8 +1190,10 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
           </Button>
         </div>
       ) : null}
-      {/* Body: xterm stage + edges side pane on the RIGHT (unified modal plate). */}
+      {/* Body: ledger pane LEFT (focus only), xterm stage, edges pane RIGHT —
+          one modal plate. The pinned dock keeps just the connections pane. */}
       <div className="native-terminal-surface__body">
+        {!pinned ? <ActorLedgerPane node={node} /> : null}
         <div className="native-terminal-surface__stage">
           <div
             ref={hostRef}

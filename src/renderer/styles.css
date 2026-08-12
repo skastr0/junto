@@ -2824,6 +2824,223 @@ ol.note-md__list > .note-md__li::before {
   margin-left: 0;
 }
 
+/* Actor terminal — ledger as a collapsible *left* side pane beside xterm.
+   Mirror of the connections pane: same plate, border on the trailing (right)
+   edge. Focus modal only — the pinned dock keeps just the connections pane. */
+.actor-ledger {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 248px;
+  width: 248px;
+  min-width: 248px;
+  max-width: 248px;
+  min-height: 0;
+  height: 100%;
+  border-right: 1px solid color-mix(in srgb, var(--color-stroke) 88%, transparent);
+  background: color-mix(in srgb, var(--color-raise-2) 92%, transparent);
+  overflow: hidden;
+}
+.actor-ledger--collapsed {
+  flex: 0 0 36px;
+  width: 36px;
+  min-width: 36px;
+  max-width: 36px;
+}
+.actor-ledger__chrome {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 6px 6px 6px 10px;
+  min-height: 34px;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-stroke) 70%, transparent);
+}
+.actor-ledger--collapsed .actor-ledger__chrome {
+  justify-content: center;
+  padding: 8px 4px 4px;
+  border-bottom: 0;
+}
+/* Expand / collapse stays on the trailing (right) edge of the left pane. */
+.actor-ledger__toggle {
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--color-dim);
+}
+.actor-ledger--collapsed .actor-ledger__toggle {
+  margin-left: 0;
+}
+.actor-ledger__toggle:hover {
+  color: var(--color-ink);
+}
+.actor-ledger__count {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--color-amber);
+  font-variant-numeric: tabular-nums;
+}
+.actor-ledger__scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  flex: 1 1 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  padding: 8px;
+}
+.actor-ledger__section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.actor-ledger__section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.actor-ledger__section-title {
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-faint);
+  user-select: none;
+}
+.actor-ledger__section-meta {
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 9.5px;
+  color: var(--color-faint);
+  font-variant-numeric: tabular-nums;
+}
+.actor-ledger__empty {
+  margin: 0;
+  padding: 8px;
+  border: 1px dashed color-mix(in srgb, var(--color-stroke) 70%, transparent);
+  border-radius: 7px;
+  font-size: 11px;
+  color: var(--color-faint);
+}
+.actor-ledger__mail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+.actor-ledger__mail-item {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--color-stroke) 80%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--color-inset) 78%, transparent);
+  overflow: hidden;
+}
+.actor-ledger__mail-row {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.25;
+  color: var(--color-dim);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+.actor-ledger__mail-row:hover {
+  background: color-mix(in srgb, var(--color-inset) 92%, var(--color-amber) 8%);
+}
+.actor-ledger__mail-row:focus-visible {
+  outline: 1px solid var(--color-amber);
+  outline-offset: -1px;
+}
+.actor-ledger__mail-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.actor-ledger__mail-dir {
+  flex-shrink: 0;
+  color: var(--color-amber);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 12px;
+  line-height: 1;
+}
+.actor-ledger__mail-from {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-ink);
+  font-weight: 500;
+  font-size: 11.5px;
+}
+.actor-ledger__mail-age {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 10px;
+  color: var(--color-faint);
+  font-variant-numeric: tabular-nums;
+}
+.actor-ledger__mail-preview {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--color-dim);
+}
+.actor-ledger__mail-item--unread .actor-ledger__mail-preview {
+  color: var(--color-ink);
+  font-weight: 500;
+}
+.actor-ledger__mail-body {
+  padding: 6px 8px 8px;
+  border-top: 1px solid color-mix(in srgb, var(--color-stroke) 60%, transparent);
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--color-ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.actor-ledger__rail {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0 10px;
+  min-height: 0;
+}
+.actor-ledger__rail-label {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-faint);
+  user-select: none;
+}
+
 /* Native terminal — fill focus/dock body.
    Critical: flex:1 1 0 + height:0 so the host gets the pane's flex-assigned
    box. Without height:0, the chain content-sizes to xterm's default 80×24
