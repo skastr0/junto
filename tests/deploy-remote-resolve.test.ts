@@ -16,6 +16,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildRemoteDeployScript,
   buildRemoteDeployScriptForTest,
+  buildRemoteRuntimeActivateScript,
   classifyDeployTransferDisposition,
   describeDeployTransferFailure,
   decodeRemoteHomeDirectoryOutput,
@@ -1314,6 +1315,14 @@ describe("deploy transfer lifecycle", () => {
     expect(describeDeployTransferFailure(noisy)).toBe(
       "ENROLLMENT_SOCKET_TIMEOUT pid=9 station=0",
     );
+  });
+
+  it("binds activate-script uname through a variable so quoting stays exact", () => {
+    const script = buildRemoteRuntimeActivateScript("/Users/developer");
+    expect(script).toContain("UNAME='/usr/bin/uname'");
+    expect(script).toContain('test "$("$UNAME" -s)" = "Darwin"');
+    expect(script).not.toContain(`"$("'/usr/bin/uname'"`);
+    expect(script).not.toContain("--vellum-headless");
   });
 
   it("maps remote transaction exit receipts by cutover phase", () => {

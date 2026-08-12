@@ -2213,12 +2213,13 @@ export const buildRemoteRuntimeActivateScript = (
   return `
 set -euo pipefail
 umask 022
+UNAME=${shellLiteral(runtime.commands.uname)}
 LAUNCHCTL=${shellLiteral(runtime.commands.launchctl)}
 LSOF=${shellLiteral(runtime.commands.lsof)}
 PLUTIL=${shellLiteral(runtime.commands.plutil)}
 SLEEP=${shellLiteral(runtime.commands.sleep)}
 ID=${shellLiteral(runtime.commands.id)}
-test "$("${shellLiteral(runtime.commands.uname)}" -s)" = "Darwin" || { echo "REMOTE_NOT_DARWIN" >&2; exit 3; }
+test "$("$UNAME" -s)" = "Darwin" || { echo "REMOTE_NOT_DARWIN $("$UNAME" -s)" >&2; exit 3; }
 EXE=${shellLiteral(remoteExecutablePath)}
 TERM_SOCK=${shellLiteral(termSock)}
 BROWSER_SOCK=${shellLiteral(browserSock)}
@@ -2350,7 +2351,7 @@ export const activateDarwinRemoteRuntimeForTarget = (
       remoteHome,
     ).pipe(Effect.result);
     if (activated._tag === "Failure") {
-      const detail = `${target.host.label}: supervised Remote relaunch failed — ${activated.failure.message}`;
+      const detail = `${target.host.label}: supervised Remote relaunch failed — ${describeDeployTransferFailure(activated.failure)}`;
       return {
         ok: false,
         detail,
