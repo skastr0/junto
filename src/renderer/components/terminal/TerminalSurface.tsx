@@ -642,12 +642,6 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
         // Lazy seat: a generation ending is not the seat ending. Unless the
         // operator stopped it, re-attach (which re-ensures a live generation)
         // rather than latching a dead card the operator has to dismiss.
-        if (agentSeat && !operatorStopped.current && autoWakes.current < 2) {
-          autoWakes.current += 1;
-          setKillPhase("idle");
-          setAttachKey((key) => key + 1);
-          return;
-        }
         setStatus("exited");
         setKillPhase("stopped");
         setLoadPhase(null);
@@ -722,18 +716,6 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
             // An agent seat is lazy: opening it IS the demand signal, so it
             // recovers itself instead of asking for a click. Bounded so a seat
             // that genuinely cannot start still settles into the stopped state.
-            if (
-              sawExit &&
-              agentSeat &&
-              !operatorStopped.current &&
-              autoWakes.current < 2
-            ) {
-              autoWakes.current += 1;
-              clearLoad();
-              setKillPhase("idle");
-              setAttachKey((key) => key + 1);
-              return;
-            }
             // Retained exited generations may expose their final raw journal.
             // Never paint those as a live control lease.
             setStatus(sawExit ? "exited" : "control");
