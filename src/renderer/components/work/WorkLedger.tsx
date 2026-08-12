@@ -638,7 +638,7 @@ function ArtifactContents({
   const name = artifact.name?.trim() || artifact.artifactId;
   const kind = artifactKind(artifact);
   const metaEntries = Object.entries(artifact.metadata ?? {}).filter(
-    ([key]) => key !== "archived",
+    ([key]) => key !== "archived" && key !== "publishedBySeatId",
   );
   return (
     <>

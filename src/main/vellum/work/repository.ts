@@ -998,6 +998,25 @@ const loadTaskFinishMap = (
   return map;
 };
 
+/**
+ * Projection-only publisher stamp. Mirrors the mailbox receipt-fact pattern
+ * (loadInbox's deliveredAt/readAt spread): stamped after the strict decode of
+ * the durable row, never written back to work_artifacts.
+ */
+const stampPublishedBySeat = (
+  artifact: ArtifactValue,
+  actorSeatId: string | null,
+): ArtifactValue =>
+  actorSeatId === null || actorSeatId === ""
+    ? artifact
+    : {
+        ...artifact,
+        metadata: {
+          ...(artifact.metadata ?? {}),
+          publishedBySeatId: actorSeatId,
+        },
+      };
+
 /** All artifacts on a canvas, keyed by sink node id (for finish-criteria gate). */
 const loadAllArtifactsByNode = (
   reader: StateReader,
@@ -1007,6 +1026,7 @@ const loadAllArtifactsByNode = (
     StateRow & {
       readonly node_id: string;
       readonly artifact_id: string;
+      readonly actor_seat_id: string | null;
       readonly name: string | null;
       readonly parts_json: string;
       readonly task_canvas_name: string | null;
@@ -1019,6 +1039,7 @@ const loadAllArtifactsByNode = (
       SELECT
         node_id,
         artifact_id,
+        actor_seat_id,
         name,
         parts_json,
         task_canvas_name,
@@ -1033,7 +1054,7 @@ const loadAllArtifactsByNode = (
   );
   const map = new Map<string, ArtifactValue[]>();
   for (const row of rows) {
-    const artifact = Schema.decodeUnknownSync(Artifact, strictDecode)({
+    const decoded = Schema.decodeUnknownSync(Artifact, strictDecode)({
       artifactId: row.artifact_id,
       parts: parseJson(row.parts_json),
       ...(row.name === null ? {} : { name: row.name }),
@@ -1053,6 +1074,7 @@ const loadAllArtifactsByNode = (
         ? {}
         : { metadata: parseJson(row.metadata_json) }),
     });
+    const artifact = stampPublishedBySeat(decoded, row.actor_seat_id);
     const list = map.get(row.node_id);
     if (list === undefined) map.set(row.node_id, [artifact]);
     else list.push(artifact);
@@ -1600,10 +1622,11 @@ const loadArtifacts = (
   sink: SinkRefValue,
 ): ReadonlyArray<ArtifactValue> =>
   reader
-    .all<ArtifactRow>(
+    .all<ArtifactRow & { readonly actor_seat_id: string | null }>(
       `
         SELECT
           artifact_id,
+          actor_seat_id,
           name,
           parts_json,
           task_canvas_name,
@@ -1618,26 +1641,29 @@ const loadArtifacts = (
       [sink.canvasName, sink.nodeId],
     )
     .map((row) =>
-      Schema.decodeUnknownSync(Artifact, strictDecode)({
-        artifactId: row.artifact_id,
-        ...(row.name === null ? {} : { name: row.name }),
-        parts: parseJson(row.parts_json),
-        ...(row.task_id === null
-          ? {}
-          : {
-              task: {
-                kind: "task",
-                itemId: row.task_id,
-                sink: {
-                  canvasName: row.task_canvas_name,
-                  nodeId: row.task_node_id,
+      stampPublishedBySeat(
+        Schema.decodeUnknownSync(Artifact, strictDecode)({
+          artifactId: row.artifact_id,
+          ...(row.name === null ? {} : { name: row.name }),
+          parts: parseJson(row.parts_json),
+          ...(row.task_id === null
+            ? {}
+            : {
+                task: {
+                  kind: "task",
+                  itemId: row.task_id,
+                  sink: {
+                    canvasName: row.task_canvas_name,
+                    nodeId: row.task_node_id,
+                  },
                 },
-              },
-            }),
-        ...(row.metadata_json === null
-          ? {}
-          : { metadata: parseJson(row.metadata_json) }),
-      }),
+              }),
+          ...(row.metadata_json === null
+            ? {}
+            : { metadata: parseJson(row.metadata_json) }),
+        }),
+        row.actor_seat_id,
+      ),
     );
 
 const loadSnapshot = (
