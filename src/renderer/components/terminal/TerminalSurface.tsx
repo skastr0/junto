@@ -813,8 +813,29 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
     // Actor seats: ensure generation first (spinner covers ensure + attach).
     // Geography shells only attach (ensure already ran in openTerminal).
     if (agentSeat) {
+      /**
+       * Wait for the host to actually hold a LIVE generation before attaching.
+       *
+       * ensureTerminalRunning resolves as soon as create returns, but the new
+       * generation is not necessarily the one a lookup by bindingId answers
+       * with yet — so attaching immediately can bind to the previous, exited
+       * generation and paint the seat dead. Retrying at full speed just hits
+       * the same instant three times; clicking Reopen "worked" only because a
+       * human takes a second, by which point the live generation is there.
+       *
+       * Polling the host removes the race instead of racing faster.
+       */
+      const awaitLiveGeneration = async (): Promise<void> => {
+        const deadline = Date.now() + 10_000;
+        while (alive && Date.now() < deadline) {
+          const live = await api.terminalGet?.(bindingId, hostId).catch(() => undefined);
+          const status = live?.status;
+          if (status === "running" || status === "starting") return;
+          await new Promise((resolve) => setTimeout(resolve, 150));
+        }
+      };
       void ensureTerminalRunning(nodeRef.current, { resume: true }).then(
-        (result) => {
+        async (result) => {
           if (!alive) return;
           if (!result.ok) {
             setStatus(result.message);
@@ -823,6 +844,8 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
             setKillPhase("stopped");
             return;
           }
+          await awaitLiveGeneration();
+          if (!alive) return;
           runAttach();
         },
       );
