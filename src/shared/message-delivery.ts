@@ -140,15 +140,30 @@ export const messageBriefText = (message: Message): string => {
 };
 
 /**
- * True when the composer holds text the product must not overwrite.
- * Empty box and a residual `[message …]` notify line are open for inject;
- * any other content (operator draft, paste chip) blocks auto-paste.
+ * Screen residual only. Prefer {@link operatorTypedThisGeneration} for the
+ * real draft gate — harness chrome fills extractPromptBoxText on every real
+ * startup-idle capture (claude/codex/grok/devin), so non-empty ≠ operator draft.
+ *
+ * Returns true only for a stuck product paste chip still occupying the box.
  */
 export const composerBlocksMailInject = (promptBoxText: string): boolean => {
   const text = promptBoxText.trim();
   if (text.length === 0) return false;
   if (/^\[message\b/i.test(text)) return false;
-  return true;
+  // Stuck product paste chip — do not pile another inject on top.
+  return text.includes("[Pasted");
+};
+
+/**
+ * Operator typed into this generation if a keystroke was noted at/after spawn.
+ * Load-bearing draft gate for mail inject.
+ */
+export const operatorTypedThisGeneration = (input: {
+  readonly lastUserInputAtMs: number | undefined;
+  readonly generationStartedAtMs: number;
+}): boolean => {
+  if (input.lastUserInputAtMs === undefined) return false;
+  return input.lastUserInputAtMs >= input.generationStartedAtMs;
 };
 
 /** True when metadata.deliveredAt is a finite number (already delivered). */

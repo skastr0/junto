@@ -46,7 +46,10 @@ import { UsageService } from "./usage/usage-service";
 import { WorkService } from "./work/service";
 import { ContentService } from "./content/service";
 import { messageDelivery } from "./work/message-delivery";
-import { composerBlocksMailInject } from "@shared/message-delivery";
+import {
+  composerBlocksMailInject,
+  operatorTypedThisGeneration,
+} from "@shared/message-delivery";
 import { mailboxMessageDeliveryId } from "./work/mailbox-receipts";
 import { extractPromptBoxText } from "./term/observer/interaction";
 import { onCanvasChangeForEdgeMap } from "./work/edge-map-notify";
@@ -1392,7 +1395,8 @@ export const registerVellumIpc = (): void => {
           // managedAgent + rawTerminal → paste+CR via idle-gated drive.
           sendManagedTerminalPrompt: (bindingId, text, options) =>
             writeManagedPrompt(bindingId, text, options),
-          // Settled idle + empty composer (never overwrite operator draft).
+          // Settled idle + never overwrite operator keystrokes this generation.
+          // Screen chrome is NOT draft — use process-bound terminalWrite proof.
           seatDeliverySnapshot: (bindingId) => {
             const live = termPlane.host.get(bindingId);
             if (
@@ -1406,10 +1410,16 @@ export const registerVellumIpc = (): void => {
             const promptText = snap
               ? extractPromptBoxText(snap.lines)
               : "";
+            const typed = operatorTypedThisGeneration({
+              lastUserInputAtMs: injectionSupervisor.lastUserInputAt(bindingId),
+              generationStartedAtMs: live.createdAt,
+            });
+            // Residual product paste chip still occupies the box.
+            const residualChip = composerBlocksMailInject(promptText);
             return {
               idle,
               generationKey: live.epoch,
-              operatorDraft: composerBlocksMailInject(promptText),
+              operatorDraft: typed || residualChip,
             };
           },
         },

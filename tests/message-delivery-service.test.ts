@@ -801,11 +801,19 @@ describe("MessageDeliveryService", () => {
     const msg = userMsg("draft-block", "should wait");
     const store = makeStore({ c: agentDoc([msg]) });
     let sends = 0;
-    let now = 10_000;
+    let now = 1_000;
     const service = new MessageDeliveryService();
-    let operatorDraft = true;
+    let operatorDraft = false;
+    const scheduled: Array<{ readonly fn: () => void; readonly ms: number }> = [];
     service.configure({
       now: () => now,
+      timers: {
+        set: (fn, ms) => {
+          scheduled.push({ fn, ms });
+          return scheduled.length - 1;
+        },
+        clear: () => undefined,
+      },
       transport: {
         wakeManagedSeat: async () => true,
         seatDeliverySnapshot: () => ({
@@ -821,38 +829,48 @@ describe("MessageDeliveryService", () => {
       store,
     });
 
-    // Past settle window, but operator is drafting.
-    now = 10_000 + 5_000;
+    // First consult arms settle (not-settled) + timer.
     service.notifyAppended("c", "agent", msg);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(sends).toBe(0);
+    expect(scheduled.length).toBe(1);
+
+    // Past settle, but operator is drafting — still no paste.
+    now = 1_000 + 2_000;
+    operatorDraft = true;
+    scheduled[0]!.fn();
     await new Promise((r) => setTimeout(r, 30));
     expect(sends).toBe(0);
     expect(await store.hasAcceptedMessageDelivery("c", "agent", "draft-block")).toBe(
       false,
     );
+    expect(scheduled.length).toBeGreaterThanOrEqual(2);
 
+    // Operator cleared the box — gate retry delivers without a fake idle event.
     operatorDraft = false;
-    // First idle observation arms settle clock — still blocked.
-    service.onManagedTerminalIdle("bind-mira");
-    await new Promise((r) => setTimeout(r, 30));
-    expect(sends).toBe(0);
-
-    // After settle, deliver.
-    now += 2_000;
-    service.onManagedTerminalIdle("bind-mira");
+    scheduled[scheduled.length - 1]!.fn();
     await waitUntil(() => sends === 1);
     await waitUntil(() =>
       store.hasAcceptedMessageDelivery("c", "agent", "draft-block"),
     );
   });
 
-  it("not-settled gate waits MESSAGE_DELIVERY_SETTLE_MS after first idle", async () => {
+  it("not-settled gate retries via timer without a further idle event", async () => {
     const msg = userMsg("settle", "after quiet");
     const store = makeStore({ c: agentDoc([msg]) });
     let sends = 0;
     let now = 1000;
+    const scheduled: Array<{ readonly fn: () => void; readonly ms: number }> = [];
     const service = new MessageDeliveryService();
     service.configure({
       now: () => now,
+      timers: {
+        set: (fn, ms) => {
+          scheduled.push({ fn, ms });
+          return scheduled.length - 1;
+        },
+        clear: () => undefined,
+      },
       transport: {
         wakeManagedSeat: async () => true,
         seatDeliverySnapshot: () => ({
@@ -870,16 +888,101 @@ describe("MessageDeliveryService", () => {
 
     service.notifyAppended("c", "agent", msg);
     await new Promise((r) => setTimeout(r, 30));
-    // First consult sets idleSince = 1000; settle is 1500ms.
+    // First consult sets idleSince and arms settle timer — no send yet.
     expect(sends).toBe(0);
+    expect(scheduled.length).toBe(1);
+    expect(scheduled[0]!.ms).toBeGreaterThanOrEqual(1_500);
 
-    now = 1000 + 1_000;
+    // Advance clock past settle and fire the timer (no second idle event).
+    now = 1000 + 1_600;
+    scheduled[0]!.fn();
+    await waitUntil(() => sends === 1);
+  });
+
+  it("batch receipt-stamp failure does not re-paste on later scans", async () => {
+    const msgs = [userMsg("b1", "first"), userMsg("b2", "second")];
+    let acceptOk = false;
+    const store = makeStore(
+      { c: agentDoc(msgs) },
+      { acceptOk: () => acceptOk },
+    );
+    let sends = 0;
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        wakeManagedSeat: async () => true,
+        sendManagedTerminalPrompt: async () => {
+          sends += 1;
+          return true;
+        },
+      },
+      store,
+    });
+
+    service.onBooted();
+    await waitUntil(() => sends === 1);
+    // Stamp fails — message stays pending.
+    expect(await store.hasAcceptedMessageDelivery("c", "agent", "b1")).toBe(false);
+
+    // Further scans must NOT re-paste (transportAccepted).
+    service.onBooted();
     service.onManagedTerminalIdle("bind-mira");
+    await new Promise((r) => setTimeout(r, 40));
+    expect(sends).toBe(1);
+
+    acceptOk = true;
+    service.onManagedTerminalIdle("bind-mira");
+    await waitUntil(async () =>
+      (await store.hasAcceptedMessageDelivery("c", "agent", "b1")) &&
+      (await store.hasAcceptedMessageDelivery("c", "agent", "b2")),
+    );
+    expect(sends).toBe(1);
+  });
+
+  it("request-response respects the seat delivery gate", async () => {
+    const store = makeStore({ c: agentDoc([]) });
+    let sends = 0;
+    let operatorDraft = true;
+    let now = 5_000;
+    const scheduled: Array<{ readonly fn: () => void }> = [];
+    const service = new MessageDeliveryService();
+    service.configure({
+      now: () => now,
+      timers: {
+        set: (fn) => {
+          scheduled.push({ fn });
+          return scheduled.length - 1;
+        },
+        clear: () => undefined,
+      },
+      transport: {
+        wakeManagedSeat: async () => true,
+        seatDeliverySnapshot: () => ({
+          idle: true,
+          generationKey: "ep-req",
+          operatorDraft,
+        }),
+        sendManagedTerminalPrompt: async () => {
+          sends += 1;
+          return true;
+        },
+      },
+      store,
+    });
+
+    service.notifyRequestResolved({
+      canvas: "c",
+      actorNodeId: "agent",
+      requestId: "req-1",
+      response: "short ok",
+    });
     await new Promise((r) => setTimeout(r, 30));
     expect(sends).toBe(0);
 
-    now = 1000 + 1_600;
-    service.onManagedTerminalIdle("bind-mira");
+    operatorDraft = false;
+    now += 3_000;
+    // Fire gate retry.
+    if (scheduled.length > 0) scheduled[scheduled.length - 1]!.fn();
     await waitUntil(() => sends === 1);
   });
 });

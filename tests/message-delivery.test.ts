@@ -13,6 +13,7 @@ import {
   messageBriefText,
   messageSenderLabel,
   MESSAGE_PTY_FULL_BODY_MAX,
+  operatorTypedThisGeneration,
   shouldSummarizeMessageForPty,
   stampMessageDelivered,
 } from "../src/shared/message-delivery";
@@ -123,14 +124,47 @@ describe("message-delivery pure helpers", () => {
     expect(batch.includes("\n")).toBe(false);
   });
 
-  it("composerBlocksMailInject: empty and residual notify open; draft blocks", () => {
+  it("composerBlocksMailInject: harness chrome is NOT draft; only paste chip blocks", () => {
     expect(composerBlocksMailInject("")).toBe(false);
     expect(composerBlocksMailInject("   ")).toBe(false);
     expect(composerBlocksMailInject("[message - user] mail · 01abc · vellum-command msg list")).toBe(
       false,
     );
-    expect(composerBlocksMailInject("please fix the seat brick")).toBe(true);
+    // Real startup-idle chrome must not kill mail (review BLOCK #1).
+    expect(composerBlocksMailInject('Try "fix typecheck errors"')).toBe(false);
+    expect(composerBlocksMailInject("Grok 4.5 (low) · 22K / 500K (4%) · ctrl+o transcript")).toBe(
+      false,
+    );
+    expect(composerBlocksMailInject("gpt-5.4-mini low · /tmp")).toBe(false);
+    expect(composerBlocksMailInject("please fix the seat brick")).toBe(false);
     expect(composerBlocksMailInject("[Pasted text #3 +12 lines]")).toBe(true);
+  });
+
+  it("operatorTypedThisGeneration is the load-bearing draft gate", () => {
+    expect(
+      operatorTypedThisGeneration({
+        lastUserInputAtMs: undefined,
+        generationStartedAtMs: 1000,
+      }),
+    ).toBe(false);
+    expect(
+      operatorTypedThisGeneration({
+        lastUserInputAtMs: 999,
+        generationStartedAtMs: 1000,
+      }),
+    ).toBe(false);
+    expect(
+      operatorTypedThisGeneration({
+        lastUserInputAtMs: 1000,
+        generationStartedAtMs: 1000,
+      }),
+    ).toBe(true);
+    expect(
+      operatorTypedThisGeneration({
+        lastUserInputAtMs: 1500,
+        generationStartedAtMs: 1000,
+      }),
+    ).toBe(true);
   });
 
   it("sender is role only; brief strips controls and collapses whitespace", () => {

@@ -14,6 +14,7 @@ import {
   isFactoryMailMessage,
   isPendingDelivery,
   listPendingDeliveries,
+  MESSAGE_PTY_FULL_BODY_MAX,
   sanitizeDeliveryLine,
 } from "@shared/message-delivery";
 import type { SurfaceDeliveryTarget } from "@shared/actor-surface";
@@ -196,12 +197,17 @@ export class MessageDeliveryService {
   /** One refusal log per pending message, not one per idle-scan re-attempt. */
   private readonly wakeRefusalLogged = new Set<string>();
   /**
-   * Per bindingId@epoch: first time we observed a settled-idle-eligible seat
-   * for this generation (set when gate is consulted and seat is idle).
-   * Cleared when the generation key changes.
+   * Per generationKey: first time we observed idle for this generation
+   * (set when gate is consulted and seat is idle). Cleared on generation flip.
    */
   private readonly idleSinceByGeneration = new Map<string, number>();
   private readonly lastGenerationKey = new Map<string, string>();
+  /**
+   * Deferred re-scan for not-settled / unavailable / operator-draft so an
+   * already-idle seat (no further idle transition) still receives mail.
+   * Keyed by bindingId — one timer per seat.
+   */
+  private readonly gateRetryTimers = new Map<string, unknown>();
   private timers: MessageDeliveryTimers = defaultTimers;
   private readonly pendingRequestResponses = new Map<
     string,
@@ -248,6 +254,7 @@ export class MessageDeliveryService {
     this.wakeRefusalLogged.clear();
     this.idleSinceByGeneration.clear();
     this.lastGenerationKey.clear();
+    this.clearGateRetries();
     this.transport = undefined;
     this.store = undefined;
     this.now = () => Date.now();
@@ -279,6 +286,7 @@ export class MessageDeliveryService {
     this.wakeRefusalLogged.clear();
     this.idleSinceByGeneration.clear();
     this.lastGenerationKey.clear();
+    this.clearGateRetries();
   }
 
   private clearWakeRetries(): void {
@@ -287,6 +295,30 @@ export class MessageDeliveryService {
     }
     this.wakeRetryTimers.clear();
     this.wakeRetryCounts.clear();
+  }
+
+  private clearGateRetries(): void {
+    for (const handle of this.gateRetryTimers.values()) {
+      this.timers.clear(handle);
+    }
+    this.gateRetryTimers.clear();
+  }
+
+  /**
+   * Re-drive one binding after a gate refusal without waiting for a seat-state
+   * transition (already-idle seats never re-fire onManagedTerminalIdle).
+   */
+  private scheduleGateRetry(bindingId: string, delayMs: number): void {
+    if (this.gateRetryTimers.has(bindingId)) return;
+    const generation = this.lifecycleGeneration;
+    const handle = this.timers.set(() => {
+      this.gateRetryTimers.delete(bindingId);
+      if (!this.active(generation)) return;
+      void this.scanAndDeliver((target) => target.bindingId === bindingId);
+      // Request-response shares the seat gate; re-drive those too.
+      void this.retryRequestResponses(bindingId);
+    }, Math.max(10, delayMs));
+    this.gateRetryTimers.set(bindingId, handle);
   }
 
   private active(generation: number): boolean {
@@ -353,6 +385,7 @@ export class MessageDeliveryService {
     this.wakeRefusalLogged.clear();
     // Re-settle after pause so mail does not fire mid-resume paint.
     this.idleSinceByGeneration.clear();
+    this.clearGateRetries();
     void this.retryRequestResponses();
     void this.scanAndDeliver(() => true);
   }
@@ -409,12 +442,19 @@ export class MessageDeliveryService {
         pending.actorNodeId,
       );
       if (!woke) return;
+      const gate = await this.evaluateSeatGate(target.bindingId);
+      if (!gate.allow) return;
       const promptOptions = transport.wakeManagedSeat
         ? { ready: true }
         : undefined;
-      const payload = sanitizeDeliveryLine(
-        `[request resolved - ${pending.requestId}] ${pending.response}`,
-      );
+      // Same notify surface as mail: long responses summarize to a pointer.
+      const raw = `[request resolved - ${pending.requestId}] ${pending.response}`;
+      const payload =
+        sanitizeDeliveryLine(raw).length > MESSAGE_PTY_FULL_BODY_MAX
+          ? sanitizeDeliveryLine(
+              `[request resolved - ${pending.requestId}] · vellum-command msg list`,
+            )
+          : sanitizeDeliveryLine(raw);
       const delivered = await this.deliver(
         transport,
         target,
@@ -502,7 +542,7 @@ export class MessageDeliveryService {
 
   /**
    * Product gate before PTY paste. Gate refusals do not burn transport
-   * attempts — the message stays pending for the next idle/attach/boot.
+   * attempts and arm a timer retry so already-idle seats still receive mail.
    */
   private async evaluateSeatGate(
     bindingId: string,
@@ -519,9 +559,14 @@ export class MessageDeliveryService {
     try {
       snap = await transport.seatDeliverySnapshot(bindingId);
     } catch {
+      this.scheduleGateRetry(bindingId, MESSAGE_DELIVERY_SETTLE_MS);
       return { allow: false, reason: "unavailable" };
     }
-    if (!snap) return { allow: false, reason: "unavailable" };
+    if (!snap) {
+      // Starting/restarting — short retry, not permanent strand.
+      this.scheduleGateRetry(bindingId, MESSAGE_DELIVERY_SETTLE_MS);
+      return { allow: false, reason: "unavailable" };
+    }
 
     const prevKey = this.lastGenerationKey.get(bindingId);
     if (prevKey !== snap.generationKey) {
@@ -532,6 +577,8 @@ export class MessageDeliveryService {
 
     if (!snap.idle) {
       this.idleSinceByGeneration.delete(snap.generationKey);
+      // Working seat will re-drive on idle transition; also timer as backstop.
+      this.scheduleGateRetry(bindingId, MESSAGE_DELIVERY_SETTLE_MS);
       return { allow: false, reason: "not-idle" };
     }
 
@@ -541,11 +588,18 @@ export class MessageDeliveryService {
       idleSince = nowMs;
       this.idleSinceByGeneration.set(snap.generationKey, idleSince);
     }
-    if (nowMs - idleSince < MESSAGE_DELIVERY_SETTLE_MS) {
+    const elapsed = nowMs - idleSince;
+    if (elapsed < MESSAGE_DELIVERY_SETTLE_MS) {
+      this.scheduleGateRetry(
+        bindingId,
+        MESSAGE_DELIVERY_SETTLE_MS - elapsed + 10,
+      );
       return { allow: false, reason: "not-settled" };
     }
 
     if (snap.operatorDraft) {
+      // Operator is typing — retry later; do not paste over their draft.
+      this.scheduleGateRetry(bindingId, MESSAGE_DELIVERY_SETTLE_MS);
       return { allow: false, reason: "operator-draft" };
     }
     return { allow: true };
@@ -636,19 +690,14 @@ export class MessageDeliveryService {
         if (attempts >= MessageDeliveryService.MAX_TRANSPORT_ATTEMPTS) {
           return;
         }
+        // Settled idle + operator-keystroke draft gate.
+        // Gate failure is not a transport failure — do not burn attempts or
+        // edge-map claims (claim is recorded only after the gate allows).
+        const gate = await this.evaluateSeatGate(target.bindingId);
+        if (!gate.allow) return;
+
         // Edge-map notice law (bounded re-drive + stale re-validation):
-        // before any paste, re-validate a grant-claiming notice
-        // (metadata.addedIds) against the CURRENT doc — an added target that
-        // is no longer connected means the claim is stale (edge removed after
-        // the notice was composed): refuse delivery, keep the message
-        // pending. And the identical claim is attempted at most once per
-        // canvas edge-map state: after a refused attempt, idle/attach
-        // re-drives are suppressed until the edge map changes, so a wedged
-        // PTY is never flooded with the same un-receipted notice on every
-        // idle. Pure-removal notices (no added claim) carry no grant claim —
-        // re-delivery is idempotent truth and stays re-driveable so a removal
-        // is never lost. Receipt-only re-drives (transport accepted, stamp
-        // lagging) are never blocked by this law.
+        // AFTER the gate so a not-settled first consult cannot burn the claim.
         if (live.metadata?.edgeMapChange === true) {
           const addedIds = edgeMapAddedIds(live);
           if (addedIds.length > 0) {
@@ -662,16 +711,9 @@ export class MessageDeliveryService {
             if (prior !== undefined && prior.signature === signature) {
               return; // already attempted against this edge-map state — bounded
             }
-            // Record the transport attempt so re-drives stay bounded until
-            // the edge map changes. Only the first attempt per map state may
-            // paste (and the durable receipt still lands on a later success).
             this.attemptedClaims.set(key, { signature });
           }
         }
-        // Settled idle + empty composer (operator draft never overwritten).
-        // Gate failure is not a transport failure — do not burn attempts.
-        const gate = await this.evaluateSeatGate(target.bindingId);
-        if (!gate.allow) return;
 
         const payload = composeMessageDeliveryPayload(live);
         const promptOptions =
@@ -723,6 +765,8 @@ export class MessageDeliveryService {
   /**
    * Deliver several ordinary pending messages as ONE notify line, then stamp
    * every message on success. Gate/wake failure leaves all pending.
+   * inFlight / transportAccepted / attempt caps use a per-seat batch key
+   * (not content-addressed message sets) so overlapping scans cannot double-paste.
    */
   private async attemptBatch(
     canvas: string,
@@ -735,11 +779,8 @@ export class MessageDeliveryService {
     const store = this.store;
     if (!transport || !store) return;
 
-    const batchKey = flightKey(
-      canvas,
-      nodeId,
-      `batch:${messages.map((m) => m.messageId).sort().join("+")}`,
-    );
+    // Per-seat key — stable across concurrent scans with different message sets.
+    const batchKey = flightKey(canvas, nodeId, "__batch__");
     if (this.inFlight.has(batchKey)) return;
     this.inFlight.add(batchKey);
 
@@ -794,6 +835,45 @@ export class MessageDeliveryService {
         return;
       }
 
+      // Stamp-only path: transport already accepted this seat's batch once.
+      if (this.transportAccepted.has(batchKey)) {
+        for (const message of livePending) {
+          const key = flightKey(canvas, nodeId, message.messageId);
+          const accepted = await store.acceptMessageDelivery(
+            canvas,
+            nodeId,
+            message.messageId,
+          );
+          if (accepted) {
+            this.transportAccepted.delete(key);
+            this.transportAttempts.delete(key);
+          }
+        }
+        let anyOpen = false;
+        for (const message of livePending) {
+          if (
+            !(await store.hasAcceptedMessageDelivery(
+              canvas,
+              nodeId,
+              message.messageId,
+            ))
+          ) {
+            anyOpen = true;
+            break;
+          }
+        }
+        if (!anyOpen) {
+          this.transportAccepted.delete(batchKey);
+          this.transportAttempts.delete(batchKey);
+        }
+        return;
+      }
+
+      const attempts = this.transportAttempts.get(batchKey) ?? 0;
+      if (attempts >= MessageDeliveryService.MAX_TRANSPORT_ATTEMPTS) {
+        return;
+      }
+
       const gate = await this.evaluateSeatGate(target.bindingId);
       if (!gate.allow) return;
 
@@ -807,6 +887,7 @@ export class MessageDeliveryService {
             }
           : undefined;
 
+      this.transportAttempts.set(batchKey, attempts + 1);
       const delivered = await this.deliver(
         transport,
         target,
@@ -815,6 +896,7 @@ export class MessageDeliveryService {
         promptOptions,
       );
       if (!delivered) return;
+      this.transportAccepted.add(batchKey);
 
       for (const message of livePending) {
         const key = flightKey(canvas, nodeId, message.messageId);
@@ -835,6 +917,24 @@ export class MessageDeliveryService {
               `(batch transport accepted; re-paste suppressed by transportAccepted)`,
           );
         }
+      }
+      // Clear batch accept only when every message has a durable receipt.
+      let anyOpen = false;
+      for (const message of livePending) {
+        if (
+          !(await store.hasAcceptedMessageDelivery(
+            canvas,
+            nodeId,
+            message.messageId,
+          ))
+        ) {
+          anyOpen = true;
+          break;
+        }
+      }
+      if (!anyOpen) {
+        this.transportAccepted.delete(batchKey);
+        this.transportAttempts.delete(batchKey);
       }
     } catch {
       // Leave pending for idle/attach retry.
