@@ -94,6 +94,46 @@ export type StationReadinessObservation = {
   readonly browser?: boolean;
 };
 
+/**
+ * Count-only intent topology from the exact complete portfolio projected to a
+ * Remote. This is Command Center evidence, not a second topology authority.
+ */
+export type StationTopologyObservation = {
+  readonly canvasCount: number;
+  readonly nodeCount: number;
+  readonly edgeCount: number;
+  readonly actorCount: number;
+  readonly sinkCount: number;
+  readonly schedulerCount: number;
+  readonly targetNodeCount: number;
+  readonly targetActorCount: number;
+  readonly targetSinkCount: number;
+  readonly targetSchedulerCount: number;
+  readonly commandCenterNodeCount: number;
+  readonly otherStationNodeCount: number;
+  readonly targetInternalAccessEdgeCount: number;
+  readonly remoteActorToCommandCenterSinkEdgeCount: number;
+  readonly commandCenterActorToRemoteSinkEdgeCount: number;
+  readonly stationPeerEdgeCount: number;
+  readonly danglingEdgeCount: number;
+};
+
+/** Last bounded projection plus work-report reconciliation for one Remote. */
+export type StationSynchronizationObservation = {
+  readonly projectionDecision: "unchanged" | "install" | "idempotent";
+  readonly projectionGeneration: string;
+  readonly projectionContentSha256: string;
+  readonly reportRounds: number;
+  readonly outboundSent: number;
+  readonly inboundReceived: number;
+  readonly inboundAccepted: number;
+  readonly inboundIdempotent: number;
+  readonly inboundRejected: number;
+  readonly hasMoreOutbound: boolean;
+  readonly hasMoreInbound: boolean;
+  readonly converged: boolean;
+};
+
 export const StationDeployOutcome = Schema.Literals(["ready", "failed",
 "indeterminate",]);
 export type StationDeployOutcome = typeof StationDeployOutcome.Type;
@@ -177,6 +217,10 @@ export type StationRemoteObservation = {
   readonly route?: StationRouteObservation;
   readonly lease?: StationLeaseObservation;
   readonly readiness?: StationReadinessObservation;
+  /** Exact projected intent counts for this target, computed on Command Center. */
+  readonly topology?: StationTopologyObservation;
+  /** Last successful bounded projection and report reconciliation receipt. */
+  readonly synchronization?: StationSynchronizationObservation;
   /** Package/deploy receipt facts are optional when the fleet has no receipt. */
   readonly packageGeneration?: string;
   readonly deployReceiptAt?: string;
@@ -550,6 +594,8 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
     const protocol = observation?.protocol;
     const route = observation?.route;
     const lease = observation?.lease;
+    const synchronization = observation?.synchronization;
+    const topology = observation?.topology;
     const observedAt = observation?.observedAt ?? station?.observedAt;
     const expectedInstallationId = observation?.expectedInstallationId;
     const observedInstallationId = station?.installationId;
@@ -675,6 +721,9 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
       problems.push(`lease ${lease.state}`);
       hardError = true;
     }
+    if (synchronization !== undefined && !synchronization.converged) {
+      problems.push("last work report did not converge");
+    }
     if (
       observedAt !== undefined &&
       timestampIsStale(observedAt, now, STATION_KERNEL_STALE_AFTER_MS)
@@ -727,6 +776,8 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
         `projection hash ${station?.projection?.contentSha256 ?? "unknown"} receivedAt ${station?.projection?.receivedAt ?? "unknown"} - ` +
         `package ${observation?.packageGeneration ?? deployment?.version ?? "unknown"} deploy-receipt ${observation?.deployReceiptAt ?? deployment?.at ?? "unknown"} - ` +
         `logical cursors ${cursorText(station?.receivedThrough)} peer cursors ${cursorText(station?.peerAcknowledgedThrough)} - ` +
+        `synchronization ${synchronization === undefined ? "unknown" : synchronization.converged ? "converged" : "incomplete"} rounds ${synchronization?.reportRounds ?? "unknown"} rejected ${synchronization?.inboundRejected ?? "unknown"} - ` +
+        `topology canvases=${topology?.canvasCount ?? "unknown"} nodes=${topology?.nodeCount ?? "unknown"} target-actors=${topology?.targetActorCount ?? "unknown"} target-sinks=${topology?.targetSinkCount ?? "unknown"} target-schedulers=${topology?.targetSchedulerCount ?? "unknown"} cross-to-cc=${topology?.remoteActorToCommandCenterSinkEdgeCount ?? "unknown"} cross-from-cc=${topology?.commandCenterActorToRemoteSinkEdgeCount ?? "unknown"} station-peer=${topology?.stationPeerEdgeCount ?? "unknown"} dangling=${topology?.danglingEdgeCount ?? "unknown"} - ` +
         `readiness database=${knownBoolean(station?.readiness.database)} work=${knownBoolean(station?.readiness.workControl)} simulation=${knownBoolean(station?.readiness.simulation)} terminal=${knownBoolean(observation?.readiness?.terminal)} browser=${knownBoolean(observation?.readiness?.browser)} - ` +
         `lease ${lease?.state ?? "unknown"} last-check-in ${lease?.lastCheckInAt ?? "unknown"} expires ${lease?.expiresAt ?? "unknown"} - ` +
         `recovery ${recovery?.kind ?? "none"}${recovery === undefined ? "" : `: ${recovery.nextStep}`} - ` +
@@ -815,6 +866,50 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
             : String(station.peerAcknowledgedThrough.length),
         [`${prefix}peerAcknowledgedThrough`]:
           cursorText(station?.peerAcknowledgedThrough),
+        [`${prefix}synchronizationConverged`]:
+          synchronization === undefined
+            ? "unknown"
+            : String(synchronization.converged),
+        [`${prefix}synchronizationRounds`]:
+          synchronization === undefined
+            ? "unknown"
+            : String(synchronization.reportRounds),
+        [`${prefix}synchronizationInboundRejected`]:
+          synchronization === undefined
+            ? "unknown"
+            : String(synchronization.inboundRejected),
+        [`${prefix}topologyCanvasCount`]:
+          topology === undefined ? "unknown" : String(topology.canvasCount),
+        [`${prefix}topologyNodeCount`]:
+          topology === undefined ? "unknown" : String(topology.nodeCount),
+        [`${prefix}topologyTargetActorCount`]:
+          topology === undefined
+            ? "unknown"
+            : String(topology.targetActorCount),
+        [`${prefix}topologyTargetSinkCount`]:
+          topology === undefined
+            ? "unknown"
+            : String(topology.targetSinkCount),
+        [`${prefix}topologyTargetSchedulerCount`]:
+          topology === undefined
+            ? "unknown"
+            : String(topology.targetSchedulerCount),
+        [`${prefix}topologyRemoteActorToCommandCenterSinkEdgeCount`]:
+          topology === undefined
+            ? "unknown"
+            : String(topology.remoteActorToCommandCenterSinkEdgeCount),
+        [`${prefix}topologyCommandCenterActorToRemoteSinkEdgeCount`]:
+          topology === undefined
+            ? "unknown"
+            : String(topology.commandCenterActorToRemoteSinkEdgeCount),
+        [`${prefix}topologyStationPeerEdgeCount`]:
+          topology === undefined
+            ? "unknown"
+            : String(topology.stationPeerEdgeCount),
+        [`${prefix}topologyDanglingEdgeCount`]:
+          topology === undefined
+            ? "unknown"
+            : String(topology.danglingEdgeCount),
         [`${prefix}databaseReady`]:
           knownBoolean(station?.readiness.database),
         [`${prefix}workControlReady`]:

@@ -370,6 +370,16 @@ const probeSshHost = (
     if (station.projection) {
       parts.push(`projection ${station.projection.generation}`);
     }
+    const reportIncomplete =
+      result.receipt.report.hasMoreOutbound ||
+      result.receipt.report.hasMoreInbound ||
+      result.receipt.report.inboundRejected > 0;
+    parts.push(
+      `report rounds=${result.receipt.report.rounds} sent=${result.receipt.report.outboundSent} received=${result.receipt.report.inboundReceived} rejected=${result.receipt.report.inboundRejected}`,
+    );
+    if (reportIncomplete) {
+      raise("warning", "last work report did not converge cleanly");
+    }
 
     if (hostHasCapability(host, "browser")) {
       parts.push("browser capability declared");
@@ -385,16 +395,22 @@ const probeSshHost = (
       if (!hermes.ok) raise("warning", hermes.detail);
     }
 
-    const recovery = stationRecoveryForRemote({
-      identityConflict:
-        configuration?.role !== "remote" || configuration.hostId !== host.id,
-      protocol,
-      lease,
-      unreachable: false,
-      stationAvailable: true,
-      readinessFailed: ready.length > 0,
-      stale: false,
-    });
+    const recovery = reportIncomplete
+      ? {
+          kind: "retryable" as const,
+          nextStep:
+            "Inspect the rejected work route, correct its authority or causal predecessor, then retry the link test.",
+        }
+      : stationRecoveryForRemote({
+          identityConflict:
+            configuration?.role !== "remote" || configuration.hostId !== host.id,
+          protocol,
+          lease,
+          unreachable: false,
+          stationAvailable: true,
+          readinessFailed: ready.length > 0,
+          stale: false,
+        });
 
     return {
       status: worst,
@@ -415,6 +431,25 @@ const probeSshHost = (
           database: station.readiness.database,
           workControl: station.readiness.workControl,
           simulation: station.readiness.simulation,
+        },
+        topology: result.receipt.projection.topology,
+        synchronization: {
+          projectionDecision: result.receipt.projection.decision,
+          projectionGeneration: result.receipt.projection.active.generation,
+          projectionContentSha256:
+            result.receipt.projection.active.contentSha256,
+          reportRounds: result.receipt.report.rounds,
+          outboundSent: result.receipt.report.outboundSent,
+          inboundReceived: result.receipt.report.inboundReceived,
+          inboundAccepted: result.receipt.report.inboundAccepted,
+          inboundIdempotent: result.receipt.report.inboundIdempotent,
+          inboundRejected: result.receipt.report.inboundRejected,
+          hasMoreOutbound: result.receipt.report.hasMoreOutbound,
+          hasMoreInbound: result.receipt.report.hasMoreInbound,
+          converged:
+            !result.receipt.report.hasMoreOutbound &&
+            !result.receipt.report.hasMoreInbound &&
+            result.receipt.report.inboundRejected === 0,
         },
         ...(protocol?.peer?.appVersion === undefined
           ? {}

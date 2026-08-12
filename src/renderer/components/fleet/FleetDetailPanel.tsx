@@ -193,7 +193,7 @@ function StationDiagnostics({
         <span>{diagnosticText(station?.peerAcknowledgedThrough.length)}</span>
         <span>readiness</span>
         <span>
-          database {diagnosticText(station?.readiness.database)}, work {diagnosticText(station?.readiness.workControl)}, simulation {diagnosticText(station?.readiness.simulation)}, terminal {diagnosticText(observation?.readiness?.terminal)}, browser {diagnosticText(observation?.readiness?.browser)}
+          database {diagnosticText(station?.readiness.database)}, work {diagnosticText(station?.readiness.workControl)}, simulation {diagnosticText(station?.readiness.simulation)}, session {diagnosticText(station?.readiness.session)}, terminal {diagnosticText(observation?.readiness?.terminal)}, browser {diagnosticText(observation?.readiness?.browser)}
         </span>
         <span>last check-in</span>
         <span>{diagnosticText(lease?.lastCheckInAt)}</span>
@@ -215,6 +215,115 @@ function StationDiagnostics({
           <p>{observation.observationError}</p>
         </details>
       ) : null}
+      {station &&
+      (station.receivedThrough.length > 0 ||
+        station.peerAcknowledgedThrough.length > 0) ? (
+        <details className="fleet-detail__diagnostic">
+          <summary>Logical cursor routes</summary>
+          <div className="fleet-detail__kv">
+            {station.receivedThrough.map((cursor) => (
+              <Fragment
+                key={`received:${cursor.eventHome}:${cursor.entityHome}`}
+              >
+                <span>received {cursor.eventHome} → {cursor.entityHome}</span>
+                <span>{cursor.through}</span>
+              </Fragment>
+            ))}
+            {station.peerAcknowledgedThrough.map((cursor) => (
+              <Fragment
+                key={`acknowledged:${cursor.eventHome}:${cursor.entityHome}`}
+              >
+                <span>peer acknowledged {cursor.eventHome} → {cursor.entityHome}</span>
+                <span>{cursor.through}</span>
+              </Fragment>
+            ))}
+          </div>
+        </details>
+      ) : null}
+    </section>
+  );
+}
+
+function StationSynchronization({
+  observation,
+}: {
+  readonly observation?: StationRemoteObservation;
+}) {
+  const synchronization = observation?.synchronization;
+  if (synchronization === undefined) return null;
+  return (
+    <section className="fleet-detail__section">
+      <div className="fleet-detail__section-label">Last synchronization</div>
+      <div className="fleet-detail__kv">
+        <span>result</span>
+        <span>{synchronization.converged ? "converged" : "incomplete"}</span>
+        <span>projection</span>
+        <span>
+          {synchronization.projectionDecision} / generation {synchronization.projectionGeneration}
+        </span>
+        <span>projection hash</span>
+        <span>{synchronization.projectionContentSha256}</span>
+        <span>report rounds</span>
+        <span>{synchronization.reportRounds}</span>
+        <span>outbound / inbound</span>
+        <span>{synchronization.outboundSent} / {synchronization.inboundReceived}</span>
+        <span>accepted / idempotent / rejected</span>
+        <span>
+          {synchronization.inboundAccepted} / {synchronization.inboundIdempotent} / {synchronization.inboundRejected}
+        </span>
+        <span>more outbound / inbound</span>
+        <span>
+          {String(synchronization.hasMoreOutbound)} / {String(synchronization.hasMoreInbound)}
+        </span>
+      </div>
+      <p className="fleet-detail__note">
+        This is the last bounded projection and work-report receipt. It is not
+        a promise that the route stayed connected afterward.
+      </p>
+    </section>
+  );
+}
+
+function StationTopology({
+  observation,
+}: {
+  readonly observation?: StationRemoteObservation;
+}) {
+  const topology = observation?.topology;
+  if (topology === undefined) return null;
+  return (
+    <section className="fleet-detail__section">
+      <div className="fleet-detail__section-label">Projected topology</div>
+      <div className="fleet-detail__kv">
+        <span>portfolio</span>
+        <span>
+          {topology.canvasCount} canvases / {topology.nodeCount} nodes / {topology.edgeCount} edges
+        </span>
+        <span>all actors / sinks / schedulers</span>
+        <span>{topology.actorCount} / {topology.sinkCount} / {topology.schedulerCount}</span>
+        <span>this Remote nodes</span>
+        <span>{topology.targetNodeCount}</span>
+        <span>this Remote actors / sinks / schedulers</span>
+        <span>
+          {topology.targetActorCount} / {topology.targetSinkCount} / {topology.targetSchedulerCount}
+        </span>
+        <span>Command Center / other Station nodes</span>
+        <span>{topology.commandCenterNodeCount} / {topology.otherStationNodeCount}</span>
+        <span>Remote-local actor ↔ sink edges</span>
+        <span>{topology.targetInternalAccessEdgeCount}</span>
+        <span>Remote actor → Command Center sink</span>
+        <span>{topology.remoteActorToCommandCenterSinkEdgeCount}</span>
+        <span>Command Center actor → Remote sink</span>
+        <span>{topology.commandCenterActorToRemoteSinkEdgeCount}</span>
+        <span>Station ↔ Station edges</span>
+        <span>{topology.stationPeerEdgeCount}</span>
+        <span>dangling edges</span>
+        <span>{topology.danglingEdgeCount}</span>
+      </div>
+      <p className="fleet-detail__note">
+        Counts come from the exact complete projection acknowledged by this
+        Remote. Runtime authority still follows installation-homed work rows.
+      </p>
     </section>
   );
 }
@@ -494,6 +603,8 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
       </section>
 
       <StationDiagnostics observation={probe?.observation} />
+      <StationSynchronization observation={probe?.observation} />
+      <StationTopology observation={probe?.observation} />
 
       {probe?.linuxCapabilities ? (
         <section className="fleet-detail__section">
