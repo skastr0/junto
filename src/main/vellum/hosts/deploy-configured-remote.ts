@@ -89,6 +89,7 @@ export type ConfiguredRemoteDeployOperations = {
     ssh: Ssh,
     host: RemoteHost,
     deployed: DeployRemoteResult,
+    target?: RemoteDeploymentTarget,
   ) => Effect.Effect<
     { readonly ok: boolean; readonly detail: string },
     never
@@ -128,55 +129,17 @@ const defaultOperations: ConfiguredRemoteDeployOperations = {
       const darwin = yield* Effect.promise(
         () => import("./deploy-darwin"),
       );
-      const { parseHostSshRoute } = yield* Effect.promise(
-        () => import("../ssh/domain"),
-      );
-      const { homeDirectoryLookup } = yield* Effect.promise(
-        () => import("../ssh/program"),
-      );
-      const endpointResult = yield* parseHostSshRoute(host).pipe(
-        Effect.result,
-      );
-      if (endpointResult._tag === "Failure") {
+      if (target === undefined) {
         return {
           ok: false as const,
-          detail: `invalid SSH route: ${endpointResult.failure.message}`,
+          detail: "Darwin runtime activation target was not admitted",
         };
       }
-      const homeResult = yield* ssh
-        .run(homeDirectoryLookup(endpointResult.success))
-        .pipe(Effect.result);
-      if (homeResult._tag === "Failure") {
-        return {
-          ok: false as const,
-          detail: `could not resolve remote home: ${homeResult.failure.message}`,
-        };
-      }
-      const { decodeRemoteHomeDirectoryOutput } = yield* Effect.promise(
-        () => import("./remote-home"),
+      const activated = yield* darwin.activateDarwinRemoteRuntimeForTarget(
+        ssh,
+        target,
       );
-      const home = decodeRemoteHomeDirectoryOutput(
-        homeResult.success.stdout,
-      );
-      if (home === null) {
-        return {
-          ok: false as const,
-          detail: "remote home is not a canonical absolute path",
-        };
-      }
-      const activated = yield* darwin
-        .activateDarwinRemoteRuntime(ssh, endpointResult.success, home)
-        .pipe(Effect.result);
-      if (activated._tag === "Failure") {
-        return {
-          ok: false as const,
-          detail:
-            activated.failure instanceof Error
-              ? activated.failure.message
-              : String(activated.failure),
-        };
-      }
-      return activated.success;
+      return activated;
     }),
 };
 
@@ -364,7 +327,12 @@ export const deployConfiguredRemoteHost = (
       const activated =
         operations.activateRuntime === undefined
           ? { ok: true as const, detail: "runtime activation not required" }
-          : yield* operations.activateRuntime(ssh, host, deployed);
+          : yield* operations.activateRuntime(
+              ssh,
+              host,
+              deployed,
+              preparation.target,
+            );
       if (!activated.ok) {
         return {
           ...deployed,

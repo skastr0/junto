@@ -23,6 +23,7 @@ describe("remote-plan public surface", () => {
   it("contains only current runtime and deployment capabilities", () => {
     expect(Object.keys(remotePlan).sort()).toEqual([
       "HERDR_IMAGE_STAGE_DIR",
+      "compileDarwinRemoteActivationScript",
       "compileDarwinRemoteDeployScript",
       "compileHerdrImageStage",
       "compileLinuxUserlandDeploy",
