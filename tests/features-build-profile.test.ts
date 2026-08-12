@@ -12,13 +12,26 @@ import {
 } from "../src/shared/feature-catalog";
 
 describe("compile-time feature profiles", () => {
-  it("keeps every ship-cut surface off by default", () => {
+  it("keeps the approved SHIP feature set explicit", () => {
     const resolved = resolveBuildFeatures({});
     expect(resolved.profile).toBe("ship");
     expect(resolved.features).toEqual(SHIP_FEATURES);
-    expect(Object.values(resolved.features)).toEqual(
-      Object.values(resolved.features).map(() => false),
-    );
+    expect(resolved.features).toEqual({
+      cron: false,
+      relay: false,
+      browser: false,
+      fleetUi: true,
+      usage: false,
+      helpMap: false,
+      audio: false,
+      hermesIntegration: false,
+      herdr: false,
+      devTools: false,
+      harnessKimi: false,
+      harnessMuse: false,
+      harnessPrimeAgent: false,
+      harnessSettings: false,
+    });
   });
 
   it("supports an explicit all-on regression profile", () => {
