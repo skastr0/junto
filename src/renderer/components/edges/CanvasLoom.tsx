@@ -20,6 +20,7 @@ import {
 import { planLoom } from "../../lib/wire-loom";
 import type { LoomEdgeInput, LoomObstacle, LoomStrand } from "../../lib/wire-loom";
 import { viewportBusy$ } from "../../lib/viewport-busy";
+import { canvasPerformance } from "../../lib/performance/canvas-performance";
 import { nodeBounds } from "../../lib/wire-route";
 import type { WireDirection, WirePoint, WireRect } from "../../lib/wire-route";
 
@@ -210,6 +211,24 @@ function sameRects(a: ReadonlyArray<WireRect>, b: ReadonlyArray<WireRect>): bool
   return true;
 }
 
+function sameObstacles(a: ReadonlyArray<LoomObstacle>, b: ReadonlyArray<LoomObstacle>): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i]!;
+    const y = b[i]!;
+    if (
+      x.nodeId !== y.nodeId ||
+      x.x !== y.x ||
+      x.y !== y.y ||
+      x.width !== y.width ||
+      x.height !== y.height
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /**
  * `edges` is the rendered, already filtered array — hidden, filtered, and
  * searched-out nodes are handled by never reaching here.
@@ -239,6 +258,7 @@ export function CanvasLoom({ edges }: { readonly edges: ReadonlyArray<FlowEdge> 
   const viewportBusy = use$(viewportBusy$);
 
   useEffect(() => {
+    canvasPerformance.recordLoomEffect();
     const obstacles: LoomObstacle[] = [];
     for (const node of geometry) {
       if (!node.obstacle) continue;
@@ -247,7 +267,9 @@ export function CanvasLoom({ edges }: { readonly edges: ReadonlyArray<FlowEdge> 
         ...nodeBounds({ x: node.x, y: node.y }, { width: node.width, height: node.height }),
       });
     }
-    // Published unconditionally: this is the per-edge router's field.
+    // Published unconditionally: this is the per-edge router's field. The
+    // recorder distinguishes equal-value attempts from actual value changes.
+    canvasPerformance.recordObstaclePublication(sameObstacles(loomObstacles$.peek(), obstacles));
     loomObstacles$.set(obstacles);
 
     const specsNow = specsRef.current;
@@ -300,7 +322,11 @@ export function CanvasLoom({ edges }: { readonly edges: ReadonlyArray<FlowEdge> 
       });
     }
 
+    const planStartedAt = globalThis.performance?.now?.() ?? Date.now();
     const plan = planLoom({ edges: inputs, obstacles });
+    canvasPerformance.recordLoomPlan(
+      Math.max(0, (globalThis.performance?.now?.() ?? Date.now()) - planStartedAt),
+    );
     const held = loomStrands$.peek();
     for (const id of Object.keys(held)) {
       if (!plan.strands.has(id)) loomStrands$[id]!.delete();
@@ -311,7 +337,9 @@ export function CanvasLoom({ edges }: { readonly edges: ReadonlyArray<FlowEdge> 
       if (prior && sameStrand(prior, strand)) continue;
       loomStrands$[id]!.set(strand);
     }
-    if (!sameRects(loomCorridors$.peek(), plan.corridors)) {
+    const corridorsEqual = sameRects(loomCorridors$.peek(), plan.corridors);
+    canvasPerformance.recordCorridorPublication(corridorsEqual);
+    if (!corridorsEqual) {
       loomCorridors$.set([...plan.corridors]);
     }
     plannedRef.current = { geometry, specsKey };

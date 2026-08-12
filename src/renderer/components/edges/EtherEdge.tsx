@@ -13,6 +13,7 @@ import { corridorsClearOf, LANE_GAP, stitchStrand } from "../../lib/wire-loom";
 import { state$ } from "../../lib/state";
 import { accentColor, EDGE_COLOR, HUE } from "../../lib/theme";
 import { routeWire, type WireRect } from "../../lib/wire-route";
+import { canvasPerformance } from "../../lib/performance/canvas-performance";
 import type { WireFamily } from "@shared/physics";
 import {
   chipPortsFromOffers,
@@ -179,19 +180,20 @@ export function EtherEdge({
   });
 
   const routed = useMemo(
-    () =>
-      stitched
-        ? null
-        : routeWire({
-            source: { x: sourceX, y: sourceY },
-            target: { x: targetX, y: targetY },
-            obstacles: routeObstacles,
-            padding: 14,
-            borderRadius: 8,
-            sourceDirection: sourcePosition,
-            targetDirection: targetPosition,
-          }),
-    [stitched, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, routeObstacles],
+    () => {
+      if (stitched) return null;
+      canvasPerformance.recordRouteWire(id, "geometry");
+      return routeWire({
+        source: { x: sourceX, y: sourceY },
+        target: { x: targetX, y: targetY },
+        obstacles: routeObstacles,
+        padding: 14,
+        borderRadius: 8,
+        sourceDirection: sourcePosition,
+        targetDirection: targetPosition,
+      });
+    },
+    [id, stitched, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, routeObstacles],
   );
 
   const path = stitched?.path ?? routed?.path ?? fallbackPath;

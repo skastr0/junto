@@ -115,8 +115,8 @@ export type PerformanceDelta = {
 
 export type CanvasPerformanceRecorder = {
   readonly recordReactCommit: (surface: PerformanceSurface, durationMs: number) => void;
-  readonly recordActivityMount: (animated: boolean) => void;
-  readonly recordActivityUnmount: () => void;
+  readonly recordActivityMount: (animated: boolean, mode?: "wave" | "pulse" | "static") => void;
+  readonly recordActivityUnmount: (animated?: boolean, mode?: "wave" | "pulse" | "static") => void;
   readonly observeActivityPopulation: (population: ActivityPopulation) => void;
   readonly recordLoomEffect: () => void;
   readonly recordObstaclePublication: (equal: boolean) => void;
@@ -135,8 +135,8 @@ export type CanvasPerformanceRecorder = {
 
 export type PerformanceObservation =
   | { readonly kind: "react-commit"; readonly surface: PerformanceSurface; readonly durationMs: number }
-  | { readonly kind: "activity-mount"; readonly animated: boolean }
-  | { readonly kind: "activity-unmount" }
+  | { readonly kind: "activity-mount"; readonly animated: boolean; readonly mode?: "wave" | "pulse" | "static" }
+  | { readonly kind: "activity-unmount"; readonly animated?: boolean; readonly mode?: "wave" | "pulse" | "static" }
   | { readonly kind: "activity-population"; readonly population: ActivityPopulation }
   | { readonly kind: "loom-effect" }
   | { readonly kind: "obstacle-publication"; readonly equal: boolean }
@@ -380,12 +380,19 @@ export const createCanvasPerformanceRecorder = (options?: {
       if (surface === "root") counters.reactRootCommits += 1;
       else counters.reactCanvasCommits += 1;
     },
-    recordActivityMount: (animated) => {
+    recordActivityMount: (animated, mode) => {
       counters.activityMarkMounts += 1;
       if (animated) counters.activityMarkAnimatedObservations += 1;
+      counters.activityPopulation.mounted += 1;
+      if (animated) counters.activityPopulation.animated += 1;
+      if (mode) counters.activityPopulation.byMode[mode] += 1;
+      updatePeak();
     },
-    recordActivityUnmount: () => {
+    recordActivityUnmount: (animated = false, mode) => {
       counters.activityMarkUnmounts += 1;
+      counters.activityPopulation.mounted = Math.max(0, counters.activityPopulation.mounted - 1);
+      if (animated) counters.activityPopulation.animated = Math.max(0, counters.activityPopulation.animated - 1);
+      if (mode) counters.activityPopulation.byMode[mode] = Math.max(0, counters.activityPopulation.byMode[mode] - 1);
     },
     observeActivityPopulation: (population) => {
       counters.activityMarkObservations += 1;
@@ -492,10 +499,10 @@ export const recordCanvasPerformanceObservation = (
       recorder.recordReactCommit(observation.surface, observation.durationMs);
       return;
     case "activity-mount":
-      recorder.recordActivityMount(observation.animated);
+      recorder.recordActivityMount(observation.animated, observation.mode);
       return;
     case "activity-unmount":
-      recorder.recordActivityUnmount();
+      recorder.recordActivityUnmount(observation.animated, observation.mode);
       return;
     case "activity-population":
       recorder.observeActivityPopulation(observation.population);
@@ -547,8 +554,8 @@ export const runCanvasPerformanceScenario = (
 
 export const canvasPerformance = {
   recordReactCommit: (surface: PerformanceSurface, durationMs: number): void => activeRecorder?.recordReactCommit(surface, durationMs),
-  recordActivityMount: (animated: boolean): void => activeRecorder?.recordActivityMount(animated),
-  recordActivityUnmount: (): void => activeRecorder?.recordActivityUnmount(),
+  recordActivityMount: (animated: boolean, mode?: "wave" | "pulse" | "static"): void => activeRecorder?.recordActivityMount(animated, mode),
+  recordActivityUnmount: (animated?: boolean, mode?: "wave" | "pulse" | "static"): void => activeRecorder?.recordActivityUnmount(animated, mode),
   observeActivityPopulation: (population: ActivityPopulation): void => activeRecorder?.observeActivityPopulation(population),
   recordLoomEffect: (): void => activeRecorder?.recordLoomEffect(),
   recordObstaclePublication: (equal: boolean): void => activeRecorder?.recordObstaclePublication(equal),

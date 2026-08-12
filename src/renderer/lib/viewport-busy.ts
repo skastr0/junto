@@ -9,6 +9,7 @@
 // if onMoveEnd is dropped.
 
 import { observable } from "@legendapp/state";
+import { canvasPerformance } from "./performance/canvas-performance";
 
 /** True while the canvas viewport is mid-gesture (pan/zoom/scroll). */
 export const viewportBusy$ = observable(false);
@@ -36,7 +37,10 @@ const clearMaxTimer = (): void => {
 const setIdle = (): void => {
   clearEndTimer();
   clearMaxTimer();
-  if (viewportBusy$.peek()) viewportBusy$.set(false);
+  if (viewportBusy$.peek()) {
+    viewportBusy$.set(false);
+    canvasPerformance.recordViewportBusy(false);
+  }
 };
 
 /** Enter (or stay in) the busy freeze. Idempotent; cancels a pending release. */
@@ -44,6 +48,7 @@ export const markViewportBusy = (): void => {
   clearEndTimer();
   if (!viewportBusy$.peek()) {
     viewportBusy$.set(true);
+    canvasPerformance.recordViewportBusy(true);
     clearMaxTimer();
     maxTimer = setTimeout(() => {
       maxTimer = undefined;

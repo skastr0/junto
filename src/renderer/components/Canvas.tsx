@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Profiler, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Background,
   BackgroundVariant,
@@ -73,6 +73,7 @@ import { CanvasLoom } from "./edges/CanvasLoom";
 import { RtsBottomBar } from "./rts/RtsBottomBar";
 import { TerminalWizard, createTerminalAt } from "./terminal/TerminalWizard";
 import { CanvasMagnifier } from "./CanvasMagnifier";
+import { canvasPerformance } from "../lib/performance/canvas-performance";
 import { NodePaletteModeDeck, type ModeDeckActions } from "./node-palette/NodePaletteModeDeck";
 import { FocusSurface } from "./FocusSurface";
 import { IconButton, OverlayHeader } from "./ui";
@@ -1206,6 +1207,20 @@ function ConnectPreviewChip() {
   );
 }
 
+function CanvasPerformanceBoundary({ children }: { readonly children: ReactNode }) {
+  if (!import.meta.env.DEV) return children;
+  return (
+    <Profiler
+      id="canvas"
+      onRender={(_id, _phase, actualDuration) => {
+        canvasPerformance.recordReactCommit("canvas", actualDuration);
+      }}
+    >
+      {children}
+    </Profiler>
+  );
+}
+
 function CanvasGraph() {
   const { nodes, edges, onNodesChange, onEdgesChange, interactions, rf } = useCanvasGraph();
   const fieldTheme = themeFor(use$(themeMode$));
@@ -1448,7 +1463,7 @@ function CanvasGraph() {
     releaseViewportBusy();
   }, []);
 
-  return <>
+  return <CanvasPerformanceBoundary><>
     {terminalAnchor ? <TerminalWizard anchor={terminalAnchor} onClose={() => setTerminalAnchor(null)} /> : null}
     <ReactFlow
       ref={rfRef}
@@ -1519,7 +1534,7 @@ function CanvasGraph() {
         onClose={() => setConnectMenu(null)}
       />
     ) : null}
-  </>;
+  </></CanvasPerformanceBoundary>;
 }
 
 export function Canvas() {

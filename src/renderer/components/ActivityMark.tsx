@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import { useEffect, type CSSProperties } from "react";
 import { use$ } from "@legendapp/state/react";
 import {
   ACTIVITY_TONE_HEX,
@@ -8,6 +8,7 @@ import {
   type ActivityTone,
 } from "../lib/activity";
 import { surfaceMotionLive$ } from "../lib/surface-motion";
+import { canvasPerformance } from "../lib/performance/canvas-performance";
 
 const SIZE: Record<
   ActivitySize,
@@ -89,6 +90,13 @@ export function ActivityMark({
   const live = active && surfaceLive;
   const wave = mode === "wave" && live;
   const pulse = mode === "pulse" && live;
+  const renderedMode: ActivityMode = wave ? "wave" : pulse ? "pulse" : "static";
+
+  useEffect(() => {
+    const animated = renderedMode !== "static";
+    canvasPerformance.recordActivityMount(animated, renderedMode);
+    return () => canvasPerformance.recordActivityUnmount(animated, renderedMode);
+  }, [renderedMode]);
 
   // Footprint matches the historical 3×3 grid so mode flips don't shift chrome.
   const box = dims.cols * dims.cellSize + (dims.cols - 1) * dims.cellGap;
