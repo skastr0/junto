@@ -198,6 +198,12 @@ describe("buildRemoteDeployScript", () => {
     expect(script).toContain(
       "CLI_EXE='/Applications/Vellum Command.app/Contents/Resources/bin/vellum-command'",
     );
+    const admit = readFileSync(
+      new URL("../src/main/vellum/hosts/deploy-darwin.ts", import.meta.url),
+      "utf8",
+    );
+    expect(admit).toContain("basename(REMOTE_CLI_EXECUTABLE)");
+    expect(admit).not.toContain('"vellum",');
     expect(script).toContain(
       'test -f "$IN_CLI_EXE" && test ! -L "$IN_CLI_EXE" && test -x "$IN_CLI_EXE"',
     );

@@ -571,7 +571,7 @@ export const admitLocalAppBundle = async (
     "Contents",
     "Resources",
     "bin",
-    "vellum",
+    basename(REMOTE_CLI_EXECUTABLE),
   );
   const [
     plistMetadata,
