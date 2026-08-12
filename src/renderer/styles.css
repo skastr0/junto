@@ -2927,6 +2927,118 @@ ol.note-md__list > .note-md__li::before {
   font-size: 11px;
   color: var(--color-faint);
 }
+.actor-ledger__error {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--color-crimson) 45%, var(--color-stroke));
+  border-radius: 7px;
+  font-size: 10.5px;
+  color: var(--color-crimson);
+  overflow-wrap: anywhere;
+}
+.actor-ledger__error button {
+  margin-left: auto;
+  appearance: none;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: var(--color-dim);
+  cursor: pointer;
+  text-decoration: underline;
+}
+.actor-ledger__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+.actor-ledger__item {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--color-stroke) 80%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--color-inset) 78%, transparent);
+  overflow: hidden;
+}
+.actor-ledger__item-row {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--color-dim);
+  text-align: left;
+}
+button.actor-ledger__item-row {
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+button.actor-ledger__item-row:hover {
+  background: color-mix(in srgb, var(--color-inset) 92%, var(--color-amber) 8%);
+}
+button.actor-ledger__item-row:focus-visible {
+  outline: 1px solid var(--color-amber);
+  outline-offset: -1px;
+}
+.actor-ledger__item-row--static {
+  border: 1px solid color-mix(in srgb, var(--color-stroke) 80%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--color-inset) 78%, transparent);
+}
+.actor-ledger__item-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.actor-ledger__item-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  color: var(--color-ink);
+  font-weight: 500;
+  font-size: 11.5px;
+}
+.actor-ledger__item-detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10.5px;
+  color: var(--color-faint);
+}
+.actor-ledger__respond {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 8px 8px;
+  border-top: 1px solid color-mix(in srgb, var(--color-stroke) 60%, transparent);
+}
+.actor-ledger__respond textarea {
+  font-size: 11px;
+  line-height: 1.4;
+}
+.actor-ledger__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
 .actor-ledger__mail-list {
   display: flex;
   flex-direction: column;
