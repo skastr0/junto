@@ -2,13 +2,18 @@ import { describe, expect, it } from "vitest";
 import type { CanvasDoc, Message } from "../src/shared/canvas";
 import {
   composeMessageDeliveryPayload,
+  composeMessageDeliverySummary,
+  composerBlocksMailInject,
   deliveryTargetOf,
+  isFactoryMailMessage,
   isForeignMessage,
   isMessageDelivered,
   isPendingDelivery,
   listPendingDeliveries,
   messageBriefText,
   messageSenderLabel,
+  MESSAGE_PTY_FULL_BODY_MAX,
+  shouldSummarizeMessageForPty,
   stampMessageDelivered,
 } from "../src/shared/message-delivery";
 
@@ -70,6 +75,62 @@ describe("message-delivery pure helpers", () => {
         }),
       ),
     ).toBe("[message - user] ping the lane - task task-9");
+  });
+
+  it("summarizes factory mail and long bodies; never dumps the essay", () => {
+    const long = "x".repeat(MESSAGE_PTY_FULL_BODY_MAX + 40);
+    expect(shouldSummarizeMessageForPty(userMsg({ parts: [{ kind: "text", text: long }] }))).toBe(
+      true,
+    );
+    const factory = userMsg({
+      messageId: "01KZSM4A84ASFRTZ77YAQ09CVH",
+      metadata: { factoryMail: true, fromSeat: "agent-01KZRZK09851NV4407M2499WJM" },
+      parts: [
+        {
+          kind: "text",
+          text:
+            "[factory mail from agent-01KZRZK09851NV4407M2499WJM] HARNESS-INTEGRATION ANALYSIS\n\n1. WHAT IS SHARED",
+        },
+      ],
+    });
+    expect(isFactoryMailMessage(factory)).toBe(true);
+    expect(shouldSummarizeMessageForPty(factory)).toBe(true);
+    const line = composeMessageDeliveryPayload(factory);
+    expect(line.startsWith("[message - user] factory mail from agent-01KZRZK09851NV4407M2499WJM")).toBe(
+      true,
+    );
+    expect(line).toContain("01KZSM4A84AS");
+    expect(line).toContain("vellum-command msg list");
+    // Essay body is not dumped — only a short preview + CLI pointer.
+    expect(line.includes("\n")).toBe(false);
+    expect(line.length).toBeLessThan(220);
+    expect(line).not.toContain("nothing run, nothing edited");
+  });
+
+  it("batches multiple pending into one notify line", () => {
+    const batch = composeMessageDeliverySummary([
+      userMsg({ messageId: "01AAA", parts: [{ kind: "text", text: "one" }] }),
+      userMsg({
+        messageId: "01BBB",
+        metadata: { factoryMail: true },
+        parts: [{ kind: "text", text: "two essay" }],
+      }),
+      userMsg({ messageId: "01CCC", parts: [{ kind: "text", text: "three" }] }),
+    ]);
+    expect(batch).toContain("3 pending");
+    expect(batch).toContain("1 factory mail");
+    expect(batch).toContain("vellum-command msg list");
+    expect(batch.includes("\n")).toBe(false);
+  });
+
+  it("composerBlocksMailInject: empty and residual notify open; draft blocks", () => {
+    expect(composerBlocksMailInject("")).toBe(false);
+    expect(composerBlocksMailInject("   ")).toBe(false);
+    expect(composerBlocksMailInject("[message - user] mail · 01abc · vellum-command msg list")).toBe(
+      false,
+    );
+    expect(composerBlocksMailInject("please fix the seat brick")).toBe(true);
+    expect(composerBlocksMailInject("[Pasted text #3 +12 lines]")).toBe(true);
   });
 
   it("sender is role only; brief strips controls and collapses whitespace", () => {

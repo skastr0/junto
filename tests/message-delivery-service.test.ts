@@ -494,13 +494,14 @@ describe("MessageDeliveryService", () => {
 
     service.notifyAppended("c", "agent", msg);
     await waitUntil(() => calls.length === 1);
-    expect(calls).toEqual([
-      {
-        bindingId: "bind-mira",
-        text: "[message - user] interrupt the turn",
-        interruptIfBusy: true,
-      },
-    ]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.bindingId).toBe("bind-mira");
+    expect(calls[0]?.interruptIfBusy).toBe(true);
+    // Factory mail always summarizes — full body never rides the PTY.
+    expect(calls[0]?.text).toContain("factory mail");
+    expect(calls[0]?.text).toContain("mail-steer");
+    expect(calls[0]?.text).toContain("vellum-command msg list");
+    expect(calls[0]?.text).not.toBe("[message - user] interrupt the turn");
   });
 
   it("does not steer system mailbox notices", async () => {
@@ -762,5 +763,123 @@ describe("MessageDeliveryService", () => {
     await waitUntil(() =>
       store.hasAcceptedMessageDelivery("c", "agent", msg.messageId),
     );
+  });
+
+  it("batches multiple pending into one PTY notify on scan", async () => {
+    const msgs = [
+      userMsg("b1", "first"),
+      userMsg("b2", "second", { metadata: { factoryMail: true } }),
+      userMsg("b3", "third"),
+    ];
+    const store = makeStore({ c: agentDoc(msgs) });
+    const payloads: string[] = [];
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        wakeManagedSeat: async () => true,
+        sendManagedTerminalPrompt: async (_id, text) => {
+          payloads.push(text);
+          return true;
+        },
+      },
+      store,
+    });
+
+    service.onBooted();
+    await waitUntil(() => payloads.length === 1);
+    expect(payloads[0]).toContain("3 pending");
+    expect(payloads[0]).toContain("factory mail");
+    expect(payloads[0]).toContain("vellum-command msg list");
+    await waitUntil(async () =>
+      (await store.hasAcceptedMessageDelivery("c", "agent", "b1")) &&
+      (await store.hasAcceptedMessageDelivery("c", "agent", "b2")) &&
+      (await store.hasAcceptedMessageDelivery("c", "agent", "b3")),
+    );
+  });
+
+  it("operator-draft gate holds mail without burning a transport attempt", async () => {
+    const msg = userMsg("draft-block", "should wait");
+    const store = makeStore({ c: agentDoc([msg]) });
+    let sends = 0;
+    let now = 10_000;
+    const service = new MessageDeliveryService();
+    let operatorDraft = true;
+    service.configure({
+      now: () => now,
+      transport: {
+        wakeManagedSeat: async () => true,
+        seatDeliverySnapshot: () => ({
+          idle: true,
+          generationKey: "ep1",
+          operatorDraft,
+        }),
+        sendManagedTerminalPrompt: async () => {
+          sends += 1;
+          return true;
+        },
+      },
+      store,
+    });
+
+    // Past settle window, but operator is drafting.
+    now = 10_000 + 5_000;
+    service.notifyAppended("c", "agent", msg);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(sends).toBe(0);
+    expect(await store.hasAcceptedMessageDelivery("c", "agent", "draft-block")).toBe(
+      false,
+    );
+
+    operatorDraft = false;
+    // First idle observation arms settle clock — still blocked.
+    service.onManagedTerminalIdle("bind-mira");
+    await new Promise((r) => setTimeout(r, 30));
+    expect(sends).toBe(0);
+
+    // After settle, deliver.
+    now += 2_000;
+    service.onManagedTerminalIdle("bind-mira");
+    await waitUntil(() => sends === 1);
+    await waitUntil(() =>
+      store.hasAcceptedMessageDelivery("c", "agent", "draft-block"),
+    );
+  });
+
+  it("not-settled gate waits MESSAGE_DELIVERY_SETTLE_MS after first idle", async () => {
+    const msg = userMsg("settle", "after quiet");
+    const store = makeStore({ c: agentDoc([msg]) });
+    let sends = 0;
+    let now = 1000;
+    const service = new MessageDeliveryService();
+    service.configure({
+      now: () => now,
+      transport: {
+        wakeManagedSeat: async () => true,
+        seatDeliverySnapshot: () => ({
+          idle: true,
+          generationKey: "ep-settle",
+          operatorDraft: false,
+        }),
+        sendManagedTerminalPrompt: async () => {
+          sends += 1;
+          return true;
+        },
+      },
+      store,
+    });
+
+    service.notifyAppended("c", "agent", msg);
+    await new Promise((r) => setTimeout(r, 30));
+    // First consult sets idleSince = 1000; settle is 1500ms.
+    expect(sends).toBe(0);
+
+    now = 1000 + 1_000;
+    service.onManagedTerminalIdle("bind-mira");
+    await new Promise((r) => setTimeout(r, 30));
+    expect(sends).toBe(0);
+
+    now = 1000 + 1_600;
+    service.onManagedTerminalIdle("bind-mira");
+    await waitUntil(() => sends === 1);
   });
 });

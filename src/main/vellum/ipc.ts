@@ -46,7 +46,9 @@ import { UsageService } from "./usage/usage-service";
 import { WorkService } from "./work/service";
 import { ContentService } from "./content/service";
 import { messageDelivery } from "./work/message-delivery";
+import { composerBlocksMailInject } from "@shared/message-delivery";
 import { mailboxMessageDeliveryId } from "./work/mailbox-receipts";
+import { extractPromptBoxText } from "./term/observer/interaction";
 import { onCanvasChangeForEdgeMap } from "./work/edge-map-notify";
 import { WorkRepository } from "./work/repository";
 import { kernelRecordFromSnapshot } from "@shared/station-status";
@@ -1390,6 +1392,26 @@ export const registerVellumIpc = (): void => {
           // managedAgent + rawTerminal → paste+CR via idle-gated drive.
           sendManagedTerminalPrompt: (bindingId, text, options) =>
             writeManagedPrompt(bindingId, text, options),
+          // Settled idle + empty composer (never overwrite operator draft).
+          seatDeliverySnapshot: (bindingId) => {
+            const live = termPlane.host.get(bindingId);
+            if (
+              !live ||
+              (live.status !== "running" && live.status !== "starting")
+            ) {
+              return undefined;
+            }
+            const idle = seatStateRuntime.isSeatIdle(bindingId);
+            const snap = terminalObserverPlane.snapshot(bindingId);
+            const promptText = snap
+              ? extractPromptBoxText(snap.lines)
+              : "";
+            return {
+              idle,
+              generationKey: live.epoch,
+              operatorDraft: composerBlocksMailInject(promptText),
+            };
+          },
         },
         store: {
           listCanvasNames: () =>

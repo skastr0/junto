@@ -9,12 +9,27 @@
 import type { CanvasDoc, Message } from "@shared/canvas";
 import {
   composeMessageDeliveryPayload,
+  composeMessageDeliverySummary,
   deliveryTargetOf,
+  isFactoryMailMessage,
   isPendingDelivery,
   listPendingDeliveries,
   sanitizeDeliveryLine,
 } from "@shared/message-delivery";
 import type { SurfaceDeliveryTarget } from "@shared/actor-surface";
+
+/**
+ * Quiet time after a generation first becomes idle before mail may paste.
+ * Prevents open-to-continue from racing the load/resume paint with a dump.
+ */
+export const MESSAGE_DELIVERY_SETTLE_MS = 1_500;
+
+export type SeatDeliveryGateResult =
+  | { readonly allow: true }
+  | {
+      readonly allow: false;
+      readonly reason: "not-idle" | "not-settled" | "operator-draft" | "unavailable";
+    };
 
 export type MessageDeliveryTransport = {
   /** Start a local lazy managed seat before the first delivery attempt. */
@@ -34,6 +49,28 @@ export type MessageDeliveryTransport = {
     text: string,
     options?: ManagedTerminalPromptOptions,
   ) => Promise<boolean>;
+  /**
+   * Live seat snapshot for the product delivery gate. Absent → allow
+   * (unit tests without a host). Operator draft must never be overwritten;
+   * settle waits MESSAGE_DELIVERY_SETTLE_MS after first idle for the epoch.
+   */
+  readonly seatDeliverySnapshot?: (
+    bindingId: string,
+  ) =>
+    | {
+        readonly idle: boolean;
+        readonly generationKey: string;
+        readonly operatorDraft: boolean;
+      }
+    | undefined
+    | Promise<
+        | {
+            readonly idle: boolean;
+            readonly generationKey: string;
+            readonly operatorDraft: boolean;
+          }
+        | undefined
+      >;
 };
 
 export type ManagedTerminalPromptOptions = {
@@ -158,6 +195,13 @@ export class MessageDeliveryService {
   private static readonly WAKE_RETRY_BASE_MS = 45_000;
   /** One refusal log per pending message, not one per idle-scan re-attempt. */
   private readonly wakeRefusalLogged = new Set<string>();
+  /**
+   * Per bindingId@epoch: first time we observed a settled-idle-eligible seat
+   * for this generation (set when gate is consulted and seat is idle).
+   * Cleared when the generation key changes.
+   */
+  private readonly idleSinceByGeneration = new Map<string, number>();
+  private readonly lastGenerationKey = new Map<string, string>();
   private timers: MessageDeliveryTimers = defaultTimers;
   private readonly pendingRequestResponses = new Map<
     string,
@@ -202,6 +246,8 @@ export class MessageDeliveryService {
     this.pendingRequestResponses.clear();
     this.clearWakeRetries();
     this.wakeRefusalLogged.clear();
+    this.idleSinceByGeneration.clear();
+    this.lastGenerationKey.clear();
     this.transport = undefined;
     this.store = undefined;
     this.now = () => Date.now();
@@ -231,6 +277,8 @@ export class MessageDeliveryService {
     this.pendingRequestResponses.clear();
     this.clearWakeRetries();
     this.wakeRefusalLogged.clear();
+    this.idleSinceByGeneration.clear();
+    this.lastGenerationKey.clear();
   }
 
   private clearWakeRetries(): void {
@@ -303,6 +351,8 @@ export class MessageDeliveryService {
     this.transportAttempts.clear();
     this.wakeRetryCounts.clear();
     this.wakeRefusalLogged.clear();
+    // Re-settle after pause so mail does not fire mid-resume paint.
+    this.idleSinceByGeneration.clear();
     void this.retryRequestResponses();
     void this.scanAndDeliver(() => true);
   }
@@ -404,12 +454,101 @@ export class MessageDeliveryService {
       }
       if (!this.active(generation)) return;
       if (!doc) continue;
+      // Group pending by seat so wake can batch into one notify line.
+      const groups = new Map<
+        string,
+        {
+          readonly nodeId: string;
+          readonly target: SurfaceDeliveryTarget;
+          readonly messages: Message[];
+        }
+      >();
       for (const pending of listPendingDeliveries(doc)) {
-        if (!this.active(generation)) return;
         if (!match(pending.target)) continue;
-        await this.attemptOne(canvas, pending.nodeId, pending.message);
+        const key = `${pending.nodeId}::${pending.target.bindingId}`;
+        const existing = groups.get(key);
+        if (existing) {
+          existing.messages.push(pending.message);
+        } else {
+          groups.set(key, {
+            nodeId: pending.nodeId,
+            target: pending.target,
+            messages: [pending.message],
+          });
+        }
+      }
+      for (const group of groups.values()) {
+        if (!this.active(generation)) return;
+        // Edge-map notices keep per-message attemptOne (topology bounds).
+        // Ordinary mail (including factory mail) batches on the same seat.
+        const edgeMap: Message[] = [];
+        const ordinary: Message[] = [];
+        for (const message of group.messages) {
+          if (message.metadata?.edgeMapChange === true) edgeMap.push(message);
+          else ordinary.push(message);
+        }
+        if (ordinary.length === 1) {
+          await this.attemptOne(canvas, group.nodeId, ordinary[0]!);
+        } else if (ordinary.length > 1) {
+          await this.attemptBatch(canvas, group.nodeId, ordinary);
+        }
+        for (const message of edgeMap) {
+          if (!this.active(generation)) return;
+          await this.attemptOne(canvas, group.nodeId, message);
+        }
       }
     }
+  }
+
+  /**
+   * Product gate before PTY paste. Gate refusals do not burn transport
+   * attempts — the message stays pending for the next idle/attach/boot.
+   */
+  private async evaluateSeatGate(
+    bindingId: string,
+  ): Promise<SeatDeliveryGateResult> {
+    const transport = this.transport;
+    if (!transport?.seatDeliverySnapshot) return { allow: true };
+    let snap:
+      | {
+          readonly idle: boolean;
+          readonly generationKey: string;
+          readonly operatorDraft: boolean;
+        }
+      | undefined;
+    try {
+      snap = await transport.seatDeliverySnapshot(bindingId);
+    } catch {
+      return { allow: false, reason: "unavailable" };
+    }
+    if (!snap) return { allow: false, reason: "unavailable" };
+
+    const prevKey = this.lastGenerationKey.get(bindingId);
+    if (prevKey !== snap.generationKey) {
+      if (prevKey !== undefined) this.idleSinceByGeneration.delete(prevKey);
+      this.lastGenerationKey.set(bindingId, snap.generationKey);
+      this.idleSinceByGeneration.delete(snap.generationKey);
+    }
+
+    if (!snap.idle) {
+      this.idleSinceByGeneration.delete(snap.generationKey);
+      return { allow: false, reason: "not-idle" };
+    }
+
+    const nowMs = this.now();
+    let idleSince = this.idleSinceByGeneration.get(snap.generationKey);
+    if (idleSince === undefined) {
+      idleSince = nowMs;
+      this.idleSinceByGeneration.set(snap.generationKey, idleSince);
+    }
+    if (nowMs - idleSince < MESSAGE_DELIVERY_SETTLE_MS) {
+      return { allow: false, reason: "not-settled" };
+    }
+
+    if (snap.operatorDraft) {
+      return { allow: false, reason: "operator-draft" };
+    }
+    return { allow: true };
   }
 
   private async attemptOne(
@@ -529,14 +668,19 @@ export class MessageDeliveryService {
             this.attemptedClaims.set(key, { signature });
           }
         }
+        // Settled idle + empty composer (operator draft never overwritten).
+        // Gate failure is not a transport failure — do not burn attempts.
+        const gate = await this.evaluateSeatGate(target.bindingId);
+        if (!gate.allow) return;
+
         const payload = composeMessageDeliveryPayload(live);
         const promptOptions =
-          transport.wakeManagedSeat || live.metadata?.factoryMail === true
+          transport.wakeManagedSeat || isFactoryMailMessage(live)
             ? {
                 ...(transport.wakeManagedSeat ? { ready: true } : {}),
                 // Only explicit factory mail steers a live turn. System
                 // mailbox notices remain ordinary queued prompts.
-                ...(live.metadata?.factoryMail === true
+                ...(isFactoryMailMessage(live)
                   ? { interruptIfBusy: true }
                   : {}),
               }
@@ -573,6 +717,129 @@ export class MessageDeliveryService {
       // Best-effort: leave pending; inFlight cleared so idle/attach can retry.
     } finally {
       this.inFlight.delete(key);
+    }
+  }
+
+  /**
+   * Deliver several ordinary pending messages as ONE notify line, then stamp
+   * every message on success. Gate/wake failure leaves all pending.
+   */
+  private async attemptBatch(
+    canvas: string,
+    nodeId: string,
+    messages: ReadonlyArray<Message>,
+  ): Promise<void> {
+    const generation = this.lifecycleGeneration;
+    if (!this.active(generation) || messages.length === 0) return;
+    const transport = this.transport;
+    const store = this.store;
+    if (!transport || !store) return;
+
+    const batchKey = flightKey(
+      canvas,
+      nodeId,
+      `batch:${messages.map((m) => m.messageId).sort().join("+")}`,
+    );
+    if (this.inFlight.has(batchKey)) return;
+    this.inFlight.add(batchKey);
+
+    try {
+      // Drop already-receipted messages; if nothing left, done.
+      const pending: Message[] = [];
+      for (const message of messages) {
+        if (!isPendingDelivery(message)) continue;
+        if (await store.hasAcceptedMessageDelivery(canvas, nodeId, message.messageId)) {
+          continue;
+        }
+        pending.push(message);
+      }
+      if (!this.active(generation) || pending.length === 0) return;
+      if (pending.length === 1) {
+        await this.attemptOne(canvas, nodeId, pending[0]!);
+        return;
+      }
+
+      const doc = await store.readDoc(canvas);
+      if (!this.active(generation) || !doc) return;
+      if (this.seatPausedLookup?.(canvas, doc, nodeId)) return;
+      const node = doc.nodes.find((n) => n.id === nodeId);
+      if (!node) return;
+      const target = deliveryTargetOf(node);
+      if (!target) return;
+
+      // Re-check each message still lives on the node as pending.
+      const liveItems = node.ether?.messages?.items ?? [];
+      const livePending = pending.filter((m) => {
+        const live = liveItems.find((item) => item.messageId === m.messageId);
+        return live !== undefined && isPendingDelivery(live);
+      });
+      if (livePending.length === 0) return;
+      if (livePending.length === 1) {
+        await this.attemptOne(canvas, nodeId, livePending[0]!);
+        return;
+      }
+
+      const woke = await this.wakeManagedSeat(transport, canvas, nodeId);
+      if (!woke) {
+        // Arm wake retry on the first message so the batch has a future trigger.
+        const first = livePending[0]!;
+        const key = flightKey(canvas, nodeId, first.messageId);
+        if (!this.wakeRefusalLogged.has(key)) {
+          this.wakeRefusalLogged.add(key);
+          console.error(
+            `[delivery] wake refused — batch of ${String(livePending.length)} for ${canvas}/${nodeId} stays pending`,
+          );
+        }
+        this.scheduleWakeRetry(generation, canvas, nodeId, first, key);
+        return;
+      }
+
+      const gate = await this.evaluateSeatGate(target.bindingId);
+      if (!gate.allow) return;
+
+      const payload = composeMessageDeliverySummary(livePending);
+      const anyFactory = livePending.some((m) => isFactoryMailMessage(m));
+      const promptOptions =
+        transport.wakeManagedSeat || anyFactory
+          ? {
+              ...(transport.wakeManagedSeat ? { ready: true } : {}),
+              ...(anyFactory ? { interruptIfBusy: true } : {}),
+            }
+          : undefined;
+
+      const delivered = await this.deliver(
+        transport,
+        target,
+        payload,
+        batchKey,
+        promptOptions,
+      );
+      if (!delivered) return;
+
+      for (const message of livePending) {
+        const key = flightKey(canvas, nodeId, message.messageId);
+        this.transportAccepted.add(key);
+        const accepted = await store.acceptMessageDelivery(
+          canvas,
+          nodeId,
+          message.messageId,
+        );
+        if (accepted) {
+          this.transportAccepted.delete(key);
+          this.transportAttempts.delete(key);
+          this.wakeRetryCounts.delete(key);
+          this.wakeRefusalLogged.delete(key);
+        } else {
+          console.error(
+            `[delivery] receipt stamp FAILED for ${canvas}/${nodeId}/${message.messageId} ` +
+              `(batch transport accepted; re-paste suppressed by transportAccepted)`,
+          );
+        }
+      }
+    } catch {
+      // Leave pending for idle/attach retry.
+    } finally {
+      this.inFlight.delete(batchKey);
     }
   }
 

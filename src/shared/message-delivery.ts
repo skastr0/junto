@@ -22,15 +22,105 @@ export const sanitizeDeliveryLine = (text: string): string =>
     .replace(/\s+/g, " ")
     .trim();
 
-/** Pulse-style one-liner: `[message - <sender>] <brief>[ - task <id>]` */
+/**
+ * Max brief length that may ride the PTY as the full one-liner.
+ * Longer bodies (and every factoryMail) become a summary pointer instead —
+ * the PTY is a notify surface, not a dump truck for peer essays.
+ */
+export const MESSAGE_PTY_FULL_BODY_MAX = 160;
+
+/** Preview length inside a summary line (before the CLI pointer). */
+export const MESSAGE_PTY_SUMMARY_PREVIEW_MAX = 48;
+
+/** True when metadata.factoryMail is the boolean true (peer factory mail). */
+export const isFactoryMailMessage = (message: Message): boolean =>
+  message.metadata?.factoryMail === true;
+
+/**
+ * Full body may paste only when short AND not factory mail.
+ * Factory mail and long bodies always summarize.
+ */
+export const shouldSummarizeMessageForPty = (message: Message): boolean => {
+  if (isFactoryMailMessage(message)) return true;
+  return messageBriefText(message).length > MESSAGE_PTY_FULL_BODY_MAX;
+};
+
+const shortMessageId = (messageId: string): string =>
+  messageId.length > 12 ? messageId.slice(0, 12) : messageId;
+
+const factoryMailFromSeat = (message: Message): string | undefined => {
+  const raw = message.metadata?.fromSeat;
+  if (typeof raw !== "string") return undefined;
+  const trimmed = sanitizeDeliveryLine(raw);
+  return trimmed.length > 0 ? trimmed.slice(0, 32) : undefined;
+};
+
+/** Strip the `[factory mail from …]` envelope so the preview is useful. */
+const briefWithoutFactoryEnvelope = (message: Message): string =>
+  messageBriefText(message)
+    .replace(/^\[factory mail from [^\]]*\]\s*/i, "")
+    .trim();
+
+/**
+ * Pulse-style one-liner for a single message.
+ * Short ordinary mail: full brief. Factory mail / long body: summary + CLI pointer.
+ */
 export const composeMessageDeliveryPayload = (message: Message): string => {
-  const sender = messageSenderLabel(message);
-  const brief = messageBriefText(message);
-  const task =
-    typeof message.taskId === "string" && message.taskId.trim().length > 0
-      ? ` - task ${sanitizeDeliveryLine(message.taskId)}`
-      : "";
-  return sanitizeDeliveryLine(`[message - ${sender}] ${brief}${task}`);
+  if (!shouldSummarizeMessageForPty(message)) {
+    const sender = messageSenderLabel(message);
+    const brief = messageBriefText(message);
+    const task =
+      typeof message.taskId === "string" && message.taskId.trim().length > 0
+        ? ` - task ${sanitizeDeliveryLine(message.taskId)}`
+        : "";
+    return sanitizeDeliveryLine(`[message - ${sender}] ${brief}${task}`);
+  }
+  return composeMessageDeliverySummary([message]);
+};
+
+/**
+ * One PTY notify line for one or more pending messages on the same seat.
+ * N > 1 always batches (never serial full-body dumps on wake).
+ * N === 1 uses the single-message payload rules.
+ */
+export const composeMessageDeliverySummary = (
+  messages: ReadonlyArray<Message>,
+): string => {
+  if (messages.length === 0) {
+    return sanitizeDeliveryLine("[message] (empty)");
+  }
+  if (messages.length === 1) {
+    const message = messages[0]!;
+    if (!shouldSummarizeMessageForPty(message)) {
+      return composeMessageDeliveryPayload(message);
+    }
+    const sender = messageSenderLabel(message);
+    const id = shortMessageId(message.messageId);
+    const from = factoryMailFromSeat(message);
+    const kind = isFactoryMailMessage(message) ? "factory mail" : "mail";
+    const fromBit = from ? ` from ${from}` : "";
+    const previewRaw = briefWithoutFactoryEnvelope(message);
+    const preview =
+      previewRaw.length > MESSAGE_PTY_SUMMARY_PREVIEW_MAX
+        ? `${previewRaw.slice(0, MESSAGE_PTY_SUMMARY_PREVIEW_MAX)}…`
+        : previewRaw;
+    const previewBit = preview.length > 0 ? ` · ${preview}` : "";
+    return sanitizeDeliveryLine(
+      `[message - ${sender}] ${kind}${fromBit} · ${id}${previewBit} · vellum-command msg list`,
+    );
+  }
+  const factoryCount = messages.filter((m) => isFactoryMailMessage(m)).length;
+  const factoryBit =
+    factoryCount > 0 ? ` (${String(factoryCount)} factory mail)` : "";
+  const ids = messages
+    .slice(0, 3)
+    .map((m) => shortMessageId(m.messageId))
+    .join(",");
+  const more =
+    messages.length > 3 ? ` +${String(messages.length - 3)}` : "";
+  return sanitizeDeliveryLine(
+    `[message - user] ${String(messages.length)} pending${factoryBit} · ${ids}${more} · vellum-command msg list`,
+  );
 };
 
 /**
@@ -47,6 +137,18 @@ export const messageBriefText = (message: Message): string => {
     if (line) chunks.push(line);
   }
   return chunks.join(" ") || "(empty)";
+};
+
+/**
+ * True when the composer holds text the product must not overwrite.
+ * Empty box and a residual `[message …]` notify line are open for inject;
+ * any other content (operator draft, paste chip) blocks auto-paste.
+ */
+export const composerBlocksMailInject = (promptBoxText: string): boolean => {
+  const text = promptBoxText.trim();
+  if (text.length === 0) return false;
+  if (/^\[message\b/i.test(text)) return false;
+  return true;
 };
 
 /** True when metadata.deliveredAt is a finite number (already delivered). */
