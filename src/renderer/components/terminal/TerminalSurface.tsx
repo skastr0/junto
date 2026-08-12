@@ -716,6 +716,46 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
             // An agent seat is lazy: opening it IS the demand signal, so it
             // recovers itself instead of asking for a click. Bounded so a seat
             // that genuinely cannot start still settles into the stopped state.
+            // A failed resume is not a dead seat. When a resume generation dies
+            // with harness proof the session is gone, the host mints a fresh pin
+            // and respawns it (local-host maybeFailOpenAfterResumeFailure,
+            // deferred via queueMicrotask). The attach we just finished can land
+            // on that dying resume generation, so declaring the seat dead here
+            // races a replacement already on its way — which is exactly why
+            // Reopen looked instant: the new generation was ALREADY running, and
+            // the click only re-attached to it.
+            //
+            // Wait for a generation with a DIFFERENT epoch before giving up, and
+            // hold the loading state so nothing flashes in between.
+            if (sawExit && agentSeat && !operatorStopped.current) {
+              const deadEpoch = result.lease.epoch;
+              void (async () => {
+                const deadline = Date.now() + 8_000;
+                while (alive && Date.now() < deadline) {
+                  const live = await api
+                    .terminalGet?.(bindingId, hostId)
+                    .catch(() => undefined);
+                  const status = live?.status;
+                  const epoch = (live as { readonly epoch?: string } | undefined)?.epoch;
+                  if (
+                    (status === "running" || status === "starting") &&
+                    epoch !== undefined &&
+                    epoch !== deadEpoch
+                  ) {
+                    if (!alive) return;
+                    setKillPhase("idle");
+                    setAttachKey((key) => key + 1);
+                    return;
+                  }
+                  await new Promise((resolve) => setTimeout(resolve, 200));
+                }
+                if (!alive) return;
+                setStatus("exited");
+                setKillPhase("stopped");
+                setLoadPhase(null);
+              })();
+              return;
+            }
             // Retained exited generations may expose their final raw journal.
             // Never paint those as a live control lease.
             setStatus(sawExit ? "exited" : "control");
