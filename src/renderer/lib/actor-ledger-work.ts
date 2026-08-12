@@ -50,6 +50,23 @@ export type RequestRow = {
   readonly details?: string;
 };
 
+export type BoardTopicRow = {
+  readonly sinkNodeId: string;
+  readonly topicId: string;
+  readonly title: string;
+  readonly open: boolean;
+  readonly postCount: number;
+  readonly lastActivityAtMs: number | undefined;
+  readonly authorLabel?: string;
+};
+
+export type BoardRow = {
+  readonly sinkNodeId: string;
+  /** Operator-local unread topic count when the projection knows it. */
+  readonly unread: number | undefined;
+  readonly topics: ReadonlyArray<BoardTopicRow>;
+};
+
 export type ArtifactRow = {
   readonly artifactId: string;
   readonly sinkNodeId: string;
@@ -197,6 +214,52 @@ export const requestRowsForSeat = (
     }
   }
   return rows.sort(compareRequestRows);
+};
+
+const isoMs = (value: string): number | undefined => {
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : undefined;
+};
+
+/**
+ * Boards the actor is wired to (either edge direction), as glance rows from
+ * the ether.board projection. Open topics first, then latest activity first.
+ * Per-seat unread is not in the glance projection; `unread` is the
+ * operator-local count when known.
+ */
+export const boardRowsForActor = (
+  doc: CanvasDoc,
+  nodeId: string,
+): ReadonlyArray<BoardRow> => {
+  const peerIds = new Set<string>();
+  for (const edge of doc.edges) {
+    if (edge.fromNode === nodeId) peerIds.add(edge.toNode);
+    else if (edge.toNode === nodeId) peerIds.add(edge.fromNode);
+  }
+  const rows: BoardRow[] = [];
+  for (const node of doc.nodes) {
+    if (!peerIds.has(node.id)) continue;
+    const board = node.ether?.board;
+    if (board === undefined) continue;
+    const topics = [...board.topics]
+      .map((topic) => ({
+        sinkNodeId: node.id,
+        topicId: topic.topicId,
+        title: topic.title,
+        open: topic.state === "open",
+        postCount: topic.postCount,
+        lastActivityAtMs: isoMs(topic.lastActivityAt),
+        ...(topic.authorLabel !== undefined
+          ? { authorLabel: topic.authorLabel }
+          : {}),
+      }))
+      .sort((a, b) => {
+        if (a.open !== b.open) return a.open ? -1 : 1;
+        return (b.lastActivityAtMs ?? 0) - (a.lastActivityAtMs ?? 0);
+      });
+    rows.push({ sinkNodeId: node.id, unread: board.unread, topics });
+  }
+  return rows;
 };
 
 const firstTextPart = (parts: ReadonlyArray<Part>): string | undefined => {

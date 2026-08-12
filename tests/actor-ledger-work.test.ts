@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Schema } from "effect";
 import {
   artifactRowsForSeat,
+  boardRowsForActor,
   claimedTaskRow,
   proposalRowsForSeat,
   requestRowsForSeat,
@@ -364,5 +365,81 @@ describe("artifactRowsForSeat", () => {
 
   it("is empty without artifact containers", () => {
     expect(artifactRowsForSeat(emptyDoc, actor.seatId)).toEqual([]);
+  });
+});
+
+describe("boardRowsForActor", () => {
+  const glanceTopic = (
+    topicId: string,
+    title: string,
+    state: "open" | "archived",
+    postCount: number,
+    lastActivityAt: string,
+    authorLabel?: string,
+  ) => ({
+    topicId,
+    title,
+    state,
+    postCount,
+    lastActivityAt,
+    ...(authorLabel !== undefined ? { authorLabel } : {}),
+  });
+
+  const boardDoc: CanvasDoc = {
+    nodes: [
+      sinkNode("agent-node", { entity: { kind: "agent", name: "local:a" } }),
+      sinkNode("wired-board", {
+        entity: { kind: "board" },
+        board: {
+          topics: [
+            glanceTopic("t-old", "Older open", "open", 3, "2026-08-01T10:00:00.000Z"),
+            glanceTopic("t-arch", "Archived", "archived", 9, "2026-08-12T10:00:00.000Z", "operator"),
+            glanceTopic("t-new", "Newer open", "open", 1, "2026-08-10T10:00:00.000Z"),
+          ],
+          unread: 2,
+        },
+      }),
+      sinkNode("stranger-board", {
+        entity: { kind: "board" },
+        board: { topics: [glanceTopic("t-x", "Unwired", "open", 1, "2026-08-11T00:00:00.000Z")] },
+      }),
+    ],
+    edges: [
+      { id: "e1", fromNode: "wired-board", toNode: "agent-node" },
+    ],
+  };
+
+  it("keeps only wired boards, open topics first then latest activity", () => {
+    const rows = boardRowsForActor(boardDoc, "agent-node");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.unread).toBe(2);
+    expect(rows[0]!.topics.map((t) => t.topicId)).toEqual([
+      "t-new",
+      "t-old",
+      "t-arch",
+    ]);
+    expect(rows[0]!.topics[2]).toMatchObject({
+      open: false,
+      authorLabel: "operator",
+      postCount: 9,
+    });
+  });
+
+  it("parses activity timestamps defensively", () => {
+    const doc: CanvasDoc = {
+      nodes: [
+        sinkNode("agent-node", { entity: { kind: "agent", name: "local:a" } }),
+        sinkNode("b", {
+          entity: { kind: "board" },
+          board: { topics: [glanceTopic("t", "Bad clock", "open", 1, "not-a-date")] },
+        }),
+      ],
+      edges: [{ id: "e", fromNode: "agent-node", toNode: "b" }],
+    };
+    expect(boardRowsForActor(doc, "agent-node")[0]!.topics[0]!.lastActivityAtMs).toBeUndefined();
+  });
+
+  it("is empty without wired boards", () => {
+    expect(boardRowsForActor(emptyDoc, "agent-node")).toEqual([]);
   });
 });

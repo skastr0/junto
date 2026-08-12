@@ -28,6 +28,7 @@ import {
 } from "../../lib/actor-ledger";
 import {
   artifactRowsForSeat,
+  boardRowsForActor,
   claimedTaskRow,
   proposalRowsForSeat,
   requestRowsForSeat,
@@ -349,6 +350,18 @@ export function ActorLedgerPane({
     () => (live && seatId !== undefined ? artifactRowsForSeat(doc, seatId) : []),
     [doc, seatId, live],
   );
+  const boards = useMemo(
+    () => (live ? boardRowsForActor(doc, node.id) : []),
+    [doc, node.id, live],
+  );
+  const boardTopics = useMemo(
+    () => boards.flatMap((board) => board.topics),
+    [boards],
+  );
+  const boardUnread = boards.reduce(
+    (sum, board) => sum + (board.unread ?? 0),
+    0,
+  );
   const rows = useMemo(
     () => (live ? mailboxRows(doc, liveNode) : []),
     [doc, liveNode, live],
@@ -602,6 +615,49 @@ export function ActorLedgerPane({
                     </li>
                   );
                 })}
+              </ul>
+            </section>
+          ) : null}
+          {boardTopics.length > 0 ? (
+            <section className="actor-ledger__section" aria-label="Board">
+              <header className="actor-ledger__section-head">
+                <span className="actor-ledger__section-title">board</span>
+                <span className="actor-ledger__section-meta">
+                  {[
+                    `${boardTopics.length}`,
+                    boardUnread > 0 ? `${boardUnread} unread` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" - ")}
+                </span>
+              </header>
+              <ul className="actor-ledger__list">
+                {boardTopics.map((topic) => (
+                  <li
+                    key={`board:${topic.sinkNodeId}:${topic.topicId}`}
+                    className="actor-ledger__item"
+                    data-testid="actor-ledger-board-row"
+                    data-topic-id={topic.topicId}
+                  >
+                    <div
+                      className="actor-ledger__item-row actor-ledger__item-row--static"
+                      title={`${topic.title} - ${topic.postCount} post${topic.postCount === 1 ? "" : "s"} on ${topic.sinkNodeId}${topic.authorLabel ? ` - opened by ${topic.authorLabel}` : ""}`}
+                    >
+                      <span className="actor-ledger__item-head">
+                        {!topic.open ? <Chip tone="steel">archived</Chip> : null}
+                        <span className="actor-ledger__item-title">
+                          {topic.title}
+                        </span>
+                      </span>
+                      <span className="actor-ledger__item-detail">
+                        {topic.postCount} post{topic.postCount === 1 ? "" : "s"}
+                        {mailAgeLabel(nowMs, topic.lastActivityAtMs)
+                          ? ` - ${mailAgeLabel(nowMs, topic.lastActivityAtMs)}`
+                          : ""}
+                      </span>
+                    </div>
+                  </li>
+                ))}
               </ul>
             </section>
           ) : null}
