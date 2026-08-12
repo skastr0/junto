@@ -4,6 +4,9 @@ import {
   evaluateRemoteLease,
 } from "../src/main/vellum/license/remote-lease";
 import { remoteLeaseState } from "../src/main/vellum/license/remote-lease-state";
+import {
+  mayRenewRemoteLease,
+} from "../src/main/vellum/license/remote-lease-renewal";
 import { licenseFactoryHold } from "../src/main/vellum/license/factory-hold";
 
 const at = (iso: string) => ({ now: () => Date.parse(iso) });
@@ -60,6 +63,19 @@ describe("remote Command Center lease", () => {
     expect(remoteLeaseState.read()).toBe(5_000);
     remoteLeaseState.hydrate(9_000);
     expect(remoteLeaseState.read()).toBe(9_000);
+  });
+
+  it("rejects non-finite hydrate/stamp inputs", () => {
+    remoteLeaseState.hydrate(Number.NaN);
+    remoteLeaseState.hydrate(-1);
+    remoteLeaseState.stamp(0);
+    remoteLeaseState.stamp(Number.POSITIVE_INFINITY);
+    expect(remoteLeaseState.read()).toBeNull();
+  });
+
+  it("ties stamp eligibility to paired check-in inventory", () => {
+    expect(mayRenewRemoteLease("status", { paired: false })).toBe(false);
+    expect(mayRenewRemoteLease("project", { paired: true })).toBe(true);
   });
 });
 

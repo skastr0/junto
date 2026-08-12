@@ -19,6 +19,9 @@ import {
   type CanvasError,
 } from "../canvases";
 import {
+  fleetPropagationHeldByLicense,
+} from "../license/admission";
+import {
   StationApiService,
   type StationApiError,
 } from "./api";
@@ -62,6 +65,7 @@ export class StationPropagationInvariantError extends Schema.TaggedErrorClass<St
     "remote-configuration-required",
     "station-host-mismatch",
     "command-center-mismatch",
+    "license-maintenance-hold",
     "database-unavailable",
     "work-control-unavailable",
     "simulation-unavailable",
@@ -378,6 +382,15 @@ export const StationPropagationLive = Layer.effect(
             "synchronize",
             "command-center-role-required",
             "only a configured Command Center may propagate fleet state",
+          );
+        }
+        // CC maintenance must not open status/project that renew Remote leases.
+        // Hold is reversible when full access returns (no permanent admission cut).
+        if (fleetPropagationHeldByLicense()) {
+          return yield* invariant(
+            "synchronize",
+            "license-maintenance-hold",
+            "Command Center is in license maintenance; fleet propagation is held so Remote leases cannot be renewed",
           );
         }
         if (

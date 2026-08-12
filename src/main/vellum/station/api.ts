@@ -1,6 +1,7 @@
 import { Context, Effect, Result, Layer, Schema } from "effect";
 import type { CanvasDoc, CanvasNode } from "@shared/canvas";
 import type { InstallationId as InstallationIdValue } from "@shared/installation-id";
+import { mayRenewRemoteLease } from "../license/remote-lease-renewal";
 import { remoteLeaseState } from "../license/remote-lease-state";
 import { StationContextTagIds } from "./context-services";
 import {
@@ -1390,7 +1391,9 @@ const handleProject = (
     }
     const installed = yield* repository.installProjection(request);
     // Successful CC projection renews the Remote product lease (3-day TTL).
-    remoteLeaseState.stamp();
+    if (mayRenewRemoteLease("project", { paired: true })) {
+      remoteLeaseState.stamp();
+    }
     return installed;
   }).pipe(Effect.withSpan("station-api.project"));
 
@@ -1625,6 +1628,25 @@ export const StationApiLive = Layer.effect(
       },
     );
 
+    /**
+     * Advance the Remote check-in lease only after a successful, authorized
+     * Station completion. Failures and wrong-peer refusals never stamp.
+     * `status` renews only when durable pairing exists (not enrollment probe).
+     */
+    const stampRemoteLeaseIfEligible = (
+      op: "pair" | "configure" | "project" | "status",
+    ): Effect.Effect<void> =>
+      Effect.gen(function* () {
+        const pairing = yield* repository.pairing;
+        if (
+          mayRenewRemoteLease(op, {
+            paired: pairing !== undefined,
+          })
+        ) {
+          remoteLeaseState.stamp();
+        }
+      });
+
     const handle = Effect.fn("StationApiService.handle")((
       request: StationApiRequest,
       readiness: StationReadiness,
@@ -1634,12 +1656,12 @@ export const StationApiLive = Layer.effect(
         case "pair":
           return requireRemoteInbound("pair", peer).pipe(
             Effect.flatMap(() => repository.pair(request)),
-            Effect.tap(() => Effect.sync(() => remoteLeaseState.stamp())),
+            Effect.tap(() => stampRemoteLeaseIfEligible("pair")),
           );
         case "configure":
           return requireRemoteInbound("configure", peer).pipe(
             Effect.flatMap(() => repository.configureRemote(request)),
-            Effect.tap(() => Effect.sync(() => remoteLeaseState.stamp())),
+            Effect.tap(() => stampRemoteLeaseIfEligible("configure")),
           );
         case "project":
           return requireRemoteInbound("project", peer).pipe(
@@ -1650,7 +1672,7 @@ export const StationApiLive = Layer.effect(
         case "status":
           return requireRemoteInbound("status", peer).pipe(
             Effect.flatMap(() => handleStatus(repository, readiness)),
-            Effect.tap(() => Effect.sync(() => remoteLeaseState.stamp())),
+            Effect.tap(() => stampRemoteLeaseIfEligible("status")),
           );
       }
     });
