@@ -180,6 +180,7 @@ describe("padToSvg", () => {
     const labeled = padToSvg(pad, "dark");
     expect(labeled).toContain("shot abababab");
     expect(labeled).not.toContain("<image ");
+    expect(labeled).not.toMatch(/data:image|bytesBase64/);
     const linked = padToSvg(pad, "dark", { hrefs: { img1: "content:img1" } });
     expect(linked).toContain('<image href="content:img1"');
     expect(linked).not.toContain("shot abababab");

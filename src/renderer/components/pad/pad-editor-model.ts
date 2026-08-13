@@ -53,6 +53,39 @@ export const isShapeTool = (tool: PadTool): tool is PadShapeTool =>
 export const DEFAULT_IMAGE_SIZE = { w: 160, h: 120 } as const;
 export const DEFAULT_INK_WIDTH = 2;
 
+export type ImageTransferLike = {
+  readonly files?: FileList | ReadonlyArray<File> | null;
+  readonly items?:
+    | DataTransferItemList
+    | ReadonlyArray<{ readonly kind: string; readonly type: string }>
+    | null;
+  readonly types?: ReadonlyArray<string> | null;
+};
+
+/** True when paste/drop carries an image file or image MIME flavor. */
+export const dataTransferHasImage = (
+  data: ImageTransferLike | null | undefined,
+): boolean => {
+  if (!data) return false;
+  const files = data.files ? Array.from(data.files as ArrayLike<File>) : [];
+  if (
+    files.some(
+      (file) =>
+        file.type.startsWith("image/") ||
+        /\.(png|jpe?g|gif|webp|bmp)$/i.test(file.name),
+    )
+  ) {
+    return true;
+  }
+  const items = data.items
+    ? Array.from(data.items as ArrayLike<{ readonly kind: string; readonly type: string }>)
+    : [];
+  if (items.some((item) => item.kind === "file" && item.type.startsWith("image/"))) {
+    return true;
+  }
+  return Array.from(data.types ?? []).some((type) => type.startsWith("image/"));
+};
+
 export const defaultInkColor = (mode: ThemeMode = "dark"): string =>
   themeRuntime(mode).ink ?? "#d8d2c4";
 

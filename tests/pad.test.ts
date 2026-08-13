@@ -280,3 +280,64 @@ describe("pad applyPatch", () => {
     expect(moved.pins[0]?.posts[0]?.postId).toBe("post-1");
   });
 });
+
+describe("pad images", () => {
+  it("stores ContentRef only and never serializes bytes", () => {
+    const pad = expectOk(applyPatch(emptyPad(), upsertImage("img1")));
+    expect(pad.images).toHaveLength(1);
+    expect(pad.images[0]?.ref).toEqual(contentRef);
+    const json = JSON.stringify(pad);
+    expect(json).not.toMatch(/bytesBase64|data:image|base64,/);
+    expect(JSON.parse(json).images[0]).not.toHaveProperty("bytes");
+    expect(JSON.parse(json).images[0].ref).toEqual(contentRef);
+    const encoded = Schema.encodeSync(Pad)(pad);
+    expect(JSON.stringify(encoded)).not.toMatch(/bytesBase64|data:image|base64,/);
+  });
+
+  it("refuses an image patch that carries bytes", () => {
+    expectFail(
+      applyPatch(emptyPad(), {
+        op: "upsert",
+        layer: "image",
+        image: {
+          id: "img1",
+          x: 0,
+          y: 0,
+          w: 8,
+          h: 8,
+          z: 0,
+          ref: { ...contentRef, bytesBase64: "iVBORw0KGgo=" },
+        },
+      } as never),
+    );
+    expectFail(
+      applyPatch(emptyPad(), {
+        op: "upsert",
+        layer: "image",
+        image: {
+          id: "img1",
+          x: 0,
+          y: 0,
+          w: 8,
+          h: 8,
+          z: 0,
+          bytes: "iVBORw0KGgo=",
+          ref: contentRef,
+        },
+      } as never),
+    );
+  });
+
+  it("deletes and reorders images inside the image layer", () => {
+    const pad = expectOk(
+      applyPatches(emptyPad(), [
+        upsertImage("img1", { z: 0 }),
+        upsertImage("img2", { x: 10, z: 1 }),
+        decodePatch({ op: "z", id: "img1", z: 5 }),
+      ]),
+    );
+    expect(pad.images.find((image) => image.id === "img1")?.z).toBe(5);
+    const deleted = expectOk(applyPatch(pad, decodePatch({ op: "delete", id: "img1" })));
+    expect(deleted.images.map((image) => image.id)).toEqual(["img2"]);
+  });
+});

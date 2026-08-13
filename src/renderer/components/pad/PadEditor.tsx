@@ -22,7 +22,16 @@ import { use$ } from "@legendapp/state/react";
 import { Result } from "effect";
 import { resolvePadInboundActors } from "@shared/board-actors";
 import type { ContentRef } from "@shared/content";
-import type { Pad, PadElementId, PadPatch, PadPoint, PadShape, PadSide } from "@shared/pad";
+import { contentObjectUrl } from "@shared/content-url";
+import type {
+  Pad,
+  PadElementId,
+  PadImage,
+  PadPatch,
+  PadPoint,
+  PadShape,
+  PadSide,
+} from "@shared/pad";
 import { state$ } from "../../lib/state";
 import { applyWorkCanvasWrite } from "../../lib/mutations";
 import { getVellumCommandApi } from "../../lib/vellum-api";
@@ -45,6 +54,7 @@ import { IconButton } from "../ui";
 import {
   CAMERA_ZOOM_MAX,
   CAMERA_ZOOM_MIN,
+  DEFAULT_IMAGE_SIZE,
   DEFAULT_INK_WIDTH,
   HANDLE_VIEW_PX,
   HIT_VIEW_PX,
@@ -57,6 +67,7 @@ import {
   clientToScene,
   clientToView,
   cycleSelection,
+  dataTransferHasImage,
   defaultInkColor,
   deletePatch,
   draftImageRect,
@@ -205,6 +216,34 @@ const ShapeEl = ({
     />
   );
 };
+
+const PadImageEl = ({
+  image,
+  selected,
+}: {
+  readonly image: PadImage;
+  readonly selected: boolean;
+}) => (
+  <g data-testid="pad-image" data-image-id={image.id}>
+    <rect
+      x={image.x}
+      y={image.y}
+      width={image.w}
+      height={image.h}
+      fill="var(--color-overlay-1)"
+      stroke={selected ? "var(--color-amber)" : "var(--color-stroke)"}
+    />
+    <image
+      href={contentObjectUrl(image.ref)}
+      x={image.x}
+      y={image.y}
+      width={image.w}
+      height={image.h}
+      preserveAspectRatio="xMidYMid meet"
+      style={{ pointerEvents: "none" }}
+    />
+  </g>
+);
 
 export function PadEditor({
   pad,
@@ -413,6 +452,39 @@ export function PadEditor({
     [placeImage],
   );
 
+  const placeRefAt = useCallback(
+    async (ref: ContentRef, scene: PadPoint): Promise<boolean> => {
+      const box = draftImageRect(scene, scene);
+      return placeImage(
+        {
+          id: newPadElementId("image"),
+          x: box.x,
+          y: box.y,
+          w: box.w,
+          h: box.h,
+          z: nextLayerZ(padRef.current.images),
+        },
+        ref,
+      );
+    },
+    [placeImage],
+  );
+
+  const ingestTransfer = useCallback(
+    async (data: DataTransfer | null | undefined, scene: PadPoint): Promise<void> => {
+      const result = await putImagesFromDataTransfer(data);
+      if (result.kind === "error") {
+        setHint(result.error);
+        return;
+      }
+      if (result.kind !== "ok") return;
+      const ref = result.refs[0];
+      if (!ref) return;
+      await placeRefAt(ref, scene);
+    },
+    [placeRefAt],
+  );
+
   const requestImageFile = useCallback((pending: PendingImage) => {
     pendingImageRef.current = pending;
     const input = fileInputRef.current;
@@ -518,6 +590,28 @@ export function PadEditor({
     selectedId,
     undo,
   ]);
+
+  useEffect(() => {
+    const onPaste = (event: ClipboardEvent) => {
+      if (isTypingTarget(event.target) || editingLabel) return;
+      if (!dataTransferHasImage(event.clipboardData)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const origin = originOf();
+      const rect = svgRef.current?.getBoundingClientRect();
+      const scene = clientToScene(
+        camera,
+        {
+          x: origin.x + (rect?.width ?? DEFAULT_IMAGE_SIZE.w) / 2,
+          y: origin.y + (rect?.height ?? DEFAULT_IMAGE_SIZE.h) / 2,
+        },
+        origin,
+      );
+      void ingestTransfer(event.clipboardData, scene);
+    };
+    window.addEventListener("paste", onPaste, true);
+    return () => window.removeEventListener("paste", onPaste, true);
+  }, [camera, editingLabel, ingestTransfer]);
 
   const onPointerDown = (event: ReactPointerEvent<SVGSVGElement>) => {
     if (event.button === 1 || (event.button === 0 && spaceDown)) {
@@ -839,63 +933,15 @@ export function PadEditor({
       <div
         className="pad-stage"
         onDragOver={(event) => {
+          if (!dataTransferHasImage(event.dataTransfer)) return;
           event.preventDefault();
+          event.dataTransfer.dropEffect = "copy";
         }}
         onDrop={(event) => {
+          if (!dataTransferHasImage(event.dataTransfer)) return;
           event.preventDefault();
-          const scene = sceneOf(event);
-          void putImagesFromDataTransfer(event.dataTransfer).then((result) => {
-            if (result.kind === "error") {
-              setHint(result.error);
-              return;
-            }
-            if (result.kind !== "ok") return;
-            const ref = result.refs[0];
-            if (!ref) return;
-            const box = draftImageRect(scene, scene);
-            void placeImage(
-              {
-                id: newPadElementId("image"),
-                x: box.x,
-                y: box.y,
-                w: box.w,
-                h: box.h,
-                z: nextLayerZ(padRef.current.images),
-              },
-              ref,
-            );
-          });
-        }}
-        onPaste={(event) => {
-          void putImagesFromDataTransfer(event.clipboardData).then((result) => {
-            if (result.kind === "error") {
-              setHint(result.error);
-              return;
-            }
-            if (result.kind !== "ok") return;
-            event.preventDefault();
-            const ref = result.refs[0];
-            if (!ref) return;
-            const origin = originOf();
-            const rect = svgRef.current?.getBoundingClientRect();
-            const scene = clientToScene(
-              camera,
-              { x: origin.x + (rect?.width ?? 160) / 2, y: origin.y + (rect?.height ?? 120) / 2 },
-              origin,
-            );
-            const box = draftImageRect(scene, scene);
-            void placeImage(
-              {
-                id: newPadElementId("image"),
-                x: box.x,
-                y: box.y,
-                w: box.w,
-                h: box.h,
-                z: nextLayerZ(padRef.current.images),
-              },
-              ref,
-            );
-          });
+          event.stopPropagation();
+          void ingestTransfer(event.dataTransfer, sceneOf(event));
         }}
       >
         <svg
@@ -924,14 +970,10 @@ export function PadEditor({
               .slice()
               .sort((a, b) => a.z - b.z)
               .map((image) => (
-                <rect
+                <PadImageEl
                   key={image.id}
-                  x={image.x}
-                  y={image.y}
-                  width={image.w}
-                  height={image.h}
-                  fill="var(--color-overlay-1)"
-                  stroke="var(--color-stroke)"
+                  image={image}
+                  selected={image.id === selectedId}
                 />
               ))}
             {shown.edges.map((edge) => {

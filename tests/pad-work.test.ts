@@ -342,6 +342,29 @@ describe("pad persist", () => {
     });
   });
 
+  it("persists operator images as ContentRef without bytes", async () => {
+    const created = await runtime.runPromise(
+      repository.applyPadPatch({
+        sink: { canvasName: "factory", nodeId: "pad-img" },
+        basis: authorialBasis,
+        patchId: "patch-img",
+        patches: [upsertImage("img1")],
+        author: { kind: "operator", label: "operator" },
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    expect(created.value.images).toHaveLength(1);
+    expect(JSON.stringify(created.value)).not.toMatch(/bytesBase64|data:image|base64,/);
+    const loaded = await runtime.runPromise(repository.readPad("factory", "pad-img"));
+    expect(loaded.images[0]?.ref).toEqual({
+      sha256: "a".repeat(64),
+      byteLength: 4,
+      mediaType: "image/png",
+    });
+    expect(JSON.stringify(loaded)).not.toMatch(/bytesBase64|data:image|base64,/);
+  });
+
   it("applyPadPatch refuses an unwired mention at the repository mint", async () => {
     const denied = await runtime.runPromise(
       repository
@@ -554,6 +577,29 @@ describe("WorkService pad author refusals", () => {
     await rm(root, { recursive: true, force: true });
   });
 
+  it("refuses agent image upsert", async () => {
+    const work = await runtime.runPromise(WorkService);
+    const actor = {
+      kind: "actor" as const,
+      seatId: Schema.decodeUnknownSync(ActorSeatId)(`seat_${"a".repeat(64)}`),
+      nodeId: "agent",
+    };
+    const image = await runtime.runPromise(
+      work.workPadPatch("factory", "pad-1", [upsertImage("img-agent")], actor),
+    );
+    expect(image.ok).toBe(false);
+    if (!image.ok) {
+      expect(image.code).toBe("invalid");
+      expect(image.message).toMatch(/image/i);
+    }
+    const loaded = await runtime.runPromise(work.workPadRead("factory", "pad-1"));
+    expect(loaded.ok).toBe(true);
+    if (loaded.ok) {
+      expect(loaded.data.pad.images).toEqual([]);
+      expect(JSON.stringify(loaded.data.pad)).not.toMatch(/bytesBase64|data:image|base64,/);
+    }
+  });
+
   it("refuses agent ink and a bad mention as invalid", async () => {
     const work = await runtime.runPromise(WorkService);
     const actor = {
@@ -566,15 +612,6 @@ describe("WorkService pad author refusals", () => {
     if (!ink.ok) {
       expect(ink.code).toBe("invalid");
       expect(ink.message).toMatch(/ink/i);
-    }
-
-    const image = await runtime.runPromise(
-      work.workPadPatch("factory", "pad-1", [upsertImage("img-agent")], actor),
-    );
-    expect(image.ok).toBe(false);
-    if (!image.ok) {
-      expect(image.code).toBe("invalid");
-      expect(image.message).toMatch(/image/i);
     }
 
     const mention = await runtime.runPromise(

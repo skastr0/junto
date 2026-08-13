@@ -41,7 +41,7 @@ export function PadCard({
 
   useEffect(() => {
     const api = getVellumCommandApi();
-    if (!api || shapeCount === 0) {
+    if (!api || revision === 0) {
       setSvg(null);
       return;
     }
@@ -53,7 +53,7 @@ export function PadCard({
     return () => {
       cancelled = true;
     };
-  }, [canvas, node.id, revision, shapeCount, theme]);
+  }, [canvas, node.id, revision, theme]);
 
   const commitRename = (nextFirst: string) => {
     const rest = rawText.split("\n").slice(1).join("\n");

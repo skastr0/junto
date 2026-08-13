@@ -15,6 +15,9 @@ import {
   appendInkPoint,
   canDelete,
   cycleSelection,
+  dataTransferHasImage,
+  DEFAULT_IMAGE_SIZE,
+  draftImageRect,
   applyMentionPick,
   draftPinFromDrag,
   draftShapeFromDrag,
@@ -202,6 +205,36 @@ describe("pad editor inverse patches", () => {
     const undone = expectOk(applyPatches(after, inverse.success));
     expect(undone.shapes[0]).toMatchObject({ x: 0, y: 0, w: 40, h: 20 });
   });
+
+  it("undoes an image upsert without introducing bytes", () => {
+    const start = emptyPad();
+    const patches: PadPatch[] = [
+      decodePatch({
+        op: "upsert",
+        layer: "image",
+        image: {
+          id: "img1",
+          x: 0,
+          y: 0,
+          w: 40,
+          h: 30,
+          z: 0,
+          ref: {
+            sha256: "a".repeat(64),
+            byteLength: 4,
+            mediaType: "image/png",
+          },
+        },
+      }),
+    ];
+    const after = expectOk(applyPatches(start, patches));
+    expect(JSON.stringify(after)).not.toMatch(/bytesBase64|data:image|base64,/);
+    const inverse = inversePatches(start, patches);
+    expect(Result.isSuccess(inverse)).toBe(true);
+    if (Result.isFailure(inverse)) return;
+    const undone = expectOk(applyPatches(after, inverse.success));
+    expect(undone.images).toEqual([]);
+  });
 });
 
 describe("pad editor selection", () => {
@@ -229,6 +262,28 @@ describe("pad editor selection", () => {
 });
 
 describe("pad editor pin ink empty", () => {
+  it("defaults a click image rect and detects image paste flavors", () => {
+    expect(draftImageRect({ x: 4, y: 6 }, { x: 5, y: 6 })).toEqual({
+      x: 4,
+      y: 6,
+      w: DEFAULT_IMAGE_SIZE.w,
+      h: DEFAULT_IMAGE_SIZE.h,
+    });
+    expect(draftImageRect({ x: 0, y: 0 }, { x: 80, y: 40 })).toEqual({
+      x: 0,
+      y: 0,
+      w: 80,
+      h: 40,
+    });
+    expect(dataTransferHasImage(null)).toBe(false);
+    expect(dataTransferHasImage({ types: ["text/plain"] })).toBe(false);
+    expect(dataTransferHasImage({ types: ["image/png"] })).toBe(true);
+    const file = new File([new Uint8Array([1, 2, 3, 4])], "shot.png", {
+      type: "image/png",
+    });
+    expect(dataTransferHasImage({ files: [file] })).toBe(true);
+  });
+
   it("treats pin-only and ink-only pads as not empty", () => {
     expect(padIsEmpty(emptyPad())).toBe(true);
     const pinned = expectOk(
