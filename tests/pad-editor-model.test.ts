@@ -14,6 +14,7 @@ import { contentBounds, identityCamera, viewToScene } from "../src/shared/pad-ge
 import {
   appendInkPoint,
   canDelete,
+  INK_MIN_DISTANCE,
   cycleSelection,
   dataTransferHasImage,
   DEFAULT_IMAGE_SIZE,
@@ -21,6 +22,7 @@ import {
   applyMentionPick,
   draftPinFromDrag,
   draftShapeFromDrag,
+  finishInkStroke,
   editorKeyAction,
   filterMentionActors,
   fitCamera,
@@ -323,12 +325,47 @@ describe("pad editor pin ink empty", () => {
   });
 
   it("records ink points without collapsing a stroke", () => {
-    const points = appendInkPoint([{ x: 0, y: 0 }], { x: 4, y: 3 });
+    const start = appendInkPoint([], { x: 0.4, y: 0.4 });
+    expect(start).toEqual([{ x: 0, y: 0 }]);
+    const points = appendInkPoint(start, { x: 4, y: 3 });
     expect(points).toEqual([
       { x: 0, y: 0 },
       { x: 4, y: 3 },
     ]);
-    expect(appendInkPoint(points, { x: 4.2, y: 3.1 }, 1)).toEqual(points);
+    expect(appendInkPoint(points, { x: 4.2, y: 3.1 }, INK_MIN_DISTANCE)).toEqual(points);
+    expect(appendInkPoint(points, { x: 5.2, y: 3 }, 2)).toEqual(points);
+    expect(finishInkStroke([{ x: 0, y: 0 }], { x: 0.2, y: 0.2 })).toBeUndefined();
+    expect(finishInkStroke([{ x: 0, y: 0 }], { x: 4, y: 3 })).toEqual([
+      { x: 0, y: 0 },
+      { x: 4, y: 3 },
+    ]);
+  });
+
+  it("undoes an ink upsert by deleting the whole stroke", () => {
+    const start = emptyPad();
+    const patches: PadPatch[] = [
+      decodePatch({
+        op: "upsert",
+        layer: "ink",
+        ink: {
+          id: "k1",
+          z: 0,
+          color: "#d8d2c4",
+          width: 2,
+          points: [
+            { x: 0, y: 0 },
+            { x: 8, y: 4 },
+          ],
+        },
+      }),
+    ];
+    const inverse = inversePatches(start, patches);
+    expect(Result.isSuccess(inverse)).toBe(true);
+    if (Result.isFailure(inverse)) return;
+    const after = expectOk(applyPatches(start, patches));
+    expect(after.inks).toHaveLength(1);
+    const undone = expectOk(applyPatches(after, inverse.success));
+    expect(undone.inks).toEqual([]);
   });
 
   it("filters @ autocomplete to inbound actors and builds a reply", () => {

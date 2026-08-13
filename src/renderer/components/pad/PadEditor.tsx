@@ -73,6 +73,7 @@ import {
   draftImageRect,
   draftInkFromPoints,
   draftPinFromDrag,
+  finishInkStroke,
   draftShapeFromDrag,
   editableLayer,
   editorKeyAction,
@@ -624,7 +625,7 @@ export function PadEditor({
     const scene = sceneOf(event);
     if (tool === "ink") {
       const id = newPadElementId("ink");
-      setGesture({ kind: "ink", id, points: [scene] });
+      setGesture({ kind: "ink", id, points: appendInkPoint([], scene) });
       setSelectedId(id);
       return;
     }
@@ -741,14 +742,16 @@ export function PadEditor({
       return;
     }
     if (current.kind === "ink") {
-      const points = appendInkPoint(current.points, scene);
-      if (points.length < 2) return;
-      const [first, second, ...rest] = points;
+      const points = finishInkStroke(current.points, scene);
+      if (!points) {
+        setSelectedId(undefined);
+        return;
+      }
       void commit([
         upsertInkPatch(
           draftInkFromPoints(
             current.id,
-            [first!, second!, ...rest],
+            points,
             nextLayerZ(pad.inks),
             inkColor,
             DEFAULT_INK_WIDTH,
@@ -824,11 +827,13 @@ export function PadEditor({
         pins: [...pad.pins.filter((pin) => pin.id !== draft.id), { ...draft, posts: [] }],
       };
     }
-    if (gesture.kind === "ink" && gesture.points.length >= 2) {
-      const [first, second, ...rest] = gesture.points;
+    if (gesture.kind === "ink") {
+      const first = gesture.points[0];
+      const second = gesture.points[1];
+      if (!first || !second) return pad;
       const draft = draftInkFromPoints(
         gesture.id,
-        [first!, second!, ...rest],
+        [first, second, ...gesture.points.slice(2)],
         nextLayerZ(pad.inks),
         inkColor,
       );
@@ -1014,10 +1019,12 @@ export function PadEditor({
               .map((ink) => (
                 <path
                   key={ink.id}
+                  data-testid="pad-ink"
+                  data-ink-id={ink.id}
                   d={strokePath(ink.points, ink.width)}
                   fill="none"
-                  stroke={ink.color}
-                  strokeWidth={ink.width}
+                  stroke={ink.id === selectedId ? "var(--color-amber)" : ink.color}
+                  strokeWidth={ink.id === selectedId ? ink.width + 1 : ink.width}
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 />

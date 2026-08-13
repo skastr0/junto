@@ -376,3 +376,27 @@ describe("pad images", () => {
     expect(deleted.images.map((image) => image.id)).toEqual(["img2"]);
   });
 });
+
+describe("pad ink", () => {
+  it("requires a two-point minimum", () => {
+    expectFail(
+      applyPatch(
+        emptyPad(),
+        {
+          op: "upsert",
+          layer: "ink",
+          ink: { id: "k1", z: 0, color: "#000", width: 1, points: [{ x: 0, y: 0 }] },
+        } as never,
+      ),
+      "empty_ink",
+    );
+    const drawn = expectOk(applyPatch(emptyPad(), upsertInk("k1", twoPoints)));
+    expect(drawn.inks[0]?.points).toHaveLength(2);
+  });
+
+  it("deletes the whole stroke", () => {
+    const drawn = expectOk(applyPatch(emptyPad(), upsertInk("k1", twoPoints)));
+    const deleted = expectOk(applyPatch(drawn, decodePatch({ op: "delete", id: "k1" })));
+    expect(deleted.inks).toEqual([]);
+  });
+});

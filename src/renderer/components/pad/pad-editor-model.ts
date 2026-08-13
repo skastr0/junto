@@ -52,6 +52,8 @@ export const isShapeTool = (tool: PadTool): tool is PadShapeTool =>
 
 export const DEFAULT_IMAGE_SIZE = { w: 160, h: 120 } as const;
 export const DEFAULT_INK_WIDTH = 2;
+/** Scene-space spacing between recorded ink samples. Contract: 1–2px. */
+export const INK_MIN_DISTANCE = 1;
 
 export type ImageTransferLike = {
   readonly files?: FileList | ReadonlyArray<File> | null;
@@ -501,13 +503,23 @@ export const draftPinFromDrag = (
 export const appendInkPoint = (
   points: ReadonlyArray<PadPoint>,
   next: PadPoint,
-  minDist = 1,
+  minDist = INK_MIN_DISTANCE,
 ): PadPoint[] => {
   const last = points[points.length - 1];
   if (last && Math.hypot(next.x - last.x, next.y - last.y) < minDist) {
     return [...points];
   }
   return [...points, { x: snap(next.x), y: snap(next.y) }];
+};
+
+export const finishInkStroke = (
+  points: ReadonlyArray<PadPoint>,
+  last: PadPoint,
+  minDist = INK_MIN_DISTANCE,
+): readonly [PadPoint, PadPoint, ...PadPoint[]] | undefined => {
+  const next = appendInkPoint(points, last, minDist);
+  if (next.length < 2) return undefined;
+  return next as [PadPoint, PadPoint, ...PadPoint[]];
 };
 
 export const draftInkFromPoints = (

@@ -20,6 +20,7 @@ import {
   padAuthorRuleError,
 } from "../src/main/vellum/work/pad-rules";
 import { projectPadTagged } from "../src/cli/core/pad";
+import { strokePath } from "../src/shared/pad-geom";
 import {
   WorkRepository,
   WorkRepositoryLive,
@@ -905,6 +906,32 @@ describe("WorkService pad author refusals", () => {
       true,
     );
     expect(read.data.svg).toContain("<svg");
+  });
+
+  it("applies operator ink and shows the stroke in svg, not points in digest", async () => {
+    const work = await runtime.runPromise(WorkService);
+    const result = await runtime.runPromise(
+      work.workPadPatch(
+        "factory",
+        "pad-1",
+        [upsertInk("svc-ink")],
+        { kind: "operator", label: "operator" },
+      ),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.pad.inks.some((ink) => ink.id === "svc-ink")).toBe(true);
+    expect(result.data.digest).toContain("svc-ink");
+    expect(result.data.digest).toContain("points=2");
+    expect(result.data.digest).not.toMatch(/\{"x":/);
+
+    const read = await runtime.runPromise(work.workPadRead("factory", "pad-1"));
+    expect(read.ok).toBe(true);
+    if (!read.ok) return;
+    const ink = read.data.pad.inks.find((item) => item.id === "svc-ink");
+    expect(ink).toBeDefined();
+    if (!ink) return;
+    expect(read.data.svg).toContain(`d="${strokePath(ink.points, ink.width)}"`);
   });
 
   it("keeps a first-line pad title through CanvasesService.write", async () => {

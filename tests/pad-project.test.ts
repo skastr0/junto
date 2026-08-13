@@ -7,7 +7,7 @@ import {
   type Pad,
   type PadError,
 } from "../src/shared/pad";
-import { lookHereBounds } from "../src/shared/pad-geom";
+import { lookHereBounds, strokePath } from "../src/shared/pad-geom";
 import {
   LOOK_HERE_MARGIN,
   padLookHere,
@@ -193,6 +193,17 @@ describe("padToSvg", () => {
     expect(svg).toContain("<ellipse ");
     expect(svg).toContain('stroke="#445566"');
     expect(svg).toContain("<circle cx=\"20\" cy=\"40\" r=\"5\"");
+  });
+
+  it("contains the ink polyline path", () => {
+    const pad = page();
+    const ink = pad.inks[0]!;
+    const svg = padToSvg(pad, "dark");
+    expect(svg).toContain(`d="${strokePath(ink.points, ink.width)}"`);
+    expect(svg).toContain(`stroke="${ink.color}"`);
+    expect(svg).toContain(`stroke-width="${ink.width}"`);
+    expect(padToDigest(pad)).not.toContain("8,70");
+    expect(padToDigest(pad)).toContain("points=3");
   });
 });
 

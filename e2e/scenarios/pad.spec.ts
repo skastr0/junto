@@ -163,6 +163,28 @@ test("pad: create, wire seat, patch, persist, draw, pin + look-here", async ({
     }, { timeout: 10_000 })
     .toBeGreaterThanOrEqual(2);
 
+  await page.getByTestId("pad-tool-ink").click();
+  await expect(svg).toHaveAttribute("data-tool", "ink");
+  await page.mouse.move(box!.x + 60, box!.y + 180);
+  await page.mouse.down();
+  await page.mouse.move(box!.x + 140, box!.y + 230);
+  await page.mouse.up();
+
+  await expect
+    .poll(async () => {
+      const read = await readPad(page, padId);
+      return read.ok ? read.data.pad.inks.length : 0;
+    }, { timeout: 10_000 })
+    .toBeGreaterThanOrEqual(1);
+
+  const inked = await readPad(page, padId);
+  expect(inked.ok).toBe(true);
+  if (!inked.ok) return;
+  expect(inked.data.pad.inks[0]?.points.length).toBeGreaterThanOrEqual(2);
+  expect(inked.data.svg).toMatch(/<path d="M /);
+  expect(inked.data.digest).toContain("inks ::");
+  expect(inked.data.digest).not.toMatch(/\{"x":/);
+
   await page.getByTestId("pad-tool-pin").click();
   await expect(svg).toHaveAttribute("data-tool", "pin");
   await page.mouse.click(box!.x + 140, box!.y + 110);
