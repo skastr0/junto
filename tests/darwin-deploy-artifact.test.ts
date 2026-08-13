@@ -230,7 +230,9 @@ describe("Darwin deployment first-install boundary", () => {
     );
 
     expect(result.ok).toBe(true);
-    expect(result.stages).toContain("remote package absent; first install admitted");
+    expect(result.stages).toContain(
+      "Vellum Command is not installed on this Mac yet",
+    );
     expect(acquire).not.toHaveBeenCalled();
     expect(streamArtifact).toHaveBeenCalledOnce();
     expect(streamArtifact.mock.calls[0]?.[2]).toMatchObject({
@@ -329,7 +331,7 @@ describe("Darwin deployment first-install boundary", () => {
 
     expect(result.ok).toBe(true);
     expect(result.stages).toContain(
-      "remote terminal plane absent; package replacement admitted",
+      "Vellum Command is not answering on this Mac — no live terminal to pause",
     );
     expect(acquire).not.toHaveBeenCalled();
     expect(streamArtifact).toHaveBeenCalledOnce();

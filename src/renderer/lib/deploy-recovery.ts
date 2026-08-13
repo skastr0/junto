@@ -1,12 +1,8 @@
 import type { HostsDeployRemoteResult } from "@shared/ipc";
+import { operatorDeployDetail as mapOperatorDeployDetail } from "@shared/operator-remote-copy";
 
 /** Map machine tags to something an operator can do. */
-export const operatorDeployDetail = (detail: string): string => {
-  if (detail.includes("UNSUPERVISED_INCUMBENT_REQUIRES_LAUNCHAGENT")) {
-    return "Quit Vellum Command on this Mac, then Deploy again. A window opened outside LaunchAgent cannot be replaced until it is closed.";
-  }
-  return detail;
-};
+export const operatorDeployDetail = mapOperatorDeployDetail;
 
 export const deployRecoveryGuidance = (
   recoveryAction: HostsDeployRemoteResult["recoveryAction"],

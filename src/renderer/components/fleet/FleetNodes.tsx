@@ -147,18 +147,22 @@ const probePipTitle = (probe?: FleetProbeState): string => {
     ? probe.protocol
     : undefined;
   if (protocol?.compatibility === "update-required") {
-    return "reachable — Station update required";
+    return "On the network — update required";
   }
   if (protocol?.compatibility === "deprecated") {
-    return `reachable — protocol ${protocol.negotiatedProtocol} deprecated`;
+    return `On the network — this Vellum Command build is old`;
   }
   switch (probe?.status) {
     case "probing":
       return "probing link";
     case "reachable":
-      return probe.latencyMs !== undefined ? `reachable - ${probe.latencyMs} ms` : "reachable";
+      return probe.latencyMs !== undefined
+        ? `On the network — ${probe.latencyMs} ms`
+        : "On the network";
     case "unreachable":
-      return probe.detail ? `unreachable — ${probe.detail}` : "unreachable";
+      return probe.detail
+        ? `Can't reach this machine — ${probe.detail}`
+        : "Can't reach this machine";
     default:
       return "link untested";
   }
@@ -179,10 +183,10 @@ const probeLabel = (probe?: FleetProbeState): string => {
       return "checking route";
     case "reachable":
       return probe.latencyMs === undefined
-        ? "reachable"
-        : `reachable - ${probe.latencyMs} ms`;
+        ? "On the network"
+        : `On the network — ${probe.latencyMs} ms`;
     case "unreachable":
-      return "unreachable";
+      return "Can't reach this machine";
     default:
       return "route untested";
   }

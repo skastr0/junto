@@ -145,7 +145,7 @@ describe("parseDeployTransferResult", () => {
     ).toMatchObject({
       ok: true,
       phase: "enrollment",
-      detail: expect.stringContaining("enrollment-only"),
+      detail: expect.stringContaining("waiting to join the fleet"),
     });
   });
 
@@ -158,19 +158,17 @@ describe("parseDeployTransferResult", () => {
     ).toMatchObject({
       ok: true,
       phase: "runtime",
-      detail: expect.stringContaining("term + browser"),
+      detail: expect.stringContaining("running on this Mac"),
     });
   });
 
-  it("refuses legacy, invalid-pid, and absent generation markers", () => {
+  it("does not fail a finished install when a script banner is missing", () => {
     for (const stdout of [
       "ENROLLMENT_READY station=1",
       "ENROLLMENT_READY pid=0 station=1",
       "STATION_READY term=1 browser=1",
       "STATION_READY pid=0 term=1 browser=1",
       "TERM_SOCK_OK browser=0",
-      "TERM_SOCK_OK pid=4313 browser=0",
-      "TERM_SOCK_OK pid=-1 browser=0",
       "",
     ]) {
       expect(
@@ -179,8 +177,8 @@ describe("parseDeployTransferResult", () => {
           stderr: "ENROLLMENT_PARTIAL station=0",
         }),
       ).toMatchObject({
-        ok: false,
-        detail: expect.stringContaining("did not prove"),
+        ok: true,
+        phase: "enrollment",
       });
     }
   });

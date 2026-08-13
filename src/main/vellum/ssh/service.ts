@@ -259,7 +259,7 @@ const collectBounded = (
         ? new SshIoError({
             endpoint,
             operation,
-            message: "SSH process I/O failed",
+            message: `SSH ${operation} closed before it finished`,
           })
         : error,
     ),
@@ -288,7 +288,7 @@ export const SshTransportLayer = Layer.effect(
     const ioError = (
       endpoint: SshEndpoint,
       operation: string,
-      message = "SSH process I/O failed",
+      message = `SSH ${operation} closed before it finished`,
     ) => new SshIoError({ endpoint, operation, message });
 
     const forwardError = (endpoint: SshEndpoint, message: string) =>

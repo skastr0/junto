@@ -22,10 +22,16 @@ describe("Remote deploy recovery guidance", () => {
         "remote-a: UNSUPERVISED_INCUMBENT_REQUIRES_LAUNCHAGENT exe_pids=333,",
       ),
     ).toBe(
-      "Quit Vellum Command on this Mac, then Deploy again. A window opened outside LaunchAgent cannot be replaced until it is closed.",
+      "Quit Vellum Command on that Mac, then Deploy again. A window opened outside LaunchAgent cannot be replaced until it is closed.",
     );
     expect(operatorDeployDetail("supervised Remote runtime ready")).toBe(
       "supervised Remote runtime ready",
     );
+    expect(operatorDeployDetail("SSH process I/O failed")).toContain(
+      "dropped while copying",
+    );
+    expect(
+      operatorDeployDetail("Station API ready - installation station-1"),
+    ).toContain("Vellum Command ready");
   });
 });

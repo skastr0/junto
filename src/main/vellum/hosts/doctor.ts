@@ -32,6 +32,7 @@ import { oneShot } from "../ssh/program";
 import {
   remoteLinuxCapabilityDoctor,
   remoteProductVersion,
+  remoteUname,
 } from "../ssh/read-commands";
 import type { SshTransportShape } from "../ssh/service";
 import {
@@ -154,7 +155,7 @@ const describeFleetFailure = (
   error: StationFleetPeerUnavailable,
 ): string =>
   error.reason === "not-enrolled"
-    ? "Station is not enrolled in the persistent fleet"
+    ? "This machine is not in the fleet yet"
     : error.message;
 
 const localBinary = async (
@@ -211,8 +212,8 @@ const remoteBinary = (
   );
 
 /**
- * Closed zero-arg Linux capability Doctor over SSH. Best-effort: a probe,
- * transport, or parse failure never fails the host connection test.
+ * Linux capability Doctor over SSH. Darwin and unknown platforms never run
+ * it — a non-linux probe is not a host-health signal.
  */
 const probeLinuxHostCapabilities = (
   ssh: Ssh,
@@ -220,16 +221,30 @@ const probeLinuxHostCapabilities = (
 ): Effect.Effect<LinuxHostCapabilityObservation | undefined> =>
   parseHostSshRoute(host).pipe(
     Effect.flatMap((parsed) =>
-      remoteLinuxCapabilityDoctor().pipe(
-        Effect.flatMap((command) =>
-          ssh.run(oneShot(parsed, command, { budget: "status" })),
+      remoteUname().pipe(
+        Effect.flatMap((uname) =>
+          ssh.run(oneShot(parsed, uname, { budget: "short" })),
         ),
+        Effect.flatMap((unameResult) => {
+          if (unameResult.stdout !== "Linux\n") {
+            return Effect.succeed(undefined);
+          }
+          return remoteLinuxCapabilityDoctor().pipe(
+            Effect.flatMap((command) =>
+              ssh.run(oneShot(parsed, command, { budget: "status" })),
+            ),
+            Effect.map((result) => {
+              const observation = observeLinuxHostCapabilityDoctor(
+                result.stdout,
+              );
+              return observation?.facts.platform === "linux"
+                ? observation
+                : undefined;
+            }),
+          );
+        }),
       ),
     ),
-    Effect.map((result) => {
-      const observation = observeLinuxHostCapabilityDoctor(result.stdout);
-      return observation === null ? undefined : observation;
-    }),
     Effect.catch(() => Effect.succeed(undefined)),
     // Test doubles and transport defects must not surface through hostsTest.
     Effect.catchDefect(() => Effect.succeed(undefined)),
@@ -267,7 +282,7 @@ const probeSshHost = (
     const result = synchronized[0];
     if (result === undefined || result.ok === false) {
       const detail = result === undefined
-        ? "Station is not enrolled in the persistent fleet"
+        ? "This machine is not in the fleet yet"
         : describeFleetFailure(result.error);
       const updateRequired =
         result?.ok === false &&
@@ -317,7 +332,7 @@ const probeSshHost = (
     const station = result.receipt.remoteStatus;
     const configuration = station.configuration;
     const parts = [
-      `Station API ${station.state}`,
+      `Vellum Command ${station.state}`,
       `installation ${station.installationId}`,
     ];
     const protocol = result.status.protocol;
@@ -718,13 +733,15 @@ export const testHostConnection = (
     : Effect.gen(function* () {
         const result = yield* probeSshHost(ssh, fleet, host);
         const linuxCapabilities = yield* probeLinuxHostCapabilities(ssh, host);
+        const linuxCore =
+          linuxCapabilities !== undefined &&
+          linuxCapabilities.facts.platform === "linux";
         const coreReady =
-          linuxCapabilities === undefined ||
-          linuxCapabilities.status === "ready";
+          !linuxCore || linuxCapabilities.status === "ready";
         return {
           ok: result.status === "ok" && coreReady,
           detail:
-            linuxCapabilities === undefined
+            !linuxCore
               ? boundedDoctorDetail(result.detail)
               : boundedDoctorDetail(`${result.detail} - host ${linuxCapabilities.status}: ${linuxCapabilities.summary}`),
           reachability: result.observation.reachability,
@@ -732,8 +749,6 @@ export const testHostConnection = (
             ? {}
             : { protocol: result.observation.protocol }),
           observation: result.observation,
-          ...(linuxCapabilities === undefined
-            ? {}
-            : { linuxCapabilities }),
+          ...(linuxCore ? { linuxCapabilities } : {}),
         };
       });

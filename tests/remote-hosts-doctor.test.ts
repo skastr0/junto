@@ -355,7 +355,7 @@ describe("remote hosts doctor", () => {
 
     expect(maxActive).toBe(3);
     expect(report.status).toBe("ok");
-    expect(report.detail).toContain("Station API ready");
+    expect(report.detail).toContain("Vellum Command ready");
   });
 
   it("returns typed observations from Station API status", async () => {
@@ -596,7 +596,7 @@ describe("remote hosts doctor", () => {
       reachability: "unknown",
     });
     expect(result.detail).toContain(
-      "not enrolled in the persistent fleet",
+      "This machine is not in the fleet yet",
     );
   });
 });

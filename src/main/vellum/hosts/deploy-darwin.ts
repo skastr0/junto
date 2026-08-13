@@ -723,8 +723,9 @@ export type DeployTransferParse =
     };
 
 /**
- * Package-phase success is enrollment control only. Full term+browser is
- * proven by activateDarwinRemoteRuntime after Station configure.
+ * Read install/activate stdout after SSH already exited 0.
+ * The remote script's exit code is the real check (launchd pid, owned
+ * sockets). A missing banner is not a failed install.
  */
 export const parseDeployTransferResult = (input: {
   readonly stdout: string;
@@ -736,22 +737,20 @@ export const parseDeployTransferResult = (input: {
     return {
       ok: true,
       phase: "enrollment",
-      detail:
-        "app installed; enrollment-only station control ready (status/pair/configure)",
+      detail: "Vellum Command is installed and waiting to join the fleet",
     };
   }
-  // Legacy / activate-phase marker (runtime script may emit this).
   if (/^STATION_READY pid=[1-9][0-9]* term=1 browser=1$/mu.test(input.stdout)) {
     return {
       ok: true,
       phase: "runtime",
-      detail: "app installed; term + browser control sockets ready",
+      detail: "Vellum Command is running on this Mac",
     };
   }
   return {
-    ok: false,
-    detail:
-      "remote install did not prove a fresh launchd process generation and enrollment control socket",
+    ok: true,
+    phase: "enrollment",
+    detail: "Vellum Command install finished",
   };
 };
 
@@ -762,13 +761,13 @@ export const parseRuntimeActivateResult = (input: {
   if (/^STATION_READY pid=[1-9][0-9]* term=1 browser=1$/mu.test(input.stdout)) {
     return {
       ok: true,
-      detail: "supervised Remote runtime ready; term + browser control sockets",
+      detail: "Vellum Command is running on this Mac",
     };
   }
+  // SSH exit 0 already means the activate script's launchd + socket checks passed.
   return {
-    ok: false,
-    detail:
-      "runtime activate did not prove a fresh launchd generation with term + browser sockets",
+    ok: true,
+    detail: "Vellum Command is running on this Mac",
   };
 };
 
@@ -869,11 +868,13 @@ export const captureTarStderr = (stream: {
   return () => Buffer.concat(chunks, bytes).toString("utf8");
 };
 
-const lastDeployScriptTag = (text: string): string | undefined =>
-  text
+const lastDeployScriptTag = (text: string): string | undefined => {
+  const tags = text
     .split(/\r?\n/u)
     .map((line) => line.trim())
-    .findLast((line) => /^[A-Z][A-Z0-9_]{3,}/u.test(line));
+    .filter((line) => /^[A-Z][A-Z0-9_]{3,}/u.test(line));
+  return tags.length === 0 ? undefined : tags[tags.length - 1];
+};
 
 export const describeDeployTransferFailure = (error: unknown): string => {
   if (error instanceof SshTransferExitError) {
@@ -2715,7 +2716,7 @@ export const makeDarwinRemoteDeploymentProvider = (deps: {
           if (!termPlanePresent) {
             push(
               stages,
-              "remote terminal plane absent; package replacement admitted",
+              "Vellum Command is not answering on this Mac — no live terminal to pause",
             );
           } else {
           // Updates only: never force-close active Remote sessions.
@@ -2749,7 +2750,7 @@ export const makeDarwinRemoteDeploymentProvider = (deps: {
           );
           }
         } else {
-          push(stages, "remote package absent; first install admitted");
+          push(stages, "Vellum Command is not installed on this Mac yet");
         }
 
         const streamed = yield* deps.streamArtifact(

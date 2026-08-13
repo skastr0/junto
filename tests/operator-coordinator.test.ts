@@ -10,6 +10,7 @@ import {
 } from "../src/main/vellum/hosts/operator-coordinator";
 import { getDeployJob } from "../src/main/vellum/hosts/deploy-job-registry";
 import { HostsService } from "../src/main/vellum/hosts/service";
+import { HostRuntime } from "../src/main/vellum/hosts/host-runtime";
 import { PrismService } from "../src/main/services/prism";
 import { SettingsService } from "../src/main/vellum/settings/service";
 import { StationStatusService } from "../src/main/vellum/station-status-store";
@@ -66,6 +67,7 @@ describe("operator deployment coordinator", () => {
         StationFleetTargetRepository,
         stub(StationFleetTargetRepository),
       ),
+      Layer.succeed(HostRuntime, stub(HostRuntime)),
     );
 
     const result = await Effect.runPromise(
@@ -75,6 +77,105 @@ describe("operator deployment coordinator", () => {
     expect(result.ok).toBe(false);
     expect(result.detail).toContain("turned off");
     expect(boxRefreshes).toBe(0);
+  });
+
+  it("passes the prior installation id so an update never re-enters enroll", async () => {
+    const prior = "station-remote-a";
+    let seen: { stationInstallationId?: string } | undefined;
+    const settings = defaultSettings();
+    const enabled = {
+      ...settings,
+      station: { ...settings.station, role: "command-center" as const },
+      fleet: { ...settings.fleet, remoteManagedInstalls: true },
+    };
+    const layer = Layer.mergeAll(
+      Layer.succeed(SettingsService, {
+        ...stub(SettingsService),
+        get: Effect.succeed(enabled),
+      }),
+      Layer.succeed(HostsService, {
+        ...stub(HostsService),
+        get: () =>
+          Effect.succeed({
+            id: "remote-a",
+            label: "remote-a",
+            kind: "remote",
+            sshEndpoint: "remote-a",
+            capabilities: [],
+          }),
+        deployConfiguredRemote: (_id, options) => {
+          seen = options;
+          return Effect.succeed({
+            ok: true,
+            detail: "updated",
+            stages: [],
+            disposition: "ready",
+            outcome: "ready",
+            packageState: "present",
+            role: "remote",
+            stationInstallationId: prior,
+            configuration: { ok: true, detail: "configure skipped" },
+          } as never);
+        },
+      }),
+      Layer.succeed(StationStatusService, {
+        ...stub(StationStatusService),
+        recordDeployment: () => Effect.void,
+      }),
+      Layer.succeed(BoxFleetService, {
+        ...stub(BoxFleetService),
+        ensureHostAvailable: () => Effect.succeed(undefined),
+      }),
+      Layer.succeed(PrismService, {
+        ...stub(PrismService),
+        stationInfo: Effect.succeed({
+          name: "Vellum Command",
+          version: "0.0.0",
+          userDataPath: "/tmp",
+          stationPluginPath: "/tmp",
+          prismRoot: "/tmp",
+        }),
+      }),
+      Layer.succeed(StationRepository, {
+        ...stub(StationRepository),
+        installationId: Effect.succeed("cc-install" as never),
+      }),
+      Layer.succeed(StationFleetTargetRepository, {
+        ...stub(StationFleetTargetRepository),
+        bind: () =>
+          Effect.succeed({
+            hostId: "remote-a",
+            stationInstallationId: prior,
+            boundAt: "2026-01-01T00:00:00.000Z",
+          } as never),
+      }),
+      Layer.succeed(HostRuntime, {
+        ...stub(HostRuntime),
+        plan: () =>
+          Effect.succeed({
+            observation: {
+              hostId: "remote-a",
+              placement: "remote",
+              platform: "darwin",
+              network: "up",
+              package: "present",
+              process: "up",
+              workAttach: "down",
+              mode: "remote",
+              priorInstallationId: prior,
+            },
+            gap: "needRestart",
+            priorInstallationId: prior,
+          }),
+      }),
+    );
+
+    const result = await Effect.runPromise(
+      deployRemoteEffect({ id: "remote-a" }).pipe(Effect.provide(layer)),
+    );
+
+    expect(seen?.stationInstallationId).toBe(prior);
+    expect(result.ok).toBe(true);
   });
 
   it("does not create a deploy job when shutdown refuses admission", async () => {

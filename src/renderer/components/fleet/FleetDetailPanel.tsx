@@ -77,28 +77,28 @@ function reachabilityLine(probe?: FleetProbeState): {
     case "reachable":
       if (probe.protocol?.compatibility === "update-required") {
         return {
-          text: "Reachable, update required",
+          text: "On the network, update required",
           detail: probe.detail,
           color: HUE.amber,
         };
       }
       if (probe.protocol?.compatibility === "deprecated") {
         return {
-          text: `reachable - protocol ${probe.protocol.negotiatedProtocol} deprecated`,
+          text: `On the network — this Vellum Command build is old`,
           detail: probe.detail,
           color: HUE.amber,
         };
       }
       return {
         text: probe.latencyMs !== undefined
-          ? `reachable - ${probe.latencyMs} ms`
-          : "reachable",
+          ? `On the network — ${probe.latencyMs} ms`
+          : "On the network",
         detail: probe.detail,
         color: GREEN,
       };
     case "unreachable":
       return {
-        text: "unreachable",
+        text: "Can't reach this machine",
         detail: probe.detail,
         color: HUE.crimson,
       };
@@ -438,7 +438,7 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
       return;
     }
     setActionLine(
-      [operatorDeployDetail(result.detail || "Remote deployed and ready"), recovery]
+      [operatorDeployDetail(result.detail || "Vellum Command is on this Mac"), recovery]
         .filter(Boolean)
         .join("\n"),
     );
@@ -616,7 +616,7 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
       <StationSynchronization observation={probe?.observation} />
       <StationTopology observation={probe?.observation} />
 
-      {probe?.linuxCapabilities ? (
+      {probe?.linuxCapabilities?.facts.platform === "linux" ? (
         <section className="fleet-detail__section">
           <div className="fleet-detail__section-label">
             Linux host

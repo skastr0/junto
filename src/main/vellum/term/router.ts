@@ -29,6 +29,10 @@ import {
   occupancyFromSummary,
   occupyVacantSeat,
 } from "@shared/terminal-seat-occupancy";
+import {
+  isMissingRemoteHostError,
+  operatorRemoteWorkDetail,
+} from "@shared/operator-remote-copy";
 import type { HostDirectorySnapshot } from "@shared/host-directory";
 import {
   parseRemoteUnixSocketPath,
@@ -386,8 +390,9 @@ export class TerminalRouter extends EventEmitter {
       const c = await this.ensureRemoteClient(hostId);
       this.assertRouteAdmission(hostId);
       return (await c.list()).map((s) => ({ ...s, hostId }));
-    } catch {
-      return [];
+    } catch (error) {
+      if (isMissingRemoteHostError(error)) return [];
+      throw new Error(operatorRemoteWorkDetail(hostId, error));
     }
   }
 
@@ -418,9 +423,13 @@ export class TerminalRouter extends EventEmitter {
     if (!normalizedHostId || this.isLocalHostId(normalizedHostId)) {
       return readHostDirectory(path);
     }
-    const client = await this.ensureRemoteClient(normalizedHostId);
-    this.assertRouteAdmission(normalizedHostId);
-    return client.readDirectory(path);
+    try {
+      const client = await this.ensureRemoteClient(normalizedHostId);
+      this.assertRouteAdmission(normalizedHostId);
+      return await client.readDirectory(path);
+    } catch (error) {
+      throw new Error(operatorRemoteWorkDetail(normalizedHostId, error));
+    }
   }
 
   async get(
@@ -437,8 +446,9 @@ export class TerminalRouter extends EventEmitter {
       this.assertRouteAdmission(hostId);
       const s = await c.get(bindingId);
       return s ? { ...s, hostId } : undefined;
-    } catch {
-      return undefined;
+    } catch (error) {
+      if (isMissingRemoteHostError(error)) return undefined;
+      throw new Error(operatorRemoteWorkDetail(hostId, error));
     }
   }
 
@@ -1013,7 +1023,10 @@ export class TerminalRouter extends EventEmitter {
           if (!token) {
             return yield* Effect.fail(
               new Error(
-                `no term control on ${hostId} — Vellum Command is not running there (open app or Settings → Deploy Remote)`,
+                operatorRemoteWorkDetail(
+                  hostId,
+                  "no term control",
+                ),
               ),
             );
           }
@@ -1034,9 +1047,7 @@ export class TerminalRouter extends EventEmitter {
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        throw new Error(
-          `cannot reach term control on ${hostId} (${msg}). Ensure Vellum Command is running on that Mac and ~/.vellum-command/term/control.sock exists`,
-        );
+        throw new Error(operatorRemoteWorkDetail(hostId, msg));
       }
 
       const remoteEntry: RemoteEntry = {

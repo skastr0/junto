@@ -29,6 +29,11 @@ import { StationRepository } from "../station/repository";
 import type { ConfigureRemoteOptions } from "./configure-remote";
 import type { ConfiguredRemoteDeployResult } from "./deploy-configured-remote";
 import {
+  HostRuntime,
+  hostRuntimePlanDetail,
+  priorInstallationForDeploy,
+} from "./host-runtime";
+import {
   appendDeployJobStage,
   beginDeployJob,
   finishDeployJob,
@@ -315,6 +320,7 @@ export const deployRemoteEffect = (
   | PrismService
   | StationRepository
   | StationFleetTargetRepository
+  | HostRuntime
 > =>
   Effect.gen(function* () {
       const settingsSvc = yield* SettingsService;
@@ -397,10 +403,26 @@ export const deployRemoteEffect = (
       }
 
       setActiveDeployJobHost(input.id);
+      const hostRuntime = yield* HostRuntime;
+      const plan = yield* hostRuntime.plan(input.id, "deploy");
+      appendDeployJobStage(input.id, hostRuntimePlanDetail(plan));
+      const priorInstallationId = priorInstallationForDeploy(plan);
+      if (plan.gap === "needOperator") {
+        return failJob({
+          ok: false,
+          detail: hostRuntimePlanDetail(plan),
+          code: plan.observation.blocker?.kind === "auth" ? "auth_required" : "conflict",
+          message: hostRuntimePlanDetail(plan),
+          stages: getDeployJob(input.id)?.stages,
+        });
+      }
       const deployResult = yield* hosts
         .deployConfiguredRemote(input.id, {
           ...authority.success,
           ...(artifactSource === undefined ? {} : { artifactSource }),
+          ...(priorInstallationId === undefined
+            ? {}
+            : { stationInstallationId: priorInstallationId as InstallationId }),
           onAdmitted: (host) => {
             const admittedAt = new Date().toISOString();
             const detail = `${host.label}: deployment admitted; completion receipt pending`;
