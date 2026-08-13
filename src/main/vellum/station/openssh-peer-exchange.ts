@@ -845,15 +845,15 @@ export const makeOpenSshStationPeerExchange = (
           frame: "offer",
           ...localProtocol,
         });
-        const negotiationCommand = yield* resolveRemoteStationHelper(
+        const sessionCommand = yield* resolveRemoteStationHelper(
           ssh,
           details.target,
           details.platform,
-          "negotiation",
+          "session",
         );
         const negotiatedAttempt = yield* ssh
           .connectWithExitObservation(
-            sharedStream(details.target, negotiationCommand, "agent"),
+            sharedStream(details.target, sessionCommand, "agent"),
             (lease, confirm) =>
               Effect.gen(function* () {
                 const connection = yield* makeOpenSshFrameTransport(

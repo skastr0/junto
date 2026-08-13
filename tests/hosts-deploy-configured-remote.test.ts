@@ -213,6 +213,63 @@ describe("configured remote deploy (userland)", () => {
     expect(result.detail).toContain("runtime activate failed");
   });
 
+  it("skips configure on an already-configured Remote and activates", async () => {
+    const configure = vi.fn(() =>
+      Effect.succeed(successfulConfiguration as never),
+    );
+    const activate = vi.fn(() =>
+      Effect.succeed({
+        ok: true,
+        detail: "supervised Remote runtime ready; replace-package stays Remote",
+      }),
+    );
+    const prior = installationId("station-installation");
+    const result = await Effect.runPromise(
+      deployConfiguredRemoteHost(
+        unusedSsh,
+        host,
+        { ...options, stationInstallationId: prior },
+        operations({ configure, activateRuntime: activate }),
+      ),
+    );
+    expect(result.ok).toBe(true);
+    expect(result.role).toBe("remote");
+    expect(result.disposition).toBe("ready");
+    expect(result.stationInstallationId).toBe(prior);
+    expect(result.configuration.ok).toBe(true);
+    expect(result.configuration.detail).toContain("configure skipped");
+    expect(result.detail).toContain("configure skipped");
+    expect(configure).not.toHaveBeenCalled();
+    expect(activate).toHaveBeenCalledOnce();
+  });
+
+  it("does not bootstrap when an already-configured activate fails", async () => {
+    const configure = vi.fn(() =>
+      Effect.succeed(successfulConfiguration as never),
+    );
+    const prior = installationId("station-installation");
+    const result = await Effect.runPromise(
+      deployConfiguredRemoteHost(
+        unusedSsh,
+        host,
+        { ...options, stationInstallationId: prior },
+        operations({
+          configure,
+          activateRuntime: () =>
+            Effect.succeed({
+              ok: false,
+              detail: "runtime activate did not prove term + browser sockets",
+            }),
+        }),
+      ),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.role).toBe("remote");
+    expect(result.stationInstallationId).toBe(prior);
+    expect(result.configuration.ok).toBe(true);
+    expect(configure).not.toHaveBeenCalled();
+  });
+
   it("does not activate when package never reaches enrollment readiness", async () => {
     const activate = vi.fn(() =>
       Effect.succeed({ ok: true, detail: "should not run" }),

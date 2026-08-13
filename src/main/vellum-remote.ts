@@ -49,6 +49,7 @@ import {
 import { HerdrPlane } from "./vellum/herdr/plane";
 import { HermesPlane } from "./vellum/hermes/plane";
 import { HERDR_ENABLED, HERMES_INTEGRATION_ENABLED } from "@shared/features";
+import { modeFromConfiguration } from "@shared/station-mode";
 import { termPlane } from "./vellum/term/plane";
 import { configureTerminalRouterLayeredRunner } from "./vellum/term/router";
 import { compiledLicenseBuildConfig } from "./vellum/license/compiled-config";
@@ -233,14 +234,19 @@ const runProductBoot = async (): Promise<void> => {
   const stationConfiguration = await RemoteRuntime.runPromise(
     stations.configuration,
   );
+  const stationMode = modeFromConfiguration(
+    stationConfiguration?.configuration.role,
+  );
 
-  // Packaged unconfigured Remote: enrollment-only station control, then hold.
+  // Packaged Unenrolled ingress: enroll door only, then hold. No report
+  // pump. No license product. Never also bind the peer door.
   if (
     isRemotePackaged(resolveBinaryPath()) &&
-    stationConfiguration === undefined
+    stationMode === "unenrolled"
   ) {
     try {
       handles.stationControl = await startStationControlServer({
+        door: "enroll",
         home: controlHome,
         appVersion: remoteAppVersion(),
         stateSchemaVersion: CURRENT_STATE_SCHEMA_VERSION,
@@ -251,10 +257,6 @@ const runProductBoot = async (): Promise<void> => {
           workControl: false,
           simulation: false,
         }),
-        admitRequest: (request) =>
-          request.op === "status" ||
-          request.op === "pair" ||
-          request.op === "configure",
       });
       console.error(
         "[station-control] enrollment bootstrap listening; restart after configure",
@@ -353,29 +355,32 @@ const runProductBoot = async (): Promise<void> => {
         RemoteRuntime.runFork(effect as never);
       },
     });
-    handles.stationControl = await startStationControlServer({
-      home: controlHome,
-      appVersion: remoteAppVersion(),
-      stateSchemaVersion: CURRENT_STATE_SCHEMA_VERSION,
-      run: (effect) => RemoteRuntime.runPromise(effect),
-      localHandoffAuthority: makeOwnerLocalStationControlHandoffAuthority(),
-      readiness: () => ({
-        database: true,
-        workControl: true,
-        simulation: true,
-      }),
-    });
-    const [stationApi, work] = await Promise.all([
-      RemoteRuntime.runPromise(StationApiService),
-      RemoteRuntime.runPromise(WorkRepository),
-    ]);
-    handles.stationRemoteReportPump = startStationRemoteReportPump({
-      api: stationApi,
-      stations,
-      work,
-      control: handles.stationControl,
-      runPromise: (effect) => RemoteRuntime.runPromise(effect as never),
-    });
+    if (stationMode === "remote") {
+      handles.stationControl = await startStationControlServer({
+        door: "peer",
+        home: controlHome,
+        appVersion: remoteAppVersion(),
+        stateSchemaVersion: CURRENT_STATE_SCHEMA_VERSION,
+        run: (effect) => RemoteRuntime.runPromise(effect),
+        localHandoffAuthority: makeOwnerLocalStationControlHandoffAuthority(),
+        readiness: () => ({
+          database: true,
+          workControl: true,
+          simulation: true,
+        }),
+      });
+      const [stationApi, work] = await Promise.all([
+        RemoteRuntime.runPromise(StationApiService),
+        RemoteRuntime.runPromise(WorkRepository),
+      ]);
+      handles.stationRemoteReportPump = startStationRemoteReportPump({
+        api: stationApi,
+        stations,
+        work,
+        control: handles.stationControl,
+        runPromise: (effect) => RemoteRuntime.runPromise(effect as never),
+      });
+    }
   } catch (error) {
     console.error("[station-control] failed to start:", error);
     await drainAndExit(1, "station-control-startup-failure");

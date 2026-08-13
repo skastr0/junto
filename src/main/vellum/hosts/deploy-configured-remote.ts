@@ -50,6 +50,12 @@ export type ConfiguredRemoteDeployOptions = ConfigureRemoteOptions & {
   /** Defaults to the stable feed; qualification may explicitly use the cache. */
   readonly artifactSource?: LinuxReleaseCacheSource;
   /**
+   * Prior Station installation id from CC's point of view. When set, this
+   * host is already a configured Remote: after package admission, skip
+   * configure/bootstrap and activate. First install omits it.
+   */
+  readonly stationInstallationId?: InstallationId;
+  /**
    * Durable admission after platform prepare succeeds and before package
    * mutation. A failure prevents deployPrepared from running.
    */
@@ -310,6 +316,55 @@ export const deployConfiguredRemoteHost = (
         deployed.disposition === "configuration-required");
     if (!packageAdmitted) {
       return failedPackageResult(host, deployed);
+    }
+
+    const priorInstallationId = options.stationInstallationId;
+    if (priorInstallationId !== undefined) {
+      const activated =
+        operations.activateRuntime === undefined
+          ? { ok: true as const, detail: "runtime activation not required" }
+          : yield* operations.activateRuntime(
+              ssh,
+              host,
+              deployed,
+              preparation.target,
+            );
+      if (!activated.ok) {
+        return {
+          ...deployed,
+          ok: false,
+          detail: `${host.label}: already configured Remote; package is present, but supervised runtime activate failed — ${activated.detail}`,
+          code: "io" as const,
+          message: activated.detail,
+          hostEndpoint: host.sshEndpoint,
+          disposition: "indeterminate" as const,
+          outcome: "indeterminate" as const,
+          packageState: "present" as const,
+          role: "remote" as const,
+          stationInstallationId: priorInstallationId,
+          configuration: {
+            ok: true,
+            detail: "already configured Remote; configure skipped",
+          },
+        };
+      }
+      const detail = `${deployed.detail} - already configured Remote; configure skipped - ${activated.detail}`;
+      return {
+        ...deployed,
+        ok: true as const,
+        detail,
+        message: activated.detail,
+        hostEndpoint: host.sshEndpoint,
+        disposition: "ready" as const,
+        outcome: "ready" as const,
+        packageState: "present" as const,
+        role: "remote" as const,
+        stationInstallationId: priorInstallationId,
+        configuration: {
+          ok: true as const,
+          detail: "already configured Remote; configure skipped",
+        },
+      };
     }
 
     const configured = yield* operations

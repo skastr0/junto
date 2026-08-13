@@ -43,6 +43,7 @@ export const DARWIN_PACKAGED_APP_EXECUTABLE =
   "/Applications/Vellum Command.app/Contents/MacOS/Vellum Command";
 export { STATION_PROTOCOL_NEGOTIATION_ARG, STATION_STDIO_COMMAND, CONTENT_TRANSFER_COMMAND };
 
+/** negotiation is the enroll/preface helper; session is the peer helper. */
 const stationStdioArgs = (
   mode: "session" | "negotiation",
 ): ReadonlyArray<string> =>

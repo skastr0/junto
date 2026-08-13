@@ -21,6 +21,7 @@ import {
   type NodeRefOpenedDelivery,
 } from "@shared/ipc";
 import { PRODUCT_NAME } from "@shared/product-name";
+import { modeFromConfiguration } from "@shared/station-mode";
 import { DARK_RUNTIME } from "@shared/theme";
 import type { PreambleEvent } from "@shared/preamble";
 import {
@@ -1395,14 +1396,14 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       }
     }
 
-    // Packaged --vellum-headless is enrollment ingress only: status, pair,
-    // configure. It is never the operational Remote. Package update starts
-    // this process against an already-configured installation; if we fall
-    // through to product + report pump, the one Station session becomes
-    // operational and Command Center's status bootstrap collides with report.
+    // Packaged --vellum-headless is Unenrolled ingress: enroll door only
+    // (status, pair, configure). Never the operational Remote. No report
+    // pump. No license product. Process mode is the mutex — this process
+    // never also binds the peer door.
     if (app.isPackaged && headless) {
       try {
         stationControl = await startStationControlServer({
+          door: "enroll",
           home: termControlHome,
           appVersion: app.getVersion(),
           stateSchemaVersion: CURRENT_STATE_SCHEMA_VERSION,
@@ -1414,10 +1415,6 @@ if (packagedSandboxDisablingSwitch !== undefined) {
             workControl: false,
             simulation: false,
           }),
-          admitRequest: (request) =>
-            request.op === "status" ||
-            request.op === "pair" ||
-            request.op === "configure",
         });
         if (shutdownAdmissionClosed) stationControl.beginShutdown();
       } catch (error) {
@@ -1615,9 +1612,9 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       exitAfterDetach(1, "canvas-control-startup-failure");
       return;
     }
-    // Every installation owns one scheduler and Station API listener. Kernel
-    // start is idempotent with the IPC startup path; invoking it here makes the
-    // headless/zero-window station contract explicit before readiness opens.
+    // Kernel starts for every admitted product boot. Station control binds
+    // only on a configured Remote (peer door). Report pump attaches only to
+    // that server. Command Center does not listen enroll or peer.
     try {
       kernelService = await AppRuntime.runPromise(KernelService);
       // V4-KERNEL + V4-PROGRAM: host-owned ManagedRuntime entry
@@ -1628,33 +1625,39 @@ if (packagedSandboxDisablingSwitch !== undefined) {
           AppRuntime.runFork(effect as never);
         },
       });
-      stationControl = await startStationControlServer({
-        home: termControlHome,
-        appVersion: app.getVersion(),
-        stateSchemaVersion: CURRENT_STATE_SCHEMA_VERSION,
-        run: (effect) => AppRuntime.runPromise(effect),
-        localHandoffAuthority:
-          makeOwnerLocalStationControlHandoffAuthority(),
-        readiness: () => ({
-          database: true,
-          workControl: workControlReadiness.ready(),
-          simulation: true,
-        }),
-      });
-      const [stationApi, work] = await Promise.all([
-        AppRuntime.runPromise(StationApiService),
-        AppRuntime.runPromise(WorkRepository),
-      ]);
-      stationRemoteReportPump = startStationRemoteReportPump({
-        api: stationApi,
-        stations,
-        work,
-        control: stationControl,
-        runPromise: (effect) => AppRuntime.runPromise(effect as never),
-      });
-      if (shutdownAdmissionClosed) {
-        stationRemoteReportPumpShutdown ??= stationRemoteReportPump.close();
-        stationControl.beginShutdown();
+      const stationMode = modeFromConfiguration(
+        stationConfiguration?.configuration.role,
+      );
+      if (stationMode === "remote") {
+        stationControl = await startStationControlServer({
+          door: "peer",
+          home: termControlHome,
+          appVersion: app.getVersion(),
+          stateSchemaVersion: CURRENT_STATE_SCHEMA_VERSION,
+          run: (effect) => AppRuntime.runPromise(effect),
+          localHandoffAuthority:
+            makeOwnerLocalStationControlHandoffAuthority(),
+          readiness: () => ({
+            database: true,
+            workControl: workControlReadiness.ready(),
+            simulation: true,
+          }),
+        });
+        const [stationApi, work] = await Promise.all([
+          AppRuntime.runPromise(StationApiService),
+          AppRuntime.runPromise(WorkRepository),
+        ]);
+        stationRemoteReportPump = startStationRemoteReportPump({
+          api: stationApi,
+          stations,
+          work,
+          control: stationControl,
+          runPromise: (effect) => AppRuntime.runPromise(effect as never),
+        });
+        if (shutdownAdmissionClosed) {
+          stationRemoteReportPumpShutdown ??= stationRemoteReportPump.close();
+          stationControl.beginShutdown();
+        }
       }
     } catch (error) {
       console.error("[station-control] failed to start:", error);
