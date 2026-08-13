@@ -462,6 +462,9 @@ export const replaceActiveActorRefs = (
 // Commit a new document. `structural` bumps docVersion so React Flow rebuilds;
 // pass false for pure position writes RF already reflects (drag stop).
 export const commitDoc = (next: CanvasDoc, structural = true, recordHistory = structural): void => {
+  if (state$.settings.station.role.peek() === "remote") {
+    return;
+  }
   if (licenseCustody.isReadOnly()) {
     state$.error.set(
       "license maintenance — canvas is read-only until access is restored",

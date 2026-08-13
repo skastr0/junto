@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   isCommandCenterAuthoring,
+  isCommandCenterFleetUi,
   nextCanvasBootAction,
 } from "../src/renderer/lib/canvas-boot";
 
@@ -33,5 +34,13 @@ describe("isCommandCenterAuthoring", () => {
     expect(isCommandCenterAuthoring("command-center")).toBe(true);
     expect(isCommandCenterAuthoring("remote")).toBe(false);
     expect(isCommandCenterAuthoring("")).toBe(false);
+  });
+});
+
+describe("isCommandCenterFleetUi", () => {
+  it("is only true for Command Center", () => {
+    expect(isCommandCenterFleetUi("command-center")).toBe(true);
+    expect(isCommandCenterFleetUi("remote")).toBe(false);
+    expect(isCommandCenterFleetUi("")).toBe(false);
   });
 });

@@ -35,6 +35,7 @@ import {
 } from "@shared/features";
 import { type PauseScope } from "@shared/pause";
 import { HUE } from "../../lib/theme";
+import { isCommandCenterAuthoring } from "../../lib/canvas-boot";
 import { state$ } from "../../lib/state";
 import { kernel$ } from "../../lib/kernel-view";
 import {
@@ -386,6 +387,9 @@ function PageKindKeys({ node }: { readonly node: CanvasNode }) {
 
 function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
   const [homeOpen, setHomeOpen] = useState(false);
+  const fleetUi =
+    FLEET_UI_ENABLED &&
+    isCommandCenterAuthoring(use$(state$.settings.station.role));
 
   useEffect(() => {
     setHomeOpen(false);
@@ -415,7 +419,7 @@ function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
         <Pencil size={ICON} />
       </KindKey>
       {/* Queue home is pure host choice — a fleet surface. */}
-      {FLEET_UI_ENABLED ? (
+      {fleetUi ? (
         <KindKey
           label={homeOpen ? "Close queue home" : "Queue home"}
           title="Host for new tasks"
@@ -425,7 +429,7 @@ function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
           <Server size={ICON} />
         </KindKey>
       ) : null}
-      {FLEET_UI_ENABLED && homeOpen ? (
+      {fleetUi && homeOpen ? (
         <div className="rts-kind-pop rts-kind-pop--queue-home">
           <TaskQueueHomeControl node={node} />
         </div>

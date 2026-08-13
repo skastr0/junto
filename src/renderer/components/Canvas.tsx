@@ -1256,6 +1256,7 @@ function CanvasPerformanceBoundary({ children }: { readonly children: ReactNode 
 
 function CanvasGraph() {
   const { nodes, edges, onNodesChange, onEdgesChange, interactions, rf } = useCanvasGraph();
+  const authoring = isCommandCenterAuthoring(use$(state$.settings.station.role));
   const fieldTheme = themeFor(use$(themeMode$));
   // While a connection drag is live, every card shows its dots so targets are
   // discoverable mid-gesture.
@@ -1516,6 +1517,8 @@ function CanvasGraph() {
       onMoveStart={onMoveStart}
       onMove={onMove}
       onMoveEnd={onMoveEnd}
+      nodesDraggable={authoring}
+      nodesConnectable={authoring}
       connectionMode={ConnectionMode.Loose}
       connectionRadius={42}
       panOnScroll

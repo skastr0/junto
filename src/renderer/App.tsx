@@ -63,7 +63,7 @@ import { TooltipLayer } from "./components/TooltipLayer";
 import { DemoCameraBridge } from "./demo/camera-bridge";
 import { DemoLayer } from "./demo/demo-layer";
 import { SEED_CANVAS_NAME } from "@shared/seed";
-import { nextCanvasBootAction } from "./lib/canvas-boot";
+import { isCommandCenterFleetUi, nextCanvasBootAction } from "./lib/canvas-boot";
 import {
   makeNavigationClock,
   makeNodeRefNavigationCoordinator,
@@ -285,6 +285,7 @@ export function App() {
   const booting = use$(state$.booting);
   const canvasName = use$(state$.canvasName);
   const fleetOpen = use$(state$.fleetOpen);
+  const stationRole = use$(state$.settings.station.role);
   const errorAction = retryActionForError(error);
 
   useEffect(() => {
@@ -504,7 +505,7 @@ export function App() {
         <SettingsPanel />
         <ObservabilityPanel />
         {/* Mount fleet only while open — unmount destroys every WebGL machine. */}
-        {FLEET_UI_ENABLED && fleetOpen ? (
+        {FLEET_UI_ENABLED && isCommandCenterFleetUi(stationRole) && fleetOpen ? (
           <Suspense
             fallback={
               <div className="fleet-chunk-fallback" role="status" aria-live="polite">

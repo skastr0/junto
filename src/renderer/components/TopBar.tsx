@@ -423,7 +423,7 @@ export function TopBar({
             <ScrollText size={15} />
           </button>
         ) : null}
-        {FLEET_UI_ENABLED ? (
+        {FLEET_UI_ENABLED && authoring ? (
           <button type="button" className="station-icon-button" aria-label="Open fleet manager" title="Fleet"
             style={{ borderColor: "var(--color-stroke)", color: HUE.steel }}
             onPointerEnter={prefetchFleetChunk}

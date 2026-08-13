@@ -21,3 +21,7 @@ export const nextCanvasBootAction = (
 
 export const isCommandCenterAuthoring = (role: StationRoleSetting): boolean =>
   role === "command-center";
+
+/** Command Fleet is Command Center chrome. A Remote must not open it. */
+export const isCommandCenterFleetUi = (role: StationRoleSetting): boolean =>
+  role === "command-center";
