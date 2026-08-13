@@ -134,6 +134,17 @@ export const bindLinuxRemoteUserland = (
   return Effect.succeed(userland);
 };
 
+/** Name of a minted platform witness. Callers cannot invent the name. */
+export const inspectRemotePackagedPlatform = (
+  platform: RemotePackagedPlatform,
+): RemotePackagedPlatformName => {
+  const name = remotePackagedPlatforms.get(platform);
+  if (name === undefined) {
+    throw new TypeError("remote packaged platform was not minted by the probe");
+  }
+  return name;
+};
+
 const decodeRemotePackagedPlatform = (
   endpoint: SshEndpoint,
   output: string,
@@ -264,6 +275,24 @@ export const remoteDarwinPackageExists = (): Effect.Effect<
   SshInputError
 > =>
   makeRemoteCommand("/bin/test", ["-f", DARWIN_PACKAGED_APP_EXECUTABLE]);
+
+export const remoteDarwinDeployLockExists = (): Effect.Effect<
+  RemoteCommand,
+  SshInputError
+> =>
+  makeRemoteCommand("/bin/test", [
+    "-d",
+    "/Applications/.vellum-command-deploy.lock",
+  ]);
+
+export const remoteDarwinIncomingExists = (): Effect.Effect<
+  RemoteCommand,
+  SshInputError
+> =>
+  makeRemoteCommand("/bin/test", [
+    "-d",
+    "/Applications/Vellum Command.app.incoming",
+  ]);
 
 /**
  * Product Hermes CLI on the remote PATH.

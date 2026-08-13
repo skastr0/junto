@@ -74,6 +74,7 @@
     "app:install:supervised": "bash scripts/install-app.sh --supervised",
     "app:open": "open \"/Applications/Vellum Command.app\"",
     "app:uninstall-agent": "bash scripts/install-launchd.sh --uninstall",
+    "host:ops": "bun scripts/host-ops.ts",
     "digest": "bun scripts/digest.ts",
     "canvas:ls": "bun scripts/canvas-ls.ts",
     "ref": "bun scripts/ref-cli.ts",
