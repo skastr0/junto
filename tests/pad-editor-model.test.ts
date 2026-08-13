@@ -13,6 +13,7 @@ import {
 import { contentBounds, identityCamera, viewToScene } from "../src/shared/pad-geom";
 import {
   appendInkPoint,
+  applyLocalUndo,
   canDelete,
   INK_MIN_DISTANCE,
   cycleSelection,
@@ -249,6 +250,21 @@ describe("pad editor inverse patches", () => {
     if (Result.isFailure(inverse)) return;
     const undone = expectOk(applyPatches(after, inverse.success));
     expect(undone.images).toEqual([]);
+  });
+
+  it("applies the last inverse frame locally", () => {
+    const start = emptyPad();
+    const patches: PadPatch[] = [upsertShapePatch(box("a"))];
+    const after = expectOk(applyPatches(start, patches));
+    const inverse = inversePatches(start, patches);
+    expect(Result.isSuccess(inverse)).toBe(true);
+    if (Result.isFailure(inverse)) return;
+    const undone = applyLocalUndo(after, [inverse.success]);
+    expect(undone).toBeDefined();
+    if (!undone || Result.isFailure(undone)) return;
+    expect(undone.success.pad.shapes).toEqual([]);
+    expect(undone.success.stack).toEqual([]);
+    expect(applyLocalUndo(start, [])).toBeUndefined();
   });
 });
 

@@ -1,7 +1,7 @@
 # Vellum Command pad
 
 Operator and wired agents share one page. The operator marks. The agent
-sees the same page (PNG/SVG + digest + look-here crop) and patches named
+sees the same page (SVG + digest + look-here crop) and patches named
 boxes and pins. Agents never write the factory canvas.
 
 Contract: [`pad-architecture.md`](pad-architecture.md).

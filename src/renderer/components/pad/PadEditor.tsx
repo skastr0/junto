@@ -23,14 +23,15 @@ import { Result } from "effect";
 import { resolvePadInboundActors } from "@shared/board-actors";
 import type { ContentRef } from "@shared/content";
 import { contentObjectUrl } from "@shared/content-url";
-import type {
-  Pad,
-  PadElementId,
-  PadImage,
-  PadPatch,
-  PadPoint,
-  PadShape,
-  PadSide,
+import {
+  applyPatches,
+  type Pad,
+  type PadElementId,
+  type PadImage,
+  type PadPatch,
+  type PadPoint,
+  type PadShape,
+  type PadSide,
 } from "@shared/pad";
 import { state$ } from "../../lib/state";
 import { applyWorkCanvasWrite } from "../../lib/mutations";
@@ -61,6 +62,7 @@ import {
   HIT_VIEW_PX,
   SIDE_VIEW_PX,
   appendInkPoint,
+  applyLocalUndo,
   canDelete,
   canMove,
   canResize,
@@ -248,7 +250,7 @@ const PadImageEl = ({
 );
 
 export function PadEditor({
-  pad,
+  pad: remotePad,
   padNodeId,
   onCommit,
   onClose,
@@ -270,7 +272,15 @@ export function PadEditor({
   const [labelDraft, setLabelDraft] = useState("");
   const [hint, setHint] = useState<string | null>(null);
   const undoRef = useRef<PadPatch[][]>([]);
+  const pendingInverseRef = useRef<PadPatch[]>([]);
   const [undoDepth, setUndoDepth] = useState(0);
+  const [localPad, setLocalPad] = useState<Pad | undefined>();
+  const remotePadRef = useRef(remotePad);
+  if (remotePadRef.current !== remotePad) {
+    remotePadRef.current = remotePad;
+    if (localPad !== undefined) setLocalPad(undefined);
+  }
+  const pad = localPad ?? remotePad;
   const padRef = useRef(pad);
   padRef.current = pad;
   const theme = use$(themeMode$);
@@ -360,25 +370,35 @@ export function PadEditor({
     async (patches: ReadonlyArray<PadPatch>): Promise<boolean> => {
       if (patches.length === 0) return true;
       const inverse = inversePatches(padRef.current, patches);
-      const ok = await onCommit(patches);
-      if (ok && Result.isSuccess(inverse) && inverse.success.length > 0) {
+      const flushed =
+        pendingInverseRef.current.length === 0
+          ? patches
+          : [...pendingInverseRef.current, ...patches];
+      const ok = await onCommit(flushed);
+      if (!ok) return false;
+      pendingInverseRef.current = [];
+      const next = applyPatches(padRef.current, patches);
+      if (Result.isSuccess(next)) setLocalPad(next.success);
+      if (Result.isSuccess(inverse) && inverse.success.length > 0) {
         undoRef.current = [...undoRef.current, inverse.success];
         setUndoDepth(undoRef.current.length);
       }
-      return ok;
+      return true;
     },
     [onCommit],
   );
 
-  const undo = useCallback(async () => {
-    const next = undoRef.current[undoRef.current.length - 1];
-    if (!next) return;
-    const ok = await onCommit(next);
-    if (ok) {
-      undoRef.current = undoRef.current.slice(0, -1);
-      setUndoDepth(undoRef.current.length);
+  const undo = useCallback(() => {
+    const applied = applyLocalUndo(padRef.current, undoRef.current);
+    if (!applied || Result.isFailure(applied)) return;
+    undoRef.current = applied.success.stack.map((frame) => [...frame]);
+    pendingInverseRef.current = [...pendingInverseRef.current, ...applied.success.frame];
+    setUndoDepth(undoRef.current.length);
+    setLocalPad(applied.success.pad);
+    if (selectedId && !editableLayer(applied.success.pad, selectedId)) {
+      setSelectedId(undefined);
     }
-  }, [onCommit]);
+  }, [selectedId]);
 
   const applyDelete = useCallback(async () => {
     if (!selectedId || !canDelete(selectedLayer)) return;
@@ -541,7 +561,7 @@ export function PadEditor({
           void applyDelete();
           return;
         case "undo":
-          void undo();
+          undo();
           return;
         case "z":
           void applyZ(action.delta);
@@ -923,7 +943,7 @@ export function PadEditor({
             title="Undo"
             size="sm"
             disabled={undoDepth === 0}
-            onClick={() => void undo()}
+            onClick={undo}
           >
             <Undo2 size={13} />
           </IconButton>

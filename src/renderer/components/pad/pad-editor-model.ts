@@ -674,6 +674,26 @@ export const inversePatches = (
   return Result.succeed([...creates, ...updates, ...deletes]);
 };
 
+/** Last inverse frame through applyPatch only. Not a work-plane write. */
+export const applyLocalUndo = (
+  pad: Pad,
+  stack: ReadonlyArray<ReadonlyArray<PadPatch>>,
+): Result.Result<{
+  readonly pad: Pad;
+  readonly stack: ReadonlyArray<ReadonlyArray<PadPatch>>;
+  readonly frame: ReadonlyArray<PadPatch>;
+}, PadError> | undefined => {
+  const frame = stack[stack.length - 1];
+  if (!frame) return undefined;
+  const next = applyPatches(pad, frame);
+  if (Result.isFailure(next)) return Result.fail(next.failure);
+  return Result.succeed({
+    pad: next.success,
+    stack: stack.slice(0, -1),
+    frame,
+  });
+};
+
 export const editableLayer = (
   pad: Pad,
   id: string,

@@ -40,5 +40,19 @@ describe("pad operator and agent docs", () => {
     expect(guide).toContain("@");
     expect(guide).not.toContain("\u00b7");
     expect(guide).not.toMatch(/\bVellum\b(?! Command)/);
+    expect(guide).not.toMatch(/\bPNG\b/);
+    expect(guide).toContain("SVG + digest + look-here crop");
+    expect(guide).toContain("local inverse patch (not durable)");
+  });
+
+  it("docs/pad-architecture.md product sentence matches shipped pad.read", async () => {
+    const architecture = await readFile(
+      new URL("../docs/pad-architecture.md", import.meta.url),
+      "utf8",
+    );
+    expect(architecture).not.toMatch(/\bPNG\b/);
+    expect(architecture).toContain("SVG + digest + look-here crop");
+    expect(architecture).toContain("pad.read   → { revision, pad, digest, svg }");
+    expect(architecture).toContain("local inverse patch (not durable)");
   });
 });

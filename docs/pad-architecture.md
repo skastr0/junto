@@ -11,7 +11,7 @@ counterexample updates this file, then the code.
 ## Product sentence
 
 Operator and wired agents share one page. The operator marks. The
-agent sees the same page (PNG/SVG + digest + look-here crop) and
+agent sees the same page (SVG + digest + look-here crop) and
 patches named boxes and pins.
 
 ## Laws
@@ -56,7 +56,6 @@ patches named boxes and pins.
 
 - SQLite repository, WorkService author rules, IPC, CLI flags
 - React + SVG editor, pointer events, handles, focus modal
-- PNG raster of SVG (replaceable)
 
 Do not invent a second pad document, a CRDT, a drawing framework,
 or a second comment body. Pin posts reuse `BoardAuthor` + `Part`.
