@@ -488,6 +488,13 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
         {deployJob ? <FleetDeployJobPanel job={deployJob} /> : null}
         <div className="fleet-detail__actions">
           <Button
+            size="sm"
+            disabled={probing}
+            {...activateOnPointerUp(() => void probeHost(host.id))}
+          >
+            {probing ? "probing…" : "Test Station link"}
+          </Button>
+          <Button
             variant="primary"
             size="xs"
             disabled={actionBusy !== "" || !deployEnabled || deployInFlight}
@@ -553,6 +560,13 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
           <span className="fleet-detail__reach" style={{ color: reach.color }}>
             {reach.text}
           </span>
+          <Button
+            size="sm"
+            disabled={probing}
+            {...activateOnPointerUp(() => void probeHost(host.id))}
+          >
+            {probing ? "probing…" : "Test Station link"}
+          </Button>
         </div>
         {reach.detail ? (
           <details className="fleet-detail__diagnostic">
@@ -593,13 +607,6 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
             </span>
           </div>
         ) : null}
-        <Button
-          size="xs"
-          disabled={probing}
-          {...activateOnPointerUp(() => void probeHost(host.id))}
-        >
-          {probing ? "probing…" : "Test link"}
-        </Button>
       </section>
 
       <StationDiagnostics observation={probe?.observation} />

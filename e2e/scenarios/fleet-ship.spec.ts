@@ -156,11 +156,11 @@ test("SHIP station detail shows probe truth and main-owned deploy gating", async
     await expect(deploy).toBeDisabled();
     await expect(detail).toContainText(/turned off|disabled/i);
     await expect(detail.getByRole("button", { name: "Configure Remote" })).toBeEnabled();
-    await expect(detail.getByRole("button", { name: "Test link" })).toBeVisible();
+    await expect(detail.getByRole("button", { name: "Test Station link" }).first()).toBeVisible();
     await expect(detail).toContainText(/link untested|checking route|reachable|unreachable/);
     await shot(page, "04-station-detail-gated");
 
-    await detail.getByRole("button", { name: "Test link" }).click();
+    await detail.getByRole("button", { name: "Test Station link" }).first().click();
     await expect(detail).toContainText(/checking route|reachable|unreachable|link untested/, { timeout: 20_000 });
     await detail.getByRole("button", { name: "Close fleet detail" }).click();
     await expect(detail).toHaveCount(0);
