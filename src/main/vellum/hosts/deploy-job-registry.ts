@@ -4,6 +4,7 @@
  */
 import { randomBytes } from "node:crypto";
 import {
+  mergeDeployJobStages,
   percentFromStages,
   type HostDeployJobSnapshot,
   type HostDeployJobStatus,
@@ -88,9 +89,7 @@ export const finishDeployJob = (
 ): void => {
   const current = jobsByHost.get(hostId);
   const startedAt = current?.startedAt ?? nowIso();
-  const stages = [
-    ...(input.stages ?? current?.stages ?? []),
-  ].slice(-48);
+  const stages = mergeDeployJobStages(current?.stages, input.stages);
   const finishedAt = nowIso();
   publish({
     jobId: current?.jobId ?? randomBytes(8).toString("hex"),

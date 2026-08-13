@@ -8,9 +8,18 @@ import {
   HostRuntimeObservation,
   hostRuntimeGapCopy,
 } from "../src/shared/host-runtime";
-import { observeRemoteHost } from "../src/main/vellum/hosts/host-runtime";
-import { combineHostProcessPlanes } from "../src/main/vellum/hosts/host-runtime-platform";
-import { SshExitError, SshTimeoutError } from "../src/main/vellum/ssh/domain";
+import { checkHostRuntime, observeRemoteHost } from "../src/main/vellum/hosts/host-runtime";
+import {
+  combineHostProcessPlanes,
+  readRemoteTextFile,
+  workAttachFromTermConnect,
+  workAttachFromTokenFile,
+} from "../src/main/vellum/hosts/host-runtime-platform";
+import {
+  parseSshEndpoint,
+  SshExitError,
+  SshTimeoutError,
+} from "../src/main/vellum/ssh/domain";
 import type { RemoteHost } from "../src/shared/remote-hosts";
 
 const observation = (
@@ -153,12 +162,89 @@ describe("decideHostRuntimeGap", () => {
   });
 });
 
+describe("checkHostRuntime", () => {
+  it("is ready only after connect on remote or command-center", () => {
+    const ready = checkHostRuntime(
+      observation({ workAttach: "up", mode: "remote" }),
+    );
+    expect(ready.ok).toBe(true);
+    expect(ready.detail).toBe(
+      "Vellum Command can take work on this machine.",
+    );
+    expect(
+      checkHostRuntime(observation({ workAttach: "up", mode: "unenrolled" }))
+        .ok,
+    ).toBe(false);
+    expect(
+      checkHostRuntime(observation({ workAttach: "unknown", mode: "remote" }))
+        .ok,
+    ).toBe(false);
+  });
+});
+
 describe("combineHostProcessPlanes", () => {
   it("does not treat an unknown door as down", () => {
     expect(combineHostProcessPlanes("unknown", "down")).toBe("unknown");
     expect(combineHostProcessPlanes("down", "unknown")).toBe("unknown");
     expect(combineHostProcessPlanes("down", "down")).toBe("down");
     expect(combineHostProcessPlanes("up", "unknown")).toBe("up");
+  });
+});
+
+describe("work attach token and connect", () => {
+  const target = Effect.runSync(parseSshEndpoint("studio-box"));
+
+  it("missing token file is down; timeout stays unknown", async () => {
+    const missing = await Effect.runPromise(
+      readRemoteTextFile(
+        {
+          run: () =>
+            Effect.fail(
+              new SshExitError({
+                endpoint: "studio-box",
+                operation: "cat",
+                code: 1,
+              }),
+            ),
+        } as never,
+        target,
+        "/Users/alice/.vellum-command/term/token",
+      ),
+    );
+    expect(missing).toEqual({ _tag: "missing" });
+    expect(workAttachFromTokenFile(missing)).toBe("down");
+
+    const timedOut = await Effect.runPromise(
+      readRemoteTextFile(
+        {
+          run: () =>
+            Effect.fail(
+              new SshTimeoutError({
+                endpoint: "studio-box",
+                operation: "cat",
+                timeoutMs: 1_000,
+              }),
+            ),
+        } as never,
+        target,
+        "/Users/alice/.vellum-command/term/token",
+      ),
+    );
+    expect(timedOut).toEqual({ _tag: "unknown" });
+    expect(workAttachFromTokenFile(timedOut)).toBe("unknown");
+  });
+
+  it("term connect refused is down; unexpected stays unknown", () => {
+    const refused = Object.assign(new Error("connect"), { code: "ECONNREFUSED" });
+    expect(workAttachFromTermConnect(refused)).toBe("down");
+    expect(
+      workAttachFromTermConnect(
+        new Error("term control connect timeout: /tmp/sock"),
+      ),
+    ).toBe("down");
+    expect(workAttachFromTermConnect(new Error("codesign helper crashed"))).toBe(
+      "unknown",
+    );
   });
 });
 
@@ -228,6 +314,40 @@ describe("observeRemoteHost", () => {
     expect(observed.platform).toBe("unknown");
     expect(observed.blocker).toBeUndefined();
   });
+
+  it("plane probe timeouts stay unknown, not down", async () => {
+    let calls = 0;
+    const observed = await Effect.runPromise(
+      observeRemoteHost(
+        {
+          run: () => {
+            calls += 1;
+            if (calls === 1) {
+              return Effect.succeed({ stdout: "Darwin\n", stderr: "" });
+            }
+            if (calls === 2) {
+              return Effect.succeed({ stdout: "/Users/alice\n", stderr: "" });
+            }
+            return Effect.fail(
+              new SshTimeoutError({
+                endpoint: "studio-box",
+                operation: "probe",
+                timeoutMs: 1_000,
+              }),
+            );
+          },
+        } as never,
+        host,
+        { mode: "remote", priorInstallationId: "station-studio" },
+      ),
+    );
+    expect(observed.network).toBe("up");
+    expect(observed.platform).toBe("darwin");
+    expect(observed.package).toBe("unknown");
+    expect(observed.process).toBe("unknown");
+    expect(observed.workAttach).toBe("unknown");
+    expect(checkHostRuntime(observed).ok).toBe(false);
+  });
 });
 
 describe("HostRuntime inversion", () => {
@@ -256,6 +376,7 @@ describe("HostRuntime inversion", () => {
     expect(darwin).toContain("activateDarwinRemoteRuntimeForTarget");
     expect(darwin).toContain("TermControlClient.connect");
     expect(darwin).not.toContain("handshakeLinuxWorkControl");
+    expect(darwin).not.toContain("remoteTestSocketExists");
     expect(darwin).toContain("combineHostProcessPlanes");
     expect(linux).toContain("workControlSocketPath");
     expect(linux).not.toContain("remoteDarwinPackageExists");
@@ -265,6 +386,7 @@ describe("HostRuntime inversion", () => {
     expect(linux).not.toContain("TermControlClient");
     expect(linux).toContain("buildObservedRemoteDeploymentTarget");
     expect(linux).toContain("linuxRemoteDeploymentProvider");
+    expect(linux).toContain("activateLinuxRemoteRuntimeForTarget");
     expect(linux).toContain("handshakeLinuxWorkControl");
     expect(linux).toContain("proveWorkAttach");
     expect(linux).toContain("combineHostProcessPlanes");

@@ -132,6 +132,20 @@ printf 'LINUX_USERLAND_DEPLOY_V1 ok=1 state=ready release=%s\n' "$VERSION-$SHA"
 export const compileLinuxUserlandDeploy = (): Effect.Effect<RemoteCommand, SshInputError> =>
   makeRemoteCommand("/bin/sh", ["-c", compileLinuxUserlandDeploySource(), "vellum-plan:linux-userland-deploy"]);
 
+export const compileLinuxUserlandRestartSource = (): string => String.raw`
+set -eu
+umask 077
+fail() { printf 'LINUX_USERLAND_RESTART_V1 ok=0 reason=%s\n' "$1"; exit 0; }
+/usr/bin/systemctl --user show-environment >/dev/null 2>&1 || fail systemd-user
+/usr/bin/systemctl --user daemon-reload >/dev/null 2>&1 || fail reload
+/usr/bin/systemctl --user restart vellum-command-remote.service >/dev/null 2>&1 || fail restart
+/usr/bin/systemctl --user is-active --quiet vellum-command-remote.service || fail inactive
+printf 'LINUX_USERLAND_RESTART_V1 ok=1\n'
+`.trim();
+
+export const compileLinuxUserlandRestart = (): Effect.Effect<RemoteCommand, SshInputError> =>
+  makeRemoteCommand("/bin/sh", ["-c", compileLinuxUserlandRestartSource(), "vellum-plan:linux-userland-restart"]);
+
 export const HERDR_IMAGE_STAGE_DIR = "/tmp/vellum-command-herdr-images" as const;
 const HERDR_NAME = /^vellum-command-clip-[a-z0-9]{1,24}-[a-f0-9]{8}\.(png|jpg|gif|webp|bmp)$/u;
 export const confineHerdrStagePath = (name: string): Effect.Effect<string, SshInputError> =>

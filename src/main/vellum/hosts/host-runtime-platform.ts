@@ -4,6 +4,7 @@
  */
 import { createConnection, type Socket } from "node:net";
 import { Effect } from "effect";
+import { mergeDeployJobStages } from "@shared/deploy-job";
 import type {
   HostProcess,
   HostRuntimeBlocker,
@@ -12,12 +13,12 @@ import type {
   HostRuntimePlatform,
   HostWorkAttach,
 } from "@shared/host-runtime";
+import type { InstallationId } from "@shared/installation-id";
+import type { RemoteHost } from "@shared/remote-hosts";
 import {
   decodeWorkResponse,
   encodeWorkFrame,
 } from "@shared/work-control";
-import type { RemoteHost } from "@shared/remote-hosts";
-import type { InstallationId } from "@shared/installation-id";
 import { parseRemoteUnixSocketPath, SshExitError, type SshTarget } from "../ssh/domain";
 import { oneShot, unixForward } from "../ssh/program";
 import { remoteCat, remoteTestSocketExists } from "../ssh/read-commands";
@@ -45,6 +46,11 @@ export type HostRuntimeApplyContext = {
   readonly configure: ConfigureRemoteOptions;
   readonly artifactSource?: LinuxReleaseCacheSource;
 };
+
+export type RemoteTextFile =
+  | { readonly _tag: "present"; readonly text: string }
+  | { readonly _tag: "missing" }
+  | { readonly _tag: "unknown" };
 
 /** Door/process plane: exit 1 is down. Any other failure stays unknown. */
 export const probeRemoteDoorSocket = (
@@ -78,17 +84,46 @@ export const readRemoteTextFile = (
   ssh: SshTransportShape,
   target: SshTarget,
   path: string,
-): Effect.Effect<string | undefined> =>
+): Effect.Effect<RemoteTextFile> =>
   Effect.gen(function* () {
     const cmd = yield* remoteCat(path).pipe(Effect.result);
-    if (cmd._tag === "Failure") return undefined;
+    if (cmd._tag === "Failure") return { _tag: "unknown" };
     const result = yield* ssh
       .run(oneShot(target, cmd.success, { budget: "short" }))
       .pipe(Effect.result);
-    if (result._tag === "Failure") return undefined;
+    if (result._tag === "Failure") {
+      return result.failure instanceof SshExitError && result.failure.code === 1
+        ? { _tag: "missing" }
+        : { _tag: "unknown" };
+    }
     const text = result.success.stdout.trim();
-    return text.length === 0 ? undefined : text;
+    return text.length === 0
+      ? { _tag: "missing" }
+      : { _tag: "present", text };
   });
+
+export const workAttachFromTokenFile = (
+  token: RemoteTextFile,
+): HostWorkAttach | undefined => {
+  if (token._tag === "unknown") return "unknown";
+  if (token._tag === "missing") return "down";
+  return undefined;
+};
+
+/** Forward succeeded; the dial itself failed. Unknown is not down. */
+export const workAttachFromTermConnect = (error: unknown): HostWorkAttach => {
+  if (error instanceof Error && "code" in error) {
+    const code = (error as { readonly code?: unknown }).code;
+    if (code === "ENOENT" || code === "ECONNREFUSED") return "down";
+  }
+  if (
+    error instanceof Error &&
+    /term control connect timeout/u.test(error.message)
+  ) {
+    return "down";
+  }
+  return "unknown";
+};
 
 /** Forward a remote UDS. Forward failure is unknown, not down. */
 export const withRemoteUnixForward = (
@@ -182,6 +217,14 @@ export const hostRuntimeBlockedDeploy = (
   detail: blocker.detail,
   message: blocker.detail,
   code: blocker.kind === "auth" ? "auth_required" : "conflict",
+});
+
+export const sealHostRuntimeStages = (
+  result: ConfiguredRemoteDeployResult,
+  remedyStages: readonly string[],
+): ConfiguredRemoteDeployResult => ({
+  ...result,
+  stages: mergeDeployJobStages(result.stages, remedyStages),
 });
 
 export type HostRuntimePlatformAdapter = {

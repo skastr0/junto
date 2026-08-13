@@ -1,6 +1,7 @@
 /** Darwin HostRuntime platform. Package is the signed .app. Attach is term. */
 import { Effect } from "effect";
 import { join } from "node:path";
+import { HOST_RUNTIME_REMEDY_STAGE } from "@shared/deploy-job";
 import { classifyHostRuntimeBlocker, type HostWorkAttach } from "@shared/host-runtime";
 import { stationControlDir, stationDoorSocketPath } from "@shared/station-ssh-control";
 import { TERM_REMOTE_SOCK_REL, termControlTokenPath } from "@shared/term-control";
@@ -31,7 +32,10 @@ import {
   hostRuntimeBlockedDeploy,
   probeRemoteDoorSocket,
   readRemoteTextFile,
+  sealHostRuntimeStages,
   withRemoteUnixForward,
+  workAttachFromTermConnect,
+  workAttachFromTokenFile,
   type HostRuntimeApplyContext,
   type HostRuntimePlatformAdapter,
   type HostRuntimePlanes,
@@ -93,7 +97,9 @@ const probeDarwinWorkAttach = (
       target,
       termControlTokenPath(home),
     );
-    if (token === undefined) return "down";
+    const fromToken = workAttachFromTokenFile(token);
+    if (fromToken !== undefined) return fromToken;
+    if (token._tag !== "present") return "unknown";
     return yield* withRemoteUnixForward(
       ssh,
       target,
@@ -103,14 +109,19 @@ const probeDarwinWorkAttach = (
           try: async () => {
             const client = await TermControlClient.connect({
               socketPath: localSocket,
-              token,
+              token: token.text,
               timeoutMs: 2_000,
             });
             await client.drainOnQuit();
             return "up" as const;
           },
-          catch: () => new Error("term attach failed"),
-        }).pipe(Effect.orElseSucceed(() => "down" as const)),
+          catch: (error) =>
+            error instanceof Error ? error : new Error("term attach failed"),
+        }).pipe(
+          Effect.catch((error) =>
+            Effect.succeed(workAttachFromTermConnect(error)),
+          ),
+        ),
     );
   });
 
@@ -153,11 +164,21 @@ export const applyDarwinHostRuntime = (
 ): Effect.Effect<ConfiguredRemoteDeployResult> =>
   Effect.gen(function* () {
     const { ssh, host, gap } = context;
+    const remedyStages: string[] = [];
+    const note = (stage: string) => {
+      reportDeployStage(stage);
+      if (!remedyStages.includes(stage)) remedyStages.push(stage);
+    };
+    const seal = (result: ConfiguredRemoteDeployResult) =>
+      sealHostRuntimeStages(result, remedyStages);
+
     if (host.kind !== "remote" || !host.sshEndpoint) {
-      return failedBeforeMutation(
-        host,
-        `${host.label}: host is not a registered Remote endpoint`,
-        { code: "validation" },
+      return seal(
+        failedBeforeMutation(
+          host,
+          `${host.label}: host is not a registered Remote endpoint`,
+          { code: "validation" },
+        ),
       );
     }
     const preparation = yield* buildObservedRemoteDeploymentTarget(ssh, host, {
@@ -165,12 +186,14 @@ export const applyDarwinHostRuntime = (
       kernelName: "Darwin",
     });
     if (!preparation.ok) {
-      return failedBeforeMutation(host, preparation.result.detail, {
-        code: preparation.result.code,
-        stages: preparation.result.stages,
-        unsupportedTarget: preparation.result.unsupportedTarget,
-        recoveryAction: preparation.result.recoveryAction,
-      });
+      return seal(
+        failedBeforeMutation(host, preparation.result.detail, {
+          code: preparation.result.code,
+          stages: preparation.result.stages,
+          unsupportedTarget: preparation.result.unsupportedTarget,
+          recoveryAction: preparation.result.recoveryAction,
+        }),
+      );
     }
     const firstInstall = gap === "needInstall" || gap === "needConfigure";
     let configured:
@@ -180,11 +203,11 @@ export const applyDarwinHostRuntime = (
     let lastActivated: { ok: boolean; detail: string } | undefined;
 
     for (let round = 0; round < HOST_RUNTIME_REMEDY_ROUNDS; round++) {
-      const copyStage =
+      note(
         round === 0
-          ? "Copying Vellum Command"
-          : "Copying Vellum Command again";
-      reportDeployStage(copyStage);
+          ? HOST_RUNTIME_REMEDY_STAGE.copy
+          : HOST_RUNTIME_REMEDY_STAGE.copyAgain,
+      );
       const deployed = yield* operations.deploy({
         ssh,
         target: preparation.target,
@@ -197,35 +220,38 @@ export const applyDarwinHostRuntime = (
       lastDeployed = deployed;
       const deployBlocker = classifyHostRuntimeBlocker(deployed.detail);
       if (deployBlocker !== undefined) {
-        return hostRuntimeBlockedDeploy(host, deployed, deployBlocker);
+        return seal(hostRuntimeBlockedDeploy(host, deployed, deployBlocker));
       }
       if (!packageAdmitted(deployed)) {
         if (round === HOST_RUNTIME_REMEDY_ROUNDS - 1) {
-          return failedPackageResult(host, deployed);
+          return seal(failedPackageResult(host, deployed));
         }
         continue;
       }
+      note(HOST_RUNTIME_REMEDY_STAGE.sign);
       if (firstInstall && configured === undefined) {
         const next = yield* operations
           .configure(ssh, host, context.configure)
           .pipe(Effect.result);
         if (next._tag === "Failure") {
-          return configurationFailure(host, deployed, next.failure);
+          return seal(configurationFailure(host, deployed, next.failure));
         }
         if (!next.success.ok || next.success.station === undefined) {
-          return configurationFailure(host, deployed, next.success);
+          return seal(configurationFailure(host, deployed, next.success));
         }
         configured = next.success;
       }
-      reportDeployStage("Restarting Vellum Command");
+      note(HOST_RUNTIME_REMEDY_STAGE.restart);
       const activated = yield* operations.activate(ssh, preparation.target);
       lastActivated = activated;
       const activateBlocker = classifyHostRuntimeBlocker(activated.detail);
       if (activateBlocker !== undefined) {
-        return hostRuntimeBlockedDeploy(
-          host,
-          { ...deployed, detail: activated.detail },
-          activateBlocker,
+        return seal(
+          hostRuntimeBlockedDeploy(
+            host,
+            { ...deployed, detail: activated.detail },
+            activateBlocker,
+          ),
         );
       }
       if (!activated.ok) {
@@ -236,7 +262,7 @@ export const applyDarwinHostRuntime = (
               deployed,
               configured,
             );
-            return {
+            return seal({
               ...finished,
               ok: false,
               detail: `${host.label}: Station configured as remote, but supervised runtime activate failed — ${activated.detail}`,
@@ -244,27 +270,31 @@ export const applyDarwinHostRuntime = (
               message: activated.detail,
               disposition: "indeterminate" as const,
               outcome: "indeterminate" as const,
-            };
+            });
           }
           const prior = context.priorInstallationId;
           if (prior === undefined) {
-            return failedPackageResult(host, {
-              ...deployed,
-              ok: false,
-              detail: activated.detail,
-              disposition: "indeterminate",
-            });
+            return seal(
+              failedPackageResult(host, {
+                ...deployed,
+                ok: false,
+                detail: activated.detail,
+                disposition: "indeterminate",
+              }),
+            );
           }
-          return alreadyConfiguredActivateFailure(
-            host,
-            deployed,
-            prior,
-            activated.detail,
+          return seal(
+            alreadyConfiguredActivateFailure(
+              host,
+              deployed,
+              prior,
+              activated.detail,
+            ),
           );
         }
         continue;
       }
-      reportDeployStage("Waiting for Vellum Command to answer");
+      note(HOST_RUNTIME_REMEDY_STAGE.wait);
       const attached = yield* operations.proveWorkAttach(
         ssh,
         preparation.target.sshTarget,
@@ -276,15 +306,15 @@ export const applyDarwinHostRuntime = (
             deployed,
             configured,
           );
-          return {
+          return seal({
             ...finished,
             detail: `${finished.detail} - ${activated.detail}`,
             message: activated.detail,
-          };
+          });
         }
         const prior = context.priorInstallationId;
         if (prior === undefined) {
-          return {
+          return seal({
             ...deployed,
             ok: true,
             detail: `${deployed.detail} - ${activated.detail}`,
@@ -298,13 +328,15 @@ export const applyDarwinHostRuntime = (
               ok: true,
               detail: "already configured Remote; configure skipped",
             },
-          };
+          });
         }
-        return finishAlreadyConfiguredRemote(
-          host,
-          deployed,
-          prior,
-          activated.detail,
+        return seal(
+          finishAlreadyConfiguredRemote(
+            host,
+            deployed,
+            prior,
+            activated.detail,
+          ),
         );
       }
     }
@@ -317,7 +349,7 @@ export const applyDarwinHostRuntime = (
     };
     if (configured !== undefined) {
       const finished = finishWithConfiguration(host, deployed, configured);
-      return {
+      return seal({
         ...finished,
         ok: false,
         detail: `${host.label}: work attach did not connect`,
@@ -325,9 +357,9 @@ export const applyDarwinHostRuntime = (
         message: lastActivated?.detail ?? "work attach did not connect",
         disposition: "indeterminate" as const,
         outcome: "indeterminate" as const,
-      };
+      });
     }
-    return {
+    return seal({
       ...failedPackageResult(host, {
         ...deployed,
         ok: false,
@@ -336,7 +368,7 @@ export const applyDarwinHostRuntime = (
       }),
       code: "io" as const,
       message: "work attach did not connect",
-    };
+    });
   });
 
 export const darwinHostRuntimePlatform: HostRuntimePlatformAdapter = {

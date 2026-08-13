@@ -193,6 +193,31 @@ export const observeRemoteHost = (
     };
   });
 
+/** Check-intent: Ready only after a real connect on a configured station. */
+export const checkHostRuntime = (
+  observation: HostRuntimeObservation,
+): ConfiguredRemoteDeployResult => {
+  const gap = decideHostRuntimeGap(observation, "check");
+  const detail = hostRuntimeGapCopy(gap, observation.blocker);
+  return {
+    ok: gap === "ready",
+    detail,
+    message: detail,
+    stages: [detail],
+    disposition: gap === "ready" ? ("ready" as const) : ("not-started" as const),
+    outcome: gap === "ready" ? ("ready" as const) : ("failed" as const),
+    packageState:
+      observation.package === "present"
+        ? ("present" as const)
+        : ("unknown" as const),
+    role:
+      observation.mode === "remote"
+        ? ("remote" as const)
+        : ("unknown" as const),
+    configuration: { ok: gap === "ready", detail },
+  };
+};
+
 export const HostRuntimeLive = Layer.effect(
   HostRuntime,
   Effect.gen(function* () {
@@ -256,27 +281,10 @@ export const HostRuntimeLive = Layer.effect(
         }
 
         const observation = yield* observe(hostId);
-        const gap = decideHostRuntimeGap(observation, input.intent);
         if (input.intent === "check") {
-          const detail = hostRuntimeGapCopy(gap, observation.blocker);
-          return {
-            ok: gap === "ready",
-            detail,
-            message: detail,
-            stages: [detail],
-            disposition: gap === "ready" ? ("ready" as const) : ("not-started" as const),
-            outcome: gap === "ready" ? ("ready" as const) : ("failed" as const),
-            packageState:
-              observation.package === "present"
-                ? ("present" as const)
-                : ("unknown" as const),
-            role:
-              observation.mode === "remote"
-                ? ("remote" as const)
-                : ("unknown" as const),
-            configuration: { ok: gap === "ready", detail },
-          } satisfies ConfiguredRemoteDeployResult;
+          return checkHostRuntime(observation);
         }
+        const gap = decideHostRuntimeGap(observation, input.intent);
         if (gap === "needOperator") {
           return refused(
             host.success,

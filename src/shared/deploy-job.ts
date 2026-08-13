@@ -23,6 +23,15 @@ export interface HostDeployJobSnapshot {
   readonly recoveryHint?: string;
 }
 
+/** Copy / sign / restart / wait — recorded while SSH answers. */
+export const HOST_RUNTIME_REMEDY_STAGE = {
+  copy: "Copying Vellum Command",
+  copyAgain: "Copying Vellum Command again",
+  sign: "Signing Vellum Command",
+  restart: "Restarting Vellum Command",
+  wait: "Waiting for Vellum Command to answer",
+} as const;
+
 /** Rough milestone weights for progress bar (labels match appendStage prefixes). */
 export const DEPLOY_STAGE_MILESTONES: ReadonlyArray<{
   readonly match: RegExp;
@@ -34,7 +43,9 @@ export const DEPLOY_STAGE_MILESTONES: ReadonlyArray<{
   { match: /^signed artifact admitted/u, percent: 20 },
   { match: /^preflight ok/u, percent: 30 },
   { match: /^terminal route cut held/u, percent: 35 },
+  { match: /^Copying Vellum Command/u, percent: 40 },
   { match: /^first-install package .+ installed/u, percent: 55 },
+  { match: /^Signing Vellum Command/u, percent: 58 },
   { match: /^starting sealed adopt/u, percent: 60 },
   {
     match: /station configured via enrollment bootstrap/u,
@@ -44,9 +55,27 @@ export const DEPLOY_STAGE_MILESTONES: ReadonlyArray<{
     match: /retrying package activation for work-control readiness/u,
     percent: 75,
   },
+  { match: /^Restarting Vellum Command/u, percent: 80 },
   { match: /^root-owned transaction .+ committed/u, percent: 85 },
+  { match: /^Waiting for Vellum Command to answer/u, percent: 90 },
   { match: /^systemd generation/u, percent: 95 },
 ];
+
+export const mergeDeployJobStages = (
+  ...lists: Array<readonly string[] | undefined>
+): readonly string[] => {
+  const seen = new Set<string>();
+  const merged: string[] = [];
+  for (const list of lists) {
+    if (list === undefined) continue;
+    for (const stage of list) {
+      if (seen.has(stage)) continue;
+      seen.add(stage);
+      merged.push(stage);
+    }
+  }
+  return merged.slice(-48);
+};
 
 export const percentFromStages = (
   stages: readonly string[],

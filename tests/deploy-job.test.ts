@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
+  HOST_RUNTIME_REMEDY_STAGE,
+  mergeDeployJobStages,
   percentFromStages,
   type HostDeployJobStatus,
 } from "../src/shared/deploy-job";
@@ -27,6 +29,12 @@ describe("percentFromStages", () => {
         "running",
       ),
     ).toBe(55);
+    expect(
+      percentFromStages([HOST_RUNTIME_REMEDY_STAGE.copy], "running"),
+    ).toBe(40);
+    expect(
+      percentFromStages([HOST_RUNTIME_REMEDY_STAGE.wait], "running"),
+    ).toBe(90);
   });
 
   it("caps running below 100 and completes on success", () => {
@@ -37,6 +45,26 @@ describe("percentFromStages", () => {
     ];
     expect(percentFromStages(stages, "running")).toBe(95);
     expect(percentFromStages(stages, "succeeded")).toBe(100);
+  });
+});
+
+describe("mergeDeployJobStages", () => {
+  it("keeps live remedy stages in front of package receipts", () => {
+    expect(
+      mergeDeployJobStages(
+        [
+          "deploy accepted — running in Command Center main process",
+          HOST_RUNTIME_REMEDY_STAGE.copy,
+          HOST_RUNTIME_REMEDY_STAGE.restart,
+        ],
+        ["endpoint ok", HOST_RUNTIME_REMEDY_STAGE.copy],
+      ),
+    ).toEqual([
+      "deploy accepted — running in Command Center main process",
+      HOST_RUNTIME_REMEDY_STAGE.copy,
+      HOST_RUNTIME_REMEDY_STAGE.restart,
+      "endpoint ok",
+    ]);
   });
 });
 
@@ -67,6 +95,28 @@ describe("deploy-job-registry", () => {
     expect(done?.finishedAt).toBeDefined();
     expect(done?.recoveryHint).toBe("repair-linux-release-transaction");
   });
+
+  it("keeps live remedy stages when finish supplies package stages", () => {
+    const hostId = `merge-host-${Date.now()}`;
+    beginDeployJob(hostId);
+    setActiveDeployJobHost(hostId);
+    reportDeployStage(HOST_RUNTIME_REMEDY_STAGE.copy);
+    reportDeployStage(HOST_RUNTIME_REMEDY_STAGE.sign);
+    reportDeployStage(HOST_RUNTIME_REMEDY_STAGE.restart);
+    reportDeployStage(HOST_RUNTIME_REMEDY_STAGE.wait);
+    setActiveDeployJobHost(undefined);
+    finishDeployJob(hostId, {
+      status: "succeeded",
+      detail: "installed",
+      stages: ["endpoint ok", "ssh warm ok"],
+    });
+    const done = getDeployJob(hostId);
+    expect(done?.stages).toContain(HOST_RUNTIME_REMEDY_STAGE.copy);
+    expect(done?.stages).toContain(HOST_RUNTIME_REMEDY_STAGE.sign);
+    expect(done?.stages).toContain(HOST_RUNTIME_REMEDY_STAGE.restart);
+    expect(done?.stages).toContain(HOST_RUNTIME_REMEDY_STAGE.wait);
+    expect(done?.stages).toContain("endpoint ok");
+  });
 });
 
 describe("fleet deploy chip", () => {
@@ -89,5 +139,14 @@ describe("fleet deploy chip", () => {
     );
     expect(nodes).toContain("On the network");
     expect(nodes).not.toMatch(/return "Ready"/u);
+    const detail = readFileSync(
+      new URL(
+        "../src/renderer/components/fleet/FleetDetailPanel.tsx",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    expect(detail).toContain("On the network is SSH");
+    expect(detail).toContain("A finished Deploy is Installed");
   });
 });

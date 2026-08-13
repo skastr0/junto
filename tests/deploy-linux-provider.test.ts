@@ -2,10 +2,13 @@ import { createHash } from "node:crypto";
 import { Effect, Stream } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import type { RemoteHost } from "../src/shared/remote-hosts";
+import { classifyHostRuntimeBlocker } from "../src/shared/host-runtime";
 import {
+  activateLinuxRemoteRuntimeForTarget,
   buildLinuxRemoteDeployCommand,
   buildLinuxRemotePreflightScript,
   decodeLinuxRemotePreflight,
+  decodeLinuxRemoteRestart,
   makeLinuxRemoteDeploymentProvider,
   type LinuxRemoteArtifactAdmission,
   type LinuxRemoteArtifactCandidate,
@@ -16,6 +19,7 @@ import type {
 } from "../src/main/vellum/hosts/remote-deployment";
 import {
   parseSshEndpoint,
+  SshTimeoutError,
   type SshEndpoint,
 } from "../src/main/vellum/ssh/domain";
 import type { SshLease } from "../src/main/vellum/ssh/service";
@@ -180,6 +184,22 @@ describe("Linux userland remote deployment provider", () => {
         "LINUX_RELEASE_PREFLIGHT_V1 helper=1 bridge=1 passwordless_sudo=1\n",
       ),
     ).toEqual({ ok: false, reason: "malformed" });
+    expect(
+      decodeLinuxRemotePreflight(
+        "LINUX_USERLAND_PREFLIGHT_V1 ok=0 reason=disk\n",
+      ),
+    ).toEqual({ ok: false, reason: "disk" });
+    expect(
+      decodeLinuxRemotePreflight(
+        "LINUX_USERLAND_PREFLIGHT_V1 ok=0 reason=systemd-user\n",
+      ),
+    ).toEqual({ ok: false, reason: "systemd-user" });
+    expect(decodeLinuxRemoteRestart("LINUX_USERLAND_RESTART_V1 ok=1\n")).toEqual(
+      { ok: true },
+    );
+    expect(
+      decodeLinuxRemoteRestart("LINUX_USERLAND_RESTART_V1 ok=0 reason=restart\n"),
+    ).toEqual({ ok: false, reason: "restart" });
   });
 
   it("deploys a signed userland archive without elevation or package manager", async () => {
@@ -273,7 +293,51 @@ describe("Linux userland remote deployment provider", () => {
     );
     expect(preflightResult.ok).toBe(false);
     expect(preflightResult.code).toBe("validation");
+    expect(preflightResult.detail).toContain(
+      "owner-local systemd user service is unavailable",
+    );
+    expect(classifyHostRuntimeBlocker(preflightResult.detail)?.kind).toBe(
+      "login-session",
+    );
     expect(candidate.authorize).not.toHaveBeenCalled();
+
+    const diskFail = makeSsh({
+      preflightStdout: "LINUX_USERLAND_PREFLIGHT_V1 ok=0 reason=disk\n",
+    });
+    const diskResult = await Effect.runPromise(
+      provider.deploy(providerInput(diskFail.ssh)),
+    );
+    expect(diskResult.ok).toBe(false);
+    expect(diskResult.detail).toContain("no space left on device");
+    expect(classifyHostRuntimeBlocker(diskResult.detail)?.kind).toBe("disk");
+
+    const malformedFail = makeSsh({ preflightStdout: "not a preflight banner\n" });
+    const malformedResult = await Effect.runPromise(
+      provider.deploy(providerInput(malformedFail.ssh)),
+    );
+    expect(malformedResult.ok).toBe(false);
+    expect(malformedResult.detail).toContain(
+      "userland runtime preflight failed",
+    );
+    expect(classifyHostRuntimeBlocker(malformedResult.detail)).toBeUndefined();
+
+    const sshFail = {
+      run: () =>
+        Effect.fail(
+          new SshTimeoutError({
+            endpoint: "studio-box",
+            operation: "preflight",
+            timeoutMs: 1_000,
+          }),
+        ),
+      transact: () => Effect.die("deploy must not run"),
+    };
+    const sshResult = await Effect.runPromise(
+      provider.deploy(providerInput(sshFail as never)),
+    );
+    expect(sshResult.ok).toBe(false);
+    expect(sshResult.detail).toContain("timed out");
+    expect(classifyHostRuntimeBlocker(sshResult.detail)).toBeUndefined();
 
     const deployFail = makeSsh({
       deployStdout: "LINUX_USERLAND_DEPLOY_V1 ok=0 state=hash\n",
@@ -319,5 +383,28 @@ describe("Linux userland remote deployment provider", () => {
     expect(result.code).toBe("validation");
     expect(result.detail).toContain("signed userland runtime archive is invalid");
     expect(writes).toEqual([]);
+  });
+
+  it("restarts the systemd user service as the HostRuntime restart act", async () => {
+    const { ssh } = makeSsh({
+      preflightStdout: "LINUX_USERLAND_RESTART_V1 ok=1\n",
+    });
+    const result = await Effect.runPromise(
+      activateLinuxRemoteRuntimeForTarget(ssh as never, providerInput(ssh).target),
+    );
+    expect(result.ok).toBe(true);
+    expect(result.detail).toContain("systemd user service restarted");
+  });
+
+  it("does not label a failed systemd restart as a missing login session", async () => {
+    const { ssh } = makeSsh({
+      preflightStdout: "LINUX_USERLAND_RESTART_V1 ok=0 reason=restart\n",
+    });
+    const result = await Effect.runPromise(
+      activateLinuxRemoteRuntimeForTarget(ssh as never, providerInput(ssh).target),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.detail).toContain("systemd user service restart failed");
+    expect(classifyHostRuntimeBlocker(result.detail)).toBeUndefined();
   });
 });

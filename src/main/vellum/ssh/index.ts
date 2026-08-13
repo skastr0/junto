@@ -50,6 +50,8 @@ export {
   compileLinuxUserlandDeploySource,
   compileLinuxUserlandPreflight,
   compileLinuxUserlandPreflightSource,
+  compileLinuxUserlandRestart,
+  compileLinuxUserlandRestartSource,
   confineHerdrStagePath,
   HERDR_IMAGE_STAGE_DIR,
 } from "./remote-plan";

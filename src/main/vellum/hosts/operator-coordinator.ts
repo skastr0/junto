@@ -330,7 +330,6 @@ export const deployRemoteEffect = (
         finishDeployJob(input.id, {
           status,
           detail: result.detail,
-          stages: result.stages ?? getDeployJob(input.id)?.stages,
           ...(result.version === undefined ? {} : { version: result.version }),
           ...(result.recoveryAction === undefined
             ? {}
@@ -473,7 +472,6 @@ export const deployRemoteEffect = (
       finishDeployJob(input.id, {
         status: finalResult.ok ? "succeeded" : "failed",
         detail: finalResult.detail,
-        stages: finalResult.stages,
         ...(finalResult.version === undefined
           ? {}
           : { version: finalResult.version }),

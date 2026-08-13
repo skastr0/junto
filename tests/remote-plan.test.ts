@@ -30,6 +30,8 @@ describe("remote-plan public surface", () => {
       "compileLinuxUserlandDeploySource",
       "compileLinuxUserlandPreflight",
       "compileLinuxUserlandPreflightSource",
+      "compileLinuxUserlandRestart",
+      "compileLinuxUserlandRestartSource",
       "confineHerdrStagePath",
     ]);
   });
@@ -63,6 +65,16 @@ describe("named deploy compilers", () => {
     expect(parts.args[0]).toBe("-c");
     expect(parts.args[2]).toBe("vellum-plan:linux-userland-deploy");
     expect(parts.args[1]).toBe(compileLinuxUserlandDeploySource());
+  });
+
+  it("compiles a userland systemd restart command with a fixed invocation", () => {
+    const parts = inspectRemoteCommand(run(remotePlan.compileLinuxUserlandRestart()));
+    expect(parts.executable).toBe("/bin/sh");
+    expect(parts.args[0]).toBe("-c");
+    expect(parts.args[2]).toBe("vellum-plan:linux-userland-restart");
+    expect(parts.args[1]).toBe(remotePlan.compileLinuxUserlandRestartSource());
+    expect(parts.args[1]).toContain("systemctl --user restart vellum-command-remote.service");
+    expect(parts.args[1]).not.toMatch(/sudo|rm -rf|--vellum-headless/u);
   });
 
   it("hardens deploy around vellum-command-remote generation pin, sealed install, and member proof", () => {
