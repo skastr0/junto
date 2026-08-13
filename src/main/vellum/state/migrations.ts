@@ -26,6 +26,7 @@ import {
 import {
   WORK_BOARD_STATE_SCHEMA_SQL,
   WORK_PAD_STATE_SCHEMA_SQL,
+  WORK_PAD_READ_CURSORS_SQL,
   WORK_PROPOSAL_EVENTS_REJECT_VOCAB_SQL,
   WORK_PROPOSAL_PLANNING_STATE_SCHEMA_SQL,
   WORK_PROPOSAL_STATE_SCHEMA_SQL,
@@ -192,7 +193,13 @@ export const STATE_SCHEMA_V17_IDENTITY = {
     "5f580bc42f6e3332256ca6bfadda1489f42889616c75acd1cf4a3af1259249bb",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 17;
+/** Exact witness of schema version 18 (pad pin read cursors). */
+export const STATE_SCHEMA_V18_IDENTITY = {
+  actualSchemaSha256:
+    "06411da7eb2843c89a7b170321ca0992e8c72b9da65e3fa702b2fce1197980e1",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 18;
 
 export const STATE_SCHEMA_MIGRATIONS =
   [
@@ -518,6 +525,16 @@ export const STATE_SCHEMA_MIGRATIONS =
           DROP TABLE work_events__migrate_bak;
           DROP TABLE work_pending_commands__migrate_bak;
         `);
+      },
+    },
+    {
+      fromVersion: 17,
+      toVersion: 18,
+      name: "add-work-pad-read-cursors",
+      safety: STATE_SCHEMA_MIGRATION_SAFETY,
+      fromIdentity: STATE_SCHEMA_V17_IDENTITY,
+      migrate: (database) => {
+        database.exec(WORK_PAD_READ_CURSORS_SQL);
       },
     },
 

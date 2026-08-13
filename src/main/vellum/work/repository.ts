@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 import { Context, Effect, Result, Layer, Schema } from "effect";
-import type { CanvasDoc, CanvasNode } from "@shared/canvas";
+import {
+  decodeCanvasDoc,
+  type CanvasDoc,
+  type CanvasNode,
+} from "@shared/canvas";
 import type { ActorSeatId } from "@shared/actor-seat";
 import { InstallationId } from "@shared/installation-id";
 import {
@@ -113,6 +117,11 @@ import {
   type StateRow,
   type StateWriter,
 } from "../state/service";
+import {
+  inboundActorNodeIds,
+  padAuthorRuleError,
+  stampPadPatchAuthors,
+} from "./pad-rules";
 import { manifestAvailability } from "../content/manifest";
 import {
   mailboxMessageDeliveryId,
@@ -795,6 +804,52 @@ const emptyPadGlance = (): EtherPadValue => ({
   shapeCount: 0,
   unreadPinCount: 0,
 });
+
+/** Factory-card glance is the operator's unread pins. */
+const PAD_GLANCE_PRINCIPAL_KEY = "operator";
+
+const inboundActorsForPad = (
+  reader: StateReader,
+  sink: SinkRefValue,
+): ReadonlySet<string> => {
+  const row = reader.get<StateRow & { readonly body: string }>(
+    `
+      SELECT document.body AS body
+      FROM canvas_head AS head
+      JOIN canvas_generation_documents AS document
+        ON document.generation = head.generation
+      WHERE head.singleton = 1
+        AND document.name = ?
+    `,
+    [sink.canvasName],
+  );
+  if (row === undefined) return new Set();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(row.body) as unknown;
+  } catch {
+    return new Set();
+  }
+  const decoded = decodeCanvasDoc(parsed);
+  if (Result.isFailure(decoded)) return new Set();
+  return inboundActorNodeIds(decoded.success, sink.nodeId);
+};
+
+const assertPadPatchRules = (
+  reader: StateReader,
+  sink: SinkRefValue,
+  author: BoardAuthorValue,
+  patches: ReadonlyArray<import("@shared/pad").PadPatch>,
+): void => {
+  const rule = padAuthorRuleError(
+    author,
+    patches,
+    inboundActorsForPad(reader, sink),
+  );
+  if (rule !== undefined) {
+    throw authorityError("invalid-transition", rule);
+  }
+};
 
 export const projectWorkSnapshots = (
   doc: CanvasDoc,
@@ -1997,11 +2052,17 @@ const loadPadGlance = (
   const unreadPinCount =
     reader.get<StateRow & { readonly n: number }>(
       `
-        SELECT count(DISTINCT pin_id) AS n
-        FROM work_pad_posts
-        WHERE canvas_name = ? AND node_id = ?
+        SELECT count(DISTINCT posts.pin_id) AS n
+        FROM work_pad_posts AS posts
+        LEFT JOIN work_pad_read_cursors AS cursors
+          ON cursors.canvas_name = posts.canvas_name
+          AND cursors.node_id = posts.node_id
+          AND cursors.pin_id = posts.pin_id
+          AND cursors.principal_key = ?
+        WHERE posts.canvas_name = ? AND posts.node_id = ?
+          AND posts.position > COALESCE(cursors.last_read_position, -1)
       `,
-      [sink.canvasName, sink.nodeId],
+      [PAD_GLANCE_PRINCIPAL_KEY, sink.canvasName, sink.nodeId],
     )?.n ?? 0;
   return {
     revision: meta.revision,
@@ -2580,6 +2641,8 @@ export const readCanvasWorkProjection = (
           SELECT canvas_name FROM work_board_read_cursors
           UNION ALL
           SELECT canvas_name FROM work_pad_meta
+          UNION ALL
+          SELECT canvas_name FROM work_pad_read_cursors
         )
         WHERE canvas_name = ?
       `,
@@ -5034,21 +5097,10 @@ const resultForCommand = (
       };
     }
     case "pad.patch": {
-      if (action.author.kind === "actor") {
-        for (const patch of action.patches) {
-          if (patch.op === "upsert" && patch.layer === "ink") {
-            throw authorityError("invalid-transition", "agents cannot upsert ink");
-          }
-          if (patch.op === "upsert" && patch.layer === "image") {
-            throw authorityError(
-              "invalid-transition",
-              "agents cannot upsert images",
-            );
-          }
-        }
-      }
+      const patches = stampPadPatchAuthors(action.patches, action.author);
+      assertPadPatchRules(writer, command.item.sink, action.author, patches);
       const current = loadPad(writer, command.item.sink);
-      const applied = applyPatches(current, action.patches);
+      const applied = applyPatches(current, patches);
       if (Result.isFailure(applied)) {
         throw authorityError("invalid-transition", applied.failure.message);
       }
@@ -5056,7 +5108,7 @@ const resultForCommand = (
         body: {
           operation: "pad.patch",
           patchId: action.patchId,
-          patches: action.patches,
+          patches: [...patches],
           author: action.author,
           revision: applied.success.revision,
         },
@@ -5764,7 +5816,8 @@ const assertCorrelatedCommandFact = (
         fact.body.operation !== "pad.patch" ||
         action.patchId !== fact.body.patchId ||
         !sameBoardAuthor(action.author, fact.body.author) ||
-        canonicalJson(action.patches) !== canonicalJson(fact.body.patches)
+        canonicalJson(stampPadPatchAuthors(action.patches, action.author)) !==
+          canonicalJson(fact.body.patches)
       ) {
         throw authorityError(
           "causal-conflict",
@@ -6673,6 +6726,13 @@ export interface WorkRepositoryShape {
     readonly applyPadPatch: (
       input: ApplyPadPatchInput,
     ) => Effect.Effect<LocalFactResult<Pad>, RepositoryFailure>;
+    readonly markPadRead: (input: {
+      readonly sink: SinkRefValue;
+      readonly pinId: string;
+      readonly principalKey: string;
+      readonly lastReadPosition: number;
+      readonly updatedAt?: string;
+    }) => Effect.Effect<void, RepositoryFailure>;
     readonly markBoardRead: (input: {
       readonly sink: SinkRefValue;
       readonly topicId: string;
@@ -7784,8 +7844,10 @@ export const WorkRepositoryLive = Layer.effect(
             "pad rows are Command Center-homed",
           );
         }
+        const patches = stampPadPatchAuthors(input.patches, input.author);
+        assertPadPatchRules(writer, input.sink, input.author, patches);
         const current = loadPad(writer, input.sink);
-        const applied = applyPatches(current, input.patches);
+        const applied = applyPatches(current, patches);
         if (Result.isFailure(applied)) {
           throw authorityError("invalid-transition", applied.failure.message);
         }
@@ -7799,7 +7861,7 @@ export const WorkRepositoryLive = Layer.effect(
           body: {
             operation: "pad.patch",
             patchId: input.patchId,
-            patches: [...input.patches],
+            patches: [...patches],
             author: input.author,
             revision: applied.success.revision,
           },
@@ -7807,6 +7869,41 @@ export const WorkRepositoryLive = Layer.effect(
           originAt,
           receivedAt,
         });
+      });
+    };
+
+    const markPadRead = (input: {
+      readonly sink: SinkRefValue;
+      readonly pinId: string;
+      readonly principalKey: string;
+      readonly lastReadPosition: number;
+      readonly updatedAt?: string;
+    }): Effect.Effect<void, RepositoryFailure> => {
+      const updatedAt = timestamp(input.updatedAt);
+      return transaction("work.pad.mark_read", input.sink, (writer) => {
+        writer.run(
+          `
+            INSERT INTO work_pad_read_cursors(
+              canvas_name, node_id, pin_id, principal_key,
+              last_read_position, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(canvas_name, node_id, pin_id, principal_key)
+            DO UPDATE SET
+              last_read_position = MAX(
+                work_pad_read_cursors.last_read_position,
+                excluded.last_read_position
+              ),
+              updated_at = excluded.updated_at
+          `,
+          [
+            input.sink.canvasName,
+            input.sink.nodeId,
+            input.pinId,
+            input.principalKey,
+            input.lastReadPosition,
+            updatedAt,
+          ],
+        );
       });
     };
 
@@ -8632,6 +8729,7 @@ export const WorkRepositoryLive = Layer.effect(
       appendBoardPost,
       readPad,
       applyPadPatch,
+      markPadRead,
       markBoardRead,
       setArtifactArchived,
       deleteArtifact,

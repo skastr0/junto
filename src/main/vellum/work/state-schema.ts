@@ -2092,6 +2092,24 @@ export const WORK_PAD_STATE_SCHEMA_SQL = `
 `;
 
 /**
+ * Operator-local pad pin read cursors (expand-only). Glance unread is pins
+ * with a post beyond this cursor — not COUNT(DISTINCT pin_id) of all posts.
+ * Applied as migration 17 → 18. Frozen WORK_PAD_STATE_SCHEMA_SQL stays the
+ * v17 pad-table witness.
+ */
+export const WORK_PAD_READ_CURSORS_SQL = `
+  CREATE TABLE IF NOT EXISTS work_pad_read_cursors (
+    canvas_name TEXT NOT NULL CHECK (length(canvas_name) BETWEEN 1 AND 256),
+    node_id TEXT NOT NULL CHECK (length(node_id) BETWEEN 1 AND 256),
+    pin_id TEXT NOT NULL CHECK (length(pin_id) BETWEEN 1 AND 256),
+    principal_key TEXT NOT NULL CHECK (length(principal_key) BETWEEN 1 AND 256),
+    last_read_position INTEGER NOT NULL CHECK (last_read_position >= -1),
+    updated_at TEXT NOT NULL CHECK (length(updated_at) BETWEEN 1 AND 64),
+    PRIMARY KEY (canvas_name, node_id, pin_id, principal_key)
+  ) STRICT, WITHOUT ROWID;
+`;
+
+/**
  * V16 work events + pad.patch / item_kind pad. Frozen V5–V16 keep the
  * pre-pad event vocabulary.
  */

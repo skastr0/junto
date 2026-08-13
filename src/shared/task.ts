@@ -178,6 +178,10 @@ export const mirrorBoardText = (
     .join("\n");
 };
 
+/** First line of pad node text is the authorial title. */
+export const padTitleFromText = (title: string): string =>
+  title.trim().split("\n")[0]?.trim() || "pad";
+
 /** Pad node text mirror: title + shape count + unread pin count. */
 export const mirrorPadText = (
   title: string,
@@ -185,10 +189,8 @@ export const mirrorPadText = (
     readonly shapeCount: number;
     readonly unreadPinCount: number;
   },
-): string => {
-  const name = title.trim().split("\n")[0]?.trim() || "pad";
-  return `${name}\n${glance.shapeCount} shapes, ${glance.unreadPinCount} unread`;
-};
+): string =>
+  `${padTitleFromText(title)}\n${glance.shapeCount} shapes, ${glance.unreadPinCount} unread`;
 
 export const countByTaskState = (
   items: ReadonlyArray<Task>,

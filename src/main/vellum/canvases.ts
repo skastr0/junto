@@ -42,6 +42,7 @@ import {
   mirrorBoardText,
   mirrorRequestsText,
   mirrorTasksText,
+  padTitleFromText,
 } from "@shared/task";
 import {
   removeCanvasProjectionSidecars,
@@ -678,7 +679,7 @@ const stripRuntimeWorkProjection = (doc: CanvasDoc): CanvasDoc => ({
               : kind === "board"
                 ? mirrorBoardText([])
                 : kind === "pad"
-                  ? "pad"
+                  ? padTitleFromText(node.text ?? "")
                   : node.text;
 
     if (Object.keys(ether).length === 0) {

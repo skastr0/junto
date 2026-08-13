@@ -5,10 +5,12 @@ import {
   migrateStateSchema,
   STATE_SCHEMA_V16_IDENTITY,
   STATE_SCHEMA_V17_IDENTITY,
+  STATE_SCHEMA_V18_IDENTITY,
 } from "../src/main/vellum/state/migrations";
 import {
   STATE_SCHEMA_SQL,
   STATE_SCHEMA_V16_SQL,
+  STATE_SCHEMA_V17_SQL,
 } from "../src/main/vellum/state/schema";
 import {
   expectedStateSchemaIdentity,
@@ -16,14 +18,17 @@ import {
 } from "../src/main/vellum/state/schema-identity";
 
 describe("pad schema migration 16 → 17", () => {
-  it("freezes v16 and current identities", () => {
+  it("freezes v16, v17, and current identities", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V16_SQL)).toEqual(
       STATE_SCHEMA_V16_IDENTITY,
     );
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_V17_SQL)).toEqual(
       STATE_SCHEMA_V17_IDENTITY,
     );
-    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(17);
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(
+      STATE_SCHEMA_V18_IDENTITY,
+    );
+    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(18);
   });
 
   it("adds pad tables and pad.patch vocab without dropping work events", () => {
@@ -51,10 +56,10 @@ describe("pad schema migration 16 → 17", () => {
       `);
 
       const result = migrateStateSchema(database);
-      expect(result.schemaVersion).toBe(17);
+      expect(result.schemaVersion).toBe(CURRENT_STATE_SCHEMA_VERSION);
       expect(result.previousVersion).toBe(16);
       expect(result.actualSchemaSha256).toBe(
-        STATE_SCHEMA_V17_IDENTITY.actualSchemaSha256,
+        STATE_SCHEMA_V18_IDENTITY.actualSchemaSha256,
       );
 
       for (const table of [
@@ -65,6 +70,7 @@ describe("pad schema migration 16 → 17", () => {
         "work_pad_inks",
         "work_pad_pins",
         "work_pad_posts",
+        "work_pad_read_cursors",
       ]) {
         const row = database
           .prepare(

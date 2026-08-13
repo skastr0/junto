@@ -31,6 +31,17 @@ const mentionsOf = (patch: PadPatch): ReadonlyArray<string> => {
   return [];
 };
 
+/** Persist the WorkService author, never the client-supplied pin.reply body. */
+export const stampPadPatchAuthors = (
+  patches: ReadonlyArray<PadPatch>,
+  author: BoardAuthor,
+): ReadonlyArray<PadPatch> =>
+  patches.map((patch) =>
+    patch.op === "pin.reply"
+      ? { ...patch, post: { ...patch.post, author } }
+      : patch,
+  );
+
 export const padAuthorRuleError = (
   author: BoardAuthor,
   patches: ReadonlyArray<PadPatch>,

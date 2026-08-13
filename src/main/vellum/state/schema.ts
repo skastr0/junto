@@ -21,6 +21,7 @@ import {
   WORK_BOARD_STATE_SCHEMA_SQL,
   WORK_BOARD_STATE_SCHEMA_WITH_TAGS_SQL,
   WORK_PAD_STATE_SCHEMA_SQL,
+  WORK_PAD_READ_CURSORS_SQL,
   WORK_PROPOSAL_PLANNING_STATE_SCHEMA_SQL,
   WORK_STATE_SCHEMA_BOARD_VOCAB_SQL,
   WORK_STATE_SCHEMA_PAD_VOCAB_SQL,
@@ -247,15 +248,26 @@ export const STATE_SCHEMA_V16_FRAGMENTS = STATE_SCHEMA_V15_FRAGMENTS.map(
 export const STATE_SCHEMA_V16_SQL = STATE_SCHEMA_V16_FRAGMENTS.join("\n");
 
 /**
- * Current: v16 + pad element tables + pad.patch event vocabulary.
+ * Schema at version 17: pad element tables + pad.patch vocabulary.
+ * Frozen so 17→18 can start from a known identity.
  */
-export const STATE_SCHEMA_FRAGMENTS = [
+export const STATE_SCHEMA_V17_FRAGMENTS = [
   ...(STATE_SCHEMA_V16_FRAGMENTS.map((fragment) =>
     fragment === WORK_STATE_SCHEMA_TASK_ARCHIVED_SQL
       ? WORK_STATE_SCHEMA_PAD_VOCAB_SQL
       : fragment,
   ) as unknown as typeof STATE_SCHEMA_V16_FRAGMENTS),
   WORK_PAD_STATE_SCHEMA_SQL,
+];
+
+export const STATE_SCHEMA_V17_SQL = STATE_SCHEMA_V17_FRAGMENTS.join("\n");
+
+/**
+ * Current: v17 + operator-local pad pin read cursors.
+ */
+export const STATE_SCHEMA_FRAGMENTS = [
+  ...STATE_SCHEMA_V17_FRAGMENTS,
+  WORK_PAD_READ_CURSORS_SQL,
 ];
 
 /**

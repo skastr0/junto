@@ -565,6 +565,7 @@ const WORK_PROJECTION_KEYS = [
   "messages",
   "artifacts",
   "board",
+  "pad",
 ] as const;
 
 /**

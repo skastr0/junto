@@ -7,7 +7,12 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ActorSeatId } from "../src/shared/actor-seat";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { makePadNode } from "../src/renderer/lib/node-factories";
-import { asPadElementId, emptyPad, type PadPatch } from "../src/shared/pad";
+import {
+  PadPatch,
+  asPadElementId,
+  emptyPad,
+  type PadPatch as PadPatchValue,
+} from "../src/shared/pad";
 import { admitWorkTarget } from "../src/main/vellum/work/authz";
 import {
   inboundActorNodeIds,
@@ -40,7 +45,10 @@ const authorialBasis = Schema.decodeUnknownSync(IntentFactBasis, {
   contentSha256: currentIntentSha256,
 });
 
-const upsertBox = (id: string): PadPatch => ({
+const decodePatch = (patch: unknown): PadPatchValue =>
+  Schema.decodeUnknownSync(PadPatch)(patch);
+
+const upsertBox = (id: string): PadPatchValue => ({
   op: "upsert",
   layer: "shape",
   shape: {
@@ -55,7 +63,7 @@ const upsertBox = (id: string): PadPatch => ({
   },
 });
 
-const upsertInk = (id: string): PadPatch => ({
+const upsertInk = (id: string): PadPatchValue => ({
   op: "upsert",
   layer: "ink",
   ink: {
@@ -70,7 +78,7 @@ const upsertInk = (id: string): PadPatch => ({
   },
 });
 
-const pinWithMention = (id: string, mention: string): PadPatch => ({
+const pinWithMention = (id: string, mention: string): PadPatchValue => ({
   op: "pin.upsert",
   pin: {
     id: asPadElementId(id),
@@ -79,6 +87,40 @@ const pinWithMention = (id: string, mention: string): PadPatch => ({
     mentions: [mention],
   },
 });
+
+const upsertImage = (id: string): PadPatchValue =>
+  decodePatch({
+    op: "upsert",
+    layer: "image",
+    image: {
+      id,
+      x: 0,
+      y: 0,
+      w: 12,
+      h: 12,
+      z: 0,
+      ref: {
+        sha256: "a".repeat(64),
+        byteLength: 4,
+        mediaType: "image/png",
+      },
+    },
+  });
+
+const pinReply = (
+  pinId: string,
+  postId: string,
+  author: Record<string, unknown>,
+): PadPatchValue =>
+  decodePatch({
+    op: "pin.reply",
+    pinId,
+    post: {
+      postId,
+      author,
+      parts: [{ kind: "text", text: "note" }],
+    },
+  });
 
 const padDoc = (wired: boolean): CanvasDoc => {
   const pad = { ...makePadNode(200, 0), id: "pad-1" };
@@ -118,6 +160,16 @@ describe("pad author rules", () => {
         new Set(["agent"]),
       ),
     ).toMatch(/ink/i);
+  });
+
+  it("refuses agent image upsert", () => {
+    expect(
+      padAuthorRuleError(
+        { kind: "actor", nodeId: "agent" },
+        [upsertImage("img1")],
+        new Set(["agent"]),
+      ),
+    ).toMatch(/image/i);
   });
 
   it("refuses a mention that is not an inbound actor", () => {
@@ -252,6 +304,95 @@ describe("pad persist", () => {
       unreadPinCount: 0,
     });
   });
+
+  it("applyPadPatch refuses an unwired mention at the repository mint", async () => {
+    const denied = await runtime.runPromise(
+      repository
+        .applyPadPatch({
+          sink: { canvasName: "factory", nodeId: "pad-1" },
+          basis: authorialBasis,
+          patchId: "patch-mention",
+          patches: [pinWithMention("ghost-pin", "ghost")],
+          author: { kind: "operator", label: "operator" },
+          originAt: observedAt,
+          receivedAt: observedAt,
+        })
+        .pipe(Effect.result),
+    );
+    expect(denied).toMatchObject({
+      _tag: "Failure",
+      failure: { _tag: "WorkAuthorityError", reason: "invalid-transition" },
+    });
+    if (denied._tag === "Failure") {
+      expect(denied.failure.message).toMatch(/mention/i);
+    }
+  });
+
+  it("unreadPinCount follows the operator read cursor, not pins-with-posts", async () => {
+    const sink = { canvasName: "factory", nodeId: "pad-unread" };
+    const opened = await runtime.runPromise(
+      repository.applyPadPatch({
+        sink,
+        basis: authorialBasis,
+        patchId: "patch-unread-pin",
+        patches: [
+          {
+            op: "pin.upsert",
+            pin: {
+              id: asPadElementId("attn"),
+              x: 4,
+              y: 4,
+              mentions: [],
+            },
+          },
+          pinReply("attn", "post-a", { kind: "operator", label: "operator" }),
+        ],
+        author: { kind: "operator", label: "operator" },
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    expect(opened.value.pins[0]?.posts).toHaveLength(1);
+
+    const unread = await runtime.runPromise(
+      repository.readSnapshot("factory", "pad-unread"),
+    );
+    expect(unread.pad).toMatchObject({
+      unreadPinCount: 1,
+    });
+
+    await runtime.runPromise(
+      repository.markPadRead({
+        sink,
+        pinId: "attn",
+        principalKey: "operator",
+        lastReadPosition: 0,
+        updatedAt: observedAt,
+      }),
+    );
+    const cleared = await runtime.runPromise(
+      repository.readSnapshot("factory", "pad-unread"),
+    );
+    expect(cleared.pad).toMatchObject({ unreadPinCount: 0 });
+
+    await runtime.runPromise(
+      repository.applyPadPatch({
+        sink,
+        basis: authorialBasis,
+        patchId: "patch-unread-2",
+        patches: [
+          pinReply("attn", "post-b", { kind: "operator", label: "operator" }),
+        ],
+        author: { kind: "operator", label: "operator" },
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    const again = await runtime.runPromise(
+      repository.readSnapshot("factory", "pad-unread"),
+    );
+    expect(again.pad).toMatchObject({ unreadPinCount: 1 });
+  });
 });
 
 describe("WorkService pad author refusals", () => {
@@ -316,6 +457,15 @@ describe("WorkService pad author refusals", () => {
       expect(ink.message).toMatch(/ink/i);
     }
 
+    const image = await runtime.runPromise(
+      work.workPadPatch("factory", "pad-1", [upsertImage("img-agent")], actor),
+    );
+    expect(image.ok).toBe(false);
+    if (!image.ok) {
+      expect(image.code).toBe("invalid");
+      expect(image.message).toMatch(/image/i);
+    }
+
     const mention = await runtime.runPromise(
       work.workPadPatch("factory", "pad-1", [pinWithMention("p1", "ghost")], actor),
     );
@@ -324,6 +474,54 @@ describe("WorkService pad author refusals", () => {
       expect(mention.code).toBe("invalid");
       expect(mention.message).toMatch(/mention/i);
     }
+  });
+
+  it("stamps pin.reply author from WorkService, not the patch body", async () => {
+    const work = await runtime.runPromise(WorkService);
+    const actor = {
+      kind: "actor" as const,
+      seatId: Schema.decodeUnknownSync(ActorSeatId)(`seat_${"a".repeat(64)}`),
+      nodeId: "agent",
+    };
+    const opened = await runtime.runPromise(
+      work.workPadPatch(
+        "factory",
+        "pad-1",
+        [
+          {
+            op: "pin.upsert",
+            pin: {
+              id: asPadElementId("thread"),
+              x: 2,
+              y: 2,
+              mentions: ["agent"],
+            },
+          },
+        ],
+        { kind: "operator", label: "operator" },
+      ),
+    );
+    expect(opened.ok).toBe(true);
+
+    const forged = await runtime.runPromise(
+      work.workPadPatch(
+        "factory",
+        "pad-1",
+        [pinReply("thread", "forged-post", { kind: "operator", label: "forged" })],
+        actor,
+      ),
+    );
+    expect(forged.ok).toBe(true);
+    if (!forged.ok) return;
+    const post = forged.data.pad.pins
+      .find((pin) => pin.id === "thread")
+      ?.posts.find((item) => item.postId === "forged-post");
+    expect(post?.author).toMatchObject({
+      kind: "actor",
+      nodeId: "agent",
+      seatId: actor.seatId,
+    });
+    expect(post?.author.kind).not.toBe("operator");
   });
 
   it("applies an operator shape patch", async () => {
@@ -351,5 +549,28 @@ describe("WorkService pad author refusals", () => {
       true,
     );
     expect(read.data.svg).toContain("<svg");
+  });
+
+  it("keeps a first-line pad title through CanvasesService.write", async () => {
+    const canvases = await runtime.runPromise(CanvasesService);
+    const titled = {
+      ...makePadNode(40, 40),
+      id: "pad-titled",
+      text: "Sprint board\n9 shapes, 4 unread",
+      ether: {
+        entity: { kind: "pad" as const },
+        pad: { revision: 9, shapeCount: 9, unreadPinCount: 4 },
+      },
+    };
+    await runtime.runPromise(
+      canvases.write("factory", {
+        nodes: [...padDoc(true).nodes, titled],
+        edges: padDoc(true).edges,
+      }),
+    );
+    const read = await runtime.runPromise(canvases.read("factory"));
+    const node = read.doc.nodes.find((item) => item.id === "pad-titled");
+    expect(node && "text" in node ? node.text : "").toMatch(/^Sprint board\n/);
+    expect(node && "text" in node ? node.text : "").not.toMatch(/^pad\n/);
   });
 });

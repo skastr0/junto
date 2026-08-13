@@ -82,6 +82,8 @@ const workProjectionCases = [
   ["requests", { requests: { items: [] } }],
   ["messages", { messages: { items: [] } }],
   ["artifacts", { artifacts: { items: [] } }],
+  ["board", { board: { topics: [] } }],
+  ["pad", { pad: { revision: 0, shapeCount: 0, unreadPinCount: 0 } }],
 ] as const satisfies ReadonlyArray<readonly [string, EtherNodeExtension]>;
 
 describe("station portfolio body", () => {

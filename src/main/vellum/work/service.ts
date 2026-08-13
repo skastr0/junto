@@ -18,6 +18,7 @@ import { padLookHere, padToDigest, padToSvg } from "@shared/pad-project";
 import {
   inboundActorNodeIds,
   padAuthorRuleError,
+  stampPadPatchAuthors,
 } from "./pad-rules";
 import type {
   CompletionEvidence,
@@ -2447,9 +2448,10 @@ export const WorkLive = Layer.effect(
                 }),
               );
             }
+            const stamped = stampPadPatchAuthors(patches, author);
             const rule = padAuthorRuleError(
               author,
-              patches,
+              stamped,
               inboundActorNodeIds(read.doc, nodeId),
             );
             if (rule !== undefined) {
@@ -2480,7 +2482,7 @@ export const WorkLive = Layer.effect(
                       sink: sinkRef(canvas, nodeId),
                       basis: intentBasis(context, read.intentWitness),
                       patchId,
-                      patches,
+                      patches: stamped,
                       author,
                     })
                     .pipe(
@@ -2500,7 +2502,7 @@ export const WorkLive = Layer.effect(
                   {
                     operation: "pad.patch",
                     patchId,
-                    patches: [...patches],
+                    patches: [...stamped],
                     author,
                   },
                   {
