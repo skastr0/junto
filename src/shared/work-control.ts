@@ -488,14 +488,42 @@ export type BoardMarkReadArgs = typeof BoardMarkReadArgs.Type;
 export const PadReadArgs = Schema.Struct({
   target: Schema.String,
   pinId: Schema.optionalKey(Schema.String),
+}).annotate({
+  parseOptions: { onExcessProperty: "error" },
 });
 export type PadReadArgs = typeof PadReadArgs.Type;
 
 export const PadPatchArgs = Schema.Struct({
   target: Schema.String,
   patches: Schema.Array(PadPatch).pipe(Schema.check(Schema.isMinLength(1))),
+}).annotate({
+  parseOptions: { onExcessProperty: "error" },
 });
 export type PadPatchArgs = typeof PadPatchArgs.Type;
+
+/** CLI projection verbs that only need the connected pad target. */
+export const PadTargetArgs = Schema.Struct({
+  target: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+}).annotate({
+  parseOptions: { onExcessProperty: "error" },
+});
+export type PadTargetArgs = typeof PadTargetArgs.Type;
+
+export const PadLookHereArgs = Schema.Struct({
+  target: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+  pinId: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+}).annotate({
+  parseOptions: { onExcessProperty: "error" },
+});
+export type PadLookHereArgs = typeof PadLookHereArgs.Type;
+
+export const PadGetArgs = Schema.Struct({
+  target: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+  id: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMinLength(1)))),
+}).annotate({
+  parseOptions: { onExcessProperty: "error" },
+});
+export type PadGetArgs = typeof PadGetArgs.Type;
 
 /** Agent fires a connected scheduler via the relay.trigger port. */
 export const RelayTriggerArgs = Schema.Struct({

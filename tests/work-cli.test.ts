@@ -21,6 +21,10 @@ import {
   allExamples,
   annotateCapabilityInvocations,
   commandCapabilities,
+  padLookHereSchema,
+  padPatchSchema,
+  padReadSchema,
+  padTaggedSchema,
   renderSchemaContract,
 } from "../src/cli/core/discovery";
 import { BROWSER_ENABLED } from "../src/shared/features";
@@ -350,6 +354,71 @@ describe("schema/examples from validating schemas", () => {
     expect(
       allExamples.some((example) => example.command_id === "preamble"),
     ).toBe(true);
+  });
+
+  it("discovers every pad CLI verb with schema, example, and grant copy", () => {
+    const verbs = [
+      "pad.read",
+      "pad.patch",
+      "pad.digest",
+      "pad.svg",
+      "pad.look-here",
+      "pad.get",
+      "pad.tagged",
+    ];
+    const schemaIds = allSchemas.map((contract) => contract.command_id);
+    const capabilityIds = commandCapabilities.map(
+      (capability) => capability.command_id,
+    );
+    const exampleIds = allExamples.map((example) => example.command_id);
+    expect(schemaIds).toEqual(expect.arrayContaining(verbs));
+    expect(capabilityIds).toEqual(expect.arrayContaining(verbs));
+    expect(exampleIds).toEqual(expect.arrayContaining(verbs));
+    for (const verb of verbs) {
+      const schema = allSchemas.find((contract) => contract.command_id === verb);
+      expect(schema?.schema_id).toBe(`${verb}.input/v1`);
+      expect(schema?.description).toMatch(/grant pad\.(read|patch)/);
+    }
+    expect(padReadSchema.description).toMatch(/never write the factory canvas/i);
+    expect(padPatchSchema.description).toMatch(/ink or image/i);
+    expect(padPatchSchema.description).toMatch(/inbound actor/i);
+    expect(padLookHereSchema.description).toMatch(/unwired/i);
+    expect(padTaggedSchema.description).toMatch(/mention/i);
+  });
+
+  it("annotates pad invocations when the live edge grants pad ports", () => {
+    const live = annotateCapabilityInvocations({
+      connected: [
+        { id: "pad-1", grants: ["pad.read", "pad.patch"] },
+        { id: "tasks", grants: ["tasks.list"] },
+      ],
+    });
+    expect(live.connected[0]).toMatchObject({
+      id: "pad-1",
+      invocations: expect.arrayContaining([
+        {
+          port: "pad.read",
+          command: "vellum-command pad read",
+          discover: "vellum-command schema show pad.read",
+        },
+        {
+          port: "pad.read",
+          command: "vellum-command pad look-here",
+          discover: "vellum-command schema show pad.look-here",
+        },
+        {
+          port: "pad.read",
+          command: "vellum-command pad tagged",
+          discover: "vellum-command schema show pad.tagged",
+        },
+        {
+          port: "pad.patch",
+          command: "vellum-command pad patch",
+          discover: "vellum-command schema show pad.patch",
+        },
+      ]),
+    });
+    expect(live.connected[1]).not.toHaveProperty("invocations");
   });
 });
 

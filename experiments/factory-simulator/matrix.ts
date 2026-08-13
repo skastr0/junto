@@ -69,6 +69,8 @@ const DISCOVERY_COMMANDS = new Set([
 
 export const classifyCliCommand = (commandId: string): CliCoverageLane | undefined => {
   if (isTargetWorkOp(commandId)) return "target-matrix";
+  // CLI projections of pad.read (digest/svg/look-here/get/tagged) share that grant.
+  if (commandId.startsWith("pad.")) return "target-matrix";
   if (SEAT_LOCAL_COMMANDS.has(commandId)) return "seat-local";
   if (DISCOVERY_COMMANDS.has(commandId)) return "discovery";
   if (commandId.startsWith("browser.")) return "browser-plane";

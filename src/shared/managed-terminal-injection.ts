@@ -76,6 +76,7 @@ export type InjectionContext = {
  * - requests offers request.escalate + msg.list/msg.send
  * - artifacts offers artifact.publish
  * - board offers board.*
+ * - pad offers pad.read / pad.patch
  * - agent offers msg.list/msg.send
  * - page offers browser.automate (feature-gated)
  */
@@ -85,6 +86,7 @@ export type EdgeSlotKind =
   | "msg"
   | "artifacts"
   | "board"
+  | "pad"
   | "browser";
 
 export const KIND_TO_SLOT: Readonly<Record<string, EdgeSlotKind | undefined>> = {
@@ -94,6 +96,7 @@ export const KIND_TO_SLOT: Readonly<Record<string, EdgeSlotKind | undefined>> = 
   request: "escalate",
   artifacts: "artifacts",
   board: "board",
+  pad: "pad",
   agent: "msg",
   page: "browser",
 };
@@ -281,6 +284,24 @@ const boardSlot = (targets: readonly InjectionConnectedTarget[]): string => {
 Optional shared context — never a decision inbox. \`read\` is enough to clear attention.`;
 };
 
+const padSlot = (targets: readonly InjectionConnectedTarget[]): string => {
+  const t = targets[0]?.id ?? "<id>";
+  const all = targets.map((x) => `\`${x.id}\``).join(", ");
+  return `### Edge contract — pad${targets.length > 1 ? ` (targets: ${all})` : ` (target \`${t}\`)`}
+
+| intent | command |
+|---|---|
+| read page | \`vellum-command pad read '{"target":"${t}"}'\` |
+| text IR | \`vellum-command pad digest '{"target":"${t}"}'\` |
+| picture | \`vellum-command pad svg '{"target":"${t}"}'\` |
+| focused item | \`vellum-command pad get '{"target":"${t}","id":"<id>"}'\` |
+| look-here crop | \`vellum-command pad look-here '{"target":"${t}","pinId":"<pinId>"}'\` |
+| pins tagging you | \`vellum-command pad tagged '{"target":"${t}"}'\` |
+| patch shapes | \`vellum-command pad patch '{"target":"${t}","patches":[{"op":"upsert","layer":"shape","shape":{"id":"box-1","type":"box","x":0,"y":0,"w":80,"h":40,"z":0}}]}'\` |
+
+Grant is \`pad.read\` / \`pad.patch\` via the edge. Agents may upsert shapes, edges, and pin posts. Agent ink or image upserts are refused. Pin mentions must be inbound actor node ids — @ cannot name an unwired agent. Agents never write the factory canvas.`;
+};
+
 const browserSlot = (): string =>
   `### Edge contract — browser (page targets)
 
@@ -298,6 +319,7 @@ export const EDGE_SLOT_BUILDERS: Readonly<
   msg: msgSlot,
   artifacts: artifactSlot,
   board: boardSlot,
+  pad: padSlot,
   browser: () => browserSlot(),
 };
 

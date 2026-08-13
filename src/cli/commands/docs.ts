@@ -18,7 +18,7 @@ const topicArg = Argument.string("topic").pipe(
 );
 
 const kindArg = Argument.string("kind").pipe(
-  Argument.withDescription("Node kind (task, requests, artifacts, board, agent, page, terminal, cron, relay, timer, watcher)"),
+  Argument.withDescription("Node kind (task, requests, artifacts, board, pad, agent, page, terminal, cron, relay, timer, watcher)"),
 );
 
 const docsListCommand = Command.make("list", {}, () =>
