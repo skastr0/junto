@@ -25,8 +25,12 @@ import {
   type Camera,
   type GeomRect,
 } from "@shared/pad-geom";
+import { themeRuntime, type ThemeMode } from "@shared/theme";
 
-export const PAD_TOOLS = ["select", "box", "ellipse", "triangle", "label"] as const;
+export const PAD_SHAPE_TOOLS = ["box", "ellipse", "triangle", "label"] as const;
+export type PadShapeTool = (typeof PAD_SHAPE_TOOLS)[number];
+
+export const PAD_TOOLS = ["select", ...PAD_SHAPE_TOOLS, "pin", "image", "ink"] as const;
 export type PadTool = (typeof PAD_TOOLS)[number];
 
 export const PAD_TOOL_KEYS: Readonly<Record<string, PadTool>> = {
@@ -35,7 +39,19 @@ export const PAD_TOOL_KEYS: Readonly<Record<string, PadTool>> = {
   o: "ellipse",
   t: "triangle",
   l: "label",
+  p: "pin",
+  i: "image",
+  d: "ink",
 };
+
+export const isShapeTool = (tool: PadTool): tool is PadShapeTool =>
+  (PAD_SHAPE_TOOLS as readonly string[]).includes(tool);
+
+export const DEFAULT_IMAGE_SIZE = { w: 160, h: 120 } as const;
+export const DEFAULT_INK_WIDTH = 2;
+
+export const defaultInkColor = (mode: ThemeMode = "dark"): string =>
+  themeRuntime(mode).ink ?? "#d8d2c4";
 
 export type ResizeHandle = "nw" | "ne" | "sw" | "se";
 
@@ -164,7 +180,7 @@ export const normalizeRect = (
 };
 
 export const draftShapeFromDrag = (
-  type: Exclude<PadTool, "select">,
+  type: PadShapeTool,
   start: PadPoint,
   current: PadPoint,
   id: PadElementId,
@@ -331,6 +347,86 @@ export const upsertImagePatch = (image: PadImage): PadPatch => ({
   image,
 });
 
+export const upsertInkPatch = (ink: PadInk): PadPatch => ({
+  op: "upsert",
+  layer: "ink",
+  ink,
+});
+
+export const upsertPinPatch = (pin: Omit<PadPin, "posts">): PadPatch => ({
+  op: "pin.upsert",
+  pin,
+});
+
+export const padIsEmpty = (pad: Pad): boolean =>
+  pad.shapes.length === 0 &&
+  pad.edges.length === 0 &&
+  pad.images.length === 0 &&
+  pad.inks.length === 0 &&
+  pad.pins.length === 0;
+
+export const draftImageRect = (start: PadPoint, current: PadPoint): GeomRect => {
+  const dx = Math.abs(current.x - start.x);
+  const dy = Math.abs(current.y - start.y);
+  if (dx < MIN_SHAPE_SIZE && dy < MIN_SHAPE_SIZE) {
+    return { x: snap(start.x), y: snap(start.y), w: DEFAULT_IMAGE_SIZE.w, h: DEFAULT_IMAGE_SIZE.h };
+  }
+  return normalizeRect(start.x, start.y, current.x, current.y);
+};
+
+export const draftPinFromDrag = (
+  id: PadElementId,
+  start: PadPoint,
+  current: PadPoint,
+): Omit<PadPin, "posts"> => {
+  const w = Math.abs(current.x - start.x);
+  const h = Math.abs(current.y - start.y);
+  if (w < MIN_SHAPE_SIZE || h < MIN_SHAPE_SIZE) {
+    return { id, x: snap(start.x), y: snap(start.y), mentions: [] };
+  }
+  return {
+    id,
+    x: snap((start.x + current.x) / 2),
+    y: snap((start.y + current.y) / 2),
+    bounds: { w: snap(Math.max(MIN_SHAPE_SIZE, w)), h: snap(Math.max(MIN_SHAPE_SIZE, h)) },
+    mentions: [],
+  };
+};
+
+export const appendInkPoint = (
+  points: ReadonlyArray<PadPoint>,
+  next: PadPoint,
+  minDist = 1,
+): PadPoint[] => {
+  const last = points[points.length - 1];
+  if (last && Math.hypot(next.x - last.x, next.y - last.y) < minDist) {
+    return [...points];
+  }
+  return [...points, { x: snap(next.x), y: snap(next.y) }];
+};
+
+export const draftInkFromPoints = (
+  id: PadElementId,
+  points: readonly [PadPoint, PadPoint, ...PadPoint[]],
+  z: number,
+  color: string,
+  width = DEFAULT_INK_WIDTH,
+): PadInk => ({
+  id,
+  z,
+  color,
+  width,
+  points: [...points],
+});
+
+export const movePin = (pin: PadPin, dx: number, dy: number): Omit<PadPin, "posts"> => ({
+  id: pin.id,
+  x: snap(pin.x + dx),
+  y: snap(pin.y + dy),
+  mentions: pin.mentions,
+  ...(pin.bounds ? { bounds: pin.bounds } : {}),
+});
+
 export const deletePatch = (id: PadElementId): PadPatch => ({
   op: "delete",
   id,
@@ -468,7 +564,7 @@ export const editableLayer = (
   snapOf(pad, id)?.layer;
 
 export const canMove = (layer: ReturnType<typeof editableLayer>): boolean =>
-  layer === "shape" || layer === "image";
+  layer === "shape" || layer === "image" || layer === "pin";
 
 export const canResize = (layer: ReturnType<typeof editableLayer>): boolean =>
   layer === "shape" || layer === "image";
@@ -477,7 +573,7 @@ export const canZ = (layer: ReturnType<typeof editableLayer>): boolean =>
   layer === "shape" || layer === "image" || layer === "ink";
 
 export const canDelete = (layer: ReturnType<typeof editableLayer>): boolean =>
-  layer === "shape" || layer === "edge";
+  layer === "shape" || layer === "edge" || layer === "image" || layer === "ink" || layer === "pin";
 
 export const cycleSelection = (
   pad: Pad,
@@ -488,7 +584,14 @@ export const cycleSelection = (
     ...[...pad.shapes]
       .sort((a, b) => a.z - b.z || a.id.localeCompare(b.id))
       .map((item) => item.id),
+    ...[...pad.images]
+      .sort((a, b) => a.z - b.z || a.id.localeCompare(b.id))
+      .map((item) => item.id),
+    ...[...pad.inks]
+      .sort((a, b) => a.z - b.z || a.id.localeCompare(b.id))
+      .map((item) => item.id),
     ...pad.edges.map((item) => item.id),
+    ...pad.pins.map((item) => item.id),
   ];
   if (ids.length === 0) return undefined;
   if (!selectedId) return dir === 1 ? ids[0] : ids[ids.length - 1];
@@ -511,3 +614,9 @@ export const shapeById = (pad: Pad, id: string): PadShape | undefined =>
 
 export const imageById = (pad: Pad, id: string): PadImage | undefined =>
   pad.images.find((image) => image.id === id);
+
+export const inkById = (pad: Pad, id: string): PadInk | undefined =>
+  pad.inks.find((ink) => ink.id === id);
+
+export const pinById = (pad: Pad, id: string): PadPin | undefined =>
+  pad.pins.find((pin) => pin.id === id);

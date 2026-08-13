@@ -62,6 +62,7 @@ import {
   makeArtifactsNode,
   makeBoardNode,
   makeCronNode,
+  makePadNode,
   makeGroupNode,
   makeImageNode,
   makeLabelNode,
@@ -778,6 +779,13 @@ const makeAddActions = (
   addBoard: () => {
     const position = positionFor({ width: 240, height: 120 });
     const node = makeBoardNode(position.x, position.y);
+    addNode(node, { edit: false });
+    state$.focusNodeId.set(node.id);
+    dismiss();
+  },
+  addPad: () => {
+    const position = positionFor({ width: 240, height: 120 });
+    const node = makePadNode(position.x, position.y);
     addNode(node, { edit: false });
     state$.focusNodeId.set(node.id);
     dismiss();

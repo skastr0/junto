@@ -55,6 +55,13 @@ describe("node palette catalog contract", () => {
     );
   });
 
+  it("puts pad in the work catalog with pad.read and pad.patch", () => {
+    expect(entry("pad").category).toBe("sinks");
+    expect(entry("pad").label).toBe("Pad");
+    expect(lineFor("pad", "access")?.text).toContain("Read pad");
+    expect(lineFor("pad", "access")?.text).toContain("Patch pad");
+  });
+
   it.each(["note", "label", "region"])("keeps %s off the wire grammar as map furniture", (id) => {
     expect(catalogWireLines(id)).toEqual([]);
     expect(NO_WIRES_COPY[id]).toBe("No wires — sits on the map.");

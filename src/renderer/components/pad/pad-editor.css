@@ -144,6 +144,29 @@
   font-size: 11px;
 }
 
+.pad-hint {
+  pointer-events: none;
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  z-index: 2;
+  max-width: 36ch;
+  transform: translateX(-50%);
+  border: 1px solid color-mix(in oklab, var(--color-crimson) 34%, transparent);
+  background: color-mix(in oklab, var(--color-crimson) 10%, var(--color-raise));
+  color: var(--color-crimson);
+  font-size: 11px;
+  padding: 4px 8px;
+}
+
+.pad-image-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+}
+
 .pad-card {
   display: flex;
   height: 100%;

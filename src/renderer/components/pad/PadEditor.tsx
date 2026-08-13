@@ -8,14 +8,19 @@ import {
 } from "react";
 import {
   Circle,
+  Image as ImageIcon,
+  MapPin,
   Maximize2,
   MousePointer2,
+  Pencil,
   Square,
   Triangle,
   Type,
   Undo2,
 } from "lucide-react";
+import { use$ } from "@legendapp/state/react";
 import { Result } from "effect";
+import type { ContentRef } from "@shared/content";
 import type { Pad, PadElementId, PadPatch, PadPoint, PadShape, PadSide } from "@shared/pad";
 import {
   anchorPoint,
@@ -28,13 +33,18 @@ import {
   trianglePoints,
   type Camera,
 } from "@shared/pad-geom";
+import { themeMode$ } from "../../lib/theme-mode";
+import { fileToHerdrClipboardImage } from "../../lib/herdr-clipboard-image";
+import { putClipboardImage, putImagesFromDataTransfer } from "../../lib/image-content";
 import { IconButton } from "../ui";
 import {
   CAMERA_ZOOM_MAX,
   CAMERA_ZOOM_MIN,
+  DEFAULT_INK_WIDTH,
   HANDLE_VIEW_PX,
   HIT_VIEW_PX,
   SIDE_VIEW_PX,
+  appendInkPoint,
   canDelete,
   canMove,
   canResize,
@@ -42,7 +52,11 @@ import {
   clientToScene,
   clientToView,
   cycleSelection,
+  defaultInkColor,
   deletePatch,
+  draftImageRect,
+  draftInkFromPoints,
+  draftPinFromDrag,
   draftShapeFromDrag,
   editableLayer,
   editorKeyAction,
@@ -50,24 +64,31 @@ import {
   handleHit,
   imageById,
   inversePatches,
+  isShapeTool,
   isTypingTarget,
   moveImage,
+  movePin,
   moveShape,
   nearestSide,
   newPadElementId,
   nextLayerZ,
+  padIsEmpty,
   panBy,
+  pinById,
   resizeImage,
   resizeShape,
   shapeById,
   sideHit,
   upsertEdgePatch,
   upsertImagePatch,
+  upsertInkPatch,
+  upsertPinPatch,
   upsertShapePatch,
   viewSlop,
   zOf,
   zPatch,
   zoomAt,
+  type PadShapeTool,
   type PadTool,
   type ResizeHandle,
 } from "./pad-editor-model";
@@ -77,10 +98,21 @@ type Gesture =
   | { readonly kind: "pan"; readonly last: PadPoint }
   | {
       readonly kind: "draw";
-      readonly tool: Exclude<PadTool, "select">;
+      readonly tool: PadShapeTool | "image";
       readonly start: PadPoint;
       readonly current: PadPoint;
       readonly id: PadElementId;
+    }
+  | {
+      readonly kind: "pin";
+      readonly start: PadPoint;
+      readonly current: PadPoint;
+      readonly id: PadElementId;
+    }
+  | {
+      readonly kind: "ink";
+      readonly id: PadElementId;
+      readonly points: ReadonlyArray<PadPoint>;
     }
   | {
       readonly kind: "move";
@@ -101,6 +133,15 @@ type Gesture =
       readonly fromSide: PadSide;
       readonly current: PadPoint;
     };
+
+type PendingImage = {
+  readonly id: PadElementId;
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
+  readonly z: number;
+};
 
 const statusStroke = (status: PadShape["status"] | undefined): string => {
   switch (status) {
@@ -170,6 +211,8 @@ export function PadEditor({
   readonly onClose: () => void;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const pendingImageRef = useRef<PendingImage | null>(null);
   const [camera, setCamera] = useState<Camera>(identityCamera);
   const [tool, setTool] = useState<PadTool>("select");
   const [selectedId, setSelectedId] = useState<string | undefined>();
@@ -177,16 +220,19 @@ export function PadEditor({
   const [spaceDown, setSpaceDown] = useState(false);
   const [editingLabel, setEditingLabel] = useState(false);
   const [labelDraft, setLabelDraft] = useState("");
+  const [hint, setHint] = useState<string | null>(null);
   const undoRef = useRef<PadPatch[][]>([]);
   const [undoDepth, setUndoDepth] = useState(0);
   const padRef = useRef(pad);
   padRef.current = pad;
+  const theme = use$(themeMode$);
+  const inkColor = defaultInkColor(theme);
 
   const selected = selectedId
-    ? shapeById(pad, selectedId) ?? imageById(pad, selectedId)
+    ? shapeById(pad, selectedId) ?? imageById(pad, selectedId) ?? pinById(pad, selectedId)
     : undefined;
   const selectedLayer = selectedId ? editableLayer(pad, selectedId) : undefined;
-  const empty = pad.shapes.length === 0 && pad.edges.length === 0 && pad.images.length === 0;
+  const empty = padIsEmpty(pad);
 
   const originOf = (): PadPoint => {
     const rect = svgRef.current?.getBoundingClientRect();
@@ -239,10 +285,10 @@ export function PadEditor({
   const fittedContent = useRef(false);
   useEffect(() => {
     if (fittedContent.current) return;
-    if (pad.shapes.length === 0 && pad.images.length === 0) return;
+    if (padIsEmpty(pad)) return;
     fittedContent.current = true;
     fit();
-  }, [fit, pad.images.length, pad.shapes.length]);
+  }, [fit, pad]);
 
   const commit = useCallback(
     async (patches: ReadonlyArray<PadPatch>): Promise<boolean> => {
@@ -293,10 +339,65 @@ export function PadEditor({
         return;
       }
       const image = imageById(padRef.current, selectedId);
-      if (image) await commit([upsertImagePatch(moveImage(image, dx, dy))]);
+      if (image) {
+        await commit([upsertImagePatch(moveImage(image, dx, dy))]);
+        return;
+      }
+      const pin = pinById(padRef.current, selectedId);
+      if (pin) await commit([upsertPinPatch(movePin(pin, dx, dy))]);
     },
     [commit, selectedId, selectedLayer],
   );
+
+  const placeImage = useCallback(
+    async (pending: PendingImage, ref: ContentRef): Promise<boolean> => {
+      const ok = await commit([
+        upsertImagePatch({
+          id: pending.id,
+          x: pending.x,
+          y: pending.y,
+          w: pending.w,
+          h: pending.h,
+          z: pending.z,
+          ref,
+        }),
+      ]);
+      if (ok) {
+        setSelectedId(pending.id);
+        setHint(null);
+      }
+      return ok;
+    },
+    [commit],
+  );
+
+  const ingestImageFile = useCallback(
+    async (file: File, pending: PendingImage): Promise<boolean> => {
+      const image = await fileToHerdrClipboardImage(file);
+      if ("error" in image) {
+        setHint(image.error);
+        return false;
+      }
+      const put = await putClipboardImage(image, file.name.trim() || `image.${image.extension}`);
+      if (!put.ok) {
+        setHint(put.error);
+        return false;
+      }
+      return placeImage(pending, put.ref);
+    },
+    [placeImage],
+  );
+
+  const requestImageFile = useCallback((pending: PendingImage) => {
+    pendingImageRef.current = pending;
+    const input = fileInputRef.current;
+    if (!input) {
+      setHint("Image picker is unavailable.");
+      return;
+    }
+    input.value = "";
+    input.click();
+  }, []);
 
   const beginLabelEdit = useCallback((id?: string) => {
     const target = id ?? selectedId;
@@ -402,13 +503,25 @@ export function PadEditor({
     if (event.button !== 0) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     const scene = sceneOf(event);
+    if (tool === "ink") {
+      const id = newPadElementId("ink");
+      setGesture({ kind: "ink", id, points: [scene] });
+      setSelectedId(id);
+      return;
+    }
+    if (tool === "pin") {
+      const id = newPadElementId("pin");
+      setGesture({ kind: "pin", id, start: scene, current: scene });
+      setSelectedId(id);
+      return;
+    }
     if (tool !== "select") {
       const id = newPadElementId(tool);
       setGesture({ kind: "draw", tool, start: scene, current: scene, id });
       setSelectedId(id);
       return;
     }
-    if (selected && canResize(selectedLayer)) {
+    if (selected && canResize(selectedLayer) && "w" in selected) {
       const handle = handleHit(selected, scene, viewSlop(camera, HANDLE_VIEW_PX));
       if (handle) {
         setGesture({ kind: "resize", id: selected.id, handle, current: scene });
@@ -431,7 +544,7 @@ export function PadEditor({
     setSelectedId(hit.id);
     const layer = editableLayer(pad, hit.id);
     if (canMove(layer)) {
-      const item = shapeById(pad, hit.id) ?? imageById(pad, hit.id);
+      const item = shapeById(pad, hit.id) ?? imageById(pad, hit.id) ?? pinById(pad, hit.id);
       if (item) {
         setGesture({
           kind: "move",
@@ -454,8 +567,12 @@ export function PadEditor({
       return;
     }
     const scene = sceneOf(event);
-    if (gesture.kind === "draw") {
+    if (gesture.kind === "draw" || gesture.kind === "pin") {
       setGesture({ ...gesture, current: scene });
+      return;
+    }
+    if (gesture.kind === "ink") {
+      setGesture({ ...gesture, points: appendInkPoint(gesture.points, scene) });
       return;
     }
     if (gesture.kind === "edge") {
@@ -472,6 +589,18 @@ export function PadEditor({
     const current = gesture;
     setGesture({ kind: "idle" });
     if (current.kind === "draw") {
+      if (current.tool === "image") {
+        const box = draftImageRect(current.start, scene);
+        requestImageFile({
+          id: current.id,
+          x: box.x,
+          y: box.y,
+          w: box.w,
+          h: box.h,
+          z: nextLayerZ(pad.images),
+        });
+        return;
+      }
       const shape = draftShapeFromDrag(
         current.tool,
         current.start,
@@ -488,6 +617,27 @@ export function PadEditor({
       });
       return;
     }
+    if (current.kind === "pin") {
+      void commit([upsertPinPatch(draftPinFromDrag(current.id, current.start, scene))]);
+      return;
+    }
+    if (current.kind === "ink") {
+      const points = appendInkPoint(current.points, scene);
+      if (points.length < 2) return;
+      const [first, second, ...rest] = points;
+      void commit([
+        upsertInkPatch(
+          draftInkFromPoints(
+            current.id,
+            [first!, second!, ...rest],
+            nextLayerZ(pad.inks),
+            inkColor,
+            DEFAULT_INK_WIDTH,
+          ),
+        ),
+      ]);
+      return;
+    }
     if (current.kind === "move") {
       const dx = scene.x - current.origin.x;
       const dy = scene.y - current.origin.y;
@@ -500,6 +650,13 @@ export function PadEditor({
       const image = imageById(pad, current.id);
       if (image) {
         void commit([upsertImagePatch(moveImage({ ...image, x: current.start.x, y: current.start.y }, dx, dy))]);
+        return;
+      }
+      const pin = pinById(pad, current.id);
+      if (pin) {
+        void commit([
+          upsertPinPatch(movePin({ ...pin, x: current.start.x, y: current.start.y }, dx, dy)),
+        ]);
       }
       return;
     }
@@ -531,7 +688,7 @@ export function PadEditor({
   };
 
   const previewPad = (): Pad => {
-    if (gesture.kind === "draw") {
+    if (gesture.kind === "draw" && isShapeTool(gesture.tool)) {
       const draft = draftShapeFromDrag(
         gesture.tool,
         gesture.start,
@@ -540,6 +697,23 @@ export function PadEditor({
         nextLayerZ(pad.shapes),
       );
       return { ...pad, shapes: [...pad.shapes.filter((s) => s.id !== draft.id), draft] };
+    }
+    if (gesture.kind === "pin") {
+      const draft = draftPinFromDrag(gesture.id, gesture.start, gesture.current);
+      return {
+        ...pad,
+        pins: [...pad.pins.filter((pin) => pin.id !== draft.id), { ...draft, posts: [] }],
+      };
+    }
+    if (gesture.kind === "ink" && gesture.points.length >= 2) {
+      const [first, second, ...rest] = gesture.points;
+      const draft = draftInkFromPoints(
+        gesture.id,
+        [first!, second!, ...rest],
+        nextLayerZ(pad.inks),
+        inkColor,
+      );
+      return { ...pad, inks: [...pad.inks.filter((ink) => ink.id !== draft.id), draft] };
     }
     if (gesture.kind === "move") {
       const dx = gesture.current.x - gesture.origin.x;
@@ -555,6 +729,11 @@ export function PadEditor({
           image.id === gesture.id
             ? moveImage({ ...image, x: gesture.start.x, y: gesture.start.y }, dx, dy)
             : image,
+        ),
+        pins: pad.pins.map((pin) =>
+          pin.id === gesture.id
+            ? { ...pin, ...movePin({ ...pin, x: gesture.start.x, y: gesture.start.y }, dx, dy) }
+            : pin,
         ),
       };
     }
@@ -602,6 +781,15 @@ export function PadEditor({
           <ToolButton tool="label" current={tool} onSelect={setTool} label="Label (L)">
             <Type size={13} />
           </ToolButton>
+          <ToolButton tool="pin" current={tool} onSelect={setTool} label="Pin (P)">
+            <MapPin size={13} />
+          </ToolButton>
+          <ToolButton tool="image" current={tool} onSelect={setTool} label="Image (I)">
+            <ImageIcon size={13} />
+          </ToolButton>
+          <ToolButton tool="ink" current={tool} onSelect={setTool} label="Ink (D)">
+            <Pencil size={13} />
+          </ToolButton>
         </div>
         <div className="pad-toolbar__sep" />
         <div className="pad-toolbar__group">
@@ -619,10 +807,71 @@ export function PadEditor({
           </IconButton>
         </div>
         <div className="ml-auto text-[10px] uppercase tracking-[0.12em] text-dim">
-          [ ] z - delete - drag a side for an edge
+          [ ] z - delete - P pin - I image - D ink
         </div>
       </div>
-      <div className="pad-stage">
+      <div
+        className="pad-stage"
+        onDragOver={(event) => {
+          event.preventDefault();
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          const scene = sceneOf(event);
+          void putImagesFromDataTransfer(event.dataTransfer).then((result) => {
+            if (result.kind === "error") {
+              setHint(result.error);
+              return;
+            }
+            if (result.kind !== "ok") return;
+            const ref = result.refs[0];
+            if (!ref) return;
+            const box = draftImageRect(scene, scene);
+            void placeImage(
+              {
+                id: newPadElementId("image"),
+                x: box.x,
+                y: box.y,
+                w: box.w,
+                h: box.h,
+                z: nextLayerZ(padRef.current.images),
+              },
+              ref,
+            );
+          });
+        }}
+        onPaste={(event) => {
+          void putImagesFromDataTransfer(event.clipboardData).then((result) => {
+            if (result.kind === "error") {
+              setHint(result.error);
+              return;
+            }
+            if (result.kind !== "ok") return;
+            event.preventDefault();
+            const ref = result.refs[0];
+            if (!ref) return;
+            const origin = originOf();
+            const rect = svgRef.current?.getBoundingClientRect();
+            const scene = clientToScene(
+              camera,
+              { x: origin.x + (rect?.width ?? 160) / 2, y: origin.y + (rect?.height ?? 120) / 2 },
+              origin,
+            );
+            const box = draftImageRect(scene, scene);
+            void placeImage(
+              {
+                id: newPadElementId("image"),
+                x: box.x,
+                y: box.y,
+                w: box.w,
+                h: box.h,
+                z: nextLayerZ(padRef.current.images),
+              },
+              ref,
+            );
+          });
+        }}
+      >
         <svg
           ref={svgRef}
           className="pad-svg"
@@ -706,8 +955,42 @@ export function PadEditor({
                 />
               ))}
             {shown.pins.map((pin) => (
-              <circle key={pin.id} cx={pin.x} cy={pin.y} r={5} fill="var(--color-amber)" />
+              <g key={pin.id} data-testid="pad-pin" data-pin-id={pin.id}>
+                {pin.bounds ? (
+                  <rect
+                    x={pin.x - pin.bounds.w / 2}
+                    y={pin.y - pin.bounds.h / 2}
+                    width={pin.bounds.w}
+                    height={pin.bounds.h}
+                    fill="none"
+                    stroke={pin.id === selectedId ? "var(--color-amber)" : "var(--color-stroke)"}
+                    strokeDasharray="3 2"
+                  />
+                ) : null}
+                <circle
+                  cx={pin.x}
+                  cy={pin.y}
+                  r={pin.id === selectedId ? 7 : 5}
+                  fill="var(--color-amber)"
+                />
+              </g>
             ))}
+            {gesture.kind === "draw" && gesture.tool === "image" ? (
+              (() => {
+                const box = draftImageRect(gesture.start, gesture.current);
+                return (
+                  <rect
+                    x={box.x}
+                    y={box.y}
+                    width={box.w}
+                    height={box.h}
+                    fill="var(--color-overlay-1)"
+                    stroke="var(--color-amber)"
+                    strokeDasharray="4 3"
+                  />
+                );
+              })()
+            ) : null}
             {gesture.kind === "edge" ? (
               <line
                 x1={(() => {
@@ -733,9 +1016,26 @@ export function PadEditor({
         {empty && gesture.kind === "idle" ? (
           <div className="pad-empty" data-testid="pad-empty">
             <strong>Empty pad</strong>
-            <span>Draw a box (R), ellipse (O), triangle (T), or label (L). Drag a side to wire an edge.</span>
+            <span>Draw a box (R), pin (P), ink (D), or place an image (I). Drag a side to wire an edge.</span>
           </div>
         ) : null}
+        {hint ? <div className="pad-hint">{hint}</div> : null}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/gif,image/webp,image/bmp,.png,.jpg,.jpeg,.gif,.webp,.bmp"
+          className="pad-image-input"
+          data-testid="pad-image-input"
+          aria-label="Pad image file"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            const pending = pendingImageRef.current;
+            event.target.value = "";
+            if (!file || !pending) return;
+            pendingImageRef.current = null;
+            void ingestImageFile(file, pending);
+          }}
+        />
         {editingLabel && labelView ? (
           <input
             className="pad-label-edit"

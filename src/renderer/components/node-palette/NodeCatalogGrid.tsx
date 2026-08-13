@@ -10,6 +10,7 @@ import {
   Globe2,
   Inbox,
   PanelTop,
+  PenLine,
   SquareDashed,
   SquareTerminal,
   Type,
@@ -81,6 +82,7 @@ const CATALOG_CONTRACT_KIND: Partial<Record<string, string>> = {
   requests: "requests",
   artifacts: "artifacts",
   board: "board",
+  pad: "pad",
   page: "page",
   cron: "cron",
   relay: "relay",
@@ -172,6 +174,11 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     id: "board", category: "sinks", label: "Board", subtitle: "topics and posts",
     icon: Braces,
     purpose: "A shared board for topics, updates, and decisions.",
+  },
+  {
+    id: "pad", category: "sinks", label: "Pad", subtitle: "images, shapes, ink, pins",
+    icon: PenLine,
+    purpose: "A shared page. You mark; wired agents read the same page and patch boxes and pins.",
   },
   ...(BROWSER_ENABLED ? [{
     id: "page", category: "canvas", label: "Page", subtitle: "a browser page",

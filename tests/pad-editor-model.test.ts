@@ -11,8 +11,10 @@ import {
 } from "../src/shared/pad";
 import { contentBounds, identityCamera, viewToScene } from "../src/shared/pad-geom";
 import {
+  appendInkPoint,
   canDelete,
   cycleSelection,
+  draftPinFromDrag,
   draftShapeFromDrag,
   editorKeyAction,
   fitCamera,
@@ -20,10 +22,12 @@ import {
   inversePatches,
   nearestSide,
   normalizeRect,
+  padIsEmpty,
   panBy,
   resizeShape,
   sideHit,
   toolFromKey,
+  upsertPinPatch,
   upsertShapePatch,
   zoomAt,
 } from "../src/renderer/components/pad/pad-editor-model";
@@ -49,21 +53,30 @@ const box = (id: string, over: Record<string, unknown> = {}): PadShape => ({
 });
 
 describe("pad editor tools", () => {
-  it("maps v r o t l", () => {
+  it("maps v r o t l p i d", () => {
     expect(toolFromKey("v")).toBe("select");
     expect(toolFromKey("r")).toBe("box");
     expect(toolFromKey("o")).toBe("ellipse");
     expect(toolFromKey("t")).toBe("triangle");
     expect(toolFromKey("l")).toBe("label");
-    expect(toolFromKey("p")).toBeUndefined();
-    expect(toolFromKey("d")).toBeUndefined();
-    expect(toolFromKey("i")).toBeUndefined();
+    expect(toolFromKey("p")).toBe("pin");
+    expect(toolFromKey("i")).toBe("image");
+    expect(toolFromKey("d")).toBe("ink");
   });
 
   it("reads editor keys and ignores typing", () => {
     expect(
       editorKeyAction({ key: "r", metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, target: null }, { typing: false }),
     ).toEqual({ type: "tool", tool: "box" });
+    expect(
+      editorKeyAction({ key: "p", metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, target: null }, { typing: false }),
+    ).toEqual({ type: "tool", tool: "pin" });
+    expect(
+      editorKeyAction({ key: "i", metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, target: null }, { typing: false }),
+    ).toEqual({ type: "tool", tool: "image" });
+    expect(
+      editorKeyAction({ key: "d", metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, target: null }, { typing: false }),
+    ).toEqual({ type: "tool", tool: "ink" });
     expect(
       editorKeyAction({ key: "r", metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, target: null }, { typing: true }),
     ).toBeUndefined();
@@ -202,7 +215,58 @@ describe("pad editor selection", () => {
     expect(cycleSelection(pad, "b", 1)).toBe("a");
     expect(cycleSelection(pad, "a", 1)).toBe("e1");
     expect(canDelete("shape")).toBe(true);
-    expect(canDelete("pin")).toBe(false);
+    expect(canDelete("pin")).toBe(true);
+    expect(canDelete("ink")).toBe(true);
+    expect(canDelete("image")).toBe(true);
     expect(contentBounds(pad).w).toBeGreaterThan(0);
+  });
+});
+
+describe("pad editor pin ink empty", () => {
+  it("treats pin-only and ink-only pads as not empty", () => {
+    expect(padIsEmpty(emptyPad())).toBe(true);
+    const pinned = expectOk(
+      applyPatches(emptyPad(), [
+        upsertPinPatch({ id: asPadElementId("p1"), x: 12, y: 8, mentions: [] }),
+      ]),
+    );
+    expect(padIsEmpty(pinned)).toBe(false);
+    expect(pinned.pins).toHaveLength(1);
+    const inked = expectOk(
+      applyPatches(emptyPad(), [
+        decodePatch({
+          op: "upsert",
+          layer: "ink",
+          ink: {
+            id: "k1",
+            z: 0,
+            color: "#d8d2c4",
+            width: 2,
+            points: [
+              { x: 0, y: 0 },
+              { x: 8, y: 4 },
+            ],
+          },
+        }),
+      ]),
+    );
+    expect(padIsEmpty(inked)).toBe(false);
+  });
+
+  it("places a click pin and a dragged look-here pin", () => {
+    const click = draftPinFromDrag(asPadElementId("p1"), { x: 10, y: 10 }, { x: 11, y: 10 });
+    expect(click).toMatchObject({ x: 10, y: 10, mentions: [] });
+    expect(click.bounds).toBeUndefined();
+    const dragged = draftPinFromDrag(asPadElementId("p2"), { x: 0, y: 0 }, { x: 40, y: 20 });
+    expect(dragged).toMatchObject({ x: 20, y: 10, bounds: { w: 40, h: 20 } });
+  });
+
+  it("records ink points without collapsing a stroke", () => {
+    const points = appendInkPoint([{ x: 0, y: 0 }], { x: 4, y: 3 });
+    expect(points).toEqual([
+      { x: 0, y: 0 },
+      { x: 4, y: 3 },
+    ]);
+    expect(appendInkPoint(points, { x: 4.2, y: 3.1 }, 1)).toEqual(points);
   });
 });
