@@ -7,6 +7,7 @@ import {
   RawPart,
 } from "./work-model";
 import { ContentRef } from "./content";
+import { PadPatch } from "./pad";
 
 // Work control-plane wire contract: NDJSON frames over a local Unix domain
 // socket at ~/.vellum-command/work/control.sock. Pure module — no Node imports — so
@@ -483,6 +484,18 @@ export const BoardMarkReadArgs = Schema.Struct({
   upToPosition: Schema.optionalKey(Schema.Number),
 });
 export type BoardMarkReadArgs = typeof BoardMarkReadArgs.Type;
+
+export const PadReadArgs = Schema.Struct({
+  target: Schema.String,
+  pinId: Schema.optionalKey(Schema.String),
+});
+export type PadReadArgs = typeof PadReadArgs.Type;
+
+export const PadPatchArgs = Schema.Struct({
+  target: Schema.String,
+  patches: Schema.Array(PadPatch).pipe(Schema.check(Schema.isMinLength(1))),
+});
+export type PadPatchArgs = typeof PadPatchArgs.Type;
 
 /** Agent fires a connected scheduler via the relay.trigger port. */
 export const RelayTriggerArgs = Schema.Struct({

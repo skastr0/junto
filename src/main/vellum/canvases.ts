@@ -649,7 +649,8 @@ const stripRuntimeWorkProjection = (doc: CanvasDoc): CanvasDoc => ({
         etherIn.requests === undefined &&
         etherIn.messages === undefined &&
         etherIn.artifacts === undefined &&
-        etherIn.board === undefined
+        etherIn.board === undefined &&
+        etherIn.pad === undefined
       )
     ) {
       return node;
@@ -661,6 +662,7 @@ const stripRuntimeWorkProjection = (doc: CanvasDoc): CanvasDoc => ({
       messages: _messages,
       artifacts: _artifacts,
       board: _board,
+      pad: _pad,
       ...ether
     } = etherIn;
     const kind = ether.entity?.kind;
@@ -675,7 +677,9 @@ const stripRuntimeWorkProjection = (doc: CanvasDoc): CanvasDoc => ({
               ? mirrorArtifactsText([])
               : kind === "board"
                 ? mirrorBoardText([])
-                : node.text;
+                : kind === "pad"
+                  ? "pad"
+                  : node.text;
 
     if (Object.keys(ether).length === 0) {
       const { ether: _removed, ...withoutEther } = node;

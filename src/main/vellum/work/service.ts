@@ -13,6 +13,12 @@ import type {
   TaskState,
   WorkMetadata,
 } from "@shared/canvas";
+import { emptyPad, type Pad, type PadPatch } from "@shared/pad";
+import { padLookHere, padToDigest, padToSvg } from "@shared/pad-project";
+import {
+  inboundActorNodeIds,
+  padAuthorRuleError,
+} from "./pad-rules";
 import type {
   CompletionEvidence,
   FinishCriteria,
@@ -446,6 +452,31 @@ export interface WorkServiceShape {
       principalKey: string,
       upToPosition?: number,
     ) => Effect.Effect<WorkOpResult<{ readonly topicId: string }>>;
+    readonly workPadRead: (
+      canvas: string,
+      nodeId: string,
+      pinId?: string,
+    ) => Effect.Effect<
+      WorkOpResult<{
+        readonly revision: number;
+        readonly pad: Pad;
+        readonly digest: string;
+        readonly svg: string;
+        readonly lookHere?: import("@shared/pad-project").PadLookHere;
+      }>
+    >;
+    readonly workPadPatch: (
+      canvas: string,
+      nodeId: string,
+      patches: ReadonlyArray<PadPatch>,
+      author: import("@shared/work-model").BoardAuthor,
+    ) => Effect.Effect<
+      WorkOpResult<{
+        readonly revision: number;
+        readonly pad: Pad;
+        readonly digest: string;
+      }>
+    >;
     readonly commandStatus: Effect.Effect<
       WorkCommandStatus,
       WorkServiceError
@@ -2348,6 +2379,136 @@ export const WorkLive = Layer.effect(
                 })
                 .pipe(Effect.map(() => ({ value: { topicId } }))),
             );
+            return yield* complete(canvas, outcome);
+          }),
+        ),
+
+      workPadRead: (canvas, nodeId, pinId) =>
+        asResult(
+          Effect.gen(function* () {
+            const read = yield* readCanvas(canvas);
+            const node = read.doc.nodes.find((n) => n.id === nodeId);
+            if (node?.ether?.entity?.kind !== "pad") {
+              return yield* Effect.fail(
+                new WorkServiceError({
+                  code: "illegal_kind",
+                  message: `node "${nodeId}" is not a pad sink`,
+                }),
+              );
+            }
+            const pad = yield* repository
+              .readPad(canvas, nodeId)
+              .pipe(Effect.mapError(toWorkServiceError));
+            const digest = padToDigest(pad);
+            const svg = padToSvg(pad, "dark");
+            let lookHere: import("@shared/pad-project").PadLookHere | undefined;
+            if (pinId !== undefined) {
+              const focused = padLookHere(pad, pinId);
+              if (Result.isFailure(focused)) {
+                return yield* Effect.fail(
+                  new WorkServiceError({
+                    code: "invalid",
+                    message: focused.failure.message,
+                  }),
+                );
+              }
+              lookHere = focused.success;
+            }
+            const outcome = yield* local(
+              Effect.succeed({
+                value: {
+                  revision: pad.revision,
+                  pad,
+                  digest,
+                  svg,
+                  ...(lookHere === undefined ? {} : { lookHere }),
+                },
+              }),
+            );
+            return yield* complete(canvas, outcome);
+          }),
+        ),
+
+      workPadPatch: (canvas, nodeId, patches, author) =>
+        asResult(
+          Effect.gen(function* () {
+            const [context, read] = yield* Effect.all([
+              stationContext,
+              readCanvas(canvas),
+            ]);
+            if (
+              read.doc.nodes.find((n) => n.id === nodeId)?.ether?.entity
+                ?.kind !== "pad"
+            ) {
+              return yield* Effect.fail(
+                new WorkServiceError({
+                  code: "illegal_kind",
+                  message: `node "${nodeId}" is not a pad sink`,
+                }),
+              );
+            }
+            const rule = padAuthorRuleError(
+              author,
+              patches,
+              inboundActorNodeIds(read.doc, nodeId),
+            );
+            if (rule !== undefined) {
+              return yield* Effect.fail(
+                new WorkServiceError({
+                  code: "invalid",
+                  message: rule,
+                }),
+              );
+            }
+            const home =
+              context.configuration.role === "command-center"
+                ? context.localInstallationId
+                : context.configuration.commandCenterInstallationId;
+            const patchId = ids.id();
+            const current =
+              home === context.localInstallationId
+                ? undefined
+                : yield* repository
+                  .readPad(canvas, nodeId)
+                  .pipe(Effect.mapError(toWorkServiceError));
+            const queuedPad = current ?? emptyPad();
+            const outcome =
+              home === context.localInstallationId
+                ? yield* local(
+                  repository
+                    .applyPadPatch({
+                      sink: sinkRef(canvas, nodeId),
+                      basis: intentBasis(context, read.intentWitness),
+                      patchId,
+                      patches,
+                      author,
+                    })
+                    .pipe(
+                      Effect.map((result) => ({
+                        value: {
+                          revision: result.value.revision,
+                          pad: result.value,
+                          digest: padToDigest(result.value),
+                        },
+                      })),
+                    ),
+                )
+                : yield* enqueue(
+                  context,
+                  home,
+                  workItem("pad", patchId, canvas, nodeId),
+                  {
+                    operation: "pad.patch",
+                    patchId,
+                    patches: [...patches],
+                    author,
+                  },
+                  {
+                    revision: queuedPad.revision,
+                    pad: queuedPad,
+                    digest: padToDigest(queuedPad),
+                  },
+                );
             return yield* complete(canvas, outcome);
           }),
         ),

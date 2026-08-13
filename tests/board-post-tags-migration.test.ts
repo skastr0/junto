@@ -5,10 +5,12 @@ import {
   migrateStateSchema,
   STATE_SCHEMA_V15_IDENTITY,
   STATE_SCHEMA_V16_IDENTITY,
+  STATE_SCHEMA_V17_IDENTITY,
 } from "../src/main/vellum/state/migrations";
 import {
   STATE_SCHEMA_SQL,
   STATE_SCHEMA_V15_SQL,
+  STATE_SCHEMA_V16_SQL,
 } from "../src/main/vellum/state/schema";
 import {
   expectedStateSchemaIdentity,
@@ -20,10 +22,13 @@ describe("board post tags schema migration 15 → 16", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V15_SQL)).toEqual(
       STATE_SCHEMA_V15_IDENTITY,
     );
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_V16_SQL)).toEqual(
       STATE_SCHEMA_V16_IDENTITY,
     );
-    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(16);
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(
+      STATE_SCHEMA_V17_IDENTITY,
+    );
+    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(17);
   });
 
   it("adds tags_json without dropping historical posts", () => {
@@ -53,10 +58,10 @@ describe("board post tags schema migration 15 → 16", () => {
       `);
 
       const result = migrateStateSchema(database);
-      expect(result.schemaVersion).toBe(16);
+      expect(result.schemaVersion).toBe(CURRENT_STATE_SCHEMA_VERSION);
       expect(result.previousVersion).toBe(15);
       expect(result.actualSchemaSha256).toBe(
-        STATE_SCHEMA_V16_IDENTITY.actualSchemaSha256,
+        STATE_SCHEMA_V17_IDENTITY.actualSchemaSha256,
       );
 
       const cols = database

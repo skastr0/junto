@@ -20,8 +20,10 @@ import {
 import {
   WORK_BOARD_STATE_SCHEMA_SQL,
   WORK_BOARD_STATE_SCHEMA_WITH_TAGS_SQL,
+  WORK_PAD_STATE_SCHEMA_SQL,
   WORK_PROPOSAL_PLANNING_STATE_SCHEMA_SQL,
   WORK_STATE_SCHEMA_BOARD_VOCAB_SQL,
+  WORK_STATE_SCHEMA_PAD_VOCAB_SQL,
   WORK_STATE_SCHEMA_PROPOSAL_REJECT_SQL,
   WORK_STATE_SCHEMA_TASK_ARCHIVED_SQL,
   WORK_STATE_SCHEMA_SQL,
@@ -232,14 +234,29 @@ export const STATE_SCHEMA_V15_FRAGMENTS = STATE_SCHEMA_V13_FRAGMENTS.map(
 export const STATE_SCHEMA_V15_SQL = STATE_SCHEMA_V15_FRAGMENTS.join("\n");
 
 /**
- * Current: v15 + board post tags_json (collaboration tags).
+ * Schema at version 16: board post tags_json; no pad tables.
+ * Frozen so 16→17 migration can start from a known identity.
  */
-export const STATE_SCHEMA_FRAGMENTS = STATE_SCHEMA_V15_FRAGMENTS.map(
+export const STATE_SCHEMA_V16_FRAGMENTS = STATE_SCHEMA_V15_FRAGMENTS.map(
   (fragment) =>
     fragment === WORK_BOARD_STATE_SCHEMA_SQL
       ? WORK_BOARD_STATE_SCHEMA_WITH_TAGS_SQL
       : fragment,
 ) as unknown as typeof STATE_SCHEMA_V15_FRAGMENTS;
+
+export const STATE_SCHEMA_V16_SQL = STATE_SCHEMA_V16_FRAGMENTS.join("\n");
+
+/**
+ * Current: v16 + pad element tables + pad.patch event vocabulary.
+ */
+export const STATE_SCHEMA_FRAGMENTS = [
+  ...(STATE_SCHEMA_V16_FRAGMENTS.map((fragment) =>
+    fragment === WORK_STATE_SCHEMA_TASK_ARCHIVED_SQL
+      ? WORK_STATE_SCHEMA_PAD_VOCAB_SQL
+      : fragment,
+  ) as unknown as typeof STATE_SCHEMA_V16_FRAGMENTS),
+  WORK_PAD_STATE_SCHEMA_SQL,
+];
 
 /**
  * Fresh-install and final-verification target for the current version.

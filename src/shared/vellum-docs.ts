@@ -20,6 +20,7 @@ import {
   EtherArtifacts,
   EtherBoard,
   EtherMessages,
+  EtherPad,
   EtherRequests,
   EtherTasks,
 } from "./work-model";
@@ -130,6 +131,7 @@ const ETHER_BY_KIND: Readonly<Record<string, Schema.Schema<unknown>>> = {
   requests: EtherRequests,
   artifacts: EtherArtifacts,
   board: EtherBoard,
+  pad: EtherPad,
   agent: EtherMessages,
   page: EtherBrowser,
   terminal: EtherTerminal,

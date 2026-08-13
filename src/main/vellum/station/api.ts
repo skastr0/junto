@@ -40,6 +40,10 @@ import {
 } from "@shared/work-protocol";
 import type { WorkOpName } from "@shared/work-control";
 import {
+  inboundActorNodeIds,
+  padAuthorRuleError,
+} from "../work/pad-rules";
+import {
   resolveNodeHostId,
   type StationRole,
 } from "@shared/station";
@@ -280,6 +284,8 @@ const expectedSinkKind = (
     case "topic":
     case "post":
       return "board";
+    case "pad":
+      return "pad";
   }
 };
 
@@ -317,6 +323,7 @@ const operationForActor = (
     case "message.append":
     case "board.topic.create":
     case "board.post.append":
+    case "pad.patch":
       return undefined;
   }
 };
@@ -530,6 +537,7 @@ const actorFromFact = (
     case "message.append":
     case "board.topic.create":
     case "board.post.append":
+    case "pad.patch":
       return undefined;
   }
 };
@@ -634,6 +642,43 @@ export const makeStationWorkAdmission = (
             : "board.post",
         );
       }
+      if (command.body.operation === "pad.patch") {
+        const author = command.body.author;
+        if (
+          author.kind !== "actor" ||
+          author.seatId === undefined ||
+          author.nodeId === undefined
+        ) {
+          return rejected(
+            "authority-mismatch",
+            "remote pad writes require an actor author with seat and node",
+          );
+        }
+        const admittedPort = authorizeActor(
+          topology,
+          {
+            seatId: author.seatId,
+            canvasName: command.item.sink.canvasName,
+            nodeId: author.nodeId,
+          },
+          topology.peerInstallationId,
+          command.item.sink,
+          "pad.patch",
+        );
+        if (admittedPort._tag === "rejected") return admittedPort;
+        const canvas = topology.documents.get(command.item.sink.canvasName);
+        if (canvas !== undefined) {
+          const rule = padAuthorRuleError(
+            author,
+            command.body.patches,
+            inboundActorNodeIds(canvas, command.item.sink.nodeId),
+          );
+          if (rule !== undefined) {
+            return rejected("capability-denied", rule);
+          }
+        }
+        return admittedPort;
+      }
       return rejected(
         "authority-mismatch",
         `${command.body.operation} is Command Center intent and cannot be commanded by a Remote`,
@@ -694,6 +739,7 @@ export const makeStationWorkAdmission = (
       case "delivery.accepted":
       case "board.topic.create":
       case "board.post.append":
+      case "pad.patch":
         return rejected(
           "locality-mismatch",
           `${command.body.operation} must originate as a local actor fact or CC-homed command`,

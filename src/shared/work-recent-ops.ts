@@ -101,6 +101,7 @@ export const WORK_SEAT_RECENT_OP_EXCLUDED_OPERATIONS = [
   "task.describe",
   "task.transition",
   "request.resolve",
+  "pad.patch",
 ] as const satisfies ReadonlyArray<WorkOperation>;
 
 export const WorkSeatRecentOpsCoverage = Schema.Struct({

@@ -178,6 +178,18 @@ export const mirrorBoardText = (
     .join("\n");
 };
 
+/** Pad node text mirror: title + shape count + unread pin count. */
+export const mirrorPadText = (
+  title: string,
+  glance: {
+    readonly shapeCount: number;
+    readonly unreadPinCount: number;
+  },
+): string => {
+  const name = title.trim().split("\n")[0]?.trim() || "pad";
+  return `${name}\n${glance.shapeCount} shapes, ${glance.unreadPinCount} unread`;
+};
+
 export const countByTaskState = (
   items: ReadonlyArray<Task>,
 ): Readonly<Record<TaskState, number>> => {

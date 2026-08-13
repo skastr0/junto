@@ -5,6 +5,7 @@ import {
   EtherArtifacts,
   EtherBoard,
   EtherMessages,
+  EtherPad,
   EtherRequests,
   EtherTasks,
 } from "./work-model";
@@ -38,6 +39,7 @@ export {
   EtherArtifacts,
   EtherBoard,
   EtherMessages,
+  EtherPad,
   EtherRequests,
   EtherTasks,
   FinishCriteria,
@@ -437,6 +439,8 @@ export const EtherNodeExtension = Schema.Struct({
   messages: Schema.optionalKey(EtherMessages),
   /** Runtime overlay for entity.kind === "board" (glance only; SQLite owns truth). */
   board: Schema.optionalKey(EtherBoard),
+  /** Runtime overlay for entity.kind === "pad" (glance only; SQLite owns truth). */
+  pad: Schema.optionalKey(EtherPad),
   // Geography display binding for entity.kind === "herdr". This is not a seat:
   // a herdr pane renders and shows state, and holds no port.
   herdr: Schema.optionalKey(EtherHerdr),
