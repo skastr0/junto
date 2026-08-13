@@ -190,6 +190,21 @@ Ops go through WorkService (tasks/messages/requests/artifacts/board). That is th
 - Role is never inferred from hardware or open windows.
 - Doctor service `station` reports role, installation identity, database/work/simulation readiness, projection, and logical cursor state.
 
+**Station process mode — hard law:**
+
+- Process mode is Unenrolled | Remote | Command Center. One mode.
+- Enroll door and peer door are mutually exclusive.
+- Unenrolled binds enroll only (`status` / `pair` / `configure`).
+- Remote binds peer only (`status` / `project` / `report`).
+- Command Center binds neither; it is the client.
+- Never both sockets. Re-enroll tears the peer door down first (mode
+  change). Not two live sessions. Not "pause peer."
+- Updating a Remote replaces the package and stays Remote. It does not
+  pass through Unenrolled.
+- The macOS Remote UI is a station face (stats), not the Command Center
+  canvas. No Fleet on Remote.
+- Code: `src/shared/station-mode.ts`.
+
 ## The document contract
 
 Standard JSON Canvas 1.0 (`nodes` of type `text`/`file`/`link`/`group`, `edges`) plus an optional `ether` key on nodes and edges:
