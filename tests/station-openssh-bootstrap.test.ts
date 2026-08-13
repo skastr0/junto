@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import {
   InstallationId,
   STATION_API_PROTOCOL,
+  StatusRequest,
   StatusResponse,
 } from "../src/shared/station-api";
 import { stationControlOk } from "../src/shared/station-api-envelope";
@@ -19,10 +20,10 @@ import {
 } from "../src/shared/station-protocol";
 import {
   STATION_SESSION_PROTOCOL,
+  StationSessionRequestFrame,
   StationSessionRequestId,
   StationSessionResponseFrame,
   type StationSessionFrame,
-  type StationSessionRequestFrame,
 } from "../src/shared/station-session";
 import { CURRENT_STATE_SCHEMA_VERSION } from "../src/main/vellum/state/migrations";
 import { SshEndpoint } from "../src/main/vellum/ssh/domain";
@@ -213,6 +214,31 @@ describe("OpenSSH Station status bootstrap", () => {
       "close-input",
       "close",
     ]);
+  });
+
+  it("ignores an inbound report request and still takes the status response", async () => {
+    const inboundReport = StationSessionRequestFrame.make({
+      protocol: STATION_SESSION_PROTOCOL,
+      frame: "request",
+      requestId: decodeRequestId("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
+      request: StatusRequest.make({
+        protocol: STATION_API_PROTOCOL,
+        op: "status",
+      }),
+    });
+    const fixture = makeBootstrapSsh((request) =>
+      Effect.succeed([
+        encodedFrame(inboundReport),
+        encodedFrame(correlatedStatus(request)),
+      ]),
+    );
+
+    const result = await runBootstrap(fixture);
+
+    expect(Result.isSuccess(result)).toBe(true);
+    if (Result.isSuccess(result)) {
+      expect(result.success).toEqual(statusResponse);
+    }
   });
 
   it("rejects a second frame even when both arrive in one SSH chunk", async () => {

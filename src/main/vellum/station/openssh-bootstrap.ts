@@ -211,12 +211,21 @@ export const bootstrapOpenSshStationStatus = (
               return;
             }
             if (status !== undefined) {
+              if (frame.frame === "request") {
+                // A configured Remote may emit report after status. Ignore.
+                return;
+              }
               return yield* bootstrapError(
                 "second-frame",
                 "OpenSSH Station bootstrap received more than one frame",
               );
             }
-            if (frame.frame !== "response" && frame.frame !== "request") {
+            if (frame.frame === "request") {
+              // Session-ready report can beat the status response on an
+              // already-configured Remote. Bootstrap is status-only.
+              return;
+            }
+            if (frame.frame !== "response") {
               return yield* bootstrapError(
                 "response-mismatch",
                 "OpenSSH Station bootstrap expected a session response",
