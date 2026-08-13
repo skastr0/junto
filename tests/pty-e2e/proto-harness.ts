@@ -73,7 +73,10 @@ import {
   type MessageDeliveryTransport,
 } from "../../src/main/vellum/work/message-delivery";
 import { deliverEdgeMapChangeNotices, onCanvasChangeForEdgeMap } from "../../src/main/vellum/work/edge-map-notify";
-import { mailboxMessageDeliveryId } from "../../src/main/vellum/work/mailbox-receipts";
+import {
+  mailboxMessageDeliveryId,
+  mailboxMessageReadId,
+} from "../../src/main/vellum/work/mailbox-receipts";
 import { IntentFactBasis, type ActorRef } from "../../src/shared/work-protocol";
 import { seatPaused } from "../../src/shared/pause";
 
@@ -372,6 +375,48 @@ export class ProtoHarness {
             const repo = yield* WorkRepository;
             const sink = { canvasName: canvas, nodeId };
             const deliveryId = mailboxMessageDeliveryId(canvas, nodeId, messageId);
+            if (yield* repo.hasAcceptedDelivery(sink, deliveryId)) return true;
+            const read = yield* canvases.read(canvas);
+            const actor = read.actorRefs.find(
+              (ref) => ref.canvasName === canvas && ref.nodeId === nodeId,
+            );
+            if (actor === undefined) return false;
+            const witness = yield* canvases.activeIntentWitness();
+            const basis = Schema.decodeUnknownSync(IntentFactBasis)({
+              kind: "authorial-intent",
+              generation: witness.generation,
+              contentSha256: witness.contentSha256,
+            });
+            yield* repo.acceptDelivery({
+              sink,
+              basis,
+              receipt: {
+                deliveryId,
+                deliveredItem: {
+                  kind: "message",
+                  itemId: messageId,
+                  sink,
+                },
+                actor: actor as ActorRef,
+                acceptedAt: new Date().toISOString(),
+              },
+            });
+            return true;
+          });
+          return await runtime.runPromise(
+            accept as Effect.Effect<boolean, unknown, never>,
+          );
+        } catch {
+          return false;
+        }
+      },
+      acceptMessageRead: async (canvas: string, nodeId: string, messageId: string) => {
+        try {
+          const canvases = this.canvases;
+          const accept = Effect.gen(function* () {
+            const repo = yield* WorkRepository;
+            const sink = { canvasName: canvas, nodeId };
+            const deliveryId = mailboxMessageReadId(canvas, nodeId, messageId);
             if (yield* repo.hasAcceptedDelivery(sink, deliveryId)) return true;
             const read = yield* canvases.read(canvas);
             const actor = read.actorRefs.find(

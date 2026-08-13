@@ -50,7 +50,10 @@ import {
   composerBlocksMailInject,
   operatorTypedThisGeneration,
 } from "@shared/message-delivery";
-import { mailboxMessageDeliveryId } from "./work/mailbox-receipts";
+import {
+  mailboxMessageDeliveryId,
+  mailboxMessageReadId,
+} from "./work/mailbox-receipts";
 import { extractPromptBoxText } from "./term/observer/interaction";
 import { onCanvasChangeForEdgeMap } from "./work/edge-map-notify";
 import { WorkRepository } from "./work/repository";
@@ -120,6 +123,60 @@ const runMainAuthoring = <A>(
   label: MainAuthoringLabel,
   operation: () => Promise<A>,
 ): Promise<A> => mainAuthoringGate.run(label, operation);
+
+const stampMailboxReceipt = (
+  deliveryId: string,
+  canvas: string,
+  nodeId: string,
+  messageId: string,
+): Promise<boolean> =>
+  runMainAuthoring("delivery.message-stamp", async () => {
+    try {
+      return await AppRuntime.runPromise(
+        Effect.gen(function* () {
+          const repo = yield* WorkRepository;
+          const canvases = yield* CanvasesService;
+          const sink = { canvasName: canvas, nodeId };
+          if (yield* repo.hasAcceptedDelivery(sink, deliveryId)) {
+            return true;
+          }
+          const read = yield* canvases.read(canvas);
+          const actor = read.actorRefs.find(
+            (ref) => ref.canvasName === canvas && ref.nodeId === nodeId,
+          );
+          if (actor === undefined) return false;
+          const settings = yield* SettingsService;
+          const current = yield* settings.get;
+          const intentWitness = yield* canvases.activeIntentWitness();
+          const basis = Schema.decodeUnknownSync(IntentFactBasis)({
+            kind:
+              current.station.role === "command-center"
+                ? "authorial-intent"
+                : "projected-intent",
+            generation: intentWitness.generation,
+            contentSha256: intentWitness.contentSha256,
+          });
+          yield* repo.acceptDelivery({
+            sink,
+            basis,
+            receipt: {
+              deliveryId,
+              deliveredItem: {
+                kind: "message",
+                itemId: messageId,
+                sink,
+              },
+              actor,
+              acceptedAt: new Date().toISOString(),
+            },
+          });
+          return true;
+        }),
+      );
+    } catch {
+      return false;
+    }
+  });
 
 const runRendererWorkAuthoring = <A>(
   label: MainAuthoringLabel,
@@ -1464,58 +1521,19 @@ export const registerVellumIpc = (): void => {
               }).pipe(Effect.catch(() => Effect.succeed(false))),
             ),
           acceptMessageDelivery: (canvas, nodeId, messageId) =>
-            runMainAuthoring("delivery.message-stamp", async () => {
-              try {
-                return await AppRuntime.runPromise(
-                  Effect.gen(function* () {
-                    const repo = yield* WorkRepository;
-                    const sink = { canvasName: canvas, nodeId };
-                    const deliveryId = mailboxMessageDeliveryId(
-                      canvas,
-                      nodeId,
-                      messageId,
-                    );
-                    if (yield* repo.hasAcceptedDelivery(sink, deliveryId)) {
-                      return true;
-                    }
-                    const read = yield* canvases.read(canvas);
-                    const actor = read.actorRefs.find(
-                      (ref) =>
-                        ref.canvasName === canvas && ref.nodeId === nodeId,
-                    );
-                    if (actor === undefined) return false;
-                    const settings = yield* SettingsService;
-                    const current = yield* settings.get;
-                    const intentWitness = yield* canvases.activeIntentWitness();
-                    const basis = Schema.decodeUnknownSync(IntentFactBasis)({
-                      kind:
-                        current.station.role === "command-center"
-                          ? "authorial-intent"
-                          : "projected-intent",
-                      generation: intentWitness.generation,
-                      contentSha256: intentWitness.contentSha256,
-                    });
-                    yield* repo.acceptDelivery({
-                      sink,
-                      basis,
-                      receipt: {
-                        deliveryId,
-                        deliveredItem: {
-                          kind: "message",
-                          itemId: messageId,
-                          sink,
-                        },
-                        actor,
-                        acceptedAt: new Date().toISOString(),
-                      },
-                    });
-                    return true;
-                  }),
-                );
-              } catch {
-                return false;
-              }
-            }),
+            stampMailboxReceipt(
+              mailboxMessageDeliveryId(canvas, nodeId, messageId),
+              canvas,
+              nodeId,
+              messageId,
+            ),
+          acceptMessageRead: (canvas, nodeId, messageId) =>
+            stampMailboxReceipt(
+              mailboxMessageReadId(canvas, nodeId, messageId),
+              canvas,
+              nodeId,
+              messageId,
+            ),
         },
         // Pause law (@shared/pause): canvas paused OR node paused OR any
         // containing region paused keeps the message pending, never sent.

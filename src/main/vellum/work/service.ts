@@ -78,7 +78,10 @@ import { ContentService } from "../content/service";
 import type { ContentOwner } from "../content/manifest";
 import { admitWorkTarget } from "./authz";
 import { clearSeatBlockedByRequest } from "./blocked-seat";
-import { mailboxMessageReadId } from "./mailbox-receipts";
+import {
+  mailboxMessageReactId,
+  mailboxMessageReadId,
+} from "./mailbox-receipts";
 import { messageDelivery } from "./message-delivery";
 import {
   WorkAuthorityError,
@@ -356,6 +359,19 @@ export interface WorkServiceShape {
       messageId: string,
       reader: ActorRef,
     ) => Effect.Effect<WorkOpResult<{ readonly messageId: string; readonly readAt: string }>>;
+    readonly workMessageReact: (
+      canvas: string,
+      nodeId: string,
+      messageId: string,
+      reaction: "ack",
+      reactor: ActorRef,
+    ) => Effect.Effect<
+      WorkOpResult<{
+        readonly messageId: string;
+        readonly reaction: "ack";
+        readonly reactedAt: string;
+      }>
+    >;
     readonly workRequestCreate: (
       canvas: string,
       nodeId: string,
@@ -625,6 +641,7 @@ export const WorkLive = Layer.effect(
         | "msg.send"
         | "msg.read"
         | "msg.reply"
+        | "msg.react"
         | "request.escalate"
         | "artifact.publish",
     ): Effect.Effect<CanvasNode, WorkServiceError> => {
@@ -644,7 +661,10 @@ export const WorkLive = Layer.effect(
       // Own-mailbox read is process-bind + seat ownership, not edge OptIn.
       // Actor↔actor grant law is OptIn; requiring msg.list on a self-loop would
       // make mark-read impossible without authoring a nonsense self-edge.
-      if (op === "msg.read" && actor.nodeId === targetNodeId) {
+      if (
+        (op === "msg.read" || op === "msg.react") &&
+        actor.nodeId === targetNodeId
+      ) {
         const actorNode = nodeById(read.doc, actor.nodeId);
         return actorNode === undefined
           ? Effect.fail(
@@ -721,6 +741,7 @@ export const WorkLive = Layer.effect(
         | "msg.send"
         | "msg.read"
         | "msg.reply"
+        | "msg.react"
         | "request.escalate"
         | "artifact.publish",
       context: StationContext,
@@ -1756,6 +1777,123 @@ export const WorkLive = Layer.effect(
                           )
                           : Effect.succeed({
                             value: { messageId: trimmed, readAt: at },
+                          }),
+                      ),
+                    ),
+                ),
+                Effect.mapError(toWorkServiceError),
+                Effect.map(({ value }) => ({
+                  value,
+                  disposition: "applied" as const,
+                })),
+              );
+            return yield* complete(canvas, outcome);
+          }),
+        ),
+
+      workMessageReact: (canvas, nodeId, messageId, reaction, reactor) =>
+        asResult(
+          Effect.gen(function* () {
+            const [context, read] = yield* Effect.all([
+              stationContext,
+              readCanvas(canvas),
+            ]);
+            yield* requireLocalActor(
+              read,
+              reactor,
+              nodeId,
+              "msg.react",
+              context,
+            );
+            if (reactor.nodeId !== nodeId || reactor.canvasName !== canvas) {
+              return yield* Effect.fail(
+                new WorkServiceError({
+                  code: "invalid",
+                  message: "only the mailbox owner may react to a message",
+                }),
+              );
+            }
+            const trimmed = messageId.trim();
+            if (!trimmed) {
+              return yield* Effect.fail(
+                new WorkServiceError({
+                  code: "invalid",
+                  message: "messageId must be non-empty",
+                }),
+              );
+            }
+            const exists = (read.doc.nodes.find((n) => n.id === nodeId)?.ether
+              ?.messages?.items ?? []).some((m) => m.messageId === trimmed);
+            if (!exists) {
+              return yield* Effect.fail(
+                new WorkServiceError({
+                  code: "node_not_found",
+                  message: `message "${trimmed}" not found in mailbox`,
+                }),
+              );
+            }
+            const sink = sinkRef(canvas, nodeId);
+            const deliveryId = mailboxMessageReactId(
+              canvas,
+              nodeId,
+              trimmed,
+              reaction,
+            );
+            const existingAt = yield* repository
+              .acceptedDeliveryAt(sink, deliveryId)
+              .pipe(Effect.mapError(toWorkServiceError));
+            if (existingAt !== undefined) {
+              return yield* complete(canvas, {
+                disposition: "applied" as const,
+                value: { messageId: trimmed, reaction, reactedAt: existingAt },
+              });
+            }
+            const acceptedAt = new Date().toISOString();
+            const outcome = yield* repository
+              .acceptDelivery({
+                sink,
+                basis: intentBasis(context, read.intentWitness),
+                receipt: {
+                  deliveryId,
+                  deliveredItem: {
+                    kind: "message",
+                    itemId: trimmed,
+                    sink,
+                  },
+                  actor: reactor,
+                  acceptedAt,
+                },
+              })
+              .pipe(
+                Effect.map((result) => ({
+                  value: {
+                    messageId: trimmed,
+                    reaction,
+                    reactedAt: result.value.acceptedAt,
+                  },
+                })),
+                Effect.catchIf(
+                  (error): error is WorkAuthorityError =>
+                    error instanceof WorkAuthorityError &&
+                    error.reason === "identity-conflict",
+                  () =>
+                    repository.acceptedDeliveryAt(sink, deliveryId).pipe(
+                      Effect.mapError(toWorkServiceError),
+                      Effect.flatMap((at) =>
+                        at === undefined
+                          ? Effect.fail(
+                            new WorkServiceError({
+                              code: "invalid",
+                              message:
+                                `react receipt "${deliveryId}" conflicted but is missing`,
+                            }),
+                          )
+                          : Effect.succeed({
+                            value: {
+                              messageId: trimmed,
+                              reaction,
+                              reactedAt: at,
+                            },
                           }),
                       ),
                     ),

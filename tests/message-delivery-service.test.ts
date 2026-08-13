@@ -92,6 +92,27 @@ const makeStore = (
       });
       return true;
     },
+    acceptMessageRead: async (canvas, nodeId, messageId) => {
+      const doc = docs.get(canvas);
+      if (!doc) return true;
+      const readAt = options.now?.() ?? Date.now();
+      const node = doc.nodes.find((n) => n.id === nodeId);
+      if (!node?.ether?.messages) return true;
+      const items = node.ether.messages.items.map((m) =>
+        m.messageId === messageId
+          ? { ...m, metadata: { ...(m.metadata ?? {}), readAt } }
+          : m,
+      );
+      docs.set(canvas, {
+        ...doc,
+        nodes: doc.nodes.map((n) =>
+          n.id === nodeId
+            ? { ...n, ether: { ...(n.ether ?? {}), messages: { items } } }
+            : n,
+        ),
+      });
+      return true;
+    },
   };
 };
 
@@ -502,6 +523,29 @@ describe("MessageDeliveryService", () => {
     expect(calls[0]?.text).toContain("mail-steer");
     expect(calls[0]?.text).toContain("vellum-command msg list");
     expect(calls[0]?.text).not.toBe("[message - user] interrupt the turn");
+    await waitUntil(() =>
+      store.hasAcceptedMessageDelivery("c", "agent", msg.messageId),
+    );
+    const afterFactory = await store.readDoc("c");
+    const factoryLive = afterFactory?.nodes[0]?.ether?.messages?.items[0];
+    expect(factoryLive?.metadata?.readAt).toBeUndefined();
+  });
+
+  it("stamps read after a full-body inject, not after a summary notify", async () => {
+    const short = userMsg("short-1", "claim task");
+    const store = makeStore({ c: agentDoc([short]) }, { now: () => 99 });
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        sendManagedTerminalPrompt: async () => true,
+      },
+      store,
+      now: () => 99,
+    });
+    service.notifyAppended("c", "agent", short);
+    await waitUntil(() => store.hasAcceptedMessageDelivery("c", "agent", "short-1"));
+    const after = await store.readDoc("c");
+    expect(after?.nodes[0]?.ether?.messages?.items[0]?.metadata?.readAt).toBe(99);
   });
 
   it("does not steer system mailbox notices", async () => {

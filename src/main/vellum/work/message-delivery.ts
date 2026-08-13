@@ -14,6 +14,7 @@ import {
   isFactoryMailMessage,
   isPendingDelivery,
   listPendingDeliveries,
+  ptyInjectMarksRead,
   MESSAGE_PTY_FULL_BODY_MAX,
   sanitizeDeliveryLine,
 } from "@shared/message-delivery";
@@ -98,6 +99,15 @@ export type MessageDeliveryStore = {
    * Returns true when the receipt is durable (or already existed).
    */
   readonly acceptMessageDelivery: (
+    canvas: string,
+    nodeId: string,
+    messageId: string,
+  ) => Promise<boolean>;
+  /**
+   * Record a read receipt after a full-body PTY inject.
+   * Returns true when the receipt is durable (or already existed).
+   */
+  readonly acceptMessageRead: (
     canvas: string,
     nodeId: string,
     messageId: string,
@@ -605,6 +615,23 @@ export class MessageDeliveryService {
     return { allow: true };
   }
 
+  private async acceptDeliveryAndMaybeRead(
+    store: MessageDeliveryStore,
+    canvas: string,
+    nodeId: string,
+    message: Message,
+  ): Promise<boolean> {
+    const accepted = await store.acceptMessageDelivery(
+      canvas,
+      nodeId,
+      message.messageId,
+    );
+    if (accepted && ptyInjectMarksRead(message)) {
+      await store.acceptMessageRead(canvas, nodeId, message.messageId);
+    }
+    return accepted;
+  }
+
   private async attemptOne(
     canvas: string,
     nodeId: string,
@@ -651,7 +678,12 @@ export class MessageDeliveryService {
         this.attemptedClaims.delete(key);
         // Projected metadata already shows delivered — still ensure durable receipt.
         if (!this.transportAccepted.has(key)) {
-          const accepted = await store.acceptMessageDelivery(canvas, nodeId, live.messageId);
+          const accepted = await this.acceptDeliveryAndMaybeRead(
+            store,
+            canvas,
+            nodeId,
+            live,
+          );
           if (accepted) this.transportAccepted.delete(key);
         }
         return;
@@ -739,7 +771,12 @@ export class MessageDeliveryService {
         this.transportAccepted.add(key);
       }
 
-      const accepted = await store.acceptMessageDelivery(canvas, nodeId, live.messageId);
+      const accepted = await this.acceptDeliveryAndMaybeRead(
+        store,
+        canvas,
+        nodeId,
+        live,
+      );
       if (accepted) {
         this.transportAccepted.delete(key);
         this.attemptedClaims.delete(key);

@@ -29,6 +29,7 @@ export const PortForWorkOp = {
   // Read/reply reuse list/send edge ports — no new capability surface.
   "msg.read": "msg.list",
   "msg.reply": "msg.send",
+  "msg.react": "msg.list",
   "request.escalate": "request.escalate",
   "artifact.publish": "artifact.publish",
   "board.list": "board.list",
@@ -59,6 +60,7 @@ export const TARGET_WORK_OPS: ReadonlyArray<TargetWorkOpName> = [
   "msg.send",
   "msg.read",
   "msg.reply",
+  "msg.react",
   "request.escalate",
   "artifact.publish",
   "board.list",
@@ -93,6 +95,7 @@ export const OPS_BY_SINK = {
     "msg.send",
     "msg.read",
     "msg.reply",
+    "msg.react",
   ],
   requests: [
     "request.escalate",
@@ -100,6 +103,7 @@ export const OPS_BY_SINK = {
     "msg.send",
     "msg.read",
     "msg.reply",
+    "msg.react",
   ],
   artifacts: ["artifact.publish"],
   board: [

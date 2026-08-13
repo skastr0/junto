@@ -124,6 +124,7 @@ export const requiresConnection = (op: WorkOpName): boolean => {
     case "msg.send":
     case "msg.read":
     case "msg.reply":
+    case "msg.react":
     case "request.escalate":
     case "artifact.publish":
     case "board.list":
@@ -142,6 +143,7 @@ const MSG_OPS: ReadonlyArray<WorkOpName> = [
   "msg.send",
   "msg.read",
   "msg.reply",
+  "msg.react",
 ];
 
 /**

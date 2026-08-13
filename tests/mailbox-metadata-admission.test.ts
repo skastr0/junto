@@ -280,6 +280,8 @@ describe("mailbox metadata admission", () => {
     const messageId = "reserved-only-1";
     const result = await appendMailboxMessage(sink, messageId, {
       deliveredAt: 1754990000000,
+      readAt: 1754990001000,
+      reactions: [{ kind: "ack", at: 1754990002000 }],
     });
     expect(result.value.metadata).toBeUndefined();
 

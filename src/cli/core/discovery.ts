@@ -19,6 +19,7 @@ import {
   ContentStatArgs,
   EmptyArgs,
   MsgListArgs,
+  MsgReactArgs,
   MsgReadArgs,
   MsgReplyArgs,
   MsgSendArgs,
@@ -175,7 +176,8 @@ export const msgListSchema: CommandSchemaContract = {
   command_id: "msg.list",
   command: "msg list",
   schema_id: "msg.list.input/v1",
-  description: "List messages on a connected agent/task node.",
+  description:
+    "List this seat's inbox (no target) or a connected mailbox. Own-inbox list marks listed inbound mail read and includes sent mail with readAt.",
   schema: MsgListArgs,
   input_modes: inputModes,
 };
@@ -195,7 +197,7 @@ export const msgReadSchema: CommandSchemaContract = {
   command: "msg read",
   schema_id: "msg.read.input/v1",
   description:
-    "Mark a mailbox message as read (own seat only). Stops re-delivery pressure when PTY ack is enough but agent must self-heal.",
+    "Mark one mailbox message read (own seat only). Own `msg list` already does this for every listed item.",
   schema: MsgReadArgs,
   accepts_batch: true,
   input_modes: inputModes,
@@ -208,6 +210,17 @@ export const msgReplySchema: CommandSchemaContract = {
   description:
     "Reply to factory mail: send text to target and mark inReplyTo read on own mailbox.",
   schema: MsgReplyArgs,
+  accepts_batch: true,
+  input_modes: inputModes,
+};
+
+export const msgReactSchema: CommandSchemaContract = {
+  command_id: "msg.react",
+  command: "msg react",
+  schema_id: "msg.react.input/v1",
+  description:
+    "Acknowledge own-inbox mail without a reply (reaction defaults to ack).",
+  schema: MsgReactArgs,
   accepts_batch: true,
   input_modes: inputModes,
 };
@@ -369,6 +382,7 @@ export const allSchemas: ReadonlyArray<CommandSchemaContract> = [
   msgSendSchema,
   msgReadSchema,
   msgReplySchema,
+  msgReactSchema,
   preambleSchema,
   requestEscalateSchema,
   artifactPublishSchema,
@@ -511,6 +525,20 @@ export const allExamples: ReadonlyArray<CommandExample> = [
       "reply",
       '{"target":"seat-b","text":"ack, starting","inReplyTo":"msg_01"}',
     ],
+  },
+  {
+    command_id: "msg.list",
+    command: "msg list",
+    name: "open own inbox",
+    input: {},
+    args: ["msg", "list"],
+  },
+  {
+    command_id: "msg.react",
+    command: "msg react",
+    name: "ack without reply",
+    input: { messageId: "msg_01" },
+    args: ["msg", "react", '{"messageId":"msg_01"}'],
   },
   {
     command_id: "preamble",
@@ -750,8 +778,10 @@ export const commandCapabilities: ReadonlyArray<CommandCapability> = [
     command_id: "msg.list",
     command: "msg list",
     category: "workflow",
-    description: "List messages.",
+    description:
+      "List own inbox (marks listed mail read; includes sent with readAt) or a peer mailbox.",
     schemas: [msgListSchema],
+    examples: allExamples.filter((e) => e.command_id === "msg.list"),
   },
   {
     command_id: "msg.send",
@@ -786,6 +816,19 @@ export const commandCapabilities: ReadonlyArray<CommandCapability> = [
     description: "Reply to factory mail and mark parent read (batch-capable).",
     schemas: [msgReplySchema],
     examples: allExamples.filter((e) => e.command_id === "msg.reply"),
+    batch: {
+      accepts_batch: true,
+      default_concurrency: DEFAULT_BATCH_CONCURRENCY,
+      supports_concurrency_option: true,
+    },
+  },
+  {
+    command_id: "msg.react",
+    command: "msg react",
+    category: "workflow",
+    description: "Acknowledge own-inbox mail without a reply (batch-capable).",
+    schemas: [msgReactSchema],
+    examples: allExamples.filter((e) => e.command_id === "msg.react"),
     batch: {
       accepts_batch: true,
       default_concurrency: DEFAULT_BATCH_CONCURRENCY,

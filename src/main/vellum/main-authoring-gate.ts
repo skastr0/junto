@@ -94,6 +94,7 @@ const WORK_OPERATION_CLASSIFICATION = {
   "msg.send": "authorial",
   "msg.read": "authorial",
   "msg.reply": "authorial",
+  "msg.react": "authorial",
   "request.escalate": "authorial",
   "artifact.publish": "authorial",
   "board.list": "read",
@@ -115,6 +116,7 @@ const WORK_AUTHORING_LABELS = {
   "msg.send": "control.work.msg-send",
   "msg.read": "control.work.msg-send",
   "msg.reply": "control.work.msg-send",
+  "msg.react": "control.work.msg-send",
   "request.escalate": "control.work.request-escalate",
   "artifact.publish": "control.work.artifact-publish",
   "board.create_topic": "control.work.board-create-topic",
@@ -130,6 +132,7 @@ const WORK_AUTHORING_LABELS = {
     | "msg.send"
     | "msg.read"
     | "msg.reply"
+    | "msg.react"
     | "request.escalate"
     | "artifact.publish"
     | "board.create_topic"

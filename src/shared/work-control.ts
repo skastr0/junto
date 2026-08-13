@@ -53,6 +53,7 @@ export const WorkOpName = Schema.Literals(["ping", "doctor",
 "msg.send",
 "msg.read",
 "msg.reply",
+"msg.react",
 "request.escalate",
 "artifact.publish",
 "board.list",
@@ -273,7 +274,8 @@ export const ContentMaterializeArgs = Schema.Struct({
 export type ContentMaterializeArgs = typeof ContentMaterializeArgs.Type;
 
 export const MsgListArgs = Schema.Struct({
-  target: Schema.String,
+  /** Own inbox when omitted, own node id, or `canvas:nodeId`. */
+  target: Schema.optionalKey(Schema.String),
   taskId: Schema.optionalKey(Schema.String),
 });
 export type MsgListArgs = typeof MsgListArgs.Type;
@@ -287,10 +289,18 @@ export type MsgSendArgs = typeof MsgSendArgs.Type;
 
 /** Mark a mailbox message read. Target must be the caller's own seat. */
 export const MsgReadArgs = Schema.Struct({
-  target: Schema.String,
+  target: Schema.optionalKey(Schema.String),
   messageId: Schema.String,
 });
 export type MsgReadArgs = typeof MsgReadArgs.Type;
+
+/** Lightweight mailbox reaction. Target must be the caller's own seat. */
+export const MsgReactArgs = Schema.Struct({
+  target: Schema.optionalKey(Schema.String),
+  messageId: Schema.String,
+  reaction: Schema.optionalKey(Schema.Literals(["ack"])),
+});
+export type MsgReactArgs = typeof MsgReactArgs.Type;
 
 /**
  * Reply to a factory-mail message: send text to target and mark inReplyTo

@@ -102,6 +102,7 @@ import {
 import { manifestAvailability } from "../content/manifest";
 import {
   mailboxMessageDeliveryId,
+  mailboxMessageReactId,
   mailboxMessageReadId,
 } from "./mailbox-receipts";
 
@@ -1499,13 +1500,32 @@ const loadInbox = (
         sink,
         mailboxMessageReadId(sink.canvasName, sink.nodeId, row.message_id),
       );
-      if (deliveredAt === undefined && readAt === undefined) return message;
+      const ackAt = receiptAcceptedAtMs(
+        reader,
+        sink,
+        mailboxMessageReactId(
+          sink.canvasName,
+          sink.nodeId,
+          row.message_id,
+          "ack",
+        ),
+      );
+      if (
+        deliveredAt === undefined &&
+        readAt === undefined &&
+        ackAt === undefined
+      ) {
+        return message;
+      }
       return {
         ...message,
         metadata: {
           ...(message.metadata ?? {}),
           ...(deliveredAt !== undefined ? { deliveredAt } : {}),
           ...(readAt !== undefined ? { readAt } : {}),
+          ...(ackAt !== undefined
+            ? { reactions: [{ kind: "ack", at: ackAt }] }
+            : {}),
         },
       };
     });
@@ -3196,13 +3216,13 @@ const writeThreadMessage = (
 /**
  * Mailbox admission gate for caller-supplied message metadata.
  *
- * `deliveredAt` / `readAt` are projection-only: loadInbox stamps them from
- * durable delivery receipts after decode, and the delivery service plus the
- * renderer ledger treat them as truth. A caller-supplied value is a forgery
- * vector — a forged `deliveredAt` reads as "already delivered" and suppresses
- * real delivery; a forged `readAt` lies about read state — so admission drops
- * both keys before the row is written. Ingest-only: existing rows are never
- * rewritten.
+ * `deliveredAt` / `readAt` / `reactions` are projection-only: loadInbox stamps
+ * them from durable delivery receipts after decode, and the delivery service
+ * plus the renderer ledger treat them as truth. A caller-supplied value is a
+ * forgery vector — a forged `deliveredAt` reads as "already delivered" and
+ * suppresses real delivery; a forged `readAt` or `reactions` lies about
+ * observe state — so admission drops those keys before the row is written.
+ * Ingest-only: existing rows are never rewritten.
  *
  * `fromSeat` is the sender node identity the renderer trusts (actor-ledger,
  * edge-sparks). The durable sender is `sentBy` (the actor_seat_id column);
@@ -3219,12 +3239,18 @@ const admitMailboxMessage = (
   if (metadata === undefined) return message;
   const hasReserved =
     Object.prototype.hasOwnProperty.call(metadata, "deliveredAt") ||
-    Object.prototype.hasOwnProperty.call(metadata, "readAt");
+    Object.prototype.hasOwnProperty.call(metadata, "readAt") ||
+    Object.prototype.hasOwnProperty.call(metadata, "reactions");
   const forgedFromSeat =
     Object.prototype.hasOwnProperty.call(metadata, "fromSeat") &&
     metadata.fromSeat !== sentBy.nodeId;
   if (!hasReserved && !forgedFromSeat) return message;
-  const { deliveredAt: _deliveredAt, readAt: _readAt, ...rest } = metadata;
+  const {
+    deliveredAt: _deliveredAt,
+    readAt: _readAt,
+    reactions: _reactions,
+    ...rest
+  } = metadata;
   const admitted = {
     ...rest,
     ...(forgedFromSeat ? { fromSeat: sentBy.nodeId } : {}),

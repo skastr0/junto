@@ -104,7 +104,8 @@ const NODE_EVENTS: Readonly<Record<string, readonly string[]>> = {
   ],
   agent: [
     "msg.append — factory mail or peer messages land in the seat mailbox",
-    "msg.read / msg.reply — mailbox ack and reply (stops re-delivery pressure)",
+    "msg.list — own inbox marks listed mail read; sent shows peer readAt",
+    "msg.react / msg.reply — ack without a reply, or reply",
     "seat.state — idle/working/attention/unknown/gone derived from the PTY",
   ],
   page: [

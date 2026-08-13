@@ -114,6 +114,7 @@ describe("work-control wire schemas", () => {
       "msg.send",
       "msg.read",
       "msg.reply",
+      "msg.react",
       "request.escalate",
       "artifact.publish",
       "relay.trigger",

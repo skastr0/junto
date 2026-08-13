@@ -248,8 +248,8 @@ const msgSlot = (targets: readonly InjectionConnectedTarget[]): string => {
 
 | intent | command |
 |---|---|
-| read / write thread | \`vellum-command msg list '{"target":"${t}"}'\` - \`vellum-command msg send '{"target":"${t}","text":"..."}'\` - \`vellum-command msg read '{"target":"${t}","messageId":"<msgId>"}'\` - \`vellum-command msg reply '{"target":"${t}","text":"...","inReplyTo":"<msgId>"}'\` |
-| factory mail | when mail arrives: \`msg list\` then \`msg reply\` (or \`msg read\` if no reply) — this stops repeat nudges |
+| read / write thread | \`vellum-command msg list\` (own inbox, no target — marks listed mail read; \`sent\` shows whether peers read your mail) - \`vellum-command msg send '{"target":"${t}","text":"..."}'\` - \`vellum-command msg react '{"messageId":"<msgId>"}'\` (ack, reply later) - \`vellum-command msg reply '{"target":"${t}","text":"...","inReplyTo":"<msgId>"}'\` |
+| factory mail | when mail arrives: \`msg list\` (own inbox). \`msg react\` if you will reply later. \`msg reply\` when you have an answer. |
 
 Batch: \`msg send/read/reply\` accept a JSON array; add \`--concurrency <n>\`.`;
 };

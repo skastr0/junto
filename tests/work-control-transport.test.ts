@@ -1397,6 +1397,187 @@ describe("work control transport", () => {
     const raw = JSON.stringify(res);
     expect(raw).not.toContain(token());
   });
+
+  it("msg.list own inbox marks listed mail read and surfaces sent readAt", async () => {
+    const server = servers[0]!;
+    const runtime = runtimes.at(-1)!;
+    const canvases = await runtime.runPromise(CanvasesService);
+    const current = await runtime.runPromise(canvases.read("work-cli"));
+    await runtime.runPromise(
+      canvases.write("work-cli", {
+        ...current.doc,
+        nodes: [
+          ...current.doc.nodes,
+          {
+            id: "bravo",
+            type: "text",
+            x: 800,
+            y: 0,
+            width: 120,
+            height: 48,
+            text: "bravo",
+            ether: {
+              entity: { kind: "agent", name: "local:bravo" },
+              terminal: {
+                bindingId: "bind-bravo",
+                harness: "claude",
+                launch: { kind: "harness", argv: ["claude"] },
+              },
+            },
+          },
+        ],
+        edges: [
+          ...current.doc.edges,
+          { id: "e-ab", fromNode: "agent", toNode: "bravo" },
+        ],
+      }),
+    );
+    const repository = await runtime.runPromise(WorkRepository);
+    const actor = await projectedProcessActor();
+    const basis = await authorialBasis(runtime);
+    await runtime.runPromise(
+      repository.appendMessage({
+        sink: { canvasName: "work-cli", nodeId: "agent" },
+        basis,
+        message: {
+          messageId: "in-1",
+          role: "user",
+          parts: [{ kind: "text", text: "hello inbox" }],
+        },
+        sentBy: actor,
+        destination: { kind: "mailbox" },
+      }),
+    );
+
+    const listed = (await call(server.socketPath, {
+      token: token(),
+      op: "msg.list",
+      args: {},
+    })) as {
+      ok: true;
+      data: {
+        target: string;
+        items: Array<{ messageId: string; metadata?: { readAt?: number } }>;
+        sent: Array<{
+          messageId: string;
+          toNodeId: string;
+          metadata?: { readAt?: number };
+        }>;
+      };
+    };
+    expect(listed.ok).toBe(true);
+    expect(listed.data.target).toBe("agent");
+    const inbound = listed.data.items.find((item) => item.messageId === "in-1");
+    expect(inbound?.metadata?.readAt).toEqual(expect.any(Number));
+
+    const prefixed = (await call(server.socketPath, {
+      token: token(),
+      op: "msg.list",
+      args: { target: "work-cli:agent" },
+    })) as { ok: true; data: { target: string } };
+    expect(prefixed.ok).toBe(true);
+    expect(prefixed.data.target).toBe("agent");
+
+    const sent = (await call(server.socketPath, {
+      token: token(),
+      op: "msg.send",
+      args: { target: "bravo", text: "from agent" },
+    })) as { ok: true; data: { messageId: string } };
+    expect(sent.ok).toBe(true);
+
+    const beforeRead = (await call(server.socketPath, {
+      token: token(),
+      op: "msg.list",
+      args: {},
+    })) as {
+      ok: true;
+      data: {
+        sent: Array<{
+          messageId: string;
+          toNodeId: string;
+          metadata?: { readAt?: number };
+        }>;
+      };
+    };
+    const outbound = beforeRead.data.sent.find(
+      (item) => item.messageId === sent.data.messageId,
+    );
+    expect(outbound?.toNodeId).toBe("bravo");
+    expect(outbound?.metadata?.readAt).toBeUndefined();
+
+    const afterWrite = await runtime.runPromise(canvases.read("work-cli"));
+    const bravoActor = afterWrite.actorRefs.find((ref) => ref.nodeId === "bravo");
+    expect(bravoActor).toBeDefined();
+    const work = await runtime.runPromise(WorkService);
+    const marked = await runtime.runPromise(
+      work.workMessageMarkRead(
+        "work-cli",
+        "bravo",
+        sent.data.messageId,
+        bravoActor!,
+      ),
+    );
+    expect(marked.ok).toBe(true);
+
+    const afterRead = (await call(server.socketPath, {
+      token: token(),
+      op: "msg.list",
+      args: {},
+    })) as {
+      ok: true;
+      data: {
+        sent: Array<{ messageId: string; metadata?: { readAt?: number } }>;
+      };
+    };
+    expect(
+      afterRead.data.sent.find((item) => item.messageId === sent.data.messageId)
+        ?.metadata?.readAt,
+    ).toEqual(expect.any(Number));
+
+    const reacted = (await call(server.socketPath, {
+      token: token(),
+      op: "msg.react",
+      args: { messageId: "in-1" },
+    })) as {
+      ok: true;
+      data: { messageId: string; reaction: string; reactedAt: string };
+    };
+    expect(reacted.ok).toBe(true);
+    expect(reacted.data).toMatchObject({ messageId: "in-1", reaction: "ack" });
+
+    const peerList = (await call(server.socketPath, {
+      token: token(),
+      op: "msg.list",
+      args: { target: "bravo" },
+    })) as {
+      ok: true;
+      data: {
+        items: Array<{
+          messageId: string;
+          metadata?: { readAt?: number; reactions?: unknown };
+        }>;
+        sent?: unknown;
+      };
+    };
+    expect(peerList.ok).toBe(true);
+    expect(peerList.data.sent).toBeUndefined();
+    expect(
+      peerList.data.items.find((item) => item.messageId === sent.data.messageId)
+        ?.metadata?.readAt,
+    ).toEqual(expect.any(Number));
+  });
+
+  it("msg.react refuses a foreign mailbox", async () => {
+    const server = servers[0]!;
+    const res = (await call(server.socketPath, {
+      token: token(),
+      op: "msg.react",
+      args: { target: "tasks", messageId: "m-not-mine" },
+    })) as { ok: false; error: { type: string; message: string } };
+    expect(res.ok).toBe(false);
+    expect(res.error.type).toBe("ScopeError");
+    expect(res.error.message).toMatch(/own mailbox/i);
+  });
 });
 
 // Ensure chmod pattern matches browser control

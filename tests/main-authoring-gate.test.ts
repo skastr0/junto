@@ -200,6 +200,7 @@ describe("work-control main authoring classification", () => {
       "msg.send": "authorial",
       "msg.read": "authorial",
       "msg.reply": "authorial",
+      "msg.react": "authorial",
       "request.escalate": "authorial",
       "artifact.publish": "authorial",
       "board.list": "read",

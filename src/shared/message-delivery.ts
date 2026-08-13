@@ -183,6 +183,13 @@ export const isPendingDelivery = (message: Message): boolean =>
   isForeignMessage(message) && !isMessageDelivered(message);
 
 /**
+ * Full-body PTY inject already showed the whole message — treat that as read.
+ * Summary/notify lines (factory mail, long bodies, batches) do not.
+ */
+export const ptyInjectMarksRead = (message: Message): boolean =>
+  !shouldSummarizeMessageForPty(message);
+
+/**
  * Resolve transport target from kind-discriminated actor surface.
  * No optional-field OR. No ACP. Illegal agent shapes → undefined.
  *

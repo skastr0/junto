@@ -14,6 +14,7 @@ import {
   messageSenderLabel,
   MESSAGE_PTY_FULL_BODY_MAX,
   operatorTypedThisGeneration,
+  ptyInjectMarksRead,
   shouldSummarizeMessageForPty,
   stampMessageDelivered,
 } from "../src/shared/message-delivery";
@@ -106,6 +107,8 @@ describe("message-delivery pure helpers", () => {
     expect(line.includes("\n")).toBe(false);
     expect(line.length).toBeLessThan(220);
     expect(line).not.toContain("nothing run, nothing edited");
+    expect(ptyInjectMarksRead(factory)).toBe(false);
+    expect(ptyInjectMarksRead(userMsg())).toBe(true);
   });
 
   it("batches multiple pending into one notify line", () => {
