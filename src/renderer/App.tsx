@@ -39,6 +39,7 @@ import { clearPreambles, showPreamble } from "./lib/preamble-state";
 import { Canvas } from "./components/Canvas";
 import { TopBar } from "./components/TopBar";
 import { CanvasChrome } from "./components/CanvasChrome";
+import { RemoteStationFace } from "./components/remote/RemoteStationFace";
 
 import { SettingsPanel } from "./components/SettingsPanel";
 import { ObservabilityPanel } from "./components/ObservabilityPanel";
@@ -463,6 +464,10 @@ export function App() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
+
+  if (stationRole === "remote") {
+    return <RemoteStationFace />;
+  }
 
   return (
     <div className="vellum-app flex h-screen w-screen flex-col overflow-hidden" style={{ background: "var(--color-ground)" }}>
