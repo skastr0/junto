@@ -281,6 +281,15 @@ process-signal capability plane (never bare `process.kill(pid)`); use a Remote
 station when work must survive Command Center quit. Herdr is an optional legacy
 bridge for existing panes and must not be required for local health.
 
+**Seat occupancy law** — occupancy is independent of process liveness.
+- A seat is vacant or occupied.
+- Occupying a vacant seat and activating an occupied seat are different command families. Create is occupy. Create on an occupied seat is a bug.
+- Stopping still occupies the seat. Exited / missing / unknown is vacant.
+- Resumable / crashed / stalled / paused belong to the occupant process, not the seat.
+- Local and remote share this contract. Placement (local | remote) selects the process Layer. It does not change occupancy.
+- Pin / unpin / remount must not occupy. They activate (or just keep the view).
+- Code: `src/shared/terminal-seat-occupancy.ts`, `src/main/vellum/term/seat-process.ts`.
+
 **Focus surfaces** — centered, measure-constrained overlays for single-subject work (one agent, one herdr pane, one page). Prefer these over full-bleed or stage-split when the interaction is deep and solitary. Shell: `FocusSurface` (`src/renderer/components/FocusSurface.tsx`); measures + math: `src/renderer/lib/focus-measure.ts`.
 
 | measure | width intent | use |
