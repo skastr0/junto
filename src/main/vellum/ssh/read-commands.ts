@@ -294,6 +294,15 @@ export const remoteDarwinIncomingExists = (): Effect.Effect<
     "/Applications/Vellum Command.app.incoming",
   ]);
 
+export const remoteDarwinLaunchAgentIncomingRemove = (
+  homeDirectory: string,
+): Effect.Effect<RemoteCommand, SshInputError> => {
+  const path = `${homeDirectory}/Library/LaunchAgents/skastr0.vellumcommand.plist.incoming`;
+  return admitReadPath(path).pipe(
+    Effect.flatMap((safe) => makeRemoteCommand("/bin/rm", ["-f", safe])),
+  );
+};
+
 /**
  * Product Hermes CLI on the remote PATH.
  * Executable is fixed to `hermes`; args are revalidated tokens only.

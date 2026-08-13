@@ -266,6 +266,26 @@ const collectBounded = (
     ),
   );
 
+/** Transfer treats child death as EOF so exit code and script tags survive. */
+const collectTransferOutput = (
+  stream: Stream.Stream<Uint8Array, ProcessFailure | SshError>,
+  endpoint: SshEndpoint,
+  streamName: "stdout" | "stderr",
+  limitBytes: number,
+): Effect.Effect<Collected, SshError> =>
+  collectBounded(
+    stream.pipe(
+      Stream.catchIf(
+        (error): error is SshProcessError => error instanceof SshProcessError,
+        () => Stream.empty,
+      ),
+    ),
+    endpoint,
+    "transfer",
+    streamName,
+    limitBytes,
+  );
+
 export const SshTransportLayer = Layer.effect(
   SshTransport,
   Effect.gen(function* () {
@@ -787,28 +807,52 @@ export const SshTransportLayer = Layer.effect(
                 ),
                 Effect.flatMap((lease) => {
                 const writeInput = Stream.run(
-                  input,
+                  input.pipe(
+                    Stream.map((chunk) => {
+                      if (chunk.byteLength <= INPUT_CHUNK_LIMIT_BYTES) {
+                        return [chunk];
+                      }
+                      const parts: Uint8Array[] = [];
+                      for (
+                        let offset = 0;
+                        offset < chunk.byteLength;
+                        offset += INPUT_CHUNK_LIMIT_BYTES
+                      ) {
+                        parts.push(
+                          chunk.subarray(
+                            offset,
+                            offset + INPUT_CHUNK_LIMIT_BYTES,
+                          ),
+                        );
+                      }
+                      return parts;
+                    }),
+                    Stream.flattenIterable,
+                  ),
                   Sink.forEach(lease.write),
                 ).pipe(
                   Effect.andThen(lease.closeInput),
                   // If the remote command exits first, interrupt the local
                   // producer now but keep draining its bounded diagnostics.
                   Effect.raceFirst(lease.exitCode.pipe(Effect.asVoid)),
+                  Effect.catchIf(
+                    (error): error is SshProcessError =>
+                      error instanceof SshProcessError,
+                    () => Effect.void,
+                  ),
                   );
                   return Effect.all(
                     {
                       input: writeInput,
-                      stdout: collectBounded(
+                      stdout: collectTransferOutput(
                         lease.stdout,
                         compiled.endpoint,
-                        "transfer",
                         "stdout",
                         STDOUT_LIMIT_BYTES,
                       ),
-                      stderr: collectBounded(
+                      stderr: collectTransferOutput(
                         lease.stderr,
                         compiled.endpoint,
-                        "transfer",
                         "stderr",
                         STDERR_LIMIT_BYTES,
                       ),

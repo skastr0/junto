@@ -64,6 +64,20 @@ describe("host-ops layers", () => {
     expect(receipt.endpoint).toBe("studio");
   });
 
+  it("Linux copy refuses without switching OS in the verb", async () => {
+    const target = await parseTarget("studio");
+    const receipt = await Effect.runPromise(
+      Effect.gen(function* () {
+        const ops = yield* HostOps;
+        return yield* ops.copy();
+      }).pipe(
+        Effect.provide(HostOps.layerLinux.pipe(Layer.provide(provideHost(target)))),
+      ),
+    );
+    expect(receipt.ok).toBe(false);
+    expect(receipt.tag).toBe("LINUX_REMOTE_DEPLOY_OFF");
+  });
+
   it("layerForTarget unwraps Darwin after the platform probe", async () => {
     const ssh = {
       warm: () => Effect.void,

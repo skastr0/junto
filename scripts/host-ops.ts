@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * Runnable host-ops programs. I run these. They print a JSON receipt.
- * Usage: bun scripts/host-ops.ts inspect <ssh-endpoint>
+ * Usage: bun scripts/host-ops.ts inspect|copy <ssh-endpoint>
  *
  * Loads Darwin or Linux HostOps via Layer.unwrap after the platform probe.
  */
@@ -11,12 +11,18 @@ import { parseSshEndpoint } from "../src/main/vellum/ssh/domain";
 import { SshTransportLive } from "../src/main/vellum/ssh/live";
 
 const usage = (): never => {
-  process.stderr.write("usage: bun scripts/host-ops.ts inspect <ssh-endpoint>\n");
+  process.stderr.write(
+    "usage: bun scripts/host-ops.ts inspect|copy|cleanup <ssh-endpoint>\n",
+  );
   process.exit(2);
 };
 
 const [verb, endpointText] = process.argv.slice(2);
-if (verb !== "inspect" || endpointText === undefined || endpointText.length === 0) {
+if (
+  (verb !== "inspect" && verb !== "copy" && verb !== "cleanup") ||
+  endpointText === undefined ||
+  endpointText.length === 0
+) {
   usage();
 }
 
@@ -28,7 +34,11 @@ const runtime = ManagedRuntime.make(
 const receipt = await runtime.runPromise(
   Effect.gen(function* () {
     const ops = yield* HostOps;
-    return yield* ops.inspect();
+    return verb === "copy"
+      ? yield* ops.copy()
+      : verb === "cleanup"
+        ? yield* ops.cleanup()
+        : yield* ops.inspect();
   }),
 );
 process.stdout.write(`${JSON.stringify(receipt, null, 2)}\n`);

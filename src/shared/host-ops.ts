@@ -19,3 +19,30 @@ export const HostOpsInspect = Schema.Struct({
   observedAt: Schema.String,
 });
 export type HostOpsInspect = typeof HostOpsInspect.Type;
+
+export const HostOpsCopy = Schema.Struct({
+  ok: Schema.Boolean,
+  exit: Schema.NullOr(Schema.Number),
+  stdout: Schema.String,
+  stderr: Schema.String,
+  tag: Schema.optionalKey(Schema.String),
+  localApp: Schema.optionalKey(Schema.String),
+  expectedPackage: HostOpsPresence,
+  after: Schema.Struct({
+    package: HostOpsPresence,
+    deployLock: HostOpsPresence,
+    incoming: HostOpsPresence,
+    termSocket: HostOpsPresence,
+  }),
+  elapsedMs: Schema.Number,
+  observedAt: Schema.String,
+});
+export type HostOpsCopy = typeof HostOpsCopy.Type;
+
+export const HostOpsCleanup = Schema.Struct({
+  ok: Schema.Boolean,
+  removed: Schema.Array(Schema.String),
+  stderr: Schema.String,
+  observedAt: Schema.String,
+});
+export type HostOpsCleanup = typeof HostOpsCleanup.Type;

@@ -270,6 +270,7 @@ describe("SSH architecture", () => {
     const allowed = new Set([
       "src/main/vellum/ssh/remote-plan.ts",
       "src/main/vellum/hosts/deploy-darwin.ts",
+      "src/main/vellum/hosts/host-ops-darwin.ts",
     ]);
     const importOrCall = /\bcompileDarwinRemoteDeployScript\b/u;
     const violations = files.flatMap((path) => {

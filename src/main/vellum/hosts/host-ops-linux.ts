@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import type { Context } from "effect";
-import type { HostOpsInspect } from "@shared/host-ops";
+import type { HostOpsCleanup, HostOpsCopy, HostOpsInspect } from "@shared/host-ops";
 import { inspectSshTarget, type SshTarget } from "../ssh/domain";
 import { homeDirectoryLookup } from "../ssh/program";
 import { SshTransport } from "../ssh/service";
@@ -42,5 +42,37 @@ export const inspectLinuxHost = (
       termSocket: "unknown" as const,
       observedAt,
     };
+  });
+
+export const copyLinuxHost = (
+  _ssh: Context.Service.Shape<typeof SshTransport>,
+  _target: SshTarget,
+): Effect.Effect<HostOpsCopy> =>
+  Effect.succeed({
+    ok: false,
+    exit: null,
+    stdout: "",
+    stderr: "Linux Remote Deploy is not enabled",
+    tag: "LINUX_REMOTE_DEPLOY_OFF",
+    expectedPackage: "unknown",
+    after: {
+      package: "unknown",
+      deployLock: "absent",
+      incoming: "absent",
+      termSocket: "unknown",
+    },
+    elapsedMs: 0,
+    observedAt: new Date().toISOString(),
+  });
+
+export const cleanupLinuxHost = (
+  _ssh: Context.Service.Shape<typeof SshTransport>,
+  _target: SshTarget,
+): Effect.Effect<HostOpsCleanup> =>
+  Effect.succeed({
+    ok: true,
+    removed: [],
+    stderr: "",
+    observedAt: new Date().toISOString(),
   });
 

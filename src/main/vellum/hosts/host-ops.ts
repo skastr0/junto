@@ -7,7 +7,7 @@
  * PTY observers (harness implementations).
  */
 import { Context, Effect, Layer } from "effect";
-import type { HostOpsInspect } from "@shared/host-ops";
+import type { HostOpsCleanup, HostOpsCopy, HostOpsInspect } from "@shared/host-ops";
 import type { SshError, SshTarget } from "../ssh/domain";
 import {
   inspectRemotePackagedPlatform,
@@ -15,8 +15,16 @@ import {
   resolveRemotePackagedPlatform,
 } from "../ssh/read-commands";
 import { SshTransport } from "../ssh/service";
-import { inspectDarwinHost } from "./host-ops-darwin";
-import { inspectLinuxHost } from "./host-ops-linux";
+import {
+  cleanupDarwinHost,
+  copyDarwinHost,
+  inspectDarwinHost,
+} from "./host-ops-darwin";
+import {
+  cleanupLinuxHost,
+  copyLinuxHost,
+  inspectLinuxHost,
+} from "./host-ops-linux";
 
 export class HostTarget extends Context.Service<
   HostTarget,
@@ -32,6 +40,8 @@ export class HostOps extends Context.Service<
   HostOps,
   {
     readonly inspect: () => Effect.Effect<HostOpsInspect>;
+    readonly copy: () => Effect.Effect<HostOpsCopy>;
+    readonly cleanup: () => Effect.Effect<HostOpsCleanup>;
   }
 >()("@vellum/HostOps") {
   static readonly layerDarwin: Layer.Layer<
@@ -45,6 +55,8 @@ export class HostOps extends Context.Service<
       const host = yield* HostTarget;
       return HostOps.of({
         inspect: () => inspectDarwinHost(ssh, host.sshTarget),
+        copy: () => copyDarwinHost(ssh, host.sshTarget),
+        cleanup: () => cleanupDarwinHost(ssh, host.sshTarget),
       });
     }),
   );
@@ -60,6 +72,8 @@ export class HostOps extends Context.Service<
       const host = yield* HostTarget;
       return HostOps.of({
         inspect: () => inspectLinuxHost(ssh, host.sshTarget),
+        copy: () => copyLinuxHost(ssh, host.sshTarget),
+        cleanup: () => cleanupLinuxHost(ssh, host.sshTarget),
       });
     }),
   );
