@@ -111,6 +111,7 @@ const canvases = (
       Effect.fail(new CanvasError({ message: "unused" })),
     start: () => undefined,
     subscribeChanges: () => () => undefined,
+    announceInstalledProjection: () => undefined,
     liveDocuments: () =>
       Effect.succeed(
         [...documents].map(([canvasName, doc]) => ({

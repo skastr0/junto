@@ -49,6 +49,7 @@ import {
 } from "../lib/viewport-busy";
 import { isEditableEventTarget } from "../lib/multi-select-gesture";
 import { nodeTitle } from "../lib/presentation";
+import { isCommandCenterAuthoring } from "../lib/canvas-boot";
 import { AGENT_NODE_SIZE } from "../lib/node-geometry";
 import { addNode, deleteNodes, setFlagForNodes } from "../lib/mutations";
 import { addEdge, connectAllToTarget, deleteEdges } from "../lib/edge-mutations";
@@ -914,8 +915,11 @@ function CanvasFieldTools() {
     [open],
   );
 
+  const authoring = isCommandCenterAuthoring(use$(state$.settings.station.role));
+
   return (
     <div className="rts-field-tools" aria-label="Canvas field tools">
+      {authoring ? (
       <div className="node-deck-host node-deck-host--docked" data-canvas-menu-surface>
         <button
           type="button"
@@ -928,6 +932,7 @@ function CanvasFieldTools() {
         </button>
         {open ? <ModeDeckFocus actions={actions} agentPosition={agentPosition} onClose={dismiss} /> : null}
       </div>
+      ) : null}
       <button
         type="button"
         className="rts-field-tools__fit"
@@ -1306,6 +1311,7 @@ function CanvasGraph() {
   }, []);
   const onPaneContextMenu = useCallback((event: React.MouseEvent | MouseEvent) => {
     event.preventDefault();
+    if (!isCommandCenterAuthoring(state$.settings.station.role.peek())) return;
     openContextMenu({ x: event.clientX, y: event.clientY });
   }, [openContextMenu]);
   // Region → add menu (empty-space read). Multi-selection on a selected node →

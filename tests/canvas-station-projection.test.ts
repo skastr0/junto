@@ -140,6 +140,10 @@ describe("CanvasesService Station projection", () => {
         new Map([["command-floor", note("remote intent")]]),
         new Map([["studio", local]]),
       );
+      const announced: string[] = [];
+      const stop = canvases.subscribeChanges((name) => {
+        announced.push(name);
+      });
       await runtime.runPromise(
         station.installProjection(
           ProjectRequest.make({
@@ -159,6 +163,9 @@ describe("CanvasesService Station projection", () => {
           }),
         ),
       );
+      canvases.announceInstalledProjection(["command-floor"]);
+      stop();
+      expect(announced).toEqual(["command-floor"]);
 
       expect(
         (await runtime.runPromise(canvases.list)).map((row) => row.name),

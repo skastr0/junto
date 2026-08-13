@@ -62,6 +62,7 @@ import { TooltipLayer } from "./components/TooltipLayer";
 import { DemoCameraBridge } from "./demo/camera-bridge";
 import { DemoLayer } from "./demo/demo-layer";
 import { SEED_CANVAS_NAME } from "@shared/seed";
+import { nextCanvasBootAction } from "./lib/canvas-boot";
 import {
   makeNavigationClock,
   makeNodeRefNavigationCoordinator,
@@ -329,14 +330,22 @@ export function App() {
 
     const boot = async () => {
       try {
+        const settingsResult = await vellum.settingsGet?.();
+        if (settingsResult?.ok && settingsResult.settings) {
+          state$.settings.set(settingsResult.settings);
+        }
         state$.snapshots.set(await vellum.getSnapshots());
         const list = await vellum.listCanvases();
         state$.canvases.set(list);
         if (!nodeRefNavigation.hasReceived()) {
-          if (list.length === 0) {
+          const action = nextCanvasBootAction(
+            state$.settings.station.role.peek(),
+            list.map((row) => row.name),
+          );
+          if (action.kind === "open") {
+            await openCanvas(action.name);
+          } else if (action.kind === "seed") {
             await createCanvas(SEED_CANVAS_NAME);
-          } else {
-            await openCanvas(list[0].name);
           }
         }
       } catch (error) {
@@ -369,8 +378,19 @@ export function App() {
 
     const offSnapshots = vellum.onSnapshotsChanged((state) => state$.snapshots.set(state));
     const offCanvas = vellum.onCanvasChanged((name) => {
-      if (name !== state$.canvasName.peek()) return;
-      void externalCanvasReload.changed(name);
+      const current = state$.canvasName.peek();
+      if (name !== "" && name === current) {
+        void externalCanvasReload.changed(name);
+        return;
+      }
+      if (current !== "") return;
+      void (async () => {
+        await refreshList();
+        const list = state$.canvases.peek();
+        if (state$.canvasName.peek() !== "") return;
+        const first = list[0]?.name;
+        if (first) await openCanvas(first);
+      })();
     });
     const offPreamble = vellum.onPreamble?.((event) => {
       if (event.canvasName !== state$.canvasName.peek()) return;

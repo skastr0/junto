@@ -142,6 +142,13 @@ export class CanvasesService extends Context.Service<CanvasesService,
     readonly subscribeChanges: (
       listener: (name: string, detail?: CanvasChangeDetail) => void,
     ) => () => void;
+    /**
+     * Tell renderer subscribers that Station projection membership changed.
+     * Remote has no authorial write, so install would otherwise stay silent.
+     */
+    readonly announceInstalledProjection: (
+      names: ReadonlyArray<string>,
+    ) => void;
     /** Snapshot of live authority docs for process-bind caller resolution. */
     readonly liveDocuments: () => Effect.Effect<
       ReadonlyArray<{ readonly canvasName: string; readonly doc: CanvasDoc }>,
@@ -1251,6 +1258,13 @@ export const CanvasesLive = Layer.effect(
         }),
       }),
     ),
+    announceInstalledProjection: (names) => {
+      if (names.length === 0) {
+        notifyListeners("");
+        return;
+      }
+      for (const name of names) notifyListeners(name);
+    },
     list,
     read,
     readWithIntentWitness,

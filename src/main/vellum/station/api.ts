@@ -1370,6 +1370,7 @@ const requireConfiguredPeer = (
 
 const handleProject = (
   repository: Context.Service.Shape<typeof StationRepository>,
+  canvases: Context.Service.Shape<typeof CanvasesService>,
   request: ProjectRequest,
 ): Effect.Effect<ProjectResponse, StationApiError> =>
   Effect.gen(function* () {
@@ -1390,6 +1391,8 @@ const handleProject = (
       );
     }
     const installed = yield* repository.installProjection(request);
+    const decoded = decodeStationPortfolioBody(request.projection.body);
+    canvases.announceInstalledProjection([...decoded.documents.keys()]);
     // Successful CC projection renews the Remote product lease (3-day TTL).
     if (mayRenewRemoteLease("project", { paired: true })) {
       remoteLeaseState.stamp();
@@ -1665,7 +1668,7 @@ export const StationApiLive = Layer.effect(
           );
         case "project":
           return requireRemoteInbound("project", peer).pipe(
-            Effect.flatMap(() => handleProject(repository, request)),
+            Effect.flatMap(() => handleProject(repository, canvases, request)),
           );
         case "report":
           return handleReport(request, peer);
