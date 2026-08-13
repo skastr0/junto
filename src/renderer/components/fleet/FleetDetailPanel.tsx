@@ -30,7 +30,10 @@ import {
   shouldAutoWalkRemoteUpdate,
 } from "@shared/remote-update-status";
 import { useHostDeployJob } from "../../lib/deploy-job-state";
-import { deployRecoveryGuidance } from "../../lib/deploy-recovery";
+import {
+  deployRecoveryGuidance,
+  operatorDeployDetail,
+} from "../../lib/deploy-recovery";
 import { setFleetAppearance } from "../../lib/fleet-appearance";
 import { probeHost, refreshFleet, type FleetProbeState } from "../../lib/fleet-state";
 import { FLEET_COLORS, hostColor } from "../../lib/fleet-layout";
@@ -425,7 +428,7 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
     if (!result.ok) {
       setActionLine(
         [
-          result.detail || result.message || "deploy failed",
+          operatorDeployDetail(result.detail || result.message || "deploy failed"),
           recovery,
           stages,
         ]
@@ -435,7 +438,7 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
       return;
     }
     setActionLine(
-      [result.detail || "Remote deployed and ready", recovery]
+      [operatorDeployDetail(result.detail || "Remote deployed and ready"), recovery]
         .filter(Boolean)
         .join("\n"),
     );

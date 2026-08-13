@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { deployRecoveryGuidance } from "../src/renderer/lib/deploy-recovery";
+import {
+  deployRecoveryGuidance,
+  operatorDeployDetail,
+} from "../src/renderer/lib/deploy-recovery";
 
 describe("Remote deploy recovery guidance", () => {
   it("renders exact guidance for active terminal sessions", () => {
@@ -10,6 +13,19 @@ describe("Remote deploy recovery guidance", () => {
       }),
     ).toBe(
       "Close 1 active Vellum Command terminal session, then retry deployment.",
+    );
+  });
+
+  it("tells the operator to quit a window opened outside LaunchAgent", () => {
+    expect(
+      operatorDeployDetail(
+        "remote-a: UNSUPERVISED_INCUMBENT_REQUIRES_LAUNCHAGENT exe_pids=333,",
+      ),
+    ).toBe(
+      "Quit Vellum Command on this Mac, then Deploy again. A window opened outside LaunchAgent cannot be replaced until it is closed.",
+    );
+    expect(operatorDeployDetail("supervised Remote runtime ready")).toBe(
+      "supervised Remote runtime ready",
     );
   });
 });

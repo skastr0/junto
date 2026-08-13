@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import type { HostDeployJobSnapshot } from "@shared/ipc";
+import { operatorDeployDetail } from "../../lib/deploy-recovery";
 import { GREEN, HUE } from "../../lib/theme";
 import { Chip, type ChipTone } from "../ui";
 
@@ -81,7 +82,7 @@ export function FleetDeployJobPanel({
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={percent}
-        aria-valuetext={`${percent}% — ${job.detail}`}
+        aria-valuetext={`${percent}% — ${operatorDeployDetail(job.detail)}`}
       >
         <div
           className="fleet-deploy-job__bar-fill"
@@ -95,7 +96,7 @@ export function FleetDeployJobPanel({
         />
       </div>
 
-      <p className="fleet-deploy-job__detail">{job.detail}</p>
+      <p className="fleet-deploy-job__detail">{operatorDeployDetail(job.detail)}</p>
 
       {!compact && stages.length > 0 ? (
         <details
