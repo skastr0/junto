@@ -7,6 +7,7 @@
  */
 import { Context, Effect, Layer } from "effect";
 import {
+  classifyHostRuntimeBlocker,
   decideHostRuntimeGap,
   hostRuntimeGapCopy,
   type HostRuntimeGap,
@@ -17,6 +18,7 @@ import {
 import type { InstallationId } from "@shared/installation-id";
 import { RemoteHostsError, type RemoteHost } from "@shared/remote-hosts";
 import { parseHostSshRoute } from "../ssh/domain";
+import { formatSshFailure } from "../ssh/format";
 import { homeDirectoryLookup, oneShot } from "../ssh/program";
 import { remoteUname } from "../ssh/read-commands";
 import { SshTransport, type SshTransportShape } from "../ssh/service";
@@ -132,7 +134,14 @@ export const observeRemoteHost = (
       .run(oneShot(parsed.success, unameCmd.success, { budget: "short" }))
       .pipe(Effect.result);
     if (uname._tag === "Failure") {
-      return { ...base, network: "unknown" };
+      const blocker = classifyHostRuntimeBlocker(
+        formatSshFailure(uname.failure),
+      );
+      return {
+        ...base,
+        network: "unknown",
+        ...(blocker === undefined ? {} : { blocker }),
+      };
     }
     const platform = platformFromUname(uname.success.stdout);
     if (platform === "unknown") {

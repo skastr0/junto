@@ -13,7 +13,7 @@ const STATUS_TONE: Record<HostDeployJobSnapshot["status"], ChipTone> = {
 
 const STATUS_LABEL: Record<HostDeployJobSnapshot["status"], string> = {
   running: "deploying",
-  succeeded: "ready",
+  succeeded: "Installed",
   failed: "failed",
   auth_required: "password needed",
 };
@@ -126,8 +126,8 @@ export function FleetDeployJobPanel({
 
       {job.status === "running" ? (
         <p className="fleet-deploy-job__note">
-          The deploy keeps running if you close this panel. Reopen this
-          machine to watch progress.
+          While this machine is on the network, Deploy keeps copying,
+          restarting, and waiting. Closing this panel does not stop it.
         </p>
       ) : null}
     </section>

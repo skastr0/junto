@@ -89,6 +89,7 @@ describe("Darwin HostRuntime apply", () => {
         },
         configure: configureFn,
         activate,
+        proveWorkAttach: () => Effect.succeed("up"),
       }),
     );
     expect(states).toEqual(["managed-externally"]);
@@ -113,6 +114,7 @@ describe("Darwin HostRuntime apply", () => {
         deploy: () => Effect.succeed(readyPackage),
         configure: () => Effect.succeed(successfulConfiguration as never),
         activate,
+        proveWorkAttach: () => Effect.succeed("up"),
       }),
     );
     expect(activate).toHaveBeenCalledOnce();
@@ -141,6 +143,7 @@ describe("Darwin HostRuntime apply", () => {
         },
         configure: configureFn,
         activate,
+        proveWorkAttach: () => Effect.succeed("up"),
       }),
     );
     expect(configureFn).not.toHaveBeenCalled();
@@ -148,6 +151,64 @@ describe("Darwin HostRuntime apply", () => {
     expect(result.ok).toBe(true);
     expect(result.configuration.detail).toContain("configure skipped");
     expect(result.stationInstallationId).toBe("station-installation");
+  });
+
+  it("retries copy and restart until term attach connects", async () => {
+    const configureFn = vi.fn(() => Effect.succeed(successfulConfiguration as never));
+    const activate = vi.fn(() =>
+      Effect.succeed({
+        ok: true,
+        detail: "Vellum Command is running on this Mac",
+        stages: [],
+        disposition: "ready" as const,
+      }),
+    );
+    let attaches = 0;
+    const result = await Effect.runPromise(
+      applyDarwinHostRuntime(context("needRestart", "station-installation"), {
+        deploy: () => Effect.succeed(readyPackage),
+        configure: configureFn,
+        activate,
+        proveWorkAttach: () => {
+          attaches += 1;
+          return Effect.succeed(attaches >= 2 ? "up" : "down");
+        },
+      }),
+    );
+    expect(configureFn).not.toHaveBeenCalled();
+    expect(activate).toHaveBeenCalledTimes(2);
+    expect(attaches).toBe(2);
+    expect(result.ok).toBe(true);
+  });
+
+  it("stops on a hand-opened app instead of retrying", async () => {
+    const activate = vi.fn(() =>
+      Effect.succeed({
+        ok: true,
+        detail: "should not activate",
+        stages: [],
+        disposition: "ready" as const,
+      }),
+    );
+    const result = await Effect.runPromise(
+      applyDarwinHostRuntime(context("needRestart", "station-installation"), {
+        deploy: () =>
+          Effect.succeed({
+            ...readyPackage,
+            ok: false,
+            detail: "UNSUPERVISED_INCUMBENT_REQUIRES_LAUNCHAGENT exe_pids=333,",
+            disposition: "not-started" as const,
+          }),
+        configure: () => Effect.succeed(successfulConfiguration as never),
+        activate,
+        proveWorkAttach: () => Effect.succeed("down"),
+      }),
+    );
+    expect(activate).not.toHaveBeenCalled();
+    expect(result.ok).toBe(false);
+    expect(result.detail).toBe(
+      "Quit the Vellum Command window you opened by hand, then Deploy again.",
+    );
   });
 });
 
@@ -210,5 +271,50 @@ describe("Linux HostRuntime apply", () => {
     expect(result.ok).toBe(false);
     expect(result.disposition).toBe("indeterminate");
     expect(result.detail).toContain("work attach did not connect");
+  });
+
+  it("retries copy until work-control handshake connects, without pairing again", async () => {
+    const configureFn = vi.fn(() => Effect.succeed(successfulConfiguration as never));
+    let deploys = 0;
+    let attaches = 0;
+    const result = await Effect.runPromise(
+      applyLinuxHostRuntime(context("needConfigure"), {
+        deploy: () => {
+          deploys += 1;
+          return Effect.succeed(readyPackage);
+        },
+        configure: configureFn,
+        proveWorkAttach: () => {
+          attaches += 1;
+          return Effect.succeed(attaches >= 2 ? "up" : "down");
+        },
+      }),
+    );
+    expect(deploys).toBe(2);
+    expect(configureFn).toHaveBeenCalledOnce();
+    expect(attaches).toBe(2);
+    expect(result.ok).toBe(true);
+  });
+
+  it("stops on a missing login session instead of retrying", async () => {
+    const configureFn = vi.fn(() => Effect.succeed(successfulConfiguration as never));
+    const result = await Effect.runPromise(
+      applyLinuxHostRuntime(context("needInstall"), {
+        deploy: () =>
+          Effect.succeed({
+            ...readyPackage,
+            ok: false,
+            detail: "owner-local systemd user service is unavailable",
+            disposition: "not-started" as const,
+          }),
+        configure: configureFn,
+        proveWorkAttach: () => Effect.succeed("down"),
+      }),
+    );
+    expect(configureFn).not.toHaveBeenCalled();
+    expect(result.ok).toBe(false);
+    expect(result.detail).toBe(
+      "This machine has no login session, so Vellum Command cannot start.",
+    );
   });
 });

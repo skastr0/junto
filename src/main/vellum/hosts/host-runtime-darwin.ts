@@ -1,12 +1,14 @@
 /** Darwin HostRuntime platform. Package is the signed .app. Attach is term. */
 import { Effect } from "effect";
 import { join } from "node:path";
+import { classifyHostRuntimeBlocker, type HostWorkAttach } from "@shared/host-runtime";
 import { stationControlDir, stationDoorSocketPath } from "@shared/station-ssh-control";
-import { TERM_REMOTE_SOCK_REL } from "@shared/term-control";
+import { TERM_REMOTE_SOCK_REL, termControlTokenPath } from "@shared/term-control";
 import { SshExitError, type SshTarget } from "../ssh/domain";
-import { oneShot } from "../ssh/program";
+import { homeDirectoryLookup, oneShot } from "../ssh/program";
 import { remoteDarwinPackageExists } from "../ssh/read-commands";
 import type { SshTransportShape } from "../ssh/service";
+import { TermControlClient } from "../term/control-client";
 import { configureRemoteHost } from "./configure-remote";
 import {
   alreadyConfiguredActivateFailure,
@@ -22,15 +24,23 @@ import {
   activateDarwinRemoteRuntimeForTarget,
   darwinRemoteDeploymentProvider,
 } from "./deploy-darwin";
+import { reportDeployStage } from "./deploy-job-registry";
 import {
   combineHostProcessPlanes,
+  HOST_RUNTIME_REMEDY_ROUNDS,
+  hostRuntimeBlockedDeploy,
   probeRemoteDoorSocket,
-  probeRemoteWorkAttach,
+  readRemoteTextFile,
+  withRemoteUnixForward,
   type HostRuntimeApplyContext,
   type HostRuntimePlatformAdapter,
   type HostRuntimePlanes,
 } from "./host-runtime-platform";
-import type { RemoteDeploymentProvider } from "./remote-deployment";
+import { decodeRemoteHomeDirectoryOutput } from "./remote-home";
+import type {
+  DeployRemoteResult,
+  RemoteDeploymentProviderInput,
+} from "./remote-deployment";
 import { buildObservedRemoteDeploymentTarget } from "./remote-platform";
 
 const observePlanes = (
@@ -64,11 +74,7 @@ const observePlanes = (
       target,
       stationDoorSocketPath(stationHome, "peer"),
     );
-    const workAttach = yield* probeRemoteWorkAttach(
-      ssh,
-      target,
-      join(home, TERM_REMOTE_SOCK_REL),
-    );
+    const workAttach = yield* probeDarwinWorkAttach(ssh, target, home);
     return {
       package: pkg,
       process: combineHostProcessPlanes(enroll, peer),
@@ -76,16 +82,69 @@ const observePlanes = (
     };
   });
 
+const probeDarwinWorkAttach = (
+  ssh: SshTransportShape,
+  target: SshTarget,
+  home: string,
+): Effect.Effect<HostWorkAttach> =>
+  Effect.gen(function* () {
+    const token = yield* readRemoteTextFile(
+      ssh,
+      target,
+      termControlTokenPath(home),
+    );
+    if (token === undefined) return "down";
+    return yield* withRemoteUnixForward(
+      ssh,
+      target,
+      join(home, TERM_REMOTE_SOCK_REL),
+      (localSocket) =>
+        Effect.tryPromise({
+          try: async () => {
+            const client = await TermControlClient.connect({
+              socketPath: localSocket,
+              token,
+              timeoutMs: 2_000,
+            });
+            await client.drainOnQuit();
+            return "up" as const;
+          },
+          catch: () => new Error("term attach failed"),
+        }).pipe(Effect.orElseSucceed(() => "down" as const)),
+    );
+  });
+
+const proveDarwinWorkAttach = (
+  ssh: SshTransportShape,
+  target: SshTarget,
+): Effect.Effect<HostWorkAttach> =>
+  Effect.gen(function* () {
+    const homeResult = yield* ssh
+      .run(homeDirectoryLookup(target))
+      .pipe(Effect.result);
+    if (homeResult._tag === "Failure") return "unknown";
+    const home = decodeRemoteHomeDirectoryOutput(homeResult.success.stdout);
+    if (home === null) return "unknown";
+    return yield* probeDarwinWorkAttach(ssh, target, home);
+  });
+
 export type DarwinApplyOperations = {
-  readonly deploy: RemoteDeploymentProvider["deploy"];
+  readonly deploy: (
+    input: RemoteDeploymentProviderInput,
+  ) => Effect.Effect<DeployRemoteResult>;
   readonly configure: typeof configureRemoteHost;
   readonly activate: typeof activateDarwinRemoteRuntimeForTarget;
+  readonly proveWorkAttach: (
+    ssh: SshTransportShape,
+    target: SshTarget,
+  ) => Effect.Effect<HostWorkAttach>;
 };
 
 const productionDarwinApply: DarwinApplyOperations = {
   deploy: (input) => darwinRemoteDeploymentProvider.deploy(input),
   configure: configureRemoteHost,
   activate: activateDarwinRemoteRuntimeForTarget,
+  proveWorkAttach: proveDarwinWorkAttach,
 };
 
 export const applyDarwinHostRuntime = (
@@ -114,96 +173,170 @@ export const applyDarwinHostRuntime = (
       });
     }
     const firstInstall = gap === "needInstall" || gap === "needConfigure";
-    const deployed = yield* operations.deploy({
-      ssh,
-      target: preparation.target,
-      stationConfiguration: firstInstall
-        ? { state: "managed-externally" }
-        : { state: "applied", remoteHostId: host.id },
-      artifactSource: context.artifactSource ?? "stable-feed",
-    });
-    if (!packageAdmitted(deployed)) {
-      return failedPackageResult(host, deployed);
-    }
-    if (firstInstall) {
-      const configured = yield* operations
-        .configure(ssh, host, context.configure)
-        .pipe(Effect.result);
-      if (configured._tag === "Failure") {
-        return configurationFailure(host, deployed, configured.failure);
+    let configured:
+      | Parameters<typeof finishWithConfiguration>[2]
+      | undefined;
+    let lastDeployed: Parameters<typeof failedPackageResult>[1] | undefined;
+    let lastActivated: { ok: boolean; detail: string } | undefined;
+
+    for (let round = 0; round < HOST_RUNTIME_REMEDY_ROUNDS; round++) {
+      const copyStage =
+        round === 0
+          ? "Copying Vellum Command"
+          : "Copying Vellum Command again";
+      reportDeployStage(copyStage);
+      const deployed = yield* operations.deploy({
+        ssh,
+        target: preparation.target,
+        stationConfiguration:
+          firstInstall && configured === undefined
+            ? { state: "managed-externally" }
+            : { state: "applied", remoteHostId: host.id },
+        artifactSource: context.artifactSource ?? "stable-feed",
+      });
+      lastDeployed = deployed;
+      const deployBlocker = classifyHostRuntimeBlocker(deployed.detail);
+      if (deployBlocker !== undefined) {
+        return hostRuntimeBlockedDeploy(host, deployed, deployBlocker);
       }
-      if (!configured.success.ok || configured.success.station === undefined) {
-        return configurationFailure(host, deployed, configured.success);
+      if (!packageAdmitted(deployed)) {
+        if (round === HOST_RUNTIME_REMEDY_ROUNDS - 1) {
+          return failedPackageResult(host, deployed);
+        }
+        continue;
       }
+      if (firstInstall && configured === undefined) {
+        const next = yield* operations
+          .configure(ssh, host, context.configure)
+          .pipe(Effect.result);
+        if (next._tag === "Failure") {
+          return configurationFailure(host, deployed, next.failure);
+        }
+        if (!next.success.ok || next.success.station === undefined) {
+          return configurationFailure(host, deployed, next.success);
+        }
+        configured = next.success;
+      }
+      reportDeployStage("Restarting Vellum Command");
       const activated = yield* operations.activate(ssh, preparation.target);
+      lastActivated = activated;
+      const activateBlocker = classifyHostRuntimeBlocker(activated.detail);
+      if (activateBlocker !== undefined) {
+        return hostRuntimeBlockedDeploy(
+          host,
+          { ...deployed, detail: activated.detail },
+          activateBlocker,
+        );
+      }
       if (!activated.ok) {
-        const finished = finishWithConfiguration(
+        if (round === HOST_RUNTIME_REMEDY_ROUNDS - 1) {
+          if (configured !== undefined) {
+            const finished = finishWithConfiguration(
+              host,
+              deployed,
+              configured,
+            );
+            return {
+              ...finished,
+              ok: false,
+              detail: `${host.label}: Station configured as remote, but supervised runtime activate failed — ${activated.detail}`,
+              code: "io" as const,
+              message: activated.detail,
+              disposition: "indeterminate" as const,
+              outcome: "indeterminate" as const,
+            };
+          }
+          const prior = context.priorInstallationId;
+          if (prior === undefined) {
+            return failedPackageResult(host, {
+              ...deployed,
+              ok: false,
+              detail: activated.detail,
+              disposition: "indeterminate",
+            });
+          }
+          return alreadyConfiguredActivateFailure(
+            host,
+            deployed,
+            prior,
+            activated.detail,
+          );
+        }
+        continue;
+      }
+      reportDeployStage("Waiting for Vellum Command to answer");
+      const attached = yield* operations.proveWorkAttach(
+        ssh,
+        preparation.target.sshTarget,
+      );
+      if (attached === "up") {
+        if (configured !== undefined) {
+          const finished = finishWithConfiguration(
+            host,
+            deployed,
+            configured,
+          );
+          return {
+            ...finished,
+            detail: `${finished.detail} - ${activated.detail}`,
+            message: activated.detail,
+          };
+        }
+        const prior = context.priorInstallationId;
+        if (prior === undefined) {
+          return {
+            ...deployed,
+            ok: true,
+            detail: `${deployed.detail} - ${activated.detail}`,
+            message: activated.detail,
+            hostEndpoint: host.sshEndpoint,
+            disposition: "ready",
+            outcome: "ready",
+            packageState: "present",
+            role: "remote",
+            configuration: {
+              ok: true,
+              detail: "already configured Remote; configure skipped",
+            },
+          };
+        }
+        return finishAlreadyConfiguredRemote(
           host,
           deployed,
-          configured.success,
+          prior,
+          activated.detail,
         );
-        return {
-          ...finished,
-          ok: false,
-          detail: `${host.label}: Station configured as remote, but supervised runtime activate failed — ${activated.detail}`,
-          code: "io" as const,
-          message: activated.detail,
-          disposition: "indeterminate" as const,
-          outcome: "indeterminate" as const,
-        };
       }
-      const finished = finishWithConfiguration(
-        host,
-        deployed,
-        configured.success,
-      );
+    }
+
+    const deployed = lastDeployed ?? {
+      ok: false,
+      detail: `${host.label}: work attach did not connect`,
+      stages: [],
+      disposition: "indeterminate" as const,
+    };
+    if (configured !== undefined) {
+      const finished = finishWithConfiguration(host, deployed, configured);
       return {
         ...finished,
-        detail: `${finished.detail} - ${activated.detail}`,
-        message: activated.detail,
+        ok: false,
+        detail: `${host.label}: work attach did not connect`,
+        code: "io" as const,
+        message: lastActivated?.detail ?? "work attach did not connect",
+        disposition: "indeterminate" as const,
+        outcome: "indeterminate" as const,
       };
     }
-    const prior = context.priorInstallationId;
-    const activated = yield* operations.activate(ssh, preparation.target);
-    if (prior === undefined) {
-      if (!activated.ok) {
-        return failedPackageResult(host, {
-          ...deployed,
-          ok: false,
-          detail: activated.detail,
-          disposition: "indeterminate",
-        });
-      }
-      return {
+    return {
+      ...failedPackageResult(host, {
         ...deployed,
-        ok: true,
-        detail: `${deployed.detail} - ${activated.detail}`,
-        message: activated.detail,
-        hostEndpoint: host.sshEndpoint,
-        disposition: "ready",
-        outcome: "ready",
-        packageState: "present",
-        role: "remote",
-        configuration: {
-          ok: true,
-          detail: "already configured Remote; configure skipped",
-        },
-      };
-    }
-    if (!activated.ok) {
-      return alreadyConfiguredActivateFailure(
-        host,
-        deployed,
-        prior,
-        activated.detail,
-      );
-    }
-    return finishAlreadyConfiguredRemote(
-      host,
-      deployed,
-      prior,
-      activated.detail,
-    );
+        ok: false,
+        detail: `${host.label}: work attach did not connect`,
+        disposition: "indeterminate",
+      }),
+      code: "io" as const,
+      message: "work attach did not connect",
+    };
   });
 
 export const darwinHostRuntimePlatform: HostRuntimePlatformAdapter = {

@@ -22,7 +22,7 @@ describe("Remote deploy recovery guidance", () => {
         "remote-a: UNSUPERVISED_INCUMBENT_REQUIRES_LAUNCHAGENT exe_pids=333,",
       ),
     ).toBe(
-      "Quit Vellum Command on that Mac, then Deploy again. A window opened outside LaunchAgent cannot be replaced until it is closed.",
+      "Quit the Vellum Command window you opened by hand, then Deploy again.",
     );
     expect(operatorDeployDetail("supervised Remote runtime ready")).toBe(
       "supervised Remote runtime ready",

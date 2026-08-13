@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   percentFromStages,
@@ -65,5 +66,28 @@ describe("deploy-job-registry", () => {
     expect(done?.detail).toContain("exit 70");
     expect(done?.finishedAt).toBeDefined();
     expect(done?.recoveryHint).toBe("repair-linux-release-transaction");
+  });
+});
+
+describe("fleet deploy chip", () => {
+  it("labels a succeeded job Installed, not ready", () => {
+    const panel = readFileSync(
+      new URL(
+        "../src/renderer/components/fleet/FleetDeployJobPanel.tsx",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    expect(panel).toContain('succeeded: "Installed"');
+    expect(panel).not.toMatch(/succeeded:\s*"ready"/u);
+    const nodes = readFileSync(
+      new URL(
+        "../src/renderer/components/fleet/FleetNodes.tsx",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    expect(nodes).toContain("On the network");
+    expect(nodes).not.toMatch(/return "Ready"/u);
   });
 });

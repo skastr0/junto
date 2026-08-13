@@ -2,15 +2,15 @@
  * Operator-facing copy for Remote deploy, doctor, and folder/terminal reach.
  * No protocol nouns. No proof-banner leftovers.
  */
+import { classifyHostRuntimeBlocker } from "./host-runtime";
 
 const replaceStationApi = (detail: string): string =>
   detail.replaceAll(/Station API/giu, "Vellum Command");
 
 /** Deploy / doctor strings the operator can act on. */
 export const operatorDeployDetail = (detail: string): string => {
-  if (detail.includes("UNSUPERVISED_INCUMBENT_REQUIRES_LAUNCHAGENT")) {
-    return "Quit Vellum Command on that Mac, then Deploy again. A window opened outside LaunchAgent cannot be replaced until it is closed.";
-  }
+  const blocker = classifyHostRuntimeBlocker(detail);
+  if (blocker !== undefined) return blocker.detail;
   if (
     /SSH process I\/O failed|SSH .+ closed before it finished/iu.test(detail)
   ) {

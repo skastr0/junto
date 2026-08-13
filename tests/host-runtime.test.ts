@@ -2,13 +2,15 @@ import { readFileSync } from "node:fs";
 import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
+  classifyHostRuntimeBlocker,
   decideHostRuntimeGap,
+  HOST_RUNTIME_HARD_BLOCKER_COPY,
   HostRuntimeObservation,
   hostRuntimeGapCopy,
 } from "../src/shared/host-runtime";
 import { observeRemoteHost } from "../src/main/vellum/hosts/host-runtime";
 import { combineHostProcessPlanes } from "../src/main/vellum/hosts/host-runtime-platform";
-import { SshTimeoutError } from "../src/main/vellum/ssh/domain";
+import { SshExitError, SshTimeoutError } from "../src/main/vellum/ssh/domain";
 import type { RemoteHost } from "../src/shared/remote-hosts";
 
 const observation = (
@@ -44,6 +46,12 @@ describe("decideHostRuntimeGap", () => {
     expect(
       decideHostRuntimeGap(
         observation({ workAttach: "up", mode: "remote" }),
+        "check",
+      ),
+    ).toBe("ready");
+    expect(
+      decideHostRuntimeGap(
+        observation({ workAttach: "up", mode: "command-center" }),
         "check",
       ),
     ).toBe("ready");
@@ -116,9 +124,17 @@ describe("decideHostRuntimeGap", () => {
     expect(
       hostRuntimeGapCopy("needOperator", {
         kind: "quit-app",
-        detail: "Quit Vellum Command on this machine, then Deploy again.",
+        detail: "ignored",
       }),
-    ).toContain("Quit Vellum Command");
+    ).toBe(HOST_RUNTIME_HARD_BLOCKER_COPY["quit-app"]);
+    expect(classifyHostRuntimeBlocker("ENOSPC disk full")?.kind).toBe("disk");
+    expect(
+      classifyHostRuntimeBlocker("owner-local systemd user service is unavailable")
+        ?.kind,
+    ).toBe("login-session");
+    expect(classifyHostRuntimeBlocker("Permission denied (publickey)")?.kind).toBe(
+      "auth",
+    );
   });
 
   it("network down is still trying, not a fake ready or vacant", () => {
@@ -168,6 +184,29 @@ describe("observeRemoteHost", () => {
     expect(observed.workAttach).toBe("unknown");
   });
 
+  it("auth refused is a blocker, not network down", async () => {
+    const observed = await Effect.runPromise(
+      observeRemoteHost(
+        {
+          run: () =>
+            Effect.fail(
+              new SshExitError({
+                endpoint: "studio-box",
+                operation: "uname",
+                code: 255,
+                detail: "permission denied",
+              }),
+            ),
+        } as never,
+        host,
+        { mode: "unenrolled" },
+      ),
+    );
+    expect(observed.network).not.toBe("down");
+    expect(observed.blocker?.kind).toBe("auth");
+    expect(observed.blocker?.detail).toBe(HOST_RUNTIME_HARD_BLOCKER_COPY.auth);
+  });
+
   it("uname probe failure stays unknown, not down", async () => {
     const observed = await Effect.runPromise(
       observeRemoteHost(
@@ -215,18 +254,26 @@ describe("HostRuntime inversion", () => {
     expect(darwin).not.toContain("workControlSocketPath");
     expect(darwin).not.toContain("applyConfiguredRemoteGap");
     expect(darwin).toContain("activateDarwinRemoteRuntimeForTarget");
-    expect(darwin).toContain("probeRemoteWorkAttach");
+    expect(darwin).toContain("TermControlClient.connect");
+    expect(darwin).not.toContain("handshakeLinuxWorkControl");
     expect(darwin).toContain("combineHostProcessPlanes");
     expect(linux).toContain("workControlSocketPath");
     expect(linux).not.toContain("remoteDarwinPackageExists");
     expect(linux).not.toContain("applyConfiguredRemoteGap");
     expect(linux).not.toContain("resolveRemoteDeploymentTarget");
     expect(linux).not.toContain("prepareRemoteDeployment");
+    expect(linux).not.toContain("TermControlClient");
     expect(linux).toContain("buildObservedRemoteDeploymentTarget");
     expect(linux).toContain("linuxRemoteDeploymentProvider");
-    expect(linux).toContain("probeRemoteWorkAttach");
+    expect(linux).toContain("handshakeLinuxWorkControl");
     expect(linux).toContain("proveWorkAttach");
     expect(linux).toContain("combineHostProcessPlanes");
+    const platform = readFileSync(
+      new URL("../src/main/vellum/hosts/host-runtime-platform.ts", import.meta.url),
+      "utf8",
+    );
+    expect(platform).toContain("handshakeLinuxWorkControl");
+    expect(platform).not.toMatch(/sock\.once\("connect", \(\) => done\("up"\)\)/u);
   });
 
   it("does not keep a shared applyConfiguredRemoteGap act", () => {

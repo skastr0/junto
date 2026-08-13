@@ -524,8 +524,9 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
           </p>
         ) : !deployJob ? (
           <p className="fleet-detail__note">
-            Package install, sealed adopt, and readiness run in the main
-            process. Progress and step log appear here while Deploy runs.
+            On the network is SSH. A finished Deploy is Installed. Folders
+            and terminals answer after a real connect. The step log records
+            each copy, restart, and wait.
           </p>
         ) : null}
       </section>
