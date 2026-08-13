@@ -118,6 +118,35 @@ describe("term control UDS", () => {
     expect(after?.status === "exited" || after === undefined).toBe(true);
   });
 
+  it("create on an occupied seat returns the occupant and does not respawn", async () => {
+    setProcessIdentityMapForTests(makeProcessIdentityMap());
+    const home = mkdtempSync(join(tmpdir(), "vt-occ-"));
+    cleanups.push(() => rmSync(home, { recursive: true, force: true }));
+    const host = new LocalSessionHost(fakeAuthority());
+    cleanups.push(async () => {
+      await host.shutdownAll("test");
+    });
+    const server = await startTermControlServer(host, { home });
+    cleanups.push(() => server.close());
+    const client = await TermControlClient.connect({
+      socketPath: server.socketPath,
+      token: server.token,
+      timeoutMs: 5_000,
+    });
+    cleanups.push(() => client.close());
+
+    const first = await client.create({
+      bindingId: "bind_occ",
+      launch: { kind: "shell" },
+    });
+    const again = await client.create({
+      bindingId: "bind_occ",
+      launch: { kind: "shell" },
+    });
+    expect(again.epoch).toBe(first.epoch);
+    expect(host.runningCount()).toBe(1);
+  });
+
   it("rejects bad token", async () => {
     const home = mkdtempSync(join(tmpdir(), "vtb-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));

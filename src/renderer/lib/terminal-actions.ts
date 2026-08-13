@@ -4,6 +4,7 @@
  */
 import type { CanvasNode } from "@shared/canvas";
 import { resolveTerminalBinding } from "@shared/terminal";
+import { occupancyFromSummary } from "@shared/terminal-seat-occupancy";
 import { markAgentSeatSeen } from "./agent-seat-state";
 import { getVellumCommandApi } from "./vellum-api";
 import { state$ } from "./state";
@@ -22,25 +23,18 @@ export const ensureTerminalRunning = async (
   if (!api?.terminalCreate) {
     return { ok: false, message: "terminal API unavailable — restart Vellum Command" };
   }
-  // Always go through terminalCreate for harness seats. Create is the
-  // ensure boundary (idempotent for healthy lives) and is where isolated
-  // VELLUM_COMMAND_HOME can replace a shared-resume generation that is still
-  // "running" but paints a dead/black TUI beside production.
-  // Geography shells may short-circuit on a live generation — they never
-  // share pin/resume state with another Vellum Command process.
-  if (!binding.harness) {
-    try {
-      const live = await api.terminalGet?.(binding.bindingId, binding.hostId);
-      if (
-        !live?.stopping &&
-        (live?.status === "running" || live?.status === "starting")
-      ) {
-        terminal$.sessionByBindingId[binding.bindingId].set(live);
-        return { ok: true };
-      }
-    } catch {
-      // fall through to create
+  // Occupied seats activate; they are never occupied again. Stopping still
+  // occupies the seat. Vacant (exited / missing / unknown) is the only
+  // create path.
+  try {
+    const live = await api.terminalGet?.(binding.bindingId, binding.hostId);
+    const occupancy = occupancyFromSummary(binding.bindingId, live);
+    if (occupancy._tag === "OccupiedSeat" && live) {
+      terminal$.sessionByBindingId[binding.bindingId].set(live);
+      return { ok: true };
     }
+  } catch {
+    // fall through to occupy
   }
   try {
     let next = await api.terminalCreate({

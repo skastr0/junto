@@ -10,7 +10,7 @@ import { EventEmitter } from "node:events";
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
-import { Context, Effect, Exit, Scope } from "effect";
+import { Context, Effect, Exit, Result, Scope } from "effect";
 import {
   findHostById,
   hostsWithCapability,
@@ -25,6 +25,10 @@ import {
   type TermMaintenanceQuiescenceEvidence,
 } from "@shared/term-control";
 import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
+import {
+  occupancyFromSummary,
+  occupyVacantSeat,
+} from "@shared/terminal-seat-occupancy";
 import type { HostDirectorySnapshot } from "@shared/host-directory";
 import {
   parseRemoteUnixSocketPath,
@@ -221,15 +225,6 @@ export type AttachResult =
     }
   | { readonly ok: false; readonly message: string };
 
-/** Keep a healthy Remote agent generation across renderer remounts. */
-export const liveAgentGenerationToReuse = (
-  live: TerminalSessionSummary | undefined,
-): TerminalSessionSummary | undefined => {
-  if (live === undefined || live.stopping) return undefined;
-  if (live.status !== "running" && live.status !== "starting") return undefined;
-  return live;
-};
-
 export class TerminalRouter extends EventEmitter {
   private readonly remotes = new Map<string, RemoteEntry>();
   private readonly connecting = new Map<
@@ -324,7 +319,7 @@ export class TerminalRouter extends EventEmitter {
     return hostId;
   }
 
-  /** Open a geography terminal on its host. */
+  /** Open a geography terminal on its host. Occupied seats are not replaced. */
   async create(
     input: LocalHostCreateInput & { hostId?: string },
   ): Promise<TerminalSessionSummary> {
@@ -345,13 +340,6 @@ export class TerminalRouter extends EventEmitter {
   ): Promise<TerminalSessionSummary> {
     const hostId = this.admitSessionHost(input);
     if (!this.isLocalHostId(hostId)) {
-      // Remote create is geography `open`: it kills a live binding and
-      // respawns. Pin/unpin remounts call create as ensure. Local
-      // createAgentSeat is idempotent; Remote must match or Claude
-      // `--resume <same id>` dies with "session already in use".
-      const live = await this.get(input.bindingId.trim(), hostId);
-      const reusable = liveAgentGenerationToReuse(live);
-      if (reusable !== undefined) return reusable;
       return this.createRemote(hostId, input);
     }
     const summary = this.local.createAgentSeat({ ...input, hostId: "local" });
@@ -368,6 +356,15 @@ export class TerminalRouter extends EventEmitter {
   ): Promise<TerminalSessionSummary> {
     const client = await this.ensureRemoteClient(hostId);
     this.assertRouteAdmission(hostId);
+    const existing = await client.get(input.bindingId);
+    const occupancy = occupancyFromSummary(
+      input.bindingId,
+      existing ? { ...existing, hostId } : undefined,
+      "remote",
+    );
+    if (Result.isFailure(occupyVacantSeat(occupancy)) && existing) {
+      return { ...existing, hostId };
+    }
     const summary = await client.create({
       bindingId: input.bindingId,
       launch: input.launch,

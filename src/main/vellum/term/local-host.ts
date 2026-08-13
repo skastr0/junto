@@ -23,6 +23,10 @@ import {
   type SessionPhase as SessionPhaseT,
 } from "@shared/terminal-session-domain";
 import {
+  occupancyFromSession,
+  occupyVacantSeat,
+} from "@shared/terminal-seat-occupancy";
+import {
   TERM_MAINTENANCE_OBSERVATION_BYTES,
   type TermMaintenanceDenialReason,
   type TermMaintenanceEvidence,
@@ -560,31 +564,20 @@ export class LocalSessionHost extends EventEmitter {
   createAgentSeat(input: LocalHostAgentSeatInput): TerminalSessionSummary {
     const bindingId = input.bindingId.trim();
     const current = this.sessions.get(bindingId);
-    if (
-      current &&
-      !current.killed &&
-      sessionStatusOf(current) !== "exited"
-    ) {
-      // Isolated VELLUM_COMMAND_HOME (bun run dev) shares ~/.claude / ~/.grok with the
-      // production install. A generation started via shared --resume can stay
-      // "running" with a dead/black TUI. Prefer one fresh pin spawn when the
-      // live generation was a resume attempt (or the new plan still carries
-      // resume argv — should not happen after launchForManagedSpawn, but
-      // fail closed to pin rather than re-attach a poisoned seat).
-      const isolateShared = shouldAvoidSharedHarnessResume();
-      const pinHarness = isPinSessionHarness(input.harness);
-      const liveWasSharedResume = current.resumeAttempt === true;
-      const planStillResumes = launchArgvUsesResume(input.launch?.argv);
-      if (isolateShared && pinHarness && (liveWasSharedResume || planStillResumes)) {
-        this.killBinding(bindingId);
-        // Fall through to open a replacement generation.
-      } else {
-        // One binding owns one live actor generation. Create is an idempotent
-        // ensure at this boundary: renderer remounts, concurrent factory wake,
-        // or duplicate IPC must never turn into permission to signal and replace
-        // a healthy harness. Explicit kill followed by create remains restart.
-        return this.summaryOf(current);
-      }
+    const occupancy = occupancyFromSession(
+      bindingId,
+      current === undefined
+        ? undefined
+        : {
+            epoch: current.epoch,
+            status: sessionStatusOf(current),
+            ...(current.killed ? { stopping: true as const } : {}),
+          },
+      "local",
+    );
+    const occupy = occupyVacantSeat(occupancy);
+    if (Result.isFailure(occupy) && current) {
+      return this.summaryOf(current);
     }
     // Under isolation, never spawn pin harnesses with resume argv even if a
     // caller bypassed launchForManagedSpawn and handed us document -r.
@@ -669,8 +662,19 @@ export class LocalSessionHost extends EventEmitter {
     if (!bindingId) throw new Error("bindingId required");
 
     const prior = this.sessions.get(bindingId);
-    if (prior && sessionStatusOf(prior) !== "exited") {
-      this.killBinding(bindingId);
+    const occupancy = occupancyFromSession(
+      bindingId,
+      prior === undefined
+        ? undefined
+        : {
+            epoch: prior.epoch,
+            status: sessionStatusOf(prior),
+            ...(prior.killed ? { stopping: true as const } : {}),
+          },
+      "local",
+    );
+    if (Result.isFailure(occupyVacantSeat(occupancy)) && prior) {
+      return this.summaryOf(prior);
     }
 
     const cols = Math.max(20, Math.min(300, input.cols ?? DEFAULT_COLS));

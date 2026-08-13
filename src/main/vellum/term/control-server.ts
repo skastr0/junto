@@ -36,6 +36,8 @@ import {
   type TermControlRequest,
   type TermControlResponse,
 } from "@shared/term-control";
+import { occupancyFromSummary, occupyVacantSeat } from "@shared/terminal-seat-occupancy";
+import { Result } from "effect";
 import type {
   ControlLease,
   LocalHostEvent,
@@ -375,6 +377,11 @@ export const startTermControlServer = async (
         case "ping":
           return { v: 1, id, ok: true, data: { pong: true } };
         case "create": {
+          const existing = host.get(req.bindingId);
+          const occupancy = occupancyFromSummary(req.bindingId, existing, "local");
+          if (Result.isFailure(occupyVacantSeat(occupancy)) && existing) {
+            return { v: 1, id, ok: true, data: existing };
+          }
           const summary = host.create({
             bindingId: req.bindingId,
             launch: req.launch,
