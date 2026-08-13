@@ -89,6 +89,13 @@ function reachabilityLine(probe?: FleetProbeState): {
           color: HUE.amber,
         };
       }
+      if (probe.observation?.station === undefined) {
+        return {
+          text: "On the network — Vellum Command is not answering",
+          detail: probe.detail,
+          color: HUE.amber,
+        };
+      }
       return {
         text: probe.latencyMs !== undefined
           ? `On the network — ${probe.latencyMs} ms`

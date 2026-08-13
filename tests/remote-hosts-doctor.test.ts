@@ -481,6 +481,57 @@ describe("remote hosts doctor", () => {
     expect(snapshot.observations[0]).not.toHaveProperty("statusState");
   });
 
+  it("keeps SSH-up Station-down as on the network, not machine-gone", async () => {
+    const fleet = fleetWithStatus(() =>
+      Effect.fail(
+        StationFleetPeerUnavailable.make({
+          hostId: hostId("studio"),
+          stationInstallationId: installationId("station-studio"),
+          reason: "connection-failed",
+          causeTag: "StationPeerSessionClosedError",
+          message: "station runtime down",
+        }),
+      ),
+    );
+    const registry = {
+      list: async () => [
+        {
+          id: "studio",
+          label: "Studio",
+          kind: "remote" as const,
+          sshEndpoint: "studio-box",
+          capabilities: [],
+        },
+      ],
+    } as unknown as HostsRegistry;
+    const ssh = {
+      warm: () => Effect.void,
+    } as Parameters<typeof testHostConnection>[0];
+
+    const snapshot = await Effect.runPromise(
+      runRemoteHostsDoctorSnapshot(
+        registry,
+        ssh,
+        fleet,
+        async () => ({ ok: true, stdout: "" }),
+      ),
+    );
+
+    expect(snapshot.check.status).toBe("error");
+    expect(snapshot.check.detail).toContain("On the network");
+    expect(snapshot.check.detail).toContain("not answering");
+    expect(snapshot.observations).toEqual([
+      expect.objectContaining({
+        hostId: "studio",
+        endpoint: "studio-box",
+        reachability: "reachable",
+        source: "live",
+        expectedInstallationId: "station-studio",
+      }),
+    ]);
+    expect(snapshot.observations[0]).not.toHaveProperty("station");
+  });
+
   it("reports an incompatible but reachable Remote as update-required", async () => {
     const protocol: StationProtocolObservation = {
       compatibility: "update-required",

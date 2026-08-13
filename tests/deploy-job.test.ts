@@ -148,5 +148,11 @@ describe("fleet deploy chip", () => {
     );
     expect(detail).toContain("On the network is SSH");
     expect(detail).toContain("A finished Deploy is Installed");
+    expect(detail).toContain(
+      "On the network — Vellum Command is not answering",
+    );
+    expect(nodes).toContain(
+      "On the network — Vellum Command is not answering",
+    );
   });
 });
