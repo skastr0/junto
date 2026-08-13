@@ -75,7 +75,7 @@ export const decideHostRuntimeGap = (
   intent: HostRuntimeIntent,
 ): HostRuntimeGap => {
   if (observation.blocker !== undefined) return "needOperator";
-  if (observation.network === "down") return "stillTrying";
+  if (observation.network !== "up") return "stillTrying";
 
   if (intent === "check") {
     if (

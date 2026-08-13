@@ -710,9 +710,9 @@ export type DeployTransferParse =
     };
 
 /**
- * Read install/activate stdout after SSH already exited 0.
- * The remote script's exit code is the real check (launchd pid, owned
- * sockets). A missing banner is not a failed install.
+ * Read install stdout after SSH already exited 0.
+ * Exit 0 is not enough: ENROLLMENT_READY or STATION_READY must be present.
+ * ENROLLMENT_PARTIAL and empty stdout are not a finished install.
  */
 export const parseDeployTransferResult = (input: {
   readonly stdout: string;
@@ -734,10 +734,12 @@ export const parseDeployTransferResult = (input: {
       detail: "Vellum Command is running on this Mac",
     };
   }
+  const diagnostic = input.stderr.trim() || input.stdout.trim();
   return {
-    ok: true,
-    phase: "enrollment",
-    detail: "Vellum Command install finished",
+    ok: false,
+    detail:
+      diagnostic.slice(0, 900) ||
+      "Vellum Command install did not prove enrollment or runtime readiness",
   };
 };
 
@@ -751,10 +753,12 @@ export const parseRuntimeActivateResult = (input: {
       detail: "Vellum Command is running on this Mac",
     };
   }
-  // SSH exit 0 already means the activate script's launchd + socket checks passed.
+  const diagnostic = input.stderr.trim() || input.stdout.trim();
   return {
-    ok: true,
-    detail: "Vellum Command is running on this Mac",
+    ok: false,
+    detail:
+      diagnostic.slice(0, 900) ||
+      "Vellum Command did not prove it is running on this Mac",
   };
 };
 
@@ -2297,7 +2301,7 @@ export const activateDarwinRemoteRuntime = (
     );
     return parseRuntimeActivateResult({
       stdout: output.stdout,
-      stderr: "",
+      stderr: output.stderr,
     });
   });
 

@@ -96,11 +96,7 @@ export class HostsService extends Context.Service<HostsService,
     readonly deployConfiguredRemote: (
       id: string,
       options: ConfiguredRemoteDeployOptions & {
-        /**
-         * Final receipt barrier; runs under the same endpoint semaphore.
-         * Platform admission (`onAdmitted`) runs inside deployConfiguredRemoteHost
-         * after prepare succeeds — never before release/platform refuse.
-         */
+        /** Final receipt barrier; runs under the same endpoint semaphore. */
         readonly onCompleted?: (
           host: RemoteHostT,
           result: ConfiguredRemoteDeployResult,
@@ -339,8 +335,6 @@ export const makeHostsService = (
         return yield* serializeHostMutation(
           host,
           Effect.gen(function* () {
-            // onAdmitted runs inside deployConfiguredRemoteHost after prepare
-            // so unsupported platforms never mint a durable admission receipt.
             const deployed = yield* operations.deployConfiguredRemoteHost(
               ssh,
               host,

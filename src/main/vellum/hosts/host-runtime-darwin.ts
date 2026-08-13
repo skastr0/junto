@@ -5,10 +5,7 @@ import { stationControlDir, stationDoorSocketPath } from "@shared/station-ssh-co
 import { TERM_REMOTE_SOCK_REL } from "@shared/term-control";
 import { SshExitError, type SshTarget } from "../ssh/domain";
 import { oneShot } from "../ssh/program";
-import {
-  remoteDarwinPackageExists,
-  remoteTestSocketExists,
-} from "../ssh/read-commands";
+import { remoteDarwinPackageExists } from "../ssh/read-commands";
 import type { SshTransportShape } from "../ssh/service";
 import { configureRemoteHost } from "./configure-remote";
 import {
@@ -26,6 +23,8 @@ import {
   darwinRemoteDeploymentProvider,
 } from "./deploy-darwin";
 import {
+  combineHostProcessPlanes,
+  probeRemoteDoorSocket,
   probeRemoteWorkAttach,
   type HostRuntimeApplyContext,
   type HostRuntimePlatformAdapter,
@@ -33,19 +32,6 @@ import {
 } from "./host-runtime-platform";
 import type { RemoteDeploymentProvider } from "./remote-deployment";
 import { buildObservedRemoteDeploymentTarget } from "./remote-platform";
-
-const probeSocket = (
-  ssh: SshTransportShape,
-  target: SshTarget,
-  path: string,
-): Effect.Effect<boolean> =>
-  remoteTestSocketExists(path).pipe(
-    Effect.flatMap((command) =>
-      ssh.run(oneShot(target, command, { budget: "short" })),
-    ),
-    Effect.map(() => true),
-    Effect.catch(() => Effect.succeed(false)),
-  );
 
 const observePlanes = (
   ssh: SshTransportShape,
@@ -68,25 +54,25 @@ const observePlanes = (
       }
     }
     const stationHome = stationControlDir(home);
-    const enrollUp = yield* probeSocket(
+    const enroll = yield* probeRemoteDoorSocket(
       ssh,
       target,
       stationDoorSocketPath(stationHome, "enroll"),
     );
-    const peerUp = yield* probeSocket(
+    const peer = yield* probeRemoteDoorSocket(
       ssh,
       target,
       stationDoorSocketPath(stationHome, "peer"),
     );
-    const termUp = yield* probeRemoteWorkAttach(
+    const workAttach = yield* probeRemoteWorkAttach(
       ssh,
       target,
       join(home, TERM_REMOTE_SOCK_REL),
     );
     return {
       package: pkg,
-      process: enrollUp || peerUp ? ("up" as const) : ("down" as const),
-      workAttach: termUp ? ("up" as const) : ("down" as const),
+      process: combineHostProcessPlanes(enroll, peer),
+      workAttach,
     };
   });
 

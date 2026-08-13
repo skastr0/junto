@@ -1,10 +1,10 @@
 /** Linux HostRuntime platform. Attach is work control, never a Darwin .app. */
 import { Effect } from "effect";
+import type { HostWorkAttach } from "@shared/host-runtime";
 import { stationControlDir, stationDoorSocketPath } from "@shared/station-ssh-control";
 import { workControlDir, workControlSocketPath } from "@shared/work-control";
 import type { SshTarget } from "../ssh/domain";
-import { oneShot } from "../ssh/program";
-import { remoteTestSocketExists } from "../ssh/read-commands";
+import { homeDirectoryLookup } from "../ssh/program";
 import type { SshTransportShape } from "../ssh/service";
 import { configureRemoteHost } from "./configure-remote";
 import {
@@ -18,26 +18,16 @@ import {
 } from "./deploy-configured-remote";
 import { linuxRemoteDeploymentProvider } from "./deploy-linux";
 import {
+  combineHostProcessPlanes,
+  probeRemoteDoorSocket,
   probeRemoteWorkAttach,
   type HostRuntimeApplyContext,
   type HostRuntimePlatformAdapter,
   type HostRuntimePlanes,
 } from "./host-runtime-platform";
 import type { RemoteDeploymentProvider } from "./remote-deployment";
+import { decodeRemoteHomeDirectoryOutput } from "./remote-home";
 import { buildObservedRemoteDeploymentTarget } from "./remote-platform";
-
-const probeSocket = (
-  ssh: SshTransportShape,
-  target: SshTarget,
-  path: string,
-): Effect.Effect<boolean> =>
-  remoteTestSocketExists(path).pipe(
-    Effect.flatMap((command) =>
-      ssh.run(oneShot(target, command, { budget: "short" })),
-    ),
-    Effect.map(() => true),
-    Effect.catch(() => Effect.succeed(false)),
-  );
 
 const observePlanes = (
   ssh: SshTransportShape,
@@ -46,36 +36,59 @@ const observePlanes = (
 ): Effect.Effect<HostRuntimePlanes> =>
   Effect.gen(function* () {
     const stationHome = stationControlDir(home);
-    const enrollUp = yield* probeSocket(
+    const enroll = yield* probeRemoteDoorSocket(
       ssh,
       target,
       stationDoorSocketPath(stationHome, "enroll"),
     );
-    const peerUp = yield* probeSocket(
+    const peer = yield* probeRemoteDoorSocket(
       ssh,
       target,
       stationDoorSocketPath(stationHome, "peer"),
     );
-    const workUp = yield* probeRemoteWorkAttach(
+    const workAttach = yield* probeRemoteWorkAttach(
       ssh,
       target,
       workControlSocketPath(workControlDir(home)),
     );
     return {
       package: "unknown" as const,
-      process: enrollUp || peerUp ? ("up" as const) : ("down" as const),
-      workAttach: workUp ? ("up" as const) : ("down" as const),
+      process: combineHostProcessPlanes(enroll, peer),
+      workAttach,
     };
   });
 
 export type LinuxApplyOperations = {
   readonly deploy: RemoteDeploymentProvider["deploy"];
   readonly configure: typeof configureRemoteHost;
+  readonly proveWorkAttach: (
+    ssh: SshTransportShape,
+    target: SshTarget,
+  ) => Effect.Effect<HostWorkAttach>;
 };
+
+const proveLinuxWorkAttach = (
+  ssh: SshTransportShape,
+  target: SshTarget,
+): Effect.Effect<HostWorkAttach> =>
+  Effect.gen(function* () {
+    const homeResult = yield* ssh
+      .run(homeDirectoryLookup(target))
+      .pipe(Effect.result);
+    if (homeResult._tag === "Failure") return "unknown";
+    const home = decodeRemoteHomeDirectoryOutput(homeResult.success.stdout);
+    if (home === null) return "unknown";
+    return yield* probeRemoteWorkAttach(
+      ssh,
+      target,
+      workControlSocketPath(workControlDir(home)),
+    );
+  });
 
 const productionLinuxApply: LinuxApplyOperations = {
   deploy: (input) => linuxRemoteDeploymentProvider.deploy(input),
   configure: configureRemoteHost,
+  proveWorkAttach: proveLinuxWorkAttach,
 };
 
 export const applyLinuxHostRuntime = (
@@ -115,40 +128,58 @@ export const applyLinuxHostRuntime = (
     if (!packageAdmitted(deployed)) {
       return failedPackageResult(host, deployed);
     }
+    let finished: ConfiguredRemoteDeployResult;
     if (!firstInstall) {
       const prior = context.priorInstallationId;
-      if (prior === undefined) {
-        return {
-          ...deployed,
-          ok: true,
-          hostEndpoint: host.sshEndpoint,
-          disposition: "ready" as const,
-          outcome: "ready" as const,
-          packageState: "present" as const,
-          role: "remote" as const,
-          configuration: {
-            ok: true,
-            detail: "already configured Remote; configure skipped",
-          },
-        };
+      finished =
+        prior === undefined
+          ? {
+              ...deployed,
+              ok: true,
+              hostEndpoint: host.sshEndpoint,
+              disposition: "ready" as const,
+              outcome: "ready" as const,
+              packageState: "present" as const,
+              role: "remote" as const,
+              configuration: {
+                ok: true,
+                detail: "already configured Remote; configure skipped",
+              },
+            }
+          : finishAlreadyConfiguredRemote(
+              host,
+              deployed,
+              prior,
+              deployed.detail,
+            );
+    } else {
+      const configured = yield* operations
+        .configure(ssh, host, context.configure)
+        .pipe(Effect.result);
+      if (configured._tag === "Failure") {
+        return configurationFailure(host, deployed, configured.failure);
       }
-      return finishAlreadyConfiguredRemote(
-        host,
-        deployed,
-        prior,
-        deployed.detail,
-      );
+      if (!configured.success.ok || configured.success.station === undefined) {
+        return configurationFailure(host, deployed, configured.success);
+      }
+      finished = finishWithConfiguration(host, deployed, configured.success);
     }
-    const configured = yield* operations
-      .configure(ssh, host, context.configure)
-      .pipe(Effect.result);
-    if (configured._tag === "Failure") {
-      return configurationFailure(host, deployed, configured.failure);
+    const attached = yield* operations.proveWorkAttach(
+      ssh,
+      preparation.target.sshTarget,
+    );
+    if (attached !== "up") {
+      return {
+        ...finished,
+        ok: false,
+        detail: `${host.label}: work attach did not connect`,
+        code: "io" as const,
+        message: "work attach did not connect",
+        disposition: "indeterminate" as const,
+        outcome: "indeterminate" as const,
+      };
     }
-    if (!configured.success.ok || configured.success.station === undefined) {
-      return configurationFailure(host, deployed, configured.success);
-    }
-    return finishWithConfiguration(host, deployed, configured.success);
+    return finished;
   });
 
 export const linuxHostRuntimePlatform: HostRuntimePlatformAdapter = {

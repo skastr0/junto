@@ -78,6 +78,8 @@ describe("named deploy compilers", () => {
     expect(source).toContain("state=idempotent");
     expect(source).toContain('"$HOME/.vellum-command/work/control.sock"');
     expect(source).toContain('"$HOME/.vellum-command/work/token"');
+    expect(source).toContain("socket.AF_UNIX");
+    expect(source).toContain("s.connect(sys.argv[1])");
     expect(source).not.toContain('"$DEST/vellum"');
     expect(source).not.toContain('"$RELEASE/vellum-command"');
     expect(source).not.toMatch(/Xvfb|ozone-platform|--vellum-headless/u);

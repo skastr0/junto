@@ -15,7 +15,7 @@ import {
   type HostRuntimePlatform,
 } from "@shared/host-runtime";
 import type { InstallationId } from "@shared/installation-id";
-import type { RemoteHost } from "@shared/remote-hosts";
+import { RemoteHostsError, type RemoteHost } from "@shared/remote-hosts";
 import { parseHostSshRoute } from "../ssh/domain";
 import { homeDirectoryLookup, oneShot } from "../ssh/program";
 import { remoteUname } from "../ssh/read-commands";
@@ -29,7 +29,6 @@ import type { HostRuntimeApplyContext } from "./host-runtime-platform";
 import type { LinuxReleaseCacheSource } from "./linux-release-feed";
 import { decodeRemoteHomeDirectoryOutput } from "./remote-home";
 import { HostsService } from "./service";
-import type { RemoteHostsError } from "@shared/remote-hosts";
 
 type Ssh = SshTransportShape;
 
@@ -117,7 +116,13 @@ export const observeRemoteHost = (
     }
     const parsed = yield* parseHostSshRoute(host).pipe(Effect.result);
     if (parsed._tag === "Failure") {
-      return { ...base, network: "down" };
+      return {
+        ...base,
+        blocker: {
+          kind: "unsupported",
+          detail: parsed.failure.message,
+        },
+      };
     }
     const unameCmd = yield* remoteUname().pipe(Effect.result);
     if (unameCmd._tag === "Failure") {
@@ -127,7 +132,7 @@ export const observeRemoteHost = (
       .run(oneShot(parsed.success, unameCmd.success, { budget: "short" }))
       .pipe(Effect.result);
     if (uname._tag === "Failure") {
-      return { ...base, network: "down" };
+      return { ...base, network: "unknown" };
     }
     const platform = platformFromUname(uname.success.stdout);
     if (platform === "unknown") {
@@ -270,10 +275,12 @@ export const HostRuntimeLive = Layer.effect(
             observation.blocker?.kind === "auth" ? "auth_required" : "conflict",
           );
         }
-        if (gap === "stillTrying" && observation.network === "down") {
+        if (gap === "stillTrying") {
           return refused(
             host.success,
-            `Can't reach ${host.success.label} on the network.`,
+            observation.network === "down"
+              ? `Can't reach ${host.success.label} on the network.`
+              : hostRuntimeGapCopy(gap, observation.blocker),
             "io",
           );
         }
@@ -306,7 +313,7 @@ export const HostRuntimeLive = Layer.effect(
         if (input.onCompleted === undefined) return applied;
         return yield* input.onCompleted(host.success, applied).pipe(
           Effect.map(() => ({ ...applied, statusRecorded: true })),
-          Effect.catch((error) =>
+          Effect.catch((error: RemoteHostsError) =>
             Effect.succeed({
               ...applied,
               statusRecorded: false,

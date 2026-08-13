@@ -63,11 +63,22 @@ prove_activation() {
   /usr/bin/systemctl --user daemon-reload >/dev/null 2>&1 || return 1
   /usr/bin/systemctl --user restart vellum-command-remote.service >/dev/null 2>&1 || return 1
   /usr/bin/systemctl --user is-active --quiet vellum-command-remote.service || return 1
-  [ -S "$HOME/.vellum-command/work/control.sock" ] && [ ! -L "$HOME/.vellum-command/work/control.sock" ] || return 1
-  [ -f "$HOME/.vellum-command/work/token" ] && [ ! -L "$HOME/.vellum-command/work/token" ] || return 1
-  [ "$(/usr/bin/stat -c '%a' "$HOME/.vellum-command/work/control.sock" 2>/dev/null || true)" = 600 ] || return 1
-  [ "$(/usr/bin/stat -c '%a' "$HOME/.vellum-command/work/token" 2>/dev/null || true)" = 600 ] || return 1
-  return 0
+  SOCK="$HOME/.vellum-command/work/control.sock"
+  TOKEN="$HOME/.vellum-command/work/token"
+  WAIT=0
+  while [ "$WAIT" -lt 30 ]; do
+    if [ -S "$SOCK" ] && [ ! -L "$SOCK" ] \
+      && [ -f "$TOKEN" ] && [ ! -L "$TOKEN" ] \
+      && [ "$(/usr/bin/stat -c '%a' "$SOCK" 2>/dev/null || true)" = 600 ] \
+      && [ "$(/usr/bin/stat -c '%a' "$TOKEN" 2>/dev/null || true)" = 600 ] \
+      && /usr/bin/python3 -c 'import socket,sys; s=socket.socket(socket.AF_UNIX); s.settimeout(2); s.connect(sys.argv[1]); s.close()' "$SOCK"
+    then
+      return 0
+    fi
+    WAIT=$((WAIT + 1))
+    /bin/sleep 1
+  done
+  return 1
 }
 if [ -d "$DEST" ] && [ ! -L "$DEST" ] && [ -x "$REMOTE_BIN" ] && [ ! -L "$REMOTE_BIN" ] && [ -x "$LAUNCHER" ] && [ ! -L "$LAUNCHER" ]; then
   if unit_pins_generation; then

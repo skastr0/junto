@@ -1,11 +1,15 @@
 import { readFileSync } from "node:fs";
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   decideHostRuntimeGap,
   HostRuntimeObservation,
   hostRuntimeGapCopy,
 } from "../src/shared/host-runtime";
+import { observeRemoteHost } from "../src/main/vellum/hosts/host-runtime";
+import { combineHostProcessPlanes } from "../src/main/vellum/hosts/host-runtime-platform";
+import { SshTimeoutError } from "../src/main/vellum/ssh/domain";
+import type { RemoteHost } from "../src/shared/remote-hosts";
 
 const observation = (
   overrides: Partial<typeof HostRuntimeObservation.Type>,
@@ -122,6 +126,69 @@ describe("decideHostRuntimeGap", () => {
       decideHostRuntimeGap(observation({ network: "down" }), "deploy"),
     ).toBe("stillTrying");
   });
+
+  it("network unknown is still trying, not down or needConfigure", () => {
+    expect(
+      decideHostRuntimeGap(observation({ network: "unknown" }), "deploy"),
+    ).toBe("stillTrying");
+    expect(
+      decideHostRuntimeGap(observation({ network: "unknown" }), "check"),
+    ).toBe("stillTrying");
+  });
+});
+
+describe("combineHostProcessPlanes", () => {
+  it("does not treat an unknown door as down", () => {
+    expect(combineHostProcessPlanes("unknown", "down")).toBe("unknown");
+    expect(combineHostProcessPlanes("down", "unknown")).toBe("unknown");
+    expect(combineHostProcessPlanes("down", "down")).toBe("down");
+    expect(combineHostProcessPlanes("up", "unknown")).toBe("up");
+  });
+});
+
+describe("observeRemoteHost", () => {
+  const host: RemoteHost = {
+    id: "studio",
+    label: "Studio",
+    kind: "remote",
+    sshEndpoint: "studio-box",
+    capabilities: ["terminal"],
+  };
+
+  it("invalid SSH route is a blocker, not network down", async () => {
+    const observed = await Effect.runPromise(
+      observeRemoteHost(
+        { run: () => Effect.die("ssh must not run") } as never,
+        { ...host, sshEndpoint: "-bad" },
+        { mode: "unenrolled" },
+      ),
+    );
+    expect(observed.network).toBe("unknown");
+    expect(observed.blocker?.kind).toBe("unsupported");
+    expect(observed.workAttach).toBe("unknown");
+  });
+
+  it("uname probe failure stays unknown, not down", async () => {
+    const observed = await Effect.runPromise(
+      observeRemoteHost(
+        {
+          run: () =>
+            Effect.fail(
+              new SshTimeoutError({
+                endpoint: "studio-box",
+                operation: "uname",
+                timeoutMs: 1_000,
+              }),
+            ),
+        } as never,
+        host,
+        { mode: "unenrolled" },
+      ),
+    );
+    expect(observed.network).toBe("unknown");
+    expect(observed.platform).toBe("unknown");
+    expect(observed.blocker).toBeUndefined();
+  });
 });
 
 describe("HostRuntime inversion", () => {
@@ -149,6 +216,7 @@ describe("HostRuntime inversion", () => {
     expect(darwin).not.toContain("applyConfiguredRemoteGap");
     expect(darwin).toContain("activateDarwinRemoteRuntimeForTarget");
     expect(darwin).toContain("probeRemoteWorkAttach");
+    expect(darwin).toContain("combineHostProcessPlanes");
     expect(linux).toContain("workControlSocketPath");
     expect(linux).not.toContain("remoteDarwinPackageExists");
     expect(linux).not.toContain("applyConfiguredRemoteGap");
@@ -157,6 +225,8 @@ describe("HostRuntime inversion", () => {
     expect(linux).toContain("buildObservedRemoteDeploymentTarget");
     expect(linux).toContain("linuxRemoteDeploymentProvider");
     expect(linux).toContain("probeRemoteWorkAttach");
+    expect(linux).toContain("proveWorkAttach");
+    expect(linux).toContain("combineHostProcessPlanes");
   });
 
   it("does not keep a shared applyConfiguredRemoteGap act", () => {
@@ -165,5 +235,18 @@ describe("HostRuntime inversion", () => {
         new URL("../src/main/vellum/hosts/host-runtime-apply.ts", import.meta.url),
       ),
     ).toThrow();
+  });
+
+  it("does not mint onAdmitted pre-mutation receipts", () => {
+    const service = readFileSync(
+      new URL("../src/main/vellum/hosts/service.ts", import.meta.url),
+      "utf8",
+    );
+    const configured = readFileSync(
+      new URL("../src/main/vellum/hosts/deploy-configured-remote.ts", import.meta.url),
+      "utf8",
+    );
+    expect(service).not.toContain("onAdmitted");
+    expect(configured).not.toContain("onAdmitted");
   });
 });

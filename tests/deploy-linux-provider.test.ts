@@ -283,6 +283,16 @@ describe("Linux userland remote deployment provider", () => {
     );
     expect(deployResult.ok).toBe(false);
     expect(deployResult.detail).toContain("candidate failed before activation");
+
+    const missingBanner = makeSsh({ deployStdout: "" });
+    const missingResult = await Effect.runPromise(
+      provider.deploy(providerInput(missingBanner.ssh)),
+    );
+    expect(missingResult.ok).toBe(false);
+    expect(missingResult.disposition).toBe("indeterminate");
+    expect(missingResult.detail).toContain(
+      "LINUX_USERLAND_DEPLOY_V1 ok=1",
+    );
   });
 
   it("rejects invalid artifact authority without opening a remote transaction", async () => {

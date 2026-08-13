@@ -146,12 +146,13 @@ export const makeLinuxRemoteDeploymentProvider = (input: { readonly artifactAuth
         if (/LINUX_USERLAND_DEPLOY_V1 ok=0/u.test(outcome.success)) {
           return failure(request, "candidate failed before activation");
         }
-        // Transfer exited 0. A missing banner is not a failed install.
         return {
-          ok: true,
-          detail: `${request.target.host.label}: userland runtime ready`,
+          ok: false,
+          detail: `${request.target.host.label}: userland runtime did not prove LINUX_USERLAND_DEPLOY_V1 ok=1`,
+          message: "userland runtime did not prove LINUX_USERLAND_DEPLOY_V1 ok=1",
+          code: "io" as const,
           stages: request.target.progress,
-          disposition: "ready" as const,
+          disposition: "indeterminate" as const,
           version: archive.version,
         };
       }),

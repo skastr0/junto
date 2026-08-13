@@ -377,53 +377,48 @@ export const deployConfiguredRemoteHost = (
       return configurationFailure(host, deployed, configured.success);
     }
 
-    // Enrollment-only package: relaunch supervised GUI/runtime after configure.
-    if (deployed.disposition === "configuration-required") {
-      const activated =
-        operations.activateRuntime === undefined
-          ? { ok: true as const, detail: "runtime activation not required" }
-          : yield* operations.activateRuntime(
-              ssh,
-              host,
-              deployed,
-              preparation.target,
-            );
-      if (!activated.ok) {
-        return {
-          ...deployed,
-          ok: false,
-          detail: `${host.label}: Station configured as remote, but supervised runtime activate failed — ${activated.detail}`,
-          code: "io" as const,
-          message: activated.detail,
-          hostEndpoint: host.sshEndpoint,
-          disposition: "indeterminate" as const,
-          outcome: "indeterminate" as const,
-          packageState: "present" as const,
-          role: "remote" as const,
-          lastSeen: configured.success.configuredAt ?? new Date().toISOString(),
-          station: configured.success.station,
-          ...(configured.success.stationInstallationId === undefined
-            ? {}
-            : {
-                stationInstallationId: configured.success.stationInstallationId,
-              }),
-          configuration: {
-            ok: true,
-            detail: configured.success.detail,
-          },
-        };
-      }
-      const finished = finishWithConfiguration(
-        host,
-        deployed,
-        configured.success,
-      );
+    const activated =
+      operations.activateRuntime === undefined
+        ? { ok: true as const, detail: "runtime activation not required" }
+        : yield* operations.activateRuntime(
+            ssh,
+            host,
+            deployed,
+            preparation.target,
+          );
+    if (!activated.ok) {
       return {
-        ...finished,
-        detail: `${finished.detail} - ${activated.detail}`,
+        ...deployed,
+        ok: false,
+        detail: `${host.label}: Station configured as remote, but supervised runtime activate failed — ${activated.detail}`,
+        code: "io" as const,
         message: activated.detail,
+        hostEndpoint: host.sshEndpoint,
+        disposition: "indeterminate" as const,
+        outcome: "indeterminate" as const,
+        packageState: "present" as const,
+        role: "remote" as const,
+        lastSeen: configured.success.configuredAt ?? new Date().toISOString(),
+        station: configured.success.station,
+        ...(configured.success.stationInstallationId === undefined
+          ? {}
+          : {
+              stationInstallationId: configured.success.stationInstallationId,
+            }),
+        configuration: {
+          ok: true,
+          detail: configured.success.detail,
+        },
       };
     }
-
-    return finishWithConfiguration(host, deployed, configured.success);
+    const finished = finishWithConfiguration(
+      host,
+      deployed,
+      configured.success,
+    );
+    return {
+      ...finished,
+      detail: `${finished.detail} - ${activated.detail}`,
+      message: activated.detail,
+    };
   }).pipe(Effect.withSpan("hosts.deploy-configured-remote"));

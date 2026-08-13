@@ -24,6 +24,7 @@ import {
   awaitTarCloseBounded,
   isSafeRemoteHomePath,
   parseDeployTransferResult,
+  parseRuntimeActivateResult,
   resolveLocalAppBundle,
   validateLocalBundleProvenance,
   type RemoteDeployScriptTestRuntime,
@@ -162,7 +163,7 @@ describe("parseDeployTransferResult", () => {
     });
   });
 
-  it("does not fail a finished install when a script banner is missing", () => {
+  it("fails when ENROLLMENT_READY or STATION_READY is missing", () => {
     for (const stdout of [
       "ENROLLMENT_READY station=1",
       "ENROLLMENT_READY pid=0 station=1",
@@ -177,10 +178,45 @@ describe("parseDeployTransferResult", () => {
           stderr: "ENROLLMENT_PARTIAL station=0",
         }),
       ).toMatchObject({
-        ok: true,
-        phase: "enrollment",
+        ok: false,
+        detail: expect.stringContaining("ENROLLMENT_PARTIAL"),
       });
     }
+  });
+});
+
+describe("parseRuntimeActivateResult", () => {
+  it("requires STATION_READY with a live pid and both sockets", () => {
+    expect(
+      parseRuntimeActivateResult({
+        stdout: "STATION_READY pid=4312 term=1 browser=1",
+        stderr: "",
+      }),
+    ).toEqual({
+      ok: true,
+      detail: "Vellum Command is running on this Mac",
+    });
+  });
+
+  it("fails on empty stdout or ENROLLMENT_PARTIAL", () => {
+    expect(
+      parseRuntimeActivateResult({
+        stdout: "",
+        stderr: "",
+      }),
+    ).toMatchObject({ ok: false });
+    expect(
+      parseRuntimeActivateResult({
+        stdout: "ENROLLMENT_PARTIAL pid=9 station=0",
+        stderr: "ENROLLMENT_PARTIAL pid=9 station=0",
+      }),
+    ).toMatchObject({ ok: false });
+    expect(
+      parseRuntimeActivateResult({
+        stdout: "STATION_READY pid=0 term=1 browser=1",
+        stderr: "",
+      }),
+    ).toMatchObject({ ok: false });
   });
 });
 

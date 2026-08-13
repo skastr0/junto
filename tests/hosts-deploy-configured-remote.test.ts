@@ -167,6 +167,26 @@ describe("configured remote deploy (userland)", () => {
     expect(receivedState).toBe("managed-externally");
   });
 
+  it("activates after first-install configure even when package deploy claims ready", async () => {
+    const activate = vi.fn(() =>
+      Effect.succeed({
+        ok: true,
+        detail: "supervised Remote runtime ready",
+      }),
+    );
+    const result = await Effect.runPromise(
+      deployConfiguredRemoteHost(
+        unusedSsh,
+        host,
+        options,
+        operations({ activateRuntime: activate }),
+      ),
+    );
+    expect(result.ok).toBe(true);
+    expect(activate).toHaveBeenCalledOnce();
+    expect(result.detail).toContain("supervised Remote runtime ready");
+  });
+
   it("enrollment package admits configure then supervised runtime activate", async () => {
     const activate = vi.fn(() =>
       Effect.succeed({

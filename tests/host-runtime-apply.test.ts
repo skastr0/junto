@@ -99,6 +99,27 @@ describe("Darwin HostRuntime apply", () => {
     expect(result.detail).toContain("Vellum Command is running on this Mac");
   });
 
+  it("activates after first-install configure even when package deploy claims ready", async () => {
+    const activate = vi.fn(() =>
+      Effect.succeed({
+        ok: true,
+        detail: "Vellum Command is running on this Mac",
+        stages: [],
+        disposition: "ready" as const,
+      }),
+    );
+    const result = await Effect.runPromise(
+      applyDarwinHostRuntime(context("needConfigure"), {
+        deploy: () => Effect.succeed(readyPackage),
+        configure: () => Effect.succeed(successfulConfiguration as never),
+        activate,
+      }),
+    );
+    expect(activate).toHaveBeenCalledOnce();
+    expect(result.ok).toBe(true);
+    expect(result.detail).toContain("Vellum Command is running on this Mac");
+  });
+
   it("skips configure on needRestart and still activates", async () => {
     const configureFn = vi.fn(() => Effect.succeed(successfulConfiguration as never));
     const activate = vi.fn(() =>
@@ -133,6 +154,7 @@ describe("Darwin HostRuntime apply", () => {
 describe("Linux HostRuntime apply", () => {
   it("builds the target from observed linux + parse + warm, then configures first install", async () => {
     const configureFn = vi.fn(() => Effect.succeed(successfulConfiguration as never));
+    const proveWorkAttach = vi.fn(() => Effect.succeed("up" as const));
     const result = await Effect.runPromise(
       applyLinuxHostRuntime(context("needConfigure"), {
         deploy: (input) => {
@@ -148,16 +170,19 @@ describe("Linux HostRuntime apply", () => {
           return Effect.succeed(readyPackage);
         },
         configure: configureFn,
+        proveWorkAttach,
       }),
     );
     expect(ssh.warm).toHaveBeenCalled();
     expect(configureFn).toHaveBeenCalledOnce();
+    expect(proveWorkAttach).toHaveBeenCalledOnce();
     expect(result.ok).toBe(true);
     expect(result.detail).toContain("configured");
   });
 
   it("does not configure on needRestart", async () => {
     const configureFn = vi.fn(() => Effect.succeed(successfulConfiguration as never));
+    const proveWorkAttach = vi.fn(() => Effect.succeed("up" as const));
     const result = await Effect.runPromise(
       applyLinuxHostRuntime(context("needRestart", "station-box"), {
         deploy: (input) => {
@@ -165,10 +190,25 @@ describe("Linux HostRuntime apply", () => {
           return Effect.succeed(readyPackage);
         },
         configure: configureFn,
+        proveWorkAttach,
       }),
     );
     expect(configureFn).not.toHaveBeenCalled();
+    expect(proveWorkAttach).toHaveBeenCalledOnce();
     expect(result.ok).toBe(true);
     expect(result.configuration.detail).toContain("configure skipped");
+  });
+
+  it("does not treat package ready as attach when work attach does not connect", async () => {
+    const result = await Effect.runPromise(
+      applyLinuxHostRuntime(context("needRestart", "station-box"), {
+        deploy: () => Effect.succeed(readyPackage),
+        configure: () => Effect.succeed(successfulConfiguration as never),
+        proveWorkAttach: () => Effect.succeed("down"),
+      }),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.disposition).toBe("indeterminate");
+    expect(result.detail).toContain("work attach did not connect");
   });
 });
