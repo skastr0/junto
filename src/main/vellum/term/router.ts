@@ -221,6 +221,15 @@ export type AttachResult =
     }
   | { readonly ok: false; readonly message: string };
 
+/** Keep a healthy Remote agent generation across renderer remounts. */
+export const liveAgentGenerationToReuse = (
+  live: TerminalSessionSummary | undefined,
+): TerminalSessionSummary | undefined => {
+  if (live === undefined || live.stopping) return undefined;
+  if (live.status !== "running" && live.status !== "starting") return undefined;
+  return live;
+};
+
 export class TerminalRouter extends EventEmitter {
   private readonly remotes = new Map<string, RemoteEntry>();
   private readonly connecting = new Map<
@@ -336,6 +345,13 @@ export class TerminalRouter extends EventEmitter {
   ): Promise<TerminalSessionSummary> {
     const hostId = this.admitSessionHost(input);
     if (!this.isLocalHostId(hostId)) {
+      // Remote create is geography `open`: it kills a live binding and
+      // respawns. Pin/unpin remounts call create as ensure. Local
+      // createAgentSeat is idempotent; Remote must match or Claude
+      // `--resume <same id>` dies with "session already in use".
+      const live = await this.get(input.bindingId.trim(), hostId);
+      const reusable = liveAgentGenerationToReuse(live);
+      if (reusable !== undefined) return reusable;
       return this.createRemote(hostId, input);
     }
     const summary = this.local.createAgentSeat({ ...input, hostId: "local" });
