@@ -4,6 +4,20 @@ import type { TerminalSessionSummary } from "@shared/terminal";
 import { resolveTerminalBinding } from "@shared/terminal";
 import type { WorkZone } from "./surface-registry";
 
+/** Slot elements WorkbenchPanes register so PersistentTerminalHost can adopt. */
+export const terminalSlots$ = observable({
+  elements: {} as Record<string, HTMLElement | null>,
+});
+
+export const registerTerminalSlot = (
+  nodeId: string | null,
+  element: HTMLElement | null,
+): void => {
+  if (!nodeId) return;
+  if (element) terminalSlots$.elements[nodeId].set(element);
+  else terminalSlots$.elements[nodeId].delete();
+};
+
 export const terminal$ = observable({
   openByNodeId: {} as Record<string, CanvasNode>,
   /**

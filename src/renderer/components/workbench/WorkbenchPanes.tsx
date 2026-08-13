@@ -17,8 +17,7 @@ import { HerdrTerminalPanel } from "../herdr/HerdrTerminalModal";
 import { BrowserSurfaceSlot } from "./BrowserSurfaceSlot";
 import { parseHerdrNodeId } from "./surface-label";
 import { parseTerminalSurfaceId } from "../../lib/dock-state";
-import { terminal$ } from "../../lib/terminal-state";
-import { TerminalSurface } from "../terminal/TerminalSurface";
+import { registerTerminalSlot } from "../../lib/terminal-state";
 import { Button } from "../ui";
 import { ChatSurface } from "../chat/ChatSurface";
 import { TaskEnqueueSurface } from "../work/TaskEnqueueSurface";
@@ -106,18 +105,12 @@ function resolveSurfaceBody(
   }
   if (surface.kind === "terminal") {
     const nodeId = parseTerminalSurfaceId(surface.id);
-    const node = nodeId ? terminal$.openByNodeId[nodeId].peek() : undefined;
     return (
       <section
+        ref={(element) => registerTerminalSlot(nodeId, element)}
         className="dock-slot workbench-surface"
         onMouseDown={activateSurfaceOnMouseDown(onActivate)}
-      >
-        {node ? (
-          <TerminalSurface node={node} visible={visible} />
-        ) : (
-          <div className="workbench-surface__placeholder">terminal - unbound</div>
-        )}
-      </section>
+      />
     );
   }
   if (surface.kind === "chat") {

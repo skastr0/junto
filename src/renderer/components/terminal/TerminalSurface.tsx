@@ -911,7 +911,7 @@ export function TerminalSurface({
       epochRef.current = undefined;
       if (lease) void api.terminalRelease(lease);
     };
-  }, [bindingId, hostId, attachKey, agentSeat, pinSessionId]);
+  }, [bindingId, hostId, attachKey, agentSeat]);
 
   const label = node.type === "text" ? node.text : "terminal";
   const surfaceId = terminalSurfaceId(node.id);

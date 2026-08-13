@@ -528,13 +528,29 @@ html[data-vellum-platform="darwin"] .focus-surface.focus-surface--contain-parent
   display: flex;
   flex-direction: column;
 }
-.workbench-pane > .dock-slot > .native-terminal-surface {
+.workbench-pane > .dock-slot > .native-terminal-surface,
+.workbench-pane > .dock-slot > .persistent-terminal-host,
+.workbench-pane > .dock-slot > .persistent-terminal-host > .native-terminal-surface {
   /* height:0 + flex:1 forces flex-assigned box, not content-sized 80×24 island */
   flex: 1 1 0;
   min-height: 0;
   min-width: 0;
   width: 100%;
   height: 0;
+}
+.persistent-terminal-root,
+.persistent-terminal-well {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.persistent-terminal-host {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
 }
 .workbench-surface__herdr-actions {
   position: absolute;

@@ -58,6 +58,7 @@ import { HerdrTerminalModal } from "./components/herdr/HerdrTerminalModal";
 import { HerdrToast } from "./components/herdr/HerdrToast";
 import { WorkSurfaceDock } from "./components/WorkSurfaceDock";
 import { WorkFocusShell } from "./components/workbench";
+import { PersistentTerminalHost } from "./components/terminal/PersistentTerminalHost";
 import { TooltipLayer } from "./components/TooltipLayer";
 import { DemoCameraBridge } from "./demo/camera-bridge";
 import { DemoLayer } from "./demo/demo-layer";
@@ -523,6 +524,7 @@ export function App() {
           </>
         ) : null}
         <WorkFocusShell />
+        <PersistentTerminalHost />
         <DemoLayer />
         </div>
         <WorkSurfaceDock />
