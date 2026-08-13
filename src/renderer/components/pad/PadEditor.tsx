@@ -20,8 +20,13 @@ import {
 } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
 import { Result } from "effect";
+import { resolvePadInboundActors } from "@shared/board-actors";
 import type { ContentRef } from "@shared/content";
 import type { Pad, PadElementId, PadPatch, PadPoint, PadShape, PadSide } from "@shared/pad";
+import { state$ } from "../../lib/state";
+import { applyWorkCanvasWrite } from "../../lib/mutations";
+import { getVellumCommandApi } from "../../lib/vellum-api";
+import { PadPinThread } from "./PadPinThread";
 import {
   anchorPoint,
   contentBounds,
@@ -203,10 +208,12 @@ const ShapeEl = ({
 
 export function PadEditor({
   pad,
+  padNodeId,
   onCommit,
   onClose,
 }: {
   readonly pad: Pad;
+  readonly padNodeId: string;
   readonly onCommit: (patches: ReadonlyArray<PadPatch>) => Promise<boolean>;
   readonly onClose: () => void;
 }) {
@@ -227,6 +234,10 @@ export function PadEditor({
   padRef.current = pad;
   const theme = use$(themeMode$);
   const inkColor = defaultInkColor(theme);
+  const doc = use$(state$.doc);
+  const canvasName = use$(state$.canvasName) || "";
+  const mentionActors = resolvePadInboundActors(doc, padNodeId);
+  const selectedPin = selectedId ? pinById(pad, selectedId) : undefined;
 
   const selected = selectedId
     ? shapeById(pad, selectedId) ?? imageById(pad, selectedId) ?? pinById(pad, selectedId)
@@ -289,6 +300,20 @@ export function PadEditor({
     fittedContent.current = true;
     fit();
   }, [fit, pad]);
+
+  useEffect(() => {
+    if (!selectedPin) return;
+    const api = getVellumCommandApi();
+    if (!api) return;
+    let cancelled = false;
+    void api.workPadRead(canvasName, padNodeId, selectedPin.id).then((result) => {
+      if (cancelled || !result.ok) return;
+      applyWorkCanvasWrite(canvasName, result.doc, result.revision);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [canvasName, padNodeId, selectedPin?.id]);
 
   const commit = useCallback(
     async (patches: ReadonlyArray<PadPatch>): Promise<boolean> => {
@@ -810,6 +835,7 @@ export function PadEditor({
           [ ] z - delete - P pin - I image - D ink
         </div>
       </div>
+      <div className="pad-workspace">
       <div
         className="pad-stage"
         onDragOver={(event) => {
@@ -1057,6 +1083,15 @@ export function PadEditor({
             }}
           />
         ) : null}
+      </div>
+      {selectedPin ? (
+        <PadPinThread
+          pin={selectedPin}
+          nodes={doc.nodes}
+          actors={mentionActors}
+          onCommit={commit}
+        />
+      ) : null}
       </div>
     </div>
   );

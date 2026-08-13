@@ -10,6 +10,128 @@
   flex-direction: column;
 }
 
+.pad-workspace {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 0;
+}
+
+.pad-pin-thread {
+  display: flex;
+  width: 320px;
+  min-width: 260px;
+  max-width: 42%;
+  flex: none;
+  flex-direction: column;
+  border-left: 1px solid var(--color-stroke);
+  background: var(--color-raise);
+}
+
+.pad-pin-thread__header {
+  display: flex;
+  flex: none;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid var(--color-stroke);
+  padding: 8px 12px;
+}
+
+.pad-pin-thread__header strong {
+  color: var(--color-ink-2);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.pad-pin-thread__header span {
+  color: var(--color-faint);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pad-pin-thread__mentions {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-overlay-3);
+}
+
+.pad-pin-thread__hint {
+  color: var(--color-faint);
+  font-size: 9px;
+}
+
+.pad-pin-thread__chip {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+
+.pad-pin-thread__posts {
+  padding-inline: 12px;
+}
+
+.pad-pin-thread__reply {
+  padding-inline: 10px;
+}
+
+.pad-mention-wrap {
+  position: relative;
+}
+
+.pad-mention-list {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 4px);
+  left: 0;
+  z-index: 3;
+  margin: 0;
+  max-height: 160px;
+  overflow: auto;
+  border: 1px solid var(--color-stroke);
+  border-radius: 5px;
+  background: var(--color-raise-2);
+  padding: 4px;
+  list-style: none;
+}
+
+.pad-mention-list__empty {
+  color: var(--color-faint);
+  font-size: 10px;
+  padding: 6px 8px;
+}
+
+.pad-mention-option {
+  display: grid;
+  width: 100%;
+  gap: 1px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-ink);
+  cursor: pointer;
+  padding: 5px 8px;
+  text-align: left;
+}
+
+.pad-mention-option[aria-selected="true"],
+.pad-mention-option:hover {
+  background: color-mix(in oklab, var(--color-amber) 12%, transparent);
+}
+
+.pad-mention-option strong {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.pad-mention-option span {
+  color: var(--color-faint);
+  font-size: 9px;
+}
+
 .pad-toolbar {
   display: flex;
   flex: none;

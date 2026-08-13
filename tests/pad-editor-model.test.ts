@@ -4,6 +4,7 @@ import {
   PadPatch,
   applyPatches,
   asPadElementId,
+  asPadPostId,
   emptyPad,
   type Pad,
   type PadError,
@@ -14,18 +15,23 @@ import {
   appendInkPoint,
   canDelete,
   cycleSelection,
+  applyMentionPick,
   draftPinFromDrag,
   draftShapeFromDrag,
   editorKeyAction,
+  filterMentionActors,
   fitCamera,
   handleHit,
   inversePatches,
+  mentionQueryAt,
   nearestSide,
   normalizeRect,
   padIsEmpty,
   panBy,
+  pinReplyPatch,
   resizeShape,
   sideHit,
+  toggleMention,
   toolFromKey,
   upsertPinPatch,
   upsertShapePatch,
@@ -268,5 +274,34 @@ describe("pad editor pin ink empty", () => {
       { x: 4, y: 3 },
     ]);
     expect(appendInkPoint(points, { x: 4.2, y: 3.1 }, 1)).toEqual(points);
+  });
+
+  it("filters @ autocomplete to inbound actors and builds a reply", () => {
+    const actors = [
+      { nodeId: "agent-in", label: "In", agentKey: "local:in" },
+      { nodeId: "agent-quiet", label: "Quiet" },
+    ];
+    expect(filterMentionActors(actors, "in").map((actor) => actor.nodeId)).toEqual(
+      ["agent-in"],
+    );
+    expect(filterMentionActors(actors, "ghost")).toEqual([]);
+    expect(mentionQueryAt("see @ag", 7)).toEqual({ start: 4, query: "ag" });
+    expect(mentionQueryAt("see you", 7)).toBeUndefined();
+    const picked = applyMentionPick("see @ag", 7, "In Seat");
+    expect(picked).toEqual({ text: "see @In-Seat ", cursor: 13 });
+    expect(toggleMention(["agent-in"], "agent-quiet")).toEqual([
+      "agent-in",
+      "agent-quiet",
+    ]);
+    const reply = pinReplyPatch(
+      asPadElementId("p1"),
+      "look here",
+      asPadPostId("post-1"),
+    );
+    expect(reply).toMatchObject({
+      op: "pin.reply",
+      pinId: "p1",
+      post: { parts: [{ kind: "text", text: "look here" }] },
+    });
   });
 });

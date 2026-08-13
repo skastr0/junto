@@ -13,13 +13,20 @@ import type {
   TaskState,
   WorkMetadata,
 } from "@shared/canvas";
-import { emptyPad, type Pad, type PadPatch } from "@shared/pad";
+import { type Pad, type PadPatch } from "@shared/pad";
 import { padLookHere, padToDigest, padToSvg } from "@shared/pad-project";
 import {
+  resolvePadInboundActors,
+  tagNotifyNodeIds,
+} from "@shared/board-actors";
+import { resolveBoardWakeSet } from "@shared/board-wake";
+import {
+  addedPadMentions,
   inboundActorNodeIds,
   padAuthorRuleError,
   stampPadPatchAuthors,
 } from "./pad-rules";
+import { softBoardTagNotify } from "./board-delivery";
 import type {
   CompletionEvidence,
   FinishCriteria,
@@ -478,6 +485,12 @@ export interface WorkServiceShape {
         readonly digest: string;
       }>
     >;
+    readonly workPadMarkRead: (
+      canvas: string,
+      nodeId: string,
+      pinId: string,
+      principalKey: string,
+    ) => Effect.Effect<WorkOpResult<{ readonly pinId: string }>>;
     readonly commandStatus: Effect.Effect<
       WorkCommandStatus,
       WorkServiceError
@@ -2467,13 +2480,10 @@ export const WorkLive = Layer.effect(
                 ? context.localInstallationId
                 : context.configuration.commandCenterInstallationId;
             const patchId = ids.id();
-            const current =
-              home === context.localInstallationId
-                ? undefined
-                : yield* repository
-                  .readPad(canvas, nodeId)
-                  .pipe(Effect.mapError(toWorkServiceError));
-            const queuedPad = current ?? emptyPad();
+            const current = yield* repository
+              .readPad(canvas, nodeId)
+              .pipe(Effect.mapError(toWorkServiceError));
+            const addedMentions = addedPadMentions(current, stamped);
             const outcome =
               home === context.localInstallationId
                 ? yield* local(
@@ -2506,11 +2516,80 @@ export const WorkLive = Layer.effect(
                     author,
                   },
                   {
-                    revision: queuedPad.revision,
-                    pad: queuedPad,
-                    digest: padToDigest(queuedPad),
+                    revision: current.revision,
+                    pad: current,
+                    digest: padToDigest(current),
                   },
                 );
+            if (
+              home === context.localInstallationId &&
+              addedMentions.length > 0
+            ) {
+              const actors = resolvePadInboundActors(read.doc, nodeId);
+              const notifyIds = new Set(
+                tagNotifyNodeIds(
+                  addedMentions,
+                  actors,
+                  author.kind === "actor" ? author.nodeId : undefined,
+                ),
+              );
+              const seats = resolveBoardWakeSet(read.doc, nodeId).filter(
+                (seat) => notifyIds.has(seat.nodeId),
+              );
+              if (seats.length > 0) {
+                const reply = stamped.find((patch) => patch.op === "pin.reply");
+                const excerpt =
+                  reply?.op === "pin.reply"
+                    ? reply.post.parts
+                      .flatMap((part) =>
+                        part.kind === "text" ? [part.text] : [],
+                      )
+                      .join("\n")
+                    : "look here";
+                const pinId =
+                  stamped.find((patch) => patch.op === "pin.upsert")?.pin.id ??
+                  (reply?.op === "pin.reply" ? reply.pinId : "pin");
+                void softBoardTagNotify({
+                  canvas,
+                  boardNodeId: nodeId,
+                  seats,
+                  topicId: pinId,
+                  postId: pinId,
+                  excerpt,
+                  authorLabel:
+                    author.label ?? author.nodeId ?? "someone",
+                }).catch(() => undefined);
+              }
+            }
+            return yield* complete(canvas, outcome);
+          }),
+        ),
+
+      workPadMarkRead: (canvas, nodeId, pinId, principalKey) =>
+        asResult(
+          Effect.gen(function* () {
+            const pad = yield* repository
+              .readPad(canvas, nodeId)
+              .pipe(Effect.mapError(toWorkServiceError));
+            const pin = pad.pins.find((item) => item.id === pinId);
+            if (!pin) {
+              return yield* Effect.fail(
+                new WorkServiceError({
+                  code: "invalid",
+                  message: `pin "${pinId}" does not exist`,
+                }),
+              );
+            }
+            const outcome = yield* local(
+              repository
+                .markPadRead({
+                  sink: sinkRef(canvas, nodeId),
+                  pinId,
+                  principalKey,
+                  lastReadPosition: Math.max(-1, pin.posts.length - 1),
+                })
+                .pipe(Effect.map(() => ({ value: { pinId } }))),
+            );
             return yield* complete(canvas, outcome);
           }),
         ),

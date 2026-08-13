@@ -15,9 +15,11 @@ import {
 } from "../src/shared/pad";
 import { admitWorkTarget } from "../src/main/vellum/work/authz";
 import {
+  addedPadMentions,
   inboundActorNodeIds,
   padAuthorRuleError,
 } from "../src/main/vellum/work/pad-rules";
+import { projectPadTagged } from "../src/cli/core/pad";
 import {
   WorkRepository,
   WorkRepositoryLive,
@@ -182,6 +184,41 @@ describe("pad author rules", () => {
         inboundActorNodeIds(doc, "pad-1"),
       ),
     ).toMatch(/mention/i);
+  });
+
+  it("refuses an outbound-only seat as a mention", () => {
+    const inbound = padDoc(true);
+    const outbound: CanvasDoc = {
+      ...inbound,
+      edges: [{ id: "e-out", fromNode: "pad-1", toNode: "agent" }],
+    };
+    expect(inboundActorNodeIds(outbound, "pad-1").has("agent")).toBe(false);
+    expect(
+      padAuthorRuleError(
+        { kind: "operator", label: "operator" },
+        [pinWithMention("p1", "agent")],
+        inboundActorNodeIds(outbound, "pad-1"),
+      ),
+    ).toMatch(/mention/i);
+  });
+
+  it("treats restamped pin mentions as not newly added", () => {
+    const before = {
+      ...emptyPad(),
+      pins: [
+        {
+          id: asPadElementId("p1"),
+          x: 1,
+          y: 1,
+          mentions: ["agent"],
+          posts: [],
+        },
+      ],
+    };
+    expect(addedPadMentions(before, [pinWithMention("p1", "agent")])).toEqual([]);
+    expect(addedPadMentions(emptyPad(), [pinWithMention("p1", "agent")])).toEqual([
+      "agent",
+    ]);
   });
 
   it("admits operator ink and inbound mentions", () => {
@@ -395,6 +432,80 @@ describe("pad persist", () => {
   });
 });
 
+describe("WorkService pad mark-read", () => {
+  const root = join(tmpdir(), `vellum-command-pad-read-${randomUUID()}`);
+  const makeRuntime = () => {
+    const stateLive = makeStateEngineLive(join(root, "state", "vellum-command.db"));
+    const repositoriesLive = Layer.provideMerge(
+      Layer.mergeAll(
+        WorkRepositoryLive,
+        StationRepositoryLive,
+        StationFleetTargetRepositoryLive,
+        SettingsLive,
+        makeContentServiceLive({
+          root: join(root, "content"),
+          skipInlineMediaMigration: true,
+        }),
+      ),
+      Layer.mergeAll(
+        stateLive,
+        makeInstallOpsLive(join(root, "state", "install-ops.db")),
+      ),
+    );
+    const canvasesLive = Layer.provideMerge(CanvasesLive, repositoriesLive);
+    return ManagedRuntime.make(
+      Layer.provideMerge(
+        WorkLive,
+        Layer.mergeAll(canvasesLive, StationLivePeerRegistryLive),
+      ),
+    );
+  };
+  const runtime = makeRuntime();
+
+  beforeAll(async () => {
+    const settings = await runtime.runPromise(SettingsService);
+    await runtime.runPromise(
+      settings.setStationTopology({
+        role: "command-center",
+        hostId: "local",
+        supervisedPreferred: true,
+      }),
+    );
+    const canvases = await runtime.runPromise(CanvasesService);
+    await runtime.runPromise(canvases.write("factory", padDoc(true)));
+  });
+
+  afterAll(async () => {
+    await runtime.dispose();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("clears operator unread after workPadMarkRead", async () => {
+    const work = await runtime.runPromise(WorkService);
+    const opened = await runtime.runPromise(
+      work.workPadPatch(
+        "factory",
+        "pad-1",
+        [
+          pinWithMention("attn", "agent"),
+          pinReply("attn", "post-a", { kind: "operator", label: "operator" }),
+        ],
+        { kind: "operator", label: "operator" },
+      ),
+    );
+    expect(opened.ok).toBe(true);
+    const marked = await runtime.runPromise(
+      work.workPadMarkRead("factory", "pad-1", "attn", "operator"),
+    );
+    expect(marked.ok).toBe(true);
+    const repository = await runtime.runPromise(WorkRepository);
+    const snap = await runtime.runPromise(
+      repository.readSnapshot("factory", "pad-1"),
+    );
+    expect(snap.pad).toMatchObject({ unreadPinCount: 0 });
+  });
+});
+
 describe("WorkService pad author refusals", () => {
   const root = join(tmpdir(), `vellum-command-pad-svc-${randomUUID()}`);
   const makeRuntime = () => {
@@ -474,6 +585,61 @@ describe("WorkService pad author refusals", () => {
       expect(mention.code).toBe("invalid");
       expect(mention.message).toMatch(/mention/i);
     }
+  });
+
+  it("lists tagged pins only for this process-bound seat", async () => {
+    const work = await runtime.runPromise(WorkService);
+    const other = await runtime.runPromise(
+      work.workPadPatch(
+        "factory",
+        "pad-1",
+        [
+          {
+            op: "pin.upsert",
+            pin: {
+              id: asPadElementId("tagged-me"),
+              x: 1,
+              y: 1,
+              mentions: ["agent"],
+            },
+          },
+          {
+            op: "pin.upsert",
+            pin: {
+              id: asPadElementId("tagged-other"),
+              x: 2,
+              y: 2,
+              mentions: [],
+            },
+          },
+        ],
+        { kind: "operator", label: "operator" },
+      ),
+    );
+    expect(other.ok).toBe(true);
+    if (!other.ok) return;
+    const mine = projectPadTagged(
+      {
+        revision: other.data.revision,
+        pad: other.data.pad,
+        digest: other.data.digest,
+        svg: "<svg></svg>",
+      },
+      "agent",
+    );
+    expect(mine.pins.map((pin) => pin.id)).toContain("tagged-me");
+    expect(mine.pins.map((pin) => pin.id)).not.toContain("tagged-other");
+    expect(
+      projectPadTagged(
+        {
+          revision: other.data.revision,
+          pad: other.data.pad,
+          digest: other.data.digest,
+          svg: "<svg></svg>",
+        },
+        "nobody",
+      ).pins,
+    ).toEqual([]);
   });
 
   it("stamps pin.reply author from WorkService, not the patch body", async () => {

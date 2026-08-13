@@ -105,7 +105,12 @@ export function PadDetail({
           }
         />
         {error ? <div className="pad-error">{error}</div> : null}
-        <PadEditor pad={pad} onCommit={onCommit} onClose={onClose} />
+        <PadEditor
+          pad={pad}
+          padNodeId={node.id}
+          onCommit={onCommit}
+          onClose={onClose}
+        />
       </div>
     </FocusSurface>
   );

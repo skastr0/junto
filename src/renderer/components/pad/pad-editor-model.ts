@@ -5,6 +5,7 @@
 import { Result } from "effect";
 import {
   asPadElementId,
+  asPadPostId,
   applyPatches,
   type Pad,
   type PadEdge,
@@ -15,10 +16,12 @@ import {
   type PadPatch,
   type PadPin,
   type PadPoint,
+  type PadPostId,
   type PadShape,
   type PadShapeType,
   type PadSide,
 } from "@shared/pad";
+
 import {
   identityCamera,
   viewToScene,
@@ -357,6 +360,75 @@ export const upsertPinPatch = (pin: Omit<PadPin, "posts">): PadPatch => ({
   op: "pin.upsert",
   pin,
 });
+
+export const pinReplyPatch = (
+  pinId: PadElementId,
+  text: string,
+  postId: PadPostId,
+): PadPatch => ({
+  op: "pin.reply",
+  pinId,
+  post: {
+    postId,
+    author: { kind: "operator", label: "operator" },
+    parts: [{ kind: "text", text }],
+  },
+});
+
+export const newPadPostId = (mint: () => string = () => crypto.randomUUID()): PadPostId =>
+  asPadPostId(`post-${mint()}`);
+
+export const toggleMention = (
+  mentions: ReadonlyArray<string>,
+  nodeId: string,
+): string[] =>
+  mentions.includes(nodeId)
+    ? mentions.filter((id) => id !== nodeId)
+    : [...mentions, nodeId];
+
+export type MentionQuery = {
+  readonly start: number;
+  readonly query: string;
+};
+
+export const mentionQueryAt = (
+  text: string,
+  cursor: number,
+): MentionQuery | undefined => {
+  const before = text.slice(0, Math.max(0, cursor));
+  const match = /@([^\s@]*)$/.exec(before);
+  if (!match || match.index === undefined) return undefined;
+  return { start: match.index, query: match[1] ?? "" };
+};
+
+export const filterMentionActors = <
+  T extends { readonly nodeId: string; readonly label: string; readonly agentKey?: string },
+>(
+  actors: ReadonlyArray<T>,
+  query: string,
+): T[] => {
+  const needle = query.trim().toLowerCase();
+  if (needle.length === 0) return [...actors];
+  return actors.filter(
+    (actor) =>
+      actor.nodeId.toLowerCase().includes(needle) ||
+      actor.label.toLowerCase().includes(needle) ||
+      (actor.agentKey?.toLowerCase().includes(needle) ?? false),
+  );
+};
+
+export const applyMentionPick = (
+  text: string,
+  cursor: number,
+  label: string,
+): { readonly text: string; readonly cursor: number } | undefined => {
+  const mention = mentionQueryAt(text, cursor);
+  if (!mention) return undefined;
+  const inserted = `@${label.replace(/\s+/g, "-")}`;
+  const next = `${text.slice(0, mention.start)}${inserted} ${text.slice(cursor)}`;
+  const nextCursor = mention.start + inserted.length + 1;
+  return { text: next, cursor: nextCursor };
+};
 
 export const padIsEmpty = (pad: Pad): boolean =>
   pad.shapes.length === 0 &&

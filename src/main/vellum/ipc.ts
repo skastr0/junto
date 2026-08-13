@@ -1104,7 +1104,19 @@ export const registerVellumIpc = (): void => {
           const denied = yield* denyRemoteWork;
           if (denied) return denied;
           const work = yield* WorkService;
-          return yield* work.workPadRead(canvas, nodeId, pinId);
+          const result = yield* work.workPadRead(canvas, nodeId, pinId);
+          if (result.ok && pinId !== undefined) {
+            const marked = yield* work.workPadMarkRead(
+              canvas,
+              nodeId,
+              pinId,
+              "operator",
+            );
+            if (marked.ok) {
+              return { ...result, doc: marked.doc, revision: marked.revision };
+            }
+          }
+          return result;
         }),
       ),
   );
