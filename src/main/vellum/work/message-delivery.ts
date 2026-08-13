@@ -95,6 +95,15 @@ export type MessageDeliveryStore = {
     messageId: string,
   ) => Promise<boolean>;
   /**
+   * Durable stop for the full-body read stamp: true when the read receipt
+   * exists for this mailbox message (work_delivery_receipts, read id).
+   */
+  readonly hasAcceptedMessageRead: (
+    canvas: string,
+    nodeId: string,
+    messageId: string,
+  ) => Promise<boolean>;
+  /**
    * Record delivery.accepted after the PTY transport accepted the inject.
    * Returns true when the receipt is durable (or already existed).
    */
@@ -175,6 +184,14 @@ export class MessageDeliveryService {
    * Later attach/idle re-drives must stamp only — never re-send (at-most-once).
    */
   private readonly transportAccepted = new Set<string>();
+  /**
+   * Delivery receipt landed, full-body read stamp did not. Later scans retry
+   * acceptMessageRead only — never the PTY paste.
+   */
+  private readonly pendingReadStamps = new Map<
+    string,
+    { readonly canvas: string; readonly nodeId: string; readonly message: Message }
+  >();
   /**
    * Process-local transport-attempt count per message (flightKey). Backstop
    * bound for ALL messages (live duplicate fix): after MAX_TRANSPORT_ATTEMPTS
@@ -257,6 +274,7 @@ export class MessageDeliveryService {
     this.lifecycleGeneration += 1;
     this.inFlight.clear();
     this.transportAccepted.clear();
+    this.pendingReadStamps.clear();
     this.transportAttempts.clear();
     this.attemptedClaims.clear();
     this.pendingRequestResponses.clear();
@@ -289,6 +307,7 @@ export class MessageDeliveryService {
     this.seatPausedLookup = undefined;
     this.inFlight.clear();
     this.transportAccepted.clear();
+    this.pendingReadStamps.clear();
     this.transportAttempts.clear();
     this.attemptedClaims.clear();
     this.pendingRequestResponses.clear();
@@ -491,6 +510,7 @@ export class MessageDeliveryService {
     try {
       names = await store.listCanvasNames();
     } catch {
+      await this.retryPendingReadStamps(generation, match);
       return;
     }
     if (!this.active(generation)) return;
@@ -547,6 +567,38 @@ export class MessageDeliveryService {
           await this.attemptOne(canvas, group.nodeId, message);
         }
       }
+    }
+    await this.retryPendingReadStamps(generation, match);
+  }
+
+  /**
+   * Delivery already accepted, full-body read stamp still missing. Scan again
+   * without listing the message as pending — never re-hit the PTY.
+   */
+  private async retryPendingReadStamps(
+    generation: number,
+    match: (target: SurfaceDeliveryTarget) => boolean,
+  ): Promise<void> {
+    const store = this.store;
+    if (!store || this.pendingReadStamps.size === 0) return;
+    for (const [key, pending] of [...this.pendingReadStamps]) {
+      if (!this.active(generation)) return;
+      let doc: CanvasDoc | undefined;
+      try {
+        doc = await store.readDoc(pending.canvas);
+      } catch {
+        continue;
+      }
+      if (!this.active(generation)) return;
+      if (!doc) continue;
+      const node = doc.nodes.find((n) => n.id === pending.nodeId);
+      if (!node) {
+        this.pendingReadStamps.delete(key);
+        continue;
+      }
+      const target = deliveryTargetOf(node);
+      if (!target || !match(target)) continue;
+      await this.attemptOne(pending.canvas, pending.nodeId, pending.message);
     }
   }
 
@@ -626,10 +678,54 @@ export class MessageDeliveryService {
       nodeId,
       message.messageId,
     );
-    if (accepted && ptyInjectMarksRead(message)) {
-      await store.acceptMessageRead(canvas, nodeId, message.messageId);
+    if (!accepted) return false;
+    if (!ptyInjectMarksRead(message)) return true;
+    return store.acceptMessageRead(canvas, nodeId, message.messageId);
+  }
+
+  private rememberPendingReadStamp(
+    canvas: string,
+    nodeId: string,
+    message: Message,
+  ): void {
+    this.pendingReadStamps.set(flightKey(canvas, nodeId, message.messageId), {
+      canvas,
+      nodeId,
+      message,
+    });
+  }
+
+  private clearAttemptBookkeeping(key: string): void {
+    this.transportAccepted.delete(key);
+    this.attemptedClaims.delete(key);
+    this.transportAttempts.delete(key);
+    this.wakeRetryCounts.delete(key);
+    this.wakeRefusalLogged.delete(key);
+  }
+
+  /**
+   * Delivery receipt already exists — stamp read only when a full-body inject
+   * still lacks one. Never wake or paste.
+   */
+  private async stampReadIfNeeded(
+    store: MessageDeliveryStore,
+    canvas: string,
+    nodeId: string,
+    message: Message,
+    live: Message | undefined,
+  ): Promise<void> {
+    const key = flightKey(canvas, nodeId, message.messageId);
+    if (!live || !ptyInjectMarksRead(live)) {
+      this.pendingReadStamps.delete(key);
+      return;
     }
-    return accepted;
+    if (await store.hasAcceptedMessageRead(canvas, nodeId, live.messageId)) {
+      this.pendingReadStamps.delete(key);
+      return;
+    }
+    const stamped = await store.acceptMessageRead(canvas, nodeId, live.messageId);
+    if (stamped) this.pendingReadStamps.delete(key);
+    else this.rememberPendingReadStamp(canvas, nodeId, message);
   }
 
   private async attemptOne(
@@ -639,22 +735,34 @@ export class MessageDeliveryService {
   ): Promise<void> {
     const generation = this.lifecycleGeneration;
     if (!this.active(generation)) return;
-    if (!isPendingDelivery(message)) return;
     const transport = this.transport;
     const store = this.store;
     if (!transport || !store) return;
 
     const key = flightKey(canvas, nodeId, message.messageId);
+    if (!isPendingDelivery(message) && !this.pendingReadStamps.has(key)) return;
     if (this.inFlight.has(key)) return; // at-most-once under burst
     this.inFlight.add(key);
 
     try {
-      // Durable receipt is the stop condition (not canvas metadata.deliveredAt).
+      // Durable delivery receipt stops paste. A missing full-body read stamp
+      // is retried here without touching the transport.
       if (await store.hasAcceptedMessageDelivery(canvas, nodeId, message.messageId)) {
-        this.transportAccepted.delete(key);
-        this.attemptedClaims.delete(key);
-        this.wakeRetryCounts.delete(key);
-        this.wakeRefusalLogged.delete(key);
+        let live: Message | undefined;
+        let loaded = false;
+        try {
+          const doc = await store.readDoc(canvas);
+          live = doc?.nodes
+            .find((n) => n.id === nodeId)
+            ?.ether?.messages?.items.find((m) => m.messageId === message.messageId);
+          loaded = true;
+        } catch {
+          live = undefined;
+        }
+        if (this.active(generation) && loaded) {
+          await this.stampReadIfNeeded(store, canvas, nodeId, message, live);
+        }
+        this.clearAttemptBookkeeping(key);
         return;
       }
       if (!this.active(generation)) return;
@@ -684,7 +792,15 @@ export class MessageDeliveryService {
             nodeId,
             live,
           );
-          if (accepted) this.transportAccepted.delete(key);
+          if (accepted) {
+            this.pendingReadStamps.delete(key);
+            this.transportAccepted.delete(key);
+          } else if (
+            ptyInjectMarksRead(live) &&
+            (await store.hasAcceptedMessageDelivery(canvas, nodeId, live.messageId))
+          ) {
+            this.rememberPendingReadStamp(canvas, nodeId, message);
+          }
         }
         return;
       }
@@ -778,12 +894,15 @@ export class MessageDeliveryService {
         live,
       );
       if (accepted) {
-        this.transportAccepted.delete(key);
-        this.attemptedClaims.delete(key);
-        this.transportAttempts.delete(key);
-        this.wakeRetryCounts.delete(key);
-        this.wakeRefusalLogged.delete(key);
+        this.pendingReadStamps.delete(key);
+        this.clearAttemptBookkeeping(key);
       } else {
+        if (
+          ptyInjectMarksRead(live) &&
+          (await store.hasAcceptedMessageDelivery(canvas, nodeId, live.messageId))
+        ) {
+          this.rememberPendingReadStamp(canvas, nodeId, message);
+        }
         // Accept fail: keep transportAccepted so attach/idle only re-receipts.
         // Make the failure LOUD — a silent missing receipt is what let the
         // same message re-paste in production.

@@ -368,6 +368,16 @@ export class ProtoHarness {
             );
           }).pipe(Effect.catch(() => Effect.succeed(false))),
         ),
+      hasAcceptedMessageRead: (canvas: string, nodeId: string, messageId: string) =>
+        runtime.runPromise(
+          Effect.gen(function* () {
+            const repo = yield* WorkRepository;
+            return yield* repo.hasAcceptedDelivery(
+              { canvasName: canvas, nodeId },
+              mailboxMessageReadId(canvas, nodeId, messageId),
+            );
+          }).pipe(Effect.catch(() => Effect.succeed(false))),
+        ),
       acceptMessageDelivery: async (canvas: string, nodeId: string, messageId: string) => {
         try {
           const canvases = this.canvases;

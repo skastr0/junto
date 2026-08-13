@@ -56,10 +56,15 @@ const terminalDoc = (messages: ReadonlyArray<Message>): CanvasDoc => ({
 
 const makeStore = (
   initial: Record<string, CanvasDoc>,
-  options: { readonly acceptOk?: () => boolean; readonly now?: () => number } = {},
+  options: {
+    readonly acceptOk?: () => boolean;
+    readonly acceptReadOk?: () => boolean;
+    readonly now?: () => number;
+  } = {},
 ): MessageDeliveryStore => {
   const docs = new Map(Object.entries(initial).map(([k, v]) => [k, structuredClone(v)]));
   const accepted = new Set<string>();
+  const acceptedRead = new Set<string>();
   const keyOf = (canvas: string, nodeId: string, messageId: string) =>
     `${canvas}::${nodeId}::${messageId}`;
   return {
@@ -67,6 +72,8 @@ const makeStore = (
     readDoc: async (name) => docs.get(name),
     hasAcceptedMessageDelivery: async (canvas, nodeId, messageId) =>
       accepted.has(keyOf(canvas, nodeId, messageId)),
+    hasAcceptedMessageRead: async (canvas, nodeId, messageId) =>
+      acceptedRead.has(keyOf(canvas, nodeId, messageId)),
     acceptMessageDelivery: async (canvas, nodeId, messageId) => {
       if (options.acceptOk && !options.acceptOk()) return false;
       const k = keyOf(canvas, nodeId, messageId);
@@ -93,6 +100,9 @@ const makeStore = (
       return true;
     },
     acceptMessageRead: async (canvas, nodeId, messageId) => {
+      if (options.acceptReadOk && !options.acceptReadOk()) return false;
+      const k = keyOf(canvas, nodeId, messageId);
+      acceptedRead.add(k);
       const doc = docs.get(canvas);
       if (!doc) return true;
       const readAt = options.now?.() ?? Date.now();
@@ -531,6 +541,50 @@ describe("MessageDeliveryService", () => {
     expect(factoryLive?.metadata?.readAt).toBeUndefined();
   });
 
+  it("retries full-body read stamp without re-pasting", async () => {
+    const msg = userMsg("read-retry", "stamp later");
+    let acceptReadOk = false;
+    const store = makeStore(
+      { c: agentDoc([msg]) },
+      { acceptReadOk: () => acceptReadOk, now: () => 7 },
+    );
+    let sendCount = 0;
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        sendManagedTerminalPrompt: async () => {
+          sendCount += 1;
+          return true;
+        },
+      },
+      store,
+      now: () => 7,
+    });
+
+    service.notifyAppended("c", "agent", msg);
+    await waitUntil(() => store.hasAcceptedMessageDelivery("c", "agent", "read-retry"));
+    expect(sendCount).toBe(1);
+    const afterFirst = (await store.readDoc("c"))?.nodes[0]?.ether?.messages?.items[0];
+    expect(afterFirst?.metadata?.deliveredAt).toBe(7);
+    expect(afterFirst?.metadata?.readAt).toBeUndefined();
+    expect(await store.hasAcceptedMessageRead("c", "agent", "read-retry")).toBe(false);
+
+    service.onManagedTerminalIdle("bind-mira");
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(sendCount).toBe(1);
+    expect(
+      (await store.readDoc("c"))?.nodes[0]?.ether?.messages?.items[0]?.metadata?.readAt,
+    ).toBeUndefined();
+
+    acceptReadOk = true;
+    service.onManagedTerminalIdle("bind-mira");
+    await waitUntil(async () => store.hasAcceptedMessageRead("c", "agent", "read-retry"));
+    expect(
+      (await store.readDoc("c"))?.nodes[0]?.ether?.messages?.items[0]?.metadata?.readAt,
+    ).toBe(7);
+    expect(sendCount).toBe(1);
+  });
+
   it("stamps read after a full-body inject, not after a summary notify", async () => {
     const short = userMsg("short-1", "claim task");
     const store = makeStore({ c: agentDoc([short]) }, { now: () => 99 });
@@ -839,6 +893,12 @@ describe("MessageDeliveryService", () => {
       (await store.hasAcceptedMessageDelivery("c", "agent", "b2")) &&
       (await store.hasAcceptedMessageDelivery("c", "agent", "b3")),
     );
+    const batched = (await store.readDoc("c"))?.nodes[0]?.ether?.messages?.items ?? [];
+    expect(batched.map((m) => m.metadata?.readAt)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+    ]);
   });
 
   it("operator-draft gate holds mail without burning a transport attempt", async () => {

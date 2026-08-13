@@ -174,7 +174,19 @@ const stampMailboxReceipt = (
         }),
       );
     } catch {
-      return false;
+      try {
+        return await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const repo = yield* WorkRepository;
+            return yield* repo.hasAcceptedDelivery(
+              { canvasName: canvas, nodeId },
+              deliveryId,
+            );
+          }),
+        );
+      } catch {
+        return false;
+      }
     }
   });
 
@@ -1517,6 +1529,16 @@ export const registerVellumIpc = (): void => {
                 return yield* repo.hasAcceptedDelivery(
                   { canvasName: canvas, nodeId },
                   mailboxMessageDeliveryId(canvas, nodeId, messageId),
+                );
+              }).pipe(Effect.catch(() => Effect.succeed(false))),
+            ),
+          hasAcceptedMessageRead: (canvas, nodeId, messageId) =>
+            AppRuntime.runPromise(
+              Effect.gen(function* () {
+                const repo = yield* WorkRepository;
+                return yield* repo.hasAcceptedDelivery(
+                  { canvasName: canvas, nodeId },
+                  mailboxMessageReadId(canvas, nodeId, messageId),
                 );
               }).pipe(Effect.catch(() => Effect.succeed(false))),
             ),
