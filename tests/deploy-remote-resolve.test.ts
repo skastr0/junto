@@ -190,6 +190,11 @@ describe("buildRemoteDeployScript", () => {
     TEST_CDHASH,
     { kind: "app-tar", expectedPackageState: "present" },
   );
+  const firstInstall = buildRemoteDeployScript(
+    "/Users/remote station",
+    TEST_CDHASH,
+    { kind: "app-tar", expectedPackageState: "absent" },
+  );
 
   it("keeps every destructive remote target fixed to Vellum Command paths", () => {
     expect(script).toContain("APP='/Applications/Vellum Command.app'");
@@ -217,7 +222,8 @@ describe("buildRemoteDeployScript", () => {
     expect(script).toContain(
       "STATION_SOCK='/Users/remote station/.vellum-command/station/control.sock'",
     );
-    expect(script).toContain("--vellum-headless");
+    expect(script).not.toContain("--vellum-headless");
+    expect(firstInstall).toContain("--vellum-headless");
     expect(script).toContain("ENROLLMENT_READY");
 
     const recursiveRemovals = script
@@ -691,7 +697,10 @@ describe("remote deploy transaction behavior", () => {
           '  *CFBundleIdentifier*) echo "skastr0.vellumcommand" ;;',
           '  *CFBundleExecutable*) echo "Vellum Command" ;;',
           '  *ProgramArguments.2*) exit 1 ;;',
-          '  *ProgramArguments.1*) echo "--vellum-headless" ;;',
+          '  *ProgramArguments.1*)',
+          expectedPackageState === "absent"
+            ? '    echo "--vellum-headless" ;;'
+            : "    exit 1 ;;",
           '  *ProgramArguments.0*)',
           '    if [ "$FAKE_EXISTING_PLIST_INVALID" = "1" ] && [ "$target" = "$FAKE_PLIST" ]; then echo "/unowned/executable"; else echo "$FAKE_EXE"; fi',
           "    ;;",

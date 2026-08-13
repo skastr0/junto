@@ -1002,17 +1002,21 @@ const buildRemoteDeployScriptWithRuntime = (
   const generationProofLimit = String(waitLimits.generationProof);
   const socketReadyLimit = String(waitLimits.socketReady);
 
-  // Enrollment-only: --vellum-headless so packaged unconfigured boot never
-  // reaches the Command Center license gate. Full GUI (term+browser) is a
-  // separate activate step after Station configure.
-  const enrollmentFlag = "--vellum-headless";
+  // First install only: --vellum-headless so an unconfigured package never
+  // hits the Command Center license gate. Update stays Remote — redeploy
+  // is not unenroll.
+  const firstInstall = transfer.expectedPackageState === "absent";
+  const enrollmentFlag = firstInstall ? "--vellum-headless" : "";
+  const programArguments = firstInstall
+    ? `<string>${xmlText(remoteExecutablePath)}</string>
+<string>${xmlText("--vellum-headless")}</string>`
+    : `<string>${xmlText(remoteExecutablePath)}</string>`;
   const plistBody = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>Label</key><string>${LABEL}</string>
 <key>ProgramArguments</key><array>
-<string>${xmlText(remoteExecutablePath)}</string>
-<string>${xmlText(enrollmentFlag)}</string>
+${programArguments}
 </array>
 <key>RunAtLoad</key><true/>
 <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>

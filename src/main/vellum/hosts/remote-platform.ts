@@ -122,15 +122,6 @@ export const resolveRemoteDeploymentTarget = (
   commandCenterPlatform: NodeJS.Platform,
 ): Effect.Effect<RemoteDeploymentPreparation, never> =>
   Effect.gen(function* () {
-    if (commandCenterPlatform !== "darwin") {
-      return {
-        ok: false,
-        result: remoteDeploymentFailure(
-          "Deploy Remote must run from a macOS Command Center (local .app source)",
-          { code: "validation" },
-        ),
-      };
-    }
     if (host.kind !== "remote" || !host.sshEndpoint) {
       return {
         ok: false,
@@ -213,6 +204,19 @@ export const resolveRemoteDeploymentTarget = (
       };
     }
     stages.push(`remote uname ${evidence.platform.kernelName}`);
+
+    if (
+      evidence.platform.platform === "darwin" &&
+      commandCenterPlatform !== "darwin"
+    ) {
+      return {
+        ok: false,
+        result: remoteDeploymentFailure(
+          `${host.label}: a Darwin Remote needs a macOS Command Center (local .app source)`,
+          { code: "validation", stages },
+        ),
+      };
+    }
 
     return {
       ok: true,

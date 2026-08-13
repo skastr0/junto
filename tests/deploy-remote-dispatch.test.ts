@@ -434,7 +434,7 @@ describe("Remote deployment dispatcher", () => {
     );
   });
 
-  it("refuses a non-Darwin Command Center before touching SSH", async () => {
+  it("refuses a Darwin Remote from a Linux Command Center after the OS probe", async () => {
     const darwin = makeProvider("darwin");
     const ssh = makeSsh("Darwin\n");
     const dispatcher = makeRemoteDeploymentDispatcher({
@@ -451,8 +451,9 @@ describe("Remote deployment dispatcher", () => {
       code: "validation",
       disposition: "not-started",
     });
-    expect(ssh.warm).not.toHaveBeenCalled();
-    expect(ssh.run).not.toHaveBeenCalled();
+    expect(result.detail).toContain("Darwin Remote");
+    expect(ssh.warm).toHaveBeenCalled();
+    expect(ssh.run).toHaveBeenCalled();
     expect(darwin.deploy).not.toHaveBeenCalled();
   });
 
