@@ -1,5 +1,5 @@
 /** Darwin HostRuntime platform. Package is the signed .app. Attach is term. */
-import { Effect } from "effect";
+import { Effect, Layer } from "effect";
 import { join } from "node:path";
 import { HOST_RUNTIME_REMEDY_STAGE } from "@shared/deploy-job";
 import { classifyHostRuntimeBlocker, type HostWorkAttach } from "@shared/host-runtime";
@@ -8,7 +8,9 @@ import { TERM_REMOTE_SOCK_REL, termControlTokenPath } from "@shared/term-control
 import { SshExitError, type SshTarget } from "../ssh/domain";
 import { homeDirectoryLookup, oneShot } from "../ssh/program";
 import { remoteDarwinPackageExists } from "../ssh/read-commands";
-import type { SshTransportShape } from "../ssh/service";
+import { SshTransport, type SshTransportShape } from "../ssh/service";
+import { HostOps, HostTarget } from "./host-ops";
+import type { HostOpsCleanup } from "@shared/host-ops";
 import { TermControlClient } from "../term/control-client";
 import { configureRemoteHost } from "./configure-remote";
 import {
@@ -149,6 +151,10 @@ export type DarwinApplyOperations = {
     ssh: SshTransportShape,
     target: SshTarget,
   ) => Effect.Effect<HostWorkAttach>;
+  readonly cleanup?: (
+    ssh: SshTransportShape,
+    target: SshTarget,
+  ) => Effect.Effect<HostOpsCleanup>;
 };
 
 const productionDarwinApply: DarwinApplyOperations = {
@@ -156,6 +162,18 @@ const productionDarwinApply: DarwinApplyOperations = {
   configure: configureRemoteHost,
   activate: activateDarwinRemoteRuntimeForTarget,
   proveWorkAttach: proveDarwinWorkAttach,
+  cleanup: (ssh, target) =>
+    Effect.gen(function* () {
+      const ops = yield* HostOps;
+      return yield* ops.cleanup();
+    }).pipe(
+      Effect.provide(
+        HostOps.layerDarwin.pipe(
+          Layer.provide(HostTarget.layer(target)),
+          Layer.provide(Layer.succeed(SshTransport, ssh)),
+        ),
+      ),
+    ),
 };
 
 export const applyDarwinHostRuntime = (
@@ -194,6 +212,19 @@ export const applyDarwinHostRuntime = (
           recoveryAction: preparation.result.recoveryAction,
         }),
       );
+    }
+    if (operations.cleanup !== undefined) {
+      const cleaned = yield* operations
+        .cleanup(ssh, preparation.target.sshTarget)
+        .pipe(Effect.result);
+      if (
+        cleaned._tag === "Success" &&
+        cleaned.success.removed.length > 0
+      ) {
+        note(
+          `removed abandoned leftovers: ${cleaned.success.removed.join(", ")}`,
+        );
+      }
     }
     const firstInstall = gap === "needInstall" || gap === "needConfigure";
     let configured:
