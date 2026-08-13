@@ -196,7 +196,7 @@ describe("work-control main authoring classification", () => {
       "content.path": "read",
       "content.stat": "read",
       "content.materialize": "read",
-      "msg.list": "read",
+      "msg.list": "authorial",
       "msg.send": "authorial",
       "msg.read": "authorial",
       "msg.reply": "authorial",
@@ -224,7 +224,9 @@ describe("work-control main authoring classification", () => {
     expect(mainAuthoringLabelForWorkOperation("tasks.update")).toBe(
       "control.work.tasks-update",
     );
+    expect(mainAuthoringLabelForWorkOperation("msg.list")).toBe("control.work.msg-send");
     expect(mainAuthoringLabelForWorkOperation("msg.send")).toBe("control.work.msg-send");
+    expect(mainAuthoringLabelForWorkOperation("msg.read")).toBe("control.work.msg-send");
     expect(mainAuthoringLabelForWorkOperation("request.escalate")).toBe(
       "control.work.request-escalate",
     );

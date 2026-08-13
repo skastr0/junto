@@ -102,6 +102,7 @@ const MUTATING_OPS: ReadonlySet<string> = new Set([
   "tasks.update",
   "content.materialize",
   "preamble",
+  "msg.list",
   "msg.send",
   "msg.read",
   "msg.reply",
@@ -948,6 +949,11 @@ const dispatchOp = (
             overlaid.push(item);
             continue;
           }
+          const existingReadAt = item.metadata?.readAt;
+          if (typeof existingReadAt === "number" && Number.isFinite(existingReadAt)) {
+            overlaid.push(item);
+            continue;
+          }
           const marked = yield* work.workMessageMarkRead(
             caller.canvasName,
             caller.nodeId,
@@ -955,10 +961,7 @@ const dispatchOp = (
             reader.success,
           );
           const mapped = fromWorkResult(marked);
-          if (Result.isFailure(mapped)) {
-            overlaid.push(item);
-            continue;
-          }
+          if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
           const readAtMs = Date.parse(mapped.success.value.readAt);
           overlaid.push({
             ...item,

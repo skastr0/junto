@@ -90,7 +90,7 @@ const WORK_OPERATION_CLASSIFICATION = {
   "content.path": "read",
   "content.stat": "read",
   "content.materialize": "read",
-  "msg.list": "read",
+  "msg.list": "authorial",
   "msg.send": "authorial",
   "msg.read": "authorial",
   "msg.reply": "authorial",
@@ -113,6 +113,7 @@ const WORK_AUTHORING_LABELS = {
   "tasks.create": "control.work.tasks-create",
   "tasks.claim": "control.work.tasks-claim",
   "tasks.update": "control.work.tasks-update",
+  "msg.list": "control.work.msg-send",
   "msg.send": "control.work.msg-send",
   "msg.read": "control.work.msg-send",
   "msg.reply": "control.work.msg-send",
@@ -129,6 +130,7 @@ const WORK_AUTHORING_LABELS = {
     | "tasks.create"
     | "tasks.claim"
     | "tasks.update"
+    | "msg.list"
     | "msg.send"
     | "msg.read"
     | "msg.reply"

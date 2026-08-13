@@ -25,6 +25,7 @@ import {
   type WorkControlServer,
   type WorkControlServerOptions,
 } from "../src/main/vellum/work/control";
+import { mailboxMessageReadId } from "../src/main/vellum/work/mailbox-receipts";
 import { WorkLive, WorkService } from "../src/main/vellum/work/service";
 import {
   ContentService,
@@ -1019,6 +1020,19 @@ describe("work control transport", () => {
     })) as { ok: boolean };
     expect(ping.ok).toBe(true);
 
+    const refusedList = (await call(server.socketPath, {
+      token: token(),
+      op: "msg.list",
+      args: {},
+    })) as {
+      ok: false;
+      error: { type: string; message: string; details?: { retryable?: boolean } };
+    };
+    expect(refusedList.ok).toBe(false);
+    expect(refusedList.error.type).toBe("RuntimeDown");
+    expect(refusedList.error.message).toMatch(/final-flush|refused/);
+    expect(refusedList.error.details?.retryable).toBe(false);
+
     const refused = (await call(server.socketPath, {
       token: token(),
       op: "tasks.claim",
@@ -1484,6 +1498,30 @@ describe("work control transport", () => {
       args: { target: "bravo", text: "from agent" },
     })) as { ok: true; data: { messageId: string } };
     expect(sent.ok).toBe(true);
+
+    const peerPeek = (await call(server.socketPath, {
+      token: token(),
+      op: "msg.list",
+      args: { target: "bravo" },
+    })) as {
+      ok: true;
+      data: {
+        items: Array<{ messageId: string; metadata?: { readAt?: number } }>;
+      };
+    };
+    expect(peerPeek.ok).toBe(true);
+    expect(
+      peerPeek.data.items.find((item) => item.messageId === sent.data.messageId)
+        ?.metadata?.readAt,
+    ).toBeUndefined();
+    expect(
+      await runtime.runPromise(
+        repository.acceptedDeliveryAt(
+          { canvasName: "work-cli", nodeId: "bravo" },
+          mailboxMessageReadId("work-cli", "bravo", sent.data.messageId),
+        ),
+      ),
+    ).toBeUndefined();
 
     const beforeRead = (await call(server.socketPath, {
       token: token(),
