@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { Effect, Schema } from "effect";
+import { Context, Effect, Layer, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   classifyHostRuntimeBlocker,
@@ -8,7 +8,18 @@ import {
   HostRuntimeObservation,
   hostRuntimeGapCopy,
 } from "../src/shared/host-runtime";
-import { checkHostRuntime, observeRemoteHost } from "../src/main/vellum/hosts/host-runtime";
+import {
+  LINUX_REMOTE_DEPLOY_DISABLED_DETAIL,
+  RELEASE_CAPABILITIES,
+} from "../src/shared/release-capabilities";
+import { InstallationId } from "../src/shared/station-api";
+import {
+  admitHostRuntimeApply,
+  checkHostRuntime,
+  HostRuntime,
+  HostRuntimeLive,
+  observeRemoteHost,
+} from "../src/main/vellum/hosts/host-runtime";
 import { linuxHostRuntimePlatform } from "../src/main/vellum/hosts/host-runtime-linux";
 import {
   combineHostProcessPlanes,
@@ -16,11 +27,14 @@ import {
   workAttachFromTermConnect,
   workAttachFromTokenFile,
 } from "../src/main/vellum/hosts/host-runtime-platform";
+import { HostsService } from "../src/main/vellum/hosts/service";
+import { StationFleetTargetRepository } from "../src/main/vellum/station/fleet-target-repository";
 import {
   parseSshEndpoint,
   SshExitError,
   SshTimeoutError,
 } from "../src/main/vellum/ssh/domain";
+import { SshTransport } from "../src/main/vellum/ssh/service";
 import type { RemoteHost } from "../src/shared/remote-hosts";
 
 const observation = (
@@ -516,6 +530,166 @@ describe("linuxHostRuntimePlatform.observePlanes", () => {
   });
 });
 
+describe("admitHostRuntimeApply", () => {
+  const linuxObservation = observation({
+    platform: "linux",
+    hostId: "studio",
+    package: "absent",
+  });
+  const darwinObservation = observation({
+    platform: "darwin",
+    hostId: "studio",
+    package: "absent",
+  });
+
+  it("lets a Linux Command Center apply a Linux Remote only when the flag is on", () => {
+    const admitted = admitHostRuntimeApply({
+      observation: linuxObservation,
+      hostLabel: "Studio",
+      commandCenterPlatform: "linux",
+      release: { linuxRemoteDeploy: true, darwinRemoteDeploy: true },
+    });
+    expect(admitted).toEqual({ ok: true, platform: "linux" });
+  });
+
+  it("keeps linuxRemoteDeploy off and refuses Linux apply under production", () => {
+    expect(RELEASE_CAPABILITIES.linuxRemoteDeploy).toBe(false);
+    const fromLinuxCc = admitHostRuntimeApply({
+      observation: linuxObservation,
+      hostLabel: "Studio",
+      commandCenterPlatform: "linux",
+    });
+    const fromDarwinCc = admitHostRuntimeApply({
+      observation: linuxObservation,
+      hostLabel: "Studio",
+      commandCenterPlatform: "darwin",
+    });
+    expect(fromLinuxCc.ok).toBe(false);
+    expect(fromDarwinCc.ok).toBe(false);
+    if (fromLinuxCc.ok || fromDarwinCc.ok) return;
+    expect(fromLinuxCc.detail).toBe(
+      `Studio: ${LINUX_REMOTE_DEPLOY_DISABLED_DETAIL}`,
+    );
+    expect(fromDarwinCc.detail).toBe(fromLinuxCc.detail);
+    expect(fromLinuxCc.code).toBe("validation");
+  });
+
+  it("refuses a Darwin Remote from a Linux Command Center after uname", () => {
+    const admitted = admitHostRuntimeApply({
+      observation: darwinObservation,
+      hostLabel: "Studio",
+      commandCenterPlatform: "linux",
+      release: { linuxRemoteDeploy: true, darwinRemoteDeploy: true },
+    });
+    expect(admitted.ok).toBe(false);
+    if (admitted.ok) return;
+    expect(admitted.detail).toBe(
+      "Studio: a Darwin Remote needs a macOS Command Center (local .app source)",
+    );
+    expect(admitted.code).toBe("validation");
+  });
+
+  it("does not treat an unknown platform as down or as a Linux apply", () => {
+    const admitted = admitHostRuntimeApply({
+      observation: observation({ platform: "unknown", package: "absent" }),
+      hostLabel: "Studio",
+      commandCenterPlatform: "linux",
+      release: { linuxRemoteDeploy: true, darwinRemoteDeploy: true },
+    });
+    expect(admitted.ok).toBe(false);
+    if (admitted.ok) return;
+    expect(admitted.detail).not.toMatch(/Can't reach|network/u);
+    expect(admitted.detail).not.toBe(
+      `Studio: ${LINUX_REMOTE_DEPLOY_DISABLED_DETAIL}`,
+    );
+  });
+});
+
+describe("HostRuntimeLive Linux flag honesty", () => {
+  const host: RemoteHost = {
+    id: "studio",
+    label: "Studio",
+    kind: "remote",
+    sshEndpoint: "studio-box",
+    capabilities: ["terminal"],
+  };
+  const configure = {
+    commandCenterInstallationId:
+      Schema.decodeUnknownSync(InstallationId)("cc-installation"),
+    appVersion: "0.1.0",
+  };
+
+  it("observes a Linux generation then refuses apply while the flag is off", async () => {
+    expect(RELEASE_CAPABILITIES.linuxRemoteDeploy).toBe(false);
+    let warmCalls = 0;
+    let runs = 0;
+    const stub = <Tag extends Context.Service<any, any>>(
+      tag: Tag,
+    ): Context.Service.Shape<Tag> => ({}) as Context.Service.Shape<Tag>;
+    const layer = Layer.provideMerge(
+      HostRuntimeLive,
+      Layer.mergeAll(
+        Layer.succeed(HostsService, {
+          ...stub(HostsService),
+          get: () => Effect.succeed(host),
+        }),
+        Layer.succeed(SshTransport, {
+          ...stub(SshTransport),
+          warm: () =>
+            Effect.sync(() => {
+              warmCalls += 1;
+            }),
+          run: () => {
+            runs += 1;
+            if (runs === 1) {
+              return Effect.succeed({ stdout: "Linux\n", stderr: "" });
+            }
+            if (runs === 2) {
+              return Effect.succeed({ stdout: "/home/alice\n", stderr: "" });
+            }
+            if (runs === 3) {
+              return Effect.succeed({
+                stdout: "LINUX_USERLAND_OBSERVE_V1 present=0\n",
+                stderr: "",
+              });
+            }
+            return Effect.fail(
+              new SshTimeoutError({
+                endpoint: "studio-box",
+                operation: "probe",
+                timeoutMs: 1_000,
+              }),
+            );
+          },
+        }),
+        Layer.succeed(StationFleetTargetRepository, {
+          ...stub(StationFleetTargetRepository),
+          get: () => Effect.succeed(undefined),
+        }),
+      ),
+    );
+
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        const runtime = yield* HostRuntime;
+        return yield* runtime.reconcile("studio", {
+          intent: "deploy",
+          configure,
+        });
+      }).pipe(Effect.provide(layer)),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.detail).toBe(
+      `Studio: ${LINUX_REMOTE_DEPLOY_DISABLED_DETAIL}`,
+    );
+    expect(result.code).toBe("validation");
+    expect(result.disposition).toBe("not-started");
+    expect(warmCalls).toBe(0);
+    expect(runs).toBeGreaterThanOrEqual(3);
+  });
+});
+
 describe("HostRuntime inversion", () => {
   it("Deploy goes through reconcile, not the old ceremony from the coordinator", () => {
     const coordinator = readFileSync(
@@ -530,6 +704,8 @@ describe("HostRuntime inversion", () => {
       "utf8",
     );
     expect(runtime).toContain("commandCenterMayPrepareRemote");
+    expect(runtime).toContain("admitHostRuntimeApply");
+    expect(runtime).toContain("releaseAllowsTargetPlatform");
   });
 
   it("keeps Darwin and Linux as separate platform adapters", () => {
@@ -556,13 +732,15 @@ describe("HostRuntime inversion", () => {
     expect(linux).not.toContain("prepareRemoteDeployment");
     expect(linux).not.toContain("TermControlClient");
     expect(linux).toContain("buildObservedRemoteDeploymentTarget");
-    expect(linux).toContain("linuxRemoteDeploymentProvider");
+    expect(linux).toContain("loadRemoteDeploymentProvider");
+    expect(linux).not.toContain("linuxRemoteDeploymentProvider");
     expect(linux).toContain("activateLinuxRemoteRuntimeForTarget");
     expect(linux).toContain("observeLinuxUserlandPackage");
     expect(linux).toContain("handshakeLinuxWorkControl");
     expect(linux).toContain("proveWorkAttach");
     expect(linux).toContain("combineHostProcessPlanes");
     expect(linux).not.toMatch(/package:\s*"unknown" as const/u);
+    expect(linux).not.toContain("linuxRemoteDeploy");
     const platform = readFileSync(
       new URL("../src/main/vellum/hosts/host-runtime-platform.ts", import.meta.url),
       "utf8",

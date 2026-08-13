@@ -25,9 +25,9 @@ import {
 import { reportDeployStage } from "./deploy-job-registry";
 import {
   activateLinuxRemoteRuntimeForTarget,
-  linuxRemoteDeploymentProvider,
   observeLinuxUserlandPackage,
 } from "./deploy-linux";
+import { loadRemoteDeploymentProvider } from "./deploy-remote";
 import {
   combineHostProcessPlanes,
   handshakeLinuxWorkControl,
@@ -47,7 +47,10 @@ import type {
   RemoteDeploymentProviderInput,
 } from "./remote-deployment";
 import { decodeRemoteHomeDirectoryOutput } from "./remote-home";
-import { buildObservedRemoteDeploymentTarget } from "./remote-platform";
+import {
+  buildObservedRemoteDeploymentTarget,
+  remoteDeploymentFailure,
+} from "./remote-platform";
 
 const observePlanes = (
   ssh: SshTransportShape,
@@ -128,8 +131,40 @@ const proveLinuxWorkAttach = (
     return yield* probeLinuxWorkAttach(ssh, target, home);
   });
 
+/** Release loader is the apply gate. Apply never imports the provider body. */
+const deployThroughReleaseLoader = (
+  input: RemoteDeploymentProviderInput,
+): Effect.Effect<DeployRemoteResult> =>
+  Effect.tryPromise({
+    try: () => loadRemoteDeploymentProvider("linux"),
+    catch: (cause) =>
+      cause instanceof Error
+        ? cause
+        : new Error("linux deployment provider is unavailable"),
+  }).pipe(
+    Effect.flatMap((provider) => {
+      if (provider === undefined || provider.platform !== "linux") {
+        return Effect.succeed(
+          remoteDeploymentFailure(
+            `${input.target.host.label}: linux deployment provider is unavailable`,
+            { code: "validation" },
+          ),
+        );
+      }
+      return provider.deploy(input);
+    }),
+    Effect.catch((error) =>
+      Effect.succeed(
+        remoteDeploymentFailure(
+          `${input.target.host.label}: ${error.message}`,
+          { code: "validation", message: error.message },
+        ),
+      ),
+    ),
+  );
+
 const productionLinuxApply: LinuxApplyOperations = {
-  deploy: (input) => linuxRemoteDeploymentProvider.deploy(input),
+  deploy: deployThroughReleaseLoader,
   configure: configureRemoteHost,
   activate: activateLinuxRemoteRuntimeForTarget,
   proveWorkAttach: proveLinuxWorkAttach,

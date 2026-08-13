@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { computeDeployCapabilities } from "../src/shared/deploy-capabilities";
-import { RELEASE_CAPABILITIES } from "../src/shared/release-capabilities";
+import {
+  computeDeployCapabilities,
+  releaseAllowsTargetPlatform,
+} from "../src/shared/deploy-capabilities";
+import {
+  LINUX_REMOTE_DEPLOY_DISABLED_DETAIL,
+  RELEASE_CAPABILITIES,
+} from "../src/shared/release-capabilities";
 
 describe("computeDeployCapabilities", () => {
   it("fails closed when operator kill-switch is off", () => {
@@ -90,5 +96,21 @@ describe("computeDeployCapabilities", () => {
     });
     expect(caps.effective.deployRemote).toBe(true);
     expect(caps.effective.boxFleet).toBe(true);
+  });
+});
+
+describe("releaseAllowsTargetPlatform", () => {
+  it("freezes Linux and admits Darwin under production", () => {
+    expect(RELEASE_CAPABILITIES.linuxRemoteDeploy).toBe(false);
+    expect(releaseAllowsTargetPlatform(RELEASE_CAPABILITIES, "linux")).toEqual({
+      ok: false,
+      detail: LINUX_REMOTE_DEPLOY_DISABLED_DETAIL,
+    });
+    expect(releaseAllowsTargetPlatform(RELEASE_CAPABILITIES, "darwin").ok).toBe(
+      true,
+    );
+    expect(
+      releaseAllowsTargetPlatform(RELEASE_CAPABILITIES, undefined).ok,
+    ).toBe(true);
   });
 });

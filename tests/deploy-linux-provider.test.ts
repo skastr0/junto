@@ -402,6 +402,38 @@ describe("Linux userland remote deployment provider", () => {
     expect(writes).toEqual([]);
   });
 
+  it("maps residual defects to a stable product line, not String(defect)", async () => {
+    const { ssh, writes } = makeSsh();
+    const provider = makeLinuxRemoteDeploymentProvider({
+      artifactAuthority: {
+        resolve: async () => ({
+          version: "1.2.3",
+          bytes: archive.byteLength,
+          sha256: archiveSha256,
+          authorize: () => {
+            throw { leak: "internal-defect-secret" };
+          },
+        }),
+      },
+      liveWorkAuthority: {
+        acquire: () =>
+          Effect.succeed({
+            acquired: true,
+            evidence: {
+              activeTerminalSessions: 0,
+              observationId: "test",
+            },
+          }),
+      },
+    });
+    const result = await Effect.runPromise(provider.deploy(providerInput(ssh)));
+    expect(result.ok).toBe(false);
+    expect(result.detail).toContain("userland runtime deploy failed unexpectedly");
+    expect(result.detail).not.toContain("internal-defect-secret");
+    expect(result.detail).not.toContain("[object Object]");
+    expect(writes).toEqual([]);
+  });
+
   it("restarts the systemd user service as the HostRuntime restart act", async () => {
     const { ssh } = makeSsh({
       preflightStdout: "LINUX_USERLAND_RESTART_V1 ok=1\n",

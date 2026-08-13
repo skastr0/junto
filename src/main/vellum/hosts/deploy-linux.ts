@@ -185,6 +185,9 @@ export const makeProductionLinuxArtifactAuthority = (input: { readonly home?: st
 export type LinuxRemoteLiveWorkAuthority = { readonly acquire: (input: RemoteDeploymentProviderInput, live: boolean, proof: () => Promise<unknown>) => Effect.Effect<{ readonly acquired: boolean; readonly reason?: "active-terminal-sessions" | "maintenance-held" | "shutting-down"; readonly evidence: { readonly activeTerminalSessions: number; readonly observationId: string }; readonly release?: Effect.Effect<void, never> }, Error>; };
 export const makeProductionLinuxLiveWorkAuthority = (): LinuxRemoteLiveWorkAuthority => ({ acquire: () => Effect.succeed({ acquired: true, evidence: { activeTerminalSessions: 0, observationId: "userland-deploy" }, release: Effect.void }) });
 
+const LINUX_USERLAND_DEPLOY_RESIDUAL_DETAIL =
+  "userland runtime deploy failed unexpectedly";
+
 const failure = (input: RemoteDeploymentProviderInput, detail: string, code: NonNullable<DeployRemoteResult["code"]> = "io"): DeployRemoteResult => ({ ok: false, detail: `${input.target.host.label}: ${detail}`, message: detail, code, stages: input.target.progress, disposition: "not-started" });
 const runPreflight = (input: RemoteDeploymentProviderInput) => Effect.gen(function* () { const command = yield* compileLinuxUserlandPreflight(); const stdin = yield* makeRemoteStdin(""); const result = yield* input.ssh.run(oneShotWithStdin(input.target.sshTarget, command, stdin)); return decodeLinuxRemotePreflight(result.stdout); });
 
@@ -297,15 +300,10 @@ export const makeLinuxRemoteDeploymentProvider = (input: { readonly artifactAuth
         };
       }),
     ).pipe(
-      // Provider contract is errorless: any residual Effect failure becomes a
-      // structured DeployRemoteResult (never an uncaught channel error).
-      Effect.catchDefect((defect) =>
-        Effect.succeed(
-          failure(
-            request,
-            defect instanceof Error ? defect.message : String(defect),
-          ),
-        ),
+      // Provider contract is errorless. Residual defects stay a stable
+      // product line — never String(defect) into operator detail.
+      Effect.catchDefect(() =>
+        Effect.succeed(failure(request, LINUX_USERLAND_DEPLOY_RESIDUAL_DETAIL)),
       ),
     ) as Effect.Effect<DeployRemoteResult, never>,
 });

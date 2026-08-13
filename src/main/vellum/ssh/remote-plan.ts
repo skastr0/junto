@@ -4,6 +4,30 @@ import { makeRemoteCommand, type RemoteCommand, SshInputError } from "./domain";
 
 const quote = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`;
 
+/**
+ * Remote-side work-control ping. A Unix connect that immediately closes is
+ * not Ready — the daemon must answer a well-formed NDJSON envelope.
+ */
+export const LINUX_WORK_CONTROL_HANDSHAKE_PYTHON = String.raw`import json,socket,sys
+sock, token_path = sys.argv[1], sys.argv[2]
+token = open(token_path, encoding="utf-8").read().strip()
+if not token:
+    raise SystemExit(1)
+s = socket.socket(socket.AF_UNIX)
+s.settimeout(2)
+s.connect(sock)
+s.sendall((json.dumps({"token": token, "op": "ping"}) + "\n").encode())
+buf = b""
+while b"\n" not in buf:
+    chunk = s.recv(4096)
+    if not chunk:
+        raise SystemExit(1)
+    buf += chunk
+s.close()
+resp = json.loads(buf.split(b"\n", 1)[0].decode())
+raise SystemExit(0 if isinstance(resp, dict) and "ok" in resp else 1)
+`;
+
 /** Owner-only, capability-independent preflight. */
 export const compileLinuxUserlandPreflightSource = (): string => String.raw`
 set -eu
@@ -71,7 +95,7 @@ prove_activation() {
       && [ -f "$TOKEN" ] && [ ! -L "$TOKEN" ] \
       && [ "$(/usr/bin/stat -c '%a' "$SOCK" 2>/dev/null || true)" = 600 ] \
       && [ "$(/usr/bin/stat -c '%a' "$TOKEN" 2>/dev/null || true)" = 600 ] \
-      && /usr/bin/python3 -c 'import socket,sys; s=socket.socket(socket.AF_UNIX); s.settimeout(2); s.connect(sys.argv[1]); s.close()' "$SOCK"
+      && /usr/bin/python3 -c '${LINUX_WORK_CONTROL_HANDSHAKE_PYTHON}' "$SOCK" "$TOKEN"
     then
       return 0
     fi

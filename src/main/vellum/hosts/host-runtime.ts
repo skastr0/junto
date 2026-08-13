@@ -2,10 +2,11 @@
  * HostRuntime — one Effect service for Command Center and Remote.
  *
  * Placement and platform select adapters. Deploy is reconcile:
- * observe → decideHostRuntimeGap → platform.apply. The coordinator
- * does not call deployConfiguredRemote.
+ * observe → decideHostRuntimeGap → admit → platform.apply. The
+ * coordinator does not call deployConfiguredRemote.
  */
 import { Context, Effect, Layer } from "effect";
+import { releaseAllowsTargetPlatform } from "@shared/deploy-capabilities";
 import {
   classifyHostRuntimeBlocker,
   decideHostRuntimeGap,
@@ -16,6 +17,10 @@ import {
   type HostRuntimePlatform,
 } from "@shared/host-runtime";
 import type { InstallationId } from "@shared/installation-id";
+import {
+  RELEASE_CAPABILITIES,
+  type ReleaseCapabilities,
+} from "@shared/release-capabilities";
 import { RemoteHostsError, type RemoteHost } from "@shared/remote-hosts";
 import { parseHostSshRoute } from "../ssh/domain";
 import { formatSshFailure } from "../ssh/format";
@@ -84,6 +89,61 @@ const refused = (
   role: "previous",
   configuration: { ok: false, detail },
 });
+
+export type HostRuntimeApplyAdmission =
+  | { readonly ok: true; readonly platform: "darwin" | "linux" }
+  | {
+      readonly ok: false;
+      readonly detail: string;
+      readonly code:
+        | "io"
+        | "validation"
+        | "not_found"
+        | "conflict"
+        | "auth_required";
+    };
+
+/**
+ * After uname: pairing (Darwin Remote needs a local .app) then the release
+ * freeze. linuxRemoteDeploy stays a real apply gate, not a label.
+ */
+export const admitHostRuntimeApply = (input: {
+  readonly observation: HostRuntimeObservation;
+  readonly hostLabel: string;
+  readonly commandCenterPlatform: NodeJS.Platform;
+  readonly release?: Pick<
+    ReleaseCapabilities,
+    "linuxRemoteDeploy" | "darwinRemoteDeploy"
+  >;
+}): HostRuntimeApplyAdmission => {
+  const release = input.release ?? RELEASE_CAPABILITIES;
+  const platform = input.observation.platform;
+  if (platform === "unknown") {
+    return {
+      ok: false,
+      detail: hostRuntimeGapCopy("needOperator", input.observation.blocker),
+      code: "validation",
+    };
+  }
+  if (
+    !commandCenterMayPrepareRemote(input.commandCenterPlatform, platform)
+  ) {
+    return {
+      ok: false,
+      detail: `${input.hostLabel}: a Darwin Remote needs a macOS Command Center (local .app source)`,
+      code: "validation",
+    };
+  }
+  const gate = releaseAllowsTargetPlatform(release, platform);
+  if (!gate.ok) {
+    return {
+      ok: false,
+      detail: `${input.hostLabel}: ${gate.detail}`,
+      code: "validation",
+    };
+  }
+  return { ok: true, platform };
+};
 
 export class HostRuntime extends Context.Service<
   HostRuntime,
@@ -303,20 +363,13 @@ export const HostRuntimeLive = Layer.effect(
           );
         }
 
-        const platform = observation.platform;
-        if (platform === "unknown") {
-          return refused(
-            host.success,
-            hostRuntimeGapCopy("needOperator", observation.blocker),
-            "validation",
-          );
-        }
-        if (!commandCenterMayPrepareRemote(process.platform, platform)) {
-          return refused(
-            host.success,
-            `${host.success.label}: a Darwin Remote needs a macOS Command Center (local .app source)`,
-            "validation",
-          );
+        const admission = admitHostRuntimeApply({
+          observation,
+          hostLabel: host.success.label,
+          commandCenterPlatform: process.platform,
+        });
+        if (!admission.ok) {
+          return refused(host.success, admission.detail, admission.code);
         }
 
         const context: HostRuntimeApplyContext = {
@@ -334,7 +387,7 @@ export const HostRuntimeLive = Layer.effect(
             ? {}
             : { artifactSource: input.artifactSource }),
         };
-        const applied = yield* adapterFor(platform).apply(context);
+        const applied = yield* adapterFor(admission.platform).apply(context);
         if (input.onCompleted === undefined) return applied;
         return yield* input.onCompleted(host.success, applied).pipe(
           Effect.map(() => ({ ...applied, statusRecorded: true })),
