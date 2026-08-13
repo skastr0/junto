@@ -28,11 +28,7 @@ import { StationFleetTargetRepository } from "../station/fleet-target-repository
 import { StationRepository } from "../station/repository";
 import type { ConfigureRemoteOptions } from "./configure-remote";
 import type { ConfiguredRemoteDeployResult } from "./deploy-configured-remote";
-import {
-  HostRuntime,
-  hostRuntimePlanDetail,
-  priorInstallationForDeploy,
-} from "./host-runtime";
+import { HostRuntime } from "./host-runtime";
 import {
   appendDeployJobStage,
   beginDeployJob,
@@ -404,53 +400,11 @@ export const deployRemoteEffect = (
 
       setActiveDeployJobHost(input.id);
       const hostRuntime = yield* HostRuntime;
-      const plan = yield* hostRuntime.plan(input.id, "deploy");
-      appendDeployJobStage(input.id, hostRuntimePlanDetail(plan));
-      const priorInstallationId = priorInstallationForDeploy(plan);
-      if (plan.gap === "needOperator") {
-        return failJob({
-          ok: false,
-          detail: hostRuntimePlanDetail(plan),
-          code: plan.observation.blocker?.kind === "auth" ? "auth_required" : "conflict",
-          message: hostRuntimePlanDetail(plan),
-          stages: getDeployJob(input.id)?.stages,
-        });
-      }
-      const deployResult = yield* hosts
-        .deployConfiguredRemote(input.id, {
-          ...authority.success,
+      const deployResult = yield* hostRuntime
+        .reconcile(input.id, {
+          intent: "deploy",
+          configure: authority.success,
           ...(artifactSource === undefined ? {} : { artifactSource }),
-          ...(priorInstallationId === undefined
-            ? {}
-            : { stationInstallationId: priorInstallationId as InstallationId }),
-          onAdmitted: (host) => {
-            const admittedAt = new Date().toISOString();
-            const detail = `${host.label}: deployment admitted; completion receipt pending`;
-            return stationStatus
-              .recordDeployment(
-                deployRecordFromResult({
-                  hostId: host.id,
-                  endpoint: host.sshEndpoint ?? "",
-                  ok: false,
-                  outcome: "indeterminate",
-                  packageState: "previous",
-                  role: "previous",
-                  configurationOk: false,
-                  detail,
-                  stages: ["durable deployment admission recorded"],
-                  at: admittedAt,
-                }),
-              )
-              .pipe(
-                Effect.mapError(
-                  (error) =>
-                    new RemoteHostsError(
-                      "io",
-                      error instanceof Error ? error.message : String(error),
-                    ),
-                ),
-              );
-          },
           onCompleted: (host, result) => {
             const recordedAt = new Date().toISOString();
             return stationStatus

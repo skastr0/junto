@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
@@ -107,5 +108,32 @@ describe("decideHostRuntimeGap", () => {
     expect(
       decideHostRuntimeGap(observation({ network: "down" }), "deploy"),
     ).toBe("stillTrying");
+  });
+});
+
+describe("HostRuntime inversion", () => {
+  it("Deploy goes through reconcile, not the old ceremony from the coordinator", () => {
+    const coordinator = readFileSync(
+      new URL("../src/main/vellum/hosts/operator-coordinator.ts", import.meta.url),
+      "utf8",
+    );
+    expect(coordinator).toContain("hostRuntime");
+    expect(coordinator).toContain(".reconcile(");
+    expect(coordinator).not.toMatch(/hosts\s*\n?\s*\.deployConfiguredRemote/u);
+  });
+
+  it("keeps Darwin and Linux as separate platform adapters", () => {
+    const darwin = readFileSync(
+      new URL("../src/main/vellum/hosts/host-runtime-darwin.ts", import.meta.url),
+      "utf8",
+    );
+    const linux = readFileSync(
+      new URL("../src/main/vellum/hosts/host-runtime-linux.ts", import.meta.url),
+      "utf8",
+    );
+    expect(darwin).toContain("remoteDarwinPackageExists");
+    expect(darwin).not.toContain("workControlSocketPath");
+    expect(linux).toContain("workControlSocketPath");
+    expect(linux).not.toContain("remoteDarwinPackageExists");
   });
 });

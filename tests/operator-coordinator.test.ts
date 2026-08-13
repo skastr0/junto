@@ -79,9 +79,9 @@ describe("operator deployment coordinator", () => {
     expect(boxRefreshes).toBe(0);
   });
 
-  it("passes the prior installation id so an update never re-enters enroll", async () => {
+  it("deploys only through HostRuntime.reconcile", async () => {
     const prior = "station-remote-a";
-    let seen: { stationInstallationId?: string } | undefined;
+    let reconciled: string | undefined;
     const settings = defaultSettings();
     const enabled = {
       ...settings,
@@ -103,19 +103,8 @@ describe("operator deployment coordinator", () => {
             sshEndpoint: "remote-a",
             capabilities: [],
           }),
-        deployConfiguredRemote: (_id, options) => {
-          seen = options;
-          return Effect.succeed({
-            ok: true,
-            detail: "updated",
-            stages: [],
-            disposition: "ready",
-            outcome: "ready",
-            packageState: "present",
-            role: "remote",
-            stationInstallationId: prior,
-            configuration: { ok: true, detail: "configure skipped" },
-          } as never);
+        deployConfiguredRemote: () => {
+          throw new Error("coordinator must not call deployConfiguredRemote");
         },
       }),
       Layer.succeed(StationStatusService, {
@@ -151,22 +140,20 @@ describe("operator deployment coordinator", () => {
       }),
       Layer.succeed(HostRuntime, {
         ...stub(HostRuntime),
-        plan: () =>
-          Effect.succeed({
-            observation: {
-              hostId: "remote-a",
-              placement: "remote",
-              platform: "darwin",
-              network: "up",
-              package: "present",
-              process: "up",
-              workAttach: "down",
-              mode: "remote",
-              priorInstallationId: prior,
-            },
-            gap: "needRestart",
-            priorInstallationId: prior,
-          }),
+        reconcile: (hostId, request) => {
+          reconciled = `${hostId}:${request.intent}`;
+          return Effect.succeed({
+            ok: true,
+            detail: "updated",
+            stages: [],
+            disposition: "ready",
+            outcome: "ready",
+            packageState: "present",
+            role: "remote",
+            stationInstallationId: prior,
+            configuration: { ok: true, detail: "configure skipped" },
+          } as never);
+        },
       }),
     );
 
@@ -174,7 +161,7 @@ describe("operator deployment coordinator", () => {
       deployRemoteEffect({ id: "remote-a" }).pipe(Effect.provide(layer)),
     );
 
-    expect(seen?.stationInstallationId).toBe(prior);
+    expect(reconciled).toBe("remote-a:deploy");
     expect(result.ok).toBe(true);
   });
 

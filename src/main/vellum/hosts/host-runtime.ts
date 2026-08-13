@@ -1,12 +1,11 @@
 /**
- * HostRuntime — one Effect service. Local and Remote, Darwin and Linux,
- * implement observe. Reconcile is shared: observe → gap → act.
+ * HostRuntime — one Effect service for Command Center and Remote.
  *
- * Act is existing deployConfiguredRemoteHost with the right prior installation
- * id. First install configures. Update never re-enters enroll.
+ * Placement and platform select adapters. Deploy is reconcile:
+ * observe → decideHostRuntimeGap → platform.apply. The coordinator
+ * does not call deployConfiguredRemote.
  */
 import { Context, Effect, Layer } from "effect";
-import { join } from "node:path";
 import {
   decideHostRuntimeGap,
   hostRuntimeGapCopy,
@@ -15,47 +14,37 @@ import {
   type HostRuntimeObservation,
   type HostRuntimePlatform,
 } from "@shared/host-runtime";
+import type { InstallationId } from "@shared/installation-id";
 import type { RemoteHost } from "@shared/remote-hosts";
-import { stationControlDir, stationDoorSocketPath } from "@shared/station-ssh-control";
-import { TERM_REMOTE_SOCK_REL } from "@shared/term-control";
-import { workControlDir, workControlSocketPath } from "@shared/work-control";
-import {
-  SshExitError,
-  parseHostSshRoute,
-  type SshTarget,
-} from "../ssh/domain";
+import { parseHostSshRoute } from "../ssh/domain";
 import { homeDirectoryLookup, oneShot } from "../ssh/program";
-import {
-  remoteDarwinPackageExists,
-  remoteTestSocketExists,
-  remoteUname,
-} from "../ssh/read-commands";
+import { remoteUname } from "../ssh/read-commands";
 import { SshTransport, type SshTransportShape } from "../ssh/service";
 import { StationFleetTargetRepository } from "../station/fleet-target-repository";
+import type { ConfigureRemoteOptions } from "./configure-remote";
 import type { ConfiguredRemoteDeployResult } from "./deploy-configured-remote";
-import { HostsService } from "./service";
+import { darwinHostRuntimePlatform } from "./host-runtime-darwin";
+import { linuxHostRuntimePlatform } from "./host-runtime-linux";
+import type { HostRuntimeApplyContext } from "./host-runtime-platform";
+import type { LinuxReleaseCacheSource } from "./linux-release-feed";
 import { decodeRemoteHomeDirectoryOutput } from "./remote-home";
+import { HostsService } from "./service";
+import type { RemoteHostsError } from "@shared/remote-hosts";
 
 type Ssh = SshTransportShape;
 
-export type HostRuntimeReconcile = {
-  readonly observation: HostRuntimeObservation;
-  readonly gap: HostRuntimeGap;
-  readonly priorInstallationId?: string;
+export type HostRuntimeReconcileInput = {
+  readonly intent: HostRuntimeIntent;
+  readonly configure: ConfigureRemoteOptions;
+  readonly artifactSource?: LinuxReleaseCacheSource;
+  readonly onAdmitted?: (
+    host: RemoteHost,
+  ) => Effect.Effect<void, RemoteHostsError>;
+  readonly onCompleted?: (
+    host: RemoteHost,
+    result: ConfiguredRemoteDeployResult,
+  ) => Effect.Effect<void, RemoteHostsError>;
 };
-
-export class HostRuntime extends Context.Service<
-  HostRuntime,
-  {
-    readonly observe: (
-      hostId: string,
-    ) => Effect.Effect<HostRuntimeObservation>;
-    readonly plan: (
-      hostId: string,
-      intent: HostRuntimeIntent,
-    ) => Effect.Effect<HostRuntimeReconcile>;
-  }
->()("@vellum/HostRuntime") {}
 
 const unknownObservation = (
   hostId: string,
@@ -77,99 +66,38 @@ const platformFromUname = (stdout: string): HostRuntimePlatform => {
   return "unknown";
 };
 
-const probeSocket = (
-  ssh: Ssh,
-  target: SshTarget,
-  path: string,
-): Effect.Effect<boolean> =>
-  remoteTestSocketExists(path).pipe(
-    Effect.flatMap((command) =>
-      ssh.run(oneShot(target, command, { budget: "short" })),
-    ),
-    Effect.map(() => true),
-    Effect.catch(() => Effect.succeed(false)),
-  );
+const adapterFor = (platform: "darwin" | "linux") =>
+  platform === "darwin" ? darwinHostRuntimePlatform : linuxHostRuntimePlatform;
 
-const observeDarwin = (
-  ssh: Ssh,
-  target: SshTarget,
-  home: string,
-): Effect.Effect<
-  Pick<HostRuntimeObservation, "package" | "process" | "workAttach">
-> =>
-  Effect.gen(function* () {
-    const installedCmd = yield* remoteDarwinPackageExists().pipe(Effect.result);
-    let pkg: HostRuntimeObservation["package"] = "unknown";
-    if (installedCmd._tag === "Success") {
-      const installed = yield* ssh
-        .run(oneShot(target, installedCmd.success, { budget: "short" }))
-        .pipe(Effect.result);
-      if (installed._tag === "Success") pkg = "present";
-      else if (
-        installed.failure instanceof SshExitError &&
-        installed.failure.code === 1
-      ) {
-        pkg = "absent";
-      }
-    }
+const refused = (
+  host: RemoteHost,
+  detail: string,
+  code: NonNullable<ConfiguredRemoteDeployResult["code"]>,
+): ConfiguredRemoteDeployResult => ({
+  ok: false,
+  detail,
+  code,
+  message: detail,
+  stages: [],
+  disposition: "not-started",
+  outcome: "failed",
+  packageState: "previous",
+  role: "previous",
+  configuration: { ok: false, detail },
+});
 
-    const stationHome = stationControlDir(home);
-    const enrollUp = yield* probeSocket(
-      ssh,
-      target,
-      stationDoorSocketPath(stationHome, "enroll"),
-    );
-    const peerUp = yield* probeSocket(
-      ssh,
-      target,
-      stationDoorSocketPath(stationHome, "peer"),
-    );
-    const termUp = yield* probeSocket(
-      ssh,
-      target,
-      join(home, TERM_REMOTE_SOCK_REL),
-    );
-
-    return {
-      package: pkg,
-      // Control plane answering — not a term sock, not a banner.
-      process: enrollUp || peerUp ? ("up" as const) : ("down" as const),
-      // Term sock is an observation, not Ready. Check intent requires workAttach up.
-      workAttach: termUp ? ("up" as const) : ("down" as const),
-    };
-  });
-
-const observeLinux = (
-  ssh: Ssh,
-  target: SshTarget,
-  home: string,
-): Effect.Effect<
-  Pick<HostRuntimeObservation, "package" | "process" | "workAttach">
-> =>
-  Effect.gen(function* () {
-    const stationHome = stationControlDir(home);
-    const enrollUp = yield* probeSocket(
-      ssh,
-      target,
-      stationDoorSocketPath(stationHome, "enroll"),
-    );
-    const peerUp = yield* probeSocket(
-      ssh,
-      target,
-      stationDoorSocketPath(stationHome, "peer"),
-    );
-    const workUp = yield* probeSocket(
-      ssh,
-      target,
-      workControlSocketPath(workControlDir(home)),
-    );
-    return {
-      // Linux package presence is the userland payload, not a Darwin .app.
-      package: "unknown" as const,
-      process: enrollUp || peerUp ? ("up" as const) : ("down" as const),
-      workAttach: workUp ? ("up" as const) : ("down" as const),
-    };
-  });
+export class HostRuntime extends Context.Service<
+  HostRuntime,
+  {
+    readonly observe: (
+      hostId: string,
+    ) => Effect.Effect<HostRuntimeObservation>;
+    readonly reconcile: (
+      hostId: string,
+      input: HostRuntimeReconcileInput,
+    ) => Effect.Effect<ConfiguredRemoteDeployResult>;
+  }
+>()("@vellum/HostRuntime") {}
 
 export const observeRemoteHost = (
   ssh: Ssh,
@@ -228,7 +156,6 @@ export const observeRemoteHost = (
       homeResult._tag === "Success"
         ? decodeRemoteHomeDirectoryOutput(homeResult.success.stdout)
         : null;
-
     const planes =
       home === null
         ? {
@@ -236,9 +163,11 @@ export const observeRemoteHost = (
             process: "unknown" as const,
             workAttach: "unknown" as const,
           }
-        : platform === "darwin"
-          ? yield* observeDarwin(ssh, parsed.success, home)
-          : yield* observeLinux(ssh, parsed.success, home);
+        : yield* adapterFor(platform).observePlanes(
+            ssh,
+            parsed.success,
+            home,
+          );
 
     return {
       hostId: host.id,
@@ -292,28 +221,106 @@ export const HostRuntimeLive = Layer.effect(
         });
       });
 
-    const plan = (hostId: string, intent: HostRuntimeIntent) =>
+    const reconcile = (hostId: string, input: HostRuntimeReconcileInput) =>
       Effect.gen(function* () {
+        const host = yield* hosts.get(hostId).pipe(Effect.result);
+        if (host._tag === "Failure" || host.success === undefined) {
+          return refused(
+            {
+              id: hostId,
+              label: hostId,
+              kind: "remote",
+              capabilities: [],
+            } as RemoteHost,
+            `unknown host: ${hostId}`,
+            "not_found",
+          );
+        }
+        if (host.success.kind === "local") {
+          return refused(
+            host.success,
+            "Deploy is for a remote machine, not this one.",
+            "validation",
+          );
+        }
+
         const observation = yield* observe(hostId);
-        return {
-          observation,
-          gap: decideHostRuntimeGap(observation, intent),
+        const gap = decideHostRuntimeGap(observation, input.intent);
+        if (input.intent === "check") {
+          const detail = hostRuntimeGapCopy(gap, observation.blocker);
+          return {
+            ok: gap === "ready",
+            detail,
+            message: detail,
+            stages: [detail],
+            disposition: gap === "ready" ? ("ready" as const) : ("not-started" as const),
+            outcome: gap === "ready" ? ("ready" as const) : ("failed" as const),
+            packageState:
+              observation.package === "present"
+                ? ("present" as const)
+                : ("unknown" as const),
+            role:
+              observation.mode === "remote"
+                ? ("remote" as const)
+                : ("unknown" as const),
+            configuration: { ok: gap === "ready", detail },
+          } satisfies ConfiguredRemoteDeployResult;
+        }
+        if (gap === "needOperator") {
+          return refused(
+            host.success,
+            hostRuntimeGapCopy(gap, observation.blocker),
+            observation.blocker?.kind === "auth" ? "auth_required" : "conflict",
+          );
+        }
+        if (gap === "stillTrying" && observation.network === "down") {
+          return refused(
+            host.success,
+            `Can't reach ${host.success.label} on the network.`,
+            "io",
+          );
+        }
+
+        const platform = observation.platform;
+        if (platform === "unknown") {
+          return refused(
+            host.success,
+            hostRuntimeGapCopy("needOperator", observation.blocker),
+            "validation",
+          );
+        }
+
+        const context: HostRuntimeApplyContext = {
+          ssh,
+          host: host.success,
+          gap,
+          configure: input.configure,
           ...(observation.priorInstallationId === undefined
             ? {}
-            : { priorInstallationId: observation.priorInstallationId }),
+            : {
+                priorInstallationId:
+                  observation.priorInstallationId as InstallationId,
+              }),
+          ...(input.artifactSource === undefined
+            ? {}
+            : { artifactSource: input.artifactSource }),
+          ...(input.onAdmitted === undefined
+            ? {}
+            : { onAdmitted: input.onAdmitted }),
+          ...(input.onCompleted === undefined
+            ? {}
+            : { onCompleted: input.onCompleted }),
         };
+        return yield* adapterFor(platform).apply(context);
       });
 
-    return HostRuntime.of({ observe, plan });
+    return HostRuntime.of({ observe, reconcile });
   }),
 );
 
-export const priorInstallationForDeploy = (
-  plan: HostRuntimeReconcile,
-): string | undefined =>
-  plan.gap === "needRestart" ? plan.priorInstallationId : undefined;
-
-export const hostRuntimePlanDetail = (plan: HostRuntimeReconcile): string =>
-  hostRuntimeGapCopy(plan.gap, plan.observation.blocker);
+export const hostRuntimeGapDetail = (
+  gap: HostRuntimeGap,
+  observation: HostRuntimeObservation,
+): string => hostRuntimeGapCopy(gap, observation.blocker);
 
 export type { ConfiguredRemoteDeployResult };

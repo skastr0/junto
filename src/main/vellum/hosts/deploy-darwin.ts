@@ -1,19 +1,6 @@
 /**
  * Darwin deployment provider: install/update Vellum Command.app over SSH and start it.
- *
- * Enrollment-to-runtime state machine (FLEET-D1):
- * 1. Admit exact signed package + target.
- * 2. Install without threatening an incumbent generation.
- * 3. Start enrollment-only LaunchAgent (`--vellum-headless`) so packaged
- *    unconfigured boot exposes only status/pair/configure (no license gate).
- * 4. Prove enrollment control socket (`ENROLLMENT_READY`) — disposition
- *    `configuration-required`.
- * 5. Command Center pair/configure via Station API (no Dodo key on Remote).
- * 6. `activateDarwinRemoteRuntime` rewrites LaunchAgent without headless,
- *    relaunches supervised GUI-domain Remote, then proves term+browser
- *    (`STATION_READY`).
- *
- * Browser/WebContentsView readiness is never required before configure.
+ * HostRuntime owns observe → gap → act. This file is the Darwin package glue.
  */
 
 import { createHash } from "node:crypto";

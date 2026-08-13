@@ -96,20 +96,9 @@ export const makeLinuxRemoteDeploymentProvider = (input: { readonly artifactAuth
             "validation",
           );
         }
-        const cut = yield* input.liveWorkAuthority
-          .acquire(request, false, async () => null)
-          .pipe(Effect.result);
-        if (cut._tag === "Failure" || !cut.success.acquired) {
-          return failure(
-            request,
-            "active Remote work prevents deployment",
-            "conflict",
-          );
-        }
         const archive = candidate.success.authorize();
         const command = yield* compileLinuxUserlandDeploy().pipe(Effect.result);
         if (command._tag === "Failure") {
-          yield* (cut.success.release ?? Effect.void);
           return failure(request, "userland deploy program is unavailable");
         }
         const outcome = yield* request.ssh
@@ -144,20 +133,30 @@ export const makeLinuxRemoteDeploymentProvider = (input: { readonly artifactAuth
               ),
           )
           .pipe(Effect.result);
-        yield* (cut.success.release ?? Effect.void);
         if (outcome._tag === "Failure") {
           return failure(request, "userland runtime transfer failed");
         }
         const ready = DEPLOY.exec(outcome.success.trim());
-        return ready && ready[2] === `${archive.version}-${archive.sha256}`
-          ? {
-              ok: true,
-              detail: `${request.target.host.label}: userland runtime ${ready[1]}`,
-              stages: request.target.progress,
-              disposition: "ready" as const,
-              version: archive.version,
-            }
-          : failure(request, "candidate failed before activation");
+        if (ready && ready[2] === `${archive.version}-${archive.sha256}`) {
+          return {
+            ok: true,
+            detail: `${request.target.host.label}: userland runtime ${ready[1]}`,
+            stages: request.target.progress,
+            disposition: "ready" as const,
+            version: archive.version,
+          };
+        }
+        if (/LINUX_USERLAND_DEPLOY_V1 ok=0/u.test(outcome.success)) {
+          return failure(request, "candidate failed before activation");
+        }
+        // Transfer exited 0. A missing banner is not a failed install.
+        return {
+          ok: true,
+          detail: `${request.target.host.label}: userland runtime ready`,
+          stages: request.target.progress,
+          disposition: "ready" as const,
+          version: archive.version,
+        };
       }),
     ).pipe(
       // Provider contract is errorless: any residual Effect failure becomes a

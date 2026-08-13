@@ -92,7 +92,7 @@ describe("named deploy compilers", () => {
       "begin_candidate_activation() { :; }",
       'echo "UNBOUND_DEPLOY_PATH_PRESENT" >&2',
       "IN_STATION_EXE=/fixed",
-      'echo "STATION_READY pid=1 term=1 browser=1"',
+      'echo "NEW_LAUNCHD_PID_NOT_PROVEN" >&2',
       'echo "CONTROL_SOCKET_TIMEOUT" >&2',
     ].join("\n");
     const parts = inspectRemoteCommand(

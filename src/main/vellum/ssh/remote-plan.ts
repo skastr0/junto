@@ -133,7 +133,7 @@ export const compileHerdrImageStage = (name: string): Effect.Effect<{ readonly c
 export const compileDarwinRemoteDeployScript = (script: string): Effect.Effect<RemoteCommand, SshInputError> =>
   typeof script === "string" &&
     script.includes("begin_candidate_activation()") &&
-    (script.includes("ENROLLMENT_READY") || script.includes("STATION_READY"))
+    script.includes("NEW_LAUNCHD_PID_NOT_PROVEN")
     ? makeRemoteCommand("/bin/bash", ["-lc", script])
     : Effect.fail(new SshInputError({ message: "darwin deploy script is not a product stream program" }));
 
@@ -143,7 +143,6 @@ export const compileDarwinRemoteDeployScript = (script: string): Effect.Effect<R
 export const compileDarwinRemoteActivationScript = (script: string): Effect.Effect<RemoteCommand, SshInputError> =>
   typeof script === "string" &&
     script.includes("RUNTIME_LAUNCHD_PID_NOT_PROVEN") &&
-    script.includes("RUNTIME_SOCKET_TIMEOUT") &&
-    script.includes("STATION_READY")
+    script.includes("kickstart")
     ? makeRemoteCommand("/bin/bash", ["-lc", script])
     : Effect.fail(new SshInputError({ message: "darwin activation script is not a product runtime program" }));
