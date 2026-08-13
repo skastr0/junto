@@ -1,7 +1,11 @@
 import { Effect, Exit } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { LocalSessionHost } from "../src/main/vellum/term/local-host";
-import { makeLocalSeatProcess } from "../src/main/vellum/term/seat-process";
+import {
+  makeLocalSeatProcess,
+  makeRemoteSeatProcess,
+} from "../src/main/vellum/term/seat-process";
+import type { TerminalSessionSummary } from "../src/shared/terminal";
 import {
   occupancyFromSession,
   occupyVacantSeat,
@@ -81,5 +85,88 @@ describe("local TerminalSeatProcess", () => {
     );
     expect(Exit.isFailure(refused)).toBe(true);
     expect(host.runningCount()).toBe(1);
+  });
+});
+
+const remoteSummary = (
+  over: Pick<TerminalSessionSummary, "bindingId" | "epoch" | "status">,
+): TerminalSessionSummary => ({
+  hostId: "station-a",
+  detached: false,
+  createdAt: 1,
+  ...over,
+});
+
+describe("remote TerminalSeatProcess", () => {
+  it("refuses occupy on an occupied seat and activates the same epoch", async () => {
+    const live = remoteSummary({
+      bindingId: "seat-r",
+      epoch: "epoch-1",
+      status: "running",
+    });
+    let createCalls = 0;
+    const seats = makeRemoteSeatProcess({
+      get: async () => live,
+      create: async () => {
+        createCalls += 1;
+        return live;
+      },
+    });
+    const occupy = occupyVacantSeat(
+      occupancyFromSession("seat-r", undefined, "remote"),
+    );
+    if (occupy._tag !== "Success") throw new Error("expected occupy command");
+
+    const refused = await Effect.runPromiseExit(
+      seats.occupy(occupy.success, {
+        bindingId: "seat-r",
+        launch: { kind: "shell" },
+      }),
+    );
+    expect(Exit.isFailure(refused)).toBe(true);
+    expect(createCalls).toBe(0);
+
+    const occupancy = await Effect.runPromise(seats.occupancy("seat-r"));
+    expect(occupancy).toMatchObject({
+      _tag: "OccupiedSeat",
+      placement: "remote",
+      epoch: "epoch-1",
+    });
+    const admission = seatAdmission(occupancy);
+    if (admission._tag !== "ActivateOccupiedSeat") {
+      throw new Error("expected activate");
+    }
+    const activated = await Effect.runPromise(seats.activate(admission));
+    expect(activated.epoch).toBe(live.epoch);
+    expect(createCalls).toBe(0);
+  });
+
+  it("occupies a vacant seat by creating once", async () => {
+    let createCalls = 0;
+    const created = remoteSummary({
+      bindingId: "seat-r",
+      epoch: "epoch-new",
+      status: "running",
+    });
+    const seats = makeRemoteSeatProcess({
+      get: async () => undefined,
+      create: async () => {
+        createCalls += 1;
+        return created;
+      },
+    });
+    const occupy = occupyVacantSeat(
+      occupancyFromSession("seat-r", undefined, "remote"),
+    );
+    if (occupy._tag !== "Success") throw new Error("expected occupy command");
+
+    const summary = await Effect.runPromise(
+      seats.occupy(occupy.success, {
+        bindingId: "seat-r",
+        launch: { kind: "shell" },
+      }),
+    );
+    expect(summary.epoch).toBe("epoch-new");
+    expect(createCalls).toBe(1);
   });
 });
