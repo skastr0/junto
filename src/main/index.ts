@@ -1395,16 +1395,12 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       }
     }
 
-    // A newly installed packaged headless process has no renderer in which to
-    // select its role. Keep exactly the owner-local Station enrollment verbs
-    // alive so it can become a configured Remote, then require a restart. No
-    // product IPC, work/canvas/term/browser control, kernel, or license
-    // provider call is reachable in this bootstrap process.
-    if (
-      app.isPackaged &&
-      headless &&
-      stationConfiguration === undefined
-    ) {
+    // Packaged --vellum-headless is enrollment ingress only: status, pair,
+    // configure. It is never the operational Remote. Package update starts
+    // this process against an already-configured installation; if we fall
+    // through to product + report pump, the one Station session becomes
+    // operational and Command Center's status bootstrap collides with report.
+    if (app.isPackaged && headless) {
       try {
         stationControl = await startStationControlServer({
           home: termControlHome,
