@@ -31,6 +31,11 @@ describe("Remote deploy recovery guidance", () => {
       "dropped while copying",
     );
     expect(
+      operatorDeployDetail(
+        "DEPLOY_ALREADY_IN_PROGRESS /Applications/.vellum-command-deploy.lock",
+      ),
+    ).toContain("already running");
+    expect(
       operatorDeployDetail("Station API ready - installation station-1"),
     ).toContain("Vellum Command ready");
   });

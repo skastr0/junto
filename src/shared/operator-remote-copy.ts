@@ -11,6 +11,9 @@ const replaceStationApi = (detail: string): string =>
 export const operatorDeployDetail = (detail: string): string => {
   const blocker = classifyHostRuntimeBlocker(detail);
   if (blocker !== undefined) return blocker.detail;
+  if (/DEPLOY_ALREADY_IN_PROGRESS/u.test(detail)) {
+    return "Another Vellum Command install is already running on that Mac. Wait for it to finish, then Deploy again.";
+  }
   if (
     /SSH process I\/O failed|SSH .+ closed before it finished/iu.test(detail)
   ) {

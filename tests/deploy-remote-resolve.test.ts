@@ -287,6 +287,9 @@ describe("buildRemoteDeployScript", () => {
     expect(script).toContain(
       "DEPLOY_LOCK='/Applications/.vellum-command-deploy.lock'",
     );
+    expect(script).toContain("reclaim_abandoned_deploy_lock");
+    expect(script).toContain("DEPLOY_STALE_LOCK_RECLAIMED");
+    expect(script).toContain("DEPLOY_LOCK_HOLDER=");
     expect(script).toContain(`EXPECTED_CDHASH='${TEST_CDHASH}'`);
     expect(script).toContain("anchor apple generic");
     expect(script).toContain("certificate leaf[subject.OU]");
@@ -979,13 +982,42 @@ describe("remote deploy transaction behavior", () => {
       const harness = makeHarness();
       try {
         mkdirSync(harness.runtime.lockPath);
+        writeFileSync(
+          join(harness.runtime.lockPath, "holder"),
+          `${process.pid}\n`,
+        );
         const result = harness.run();
         expect(result.status).toBe(8);
         expect(result.stderr).toContain("DEPLOY_ALREADY_IN_PROGRESS");
+        expect(result.stderr).not.toContain("DEPLOY_STALE_LOCK_RECLAIMED");
         expect(existsSync(join(harness.state, "tar-ran"))).toBe(false);
         expect(readFileSync(harness.executablePath, "utf8")).toBe(
           "old-generation",
         );
+      } finally {
+        harness.cleanup();
+      }
+    },
+    35_000,
+  );
+
+  it(
+    "reclaims an abandoned lock left by a dropped copy",
+    () => {
+      const harness = makeHarness();
+      try {
+        mkdirSync(harness.runtime.lockPath);
+        writeFileSync(
+          join(harness.runtime.lockPath, "owner"),
+          "dead-owner-token\n",
+        );
+        const result = harness.run();
+        expect(result.stderr, result.stderr).toContain(
+          "DEPLOY_STALE_LOCK_RECLAIMED",
+        );
+        expect(result.stderr).not.toContain("DEPLOY_ALREADY_IN_PROGRESS");
+        expect(existsSync(join(harness.state, "tar-ran"))).toBe(true);
+        expect(existsSync(harness.runtime.lockPath)).toBe(false);
       } finally {
         harness.cleanup();
       }

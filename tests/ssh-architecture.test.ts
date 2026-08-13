@@ -103,6 +103,11 @@ describe("SSH architecture", () => {
       // Linux renders fixed preflight/install programs; artifact and station
       // facts cross only the bounded stdin frame owned by SshTransport.
       "src/main/vellum/hosts/deploy-linux.ts",
+      // HostRuntime observes and applies over the shared SSH kernel.
+      "src/main/vellum/hosts/host-runtime.ts",
+      "src/main/vellum/hosts/host-runtime-darwin.ts",
+      "src/main/vellum/hosts/host-runtime-linux.ts",
+      "src/main/vellum/hosts/host-runtime-platform.ts",
       "src/main/vellum/term/router.ts",
       // Fresh enrollment performs one bounded identity bootstrap; normal
       // fleet traffic uses only the persistent OpenSSH peer exchange.
@@ -128,6 +133,21 @@ describe("SSH architecture", () => {
     });
 
     expect(violations).toEqual([]);
+  });
+
+  it("keeps Darwin and Linux package transfers off the Station mux", () => {
+    const darwin = readFileSync(
+      join(root, "src/main/vellum/hosts/deploy-darwin.ts"),
+      "utf8",
+    );
+    const linux = readFileSync(
+      join(root, "src/main/vellum/hosts/deploy-linux.ts"),
+      "utf8",
+    );
+    expect(darwin).toContain("deploymentStream");
+    expect(darwin).not.toContain("sharedStream");
+    expect(linux).toContain("deploymentStream");
+    expect(linux).not.toContain("sharedStream");
   });
 
   it("has one persistent Station exchange and no one-shot Station client", () => {

@@ -29,7 +29,7 @@ import { stationControlDir, stationControlSocketPath } from "@shared/station-ssh
 import { TERM_REMOTE_SOCK_REL } from "@shared/term-control";
 import { formatSshFailure } from "../ssh/format";
 import { SshExitError, type SshError, type SshTarget } from "../ssh/domain";
-import { homeDirectoryLookup, oneShot, sharedStream } from "../ssh/program";
+import { deploymentStream, homeDirectoryLookup, oneShot } from "../ssh/program";
 import {
   DARWIN_PACKAGED_BROWSER_EXECUTABLE,
   DARWIN_PACKAGED_STATION_EXECUTABLE,
@@ -1074,6 +1074,7 @@ FORBIDDEN_APP_PREVIOUS=${shellLiteral(`${remoteAppPath}.previous`)}
 FORBIDDEN_APP_REJECTED=${shellLiteral(`${remoteAppPath}.rejected`)}
 DEPLOY_LOCK=${shellLiteral(runtime.lockPath)}
 DEPLOY_LOCK_OWNER=${shellLiteral(`${runtime.lockPath}/owner`)}
+DEPLOY_LOCK_HOLDER=${shellLiteral(`${runtime.lockPath}/holder`)}
 RETIRED_APP=${shellLiteral(`${runtime.lockPath}/retired-app`)}
 RETIRED_PLIST=${shellLiteral(`${runtime.lockPath}/retired-plist`)}
 RETIRED_TERM_SOCKET=${shellLiteral(`${runtime.lockPath}/retired-term-socket`)}
@@ -1509,6 +1510,32 @@ resume_incumbent_before_activation() {
   echo "INCUMBENT_RESUMED pid=$RESUMED_PID"
 }
 
+reclaim_abandoned_deploy_lock() {
+  [ -d "$DEPLOY_LOCK" ] || return 1
+  for RETIRED_PATH in \
+    "$RETIRED_APP" \
+    "$RETIRED_PLIST" \
+    "$RETIRED_TERM_SOCKET" \
+    "$RETIRED_BROWSER_SOCKET"
+  do
+    if [ -e "$RETIRED_PATH" ] || [ -L "$RETIRED_PATH" ]; then
+      return 1
+    fi
+  done
+  HOLDER_PID="$(/bin/cat "$DEPLOY_LOCK_HOLDER" 2>/dev/null || true)"
+  if [ -n "$HOLDER_PID" ]; then
+    case "$HOLDER_PID" in
+      ''|*[!0-9]*) return 1 ;;
+    esac
+    if /bin/ps -p "$HOLDER_PID" -o pid= >/dev/null 2>&1; then
+      return 1
+    fi
+  fi
+  /bin/rm -f -- "$DEPLOY_LOCK_OWNER" "$DEPLOY_LOCK_HOLDER" || return 1
+  /bin/rmdir "$DEPLOY_LOCK" || return 1
+  [ ! -e "$DEPLOY_LOCK" ] && [ ! -L "$DEPLOY_LOCK" ]
+}
+
 release_deploy_lock() {
   if [ "$LOCK_HELD" != "1" ]; then return 0; fi
   same_directory_identity "$DEPLOY_LOCK" "$LOCK_ID" || return 1
@@ -1520,6 +1547,7 @@ release_deploy_lock() {
     [ ! -e "$RETIRED_PLIST" ] && [ ! -L "$RETIRED_PLIST" ] &&
     [ ! -e "$RETIRED_TERM_SOCKET" ] && [ ! -L "$RETIRED_TERM_SOCKET" ] &&
     [ ! -e "$RETIRED_BROWSER_SOCKET" ] && [ ! -L "$RETIRED_BROWSER_SOCKET" ] || return 1
+  /bin/rm -f -- "$DEPLOY_LOCK_HOLDER" || return 1
   remove_bound_file "$DEPLOY_LOCK_OWNER" "$LOCK_OWNER_ID" || return 1
   same_directory_identity "$DEPLOY_LOCK" "$LOCK_ID" || return 1
   /bin/rmdir "$DEPLOY_LOCK" || return 1
@@ -1586,8 +1614,12 @@ on_deploy_exit() {
 LOCK_TOKEN="$("$UUIDGEN")"
 test -n "$LOCK_TOKEN"
 if ! /bin/mkdir "$DEPLOY_LOCK" 2>/dev/null; then
-  echo "DEPLOY_ALREADY_IN_PROGRESS $DEPLOY_LOCK" >&2
-  exit 8
+  if reclaim_abandoned_deploy_lock && /bin/mkdir "$DEPLOY_LOCK" 2>/dev/null; then
+    echo "DEPLOY_STALE_LOCK_RECLAIMED $DEPLOY_LOCK" >&2
+  else
+    echo "DEPLOY_ALREADY_IN_PROGRESS $DEPLOY_LOCK" >&2
+    exit 8
+  fi
 fi
 /bin/chmod 700 "$DEPLOY_LOCK"
 LOCK_ID="$(owned_directory_identity "$DEPLOY_LOCK" 2>/dev/null || true)"
@@ -1615,6 +1647,10 @@ LOCK_OWNER_ID="$(owned_file_identity "$DEPLOY_LOCK_OWNER" 2>/dev/null || true)"
 /usr/bin/printf '%s\n' "$LOCK_TOKEN" >&9
 exec 9>&-
 /bin/chmod 600 "$DEPLOY_LOCK_OWNER"
+/usr/bin/printf '%s\n' "$$" > "$DEPLOY_LOCK_HOLDER" || {
+  echo "DEPLOY_LOCK_HOLDER_CREATE_REFUSED $DEPLOY_LOCK_HOLDER" >&2
+  exit 8
+}
 same_file_identity "$DEPLOY_LOCK_OWNER" "$LOCK_OWNER_ID" || {
   echo "DEPLOY_LOCK_OWNER_CHANGED_DURING_CREATION $DEPLOY_LOCK_OWNER" >&2
   exit 8
@@ -2332,8 +2368,9 @@ export const activateDarwinRemoteRuntime = (
     const script = buildRemoteRuntimeActivateScript(remoteHome);
     const command = yield* compileDarwinRemoteActivationScript(script);
     // Empty transfer body: long DEPLOY_TIMEOUT_MS covers kickstart + socket poll.
+    // Own TCP: Station peer retries share the mux and would drop this poll.
     const output = yield* ssh.transfer(
-      sharedStream(endpoint, command),
+      deploymentStream(endpoint, command),
       Stream.empty,
       DEPLOY_TIMEOUT_MS,
     );
@@ -2503,9 +2540,10 @@ const streamArtifactToRemote = (
               ),
       );
       const command = yield* compileDarwinRemoteDeployScript(remoteScript);
+      // Dedicated TCP: Station peer retries own the shared mux.
       const output = yield* ssh
         .transfer(
-          sharedStream(endpoint, command),
+          deploymentStream(endpoint, command),
           Stream.fromAsyncIterable(
             source.lease.io.stdout,
             (error) =>
