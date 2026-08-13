@@ -30,6 +30,7 @@ import { linuxHostRuntimePlatform } from "./host-runtime-linux";
 import type { HostRuntimeApplyContext } from "./host-runtime-platform";
 import type { LinuxReleaseCacheSource } from "./linux-release-feed";
 import { decodeRemoteHomeDirectoryOutput } from "./remote-home";
+import { commandCenterMayPrepareRemote } from "./remote-platform";
 import { HostsService } from "./service";
 
 type Ssh = SshTransportShape;
@@ -307,6 +308,13 @@ export const HostRuntimeLive = Layer.effect(
           return refused(
             host.success,
             hostRuntimeGapCopy("needOperator", observation.blocker),
+            "validation",
+          );
+        }
+        if (!commandCenterMayPrepareRemote(process.platform, platform)) {
+          return refused(
+            host.success,
+            `${host.success.label}: a Darwin Remote needs a macOS Command Center (local .app source)`,
             "validation",
           );
         }

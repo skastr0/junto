@@ -1,11 +1,12 @@
 /** Owner-home Linux runtime deployment. No package manager or elevation lane. */
 import { lstat } from "node:fs/promises";
 import { Effect, Stream } from "effect";
+import type { HostPackage } from "@shared/host-runtime";
 import { LINUX_RELEASE_TARGET } from "../../../../scripts/linux-release-bundle";
-import { makeRemoteStdin } from "../ssh/domain";
+import { makeRemoteStdin, type SshTarget } from "../ssh/domain";
 import { formatSshFailure } from "../ssh/format";
 import { deploymentStream, oneShot, oneShotWithStdin } from "../ssh/program";
-import { compileLinuxUserlandDeploy, compileLinuxUserlandPreflight, compileLinuxUserlandRestart } from "../ssh/remote-plan";
+import { compileLinuxUserlandDeploy, compileLinuxUserlandObserve, compileLinuxUserlandPreflight, compileLinuxUserlandRestart } from "../ssh/remote-plan";
 import type { SshTransportShape } from "../ssh/service";
 import { authorizeProductionLinuxDeployBundle, openVerifiedProductionLinuxDeployPackage, verifyProductionLinuxDeployBundle, verifyQualificationLinuxDeployBundle, type ProductionLinuxDeployBundleAdmission } from "./linux-release-admission";
 import { ensureLinuxReleaseCache, type LinuxReleaseCacheSource } from "./linux-release-feed";
@@ -18,6 +19,7 @@ const PREFLIGHT_FAIL = /^LINUX_USERLAND_PREFLIGHT_V1 ok=0 reason=([a-z-]+)$/u;
 const DEPLOY = /^LINUX_USERLAND_DEPLOY_V1 ok=1 state=(ready|idempotent) release=([0-9]+\.[0-9]+\.[0-9]+-[0-9a-f]{64})$/u;
 const RESTART_OK = /^LINUX_USERLAND_RESTART_V1 ok=1$/u;
 const RESTART_FAIL = /^LINUX_USERLAND_RESTART_V1 ok=0 reason=([a-z-]+)$/u;
+const OBSERVE = /^LINUX_USERLAND_OBSERVE_V1 present=([01])$/u;
 
 export interface LinuxRemotePreflightEvidence { readonly ok: boolean; readonly uid?: number; readonly availableBytes?: number; readonly reason?: string; }
 export const decodeLinuxRemotePreflight = (stdout: string): LinuxRemotePreflightEvidence => {
@@ -53,6 +55,38 @@ export const decodeLinuxRemoteRestart = (
   const fail = RESTART_FAIL.exec(line);
   return { ok: false, reason: fail?.[1] ?? "malformed" };
 };
+
+export type LinuxRemoteObserveEvidence =
+  | { readonly ok: true; readonly present: boolean }
+  | { readonly ok: false };
+
+export const decodeLinuxRemoteObserve = (
+  stdout: string,
+): LinuxRemoteObserveEvidence => {
+  const match = OBSERVE.exec(stdout.trim());
+  if (!match) return { ok: false };
+  return { ok: true, present: match[1] === "1" };
+};
+
+export const linuxObserveToHostPackage = (
+  evidence: LinuxRemoteObserveEvidence,
+): HostPackage =>
+  evidence.ok ? (evidence.present ? "present" : "absent") : "unknown";
+
+/** Userland generation present or absent. Probe failure stays unknown. */
+export const observeLinuxUserlandPackage = (
+  ssh: SshTransportShape,
+  target: SshTarget,
+): Effect.Effect<HostPackage> =>
+  Effect.gen(function* () {
+    const command = yield* compileLinuxUserlandObserve().pipe(Effect.result);
+    if (command._tag === "Failure") return "unknown";
+    const ran = yield* ssh
+      .run(oneShot(target, command.success, { budget: "short" }))
+      .pipe(Effect.result);
+    if (ran._tag === "Failure") return "unknown";
+    return linuxObserveToHostPackage(decodeLinuxRemoteObserve(ran.success.stdout));
+  });
 
 const linuxRestartFailureDetail = (reason: string | undefined): string => {
   switch (reason) {

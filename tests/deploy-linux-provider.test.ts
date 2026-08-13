@@ -1,4 +1,8 @@
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Effect, Stream } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import type { RemoteHost } from "../src/shared/remote-hosts";
@@ -7,8 +11,10 @@ import {
   activateLinuxRemoteRuntimeForTarget,
   buildLinuxRemoteDeployCommand,
   buildLinuxRemotePreflightScript,
+  decodeLinuxRemoteObserve,
   decodeLinuxRemotePreflight,
   decodeLinuxRemoteRestart,
+  linuxObserveToHostPackage,
   makeLinuxRemoteDeploymentProvider,
   type LinuxRemoteArtifactAdmission,
   type LinuxRemoteArtifactCandidate,
@@ -25,6 +31,7 @@ import {
 import type { SshLease } from "../src/main/vellum/ssh/service";
 import {
   compileLinuxUserlandDeploySource,
+  compileLinuxUserlandObserveSource,
   compileLinuxUserlandPreflightSource,
 } from "../src/main/vellum/ssh/remote-plan";
 
@@ -200,6 +207,16 @@ describe("Linux userland remote deployment provider", () => {
     expect(
       decodeLinuxRemoteRestart("LINUX_USERLAND_RESTART_V1 ok=0 reason=restart\n"),
     ).toEqual({ ok: false, reason: "restart" });
+    expect(decodeLinuxRemoteObserve("LINUX_USERLAND_OBSERVE_V1 present=1\n")).toEqual(
+      { ok: true, present: true },
+    );
+    expect(decodeLinuxRemoteObserve("LINUX_USERLAND_OBSERVE_V1 present=0\n")).toEqual(
+      { ok: true, present: false },
+    );
+    expect(decodeLinuxRemoteObserve("not a receipt\n")).toEqual({ ok: false });
+    expect(linuxObserveToHostPackage({ ok: true, present: true })).toBe("present");
+    expect(linuxObserveToHostPackage({ ok: true, present: false })).toBe("absent");
+    expect(linuxObserveToHostPackage({ ok: false })).toBe("unknown");
   });
 
   it("deploys a signed userland archive without elevation or package manager", async () => {
@@ -406,5 +423,57 @@ describe("Linux userland remote deployment provider", () => {
     expect(result.ok).toBe(false);
     expect(result.detail).toContain("systemd user service restart failed");
     expect(classifyHostRuntimeBlocker(result.detail)).toBeUndefined();
+  });
+});
+
+describe("Linux userland generation observe", () => {
+  it("reports present only when a canonical generation tree exists", () => {
+    const home = mkdtempSync(join(tmpdir(), "vellum-linux-observe-"));
+    const run = () =>
+      spawnSync(
+        "/bin/sh",
+        [
+          "-c",
+          compileLinuxUserlandObserveSource(),
+          "vellum-plan:linux-userland-observe",
+        ],
+        { encoding: "utf8", env: { ...process.env, HOME: home } },
+      );
+    try {
+      const empty = run();
+      expect(empty.status).toBe(0);
+      expect(
+        linuxObserveToHostPackage(decodeLinuxRemoteObserve(empty.stdout)),
+      ).toBe("absent");
+
+      const dest = join(
+        home,
+        ".vellum-command",
+        "runtime",
+        "releases",
+        `1.2.3-${"a".repeat(64)}`,
+      );
+      mkdirSync(join(dest, "resources", "bin"), { recursive: true });
+      mkdirSync(join(dest, "resources", "systemd"), { recursive: true });
+      const remote = join(dest, "resources", "bin", "vellum-command-remote");
+      const launch = join(
+        dest,
+        "resources",
+        "systemd",
+        "vellum-command-remote-launch",
+      );
+      writeFileSync(remote, "remote");
+      writeFileSync(launch, "launch");
+      chmodSync(remote, 0o755);
+      chmodSync(launch, 0o755);
+
+      const installed = run();
+      expect(installed.status).toBe(0);
+      expect(
+        linuxObserveToHostPackage(decodeLinuxRemoteObserve(installed.stdout)),
+      ).toBe("present");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });

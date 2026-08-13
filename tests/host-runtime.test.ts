@@ -9,6 +9,7 @@ import {
   hostRuntimeGapCopy,
 } from "../src/shared/host-runtime";
 import { checkHostRuntime, observeRemoteHost } from "../src/main/vellum/hosts/host-runtime";
+import { linuxHostRuntimePlatform } from "../src/main/vellum/hosts/host-runtime-linux";
 import {
   combineHostProcessPlanes,
   readRemoteTextFile,
@@ -115,6 +116,20 @@ describe("decideHostRuntimeGap", () => {
       mode: "remote",
     });
     expect(decideHostRuntimeGap(linux, "deploy")).toBe("needRestart");
+  });
+
+  it("Linux first install is needInstall when the generation is absent", () => {
+    expect(
+      decideHostRuntimeGap(
+        observation({
+          platform: "linux",
+          hostId: "box-studio",
+          package: "absent",
+          mode: "unenrolled",
+        }),
+        "deploy",
+      ),
+    ).toBe("needInstall");
   });
 
   it("operator blockers win over install", () => {
@@ -348,6 +363,157 @@ describe("observeRemoteHost", () => {
     expect(observed.workAttach).toBe("unknown");
     expect(checkHostRuntime(observed).ok).toBe(false);
   });
+
+  it("Linux package is present or absent from the userland generation, not always unknown", async () => {
+    const present = await Effect.runPromise(
+      observeRemoteHost(
+        {
+          run: (() => {
+            let calls = 0;
+            return () => {
+              calls += 1;
+              if (calls === 1) {
+                return Effect.succeed({ stdout: "Linux\n", stderr: "" });
+              }
+              if (calls === 2) {
+                return Effect.succeed({ stdout: "/home/alice\n", stderr: "" });
+              }
+              if (calls === 3) {
+                return Effect.succeed({
+                  stdout: "LINUX_USERLAND_OBSERVE_V1 present=1\n",
+                  stderr: "",
+                });
+              }
+              return Effect.fail(
+                new SshTimeoutError({
+                  endpoint: "studio-box",
+                  operation: "probe",
+                  timeoutMs: 1_000,
+                }),
+              );
+            };
+          })(),
+        } as never,
+        host,
+        { mode: "unenrolled" },
+      ),
+    );
+    expect(present.platform).toBe("linux");
+    expect(present.package).toBe("present");
+    expect(present.workAttach).toBe("unknown");
+    expect(checkHostRuntime(present).ok).toBe(false);
+
+    const absent = await Effect.runPromise(
+      observeRemoteHost(
+        {
+          run: (() => {
+            let calls = 0;
+            return () => {
+              calls += 1;
+              if (calls === 1) {
+                return Effect.succeed({ stdout: "Linux\n", stderr: "" });
+              }
+              if (calls === 2) {
+                return Effect.succeed({ stdout: "/home/alice\n", stderr: "" });
+              }
+              if (calls === 3) {
+                return Effect.succeed({
+                  stdout: "LINUX_USERLAND_OBSERVE_V1 present=0\n",
+                  stderr: "",
+                });
+              }
+              return Effect.fail(
+                new SshTimeoutError({
+                  endpoint: "studio-box",
+                  operation: "probe",
+                  timeoutMs: 1_000,
+                }),
+              );
+            };
+          })(),
+        } as never,
+        host,
+        { mode: "unenrolled" },
+      ),
+    );
+    expect(absent.package).toBe("absent");
+    expect(decideHostRuntimeGap(absent, "deploy")).toBe("needInstall");
+  });
+});
+
+describe("linuxHostRuntimePlatform.observePlanes", () => {
+  const target = Effect.runSync(parseSshEndpoint("studio-box"));
+  const observeThenTimeout = (stdout: string) => {
+    let calls = 0;
+    return {
+      run: () => {
+        calls += 1;
+        if (calls === 1) {
+          return Effect.succeed({ stdout, stderr: "" });
+        }
+        return Effect.fail(
+          new SshTimeoutError({
+            endpoint: "studio-box",
+            operation: "probe",
+            timeoutMs: 1_000,
+          }),
+        );
+      },
+    } as never;
+  };
+
+  it("maps a generation receipt to present or absent, and probe failure to unknown", async () => {
+    const present = await Effect.runPromise(
+      linuxHostRuntimePlatform.observePlanes(
+        observeThenTimeout("LINUX_USERLAND_OBSERVE_V1 present=1\n"),
+        target,
+        "/home/alice",
+      ),
+    );
+    expect(present.package).toBe("present");
+    expect(present.process).toBe("unknown");
+    expect(present.workAttach).toBe("unknown");
+
+    const absent = await Effect.runPromise(
+      linuxHostRuntimePlatform.observePlanes(
+        observeThenTimeout("LINUX_USERLAND_OBSERVE_V1 present=0\n"),
+        target,
+        "/home/alice",
+      ),
+    );
+    expect(absent.package).toBe("absent");
+
+    const unknown = await Effect.runPromise(
+      linuxHostRuntimePlatform.observePlanes(
+        {
+          run: () =>
+            Effect.fail(
+              new SshTimeoutError({
+                endpoint: "studio-box",
+                operation: "observe",
+                timeoutMs: 1_000,
+              }),
+            ),
+        } as never,
+        target,
+        "/home/alice",
+      ),
+    );
+    expect(unknown.package).toBe("unknown");
+    expect(unknown.process).toBe("unknown");
+    expect(unknown.workAttach).toBe("unknown");
+  });
+
+  it("does not treat a malformed generation receipt as absent", async () => {
+    const planes = await Effect.runPromise(
+      linuxHostRuntimePlatform.observePlanes(
+        observeThenTimeout("garbage\n"),
+        target,
+        "/home/alice",
+      ),
+    );
+    expect(planes.package).toBe("unknown");
+  });
 });
 
 describe("HostRuntime inversion", () => {
@@ -359,6 +525,11 @@ describe("HostRuntime inversion", () => {
     expect(coordinator).toContain("hostRuntime");
     expect(coordinator).toContain(".reconcile(");
     expect(coordinator).not.toMatch(/hosts\s*\n?\s*\.deployConfiguredRemote/u);
+    const runtime = readFileSync(
+      new URL("../src/main/vellum/hosts/host-runtime.ts", import.meta.url),
+      "utf8",
+    );
+    expect(runtime).toContain("commandCenterMayPrepareRemote");
   });
 
   it("keeps Darwin and Linux as separate platform adapters", () => {
@@ -387,9 +558,11 @@ describe("HostRuntime inversion", () => {
     expect(linux).toContain("buildObservedRemoteDeploymentTarget");
     expect(linux).toContain("linuxRemoteDeploymentProvider");
     expect(linux).toContain("activateLinuxRemoteRuntimeForTarget");
+    expect(linux).toContain("observeLinuxUserlandPackage");
     expect(linux).toContain("handshakeLinuxWorkControl");
     expect(linux).toContain("proveWorkAttach");
     expect(linux).toContain("combineHostProcessPlanes");
+    expect(linux).not.toMatch(/package:\s*"unknown" as const/u);
     const platform = readFileSync(
       new URL("../src/main/vellum/hosts/host-runtime-platform.ts", import.meta.url),
       "utf8",

@@ -48,6 +48,8 @@ export {
   compileHerdrImageStage,
   compileLinuxUserlandDeploy,
   compileLinuxUserlandDeploySource,
+  compileLinuxUserlandObserve,
+  compileLinuxUserlandObserveSource,
   compileLinuxUserlandPreflight,
   compileLinuxUserlandPreflightSource,
   compileLinuxUserlandRestart,

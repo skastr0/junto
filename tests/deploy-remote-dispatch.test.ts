@@ -7,7 +7,10 @@ import {
   decodeRemotePlatformEvidence,
   makeRemoteDeploymentDispatcher,
 } from "../src/main/vellum/hosts/deploy-remote";
-import { resolveRemoteDeploymentTarget } from "../src/main/vellum/hosts/remote-platform";
+import {
+  commandCenterMayPrepareRemote,
+  resolveRemoteDeploymentTarget,
+} from "../src/main/vellum/hosts/remote-platform";
 import { SshExitError } from "../src/main/vellum/ssh/domain";
 import {
   deployConfiguredRemoteHost,
@@ -432,6 +435,31 @@ describe("Remote deployment dispatcher", () => {
     expect(preparation.result.detail).not.toContain(
       "check SSH config, VPN, and keys",
     );
+  });
+
+  it("lets a Linux Command Center prepare a Linux Remote after uname", async () => {
+    expect(commandCenterMayPrepareRemote("linux", "linux")).toBe(true);
+    expect(commandCenterMayPrepareRemote("linux", "darwin")).toBe(false);
+    expect(commandCenterMayPrepareRemote("darwin", "linux")).toBe(true);
+
+    const ssh = makeSsh("Linux\n");
+    const preparation = await Effect.runPromise(
+      resolveRemoteDeploymentTarget(ssh, host, "linux"),
+    );
+
+    expect(preparation.ok).toBe(true);
+    if (!preparation.ok) return;
+    expect(preparation.target.platform).toEqual({
+      platform: "linux",
+      kernelName: "Linux",
+    });
+    expect(preparation.target.progress).toEqual([
+      "endpoint ok",
+      "ssh warm ok",
+      "remote uname Linux",
+    ]);
+    expect(ssh.warm).toHaveBeenCalled();
+    expect(ssh.run).toHaveBeenCalled();
   });
 
   it("refuses a Darwin Remote from a Linux Command Center after the OS probe", async () => {

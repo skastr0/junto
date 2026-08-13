@@ -146,6 +146,37 @@ printf 'LINUX_USERLAND_RESTART_V1 ok=1\n'
 export const compileLinuxUserlandRestart = (): Effect.Effect<RemoteCommand, SshInputError> =>
   makeRemoteCommand("/bin/sh", ["-c", compileLinuxUserlandRestartSource(), "vellum-plan:linux-userland-restart"]);
 
+/**
+ * Read-only package plane: a canonical userland generation is present or
+ * absent. No `current` link. SSH failure stays unknown at the caller.
+ */
+export const compileLinuxUserlandObserveSource = (): string => String.raw`
+set -eu
+umask 077
+emit() { printf 'LINUX_USERLAND_OBSERVE_V1 present=%s\n' "$1"; exit 0; }
+[ -x /usr/bin/awk ] || exit 1
+[ -n "$HOME" ] || exit 1
+[ -d "$HOME" ] || emit 0
+ROOT="$HOME/.vellum-command/runtime/releases"
+[ -d "$ROOT" ] && [ ! -L "$ROOT" ] || emit 0
+present=0
+for dest in "$ROOT"/*; do
+  [ -d "$dest" ] && [ ! -L "$dest" ] || continue
+  name=$(/usr/bin/basename "$dest")
+  printf '%s\n' "$name" | /usr/bin/awk -F- 'NF == 2 && $1 ~ /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/ && $2 ~ /^[0-9a-f]{64}$/ { ok=1 } END { exit ok ? 0 : 1 }' || continue
+  remote="$dest/resources/bin/vellum-command-remote"
+  launch="$dest/resources/systemd/vellum-command-remote-launch"
+  if [ -x "$remote" ] && [ -x "$launch" ] && [ ! -L "$remote" ] && [ ! -L "$launch" ]; then
+    present=1
+    break
+  fi
+done
+emit "$present"
+`.trim();
+
+export const compileLinuxUserlandObserve = (): Effect.Effect<RemoteCommand, SshInputError> =>
+  makeRemoteCommand("/bin/sh", ["-c", compileLinuxUserlandObserveSource(), "vellum-plan:linux-userland-observe"]);
+
 export const HERDR_IMAGE_STAGE_DIR = "/tmp/vellum-command-herdr-images" as const;
 const HERDR_NAME = /^vellum-command-clip-[a-z0-9]{1,24}-[a-f0-9]{8}\.(png|jpg|gif|webp|bmp)$/u;
 export const confineHerdrStagePath = (name: string): Effect.Effect<string, SshInputError> =>

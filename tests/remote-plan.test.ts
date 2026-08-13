@@ -28,6 +28,8 @@ describe("remote-plan public surface", () => {
       "compileHerdrImageStage",
       "compileLinuxUserlandDeploy",
       "compileLinuxUserlandDeploySource",
+      "compileLinuxUserlandObserve",
+      "compileLinuxUserlandObserveSource",
       "compileLinuxUserlandPreflight",
       "compileLinuxUserlandPreflightSource",
       "compileLinuxUserlandRestart",
@@ -75,6 +77,18 @@ describe("named deploy compilers", () => {
     expect(parts.args[1]).toBe(remotePlan.compileLinuxUserlandRestartSource());
     expect(parts.args[1]).toContain("systemctl --user restart vellum-command-remote.service");
     expect(parts.args[1]).not.toMatch(/sudo|rm -rf|--vellum-headless/u);
+  });
+
+  it("compiles a userland generation observe command with a fixed invocation", () => {
+    const parts = inspectRemoteCommand(run(remotePlan.compileLinuxUserlandObserve()));
+    expect(parts.executable).toBe("/bin/sh");
+    expect(parts.args[0]).toBe("-c");
+    expect(parts.args[2]).toBe("vellum-plan:linux-userland-observe");
+    expect(parts.args[1]).toBe(remotePlan.compileLinuxUserlandObserveSource());
+    expect(parts.args[1]).toContain("LINUX_USERLAND_OBSERVE_V1");
+    expect(parts.args[1]).toContain("$HOME/.vellum-command/runtime/releases");
+    expect(parts.args[1]).toContain("resources/bin/vellum-command-remote");
+    expect(parts.args[1]).not.toMatch(/sudo|rm -rf|--vellum-headless|current/u);
   });
 
   it("hardens deploy around vellum-command-remote generation pin, sealed install, and member proof", () => {

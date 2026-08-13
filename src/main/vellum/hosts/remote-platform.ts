@@ -10,6 +10,7 @@ import type {
   DeployRemoteResult,
   RemoteDeploymentPreparation,
   RemotePlatformDescriptor,
+  RemoteTargetPlatform,
   UnsupportedRemoteTarget,
 } from "./remote-deployment";
 
@@ -72,6 +73,16 @@ export const decodeRemotePlatformEvidence = (
     },
   };
 };
+
+/**
+ * Linux Command Center may prepare a Linux Remote after uname.
+ * Darwin Remote still needs a macOS Command Center (local .app).
+ */
+export const commandCenterMayPrepareRemote = (
+  commandCenterPlatform: NodeJS.Platform,
+  remotePlatform: RemoteTargetPlatform,
+): boolean =>
+  remotePlatform === "linux" || commandCenterPlatform === "darwin";
 
 export const remoteDeploymentFailure = (
   detail: string,
@@ -260,8 +271,10 @@ export const resolveRemoteDeploymentTarget = (
     stages.push(`remote uname ${evidence.platform.kernelName}`);
 
     if (
-      evidence.platform.platform === "darwin" &&
-      commandCenterPlatform !== "darwin"
+      !commandCenterMayPrepareRemote(
+        commandCenterPlatform,
+        evidence.platform.platform,
+      )
     ) {
       return {
         ok: false,

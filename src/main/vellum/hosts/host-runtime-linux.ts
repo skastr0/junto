@@ -26,6 +26,7 @@ import { reportDeployStage } from "./deploy-job-registry";
 import {
   activateLinuxRemoteRuntimeForTarget,
   linuxRemoteDeploymentProvider,
+  observeLinuxUserlandPackage,
 } from "./deploy-linux";
 import {
   combineHostProcessPlanes,
@@ -54,6 +55,7 @@ const observePlanes = (
   home: string,
 ): Effect.Effect<HostRuntimePlanes> =>
   Effect.gen(function* () {
+    const pkg = yield* observeLinuxUserlandPackage(ssh, target);
     const stationHome = stationControlDir(home);
     const enroll = yield* probeRemoteDoorSocket(
       ssh,
@@ -67,7 +69,7 @@ const observePlanes = (
     );
     const workAttach = yield* probeLinuxWorkAttach(ssh, target, home);
     return {
-      package: "unknown" as const,
+      package: pkg,
       process: combineHostProcessPlanes(enroll, peer),
       workAttach,
     };
