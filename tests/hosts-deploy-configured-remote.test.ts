@@ -67,7 +67,7 @@ const operations = (
   activateRuntime: () =>
     Effect.succeed({
       ok: true,
-      detail: "runtime already admitted by package deploy",
+      detail: "Linux userland runtime needs no Darwin activate",
     }),
   ...overrides,
 });
@@ -106,20 +106,13 @@ describe("configured remote deploy (userland)", () => {
     expect(configure).not.toHaveBeenCalled();
   });
 
-  it("does not admit or package-mutate when prepare refuses the target", async () => {
-    let admitted = false;
+  it("does not package-mutate when prepare refuses the target", async () => {
     let packageMutated = false;
     const result = await Effect.runPromise(
       deployConfiguredRemoteHost(
         unusedSsh,
         host,
-        {
-          ...options,
-          onAdmitted: () =>
-            Effect.sync(() => {
-              admitted = true;
-            }),
-        },
+        options,
         operations({
           prepare: () =>
             Effect.succeed({
@@ -147,8 +140,31 @@ describe("configured remote deploy (userland)", () => {
       ),
     );
     expect(result.ok).toBe(false);
-    expect(admitted).toBe(false);
     expect(packageMutated).toBe(false);
+  });
+
+  it("does not claim station applied before first-install configure", async () => {
+    let receivedState: string | undefined;
+    await Effect.runPromise(
+      deployConfiguredRemoteHost(
+        unusedSsh,
+        host,
+        options,
+        operations({
+          deployPrepared: (_ssh, _target, stationConfiguration) => {
+            receivedState = stationConfiguration.state;
+            return Effect.succeed({
+              ok: true,
+              detail: "userland runtime ready",
+              stages: ["deployed"],
+              disposition: "ready" as const,
+              version: "1.2.3",
+            });
+          },
+        }),
+      ),
+    );
+    expect(receivedState).toBe("managed-externally");
   });
 
   it("enrollment package admits configure then supervised runtime activate", async () => {

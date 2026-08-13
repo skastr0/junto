@@ -57,6 +57,19 @@ describe("decideHostRuntimeGap", () => {
     ).toBe("needInstall");
   });
 
+  it("enrolled Remote with a missing package is restart, not pair", () => {
+    expect(
+      decideHostRuntimeGap(
+        observation({
+          package: "absent",
+          mode: "remote",
+          priorInstallationId: "station-remote-a",
+        }),
+        "deploy",
+      ),
+    ).toBe("needRestart");
+  });
+
   it("deploy configures a first install and restarts an enrolled Remote", () => {
     expect(decideHostRuntimeGap(observation({}), "deploy")).toBe(
       "needConfigure",
@@ -133,7 +146,24 @@ describe("HostRuntime inversion", () => {
     );
     expect(darwin).toContain("remoteDarwinPackageExists");
     expect(darwin).not.toContain("workControlSocketPath");
+    expect(darwin).not.toContain("applyConfiguredRemoteGap");
+    expect(darwin).toContain("activateDarwinRemoteRuntimeForTarget");
+    expect(darwin).toContain("probeRemoteWorkAttach");
     expect(linux).toContain("workControlSocketPath");
     expect(linux).not.toContain("remoteDarwinPackageExists");
+    expect(linux).not.toContain("applyConfiguredRemoteGap");
+    expect(linux).not.toContain("resolveRemoteDeploymentTarget");
+    expect(linux).not.toContain("prepareRemoteDeployment");
+    expect(linux).toContain("buildObservedRemoteDeploymentTarget");
+    expect(linux).toContain("linuxRemoteDeploymentProvider");
+    expect(linux).toContain("probeRemoteWorkAttach");
+  });
+
+  it("does not keep a shared applyConfiguredRemoteGap act", () => {
+    expect(() =>
+      readFileSync(
+        new URL("../src/main/vellum/hosts/host-runtime-apply.ts", import.meta.url),
+      ),
+    ).toThrow();
   });
 });

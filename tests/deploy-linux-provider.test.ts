@@ -219,6 +219,34 @@ describe("Linux userland remote deployment provider", () => {
     );
   });
 
+  it("deploys a first install without claiming station applied", async () => {
+    const { ssh } = makeSsh();
+    const candidate = makeCandidate();
+    const provider = makeLinuxRemoteDeploymentProvider({
+      artifactAuthority: { resolve: async () => candidate },
+      liveWorkAuthority: {
+        acquire: () =>
+          Effect.succeed({
+            acquired: true,
+            evidence: {
+              activeTerminalSessions: 0,
+              observationId: "test",
+            },
+            release: Effect.void,
+          }),
+      } satisfies LinuxRemoteLiveWorkAuthority,
+    });
+    const input = providerInput(ssh);
+    const result = await Effect.runPromise(
+      provider.deploy({
+        ...input,
+        stationConfiguration: { state: "managed-externally" },
+      }),
+    );
+    expect(result.ok).toBe(true);
+    expect(result.disposition).toBe("ready");
+  });
+
   it("fails closed when preflight or deploy evidence is not userland-ready", async () => {
     const candidate = makeCandidate();
     const liveWorkAuthority: LinuxRemoteLiveWorkAuthority = {

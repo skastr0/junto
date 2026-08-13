@@ -1366,5 +1366,13 @@ describe("deploy transfer lifecycle", () => {
     expect(classifyDeployTransferDisposition(new Error("transport"))).toBe(
       "indeterminate",
     );
+    const darwin = readFileSync(
+      new URL("../src/main/vellum/hosts/deploy-darwin.ts", import.meta.url),
+      "utf8",
+    );
+    expect(darwin).toContain(
+      "error.code === DARWIN_DEPLOY_READY_WITH_LOCK_WARNING_EXIT",
+    );
+    expect(darwin).toContain("Effect.catchIf");
   });
 });

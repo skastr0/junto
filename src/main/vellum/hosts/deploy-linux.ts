@@ -59,13 +59,10 @@ export const makeLinuxRemoteDeploymentProvider = (input: { readonly artifactAuth
   deploy: (request) =>
     Effect.scoped(
       Effect.gen(function* () {
-        if (
-          request.target.platform.platform !== "linux" ||
-          request.stationConfiguration.state !== "applied"
-        ) {
+        if (request.target.platform.platform !== "linux") {
           return failure(
             request,
-            "a configured Linux Remote is required",
+            "Linux deployment provider refused a non-Linux target",
             "validation",
           );
         }

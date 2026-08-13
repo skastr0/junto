@@ -115,6 +115,60 @@ export const unsupportedRemoteTargetResult = (
   );
 };
 
+/**
+ * Build a deployment target from an already-observed platform.
+ * No uname, no prepare dispatcher. Used by HostRuntime apply.
+ */
+export const buildObservedRemoteDeploymentTarget = (
+  ssh: Ssh,
+  host: RemoteHost,
+  platform: RemotePlatformDescriptor,
+): Effect.Effect<RemoteDeploymentPreparation, never> =>
+  Effect.gen(function* () {
+    if (host.kind !== "remote" || !host.sshEndpoint) {
+      return {
+        ok: false,
+        result: remoteDeploymentFailure(
+          `host ${host.id} is not a remote SSH endpoint`,
+          { code: "validation" },
+        ),
+      };
+    }
+    const remoteHost = host as DeployableRemoteHost;
+    const sshTarget = yield* parseHostSshRoute(host).pipe(Effect.result);
+    if (sshTarget._tag === "Failure") {
+      return {
+        ok: false,
+        result: remoteDeploymentFailure(
+          `Invalid endpoint: ${sshTarget.failure.message}`,
+          { code: "validation" },
+        ),
+      };
+    }
+    const stages: string[] = ["endpoint ok"];
+    const warm = yield* ssh.warm(sshTarget.success).pipe(Effect.result);
+    if (warm._tag === "Failure") {
+      return {
+        ok: false,
+        result: remoteDeploymentFailure(
+          `${host.label}: SSH connection failed — ${formatSshFailure(warm.failure)}`,
+          { code: "io", stages },
+        ),
+      };
+    }
+    stages.push("ssh warm ok");
+    return {
+      ok: true,
+      target: Object.freeze({
+        host: remoteHost,
+        endpoint: inspectSshTarget(sshTarget.success).endpoint,
+        sshTarget: sshTarget.success,
+        platform,
+        progress: Object.freeze([...stages]),
+      }),
+    };
+  });
+
 /** Read-only admission. No artifact lookup, transfer, or station write occurs here. */
 export const resolveRemoteDeploymentTarget = (
   ssh: Ssh,

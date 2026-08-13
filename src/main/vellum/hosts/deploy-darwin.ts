@@ -2461,17 +2461,30 @@ const streamArtifactToRemote = (
               ),
       );
       const command = yield* compileDarwinRemoteDeployScript(remoteScript);
-      const output = yield* ssh.transfer(
-        sharedStream(endpoint, command),
-        Stream.fromAsyncIterable(
-          source.lease.io.stdout,
-          (error) =>
-            new Error(
-              `local ${source.label} stream failed: ${error instanceof Error ? error.message : String(error)}`,
-            ),
-        ).pipe(Stream.map((chunk) => Uint8Array.from(chunk))),
-        DEPLOY_TIMEOUT_MS,
-      );
+      const output = yield* ssh
+        .transfer(
+          sharedStream(endpoint, command),
+          Stream.fromAsyncIterable(
+            source.lease.io.stdout,
+            (error) =>
+              new Error(
+                `local ${source.label} stream failed: ${error instanceof Error ? error.message : String(error)}`,
+              ),
+          ).pipe(Stream.map((chunk) => Uint8Array.from(chunk))),
+          DEPLOY_TIMEOUT_MS,
+        )
+        .pipe(
+          Effect.catchIf(
+            (error): error is SshTransferExitError =>
+              error instanceof SshTransferExitError &&
+              error.code === DARWIN_DEPLOY_READY_WITH_LOCK_WARNING_EXIT,
+            (error) =>
+              Effect.succeed({
+                stdout: error.stdout,
+                stderr: error.stderr,
+              }),
+          ),
+        );
       const sourceResult = yield* Effect.promise(() => source.exit.settlement);
       if (!sourceResult.ok) {
         return yield* Effect.fail(
@@ -2750,7 +2763,12 @@ export const makeDarwinRemoteDeploymentProvider = (deps: {
           {
             admission,
             remoteHome: home,
-            expectedPackageState: installedPresent ? "present" : "absent",
+            expectedPackageState:
+              providerInput.stationConfiguration.state === "applied"
+                ? "present"
+                : installedPresent
+                  ? "present"
+                  : "absent",
           },
         ).pipe(Effect.result);
 

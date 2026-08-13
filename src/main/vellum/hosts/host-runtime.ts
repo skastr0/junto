@@ -37,9 +37,6 @@ export type HostRuntimeReconcileInput = {
   readonly intent: HostRuntimeIntent;
   readonly configure: ConfigureRemoteOptions;
   readonly artifactSource?: LinuxReleaseCacheSource;
-  readonly onAdmitted?: (
-    host: RemoteHost,
-  ) => Effect.Effect<void, RemoteHostsError>;
   readonly onCompleted?: (
     host: RemoteHost,
     result: ConfiguredRemoteDeployResult,
@@ -304,14 +301,19 @@ export const HostRuntimeLive = Layer.effect(
           ...(input.artifactSource === undefined
             ? {}
             : { artifactSource: input.artifactSource }),
-          ...(input.onAdmitted === undefined
-            ? {}
-            : { onAdmitted: input.onAdmitted }),
-          ...(input.onCompleted === undefined
-            ? {}
-            : { onCompleted: input.onCompleted }),
         };
-        return yield* adapterFor(platform).apply(context);
+        const applied = yield* adapterFor(platform).apply(context);
+        if (input.onCompleted === undefined) return applied;
+        return yield* input.onCompleted(host.success, applied).pipe(
+          Effect.map(() => ({ ...applied, statusRecorded: true })),
+          Effect.catch((error) =>
+            Effect.succeed({
+              ...applied,
+              statusRecorded: false,
+              detail: `${applied.detail} - local deployment receipt could not be persisted: ${error.message}`,
+            }),
+          ),
+        );
       });
 
     return HostRuntime.of({ observe, reconcile });

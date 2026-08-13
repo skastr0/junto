@@ -1,9 +1,9 @@
 /**
  * One host-runtime contract for Command Center and Remote.
  *
- * Placement (local | remote) and platform (darwin | linux) select a Layer.
+ * Placement (local | remote) and platform (darwin | linux) select an adapter.
  * They do not change the observation or the gap. Unknown is not down.
- * Ready is work attach, not an SSH badge or a script banner.
+ * Ready is work attach via a real connect, not a sock file and not SSH-up.
  */
 import { Schema } from "effect";
 import { HostId } from "./remote-hosts";
@@ -87,11 +87,12 @@ export const decideHostRuntimeGap = (
     return "stillTrying";
   }
 
-  if (observation.package === "absent") return "needInstall";
   const alreadyRemote =
     observation.priorInstallationId !== undefined ||
     observation.mode === "remote";
+  // Enrolled Remote stays Remote. Missing package is replace, not pair.
   if (alreadyRemote) return "needRestart";
+  if (observation.package === "absent") return "needInstall";
   return "needConfigure";
 };
 

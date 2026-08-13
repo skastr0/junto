@@ -474,7 +474,7 @@ describe("Remote deployment dispatcher", () => {
       activateRuntime: () =>
         Effect.succeed({
           ok: true,
-          detail: "runtime already admitted by package deploy",
+          detail: "Linux userland runtime needs no Darwin activate",
         }),
     };
 
