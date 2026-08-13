@@ -50,6 +50,8 @@ export const PORT_DESCRIPTIONS: Readonly<Record<Port, string>> = {
   "board.create_topic": "Create a board topic (does not notify agents).",
   "board.post": "Post a note under a topic.",
   "board.mark_read": "Mark a topic read without replying.",
+  "pad.read": "Read the connected pad (revision, IR, digest, SVG).",
+  "pad.patch": "Apply PadPatch updates to the connected pad.",
   "relay.trigger": "Fire a connected scheduler pipeline now.",
 };
 
@@ -102,6 +104,10 @@ const NODE_EVENTS: Readonly<Record<string, readonly string[]>> = {
     "board.topic_created / board.posted / board.mark_read — attention changes",
     "board.wake — topic attention nudges seats (operator IPC only)",
   ],
+  pad: [
+    "pad.read — revision + IR + digest + SVG for a wired seat",
+    "pad.patch — applyPatch on the work-plane pad (agents cannot upsert ink or images)",
+  ],
   agent: [
     "msg.append — factory mail or peer messages land in the seat mailbox",
     "msg.list — own inbox marks listed mail read; sent shows peer readAt",
@@ -137,6 +143,7 @@ const MODEL_NOTE: Readonly<Record<string, string>> = {
   requests: "Requests sink: items share the Task state machine; resolving a request unblocks the seat.",
   artifacts: "Artifacts sink: items (Artifact[]) published through the admitted, process-bound path.",
   board: "Board sink: topics with posts; glance strip in ether, full posts on list/detail.",
+  pad: "Pad sink: work-plane IR. Empty pad is legal. Glance is title + shape count + unread pin count.",
   agent: "Actor seat: mailbox items (Message[]) + terminal session; identity is process-bind.",
   page: "Browser surface: admitted page sessions controlled via the browser CLI.",
   terminal: "Terminal resource: PTY session surface.",
@@ -152,6 +159,7 @@ const KIND_NOTE: Readonly<Record<string, string>> = {
   requests: "The escalation surface: file a request to block your seat and wait for the operator.",
   artifacts: "The delivery surface: publish outputs; artifacts never block.",
   board: "The bulletin surface: optional shared context, never a decision inbox.",
+  pad: "The shared page: wired agents read a picture + IR and patch named boxes and pins. They never write the factory canvas.",
   page: "The browser surface (feature-gated): page automation grants.",
   terminal: "A terminal resource sink (v1 access family only).",
   cron: "Time scheduler (feature-gated).",

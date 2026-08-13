@@ -97,6 +97,7 @@ export const WELL_KNOWN_ENTITY_KINDS = [
   "requests",
   "artifacts",
   "board",
+  "pad",
   "herdr",
   "terminal",
   "page",

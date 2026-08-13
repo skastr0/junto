@@ -70,6 +70,8 @@ const ACCESS_PORT_LABEL: Record<Port, string> = {
   "board.create_topic": "Create topics",
   "board.post": "Post to board",
   "board.mark_read": "Mark board read",
+  "pad.read": "Read pad",
+  "pad.patch": "Patch pad",
   "relay.trigger": RELAY_ENABLED ? "Fire the relay" : "Trigger automation",
 };
 

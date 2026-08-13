@@ -202,6 +202,8 @@ const PORT_LABEL: Partial<Record<PortName, string>> = {
   "board.create_topic": "Create topics",
   "board.post": "Post to board",
   "board.mark_read": "Mark board read",
+  "pad.read": "Read pad",
+  "pad.patch": "Patch pad",
 };
 
 const portLabel = (port: PortName): string => PORT_LABEL[port] ?? port;

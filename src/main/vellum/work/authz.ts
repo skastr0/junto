@@ -132,6 +132,8 @@ export const requiresConnection = (op: WorkOpName): boolean => {
     case "board.create_topic":
     case "board.post":
     case "board.mark_read":
+    case "pad.read":
+    case "pad.patch":
     case "relay.trigger":
       return true;
   }

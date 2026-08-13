@@ -61,6 +61,8 @@ export const WorkOpName = Schema.Literals(["ping", "doctor",
 "board.post",
 "board.mark_read",
 "board.tags",
+"pad.read",
+"pad.patch",
 /** Agent → relay: fire the scheduler pipeline now (port relay.trigger). */
 "relay.trigger",]);
 export type WorkOpName = typeof WorkOpName.Type;

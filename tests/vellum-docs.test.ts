@@ -58,6 +58,7 @@ describe("vellum docs catalog", () => {
     expect(catalog).toContain("requests");
     expect(catalog).toContain("artifacts");
     expect(catalog).toContain("board");
+    expect(catalog).toContain("pad");
     expect(catalog).toContain("agent");
     expect(catalog).toContain("tasks.list");
   });

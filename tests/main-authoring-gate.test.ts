@@ -208,6 +208,8 @@ describe("work-control main authoring classification", () => {
       "board.create_topic": "authorial",
       "board.post": "authorial",
       "board.mark_read": "authorial",
+      "pad.read": "read",
+      "pad.patch": "authorial",
       "relay.trigger": "authorial",
     } as const satisfies Record<
       WorkOpName,
