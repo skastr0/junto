@@ -113,6 +113,9 @@ const pinReply = (
   pinId: string,
   postId: string,
   author: Record<string, unknown>,
+  parts: ReadonlyArray<Record<string, unknown>> = [
+    { kind: "text", text: "note" },
+  ],
 ): PadPatchValue =>
   decodePatch({
     op: "pin.reply",
@@ -120,9 +123,23 @@ const pinReply = (
     post: {
       postId,
       author,
-      parts: [{ kind: "text", text: "note" }],
+      parts,
     },
   });
+
+const RAW_POST_BYTES = Buffer.from("pad-raw-image");
+const pinReplyRaw = (
+  pinId: string,
+  postId: string,
+  author: Record<string, unknown>,
+): PadPatchValue =>
+  pinReply(pinId, postId, author, [
+    {
+      kind: "raw",
+      bytesBase64: RAW_POST_BYTES.toString("base64"),
+      mediaType: "image/png",
+    },
+  ]);
 
 const padDoc = (wired: boolean): CanvasDoc => {
   const pad = { ...makePadNode(200, 0), id: "pad-1" };
@@ -363,6 +380,71 @@ describe("pad persist", () => {
       mediaType: "image/png",
     });
     expect(JSON.stringify(loaded)).not.toMatch(/bytesBase64|data:image|base64,/);
+  });
+
+  it("applyPadPatch refuses pin.reply raw parts so parts_json cannot store bytes", async () => {
+    const sink = { canvasName: "factory", nodeId: "pad-raw-repo" };
+    await runtime.runPromise(
+      repository.applyPadPatch({
+        sink,
+        basis: authorialBasis,
+        patchId: "patch-raw-pin",
+        patches: [
+          {
+            op: "pin.upsert",
+            pin: {
+              id: asPadElementId("raw-pin"),
+              x: 1,
+              y: 1,
+              mentions: [],
+            },
+          },
+        ],
+        author: { kind: "operator", label: "operator" },
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    const denied = await runtime.runPromise(
+      repository
+        .applyPadPatch({
+          sink,
+          basis: authorialBasis,
+          patchId: "patch-raw-post",
+          patches: [
+            pinReplyRaw("raw-pin", "raw-post", {
+              kind: "operator",
+              label: "operator",
+            }),
+          ],
+          author: { kind: "operator", label: "operator" },
+          originAt: observedAt,
+          receivedAt: observedAt,
+        })
+        .pipe(Effect.result),
+    );
+    expect(denied).toMatchObject({
+      _tag: "Failure",
+      failure: { _tag: "WorkAuthorityError", reason: "invalid-transition" },
+    });
+    if (denied._tag === "Failure") {
+      expect(denied.failure.message).toMatch(/bytes never live in pad JSON/i);
+    }
+    const loaded = await runtime.runPromise(
+      repository.readPad("factory", "pad-raw-repo"),
+    );
+    expect(loaded.pins[0]?.posts).toEqual([]);
+    expect(JSON.stringify(loaded)).not.toMatch(/bytesBase64|data:image|base64,/);
+    const stored = await runtime.runPromise(
+      state.read("test.read-pad-raw-post", (reader) =>
+        reader.get<{ readonly parts_json: string }>(
+          `SELECT parts_json FROM work_pad_posts
+           WHERE canvas_name = ? AND node_id = ? AND post_id = ?`,
+          [sink.canvasName, sink.nodeId, "raw-post"],
+        )?.parts_json,
+      ),
+    );
+    expect(stored).toBeUndefined();
   });
 
   it("applyPadPatch refuses an unwired mention at the repository mint", async () => {
@@ -725,6 +807,77 @@ describe("WorkService pad author refusals", () => {
       seatId: actor.seatId,
     });
     expect(post?.author.kind).not.toBe("operator");
+  });
+
+  it("externalizes actor pin.reply raw parts so pad JSON never stores bytes", async () => {
+    const work = await runtime.runPromise(WorkService);
+    const actor = {
+      kind: "actor" as const,
+      seatId: Schema.decodeUnknownSync(ActorSeatId)(`seat_${"a".repeat(64)}`),
+      nodeId: "agent",
+    };
+    const opened = await runtime.runPromise(
+      work.workPadPatch(
+        "factory",
+        "pad-1",
+        [
+          {
+            op: "pin.upsert",
+            pin: {
+              id: asPadElementId("raw-thread"),
+              x: 3,
+              y: 3,
+              mentions: ["agent"],
+            },
+          },
+        ],
+        { kind: "operator", label: "operator" },
+      ),
+    );
+    expect(opened.ok).toBe(true);
+
+    const replied = await runtime.runPromise(
+      work.workPadPatch(
+        "factory",
+        "pad-1",
+        [
+          pinReplyRaw("raw-thread", "actor-raw-post", {
+            kind: "actor",
+            nodeId: "agent",
+          }),
+        ],
+        actor,
+      ),
+    );
+    expect(replied.ok).toBe(true);
+    if (!replied.ok) return;
+    const post = replied.data.pad.pins
+      .find((pin) => pin.id === "raw-thread")
+      ?.posts.find((item) => item.postId === "actor-raw-post");
+    expect(post?.parts).toHaveLength(1);
+    expect(post?.parts[0]?.kind).toBe("content");
+    if (post?.parts[0]?.kind === "content") {
+      expect(post.parts[0].ref.byteLength).toBe(RAW_POST_BYTES.length);
+      expect(post.parts[0].ref.mediaType).toBe("image/png");
+    }
+    expect(JSON.stringify(replied.data.pad)).not.toMatch(
+      /bytesBase64|data:image|base64,/,
+    );
+
+    const state = await runtime.runPromise(StateEngine);
+    const stored = await runtime.runPromise(
+      state.read("test.read-actor-pad-raw-post", (reader) =>
+        reader.get<{ readonly parts_json: string }>(
+          `SELECT parts_json FROM work_pad_posts
+           WHERE canvas_name = ? AND node_id = ? AND post_id = ?`,
+          ["factory", "pad-1", "actor-raw-post"],
+        )?.parts_json,
+      ),
+    );
+    expect(stored).toBeDefined();
+    expect(stored).toContain('"kind":"content"');
+    expect(stored).not.toContain("bytesBase64");
+    expect(stored).not.toMatch(/data:image|base64,/);
   });
 
   it("applies an operator shape patch", async () => {

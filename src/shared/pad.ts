@@ -156,7 +156,10 @@ const padInvariants = (pad: {
   readonly inks: ReadonlyArray<{ readonly id: string }>;
   readonly pins: ReadonlyArray<{
     readonly id: string;
-    readonly posts: ReadonlyArray<{ readonly postId: string }>;
+    readonly posts: ReadonlyArray<{
+      readonly postId: string;
+      readonly parts: ReadonlyArray<{ readonly kind: string }>;
+    }>;
   }>;
 }): true | string => {
   const ids = collectElementIds(pad);
@@ -174,9 +177,16 @@ const padInvariants = (pad: {
     if (new Set(postIds).size !== postIds.length) {
       return "post ids must be unique on a pin";
     }
+    if (pin.posts.some((post) => postHasInlineBytes(post.parts))) {
+      return "bytes never live in pad JSON";
+    }
   }
   return true;
 };
+
+const postHasInlineBytes = (
+  parts: ReadonlyArray<{ readonly kind: string }>,
+): boolean => parts.some((part) => part.kind === "raw");
 
 export const Pad = Schema.Struct({
   revision: Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))),
@@ -406,6 +416,13 @@ const applyDecoded = (pad: Pad, patch: PadPatch): Result.Result<Pad, PadError> =
       const index = pad.pins.findIndex((pin) => pin.id === patch.pinId);
       if (index === -1) {
         return padFail("missing", "pin does not exist", patch.pinId);
+      }
+      if (postHasInlineBytes(patch.post.parts)) {
+        return padFail(
+          "invalid",
+          "bytes never live in pad JSON",
+          patch.pinId,
+        );
       }
       const pin = pad.pins[index]!;
       if (pin.posts.some((post) => post.postId === patch.post.postId)) {

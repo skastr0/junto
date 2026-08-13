@@ -279,6 +279,41 @@ describe("pad applyPatch", () => {
     expect(moved.pins[0]?.posts).toHaveLength(1);
     expect(moved.pins[0]?.posts[0]?.postId).toBe("post-1");
   });
+
+  it("refuses pin.reply that carries raw bytes", () => {
+    const pinned = expectOk(
+      applyPatch(
+        emptyPad(),
+        decodePatch({
+          op: "pin.upsert",
+          pin: { id: "p1", x: 2, y: 3, mentions: [] },
+        }),
+      ),
+    );
+    const failed = expectFail(
+      applyPatch(
+        pinned,
+        decodePatch({
+          op: "pin.reply",
+          pinId: "p1",
+          post: {
+            postId: "post-raw",
+            author: { kind: "operator", label: "operator" },
+            parts: [
+              {
+                kind: "raw",
+                bytesBase64: "aGVsbG8=",
+                mediaType: "image/png",
+              },
+            ],
+          },
+        }),
+      ),
+      "invalid",
+    );
+    expect(failed.message).toMatch(/bytes never live in pad JSON/i);
+    expect(pinned.pins[0]?.posts).toEqual([]);
+  });
 });
 
 describe("pad images", () => {

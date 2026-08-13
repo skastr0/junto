@@ -626,6 +626,26 @@ export const WorkLive = Layer.effect(
       });
     };
 
+    const externalizePadPatches = (
+      patches: ReadonlyArray<PadPatch>,
+      canvas: string,
+      nodeId: string,
+    ): Effect.Effect<ReadonlyArray<PadPatch>, WorkServiceError> =>
+      Effect.forEach(patches, (patch) => {
+        if (patch.op !== "pin.reply") return Effect.succeed(patch);
+        return externalizeParts(patch.post.parts, {
+          kind: "other",
+          canvasName: canvas,
+          nodeId,
+          recordId: patch.post.postId,
+        }).pipe(
+          Effect.map((parts): PadPatch => ({
+            ...patch,
+            post: { ...patch.post, parts },
+          })),
+        );
+      });
+
     const externalizeMessage = (
       message: Message,
       owner?: ContentOwner,
@@ -2475,6 +2495,11 @@ export const WorkLive = Layer.effect(
                 }),
               );
             }
+            const materialized = yield* externalizePadPatches(
+              stamped,
+              canvas,
+              nodeId,
+            );
             const home =
               context.configuration.role === "command-center"
                 ? context.localInstallationId
@@ -2483,7 +2508,7 @@ export const WorkLive = Layer.effect(
             const current = yield* repository
               .readPad(canvas, nodeId)
               .pipe(Effect.mapError(toWorkServiceError));
-            const addedMentions = addedPadMentions(current, stamped);
+            const addedMentions = addedPadMentions(current, materialized);
             const outcome =
               home === context.localInstallationId
                 ? yield* local(
@@ -2492,7 +2517,7 @@ export const WorkLive = Layer.effect(
                       sink: sinkRef(canvas, nodeId),
                       basis: intentBasis(context, read.intentWitness),
                       patchId,
-                      patches: stamped,
+                      patches: materialized,
                       author,
                     })
                     .pipe(
@@ -2512,7 +2537,7 @@ export const WorkLive = Layer.effect(
                   {
                     operation: "pad.patch",
                     patchId,
-                    patches: [...stamped],
+                    patches: [...materialized],
                     author,
                   },
                   {
@@ -2537,7 +2562,7 @@ export const WorkLive = Layer.effect(
                 (seat) => notifyIds.has(seat.nodeId),
               );
               if (seats.length > 0) {
-                const reply = stamped.find((patch) => patch.op === "pin.reply");
+                const reply = materialized.find((patch) => patch.op === "pin.reply");
                 const excerpt =
                   reply?.op === "pin.reply"
                     ? reply.post.parts
@@ -2547,7 +2572,7 @@ export const WorkLive = Layer.effect(
                       .join("\n")
                     : "look here";
                 const pinId =
-                  stamped.find((patch) => patch.op === "pin.upsert")?.pin.id ??
+                  materialized.find((patch) => patch.op === "pin.upsert")?.pin.id ??
                   (reply?.op === "pin.reply" ? reply.pinId : "pin");
                 void softBoardTagNotify({
                   canvas,
