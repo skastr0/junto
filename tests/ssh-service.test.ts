@@ -19,6 +19,7 @@ import {
   parseSshEndpoint,
   SshExitError,
   SshIoError,
+  SshProcessError,
   SshOutputLimitError,
   SshTimeoutError,
   SshTransport,
@@ -681,7 +682,7 @@ describe("SshTransport", () => {
     );
 
     expect(Result.isFailure(result)).toBe(true);
-    if (Result.isFailure(result)) expect(result.failure).toBeInstanceOf(SshIoError);
+    if (Result.isFailure(result)) expect(result.failure).toBeInstanceOf(SshProcessError);
   });
 
   it("rejects readiness when the stream exits first or is closed by the callback", async () => {

@@ -406,11 +406,9 @@ export class TerminalRouter extends EventEmitter {
     for (const host of candidates) {
       if (isLocalHost(host) || seen.has(host.id)) continue;
       seen.add(host.id);
-      try {
-        out.push(...(await this.list(host.id)));
-      } catch {
-        // offline
-      }
+      // list() already returns [] for a missing host. A list error is not
+      // vacant — swallowing it makes occupied remotes look empty on * / all.
+      out.push(...(await this.list(host.id)));
     }
     return out;
   }

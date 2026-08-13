@@ -20,6 +20,7 @@ import {
   SshExitError,
   SshForwardError,
   SshIoError,
+  SshProcessError,
   SshOutputLimitError,
   SshSetupError,
   SshSpawnError,
@@ -256,7 +257,7 @@ const collectBounded = (
   ).pipe(
     Effect.mapError((error) =>
       error instanceof ProcessFailure
-        ? new SshIoError({
+        ? new SshProcessError({
             endpoint,
             operation,
             message: `SSH ${operation} closed before it finished`,
@@ -288,8 +289,14 @@ export const SshTransportLayer = Layer.effect(
     const ioError = (
       endpoint: SshEndpoint,
       operation: string,
-      message = `SSH ${operation} closed before it finished`,
+      message: string,
     ) => new SshIoError({ endpoint, operation, message });
+
+    const processClosed = (
+      endpoint: SshEndpoint,
+      operation: string,
+      message = `SSH ${operation} closed before it finished`,
+    ) => new SshProcessError({ endpoint, operation, message });
 
     const forwardError = (endpoint: SshEndpoint, message: string) =>
       new SshForwardError({ endpoint, message });
@@ -364,7 +371,7 @@ export const SshTransportLayer = Layer.effect(
                   ? Stream.empty
                   : Stream.make(Uint8Array.from(input)),
                 process.stdin,
-              ).pipe(Effect.mapError(() => ioError(endpoint, operation))),
+              ).pipe(Effect.mapError(() => processClosed(endpoint, operation))),
               stdout: collectBounded(
                 process.stdout,
                 endpoint,
@@ -380,7 +387,7 @@ export const SshTransportLayer = Layer.effect(
                 STDERR_LIMIT_BYTES,
               ),
               code: process.exitCode.pipe(
-                Effect.mapError(() => ioError(endpoint, operation)),
+                Effect.mapError(() => processClosed(endpoint, operation)),
               ),
             },
             { concurrency: "unbounded" },
@@ -466,7 +473,7 @@ export const SshTransportLayer = Layer.effect(
           Stream.filterMap((chunk) => chunk),
         );
         const pump = Stream.run(mappedInput, process.stdin).pipe(
-          Effect.mapError(() => ioError(endpoint, operation)),
+          Effect.mapError(() => processClosed(endpoint, operation)),
           Effect.exit,
           Effect.flatMap((exit) =>
             Effect.uninterruptible(
@@ -493,7 +500,7 @@ export const SshTransportLayer = Layer.effect(
         ).pipe(
           Effect.flatMap(() =>
             Effect.fail(
-              ioError(
+              processClosed(
                 endpoint,
                 operation,
                 "SSH process input is already closed",
@@ -524,7 +531,7 @@ export const SshTransportLayer = Layer.effect(
               }
               if (!(yield* Ref.get(inputOpen))) {
                 return yield* Effect.fail(
-                  ioError(
+                  processClosed(
                     endpoint,
                     operation,
                     "SSH process input is already closed",
@@ -550,7 +557,7 @@ export const SshTransportLayer = Layer.effect(
               }
               if (!(yield* Ref.get(inputOpen))) {
                 return yield* Effect.fail(
-                  ioError(
+                  processClosed(
                     endpoint,
                     operation,
                     "SSH process input is already closed",
@@ -611,16 +618,16 @@ export const SshTransportLayer = Layer.effect(
           writeSensitive,
           closeInput,
           stdout: process.stdout.pipe(
-            Stream.mapError(() => ioError(endpoint, operation)),
+            Stream.mapError(() => processClosed(endpoint, operation)),
           ),
           stderr: process.stderr.pipe(
-            Stream.mapError(() => ioError(endpoint, operation)),
+            Stream.mapError(() => processClosed(endpoint, operation)),
           ),
           exitCode: process.exitCode.pipe(
-            Effect.mapError(() => ioError(endpoint, operation)),
+            Effect.mapError(() => processClosed(endpoint, operation)),
           ),
           isRunning: process.isRunning.pipe(
-            Effect.mapError(() => ioError(endpoint, operation)),
+            Effect.mapError(() => processClosed(endpoint, operation)),
           ),
           close: Scope.close(child, Exit.void).pipe(Effect.ignore),
           scope: child,

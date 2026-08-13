@@ -1008,7 +1008,8 @@ const buildRemoteDeployScriptWithRuntime = (
 
   // First install only: --vellum-headless so an unconfigured package never
   // hits the Command Center license gate. Update stays Remote — redeploy
-  // is not unenroll.
+  // is not unenroll. A Remote never owns enroll control.sock, so present
+  // package proves term+browser and emits STATION_READY.
   const firstInstall = transfer.expectedPackageState === "absent";
   const enrollmentFlag = firstInstall ? "--vellum-headless" : "";
   const programArguments = firstInstall
@@ -2107,7 +2108,9 @@ done
   exit 6
 }
 
-STATION_OK=0
+${
+  firstInstall
+    ? `STATION_OK=0
 WAIT_INDEX=0
 while [ "$WAIT_INDEX" -lt ${socketReadyLimit} ]; do
   if ! job_exists || ! exact_exe_has_pid "$NEW_PID"; then
@@ -2133,7 +2136,42 @@ STATION_OK=0
 if socket_owned_by_pid "$STATION_SOCK" "$NEW_PID"; then STATION_OK=1; fi
 echo "ENROLLMENT_PARTIAL pid=$NEW_PID station=$STATION_OK" >&2
 echo "ENROLLMENT_SOCKET_TIMEOUT pid=$NEW_PID station=$STATION_OK" >&2
-exit 2
+exit 2`
+    : `TERM_OK=0
+BROWSER_OK=0
+WAIT_INDEX=0
+while [ "$WAIT_INDEX" -lt ${socketReadyLimit} ]; do
+  if ! job_exists || ! exact_exe_has_pid "$NEW_PID"; then
+    echo "NEW_LAUNCHD_GENERATION_LOST expected_pid=$NEW_PID" >&2
+    exit 7
+  fi
+  TERM_OK=0
+  BROWSER_OK=0
+  if socket_owned_by_pid "$TERM_SOCK" "$NEW_PID"; then TERM_OK=1; fi
+  if socket_owned_by_pid "$BROWSER_SOCK" "$NEW_PID"; then BROWSER_OK=1; fi
+  if [ "$TERM_OK" = "1" ] && [ "$BROWSER_OK" = "1" ]; then
+    if job_exists && exact_exe_has_pid "$NEW_PID" &&
+      socket_owned_by_pid "$TERM_SOCK" "$NEW_PID" &&
+      socket_owned_by_pid "$BROWSER_SOCK" "$NEW_PID"; then
+      echo "STATION_READY pid=$NEW_PID term=1 browser=1"
+      exit 0
+    fi
+  fi
+  WAIT_INDEX=$((WAIT_INDEX + 1))
+  "$SLEEP" 1
+done
+if ! job_exists || ! exact_exe_has_pid "$NEW_PID"; then
+  echo "NEW_LAUNCHD_GENERATION_LOST expected_pid=$NEW_PID" >&2
+  exit 7
+fi
+TERM_OK=0
+BROWSER_OK=0
+if socket_owned_by_pid "$TERM_SOCK" "$NEW_PID"; then TERM_OK=1; fi
+if socket_owned_by_pid "$BROWSER_SOCK" "$NEW_PID"; then BROWSER_OK=1; fi
+echo "STATION_PARTIAL pid=$NEW_PID term=$TERM_OK browser=$BROWSER_OK" >&2
+echo "RUNTIME_SOCKET_TIMEOUT pid=$NEW_PID term=$TERM_OK browser=$BROWSER_OK" >&2
+exit 2`
+}
 `.trim();
 };
 

@@ -260,7 +260,13 @@ describe("buildRemoteDeployScript", () => {
     );
     expect(script).not.toContain("--vellum-headless");
     expect(firstInstall).toContain("--vellum-headless");
-    expect(script).toContain("ENROLLMENT_READY");
+    expect(script).toContain("STATION_READY");
+    expect(script).toContain("RUNTIME_SOCKET_TIMEOUT");
+    expect(script).not.toContain("ENROLLMENT_READY");
+    expect(script).not.toContain("ENROLLMENT_SOCKET_TIMEOUT");
+    expect(firstInstall).toContain("ENROLLMENT_READY");
+    expect(firstInstall).toContain("ENROLLMENT_SOCKET_TIMEOUT");
+    expect(firstInstall).not.toContain("STATION_READY");
 
     const recursiveRemovals = script
       .split("\n")
@@ -401,11 +407,23 @@ describe("buildRemoteDeployScript", () => {
     expect(termRemoval).toBeGreaterThan(0);
     expect(browserRemoval).toBeGreaterThan(termRemoval);
     expect(bootstrap).toBeGreaterThan(browserRemoval);
-    // Package phase proves enrollment station socket only; term/browser wait
-    // moves to post-configure runtime activate.
-    expect(stationWitness).toBeGreaterThan(bootstrap);
-    expect(termWitness).toBe(-1);
-    expect(browserWitness).toBe(-1);
+    // needRestart (present) proves term+browser. Enroll sock wait is first
+    // install only — a Remote never owns that door.
+    expect(stationWitness).toBe(-1);
+    expect(termWitness).toBeGreaterThan(bootstrap);
+    expect(browserWitness).toBeGreaterThan(bootstrap);
+    const firstStation = firstInstall.indexOf(
+      'socket_owned_by_pid "$STATION_SOCK" "$NEW_PID"',
+    );
+    expect(firstStation).toBeGreaterThan(
+      firstInstall.lastIndexOf(
+        'if ! "$LAUNCHCTL" bootstrap "$DOMAIN" "$PLIST"',
+      ),
+    );
+    expect(firstInstall.indexOf('socket_owned_by_pid "$TERM_SOCK"')).toBe(-1);
+    expect(firstInstall.indexOf('socket_owned_by_pid "$BROWSER_SOCK"')).toBe(
+      -1,
+    );
     expect(script).toContain(
       '"$LSOF" -n -a -U -Fp -- "$1"',
     );
@@ -1172,7 +1190,7 @@ describe("remote deploy transaction behavior", () => {
       try {
         const result = harness.run();
         expect(result.status).toBe(13);
-        expect(result.stderr).toContain("ENROLLMENT_SOCKET_TIMEOUT");
+        expect(result.stderr).toContain("RUNTIME_SOCKET_TIMEOUT");
         expect(result.stderr).toContain("DEPLOY_FORWARD_REPAIR_REQUIRED");
         expect(readFileSync(harness.executablePath, "utf8")).toBe(
           "new-generation",

@@ -11,6 +11,7 @@ export {
   SshForwardError,
   SshInputError,
   SshIoError,
+  SshProcessError,
   SshOutputLimitError,
   SshSetupError,
   SshSpawnError,
