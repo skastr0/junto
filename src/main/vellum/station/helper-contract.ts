@@ -12,3 +12,6 @@ export const STATION_STDIO_COMMAND = "station-stdio" as const;
  */
 export const STATION_PROTOCOL_NEGOTIATION_ARG =
   "--protocol-preface" as const;
+
+/** Explicit peer-door selector. Default session already selects peer. */
+export const STATION_PEER_ARG = "--peer" as const;

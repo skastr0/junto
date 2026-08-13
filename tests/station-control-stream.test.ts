@@ -27,10 +27,21 @@ import {
 import {
   stationControlOk,
 } from "../src/shared/station-api-envelope";
+import type { StationDoor } from "../src/shared/station-mode";
 import {
   encodeStationControlFrame,
   stationControlSocketPath,
+  stationEnrollSocketPath,
+  stationPeerSocketPath,
 } from "../src/shared/station-ssh-control";
+import {
+  admitStationStdioArgs,
+  stationStdioDoor,
+} from "../src/cli/station-stdio";
+import {
+  STATION_PEER_ARG,
+  STATION_PROTOCOL_NEGOTIATION_ARG,
+} from "../src/main/vellum/station/helper-contract";
 import {
   CURRENT_STATION_PROTOCOL_SUPPORT,
   STATION_PROTOCOL_BASELINE,
@@ -60,6 +71,7 @@ import {
 } from "../src/main/vellum/station/control-server";
 import {
   relayStationControlSession,
+  resolveStationControlSocketPath,
 } from "../src/main/vellum/station/control-relay";
 import {
   makeOwnerLocalStationControlHandoffAuthority,
@@ -110,6 +122,7 @@ interface ServerFixture {
 }
 
 const makeServer = async (options: {
+  readonly door?: StationDoor;
   readonly localHandoffAuthority?: StationControlLocalHandoffAuthority;
   readonly maxFrameBytes?: number;
   readonly requestTimeoutMs?: number;
@@ -151,6 +164,7 @@ const makeServer = async (options: {
       )),
   });
   const server = await startStationControlServer({
+    door: options.door ?? "peer",
     stationHome: join(root, "station"),
     localHandoffAuthority:
       options.localHandoffAuthority ??
@@ -387,6 +401,73 @@ const emptyReportResponse = () =>
   });
 
 describe("persistent Station control stream", () => {
+  it("binds enroll and peer on exclusive sockets and keeps report off enroll", async () => {
+    const enroll = await makeServer({ door: "enroll" });
+    const peer = await makeServer({ door: "peer" });
+
+    expect(enroll.server.door).toBe("enroll");
+    expect(peer.server.door).toBe("peer");
+    expect(enroll.server.socketPath).toBe(
+      stationEnrollSocketPath(enroll.server.stationHome),
+    );
+    expect(enroll.server.socketPath).toBe(
+      stationControlSocketPath(enroll.server.stationHome),
+    );
+    expect(peer.server.socketPath).toBe(
+      stationPeerSocketPath(peer.server.stationHome),
+    );
+    expect(peer.server.socketPath).not.toBe(enroll.server.socketPath);
+
+    await expect(
+      enroll.server.report(emptyReportRequest()),
+    ).rejects.toMatchObject({
+      failure: "invalid-local-request",
+    });
+
+    const enrollSocket = await connect(enroll.server.socketPath);
+    const enrollReader = makeFrameReader(enrollSocket);
+    await bindNegotiatedSession(enrollSocket, enrollReader);
+    const enrollReport = requestFrame(
+      "enroll-report",
+      emptyReportRequest(),
+    );
+    enrollSocket.write(encodeStationControlFrame(enrollReport));
+    await expect(
+      withTimeout(enrollReader.next(), "enroll report denial timed out"),
+    ).resolves.toMatchObject({
+      frame: "response",
+      requestId: enrollReport.requestId,
+      envelope: {
+        ok: false,
+        error: {
+          code: "authorization_denied",
+          message: "station operation is not admitted",
+        },
+      },
+    });
+    expect(enroll.handled()).toBe(0);
+
+    const peerSocket = await connect(peer.server.socketPath);
+    const peerReader = makeFrameReader(peerSocket);
+    await bindNegotiatedSession(peerSocket, peerReader);
+    const peerReport = requestFrame("peer-report", emptyReportRequest());
+    peerSocket.write(encodeStationControlFrame(peerReport));
+    const peerResponse = await withTimeout(
+      peerReader.next(),
+      "peer report response timed out",
+    );
+    expect(peerResponse).toMatchObject({
+      frame: "response",
+      requestId: peerReport.requestId,
+    });
+    expect(peerResponse).not.toMatchObject({
+      envelope: {
+        ok: false,
+        error: { message: "station operation is not admitted" },
+      },
+    });
+  });
+
   it("owns a private listener and withdraws it exactly on shutdown", async () => {
     const fixture = await makeServer();
     const directory = await stat(fixture.server.stationHome);
@@ -891,12 +972,32 @@ describe("persistent Station control stream", () => {
 });
 
 describe("packaged Station relay", () => {
+  it("selects enroll from protocol-preface and peer otherwise", () => {
+    expect(admitStationStdioArgs([])).toBe(true);
+    expect(admitStationStdioArgs([STATION_PEER_ARG])).toBe(true);
+    expect(admitStationStdioArgs([STATION_PROTOCOL_NEGOTIATION_ARG])).toBe(true);
+    expect(
+      admitStationStdioArgs([STATION_PEER_ARG, STATION_PROTOCOL_NEGOTIATION_ARG]),
+    ).toBe(false);
+    expect(stationStdioDoor([])).toBe("peer");
+    expect(stationStdioDoor([STATION_PEER_ARG])).toBe("peer");
+    expect(stationStdioDoor([STATION_PROTOCOL_NEGOTIATION_ARG])).toBe("enroll");
+    expect(resolveStationControlSocketPath({
+      stationHome: "/tmp/station-home",
+      door: "enroll",
+    })).toBe("/tmp/station-home/control.sock");
+    expect(resolveStationControlSocketPath({
+      stationHome: "/tmp/station-home",
+      door: "peer",
+    })).toBe("/tmp/station-home/peer.sock");
+  });
+
   it("relays arbitrary bytes unchanged in both directions until session close", async () => {
     const root = await mkdtemp(join(tmpdir(), "vcr-"));
     roots.push(root);
     const stationHome = join(root, "station");
     await mkdir(stationHome, { recursive: true });
-    const socketPath = stationControlSocketPath(stationHome);
+    const socketPath = stationPeerSocketPath(stationHome);
     let acceptedResolve: ((socket: Socket) => void) | undefined;
     const accepted = new Promise<Socket>((resolve) => {
       acceptedResolve = resolve;
@@ -917,7 +1018,7 @@ describe("packaged Station relay", () => {
       );
     });
     const relay = relayStationControlSession(
-      { stationHome },
+      { stationHome, door: "peer" },
       { input, output },
     );
     const remote = await withTimeout(

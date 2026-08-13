@@ -1,14 +1,16 @@
 import { createConnection, type Socket } from "node:net";
 import { resolveVellumCommandHome } from "@shared/vellum-home";
+import type { StationDoor } from "@shared/station-mode";
 import {
   STATION_CONTROL_HOME_ENV,
   stationControlDir,
-  stationControlSocketPath,
+  stationDoorSocketPath,
 } from "@shared/station-ssh-control";
 
 export interface StationControlRelayOptions {
   readonly home?: string;
   readonly stationHome?: string;
+  readonly door: StationDoor;
 }
 
 export interface StationControlRelayStreams {
@@ -17,7 +19,7 @@ export interface StationControlRelayStreams {
 }
 
 export const resolveStationControlSocketPath = (
-  options: StationControlRelayOptions = {},
+  options: StationControlRelayOptions,
 ): string => {
   const configured =
     options.stationHome?.trim() ||
@@ -26,7 +28,7 @@ export const resolveStationControlSocketPath = (
     configured && configured.length > 0
       ? configured
       : stationControlDir(options.home ?? resolveVellumCommandHome());
-  return stationControlSocketPath(stationHome);
+  return stationDoorSocketPath(stationHome, options.door);
 };
 
 /**
@@ -38,7 +40,7 @@ export const resolveStationControlSocketPath = (
  * transport backpressure in both directions.
  */
 export const relayStationControlSession = (
-  options: StationControlRelayOptions = {},
+  options: StationControlRelayOptions,
   streams: StationControlRelayStreams = {
     input: process.stdin,
     output: process.stdout,
