@@ -155,6 +155,17 @@
   background: var(--color-stroke);
 }
 
+.pad-toolbar__hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  color: var(--color-dim);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .pad-tool {
   display: inline-flex;
   min-width: 28px;
@@ -229,16 +240,50 @@
   text-align: center;
 }
 
+.pad-empty__mark {
+  width: 72px;
+  height: 44px;
+}
+
 .pad-empty strong {
   color: var(--color-ink-2);
   font-size: 13px;
   font-weight: 600;
 }
 
-.pad-empty span {
-  max-width: 28ch;
+.pad-empty > span {
+  max-width: 36ch;
   font-size: 11px;
   line-height: 1.4;
+}
+
+.pad-empty__keys {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px 12px;
+  max-width: 42ch;
+  color: var(--color-faint);
+  font-size: 10px;
+}
+
+.pad-empty__keys span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pad-chrome__handle {
+  fill: var(--color-raise-2);
+  stroke: var(--color-amber);
+}
+
+.pad-chrome__bounds {
+  stroke: var(--color-amber);
+}
+
+.pad-chrome__tick {
+  fill: var(--color-amber);
 }
 
 .pad-label-edit {
@@ -301,6 +346,7 @@
   min-height: 0;
   flex: 1 1 0;
   overflow: hidden;
+  border: 1px solid var(--color-stroke);
   border-radius: 4px;
   background: var(--color-inset);
 }
@@ -316,6 +362,11 @@
   height: 100%;
   place-items: center;
   color: var(--color-steel);
+}
+
+.pad-card__glyph {
+  width: 56px;
+  height: 34px;
 }
 
 @media (prefers-reduced-motion: reduce) {

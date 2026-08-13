@@ -26,6 +26,9 @@ import {
   editorKeyAction,
   filterMentionActors,
   fitCamera,
+  HANDLE_VIEW_PX,
+  HIT_VIEW_PX,
+  SIDE_VIEW_PX,
   handleHit,
   inversePatches,
   mentionQueryAt,
@@ -40,6 +43,7 @@ import {
   toolFromKey,
   upsertPinPatch,
   upsertShapePatch,
+  viewSlop,
   zoomAt,
 } from "../src/renderer/components/pad/pad-editor-model";
 
@@ -123,6 +127,15 @@ describe("pad editor geometry", () => {
       type: "label",
       text: "Label",
     });
+  });
+
+  it("keeps hit slop tight in view pixels", () => {
+    expect(HIT_VIEW_PX).toBe(4);
+    expect(SIDE_VIEW_PX).toBe(5);
+    expect(HANDLE_VIEW_PX).toBe(6);
+    expect(HANDLE_VIEW_PX).toBeGreaterThan(HIT_VIEW_PX);
+    expect(viewSlop(identityCamera, HIT_VIEW_PX)).toBe(4);
+    expect(viewSlop({ x: 0, y: 0, zoom: 2 }, HANDLE_VIEW_PX)).toBe(3);
   });
 
   it("hits the four AABB handles and the nearest side", () => {

@@ -270,4 +270,26 @@ describe("pad anchors and routes", () => {
       ),
     ).toBe("M 0 0 L 10 0 L 10 4");
   });
+
+  it("smooths freehand polylines with a first-party midpoint quadratic", () => {
+    expect(
+      strokePath(
+        [
+          { x: 8, y: 70 },
+          { x: 24, y: 80 },
+          { x: 40, y: 70 },
+        ],
+        2,
+      ),
+    ).toBe("M 8 70 Q 24 80 32 75 L 40 70");
+    expect(
+      strokePath(
+        [
+          { x: 0, y: 0 },
+          { x: 10, y: 0 },
+        ],
+        2,
+      ),
+    ).toBe("M 0 0 L 10 0");
+  });
 });

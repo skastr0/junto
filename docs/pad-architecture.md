@@ -143,7 +143,9 @@ ink/image with `InputError`.
 - `hitTest(pad, scenePt, slop)` — topmost by layer then z;
   ink = distance-to-polyline < width/2 + slop
 - `anchorPoint(shape, side)`, `routeEdge`
-- `strokePath(points, width) -> path d` — polyline in v1
+- `strokePath(points, width) -> path d` — orthogonal stays a polyline;
+  freehand (3+ non-axis-aligned points) gets a first-party midpoint
+  quadratic smooth. No `perfect-freehand`.
 
 ## Projections
 
@@ -215,9 +217,10 @@ All writes are `PadPatch`. No xyflow.
 | `delete` | delete |
 | `⌘z` | local inverse patch (not durable) |
 
-Factory card thumbnail is `padToSvg` or an empty-state icon.
+Factory card thumbnail is framed `padToSvg` or the empty-state glyph.
 Theme tokens from `src/shared/theme`. This is a Vellum Command
-surface: dim command room, not a crayon whiteboard.
+surface: dim command room, not a crayon whiteboard. Resize handles
+are view-stable (4 AABB). Hit slop is view pixels, not scene units.
 
 ## CLI (agent-first)
 

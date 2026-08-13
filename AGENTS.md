@@ -183,6 +183,12 @@ Ops go through WorkService (tasks/messages/requests/artifacts/board). That is th
 
 **Board residency:** board is a **Command Center-homed global sink** (same residency class as actor mailboxes). Sink definition is in the fleet projection; material topics/posts live only on CC. Remote agents enqueue `board.topic.create` / `board.post.append`; Remotes store applied dispositions/events and do **not** rematerialize board rows. List/read the full board on Command Center. `board.mark_read` is install-local. Operator megaphone / edge `wake` is CC UI only; agent posts never wake.
 
+**Pad (shared page):** a Command Center-homed work-plane sink (same class as board). Agents read a picture + IR and patch named boxes and pins. They never write the factory canvas. Ports are `pad.read` and `pad.patch` only. Agent ink or image upserts are refused. Mentions must be inbound actor node ids.
+
+- Contract: [`docs/pad-architecture.md`](docs/pad-architecture.md)
+- Operator and agent guide: [`docs/pad.md`](docs/pad.md)
+- CLI: `vellum-command pad read`, `patch`, `digest`, `svg`, `look-here`, `get`, `tagged`
+
 ### Station roles
 
 - **Command Center** — user-selected. Human authors the canvas; fleet management via host registry.

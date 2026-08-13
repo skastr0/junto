@@ -50,7 +50,8 @@ import {
 import { themeMode$ } from "../../lib/theme-mode";
 import { fileToHerdrClipboardImage } from "../../lib/herdr-clipboard-image";
 import { putClipboardImage, putImagesFromDataTransfer } from "../../lib/image-content";
-import { IconButton } from "../ui";
+import { IconButton, Kbd } from "../ui";
+import { PadGlyph } from "./PadGlyph";
 import {
   CAMERA_ZOOM_MAX,
   CAMERA_ZOOM_MIN,
@@ -930,8 +931,18 @@ export function PadEditor({
             <Maximize2 size={13} />
           </IconButton>
         </div>
-        <div className="ml-auto text-[10px] uppercase tracking-[0.12em] text-dim">
-          [ ] z - delete - P pin - I image - D ink
+        <div className="pad-toolbar__hint">
+          <Kbd>[</Kbd>
+          <Kbd>]</Kbd>
+          <span>z</span>
+          <Kbd>⌫</Kbd>
+          <span>delete</span>
+          <Kbd>P</Kbd>
+          <span>pin</span>
+          <Kbd>I</Kbd>
+          <span>image</span>
+          <Kbd>D</Kbd>
+          <span>ink</span>
         </div>
       </div>
       <div className="pad-workspace">
@@ -1030,25 +1041,7 @@ export function PadEditor({
                 />
               ))}
             {shown.pins.map((pin) => (
-              <g key={pin.id} data-testid="pad-pin" data-pin-id={pin.id}>
-                {pin.bounds ? (
-                  <rect
-                    x={pin.x - pin.bounds.w / 2}
-                    y={pin.y - pin.bounds.h / 2}
-                    width={pin.bounds.w}
-                    height={pin.bounds.h}
-                    fill="none"
-                    stroke={pin.id === selectedId ? "var(--color-amber)" : "var(--color-stroke)"}
-                    strokeDasharray="3 2"
-                  />
-                ) : null}
-                <circle
-                  cx={pin.x}
-                  cy={pin.y}
-                  r={pin.id === selectedId ? 7 : 5}
-                  fill="var(--color-amber)"
-                />
-              </g>
+              <PinEl key={pin.id} pin={pin} selected={pin.id === selectedId} />
             ))}
             {gesture.kind === "draw" && gesture.tool === "image" ? (
               (() => {
@@ -1084,14 +1077,27 @@ export function PadEditor({
               />
             ) : null}
             {shownSelected && canResize(selectedLayer) ? (
-              <SelectionChrome item={shownSelected} />
+              <SelectionChrome item={shownSelected} zoom={camera.zoom} />
             ) : null}
           </g>
         </svg>
         {empty && gesture.kind === "idle" ? (
           <div className="pad-empty" data-testid="pad-empty">
-            <strong>Empty pad</strong>
-            <span>Draw a box (R), pin (P), ink (D), or place an image (I). Drag a side to wire an edge.</span>
+            <PadGlyph className="pad-empty__mark" />
+            <strong>Mark the page</strong>
+            <span>
+              Draw boxes, drop images, ink, and pin look-here crops. Wired agents
+              read this page and patch structure. They never write the factory canvas.
+            </span>
+            <div className="pad-empty__keys">
+              <span><Kbd>R</Kbd> box</span>
+              <span><Kbd>O</Kbd> ellipse</span>
+              <span><Kbd>T</Kbd> triangle</span>
+              <span><Kbd>L</Kbd> label</span>
+              <span><Kbd>P</Kbd> pin</span>
+              <span><Kbd>I</Kbd> image</span>
+              <span><Kbd>D</Kbd> ink</span>
+            </div>
           </div>
         ) : null}
         {hint ? <div className="pad-hint">{hint}</div> : null}
@@ -1146,20 +1152,67 @@ export function PadEditor({
   );
 }
 
+function PinEl({
+  pin,
+  selected,
+}: {
+  readonly pin: { readonly id: string; readonly x: number; readonly y: number; readonly bounds?: { readonly w: number; readonly h: number } };
+  readonly selected: boolean;
+}) {
+  const r = selected ? 6 : 5;
+  return (
+    <g data-testid="pad-pin" data-pin-id={pin.id}>
+      {pin.bounds ? (
+        <rect
+          x={pin.x - pin.bounds.w / 2}
+          y={pin.y - pin.bounds.h / 2}
+          width={pin.bounds.w}
+          height={pin.bounds.h}
+          fill="none"
+          stroke={selected ? "var(--color-amber)" : "var(--color-stroke)"}
+          strokeDasharray="3 2"
+          vectorEffect="non-scaling-stroke"
+        />
+      ) : null}
+      <circle
+        cx={pin.x}
+        cy={pin.y}
+        r={r}
+        fill="var(--color-raise-2)"
+        stroke="var(--color-amber)"
+        strokeWidth={1.25}
+      />
+      <circle cx={pin.x} cy={pin.y} r={selected ? 2.2 : 1.8} fill="var(--color-amber)" />
+    </g>
+  );
+}
+
 function SelectionChrome({
   item,
+  zoom,
 }: {
   readonly item: { readonly x: number; readonly y: number; readonly w: number; readonly h: number };
+  readonly zoom: number;
 }) {
+  const size = HANDLE_VIEW_PX / Math.max(zoom, 0.0001);
+  const half = size / 2;
+  const tick = Math.max(1.25 / Math.max(zoom, 0.0001), 0.35);
   const handles: Array<{ readonly k: ResizeHandle; readonly x: number; readonly y: number }> = [
     { k: "nw", x: item.x, y: item.y },
     { k: "ne", x: item.x + item.w, y: item.y },
     { k: "sw", x: item.x, y: item.y + item.h },
     { k: "se", x: item.x + item.w, y: item.y + item.h },
   ];
+  const ticks: Array<{ readonly k: string; readonly x: number; readonly y: number }> = [
+    { k: "t", x: item.x + item.w / 2, y: item.y },
+    { k: "r", x: item.x + item.w, y: item.y + item.h / 2 },
+    { k: "b", x: item.x + item.w / 2, y: item.y + item.h },
+    { k: "l", x: item.x, y: item.y + item.h / 2 },
+  ];
   return (
-    <g data-testid="pad-selection">
+    <g data-testid="pad-selection" className="pad-chrome">
       <rect
+        className="pad-chrome__bounds"
         x={item.x}
         y={item.y}
         width={item.w}
@@ -1167,18 +1220,32 @@ function SelectionChrome({
         fill="none"
         stroke="var(--color-amber)"
         strokeWidth={1}
-        strokeDasharray="3 2"
+        vectorEffect="non-scaling-stroke"
       />
+      {ticks.map((side) => (
+        <circle
+          key={side.k}
+          className="pad-chrome__tick"
+          cx={side.x}
+          cy={side.y}
+          r={tick}
+          fill="var(--color-amber)"
+        />
+      ))}
       {handles.map((handle) => (
         <rect
           key={handle.k}
-          x={handle.x - 3}
-          y={handle.y - 3}
-          width={6}
-          height={6}
-          fill="var(--color-raise)"
+          className="pad-chrome__handle"
+          data-testid="pad-handle"
+          data-handle={handle.k}
+          x={handle.x - half}
+          y={handle.y - half}
+          width={size}
+          height={size}
+          fill="var(--color-raise-2)"
           stroke="var(--color-amber)"
           strokeWidth={1}
+          vectorEffect="non-scaling-stroke"
         />
       ))}
     </g>

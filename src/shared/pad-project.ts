@@ -62,6 +62,9 @@ export type PadLookHere = typeof PadLookHere.Type;
 export type PadSvgOptions = {
   readonly hrefs?: Readonly<Record<string, string>>;
   readonly viewBox?: GeomRectValue;
+  /** Omit explicit pixel size so CSS can frame the SVG (factory card thumb). */
+  readonly framed?: boolean;
+  readonly padding?: number;
 };
 
 const svgPalette = (mode: ThemeMode) => {
@@ -131,15 +134,19 @@ const firstTextPart = (pin: PadPin): string | undefined => {
   return undefined;
 };
 
-const viewRect = (pad: Pad, override?: GeomRectValue): GeomRectValue => {
+const viewRect = (
+  pad: Pad,
+  override?: GeomRectValue,
+  padding = VIEW_PAD,
+): GeomRectValue => {
   if (override) return override;
   const content = contentBounds(pad);
   if (content.w <= 0 || content.h <= 0) return EMPTY_VIEW;
   return {
-    x: content.x - VIEW_PAD,
-    y: content.y - VIEW_PAD,
-    w: content.w + VIEW_PAD * 2,
-    h: content.h + VIEW_PAD * 2,
+    x: content.x - padding,
+    y: content.y - padding,
+    w: content.w + padding * 2,
+    h: content.h + padding * 2,
   };
 };
 
@@ -175,10 +182,13 @@ export const padToSvg = (
   options?: PadSvgOptions,
 ): string => {
   const pal = svgPalette(theme);
-  const box = viewRect(pad, options?.viewBox);
+  const box = viewRect(pad, options?.viewBox, options?.padding);
   const hrefs = options?.hrefs;
+  const sizeAttrs = options?.framed
+    ? `preserveAspectRatio="xMidYMid meet"`
+    : `width="${fmt(box.w)}" height="${fmt(box.h)}"`;
   const parts: string[] = [
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${fmt(box.x)} ${fmt(box.y)} ${fmt(box.w)} ${fmt(box.h)}" width="${fmt(box.w)}" height="${fmt(box.h)}" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">`,
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${fmt(box.x)} ${fmt(box.y)} ${fmt(box.w)} ${fmt(box.h)}" ${sizeAttrs} font-family="ui-monospace, SFMono-Regular, Menlo, monospace">`,
     `<rect x="${fmt(box.x)}" y="${fmt(box.y)}" width="${fmt(box.w)}" height="${fmt(box.h)}" fill="${pal.ground}"/>`,
   ];
 

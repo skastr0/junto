@@ -9,6 +9,8 @@ import { state$ } from "../../lib/state";
 import { getVellumCommandApi } from "../../lib/vellum-api";
 import { FirstLineRenameInput } from "../nodes/FirstLineRenameInput";
 import { editText } from "../../lib/mutations";
+import { padIsEmpty } from "./pad-editor-model";
+import { PadGlyph } from "./PadGlyph";
 import "./pad-editor.css";
 
 function AmberDecal({ children }: { readonly children: ReactNode }) {
@@ -48,7 +50,11 @@ export function PadCard({
     let cancelled = false;
     void api.workPadRead(canvas, node.id).then((result) => {
       if (cancelled || !result.ok) return;
-      setSvg(padToSvg(result.data.pad, theme));
+      if (padIsEmpty(result.data.pad)) {
+        setSvg(null);
+        return;
+      }
+      setSvg(padToSvg(result.data.pad, theme, { framed: true, padding: 16 }));
     });
     return () => {
       cancelled = true;
@@ -101,8 +107,8 @@ export function PadCard({
             dangerouslySetInnerHTML={{ __html: svg }}
           />
         ) : (
-          <div className="pad-card__empty" data-testid="pad-card-empty" aria-hidden>
-            <PenLine size={18} />
+          <div className="pad-card__empty">
+            <PadGlyph className="pad-card__glyph" testId="pad-card-empty" />
           </div>
         )}
       </div>

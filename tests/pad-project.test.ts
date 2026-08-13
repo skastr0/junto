@@ -205,6 +205,15 @@ describe("padToSvg", () => {
     expect(padToDigest(pad)).not.toContain("8,70");
     expect(padToDigest(pad)).toContain("points=3");
   });
+
+  it("frames a thumbnail without a fixed pixel size", () => {
+    const framed = padToSvg(page(), "dark", { framed: true, padding: 16 });
+    const open = framed.slice(0, framed.indexOf(">"));
+    expect(open).toContain('preserveAspectRatio="xMidYMid meet"');
+    expect(open).toContain("viewBox=");
+    expect(open).not.toContain("width=");
+    expect(open).not.toContain("height=");
+  });
 });
 
 describe("padToFocused", () => {

@@ -96,9 +96,9 @@ export type ResizeHandle = "nw" | "ne" | "sw" | "se";
 export const MIN_SHAPE_SIZE = 8;
 export const CAMERA_ZOOM_MIN = 0.15;
 export const CAMERA_ZOOM_MAX = 8;
-export const HANDLE_VIEW_PX = 7;
-export const SIDE_VIEW_PX = 8;
-export const HIT_VIEW_PX = 6;
+export const HANDLE_VIEW_PX = 6;
+export const SIDE_VIEW_PX = 5;
+export const HIT_VIEW_PX = 4;
 
 export type EditorKeyAction =
   | { readonly type: "tool"; readonly tool: PadTool }

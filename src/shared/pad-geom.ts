@@ -257,10 +257,17 @@ export const routeEdge = (
   return collapsePoints([start, startOut, { x: startOut.x, y: endOut.y }, endOut, end]);
 };
 
-export const strokePath = (
-  points: ReadonlyArray<PadPoint>,
-  _width: number,
-): string => {
+const isAxisAligned = (a: PadPoint, b: PadPoint): boolean =>
+  a.x === b.x || a.y === b.y;
+
+const isOrthogonalPolyline = (points: ReadonlyArray<PadPoint>): boolean => {
+  for (let i = 1; i < points.length; i += 1) {
+    if (!isAxisAligned(points[i - 1]!, points[i]!)) return false;
+  }
+  return true;
+};
+
+const polylinePath = (points: ReadonlyArray<PadPoint>): string => {
   const first = points[0];
   if (!first) return "";
   let d = `M ${fmtNum(first.x)} ${fmtNum(first.y)}`;
@@ -269,6 +276,29 @@ export const strokePath = (
     d += ` L ${fmtNum(point.x)} ${fmtNum(point.y)}`;
   }
   return d;
+};
+
+/** Midpoint-quadratic smooth. Endpoints stay put. Interior points are controls. */
+const smoothPath = (points: ReadonlyArray<PadPoint>): string => {
+  const first = points[0];
+  const last = points[points.length - 1];
+  if (!first || !last) return "";
+  let d = `M ${fmtNum(first.x)} ${fmtNum(first.y)}`;
+  for (let i = 1; i < points.length - 1; i += 1) {
+    const point = points[i]!;
+    const next = points[i + 1]!;
+    d += ` Q ${fmtNum(point.x)} ${fmtNum(point.y)} ${fmtNum((point.x + next.x) / 2)} ${fmtNum((point.y + next.y) / 2)}`;
+  }
+  d += ` L ${fmtNum(last.x)} ${fmtNum(last.y)}`;
+  return d;
+};
+
+export const strokePath = (
+  points: ReadonlyArray<PadPoint>,
+  _width: number,
+): string => {
+  if (points.length < 3 || isOrthogonalPolyline(points)) return polylinePath(points);
+  return smoothPath(points);
 };
 
 const shapeById = (pad: Pad, id: string): PadShape | undefined =>
