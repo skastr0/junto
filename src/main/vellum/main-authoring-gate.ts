@@ -45,6 +45,7 @@ export const MAIN_AUTHORING_LABELS = [
   "ipc.work.board-post",
   "ipc.work.board-mark-read",
   "ipc.work.board-notify",
+  "ipc.work.pad-patch",
   "delivery.message-stamp",
   "delivery.board-wake",
   "kernel.flag-mirror",

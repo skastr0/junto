@@ -561,6 +561,22 @@ const vellumApi: VellumCommandApi = {
       nodeId,
       topicId,
     ),
+  workPadRead: (canvas, nodeId, pinId) =>
+    invoke(
+      IPC_CHANNELS.workPadRead,
+      IPC_TIMEOUT_MS,
+      canvas,
+      nodeId,
+      pinId,
+    ),
+  workPadPatch: (canvas, nodeId, patches) =>
+    invoke(
+      IPC_CHANNELS.workPadPatch,
+      IPC_TIMEOUT_MS,
+      canvas,
+      nodeId,
+      patches,
+    ),
   onNodeRefOpened,
   onCanvasFlushRequested,
   onCanvasQuiesceAndFlushRequested,

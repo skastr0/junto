@@ -88,6 +88,7 @@ import { termPlane } from "./term/plane";
 import { isTrustedMainWebContents } from "./trusted-main-webcontents";
 import { licensedRendererIpc } from "./license/admission";
 import type { WorkMetadata, Part, TaskState } from "@shared/canvas";
+import type { PadPatch } from "@shared/pad";
 import { IntentFactBasis, type ActorRef } from "@shared/work-protocol";
 import {
   MainAuthoringRefused,
@@ -1090,6 +1091,46 @@ export const registerVellumIpc = (): void => {
                 revision: listed.revision,
                 disposition: "applied" as const,
               };
+            }),
+          ),
+      ),
+  );
+
+  privilegedIpc.handle(
+    IPC_CHANNELS.workPadRead,
+    (_event, canvas: string, nodeId: string, pinId?: string) =>
+      AppRuntime.runPromise(
+        Effect.gen(function* () {
+          const denied = yield* denyRemoteWork;
+          if (denied) return denied;
+          const work = yield* WorkService;
+          return yield* work.workPadRead(canvas, nodeId, pinId);
+        }),
+      ),
+  );
+
+  privilegedIpc.handle(
+    IPC_CHANNELS.workPadPatch,
+    (
+      _event,
+      canvas: string,
+      nodeId: string,
+      patches: ReadonlyArray<PadPatch>,
+    ) =>
+      runRendererWorkAuthoring(
+        "ipc.work.pad-patch",
+        () =>
+          AppRuntime.runPromise(
+            Effect.gen(function* () {
+              const denied = yield* denyRemoteWork;
+              if (denied) return denied;
+              const work = yield* WorkService;
+              return yield* work.workPadPatch(
+                canvas,
+                nodeId,
+                patches,
+                { kind: "operator", label: "operator" },
+              );
             }),
           ),
       ),

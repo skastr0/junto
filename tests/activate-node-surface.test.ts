@@ -78,5 +78,17 @@ describe("nodeSurfaceKind", () => {
 
   it("opens work sinks", () => {
     expect(nodeSurfaceKind(tasks())).toBe("work");
+    expect(
+      nodeSurfaceKind({
+        id: "pad-1",
+        type: "text",
+        text: "pad",
+        x: 0,
+        y: 0,
+        width: 200,
+        height: 100,
+        ether: { entity: { kind: "pad" } },
+      }),
+    ).toBe("work");
   });
 });

@@ -731,7 +731,7 @@ export const CanvasesLive = Layer.effect(
     let bootstrapPromise: Promise<void> | undefined;
 
   const notifyListeners = (
-    name: CanvasName,
+    name: CanvasName | string,
     detail?: CanvasChangeDetail,
   ): void => {
     for (const listener of listeners) {

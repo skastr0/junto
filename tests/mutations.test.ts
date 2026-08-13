@@ -1068,9 +1068,13 @@ describe("renderer graph mutations", () => {
     const before = state$.doc.peek();
     const epoch = state$.docEpoch.peek();
     state$.settings.station.role.set("remote");
+    const first = before.nodes[0];
+    if (!first || first.type !== "text") {
+      throw new Error("expected a text node");
+    }
     commitDoc({
       ...before,
-      nodes: [{ ...before.nodes[0]!, text: "REMOTE MUST NOT WRITE" }],
+      nodes: [{ ...first, text: "REMOTE MUST NOT WRITE" }],
     });
     syncPositions(new Map([["source", { x: 99, y: 99 }]]));
     expect(state$.doc.peek()).toBe(before);

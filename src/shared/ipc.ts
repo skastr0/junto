@@ -127,6 +127,8 @@ export const IPC_CHANNELS = {
   workBoardPost: "vellum-command:work-board-post",
   workBoardMarkRead: "vellum-command:work-board-mark-read",
   workBoardNotify: "vellum-command:work-board-notify",
+  workPadRead: "vellum-command:work-pad-read",
+  workPadPatch: "vellum-command:work-pad-patch",
   // herdr work surface
   herdrHosts: "vellum-command:herdr-hosts",
   herdrEnsureServer: "vellum-command:herdr-ensure-server",
@@ -760,6 +762,30 @@ export interface VellumCommandApi extends LicenseApi, UpdateApi {
     nodeId: string,
     topicId?: string,
   ) => Promise<WorkOpResult<{ readonly wakeCount: number }>>;
+  readonly workPadRead: (
+    canvas: string,
+    nodeId: string,
+    pinId?: string,
+  ) => Promise<
+    WorkOpResult<{
+      readonly revision: number;
+      readonly pad: import("./pad").Pad;
+      readonly digest: string;
+      readonly svg: string;
+      readonly lookHere?: import("./pad-project").PadLookHere;
+    }>
+  >;
+  readonly workPadPatch: (
+    canvas: string,
+    nodeId: string,
+    patches: ReadonlyArray<import("./pad").PadPatch>,
+  ) => Promise<
+    WorkOpResult<{
+      readonly revision: number;
+      readonly pad: import("./pad").Pad;
+      readonly digest: string;
+    }>
+  >;
   readonly onNodeRefOpened: (
     listener: (event: NodeRefOpenedEvent) => void | Promise<void>,
   ) => () => void;

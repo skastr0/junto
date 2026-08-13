@@ -1,0 +1,208 @@
+import { Result, Schema } from "effect";
+import { describe, expect, it } from "vitest";
+import {
+  PadPatch,
+  applyPatches,
+  asPadElementId,
+  emptyPad,
+  type Pad,
+  type PadError,
+  type PadShape,
+} from "../src/shared/pad";
+import { contentBounds, identityCamera, viewToScene } from "../src/shared/pad-geom";
+import {
+  canDelete,
+  cycleSelection,
+  draftShapeFromDrag,
+  editorKeyAction,
+  fitCamera,
+  handleHit,
+  inversePatches,
+  nearestSide,
+  normalizeRect,
+  panBy,
+  resizeShape,
+  sideHit,
+  toolFromKey,
+  upsertShapePatch,
+  zoomAt,
+} from "../src/renderer/components/pad/pad-editor-model";
+
+const decodePatch = (patch: unknown): PadPatch =>
+  Schema.decodeUnknownSync(PadPatch)(patch);
+
+const expectOk = (result: Result.Result<Pad, PadError>): Pad => {
+  expect(Result.isSuccess(result)).toBe(true);
+  if (Result.isFailure(result)) throw new Error(result.failure.message);
+  return result.success;
+};
+
+const box = (id: string, over: Record<string, unknown> = {}): PadShape => ({
+  id: asPadElementId(id),
+  type: "box",
+  x: 0,
+  y: 0,
+  w: 40,
+  h: 20,
+  z: 0,
+  ...over,
+});
+
+describe("pad editor tools", () => {
+  it("maps v r o t l", () => {
+    expect(toolFromKey("v")).toBe("select");
+    expect(toolFromKey("r")).toBe("box");
+    expect(toolFromKey("o")).toBe("ellipse");
+    expect(toolFromKey("t")).toBe("triangle");
+    expect(toolFromKey("l")).toBe("label");
+    expect(toolFromKey("p")).toBeUndefined();
+    expect(toolFromKey("d")).toBeUndefined();
+    expect(toolFromKey("i")).toBeUndefined();
+  });
+
+  it("reads editor keys and ignores typing", () => {
+    expect(
+      editorKeyAction({ key: "r", metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, target: null }, { typing: false }),
+    ).toEqual({ type: "tool", tool: "box" });
+    expect(
+      editorKeyAction({ key: "r", metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, target: null }, { typing: true }),
+    ).toBeUndefined();
+    expect(
+      editorKeyAction({ key: "z", metaKey: true, ctrlKey: false, altKey: false, shiftKey: false, target: null }, { typing: false }),
+    ).toEqual({ type: "undo" });
+    expect(
+      editorKeyAction({ key: "[", metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, target: null }, { typing: false }),
+    ).toEqual({ type: "z", delta: -1 });
+    expect(
+      editorKeyAction({ key: "]", metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, target: null }, { typing: false }),
+    ).toEqual({ type: "z", delta: 1 });
+    expect(
+      editorKeyAction({ key: "Delete", metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, target: null }, { typing: false }),
+    ).toEqual({ type: "delete" });
+    expect(
+      editorKeyAction({ key: "ArrowRight", metaKey: false, ctrlKey: false, altKey: false, shiftKey: true, target: null }, { typing: false }),
+    ).toEqual({ type: "nudge", dx: 10, dy: 0 });
+  });
+});
+
+describe("pad editor geometry", () => {
+  it("normalizes flipped drags to a positive AABB", () => {
+    expect(normalizeRect(20, 20, 4, 6)).toEqual({ x: 4, y: 6, w: 16, h: 14 });
+  });
+
+  it("drafts the four shape tools", () => {
+    const boxDraft = draftShapeFromDrag("box", { x: 0, y: 0 }, { x: 30, y: 16 }, "s1" as never, 2);
+    expect(boxDraft).toMatchObject({ type: "box", x: 0, y: 0, w: 30, h: 16, z: 2 });
+    expect(draftShapeFromDrag("ellipse", { x: 0, y: 0 }, { x: 10, y: 10 }, "s2" as never, 0).type).toBe("ellipse");
+    expect(draftShapeFromDrag("triangle", { x: 0, y: 0 }, { x: 10, y: 10 }, "s3" as never, 0).type).toBe("triangle");
+    expect(draftShapeFromDrag("label", { x: 0, y: 0 }, { x: 10, y: 10 }, "s4" as never, 0)).toMatchObject({
+      type: "label",
+      text: "Label",
+    });
+  });
+
+  it("hits the four AABB handles and the nearest side", () => {
+    const shape = box("a", { x: 10, y: 10, w: 40, h: 20 });
+    expect(handleHit(shape, { x: 10, y: 10 }, 4)).toBe("nw");
+    expect(handleHit(shape, { x: 50, y: 30 }, 4)).toBe("se");
+    expect(handleHit(shape, { x: 30, y: 20 }, 4)).toBeUndefined();
+    expect(nearestSide(shape, { x: 30, y: 9 })).toBe("top");
+    expect(sideHit(shape, { x: 30, y: 10 }, 3)).toBe("top");
+    expect(sideHit(shape, { x: 30, y: 20 }, 2)).toBeUndefined();
+  });
+
+  it("resizes from a handle without flipping under min size", () => {
+    const next = resizeShape(box("a", { x: 0, y: 0, w: 40, h: 20 }), "se", { x: 12, y: 4 });
+    expect(next.w).toBeGreaterThanOrEqual(8);
+    expect(next.h).toBeGreaterThanOrEqual(8);
+  });
+
+  it("zooms about the cursor and pans in view space", () => {
+    const camera = identityCamera;
+    const view = { x: 100, y: 50 };
+    const sceneBefore = viewToScene(camera, view);
+    const zoomed = zoomAt(camera, view, 2);
+    expect(viewToScene(zoomed, view)).toEqual(sceneBefore);
+    const panned = panBy(camera, 20, 0);
+    expect(panned.x).toBe(-20);
+  });
+
+  it("fits content into the viewport", () => {
+    const camera = fitCamera({ x: 0, y: 0, w: 200, h: 100 }, { w: 400, h: 300 }, 0);
+    expect(camera.zoom).toBe(2);
+    expect(camera.x).toBeCloseTo(-0);
+    expect(camera.y).toBeCloseTo(-25);
+  });
+});
+
+describe("pad editor inverse patches", () => {
+  it("undoes a create by deleting", () => {
+    const start = emptyPad();
+    const patches: PadPatch[] = [upsertShapePatch(box("a"))];
+    const inverse = inversePatches(start, patches);
+    expect(Result.isSuccess(inverse)).toBe(true);
+    if (Result.isFailure(inverse)) return;
+    const after = expectOk(applyPatches(start, patches));
+    const undone = expectOk(applyPatches(after, inverse.success));
+    expect(undone.shapes).toEqual([]);
+    expect(undone.revision).toBeGreaterThan(start.revision);
+  });
+
+  it("restores a deleted shape and its edges", () => {
+    const start = expectOk(
+      applyPatches(emptyPad(), [
+        upsertShapePatch(box("a")),
+        upsertShapePatch(box("b", { x: 80 })),
+        decodePatch({
+          op: "upsert",
+          layer: "edge",
+          edge: { id: "e1", from: "a", to: "b", fromSide: "right", toSide: "left" },
+        }),
+      ]),
+    );
+    const patches: PadPatch[] = [decodePatch({ op: "delete", id: "a" })];
+    const inverse = inversePatches(start, patches);
+    expect(Result.isSuccess(inverse)).toBe(true);
+    if (Result.isFailure(inverse)) return;
+    const after = expectOk(applyPatches(start, patches));
+    expect(after.shapes.map((s) => s.id)).toEqual(["b"]);
+    expect(after.edges).toEqual([]);
+    const undone = expectOk(applyPatches(after, inverse.success));
+    expect(undone.shapes.map((s) => s.id).sort()).toEqual(["a", "b"]);
+    expect(undone.edges.map((e) => e.id)).toEqual(["e1"]);
+  });
+
+  it("undoes a move by upserting the previous AABB", () => {
+    const start = expectOk(applyPatches(emptyPad(), [upsertShapePatch(box("a"))]));
+    const moved = { ...box("a"), x: 15, y: 9 };
+    const patches: PadPatch[] = [upsertShapePatch(moved)];
+    const inverse = inversePatches(start, patches);
+    expect(Result.isSuccess(inverse)).toBe(true);
+    if (Result.isFailure(inverse)) return;
+    const after = expectOk(applyPatches(start, patches));
+    const undone = expectOk(applyPatches(after, inverse.success));
+    expect(undone.shapes[0]).toMatchObject({ x: 0, y: 0, w: 40, h: 20 });
+  });
+});
+
+describe("pad editor selection", () => {
+  it("cycles shapes then edges", () => {
+    const pad = expectOk(
+      applyPatches(emptyPad(), [
+        upsertShapePatch(box("a", { z: 1 })),
+        upsertShapePatch(box("b", { x: 80, z: 0 })),
+        decodePatch({
+          op: "upsert",
+          layer: "edge",
+          edge: { id: "e1", from: "a", to: "b" },
+        }),
+      ]),
+    );
+    expect(cycleSelection(pad, undefined, 1)).toBe("b");
+    expect(cycleSelection(pad, "b", 1)).toBe("a");
+    expect(cycleSelection(pad, "a", 1)).toBe("e1");
+    expect(canDelete("shape")).toBe(true);
+    expect(canDelete("pin")).toBe(false);
+    expect(contentBounds(pad).w).toBeGreaterThan(0);
+  });
+});

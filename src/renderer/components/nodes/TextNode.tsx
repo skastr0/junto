@@ -55,6 +55,8 @@ import {
   TasksCard,
   TasksDetail,
 } from "../work/WorkSurfaces";
+import { PadCard } from "../pad/PadCard";
+import { PadDetail } from "../pad/PadDetail";
 import { TaskToolbarActions } from "../work/TaskToolbarActions";
 import { ClaimedTaskStrip } from "./ClaimedTaskStrip";
 
@@ -529,7 +531,8 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
     entityKind === "task" ||
     entityKind === "requests" ||
     entityKind === "artifacts" ||
-    entityKind === "board";
+    entityKind === "board" ||
+    entityKind === "pad";
   const isCron = entityKind === "cron" || entityKind === "timer";
 
   useEffect(() => {
@@ -666,6 +669,9 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
       ) : null}
       {workDetail && entityKind === "board" ? (
         <BoardDetail node={node} onClose={() => setWorkDetail(false)} />
+      ) : null}
+      {workDetail && entityKind === "pad" ? (
+        <PadDetail node={node} onClose={() => setWorkDetail(false)} />
       ) : null}
       {workDetail && entityKind === "artifacts" ? (
         <ArtifactsDetail
@@ -823,6 +829,12 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
             />
           ) : entityKind === "board" ? (
             <BoardCard
+              node={node}
+              renaming={renaming}
+              onRenameDone={() => setRenaming(false)}
+            />
+          ) : entityKind === "pad" ? (
+            <PadCard
               node={node}
               renaming={renaming}
               onRenameDone={() => setRenaming(false)}

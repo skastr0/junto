@@ -14,6 +14,7 @@ import {
   Package,
   Pause,
   Pencil,
+  PenLine,
   Play,
   Plus,
   Radio,
@@ -546,6 +547,25 @@ export function KindActions({ node }: { readonly node: CanvasNode }) {
             onClick={() => openWorkDetail(node.id)}
           >
             <MessageSquareText size={ICON} />
+          </KindKey>
+          <KindKey
+            label="Rename"
+            title="Rename"
+            onClick={() => state$.editNodeId.set(node.id)}
+          >
+            <Pencil size={ICON} />
+          </KindKey>
+        </>
+      );
+    case "pad":
+      return (
+        <>
+          <KindKey
+            label="Open pad"
+            title="Open the pad"
+            onClick={() => openWorkDetail(node.id)}
+          >
+            <PenLine size={ICON} />
           </KindKey>
           <KindKey
             label="Rename"
