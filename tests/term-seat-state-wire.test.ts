@@ -1,6 +1,9 @@
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
-import { reviveTermHostEvent } from "../src/main/vellum/term/control-client";
+import {
+  reviveTermAuthSeatState,
+  reviveTermHostEvent,
+} from "../src/main/vellum/term/control-client";
 import {
   mergeSeatStateSnapshot,
   rememberRemoteSeatState,
@@ -49,6 +52,22 @@ describe("term seat-state hop decode", () => {
         event: { state: "working" },
       }),
     ).toBeUndefined();
+  });
+
+  it("revives auth-ack seatState into hop-shaped LocalHostEvents", () => {
+    expect(reviveTermAuthSeatState({ seatState: [remoteHop.event] })).toEqual([
+      remoteHop,
+    ]);
+  });
+
+  it("drops malformed or missing auth-ack seatState entries", () => {
+    expect(reviveTermAuthSeatState(undefined)).toEqual([]);
+    expect(reviveTermAuthSeatState({})).toEqual([]);
+    expect(
+      reviveTermAuthSeatState({
+        seatState: [{ state: "working" }, remoteHop.event],
+      }),
+    ).toEqual([remoteHop]);
   });
 });
 
@@ -112,6 +131,10 @@ describe("term seat-state placement wiring", () => {
     expect(server).toContain("authedClients.add(socket)");
     expect(server).toContain("authedClients.delete(socket)");
     expect(server).toContain("admittedClients.add(socket)");
+    expect(server).toContain("seatStateRuntime.currentEvents()");
+    expect(server).toContain("data: { seatState: snapshot }");
     expect(client).toContain("isAgentSeatState(ev.state)");
+    expect(client).toContain("reviveTermAuthSeatState");
+    expect(client).toContain("queueMicrotask");
   });
 });

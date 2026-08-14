@@ -214,6 +214,29 @@ const reviveHostEvent = (raw: unknown): LocalHostEvent | undefined => {
 /** Test / decode helper — same shape the SSH hop delivers to the router. */
 export const reviveTermHostEvent = reviveHostEvent;
 
+/** Revive auth-ack `data.seatState` as hop-shaped LocalHostEvents. */
+export const reviveTermAuthSeatState = (data: unknown): LocalHostEvent[] => {
+  if (!data || typeof data !== "object") return [];
+  const list = (data as { seatState?: unknown }).seatState;
+  if (!Array.isArray(list)) return [];
+  const out: LocalHostEvent[] = [];
+  for (const item of list) {
+    if (!item || typeof item !== "object") continue;
+    const ev = item as Record<string, unknown>;
+    const bindingId = typeof ev.bindingId === "string" ? ev.bindingId : "";
+    const epoch = typeof ev.epoch === "string" ? ev.epoch : "";
+    if (!bindingId || !epoch) continue;
+    const revived = reviveHostEvent({
+      type: "seat-state",
+      bindingId,
+      epoch,
+      event: ev,
+    });
+    if (revived) out.push(revived);
+  }
+  return out;
+};
+
 export class TermControlClient extends EventEmitter implements TermMaintenanceControlPort {
   private socket: Socket | undefined;
   private buf = "";
@@ -227,12 +250,39 @@ export class TermControlClient extends EventEmitter implements TermMaintenanceCo
     this.resolveCloseObserved = resolve;
   });
   private drainFlight: Promise<TermControlClientShutdownReceipt> | undefined;
+  /** Held until the first `"event"` listener; connect() can beat that attach. */
+  private queuedEvents: LocalHostEvent[] | undefined = [];
+  private eventFlushScheduled = false;
 
   private constructor(
     private readonly socketPath: string,
     private readonly token: string,
   ) {
     super();
+    this.on("newListener", (name: string | symbol) => {
+      if (name !== "event") return;
+      this.scheduleEventFlush();
+    });
+  }
+
+  private deliverHostEvent(event: LocalHostEvent): void {
+    if (this.queuedEvents !== undefined) {
+      this.queuedEvents.push(event);
+      return;
+    }
+    this.emit("event", event);
+  }
+
+  private scheduleEventFlush(): void {
+    if (this.queuedEvents === undefined || this.eventFlushScheduled) return;
+    this.eventFlushScheduled = true;
+    queueMicrotask(() => {
+      const queued = this.queuedEvents;
+      this.queuedEvents = undefined;
+      this.eventFlushScheduled = false;
+      if (!queued) return;
+      for (const event of queued) this.emit("event", event);
+    });
   }
 
   /** False after the SSH forward or remote socket has already gone away. */
@@ -332,6 +382,9 @@ export class TermControlClient extends EventEmitter implements TermMaintenanceCo
           if (!this.authed) {
             if (rec.ok === true && rec.id === "auth") {
               this.authed = true;
+              for (const event of reviveTermAuthSeatState(rec.data)) {
+                this.deliverHostEvent(event);
+              }
               settleOk();
             } else if (rec.ok === false) {
               settleErr(new Error(String(rec.error ?? "auth failed")));
@@ -341,7 +394,7 @@ export class TermControlClient extends EventEmitter implements TermMaintenanceCo
           }
           if (rec.type === "event") {
             const event = reviveHostEvent(rec.payload);
-            if (event) this.emit("event", event);
+            if (event) this.deliverHostEvent(event);
             continue;
           }
           const id = typeof rec.id === "string" ? rec.id : "";

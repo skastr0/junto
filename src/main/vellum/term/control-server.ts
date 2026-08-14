@@ -652,10 +652,30 @@ export const startTermControlServer = async (
           }
           authed = true;
           authedClients.add(socket);
+          const snapshot = seatStateRuntime.currentEvents();
           try {
-            socket.write(jsonLine({ v: 1, id: "auth", ok: true }));
+            socket.write(
+              jsonLine({
+                v: 1,
+                id: "auth",
+                ok: true,
+                data: { seatState: snapshot },
+              }),
+            );
           } catch {
             // ignore
+          }
+          // Per-socket live frames; client queues until the first event listener.
+          for (const event of snapshot) {
+            writeEvent(
+              {
+                type: "seat-state",
+                bindingId: event.bindingId,
+                epoch: event.epoch,
+                event,
+              },
+              [socket],
+            );
           }
           continue;
         }
