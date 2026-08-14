@@ -772,6 +772,20 @@ export function TerminalSurface({
             // Never paint those as a live control lease.
             setStatus(sawExit ? "exited" : "control");
             setKillPhase(sawExit ? "stopped" : "idle");
+            // Correct local geometry to the real pane box BEFORE clearLoad()
+            // reveals the terminal. A factory-woken seat was hydrated above at
+            // the snapshot's own geometry (headless default, unless something
+            // already grew it) — without this, the first frame the operator
+            // ever sees is that stale size, and an alt-screen TUI (Grok) will
+            // not redraw itself until its own SIGWINCH round-trip lands, so
+            // the wrong-sized paint can sit visible for real time. A manual
+            // open never hits this: it creates the seat at the pane's size
+            // from birth, so there is nothing to attach-and-regrow. getBoundingClientRect
+            // forces layout, so this measurement is accurate even though the
+            // component just resumed from an async IPC round-trip; measureHost
+            // safely no-ops (see pushResize) if the host is not yet laid out,
+            // and the rAF/settle ladder below still covers that case.
+            pushResize();
             clearLoad();
             // Repaint through layout settle; only a real cols×rows transition is
             // forwarded to the child PTY.
