@@ -15,7 +15,7 @@ describe("registerTerminalSlot", () => {
   it("keeps a cyclic host out of Legend and still returns it", () => {
     const host = { owner: null as unknown };
     host.owner = host;
-    expect(() => registerTerminalSlot("t1", host as HTMLElement)).not.toThrow();
+    expect(() => registerTerminalSlot("t1", host as unknown as HTMLElement)).not.toThrow();
     expect(terminalSlotElement("t1")).toBe(host);
     expect(terminalSlots$.generationByNodeId.t1.peek()).toBe(1);
     expect(terminalSlots$.generationByNodeId.peek()).not.toHaveProperty("owner");
@@ -24,7 +24,7 @@ describe("registerTerminalSlot", () => {
   it("clears the slot on unmount", () => {
     const host = { owner: null as unknown };
     host.owner = host;
-    registerTerminalSlot("t1", host as HTMLElement);
+    registerTerminalSlot("t1", host as unknown as HTMLElement);
     registerTerminalSlot("t1", null);
     expect(terminalSlotElement("t1")).toBeNull();
     expect(terminalSlots$.generationByNodeId.t1.peek()).toBeUndefined();

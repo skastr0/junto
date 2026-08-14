@@ -8,6 +8,7 @@ import {
   constants as fsConstants,
   createReadStream,
   existsSync,
+  statSync,
 } from "node:fs";
 import {
   access,
@@ -2554,7 +2555,7 @@ const streamArtifactToRemote = (
       // Dedicated TCP: Station peer retries own the shared mux.
       const payloadBytes =
         transfer.kind === "release-zip" && input.admission.archive
-          ? input.admission.archive.bytes
+          ? statSync(input.admission.archive.zipPath).size
           : estimateDirectoryBytes(input.admission.localApp.appPath);
       const output = yield* ssh
         .transfer(

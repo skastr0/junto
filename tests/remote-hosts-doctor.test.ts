@@ -506,7 +506,7 @@ describe("remote hosts doctor", () => {
     } as unknown as HostsRegistry;
     const ssh = {
       warm: () => Effect.void,
-    } as Parameters<typeof testHostConnection>[0];
+    } as unknown as Parameters<typeof testHostConnection>[0];
 
     const snapshot = await Effect.runPromise(
       runRemoteHostsDoctorSnapshot(

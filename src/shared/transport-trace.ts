@@ -63,17 +63,27 @@ export const seatTapeFromSummary = (
     summary.status.length > 0
       ? summary.status
       : "none";
-  const snapshot =
+  const liveStatus: "starting" | "running" | "exited" | "missing" | undefined =
+    status === "starting" ||
+    status === "running" ||
+    status === "exited" ||
+    status === "missing"
+      ? status
+      : undefined;
+  const snapshot:
+    | {
+        readonly epoch: string;
+        readonly status: "starting" | "running" | "exited" | "missing";
+        readonly hostId?: string;
+      }
+    | undefined =
     summary !== null &&
     summary !== undefined &&
     typeof summary.epoch === "string" &&
-    (status === "starting" ||
-      status === "running" ||
-      status === "exited" ||
-      status === "missing")
+    liveStatus !== undefined
       ? {
           epoch: summary.epoch,
-          status,
+          status: liveStatus,
           ...(summary.hostId === undefined ? {} : { hostId: summary.hostId }),
         }
       : undefined;
