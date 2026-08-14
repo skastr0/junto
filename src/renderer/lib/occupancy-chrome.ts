@@ -61,3 +61,19 @@ const SPEC: Readonly<Record<OccupancySpectrumName, OccupancyChromeSpec>> = {
 export function occupancyChrome(state: OccupancySpectrumName): OccupancyChromeSpec {
   return SPEC[state];
 }
+
+const ACTOR_OCCUPANCY_ATTR = new Set<OccupancySpectrumName>([
+  "empty",
+  "gone",
+  "parked",
+]);
+
+/**
+ * Actor / managed-seat shell: occupancy is vacancy (empty/gone/parked) only.
+ * Working and attention belong to SeatFacts, not this attribute.
+ */
+export function actorOccupancyAttr(
+  state: OccupancySpectrumName,
+): OccupancySpectrumName | undefined {
+  return ACTOR_OCCUPANCY_ATTR.has(state) ? state : undefined;
+}
