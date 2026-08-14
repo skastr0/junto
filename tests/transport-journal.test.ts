@@ -3,8 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  filterTransportLog,
   sanitizeTransportError,
   transportLogPath,
+  transportLogPathForHome,
 } from "../src/shared/transport-trace";
 import {
   appendTransportTrace,
@@ -52,5 +54,20 @@ describe("transport journal", () => {
     const get = rows.find((row) => row.op === "host.get");
     expect(get?.occupancy).toBe("VacantSeat");
     rmSync(root, { recursive: true, force: true });
+  });
+
+  it("names the Remote journal from that machine home", () => {
+    expect(transportLogPathForHome("/Users/op")).toBe(
+      "/Users/op/.vellum-command/logs/transport.jsonl",
+    );
+  });
+
+  it("filters occupancy lines", () => {
+    const text = [
+      '{"op":"host.get","occupancy":"VacantSeat"}',
+      '{"op":"ssh-transport","ok":true}',
+    ].join("\n");
+    expect(filterTransportLog(text, "VacantSeat")).toContain("host.get");
+    expect(filterTransportLog(text, "VacantSeat")).not.toContain("ssh-transport");
   });
 });

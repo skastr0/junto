@@ -32,6 +32,22 @@ export const transportLogDirectory = (home = resolveVellumCommandHome()): string
 export const transportLogPath = (home = resolveVellumCommandHome()): string =>
   join(transportLogDirectory(home), TRANSPORT_LOG_FILE);
 
+/** Remote journal path from that machine's $HOME (not this process home). */
+export const transportLogPathForHome = (osHome: string): string =>
+  join(osHome, ...TRANSPORT_LOG_DIR_SEGMENTS, TRANSPORT_LOG_FILE);
+
+export const filterTransportLog = (
+  text: string,
+  query?: string,
+): string => {
+  const q = query?.trim().toLowerCase();
+  if (!q) return text;
+  return text
+    .split("\n")
+    .filter((line) => line.toLowerCase().includes(q))
+    .join("\n");
+};
+
 export const sanitizeTransportError = (cause: unknown): string => {
   const raw = cause instanceof Error ? cause.message : String(cause);
   return raw

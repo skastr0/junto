@@ -19,3 +19,4 @@ export {
   recordTransportTrace,
   startTransportJournal,
 } from "./transport-journal";
+export { pullRemoteTransportLog } from "./transport-pull";
