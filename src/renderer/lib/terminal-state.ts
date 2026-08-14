@@ -4,9 +4,16 @@ import type { TerminalSessionSummary } from "@shared/terminal";
 import { resolveTerminalBinding } from "@shared/terminal";
 import type { WorkZone } from "./surface-registry";
 
-/** Slot elements WorkbenchPanes register so PersistentTerminalHost can adopt. */
+/**
+ * Pane slot handles live outside Legend. The store only carries a generation
+ * so PersistentTerminalHost re-adopts when WorkbenchPanes mounts a slot.
+ * Putting an HTMLElement into an observable walks the live DOM (parent,
+ * children, document) and overflows.
+ */
+const terminalSlotElements = new Map<string, HTMLElement>();
+
 export const terminalSlots$ = observable({
-  elements: {} as Record<string, HTMLElement | null>,
+  generationByNodeId: {} as Record<string, number>,
 });
 
 export const registerTerminalSlot = (
@@ -14,9 +21,19 @@ export const registerTerminalSlot = (
   element: HTMLElement | null,
 ): void => {
   if (!nodeId) return;
-  if (element) terminalSlots$.elements[nodeId].set(element);
-  else terminalSlots$.elements[nodeId].delete();
+  if (element) {
+    terminalSlotElements.set(nodeId, element);
+    terminalSlots$.generationByNodeId[nodeId].set(
+      (terminalSlots$.generationByNodeId[nodeId].peek() ?? 0) + 1,
+    );
+  } else {
+    terminalSlotElements.delete(nodeId);
+    terminalSlots$.generationByNodeId[nodeId].delete();
+  }
 };
+
+export const terminalSlotElement = (nodeId: string): HTMLElement | null =>
+  terminalSlotElements.get(nodeId) ?? null;
 
 export const terminal$ = observable({
   openByNodeId: {} as Record<string, CanvasNode>,
