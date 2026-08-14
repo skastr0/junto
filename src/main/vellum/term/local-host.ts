@@ -66,6 +66,7 @@ import {
   isHarnessResumeFailureText,
   isPinSessionHarness,
   launchArgvUsesResume,
+  reclaimOrphanedHarnessArgv,
 } from "./session-existence";
 import {
   planFreshPinSession,
@@ -486,7 +487,10 @@ export const resolveLaunch = (
       }
     }
   }
-  const argv = launch?.argv?.filter((a) => typeof a === "string" && a.length > 0) ?? [];
+  const argv = reclaimOrphanedHarnessArgv(
+    launch?.argv?.filter((a) => typeof a === "string" && a.length > 0) ?? [],
+    cwd,
+  );
 
   if (seat.kind === "agent") {
     const unresolvable = (reason: string): AgentLaunchUnresolvable => ({
@@ -763,6 +767,9 @@ export class LocalSessionHost extends EventEmitter {
       return this.summaryOf(rec);
     }
     const launch = resolved.success;
+    if (seat.kind === "agent") {
+      rec.resumeAttempt = launchArgvUsesResume([launch.file, ...launch.args]);
+    }
     // Best-effort display name until OSC title updates (shell basename etc.).
     const spawnName = basename(launch.file).trim();
     if (spawnName.length > 0) rec.processName = spawnName;
