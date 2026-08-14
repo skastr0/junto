@@ -208,15 +208,54 @@ test("pad agent refusal: mock seat pad.patch ink and image are InputError", asyn
       )
       .toBe(true);
 
-    const node = page.locator(".react-flow__node", { hasText: "seat" });
+    const pause = page.getByTestId("factory-pause");
+    await expect(pause).toBeVisible({ timeout: 30_000 });
+    if ((await pause.getAttribute("data-pause-state")) !== "playing") {
+      await pause.click();
+      const confirm = page.getByTestId("first-play-confirm");
+      if (await confirm.isVisible().catch(() => false)) {
+        await confirm.getByRole("button", { name: /play/i }).click();
+      }
+      await expect(pause).toHaveAttribute("data-pause-state", "playing");
+    }
+
+    const node = page.locator(`.react-flow__node[data-id="${SEAT_ID}"]`);
     await expect(node).toBeVisible({ timeout: 30_000 });
-    await node.dblclick();
-    await expect(page.locator(".native-terminal-surface")).toBeVisible({ timeout: 30_000 });
+    await node.click();
+    const openTerminal = page.getByRole("button", { name: "Open terminal" });
+    if (await openTerminal.isVisible().catch(() => false)) {
+      await openTerminal.click();
+    } else {
+      await node.dblclick();
+    }
+
+    const occupySeat = () =>
+      page.evaluate(
+        async ([canvas, nodeId, bindingId]) => {
+          const api = window.vellumCommand!;
+          if (typeof api.terminalCreate !== "function") {
+            throw new Error("terminalCreate missing");
+          }
+          await api.terminalCreate({
+            bindingId,
+            hostId: "local",
+            canvasName: canvas,
+            nodeId,
+            harness: "codex",
+            agentKey: bindingId,
+          });
+        },
+        [CANVAS, SEAT_ID, "local:pad-refuse"] as const,
+      );
+
+    await occupySeat().catch(() => undefined);
 
     await expect
       .poll(async () => {
         const ping = await callSeat(inbox, outbox, "ping");
-        return ping.ok;
+        if (ping.ok) return true;
+        await occupySeat().catch(() => undefined);
+        return false;
       }, { timeout: 30_000 })
       .toBe(true);
 

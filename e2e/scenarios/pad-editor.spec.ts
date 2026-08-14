@@ -86,7 +86,7 @@ test("pad editor: activate, draw box with R, persist", async ({ vellumCommand })
     }, { timeout: 10_000 })
     .toBeGreaterThanOrEqual(1);
 
-  await page.getByRole("button", { name: "Close pad" }).click();
+  await detail.getByRole("button", { name: "Close pad", exact: true }).click();
   await expect(detail).toHaveCount(0);
 
   const persisted = await readPad(page);

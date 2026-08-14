@@ -86,28 +86,44 @@ test("pad: create, wire seat, patch, persist, draw, pin + look-here", async ({
   await expect(deck).toBeVisible();
   await deck.getByRole("searchbox", { name: "Search nodes and agents" }).fill("pad");
   await deck.locator(".node-deck-catalog__card").filter({ hasText: "Pad" }).click();
+  await expect(deck).toHaveCount(0);
 
   const padCard = page.getByTestId("pad-card");
   await expect(padCard).toBeVisible({ timeout: 15_000 });
 
-  const padId = await page.evaluate(async (canvas) => {
+  let padId = "";
+  await expect
+    .poll(
+      async () => {
+        padId = await page.evaluate(async (canvas) => {
+          const read = await window.vellumCommand!.readCanvas(canvas);
+          return (
+            read.doc.nodes.find((node) => node.ether?.entity?.kind === "pad")?.id ??
+            ""
+          );
+        }, CANVAS);
+        return padId.length;
+      },
+      { timeout: 15_000 },
+    )
+    .toBeGreaterThan(0);
+
+  await page.evaluate(async ([canvas, id]) => {
     const api = window.vellumCommand!;
     const read = await api.readCanvas(canvas);
-    const pad = read.doc.nodes.find((node) => node.ether?.entity?.kind === "pad");
-    if (!pad) throw new Error("catalog did not create a pad node");
+    if (read.doc.edges.some((edge) => edge.id === "e-seat-pad")) return;
     await api.writeCanvas(
       canvas,
       {
         ...read.doc,
         edges: [
           ...read.doc.edges,
-          { id: "e-seat-pad", fromNode: "seat", toNode: pad.id },
+          { id: "e-seat-pad", fromNode: "seat", toNode: id },
         ],
       },
       read.revision,
     );
-    return pad.id;
-  }, CANVAS);
+  }, [CANVAS, padId] as const);
   expect(padId.length).toBeGreaterThan(0);
 
   const patched = await patchPad(page, padId, [
@@ -196,7 +212,7 @@ test("pad: create, wire seat, patch, persist, draw, pin + look-here", async ({
     }, { timeout: 10_000 })
     .toBeGreaterThanOrEqual(1);
 
-  await page.getByRole("button", { name: "Close pad" }).click();
+  await page.getByTestId("pad-detail").getByRole("button", { name: "Close pad", exact: true }).click();
   await expect(detail).toHaveCount(0);
 
   const withPin = await readPad(page, padId);
