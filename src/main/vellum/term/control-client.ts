@@ -21,7 +21,7 @@ import {
 import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
 import { Schema } from "effect";
 import { HostDirectorySnapshot } from "@shared/host-directory";
-import { formatTransportFrame } from "@shared/transport-trace";
+import { formatTransportFrame, seatTapeFromSummary } from "@shared/transport-trace";
 import type { ControlLease, JournalEntry, LocalHostEvent } from "./local-host";
 import {
   appendTransportTrace,
@@ -70,16 +70,14 @@ export interface TermMaintenanceControlPort {
 
 const SEAT_WIRE_OPS = new Set(["get", "create"]);
 
-const statusFromTermResponse = (
+const summaryFromTermResponse = (
   response?: TermControlResponse,
-): string | undefined => {
-  if (response === undefined || !response.ok) return undefined;
-  if (response.data == null) return "none";
-  if (typeof response.data === "object" && "status" in response.data) {
-    const status = (response.data as { status?: unknown }).status;
-    return typeof status === "string" ? status : undefined;
+): { readonly epoch?: string; readonly status?: string } | null => {
+  if (response === undefined || !response.ok || response.data == null) {
+    return null;
   }
-  return undefined;
+  if (typeof response.data !== "object") return null;
+  return response.data as { readonly epoch?: string; readonly status?: string };
 };
 
 const CLIENT_SHUTDOWN_GRACE_MS = 100;
@@ -378,11 +376,13 @@ export class TermControlClient extends EventEmitter implements TermMaintenanceCo
         };
         if (ok) {
           if (SEAT_WIRE_OPS.has(body.op)) {
-            const status = statusFromTermResponse(response);
             appendTransportTrace({
               ...event,
               ok: true,
-              ...(status === undefined ? {} : { status }),
+              ...seatTapeFromSummary(
+                bindingId ?? "",
+                summaryFromTermResponse(response),
+              ),
             });
           }
           return;

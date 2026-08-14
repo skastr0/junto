@@ -371,8 +371,30 @@ export class TerminalRouter extends EventEmitter {
       "remote",
     );
     if (Result.isFailure(occupyVacantSeat(occupancy)) && existing) {
+      appendTransportTrace({
+        plane: "term",
+        op: "router.createRemote",
+        ok: true,
+        hostId,
+        bindingId: input.bindingId,
+        status: existing.status,
+        occupancy: occupancy._tag,
+        decision: "activate",
+        epoch: existing.epoch,
+      });
       return { ...existing, hostId };
     }
+    appendTransportTrace({
+      plane: "term",
+      op: "router.createRemote",
+      ok: true,
+      hostId,
+      bindingId: input.bindingId,
+      status: existing?.status ?? "none",
+      occupancy: occupancy._tag,
+      decision: "occupy",
+      ...(existing?.epoch === undefined ? {} : { epoch: existing.epoch }),
+    });
     const summary = await client.create({
       bindingId: input.bindingId,
       launch: input.launch,

@@ -1368,6 +1368,7 @@ export class LocalSessionHost extends EventEmitter {
       bindingId: rec.bindingId,
       status: "exited",
       occupancy: "VacantSeat",
+      epoch: rec.epoch,
       ...(code === undefined ? {} : { code }),
       ...(signal === undefined ? {} : { signal }),
     });

@@ -3,12 +3,13 @@
  * Install-local files under ~/.vellum-command/logs — not product state.
  */
 import { join } from "node:path";
+import { occupancyFromSummary } from "./terminal-seat-occupancy";
 import { resolveVellumCommandHome } from "./vellum-home";
 
 export const TRANSPORT_LOG_DIR_SEGMENTS = [".vellum-command", "logs"] as const;
 export const TRANSPORT_LOG_FILE = "transport.jsonl";
 
-export type TransportPlane = "ssh-transport" | "term" | "station" | "work" | "browser";
+export type TransportPlane = "ssh-transport" | "term";
 
 export type TransportTraceEvent = {
   readonly ts: string;
@@ -20,6 +21,7 @@ export type TransportTraceEvent = {
   readonly endpoint?: string;
   readonly socket?: string;
   readonly status?: string;
+  readonly epoch?: string;
   /** Occupancy tag only after a real table snapshot. Never on a swallowed error. */
   readonly occupancy?: string;
   /** Table branch only: occupy | activate. */
@@ -32,6 +34,59 @@ export type TransportTraceEvent = {
   readonly code?: number;
   readonly signal?: number;
   readonly ms?: number;
+};
+
+/** Occupancy from a completed get/create snapshot. Not for swallowed errors. */
+export const seatTapeFromSummary = (
+  bindingId: string,
+  summary:
+    | {
+        readonly epoch?: string;
+        readonly status?: string;
+        readonly hostId?: string;
+      }
+    | null
+    | undefined,
+): {
+  readonly status: string;
+  readonly occupancy?: "VacantSeat" | "OccupiedSeat";
+  readonly epoch?: string;
+} => {
+  const status =
+    summary !== null &&
+    summary !== undefined &&
+    typeof summary.status === "string" &&
+    summary.status.length > 0
+      ? summary.status
+      : "none";
+  const snapshot =
+    summary !== null &&
+    summary !== undefined &&
+    typeof summary.epoch === "string" &&
+    (status === "starting" ||
+      status === "running" ||
+      status === "exited" ||
+      status === "missing")
+      ? {
+          epoch: summary.epoch,
+          status,
+          ...(summary.hostId === undefined ? {} : { hostId: summary.hostId }),
+        }
+      : undefined;
+  const epoch =
+    typeof summary?.epoch === "string" ? { epoch: summary.epoch } : {};
+  if (bindingId.trim().length === 0) {
+    return { status, ...epoch };
+  }
+  try {
+    return {
+      status,
+      occupancy: occupancyFromSummary(bindingId, snapshot)._tag,
+      ...epoch,
+    };
+  } catch {
+    return { status, ...epoch };
+  }
 };
 
 export const transportLogDirectory = (home = resolveVellumCommandHome()): string =>

@@ -8,6 +8,7 @@ import {
   formatTransportFrame,
   rememberTransportStderr,
   sanitizeTransportError,
+  seatTapeFromSummary,
   transportLogPath,
   transportLogPathForHome,
 } from "../src/shared/transport-trace";
@@ -116,6 +117,29 @@ describe("transport journal", () => {
     expect(fail?.frame).toContain("<omitted>");
     expect(fail?.frame).not.toContain("typed secret");
     rmSync(root, { recursive: true, force: true });
+  });
+
+  it("derives occupancy only from a completed session snapshot", () => {
+    expect(seatTapeFromSummary("bind-1", undefined)).toEqual({
+      status: "none",
+      occupancy: "VacantSeat",
+    });
+    expect(
+      seatTapeFromSummary("bind-1", {
+        epoch: "ep_1",
+        status: "running",
+      }),
+    ).toEqual({
+      status: "running",
+      occupancy: "OccupiedSeat",
+      epoch: "ep_1",
+    });
+    expect(
+      seatTapeFromSummary("bind-1", {
+        epoch: "ep_1",
+        status: "exited",
+      }),
+    ).toMatchObject({ status: "exited", occupancy: "VacantSeat" });
   });
 
   it("writes a seat-table hop without a journal-start heartbeat", () => {

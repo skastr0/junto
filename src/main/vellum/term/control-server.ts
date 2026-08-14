@@ -37,6 +37,8 @@ import {
   type TermControlResponse,
 } from "@shared/term-control";
 import { occupancyFromSummary, occupyVacantSeat } from "@shared/terminal-seat-occupancy";
+import { seatTapeFromSummary } from "@shared/transport-trace";
+import { appendTransportTrace } from "../observability/transport-journal";
 import { Result } from "effect";
 import type {
   ControlLease,
@@ -378,6 +380,13 @@ export const startTermControlServer = async (
           return { v: 1, id, ok: true, data: { pong: true } };
         case "create": {
           const existing = host.get(req.bindingId);
+          appendTransportTrace({
+            plane: "term",
+            op: "host.get",
+            ok: true,
+            bindingId: req.bindingId,
+            ...seatTapeFromSummary(req.bindingId, existing),
+          });
           const occupancy = occupancyFromSummary(req.bindingId, existing, "local");
           if (Result.isFailure(occupyVacantSeat(occupancy)) && existing) {
             return { v: 1, id, ok: true, data: existing };
@@ -402,8 +411,17 @@ export const startTermControlServer = async (
             ok: true,
             data: await readHostDirectory(req.path),
           };
-        case "get":
-          return { v: 1, id, ok: true, data: host.get(req.bindingId) ?? null };
+        case "get": {
+          const summary = host.get(req.bindingId) ?? null;
+          appendTransportTrace({
+            plane: "term",
+            op: "host.get",
+            ok: true,
+            bindingId: req.bindingId,
+            ...seatTapeFromSummary(req.bindingId, summary),
+          });
+          return { v: 1, id, ok: true, data: summary };
+        }
         case "kill":
           return { v: 1, id, ok: true, data: host.kill(req.bindingId) };
         case "bindCanvas":

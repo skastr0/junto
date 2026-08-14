@@ -10,11 +10,10 @@ import { homeDirectoryLookup, oneShot } from "../ssh/program";
 import { remoteCat } from "../ssh/read-commands";
 import { SshTransport } from "../ssh/service";
 
-export const pullRemoteTransportLog = Effect.fn("transport.pull")(
-  function* (target: SshTarget) {
+export const pullRemoteTransportLog = (target: SshTarget) =>
+  Effect.gen(function* () {
     const ssh = yield* SshTransport;
     const endpoint = inspectSshTarget(target).endpoint;
-    yield* Effect.annotateCurrentSpan("endpoint", String(endpoint));
     const homeResult = yield* ssh.run(homeDirectoryLookup(target));
     const home = homeResult.stdout.trim();
     const path = transportLogPathForHome(home);
@@ -25,8 +24,7 @@ export const pullRemoteTransportLog = Effect.fn("transport.pull")(
       path,
       text: result.stdout,
     };
-  },
-);
+  });
 
 export const remoteTransportLogHint = (osHome: string): string =>
   join(osHome, ".vellum-command", "logs", "transport.jsonl");
