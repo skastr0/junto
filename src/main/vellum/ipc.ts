@@ -48,7 +48,7 @@ import { ContentService } from "./content/service";
 import { messageDelivery } from "./work/message-delivery";
 import {
   composerBlocksMailInject,
-  operatorTypedThisGeneration,
+  seatOperatorDraft,
 } from "@shared/message-delivery";
 import {
   mailboxMessageDeliveryId,
@@ -1538,8 +1538,9 @@ export const registerVellumIpc = (): void => {
           // managedAgent + rawTerminal → paste+CR via idle-gated drive.
           sendManagedTerminalPrompt: (bindingId, text, options) =>
             writeManagedPrompt(bindingId, text, options),
-          // Settled idle + never overwrite operator keystrokes this generation.
-          // Screen chrome is NOT draft — use process-bound terminalWrite proof.
+          // Settled idle + do not paste over a live operator (recent
+          // keystrokes or a stuck paste chip). Generation-lifetime typing
+          // is not draft — a human-driven seat would never drain mail.
           seatDeliverySnapshot: (bindingId) => {
             const live = termPlane.host.get(bindingId);
             if (
@@ -1553,16 +1554,17 @@ export const registerVellumIpc = (): void => {
             const promptText = snap
               ? extractPromptBoxText(snap.lines)
               : "";
-            const typed = operatorTypedThisGeneration({
-              lastUserInputAtMs: injectionSupervisor.lastUserInputAt(bindingId),
-              generationStartedAtMs: live.createdAt,
-            });
             // Residual product paste chip still occupies the box.
             const residualChip = composerBlocksMailInject(promptText);
             return {
               idle,
               generationKey: live.epoch,
-              operatorDraft: typed || residualChip,
+              operatorDraft: seatOperatorDraft({
+                lastUserInputAtMs:
+                  injectionSupervisor.lastUserInputAt(bindingId),
+                nowMs: Date.now(),
+                residualChip,
+              }),
             };
           },
         },

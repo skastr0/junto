@@ -13,7 +13,10 @@ import {
   messageBriefText,
   messageSenderLabel,
   MESSAGE_PTY_FULL_BODY_MAX,
+  OPERATOR_PRESENT_WINDOW_MS,
+  operatorPresentNow,
   operatorTypedThisGeneration,
+  seatOperatorDraft,
   ptyInjectMarksRead,
   shouldSummarizeMessageForPty,
   stampMessageDelivered,
@@ -143,7 +146,7 @@ describe("message-delivery pure helpers", () => {
     expect(composerBlocksMailInject("[Pasted text #3 +12 lines]")).toBe(true);
   });
 
-  it("operatorTypedThisGeneration is the load-bearing draft gate", () => {
+  it("operatorTypedThisGeneration is a generation fact, not the draft gate", () => {
     expect(
       operatorTypedThisGeneration({
         lastUserInputAtMs: undefined,
@@ -166,6 +169,50 @@ describe("message-delivery pure helpers", () => {
       operatorTypedThisGeneration({
         lastUserInputAtMs: 1500,
         generationStartedAtMs: 1000,
+      }),
+    ).toBe(true);
+  });
+
+  it("seatOperatorDraft holds only while the operator is present or a chip remains", () => {
+    const spawn = 1_000;
+    const typedAt = 2_000;
+    expect(
+      operatorTypedThisGeneration({
+        lastUserInputAtMs: typedAt,
+        generationStartedAtMs: spawn,
+      }),
+    ).toBe(true);
+    expect(
+      operatorPresentNow({
+        lastUserInputAtMs: typedAt,
+        nowMs: typedAt + 2_000,
+      }),
+    ).toBe(true);
+    expect(
+      operatorPresentNow({
+        lastUserInputAtMs: typedAt,
+        nowMs: typedAt + OPERATOR_PRESENT_WINDOW_MS + 1,
+      }),
+    ).toBe(false);
+    expect(
+      seatOperatorDraft({
+        lastUserInputAtMs: typedAt,
+        nowMs: typedAt + OPERATOR_PRESENT_WINDOW_MS + 1,
+        residualChip: false,
+      }),
+    ).toBe(false);
+    expect(
+      seatOperatorDraft({
+        lastUserInputAtMs: typedAt,
+        nowMs: typedAt + OPERATOR_PRESENT_WINDOW_MS + 1,
+        residualChip: true,
+      }),
+    ).toBe(true);
+    expect(
+      seatOperatorDraft({
+        lastUserInputAtMs: typedAt,
+        nowMs: typedAt + 1_000,
+        residualChip: false,
       }),
     ).toBe(true);
   });
