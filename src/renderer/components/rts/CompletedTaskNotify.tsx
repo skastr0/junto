@@ -19,11 +19,15 @@ import { state$ } from "../../lib/state";
 
 export function CompletedTaskNotifyStack() {
   const doc = use$(state$.doc);
+  const canvasName = use$(state$.canvasName);
+  const canvasLoading = use$(state$.canvasLoading);
   const items = use$(completedTaskNotify$.items);
 
   useEffect(() => {
+    // Boot / navigation gap: EMPTY_DOC or in-flight open is not a projection.
+    if (!canvasName || canvasLoading) return;
     syncCompletedTaskNotifyFromDoc(doc.nodes);
-  }, [doc]);
+  }, [doc, canvasName, canvasLoading]);
 
   if (items.length === 0) return null;
 

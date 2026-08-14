@@ -85,6 +85,98 @@ describe("completed-task-notify", () => {
     expect(next.known.t1).toBe("completed");
   });
 
+  it("does not baseline an empty opening snapshot (EMPTY_DOC boot)", () => {
+    const empty = observeCompletedTasks(
+      emptyCompletedNotifyState(),
+      collectTaskSnapshots([]),
+      1,
+    );
+    expect(empty.baselined).toBe(false);
+    expect(empty.stack).toEqual([]);
+    expect(empty.known).toEqual({});
+  });
+
+  it("empty-then-full cold open does not replay already-completed rows", () => {
+    let state = observeCompletedTasks(
+      emptyCompletedNotifyState(),
+      collectTaskSnapshots([]),
+      1,
+    );
+    state = observeCompletedTasks(
+      state,
+      collectTaskSnapshots([
+        taskNode("sink", [
+          { id: "t1", state: "completed", brief: "Say hi 4" },
+          { id: "t2", state: "completed", brief: "Say hi another time" },
+        ]),
+      ]),
+      2,
+    );
+    expect(state.baselined).toBe(true);
+    expect(state.stack).toEqual([]);
+    expect(state.known.t1).toBe("completed");
+    expect(state.known.t2).toBe("completed");
+  });
+
+  it("still rises for a live completion after empty-then-full baseline", () => {
+    let state = observeCompletedTasks(
+      emptyCompletedNotifyState(),
+      collectTaskSnapshots([]),
+      1,
+    );
+    state = observeCompletedTasks(
+      state,
+      collectTaskSnapshots([
+        taskNode("sink", [{ id: "t1", state: "working", brief: "Ship it" }]),
+      ]),
+      2,
+    );
+    expect(state.stack).toEqual([]);
+    state = observeCompletedTasks(
+      state,
+      collectTaskSnapshots([
+        taskNode("sink", [{ id: "t1", state: "completed", brief: "Ship it" }]),
+      ]),
+      3,
+    );
+    expect(state.stack.map((item) => item.id)).toEqual(["t1"]);
+  });
+
+  it("click-cleared notify does not replay after empty-then-full restart", () => {
+    let state = observeCompletedTasks(
+      emptyCompletedNotifyState(),
+      collectTaskSnapshots([
+        taskNode("sink", [{ id: "t1", state: "working", brief: "A" }]),
+      ]),
+      1,
+    );
+    state = observeCompletedTasks(
+      state,
+      collectTaskSnapshots([
+        taskNode("sink", [{ id: "t1", state: "completed", brief: "A" }]),
+      ]),
+      2,
+    );
+    state = dismissCompletedNotify(state, "t1");
+    expect(state.stack).toEqual([]);
+
+    // Renderer restart: memory gone, boot EMPTY_DOC, then same completed row.
+    let cold = observeCompletedTasks(
+      emptyCompletedNotifyState(),
+      collectTaskSnapshots([]),
+      3,
+    );
+    cold = observeCompletedTasks(
+      cold,
+      collectTaskSnapshots([
+        taskNode("sink", [{ id: "t1", state: "completed", brief: "A" }]),
+      ]),
+      4,
+    );
+    expect(cold.stack).toEqual([]);
+    expect(cold.known.t1).toBe("completed");
+  });
+
   it("rises when a task becomes completed after baseline", () => {
     let state: CompletedNotifyState = observeCompletedTasks(
       emptyCompletedNotifyState(),
@@ -292,6 +384,33 @@ describe("completed-task-notify", () => {
       3,
     );
     expect(after.stack).toEqual([]);
+  });
+
+  it("activate clears the stack and a cold EMPTY_DOC boot does not replay it", () => {
+    clearCompletedNotifyPersistForTests();
+    const working = [
+      taskNode("sink", [{ id: "t1", state: "working", brief: "A" }]),
+    ];
+    const done = [
+      taskNode("sink", [{ id: "t1", state: "completed", brief: "A" }]),
+    ];
+    syncCompletedTaskNotifyFromDoc(working, 1);
+    syncCompletedTaskNotifyFromDoc(done, 2);
+    activateCompletedTaskNotify({
+      id: "t1",
+      nodeId: "sink",
+      brief: "A",
+      at: 2,
+    });
+    expect(completedTaskNotify$.items.peek()).toEqual([]);
+
+    // Renderer process restart: persist is gone; first tick is EMPTY_DOC.
+    clearCompletedNotifyPersistForTests();
+    resetCompletedTaskNotify();
+    syncCompletedTaskNotifyFromDoc([], 3);
+    expect(completedTaskNotify$.items.peek()).toEqual([]);
+    syncCompletedTaskNotifyFromDoc(done, 4);
+    expect(completedTaskNotify$.items.peek()).toEqual([]);
   });
 
   it("activateCompletedTaskNotify writes durable dismiss and survives re-hydrate", () => {
