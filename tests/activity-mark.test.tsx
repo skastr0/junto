@@ -1,49 +1,43 @@
 /**
- * PERF-P1 — ActivityMark one continuous animation layer + a11y/size/tone.
+ * ActivityMark structure + a11y/size/tone.
  *
- * Counts continuously animated descendants (class hooks that own infinite
- * keyframes). Static track cells may exist; at most one animated layer.
+ * Original staggered-cell grammar: wave = 8 perimeter clock cells offset by
+ * --activity-clock-step (bright head, fading clockwise trail); pulse = 9
+ * cells breathing together; static = single dot. Keyframes live in CSS and
+ * touch transform/opacity only (see canvas-attention-motion.test.ts).
  */
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 import { ActivityMark } from "../src/renderer/components/ActivityMark";
 import { surfaceMotionLive$ } from "../src/renderer/lib/surface-motion";
 
-const ANIMATED_CLASS = /class="[^"]*\b(vellum-activity-wave-head|vellum-activity-pulse-layer)\b[^"]*"/g;
-const WAVE_HEAD = /vellum-activity-wave-head/g;
-const PULSE_LAYER = /vellum-activity-pulse-layer/g;
-const WAVE_CELL = /vellum-activity-wave-cell/g;
-const CLOCK_CELL_LEGACY = /vellum-activity-clock-cell/g;
-const PULSE_CELL_LEGACY = /vellum-activity-pulse-cell/g;
+const CLOCK_CELL = /vellum-activity-clock-cell/g;
+const PULSE_CELL = /vellum-activity-pulse-cell/g;
+const CLOCK_STEP = /--activity-clock-step/g;
 
 const count = (html: string, re: RegExp): number => {
   const matches = html.match(re);
   return matches?.length ?? 0;
 };
 
-const animatedLayerCount = (html: string): number => count(html, ANIMATED_CLASS);
-
 afterEach(() => {
   surfaceMotionLive$.set(true);
 });
 
-describe("ActivityMark continuous animation budget", () => {
-  it("wave: exactly one animated head; track cells are static", () => {
+describe("ActivityMark cell structure", () => {
+  it("wave: eight staggered clock cells, each carrying its step", () => {
     const html = renderToStaticMarkup(
       <ActivityMark mode="wave" tone="cyan" label="working" size="node" />,
     );
-    expect(animatedLayerCount(html)).toBe(1);
-    expect(count(html, WAVE_HEAD)).toBe(1);
-    expect(count(html, PULSE_LAYER)).toBe(0);
-    expect(count(html, WAVE_CELL)).toBe(8);
-    expect(count(html, CLOCK_CELL_LEGACY)).toBe(0);
-    expect(count(html, PULSE_CELL_LEGACY)).toBe(0);
+    expect(count(html, CLOCK_CELL)).toBe(8);
+    expect(count(html, CLOCK_STEP)).toBe(8);
+    expect(count(html, PULSE_CELL)).toBe(0);
     expect(html).toContain('data-activity-mode="wave"');
     expect(html).toContain('data-activity-tone="cyan"');
     expect(html).toContain('data-activity-size="node"');
   });
 
-  it("pulse: exactly one animated layer; no wave head / multi-cell pulse", () => {
+  it("pulse: full 3×3 grid of breathing cells — never the clockwise trail", () => {
     const html = renderToStaticMarkup(
       <ActivityMark
         mode="pulse"
@@ -52,21 +46,17 @@ describe("ActivityMark continuous animation budget", () => {
         size="node"
       />,
     );
-    expect(animatedLayerCount(html)).toBe(1);
-    expect(count(html, PULSE_LAYER)).toBe(1);
-    expect(count(html, WAVE_HEAD)).toBe(0);
-    expect(count(html, WAVE_CELL)).toBe(0);
-    expect(count(html, PULSE_CELL_LEGACY)).toBe(0);
+    expect(count(html, PULSE_CELL)).toBe(9);
+    expect(count(html, CLOCK_CELL)).toBe(0);
     expect(html).toContain('data-activity-mode="pulse"');
   });
 
-  it("static: zero continuous animation classes", () => {
+  it("static: no animated cell classes — single dot", () => {
     const html = renderToStaticMarkup(
       <ActivityMark mode="static" tone="steel" label="idle" size="node" />,
     );
-    expect(animatedLayerCount(html)).toBe(0);
-    expect(count(html, WAVE_HEAD)).toBe(0);
-    expect(count(html, PULSE_LAYER)).toBe(0);
+    expect(count(html, CLOCK_CELL)).toBe(0);
+    expect(count(html, PULSE_CELL)).toBe(0);
     expect(html).toContain('data-activity-mode="static"');
     expect(html).toContain("vellum-activity-static-dot");
   });
@@ -80,12 +70,12 @@ describe("ActivityMark continuous animation budget", () => {
         active={false}
       />,
     );
-    expect(animatedLayerCount(html)).toBe(0);
+    expect(count(html, CLOCK_CELL)).toBe(0);
+    expect(count(html, PULSE_CELL)).toBe(0);
     expect(html).toContain('data-activity-mode="static"');
-    expect(html).not.toContain("vellum-activity-wave-head");
   });
 
-  it("surface motion paused: animated layers unmounted (static semantic mark)", () => {
+  it("surface motion paused: animated cells unmounted (static semantic mark)", () => {
     surfaceMotionLive$.set(false);
     const wave = renderToStaticMarkup(
       <ActivityMark mode="wave" tone="amber" label="needs input" />,
@@ -93,12 +83,12 @@ describe("ActivityMark continuous animation budget", () => {
     const pulse = renderToStaticMarkup(
       <ActivityMark mode="pulse" tone="green" label="complete" />,
     );
-    expect(animatedLayerCount(wave)).toBe(0);
-    expect(animatedLayerCount(pulse)).toBe(0);
+    expect(count(wave, CLOCK_CELL)).toBe(0);
+    expect(count(wave, PULSE_CELL)).toBe(0);
+    expect(count(pulse, CLOCK_CELL)).toBe(0);
+    expect(count(pulse, PULSE_CELL)).toBe(0);
     expect(wave).toContain('data-activity-mode="static"');
     expect(pulse).toContain('data-activity-mode="static"');
-    expect(wave).not.toContain("vellum-activity-wave-head");
-    expect(pulse).not.toContain("vellum-activity-pulse-layer");
   });
 });
 

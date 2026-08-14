@@ -1307,8 +1307,8 @@ html[data-surface-motion="paused"] *::after {
 .react-flow.is-viewport-busy .vellum-blocker::after,
 .react-flow.is-viewport-busy .vellum-node__flag--blocked-live,
 .react-flow.is-viewport-busy .vellum-status-dot-pulse,
-.react-flow.is-viewport-busy .vellum-activity-wave-head,
-.react-flow.is-viewport-busy .vellum-activity-pulse-layer,
+.react-flow.is-viewport-busy .vellum-activity-clock-cell,
+.react-flow.is-viewport-busy .vellum-activity-pulse-cell,
 .react-flow.is-viewport-busy .vellum-edge-ripple .react-flow__edge-path,
 .react-flow.is-viewport-busy path.vellum-edge-ripple,
 .react-flow.is-viewport-busy .vellum-node[data-seat-attention="true"]::after,
@@ -1797,63 +1797,37 @@ html[data-surface-motion="paused"] *::after {
   }
 }
 
-/* --- ActivityMark: one infinite-animated layer per mark (PERF-P1) ---------
-   Static track cells may exist; only .vellum-activity-wave-head /
-   .vellum-activity-pulse-layer own continuous animation (transform/opacity). */
-.vellum-activity-wave-cell {
-  opacity: 0.12;
+/* --- ActivityMark: original staggered cell grammar --------------------------
+   Keyframes touch transform/opacity only. Wave: each perimeter cell runs the
+   clock cycle offset by its step — a bright head with a fading clockwise
+   trail. Pulse: all cells breathe together — never the clockwise trail. */
+.vellum-activity-clock-cell {
+  opacity: 0.1;
+  transform: scale(0.82);
+  animation: vellumActivityClock 720ms linear infinite;
+  animation-delay: calc(var(--activity-clock-step) * 90ms);
 }
-.vellum-activity-wave-head {
-  opacity: 1;
-  transform: translate(0, 0);
-  animation: vellumActivityWaveHead 720ms linear infinite;
-  will-change: transform;
-}
-/* Eight discrete clockwise steps on transform only (--activity-step from JSX). */
-@keyframes vellumActivityWaveHead {
-  0%,
-  11.5% {
-    transform: translate(0, 0);
+@keyframes vellumActivityClock {
+  0% {
+    opacity: 1;
+    transform: scale(1);
   }
-  12.5%,
-  24% {
-    transform: translate(var(--activity-step), 0);
+  14% {
+    opacity: 0.48;
+    transform: scale(0.94);
   }
-  25%,
-  36.5% {
-    transform: translate(calc(var(--activity-step) * 2), 0);
-  }
-  37.5%,
-  49% {
-    transform: translate(calc(var(--activity-step) * 2), var(--activity-step));
-  }
-  50%,
-  61.5% {
-    transform: translate(calc(var(--activity-step) * 2), calc(var(--activity-step) * 2));
-  }
-  62.5%,
-  74% {
-    transform: translate(var(--activity-step), calc(var(--activity-step) * 2));
-  }
-  75%,
-  86.5% {
-    transform: translate(0, calc(var(--activity-step) * 2));
-  }
-  87.5%,
-  99% {
-    transform: translate(0, var(--activity-step));
-  }
+  42%,
   100% {
-    transform: translate(0, 0);
+    opacity: 0.1;
+    transform: scale(0.82);
   }
 }
 
-/* Ready/complete: single soft breath — never a multi-cell clockwise trail. */
-.vellum-activity-pulse-layer {
+/* Ready/complete: soft breath on every cell. */
+.vellum-activity-pulse-cell {
   opacity: 0.28;
   transform: scale(0.9);
   animation: vellumActivityPulse 1.6s ease-in-out infinite;
-  will-change: transform, opacity;
 }
 @keyframes vellumActivityPulse {
   0%,
@@ -1883,8 +1857,8 @@ html[data-surface-motion="paused"] *::after {
 /* Hidden/reduced-motion: freeze continuous status/edge motion entirely.
    ActivityMark also unmounts animated layers when surfaceMotionLive$ is false. */
 html[data-surface-motion="paused"] .vellum-status-dot-pulse,
-html[data-surface-motion="paused"] .vellum-activity-wave-head,
-html[data-surface-motion="paused"] .vellum-activity-pulse-layer,
+html[data-surface-motion="paused"] .vellum-activity-clock-cell,
+html[data-surface-motion="paused"] .vellum-activity-pulse-cell,
 html[data-surface-motion="paused"] .vellum-blocker::after,
 html[data-surface-motion="paused"] .vellum-node__flag--blocked-live,
 html[data-surface-motion="paused"] .vellum-edge-ripple .react-flow__edge-path,
@@ -1900,8 +1874,8 @@ html[data-surface-motion="paused"] .vellum-herdr-working-dot {
   .vellum-blocker::after,
   .vellum-node__flag--blocked-live,
   .vellum-status-dot-pulse,
-  .vellum-activity-wave-head,
-  .vellum-activity-pulse-layer,
+  .vellum-activity-clock-cell,
+  .vellum-activity-pulse-cell,
   .vellum-edge-ripple .react-flow__edge-path,
   path.vellum-edge-ripple,
   .vellum-node[data-seat-attention="true"]::after,
@@ -3242,6 +3216,14 @@ button.actor-ledger__item-row:focus-visible {
   flex-shrink: 0;
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: 10px;
+  color: var(--color-faint);
+  font-variant-numeric: tabular-nums;
+}
+.actor-ledger__mail-folded {
+  margin: 6px 0 0;
+  padding: 0 2px;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 9.5px;
   color: var(--color-faint);
   font-variant-numeric: tabular-nums;
 }

@@ -29,7 +29,7 @@ const FORBIDDEN_IN_KEYFRAMES =
 
 describe("canvas continuous motion keyframes (compositor-safe)", () => {
   it.each([
-    "vellumActivityWaveHead",
+    "vellumActivityClock",
     "vellumActivityPulse",
     "vellumBlockerHalo",
     "vellumSeatAttentionHalo",
@@ -43,11 +43,15 @@ describe("canvas continuous motion keyframes (compositor-safe)", () => {
     expect(body).toMatch(/\b(opacity|transform)\s*:/);
   });
 
-  it("does not reintroduce multi-cell ActivityMark animation classes", () => {
-    expect(css).not.toMatch(/\.vellum-activity-clock-cell\b/);
-    expect(css).not.toMatch(/\.vellum-activity-pulse-cell\b/);
-    expect(css).toMatch(/\.vellum-activity-wave-head\b/);
-    expect(css).toMatch(/\.vellum-activity-pulse-layer\b/);
+  it("ActivityMark cells carry the staggered clock and shared breath", () => {
+    // Wave cells stagger the clock cycle per step (bright head, fading trail).
+    expect(css).toMatch(
+      /\.vellum-activity-clock-cell\s*\{[^}]*animation-delay:\s*calc\(var\(--activity-clock-step\)\s*\*\s*90ms\)/s,
+    );
+    // Pulse cells breathe together on the shared keyframes.
+    expect(css).toMatch(
+      /\.vellum-activity-pulse-cell\s*\{[^}]*animation:\s*vellumActivityPulse/s,
+    );
   });
 
   it("blocker base card does not animate; halo lives on ::after", () => {
@@ -93,6 +97,5 @@ describe("canvas continuous motion keyframes (compositor-safe)", () => {
     expect(css).not.toMatch(/@keyframes\s+vellumPulse\b/);
     expect(css).not.toMatch(/@keyframes\s+vellumDash\b/);
     expect(css).not.toMatch(/@keyframes\s+vellumSeatAttentionPulse\b/);
-    expect(css).not.toMatch(/@keyframes\s+vellumActivityClock\b/);
   });
 });

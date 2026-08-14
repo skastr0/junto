@@ -19,7 +19,7 @@ const SIZE: Record<
   inline: { rows: 3, cols: 3, cellSize: 3, cellGap: 2 },
 };
 
-/** Clockwise perimeter for the static wave track (decoration only — not animated). */
+/** Clockwise perimeter — each cell staggers the clock animation by its step. */
 const CLOCKWISE_CELLS = [
   [1, 1],
   [1, 2],
@@ -77,14 +77,12 @@ export function ActivityMarkFromSpec({
 }
 
 /**
- * Canvas activity indicator — at most one continuously animated layer.
- *
- * wave  → static perimeter track + one transform-only head (clockwise)
- * pulse → one soft breath layer (ready/complete — never clockwise)
+ * Canvas activity indicator.
+ * wave  → deterministic clockwise perimeter trail (work / block / attention)
+ * pulse → full grid soft breath (ready/complete — never clockwise)
  * static → single filled dot of the same tone
- *
- * No visible text — label is aria-only. Infinite animation is owned by a
- * single descendant (never a multi-cell grid of independent keyframes).
+ * No visible text — label is aria-only. Keyframes touch transform/opacity
+ * only; surface-motion gating unmounts animated cells entirely.
  */
 export function ActivityMark({
   mode,
@@ -114,7 +112,6 @@ export function ActivityMark({
   // Footprint matches the historical 3×3 grid so mode flips don't shift chrome.
   const box = dims.cols * dims.cellSize + (dims.cols - 1) * dims.cellGap;
   const boxH = dims.rows * dims.cellSize + (dims.rows - 1) * dims.cellGap;
-  const step = dims.cellSize + dims.cellGap;
 
   const shellStyle: CSSProperties = {
     display: "inline-flex",
@@ -171,10 +168,8 @@ export function ActivityMark({
         data-activity-size={size}
         style={shellStyle}
       >
-        {/* Exactly one infinite-animated descendant — the breath lives on this
-            wrapper; the 3×3 cells inside are static paint, not keyframes. */}
         <span
-          className="vellum-activity-pulse-layer"
+          aria-hidden
           style={{
             display: "inline-grid",
             gridTemplateColumns: `repeat(3, ${String(dims.cellSize)}px)`,
@@ -185,6 +180,7 @@ export function ActivityMark({
           {PULSE_CELLS.map(([row, column]) => (
             <span
               key={`${String(row)}:${String(column)}`}
+              className="vellum-activity-pulse-cell"
               style={{
                 gridRow: row,
                 gridColumn: column,
@@ -211,9 +207,8 @@ export function ActivityMark({
       data-activity-size={size}
       style={shellStyle}
     >
-      {/* Static track — no infinite animation on these cells. */}
+      {/* Staggered clockwise trail — bright head, fading tail (original grammar). */}
       <span
-        className="vellum-activity-wave-track"
         aria-hidden
         style={{
           display: "inline-grid",
@@ -224,38 +219,24 @@ export function ActivityMark({
           inset: 0,
         }}
       >
-        {CLOCKWISE_CELLS.map(([row, column]) => (
+        {CLOCKWISE_CELLS.map(([row, column], clockStep) => (
           <span
             key={`${String(row)}:${String(column)}`}
-            className="vellum-activity-wave-cell"
-            style={{
-              gridRow: row,
-              gridColumn: column,
-              width: dims.cellSize,
-              height: dims.cellSize,
-              borderRadius: 1,
-              backgroundColor: hex,
-            }}
+            className="vellum-activity-clock-cell"
+            style={
+              {
+                gridRow: row,
+                gridColumn: column,
+                width: dims.cellSize,
+                height: dims.cellSize,
+                borderRadius: 1,
+                backgroundColor: hex,
+                "--activity-clock-step": clockStep,
+              } as CSSProperties
+            }
           />
         ))}
       </span>
-      {/* Exactly one infinite-animated descendant — transform only. */}
-      <span
-        className="vellum-activity-wave-head"
-        aria-hidden
-        style={
-          {
-            position: "absolute",
-            left: 0,
-            top: 0,
-            width: dims.cellSize,
-            height: dims.cellSize,
-            borderRadius: 1,
-            backgroundColor: hex,
-            "--activity-step": `${String(step)}px`,
-          } as CSSProperties
-        }
-      />
     </span>
   );
 }
