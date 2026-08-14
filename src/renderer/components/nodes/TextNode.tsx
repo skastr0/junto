@@ -17,11 +17,8 @@ import { editText } from "../../lib/mutations";
 import { NoteMarkdown } from "../../lib/note-markdown";
 import { isLabelNode } from "../../lib/presentation";
 import { state$ } from "../../lib/state";
-import {
-  terminalActivity,
-  timerActivity,
-  watcherActivity,
-} from "../../lib/activity";
+import { timerActivity, watcherActivity } from "../../lib/activity";
+import { cardMark } from "../../lib/seat-projections";
 import { accentColor, HUE, INK, DIM } from "../../lib/theme";
 import { kernel$ } from "../../lib/kernel-view";
 import type { WatcherRuntimeState } from "../../lib/kernel-view";
@@ -282,13 +279,16 @@ function EntityCard({
   const exitReason = session?.exitReason;
   const exitMessage = session?.exitMessage;
   const activity = managed
-    ? terminalActivity({
+    ? cardMark({
+        nodeId: node.id,
         seatState: seatEvent?.state,
         needsLook: needsLook === true,
         seatReason: seatEvent?.reason,
         running: session?.status === "running",
         starting: session?.status === "starting",
         graphBlocked,
+        flags: node.ether?.flags,
+        managedSeat: true,
         exitReason,
         exitMessage,
         processName: session?.processName ?? session?.title,

@@ -15,7 +15,9 @@
  * SFX is a separate opt-in product surface; this strip must work with audio off.
  */
 
+import type { AgentSeatState } from "@shared/agent-seat-state";
 import type { MemberSeverity, RegionRollup } from "@shared/region-rollup";
+import { notifyItem } from "./seat-projections";
 
 export type OperatorAttentionKind = "blocked" | "attention";
 
@@ -104,13 +106,18 @@ export const freestandingFromTerminalStatus = (
   for (const node of nodes) {
     if (alreadyCovered.has(node.id)) continue;
     const harness = terminalStatusByNodeId.get(node.id)?.harness;
-    if (harness !== "attention" && harness !== "blocked") continue;
+    const kind = notifyItem({
+      nodeId: node.id,
+      seatState: harness === "attention" ? "attention" : undefined,
+      graphBlocked: harness === "blocked",
+    });
+    if (!kind) continue;
     out.push({
       id: `op-attn:${node.id}`,
       nodeId: node.id,
-      kind: harness,
+      kind,
       label: node.label.trim() || node.id,
-      reasons: [`activity:${harness}`],
+      reasons: [`activity:${kind}`],
     });
   }
   return out;
@@ -128,8 +135,8 @@ export type CanvasAttentionNode = {
  *
  * Region rollups only enumerate group members — operators still need pills for
  * graph-blocked / needs-input seats that sit outside every region (or when live
- * IPC rollups lag). Graph blocked > harness blocked > harness/flag/live
- * attention.
+ * IPC rollups lag). Decision is `notifyItem` on the same seat+graph+flag facts
+ * as the card and digit — working is not notify.
  */
 export const freestandingFromCanvasAttention = (
   nodes: ReadonlyArray<CanvasAttentionNode>,
@@ -139,6 +146,10 @@ export const freestandingFromCanvasAttention = (
     readonly blockedReasonsByNodeId?: ReadonlyMap<
       string,
       ReadonlyArray<string>
+    >;
+    readonly seatStateByNodeId?: ReadonlyMap<
+      string,
+      AgentSeatState | undefined
     >;
     readonly terminalStatusByNodeId?: ReadonlyMap<
       string,
@@ -153,24 +164,32 @@ export const freestandingFromCanvasAttention = (
   },
 ): ReadonlyArray<OperatorAttentionItem> => {
   const covered = input.alreadyCovered ?? new Set<string>();
-  const terminal = input.terminalStatusByNodeId;
   const liveAttention = input.attentionReasonsByNodeId;
   const out: OperatorAttentionItem[] = [];
 
   for (const node of nodes) {
     if (covered.has(node.id)) continue;
     const label = node.label.trim() || node.id;
-    const harness = terminal?.get(node.id)?.harness;
+    const harness = input.terminalStatusByNodeId?.get(node.id)?.harness;
+    const seatState =
+      input.seatStateByNodeId?.get(node.id) ??
+      (harness === "attention" || harness === "working" || harness === "idle"
+        ? harness
+        : undefined);
     const graphBlocked = input.blockedNodeIds.has(node.id);
-    const harnessBlocked = harness === "blocked";
-    const harnessAttention = harness === "attention";
-    const flagAttention = node.flags?.includes("attention") === true;
     const liveReasons = liveAttention?.get(node.id) ?? [];
+    const kind = notifyItem({
+      nodeId: node.id,
+      seatState,
+      graphBlocked,
+      flags: node.flags,
+      attentionReasons: liveReasons,
+    });
+    if (!kind) continue;
 
-    if (graphBlocked || harnessBlocked) {
+    if (kind === "blocked") {
       const reasons =
-        input.blockedReasonsByNodeId?.get(node.id) ??
-        (harnessBlocked ? ["activity:blocked"] : ["graph:blocked"]);
+        input.blockedReasonsByNodeId?.get(node.id) ?? ["graph:blocked"];
       out.push({
         id: `op-attn:${node.id}`,
         nodeId: node.id,
@@ -181,19 +200,19 @@ export const freestandingFromCanvasAttention = (
       continue;
     }
 
-    if (harnessAttention || flagAttention || liveReasons.length > 0) {
-      out.push({
-        id: `op-attn:${node.id}`,
-        nodeId: node.id,
-        kind: "attention",
-        label,
-        reasons: [
-          ...(harnessAttention ? (["activity:attention"] as const) : []),
-          ...(flagAttention ? (["flag:attention"] as const) : []),
-          ...liveReasons,
-        ],
-      });
-    }
+    out.push({
+      id: `op-attn:${node.id}`,
+      nodeId: node.id,
+      kind: "attention",
+      label,
+      reasons: [
+        ...(seatState === "attention" ? (["activity:attention"] as const) : []),
+        ...(node.flags?.includes("attention") === true
+          ? (["flag:attention"] as const)
+          : []),
+        ...liveReasons,
+      ],
+    });
   }
 
   return out;

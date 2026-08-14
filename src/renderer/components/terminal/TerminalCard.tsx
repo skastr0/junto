@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import { SquareTerminal } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
+import { isHarnessId } from "@shared/managed-terminal-templates";
 import type { TerminalSessionSummary } from "@shared/terminal";
 import { resolveTerminalBinding } from "@shared/terminal";
 import {
@@ -9,7 +10,8 @@ import {
   presentationForSeat,
   subscribeAgentSeatState,
 } from "../../lib/agent-seat-state";
-import { isActiveProcessLabel, terminalActivity } from "../../lib/activity";
+import { isActiveProcessLabel } from "../../lib/activity";
+import { cardMark } from "../../lib/seat-projections";
 import { terminal$ } from "../../lib/terminal-state";
 import { onTerminalEvent } from "../../lib/terminal-events";
 import { getVellumCommandApi } from "../../lib/vellum-api";
@@ -122,13 +124,21 @@ export function TerminalCard({
   const activeProcess =
     session?.status === "starting" ||
     (session?.status === "running" && isActiveProcessLabel(processName));
-  const activity = terminalActivity({
+  const harness =
+    typeof node.ether?.terminal?.harness === "string"
+      ? node.ether.terminal.harness
+      : undefined;
+  const managedSeat = harness !== undefined && isHarnessId(harness);
+  const activity = cardMark({
+    nodeId: node.id,
     seatState,
     needsLook: needsLook === true,
     seatReason: seatEvent?.reason,
     running: session?.status === "running",
     starting: session?.status === "starting",
     graphBlocked,
+    flags: node.ether?.flags,
+    managedSeat,
     exitReason,
     exitMessage,
     processName,

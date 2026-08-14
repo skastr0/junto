@@ -148,6 +148,68 @@ describe("terminalActivity", () => {
     });
   });
 
+  it("managed missing/unknown seat is seated/unknown, not a grok/claude process wave", () => {
+    expect(
+      terminalActivity({
+        seatState: undefined,
+        running: true,
+        processName: "grok",
+        managedSeat: true,
+      }),
+    ).toMatchObject({
+      mode: "static",
+      tone: "steel",
+      label: "seated",
+    });
+    expect(
+      terminalActivity({
+        seatState: "unknown",
+        running: true,
+        processName: "claude",
+        managedSeat: true,
+      }),
+    ).toMatchObject({
+      mode: "static",
+      tone: "steel",
+      label: "seated",
+    });
+    expect(
+      terminalActivity({
+        seatState: undefined,
+        running: true,
+        processName: "Claude Code",
+        managedSeat: true,
+      }),
+    ).toMatchObject({
+      mode: "static",
+      tone: "steel",
+      label: "seated",
+    });
+    expect(
+      terminalActivity({
+        seatState: "unknown",
+        managedSeat: true,
+      }),
+    ).toMatchObject({
+      mode: "static",
+      tone: "steel",
+      label: "unknown",
+    });
+    // Unmanaged npm process wave stays.
+    expect(
+      terminalActivity({
+        seatState: undefined,
+        running: true,
+        processName: "npm",
+        managedSeat: false,
+      }),
+    ).toMatchObject({
+      mode: "wave",
+      tone: "green",
+      label: "process — npm",
+    });
+  });
+
   it("idle + needsLook is ready/complete green pulse, not amber clockwise", () => {
     expect(
       terminalActivity({ seatState: "idle", needsLook: true }),

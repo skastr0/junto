@@ -27,14 +27,13 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
+import type { AgentSeatState } from "@shared/agent-seat-state";
 import type { CanvasNode, EtherFlag } from "@shared/canvas";
 import { HERDR_ENABLED } from "@shared/features";
 import { executionGraphContextFromActorRefs, groupMembers } from "@shared/graph";
 import { isBlockableNode } from "@shared/execution-graph";
 import type { MemberSeverity, RegionRollup } from "@shared/region-rollup";
 import { formatNodeRef } from "@shared/node-ref";
-import type { WorkSurfaceActivity } from "@shared/terminal";
 import {
   clearSelection,
   selectNode,
@@ -113,7 +112,6 @@ import { RollCall } from "./RollCall";
 import {
   agentSeat$,
   seatEventForNode,
-  terminalStatusByNodeIdFromSeats,
 } from "../../lib/agent-seat-state";
 import {
   collectOperatorAttention,
@@ -121,6 +119,7 @@ import {
   OPERATOR_ATTENTION_HEADLINE,
   OPERATOR_ATTENTION_STRIP_MAX,
 } from "../../lib/operator-attention";
+import { digitLease } from "../../lib/seat-projections";
 import "./RtsBottomBar.css";
 
 const COLOR_OPTIONS: ReadonlyArray<{ readonly value: string; readonly label: string; readonly hue: string }> = [
@@ -265,27 +264,21 @@ const leaseEligibleActorIds = (
 };
 
 /**
- * Actors that keep a hard lease while busy. Seat working/attention, or herdr
- * working/blocked, stick until idle — so idle soft-holds demote and newly
- * active actors without a lease can take those digits.
+ * Actors that keep a hard lease while busy. Same seat facts as the card and
+ * notify: only working/attention. Idle demotes to evicted (soft-hold).
  */
-const stickyWorkingNodeIds = (
-  nodes: ReadonlyArray<CanvasNode>,
-  herdrMetaByNodeId: Record<
-    string,
-    { meta?: { agentStatus?: string } } | undefined
-  > = {},
-): string[] => {
+const stickyWorkingNodeIds = (nodes: ReadonlyArray<CanvasNode>): string[] => {
   const out: string[] = [];
   for (const node of nodes) {
     if (!isHotbarLeaseActor(node)) continue;
     const seat = seatEventForNode(node);
-    if (seat?.state === "working" || seat?.state === "attention") {
-      out.push(node.id);
-      continue;
-    }
-    const herdr = herdrMetaByNodeId[node.id]?.meta?.agentStatus;
-    if (herdr === "working" || herdr === "blocked") {
+    if (
+      digitLease({
+        nodeId: node.id,
+        seatState: seat?.state,
+        flags: node.ether?.flags,
+      })
+    ) {
       out.push(node.id);
     }
   }
@@ -307,7 +300,7 @@ const recomputeHotbar = (): void => {
     mru = touchActiveMru(mru, selected);
   }
   state$.hotbarActiveMru.set([...mru]);
-  const sticky = stickyWorkingNodeIds(doc.nodes, herdr$.metaByNodeId.peek());
+  const sticky = stickyWorkingNodeIds(doc.nodes);
   const next = purgeNonEligibleSoftSlots(
     resolveHotbarSlots(state$.hotbarSlots.peek(), live, mru, sticky),
     actors,
@@ -1098,7 +1091,7 @@ function HotbarStrip({
   const hotbarSlots = use$(state$.hotbarSlots);
   const doc = use$(state$.doc);
   const canvasName = use$(state$.canvasName);
-  const seatByBinding = use$(agentSeat$.byBindingId);
+  const seatRev = use$(agentSeat$.rev);
   const herdrMetaByNodeId = use$(herdr$.metaByNodeId);
   const dragFrom = useRef<number | null>(null);
 
@@ -1110,7 +1103,7 @@ function HotbarStrip({
   // Idle sticky seats demote to soft-hold (evicted), not vanish.
   useEffect(() => {
     recomputeHotbar();
-  }, [doc, selectedNodeId, seatByBinding, herdrMetaByNodeId]);
+  }, [doc, selectedNodeId, seatRev]);
 
   const slots = useMemo(() => {
     const nodeById = new Map(doc.nodes.map((n) => [n.id, n] as const));
@@ -1162,7 +1155,7 @@ function HotbarStrip({
         isRegion,
       };
     });
-  }, [hotbarSlots, doc, byId, severityByNodeId, seatByBinding, herdrMetaByNodeId]);
+  }, [hotbarSlots, doc, byId, severityByNodeId, seatRev, herdrMetaByNodeId]);
 
   return (
     <div className="rts-region-strip" role="region" aria-label="Hotkey slots 1 to 9">
@@ -1268,31 +1261,20 @@ function OperatorAttentionPills({
   const actorRefs = use$(state$.actorRefs);
   const execution = use$(kernel$.execution);
   const executionRev = use$(kernel$.executionRev);
-  const seatByBinding = use$(agentSeat$.byBindingId) as Record<
-    string,
-    AgentSeatStateEvent | undefined
-  >;
-  const needsLookByBinding = use$(agentSeat$.needsLookByBindingId) as Record<
-    string,
-    boolean | undefined
-  >;
+  const seatRev = use$(agentSeat$.rev);
   const chatByAgent = use$(chatCoarse$) as Record<
     string,
     { readonly pendingPermissionId?: string } | undefined
-  >;
-  const herdrMetaByNodeId = use$(herdr$.metaByNodeId) as Record<
-    string,
-    { readonly meta?: { readonly agentStatus?: string } } | undefined
   >;
 
   const items = useMemo(() => {
     const fromRollups = collectOperatorAttention(rollups);
     const covered = new Set(fromRollups.map((i) => i.nodeId));
-    const terminalStatus = terminalStatusByNodeIdFromSeats(
-      doc.nodes,
-      seatByBinding ?? {},
-      needsLookByBinding ?? {},
-    );
+    const seatStateByNodeId = new Map<string, AgentSeatState | undefined>();
+    for (const node of doc.nodes) {
+      const seat = seatEventForNode(node);
+      if (seat) seatStateByNodeId.set(node.id, seat.state);
+    }
     const liveAttentionReasonsByNodeId = new Map<string, ReadonlyArray<string>>();
     const addAttentionReason = (nodeId: string, reason: string): void => {
       const reasons = liveAttentionReasonsByNodeId.get(nodeId) ?? [];
@@ -1323,17 +1305,6 @@ function OperatorAttentionPills({
       if (agentKey && chatByAgent?.[agentKey]?.pendingPermissionId) {
         addAttentionReason(node.id, "permission:pending");
       }
-
-      const herdrStatus = herdrMetaByNodeId?.[node.id]?.meta?.agentStatus;
-      if (herdrStatus === "blocked" || herdrStatus === "attention") {
-        // Herdr is a display surface, but its live status still needs the
-        // same permanent operator affordance as the card chrome.
-        terminalStatus.set(node.id, {
-          session: "running",
-          harness: herdrStatus,
-          source: "herdr",
-        } satisfies WorkSurfaceActivity);
-      }
     }
     const context = executionGraphContextFromActorRefs(canvasName, actorRefs);
     const graph = executionGraphForImpact(doc, execution, context);
@@ -1359,7 +1330,7 @@ function OperatorAttentionPills({
       {
         blockedNodeIds: graph.blocked,
         blockedReasonsByNodeId,
-        terminalStatusByNodeId: terminalStatus,
+        seatStateByNodeId,
         attentionReasonsByNodeId: liveAttentionReasonsByNodeId,
         alreadyCovered: covered,
       },
@@ -1369,10 +1340,8 @@ function OperatorAttentionPills({
   }, [
     rollups,
     doc,
-    seatByBinding,
-    needsLookByBinding,
+    seatRev,
     chatByAgent,
-    herdrMetaByNodeId,
     canvasName,
     actorRefs,
     execution,

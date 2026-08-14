@@ -193,6 +193,35 @@ describe("freestandingFromCanvasAttention", () => {
     );
   });
 
+  it("does not notify working seats", () => {
+    const items = freestandingFromCanvasAttention(
+      [{ id: "busy", label: "Busy" }],
+      {
+        blockedNodeIds: new Set(),
+        seatStateByNodeId: new Map([["busy", "working"]]),
+        terminalStatusByNodeId: new Map([["busy", { harness: "working" }]]),
+      },
+    );
+    expect(items).toEqual([]);
+  });
+
+  it("notifies seat attention from the same facts as the card", () => {
+    const items = freestandingFromCanvasAttention(
+      [{ id: "needs-me", label: "Needs me" }],
+      {
+        blockedNodeIds: new Set(),
+        seatStateByNodeId: new Map([["needs-me", "attention"]]),
+      },
+    );
+    expect(items).toEqual([
+      expect.objectContaining({
+        nodeId: "needs-me",
+        kind: "attention",
+        reasons: ["activity:attention"],
+      }),
+    ]);
+  });
+
   it("prefers blocked over attention for the same node", () => {
     const items = freestandingFromCanvasAttention(
       [{ id: "both", label: "Both", flags: ["attention"] }],
