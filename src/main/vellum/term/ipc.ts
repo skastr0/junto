@@ -8,6 +8,7 @@ import type { ControlLease, LocalHostEvent } from "./local-host";
 import { TerminalStreamCoalescer, terminalBindingKey } from "./stream-coalescer";
 import type { TermPlane } from "./plane";
 import { injectionSupervisor } from "./injection-supervisor";
+import { rememberRemoteSeatState } from "./remote-seat-state";
 
 type LeaseOwner = {
   readonly lease: ControlLease;
@@ -132,6 +133,7 @@ export const registerTerminalIpc = (
   });
   router.on("event", (payload: LocalHostEvent) => {
     if (payload.type === "seat-state") {
+      rememberRemoteSeatState(payload.event);
       gate?.broadcast(IPC_CHANNELS.agentSeatStateChanged, payload.event);
       return;
     }

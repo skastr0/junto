@@ -72,6 +72,7 @@ import {
 } from "./term/drive/claude-startup";
 import { isManagedTerminalReady } from "./term/drive/readiness";
 import { seatStateRuntime } from "./term/agent-state";
+import { mergeSeatStateSnapshot } from "./term/remote-seat-state";
 import { injectionSupervisor } from "./term/injection-supervisor";
 import {
   peekFirstTypedMessage,
@@ -455,9 +456,10 @@ export const registerVellumIpc = (): void => {
   );
 
   // Managed-seat activity lives in main. A renderer-only restart must hydrate
-  // the current projection instead of waiting for a future state transition.
+  // local runtime facts plus last hop-delivered Remote events. Spawn-host
+  // wins if the same binding appears in both (they should not).
   privilegedIpc.handle(IPC_CHANNELS.agentSeatStateSnapshot, () =>
-    seatStateRuntime.currentEvents(),
+    mergeSeatStateSnapshot(seatStateRuntime.currentEvents()),
   );
 
   // Factory pause plane — canvas-level switch. start is idempotent hydration,
