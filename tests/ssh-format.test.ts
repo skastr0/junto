@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   SshExitError,
+  SshProcessError,
   SshSetupError,
   SshTimeoutError,
 } from "../src/main/vellum/ssh/domain";
@@ -56,5 +57,14 @@ describe("SSH failure formatting", () => {
         }),
       ),
     ).toBe("SSH control directory could not be secured");
+    expect(
+      formatSshFailure(
+        new SshProcessError({
+          endpoint: "remote-a",
+          operation: "transfer",
+          message: "SSH transfer closed before it finished",
+        }),
+      ),
+    ).toBe("SSH transfer closed before it finished");
   });
 });

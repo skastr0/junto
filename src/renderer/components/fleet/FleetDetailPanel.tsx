@@ -89,6 +89,13 @@ function reachabilityLine(probe?: FleetProbeState): {
           color: HUE.amber,
         };
       }
+      if (probe.observation?.station === undefined) {
+        return {
+          text: "On the network — Vellum Command is not answering",
+          detail: probe.detail,
+          color: HUE.amber,
+        };
+      }
       return {
         text: probe.latencyMs !== undefined
           ? `On the network — ${probe.latencyMs} ms`
@@ -405,10 +412,13 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
     host.id.startsWith("box-") ||
     (probe?.linuxCapabilities !== undefined &&
       probe.linuxCapabilities.facts.platform === "linux");
-  const linuxManagedOff = caps?.release.linuxRemoteDeploy === false;
+  const linuxManagedOff =
+    caps === null || caps.release.linuxRemoteDeploy === false;
   const linuxReleaseBlocked = knownLinuxHost && linuxManagedOff;
+  // Machine gate: Linux Remotes stay enrolled/read-only while the flag is off.
+  const machineMutateEnabled = !linuxReleaseBlocked;
   const deployEnabled =
-    caps?.effective.deployRemote === true && !linuxReleaseBlocked;
+    caps?.effective.deployRemote === true && machineMutateEnabled;
   const deployDetail = linuxReleaseBlocked
     ? LINUX_REMOTE_DEPLOY_DISABLED_DETAIL
     : caps?.detail.deployRemote;
@@ -448,6 +458,7 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
     const api = getVellumCommandApi();
     if (!api) return;
     if (kind === "deploy" && !deployEnabled) return;
+    if (kind === "configure" && !machineMutateEnabled) return;
     if (kind === "deploy" && deployJob?.status === "running") return;
     setActionBusy(kind);
     const jobBridge =
@@ -524,8 +535,9 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
           </p>
         ) : !deployJob ? (
           <p className="fleet-detail__note">
-            Package install, sealed adopt, and readiness run in the main
-            process. Progress and step log appear here while Deploy runs.
+            On the network is SSH. A finished Deploy is Installed. Folders
+            and terminals answer after a real connect. The step log records
+            each copy, restart, and wait.
           </p>
         ) : null}
       </section>
@@ -757,7 +769,12 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
         <div className="fleet-detail__actions">
           <Button
             size="xs"
-            disabled={actionBusy !== "" || deployInFlight}
+            disabled={actionBusy !== "" || deployInFlight || !machineMutateEnabled}
+            title={
+              linuxReleaseBlocked
+                ? LINUX_REMOTE_DEPLOY_DISABLED_DETAIL
+                : undefined
+            }
             {...activateOnPointerUp(() => void runAction("configure"))}
           >
             {actionBusy === "configure" ? "configuring…" : "Configure Remote"}

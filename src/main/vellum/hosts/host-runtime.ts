@@ -2,11 +2,13 @@
  * HostRuntime — one Effect service for Command Center and Remote.
  *
  * Placement and platform select adapters. Deploy is reconcile:
- * observe → decideHostRuntimeGap → platform.apply. The coordinator
- * does not call deployConfiguredRemote.
+ * observe → decideHostRuntimeGap → admit → platform.apply. The
+ * coordinator does not call deployConfiguredRemote.
  */
 import { Context, Effect, Layer } from "effect";
+import { releaseAllowsTargetPlatform } from "@shared/deploy-capabilities";
 import {
+  classifyHostRuntimeBlocker,
   decideHostRuntimeGap,
   hostRuntimeGapCopy,
   type HostRuntimeGap,
@@ -15,8 +17,13 @@ import {
   type HostRuntimePlatform,
 } from "@shared/host-runtime";
 import type { InstallationId } from "@shared/installation-id";
-import type { RemoteHost } from "@shared/remote-hosts";
+import {
+  RELEASE_CAPABILITIES,
+  type ReleaseCapabilities,
+} from "@shared/release-capabilities";
+import { RemoteHostsError, type RemoteHost } from "@shared/remote-hosts";
 import { parseHostSshRoute } from "../ssh/domain";
+import { formatSshFailure } from "../ssh/format";
 import { homeDirectoryLookup, oneShot } from "../ssh/program";
 import { remoteUname } from "../ssh/read-commands";
 import { SshTransport, type SshTransportShape } from "../ssh/service";
@@ -28,8 +35,8 @@ import { linuxHostRuntimePlatform } from "./host-runtime-linux";
 import type { HostRuntimeApplyContext } from "./host-runtime-platform";
 import type { LinuxReleaseCacheSource } from "./linux-release-feed";
 import { decodeRemoteHomeDirectoryOutput } from "./remote-home";
+import { commandCenterMayPrepareRemote } from "./remote-platform";
 import { HostsService } from "./service";
-import type { RemoteHostsError } from "@shared/remote-hosts";
 
 type Ssh = SshTransportShape;
 
@@ -37,9 +44,6 @@ export type HostRuntimeReconcileInput = {
   readonly intent: HostRuntimeIntent;
   readonly configure: ConfigureRemoteOptions;
   readonly artifactSource?: LinuxReleaseCacheSource;
-  readonly onAdmitted?: (
-    host: RemoteHost,
-  ) => Effect.Effect<void, RemoteHostsError>;
   readonly onCompleted?: (
     host: RemoteHost,
     result: ConfiguredRemoteDeployResult,
@@ -86,6 +90,61 @@ const refused = (
   configuration: { ok: false, detail },
 });
 
+export type HostRuntimeApplyAdmission =
+  | { readonly ok: true; readonly platform: "darwin" | "linux" }
+  | {
+      readonly ok: false;
+      readonly detail: string;
+      readonly code:
+        | "io"
+        | "validation"
+        | "not_found"
+        | "conflict"
+        | "auth_required";
+    };
+
+/**
+ * After uname: pairing (Darwin Remote needs a local .app) then the release
+ * freeze. linuxRemoteDeploy stays a real apply gate, not a label.
+ */
+export const admitHostRuntimeApply = (input: {
+  readonly observation: HostRuntimeObservation;
+  readonly hostLabel: string;
+  readonly commandCenterPlatform: NodeJS.Platform;
+  readonly release?: Pick<
+    ReleaseCapabilities,
+    "linuxRemoteDeploy" | "darwinRemoteDeploy"
+  >;
+}): HostRuntimeApplyAdmission => {
+  const release = input.release ?? RELEASE_CAPABILITIES;
+  const platform = input.observation.platform;
+  if (platform === "unknown") {
+    return {
+      ok: false,
+      detail: hostRuntimeGapCopy("needOperator", input.observation.blocker),
+      code: "validation",
+    };
+  }
+  if (
+    !commandCenterMayPrepareRemote(input.commandCenterPlatform, platform)
+  ) {
+    return {
+      ok: false,
+      detail: `${input.hostLabel}: a Darwin Remote needs a macOS Command Center (local .app source)`,
+      code: "validation",
+    };
+  }
+  const gate = releaseAllowsTargetPlatform(release, platform);
+  if (!gate.ok) {
+    return {
+      ok: false,
+      detail: `${input.hostLabel}: ${gate.detail}`,
+      code: "validation",
+    };
+  }
+  return { ok: true, platform };
+};
+
 export class HostRuntime extends Context.Service<
   HostRuntime,
   {
@@ -120,7 +179,13 @@ export const observeRemoteHost = (
     }
     const parsed = yield* parseHostSshRoute(host).pipe(Effect.result);
     if (parsed._tag === "Failure") {
-      return { ...base, network: "down" };
+      return {
+        ...base,
+        blocker: {
+          kind: "unsupported",
+          detail: parsed.failure.message,
+        },
+      };
     }
     const unameCmd = yield* remoteUname().pipe(Effect.result);
     if (unameCmd._tag === "Failure") {
@@ -130,7 +195,14 @@ export const observeRemoteHost = (
       .run(oneShot(parsed.success, unameCmd.success, { budget: "short" }))
       .pipe(Effect.result);
     if (uname._tag === "Failure") {
-      return { ...base, network: "down" };
+      const blocker = classifyHostRuntimeBlocker(
+        formatSshFailure(uname.failure),
+      );
+      return {
+        ...base,
+        network: "unknown",
+        ...(blocker === undefined ? {} : { blocker }),
+      };
     }
     const platform = platformFromUname(uname.success.stdout);
     if (platform === "unknown") {
@@ -181,6 +253,31 @@ export const observeRemoteHost = (
         : { priorInstallationId: input.priorInstallationId }),
     };
   });
+
+/** Check-intent: Ready only after a real connect on a configured station. */
+export const checkHostRuntime = (
+  observation: HostRuntimeObservation,
+): ConfiguredRemoteDeployResult => {
+  const gap = decideHostRuntimeGap(observation, "check");
+  const detail = hostRuntimeGapCopy(gap, observation.blocker);
+  return {
+    ok: gap === "ready",
+    detail,
+    message: detail,
+    stages: [detail],
+    disposition: gap === "ready" ? ("ready" as const) : ("not-started" as const),
+    outcome: gap === "ready" ? ("ready" as const) : ("failed" as const),
+    packageState:
+      observation.package === "present"
+        ? ("present" as const)
+        : ("unknown" as const),
+    role:
+      observation.mode === "remote"
+        ? ("remote" as const)
+        : ("unknown" as const),
+    configuration: { ok: gap === "ready", detail },
+  };
+};
 
 export const HostRuntimeLive = Layer.effect(
   HostRuntime,
@@ -245,27 +342,10 @@ export const HostRuntimeLive = Layer.effect(
         }
 
         const observation = yield* observe(hostId);
-        const gap = decideHostRuntimeGap(observation, input.intent);
         if (input.intent === "check") {
-          const detail = hostRuntimeGapCopy(gap, observation.blocker);
-          return {
-            ok: gap === "ready",
-            detail,
-            message: detail,
-            stages: [detail],
-            disposition: gap === "ready" ? ("ready" as const) : ("not-started" as const),
-            outcome: gap === "ready" ? ("ready" as const) : ("failed" as const),
-            packageState:
-              observation.package === "present"
-                ? ("present" as const)
-                : ("unknown" as const),
-            role:
-              observation.mode === "remote"
-                ? ("remote" as const)
-                : ("unknown" as const),
-            configuration: { ok: gap === "ready", detail },
-          } satisfies ConfiguredRemoteDeployResult;
+          return checkHostRuntime(observation);
         }
+        const gap = decideHostRuntimeGap(observation, input.intent);
         if (gap === "needOperator") {
           return refused(
             host.success,
@@ -273,21 +353,23 @@ export const HostRuntimeLive = Layer.effect(
             observation.blocker?.kind === "auth" ? "auth_required" : "conflict",
           );
         }
-        if (gap === "stillTrying" && observation.network === "down") {
+        if (gap === "stillTrying") {
           return refused(
             host.success,
-            `Can't reach ${host.success.label} on the network.`,
+            observation.network === "down"
+              ? `Can't reach ${host.success.label} on the network.`
+              : hostRuntimeGapCopy(gap, observation.blocker),
             "io",
           );
         }
 
-        const platform = observation.platform;
-        if (platform === "unknown") {
-          return refused(
-            host.success,
-            hostRuntimeGapCopy("needOperator", observation.blocker),
-            "validation",
-          );
+        const admission = admitHostRuntimeApply({
+          observation,
+          hostLabel: host.success.label,
+          commandCenterPlatform: process.platform,
+        });
+        if (!admission.ok) {
+          return refused(host.success, admission.detail, admission.code);
         }
 
         const context: HostRuntimeApplyContext = {
@@ -304,14 +386,19 @@ export const HostRuntimeLive = Layer.effect(
           ...(input.artifactSource === undefined
             ? {}
             : { artifactSource: input.artifactSource }),
-          ...(input.onAdmitted === undefined
-            ? {}
-            : { onAdmitted: input.onAdmitted }),
-          ...(input.onCompleted === undefined
-            ? {}
-            : { onCompleted: input.onCompleted }),
         };
-        return yield* adapterFor(platform).apply(context);
+        const applied = yield* adapterFor(admission.platform).apply(context);
+        if (input.onCompleted === undefined) return applied;
+        return yield* input.onCompleted(host.success, applied).pipe(
+          Effect.map(() => ({ ...applied, statusRecorded: true })),
+          Effect.catch((error: RemoteHostsError) =>
+            Effect.succeed({
+              ...applied,
+              statusRecorded: false,
+              detail: `${applied.detail} - local deployment receipt could not be persisted: ${error.message}`,
+            }),
+          ),
+        );
       });
 
     return HostRuntime.of({ observe, reconcile });

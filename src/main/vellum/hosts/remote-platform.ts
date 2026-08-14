@@ -10,6 +10,7 @@ import type {
   DeployRemoteResult,
   RemoteDeploymentPreparation,
   RemotePlatformDescriptor,
+  RemoteTargetPlatform,
   UnsupportedRemoteTarget,
 } from "./remote-deployment";
 
@@ -73,6 +74,16 @@ export const decodeRemotePlatformEvidence = (
   };
 };
 
+/**
+ * Linux Command Center may prepare a Linux Remote after uname.
+ * Darwin Remote still needs a macOS Command Center (local .app).
+ */
+export const commandCenterMayPrepareRemote = (
+  commandCenterPlatform: NodeJS.Platform,
+  remotePlatform: RemoteTargetPlatform,
+): boolean =>
+  remotePlatform === "linux" || commandCenterPlatform === "darwin";
+
 export const remoteDeploymentFailure = (
   detail: string,
   input: {
@@ -115,6 +126,60 @@ export const unsupportedRemoteTargetResult = (
   );
 };
 
+/**
+ * Build a deployment target from an already-observed platform.
+ * No uname, no prepare dispatcher. Used by HostRuntime apply.
+ */
+export const buildObservedRemoteDeploymentTarget = (
+  ssh: Ssh,
+  host: RemoteHost,
+  platform: RemotePlatformDescriptor,
+): Effect.Effect<RemoteDeploymentPreparation, never> =>
+  Effect.gen(function* () {
+    if (host.kind !== "remote" || !host.sshEndpoint) {
+      return {
+        ok: false,
+        result: remoteDeploymentFailure(
+          `host ${host.id} is not a remote SSH endpoint`,
+          { code: "validation" },
+        ),
+      };
+    }
+    const remoteHost = host as DeployableRemoteHost;
+    const sshTarget = yield* parseHostSshRoute(host).pipe(Effect.result);
+    if (sshTarget._tag === "Failure") {
+      return {
+        ok: false,
+        result: remoteDeploymentFailure(
+          `Invalid endpoint: ${sshTarget.failure.message}`,
+          { code: "validation" },
+        ),
+      };
+    }
+    const stages: string[] = ["endpoint ok"];
+    const warm = yield* ssh.warm(sshTarget.success).pipe(Effect.result);
+    if (warm._tag === "Failure") {
+      return {
+        ok: false,
+        result: remoteDeploymentFailure(
+          `${host.label}: SSH connection failed — ${formatSshFailure(warm.failure)}`,
+          { code: "io", stages },
+        ),
+      };
+    }
+    stages.push("ssh warm ok");
+    return {
+      ok: true,
+      target: Object.freeze({
+        host: remoteHost,
+        endpoint: inspectSshTarget(sshTarget.success).endpoint,
+        sshTarget: sshTarget.success,
+        platform,
+        progress: Object.freeze([...stages]),
+      }),
+    };
+  });
+
 /** Read-only admission. No artifact lookup, transfer, or station write occurs here. */
 export const resolveRemoteDeploymentTarget = (
   ssh: Ssh,
@@ -122,15 +187,6 @@ export const resolveRemoteDeploymentTarget = (
   commandCenterPlatform: NodeJS.Platform,
 ): Effect.Effect<RemoteDeploymentPreparation, never> =>
   Effect.gen(function* () {
-    if (commandCenterPlatform !== "darwin") {
-      return {
-        ok: false,
-        result: remoteDeploymentFailure(
-          "Deploy Remote must run from a macOS Command Center (local .app source)",
-          { code: "validation" },
-        ),
-      };
-    }
     if (host.kind !== "remote" || !host.sshEndpoint) {
       return {
         ok: false,
@@ -213,6 +269,21 @@ export const resolveRemoteDeploymentTarget = (
       };
     }
     stages.push(`remote uname ${evidence.platform.kernelName}`);
+
+    if (
+      !commandCenterMayPrepareRemote(
+        commandCenterPlatform,
+        evidence.platform.platform,
+      )
+    ) {
+      return {
+        ok: false,
+        result: remoteDeploymentFailure(
+          `${host.label}: a Darwin Remote needs a macOS Command Center (local .app source)`,
+          { code: "validation", stages },
+        ),
+      };
+    }
 
     return {
       ok: true,

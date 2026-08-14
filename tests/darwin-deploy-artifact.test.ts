@@ -38,6 +38,10 @@ const admittedArtifact = (): DarwinDeployArtifactAdmission => ({
 
 const deploymentInput = (
   run: (...args: ReadonlyArray<unknown>) => Effect.Effect<unknown, unknown>,
+  stationConfiguration: RemoteDeploymentProviderInput["stationConfiguration"] = {
+    state: "applied",
+    remoteHostId: "remote-a",
+  },
 ): RemoteDeploymentProviderInput => ({
   target: {
     host: {
@@ -53,7 +57,7 @@ const deploymentInput = (
     progress: ["endpoint ok", "ssh warm ok", "remote uname Darwin"],
   },
   ssh: { run } as never,
-  stationConfiguration: { state: "applied", remoteHostId: "remote-a" },
+  stationConfiguration,
   artifactSource: "stable-feed",
 });
 
@@ -226,7 +230,7 @@ describe("Darwin deployment first-install boundary", () => {
       );
 
     const result = await Effect.runPromise(
-      provider.deploy(deploymentInput(run)),
+      provider.deploy(deploymentInput(run, { state: "managed-externally" })),
     );
 
     expect(result.ok).toBe(true);
@@ -237,6 +241,39 @@ describe("Darwin deployment first-install boundary", () => {
     expect(streamArtifact).toHaveBeenCalledOnce();
     expect(streamArtifact.mock.calls[0]?.[2]).toMatchObject({
       expectedPackageState: "absent",
+    });
+  });
+
+  it("does not write enrollment headless on an already configured Remote", async () => {
+    const acquire = vi.fn(() =>
+      Effect.die(new Error("absent package on needRestart must not cut terminals")),
+    );
+    const { provider, streamArtifact } = providerWith({ acquire });
+    const run = vi
+      .fn()
+      .mockReturnValueOnce(
+        Effect.succeed({ stdout: "/Users/operator\n", stderr: "" }),
+      )
+      .mockReturnValueOnce(
+        Effect.fail(
+          new SshExitError({
+            endpoint: String(endpoint),
+            operation: "probe installed package",
+            code: 1,
+          }),
+        ),
+      );
+
+    const result = await Effect.runPromise(
+      provider.deploy(deploymentInput(run, {
+        state: "applied",
+        remoteHostId: "remote-a",
+      })),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(streamArtifact.mock.calls[0]?.[2]).toMatchObject({
+      expectedPackageState: "present",
     });
   });
 

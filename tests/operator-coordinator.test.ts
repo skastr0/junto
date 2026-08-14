@@ -8,7 +8,12 @@ import {
   makeOperatorCoordinator,
   operatorArtifactSource,
 } from "../src/main/vellum/hosts/operator-coordinator";
-import { getDeployJob } from "../src/main/vellum/hosts/deploy-job-registry";
+import {
+  beginDeployJob,
+  getDeployJob,
+  reportDeployStage,
+} from "../src/main/vellum/hosts/deploy-job-registry";
+import { HOST_RUNTIME_REMEDY_STAGE } from "../src/shared/deploy-job";
 import { HostsService } from "../src/main/vellum/hosts/service";
 import { HostRuntime } from "../src/main/vellum/hosts/host-runtime";
 import { PrismService } from "../src/main/services/prism";
@@ -163,6 +168,95 @@ describe("operator deployment coordinator", () => {
 
     expect(reconciled).toBe("remote-a:deploy");
     expect(result.ok).toBe(true);
+  });
+
+  it("keeps live copy/restart/wait stages instead of package progress", async () => {
+    const hostId = `live-stages-${String(Date.now())}`;
+    beginDeployJob(hostId);
+    const settings = defaultSettings();
+    const enabled = {
+      ...settings,
+      station: { ...settings.station, role: "command-center" as const },
+      fleet: { ...settings.fleet, remoteManagedInstalls: true },
+    };
+    const layer = Layer.mergeAll(
+      Layer.succeed(SettingsService, {
+        ...stub(SettingsService),
+        get: Effect.succeed(enabled),
+      }),
+      Layer.succeed(HostsService, {
+        ...stub(HostsService),
+        get: () =>
+          Effect.succeed({
+            id: hostId,
+            label: hostId,
+            kind: "remote",
+            sshEndpoint: hostId,
+            capabilities: [],
+          }),
+      }),
+      Layer.succeed(StationStatusService, {
+        ...stub(StationStatusService),
+        recordDeployment: () => Effect.void,
+      }),
+      Layer.succeed(BoxFleetService, {
+        ...stub(BoxFleetService),
+        ensureHostAvailable: () => Effect.succeed(undefined),
+      }),
+      Layer.succeed(PrismService, {
+        ...stub(PrismService),
+        stationInfo: Effect.succeed({
+          name: "Vellum Command",
+          version: "0.0.0",
+          userDataPath: "/tmp",
+          stationPluginPath: "/tmp",
+          prismRoot: "/tmp",
+        }),
+      }),
+      Layer.succeed(StationRepository, {
+        ...stub(StationRepository),
+        installationId: Effect.succeed("cc-install" as never),
+      }),
+      Layer.succeed(StationFleetTargetRepository, {
+        ...stub(StationFleetTargetRepository),
+        bind: () =>
+          Effect.succeed({
+            hostId,
+            stationInstallationId: "station-box",
+            boundAt: "2026-01-01T00:00:00.000Z",
+          } as never),
+      }),
+      Layer.succeed(HostRuntime, {
+        ...stub(HostRuntime),
+        reconcile: () => {
+          reportDeployStage(HOST_RUNTIME_REMEDY_STAGE.copy);
+          reportDeployStage(HOST_RUNTIME_REMEDY_STAGE.restart);
+          reportDeployStage(HOST_RUNTIME_REMEDY_STAGE.wait);
+          return Effect.succeed({
+            ok: true,
+            detail: "updated",
+            stages: ["endpoint ok", "ssh warm ok"],
+            disposition: "ready",
+            outcome: "ready",
+            packageState: "present",
+            role: "remote",
+            stationInstallationId: "station-box",
+            configuration: { ok: true, detail: "configure skipped" },
+          } as never);
+        },
+      }),
+    );
+
+    const result = await Effect.runPromise(
+      deployRemoteEffect({ id: hostId }).pipe(Effect.provide(layer)),
+    );
+
+    expect(result.ok).toBe(true);
+    const job = getDeployJob(hostId);
+    expect(job?.stages).toContain(HOST_RUNTIME_REMEDY_STAGE.copy);
+    expect(job?.stages).toContain(HOST_RUNTIME_REMEDY_STAGE.restart);
+    expect(job?.stages).toContain(HOST_RUNTIME_REMEDY_STAGE.wait);
+    expect(job?.stages).not.toEqual(["endpoint ok", "ssh warm ok"]);
   });
 
   it("does not create a deploy job when shutdown refuses admission", async () => {

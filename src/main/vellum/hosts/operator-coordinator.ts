@@ -330,7 +330,6 @@ export const deployRemoteEffect = (
         finishDeployJob(input.id, {
           status,
           detail: result.detail,
-          stages: result.stages ?? getDeployJob(input.id)?.stages,
           ...(result.version === undefined ? {} : { version: result.version }),
           ...(result.recoveryAction === undefined
             ? {}
@@ -350,6 +349,8 @@ export const deployRemoteEffect = (
         });
       }
 
+      // Global Fleet door only (no kernel yet). Per-target linuxRemoteDeploy
+      // / darwinRemoteDeploy freeze is HostRuntime.admit after uname.
       const effective = computeDeployCapabilities({
         stationRole: settingsResult.success.station.role,
         remoteManagedInstalls: settingsResult.success.fleet.remoteManagedInstalls,
@@ -473,7 +474,6 @@ export const deployRemoteEffect = (
       finishDeployJob(input.id, {
         status: finalResult.ok ? "succeeded" : "failed",
         detail: finalResult.detail,
-        stages: finalResult.stages,
         ...(finalResult.version === undefined
           ? {}
           : { version: finalResult.version }),
@@ -482,6 +482,7 @@ export const deployRemoteEffect = (
   });
 
 const releaseDeployGate = (): HostsDeployRemoteResult | undefined => {
+  // Managed-deploy surface only. Target platform is unknown until uname.
   const releaseGate = computeDeployCapabilities({
     stationRole: "command-center",
     remoteManagedInstalls: true,

@@ -7,7 +7,10 @@ import {
   decodeRemotePlatformEvidence,
   makeRemoteDeploymentDispatcher,
 } from "../src/main/vellum/hosts/deploy-remote";
-import { resolveRemoteDeploymentTarget } from "../src/main/vellum/hosts/remote-platform";
+import {
+  commandCenterMayPrepareRemote,
+  resolveRemoteDeploymentTarget,
+} from "../src/main/vellum/hosts/remote-platform";
 import { SshExitError } from "../src/main/vellum/ssh/domain";
 import {
   deployConfiguredRemoteHost,
@@ -434,7 +437,32 @@ describe("Remote deployment dispatcher", () => {
     );
   });
 
-  it("refuses a non-Darwin Command Center before touching SSH", async () => {
+  it("lets a Linux Command Center prepare a Linux Remote after uname", async () => {
+    expect(commandCenterMayPrepareRemote("linux", "linux")).toBe(true);
+    expect(commandCenterMayPrepareRemote("linux", "darwin")).toBe(false);
+    expect(commandCenterMayPrepareRemote("darwin", "linux")).toBe(true);
+
+    const ssh = makeSsh("Linux\n");
+    const preparation = await Effect.runPromise(
+      resolveRemoteDeploymentTarget(ssh, host, "linux"),
+    );
+
+    expect(preparation.ok).toBe(true);
+    if (!preparation.ok) return;
+    expect(preparation.target.platform).toEqual({
+      platform: "linux",
+      kernelName: "Linux",
+    });
+    expect(preparation.target.progress).toEqual([
+      "endpoint ok",
+      "ssh warm ok",
+      "remote uname Linux",
+    ]);
+    expect(ssh.warm).toHaveBeenCalled();
+    expect(ssh.run).toHaveBeenCalled();
+  });
+
+  it("refuses a Darwin Remote from a Linux Command Center after the OS probe", async () => {
     const darwin = makeProvider("darwin");
     const ssh = makeSsh("Darwin\n");
     const dispatcher = makeRemoteDeploymentDispatcher({
@@ -451,8 +479,9 @@ describe("Remote deployment dispatcher", () => {
       code: "validation",
       disposition: "not-started",
     });
-    expect(ssh.warm).not.toHaveBeenCalled();
-    expect(ssh.run).not.toHaveBeenCalled();
+    expect(result.detail).toContain("Darwin Remote");
+    expect(ssh.warm).toHaveBeenCalled();
+    expect(ssh.run).toHaveBeenCalled();
     expect(darwin.deploy).not.toHaveBeenCalled();
   });
 
@@ -473,7 +502,7 @@ describe("Remote deployment dispatcher", () => {
       activateRuntime: () =>
         Effect.succeed({
           ok: true,
-          detail: "runtime already admitted by package deploy",
+          detail: "Linux userland runtime needs no Darwin activate",
         }),
     };
 

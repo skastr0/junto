@@ -29,7 +29,7 @@ import { stationControlDir, stationControlSocketPath } from "@shared/station-ssh
 import { TERM_REMOTE_SOCK_REL } from "@shared/term-control";
 import { formatSshFailure } from "../ssh/format";
 import { SshExitError, type SshError, type SshTarget } from "../ssh/domain";
-import { homeDirectoryLookup, oneShot, sharedStream } from "../ssh/program";
+import { deploymentStream, homeDirectoryLookup, oneShot } from "../ssh/program";
 import {
   DARWIN_PACKAGED_BROWSER_EXECUTABLE,
   DARWIN_PACKAGED_STATION_EXECUTABLE,
@@ -710,9 +710,9 @@ export type DeployTransferParse =
     };
 
 /**
- * Read install/activate stdout after SSH already exited 0.
- * The remote script's exit code is the real check (launchd pid, owned
- * sockets). A missing banner is not a failed install.
+ * Read install stdout after SSH already exited 0.
+ * Exit 0 is not enough: ENROLLMENT_READY or STATION_READY must be present.
+ * ENROLLMENT_PARTIAL and empty stdout are not a finished install.
  */
 export const parseDeployTransferResult = (input: {
   readonly stdout: string;
@@ -734,10 +734,12 @@ export const parseDeployTransferResult = (input: {
       detail: "Vellum Command is running on this Mac",
     };
   }
+  const diagnostic = input.stderr.trim() || input.stdout.trim();
   return {
-    ok: true,
-    phase: "enrollment",
-    detail: "Vellum Command install finished",
+    ok: false,
+    detail:
+      diagnostic.slice(0, 900) ||
+      "Vellum Command install did not prove enrollment or runtime readiness",
   };
 };
 
@@ -751,10 +753,12 @@ export const parseRuntimeActivateResult = (input: {
       detail: "Vellum Command is running on this Mac",
     };
   }
-  // SSH exit 0 already means the activate script's launchd + socket checks passed.
+  const diagnostic = input.stderr.trim() || input.stdout.trim();
   return {
-    ok: true,
-    detail: "Vellum Command is running on this Mac",
+    ok: false,
+    detail:
+      diagnostic.slice(0, 900) ||
+      "Vellum Command did not prove it is running on this Mac",
   };
 };
 
@@ -1002,17 +1006,22 @@ const buildRemoteDeployScriptWithRuntime = (
   const generationProofLimit = String(waitLimits.generationProof);
   const socketReadyLimit = String(waitLimits.socketReady);
 
-  // Enrollment-only: --vellum-headless so packaged unconfigured boot never
-  // reaches the Command Center license gate. Full GUI (term+browser) is a
-  // separate activate step after Station configure.
-  const enrollmentFlag = "--vellum-headless";
+  // First install only: --vellum-headless so an unconfigured package never
+  // hits the Command Center license gate. Update stays Remote — redeploy
+  // is not unenroll. A Remote never owns enroll control.sock, so present
+  // package proves term+browser and emits STATION_READY.
+  const firstInstall = transfer.expectedPackageState === "absent";
+  const enrollmentFlag = firstInstall ? "--vellum-headless" : "";
+  const programArguments = firstInstall
+    ? `<string>${xmlText(remoteExecutablePath)}</string>
+<string>${xmlText("--vellum-headless")}</string>`
+    : `<string>${xmlText(remoteExecutablePath)}</string>`;
   const plistBody = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>Label</key><string>${LABEL}</string>
 <key>ProgramArguments</key><array>
-<string>${xmlText(remoteExecutablePath)}</string>
-<string>${xmlText(enrollmentFlag)}</string>
+${programArguments}
 </array>
 <key>RunAtLoad</key><true/>
 <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
@@ -1065,6 +1074,7 @@ FORBIDDEN_APP_PREVIOUS=${shellLiteral(`${remoteAppPath}.previous`)}
 FORBIDDEN_APP_REJECTED=${shellLiteral(`${remoteAppPath}.rejected`)}
 DEPLOY_LOCK=${shellLiteral(runtime.lockPath)}
 DEPLOY_LOCK_OWNER=${shellLiteral(`${runtime.lockPath}/owner`)}
+DEPLOY_LOCK_HOLDER=${shellLiteral(`${runtime.lockPath}/holder`)}
 RETIRED_APP=${shellLiteral(`${runtime.lockPath}/retired-app`)}
 RETIRED_PLIST=${shellLiteral(`${runtime.lockPath}/retired-plist`)}
 RETIRED_TERM_SOCKET=${shellLiteral(`${runtime.lockPath}/retired-term-socket`)}
@@ -1500,6 +1510,32 @@ resume_incumbent_before_activation() {
   echo "INCUMBENT_RESUMED pid=$RESUMED_PID"
 }
 
+reclaim_abandoned_deploy_lock() {
+  [ -d "$DEPLOY_LOCK" ] || return 1
+  for RETIRED_PATH in \
+    "$RETIRED_APP" \
+    "$RETIRED_PLIST" \
+    "$RETIRED_TERM_SOCKET" \
+    "$RETIRED_BROWSER_SOCKET"
+  do
+    if [ -e "$RETIRED_PATH" ] || [ -L "$RETIRED_PATH" ]; then
+      return 1
+    fi
+  done
+  HOLDER_PID="$(/bin/cat "$DEPLOY_LOCK_HOLDER" 2>/dev/null || true)"
+  if [ -n "$HOLDER_PID" ]; then
+    case "$HOLDER_PID" in
+      ''|*[!0-9]*) return 1 ;;
+    esac
+    if /bin/ps -p "$HOLDER_PID" -o pid= >/dev/null 2>&1; then
+      return 1
+    fi
+  fi
+  /bin/rm -f -- "$DEPLOY_LOCK_OWNER" "$DEPLOY_LOCK_HOLDER" || return 1
+  /bin/rmdir "$DEPLOY_LOCK" || return 1
+  [ ! -e "$DEPLOY_LOCK" ] && [ ! -L "$DEPLOY_LOCK" ]
+}
+
 release_deploy_lock() {
   if [ "$LOCK_HELD" != "1" ]; then return 0; fi
   same_directory_identity "$DEPLOY_LOCK" "$LOCK_ID" || return 1
@@ -1511,6 +1547,7 @@ release_deploy_lock() {
     [ ! -e "$RETIRED_PLIST" ] && [ ! -L "$RETIRED_PLIST" ] &&
     [ ! -e "$RETIRED_TERM_SOCKET" ] && [ ! -L "$RETIRED_TERM_SOCKET" ] &&
     [ ! -e "$RETIRED_BROWSER_SOCKET" ] && [ ! -L "$RETIRED_BROWSER_SOCKET" ] || return 1
+  /bin/rm -f -- "$DEPLOY_LOCK_HOLDER" || return 1
   remove_bound_file "$DEPLOY_LOCK_OWNER" "$LOCK_OWNER_ID" || return 1
   same_directory_identity "$DEPLOY_LOCK" "$LOCK_ID" || return 1
   /bin/rmdir "$DEPLOY_LOCK" || return 1
@@ -1577,8 +1614,12 @@ on_deploy_exit() {
 LOCK_TOKEN="$("$UUIDGEN")"
 test -n "$LOCK_TOKEN"
 if ! /bin/mkdir "$DEPLOY_LOCK" 2>/dev/null; then
-  echo "DEPLOY_ALREADY_IN_PROGRESS $DEPLOY_LOCK" >&2
-  exit 8
+  if reclaim_abandoned_deploy_lock && /bin/mkdir "$DEPLOY_LOCK" 2>/dev/null; then
+    echo "DEPLOY_STALE_LOCK_RECLAIMED $DEPLOY_LOCK" >&2
+  else
+    echo "DEPLOY_ALREADY_IN_PROGRESS $DEPLOY_LOCK" >&2
+    exit 8
+  fi
 fi
 /bin/chmod 700 "$DEPLOY_LOCK"
 LOCK_ID="$(owned_directory_identity "$DEPLOY_LOCK" 2>/dev/null || true)"
@@ -1606,6 +1647,10 @@ LOCK_OWNER_ID="$(owned_file_identity "$DEPLOY_LOCK_OWNER" 2>/dev/null || true)"
 /usr/bin/printf '%s\n' "$LOCK_TOKEN" >&9
 exec 9>&-
 /bin/chmod 600 "$DEPLOY_LOCK_OWNER"
+/usr/bin/printf '%s\n' "$$" > "$DEPLOY_LOCK_HOLDER" || {
+  echo "DEPLOY_LOCK_HOLDER_CREATE_REFUSED $DEPLOY_LOCK_HOLDER" >&2
+  exit 8
+}
 same_file_identity "$DEPLOY_LOCK_OWNER" "$LOCK_OWNER_ID" || {
   echo "DEPLOY_LOCK_OWNER_CHANGED_DURING_CREATION $DEPLOY_LOCK_OWNER" >&2
   exit 8
@@ -2099,7 +2144,9 @@ done
   exit 6
 }
 
-STATION_OK=0
+${
+  firstInstall
+    ? `STATION_OK=0
 WAIT_INDEX=0
 while [ "$WAIT_INDEX" -lt ${socketReadyLimit} ]; do
   if ! job_exists || ! exact_exe_has_pid "$NEW_PID"; then
@@ -2125,7 +2172,42 @@ STATION_OK=0
 if socket_owned_by_pid "$STATION_SOCK" "$NEW_PID"; then STATION_OK=1; fi
 echo "ENROLLMENT_PARTIAL pid=$NEW_PID station=$STATION_OK" >&2
 echo "ENROLLMENT_SOCKET_TIMEOUT pid=$NEW_PID station=$STATION_OK" >&2
-exit 2
+exit 2`
+    : `TERM_OK=0
+BROWSER_OK=0
+WAIT_INDEX=0
+while [ "$WAIT_INDEX" -lt ${socketReadyLimit} ]; do
+  if ! job_exists || ! exact_exe_has_pid "$NEW_PID"; then
+    echo "NEW_LAUNCHD_GENERATION_LOST expected_pid=$NEW_PID" >&2
+    exit 7
+  fi
+  TERM_OK=0
+  BROWSER_OK=0
+  if socket_owned_by_pid "$TERM_SOCK" "$NEW_PID"; then TERM_OK=1; fi
+  if socket_owned_by_pid "$BROWSER_SOCK" "$NEW_PID"; then BROWSER_OK=1; fi
+  if [ "$TERM_OK" = "1" ] && [ "$BROWSER_OK" = "1" ]; then
+    if job_exists && exact_exe_has_pid "$NEW_PID" &&
+      socket_owned_by_pid "$TERM_SOCK" "$NEW_PID" &&
+      socket_owned_by_pid "$BROWSER_SOCK" "$NEW_PID"; then
+      echo "STATION_READY pid=$NEW_PID term=1 browser=1"
+      exit 0
+    fi
+  fi
+  WAIT_INDEX=$((WAIT_INDEX + 1))
+  "$SLEEP" 1
+done
+if ! job_exists || ! exact_exe_has_pid "$NEW_PID"; then
+  echo "NEW_LAUNCHD_GENERATION_LOST expected_pid=$NEW_PID" >&2
+  exit 7
+fi
+TERM_OK=0
+BROWSER_OK=0
+if socket_owned_by_pid "$TERM_SOCK" "$NEW_PID"; then TERM_OK=1; fi
+if socket_owned_by_pid "$BROWSER_SOCK" "$NEW_PID"; then BROWSER_OK=1; fi
+echo "STATION_PARTIAL pid=$NEW_PID term=$TERM_OK browser=$BROWSER_OK" >&2
+echo "RUNTIME_SOCKET_TIMEOUT pid=$NEW_PID term=$TERM_OK browser=$BROWSER_OK" >&2
+exit 2`
+}
 `.trim();
 };
 
@@ -2286,14 +2368,15 @@ export const activateDarwinRemoteRuntime = (
     const script = buildRemoteRuntimeActivateScript(remoteHome);
     const command = yield* compileDarwinRemoteActivationScript(script);
     // Empty transfer body: long DEPLOY_TIMEOUT_MS covers kickstart + socket poll.
+    // Own TCP: Station peer retries share the mux and would drop this poll.
     const output = yield* ssh.transfer(
-      sharedStream(endpoint, command),
+      deploymentStream(endpoint, command),
       Stream.empty,
       DEPLOY_TIMEOUT_MS,
     );
     return parseRuntimeActivateResult({
       stdout: output.stdout,
-      stderr: "",
+      stderr: output.stderr,
     });
   });
 
@@ -2457,17 +2540,31 @@ const streamArtifactToRemote = (
               ),
       );
       const command = yield* compileDarwinRemoteDeployScript(remoteScript);
-      const output = yield* ssh.transfer(
-        sharedStream(endpoint, command),
-        Stream.fromAsyncIterable(
-          source.lease.io.stdout,
-          (error) =>
-            new Error(
-              `local ${source.label} stream failed: ${error instanceof Error ? error.message : String(error)}`,
-            ),
-        ).pipe(Stream.map((chunk) => Uint8Array.from(chunk))),
-        DEPLOY_TIMEOUT_MS,
-      );
+      // Dedicated TCP: Station peer retries own the shared mux.
+      const output = yield* ssh
+        .transfer(
+          deploymentStream(endpoint, command),
+          Stream.fromAsyncIterable(
+            source.lease.io.stdout,
+            (error) =>
+              new Error(
+                `local ${source.label} stream failed: ${error instanceof Error ? error.message : String(error)}`,
+              ),
+          ).pipe(Stream.map((chunk) => Uint8Array.from(chunk))),
+          DEPLOY_TIMEOUT_MS,
+        )
+        .pipe(
+          Effect.catchIf(
+            (error): error is SshTransferExitError =>
+              error instanceof SshTransferExitError &&
+              error.code === DARWIN_DEPLOY_READY_WITH_LOCK_WARNING_EXIT,
+            (error) =>
+              Effect.succeed({
+                stdout: error.stdout,
+                stderr: error.stderr,
+              }),
+          ),
+        );
       const sourceResult = yield* Effect.promise(() => source.exit.settlement);
       if (!sourceResult.ok) {
         return yield* Effect.fail(
@@ -2746,7 +2843,12 @@ export const makeDarwinRemoteDeploymentProvider = (deps: {
           {
             admission,
             remoteHome: home,
-            expectedPackageState: installedPresent ? "present" : "absent",
+            expectedPackageState:
+              providerInput.stationConfiguration.state === "applied"
+                ? "present"
+                : installedPresent
+                  ? "present"
+                  : "absent",
           },
         ).pipe(Effect.result);
 

@@ -19,6 +19,7 @@ import {
   parseSshEndpoint,
   SshExitError,
   SshIoError,
+  SshProcessError,
   SshOutputLimitError,
   SshTimeoutError,
   SshTransport,
@@ -52,6 +53,7 @@ interface FakeResult {
   readonly running?: boolean;
   readonly exitCode?: Effect.Effect<number, ProcessFailure>;
   readonly stdin?: Sink.Sink<void, Uint8Array, never, ProcessFailure>;
+  readonly stdoutEndsWithProcessFailure?: boolean;
 }
 
 interface FakeProcess {
@@ -98,6 +100,10 @@ const fakeProcess = (
         stdin: result.stdin ?? Sink.drain,
         stdout: Stream.fromIterable(
           result.stdout === undefined ? [] : [result.stdout],
+        ).pipe(
+          result.stdoutEndsWithProcessFailure === true
+            ? Stream.concat(Stream.fail(new ProcessFailure()))
+            : (stream) => stream,
         ),
         stderr: Stream.fromIterable(
           result.stderr === undefined ? [] : [result.stderr],
@@ -336,28 +342,45 @@ describe("SshTransport", () => {
     expect(releases.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("rejects transfer chunks beyond the write boundary and releases the lease", async () => {
+  it("splits transfer chunks that exceed the 1 MiB write boundary", async () => {
     const calls: Command.StandardCommand[] = [];
     const releases: Command.StandardCommand[] = [];
-    const layer = await testLayer(() => ({ running: true }), calls, releases);
-
-    const result = await runPromise(
-      Effect.result(
-        Effect.gen(function* () {
-          const endpoint = yield* parseSshEndpoint("remote-a");
-          const remote = yield* makeRemoteCommand("remote-install");
-          return yield* (yield* SshTransport).transfer(
-            sharedStream(endpoint, remote),
-            Stream.make(new Uint8Array(1024 * 1024 + 1)),
-            1_000,
-          );
-        }).pipe(Effect.provide(layer)),
-      ),
+    const received: Uint8Array[] = [];
+    const input = Sink.forEach((chunk: Uint8Array) =>
+      Effect.sync(() => {
+        received.push(Uint8Array.from(chunk));
+      }),
+    );
+    const layer = await testLayer(
+      (command) =>
+        remoteText(command).includes("remote-install")
+          ? {
+              stdin: input,
+              stdout: encoder.encode("ok\n"),
+              exitCode: Effect.sleep(10).pipe(Effect.as(0)),
+            }
+          : {},
+      calls,
+      releases,
     );
 
-    expect(Result.isFailure(result)).toBe(true);
-    if (Result.isFailure(result)) expect(result.failure).toBeInstanceOf(SshIoError);
-    expect(calls).toHaveLength(1);
+    const result = await runPromise(
+      Effect.gen(function* () {
+        const endpoint = yield* parseSshEndpoint("remote-a");
+        const remote = yield* makeRemoteCommand("remote-install");
+        return yield* (yield* SshTransport).transfer(
+          sharedStream(endpoint, remote),
+          Stream.make(new Uint8Array(1024 * 1024 + 1)),
+          1_000,
+        );
+      }).pipe(Effect.provide(layer)),
+    );
+
+    expect(result.stdout).toContain("ok");
+    expect(received.map((chunk) => chunk.byteLength)).toEqual([
+      1024 * 1024,
+      1,
+    ]);
     expect(releases.length).toBeGreaterThanOrEqual(1);
   });
 
@@ -385,6 +408,44 @@ describe("SshTransport", () => {
       expect(result.failure).toBeInstanceOf(SshTimeoutError);
     expect(calls).toHaveLength(1);
     expect(releases.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("keeps transfer exit tags when stdout closes as ProcessFailure", async () => {
+    const calls: Command.StandardCommand[] = [];
+    const releases: Command.StandardCommand[] = [];
+    const layer = await testLayer(
+      () => ({
+        code: 8,
+        stdout: encoder.encode(
+          "DEPLOY_ALREADY_IN_PROGRESS /Applications/.vellum-command-deploy.lock\n",
+        ),
+        stdoutEndsWithProcessFailure: true,
+      }),
+      calls,
+      releases,
+    );
+
+    const result = await runPromise(
+      Effect.result(
+        Effect.gen(function* () {
+          const endpoint = yield* parseSshEndpoint("remote-a");
+          const remote = yield* makeRemoteCommand("remote-install");
+          return yield* (yield* SshTransport).transfer(
+            dedicatedStream(endpoint, remote),
+            Stream.empty,
+            1_000,
+          );
+        }).pipe(Effect.provide(layer)),
+      ),
+    );
+
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure).toBeInstanceOf(SshTransferExitError);
+      const failure = result.failure as SshTransferExitError;
+      expect(failure.code).toBe(8);
+      expect(failure.stdout).toContain("DEPLOY_ALREADY_IN_PROGRESS");
+    }
   });
 
   it("retains bounded remote diagnostics when a transfer exits non-zero", async () => {
@@ -681,7 +742,7 @@ describe("SshTransport", () => {
     );
 
     expect(Result.isFailure(result)).toBe(true);
-    if (Result.isFailure(result)) expect(result.failure).toBeInstanceOf(SshIoError);
+    if (Result.isFailure(result)) expect(result.failure).toBeInstanceOf(SshProcessError);
   });
 
   it("rejects readiness when the stream exits first or is closed by the callback", async () => {

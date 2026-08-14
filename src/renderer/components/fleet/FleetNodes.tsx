@@ -156,6 +156,9 @@ const probePipTitle = (probe?: FleetProbeState): string => {
     case "probing":
       return "probing link";
     case "reachable":
+      if (probe.observation?.station === undefined) {
+        return "On the network — Vellum Command is not answering";
+      }
       return probe.latencyMs !== undefined
         ? `On the network — ${probe.latencyMs} ms`
         : "On the network";
@@ -182,6 +185,9 @@ const probeLabel = (probe?: FleetProbeState): string => {
     case "probing":
       return "checking route";
     case "reachable":
+      if (probe.observation?.station === undefined) {
+        return "On the network — not answering";
+      }
       return probe.latencyMs === undefined
         ? "On the network"
         : `On the network — ${probe.latencyMs} ms`;

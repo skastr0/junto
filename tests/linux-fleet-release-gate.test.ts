@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { computeDeployCapabilities } from "../src/shared/deploy-capabilities";
 import {
@@ -46,5 +47,19 @@ describe("linux fleet release gate (production defaults)", () => {
     });
     expect(caps.linuxRemoteDeploy).toBe(true);
     expect(caps.boxFleet).toBe(true);
+  });
+
+  it("Fleet machine gate closes Configure and Deploy, not only the Deploy button", () => {
+    const source = readFileSync(
+      new URL(
+        "../src/renderer/components/fleet/FleetDetailPanel.tsx",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    expect(source).toContain("machineMutateEnabled");
+    expect(source).toContain('kind === "configure" && !machineMutateEnabled');
+    expect(source).toContain("|| !machineMutateEnabled");
+    expect(source).toContain("Linux Remotes stay enrolled/read-only");
   });
 });

@@ -15,6 +15,7 @@ import {
   type RemoteDeploymentPreparation,
   type RemoteDeploymentTarget,
 } from "./deploy-remote";
+import type { RemoteDeploymentStationConfiguration } from "./remote-deployment";
 import type { LinuxReleaseCacheSource } from "./linux-release-feed";
 
 type Ssh = SshTransportShape;
@@ -55,13 +56,6 @@ export type ConfiguredRemoteDeployOptions = ConfigureRemoteOptions & {
    * configure/bootstrap and activate. First install omits it.
    */
   readonly stationInstallationId?: InstallationId;
-  /**
-   * Durable admission after platform prepare succeeds and before package
-   * mutation. A failure prevents deployPrepared from running.
-   */
-  readonly onAdmitted?: (
-    host: RemoteHost,
-  ) => Effect.Effect<void, RemoteHostsError>;
 };
 
 export type ConfiguredRemoteDeployOperations = {
@@ -74,10 +68,7 @@ export type ConfiguredRemoteDeployOperations = {
   readonly deployPrepared: (
     ssh: Ssh,
     target: RemoteDeploymentTarget,
-    stationConfiguration: {
-      readonly state: "applied";
-      readonly remoteHostId: string;
-    },
+    stationConfiguration: RemoteDeploymentStationConfiguration,
     artifactSource?: LinuxReleaseCacheSource,
   ) => Effect.Effect<DeployRemoteResult, never>;
   /** Configure durable station state through the app-owned Station API. */
@@ -87,9 +78,8 @@ export type ConfiguredRemoteDeployOperations = {
     options: ConfigureRemoteOptions,
   ) => Effect.Effect<ConfigureRemoteResult, RemoteHostsError>;
   /**
-   * After configure, promote enrollment-only package to full supervised runtime
-   * (Darwin: drop --vellum-headless, prove term+browser). No-op when package
-   * deploy already returned disposition `ready` (e.g. Linux userland).
+   * Darwin: drop --vellum-headless and prove term+browser after first install
+   * configure and on needRestart. Linux apply never calls this.
    */
   readonly activateRuntime?: (
     ssh: Ssh,
@@ -117,12 +107,12 @@ const defaultOperations: ConfiguredRemoteDeployOperations = {
       artifactSource,
     ),
   configure: configureRemoteHost,
-  activateRuntime: (ssh, host, deployed, target) =>
+  activateRuntime: (ssh, host, _deployed, target) =>
     Effect.gen(function* () {
-      if (deployed.disposition !== "configuration-required") {
+      if (target?.platform.platform === "linux") {
         return {
           ok: true as const,
-          detail: "runtime already admitted by package deploy",
+          detail: "Linux userland runtime needs no Darwin activate",
         };
       }
       if (host.kind !== "remote" || !host.sshEndpoint) {
@@ -131,10 +121,7 @@ const defaultOperations: ConfiguredRemoteDeployOperations = {
           detail: "host is not a registered Remote endpoint",
         };
       }
-      // Lazy import avoids a circular module graph with deploy-darwin.
-      const darwin = yield* Effect.promise(
-        () => import("./deploy-darwin"),
-      );
+      const darwin = yield* Effect.promise(() => import("./deploy-darwin"));
       if (target === undefined) {
         return {
           ok: false as const,
@@ -149,7 +136,7 @@ const defaultOperations: ConfiguredRemoteDeployOperations = {
     }),
 };
 
-const failedBeforeMutation = (
+export const failedBeforeMutation = (
   host: RemoteHost,
   detail: string,
   input: {
@@ -178,7 +165,7 @@ const failedBeforeMutation = (
     : { recoveryAction: input.recoveryAction }),
 });
 
-const failedPackageResult = (
+export const failedPackageResult = (
   host: RemoteHost,
   deployed: DeployRemoteResult,
 ): ConfiguredRemoteDeployResult => {
@@ -198,7 +185,7 @@ const failedPackageResult = (
   };
 };
 
-const configurationFailure = (
+export const configurationFailure = (
   host: RemoteHost,
   deployed: DeployRemoteResult,
   error: RemoteHostsError | ConfigureRemoteResult,
@@ -225,7 +212,7 @@ const configurationFailure = (
   };
 };
 
-const finishWithConfiguration = (
+export const finishWithConfiguration = (
   host: RemoteHost,
   deployed: DeployRemoteResult,
   configured: ConfigureRemoteResult,
@@ -254,6 +241,59 @@ const finishWithConfiguration = (
     },
   };
 };
+
+export const finishAlreadyConfiguredRemote = (
+  host: RemoteHost,
+  deployed: DeployRemoteResult,
+  priorInstallationId: InstallationId,
+  activatedDetail: string,
+): ConfiguredRemoteDeployResult => {
+  const detail = `${deployed.detail} - already configured Remote; configure skipped - ${activatedDetail}`;
+  return {
+    ...deployed,
+    ok: true,
+    detail,
+    message: activatedDetail,
+    hostEndpoint: host.sshEndpoint,
+    disposition: "ready",
+    outcome: "ready",
+    packageState: "present",
+    role: "remote",
+    stationInstallationId: priorInstallationId,
+    configuration: {
+      ok: true,
+      detail: "already configured Remote; configure skipped",
+    },
+  };
+};
+
+export const alreadyConfiguredActivateFailure = (
+  host: RemoteHost,
+  deployed: DeployRemoteResult,
+  priorInstallationId: InstallationId,
+  activatedDetail: string,
+): ConfiguredRemoteDeployResult => ({
+  ...deployed,
+  ok: false,
+  detail: `${host.label}: already configured Remote; package is present, but supervised runtime activate failed — ${activatedDetail}`,
+  code: "io",
+  message: activatedDetail,
+  hostEndpoint: host.sshEndpoint,
+  disposition: "indeterminate",
+  outcome: "indeterminate",
+  packageState: "present",
+  role: "remote",
+  stationInstallationId: priorInstallationId,
+  configuration: {
+    ok: true,
+    detail: "already configured Remote; configure skipped",
+  },
+});
+
+export const packageAdmitted = (deployed: DeployRemoteResult): boolean =>
+  deployed.ok &&
+  (deployed.disposition === "ready" ||
+    deployed.disposition === "configuration-required");
 
 /**
  * Install one Remote package, then pair/configure its app-owned database.
@@ -287,38 +327,20 @@ export const deployConfiguredRemoteHost = (
       });
     }
 
-    // Platform is known only after prepare. Admit durably only once the target
-    // is release-eligible so Linux freezes never leave a half-started receipt.
-    if (options.onAdmitted) {
-      const admission = yield* options.onAdmitted(host).pipe(Effect.result);
-      if (admission._tag === "Failure") {
-        const detail = `${host.label}: deployment did not start because its durable admission receipt could not be persisted — ${admission.failure.message}`;
-        return failedBeforeMutation(host, detail, {
-          code: admission.failure.code,
-          stages: preparation.target.progress,
-        });
-      }
-    }
-
-    let deployed = yield* operations.deployPrepared(
+    const priorInstallationId = options.stationInstallationId;
+    const deployed = yield* operations.deployPrepared(
       ssh,
       preparation.target,
-      {
-        state: "applied",
-        remoteHostId: host.id,
-      },
+      priorInstallationId === undefined
+        ? { state: "managed-externally" }
+        : { state: "applied", remoteHostId: host.id },
       options.artifactSource,
     );
 
-    const packageAdmitted =
-      deployed.ok &&
-      (deployed.disposition === "ready" ||
-        deployed.disposition === "configuration-required");
-    if (!packageAdmitted) {
+    if (!packageAdmitted(deployed)) {
       return failedPackageResult(host, deployed);
     }
 
-    const priorInstallationId = options.stationInstallationId;
     if (priorInstallationId !== undefined) {
       const activated =
         operations.activateRuntime === undefined
@@ -330,41 +352,19 @@ export const deployConfiguredRemoteHost = (
               preparation.target,
             );
       if (!activated.ok) {
-        return {
-          ...deployed,
-          ok: false,
-          detail: `${host.label}: already configured Remote; package is present, but supervised runtime activate failed — ${activated.detail}`,
-          code: "io" as const,
-          message: activated.detail,
-          hostEndpoint: host.sshEndpoint,
-          disposition: "indeterminate" as const,
-          outcome: "indeterminate" as const,
-          packageState: "present" as const,
-          role: "remote" as const,
-          stationInstallationId: priorInstallationId,
-          configuration: {
-            ok: true,
-            detail: "already configured Remote; configure skipped",
-          },
-        };
+        return alreadyConfiguredActivateFailure(
+          host,
+          deployed,
+          priorInstallationId,
+          activated.detail,
+        );
       }
-      const detail = `${deployed.detail} - already configured Remote; configure skipped - ${activated.detail}`;
-      return {
-        ...deployed,
-        ok: true as const,
-        detail,
-        message: activated.detail,
-        hostEndpoint: host.sshEndpoint,
-        disposition: "ready" as const,
-        outcome: "ready" as const,
-        packageState: "present" as const,
-        role: "remote" as const,
-        stationInstallationId: priorInstallationId,
-        configuration: {
-          ok: true as const,
-          detail: "already configured Remote; configure skipped",
-        },
-      };
+      return finishAlreadyConfiguredRemote(
+        host,
+        deployed,
+        priorInstallationId,
+        activated.detail,
+      );
     }
 
     const configured = yield* operations
@@ -377,53 +377,48 @@ export const deployConfiguredRemoteHost = (
       return configurationFailure(host, deployed, configured.success);
     }
 
-    // Enrollment-only package: relaunch supervised GUI/runtime after configure.
-    if (deployed.disposition === "configuration-required") {
-      const activated =
-        operations.activateRuntime === undefined
-          ? { ok: true as const, detail: "runtime activation not required" }
-          : yield* operations.activateRuntime(
-              ssh,
-              host,
-              deployed,
-              preparation.target,
-            );
-      if (!activated.ok) {
-        return {
-          ...deployed,
-          ok: false,
-          detail: `${host.label}: Station configured as remote, but supervised runtime activate failed — ${activated.detail}`,
-          code: "io" as const,
-          message: activated.detail,
-          hostEndpoint: host.sshEndpoint,
-          disposition: "indeterminate" as const,
-          outcome: "indeterminate" as const,
-          packageState: "present" as const,
-          role: "remote" as const,
-          lastSeen: configured.success.configuredAt ?? new Date().toISOString(),
-          station: configured.success.station,
-          ...(configured.success.stationInstallationId === undefined
-            ? {}
-            : {
-                stationInstallationId: configured.success.stationInstallationId,
-              }),
-          configuration: {
-            ok: true,
-            detail: configured.success.detail,
-          },
-        };
-      }
-      const finished = finishWithConfiguration(
-        host,
-        deployed,
-        configured.success,
-      );
+    const activated =
+      operations.activateRuntime === undefined
+        ? { ok: true as const, detail: "runtime activation not required" }
+        : yield* operations.activateRuntime(
+            ssh,
+            host,
+            deployed,
+            preparation.target,
+          );
+    if (!activated.ok) {
       return {
-        ...finished,
-        detail: `${finished.detail} - ${activated.detail}`,
+        ...deployed,
+        ok: false,
+        detail: `${host.label}: Station configured as remote, but supervised runtime activate failed — ${activated.detail}`,
+        code: "io" as const,
         message: activated.detail,
+        hostEndpoint: host.sshEndpoint,
+        disposition: "indeterminate" as const,
+        outcome: "indeterminate" as const,
+        packageState: "present" as const,
+        role: "remote" as const,
+        lastSeen: configured.success.configuredAt ?? new Date().toISOString(),
+        station: configured.success.station,
+        ...(configured.success.stationInstallationId === undefined
+          ? {}
+          : {
+              stationInstallationId: configured.success.stationInstallationId,
+            }),
+        configuration: {
+          ok: true,
+          detail: configured.success.detail,
+        },
       };
     }
-
-    return finishWithConfiguration(host, deployed, configured.success);
+    const finished = finishWithConfiguration(
+      host,
+      deployed,
+      configured.success,
+    );
+    return {
+      ...finished,
+      detail: `${finished.detail} - ${activated.detail}`,
+      message: activated.detail,
+    };
   }).pipe(Effect.withSpan("hosts.deploy-configured-remote"));

@@ -158,6 +158,18 @@ const describeFleetFailure = (
     ? "This machine is not in the fleet yet"
     : error.message;
 
+/** SSH warm only. Station silence is not the machine going away. */
+const probeSshNetwork = (
+  ssh: Ssh,
+  host: RemoteHost,
+): Effect.Effect<"up" | "down"> =>
+  parseHostSshRoute(host).pipe(
+    Effect.flatMap((target) => ssh.warm(target)),
+    Effect.as("up" as const),
+    Effect.catch(() => Effect.succeed("down" as const)),
+    Effect.catchDefect(() => Effect.succeed("down" as const)),
+  );
+
 const localBinary = async (
   binary: "herdr" | "hermes",
   run: HostCliRunner,
@@ -291,11 +303,19 @@ const probeSshHost = (
         ? undefined
         : routeObservation(result.status);
       const protocol = result?.status?.protocol;
-      const reachability = updateRequired
+      let reachability = updateRequired
         ? "reachable" as const
         : result?.ok === false && result.error.reason === "not-enrolled"
           ? "unknown" as const
           : "unreachable" as const;
+      let operatorDetail = `${host.label}: ${boundedDoctorDetail(detail)}`;
+      if (reachability === "unreachable") {
+        const network = yield* probeSshNetwork(ssh, host);
+        if (network === "up") {
+          reachability = "reachable";
+          operatorDetail = `${host.label}: On the network. Vellum Command is not answering.`;
+        }
+      }
       const recovery = stationRecoveryForRemote({
         identityConflict: false,
         protocol,
@@ -306,7 +326,7 @@ const probeSshHost = (
       });
       return {
         status: updateRequired ? "warning" as const : "error" as const,
-        detail: `${host.label}: ${boundedDoctorDetail(detail)}`,
+        detail: operatorDetail,
         observation: {
           hostId: host.id,
           endpoint: host.sshEndpoint,

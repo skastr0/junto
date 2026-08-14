@@ -24,6 +24,7 @@ import {
   awaitTarCloseBounded,
   isSafeRemoteHomePath,
   parseDeployTransferResult,
+  parseRuntimeActivateResult,
   resolveLocalAppBundle,
   validateLocalBundleProvenance,
   type RemoteDeployScriptTestRuntime,
@@ -162,7 +163,7 @@ describe("parseDeployTransferResult", () => {
     });
   });
 
-  it("does not fail a finished install when a script banner is missing", () => {
+  it("fails when ENROLLMENT_READY or STATION_READY is missing", () => {
     for (const stdout of [
       "ENROLLMENT_READY station=1",
       "ENROLLMENT_READY pid=0 station=1",
@@ -177,10 +178,45 @@ describe("parseDeployTransferResult", () => {
           stderr: "ENROLLMENT_PARTIAL station=0",
         }),
       ).toMatchObject({
-        ok: true,
-        phase: "enrollment",
+        ok: false,
+        detail: expect.stringContaining("ENROLLMENT_PARTIAL"),
       });
     }
+  });
+});
+
+describe("parseRuntimeActivateResult", () => {
+  it("requires STATION_READY with a live pid and both sockets", () => {
+    expect(
+      parseRuntimeActivateResult({
+        stdout: "STATION_READY pid=4312 term=1 browser=1",
+        stderr: "",
+      }),
+    ).toEqual({
+      ok: true,
+      detail: "Vellum Command is running on this Mac",
+    });
+  });
+
+  it("fails on empty stdout or ENROLLMENT_PARTIAL", () => {
+    expect(
+      parseRuntimeActivateResult({
+        stdout: "",
+        stderr: "",
+      }),
+    ).toMatchObject({ ok: false });
+    expect(
+      parseRuntimeActivateResult({
+        stdout: "ENROLLMENT_PARTIAL pid=9 station=0",
+        stderr: "ENROLLMENT_PARTIAL pid=9 station=0",
+      }),
+    ).toMatchObject({ ok: false });
+    expect(
+      parseRuntimeActivateResult({
+        stdout: "STATION_READY pid=0 term=1 browser=1",
+        stderr: "",
+      }),
+    ).toMatchObject({ ok: false });
   });
 });
 
@@ -189,6 +225,11 @@ describe("buildRemoteDeployScript", () => {
     "/Users/remote station",
     TEST_CDHASH,
     { kind: "app-tar", expectedPackageState: "present" },
+  );
+  const firstInstall = buildRemoteDeployScript(
+    "/Users/remote station",
+    TEST_CDHASH,
+    { kind: "app-tar", expectedPackageState: "absent" },
   );
 
   it("keeps every destructive remote target fixed to Vellum Command paths", () => {
@@ -217,8 +258,15 @@ describe("buildRemoteDeployScript", () => {
     expect(script).toContain(
       "STATION_SOCK='/Users/remote station/.vellum-command/station/control.sock'",
     );
-    expect(script).toContain("--vellum-headless");
-    expect(script).toContain("ENROLLMENT_READY");
+    expect(script).not.toContain("--vellum-headless");
+    expect(firstInstall).toContain("--vellum-headless");
+    expect(script).toContain("STATION_READY");
+    expect(script).toContain("RUNTIME_SOCKET_TIMEOUT");
+    expect(script).not.toContain("ENROLLMENT_READY");
+    expect(script).not.toContain("ENROLLMENT_SOCKET_TIMEOUT");
+    expect(firstInstall).toContain("ENROLLMENT_READY");
+    expect(firstInstall).toContain("ENROLLMENT_SOCKET_TIMEOUT");
+    expect(firstInstall).not.toContain("STATION_READY");
 
     const recursiveRemovals = script
       .split("\n")
@@ -239,6 +287,9 @@ describe("buildRemoteDeployScript", () => {
     expect(script).toContain(
       "DEPLOY_LOCK='/Applications/.vellum-command-deploy.lock'",
     );
+    expect(script).toContain("reclaim_abandoned_deploy_lock");
+    expect(script).toContain("DEPLOY_STALE_LOCK_RECLAIMED");
+    expect(script).toContain("DEPLOY_LOCK_HOLDER=");
     expect(script).toContain(`EXPECTED_CDHASH='${TEST_CDHASH}'`);
     expect(script).toContain("anchor apple generic");
     expect(script).toContain("certificate leaf[subject.OU]");
@@ -359,11 +410,23 @@ describe("buildRemoteDeployScript", () => {
     expect(termRemoval).toBeGreaterThan(0);
     expect(browserRemoval).toBeGreaterThan(termRemoval);
     expect(bootstrap).toBeGreaterThan(browserRemoval);
-    // Package phase proves enrollment station socket only; term/browser wait
-    // moves to post-configure runtime activate.
-    expect(stationWitness).toBeGreaterThan(bootstrap);
-    expect(termWitness).toBe(-1);
-    expect(browserWitness).toBe(-1);
+    // needRestart (present) proves term+browser. Enroll sock wait is first
+    // install only — a Remote never owns that door.
+    expect(stationWitness).toBe(-1);
+    expect(termWitness).toBeGreaterThan(bootstrap);
+    expect(browserWitness).toBeGreaterThan(bootstrap);
+    const firstStation = firstInstall.indexOf(
+      'socket_owned_by_pid "$STATION_SOCK" "$NEW_PID"',
+    );
+    expect(firstStation).toBeGreaterThan(
+      firstInstall.lastIndexOf(
+        'if ! "$LAUNCHCTL" bootstrap "$DOMAIN" "$PLIST"',
+      ),
+    );
+    expect(firstInstall.indexOf('socket_owned_by_pid "$TERM_SOCK"')).toBe(-1);
+    expect(firstInstall.indexOf('socket_owned_by_pid "$BROWSER_SOCK"')).toBe(
+      -1,
+    );
     expect(script).toContain(
       '"$LSOF" -n -a -U -Fp -- "$1"',
     );
@@ -691,7 +754,10 @@ describe("remote deploy transaction behavior", () => {
           '  *CFBundleIdentifier*) echo "skastr0.vellumcommand" ;;',
           '  *CFBundleExecutable*) echo "Vellum Command" ;;',
           '  *ProgramArguments.2*) exit 1 ;;',
-          '  *ProgramArguments.1*) echo "--vellum-headless" ;;',
+          '  *ProgramArguments.1*)',
+          expectedPackageState === "absent"
+            ? '    echo "--vellum-headless" ;;'
+            : "    exit 1 ;;",
           '  *ProgramArguments.0*)',
           '    if [ "$FAKE_EXISTING_PLIST_INVALID" = "1" ] && [ "$target" = "$FAKE_PLIST" ]; then echo "/unowned/executable"; else echo "$FAKE_EXE"; fi',
           "    ;;",
@@ -916,13 +982,42 @@ describe("remote deploy transaction behavior", () => {
       const harness = makeHarness();
       try {
         mkdirSync(harness.runtime.lockPath);
+        writeFileSync(
+          join(harness.runtime.lockPath, "holder"),
+          `${process.pid}\n`,
+        );
         const result = harness.run();
         expect(result.status).toBe(8);
         expect(result.stderr).toContain("DEPLOY_ALREADY_IN_PROGRESS");
+        expect(result.stderr).not.toContain("DEPLOY_STALE_LOCK_RECLAIMED");
         expect(existsSync(join(harness.state, "tar-ran"))).toBe(false);
         expect(readFileSync(harness.executablePath, "utf8")).toBe(
           "old-generation",
         );
+      } finally {
+        harness.cleanup();
+      }
+    },
+    35_000,
+  );
+
+  it(
+    "reclaims an abandoned lock left by a dropped copy",
+    () => {
+      const harness = makeHarness();
+      try {
+        mkdirSync(harness.runtime.lockPath);
+        writeFileSync(
+          join(harness.runtime.lockPath, "owner"),
+          "dead-owner-token\n",
+        );
+        const result = harness.run();
+        expect(result.stderr, result.stderr).toContain(
+          "DEPLOY_STALE_LOCK_RECLAIMED",
+        );
+        expect(result.stderr).not.toContain("DEPLOY_ALREADY_IN_PROGRESS");
+        expect(existsSync(join(harness.state, "tar-ran"))).toBe(true);
+        expect(existsSync(harness.runtime.lockPath)).toBe(false);
       } finally {
         harness.cleanup();
       }
@@ -1127,7 +1222,7 @@ describe("remote deploy transaction behavior", () => {
       try {
         const result = harness.run();
         expect(result.status).toBe(13);
-        expect(result.stderr).toContain("ENROLLMENT_SOCKET_TIMEOUT");
+        expect(result.stderr).toContain("RUNTIME_SOCKET_TIMEOUT");
         expect(result.stderr).toContain("DEPLOY_FORWARD_REPAIR_REQUIRED");
         expect(readFileSync(harness.executablePath, "utf8")).toBe(
           "new-generation",
@@ -1357,5 +1452,13 @@ describe("deploy transfer lifecycle", () => {
     expect(classifyDeployTransferDisposition(new Error("transport"))).toBe(
       "indeterminate",
     );
+    const darwin = readFileSync(
+      new URL("../src/main/vellum/hosts/deploy-darwin.ts", import.meta.url),
+      "utf8",
+    );
+    expect(darwin).toContain(
+      "error.code === DARWIN_DEPLOY_READY_WITH_LOCK_WARNING_EXIT",
+    );
+    expect(darwin).toContain("Effect.catchIf");
   });
 });
