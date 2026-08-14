@@ -271,8 +271,9 @@ export function terminalActivity(input: {
   }
   const processLabel = input.processName?.trim() || undefined;
   const activeProcess = isActiveProcessLabel(processLabel);
-  // Spawn in flight — brief green diagonal until the seat settles.
-  if (input.starting) {
+  // Spawn in flight — green diagonal for unmanaged only. Managed start is
+  // seated/unknown, never a grok/claude process-wave.
+  if (input.starting && !input.managedSeat) {
     return {
       mode: "wave",
       tone: "green",

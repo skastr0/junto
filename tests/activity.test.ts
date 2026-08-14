@@ -280,6 +280,37 @@ describe("terminalActivity", () => {
     });
   });
 
+  it("managed starting is seated/unknown, not a green process-wave", () => {
+    expect(
+      terminalActivity({
+        starting: true,
+        running: true,
+        processName: "grok",
+        managedSeat: true,
+      }),
+    ).toMatchObject({
+      mode: "static",
+      tone: "steel",
+      label: "seated",
+    });
+    expect(
+      terminalActivity({
+        starting: true,
+        processName: "claude",
+        managedSeat: true,
+      }),
+    ).toMatchObject({
+      mode: "static",
+      tone: "steel",
+      label: "unknown",
+    });
+    expect(terminalActivity({ starting: true, managedSeat: false })).toMatchObject({
+      mode: "wave",
+      tone: "green",
+      pattern: "diagonal",
+    });
+  });
+
   it("falls back to process lifecycle for raw terminals", () => {
     expect(terminalActivity({ starting: true })).toMatchObject({
       mode: "wave",
