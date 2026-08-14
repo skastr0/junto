@@ -41,6 +41,10 @@ import {
   compileDarwinRemoteDeployScript,
 } from "../ssh/remote-plan";
 import {
+  estimateDirectoryBytes,
+  watchCopyNodeStdout,
+} from "./deploy-copy-stream";
+import {
   SshTransferExitError,
   type SshTransportShape,
 } from "../ssh/service";
@@ -2548,16 +2552,14 @@ const streamArtifactToRemote = (
       );
       const command = yield* compileDarwinRemoteDeployScript(remoteScript);
       // Dedicated TCP: Station peer retries own the shared mux.
+      const payloadBytes =
+        transfer.kind === "release-zip" && input.admission.archive
+          ? input.admission.archive.bytes
+          : estimateDirectoryBytes(input.admission.localApp.appPath);
       const output = yield* ssh
         .transfer(
           deploymentStream(endpoint, command),
-          Stream.fromAsyncIterable(
-            source.lease.io.stdout,
-            (error) =>
-              new Error(
-                `local ${source.label} stream failed: ${error instanceof Error ? error.message : String(error)}`,
-              ),
-          ).pipe(Stream.map((chunk) => Uint8Array.from(chunk))),
+          watchCopyNodeStdout(source.lease.io.stdout, payloadBytes),
           DEPLOY_TIMEOUT_MS,
         )
         .pipe(

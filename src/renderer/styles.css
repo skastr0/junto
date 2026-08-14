@@ -4592,6 +4592,37 @@ button.actor-ledger__item-row:focus-visible {
   transition: width 280ms ease-out;
   box-shadow: 0 0 12px color-mix(in srgb, currentColor 35%, transparent);
 }
+.fleet-deploy-job__copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+.fleet-deploy-job__copy-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.fleet-deploy-job__copy-title {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-ink-2);
+}
+.fleet-deploy-job__copy-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-dim);
+  text-align: right;
+}
+.fleet-deploy-job__bar--copy {
+  height: 6px;
+}
 .fleet-deploy-job__detail {
   margin: 0;
   font-family: var(--font-mono);

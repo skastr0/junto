@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { Effect, Stream } from "effect";
+import { Effect } from "effect";
 import type { Context } from "effect";
 import type { HostWorkAttach } from "@shared/host-runtime";
 import type {
@@ -46,6 +46,10 @@ import {
   workAttachFromTokenFile,
 } from "./host-runtime-platform";
 import { compileDarwinRemoteDeployScript } from "../ssh/remote-plan";
+import {
+  estimateDirectoryBytes,
+  watchCopyNodeStdout,
+} from "./deploy-copy-stream";
 
 const COPY_TIMEOUT_MS = 20 * 60 * 1000;
 
@@ -272,13 +276,10 @@ export const copyDarwinHost = (
       const transferred = yield* ssh
         .transfer(
           deploymentStream(target, command.success),
-          Stream.fromAsyncIterable(
+          watchCopyNodeStdout(
             source.lease.io.stdout,
-            (error) =>
-              new Error(
-                `local tar stream failed: ${error instanceof Error ? error.message : String(error)}`,
-              ),
-          ).pipe(Stream.map((chunk) => Uint8Array.from(chunk))),
+            estimateDirectoryBytes(admission.success.appPath),
+          ),
           COPY_TIMEOUT_MS,
         )
         .pipe(Effect.result);
