@@ -226,14 +226,17 @@ const StationFleetServicesLive = Layer.provideMerge(
   ),
 );
 
-// HostRuntimeLive yields HostsService at acquire — provide, don't sibling-merge.
-const HostsWithSshLive = Layer.provideMerge(
-  Layer.provideMerge(HostRuntimeLive, HostsServiceLive),
+const HostsServiceReady = Layer.provideMerge(
+  HostsServiceLive,
   Layer.mergeAll(
     SshTransportLive,
     StateRepositoriesLive,
     StationFleetServicesLive,
   ),
+);
+const HostsWithSshLive = Layer.mergeAll(
+  HostsServiceReady,
+  Layer.provideMerge(HostRuntimeLive, HostsServiceReady),
 );
 
 const ProductTransportsLive = Layer.provideMerge(
