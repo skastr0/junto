@@ -128,6 +128,45 @@ export const mailboxCounts = (rows: ReadonlyArray<MailRow>): MailCounts => {
   return { total: rows.length, queued, unread };
 };
 
+/** Settled mail decays out of the pane after this long. Unread never does. */
+export const MAIL_SETTLED_WINDOW_MS = 30 * 60_000;
+
+export type VisibleMail = {
+  readonly rows: ReadonlyArray<MailRow>;
+  /** Settled rows past the window, folded into a count rather than dropped. */
+  readonly hidden: number;
+};
+
+/**
+ * The pane shows the seat's backlog plus a short tail of what just happened.
+ * Unread inbound mail IS the backlog, so it survives at any age — a seat
+ * sitting on eleven-day-old unread mail is precisely what this section exists
+ * to surface, and an age cut alone would hide it. Everything settled (read
+ * mail, and the agent's own note history) falls out of the list once it is
+ * older than the window and is reported as a count, never silently dropped.
+ */
+export const visibleMailRows = (
+  rows: ReadonlyArray<MailRow>,
+  nowMs: number,
+  windowMs: number = MAIL_SETTLED_WINDOW_MS,
+): VisibleMail => {
+  const visible: MailRow[] = [];
+  let hidden = 0;
+  for (const row of rows) {
+    if (row.direction === "in" && !row.read) {
+      visible.push(row);
+      continue;
+    }
+    const age = row.sentAtMs === undefined ? undefined : nowMs - row.sentAtMs;
+    if (age !== undefined && age <= windowMs) {
+      visible.push(row);
+      continue;
+    }
+    hidden += 1;
+  }
+  return { rows: visible, hidden };
+};
+
 /**
  * Per-peer unread counts over this actor's inbound mail — for the
  * connections rail: "which wired peer is waiting on this seat". Keys are

@@ -27,6 +27,7 @@ import {
   mailboxRows,
   recentOpAtMs,
   recentOpLabel,
+  visibleMailRows,
   type MailRow,
 } from "../../lib/actor-ledger";
 import {
@@ -412,6 +413,10 @@ export function ActorLedgerPane({
     return () => window.clearInterval(timer);
   }, [visible, expanded, rows.length]);
 
+  // Settled mail decays out after the window; unread stays at any age. The
+  // minute tick above is what carries a row across the threshold.
+  const visibleMail = useMemo(() => visibleMailRows(rows, nowMs), [rows, nowMs]);
+
   if (!isActor || !canvasMatches) return null;
 
   const api = getVellumCommandApi();
@@ -706,9 +711,9 @@ export function ActorLedgerPane({
                       .join(" - ")}
               </span>
             </header>
-            {rows.length > 0 ? (
+            {visibleMail.rows.length > 0 ? (
               <ul id={listId} className="actor-ledger__mail-list">
-                {rows.map((row) => (
+                {visibleMail.rows.map((row) => (
                   <MailRowItem
                     key={row.messageId}
                     row={row}
@@ -718,9 +723,19 @@ export function ActorLedgerPane({
                   />
                 ))}
               </ul>
+            ) : rows.length > 0 ? (
+              <p className="actor-ledger__empty">Nothing waiting</p>
             ) : (
               <p className="actor-ledger__empty">No mail yet</p>
             )}
+            {visibleMail.hidden > 0 ? (
+              <p
+                className="actor-ledger__mail-folded"
+                data-testid="actor-ledger-mail-folded"
+              >
+                {`${visibleMail.hidden} settled - vellum-command msg list`}
+              </p>
+            ) : null}
           </section>
           {opsFeed !== null && opsFeed.operations.length > 0 ? (
             <section

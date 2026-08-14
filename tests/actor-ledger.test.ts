@@ -9,6 +9,7 @@ import {
   recentOpAtMs,
   recentOpLabel,
   unreadMailByPeer,
+  visibleMailRows,
 } from "../src/renderer/lib/actor-ledger";
 
 const T0 = 1_700_000_000_000;
@@ -123,6 +124,59 @@ describe("mailboxRows", () => {
     const rows = mailboxRows(doc, doc.nodes[0]!);
     expect(rows.map((r) => r.preview)).toEqual(["fresh", "odd"]);
     expect(rows[1]!.sentAtMs).toBeUndefined();
+  });
+});
+
+describe("visibleMailRows", () => {
+  const rowsOf = (doc: CanvasDoc): ReturnType<typeof mailboxRows> =>
+    mailboxRows(doc, doc.nodes[0]!);
+
+  it("keeps unread inbound mail at any age", () => {
+    const ancient = mail(T0 - 11 * 86_400_000, { text: "unread 11d" });
+    const doc = docOf([agent("hub", "Hub", [ancient])]);
+    const visible = visibleMailRows(rowsOf(doc), T0);
+    expect(visible.rows.map((r) => r.preview)).toEqual(["unread 11d"]);
+    expect(visible.hidden).toBe(0);
+  });
+
+  it("folds read mail once it is older than the window", () => {
+    const staleRead = mail(T0 - 40 * 60_000, {
+      text: "settled",
+      metadata: { readAt: T0 },
+    });
+    const freshRead = mail(T0 - 5 * 60_000, {
+      text: "just read",
+      metadata: { readAt: T0 },
+    });
+    const doc = docOf([agent("hub", "Hub", [staleRead, freshRead])]);
+    const visible = visibleMailRows(rowsOf(doc), T0);
+    expect(visible.rows.map((r) => r.preview)).toEqual(["just read"]);
+    expect(visible.hidden).toBe(1);
+  });
+
+  it("folds the agent's own settled note history", () => {
+    const note = mail(T0 - 40 * 60_000, { text: "note", role: "agent" });
+    const doc = docOf([agent("hub", "Hub", [note])]);
+    const visible = visibleMailRows(rowsOf(doc), T0);
+    expect(visible.rows).toHaveLength(0);
+    expect(visible.hidden).toBe(1);
+  });
+
+  it("holds a read row until it crosses the boundary", () => {
+    const read = mail(T0 - 30 * 60_000, {
+      text: "edge",
+      metadata: { readAt: T0 },
+    });
+    const doc = docOf([agent("hub", "Hub", [read])]);
+    expect(visibleMailRows(rowsOf(doc), T0).rows).toHaveLength(1);
+    expect(visibleMailRows(rowsOf(doc), T0 + 1).hidden).toBe(1);
+  });
+
+  it("honours an explicit window", () => {
+    const read = mail(T0 - 90_000, { text: "r", metadata: { readAt: T0 } });
+    const doc = docOf([agent("hub", "Hub", [read])]);
+    expect(visibleMailRows(rowsOf(doc), T0, 60_000).hidden).toBe(1);
+    expect(visibleMailRows(rowsOf(doc), T0, 120_000).rows).toHaveLength(1);
   });
 });
 
