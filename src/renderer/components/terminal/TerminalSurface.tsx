@@ -22,7 +22,7 @@ import {
 } from "../../lib/terminal-theme";
 import { attachXtermAppearance } from "../../lib/xterm-appearance";
 import { themeMode$ } from "../../lib/theme-mode";
-import { shouldNotifyPtyResize } from "../../lib/terminal-resize";
+import { cellsForPane, shouldNotifyPtyResize } from "../../lib/terminal-resize";
 import {
   bookmarkFromBuffer,
   resolveViewportRestore,
@@ -165,34 +165,23 @@ const readCellSize = (term: Terminal): { cellW: number; cellH: number } => {
 
 /**
  * Geometry authority: host box → cols×rows.
- * Never trust FitAddon alone — when the flex chain is content-sized to the
- * default 80×24 canvas, FitAddon and a clientWidth floor both freeze on that
- * island. getBoundingClientRect on a flex:1;height:0 host is the real pane.
+ * Never trust FitAddon or the live .xterm node — both size to the current
+ * grid and freeze pin/focus/dock growth. flex:1;height:0 host is the pane.
  */
 const measureHost = (
   host: HTMLElement,
   term: Terminal,
 ): { cols: number; rows: number; w: number; h: number } | null => {
-  // Prefer the live .xterm box (already inset by CSS). Fall back to host − pad
-  // before the first open.
-  const surface = (term.element ?? host) as HTMLElement;
-  const rect = surface.getBoundingClientRect();
-  let w = rect.width;
-  let h = rect.height;
-  if ((!term.element || w < 40 || h < 40) && surface !== host) {
-    const hostRect = host.getBoundingClientRect();
-    w = Math.max(0, hostRect.width - XTERM_PAD_X);
-    h = Math.max(0, hostRect.height - XTERM_PAD_Y);
-  } else if (!term.element) {
-    w = Math.max(0, w - XTERM_PAD_X);
-    h = Math.max(0, h - XTERM_PAD_Y);
-  }
-  if (w < 40 || h < 40) return null;
-
+  const hostRect = host.getBoundingClientRect();
   const { cellW, cellH } = readCellSize(term);
-  const cols = Math.max(20, Math.min(300, Math.floor(w / cellW)));
-  const rows = Math.max(5, Math.min(120, Math.floor(h / cellH)));
-  return { cols, rows, w, h };
+  return cellsForPane({
+    hostWidth: hostRect.width,
+    hostHeight: hostRect.height,
+    cellW,
+    cellH,
+    padX: XTERM_PAD_X,
+    padY: XTERM_PAD_Y,
+  });
 };
 
 export function TerminalSurface({
