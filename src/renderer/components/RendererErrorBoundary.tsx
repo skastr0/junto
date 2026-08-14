@@ -13,7 +13,7 @@ export function RendererCrashFallback({
   return (
     <div
       role="alert"
-      className="grid h-full min-h-[12rem] place-content-center gap-3 bg-ground px-6 text-center"
+      className="pointer-events-auto mx-auto my-8 grid max-w-md gap-3 rounded-[5px] border border-stroke bg-raise px-6 py-5 text-center"
     >
       <Eyebrow tone="amber">Vellum Command</Eyebrow>
       <p className="font-display text-[18px] text-ink">{title}</p>

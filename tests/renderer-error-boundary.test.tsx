@@ -15,6 +15,7 @@ describe("RendererCrashFallback", () => {
     expect(html).toContain("Vellum Command");
     expect(html).toContain("The station is still running");
     expect(html).toContain("Reload this view");
+    expect(html).not.toContain("h-full");
     expect(html).toContain("cannot read nodes");
     expect(html).not.toContain("\u00b7");
   });
@@ -34,5 +35,11 @@ describe("renderer error boundary wiring", () => {
     expect(app).toContain("RendererErrorBoundary");
     expect(app).toContain("closeAllWorkbenchSurfaces");
     expect(app).toContain("closeAllTerminalSurfaces");
+    const boundary = app.indexOf("<RendererErrorBoundary");
+    const settings = app.indexOf("<SettingsPanel");
+    const fleet = app.indexOf("<FleetOverlay");
+    expect(boundary).toBeGreaterThan(0);
+    expect(settings).toBeGreaterThan(boundary);
+    expect(fleet).toBeGreaterThan(settings);
   });
 });

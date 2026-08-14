@@ -510,6 +510,16 @@ export function App() {
         <CanvasChrome />
         {/* Selection fields live on the RTS kind surface (FocusSurface forms). */}
 
+        <RendererErrorBoundary
+          title="This work surface hit a render error"
+          onReset={() => {
+            closeAllWorkbenchSurfaces();
+            closeAllTerminalSurfaces();
+          }}
+        >
+          <WorkFocusShell />
+          <PersistentTerminalHost />
+        </RendererErrorBoundary>
         <SettingsPanel />
         <ObservabilityPanel />
         {/* Mount fleet only while open — unmount destroys every WebGL machine. */}
@@ -532,16 +542,6 @@ export function App() {
             <HerdrToast />
           </>
         ) : null}
-        <RendererErrorBoundary
-          title="This work surface hit a render error"
-          onReset={() => {
-            closeAllWorkbenchSurfaces();
-            closeAllTerminalSurfaces();
-          }}
-        >
-          <WorkFocusShell />
-          <PersistentTerminalHost />
-        </RendererErrorBoundary>
         <DemoLayer />
         </div>
         <WorkSurfaceDock />
