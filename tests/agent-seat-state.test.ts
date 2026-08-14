@@ -289,8 +289,8 @@ describe("evaluate — grok", () => {
         lines: [
           "  Responding… 4.3s",
           "here is the answer",
-          "",
           "❯ ",
+          "Grok 4.5 (low) · 47K / 500K",
         ],
       }),
       { harness: "grok" },

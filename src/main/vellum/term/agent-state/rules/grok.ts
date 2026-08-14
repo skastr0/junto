@@ -88,15 +88,13 @@ export const grokRules: SeatRulePack = {
       state: "working",
       priority: 1120,
       region: "bottom_non_empty_lines",
-      regionN: 2,
+      regionN: 3,
       visibleWorking: true,
-      // Live footer: "Thinking…", "Responding…", "Waiting for response...".
-      // Braille optional — current grok prints these without a spinner while
-      // OSC title stays "grok". Bottom-only so scrollback cannot stick working.
-      // Outranks osc_title_idle.
+      // Live stack is status, prompt, model footer. Responding sits on the
+      // status line — last-2 missed it. Last-3 still ignores scrollback.
       matchers: {
         lineRegex: [
-          "^\\s*(?:[\\u2800-\\u28FF]\\s*)?(?:[Tt]hinking|[Rr]esponding|Waiting for response)(?:\\.{1,3}|…)",
+          "(?:[Tt]hinking|[Rr]esponding|Waiting for response)(?:\\.{1,3}|…)",
         ],
       },
     },
