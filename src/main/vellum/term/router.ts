@@ -221,17 +221,50 @@ const allSettledBefore = async (
   }
 };
 
-export type AttachResult =
-  | {
-      readonly ok: true;
-      readonly lease: ControlLease;
-      readonly cols: number;
-      readonly rows: number;
-      readonly journal: readonly JournalEntry[];
-      readonly status: string;
-      readonly pid?: number;
-    }
-  | { readonly ok: false; readonly message: string };
+export type AttachScreenSnapshot = {
+  readonly bindingId: string;
+  readonly epoch: string;
+  readonly cols: number;
+  readonly rows: number;
+  readonly seq: bigint;
+  readonly serialized: string;
+};
+
+export type AttachOk = {
+  readonly ok: true;
+  readonly lease: ControlLease;
+  readonly cols: number;
+  readonly rows: number;
+  readonly journal: readonly JournalEntry[];
+  readonly status: string;
+  readonly pid?: number;
+  readonly screen?: AttachScreenSnapshot;
+};
+
+export type AttachResult = AttachOk | { readonly ok: false; readonly message: string };
+
+/**
+ * Remap a Remote hop attach onto a local lease id. Journal and screen stay
+ * exactly as the hop sent them — the renderer restores VT from screen.
+ */
+export const remapRemoteAttach = (
+  result: AttachOk,
+  localLeaseId: string,
+): AttachOk => ({
+  ok: true,
+  lease: {
+    leaseId: localLeaseId,
+    bindingId: result.lease.bindingId,
+    epoch: result.lease.epoch,
+    mode: result.lease.mode,
+  },
+  cols: result.cols,
+  rows: result.rows,
+  journal: result.journal,
+  status: result.status,
+  pid: result.pid,
+  ...(result.screen ? { screen: result.screen } : {}),
+});
 
 export class TerminalRouter extends EventEmitter {
   private readonly remotes = new Map<string, RemoteEntry>();
@@ -554,20 +587,7 @@ export class TerminalRouter extends EventEmitter {
       const localLeaseId = `rm_${randomBytes(8).toString("hex")}`;
       entry.leaseMap.set(localLeaseId, result.lease.leaseId);
       entry.reverseLease.set(result.lease.leaseId, localLeaseId);
-      return {
-        ok: true,
-        lease: {
-          leaseId: localLeaseId,
-          bindingId: result.lease.bindingId,
-          epoch: result.lease.epoch,
-          mode: result.lease.mode,
-        },
-        cols: result.cols,
-        rows: result.rows,
-        journal: result.journal,
-        status: result.status,
-        pid: result.pid,
-      };
+      return remapRemoteAttach(result, localLeaseId);
     } catch (err) {
       return {
         ok: false,
