@@ -4,7 +4,11 @@ import { HOST_RUNTIME_REMEDY_STAGE } from "../src/shared/deploy-job";
 import { InstallationId } from "../src/shared/station-api";
 import type { RemoteHost } from "../src/shared/remote-hosts";
 import type { ConfigureRemoteOptions } from "../src/main/vellum/hosts/configure-remote";
-import { applyDarwinHostRuntime } from "../src/main/vellum/hosts/host-runtime-darwin";
+import {
+  applyDarwinHostRuntime,
+  deployResultFromHostOpsCopy,
+} from "../src/main/vellum/hosts/host-runtime-darwin";
+import type { HostOpsCopy } from "../src/shared/host-ops";
 import { applyLinuxHostRuntime } from "../src/main/vellum/hosts/host-runtime-linux";
 import type { HostRuntimeApplyContext } from "../src/main/vellum/hosts/host-runtime-platform";
 import { parseSshEndpoint } from "../src/main/vellum/ssh/domain";
@@ -238,6 +242,60 @@ describe("Darwin HostRuntime apply", () => {
     );
     expect(result.stages).toContain(HOST_RUNTIME_REMEDY_STAGE.copy);
     expect(result.stages).not.toContain(HOST_RUNTIME_REMEDY_STAGE.restart);
+  });
+});
+
+const copyReceipt = (
+  input: Partial<HostOpsCopy> &
+    Pick<HostOpsCopy, "ok" | "stdout" | "stderr">,
+): HostOpsCopy => ({
+  exit: input.exit ?? (input.ok ? 0 : 1),
+  expectedPackage: "present",
+  after: {
+    package: "present",
+    deployLock: "absent",
+    incoming: "absent",
+    termSocket: "present",
+  },
+  elapsedMs: 1,
+  observedAt: "2026-08-13T21:00:00.000Z",
+  ...input,
+});
+
+describe("HostOps copy maps onto the Darwin apply package result", () => {
+  it("treats STATION_READY as a ready package so activate and attach still run", () => {
+    const result = deployResultFromHostOpsCopy(host, copyReceipt({
+      ok: true,
+      stdout: "STATION_READY pid=12 term=1 browser=1\n",
+      stderr: "",
+    }));
+    expect(result.ok).toBe(true);
+    expect(result.disposition).toBe("ready");
+    expect(result.detail).toContain("Studio (studio-box)");
+    expect(result.detail).toContain("running on this Mac");
+  });
+
+  it("treats ENROLLMENT_READY as configuration-required for first install", () => {
+    const result = deployResultFromHostOpsCopy(host, copyReceipt({
+      ok: true,
+      stdout: "ENROLLMENT_READY pid=12 station=1\n",
+      stderr: "",
+    }));
+    expect(result.ok).toBe(true);
+    expect(result.disposition).toBe("configuration-required");
+  });
+
+  it("keeps leftover incoming as not-started so apply can retry after cleanup", () => {
+    const result = deployResultFromHostOpsCopy(host, copyReceipt({
+      ok: false,
+      exit: 12,
+      stdout: "",
+      stderr: "UNBOUND_DEPLOY_PATH_PRESENT",
+      tag: "UNBOUND_DEPLOY_PATH_PRESENT",
+    }));
+    expect(result.ok).toBe(false);
+    expect(result.disposition).toBe("not-started");
+    expect(result.message).toBe("UNBOUND_DEPLOY_PATH_PRESENT");
   });
 });
 

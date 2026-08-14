@@ -1,5 +1,5 @@
 /** Darwin HostRuntime platform. Package is the signed .app. Attach is term. */
-import { Effect, Layer } from "effect";
+import { Context, Effect, Layer } from "effect";
 import { join } from "node:path";
 import { HOST_RUNTIME_REMEDY_STAGE } from "@shared/deploy-job";
 import { classifyHostRuntimeBlocker, type HostWorkAttach } from "@shared/host-runtime";
@@ -10,7 +10,7 @@ import { homeDirectoryLookup, oneShot } from "../ssh/program";
 import { remoteDarwinPackageExists } from "../ssh/read-commands";
 import { SshTransport, type SshTransportShape } from "../ssh/service";
 import { HostOps, HostTarget } from "./host-ops";
-import type { HostOpsCleanup } from "@shared/host-ops";
+import type { HostOpsCleanup, HostOpsCopy } from "@shared/host-ops";
 import { TermControlClient } from "../term/control-client";
 import { configureRemoteHost } from "./configure-remote";
 import {
@@ -25,7 +25,7 @@ import {
 } from "./deploy-configured-remote";
 import {
   activateDarwinRemoteRuntimeForTarget,
-  darwinRemoteDeploymentProvider,
+  parseDeployTransferResult,
 } from "./deploy-darwin";
 import { reportDeployStage } from "./deploy-job-registry";
 import {
@@ -157,23 +157,77 @@ export type DarwinApplyOperations = {
   ) => Effect.Effect<HostOpsCleanup>;
 };
 
+const withDarwinHostOps = <A>(
+  ssh: SshTransportShape,
+  target: SshTarget,
+  use: (ops: Context.Service.Shape<typeof HostOps>) => Effect.Effect<A>,
+): Effect.Effect<A> =>
+  Effect.gen(function* () {
+    const ops = yield* HostOps;
+    return yield* use(ops);
+  }).pipe(
+    Effect.provide(
+      HostOps.layerDarwin.pipe(
+        Layer.provide(HostTarget.layer(target)),
+        Layer.provide(Layer.succeed(SshTransport, ssh)),
+      ),
+    ),
+  );
+
+/** Map a HostOps copy receipt onto the apply loop's package result. */
+export const deployResultFromHostOpsCopy = (
+  host: { readonly label: string; readonly sshEndpoint?: string },
+  copied: HostOpsCopy,
+): DeployRemoteResult => {
+  const parsed = parseDeployTransferResult({
+    stdout: copied.stdout,
+    stderr: copied.stderr,
+  });
+  const prefix =
+    host.sshEndpoint === undefined || host.sshEndpoint.length === 0
+      ? host.label
+      : `${host.label} (${host.sshEndpoint})`;
+  if (parsed.ok) {
+    return {
+      ok: true,
+      detail: `${prefix}: ${parsed.detail}`,
+      stages: [parsed.detail],
+      disposition:
+        parsed.phase === "enrollment"
+          ? "configuration-required"
+          : "ready",
+    };
+  }
+  const detail = copied.tag ?? parsed.detail;
+  return {
+    ok: false,
+    detail: `${prefix}: ${detail}`,
+    code: "io",
+    message: detail,
+    stages: [detail],
+    disposition:
+      copied.exit === 12 || copied.exit === 3
+        ? "not-started"
+        : copied.exit === 10
+          ? "ready"
+          : "indeterminate",
+  };
+};
+
 const productionDarwinApply: DarwinApplyOperations = {
-  deploy: (input) => darwinRemoteDeploymentProvider.deploy(input),
+  deploy: (input) =>
+    withDarwinHostOps(input.ssh, input.target.sshTarget, (ops) =>
+      ops.copy().pipe(
+        Effect.map((copied) =>
+          deployResultFromHostOpsCopy(input.target.host, copied),
+        ),
+      ),
+    ),
   configure: configureRemoteHost,
   activate: activateDarwinRemoteRuntimeForTarget,
   proveWorkAttach: proveDarwinWorkAttach,
   cleanup: (ssh, target) =>
-    Effect.gen(function* () {
-      const ops = yield* HostOps;
-      return yield* ops.cleanup();
-    }).pipe(
-      Effect.provide(
-        HostOps.layerDarwin.pipe(
-          Layer.provide(HostTarget.layer(target)),
-          Layer.provide(Layer.succeed(SshTransport, ssh)),
-        ),
-      ),
-    ),
+    withDarwinHostOps(ssh, target, (ops) => ops.cleanup()),
 };
 
 export const applyDarwinHostRuntime = (

@@ -721,6 +721,11 @@ describe("HostRuntime inversion", () => {
     expect(darwin).not.toContain("workControlSocketPath");
     expect(darwin).not.toContain("applyConfiguredRemoteGap");
     expect(darwin).toContain("activateDarwinRemoteRuntimeForTarget");
+    expect(darwin).toContain("ops.copy()");
+    expect(darwin).toContain("ops.cleanup()");
+    expect(darwin).toContain("configureRemoteHost");
+    expect(darwin).toContain("proveDarwinWorkAttach");
+    expect(darwin).not.toContain("darwinRemoteDeploymentProvider");
     expect(darwin).toContain("TermControlClient.connect");
     expect(darwin).not.toContain("handshakeLinuxWorkControl");
     expect(darwin).not.toContain("remoteTestSocketExists");
