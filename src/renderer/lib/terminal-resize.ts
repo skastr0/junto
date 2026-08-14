@@ -3,14 +3,32 @@ export type TerminalGeometry = {
   readonly rows: number;
 };
 
+export const UNKNOWN_TERMINAL_GEOMETRY: TerminalGeometry = { cols: 0, rows: 0 };
+
+/**
+ * Trailing window before the child is told a new size after the first notify.
+ * First notify (acked is unknown) is immediate — Remote SSH must not delay paint.
+ */
+export const PTY_NOTIFY_SETTLE_MS = 120;
+
 /**
  * A child PTY only needs SIGWINCH when its terminal geometry changes.
  * Renderer remounts and local repaints must not manufacture resize edges.
+ * Compare against last **acked** child size, never the painted xterm grid.
  */
 export const shouldNotifyPtyResize = (
-  previous: TerminalGeometry,
-  next: TerminalGeometry,
-): boolean => previous.cols !== next.cols || previous.rows !== next.rows;
+  acked: TerminalGeometry,
+  desired: TerminalGeometry,
+): boolean => acked.cols !== desired.cols || acked.rows !== desired.rows;
+
+export const shouldPaintView = (
+  painted: TerminalGeometry,
+  desired: TerminalGeometry,
+): boolean => painted.cols !== desired.cols || painted.rows !== desired.rows;
+
+/** First SIGWINCH after attach is immediate; later pin/focus hops coalesce. */
+export const ptyNotifyDelayMs = (acked: TerminalGeometry): number =>
+  acked.cols === 0 && acked.rows === 0 ? 0 : PTY_NOTIFY_SETTLE_MS;
 
 /**
  * Pane box is authority. Never measure the live .xterm node — that island

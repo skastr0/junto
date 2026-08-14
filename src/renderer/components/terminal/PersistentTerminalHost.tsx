@@ -55,6 +55,9 @@ function PersistentTerminal({ nodeId }: { readonly nodeId: string }) {
     if (!host || !well) return;
     const parent: HTMLElement = slot ?? well;
     if (host.parentElement !== parent) parent.appendChild(host);
+    requestAnimationFrame(() => {
+      window.dispatchEvent(new Event("resize"));
+    });
     return () => {
       if (well.isConnected && host.parentElement !== well) {
         well.appendChild(host);

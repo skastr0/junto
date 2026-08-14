@@ -22,7 +22,13 @@ import {
 } from "../../lib/terminal-theme";
 import { attachXtermAppearance } from "../../lib/xterm-appearance";
 import { themeMode$ } from "../../lib/theme-mode";
-import { cellsForPane, shouldNotifyPtyResize } from "../../lib/terminal-resize";
+import {
+  cellsForPane,
+  ptyNotifyDelayMs,
+  shouldNotifyPtyResize,
+  shouldPaintView,
+  UNKNOWN_TERMINAL_GEOMETRY,
+} from "../../lib/terminal-resize";
 import {
   bookmarkFromBuffer,
   resolveViewportRestore,
@@ -100,12 +106,6 @@ const XTERM_PAD_Y = 12; // 6 + 6
 const RESIZE_DEBOUNCE_MS = 48;
 /** After open/attach, wait for focus-shell enter + stored size apply. */
 const SETTLE_FITS_MS = [0, 50, 160, 320, 600] as const;
-/**
- * Trailing window before the child is told a new size. Must outlast the
- * SETTLE_FITS_MS ladder's last step so one open produces one SIGWINCH, not one
- * per settle tick.
- */
-const PTY_NOTIFY_SETTLE_MS = 120;
 
 const applyViewportBookmark = (
   term: Terminal,
@@ -202,7 +202,10 @@ export function TerminalSurface({
   const leaseRef = useRef<string | undefined>(undefined);
   const epochRef = useRef<string | undefined>(undefined);
   const apiRef = useRef<VellumCommandTerminalApi | undefined>(undefined);
-  const lastGeom = useRef<{ cols: number; rows: number }>({ cols: 0, rows: 0 });
+  /** Last geometry the spawn-host child acked. View paint does not wait on this. */
+  const lastAcked = useRef({ ...UNKNOWN_TERMINAL_GEOMETRY });
+  const desiredGeom = useRef({ ...UNKNOWN_TERMINAL_GEOMETRY });
+  const notifyInFlight = useRef(false);
   /** Trailing timer that coalesces child SIGWINCH into one settled size. */
   const ptyNotifyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [status, setStatus] = useState("attaching…");
@@ -298,98 +301,79 @@ export function TerminalSurface({
         // paints at termCols. If they diverge, the harness breaks its lines at
         // a column the renderer is not painting — the reported symptom where a
         // word splits mid-token onto the next row.
-        ptyCols: lastGeom.current.cols,
-        ptyRows: lastGeom.current.rows,
-        ptyDiverged: lastGeom.current.cols !== cols || lastGeom.current.rows !== rows,
+        ptyCols: lastAcked.current.cols,
+        ptyRows: lastAcked.current.rows,
+        ptyDiverged: lastAcked.current.cols !== cols || lastAcked.current.rows !== rows,
       });
     }
 
-    // Tell the CHILD first, then paint. A TUI positions its output by absolute
-    // row/column using the size the PTY reports, so if xterm is resized first
-    // the child keeps writing against the old geometry and lands its status
-    // line in the middle of the scrollback (proved in
-    // e2e/scenarios/terminal-absolute-row.spec.ts: told 30 rows, painted 39,
-    // status line rendered 9 rows above the bottom). Ordering the SIGWINCH
-    // ahead of the local resize closes that window instead of widening it.
-    {
-      const lease = leaseRef.current;
-      const api = apiRef.current;
-      const nextGeom = { cols, rows };
-      if (!lease || !api) {
-        logTermGeom("pty-notify-skipped", { cols, rows, hasLease: Boolean(lease), hasApi: Boolean(api) });
-      } else if (shouldNotifyPtyResize(lastGeom.current, nextGeom)) {
-        // COALESCE. Opening a surface runs pushResize through the whole
-        // SETTLE_FITS_MS ladder plus ResizeObserver ticks, and each distinct
-        // geometry used to become its own SIGWINCH — measured at four per open
-        // (135x30, 136x30, 137x30, 137x39). Every SIGWINCH makes a full-screen
-        // TUI clear and repaint at that geometry, so four of them in flight
-        // repaint over each other and leave the wreckage on screen.
-        //
-        // The local xterm resize stays immediate so the surface still feels
-        // responsive; only the child notification waits for layout to settle,
-        // and only the final size is ever sent.
-        if (ptyNotifyTimer.current !== undefined) clearTimeout(ptyNotifyTimer.current);
-        ptyNotifyTimer.current = setTimeout(() => {
-          ptyNotifyTimer.current = undefined;
-          const liveLease = leaseRef.current;
-          const liveApi = apiRef.current;
-          if (!liveLease || !liveApi) return;
-          if (!shouldNotifyPtyResize(lastGeom.current, nextGeom)) return;
-          void (async () => {
-            try {
-              // Record the belief only once the child has actually accepted the
-              // size — setting it up front means a dropped or dead-lease resize
-              // is remembered as delivered and never retried.
-              const ok = (await liveApi.terminalResize(liveLease, cols, rows)) !== false;
-              logTermGeom("pty-notify", { cols, rows, lease: liveLease.slice(0, 8), ok });
-              if (!ok) return;
-              lastGeom.current = nextGeom;
-              // ONLY NOW paint the new grid. A real terminal resizes its grid
-              // and signals the child atomically; here the two are separated by
-              // IPC, so the local resize waits for the child's acknowledgement.
-              // Resizing first opens a window where the child positions output
-              // by absolute row against a height nobody is painting, and that
-              // output is written into the scrollback permanently.
-              const live = termRef.current;
-              if (!live) return;
-              if (live.cols !== cols || live.rows !== rows) {
-                try {
-                  live.resize(cols, rows);
-                } catch {
-                  return;
-                }
-              }
-              try {
-                live.refresh(0, Math.max(0, live.rows - 1));
-              } catch {
-                // older paint paths still usable
-              }
-            } catch {
-              logTermGeom("pty-notify-failed", { cols, rows });
-            }
-          })();
-        }, PTY_NOTIFY_SETTLE_MS);
-      } else if (term.cols !== cols || term.rows !== rows) {
-        // Child already agrees on this geometry (e.g. a remount painting the
-        // size it was last told) — safe to size the grid locally.
-        try {
-          term.resize(cols, rows);
-        } catch {
-          return;
-        }
+    // View geometry is the pane. Placement (local IPC vs Mini hop) only
+    // notifies the child. Waiting on that hop to paint is what froze Remote
+    // seats as cream while the label already showed the new grid.
+    const nextGeom = { cols, rows };
+    desiredGeom.current = nextGeom;
+    if (shouldPaintView({ cols: term.cols, rows: term.rows }, nextGeom)) {
+      try {
+        term.resize(cols, rows);
+      } catch {
+        return;
       }
     }
-
-    // Re-sync canvas + scroll area even when cols×rows are stable (unpark /
-    // pin settle). Without this, wheel scroll and the PTY view go dead after
-    // zone moves or tab keep-alive at 1×1.
     try {
       term.refresh(0, Math.max(0, term.rows - 1));
     } catch {
       // ignore — older paint paths still usable
     }
-
     setGeomLabel(`${cols}×${rows}`);
+
+    const flushChildNotify = (): void => {
+      if (notifyInFlight.current) return;
+      const desired = desiredGeom.current;
+      const lease = leaseRef.current;
+      const api = apiRef.current;
+      if (!lease || !api) {
+        logTermGeom("pty-notify-skipped", {
+          cols: desired.cols,
+          rows: desired.rows,
+          hasLease: Boolean(lease),
+          hasApi: Boolean(api),
+        });
+        return;
+      }
+      if (!shouldNotifyPtyResize(lastAcked.current, desired)) return;
+      notifyInFlight.current = true;
+      void (async () => {
+        const send = desiredGeom.current;
+        try {
+          const ok =
+            (await api.terminalResize(lease, send.cols, send.rows)) !== false;
+          logTermGeom("pty-notify", {
+            cols: send.cols,
+            rows: send.rows,
+            lease: lease.slice(0, 8),
+            ok,
+          });
+          if (ok) lastAcked.current = send;
+        } catch {
+          logTermGeom("pty-notify-failed", { cols: send.cols, rows: send.rows });
+        } finally {
+          notifyInFlight.current = false;
+          if (shouldNotifyPtyResize(lastAcked.current, desiredGeom.current)) {
+            scheduleChildNotify();
+          }
+        }
+      })();
+    };
+
+    const scheduleChildNotify = (): void => {
+      if (ptyNotifyTimer.current !== undefined) clearTimeout(ptyNotifyTimer.current);
+      ptyNotifyTimer.current = setTimeout(() => {
+        ptyNotifyTimer.current = undefined;
+        flushChildNotify();
+      }, ptyNotifyDelayMs(lastAcked.current));
+    };
+
+    if (shouldNotifyPtyResize(lastAcked.current, nextGeom)) scheduleChildNotify();
   };
 
   useLayoutEffect(() => {
@@ -551,6 +535,10 @@ export function TerminalSurface({
       window.removeEventListener("resize", onWindowResize);
       observer.disconnect();
       if (resizeTimer) clearTimeout(resizeTimer);
+      if (ptyNotifyTimer.current !== undefined) {
+        clearTimeout(ptyNotifyTimer.current);
+        ptyNotifyTimer.current = undefined;
+      }
       for (const t of settleTimers) clearTimeout(t);
       appearance.dispose();
       appearanceRef.current = null;
@@ -680,7 +668,7 @@ export function TerminalSurface({
           // gate reads "no change" and the SIGWINCH is never sent — the child
           // then positions output against a size nobody is painting. Starting
           // at 0 makes the first measurement always notify.
-          lastGeom.current = { cols: 0, rows: 0 };
+          lastAcked.current = { ...UNKNOWN_TERMINAL_GEOMETRY };
           let lastSeq: bigint | undefined;
           // Live sessions have exactly one attach representation: serialized VT
           // state. Journal is only for failures before an observer existed.
