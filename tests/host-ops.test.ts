@@ -239,6 +239,7 @@ describe("host-ops layers", () => {
     expect(source).toContain("layerLinux");
     expect(source).toContain("HostTarget");
     expect(source).toContain("HostConfigure");
+    expect(source).toContain("layerUnset");
     expect(source).toContain("configure:");
     expect(source).toContain("activate:");
     expect(source).toContain("attach:");
@@ -248,6 +249,9 @@ describe("host-ops layers", () => {
     expect(source).not.toContain("process.platform");
     expect(source).not.toContain("Effect.Service");
     expect(source).not.toContain("unwrapEffect");
+    expect(source).not.toContain(
+      "configure: ConfigureRemoteOptions = UNSET_HOST_CONFIGURE",
+    );
   });
 
   it("receipt schemas keep leftovers and add process plus workAttach", () => {
@@ -364,6 +368,7 @@ describe("host-ops layers", () => {
       }).pipe(
         Effect.provide(
           HostOps.layerForTarget(target).pipe(
+            Layer.provide(HostConfigure.layerUnset),
             Layer.provide(Layer.succeed(SshTransport, ssh)),
           ),
         ),
@@ -388,6 +393,7 @@ describe("host-ops layers", () => {
       }).pipe(
         Effect.provide(
           HostOps.layerForTarget(target).pipe(
+            Layer.provide(HostConfigure.layerUnset),
             Layer.provide(Layer.succeed(SshTransport, ssh)),
           ),
         ),

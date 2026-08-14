@@ -165,6 +165,9 @@ export class HostConfigure extends Context.Service<
     options: ConfigureRemoteOptions,
   ): Layer.Layer<HostConfigure> =>
     Layer.succeed(HostConfigure, HostConfigure.of(options));
+
+  static readonly layerUnset: Layer.Layer<HostConfigure> =
+    Layer.succeed(HostConfigure, HostConfigure.of(UNSET_HOST_CONFIGURE));
 }
 
 export class HostOps extends Context.Service<
@@ -237,7 +240,7 @@ export class HostOps extends Context.Service<
     never,
     SshTransport | HostTarget
   > = HostOps.layerDarwinOps.pipe(
-    Layer.provide(HostConfigure.layer(UNSET_HOST_CONFIGURE)),
+    Layer.provide(HostConfigure.layerUnset),
   );
 
   static readonly layerLinux: Layer.Layer<
@@ -245,16 +248,15 @@ export class HostOps extends Context.Service<
     never,
     SshTransport | HostTarget
   > = HostOps.layerLinuxOps.pipe(
-    Layer.provide(HostConfigure.layer(UNSET_HOST_CONFIGURE)),
+    Layer.provide(HostConfigure.layerUnset),
   );
 
   static readonly layerForTarget = (
     target: SshTarget,
-    configure: ConfigureRemoteOptions = UNSET_HOST_CONFIGURE,
   ): Layer.Layer<
     HostOps | HostTarget,
     SshError | RemotePlatformProbeError,
-    SshTransport
+    SshTransport | HostConfigure
   > =>
     Layer.unwrap(
       Effect.gen(function* () {
@@ -264,8 +266,5 @@ export class HostOps extends Context.Service<
           ? HostOps.layerDarwinOps
           : HostOps.layerLinuxOps;
       }),
-    ).pipe(
-      Layer.provideMerge(HostTarget.layer(target)),
-      Layer.provide(HostConfigure.layer(configure)),
-    );
+    ).pipe(Layer.provideMerge(HostTarget.layer(target)));
 }

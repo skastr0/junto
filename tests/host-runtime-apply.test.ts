@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { Effect, Layer, Schema } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import { HOST_RUNTIME_REMEDY_STAGE } from "../src/shared/deploy-job";
@@ -165,6 +166,38 @@ const expectRemedyStages = (
 };
 
 describe("HostRuntime apply over HostOps", () => {
+  it("is one apply loop over HostOps, not Darwin or Linux ceremony", () => {
+    const runtime = readFileSync(
+      new URL("../src/main/vellum/hosts/host-runtime.ts", import.meta.url),
+      "utf8",
+    );
+    const darwin = readFileSync(
+      new URL("../src/main/vellum/hosts/host-runtime-darwin.ts", import.meta.url),
+      "utf8",
+    );
+    const linux = readFileSync(
+      new URL("../src/main/vellum/hosts/host-runtime-linux.ts", import.meta.url),
+      "utf8",
+    );
+    expect(runtime).toContain("applyHostRuntime");
+    expect(runtime).toContain("HostOps.layerForTarget");
+    expect(runtime).toContain("HostConfigure.layer");
+    expect(runtime).toContain("ops.cleanup");
+    expect(runtime).toContain("ops.copy");
+    expect(runtime).toContain("ops.configure");
+    expect(runtime).toContain("ops.activate");
+    expect(runtime).toContain("ops.attach");
+    expect(runtime).not.toContain("applyDarwinHostRuntime");
+    expect(runtime).not.toContain("applyLinuxHostRuntime");
+    expect(runtime).not.toContain("DarwinApplyOperations");
+    expect(runtime).not.toContain("LinuxApplyOperations");
+    expect(runtime).not.toContain("adapterFor");
+    expect(runtime).not.toContain("--vellum-headless");
+    expect(runtime).not.toContain('from "./deploy-darwin"');
+    expect(darwin).not.toContain("for (let round");
+    expect(linux).not.toContain("for (let round");
+  });
+
   it("configures and activates on first install", async () => {
     const configure = vi.fn(() => Effect.succeed(configured));
     const activate = vi.fn(() => Effect.succeed(darwinActivate));
@@ -219,6 +252,32 @@ describe("HostRuntime apply over HostOps", () => {
     expect(result.configuration.detail).toContain("configure skipped");
     expect(result.stationInstallationId).toBe("station-installation");
     expectRemedyStages(result.stages, [HOST_RUNTIME_REMEDY_STAGE.sign]);
+  });
+
+  it("keeps a failed Station configure as a Station receipt", async () => {
+    const result = await runApply(
+      "needInstall",
+      fakeOps({
+        copy: () =>
+          Effect.succeed(
+            readyCopy({
+              stdout: "ENROLLMENT_READY pid=12 station=1\n",
+            }),
+          ),
+        configure: () =>
+          Effect.succeed({
+            ok: false,
+            detail: "Station API pair refused",
+            code: "conflict",
+            observedAt,
+          }),
+      }),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe("conflict");
+    expect(result.detail).toContain("Station API");
+    expect(result.detail).not.toMatch(/SSH failed/u);
+    expect(result.configuration.detail).toBe("Station API pair refused");
   });
 
   it("retries copy and restart until attach connects", async () => {

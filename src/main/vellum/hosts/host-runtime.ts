@@ -40,9 +40,8 @@ import {
   packageAdmitted,
   type ConfiguredRemoteDeployResult,
 } from "./deploy-configured-remote";
-import { parseDeployTransferResult } from "./deploy-darwin";
 import { reportDeployStage } from "./deploy-job-registry";
-import { HostOps } from "./host-ops";
+import { HostConfigure, HostOps } from "./host-ops";
 import {
   HOST_RUNTIME_REMEDY_ROUNDS,
   hostRuntimeBlockedDeploy,
@@ -101,6 +100,36 @@ const refused = (
   configuration: { ok: false, detail },
 });
 
+const isSshError = (error: unknown): error is SshError =>
+  typeof error === "object" &&
+  error !== null &&
+  "_tag" in error &&
+  typeof (error as { readonly _tag: unknown })._tag === "string" &&
+  (error as { readonly _tag: string })._tag.startsWith("Ssh");
+
+/** Layer load failed. Station pair stays a configure receipt, not this path. */
+const applyProvisionFailure = (
+  host: RemoteHost,
+  error: unknown,
+): ConfiguredRemoteDeployResult => {
+  if (error instanceof RemotePlatformProbeError) {
+    return refused(host, `${host.label}: ${error.message}`, "validation");
+  }
+  if (isSshError(error)) {
+    const detail = formatSshFailure(error);
+    const blocker = classifyHostRuntimeBlocker(detail);
+    if (blocker?.kind === "auth") {
+      return refused(host, blocker.detail, "auth_required");
+    }
+    return refused(host, `${host.label}: SSH failed — ${detail}`, "io");
+  }
+  return refused(
+    host,
+    error instanceof Error ? error.message : String(error),
+    "io",
+  );
+};
+
 export type HostRuntimeApplyAdmission =
   | { readonly ok: true; readonly platform: "darwin" | "linux" }
   | {
@@ -115,8 +144,8 @@ export type HostRuntimeApplyAdmission =
     };
 
 /**
- * After observe: pairing (Darwin Remote needs a local .app) then the release
- * freeze. linuxRemoteDeploy stays a real apply gate, not a label.
+ * After observe: pairing (local .app when the Remote needs one) then the
+ * release freeze. linuxRemoteDeploy stays a real apply gate, not a label.
  */
 export const admitHostRuntimeApply = (input: {
   readonly observation: HostRuntimeObservation;
@@ -177,7 +206,12 @@ const withHostOps = <A, E>(
 ): Effect.Effect<A, E | SshError | RemotePlatformProbeError> =>
   use.pipe(
     Effect.provide(
-      HostOps.layerForTarget(target, configure).pipe(
+      HostOps.layerForTarget(target).pipe(
+        Layer.provide(
+          configure === undefined
+            ? HostConfigure.layerUnset
+            : HostConfigure.layer(configure),
+        ),
         Layer.provide(Layer.succeed(SshTransport, ssh)),
       ),
     ),
@@ -200,15 +234,45 @@ const configuredFromOps = (
   ...(receipt.code === undefined ? {} : { code: receipt.code }),
 });
 
+const parseHostOpsCopyPhase = (
+  stdout: string,
+  stderr: string,
+):
+  | {
+      readonly ok: true;
+      readonly phase: "enrollment" | "runtime";
+      readonly detail: string;
+    }
+  | { readonly ok: false; readonly detail: string } => {
+  if (/^ENROLLMENT_READY pid=[1-9][0-9]* station=1$/mu.test(stdout)) {
+    return {
+      ok: true,
+      phase: "enrollment",
+      detail: "Vellum Command is installed and waiting to join the fleet",
+    };
+  }
+  if (/^STATION_READY pid=[1-9][0-9]* term=1 browser=1$/mu.test(stdout)) {
+    return {
+      ok: true,
+      phase: "runtime",
+      detail: "Vellum Command is running on this Mac",
+    };
+  }
+  const diagnostic = stderr.trim() || stdout.trim();
+  return {
+    ok: false,
+    detail:
+      diagnostic.slice(0, 900) ||
+      "Vellum Command install did not prove enrollment or runtime readiness",
+  };
+};
+
 /** Map a HostOps copy receipt onto the apply loop's package result. */
 export const deployResultFromHostOpsCopy = (
   host: { readonly label: string; readonly sshEndpoint?: string },
   copied: HostOpsCopy,
 ): import("./remote-deployment").DeployRemoteResult => {
-  const parsed = parseDeployTransferResult({
-    stdout: copied.stdout,
-    stderr: copied.stderr,
-  });
+  const parsed = parseHostOpsCopyPhase(copied.stdout, copied.stderr);
   const prefix =
     host.sshEndpoint === undefined || host.sshEndpoint.length === 0
       ? host.label
@@ -661,18 +725,13 @@ export const HostRuntimeLive = Layer.effect(
               }),
         }).pipe(
           Effect.provide(
-            HostOps.layerForTarget(parsed.success, input.configure).pipe(
+            HostOps.layerForTarget(parsed.success).pipe(
+              Layer.provide(HostConfigure.layer(input.configure)),
               Layer.provide(Layer.succeed(SshTransport, ssh)),
             ),
           ),
           Effect.catch((error) =>
-            Effect.succeed(
-              refused(
-                remote,
-                error instanceof Error ? error.message : String(error),
-                "io",
-              ),
-            ),
+            Effect.succeed(applyProvisionFailure(remote, error)),
           ),
         );
         if (input.onCompleted === undefined) return applied;

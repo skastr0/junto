@@ -7,7 +7,7 @@
  */
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { InstallationId } from "../src/shared/installation-id";
-import { HostOps } from "../src/main/vellum/hosts/host-ops";
+import { HostConfigure, HostOps } from "../src/main/vellum/hosts/host-ops";
 import { parseSshEndpoint } from "../src/main/vellum/ssh/domain";
 import { SshTransportLive } from "../src/main/vellum/ssh/live";
 
@@ -46,7 +46,10 @@ const facts = {
   appVersion: appVersion ?? "0.0.0",
 };
 const runtime = ManagedRuntime.make(
-  HostOps.layerForTarget(target, facts).pipe(Layer.provide(SshTransportLive)),
+  HostOps.layerForTarget(target).pipe(
+    Layer.provide(HostConfigure.layer(facts)),
+    Layer.provide(SshTransportLive),
+  ),
 );
 
 const receipt = await runtime.runPromise(
