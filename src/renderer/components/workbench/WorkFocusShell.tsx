@@ -13,6 +13,7 @@ import {
   type WorkFocusSizeKey,
 } from "../../lib/surface-registry";
 import { actorTerminalRailsPx, type FocusMeasure } from "../../lib/focus-measure";
+import { scheduleFocusPrimaryControl } from "../../lib/focus-ownership";
 import { parseTerminalSurfaceId } from "../../lib/dock-state";
 import { terminal$ } from "../../lib/terminal-state";
 import { isGroup } from "@shared/graph";
@@ -141,6 +142,18 @@ export function WorkFocusShell() {
       panelObserverRef.current = null;
     };
   }, [hasFocus, sizeKey]);
+
+  // Front-surface changes keep the same FocusSurface mounted — re-claim the
+  // new terminal / composer so typing lands immediately.
+  useEffect(() => {
+    if (!hasFocus || !activeId) return;
+    return scheduleFocusPrimaryControl(
+      () =>
+        document.querySelector(
+          ".focus-surface__panel.work-focus-shell__panel",
+        ) as HTMLElement | null,
+    );
+  }, [hasFocus, activeId]);
 
   if (!hasFocus) return null;
 

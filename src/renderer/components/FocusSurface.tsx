@@ -6,6 +6,7 @@ import {
   type FocusLayer,
   type FocusMeasure,
 } from "../lib/focus-measure";
+import { scheduleFocusPrimaryControl } from "../lib/focus-ownership";
 
 /**
  * Focused single-subject overlay shell.
@@ -89,6 +90,12 @@ export function FocusSurface({
     panelRef.current.style.width = `${stored.width}px`;
     panelRef.current.style.height = `${stored.height}px`;
   }, [height, measure]);
+
+  // Opening the modal is the operator opt-in: put keyboard on the subject
+  // (xterm textarea, composer, first field) instead of leaving it on the canvas.
+  useEffect(() => {
+    return scheduleFocusPrimaryControl(() => panelRef.current);
+  }, []);
 
   useEffect(() => {
     if (height !== "resizable") return;

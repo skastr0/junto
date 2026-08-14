@@ -57,7 +57,10 @@ import {
   type SessionLoadPhase,
 } from "../../lib/session-load";
 import { releaseTaskToQueue } from "../../lib/work-actions";
-import { canClaimFocusAfterAsyncWork } from "../../lib/focus-ownership";
+import {
+  canClaimFocusAfterAsyncWork,
+  shouldClaimFocusOnSurfaceOpen,
+} from "../../lib/focus-ownership";
 import { ActivityMark } from "../ActivityMark";
 import { Button, Eyebrow, OverlayHeader } from "../ui";
 import { ActorEdgesGlance } from "./ActorEdgesGlance";
@@ -582,6 +585,34 @@ export function TerminalSurface({
       }),
     [],
   );
+
+  // Focus-zone open / unpark: put the xterm textarea under the keyboard so
+  // the operator can type immediately. Opening is the opt-in; later retries
+  // wait for slot adoption into the shell and stop if they have already
+  // chosen another control inside the modal.
+  useEffect(() => {
+    if (!visible) return;
+    const term = termRef.current;
+    if (!term) return;
+    const claim = (): boolean => {
+      const host = hostRef.current;
+      if (!host?.closest(".work-focus-shell")) return false;
+      if (!shouldClaimFocusOnSurfaceOpen(host)) return true;
+      term.focus();
+      return host.contains(document.activeElement);
+    };
+    if (claim()) return;
+    const raf = requestAnimationFrame(() => {
+      if (claim()) return;
+    });
+    const later = window.setTimeout(claim, 80);
+    const settle = window.setTimeout(claim, 200);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.clearTimeout(later);
+      window.clearTimeout(settle);
+    };
+  }, [visible, node.id]);
 
   useEffect(() => {
     const api = getVellumCommandApi() as VellumCommandTerminalApi | undefined;

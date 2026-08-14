@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { canClaimFocusAfterAsyncWork } from "../src/renderer/lib/focus-ownership";
+import {
+  canClaimFocusAfterAsyncWork,
+  pickPrimaryFocusControl,
+  shouldClaimFocusOnSurfaceOpen,
+} from "../src/renderer/lib/focus-ownership";
 
 type OwnerOptions = {
   readonly connected?: boolean;
@@ -56,5 +60,50 @@ describe("async focus ownership", () => {
     expect(
       canClaimFocusAfterAsyncWork(focusOwner({ connected: false }), null),
     ).toBe(false);
+  });
+});
+
+describe("focus modal open", () => {
+  it("picks the xterm helper textarea before ordinary fields", () => {
+    const hits: string[] = [];
+    const textarea = { focus() {} } as HTMLElement;
+    const picked = pickPrimaryFocusControl({
+      querySelector: (selector) => {
+        hits.push(selector);
+        return selector === ".xterm-helper-textarea" ? textarea : null;
+      },
+    });
+    expect(picked).toBe(textarea);
+    expect(hits[0]).toBe(".xterm-helper-textarea");
+  });
+
+  it("falls through to a chat composer when no xterm is present", () => {
+    const composer = { focus() {} } as HTMLElement;
+    const picked = pickPrimaryFocusControl({
+      querySelector: (selector) =>
+        selector === "textarea.chat-composer__input" ? composer : null,
+    });
+    expect(picked).toBe(composer);
+  });
+
+  it("claims focus from the canvas or opener on modal open", () => {
+    const opener = {} as Element;
+    expect(shouldClaimFocusOnSurfaceOpen(focusOwner(), null)).toBe(true);
+    expect(shouldClaimFocusOnSurfaceOpen(focusOwner(), opener)).toBe(true);
+  });
+
+  it("does not yank a real control already focused inside the modal", () => {
+    const inner = {} as Element;
+    const owner = focusOwner({ contains: (target) => target === inner });
+    expect(shouldClaimFocusOnSurfaceOpen(owner, inner)).toBe(false);
+  });
+
+  it("still upgrades from the panel container itself", () => {
+    const panel = {
+      className: "focus-surface__panel work-focus-shell__panel",
+      dataset: {},
+    } as unknown as Element;
+    const owner = focusOwner({ contains: (target) => target === panel });
+    expect(shouldClaimFocusOnSurfaceOpen(owner, panel)).toBe(true);
   });
 });
