@@ -102,12 +102,16 @@ describe("term seat-state placement wiring", () => {
     expect(ipc).toContain("ensureHostAvailable: ensureBoxHostAvailable,\n    broadcast,");
   });
 
-  it("fans Mini seat-state to admitted clients and validates on the hop", () => {
+  it("fans Mini seat-state to authed clients and validates on the hop", () => {
     const server = readFileSync("src/main/vellum/term/control-server.ts", "utf8");
     const client = readFileSync("src/main/vellum/term/control-client.ts", "utf8");
     expect(server).toContain("stopSeatState = seatStateRuntime.subscribe");
     expect(server).toContain("type: \"seat-state\"");
-    expect(server).toContain("writeEvent(payload, admittedClients)");
+    expect(server).toContain("writeEvent(payload, authedClients)");
+    expect(server).not.toContain("writeEvent(payload, admittedClients)");
+    expect(server).toContain("authedClients.add(socket)");
+    expect(server).toContain("authedClients.delete(socket)");
+    expect(server).toContain("admittedClients.add(socket)");
     expect(client).toContain("isAgentSeatState(ev.state)");
   });
 });

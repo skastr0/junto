@@ -275,6 +275,8 @@ export const startTermControlServer = async (
   let listenerCloseFlight: Promise<void> | undefined;
   let drainFlight: Promise<TermControlServerShutdownReceipt> | undefined;
   const admittedClients = new Set<Socket>();
+  /** Seat-state hops only — admittedClients is the connection ceiling. */
+  const authedClients = new Set<Socket>();
 
   const recordDiagnostic = (label: string, error: unknown): void => {
     const message = error instanceof Error ? error.message : String(error);
@@ -364,7 +366,7 @@ export const startTermControlServer = async (
 
   const onHostEvent = (payload: LocalHostEvent): void => {
     if (payload.type === "seat-state") {
-      writeEvent(payload, admittedClients);
+      writeEvent(payload, authedClients);
       return;
     }
     const line = jsonLine({ v: TERM_CONTROL_PROTOCOL, type: "event", payload });
@@ -649,6 +651,7 @@ export const startTermControlServer = async (
             return;
           }
           authed = true;
+          authedClients.add(socket);
           try {
             socket.write(jsonLine({ v: 1, id: "auth", ok: true }));
           } catch {
@@ -682,6 +685,7 @@ export const startTermControlServer = async (
     });
     socket.on("close", () => {
       admittedClients.delete(socket);
+      authedClients.delete(socket);
       closed = true;
       sockets.delete(socketId);
       releaseMaintenanceForSocket(socket);
@@ -995,7 +999,7 @@ export const startTermControlServer = async (
         epoch: event.epoch,
         event,
       },
-      admittedClients,
+      authedClients,
     );
   });
   return control;
