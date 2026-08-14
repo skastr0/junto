@@ -31,6 +31,19 @@ const CLOCKWISE_CELLS = [
   [2, 1],
 ] as const;
 
+/** Full 3×3 including center — pulse breathes every cell together. */
+const PULSE_CELLS = [
+  [1, 1],
+  [1, 2],
+  [1, 3],
+  [2, 1],
+  [2, 2],
+  [2, 3],
+  [3, 1],
+  [3, 2],
+  [3, 3],
+] as const;
+
 export type ActivityMarkProps = {
   readonly mode: ActivityMode;
   readonly tone: ActivityTone;
@@ -158,17 +171,31 @@ export function ActivityMark({
         data-activity-size={size}
         style={shellStyle}
       >
-        {/* Exactly one infinite-animated descendant. */}
+        {/* Exactly one infinite-animated descendant — the breath lives on this
+            wrapper; the 3×3 cells inside are static paint, not keyframes. */}
         <span
           className="vellum-activity-pulse-layer"
           style={{
-            display: "block",
-            width: box,
-            height: boxH,
-            borderRadius: 2,
-            backgroundColor: hex,
+            display: "inline-grid",
+            gridTemplateColumns: `repeat(3, ${String(dims.cellSize)}px)`,
+            gridTemplateRows: `repeat(3, ${String(dims.cellSize)}px)`,
+            gap: dims.cellGap,
           }}
-        />
+        >
+          {PULSE_CELLS.map(([row, column]) => (
+            <span
+              key={`${String(row)}:${String(column)}`}
+              style={{
+                gridRow: row,
+                gridColumn: column,
+                width: dims.cellSize,
+                height: dims.cellSize,
+                borderRadius: 1,
+                backgroundColor: hex,
+              }}
+            />
+          ))}
+        </span>
       </span>
     );
   }
