@@ -67,5 +67,13 @@ export const closeTerminalSurface = (nodeId: string): void => {
   terminal$.preferredZoneByNodeId[nodeId].delete();
 };
 
+/** Drop every open terminal surface so a crashed view can remount clean. */
+export const closeAllTerminalSurfaces = (): void => {
+  for (const nodeId of Object.keys(terminal$.openByNodeId.peek())) {
+    closeTerminalSurface(nodeId);
+  }
+  terminal$.lastOpenNodeId.set(null);
+};
+
 export const terminalNodeIds = (): readonly string[] =>
   Object.keys(terminal$.openByNodeId.peek());

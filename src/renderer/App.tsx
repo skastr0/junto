@@ -40,6 +40,7 @@ import { Canvas } from "./components/Canvas";
 import { TopBar } from "./components/TopBar";
 import { CanvasChrome } from "./components/CanvasChrome";
 import { RemoteStationFace } from "./components/remote/RemoteStationFace";
+import { RendererErrorBoundary } from "./components/RendererErrorBoundary";
 
 import { SettingsPanel } from "./components/SettingsPanel";
 import { ObservabilityPanel } from "./components/ObservabilityPanel";
@@ -60,6 +61,8 @@ import { HerdrToast } from "./components/herdr/HerdrToast";
 import { WorkSurfaceDock } from "./components/WorkSurfaceDock";
 import { WorkFocusShell } from "./components/workbench";
 import { PersistentTerminalHost } from "./components/terminal/PersistentTerminalHost";
+import { closeAllWorkbenchSurfaces } from "./lib/dock-state";
+import { closeAllTerminalSurfaces } from "./lib/terminal-state";
 import { TooltipLayer } from "./components/TooltipLayer";
 import { DemoCameraBridge } from "./demo/camera-bridge";
 import { DemoLayer } from "./demo/demo-layer";
@@ -529,8 +532,16 @@ export function App() {
             <HerdrToast />
           </>
         ) : null}
-        <WorkFocusShell />
-        <PersistentTerminalHost />
+        <RendererErrorBoundary
+          title="This work surface hit a render error"
+          onReset={() => {
+            closeAllWorkbenchSurfaces();
+            closeAllTerminalSurfaces();
+          }}
+        >
+          <WorkFocusShell />
+          <PersistentTerminalHost />
+        </RendererErrorBoundary>
         <DemoLayer />
         </div>
         <WorkSurfaceDock />
