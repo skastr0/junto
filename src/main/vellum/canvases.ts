@@ -1265,10 +1265,17 @@ export const CanvasesLive = Layer.effect(
     ),
     announceInstalledProjection: (names) => {
       if (names.length === 0) {
-        notifyListeners("");
+        // Empty name is the bulk invalidation signal for projection installs.
+        notifyListeners("" as CanvasName);
         return;
       }
-      for (const name of names) notifyListeners(name);
+      for (const name of names) {
+        try {
+          notifyListeners(canvasNameFrom(name));
+        } catch {
+          // Installed projection names are system-owned; skip corrupt rows.
+        }
+      }
     },
     list,
     read,
