@@ -27,7 +27,6 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import type { AgentSeatState } from "@shared/agent-seat-state";
 import type { CanvasNode, EtherFlag } from "@shared/canvas";
 import { HERDR_ENABLED } from "@shared/features";
 import { executionGraphContextFromActorRefs, groupMembers } from "@shared/graph";
@@ -60,7 +59,7 @@ import {
   slotIndexOf as hotbarSlotIndexOfNode,
   touchActiveMru,
 } from "../../lib/hotbar-slots";
-import { hotbarNodeSeverity, liveActivitySeverity } from "../../lib/hotbar-signal";
+import { hotbarNodeSeverity } from "../../lib/hotbar-signal";
 import { signalMark } from "../../lib/signal-mark";
 import {
   deleteNode,
@@ -111,6 +110,7 @@ import { KindSurface } from "./KindSurface";
 import { RollCall } from "./RollCall";
 import {
   agentSeat$,
+  bindingIdForNode,
   seatEventForNode,
 } from "../../lib/agent-seat-state";
 import {
@@ -119,7 +119,15 @@ import {
   OPERATOR_ATTENTION_HEADLINE,
   OPERATOR_ATTENTION_STRIP_MAX,
 } from "../../lib/operator-attention";
-import { digitLease } from "../../lib/seat-projections";
+import {
+  digitHue,
+  digitLease,
+  liveAttentionReasons,
+  seatFactsForNode,
+  type SeatFacts,
+} from "../../lib/seat-projections";
+import { isHarnessId } from "@shared/managed-terminal-templates";
+import { terminal$ } from "../../lib/terminal-state";
 import "./RtsBottomBar.css";
 
 const COLOR_OPTIONS: ReadonlyArray<{ readonly value: string; readonly label: string; readonly hue: string }> = [
@@ -267,18 +275,47 @@ const leaseEligibleActorIds = (
  * Actors that keep a hard lease while busy. Same seat facts as the card and
  * notify: only working/attention. Idle demotes to evicted (soft-hold).
  */
+const managedSeatOf = (node: CanvasNode): boolean => {
+  const harness = node.ether?.terminal?.harness;
+  return typeof harness === "string" && isHarnessId(harness);
+};
+
+const seatFactsOf = (
+  node: CanvasNode,
+  extra: {
+    readonly graphBlocked?: boolean;
+    readonly chatByAgent?: Readonly<
+      Record<string, { readonly pendingPermissionId?: string } | undefined>
+    >;
+    readonly herdrAgentStatus?: string | null;
+    readonly needsLook?: boolean;
+  } = {},
+): SeatFacts => {
+  const bindingId = bindingIdForNode(node);
+  const session = bindingId
+    ? terminal$.sessionByBindingId[bindingId].peek()
+    : undefined;
+  return seatFactsForNode({
+    nodeId: node.id,
+    seatEvent: seatEventForNode(node),
+    session,
+    graphBlocked: extra.graphBlocked,
+    flags: node.ether?.flags,
+    attentionReasons: liveAttentionReasons(node, extra.chatByAgent),
+    managedSeat: managedSeatOf(node),
+    needsLook: extra.needsLook,
+    herdrAgentStatus: extra.herdrAgentStatus,
+  });
+};
+
 const stickyWorkingNodeIds = (nodes: ReadonlyArray<CanvasNode>): string[] => {
+  const chatByAgent = chatCoarse$.peek() as
+    | Record<string, { readonly pendingPermissionId?: string } | undefined>
+    | undefined;
   const out: string[] = [];
   for (const node of nodes) {
     if (!isHotbarLeaseActor(node)) continue;
-    const seat = seatEventForNode(node);
-    if (
-      digitLease({
-        nodeId: node.id,
-        seatState: seat?.state,
-        flags: node.ether?.flags,
-      })
-    ) {
+    if (digitLease(seatFactsOf(node, { chatByAgent }))) {
       out.push(node.id);
     }
   }
@@ -1093,6 +1130,11 @@ function HotbarStrip({
   const canvasName = use$(state$.canvasName);
   const seatRev = use$(agentSeat$.rev);
   const herdrMetaByNodeId = use$(herdr$.metaByNodeId);
+  const execution = use$(kernel$.execution);
+  const executionRev = use$(kernel$.executionRev);
+  const chatByAgent = use$(chatCoarse$) as
+    | Record<string, { readonly pendingPermissionId?: string } | undefined>
+    | undefined;
   const dragFrom = useRef<number | null>(null);
 
   useEffect(() => {
@@ -1131,19 +1173,20 @@ function HotbarStrip({
       }
       const isRegion = node.type === "group";
       const rollup = byId.get(slot.nodeId);
-      // Live seat / herdr plane — same source as canvas ActivityMark so the
-      // digit chip stays synchronized even for freestanding agents (Pi, etc.).
-      const seat = seatEventForNode(node);
       const herdrStatus = herdrMetaByNodeId[slot.nodeId]?.meta?.agentStatus;
-      const liveSeverity = liveActivitySeverity({
-        seatState: seat?.state,
-        herdrAgentStatus: herdrStatus,
-      });
-      const severity = hotbarNodeSeverity(node, {
-        regionSeverity: rollup?.severity,
-        memberSeverity: severityByNodeId.get(slot.nodeId),
-        liveSeverity,
-      });
+      const blocked = new Set(execution?.blocked ?? []);
+      const severity = isHotbarLeaseActor(node)
+        ? digitHue(
+            seatFactsOf(node, {
+              graphBlocked: blocked.has(slot.nodeId),
+              chatByAgent,
+              herdrAgentStatus: herdrStatus,
+            }),
+          )
+        : hotbarNodeSeverity(node, {
+            regionSeverity: rollup?.severity,
+            memberSeverity: severityByNodeId.get(slot.nodeId),
+          });
       return {
         index,
         tenure: slot.kind,
@@ -1155,7 +1198,18 @@ function HotbarStrip({
         isRegion,
       };
     });
-  }, [hotbarSlots, doc, byId, severityByNodeId, seatRev, herdrMetaByNodeId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- executionRev stamps kernel blocked
+  }, [
+    hotbarSlots,
+    doc,
+    byId,
+    severityByNodeId,
+    seatRev,
+    herdrMetaByNodeId,
+    execution,
+    executionRev,
+    chatByAgent,
+  ]);
 
   return (
     <div className="rts-region-strip" role="region" aria-label="Hotkey slots 1 to 9">
@@ -1268,44 +1322,6 @@ function OperatorAttentionPills({
   >;
 
   const items = useMemo(() => {
-    const fromRollups = collectOperatorAttention(rollups);
-    const covered = new Set(fromRollups.map((i) => i.nodeId));
-    const seatStateByNodeId = new Map<string, AgentSeatState | undefined>();
-    for (const node of doc.nodes) {
-      const seat = seatEventForNode(node);
-      if (seat) seatStateByNodeId.set(node.id, seat.state);
-    }
-    const liveAttentionReasonsByNodeId = new Map<string, ReadonlyArray<string>>();
-    const addAttentionReason = (nodeId: string, reason: string): void => {
-      const reasons = liveAttentionReasonsByNodeId.get(nodeId) ?? [];
-      if (reasons.includes(reason)) return;
-      liveAttentionReasonsByNodeId.set(nodeId, [...reasons, reason]);
-    };
-
-    // Keep freestanding pills in lockstep with the card's fire state. Region
-    // rollups already cover grouped ACP permissions, while this map covers
-    // agents and work sinks outside every region.
-    for (const node of doc.nodes) {
-      const entityKind = node.ether?.entity?.kind;
-      if (entityKind === "task" || entityKind === "requests") {
-        const items =
-          entityKind === "task"
-            ? node.ether?.tasks?.items ?? []
-            : node.ether?.requests?.items ?? [];
-        for (const item of items) {
-          if (item.state === "input-required" || item.state === "auth-required") {
-            addAttentionReason(node.id, `work:${item.state}`);
-            break;
-          }
-        }
-      }
-
-      const agentKey =
-        entityKind === "agent" ? node.ether?.entity?.name : undefined;
-      if (agentKey && chatByAgent?.[agentKey]?.pendingPermissionId) {
-        addAttentionReason(node.id, "permission:pending");
-      }
-    }
     const context = executionGraphContextFromActorRefs(canvasName, actorRefs);
     const graph = executionGraphForImpact(doc, execution, context);
     const blockedReasonsByNodeId = new Map<string, ReadonlyArray<string>>();
@@ -1321,21 +1337,27 @@ function OperatorAttentionPills({
         ),
       );
     }
+    const factsByNodeId = new Map<string, SeatFacts>();
+    for (const node of doc.nodes) {
+      factsByNodeId.set(
+        node.id,
+        seatFactsOf(node, {
+          graphBlocked: graph.blocked.has(node.id),
+          chatByAgent,
+          herdrAgentStatus: herdr$.metaByNodeId[node.id].peek()?.meta?.agentStatus,
+        }),
+      );
+    }
     const freestanding = freestandingFromCanvasAttention(
       doc.nodes.map((n) => ({
         id: n.id,
         label: nodeTitle(n),
         flags: n.ether?.flags,
       })),
-      {
-        blockedNodeIds: graph.blocked,
-        blockedReasonsByNodeId,
-        seatStateByNodeId,
-        attentionReasonsByNodeId: liveAttentionReasonsByNodeId,
-        alreadyCovered: covered,
-      },
+      factsByNodeId,
+      blockedReasonsByNodeId,
     );
-    return collectOperatorAttention(rollups, freestanding);
+    return collectOperatorAttention(rollups, factsByNodeId, freestanding);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- executionRev stamps kernel execution
   }, [
     rollups,

@@ -18,7 +18,12 @@ import { NoteMarkdown } from "../../lib/note-markdown";
 import { isLabelNode } from "../../lib/presentation";
 import { state$ } from "../../lib/state";
 import { timerActivity, watcherActivity } from "../../lib/activity";
-import { cardMark } from "../../lib/seat-projections";
+import { chatCoarse$ } from "../../lib/chat-state";
+import {
+  cardMark,
+  liveAttentionReasons,
+  seatFactsForNode,
+} from "../../lib/seat-projections";
 import { accentColor, HUE, INK, DIM } from "../../lib/theme";
 import { kernel$ } from "../../lib/kernel-view";
 import type { WatcherRuntimeState } from "../../lib/kernel-view";
@@ -278,29 +283,21 @@ function EntityCard({
   const managed = managedHarness !== undefined && isHarnessId(managedHarness);
   const exitReason = session?.exitReason;
   const exitMessage = session?.exitMessage;
-  const activity = managed
-    ? cardMark({
-        nodeId: node.id,
-        seatState: seatEvent?.state,
-        needsLook: needsLook === true,
-        seatReason: seatEvent?.reason,
-        running: session?.status === "running",
-        starting: session?.status === "starting",
-        graphBlocked,
-        flags: node.ether?.flags,
-        managedSeat: true,
-        exitReason,
-        exitMessage,
-        processName: session?.processName ?? session?.title,
-      })
-    : graphBlocked
-      ? {
-          mode: "wave" as const,
-          tone: "crimson" as const,
-          pattern: "arrow-up" as const,
-          label: "blocked",
-        }
-      : { mode: "static" as const, tone: "steel" as const, label: "idle" };
+  const chatByAgent = use$(chatCoarse$) as
+    | Record<string, { readonly pendingPermissionId?: string } | undefined>
+    | undefined;
+  const activity = cardMark(
+    seatFactsForNode({
+      nodeId: node.id,
+      seatEvent,
+      session,
+      needsLook: needsLook === true,
+      graphBlocked,
+      flags: node.ether?.flags,
+      attentionReasons: liveAttentionReasons(node, chatByAgent),
+      managedSeat: managed,
+    }),
+  );
   // Host is deliberately absent: which machine a seat sits on is not what the
   // operator reads an agent node for, and it crowded out the claimed task.
   // Spawn failures surface as a context line so the mark + copy both land.

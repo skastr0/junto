@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  attentionItemFromFacts,
   collectOperatorAttention,
   freestandingFromCanvasAttention,
-  freestandingFromTerminalStatus,
   OPERATOR_ATTENTION_HEADLINE,
 } from "../src/renderer/lib/operator-attention";
+import type { SeatFacts } from "../src/renderer/lib/seat-projections";
 import type { RegionRollup } from "../src/shared/region-rollup";
 
 const rollup = (
@@ -23,33 +24,45 @@ const rollup = (
   members,
 });
 
+const facts = (
+  nodeId: string,
+  over: Partial<SeatFacts> = {},
+): SeatFacts => ({ nodeId, ...over });
+
 describe("collectOperatorAttention", () => {
-  it("collects blocked and attention only — permanent, not rising-edge", () => {
-    const items = collectOperatorAttention([
-      rollup([
-        {
-          nodeId: "a1",
-          label: "Codex - needs input",
-          kind: "agent",
-          severity: "attention",
-          reasons: ["activity:attention"],
-        },
-        {
-          nodeId: "a2",
-          label: "blocked worker",
-          kind: "agent",
-          severity: "blocked",
-          reasons: ["work:input-required"],
-        },
-        {
-          nodeId: "a3",
-          label: "busy",
-          kind: "agent",
-          severity: "working",
-          reasons: ["activity:working"],
-        },
+  it("collects blocked and attention via notifyItem — not rollup severity", () => {
+    const items = collectOperatorAttention(
+      [
+        rollup([
+          {
+            nodeId: "a1",
+            label: "Codex - needs input",
+            kind: "agent",
+            severity: "attention",
+            reasons: ["activity:attention"],
+          },
+          {
+            nodeId: "a2",
+            label: "blocked worker",
+            kind: "agent",
+            severity: "blocked",
+            reasons: ["work:input-required"],
+          },
+          {
+            nodeId: "a3",
+            label: "busy",
+            kind: "agent",
+            severity: "working",
+            reasons: ["activity:working"],
+          },
+        ]),
+      ],
+      new Map([
+        ["a1", facts("a1", { seatState: "attention" })],
+        ["a2", facts("a2", { graphBlocked: true })],
+        ["a3", facts("a3", { seatState: "working" })],
       ]),
-    ]);
+    );
 
     expect(items.map((i) => i.nodeId)).toEqual(["a2", "a1"]);
     expect(items[0]?.kind).toBe("blocked");
@@ -58,58 +71,109 @@ describe("collectOperatorAttention", () => {
     expect(OPERATOR_ATTENTION_HEADLINE.blocked).toMatch(/BLOCKED/i);
   });
 
-  it("dedupes overlapping region members keeping the worst severity", () => {
-    const items = collectOperatorAttention([
-      rollup([
-        {
-          nodeId: "shared",
-          label: "first",
-          kind: "agent",
-          severity: "attention",
-          reasons: ["flag:attention"],
-        },
-      ]),
-      rollup(
-        [
+  it("ignores rollup attention when facts are only working", () => {
+    const items = collectOperatorAttention(
+      [
+        rollup([
+          {
+            nodeId: "grouped",
+            label: "Grouped",
+            kind: "agent",
+            severity: "attention",
+            reasons: ["activity:attention"],
+          },
+        ]),
+      ],
+      new Map([["grouped", facts("grouped", { seatState: "working" })]]),
+    );
+    expect(items).toEqual([]);
+  });
+
+  it("grouped flag attention notifies even when rollup says working", () => {
+    const items = collectOperatorAttention(
+      [
+        rollup([
+          {
+            nodeId: "g",
+            label: "G",
+            kind: "agent",
+            severity: "working",
+            reasons: ["activity:working"],
+          },
+        ]),
+      ],
+      new Map([["g", facts("g", { flags: ["attention"] })]]),
+    );
+    expect(items).toEqual([
+      expect.objectContaining({ nodeId: "g", kind: "attention" }),
+    ]);
+  });
+
+  it("dedupes overlapping region members keeping the worst notify kind", () => {
+    const factsByNode = new Map([
+      ["shared", facts("shared", { graphBlocked: true, flags: ["attention"] })],
+    ]);
+    const extra = [
+      attentionItemFromFacts(factsByNode.get("shared")!, "second")!,
+    ];
+    const items = collectOperatorAttention(
+      [
+        rollup([
           {
             nodeId: "shared",
-            label: "second",
+            label: "first",
             kind: "agent",
-            severity: "blocked",
-            reasons: ["edge:input-required"],
+            severity: "attention",
+            reasons: ["flag:attention"],
           },
-        ],
-        "r2",
-      ),
-    ]);
+        ]),
+        rollup(
+          [
+            {
+              nodeId: "shared",
+              label: "second",
+              kind: "agent",
+              severity: "blocked",
+              reasons: ["edge:input-required"],
+            },
+          ],
+          "r2",
+        ),
+      ],
+      factsByNode,
+      extra,
+    );
 
     expect(items).toHaveLength(1);
     expect(items[0]).toMatchObject({
       nodeId: "shared",
       kind: "blocked",
-      label: "second",
     });
   });
 
   it("returns empty when nothing needs the operator", () => {
     expect(
-      collectOperatorAttention([
-        rollup([
-          {
-            nodeId: "idle",
-            label: "quiet",
-            kind: "agent",
-            severity: "idle",
-            reasons: [],
-          },
-        ]),
-      ]),
+      collectOperatorAttention(
+        [
+          rollup([
+            {
+              nodeId: "idle",
+              label: "quiet",
+              kind: "agent",
+              severity: "idle",
+              reasons: [],
+            },
+          ]),
+        ],
+        new Map([["idle", facts("idle", { seatState: "idle" })]]),
+      ),
     ).toEqual([]);
   });
 
   it("merges freestanding seats outside any region", () => {
     const items = collectOperatorAttention(
       [],
+      new Map(),
       [
         {
           id: "op-attn:solo",
@@ -126,26 +190,6 @@ describe("collectOperatorAttention", () => {
   });
 });
 
-describe("freestandingFromTerminalStatus", () => {
-  it("skips nodes already covered by rollups", () => {
-    const map = new Map([
-      ["a", { harness: "attention" as const }],
-      ["b", { harness: "blocked" as const }],
-    ]);
-    const items = freestandingFromTerminalStatus(
-      [
-        { id: "a", label: "A" },
-        { id: "b", label: "B" },
-      ],
-      map,
-      new Set(["a"]),
-    );
-    expect(items).toEqual([
-      expect.objectContaining({ nodeId: "b", kind: "blocked" }),
-    ]);
-  });
-});
-
 describe("freestandingFromCanvasAttention", () => {
   it("surfaces graph-blocked nodes outside any region", () => {
     const items = freestandingFromCanvasAttention(
@@ -153,12 +197,11 @@ describe("freestandingFromCanvasAttention", () => {
         { id: "solo-blocked", label: "Solo seat" },
         { id: "idle", label: "Quiet" },
       ],
-      {
-        blockedNodeIds: new Set(["solo-blocked"]),
-        blockedReasonsByNodeId: new Map([
-          ["solo-blocked", ["work:input-required"]],
-        ]),
-      },
+      new Map([
+        ["solo-blocked", facts("solo-blocked", { graphBlocked: true })],
+        ["idle", facts("idle", { seatState: "idle" })],
+      ]),
+      new Map([["solo-blocked", ["work:input-required"]]]),
     );
     expect(items).toEqual([
       expect.objectContaining({
@@ -170,23 +213,24 @@ describe("freestandingFromCanvasAttention", () => {
     ]);
   });
 
-  it("surfaces harness attention and flag:attention when not covered", () => {
-    const terminal = new Map([
-      ["seat-attn", { harness: "attention" as const }],
-    ]);
+  it("surfaces harness attention and flag:attention for every node", () => {
     const items = freestandingFromCanvasAttention(
       [
         { id: "seat-attn", label: "Needs me" },
         { id: "flagged", label: "Flagged", flags: ["attention"] },
-        { id: "covered", label: "Already in rollup", flags: ["attention"] },
+        { id: "covered", label: "Also grouped", flags: ["attention"] },
       ],
-      {
-        blockedNodeIds: new Set(),
-        terminalStatusByNodeId: terminal,
-        alreadyCovered: new Set(["covered"]),
-      },
+      new Map([
+        ["seat-attn", facts("seat-attn", { seatState: "attention" })],
+        ["flagged", facts("flagged", { flags: ["attention"] })],
+        ["covered", facts("covered", { flags: ["attention"] })],
+      ]),
     );
-    expect(items.map((i) => i.nodeId).sort()).toEqual(["flagged", "seat-attn"]);
+    expect(items.map((i) => i.nodeId).sort()).toEqual([
+      "covered",
+      "flagged",
+      "seat-attn",
+    ]);
     expect(items.find((i) => i.nodeId === "seat-attn")?.kind).toBe("attention");
     expect(items.find((i) => i.nodeId === "flagged")?.reasons).toContain(
       "flag:attention",
@@ -196,11 +240,7 @@ describe("freestandingFromCanvasAttention", () => {
   it("does not notify working seats", () => {
     const items = freestandingFromCanvasAttention(
       [{ id: "busy", label: "Busy" }],
-      {
-        blockedNodeIds: new Set(),
-        seatStateByNodeId: new Map([["busy", "working"]]),
-        terminalStatusByNodeId: new Map([["busy", { harness: "working" }]]),
-      },
+      new Map([["busy", facts("busy", { seatState: "working" })]]),
     );
     expect(items).toEqual([]);
   });
@@ -208,10 +248,7 @@ describe("freestandingFromCanvasAttention", () => {
   it("notifies seat attention from the same facts as the card", () => {
     const items = freestandingFromCanvasAttention(
       [{ id: "needs-me", label: "Needs me" }],
-      {
-        blockedNodeIds: new Set(),
-        seatStateByNodeId: new Map([["needs-me", "attention"]]),
-      },
+      new Map([["needs-me", facts("needs-me", { seatState: "attention" })]]),
     );
     expect(items).toEqual([
       expect.objectContaining({
@@ -225,12 +262,9 @@ describe("freestandingFromCanvasAttention", () => {
   it("prefers blocked over attention for the same node", () => {
     const items = freestandingFromCanvasAttention(
       [{ id: "both", label: "Both", flags: ["attention"] }],
-      {
-        blockedNodeIds: new Set(["both"]),
-        terminalStatusByNodeId: new Map([
-          ["both", { harness: "attention" }],
-        ]),
-      },
+      new Map([
+        ["both", facts("both", { graphBlocked: true, flags: ["attention"] })],
+      ]),
     );
     expect(items).toEqual([
       expect.objectContaining({ nodeId: "both", kind: "blocked" }),
@@ -243,13 +277,13 @@ describe("freestandingFromCanvasAttention", () => {
         { id: "permission", label: "Agent permission" },
         { id: "task", label: "Task queue" },
       ],
-      {
-        blockedNodeIds: new Set(),
-        attentionReasonsByNodeId: new Map([
-          ["permission", ["permission:pending"]],
-          ["task", ["work:input-required"]],
-        ]),
-      },
+      new Map([
+        [
+          "permission",
+          facts("permission", { attentionReasons: ["permission:pending"] }),
+        ],
+        ["task", facts("task", { attentionReasons: ["work:input-required"] })],
+      ]),
     );
 
     expect(items).toEqual([

@@ -5,6 +5,7 @@ import {
   liveActivitySeverity,
   worseMemberSeverity,
 } from "../src/renderer/lib/hotbar-signal";
+import { digitHue } from "../src/renderer/lib/seat-projections";
 
 const base = { id: "n", x: 0, y: 0, width: 120, height: 80 } as const;
 
@@ -114,5 +115,31 @@ describe("worseMemberSeverity", () => {
   it("orders blocked over working over idle", () => {
     expect(worseMemberSeverity("working", "idle")).toBe("working");
     expect(worseMemberSeverity("blocked", "working")).toBe("blocked");
+  });
+});
+
+describe("actor chip hue is digitHue, not hotbarNodeSeverity", () => {
+  it("maps graph blocked / notify attention / working / idle", () => {
+    expect(digitHue({ nodeId: "a", graphBlocked: true })).toBe("blocked");
+    expect(digitHue({ nodeId: "a", flags: ["attention"] })).toBe("attention");
+    expect(digitHue({ nodeId: "a", seatState: "working" })).toBe("working");
+    expect(digitHue({ nodeId: "a", seatState: "idle" })).toBe("idle");
+  });
+
+  it("does not merge rollup flags into actor hue — facts only", () => {
+    const node = {
+      id: "n",
+      x: 0,
+      y: 0,
+      width: 120,
+      height: 80,
+      type: "text",
+      text: "Pi",
+      ether: { flags: ["attention"] as const },
+    } as CanvasNode;
+    // Groups / free furniture still read flags via hotbarNodeSeverity.
+    expect(hotbarNodeSeverity(node)).toBe("attention");
+    // Actor chips ignore that merge and use digitHue on assembled facts.
+    expect(digitHue({ nodeId: "n", seatState: "working" })).toBe("working");
   });
 });
