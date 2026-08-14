@@ -28,26 +28,12 @@ import {
   configureRemoteHost,
   type ConfigureRemoteOptions,
 } from "./configure-remote";
-import { activateDarwinRemoteRuntimeForTarget } from "./deploy-darwin";
-import { activateLinuxRemoteRuntimeForTarget } from "./deploy-linux";
 import type {
   DeployableRemoteHost,
   DeployRemoteResult,
   RemoteDeploymentTarget,
   RemotePlatformDescriptor,
 } from "./remote-deployment";
-import {
-  attachDarwinHost,
-  cleanupDarwinHost,
-  copyDarwinHost,
-  inspectDarwinHost,
-} from "./host-ops-darwin";
-import {
-  attachLinuxHost,
-  cleanupLinuxHost,
-  copyLinuxHost,
-  inspectLinuxHost,
-} from "./host-ops-linux";
 
 const decodeInstallationId = Schema.decodeUnknownSync(InstallationId);
 
@@ -193,20 +179,22 @@ export class HostOps extends Context.Service<
       const ssh = yield* SshTransport;
       const host = yield* HostTarget;
       const facts = yield* HostConfigure;
+      const darwin = yield* Effect.promise(() => import("./host-ops-darwin"));
+      const deploy = yield* Effect.promise(() => import("./deploy-darwin"));
       return HostOps.of({
-        inspect: () => inspectDarwinHost(ssh, host.sshTarget),
+        inspect: () => darwin.inspectDarwinHost(ssh, host.sshTarget),
         copy: (expectedPackageState) =>
-          copyDarwinHost(ssh, host.sshTarget, expectedPackageState),
-        cleanup: () => cleanupDarwinHost(ssh, host.sshTarget),
+          darwin.copyDarwinHost(ssh, host.sshTarget, expectedPackageState),
+        cleanup: () => darwin.cleanupDarwinHost(ssh, host.sshTarget),
         configure: () => configureHostOps(ssh, host.sshTarget, facts),
         activate: () =>
           activateHostOps(
             ssh,
             host.sshTarget,
-            activateDarwinRemoteRuntimeForTarget,
+            deploy.activateDarwinRemoteRuntimeForTarget,
             { platform: "darwin", kernelName: "Darwin" },
           ),
-        attach: () => attachDarwinHost(ssh, host.sshTarget),
+        attach: () => darwin.attachDarwinHost(ssh, host.sshTarget),
       });
     }),
   );
@@ -221,20 +209,22 @@ export class HostOps extends Context.Service<
       const ssh = yield* SshTransport;
       const host = yield* HostTarget;
       const facts = yield* HostConfigure;
+      const linux = yield* Effect.promise(() => import("./host-ops-linux"));
+      const deploy = yield* Effect.promise(() => import("./deploy-linux"));
       return HostOps.of({
-        inspect: () => inspectLinuxHost(ssh, host.sshTarget),
+        inspect: () => linux.inspectLinuxHost(ssh, host.sshTarget),
         copy: (expectedPackageState) =>
-          copyLinuxHost(ssh, host.sshTarget, expectedPackageState),
-        cleanup: () => cleanupLinuxHost(ssh, host.sshTarget),
+          linux.copyLinuxHost(ssh, host.sshTarget, expectedPackageState),
+        cleanup: () => linux.cleanupLinuxHost(ssh, host.sshTarget),
         configure: () => configureHostOps(ssh, host.sshTarget, facts),
         activate: () =>
           activateHostOps(
             ssh,
             host.sshTarget,
-            activateLinuxRemoteRuntimeForTarget,
+            deploy.activateLinuxRemoteRuntimeForTarget,
             { platform: "linux", kernelName: "Linux" },
           ),
-        attach: () => attachLinuxHost(ssh, host.sshTarget),
+        attach: () => linux.attachLinuxHost(ssh, host.sshTarget),
       });
     }),
   );
