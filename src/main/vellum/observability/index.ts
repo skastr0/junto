@@ -16,7 +16,6 @@ export { registerObservabilityIpc } from "./ipc";
 export {
   appendTransportTrace,
   recordTransportError,
-  recordTransportTrace,
   startTransportJournal,
 } from "./transport-journal";
 export { pullRemoteTransportLog } from "./transport-pull";

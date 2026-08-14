@@ -28,6 +28,7 @@ import {
   makeRemoteCommand,
   makeRemoteStdin,
 } from "../src/main/vellum/ssh/domain";
+import { formatTransportFailure } from "../src/shared/transport-trace";
 import {
   daemonHandoff,
   dedicatedStream,
@@ -220,6 +221,9 @@ describe("SshTransport", () => {
       expect(JSON.stringify(result.failure)).not.toContain("secret-token");
       expect(JSON.stringify(result.failure)).not.toContain("\\u001b");
       expect((result.failure as SshExitError).detail).toBeUndefined();
+      expect(formatTransportFailure(result.failure).stderr).toContain(
+        "secret-token",
+      );
     }
   });
 
@@ -257,6 +261,9 @@ describe("SshTransport", () => {
         "SSH control socket path is too long for this OS",
       );
       expect(JSON.stringify(result.failure)).not.toContain("/tmp/secret.sock");
+      expect(formatTransportFailure(result.failure).stderr).toContain(
+        "/tmp/secret.sock",
+      );
     }
   });
 

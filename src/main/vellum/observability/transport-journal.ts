@@ -1,11 +1,10 @@
 /**
- * Append-only JSONL journal for SSH, sockets, and seat occupancy.
+ * Append-only JSONL failure tape for SSH, sockets, and seat table hops.
  * Sync and fail-closed: a log miss must never break a seat.
  */
 import { appendFileSync, mkdirSync, renameSync, statSync } from "node:fs";
-import { Effect } from "effect";
 import {
-  sanitizeTransportError,
+  formatTransportFailure,
   transportLogDirectory,
   transportLogPath,
   type TransportTraceEvent,
@@ -21,11 +20,6 @@ export const startTransportJournal = (): void => {
   try {
     mkdirSync(transportLogDirectory(), { recursive: true });
     dirReady = true;
-    appendTransportTrace({
-      plane: "term",
-      op: "journal-start",
-      ok: true,
-    });
   } catch {
     dirReady = false;
   }
@@ -67,19 +61,6 @@ export const recordTransportError = (
   appendTransportTrace({
     ...event,
     ok: false,
-    error: sanitizeTransportError(cause),
+    ...formatTransportFailure(cause),
   });
 };
-
-/** Effect.fn-traced record so spans exist when a tracer is provided. */
-export const recordTransportTrace = Effect.fn("transport.record")(
-  function* (event: Omit<TransportTraceEvent, "ts">) {
-    yield* Effect.annotateCurrentSpan("plane", event.plane);
-    yield* Effect.annotateCurrentSpan("op", event.op);
-    if (event.hostId) yield* Effect.annotateCurrentSpan("hostId", event.hostId);
-    if (event.bindingId) {
-      yield* Effect.annotateCurrentSpan("bindingId", event.bindingId);
-    }
-    yield* Effect.sync(() => appendTransportTrace(event));
-  },
-);

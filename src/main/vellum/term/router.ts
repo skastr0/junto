@@ -371,28 +371,8 @@ export class TerminalRouter extends EventEmitter {
       "remote",
     );
     if (Result.isFailure(occupyVacantSeat(occupancy)) && existing) {
-      appendTransportTrace({
-        plane: "term",
-        op: "router.createRemote",
-        ok: true,
-        hostId,
-        bindingId: input.bindingId,
-        status: existing.status,
-        occupancy: occupancy._tag,
-        decision: "activate",
-      });
       return { ...existing, hostId };
     }
-    appendTransportTrace({
-      plane: "term",
-      op: "router.createRemote",
-      ok: true,
-      hostId,
-      bindingId: input.bindingId,
-      status: existing?.status ?? "none",
-      occupancy: occupancy._tag,
-      decision: "occupy",
-    });
     const summary = await client.create({
       bindingId: input.bindingId,
       launch: input.launch,
@@ -460,6 +440,14 @@ export class TerminalRouter extends EventEmitter {
   ): Promise<TerminalSessionSummary | undefined> {
     const normalizedHostId = hostId?.trim();
     if (normalizedHostId && this.maintenanceCuts.has(normalizedHostId)) {
+      appendTransportTrace({
+        plane: "term",
+        op: "router.get",
+        ok: false,
+        hostId,
+        bindingId,
+        error: "maintenance cut",
+      });
       return undefined;
     }
     if (!hostId || this.isLocalHostId(hostId)) return this.local.get(bindingId);
@@ -467,49 +455,18 @@ export class TerminalRouter extends EventEmitter {
       const c = await this.ensureRemoteClient(hostId);
       this.assertRouteAdmission(hostId);
       const s = await c.get(bindingId);
-      const summary = s ? { ...s, hostId } : undefined;
-      appendTransportTrace({
-        plane: "term",
-        op: "router.get",
-        ok: true,
-        hostId,
-        bindingId,
-        status: summary?.status ?? "none",
-        occupancy:
-          summary === undefined ||
-          summary.status === "exited" ||
-          summary.status === "missing"
-            ? "VacantSeat"
-            : "OccupiedSeat",
-        decision: summary === undefined ? "get-undefined" : "get",
-      });
-      return summary;
+      return s ? { ...s, hostId } : undefined;
     } catch (error) {
-      if (isMissingRemoteHostError(error)) {
-        appendTransportTrace({
-          plane: "term",
-          op: "router.get",
-          ok: false,
-          hostId,
-          bindingId,
-          status: "none",
-          occupancy: "VacantSeat",
-          decision: "missing-endpoint-as-vacant",
-          error: error instanceof Error ? error.message : String(error),
-        });
-        return undefined;
-      }
       recordTransportError(
         {
           plane: "term",
           op: "router.get",
           hostId,
           bindingId,
-          occupancy: "VacantSeat",
-          decision: "get-throw",
         },
         error,
       );
+      if (isMissingRemoteHostError(error)) return undefined;
       throw new Error(operatorRemoteWorkDetail(hostId, error));
     }
   }

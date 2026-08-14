@@ -4,15 +4,18 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   filterTransportLog,
+  formatTransportFailure,
+  formatTransportFrame,
+  rememberTransportStderr,
   sanitizeTransportError,
   transportLogPath,
   transportLogPathForHome,
 } from "../src/shared/transport-trace";
 import {
   appendTransportTrace,
+  recordTransportError,
   startTransportJournal,
 } from "../src/main/vellum/observability/transport-journal";
-import { occupancyFromSession } from "../src/shared/terminal-seat-occupancy";
 import { __resetVellumCommandHomeCache } from "../src/shared/vellum-home";
 
 const originalHome = process.env.VELLUM_COMMAND_HOME;
@@ -24,35 +27,119 @@ afterEach(() => {
 });
 
 describe("transport journal", () => {
-  it("redacts secrets in error text", () => {
+  it("redacts secrets and keeps the full error, stack, and stderr", () => {
     expect(sanitizeTransportError("token=abc password=xyz boom")).toContain(
       "<redacted>",
     );
     expect(sanitizeTransportError("token=abc")).not.toContain("abc");
+    const err = new Error("host remote-a is not a remote SSH endpoint");
+    err.stack = `${err.message}\n    at ensureRemoteClient (router.ts:916:13)`;
+    const tagged = Object.assign(err, {
+      _tag: "SshExitError",
+      operation: "forward",
+      code: 255,
+      stderr: "Permission denied (publickey).\nOffending key: token=abc",
+    });
+    const failure = formatTransportFailure(tagged);
+    expect(failure.error).toContain("not a remote SSH endpoint");
+    expect(failure.error).toContain("operation=forward");
+    expect(failure.error).toContain("code=255");
+    expect(failure.stack).toContain("ensureRemoteClient");
+    expect(failure.stderr).toContain("Permission denied (publickey)");
+    expect(failure.stderr).not.toContain("token=abc");
+    expect(failure.error.length).toBeGreaterThan(40);
+    const long = `ssh failed ${"x".repeat(2000)}`;
+    expect(sanitizeTransportError(long)).toBe(long);
+    expect(sanitizeTransportError(long).length).toBeGreaterThan(400);
+    const classified = new Error("ssh exited 255 during one-shot");
+    rememberTransportStderr(
+      classified,
+      "Permission denied (publickey).\nOffending key: token=abc\n" +
+        "debug1: Authentications that can continue: publickey\n".repeat(20),
+    );
+    const remembered = formatTransportFailure(classified);
+    expect(remembered.stderr).toContain("Authentications that can continue");
+    expect(remembered.stderr).not.toContain("token=abc");
+    expect(JSON.stringify(classified)).not.toContain("publickey");
+    const frame = formatTransportFrame({
+      request: {
+        v: 1,
+        id: "1",
+        op: "write",
+        leaseId: "lease-1",
+        data: "typed password=super-secret into the pty",
+      },
+      response: { v: 1, id: "1", ok: false, error: "lease gone token=abc" },
+    });
+    expect(frame).toContain('"op":"write"');
+    expect(frame).toContain("<omitted>");
+    expect(frame).not.toContain("super-secret");
+    expect(frame).toContain("<redacted>");
   });
 
-  it("writes occupancy receipts to ~/.vellum-command/logs/transport.jsonl", () => {
+  it("writes the full failure tape including stack, stderr, and frame", () => {
+    const root = mkdtempSync(join(tmpdir(), "vellum-transport-fail-"));
+    process.env.VELLUM_COMMAND_HOME = root;
+    __resetVellumCommandHomeCache();
+    startTransportJournal();
+    const err = new Error("ssh exited 255 during forward");
+    err.stack = `${err.message}\n    at forward (service.ts:1121:19)`;
+    rememberTransportStderr(err, "Permission denied (publickey).\n");
+    recordTransportError(
+      {
+        plane: "ssh-transport",
+        op: "forward",
+        endpoint: "remote-a",
+        frame: formatTransportFrame({
+          request: { op: "write", data: "typed secret" },
+        }),
+      },
+      err,
+    );
+    const rows = readFileSync(transportLogPath(), "utf8")
+      .trim()
+      .split("\n")
+      .map(
+        (line) =>
+          JSON.parse(line) as {
+            op: string;
+            error?: string;
+            stack?: string;
+            stderr?: string;
+            frame?: string;
+          },
+      );
+    const fail = rows.find((row) => row.op === "forward");
+    expect(fail?.error).toContain("ssh exited 255");
+    expect(fail?.stack).toContain("service.ts:1121");
+    expect(fail?.stderr).toContain("Permission denied");
+    expect(fail?.frame).toContain("<omitted>");
+    expect(fail?.frame).not.toContain("typed secret");
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("writes a seat-table hop without a journal-start heartbeat", () => {
     const root = mkdtempSync(join(tmpdir(), "vellum-transport-"));
     process.env.VELLUM_COMMAND_HOME = root;
     __resetVellumCommandHomeCache();
     startTransportJournal();
     appendTransportTrace({
       plane: "term",
-      op: "host.get",
+      op: "host.occupy",
       ok: true,
       bindingId: "bind-1",
       status: "none",
-      occupancy: occupancyFromSession("bind-1", undefined)._tag,
-      decision: "get-undefined",
+      occupancy: "VacantSeat",
+      decision: "occupy",
     });
-    const text = readFileSync(transportLogPath(), "utf8");
-    const rows = text
+    const rows = readFileSync(transportLogPath(), "utf8")
       .trim()
       .split("\n")
-      .map((line) => JSON.parse(line) as { op: string; occupancy?: string });
-    expect(rows.some((row) => row.op === "journal-start")).toBe(true);
-    const get = rows.find((row) => row.op === "host.get");
-    expect(get?.occupancy).toBe("VacantSeat");
+      .map((line) => JSON.parse(line) as { op: string; decision?: string });
+    expect(rows.some((row) => row.op === "journal-start")).toBe(false);
+    expect(rows.find((row) => row.op === "host.occupy")?.decision).toBe(
+      "occupy",
+    );
     rmSync(root, { recursive: true, force: true });
   });
 
@@ -62,12 +149,12 @@ describe("transport journal", () => {
     );
   });
 
-  it("filters occupancy lines", () => {
+  it("filters tape lines by substring", () => {
     const text = [
-      '{"op":"host.get","occupancy":"VacantSeat"}',
+      '{"op":"host.exit","status":"exited"}',
       '{"op":"ssh-transport","ok":true}',
     ].join("\n");
-    expect(filterTransportLog(text, "VacantSeat")).toContain("host.get");
-    expect(filterTransportLog(text, "VacantSeat")).not.toContain("ssh-transport");
+    expect(filterTransportLog(text, "host.exit")).toContain("exited");
+    expect(filterTransportLog(text, "host.exit")).not.toContain("ssh-transport");
   });
 });

@@ -5,7 +5,7 @@
  *   bun scripts/transport-logs.ts local [query]
  *   bun scripts/transport-logs.ts pull <ssh-endpoint> [query]
  *
- * Query is a case-insensitive substring (occupancy, VacantSeat, host.get).
+ * Query is a case-insensitive substring (host.exit, sock.get, Permission denied).
  * Pull uses the product SSH kernel, not a hand-rolled ssh(1) spawn.
  */
 import { readFileSync } from "node:fs";

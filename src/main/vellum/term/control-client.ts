@@ -21,6 +21,7 @@ import {
 import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
 import { Schema } from "effect";
 import { HostDirectorySnapshot } from "@shared/host-directory";
+import { formatTransportFrame } from "@shared/transport-trace";
 import type { ControlLease, JournalEntry, LocalHostEvent } from "./local-host";
 import {
   appendTransportTrace,
@@ -66,6 +67,20 @@ export type TermControlMaintenanceAcquireResult =
 export interface TermMaintenanceControlPort {
   acquireMaintenance(): Promise<TermControlMaintenanceAcquireResult>;
 }
+
+const SEAT_WIRE_OPS = new Set(["get", "create"]);
+
+const statusFromTermResponse = (
+  response?: TermControlResponse,
+): string | undefined => {
+  if (response === undefined || !response.ok) return undefined;
+  if (response.data == null) return "none";
+  if (typeof response.data === "object" && "status" in response.data) {
+    const status = (response.data as { status?: unknown }).status;
+    return typeof status === "string" ? status : undefined;
+  }
+  return undefined;
+};
 
 const CLIENT_SHUTDOWN_GRACE_MS = 100;
 const CLIENT_SHUTDOWN_DEADLINE_MS = 2_000;
@@ -232,16 +247,39 @@ export class TermControlClient extends EventEmitter implements TermMaintenanceCo
     this.diagnostics.push(message);
   }
 
+  private journalConnect(ok: boolean, cause?: unknown): void {
+    const event = {
+      plane: "term" as const,
+      op: "sock.connect",
+      socket: this.socketPath,
+    };
+    if (ok) appendTransportTrace({ ...event, ok: true });
+    else recordTransportError(event, cause);
+  }
+
   private open(timeoutMs: number): Promise<void> {
     return new Promise((resolve, reject) => {
       const sock = createConnection({ path: this.socketPath });
       this.socket = sock;
       let settled = false;
-      const timer = setTimeout(() => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const settleOk = (): void => {
         if (settled) return;
         settled = true;
+        if (timer !== undefined) clearTimeout(timer);
+        this.journalConnect(true);
+        resolve();
+      };
+      const settleErr = (cause: unknown): void => {
+        if (settled) return;
+        settled = true;
+        if (timer !== undefined) clearTimeout(timer);
+        this.journalConnect(false, cause);
+        reject(cause instanceof Error ? cause : new Error(String(cause)));
+      };
+      timer = setTimeout(() => {
         sock.destroy();
-        reject(new Error(`term control connect timeout: ${this.socketPath}`));
+        settleErr(new Error(`term control connect timeout: ${this.socketPath}`));
       }, timeoutMs);
 
       sock.setEncoding("utf8");
@@ -266,17 +304,9 @@ export class TermControlClient extends EventEmitter implements TermMaintenanceCo
           if (!this.authed) {
             if (rec.ok === true && rec.id === "auth") {
               this.authed = true;
-              if (!settled) {
-                settled = true;
-                clearTimeout(timer);
-                resolve();
-              }
+              settleOk();
             } else if (rec.ok === false) {
-              if (!settled) {
-                settled = true;
-                clearTimeout(timer);
-                reject(new Error(String(rec.error ?? "auth failed")));
-              }
+              settleErr(new Error(String(rec.error ?? "auth failed")));
               sock.destroy();
             }
             continue;
@@ -297,11 +327,7 @@ export class TermControlClient extends EventEmitter implements TermMaintenanceCo
       });
       sock.on("error", (err) => {
         this.recordDiagnostic(err);
-        if (!settled) {
-          settled = true;
-          clearTimeout(timer);
-          reject(err);
-        }
+        settleErr(err);
         this.failAll(err instanceof Error ? err : new Error(String(err)));
       });
       sock.on("close", () => {
@@ -331,15 +357,43 @@ export class TermControlClient extends EventEmitter implements TermMaintenanceCo
         ? body.bindingId
         : undefined;
     return new Promise((resolve, reject) => {
-      const finish = (error?: unknown, ok = true): void => {
+      const finish = (
+        error?: unknown,
+        ok = true,
+        response?: TermControlResponse,
+      ): void => {
         const event = {
           plane: "term" as const,
           op: `sock.${body.op}`,
           ...(bindingId === undefined ? {} : { bindingId }),
           ms: Date.now() - started,
+          ...(ok
+            ? {}
+            : {
+                frame: formatTransportFrame({
+                  request: body,
+                  ...(response === undefined ? {} : { response }),
+                }),
+              }),
         };
-        if (ok) appendTransportTrace({ ...event, ok: true });
-        else recordTransportError(event, error);
+        if (ok) {
+          if (SEAT_WIRE_OPS.has(body.op)) {
+            const status = statusFromTermResponse(response);
+            appendTransportTrace({
+              ...event,
+              ok: true,
+              ...(status === undefined ? {} : { status }),
+            });
+          }
+          return;
+        }
+        recordTransportError(
+          event,
+          error ??
+            (response !== undefined && response.ok === false
+              ? new Error(response.error)
+              : new Error(`term control failed op=${body.op}`)),
+        );
       };
       const timer = setTimeout(() => {
         this.pending.delete(body.id);
@@ -349,7 +403,7 @@ export class TermControlClient extends EventEmitter implements TermMaintenanceCo
       }, timeoutMs);
       this.pending.set(body.id, {
         resolve: (value) => {
-          finish(undefined, value.ok);
+          finish(undefined, value.ok, value);
           resolve(value);
         },
         reject: (err) => {

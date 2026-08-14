@@ -871,21 +871,7 @@ export class LocalSessionHost extends EventEmitter {
 
   get(bindingId: string): TerminalSessionSummary | undefined {
     const rec = this.sessions.get(bindingId);
-    const summary = rec ? this.summaryOf(rec) : undefined;
-    appendTransportTrace({
-      plane: "term",
-      op: "host.get",
-      ok: true,
-      bindingId,
-      status: summary?.status ?? "none",
-      occupancy:
-        summary === undefined ||
-        summary.status === "exited" ||
-        summary.status === "missing"
-          ? "VacantSeat"
-          : "OccupiedSeat",
-    });
-    return summary;
+    return rec ? this.summaryOf(rec) : undefined;
   }
 
   /**
@@ -1368,15 +1354,6 @@ export class LocalSessionHost extends EventEmitter {
         console.error(`[term] identity unbind failed for ${rec.bindingId}@${rec.epoch}:`, error);
       }
     }
-    appendTransportTrace({
-      plane: "term",
-      op: "host.exit",
-      ok: true,
-      bindingId: rec.bindingId,
-      status: "exited",
-      occupancy: "VacantSeat",
-      decision: `exit code=${code ?? "none"} signal=${signal ?? "none"}`,
-    });
     rec.phase = SessionPhase.Closed({
       surface: "native",
       reason: signal !== undefined ? `signal_${signal}` : `exit_${code ?? "null"}`,
@@ -1384,6 +1361,16 @@ export class LocalSessionHost extends EventEmitter {
     rec.lease = undefined;
     rec.exitWitness = undefined;
     if (current !== rec) return;
+    appendTransportTrace({
+      plane: "term",
+      op: "host.exit",
+      ok: true,
+      bindingId: rec.bindingId,
+      status: "exited",
+      occupancy: "VacantSeat",
+      ...(code === undefined ? {} : { code }),
+      ...(signal === undefined ? {} : { signal }),
+    });
     rec.seq = rec.seq + 1n;
     this.pushJournal(rec, { seq: rec.seq, type: "exit", code, signal });
     this.safeEmitEvent({

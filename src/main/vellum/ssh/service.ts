@@ -37,6 +37,7 @@ import {
   appendTransportTrace,
   recordTransportError,
 } from "../observability/transport-journal";
+import { rememberTransportStderr } from "@shared/transport-trace";
 import { createSshProgramCompiler } from "./program";
 import {
   ProcessFailure,
@@ -437,14 +438,14 @@ export const SshTransportLayer = Layer.effect(
         Effect.flatMap(({ result, code }) => {
           if (code === 0) return Effect.succeed(result);
           const detail = classifySshStderr(result.stderr);
-          return Effect.fail(
-            new SshExitError({
-              endpoint,
-              operation,
-              code,
-              ...(detail === undefined ? {} : { detail }),
-            }),
-          );
+          const error = new SshExitError({
+            endpoint,
+            operation,
+            code,
+            ...(detail === undefined ? {} : { detail }),
+          });
+          rememberTransportStderr(error, result.stderr);
+          return Effect.fail(error);
         }),
         Effect.timeoutOrElse({
           duration: timeoutMs,
@@ -683,17 +684,6 @@ export const SshTransportLayer = Layer.effect(
           ),
         ),
       ).pipe(
-        Effect.tap(() =>
-          Effect.sync(() =>
-            appendTransportTrace({
-              plane: "ssh-transport",
-              op: "run",
-              ok: true,
-              endpoint: String(compiled.endpoint),
-              ms: Date.now() - started,
-            }),
-          ),
-        ),
         Effect.tapError((error) =>
           Effect.sync(() =>
             recordTransportError(
@@ -912,6 +902,19 @@ export const SshTransportLayer = Layer.effect(
                     Effect.ensuring(lease.close),
                   );
                 }),
+              ),
+            ),
+          ).pipe(
+            Effect.tapError((error) =>
+              Effect.sync(() =>
+                recordTransportError(
+                  {
+                    plane: "ssh-transport",
+                    op: "transfer",
+                    endpoint: String(compiled.endpoint),
+                  },
+                  error,
+                ),
               ),
             ),
           );
