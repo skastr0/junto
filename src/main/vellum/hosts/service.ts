@@ -20,10 +20,6 @@ import {
   type ConfigureRemoteOptions,
   type ConfigureRemoteResult,
 } from "./configure-remote";
-import {
-  deployRemoteHost,
-  type DeployRemoteResult,
-} from "./deploy-remote";
 import type {
   ConfiguredRemoteDeployOptions,
   ConfiguredRemoteDeployResult,
@@ -47,7 +43,7 @@ const decodeHost = Schema.decodeUnknownResult(RemoteHost, {
   onExcessProperty: "error",
 });
 
-export type { ConfigureRemoteResult, DeployRemoteResult };
+export type { ConfigureRemoteResult };
 
 /**
  * S4 (effect@3.21): single canonical Tag `@vellum/HostsService`.
@@ -90,8 +86,6 @@ export class HostsService extends Context.Service<HostsService,
       id: string,
       options: ConfigureRemoteOptions,
     ) => Effect.Effect<ConfigureRemoteResult, RemoteHostsError>;
-    /** Command Center → install/update .app over SSH + start Remote station. */
-    readonly deployRemote: (id: string) => Effect.Effect<DeployRemoteResult>;
     /** Admit + serialize, then HostRuntime.reconcile. */
     readonly deployConfiguredRemote: (
       id: string,
@@ -136,10 +130,8 @@ export const makeHostsService = (
   fleet: Context.Service.Shape<typeof StationFleetPropagation>,
   operations: {
     readonly configureRemoteHost: typeof configureRemoteHost;
-    readonly deployRemoteHost: typeof deployRemoteHost;
   } = {
     configureRemoteHost,
-    deployRemoteHost,
   },
 ): HostsServiceShape => {
   const mutationLocks = new Map<string, Semaphore.Semaphore>();
@@ -229,47 +221,6 @@ export const makeHostsService = (
         return yield* serializeHostMutation(
           host,
           operations.configureRemoteHost(ssh, host, options),
-        );
-      }),
-    deployRemote: (id) =>
-      Effect.gen(function* () {
-        if (!RELEASE_CAPABILITIES.managedRemoteDeploy) {
-          return {
-            ok: false,
-            detail: MANAGED_REMOTE_DEPLOY_DISABLED_DETAIL,
-            code: "validation" as const,
-            stages: [],
-            disposition: "not-started" as const,
-          } satisfies DeployRemoteResult;
-        }
-        const hostResult = yield* Effect.result(
-          Effect.tryPromise({
-            try: () => registry.get(id),
-            catch: asRemoteHostsError,
-          }),
-        );
-        if (hostResult._tag === "Failure") {
-          return {
-            ok: false,
-            detail: hostResult.failure.message,
-            code: hostResult.failure.code,
-            stages: [],
-            disposition: "not-started" as const,
-          } satisfies DeployRemoteResult;
-        }
-        const host = hostResult.success;
-        if (!host) {
-          return {
-            ok: false,
-            detail: `unknown host: ${id}`,
-            code: "not_found" as const,
-            stages: [],
-            disposition: "not-started" as const,
-          } satisfies DeployRemoteResult;
-        }
-        return yield* serializeHostMutation(
-          host,
-          operations.deployRemoteHost(ssh, host),
         );
       }),
     deployConfiguredRemote: (id, options) =>

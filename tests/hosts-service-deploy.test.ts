@@ -22,7 +22,10 @@ vi.mock("@shared/release-capabilities", () => ({
   BOX_FLEET_DISABLED_DETAIL: "box fleet disabled (test mock)",
 }));
 
-import { makeHostsService } from "../src/main/vellum/hosts/service";
+import {
+  makeHostsService,
+  type HostsServiceShape,
+} from "../src/main/vellum/hosts/service";
 import { HostRuntime } from "../src/main/vellum/hosts/host-runtime";
 import type { HostsRegistry } from "../src/main/vellum/hosts/registry";
 import type { ConfiguredRemoteDeployResult } from "../src/main/vellum/hosts/deploy-configured-remote";
@@ -105,7 +108,6 @@ describe("HostsService configured deploy admission", () => {
       unusedFleet,
       {
         configureRemoteHost: unused as never,
-        deployRemoteHost: unused as never,
       },
     );
 
@@ -148,7 +150,6 @@ describe("HostsService configured deploy admission", () => {
       unusedFleet,
       {
         configureRemoteHost: unused as never,
-        deployRemoteHost: unused as never,
       },
     );
     const runtime = Layer.succeed(
@@ -196,7 +197,6 @@ describe("HostsService configured deploy admission", () => {
       unusedFleet,
       {
         configureRemoteHost: unused as never,
-        deployRemoteHost: unused as never,
       },
     );
     const runtime = Layer.succeed(
@@ -251,12 +251,20 @@ describe("HostsService configured deploy admission", () => {
   });
 
   it("product Deploy is HostRuntime.reconcile, not leftover ceremony", () => {
+    const hostsServiceHasNoDeployRemote: "deployRemote" extends keyof HostsServiceShape
+      ? never
+      : true = true;
+    expect(hostsServiceHasNoDeployRemote).toBe(true);
+
     const service = readFileSync(
       new URL("../src/main/vellum/hosts/service.ts", import.meta.url),
       "utf8",
     );
     expect(service).toContain("runtime.reconcile");
     expect(service).not.toContain("deployConfiguredRemoteHost");
+    expect(service).not.toContain("deployRemoteHost");
+    expect(service).not.toMatch(/\bdeployRemote\s*:/u);
+    expect(service).not.toContain('"./deploy-remote"');
     expect(service).not.toContain("darwinRemoteDeploymentProvider");
     expect(service).not.toMatch(/darwinRemoteDeploymentProvider\s*\.\s*deploy/u);
   });

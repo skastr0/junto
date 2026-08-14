@@ -366,6 +366,8 @@ describe("operator deployment coordinator", () => {
     expect(coordinator).toContain(".reconcile(");
     expect(coordinator).not.toMatch(/hosts\s*\n?\s*\.deployConfiguredRemote/u);
     expect(coordinator).not.toContain("deployConfiguredRemoteHost");
+    expect(coordinator).not.toContain("deployRemoteHost");
+    expect(coordinator).not.toMatch(/hosts\s*\n?\s*\.deployRemote\b/u);
     expect(coordinator).not.toContain("darwinRemoteDeploymentProvider");
     expect(coordinator).not.toMatch(
       /darwinRemoteDeploymentProvider\s*\.\s*deploy/u,

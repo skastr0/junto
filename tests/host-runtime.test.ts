@@ -880,6 +880,7 @@ describe("HostRuntime inversion", () => {
     expect(coordinator).toContain(".reconcile(");
     expect(coordinator).not.toMatch(/hosts\s*\n?\s*\.deployConfiguredRemote/u);
     expect(coordinator).not.toContain("deployConfiguredRemoteHost");
+    expect(coordinator).not.toContain("deployRemoteHost");
     expect(coordinator).not.toContain("darwinRemoteDeploymentProvider");
     const runtime = readFileSync(
       new URL("../src/main/vellum/hosts/host-runtime.ts", import.meta.url),
@@ -889,6 +890,7 @@ describe("HostRuntime inversion", () => {
     expect(runtime).toContain("admitHostRuntimeApply");
     expect(runtime).toContain("releaseAllowsTargetPlatform");
     expect(runtime).not.toContain("deployConfiguredRemoteHost");
+    expect(runtime).not.toContain("deployRemoteHost");
     expect(runtime).not.toContain("darwinRemoteDeploymentProvider");
     const service = readFileSync(
       new URL("../src/main/vellum/hosts/service.ts", import.meta.url),
@@ -897,6 +899,9 @@ describe("HostRuntime inversion", () => {
     expect(service).toContain("HostRuntime");
     expect(service).toContain("runtime.reconcile");
     expect(service).not.toContain("deployConfiguredRemoteHost");
+    expect(service).not.toContain("deployRemoteHost");
+    expect(service).not.toMatch(/\bdeployRemote\s*:/u);
+    expect(service).not.toContain('"./deploy-remote"');
     expect(service).not.toContain("darwinRemoteDeploymentProvider");
   });
 
