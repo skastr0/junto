@@ -22,6 +22,10 @@ import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
 import { Schema } from "effect";
 import { HostDirectorySnapshot } from "@shared/host-directory";
 import type { ControlLease, JournalEntry, LocalHostEvent } from "./local-host";
+import {
+  appendTransportTrace,
+  recordTransportError,
+} from "../observability/transport-journal";
 
 type Pending = {
   resolve: (v: TermControlResponse) => void;
@@ -321,18 +325,47 @@ export class TermControlClient extends EventEmitter implements TermMaintenanceCo
     if (this.quiescing || this.closeObserved || !this.socket || this.socket.destroyed) {
       return Promise.reject(new Error("term control client closed"));
     }
+    const started = Date.now();
+    const bindingId =
+      "bindingId" in body && typeof body.bindingId === "string"
+        ? body.bindingId
+        : undefined;
     return new Promise((resolve, reject) => {
+      const finish = (error?: unknown, ok = true): void => {
+        const event = {
+          plane: "term" as const,
+          op: `sock.${body.op}`,
+          ...(bindingId === undefined ? {} : { bindingId }),
+          ms: Date.now() - started,
+        };
+        if (ok) appendTransportTrace({ ...event, ok: true });
+        else recordTransportError(event, error);
+      };
       const timer = setTimeout(() => {
         this.pending.delete(body.id);
-        reject(new Error(`term control timeout op=${body.op}`));
+        const err = new Error(`term control timeout op=${body.op}`);
+        finish(err, false);
+        reject(err);
       }, timeoutMs);
-      this.pending.set(body.id, { resolve, reject, timer });
+      this.pending.set(body.id, {
+        resolve: (value) => {
+          finish(undefined, value.ok);
+          resolve(value);
+        },
+        reject: (err) => {
+          finish(err, false);
+          reject(err);
+        },
+        timer,
+      });
       try {
         this.socket!.write(`${JSON.stringify(body)}\n`);
       } catch (err) {
         this.pending.delete(body.id);
         clearTimeout(timer);
-        reject(err instanceof Error ? err : new Error(String(err)));
+        const error = err instanceof Error ? err : new Error(String(err));
+        finish(error, false);
+        reject(error);
       }
     });
   }

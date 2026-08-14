@@ -26,6 +26,7 @@ import {
   occupancyFromSession,
   occupyVacantSeat,
 } from "@shared/terminal-seat-occupancy";
+import { appendTransportTrace } from "../observability/transport-journal";
 import {
   TERM_MAINTENANCE_OBSERVATION_BYTES,
   type TermMaintenanceDenialReason,
@@ -674,8 +675,26 @@ export class LocalSessionHost extends EventEmitter {
       "local",
     );
     if (Result.isFailure(occupyVacantSeat(occupancy)) && prior) {
+      appendTransportTrace({
+        plane: "term",
+        op: "host.occupy",
+        ok: true,
+        bindingId,
+        status: sessionStatusOf(prior),
+        occupancy: occupancy._tag,
+        decision: "activate",
+      });
       return this.summaryOf(prior);
     }
+    appendTransportTrace({
+      plane: "term",
+      op: "host.occupy",
+      ok: true,
+      bindingId,
+      status: prior ? sessionStatusOf(prior) : "none",
+      occupancy: occupancy._tag,
+      decision: "occupy",
+    });
 
     const cols = Math.max(20, Math.min(300, input.cols ?? DEFAULT_COLS));
     const rows = Math.max(5, Math.min(120, input.rows ?? DEFAULT_ROWS));
@@ -852,7 +871,21 @@ export class LocalSessionHost extends EventEmitter {
 
   get(bindingId: string): TerminalSessionSummary | undefined {
     const rec = this.sessions.get(bindingId);
-    return rec ? this.summaryOf(rec) : undefined;
+    const summary = rec ? this.summaryOf(rec) : undefined;
+    appendTransportTrace({
+      plane: "term",
+      op: "host.get",
+      ok: true,
+      bindingId,
+      status: summary?.status ?? "none",
+      occupancy:
+        summary === undefined ||
+        summary.status === "exited" ||
+        summary.status === "missing"
+          ? "VacantSeat"
+          : "OccupiedSeat",
+    });
+    return summary;
   }
 
   /**
@@ -1335,6 +1368,15 @@ export class LocalSessionHost extends EventEmitter {
         console.error(`[term] identity unbind failed for ${rec.bindingId}@${rec.epoch}:`, error);
       }
     }
+    appendTransportTrace({
+      plane: "term",
+      op: "host.exit",
+      ok: true,
+      bindingId: rec.bindingId,
+      status: "exited",
+      occupancy: "VacantSeat",
+      decision: `exit code=${code ?? "none"} signal=${signal ?? "none"}`,
+    });
     rec.phase = SessionPhase.Closed({
       surface: "native",
       reason: signal !== undefined ? `signal_${signal}` : `exit_${code ?? "null"}`,

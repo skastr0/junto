@@ -40,6 +40,7 @@ import {
   installObservabilityConsoleHook,
   recordRendererConsole,
   recordSystemLog,
+  startTransportJournal,
 } from "./vellum/observability";
 import { releaseDemoRuntimeIsolation } from "./vellum/demo/runtime-isolation";
 import { registerBrowserIpcHandlers, registerIpcHandlers } from "./ipc";
@@ -1259,6 +1260,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
   void app.whenReady().then(async () => {
     // Process log ring: main console + Effect logger (layer already on AppRuntime).
     installObservabilityConsoleHook();
+    startTransportJournal();
     recordSystemLog(
       `${PRODUCT_NAME} ready - ${app.isPackaged ? "packaged" : "dev"} - ${app.getVersion() || "0.0.0"}`,
     );

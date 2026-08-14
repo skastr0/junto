@@ -33,6 +33,10 @@ import type {
   ScopedStreamProgram,
 } from "./program";
 import { classifySshStderr } from "./format";
+import {
+  appendTransportTrace,
+  recordTransportError,
+} from "../observability/transport-journal";
 import { createSshProgramCompiler } from "./program";
 import {
   ProcessFailure,
@@ -654,34 +658,57 @@ export const SshTransportLayer = Layer.effect(
         };
       });
 
-    const run = (
-      program: OneShotProgram,
-    ): Effect.Effect<SshCommandResult, SshError> =>
-      Effect.try({
+    const run = Effect.fn("SshTransport.run")(function* (program: OneShotProgram) {
+      const started = Date.now();
+      const compiled = yield* Effect.try({
         try: () => compiler.oneShot(program),
         catch: () =>
           new SshSetupError({
             endpoint: "invalid-program",
             message: "SSH operation was not created by the policy surface",
           }),
-      }).pipe(
-        Effect.flatMap((compiled) =>
-          withDial(
-            compiled.endpoint,
-            ensureControlDir(compiled.endpoint).pipe(
-              Effect.andThen(
-                runChecked(
-                  compiled.endpoint,
-                  "one-shot",
-                  compiled.command,
-                  compiled.timeoutMs,
-                  compiled.input,
-                ),
-              ),
+      });
+      yield* Effect.annotateCurrentSpan("endpoint", String(compiled.endpoint));
+      return yield* withDial(
+        compiled.endpoint,
+        ensureControlDir(compiled.endpoint).pipe(
+          Effect.andThen(
+            runChecked(
+              compiled.endpoint,
+              "one-shot",
+              compiled.command,
+              compiled.timeoutMs,
+              compiled.input,
+            ),
+          ),
+        ),
+      ).pipe(
+        Effect.tap(() =>
+          Effect.sync(() =>
+            appendTransportTrace({
+              plane: "ssh-transport",
+              op: "run",
+              ok: true,
+              endpoint: String(compiled.endpoint),
+              ms: Date.now() - started,
+            }),
+          ),
+        ),
+        Effect.tapError((error) =>
+          Effect.sync(() =>
+            recordTransportError(
+              {
+                plane: "ssh-transport",
+                op: "run",
+                endpoint: String(compiled.endpoint),
+                ms: Date.now() - started,
+              },
+              error,
             ),
           ),
         ),
       );
+    });
 
     const connectWithPolicy = <A, E, R>(
       callbackOwnsExit: boolean,
@@ -1088,7 +1115,27 @@ export const SshTransportLayer = Layer.effect(
                   })),}),
               Effect.onError(() => master.close),
             );
-            yield* setup;
+            yield* setup.pipe(
+              Effect.tapError((error) =>
+                Effect.sync(() =>
+                  recordTransportError(
+                    {
+                      plane: "ssh-transport",
+                      op: "forward",
+                      endpoint: String(compiled.endpoint),
+                    },
+                    error,
+                  ),
+                ),
+              ),
+            );
+            appendTransportTrace({
+              plane: "ssh-transport",
+              op: "forward",
+              ok: true,
+              endpoint: String(compiled.endpoint),
+              socket: compiled.localSocket,
+            });
             return {
               localSocket: compiled.localSocket as LocalForwardSocket,
               close: master.close,
