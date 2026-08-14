@@ -477,6 +477,7 @@ describe("machine-safety architecture", () => {
       "@effect/platform-node/NodeStream",
       // live.ts resolves a short /tmp mux dir; no second spawn plane.
       "@shared/vellum-home",
+      "@shared/transport-trace",
       "effect",
       "node:crypto",
       "node:os",

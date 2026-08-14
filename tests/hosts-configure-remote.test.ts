@@ -133,8 +133,21 @@ const makeSsh = (
       const bootstrap = index === 0;
       events.push(bootstrap ? "bootstrap-open" : "peer-open");
 
-      const bootstrapOutput = yield* Deferred.make<Uint8Array>();
+      const bootstrapAccept = yield* Deferred.make<Uint8Array>();
+      const bootstrapStatus = yield* Deferred.make<Uint8Array>();
       const peerOutput = yield* Queue.unbounded<Uint8Array>();
+      const protocolAccept = encoder.encode(
+        `${JSON.stringify(
+          StationProtocolAccept.make({
+            protocol: STATION_PROTOCOL_PREFACE,
+            frame: "accept",
+            appVersion: "0.1.0",
+            stateSchemaVersion: 1,
+            support: CURRENT_STATION_PROTOCOL_SUPPORT,
+            selected: STATION_PROTOCOL_BASELINE,
+          }),
+        )}\n`,
+      );
       let closed = false;
       const close = Effect.suspend(() => {
         if (closed) return Effect.void;
@@ -150,23 +163,13 @@ const makeSsh = (
             const raw = JSON.parse(
               decoder.decode(bytes).trim(),
             ) as Record<string, unknown>;
-            if (!bootstrap && raw.frame === "offer") {
-              events.push("protocol-offer");
-              yield* Queue.offer(
-                peerOutput,
-                encoder.encode(
-                  `${JSON.stringify(
-                    StationProtocolAccept.make({
-                      protocol: STATION_PROTOCOL_PREFACE,
-                      frame: "accept",
-                      appVersion: "0.1.0",
-                      stateSchemaVersion: 1,
-                      support: CURRENT_STATION_PROTOCOL_SUPPORT,
-                      selected: STATION_PROTOCOL_BASELINE,
-                    }),
-                  )}\n`,
-                ),
-              );
+            if (raw.frame === "offer") {
+              events.push(bootstrap ? "bootstrap-protocol-offer" : "protocol-offer");
+              if (bootstrap) {
+                yield* Deferred.succeed(bootstrapAccept, protocolAccept);
+              } else {
+                yield* Queue.offer(peerOutput, protocolAccept);
+              }
               return;
             }
             const request = parseRequest(bytes);
@@ -174,7 +177,7 @@ const makeSsh = (
             if (bootstrap) {
               events.push(`bootstrap-${request.request.op}`);
               yield* Deferred.succeed(
-                bootstrapOutput,
+                bootstrapStatus,
                 encodedResponse(request, statusResponse),
               );
               return;
@@ -239,7 +242,10 @@ const makeSsh = (
             })
           : Effect.die(new Error("peer input must stay open")),
         stdout: bootstrap
-          ? Stream.fromEffect(Deferred.await(bootstrapOutput))
+          ? Stream.concat(
+              Stream.fromEffect(Deferred.await(bootstrapAccept)),
+              Stream.fromEffect(Deferred.await(bootstrapStatus)),
+            )
           : Stream.fromQueue(peerOutput),
         stderr: Stream.empty,
         exitCode: bootstrap ? Effect.succeed(0) : Effect.never,
@@ -298,6 +304,7 @@ describe("configureRemoteHost", () => {
       "platform",
       "home",
       "bootstrap-open",
+      "bootstrap-protocol-offer",
       "bootstrap-status",
       "bootstrap-input-close",
       "bootstrap-close",
