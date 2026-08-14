@@ -2,7 +2,7 @@ import type { StationSettings } from "@shared/settings";
 import type { InstallationId } from "@shared/station-api";
 import { RemoteHostsError, type RemoteHost } from "@shared/remote-hosts";
 import type { ConfigureRemoteOptions, ConfigureRemoteResult } from "./configure-remote";
-import type { DeployRemoteResult } from "./deploy-remote";
+import type { DeployRemoteResult } from "./remote-deployment";
 import type { LinuxReleaseCacheSource } from "./linux-release-feed";
 
 export type ConfiguredRemoteDeployOutcome =

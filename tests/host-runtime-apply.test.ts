@@ -171,14 +171,6 @@ describe("HostRuntime apply over HostOps", () => {
       new URL("../src/main/vellum/hosts/host-runtime.ts", import.meta.url),
       "utf8",
     );
-    const darwin = readFileSync(
-      new URL("../src/main/vellum/hosts/host-runtime-darwin.ts", import.meta.url),
-      "utf8",
-    );
-    const linux = readFileSync(
-      new URL("../src/main/vellum/hosts/host-runtime-linux.ts", import.meta.url),
-      "utf8",
-    );
     expect(runtime).toContain("applyHostRuntime");
     expect(runtime).toContain("HostOps.layerForTarget");
     expect(runtime).toContain("HostConfigure.layer");
@@ -195,8 +187,16 @@ describe("HostRuntime apply over HostOps", () => {
     expect(runtime).not.toContain("adapterFor");
     expect(runtime).not.toContain("--vellum-headless");
     expect(runtime).not.toContain('from "./deploy-darwin"');
-    expect(darwin).not.toContain("for (let round");
-    expect(linux).not.toContain("for (let round");
+    expect(() =>
+      readFileSync(
+        new URL("../src/main/vellum/hosts/host-runtime-darwin.ts", import.meta.url),
+      ),
+    ).toThrow();
+    expect(() =>
+      readFileSync(
+        new URL("../src/main/vellum/hosts/host-runtime-linux.ts", import.meta.url),
+      ),
+    ).toThrow();
   });
 
   it("configures and activates on first install", async () => {

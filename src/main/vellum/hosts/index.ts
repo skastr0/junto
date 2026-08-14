@@ -5,7 +5,7 @@ export {
   type ConfigureRemoteResult,
   type HostsServiceShape,
 } from "./service";
-export type { DeployRemoteResult } from "./deploy-remote";
+export type { DeployRemoteResult } from "./remote-deployment";
 export {
   getDefaultHostsRegistry,
   makeHostsRegistry,
