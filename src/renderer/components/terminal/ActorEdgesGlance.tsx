@@ -13,7 +13,7 @@
  * No "soft" / "tasks" edge nature — those were authorial relationship modes.
  * Live stoppage is a derived chip only when the kernel reports blocks.
  */
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
 import { PanelRightClose, PanelRightOpen } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
@@ -36,6 +36,11 @@ import {
   seatFactsForNode,
 } from "../../lib/seat-projections";
 import { chatCoarse$ } from "../../lib/chat-state";
+import {
+  actorRailsOpen,
+  setActorRailOpen,
+  terminal$,
+} from "../../lib/terminal-state";
 import { ActivityMark } from "../ActivityMark";
 import { Chip, Eyebrow, IconButton } from "../ui";
 
@@ -231,7 +236,12 @@ export function ActorEdgesGlance({
   const doc = use$(state$.doc);
   const execution = use$(kernel$.execution);
   const executionRev = use$(kernel$.executionRev);
-  const [expanded, setExpanded] = useState(true);
+  // Shared, not pane-local: the focus panel budgets this rail's width so the
+  // xterm keeps its columns whichever way the rail sits.
+  const railsOpen = use$(terminal$.railsOpenByNodeId);
+  const expanded = actorRailsOpen(node.id, railsOpen).connections;
+  const setExpanded = (open: boolean): void =>
+    setActorRailOpen(node.id, "connections", open);
 
   const isActor = useMemo(() => {
     const role = roleOf(

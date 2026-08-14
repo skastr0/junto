@@ -2,6 +2,7 @@ import { observable } from "@legendapp/state";
 import type { CanvasNode } from "@shared/canvas";
 import type { TerminalSessionSummary } from "@shared/terminal";
 import { resolveTerminalBinding } from "@shared/terminal";
+import { DEFAULT_ACTOR_RAILS_OPEN, type ActorRailsOpen } from "./focus-measure";
 import type { WorkZone } from "./surface-registry";
 
 /**
@@ -58,8 +59,38 @@ export const terminal$ = observable({
    */
   lastOpenNodeId: null as string | null,
   sessionByBindingId: {} as Record<string, TerminalSessionSummary | undefined>,
+  /**
+   * Actor side rails (ledger / connections) per node, expanded or collapsed.
+   *
+   * Shared rather than pane-local because the focus panel budgets their width:
+   * the panel must grow and shrink with the rails so the xterm keeps its target
+   * columns either way. Node-keyed, so a collapsed rail survives a re-open.
+   */
+  railsOpenByNodeId: {} as Record<string, Partial<ActorRailsOpen> | undefined>,
   inventoryOpen: false,
 });
+
+/** Rail state for one node, with the mount default filled in. */
+export const actorRailsOpen = (
+  nodeId: string,
+  stored?: Record<string, Partial<ActorRailsOpen> | undefined>,
+): ActorRailsOpen => {
+  const rails = stored
+    ? stored[nodeId]
+    : terminal$.railsOpenByNodeId[nodeId].peek();
+  return { ...DEFAULT_ACTOR_RAILS_OPEN, ...(rails ?? {}) };
+};
+
+export const setActorRailOpen = (
+  nodeId: string,
+  rail: keyof ActorRailsOpen,
+  open: boolean,
+): void => {
+  terminal$.railsOpenByNodeId[nodeId].set({
+    ...actorRailsOpen(nodeId),
+    [rail]: open,
+  });
+};
 
 export const openTerminalSurface = (
   node: CanvasNode,

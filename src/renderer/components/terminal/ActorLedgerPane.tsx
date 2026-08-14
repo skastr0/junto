@@ -43,7 +43,11 @@ import {
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import { applyWorkCanvasWrite } from "../../lib/mutations";
 import { state$ } from "../../lib/state";
-import { terminal$ } from "../../lib/terminal-state";
+import {
+  actorRailsOpen,
+  setActorRailOpen,
+  terminal$,
+} from "../../lib/terminal-state";
 import { getVellumCommandApi } from "../../lib/vellum-api";
 import { Button, Chip, Eyebrow, IconButton, type ChipTone } from "../ui";
 import { Textarea } from "../ui/Field";
@@ -101,11 +105,6 @@ function MailRowItem({
           <span className="actor-ledger__mail-from">
             {inbound ? row.fromLabel : "self"}
           </span>
-          {inbound && !row.delivered ? (
-            <Chip tone="amber" title="Waiting for delivery into the seat">
-              queued
-            </Chip>
-          ) : null}
           {age ? (
             <span className="actor-ledger__mail-age" aria-hidden>
               {age}
@@ -304,7 +303,12 @@ export function ActorLedgerPane({
   const actorRefs = use$(state$.actorRefs);
   const canvas = use$(state$.canvasName);
   const boundCanvas = use$(terminal$.canvasByNodeId[node.id]);
-  const [expanded, setExpanded] = useState(true);
+  // Shared, not pane-local: the focus panel budgets this rail's width so the
+  // xterm keeps its columns whichever way the rail sits.
+  const railsOpen = use$(terminal$.railsOpenByNodeId);
+  const expanded = actorRailsOpen(node.id, railsOpen).ledger;
+  const setExpanded = (open: boolean): void =>
+    setActorRailOpen(node.id, "ledger", open);
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [pendingKeys, setPendingKeys] = useState<ReadonlySet<string>>(
     () => new Set(),
@@ -704,7 +708,6 @@ export function ActorLedgerPane({
                   ? ""
                   : [
                       `${counts.total}`,
-                      counts.queued > 0 ? `${counts.queued} queued` : null,
                       counts.unread > 0 ? `${counts.unread} unread` : null,
                     ]
                       .filter(Boolean)
