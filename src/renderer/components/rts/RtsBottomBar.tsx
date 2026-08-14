@@ -59,7 +59,7 @@ import {
   slotIndexOf as hotbarSlotIndexOfNode,
   touchActiveMru,
 } from "../../lib/hotbar-slots";
-import { hotbarNodeSeverity } from "../../lib/hotbar-signal";
+import { hotbarNodeSeverity, liveActivitySeverity } from "../../lib/hotbar-signal";
 import { signalMark } from "../../lib/signal-mark";
 import {
   deleteNode,
@@ -1186,6 +1186,12 @@ function HotbarStrip({
         : hotbarNodeSeverity(node, {
             regionSeverity: rollup?.severity,
             memberSeverity: severityByNodeId.get(slot.nodeId),
+            liveSeverity: isRegion
+              ? undefined
+              : liveActivitySeverity({
+                  seatState: seatEventForNode(node)?.state,
+                  herdrAgentStatus: herdrStatus,
+                }),
           });
       return {
         index,
