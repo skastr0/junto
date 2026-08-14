@@ -92,7 +92,7 @@ export class HostsService extends Context.Service<HostsService,
     ) => Effect.Effect<ConfigureRemoteResult, RemoteHostsError>;
     /** Command Center → install/update .app over SSH + start Remote station. */
     readonly deployRemote: (id: string) => Effect.Effect<DeployRemoteResult>;
-    /** Configure + deploy under one per-host compensating transaction. */
+    /** Admit + serialize, then HostRuntime.reconcile. */
     readonly deployConfiguredRemote: (
       id: string,
       options: ConfiguredRemoteDeployOptions & {

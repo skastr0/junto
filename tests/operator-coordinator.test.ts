@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { Context, Effect, Layer } from "effect";
 import { describe, expect, it } from "vitest";
 import { defaultSettings } from "../src/shared/settings";
@@ -352,5 +353,22 @@ describe("operator deployment coordinator", () => {
       op: "fleet.list",
       error: { type: "runtime_down" },
     });
+  });
+
+  it("does not call leftover Deploy ceremony on the product path", () => {
+    const coordinator = readFileSync(
+      new URL(
+        "../src/main/vellum/hosts/operator-coordinator.ts",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    expect(coordinator).toContain(".reconcile(");
+    expect(coordinator).not.toMatch(/hosts\s*\n?\s*\.deployConfiguredRemote/u);
+    expect(coordinator).not.toContain("deployConfiguredRemoteHost");
+    expect(coordinator).not.toContain("darwinRemoteDeploymentProvider");
+    expect(coordinator).not.toMatch(
+      /darwinRemoteDeploymentProvider\s*\.\s*deploy/u,
+    );
   });
 });

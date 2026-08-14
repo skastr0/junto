@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { Context, Effect, Schema } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import type { RemoteHost } from "../src/shared/remote-hosts";
@@ -247,5 +248,16 @@ describe("HostsService configured deploy admission", () => {
     const [firstResult] = await Promise.all([firstRun, secondRun]);
     expect(firstResult.statusRecorded).toBe(true);
     expect(events).toEqual(["finalize-first", "finalize-second"]);
+  });
+
+  it("product Deploy is HostRuntime.reconcile, not leftover ceremony", () => {
+    const service = readFileSync(
+      new URL("../src/main/vellum/hosts/service.ts", import.meta.url),
+      "utf8",
+    );
+    expect(service).toContain("runtime.reconcile");
+    expect(service).not.toContain("deployConfiguredRemoteHost");
+    expect(service).not.toContain("darwinRemoteDeploymentProvider");
+    expect(service).not.toMatch(/darwinRemoteDeploymentProvider\s*\.\s*deploy/u);
   });
 });
