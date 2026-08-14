@@ -665,18 +665,8 @@ export const startTermControlServer = async (
           } catch {
             // ignore
           }
-          // Per-socket live frames; client queues until the first event listener.
-          for (const event of snapshot) {
-            writeEvent(
-              {
-                type: "seat-state",
-                bindingId: event.bindingId,
-                epoch: event.epoch,
-                event,
-              },
-              [socket],
-            );
-          }
+          // Snapshot rides the auth ack only. A second writeEvent dump
+          // would double-deliver after the client flushes its queue.
           continue;
         }
         const req = msg as TermControlRequest;
