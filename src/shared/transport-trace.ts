@@ -9,7 +9,7 @@ import { resolveVellumCommandHome } from "./vellum-home";
 export const TRANSPORT_LOG_DIR_SEGMENTS = [".vellum-command", "logs"] as const;
 export const TRANSPORT_LOG_FILE = "transport.jsonl";
 
-export type TransportPlane = "ssh-transport" | "term";
+export type TransportPlane = "ssh-transport" | "term" | "station";
 
 export type TransportTraceEvent = {
   readonly ts: string;
@@ -24,8 +24,12 @@ export type TransportTraceEvent = {
   readonly epoch?: string;
   /** Occupancy tag only after a real table snapshot. Never on a swallowed error. */
   readonly occupancy?: string;
-  /** Table branch only: occupy | activate. */
+  /** Table branch only: occupy | activate. Station project: install | idempotent | stale | conflict. */
   readonly decision?: string;
+  /** Station projection generation. */
+  readonly generation?: string;
+  /** Station report record count. Never the records themselves. */
+  readonly records?: number;
   readonly error?: string;
   readonly stack?: string;
   readonly stderr?: string;
@@ -231,3 +235,65 @@ export const formatTransportFailure = (cause: unknown): TransportFailure => {
 
 export const sanitizeTransportError = (cause: unknown): string =>
   formatTransportFailure(cause).error;
+
+const asRecord = (value: unknown): Record<string, unknown> | undefined =>
+  value !== null && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : undefined;
+
+const stringField = (
+  record: Record<string, unknown> | undefined,
+  key: string,
+): string | undefined => {
+  const value = record?.[key];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+};
+
+const nestedRecord = (
+  record: Record<string, unknown> | undefined,
+  key: string,
+): Record<string, unknown> | undefined => asRecord(record?.[key]);
+
+/**
+ * Station hop receipt. Generation, decision, readiness, report count.
+ * Never the projection body or work records.
+ */
+export const stationTapeFromExchange = (
+  request: unknown,
+  response?: unknown,
+): {
+  readonly status?: string;
+  readonly decision?: string;
+  readonly generation?: string;
+  readonly records?: number;
+} => {
+  const req = asRecord(request);
+  const res = asRecord(response);
+  const reqProjection = nestedRecord(req, "projection");
+  const resProjection = nestedRecord(res, "projection") ?? nestedRecord(res, "active");
+  const generation =
+    stringField(reqProjection, "generation") ??
+    stringField(resProjection, "generation");
+  const decision = stringField(res, "decision");
+  const state = stringField(res, "state");
+  const readiness = nestedRecord(res, "readiness");
+  const missing = readiness
+    ? Object.entries(readiness)
+        .filter(([, ready]) => ready === false)
+        .map(([name]) => name)
+    : [];
+  const batch = nestedRecord(req, "batch") ?? nestedRecord(res, "batch");
+  const records = Array.isArray(batch?.records) ? batch.records.length : undefined;
+  const status =
+    state === undefined
+      ? undefined
+      : missing.length > 0
+        ? `${state} missing=${missing.join(",")}`
+        : state;
+  return {
+    ...(status === undefined ? {} : { status }),
+    ...(decision === undefined ? {} : { decision }),
+    ...(generation === undefined ? {} : { generation }),
+    ...(records === undefined ? {} : { records }),
+  };
+};

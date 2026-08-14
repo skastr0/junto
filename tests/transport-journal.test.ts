@@ -9,6 +9,7 @@ import {
   rememberTransportStderr,
   sanitizeTransportError,
   seatTapeFromSummary,
+  stationTapeFromExchange,
   transportLogPath,
   transportLogPathForHome,
 } from "../src/shared/transport-trace";
@@ -171,6 +172,51 @@ describe("transport journal", () => {
     expect(transportLogPathForHome("/Users/op")).toBe(
       "/Users/op/.vellum-command/logs/transport.jsonl",
     );
+  });
+
+  it("summarizes Station hops without projection bodies or work records", () => {
+    const tape = stationTapeFromExchange(
+      {
+        op: "project",
+        projection: {
+          generation: "12",
+          body: "CANVAS SECRET token=abc",
+        },
+      },
+      {
+        op: "project",
+        decision: "install",
+        active: { generation: "12" },
+      },
+    );
+    expect(tape).toEqual({
+      decision: "install",
+      generation: "12",
+    });
+    expect(JSON.stringify(tape)).not.toContain("CANVAS");
+    expect(JSON.stringify(tape)).not.toContain("token=");
+    const status = stationTapeFromExchange(
+      { op: "status" },
+      {
+        op: "status",
+        state: "ready",
+        projection: { generation: "12" },
+        readiness: {
+          database: true,
+          workControl: true,
+          simulation: false,
+          session: true,
+        },
+      },
+    );
+    expect(status.status).toBe("ready missing=simulation");
+    expect(status.generation).toBe("12");
+    const report = stationTapeFromExchange({
+      op: "report",
+      batch: { records: [{ payload: "do not store" }, {}], hasMore: false },
+    });
+    expect(report.records).toBe(2);
+    expect(JSON.stringify(report)).not.toContain("do not store");
   });
 
   it("filters tape lines by substring", () => {
