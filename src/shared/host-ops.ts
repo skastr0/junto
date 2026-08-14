@@ -3,6 +3,7 @@
  * Unknown is not down. A missing transcript is a failed program.
  */
 import { Schema } from "effect";
+import { HostProcess, HostWorkAttach } from "./host-runtime";
 
 export const HostOpsPresence = Schema.Literals(["absent", "present", "unknown"]);
 export type HostOpsPresence = typeof HostOpsPresence.Type;
@@ -16,6 +17,8 @@ export const HostOpsInspect = Schema.Struct({
   deployLock: HostOpsPresence,
   incoming: HostOpsPresence,
   termSocket: HostOpsPresence,
+  process: HostProcess,
+  workAttach: HostWorkAttach,
   observedAt: Schema.String,
 });
 export type HostOpsInspect = typeof HostOpsInspect.Type;
@@ -46,3 +49,48 @@ export const HostOpsCleanup = Schema.Struct({
   observedAt: Schema.String,
 });
 export type HostOpsCleanup = typeof HostOpsCleanup.Type;
+
+export const HostOpsConfigure = Schema.Struct({
+  ok: Schema.Boolean,
+  detail: Schema.String,
+  stationInstallationId: Schema.optionalKey(Schema.String),
+  configuredAt: Schema.optionalKey(Schema.String),
+  code: Schema.optionalKey(
+    Schema.Literals(["io", "validation", "not_found", "conflict"]),
+  ),
+  observedAt: Schema.String,
+});
+export type HostOpsConfigure = typeof HostOpsConfigure.Type;
+
+export const HostOpsActivate = Schema.Struct({
+  ok: Schema.Boolean,
+  detail: Schema.String,
+  stages: Schema.Array(Schema.String),
+  disposition: Schema.optionalKey(
+    Schema.Literals([
+      "not-started",
+      "configuration-required",
+      "ready",
+      "indeterminate",
+    ]),
+  ),
+  code: Schema.optionalKey(
+    Schema.Literals([
+      "io",
+      "validation",
+      "not_found",
+      "conflict",
+      "auth_required",
+    ]),
+  ),
+  observedAt: Schema.String,
+});
+export type HostOpsActivate = typeof HostOpsActivate.Type;
+
+export const HostOpsAttach = Schema.Struct({
+  ok: Schema.Boolean,
+  workAttach: HostWorkAttach,
+  detail: Schema.String,
+  observedAt: Schema.String,
+});
+export type HostOpsAttach = typeof HostOpsAttach.Type;

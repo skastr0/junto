@@ -1,30 +1,151 @@
 /**
  * Host-ops — Effect v4 inversion of control.
  *
- * Contract: HostOps. Programs call inspect() and never name an OS or a target.
- * Target is HostTarget. Darwin/Linux are layers. Layer.unwrap loads one after
- * the packaged-platform probe — the same shape as seats (local/remote) and
- * PTY observers (harness implementations).
+ * Contract: HostOps. Programs call inspect / copy / cleanup / configure /
+ * activate / attach and never name an OS or a target.
+ * Target is HostTarget. Pair facts are HostConfigure. Darwin/Linux are
+ * layers. Layer.unwrap loads one after the packaged-platform probe.
  */
-import { Context, Effect, Layer } from "effect";
-import type { HostOpsCleanup, HostOpsCopy, HostOpsInspect } from "@shared/host-ops";
-import type { SshError, SshTarget } from "../ssh/domain";
+import { Context, Effect, Layer, Schema } from "effect";
+import type {
+  HostOpsActivate,
+  HostOpsAttach,
+  HostOpsCleanup,
+  HostOpsConfigure,
+  HostOpsCopy,
+  HostOpsInspect,
+} from "@shared/host-ops";
+import { InstallationId } from "@shared/installation-id";
+import type { RemoteHost } from "@shared/remote-hosts";
+import { inspectSshTarget, type SshError, type SshTarget } from "../ssh/domain";
 import {
   inspectRemotePackagedPlatform,
   RemotePlatformProbeError,
   resolveRemotePackagedPlatform,
 } from "../ssh/read-commands";
-import { SshTransport } from "../ssh/service";
+import { SshTransport, type SshTransportShape } from "../ssh/service";
 import {
+  configureRemoteHost,
+  type ConfigureRemoteOptions,
+} from "./configure-remote";
+import { activateDarwinRemoteRuntimeForTarget } from "./deploy-darwin";
+import { activateLinuxRemoteRuntimeForTarget } from "./deploy-linux";
+import type {
+  DeployableRemoteHost,
+  DeployRemoteResult,
+  RemoteDeploymentTarget,
+  RemotePlatformDescriptor,
+} from "./remote-deployment";
+import {
+  attachDarwinHost,
   cleanupDarwinHost,
   copyDarwinHost,
   inspectDarwinHost,
 } from "./host-ops-darwin";
 import {
+  attachLinuxHost,
   cleanupLinuxHost,
   copyLinuxHost,
   inspectLinuxHost,
 } from "./host-ops-linux";
+
+const decodeInstallationId = Schema.decodeUnknownSync(InstallationId);
+
+/** Placeholder pair facts so inspect / copy / cleanup layers stay target-only. */
+const UNSET_HOST_CONFIGURE: ConfigureRemoteOptions = {
+  commandCenterInstallationId: decodeInstallationId("unset"),
+  appVersion: "0.0.0",
+};
+
+const hostIdFromEndpoint = (endpoint: string): string => {
+  const cleaned = endpoint
+    .replace(/[^A-Za-z0-9._-]/gu, "-")
+    .replace(/^-+/u, "")
+    .slice(0, 64);
+  return /^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(cleaned) ? cleaned : "remote";
+};
+
+const hostRecordFromTarget = (target: SshTarget): DeployableRemoteHost => {
+  const details = inspectSshTarget(target);
+  const endpoint = details.endpoint;
+  const id = hostIdFromEndpoint(endpoint);
+  return {
+    id,
+    label: id,
+    kind: "remote",
+    sshEndpoint: endpoint,
+    capabilities: ["terminal"],
+    ...(details.identityFile === undefined
+      ? {}
+      : { sshIdentityFile: details.identityFile }),
+    ...(details.hostKeyPolicy === "system"
+      ? {}
+      : { sshHostKeyPolicy: details.hostKeyPolicy }),
+  };
+};
+
+const configureHostOps = (
+  ssh: SshTransportShape,
+  target: SshTarget,
+  facts: ConfigureRemoteOptions,
+): Effect.Effect<HostOpsConfigure> =>
+  Effect.gen(function* () {
+    const observedAt = new Date().toISOString();
+    const host: RemoteHost = hostRecordFromTarget(target);
+    const result = yield* configureRemoteHost(ssh, host, facts).pipe(
+      Effect.result,
+    );
+    if (result._tag === "Failure") {
+      return {
+        ok: false,
+        detail: result.failure.message,
+        code: result.failure.code,
+        observedAt,
+      };
+    }
+    return {
+      ok: result.success.ok,
+      detail: result.success.detail,
+      ...(result.success.stationInstallationId === undefined
+        ? {}
+        : { stationInstallationId: result.success.stationInstallationId }),
+      ...(result.success.configuredAt === undefined
+        ? {}
+        : { configuredAt: result.success.configuredAt }),
+      ...(result.success.code === undefined ? {} : { code: result.success.code }),
+      observedAt,
+    };
+  });
+
+const activateHostOps = (
+  ssh: SshTransportShape,
+  target: SshTarget,
+  activate: (
+    ssh: SshTransportShape,
+    prepared: RemoteDeploymentTarget,
+  ) => Effect.Effect<DeployRemoteResult>,
+  platform: RemotePlatformDescriptor,
+): Effect.Effect<HostOpsActivate> =>
+  Effect.gen(function* () {
+    const observedAt = new Date().toISOString();
+    const result = yield* activate(ssh, {
+      host: hostRecordFromTarget(target),
+      endpoint: inspectSshTarget(target).endpoint,
+      sshTarget: target,
+      platform,
+      progress: [],
+    });
+    return {
+      ok: result.ok,
+      detail: result.detail,
+      stages: [...result.stages],
+      ...(result.disposition === undefined
+        ? {}
+        : { disposition: result.disposition }),
+      ...(result.code === undefined ? {} : { code: result.code }),
+      observedAt,
+    };
+  });
 
 export class HostTarget extends Context.Service<
   HostTarget,
@@ -36,50 +157,100 @@ export class HostTarget extends Context.Service<
     Layer.succeed(HostTarget, HostTarget.of({ sshTarget }));
 }
 
+export class HostConfigure extends Context.Service<
+  HostConfigure,
+  ConfigureRemoteOptions
+>()("@vellum/HostConfigure") {
+  static readonly layer = (
+    options: ConfigureRemoteOptions,
+  ): Layer.Layer<HostConfigure> =>
+    Layer.succeed(HostConfigure, HostConfigure.of(options));
+}
+
 export class HostOps extends Context.Service<
   HostOps,
   {
     readonly inspect: () => Effect.Effect<HostOpsInspect>;
     readonly copy: () => Effect.Effect<HostOpsCopy>;
     readonly cleanup: () => Effect.Effect<HostOpsCleanup>;
+    readonly configure: () => Effect.Effect<HostOpsConfigure>;
+    readonly activate: () => Effect.Effect<HostOpsActivate>;
+    readonly attach: () => Effect.Effect<HostOpsAttach>;
   }
 >()("@vellum/HostOps") {
-  static readonly layerDarwin: Layer.Layer<
+  static readonly layerDarwinOps: Layer.Layer<
     HostOps,
     never,
-    SshTransport | HostTarget
+    SshTransport | HostTarget | HostConfigure
   > = Layer.effect(
     HostOps,
     Effect.gen(function* () {
       const ssh = yield* SshTransport;
       const host = yield* HostTarget;
+      const facts = yield* HostConfigure;
       return HostOps.of({
         inspect: () => inspectDarwinHost(ssh, host.sshTarget),
         copy: () => copyDarwinHost(ssh, host.sshTarget),
         cleanup: () => cleanupDarwinHost(ssh, host.sshTarget),
+        configure: () => configureHostOps(ssh, host.sshTarget, facts),
+        activate: () =>
+          activateHostOps(
+            ssh,
+            host.sshTarget,
+            activateDarwinRemoteRuntimeForTarget,
+            { platform: "darwin", kernelName: "Darwin" },
+          ),
+        attach: () => attachDarwinHost(ssh, host.sshTarget),
       });
     }),
+  );
+
+  static readonly layerLinuxOps: Layer.Layer<
+    HostOps,
+    never,
+    SshTransport | HostTarget | HostConfigure
+  > = Layer.effect(
+    HostOps,
+    Effect.gen(function* () {
+      const ssh = yield* SshTransport;
+      const host = yield* HostTarget;
+      const facts = yield* HostConfigure;
+      return HostOps.of({
+        inspect: () => inspectLinuxHost(ssh, host.sshTarget),
+        copy: () => copyLinuxHost(ssh, host.sshTarget),
+        cleanup: () => cleanupLinuxHost(ssh, host.sshTarget),
+        configure: () => configureHostOps(ssh, host.sshTarget, facts),
+        activate: () =>
+          activateHostOps(
+            ssh,
+            host.sshTarget,
+            activateLinuxRemoteRuntimeForTarget,
+            { platform: "linux", kernelName: "Linux" },
+          ),
+        attach: () => attachLinuxHost(ssh, host.sshTarget),
+      });
+    }),
+  );
+
+  static readonly layerDarwin: Layer.Layer<
+    HostOps,
+    never,
+    SshTransport | HostTarget
+  > = HostOps.layerDarwinOps.pipe(
+    Layer.provide(HostConfigure.layer(UNSET_HOST_CONFIGURE)),
   );
 
   static readonly layerLinux: Layer.Layer<
     HostOps,
     never,
     SshTransport | HostTarget
-  > = Layer.effect(
-    HostOps,
-    Effect.gen(function* () {
-      const ssh = yield* SshTransport;
-      const host = yield* HostTarget;
-      return HostOps.of({
-        inspect: () => inspectLinuxHost(ssh, host.sshTarget),
-        copy: () => copyLinuxHost(ssh, host.sshTarget),
-        cleanup: () => cleanupLinuxHost(ssh, host.sshTarget),
-      });
-    }),
+  > = HostOps.layerLinuxOps.pipe(
+    Layer.provide(HostConfigure.layer(UNSET_HOST_CONFIGURE)),
   );
 
   static readonly layerForTarget = (
     target: SshTarget,
+    configure: ConfigureRemoteOptions = UNSET_HOST_CONFIGURE,
   ): Layer.Layer<
     HostOps | HostTarget,
     SshError | RemotePlatformProbeError,
@@ -90,8 +261,11 @@ export class HostOps extends Context.Service<
         const ssh = yield* SshTransport;
         const platform = yield* resolveRemotePackagedPlatform(ssh, target);
         return inspectRemotePackagedPlatform(platform) === "darwin"
-          ? HostOps.layerDarwin
-          : HostOps.layerLinux;
+          ? HostOps.layerDarwinOps
+          : HostOps.layerLinuxOps;
       }),
-    ).pipe(Layer.provideMerge(HostTarget.layer(target)));
+    ).pipe(
+      Layer.provideMerge(HostTarget.layer(target)),
+      Layer.provide(HostConfigure.layer(configure)),
+    );
 }
