@@ -40,6 +40,7 @@ import { occupancyFromSummary, occupyVacantSeat } from "@shared/terminal-seat-oc
 import { seatTapeFromSummary } from "@shared/transport-trace";
 import { appendTransportTrace } from "../observability/transport-journal";
 import { Result } from "effect";
+import { seatStateRuntime } from "./agent-state";
 import type {
   ControlLease,
   LocalHostEvent,
@@ -349,7 +350,23 @@ export const startTermControlServer = async (
     }
   };
 
+  const writeEvent = (payload: LocalHostEvent, targets: Iterable<Socket>): void => {
+    const line = jsonLine({ v: TERM_CONTROL_PROTOCOL, type: "event", payload });
+    for (const sock of targets) {
+      if (sock.destroyed) continue;
+      try {
+        sock.write(line);
+      } catch {
+        dropSocket(sock);
+      }
+    }
+  };
+
   const onHostEvent = (payload: LocalHostEvent): void => {
+    if (payload.type === "seat-state") {
+      writeEvent(payload, admittedClients);
+      return;
+    }
     const line = jsonLine({ v: TERM_CONTROL_PROTOCOL, type: "event", payload });
     for (const [leaseId, socks] of leaseSockets) {
       const lease = leaseById.get(leaseId);
@@ -786,6 +803,7 @@ export const startTermControlServer = async (
 
   server.on("error", (error) => recordDiagnostic("listener", error));
 
+  let stopSeatState = (): void => {};
   const beginShutdown = (): void => {
     if (closing) return;
     // This assignment is the admission cut. Socket callbacks and each frame
@@ -794,6 +812,7 @@ export const startTermControlServer = async (
     // that can permanently refuse listener close. Path cleanup runs only after
     // Server.close (or identity-checked residual unlink once not listening).
     closing = true;
+    stopSeatState();
     host.off("event", onHostEvent);
     for (const flight of activeFlights.values()) shutdownJournal.set(flight.id, flight);
     ensureListenerClose();
@@ -968,6 +987,17 @@ export const startTermControlServer = async (
   }
 
   host.on("event", onHostEvent);
+  stopSeatState = seatStateRuntime.subscribe((event) => {
+    writeEvent(
+      {
+        type: "seat-state",
+        bindingId: event.bindingId,
+        epoch: event.epoch,
+        event,
+      },
+      admittedClients,
+    );
+  });
   return control;
 };
 

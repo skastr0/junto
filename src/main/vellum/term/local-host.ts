@@ -157,6 +157,20 @@ export type LocalHostEvent =
       readonly epoch: string;
       readonly status: "starting" | "running" | "exited";
       readonly pid?: number;
+    }
+  | {
+      readonly type: "seat-state";
+      readonly bindingId: string;
+      readonly epoch: string;
+      readonly event: {
+        readonly bindingId: string;
+        readonly epoch: string;
+        readonly state: "idle" | "working" | "attention" | "unknown" | "gone";
+        readonly reason: string;
+        readonly confidence: "high" | "low";
+        readonly at: number;
+        readonly harness?: string;
+      };
     };
 
 export type LocalHostEventListener = (event: LocalHostEvent) => void;

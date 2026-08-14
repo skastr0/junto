@@ -18,6 +18,7 @@ import {
   type TermControlRequest,
   type TermControlResponse,
 } from "@shared/term-control";
+import { isAgentSeatState } from "@shared/agent-seat-state";
 import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
 import { Schema } from "effect";
 import { HostDirectorySnapshot } from "@shared/host-directory";
@@ -181,8 +182,37 @@ const reviveHostEvent = (raw: unknown): LocalHostEvent | undefined => {
       pid: typeof rec.pid === "number" ? rec.pid : undefined,
     };
   }
+  if (rec.type === "seat-state" && rec.event && typeof rec.event === "object") {
+    const ev = rec.event as Record<string, unknown>;
+    if (
+      typeof ev.bindingId === "string" &&
+      typeof ev.epoch === "string" &&
+      isAgentSeatState(ev.state) &&
+      typeof ev.reason === "string" &&
+      (ev.confidence === "high" || ev.confidence === "low") &&
+      typeof ev.at === "number"
+    ) {
+      return {
+        type: "seat-state",
+        bindingId,
+        epoch,
+        event: {
+          bindingId: ev.bindingId,
+          epoch: ev.epoch,
+          state: ev.state,
+          reason: ev.reason,
+          confidence: ev.confidence,
+          at: ev.at,
+          ...(typeof ev.harness === "string" ? { harness: ev.harness } : {}),
+        },
+      };
+    }
+  }
   return undefined;
 };
+
+/** Test / decode helper — same shape the SSH hop delivers to the router. */
+export const reviveTermHostEvent = reviveHostEvent;
 
 export class TermControlClient extends EventEmitter implements TermMaintenanceControlPort {
   private socket: Socket | undefined;

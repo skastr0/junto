@@ -290,6 +290,7 @@ export const registerVellumIpc = (): void => {
   registerTerminalIpc(privilegedIpc, termPlane, {
     isTrustedSender: isTrustedMainWebContents,
     ensureHostAvailable: ensureBoxHostAvailable,
+    broadcast,
   });
   registerSettingsIpc(privilegedIpc, broadcast);
   registerObservabilityIpc(privilegedIpc, broadcast);

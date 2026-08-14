@@ -23,6 +23,11 @@ export type TerminalIpcGate = {
    * routing remains provider-neutral; an optional provider may restore it.
    */
   readonly ensureHostAvailable?: (hostId: string) => Promise<void>;
+  /**
+   * Renderer fan-out. Remote seat-state arrives on the term-control hop
+   * (Mini observer → this router) and never through the local runtime.
+   */
+  readonly broadcast: (channel: string, payload: unknown) => void;
 };
 
 const deny = (message: string): never => {
@@ -126,6 +131,10 @@ export const registerTerminalIpc = (
     }
   });
   router.on("event", (payload: LocalHostEvent) => {
+    if (payload.type === "seat-state") {
+      gate?.broadcast(IPC_CHANNELS.agentSeatStateChanged, payload.event);
+      return;
+    }
     coalescer.push(payload);
   });
 
