@@ -13,11 +13,13 @@ import {
   RELEASE_CAPABILITIES,
 } from "../src/shared/release-capabilities";
 import { InstallationId } from "../src/shared/station-api";
+import type { HostOpsInspect } from "../src/shared/host-ops";
 import {
   admitHostRuntimeApply,
   checkHostRuntime,
   HostRuntime,
   HostRuntimeLive,
+  observeHostRuntime,
   observeRemoteHost,
 } from "../src/main/vellum/hosts/host-runtime";
 import { HostOps, HostTarget } from "../src/main/vellum/hosts/host-ops";
@@ -460,6 +462,174 @@ describe("observeRemoteHost", () => {
   });
 });
 
+describe("observeHostRuntime", () => {
+  const host: RemoteHost = {
+    id: "studio",
+    label: "Studio",
+    kind: "remote",
+    sshEndpoint: "studio-box",
+    capabilities: ["terminal"],
+  };
+  const observedAt = "2026-08-13T21:00:00.000Z";
+  const inspectReceipt = (
+    overrides: Partial<HostOpsInspect> = {},
+  ): HostOpsInspect => ({
+    endpoint: "studio-box",
+    platform: "darwin",
+    network: "up",
+    package: "present",
+    deployLock: "absent",
+    incoming: "absent",
+    termSocket: "present",
+    process: "up",
+    workAttach: "unknown",
+    observedAt,
+    ...overrides,
+  });
+  const observeOps = (impl: {
+    readonly inspect?: () => Effect.Effect<HostOpsInspect>;
+    readonly attach?: () => Effect.Effect<{
+      readonly ok: boolean;
+      readonly workAttach: "up" | "down" | "unknown";
+      readonly detail: string;
+      readonly observedAt: string;
+    }>;
+  }): Layer.Layer<HostOps> => {
+    let attachCalls = 0;
+    return Layer.succeed(
+      HostOps,
+      HostOps.of({
+        inspect: impl.inspect ?? (() => Effect.succeed(inspectReceipt())),
+        copy: () => Effect.die("observe must not copy"),
+        cleanup: () => Effect.die("observe must not cleanup"),
+        configure: () => Effect.die("observe must not configure"),
+        activate: () => Effect.die("observe must not activate"),
+        attach:
+          impl.attach ??
+          (() => {
+            attachCalls += 1;
+            return Effect.succeed({
+              ok: false,
+              workAttach: "unknown" as const,
+              detail: `work attach unknown (${attachCalls})`,
+              observedAt,
+            });
+          }),
+      }),
+    );
+  };
+  const runObserve = (
+    layer: Layer.Layer<HostOps>,
+    mode: "remote" | "unenrolled" = "remote",
+  ) =>
+    Effect.runPromise(
+      observeHostRuntime(host, { mode, priorInstallationId: "station-studio" }).pipe(
+        Effect.provide(layer),
+      ),
+    );
+
+  it("fills HostRuntimeObservation from inspect and attach", async () => {
+    const observed = await runObserve(
+      observeOps({
+        inspect: () =>
+          Effect.succeed(
+            inspectReceipt({
+              platform: "linux",
+              package: "absent",
+              process: "down",
+              workAttach: "unknown",
+              termSocket: "present",
+            }),
+          ),
+        attach: () =>
+          Effect.succeed({
+            ok: true,
+            workAttach: "up",
+            detail: "work attach connected",
+            observedAt,
+          }),
+      }),
+    );
+    expect(observed.platform).toBe("linux");
+    expect(observed.package).toBe("absent");
+    expect(observed.process).toBe("down");
+    expect(observed.workAttach).toBe("up");
+    expect(observed.network).toBe("up");
+    expect(observed.mode).toBe("remote");
+    expect(checkHostRuntime(observed).ok).toBe(true);
+    expect(decideHostRuntimeGap(observed, "deploy")).toBe("needRestart");
+  });
+
+  it("does not treat a sock leftover as Ready", async () => {
+    const observed = await runObserve(
+      observeOps({
+        inspect: () =>
+          Effect.succeed(
+            inspectReceipt({ termSocket: "present", workAttach: "unknown" }),
+          ),
+        attach: () =>
+          Effect.succeed({
+            ok: false,
+            workAttach: "down",
+            detail: "work attach down",
+            observedAt,
+          }),
+      }),
+    );
+    expect(observed.workAttach).toBe("down");
+    expect(checkHostRuntime(observed).ok).toBe(false);
+  });
+
+  it("skips attach when inspect already connected or already down", async () => {
+    let attachCalls = 0;
+    const attach = () => {
+      attachCalls += 1;
+      return Effect.succeed({
+        ok: true,
+        workAttach: "up" as const,
+        detail: "should not run",
+        observedAt,
+      });
+    };
+    const up = await runObserve(
+      observeOps({
+        inspect: () => Effect.succeed(inspectReceipt({ workAttach: "up" })),
+        attach,
+      }),
+    );
+    const down = await runObserve(
+      observeOps({
+        inspect: () => Effect.succeed(inspectReceipt({ workAttach: "down" })),
+        attach,
+      }),
+    );
+    expect(up.workAttach).toBe("up");
+    expect(down.workAttach).toBe("down");
+    expect(attachCalls).toBe(0);
+    expect(checkHostRuntime(up).ok).toBe(true);
+    expect(checkHostRuntime(down).ok).toBe(false);
+  });
+
+  it("unknown attach is not down", async () => {
+    const observed = await runObserve(
+      observeOps({
+        inspect: () => Effect.succeed(inspectReceipt({ workAttach: "unknown" })),
+        attach: () =>
+          Effect.succeed({
+            ok: false,
+            workAttach: "unknown",
+            detail: "work attach unknown",
+            observedAt,
+          }),
+      }),
+    );
+    expect(observed.workAttach).toBe("unknown");
+    expect(observed.network).toBe("up");
+    expect(decideHostRuntimeGap(observed, "check")).toBe("stillTrying");
+    expect(checkHostRuntime(observed).ok).toBe(false);
+  });
+});
+
 describe("Linux HostOps inspect package plane", () => {
   const inspectLinux = (
     ssh: Context.Service.Shape<typeof SshTransport>,
@@ -739,8 +909,14 @@ describe("HostRuntime inversion", () => {
       "utf8",
     );
     expect(runtime).toContain("applyHostRuntime");
+    expect(runtime).toContain("observeHostRuntime");
     expect(runtime).toContain("HostOps.layerForTarget");
+    expect(runtime).toContain("ops.inspect");
+    expect(runtime).toContain("ops.attach");
+    expect(runtime).not.toContain("resolveRemotePackagedPlatform");
     expect(runtime).not.toContain("adapterFor");
+    expect(runtime).not.toContain("observePlanes");
+    expect(runtime).not.toContain("HostRuntimePlatformAdapter");
     expect(runtime).not.toContain("darwinHostRuntimePlatform");
     expect(runtime).not.toContain("linuxHostRuntimePlatform");
     expect(runtime).not.toContain("DarwinApplyOperations");

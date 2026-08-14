@@ -2,14 +2,19 @@
  * HostRuntime — WHEN. HostOps — HOW.
  *
  * Deploy is reconcile: observe → decideHostRuntimeGap → admit → apply.
- * Apply is one loop over HostOps: cleanup, copy, configure (first install),
- * activate, attach. Platform is loaded with HostOps.layerForTarget.
+ * Observe loads HostOps.layerForTarget, calls inspect, then attach when
+ * workAttach stayed unknown. Ready is that connect, not a sock and not SSH-up.
+ * Apply is one loop: cleanup, copy, configure (first install), activate, attach.
  * The coordinator does not call deployConfiguredRemote.
  */
 import { Context, Effect, Layer } from "effect";
 import { HOST_RUNTIME_REMEDY_STAGE } from "@shared/deploy-job";
 import { releaseAllowsTargetPlatform } from "@shared/deploy-capabilities";
-import type { HostOpsConfigure, HostOpsCopy } from "@shared/host-ops";
+import type {
+  HostOpsConfigure,
+  HostOpsCopy,
+  HostOpsInspect,
+} from "@shared/host-ops";
 import {
   classifyHostRuntimeBlocker,
   decideHostRuntimeGap,
@@ -67,6 +72,11 @@ export type HostRuntimeApplyInput = {
   readonly host: RemoteHost;
   readonly gap: HostRuntimeGap;
   readonly priorInstallationId?: InstallationId;
+};
+
+export type HostRuntimeObserveInput = {
+  readonly mode: HostRuntimeObservation["mode"];
+  readonly priorInstallationId?: string;
 };
 
 const unknownObservation = (
@@ -506,13 +516,45 @@ export const applyHostRuntime = (
     });
   });
 
+const observationFromInspect = (
+  host: RemoteHost,
+  input: HostRuntimeObserveInput,
+  receipt: HostOpsInspect,
+  workAttach: HostOpsInspect["workAttach"],
+): HostRuntimeObservation => ({
+  hostId: host.id,
+  placement: "remote",
+  platform: receipt.platform,
+  network: receipt.network,
+  package: receipt.package,
+  process: receipt.process,
+  workAttach,
+  mode: input.mode,
+  ...(input.priorInstallationId === undefined
+    ? {}
+    : { priorInstallationId: input.priorInstallationId }),
+});
+
+/** Observe through HostOps. Tests provide a HostOps layer. */
+export const observeHostRuntime = (
+  host: RemoteHost,
+  input: HostRuntimeObserveInput,
+): Effect.Effect<HostRuntimeObservation, never, HostOps> =>
+  Effect.gen(function* () {
+    const ops = yield* HostOps;
+    const receipt = yield* ops.inspect();
+    // inspect already connects when it can; attach only if that plane stayed unknown
+    const workAttach =
+      receipt.workAttach === "unknown"
+        ? (yield* ops.attach()).workAttach
+        : receipt.workAttach;
+    return observationFromInspect(host, input, receipt, workAttach);
+  });
+
 export const observeRemoteHost = (
   ssh: Ssh,
   host: RemoteHost,
-  input: {
-    readonly mode: HostRuntimeObservation["mode"];
-    readonly priorInstallationId?: string;
-  },
+  input: HostRuntimeObserveInput,
 ): Effect.Effect<HostRuntimeObservation> =>
   Effect.gen(function* () {
     const base = unknownObservation(host.id, "remote");
@@ -536,18 +578,15 @@ export const observeRemoteHost = (
       };
     }
 
-    const inspected = yield* withHostOps(
+    const observed = yield* withHostOps(
       ssh,
       parsed.success,
       undefined,
-      Effect.gen(function* () {
-        const ops = yield* HostOps;
-        return yield* ops.inspect();
-      }),
+      observeHostRuntime(host, input),
     ).pipe(Effect.result);
 
-    if (inspected._tag === "Failure") {
-      const error = inspected.failure;
+    if (observed._tag === "Failure") {
+      const error = observed.failure;
       if (error instanceof RemotePlatformProbeError) {
         if (error.reason === "unsupported") {
           return {
@@ -574,20 +613,7 @@ export const observeRemoteHost = (
       };
     }
 
-    const receipt = inspected.success;
-    return {
-      hostId: host.id,
-      placement: "remote",
-      platform: receipt.platform,
-      network: receipt.network,
-      package: receipt.package,
-      process: receipt.process,
-      workAttach: receipt.workAttach,
-      mode: input.mode,
-      ...(input.priorInstallationId === undefined
-        ? {}
-        : { priorInstallationId: input.priorInstallationId }),
-    };
+    return observed.success;
   });
 
 /** Check-intent: Ready only after a real connect on a configured station. */

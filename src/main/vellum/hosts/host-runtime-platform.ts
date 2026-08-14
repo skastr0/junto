@@ -1,6 +1,6 @@
 /**
  * Shared host-runtime helpers. Darwin and Linux HostOps use these.
- * Apply lives in HostRuntime; this file is not an apply seam.
+ * Observe and apply live in HostRuntime; this file is not that seam.
  */
 import { createConnection, type Socket } from "node:net";
 import { Effect } from "effect";
