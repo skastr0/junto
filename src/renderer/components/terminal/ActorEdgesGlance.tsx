@@ -26,10 +26,16 @@ import {
 } from "../../lib/actor-edges";
 import { mailboxRows, unreadMailByPeer } from "../../lib/actor-ledger";
 import { isMirrorablePeer, openActorMirror } from "../../lib/actor-mirrors";
-import { terminalActivity } from "../../lib/activity";
 import { agentSeat$, bindingIdForNode } from "../../lib/agent-seat-state";
+import { isHarnessId } from "@shared/managed-terminal-templates";
 import { state$ } from "../../lib/state";
 import { kernel$ } from "../../lib/kernel-view";
+import {
+  cardMark,
+  liveAttentionReasons,
+  seatFactsForNode,
+} from "../../lib/seat-projections";
+import { chatCoarse$ } from "../../lib/chat-state";
 import { ActivityMark } from "../ActivityMark";
 import { Chip, Eyebrow, IconButton } from "../ui";
 
@@ -113,6 +119,10 @@ function EdgeCard({
   const needsLook = use$(() =>
     bindingId ? agentSeat$.needsLookByBindingId[bindingId].get() === true : false,
   );
+  const execution = use$(kernel$.execution);
+  const chatByAgent = use$(chatCoarse$) as
+    | Record<string, { readonly pendingPermissionId?: string } | undefined>
+    | undefined;
   const phase = actorEdgePhaseLabel(row);
   const title = [
     `${row.direction === "out" ? "to" : "from"} ${row.peerTitle}`,
@@ -139,15 +149,22 @@ function EdgeCard({
     );
   }
 
-  // Live mirror: same status grammar as the peer's canvas card. No seat event
-  // yet means no glyph, and quiet states (idle steel) render nothing either —
-  // only live signal (working, attention, done) marks a chip.
-  const seatActivity = seatEvent
-    ? terminalActivity({
-        seatState: seatEvent.state,
-        needsLook,
-        seatReason: seatEvent.reason,
-      })
+  // Live mirror: same assembled facts as the peer's canvas card. Quiet steel
+  // still hides — only live signal (working, attention, blocked, done) marks.
+  const harness = peer?.ether?.terminal?.harness;
+  const seatActivity = peer
+    ? cardMark(
+        seatFactsForNode({
+          nodeId: peer.id,
+          seatEvent,
+          needsLook,
+          flags: peer.ether?.flags,
+          attentionReasons: liveAttentionReasons(peer, chatByAgent),
+          graphBlocked: execution?.blocked.includes(peer.id) === true,
+          managedSeat:
+            typeof harness === "string" && isHarnessId(harness),
+        }),
+      )
     : null;
   const activity =
     seatActivity !== null && seatActivity.tone !== "steel" ? seatActivity : null;

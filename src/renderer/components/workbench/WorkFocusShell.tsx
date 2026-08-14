@@ -47,6 +47,8 @@ const measureForSizeKey = (key: WorkFocusSizeKey): FocusMeasure => {
     case "task-create":
     case "workspace":
       return "workspace";
+    default:
+      return "workspace";
   }
 };
 

@@ -41,6 +41,7 @@ const cleanCloseReceipt = Object.freeze({
 });
 
 type RemoteClientDouble = {
+  isLive: () => boolean;
   acquireMaintenance: ReturnType<typeof vi.fn>;
   beginShutdown: ReturnType<typeof vi.fn>;
   drainOnQuit: ReturnType<typeof vi.fn>;
@@ -62,6 +63,7 @@ const remoteClient = (
     },
   },
 ): RemoteClientDouble => ({
+  isLive: () => true,
   acquireMaintenance: vi.fn(async () => acquisition),
   beginShutdown: vi.fn(),
   drainOnQuit: vi.fn(async () => cleanCloseReceipt),

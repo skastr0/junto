@@ -1,8 +1,14 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   HOST_RUNTIME_REMEDY_STAGE,
+  copyProgressLabel,
+  formatDeployBytes,
   mergeDeployJobStages,
+  percentFromDeployProgress,
   percentFromStages,
   type HostDeployJobStatus,
 } from "../src/shared/deploy-job";
@@ -12,8 +18,10 @@ import {
   finishDeployJob,
   getDeployJob,
   setActiveDeployJobHost,
+  reportDeployCopyProgress,
   reportDeployStage,
 } from "../src/main/vellum/hosts/deploy-job-registry";
+import { estimateDirectoryBytes } from "../src/main/vellum/hosts/deploy-copy-stream";
 
 describe("percentFromStages", () => {
   it("maps known milestones", () => {
@@ -35,6 +43,49 @@ describe("percentFromStages", () => {
     expect(
       percentFromStages([HOST_RUNTIME_REMEDY_STAGE.wait], "running"),
     ).toBe(90);
+  });
+
+  it("fills the copy milestone from live bytes", () => {
+    const stages = [HOST_RUNTIME_REMEDY_STAGE.copy];
+    expect(percentFromDeployProgress(stages, "running")).toBe(40);
+    expect(
+      percentFromDeployProgress(stages, "running", {
+        bytesSent: 0,
+        bytesTotal: 100,
+        startedAt: "2026-08-14T00:00:00.000Z",
+        updatedAt: "2026-08-14T00:00:00.000Z",
+      }),
+    ).toBe(40);
+    expect(
+      percentFromDeployProgress(stages, "running", {
+        bytesSent: 50,
+        bytesTotal: 100,
+        startedAt: "2026-08-14T00:00:00.000Z",
+        updatedAt: "2026-08-14T00:00:01.000Z",
+      }),
+    ).toBe(47);
+    expect(
+      percentFromDeployProgress(stages, "running", {
+        bytesSent: 100,
+        bytesTotal: 100,
+        startedAt: "2026-08-14T00:00:00.000Z",
+        updatedAt: "2026-08-14T00:00:02.000Z",
+        payloadComplete: true,
+      }),
+    ).toBe(54);
+    expect(
+      percentFromDeployProgress(
+        [HOST_RUNTIME_REMEDY_STAGE.copy, HOST_RUNTIME_REMEDY_STAGE.sign],
+        "running",
+        {
+          bytesSent: 100,
+          bytesTotal: 100,
+          startedAt: "2026-08-14T00:00:00.000Z",
+          updatedAt: "2026-08-14T00:00:02.000Z",
+          payloadComplete: true,
+        },
+      ),
+    ).toBe(58);
   });
 
   it("caps running below 100 and completes on success", () => {
@@ -119,6 +170,69 @@ describe("deploy-job-registry", () => {
   });
 });
 
+describe("copy progress copy", () => {
+  it("formats bytes and names a finished payload as installing", () => {
+    expect(formatDeployBytes(900)).toBe("900 B");
+    expect(formatDeployBytes(1536)).toBe("1.5 KB");
+    expect(formatDeployBytes(10 * 1024 * 1024)).toBe("10 MB");
+    const startedAt = new Date(0).toISOString();
+    expect(
+      copyProgressLabel(
+        {
+          bytesSent: 50 * 1024 * 1024,
+          bytesTotal: 100 * 1024 * 1024,
+          startedAt,
+          updatedAt: new Date(10_000).toISOString(),
+        },
+        10_000,
+      ),
+    ).toBe("50 MB / 100 MB — 5.0 MB/s — about 10s left");
+    expect(
+      copyProgressLabel(
+        {
+          bytesSent: 100 * 1024 * 1024,
+          bytesTotal: 100 * 1024 * 1024,
+          startedAt,
+          updatedAt: new Date(10_000).toISOString(),
+          payloadComplete: true,
+        },
+        10_000,
+      ),
+    ).toBe("100 MB copied — installing on the Remote");
+  });
+
+  it("estimates a local tree without following symlinks", () => {
+    const root = mkdtempSync(join(tmpdir(), "vc-du-"));
+    mkdirSync(join(root, "nested"));
+    writeFileSync(join(root, "nested", "a.bin"), Buffer.alloc(2048));
+    writeFileSync(join(root, "b.bin"), Buffer.alloc(512));
+    expect(estimateDirectoryBytes(root)).toBe(2560);
+  });
+});
+
+describe("deploy-job-registry copy", () => {
+  it("publishes live copy bytes onto the active job", () => {
+    const hostId = `copy-host-${Date.now()}`;
+    beginDeployJob(hostId);
+    setActiveDeployJobHost(hostId);
+    reportDeployStage(HOST_RUNTIME_REMEDY_STAGE.copy);
+    reportDeployCopyProgress({
+      bytesSent: 20,
+      bytesTotal: 100,
+      startedAt: "2026-08-14T00:00:00.000Z",
+      updatedAt: "2026-08-14T00:00:01.000Z",
+    });
+    const mid = getDeployJob(hostId);
+    expect(mid?.copy?.bytesSent).toBe(20);
+    expect(mid?.copy?.bytesTotal).toBe(100);
+    expect(mid?.percent).toBeGreaterThanOrEqual(40);
+    expect(mid?.percent).toBeLessThan(55);
+    setActiveDeployJobHost(undefined);
+    finishDeployJob(hostId, { status: "succeeded", detail: "installed" });
+    expect(getDeployJob(hostId)?.copy).toBeUndefined();
+  });
+});
+
 describe("fleet deploy chip", () => {
   it("labels a succeeded job Installed, not ready", () => {
     const panel = readFileSync(
@@ -129,6 +243,8 @@ describe("fleet deploy chip", () => {
       "utf8",
     );
     expect(panel).toContain('succeeded: "Installed"');
+    expect(panel).toContain("fleet-deploy-job__copy");
+    expect(panel).toContain("copyProgressLabel");
     expect(panel).not.toMatch(/succeeded:\s*"ready"/u);
     const nodes = readFileSync(
       new URL(

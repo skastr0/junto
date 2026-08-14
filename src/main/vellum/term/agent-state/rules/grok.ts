@@ -8,7 +8,7 @@ import type { SeatRulePack } from "../types";
 
 export const grokRules: SeatRulePack = {
   harness: "grok",
-  version: "2026.08.12.1",
+  version: "2026.08.14.1",
   rules: [
     {
       id: "osc_title_attention",
@@ -87,18 +87,17 @@ export const grokRules: SeatRulePack = {
       id: "grid_thinking_working",
       state: "working",
       priority: 1120,
-      region: "whole_recent",
+      region: "bottom_non_empty_lines",
+      regionN: 2,
       visibleWorking: true,
-      // Real mid-turn capture (grok/working-turn.jsonl, cut 20000): the live
-      // status lines such as "⠧ Thinking… 0.2s" and "⠹ Responding… 0.2s"
-      // remain visible in
-      // the live screen while the OSC title stays static
-      // "grok". Anchored on braille+Thinking so the static splash logo
-      // (braille, top box) and idle screens (title "grok", no status
-      // spinner) never match — outranks osc_title_idle so a static "grok"
-      // title mid-turn cannot publish idle.
+      // Live footer: "Thinking…", "Responding…", "Waiting for response...".
+      // Braille optional — current grok prints these without a spinner while
+      // OSC title stays "grok". Bottom-only so scrollback cannot stick working.
+      // Outranks osc_title_idle.
       matchers: {
-        lineRegex: ["^\\s*[\\u2800-\\u28FF]\\s*(?:[Tt]hinking|Responding…)"],
+        lineRegex: [
+          "^\\s*(?:[\\u2800-\\u28FF]\\s*)?(?:[Tt]hinking|[Rr]esponding|Waiting for response)(?:\\.{1,3}|…)",
+        ],
       },
     },
     {

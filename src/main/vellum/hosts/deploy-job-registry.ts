@@ -5,7 +5,8 @@
 import { randomBytes } from "node:crypto";
 import {
   mergeDeployJobStages,
-  percentFromStages,
+  percentFromDeployProgress,
+  type HostDeployCopyProgress,
   type HostDeployJobSnapshot,
   type HostDeployJobStatus,
 } from "../../../shared/deploy-job";
@@ -56,6 +57,8 @@ export const beginDeployJob = (hostId: string): HostDeployJobSnapshot => {
     startedAt,
     updatedAt: startedAt,
   };
+  lastCopyPublishAt = 0;
+  lastCopySent = -1;
   publish(job);
   return job;
 };
@@ -71,9 +74,10 @@ export const appendDeployJobStage = (
   publish({
     ...current,
     stages,
-    percent: percentFromStages(stages, "running"),
+    percent: percentFromDeployProgress(stages, "running", current.copy),
     detail: stage,
     updatedAt: nowIso(),
+    ...(current.copy === undefined ? {} : { copy: current.copy }),
   });
 };
 
@@ -96,7 +100,7 @@ export const finishDeployJob = (
     hostId,
     status: input.status,
     stages,
-    percent: percentFromStages(stages, input.status),
+    percent: percentFromDeployProgress(stages, input.status),
     detail: input.detail,
     ...(input.version === undefined ? {} : { version: input.version }),
     ...(input.recoveryHint === undefined
@@ -110,6 +114,10 @@ export const finishDeployJob = (
 
 /** Host id for the deploy currently appending stages (main-thread only). */
 let activeStageHostId: string | undefined;
+let lastCopyPublishAt = 0;
+let lastCopySent = -1;
+const COPY_PUBLISH_MS = 250;
+const COPY_PUBLISH_BYTES = 256 * 1024;
 
 export const setActiveDeployJobHost = (hostId: string | undefined): void => {
   activeStageHostId = hostId;
@@ -118,6 +126,30 @@ export const setActiveDeployJobHost = (hostId: string | undefined): void => {
 export const reportDeployStage = (stage: string): void => {
   if (activeStageHostId === undefined) return;
   appendDeployJobStage(activeStageHostId, stage);
+};
+
+export const reportDeployCopyProgress = (
+  copy: HostDeployCopyProgress,
+): void => {
+  if (activeStageHostId === undefined) return;
+  const current = jobsByHost.get(activeStageHostId);
+  if (current === undefined || current.status !== "running") return;
+  const now = Date.now();
+  const sentDelta = copy.bytesSent - lastCopySent;
+  const force =
+    lastCopySent < 0 ||
+    copy.payloadComplete === true ||
+    sentDelta >= COPY_PUBLISH_BYTES ||
+    now - lastCopyPublishAt >= COPY_PUBLISH_MS;
+  if (!force) return;
+  lastCopyPublishAt = now;
+  lastCopySent = copy.bytesSent;
+  publish({
+    ...current,
+    copy,
+    percent: percentFromDeployProgress(current.stages, "running", copy),
+    updatedAt: copy.updatedAt,
+  });
 };
 
 /**

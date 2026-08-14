@@ -13,3 +13,9 @@ export {
   type ObservabilityRing,
 } from "./ring";
 export { registerObservabilityIpc } from "./ipc";
+export {
+  appendTransportTrace,
+  recordTransportError,
+  startTransportJournal,
+} from "./transport-journal";
+export { pullRemoteTransportLog } from "./transport-pull";

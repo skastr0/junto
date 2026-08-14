@@ -53,6 +53,10 @@ import type {
   TerminalOpenInput,
 } from "./local-host";
 import { TermControlClient } from "./control-client";
+import {
+  appendTransportTrace,
+  recordTransportError,
+} from "../observability/transport-journal";
 import { readHostDirectory } from "./host-directory";
 import type { TermControlClientShutdownReceipt } from "./control-client";
 
@@ -217,17 +221,50 @@ const allSettledBefore = async (
   }
 };
 
-export type AttachResult =
-  | {
-      readonly ok: true;
-      readonly lease: ControlLease;
-      readonly cols: number;
-      readonly rows: number;
-      readonly journal: readonly JournalEntry[];
-      readonly status: string;
-      readonly pid?: number;
-    }
-  | { readonly ok: false; readonly message: string };
+export type AttachScreenSnapshot = {
+  readonly bindingId: string;
+  readonly epoch: string;
+  readonly cols: number;
+  readonly rows: number;
+  readonly seq: bigint;
+  readonly serialized: string;
+};
+
+export type AttachOk = {
+  readonly ok: true;
+  readonly lease: ControlLease;
+  readonly cols: number;
+  readonly rows: number;
+  readonly journal: readonly JournalEntry[];
+  readonly status: string;
+  readonly pid?: number;
+  readonly screen?: AttachScreenSnapshot;
+};
+
+export type AttachResult = AttachOk | { readonly ok: false; readonly message: string };
+
+/**
+ * Remap a Remote hop attach onto a local lease id. Journal and screen stay
+ * exactly as the hop sent them — the renderer restores VT from screen.
+ */
+export const remapRemoteAttach = (
+  result: AttachOk,
+  localLeaseId: string,
+): AttachOk => ({
+  ok: true,
+  lease: {
+    leaseId: localLeaseId,
+    bindingId: result.lease.bindingId,
+    epoch: result.lease.epoch,
+    mode: result.lease.mode,
+  },
+  cols: result.cols,
+  rows: result.rows,
+  journal: result.journal,
+  status: result.status,
+  pid: result.pid,
+  ...(result.screen ? { screen: result.screen } : {}),
+});
 
 export class TerminalRouter extends EventEmitter {
   private readonly remotes = new Map<string, RemoteEntry>();
@@ -367,8 +404,30 @@ export class TerminalRouter extends EventEmitter {
       "remote",
     );
     if (Result.isFailure(occupyVacantSeat(occupancy)) && existing) {
+      appendTransportTrace({
+        plane: "term",
+        op: "router.createRemote",
+        ok: true,
+        hostId,
+        bindingId: input.bindingId,
+        status: existing.status,
+        occupancy: occupancy._tag,
+        decision: "activate",
+        epoch: existing.epoch,
+      });
       return { ...existing, hostId };
     }
+    appendTransportTrace({
+      plane: "term",
+      op: "router.createRemote",
+      ok: true,
+      hostId,
+      bindingId: input.bindingId,
+      status: existing?.status ?? "none",
+      occupancy: occupancy._tag,
+      decision: "occupy",
+      ...(existing?.epoch === undefined ? {} : { epoch: existing.epoch }),
+    });
     const summary = await client.create({
       bindingId: input.bindingId,
       launch: input.launch,
@@ -436,6 +495,14 @@ export class TerminalRouter extends EventEmitter {
   ): Promise<TerminalSessionSummary | undefined> {
     const normalizedHostId = hostId?.trim();
     if (normalizedHostId && this.maintenanceCuts.has(normalizedHostId)) {
+      appendTransportTrace({
+        plane: "term",
+        op: "router.get",
+        ok: false,
+        hostId,
+        bindingId,
+        error: "maintenance cut",
+      });
       return undefined;
     }
     if (!hostId || this.isLocalHostId(hostId)) return this.local.get(bindingId);
@@ -445,6 +512,15 @@ export class TerminalRouter extends EventEmitter {
       const s = await c.get(bindingId);
       return s ? { ...s, hostId } : undefined;
     } catch (error) {
+      recordTransportError(
+        {
+          plane: "term",
+          op: "router.get",
+          hostId,
+          bindingId,
+        },
+        error,
+      );
       if (isMissingRemoteHostError(error)) return undefined;
       throw new Error(operatorRemoteWorkDetail(hostId, error));
     }
@@ -511,20 +587,7 @@ export class TerminalRouter extends EventEmitter {
       const localLeaseId = `rm_${randomBytes(8).toString("hex")}`;
       entry.leaseMap.set(localLeaseId, result.lease.leaseId);
       entry.reverseLease.set(result.lease.leaseId, localLeaseId);
-      return {
-        ok: true,
-        lease: {
-          leaseId: localLeaseId,
-          bindingId: result.lease.bindingId,
-          epoch: result.lease.epoch,
-          mode: result.lease.mode,
-        },
-        cols: result.cols,
-        rows: result.rows,
-        journal: result.journal,
-        status: result.status,
-        pid: result.pid,
-      };
+      return remapRemoteAttach(result, localLeaseId);
     } catch (err) {
       return {
         ok: false,
@@ -920,7 +983,11 @@ export class TerminalRouter extends EventEmitter {
     const endpoint = host.sshEndpoint;
     const existing = this.remotes.get(hostId);
     if (existing) {
-      if (existing.endpoint === endpoint && existing.generation === this.generation) {
+      if (
+        existing.endpoint === endpoint &&
+        existing.generation === this.generation &&
+        existing.client.isLive()
+      ) {
         this.assertRouteAdmission(hostId, maintenanceCut);
         return existing;
       }
@@ -1104,7 +1171,8 @@ export class TerminalRouter extends EventEmitter {
       host?.kind === "remote" &&
       host.sshEndpoint === entry.endpoint &&
       entry.generation === this.generation &&
-      !this.quiescing
+      !this.quiescing &&
+      entry.client.isLive()
     ) {
       return entry;
     }

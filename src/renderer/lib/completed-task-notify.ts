@@ -10,8 +10,9 @@
  *    the row is merely missing for a tick.
  * 3. Click-dismiss survives RTS chrome remounts without creating a second
  *    product store in the renderer.
- * 4. A renderer restart baselines the current projection again, so existing
- *    completed rows do not re-stack on cold open.
+ * 4. A renderer restart baselines the first **non-empty** projection. The
+ *    boot `EMPTY_DOC` tick is not a baseline — treating it as one makes every
+ *    already-completed row look like a rising edge after restart (replay).
  */
 
 import { observable } from "@legendapp/state";
@@ -168,6 +169,11 @@ export const observeCompletedTasks = (
   }
 
   if (!state.baselined) {
+    // Opening gap: renderer boots with EMPTY_DOC (zero task rows). Stay
+    // unbaselined so the first real canvas projection is the baseline.
+    if (snapshots.length === 0) {
+      return state;
+    }
     // Preserve hydrated dismiss + completed-seen across first open.
     return {
       baselined: true,

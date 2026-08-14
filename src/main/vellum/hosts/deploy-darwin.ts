@@ -41,6 +41,10 @@ import {
   compileDarwinRemoteDeployScript,
 } from "../ssh/remote-plan";
 import {
+  estimateDirectoryBytes,
+  watchCopyNodeStdout,
+} from "./deploy-copy-stream";
+import {
   SshTransferExitError,
   type SshTransportShape,
 } from "../ssh/service";
@@ -920,6 +924,13 @@ export type DarwinRemoteArtifactTransfer =
       readonly expectedPackageState: "absent" | "present";
     };
 
+/** Compile first-install vs restart. Station applied is present even if the package is gone. */
+export const compileExpectedPackageState = (
+  observed: "absent" | "present" | "unknown",
+  compiled?: "absent" | "present",
+): "absent" | "present" =>
+  compiled ?? (observed === "absent" ? "absent" : "present");
+
 type RemoteDeployScriptRuntime = {
   readonly appPath: string;
   readonly lockPath: string;
@@ -1008,8 +1019,8 @@ const buildRemoteDeployScriptWithRuntime = (
 
   // First install only: --vellum-headless so an unconfigured package never
   // hits the Command Center license gate. Update stays Remote — redeploy
-  // is not unenroll. A Remote never owns enroll control.sock, so present
-  // package proves term+browser and emits STATION_READY.
+  // is not unenroll. expectedPackageState is that compile decision, not
+  // raw disk presence (enrolled missing .app stays present).
   const firstInstall = transfer.expectedPackageState === "absent";
   const enrollmentFlag = firstInstall ? "--vellum-headless" : "";
   const programArguments = firstInstall
@@ -2541,16 +2552,14 @@ const streamArtifactToRemote = (
       );
       const command = yield* compileDarwinRemoteDeployScript(remoteScript);
       // Dedicated TCP: Station peer retries own the shared mux.
+      const payloadBytes =
+        transfer.kind === "release-zip" && input.admission.archive
+          ? input.admission.archive.bytes
+          : estimateDirectoryBytes(input.admission.localApp.appPath);
       const output = yield* ssh
         .transfer(
           deploymentStream(endpoint, command),
-          Stream.fromAsyncIterable(
-            source.lease.io.stdout,
-            (error) =>
-              new Error(
-                `local ${source.label} stream failed: ${error instanceof Error ? error.message : String(error)}`,
-              ),
-          ).pipe(Stream.map((chunk) => Uint8Array.from(chunk))),
+          watchCopyNodeStdout(source.lease.io.stdout, payloadBytes),
           DEPLOY_TIMEOUT_MS,
         )
         .pipe(
@@ -2843,12 +2852,12 @@ export const makeDarwinRemoteDeploymentProvider = (deps: {
           {
             admission,
             remoteHome: home,
-            expectedPackageState:
+            expectedPackageState: compileExpectedPackageState(
+              installedPresent ? "present" : "absent",
               providerInput.stationConfiguration.state === "applied"
                 ? "present"
-                : installedPresent
-                  ? "present"
-                  : "absent",
+                : undefined,
+            ),
           },
         ).pipe(Effect.result);
 

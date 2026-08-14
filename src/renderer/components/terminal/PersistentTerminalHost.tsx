@@ -7,7 +7,13 @@ import { useLayoutEffect, useRef } from "react";
 import { use$ } from "@legendapp/state/react";
 import { panesForLayout } from "../../lib/surface-registry";
 import { dock$, terminalSurfaceId } from "../../lib/dock-state";
-import { terminal$, terminalSlots$ } from "../../lib/terminal-state";
+import {
+  closeTerminalSurface,
+  terminal$,
+  terminalSlotElement,
+  terminalSlots$,
+} from "../../lib/terminal-state";
+import { RendererErrorBoundary } from "../RendererErrorBoundary";
 import { TerminalSurface } from "./TerminalSurface";
 
 export function PersistentTerminalHost() {
@@ -23,8 +29,8 @@ export function PersistentTerminalHost() {
 
 function PersistentTerminal({ nodeId }: { readonly nodeId: string }) {
   const node = use$(terminal$.openByNodeId[nodeId]);
-  const slotValue = use$(terminalSlots$.elements[nodeId]);
-  const slot = slotValue instanceof HTMLElement ? slotValue : null;
+  use$(terminalSlots$.generationByNodeId[nodeId]);
+  const slot = terminalSlotElement(nodeId);
   const wellRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   const visible = use$(() => {
@@ -49,6 +55,9 @@ function PersistentTerminal({ nodeId }: { readonly nodeId: string }) {
     if (!host || !well) return;
     const parent: HTMLElement = slot ?? well;
     if (host.parentElement !== parent) parent.appendChild(host);
+    requestAnimationFrame(() => {
+      window.dispatchEvent(new Event("resize"));
+    });
     return () => {
       if (well.isConnected && host.parentElement !== well) {
         well.appendChild(host);
@@ -61,7 +70,12 @@ function PersistentTerminal({ nodeId }: { readonly nodeId: string }) {
   return (
     <div ref={wellRef} className="persistent-terminal-well" hidden>
       <div ref={hostRef} className="persistent-terminal-host">
-        <TerminalSurface node={node} visible={visible} />
+        <RendererErrorBoundary
+          title="This seat hit a render error"
+          onReset={() => closeTerminalSurface(nodeId)}
+        >
+          <TerminalSurface node={node} visible={visible} />
+        </RendererErrorBoundary>
       </div>
     </div>
   );

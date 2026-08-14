@@ -26,6 +26,7 @@ import {
   occupancyFromSession,
   occupyVacantSeat,
 } from "@shared/terminal-seat-occupancy";
+import { appendTransportTrace } from "../observability/transport-journal";
 import {
   TERM_MAINTENANCE_OBSERVATION_BYTES,
   type TermMaintenanceDenialReason,
@@ -65,6 +66,7 @@ import {
   isHarnessResumeFailureText,
   isPinSessionHarness,
   launchArgvUsesResume,
+  reclaimOrphanedHarnessArgv,
 } from "./session-existence";
 import {
   planFreshPinSession,
@@ -155,6 +157,20 @@ export type LocalHostEvent =
       readonly epoch: string;
       readonly status: "starting" | "running" | "exited";
       readonly pid?: number;
+    }
+  | {
+      readonly type: "seat-state";
+      readonly bindingId: string;
+      readonly epoch: string;
+      readonly event: {
+        readonly bindingId: string;
+        readonly epoch: string;
+        readonly state: "idle" | "working" | "attention" | "unknown" | "gone";
+        readonly reason: string;
+        readonly confidence: "high" | "low";
+        readonly at: number;
+        readonly harness?: string;
+      };
     };
 
 export type LocalHostEventListener = (event: LocalHostEvent) => void;
@@ -485,7 +501,10 @@ export const resolveLaunch = (
       }
     }
   }
-  const argv = launch?.argv?.filter((a) => typeof a === "string" && a.length > 0) ?? [];
+  const argv = reclaimOrphanedHarnessArgv(
+    launch?.argv?.filter((a) => typeof a === "string" && a.length > 0) ?? [],
+    cwd,
+  );
 
   if (seat.kind === "agent") {
     const unresolvable = (reason: string): AgentLaunchUnresolvable => ({
@@ -674,8 +693,26 @@ export class LocalSessionHost extends EventEmitter {
       "local",
     );
     if (Result.isFailure(occupyVacantSeat(occupancy)) && prior) {
+      appendTransportTrace({
+        plane: "term",
+        op: "host.occupy",
+        ok: true,
+        bindingId,
+        status: sessionStatusOf(prior),
+        occupancy: occupancy._tag,
+        decision: "activate",
+      });
       return this.summaryOf(prior);
     }
+    appendTransportTrace({
+      plane: "term",
+      op: "host.occupy",
+      ok: true,
+      bindingId,
+      status: prior ? sessionStatusOf(prior) : "none",
+      occupancy: occupancy._tag,
+      decision: "occupy",
+    });
 
     const cols = Math.max(20, Math.min(300, input.cols ?? DEFAULT_COLS));
     const rows = Math.max(5, Math.min(120, input.rows ?? DEFAULT_ROWS));
@@ -744,6 +781,9 @@ export class LocalSessionHost extends EventEmitter {
       return this.summaryOf(rec);
     }
     const launch = resolved.success;
+    if (seat.kind === "agent") {
+      rec.resumeAttempt = launchArgvUsesResume([launch.file, ...launch.args]);
+    }
     // Best-effort display name until OSC title updates (shell basename etc.).
     const spawnName = basename(launch.file).trim();
     if (spawnName.length > 0) rec.processName = spawnName;
@@ -1342,6 +1382,17 @@ export class LocalSessionHost extends EventEmitter {
     rec.lease = undefined;
     rec.exitWitness = undefined;
     if (current !== rec) return;
+    appendTransportTrace({
+      plane: "term",
+      op: "host.exit",
+      ok: true,
+      bindingId: rec.bindingId,
+      status: "exited",
+      occupancy: "VacantSeat",
+      epoch: rec.epoch,
+      ...(code === undefined ? {} : { code }),
+      ...(signal === undefined ? {} : { signal }),
+    });
     rec.seq = rec.seq + 1n;
     this.pushJournal(rec, { seq: rec.seq, type: "exit", code, signal });
     this.safeEmitEvent({

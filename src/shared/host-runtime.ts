@@ -140,6 +140,11 @@ export const decideHostRuntimeGap = (
   return "needConfigure";
 };
 
+/** Compile first-install vs restart. Enrolled Remote is present even if the package is gone. */
+export const expectedPackageStateFromGap = (
+  gap: HostRuntimeGap,
+): "absent" | "present" => (gap === "needInstall" ? "absent" : "present");
+
 export const hostRuntimeGapCopy = (
   gap: HostRuntimeGap,
   blocker?: HostRuntimeBlocker,

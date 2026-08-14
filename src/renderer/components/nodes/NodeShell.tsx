@@ -24,8 +24,21 @@ import { ensurePauseState, nodePausedIn, pause$, setScopePaused } from "../../li
 import { herdr$ } from "../../lib/herdr-state";
 import { isHerdrCanvasNode, nodeBlockPresentation } from "../../lib/node-block-state";
 import { attentionOf } from "@shared/attention";
+import { isHarnessId } from "@shared/managed-terminal-templates";
+import { resolveTerminalBinding } from "@shared/terminal";
+import { roleOf } from "@shared/physics";
 import { deriveOccupancy } from "@shared/occupancy";
 import { useNodeOccupancyClue } from "../../lib/occupancy-feed";
+import { actorOccupancyAttr } from "../../lib/occupancy-chrome";
+import { specOf } from "../../lib/node-spec";
+import { agentSeat$ } from "../../lib/agent-seat-state";
+import { chatCoarse$ } from "../../lib/chat-state";
+import { terminal$ } from "../../lib/terminal-state";
+import {
+  liveAttentionReasons,
+  notifyItem,
+  seatFactsForNode,
+} from "../../lib/seat-projections";
 import { kernel$ } from "../../lib/kernel-view";
 import { executionGraphForImpact } from "../../lib/impact-mode";
 import { dismissPreamble, preambleByNodeId$ } from "../../lib/preamble-state";
@@ -332,9 +345,8 @@ export function NodeShell({
     graphBlocked: blocked,
     herdrAgentStatus,
   });
-  // Occupancy (S5 cut 2): derived, never document truth (I11) — this never
-  // writes to `node`. ActivityFeed today only has an opinion on agent seats
-  // (ACP chat plane) and document flags; every other node renders "empty".
+  // Occupancy is vacancy (empty/gone/parked) on actor seats. Working /
+  // attention wash comes from SeatFacts, not this spectrum.
   const occupancyClue = useNodeOccupancyClue(node);
   const occupancyState = deriveOccupancy({
     hasOccupant: occupancyClue?.hasOccupant ?? false,
@@ -342,6 +354,34 @@ export function NodeShell({
     lastSeenAtMs: occupancyClue?.lastSeenAtMs,
     flags: occupancyClue?.flags,
     nowMs: Date.now(),
+  });
+  const nativeBinding = resolveTerminalBinding(node);
+  const bindingId =
+    nativeBinding?.kind === "native" ? nativeBinding.bindingId : undefined;
+  const seatEvent = use$(
+    agentSeat$.byBindingId[bindingId ?? "__vellum-shell-no-binding__"],
+  );
+  const needsLook = use$(
+    agentSeat$.needsLookByBindingId[bindingId ?? "__vellum-shell-no-binding__"],
+  );
+  const session = use$(
+    terminal$.sessionByBindingId[bindingId ?? "__vellum-shell-no-binding__"],
+  );
+  const chatByAgent = use$(chatCoarse$) as
+    | Record<string, { readonly pendingPermissionId?: string } | undefined>
+    | undefined;
+  const harness = node.ether?.terminal?.harness;
+  const managedSeat = typeof harness === "string" && isHarnessId(harness);
+  const isActorSeat = roleOf(specOf(node)) === "actor" || managedSeat;
+  const seatFacts = seatFactsForNode({
+    nodeId: node.id,
+    seatEvent,
+    session,
+    graphBlocked: blocked,
+    flags,
+    attentionReasons: liveAttentionReasons(node, chatByAgent),
+    managedSeat,
+    needsLook: needsLook === true,
   });
   const preamble = use$(() => preambleByNodeId$[node.id].get());
   // Fire/ice glance: document + blocked prop (phase graph lives upstream).
@@ -369,8 +409,15 @@ export function NodeShell({
   );
   const flagBlocker = flags.includes("blocker");
   const flagAttention = flags.includes("attention");
-  // Live managed-seat attention (occupancy) paints amber without a doc flag.
-  const liveSeatAttention = occupancyState === "attention" && !flagAttention;
+  // Actor / managed seats: SeatFacts owns attention wash. Occupancy is vacancy.
+  const liveSeatAttention = isActorSeat
+    ? (notifyItem(seatFacts) === "attention" ||
+        seatFacts.seatState === "attention") &&
+      !flagAttention
+    : occupancyState === "attention" && !flagAttention;
+  const occupancyAttr = isActorSeat
+    ? actorOccupancyAttr(occupancyState)
+    : occupancyState;
   // Executable seats get pause chrome; placement class/tier lives in the
   // inspector only (not on the card body).
   const executable = isExecutableNode(node);
@@ -435,7 +482,7 @@ export function NodeShell({
       data-blocked={shellBlocked ? "true" : undefined}
       data-herdr-blocked={liveHerdrBlocked ? "true" : undefined}
       data-seat-attention={liveSeatAttention ? "true" : undefined}
-      data-occupancy={occupancyState}
+      data-occupancy={occupancyAttr}
       data-attention={attention === "idle" && liveSeatAttention ? "fire" : attention}
       onPointerDownCapture={multiSelectCapture.onPointerDownCapture}
       onClickCapture={multiSelectCapture.onClickCapture}

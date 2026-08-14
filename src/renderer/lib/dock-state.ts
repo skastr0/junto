@@ -430,6 +430,12 @@ export const setWorkbenchFocusSize = (
  * herdr closes release that nodeId's stream; terminal closes drop the view
  * while the PTY keeps running.
  */
+/** Close every workbench surface so a crashed view remounts empty. */
+export const closeAllWorkbenchSurfaces = (): void => {
+  const ids = dock$.registry.peek().surfaces.map((surface) => surface.id);
+  for (const id of ids) closeWorkbenchSurface(id);
+};
+
 export const closeWorkbenchSurface = (id: string): void => {
   const surface = dock$.registry.peek().surfaces.find((s) => s.id === id);
   if (!surface) return;

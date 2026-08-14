@@ -1,18 +1,14 @@
 import { join } from "node:path";
-import { Effect, Stream } from "effect";
+import { Effect } from "effect";
 import type { Context } from "effect";
 import type { HostWorkAttach } from "@shared/host-runtime";
 import type {
-  HostOpsActivate,
   HostOpsAttach,
   HostOpsCleanup,
-  HostOpsConfigure,
   HostOpsCopy,
   HostOpsInspect,
   HostOpsPresence,
 } from "@shared/host-ops";
-import type { RemoteHost } from "@shared/remote-hosts";
-import { stationControlDir, stationDoorSocketPath } from "@shared/station-ssh-control";
 import {
   TERM_REMOTE_SOCK_REL,
   termControlTokenPath,
@@ -31,23 +27,16 @@ import { TermControlClient } from "../term/control-client";
 import { decodeRemoteHomeDirectoryOutput } from "./remote-home";
 import { appProcessPlane } from "../app-process-plane";
 import {
-  configureRemoteHost,
-  type ConfigureRemoteOptions,
-} from "./configure-remote";
-import {
-  activateDarwinRemoteRuntimeForTarget,
   admitLocalAppBundle,
   awaitTarCloseBounded,
   buildRemoteDeployScript,
   captureTarStderr,
+  compileExpectedPackageState,
   parseDeployTransferResult,
   resolveLocalAppBundle,
   watchTarExit,
 } from "./deploy-darwin";
-import type {
-  DeployableRemoteHost,
-  RemoteDeploymentTarget,
-} from "./remote-deployment";
+import { stationControlDir, stationDoorSocketPath } from "@shared/station-ssh-control";
 import {
   combineHostProcessPlanes,
   probeRemoteDoorSocket,
@@ -57,6 +46,10 @@ import {
   workAttachFromTokenFile,
 } from "./host-runtime-platform";
 import { compileDarwinRemoteDeployScript } from "../ssh/remote-plan";
+import {
+  estimateDirectoryBytes,
+  watchCopyNodeStdout,
+} from "./deploy-copy-stream";
 
 const COPY_TIMEOUT_MS = 20 * 60 * 1000;
 
@@ -170,6 +163,7 @@ export const inspectDarwinHost = (
 export const copyDarwinHost = (
   ssh: Context.Service.Shape<typeof SshTransport>,
   target: SshTarget,
+  compiledPackageState?: "absent" | "present",
 ): Effect.Effect<HostOpsCopy> =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -227,8 +221,10 @@ export const copyDarwinHost = (
         .run(oneShot(target, pkgCmd, { budget: "short" }))
         .pipe(Effect.result);
       const expectedPackage = presenceFromTest(pkg);
-      const expectedPackageState =
-        expectedPackage === "absent" ? ("absent" as const) : ("present" as const);
+      const expectedPackageState = compileExpectedPackageState(
+        expectedPackage,
+        compiledPackageState,
+      );
 
       const remoteScript = buildRemoteDeployScript(home, admission.success.cdHash, {
         kind: "app-tar",
@@ -280,13 +276,10 @@ export const copyDarwinHost = (
       const transferred = yield* ssh
         .transfer(
           deploymentStream(target, command.success),
-          Stream.fromAsyncIterable(
+          watchCopyNodeStdout(
             source.lease.io.stdout,
-            (error) =>
-              new Error(
-                `local tar stream failed: ${error instanceof Error ? error.message : String(error)}`,
-              ),
-          ).pipe(Stream.map((chunk) => Uint8Array.from(chunk))),
+            estimateDirectoryBytes(admission.success.appPath),
+          ),
           COPY_TIMEOUT_MS,
         )
         .pipe(Effect.result);
@@ -413,41 +406,6 @@ export const cleanupDarwinHost = (
     };
   });
 
-const hostRecordFromTarget = (target: SshTarget): DeployableRemoteHost => {
-  const details = inspectSshTarget(target);
-  const endpoint = details.endpoint;
-  const id = hostIdFromEndpoint(endpoint);
-  return {
-    id,
-    label: id,
-    kind: "remote",
-    sshEndpoint: endpoint,
-    capabilities: ["terminal"],
-    ...(details.identityFile === undefined
-      ? {}
-      : { sshIdentityFile: details.identityFile }),
-    ...(details.hostKeyPolicy === "system"
-      ? {}
-      : { sshHostKeyPolicy: details.hostKeyPolicy }),
-  };
-};
-
-const hostIdFromEndpoint = (endpoint: string): string => {
-  const cleaned = endpoint
-    .replace(/[^A-Za-z0-9._-]/gu, "-")
-    .replace(/^-+/u, "")
-    .slice(0, 64);
-  return /^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(cleaned) ? cleaned : "remote";
-};
-
-const darwinDeploymentTarget = (target: SshTarget): RemoteDeploymentTarget => ({
-  host: hostRecordFromTarget(target),
-  endpoint: inspectSshTarget(target).endpoint,
-  sshTarget: target,
-  platform: { platform: "darwin", kernelName: "Darwin" },
-  progress: [],
-});
-
 const inspectDarwinProcess = (
   ssh: Context.Service.Shape<typeof SshTransport>,
   target: SshTarget,
@@ -467,6 +425,21 @@ const inspectDarwinProcess = (
     );
     return combineHostProcessPlanes(enroll, peer);
   });
+
+const attachReceipt = (
+  workAttach: HostWorkAttach,
+  observedAt: string,
+  detail?: string,
+): HostOpsAttach => ({
+  ok: workAttach === "up",
+  workAttach,
+  detail:
+    detail ??
+    (workAttach === "up"
+      ? "work attach connected"
+      : `work attach ${workAttach}`),
+  observedAt,
+});
 
 /** Ready is a real term connect. Sock-on-disk is leftover, not workAttach. */
 const probeDarwinWorkAttach = (
@@ -506,76 +479,6 @@ const probeDarwinWorkAttach = (
           ),
         ),
     );
-  });
-
-const attachReceipt = (
-  workAttach: HostWorkAttach,
-  observedAt: string,
-  detail?: string,
-): HostOpsAttach => ({
-  ok: workAttach === "up",
-  workAttach,
-  detail:
-    detail ??
-    (workAttach === "up"
-      ? "work attach connected"
-      : `work attach ${workAttach}`),
-  observedAt,
-});
-
-export const configureDarwinHost = (
-  ssh: Context.Service.Shape<typeof SshTransport>,
-  target: SshTarget,
-  facts: ConfigureRemoteOptions,
-): Effect.Effect<HostOpsConfigure> =>
-  Effect.gen(function* () {
-    const observedAt = new Date().toISOString();
-    const host: RemoteHost = hostRecordFromTarget(target);
-    const result = yield* configureRemoteHost(ssh, host, facts).pipe(
-      Effect.result,
-    );
-    if (result._tag === "Failure") {
-      return {
-        ok: false,
-        detail: result.failure.message,
-        code: result.failure.code,
-        observedAt,
-      };
-    }
-    return {
-      ok: result.success.ok,
-      detail: result.success.detail,
-      ...(result.success.stationInstallationId === undefined
-        ? {}
-        : { stationInstallationId: result.success.stationInstallationId }),
-      ...(result.success.configuredAt === undefined
-        ? {}
-        : { configuredAt: result.success.configuredAt }),
-      ...(result.success.code === undefined ? {} : { code: result.success.code }),
-      observedAt,
-    };
-  });
-
-export const activateDarwinHost = (
-  ssh: Context.Service.Shape<typeof SshTransport>,
-  target: SshTarget,
-): Effect.Effect<HostOpsActivate> =>
-  Effect.gen(function* () {
-    const observedAt = new Date().toISOString();
-    const result = yield* activateDarwinRemoteRuntimeForTarget(
-      ssh,
-      darwinDeploymentTarget(target),
-    );
-    return {
-      ok: result.ok,
-      detail: result.detail,
-      stages: [...result.stages],
-      ...(result.disposition === undefined
-        ? {}
-        : { disposition: result.disposition }),
-      ...(result.code === undefined ? {} : { code: result.code }),
-      observedAt,
-    };
   });
 
 export const attachDarwinHost = (

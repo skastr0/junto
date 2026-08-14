@@ -51,6 +51,7 @@ import { HermesPlane } from "./vellum/hermes/plane";
 import { HERDR_ENABLED, HERMES_INTEGRATION_ENABLED } from "@shared/features";
 import { modeFromConfiguration } from "@shared/station-mode";
 import { termPlane } from "./vellum/term/plane";
+import { startTransportJournal } from "./vellum/observability";
 import { configureTerminalRouterLayeredRunner } from "./vellum/term/router";
 import { compiledLicenseBuildConfig } from "./vellum/license/compiled-config";
 import {
@@ -136,6 +137,7 @@ const openExternalNoop = async (_url: string): Promise<void> => {
 };
 
 const runProductBoot = async (): Promise<void> => {
+  startTransportJournal();
   // DISPLAY / WAYLAND_DISPLAY / XAUTHORITY are intentionally ignored.
   void process.env.DISPLAY;
   void process.env.WAYLAND_DISPLAY;

@@ -1,6 +1,6 @@
 /**
- * Platform adapter behind HostRuntime. Darwin and Linux implement this.
- * The coordinator never imports these modules.
+ * Shared host-runtime helpers. Darwin and Linux HostOps use these.
+ * Observe and apply live in HostRuntime; this file is not that seam.
  */
 import { createConnection, type Socket } from "node:net";
 import { Effect } from "effect";
@@ -8,12 +8,8 @@ import { mergeDeployJobStages } from "@shared/deploy-job";
 import type {
   HostProcess,
   HostRuntimeBlocker,
-  HostRuntimeGap,
-  HostRuntimeObservation,
-  HostRuntimePlatform,
   HostWorkAttach,
 } from "@shared/host-runtime";
-import type { InstallationId } from "@shared/installation-id";
 import type { RemoteHost } from "@shared/remote-hosts";
 import {
   decodeWorkResponse,
@@ -23,29 +19,13 @@ import { parseRemoteUnixSocketPath, SshExitError, type SshTarget } from "../ssh/
 import { oneShot, unixForward } from "../ssh/program";
 import { remoteCat, remoteTestSocketExists } from "../ssh/read-commands";
 import type { SshTransportShape } from "../ssh/service";
-import type { ConfigureRemoteOptions } from "./configure-remote";
 import {
   failedPackageResult,
   type ConfiguredRemoteDeployResult,
 } from "./deploy-configured-remote";
-import type { LinuxReleaseCacheSource } from "./linux-release-feed";
 
 /** Copy, restart, wait — while SSH answers. Hard blockers stop the loop. */
 export const HOST_RUNTIME_REMEDY_ROUNDS = 3;
-
-export type HostRuntimePlanes = Pick<
-  HostRuntimeObservation,
-  "package" | "process" | "workAttach"
->;
-
-export type HostRuntimeApplyContext = {
-  readonly ssh: SshTransportShape;
-  readonly host: RemoteHost;
-  readonly gap: HostRuntimeGap;
-  readonly priorInstallationId?: InstallationId;
-  readonly configure: ConfigureRemoteOptions;
-  readonly artifactSource?: LinuxReleaseCacheSource;
-};
 
 export type RemoteTextFile =
   | { readonly _tag: "present"; readonly text: string }
@@ -226,15 +206,3 @@ export const sealHostRuntimeStages = (
   ...result,
   stages: mergeDeployJobStages(result.stages, remedyStages),
 });
-
-export type HostRuntimePlatformAdapter = {
-  readonly platform: Exclude<HostRuntimePlatform, "unknown">;
-  readonly observePlanes: (
-    ssh: SshTransportShape,
-    target: SshTarget,
-    home: string,
-  ) => Effect.Effect<HostRuntimePlanes>;
-  readonly apply: (
-    context: HostRuntimeApplyContext,
-  ) => Effect.Effect<ConfiguredRemoteDeployResult>;
-};

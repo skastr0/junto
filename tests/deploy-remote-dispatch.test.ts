@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs";
-import { Effect, Schema } from "effect";
+import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
-import { InstallationId } from "../src/shared/station-api";
 import type { RemoteHost } from "../src/shared/remote-hosts";
 import {
   decodeRemotePlatformEvidence,
@@ -12,10 +11,6 @@ import {
   resolveRemoteDeploymentTarget,
 } from "../src/main/vellum/hosts/remote-platform";
 import { SshExitError } from "../src/main/vellum/ssh/domain";
-import {
-  deployConfiguredRemoteHost,
-  type ConfiguredRemoteDeployOperations,
-} from "../src/main/vellum/hosts/deploy-configured-remote";
 import type {
   RemoteDeploymentProvider,
   RemoteDeploymentProviderInput,
@@ -27,13 +22,6 @@ const host: RemoteHost = {
   kind: "remote",
   sshEndpoint: "studio-box",
   capabilities: ["terminal"],
-};
-
-const commandCenterInstallationId =
-  Schema.decodeUnknownSync(InstallationId)("cc-installation");
-const configuredDeployOptions = {
-  commandCenterInstallationId,
-  appVersion: "0.1.0",
 };
 
 type Ssh = Parameters<
@@ -485,48 +473,27 @@ describe("Remote deployment dispatcher", () => {
     expect(darwin.deploy).not.toHaveBeenCalled();
   });
 
-  it("gates configured deploy and Station API mutation on target admission", async () => {
+  it("gates dispatch on target admission before a Darwin provider body", async () => {
     const darwin = makeProvider("darwin");
     const dispatcher = makeRemoteDeploymentDispatcher({
       commandCenterPlatform: "darwin",
       providers: [darwin],
     });
-    const configure = vi.fn(() => Effect.die("configure must not run"));
-    const deployPrepared = vi.fn(() =>
-      Effect.die("prepared deploy must not run"),
-    );
-    const operations: ConfiguredRemoteDeployOperations = {
-      prepare: dispatcher.prepare,
-      deployPrepared,
-      configure,
-      activateRuntime: () =>
-        Effect.succeed({
-          ok: true,
-          detail: "Linux userland runtime needs no Darwin activate",
-        }),
-    };
 
     const result = await Effect.runPromise(
-      deployConfiguredRemoteHost(
-        makeSsh("Linux\n"),
-        host,
-        configuredDeployOptions,
-        operations,
-      ),
+      dispatcher.deploy(makeSsh("Linux\n"), host, {
+        state: "managed-externally",
+      }),
     );
 
     expect(result).toMatchObject({
       ok: false,
-      outcome: "failed",
-      packageState: "previous",
-      role: "previous",
+      code: "validation",
       disposition: "not-started",
-      message: expect.stringContaining(
-        "Linux Remote managed deployment is not available in this release",
-      ),
     });
-    expect(configure).not.toHaveBeenCalled();
-    expect(deployPrepared).not.toHaveBeenCalled();
+    expect(result.detail).toContain(
+      "Linux Remote managed deployment is not available in this release",
+    );
     expect(darwin.deploy).not.toHaveBeenCalled();
   });
 });

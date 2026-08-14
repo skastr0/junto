@@ -131,6 +131,19 @@ describe("applyAgentSeatStateEvent + terminalStatusByNodeIdFromSeats", () => {
     expect(agentSeat$.byBindingId.b1.peek()?.state).toBe("working");
   });
 
+  it("bumps rev on apply so in-place working→idle is observable", () => {
+    expect(agentSeat$.rev.peek()).toBe(0);
+    applyAgentSeatStateEvent(event({ bindingId: "b1", state: "working", at: 1 }));
+    const afterWorking = agentSeat$.rev.peek();
+    expect(afterWorking).toBeGreaterThan(0);
+    applyAgentSeatStateEvent(event({ bindingId: "b1", state: "idle", at: 2 }));
+    const afterIdle = agentSeat$.rev.peek();
+    expect(afterIdle).toBeGreaterThan(afterWorking);
+    applyAgentSeatStateEvent(event({ bindingId: "b1", state: "working", at: 1 }));
+    expect(agentSeat$.rev.peek()).toBe(afterIdle);
+    expect(agentSeat$.byBindingId.b1.peek()?.state).toBe("idle");
+  });
+
   it("arms needsLook on working→idle and clears on mark seen", () => {
     applyAgentSeatStateEvent(event({ bindingId: "b1", state: "working", at: 1 }));
     expect(agentSeat$.needsLookByBindingId.b1.peek()).toBe(false);

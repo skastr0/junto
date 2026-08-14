@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import { SquareTerminal } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
+import { isHarnessId } from "@shared/managed-terminal-templates";
 import type { TerminalSessionSummary } from "@shared/terminal";
 import { resolveTerminalBinding } from "@shared/terminal";
 import {
@@ -9,7 +10,13 @@ import {
   presentationForSeat,
   subscribeAgentSeatState,
 } from "../../lib/agent-seat-state";
-import { isActiveProcessLabel, terminalActivity } from "../../lib/activity";
+import { isActiveProcessLabel } from "../../lib/activity";
+import { chatCoarse$ } from "../../lib/chat-state";
+import {
+  cardMark,
+  liveAttentionReasons,
+  seatFactsForNode,
+} from "../../lib/seat-projections";
 import { terminal$ } from "../../lib/terminal-state";
 import { onTerminalEvent } from "../../lib/terminal-events";
 import { getVellumCommandApi } from "../../lib/vellum-api";
@@ -60,6 +67,9 @@ export function TerminalCard({
       native?.bindingId ?? "__vellum-terminal-no-binding__"
     ],
   );
+  const chatByAgent = use$(chatCoarse$) as
+    | Record<string, { readonly pendingPermissionId?: string } | undefined>
+    | undefined;
 
   const refresh = () =>
     native &&
@@ -122,17 +132,23 @@ export function TerminalCard({
   const activeProcess =
     session?.status === "starting" ||
     (session?.status === "running" && isActiveProcessLabel(processName));
-  const activity = terminalActivity({
-    seatState,
-    needsLook: needsLook === true,
-    seatReason: seatEvent?.reason,
-    running: session?.status === "running",
-    starting: session?.status === "starting",
-    graphBlocked,
-    exitReason,
-    exitMessage,
-    processName,
-  });
+  const harness =
+    typeof node.ether?.terminal?.harness === "string"
+      ? node.ether.terminal.harness
+      : undefined;
+  const managedSeat = harness !== undefined && isHarnessId(harness);
+  const activity = cardMark(
+    seatFactsForNode({
+      nodeId: node.id,
+      seatEvent,
+      session,
+      needsLook: needsLook === true,
+      graphBlocked,
+      flags: node.ether?.flags,
+      attentionReasons: liveAttentionReasons(node, chatByAgent),
+      managedSeat,
+    }),
+  );
   // Prefer spawn-failure / attention reason over the raw launch argv line.
   // turn-stalled keeps operator-facing "stalled" wording (not raw reason id).
   const attentionSubtitle =

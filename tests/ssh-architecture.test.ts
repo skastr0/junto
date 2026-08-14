@@ -105,13 +105,13 @@ describe("SSH architecture", () => {
       "src/main/vellum/hosts/deploy-linux.ts",
       // HostRuntime observes and applies over the shared SSH kernel.
       "src/main/vellum/hosts/host-runtime.ts",
-      "src/main/vellum/hosts/host-runtime-darwin.ts",
-      "src/main/vellum/hosts/host-runtime-linux.ts",
       "src/main/vellum/hosts/host-runtime-platform.ts",
       "src/main/vellum/hosts/host-ops.ts",
       "src/main/vellum/hosts/host-ops-darwin.ts",
       "src/main/vellum/hosts/host-ops-linux.ts",
       "scripts/host-ops.ts",
+      "scripts/transport-logs.ts",
+      "src/main/vellum/observability/transport-pull.ts",
       "src/main/vellum/term/router.ts",
       // Fresh enrollment performs one bounded identity bootstrap; normal
       // fleet traffic uses only the persistent OpenSSH peer exchange.

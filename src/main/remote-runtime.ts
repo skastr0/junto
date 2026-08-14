@@ -226,17 +226,13 @@ const StationFleetServicesLive = Layer.provideMerge(
   ),
 );
 
-const HostsServiceReady = Layer.provideMerge(
-  HostsServiceLive,
+const HostsWithSshLive = Layer.provideMerge(
+  Layer.mergeAll(HostsServiceLive, HostRuntimeLive),
   Layer.mergeAll(
     SshTransportLive,
     StateRepositoriesLive,
     StationFleetServicesLive,
   ),
-);
-const HostsWithSshLive = Layer.mergeAll(
-  HostsServiceReady,
-  Layer.provideMerge(HostRuntimeLive, HostsServiceReady),
 );
 
 const ProductTransportsLive = Layer.provideMerge(

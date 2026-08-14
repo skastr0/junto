@@ -16,27 +16,35 @@ import type {
   HostOpsInspect,
 } from "@shared/host-ops";
 import { InstallationId } from "@shared/installation-id";
-import type { SshError, SshTarget } from "../ssh/domain";
+import type { RemoteHost } from "@shared/remote-hosts";
+import { inspectSshTarget, type SshError, type SshTarget } from "../ssh/domain";
 import {
   inspectRemotePackagedPlatform,
   RemotePlatformProbeError,
   resolveRemotePackagedPlatform,
 } from "../ssh/read-commands";
-import { SshTransport } from "../ssh/service";
-import type { ConfigureRemoteOptions } from "./configure-remote";
+import { SshTransport, type SshTransportShape } from "../ssh/service";
 import {
-  activateDarwinHost,
+  configureRemoteHost,
+  type ConfigureRemoteOptions,
+} from "./configure-remote";
+import { activateDarwinRemoteRuntimeForTarget } from "./deploy-darwin";
+import { activateLinuxRemoteRuntimeForTarget } from "./deploy-linux";
+import type {
+  DeployableRemoteHost,
+  DeployRemoteResult,
+  RemoteDeploymentTarget,
+  RemotePlatformDescriptor,
+} from "./remote-deployment";
+import {
   attachDarwinHost,
   cleanupDarwinHost,
-  configureDarwinHost,
   copyDarwinHost,
   inspectDarwinHost,
 } from "./host-ops-darwin";
 import {
-  activateLinuxHost,
   attachLinuxHost,
   cleanupLinuxHost,
-  configureLinuxHost,
   copyLinuxHost,
   inspectLinuxHost,
 } from "./host-ops-linux";
@@ -48,6 +56,96 @@ const UNSET_HOST_CONFIGURE: ConfigureRemoteOptions = {
   commandCenterInstallationId: decodeInstallationId("unset"),
   appVersion: "0.0.0",
 };
+
+const hostIdFromEndpoint = (endpoint: string): string => {
+  const cleaned = endpoint
+    .replace(/[^A-Za-z0-9._-]/gu, "-")
+    .replace(/^-+/u, "")
+    .slice(0, 64);
+  return /^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(cleaned) ? cleaned : "remote";
+};
+
+const hostRecordFromTarget = (target: SshTarget): DeployableRemoteHost => {
+  const details = inspectSshTarget(target);
+  const endpoint = details.endpoint;
+  const id = hostIdFromEndpoint(endpoint);
+  return {
+    id,
+    label: id,
+    kind: "remote",
+    sshEndpoint: endpoint,
+    capabilities: ["terminal"],
+    ...(details.identityFile === undefined
+      ? {}
+      : { sshIdentityFile: details.identityFile }),
+    ...(details.hostKeyPolicy === "system"
+      ? {}
+      : { sshHostKeyPolicy: details.hostKeyPolicy }),
+  };
+};
+
+const configureHostOps = (
+  ssh: SshTransportShape,
+  target: SshTarget,
+  facts: ConfigureRemoteOptions,
+): Effect.Effect<HostOpsConfigure> =>
+  Effect.gen(function* () {
+    const observedAt = new Date().toISOString();
+    const host: RemoteHost = hostRecordFromTarget(target);
+    const result = yield* configureRemoteHost(ssh, host, facts).pipe(
+      Effect.result,
+    );
+    if (result._tag === "Failure") {
+      return {
+        ok: false,
+        detail: result.failure.message,
+        code: result.failure.code,
+        observedAt,
+      };
+    }
+    return {
+      ok: result.success.ok,
+      detail: result.success.detail,
+      ...(result.success.stationInstallationId === undefined
+        ? {}
+        : { stationInstallationId: result.success.stationInstallationId }),
+      ...(result.success.configuredAt === undefined
+        ? {}
+        : { configuredAt: result.success.configuredAt }),
+      ...(result.success.code === undefined ? {} : { code: result.success.code }),
+      observedAt,
+    };
+  });
+
+const activateHostOps = (
+  ssh: SshTransportShape,
+  target: SshTarget,
+  activate: (
+    ssh: SshTransportShape,
+    prepared: RemoteDeploymentTarget,
+  ) => Effect.Effect<DeployRemoteResult>,
+  platform: RemotePlatformDescriptor,
+): Effect.Effect<HostOpsActivate> =>
+  Effect.gen(function* () {
+    const observedAt = new Date().toISOString();
+    const result = yield* activate(ssh, {
+      host: hostRecordFromTarget(target),
+      endpoint: inspectSshTarget(target).endpoint,
+      sshTarget: target,
+      platform,
+      progress: [],
+    });
+    return {
+      ok: result.ok,
+      detail: result.detail,
+      stages: [...result.stages],
+      ...(result.disposition === undefined
+        ? {}
+        : { disposition: result.disposition }),
+      ...(result.code === undefined ? {} : { code: result.code }),
+      observedAt,
+    };
+  });
 
 export class HostTarget extends Context.Service<
   HostTarget,
@@ -67,13 +165,18 @@ export class HostConfigure extends Context.Service<
     options: ConfigureRemoteOptions,
   ): Layer.Layer<HostConfigure> =>
     Layer.succeed(HostConfigure, HostConfigure.of(options));
+
+  static readonly layerUnset: Layer.Layer<HostConfigure> =
+    Layer.succeed(HostConfigure, HostConfigure.of(UNSET_HOST_CONFIGURE));
 }
 
 export class HostOps extends Context.Service<
   HostOps,
   {
     readonly inspect: () => Effect.Effect<HostOpsInspect>;
-    readonly copy: () => Effect.Effect<HostOpsCopy>;
+    readonly copy: (
+      expectedPackageState?: "absent" | "present",
+    ) => Effect.Effect<HostOpsCopy>;
     readonly cleanup: () => Effect.Effect<HostOpsCleanup>;
     readonly configure: () => Effect.Effect<HostOpsConfigure>;
     readonly activate: () => Effect.Effect<HostOpsActivate>;
@@ -92,10 +195,17 @@ export class HostOps extends Context.Service<
       const facts = yield* HostConfigure;
       return HostOps.of({
         inspect: () => inspectDarwinHost(ssh, host.sshTarget),
-        copy: () => copyDarwinHost(ssh, host.sshTarget),
+        copy: (expectedPackageState) =>
+          copyDarwinHost(ssh, host.sshTarget, expectedPackageState),
         cleanup: () => cleanupDarwinHost(ssh, host.sshTarget),
-        configure: () => configureDarwinHost(ssh, host.sshTarget, facts),
-        activate: () => activateDarwinHost(ssh, host.sshTarget),
+        configure: () => configureHostOps(ssh, host.sshTarget, facts),
+        activate: () =>
+          activateHostOps(
+            ssh,
+            host.sshTarget,
+            activateDarwinRemoteRuntimeForTarget,
+            { platform: "darwin", kernelName: "Darwin" },
+          ),
         attach: () => attachDarwinHost(ssh, host.sshTarget),
       });
     }),
@@ -113,10 +223,17 @@ export class HostOps extends Context.Service<
       const facts = yield* HostConfigure;
       return HostOps.of({
         inspect: () => inspectLinuxHost(ssh, host.sshTarget),
-        copy: () => copyLinuxHost(ssh, host.sshTarget),
+        copy: (expectedPackageState) =>
+          copyLinuxHost(ssh, host.sshTarget, expectedPackageState),
         cleanup: () => cleanupLinuxHost(ssh, host.sshTarget),
-        configure: () => configureLinuxHost(ssh, host.sshTarget, facts),
-        activate: () => activateLinuxHost(ssh, host.sshTarget),
+        configure: () => configureHostOps(ssh, host.sshTarget, facts),
+        activate: () =>
+          activateHostOps(
+            ssh,
+            host.sshTarget,
+            activateLinuxRemoteRuntimeForTarget,
+            { platform: "linux", kernelName: "Linux" },
+          ),
         attach: () => attachLinuxHost(ssh, host.sshTarget),
       });
     }),
@@ -127,7 +244,7 @@ export class HostOps extends Context.Service<
     never,
     SshTransport | HostTarget
   > = HostOps.layerDarwinOps.pipe(
-    Layer.provide(HostConfigure.layer(UNSET_HOST_CONFIGURE)),
+    Layer.provide(HostConfigure.layerUnset),
   );
 
   static readonly layerLinux: Layer.Layer<
@@ -135,16 +252,15 @@ export class HostOps extends Context.Service<
     never,
     SshTransport | HostTarget
   > = HostOps.layerLinuxOps.pipe(
-    Layer.provide(HostConfigure.layer(UNSET_HOST_CONFIGURE)),
+    Layer.provide(HostConfigure.layerUnset),
   );
 
   static readonly layerForTarget = (
     target: SshTarget,
-    configure: ConfigureRemoteOptions = UNSET_HOST_CONFIGURE,
   ): Layer.Layer<
     HostOps | HostTarget,
     SshError | RemotePlatformProbeError,
-    SshTransport
+    SshTransport | HostConfigure
   > =>
     Layer.unwrap(
       Effect.gen(function* () {
@@ -154,8 +270,5 @@ export class HostOps extends Context.Service<
           ? HostOps.layerDarwinOps
           : HostOps.layerLinuxOps;
       }),
-    ).pipe(
-      Layer.provideMerge(HostTarget.layer(target)),
-      Layer.provide(HostConfigure.layer(configure)),
-    );
+    ).pipe(Layer.provideMerge(HostTarget.layer(target)));
 }

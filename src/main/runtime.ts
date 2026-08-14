@@ -228,20 +228,13 @@ const StationFleetServicesLive = Layer.provideMerge(
   ),
 );
 
-// HostsServiceLive must be a finished output before anyone yields the tag.
-// Nesting it only as HostRuntimeLive's input drops @vellum/HostsService from
-// the AppLayer leftovers (BoxFleetServiceLive / first AppRuntime.runPromise).
-const HostsServiceReady = Layer.provideMerge(
-  HostsServiceLive,
+const HostsWithSshLive = Layer.provideMerge(
+  Layer.mergeAll(HostsServiceLive, HostRuntimeLive),
   Layer.mergeAll(
     SshTransportLive,
     StateRepositoriesLive,
     StationFleetServicesLive,
   ),
-);
-const HostsWithSshLive = Layer.mergeAll(
-  HostsServiceReady,
-  Layer.provideMerge(HostRuntimeLive, HostsServiceReady),
 );
 
 const BoxCliWithProcessLive = Layer.provideMerge(

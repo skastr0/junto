@@ -8,7 +8,7 @@
 
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, join, resolve } from "node:path";
+import { basename, isAbsolute, join, resolve } from "node:path";
 import type { HarnessId } from "@shared/managed-terminal-templates";
 
 export type SessionExistenceProbe = {
@@ -370,7 +370,93 @@ export const isHarnessResumeFailureText = (text: string): boolean => {
   // Grok: "fetching session record: session get failed: 404 Not Found"
   if (t.includes("fetching session record") && t.includes("404")) return true;
   if (t.includes("resume") && t.includes("404") && t.includes("not found")) return true;
+  // Grok pin-create against a session this station already made.
+  if (t.includes("already in use") && t.includes("session")) return true;
   return false;
+};
+
+export type HarnessSessionArgv = {
+  readonly harness: "grok" | "claude" | "pi";
+  readonly sessionId: string;
+  readonly mode: "pin" | "resume";
+};
+
+const pinHarnessFromBinary = (
+  file: string | undefined,
+): HarnessSessionArgv["harness"] | undefined => {
+  if (!file) return undefined;
+  const name = basename(file);
+  if (name === "grok") return "grok";
+  if (name === "claude") return "claude";
+  if (name === "pi") return "pi";
+  return undefined;
+};
+
+const resumeFlagFor = (harness: HarnessSessionArgv["harness"]): string =>
+  harness === "claude" ? "--resume" : "-r";
+
+/** Read pin/resume id from spawn argv. Pin is create; resume is reclaim. */
+export const parseHarnessSessionArgv = (
+  argv: ReadonlyArray<string>,
+): HarnessSessionArgv | undefined => {
+  const harness = pinHarnessFromBinary(argv[0]);
+  if (!harness) return undefined;
+  for (let i = 1; i < argv.length; i += 1) {
+    const tok = argv[i];
+    if (tok === "-r" || tok === "--resume") {
+      const id = argv[i + 1];
+      if (id && !id.startsWith("-")) {
+        return { harness, sessionId: id, mode: "resume" };
+      }
+    }
+    if (tok === "--session-id") {
+      const id = argv[i + 1];
+      if (id && !id.startsWith("-")) {
+        return { harness, sessionId: id, mode: "pin" };
+      }
+    }
+    if (tok.startsWith("--session-id=")) {
+      const id = tok.slice("--session-id=".length);
+      if (id) return { harness, sessionId: id, mode: "pin" };
+    }
+  }
+  return undefined;
+};
+
+/**
+ * This host created the harness session. After a station restart the in-memory
+ * seat table is empty, but the session files remain. Command Center plans pin
+ * vs resume against *its* disk, so it sends --session-id (create) for a session
+ * that already lives here. Convert that pin to resume so we reclaim, not orphan.
+ */
+export const reclaimOrphanedHarnessArgv = (
+  argv: ReadonlyArray<string>,
+  cwd?: string,
+): string[] => {
+  const parsed = parseHarnessSessionArgv(argv);
+  if (!parsed || parsed.mode === "resume") return [...argv];
+  if (
+    !harnessSessionExists({
+      harness: parsed.harness,
+      sessionId: parsed.sessionId,
+      ...(cwd === undefined ? {} : { cwd }),
+    })
+  ) {
+    return [...argv];
+  }
+  const out = [...argv];
+  const resumeFlag = resumeFlagFor(parsed.harness);
+  for (let i = 1; i < out.length; i += 1) {
+    if (out[i] === "--session-id" && out[i + 1] === parsed.sessionId) {
+      out[i] = resumeFlag;
+      return out;
+    }
+    if (out[i] === `--session-id=${parsed.sessionId}`) {
+      out.splice(i, 1, resumeFlag, parsed.sessionId);
+      return out;
+    }
+  }
+  return out;
 };
 
 export const launchArgvUsesResume = (

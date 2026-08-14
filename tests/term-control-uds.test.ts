@@ -3,9 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createConnection } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { LocalSessionHost } from "../src/main/vellum/term/local-host";
+import {
+  LocalSessionHost,
+  type LocalHostEvent,
+} from "../src/main/vellum/term/local-host";
 import { startTermControlServer } from "../src/main/vellum/term/control-server";
 import { TermControlClient } from "../src/main/vellum/term/control-client";
+import { seatStateRuntime } from "../src/main/vellum/term/agent-state";
 import {
   makeProcessIdentityMap,
   setProcessIdentityMapForTests,
@@ -166,6 +170,26 @@ describe("term control UDS", () => {
     ).rejects.toThrow(/unauth|auth/i);
   });
 
+  it("isLive is false after the socket closes", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vtl-"));
+    cleanups.push(() => rmSync(home, { recursive: true, force: true }));
+    const host = new LocalSessionHost(fakeAuthority());
+    cleanups.push(async () => {
+      await host.shutdownAll("test");
+    });
+    const server = await startTermControlServer(host, { home });
+    cleanups.push(() => server.close());
+    const client = await TermControlClient.connect({
+      socketPath: server.socketPath,
+      token: server.token,
+      timeoutMs: 5_000,
+    });
+    expect(client.isLive()).toBe(true);
+    client.close();
+    await client.whenClosed();
+    expect(client.isLive()).toBe(false);
+  });
+
   it("caps accepted peers before frame admission and recovers after close", async () => {
     const home = mkdtempSync(join(tmpdir(), "vtc-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));
@@ -236,5 +260,52 @@ describe("term control UDS", () => {
 
     await closing;
     expect(host.list()).toEqual([]);
+  });
+
+  it("connect then subscribe still sees the current working seat", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vtss-"));
+    cleanups.push(() => rmSync(home, { recursive: true, force: true }));
+    const host = new LocalSessionHost(fakeAuthority());
+    cleanups.push(async () => {
+      await host.shutdownAll("test");
+    });
+    seatStateRuntime.bindHarness("uds_auth_snap", "claude", "e-uds");
+    seatStateRuntime.machine.force(
+      "uds_auth_snap",
+      "working",
+      "rule:grid_thinking_working",
+      "high",
+    );
+    cleanups.push(() => {
+      seatStateRuntime.unbind("uds_auth_snap", "e-uds");
+    });
+
+    const server = await startTermControlServer(host, { home });
+    cleanups.push(() => server.close());
+    const client = await TermControlClient.connect({
+      socketPath: server.socketPath,
+      token: server.token,
+      timeoutMs: 5_000,
+    });
+    cleanups.push(() => client.close());
+
+    const seen = new Promise<LocalHostEvent>((resolve) => {
+      client.on("event", (ev: LocalHostEvent) => {
+        if (ev.type === "seat-state" && ev.event.bindingId === "uds_auth_snap") {
+          resolve(ev);
+        }
+      });
+    });
+    const ev = await Promise.race([
+      seen,
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("missing seat-state snapshot")), 1_000),
+      ),
+    ]);
+    expect(ev.type).toBe("seat-state");
+    if (ev.type !== "seat-state") return;
+    expect(ev.event.state).toBe("working");
+    expect(ev.event.reason).toBe("rule:grid_thinking_working");
+    expect(ev.event.epoch).toBe("e-uds");
   });
 });
