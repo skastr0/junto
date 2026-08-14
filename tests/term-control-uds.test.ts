@@ -166,6 +166,26 @@ describe("term control UDS", () => {
     ).rejects.toThrow(/unauth|auth/i);
   });
 
+  it("isLive is false after the socket closes", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vtl-"));
+    cleanups.push(() => rmSync(home, { recursive: true, force: true }));
+    const host = new LocalSessionHost(fakeAuthority());
+    cleanups.push(async () => {
+      await host.shutdownAll("test");
+    });
+    const server = await startTermControlServer(host, { home });
+    cleanups.push(() => server.close());
+    const client = await TermControlClient.connect({
+      socketPath: server.socketPath,
+      token: server.token,
+      timeoutMs: 5_000,
+    });
+    expect(client.isLive()).toBe(true);
+    client.close();
+    await client.whenClosed();
+    expect(client.isLive()).toBe(false);
+  });
+
   it("caps accepted peers before frame admission and recovers after close", async () => {
     const home = mkdtempSync(join(tmpdir(), "vtc-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));

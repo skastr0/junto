@@ -188,6 +188,17 @@ export class TermControlClient extends EventEmitter implements TermMaintenanceCo
     super();
   }
 
+  /** False after the SSH forward or remote socket has already gone away. */
+  isLive(): boolean {
+    return (
+      this.authed &&
+      !this.quiescing &&
+      !this.closeObserved &&
+      this.socket !== undefined &&
+      !this.socket.destroyed
+    );
+  }
+
   static async connect(input: {
     readonly socketPath: string;
     readonly token: string;

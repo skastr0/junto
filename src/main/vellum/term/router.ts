@@ -920,7 +920,11 @@ export class TerminalRouter extends EventEmitter {
     const endpoint = host.sshEndpoint;
     const existing = this.remotes.get(hostId);
     if (existing) {
-      if (existing.endpoint === endpoint && existing.generation === this.generation) {
+      if (
+        existing.endpoint === endpoint &&
+        existing.generation === this.generation &&
+        existing.client.isLive()
+      ) {
         this.assertRouteAdmission(hostId, maintenanceCut);
         return existing;
       }
@@ -1104,7 +1108,8 @@ export class TerminalRouter extends EventEmitter {
       host?.kind === "remote" &&
       host.sshEndpoint === entry.endpoint &&
       entry.generation === this.generation &&
-      !this.quiescing
+      !this.quiescing &&
+      entry.client.isLive()
     ) {
       return entry;
     }

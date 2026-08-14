@@ -59,6 +59,13 @@ export const operatorRemoteWorkDetail = (
     return `${hostLabel} is not a remote machine Vellum Command can open.`;
   }
   if (
+    /term control client closed|term control socket closed|term control timeout op=/iu.test(
+      raw,
+    )
+  ) {
+    return `The folder connection to ${hostLabel} dropped. Close this picker and open it again. If it still fails, quit Vellum Command on this Mac and reopen it. That machine is already running — do not Deploy just to browse folders.`;
+  }
+  if (
     /term control connect timeout|cannot reach term control|no term control|ECONNREFUSED|ENOENT/iu.test(
       raw,
     )
