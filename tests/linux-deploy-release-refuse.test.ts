@@ -1,18 +1,17 @@
 import { readFileSync } from "node:fs";
-import { Effect, Schema } from "effect";
-import { describe, expect, it, vi } from "vitest";
+import { Effect, Layer } from "effect";
+import { describe, expect, it } from "vitest";
 import { LINUX_REMOTE_DEPLOY_DISABLED_DETAIL, RELEASE_CAPABILITIES } from "../src/shared/release-capabilities";
-import { InstallationId } from "../src/shared/station-api";
-import { admitHostRuntimeApply } from "../src/main/vellum/hosts/host-runtime";
-import { applyLinuxHostRuntime } from "../src/main/vellum/hosts/host-runtime-linux";
+import { admitHostRuntimeApply, applyHostRuntime } from "../src/main/vellum/hosts/host-runtime";
+import { HostOps, HostTarget } from "../src/main/vellum/hosts/host-ops";
 import { loadRemoteDeploymentProvider } from "../src/main/vellum/hosts/deploy-remote";
-import type { HostRuntimeApplyContext } from "../src/main/vellum/hosts/host-runtime-platform";
 import type { RemoteHost } from "../src/shared/remote-hosts";
-import type { SshTransportShape } from "../src/main/vellum/ssh/service";
+import { parseSshEndpoint } from "../src/main/vellum/ssh/domain";
+import { SshTransport } from "../src/main/vellum/ssh/service";
 
 /**
- * Live production freeze: HostRuntime.admit after uname, then Linux apply
- * through the release loader. Coordinator does not call the old dispatcher.
+ * Live production freeze: HostRuntime.admit after observe, then Linux
+ * HostOps.copy stays LINUX_REMOTE_DEPLOY_OFF.
  */
 const host: RemoteHost = {
   id: "studio",
@@ -39,7 +38,7 @@ describe("production Linux deploy freeze (live HostRuntime path)", () => {
     expect(RELEASE_CAPABILITIES.boxFleet).toBe(false);
   });
 
-  it("HostRuntime admit refuses Linux apply under production after uname", () => {
+  it("HostRuntime admit refuses Linux apply under production after observe", () => {
     const fromDarwinCc = admitHostRuntimeApply({
       observation: linuxObservation,
       hostLabel: "Studio",
@@ -60,31 +59,31 @@ describe("production Linux deploy freeze (live HostRuntime path)", () => {
     expect(fromDarwinCc.code).toBe("validation");
   });
 
-  it("Linux apply uses the release loader and refuses before the provider body", async () => {
-    expect(RELEASE_CAPABILITIES.linuxRemoteDeploy).toBe(false);
+  it("Linux HostOps copy refuses before a provider body", async () => {
+    const target = Effect.runSync(parseSshEndpoint("studio-box"));
     const ssh = {
-      warm: vi.fn(() => Effect.void),
-      run: vi.fn(() => Effect.die("apply must not run remote programs")),
-      forward: vi.fn(() => Effect.die("apply must not forward")),
+      warm: () => Effect.void,
+      run: () => Effect.die("copy must not run remote programs"),
+      forward: () => Effect.die("copy must not forward"),
     };
-    const context: HostRuntimeApplyContext = {
-      ssh: ssh as unknown as SshTransportShape,
-      host,
-      gap: "needInstall",
-      configure: {
-        commandCenterInstallationId:
-          Schema.decodeUnknownSync(InstallationId)("cc-installation"),
-        appVersion: "0.1.0",
-      },
-    };
-
-    const result = await Effect.runPromise(applyLinuxHostRuntime(context));
+    const result = await Effect.runPromise(
+      applyHostRuntime({
+        host,
+        gap: "needInstall",
+      }).pipe(
+        Effect.provide(
+          HostOps.layerLinux.pipe(
+            Layer.provide(HostTarget.layer(target)),
+            Layer.provide(Layer.succeed(SshTransport, ssh as never)),
+          ),
+        ),
+      ),
+    );
 
     expect(result.ok).toBe(false);
     expect(result.disposition).toBe("not-started");
-    expect(result.detail).toContain(LINUX_REMOTE_DEPLOY_DISABLED_DETAIL);
-    expect(ssh.warm).toHaveBeenCalledOnce();
-    expect(ssh.run).not.toHaveBeenCalled();
+    expect(result.detail).toContain("LINUX_REMOTE_DEPLOY_OFF");
+    expect(result.detail).toMatch(/Linux Remote Deploy is not enabled/i);
   });
 
   it("release loader still refuses so apply cannot bypass the freeze", async () => {
@@ -102,8 +101,8 @@ describe("production Linux deploy freeze (live HostRuntime path)", () => {
       new URL("../src/main/vellum/hosts/host-runtime.ts", import.meta.url),
       "utf8",
     );
-    const linux = readFileSync(
-      new URL("../src/main/vellum/hosts/host-runtime-linux.ts", import.meta.url),
+    const linuxOps = readFileSync(
+      new URL("../src/main/vellum/hosts/host-ops-linux.ts", import.meta.url),
       "utf8",
     );
     expect(coordinator).toContain(".reconcile(");
@@ -113,7 +112,8 @@ describe("production Linux deploy freeze (live HostRuntime path)", () => {
     );
     expect(runtime).toContain("admitHostRuntimeApply");
     expect(runtime).toContain("releaseAllowsTargetPlatform");
-    expect(linux).toContain("loadRemoteDeploymentProvider");
-    expect(linux).not.toContain("linuxRemoteDeploymentProvider");
+    expect(runtime).toContain("applyHostRuntime");
+    expect(linuxOps).toContain("LINUX_REMOTE_DEPLOY_OFF");
+    expect(linuxOps).not.toContain("linuxRemoteDeploymentProvider");
   });
 });

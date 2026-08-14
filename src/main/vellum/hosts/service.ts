@@ -24,11 +24,11 @@ import {
   deployRemoteHost,
   type DeployRemoteResult,
 } from "./deploy-remote";
-import {
-  deployConfiguredRemoteHost,
-  type ConfiguredRemoteDeployOptions,
-  type ConfiguredRemoteDeployResult,
+import type {
+  ConfiguredRemoteDeployOptions,
+  ConfiguredRemoteDeployResult,
 } from "./deploy-configured-remote";
+import { HostRuntime } from "./host-runtime";
 import {
   runRemoteHostsDoctor,
   runRemoteHostsDoctorSnapshot,
@@ -102,7 +102,7 @@ export class HostsService extends Context.Service<HostsService,
           result: ConfiguredRemoteDeployResult,
         ) => Effect.Effect<void, RemoteHostsError>;
       },
-    ) => Effect.Effect<ConfiguredRemoteDeployResult>;
+    ) => Effect.Effect<ConfiguredRemoteDeployResult, never, HostRuntime>;
   }>()("@vellum/HostsService") {}
 
 /** Canonical service shape for `HostsService` (one id, one shape). */
@@ -137,11 +137,9 @@ export const makeHostsService = (
   operations: {
     readonly configureRemoteHost: typeof configureRemoteHost;
     readonly deployRemoteHost: typeof deployRemoteHost;
-    readonly deployConfiguredRemoteHost: typeof deployConfiguredRemoteHost;
   } = {
     configureRemoteHost,
     deployRemoteHost,
-    deployConfiguredRemoteHost,
   },
 ): HostsServiceShape => {
   const mutationLocks = new Map<string, Semaphore.Semaphore>();
@@ -332,33 +330,18 @@ export const makeHostsService = (
             configuration: { ok: false, detail },
           } satisfies ConfiguredRemoteDeployResult;
         }
+        const runtime = yield* HostRuntime;
         return yield* serializeHostMutation(
           host,
-          Effect.gen(function* () {
-            const deployed = yield* operations.deployConfiguredRemoteHost(
-              ssh,
-              host,
-              options,
-            );
-            if (!options.onCompleted) return deployed;
-            const completion = yield* options
-              .onCompleted(host, deployed)
-              .pipe(Effect.result);
-            if (completion._tag === "Success") {
-              return {
-                ...deployed,
-                statusRecorded: true,
-              } satisfies ConfiguredRemoteDeployResult;
-            }
-            const persistenceDetail = `local deployment receipt could not be persisted: ${completion.failure.message}`;
-            return {
-              ...deployed,
-              detail: `${deployed.detail} - ${persistenceDetail}`,
-              message: deployed.message
-                ? `${deployed.message} - ${persistenceDetail}`
-                : `${deployed.detail} - ${persistenceDetail}`,
-              statusRecorded: false,
-            } satisfies ConfiguredRemoteDeployResult;
+          runtime.reconcile(id, {
+            intent: "deploy",
+            configure: options,
+            ...(options.artifactSource === undefined
+              ? {}
+              : { artifactSource: options.artifactSource }),
+            ...(options.onCompleted === undefined
+              ? {}
+              : { onCompleted: options.onCompleted }),
           }),
         );
       }),

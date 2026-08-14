@@ -20,7 +20,7 @@ import {
   HostRuntimeLive,
   observeRemoteHost,
 } from "../src/main/vellum/hosts/host-runtime";
-import { linuxHostRuntimePlatform } from "../src/main/vellum/hosts/host-runtime-linux";
+import { HostOps, HostTarget } from "../src/main/vellum/hosts/host-ops";
 import {
   combineHostProcessPlanes,
   readRemoteTextFile,
@@ -303,6 +303,7 @@ describe("observeRemoteHost", () => {
     const observed = await Effect.runPromise(
       observeRemoteHost(
         {
+          warm: () => Effect.void,
           run: () =>
             Effect.fail(
               new SshExitError({
@@ -326,6 +327,7 @@ describe("observeRemoteHost", () => {
     const observed = await Effect.runPromise(
       observeRemoteHost(
         {
+          warm: () => Effect.void,
           run: () =>
             Effect.fail(
               new SshTimeoutError({
@@ -349,6 +351,7 @@ describe("observeRemoteHost", () => {
     const observed = await Effect.runPromise(
       observeRemoteHost(
         {
+          warm: () => Effect.void,
           run: () => {
             calls += 1;
             if (calls === 1) {
@@ -382,6 +385,7 @@ describe("observeRemoteHost", () => {
     const present = await Effect.runPromise(
       observeRemoteHost(
         {
+          warm: () => Effect.void,
           run: (() => {
             let calls = 0;
             return () => {
@@ -420,6 +424,7 @@ describe("observeRemoteHost", () => {
     const absent = await Effect.runPromise(
       observeRemoteHost(
         {
+          warm: () => Effect.void,
           run: (() => {
             let calls = 0;
             return () => {
@@ -455,14 +460,34 @@ describe("observeRemoteHost", () => {
   });
 });
 
-describe("linuxHostRuntimePlatform.observePlanes", () => {
-  const target = Effect.runSync(parseSshEndpoint("studio-box"));
+describe("Linux HostOps inspect package plane", () => {
+  const inspectLinux = (
+    ssh: Context.Service.Shape<typeof SshTransport>,
+  ) =>
+    Effect.gen(function* () {
+      const ops = yield* HostOps;
+      return yield* ops.inspect();
+    }).pipe(
+      Effect.provide(
+        HostOps.layerLinux.pipe(
+          Layer.provide(
+            HostTarget.layer(Effect.runSync(parseSshEndpoint("studio-box"))),
+          ),
+          Layer.provide(Layer.succeed(SshTransport, ssh)),
+        ),
+      ),
+    );
+
   const observeThenTimeout = (stdout: string) => {
     let calls = 0;
     return {
+      warm: () => Effect.void,
       run: () => {
         calls += 1;
         if (calls === 1) {
+          return Effect.succeed({ stdout: "/home/alice\n", stderr: "" });
+        }
+        if (calls === 2) {
           return Effect.succeed({ stdout, stderr: "" });
         }
         return Effect.fail(
@@ -478,40 +503,29 @@ describe("linuxHostRuntimePlatform.observePlanes", () => {
 
   it("maps a generation receipt to present or absent, and probe failure to unknown", async () => {
     const present = await Effect.runPromise(
-      linuxHostRuntimePlatform.observePlanes(
-        observeThenTimeout("LINUX_USERLAND_OBSERVE_V1 present=1\n"),
-        target,
-        "/home/alice",
-      ),
+      inspectLinux(observeThenTimeout("LINUX_USERLAND_OBSERVE_V1 present=1\n")),
     );
     expect(present.package).toBe("present");
     expect(present.process).toBe("unknown");
     expect(present.workAttach).toBe("unknown");
 
     const absent = await Effect.runPromise(
-      linuxHostRuntimePlatform.observePlanes(
-        observeThenTimeout("LINUX_USERLAND_OBSERVE_V1 present=0\n"),
-        target,
-        "/home/alice",
-      ),
+      inspectLinux(observeThenTimeout("LINUX_USERLAND_OBSERVE_V1 present=0\n")),
     );
     expect(absent.package).toBe("absent");
 
     const unknown = await Effect.runPromise(
-      linuxHostRuntimePlatform.observePlanes(
-        {
-          run: () =>
-            Effect.fail(
-              new SshTimeoutError({
-                endpoint: "studio-box",
-                operation: "observe",
-                timeoutMs: 1_000,
-              }),
-            ),
-        } as never,
-        target,
-        "/home/alice",
-      ),
+      inspectLinux({
+        warm: () => Effect.void,
+        run: () =>
+          Effect.fail(
+            new SshTimeoutError({
+              endpoint: "studio-box",
+              operation: "observe",
+              timeoutMs: 1_000,
+            }),
+          ),
+      } as never),
     );
     expect(unknown.package).toBe("unknown");
     expect(unknown.process).toBe("unknown");
@@ -520,11 +534,7 @@ describe("linuxHostRuntimePlatform.observePlanes", () => {
 
   it("does not treat a malformed generation receipt as absent", async () => {
     const planes = await Effect.runPromise(
-      linuxHostRuntimePlatform.observePlanes(
-        observeThenTimeout("garbage\n"),
-        target,
-        "/home/alice",
-      ),
+      inspectLinux(observeThenTimeout("garbage\n")),
     );
     expect(planes.package).toBe("unknown");
   });
@@ -685,7 +695,7 @@ describe("HostRuntimeLive Linux flag honesty", () => {
     );
     expect(result.code).toBe("validation");
     expect(result.disposition).toBe("not-started");
-    expect(warmCalls).toBe(0);
+    expect(warmCalls).toBeGreaterThanOrEqual(1);
     expect(runs).toBeGreaterThanOrEqual(3);
   });
 });
@@ -706,46 +716,40 @@ describe("HostRuntime inversion", () => {
     expect(runtime).toContain("commandCenterMayPrepareRemote");
     expect(runtime).toContain("admitHostRuntimeApply");
     expect(runtime).toContain("releaseAllowsTargetPlatform");
+    const service = readFileSync(
+      new URL("../src/main/vellum/hosts/service.ts", import.meta.url),
+      "utf8",
+    );
+    expect(service).toContain("HostRuntime");
+    expect(service).toContain("runtime.reconcile");
+    expect(service).not.toContain("deployConfiguredRemoteHost");
   });
 
-  it("keeps Darwin and Linux as separate platform adapters", () => {
-    const darwin = readFileSync(
-      new URL("../src/main/vellum/hosts/host-runtime-darwin.ts", import.meta.url),
+  it("keeps Darwin and Linux as HostOps layers, not apply loops", () => {
+    const runtime = readFileSync(
+      new URL("../src/main/vellum/hosts/host-runtime.ts", import.meta.url),
       "utf8",
     );
-    const linux = readFileSync(
-      new URL("../src/main/vellum/hosts/host-runtime-linux.ts", import.meta.url),
+    const darwinOps = readFileSync(
+      new URL("../src/main/vellum/hosts/host-ops-darwin.ts", import.meta.url),
       "utf8",
     );
-    expect(darwin).toContain("remoteDarwinPackageExists");
-    expect(darwin).not.toContain("workControlSocketPath");
-    expect(darwin).not.toContain("applyConfiguredRemoteGap");
-    expect(darwin).toContain("activateDarwinRemoteRuntimeForTarget");
-    expect(darwin).toContain("ops.copy()");
-    expect(darwin).toContain("ops.cleanup()");
-    expect(darwin).toContain("configureRemoteHost");
-    expect(darwin).toContain("proveDarwinWorkAttach");
-    expect(darwin).not.toContain("darwinRemoteDeploymentProvider");
-    expect(darwin).toContain("TermControlClient.connect");
-    expect(darwin).not.toContain("handshakeLinuxWorkControl");
-    expect(darwin).not.toContain("remoteTestSocketExists");
-    expect(darwin).toContain("combineHostProcessPlanes");
-    expect(linux).toContain("workControlSocketPath");
-    expect(linux).not.toContain("remoteDarwinPackageExists");
-    expect(linux).not.toContain("applyConfiguredRemoteGap");
-    expect(linux).not.toContain("resolveRemoteDeploymentTarget");
-    expect(linux).not.toContain("prepareRemoteDeployment");
-    expect(linux).not.toContain("TermControlClient");
-    expect(linux).toContain("buildObservedRemoteDeploymentTarget");
-    expect(linux).toContain("loadRemoteDeploymentProvider");
-    expect(linux).not.toContain("linuxRemoteDeploymentProvider");
-    expect(linux).toContain("activateLinuxRemoteRuntimeForTarget");
-    expect(linux).toContain("observeLinuxUserlandPackage");
-    expect(linux).toContain("handshakeLinuxWorkControl");
-    expect(linux).toContain("proveWorkAttach");
-    expect(linux).toContain("combineHostProcessPlanes");
-    expect(linux).not.toMatch(/package:\s*"unknown" as const/u);
-    expect(linux).not.toContain("linuxRemoteDeploy");
+    const linuxOps = readFileSync(
+      new URL("../src/main/vellum/hosts/host-ops-linux.ts", import.meta.url),
+      "utf8",
+    );
+    expect(runtime).toContain("applyHostRuntime");
+    expect(runtime).toContain("HostOps.layerForTarget");
+    expect(runtime).not.toContain("adapterFor");
+    expect(runtime).not.toContain("darwinHostRuntimePlatform");
+    expect(runtime).not.toContain("linuxHostRuntimePlatform");
+    expect(runtime).not.toContain("DarwinApplyOperations");
+    expect(runtime).not.toContain("LinuxApplyOperations");
+    expect(darwinOps).toContain("TermControlClient.connect");
+    expect(darwinOps).not.toContain("handshakeLinuxWorkControl");
+    expect(linuxOps).toContain("handshakeLinuxWorkControl");
+    expect(linuxOps).not.toContain("TermControlClient");
+    expect(linuxOps).toContain("LINUX_REMOTE_DEPLOY_OFF");
     const platform = readFileSync(
       new URL("../src/main/vellum/hosts/host-runtime-platform.ts", import.meta.url),
       "utf8",

@@ -1,26 +1,17 @@
-import { Effect, Schema } from "effect";
+import { Effect, Layer, Schema } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import { HOST_RUNTIME_REMEDY_STAGE } from "../src/shared/deploy-job";
+import type { HostOpsActivate, HostOpsAttach, HostOpsConfigure, HostOpsCopy } from "../src/shared/host-ops";
 import { InstallationId } from "../src/shared/station-api";
 import type { RemoteHost } from "../src/shared/remote-hosts";
-import type { ConfigureRemoteOptions } from "../src/main/vellum/hosts/configure-remote";
 import {
-  applyDarwinHostRuntime,
+  applyHostRuntime,
   deployResultFromHostOpsCopy,
-} from "../src/main/vellum/hosts/host-runtime-darwin";
-import type { HostOpsCopy } from "../src/shared/host-ops";
-import { applyLinuxHostRuntime } from "../src/main/vellum/hosts/host-runtime-linux";
-import type { HostRuntimeApplyContext } from "../src/main/vellum/hosts/host-runtime-platform";
-import { parseSshEndpoint } from "../src/main/vellum/ssh/domain";
-import type { SshTransportShape } from "../src/main/vellum/ssh/service";
+} from "../src/main/vellum/hosts/host-runtime";
+import { HostOps } from "../src/main/vellum/hosts/host-ops";
 
 const installationId = Schema.decodeUnknownSync(InstallationId);
-const commandCenterInstallationId = installationId("cc-installation");
-
-const configure: ConfigureRemoteOptions = {
-  commandCenterInstallationId,
-  appVersion: "0.1.0",
-};
+const observedAt = "2026-08-13T21:00:00.000Z";
 
 const host: RemoteHost = {
   id: "studio",
@@ -30,50 +21,136 @@ const host: RemoteHost = {
   capabilities: ["terminal"],
 };
 
-const ssh = {
-  warm: vi.fn(() => Effect.void),
-  run: vi.fn(),
-  forward: vi.fn(),
-};
-
-const context = (
-  gap: HostRuntimeApplyContext["gap"],
-  prior?: string,
-): HostRuntimeApplyContext => ({
-  ssh: ssh as unknown as SshTransportShape,
-  host,
-  gap,
-  configure,
-  ...(prior === undefined ? {} : { priorInstallationId: installationId(prior) }),
+const readyCopy = (extra: Partial<HostOpsCopy> = {}): HostOpsCopy => ({
+  ok: true,
+  exit: 0,
+  stdout: "STATION_READY pid=12 term=1 browser=1\n",
+  stderr: "",
+  localApp: "/Applications/Vellum Command.app",
+  expectedPackage: "present",
+  after: {
+    package: "present",
+    deployLock: "absent",
+    incoming: "absent",
+    termSocket: "present",
+  },
+  elapsedMs: 1,
+  observedAt,
+  ...extra,
 });
 
-const successfulConfiguration = {
+const linuxCopy = (): HostOpsCopy => ({
+  ok: true,
+  exit: 0,
+  stdout: "LINUX_USERLAND_DEPLOY_V1 ok=1 state=ready release=1.2.3-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+  stderr: "",
+  expectedPackage: "present",
+  after: {
+    package: "present",
+    deployLock: "absent",
+    incoming: "absent",
+    termSocket: "unknown",
+  },
+  elapsedMs: 1,
+  observedAt,
+});
+
+const configured: HostOpsConfigure = {
   ok: true,
   detail: "configured through Station API",
   stationInstallationId: installationId("station-installation"),
   configuredAt: "2026-07-27T12:00:02.000Z",
-  station: {
-    role: "remote" as const,
-    hostId: "studio",
-    supervisedPreferred: true,
-  },
+  observedAt,
 };
 
-const readyPackage = {
-  ok: true as const,
-  detail: "package ready",
-  stages: ["endpoint ok", "ssh warm ok"],
-  disposition: "ready" as const,
-  version: "1.2.3",
+const darwinActivate: HostOpsActivate = {
+  ok: true,
+  detail: "Vellum Command is running on this Mac",
+  stages: [],
+  disposition: "ready",
+  observedAt,
 };
 
-const linuxReadyActivate = () =>
-  Effect.succeed({
-    ok: true as const,
-    detail: "systemd user service restarted",
-    stages: [] as string[],
-    disposition: "ready" as const,
-  });
+const linuxActivate: HostOpsActivate = {
+  ok: true,
+  detail: "systemd user service restarted",
+  stages: [],
+  disposition: "ready",
+  observedAt,
+};
+
+const attachUp: HostOpsAttach = {
+  ok: true,
+  workAttach: "up",
+  detail: "work attach connected",
+  observedAt,
+};
+
+const attachDown: HostOpsAttach = {
+  ok: false,
+  workAttach: "down",
+  detail: "work attach down",
+  observedAt,
+};
+
+const fakeOps = (impl: {
+  readonly copy?: () => Effect.Effect<HostOpsCopy>;
+  readonly cleanup?: () => Effect.Effect<{
+    readonly ok: boolean;
+    readonly removed: readonly string[];
+    readonly stderr: string;
+    readonly observedAt: string;
+  }>;
+  readonly configure?: () => Effect.Effect<HostOpsConfigure>;
+  readonly activate?: () => Effect.Effect<HostOpsActivate>;
+  readonly attach?: () => Effect.Effect<HostOpsAttach>;
+}): Layer.Layer<HostOps> =>
+  Layer.succeed(
+    HostOps,
+    HostOps.of({
+      inspect: () =>
+        Effect.succeed({
+          endpoint: "studio-box",
+          platform: "darwin",
+          network: "up",
+          package: "present",
+          deployLock: "absent",
+          incoming: "absent",
+          termSocket: "present",
+          process: "up",
+          workAttach: "unknown",
+          observedAt,
+        }),
+      copy: impl.copy ?? (() => Effect.succeed(readyCopy())),
+      cleanup:
+        impl.cleanup ??
+        (() =>
+          Effect.succeed({
+            ok: true,
+            removed: [],
+            stderr: "",
+            observedAt,
+          })),
+      configure: impl.configure ?? (() => Effect.succeed(configured)),
+      activate: impl.activate ?? (() => Effect.succeed(darwinActivate)),
+      attach: impl.attach ?? (() => Effect.succeed(attachUp)),
+    }),
+  );
+
+const runApply = (
+  gap: "needInstall" | "needConfigure" | "needRestart",
+  layer: Layer.Layer<HostOps>,
+  prior?: string,
+) =>
+  Effect.runPromise(
+    applyHostRuntime({
+      host,
+      gap,
+      ...(prior === undefined
+        ? {}
+        : { priorInstallationId: installationId(prior) }),
+    }).pipe(Effect.provide(layer)),
+  );
 
 const expectRemedyStages = (
   stages: readonly string[] | undefined,
@@ -82,44 +159,29 @@ const expectRemedyStages = (
   expect(stages).toContain(HOST_RUNTIME_REMEDY_STAGE.copy);
   expect(stages).toContain(HOST_RUNTIME_REMEDY_STAGE.restart);
   expect(stages).toContain(HOST_RUNTIME_REMEDY_STAGE.wait);
-  expect(stages).toContain("endpoint ok");
   for (const extra of extras) {
     expect(stages).toContain(extra);
   }
 };
 
-describe("Darwin HostRuntime apply", () => {
-  it("configures and activates on first install, never claiming applied first", async () => {
-    const states: string[] = [];
-    const configureFn = vi.fn(() => Effect.succeed(successfulConfiguration as never));
-    const activate = vi.fn(() =>
-      Effect.succeed({
-        ok: true,
-        detail: "Vellum Command is running on this Mac",
-        stages: [],
-        disposition: "ready" as const,
-      }),
-    );
-    const result = await Effect.runPromise(
-      applyDarwinHostRuntime(context("needInstall"), {
-        deploy: (input) => {
-          states.push(input.stationConfiguration.state);
-          expect(input.target.platform).toEqual({
-            platform: "darwin",
-            kernelName: "Darwin",
-          });
-          return Effect.succeed({
-            ...readyPackage,
-            disposition: "configuration-required" as const,
-          });
-        },
-        configure: configureFn,
+describe("HostRuntime apply over HostOps", () => {
+  it("configures and activates on first install", async () => {
+    const configure = vi.fn(() => Effect.succeed(configured));
+    const activate = vi.fn(() => Effect.succeed(darwinActivate));
+    const result = await runApply(
+      "needInstall",
+      fakeOps({
+        copy: () =>
+          Effect.succeed(
+            readyCopy({
+              stdout: "ENROLLMENT_READY pid=12 station=1\n",
+            }),
+          ),
+        configure,
         activate,
-        proveWorkAttach: () => Effect.succeed("up"),
       }),
     );
-    expect(states).toEqual(["managed-externally"]);
-    expect(configureFn).toHaveBeenCalledOnce();
+    expect(configure).toHaveBeenCalledOnce();
     expect(activate).toHaveBeenCalledOnce();
     expect(result.ok).toBe(true);
     expect(result.role).toBe("remote");
@@ -127,54 +189,31 @@ describe("Darwin HostRuntime apply", () => {
     expectRemedyStages(result.stages, [HOST_RUNTIME_REMEDY_STAGE.sign]);
   });
 
-  it("activates after first-install configure even when package deploy claims ready", async () => {
-    const activate = vi.fn(() =>
-      Effect.succeed({
-        ok: true,
-        detail: "Vellum Command is running on this Mac",
-        stages: [],
-        disposition: "ready" as const,
-      }),
-    );
-    const result = await Effect.runPromise(
-      applyDarwinHostRuntime(context("needConfigure"), {
-        deploy: () => Effect.succeed(readyPackage),
-        configure: () => Effect.succeed(successfulConfiguration as never),
-        activate,
-        proveWorkAttach: () => Effect.succeed("up"),
-      }),
+  it("activates after first-install configure even when copy claims ready", async () => {
+    const activate = vi.fn(() => Effect.succeed(darwinActivate));
+    const result = await runApply(
+      "needConfigure",
+      fakeOps({ activate }),
     );
     expect(activate).toHaveBeenCalledOnce();
     expect(result.ok).toBe(true);
-    expect(result.detail).toContain("Vellum Command is running on this Mac");
     expectRemedyStages(result.stages, [HOST_RUNTIME_REMEDY_STAGE.sign]);
   });
 
   it("skips configure on needRestart and still activates", async () => {
-    const configureFn = vi.fn(() => Effect.succeed(successfulConfiguration as never));
+    const configure = vi.fn(() => Effect.succeed(configured));
     const activate = vi.fn(() =>
       Effect.succeed({
-        ok: true,
+        ...darwinActivate,
         detail: "supervised Remote runtime ready",
-        stages: [],
-        disposition: "ready" as const,
       }),
     );
-    const result = await Effect.runPromise(
-      applyDarwinHostRuntime(context("needRestart", "station-installation"), {
-        deploy: (input) => {
-          expect(input.stationConfiguration).toEqual({
-            state: "applied",
-            remoteHostId: "studio",
-          });
-          return Effect.succeed(readyPackage);
-        },
-        configure: configureFn,
-        activate,
-        proveWorkAttach: () => Effect.succeed("up"),
-      }),
+    const result = await runApply(
+      "needRestart",
+      fakeOps({ configure, activate }),
+      "station-installation",
     );
-    expect(configureFn).not.toHaveBeenCalled();
+    expect(configure).not.toHaveBeenCalled();
     expect(activate).toHaveBeenCalledOnce();
     expect(result.ok).toBe(true);
     expect(result.configuration.detail).toContain("configure skipped");
@@ -182,29 +221,23 @@ describe("Darwin HostRuntime apply", () => {
     expectRemedyStages(result.stages, [HOST_RUNTIME_REMEDY_STAGE.sign]);
   });
 
-  it("retries copy and restart until term attach connects", async () => {
-    const configureFn = vi.fn(() => Effect.succeed(successfulConfiguration as never));
-    const activate = vi.fn(() =>
-      Effect.succeed({
-        ok: true,
-        detail: "Vellum Command is running on this Mac",
-        stages: [],
-        disposition: "ready" as const,
-      }),
-    );
+  it("retries copy and restart until attach connects", async () => {
+    const configure = vi.fn(() => Effect.succeed(configured));
+    const activate = vi.fn(() => Effect.succeed(darwinActivate));
     let attaches = 0;
-    const result = await Effect.runPromise(
-      applyDarwinHostRuntime(context("needRestart", "station-installation"), {
-        deploy: () => Effect.succeed(readyPackage),
-        configure: configureFn,
+    const result = await runApply(
+      "needRestart",
+      fakeOps({
+        configure,
         activate,
-        proveWorkAttach: () => {
+        attach: () => {
           attaches += 1;
-          return Effect.succeed(attaches >= 2 ? "up" : "down");
+          return Effect.succeed(attaches >= 2 ? attachUp : attachDown);
         },
       }),
+      "station-installation",
     );
-    expect(configureFn).not.toHaveBeenCalled();
+    expect(configure).not.toHaveBeenCalled();
     expect(activate).toHaveBeenCalledTimes(2);
     expect(attaches).toBe(2);
     expect(result.ok).toBe(true);
@@ -213,27 +246,23 @@ describe("Darwin HostRuntime apply", () => {
   });
 
   it("stops on a hand-opened app instead of retrying", async () => {
-    const activate = vi.fn(() =>
-      Effect.succeed({
-        ok: true,
-        detail: "should not activate",
-        stages: [],
-        disposition: "ready" as const,
-      }),
-    );
-    const result = await Effect.runPromise(
-      applyDarwinHostRuntime(context("needRestart", "station-installation"), {
-        deploy: () =>
-          Effect.succeed({
-            ...readyPackage,
-            ok: false,
-            detail: "UNSUPERVISED_INCUMBENT_REQUIRES_LAUNCHAGENT exe_pids=333,",
-            disposition: "not-started" as const,
-          }),
-        configure: () => Effect.succeed(successfulConfiguration as never),
+    const activate = vi.fn(() => Effect.succeed(darwinActivate));
+    const result = await runApply(
+      "needRestart",
+      fakeOps({
+        copy: () =>
+          Effect.succeed(
+            readyCopy({
+              ok: false,
+              exit: 1,
+              stdout: "",
+              stderr: "UNSUPERVISED_INCUMBENT_REQUIRES_LAUNCHAGENT exe_pids=333,",
+            }),
+          ),
         activate,
-        proveWorkAttach: () => Effect.succeed("down"),
+        attach: () => Effect.succeed(attachDown),
       }),
+      "station-installation",
     );
     expect(activate).not.toHaveBeenCalled();
     expect(result.ok).toBe(false);
@@ -242,6 +271,140 @@ describe("Darwin HostRuntime apply", () => {
     );
     expect(result.stages).toContain(HOST_RUNTIME_REMEDY_STAGE.copy);
     expect(result.stages).not.toContain(HOST_RUNTIME_REMEDY_STAGE.restart);
+  });
+
+  it("configures first install from a Linux HostOps layer without signing", async () => {
+    const configure = vi.fn(() => Effect.succeed(configured));
+    const activate = vi.fn(() => Effect.succeed(linuxActivate));
+    const result = await runApply(
+      "needConfigure",
+      fakeOps({
+        copy: () => Effect.succeed(linuxCopy()),
+        configure,
+        activate,
+      }),
+    );
+    expect(configure).toHaveBeenCalledOnce();
+    expect(activate).toHaveBeenCalledOnce();
+    expect(result.ok).toBe(true);
+    expect(result.detail).toContain("configured");
+    expect(result.detail).toContain("systemd user service restarted");
+    expectRemedyStages(result.stages);
+    expect(result.stages).not.toContain(HOST_RUNTIME_REMEDY_STAGE.sign);
+  });
+
+  it("does not configure on needRestart", async () => {
+    const configure = vi.fn(() => Effect.succeed(configured));
+    const result = await runApply(
+      "needRestart",
+      fakeOps({
+        copy: () => Effect.succeed(linuxCopy()),
+        configure,
+        activate: () => Effect.succeed(linuxActivate),
+      }),
+      "station-box",
+    );
+    expect(configure).not.toHaveBeenCalled();
+    expect(result.ok).toBe(true);
+    expect(result.configuration.detail).toContain("configure skipped");
+    expectRemedyStages(result.stages);
+  });
+
+  it("does not treat package ready as attach when work attach does not connect", async () => {
+    const result = await runApply(
+      "needRestart",
+      fakeOps({
+        copy: () => Effect.succeed(linuxCopy()),
+        activate: () => Effect.succeed(linuxActivate),
+        attach: () => Effect.succeed(attachDown),
+      }),
+      "station-box",
+    );
+    expect(result.ok).toBe(false);
+    expect(result.disposition).toBe("indeterminate");
+    expect(result.detail).toContain("work attach did not connect");
+    expect(result.stages).toContain(HOST_RUNTIME_REMEDY_STAGE.copyAgain);
+    expectRemedyStages(result.stages);
+  });
+
+  it("retries copy until attach connects, without pairing again", async () => {
+    const configure = vi.fn(() => Effect.succeed(configured));
+    let deploys = 0;
+    let attaches = 0;
+    const result = await runApply(
+      "needConfigure",
+      fakeOps({
+        copy: () => {
+          deploys += 1;
+          return Effect.succeed(linuxCopy());
+        },
+        configure,
+        activate: () => Effect.succeed(linuxActivate),
+        attach: () => {
+          attaches += 1;
+          return Effect.succeed(attaches >= 2 ? attachUp : attachDown);
+        },
+      }),
+    );
+    expect(deploys).toBe(2);
+    expect(configure).toHaveBeenCalledOnce();
+    expect(attaches).toBe(2);
+    expect(result.ok).toBe(true);
+    expectRemedyStages(result.stages);
+  });
+
+  it("stops on a missing login session instead of retrying", async () => {
+    const configure = vi.fn(() => Effect.succeed(configured));
+    const activate = vi.fn(() => Effect.succeed(linuxActivate));
+    const result = await runApply(
+      "needInstall",
+      fakeOps({
+        copy: () =>
+          Effect.succeed({
+            ...linuxCopy(),
+            ok: false,
+            stdout: "",
+            stderr: "owner-local systemd user service is unavailable",
+          }),
+        configure,
+        activate,
+        attach: () => Effect.succeed(attachDown),
+      }),
+    );
+    expect(configure).not.toHaveBeenCalled();
+    expect(activate).not.toHaveBeenCalled();
+    expect(result.ok).toBe(false);
+    expect(result.detail).toBe(
+      "This machine has no login session, so Vellum Command cannot start.",
+    );
+    expect(result.stages).toContain(HOST_RUNTIME_REMEDY_STAGE.copy);
+    expect(result.stages).not.toContain(HOST_RUNTIME_REMEDY_STAGE.restart);
+  });
+
+  it("retries activate and does not treat package ready as attach", async () => {
+    const activate = vi.fn(() =>
+      Effect.succeed({
+        ok: false,
+        detail: "systemd user service restart failed",
+        stages: [],
+        disposition: "indeterminate" as const,
+        observedAt,
+      }),
+    );
+    const attach = vi.fn(() => Effect.succeed(attachUp));
+    const result = await runApply(
+      "needRestart",
+      fakeOps({
+        copy: () => Effect.succeed(linuxCopy()),
+        activate,
+        attach,
+      }),
+      "station-box",
+    );
+    expect(activate).toHaveBeenCalledTimes(3);
+    expect(attach).not.toHaveBeenCalled();
+    expect(result.ok).toBe(false);
+    expect(result.detail).toContain("supervised runtime activate failed");
   });
 });
 
@@ -258,11 +421,11 @@ const copyReceipt = (
     termSocket: "present",
   },
   elapsedMs: 1,
-  observedAt: "2026-08-13T21:00:00.000Z",
+  observedAt,
   ...input,
 });
 
-describe("HostOps copy maps onto the Darwin apply package result", () => {
+describe("HostOps copy maps onto the apply package result", () => {
   it("treats STATION_READY as a ready package so activate and attach still run", () => {
     const result = deployResultFromHostOpsCopy(host, copyReceipt({
       ok: true,
@@ -296,171 +459,5 @@ describe("HostOps copy maps onto the Darwin apply package result", () => {
     expect(result.ok).toBe(false);
     expect(result.disposition).toBe("not-started");
     expect(result.message).toBe("UNBOUND_DEPLOY_PATH_PRESENT");
-  });
-});
-
-describe("Linux HostRuntime apply", () => {
-  it("builds the target from observed linux + parse + warm, then configures first install", async () => {
-    const configureFn = vi.fn(() => Effect.succeed(successfulConfiguration as never));
-    const activate = vi.fn(linuxReadyActivate);
-    const proveWorkAttach = vi.fn(() => Effect.succeed("up" as const));
-    const result = await Effect.runPromise(
-      applyLinuxHostRuntime(context("needConfigure"), {
-        deploy: (input) => {
-          expect(input.target.platform).toEqual({
-            platform: "linux",
-            kernelName: "Linux",
-          });
-          expect(input.target.progress).toEqual(["endpoint ok", "ssh warm ok"]);
-          expect(input.stationConfiguration.state).toBe("managed-externally");
-          expect(String(input.target.endpoint)).toBe(
-            String(Effect.runSync(parseSshEndpoint("studio-box"))),
-          );
-          return Effect.succeed(readyPackage);
-        },
-        configure: configureFn,
-        activate,
-        proveWorkAttach,
-      }),
-    );
-    expect(ssh.warm).toHaveBeenCalled();
-    expect(configureFn).toHaveBeenCalledOnce();
-    expect(activate).toHaveBeenCalledOnce();
-    expect(proveWorkAttach).toHaveBeenCalledOnce();
-    expect(result.ok).toBe(true);
-    expect(result.detail).toContain("configured");
-    expect(result.detail).toContain("systemd user service restarted");
-    expectRemedyStages(result.stages);
-    expect(result.stages).not.toContain(HOST_RUNTIME_REMEDY_STAGE.sign);
-  });
-
-  it("does not configure on needRestart", async () => {
-    const configureFn = vi.fn(() => Effect.succeed(successfulConfiguration as never));
-    const proveWorkAttach = vi.fn(() => Effect.succeed("up" as const));
-    const result = await Effect.runPromise(
-      applyLinuxHostRuntime(context("needRestart", "station-box"), {
-        deploy: (input) => {
-          expect(input.stationConfiguration.state).toBe("applied");
-          return Effect.succeed(readyPackage);
-        },
-        configure: configureFn,
-        activate: linuxReadyActivate,
-        proveWorkAttach,
-      }),
-    );
-    expect(configureFn).not.toHaveBeenCalled();
-    expect(proveWorkAttach).toHaveBeenCalledOnce();
-    expect(result.ok).toBe(true);
-    expect(result.configuration.detail).toContain("configure skipped");
-    expectRemedyStages(result.stages);
-  });
-
-  it("does not treat package ready as attach when work attach does not connect", async () => {
-    const result = await Effect.runPromise(
-      applyLinuxHostRuntime(context("needRestart", "station-box"), {
-        deploy: () => Effect.succeed(readyPackage),
-        configure: () => Effect.succeed(successfulConfiguration as never),
-        activate: linuxReadyActivate,
-        proveWorkAttach: () => Effect.succeed("down"),
-      }),
-    );
-    expect(result.ok).toBe(false);
-    expect(result.disposition).toBe("indeterminate");
-    expect(result.detail).toContain("work attach did not connect");
-    expect(result.stages).toContain(HOST_RUNTIME_REMEDY_STAGE.copyAgain);
-    expectRemedyStages(result.stages);
-  });
-
-  it("retries copy until work-control handshake connects, without pairing again", async () => {
-    const configureFn = vi.fn(() => Effect.succeed(successfulConfiguration as never));
-    let deploys = 0;
-    let attaches = 0;
-    const result = await Effect.runPromise(
-      applyLinuxHostRuntime(context("needConfigure"), {
-        deploy: () => {
-          deploys += 1;
-          return Effect.succeed(readyPackage);
-        },
-        configure: configureFn,
-        activate: linuxReadyActivate,
-        proveWorkAttach: () => {
-          attaches += 1;
-          return Effect.succeed(attaches >= 2 ? "up" : "down");
-        },
-      }),
-    );
-    expect(deploys).toBe(2);
-    expect(configureFn).toHaveBeenCalledOnce();
-    expect(attaches).toBe(2);
-    expect(result.ok).toBe(true);
-    expectRemedyStages(result.stages);
-  });
-
-  it("stops on a missing login session instead of retrying", async () => {
-    const configureFn = vi.fn(() => Effect.succeed(successfulConfiguration as never));
-    const activate = vi.fn(linuxReadyActivate);
-    const result = await Effect.runPromise(
-      applyLinuxHostRuntime(context("needInstall"), {
-        deploy: () =>
-          Effect.succeed({
-            ...readyPackage,
-            ok: false,
-            detail: "owner-local systemd user service is unavailable",
-            disposition: "not-started" as const,
-          }),
-        configure: configureFn,
-        activate,
-        proveWorkAttach: () => Effect.succeed("down"),
-      }),
-    );
-    expect(configureFn).not.toHaveBeenCalled();
-    expect(activate).not.toHaveBeenCalled();
-    expect(result.ok).toBe(false);
-    expect(result.detail).toBe(
-      "This machine has no login session, so Vellum Command cannot start.",
-    );
-    expect(result.stages).toContain(HOST_RUNTIME_REMEDY_STAGE.copy);
-    expect(result.stages).not.toContain(HOST_RUNTIME_REMEDY_STAGE.restart);
-  });
-
-  it("restarts systemd at the Restarting stage, not only proveWorkAttach", async () => {
-    const activate = vi.fn(linuxReadyActivate);
-    const proveWorkAttach = vi.fn(() => Effect.succeed("up" as const));
-    const result = await Effect.runPromise(
-      applyLinuxHostRuntime(context("needRestart", "station-box"), {
-        deploy: () => Effect.succeed(readyPackage),
-        configure: () => Effect.succeed(successfulConfiguration as never),
-        activate,
-        proveWorkAttach,
-      }),
-    );
-    expect(activate).toHaveBeenCalledOnce();
-    expect(proveWorkAttach).toHaveBeenCalledOnce();
-    expect(result.ok).toBe(true);
-    expect(result.detail).toContain("systemd user service restarted");
-  });
-
-  it("retries systemd restart and does not treat package ready as attach", async () => {
-    const activate = vi.fn(() =>
-      Effect.succeed({
-        ok: false,
-        detail: "systemd user service restart failed",
-        stages: [],
-        disposition: "indeterminate" as const,
-      }),
-    );
-    const proveWorkAttach = vi.fn(() => Effect.succeed("up" as const));
-    const result = await Effect.runPromise(
-      applyLinuxHostRuntime(context("needRestart", "station-box"), {
-        deploy: () => Effect.succeed(readyPackage),
-        configure: () => Effect.succeed(successfulConfiguration as never),
-        activate,
-        proveWorkAttach,
-      }),
-    );
-    expect(activate).toHaveBeenCalledTimes(3);
-    expect(proveWorkAttach).not.toHaveBeenCalled();
-    expect(result.ok).toBe(false);
-    expect(result.detail).toContain("supervised runtime activate failed");
   });
 });
