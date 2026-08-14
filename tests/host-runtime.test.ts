@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   classifyHostRuntimeBlocker,
   decideHostRuntimeGap,
+  expectedPackageStateFromGap,
   HOST_RUNTIME_HARD_BLOCKER_COPY,
   HostRuntimeObservation,
   hostRuntimeGapCopy,
@@ -106,6 +107,9 @@ describe("decideHostRuntimeGap", () => {
         "deploy",
       ),
     ).toBe("needRestart");
+    expect(expectedPackageStateFromGap("needRestart")).toBe("present");
+    expect(expectedPackageStateFromGap("needInstall")).toBe("absent");
+    expect(expectedPackageStateFromGap("needConfigure")).toBe("present");
   });
 
   it("deploy configures a first install and restarts an enrolled Remote", () => {

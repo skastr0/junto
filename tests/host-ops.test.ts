@@ -590,6 +590,7 @@ describe("host-ops layers", () => {
       "utf8",
     );
     expect(darwin).toContain("TermControlClient.connect");
+    expect(darwin).toContain("compileExpectedPackageState");
     expect(darwin).toContain('stationDoorSocketPath(stationHome, "enroll")');
     expect(darwin).toContain('stationDoorSocketPath(stationHome, "peer")');
     expect(darwin).not.toContain("handshakeLinuxWorkControl");

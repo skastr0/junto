@@ -920,6 +920,13 @@ export type DarwinRemoteArtifactTransfer =
       readonly expectedPackageState: "absent" | "present";
     };
 
+/** Compile first-install vs restart. Station applied is present even if the package is gone. */
+export const compileExpectedPackageState = (
+  observed: "absent" | "present" | "unknown",
+  compiled?: "absent" | "present",
+): "absent" | "present" =>
+  compiled ?? (observed === "absent" ? "absent" : "present");
+
 type RemoteDeployScriptRuntime = {
   readonly appPath: string;
   readonly lockPath: string;
@@ -1008,8 +1015,8 @@ const buildRemoteDeployScriptWithRuntime = (
 
   // First install only: --vellum-headless so an unconfigured package never
   // hits the Command Center license gate. Update stays Remote — redeploy
-  // is not unenroll. A Remote never owns enroll control.sock, so present
-  // package proves term+browser and emits STATION_READY.
+  // is not unenroll. expectedPackageState is that compile decision, not
+  // raw disk presence (enrolled missing .app stays present).
   const firstInstall = transfer.expectedPackageState === "absent";
   const enrollmentFlag = firstInstall ? "--vellum-headless" : "";
   const programArguments = firstInstall
@@ -2843,12 +2850,12 @@ export const makeDarwinRemoteDeploymentProvider = (deps: {
           {
             admission,
             remoteHome: home,
-            expectedPackageState:
+            expectedPackageState: compileExpectedPackageState(
+              installedPresent ? "present" : "absent",
               providerInput.stationConfiguration.state === "applied"
                 ? "present"
-                : installedPresent
-                  ? "present"
-                  : "absent",
+                : undefined,
+            ),
           },
         ).pipe(Effect.result);
 

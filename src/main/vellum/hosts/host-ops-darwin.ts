@@ -31,6 +31,7 @@ import {
   awaitTarCloseBounded,
   buildRemoteDeployScript,
   captureTarStderr,
+  compileExpectedPackageState,
   parseDeployTransferResult,
   resolveLocalAppBundle,
   watchTarExit,
@@ -158,6 +159,7 @@ export const inspectDarwinHost = (
 export const copyDarwinHost = (
   ssh: Context.Service.Shape<typeof SshTransport>,
   target: SshTarget,
+  compiledPackageState?: "absent" | "present",
 ): Effect.Effect<HostOpsCopy> =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -215,8 +217,10 @@ export const copyDarwinHost = (
         .run(oneShot(target, pkgCmd, { budget: "short" }))
         .pipe(Effect.result);
       const expectedPackage = presenceFromTest(pkg);
-      const expectedPackageState =
-        expectedPackage === "absent" ? ("absent" as const) : ("present" as const);
+      const expectedPackageState = compileExpectedPackageState(
+        expectedPackage,
+        compiledPackageState,
+      );
 
       const remoteScript = buildRemoteDeployScript(home, admission.success.cdHash, {
         kind: "app-tar",

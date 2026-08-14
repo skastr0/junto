@@ -142,6 +142,7 @@ export const inspectLinuxHost = (
 export const copyLinuxHost = (
   _ssh: Context.Service.Shape<typeof SshTransport>,
   _target: SshTarget,
+  _compiledPackageState?: "absent" | "present",
 ): Effect.Effect<HostOpsCopy> =>
   Effect.succeed({
     ok: false,

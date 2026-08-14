@@ -18,6 +18,7 @@ import type {
 import {
   classifyHostRuntimeBlocker,
   decideHostRuntimeGap,
+  expectedPackageStateFromGap,
   hostRuntimeGapCopy,
   type HostRuntimeGap,
   type HostRuntimeIntent,
@@ -364,7 +365,7 @@ export const applyHostRuntime = (
           ? HOST_RUNTIME_REMEDY_STAGE.copy
           : HOST_RUNTIME_REMEDY_STAGE.copyAgain,
       );
-      const copied = yield* ops.copy();
+      const copied = yield* ops.copy(expectedPackageStateFromGap(gap));
       const deployed = deployResultFromHostOpsCopy(host, copied);
       lastDeployed = deployed;
       const deployBlocker = classifyHostRuntimeBlocker(deployed.detail);

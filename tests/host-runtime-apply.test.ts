@@ -184,6 +184,7 @@ describe("HostRuntime apply over HostOps", () => {
     expect(runtime).toContain("HostConfigure.layer");
     expect(runtime).toContain("ops.cleanup");
     expect(runtime).toContain("ops.copy");
+    expect(runtime).toContain("expectedPackageStateFromGap");
     expect(runtime).toContain("ops.configure");
     expect(runtime).toContain("ops.activate");
     expect(runtime).toContain("ops.attach");
@@ -231,6 +232,24 @@ describe("HostRuntime apply over HostOps", () => {
     expect(activate).toHaveBeenCalledOnce();
     expect(result.ok).toBe(true);
     expectRemedyStages(result.stages, [HOST_RUNTIME_REMEDY_STAGE.sign]);
+  });
+
+  it("copies an enrolled Remote as present even when the package is gone", async () => {
+    const copy = vi.fn(() => Effect.succeed(readyCopy()));
+    await runApply("needRestart", fakeOps({ copy }), "station-installation");
+    expect(copy).toHaveBeenCalledWith("present");
+  });
+
+  it("copies first install as absent so the enroll door can bind", async () => {
+    const copy = vi.fn(() =>
+      Effect.succeed(
+        readyCopy({
+          stdout: "ENROLLMENT_READY pid=12 station=1\n",
+        }),
+      ),
+    );
+    await runApply("needInstall", fakeOps({ copy }));
+    expect(copy).toHaveBeenCalledWith("absent");
   });
 
   it("skips configure on needRestart and still activates", async () => {

@@ -174,7 +174,9 @@ export class HostOps extends Context.Service<
   HostOps,
   {
     readonly inspect: () => Effect.Effect<HostOpsInspect>;
-    readonly copy: () => Effect.Effect<HostOpsCopy>;
+    readonly copy: (
+      expectedPackageState?: "absent" | "present",
+    ) => Effect.Effect<HostOpsCopy>;
     readonly cleanup: () => Effect.Effect<HostOpsCleanup>;
     readonly configure: () => Effect.Effect<HostOpsConfigure>;
     readonly activate: () => Effect.Effect<HostOpsActivate>;
@@ -193,7 +195,8 @@ export class HostOps extends Context.Service<
       const facts = yield* HostConfigure;
       return HostOps.of({
         inspect: () => inspectDarwinHost(ssh, host.sshTarget),
-        copy: () => copyDarwinHost(ssh, host.sshTarget),
+        copy: (expectedPackageState) =>
+          copyDarwinHost(ssh, host.sshTarget, expectedPackageState),
         cleanup: () => cleanupDarwinHost(ssh, host.sshTarget),
         configure: () => configureHostOps(ssh, host.sshTarget, facts),
         activate: () =>
@@ -220,7 +223,8 @@ export class HostOps extends Context.Service<
       const facts = yield* HostConfigure;
       return HostOps.of({
         inspect: () => inspectLinuxHost(ssh, host.sshTarget),
-        copy: () => copyLinuxHost(ssh, host.sshTarget),
+        copy: (expectedPackageState) =>
+          copyLinuxHost(ssh, host.sshTarget, expectedPackageState),
         cleanup: () => cleanupLinuxHost(ssh, host.sshTarget),
         configure: () => configureHostOps(ssh, host.sshTarget, facts),
         activate: () =>

@@ -6,6 +6,7 @@ import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import {
   buildRemoteDeployScript,
+  compileExpectedPackageState,
   darwinLiveWorkRefusalResult,
   makeDarwinRemoteDeploymentProvider,
   type DarwinDeployArtifactAdmission,
@@ -242,6 +243,19 @@ describe("Darwin deployment first-install boundary", () => {
     expect(streamArtifact.mock.calls[0]?.[2]).toMatchObject({
       expectedPackageState: "absent",
     });
+  });
+
+  it("station applied compiles present even when the package is gone", () => {
+    expect(compileExpectedPackageState("absent", "present")).toBe("present");
+    expect(compileExpectedPackageState("absent")).toBe("absent");
+    expect(compileExpectedPackageState("unknown")).toBe("present");
+    const script = buildRemoteDeployScript("/Users/op", TEST_CDHASH, {
+      kind: "app-tar",
+      expectedPackageState: compileExpectedPackageState("absent", "present"),
+    });
+    expect(script).not.toContain("--vellum-headless");
+    expect(script).toContain("STATION_READY");
+    expect(script).not.toContain("ENROLLMENT_READY");
   });
 
   it("does not write enrollment headless on an already configured Remote", async () => {
