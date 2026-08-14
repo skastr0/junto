@@ -3,6 +3,7 @@
 // The runtime projection carries delivery state from normalized message rows:
 // delivered = metadata.deliveredAt stamped.
 
+import { decodeTime } from "ulid";
 import type { CanvasDoc, CanvasNode, Message } from "./canvas";
 import {
   actorDeliverySurfaceOf,
@@ -11,6 +12,35 @@ import {
 } from "./actor-surface";
 import { isGroup } from "./graph";
 import { resolveSpec, roleOf } from "./physics";
+
+const ULID_PATTERN = /^[0-9A-HJKMNP-TV-Z]{26}$/;
+
+/** Birth time from a ULID message id. Non-ULID ids have no time. */
+export const messageIdTimeMs = (id: string): number | undefined => {
+  if (!ULID_PATTERN.test(id)) return undefined;
+  try {
+    return decodeTime(id);
+  } catch {
+    return undefined;
+  }
+};
+
+/** Newest first. ULID ids order by birth; non-ULID ids sink. */
+export const compareMessageIdsNewestFirst = (a: string, b: string): number => {
+  const aMs = messageIdTimeMs(a);
+  const bMs = messageIdTimeMs(b);
+  if (aMs !== undefined && bMs !== undefined) return b.localeCompare(a);
+  if (aMs !== undefined) return -1;
+  if (bMs !== undefined) return 1;
+  return b.localeCompare(a);
+};
+
+export const sortMessagesNewestFirst = (
+  messages: ReadonlyArray<Message>,
+): Message[] =>
+  [...messages].sort((a, b) =>
+    compareMessageIdsNewestFirst(a.messageId, b.messageId),
+  );
 
 /**
  * Strip C0/C1 controls (and DEL) so a delivered line never carries CSI/ESC
@@ -79,18 +109,19 @@ export const composeMessageDeliveryPayload = (message: Message): string => {
 };
 
 /**
- * One PTY notify line for one or more pending messages on the same seat.
- * N > 1 always batches (never serial full-body dumps on wake).
- * N === 1 uses the single-message payload rules.
+ * One PTY notify line for unread mail on the same seat.
+ * Cadence: N === 1 is the latest unread; N > 1 is one newest-first list.
+ * Never serial dumps. Bodies stay in the mailbox.
  */
 export const composeMessageDeliverySummary = (
   messages: ReadonlyArray<Message>,
 ): string => {
-  if (messages.length === 0) {
+  const ordered = sortMessagesNewestFirst(messages);
+  if (ordered.length === 0) {
     return sanitizeDeliveryLine("[message] (empty)");
   }
-  if (messages.length === 1) {
-    const message = messages[0]!;
+  if (ordered.length === 1) {
+    const message = ordered[0]!;
     if (!shouldSummarizeMessageForPty(message)) {
       return composeMessageDeliveryPayload(message);
     }
@@ -109,17 +140,17 @@ export const composeMessageDeliverySummary = (
       `[message - ${sender}] ${kind}${fromBit} — ${id}${previewBit} — vellum-command msg list`,
     );
   }
-  const factoryCount = messages.filter((m) => isFactoryMailMessage(m)).length;
+  const factoryCount = ordered.filter((m) => isFactoryMailMessage(m)).length;
   const factoryBit =
     factoryCount > 0 ? ` (${String(factoryCount)} factory mail)` : "";
-  const ids = messages
+  const ids = ordered
     .slice(0, 3)
     .map((m) => shortMessageId(m.messageId))
     .join(",");
   const more =
-    messages.length > 3 ? ` +${String(messages.length - 3)}` : "";
+    ordered.length > 3 ? ` +${String(ordered.length - 3)}` : "";
   return sanitizeDeliveryLine(
-    `[message - user] ${String(messages.length)} pending${factoryBit} — ${ids}${more} — vellum-command msg list`,
+    `[message - user] ${String(ordered.length)} unread${factoryBit} — ${ids}${more} — vellum-command msg list`,
   );
 };
 
@@ -304,8 +335,12 @@ export const listPendingDeliveries = (
     if (roleOf(spec) !== "actor") continue;
     const target = deliveryTargetOf(node);
     if (!target) continue;
-    for (const message of node.ether?.messages?.items ?? []) {
-      if (!isPendingDelivery(message)) continue;
+    const pending = sortMessagesNewestFirst(
+      (node.ether?.messages?.items ?? []).filter((message) =>
+        isPendingDelivery(message),
+      ),
+    );
+    for (const message of pending) {
       out.push({ nodeId: node.id, message, target });
     }
   }

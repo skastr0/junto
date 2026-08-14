@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { Effect, Result, Option, Schema } from "effect";
 import { ulid } from "ulid";
 import type { Artifact, CanvasDoc, Message, Part } from "@shared/canvas";
+import { sortMessagesNewestFirst } from "@shared/message-delivery";
 import type { BoardAuthor } from "@shared/work-model";
 import {
   normalizePreambleText,
@@ -984,14 +985,18 @@ const dispatchOp = (
           }
         }
         sent.sort((a, b) => b.messageId.localeCompare(a.messageId));
-        return { target: caller.nodeId, items: overlaid, sent };
+        return {
+          target: caller.nodeId,
+          items: sortMessagesNewestFirst(overlaid),
+          sent,
+        };
       }
 
       const gate = requireTarget(board, caller.nodeId, targetId, op);
       if ("type" in gate) return yield* Effect.fail(gate);
       return {
         target: targetId,
-        items: gate.node?.ether?.messages?.items ?? [],
+        items: sortMessagesNewestFirst(gate.node?.ether?.messages?.items ?? []),
       };
     }
 

@@ -9,10 +9,13 @@
  *   - deliveredAt is an internal PTY-notify receipt, not a ledger status
  *   - age: the messageId is a ULID — its timestamp is birth time
  */
-import { decodeTime } from "ulid";
 import type { CanvasDoc, CanvasNode } from "@shared/canvas";
 import type { Message, Part } from "@shared/work-model";
 import type { WorkSeatRecentOp } from "@shared/work-recent-ops";
+import {
+  compareMessageIdsNewestFirst,
+  messageIdTimeMs,
+} from "@shared/message-delivery";
 import { nodeTitle } from "./presentation";
 
 export type MailRow = {
@@ -33,17 +36,6 @@ export type MailCounts = {
   readonly total: number;
   /** Inbound mail without a read-ack from the seat. */
   readonly unread: number;
-};
-
-const ULID_PATTERN = /^[0-9A-HJKMNP-TV-Z]{26}$/;
-
-const ulidTimeMs = (id: string): number | undefined => {
-  if (!ULID_PATTERN.test(id)) return undefined;
-  try {
-    return decodeTime(id);
-  } catch {
-    return undefined;
-  }
 };
 
 const textOfParts = (parts: ReadonlyArray<Part>): string =>
@@ -88,7 +80,7 @@ const toMailRow = (doc: CanvasDoc, message: Message): MailRow => {
     direction: message.role === "user" ? "in" : "note",
     fromNodeId,
     fromLabel: senderLabel(doc, fromNodeId),
-    sentAtMs: ulidTimeMs(message.messageId),
+    sentAtMs: messageIdTimeMs(message.messageId),
     preview: firstLine,
     body,
     delivered: metadataNumber(message, "deliveredAt") !== undefined,
@@ -97,23 +89,13 @@ const toMailRow = (doc: CanvasDoc, message: Message): MailRow => {
   };
 };
 
-/** Newest first (ULID ids order by birth; non-ULID ids sink to the end). */
-const compareMailNewestFirst = (a: MailRow, b: MailRow): number => {
-  if (a.sentAtMs !== undefined && b.sentAtMs !== undefined) {
-    return b.messageId.localeCompare(a.messageId);
-  }
-  if (a.sentAtMs !== undefined) return -1;
-  if (b.sentAtMs !== undefined) return 1;
-  return b.messageId.localeCompare(a.messageId);
-};
-
 export const mailboxRows = (
   doc: CanvasDoc,
   node: CanvasNode,
 ): ReadonlyArray<MailRow> =>
   (node.ether?.messages?.items ?? [])
     .map((message) => toMailRow(doc, message))
-    .sort(compareMailNewestFirst);
+    .sort((a, b) => compareMessageIdsNewestFirst(a.messageId, b.messageId));
 
 export const mailboxCounts = (rows: ReadonlyArray<MailRow>): MailCounts => {
   let unread = 0;

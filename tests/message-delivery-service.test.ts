@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ulid } from "ulid";
 import type { CanvasDoc, Message } from "../src/shared/canvas";
 import { isMessageDelivered } from "../src/shared/message-delivery";
 import {
@@ -898,7 +899,7 @@ describe("MessageDeliveryService", () => {
 
     service.onBooted();
     await waitUntil(() => payloads.length === 1);
-    expect(payloads[0]).toContain("3 pending");
+    expect(payloads[0]).toContain("3 unread");
     expect(payloads[0]).toContain("factory mail");
     expect(payloads[0]).toContain("vellum-command msg list");
     await waitUntil(async () =>
@@ -912,6 +913,57 @@ describe("MessageDeliveryService", () => {
       undefined,
       undefined,
     ]);
+  });
+
+  it("pastes a burst list newest-first and a lone unread as that latest", async () => {
+    const t0 = 1_700_000_000_000;
+    const older = ulid(t0);
+    const newer = ulid(t0 + 2_000);
+    const newest = ulid(t0 + 4_000);
+    const store = makeStore({
+      c: agentDoc([
+        userMsg(older, "old ping"),
+        userMsg(newer, "mid ping"),
+        userMsg(newest, "new ping"),
+      ]),
+    });
+    const payloads: string[] = [];
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        wakeManagedSeat: async () => true,
+        sendManagedTerminalPrompt: async (_id, text) => {
+          payloads.push(text);
+          return true;
+        },
+      },
+      store,
+    });
+    service.onBooted();
+    await waitUntil(() => payloads.length === 1);
+    expect(payloads[0]).toContain("3 unread");
+    expect(payloads[0]!.indexOf(newest.slice(0, 12))).toBeLessThan(
+      payloads[0]!.indexOf(older.slice(0, 12)),
+    );
+
+    const lone = makeStore({
+      c: agentDoc([userMsg(newest, "solo latest")]),
+    });
+    const singles: string[] = [];
+    const one = new MessageDeliveryService();
+    one.configure({
+      transport: {
+        wakeManagedSeat: async () => true,
+        sendManagedTerminalPrompt: async (_id, text) => {
+          singles.push(text);
+          return true;
+        },
+      },
+      store: lone,
+    });
+    one.onBooted();
+    await waitUntil(() => singles.length === 1);
+    expect(singles[0]).toBe("[message - user] solo latest");
   });
 
   it("operator-draft gate holds mail without burning a transport attempt", async () => {

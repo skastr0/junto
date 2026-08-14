@@ -17,6 +17,7 @@ import {
   isPendingDelivery,
   listPendingDeliveries,
   ptyInjectMarksRead,
+  sortMessagesNewestFirst,
   MESSAGE_PTY_FULL_BODY_MAX,
   sanitizeDeliveryLine,
 } from "@shared/message-delivery";
@@ -559,10 +560,11 @@ export class MessageDeliveryService {
           if (message.metadata?.edgeMapChange === true) edgeMap.push(message);
           else ordinary.push(message);
         }
-        if (ordinary.length === 1) {
-          await this.attemptOne(canvas, group.nodeId, ordinary[0]!);
-        } else if (ordinary.length > 1) {
-          await this.attemptBatch(canvas, group.nodeId, ordinary);
+        const latestFirst = sortMessagesNewestFirst(ordinary);
+        if (latestFirst.length === 1) {
+          await this.attemptOne(canvas, group.nodeId, latestFirst[0]!);
+        } else if (latestFirst.length > 1) {
+          await this.attemptBatch(canvas, group.nodeId, latestFirst);
         }
         for (const message of edgeMap) {
           if (!this.active(generation)) return;
@@ -1037,7 +1039,9 @@ export class MessageDeliveryService {
       const gate = await this.evaluateSeatGate(target.bindingId);
       if (!gate.allow) return;
 
-      const payload = composeMessageDeliverySummary(livePending);
+      const payload = composeMessageDeliverySummary(
+        sortMessagesNewestFirst(livePending),
+      );
       const anyFactory = livePending.some((m) => isFactoryMailMessage(m));
       const promptOptions =
         transport.wakeManagedSeat || anyFactory

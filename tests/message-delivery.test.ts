@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ulid } from "ulid";
 import type { CanvasDoc, Message } from "../src/shared/canvas";
 import {
   composeMessageDeliveryPayload,
@@ -19,6 +20,7 @@ import {
   seatOperatorDraft,
   ptyInjectMarksRead,
   shouldSummarizeMessageForPty,
+  sortMessagesNewestFirst,
   stampMessageDelivered,
 } from "../src/shared/message-delivery";
 
@@ -114,20 +116,59 @@ describe("message-delivery pure helpers", () => {
     expect(ptyInjectMarksRead(userMsg())).toBe(false);
   });
 
-  it("batches multiple pending into one notify line", () => {
+  it("batches multiple unread into one newest-first list line", () => {
+    const t0 = 1_700_000_000_000;
+    const oldest = ulid(t0);
+    const middle = ulid(t0 + 1_000);
+    const newest = ulid(t0 + 2_000);
+    const extra1 = ulid(t0 + 3_000);
+    const extra2 = ulid(t0 + 4_000);
     const batch = composeMessageDeliverySummary([
-      userMsg({ messageId: "01AAA", parts: [{ kind: "text", text: "one" }] }),
+      userMsg({ messageId: oldest, parts: [{ kind: "text", text: "one" }] }),
       userMsg({
-        messageId: "01BBB",
+        messageId: middle,
         metadata: { factoryMail: true },
         parts: [{ kind: "text", text: "two essay" }],
       }),
-      userMsg({ messageId: "01CCC", parts: [{ kind: "text", text: "three" }] }),
+      userMsg({ messageId: newest, parts: [{ kind: "text", text: "three" }] }),
     ]);
-    expect(batch).toContain("3 pending");
+    expect(batch).toContain("3 unread");
     expect(batch).toContain("1 factory mail");
     expect(batch).toContain("vellum-command msg list");
     expect(batch.includes("\n")).toBe(false);
+    const newestIdx = batch.indexOf(newest.slice(0, 12));
+    const middleIdx = batch.indexOf(middle.slice(0, 12));
+    const oldestIdx = batch.indexOf(oldest.slice(0, 12));
+    expect(newestIdx).toBeGreaterThan(-1);
+    expect(middleIdx).toBeGreaterThan(newestIdx);
+    expect(oldestIdx).toBeGreaterThan(middleIdx);
+
+    const burst = composeMessageDeliverySummary([
+      userMsg({ messageId: oldest, parts: [{ kind: "text", text: "a" }] }),
+      userMsg({ messageId: middle, parts: [{ kind: "text", text: "b" }] }),
+      userMsg({ messageId: newest, parts: [{ kind: "text", text: "c" }] }),
+      userMsg({ messageId: extra1, parts: [{ kind: "text", text: "d" }] }),
+      userMsg({ messageId: extra2, parts: [{ kind: "text", text: "e" }] }),
+    ]);
+    expect(burst).toContain("5 unread");
+    expect(burst).toContain("+2");
+    expect(burst).toContain(extra2.slice(0, 12));
+    expect(burst).not.toContain(oldest.slice(0, 12));
+  });
+
+  it("sorts mail newest-first so a lone unread is the latest", () => {
+    const t0 = 1_700_000_000_000;
+    const older = userMsg({ messageId: ulid(t0), parts: [{ kind: "text", text: "old" }] });
+    const latest = userMsg({
+      messageId: ulid(t0 + 5_000),
+      parts: [{ kind: "text", text: "new ping" }],
+    });
+    expect(sortMessagesNewestFirst([older, latest]).map((m) => m.messageId)).toEqual([
+      latest.messageId,
+      older.messageId,
+    ]);
+    expect(composeMessageDeliverySummary([older, latest])).toContain("2 unread");
+    expect(composeMessageDeliveryPayload(latest)).toBe("[message - user] new ping");
   });
 
   it("composerBlocksMailInject: harness chrome is NOT draft; only paste chip blocks", () => {
@@ -319,5 +360,24 @@ describe("message-delivery pure helpers", () => {
     expect(pending.find((p) => p.message.messageId === "p1")?.target).toEqual({
       bindingId: "bind-mira",
     });
+  });
+
+  it("lists pending on a seat newest-first", () => {
+    const t0 = 1_700_000_000_000;
+    const older = ulid(t0);
+    const newer = ulid(t0 + 10_000);
+    const doc: CanvasDoc = {
+      nodes: [
+        agentNode([
+          userMsg({ messageId: older, parts: [{ kind: "text", text: "old" }] }),
+          userMsg({ messageId: newer, parts: [{ kind: "text", text: "new" }] }),
+        ]),
+      ],
+      edges: [],
+    };
+    expect(listPendingDeliveries(doc).map((p) => p.message.messageId)).toEqual([
+      newer,
+      older,
+    ]);
   });
 });
