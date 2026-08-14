@@ -6,10 +6,16 @@ export type TerminalGeometry = {
 export const UNKNOWN_TERMINAL_GEOMETRY: TerminalGeometry = { cols: 0, rows: 0 };
 
 /**
- * Trailing window before the child is told a new size after the first notify.
- * First notify (acked is unknown) is immediate — Remote SSH must not delay paint.
+ * Trailing window before the child is told a new size after a successful first
+ * notify. First notify after attach (acked unknown, failCount 0) is immediate.
+ * Failed/false notifies back off — never 0ms again just because acked is 0×0.
  */
 export const PTY_NOTIFY_SETTLE_MS = 120;
+
+/** Hard stop after this many failed/false child notifies for one desired size. */
+export const PTY_NOTIFY_RETRY_CAP = 8;
+
+const PTY_NOTIFY_BACKOFF_MS = [120, 250, 500, 1000, 2000] as const;
 
 /**
  * A child PTY only needs SIGWINCH when its terminal geometry changes.
@@ -26,9 +32,23 @@ export const shouldPaintView = (
   desired: TerminalGeometry,
 ): boolean => painted.cols !== desired.cols || painted.rows !== desired.rows;
 
-/** First SIGWINCH after attach is immediate; later pin/focus hops coalesce. */
-export const ptyNotifyDelayMs = (acked: TerminalGeometry): number =>
-  acked.cols === 0 && acked.rows === 0 ? 0 : PTY_NOTIFY_SETTLE_MS;
+/**
+ * First SIGWINCH after attach is immediate; later pin/focus hops coalesce;
+ * hop-down retries back off from failCount, never 0ms once a notify has failed.
+ */
+export const ptyNotifyDelayMs = (
+  acked: TerminalGeometry,
+  failCount = 0,
+): number => {
+  if (failCount <= 0) {
+    return acked.cols === 0 && acked.rows === 0 ? 0 : PTY_NOTIFY_SETTLE_MS;
+  }
+  const index = Math.min(failCount - 1, PTY_NOTIFY_BACKOFF_MS.length - 1);
+  return PTY_NOTIFY_BACKOFF_MS[index]!;
+};
+
+export const ptyNotifyShouldRetry = (failCount: number): boolean =>
+  failCount < PTY_NOTIFY_RETRY_CAP;
 
 /**
  * Pane box is authority. Never measure the live .xterm node — that island

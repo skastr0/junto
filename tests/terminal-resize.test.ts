@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   cellsForPane,
   ptyNotifyDelayMs,
+  ptyNotifyShouldRetry,
+  PTY_NOTIFY_RETRY_CAP,
   shouldNotifyPtyResize,
   shouldPaintView,
   UNKNOWN_TERMINAL_GEOMETRY,
@@ -36,8 +38,31 @@ describe("terminal PTY resize policy", () => {
   });
 
   it("notifies immediately after attach, then coalesces pin/focus hops", () => {
-    expect(ptyNotifyDelayMs(UNKNOWN_TERMINAL_GEOMETRY)).toBe(0);
-    expect(ptyNotifyDelayMs({ cols: 83, rows: 49 })).toBeGreaterThan(0);
+    expect(ptyNotifyDelayMs(UNKNOWN_TERMINAL_GEOMETRY, 0)).toBe(0);
+    expect(ptyNotifyDelayMs({ cols: 83, rows: 49 }, 0)).toBeGreaterThan(0);
+  });
+
+  it("backs off after a failed notify even when acked is still unknown", () => {
+    expect(ptyNotifyDelayMs(UNKNOWN_TERMINAL_GEOMETRY, 0)).toBe(0);
+    const first = ptyNotifyDelayMs(UNKNOWN_TERMINAL_GEOMETRY, 1);
+    const second = ptyNotifyDelayMs(UNKNOWN_TERMINAL_GEOMETRY, 2);
+    const third = ptyNotifyDelayMs(UNKNOWN_TERMINAL_GEOMETRY, 3);
+    const fourth = ptyNotifyDelayMs(UNKNOWN_TERMINAL_GEOMETRY, 4);
+    const fifth = ptyNotifyDelayMs(UNKNOWN_TERMINAL_GEOMETRY, 5);
+    expect(first).toBeGreaterThan(0);
+    expect(second).toBeGreaterThan(first);
+    expect(third).toBeGreaterThan(second);
+    expect(fourth).toBeGreaterThan(third);
+    expect(fifth).toBeGreaterThan(fourth);
+    expect(ptyNotifyDelayMs(UNKNOWN_TERMINAL_GEOMETRY, 6)).toBe(fifth);
+    expect(ptyNotifyDelayMs(UNKNOWN_TERMINAL_GEOMETRY, 20)).toBe(fifth);
+  });
+
+  it("stops retrying the child after the hop-down cap", () => {
+    expect(ptyNotifyShouldRetry(0)).toBe(true);
+    expect(ptyNotifyShouldRetry(PTY_NOTIFY_RETRY_CAP - 1)).toBe(true);
+    expect(ptyNotifyShouldRetry(PTY_NOTIFY_RETRY_CAP)).toBe(false);
+    expect(ptyNotifyShouldRetry(PTY_NOTIFY_RETRY_CAP + 3)).toBe(false);
   });
 
   it("signals a child PTY when either measured dimension changes", () => {

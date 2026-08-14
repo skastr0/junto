@@ -25,6 +25,7 @@ import { themeMode$ } from "../../lib/theme-mode";
 import {
   cellsForPane,
   ptyNotifyDelayMs,
+  ptyNotifyShouldRetry,
   shouldNotifyPtyResize,
   shouldPaintView,
   UNKNOWN_TERMINAL_GEOMETRY,
@@ -205,6 +206,8 @@ export function TerminalSurface({
   /** Last geometry the spawn-host child acked. View paint does not wait on this. */
   const lastAcked = useRef({ ...UNKNOWN_TERMINAL_GEOMETRY });
   const desiredGeom = useRef({ ...UNKNOWN_TERMINAL_GEOMETRY });
+  /** Failed/false child notifies for the current desired size. Reset on ack or new geom. */
+  const ptyNotifyFailCount = useRef(0);
   const notifyInFlight = useRef(false);
   /** Trailing timer that coalesces child SIGWINCH into one settled size. */
   const ptyNotifyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -311,6 +314,12 @@ export function TerminalSurface({
     // notifies the child. Waiting on that hop to paint is what froze Remote
     // seats as cream while the label already showed the new grid.
     const nextGeom = { cols, rows };
+    if (
+      desiredGeom.current.cols !== nextGeom.cols ||
+      desiredGeom.current.rows !== nextGeom.rows
+    ) {
+      ptyNotifyFailCount.current = 0;
+    }
     desiredGeom.current = nextGeom;
     if (shouldPaintView({ cols: term.cols, rows: term.rows }, nextGeom)) {
       try {
@@ -353,12 +362,29 @@ export function TerminalSurface({
             lease: lease.slice(0, 8),
             ok,
           });
-          if (ok) lastAcked.current = send;
+          if (ok) {
+            lastAcked.current = send;
+            ptyNotifyFailCount.current = 0;
+          } else if (
+            send.cols === desiredGeom.current.cols &&
+            send.rows === desiredGeom.current.rows
+          ) {
+            ptyNotifyFailCount.current += 1;
+          }
         } catch {
           logTermGeom("pty-notify-failed", { cols: send.cols, rows: send.rows });
+          if (
+            send.cols === desiredGeom.current.cols &&
+            send.rows === desiredGeom.current.rows
+          ) {
+            ptyNotifyFailCount.current += 1;
+          }
         } finally {
           notifyInFlight.current = false;
-          if (shouldNotifyPtyResize(lastAcked.current, desiredGeom.current)) {
+          if (
+            shouldNotifyPtyResize(lastAcked.current, desiredGeom.current) &&
+            ptyNotifyShouldRetry(ptyNotifyFailCount.current)
+          ) {
             scheduleChildNotify();
           }
         }
@@ -370,7 +396,7 @@ export function TerminalSurface({
       ptyNotifyTimer.current = setTimeout(() => {
         ptyNotifyTimer.current = undefined;
         flushChildNotify();
-      }, ptyNotifyDelayMs(lastAcked.current));
+      }, ptyNotifyDelayMs(lastAcked.current, ptyNotifyFailCount.current));
     };
 
     if (shouldNotifyPtyResize(lastAcked.current, nextGeom)) scheduleChildNotify();
@@ -669,6 +695,7 @@ export function TerminalSurface({
           // then positions output against a size nobody is painting. Starting
           // at 0 makes the first measurement always notify.
           lastAcked.current = { ...UNKNOWN_TERMINAL_GEOMETRY };
+          ptyNotifyFailCount.current = 0;
           let lastSeq: bigint | undefined;
           // Live sessions have exactly one attach representation: serialized VT
           // state. Journal is only for failures before an observer existed.
