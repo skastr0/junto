@@ -111,7 +111,7 @@ describe("message-delivery pure helpers", () => {
     expect(line.length).toBeLessThan(220);
     expect(line).not.toContain("nothing run, nothing edited");
     expect(ptyInjectMarksRead(factory)).toBe(false);
-    expect(ptyInjectMarksRead(userMsg())).toBe(true);
+    expect(ptyInjectMarksRead(userMsg())).toBe(false);
   });
 
   it("batches multiple pending into one notify line", () => {
@@ -239,6 +239,9 @@ describe("message-delivery pure helpers", () => {
     expect(
       isPendingDelivery(userMsg({ metadata: { deliveredAt: 1_700_000_000_000 } })),
     ).toBe(false);
+    expect(
+      isPendingDelivery(userMsg({ metadata: { readAt: 1_700_000_000_000 } })),
+    ).toBe(false);
   });
 
   it("stamps deliveredAt through a pure doc transform (serialized-path body)", () => {
@@ -283,6 +286,7 @@ describe("message-delivery pure helpers", () => {
         agentNode([
           userMsg({ messageId: "p1" }),
           userMsg({ messageId: "done", metadata: { deliveredAt: 1 } }),
+          userMsg({ messageId: "listed", metadata: { readAt: 2 } }),
           userMsg({ messageId: "own", role: "agent", parts: [{ kind: "text", text: "echo" }] }),
         ]),
         herdrNode([userMsg({ messageId: "h1", parts: [{ kind: "text", text: "herdr ping" }] })]),

@@ -5,8 +5,8 @@
  *
  * Mailbox facts come from `ether.messages` on the actor node itself:
  *   - sender: `metadata.fromSeat` (stamped by msg.send)
- *   - delivery: `metadata.deliveredAt` / `metadata.readAt` (stamped by the
- *     doc projection from durable receipts)
+ *   - read: `metadata.readAt` (listed or marked read)
+ *   - deliveredAt is an internal PTY-notify receipt, not a ledger status
  *   - age: the messageId is a ULID — its timestamp is birth time
  */
 import { decodeTime } from "ulid";
@@ -31,8 +31,6 @@ export type MailRow = {
 
 export type MailCounts = {
   readonly total: number;
-  /** Inbound mail without a PTY delivery receipt yet. */
-  readonly queued: number;
   /** Inbound mail without a read-ack from the seat. */
   readonly unread: number;
 };
@@ -118,14 +116,12 @@ export const mailboxRows = (
     .sort(compareMailNewestFirst);
 
 export const mailboxCounts = (rows: ReadonlyArray<MailRow>): MailCounts => {
-  let queued = 0;
   let unread = 0;
   for (const row of rows) {
     if (row.direction !== "in") continue;
-    if (!row.delivered) queued += 1;
     if (!row.read) unread += 1;
   }
-  return { total: rows.length, queued, unread };
+  return { total: rows.length, unread };
 };
 
 /** Settled mail decays out of the pane after this long. Unread never does. */

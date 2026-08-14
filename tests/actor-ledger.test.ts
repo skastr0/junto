@@ -86,16 +86,16 @@ describe("mailboxRows", () => {
   });
 
   it("maps delivery receipts and roles", () => {
-    const queued = mail(T0, {});
+    const unread = mail(T0, {});
     const deliveredUnread = mail(T0 + 1000, { metadata: { deliveredAt: T0 + 2000 } });
     const read = mail(T0 + 2000, {
       metadata: { deliveredAt: T0 + 3000, readAt: T0 + 4000 },
     });
     const note = mail(T0 + 3000, { role: "agent" });
-    const doc = docOf([agent("hub", "Hub", [queued, deliveredUnread, read, note])]);
+    const doc = docOf([agent("hub", "Hub", [unread, deliveredUnread, read, note])]);
     const rows = mailboxRows(doc, doc.nodes[0]!);
     const byId = new Map(rows.map((r) => [r.messageId, r] as const));
-    expect(byId.get(queued.messageId)).toMatchObject({
+    expect(byId.get(unread.messageId)).toMatchObject({
       direction: "in",
       delivered: false,
       read: false,
@@ -181,16 +181,16 @@ describe("visibleMailRows", () => {
 });
 
 describe("mailboxCounts", () => {
-  it("counts queued and unread over inbound mail only", () => {
-    const queued = mail(T0, {});
+  it("counts unread over inbound mail only", () => {
+    const unread = mail(T0, {});
     const deliveredUnread = mail(T0 + 1000, { metadata: { deliveredAt: T0 + 2000 } });
     const read = mail(T0 + 2000, {
       metadata: { deliveredAt: T0 + 3000, readAt: T0 + 4000 },
     });
     const note = mail(T0 + 3000, { role: "agent" });
-    const doc = docOf([agent("hub", "Hub", [queued, deliveredUnread, read, note])]);
+    const doc = docOf([agent("hub", "Hub", [unread, deliveredUnread, read, note])]);
     const counts = mailboxCounts(mailboxRows(doc, doc.nodes[0]!));
-    expect(counts).toEqual({ total: 4, queued: 1, unread: 2 });
+    expect(counts).toEqual({ total: 4, unread: 2 });
   });
 });
 

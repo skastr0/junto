@@ -541,13 +541,9 @@ describe("MessageDeliveryService", () => {
     expect(factoryLive?.metadata?.readAt).toBeUndefined();
   });
 
-  it("retries full-body read stamp without re-pasting", async () => {
+  it("notifies unread mail once and leaves it unread", async () => {
     const msg = userMsg("read-retry", "stamp later");
-    let acceptReadOk = false;
-    const store = makeStore(
-      { c: agentDoc([msg]) },
-      { acceptReadOk: () => acceptReadOk, now: () => 7 },
-    );
+    const store = makeStore({ c: agentDoc([msg]) }, { now: () => 7 });
     let sendCount = 0;
     const service = new MessageDeliveryService();
     service.configure({
@@ -567,7 +563,6 @@ describe("MessageDeliveryService", () => {
     const afterFirst = (await store.readDoc("c"))?.nodes[0]?.ether?.messages?.items[0];
     expect(afterFirst?.metadata?.deliveredAt).toBe(7);
     expect(afterFirst?.metadata?.readAt).toBeUndefined();
-    expect(await store.hasAcceptedMessageRead("c", "agent", "read-retry")).toBe(false);
 
     service.onManagedTerminalIdle("bind-mira");
     await new Promise((resolve) => setTimeout(resolve, 30));
@@ -575,17 +570,9 @@ describe("MessageDeliveryService", () => {
     expect(
       (await store.readDoc("c"))?.nodes[0]?.ether?.messages?.items[0]?.metadata?.readAt,
     ).toBeUndefined();
-
-    acceptReadOk = true;
-    service.onManagedTerminalIdle("bind-mira");
-    await waitUntil(async () => store.hasAcceptedMessageRead("c", "agent", "read-retry"));
-    expect(
-      (await store.readDoc("c"))?.nodes[0]?.ether?.messages?.items[0]?.metadata?.readAt,
-    ).toBe(7);
-    expect(sendCount).toBe(1);
   });
 
-  it("stamps read after a full-body inject, not after a summary notify", async () => {
+  it("does not stamp read after a PTY notify", async () => {
     const short = userMsg("short-1", "claim task");
     const store = makeStore({ c: agentDoc([short]) }, { now: () => 99 });
     const service = new MessageDeliveryService();
@@ -599,7 +586,33 @@ describe("MessageDeliveryService", () => {
     service.notifyAppended("c", "agent", short);
     await waitUntil(() => store.hasAcceptedMessageDelivery("c", "agent", "short-1"));
     const after = await store.readDoc("c");
-    expect(after?.nodes[0]?.ether?.messages?.items[0]?.metadata?.readAt).toBe(99);
+    expect(after?.nodes[0]?.ether?.messages?.items[0]?.metadata?.readAt).toBeUndefined();
+  });
+
+  it("does not inject mail the seat already listed", async () => {
+    const listed = userMsg("listed-1", "already seen", {
+      metadata: { readAt: 50 },
+    });
+    const store = makeStore({ c: agentDoc([listed]) }, { now: () => 99 });
+    let sends = 0;
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        sendManagedTerminalPrompt: async () => {
+          sends += 1;
+          return true;
+        },
+      },
+      store,
+      now: () => 99,
+    });
+    service.notifyAppended("c", "agent", listed);
+    service.onManagedTerminalIdle("bind-mira");
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(sends).toBe(0);
+    expect(await store.hasAcceptedMessageDelivery("c", "agent", "listed-1")).toBe(
+      false,
+    );
   });
 
   it("does not steer system mailbox notices", async () => {

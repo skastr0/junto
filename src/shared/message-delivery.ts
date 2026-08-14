@@ -193,9 +193,15 @@ export const seatOperatorDraft = (input: {
   readonly windowMs?: number;
 }): boolean => input.residualChip || operatorPresentNow(input);
 
-/** True when metadata.deliveredAt is a finite number (already delivered). */
+/** True when metadata.deliveredAt is a finite number (already nudged the PTY). */
 export const isMessageDelivered = (message: Message): boolean => {
   const at = message.metadata?.deliveredAt;
+  return typeof at === "number" && Number.isFinite(at);
+};
+
+/** True when metadata.readAt is a finite number (mailbox listed or marked read). */
+export const isMessageRead = (message: Message): boolean => {
+  const at = message.metadata?.readAt;
   return typeof at === "number" && Number.isFinite(at);
 };
 
@@ -205,16 +211,19 @@ export const isMessageDelivered = (message: Message): boolean => {
  */
 export const isForeignMessage = (message: Message): boolean => message.role !== "agent";
 
-/** Pending = foreign + not yet stamped. */
+/**
+ * Needs a PTY notify: foreign, still unread, and not yet nudged.
+ * Listed mail is read — do not inject it. deliveredAt is only the
+ * at-most-once notify receipt, not a product status.
+ */
 export const isPendingDelivery = (message: Message): boolean =>
-  isForeignMessage(message) && !isMessageDelivered(message);
+  isForeignMessage(message) && !isMessageRead(message) && !isMessageDelivered(message);
 
 /**
- * Full-body PTY inject already showed the whole message — treat that as read.
- * Summary/notify lines (factory mail, long bodies, batches) do not.
+ * PTY is a notify surface. Read is listing the mailbox.
+ * A paste never marks mail read — short or long, one or many.
  */
-export const ptyInjectMarksRead = (message: Message): boolean =>
-  !shouldSummarizeMessageForPty(message);
+export const ptyInjectMarksRead = (_message: Message): boolean => false;
 
 /**
  * Resolve transport target from kind-discriminated actor surface.

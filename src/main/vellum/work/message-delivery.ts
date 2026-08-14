@@ -12,6 +12,8 @@ import {
   composeMessageDeliverySummary,
   deliveryTargetOf,
   isFactoryMailMessage,
+  isMessageDelivered,
+  isMessageRead,
   isPendingDelivery,
   listPendingDeliveries,
   ptyInjectMarksRead,
@@ -784,6 +786,8 @@ export class MessageDeliveryService {
       }
       if (isPendingDelivery(live) === false) {
         this.attemptedClaims.delete(key);
+        // Listed = handled. Do not paste, and do not mint a fake notify receipt.
+        if (isMessageRead(live) && !isMessageDelivered(live)) return;
         // Projected metadata already shows delivered — still ensure durable receipt.
         if (!this.transportAccepted.has(key)) {
           const accepted = await this.acceptDeliveryAndMaybeRead(
