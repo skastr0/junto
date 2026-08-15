@@ -30,6 +30,27 @@ export const ensureTerminalRunning = async (
     const live = await api.terminalGet?.(binding.bindingId, binding.hostId);
     const occupancy = occupancyFromSummary(binding.bindingId, live);
     if (occupancy._tag === "OccupiedSeat" && live) {
+      if (binding.harness && binding.agentKey) {
+        // Live PTY may have been occupied as geography. Re-enter create so
+        // the spawn host can adopt actor identity without respawning.
+        try {
+          const adopted = await api.terminalCreate({
+            bindingId: binding.bindingId,
+            hostId: binding.hostId,
+            launch: binding.launch,
+            canvasName: state$.canvasName.peek(),
+            nodeId: node.id,
+            label: binding.label,
+            harness: binding.harness,
+            agentKey: binding.agentKey,
+          });
+          terminal$.sessionByBindingId[binding.bindingId].set(adopted);
+          return { ok: true };
+        } catch {
+          terminal$.sessionByBindingId[binding.bindingId].set(live);
+          return { ok: true };
+        }
+      }
       terminal$.sessionByBindingId[binding.bindingId].set(live);
       return { ok: true };
     }

@@ -136,5 +136,19 @@ describe("term seat-state placement wiring", () => {
     expect(client).toContain("isAgentSeatState(ev.state)");
     expect(client).toContain("reviveTermAuthSeatState");
     expect(client).toContain("queueMicrotask");
+    expect(client).toContain("harness: input.harness");
+    expect(client).toContain("agentKey: input.agentKey");
+  });
+
+  it("Remote occupy carries actor identity so Mini binds the seat", () => {
+    const router = readFileSync("src/main/vellum/term/router.ts", "utf8");
+    const server = readFileSync("src/main/vellum/term/control-server.ts", "utf8");
+    const host = readFileSync("src/main/vellum/term/local-host.ts", "utf8");
+    expect(router).toContain("harness: input.harness");
+    expect(router).toContain("agentKey: input.agentKey");
+    expect(router).not.toContain("protocol carries no seat");
+    expect(server).toContain("host.createAgentSeat");
+    expect(server).toContain("host.adoptAgentSeat");
+    expect(host).toContain("adoptAgentSeat(");
   });
 });

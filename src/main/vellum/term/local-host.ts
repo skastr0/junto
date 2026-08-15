@@ -655,6 +655,30 @@ export class LocalSessionHost extends EventEmitter {
     return head ? this.summaryOf(head) : opened;
   }
 
+  /**
+   * Stamp actor identity onto a live generation that was occupied as geography.
+   * Does not respawn. A different harness already on the row is left alone.
+   */
+  adoptAgentSeat(
+    bindingId: string,
+    actor: { readonly harness: HarnessId; readonly agentKey: string },
+  ): TerminalSessionSummary | undefined {
+    const rec = this.sessions.get(bindingId.trim());
+    if (!rec) return undefined;
+    if (rec.harness !== undefined && rec.harness !== actor.harness) {
+      return this.summaryOf(rec);
+    }
+    rec.harness = actor.harness;
+    rec.agentKey = actor.agentKey;
+    if (sessionStatusOf(rec) !== "exited") {
+      seatStateRuntime.bindHarness(rec.bindingId, rec.harness, rec.epoch);
+      const snap = this.observerPlane.snapshot(rec.bindingId);
+      if (snap) seatStateRuntime.observe(snap);
+      this.bindProcessIdentity(rec);
+    }
+    return this.summaryOf(rec);
+  }
+
   private open(
     seat: TerminalSeat,
     input: TerminalOpenInput,

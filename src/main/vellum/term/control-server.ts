@@ -37,6 +37,7 @@ import {
   type TermControlResponse,
 } from "@shared/term-control";
 import { occupancyFromSummary, occupyVacantSeat } from "@shared/terminal-seat-occupancy";
+import { isHarnessId } from "@shared/managed-terminal-templates";
 import { seatTapeFromSummary } from "@shared/transport-trace";
 import { appendTransportTrace } from "../observability/transport-journal";
 import { Result } from "effect";
@@ -407,18 +408,50 @@ export const startTermControlServer = async (
             ...seatTapeFromSummary(req.bindingId, existing),
           });
           const occupancy = occupancyFromSummary(req.bindingId, existing, "local");
+          const harness =
+            typeof req.harness === "string" && isHarnessId(req.harness)
+              ? req.harness
+              : undefined;
+          const agentKey =
+            typeof req.agentKey === "string" && req.agentKey.trim().length > 0
+              ? req.agentKey.trim()
+              : undefined;
+          const actor =
+            harness !== undefined && agentKey !== undefined
+              ? { harness, agentKey }
+              : undefined;
           if (Result.isFailure(occupyVacantSeat(occupancy)) && existing) {
+            if (actor) {
+              return {
+                v: 1,
+                id,
+                ok: true,
+                data: host.adoptAgentSeat(req.bindingId, actor) ?? existing,
+              };
+            }
             return { v: 1, id, ok: true, data: existing };
           }
-          const summary = host.create({
-            bindingId: req.bindingId,
-            launch: req.launch,
-            cols: req.cols,
-            rows: req.rows,
-            canvasName: req.canvasName,
-            nodeId: req.nodeId,
-            label: req.label,
-          });
+          const summary = actor
+            ? host.createAgentSeat({
+                bindingId: req.bindingId,
+                harness: actor.harness,
+                agentKey: actor.agentKey,
+                launch: req.launch,
+                cols: req.cols,
+                rows: req.rows,
+                canvasName: req.canvasName,
+                nodeId: req.nodeId,
+                label: req.label,
+              })
+            : host.create({
+                bindingId: req.bindingId,
+                launch: req.launch,
+                cols: req.cols,
+                rows: req.rows,
+                canvasName: req.canvasName,
+                nodeId: req.nodeId,
+                label: req.label,
+              });
           return { v: 1, id, ok: true, data: summary };
         }
         case "list":

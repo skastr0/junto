@@ -371,10 +371,8 @@ export class TerminalRouter extends EventEmitter {
   }
 
   /**
-   * Open the actor seat on its host. A station's terminal protocol carries no
-   * seat, so a station-hosted seat runs its planned argv as a plain terminal
-   * generation; station-aware seats are product work tracked in
-   * `managed-terminal-plan.md`.
+   * Open the actor seat on its host. Remote hops carry harness + agentKey on
+   * the same create verb; the spawn host occupies via createAgentSeat.
    */
   async createAgentSeat(
     input: LocalHostAgentSeatInput & { hostId?: string },
@@ -393,7 +391,11 @@ export class TerminalRouter extends EventEmitter {
 
   private async createRemote(
     hostId: string,
-    input: TerminalOpenInput & { launch?: TerminalLaunch },
+    input: TerminalOpenInput & {
+      launch?: TerminalLaunch;
+      harness?: string;
+      agentKey?: string;
+    },
   ): Promise<TerminalSessionSummary> {
     const client = await this.ensureRemoteClient(hostId);
     this.assertRouteAdmission(hostId);
@@ -404,6 +406,31 @@ export class TerminalRouter extends EventEmitter {
       "remote",
     );
     if (Result.isFailure(occupyVacantSeat(occupancy)) && existing) {
+      if (input.harness && input.agentKey) {
+        const summary = await client.create({
+          bindingId: input.bindingId,
+          launch: input.launch,
+          cols: input.cols,
+          rows: input.rows,
+          canvasName: input.canvasName,
+          nodeId: input.nodeId,
+          label: input.label,
+          harness: input.harness,
+          agentKey: input.agentKey,
+        });
+        appendTransportTrace({
+          plane: "term",
+          op: "router.createRemote",
+          ok: true,
+          hostId,
+          bindingId: input.bindingId,
+          status: summary.status,
+          occupancy: occupancy._tag,
+          decision: "activate",
+          epoch: summary.epoch ?? existing.epoch,
+        });
+        return { ...summary, hostId };
+      }
       appendTransportTrace({
         plane: "term",
         op: "router.createRemote",
@@ -436,6 +463,8 @@ export class TerminalRouter extends EventEmitter {
       canvasName: input.canvasName,
       nodeId: input.nodeId,
       label: input.label,
+      ...(input.harness ? { harness: input.harness } : {}),
+      ...(input.agentKey ? { agentKey: input.agentKey } : {}),
     });
     // Remote station stamps its own hostId as "local"; rewrite for CC consumers.
     return { ...summary, hostId };

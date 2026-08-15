@@ -519,6 +519,8 @@ export class TermControlClient extends EventEmitter implements TermMaintenanceCo
     canvasName?: string;
     nodeId?: string;
     label?: string;
+    harness?: string;
+    agentKey?: string;
   }): Promise<TerminalSessionSummary> {
     const res = await this.call({
       v: 1,
@@ -531,6 +533,8 @@ export class TermControlClient extends EventEmitter implements TermMaintenanceCo
       canvasName: input.canvasName,
       nodeId: input.nodeId,
       label: input.label,
+      ...(input.harness ? { harness: input.harness } : {}),
+      ...(input.agentKey ? { agentKey: input.agentKey } : {}),
     });
     if (!res.ok) throw new Error(res.error);
     return res.data as TerminalSessionSummary;
