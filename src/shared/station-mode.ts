@@ -31,6 +31,33 @@ export const doorForMode = (
   return undefined;
 };
 
+/**
+ * Launch shape of a boot, as far as door selection is concerned. Nothing here
+ * is a role: the persisted mode is the only role authority.
+ */
+export type StationStartupShape = {
+  readonly mode: StationProcessMode;
+  readonly packaged: boolean;
+  readonly headless: boolean;
+};
+
+/**
+ * Boot-time door selection. The persisted mode decides which door exists at
+ * all; the launch shape only decides whether an Unenrolled install opens
+ * enrollment ingress. An enrolled install keeps its own door no matter how it
+ * was launched, so a packaged headless Remote binds peer, never enroll.
+ * Command Center boots doorless in every shape.
+ */
+export const startupDoor = (
+  shape: StationStartupShape,
+): StationDoor | undefined => {
+  const door = doorForMode(shape.mode);
+  if (door === "enroll") {
+    return shape.packaged && shape.headless ? "enroll" : undefined;
+  }
+  return door;
+};
+
 export const modeFromConfiguration = (
   role: "command-center" | "remote" | "" | undefined,
 ): StationProcessMode => {

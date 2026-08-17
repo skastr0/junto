@@ -21,7 +21,7 @@ import {
   type NodeRefOpenedDelivery,
 } from "@shared/ipc";
 import { PRODUCT_NAME } from "@shared/product-name";
-import { modeFromConfiguration } from "@shared/station-mode";
+import { modeFromConfiguration, startupDoor } from "@shared/station-mode";
 import { DARK_RUNTIME } from "@shared/theme";
 import type { PreambleEvent } from "@shared/preamble";
 import {
@@ -1370,6 +1370,22 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     const stationConfiguration = await AppRuntime.runPromise(
       stations.configuration,
     );
+    // Durable Station mode is read once, before any door is chosen, and it
+    // outranks the launch shape. Headless never infers a role and never
+    // rewrites one: the persisted configuration is the only authority.
+    //   unenrolled     -> enroll door, then hold
+    //   remote         -> peer door on the admitted product boot
+    //   command-center -> neither door; Command Center boots doorless
+    // One selection feeds both bind sites, so enroll and peer can never both
+    // bind in one process.
+    const stationMode = modeFromConfiguration(
+      stationConfiguration?.configuration.role,
+    );
+    const stationDoor = startupDoor({
+      mode: stationMode,
+      packaged: app.isPackaged,
+      headless,
+    });
 
     if (operatorControlEnabledAtLaunch) {
       try {
@@ -1398,11 +1414,17 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       }
     }
 
-    // Packaged --vellum-headless is Unenrolled ingress: enroll door only
-    // (status, pair, configure). Never the operational Remote. No report
-    // pump. No license product. Process mode is the mutex — this process
-    // never also binds the peer door.
-    if (app.isPackaged && headless) {
+    if (headless && stationDoor === undefined) {
+      console.error(
+        `[station-control] headless ${stationMode} boot binds no enroll door and no peer door`,
+      );
+    }
+
+    // Packaged --vellum-headless on an Unenrolled install is enrollment
+    // ingress: enroll door only (status, pair, configure). Never the
+    // operational Remote. No report pump. No license product. An already
+    // enrolled install skips this entirely and takes its own mode's door.
+    if (stationDoor === "enroll") {
       try {
         stationControl = await startStationControlServer({
           door: "enroll",
@@ -1494,7 +1516,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     if (!licenseDecision.admitted) {
       if (headless) {
         console.error(
-          `[license] headless Command Center startup denied (${licenseDecision.status.reason})`,
+          `[license] headless ${stationMode} startup denied (${licenseDecision.status.reason})`,
         );
         exitAfterDetach(1, "license-startup-denied");
         return;
@@ -1627,10 +1649,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
           AppRuntime.runFork(effect as never);
         },
       });
-      const stationMode = modeFromConfiguration(
-        stationConfiguration?.configuration.role,
-      );
-      if (stationMode === "remote") {
+      if (stationDoor === "peer") {
         stationControl = await startStationControlServer({
           door: "peer",
           home: termControlHome,

@@ -49,7 +49,7 @@ import {
 import { HerdrPlane } from "./vellum/herdr/plane";
 import { HermesPlane } from "./vellum/hermes/plane";
 import { HERDR_ENABLED, HERMES_INTEGRATION_ENABLED } from "@shared/features";
-import { modeFromConfiguration } from "@shared/station-mode";
+import { modeFromConfiguration, startupDoor } from "@shared/station-mode";
 import { termPlane } from "./vellum/term/plane";
 import { startTransportJournal } from "./vellum/observability";
 import { configureTerminalRouterLayeredRunner } from "./vellum/term/router";
@@ -236,16 +236,26 @@ const runProductBoot = async (): Promise<void> => {
   const stationConfiguration = await RemoteRuntime.runPromise(
     stations.configuration,
   );
+  const packaged = isRemotePackaged(resolveBinaryPath());
+  // Same rule as the Electron main: the persisted mode picks the door, one
+  // selection feeds both bind sites, and the Node remote is always headless.
   const stationMode = modeFromConfiguration(
     stationConfiguration?.configuration.role,
   );
+  const stationDoor = startupDoor({
+    mode: stationMode,
+    packaged,
+    headless: true,
+  });
+  if (stationDoor === undefined) {
+    console.error(
+      `[station-control] headless ${stationMode} boot binds no enroll door and no peer door`,
+    );
+  }
 
   // Packaged Unenrolled ingress: enroll door only, then hold. No report
   // pump. No license product. Never also bind the peer door.
-  if (
-    isRemotePackaged(resolveBinaryPath()) &&
-    stationMode === "unenrolled"
-  ) {
+  if (stationDoor === "enroll") {
     try {
       handles.stationControl = await startStationControlServer({
         door: "enroll",
@@ -292,7 +302,6 @@ const runProductBoot = async (): Promise<void> => {
     }
   }
 
-  const packaged = isRemotePackaged(resolveBinaryPath());
   const licenseConfig = compiledLicenseBuildConfig(packaged);
   const licenseService = await RemoteRuntime.runPromise(LicenseService);
   const coordinator = makeLicenseCoordinator({
@@ -357,7 +366,7 @@ const runProductBoot = async (): Promise<void> => {
         RemoteRuntime.runFork(effect as never);
       },
     });
-    if (stationMode === "remote") {
+    if (stationDoor === "peer") {
       handles.stationControl = await startStationControlServer({
         door: "peer",
         home: controlHome,
