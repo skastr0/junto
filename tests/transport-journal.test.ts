@@ -1,4 +1,12 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -29,6 +37,39 @@ afterEach(() => {
 });
 
 describe("transport journal", () => {
+  it("repairs product-log directories and files to owner-only modes", () => {
+    const root = mkdtempSync(join(tmpdir(), "vellum-transport-modes-"));
+    process.env.VELLUM_COMMAND_HOME = root;
+    __resetVellumCommandHomeCache();
+    const product = join(root, ".vellum-command");
+    const logs = join(product, "logs");
+    const journal = join(logs, "transport.jsonl");
+    const rotated = `${journal}.1`;
+    try {
+      mkdirSync(logs, { recursive: true });
+      writeFileSync(journal, "existing\n");
+      writeFileSync(rotated, "rotated\n");
+      chmodSync(product, 0o777);
+      chmodSync(logs, 0o777);
+      chmodSync(journal, 0o666);
+      chmodSync(rotated, 0o666);
+
+      startTransportJournal();
+      appendTransportTrace({
+        plane: "term",
+        op: "mode-proof",
+        ok: true,
+      });
+
+      expect(statSync(product).mode & 0o777).toBe(0o700);
+      expect(statSync(logs).mode & 0o777).toBe(0o700);
+      expect(statSync(journal).mode & 0o777).toBe(0o600);
+      expect(statSync(rotated).mode & 0o777).toBe(0o600);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("redacts secrets and keeps the full error, stack, and stderr", () => {
     expect(sanitizeTransportError("token=abc password=xyz boom")).toContain(
       "<redacted>",
