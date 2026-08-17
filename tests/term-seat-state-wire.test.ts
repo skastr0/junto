@@ -10,6 +10,7 @@ import {
   resetRemoteSeatState,
 } from "../src/main/vellum/term/remote-seat-state";
 import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
+import { sessionActorMatches } from "../src/shared/terminal";
 
 const remoteHop = {
   type: "seat-state" as const,
@@ -150,5 +151,25 @@ describe("term seat-state placement wiring", () => {
     expect(server).toContain("host.createAgentSeat");
     expect(server).toContain("host.adoptAgentSeat");
     expect(host).toContain("adoptAgentSeat(");
+  });
+});
+
+describe("sessionActorMatches", () => {
+  it("is the hop ack that Mini bound the actor", () => {
+    expect(
+      sessionActorMatches(
+        { harness: "grok", agentKey: "mini:grok" },
+        { harness: "grok", agentKey: "mini:grok" },
+      ),
+    ).toBe(true);
+    expect(
+      sessionActorMatches(undefined, { harness: "grok", agentKey: "mini:grok" }),
+    ).toBe(false);
+    expect(
+      sessionActorMatches(
+        { harness: undefined, agentKey: undefined },
+        { harness: "grok", agentKey: "mini:grok" },
+      ),
+    ).toBe(false);
   });
 });

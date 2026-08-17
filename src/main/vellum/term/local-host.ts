@@ -657,7 +657,7 @@ export class LocalSessionHost extends EventEmitter {
 
   /**
    * Stamp actor identity onto a live generation that was occupied as geography.
-   * Does not respawn. A different harness already on the row is left alone.
+   * Does not respawn. Same identity is a no-op. A different harness is refused.
    */
   adoptAgentSeat(
     bindingId: string,
@@ -665,8 +665,13 @@ export class LocalSessionHost extends EventEmitter {
   ): TerminalSessionSummary | undefined {
     const rec = this.sessions.get(bindingId.trim());
     if (!rec) return undefined;
-    if (rec.harness !== undefined && rec.harness !== actor.harness) {
+    if (rec.harness === actor.harness && rec.agentKey === actor.agentKey) {
       return this.summaryOf(rec);
+    }
+    if (rec.harness !== undefined && rec.harness !== actor.harness) {
+      throw new Error(
+        `seat ${rec.bindingId} already bound to ${rec.harness}`,
+      );
     }
     rec.harness = actor.harness;
     rec.agentKey = actor.agentKey;
@@ -1720,6 +1725,8 @@ export class LocalSessionHost extends EventEmitter {
       backend: rec.backend,
       ...(rec.exitReason ? { exitReason: rec.exitReason } : {}),
       ...(rec.exitMessage ? { exitMessage: rec.exitMessage } : {}),
+      ...(rec.harness ? { harness: rec.harness } : {}),
+      ...(rec.agentKey ? { agentKey: rec.agentKey } : {}),
     };
   }
 

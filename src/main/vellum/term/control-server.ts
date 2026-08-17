@@ -38,6 +38,7 @@ import {
 } from "@shared/term-control";
 import { occupancyFromSummary, occupyVacantSeat } from "@shared/terminal-seat-occupancy";
 import { isHarnessId } from "@shared/managed-terminal-templates";
+import { sessionActorMatches } from "@shared/terminal";
 import { seatTapeFromSummary } from "@shared/transport-trace";
 import { appendTransportTrace } from "../observability/transport-journal";
 import { Result } from "effect";
@@ -408,26 +409,42 @@ export const startTermControlServer = async (
             ...seatTapeFromSummary(req.bindingId, existing),
           });
           const occupancy = occupancyFromSummary(req.bindingId, existing, "local");
-          const harness =
-            typeof req.harness === "string" && isHarnessId(req.harness)
-              ? req.harness
-              : undefined;
-          const agentKey =
-            typeof req.agentKey === "string" && req.agentKey.trim().length > 0
-              ? req.agentKey.trim()
-              : undefined;
+          const harnessField =
+            typeof req.harness === "string" ? req.harness.trim() : "";
+          const agentKeyField =
+            typeof req.agentKey === "string" ? req.agentKey.trim() : "";
+          if ((harnessField === "") !== (agentKeyField === "")) {
+            return {
+              v: 1,
+              id,
+              ok: false,
+              error: "create actor requires harness and agentKey",
+            };
+          }
+          if (harnessField !== "" && !isHarnessId(harnessField)) {
+            return {
+              v: 1,
+              id,
+              ok: false,
+              error: `unknown harness ${harnessField}`,
+            };
+          }
           const actor =
-            harness !== undefined && agentKey !== undefined
-              ? { harness, agentKey }
+            harnessField !== "" && isHarnessId(harnessField)
+              ? { harness: harnessField, agentKey: agentKeyField }
               : undefined;
           if (Result.isFailure(occupyVacantSeat(occupancy)) && existing) {
             if (actor) {
-              return {
-                v: 1,
-                id,
-                ok: true,
-                data: host.adoptAgentSeat(req.bindingId, actor) ?? existing,
-              };
+              const adopted = host.adoptAgentSeat(req.bindingId, actor);
+              if (!sessionActorMatches(adopted, actor)) {
+                return {
+                  v: 1,
+                  id,
+                  ok: false,
+                  error: "remote seat did not bind actor identity",
+                };
+              }
+              return { v: 1, id, ok: true, data: adopted };
             }
             return { v: 1, id, ok: true, data: existing };
           }
@@ -452,6 +469,14 @@ export const startTermControlServer = async (
                 nodeId: req.nodeId,
                 label: req.label,
               });
+          if (actor && !sessionActorMatches(summary, actor)) {
+            return {
+              v: 1,
+              id,
+              ok: false,
+              error: "remote seat did not bind actor identity",
+            };
+          }
           return { v: 1, id, ok: true, data: summary };
         }
         case "list":

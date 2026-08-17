@@ -24,7 +24,11 @@ import {
   type TermMaintenanceEvidence,
   type TermMaintenanceQuiescenceEvidence,
 } from "@shared/term-control";
-import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
+import {
+  sessionActorMatches,
+  type TerminalLaunch,
+  type TerminalSessionSummary,
+} from "@shared/terminal";
 import {
   occupancyFromSummary,
   occupyVacantSeat,
@@ -406,7 +410,25 @@ export class TerminalRouter extends EventEmitter {
       "remote",
     );
     if (Result.isFailure(occupyVacantSeat(occupancy)) && existing) {
-      if (input.harness && input.agentKey) {
+      const actor =
+        input.harness && input.agentKey
+          ? { harness: input.harness, agentKey: input.agentKey }
+          : undefined;
+      if (actor && sessionActorMatches(existing, actor)) {
+        appendTransportTrace({
+          plane: "term",
+          op: "router.createRemote",
+          ok: true,
+          hostId,
+          bindingId: input.bindingId,
+          status: existing.status,
+          occupancy: occupancy._tag,
+          decision: "activate",
+          epoch: existing.epoch,
+        });
+        return { ...existing, hostId };
+      }
+      if (actor) {
         const summary = await client.create({
           bindingId: input.bindingId,
           launch: input.launch,
@@ -415,9 +437,12 @@ export class TerminalRouter extends EventEmitter {
           canvasName: input.canvasName,
           nodeId: input.nodeId,
           label: input.label,
-          harness: input.harness,
-          agentKey: input.agentKey,
+          harness: actor.harness,
+          agentKey: actor.agentKey,
         });
+        if (!sessionActorMatches(summary, actor)) {
+          throw new Error("remote seat did not bind actor identity");
+        }
         appendTransportTrace({
           plane: "term",
           op: "router.createRemote",
@@ -466,6 +491,16 @@ export class TerminalRouter extends EventEmitter {
       ...(input.harness ? { harness: input.harness } : {}),
       ...(input.agentKey ? { agentKey: input.agentKey } : {}),
     });
+    if (
+      input.harness &&
+      input.agentKey &&
+      !sessionActorMatches(summary, {
+        harness: input.harness,
+        agentKey: input.agentKey,
+      })
+    ) {
+      throw new Error("remote seat did not bind actor identity");
+    }
     // Remote station stamps its own hostId as "local"; rewrite for CC consumers.
     return { ...summary, hostId };
   }

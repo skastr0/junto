@@ -3,7 +3,7 @@
  * Session start is automatic on open; no Start button on the card body.
  */
 import type { CanvasNode } from "@shared/canvas";
-import { resolveTerminalBinding } from "@shared/terminal";
+import { resolveTerminalBinding, sessionActorMatches } from "@shared/terminal";
 import { occupancyFromSummary } from "@shared/terminal-seat-occupancy";
 import { markAgentSeatSeen } from "./agent-seat-state";
 import { getVellumCommandApi } from "./vellum-api";
@@ -26,36 +26,51 @@ export const ensureTerminalRunning = async (
   // Occupied seats activate; they are never occupied again. Stopping still
   // occupies the seat. Vacant (exited / missing / unknown) is the only
   // create path.
+  let live: Awaited<ReturnType<NonNullable<typeof api.terminalGet>>> | undefined;
   try {
-    const live = await api.terminalGet?.(binding.bindingId, binding.hostId);
-    const occupancy = occupancyFromSummary(binding.bindingId, live);
-    if (occupancy._tag === "OccupiedSeat" && live) {
-      if (binding.harness && binding.agentKey) {
-        // Live PTY may have been occupied as geography. Re-enter create so
-        // the spawn host can adopt actor identity without respawning.
-        try {
-          const adopted = await api.terminalCreate({
-            bindingId: binding.bindingId,
-            hostId: binding.hostId,
-            launch: binding.launch,
-            canvasName: state$.canvasName.peek(),
-            nodeId: node.id,
-            label: binding.label,
-            harness: binding.harness,
-            agentKey: binding.agentKey,
-          });
-          terminal$.sessionByBindingId[binding.bindingId].set(adopted);
-          return { ok: true };
-        } catch {
-          terminal$.sessionByBindingId[binding.bindingId].set(live);
-          return { ok: true };
-        }
-      }
+    live = await api.terminalGet?.(binding.bindingId, binding.hostId);
+  } catch {
+    live = undefined;
+  }
+  const occupancy = occupancyFromSummary(binding.bindingId, live);
+  if (occupancy._tag === "OccupiedSeat" && live) {
+    const actor =
+      binding.harness && binding.agentKey
+        ? { harness: binding.harness, agentKey: binding.agentKey }
+        : undefined;
+    if (actor && sessionActorMatches(live, actor)) {
       terminal$.sessionByBindingId[binding.bindingId].set(live);
       return { ok: true };
     }
-  } catch {
-    // fall through to occupy
+    if (actor) {
+      try {
+        const adopted = await api.terminalCreate({
+          bindingId: binding.bindingId,
+          hostId: binding.hostId,
+          launch: binding.launch,
+          canvasName: state$.canvasName.peek(),
+          nodeId: node.id,
+          label: binding.label,
+          harness: actor.harness,
+          agentKey: actor.agentKey,
+        });
+        if (!sessionActorMatches(adopted, actor)) {
+          return {
+            ok: false,
+            message: "remote seat did not bind actor identity",
+          };
+        }
+        terminal$.sessionByBindingId[binding.bindingId].set(adopted);
+        return { ok: true };
+      } catch (err: unknown) {
+        return {
+          ok: false,
+          message: err instanceof Error ? err.message : String(err),
+        };
+      }
+    }
+    terminal$.sessionByBindingId[binding.bindingId].set(live);
+    return { ok: true };
   }
   try {
     let next = await api.terminalCreate({

@@ -335,6 +335,8 @@ describe("term control UDS", () => {
       rows: 24,
     });
     expect(created.status).toBe("running");
+    expect(created.harness).toBe("grok");
+    expect(created.agentKey).toBe("mini:grok");
     expect(
       seatStateRuntime.currentEvents().some((event) => event.bindingId === "uds_actor"),
     ).toBe(true);
@@ -378,24 +380,52 @@ describe("term control UDS", () => {
     });
     cleanups.push(() => client.close());
 
-    await client.create({
+    const geography = await client.create({
       bindingId: "uds_adopt",
       launch: { kind: "shell" },
       cols: 80,
       rows: 24,
     });
+    expect(geography.harness).toBeUndefined();
     expect(
       seatStateRuntime.currentEvents().some((event) => event.bindingId === "uds_adopt"),
     ).toBe(false);
 
-    await client.create({
+    const adopted = await client.create({
       bindingId: "uds_adopt",
       harness: "grok",
       agentKey: "mini:grok",
       launch: { kind: "harness", argv: ["grok"] },
     });
+    expect(adopted.epoch).toBe(geography.epoch);
+    expect(adopted.harness).toBe("grok");
+    expect(adopted.agentKey).toBe("mini:grok");
+    expect(host.runningCount()).toBe(1);
     expect(
       seatStateRuntime.currentEvents().some((event) => event.bindingId === "uds_adopt"),
     ).toBe(true);
+
+    const again = await client.create({
+      bindingId: "uds_adopt",
+      harness: "grok",
+      agentKey: "mini:grok",
+    });
+    expect(again.epoch).toBe(geography.epoch);
+    expect(again.harness).toBe("grok");
+
+    await expect(
+      client.create({
+        bindingId: "uds_adopt",
+        harness: "claude",
+        agentKey: "mini:claude",
+      }),
+    ).rejects.toThrow(/already bound to grok/);
+
+    await expect(
+      client.create({
+        bindingId: "uds_xor",
+        harness: "grok",
+      }),
+    ).rejects.toThrow(/harness and agentKey/);
   });
 });
