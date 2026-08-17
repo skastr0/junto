@@ -1,9 +1,19 @@
-import { describe, expect, it } from "vitest";
-
+import { Effect, Schema } from "effect";
+import { describe, expect, it, vi } from "vitest";
+import type { CanvasDoc, CanvasNode } from "../src/shared/canvas";
+import { InstallationId } from "../src/shared/installation-id";
+import { deriveActorSeatId } from "../src/main/vellum/station/actor-seat-compiler";
+import {
+  ActorSeatOccupy,
+  type ActorOccupySpec,
+} from "../src/main/vellum/term/actor-seat-occupy";
+import { termPlane } from "../src/main/vellum/term/plane";
 import {
   AUTO_RESTART_BACKOFF_MS,
   AUTO_RESTART_MAX,
+  ensureManagedSeatRunning,
   managedSeatWakeDecision,
+  resetAutoRestartBudgetsForTest,
 } from "../src/main/vellum/term/ensure-managed-seat";
 
 const base = {
@@ -96,5 +106,136 @@ describe("managed-seat wake decision", () => {
     expect(
       managedSeatWakeDecision({ ...base, status: "missing" }).kind,
     ).toBe("refuse");
+  });
+});
+
+const managedNode = (): CanvasNode => ({
+  id: "actor",
+  type: "text",
+  x: 0,
+  y: 0,
+  width: 240,
+  height: 100,
+  text: "actor",
+  ether: {
+    entity: { kind: "agent", name: "box-a:codex" },
+    host: "box-a",
+    terminal: {
+      bindingId: "binding-alpha",
+      harness: "codex",
+    },
+  },
+});
+
+const managedFixture = () => {
+  const node = managedNode();
+  const doc: CanvasDoc = { nodes: [node], edges: [] };
+  const installationId = Schema.decodeUnknownSync(InstallationId)("install-a");
+  return {
+    node,
+    doc,
+    authority: {
+      actor: {
+        seatId: deriveActorSeatId(installationId, "binding-alpha"),
+        canvasName: "factory",
+        nodeId: node.id,
+      },
+      installationId,
+      hostId: "box-a",
+    },
+  };
+};
+
+const runningSummary = {
+  bindingId: "binding-alpha",
+  epoch: "generation-1",
+  hostId: "box-a",
+  status: "running",
+  detached: false,
+  createdAt: 1,
+} as const;
+
+describe("managed-seat occupation", () => {
+  it("routes a vacant spawn through ActorSeatOccupy", async () => {
+    resetAutoRestartBudgetsForTest();
+    const fixture = managedFixture();
+    const get = vi.spyOn(termPlane.host, "get").mockReturnValue(undefined);
+    const occupy = vi.fn((_spec: ActorOccupySpec) =>
+      Effect.succeed({
+        ...runningSummary,
+        harness: "codex",
+        agentKey: "box-a:codex",
+      }),
+    );
+    const actorSeatOccupy = ActorSeatOccupy.of({
+      occupy,
+      occupancy: () => Effect.die(new Error("unexpected occupancy call")),
+    });
+
+    try {
+      expect(
+        await Effect.runPromise(
+          ensureManagedSeatRunning(
+            "factory",
+            fixture.doc,
+            fixture.node,
+            fixture.authority,
+            actorSeatOccupy,
+          ),
+        ),
+      ).toBe(true);
+      expect(occupy).toHaveBeenCalledOnce();
+      expect(occupy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          bindingId: "binding-alpha",
+          hostId: "box-a",
+          harness: "codex",
+          agentKey: "box-a:codex",
+        }),
+      );
+    } finally {
+      get.mockRestore();
+    }
+  });
+
+  it("routes a live geography occupant through ActorSeatOccupy for adoption", async () => {
+    resetAutoRestartBudgetsForTest();
+    const fixture = managedFixture();
+    const get = vi
+      .spyOn(termPlane.host, "get")
+      .mockReturnValue(runningSummary);
+    const occupy = vi.fn((_spec: ActorOccupySpec) =>
+      Effect.succeed({
+        ...runningSummary,
+        harness: "codex",
+        agentKey: "box-a:codex",
+      }),
+    );
+    const actorSeatOccupy = ActorSeatOccupy.of({
+      occupy,
+      occupancy: () => Effect.die(new Error("unexpected occupancy call")),
+    });
+
+    try {
+      expect(
+        await Effect.runPromise(
+          ensureManagedSeatRunning(
+            "factory",
+            fixture.doc,
+            fixture.node,
+            fixture.authority,
+            actorSeatOccupy,
+          ),
+        ),
+      ).toBe(true);
+      expect(occupy).toHaveBeenCalledOnce();
+      expect(occupy.mock.calls[0]?.[0]).toMatchObject({
+        bindingId: "binding-alpha",
+        harness: "codex",
+        agentKey: "box-a:codex",
+      });
+    } finally {
+      get.mockRestore();
+    }
   });
 });

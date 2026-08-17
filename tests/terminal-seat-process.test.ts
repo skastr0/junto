@@ -1,11 +1,12 @@
 import { Effect, Exit } from "effect";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LocalSessionHost } from "../src/main/vellum/term/local-host";
 import {
   makeLocalSeatProcess,
   makeRemoteSeatProcess,
+  type OccupySpec,
+  type RemoteAgentSeatInput,
 } from "../src/main/vellum/term/seat-process";
-import type { OccupySpec } from "../src/main/vellum/term/seat-process";
 import type { TerminalSessionSummary } from "../src/shared/terminal";
 import {
   occupancyFromSession,
@@ -30,6 +31,16 @@ const actorSpec = (bindingId: string, hostId?: string): OccupySpec => ({
   ...(hostId === undefined ? {} : { hostId }),
 });
 
+const remoteSummary = (
+  over: Pick<TerminalSessionSummary, "bindingId" | "epoch" | "status"> &
+    Partial<Pick<TerminalSessionSummary, "harness" | "agentKey">>,
+): TerminalSessionSummary => ({
+  hostId: "local",
+  detached: false,
+  createdAt: 1,
+  ...over,
+});
+
 beforeEach(() => {
   syntheticEpochs.clear();
   setProcessEpochReaderForTests({
@@ -51,8 +62,16 @@ afterEach(async () => {
   setProcessIdentityMapForTests(undefined);
 });
 
+const vacantCommand = (bindingId: string, placement: "local" | "remote") => {
+  const command = occupyVacantSeat(
+    occupancyFromSession(bindingId, undefined, placement),
+  );
+  if (command._tag !== "Success") throw new Error("expected occupy command");
+  return command.success;
+};
+
 describe("local TerminalSeatProcess", () => {
-  it("occupies vacant seats and activates occupied ones", async () => {
+  it("occupies vacant seats, activates occupied ones, and rejects an occupy race", async () => {
     setProcessIdentityMapForTests(makeProcessIdentityMap());
     syntheticEpochs.set(42_600, "synthetic-42600");
     const fake = makeFakeTerminalProcessAuthority(() => ({
@@ -62,21 +81,19 @@ describe("local TerminalSeatProcess", () => {
     const host = new LocalSessionHost(fake.authority);
     hosts.push(host);
     const seats = makeLocalSeatProcess(host);
-    const vacant = occupancyFromSession("seat-p", undefined, "local");
-    const occupy = occupyVacantSeat(vacant);
-    if (occupy._tag !== "Success") throw new Error("expected occupy command");
+    const occupy = vacantCommand("seat-p", "local");
 
     const created = await Effect.runPromise(
-      seats.occupy(occupy.success, actorSpec("seat-p")),
+      seats.occupy(occupy, actorSpec("seat-p")),
     );
     expect(created.status).toBe("running");
     expect(created.harness).toBe("grok");
     expect(created.agentKey).toBe("local:grok");
     expect(fake.controllers).toHaveLength(1);
 
-    const occupancy = await Effect.runPromise(seats.occupancy("seat-p"));
-    expect(occupancy._tag).toBe("OccupiedSeat");
-    const admission = seatAdmission(occupancy);
+    const admission = seatAdmission(
+      await Effect.runPromise(seats.occupancy("seat-p")),
+    );
     if (admission._tag !== "ActivateOccupiedSeat") {
       throw new Error("expected activate");
     }
@@ -84,18 +101,17 @@ describe("local TerminalSeatProcess", () => {
       seats.activate(admission, { harness: "grok", agentKey: "local:grok" }),
     );
     expect(activated.epoch).toBe(created.epoch);
-    expect(activated.harness).toBe("grok");
     expect(fake.controllers).toHaveLength(1);
     expect(fake.controllers[0]?.signals).toEqual([]);
 
-    const refused = await Effect.runPromiseExit(
-      seats.occupy(occupy.success, actorSpec("seat-p")),
+    const raced = await Effect.runPromiseExit(
+      seats.occupy(occupy, actorSpec("seat-p")),
     );
-    expect(Exit.isFailure(refused)).toBe(true);
+    expect(Exit.isFailure(raced)).toBe(true);
     expect(host.runningCount()).toBe(1);
   });
 
-  it("adopts occupied geography and refuses a harness mismatch", async () => {
+  it("adopts occupied geography and refuses a different harness", async () => {
     setProcessIdentityMapForTests(makeProcessIdentityMap());
     syntheticEpochs.set(42_601, "synthetic-42601");
     const fake = makeFakeTerminalProcessAuthority(() => ({
@@ -105,46 +121,83 @@ describe("local TerminalSeatProcess", () => {
     const host = new LocalSessionHost(fake.authority);
     hosts.push(host);
     const seats = makeLocalSeatProcess(host);
-    const geo = host.create({
+    const geography = host.create({
       bindingId: "seat-g",
       launch: { kind: "shell" },
     });
-    expect(geo.harness).toBeUndefined();
-    expect(fake.controllers).toHaveLength(1);
 
-    const occupancy = await Effect.runPromise(seats.occupancy("seat-g"));
-    const admission = seatAdmission(occupancy);
+    const admission = seatAdmission(
+      await Effect.runPromise(seats.occupancy("seat-g")),
+    );
     if (admission._tag !== "ActivateOccupiedSeat") {
       throw new Error("expected activate");
     }
     const adopted = await Effect.runPromise(
       seats.activate(admission, { harness: "grok", agentKey: "local:grok" }),
     );
-    expect(adopted.epoch).toBe(geo.epoch);
-    expect(adopted.harness).toBe("grok");
-    expect(adopted.agentKey).toBe("local:grok");
+    expect(adopted).toMatchObject({
+      epoch: geography.epoch,
+      harness: "grok",
+      agentKey: "local:grok",
+    });
     expect(fake.controllers).toHaveLength(1);
 
     const mismatch = await Effect.runPromiseExit(
-      seats.activate(admission, { harness: "claude", agentKey: "local:claude" }),
+      seats.activate(admission, {
+        harness: "claude",
+        agentKey: "local:claude",
+      }),
     );
     expect(Exit.isFailure(mismatch)).toBe(true);
     expect(host.get("seat-g")?.harness).toBe("grok");
   });
+
+  it("flushes an immediately dead resume and returns its live replacement head", async () => {
+    const priorHome = process.env.VELLUM_COMMAND_HOME;
+    delete process.env.VELLUM_COMMAND_HOME;
+    try {
+      setProcessIdentityMapForTests(makeProcessIdentityMap());
+      const fake = makeFakeTerminalProcessAuthority((_spec, index) => {
+        const pid = 42_610 + index;
+        syntheticEpochs.set(pid, `synthetic-${pid}`);
+        return {
+          pid,
+          ...(index === 0 ? { exitImmediately: true as const } : {}),
+          exitOnSignal: false,
+        };
+      });
+      const host = new LocalSessionHost(fake.authority);
+      hosts.push(host);
+      const createAgentSeat = vi.spyOn(host, "createAgentSeat");
+      const seats = makeLocalSeatProcess(host);
+
+      const returned = await Effect.runPromise(
+        seats.occupy(vacantCommand("seat-resume", "local"), {
+          bindingId: "seat-resume",
+          harness: "claude",
+          agentKey: "local:claude",
+          launch: {
+            kind: "harness",
+            argv: ["claude", "--resume", "dead-session-aaaaaaaa"],
+          },
+        }),
+      );
+      const initiallyReturned = createAgentSeat.mock.results[0]?.value;
+
+      expect(returned.status).toBe("running");
+      expect(returned.epoch).toBe(host.get("seat-resume")?.epoch);
+      expect(returned.epoch).not.toBe(initiallyReturned?.epoch);
+      expect(fake.controllers.length).toBeGreaterThanOrEqual(2);
+      expect(fake.controllers[1]?.spec.args).not.toContain("--resume");
+    } finally {
+      if (priorHome === undefined) delete process.env.VELLUM_COMMAND_HOME;
+      else process.env.VELLUM_COMMAND_HOME = priorHome;
+    }
+  });
 });
 
-const remoteSummary = (
-  over: Pick<TerminalSessionSummary, "bindingId" | "epoch" | "status"> &
-    Partial<Pick<TerminalSessionSummary, "harness" | "agentKey">>,
-): TerminalSessionSummary => ({
-  hostId: "station-a",
-  detached: false,
-  createdAt: 1,
-  ...over,
-});
-
-describe("remote TerminalSeatProcess", () => {
-  it("refuses occupy on an occupied seat and activates the same epoch", async () => {
+describe("Remote TerminalSeatProcess", () => {
+  it("rejects an occupied lower-level occupy race and activates an exact actor", async () => {
     const live = remoteSummary({
       bindingId: "seat-r",
       epoch: "epoch-1",
@@ -152,24 +205,17 @@ describe("remote TerminalSeatProcess", () => {
       harness: "grok",
       agentKey: "local:grok",
     });
-    let createAgentSeatCalls = 0;
-    const seats = makeRemoteSeatProcess({
+    const createAgentSeat = vi.fn(async () => live);
+    const seats = makeRemoteSeatProcess("station-a", {
       get: async () => live,
-      createAgentSeat: async () => {
-        createAgentSeatCalls += 1;
-        return live;
-      },
+      createAgentSeat,
     });
-    const occupy = occupyVacantSeat(
-      occupancyFromSession("seat-r", undefined, "remote"),
-    );
-    if (occupy._tag !== "Success") throw new Error("expected occupy command");
+    const occupy = vacantCommand("seat-r", "remote");
 
-    const refused = await Effect.runPromiseExit(
-      seats.occupy(occupy.success, actorSpec("seat-r", "station-a")),
+    const raced = await Effect.runPromiseExit(
+      seats.occupy(occupy, actorSpec("seat-r", "station-a")),
     );
-    expect(Exit.isFailure(refused)).toBe(true);
-    expect(createAgentSeatCalls).toBe(0);
+    expect(Exit.isFailure(raced)).toBe(true);
 
     const occupancy = await Effect.runPromise(seats.occupancy("seat-r"));
     expect(occupancy).toMatchObject({
@@ -184,12 +230,14 @@ describe("remote TerminalSeatProcess", () => {
     const activated = await Effect.runPromise(
       seats.activate(admission, { harness: "grok", agentKey: "local:grok" }),
     );
-    expect(activated.epoch).toBe(live.epoch);
-    expect(createAgentSeatCalls).toBe(0);
+    expect(activated).toMatchObject({
+      epoch: "epoch-1",
+      hostId: "station-a",
+    });
+    expect(createAgentSeat).not.toHaveBeenCalled();
   });
 
-  it("occupies a vacant seat by creating an actor seat once", async () => {
-    let createAgentSeatCalls = 0;
+  it("occupies a vacant actor seat once and projects the requested host", async () => {
     const created = remoteSummary({
       bindingId: "seat-r",
       epoch: "epoch-new",
@@ -197,25 +245,140 @@ describe("remote TerminalSeatProcess", () => {
       harness: "grok",
       agentKey: "local:grok",
     });
-    const seats = makeRemoteSeatProcess({
-      get: async () => undefined,
-      createAgentSeat: async (input) => {
-        createAgentSeatCalls += 1;
-        expect(input.harness).toBe("grok");
-        expect(input.agentKey).toBe("local:grok");
-        return created;
-      },
-    });
-    const occupy = occupyVacantSeat(
-      occupancyFromSession("seat-r", undefined, "remote"),
+    const createAgentSeat = vi.fn(
+      async (_input: RemoteAgentSeatInput) => created,
     );
-    if (occupy._tag !== "Success") throw new Error("expected occupy command");
+    const seats = makeRemoteSeatProcess("station-a", {
+      get: async () => undefined,
+      createAgentSeat,
+    });
 
     const summary = await Effect.runPromise(
-      seats.occupy(occupy.success, actorSpec("seat-r", "station-a")),
+      seats.occupy(
+        vacantCommand("seat-r", "remote"),
+        actorSpec("seat-r", "station-a"),
+      ),
     );
-    expect(summary.epoch).toBe("epoch-new");
-    expect(summary.harness).toBe("grok");
-    expect(createAgentSeatCalls).toBe(1);
+    expect(summary).toMatchObject({
+      epoch: "epoch-new",
+      hostId: "station-a",
+      harness: "grok",
+      agentKey: "local:grok",
+    });
+    expect(createAgentSeat).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["starting geography", "starting", undefined, undefined],
+    ["running geography", "running", undefined, undefined],
+    ["same harness with a stale key", "running", "grok", "old:grok"],
+  ] as const)(
+    "adopts %s through explicit createAgentSeat",
+    async (_name, status, harness, agentKey) => {
+      let live = remoteSummary({
+        bindingId: "seat-adopt",
+        epoch: "epoch-adopt",
+        status,
+        ...(harness === undefined ? {} : { harness }),
+        ...(agentKey === undefined ? {} : { agentKey }),
+      });
+      const createAgentSeat = vi.fn(
+        async (input: RemoteAgentSeatInput) => {
+          live = {
+            ...live,
+            harness: input.harness,
+            agentKey: input.agentKey,
+          };
+          return live;
+        },
+      );
+      const seats = makeRemoteSeatProcess("station-a", {
+        get: async () => live,
+        createAgentSeat,
+      });
+      const admission = seatAdmission(
+        await Effect.runPromise(seats.occupancy("seat-adopt")),
+      );
+      if (admission._tag !== "ActivateOccupiedSeat") {
+        throw new Error("expected activate");
+      }
+
+      const adopted = await Effect.runPromise(
+        seats.activate(admission, {
+          harness: "grok",
+          agentKey: "local:grok",
+        }),
+      );
+
+      expect(adopted).toMatchObject({
+        bindingId: "seat-adopt",
+        epoch: "epoch-adopt",
+        hostId: "station-a",
+        harness: "grok",
+        agentKey: "local:grok",
+      });
+      expect(createAgentSeat).toHaveBeenCalledWith({
+        bindingId: "seat-adopt",
+        harness: "grok",
+        agentKey: "local:grok",
+      });
+    },
+  );
+
+  it("refuses a different harness without asking the Remote to mutate", async () => {
+    const live = remoteSummary({
+      bindingId: "seat-mismatch",
+      epoch: "epoch-mismatch",
+      status: "running",
+      harness: "claude",
+      agentKey: "remote:claude",
+    });
+    const createAgentSeat = vi.fn(async () => live);
+    const seats = makeRemoteSeatProcess("station-a", {
+      get: async () => live,
+      createAgentSeat,
+    });
+    const admission = seatAdmission(
+      await Effect.runPromise(seats.occupancy("seat-mismatch")),
+    );
+    if (admission._tag !== "ActivateOccupiedSeat") {
+      throw new Error("expected activate");
+    }
+
+    const mismatch = await Effect.runPromiseExit(
+      seats.activate(admission, { harness: "grok", agentKey: "local:grok" }),
+    );
+    expect(Exit.isFailure(mismatch)).toBe(true);
+    expect(createAgentSeat).not.toHaveBeenCalled();
+  });
+
+  it("rejects an adoption reply that changes epoch or actor identity", async () => {
+    const geography = remoteSummary({
+      bindingId: "seat-unverified",
+      epoch: "epoch-original",
+      status: "running",
+    });
+    const seats = makeRemoteSeatProcess("station-a", {
+      get: async () => geography,
+      createAgentSeat: async () =>
+        remoteSummary({
+          bindingId: "seat-unverified",
+          epoch: "epoch-replaced",
+          status: "running",
+          harness: "grok",
+          agentKey: "wrong:key",
+        }),
+    });
+    const admission = seatAdmission(
+      await Effect.runPromise(seats.occupancy("seat-unverified")),
+    );
+    if (admission._tag !== "ActivateOccupiedSeat") {
+      throw new Error("expected activate");
+    }
+
+    const unverified = await Effect.runPromiseExit(
+      seats.activate(admission, { harness: "grok", agentKey: "local:grok" }),
+    );
+    expect(Exit.isFailure(unverified)).toBe(true);
   });
 });

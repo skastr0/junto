@@ -3,6 +3,7 @@
  * Used by kernel claim tick so play does not require a prior UI open.
  */
 
+import { Effect } from "effect";
 import type { CanvasDoc, CanvasNode } from "@shared/canvas";
 import { actorDeliverySurfaceOf } from "@shared/actor-surface";
 import type { InstallationId } from "@shared/installation-id";
@@ -11,6 +12,10 @@ import { deriveActorSeatId } from "../station/actor-seat-compiler";
 import { launchForManagedSpawn } from "./managed-spawn-plan";
 import { termPlane } from "./plane";
 import { seatStateRuntime } from "./agent-state";
+import type {
+  ActorOccupySpec,
+  ActorSeatOccupyApi,
+} from "./actor-seat-occupy";
 
 export type ManagedSeatRuntimeAuthority = {
   readonly actor: ActorRef;
@@ -161,75 +166,89 @@ export const ensureManagedSeatRunning = (
   doc: CanvasDoc,
   node: CanvasNode,
   authority: ManagedSeatRuntimeAuthority,
-): boolean => {
-  if (!isManagedSeatRuntimeLocal(canvasName, node, authority)) {
-    console.error(
-      `[wake] refused ${canvasName}/${node.id}: seat identity is not local to this installation`,
-    );
-    return false;
-  }
+  actorSeatOccupy: ActorSeatOccupyApi,
+): Effect.Effect<boolean> =>
+  Effect.gen(function* () {
+    if (!isManagedSeatRuntimeLocal(canvasName, node, authority)) {
+      console.error(
+        `[wake] refused ${canvasName}/${node.id}: seat identity is not local to this installation`,
+      );
+      return false;
+    }
 
-  // The locality proof above already established this exact managed surface.
-  const surface = actorDeliverySurfaceOf(node);
-  if (surface?._tag !== "managedAgent") return false;
+    // The locality proof above already established this exact managed surface.
+    const surface = actorDeliverySurfaceOf(node);
+    if (surface?._tag !== "managedAgent") return false;
 
-  const live = termPlane.host.get(surface.bindingId);
-  const decision = managedSeatWakeDecision({
-    status: live?.status,
-    stopping: live?.stopping === true,
-    exitReason: live?.exitReason,
-    budget: autoRestartBudgets.get(surface.bindingId),
-    nowMs: Date.now(),
-  });
-  if (decision.kind === "reuse") {
-    // A healthy live generation clears the restart spend.
-    autoRestartBudgets.delete(surface.bindingId);
-    return true;
-  }
-  if (decision.kind === "refuse") {
-    console.error(
-      `[wake] refused ${canvasName}/${node.id} (${surface.bindingId}): ${decision.reason}`,
-    );
-    return false;
-  }
-  if (decision.restart) {
-    const spent = autoRestartBudgets.get(surface.bindingId);
-    autoRestartBudgets.set(surface.bindingId, {
-      restarts: (spent?.restarts ?? 0) + 1,
-      lastRestartAtMs: Date.now(),
-    });
-  }
-
-  const planned = launchForManagedSpawn({
-    doc,
-    nodeId: node.id,
-    harness: surface.harness,
-    documentLaunch: surface.launch,
-    agentKey: surface.agentKey,
-    cwd: surface.launch?.cwd,
-    resume: true,
-  });
-
-  try {
-    termPlane.host.createAgentSeat({
+    const occupy = (spec: ActorOccupySpec): Effect.Effect<boolean> =>
+      actorSeatOccupy.occupy(spec).pipe(
+        Effect.match({
+          onFailure: (error) => {
+            console.error(
+              `[term] ensureManagedSeatRunning failed for ${surface.bindingId}:`,
+              error,
+            );
+            return false;
+          },
+          onSuccess: () => true,
+        }),
+      );
+    const baseSpec: ActorOccupySpec = {
       bindingId: surface.bindingId,
       hostId: surface.hostId,
-      launch: planned.launch ?? surface.launch,
       canvasName,
       nodeId: node.id,
       label: node.ether?.terminal?.label,
       harness: surface.harness,
       agentKey: surface.agentKey,
+      ...(surface.launch === undefined ? {} : { launch: surface.launch }),
+    };
+
+    const live = termPlane.host.get(surface.bindingId);
+    const decision = managedSeatWakeDecision({
+      status: live?.status,
+      stopping: live?.stopping === true,
+      exitReason: live?.exitReason,
+      budget: autoRestartBudgets.get(surface.bindingId),
+      nowMs: Date.now(),
+    });
+    if (decision.kind === "reuse") {
+      // Occupied does not mean actor-bound. The single WHEN adopts a compatible
+      // live geography generation without replacing its epoch.
+      const activated = yield* occupy(baseSpec);
+      if (activated) autoRestartBudgets.delete(surface.bindingId);
+      return activated;
+    }
+    if (decision.kind === "refuse") {
+      console.error(
+        `[wake] refused ${canvasName}/${node.id} (${surface.bindingId}): ${decision.reason}`,
+      );
+      return false;
+    }
+    if (decision.restart) {
+      const spent = autoRestartBudgets.get(surface.bindingId);
+      autoRestartBudgets.set(surface.bindingId, {
+        restarts: (spent?.restarts ?? 0) + 1,
+        lastRestartAtMs: Date.now(),
+      });
+    }
+
+    const planned = launchForManagedSpawn({
+      doc,
+      nodeId: node.id,
+      harness: surface.harness,
+      documentLaunch: surface.launch,
+      agentKey: surface.agentKey,
+      cwd: surface.launch?.cwd,
+      resume: true,
+    });
+    const launch = planned.launch ?? surface.launch;
+
+    return yield* occupy({
+      ...baseSpec,
+      ...(launch === undefined ? {} : { launch }),
       ...(planned.plan?.firstTypedMessage
         ? { firstTypedMessage: planned.plan.firstTypedMessage }
         : {}),
     });
-    return true;
-  } catch (err) {
-    console.error(
-      `[term] ensureManagedSeatRunning failed for ${surface.bindingId}:`,
-      err,
-    );
-    return false;
-  }
-};
+  });

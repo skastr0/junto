@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect, Exit } from "effect";
+import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { makeActorSeatOccupy } from "../src/main/vellum/term/actor-seat-occupy";
 import { seatStateRuntime } from "../src/main/vellum/term/agent-state";
@@ -76,17 +76,8 @@ describe("actor occupy protocol (in-process both ends)", () => {
     const create = vi.spyOn(host, "create");
     const when = makeActorSeatOccupy({
       local: host,
-      isLocalHostId: () => false,
-      clientFor: async () => ({
-        get: (id) => client.get(id),
-        createAgentSeat: (spec) =>
-          client.createAgentSeat({
-            bindingId: spec.bindingId,
-            harness: spec.harness,
-            agentKey: spec.agentKey,
-            launch: spec.launch,
-          }),
-      }),
+      localHostId: () => Effect.succeed("cc-self"),
+      clientForOccupy: async () => client,
     });
 
     const created = await Effect.runPromise(
@@ -101,6 +92,7 @@ describe("actor occupy protocol (in-process both ends)", () => {
     expect(created.harness).toBe("grok");
     expect(created.agentKey).toBe("station:grok");
     expect(created.status).toBe("running");
+    expect(created.hostId).toBe("station-a");
     expect(createAgentSeat).toHaveBeenCalledTimes(1);
     expect(create).not.toHaveBeenCalled();
     expect(
@@ -109,7 +101,7 @@ describe("actor occupy protocol (in-process both ends)", () => {
         .some((event) => event.bindingId === "proto_actor"),
     ).toBe(true);
 
-    const refused = await Effect.runPromiseExit(
+    const activated = await Effect.runPromise(
       when.occupy({
         bindingId: "proto_actor",
         harness: "grok",
@@ -117,8 +109,43 @@ describe("actor occupy protocol (in-process both ends)", () => {
         hostId: "station-a",
       }),
     );
-    expect(Exit.isFailure(refused)).toBe(true);
+    expect(activated.epoch).toBe(created.epoch);
+    expect(activated.hostId).toBe("station-a");
     expect(createAgentSeat).toHaveBeenCalledTimes(1);
+  });
+
+  it("adopts occupied Remote geography over UDS without replacing its epoch", async () => {
+    const { host, client } = await startPair();
+    const geography = host.create({
+      bindingId: "proto_geography",
+      launch: { kind: "shell" },
+    });
+    const adoptAgentSeat = vi.spyOn(host, "adoptAgentSeat");
+    const createAgentSeat = vi.spyOn(host, "createAgentSeat");
+    const when = makeActorSeatOccupy({
+      local: host,
+      localHostId: () => Effect.succeed("cc-self"),
+      clientForOccupy: async () => client,
+    });
+
+    const adopted = await Effect.runPromise(
+      when.occupy({
+        bindingId: "proto_geography",
+        harness: "grok",
+        agentKey: "station:grok",
+        hostId: "station-a",
+      }),
+    );
+
+    expect(adopted).toMatchObject({
+      epoch: geography.epoch,
+      hostId: "station-a",
+      status: "running",
+      harness: "grok",
+      agentKey: "station:grok",
+    });
+    expect(adoptAgentSeat).toHaveBeenCalledTimes(1);
+    expect(createAgentSeat).not.toHaveBeenCalled();
   });
 
   it("fuzz: garbage and partial frames do not occupy an actor", async () => {

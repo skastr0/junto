@@ -43,6 +43,7 @@ import { HermesTransportLive } from "./vellum/hermes/transport";
 import { HerdrPlaneLive } from "./vellum/herdr/plane";
 import { HerdrTransportLive } from "./vellum/herdr/transport";
 import { TerminalSessions } from "./vellum/term/sessions";
+import { ActorSeatOccupyLive } from "./vellum/term/actor-seat-occupy-live";
 import { termPlane } from "./vellum/term/plane";
 import { HerdrPlane } from "./vellum/herdr/plane";
 import {
@@ -339,11 +340,18 @@ const BaseLayer = Layer.mergeAll(
 // kernel, work control, and IPC all share ONE born-paused switch instance.
 const BaseWithPauseLive = Layer.provideMerge(PausePlaneLive, BaseLayer);
 
+// Base owns StationRepository; provide it into the per-call actor WHEN while
+// retaining ActorSeatOccupy as a root service for KernelLive and other ingress.
+const BaseWithActorSeatOccupyLive = Layer.provideMerge(
+  ActorSeatOccupyLive,
+  BaseWithPauseLive,
+);
+
 const KernelWithWorkLive = Layer.provideMerge(KernelLive, WorkLive);
 
 export const RootLayer = Layer.provideMerge(
   Layer.mergeAll(KernelWithWorkLive, RegionRollupLive),
-  BaseWithPauseLive,
+  BaseWithActorSeatOccupyLive,
 );
 
 // Observability logger is an additional Effect sink (ring buffer) — does not

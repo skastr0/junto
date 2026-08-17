@@ -1,12 +1,15 @@
 /**
- * Actor seat WHEN. Local-vs-remote directory is legal here only.
- * TerminalSeatProcess is HOW — occupy always creates an actor seat.
+ * Actor seat WHEN.
+ *
+ * This service decides admission and placement only. Process mechanics stay in
+ * TerminalSeatProcess, supplied for each call as the selected local or Remote
+ * HOW. No process implementation belongs in a root layer here.
  */
-import { Context, Effect, Layer, Result } from "effect";
+import { Context, Effect, Layer } from "effect";
 import type { HarnessId } from "@shared/managed-terminal-templates";
 import type { TerminalSessionSummary } from "@shared/terminal";
 import {
-  occupyVacantSeat,
+  seatAdmission,
   type SeatAlreadyOccupiedError,
   type SeatOccupancy,
   type SeatVacantError,
@@ -17,6 +20,7 @@ import {
   makeRemoteSeatProcess,
   TerminalSeatProcess,
   type OccupySpec,
+  type RemoteSeatProcessClient,
 } from "./seat-process";
 
 export type ActorOccupySpec = OccupySpec & {
@@ -45,46 +49,60 @@ export class ActorSeatOccupy extends Context.Service<
 
 export type ActorSeatOccupyDeps = {
   readonly local: LocalSessionHost;
-  readonly isLocalHostId: (hostId?: string) => boolean;
-  readonly clientFor: (hostId: string) => Promise<{
-    get: (id: string) => Promise<TerminalSessionSummary | undefined>;
-    createAgentSeat: (input: ActorOccupySpec) => Promise<TerminalSessionSummary>;
-  }>;
+  /** Resolve this installation's durable identity at the time of each call. */
+  readonly localHostId: () => Effect.Effect<string | undefined, Error>;
+  /** Directory seam only. The returned client is the selected Remote HOW. */
+  readonly clientForOccupy: (
+    hostId: string,
+  ) => Promise<RemoteSeatProcessClient>;
 };
 
 const asClientError = (cause: unknown): Error =>
   cause instanceof Error ? cause : new Error(String(cause));
 
+const normalizeTargetHostId = (hostId: string | undefined): string =>
+  hostId?.trim() || "local";
+
+const normalizeDurableHostId = (
+  hostId: string | undefined,
+): string | undefined => {
+  const normalized = hostId?.trim();
+  return normalized ? normalized : undefined;
+};
+
 const howFor = (
   deps: ActorSeatOccupyDeps,
-  hostId: string | undefined,
+  targetHostId: string,
 ): Effect.Effect<Context.Service.Shape<typeof TerminalSeatProcess>, Error> =>
   Effect.gen(function* () {
-    if (deps.isLocalHostId(hostId)) {
+    const localHostId = normalizeDurableHostId(yield* deps.localHostId());
+    if (targetHostId === "local" || targetHostId === localHostId) {
       return makeLocalSeatProcess(deps.local);
     }
-    if (hostId === undefined || hostId === "") {
-      return yield* Effect.fail(new Error("remote actor occupy requires hostId"));
-    }
     const client = yield* Effect.tryPromise({
-      try: () => deps.clientFor(hostId),
+      try: () => deps.clientForOccupy(targetHostId),
       catch: asClientError,
     });
-    return makeRemoteSeatProcess(client);
+    return makeRemoteSeatProcess(targetHostId, client);
   });
 
 const provideHow = <A, E>(
   deps: ActorSeatOccupyDeps,
-  hostId: string | undefined,
+  targetHostId: string,
   program: Effect.Effect<A, E, TerminalSeatProcess>,
 ): Effect.Effect<A, E | Error> =>
   Effect.gen(function* () {
-    const impl = yield* howFor(deps, hostId);
+    const implementation = yield* howFor(deps, targetHostId);
     return yield* program.pipe(
-      Effect.provide(Layer.succeed(TerminalSeatProcess, impl)),
+      Effect.provide(
+        Layer.succeed(TerminalSeatProcess, implementation),
+      ),
     );
   });
 
+const assertNever = (value: never): never => value;
+
+/** One exhaustive WHEN program for both local and Remote occupation. */
 const occupyProgram = (
   spec: ActorOccupySpec,
 ): Effect.Effect<
@@ -94,17 +112,23 @@ const occupyProgram = (
 > =>
   Effect.gen(function* () {
     const seats = yield* TerminalSeatProcess;
-    const occupancy = yield* seats.occupancy(spec.bindingId);
-    const occupy = occupyVacantSeat(occupancy);
-    if (Result.isFailure(occupy)) {
-      return yield* occupy.failure;
+    const admission = seatAdmission(yield* seats.occupancy(spec.bindingId));
+    switch (admission._tag) {
+      case "OccupyVacantSeat":
+        return yield* seats.occupy(admission, spec);
+      case "ActivateOccupiedSeat":
+        return yield* seats.activate(admission, {
+          harness: spec.harness,
+          agentKey: spec.agentKey,
+        });
+      default:
+        return assertNever(admission);
     }
-    return yield* seats.occupy(occupy.success, spec);
   });
 
 const occupancyProgram = (
   bindingId: string,
-): Effect.Effect<SeatOccupancy, never, TerminalSeatProcess> =>
+): Effect.Effect<SeatOccupancy, Error, TerminalSeatProcess> =>
   Effect.gen(function* () {
     const seats = yield* TerminalSeatProcess;
     return yield* seats.occupancy(bindingId);
@@ -114,7 +138,16 @@ export const makeActorSeatOccupy = (
   deps: ActorSeatOccupyDeps,
 ): Context.Service.Shape<typeof ActorSeatOccupy> =>
   ActorSeatOccupy.of({
-    occupy: (spec) => provideHow(deps, spec.hostId, occupyProgram(spec)),
-    occupancy: (bindingId, hostId) =>
-      provideHow(deps, hostId, occupancyProgram(bindingId)),
+    occupy: (spec) => {
+      const targetHostId = normalizeTargetHostId(spec.hostId);
+      return provideHow(
+        deps,
+        targetHostId,
+        occupyProgram({ ...spec, hostId: targetHostId }),
+      );
+    },
+    occupancy: (bindingId, hostId) => {
+      const targetHostId = normalizeTargetHostId(hostId);
+      return provideHow(deps, targetHostId, occupancyProgram(bindingId));
+    },
   });

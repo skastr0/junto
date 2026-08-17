@@ -79,6 +79,7 @@ import {
   type ManagedSeatRuntimeAuthority,
 } from "../term/ensure-managed-seat";
 import { seatStateRuntime } from "../term/agent-state";
+import { ActorSeatOccupy } from "../term/actor-seat-occupy";
 import {
   managedPulseDeliver,
   subscribeManagedPulseReady,
@@ -528,6 +529,7 @@ const makeKernelService = (
   livePeers: LivePeersShape,
   work: WorkShape,
   workRepository: WorkRepositoryShape,
+  actorSeatOccupy: Context.Service.Shape<typeof ActorSeatOccupy>,
 ): KernelServiceShape => {
   const docs = new Map<string, CanvasDoc>();
   const snapshotListeners = new Set<(snapshot: KernelSnapshot) => void>();
@@ -907,48 +909,55 @@ const makeKernelService = (
     scope: ActiveStationScope,
     registry: ActiveActorRegistry,
     generation: number,
-  ): void => {
-    for (const [canvasName, doc] of docs) {
-      if (!generationIsActive(generation)) return;
-      const state = pause.stateFor(canvasName);
-      if (!state.playing) continue;
-
-      const seatPausedHere = (nodeId: string): boolean =>
-        seatPaused(state, doc, nodeId);
-      const wanted = actorsNeedingWake(doc, canvasName, registry.resolve, {
-        seatPaused: seatPausedHere,
-        // Awake covers both "already live here" and "not this station's seat
-        // to start" — a Remote's actor is started by its own installation.
-        isAwake: (node) => {
-          const authority = runtimeAuthority(scope, registry, canvasName, node);
-          if (authority === undefined) return true;
-          if (!isManagedSeatRuntimeLocal(canvasName, node, authority)) {
-            return true;
-          }
-          const surface = actorDeliverySurfaceOf(node);
-          return (
-            surface?._tag === "managedAgent" &&
-            localManagedSeatReadyForClaim(surface.bindingId)
-          );
-        },
-      });
-      if (wanted.size === 0) continue;
-
-      for (const node of doc.nodes) {
+  ): Effect.Effect<void> =>
+    Effect.gen(function* () {
+      for (const [canvasName, doc] of docs) {
         if (!generationIsActive(generation)) return;
-        if (!wanted.has(node.id)) continue;
-        if (seatPausedHere(node.id)) continue;
-        const authority = runtimeAuthority(
-          scope,
-          registry,
-          canvasName,
-          node,
-        );
-        if (authority === undefined) continue;
-        ensureManagedSeatRunning(canvasName, doc, node, authority);
+        const state = pause.stateFor(canvasName);
+        if (!state.playing) continue;
+
+        const seatPausedHere = (nodeId: string): boolean =>
+          seatPaused(state, doc, nodeId);
+        const wanted = actorsNeedingWake(doc, canvasName, registry.resolve, {
+          seatPaused: seatPausedHere,
+          // Awake covers both "already live here" and "not this station's seat
+          // to start" — a Remote's actor is started by its own installation.
+          isAwake: (node) => {
+            const authority = runtimeAuthority(scope, registry, canvasName, node);
+            if (authority === undefined) return true;
+            if (!isManagedSeatRuntimeLocal(canvasName, node, authority)) {
+              return true;
+            }
+            const surface = actorDeliverySurfaceOf(node);
+            return (
+              surface?._tag === "managedAgent" &&
+              localManagedSeatReadyForClaim(surface.bindingId)
+            );
+          },
+        });
+        if (wanted.size === 0) continue;
+
+        for (const node of doc.nodes) {
+          if (!generationIsActive(generation)) return;
+          if (!wanted.has(node.id)) continue;
+          if (seatPausedHere(node.id)) continue;
+          const authority = runtimeAuthority(
+            scope,
+            registry,
+            canvasName,
+            node,
+          );
+          if (authority === undefined) continue;
+          yield* ensureManagedSeatRunning(
+            canvasName,
+            doc,
+            node,
+            authority,
+            actorSeatOccupy,
+          );
+        }
       }
-    }
-  };
+    });
 
   // V4-PROGRAM: factory control path is Effect, not async Promise chains.
   const runClaimTicks = (
@@ -1157,10 +1166,16 @@ const makeKernelService = (
             );
             if (alreadyAccepted) continue;
             if (!generationIsActive(generation)) return;
-            ensureManagedSeatRunning(canvasName, doc, actor, authority);
+            const running = yield* ensureManagedSeatRunning(
+              canvasName,
+              doc,
+              actor,
+              authority,
+              actorSeatOccupy,
+            );
             // Claim brief only — never a prior `/compact` gate. Compact is not
             // part of claim delivery; the seat receives one complete CLI packet.
-            if (!generationIsActive(generation)) return;
+            if (!running || !generationIsActive(generation)) continue;
             const accepted = yield* Effect.promise(() =>
               managedPulseDeliver(
                 surface.bindingId,
@@ -1227,7 +1242,7 @@ const makeKernelService = (
     const currentSnapshots = yield* snapshots.current;
     if (!generationIsActive(generation)) return;
     __setSnapshotsForTest(currentSnapshots);
-    startManagedSeats(scope, registry, generation);
+    yield* startManagedSeats(scope, registry, generation);
     if (!generationIsActive(generation)) return;
     // Evaluation + timers remain Promise-shaped pure-cycle modules; wrap once
     // at the Effect boundary (not factory control plane ownership).
@@ -1314,7 +1329,13 @@ const makeKernelService = (
         return refuse("seat is paused");
       }
 
-      return ensureManagedSeatRunning(canvasName, doc, node, authority);
+      return yield* ensureManagedSeatRunning(
+        canvasName,
+        doc,
+        node,
+        authority,
+        actorSeatOccupy,
+      );
     });
 
   const wakeManagedSeat = (
@@ -1515,6 +1536,7 @@ export const KernelLive = Layer.effect(
     const livePeers = yield* StationLivePeerRegistry;
     const work = yield* WorkService;
     const workRepository = yield* WorkRepository;
+    const actorSeatOccupy = yield* ActorSeatOccupy;
     // No Runtime capture (V4-KERNEL / V4-PROGRAM / migration/runtime.md).
     // Domain Effects exit only after start(host) binds AppRuntime / RemoteRuntime.
     return makeKernelService(
@@ -1527,6 +1549,7 @@ export const KernelLive = Layer.effect(
       livePeers,
       work,
       workRepository,
+      actorSeatOccupy,
     );
   }),
 );

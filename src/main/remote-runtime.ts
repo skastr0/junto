@@ -67,6 +67,7 @@ import { OpenSshStationPeerExchangeLive } from "./vellum/station/openssh-peer-ex
 import { StationLivePeerRegistryLive } from "./vellum/station/session-registry";
 import { CURRENT_STATE_SCHEMA_VERSION } from "./vellum/state/migrations";
 import { TerminalSessions } from "./vellum/term/sessions";
+import { ActorSeatOccupyLive } from "./vellum/term/actor-seat-occupy-live";
 import { compiledLicenseBuildConfig } from "./vellum/license/compiled-config";
 import { makeDodoLicenseClient } from "./vellum/license/dodo-client";
 import {
@@ -277,12 +278,19 @@ const BaseLayer = Layer.mergeAll(
 
 const BaseWithPauseLive = Layer.provideMerge(PausePlaneLive, BaseLayer);
 
+// Base owns StationRepository; provide it into the per-call actor WHEN while
+// retaining ActorSeatOccupy as a root service for KernelLive and other ingress.
+const BaseWithActorSeatOccupyLive = Layer.provideMerge(
+  ActorSeatOccupyLive,
+  BaseWithPauseLive,
+);
+
 const KernelWithWorkLive = Layer.provideMerge(KernelLive, WorkLive);
 
 const RemoteRootLayer = Layer.provideMerge(
   Layer.mergeAll(KernelWithWorkLive, RegionRollupLive),
   Layer.provideMerge(
-    BaseWithPauseLive,
+    BaseWithActorSeatOccupyLive,
     Layer.mergeAll(ProductPlanesWithChatLive, CanvasesWithStateLive),
   ),
 );
