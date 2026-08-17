@@ -95,7 +95,7 @@ export const BOX_FLEET_DISABLED_DETAIL =
   "Box fleet provisioning is not available in this release. Vellum Command currently supports managed hosts on macOS only.";
 
 export const REMOTE_INSTALLS_OPERATOR_DISABLED_DETAIL =
-  "Remote installs are turned off in Settings → Fleet. Enable “Allow remote managed installs” to deploy Vellum Command to enrolled Remotes.";
+  "Remote installs are turned off in Settings → Machine. Enable “Allow remote managed installs” to deploy Vellum Command to enrolled Remotes.";
 
 export const NOT_COMMAND_CENTER_DETAIL =
   "Only the Command Center may configure Remotes or deploy packages.";

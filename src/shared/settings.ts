@@ -136,15 +136,15 @@ export const FleetDitherLevel = Schema.Literals(["fine", "balanced",
 export type FleetDitherLevel = typeof FleetDitherLevel.Type;
 
 /**
- * Fleet operator prefs (not secrets). Remote deployment kill-switch; the UI
+ * Fleet operator prefs (not secrets). Remote deployment kill switch; the UI
  * shows disabled controls when false and main re-gates every invoke.
  */
 export const FleetSettings = Schema.Struct({
   /** Ordered-dither density for the Fleet map. */
   ditherLevel: FleetDitherLevel,
   /**
-   * When false (default), managed Remote deployment refuses even if the
-   * release line enables it.
+   * When false, managed Remote deployment refuses even if the release line
+   * enables it. Fresh Command Centers enable managed installs by default.
    */
   remoteManagedInstalls: Schema.Boolean,
 });
@@ -386,10 +386,10 @@ export const defaultHarnesses = (): HarnessesSettings => ({
   byHarness: {},
 });
 
-/** Fail-closed: managed Remote deployment requires explicit operator opt-in. */
+/** Managed Remote deployment is available by default; the operator may disable it. */
 export const defaultFleet = (): FleetSettings => ({
   ditherLevel: "fine",
-  remoteManagedInstalls: false,
+  remoteManagedInstalls: true,
 });
 
 export const defaultStation = (): StationSettings => ({

@@ -1028,7 +1028,8 @@ function AudioSection() {
 
 function StationSection() {
   const station = use$(state$.settings.station);
-  // Fleet UI: host identity + supervised preference. Remote enrollment stays
+  const fleet = use$(state$.settings.fleet);
+  // Fleet UI: host identity, managed installs, and supervisor preference.
   // Command Center–driven, not a free-form Settings form.
   if (!FLEET_UI_ENABLED || !isCommandCenterFleetUi(station.role)) return null;
   return (
@@ -1038,6 +1039,21 @@ function StationSection() {
         hint="How this installation is identified across the fleet"
       >
         <span style={{ color: INK, fontSize: 13 }}>{station.hostId}</span>
+      </FieldRow>
+      <FieldRow
+        label="Allow remote managed installs"
+        hint="Deploy and update Vellum Command on enrolled Remotes"
+      >
+        <input
+          type="checkbox"
+          checked={fleet.remoteManagedInstalls}
+          aria-label="Allow remote managed installs"
+          onChange={(event) =>
+            void patchSettings({
+              fleet: { remoteManagedInstalls: event.target.checked },
+            })
+          }
+        />
       </FieldRow>
       <FieldRow
         label="Prefer supervised runtime"

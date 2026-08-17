@@ -106,7 +106,8 @@ describe("settings state architecture", () => {
     expect(service).toContain("ensureDefaultCommandCenter");
     expect(service).toContain('role: "command-center"');
     expect(panel).not.toContain("Pull from Command Center");
-    expect(panel).not.toContain("Allow remote managed installs");
+    expect(panel).toContain("Allow remote managed installs");
+    expect(panel).toContain("fleet: { remoteManagedInstalls: event.target.checked }");
     expect(panel).not.toContain("Remote identity cannot be changed locally");
     expect(panel).not.toContain("enroll it from an existing one");
   });
