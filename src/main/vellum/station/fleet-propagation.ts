@@ -13,7 +13,9 @@ import { Clock,
 import {
   InstallationId,
   StationHostId,
+  compareLogicalSequence,
   type ReportRequest,
+  type StationProjectionReference,
   type StationReadiness,
 } from "@shared/station-api";
 import {
@@ -136,6 +138,33 @@ export type StationFleetPeerStatus = {
   readonly protocol?: StationProtocolObservation;
   readonly lastReceipt?: StationPropagationReceipt;
   readonly lastFailure?: StationFleetPeerUnavailable;
+};
+
+/** Exact projection identity a barrier caller wants acknowledged. */
+export type StationProjectionDesiredRef = Pick<
+  StationProjectionReference,
+  "generation" | "contentSha256"
+>;
+
+/**
+ * A receipt covers the desired reference when the Remote acknowledged that
+ * exact projection, or a strictly newer one. Newer is acceptable because the
+ * projection stream is linear full-replace state: a later generation was
+ * compiled from later committed authority, which supersedes the desired one.
+ */
+export const projectionReceiptCovers = (
+  receipt: StationPropagationReceipt,
+  desired: StationProjectionDesiredRef,
+): boolean => {
+  const order = compareLogicalSequence(
+    receipt.projection.active.generation,
+    desired.generation,
+  );
+  return (
+    order > 0 ||
+    (order === 0 &&
+      receipt.projection.active.contentSha256 === desired.contentSha256)
+  );
 };
 
 export type StationFleetPropagationResult =
@@ -1208,3 +1237,79 @@ export const StationFleetPropagationLive = Layer.effect(
     });
   }),
 );
+
+/**
+ * Await acknowledgement of the exact desired projection reference (or a
+ * strictly newer one) by one enrolled Remote.
+ *
+ * A bare `synchronize` is insufficient here: its bounded waiter can be
+ * completed by an older reconciliation that was already in flight when the
+ * authoring change committed. This helper keeps requesting reconciliations —
+ * each one an event-completed round, never a sleep or fixed-delay poll —
+ * until the acknowledged generation covers the desired reference, a typed
+ * peer failure surfaces, or the bounded deadline passes.
+ */
+export const awaitFleetProjectionApplied = (
+  fleet: Context.Service.Shape<typeof StationFleetPropagation>,
+  hostId: HostIdValue,
+  desired: StationProjectionDesiredRef,
+): Effect.Effect<
+  StationFleetPropagationResult,
+  StationFleetTargetRepositoryError
+> =>
+  Effect.gen(function* () {
+    const deadlineAt =
+      (yield* Clock.currentTimeMillis) +
+      STATION_FLEET_SYNCHRONIZE_TIMEOUT_MS;
+    while (true) {
+      // Durable short-circuit: an already-acknowledged covering projection
+      // needs no new reconciliation round before activation.
+      const current = yield* fleet.status(hostId);
+      if (
+        current?.lastReceipt !== undefined &&
+        projectionReceiptCovers(current.lastReceipt, desired)
+      ) {
+        return {
+          ok: true as const,
+          hostId,
+          stationInstallationId: current.stationInstallationId,
+          receipt: current.lastReceipt,
+          status: current,
+        };
+      }
+      const results = yield* fleet.synchronize(hostId);
+      const result =
+        results.find((candidate) => candidate.hostId === hostId) ??
+        results[0];
+      if (result === undefined) {
+        return {
+          ok: false as const,
+          hostId,
+          error: unavailable(
+            hostId,
+            undefined,
+            "stopped",
+            "Station fleet supervisor is stopped",
+          ),
+        };
+      }
+      if (!result.ok) return result;
+      if (projectionReceiptCovers(result.receipt, desired)) return result;
+      if ((yield* Clock.currentTimeMillis) >= deadlineAt) {
+        return {
+          ok: false as const,
+          hostId,
+          ...(result.stationInstallationId === undefined
+            ? {}
+            : { stationInstallationId: result.stationInstallationId }),
+          error: unavailable(
+            hostId,
+            result.stationInstallationId,
+            "deadline",
+            "Remote acknowledged an older projection before the bounded deadline",
+          ),
+          status: result.status,
+        };
+      }
+    }
+  }).pipe(Effect.withSpan("station.fleet.await-projection-applied"));

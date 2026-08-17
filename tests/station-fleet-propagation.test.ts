@@ -37,6 +37,7 @@ import {
   StationFleetPeerUnavailable,
   StationPeerRouteResolutionError,
   StationPeerRouteResolver,
+  awaitFleetProjectionApplied,
 } from "../src/main/vellum/station/fleet-propagation";
 import {
   StationFleetTargetRepository,
@@ -215,6 +216,11 @@ type HarnessOptions = {
   readonly blockFirstSynchronizationFor?: HostIdValue;
   readonly blockFirstTargetList?: boolean;
   readonly responseHasMore?: boolean;
+  /** Acknowledged projection generation per synchronization round. */
+  readonly generationFor?: (
+    host: HostIdValue,
+    synchronization: number,
+  ) => string;
 };
 
 const makeHarness = (
@@ -338,10 +344,14 @@ const makeHarness = (
           (reportCursors.get(input.stationInstallationId) ?? 0) + 1;
         reportCursors.set(input.stationInstallationId, cursor);
         return receipt(input.stationInstallationId, {
-          generation: stationSequence("1"),
+          generation: stationSequence(
+            options.generationFor?.(input.hostId, next) ?? "1",
+          ),
           reportCursor: cursor,
         });
       }),
+    desiredProjectionForHost: () =>
+      Effect.die("fake propagation compiles no desired projections"),
   });
 
   const routeResolver = StationPeerRouteResolver.of({
@@ -1400,6 +1410,102 @@ describe("FLEET-P4 two-Remote Station topology", () => {
 
       await runtime.runPromise(harness.releaseSynchronization);
       await Promise.all(aRequests);
+    });
+  });
+});
+
+describe("awaitFleetProjectionApplied", () => {
+  const desired = (generation: string) => ({
+    generation: stationSequence(generation),
+    contentSha256: sha256("a".repeat(64)),
+  });
+
+  it("is not satisfied by an older in-flight reconciliation and resolves on the exact generation", async () => {
+    const remote = target("await-host", "await-station");
+    const harness = makeHarness([remote], {
+      blockFirstSynchronizationFor: remote.hostId,
+      generationFor: (_host, synchronization) =>
+        synchronization === 1 ? "1" : "2",
+    });
+
+    await withRuntime(harness, async (runtime) => {
+      const service = await runtime.runPromise(StationFleetPropagation);
+      await runtime.runPromise(service.start());
+      // Round 1 (generation 1) is already in flight when the await begins.
+      await runtime.runPromise(harness.synchronizationStarted);
+
+      const awaited = runtime.runPromise(
+        awaitFleetProjectionApplied(service, remote.hostId, desired("2")),
+      );
+      await runtime.runPromise(harness.releaseSynchronization);
+      const result = await awaited;
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.receipt.projection.active.generation).toBe("2");
+      }
+      // The stale round completed a waiter but did not satisfy the await;
+      // a fresh reconciliation carried the desired generation.
+      expect(
+        harness.synchronizationCount(remote.hostId),
+      ).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  it("short-circuits on an already-acknowledged covering projection without a new round", async () => {
+    const remote = target("covered-host", "covered-station");
+    const harness = makeHarness([remote], {
+      generationFor: () => "2",
+    });
+
+    await withRuntime(harness, async (runtime) => {
+      const service = await runtime.runPromise(StationFleetPropagation);
+      await runtime.runPromise(service.synchronize(remote.hostId));
+      await ready(runtime, service, remote.hostId);
+      const rounds = harness.synchronizationCount(remote.hostId);
+
+      const exact = await runtime.runPromise(
+        awaitFleetProjectionApplied(service, remote.hostId, desired("2")),
+      );
+      const superseded = await runtime.runPromise(
+        awaitFleetProjectionApplied(service, remote.hostId, desired("1")),
+      );
+
+      expect(exact.ok).toBe(true);
+      expect(superseded.ok).toBe(true);
+      expect(harness.synchronizationCount(remote.hostId)).toBe(rounds);
+    });
+  });
+
+  it("surfaces a typed unavailability for an offline Remote and an unenrolled host", async () => {
+    const offline = target("await-offline-host", "await-offline-station");
+    const harness = makeHarness([offline], {
+      failRouteFor: new Set([offline.hostId]),
+    });
+
+    await withRuntime(harness, async (runtime) => {
+      const service = await runtime.runPromise(StationFleetPropagation);
+
+      const unreachable = await runtime.runPromise(
+        awaitFleetProjectionApplied(service, offline.hostId, desired("1")),
+      );
+      expect(unreachable.ok).toBe(false);
+      if (unreachable.ok === false) {
+        expect(unreachable.error).toBeInstanceOf(StationFleetPeerUnavailable);
+        expect(unreachable.error.reason).toBe("route-unavailable");
+      }
+
+      const unenrolled = await runtime.runPromise(
+        awaitFleetProjectionApplied(
+          service,
+          hostId("await-ghost-host"),
+          desired("1"),
+        ),
+      );
+      expect(unenrolled.ok).toBe(false);
+      if (unenrolled.ok === false) {
+        expect(unenrolled.error.reason).toBe("not-enrolled");
+      }
     });
   });
 });

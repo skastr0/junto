@@ -119,7 +119,7 @@ export type StationPropagationReceipt = {
   readonly report: StationReportSyncReceipt;
 };
 
-type DesiredProjection = ProjectRequest["projection"];
+export type DesiredProjection = ProjectRequest["projection"];
 
 type CompiledProjectionDraft = Omit<
   DesiredProjection,
@@ -489,6 +489,16 @@ export class StationPropagation extends Context.Service<StationPropagation,
       target: StationPropagationTarget,
       session: StationPeerSession,
     ) => Effect.Effect<StationPropagationReceipt, StationPropagationError>;
+    /**
+     * Compile and archive the projection this Command Center currently wants
+     * the target host to hold, from committed canvas authority only. The
+     * returned generation and content hash are exactly what the next
+     * synchronize sends (archiving is idempotent for identical content), so
+     * callers can await that precise acknowledgement.
+     */
+    readonly desiredProjectionForHost: (
+      targetHostId: string,
+    ) => Effect.Effect<DesiredProjection, StationPropagationError>;
   }>()(StationContextTagIds.propagation) {}
 
 export const StationPropagationLive = Layer.effect(
@@ -498,6 +508,64 @@ export const StationPropagationLive = Layer.effect(
     const repository = yield* StationRepository;
     const api = yield* StationApiService;
     const fleetTargets = yield* StationFleetTargetRepository;
+
+    /**
+     * One compile path for synchronize and for barrier callers: committed
+     * canvas authority -> compiled portfolio -> archived projection identity.
+     */
+    const compileDesired = Effect.fn("StationPropagation.compileDesired")(
+      function* (
+        commandCenterHostId: string,
+        commandCenterInstallationId:
+          StationPropagationTarget["stationInstallationId"],
+        targetHostId: string,
+      ) {
+        const [snapshot, enrolledTargets] = yield* Effect.all([
+          canvases.authoritySnapshot(),
+          fleetTargets.list,
+        ]);
+        const installationByHostId = new Map<
+          string,
+          StationPropagationTarget["stationInstallationId"]
+        >([
+          [commandCenterHostId, commandCenterInstallationId],
+        ]);
+        for (const enrolled of enrolledTargets) {
+          installationByHostId.set(
+            enrolled.hostId,
+            enrolled.stationInstallationId,
+          );
+        }
+        const compiled = yield* desiredProjection(
+          snapshot,
+          installationByHostId,
+          commandCenterHostId,
+          targetHostId,
+        );
+        const desired = yield* repository.archiveProjection(compiled.draft);
+        return { desired, topology: compiled.topology };
+      },
+    );
+
+    const desiredProjectionForHost = Effect.fn(
+      "StationPropagation.desiredProjectionForHost",
+    )(function* (targetHostId: string) {
+      const commandCenterInstallationId = yield* repository.installationId;
+      const localConfiguration = yield* repository.configuration;
+      if (localConfiguration?.configuration.role !== "command-center") {
+        return yield* invariant(
+          "desired-projection",
+          "command-center-role-required",
+          "only a configured Command Center compiles fleet projections",
+        );
+      }
+      const { desired } = yield* compileDesired(
+        localConfiguration.configuration.hostId,
+        commandCenterInstallationId,
+        targetHostId,
+      );
+      return desired;
+    });
 
     const synchronize = Effect.fn("StationPropagation.synchronize")(
       function* (
@@ -602,38 +670,17 @@ export const StationPropagationLive = Layer.effect(
           );
         }
 
-        const [snapshot, enrolledTargets] = yield* Effect.all([
-          canvases.authoritySnapshot(),
-          fleetTargets.list,
-        ]);
-        const installationByHostId = new Map<
-          string,
-          StationPropagationTarget["stationInstallationId"]
-        >([
-          [
-            localConfiguration.configuration.hostId,
-            commandCenterInstallationId,
-          ],
-        ]);
-        for (const enrolled of enrolledTargets) {
-          installationByHostId.set(
-            enrolled.hostId,
-            enrolled.stationInstallationId,
-          );
-        }
-        const compiled = yield* desiredProjection(
-          snapshot,
-          installationByHostId,
+        const { desired, topology } = yield* compileDesired(
           localConfiguration.configuration.hostId,
+          commandCenterInstallationId,
           target.hostId,
         );
-        const desired = yield* repository.archiveProjection(compiled.draft);
         const projection = yield* synchronizeProjection(
           session,
           target,
           status.projection,
           desired,
-          compiled.topology,
+          topology,
         );
         const report = yield* synchronizeReport(api, session, target);
         const finalStatus = yield* session.request(
@@ -661,6 +708,6 @@ export const StationPropagationLive = Layer.effect(
       },
     );
 
-    return StationPropagation.of({ synchronize });
+    return StationPropagation.of({ synchronize, desiredProjectionForHost });
   }),
 );

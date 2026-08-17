@@ -738,4 +738,58 @@ describe("StationPropagation", () => {
       await stationRuntime.dispose();
     }
   });
+
+  it("compiles and archives one stable desired projection identity per committed authority", async () => {
+    const stationRuntime = runtime(api(), repository(), canvases(undefined, "41"));
+
+    try {
+      const propagation = await stationRuntime.runPromise(StationPropagation);
+      const first = await stationRuntime.runPromise(
+        propagation.desiredProjectionForHost(REMOTE_HOST),
+      );
+      const second = await stationRuntime.runPromise(
+        propagation.desiredProjectionForHost(REMOTE_HOST),
+      );
+
+      expect(first).toMatchObject({
+        scope: "full",
+        generation: "1",
+        sourceCanvasGeneration: "41",
+        sourceIntentSha256: AUTHORITY_SHA256,
+      });
+      expect(first.contentSha256).toBe(
+        stationProjectionContentSha256(first.body),
+      );
+      // Archiving is idempotent for identical committed content, so the
+      // barrier and the next synchronize name the same acknowledgement.
+      expect(second.generation).toBe(first.generation);
+      expect(second.contentSha256).toBe(first.contentSha256);
+    } finally {
+      await stationRuntime.dispose();
+    }
+  });
+
+  it("refuses to compile a desired projection off the Command Center role", async () => {
+    const stationRuntime = runtime(api(), repository("remote"));
+
+    try {
+      const result = await stationRuntime.runPromise(
+        Effect.result(
+          Effect.flatMap(StationPropagation, (service) =>
+            service.desiredProjectionForHost(REMOTE_HOST)
+          ),
+        ),
+      );
+
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        expect(result.failure).toMatchObject({
+          _tag: "StationPropagationInvariantError",
+          reason: "command-center-role-required",
+        });
+      }
+    } finally {
+      await stationRuntime.dispose();
+    }
+  });
 });
