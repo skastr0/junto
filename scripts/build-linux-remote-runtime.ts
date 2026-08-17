@@ -29,7 +29,8 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 /** Pinned Node for the product Remote. Override with NODE_REMOTE_VERSION. */
-export const DEFAULT_NODE_REMOTE_VERSION = "22.18.0";
+export const DEFAULT_NODE_REMOTE_VERSION = "24.18.0";
+export const DEFAULT_NODE_REMOTE_MODULE_ABI = "137";
 
 /**
  * Reviewed official Node linux-x64 tarball digests keyed by exact version.
@@ -39,8 +40,8 @@ export const DEFAULT_NODE_REMOTE_VERSION = "22.18.0";
 export const PINNED_NODE_LINUX_X64_ARCHIVE_SHA256: Readonly<
   Record<string, string>
 > = Object.freeze({
-  "22.18.0":
-    "a2e703725d8683be86bb5da967bf8272f4518bdaf10f21389e2b2c9eaeae8c8a",
+  "24.18.0":
+    "783130984963db7ba9cbd01089eaf2c2efb055c7c1693c943174b967b3050cb8",
 });
 
 export const pinnedNodeLinuxX64ArchiveSha256 = (
@@ -99,9 +100,9 @@ export const requireNodeRemoteVersion = (value: unknown): string => {
     );
   }
   const major = Number(value.split(".")[0]);
-  if (major !== 22) {
+  if (major !== 24) {
     throw new Error(
-      `NODE_REMOTE_VERSION must be Node 22 LTS (got ${value}); remote ABI is pinned to 22.x`,
+      `NODE_REMOTE_VERSION must be Node 24 LTS (got ${value}); remote ABI is pinned to 24.x`,
     );
   }
   return value;

@@ -20,6 +20,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { LINUX_RUNTIME_REQUIRED_FILES } from "../scripts/audit-linux-package";
 import {
+  DEFAULT_NODE_REMOTE_MODULE_ABI,
   DEFAULT_NODE_REMOTE_VERSION,
   LINUX_NODE_PTY_NATIVE_RELATIVE,
   LINUX_NODE_PTY_RUNTIME_FILES,
@@ -75,29 +76,33 @@ const inspectTree = async (
 };
 
 describe("Linux remote displayless packaging helpers", () => {
-  it("pins Node 22 LTS and names the official linux-x64 archive", () => {
-    expect(DEFAULT_NODE_REMOTE_VERSION).toMatch(/^22\./u);
-    expect(requireNodeRemoteVersion("22.18.0")).toBe("22.18.0");
-    expect(() => requireNodeRemoteVersion("20.18.0")).toThrow(/22/u);
+  it("pins stock Node 24.18.0 and names the official linux-x64 archive", () => {
+    expect(DEFAULT_NODE_REMOTE_VERSION).toBe("24.18.0");
+    expect(DEFAULT_NODE_REMOTE_MODULE_ABI).toBe("137");
+    expect(requireNodeRemoteVersion("24.18.0")).toBe("24.18.0");
+    expect(() => requireNodeRemoteVersion("23.18.0")).toThrow(/24/u);
+    expect(() => requireNodeRemoteVersion("25.18.0")).toThrow(/24/u);
     expect(() => requireNodeRemoteVersion("not-a-version")).toThrow(/semver/u);
-    expect(nodeLinuxX64ArchiveName("22.18.0")).toBe(
-      "node-v22.18.0-linux-x64.tar.gz",
+    expect(nodeLinuxX64ArchiveName("24.18.0")).toBe(
+      "node-v24.18.0-linux-x64.tar.gz",
     );
-    expect(nodeLinuxX64ArchiveUrl("22.18.0")).toBe(
-      "https://nodejs.org/dist/v22.18.0/node-v22.18.0-linux-x64.tar.gz",
+    expect(nodeLinuxX64ArchiveUrl("24.18.0")).toBe(
+      "https://nodejs.org/dist/v24.18.0/node-v24.18.0-linux-x64.tar.gz",
     );
     expect(resolveNodeRemoteVersion({})).toBe(DEFAULT_NODE_REMOTE_VERSION);
-    expect(resolveNodeRemoteVersion({ NODE_REMOTE_VERSION: "22.17.1" })).toBe(
-      "22.17.1",
+    expect(resolveNodeRemoteVersion({ NODE_REMOTE_VERSION: "24.17.1" })).toBe(
+      "24.17.1",
     );
   });
 
   it("refuses Node archives without the reviewed linux-x64 digest pin", () => {
-    expect(pinnedNodeLinuxX64ArchiveSha256("22.18.0")).toBe(
-      PINNED_NODE_LINUX_X64_ARCHIVE_SHA256["22.18.0"],
+    expect(pinnedNodeLinuxX64ArchiveSha256("24.18.0")).toBe(
+      PINNED_NODE_LINUX_X64_ARCHIVE_SHA256["24.18.0"],
     );
-    expect(pinnedNodeLinuxX64ArchiveSha256("22.18.0")).toMatch(/^[0-9a-f]{64}$/u);
-    expect(() => pinnedNodeLinuxX64ArchiveSha256("22.17.1")).toThrow(
+    expect(pinnedNodeLinuxX64ArchiveSha256("24.18.0")).toBe(
+      "783130984963db7ba9cbd01089eaf2c2efb055c7c1693c943174b967b3050cb8",
+    );
+    expect(() => pinnedNodeLinuxX64ArchiveSha256("24.17.1")).toThrow(
       /no reviewed Node linux-x64 archive digest/u,
     );
   });
@@ -275,8 +280,18 @@ describe("Linux remote displayless product contracts", () => {
   });
 
   it("package + finalize paths stage displayless remote inside the dir archive", async () => {
+    const buildApp = await readRepo("scripts/build-app.sh");
+    expect(buildApp).toContain("DEFAULT_NODE_REMOTE_VERSION");
+    expect(buildApp).toContain(
+      '[[ "$NODE_VERSION" != "v$REQUIRED_NODE_VERSION" ]]',
+    );
+
     const packageScript = await readRepo("scripts/package-app-linux.sh");
     expect(packageScript).toContain("build-linux-remote-runtime.ts");
+    expect(packageScript).toContain("DEFAULT_NODE_REMOTE_VERSION");
+    expect(packageScript).toContain(
+      '[[ "$NODE_VERSION" != "v$REQUIRED_NODE_VERSION" ]]',
+    );
     expect(packageScript).toContain("linux-unpacked");
     // Comments may name the forbidden flag; assignment/export is the product foul.
     expect(packageScript).not.toMatch(/ELECTRON_RUN_AS_NODE\s*=/u);

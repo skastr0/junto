@@ -23,22 +23,19 @@ done
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
-# @electron/rebuild 4 requires Node >=22.12 and node-gyp invokes that runtime
-# while compiling. Fail before touching the dependency tree when the build host
-# does not satisfy the declared tool contract.
+# One stock Node line owns both the Linux release toolchain and the displayless
+# Remote ABI. Resolve the reviewed version from the runtime staging contract and
+# require the build host to match it exactly; a permissive minimum silently
+# resurrects obsolete Node majors and makes native qualification ambiguous.
+REQUIRED_NODE_VERSION="$(bun -e 'import { DEFAULT_NODE_REMOTE_VERSION } from "./scripts/build-linux-remote-runtime.ts"; process.stdout.write(DEFAULT_NODE_REMOTE_VERSION)')"
 NODE_EXECUTABLE="$(type -P node || true)"
 NODE_VERSION=""
 if [[ -n "$NODE_EXECUTABLE" && -x "$NODE_EXECUTABLE" ]]; then
   NODE_VERSION="$("$NODE_EXECUTABLE" --version 2>/dev/null || true)"
 fi
-if [[ ! "$NODE_VERSION" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
-  printf 'vellum-command: error: Linux packaging requires Node >=22.12.0 for @electron/rebuild\n' >&2
-  exit 1
-fi
-NODE_MAJOR="${BASH_REMATCH[1]}"
-NODE_MINOR="${BASH_REMATCH[2]}"
-if (( NODE_MAJOR < 22 || (NODE_MAJOR == 22 && NODE_MINOR < 12) )); then
-  printf 'vellum-command: error: Linux packaging requires Node >=22.12.0; found %s\n' "$NODE_VERSION" >&2
+if [[ "$NODE_VERSION" != "v$REQUIRED_NODE_VERSION" ]]; then
+  printf 'vellum-command: error: Linux packaging requires stock Node %s exactly; found %s\n' \
+    "$REQUIRED_NODE_VERSION" "${NODE_VERSION:-missing}" >&2
   exit 1
 fi
 

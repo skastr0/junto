@@ -115,10 +115,22 @@ fi
 cd "$REPO_ROOT"
 ELECTRON_INSTALLER="$REPO_ROOT/node_modules/electron/install.js"
 NODE_EXECUTABLE="$(type -P node || true)"
-if [[ -z "$NODE_EXECUTABLE" || ! -x "$NODE_EXECUTABLE" ]]; then
+if [[ "$TARGET" == "linux" ]]; then
+  REQUIRED_NODE_VERSION="$("$BUN_EXECUTABLE" -e 'import { DEFAULT_NODE_REMOTE_VERSION } from "./scripts/build-linux-remote-runtime.ts"; process.stdout.write(DEFAULT_NODE_REMOTE_VERSION)')"
+  NODE_VERSION=""
+  if [[ -n "$NODE_EXECUTABLE" && -x "$NODE_EXECUTABLE" ]]; then
+    NODE_VERSION="$("$NODE_EXECUTABLE" --version 2>/dev/null || true)"
+  fi
+  if [[ "$NODE_VERSION" != "v$REQUIRED_NODE_VERSION" ]]; then
+    printf 'vellum-command: error: Linux build requires stock Node %s exactly; found %s\n' \
+      "$REQUIRED_NODE_VERSION" "${NODE_VERSION:-missing}" >&2
+    exit 1
+  fi
+elif [[ -z "$NODE_EXECUTABLE" || ! -x "$NODE_EXECUTABLE" ]]; then
   printf 'vellum-command: error: Node is required to materialize the pinned Electron runtime\n' >&2
   exit 1
 fi
+
 if [[ ! -f "$ELECTRON_INSTALLER" || -L "$ELECTRON_INSTALLER" ]]; then
   printf 'vellum-command: error: Electron installer missing — run: bun install --frozen-lockfile\n' >&2
   exit 1

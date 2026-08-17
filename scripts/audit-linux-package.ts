@@ -3,6 +3,10 @@ import { lstat, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { linuxRuntimeArtifactName } from "./finalize-linux-package";
+import {
+  DEFAULT_NODE_REMOTE_MODULE_ABI,
+  DEFAULT_NODE_REMOTE_VERSION,
+} from "./build-linux-remote-runtime";
 
 export const LINUX_RUNTIME_REQUIRED_FILES = [
   "vellum-command",
@@ -44,7 +48,104 @@ const requireLoadable = (file: string): void => {
   if (result.status !== 0 || /not found/u.test(`${result.stdout}\n${result.stderr}`)) throw new Error(`native runtime dependency is unavailable: ${file}`);
 };
 
-export const auditLinuxRuntime = async ({ runtimePath, version }: { readonly runtimePath: string; readonly version: string }): Promise<{ readonly ok: true; readonly artifact: string; readonly nativeObjects: ReadonlyArray<string>; readonly chromeSandbox: "absent" }> => {
+export const validateBundledNodeVersion = (output: string): string => {
+  const actual = output.trim();
+  const expected = `v${DEFAULT_NODE_REMOTE_VERSION}`;
+  if (actual !== expected) {
+    throw new Error(`bundled Node version mismatch: expected ${expected}, got ${actual || "empty"}`);
+  }
+  return DEFAULT_NODE_REMOTE_VERSION;
+};
+
+export type BundledNodeRuntimeIdentity = {
+  readonly nodeVersion: string;
+  readonly moduleAbi: string;
+};
+
+export const validateBundledNodeRuntimeIdentity = (
+  output: string,
+): BundledNodeRuntimeIdentity => {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(output);
+  } catch {
+    throw new Error("bundled Node identity probe returned invalid JSON");
+  }
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    !("node" in parsed) ||
+    !("modules" in parsed) ||
+    typeof parsed.node !== "string" ||
+    typeof parsed.modules !== "string"
+  ) {
+    throw new Error("bundled Node identity probe returned the wrong shape");
+  }
+  const nodeVersion = validateBundledNodeVersion(`v${parsed.node}`);
+  if (parsed.modules !== DEFAULT_NODE_REMOTE_MODULE_ABI) {
+    throw new Error(
+      `bundled Node module ABI mismatch: expected ${DEFAULT_NODE_REMOTE_MODULE_ABI}, got ${parsed.modules}`,
+    );
+  }
+  return { nodeVersion, moduleAbi: parsed.modules };
+};
+
+const requireBundledNodeRuntimeIdentity = (
+  file: string,
+): BundledNodeRuntimeIdentity => {
+  const result = spawnSync(
+    file,
+    [
+      "-p",
+      'JSON.stringify({node:process.versions.node,modules:process.versions.modules})',
+    ],
+    { encoding: "utf8", shell: false, timeout: 5_000 },
+  );
+  if (result.status !== 0 || result.error !== undefined) {
+    throw new Error(`bundled Node identity probe failed: ${file}`);
+  }
+  return validateBundledNodeRuntimeIdentity(result.stdout);
+};
+
+const requireRemoteNodePty = (input: {
+  readonly node: string;
+  readonly nodePtyRoot: string;
+}): void => {
+  const probe = `
+const pty = require(process.argv[1]);
+const child = pty.spawn("/bin/sh", ["-lc", "printf remote-node-pty-ok"], {
+  name: "xterm-256color",
+  cols: 80,
+  rows: 24,
+  cwd: "/tmp",
+  env: { PATH: "/usr/bin:/bin", TERM: "xterm-256color" },
+});
+let output = "";
+const timer = setTimeout(() => { child.kill(); process.exitCode = 1; }, 5000);
+child.onData((chunk) => { output += chunk; });
+child.onExit((event) => {
+  clearTimeout(timer);
+  process.stdout.write(JSON.stringify({ output, exitCode: event.exitCode }));
+  process.exitCode = event.exitCode === 0 && output.includes("remote-node-pty-ok") ? 0 : 1;
+});
+`;
+  const result = spawnSync(input.node, ["-e", probe, input.nodePtyRoot], {
+    encoding: "utf8",
+    shell: false,
+    timeout: 10_000,
+  });
+  if (
+    result.status !== 0 ||
+    result.error !== undefined ||
+    !result.stdout.includes("remote-node-pty-ok")
+  ) {
+    throw new Error(
+      `bundled Node node-pty probe failed: ${`${result.stderr || result.stdout || result.error?.message || "no output"}`.trim().slice(0, 1_000)}`,
+    );
+  }
+};
+
+export const auditLinuxRuntime = async ({ runtimePath, version }: { readonly runtimePath: string; readonly version: string }): Promise<{ readonly ok: true; readonly artifact: string; readonly nativeObjects: ReadonlyArray<string>; readonly chromeSandbox: "absent"; readonly nodeVersion: string; readonly nodeModuleAbi: string; readonly remoteNodePty: "functional" }> => {
   const root = path.resolve(runtimePath);
   if (path.basename(root) !== linuxRuntimeArtifactName({ version, arch: "x64" })) throw new Error("runtime artifact name mismatch");
   const files = await walk(root);
@@ -61,7 +162,21 @@ export const auditLinuxRuntime = async ({ runtimePath, version }: { readonly run
     }
   }
   validateUserServiceTemplate(await readFile(path.join(root, "resources/systemd/vellum-command-remote.service.template"), "utf8"));
-  return { ok: true, artifact: path.basename(root), nativeObjects, chromeSandbox: "absent" };
+  const node = path.join(root, "resources/bin/node");
+  const nodeIdentity = requireBundledNodeRuntimeIdentity(node);
+  requireRemoteNodePty({
+    node,
+    nodePtyRoot: path.join(root, "resources/app-remote/node_modules/node-pty"),
+  });
+  return {
+    ok: true,
+    artifact: path.basename(root),
+    nativeObjects,
+    chromeSandbox: "absent",
+    nodeVersion: nodeIdentity.nodeVersion,
+    nodeModuleAbi: nodeIdentity.moduleAbi,
+    remoteNodePty: "functional",
+  };
 };
 
 if (fileURLToPath(import.meta.url) === path.resolve(process.argv[1] ?? "")) {

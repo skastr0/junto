@@ -2,13 +2,35 @@ import { chmod, lstat, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { auditLinuxRuntime, validateElfX64, validateUserServiceTemplate } from "../scripts/audit-linux-package";
+import { auditLinuxRuntime, validateBundledNodeRuntimeIdentity, validateBundledNodeVersion, validateElfX64, validateUserServiceTemplate } from "../scripts/audit-linux-package";
 import { linuxRuntimeArtifactName } from "../scripts/finalize-linux-package";
 
 describe("Linux userland runtime audit", () => {
   it("rejects non-x64 native binaries", () => {
     const elf = new Uint8Array(20); elf.set([0x7f, 0x45, 0x4c, 0x46, 2, 1]); elf[18] = 0xb7;
     expect(() => validateElfX64(elf, "native")).toThrow(/x86-64/u);
+  });
+  it("accepts only the reviewed bundled Node runtime", () => {
+    expect(validateBundledNodeVersion("v24.18.0\n")).toBe("24.18.0");
+    expect(() => validateBundledNodeVersion("v24.17.1\n")).toThrow(
+      /bundled Node version mismatch/u,
+    );
+    expect(() => validateBundledNodeVersion("v25.0.0\n")).toThrow(
+      /bundled Node version mismatch/u,
+    );
+    expect(
+      validateBundledNodeRuntimeIdentity(
+        JSON.stringify({ node: "24.18.0", modules: "137" }),
+      ),
+    ).toEqual({ nodeVersion: "24.18.0", moduleAbi: "137" });
+    expect(() =>
+      validateBundledNodeRuntimeIdentity(
+        JSON.stringify({ node: "24.18.0", modules: "136" }),
+      ),
+    ).toThrow(/module ABI mismatch/u);
+    expect(() => validateBundledNodeRuntimeIdentity("not-json")).toThrow(
+      /invalid JSON/u,
+    );
   });
   it("requires a relocatable service placeholder and rejects privilege directives", () => {
     expect(() => validateUserServiceTemplate("ExecStart=@VELLUM_COMMAND_RUNTIME_ROOT@/resources/systemd/vellum-command-remote-launch\n")).not.toThrow();
