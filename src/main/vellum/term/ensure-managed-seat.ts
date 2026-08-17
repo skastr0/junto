@@ -221,8 +221,9 @@ export const ensureManagedSeatRunning = (
       nowMs: Date.now(),
     });
     if (decision.kind === "reuse") {
-      // Occupied does not mean actor-bound. The single WHEN adopts a compatible
-      // live geography generation without replacing its epoch.
+      // Occupied does not mean actor-bound. Activation is validate-only: an
+      // exact identity match reuses the live generation; an occupied geography
+      // or a different actor surfaces SeatIdentityConflictError.
       const activated = yield* occupy(baseSpec);
       if (activated) autoRestartBudgets.delete(surface.bindingId);
       return activated;

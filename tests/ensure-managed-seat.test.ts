@@ -198,7 +198,7 @@ describe("managed-seat occupation", () => {
     }
   });
 
-  it("routes a live geography occupant through ActorSeatOccupy for adoption", async () => {
+  it("routes a live geography occupant through ActorSeatOccupy for validation", async () => {
     resetAutoRestartBudgetsForTest();
     const fixture = managedFixture();
     const get = vi
