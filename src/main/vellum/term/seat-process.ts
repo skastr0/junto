@@ -4,9 +4,17 @@
  * Occupancy law is shared. Placement selects the process implementation
  * (this-process PTY vs station-forwarded generation). macOS / Linux / Windows
  * spawn details stay inside the local Layer.
+ *
+ * Occupy is actor-only: harness and agentKey are required. Geography create
+ * is not a fallback on this layer.
  */
 import { Context, Effect, Result } from "effect";
-import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
+import type { HarnessId } from "@shared/managed-terminal-templates";
+import {
+  sessionActorMatches,
+  type TerminalLaunch,
+  type TerminalSessionSummary,
+} from "@shared/terminal";
 import {
   activateOccupiedSeat,
   occupancyFromSummary,
@@ -17,7 +25,7 @@ import {
   type SeatOccupancy,
   type SeatAlreadyOccupiedError,
 } from "@shared/terminal-seat-occupancy";
-import type { LocalHostAgentSeatInput, LocalSessionHost } from "./local-host";
+import type { LocalSessionHost } from "./local-host";
 
 export type OccupySpec = {
   readonly bindingId: string;
@@ -29,9 +37,14 @@ export type OccupySpec = {
   readonly nodeId?: string;
   readonly label?: string;
   readonly title?: string;
-  readonly harness?: LocalHostAgentSeatInput["harness"];
-  readonly agentKey?: string;
+  readonly harness: HarnessId;
+  readonly agentKey: string;
   readonly firstTypedMessage?: string;
+};
+
+export type ActorActivateSpec = {
+  readonly harness: HarnessId;
+  readonly agentKey: string;
 };
 
 export interface TerminalSeatProcessApi {
@@ -47,6 +60,7 @@ export interface TerminalSeatProcessApi {
   >;
   readonly activate: (
     command: ActivateOccupiedSeat,
+    spec?: ActorActivateSpec,
   ) => Effect.Effect<TerminalSessionSummary, SeatVacantError | Error>;
 }
 
@@ -62,10 +76,45 @@ export class TerminalSeatProcess extends Context.Service<
   TerminalSeatProcessApi
 >()("@vellum/TerminalSeatProcess") {}
 
+const asClientError = (cause: unknown): Error =>
+  cause instanceof Error ? cause : new Error(String(cause));
+
+const harnessMismatchError = (
+  bindingId: string,
+  harness: string,
+): Error => new Error(`seat ${bindingId} already bound to ${harness}`);
+
 const summaryOccupancy = (
   host: LocalSessionHost,
   bindingId: string,
 ): SeatOccupancy => occupancyFromSummary(bindingId, host.get(bindingId), "local");
+
+const adoptIfGeography = (
+  live: TerminalSessionSummary,
+  spec: ActorActivateSpec | undefined,
+  adopt: () => TerminalSessionSummary | undefined,
+): Effect.Effect<TerminalSessionSummary, Error> => {
+  if (spec === undefined) return Effect.succeed(live);
+  if (sessionActorMatches(live, spec)) return Effect.succeed(live);
+  if (live.harness !== undefined && live.harness !== spec.harness) {
+    return Effect.fail(harnessMismatchError(live.bindingId, live.harness));
+  }
+  if (live.status === "running" && live.harness === undefined) {
+    return Effect.try({
+      try: () => {
+        const adopted = adopt();
+        if (!adopted) {
+          throw new Error(
+            `seat ${live.bindingId} is vacant; activate requires an occupant`,
+          );
+        }
+        return adopted;
+      },
+      catch: asClientError,
+    });
+  }
+  return Effect.succeed(live);
+};
 
 export const makeLocalSeatProcess = (
   host: LocalSessionHost,
@@ -79,24 +128,10 @@ export const makeLocalSeatProcess = (
         if (Result.isFailure(occupy)) {
           return yield* occupy.failure;
         }
-        if (spec.harness && spec.agentKey) {
-          return host.createAgentSeat({
-            bindingId: spec.bindingId,
-            harness: spec.harness,
-            agentKey: spec.agentKey,
-            hostId: spec.hostId,
-            launch: spec.launch,
-            cols: spec.cols,
-            rows: spec.rows,
-            canvasName: spec.canvasName,
-            nodeId: spec.nodeId,
-            label: spec.label,
-            title: spec.title,
-            firstTypedMessage: spec.firstTypedMessage,
-          });
-        }
-        return host.create({
+        return host.createAgentSeat({
           bindingId: spec.bindingId,
+          harness: spec.harness,
+          agentKey: spec.agentKey,
           hostId: spec.hostId,
           launch: spec.launch,
           cols: spec.cols,
@@ -105,9 +140,10 @@ export const makeLocalSeatProcess = (
           nodeId: spec.nodeId,
           label: spec.label,
           title: spec.title,
+          firstTypedMessage: spec.firstTypedMessage,
         });
       }),
-    activate: (command) =>
+    activate: (command, spec) =>
       Effect.gen(function* () {
         const current = summaryOccupancy(host, command.seat.bindingId);
         const activate = activateOccupiedSeat(current);
@@ -121,24 +157,19 @@ export const makeLocalSeatProcess = (
             message: `seat ${command.seat.bindingId} is vacant; activate requires an occupant`,
           });
         }
-        return live;
+        if (spec === undefined) return live;
+        return yield* adoptIfGeography(live, spec, () =>
+          host.adoptAgentSeat(command.seat.bindingId, spec),
+        );
       }),
   });
 
 /** Station term-control surface. `kill` is unused — occupy never replaces. */
 export type RemoteSeatProcessClient = {
   readonly get: (bindingId: string) => Promise<TerminalSessionSummary | undefined>;
-  readonly create: (
-    input: Pick<
-      OccupySpec,
-      "bindingId" | "launch" | "cols" | "rows" | "canvasName" | "nodeId" | "label"
-    >,
-  ) => Promise<TerminalSessionSummary>;
+  readonly createAgentSeat: (input: OccupySpec) => Promise<TerminalSessionSummary>;
   readonly kill?: (bindingId: string) => Promise<boolean>;
 };
-
-const asClientError = (cause: unknown): Error =>
-  cause instanceof Error ? cause : new Error(String(cause));
 
 const remoteSummaryOccupancy = (
   bindingId: string,
@@ -167,19 +198,24 @@ export const makeRemoteSeatProcess = (
         }
         return yield* Effect.tryPromise({
           try: () =>
-            client.create({
+            client.createAgentSeat({
               bindingId: spec.bindingId,
+              harness: spec.harness,
+              agentKey: spec.agentKey,
+              hostId: spec.hostId,
               launch: spec.launch,
               cols: spec.cols,
               rows: spec.rows,
               canvasName: spec.canvasName,
               nodeId: spec.nodeId,
               label: spec.label,
+              title: spec.title,
+              firstTypedMessage: spec.firstTypedMessage,
             }),
           catch: asClientError,
         });
       }),
-    activate: (command) =>
+    activate: (command, spec) =>
       Effect.gen(function* () {
         const summary = yield* Effect.tryPromise({
           try: () => client.get(command.seat.bindingId),
@@ -197,6 +233,6 @@ export const makeRemoteSeatProcess = (
             message: `seat ${command.seat.bindingId} is vacant; activate requires an occupant`,
           });
         }
-        return summary;
+        return yield* adoptIfGeography(summary, spec, () => summary);
       }),
   });
