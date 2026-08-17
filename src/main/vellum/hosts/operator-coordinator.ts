@@ -30,11 +30,11 @@ import type { ConfigureRemoteOptions } from "./configure-remote";
 import type { ConfiguredRemoteDeployResult } from "./deploy-configured-remote";
 import { HostRuntime } from "./host-runtime";
 import {
+  acquireDeployHostSlot,
   appendDeployJobStage,
   beginDeployJob,
   finishDeployJob,
   getDeployJob,
-  setActiveDeployJobHost,
 } from "./deploy-job-registry";
 import type { LinuxReleaseCacheSource } from "./linux-release-feed";
 import { HostsService, type HostsServiceShape } from "./service";
@@ -399,7 +399,6 @@ export const deployRemoteEffect = (
         });
       }
 
-      setActiveDeployJobHost(input.id);
       const hostRuntime = yield* HostRuntime;
       const deployResult = yield* hostRuntime
         .reconcile(input.id, {
@@ -437,14 +436,7 @@ export const deployRemoteEffect = (
                 ),
               );
           },
-        })
-        .pipe(
-          Effect.ensuring(
-            Effect.sync(() => {
-              setActiveDeployJobHost(undefined);
-            }),
-          ),
-        );
+        });
 
       if (!deployResult.ok) {
         return failJob(
@@ -500,6 +492,9 @@ const releaseDeployGate = (): HostsDeployRemoteResult | undefined => {
   };
 };
 
+const DEPLOY_BUSY_DETAIL =
+  "A Deploy is already running for this machine. Wait for it to finish, then Deploy again.";
+
 const shutdownConfigureFailure = (
   error: HostOperationShutdownRefused,
 ): HostsConfigureRemoteResult => ({
@@ -554,6 +549,19 @@ export const makeHostsOperatorCoordinator = (
         message: "invalid Remote deployment request",
       });
     }
+    // Per-host single flight on the Command Center side. Same host refuses
+    // busy; other hosts proceed. The module-level slot is shared by every
+    // coordinator instance (renderer IPC and operator control).
+    const slot = acquireDeployHostSlot(decoded.id);
+    if (!slot.acquired) {
+      return Promise.resolve({
+        ok: false,
+        detail: DEPLOY_BUSY_DETAIL,
+        code: "conflict",
+        message: DEPLOY_BUSY_DETAIL,
+        stages: getDeployJob(decoded.id)?.stages,
+      });
+    }
     return operations
       .run(HOST_OPERATION_ADMISSIONS.deployRemote, () => {
         // A job receipt exists only after the shutdown gate admits the
@@ -568,6 +576,9 @@ export const makeHostsOperatorCoordinator = (
           return shutdownDeployFailure(error);
         }
         throw error;
+      })
+      .finally(() => {
+        slot.release();
       });
   },
 });

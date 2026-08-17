@@ -164,6 +164,7 @@ export const copyDarwinHost = (
   ssh: Context.Service.Shape<typeof SshTransport>,
   target: SshTarget,
   compiledPackageState?: "absent" | "present",
+  hostId?: string,
 ): Effect.Effect<HostOpsCopy> =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -279,6 +280,7 @@ export const copyDarwinHost = (
           watchCopyNodeStdout(
             source.lease.io.stdout,
             estimateDirectoryBytes(admission.success.appPath),
+            hostId,
           ),
           COPY_TIMEOUT_MS,
         )

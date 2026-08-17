@@ -135,12 +135,23 @@ const activateHostOps = (
 
 export class HostTarget extends Context.Service<
   HostTarget,
-  { readonly sshTarget: SshTarget }
+  {
+    readonly sshTarget: SshTarget;
+    /** Registered host id; attributes deploy-job stages and copy progress. */
+    readonly hostId?: string;
+  }
 >()("@vellum/HostTarget") {
   static readonly layer = (
     sshTarget: SshTarget,
+    hostId?: string,
   ): Layer.Layer<HostTarget> =>
-    Layer.succeed(HostTarget, HostTarget.of({ sshTarget }));
+    Layer.succeed(
+      HostTarget,
+      HostTarget.of({
+        sshTarget,
+        ...(hostId === undefined ? {} : { hostId }),
+      }),
+    );
 }
 
 export class HostConfigure extends Context.Service<
@@ -184,7 +195,12 @@ export class HostOps extends Context.Service<
       return HostOps.of({
         inspect: () => darwin.inspectDarwinHost(ssh, host.sshTarget),
         copy: (expectedPackageState) =>
-          darwin.copyDarwinHost(ssh, host.sshTarget, expectedPackageState),
+          darwin.copyDarwinHost(
+            ssh,
+            host.sshTarget,
+            expectedPackageState,
+            host.hostId,
+          ),
         cleanup: () => darwin.cleanupDarwinHost(ssh, host.sshTarget),
         configure: () => configureHostOps(ssh, host.sshTarget, facts),
         activate: () =>
@@ -247,6 +263,7 @@ export class HostOps extends Context.Service<
 
   static readonly layerForTarget = (
     target: SshTarget,
+    hostId?: string,
   ): Layer.Layer<
     HostOps | HostTarget,
     SshError | RemotePlatformProbeError,
@@ -260,5 +277,5 @@ export class HostOps extends Context.Service<
           ? HostOps.layerDarwinOps
           : HostOps.layerLinuxOps;
       }),
-    ).pipe(Layer.provideMerge(HostTarget.layer(target)));
+    ).pipe(Layer.provideMerge(HostTarget.layer(target, hostId)));
 }

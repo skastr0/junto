@@ -6,6 +6,7 @@ import { readdirSync, lstatSync } from "node:fs";
 import { join } from "node:path";
 import type { Readable } from "node:stream";
 import { Stream } from "effect";
+import type { HostDeployCopyProgress } from "../../../shared/deploy-job";
 import { reportDeployCopyProgress } from "./deploy-job-registry";
 
 export const estimateDirectoryBytes = (root: string): number => {
@@ -38,11 +39,16 @@ export const estimateDirectoryBytes = (root: string): number => {
 const countCopyChunks = async function* (
   source: AsyncIterable<Uint8Array>,
   bytesTotal: number,
+  hostId: string | undefined,
 ): AsyncGenerator<Uint8Array, void, unknown> {
   const startedAt = new Date().toISOString();
   const total = Math.max(1, bytesTotal);
   let sent = 0;
-  reportDeployCopyProgress({
+  const report = (copy: HostDeployCopyProgress): void => {
+    if (hostId === undefined) return;
+    reportDeployCopyProgress(hostId, copy);
+  };
+  report({
     bytesSent: 0,
     bytesTotal: total,
     startedAt,
@@ -51,7 +57,7 @@ const countCopyChunks = async function* (
   try {
     for await (const chunk of source) {
       sent += chunk.byteLength;
-      reportDeployCopyProgress({
+      report({
         bytesSent: sent,
         bytesTotal: Math.max(total, sent),
         startedAt,
@@ -59,7 +65,7 @@ const countCopyChunks = async function* (
       });
       yield chunk;
     }
-    reportDeployCopyProgress({
+    report({
       bytesSent: sent,
       bytesTotal: Math.max(total, sent),
       startedAt,
@@ -67,7 +73,7 @@ const countCopyChunks = async function* (
       payloadComplete: true,
     });
   } catch (error) {
-    reportDeployCopyProgress({
+    report({
       bytesSent: sent,
       bytesTotal: Math.max(total, sent),
       startedAt,
@@ -77,10 +83,15 @@ const countCopyChunks = async function* (
   }
 };
 
-/** Wrap a Node stdout iterable (Buffer chunks) as a counted byte stream. */
+/**
+ * Wrap a Node stdout iterable (Buffer chunks) as a counted byte stream.
+ * `hostId` attributes live copy bytes to that host's deploy job; without it
+ * the stream still counts but publishes nothing.
+ */
 export const watchCopyNodeStdout = (
   stdout: Readable,
   bytesTotal: number,
+  hostId?: string,
 ): Stream.Stream<Uint8Array, Error> =>
   Stream.fromAsyncIterable(
     countCopyChunks(
@@ -92,6 +103,7 @@ export const watchCopyNodeStdout = (
         }
       })(),
       bytesTotal,
+      hostId,
     ),
     (error) =>
       error instanceof Error ? error : new Error(String(error)),

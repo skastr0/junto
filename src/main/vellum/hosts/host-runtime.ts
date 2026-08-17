@@ -46,7 +46,7 @@ import {
   packageAdmitted,
   type ConfiguredRemoteDeployResult,
 } from "./deploy-configured-remote";
-import { reportDeployStage } from "./deploy-job-registry";
+import { appendDeployJobStage } from "./deploy-job-registry";
 import { HostConfigure, HostOps } from "./host-ops";
 import {
   HOST_RUNTIME_REMEDY_ROUNDS,
@@ -331,7 +331,7 @@ export const applyHostRuntime = (
     const ops = yield* HostOps;
     const remedyStages: string[] = [];
     const note = (stage: string) => {
-      reportDeployStage(stage);
+      appendDeployJobStage(host.id, stage);
       if (!remedyStages.includes(stage)) remedyStages.push(stage);
     };
     const seal = (result: ConfiguredRemoteDeployResult) =>
@@ -752,7 +752,7 @@ export const HostRuntimeLive = Layer.effect(
               }),
         }).pipe(
           Effect.provide(
-            HostOps.layerForTarget(parsed.success).pipe(
+            HostOps.layerForTarget(parsed.success, remote.id).pipe(
               Layer.provide(HostConfigure.layer(input.configure)),
               Layer.provide(Layer.succeed(SshTransport, ssh)),
             ),

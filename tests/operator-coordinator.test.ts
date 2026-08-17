@@ -10,9 +10,9 @@ import {
   operatorArtifactSource,
 } from "../src/main/vellum/hosts/operator-coordinator";
 import {
+  appendDeployJobStage,
   beginDeployJob,
   getDeployJob,
-  reportDeployStage,
 } from "../src/main/vellum/hosts/deploy-job-registry";
 import { HOST_RUNTIME_REMEDY_STAGE } from "../src/shared/deploy-job";
 import { HostsService } from "../src/main/vellum/hosts/service";
@@ -226,10 +226,10 @@ describe("operator deployment coordinator", () => {
       }),
       Layer.succeed(HostRuntime, {
         ...stub(HostRuntime),
-        reconcile: () => {
-          reportDeployStage(HOST_RUNTIME_REMEDY_STAGE.copy);
-          reportDeployStage(HOST_RUNTIME_REMEDY_STAGE.restart);
-          reportDeployStage(HOST_RUNTIME_REMEDY_STAGE.wait);
+        reconcile: (reconcileHostId) => {
+          appendDeployJobStage(reconcileHostId, HOST_RUNTIME_REMEDY_STAGE.copy);
+          appendDeployJobStage(reconcileHostId, HOST_RUNTIME_REMEDY_STAGE.restart);
+          appendDeployJobStage(reconcileHostId, HOST_RUNTIME_REMEDY_STAGE.wait);
           return Effect.succeed({
             ok: true,
             detail: "updated",
@@ -297,6 +297,72 @@ describe("operator deployment coordinator", () => {
       code: "shutdown",
     });
     expect(getDeployJob(hostId)).toBeUndefined();
+  });
+
+  it("refuses a concurrent deploy for the same host and admits other hosts", async () => {
+    const busyHost = `busy-${String(Date.now())}`;
+    const otherHost = `other-${String(Date.now())}`;
+    const started: string[] = [];
+    const resolvers: Array<(value: unknown) => void> = [];
+    const gate = {
+      run: (_admission: unknown, body: () => Promise<unknown>) => {
+        void body;
+        return new Promise((resolve) => {
+          started.push("run");
+          resolvers.push(resolve);
+        });
+      },
+      beginShutdown: () => ({
+        phase: "open" as const,
+        closedAt: 0,
+        activeLabels: [],
+      }),
+      drainOnQuit: () =>
+        Promise.resolve({
+          phase: "open" as const,
+          clean: true as const,
+          timedOut: false,
+          rounds: 0,
+          settled: 0,
+          fulfilled: 0,
+          rejected: 0,
+          retained: 0,
+          retainedLabels: [],
+          causes: [],
+        }),
+      snapshot: () => ({ phase: "open" as const, activeLabels: [] }),
+    } as unknown as HostOperationGate;
+    const coordinator = makeHostsOperatorCoordinator(gate);
+
+    const inFlight = coordinator.deployRemote({ id: busyHost });
+    expect(started).toHaveLength(1);
+
+    // Same host while running: typed busy refusal, no second gate admission.
+    const busy = await coordinator.deployRemote({ id: busyHost });
+    expect(busy.ok).toBe(false);
+    expect(busy.code).toBe("conflict");
+    expect(busy.detail).toContain("already running");
+    expect(started).toHaveLength(1);
+
+    // A different host proceeds concurrently.
+    const otherFlight = coordinator.deployRemote({ id: otherHost });
+    expect(started).toHaveLength(2);
+
+    const fakeResult = {
+      ok: true,
+      detail: "done",
+      message: "done",
+    };
+    resolvers[0]?.(fakeResult);
+    await inFlight;
+    resolvers[1]?.(fakeResult);
+    await otherFlight;
+
+    // The slot frees on completion: the same host is admitted again.
+    const reAdmitted = coordinator.deployRemote({ id: busyHost });
+    expect(started).toHaveLength(3);
+    resolvers[2]?.(fakeResult);
+    await reAdmitted;
   });
 
   it("keeps final-release and qualification artifact sources disjoint", () => {

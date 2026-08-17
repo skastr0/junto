@@ -13,13 +13,12 @@ import {
   type HostDeployJobStatus,
 } from "../src/shared/deploy-job";
 import {
+  acquireDeployHostSlot,
   appendDeployJobStage,
   beginDeployJob,
   finishDeployJob,
   getDeployJob,
-  setActiveDeployJobHost,
   reportDeployCopyProgress,
-  reportDeployStage,
 } from "../src/main/vellum/hosts/deploy-job-registry";
 import { estimateDirectoryBytes } from "../src/main/vellum/hosts/deploy-copy-stream";
 
@@ -120,13 +119,11 @@ describe("mergeDeployJobStages", () => {
 });
 
 describe("deploy-job-registry", () => {
-  it("tracks stages for active host and finishes terminal status", () => {
+  it("tracks stages for the addressed host and finishes terminal status", () => {
     const hostId = `test-host-${Date.now()}`;
     beginDeployJob(hostId);
-    setActiveDeployJobHost(hostId);
-    reportDeployStage("endpoint ok");
+    appendDeployJobStage(hostId, "endpoint ok");
     appendDeployJobStage(hostId, "preflight ok");
-    setActiveDeployJobHost(undefined);
 
     const mid = getDeployJob(hostId);
     expect(mid?.status).toBe("running");
@@ -150,12 +147,10 @@ describe("deploy-job-registry", () => {
   it("keeps live remedy stages when finish supplies package stages", () => {
     const hostId = `merge-host-${Date.now()}`;
     beginDeployJob(hostId);
-    setActiveDeployJobHost(hostId);
-    reportDeployStage(HOST_RUNTIME_REMEDY_STAGE.copy);
-    reportDeployStage(HOST_RUNTIME_REMEDY_STAGE.sign);
-    reportDeployStage(HOST_RUNTIME_REMEDY_STAGE.restart);
-    reportDeployStage(HOST_RUNTIME_REMEDY_STAGE.wait);
-    setActiveDeployJobHost(undefined);
+    appendDeployJobStage(hostId, HOST_RUNTIME_REMEDY_STAGE.copy);
+    appendDeployJobStage(hostId, HOST_RUNTIME_REMEDY_STAGE.sign);
+    appendDeployJobStage(hostId, HOST_RUNTIME_REMEDY_STAGE.restart);
+    appendDeployJobStage(hostId, HOST_RUNTIME_REMEDY_STAGE.wait);
     finishDeployJob(hostId, {
       status: "succeeded",
       detail: "installed",
@@ -211,12 +206,11 @@ describe("copy progress copy", () => {
 });
 
 describe("deploy-job-registry copy", () => {
-  it("publishes live copy bytes onto the active job", () => {
+  it("publishes live copy bytes onto the addressed host's job", () => {
     const hostId = `copy-host-${Date.now()}`;
     beginDeployJob(hostId);
-    setActiveDeployJobHost(hostId);
-    reportDeployStage(HOST_RUNTIME_REMEDY_STAGE.copy);
-    reportDeployCopyProgress({
+    appendDeployJobStage(hostId, HOST_RUNTIME_REMEDY_STAGE.copy);
+    reportDeployCopyProgress(hostId, {
       bytesSent: 20,
       bytesTotal: 100,
       startedAt: "2026-08-14T00:00:00.000Z",
@@ -227,9 +221,51 @@ describe("deploy-job-registry copy", () => {
     expect(mid?.copy?.bytesTotal).toBe(100);
     expect(mid?.percent).toBeGreaterThanOrEqual(40);
     expect(mid?.percent).toBeLessThan(55);
-    setActiveDeployJobHost(undefined);
     finishDeployJob(hostId, { status: "succeeded", detail: "installed" });
     expect(getDeployJob(hostId)?.copy).toBeUndefined();
+  });
+
+  it("attributes concurrent copy progress per host without a shared slot", () => {
+    const first = `copy-a-${Date.now()}`;
+    const second = `copy-b-${Date.now()}`;
+    beginDeployJob(first);
+    beginDeployJob(second);
+    reportDeployCopyProgress(first, {
+      bytesSent: 10,
+      bytesTotal: 100,
+      startedAt: "2026-08-14T00:00:00.000Z",
+      updatedAt: "2026-08-14T00:00:01.000Z",
+    });
+    reportDeployCopyProgress(second, {
+      bytesSent: 90,
+      bytesTotal: 100,
+      startedAt: "2026-08-14T00:00:00.000Z",
+      updatedAt: "2026-08-14T00:00:01.000Z",
+    });
+    expect(getDeployJob(first)?.copy?.bytesSent).toBe(10);
+    expect(getDeployJob(second)?.copy?.bytesSent).toBe(90);
+    finishDeployJob(first, { status: "succeeded", detail: "installed" });
+    finishDeployJob(second, { status: "succeeded", detail: "installed" });
+  });
+});
+
+describe("deploy host slot", () => {
+  it("refuses a second slot for the same host and admits other hosts", () => {
+    const hostId = `slot-host-${Date.now()}`;
+    const other = `slot-other-${Date.now()}`;
+    const held = acquireDeployHostSlot(hostId);
+    expect(held.acquired).toBe(true);
+    expect(acquireDeployHostSlot(hostId).acquired).toBe(false);
+    const independent = acquireDeployHostSlot(other);
+    expect(independent.acquired).toBe(true);
+    if (independent.acquired) independent.release();
+    if (!held.acquired) return;
+    held.release();
+    // Idempotent release; the host is admitted again after release.
+    held.release();
+    const reacquired = acquireDeployHostSlot(hostId);
+    expect(reacquired.acquired).toBe(true);
+    if (reacquired.acquired) reacquired.release();
   });
 });
 
