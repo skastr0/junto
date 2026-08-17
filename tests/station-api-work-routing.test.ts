@@ -49,9 +49,9 @@ const contentSha256 = "a".repeat(64);
 const installation = (value: string): InstallationIdValue =>
   Schema.decodeUnknownSync(InstallationId)(value);
 
-const cc = installation("cc-station-api-v2");
-const remote = installation("remote-station-api-v2");
-const otherRemote = installation("other-remote-station-api-v2");
+const cc = installation("cc-station-api");
+const remote = installation("remote-station-api");
+const otherRemote = installation("other-remote-station-api");
 
 const remoteActor: ActorRef = {
   seatId: Schema.decodeUnknownSync(ActorSeatId)(
@@ -577,7 +577,7 @@ const largeTaskCreateCommand = (
   });
 };
 
-describe("Station API v2 work routing", () => {
+describe("Station API v1 work routing", () => {
   it("pages large commands only while their mandatory responses fit", async () => {
     const commands = Array.from(
       { length: 16 },

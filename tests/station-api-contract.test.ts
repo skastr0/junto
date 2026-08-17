@@ -290,7 +290,7 @@ const responseBatch = {
   hasMore: false,
 };
 
-describe("Station API v2 contract", () => {
+describe("Station API v1 contract", () => {
   it("decodes the exact five verbs and symmetric report direction", () => {
     const requests = [
       {
@@ -387,11 +387,11 @@ describe("Station API v2 contract", () => {
     ).toBeDefined();
   });
 
-  it("rejects v1 reports, opaque events, excess fields, and sixth verbs", () => {
+  it("rejects non-v1 frames, opaque events, excess fields, and sixth verbs", () => {
     expect(
       Result.isFailure(
         decodeStationControlRequest({
-          protocol: "vellum-command/station-api/v1",
+          protocol: "vellum-command/station-api/v2",
           op: "pair",
           commandCenterInstallationId: cc,
           stationInstallationId: remote,

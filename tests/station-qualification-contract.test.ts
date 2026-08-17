@@ -96,7 +96,7 @@ const qualified = () => ({
 });
 
 describe("two-installation Station qualification contract", () => {
-  it("accepts the strict v2 receipt for the exact exercised release", () => {
+  it("accepts the current v1 receipt for the exact exercised release", () => {
     expect(Result.isSuccess(decodeStationQualification(qualified()))).toBe(true);
   });
 
@@ -270,12 +270,12 @@ describe("two-installation Station qualification contract", () => {
     }
   });
 
-  it("rejects v1, removed theater fields, and all excess properties", () => {
+  it("rejects non-v1 schemas, removed theater fields, and all excess properties", () => {
     expect(
       Result.isFailure(
         decodeStationQualification({
           ...qualified(),
-          schema: "vellum-command/station-two-installation-qualification/v1",
+          schema: "vellum-command/station-two-installation-qualification/v2",
         }),
       ),
     ).toBe(true);

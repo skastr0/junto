@@ -176,7 +176,7 @@ One passed receipt qualifies:
 
 - one exact Linux Remote with a Linux or supported macOS Command Center;
 - five-verb `pair`, `configure`, `project`, `report`, and `status` exchange;
-- distinct installation identities and the exact protocol 5 bundle;
+- distinct installation identities and the exact protocol 1 bundle;
 - complete replace-only projection and restart persistence;
 - bidirectional logical cursor convergence;
 - interrupted project/report retry;

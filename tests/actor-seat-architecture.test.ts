@@ -57,8 +57,9 @@ describe("actor seat production architecture", () => {
     expect(server).toContain('actorReq.admission === "activate"');
     expect(server).toContain("existing.epoch !== expectedEpoch");
     expect(wire).toContain(
-      "export const TERM_CONTROL_PROTOCOL = STATION_PROTOCOL_BASELINE",
+      "export const TERM_CONTROL_PROTOCOL = remoteStationContractVersion(",
     );
+    expect(wire).not.toContain("STATION_PROTOCOL_BASELINE");
   });
 
   it("routes every managed wake through ActorSeatOccupy", () => {

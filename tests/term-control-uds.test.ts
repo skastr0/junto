@@ -14,7 +14,6 @@ import {
   TERM_CONTROL_PROTOCOL,
   type TermControlResponse,
 } from "../src/shared/term-control";
-import { STATION_PROTOCOL_BASELINE } from "../src/shared/station-protocol";
 import {
   makeProcessIdentityMap,
   setProcessIdentityMapForTests,
@@ -210,28 +209,28 @@ describe("term control UDS", () => {
   });
 
 
-  it("rejects a legacy v1 server at the auth boundary", async () => {
-    const home = mkdtempSync(join(tmpdir(), "vtv2-"));
+  it("rejects an unsupported v2 server at the auth boundary", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vt-unsupported-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));
-    const socketPath = join(home, "legacy.sock");
-    const legacy = createServer((socket) => {
+    const socketPath = join(home, "unsupported.sock");
+    const unsupported = createServer((socket) => {
       socket.once("data", () => {
-        socket.write(`${JSON.stringify({ v: 1, id: "auth", ok: true })}\n`);
+        socket.write(`${JSON.stringify({ v: 2, id: "auth", ok: true })}\n`);
       });
     });
     await new Promise<void>((resolve, reject) => {
-      legacy.once("error", reject);
-      legacy.listen(socketPath, resolve);
+      unsupported.once("error", reject);
+      unsupported.listen(socketPath, resolve);
     });
     cleanups.push(
       () =>
         new Promise<void>((resolve) => {
-          legacy.close(() => resolve());
+          unsupported.close(() => resolve());
         }),
     );
 
     await expect(
-      TermControlClient.connect({ socketPath, token: "legacy", timeoutMs: 1_000 }),
+      TermControlClient.connect({ socketPath, token: "unsupported", timeoutMs: 1_000 }),
     ).rejects.toThrow(/update required/);
   });
 
@@ -726,26 +725,26 @@ describe("term control UDS", () => {
     });
     cleanups.push(() => client.close());
 
-    expect(TERM_CONTROL_PROTOCOL).toBe(STATION_PROTOCOL_BASELINE);
-    const outdated = await rawRequest(server.socketPath, server.token, {
-      v: 1,
-      id: "outdated-actor-codec",
+    expect(TERM_CONTROL_PROTOCOL).toBe(1);
+    const unsupported = await rawRequest(server.socketPath, server.token, {
+      v: 2,
+      id: "unsupported-actor-codec",
       op: "createAgentSeat",
       admission: "occupy",
-      bindingId: "uds_outdated_actor",
+      bindingId: "uds_unsupported_actor",
       harness: "grok",
       agentKey: "mini:grok",
       canvasName: "factory",
-      nodeId: "outdated-actor",
+      nodeId: "unsupported-actor",
       spawnIntent: {
         documentLaunch: { kind: "harness", argv: ["grok"] },
         resumeRequested: false,
         injection: { seatBound: true, connected: false },
       },
     });
-    expect(outdated).toMatchObject({ ok: false });
-    if (outdated.ok) throw new Error("outdated actor codec was accepted");
-    expect(outdated.error).toMatch(/update required/);
+    expect(unsupported).toMatchObject({ ok: false });
+    if (unsupported.ok) throw new Error("unsupported actor codec was accepted");
+    expect(unsupported.error).toMatch(/update required/);
 
     const missing = await rawRequest(server.socketPath, server.token, {
       v: TERM_CONTROL_PROTOCOL,

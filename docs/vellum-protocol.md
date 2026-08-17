@@ -65,15 +65,10 @@ different app and schema versions while communicating through the same
 Station protocol.
 
 SQLite schema version 1 is the frozen durable baseline. The current local
-schema is version 3, reached through the immutable chain:
-
-```text
-1 → 2  add-license-activation
-2 → 3  bind-license-entitlement-to-dodo-product
-```
-
-Those numbers are local database facts. They are neither sent as migration
-instructions nor negotiated as Station behavior.
+schema is version 18, reached through the immutable contiguous chain declared
+in `src/main/vellum/state/migrations.ts`. Those numbers are local database
+facts. They are neither sent as migration instructions nor negotiated as
+Station behavior.
 
 Every release declares one contiguous Station-protocol support descriptor:
 
@@ -97,16 +92,17 @@ prefers. `compatibleFrom` is the oldest exact codec it will accept.
 peer's threshold remains compatible but produces an operator-visible upgrade
 warning.
 
-The current baseline is Station protocol **5**, with support policy:
+Remote Stations are unreleased. The complete current Station contract remains
+protocol **1**, with support policy:
 
 ```text
-{ preferred: 5, compatibleFrom: 5, warnBelow: 5 }
+{ preferred: 1, compatibleFrom: 1, warnBelow: 1 }
 ```
 
-A new Station protocol number exists only when the actual closed wire bundle
-changes. Protocol 5 is the Vellum Command namespace cut and content-capable
-release (ContentRef Work parts,
-verified receipt claim gates, no media in Station NDJSON).
+During active development the v1 shape may change in place. The release-state
+gate forbids any Remote Station contract version above 1 until its exact state
+is deliberately changed to `REMOTE STATIONS ARE RELEASED`. Only then does a
+new protocol number become compatibility work for independently updated peers.
 
 One negotiated integer selects the complete strict bundle: session framing,
 control envelope, five Station API operations, Work records, projection
@@ -965,14 +961,13 @@ The existing `WORK_PROTOCOL_MAX_RECORD_BYTES` bound remains a control-record
 bound, not a media-size limit. Because a content-capable record carries only
 bounded reference metadata, the size of the referenced object is governed by
 the content store, disk admission, and resumable transfer backpressure rather
-than JSON/Base64 expansion. Station protocol **5** is the renamed,
-content-capable
-codec cut: Work records admit `ContentPart` references, reject inline Base64
+than JSON/Base64 expansion. Station protocol **1** is the current
+content-capable contract: Work records admit `ContentPart` references, reject inline Base64
 media on the wire, and keep control frames bounded regardless of object size.
 Legacy installed `RawPart` history remains decodable in local SQLite but is
 not a legal Station report body.
 
-### Content-capable ordering (protocol 5)
+### Content-capable ordering (protocol 1)
 
 Media availability is explicit and route-local. The ordered path is:
 
@@ -990,11 +985,10 @@ Media availability is explicit and route-local. The ordered path is:
    imply media availability.
 
 A task with missing, corrupt, unavailable, or unknown content remains
-non-runnable (claim rejected / visibly pending). Protocol-4 and earlier peers
-share no overlap with protocol-5 support `{ preferred: 5, compatibleFrom: 5,
-warnBelow: 5 }`; negotiation returns non-retryable `update-required`. The
-older peer retains local work under its last valid projection. There is no
-partial down-conversion of ContentRefs into Base64 to satisfy an older peer.
+non-runnable (claim rejected / visibly pending). A peer outside the exact
+protocol-1 support `{ preferred: 1, compatibleFrom: 1, warnBelow: 1 }` receives
+non-retryable `update-required` and retains local work under its last valid
+projection. There is no partial down-conversion of ContentRefs into Base64.
 
 ### Content store operations (local installation)
 
@@ -1355,7 +1349,7 @@ ReportBatch {
 }
 
 ReportRequest {
-  protocol: "vellum-command/station-api/v5"
+  protocol: "vellum-command/station-api/v1"
   op: "report"
   senderInstallationId: InstallationId
   targetInstallationId: InstallationId
@@ -1363,7 +1357,7 @@ ReportRequest {
 }
 
 ReportResponse {
-  protocol: "vellum-command/station-api/v5"
+  protocol: "vellum-command/station-api/v1"
   op: "report"
   senderInstallationId: InstallationId
   targetInstallationId: InstallationId
@@ -1480,10 +1474,9 @@ Status includes:
 Cached status must be labelled last-observed. An unreachable Remote is
 `unknown/unreachable`, never optimistically healthy.
 
-These compatibility facts belong to the protocol-5 `StatusResponse`, session
-supervisor, and operator status surfaces. They do not widen any retired codec:
-a protocol-2 peer has no installed decoder and fails compatibility before
-domain traffic.
+These compatibility facts belong to the protocol-1 `StatusResponse`, session
+supervisor, and operator status surfaces. They do not widen the exact current
+codec; an unsupported peer fails compatibility before domain traffic.
 
 ## Closed protocol surface
 
@@ -1579,17 +1572,14 @@ Command Center and Remotes are installed applications and cannot be updated
 atomically. That is a proven runtime-skew constraint, not speculative backward
 compatibility.
 
-The exact Station protocol 5 bundle is the installed compatibility floor. Its
-session, Station API, control, Work, and projection codecs are closed and are
-never widened in place. Protocol 5 adds the renamed namespace, content-capable
-Work parts, and receipt-gated claim readiness. Protocol 4 and Protocol 3 cannot represent that media
-boundary without partial down-conversion and is retired because no deployed
-Station or unreconciled route establishes an obligation to retain it.
+Before Remote Stations are released, protocol 1 is the only live bundle and may
+evolve in place without legacy peer codecs. Session, Station API, control,
+Work, and projection remain one exact contract. Unsupported versions fail
+closed before domain traffic; there is no pre-release down-conversion path.
 
-The committed protocol-2 corpus is rejection evidence: a current installation
-must fail closed before interpreting those legacy domain frames. A future
-retained codec must instead keep its own accepted and rejected golden corpus
-immutable until its objective fleet-retirement trigger is satisfied.
+After the release sentinel is deliberately changed, each new protocol number
+must freeze its own accepted and rejected golden corpus and remain available
+until the objective fleet-retirement trigger is satisfied.
 
 Every negotiation-aware connection begins with one frozen compatibility
 preface before domain traffic:
@@ -1663,13 +1653,12 @@ Rules:
 9. No-common-protocol is a typed, non-retryable software state, not network
    unavailability.
 
-#### Retired protocol-2 and protocol-3 boundary
+#### Pre-release exact-version boundary
 
-There is no pre-negotiation protocol-2 or protocol-3 fallback in the
-protocol-5 cut. A legacy preface or domain frame is rejected before
-interpretation, no fresh compatibility-mode connection is opened, and no
-mutation or acknowledgement is attempted. Coordination resumes only after the
-incompatible installation updates into the protocol-5 support interval.
+There is no fallback outside the current protocol-1 contract. An unsupported
+preface or domain frame is rejected before interpretation, no compatibility-mode
+connection is opened, and no mutation or acknowledgement is attempted.
+Coordination resumes only after both installations run the same current build.
 
 This is an intentional coordination lockdown, not a request to stop the
 Remote's host-local factory. The Remote continues already-homed work under its
@@ -2112,8 +2101,8 @@ The canonical protocol blocks release while any live path preserves:
 
 ## Implementation status
 
-Station protocol 5 is the sole live Station contract in source. Its
-implementation cut is closed:
+Station protocol 1 is the sole live, unreleased Station contract in source. Its
+current implementation surface is:
 
 - the wire has exactly `pair | configure | project | report | status`;
 - task proposals are typed, non-executable Work entities; only a correlated
@@ -2193,8 +2182,8 @@ During protocol development:
 - do not run the Electron app, dev server, package build, or E2E while the
   operator's beta build is active.
 
-The strict source-level v2 corpus and local state fixtures are committed
-evidence. They do not prove a packaged two-installation deployment. Packaged
+The strict source-level Station v1 and durable Work v2 corpora, plus local
+state fixtures, are committed evidence. They do not prove a packaged two-installation deployment. Packaged
 and real multi-machine qualification remain required before a production
 release claim and are not claimed complete by this document.
 

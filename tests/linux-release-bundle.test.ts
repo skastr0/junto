@@ -732,9 +732,9 @@ describe("signed Linux release bundle", () => {
       ]),
     );
     expect(manifest.stationProtocol).toEqual({
-      preferred: 5,
-      compatibleFrom: 5,
-      warnBelow: 5,
+      preferred: 1,
+      compatibleFrom: 1,
+      warnBelow: 1,
     });
     await expect(verifyFixture(fixture.directory)).resolves.toEqual({
       schema: "vellum/linux-release-verification-receipt/v1",
@@ -893,9 +893,9 @@ describe("signed Linux release bundle", () => {
       { now: Number.NaN },
       {
         peerStationProtocol: {
-          preferred: 1,
-          compatibleFrom: 1,
-          warnBelow: 1,
+          preferred: 2,
+          compatibleFrom: 2,
+          warnBelow: 2,
         },
       },
       {
@@ -923,19 +923,6 @@ describe("signed Linux release bundle", () => {
         verifyFixture(fixture.directory, candidate),
       ).rejects.toThrow();
     }
-  });
-
-  it("accepts a deprecated but exact overlapping Station codec", async () => {
-    const fixture = await createFixture();
-    await expect(
-      verifyFixture(fixture.directory, {
-        peerStationProtocol: {
-          preferred: 5,
-          compatibleFrom: 4,
-          warnBelow: 5,
-        },
-      }),
-    ).resolves.toMatchObject({ ok: true, version: VERSION });
   });
 
   it("strictly rejects every pre-v7 manifest shape", async () => {

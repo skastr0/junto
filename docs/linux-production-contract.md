@@ -183,9 +183,10 @@ or privilege instruction. A Remote never opens a callback route to Command
 Center or another Remote. Tailscale may provide reachability; it grants no
 Vellum Command authority. Browser and actor control remain host-local.
 
-Installed version skew uses the one Station protocol descriptor. Current
-policy is protocol 5 with `5/5/5`. No overlap means `update required`; it does
-not authorize a privileged fallback or partial down-conversion.
+Installed version skew uses the one Station protocol descriptor. Remote
+Stations are unreleased, so current policy remains protocol 1 with `1/1/1`.
+No overlap means `update required`; it does not authorize a privileged fallback
+or partial down-conversion.
 
 ## Production exit gates
 

@@ -4,9 +4,10 @@ import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { StationHostId } from "../src/shared/station-api";
-import type {
-  StationDeployRecord,
-  StationKernelRecord,
+import {
+  STATION_STATUS_VERSION,
+  type StationDeployRecord,
+  type StationKernelRecord,
 } from "../src/shared/station-status";
 import {
   makeStationStatusLive,
@@ -120,7 +121,7 @@ describe("SQLite station status receipts", () => {
     );
 
     await expect(readStatus(runtime)).resolves.toEqual({
-      version: 2,
+      version: STATION_STATUS_VERSION,
       kernel,
       deployments: { studio: deployment },
     });
@@ -131,7 +132,7 @@ describe("SQLite station status receipts", () => {
     await acquireStatus(runtime);
 
     await expect(readStatus(runtime)).resolves.toEqual({
-      version: 2,
+      version: STATION_STATUS_VERSION,
       kernel,
       deployments: { studio: deployment },
     });
@@ -152,7 +153,7 @@ describe("SQLite station status receipts", () => {
     ]);
 
     await expect(readStatus(runtime)).resolves.toEqual({
-      version: 2,
+      version: STATION_STATUS_VERSION,
       deployments: { lab, studio },
     });
   });
@@ -180,7 +181,7 @@ describe("SQLite station status receipts", () => {
       expect(result.failure).toBeInstanceOf(StationStatusStoreError);
     }
     await expect(readStatus(runtime)).resolves.toEqual({
-      version: 2,
+      version: STATION_STATUS_VERSION,
       kernel: committed,
     });
   });
@@ -235,7 +236,7 @@ describe("SQLite station status receipts", () => {
     await recordDeployment(runtime, retry);
 
     await expect(readStatus(runtime)).resolves.toEqual({
-      version: 2,
+      version: STATION_STATUS_VERSION,
       deployments: {
         studio: {
           ...retry,

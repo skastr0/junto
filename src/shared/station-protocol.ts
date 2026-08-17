@@ -1,19 +1,18 @@
 import { Result, Schema } from "effect";
+import { remoteStationContractVersion } from "./remote-station-release";
 
 /**
  * The independently deployed Station wire contract.
  *
- * This number is deliberately separate from the application and SQLite state
- * schema versions. A peer advertises one contiguous supported range, then a
- * connection selects one exact wire version from the overlap.
+ * Remote Stations are unreleased, so the complete current contract is v1 and
+ * may evolve in place during active development. A future compatibility bump
+ * is forbidden until the explicit Remote Station release state is changed.
+ * Application and SQLite schema versions remain separate diagnostics.
  */
-/**
- * Station protocol 5 is the Vellum Command wire cut: the renamed protocol
- * namespace is content-capable, Work records carry ContentRef parts, control
- * frames stay bounded, and media bytes never ride Station NDJSON. Protocol 4
- * and earlier are retired with no partial down-conversion.
- */
-export const STATION_PROTOCOL_BASELINE = 5 as const;
+export const STATION_PROTOCOL_BASELINE = remoteStationContractVersion(
+  "Station protocol",
+  1,
+);
 
 export const StationProtocolVersion = Schema.Number.pipe(Schema.check(Schema.isInt()), 
   Schema.check(Schema.isGreaterThan(0)),

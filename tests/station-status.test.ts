@@ -8,6 +8,7 @@ import {
   kernelRecordFromSnapshot,
   redactStationDiagnostic,
   STATION_KERNEL_STALE_AFTER_MS,
+  STATION_STATUS_VERSION,
   type StationRemoteObservation,
 } from "../src/shared/station-status";
 import {
@@ -172,7 +173,7 @@ const statusWithDeployment = (
   deployment: ReturnType<typeof deployRecordFromResult>,
 ) => {
   const status = decodeStationStatusDocument({
-    version: 2,
+    version: STATION_STATUS_VERSION,
     deployments: { [deployment.hostId]: deployment },
   });
   if (status === undefined) {
@@ -194,23 +195,23 @@ const observedRemote = (
 describe("station status doctor", () => {
   const now = Date.parse("2026-07-23T12:00:00.000Z");
 
-  it("accepts only the v2 operational-observation document", () => {
+  it("accepts only the v1 operational-observation document", () => {
     const kernel = liveKernel();
 
-    expect(defaultStationStatus()).toEqual({ version: 2 });
+    expect(defaultStationStatus()).toEqual({ version: STATION_STATUS_VERSION });
     expect(
       decodeStationStatusDocument({
-        version: 2,
+        version: STATION_STATUS_VERSION,
         kernel,
       }),
-    ).toEqual({ version: 2, kernel });
+    ).toEqual({ version: STATION_STATUS_VERSION, kernel });
     expect(
       decodeStationStatusDocument({
-        version: 2,
+        version: STATION_STATUS_VERSION,
         lastPull: { status: "ok" },
       }),
     ).toBeUndefined();
-    expect(decodeStationStatusDocument({ version: 1 })).toBeUndefined();
+    expect(decodeStationStatusDocument({ version: 2 })).toBeUndefined();
   });
 
   it("warns when canonical station configuration is absent", () => {
@@ -448,7 +449,7 @@ describe("station status doctor", () => {
       "remote.studio.localStateSchemaVersion": "2",
       "remote.studio.peerAppVersion": "2.0.0",
       "remote.studio.peerStateSchemaVersion": "3",
-      "remote.studio.localProtocolPreferred": "5",
+      "remote.studio.localProtocolPreferred": "1",
       "remote.studio.peerProtocolCompatibleFrom": "3",
     });
   });

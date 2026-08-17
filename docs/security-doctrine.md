@@ -335,14 +335,11 @@ stamp, and the version advance commit together or all roll back. A database
 from a newer release, an unknown version, a missing migration, or a drifted
 version witness fails closed without mutation.
 
-Version 1 is the frozen post-consolidation baseline. The current chain is
-`1 → 2` (`add-license-activation`) followed by `2 → 3`
-(`bind-license-entitlement-to-dodo-product`), `3 → 4`
-(`allow-atomic-task-release`), and `4 → 5` (`add-task-proposals`); schema
-version 5 is current. Each step preserves the prior representation. The last
-step adds proposal event, pending-command, and material tables beside the
-frozen task tables rather than widening their released checks or deleting
-their bytes.
+Version 1 is the frozen post-consolidation baseline. Schema version 18 is
+current through the immutable contiguous chain declared in
+`src/main/vellum/state/migrations.ts`. Each step preserves the prior
+representation by adding beside frozen durable shapes rather than widening
+released checks or deleting their bytes.
 
 An unversioned non-empty database is adopted only when both its live schema and
 recorded identity match the exact version-1 baseline. This is not a general
@@ -681,25 +678,22 @@ in the overlap of their support intervals and bind that one protocol before
 domain traffic. Selection below either warning threshold remains operational
 with an explicit upgrade warning.
 
-The current baseline and installed floor is Station protocol 5 with policy
-`{ preferred: 5, compatibleFrom: 5, warnBelow: 5 }`. Protocol 5 is the
-Vellum Command namespace cut and remains content-capable: Work carries ContentRef metadata only, claim readiness
-requires verified local content receipts, and media bytes never enter Station
-NDJSON. A protocol-3 peer cannot represent that media boundary without partial
-down-conversion and therefore has no compatibility overlap. One Station
+Remote Stations are unreleased, so the baseline is Station protocol 1 with
+`{ preferred: 1, compatibleFrom: 1, warnBelow: 1 }`. Every Remote-specific
+contract remains at version 1, and the release-state gate forbids a bump until
+its exact sentinel declares release. The current contract is content-capable:
+Work carries ContentRef metadata only, claim readiness requires verified local
+content receipts, and media bytes never enter Station NDJSON. One Station
 protocol number selects one complete closed bundle: framing, control envelope,
 the five verbs, Work records, projection encoding, bounds, and failure
 semantics. The exact discriminators inside that bundle are not separately
 negotiated versions. There are no session/API/Work/projection version arrays,
-capability arrays, or fallback-protocol number. Negotiation itself does not
-invent Base64 down-conversion for older peers.
+capability arrays, fallback protocol, or pre-release compatibility codecs.
 
-A release retains an older codec only while an enrolled, non-retired Station
-or unreconciled route proves that compatibility obligation. This protocol-5
-cut has no deployed Station obligation for protocol 2 or 3, so both are
-deliberately retired instead of becoming permanent fallbacks. Compatibility
-lives only at the transport/domain boundary and normalizes immediately into
-the one current internal model.
+After release, an older codec is retained only while an enrolled, non-retired
+Station or unreconciled route proves that compatibility obligation.
+Compatibility lives only at the transport/domain boundary and normalizes
+immediately into the one current internal model.
 
 If no compatible Station protocol exists:
 
@@ -720,8 +714,8 @@ backup and disposable-clone migration before the incumbent is replaced; a
 failed preflight leaves the incumbent and its 24/7 local work intact.
 
 Every connection begins with the compatibility preface. There is no
-pre-negotiation protocol-2 entry path or code-64 reconnect: an old helper
-rejection, old domain frame, malformed frame, timeout, or other negotiation
+pre-negotiation alternate-version entry path or reconnect fallback: an
+unsupported helper, domain frame, malformed frame, timeout, or other negotiation
 failure closes that attempt without fallback. A Station codec may be retained
 only while an enrolled Station or unreconciled durable route proves the
 obligation; elapsed time or a new app release is not evidence either way.

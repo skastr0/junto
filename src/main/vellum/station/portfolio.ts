@@ -7,6 +7,7 @@ import {
 } from "@shared/canvas";
 import { isCanonicalCanvasName } from "@shared/canvas-name";
 import type { InstallationId } from "@shared/installation-id";
+import { remoteStationContractVersion } from "@shared/remote-station-release";
 import { STATION_API_MAX_PROJECTION_CHARS } from "@shared/station-api";
 import {
   ActorSeatCompilationError,
@@ -16,9 +17,11 @@ import {
   type ProjectedActorSeat,
 } from "./actor-seat-compiler";
 
+export const STATION_PORTFOLIO_PROTOCOL_VERSION =
+  remoteStationContractVersion("Station portfolio projection", 1);
 export const STATION_PORTFOLIO_PROTOCOL =
-  "vellum-command/station-portfolio/v2" as const;
-/** Frozen SQLite projections may contain the pre-rename protocol body. */
+  `vellum-command/station-portfolio/v${STATION_PORTFOLIO_PROTOCOL_VERSION}` as const;
+/** Frozen v1 SQLite fixtures retain this body; never emit or negotiate it. */
 const LEGACY_STATION_PORTFOLIO_PROTOCOL =
   "vellum/station-portfolio/v2" as const;
 export const STATION_PORTFOLIO_MAX_CANVASES = 256;

@@ -201,7 +201,7 @@ const fleetDeployCommand = Command.make(
     ),
 ).pipe(
   Command.withDescription(
-    "Deploy a final-v5 stable or verified-cache release to one Remote",
+    "Deploy a stable or verified-cache release to one Remote",
   ),
 );
 

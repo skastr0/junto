@@ -1,6 +1,7 @@
 import { Result, Schema } from "effect";
 import type { ServiceCheck } from "./contracts";
 import type { KernelSnapshot } from "./ipc";
+import { remoteStationContractVersion } from "./remote-station-release";
 import {
   DisplayTimestamp,
   InstallationId,
@@ -26,7 +27,10 @@ import type {
  * Durable operational observations. Authoritative station configuration,
  * projections, and logical cursors live in StationRepository instead.
  */
-export const STATION_STATUS_VERSION = 2 as const;
+export const STATION_STATUS_VERSION = remoteStationContractVersion(
+  "Station status observation",
+  1,
+);
 
 /** A kernel observation older than this is display history, not live truth. */
 export const STATION_KERNEL_STALE_AFTER_MS = 2 * 60 * 1_000;

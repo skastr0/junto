@@ -33,12 +33,12 @@ const offer = (peerSupport = CURRENT_STATION_PROTOCOL_SUPPORT) =>
   });
 
 describe("Station protocol compatibility contract", () => {
-  it("starts with one exact v5 Vellum Command protocol and selects the highest intersection", () => {
-    expect(STATION_PROTOCOL_BASELINE).toBe(5);
+  it("starts with one exact unreleased v1 protocol and selects the highest intersection", () => {
+    expect(STATION_PROTOCOL_BASELINE).toBe(1);
     expect(CURRENT_STATION_PROTOCOL_SUPPORT).toEqual({
-      preferred: 5,
-      compatibleFrom: 5,
-      warnBelow: 5,
+      preferred: 1,
+      compatibleFrom: 1,
+      warnBelow: 1,
     });
     expect(negotiateStationProtocol(support(6, 4, 5), support(5, 3, 4))).toEqual({
       _tag: "selected",
@@ -114,10 +114,12 @@ describe("Station protocol compatibility contract", () => {
     });
   });
 
-  it("selects only an installed exact codec", () => {
-    expect(selectStationProtocolCodec(2)).toEqual(Result.fail("unsupported-station-protocol"));
-    expect(selectStationProtocolCodec(3)).toEqual(Result.fail("unsupported-station-protocol"));
-    expect(selectStationProtocolCodec(4)).toEqual(Result.fail("unsupported-station-protocol"));
-    expect(selectStationProtocolCodec(5)).toEqual(Result.succeed(5));
+  it("selects only the unreleased v1 codec", () => {
+    expect(selectStationProtocolCodec(1)).toEqual(Result.succeed(1));
+    for (const unsupported of [2, 3, 4, 5]) {
+      expect(selectStationProtocolCodec(unsupported)).toEqual(
+        Result.fail("unsupported-station-protocol"),
+      );
+    }
   });
 });

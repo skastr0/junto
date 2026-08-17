@@ -166,7 +166,7 @@ const freezeProtocolDiagnostics = (
 
 /**
  * Bind a successful preface decision to the one exact session codec it
- * selected. Protocol 5 is currently the only compiled codec.
+ * selected. Protocol 1 is currently the only compiled codec.
  */
 export const bindNegotiatedStationProtocol = (input: {
   readonly negotiatedProtocol: StationProtocolVersion;

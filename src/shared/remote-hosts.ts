@@ -1,10 +1,14 @@
 import { Schema } from "effect";
+import { remoteStationContractVersion } from "./remote-station-release";
 
 // Durable remote-host enrollment lives in the app-owned StateEngine database.
 // Source only synthesizes the immutable local host — remote machines are
 // enrolled through product APIs, never source constants or editable files.
 
-export const REMOTE_HOSTS_VERSION = 1 as const;
+export const REMOTE_HOSTS_VERSION = remoteStationContractVersion(
+  "Remote hosts read model",
+  1,
+);
 
 export const TERMINAL_HOST_CAPABILITY = "terminal" as const;
 export const BROWSER_HOST_CAPABILITY = "browser" as const;

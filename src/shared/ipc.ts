@@ -987,7 +987,7 @@ export interface HostsTestResult {
   /** Raw SSH link truth — `ok` is the strict all-checks verdict; this is
    * whether the host answered at all (remote probes only). */
   readonly reachability?: "reachable" | "unreachable" | "unknown";
-  /** Process-local Station wire compatibility; never persisted or added to v2. */
+  /** Process-local Station wire compatibility; never persisted in the status document. */
   readonly protocol?: import("./station-status").StationProtocolObservation;
   /**
    * Linux host-capability Doctor observation from the closed SSH probe.

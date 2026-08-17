@@ -92,9 +92,9 @@ const INCOMPATIBLE_PEER_DIAGNOSTICS = {
   appVersion: StationAppVersion.make("future-remote"),
   stateSchemaVersion: StationStateSchemaVersion.make(3),
   support: StationProtocolSupport.make({
-    preferred: 5,
-    compatibleFrom: 5,
-    warnBelow: 5,
+    preferred: 2,
+    compatibleFrom: 2,
+    warnBelow: 2,
   }),
 };
 const target = (host: string, station: string): StationFleetTarget => ({

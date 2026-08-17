@@ -67,7 +67,7 @@ const statusEnvelope = stationControlOk(
   }),
 );
 
-describe("Station session v2 frame contract", () => {
+describe("Station session v1 frame contract", () => {
   it("correlates one exact Station request and response", () => {
     const response = stationSessionResponse(request, statusEnvelope);
 
@@ -172,11 +172,11 @@ describe("Station session v2 frame contract", () => {
     expect(Result.isSuccess(decodeStationSessionFrame(response))).toBe(true);
   });
 
-  it("rejects v1 layers, unknown frames, and excess fields", () => {
+  it("rejects non-v1 layers, unknown frames, and excess fields", () => {
     expect(
       Result.isFailure(
         decodeStationSessionFrame({
-          protocol: "vellum-command/station-session/v1",
+          protocol: "vellum-command/station-session/v2",
           frame: "request",
           requestId,
           request: {
@@ -193,7 +193,7 @@ describe("Station session v2 frame contract", () => {
           frame: "request",
           requestId,
           request: {
-            protocol: "vellum-command/station-api/v1",
+            protocol: "vellum-command/station-api/v2",
             op: "status",
           },
         }),
@@ -206,7 +206,7 @@ describe("Station session v2 frame contract", () => {
           frame: "response",
           requestId,
           envelope: {
-            protocol: "vellum-command/station-control/v1",
+            protocol: "vellum-command/station-control/v2",
             ok: true,
             response: {
               protocol: STATION_API_PROTOCOL,
@@ -251,11 +251,11 @@ describe("Station session v2 frame contract", () => {
       ),
     ).toBe(true);
 
-    expect(STATION_SESSION_PROTOCOL).toBe("vellum-command/station-session/v5");
-    expect(STATION_CONTROL_PROTOCOL).toBe("vellum-command/station-control/v5");
+    expect(STATION_SESSION_PROTOCOL).toBe("vellum-command/station-session/v1");
+    expect(STATION_CONTROL_PROTOCOL).toBe("vellum-command/station-control/v1");
   });
 
-  it("keeps the protocol preface outside the frozen v5 session frame", () => {
+  it("keeps the protocol preface outside the v1 session frame", () => {
     const preface = StationProtocolOffer.make({
       protocol: STATION_PROTOCOL_PREFACE,
       frame: "offer",

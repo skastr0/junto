@@ -3,7 +3,7 @@
 // SSH-forwarding this socket (same pattern as herdr mirror forward).
 
 import { join } from "node:path";
-import { STATION_PROTOCOL_BASELINE } from "./station-protocol";
+import { remoteStationContractVersion } from "./remote-station-release";
 import { resolveVellumCommandHome } from "./vellum-home";
 import {
   decodeLinuxReleaseFence,
@@ -13,8 +13,11 @@ import type { ManagedSpawnIntent } from "./managed-terminal-launch";
 import type { TerminalLaunch, TerminalSessionSummary } from "./terminal";
 import type { HostDirectorySnapshot } from "./host-directory";
 
-/** Station v5 hard-cuts to host-finalized, admission-discriminated actor occupation. */
-export const TERM_CONTROL_PROTOCOL = STATION_PROTOCOL_BASELINE;
+/** Independent unreleased terminal-control contract. */
+export const TERM_CONTROL_PROTOCOL = remoteStationContractVersion(
+  "Remote terminal control",
+  1,
+);
 export const TERM_MAX_FRAME_BYTES = 2 * 1024 * 1024;
 export const TERM_MAINTENANCE_OBSERVATION_BYTES = 8;
 export const TERM_MAINTENANCE_MAX_ACTIVE_SESSIONS = 1_000_000;

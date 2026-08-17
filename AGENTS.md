@@ -91,8 +91,8 @@ Schema evolution runs on normal app open; failures surface in the normal
 startup recovery flow. There is no second database opener for update proofs,
 and the rename itself has no startup data-copy step.
 
-**SQLite evolution law:** version 1 is the frozen durable baseline; version 5
-is current through immutable `1 → 2`, `2 → 3`, `3 → 4`, and `4 → 5` steps.
+**SQLite evolution law:** version 1 is the frozen durable baseline; version 18
+is current through the immutable contiguous steps declared in `migrations.ts`.
 `PRAGMA user_version` selects a contiguous forward-only migration chain, and
 `state_schema_identity` proves the exact shape expected at each step. Every
 schema edit must increment the current version, append an atomic `N → N+1`
@@ -118,13 +118,15 @@ runtime reader, dual write, or file-store compatibility path.
 are distinct facts. Only the one Station protocol integer selects wire
 behavior. Each release advertises
 `{ preferred, compatibleFrom, warnBelow }`; peers choose the highest common
-exact codec and warn when the result is below either threshold. Current policy
-is protocol 4 with `4/4/4`. No overlap means explicit `update required` while
-the Remote continues locally under its last projection; it never means partial
-down-conversion. Do not add separate session/API/Work/projection version
-negotiation or capability arrays. A codec retires only after every enrolled
-Station using it is upgraded or explicitly retired and its pending records are
-reconciled.
+exact codec and warn when the result is below either threshold. Remote Stations
+are unreleased, so every Remote-specific contract remains version 1 and the
+current Station policy is `1/1/1`; the release-state gate forbids a bump until
+its exact sentinel declares release. No overlap means explicit `update required`
+while the Remote continues locally under its last projection; it never means
+partial down-conversion. Do not add separate session/API/Work/projection version
+negotiation or capability arrays. After release, a codec retires only after every
+enrolled Station using it is upgraded or explicitly retired and its pending
+records are reconciled.
 
 ---
 

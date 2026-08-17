@@ -4,6 +4,7 @@ import {
   STATION_PROTOCOL_BASELINE,
   StationAppVersion,
 } from "./station-protocol";
+import { remoteStationContractVersion } from "./remote-station-release";
 import { DisplayTimestamp } from "./work-protocol";
 
 /**
@@ -13,8 +14,10 @@ import { DisplayTimestamp } from "./work-protocol";
  * The receipt summarizes one root evidence log. Detailed observations belong
  * in that log, not in repeated per-phase witness wrappers.
  */
+export const STATION_QUALIFICATION_SCHEMA_VERSION =
+  remoteStationContractVersion("Station qualification receipt", 1);
 export const STATION_QUALIFICATION_SCHEMA =
-  "vellum-command/station-two-installation-qualification/v2" as const;
+  `vellum-command/station-two-installation-qualification/v${STATION_QUALIFICATION_SCHEMA_VERSION}` as const;
 export const STATION_QUALIFICATION_RECEIPT_FILE =
   "station-qualification-receipt.json" as const;
 export const STATION_QUALIFICATION_MANIFEST_FILE =

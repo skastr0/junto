@@ -12,8 +12,12 @@ import {
   type NativeTerminalReadiness,
 } from "./term/native-readiness";
 import type { StationConfiguration } from "@shared/station-api";
+import { remoteStationContractVersion } from "@shared/remote-station-release";
 
-export const STATION_READINESS_VERSION = 1 as const;
+export const STATION_READINESS_VERSION = remoteStationContractVersion(
+  "Station readiness read model",
+  1,
+);
 const READINESS_TIMEOUT_MS = 5_000;
 
 export type StationReadinessState =

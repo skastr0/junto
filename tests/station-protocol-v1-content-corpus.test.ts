@@ -10,9 +10,7 @@ import {
 import {
   CURRENT_STATION_PROTOCOL_SUPPORT,
   STATION_PROTOCOL_BASELINE,
-  negotiateStationProtocol,
   selectStationProtocolCodec,
-  StationProtocolSupport,
 } from "../src/shared/station-protocol";
 import {
   decodeWorkRecord,
@@ -28,20 +26,6 @@ interface ContentWireCorpus {
       readonly preferred: number;
       readonly compatibleFrom: number;
       readonly warnBelow: number;
-    };
-    readonly retired: ReadonlyArray<number>;
-    readonly noCommonWithProtocol3: {
-      readonly local: {
-        readonly preferred: number;
-        readonly compatibleFrom: number;
-        readonly warnBelow: number;
-      };
-      readonly peer: {
-        readonly preferred: number;
-        readonly compatibleFrom: number;
-        readonly warnBelow: number;
-      };
-      readonly outcome: string;
     };
   };
   readonly ordering: ReadonlyArray<string>;
@@ -60,18 +44,12 @@ interface ContentWireCorpus {
 const corpus = JSON.parse(
   readFileSync(
     new URL(
-      "./fixtures/station-protocol-v4/content-wire-corpus.json",
+      "./fixtures/station-protocol-v1/content-wire-corpus.json",
       import.meta.url,
     ),
     "utf8",
   ),
 ) as ContentWireCorpus;
-
-const support = (value: {
-  readonly preferred: number;
-  readonly compatibleFrom: number;
-  readonly warnBelow: number;
-}) => Schema.decodeUnknownSync(StationProtocolSupport)(value);
 
 const taskWithRef = (ref: ContentRef): Task => ({
   id: "task-media-1",
@@ -90,26 +68,14 @@ const taskWithRef = (ref: ContentRef): Task => ({
   ],
 });
 
-describe("Station protocol 5 content wire corpus", () => {
-  it("installs only the renamed content-capable protocol-5 codec", () => {
-    expect(STATION_PROTOCOL_BASELINE).toBe(5);
+describe("Station protocol v1 content wire corpus", () => {
+  it("keeps the complete unreleased content-capable contract at v1", () => {
+    expect(corpus.protocol.baseline).toBe(1);
+    expect(STATION_PROTOCOL_BASELINE).toBe(1);
     expect(CURRENT_STATION_PROTOCOL_SUPPORT).toEqual(corpus.protocol.support);
-    expect(selectStationProtocolCodec(5)).toEqual(Result.succeed(5));
-    for (const retired of corpus.protocol.retired) {
-      expect(selectStationProtocolCodec(retired)).toEqual(
-        Result.fail("unsupported-station-protocol"),
-      );
-    }
-  });
-
-  it("returns update-required (no-common) against protocol-3 peers without down-conversion", () => {
-    const negotiation = negotiateStationProtocol(
-      support(corpus.protocol.noCommonWithProtocol3.local),
-      support(corpus.protocol.noCommonWithProtocol3.peer),
-    );
-    expect(negotiation).toMatchObject({ _tag: "no-common" });
-    expect(corpus.protocol.noCommonWithProtocol3.outcome).toBe(
-      "update-required",
+    expect(selectStationProtocolCodec(1)).toEqual(Result.succeed(1));
+    expect(selectStationProtocolCodec(2)).toEqual(
+      Result.fail("unsupported-station-protocol"),
     );
   });
 
@@ -135,9 +101,8 @@ describe("Station protocol 5 content wire corpus", () => {
   });
 
   it("does not use Base64 down-conversion to serve older peers", () => {
-    // Protocol-3 peers get no-common (tested above). Historical RawPart still
-    // decodes for migration/history; there is no wire rewrite that smuggles
-    // media as Base64 to "help" an older peer.
+    // Historical RawPart still decodes for installed product history; there
+    // is no wire rewrite that smuggles media as Base64 onto Station control.
     expect(
       Result.isSuccess(decodeWorkRecord(corpus.inlineBinaryDownConvertRejected)),
     ).toBe(true);
