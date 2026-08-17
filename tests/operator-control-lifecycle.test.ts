@@ -42,7 +42,7 @@ describe("operator control main lifecycle", () => {
       "operatorControl = await startOperatorControlServer",
     );
     const bootstrapReturn = source.indexOf(
-      "if (app.isPackaged && headless)",
+      'if (stationDoor === "enroll")',
       operatorStart,
     );
     expect(coordinatorStart).toBeGreaterThanOrEqual(0);

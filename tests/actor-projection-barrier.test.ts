@@ -312,7 +312,12 @@ describe("ActorSeatOccupy Remote projection barrier", () => {
   });
 
   it("keeps local actor seats entirely outside the barrier", async () => {
-    setProcessIdentityMapForTests(makeProcessIdentityMap());
+    setProcessIdentityMapForTests(
+      makeProcessIdentityMap({
+        processAlive: () => true,
+        readProcessStartKey: (pid) => syntheticEpochs.get(pid),
+      }),
+    );
     syntheticEpochs.set(42_800, "synthetic-42800");
     const fake = makeFakeTerminalProcessAuthority(() => ({
       pid: 42_800,

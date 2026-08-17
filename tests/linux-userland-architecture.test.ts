@@ -34,7 +34,6 @@ describe("Linux userland architecture negatives", () => {
       path.join(ROOT, "src/main/vellum/hosts/linux-release-admission.ts"),
       path.join(ROOT, "src/main/vellum/hosts/linux-release-feed.ts"),
       path.join(ROOT, "src/main/vellum/hosts/remote-deployment.ts"),
-      path.join(ROOT, "src/main/vellum/hosts/deploy-remote.ts"),
       path.join(ROOT, "src/main/vellum/hosts/deploy-configured-remote.ts"),
     ];
     for (const file of files) {
