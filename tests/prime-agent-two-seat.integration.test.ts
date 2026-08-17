@@ -221,6 +221,8 @@ describe("Prime Agent two-seat real-process integration", () => {
           env: {
             FAKE_PRIME_AGENT_LOG: logPath,
             FAKE_PRIME_AGENT_SEAT: seat,
+            // Seat B runs a release above the floor: forward-compatible admission.
+            ...(seat === "B" ? { FAKE_PRIME_AGENT_VERSION: "0.9.3" } : {}),
             PRIME_AGENT_INTERNAL_LAUNCH_OVERRIDE: `seat-${seat}`,
           },
         },
@@ -474,7 +476,7 @@ describe("Prime Agent two-seat real-process integration", () => {
     }
   }, 30_000);
 
-  it("rejects an installed Prime Agent executable that is not exact 0.7.1", async () => {
+  it("rejects an installed Prime Agent executable below the version floor", async () => {
     const testRoot = mkdtempSync(join("/tmp", "vc-prime-agent-version-"));
     const reporterHome = join(testRoot, "reporter-home");
     const logPath = join(testRoot, "fake-prime-agent.ndjson");
@@ -520,7 +522,7 @@ describe("Prime Agent two-seat real-process integration", () => {
           env: {
             ...process.env,
             FAKE_PRIME_AGENT_LOG: logPath,
-            FAKE_PRIME_AGENT_VERSION: "0.8.0",
+            FAKE_PRIME_AGENT_VERSION: "0.7.0",
           },
         },
         onUnexpectedExit: resolveUnexpected,
@@ -531,12 +533,12 @@ describe("Prime Agent two-seat real-process integration", () => {
       const receipt = await crash.cleanup;
       expect(crash.exit.code).toBe(69);
       expect(crash.stderr).toContain(
-        "managed Prime Agent requires exact version 0.7.1 (found: 0.8.0)",
+        "managed Prime Agent requires version 0.7.1 or newer (found: 0.7.0)",
       );
       expect(receipt.clean).toBe(false);
       expect(receipt.diagnostics[0]).toMatchObject({
         stage: "daemon-exit",
-        stderr: expect.stringContaining("requires exact version 0.7.1"),
+        stderr: expect.stringContaining("requires version 0.7.1 or newer"),
       });
       expect(readFakeEvents(logPath).some((event) =>
         event.event === "daemon.start" || event.event === "client.start"

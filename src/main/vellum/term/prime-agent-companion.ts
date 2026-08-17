@@ -30,20 +30,44 @@ const PRIME_AGENT_LIST_ATTEMPTS = 3;
 const PRIME_AGENT_LIST_RETRY_MS = 50;
 const PRIME_AGENT_REPLACEMENT_PROBES = 6;
 const PRIME_AGENT_REPLACEMENT_RETRY_MS = 500;
-const PRIME_AGENT_REQUIRED_VERSION = "0.7.1";
+/** Oldest Prime Agent release proven against the companion contract. */
+const PRIME_AGENT_MINIMUM_VERSION = "0.7.1";
+const PRIME_AGENT_MINIMUM_VERSION_PARTS =
+  PRIME_AGENT_MINIMUM_VERSION.split(".");
 
 /**
  * Version validation and daemon exec share one app-owned foreground process
- * generation. Stock 0.7.1 writes its version to stderr, so capture both streams
- * and compare the complete trimmed command-substitution value exactly.
+ * generation. Stock Prime Agent writes its bare X.Y.Z version to stderr, so
+ * capture both streams and admit any release at or above the proven floor.
+ * Output that is not a bare three-part numeric version fails closed before a
+ * daemon is admitted.
  */
 const PRIME_AGENT_DAEMON_WRAPPER = String.raw`prime_agent=$1
 socket_path=$2
-required_version=$3
+floor_major=$3
+floor_minor=$4
+floor_patch=$5
 version=$("$prime_agent" --version 2>&1)
 status=$?
-if [ "$status" -ne 0 ] || [ "$version" != "$required_version" ]; then
-  printf '%s\n' "Vellum Command: managed Prime Agent requires exact version $required_version (found: $version)." >&2
+old_ifs=$IFS
+IFS=.
+set -- $version
+IFS=$old_ifs
+admit=0
+if [ "$status" -eq 0 ] && [ $# -eq 3 ]; then
+  case "$1$2$3" in
+    ''|*[!0-9]*) ;;
+    *)
+      if [ "$1" -gt "$floor_major" ] \
+        || { [ "$1" -eq "$floor_major" ] && [ "$2" -gt "$floor_minor" ]; } \
+        || { [ "$1" -eq "$floor_major" ] && [ "$2" -eq "$floor_minor" ] && [ "$3" -ge "$floor_patch" ]; }; then
+        admit=1
+      fi
+      ;;
+  esac
+fi
+if [ "$admit" -ne 1 ]; then
+  printf '%s\n' "Vellum Command: managed Prime Agent requires version $floor_major.$floor_minor.$floor_patch or newer (found: $version)." >&2
   exit 69
 fi
 exec "$prime_agent" --mode daemon --daemon-socket "$socket_path"`;
@@ -1080,7 +1104,7 @@ export const makePrimeAgentCompanionManager = (
           PRIME_AGENT_DAEMON_WRAPPER_ARG0,
           file,
           socketPath,
-          PRIME_AGENT_REQUIRED_VERSION,
+          ...PRIME_AGENT_MINIMUM_VERSION_PARTS,
         ],
         cwd,
         env: { ...env },

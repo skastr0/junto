@@ -363,7 +363,9 @@ describe("Prime Agent companion manager", () => {
     ]);
     expect(daemon.spec.args?.slice(4)).toEqual([
       first.socketPath,
-      "0.7.1",
+      "0",
+      "7",
+      "1",
     ]);
     expect(daemon.spec.args?.[1]).toContain(
       'exec "$prime_agent" --mode daemon --daemon-socket "$socket_path"',
@@ -582,7 +584,9 @@ describe("Prime Agent companion manager", () => {
     expect(plane.forceTerminations[0]!.child.spec.args?.slice(3)).toEqual([
       "/opt/bin/prime-agent",
       handle.socketPath,
-      "0.7.1",
+      "0",
+      "7",
+      "1",
     ]);
   });
 
