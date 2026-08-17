@@ -295,6 +295,34 @@ export const deployRecordFromResult = (input: {
   });
 
 /**
+ * Durable receipt for a deployment refusal that provably never reached apply
+ * (unreachable host, busy deploy slot, admission refusal). packageState and
+ * role "previous" keep the station-status store's preservation guard in
+ * force, so the record never clobbers the host's last observed package state,
+ * role, version, or lastSeen with a version that was never installed.
+ */
+export const refusedBeforeApplyDeployRecord = (input: {
+  readonly hostId: string;
+  readonly endpoint: string;
+  readonly detail: string;
+  readonly stages?: ReadonlyArray<string>;
+  readonly at?: string;
+}): StationDeployRecord =>
+  deployRecordFromResult({
+    hostId: input.hostId,
+    endpoint: input.endpoint,
+    ok: false,
+    outcome: "failed",
+    packageState: "previous",
+    role: "previous",
+    configurationOk: false,
+    detail: input.detail,
+    ...(input.stages === undefined ? {} : { stages: input.stages }),
+    recoveryKind: "retryable",
+    ...(input.at === undefined ? {} : { at: input.at }),
+  });
+
+/**
  * Project the live kernel into the bounded operational facts Doctor needs.
  * Canvas names, node ids, agent identities, instructions, and tokens never
  * enter the observation table.

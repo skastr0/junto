@@ -5,6 +5,7 @@ import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { StationHostId } from "../src/shared/station-api";
 import {
+  refusedBeforeApplyDeployRecord,
   STATION_STATUS_VERSION,
   type StationDeployRecord,
   type StationKernelRecord,
@@ -246,6 +247,43 @@ describe("SQLite station status receipts", () => {
           lastSeen: "2026-07-22T20:00:00.000Z",
         },
       },
+    });
+  });
+
+  it("keeps a healthy Remote's observed truth across a never-applied executor refusal", async () => {
+    // A sleeping Remote refused with "io" during a managed-update pass: the
+    // deploy never reached apply, so the durable refusal receipt must not
+    // clobber the machine's last observed package, role, version or lastSeen
+    // with a version that was never installed.
+    const ready = deploymentRecord();
+    await recordDeployment(runtime, ready);
+
+    const refusal = refusedBeforeApplyDeployRecord({
+      hostId: "studio",
+      endpoint: "studio-box",
+      detail: "Can't reach Studio on the network.",
+      stages: [],
+      at: "2026-07-22T20:10:00.000Z",
+    });
+    expect(refusal).toMatchObject({
+      ok: false,
+      outcome: "failed",
+      packageState: "previous",
+      role: "previous",
+      version: "unknown",
+      recoveryKind: "retryable",
+    });
+    await recordDeployment(runtime, refusal);
+
+    const status = await readStatus(runtime);
+    expect(status.deployments?.[STUDIO_HOST]).toMatchObject({
+      ok: false,
+      outcome: "failed",
+      packageState: "present",
+      role: "remote",
+      version: "0.9.0",
+      lastSeen: "2026-07-22T20:00:00.000Z",
+      recoveryKind: "retryable",
     });
   });
 

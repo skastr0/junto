@@ -12,7 +12,7 @@
 import { Effect } from "effect";
 import { computeDeployCapabilities } from "@shared/deploy-capabilities";
 import { RELEASE_CAPABILITIES } from "@shared/release-capabilities";
-import { deployRecordFromResult } from "@shared/station-status";
+import { refusedBeforeApplyDeployRecord } from "@shared/station-status";
 import { AppRuntime } from "../../runtime";
 import { getDeployJob } from "../hosts/deploy-job-registry";
 import { hostsOperatorCoordinator } from "../hosts/operator-coordinator";
@@ -95,19 +95,16 @@ export const makeLiveFleetUpdateExecutor = (): FleetUpdateExecutor =>
       AppRuntime.runPromise(
         Effect.gen(function* () {
           const stationStatus = yield* StationStatusService;
+          // The refusal provably never reached apply, so the receipt must
+          // not carry the target version as installed truth nor overwrite
+          // the host's last observed package state and role — "previous"
+          // keeps the station-status preservation guard in force.
           yield* stationStatus.recordDeployment(
-            deployRecordFromResult({
+            refusedBeforeApplyDeployRecord({
               hostId: input.hostId,
               endpoint: input.endpoint,
-              ok: false,
-              outcome: "failed",
-              packageState: "unknown",
-              role: "unknown",
-              version: input.targetVersion,
-              configurationOk: false,
               detail: input.detail,
               stages: input.stages,
-              recoveryKind: "retryable",
             }),
           );
         }),
