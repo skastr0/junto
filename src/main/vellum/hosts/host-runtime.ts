@@ -7,7 +7,7 @@
  * Apply is one loop: cleanup, copy, configure (first install), activate, attach.
  * Reconcile is the only deployment path; HostsService has no deploy verb.
  */
-import { Context, Effect, Layer } from "effect";
+import { Context, Effect, Layer, Option } from "effect";
 import { HOST_RUNTIME_REMEDY_STAGE } from "@shared/deploy-job";
 import { releaseAllowsTargetPlatform } from "@shared/deploy-capabilities";
 import type {
@@ -54,6 +54,11 @@ import {
   sealHostRuntimeStages,
 } from "./host-runtime-platform";
 import type { LinuxReleaseCacheSource } from "./linux-release-feed";
+import {
+  HostMaintenanceAuthority,
+  makeLiveHostMaintenanceAuthority,
+  withIncumbentMaintenance,
+} from "./maintenance";
 import { commandCenterMayPrepareRemote } from "./remote-platform";
 import { HostsService } from "./service";
 
@@ -648,6 +653,14 @@ export const HostRuntimeLive = Layer.effect(
     const hosts = yield* HostsService;
     const ssh = yield* SshTransport;
     const fleetTargets = yield* StationFleetTargetRepository;
+    // Tests may inject a maintenance authority; production uses the live one
+    // (Command Center route cut + held Remote terminal maintenance lease).
+    const maintenanceOption = yield* Effect.serviceOption(
+      HostMaintenanceAuthority,
+    );
+    const maintenance = Option.isSome(maintenanceOption)
+      ? maintenanceOption.value
+      : makeLiveHostMaintenanceAuthority(ssh);
 
     const observe = (hostId: string) =>
       Effect.gen(function* () {
@@ -741,7 +754,7 @@ export const HostRuntimeLive = Layer.effect(
           return refused(remote, parsed.failure.message, "validation");
         }
 
-        const applied = yield* applyHostRuntime({
+        const applyEffect = applyHostRuntime({
           host: remote,
           gap,
           ...(observation.priorInstallationId === undefined
@@ -761,6 +774,26 @@ export const HostRuntimeLive = Layer.effect(
             Effect.succeed(applyProvisionFailure(remote, error)),
           ),
         );
+        // Update of an incumbent (never first install): hold the Remote
+        // terminal maintenance lease across every incumbent mutation. Lease
+        // refusal returns typed with the incumbent untouched; the lease
+        // releases on every outcome.
+        const applied =
+          gap === "needRestart"
+            ? yield* withIncumbentMaintenance(
+                maintenance,
+                {
+                  host: remote,
+                  sshTarget: parsed.success,
+                  workAttach: observation.workAttach,
+                  platform: admission.platform,
+                },
+                (stage) => {
+                  appendDeployJobStage(remote.id, stage);
+                },
+                applyEffect,
+              )
+            : yield* applyEffect;
         if (input.onCompleted === undefined) return applied;
         return yield* input.onCompleted(remote, applied).pipe(
           Effect.map(() => ({ ...applied, statusRecorded: true })),
