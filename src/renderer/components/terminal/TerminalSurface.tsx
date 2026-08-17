@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
+import { actorDeliverySurfaceOf } from "@shared/actor-surface";
 import type { CanvasNode } from "@shared/canvas";
 import type { VellumCommandTerminalApi } from "@shared/ipc";
 import { resolveTerminalBinding } from "@shared/terminal";
@@ -41,7 +42,6 @@ import { claimedTaskForActorNode } from "../../lib/claimed-task";
 import { state$ } from "../../lib/state";
 import {
   deadStateCopy,
-  isAgentTerminalSeat,
   killActionCopy,
   KILL_ARM_MS,
   type KillUxPhase,
@@ -236,11 +236,22 @@ export function TerminalSurface({
   const doc = use$(state$.doc);
   const actorRefs = use$(state$.actorRefs);
   const claimedTask = claimedTaskForActorNode(doc, actorRefs, node.id);
+  const agentSeat = node.ether?.entity?.kind === "agent";
+  // Control classification comes from the node kind, never optional binding
+  // fields. The exact actor surface is validated separately before its
+  // binding can reach attach/occupy.
+  const actorSurface = agentSeat ? actorDeliverySurfaceOf(node) : undefined;
   const binding = resolveTerminalBinding(node);
-  const bindingId = binding?.kind === "native" ? binding.bindingId : "";
-  const hostId = binding?.kind === "native" ? binding.hostId : "local";
-  const agentSeat =
-    binding?.kind === "native" ? isAgentTerminalSeat(binding) : false;
+  const bindingId = agentSeat
+    ? actorSurface?.bindingId ?? ""
+    : binding?.kind === "native"
+      ? binding.bindingId
+      : "";
+  const hostId = agentSeat
+    ? actorSurface?.hostId ?? "local"
+    : binding?.kind === "native"
+      ? binding.hostId
+      : "local";
   const pinSessionId =
     typeof node.ether?.terminal?.sessionId === "string"
       ? node.ether.terminal.sessionId

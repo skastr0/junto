@@ -6,10 +6,10 @@
  * back to geography creation.
  */
 import { Context, Effect, Result } from "effect";
+import type { ManagedSpawnIntent } from "@shared/managed-terminal-launch";
 import type { HarnessId } from "@shared/managed-terminal-templates";
 import {
   sessionActorMatches,
-  type TerminalLaunch,
   type TerminalSessionSummary,
 } from "@shared/terminal";
 import {
@@ -23,26 +23,27 @@ import {
   type SeatOccupancy,
 } from "@shared/terminal-seat-occupancy";
 import type { LocalSessionHost } from "./local-host";
+import { launchForManagedSpawnIntent } from "./managed-spawn-plan";
 
 export type OccupySpec = {
   readonly bindingId: string;
   readonly hostId?: string;
-  readonly launch?: TerminalLaunch;
   readonly cols?: number;
   readonly rows?: number;
-  readonly canvasName?: string;
-  readonly nodeId?: string;
+  readonly canvasName: string;
+  readonly nodeId: string;
   readonly label?: string;
   readonly title?: string;
   readonly harness: HarnessId;
   readonly agentKey: string;
-  readonly firstTypedMessage?: string;
+  /** Pure intent; the selected process host owns resume/session finalization. */
+  readonly spawnIntent: ManagedSpawnIntent;
 };
 
-export type ActorActivateSpec = {
-  readonly harness: HarnessId;
-  readonly agentKey: string;
-};
+export type ActorActivateSpec = Pick<
+  OccupySpec,
+  "harness" | "agentKey" | "canvasName" | "nodeId"
+>;
 
 export interface TerminalSeatProcessApi {
   readonly occupancy: (
@@ -105,6 +106,18 @@ const ensureCommandGeneration = (
         ),
       );
 
+const actorAnchorsMatch = (
+  summary: TerminalSessionSummary,
+  actor: ActorActivateSpec,
+): boolean =>
+  summary.canvasName === actor.canvasName && summary.nodeId === actor.nodeId;
+
+const actorActivationMatches = (
+  summary: TerminalSessionSummary,
+  actor: ActorActivateSpec,
+): boolean =>
+  sessionActorMatches(summary, actor) && actorAnchorsMatch(summary, actor);
+
 const ensureActorIdentity = (
   summary: TerminalSessionSummary,
   bindingId: string,
@@ -113,7 +126,7 @@ const ensureActorIdentity = (
   if (summary.bindingId !== bindingId) {
     return Effect.fail(bindingMismatchError(bindingId, summary.bindingId));
   }
-  if (!sessionActorMatches(summary, actor)) {
+  if (!actorActivationMatches(summary, actor)) {
     return Effect.fail(actorIdentityError(bindingId));
   }
   return Effect.succeed(summary);
@@ -127,20 +140,24 @@ const localSummaryOccupancy = (
 const localAgentInput = (
   bindingId: string,
   spec: OccupySpec,
-) => ({
-  bindingId,
-  harness: spec.harness,
-  agentKey: spec.agentKey,
-  hostId: spec.hostId,
-  launch: spec.launch,
-  cols: spec.cols,
-  rows: spec.rows,
-  canvasName: spec.canvasName,
-  nodeId: spec.nodeId,
-  label: spec.label,
-  title: spec.title,
-  firstTypedMessage: spec.firstTypedMessage,
-});
+) => {
+  const finalized = launchForManagedSpawnIntent(spec, spec.spawnIntent);
+  return {
+    bindingId,
+    harness: spec.harness,
+    agentKey: spec.agentKey,
+    hostId: spec.hostId,
+    launch: finalized.launch,
+    resumeFallbackIntent: spec.spawnIntent,
+    cols: spec.cols,
+    rows: spec.rows,
+    canvasName: spec.canvasName,
+    nodeId: spec.nodeId,
+    label: spec.label,
+    title: spec.title,
+    firstTypedMessage: finalized.plan?.firstTypedMessage,
+  };
+};
 
 export const makeLocalSeatProcess = (
   host: LocalSessionHost,
@@ -186,7 +203,9 @@ export const makeLocalSeatProcess = (
             message: `seat ${bindingId} is vacant; activate requires an occupant`,
           });
         }
-        if (sessionActorMatches(live, actor)) return live;
+        if (actorActivationMatches(live, actor)) {
+          return yield* ensureActorIdentity(live, bindingId, actor);
+        }
         if (live.harness !== undefined && live.harness !== actor.harness) {
           return yield* Effect.fail(
             harnessMismatchError(bindingId, live.harness),
@@ -210,7 +229,19 @@ export const makeLocalSeatProcess = (
 export type RemoteAgentSeatInput = Omit<
   OccupySpec,
   "hostId" | "title"
->;
+> & {
+  readonly admission: "occupy";
+};
+
+export type RemoteAgentSeatActivationInput = ActorActivateSpec & {
+  readonly admission: "activate";
+  readonly bindingId: string;
+  readonly expectedEpoch: string;
+};
+
+export type RemoteAgentSeatCommand =
+  | RemoteAgentSeatInput
+  | RemoteAgentSeatActivationInput;
 
 /** Station term-control surface required by the Remote HOW. */
 export type RemoteSeatProcessClient = {
@@ -218,7 +249,7 @@ export type RemoteSeatProcessClient = {
     bindingId: string,
   ) => Promise<TerminalSessionSummary | undefined>;
   readonly createAgentSeat: (
-    input: RemoteAgentSeatInput,
+    input: RemoteAgentSeatCommand,
   ) => Promise<TerminalSessionSummary>;
 };
 
@@ -226,6 +257,19 @@ const projectRemoteSummary = (
   requestedHostId: string,
   summary: TerminalSessionSummary,
 ): TerminalSessionSummary => ({ ...summary, hostId: requestedHostId });
+
+const checkedRemoteSummary = (
+  requestedHostId: string,
+  bindingId: string,
+  summary: TerminalSessionSummary | undefined,
+): Effect.Effect<TerminalSessionSummary | undefined, Error> => {
+  if (summary && summary.bindingId !== bindingId) {
+    return Effect.fail(bindingMismatchError(bindingId, summary.bindingId));
+  }
+  return Effect.succeed(
+    summary ? projectRemoteSummary(requestedHostId, summary) : undefined,
+  );
+};
 
 const remoteSummaryOccupancy = (
   bindingId: string,
@@ -236,16 +280,16 @@ const remoteAgentInput = (
   bindingId: string,
   spec: OccupySpec,
 ): RemoteAgentSeatInput => ({
+  admission: "occupy",
   bindingId,
   harness: spec.harness,
   agentKey: spec.agentKey,
-  launch: spec.launch,
+  spawnIntent: spec.spawnIntent,
   cols: spec.cols,
   rows: spec.rows,
   canvasName: spec.canvasName,
   nodeId: spec.nodeId,
   label: spec.label,
-  firstTypedMessage: spec.firstTypedMessage,
 });
 
 export const makeRemoteSeatProcess = (
@@ -255,19 +299,18 @@ export const makeRemoteSeatProcess = (
   const hostId = requestedHostId.trim();
   return TerminalSeatProcess.of({
     occupancy: (bindingId) =>
-      Effect.tryPromise({
-        try: () => client.get(bindingId),
-        catch: asClientError,
-      }).pipe(
-        Effect.map((summary) =>
-          remoteSummaryOccupancy(
-            bindingId,
-            summary
-              ? projectRemoteSummary(hostId, summary)
-              : undefined,
-          ),
-        ),
-      ),
+      Effect.gen(function* () {
+        const summary = yield* Effect.tryPromise({
+          try: () => client.get(bindingId),
+          catch: asClientError,
+        });
+        const current = yield* checkedRemoteSummary(
+          hostId,
+          bindingId,
+          summary,
+        );
+        return remoteSummaryOccupancy(bindingId, current);
+      }),
     occupy: (command, spec) =>
       Effect.gen(function* () {
         const bindingId = command.seat.bindingId;
@@ -275,9 +318,11 @@ export const makeRemoteSeatProcess = (
           try: () => client.get(bindingId),
           catch: asClientError,
         });
-        const current = summary
-          ? projectRemoteSummary(hostId, summary)
-          : undefined;
+        const current = yield* checkedRemoteSummary(
+          hostId,
+          bindingId,
+          summary,
+        );
         const occupy = occupyVacantSeat(
           remoteSummaryOccupancy(bindingId, current),
         );
@@ -288,11 +333,23 @@ export const makeRemoteSeatProcess = (
           try: () => client.createAgentSeat(remoteAgentInput(bindingId, spec)),
           catch: asClientError,
         });
-        return yield* ensureActorIdentity(
-          projectRemoteSummary(hostId, created),
+        // A proven resume can die and fail-open on the host's promise queue.
+        // Re-read so occupation returns that replacement head, not its dead seed.
+        const head = yield* Effect.tryPromise({
+          try: () => client.get(bindingId),
+          catch: asClientError,
+        });
+        const projectedHead = yield* checkedRemoteSummary(
+          hostId,
           bindingId,
-          spec,
+          head ?? created,
         );
+        if (!projectedHead) {
+          return yield* Effect.fail(
+            new Error(`seat ${bindingId} disappeared after actor occupation`),
+          );
+        }
+        return yield* ensureActorIdentity(projectedHead, bindingId, spec);
       }),
     activate: (command, actor) =>
       Effect.gen(function* () {
@@ -301,9 +358,11 @@ export const makeRemoteSeatProcess = (
           try: () => client.get(bindingId),
           catch: asClientError,
         });
-        const live = summary
-          ? projectRemoteSummary(hostId, summary)
-          : undefined;
+        const live = yield* checkedRemoteSummary(
+          hostId,
+          bindingId,
+          summary,
+        );
         const activate = activateOccupiedSeat(
           remoteSummaryOccupancy(bindingId, live),
         );
@@ -317,22 +376,37 @@ export const makeRemoteSeatProcess = (
             message: `seat ${bindingId} is vacant; activate requires an occupant`,
           });
         }
-        if (sessionActorMatches(live, actor)) return live;
         if (live.harness !== undefined && live.harness !== actor.harness) {
           return yield* Effect.fail(
             harnessMismatchError(bindingId, live.harness),
           );
         }
-        const adopted = yield* Effect.tryPromise({
+        // Every activation reaches the spawn host so the epoch check and any
+        // geography adoption happen against one synchronous host snapshot.
+        const activated = yield* Effect.tryPromise({
           try: () =>
             client.createAgentSeat({
+              admission: "activate",
               bindingId,
+              expectedEpoch: command.seat.epoch,
               harness: actor.harness,
               agentKey: actor.agentKey,
+              canvasName: actor.canvasName,
+              nodeId: actor.nodeId,
             }),
           catch: asClientError,
         });
-        const projected = projectRemoteSummary(hostId, adopted);
+        const projected = yield* checkedRemoteSummary(
+          hostId,
+          bindingId,
+          activated,
+        );
+        if (!projected) {
+          return yield* SeatVacantError.make({
+            bindingId,
+            message: `seat ${bindingId} is vacant; activate requires an occupant`,
+          });
+        }
         yield* ensureCommandGeneration(command, projected.epoch);
         return yield* ensureActorIdentity(projected, bindingId, actor);
       }),

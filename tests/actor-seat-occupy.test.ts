@@ -6,6 +6,7 @@ import {
 } from "../src/main/vellum/term/actor-seat-occupy";
 import { LocalSessionHost } from "../src/main/vellum/term/local-host";
 import type {
+  RemoteAgentSeatCommand,
   RemoteSeatProcessClient,
 } from "../src/main/vellum/term/seat-process";
 import type { TerminalSessionSummary } from "../src/shared/terminal";
@@ -23,13 +24,24 @@ const actorSpec = (bindingId: string, hostId?: string): ActorOccupySpec => ({
   bindingId,
   harness: "grok",
   agentKey: "local:grok",
-  launch: { kind: "harness", argv: ["grok"] },
+  canvasName: "factory",
+  nodeId: `node-${bindingId}`,
+  spawnIntent: {
+    documentLaunch: { kind: "harness", argv: ["grok"] },
+    resumeRequested: false,
+    injection: { seatBound: true, connected: false },
+  },
   ...(hostId === undefined ? {} : { hostId }),
 });
 
 const remoteSummary = (
   over: Pick<TerminalSessionSummary, "bindingId" | "epoch" | "status"> &
-    Partial<Pick<TerminalSessionSummary, "harness" | "agentKey">>,
+    Partial<
+      Pick<
+        TerminalSessionSummary,
+        "harness" | "agentKey" | "canvasName" | "nodeId"
+      >
+    >,
 ): TerminalSessionSummary => ({
   hostId: "local",
   detached: false,
@@ -123,6 +135,8 @@ describe("ActorSeatOccupy", () => {
           status: "running",
           harness: input.harness,
           agentKey: input.agentKey,
+          canvasName: input.canvasName,
+          nodeId: input.nodeId,
         });
         return remoteLive;
       },
@@ -164,13 +178,15 @@ describe("ActorSeatOccupy", () => {
     );
     hosts.push(host);
     let live: TerminalSessionSummary | undefined;
-    const createAgentSeat = vi.fn(async () => {
+    const createAgentSeat = vi.fn(async (_command: RemoteAgentSeatCommand) => {
       live = remoteSummary({
         bindingId: "seat-r",
         epoch: "epoch-1",
         status: "running",
         harness: "grok",
         agentKey: "local:grok",
+        canvasName: "factory",
+        nodeId: "node-seat-r",
       });
       return live;
     });
@@ -193,7 +209,10 @@ describe("ActorSeatOccupy", () => {
     expect(created.hostId).toBe("station-a");
     expect(activated.hostId).toBe("station-a");
     expect(activated.epoch).toBe(created.epoch);
-    expect(createAgentSeat).toHaveBeenCalledTimes(1);
+    expect(createAgentSeat).toHaveBeenCalledTimes(2);
+    expect(
+      createAgentSeat.mock.calls.map(([command]) => command.admission),
+    ).toEqual(["occupy", "activate"]);
   });
 
   it("adopts compatible occupied Remote geography and preserves its epoch", async () => {
@@ -207,7 +226,13 @@ describe("ActorSeatOccupy", () => {
       status: "running",
     });
     const createAgentSeat = vi.fn(async (input) => {
-      live = { ...live, harness: input.harness, agentKey: input.agentKey };
+      live = {
+        ...live,
+        harness: input.harness,
+        agentKey: input.agentKey,
+        canvasName: input.canvasName,
+        nodeId: input.nodeId,
+      };
       return live;
     });
     const when = makeActorSeatOccupy({

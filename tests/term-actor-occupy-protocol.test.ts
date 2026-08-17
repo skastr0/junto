@@ -3,7 +3,7 @@
  * Command Center side = ActorSeatOccupy + TermControlClient.
  * Spawn-host side = startTermControlServer + LocalSessionHost.
  */
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,14 +14,27 @@ import { seatStateRuntime } from "../src/main/vellum/term/agent-state";
 import { TermControlClient } from "../src/main/vellum/term/control-client";
 import { startTermControlServer } from "../src/main/vellum/term/control-server";
 import { LocalSessionHost } from "../src/main/vellum/term/local-host";
+import {
+  peekFirstTypedMessage,
+  resetFirstTypedForTest,
+} from "../src/main/vellum/term/first-typed";
+import { makeManagedSpawnIntent } from "../src/main/vellum/term/managed-spawn-plan";
 import { setProcessEpochReaderForTests } from "../src/main/vellum/process-epoch";
+import { __setSessionExistenceHomeForTest } from "../src/main/vellum/term/session-existence";
 import {
   makeProcessIdentityMap,
   setProcessIdentityMapForTests,
 } from "../src/main/vellum/process-identity";
+import { TERM_CONTROL_PROTOCOL } from "../src/shared/term-control";
 import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 
 const cleanups: Array<() => Promise<void> | void> = [];
+
+const actorSpawnIntent = () => ({
+  documentLaunch: { kind: "harness", argv: ["grok"] },
+  resumeRequested: false,
+  injection: { seatBound: true, connected: false },
+} as const);
 
 beforeEach(() => {
   setProcessEpochReaderForTests({
@@ -40,6 +53,8 @@ afterEach(async () => {
   while (cleanups.length > 0) {
     await cleanups.pop()?.();
   }
+  __setSessionExistenceHomeForTest(undefined);
+  resetFirstTypedForTest();
   setProcessEpochReaderForTests(undefined);
   setProcessIdentityMapForTests(undefined);
 });
@@ -48,13 +63,12 @@ const startPair = async () => {
   setProcessIdentityMapForTests(makeProcessIdentityMap());
   const home = mkdtempSync(join(tmpdir(), "vt-actor-"));
   cleanups.push(() => rmSync(home, { recursive: true, force: true }));
-  const host = new LocalSessionHost(
-    makeFakeTerminalProcessAuthority(() => ({
-      pid: 9101,
-      output: "ready\r\n",
-      exitOnSignal: "SIGTERM",
-    })).authority,
-  );
+  const fake = makeFakeTerminalProcessAuthority(() => ({
+    pid: 9101,
+    output: "ready\r\n",
+    exitOnSignal: "SIGTERM",
+  }));
+  const host = new LocalSessionHost(fake.authority);
   cleanups.push(async () => {
     await host.shutdownAll("test");
   });
@@ -66,7 +80,7 @@ const startPair = async () => {
     timeoutMs: 5_000,
   });
   cleanups.push(() => client.close());
-  return { host, server, client };
+  return { host, server, client, fake };
 };
 
 describe("actor occupy protocol (in-process both ends)", () => {
@@ -86,7 +100,9 @@ describe("actor occupy protocol (in-process both ends)", () => {
         harness: "grok",
         agentKey: "station:grok",
         hostId: "station-a",
-        launch: { kind: "harness", argv: ["grok"] },
+        canvasName: "factory",
+        nodeId: "actor-node",
+        spawnIntent: actorSpawnIntent(),
       }),
     );
     expect(created.harness).toBe("grok");
@@ -107,11 +123,122 @@ describe("actor occupy protocol (in-process both ends)", () => {
         harness: "grok",
         agentKey: "station:grok",
         hostId: "station-a",
+        canvasName: "factory",
+        nodeId: "actor-node",
+        spawnIntent: actorSpawnIntent(),
       }),
     );
     expect(activated.epoch).toBe(created.epoch);
     expect(activated.hostId).toBe("station-a");
     expect(createAgentSeat).toHaveBeenCalledTimes(1);
+  });
+
+  it("derives Tier B first-typed doctrine only on the Remote spawn host", async () => {
+    const { host, client } = await startPair();
+    const createAgentSeat = vi.spyOn(client, "createAgentSeat");
+    const when = makeActorSeatOccupy({
+      local: host,
+      localHostId: () => Effect.succeed("cc-self"),
+      clientForOccupy: async () => client,
+    });
+    const spawnIntent = makeManagedSpawnIntent({
+      harness: "kimi",
+      agentKey: "station:kimi",
+      documentLaunch: { kind: "harness", argv: ["kimi"] },
+      injection: {
+        seatBound: true,
+        connected: true,
+        seatRef: "actor-kimi",
+        connectedTargets: [{ id: "tasks", kind: "task" }],
+      },
+    });
+
+    await Effect.runPromise(
+      when.occupy({
+        bindingId: "proto_remote_tier_b",
+        harness: "kimi",
+        agentKey: "station:kimi",
+        hostId: "station-a",
+        canvasName: "factory",
+        nodeId: "actor-kimi",
+        spawnIntent,
+      }),
+    );
+
+    expect(peekFirstTypedMessage("proto_remote_tier_b")).toContain(
+      "vellum-command onboard",
+    );
+    const wire = createAgentSeat.mock.calls[0]?.[0];
+    expect(wire).toMatchObject({ spawnIntent });
+    expect(wire).not.toHaveProperty("launch");
+    expect(wire).not.toHaveProperty("firstTypedMessage");
+  });
+
+  it("finalizes Remote-only named-session proof on the spawn side of UDS", async () => {
+    const priorVellumHome = process.env.VELLUM_COMMAND_HOME;
+    delete process.env.VELLUM_COMMAND_HOME;
+    const commandCenterHome = mkdtempSync(join(tmpdir(), "vt-actor-cc-home-"));
+    const remoteHome = mkdtempSync(join(tmpdir(), "vt-actor-remote-home-"));
+    cleanups.push(() => rmSync(commandCenterHome, { recursive: true, force: true }));
+    cleanups.push(() => rmSync(remoteHome, { recursive: true, force: true }));
+    const sid = "aaaaaaaa-bbbb-cccc-dddd-111111111111";
+    const workDir = join(remoteHome, "work");
+    mkdirSync(workDir, { recursive: true });
+    try {
+      __setSessionExistenceHomeForTest(commandCenterHome);
+      const spawnIntent = makeManagedSpawnIntent({
+        harness: "grok",
+        agentKey: "station:grok",
+        sessionId: sid,
+        resume: true,
+        cwd: workDir,
+        documentLaunch: {
+          kind: "harness",
+          argv: ["grok", "--session-id", sid],
+          cwd: workDir,
+        },
+      });
+
+      mkdirSync(
+        join(
+          remoteHome,
+          ".grok",
+          "sessions",
+          encodeURIComponent(workDir),
+          sid,
+        ),
+        { recursive: true },
+      );
+      __setSessionExistenceHomeForTest(remoteHome);
+      const { host, client, fake } = await startPair();
+      const when = makeActorSeatOccupy({
+        local: host,
+        localHostId: () => Effect.succeed("cc-self"),
+        clientForOccupy: async () => client,
+      });
+
+      await Effect.runPromise(
+        when.occupy({
+          bindingId: "proto_remote_resume",
+          harness: "grok",
+          agentKey: "station:grok",
+          hostId: "station-a",
+          canvasName: "factory",
+          nodeId: "actor-node",
+          spawnIntent,
+        }),
+      );
+
+      expect(fake.controllers).toHaveLength(1);
+      expect(fake.controllers[0]?.spec.args).toEqual(
+        expect.arrayContaining(["-r", sid]),
+      );
+      expect(fake.controllers[0]?.spec.args).not.toContain("--session-id");
+    } finally {
+      __setSessionExistenceHomeForTest(undefined);
+      if (priorVellumHome === undefined) delete process.env.VELLUM_COMMAND_HOME;
+      else process.env.VELLUM_COMMAND_HOME = priorVellumHome;
+    }
   });
 
   it("adopts occupied Remote geography over UDS without replacing its epoch", async () => {
@@ -134,6 +261,9 @@ describe("actor occupy protocol (in-process both ends)", () => {
         harness: "grok",
         agentKey: "station:grok",
         hostId: "station-a",
+        canvasName: "factory",
+        nodeId: "actor-geography",
+        spawnIntent: actorSpawnIntent(),
       }),
     );
 
@@ -155,23 +285,23 @@ describe("actor occupy protocol (in-process both ends)", () => {
 
     const frames = [
       "{not json\n",
-      `${JSON.stringify({ v: 1, id: "a", op: "createAgentSeat" })}\n`,
+      `${JSON.stringify({ v: TERM_CONTROL_PROTOCOL, id: "a", op: "createAgentSeat" })}\n`,
       `${JSON.stringify({
-        v: 1,
+        v: TERM_CONTROL_PROTOCOL,
         id: "b",
         op: "createAgentSeat",
         bindingId: "fuzz_1",
         harness: "grok",
       })}\n`,
       `${JSON.stringify({
-        v: 1,
+        v: TERM_CONTROL_PROTOCOL,
         id: "c",
         op: "createAgentSeat",
         bindingId: "fuzz_2",
         agentKey: "x",
       })}\n`,
       `${JSON.stringify({
-        v: 1,
+        v: TERM_CONTROL_PROTOCOL,
         id: "d",
         op: "createAgentSeat",
         bindingId: "fuzz_3",
@@ -179,7 +309,7 @@ describe("actor occupy protocol (in-process both ends)", () => {
         agentKey: "x",
       })}\n`,
       `${JSON.stringify({
-        v: 1,
+        v: TERM_CONTROL_PROTOCOL,
         id: "e",
         op: "createAgentSeat",
         bindingId: "fuzz_4",

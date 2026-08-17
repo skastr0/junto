@@ -8,6 +8,7 @@ import {
   decodeTermMaintenanceFencePayload,
   decodeTermMaintenanceReleasePayload,
   decodeTermMaintenanceRequest,
+  TERM_CONTROL_PROTOCOL,
   TERM_MAINTENANCE_MAX_ACTIVE_SESSIONS,
   type TermControlResponse,
 } from "../src/shared/term-control";
@@ -287,12 +288,12 @@ describe("terminal maintenance lease", () => {
     });
     await expect(
       rawRequest(rig.server.socketPath, rig.server.token, {
-        v: 1,
+        v: TERM_CONTROL_PROTOCOL,
         id: "not-the-holder",
         op: "maintenance.fence",
       }),
     ).resolves.toEqual({
-      v: 1,
+      v: TERM_CONTROL_PROTOCOL,
       id: "not-the-holder",
       ok: false,
       error: "terminal maintenance lease required",
@@ -411,12 +412,12 @@ describe("terminal maintenance lease", () => {
 
     await expect(
       rawRequest(rig.server.socketPath, rig.server.token, {
-        v: 1,
+        v: TERM_CONTROL_PROTOCOL,
         id: "wrong-socket-release",
         op: "maintenance.release",
       }),
     ).resolves.toEqual({
-      v: 1,
+      v: TERM_CONTROL_PROTOCOL,
       id: "wrong-socket-release",
       ok: true,
       data: { released: false },
@@ -455,7 +456,7 @@ describe("terminal maintenance lease", () => {
   it("rejects caller-supplied PID, path, client, and lease identity fields", async () => {
     const rig = await makeRig();
     const response = await rawRequest(rig.server.socketPath, rig.server.token, {
-      v: 1,
+      v: TERM_CONTROL_PROTOCOL,
       id: "injected-authority",
       op: "maintenance.acquire",
       pid: 42,
@@ -464,7 +465,7 @@ describe("terminal maintenance lease", () => {
       leaseId: "caller-minted",
     });
     expect(response).toEqual({
-      v: 1,
+      v: TERM_CONTROL_PROTOCOL,
       id: "injected-authority",
       ok: false,
       error: "invalid maintenance request",
@@ -565,18 +566,18 @@ describe("terminal maintenance wire contract", () => {
   it("accepts only fixed maintenance request shapes", () => {
     expect(
       decodeTermMaintenanceRequest({
-        v: 1,
+        v: TERM_CONTROL_PROTOCOL,
         id: "0123456789abcdef",
         op: "maintenance.acquire",
       }),
     ).toEqual({
-      v: 1,
+      v: TERM_CONTROL_PROTOCOL,
       id: "0123456789abcdef",
       op: "maintenance.acquire",
     });
     expect(
       decodeTermMaintenanceRequest({
-        v: 1,
+        v: TERM_CONTROL_PROTOCOL,
         id: "0123456789abcdef",
         op: "maintenance.release",
         leaseId: "caller-minted",
@@ -584,18 +585,18 @@ describe("terminal maintenance wire contract", () => {
     ).toBeUndefined();
     expect(
       decodeTermMaintenanceRequest({
-        v: 1,
+        v: TERM_CONTROL_PROTOCOL,
         id: "0123456789abcdef",
         op: "maintenance.fence",
       }),
     ).toEqual({
-      v: 1,
+      v: TERM_CONTROL_PROTOCOL,
       id: "0123456789abcdef",
       op: "maintenance.fence",
     });
     expect(
       decodeTermMaintenanceRequest({
-        v: 1,
+        v: TERM_CONTROL_PROTOCOL,
         id: "0123456789abcdef",
         op: "maintenance.fence",
         fenceId: "caller-minted",

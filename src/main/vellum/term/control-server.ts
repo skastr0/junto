@@ -23,6 +23,7 @@ import {
 import { createConnection, createServer, type Server, type Socket } from "node:net";
 import { performance } from "node:perf_hooks";
 import {
+  decodeTermControlActorSeatRequest,
   decodeTermMaintenanceRequest,
   TERM_CONTROL_PROTOCOL,
   TERM_MAX_FRAME_BYTES,
@@ -36,12 +37,14 @@ import {
   type TermControlRequest,
   type TermControlResponse,
 } from "@shared/term-control";
-import { occupancyFromSummary, occupyVacantSeat } from "@shared/terminal-seat-occupancy";
+import {
+  occupancyFromSummary,
+  seatAdmission,
+} from "@shared/terminal-seat-occupancy";
 import { isHarnessId } from "@shared/managed-terminal-templates";
 import { sessionActorMatches } from "@shared/terminal";
 import { seatTapeFromSummary } from "@shared/transport-trace";
 import { appendTransportTrace } from "../observability/transport-journal";
-import { Result } from "effect";
 import { seatStateRuntime } from "./agent-state";
 import type {
   ControlLease,
@@ -66,6 +69,7 @@ import {
   type LinuxReleaseFenceObservation,
 } from "./release-fence";
 import { readHostDirectory } from "./host-directory";
+import { launchForManagedSpawnIntent } from "./managed-spawn-plan";
 
 const tokenHash = (token: string): Buffer =>
   createHash("sha256").update(token, "utf8").digest();
@@ -398,17 +402,19 @@ export const startTermControlServer = async (
     try {
       switch (req.op) {
         case "ping":
-          return { v: 1, id, ok: true, data: { pong: true } };
+          return { v: TERM_CONTROL_PROTOCOL, id, ok: true, data: { pong: true } };
         case "create": {
           if (
             Object.prototype.hasOwnProperty.call(req, "harness") ||
-            Object.prototype.hasOwnProperty.call(req, "agentKey")
+            Object.prototype.hasOwnProperty.call(req, "agentKey") ||
+            Object.prototype.hasOwnProperty.call(req, "spawnIntent") ||
+            Object.prototype.hasOwnProperty.call(req, "firstTypedMessage")
           ) {
             return {
-              v: 1,
+              v: TERM_CONTROL_PROTOCOL,
               id,
               ok: false,
-              error: "create does not accept harness or agentKey; use createAgentSeat",
+              error: "create does not accept harness or agentKey or actor spawn intent; use createAgentSeat",
             };
           }
           const summary = host.create({
@@ -420,25 +426,34 @@ export const startTermControlServer = async (
             nodeId: req.nodeId,
             label: req.label,
           });
-          return { v: 1, id, ok: true, data: summary };
+          return { v: TERM_CONTROL_PROTOCOL, id, ok: true, data: summary };
         }
         case "createAgentSeat": {
-          const existing = host.get(req.bindingId);
-          appendTransportTrace({
-            plane: "term",
-            op: "host.get",
-            ok: true,
-            bindingId: req.bindingId,
-            ...seatTapeFromSummary(req.bindingId, existing),
-          });
-          const occupancy = occupancyFromSummary(req.bindingId, existing, "local");
-          const harnessField =
-            typeof req.harness === "string" ? req.harness.trim() : "";
-          const agentKeyField =
-            typeof req.agentKey === "string" ? req.agentKey.trim() : "";
+          const actorReq = decodeTermControlActorSeatRequest(req);
+          if (!actorReq) {
+            return {
+              v: TERM_CONTROL_PROTOCOL,
+              id,
+              ok: false,
+              error: "invalid createAgentSeat admission request",
+            };
+          }
+          const bindingId = actorReq.bindingId.trim();
+          const harnessField = actorReq.harness.trim();
+          const agentKeyField = actorReq.agentKey.trim();
+          const canvasNameField = actorReq.canvasName;
+          const nodeIdField = actorReq.nodeId;
+          if (!bindingId) {
+            return {
+              v: TERM_CONTROL_PROTOCOL,
+              id,
+              ok: false,
+              error: "createAgentSeat requires bindingId",
+            };
+          }
           if (!isHarnessId(harnessField) || agentKeyField === "") {
             return {
-              v: 1,
+              v: TERM_CONTROL_PROTOCOL,
               id,
               ok: false,
               error: !isHarnessId(harnessField) && harnessField !== ""
@@ -446,48 +461,133 @@ export const startTermControlServer = async (
                 : "createAgentSeat requires harness and agentKey",
             };
           }
-          const actor = { harness: harnessField, agentKey: agentKeyField };
-          if (Result.isFailure(occupyVacantSeat(occupancy)) && existing) {
-            const adopted = host.adoptAgentSeat(req.bindingId, actor);
-            if (!sessionActorMatches(adopted, actor)) {
+          if (!canvasNameField.trim() || !nodeIdField.trim()) {
+            return {
+              v: TERM_CONTROL_PROTOCOL,
+              id,
+              ok: false,
+              error: "createAgentSeat requires canvasName and nodeId",
+            };
+          }
+          const actor = {
+            harness: harnessField,
+            agentKey: agentKeyField,
+            canvasName: canvasNameField,
+            nodeId: nodeIdField,
+          };
+          // This snapshot and the synchronous mutation below are one event-loop
+          // turn: admission cannot race another control request on this host.
+          const existing = host.get(bindingId);
+          const occupancy = occupancyFromSummary(
+            bindingId,
+            existing,
+            "local",
+          );
+          const hostAdmission = seatAdmission(occupancy);
+          appendTransportTrace({
+            plane: "term",
+            op: "host.get",
+            ok: true,
+            bindingId,
+            ...seatTapeFromSummary(bindingId, existing),
+          });
+
+          if (actorReq.admission === "activate") {
+            if (hostAdmission._tag !== "ActivateOccupiedSeat" || !existing) {
               return {
-                v: 1,
+                v: TERM_CONTROL_PROTOCOL,
+                id,
+                ok: false,
+                error: `seat ${bindingId} is vacant; activate requires an occupant`,
+              };
+            }
+            const expectedEpoch = actorReq.expectedEpoch.trim();
+            if (existing.epoch !== expectedEpoch) {
+              return {
+                v: TERM_CONTROL_PROTOCOL,
+                id,
+                ok: false,
+                error: `seat ${bindingId} changed generation from ${expectedEpoch} to ${existing.epoch}`,
+              };
+            }
+            const alreadyBound =
+              sessionActorMatches(existing, actor) &&
+              existing.canvasName === actor.canvasName &&
+              existing.nodeId === actor.nodeId;
+            if (alreadyBound) {
+              return { v: TERM_CONTROL_PROTOCOL, id, ok: true, data: existing };
+            }
+            const adopted = host.adoptAgentSeat(bindingId, actor);
+            if (
+              !adopted ||
+              !sessionActorMatches(adopted, actor) ||
+              adopted.canvasName !== actor.canvasName ||
+              adopted.nodeId !== actor.nodeId
+            ) {
+              return {
+                v: TERM_CONTROL_PROTOCOL,
                 id,
                 ok: false,
                 error: "remote seat did not bind actor identity",
               };
             }
-            return { v: 1, id, ok: true, data: adopted };
+            return { v: TERM_CONTROL_PROTOCOL, id, ok: true, data: adopted };
+          }
+
+          if (hostAdmission._tag !== "OccupyVacantSeat") {
+            return {
+              v: TERM_CONTROL_PROTOCOL,
+              id,
+              ok: false,
+              error: `seat ${bindingId} is already occupied`,
+            };
+          }
+          const finalized = launchForManagedSpawnIntent(
+            actor,
+            actorReq.spawnIntent,
+          );
+          if (!finalized.launch || !finalized.plan) {
+            return {
+              v: TERM_CONTROL_PROTOCOL,
+              id,
+              ok: false,
+              error: "createAgentSeat could not resolve managed launch",
+            };
           }
           const summary = host.createAgentSeat({
-            bindingId: req.bindingId,
+            bindingId,
             harness: actor.harness,
             agentKey: actor.agentKey,
-            launch: req.launch,
-            cols: req.cols,
-            rows: req.rows,
-            canvasName: req.canvasName,
-            nodeId: req.nodeId,
-            label: req.label,
-            ...(typeof req.firstTypedMessage === "string"
-              ? { firstTypedMessage: req.firstTypedMessage }
+            launch: finalized.launch,
+            resumeFallbackIntent: actorReq.spawnIntent,
+            cols: actorReq.cols,
+            rows: actorReq.rows,
+            canvasName: actor.canvasName,
+            nodeId: actor.nodeId,
+            label: actorReq.label,
+            ...(finalized.plan.firstTypedMessage
+              ? { firstTypedMessage: finalized.plan.firstTypedMessage }
               : {}),
           });
-          if (!sessionActorMatches(summary, actor)) {
+          if (
+            !sessionActorMatches(summary, actor) ||
+            summary.canvasName !== actor.canvasName ||
+            summary.nodeId !== actor.nodeId
+          ) {
             return {
-              v: 1,
+              v: TERM_CONTROL_PROTOCOL,
               id,
               ok: false,
               error: "remote seat did not bind actor identity",
             };
           }
-          return { v: 1, id, ok: true, data: summary };
+          return { v: TERM_CONTROL_PROTOCOL, id, ok: true, data: summary };
         }
         case "list":
-          return { v: 1, id, ok: true, data: { sessions: host.list() } };
+          return { v: TERM_CONTROL_PROTOCOL, id, ok: true, data: { sessions: host.list() } };
         case "directory.read":
           return {
-            v: 1,
+            v: TERM_CONTROL_PROTOCOL,
             id,
             ok: true,
             data: await readHostDirectory(req.path),
@@ -501,23 +601,23 @@ export const startTermControlServer = async (
             bindingId: req.bindingId,
             ...seatTapeFromSummary(req.bindingId, summary),
           });
-          return { v: 1, id, ok: true, data: summary };
+          return { v: TERM_CONTROL_PROTOCOL, id, ok: true, data: summary };
         }
         case "kill":
-          return { v: 1, id, ok: true, data: host.kill(req.bindingId) };
+          return { v: TERM_CONTROL_PROTOCOL, id, ok: true, data: host.kill(req.bindingId) };
         case "bindCanvas":
           host.bindCanvas(req.bindingId, req.ref);
-          return { v: 1, id, ok: true };
+          return { v: TERM_CONTROL_PROTOCOL, id, ok: true };
         case "attach": {
           const result = await host.attach({
             bindingId: req.bindingId,
             mode: req.mode,
             takeover: req.takeover,
           });
-          if (!result.ok) return { v: 1, id, ok: false, error: result.message };
+          if (!result.ok) return { v: TERM_CONTROL_PROTOCOL, id, ok: false, error: result.message };
           trackLease(socket, result.lease);
           return {
-            v: 1,
+            v: TERM_CONTROL_PROTOCOL,
             id,
             ok: true,
             data: {
@@ -542,18 +642,18 @@ export const startTermControlServer = async (
             leaseSockets.get(req.leaseId)?.delete(socket);
             socketLeases.get(socket)?.delete(req.leaseId);
           }
-          return { v: 1, id, ok: true };
+          return { v: TERM_CONTROL_PROTOCOL, id, ok: true };
         }
         case "write": {
           const lease = leaseById.get(req.leaseId);
-          if (!lease) return { v: 1, id, ok: false, error: "unknown lease" };
-          return { v: 1, id, ok: true, data: host.write(lease, req.data) };
+          if (!lease) return { v: TERM_CONTROL_PROTOCOL, id, ok: false, error: "unknown lease" };
+          return { v: TERM_CONTROL_PROTOCOL, id, ok: true, data: host.write(lease, req.data) };
         }
         case "resize": {
           const lease = leaseById.get(req.leaseId);
-          if (!lease) return { v: 1, id, ok: false, error: "unknown lease" };
+          if (!lease) return { v: TERM_CONTROL_PROTOCOL, id, ok: false, error: "unknown lease" };
           return {
-            v: 1,
+            v: TERM_CONTROL_PROTOCOL,
             id,
             ok: true,
             data: host.resize(lease, req.cols, req.rows),
@@ -561,7 +661,7 @@ export const startTermControlServer = async (
         }
         case "maintenance.acquire": {
           if (decodeTermMaintenanceRequest(req) === undefined) {
-            return { v: 1, id, ok: false, error: "invalid maintenance request" };
+            return { v: TERM_CONTROL_PROTOCOL, id, ok: false, error: "invalid maintenance request" };
           }
           const result = host.acquireMaintenanceLease();
           if (!result.acquired) {
@@ -570,7 +670,7 @@ export const startTermControlServer = async (
               evidence: result.evidence,
               reason: result.reason,
             } satisfies TermMaintenanceAcquirePayload;
-            return { v: 1, id, ok: true, data };
+            return { v: TERM_CONTROL_PROTOCOL, id, ok: true, data };
           }
           maintenanceLeaseBySocket.set(socket, {
             lease: result.lease,
@@ -580,12 +680,12 @@ export const startTermControlServer = async (
             acquired: true,
             evidence: result.evidence,
           } satisfies TermMaintenanceAcquirePayload;
-          return { v: 1, id, ok: true, data };
+          return { v: TERM_CONTROL_PROTOCOL, id, ok: true, data };
         }
         case "maintenance.fence": {
           if (decodeTermMaintenanceRequest(req) === undefined) {
             return {
-              v: 1,
+              v: TERM_CONTROL_PROTOCOL,
               id,
               ok: false,
               error: "invalid maintenance request",
@@ -594,7 +694,7 @@ export const startTermControlServer = async (
           const entry = maintenanceLeaseBySocket.get(socket);
           if (entry === undefined) {
             return {
-              v: 1,
+              v: TERM_CONTROL_PROTOCOL,
               id,
               ok: false,
               error: "terminal maintenance lease required",
@@ -602,7 +702,7 @@ export const startTermControlServer = async (
           }
           if (host.runningCount() !== 0) {
             return {
-              v: 1,
+              v: TERM_CONTROL_PROTOCOL,
               id,
               ok: false,
               error: "terminal maintenance lost quiescence",
@@ -615,7 +715,7 @@ export const startTermControlServer = async (
             observation.fence.targetGid !== process.getgid?.()
           ) {
             return {
-              v: 1,
+              v: TERM_CONTROL_PROTOCOL,
               id,
               ok: false,
               error: "root release fence is not exact for this machine",
@@ -626,26 +726,31 @@ export const startTermControlServer = async (
             evidence: entry.evidence,
             fence: observation.fence,
           } satisfies TermMaintenanceFencePayload;
-          return { v: 1, id, ok: true, data };
+          return { v: TERM_CONTROL_PROTOCOL, id, ok: true, data };
         }
         case "maintenance.release": {
           if (decodeTermMaintenanceRequest(req) === undefined) {
-            return { v: 1, id, ok: false, error: "invalid maintenance request" };
+            return { v: TERM_CONTROL_PROTOCOL, id, ok: false, error: "invalid maintenance request" };
           }
           const data = {
             released: releaseMaintenanceForSocket(socket),
           } satisfies TermMaintenanceReleasePayload;
-          return { v: 1, id, ok: true, data };
+          return { v: TERM_CONTROL_PROTOCOL, id, ok: true, data };
         }
         case "shutdown":
           // Remote operator must not mass-kill via socket; only local app quit.
-          return { v: 1, id, ok: false, error: "shutdown not allowed over control socket" };
+          return {
+            v: TERM_CONTROL_PROTOCOL,
+            id,
+            ok: false,
+            error: "shutdown not allowed over control socket",
+          };
         default:
-          return { v: 1, id, ok: false, error: "unknown op" };
+          return { v: TERM_CONTROL_PROTOCOL, id, ok: false, error: "unknown op" };
       }
     } catch (err) {
       return {
-        v: 1,
+        v: TERM_CONTROL_PROTOCOL,
         id,
         ok: false,
         error: err instanceof Error ? err.message : String(err),
@@ -674,7 +779,12 @@ export const startTermControlServer = async (
       if (closed) return;
       try {
         socket.write(
-          jsonLine({ v: 1, id: "0", ok: false, error: msg } satisfies TermControlResponse),
+          jsonLine({
+            v: TERM_CONTROL_PROTOCOL,
+            id: "0",
+            ok: false,
+            error: msg,
+          } satisfies TermControlResponse),
         );
       } catch {
         // ignore
@@ -718,7 +828,7 @@ export const startTermControlServer = async (
           try {
             socket.write(
               jsonLine({
-                v: 1,
+                v: TERM_CONTROL_PROTOCOL,
                 id: "auth",
                 ok: true,
                 data: { seatState: snapshot },
@@ -731,8 +841,39 @@ export const startTermControlServer = async (
           // would double-deliver after the client flushes its queue.
           continue;
         }
+        const wire = msg as {
+          readonly v?: unknown;
+          readonly id?: unknown;
+          readonly op?: unknown;
+        };
+        if (
+          wire &&
+          typeof wire.v === "number" &&
+          wire.v !== TERM_CONTROL_PROTOCOL &&
+          typeof wire.id === "string" &&
+          typeof wire.op === "string"
+        ) {
+          try {
+            socket.write(
+              jsonLine({
+                v: TERM_CONTROL_PROTOCOL,
+                id: wire.id,
+                ok: false,
+                error: `term control protocol ${wire.v} is unsupported; update required`,
+              } satisfies TermControlResponse),
+            );
+          } catch {
+            socket.destroy();
+          }
+          continue;
+        }
         const req = msg as TermControlRequest;
-        if (!req || req.v !== 1 || typeof req.id !== "string" || typeof req.op !== "string") {
+        if (
+          !req ||
+          req.v !== TERM_CONTROL_PROTOCOL ||
+          typeof req.id !== "string" ||
+          typeof req.op !== "string"
+        ) {
           fail("invalid request");
           return;
         }

@@ -24,7 +24,11 @@ import {
 import { LocalSessionHost } from "../src/main/vellum/term/local-host";
 import { TermPlane, termPlaneBlocksAppExit } from "../src/main/vellum/term/plane";
 import { TerminalRouter } from "../src/main/vellum/term/router";
-import { termControlSocketPath, termControlTokenPath } from "../src/shared/term-control";
+import {
+  TERM_CONTROL_PROTOCOL,
+  termControlSocketPath,
+  termControlTokenPath,
+} from "../src/shared/term-control";
 import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 
 const cleanups: Array<() => Promise<void> | void> = [];
@@ -403,7 +407,7 @@ describe("terminal shutdown receipts", () => {
       socket.setEncoding("utf8");
       socket.on("data", (chunk: string) => {
         if (chunk.includes("token")) {
-          socket.write(`${JSON.stringify({ v: 1, id: "auth", ok: true })}\n`);
+          socket.write(`${JSON.stringify({ v: TERM_CONTROL_PROTOCOL, id: "auth", ok: true })}\n`);
         }
       });
       socket.once("close", () => peers.delete(socket));
@@ -443,7 +447,7 @@ describe("terminal shutdown receipts", () => {
       peers.add(socket);
       socket.setEncoding("utf8");
       socket.on("data", () => {
-        socket.write(`${JSON.stringify({ v: 1, id: "auth", ok: true })}\n`);
+        socket.write(`${JSON.stringify({ v: TERM_CONTROL_PROTOCOL, id: "auth", ok: true })}\n`);
       });
       socket.once("close", () => peers.delete(socket));
     });

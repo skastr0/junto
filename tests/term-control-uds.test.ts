@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createConnection } from "node:net";
+import { createConnection, createServer } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   LocalSessionHost,
@@ -10,7 +10,11 @@ import {
 import { startTermControlServer } from "../src/main/vellum/term/control-server";
 import { TermControlClient } from "../src/main/vellum/term/control-client";
 import { seatStateRuntime } from "../src/main/vellum/term/agent-state";
-import type { TermControlResponse } from "../src/shared/term-control";
+import {
+  TERM_CONTROL_PROTOCOL,
+  type TermControlResponse,
+} from "../src/shared/term-control";
+import { STATION_PROTOCOL_BASELINE } from "../src/shared/station-protocol";
 import {
   makeProcessIdentityMap,
   setProcessIdentityMapForTests,
@@ -205,6 +209,32 @@ describe("term control UDS", () => {
     expect(host.runningCount()).toBe(1);
   });
 
+
+  it("rejects a legacy v1 server at the auth boundary", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vtv2-"));
+    cleanups.push(() => rmSync(home, { recursive: true, force: true }));
+    const socketPath = join(home, "legacy.sock");
+    const legacy = createServer((socket) => {
+      socket.once("data", () => {
+        socket.write(`${JSON.stringify({ v: 1, id: "auth", ok: true })}\n`);
+      });
+    });
+    await new Promise<void>((resolve, reject) => {
+      legacy.once("error", reject);
+      legacy.listen(socketPath, resolve);
+    });
+    cleanups.push(
+      () =>
+        new Promise<void>((resolve) => {
+          legacy.close(() => resolve());
+        }),
+    );
+
+    await expect(
+      TermControlClient.connect({ socketPath, token: "legacy", timeoutMs: 1_000 }),
+    ).rejects.toThrow(/update required/);
+  });
+
   it("rejects bad token", async () => {
     const home = mkdtempSync(join(tmpdir(), "vtb-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));
@@ -304,7 +334,7 @@ describe("term control UDS", () => {
 
     const closing = server.close();
     active.write(`${JSON.stringify({ token: server.token })}\n`);
-    active.write(`${JSON.stringify({ v: 1, id: "late", op: "create", bindingId: "late" })}\n`);
+    active.write(`${JSON.stringify({ v: TERM_CONTROL_PROTOCOL, id: "late", op: "create", bindingId: "late" })}\n`);
     const late = createConnection(server.socketPath);
     const lateOutcome = await new Promise<"connected" | "rejected">((resolve) => {
       late.once("connect", () => resolve("connected"));
@@ -376,26 +406,36 @@ describe("term control UDS", () => {
 
     const requests = [
       {
-        v: 1,
+        v: TERM_CONTROL_PROTOCOL,
         id: "raw-create-harness",
         op: "create",
         bindingId: "uds_raw_create_harness",
         harness: "grok",
       },
       {
-        v: 1,
+        v: TERM_CONTROL_PROTOCOL,
         id: "raw-create-agent-key",
         op: "create",
         bindingId: "uds_raw_create_agent_key",
         agentKey: "mini:grok",
       },
       {
-        v: 1,
+        v: TERM_CONTROL_PROTOCOL,
         id: "raw-create-both",
         op: "create",
         bindingId: "uds_raw_create_both",
         harness: "grok",
         agentKey: "mini:grok",
+      },
+      {
+        v: TERM_CONTROL_PROTOCOL,
+        id: "raw-create-spawn-intent",
+        op: "create",
+        bindingId: "uds_raw_create_spawn_intent",
+        spawnIntent: {
+          resumeRequested: false,
+          injection: { seatBound: true, connected: false },
+        },
       },
     ] as const;
 
@@ -426,10 +466,17 @@ describe("term control UDS", () => {
     cleanups.push(() => client.close());
 
     const created = await client.createAgentSeat({
+      admission: "occupy",
       bindingId: "uds_cas",
       harness: "grok",
       agentKey: "mini:grok",
-      launch: { kind: "harness", argv: ["grok"] },
+      canvasName: "factory",
+      nodeId: "actor-node",
+      spawnIntent: {
+        documentLaunch: { kind: "harness", argv: ["grok"] },
+        resumeRequested: false,
+        injection: { seatBound: true, connected: false },
+      },
       cols: 80,
       rows: 24,
     });
@@ -441,14 +488,188 @@ describe("term control UDS", () => {
     ).toBe(true);
 
     const again = await client.createAgentSeat({
+      admission: "activate",
       bindingId: "uds_cas",
+      expectedEpoch: created.epoch,
       harness: "grok",
       agentKey: "mini:grok",
+      canvasName: "factory",
+      nodeId: "actor-node",
     });
     expect(again.epoch).toBe(created.epoch);
     expect(again.harness).toBe("grok");
     expect(again.agentKey).toBe("mini:grok");
     expect(host.runningCount()).toBe(1);
+  });
+
+  it("createAgentSeat adopts geography and rebinds its PID to the actor node", async () => {
+    const identities = makeProcessIdentityMap({
+      processAlive: () => true,
+      readProcessStartKey: () => "synthetic-9001",
+    });
+    setProcessIdentityMapForTests(identities);
+    const home = mkdtempSync(join(tmpdir(), "vtcas-adopt-"));
+    cleanups.push(() => rmSync(home, { recursive: true, force: true }));
+    const host = new LocalSessionHost(fakeAuthority());
+    cleanups.push(async () => {
+      await host.shutdownAll("test");
+    });
+    const server = await startTermControlServer(host, { home });
+    cleanups.push(() => server.close());
+    const client = await TermControlClient.connect({
+      socketPath: server.socketPath,
+      token: server.token,
+      timeoutMs: 5_000,
+    });
+    cleanups.push(() => client.close());
+
+    const geography = await client.create({
+      bindingId: "uds_adopt",
+      launch: { kind: "shell" },
+      canvasName: "old-canvas",
+      nodeId: "terminal-node",
+    });
+    expect(identities.resolve(9001)).toEqual({
+      bindingId: "uds_adopt",
+      canvasName: "old-canvas",
+      nodeId: "terminal-node",
+    });
+
+    const adopted = await client.createAgentSeat({
+      admission: "activate",
+      bindingId: "uds_adopt",
+      expectedEpoch: geography.epoch,
+      harness: "grok",
+      agentKey: "mini:grok",
+      canvasName: "factory",
+      nodeId: "actor-node",
+    });
+
+    expect(adopted).toMatchObject({
+      epoch: geography.epoch,
+      harness: "grok",
+      agentKey: "mini:grok",
+      canvasName: "factory",
+      nodeId: "actor-node",
+    });
+    expect(identities.resolve(9001)).toEqual({
+      agentKey: "mini:grok",
+      canvasName: "factory",
+      nodeId: "actor-node",
+    });
+    expect(host.runningCount()).toBe(1);
+  });
+
+  it("atomically guards actor admission and replaces only a vacant exited seat", async () => {
+    setProcessIdentityMapForTests(makeProcessIdentityMap());
+    const home = mkdtempSync(join(tmpdir(), "vta-"));
+    cleanups.push(() => rmSync(home, { recursive: true, force: true }));
+    const host = new LocalSessionHost(fakeAuthority());
+    cleanups.push(async () => {
+      await host.shutdownAll("test");
+    });
+    const server = await startTermControlServer(host, { home });
+    cleanups.push(() => server.close());
+    const client = await TermControlClient.connect({
+      socketPath: server.socketPath,
+      token: server.token,
+      timeoutMs: 5_000,
+    });
+    cleanups.push(() => client.close());
+    const spawnIntent = {
+      documentLaunch: { kind: "harness" as const, argv: ["grok"] },
+      resumeRequested: false,
+      injection: { seatBound: true, connected: false },
+    };
+
+    const initial = await client.createAgentSeat({
+      admission: "occupy",
+      bindingId: "uds_atomic",
+      harness: "grok",
+      agentKey: "mini:first",
+      canvasName: "factory",
+      nodeId: "actor-first",
+      spawnIntent,
+    });
+
+    await expect(
+      client.createAgentSeat({
+        admission: "occupy",
+        bindingId: "uds_atomic",
+        harness: "grok",
+        agentKey: "mini:racer",
+        canvasName: "factory",
+        nodeId: "actor-racer",
+        spawnIntent,
+      }),
+    ).rejects.toThrow(/already occupied/);
+    expect(host.get("uds_atomic")).toMatchObject({
+      epoch: initial.epoch,
+      agentKey: "mini:first",
+      nodeId: "actor-first",
+    });
+
+    await expect(
+      client.createAgentSeat({
+        admission: "activate",
+        bindingId: "uds_atomic",
+        expectedEpoch: "epoch-stale",
+        harness: "grok",
+        agentKey: "mini:racer",
+        canvasName: "factory",
+        nodeId: "actor-racer",
+      }),
+    ).rejects.toThrow(/changed generation/);
+    expect(host.get("uds_atomic")).toMatchObject({
+      epoch: initial.epoch,
+      agentKey: "mini:first",
+      nodeId: "actor-first",
+    });
+
+    const padded = await rawRequest(server.socketPath, server.token, {
+      v: TERM_CONTROL_PROTOCOL,
+      id: "padded-actor-binding",
+      op: "createAgentSeat",
+      admission: "occupy",
+      bindingId: " uds_atomic ",
+      harness: "grok",
+      agentKey: "mini:padded",
+      canvasName: "factory",
+      nodeId: "actor-padded",
+      spawnIntent,
+    });
+    expect(padded).toMatchObject({ ok: false });
+
+    expect(await client.kill("uds_atomic")).toBe(true);
+    const exited = await client.get("uds_atomic");
+    expect(exited?.status).toBe("exited");
+    await expect(
+      client.createAgentSeat({
+        admission: "activate",
+        bindingId: "uds_atomic",
+        expectedEpoch: initial.epoch,
+        harness: "grok",
+        agentKey: "mini:first",
+        canvasName: "factory",
+        nodeId: "actor-first",
+      }),
+    ).rejects.toThrow(/vacant/);
+
+    const replacement = await client.createAgentSeat({
+      admission: "occupy",
+      bindingId: "uds_atomic",
+      harness: "grok",
+      agentKey: "mini:replacement",
+      canvasName: "factory",
+      nodeId: "actor-replacement",
+      spawnIntent,
+    });
+    expect(replacement).toMatchObject({
+      status: "running",
+      agentKey: "mini:replacement",
+      nodeId: "actor-replacement",
+    });
+    expect(replacement.epoch).not.toBe(initial.epoch);
   });
 
   it("geography create still works and does not bind a harness", async () => {
@@ -482,6 +703,78 @@ describe("term control UDS", () => {
     ).toBe(false);
   });
 
+  it("vacant createAgentSeat rejects missing or malformed spawn intent", async () => {
+    setProcessIdentityMapForTests(makeProcessIdentityMap());
+    const home = mkdtempSync(join(tmpdir(), "vtcas-intent-"));
+    cleanups.push(() => rmSync(home, { recursive: true, force: true }));
+    const host = new LocalSessionHost(fakeAuthority());
+    cleanups.push(async () => {
+      await host.shutdownAll("test");
+    });
+    const server = await startTermControlServer(host, { home });
+    cleanups.push(() => server.close());
+    const client = await TermControlClient.connect({
+      socketPath: server.socketPath,
+      token: server.token,
+      timeoutMs: 5_000,
+    });
+    cleanups.push(() => client.close());
+
+    expect(TERM_CONTROL_PROTOCOL).toBe(STATION_PROTOCOL_BASELINE);
+    const outdated = await rawRequest(server.socketPath, server.token, {
+      v: 1,
+      id: "outdated-actor-codec",
+      op: "createAgentSeat",
+      admission: "occupy",
+      bindingId: "uds_outdated_actor",
+      harness: "grok",
+      agentKey: "mini:grok",
+      canvasName: "factory",
+      nodeId: "outdated-actor",
+      spawnIntent: {
+        documentLaunch: { kind: "harness", argv: ["grok"] },
+        resumeRequested: false,
+        injection: { seatBound: true, connected: false },
+      },
+    });
+    expect(outdated).toMatchObject({ ok: false });
+    if (outdated.ok) throw new Error("outdated actor codec was accepted");
+    expect(outdated.error).toMatch(/update required/);
+
+    const missing = await rawRequest(server.socketPath, server.token, {
+      v: TERM_CONTROL_PROTOCOL,
+      id: "missing-spawn-intent",
+      op: "createAgentSeat",
+      admission: "occupy",
+      bindingId: "uds_missing_intent",
+      harness: "grok",
+      agentKey: "mini:grok",
+      canvasName: "factory",
+      nodeId: "missing-actor",
+    });
+    expect(missing).toMatchObject({ ok: false });
+
+    const malformed = await rawRequest(server.socketPath, server.token, {
+      v: TERM_CONTROL_PROTOCOL,
+      id: "malformed-spawn-intent",
+      op: "createAgentSeat",
+      admission: "occupy",
+      bindingId: "uds_malformed_intent",
+      harness: "grok",
+      agentKey: "mini:grok",
+      canvasName: "factory",
+      nodeId: "malformed-actor",
+      spawnIntent: {
+        resumeRequested: "yes",
+        injection: { seatBound: true, connected: false },
+      },
+    });
+    expect(malformed).toMatchObject({ ok: false });
+    if (malformed.ok) throw new Error("malformed spawn intent was accepted");
+    expect(malformed.error).toMatch(/invalid createAgentSeat admission request/);
+    expect(host.list()).toEqual([]);
+  });
+
   it("createAgentSeat with only harness fails", async () => {
     setProcessIdentityMapForTests(makeProcessIdentityMap());
     const home = mkdtempSync(join(tmpdir(), "vtcasx-"));
@@ -499,11 +792,14 @@ describe("term control UDS", () => {
     });
     cleanups.push(() => client.close());
 
-    await expect(
-      client.createAgentSeat({
-        bindingId: "uds_cas_xor",
-        harness: "grok",
-      } as { bindingId: string; harness: string; agentKey: string }),
-    ).rejects.toThrow(/harness and agentKey/);
+    const partial = await rawRequest(server.socketPath, server.token, {
+      v: TERM_CONTROL_PROTOCOL,
+      id: "partial-actor-seat",
+      op: "createAgentSeat",
+      admission: "occupy",
+      bindingId: "uds_cas_xor",
+      harness: "grok",
+    });
+    expect(partial).toMatchObject({ ok: false });
   });
 });

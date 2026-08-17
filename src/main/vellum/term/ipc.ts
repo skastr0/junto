@@ -4,7 +4,7 @@ import type { CanvasDoc } from "@shared/canvas";
 import { IPC_CHANNELS, type TerminalAttachInput, type TerminalCreateInput } from "@shared/ipc";
 import { isHarnessId } from "@shared/managed-terminal-templates";
 import { managedHarnessEnabled } from "@shared/features";
-import { resolveTerminalBinding, type TerminalLaunch } from "@shared/terminal";
+import { resolveTerminalBinding } from "@shared/terminal";
 import { messageDelivery } from "../work/message-delivery";
 import type { ControlLease, LocalHostEvent } from "./local-host";
 import { TerminalStreamCoalescer, terminalBindingKey } from "./stream-coalescer";
@@ -181,6 +181,11 @@ export const registerTerminalIpc = (
             "terminal ipc: agent seat requires an agent name, terminal binding, and harness",
           );
         }
+        if (!canvasName || !node.id.trim()) {
+          return deny(
+            "terminal ipc: agent seat requires a canvas name and node id",
+          );
+        }
         if (!isHarnessId(surface.harness)) {
           return deny(`terminal ipc: unknown harness template ${surface.harness}`);
         }
@@ -194,12 +199,9 @@ export const registerTerminalIpc = (
         // The supplied node is immediate authorial intent. Canvas persistence
         // is debounced, so a read can enrich launch injection with live edges
         // but can never be a prerequisite for occupying this actor seat.
-        let launch: TerminalLaunch | undefined = surface.launch;
-        let firstTypedMessage: string | undefined;
-        try {
-          const { launchForManagedSpawn } = await import("./managed-spawn-plan");
-          let docForPlan: CanvasDoc | undefined;
-          if (canvasName) {
+        let docForPlan: CanvasDoc | undefined;
+        if (canvasName) {
+          try {
             const { CanvasesService } = await import("../canvases");
             const read = await AppRuntime.runPromise(
               Effect.gen(function* () {
@@ -219,25 +221,26 @@ export const registerTerminalIpc = (
                   : [...persisted.nodes, node],
               };
             }
+          } catch (err) {
+            console.error(
+              "[term] managed spawn context enrichment failed; using immediate node:",
+              err,
+            );
           }
-          const planned = launchForManagedSpawn({
-            ...(docForPlan ? { doc: docForPlan } : {}),
-            nodeId: node.id,
-            harness: surface.harness,
-            documentLaunch: surface.launch,
-            agentKey: surface.agentKey,
-            cwd: surface.launch?.cwd,
-            sessionId: node.ether?.terminal?.sessionId,
-            resume: input.resume === true,
-          });
-          if (planned.launch) launch = planned.launch;
-          firstTypedMessage = planned.plan?.firstTypedMessage;
-        } catch (err) {
-          console.error(
-            "[term] managed spawn replan failed; using supplied node launch:",
-            err,
-          );
         }
+        const { makeManagedSpawnIntent } = await import("./managed-spawn-plan");
+        // Pure compilation only. Session proof, isolation, final argv, and
+        // first-typed disposition belong to the selected process host.
+        const spawnIntent = makeManagedSpawnIntent({
+          ...(docForPlan ? { doc: docForPlan } : {}),
+          nodeId: node.id,
+          harness: surface.harness,
+          documentLaunch: surface.launch,
+          agentKey: surface.agentKey,
+          cwd: surface.launch?.cwd,
+          sessionId: node.ether?.terminal?.sessionId,
+          resume: input.resume === true,
+        });
 
         return AppRuntime.runPromise(
           Effect.gen(function* () {
@@ -247,15 +250,14 @@ export const registerTerminalIpc = (
               harness: surface.harness,
               agentKey: surface.agentKey,
               hostId: surface.hostId,
-              ...(launch ? { launch } : {}),
+              spawnIntent,
               ...(typeof input.cols === "number" ? { cols: input.cols } : {}),
               ...(typeof input.rows === "number" ? { rows: input.rows } : {}),
-              ...(canvasName ? { canvasName } : {}),
+              canvasName,
               nodeId: node.id,
               ...(node.ether?.terminal?.label
                 ? { label: node.ether.terminal.label }
                 : {}),
-              ...(firstTypedMessage ? { firstTypedMessage } : {}),
             });
           }),
         );

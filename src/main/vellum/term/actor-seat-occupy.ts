@@ -117,10 +117,10 @@ const occupyProgram = (
       case "OccupyVacantSeat":
         return yield* seats.occupy(admission, spec);
       case "ActivateOccupiedSeat":
-        return yield* seats.activate(admission, {
-          harness: spec.harness,
-          agentKey: spec.agentKey,
-        });
+        // Activation may adopt an occupied geography generation. Preserve the
+        // node-derived anchors so the selected HOW can atomically rebind the
+        // existing PID to this actor seat without replacing its epoch.
+        return yield* seats.activate(admission, spec);
       default:
         return assertNever(admission);
     }

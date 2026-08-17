@@ -16,6 +16,8 @@ import {
 import {
   nodeHasActionableFactoryEdge,
   launchForManagedSpawn,
+  launchForManagedSpawnIntent,
+  makeManagedSpawnIntent,
   shouldAvoidSharedHarnessResume,
 } from "../src/main/vellum/term/managed-spawn-plan";
 import { __setSessionExistenceHomeForTest } from "../src/main/vellum/term/session-existence";
@@ -27,6 +29,7 @@ const require = createRequire(import.meta.url);
 
 const originalVellumHome = process.env.VELLUM_COMMAND_HOME;
 afterEach(() => {
+  __setSessionExistenceHomeForTest(undefined);
   if (originalVellumHome === undefined) delete process.env.VELLUM_COMMAND_HOME;
   else process.env.VELLUM_COMMAND_HOME = originalVellumHome;
 });
@@ -368,6 +371,112 @@ describe("managed spawn plan", () => {
           "never",
         ]),
       );
+    } finally {
+      __setSessionExistenceHomeForTest(undefined);
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("finalizes named-session proof on the selected spawn host", () => {
+    delete process.env.VELLUM_COMMAND_HOME;
+    const commandCenterHome = mkdtempSync(join(tmpdir(), "vellum-cc-proof-"));
+    const remoteHome = mkdtempSync(join(tmpdir(), "vellum-remote-proof-"));
+    const sid = "aaaaaaaa-bbbb-cccc-dddd-ffffffffffff";
+    try {
+      // Compilation runs while Command Center has no session proof. It must be
+      // pure and retain only the request plus document-derived injection.
+      __setSessionExistenceHomeForTest(commandCenterHome);
+      const intent = makeManagedSpawnIntent({
+        doc: baseDoc(true),
+        nodeId: "worker",
+        harness: "grok",
+        agentKey: "station:grok",
+        sessionId: sid,
+        resume: true,
+        cwd: "/work",
+        documentLaunch: {
+          kind: "harness",
+          argv: ["grok", "--session-id", sid],
+          cwd: "/work",
+        },
+      });
+      expect(intent.resumeRequested).toBe(true);
+      expect(intent.injection).toMatchObject({
+        seatBound: true,
+        connected: true,
+      });
+
+      // The same intent resumes when the selected Remote owns proof.
+      mkdirSync(
+        join(
+          remoteHome,
+          ".grok",
+          "sessions",
+          encodeURIComponent("/work"),
+          sid,
+        ),
+        { recursive: true },
+      );
+      __setSessionExistenceHomeForTest(remoteHome);
+      const proven = launchForManagedSpawnIntent(
+        { harness: "grok", agentKey: "station:grok" },
+        intent,
+      );
+      expect(proven.launch?.argv).toEqual(expect.arrayContaining(["-r", sid]));
+      expect(proven.plan?.injection.inject).toBe(false);
+      expect(proven.plan?.firstTypedMessage).toBeUndefined();
+
+      // Removing only Remote proof makes that identical intent pin fresh and
+      // retain normal doctrine injection; Command Center state is irrelevant.
+      rmSync(join(remoteHome, ".grok"), { recursive: true, force: true });
+      const unproven = launchForManagedSpawnIntent(
+        { harness: "grok", agentKey: "station:grok" },
+        intent,
+      );
+      expect(unproven.launch?.argv).toEqual(
+        expect.arrayContaining(["--session-id", sid]),
+      );
+      expect(unproven.launch?.argv).not.toContain("-r");
+      expect(unproven.plan?.injection.inject).toBe(true);
+    } finally {
+      __setSessionExistenceHomeForTest(undefined);
+      rmSync(commandCenterHome, { recursive: true, force: true });
+      rmSync(remoteHome, { recursive: true, force: true });
+    }
+  });
+
+  it("suppresses Tier B first-typed doctrine only for a host-proven resume", () => {
+    delete process.env.VELLUM_COMMAND_HOME;
+    const home = mkdtempSync(join(tmpdir(), "vellum-kimi-resume-host-"));
+    const sid = "ses_remote_kimi";
+    try {
+      mkdirSync(join(home, ".kimi-code", "sessions", "work", sid), {
+        recursive: true,
+      });
+      __setSessionExistenceHomeForTest(home);
+      const intent = makeManagedSpawnIntent({
+        harness: "kimi",
+        agentKey: "station:kimi",
+        documentLaunch: { kind: "harness", argv: ["kimi"] },
+        sessionId: sid,
+        resume: true,
+        injection: {
+          seatBound: true,
+          connected: true,
+          seatRef: "actor-kimi",
+          connectedTargets: [{ id: "tasks", kind: "task" }],
+        },
+      });
+      const resolved = launchForManagedSpawnIntent(
+        { harness: "kimi", agentKey: "station:kimi" },
+        intent,
+      );
+
+      expect(resolved.launch?.argv).toEqual(
+        expect.arrayContaining(["-S", sid]),
+      );
+      expect(resolved.plan?.injection.inject).toBe(false);
+      expect(resolved.plan?.firstTypedMessage).toBeUndefined();
     } finally {
       __setSessionExistenceHomeForTest(undefined);
       rmSync(home, { recursive: true, force: true });

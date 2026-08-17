@@ -137,8 +137,8 @@ describe("term seat-state placement wiring", () => {
     expect(client).toContain("isAgentSeatState(ev.state)");
     expect(client).toContain("reviveTermAuthSeatState");
     expect(client).toContain("queueMicrotask");
-    expect(client).toContain("harness: input.harness");
-    expect(client).toContain("agentKey: input.agentKey");
+    expect(client).toContain("input: TermControlActorSeatCommand");
+    expect(client).toContain('op: "createAgentSeat",\n      ...input');
   });
 
   it("keeps the router as a client directory, not an actor occupy service", () => {

@@ -10,11 +10,13 @@ import {
   decodeTermMaintenanceAcquirePayload,
   decodeTermMaintenanceFencePayload,
   decodeTermMaintenanceReleasePayload,
+  TERM_CONTROL_PROTOCOL,
   type TermMaintenanceDenialReason,
   type TermMaintenanceEvidence,
   type TermMaintenanceFencePayload,
   type TermMaintenanceQuiescenceEvidence,
   type TermMaintenanceReleasePayload,
+  type TermControlActorSeatCommand,
   type TermControlRequest,
   type TermControlResponse,
 } from "@shared/term-control";
@@ -379,6 +381,16 @@ export class TermControlClient extends EventEmitter implements TermMaintenanceCo
             continue;
           }
           const rec = msg as Record<string, unknown>;
+          if (rec.v !== TERM_CONTROL_PROTOCOL) {
+            const error = new Error(
+              `term control protocol ${String(rec.v)} is unsupported; update required`,
+            );
+            this.recordDiagnostic(error);
+            settleErr(error);
+            this.failAll(error);
+            sock.destroy();
+            return;
+          }
           if (!this.authed) {
             if (rec.ok === true && rec.id === "auth") {
               this.authed = true;
@@ -521,7 +533,7 @@ export class TermControlClient extends EventEmitter implements TermMaintenanceCo
     label?: string;
   }): Promise<TerminalSessionSummary> {
     const res = await this.call({
-      v: 1,
+      v: TERM_CONTROL_PROTOCOL,
       id: this.nextId(),
       op: "create",
       bindingId: input.bindingId,
@@ -536,39 +548,25 @@ export class TermControlClient extends EventEmitter implements TermMaintenanceCo
     return res.data as TerminalSessionSummary;
   }
 
-  async createAgentSeat(input: {
-    bindingId: string;
-    harness: string;
-    agentKey: string;
-    launch?: TerminalLaunch;
-    cols?: number;
-    rows?: number;
-    canvasName?: string;
-    nodeId?: string;
-    label?: string;
-    firstTypedMessage?: string;
-  }): Promise<TerminalSessionSummary> {
+  async createAgentSeat(
+    input: TermControlActorSeatCommand,
+  ): Promise<TerminalSessionSummary> {
     const res = await this.call({
-      v: 1,
+      v: TERM_CONTROL_PROTOCOL,
       id: this.nextId(),
       op: "createAgentSeat",
-      bindingId: input.bindingId,
-      harness: input.harness,
-      agentKey: input.agentKey,
-      launch: input.launch,
-      cols: input.cols,
-      rows: input.rows,
-      canvasName: input.canvasName,
-      nodeId: input.nodeId,
-      label: input.label,
-      ...(input.firstTypedMessage ? { firstTypedMessage: input.firstTypedMessage } : {}),
+      ...input,
     });
     if (!res.ok) throw new Error(res.error);
     return res.data as TerminalSessionSummary;
   }
 
   async list(): Promise<readonly TerminalSessionSummary[]> {
-    const res = await this.call({ v: 1, id: this.nextId(), op: "list" });
+    const res = await this.call({
+      v: TERM_CONTROL_PROTOCOL,
+      id: this.nextId(),
+      op: "list",
+    });
     if (!res.ok) throw new Error(res.error);
     const data = res.data as { sessions?: TerminalSessionSummary[] };
     return data.sessions ?? [];
@@ -576,7 +574,7 @@ export class TermControlClient extends EventEmitter implements TermMaintenanceCo
 
   async readDirectory(path?: string): Promise<typeof HostDirectorySnapshot.Type> {
     const res = await this.call({
-      v: 1,
+      v: TERM_CONTROL_PROTOCOL,
       id: this.nextId(),
       op: "directory.read",
       ...(path?.trim() ? { path: path.trim() } : {}),
@@ -588,13 +586,23 @@ export class TermControlClient extends EventEmitter implements TermMaintenanceCo
   }
 
   async get(bindingId: string): Promise<TerminalSessionSummary | undefined> {
-    const res = await this.call({ v: 1, id: this.nextId(), op: "get", bindingId });
+    const res = await this.call({
+      v: TERM_CONTROL_PROTOCOL,
+      id: this.nextId(),
+      op: "get",
+      bindingId,
+    });
     if (!res.ok) throw new Error(res.error);
     return (res.data as TerminalSessionSummary | null) ?? undefined;
   }
 
   async kill(bindingId: string): Promise<boolean> {
-    const res = await this.call({ v: 1, id: this.nextId(), op: "kill", bindingId });
+    const res = await this.call({
+      v: TERM_CONTROL_PROTOCOL,
+      id: this.nextId(),
+      op: "kill",
+      bindingId,
+    });
     if (!res.ok) throw new Error(res.error);
     return Boolean(res.data);
   }
@@ -603,7 +611,11 @@ export class TermControlClient extends EventEmitter implements TermMaintenanceCo
     let response: TermControlResponse;
     try {
       response = await this.call(
-        { v: 1, id: this.nextId(), op: "maintenance.acquire" },
+        {
+          v: TERM_CONTROL_PROTOCOL,
+          id: this.nextId(),
+          op: "maintenance.acquire",
+        },
         MAINTENANCE_REQUEST_TIMEOUT_MS,
       );
     } catch (error) {
@@ -627,7 +639,11 @@ export class TermControlClient extends EventEmitter implements TermMaintenanceCo
     const acknowledgeFence = async (): Promise<TermMaintenanceFencePayload> => {
       try {
         const fenceResponse = await this.call(
-          { v: 1, id: this.nextId(), op: "maintenance.fence" },
+          {
+            v: TERM_CONTROL_PROTOCOL,
+            id: this.nextId(),
+            op: "maintenance.fence",
+          },
           MAINTENANCE_REQUEST_TIMEOUT_MS,
         );
         if (!fenceResponse.ok) throw new Error(fenceResponse.error);
@@ -652,7 +668,11 @@ export class TermControlClient extends EventEmitter implements TermMaintenanceCo
       releaseFlight = (async () => {
         try {
           const releaseResponse = await this.call(
-            { v: 1, id: this.nextId(), op: "maintenance.release" },
+            {
+              v: TERM_CONTROL_PROTOCOL,
+              id: this.nextId(),
+              op: "maintenance.release",
+            },
             MAINTENANCE_REQUEST_TIMEOUT_MS,
           );
           if (!releaseResponse.ok) throw new Error(releaseResponse.error);
@@ -679,7 +699,7 @@ export class TermControlClient extends EventEmitter implements TermMaintenanceCo
     ref: { canvasName?: string; nodeId?: string } | null,
   ): Promise<void> {
     const res = await this.call({
-      v: 1,
+      v: TERM_CONTROL_PROTOCOL,
       id: this.nextId(),
       op: "bindCanvas",
       bindingId,
@@ -713,7 +733,7 @@ export class TermControlClient extends EventEmitter implements TermMaintenanceCo
     | { ok: false; message: string }
   > {
     const res = await this.call({
-      v: 1,
+      v: TERM_CONTROL_PROTOCOL,
       id: this.nextId(),
       op: "attach",
       bindingId: input.bindingId,
@@ -774,19 +794,30 @@ export class TermControlClient extends EventEmitter implements TermMaintenanceCo
   }
 
   async release(leaseId: string): Promise<void> {
-    const res = await this.call({ v: 1, id: this.nextId(), op: "release", leaseId });
+    const res = await this.call({
+      v: TERM_CONTROL_PROTOCOL,
+      id: this.nextId(),
+      op: "release",
+      leaseId,
+    });
     if (!res.ok) throw new Error(res.error);
   }
 
   async write(leaseId: string, data: string): Promise<boolean> {
-    const res = await this.call({ v: 1, id: this.nextId(), op: "write", leaseId, data });
+    const res = await this.call({
+      v: TERM_CONTROL_PROTOCOL,
+      id: this.nextId(),
+      op: "write",
+      leaseId,
+      data,
+    });
     if (!res.ok) throw new Error(res.error);
     return Boolean(res.data);
   }
 
   async resize(leaseId: string, cols: number, rows: number): Promise<boolean> {
     const res = await this.call({
-      v: 1,
+      v: TERM_CONTROL_PROTOCOL,
       id: this.nextId(),
       op: "resize",
       leaseId,

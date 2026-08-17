@@ -24,6 +24,23 @@ import {
 /** Alias matching runtime TerminalLaunch (document launch profile). */
 export type TerminalLaunch = EtherTerminalLaunch;
 
+/**
+ * Pure authorial spawn intent. The selected process host finalizes this into a
+ * launch only after consulting its own harness-session filesystem.
+ */
+export type ManagedSpawnIntent = {
+  readonly documentLaunch?: TerminalLaunch;
+  readonly sessionId?: string;
+  /** Request only. The selected spawn host decides whether proof exists. */
+  readonly resumeRequested: boolean;
+  readonly injection: InjectionContext;
+  readonly profile?: string;
+  readonly model?: string;
+  readonly effort?: string;
+  readonly permissionMode?: string;
+  readonly cwd?: string;
+};
+
 // ── Picker input ───────────────────────────────────────────────────────────
 
 /**

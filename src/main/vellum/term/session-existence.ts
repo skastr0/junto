@@ -495,9 +495,10 @@ export const parseHarnessSessionArgv = (
 
 /**
  * This host created the harness session. After a station restart the in-memory
- * seat table is empty, but the session files remain. Command Center plans pin
- * vs resume against *its* disk, so it sends --session-id (create) for a session
- * that already lives here. Convert that pin to resume so we reclaim, not orphan.
+ * seat table is empty, but the session files remain. Keep this as a defense for
+ * lower-level/raw pin argv: convert a locally proven orphaned pin to resume so
+ * the host reclaims rather than duplicates it. Actor occupation now resolves
+ * named-session intent on this host before reaching this fallback.
  */
 export const reclaimOrphanedHarnessArgv = (
   argv: ReadonlyArray<string>,

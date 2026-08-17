@@ -11,6 +11,7 @@ import {
   encodeWorkFrame,
   workOk,
 } from "../src/shared/work-control";
+import { TERM_CONTROL_PROTOCOL } from "../src/shared/term-control";
 import {
   HostOpsActivate,
   HostOpsAttach,
@@ -159,8 +160,12 @@ const listenTermAuth = (
         socket.write(
           `${JSON.stringify(
             msg.token === token
-              ? { ok: true, id: "auth" }
-              : { ok: false, error: "auth failed" },
+              ? { v: TERM_CONTROL_PROTOCOL, ok: true, id: "auth" }
+              : {
+                  v: TERM_CONTROL_PROTOCOL,
+                  ok: false,
+                  error: "auth failed",
+                },
           )}\n`,
         );
       });

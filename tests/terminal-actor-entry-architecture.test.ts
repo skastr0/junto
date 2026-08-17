@@ -12,6 +12,8 @@ const readSource = (path: string): string =>
 
 const IPC_CONTRACT = "src/shared/ipc.ts";
 const RENDERER_ENTRY = "src/renderer/lib/terminal-actions.ts";
+const TERMINAL_SURFACE =
+  "src/renderer/components/terminal/TerminalSurface.tsx";
 const MAIN_ENTRY = "src/main/vellum/term/ipc.ts";
 
 const between = (source: string, start: string, end: string): string => {
@@ -86,6 +88,34 @@ describe("terminal actor entry", () => {
     );
   });
 
+  it("TerminalSurface chooses occupy-before-attach from exact node kind", () => {
+    const source = readSource(TERMINAL_SURFACE);
+    const attachEffect = between(
+      source,
+      "const api = getVellumCommandApi() as VellumCommandTerminalApi | undefined;",
+      'const label = node.type === "text" ? node.text : "terminal";',
+    );
+
+    expect(source).toContain(
+      'const agentSeat = node.ether?.entity?.kind === "agent";',
+    );
+    expect(source).toContain(
+      "const actorSurface = agentSeat ? actorDeliverySurfaceOf(node) : undefined;",
+    );
+    expect(source).not.toContain("isAgentTerminalSeat");
+    expect(attachEffect).toContain("if (agentSeat) {");
+    const ensureIndex = attachEffect.indexOf(
+      "ensureTerminalRunning(nodeRef.current",
+    );
+    const attachIndex = attachEffect.indexOf(
+      "runAttach();",
+      attachEffect.indexOf("if (agentSeat) {"),
+    );
+    expect(ensureIndex).toBeGreaterThanOrEqual(0);
+    expect(attachIndex).toBeGreaterThanOrEqual(0);
+    expect(ensureIndex).toBeLessThan(attachIndex);
+  });
+
   it("Main enters ActorSeatOccupy and never infers actors from optionals", () => {
     const source = readSource(MAIN_ENTRY);
     const create = between(
@@ -108,6 +138,10 @@ describe("terminal actor entry", () => {
     expect(actor).toContain("const seats = yield* ActorSeatOccupy;");
     expect(actor).toContain("yield* seats.occupy({");
     expect(actor).not.toContain("router.createAgentSeat");
+    expect(actor).toContain("makeManagedSpawnIntent");
+    expect(actor).toContain("spawnIntent,");
+    expect(actor).not.toContain("launchForManagedSpawn(");
+    expect(actor).not.toContain("firstTypedMessage");
     expect(create).not.toContain("isManagedHarnessInstalled");
     expect(create).not.toMatch(
       /input\??\.(?:harness|agentKey|bindingId|hostId|launch)/u,

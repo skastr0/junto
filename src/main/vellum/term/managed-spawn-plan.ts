@@ -10,6 +10,7 @@ import {
   resolveManagedLaunchPlan,
   type ManagedLaunchChoices,
   type ManagedLaunchPlan,
+  type ManagedSpawnIntent,
 } from "@shared/managed-terminal-launch";
 import {
   isHarnessId,
@@ -105,6 +106,66 @@ export type SpawnPlanInput = {
   readonly sessionId?: string;
   /** When true, treat sessionId as resume rather than first pin. */
   readonly resume?: boolean;
+  /** Pure CC-compiled seat context; safe to finalize on another host. */
+  readonly injection?: ManagedSpawnIntent["injection"];
+};
+
+const sessionIdForSpawn = (input: SpawnPlanInput): string | undefined => {
+  const explicit = input.sessionId?.trim();
+  if (explicit) return explicit;
+  if (!input.doc || !input.nodeId) return undefined;
+  return input.doc.nodes
+    .find((node) => node.id === input.nodeId)
+    ?.ether?.terminal?.sessionId?.trim() || undefined;
+};
+
+const injectionForSpawn = (
+  input: SpawnPlanInput,
+): ManagedSpawnIntent["injection"] => {
+  if (input.injection) return input.injection;
+  const seatBound = Boolean(input.doc && input.nodeId);
+  const connected =
+    input.doc && input.nodeId
+      ? nodeHasActionableFactoryEdge(input.doc, input.nodeId)
+      : false;
+  return {
+    seatBound,
+    connected,
+    ...(input.nodeId ? { seatRef: input.nodeId } : {}),
+    ...(input.doc && input.nodeId
+      ? { connectedTargets: connectedTargetsForNode(input.doc, input.nodeId) }
+      : {}),
+    ...(input.doc && input.nodeId
+      ? (() => {
+          const region = containingRegion(input.doc, input.nodeId);
+          return region?.instruction
+            ? { regionInstruction: region.instruction }
+            : {};
+        })()
+      : {}),
+  };
+};
+
+/** Compile topology/session request without consulting this machine's disk. */
+export const makeManagedSpawnIntent = (
+  input: SpawnPlanInput,
+): ManagedSpawnIntent => {
+  const sessionId = sessionIdForSpawn(input);
+  return {
+    ...(input.documentLaunch
+      ? { documentLaunch: input.documentLaunch }
+      : {}),
+    ...(input.cwd?.trim() ? { cwd: input.cwd.trim() } : {}),
+    ...(sessionId ? { sessionId } : {}),
+    resumeRequested: input.resume === true,
+    injection: injectionForSpawn(input),
+    ...(input.profile ? { profile: input.profile } : {}),
+    ...(input.model ? { model: input.model } : {}),
+    ...(input.effort ? { effort: input.effort } : {}),
+    ...(input.permissionMode
+      ? { permissionMode: input.permissionMode }
+      : {}),
+  };
 };
 
 type RecoveredLaunchChoices = Pick<
@@ -224,11 +285,7 @@ export const planManagedSpawn = (input: SpawnPlanInput): ManagedLaunchPlan | und
   if (!harnessRaw || !isHarnessId(harnessRaw)) return undefined;
   const harness: HarnessId = harnessRaw;
 
-  const connected =
-    input.doc && input.nodeId
-      ? nodeHasActionableFactoryEdge(input.doc, input.nodeId)
-      : false;
-
+  const injection = injectionForSpawn(input);
   const sessionId = input.sessionId?.trim();
   const recovered = recoverDocumentLaunchChoices(harness, input.documentLaunch);
   const profile = input.profile ?? recovered.profile ??
@@ -248,33 +305,12 @@ export const planManagedSpawn = (input: SpawnPlanInput): ManagedLaunchPlan | und
     });
   const choices: ManagedLaunchChoices = {
     injection: {
-      // A canvas seat is always seat-bound: base doctrine injects even with no
-      // actionable edge; edge contracts compile in when edges connect.
-      //
-      // NOT on resume. A resumed session already carries the doctrine in its
-      // own history from the spawn that created it, so re-injecting it adds
-      // several KB of duplicate system prompt on top of a fully restored
-      // context. On a long session that is enough to cross the harness's
-      // auto-compaction threshold the moment it reopens, silently destroying
-      // the context the operator reopened to keep. `onboard` remains the live
-      // path for anything that changed while the seat was down.
-      seatBound: Boolean(input.doc && input.nodeId) && !resume,
-      connected: connected && !resume,
-      ...(input.nodeId
-        ? { seatRef: input.nodeId }
-        : {}),
-      ...(input.doc && input.nodeId
-        ? { connectedTargets: connectedTargetsForNode(input.doc, input.nodeId) }
-        : {}),
-      // Region briefing (operator-authored instruction) travels into the ONE
-      // doctrine body at spawn; onboard remains the live fallback when a
-      // region appears or changes mid-session.
-      ...(input.doc && input.nodeId
-        ? (() => {
-            const region = containingRegion(input.doc, input.nodeId);
-            return region?.instruction ? { regionInstruction: region.instruction } : {};
-          })()
-        : {}),
+      // A resumed session already carries the doctrine in its own history.
+      // The Command Center may compile the topology context, but only this
+      // spawn host decides resume and therefore whether injection is armed.
+      ...injection,
+      seatBound: injection.seatBound && !resume,
+      connected: injection.connected && !resume,
     },
     ...(profile ? { profile } : {}),
     ...(input.model ?? recovered.model ? { model: input.model ?? recovered.model } : {}),
@@ -300,16 +336,8 @@ export const launchForManagedSpawn = (
   readonly launch: TerminalLaunch | undefined;
   readonly plan: ManagedLaunchPlan | undefined;
 } => {
-  // Pull sessionId from node terminal when doc+node present.
-  let sessionId = input.sessionId;
+  let sessionId = sessionIdForSpawn(input);
   let resume = input.resume;
-  if (input.doc && input.nodeId && !sessionId) {
-    const node = input.doc.nodes.find((n) => n.id === input.nodeId);
-    const stored = node?.ether?.terminal?.sessionId?.trim();
-    if (stored) {
-      sessionId = stored;
-    }
-  }
 
   // Isolated VELLUM_COMMAND_HOME (dev) shares harness homes with production. Never
   // resume a pin session that production may still own; mint a fresh pin so
@@ -345,6 +373,42 @@ export const launchForManagedSpawn = (
   // Connected: use planned argv (Tier A flags + session).
   return { launch: plan.launch, plan };
 };
+
+const spawnInputForManagedIntent = (
+  actor: { readonly harness: string; readonly agentKey: string },
+  intent: ManagedSpawnIntent,
+): SpawnPlanInput => ({
+  harness: actor.harness,
+  agentKey: actor.agentKey,
+  documentLaunch: intent.documentLaunch,
+  cwd: intent.cwd,
+  sessionId: intent.sessionId,
+  resume: intent.resumeRequested,
+  injection: intent.injection,
+  profile: intent.profile,
+  model: intent.model,
+  effort: intent.effort,
+  permissionMode: intent.permissionMode,
+});
+
+/** Finalize a pure intent on the process host that owns session evidence. */
+export const launchForManagedSpawnIntent = (
+  actor: { readonly harness: string; readonly agentKey: string },
+  intent: ManagedSpawnIntent,
+): ReturnType<typeof launchForManagedSpawn> =>
+  launchForManagedSpawn(spawnInputForManagedIntent(actor, intent));
+
+/** Re-plan a failed proven resume as a fresh pin without losing seat doctrine. */
+export const planFreshManagedSpawnIntent = (
+  actor: { readonly harness: string; readonly agentKey: string },
+  intent: ManagedSpawnIntent,
+  sessionId: string,
+): ManagedLaunchPlan | undefined =>
+  planManagedSpawn({
+    ...spawnInputForManagedIntent(actor, intent),
+    sessionId,
+    resume: false,
+  });
 
 export const harnessFromNode = (node: CanvasNode | undefined): string | undefined => {
   const h = node?.ether?.terminal?.harness?.trim();

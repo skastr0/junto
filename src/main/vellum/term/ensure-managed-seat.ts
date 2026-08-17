@@ -9,7 +9,7 @@ import { actorDeliverySurfaceOf } from "@shared/actor-surface";
 import type { InstallationId } from "@shared/installation-id";
 import type { ActorRef } from "@shared/work-protocol";
 import { deriveActorSeatId } from "../station/actor-seat-compiler";
-import { launchForManagedSpawn } from "./managed-spawn-plan";
+import { makeManagedSpawnIntent } from "./managed-spawn-plan";
 import { termPlane } from "./plane";
 import { seatStateRuntime } from "./agent-state";
 import type {
@@ -201,7 +201,15 @@ export const ensureManagedSeatRunning = (
       label: node.ether?.terminal?.label,
       harness: surface.harness,
       agentKey: surface.agentKey,
-      ...(surface.launch === undefined ? {} : { launch: surface.launch }),
+      spawnIntent: makeManagedSpawnIntent({
+        doc,
+        nodeId: node.id,
+        harness: surface.harness,
+        documentLaunch: surface.launch,
+        agentKey: surface.agentKey,
+        cwd: surface.launch?.cwd,
+        resume: true,
+      }),
     };
 
     const live = termPlane.host.get(surface.bindingId);
@@ -233,22 +241,5 @@ export const ensureManagedSeatRunning = (
       });
     }
 
-    const planned = launchForManagedSpawn({
-      doc,
-      nodeId: node.id,
-      harness: surface.harness,
-      documentLaunch: surface.launch,
-      agentKey: surface.agentKey,
-      cwd: surface.launch?.cwd,
-      resume: true,
-    });
-    const launch = planned.launch ?? surface.launch;
-
-    return yield* occupy({
-      ...baseSpec,
-      ...(launch === undefined ? {} : { launch }),
-      ...(planned.plan?.firstTypedMessage
-        ? { firstTypedMessage: planned.plan.firstTypedMessage }
-        : {}),
-    });
+    return yield* occupy(baseSpec);
   });

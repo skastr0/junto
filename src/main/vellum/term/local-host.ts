@@ -11,6 +11,7 @@ import * as os from "node:os";
 import { basename, isAbsolute, join } from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
 import { Result } from "effect";
+import type { ManagedSpawnIntent } from "@shared/managed-terminal-launch";
 import type { HarnessId } from "@shared/managed-terminal-templates";
 import { classifySpawnFailure } from "@shared/spawn-failure";
 import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
@@ -69,6 +70,7 @@ import {
   reclaimOrphanedHarnessArgv,
 } from "./session-existence";
 import {
+  planFreshManagedSpawnIntent,
   planFreshPinSession,
   shouldAvoidSharedHarnessResume,
 } from "./managed-spawn-plan";
@@ -125,6 +127,16 @@ export type LocalHostAgentSeatInput = TerminalOpenInput & {
   readonly harness: HarnessId;
   readonly agentKey: string;
   readonly launch?: TerminalLaunch;
+  /** Pure seat context retained only for a failed-resume fresh replan. */
+  readonly resumeFallbackIntent?: ManagedSpawnIntent;
+};
+
+/** Existing-generation actor adoption, including process-bind anchors. */
+export type LocalHostActorSeatAdoption = {
+  readonly harness: HarnessId;
+  readonly agentKey: string;
+  readonly canvasName: string;
+  readonly nodeId: string;
 };
 
 export type LocalHostEvent =
@@ -657,24 +669,37 @@ export class LocalSessionHost extends EventEmitter {
 
   /**
    * Stamp actor identity onto a live generation that was occupied as geography.
-   * Does not respawn. Same identity is a no-op. A different harness is refused.
+   * Does not respawn. Same identity may rebind moved node anchors. A different
+   * harness is refused.
    */
   adoptAgentSeat(
     bindingId: string,
-    actor: { readonly harness: HarnessId; readonly agentKey: string },
+    actor: LocalHostActorSeatAdoption,
   ): TerminalSessionSummary | undefined {
     const rec = this.sessions.get(bindingId.trim());
     if (!rec) return undefined;
-    if (rec.harness === actor.harness && rec.agentKey === actor.agentKey) {
-      return this.summaryOf(rec);
-    }
     if (rec.harness !== undefined && rec.harness !== actor.harness) {
       throw new Error(
         `seat ${rec.bindingId} already bound to ${rec.harness}`,
       );
     }
+
+    const canvasName = actor.canvasName;
+    const nodeId = actor.nodeId;
+    if (!canvasName.trim() || !nodeId.trim()) {
+      throw new Error(
+        `seat ${rec.bindingId} actor adoption requires canvasName and nodeId`,
+      );
+    }
+
+    // One mutation boundary: stamp the actor and its node-derived anchors
+    // before process-bind observes the generation. Same actor with a moved
+    // node is therefore a rebind, not an identity no-op.
     rec.harness = actor.harness;
     rec.agentKey = actor.agentKey;
+    rec.canvasName = canvasName;
+    rec.nodeId = nodeId;
+    rec.detached = false;
     if (sessionStatusOf(rec) !== "exited") {
       seatStateRuntime.bindHarness(rec.bindingId, rec.harness, rec.epoch);
       const snap = this.observerPlane.snapshot(rec.bindingId);
@@ -1469,15 +1494,29 @@ export class LocalSessionHost extends EventEmitter {
     rec.failOpenUsed = true;
     const freshId = randomUUID();
     let freshLaunch = seed.launch;
+    let freshFirstTypedMessage = seed.firstTypedMessage;
     try {
-      const plan = planFreshPinSession({
-        harness: rec.harness,
-        documentLaunch: seed.launch,
-        agentKey: seed.agentKey,
-        cwd: seed.launch?.cwd ?? rec.cwd,
-        sessionId: freshId,
-      });
-      freshLaunch = plan.launch;
+      if (seed.resumeFallbackIntent) {
+        const plan = planFreshManagedSpawnIntent(
+          { harness: rec.harness, agentKey: seed.agentKey },
+          seed.resumeFallbackIntent,
+          freshId,
+        );
+        if (!plan) {
+          throw new Error(`could not resolve fresh ${rec.harness} launch`);
+        }
+        freshLaunch = plan.launch;
+        freshFirstTypedMessage = plan.firstTypedMessage;
+      } else {
+        const plan = planFreshPinSession({
+          harness: rec.harness,
+          documentLaunch: seed.launch,
+          agentKey: seed.agentKey,
+          cwd: seed.launch?.cwd ?? rec.cwd,
+          sessionId: freshId,
+        });
+        freshLaunch = plan.launch;
+      }
     } catch (err) {
       console.error(
         `[term] fail-open pin plan failed for ${rec.bindingId}; leaving exited:`,
@@ -1520,8 +1559,8 @@ export class LocalSessionHost extends EventEmitter {
           ...(seed.nodeId ? { nodeId: seed.nodeId } : {}),
           ...(seed.label ? { label: seed.label } : {}),
           ...(seed.title ? { title: seed.title } : {}),
-          ...(seed.firstTypedMessage
-            ? { firstTypedMessage: seed.firstTypedMessage }
+          ...(freshFirstTypedMessage
+            ? { firstTypedMessage: freshFirstTypedMessage }
             : {}),
         },
         {
@@ -1529,6 +1568,9 @@ export class LocalSessionHost extends EventEmitter {
           failOpenSeed: {
             ...seed,
             ...(freshLaunch ? { launch: freshLaunch } : {}),
+            ...(freshFirstTypedMessage
+              ? { firstTypedMessage: freshFirstTypedMessage }
+              : {}),
           },
           failOpenUsed: true,
         },
