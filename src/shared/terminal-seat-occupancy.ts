@@ -66,6 +66,69 @@ export class SeatVacantError extends Schema.TaggedErrorClass<SeatVacantError>()(
   },
 ) {}
 
+/** The complete actor identity an occupation or activation demands. */
+export const SeatActorIdentity = Schema.Struct({
+  harness: Schema.String,
+  agentKey: Schema.String,
+  canvasName: Schema.String,
+  nodeId: Schema.String,
+});
+export type SeatActorIdentity = typeof SeatActorIdentity.Type;
+
+/** What the occupant actually carries. A geography occupant has no harness. */
+export const SeatOccupantIdentity = Schema.Struct({
+  harness: Schema.optionalKey(Schema.String),
+  agentKey: Schema.optionalKey(Schema.String),
+  canvasName: Schema.optionalKey(Schema.String),
+  nodeId: Schema.optionalKey(Schema.String),
+});
+export type SeatOccupantIdentity = typeof SeatOccupantIdentity.Type;
+
+/**
+ * Actor identity is immutable for a live generation. An occupant that does not
+ * carry the exact requested identity (a geography occupant included) is a
+ * conflict — never a repurpose target.
+ */
+export class SeatIdentityConflictError extends Schema.TaggedErrorClass<SeatIdentityConflictError>()(
+  "SeatIdentityConflictError",
+  {
+    bindingId: BindingId,
+    expected: SeatActorIdentity,
+    actual: SeatOccupantIdentity,
+    message: Schema.String,
+  },
+) {}
+
+export class SeatGenerationConflictError extends Schema.TaggedErrorClass<SeatGenerationConflictError>()(
+  "SeatGenerationConflictError",
+  {
+    bindingId: BindingId,
+    expectedEpoch: Schema.String,
+    actualEpoch: Schema.String,
+    message: Schema.String,
+  },
+) {}
+
+/** A reply carried a different binding than the one addressed. */
+export class SeatBindingMismatchError extends Schema.TaggedErrorClass<SeatBindingMismatchError>()(
+  "SeatBindingMismatchError",
+  {
+    bindingId: BindingId,
+    returnedBindingId: Schema.String,
+    message: Schema.String,
+  },
+) {}
+
+/** Post-spawn seat setup failed; the process was torn down fail-closed. */
+export class SeatOccupationFailedError extends Schema.TaggedErrorClass<SeatOccupationFailedError>()(
+  "SeatOccupationFailedError",
+  {
+    bindingId: BindingId,
+    epoch: Schema.String,
+    message: Schema.String,
+  },
+) {}
+
 /** Wire-facing liveness. Finer stalls stay adapter-private. */
 export const ProcessLiveness = Schema.Literals(["starting", "running", "exited"]);
 export type ProcessLiveness = typeof ProcessLiveness.Type;
@@ -109,6 +172,60 @@ export const occupiedSeat = (
     bindingId: decodeBindingId(bindingId),
     epoch: decodeEpoch(epoch),
     placement: decodePlacement(placement),
+  });
+
+/** Raw-string constructor; decodes the branded binding id. */
+export const seatIdentityConflictError = (
+  bindingId: string,
+  expected: SeatActorIdentity,
+  actual: SeatOccupantIdentity,
+): SeatIdentityConflictError =>
+  SeatIdentityConflictError.make({
+    bindingId: decodeBindingId(bindingId),
+    expected,
+    actual,
+    message:
+      actual.harness === undefined
+        ? `seat ${bindingId} is occupied by a geography terminal; occupation requires a vacant seat or an exact actor match`
+        : `seat ${bindingId} is occupied by a different actor identity`,
+  });
+
+/** Raw-string constructor; decodes the branded binding id. */
+export const seatGenerationConflictError = (
+  bindingId: string,
+  expectedEpoch: string,
+  actualEpoch: string,
+): SeatGenerationConflictError =>
+  SeatGenerationConflictError.make({
+    bindingId: decodeBindingId(bindingId),
+    expectedEpoch,
+    actualEpoch,
+    message: `seat ${bindingId} changed generation from ${expectedEpoch} to ${actualEpoch}`,
+  });
+
+/** Raw-string constructor; decodes the branded binding id. */
+export const seatBindingMismatchError = (
+  bindingId: string,
+  returnedBindingId: string,
+): SeatBindingMismatchError =>
+  SeatBindingMismatchError.make({
+    bindingId: decodeBindingId(bindingId),
+    returnedBindingId,
+    message: `seat ${bindingId} returned a different binding ${returnedBindingId}`,
+  });
+
+/** Raw-string constructor; decodes the branded binding id. */
+export const seatOccupationFailedError = (
+  bindingId: string,
+  epoch: string,
+  cause: unknown,
+): SeatOccupationFailedError =>
+  SeatOccupationFailedError.make({
+    bindingId: decodeBindingId(bindingId),
+    epoch,
+    message: `seat ${bindingId} occupation failed after spawn: ${
+      cause instanceof Error ? cause.message : String(cause)
+    }`,
   });
 
 /**
