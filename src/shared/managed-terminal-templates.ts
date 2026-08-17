@@ -461,7 +461,9 @@ export const PRIME_AGENT_TEMPLATE: ManagedTerminalTemplate = {
     hooks: true,
     effortAtSpawn: true,
     sessionId: "capture",
-    remote: false,
+    // A Remote runs the same plane: companion manager, reporter, and daemon
+    // all live on the target host, so the seat is host-local there too.
+    remote: true,
     requiresGitCwd: false,
     stateFeed: "built-in reporter → OSC9/133 + grid",
     attentionSource: "built-in blocked events → grid overlays",
@@ -472,6 +474,7 @@ export const PRIME_AGENT_TEMPLATE: ManagedTerminalTemplate = {
       "effort",
       "capture session",
       "no permission enum",
+      "remote",
     ],
   },
   efforts: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],

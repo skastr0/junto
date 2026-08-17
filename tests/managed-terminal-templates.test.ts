@@ -144,7 +144,7 @@ describe("managed-terminal templates (data)", () => {
       hooks: true,
       effortAtSpawn: true,
       sessionId: "capture",
-      remote: false,
+      remote: true,
       stateFeed: "built-in reporter → OSC9/133 + grid",
       attentionSource: "built-in blocked events → grid overlays",
     });
