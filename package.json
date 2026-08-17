@@ -217,7 +217,8 @@
         "station/**",
         "package.json",
         "!node_modules/node-pty/prebuilds/darwin-*/**",
-        "!node_modules/node-pty/prebuilds/win32-*/**"
+        "!node_modules/node-pty/prebuilds/win32-*/**",
+        "!node_modules/@msgpackr-extract/msgpackr-extract-linux-x64/*.musl.node"
       ],
       "extraResources": [
         {

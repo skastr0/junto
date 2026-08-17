@@ -237,6 +237,26 @@ describe("ASAR integrity audit", () => {
 
 
 describe("electron-builder fitness", () => {
+  it("excludes musl-only msgpackr binaries from the Ubuntu glibc package", async () => {
+    const packageJson = JSON.parse(
+      await readFile(new URL("../package.json", import.meta.url), "utf8"),
+    ) as {
+      build: {
+        linux: {
+          files: string[];
+        };
+      };
+    };
+
+    expect(
+      packageJson.build.linux.files.filter((entry) =>
+        entry.includes("msgpackr-extract-linux-x64"),
+      ),
+    ).toEqual([
+      "!node_modules/@msgpackr-extract/msgpackr-extract-linux-x64/*.musl.node",
+    ]);
+  });
+
   it("hardens the canonical Linux systemd resources staged by electron-builder", async () => {
     const packageJson = JSON.parse(
       await readFile(new URL("../package.json", import.meta.url), "utf8"),
