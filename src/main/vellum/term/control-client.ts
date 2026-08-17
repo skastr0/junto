@@ -69,7 +69,7 @@ export interface TermMaintenanceControlPort {
   acquireMaintenance(): Promise<TermControlMaintenanceAcquireResult>;
 }
 
-const SEAT_WIRE_OPS = new Set(["get", "create"]);
+const SEAT_WIRE_OPS = new Set(["get", "create", "createAgentSeat"]);
 
 const summaryFromTermResponse = (
   response?: TermControlResponse,
@@ -535,6 +535,37 @@ export class TermControlClient extends EventEmitter implements TermMaintenanceCo
       label: input.label,
       ...(input.harness ? { harness: input.harness } : {}),
       ...(input.agentKey ? { agentKey: input.agentKey } : {}),
+    });
+    if (!res.ok) throw new Error(res.error);
+    return res.data as TerminalSessionSummary;
+  }
+
+  async createAgentSeat(input: {
+    bindingId: string;
+    harness: string;
+    agentKey: string;
+    launch?: TerminalLaunch;
+    cols?: number;
+    rows?: number;
+    canvasName?: string;
+    nodeId?: string;
+    label?: string;
+    firstTypedMessage?: string;
+  }): Promise<TerminalSessionSummary> {
+    const res = await this.call({
+      v: 1,
+      id: this.nextId(),
+      op: "createAgentSeat",
+      bindingId: input.bindingId,
+      harness: input.harness,
+      agentKey: input.agentKey,
+      launch: input.launch,
+      cols: input.cols,
+      rows: input.rows,
+      canvasName: input.canvasName,
+      nodeId: input.nodeId,
+      label: input.label,
+      ...(input.firstTypedMessage ? { firstTypedMessage: input.firstTypedMessage } : {}),
     });
     if (!res.ok) throw new Error(res.error);
     return res.data as TerminalSessionSummary;

@@ -479,6 +479,67 @@ export const startTermControlServer = async (
           }
           return { v: 1, id, ok: true, data: summary };
         }
+        case "createAgentSeat": {
+          const existing = host.get(req.bindingId);
+          appendTransportTrace({
+            plane: "term",
+            op: "host.get",
+            ok: true,
+            bindingId: req.bindingId,
+            ...seatTapeFromSummary(req.bindingId, existing),
+          });
+          const occupancy = occupancyFromSummary(req.bindingId, existing, "local");
+          const harnessField =
+            typeof req.harness === "string" ? req.harness.trim() : "";
+          const agentKeyField =
+            typeof req.agentKey === "string" ? req.agentKey.trim() : "";
+          if (!isHarnessId(harnessField) || agentKeyField === "") {
+            return {
+              v: 1,
+              id,
+              ok: false,
+              error: !isHarnessId(harnessField) && harnessField !== ""
+                ? `unknown harness ${harnessField}`
+                : "createAgentSeat requires harness and agentKey",
+            };
+          }
+          const actor = { harness: harnessField, agentKey: agentKeyField };
+          if (Result.isFailure(occupyVacantSeat(occupancy)) && existing) {
+            const adopted = host.adoptAgentSeat(req.bindingId, actor);
+            if (!sessionActorMatches(adopted, actor)) {
+              return {
+                v: 1,
+                id,
+                ok: false,
+                error: "remote seat did not bind actor identity",
+              };
+            }
+            return { v: 1, id, ok: true, data: adopted };
+          }
+          const summary = host.createAgentSeat({
+            bindingId: req.bindingId,
+            harness: actor.harness,
+            agentKey: actor.agentKey,
+            launch: req.launch,
+            cols: req.cols,
+            rows: req.rows,
+            canvasName: req.canvasName,
+            nodeId: req.nodeId,
+            label: req.label,
+            ...(typeof req.firstTypedMessage === "string"
+              ? { firstTypedMessage: req.firstTypedMessage }
+              : {}),
+          });
+          if (!sessionActorMatches(summary, actor)) {
+            return {
+              v: 1,
+              id,
+              ok: false,
+              error: "remote seat did not bind actor identity",
+            };
+          }
+          return { v: 1, id, ok: true, data: summary };
+        }
         case "list":
           return { v: 1, id, ok: true, data: { sessions: host.list() } };
         case "directory.read":
