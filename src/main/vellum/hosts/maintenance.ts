@@ -164,8 +164,11 @@ export const makeLiveHostMaintenanceAuthority = (
             : {}),
         } satisfies HostMaintenanceRefusal;
       }
+      // Stage copy is operator-facing: it renders verbatim as the Fleet
+      // deploy progress detail and step log. Plain product English only —
+      // internal receipts such as observation ids never surface here.
       const stages: string[] = [
-        `terminal route cut held observation=${cut.success.evidence.observationId}`,
+        "Paused new terminal sessions for this update",
       ];
 
       // 2. Direct socket-bound lease on the Remote term control server. The
@@ -261,7 +264,7 @@ export const makeLiveHostMaintenanceAuthority = (
         }).pipe(Effect.catch(() => Effect.void)),
       );
       stages.push(
-        `terminal maintenance lease held observation=${acquired.success.evidence.observationId}`,
+        "Holding terminal sessions closed while Vellum Command updates",
       );
 
       // 3. Fence the incumbent generation.
@@ -275,13 +278,11 @@ export const makeLiveHostMaintenanceAuthority = (
             `${host.label}: the incumbent generation release fence was not acknowledged — ${fence.failure.message}`,
           );
         }
-        stages.push("incumbent generation fenced — release fence acknowledged");
+        stages.push("Locked the installed Vellum Command for replacement");
       } else {
         // macOS has no root release fence; the held socket-bound lease keeps
         // the Remote's create admission closed for the whole mutation.
-        stages.push(
-          "incumbent generation fenced by the held terminal maintenance lease",
-        );
+        stages.push("Locked the installed Vellum Command for replacement");
       }
 
       return { acquired: true, stages } satisfies HostMaintenanceHold;
@@ -312,9 +313,9 @@ export const maintenanceRefusedDeployResult = (
   }
   const detail =
     refusal.reason === "maintenance-held"
-      ? `${host.label}: another package activation holds the Remote terminal route cut`
+      ? `${host.label}: another update is already holding this machine's terminals`
       : refusal.reason === "shutting-down"
-        ? `${host.label}: the Remote terminal plane is shutting down`
+        ? `${host.label}: Vellum Command on this machine is shutting down`
         : refusal.detail;
   return failedBeforeMutation(host, detail, { code: "conflict" });
 };

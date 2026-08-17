@@ -502,6 +502,41 @@ describe("operator deployment coordinator", () => {
     expect(result.code).toBe("io");
   });
 
+  it("Configure surfaces the maintenance recovery action, never drops it", async () => {
+    const result = await Effect.runPromise(
+      configureRemoteEffect("studio").pipe(
+        Effect.provide(
+          configureLayer({
+            remoteManagedInstalls: true,
+            reconcile: () =>
+              Effect.succeed({
+                ok: false,
+                detail:
+                  "Studio: package activation deferred — 2 Vellum Command terminal session(s) active.",
+                code: "conflict",
+                message: "close the active terminal sessions",
+                stages: [],
+                disposition: "not-started",
+                outcome: "failed",
+                packageState: "previous",
+                role: "previous",
+                configuration: { ok: false, detail: "deferred" },
+                recoveryAction: {
+                  kind: "close-active-vellum-terminals",
+                  activeTerminalSessions: 2,
+                },
+              } as never),
+          }),
+        ),
+      ),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.recoveryAction).toEqual({
+      kind: "close-active-vellum-terminals",
+      activeTerminalSessions: 2,
+    });
+  });
+
   it("Configure refuses truthfully when managed installs are off", async () => {
     let reconcileCalls = 0;
     const result = await Effect.runPromise(

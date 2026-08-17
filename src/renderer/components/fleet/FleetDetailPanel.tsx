@@ -490,7 +490,18 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
     try {
       if (kind === "configure") {
         const result = await api.hostsConfigureRemote(host.id);
-        setActionLine(result.detail || (result.ok ? "configured as a Remote" : (result.message ?? "configure failed")));
+        const recovery = deployRecoveryGuidance(result.recoveryAction);
+        setActionLine(
+          [
+            result.detail ||
+              (result.ok
+                ? "configured as a Remote"
+                : (result.message ?? "configure failed")),
+            recovery,
+          ]
+            .filter(Boolean)
+            .join("\n"),
+        );
       } else if (kind === "deploy") {
         const result = await api.hostsDeployRemote({ id: host.id });
         presentDeployResult(result);

@@ -53,7 +53,7 @@ export const DEPLOY_STAGE_MILESTONES: ReadonlyArray<{
   { match: /^remote uname/u, percent: 12 },
   { match: /^signed artifact admitted/u, percent: 20 },
   { match: /^preflight ok/u, percent: 30 },
-  { match: /^terminal route cut held/u, percent: 35 },
+  { match: /^Paused new terminal sessions/u, percent: 35 },
   { match: /^Copying Vellum Command/u, percent: 40 },
   { match: /^first-install package .+ installed/u, percent: 55 },
   { match: /^Signing Vellum Command/u, percent: 58 },

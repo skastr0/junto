@@ -774,12 +774,15 @@ export const HostRuntimeLive = Layer.effect(
             Effect.succeed(applyProvisionFailure(remote, error)),
           ),
         );
-        // Update of an incumbent (never first install): hold the Remote
-        // terminal maintenance lease across every incumbent mutation. Lease
-        // refusal returns typed with the incumbent untouched; the lease
-        // releases on every outcome.
+        // Any mutation of an installed incumbent: hold the Remote terminal
+        // maintenance lease across it. needRestart is the enrolled update;
+        // needConfigure is an installed-but-unenrolled package (host re-added,
+        // restored database, machine enrolled elsewhere) whose replacement
+        // quits the running incumbent all the same. Only needInstall has no
+        // incumbent to protect. Lease refusal returns typed with the
+        // incumbent untouched; the lease releases on every outcome.
         const applied =
-          gap === "needRestart"
+          gap === "needRestart" || gap === "needConfigure"
             ? yield* withIncumbentMaintenance(
                 maintenance,
                 {

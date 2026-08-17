@@ -381,6 +381,11 @@ export const configureRemoteEffect = (
         station: result.success.station ?? activated.station,
         code: activated.code ?? "io",
         message: activated.message ?? activated.detail,
+        // A maintenance refusal carries the fixed recovery action; dropping
+        // it here would leave the operator prose with no actionable step.
+        ...(activated.recoveryAction === undefined
+          ? {}
+          : { recoveryAction: activated.recoveryAction }),
       } satisfies HostsConfigureRemoteResult;
     }
     return {

@@ -1012,6 +1012,8 @@ export interface HostsConfigureRemoteResult {
     readonly agentHostId?: string;
     readonly supervisedPreferred: boolean;
   };
+  /** Configure continues into the activate lifecycle; same recovery contract as Deploy. */
+  readonly recoveryAction?: HostsDeployRemoteRecoveryAction;
 }
 
 /** Fixed operator recovery for a deployment refusal; never carries a command or path. */
