@@ -33,6 +33,7 @@ describe("Hermes integration product gate", () => {
         ...(HARNESS_PRIME_AGENT_ENABLED ? ["prime-agent" as const] : []),
         "devin",
         "cursor",
+        "agy",
       ]);
       expect(managedHarnessEnabled("hermes")).toBe(false);
       expect(managedHarnessEnabled("kimi")).toBe(false);

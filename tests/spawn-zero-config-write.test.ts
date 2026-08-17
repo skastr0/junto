@@ -26,6 +26,7 @@ describe("zero-config-write spawn audit", () => {
     "muse",
     "devin",
     "cursor",
+    "agy",
   ];
 
   it("every harness spawn scrub strips nested Claude markers", () => {
@@ -67,6 +68,7 @@ describe("zero-config-write spawn audit", () => {
       muse: path.join(tmp, ".config", "muse"),
       devin: path.join(tmp, ".config", "devin"),
       cursor: path.join(tmp, ".cursor"),
+      agy: path.join(tmp, ".gemini"),
     };
     for (const p of Object.values(homes)) fs.mkdirSync(p, { recursive: true });
     const before = new Map(

@@ -953,5 +953,24 @@ describe("model enumeration (fail-soft)", () => {
       { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6 (Thinking)" },
     ]);
   });
+
+  it("parseAgyModelsList handles ANSI escapes, middots, duplicate IDs, single-token lines, and blank lines", () => {
+    const stdout = [
+      "\x1b[1mFetching available models...\x1b[0m",
+      "",
+      "\x1b[32mgemini-3.7-flash-high\x1b[0m\tGemini 3.7 Flash \u00B7 High",
+      "gemini-3.7-flash-high\tGemini 3.7 Flash (High Duplicate)",
+      "custom-standalone-model",
+      "  ",
+      "\r\n",
+    ].join("\n");
+    const { models, error } = parseAgyModelsList(stdout);
+    expect(error).toBeUndefined();
+    expect(models).toEqual([
+      { id: "gemini-3.7-flash-high", label: "Gemini 3.7 Flash , High" },
+      { id: "custom-standalone-model", label: "custom-standalone-model" },
+    ]);
+  });
 });
+
 
