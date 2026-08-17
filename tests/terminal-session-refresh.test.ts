@@ -52,7 +52,7 @@ describe("sessionChromeUnchanged", () => {
     expect(
       sessionChromeUnchanged(
         summary({ title: "✶ working", processName: "claude" }),
-        summary({ title: "✶ thinking", processName: "claude · turn" }),
+        summary({ title: "✶ thinking", processName: "claude — turn" }),
       ),
     ).toBe(true);
   });
