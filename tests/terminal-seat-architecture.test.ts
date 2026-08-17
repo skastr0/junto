@@ -216,9 +216,6 @@ describe("terminal seat architecture", () => {
       } else if (spawnAt < 0 || occupancyAt > spawnAt) {
         violations.push(`${loc} — actor occupancy is not before spawn`);
       }
-      if (!/\bhost\.adoptAgentSeat\s*\(/u.test(createAgentSeat)) {
-        violations.push(`${loc} — occupied actor seat is not adopted`);
-      }
     }
 
     expect(violations).toEqual([]);

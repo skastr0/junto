@@ -26,6 +26,7 @@ import {
   setProcessIdentityMapForTests,
 } from "../src/main/vellum/process-identity";
 import { TERM_CONTROL_PROTOCOL } from "../src/shared/term-control";
+import { SeatIdentityConflictError } from "../src/shared/terminal-seat-occupancy";
 import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 
 const cleanups: Array<() => Promise<void> | void> = [];
@@ -244,13 +245,12 @@ describe("actor occupy protocol (in-process both ends)", () => {
     }
   });
 
-  it("adopts occupied Remote geography over UDS without replacing its epoch", async () => {
+  it("refuses occupied Remote geography over UDS with a typed identity conflict", async () => {
     const { host, client } = await startPair();
     const geography = host.create({
       bindingId: "proto_geography",
       launch: { kind: "shell" },
     });
-    const adoptAgentSeat = vi.spyOn(host, "adoptAgentSeat");
     const createAgentSeat = vi.spyOn(host, "createAgentSeat");
     const when = makeActorSeatOccupy({
       local: host,
@@ -258,26 +258,27 @@ describe("actor occupy protocol (in-process both ends)", () => {
       clientForOccupy: async () => client,
     });
 
-    const adopted = await Effect.runPromise(
-      when.occupy({
-        bindingId: "proto_geography",
-        harness: "grok",
-        agentKey: "station:grok",
-        hostId: "station-a",
-        canvasName: "factory",
-        nodeId: "actor-geography",
-        spawnIntent: actorSpawnIntent(),
-      }),
+    const conflict = await Effect.runPromise(
+      Effect.flip(
+        when.occupy({
+          bindingId: "proto_geography",
+          harness: "grok",
+          agentKey: "station:grok",
+          hostId: "station-a",
+          canvasName: "factory",
+          nodeId: "actor-geography",
+          spawnIntent: actorSpawnIntent(),
+        }),
+      ),
     );
 
-    expect(adopted).toMatchObject({
+    expect(conflict).toBeInstanceOf(SeatIdentityConflictError);
+    expect(host.get("proto_geography")).toMatchObject({
       epoch: geography.epoch,
-      hostId: "station-a",
       status: "running",
-      harness: "grok",
-      agentKey: "station:grok",
     });
-    expect(adoptAgentSeat).toHaveBeenCalledTimes(1);
+    expect(host.get("proto_geography")?.harness).toBeUndefined();
+    expect(host.get("proto_geography")?.agentKey).toBeUndefined();
     expect(createAgentSeat).not.toHaveBeenCalled();
   });
 

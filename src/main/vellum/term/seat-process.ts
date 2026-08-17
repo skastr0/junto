@@ -16,10 +16,16 @@ import {
   activateOccupiedSeat,
   occupancyFromSummary,
   occupyVacantSeat,
+  seatBindingMismatchError,
+  seatGenerationConflictError,
+  seatIdentityConflictError,
   SeatVacantError,
   type ActivateOccupiedSeat,
   type OccupyVacantSeat,
   type SeatAlreadyOccupiedError,
+  type SeatBindingMismatchError,
+  type SeatGenerationConflictError,
+  type SeatIdentityConflictError,
   type SeatOccupancy,
 } from "@shared/terminal-seat-occupancy";
 import type { LocalSessionHost } from "./local-host";
@@ -52,11 +58,20 @@ export interface TerminalSeatProcessApi {
   readonly occupy: (
     command: OccupyVacantSeat,
     spec: OccupySpec,
-  ) => Effect.Effect<TerminalSessionSummary, SeatAlreadyOccupiedError | Error>;
+  ) => Effect.Effect<
+    TerminalSessionSummary,
+    SeatAlreadyOccupiedError | SeatIdentityConflictError | Error
+  >;
   readonly activate: (
     command: ActivateOccupiedSeat,
     spec: ActorActivateSpec,
-  ) => Effect.Effect<TerminalSessionSummary, SeatVacantError | Error>;
+  ) => Effect.Effect<
+    TerminalSessionSummary,
+    | SeatVacantError
+    | SeatIdentityConflictError
+    | SeatGenerationConflictError
+    | Error
+  >;
 }
 
 export class TerminalSeatProcess extends Context.Service<
@@ -67,39 +82,46 @@ export class TerminalSeatProcess extends Context.Service<
 const asClientError = (cause: unknown): Error =>
   cause instanceof Error ? cause : new Error(String(cause));
 
-const harnessMismatchError = (
-  bindingId: string,
-  harness: string,
-): Error => new Error(`seat ${bindingId} already bound to ${harness}`);
+const occupantIdentityOf = (
+  summary: TerminalSessionSummary | undefined,
+): {
+  harness?: string;
+  agentKey?: string;
+  canvasName?: string;
+  nodeId?: string;
+} => ({
+  ...(summary?.harness === undefined ? {} : { harness: summary.harness }),
+  ...(summary?.agentKey === undefined ? {} : { agentKey: summary.agentKey }),
+  ...(summary?.canvasName === undefined
+    ? {}
+    : { canvasName: summary.canvasName }),
+  ...(summary?.nodeId === undefined ? {} : { nodeId: summary.nodeId }),
+});
 
-const generationChangedError = (
+const identityConflictError = (
   bindingId: string,
-  expectedEpoch: string,
-  actualEpoch: string,
-): Error =>
-  new Error(
-    `seat ${bindingId} changed generation from ${expectedEpoch} to ${actualEpoch}`,
-  );
-
-const actorIdentityError = (bindingId: string): Error =>
-  new Error(`seat ${bindingId} did not bind the requested actor identity`);
-
-const bindingMismatchError = (
-  bindingId: string,
-  returnedBindingId: string,
-): Error =>
-  new Error(
-    `seat ${bindingId} returned a different binding ${returnedBindingId}`,
+  actor: ActorActivateSpec,
+  occupant: TerminalSessionSummary | undefined,
+): SeatIdentityConflictError =>
+  seatIdentityConflictError(
+    bindingId,
+    {
+      harness: actor.harness,
+      agentKey: actor.agentKey,
+      canvasName: actor.canvasName,
+      nodeId: actor.nodeId,
+    },
+    occupantIdentityOf(occupant),
   );
 
 const ensureCommandGeneration = (
   command: ActivateOccupiedSeat,
   actualEpoch: string,
-): Effect.Effect<void, Error> =>
+): Effect.Effect<void, SeatGenerationConflictError> =>
   actualEpoch === command.seat.epoch
     ? Effect.void
     : Effect.fail(
-        generationChangedError(
+        seatGenerationConflictError(
           command.seat.bindingId,
           command.seat.epoch,
           actualEpoch,
@@ -122,12 +144,15 @@ const ensureActorIdentity = (
   summary: TerminalSessionSummary,
   bindingId: string,
   actor: ActorActivateSpec,
-): Effect.Effect<TerminalSessionSummary, Error> => {
+): Effect.Effect<
+  TerminalSessionSummary,
+  SeatBindingMismatchError | SeatIdentityConflictError
+> => {
   if (summary.bindingId !== bindingId) {
-    return Effect.fail(bindingMismatchError(bindingId, summary.bindingId));
+    return Effect.fail(seatBindingMismatchError(bindingId, summary.bindingId));
   }
   if (!actorActivationMatches(summary, actor)) {
-    return Effect.fail(actorIdentityError(bindingId));
+    return Effect.fail(identityConflictError(bindingId, actor, summary));
   }
   return Effect.succeed(summary);
 };
@@ -203,26 +228,15 @@ export const makeLocalSeatProcess = (
             message: `seat ${bindingId} is vacant; activate requires an occupant`,
           });
         }
-        if (actorActivationMatches(live, actor)) {
-          return yield* ensureActorIdentity(live, bindingId, actor);
-        }
-        if (live.harness !== undefined && live.harness !== actor.harness) {
+        // Actor identity is immutable for a live generation. Activation is
+        // validate-only: an exact match returns the existing generation, any
+        // other occupant is a typed conflict — never an in-place adoption.
+        if (!actorActivationMatches(live, actor)) {
           return yield* Effect.fail(
-            harnessMismatchError(bindingId, live.harness),
+            identityConflictError(bindingId, actor, live),
           );
         }
-        const adopted = yield* Effect.try({
-          try: () => host.adoptAgentSeat(bindingId, actor),
-          catch: asClientError,
-        });
-        if (!adopted) {
-          return yield* SeatVacantError.make({
-            bindingId,
-            message: `seat ${bindingId} is vacant; activate requires an occupant`,
-          });
-        }
-        yield* ensureCommandGeneration(command, adopted.epoch);
-        return yield* ensureActorIdentity(adopted, bindingId, actor);
+        return yield* ensureActorIdentity(live, bindingId, actor);
       }),
   });
 
@@ -262,9 +276,9 @@ const checkedRemoteSummary = (
   requestedHostId: string,
   bindingId: string,
   summary: TerminalSessionSummary | undefined,
-): Effect.Effect<TerminalSessionSummary | undefined, Error> => {
+): Effect.Effect<TerminalSessionSummary | undefined, SeatBindingMismatchError> => {
   if (summary && summary.bindingId !== bindingId) {
-    return Effect.fail(bindingMismatchError(bindingId, summary.bindingId));
+    return Effect.fail(seatBindingMismatchError(bindingId, summary.bindingId));
   }
   return Effect.succeed(
     summary ? projectRemoteSummary(requestedHostId, summary) : undefined,
@@ -376,13 +390,16 @@ export const makeRemoteSeatProcess = (
             message: `seat ${bindingId} is vacant; activate requires an occupant`,
           });
         }
-        if (live.harness !== undefined && live.harness !== actor.harness) {
+        // Actor identity is immutable for a live generation. Any occupant that
+        // is not the exact requested actor (geography included) is a typed
+        // conflict; nothing is asked of the Remote for a mismatch.
+        if (!actorActivationMatches(live, actor)) {
           return yield* Effect.fail(
-            harnessMismatchError(bindingId, live.harness),
+            identityConflictError(bindingId, actor, live),
           );
         }
-        // Every activation reaches the spawn host so the epoch check and any
-        // geography adoption happen against one synchronous host snapshot.
+        // Every activation still reaches the spawn host so the epoch and
+        // identity checks happen against one synchronous host snapshot.
         const activated = yield* Effect.tryPromise({
           try: () =>
             client.createAgentSeat({

@@ -26,6 +26,8 @@ import {
 import {
   occupancyFromSession,
   occupyVacantSeat,
+  seatIdentityConflictError,
+  seatOccupationFailedError,
 } from "@shared/terminal-seat-occupancy";
 import { appendTransportTrace } from "../observability/transport-journal";
 import {
@@ -140,13 +142,6 @@ export type LocalHostAgentSeatInput = TerminalOpenInput & {
   readonly resumeFallbackIntent?: ManagedSpawnIntent;
 };
 
-/** Existing-generation actor adoption, including process-bind anchors. */
-export type LocalHostActorSeatAdoption = {
-  readonly harness: HarnessId;
-  readonly agentKey: string;
-  readonly canvasName: string;
-  readonly nodeId: string;
-};
 
 export type LocalHostEvent =
   | {
@@ -737,7 +732,41 @@ export class LocalSessionHost extends EventEmitter {
     );
     const occupy = occupyVacantSeat(occupancy);
     if (Result.isFailure(occupy) && current) {
-      return this.summaryOf(current);
+      // Occupied create is an idempotent ensure only for the exact requested
+      // actor identity. Any other occupant is a typed conflict — a live
+      // generation is never repurposed.
+      const incumbent = this.summaryOf(current);
+      if (
+        incumbent.harness === input.harness &&
+        incumbent.agentKey === input.agentKey &&
+        incumbent.canvasName === input.canvasName &&
+        incumbent.nodeId === input.nodeId
+      ) {
+        return incumbent;
+      }
+      throw seatIdentityConflictError(
+        bindingId,
+        {
+          harness: input.harness,
+          agentKey: input.agentKey,
+          canvasName: input.canvasName ?? "",
+          nodeId: input.nodeId ?? "",
+        },
+        {
+          ...(incumbent.harness === undefined
+            ? {}
+            : { harness: incumbent.harness }),
+          ...(incumbent.agentKey === undefined
+            ? {}
+            : { agentKey: incumbent.agentKey }),
+          ...(incumbent.canvasName === undefined
+            ? {}
+            : { canvasName: incumbent.canvasName }),
+          ...(incumbent.nodeId === undefined
+            ? {}
+            : { nodeId: incumbent.nodeId }),
+        },
+      );
     }
     // Under isolation, never spawn pin harnesses with resume argv even if a
     // caller bypassed launchForManagedSpawn and handed us document -r.
@@ -794,64 +823,6 @@ export class LocalSessionHost extends EventEmitter {
     // replacement was already running (Reopen then attached instantly).
     const head = this.sessions.get(bindingId);
     return head ? this.summaryOf(head) : opened;
-  }
-
-  /**
-   * Stamp actor identity onto a live generation that was occupied as geography.
-   * Does not respawn. Same identity may rebind moved node anchors. A different
-   * harness is refused.
-   */
-  adoptAgentSeat(
-    bindingId: string,
-    actor: LocalHostActorSeatAdoption,
-  ): TerminalSessionSummary | undefined {
-    const rec = this.sessions.get(bindingId.trim());
-    if (!rec) return undefined;
-    if (rec.harness !== undefined && rec.harness !== actor.harness) {
-      throw new Error(
-        `seat ${rec.bindingId} already bound to ${rec.harness}`,
-      );
-    }
-
-    const canvasName = actor.canvasName;
-    const nodeId = actor.nodeId;
-    if (!canvasName.trim() || !nodeId.trim()) {
-      throw new Error(
-        `seat ${rec.bindingId} actor adoption requires canvasName and nodeId`,
-      );
-    }
-
-    // One mutation boundary: stamp the actor and its node-derived anchors
-    // before process-bind observes the generation. Same actor with a moved
-    // node is therefore a rebind, not an identity no-op.
-    rec.harness = actor.harness;
-    rec.agentKey = actor.agentKey;
-    rec.canvasName = canvasName;
-    rec.nodeId = nodeId;
-    rec.detached = false;
-    if (sessionStatusOf(rec) !== "exited") {
-      seatStateRuntime.bindHarness(rec.bindingId, rec.harness, rec.epoch);
-      const snap = this.observerPlane.snapshot(rec.bindingId);
-      if (snap) seatStateRuntime.observe(snap);
-      if (sessionStatusOf(rec) === "running") {
-        // The geography generation was bound with the bindingId principal.
-        // Release that exact bind before stamping the agent principal — the
-        // identity map refuses to overwrite a live PID's principal in place.
-        const identities = getProcessIdentityMap();
-        if (rec.ptyIdentityBinding !== undefined) {
-          identities.unbindGeneration(rec.ptyIdentityBinding);
-          rec.ptyIdentityBinding = undefined;
-        } else if (rec.pid !== undefined) {
-          identities.unbind(rec.pid);
-        }
-        if (!this.bindPtyProcessIdentity(rec)) {
-          console.error(
-            `[term] adopt identity bind failed for ${rec.bindingId}@${rec.epoch}`,
-          );
-        }
-      }
-    }
-    return this.summaryOf(rec);
   }
 
   private open(

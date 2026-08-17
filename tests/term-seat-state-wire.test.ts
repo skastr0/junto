@@ -167,14 +167,12 @@ describe("term seat-state placement wiring", () => {
     const geographyCreate = server.slice(createStart, actorStart);
     expect(geographyCreate).toContain("host.create({");
     expect(geographyCreate).not.toContain("host.createAgentSeat(");
-    expect(geographyCreate).not.toContain("host.adoptAgentSeat(");
 
     expect(server).toContain('case "createAgentSeat"');
     expect(server).toContain("host.createAgentSeat({");
-    expect(server).toContain("host.adoptAgentSeat(");
-    expect(server).toContain("sessionActorMatches(adopted, actor)");
+    expect(server).toContain("sessionActorMatches(existing, actor)");
     expect(server).toContain("sessionActorMatches(summary, actor)");
-    expect(host).toContain("adoptAgentSeat(");
+    expect(host).toContain("createAgentSeat(");
   });
 });
 

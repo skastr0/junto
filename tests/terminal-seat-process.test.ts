@@ -15,6 +15,7 @@ import {
   occupancyFromSession,
   occupyVacantSeat,
   seatAdmission,
+  SeatIdentityConflictError,
 } from "../src/shared/terminal-seat-occupancy";
 import {
   makeProcessIdentityMap,
@@ -138,14 +139,25 @@ describe("local TerminalSeatProcess", () => {
     expect(fake.controllers).toHaveLength(1);
     expect(fake.controllers[0]?.signals).toEqual([]);
 
-    const raced = await Effect.runPromiseExit(
-      seats.occupy(occupy, actorSpec("seat-p")),
+    const conflict = await Effect.runPromise(
+      Effect.flip(
+        seats.activate(admission, {
+          harness: "grok",
+          agentKey: "other:grok",
+          canvasName: "factory",
+          nodeId: "node-seat-p",
+        }),
+      ),
     );
-    expect(Exit.isFailure(raced)).toBe(true);
+    expect(conflict).toBeInstanceOf(SeatIdentityConflictError);
+    expect(host.get("seat-p")).toMatchObject({
+      epoch: created.epoch,
+      agentKey: "local:grok",
+    });
     expect(host.runningCount()).toBe(1);
   });
 
-  it("adopts occupied geography with actor process-bind anchors and refuses a different harness", async () => {
+  it("refuses to convert an occupied geography generation into an actor seat", async () => {
     const identities = makeProcessIdentityMap({
       processAlive: () => true,
       readProcessStartKey: (pid) => syntheticEpochs.get(pid),
@@ -162,6 +174,8 @@ describe("local TerminalSeatProcess", () => {
     const geography = host.create({
       bindingId: "seat-g",
       launch: { kind: "shell" },
+      canvasName: "factory",
+      nodeId: "terminal-node",
     });
 
     const admission = seatAdmission(
@@ -170,38 +184,31 @@ describe("local TerminalSeatProcess", () => {
     if (admission._tag !== "ActivateOccupiedSeat") {
       throw new Error("expected activate");
     }
-    const adopted = await Effect.runPromise(
-      seats.activate(admission, {
-        harness: "grok",
-        agentKey: "local:grok",
-        canvasName: "factory",
-        nodeId: "actor-node",
-      }),
+    const conflict = await Effect.runPromise(
+      Effect.flip(
+        seats.activate(admission, {
+          harness: "grok",
+          agentKey: "local:grok",
+          canvasName: "factory",
+          nodeId: "actor-node",
+        }),
+      ),
     );
-    expect(adopted).toMatchObject({
+    expect(conflict).toBeInstanceOf(SeatIdentityConflictError);
+    expect(host.get("seat-g")).toMatchObject({
       epoch: geography.epoch,
-      harness: "grok",
-      agentKey: "local:grok",
       canvasName: "factory",
-      nodeId: "actor-node",
+      nodeId: "terminal-node",
     });
+    expect(host.get("seat-g")?.harness).toBeUndefined();
+    expect(host.get("seat-g")?.agentKey).toBeUndefined();
     expect(identities.resolve(42_601)).toEqual({
-      agentKey: "local:grok",
+      bindingId: "seat-g",
       canvasName: "factory",
-      nodeId: "actor-node",
+      nodeId: "terminal-node",
     });
     expect(fake.controllers).toHaveLength(1);
-
-    const mismatch = await Effect.runPromiseExit(
-      seats.activate(admission, {
-        harness: "claude",
-        agentKey: "local:claude",
-        canvasName: "factory",
-        nodeId: "actor-node",
-      }),
-    );
-    expect(Exit.isFailure(mismatch)).toBe(true);
-    expect(host.get("seat-g")?.harness).toBe("grok");
+    expect(fake.controllers[0]?.signals).toEqual([]);
   });
 
   it("replans a dead proven resume as a fresh injected generation", async () => {
@@ -475,27 +482,16 @@ describe("Remote TerminalSeatProcess", () => {
     ["running geography", "running", undefined, undefined],
     ["same harness with a stale key", "running", "grok", "old:grok"],
   ] as const)(
-    "adopts %s through explicit createAgentSeat",
+    "surfaces a typed identity conflict activating %s without asking the Remote",
     async (_name, status, harness, agentKey) => {
-      let live = remoteSummary({
+      const live = remoteSummary({
         bindingId: "seat-adopt",
         epoch: "epoch-adopt",
         status,
         ...(harness === undefined ? {} : { harness }),
         ...(agentKey === undefined ? {} : { agentKey }),
       });
-      const createAgentSeat = vi.fn(
-        async (input: RemoteAgentSeatCommand) => {
-          live = {
-            ...live,
-            harness: input.harness,
-            agentKey: input.agentKey,
-            canvasName: input.canvasName,
-            nodeId: input.nodeId,
-          };
-          return live;
-        },
-      );
+      const createAgentSeat = vi.fn(async () => live);
       const seats = makeRemoteSeatProcess("station-a", {
         get: async () => live,
         createAgentSeat,
@@ -507,33 +503,27 @@ describe("Remote TerminalSeatProcess", () => {
         throw new Error("expected activate");
       }
 
-      const adopted = await Effect.runPromise(
-        seats.activate(admission, {
+      const conflict = await Effect.runPromise(
+        Effect.flip(
+          seats.activate(admission, {
+            harness: "grok",
+            agentKey: "local:grok",
+            canvasName: "factory",
+            nodeId: "actor-node",
+          }),
+        ),
+      );
+
+      expect(conflict).toBeInstanceOf(SeatIdentityConflictError);
+      expect(conflict).toMatchObject({
+        expected: {
           harness: "grok",
           agentKey: "local:grok",
           canvasName: "factory",
           nodeId: "actor-node",
-        }),
-      );
-
-      expect(adopted).toMatchObject({
-        bindingId: "seat-adopt",
-        epoch: "epoch-adopt",
-        hostId: "station-a",
-        harness: "grok",
-        agentKey: "local:grok",
-        canvasName: "factory",
-        nodeId: "actor-node",
+        },
       });
-      expect(createAgentSeat).toHaveBeenCalledWith({
-        admission: "activate",
-        bindingId: "seat-adopt",
-        expectedEpoch: "epoch-adopt",
-        harness: "grok",
-        agentKey: "local:grok",
-        canvasName: "factory",
-        nodeId: "actor-node",
-      });
+      expect(createAgentSeat).not.toHaveBeenCalled();
     },
   );
 
@@ -569,14 +559,16 @@ describe("Remote TerminalSeatProcess", () => {
     expect(createAgentSeat).not.toHaveBeenCalled();
   });
 
-  it("rejects an adoption reply that changes epoch or actor identity", async () => {
-    const geography = remoteSummary({
+  it("rejects an activation reply that changes epoch or actor identity", async () => {
+    const live = remoteSummary({
       bindingId: "seat-unverified",
       epoch: "epoch-original",
       status: "running",
+      harness: "grok",
+      agentKey: "local:grok",
     });
     const seats = makeRemoteSeatProcess("station-a", {
-      get: async () => geography,
+      get: async () => live,
       createAgentSeat: async () =>
         remoteSummary({
           bindingId: "seat-unverified",

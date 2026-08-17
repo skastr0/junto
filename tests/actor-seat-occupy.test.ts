@@ -10,6 +10,7 @@ import type {
   RemoteSeatProcessClient,
 } from "../src/main/vellum/term/seat-process";
 import type { TerminalSessionSummary } from "../src/shared/terminal";
+import { SeatIdentityConflictError } from "../src/shared/terminal-seat-occupancy";
 import {
   makeProcessIdentityMap,
   setProcessIdentityMapForTests,
@@ -215,26 +216,17 @@ describe("ActorSeatOccupy", () => {
     ).toEqual(["occupy", "activate"]);
   });
 
-  it("adopts compatible occupied Remote geography and preserves its epoch", async () => {
+  it("refuses occupied Remote geography with a typed identity conflict", async () => {
     const host = new LocalSessionHost(
       makeFakeTerminalProcessAuthority().authority,
     );
     hosts.push(host);
-    let live = remoteSummary({
+    const live = remoteSummary({
       bindingId: "seat-geo",
       epoch: "epoch-geo",
       status: "running",
     });
-    const createAgentSeat = vi.fn(async (input) => {
-      live = {
-        ...live,
-        harness: input.harness,
-        agentKey: input.agentKey,
-        canvasName: input.canvasName,
-        nodeId: input.nodeId,
-      };
-      return live;
-    });
+    const createAgentSeat = vi.fn(async () => live);
     const when = makeActorSeatOccupy({
       local: host,
       localHostId: () => Effect.succeed("cc-self"),
@@ -244,16 +236,11 @@ describe("ActorSeatOccupy", () => {
       }),
     });
 
-    const adopted = await Effect.runPromise(
-      when.occupy(actorSpec("seat-geo", "station-a")),
+    const conflict = await Effect.runPromise(
+      Effect.flip(when.occupy(actorSpec("seat-geo", "station-a"))),
     );
 
-    expect(adopted).toMatchObject({
-      epoch: "epoch-geo",
-      hostId: "station-a",
-      harness: "grok",
-      agentKey: "local:grok",
-    });
-    expect(createAgentSeat).toHaveBeenCalledOnce();
+    expect(conflict).toBeInstanceOf(SeatIdentityConflictError);
+    expect(createAgentSeat).not.toHaveBeenCalled();
   });
 });

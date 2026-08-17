@@ -447,7 +447,7 @@ describe("term control UDS", () => {
     expect(host.list()).toEqual([]);
   });
 
-  it("createAgentSeat occupies an actor seat and adopts the same identity as a no-op", async () => {
+  it("createAgentSeat occupies an actor seat and re-activates the exact identity as a no-op", async () => {
     setProcessIdentityMapForTests(makeProcessIdentityMap({
       processAlive: () => true,
       readProcessStartKey: (pid) => `synthetic-${pid}`,
@@ -504,7 +504,7 @@ describe("term control UDS", () => {
     expect(host.runningCount()).toBe(1);
   });
 
-  it("createAgentSeat adopts geography and rebinds its PID to the actor node", async () => {
+  it("createAgentSeat refuses to activate over an occupied geography terminal", async () => {
     const identities = makeProcessIdentityMap({
       processAlive: () => true,
       readProcessStartKey: () => "synthetic-9001",
@@ -537,27 +537,29 @@ describe("term control UDS", () => {
       nodeId: "terminal-node",
     });
 
-    const adopted = await client.createAgentSeat({
-      admission: "activate",
-      bindingId: "uds_adopt",
-      expectedEpoch: geography.epoch,
-      harness: "grok",
-      agentKey: "mini:grok",
-      canvasName: "factory",
-      nodeId: "actor-node",
-    });
+    await expect(
+      client.createAgentSeat({
+        admission: "activate",
+        bindingId: "uds_adopt",
+        expectedEpoch: geography.epoch,
+        harness: "grok",
+        agentKey: "mini:grok",
+        canvasName: "factory",
+        nodeId: "actor-node",
+      }),
+    ).rejects.toThrow(/different actor identity/);
 
-    expect(adopted).toMatchObject({
+    expect(host.get("uds_adopt")).toMatchObject({
       epoch: geography.epoch,
-      harness: "grok",
-      agentKey: "mini:grok",
-      canvasName: "factory",
-      nodeId: "actor-node",
+      status: "running",
+      canvasName: "old-canvas",
+      nodeId: "terminal-node",
     });
+    expect(host.get("uds_adopt")?.harness).toBeUndefined();
     expect(identities.resolve(9001)).toEqual({
-      agentKey: "mini:grok",
-      canvasName: "factory",
-      nodeId: "actor-node",
+      bindingId: "uds_adopt",
+      canvasName: "old-canvas",
+      nodeId: "terminal-node",
     });
     expect(host.runningCount()).toBe(1);
   });

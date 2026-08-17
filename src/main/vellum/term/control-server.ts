@@ -510,6 +510,10 @@ export const startTermControlServer = async (
                 error: `seat ${bindingId} changed generation from ${expectedEpoch} to ${existing.epoch}`,
               };
             }
+            // Actor identity is immutable for a live generation. Activation is
+            // validate-only: an exact identity match returns the existing
+            // generation; anything else (geography occupants included) is a
+            // conflict — the occupant is never adopted or repurposed.
             const alreadyBound =
               sessionActorMatches(existing, actor) &&
               existing.canvasName === actor.canvasName &&
@@ -517,21 +521,12 @@ export const startTermControlServer = async (
             if (alreadyBound) {
               return { v: TERM_CONTROL_PROTOCOL, id, ok: true, data: existing };
             }
-            const adopted = host.adoptAgentSeat(bindingId, actor);
-            if (
-              !adopted ||
-              !sessionActorMatches(adopted, actor) ||
-              adopted.canvasName !== actor.canvasName ||
-              adopted.nodeId !== actor.nodeId
-            ) {
-              return {
-                v: TERM_CONTROL_PROTOCOL,
-                id,
-                ok: false,
-                error: "remote seat did not bind actor identity",
-              };
-            }
-            return { v: TERM_CONTROL_PROTOCOL, id, ok: true, data: adopted };
+            return {
+              v: TERM_CONTROL_PROTOCOL,
+              id,
+              ok: false,
+              error: `seat ${bindingId} is occupied by a different actor identity`,
+            };
           }
 
           if (hostAdmission._tag !== "OccupyVacantSeat") {
