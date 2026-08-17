@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Context, Effect } from "effect";
 import {
   OPERATOR_PROTOCOL_VERSION,
   type OperatorDataByOp,
@@ -200,7 +200,48 @@ export const projectDeployRemoteResult = (
     : { recoveryAction: deploy.recoveryAction }),
 });
 
-const configureRemoteEffect = (
+/** Durable deploy receipt barrier shared by Deploy and Configure activation. */
+const recordDeploymentOnCompleted =
+  (
+    stationStatus: Context.Service.Shape<typeof StationStatusService>,
+  ): NonNullable<
+    Parameters<
+      Context.Service.Shape<typeof HostRuntime>["reconcile"]
+    >[1]["onCompleted"]
+  > =>
+  (host, result) => {
+    const recordedAt = new Date().toISOString();
+    return stationStatus
+      .recordDeployment(
+        deployRecordFromResult({
+          hostId: host.id,
+          endpoint: host.sshEndpoint ?? "",
+          ok: result.ok,
+          outcome: result.outcome,
+          packageState: result.packageState,
+          role: result.role,
+          version: result.version,
+          ...(result.lastSeen === undefined
+            ? {}
+            : { lastSeen: result.lastSeen }),
+          configurationOk: result.configuration.ok,
+          detail: result.detail,
+          stages: result.stages,
+          at: recordedAt,
+        }),
+      )
+      .pipe(
+        Effect.mapError(
+          (error) =>
+            new RemoteHostsError(
+              "io",
+              error instanceof Error ? error.message : String(error),
+            ),
+        ),
+      );
+  };
+
+export const configureRemoteEffect = (
   id: string,
 ): Effect.Effect<
   HostsConfigureRemoteResult,
@@ -210,6 +251,8 @@ const configureRemoteEffect = (
   | PrismService
   | StationRepository
   | StationFleetTargetRepository
+  | StationStatusService
+  | HostRuntime
 > =>
   Effect.gen(function* () {
     if (id.length === 0) {
@@ -266,40 +309,85 @@ const configureRemoteEffect = (
       } satisfies HostsConfigureRemoteResult;
     }
 
-    if (result.success.ok) {
-      if (result.success.stationInstallationId === undefined) {
-        const detail =
-          "Remote configuration succeeded without a Station installation identity";
-        return {
-          ok: false,
-          detail,
-          code: "conflict",
-          message: detail,
-        } satisfies HostsConfigureRemoteResult;
-      }
-      const bound = yield* Effect.result(
-        bindConfiguredRemoteTarget(
-          hosts,
-          id,
-          result.success.stationInstallationId,
-        ),
-      );
-      if (bound._tag === "Failure") {
-        return {
-          ok: false,
-          detail: bound.failure.message,
-          code: bound.failure.code,
-          message: bound.failure.message,
-        } satisfies HostsConfigureRemoteResult;
-      }
+    if (!result.success.ok) {
+      return {
+        ok: false,
+        detail: result.success.detail,
+        station: result.success.station,
+        code: result.success.code,
+        message: result.success.message ?? result.success.detail,
+      } satisfies HostsConfigureRemoteResult;
+    }
+    if (result.success.stationInstallationId === undefined) {
+      const detail =
+        "Remote configuration succeeded without a Station installation identity";
+      return {
+        ok: false,
+        detail,
+        code: "conflict",
+        message: detail,
+      } satisfies HostsConfigureRemoteResult;
+    }
+    const bound = yield* Effect.result(
+      bindConfiguredRemoteTarget(
+        hosts,
+        id,
+        result.success.stationInstallationId,
+      ),
+    );
+    if (bound._tag === "Failure") {
+      return {
+        ok: false,
+        detail: bound.failure.message,
+        code: bound.failure.code,
+        message: bound.failure.message,
+      } satisfies HostsConfigureRemoteResult;
     }
 
+    // Configure must not strand an installation configured-but-not-running.
+    // Continue into the canonical reconcile activate/restart lifecycle; the
+    // result is truthful either way.
+    const configuredDetail = result.success.detail;
+    const effective = computeDeployCapabilities({
+      stationRole: settingsResult.success.station.role,
+      remoteManagedInstalls:
+        settingsResult.success.fleet.remoteManagedInstalls,
+      release: RELEASE_CAPABILITIES,
+    });
+    if (!effective.effective.deployRemote) {
+      const gateDetail =
+        effective.detail.deployRemote ?? MANAGED_REMOTE_DEPLOY_DISABLED_DETAIL;
+      const detail = `${configuredDetail} - configured, but the runtime was not restarted: ${gateDetail}`;
+      return {
+        ok: false,
+        detail,
+        station: result.success.station,
+        code: "conflict",
+        message: gateDetail,
+      } satisfies HostsConfigureRemoteResult;
+    }
+    const stationStatus = yield* StationStatusService;
+    const hostRuntime = yield* HostRuntime;
+    const activated = yield* hostRuntime.reconcile(id, {
+      intent: "deploy",
+      configure: authority.success,
+      onCompleted: recordDeploymentOnCompleted(stationStatus),
+    });
+    if (!activated.ok) {
+      const detail = `${configuredDetail} - configured, but the runtime did not transition: ${activated.detail}`;
+      return {
+        ok: false,
+        detail,
+        station: result.success.station ?? activated.station,
+        code: activated.code ?? "io",
+        message: activated.message ?? activated.detail,
+      } satisfies HostsConfigureRemoteResult;
+    }
     return {
-      ok: result.success.ok,
-      detail: result.success.detail,
-      station: result.success.station,
-      code: result.success.code,
-      message: result.success.message ?? result.success.detail,
+      ok: true,
+      detail: `${configuredDetail} - ${activated.detail}`,
+      station: result.success.station ?? activated.station,
+      message: activated.message ?? activated.detail,
     } satisfies HostsConfigureRemoteResult;
   });
 
@@ -405,37 +493,7 @@ export const deployRemoteEffect = (
           intent: "deploy",
           configure: authority.success,
           ...(artifactSource === undefined ? {} : { artifactSource }),
-          onCompleted: (host, result) => {
-            const recordedAt = new Date().toISOString();
-            return stationStatus
-              .recordDeployment(
-                deployRecordFromResult({
-                  hostId: host.id,
-                  endpoint: host.sshEndpoint ?? "",
-                  ok: result.ok,
-                  outcome: result.outcome,
-                  packageState: result.packageState,
-                  role: result.role,
-                  version: result.version,
-                  ...(result.lastSeen === undefined
-                    ? {}
-                    : { lastSeen: result.lastSeen }),
-                  configurationOk: result.configuration.ok,
-                  detail: result.detail,
-                  stages: result.stages,
-                  at: recordedAt,
-                }),
-              )
-              .pipe(
-                Effect.mapError(
-                  (error) =>
-                    new RemoteHostsError(
-                      "io",
-                      error instanceof Error ? error.message : String(error),
-                    ),
-                ),
-              );
-          },
+          onCompleted: recordDeploymentOnCompleted(stationStatus),
         });
 
       if (!deployResult.ok) {
@@ -526,8 +584,19 @@ export interface HostsOperatorCoordinator {
 export const makeHostsOperatorCoordinator = (
   operations: HostOperationGate = hostOperationGate,
 ): HostsOperatorCoordinator => ({
-  configureRemote: (hostId) =>
-    operations
+  configureRemote: (hostId) => {
+    // Configure continues into the reconcile lifecycle, so it shares the
+    // per-host single-flight slot with Deploy.
+    const slot = acquireDeployHostSlot(hostId);
+    if (!slot.acquired) {
+      return Promise.resolve({
+        ok: false,
+        detail: DEPLOY_BUSY_DETAIL,
+        code: "conflict",
+        message: DEPLOY_BUSY_DETAIL,
+      });
+    }
+    return operations
       .run(HOST_OPERATION_ADMISSIONS.configureRemote, () =>
         AppRuntime.runPromise(configureRemoteEffect(hostId)),
       )
@@ -536,7 +605,11 @@ export const makeHostsOperatorCoordinator = (
           return shutdownConfigureFailure(error);
         }
         throw error;
-      }),
+      })
+      .finally(() => {
+        slot.release();
+      });
+  },
   deployRemote: (input, artifactSource) => {
     const releaseFailure = releaseDeployGate();
     if (releaseFailure !== undefined) return Promise.resolve(releaseFailure);

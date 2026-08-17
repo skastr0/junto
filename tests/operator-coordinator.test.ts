@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { defaultSettings } from "../src/shared/settings";
 import { BoxFleetService } from "../src/main/vellum/box";
 import {
+  configureRemoteEffect,
   deployRemoteEffect,
   makeHostsOperatorCoordinator,
   makeOperatorCoordinator,
@@ -363,6 +364,206 @@ describe("operator deployment coordinator", () => {
     expect(started).toHaveLength(3);
     resolvers[2]?.(fakeResult);
     await reAdmitted;
+  });
+
+  const configureLayer = (input: {
+    readonly remoteManagedInstalls: boolean;
+    readonly reconcile: Context.Service.Shape<typeof HostRuntime>["reconcile"];
+    readonly configureDetail?: string;
+  }) => {
+    const settings = defaultSettings();
+    return Layer.mergeAll(
+      Layer.succeed(SettingsService, {
+        ...stub(SettingsService),
+        get: Effect.succeed({
+          ...settings,
+          station: { ...settings.station, role: "command-center" as const },
+          fleet: {
+            ...settings.fleet,
+            remoteManagedInstalls: input.remoteManagedInstalls,
+          },
+        }),
+      }),
+      Layer.succeed(HostsService, {
+        ...stub(HostsService),
+        get: () =>
+          Effect.succeed({
+            id: "studio",
+            label: "Studio",
+            kind: "remote",
+            sshEndpoint: "studio-box",
+            capabilities: [],
+          }),
+        configureRemote: () =>
+          Effect.succeed({
+            ok: true,
+            detail: input.configureDetail ?? "Remote station configured",
+            stationInstallationId: "station-studio" as never,
+            station: {
+              role: "remote",
+              hostId: "studio",
+              supervisedPreferred: true,
+            } as never,
+          }),
+      }),
+      Layer.succeed(StationStatusService, {
+        ...stub(StationStatusService),
+        recordDeployment: () => Effect.void,
+      }),
+      Layer.succeed(PrismService, {
+        ...stub(PrismService),
+        stationInfo: Effect.succeed({
+          name: "Vellum Command",
+          version: "0.0.0",
+          userDataPath: "/tmp",
+          stationPluginPath: "/tmp",
+          prismRoot: "/tmp",
+        }),
+      }),
+      Layer.succeed(StationRepository, {
+        ...stub(StationRepository),
+        installationId: Effect.succeed("cc-install" as never),
+      }),
+      Layer.succeed(StationFleetTargetRepository, {
+        ...stub(StationFleetTargetRepository),
+        bind: () =>
+          Effect.succeed({
+            hostId: "studio",
+            stationInstallationId: "station-studio",
+            boundAt: "2026-01-01T00:00:00.000Z",
+          } as never),
+      }),
+      Layer.succeed(HostRuntime, {
+        ...stub(HostRuntime),
+        reconcile: input.reconcile,
+      }),
+    );
+  };
+
+  it("Configure continues into the reconcile activate lifecycle", async () => {
+    let reconciled: string | undefined;
+    const result = await Effect.runPromise(
+      configureRemoteEffect("studio").pipe(
+        Effect.provide(
+          configureLayer({
+            remoteManagedInstalls: true,
+            reconcile: (hostId, request) => {
+              reconciled = `${hostId}:${request.intent}`;
+              return Effect.succeed({
+                ok: true,
+                detail: "Vellum Command is running on this Mac",
+                stages: [],
+                disposition: "ready",
+                outcome: "ready",
+                packageState: "present",
+                role: "remote",
+                stationInstallationId: "station-studio",
+                configuration: { ok: true, detail: "configure skipped" },
+              } as never);
+            },
+          }),
+        ),
+      ),
+    );
+    expect(reconciled).toBe("studio:deploy");
+    expect(result.ok).toBe(true);
+    expect(result.detail).toContain("Remote station configured");
+    expect(result.detail).toContain("Vellum Command is running on this Mac");
+  });
+
+  it("Configure reports truthfully when the runtime does not transition", async () => {
+    const result = await Effect.runPromise(
+      configureRemoteEffect("studio").pipe(
+        Effect.provide(
+          configureLayer({
+            remoteManagedInstalls: true,
+            reconcile: () =>
+              Effect.succeed({
+                ok: false,
+                detail: "supervised runtime activate failed",
+                code: "io",
+                message: "supervised runtime activate failed",
+                stages: [],
+                disposition: "indeterminate",
+                outcome: "indeterminate",
+                packageState: "present",
+                role: "remote",
+                configuration: { ok: true, detail: "configured" },
+              } as never),
+          }),
+        ),
+      ),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.detail).toContain(
+      "configured, but the runtime did not transition",
+    );
+    expect(result.detail).toContain("supervised runtime activate failed");
+    expect(result.code).toBe("io");
+  });
+
+  it("Configure refuses truthfully when managed installs are off", async () => {
+    let reconcileCalls = 0;
+    const result = await Effect.runPromise(
+      configureRemoteEffect("studio").pipe(
+        Effect.provide(
+          configureLayer({
+            remoteManagedInstalls: false,
+            reconcile: () => {
+              reconcileCalls += 1;
+              throw new Error("gated Configure must not reconcile");
+            },
+          }),
+        ),
+      ),
+    );
+    expect(reconcileCalls).toBe(0);
+    expect(result.ok).toBe(false);
+    expect(result.detail).toContain(
+      "configured, but the runtime was not restarted",
+    );
+  });
+
+  it("Configure shares the per-host single flight with Deploy", async () => {
+    const hostId = `configure-busy-${String(Date.now())}`;
+    const resolvers: Array<(value: unknown) => void> = [];
+    const gate = {
+      run: (_admission: unknown, body: () => Promise<unknown>) => {
+        void body;
+        return new Promise((resolve) => {
+          resolvers.push(resolve);
+        });
+      },
+      beginShutdown: () => ({
+        phase: "open" as const,
+        closedAt: 0,
+        activeLabels: [],
+      }),
+      drainOnQuit: () =>
+        Promise.resolve({
+          phase: "open" as const,
+          clean: true as const,
+          timedOut: false,
+          rounds: 0,
+          settled: 0,
+          fulfilled: 0,
+          rejected: 0,
+          retained: 0,
+          retainedLabels: [],
+          causes: [],
+        }),
+      snapshot: () => ({ phase: "open" as const, activeLabels: [] }),
+    } as unknown as HostOperationGate;
+    const coordinator = makeHostsOperatorCoordinator(gate);
+
+    const deploying = coordinator.deployRemote({ id: hostId });
+    const busy = await coordinator.configureRemote(hostId);
+    expect(busy.ok).toBe(false);
+    expect(busy.code).toBe("conflict");
+    expect(busy.detail).toContain("already running");
+
+    resolvers[0]?.({ ok: true, detail: "done", message: "done" });
+    await deploying;
   });
 
   it("keeps final-release and qualification artifact sources disjoint", () => {
