@@ -2430,21 +2430,14 @@ export const startWorkControlServer = async (
     liveWorkControlListeners.delete(readinessAuthority);
   };
   server.once("close", withdrawReadiness);
-  try {
-    publishSystemdGenerationReadiness();
-    liveWorkControlListeners.set(
-      readinessAuthority,
-      () =>
-        !shuttingDown &&
-        server.listening &&
-        controlListenerLeaseHeld(listenerLease) &&
-        ownsSocketPath(),
-    );
-  } catch (error) {
-    withdrawReadiness();
-    await closeListenerWithoutDeletingReplacement().catch(() => undefined);
-    throw error;
-  }
+  liveWorkControlListeners.set(
+    readinessAuthority,
+    () =>
+      !shuttingDown &&
+      server.listening &&
+      controlListenerLeaseHeld(listenerLease) &&
+      ownsSocketPath(),
+  );
 
   const beginShutdown = (): void => {
     withdrawReadiness();

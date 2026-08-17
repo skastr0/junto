@@ -56,4 +56,30 @@ describe("work control systemd readiness", () => {
     expect(await readFile(receiptPath, "utf8")).toBe(`${generation}\n`);
     expect((await stat(receiptPath)).mode & 0o777).toBe(0o600);
   });
+
+  it("assigns generation publication only to the displayless Remote entry", async () => {
+    const workControlSource = await readFile(
+      new URL("../src/main/vellum/work/control.ts", import.meta.url),
+      "utf8",
+    );
+    const genericStartup = workControlSource.slice(
+      workControlSource.indexOf("export const startWorkControlServer"),
+    );
+    expect(genericStartup).not.toContain(
+      "publishSystemdGenerationReadiness();",
+    );
+
+    const remoteSource = await readFile(
+      new URL("../src/main/vellum-remote.ts", import.meta.url),
+      "utf8",
+    );
+    expect(
+      remoteSource.match(/publishSystemdGenerationReadiness\(\);/gu),
+    ).toHaveLength(1);
+    expect(
+      remoteSource.indexOf("publishSystemdGenerationReadiness();"),
+    ).toBeGreaterThan(
+      remoteSource.indexOf("await termPlane.start({ controlHome });"),
+    );
+  });
 });
