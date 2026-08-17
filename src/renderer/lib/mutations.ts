@@ -928,7 +928,6 @@ const deleteNodesInternal = async (
   removeNodesFromSelection(new Set(existingNodes.map((node) => node.id)));
   if (nonHerdr.size === 0) {
     // Pure herdr delete — async path owns the doc mutation.
-    if (herdrIds.some((id) => id === state$.selectedNodeId.peek())) state$.selectedNodeId.set("");
     await finishDeleteLeases("aborted");
     await Promise.all(sideEffects);
     return;

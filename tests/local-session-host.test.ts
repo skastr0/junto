@@ -1331,6 +1331,12 @@ describe("LocalSessionHost", () => {
 
     const old = host.createAgentSeat(input);
     host.kill(input.bindingId);
+    // Occupancy law: create refuses a stopping seat. The old generation must
+    // fully exit before the binding is vacant for a replacement.
+    fake.controllers[0]?.exit();
+    await vi.waitFor(() =>
+      expect(host.get(input.bindingId)?.status).toBe("exited"),
+    );
     const replacement = host.createAgentSeat(input);
     expect(replacement.epoch).not.toBe(old.epoch);
     companion.records[1]?.report({
@@ -1348,7 +1354,6 @@ describe("LocalSessionHost", () => {
     expect(fake.controllers[1]?.signals).toEqual([]);
     expect(crashOutputs).toEqual([]);
 
-    fake.controllers[0]?.exit();
     await Promise.resolve();
     expect(host.get(input.bindingId)).toMatchObject({
       epoch: replacement.epoch,
