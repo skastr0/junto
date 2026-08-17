@@ -1,7 +1,31 @@
+/**
+ * Prime Agent daemon plane — the app-owned, per-seat Prime daemon lifecycle.
+ *
+ * Prime Agent runs its tools under a resident daemon, not under the visible
+ * PTY client, which breaks PID-ancestry process binding. This module owns one
+ * private daemon generation per managed seat: version-floor admission, exact
+ * PID binding material, scoped session stop, crash convergence, and disposal
+ * receipts.
+ *
+ * Architecture (PCMI):
+ * - Capability seams are Effect services (`PrimeDaemonProcesses`,
+ *   `PrimeDaemonReporter`, `PrimeDaemonTiming`) so the core depends on
+ *   contracts, never on singletons — production wires the live planes,
+ *   tests wire fakes, both through the same layers.
+ * - Async control flow (commands, retries, grace windows, the stop pipeline)
+ *   is Effect. Timing stays on `setTimeout` promises wrapped in
+ *   `Effect.promise`, so fake timers in tests keep governing every wait.
+ * - The process-event wiring at the lease boundary (crash choreography,
+ *   collector attachment) is deliberate imperative glue.
+ * - Lowering follows repo doctrine: `Effect.runSync` for the synchronous
+ *   construction/start path, `Effect.runPromiseWith(Context.empty())` for the
+ *   R=never async pipelines — never bare `Effect.runPromise`.
+ */
 import { mkdtempDisposableSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Readable } from "node:stream";
+import { Context, Effect, Layer } from "effect";
 import {
   appProcessPlane,
   type AppProcessExit,
@@ -30,7 +54,7 @@ const PRIME_AGENT_LIST_ATTEMPTS = 3;
 const PRIME_AGENT_LIST_RETRY_MS = 50;
 const PRIME_AGENT_REPLACEMENT_PROBES = 6;
 const PRIME_AGENT_REPLACEMENT_RETRY_MS = 500;
-/** Oldest Prime Agent release proven against the companion contract. */
+/** Oldest Prime Agent release proven against the daemon contract. */
 const PRIME_AGENT_MINIMUM_VERSION = "0.7.1";
 const PRIME_AGENT_MINIMUM_VERSION_PARTS =
   PRIME_AGENT_MINIMUM_VERSION.split(".");
@@ -101,14 +125,14 @@ const PRIME_AGENT_CLIENT_WRAPPER_ARG0 = "vellum-command-prime-agent";
 
 type DisposableTempDirectory = ReturnType<typeof mkdtempDisposableSync>;
 
-export type PrimeAgentCompanionLaunch = {
+export type PrimeAgentDaemonLaunch = {
   readonly file: string;
   readonly args: string[];
   readonly cwd: string;
   readonly env: Record<string, string>;
 };
 
-export type PrimeAgentCompanionStartInput = {
+export type PrimeAgentDaemonStartInput = {
   readonly bindingId: string;
   readonly epoch: string;
   readonly launch: {
@@ -119,11 +143,11 @@ export type PrimeAgentCompanionStartInput = {
   };
   readonly onReport?: (report: PrimeAgentReporterReport) => void;
   readonly onUnexpectedExit?: (
-    event: PrimeAgentCompanionUnexpectedExit,
+    event: PrimeAgentDaemonUnexpectedExit,
   ) => void;
 };
 
-export type PrimeAgentCompanionDiagnosticStage =
+export type PrimeAgentDaemonDiagnosticStage =
   | "reporter-release"
   | "list"
   | "stop"
@@ -134,8 +158,8 @@ export type PrimeAgentCompanionDiagnosticStage =
   | "replacement"
   | "temporary-directory";
 
-export type PrimeAgentCompanionDiagnostic = Readonly<{
-  stage: PrimeAgentCompanionDiagnosticStage;
+export type PrimeAgentDaemonDiagnostic = Readonly<{
+  stage: PrimeAgentDaemonDiagnosticStage;
   message: string;
   argv?: readonly string[];
   exit?: AppProcessExit;
@@ -145,7 +169,7 @@ export type PrimeAgentCompanionDiagnostic = Readonly<{
   stderrTruncated?: true;
 }>;
 
-export type PrimeAgentCompanionStopReceipt = Readonly<{
+export type PrimeAgentDaemonStopReceipt = Readonly<{
   bindingId: string;
   epoch: string;
   reason: string;
@@ -158,28 +182,28 @@ export type PrimeAgentCompanionStopReceipt = Readonly<{
   directoryRemoved: boolean;
   term?: AppProcessSignalReceipt;
   kill?: AppProcessSignalReceipt;
-  diagnostics: readonly PrimeAgentCompanionDiagnostic[];
+  diagnostics: readonly PrimeAgentDaemonDiagnostic[];
 }>;
 
 /** Alias for consumers that only need the one-handle cleanup receipt. */
-export type PrimeAgentCompanionReceipt = PrimeAgentCompanionStopReceipt;
+export type PrimeAgentDaemonReceipt = PrimeAgentDaemonStopReceipt;
 
-export type PrimeAgentCompanionShutdownReceipt = Readonly<{
+export type PrimeAgentDaemonShutdownReceipt = Readonly<{
   clean: boolean;
-  receipts: readonly PrimeAgentCompanionStopReceipt[];
+  receipts: readonly PrimeAgentDaemonStopReceipt[];
 }>;
 
-export type PrimeAgentCompanionUnexpectedExit = Readonly<{
+export type PrimeAgentDaemonUnexpectedExit = Readonly<{
   bindingId: string;
   epoch: string;
   daemonPid: number;
   exit: AppProcessExit;
   stdout: string;
   stderr: string;
-  cleanup: Promise<PrimeAgentCompanionStopReceipt>;
+  cleanup: Promise<PrimeAgentDaemonStopReceipt>;
 }>;
 
-export interface PrimeAgentCompanionHandle {
+export interface PrimeAgentDaemonHandle {
   readonly bindingId: string;
   readonly epoch: string;
   /** Diagnostics and process-bind only. Never signal this numeric value. */
@@ -187,32 +211,32 @@ export interface PrimeAgentCompanionHandle {
   /** Explicit alias documenting the limited authority of the numeric value. */
   readonly daemonPidForDiagnostics: number;
   readonly socketPath: string;
-  readonly terminalLaunch: PrimeAgentCompanionLaunch;
-  readonly stop: (reason?: string) => Promise<PrimeAgentCompanionStopReceipt>;
+  readonly terminalLaunch: PrimeAgentDaemonLaunch;
+  readonly stop: (reason?: string) => Promise<PrimeAgentDaemonStopReceipt>;
 }
 
-export interface PrimeAgentCompanionManager {
+export interface PrimeAgentDaemons {
   readonly start: (
-    input: PrimeAgentCompanionStartInput,
-  ) => PrimeAgentCompanionHandle;
+    input: PrimeAgentDaemonStartInput,
+  ) => PrimeAgentDaemonHandle;
   readonly shutdownAll: (
     reason?: string,
-  ) => Promise<PrimeAgentCompanionShutdownReceipt>;
+  ) => Promise<PrimeAgentDaemonShutdownReceipt>;
 }
 
-export type PrimeAgentCompanionProcessPlane = Pick<
+export type PrimeAgentDaemonProcessPlane = Pick<
   AppProcessPlane,
   "spawnChild" | "terminate" | "forceTerminate"
 >;
 
-export type PrimeAgentCompanionReporterPort = Pick<
+export type PrimeAgentDaemonReporterPort = Pick<
   PrimeAgentReporterPlane,
   "register"
 >;
 
-export type PrimeAgentCompanionManagerOptions = Readonly<{
-  processPlane?: PrimeAgentCompanionProcessPlane;
-  reporterPort?: PrimeAgentCompanionReporterPort;
+export type PrimeAgentDaemonOptions = Readonly<{
+  processPlane?: PrimeAgentDaemonProcessPlane;
+  reporterPort?: PrimeAgentDaemonReporterPort;
   commandTimeoutMs?: number;
   commandTermGraceMs?: number;
   commandKillGraceMs?: number;
@@ -224,7 +248,7 @@ export type PrimeAgentCompanionManagerOptions = Readonly<{
   replacementRetryMs?: number;
 }>;
 
-type ManagerTiming = Readonly<{
+type DaemonTiming = Readonly<{
   commandTimeoutMs: number;
   commandTermGraceMs: number;
   commandKillGraceMs: number;
@@ -235,6 +259,24 @@ type ManagerTiming = Readonly<{
   replacementProbes: number;
   replacementRetryMs: number;
 }>;
+
+// ── Capability seams ────────────────────────────────────────────────────────
+// The daemon core reads these services; it never imports a live singleton.
+
+export class PrimeDaemonProcesses extends Context.Service<
+  PrimeDaemonProcesses,
+  PrimeAgentDaemonProcessPlane
+>()("@vellum/term/PrimeDaemonProcesses") {}
+
+export class PrimeDaemonReporter extends Context.Service<
+  PrimeDaemonReporter,
+  PrimeAgentDaemonReporterPort
+>()("@vellum/term/PrimeDaemonReporter") {}
+
+export class PrimeDaemonTiming extends Context.Service<
+  PrimeDaemonTiming,
+  DaemonTiming
+>()("@vellum/term/PrimeDaemonTiming") {}
 
 type BoundedSnapshot = Readonly<{
   text: string;
@@ -262,7 +304,7 @@ type ListOutcome =
   | Readonly<{ ok: true; list: ScopedList; command: CommandOutcome }>
   | Readonly<{ ok: false; message: string; command: CommandOutcome }>;
 
-type CompanionRecord = {
+type DaemonRecord = {
   readonly bindingId: string;
   readonly epoch: string;
   readonly file: string;
@@ -276,10 +318,10 @@ type CompanionRecord = {
   readonly daemonStdout: BoundedCollector;
   readonly daemonStderr: BoundedCollector;
   readonly onUnexpectedExit:
-    | ((event: PrimeAgentCompanionUnexpectedExit) => void)
+    | ((event: PrimeAgentDaemonUnexpectedExit) => void)
     | undefined;
-  handle: PrimeAgentCompanionHandle | undefined;
-  stopFlight: Promise<PrimeAgentCompanionStopReceipt> | undefined;
+  handle: PrimeAgentDaemonHandle | undefined;
+  stopFlight: Promise<PrimeAgentDaemonStopReceipt> | undefined;
   daemonExit: AppProcessExit | undefined;
   daemonClose: AppProcessExit | undefined;
   unexpected: boolean;
@@ -343,9 +385,9 @@ const boundedInteger = (
   return resolved;
 };
 
-const managerTiming = (
-  options: PrimeAgentCompanionManagerOptions,
-): ManagerTiming =>
+const daemonTiming = (
+  options: PrimeAgentDaemonOptions,
+): DaemonTiming =>
   Object.freeze({
     commandTimeoutMs: boundedInteger(
       options.commandTimeoutMs,
@@ -439,7 +481,7 @@ const attachCollector = (
   return () => stream.off("data", collector.append);
 };
 
-const scrubPrimeAgentCompanionEnv = (
+const scrubPrimeAgentDaemonEnv = (
   env: Readonly<NodeJS.ProcessEnv>,
   registration: PrimeAgentReporterRegistration,
 ): Record<string, string> => {
@@ -457,10 +499,10 @@ const scrubPrimeAgentCompanionEnv = (
 };
 
 const terminalLaunchFor = (
-  launch: PrimeAgentCompanionStartInput["launch"],
+  launch: PrimeAgentDaemonStartInput["launch"],
   socketPath: string,
   env: Record<string, string>,
-): PrimeAgentCompanionLaunch => {
+): PrimeAgentDaemonLaunch => {
   const args = Object.freeze([
     "-c",
     PRIME_AGENT_CLIENT_WRAPPER,
@@ -478,10 +520,15 @@ const terminalLaunchFor = (
   });
 };
 
+// Timing stays on setTimeout promises so vitest fake timers keep governing
+// every wait; Effect only sequences them.
 const delay = (milliseconds: number): Promise<void> =>
   milliseconds === 0
     ? Promise.resolve()
     : new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+const sleep = (milliseconds: number): Effect.Effect<void> =>
+  Effect.promise(() => delay(milliseconds));
 
 type PromiseObservation<Value> =
   | Readonly<{ state: "resolved"; value: Value }>
@@ -516,6 +563,12 @@ const observeWithin = <Value>(
     );
   });
 };
+
+const observed = <Value>(
+  promise: Promise<Value>,
+  timeoutMs: number,
+): Effect.Effect<PromiseObservation<Value>> =>
+  Effect.promise(() => observeWithin(promise, timeoutMs));
 
 const safeMessage = (error: unknown): string =>
   (error instanceof Error ? error.message : String(error)).slice(0, 1_000);
@@ -557,10 +610,10 @@ const sessionIdsFromList = (value: unknown): ScopedList | undefined => {
 };
 
 const diagnosticForCommand = (
-  stage: Extract<PrimeAgentCompanionDiagnosticStage, "list" | "stop" | "verify" | "replacement">,
+  stage: Extract<PrimeAgentDaemonDiagnosticStage, "list" | "stop" | "verify" | "replacement">,
   message: string,
   outcome: CommandOutcome,
-): PrimeAgentCompanionDiagnostic => {
+): PrimeAgentDaemonDiagnostic => {
   const stdout = outcome.stdout.text.trim();
   const stderr = outcome.stderr.text.trim();
   return Object.freeze({
@@ -581,486 +634,503 @@ const commandSucceeded = (outcome: CommandOutcome): boolean =>
   outcome.errors.length === 0 &&
   outcome.exit?.code === 0;
 
-export const makePrimeAgentCompanionManager = (
-  options: PrimeAgentCompanionManagerOptions = {},
-): PrimeAgentCompanionManager => {
-  const processPlane = options.processPlane ?? appProcessPlane;
-  const reporterPort = options.reporterPort ?? primeAgentReporterPlane;
-  const timing = managerTiming(options);
-  const records = new Set<CompanionRecord>();
-  let closing = false;
-  let closeFlight: Promise<PrimeAgentCompanionShutdownReceipt> | undefined;
+/** R=never lowering for the async pipelines; repo-sanctioned form. */
+const runDaemonPromise = <Value>(
+  effect: Effect.Effect<Value, never, never>,
+): Promise<Value> => Effect.runPromiseWith(Context.empty())(effect);
 
-  const runCommand = async (
-    record: CompanionRecord,
+/**
+ * Build the daemon plane from its capability services. The returned surface is
+ * the imperative contract LocalSessionHost consumes; every async pipeline
+ * inside is an Effect over the injected capabilities.
+ */
+export const makePrimeAgentDaemonsEffect: Effect.Effect<
+  PrimeAgentDaemons,
+  never,
+  PrimeDaemonProcesses | PrimeDaemonReporter | PrimeDaemonTiming
+> = Effect.gen(function* () {
+  const processPlane = yield* PrimeDaemonProcesses;
+  const reporterPort = yield* PrimeDaemonReporter;
+  const timing = yield* PrimeDaemonTiming;
+  const records = new Set<DaemonRecord>();
+  let closing = false;
+  let closeFlight: Promise<PrimeAgentDaemonShutdownReceipt> | undefined;
+
+  const runCommand = (
+    record: DaemonRecord,
     argv: readonly string[],
     purpose: string,
-  ): Promise<CommandOutcome> => {
-    const stdout = new BoundedCollector(PRIME_AGENT_OUTPUT_LIMIT_BYTES);
-    const stderr = new BoundedCollector(PRIME_AGENT_OUTPUT_LIMIT_BYTES);
-    const errors: string[] = [];
-    let lease: AppProcessLease;
-    try {
-      lease = processPlane.spawnChild({
-        source: `term:prime-agent:${record.bindingId}`,
-        purpose,
-        command: record.file,
-        args: [...argv],
-        cwd: record.cwd,
-        env: { ...record.env },
-        isolateProcessGroup: true,
+  ): Effect.Effect<CommandOutcome> =>
+    Effect.gen(function* () {
+      const stdout = new BoundedCollector(PRIME_AGENT_OUTPUT_LIMIT_BYTES);
+      const stderr = new BoundedCollector(PRIME_AGENT_OUTPUT_LIMIT_BYTES);
+      const errors: string[] = [];
+      let lease: AppProcessLease;
+      try {
+        lease = processPlane.spawnChild({
+          source: `term:prime-agent:${record.bindingId}`,
+          purpose,
+          command: record.file,
+          args: [...argv],
+          cwd: record.cwd,
+          env: { ...record.env },
+          isolateProcessGroup: true,
+        });
+      } catch (error) {
+        errors.push(safeMessage(error));
+        return Object.freeze({
+          argv: Object.freeze([...argv]),
+          spawned: false,
+          stdout: stdout.snapshot(),
+          stderr: stderr.snapshot(),
+          errors: Object.freeze(errors),
+          timedOut: false,
+        });
+      }
+
+      const cleanupStdout = attachCollector(lease.io.stdout, stdout);
+      const cleanupStderr = attachCollector(lease.io.stderr, stderr);
+      const cleanupError = lease.io.onError((error) => {
+        if (errors.length < 8) errors.push(safeMessage(error));
       });
-    } catch (error) {
-      errors.push(safeMessage(error));
+      const cleanup = (): void => {
+        cleanupStdout();
+        cleanupStderr();
+        cleanupError();
+      };
+      try {
+        lease.io.stdin.end();
+      } catch (error) {
+        if (errors.length < 8) errors.push(safeMessage(error));
+      }
+
+      let timedOut = false;
+      let term: AppProcessSignalReceipt | undefined;
+      let kill: AppProcessSignalReceipt | undefined;
+      let close = yield* observed(lease.io.closed, timing.commandTimeoutMs);
+      if (close.state !== "resolved") {
+        timedOut = close.state === "timeout";
+        if (close.state === "rejected") errors.push(safeMessage(close.error));
+        term = processPlane.terminate(
+          lease,
+          `prime-agent-daemon-command:${purpose}`,
+        );
+        close = yield* observed(lease.io.closed, timing.commandTermGraceMs);
+      }
+      if (close.state !== "resolved") {
+        if (close.state === "rejected") errors.push(safeMessage(close.error));
+        kill = processPlane.forceTerminate(
+          lease,
+          `prime-agent-daemon-command:${purpose}`,
+        );
+        close = yield* observed(lease.io.closed, timing.commandKillGraceMs);
+      }
+
+      if (close.state === "resolved") {
+        cleanup();
+      } else {
+        if (close.state === "rejected") errors.push(safeMessage(close.error));
+        // A refused exact-lease signal must not make an undrained child block on
+        // its pipes. Keep the bounded listeners until the central close witness.
+        void lease.io.closed.then(cleanup, cleanup);
+      }
+
       return Object.freeze({
         argv: Object.freeze([...argv]),
-        spawned: false,
+        spawned: true,
+        ...(close.state === "resolved" ? { exit: close.value } : {}),
         stdout: stdout.snapshot(),
         stderr: stderr.snapshot(),
         errors: Object.freeze(errors),
-        timedOut: false,
+        timedOut,
+        ...(term === undefined ? {} : { term }),
+        ...(kill === undefined ? {} : { kill }),
       });
-    }
-
-    const cleanupStdout = attachCollector(lease.io.stdout, stdout);
-    const cleanupStderr = attachCollector(lease.io.stderr, stderr);
-    const cleanupError = lease.io.onError((error) => {
-      if (errors.length < 8) errors.push(safeMessage(error));
     });
-    const cleanup = (): void => {
-      cleanupStdout();
-      cleanupStderr();
-      cleanupError();
-    };
-    try {
-      lease.io.stdin.end();
-    } catch (error) {
-      if (errors.length < 8) errors.push(safeMessage(error));
-    }
 
-    let timedOut = false;
-    let term: AppProcessSignalReceipt | undefined;
-    let kill: AppProcessSignalReceipt | undefined;
-    let close = await observeWithin(lease.io.closed, timing.commandTimeoutMs);
-    if (close.state !== "resolved") {
-      timedOut = close.state === "timeout";
-      if (close.state === "rejected") errors.push(safeMessage(close.error));
-      term = processPlane.terminate(
-        lease,
-        `prime-agent-companion-command:${purpose}`,
+  const listOnce = (
+    record: DaemonRecord,
+    purpose: string,
+  ): Effect.Effect<ListOutcome> =>
+    Effect.gen(function* () {
+      const command = yield* runCommand(
+        record,
+        ["list", "--json", "--daemon-socket", record.socketPath],
+        purpose,
       );
-      close = await observeWithin(
-        lease.io.closed,
-        timing.commandTermGraceMs,
-      );
-    }
-    if (close.state !== "resolved") {
-      if (close.state === "rejected") errors.push(safeMessage(close.error));
-      kill = processPlane.forceTerminate(
-        lease,
-        `prime-agent-companion-command:${purpose}`,
-      );
-      close = await observeWithin(
-        lease.io.closed,
-        timing.commandKillGraceMs,
-      );
-    }
-
-    if (close.state === "resolved") {
-      cleanup();
-    } else {
-      if (close.state === "rejected") errors.push(safeMessage(close.error));
-      // A refused exact-lease signal must not make an undrained child block on
-      // its pipes. Keep the bounded listeners until the central close witness.
-      void lease.io.closed.then(cleanup, cleanup);
-    }
-
-    return Object.freeze({
-      argv: Object.freeze([...argv]),
-      spawned: true,
-      ...(close.state === "resolved" ? { exit: close.value } : {}),
-      stdout: stdout.snapshot(),
-      stderr: stderr.snapshot(),
-      errors: Object.freeze(errors),
-      timedOut,
-      ...(term === undefined ? {} : { term }),
-      ...(kill === undefined ? {} : { kill }),
+      if (!commandSucceeded(command)) {
+        const detail = command.errors[0] ??
+          (command.timedOut
+            ? "command timed out"
+            : `command exited with ${String(command.exit?.code)}`);
+        return Object.freeze({
+          ok: false as const,
+          message: `scoped Prime Agent list failed: ${detail}`,
+          command,
+        });
+      }
+      let decoded: unknown;
+      try {
+        decoded = JSON.parse(command.stdout.text);
+      } catch (error) {
+        return Object.freeze({
+          ok: false as const,
+          message: `scoped Prime Agent list returned invalid JSON: ${safeMessage(error)}`,
+          command,
+        });
+      }
+      const list = sessionIdsFromList(decoded);
+      if (list === undefined) {
+        return Object.freeze({
+          ok: false as const,
+          message: "scoped Prime Agent list returned a malformed active sessions roster",
+          command,
+        });
+      }
+      return Object.freeze({ ok: true as const, list, command });
     });
-  };
 
-  const listOnce = async (
-    record: CompanionRecord,
+  const listWithRetry = (
+    record: DaemonRecord,
     purpose: string,
-  ): Promise<ListOutcome> => {
-    const command = await runCommand(
-      record,
-      ["list", "--json", "--daemon-socket", record.socketPath],
-      purpose,
-    );
-    if (!commandSucceeded(command)) {
-      const detail = command.errors[0] ??
-        (command.timedOut
-          ? "command timed out"
-          : `command exited with ${String(command.exit?.code)}`);
-      return Object.freeze({
-        ok: false as const,
-        message: `scoped Prime Agent list failed: ${detail}`,
-        command,
-      });
-    }
-    let decoded: unknown;
-    try {
-      decoded = JSON.parse(command.stdout.text);
-    } catch (error) {
-      return Object.freeze({
-        ok: false as const,
-        message: `scoped Prime Agent list returned invalid JSON: ${safeMessage(error)}`,
-        command,
-      });
-    }
-    const list = sessionIdsFromList(decoded);
-    if (list === undefined) {
-      return Object.freeze({
-        ok: false as const,
-        message: "scoped Prime Agent list returned a malformed active sessions roster",
-        command,
-      });
-    }
-    return Object.freeze({ ok: true as const, list, command });
-  };
-
-  const listWithRetry = async (
-    record: CompanionRecord,
-    purpose: string,
-  ): Promise<ListOutcome> => {
-    let last: ListOutcome | undefined;
-    for (let attempt = 0; attempt < timing.listAttempts; attempt += 1) {
-      last = await listOnce(record, `${purpose}:${attempt + 1}`);
-      if (last.ok) return last;
-      if (attempt + 1 < timing.listAttempts) await delay(timing.listRetryMs);
-    }
-    return last!;
-  };
-
-  const waitForDaemonExit = async (
-    record: CompanionRecord,
-    timeoutMs: number,
-  ): Promise<boolean> => {
-    if (record.daemonExit !== undefined) return true;
-    const observed = await observeWithin(record.lease.io.exited, timeoutMs);
-    if (observed.state !== "resolved") return false;
-    record.daemonExit = observed.value;
-    return true;
-  };
-
-  const waitForReplacement = async (
-    record: CompanionRecord,
-  ): Promise<ListOutcome | undefined> => {
-    for (
-      let attempt = 0;
-      attempt < timing.replacementProbes;
-      attempt += 1
-    ) {
-      await delay(timing.replacementRetryMs);
-      const probe = await listOnce(
-        record,
-        `unexpected replacement discovery ${attempt + 1}`,
-      );
-      if (probe.ok) return probe;
-    }
-    return undefined;
-  };
-
-  const replacementDisappeared = async (
-    record: CompanionRecord,
-    diagnostics: PrimeAgentCompanionDiagnostic[],
-  ): Promise<boolean> => {
-    let answeredDuringWindow = false;
-    for (
-      let attempt = 0;
-      attempt < timing.replacementProbes;
-      attempt += 1
-    ) {
-      await delay(timing.replacementRetryMs);
-      const probe = await listOnce(
-        record,
-        `unexpected replacement probe ${attempt + 1}`,
-      );
-      if (!probe.ok) continue;
-      answeredDuringWindow = true;
-      if (probe.list.active.length > 0) {
-        diagnostics.push(
-          diagnosticForCommand(
-            "replacement",
-            `unowned replacement retained active sessions: ${probe.list.active.join(", ")}`,
-            probe.command,
-          ),
-        );
-        return false;
-      }
-    }
-    if (!answeredDuringWindow) return true;
-    diagnostics.push(
-      Object.freeze({
-        stage: "replacement",
-        message:
-          "an unowned replacement answered during the bounded convergence window; it was not adopted or signaled",
-      }),
-    );
-    return false;
-  };
-
-  const performStop = async (
-    record: CompanionRecord,
-    reason: string,
-  ): Promise<PrimeAgentCompanionStopReceipt> => {
-    const diagnostics: PrimeAgentCompanionDiagnostic[] = [];
-    let failed = false;
-    let reporterReleased = false;
-    try {
-      record.registration.release();
-      reporterReleased = true;
-    } catch (error) {
-      failed = true;
-      diagnostics.push(
-        Object.freeze({
-          stage: "reporter-release",
-          message: safeMessage(error),
-        }),
-      );
-    }
-
-    let initial = await listWithRetry(record, "scoped list before stop");
-    let rootSessionIds: readonly string[] = [];
-    let stoppedSessionIds: readonly string[] = [];
-    let remainingActiveSessionIds: readonly string[] = [];
-    let scopedEmpty = false;
-    let replacementObserved = false;
-
-    if (
-      !initial.ok &&
-      record.unexpected &&
-      record.daemonExit !== undefined
-    ) {
-      const replacement = await waitForReplacement(record);
-      if (replacement !== undefined) {
-        initial = replacement;
-        replacementObserved = true;
-      }
-    }
-
-    if (!initial.ok) {
-      failed = true;
-      diagnostics.push(
-        diagnosticForCommand("list", initial.message, initial.command),
-      );
-      if (record.unexpected && record.daemonExit !== undefined) {
-        diagnostics.push(
-          Object.freeze({
-            stage: "replacement",
-            message:
-              "no exact-socket replacement appeared during the bounded convergence window; detached roots could not be proven gone",
-          }),
-        );
-      }
-    } else {
-      replacementObserved =
-        replacementObserved ||
-        (record.unexpected && record.daemonExit !== undefined);
-      rootSessionIds = initial.list.roots;
-      if (rootSessionIds.length > PRIME_AGENT_MAX_ROOTS) {
-        failed = true;
-        diagnostics.push(
-          Object.freeze({
-            stage: "list",
-            message: `refusing an unbounded root cleanup of ${rootSessionIds.length} sessions`,
-          }),
-        );
-      } else {
-        const stopResults = await Promise.all(
-          rootSessionIds.map(async (activeSessionId) => {
-            const command = await runCommand(
-              record,
-              [
-                "stop",
-                activeSessionId,
-                "--json",
-                "--daemon-socket",
-                record.socketPath,
-              ],
-              `stop root ${activeSessionId}`,
-            );
-            return { activeSessionId, command } as const;
-          }),
-        );
-        const stopped: string[] = [];
-        for (const result of stopResults) {
-          if (commandSucceeded(result.command)) {
-            stopped.push(result.activeSessionId);
-          } else {
-            failed = true;
-            diagnostics.push(
-              diagnosticForCommand(
-                "stop",
-                `failed to stop scoped root ${result.activeSessionId}`,
-                result.command,
-              ),
-            );
-          }
+  ): Effect.Effect<ListOutcome> =>
+    Effect.gen(function* () {
+      let last: ListOutcome | undefined;
+      for (let attempt = 0; attempt < timing.listAttempts; attempt += 1) {
+        last = yield* listOnce(record, `${purpose}:${attempt + 1}`);
+        if (last.ok) return last;
+        if (attempt + 1 < timing.listAttempts) {
+          yield* sleep(timing.listRetryMs);
         }
-        stoppedSessionIds = Object.freeze(stopped);
+      }
+      return last!;
+    });
 
-        const verification = await listWithRetry(
+  const waitForDaemonExit = (
+    record: DaemonRecord,
+    timeoutMs: number,
+  ): Effect.Effect<boolean> =>
+    Effect.gen(function* () {
+      if (record.daemonExit !== undefined) return true;
+      const observation = yield* observed(record.lease.io.exited, timeoutMs);
+      if (observation.state !== "resolved") return false;
+      record.daemonExit = observation.value;
+      return true;
+    });
+
+  const waitForReplacement = (
+    record: DaemonRecord,
+  ): Effect.Effect<ListOutcome | undefined> =>
+    Effect.gen(function* () {
+      for (
+        let attempt = 0;
+        attempt < timing.replacementProbes;
+        attempt += 1
+      ) {
+        yield* sleep(timing.replacementRetryMs);
+        const probe = yield* listOnce(
           record,
-          "scoped list after stop",
+          `unexpected replacement discovery ${attempt + 1}`,
         );
-        if (!verification.ok) {
-          failed = true;
+        if (probe.ok) return probe;
+      }
+      return undefined;
+    });
+
+  const replacementDisappeared = (
+    record: DaemonRecord,
+    diagnostics: PrimeAgentDaemonDiagnostic[],
+  ): Effect.Effect<boolean> =>
+    Effect.gen(function* () {
+      let answeredDuringWindow = false;
+      for (
+        let attempt = 0;
+        attempt < timing.replacementProbes;
+        attempt += 1
+      ) {
+        yield* sleep(timing.replacementRetryMs);
+        const probe = yield* listOnce(
+          record,
+          `unexpected replacement probe ${attempt + 1}`,
+        );
+        if (!probe.ok) continue;
+        answeredDuringWindow = true;
+        if (probe.list.active.length > 0) {
           diagnostics.push(
             diagnosticForCommand(
-              "verify",
-              verification.message,
-              verification.command,
+              "replacement",
+              `unowned replacement retained active sessions: ${probe.list.active.join(", ")}`,
+              probe.command,
             ),
           );
-        } else {
-          remainingActiveSessionIds = verification.list.active;
-          scopedEmpty = remainingActiveSessionIds.length === 0;
-          if (!scopedEmpty) {
-            failed = true;
-            diagnostics.push(
-              diagnosticForCommand(
-                "verify",
-                `scoped daemon retained active sessions: ${remainingActiveSessionIds.join(", ")}`,
-                verification.command,
-              ),
-            );
-          }
+          return false;
         }
       }
-    }
-
-    let term: AppProcessSignalReceipt | undefined;
-    let kill: AppProcessSignalReceipt | undefined;
-    let daemonExited = record.daemonExit !== undefined;
-    let replacementGone = !replacementObserved;
-
-    if (scopedEmpty) {
-      if (!daemonExited) {
-        term = processPlane.terminate(
-          record.lease,
-          `prime-agent-companion:${reason}`,
-        );
-        daemonExited = await waitForDaemonExit(
-          record,
-          timing.daemonTermGraceMs,
-        );
-        if (!daemonExited) {
-          kill = processPlane.forceTerminate(
-            record.lease,
-            `prime-agent-companion:${reason}`,
-          );
-          daemonExited = await waitForDaemonExit(
-            record,
-            timing.daemonKillGraceMs,
-          );
-        }
-      }
-      if (daemonExited && replacementObserved) {
-        replacementGone = await replacementDisappeared(record, diagnostics);
-        if (!replacementGone) failed = true;
-      }
-    }
-
-    if (!daemonExited && scopedEmpty) {
-      failed = true;
+      if (!answeredDuringWindow) return true;
       diagnostics.push(
         Object.freeze({
-          stage: kill === undefined ? "daemon-term" : "daemon-kill",
-          message: "the exact retained daemon lease did not produce an exit witness",
+          stage: "replacement",
+          message:
+            "an unowned replacement answered during the bounded convergence window; it was not adopted or signaled",
         }),
       );
-    }
+      return false;
+    });
 
-    let directoryRemoved = record.directoryRemoved;
-    if (scopedEmpty && daemonExited && replacementGone && !directoryRemoved) {
+  const performStop = (
+    record: DaemonRecord,
+    reason: string,
+  ): Effect.Effect<PrimeAgentDaemonStopReceipt> =>
+    Effect.gen(function* () {
+      const diagnostics: PrimeAgentDaemonDiagnostic[] = [];
+      let failed = false;
+      let reporterReleased = false;
       try {
-        record.directory.remove();
-        record.directoryRemoved = true;
-        directoryRemoved = true;
+        record.registration.release();
+        reporterReleased = true;
       } catch (error) {
         failed = true;
         diagnostics.push(
           Object.freeze({
-            stage: "temporary-directory",
+            stage: "reporter-release",
             message: safeMessage(error),
           }),
         );
       }
-    }
 
-    if (record.unexpected && record.daemonExit !== undefined) {
-      const stdout = record.daemonStdout.snapshot();
-      const stderr = record.daemonStderr.snapshot();
-      diagnostics.unshift(
-        Object.freeze({
-          stage: "daemon-exit",
-          message: `managed Prime Agent daemon exited unexpectedly with code ${String(record.daemonExit.code)} and signal ${String(record.daemonExit.signal)}`,
-          exit: record.daemonExit,
-          ...(stdout.text.trim().length === 0 ? {} : { stdout: stdout.text.trim() }),
-          ...(stderr.text.trim().length === 0 ? {} : { stderr: stderr.text.trim() }),
-          ...(stdout.truncated ? { stdoutTruncated: true as const } : {}),
-          ...(stderr.truncated ? { stderrTruncated: true as const } : {}),
-        }),
-      );
-    }
+      let initial = yield* listWithRetry(record, "scoped list before stop");
+      let rootSessionIds: readonly string[] = [];
+      let stoppedSessionIds: readonly string[] = [];
+      let remainingActiveSessionIds: readonly string[] = [];
+      let scopedEmpty = false;
+      let replacementObserved = false;
 
-    if (directoryRemoved && daemonExited) records.delete(record);
-    const receipt: PrimeAgentCompanionStopReceipt = Object.freeze({
-      bindingId: record.bindingId,
-      epoch: record.epoch,
-      reason,
-      clean:
-        !failed &&
-        reporterReleased &&
-        scopedEmpty &&
-        daemonExited &&
-        replacementGone &&
+      if (
+        !initial.ok &&
+        record.unexpected &&
+        record.daemonExit !== undefined
+      ) {
+        const replacement = yield* waitForReplacement(record);
+        if (replacement !== undefined) {
+          initial = replacement;
+          replacementObserved = true;
+        }
+      }
+
+      if (!initial.ok) {
+        failed = true;
+        diagnostics.push(
+          diagnosticForCommand("list", initial.message, initial.command),
+        );
+        if (record.unexpected && record.daemonExit !== undefined) {
+          diagnostics.push(
+            Object.freeze({
+              stage: "replacement",
+              message:
+                "no exact-socket replacement appeared during the bounded convergence window; detached roots could not be proven gone",
+            }),
+          );
+        }
+      } else {
+        replacementObserved =
+          replacementObserved ||
+          (record.unexpected && record.daemonExit !== undefined);
+        rootSessionIds = initial.list.roots;
+        if (rootSessionIds.length > PRIME_AGENT_MAX_ROOTS) {
+          failed = true;
+          diagnostics.push(
+            Object.freeze({
+              stage: "list",
+              message: `refusing an unbounded root cleanup of ${rootSessionIds.length} sessions`,
+            }),
+          );
+        } else {
+          const stopResults = yield* Effect.all(
+            rootSessionIds.map((activeSessionId) =>
+              runCommand(
+                record,
+                [
+                  "stop",
+                  activeSessionId,
+                  "--json",
+                  "--daemon-socket",
+                  record.socketPath,
+                ],
+                `stop root ${activeSessionId}`,
+              ).pipe(
+                Effect.map((command) => ({ activeSessionId, command }) as const),
+              )
+            ),
+            { concurrency: "unbounded" },
+          );
+          const stopped: string[] = [];
+          for (const result of stopResults) {
+            if (commandSucceeded(result.command)) {
+              stopped.push(result.activeSessionId);
+            } else {
+              failed = true;
+              diagnostics.push(
+                diagnosticForCommand(
+                  "stop",
+                  `failed to stop scoped root ${result.activeSessionId}`,
+                  result.command,
+                ),
+              );
+            }
+          }
+          stoppedSessionIds = Object.freeze(stopped);
+
+          const verification = yield* listWithRetry(
+            record,
+            "scoped list after stop",
+          );
+          if (!verification.ok) {
+            failed = true;
+            diagnostics.push(
+              diagnosticForCommand(
+                "verify",
+                verification.message,
+                verification.command,
+              ),
+            );
+          } else {
+            remainingActiveSessionIds = verification.list.active;
+            scopedEmpty = remainingActiveSessionIds.length === 0;
+            if (!scopedEmpty) {
+              failed = true;
+              diagnostics.push(
+                diagnosticForCommand(
+                  "verify",
+                  `scoped daemon retained active sessions: ${remainingActiveSessionIds.join(", ")}`,
+                  verification.command,
+                ),
+              );
+            }
+          }
+        }
+      }
+
+      let term: AppProcessSignalReceipt | undefined;
+      let kill: AppProcessSignalReceipt | undefined;
+      let daemonExited = record.daemonExit !== undefined;
+      let replacementGone = !replacementObserved;
+
+      if (scopedEmpty) {
+        if (!daemonExited) {
+          term = processPlane.terminate(
+            record.lease,
+            `prime-agent-daemon:${reason}`,
+          );
+          daemonExited = yield* waitForDaemonExit(
+            record,
+            timing.daemonTermGraceMs,
+          );
+          if (!daemonExited) {
+            kill = processPlane.forceTerminate(
+              record.lease,
+              `prime-agent-daemon:${reason}`,
+            );
+            daemonExited = yield* waitForDaemonExit(
+              record,
+              timing.daemonKillGraceMs,
+            );
+          }
+        }
+        if (daemonExited && replacementObserved) {
+          replacementGone = yield* replacementDisappeared(record, diagnostics);
+          if (!replacementGone) failed = true;
+        }
+      }
+
+      if (!daemonExited && scopedEmpty) {
+        failed = true;
+        diagnostics.push(
+          Object.freeze({
+            stage: kill === undefined ? "daemon-term" : "daemon-kill",
+            message: "the exact retained daemon lease did not produce an exit witness",
+          }),
+        );
+      }
+
+      let directoryRemoved = record.directoryRemoved;
+      if (scopedEmpty && daemonExited && replacementGone && !directoryRemoved) {
+        try {
+          record.directory.remove();
+          record.directoryRemoved = true;
+          directoryRemoved = true;
+        } catch (error) {
+          failed = true;
+          diagnostics.push(
+            Object.freeze({
+              stage: "temporary-directory",
+              message: safeMessage(error),
+            }),
+          );
+        }
+      }
+
+      if (record.unexpected && record.daemonExit !== undefined) {
+        const stdout = record.daemonStdout.snapshot();
+        const stderr = record.daemonStderr.snapshot();
+        diagnostics.unshift(
+          Object.freeze({
+            stage: "daemon-exit",
+            message: `managed Prime Agent daemon exited unexpectedly with code ${String(record.daemonExit.code)} and signal ${String(record.daemonExit.signal)}`,
+            exit: record.daemonExit,
+            ...(stdout.text.trim().length === 0 ? {} : { stdout: stdout.text.trim() }),
+            ...(stderr.text.trim().length === 0 ? {} : { stderr: stderr.text.trim() }),
+            ...(stdout.truncated ? { stdoutTruncated: true as const } : {}),
+            ...(stderr.truncated ? { stderrTruncated: true as const } : {}),
+          }),
+        );
+      }
+
+      if (directoryRemoved && daemonExited) records.delete(record);
+      const receipt: PrimeAgentDaemonStopReceipt = Object.freeze({
+        bindingId: record.bindingId,
+        epoch: record.epoch,
+        reason,
+        clean:
+          !failed &&
+          reporterReleased &&
+          scopedEmpty &&
+          daemonExited &&
+          replacementGone &&
+          directoryRemoved,
+        reporterReleased,
+        rootSessionIds: Object.freeze([...rootSessionIds]),
+        stoppedSessionIds: Object.freeze([...stoppedSessionIds]),
+        remainingActiveSessionIds: Object.freeze([
+          ...remainingActiveSessionIds,
+        ]),
+        daemonExited,
         directoryRemoved,
-      reporterReleased,
-      rootSessionIds: Object.freeze([...rootSessionIds]),
-      stoppedSessionIds: Object.freeze([...stoppedSessionIds]),
-      remainingActiveSessionIds: Object.freeze([
-        ...remainingActiveSessionIds,
-      ]),
-      daemonExited,
-      directoryRemoved,
-      ...(term === undefined ? {} : { term }),
-      ...(kill === undefined ? {} : { kill }),
-      diagnostics: Object.freeze(diagnostics),
+        ...(term === undefined ? {} : { term }),
+        ...(kill === undefined ? {} : { kill }),
+        diagnostics: Object.freeze(diagnostics),
+      });
+      return receipt;
     });
-    return receipt;
-  };
 
   const stopRecord = (
-    record: CompanionRecord,
+    record: DaemonRecord,
     reason: string,
     unexpected = false,
-  ): Promise<PrimeAgentCompanionStopReceipt> => {
+  ): Promise<PrimeAgentDaemonStopReceipt> => {
     if (record.stopFlight !== undefined) return record.stopFlight;
     record.unexpected = record.unexpected || unexpected;
     const normalizedReason = reason.trim() || "seat_stop";
-    const flight = performStop(record, normalizedReason);
+    const flight = runDaemonPromise(performStop(record, normalizedReason));
     record.stopFlight = flight;
     return flight;
   };
 
   const start = (
-    input: PrimeAgentCompanionStartInput,
-  ): PrimeAgentCompanionHandle => {
-    if (closing) throw new Error("Prime Agent companion manager is closing");
+    input: PrimeAgentDaemonStartInput,
+  ): PrimeAgentDaemonHandle => {
+    if (closing) throw new Error("Prime Agent daemon plane is closing");
     if (process.platform !== "darwin" && process.platform !== "linux") {
-      throw new Error("Prime Agent companion requires Linux or macOS");
+      throw new Error("Prime Agent daemon plane requires Linux or macOS");
     }
     const bindingId = normalizedText(input.bindingId, "bindingId");
     const epoch = normalizedText(input.epoch, "epoch");
@@ -1076,7 +1146,7 @@ export const makePrimeAgentCompanionManager = (
         (record.epoch === epoch || record.stopFlight === undefined)
       ) {
         throw new Error(
-          `Prime Agent companion already owns managed seat ${bindingId}@${record.epoch}`,
+          `Prime Agent daemon plane already owns managed seat ${bindingId}@${record.epoch}`,
         );
       }
     }
@@ -1093,7 +1163,7 @@ export const makePrimeAgentCompanionManager = (
         epoch,
         onReport: input.onReport ?? (() => undefined),
       });
-      const env = scrubPrimeAgentCompanionEnv(input.launch.env, registration);
+      const env = scrubPrimeAgentDaemonEnv(input.launch.env, registration);
       lease = processPlane.spawnChild({
         source: `term:prime-agent:${bindingId}`,
         purpose: `managed Prime Agent daemon ${bindingId}@${epoch}`,
@@ -1114,7 +1184,7 @@ export const makePrimeAgentCompanionManager = (
       if (daemonPid === undefined) {
         processPlane.terminate(
           lease,
-          "prime-agent-companion-spawn-without-pid",
+          "prime-agent-daemon-spawn-without-pid",
         );
         throw new Error("managed Prime Agent daemon did not expose a child pid");
       }
@@ -1130,7 +1200,7 @@ export const makePrimeAgentCompanionManager = (
       const cleanupError = lease.io.onError((error) => daemonStderr.append(
         `\n${safeMessage(error)}`,
       ));
-      const record: CompanionRecord = {
+      const record: DaemonRecord = {
         bindingId,
         epoch,
         file,
@@ -1162,7 +1232,7 @@ export const makePrimeAgentCompanionManager = (
         socketPath,
         env,
       );
-      const handle: PrimeAgentCompanionHandle = Object.freeze({
+      const handle: PrimeAgentDaemonHandle = Object.freeze({
         bindingId,
         epoch,
         daemonPid,
@@ -1248,7 +1318,7 @@ export const makePrimeAgentCompanionManager = (
 
   const shutdownAll = (
     reason = "app_quit",
-  ): Promise<PrimeAgentCompanionShutdownReceipt> => {
+  ): Promise<PrimeAgentDaemonShutdownReceipt> => {
     if (closeFlight !== undefined) return closeFlight;
     closing = true;
     const snapshot = [...records];
@@ -1265,8 +1335,46 @@ export const makePrimeAgentCompanionManager = (
   };
 
   return Object.freeze({ start, shutdownAll });
-};
+});
 
-/** Shared product manager; tests should inject isolated process and reporter planes. */
-export const primeAgentCompanionManager: PrimeAgentCompanionManager =
-  makePrimeAgentCompanionManager();
+/** Capability layers: live planes by default, injected fakes in tests. */
+export const primeDaemonLayers = (
+  options: PrimeAgentDaemonOptions = {},
+): Layer.Layer<PrimeDaemonProcesses | PrimeDaemonReporter | PrimeDaemonTiming> =>
+  Layer.mergeAll(
+    Layer.succeed(
+      PrimeDaemonProcesses,
+      options.processPlane ?? appProcessPlane,
+    ),
+    Layer.succeed(
+      PrimeDaemonReporter,
+      options.reporterPort ?? primeAgentReporterPlane,
+    ),
+    Layer.succeed(PrimeDaemonTiming, daemonTiming(options)),
+  );
+
+/** Runtime-composable service handle for the daemon plane. */
+export class PrimeAgentDaemonsService extends Context.Service<
+  PrimeAgentDaemonsService,
+  PrimeAgentDaemons
+>()("@vellum/term/PrimeAgentDaemons") {}
+
+export const PrimeAgentDaemonsLive: Layer.Layer<
+  PrimeAgentDaemonsService,
+  never,
+  PrimeDaemonProcesses | PrimeDaemonReporter | PrimeDaemonTiming
+> = Layer.effect(PrimeAgentDaemonsService, makePrimeAgentDaemonsEffect);
+
+/**
+ * Lowered constructor for the imperative terminal plane. Construction is fully
+ * synchronous; `Effect.runSync` here mirrors the sanctioned sync hot paths.
+ */
+export const makePrimeAgentDaemons = (
+  options: PrimeAgentDaemonOptions = {},
+): PrimeAgentDaemons =>
+  Effect.runSync(
+    Effect.provide(makePrimeAgentDaemonsEffect, primeDaemonLayers(options)),
+  );
+
+/** Shared product plane; tests should inject isolated process and reporter planes. */
+export const primeAgentDaemons: PrimeAgentDaemons = makePrimeAgentDaemons();

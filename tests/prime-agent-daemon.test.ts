@@ -11,11 +11,11 @@ import type {
   AppProcessSignalReceipt,
 } from "../src/main/vellum/app-process-plane";
 import {
-  makePrimeAgentCompanionManager,
-  type PrimeAgentCompanionHandle,
-  type PrimeAgentCompanionProcessPlane,
-  type PrimeAgentCompanionUnexpectedExit,
-} from "../src/main/vellum/term/prime-agent-companion";
+  makePrimeAgentDaemons,
+  type PrimeAgentDaemonHandle,
+  type PrimeAgentDaemonProcessPlane,
+  type PrimeAgentDaemonUnexpectedExit,
+} from "../src/main/vellum/term/prime-agent-daemon";
 import type {
   PrimeAgentReporterRegisterInput,
   PrimeAgentReporterRegistration,
@@ -205,7 +205,7 @@ class FakeProcessPlane {
     return signalReceipt("SIGKILL", reason);
   };
 
-  asPort(): PrimeAgentCompanionProcessPlane {
+  asPort(): PrimeAgentDaemonProcessPlane {
     return {
       spawnChild: this.spawnChild,
       terminate: this.terminate,
@@ -295,7 +295,7 @@ const launch = (overrides: Partial<{
 });
 
 const mintedDirectories = new Set<string>();
-const remember = (handle: PrimeAgentCompanionHandle): void => {
+const remember = (handle: PrimeAgentDaemonHandle): void => {
   mintedDirectories.add(dirname(handle.socketPath));
 };
 
@@ -306,12 +306,12 @@ afterEach(() => {
   mintedDirectories.clear();
 });
 
-describe("Prime Agent companion manager", () => {
+describe("Prime Agent daemon plane", () => {
   it("registers before daemon spawn and returns unique isolated wrapper launches", async () => {
     const events: string[] = [];
     const plane = new FakeProcessPlane(events);
     const reporter = new FakeReporterPort(events);
-    const manager = makePrimeAgentCompanionManager(
+    const manager = makePrimeAgentDaemons(
       testOptions(plane, reporter),
     );
     const authoredArgs = [
@@ -422,7 +422,7 @@ describe("Prime Agent companion manager", () => {
   it("rejects authored overrides of the managed socket and daemon mode", () => {
     const plane = new FakeProcessPlane();
     const reporter = new FakeReporterPort();
-    const manager = makePrimeAgentCompanionManager(
+    const manager = makePrimeAgentDaemons(
       testOptions(plane, reporter),
     );
 
@@ -445,7 +445,7 @@ describe("Prime Agent companion manager", () => {
   it("admits a new exact epoch while the prior generation cleanup is pending", async () => {
     const plane = new FakeProcessPlane();
     const reporter = new FakeReporterPort();
-    const manager = makePrimeAgentCompanionManager(
+    const manager = makePrimeAgentDaemons(
       testOptions(plane, reporter),
     );
     const prior = manager.start({
@@ -496,7 +496,7 @@ describe("Prime Agent companion manager", () => {
   it("selects only top-level depth-zero full ids and uses scoped public commands", async () => {
     const plane = new FakeProcessPlane();
     const reporter = new FakeReporterPort();
-    const manager = makePrimeAgentCompanionManager(
+    const manager = makePrimeAgentDaemons(
       testOptions(plane, reporter),
     );
     const handle = manager.start({
@@ -556,7 +556,7 @@ describe("Prime Agent companion manager", () => {
   it("coalesces repeated stop and escalates only the retained daemon lease", async () => {
     const plane = new FakeProcessPlane();
     const reporter = new FakeReporterPort();
-    const manager = makePrimeAgentCompanionManager(
+    const manager = makePrimeAgentDaemons(
       testOptions(plane, reporter),
     );
     const handle = manager.start({
@@ -593,7 +593,7 @@ describe("Prime Agent companion manager", () => {
   it("returns a bounded partial-failure receipt without terminating a nonempty scope", async () => {
     const plane = new FakeProcessPlane();
     const reporter = new FakeReporterPort();
-    const manager = makePrimeAgentCompanionManager(
+    const manager = makePrimeAgentDaemons(
       testOptions(plane, reporter),
     );
     const handle = manager.start({
@@ -632,7 +632,7 @@ describe("Prime Agent companion manager", () => {
   it("fails closed when an active roster row omits its full active session id", async () => {
     const plane = new FakeProcessPlane();
     const reporter = new FakeReporterPort();
-    const manager = makePrimeAgentCompanionManager(
+    const manager = makePrimeAgentDaemons(
       testOptions(plane, reporter),
     );
     const handle = manager.start({
@@ -661,7 +661,7 @@ describe("Prime Agent companion manager", () => {
   it("rejects an unbounded or unsafe active id instead of reusing it as argv", async () => {
     const plane = new FakeProcessPlane();
     const reporter = new FakeReporterPort();
-    const manager = makePrimeAgentCompanionManager(
+    const manager = makePrimeAgentDaemons(
       testOptions(plane, reporter),
     );
     const handle = manager.start({
@@ -688,12 +688,12 @@ describe("Prime Agent companion manager", () => {
   it("on unexpected exit waits for a replacement, stops its roots, and never adopts it", async () => {
     const plane = new FakeProcessPlane();
     const reporter = new FakeReporterPort();
-    const manager = makePrimeAgentCompanionManager(
+    const manager = makePrimeAgentDaemons(
       testOptions(plane, reporter),
     );
     const cleanupCut: Array<{ releases: number; commands: number }> = [];
     const onUnexpectedExit = vi.fn(
-      (_event: PrimeAgentCompanionUnexpectedExit): void => {
+      (_event: PrimeAgentDaemonUnexpectedExit): void => {
         cleanupCut.push({
           releases: reporter.registrations[0]?.releases ?? 0,
           commands: plane.commands.length,
@@ -757,11 +757,11 @@ describe("Prime Agent companion manager", () => {
         replacementRetryMs: _replacementRetryMs,
         ...withDefaultReplacementWindow
       } = quick;
-      const manager = makePrimeAgentCompanionManager(
+      const manager = makePrimeAgentDaemons(
         withDefaultReplacementWindow,
       );
       const onUnexpectedExit = vi.fn<
-        (event: PrimeAgentCompanionUnexpectedExit) => void
+        (event: PrimeAgentDaemonUnexpectedExit) => void
       >();
       const handle = manager.start({
         bindingId: "seat-delayed-replacement",
@@ -832,11 +832,11 @@ describe("Prime Agent companion manager", () => {
   it("keeps the directory and returns dirty when crash convergence cannot prove roots gone", async () => {
     const plane = new FakeProcessPlane();
     const reporter = new FakeReporterPort();
-    const manager = makePrimeAgentCompanionManager(
+    const manager = makePrimeAgentDaemons(
       testOptions(plane, reporter),
     );
     const onUnexpectedExit = vi.fn<
-      (event: PrimeAgentCompanionUnexpectedExit) => void
+      (event: PrimeAgentDaemonUnexpectedExit) => void
     >();
     const handle = manager.start({
       bindingId: "seat-crash-unknown",
@@ -866,7 +866,7 @@ describe("Prime Agent companion manager", () => {
   it("shutdownAll stops every exact handle and closes further admission", async () => {
     const plane = new FakeProcessPlane();
     const reporter = new FakeReporterPort();
-    const manager = makePrimeAgentCompanionManager(
+    const manager = makePrimeAgentDaemons(
       testOptions(plane, reporter),
     );
     const first = manager.start({

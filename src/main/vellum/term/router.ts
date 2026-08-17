@@ -577,7 +577,7 @@ export class TerminalRouter extends EventEmitter {
 
   /**
    * Exact node-delete teardown exists only where this runtime owns the PTY and
-   * companion witnesses. Remote control currently returns stop admission only,
+   * daemon witnesses. Remote control currently returns stop admission only,
    * so refuse rather than committing a node deletion on an unproven receipt.
    */
   async deleteBinding(bindingId: string, hostId?: string): Promise<boolean> {

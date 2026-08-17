@@ -19,9 +19,9 @@ import { seatStateRuntime } from "../src/main/vellum/term/agent-state";
 import { LocalSessionHost } from "../src/main/vellum/term/local-host";
 import { TerminalObserverPlane } from "../src/main/vellum/term/observer";
 import {
-  makePrimeAgentCompanionManager,
-  type PrimeAgentCompanionUnexpectedExit,
-} from "../src/main/vellum/term/prime-agent-companion";
+  makePrimeAgentDaemons,
+  type PrimeAgentDaemonUnexpectedExit,
+} from "../src/main/vellum/term/prime-agent-daemon";
 import {
   PrimeAgentReporterPlane,
   primeAgentReporterSocketPath,
@@ -170,7 +170,7 @@ describe("Prime Agent two-seat real-process integration", () => {
       termGraceMs: 2_000,
       killGraceMs: 2_000,
     });
-    const manager = makePrimeAgentCompanionManager({
+    const manager = makePrimeAgentDaemons({
       processPlane,
       reporterPort: reporterPlane,
       commandTimeoutMs: 4_000,
@@ -185,7 +185,7 @@ describe("Prime Agent two-seat real-process integration", () => {
     });
     const host = new LocalSessionHost(processPlane, {
       observerPlane,
-      companionManager: manager,
+      primeDaemons: manager,
       killGraceMs: 1_000,
       shutdownGraceMs: 5_000,
       lateExitGraceMs: 2_000,
@@ -488,7 +488,7 @@ describe("Prime Agent two-seat real-process integration", () => {
       termGraceMs: 1_000,
       killGraceMs: 1_000,
     });
-    const manager = makePrimeAgentCompanionManager({
+    const manager = makePrimeAgentDaemons({
       processPlane,
       reporterPort: reporterPlane,
       commandTimeoutMs: 500,
@@ -505,9 +505,9 @@ describe("Prime Agent two-seat real-process integration", () => {
     try {
       await reporterPlane.start({ home: reporterHome });
       let resolveUnexpected!: (
-        event: PrimeAgentCompanionUnexpectedExit,
+        event: PrimeAgentDaemonUnexpectedExit,
       ) => void;
-      const unexpected = new Promise<PrimeAgentCompanionUnexpectedExit>(
+      const unexpected = new Promise<PrimeAgentDaemonUnexpectedExit>(
         (resolve) => {
           resolveUnexpected = resolve;
         },

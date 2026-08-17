@@ -840,7 +840,7 @@ const deleteNodesInternal = async (
   // A managed agent card owns a native terminal generation in addition to the
   // ACP/chat delete fence. Main locks every exact host/binding before teardown,
   // invalidates creates that were awaiting IPC work, and returns only after the
-  // owned PTY plus any Prime Agent companion have a clean exact receipt.
+  // owned PTY plus any Prime Agent daemon have a clean exact receipt.
   if (managedTerminalBindings.size > 0) {
     const beginTerminalDelete =
       window.vellumCommand?.terminalBeginNodeDelete;

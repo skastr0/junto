@@ -207,7 +207,7 @@ cold wake is unavailable.
 | `/compact` | ✅ + Pre/PostCompact hooks | ✅ | ✅ | via `/` commands | available; live drive not re-probed |
 | effort at spawn | ✅ `--effort` | ✅ per-model list | ✅ high/med/low | ❌ typed `/reasoning` or omit | ✅ `--thinking` (7 levels) |
 | daemon ownership | n/a | n/a | n/a | n/a | one foreground daemon per binding; roots stop before exact daemon lease |
-| remote (ssh) | — | — | — | ✅ verified end-to-end | ✅ enabled (companion plane is host-local on the Remote); ssh drive not re-probed |
+| remote (ssh) | — | — | — | ✅ verified end-to-end | ✅ enabled (daemon plane is host-local on the Remote); ssh drive not re-probed |
 
 ## 10 - QA plan
 

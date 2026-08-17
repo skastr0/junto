@@ -461,7 +461,7 @@ export const PRIME_AGENT_TEMPLATE: ManagedTerminalTemplate = {
     hooks: true,
     effortAtSpawn: true,
     sessionId: "capture",
-    // A Remote runs the same plane: companion manager, reporter, and daemon
+    // A Remote runs the same plane: daemon plane, reporter, and daemon
     // all live on the target host, so the seat is host-local there too.
     remote: true,
     requiresGitCwd: false,

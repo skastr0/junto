@@ -963,5 +963,5 @@ export class PrimeAgentReporterPlane {
   }
 }
 
-/** Process singleton shared by the production companion manager and plane. */
+/** Process singleton shared by the production daemon plane and terminal plane. */
 export const primeAgentReporterPlane = new PrimeAgentReporterPlane();

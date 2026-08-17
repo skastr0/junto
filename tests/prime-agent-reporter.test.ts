@@ -579,7 +579,7 @@ const isolatedHost = (): LocalSessionHost =>
       exitOnSignal: "SIGTERM",
     })).authority,
     {
-      companionManager: null,
+      primeDaemons: null,
       killGraceMs: 5,
       shutdownGraceMs: 5,
       lateExitGraceMs: 5,
@@ -658,16 +658,16 @@ describe("TermPlane Prime Agent reporter lifecycle", () => {
     expect(beginShutdown).toHaveBeenCalledOnce();
   });
 
-  it("diagnoses companion-only debt without turning it into an exit trap", async () => {
+  it("diagnoses daemon-only debt without turning it into an exit trap", async () => {
     const host = isolatedHost();
     vi.spyOn(host, "shutdownAll").mockResolvedValue({
       clean: false,
       stragglers: [
         {
-          bindingId: "prime-agent-companion-manager",
+          bindingId: "prime-agent-daemon-manager",
           epoch: "shutdown",
           status: "running",
-          companion: {
+          primeDaemon: {
             state: "manager_failed",
             message: "unowned replacement still answers",
           },
@@ -682,7 +682,7 @@ describe("TermPlane Prime Agent reporter lifecycle", () => {
     const receipt = await new TermPlane(host, reporter).drainOnQuit("test");
 
     expect(receipt.clean).toBe(false);
-    expect(receipt.retainedLabels).toContain("prime-agent-companion");
+    expect(receipt.retainedLabels).toContain("prime-agent-daemon");
     expect(receipt.diagnostics.join(" ")).toContain("manager_failed");
     expect(termPlaneBlocksAppExit(receipt)).toBe(false);
     expect(

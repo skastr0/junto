@@ -11,7 +11,7 @@ import {
 import type { LocalHostShutdownResult } from "./local-host";
 import type { TerminalRouterShutdownReceipt } from "./router";
 import { performance } from "node:perf_hooks";
-import { primeAgentCompanionManager } from "./prime-agent-companion";
+import { primeAgentDaemons } from "./prime-agent-daemon";
 import {
   PrimeAgentReporterPlane,
   primeAgentReporterPlane,
@@ -93,7 +93,7 @@ const settledBefore = async <A>(
 const productionLocalSessionHost = (): LocalSessionHost =>
   new LocalSessionHost(undefined, {
     externalMaintenanceFence: linuxReleaseFenceActive,
-    companionManager: primeAgentCompanionManager,
+    primeDaemons: primeAgentDaemons,
   });
 
 export interface TermPrimeAgentReporterPlane {
@@ -126,7 +126,7 @@ export class TermPlane {
     const production = host === undefined;
     this.host = host ?? productionLocalSessionHost();
     // Explicit test hosts receive an isolated lifecycle by default. Production
-    // must share the singleton used by primeAgentCompanionManager.
+    // must share the singleton used by primeAgentDaemons.
     this.reporter =
       reporter ??
       (production ? primeAgentReporterPlane : new PrimeAgentReporterPlane());
@@ -194,7 +194,7 @@ export class TermPlane {
     let current!: Promise<void>;
     current = (async () => {
       try {
-        // The companion manager registers synchronously while a managed Prime
+        // The daemon plane registers synchronously while a managed Prime
         // Agent seat opens. Its receiver must be bound and permission-hardened
         // before any control surface can admit such a create.
         try {
@@ -342,11 +342,11 @@ export class TermPlane {
             if (straggler.ownedPtyOutstanding === true) {
               retainedLabels.add("local-sessions");
             }
-            if (straggler.companion !== undefined) {
-              retainedLabels.add("prime-agent-companion");
-              const companion = straggler.companion;
+            if (straggler.primeDaemon !== undefined) {
+              retainedLabels.add("prime-agent-daemon");
+              const daemon = straggler.primeDaemon;
               diagnostics.push(
-                `prime-agent-companion: ${straggler.bindingId}@${straggler.epoch} ${companion.state}${companion.daemonPid === undefined ? "" : ` pid=${companion.daemonPid}`}${companion.message === undefined ? "" : `, ${companion.message}`}`,
+                `prime-agent-daemon: ${straggler.bindingId}@${straggler.epoch} ${daemon.state}${daemon.daemonPid === undefined ? "" : ` pid=${daemon.daemonPid}`}${daemon.message === undefined ? "" : `, ${daemon.message}`}`,
               );
             }
           }

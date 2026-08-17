@@ -79,10 +79,10 @@ import {
 import { buildSpawnEnv, scrubSpawnEnv } from "./templates/resolve-launch";
 import { buildManagedSeatInject } from "./templates/seat-env";
 import {
-  primeAgentCompanionManager,
-  type PrimeAgentCompanionHandle,
-  type PrimeAgentCompanionManager,
-} from "./prime-agent-companion";
+  primeAgentDaemons,
+  type PrimeAgentDaemonHandle,
+  type PrimeAgentDaemons,
+} from "./prime-agent-daemon";
 
 /**
  * What a terminal generation *is*. Decided by the caller from the node's
@@ -237,9 +237,9 @@ export type LocalTerminalProcessAuthority = Pick<
   "spawnTerminal" | "terminate" | "forceTerminate"
 >;
 
-type CompanionCleanupState = "none" | "pending" | "clean" | "failed";
-type PrimeAgentCompanionReport = Parameters<
-  NonNullable<Parameters<PrimeAgentCompanionManager["start"]>[0]["onReport"]>
+type PrimeDaemonCleanupState = "none" | "pending" | "clean" | "failed";
+type PrimeAgentDaemonReport = Parameters<
+  NonNullable<Parameters<PrimeAgentDaemons["start"]>[0]["onReport"]>
 >[0];
 
 type SessionRec = {
@@ -259,10 +259,10 @@ type SessionRec = {
   ptyIdentityBinding: ProcessIdentityBinding | undefined;
   daemonIdentityBinding: ProcessIdentityBinding | undefined;
   /** Prime Agent's per-seat foreground daemon + reporter registration. */
-  companion: PrimeAgentCompanionHandle | undefined;
-  companionStopFlight: Promise<void> | undefined;
-  companionCleanupState: CompanionCleanupState;
-  companionCleanupError: string | undefined;
+  primeDaemon: PrimeAgentDaemonHandle | undefined;
+  primeDaemonStopFlight: Promise<void> | undefined;
+  primeDaemonCleanupState: PrimeDaemonCleanupState;
+  primeDaemonCleanupError: string | undefined;
   cols: number;
   rows: number;
   cwd: string;
@@ -333,8 +333,8 @@ export type LocalHostShutdownStraggler = {
   readonly ownedPtyOutstanding?: true;
   readonly term?: AppProcessSignalReceipt;
   readonly kill?: AppProcessSignalReceipt;
-  /** Present when a per-seat companion receipt is still pending or failed. */
-  readonly companion?: {
+  /** Present when a per-seat daemon receipt is still pending or failed. */
+  readonly primeDaemon?: {
     readonly daemonPid?: number;
     readonly state: "pending" | "failed" | "manager_pending" | "manager_failed";
     readonly message?: string;
@@ -367,11 +367,11 @@ export type LocalSessionHostOptions = {
    */
   readonly observerPlane?: TerminalObserverPlane;
   /**
-   * Per-seat Prime Agent companion. Production passes the singleton explicitly;
+   * Per-seat Prime Agent daemon. Production passes the singleton explicitly;
    * omission selects it only for the exact app process plane. `null` disables
    * the integration for isolated tests without ever launching a real CLI.
    */
-  readonly companionManager?: PrimeAgentCompanionManager | null;
+  readonly primeDaemons?: PrimeAgentDaemons | null;
 };
 
 type AllExitedWaiter = {
@@ -441,7 +441,7 @@ const cleanupFailureMessage = (receipt: unknown): string | undefined => {
       if (detail !== undefined) return detail;
     }
   }
-  return "companion cleanup returned a non-clean receipt";
+  return "daemon cleanup returned a non-clean receipt";
 };
 
 const errorMessage = (error: unknown): string =>
@@ -657,8 +657,8 @@ export class LocalSessionHost extends EventEmitter {
   private readonly sessions = new Map<string, SessionRec>();
   /** Every terminal generation remains live until its exact witness settles. */
   private readonly liveRecords = new Set<SessionRec>();
-  /** Companion authority remains outstanding until its exact stop receipt settles. */
-  private readonly companionRecords = new Set<SessionRec>();
+  /** Daemon authority remains outstanding until its exact stop receipt settles. */
+  private readonly primeDaemonRecords = new Set<SessionRec>();
   /** Bounded waiters used only after shutdown has prevented further creates. */
   private readonly allExitedWaiters = new Set<AllExitedWaiter>();
   /** Exact-generation deletion waiters; unrelated seats never hold these open. */
@@ -672,14 +672,14 @@ export class LocalSessionHost extends EventEmitter {
   private readonly lateExitGraceMs: number;
   private readonly externalMaintenanceFence: () => boolean;
   private readonly observerPlane: TerminalObserverPlane;
-  private readonly companionManager: PrimeAgentCompanionManager | undefined;
-  private companionManagerShutdownState:
+  private readonly primeDaemons: PrimeAgentDaemons | undefined;
+  private primeDaemonsShutdownState:
     | "idle"
     | "pending"
     | "clean"
     | "failed" = "idle";
-  private companionManagerShutdownError: string | undefined;
-  private companionManagerShutdownFlight: Promise<void> | undefined;
+  private primeDaemonsShutdownError: string | undefined;
+  private primeDaemonsShutdownFlight: Promise<void> | undefined;
 
   constructor(
     processAuthority: LocalTerminalProcessAuthority = appProcessPlane,
@@ -693,11 +693,11 @@ export class LocalSessionHost extends EventEmitter {
     this.externalMaintenanceFence =
       options.externalMaintenanceFence ?? (() => false);
     this.observerPlane = options.observerPlane ?? terminalObserverPlane;
-    this.companionManager = options.companionManager === undefined
+    this.primeDaemons = options.primeDaemons === undefined
       ? processAuthority === appProcessPlane
-        ? primeAgentCompanionManager
+        ? primeAgentDaemons
         : undefined
-      : options.companionManager ?? undefined;
+      : options.primeDaemons ?? undefined;
   }
 
   /** Open a geography terminal. A shell — it can hold no harness. */
@@ -926,10 +926,10 @@ export class LocalSessionHost extends EventEmitter {
       pid: undefined,
       ptyIdentityBinding: undefined,
       daemonIdentityBinding: undefined,
-      companion: undefined,
-      companionStopFlight: undefined,
-      companionCleanupState: "none",
-      companionCleanupError: undefined,
+      primeDaemon: undefined,
+      primeDaemonStopFlight: undefined,
+      primeDaemonCleanupState: "none",
+      primeDaemonCleanupError: undefined,
       cols,
       rows,
       cwd: Result.isSuccess(resolved) ? resolved.success.cwd : resolveCwd(seat.launch),
@@ -978,7 +978,7 @@ export class LocalSessionHost extends EventEmitter {
     if (seat.kind === "agent") {
       rec.resumeAttempt = launchArgvUsesResume([launch.file, ...launch.args]);
     }
-    // Best-effort display name until OSC title updates (the companion wrapper is
+    // Best-effort display name until OSC title updates (the daemon wrapper is
     // transport, not the process name the operator chose).
     const spawnName = basename(launch.file).trim();
     if (spawnName.length > 0) rec.processName = spawnName;
@@ -997,30 +997,30 @@ export class LocalSessionHost extends EventEmitter {
     if (
       seat.kind === "agent" &&
       seat.harness === "prime-agent" &&
-      this.companionManager !== undefined
+      this.primeDaemons !== undefined
     ) {
       try {
-        const companion = this.companionManager.start({
+        const daemon = this.primeDaemons.start({
           bindingId,
           epoch,
           launch,
           onReport: (report) => this.observePrimeAgentReport(rec, report),
-          onUnexpectedExit: () => this.observeCompanionUnexpectedExit(rec),
+          onUnexpectedExit: () => this.observePrimeDaemonUnexpectedExit(rec),
         });
-        rec.companion = companion;
-        this.companionRecords.add(rec);
-        terminalLaunch = companion.terminalLaunch;
+        rec.primeDaemon = daemon;
+        this.primeDaemonRecords.add(rec);
+        terminalLaunch = daemon.terminalLaunch;
         // The daemon must wield the exact seat principal before its socket-routed
         // client is spawned and can release the initial prompt.
         if (!this.bindDaemonProcessIdentity(rec)) {
           throw new Error("Prime Agent daemon process identity bind failed");
         }
         if (rec.killed || !this.liveRecords.has(rec)) {
-          throw new Error("Prime Agent companion exited during startup");
+          throw new Error("Prime Agent daemon exited during startup");
         }
       } catch (error) {
         this.revokeProcessIdentities(rec);
-        this.requestCompanionStop(rec, "companion_start_failed");
+        this.requestPrimeDaemonStop(rec, "prime_daemon_start_failed");
         this.failBeforeOwnership(rec, error);
         return this.summaryOf(rec);
       }
@@ -1031,7 +1031,7 @@ export class LocalSessionHost extends EventEmitter {
         `working directory is not a usable directory: ${terminalLaunch.cwd}`,
       );
       this.revokeProcessIdentities(rec);
-      this.requestCompanionStop(rec, "companion_launch_invalid");
+      this.requestPrimeDaemonStop(rec, "prime_daemon_launch_invalid");
       this.failBeforeOwnership(rec, error);
       return this.summaryOf(rec);
     }
@@ -1051,7 +1051,7 @@ export class LocalSessionHost extends EventEmitter {
       lease = this.processAuthority.spawnTerminal(spec);
     } catch (err) {
       this.revokeProcessIdentities(rec);
-      this.requestCompanionStop(rec, "terminal_spawn_failed");
+      this.requestPrimeDaemonStop(rec, "terminal_spawn_failed");
       this.failBeforeOwnership(rec, err);
       return this.summaryOf(rec);
     }
@@ -1406,7 +1406,7 @@ export class LocalSessionHost extends EventEmitter {
   /**
    * Node deletion is stronger than an interactive Stop click: synchronously cut
    * the exact current generation, then wait for both its PTY witness and any
-   * Prime Agent companion receipt. A missing binding is already clean.
+   * Prime Agent daemon receipt. A missing binding is already clean.
    */
   async deleteBinding(bindingId: string): Promise<boolean> {
     const rec = this.sessions.get(bindingId.trim());
@@ -1490,7 +1490,7 @@ export class LocalSessionHost extends EventEmitter {
     for (const rec of [...this.liveRecords]) {
       this.requestStop(rec, reason);
     }
-    this.requestCompanionManagerShutdown(reason);
+    this.requestPrimeDaemonsShutdown(reason);
     if (await this.waitForAllExitsWithin(this.shutdownGraceMs)) {
       return { clean: true, stragglers: [] };
     }
@@ -1501,25 +1501,25 @@ export class LocalSessionHost extends EventEmitter {
       return { clean: true, stragglers: [] };
     }
     // Some process wrappers report exit just after a successful KILL. Give
-    // that observed callback one final bounded, event-driven window. Companion
+    // that observed callback one final bounded, event-driven window. Daemon
     // stop receipts share the same bound; a hung daemon can never yield clean.
     if (await this.waitForAllExitsWithin(this.lateExitGraceMs)) {
       return { clean: true, stragglers: [] };
     }
-    const retained = new Set([...this.liveRecords, ...this.companionRecords]);
+    const retained = new Set([...this.liveRecords, ...this.primeDaemonRecords]);
     const stragglers = [...retained].map((rec) => {
       const status = sessionStatusOf(rec) === "exited"
         ? "running" as const
         : activeSessionStatusOf(rec);
-      const companion = this.companionRecords.has(rec)
+      const primeDaemon = this.primeDaemonRecords.has(rec)
         ? {
-            daemonPid: rec.companion?.daemonPid,
-            state: rec.companionCleanupState === "failed"
+            daemonPid: rec.primeDaemon?.daemonPid,
+            state: rec.primeDaemonCleanupState === "failed"
               ? "failed" as const
               : "pending" as const,
-            ...(rec.companionCleanupError === undefined
+            ...(rec.primeDaemonCleanupError === undefined
               ? {}
-              : { message: rec.companionCleanupError }),
+              : { message: rec.primeDaemonCleanupError }),
           }
         : undefined;
       return {
@@ -1530,24 +1530,24 @@ export class LocalSessionHost extends EventEmitter {
         ...(this.liveRecords.has(rec) ? { ownedPtyOutstanding: true as const } : {}),
         ...(rec.termReceipt === undefined ? {} : { term: rec.termReceipt }),
         ...(rec.killReceipt === undefined ? {} : { kill: rec.killReceipt }),
-        ...(companion === undefined ? {} : { companion }),
+        ...(primeDaemon === undefined ? {} : { primeDaemon }),
       };
     }) as LocalHostShutdownStraggler[];
     if (
-      this.companionManagerShutdownState === "pending" ||
-      this.companionManagerShutdownState === "failed"
+      this.primeDaemonsShutdownState === "pending" ||
+      this.primeDaemonsShutdownState === "failed"
     ) {
       stragglers.push({
-        bindingId: "prime-agent-companion-manager",
+        bindingId: "prime-agent-daemon-manager",
         epoch: "shutdown",
         status: "running",
-        companion: {
-          state: this.companionManagerShutdownState === "failed"
+        primeDaemon: {
+          state: this.primeDaemonsShutdownState === "failed"
             ? "manager_failed"
             : "manager_pending",
-          ...(this.companionManagerShutdownError === undefined
+          ...(this.primeDaemonsShutdownError === undefined
             ? {}
-            : { message: this.companionManagerShutdownError }),
+            : { message: this.primeDaemonsShutdownError }),
         },
       });
     }
@@ -1566,7 +1566,7 @@ export class LocalSessionHost extends EventEmitter {
     if (!rec) return false;
     if (sessionStatusOf(rec) === "exited") {
       this.revokeProcessIdentities(rec);
-      this.requestCompanionStop(rec, reason);
+      this.requestPrimeDaemonStop(rec, reason);
       return true;
     }
     this.requestStop(rec, reason);
@@ -1581,7 +1581,7 @@ export class LocalSessionHost extends EventEmitter {
     // terminal TERM may begin while a dying generation still wields the seat.
     this.revokeProcessIdentities(rec);
     this.clearPrimeAgentReporterHook(rec, reason);
-    this.requestCompanionStop(rec, reason);
+    this.requestPrimeDaemonStop(rec, reason);
     if (alreadyKilled || sessionStatusOf(rec) === "exited") return;
 
     this.forceKill(rec, "SIGTERM");
@@ -1598,7 +1598,7 @@ export class LocalSessionHost extends EventEmitter {
 
   private observePrimeAgentReport(
     rec: SessionRec,
-    report: PrimeAgentCompanionReport,
+    report: PrimeAgentDaemonReport,
   ): void {
     // Reporter sockets are per generation, but the host independently fences the
     // callback because a released registration may already have queued a frame.
@@ -1635,14 +1635,14 @@ export class LocalSessionHost extends EventEmitter {
     seatStateRuntime.clearStructuredHook(rec.bindingId, rec.epoch, reason);
   }
 
-  private observeCompanionUnexpectedExit(rec: SessionRec): void {
+  private observePrimeDaemonUnexpectedExit(rec: SessionRec): void {
     if (!this.liveRecords.has(rec)) return;
     // Exact bindings are retired before terminal TERM. The callback owns `rec`,
     // never a mutable binding lookup, so an old daemon cannot stop a replacement.
     this.revokeProcessIdentities(rec);
     if (this.sessions.get(rec.bindingId) === rec) {
       const data =
-        "\r\n[vellum] Prime Agent companion exited unexpectedly; stopping client\r\n";
+        "\r\n[vellum] Prime Agent daemon exited unexpectedly; stopping client\r\n";
       rec.seq = rec.seq + 1n;
       this.pushJournal(rec, {
         seq: rec.seq,
@@ -1657,104 +1657,104 @@ export class LocalSessionHost extends EventEmitter {
         data,
       });
     }
-    this.requestStop(rec, "companion_unexpected_exit");
+    this.requestStop(rec, "prime_daemon_unexpected_exit");
   }
 
-  private requestCompanionStop(rec: SessionRec, reason: string): void {
-    const companion = rec.companion;
+  private requestPrimeDaemonStop(rec: SessionRec, reason: string): void {
+    const daemon = rec.primeDaemon;
     if (
-      companion === undefined ||
-      rec.companionStopFlight !== undefined ||
-      rec.companionCleanupState !== "none"
+      daemon === undefined ||
+      rec.primeDaemonStopFlight !== undefined ||
+      rec.primeDaemonCleanupState !== "none"
     ) return;
-    rec.companionCleanupState = "pending";
-    let stopReceipt: ReturnType<PrimeAgentCompanionHandle["stop"]>;
+    rec.primeDaemonCleanupState = "pending";
+    let stopReceipt: ReturnType<PrimeAgentDaemonHandle["stop"]>;
     try {
-      stopReceipt = companion.stop(reason);
+      stopReceipt = daemon.stop(reason);
     } catch (error) {
-      this.markCompanionCleanupFailed(rec, error);
+      this.markPrimeDaemonCleanupFailed(rec, error);
       return;
     }
-    rec.companionStopFlight = Promise.resolve(stopReceipt).then(
+    rec.primeDaemonStopFlight = Promise.resolve(stopReceipt).then(
       (receipt) => {
         const failure = cleanupFailureMessage(receipt);
         if (failure !== undefined) {
-          this.markCompanionCleanupFailed(rec, failure);
+          this.markPrimeDaemonCleanupFailed(rec, failure);
           return;
         }
-        rec.companionCleanupState = "clean";
-        rec.companionCleanupError = undefined;
-        this.companionRecords.delete(rec);
+        rec.primeDaemonCleanupState = "clean";
+        rec.primeDaemonCleanupError = undefined;
+        this.primeDaemonRecords.delete(rec);
         this.notifyQuiescentWaiters();
       },
-      (error) => this.markCompanionCleanupFailed(rec, error),
+      (error) => this.markPrimeDaemonCleanupFailed(rec, error),
     );
   }
 
-  private markCompanionCleanupFailed(rec: SessionRec, error: unknown): void {
-    rec.companionCleanupState = "failed";
-    rec.companionCleanupError = errorMessage(error);
+  private markPrimeDaemonCleanupFailed(rec: SessionRec, error: unknown): void {
+    rec.primeDaemonCleanupState = "failed";
+    rec.primeDaemonCleanupError = errorMessage(error);
     console.error(
-      `[term] Prime Agent companion cleanup failed for ${rec.bindingId}@${rec.epoch}:`,
+      `[term] Prime Agent daemon cleanup failed for ${rec.bindingId}@${rec.epoch}:`,
       error,
     );
     this.notifyQuiescentWaiters();
     // Keep the record outstanding. A bounded shutdown must report it non-clean.
   }
 
-  private requestCompanionManagerShutdown(reason: string): void {
-    const manager = this.companionManager;
-    if (manager === undefined || this.companionManagerShutdownFlight !== undefined) {
+  private requestPrimeDaemonsShutdown(reason: string): void {
+    const manager = this.primeDaemons;
+    if (manager === undefined || this.primeDaemonsShutdownFlight !== undefined) {
       return;
     }
-    this.companionManagerShutdownState = "pending";
-    let shutdownReceipt: ReturnType<PrimeAgentCompanionManager["shutdownAll"]>;
+    this.primeDaemonsShutdownState = "pending";
+    let shutdownReceipt: ReturnType<PrimeAgentDaemons["shutdownAll"]>;
     try {
       shutdownReceipt = manager.shutdownAll(reason);
     } catch (error) {
-      this.companionManagerShutdownState = "failed";
-      this.companionManagerShutdownError = errorMessage(error);
-      this.companionManagerShutdownFlight = Promise.resolve();
+      this.primeDaemonsShutdownState = "failed";
+      this.primeDaemonsShutdownError = errorMessage(error);
+      this.primeDaemonsShutdownFlight = Promise.resolve();
       return;
     }
-    this.companionManagerShutdownFlight = Promise.resolve(shutdownReceipt).then(
+    this.primeDaemonsShutdownFlight = Promise.resolve(shutdownReceipt).then(
       (receipt) => {
         const failure = cleanupFailureMessage(receipt);
         if (failure !== undefined) {
-          this.companionManagerShutdownState = "failed";
-          this.companionManagerShutdownError = failure;
+          this.primeDaemonsShutdownState = "failed";
+          this.primeDaemonsShutdownError = failure;
           return;
         }
-        this.companionManagerShutdownState = "clean";
-        this.companionManagerShutdownError = undefined;
+        this.primeDaemonsShutdownState = "clean";
+        this.primeDaemonsShutdownError = undefined;
         this.notifyQuiescentWaiters();
       },
       (error) => {
-        this.companionManagerShutdownState = "failed";
-        this.companionManagerShutdownError = errorMessage(error);
+        this.primeDaemonsShutdownState = "failed";
+        this.primeDaemonsShutdownError = errorMessage(error);
       },
     );
   }
 
   private outstandingGenerationCount(): number {
-    return new Set([...this.liveRecords, ...this.companionRecords]).size;
+    return new Set([...this.liveRecords, ...this.primeDaemonRecords]).size;
   }
 
   private shutdownQuiescent(): boolean {
-    if (this.liveRecords.size !== 0 || this.companionRecords.size !== 0) {
+    if (this.liveRecords.size !== 0 || this.primeDaemonRecords.size !== 0) {
       return false;
     }
-    return this.companionManager === undefined ||
-      this.companionManagerShutdownState === "clean";
+    return this.primeDaemons === undefined ||
+      this.primeDaemonsShutdownState === "clean";
   }
 
   private recordQuiescent(rec: SessionRec): boolean {
-    return !this.liveRecords.has(rec) && !this.companionRecords.has(rec);
+    return !this.liveRecords.has(rec) && !this.primeDaemonRecords.has(rec);
   }
 
   private recordCleanupFailed(rec: SessionRec): boolean {
     return !this.liveRecords.has(rec) &&
-      rec.companionCleanupState === "failed";
+      rec.primeDaemonCleanupState === "failed";
   }
 
   private waitForRecordExitWithin(
@@ -1875,7 +1875,7 @@ export class LocalSessionHost extends EventEmitter {
     // Revoke exact identities before asking the daemon to drain.
     this.revokeProcessIdentities(rec);
     this.clearPrimeAgentReporterHook(rec, "terminal_exit");
-    this.requestCompanionStop(rec, "terminal_exit");
+    this.requestPrimeDaemonStop(rec, "terminal_exit");
     this.removeLiveRecord(rec);
     const current = this.sessions.get(rec.bindingId);
     rec.phase = SessionPhase.Closed({
@@ -2180,12 +2180,12 @@ export class LocalSessionHost extends EventEmitter {
   }
 
   private bindDaemonProcessIdentity(rec: SessionRec): boolean {
-    const companion = rec.companion;
+    const daemon = rec.primeDaemon;
     const principal = this.processPrincipal(rec);
-    if (principal === undefined || companion === undefined) return true;
+    if (principal === undefined || daemon === undefined) return true;
     try {
       const binding = getProcessIdentityMap().bindGeneration(
-        companion.daemonPid,
+        daemon.daemonPid,
         principal,
       );
       if (binding === undefined) return false;

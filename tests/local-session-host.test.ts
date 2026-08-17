@@ -27,9 +27,9 @@ import {
   resetSessionIdStoreForTest,
 } from "../src/main/vellum/term/session-id-store";
 import type {
-  PrimeAgentCompanionHandle,
-  PrimeAgentCompanionManager,
-} from "../src/main/vellum/term/prime-agent-companion";
+  PrimeAgentDaemonHandle,
+  PrimeAgentDaemons,
+} from "../src/main/vellum/term/prime-agent-daemon";
 import { seatStateRuntime } from "../src/main/vellum/term/agent-state";
 import type { PrimeAgentReporterReport } from "../src/main/vellum/term/prime-agent-reporter";
 
@@ -85,13 +85,13 @@ const hostWith = (
   return host;
 };
 
-type FakeCompanionStartInput = Parameters<
-  PrimeAgentCompanionManager["start"]
+type FakeDaemonStartInput = Parameters<
+  PrimeAgentDaemons["start"]
 >[0];
 
-type FakeCompanionRecord = {
-  readonly input: FakeCompanionStartInput;
-  readonly handle: PrimeAgentCompanionHandle;
+type FakeDaemonRecord = {
+  readonly input: FakeDaemonStartInput;
+  readonly handle: PrimeAgentDaemonHandle;
   readonly stopReasons: string[];
   readonly report: (
     report: Omit<PrimeAgentReporterReport, "bindingId" | "epoch">,
@@ -101,44 +101,44 @@ type FakeCompanionRecord = {
   readonly rejectStop: (error: Error) => void;
 };
 
-const makeFakeCompanionManager = (options: {
+const makeFakeDaemons = (options: {
   readonly manualStop?: boolean;
   readonly stopClean?: boolean;
   readonly daemonPidBase?: number;
   readonly log?: string[];
 } = {}): {
-  readonly manager: PrimeAgentCompanionManager;
-  readonly records: FakeCompanionRecord[];
+  readonly manager: PrimeAgentDaemons;
+  readonly records: FakeDaemonRecord[];
   readonly shutdownReasons: string[];
 } => {
-  const records: FakeCompanionRecord[] = [];
+  const records: FakeDaemonRecord[] = [];
   const shutdownReasons: string[] = [];
   const log = options.log;
 
-  const start: PrimeAgentCompanionManager["start"] = (input) => {
+  const start: PrimeAgentDaemons["start"] = (input) => {
     const unstopped = records.find(
       (record) =>
         record.input.bindingId === input.bindingId &&
         record.stopReasons.length === 0,
     );
     if (unstopped !== undefined) {
-      throw new Error(`fake companion still owns ${input.bindingId}`);
+      throw new Error(`fake daemon plane still owns ${input.bindingId}`);
     }
-    log?.push(`companion:start:${input.bindingId}`);
+    log?.push(`daemon:start:${input.bindingId}`);
     const daemonPid = trackSyntheticPid(
       (options.daemonPidBase ?? 51_000) + records.length,
     );
     const stopReasons: string[] = [];
-    let stopFlight: ReturnType<PrimeAgentCompanionHandle["stop"]> | undefined;
+    let stopFlight: ReturnType<PrimeAgentDaemonHandle["stop"]> | undefined;
     let resolveManual:
-      | ((receipt: Awaited<ReturnType<PrimeAgentCompanionHandle["stop"]>>) => void)
+      | ((receipt: Awaited<ReturnType<PrimeAgentDaemonHandle["stop"]>>) => void)
       | undefined;
     let rejectManual: ((error: Error) => void) | undefined;
 
     const receipt = (
       reason: string,
       clean = options.stopClean ?? true,
-    ): Awaited<ReturnType<PrimeAgentCompanionHandle["stop"]>> => ({
+    ): Awaited<ReturnType<PrimeAgentDaemonHandle["stop"]>> => ({
       bindingId: input.bindingId,
       epoch: input.epoch,
       reason,
@@ -154,9 +154,9 @@ const makeFakeCompanionManager = (options: {
         : [{ stage: "stop", message: `fake cleanup failed for ${input.bindingId}` }],
     });
 
-    const stop: PrimeAgentCompanionHandle["stop"] = (reason = "stop") => {
+    const stop: PrimeAgentDaemonHandle["stop"] = (reason = "stop") => {
       stopReasons.push(reason);
-      log?.push(`companion:stop:${input.bindingId}:${reason}`);
+      log?.push(`daemon:stop:${input.bindingId}:${reason}`);
       if (stopFlight !== undefined) return stopFlight;
       stopFlight = options.manualStop
         ? new Promise((resolve, reject) => {
@@ -172,7 +172,7 @@ const makeFakeCompanionManager = (options: {
         (entry): entry is [string, string] => typeof entry[1] === "string",
       ),
     );
-    const handle: PrimeAgentCompanionHandle = {
+    const handle: PrimeAgentDaemonHandle = {
       bindingId: input.bindingId,
       epoch: input.epoch,
       daemonPid,
@@ -186,7 +186,7 @@ const makeFakeCompanionManager = (options: {
       },
       stop,
     };
-    const record: FakeCompanionRecord = {
+    const record: FakeDaemonRecord = {
       input,
       handle,
       stopReasons,
@@ -216,11 +216,11 @@ const makeFakeCompanionManager = (options: {
     return handle;
   };
 
-  const manager: PrimeAgentCompanionManager = {
+  const manager: PrimeAgentDaemons = {
     start,
     shutdownAll: vi.fn(async (reason = "shutdown") => {
       shutdownReasons.push(reason);
-      log?.push(`companion:shutdown:${reason}`);
+      log?.push(`daemon:shutdown:${reason}`);
       const receipts = await Promise.all(
         records.map((record) => record.handle.stop(reason)),
       );
@@ -591,7 +591,7 @@ describe("LocalSessionHost", () => {
         return identities.bindGeneration(pid, principal);
       },
     });
-    const companion = makeFakeCompanionManager({
+    const daemons = makeFakeDaemons({
       daemonPidBase: 52_000,
       log: order,
     });
@@ -599,7 +599,7 @@ describe("LocalSessionHost", () => {
       order.push(`terminal:spawn:${spec.command}`);
       return { pid: trackSyntheticPid(52_100), exitOnSignal: "SIGTERM" };
     });
-    const host = hostWith(fake, { companionManager: companion.manager });
+    const host = hostWith(fake, { primeDaemons: daemons.manager });
 
     host.createAgentSeat({
       bindingId: "prime-ordered",
@@ -614,7 +614,7 @@ describe("LocalSessionHost", () => {
     });
 
     expect(order.slice(0, 4)).toEqual([
-      "companion:start:prime-ordered",
+      "daemon:start:prime-ordered",
       "identity:bind:52000",
       "terminal:spawn:/bin/sh",
       "identity:bind:52100",
@@ -650,12 +650,12 @@ describe("LocalSessionHost", () => {
   it("keeps a partially anchored Prime seat unbound until bindCanvas can bind both generations", async () => {
     const identities = makeSyntheticIdentityMap();
     setProcessIdentityMapForTests(identities);
-    const companion = makeFakeCompanionManager({ daemonPidBase: 52_200 });
+    const daemons = makeFakeDaemons({ daemonPidBase: 52_200 });
     const fake = makeFakeTerminalProcessAuthority(() => ({
       pid: trackSyntheticPid(52_300),
       exitOnSignal: "SIGTERM",
     }));
-    const host = hostWith(fake, { companionManager: companion.manager });
+    const host = hostWith(fake, { primeDaemons: daemons.manager });
 
     host.createAgentSeat({
       bindingId: "prime-late-anchor",
@@ -687,12 +687,12 @@ describe("LocalSessionHost", () => {
   });
 
   it("uses generation-fenced structured Prime reports and authoritative session capture", async () => {
-    const companion = makeFakeCompanionManager({ daemonPidBase: 52_400 });
+    const daemons = makeFakeDaemons({ daemonPidBase: 52_400 });
     const fake = makeFakeTerminalProcessAuthority(() => ({
       pid: trackSyntheticPid(52_500),
       exitOnSignal: "SIGTERM",
     }));
-    const host = hostWith(fake, { companionManager: companion.manager });
+    const host = hostWith(fake, { primeDaemons: daemons.manager });
     const created = host.createAgentSeat({
       bindingId: "prime-report",
       harness: "prime-agent",
@@ -700,7 +700,7 @@ describe("LocalSessionHost", () => {
       launch: { kind: "harness", argv: ["prime-agent"] },
     });
 
-    companion.records[0]?.report({
+    daemons.records[0]?.report({
       state: "working",
       reason: "prime_agent_reporter_working",
       sessionPath: "/tmp/prime/sessions/session-from-path.jsonl",
@@ -708,7 +708,7 @@ describe("LocalSessionHost", () => {
     expect(seatStateRuntime.getState("prime-report")).toBe("working");
     expect(getCapturedSessionId("prime-report")).toBe("session-from-path");
 
-    companion.records[0]?.report({
+    daemons.records[0]?.report({
       state: "idle",
       reason: "prime_agent_reporter_idle",
       sessionId: "authoritative-session-id",
@@ -718,7 +718,7 @@ describe("LocalSessionHost", () => {
       "authoritative-session-id",
     );
 
-    companion.records[0]?.report({
+    daemons.records[0]?.report({
       state: "idle",
       reason: "prime_agent_reporter_released",
       released: true,
@@ -752,7 +752,7 @@ describe("LocalSessionHost", () => {
   it("keeps client-exit cleanup in the shutdown fence until the Prime stop receipt settles", async () => {
     const identities = makeSyntheticIdentityMap();
     setProcessIdentityMapForTests(identities);
-    const companion = makeFakeCompanionManager({
+    const daemons = makeFakeDaemons({
       manualStop: true,
       daemonPidBase: 52_600,
     });
@@ -760,7 +760,7 @@ describe("LocalSessionHost", () => {
       pid: trackSyntheticPid(52_700),
       exitOnSignal: false,
     }));
-    const host = hostWith(fake, { companionManager: companion.manager });
+    const host = hostWith(fake, { primeDaemons: daemons.manager });
     host.createAgentSeat({
       bindingId: "prime-client-exit",
       harness: "prime-agent",
@@ -774,9 +774,9 @@ describe("LocalSessionHost", () => {
     await vi.waitFor(() =>
       expect(host.get("prime-client-exit")?.status).toBe("exited"),
     );
-    expect(companion.records[0]?.stopReasons).toContain("terminal_exit");
+    expect(daemons.records[0]?.stopReasons).toContain("terminal_exit");
     expect(identities.snapshot()).toEqual([]);
-    // The PTY is gone, but the exact companion generation still prevents a
+    // The PTY is gone, but the exact daemons generation still prevents a
     // false zero-session maintenance cut and remains in the shutdown fence.
     expect(host.runningCount()).toBe(1);
     expect(host.acquireMaintenanceLease()).toMatchObject({
@@ -792,7 +792,7 @@ describe("LocalSessionHost", () => {
     await Promise.resolve();
     expect(settled).toBe(false);
 
-    companion.records[0]?.resolveStop();
+    daemons.records[0]?.resolveStop();
     await expect(shutdown).resolves.toEqual({ clean: true, stragglers: [] });
     expect(host.runningCount()).toBe(0);
   });
@@ -800,7 +800,7 @@ describe("LocalSessionHost", () => {
   it("revokes both Prime generations immediately and stops only its PTY when the daemon crashes", async () => {
     const identities = makeSyntheticIdentityMap();
     setProcessIdentityMapForTests(identities);
-    const companion = makeFakeCompanionManager({
+    const daemons = makeFakeDaemons({
       manualStop: true,
       daemonPidBase: 52_800,
     });
@@ -809,7 +809,7 @@ describe("LocalSessionHost", () => {
       exitOnSignal: false,
     }));
     const host = hostWith(fake, {
-      companionManager: companion.manager,
+      primeDaemons: daemons.manager,
       killGraceMs: 100,
     });
     const outputEvents: Array<{
@@ -830,7 +830,7 @@ describe("LocalSessionHost", () => {
     });
     expect(identities.snapshot()).toHaveLength(2);
 
-    companion.records[0]?.crash();
+    daemons.records[0]?.crash();
     expect(identities.snapshot()).toEqual([]);
     expect(fake.controllers[0]?.signals).toEqual(["SIGTERM"]);
     expect(host.get("prime-crash")?.stopping).toBe(true);
@@ -839,12 +839,12 @@ describe("LocalSessionHost", () => {
         bindingId: "prime-crash",
         epoch: created.epoch,
         data: expect.stringContaining(
-          "Prime Agent companion exited unexpectedly; stopping client",
+          "Prime Agent daemon exited unexpectedly; stopping client",
         ),
       },
     ]);
 
-    companion.records[0]?.resolveStop();
+    daemons.records[0]?.resolveStop();
     fake.controllers[0]?.exit(1);
     await vi.waitFor(() => expect(host.runningCount()).toBe(0));
   });
@@ -852,7 +852,7 @@ describe("LocalSessionHost", () => {
   it.each(["daemon", "pty"] as const)(
     "rolls back both Prime processes when the %s exact identity bind fails",
     async (failureAt) => {
-      const companion = makeFakeCompanionManager({ daemonPidBase: 53_000 });
+      const daemons = makeFakeDaemons({ daemonPidBase: 53_000 });
       const identities = makeSyntheticIdentityMap();
       const ptyPid = 53_100;
       setProcessIdentityMapForTests({
@@ -867,7 +867,7 @@ describe("LocalSessionHost", () => {
         pid: trackSyntheticPid(ptyPid),
         exitOnSignal: "SIGTERM",
       }));
-      const host = hostWith(fake, { companionManager: companion.manager });
+      const host = hostWith(fake, { primeDaemons: daemons.manager });
       vi.spyOn(console, "error").mockImplementation(() => undefined);
 
       const created = host.createAgentSeat({
@@ -889,7 +889,7 @@ describe("LocalSessionHost", () => {
           expect(host.get(created.bindingId)?.status).toBe("exited"),
         );
       }
-      expect(companion.records[0]?.stopReasons.length).toBeGreaterThan(0);
+      expect(daemons.records[0]?.stopReasons.length).toBeGreaterThan(0);
       expect(identities.snapshot()).toEqual([]);
       await vi.waitFor(() => expect(host.runningCount()).toBe(0));
     },
@@ -1133,7 +1133,7 @@ describe("LocalSessionHost", () => {
 
   it("requests Prime cleanup before PTY TERM and makes app quit await the receipt", async () => {
     const order: string[] = [];
-    const companion = makeFakeCompanionManager({
+    const daemons = makeFakeDaemons({
       manualStop: true,
       daemonPidBase: 53_200,
       log: order,
@@ -1150,7 +1150,7 @@ describe("LocalSessionHost", () => {
       },
     };
     const host = new LocalSessionHost(authority, {
-      companionManager: companion.manager,
+      primeDaemons: daemons.manager,
       shutdownGraceMs: 100,
       lateExitGraceMs: 100,
     });
@@ -1170,18 +1170,18 @@ describe("LocalSessionHost", () => {
       settled = true;
     });
     await Promise.resolve();
-    expect(order.indexOf("companion:stop:prime-quit-wait:app_quit")).toBeLessThan(
+    expect(order.indexOf("daemon:stop:prime-quit-wait:app_quit")).toBeLessThan(
       order.indexOf("terminal:term"),
     );
-    expect(companion.shutdownReasons).toEqual(["app_quit"]);
+    expect(daemons.shutdownReasons).toEqual(["app_quit"]);
     expect(settled).toBe(false);
 
-    companion.records[0]?.resolveStop();
+    daemons.records[0]?.resolveStop();
     await expect(shutdown).resolves.toEqual({ clean: true, stragglers: [] });
   });
 
-  it("explicit Prime kill starts companion cleanup even before a later app-quit drain", async () => {
-    const companion = makeFakeCompanionManager({
+  it("explicit Prime kill starts daemons cleanup even before a later app-quit drain", async () => {
+    const daemons = makeFakeDaemons({
       manualStop: true,
       daemonPidBase: 53_400,
     });
@@ -1190,7 +1190,7 @@ describe("LocalSessionHost", () => {
       exitOnSignal: "SIGTERM",
     }));
     const host = hostWith(fake, {
-      companionManager: companion.manager,
+      primeDaemons: daemons.manager,
       shutdownGraceMs: 100,
       lateExitGraceMs: 100,
     });
@@ -1202,7 +1202,7 @@ describe("LocalSessionHost", () => {
     });
 
     expect(host.kill("prime-explicit-kill")).toBe(true);
-    expect(companion.records[0]?.stopReasons).toEqual(["explicit_kill"]);
+    expect(daemons.records[0]?.stopReasons).toEqual(["explicit_kill"]);
     const shutdown = host.shutdownAll("app_quit_after_kill");
     let settled = false;
     void shutdown.then(() => {
@@ -1210,12 +1210,12 @@ describe("LocalSessionHost", () => {
     });
     await Promise.resolve();
     expect(settled).toBe(false);
-    companion.records[0]?.resolveStop();
+    daemons.records[0]?.resolveStop();
     await expect(shutdown).resolves.toEqual({ clean: true, stragglers: [] });
   });
 
-  it("node deletion awaits the exact Prime PTY and companion receipt", async () => {
-    const companion = makeFakeCompanionManager({
+  it("node deletion awaits the exact Prime PTY and daemons receipt", async () => {
+    const daemons = makeFakeDaemons({
       manualStop: true,
       daemonPidBase: 53_600,
     });
@@ -1224,7 +1224,7 @@ describe("LocalSessionHost", () => {
       exitOnSignal: "SIGTERM",
     }));
     const host = hostWith(fake, {
-      companionManager: companion.manager,
+      primeDaemons: daemons.manager,
       shutdownGraceMs: 100,
       lateExitGraceMs: 100,
     });
@@ -1243,11 +1243,11 @@ describe("LocalSessionHost", () => {
       settled = true;
     });
     await Promise.resolve();
-    expect(companion.records[0]?.stopReasons).toEqual(["node_delete"]);
+    expect(daemons.records[0]?.stopReasons).toEqual(["node_delete"]);
     expect(fake.controllers[0]?.signals).toEqual(["SIGTERM"]);
     expect(settled).toBe(false);
 
-    companion.records[0]?.resolveStop();
+    daemons.records[0]?.resolveStop();
     await expect(deletion).resolves.toBe(true);
     expect(host.runningCount()).toBe(0);
   });
@@ -1255,12 +1255,12 @@ describe("LocalSessionHost", () => {
   it("keeps two Prime seats isolated across reporter, socket, identity, and crash lifecycle", async () => {
     const identities = makeSyntheticIdentityMap();
     setProcessIdentityMapForTests(identities);
-    const companion = makeFakeCompanionManager({ daemonPidBase: 53_600 });
+    const daemons = makeFakeDaemons({ daemonPidBase: 53_600 });
     const fake = makeFakeTerminalProcessAuthority((_spec, index) => ({
       pid: trackSyntheticPid(53_700 + index),
       exitOnSignal: false,
     }));
-    const host = hostWith(fake, { companionManager: companion.manager });
+    const host = hostWith(fake, { primeDaemons: daemons.manager });
     for (const suffix of ["a", "b"] as const) {
       host.createAgentSeat({
         bindingId: `prime-${suffix}`,
@@ -1276,12 +1276,12 @@ describe("LocalSessionHost", () => {
     )).toEqual(["prime-a", "prime-b"]);
     expect(identities.snapshot()).toHaveLength(4);
 
-    companion.records[0]?.report({
+    daemons.records[0]?.report({
       state: "working",
       reason: "prime_agent_reporter_working",
       sessionId: "session-a",
     });
-    companion.records[1]?.report({
+    daemons.records[1]?.report({
       state: "idle",
       reason: "prime_agent_reporter_idle",
       sessionId: "session-b",
@@ -1291,7 +1291,7 @@ describe("LocalSessionHost", () => {
     expect(seatStateRuntime.getState("prime-a")).toBe("working");
     expect(seatStateRuntime.getState("prime-b")).toBe("idle");
 
-    companion.records[0]?.crash();
+    daemons.records[0]?.crash();
     expect(fake.controllers[0]?.signals).toEqual(["SIGTERM"]);
     expect(fake.controllers[1]?.signals).toEqual([]);
     expect(host.get("prime-b")).toMatchObject({ status: "running" });
@@ -1310,12 +1310,12 @@ describe("LocalSessionHost", () => {
     const identities = makeSyntheticIdentityMap();
     setProcessIdentityMapForTests(identities);
     const sharedPty = trackSyntheticPid(53_900);
-    const companion = makeFakeCompanionManager({ daemonPidBase: 53_800 });
+    const daemons = makeFakeDaemons({ daemonPidBase: 53_800 });
     const fake = makeFakeTerminalProcessAuthority(() => ({
       pid: sharedPty,
       exitOnSignal: false,
     }));
-    const host = hostWith(fake, { companionManager: companion.manager });
+    const host = hostWith(fake, { primeDaemons: daemons.manager });
     const crashOutputs: string[] = [];
     host.on("event", (event) => {
       if (event.type === "output") crashOutputs.push(event.data);
@@ -1339,18 +1339,18 @@ describe("LocalSessionHost", () => {
     );
     const replacement = host.createAgentSeat(input);
     expect(replacement.epoch).not.toBe(old.epoch);
-    companion.records[1]?.report({
+    daemons.records[1]?.report({
       state: "idle",
       reason: "prime_agent_reporter_idle",
       sessionId: "replacement-session",
     });
-    companion.records[0]?.report({
+    daemons.records[0]?.report({
       state: "working",
       reason: "prime_agent_reporter_working",
       sessionId: "stale-old-session",
     });
     expect(getCapturedSessionId(input.bindingId)).toBe("replacement-session");
-    companion.records[0]?.crash();
+    daemons.records[0]?.crash();
     expect(fake.controllers[1]?.signals).toEqual([]);
     expect(crashOutputs).toEqual([]);
 
@@ -1370,7 +1370,7 @@ describe("LocalSessionHost", () => {
     await vi.waitFor(() => expect(host.runningCount()).toBe(0));
   });
 
-  it("never selects the production companion singleton for a fake process authority", async () => {
+  it("never selects the production daemons singleton for a fake process authority", async () => {
     const fake = makeFakeTerminalProcessAuthority(() => ({
       pid: trackSyntheticPid(54_050),
       exitOnSignal: "SIGTERM",
@@ -1389,23 +1389,23 @@ describe("LocalSessionHost", () => {
     await vi.waitFor(() => expect(host.runningCount()).toBe(0));
   });
 
-  it("does not start a companion for non-Prime harnesses", async () => {
-    const companion = makeFakeCompanionManager({ daemonPidBase: 54_000 });
+  it("does not start a daemons for non-Prime harnesses", async () => {
+    const daemons = makeFakeDaemons({ daemonPidBase: 54_000 });
     const fake = makeFakeTerminalProcessAuthority(() => ({
       pid: trackSyntheticPid(54_100),
       exitOnSignal: "SIGTERM",
     }));
-    const host = hostWith(fake, { companionManager: companion.manager });
+    const host = hostWith(fake, { primeDaemons: daemons.manager });
     host.createAgentSeat({
-      bindingId: "codex-no-companion",
+      bindingId: "codex-no-daemons",
       harness: "codex",
-      agentKey: "local:codex-no-companion",
+      agentKey: "local:codex-no-daemons",
       launch: { kind: "harness", argv: ["/usr/local/bin/codex"] },
     });
 
-    expect(companion.records).toHaveLength(0);
+    expect(daemons.records).toHaveLength(0);
     expect(fake.controllers[0]?.spec.command).toBe("/usr/local/bin/codex");
-    host.kill("codex-no-companion");
+    host.kill("codex-no-daemons");
     await vi.waitFor(() => expect(host.runningCount()).toBe(0));
   });
 
@@ -1588,8 +1588,8 @@ describe("LocalSessionHost", () => {
     expect(attached.journal).toEqual([]);
   });
 
-  it("surfaces bounded companion-only cleanup debt without claiming PTY authority", async () => {
-    const companion = makeFakeCompanionManager({
+  it("surfaces bounded daemons-only cleanup debt without claiming PTY authority", async () => {
+    const daemons = makeFakeDaemons({
       stopClean: false,
       daemonPidBase: 54_200,
     });
@@ -1598,7 +1598,7 @@ describe("LocalSessionHost", () => {
       exitOnSignal: false,
     }));
     const host = hostWith(fake, {
-      companionManager: companion.manager,
+      primeDaemons: daemons.manager,
       killGraceMs: 0,
       shutdownGraceMs: 2,
       lateExitGraceMs: 2,
@@ -1616,14 +1616,14 @@ describe("LocalSessionHost", () => {
     await Promise.resolve();
     vi.spyOn(console, "error").mockImplementation(() => undefined);
 
-    const result = await host.shutdownAll("dirty-companion");
+    const result = await host.shutdownAll("dirty-daemons");
     expect(result.clean).toBe(false);
     if (result.clean) return;
     const seatDebt = result.stragglers.find(
       (straggler) => straggler.bindingId === "prime-dirty-cleanup",
     );
     expect(seatDebt).toMatchObject({
-      companion: {
+      primeDaemon: {
         daemonPid: 54_200,
         state: "failed",
         message: "stop: fake cleanup failed for prime-dirty-cleanup",

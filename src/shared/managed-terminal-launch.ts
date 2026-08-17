@@ -2,7 +2,7 @@
  * Resolve a managed-terminal template + picker choices into a TerminalLaunch
  * for LocalSessionHost. Pure argv/env construction — no process spawn, no
  * harness config writes. Prime Agent's per-binding daemon socket is main-runtime
- * companion state and is deliberately absent from this authorial resolver.
+ * daemon state and is deliberately absent from this authorial resolver.
  *
  * Phase 6: optional `injection` context fills Tier-A system-prompt flags from
  * the shared doctrine builder. Tier-B first typed message is returned on the
