@@ -1386,6 +1386,13 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       packaged: app.isPackaged,
       headless,
     });
+    // Operator-facing logs name the product role, never the raw mode token.
+    const stationModeCopy =
+      stationMode === "command-center"
+        ? "Command Center"
+        : stationMode === "remote"
+          ? "Remote"
+          : "unenrolled";
 
     if (operatorControlEnabledAtLaunch) {
       try {
@@ -1416,7 +1423,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
 
     if (headless && stationDoor === undefined) {
       console.error(
-        `[station-control] headless ${stationMode} boot binds no enroll door and no peer door`,
+        `[station-control] headless ${stationModeCopy} boot binds no enroll door and no peer door`,
       );
     }
 
@@ -1516,7 +1523,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     if (!licenseDecision.admitted) {
       if (headless) {
         console.error(
-          `[license] headless ${stationMode} startup denied (${licenseDecision.status.reason})`,
+          `[license] headless ${stationModeCopy} startup denied (${licenseDecision.status.reason})`,
         );
         exitAfterDetach(1, "license-startup-denied");
         return;
