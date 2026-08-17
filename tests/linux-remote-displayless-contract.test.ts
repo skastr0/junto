@@ -5,13 +5,24 @@
  * entry, rebuilds node-pty for that Node ABI, and never uses
  * ELECTRON_RUN_AS_NODE or Bun --compile for the product remote.
  */
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  link,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { LINUX_RUNTIME_REQUIRED_FILES } from "../scripts/audit-linux-package";
 import {
   DEFAULT_NODE_REMOTE_VERSION,
+  LINUX_NODE_PTY_NATIVE_RELATIVE,
+  LINUX_NODE_PTY_RUNTIME_FILES,
   PINNED_NODE_LINUX_X64_ARCHIVE_SHA256,
   pinnedNodeLinuxX64ArchiveSha256,
   LINUX_REMOTE_RUNTIME_REQUIRED_FILES,
@@ -25,11 +36,43 @@ import {
   remoteEntryMissingMessage,
   requireNodeRemoteVersion,
   resolveNodeRemoteVersion,
+  stageBuiltNodePtyLinuxRuntime,
   vellumRemoteWrapperScript,
 } from "../scripts/build-linux-remote-runtime";
 
 const readRepo = (relative: string) =>
   readFile(new URL(`../${relative}`, import.meta.url), "utf8");
+
+type InspectedTreeEntry = {
+  readonly relative: string;
+  readonly kind: "directory" | "file" | "other";
+  readonly links: number;
+};
+
+const inspectTree = async (
+  root: string,
+  relative = "",
+): Promise<ReadonlyArray<InspectedTreeEntry>> => {
+  const entries: Array<InspectedTreeEntry> = [];
+  for (const name of await readdir(path.join(root, relative))) {
+    const childRelative = path.join(relative, name);
+    const metadata = await lstat(path.join(root, childRelative));
+    const kind = metadata.isDirectory()
+      ? "directory"
+      : metadata.isFile()
+        ? "file"
+        : "other";
+    entries.push({
+      relative: childRelative.split(path.sep).join("/"),
+      kind,
+      links: metadata.nlink,
+    });
+    if (kind === "directory") {
+      entries.push(...(await inspectTree(root, childRelative)));
+    }
+  }
+  return entries;
+};
 
 describe("Linux remote displayless packaging helpers", () => {
   it("pins Node 22 LTS and names the official linux-x64 archive", () => {
@@ -57,6 +100,95 @@ describe("Linux remote displayless packaging helpers", () => {
     expect(() => pinnedNodeLinuxX64ArchiveSha256("22.17.1")).toThrow(
       /no reviewed Node linux-x64 archive digest/u,
     );
+  });
+
+  it("stages a link-free node-pty runtime from node-gyp hard-linked output", async () => {
+    expect(LINUX_NODE_PTY_NATIVE_RELATIVE).toBe("build/Release/pty.node");
+    expect(LINUX_NODE_PTY_RUNTIME_FILES).toEqual([
+      "LICENSE",
+      "package.json",
+      "lib/eventEmitter2.js",
+      "lib/index.js",
+      "lib/terminal.js",
+      "lib/unixTerminal.js",
+      "lib/utils.js",
+      "build/Release/pty.node",
+    ]);
+    const root = await mkdtemp(path.join(tmpdir(), "vellum-command-node-pty-"));
+    try {
+      const built = path.join(root, "built-node-pty");
+      const staged = path.join(root, "staged-node-pty");
+      for (const relative of LINUX_NODE_PTY_RUNTIME_FILES) {
+        const source = path.join(built, ...relative.split("/"));
+        await mkdir(path.dirname(source), { recursive: true });
+        await writeFile(source, `stock node-pty: ${relative}\n`);
+      }
+
+      const builtNative = path.join(
+        built,
+        ...LINUX_NODE_PTY_NATIVE_RELATIVE.split("/"),
+      );
+      const objectAlias = path.join(
+        built,
+        "build",
+        "Release",
+        "obj.target",
+        "pty.node",
+      );
+      await mkdir(path.dirname(objectAlias), { recursive: true });
+      await link(builtNative, objectAlias);
+      await writeFile(path.join(built, "binding.gyp"), "build input\n");
+      await writeFile(
+        path.join(built, "lib", "unixTerminal.test.js"),
+        "test output\n",
+      );
+      expect((await lstat(builtNative)).nlink).toBe(2);
+
+      const receipt = await stageBuiltNodePtyLinuxRuntime({
+        builtNodePtyRoot: built,
+        destinationNodePtyRoot: staged,
+      });
+      expect(receipt.nodePtyRoot).toBe(staged);
+      expect(receipt.nativeModule).toBe(
+        path.join(staged, ...LINUX_NODE_PTY_NATIVE_RELATIVE.split("/")),
+      );
+
+      const stagedEntries = await inspectTree(staged);
+      expect(stagedEntries.some((entry) => entry.kind === "other")).toBe(false);
+      expect(
+        stagedEntries
+          .filter((entry) => entry.kind === "file")
+          .map((entry) => entry.relative)
+          .sort(),
+      ).toEqual([...LINUX_NODE_PTY_RUNTIME_FILES].sort());
+      for (const entry of stagedEntries) {
+        if (entry.kind === "file") expect(entry.links).toBe(1);
+      }
+      expect(
+        stagedEntries.some((entry) => entry.relative.includes("obj.target")),
+      ).toBe(false);
+      expect(stagedEntries.some((entry) => entry.relative === "binding.gyp")).toBe(
+        false,
+      );
+      expect(
+        stagedEntries.some(
+          (entry) => entry.relative === "lib/unixTerminal.test.js",
+        ),
+      ).toBe(false);
+
+      for (const relative of LINUX_NODE_PTY_RUNTIME_FILES) {
+        await expect(
+          readFile(path.join(staged, ...relative.split("/"))),
+        ).resolves.toEqual(
+          await readFile(path.join(built, ...relative.split("/"))),
+        );
+      }
+      const stagedNativeMetadata = await lstat(receipt.nativeModule);
+      expect(stagedNativeMetadata.nlink).toBe(1);
+      expect(stagedNativeMetadata.mode & 0o777).toBe(0o755);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("wrapper execs bundled node on app-remote entry without ELECTRON_RUN_AS_NODE", () => {

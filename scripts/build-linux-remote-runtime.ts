@@ -18,6 +18,7 @@ import {
   cp,
   lstat,
   mkdir,
+  mkdtemp,
   readFile,
   rm,
   writeFile,
@@ -62,6 +63,26 @@ export const REMOTE_ENTRY_RELATIVE = "resources/app-remote/vellum-command-remote
 export const REMOTE_NODE_PTY_RELATIVE =
   "resources/app-remote/node_modules/node-pty";
 export const REMOTE_APP_PACKAGE_RELATIVE = "resources/app-remote/package.json";
+
+/**
+ * Exact stock node-pty files needed by the displayless Linux runtime, plus its
+ * license. Native compilation happens in a disposable workspace; node-gyp
+ * sources, object files, dependency files, and hard-link aliases never enter
+ * the packaged tree.
+ */
+export const LINUX_NODE_PTY_RUNTIME_FILES = [
+  "LICENSE",
+  "package.json",
+  "lib/eventEmitter2.js",
+  "lib/index.js",
+  "lib/terminal.js",
+  "lib/unixTerminal.js",
+  "lib/utils.js",
+  "build/Release/pty.node",
+] as const;
+
+export const LINUX_NODE_PTY_NATIVE_RELATIVE =
+  "build/Release/pty.node";
 
 /** Repo-side build output copied into the runtime when present. */
 export const REMOTE_ENTRY_SOURCE_RELATIVE = "out/remote/vellum-command-remote.js";
@@ -337,8 +358,63 @@ export const stageOfficialNodeBinary = async (input: {
 };
 
 /**
- * Copy production node-pty sources into the remote tree and rebuild for the
- * bundled Node ABI (not Electron). Linux x64 only.
+ * Materialize only node-pty's stock Linux runtime surface from a completed
+ * node-gyp build. Each file is copied into a fresh tree, so node-gyp's
+ * build/Release/obj.target/pty.node hard link cannot survive as a tar entry.
+ */
+export const stageBuiltNodePtyLinuxRuntime = async (input: {
+  readonly builtNodePtyRoot: string;
+  readonly destinationNodePtyRoot: string;
+}): Promise<{ readonly nodePtyRoot: string; readonly nativeModule: string }> => {
+  const builtNodePtyRoot = path.resolve(input.builtNodePtyRoot);
+  const destinationNodePtyRoot = path.resolve(input.destinationNodePtyRoot);
+  if (
+    builtNodePtyRoot === destinationNodePtyRoot ||
+    builtNodePtyRoot.startsWith(`${destinationNodePtyRoot}${path.sep}`) ||
+    destinationNodePtyRoot.startsWith(`${builtNodePtyRoot}${path.sep}`)
+  ) {
+    throw new Error("node-pty build and runtime roots must be separate trees");
+  }
+
+  await rm(destinationNodePtyRoot, { recursive: true, force: true });
+  try {
+    for (const relative of LINUX_NODE_PTY_RUNTIME_FILES) {
+      const source = path.join(builtNodePtyRoot, ...relative.split("/"));
+      if (!(await isNonSymlinkFile(source))) {
+        throw new Error(`node-pty runtime file missing or not regular: ${relative}`);
+      }
+      const destination = path.join(
+        destinationNodePtyRoot,
+        ...relative.split("/"),
+      );
+      await mkdir(path.dirname(destination), { recursive: true, mode: 0o755 });
+      await copyFile(source, destination);
+      await chmod(
+        destination,
+        relative === LINUX_NODE_PTY_NATIVE_RELATIVE ? 0o755 : 0o644,
+      );
+      const metadata = await lstat(destination);
+      if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink !== 1) {
+        throw new Error(`node-pty runtime file is linked or special: ${relative}`);
+      }
+    }
+  } catch (error) {
+    await rm(destinationNodePtyRoot, { recursive: true, force: true });
+    throw error;
+  }
+
+  return {
+    nodePtyRoot: destinationNodePtyRoot,
+    nativeModule: path.join(
+      destinationNodePtyRoot,
+      ...LINUX_NODE_PTY_NATIVE_RELATIVE.split("/"),
+    ),
+  };
+};
+
+/**
+ * Rebuild stock node-pty for the bundled Node ABI in a disposable workspace,
+ * then stage only its required Linux runtime files. Linux x64 only.
  */
 export const stageNodePtyForBundledNode = async (input: {
   readonly repoRoot: string;
@@ -347,25 +423,13 @@ export const stageNodePtyForBundledNode = async (input: {
   readonly nodeVersion: string;
 }): Promise<{ readonly nodePtyRoot: string; readonly nativeModule: string }> => {
   assertLinuxX64Builder();
-  const sourcePty = path.join(input.repoRoot, "node_modules", "node-pty");
+  const repoRoot = path.resolve(input.repoRoot);
+  const sourcePty = path.join(repoRoot, "node_modules", "node-pty");
   if (!(await isNonSymlinkDirectory(sourcePty))) {
     throw new Error("node-pty is missing from node_modules — run bun install");
   }
-  const destPty = path.join(input.runtimeRoot, REMOTE_NODE_PTY_RELATIVE);
-  await rm(destPty, { recursive: true, force: true });
-  await mkdir(path.dirname(destPty), { recursive: true, mode: 0o755 });
-  await cp(sourcePty, destPty, {
-    recursive: true,
-    filter: (source) => {
-      const relative = path.relative(sourcePty, source).split(path.sep).join("/");
-      if (relative === "build" || relative.startsWith("build/")) return false;
-      if (relative === "prebuilds" || relative.startsWith("prebuilds/")) return false;
-      return true;
-    },
-  });
-
   const nodeGyp = path.join(
-    input.repoRoot,
+    repoRoot,
     "node_modules",
     "node-gyp",
     "bin",
@@ -374,46 +438,62 @@ export const stageNodePtyForBundledNode = async (input: {
   if (!(await isNonSymlinkFile(nodeGyp))) {
     throw new Error("node-gyp missing — expected via @electron/rebuild dependency tree");
   }
-  const version = requireNodeRemoteVersion(input.nodeVersion);
-  run(
-    input.bundledNode,
-    [
-      nodeGyp,
-      "rebuild",
-      `--target=${version}`,
-      "--arch=x64",
-      "--dist-url=https://nodejs.org/dist",
-    ],
-    {
-      cwd: destPty,
-      env: {
-        ...process.env,
-        npm_config_build_from_source: "true",
-        ELECTRON_RUN_AS_NODE: "",
-      },
-    },
-  );
 
-  const nativeCandidates = [
-    path.join(destPty, "build", "Release", "pty.node"),
-    path.join(destPty, "prebuilds", "linux-x64", "pty.node"),
-  ];
-  let nativeModule: string | undefined;
-  for (const candidate of nativeCandidates) {
-    if (await isNonSymlinkFile(candidate)) {
-      nativeModule = candidate;
-      break;
+  const destPty = path.join(input.runtimeRoot, REMOTE_NODE_PTY_RELATIVE);
+  await rm(destPty, { recursive: true, force: true });
+  await mkdir(path.dirname(destPty), { recursive: true, mode: 0o755 });
+  // Keep compiler scratch outside linux-unpacked. Even an interrupted build
+  // cannot leave node-gyp intermediates for the package finalizer to archive.
+  const buildCache = path.join(repoRoot, "release", ".cache");
+  await mkdir(buildCache, { recursive: true, mode: 0o755 });
+  const workspace = await mkdtemp(path.join(buildCache, "node-pty-build-"));
+  const builtPty = path.join(workspace, "node-pty");
+
+  try {
+    await cp(sourcePty, builtPty, {
+      recursive: true,
+      filter: (source) => {
+        const relative = path.relative(sourcePty, source).split(path.sep).join("/");
+        if (relative === "build" || relative.startsWith("build/")) return false;
+        if (relative === "prebuilds" || relative.startsWith("prebuilds/")) return false;
+        return true;
+      },
+    });
+
+    const version = requireNodeRemoteVersion(input.nodeVersion);
+    run(
+      input.bundledNode,
+      [
+        nodeGyp,
+        "rebuild",
+        `--target=${version}`,
+        "--arch=x64",
+        "--dist-url=https://nodejs.org/dist",
+      ],
+      {
+        cwd: builtPty,
+        env: {
+          ...process.env,
+          npm_config_build_from_source: "true",
+          ELECTRON_RUN_AS_NODE: "",
+        },
+      },
+    );
+
+    const builtNative = path.join(
+      builtPty,
+      ...LINUX_NODE_PTY_NATIVE_RELATIVE.split("/"),
+    );
+    if (!(await isNonSymlinkFile(builtNative))) {
+      throw new Error("node-pty rebuild for bundled Node produced no pty.node");
     }
+    return await stageBuiltNodePtyLinuxRuntime({
+      builtNodePtyRoot: builtPty,
+      destinationNodePtyRoot: destPty,
+    });
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
   }
-  if (nativeModule === undefined) {
-    throw new Error("node-pty rebuild for bundled Node produced no pty.node");
-  }
-  const spawnHelper = path.join(path.dirname(nativeModule), "spawn-helper");
-  if (await isNonSymlinkFile(spawnHelper)) {
-    await chmod(spawnHelper, 0o755);
-  }
-  await chmod(nativeModule, 0o755);
-  return { nodePtyRoot: destPty, nativeModule };
 };
 
 export const stageRemoteEntry = async (input: {
