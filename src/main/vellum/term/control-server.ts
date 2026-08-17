@@ -400,83 +400,26 @@ export const startTermControlServer = async (
         case "ping":
           return { v: 1, id, ok: true, data: { pong: true } };
         case "create": {
-          const existing = host.get(req.bindingId);
-          appendTransportTrace({
-            plane: "term",
-            op: "host.get",
-            ok: true,
+          if (
+            Object.prototype.hasOwnProperty.call(req, "harness") ||
+            Object.prototype.hasOwnProperty.call(req, "agentKey")
+          ) {
+            return {
+              v: 1,
+              id,
+              ok: false,
+              error: "create does not accept harness or agentKey; use createAgentSeat",
+            };
+          }
+          const summary = host.create({
             bindingId: req.bindingId,
-            ...seatTapeFromSummary(req.bindingId, existing),
+            launch: req.launch,
+            cols: req.cols,
+            rows: req.rows,
+            canvasName: req.canvasName,
+            nodeId: req.nodeId,
+            label: req.label,
           });
-          const occupancy = occupancyFromSummary(req.bindingId, existing, "local");
-          const harnessField =
-            typeof req.harness === "string" ? req.harness.trim() : "";
-          const agentKeyField =
-            typeof req.agentKey === "string" ? req.agentKey.trim() : "";
-          if ((harnessField === "") !== (agentKeyField === "")) {
-            return {
-              v: 1,
-              id,
-              ok: false,
-              error: "create actor requires harness and agentKey",
-            };
-          }
-          if (harnessField !== "" && !isHarnessId(harnessField)) {
-            return {
-              v: 1,
-              id,
-              ok: false,
-              error: `unknown harness ${harnessField}`,
-            };
-          }
-          const actor =
-            harnessField !== "" && isHarnessId(harnessField)
-              ? { harness: harnessField, agentKey: agentKeyField }
-              : undefined;
-          if (Result.isFailure(occupyVacantSeat(occupancy)) && existing) {
-            if (actor) {
-              const adopted = host.adoptAgentSeat(req.bindingId, actor);
-              if (!sessionActorMatches(adopted, actor)) {
-                return {
-                  v: 1,
-                  id,
-                  ok: false,
-                  error: "remote seat did not bind actor identity",
-                };
-              }
-              return { v: 1, id, ok: true, data: adopted };
-            }
-            return { v: 1, id, ok: true, data: existing };
-          }
-          const summary = actor
-            ? host.createAgentSeat({
-                bindingId: req.bindingId,
-                harness: actor.harness,
-                agentKey: actor.agentKey,
-                launch: req.launch,
-                cols: req.cols,
-                rows: req.rows,
-                canvasName: req.canvasName,
-                nodeId: req.nodeId,
-                label: req.label,
-              })
-            : host.create({
-                bindingId: req.bindingId,
-                launch: req.launch,
-                cols: req.cols,
-                rows: req.rows,
-                canvasName: req.canvasName,
-                nodeId: req.nodeId,
-                label: req.label,
-              });
-          if (actor && !sessionActorMatches(summary, actor)) {
-            return {
-              v: 1,
-              id,
-              ok: false,
-              error: "remote seat did not bind actor identity",
-            };
-          }
           return { v: 1, id, ok: true, data: summary };
         }
         case "createAgentSeat": {

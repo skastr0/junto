@@ -45,7 +45,6 @@ import { SshTransport } from "../ssh/service";
 import type {
   ControlLease,
   JournalEntry,
-  LocalHostAgentSeatInput,
   LocalHostCreateInput,
   LocalHostEvent,
   LocalHostShutdownResult,
@@ -53,7 +52,6 @@ import type {
   TerminalOpenInput,
 } from "./local-host";
 import { TermControlClient } from "./control-client";
-import { makeActorSeatOccupy } from "./actor-seat-occupy";
 import {
   appendTransportTrace,
   recordTransportError,
@@ -369,61 +367,6 @@ export class TerminalRouter extends EventEmitter {
     return this.isLocalHostId(hostId)
       ? this.local.create({ ...input, hostId: "local" })
       : this.createRemote(hostId, input);
-  }
-
-  /**
-   * Open the actor seat on its host. Placement selects the Layer.
-   * Occupy is always createAgentSeat.
-   */
-  async createAgentSeat(
-    input: LocalHostAgentSeatInput & { hostId?: string },
-  ): Promise<TerminalSessionSummary> {
-    const hostId = this.admitSessionHost(input);
-    const seats = makeActorSeatOccupy({
-      local: this.local,
-      isLocalHostId: (id) => this.isLocalHostId(id),
-      clientFor: async (remoteHostId) => {
-        const client = await this.ensureRemoteClient(remoteHostId);
-        this.assertRouteAdmission(remoteHostId);
-        return {
-          get: (bindingId) => client.get(bindingId),
-          createAgentSeat: (spec) =>
-            client.createAgentSeat({
-              bindingId: spec.bindingId,
-              harness: spec.harness,
-              agentKey: spec.agentKey,
-              launch: spec.launch,
-              cols: spec.cols,
-              rows: spec.rows,
-              canvasName: spec.canvasName,
-              nodeId: spec.nodeId,
-              label: spec.label,
-              firstTypedMessage: spec.firstTypedMessage,
-            }),
-        };
-      },
-    });
-    const summary = await Effect.runPromise(
-      seats.occupy({
-        bindingId: input.bindingId,
-        harness: input.harness,
-        agentKey: input.agentKey,
-        hostId,
-        launch: input.launch,
-        cols: input.cols,
-        rows: input.rows,
-        canvasName: input.canvasName,
-        nodeId: input.nodeId,
-        label: input.label,
-        title: input.title,
-        firstTypedMessage: input.firstTypedMessage,
-      }),
-    );
-    if (this.isLocalHostId(hostId)) {
-      await Promise.resolve();
-      return this.local.get(input.bindingId.trim()) ?? summary;
-    }
-    return { ...summary, hostId };
   }
 
   private async createRemote(
@@ -1002,6 +945,17 @@ export class TerminalRouter extends EventEmitter {
 
   private async ensureRemoteClient(hostId: string): Promise<TermControlClient> {
     return (await this.ensureRemoteEntry(hostId)).client;
+  }
+
+  /** Directory only — other-install occupy. Not an occupy implementation. */
+  async clientForOccupy(hostId: string): Promise<TermControlClient> {
+    const normalizedHostId = hostId.trim();
+    if (normalizedHostId.length === 0 || this.isLocalHostId(normalizedHostId)) {
+      throw new Error("actor seat occupy requires a remote host");
+    }
+    const client = await this.ensureRemoteClient(normalizedHostId);
+    this.assertRouteAdmission(normalizedHostId);
+    return client;
   }
 
   private async ensureRemoteEntry(

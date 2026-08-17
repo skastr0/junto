@@ -141,17 +141,39 @@ describe("term seat-state placement wiring", () => {
     expect(client).toContain("agentKey: input.agentKey");
   });
 
-  it("actor occupy does not route through geography createRemote", () => {
+  it("keeps the router as a client directory, not an actor occupy service", () => {
     const router = readFileSync("src/main/vellum/term/router.ts", "utf8");
     const server = readFileSync("src/main/vellum/term/control-server.ts", "utf8");
     const host = readFileSync("src/main/vellum/term/local-host.ts", "utf8");
-    const start = router.indexOf("async createAgentSeat");
-    const end = router.indexOf("private async createRemote");
-    expect(start).toBeGreaterThan(-1);
-    expect(end).toBeGreaterThan(start);
-    expect(router.slice(start, end)).toContain("makeActorSeatOccupy");
-    expect(router.slice(start, end)).not.toContain("this.createRemote");
+    expect(router).toContain("async clientForOccupy(hostId: string)");
+    expect(router).not.toContain("makeActorSeatOccupy");
+    expect(router).not.toContain('from "./actor-seat-occupy"');
+    expect(router).not.toContain("async createAgentSeat");
+
+    const createRemoteStart = router.indexOf("private async createRemote");
+    const createRemoteEnd = router.indexOf("async list(", createRemoteStart);
+    expect(createRemoteStart).toBeGreaterThan(-1);
+    expect(createRemoteEnd).toBeGreaterThan(createRemoteStart);
+    const createRemote = router.slice(createRemoteStart, createRemoteEnd);
+    expect(createRemote).toContain("client.create({");
+    expect(createRemote).not.toContain("createAgentSeat");
+    expect(createRemote).not.toContain("harness");
+    expect(createRemote).not.toContain("agentKey");
+
+    const createStart = server.indexOf('case "create":');
+    const actorStart = server.indexOf('case "createAgentSeat":');
+    expect(createStart).toBeGreaterThan(-1);
+    expect(actorStart).toBeGreaterThan(createStart);
+    const geographyCreate = server.slice(createStart, actorStart);
+    expect(geographyCreate).toContain("host.create({");
+    expect(geographyCreate).not.toContain("host.createAgentSeat(");
+    expect(geographyCreate).not.toContain("host.adoptAgentSeat(");
+
     expect(server).toContain('case "createAgentSeat"');
+    expect(server).toContain("host.createAgentSeat({");
+    expect(server).toContain("host.adoptAgentSeat(");
+    expect(server).toContain("sessionActorMatches(adopted, actor)");
+    expect(server).toContain("sessionActorMatches(summary, actor)");
     expect(host).toContain("adoptAgentSeat(");
   });
 });

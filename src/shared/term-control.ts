@@ -37,9 +37,6 @@ export type TermControlRequest =
       readonly canvasName?: string;
       readonly nodeId?: string;
       readonly label?: string;
-      /** Actor identity. Absent = geography terminal. Both required to occupy a seat. */
-      readonly harness?: string;
-      readonly agentKey?: string;
     }
   | {
       readonly v: 1;
