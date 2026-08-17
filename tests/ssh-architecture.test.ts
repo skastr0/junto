@@ -106,6 +106,9 @@ describe("SSH architecture", () => {
       // HostRuntime observes and applies over the shared SSH kernel.
       "src/main/vellum/hosts/host-runtime.ts",
       "src/main/vellum/hosts/host-runtime-platform.ts",
+      // Update maintenance holds the socket-bound term control lease over a
+      // bounded unix forward on the shared SSH kernel.
+      "src/main/vellum/hosts/maintenance.ts",
       "src/main/vellum/hosts/host-ops.ts",
       "src/main/vellum/hosts/host-ops-darwin.ts",
       "src/main/vellum/hosts/host-ops-linux.ts",
@@ -148,9 +151,16 @@ describe("SSH architecture", () => {
       join(root, "src/main/vellum/hosts/deploy-linux.ts"),
       "utf8",
     );
+    const darwinOps = readFileSync(
+      join(root, "src/main/vellum/hosts/host-ops-darwin.ts"),
+      "utf8",
+    );
     expect(darwin).toContain("deploymentStream");
     expect(darwin).not.toContain("sharedStream");
-    expect(linux).toContain("deploymentStream");
+    expect(darwinOps).toContain("deploymentStream");
+    expect(darwinOps).not.toContain("sharedStream");
+    // Linux package copy is disabled; the file renders fixed programs only
+    // and must never ride the Station mux.
     expect(linux).not.toContain("sharedStream");
   });
 
