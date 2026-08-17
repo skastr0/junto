@@ -28,6 +28,7 @@ import { StationFleetTargetRepository } from "../station/fleet-target-repository
 import { StationRepository } from "../station/repository";
 import type { ConfigureRemoteOptions } from "./configure-remote";
 import type { ConfiguredRemoteDeployResult } from "./deploy-configured-remote";
+import { HostRuntime } from "./host-runtime";
 import {
   appendDeployJobStage,
   beginDeployJob,
@@ -315,6 +316,7 @@ export const deployRemoteEffect = (
   | PrismService
   | StationRepository
   | StationFleetTargetRepository
+  | HostRuntime
 > =>
   Effect.gen(function* () {
       const settingsSvc = yield* SettingsService;
@@ -328,7 +330,6 @@ export const deployRemoteEffect = (
         finishDeployJob(input.id, {
           status,
           detail: result.detail,
-          stages: result.stages ?? getDeployJob(input.id)?.stages,
           ...(result.version === undefined ? {} : { version: result.version }),
           ...(result.recoveryAction === undefined
             ? {}
@@ -348,6 +349,8 @@ export const deployRemoteEffect = (
         });
       }
 
+      // Global Fleet door only (no kernel yet). Per-target linuxRemoteDeploy
+      // / darwinRemoteDeploy freeze is HostRuntime.admit after uname.
       const effective = computeDeployCapabilities({
         stationRole: settingsResult.success.station.role,
         remoteManagedInstalls: settingsResult.success.fleet.remoteManagedInstalls,
@@ -397,38 +400,12 @@ export const deployRemoteEffect = (
       }
 
       setActiveDeployJobHost(input.id);
-      const deployResult = yield* hosts
-        .deployConfiguredRemote(input.id, {
-          ...authority.success,
+      const hostRuntime = yield* HostRuntime;
+      const deployResult = yield* hostRuntime
+        .reconcile(input.id, {
+          intent: "deploy",
+          configure: authority.success,
           ...(artifactSource === undefined ? {} : { artifactSource }),
-          onAdmitted: (host) => {
-            const admittedAt = new Date().toISOString();
-            const detail = `${host.label}: deployment admitted; completion receipt pending`;
-            return stationStatus
-              .recordDeployment(
-                deployRecordFromResult({
-                  hostId: host.id,
-                  endpoint: host.sshEndpoint ?? "",
-                  ok: false,
-                  outcome: "indeterminate",
-                  packageState: "previous",
-                  role: "previous",
-                  configurationOk: false,
-                  detail,
-                  stages: ["durable deployment admission recorded"],
-                  at: admittedAt,
-                }),
-              )
-              .pipe(
-                Effect.mapError(
-                  (error) =>
-                    new RemoteHostsError(
-                      "io",
-                      error instanceof Error ? error.message : String(error),
-                    ),
-                ),
-              );
-          },
           onCompleted: (host, result) => {
             const recordedAt = new Date().toISOString();
             return stationStatus
@@ -497,7 +474,6 @@ export const deployRemoteEffect = (
       finishDeployJob(input.id, {
         status: finalResult.ok ? "succeeded" : "failed",
         detail: finalResult.detail,
-        stages: finalResult.stages,
         ...(finalResult.version === undefined
           ? {}
           : { version: finalResult.version }),
@@ -506,6 +482,7 @@ export const deployRemoteEffect = (
   });
 
 const releaseDeployGate = (): HostsDeployRemoteResult | undefined => {
+  // Managed-deploy surface only. Target platform is unknown until uname.
   const releaseGate = computeDeployCapabilities({
     stationRole: "command-center",
     remoteManagedInstalls: true,

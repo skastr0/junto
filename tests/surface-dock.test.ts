@@ -19,6 +19,7 @@ import {
 } from "../src/renderer/lib/surface-registry";
 import {
   closeDockBrowser,
+  closeFocusModalSurface,
   closeWorkbenchSurface,
   chatSurfaceId,
   dock$,
@@ -130,6 +131,16 @@ describe("surface-registry (pure workbench)", () => {
     });
     state = focusSurface(state, "a").state;
     expect(visiblePanes(state, "focus").pane0).toBe("a");
+  });
+
+  it("focusing the frontmost surface preserves the identical state", () => {
+    let state = openSurface(initialWorkbenchState(), browserSlot("a")).state;
+    state = openSurface(state, browserSlot("b")).state;
+
+    const focused = focusSurface(state, "b");
+
+    expect(focused.state).toBe(state);
+    expect(focused.evicted).toEqual([]);
   });
 
   it("classifies browser as non-interactive; herdr/chat/task-create as interactive", () => {
@@ -278,6 +289,7 @@ function resetDock(): void {
   herdr$.focusedNodeId.set(null);
   terminal$.openByNodeId.set({});
   terminal$.preferredZoneByNodeId.set({});
+  terminal$.lastOpenNodeId.set(null);
 }
 
 const nativeTerminalNode = (id = "term-1"): CanvasNode =>
@@ -500,6 +512,24 @@ describe("dock-state", () => {
     expect(mock.browserStop).not.toHaveBeenCalled();
     expect(dock$.registry.peek().surfaces).toEqual([]);
     expect(dock$.browserByRef[ref].peek()).toBeUndefined();
+  });
+
+  it("succeeds and clears residual state when browserStop is feature-flagged off", async () => {
+    // BROWSER_ENABLED=false omits the browser slice from preload.
+    (globalThis as unknown as { window: { vellumCommand: Record<string, never> } }).window = {
+      vellumCommand: {},
+    };
+    const ref = refOf("flag-off");
+    dock$.browserByRef[ref].set(payloadOf("flag-off", "https://stop.example", "Stop"));
+    dock$.registry.set(openSurface(dock$.registry.peek(), browserSlot(ref)).state);
+    cacheBrowserSession(baseSession(ref, "flag-off", "ghost-handle"));
+
+    await expect(stopDockBrowser(ref)).resolves.toBe(true);
+
+    expect(dock$.registry.peek().surfaces).toEqual([]);
+    expect(dock$.browserByRef[ref].peek()).toBeUndefined();
+    expect(browser$.sessionByRef[ref].peek()).toBeUndefined();
+    expect(dock$.stopErrorByRef[ref].peek()).toBeUndefined();
   });
 
   it("clears a stale cached handle when Stop Page returns not_found and the session list proves absence", async () => {
@@ -737,6 +767,73 @@ describe("dock-state", () => {
       expect(dock$.registry.peek().surfaces.find((s) => s.id === terminalSurfaceId("t2"))?.zone).toBe(
         "focus",
       );
+    });
+
+    it("a manual tab activation survives later terminal opens (one-shot promote)", () => {
+      openTerminalSurface(nativeTerminalNode("t1"), "focus");
+      openTerminalSurface(nativeTerminalNode("t2"), "focus");
+      // Operator clicks tab t1 — a path that bypasses lastOpenNodeId.
+      dock$.registry.set(
+        focusSurface(dock$.registry.peek(), terminalSurfaceId("t1")).state,
+      );
+      // A later open re-runs the observe; the stale t2 promote must not
+      // replay and yank the operator's choice back behind t2.
+      openTerminalSurface(nativeTerminalNode("t3"), "focus");
+      expect(dock$.registry.peek().focusMru).toEqual([
+        terminalSurfaceId("t3"),
+        terminalSurfaceId("t1"),
+        terminalSurfaceId("t2"),
+      ]);
+    });
+  });
+
+  describe("closeFocusModalSurface — Close dismisses the whole chrome-less modal", () => {
+    it("one press closes a stack of cycled mirror terminals, views included", () => {
+      // Mirror cycling: three actors opened in sequence, all parked in focus.
+      for (const id of ["t1", "t2", "t3"]) {
+        openTerminalSurface(nativeTerminalNode(id), "focus");
+      }
+      expect(dock$.registry.peek().surfaces).toHaveLength(3);
+      closeFocusModalSurface(terminalSurfaceId("t3"));
+      expect(dock$.registry.peek().surfaces).toEqual([]);
+      expect(terminal$.openByNodeId.peek()).toEqual({});
+    });
+
+    it("never reaches into the pinned zone", () => {
+      openTerminalSurface(nativeTerminalNode("dock"), "pinned");
+      openTerminalSurface(nativeTerminalNode("t1"), "focus");
+      openTerminalSurface(nativeTerminalNode("t2"), "focus");
+      closeFocusModalSurface(terminalSurfaceId("t2"));
+      expect(dock$.registry.peek().surfaces).toEqual([
+        { id: terminalSurfaceId("dock"), kind: "terminal", zone: "pinned" },
+      ]);
+    });
+
+    it("closing a pinned surface stays per-surface", () => {
+      openTerminalSurface(nativeTerminalNode("dock"), "pinned");
+      openTerminalSurface(nativeTerminalNode("t1"), "focus");
+      closeFocusModalSurface(terminalSurfaceId("dock"));
+      expect(dock$.registry.peek().surfaces).toEqual([
+        { id: terminalSurfaceId("t1"), kind: "terminal", zone: "focus" },
+      ]);
+    });
+
+    it("with tab chrome visible (mixed kinds) close stays per-surface", () => {
+      openTerminalSurface(nativeTerminalNode("t1"), "focus");
+      openAgentChatSurface({
+        id: "agent-1",
+        type: "text",
+        x: 0,
+        y: 0,
+        width: 240,
+        height: 96,
+        text: "PROFILE-01",
+        ether: { entity: { kind: "agent", name: "remote-a:profile-01" } },
+      });
+      closeFocusModalSurface(terminalSurfaceId("t1"));
+      expect(dock$.registry.peek().surfaces).toEqual([
+        { id: chatSurfaceId("agent-1"), kind: "chat", zone: "focus" },
+      ]);
     });
   });
 });

@@ -39,6 +39,8 @@ export const Port = Schema.Literals(["tasks.list", "tasks.create",
 "board.create_topic",
 "board.post",
 "board.mark_read",
+"pad.read",
+"pad.patch",
 /** Actor → relay: admit trigger (ocap path for agent-fired automation). */
 "relay.trigger",]);
 export type Port = typeof Port.Type;
@@ -57,6 +59,8 @@ export const ALL_PORTS: ReadonlyArray<Port> = [
   "board.create_topic",
   "board.post",
   "board.mark_read",
+  "pad.read",
+  "pad.patch",
   "relay.trigger",
 ];
 
@@ -82,6 +86,7 @@ export const SinkKind = Schema.Literals(["page", "task",
 "requests",
 "artifacts",
 "board",
+"pad",
 "terminal",]);
 export type SinkKind = typeof SinkKind.Type;
 

@@ -317,6 +317,20 @@ export const makeBoardNode = (x: number, y: number): TextNode => ({
   },
 });
 
+/** Spatial pad sink — empty is legal; work-plane owns durability. */
+export const makePadNode = (x: number, y: number): TextNode => ({
+  id: `pad-${ulid()}`,
+  type: "text",
+  text: "pad",
+  x: Math.round(x),
+  y: Math.round(y),
+  width: 240,
+  height: 120,
+  ether: {
+    entity: { kind: "pad" },
+  },
+});
+
 // A herdr work-surface node — binds a live herdr pane (local or remote).
 // Not a hermes agent: no EntitySource binding, no ACP, no pulse target.
 export const makeHerdrNode = (

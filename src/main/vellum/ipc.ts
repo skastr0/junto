@@ -46,7 +46,15 @@ import { UsageService } from "./usage/usage-service";
 import { WorkService } from "./work/service";
 import { ContentService } from "./content/service";
 import { messageDelivery } from "./work/message-delivery";
-import { mailboxMessageDeliveryId } from "./work/mailbox-receipts";
+import {
+  composerBlocksMailInject,
+  seatOperatorDraft,
+} from "@shared/message-delivery";
+import {
+  mailboxMessageDeliveryId,
+  mailboxMessageReadId,
+} from "./work/mailbox-receipts";
+import { extractPromptBoxText } from "./term/observer/interaction";
 import { onCanvasChangeForEdgeMap } from "./work/edge-map-notify";
 import { WorkRepository } from "./work/repository";
 import { kernelRecordFromSnapshot } from "@shared/station-status";
@@ -64,6 +72,7 @@ import {
 } from "./term/drive/claude-startup";
 import { isManagedTerminalReady } from "./term/drive/readiness";
 import { seatStateRuntime } from "./term/agent-state";
+import { mergeSeatStateSnapshot } from "./term/remote-seat-state";
 import { injectionSupervisor } from "./term/injection-supervisor";
 import {
   peekFirstTypedMessage,
@@ -80,6 +89,7 @@ import { termPlane } from "./term/plane";
 import { isTrustedMainWebContents } from "./trusted-main-webcontents";
 import { licensedRendererIpc } from "./license/admission";
 import type { WorkMetadata, Part, TaskState } from "@shared/canvas";
+import type { PadPatch } from "@shared/pad";
 import { IntentFactBasis, type ActorRef } from "@shared/work-protocol";
 import {
   MainAuthoringRefused,
@@ -115,6 +125,72 @@ const runMainAuthoring = <A>(
   label: MainAuthoringLabel,
   operation: () => Promise<A>,
 ): Promise<A> => mainAuthoringGate.run(label, operation);
+
+const stampMailboxReceipt = (
+  deliveryId: string,
+  canvas: string,
+  nodeId: string,
+  messageId: string,
+): Promise<boolean> =>
+  runMainAuthoring("delivery.message-stamp", async () => {
+    try {
+      return await AppRuntime.runPromise(
+        Effect.gen(function* () {
+          const repo = yield* WorkRepository;
+          const canvases = yield* CanvasesService;
+          const sink = { canvasName: canvas, nodeId };
+          if (yield* repo.hasAcceptedDelivery(sink, deliveryId)) {
+            return true;
+          }
+          const read = yield* canvases.read(canvas);
+          const actor = read.actorRefs.find(
+            (ref) => ref.canvasName === canvas && ref.nodeId === nodeId,
+          );
+          if (actor === undefined) return false;
+          const settings = yield* SettingsService;
+          const current = yield* settings.get;
+          const intentWitness = yield* canvases.activeIntentWitness();
+          const basis = Schema.decodeUnknownSync(IntentFactBasis)({
+            kind:
+              current.station.role === "command-center"
+                ? "authorial-intent"
+                : "projected-intent",
+            generation: intentWitness.generation,
+            contentSha256: intentWitness.contentSha256,
+          });
+          yield* repo.acceptDelivery({
+            sink,
+            basis,
+            receipt: {
+              deliveryId,
+              deliveredItem: {
+                kind: "message",
+                itemId: messageId,
+                sink,
+              },
+              actor,
+              acceptedAt: new Date().toISOString(),
+            },
+          });
+          return true;
+        }),
+      );
+    } catch {
+      try {
+        return await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const repo = yield* WorkRepository;
+            return yield* repo.hasAcceptedDelivery(
+              { canvasName: canvas, nodeId },
+              deliveryId,
+            );
+          }),
+        );
+      } catch {
+        return false;
+      }
+    }
+  });
 
 const runRendererWorkAuthoring = <A>(
   label: MainAuthoringLabel,
@@ -216,6 +292,7 @@ export const registerVellumIpc = (): void => {
   registerTerminalIpc(privilegedIpc, termPlane, {
     isTrustedSender: isTrustedMainWebContents,
     ensureHostAvailable: ensureBoxHostAvailable,
+    broadcast,
   });
   registerSettingsIpc(privilegedIpc, broadcast);
   registerObservabilityIpc(privilegedIpc, broadcast);
@@ -380,9 +457,10 @@ export const registerVellumIpc = (): void => {
   );
 
   // Managed-seat activity lives in main. A renderer-only restart must hydrate
-  // the current projection instead of waiting for a future state transition.
+  // local runtime facts plus last hop-delivered Remote events. Spawn-host
+  // wins if the same binding appears in both (they should not).
   privilegedIpc.handle(IPC_CHANNELS.agentSeatStateSnapshot, () =>
-    seatStateRuntime.currentEvents(),
+    mergeSeatStateSnapshot(seatStateRuntime.currentEvents()),
   );
 
   // Factory pause plane — canvas-level switch. start is idempotent hydration,
@@ -801,6 +879,72 @@ export const registerVellumIpc = (): void => {
   );
 
   privilegedIpc.handle(
+    IPC_CHANNELS.workArtifactArchive,
+    (
+      _event,
+      canvas: string,
+      nodeId: string,
+      artifactId: string,
+      archived: boolean,
+    ) =>
+      runRendererWorkAuthoring(
+        "ipc.work.artifact-archive",
+        () => AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const denied = yield* denyRemoteWork;
+            if (denied) return denied;
+            const work = yield* WorkService;
+            return yield* work.workArtifactArchive(
+              canvas,
+              nodeId,
+              artifactId,
+              archived,
+            );
+          }),
+        ),
+      ),
+  );
+
+  privilegedIpc.handle(
+    IPC_CHANNELS.workArtifactDelete,
+    (
+      _event,
+      canvas: string,
+      nodeId: string,
+      artifactId: string,
+    ) =>
+      runRendererWorkAuthoring(
+        "ipc.work.artifact-delete",
+        () => AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const denied = yield* denyRemoteWork;
+            if (denied) return denied;
+            const work = yield* WorkService;
+            return yield* work.workArtifactDelete(canvas, nodeId, artifactId);
+          }),
+        ),
+      ),
+  );
+
+  privilegedIpc.handle(
+    IPC_CHANNELS.workSeatRecentOps,
+    (
+      _event,
+      canvas: string,
+      nodeId: string,
+      limit?: number,
+    ) =>
+      AppRuntime.runPromise(
+        Effect.gen(function* () {
+          const denied = yield* denyRemoteWork;
+          if (denied) return denied;
+          const work = yield* WorkService;
+          return yield* work.workSeatRecentOps(canvas, nodeId, limit);
+        }),
+      ),
+  );
+
+  privilegedIpc.handle(
     IPC_CHANNELS.workBoardList,
     (
       _event,
@@ -950,6 +1094,58 @@ export const registerVellumIpc = (): void => {
                 revision: listed.revision,
                 disposition: "applied" as const,
               };
+            }),
+          ),
+      ),
+  );
+
+  privilegedIpc.handle(
+    IPC_CHANNELS.workPadRead,
+    (_event, canvas: string, nodeId: string, pinId?: string) =>
+      AppRuntime.runPromise(
+        Effect.gen(function* () {
+          const denied = yield* denyRemoteWork;
+          if (denied) return denied;
+          const work = yield* WorkService;
+          const result = yield* work.workPadRead(canvas, nodeId, pinId);
+          if (result.ok && pinId !== undefined) {
+            const marked = yield* work.workPadMarkRead(
+              canvas,
+              nodeId,
+              pinId,
+              "operator",
+            );
+            if (marked.ok) {
+              return { ...result, doc: marked.doc, revision: marked.revision };
+            }
+          }
+          return result;
+        }),
+      ),
+  );
+
+  privilegedIpc.handle(
+    IPC_CHANNELS.workPadPatch,
+    (
+      _event,
+      canvas: string,
+      nodeId: string,
+      patches: ReadonlyArray<PadPatch>,
+    ) =>
+      runRendererWorkAuthoring(
+        "ipc.work.pad-patch",
+        () =>
+          AppRuntime.runPromise(
+            Effect.gen(function* () {
+              const denied = yield* denyRemoteWork;
+              if (denied) return denied;
+              const work = yield* WorkService;
+              return yield* work.workPadPatch(
+                canvas,
+                nodeId,
+                patches,
+                { kind: "operator", label: "operator" },
+              );
             }),
           ),
       ),
@@ -1342,6 +1538,35 @@ export const registerVellumIpc = (): void => {
           // managedAgent + rawTerminal → paste+CR via idle-gated drive.
           sendManagedTerminalPrompt: (bindingId, text, options) =>
             writeManagedPrompt(bindingId, text, options),
+          // Settled idle + do not paste over a live operator (recent
+          // keystrokes or a stuck paste chip). Generation-lifetime typing
+          // is not draft — a human-driven seat would never drain mail.
+          seatDeliverySnapshot: (bindingId) => {
+            const live = termPlane.host.get(bindingId);
+            if (
+              !live ||
+              (live.status !== "running" && live.status !== "starting")
+            ) {
+              return undefined;
+            }
+            const idle = seatStateRuntime.isSeatIdle(bindingId);
+            const snap = terminalObserverPlane.snapshot(bindingId);
+            const promptText = snap
+              ? extractPromptBoxText(snap.lines)
+              : "";
+            // Residual product paste chip still occupies the box.
+            const residualChip = composerBlocksMailInject(promptText);
+            return {
+              idle,
+              generationKey: live.epoch,
+              operatorDraft: seatOperatorDraft({
+                lastUserInputAtMs:
+                  injectionSupervisor.lastUserInputAt(bindingId),
+                nowMs: Date.now(),
+                residualChip,
+              }),
+            };
+          },
         },
         store: {
           listCanvasNames: () =>
@@ -1365,59 +1590,30 @@ export const registerVellumIpc = (): void => {
                 );
               }).pipe(Effect.catch(() => Effect.succeed(false))),
             ),
-          acceptMessageDelivery: (canvas, nodeId, messageId) =>
-            runMainAuthoring("delivery.message-stamp", async () => {
-              try {
-                return await AppRuntime.runPromise(
-                  Effect.gen(function* () {
-                    const repo = yield* WorkRepository;
-                    const sink = { canvasName: canvas, nodeId };
-                    const deliveryId = mailboxMessageDeliveryId(
-                      canvas,
-                      nodeId,
-                      messageId,
-                    );
-                    if (yield* repo.hasAcceptedDelivery(sink, deliveryId)) {
-                      return true;
-                    }
-                    const read = yield* canvases.read(canvas);
-                    const actor = read.actorRefs.find(
-                      (ref) =>
-                        ref.canvasName === canvas && ref.nodeId === nodeId,
-                    );
-                    if (actor === undefined) return false;
-                    const settings = yield* SettingsService;
-                    const current = yield* settings.get;
-                    const intentWitness = yield* canvases.activeIntentWitness();
-                    const basis = Schema.decodeUnknownSync(IntentFactBasis)({
-                      kind:
-                        current.station.role === "command-center"
-                          ? "authorial-intent"
-                          : "projected-intent",
-                      generation: intentWitness.generation,
-                      contentSha256: intentWitness.contentSha256,
-                    });
-                    yield* repo.acceptDelivery({
-                      sink,
-                      basis,
-                      receipt: {
-                        deliveryId,
-                        deliveredItem: {
-                          kind: "message",
-                          itemId: messageId,
-                          sink,
-                        },
-                        actor,
-                        acceptedAt: new Date().toISOString(),
-                      },
-                    });
-                    return true;
-                  }),
+          hasAcceptedMessageRead: (canvas, nodeId, messageId) =>
+            AppRuntime.runPromise(
+              Effect.gen(function* () {
+                const repo = yield* WorkRepository;
+                return yield* repo.hasAcceptedDelivery(
+                  { canvasName: canvas, nodeId },
+                  mailboxMessageReadId(canvas, nodeId, messageId),
                 );
-              } catch {
-                return false;
-              }
-            }),
+              }).pipe(Effect.catch(() => Effect.succeed(false))),
+            ),
+          acceptMessageDelivery: (canvas, nodeId, messageId) =>
+            stampMailboxReceipt(
+              mailboxMessageDeliveryId(canvas, nodeId, messageId),
+              canvas,
+              nodeId,
+              messageId,
+            ),
+          acceptMessageRead: (canvas, nodeId, messageId) =>
+            stampMailboxReceipt(
+              mailboxMessageReadId(canvas, nodeId, messageId),
+              canvas,
+              nodeId,
+              messageId,
+            ),
         },
         // Pause law (@shared/pause): canvas paused OR node paused OR any
         // containing region paused keeps the message pending, never sent.
@@ -1429,6 +1625,10 @@ export const registerVellumIpc = (): void => {
       pause.subscribe((canvas) => {
         if (pause.stateFor(canvas).playing) messageDelivery.onResumed();
       });
+      // Boot rescan: pending mail from a previous process lifetime has no
+      // attach/idle event left — deliver the durable backlog once the canvas
+      // and station planes have settled. Every gate re-checks inside.
+      setTimeout(() => messageDelivery.onBooted(), 10_000);
 
       canvases.start();
       snapshots.start();

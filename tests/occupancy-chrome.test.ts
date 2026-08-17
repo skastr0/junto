@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { OccupancySpectrum, deriveOccupancy } from "../src/shared/occupancy";
 import type { CanvasDoc } from "../src/shared/canvas";
-import { occupancyChrome } from "../src/renderer/lib/occupancy-chrome";
+import { actorOccupancyAttr, occupancyChrome } from "../src/renderer/lib/occupancy-chrome";
 import { chatActivityFeed } from "../src/renderer/lib/occupancy-feed";
 import type { AgentChatCoarse } from "../src/renderer/lib/chat-state";
 
@@ -112,6 +112,19 @@ describe("occupancyChrome — table: spectrum state -> chrome (all eight)", () =
     expect(state).toBe(expected);
     const chrome = occupancyChrome(state);
     expect(chrome.attr).toBe(expected);
+  });
+});
+
+describe("actorOccupancyAttr — vacancy only on actor cards", () => {
+  it("keeps empty, gone, parked and drops working/attention status", () => {
+    expect(actorOccupancyAttr("empty")).toBe("empty");
+    expect(actorOccupancyAttr("gone")).toBe("gone");
+    expect(actorOccupancyAttr("parked")).toBe("parked");
+    expect(actorOccupancyAttr("working")).toBeUndefined();
+    expect(actorOccupancyAttr("attention")).toBeUndefined();
+    expect(actorOccupancyAttr("activity_blocked")).toBeUndefined();
+    expect(actorOccupancyAttr("stalled")).toBeUndefined();
+    expect(actorOccupancyAttr("idle")).toBeUndefined();
   });
 });
 

@@ -1,16 +1,16 @@
 import { readFileSync } from "node:fs";
-import { Effect, Schema } from "effect";
+import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
-import { InstallationId } from "../src/shared/station-api";
 import type { RemoteHost } from "../src/shared/remote-hosts";
 import {
   decodeRemotePlatformEvidence,
   makeRemoteDeploymentDispatcher,
 } from "../src/main/vellum/hosts/deploy-remote";
 import {
-  deployConfiguredRemoteHost,
-  type ConfiguredRemoteDeployOperations,
-} from "../src/main/vellum/hosts/deploy-configured-remote";
+  commandCenterMayPrepareRemote,
+  resolveRemoteDeploymentTarget,
+} from "../src/main/vellum/hosts/remote-platform";
+import { SshExitError } from "../src/main/vellum/ssh/domain";
 import type {
   RemoteDeploymentProvider,
   RemoteDeploymentProviderInput,
@@ -22,13 +22,6 @@ const host: RemoteHost = {
   kind: "remote",
   sshEndpoint: "studio-box",
   capabilities: ["terminal"],
-};
-
-const commandCenterInstallationId =
-  Schema.decodeUnknownSync(InstallationId)("cc-installation");
-const configuredDeployOptions = {
-  commandCenterInstallationId,
-  appVersion: "0.1.0",
 };
 
 type Ssh = Parameters<
@@ -397,7 +390,67 @@ describe("Remote deployment dispatcher", () => {
     expect(darwin.deploy).toHaveBeenCalledOnce();
   });
 
-  it("refuses a non-Darwin Command Center before touching SSH", async () => {
+  it("surfaces the OpenSSH diagnostic when SSH warm fails", async () => {
+    const ssh = {
+      warm: vi.fn(() =>
+        Effect.fail(
+          new SshExitError({
+            endpoint: "studio-box",
+            operation: "master-warm",
+            code: 255,
+            detail: "SSH control socket path is too long for this OS",
+          }),
+        ),
+      ),
+      run: vi.fn(),
+    } as unknown as Ssh;
+
+    const preparation = await Effect.runPromise(
+      resolveRemoteDeploymentTarget(ssh, host, "darwin"),
+    );
+
+    expect(preparation.ok).toBe(false);
+    if (preparation.ok) return;
+    expect(preparation.result).toMatchObject({
+      ok: false,
+      code: "io",
+      disposition: "not-started",
+      stages: ["endpoint ok"],
+    });
+    expect(preparation.result.detail).toContain(
+      "SSH control socket path is too long for this OS",
+    );
+    expect(preparation.result.detail).not.toContain(
+      "check SSH config, VPN, and keys",
+    );
+  });
+
+  it("lets a Linux Command Center prepare a Linux Remote after uname", async () => {
+    expect(commandCenterMayPrepareRemote("linux", "linux")).toBe(true);
+    expect(commandCenterMayPrepareRemote("linux", "darwin")).toBe(false);
+    expect(commandCenterMayPrepareRemote("darwin", "linux")).toBe(true);
+
+    const ssh = makeSsh("Linux\n");
+    const preparation = await Effect.runPromise(
+      resolveRemoteDeploymentTarget(ssh, host, "linux"),
+    );
+
+    expect(preparation.ok).toBe(true);
+    if (!preparation.ok) return;
+    expect(preparation.target.platform).toEqual({
+      platform: "linux",
+      kernelName: "Linux",
+    });
+    expect(preparation.target.progress).toEqual([
+      "endpoint ok",
+      "ssh warm ok",
+      "remote uname Linux",
+    ]);
+    expect(ssh.warm).toHaveBeenCalled();
+    expect(ssh.run).toHaveBeenCalled();
+  });
+
+  it("refuses a Darwin Remote from a Linux Command Center after the OS probe", async () => {
     const darwin = makeProvider("darwin");
     const ssh = makeSsh("Darwin\n");
     const dispatcher = makeRemoteDeploymentDispatcher({
@@ -414,48 +467,33 @@ describe("Remote deployment dispatcher", () => {
       code: "validation",
       disposition: "not-started",
     });
-    expect(ssh.warm).not.toHaveBeenCalled();
-    expect(ssh.run).not.toHaveBeenCalled();
+    expect(result.detail).toContain("Darwin Remote");
+    expect(ssh.warm).toHaveBeenCalled();
+    expect(ssh.run).toHaveBeenCalled();
     expect(darwin.deploy).not.toHaveBeenCalled();
   });
 
-  it("gates configured deploy and Station API mutation on target admission", async () => {
+  it("gates dispatch on target admission before a Darwin provider body", async () => {
     const darwin = makeProvider("darwin");
     const dispatcher = makeRemoteDeploymentDispatcher({
       commandCenterPlatform: "darwin",
       providers: [darwin],
     });
-    const configure = vi.fn(() => Effect.die("configure must not run"));
-    const deployPrepared = vi.fn(() =>
-      Effect.die("prepared deploy must not run"),
-    );
-    const operations: ConfiguredRemoteDeployOperations = {
-      prepare: dispatcher.prepare,
-      deployPrepared,
-      configure,
-    };
 
     const result = await Effect.runPromise(
-      deployConfiguredRemoteHost(
-        makeSsh("Linux\n"),
-        host,
-        configuredDeployOptions,
-        operations,
-      ),
+      dispatcher.deploy(makeSsh("Linux\n"), host, {
+        state: "managed-externally",
+      }),
     );
 
     expect(result).toMatchObject({
       ok: false,
-      outcome: "failed",
-      packageState: "previous",
-      role: "previous",
+      code: "validation",
       disposition: "not-started",
-      message: expect.stringContaining(
-        "Linux Remote managed deployment is not available in this release",
-      ),
     });
-    expect(configure).not.toHaveBeenCalled();
-    expect(deployPrepared).not.toHaveBeenCalled();
+    expect(result.detail).toContain(
+      "Linux Remote managed deployment is not available in this release",
+    );
     expect(darwin.deploy).not.toHaveBeenCalled();
   });
 });

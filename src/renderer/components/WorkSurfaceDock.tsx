@@ -1,12 +1,40 @@
-import { useCallback, useRef, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  memo,
+  useCallback,
+  useRef,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { use$ } from "@legendapp/state/react";
 import { dock$, setWorkbenchPinnedWidthFrac } from "../lib/dock-state";
-import {
-  surfaceById,
-  visiblePanes,
-  zoneHasSurfaces,
-} from "../lib/surface-registry";
+import { panesForLayout } from "../lib/surface-registry";
 import { WorkbenchChrome, WorkbenchPanes } from "./workbench";
+
+/**
+ * The interactive dock contents are deliberately separated from the width
+ * shell. Pointer-move resize updates can repaint the aside without walking
+ * every mounted terminal, chat, or form below it.
+ */
+const PinnedDockContents = memo(function PinnedDockContents() {
+  const mru = use$(dock$.registry.pinnedMru);
+  const layout = use$(dock$.registry.pinnedLayout);
+  const paneCount = panesForLayout(layout);
+  const pane0 = mru[0];
+  const pane1 = paneCount === 2 ? mru[1] : undefined;
+  const tabs = mru.slice(paneCount);
+
+  return (
+    <div className="work-surface-dock__inner">
+      <WorkbenchChrome
+        zone="pinned"
+        paneIds={[pane0, pane1]}
+        tabs={tabs}
+        activeId={pane0}
+      />
+      <WorkbenchPanes zone="pinned" />
+    </div>
+  );
+});
 
 /**
  * Stage-right pinned workbench dock. Only surfaces with zone === "pinned".
@@ -14,11 +42,8 @@ import { WorkbenchChrome, WorkbenchPanes } from "./workbench";
  * Focus-zone surfaces live in WorkFocusShell, not here.
  */
 export function WorkSurfaceDock() {
-  const registry = use$(dock$.registry);
-  const hasPinned = zoneHasSurfaces(registry, "pinned");
-  const panes = visiblePanes(registry, "pinned");
-  const activeId = panes.pane0;
-  const active = activeId ? surfaceById(registry, activeId) : undefined;
+  const hasPinned = use$(() => dock$.registry.pinnedMru.get().length > 0);
+  const pinnedWidthFrac = use$(dock$.registry.pinnedWidthFrac);
   const dragRef = useRef<{ startX: number; startFrac: number } | null>(null);
 
   const onResizePointerDown = useCallback(
@@ -63,7 +88,7 @@ export function WorkSurfaceDock() {
 
   if (!hasPinned) return null;
 
-  const widthPct = Math.round(registry.pinnedWidthFrac * 1000) / 10;
+  const widthPct = Math.round(pinnedWidthFrac * 1000) / 10;
 
   return (
     <aside
@@ -85,15 +110,7 @@ export function WorkSurfaceDock() {
         aria-label="Resize pinned dock"
         onPointerDown={onResizePointerDown}
       />
-      <div className="work-surface-dock__inner">
-        <WorkbenchChrome
-          zone="pinned"
-          paneIds={[panes.pane0, panes.pane1]}
-          tabs={panes.tabs}
-          activeId={active?.id}
-        />
-        <WorkbenchPanes zone="pinned" />
-      </div>
+      <PinnedDockContents />
     </aside>
   );
 }

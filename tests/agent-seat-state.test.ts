@@ -249,12 +249,54 @@ describe("evaluate — grok", () => {
     const r = evaluate(
       snap({
         title: "",
-        lines: ["  ⠧ Waiting for response… 4.3s   4.3s ⇣22.3k [stop]"],
+        lines: ["  ⠧ compiling   4.3s ⇣22.3k [stop]"],
       }),
       { harness: "grok" },
     );
     expect(r.state).toBe("working");
     expect(r.reason).toBe("rule:spinner_status_working");
+  });
+
+  it("Responding / Waiting footer without braille beats idle title grok", () => {
+    const responding = evaluate(
+      snap({
+        title: "grok",
+        lines: [
+          "earlier transcript",
+          "  Responding… 1.2s",
+        ],
+      }),
+      { harness: "grok" },
+    );
+    expect(responding.state).toBe("working");
+    expect(responding.reason).toBe("rule:grid_thinking_working");
+
+    const waiting = evaluate(
+      snap({
+        title: "grok",
+        lines: ["  Waiting for response... 0.4s"],
+      }),
+      { harness: "grok" },
+    );
+    expect(waiting.state).toBe("working");
+    expect(waiting.reason).toBe("rule:grid_thinking_working");
+  });
+
+  it("historical Responding in scrollback does not stick working", () => {
+    const r = evaluate(
+      snap({
+        title: "grok",
+        lines: [
+          "  Responding… 4.3s",
+          "here is the answer",
+          "❯ ",
+          "Grok 4.5 (low) · 47K / 500K",
+        ],
+      }),
+      { harness: "grok" },
+    );
+    expect(r.state).toBe("idle");
+    expect(r.reason).toBe("rule:osc_title_idle");
   });
 
   it("option dialog gutter → attention", () => {

@@ -170,6 +170,7 @@ const canvasesService = CanvasesService.of({
     Effect.fail(new CanvasError({ message: "not used" })),
   start: () => undefined,
   subscribeChanges: () => () => undefined,
+  announceInstalledProjection: () => {},
   liveDocuments: () =>
     Effect.succeed([{ canvasName: "revocation", doc }]),
   liveAuthorityGeneration: () => Effect.succeed("1"),

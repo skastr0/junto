@@ -183,6 +183,7 @@ const fakeCanvases = (docs: ReadonlyMap<string, CanvasDoc>) =>
       writeSidecar: () => Effect.succeed(""),
       start: () => {},
       subscribeChanges: () => () => {},
+      announceInstalledProjection: () => {},
       liveDocuments: () => Effect.succeed([]),
       liveAuthorityGeneration: () => Effect.succeed("0"),
       authoritySnapshot: () =>

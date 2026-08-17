@@ -15,12 +15,18 @@ import type { HarnessId } from "@shared/managed-terminal-templates";
 import { classifySpawnFailure } from "@shared/spawn-failure";
 import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
 import { colorFgBgFor, type ThemeMode } from "@shared/theme";
+import { currentThemeMode } from "../theme-state";
 import {
   productStatusFromSessionPhase,
   sessionPhaseAllowsWrite,
   SessionPhase,
   type SessionPhase as SessionPhaseT,
 } from "@shared/terminal-session-domain";
+import {
+  occupancyFromSession,
+  occupyVacantSeat,
+} from "@shared/terminal-seat-occupancy";
+import { appendTransportTrace } from "../observability/transport-journal";
 import {
   TERM_MAINTENANCE_OBSERVATION_BYTES,
   type TermMaintenanceDenialReason,
@@ -64,6 +70,7 @@ import {
   isHarnessResumeFailureText,
   isPinSessionHarness,
   launchArgvUsesResume,
+  reclaimOrphanedHarnessArgv,
 } from "./session-existence";
 import {
   planFreshPinSession,
@@ -159,6 +166,20 @@ export type LocalHostEvent =
       readonly epoch: string;
       readonly status: "starting" | "running" | "exited";
       readonly pid?: number;
+    }
+  | {
+      readonly type: "seat-state";
+      readonly bindingId: string;
+      readonly epoch: string;
+      readonly event: {
+        readonly bindingId: string;
+        readonly epoch: string;
+        readonly state: "idle" | "working" | "attention" | "unknown" | "gone";
+        readonly reason: string;
+        readonly confidence: "high" | "low";
+        readonly at: number;
+        readonly harness?: string;
+      };
     };
 
 export type LocalHostEventListener = (event: LocalHostEvent) => void;
@@ -554,9 +575,14 @@ export const resolveLaunch = (
     ambientTerm.startsWith("xterm") || ambientTerm.startsWith("screen")
       ? ambientTerm
       : "xterm-256color";
-  // COLORFGBG is a coarse spawn hint (fg;bg ANSI indices). Live theme comes
-  // from xterm ITheme + OSC 10/11 + CSI ?996n/?2031 on the renderer surface.
-  const colorFgBg = colorFgBgFor(options?.themeMode ?? "dark");
+  // COLORFGBG is the spawn hint a TUI reads when it never asks the terminal
+  // what colour it is (Grok: its real captures carry no OSC 10/11 query). It
+  // comes from main's theme state, which is the source of truth for every seat
+  // on every canvas — a seat woken with no surface attached is told exactly
+  // what a hand-opened one is told. The renderer's OSC 10/11 + CSI ?996n stay
+  // the live update path once a surface exists; they are no longer the only
+  // way the harness ever learns the theme.
+  const colorFgBg = colorFgBgFor(options?.themeMode ?? currentThemeMode());
   const env: Record<string, string> =
     seat.kind === "agent"
       ? {
@@ -587,7 +613,10 @@ export const resolveLaunch = (
       }
     }
   }
-  const argv = launch?.argv?.filter((a) => typeof a === "string" && a.length > 0) ?? [];
+  const argv = reclaimOrphanedHarnessArgv(
+    launch?.argv?.filter((a) => typeof a === "string" && a.length > 0) ?? [],
+    cwd,
+  );
 
   if (seat.kind === "agent") {
     const unresolvable = (reason: string): AgentLaunchUnresolvable => ({
@@ -683,31 +712,20 @@ export class LocalSessionHost extends EventEmitter {
   createAgentSeat(input: LocalHostAgentSeatInput): TerminalSessionSummary {
     const bindingId = input.bindingId.trim();
     const current = this.sessions.get(bindingId);
-    if (
-      current &&
-      !current.killed &&
-      sessionStatusOf(current) !== "exited"
-    ) {
-      // Isolated VELLUM_COMMAND_HOME (bun run dev) shares ~/.claude / ~/.grok with the
-      // production install. A generation started via shared --resume can stay
-      // "running" with a dead/black TUI. Prefer one fresh pin spawn when the
-      // live generation was a resume attempt (or the new plan still carries
-      // resume argv — should not happen after launchForManagedSpawn, but
-      // fail closed to pin rather than re-attach a poisoned seat).
-      const isolateShared = shouldAvoidSharedHarnessResume();
-      const pinHarness = isPinSessionHarness(input.harness);
-      const liveWasSharedResume = current.resumeAttempt === true;
-      const planStillResumes = launchArgvUsesResume(input.launch?.argv);
-      if (isolateShared && pinHarness && (liveWasSharedResume || planStillResumes)) {
-        this.killBinding(bindingId, "shared_resume_replacement");
-        // Fall through to open a replacement generation.
-      } else {
-        // One binding owns one live actor generation. Create is an idempotent
-        // ensure at this boundary: renderer remounts, concurrent factory wake,
-        // or duplicate IPC must never turn into permission to signal and replace
-        // a healthy harness. Explicit kill followed by create remains restart.
-        return this.summaryOf(current);
-      }
+    const occupancy = occupancyFromSession(
+      bindingId,
+      current === undefined
+        ? undefined
+        : {
+            epoch: current.epoch,
+            status: sessionStatusOf(current),
+            ...(current.killed ? { stopping: true as const } : {}),
+          },
+      "local",
+    );
+    const occupy = occupyVacantSeat(occupancy);
+    if (Result.isFailure(occupy) && current) {
+      return this.summaryOf(current);
     }
     // Under isolation, never spawn pin harnesses with resume argv even if a
     // caller bypassed launchForManagedSpawn and handed us document -r.
@@ -738,7 +756,7 @@ export class LocalSessionHost extends EventEmitter {
         );
       }
     }
-    return this.open(
+    const opened = this.open(
       {
         kind: "agent",
         harness: input.harness,
@@ -757,6 +775,58 @@ export class LocalSessionHost extends EventEmitter {
         },
       },
     );
+    // Fail-open after a dead resume can replace this binding during open (or
+    // immediately after exit). Create must return the authoritative generation
+    // for the binding — never the exited resume row that is no longer current.
+    // Returning the dead summary is what painted "Agent stopped" while a live
+    // replacement was already running (Reopen then attached instantly).
+    const head = this.sessions.get(bindingId);
+    return head ? this.summaryOf(head) : opened;
+  }
+
+  /**
+   * Stamp actor identity onto a live generation that was occupied as geography.
+   * Does not respawn. Same identity is a no-op. A different harness is refused.
+   */
+  adoptAgentSeat(
+    bindingId: string,
+    actor: { readonly harness: HarnessId; readonly agentKey: string },
+  ): TerminalSessionSummary | undefined {
+    const rec = this.sessions.get(bindingId.trim());
+    if (!rec) return undefined;
+    if (rec.harness === actor.harness && rec.agentKey === actor.agentKey) {
+      return this.summaryOf(rec);
+    }
+    if (rec.harness !== undefined && rec.harness !== actor.harness) {
+      throw new Error(
+        `seat ${rec.bindingId} already bound to ${rec.harness}`,
+      );
+    }
+    rec.harness = actor.harness;
+    rec.agentKey = actor.agentKey;
+    if (sessionStatusOf(rec) !== "exited") {
+      seatStateRuntime.bindHarness(rec.bindingId, rec.harness, rec.epoch);
+      const snap = this.observerPlane.snapshot(rec.bindingId);
+      if (snap) seatStateRuntime.observe(snap);
+      if (sessionStatusOf(rec) === "running") {
+        // The geography generation was bound with the bindingId principal.
+        // Release that exact bind before stamping the agent principal — the
+        // identity map refuses to overwrite a live PID's principal in place.
+        const identities = getProcessIdentityMap();
+        if (rec.ptyIdentityBinding !== undefined) {
+          identities.unbindGeneration(rec.ptyIdentityBinding);
+          rec.ptyIdentityBinding = undefined;
+        } else if (rec.pid !== undefined) {
+          identities.unbind(rec.pid);
+        }
+        if (!this.bindPtyProcessIdentity(rec)) {
+          console.error(
+            `[term] adopt identity bind failed for ${rec.bindingId}@${rec.epoch}`,
+          );
+        }
+      }
+    }
+    return this.summaryOf(rec);
   }
 
   private open(
@@ -785,9 +855,38 @@ export class LocalSessionHost extends EventEmitter {
     if (!bindingId) throw new Error("bindingId required");
 
     const prior = this.sessions.get(bindingId);
-    if (prior && sessionStatusOf(prior) !== "exited") {
-      this.killBinding(bindingId, "replacement");
+    const occupancy = occupancyFromSession(
+      bindingId,
+      prior === undefined
+        ? undefined
+        : {
+            epoch: prior.epoch,
+            status: sessionStatusOf(prior),
+            ...(prior.killed ? { stopping: true as const } : {}),
+          },
+      "local",
+    );
+    if (Result.isFailure(occupyVacantSeat(occupancy)) && prior) {
+      appendTransportTrace({
+        plane: "term",
+        op: "host.occupy",
+        ok: true,
+        bindingId,
+        status: sessionStatusOf(prior),
+        occupancy: occupancy._tag,
+        decision: "activate",
+      });
+      return this.summaryOf(prior);
     }
+    appendTransportTrace({
+      plane: "term",
+      op: "host.occupy",
+      ok: true,
+      bindingId,
+      status: prior ? sessionStatusOf(prior) : "none",
+      occupancy: occupancy._tag,
+      decision: "occupy",
+    });
 
     const cols = Math.max(20, Math.min(300, input.cols ?? DEFAULT_COLS));
     const rows = Math.max(5, Math.min(120, input.rows ?? DEFAULT_ROWS));
@@ -876,6 +975,9 @@ export class LocalSessionHost extends EventEmitter {
       return this.summaryOf(rec);
     }
     const launch = resolved.success;
+    if (seat.kind === "agent") {
+      rec.resumeAttempt = launchArgvUsesResume([launch.file, ...launch.args]);
+    }
     // Best-effort display name until OSC title updates (the companion wrapper is
     // transport, not the process name the operator chose).
     const spawnName = basename(launch.file).trim();
@@ -999,6 +1101,15 @@ export class LocalSessionHost extends EventEmitter {
         if (this.sessions.get(bindingId) === rec) {
           clearFirstTypedMessage(bindingId);
         }
+        // Resume fail-open may already own this binding with a live generation.
+        const replacement = this.sessions.get(bindingId);
+        if (
+          replacement &&
+          replacement !== rec &&
+          sessionStatusOf(replacement) !== "exited"
+        ) {
+          return this.summaryOf(replacement);
+        }
         return this.summaryOf(rec);
       }
 
@@ -1015,7 +1126,9 @@ export class LocalSessionHost extends EventEmitter {
       this.requestStop(rec, "terminal_setup_failed");
     }
 
-    return this.summaryOf(rec);
+    // Prefer the map head: fail-open may have swapped the binding mid-open.
+    const head = this.sessions.get(bindingId);
+    return this.summaryOf(head && this.liveRecords.has(head) ? head : rec);
   }
 
   list(): readonly TerminalSessionSummary[] {
@@ -1121,7 +1234,7 @@ export class LocalSessionHost extends EventEmitter {
       }
     | { readonly ok: false; readonly message: string }
   > {
-    const rec = this.sessions.get(input.bindingId);
+    let rec = this.sessions.get(input.bindingId);
     if (!rec) return { ok: false, message: "session not found" };
     if (rec.killed) {
       return { ok: false, message: "session interaction revoked during stop" };
@@ -1129,7 +1242,23 @@ export class LocalSessionHost extends EventEmitter {
 
     // One canonical live attach representation: xterm's serialized VT state.
     // Never reconstruct a terminal from observer text.
-    const screen = await this.observerPlane.attachScreen(rec.bindingId);
+    let screen = await this.observerPlane.attachScreen(rec.bindingId);
+
+    // attachScreen awaits the headless grid. A resume generation can die and
+    // be fail-open replaced while we waited — the map head is then a NEW live
+    // epoch. Returning the stale exited rec is exactly "Agent stopped" with a
+    // live pin already running (Reopen only re-attached). Re-resolve once.
+    const head = this.sessions.get(input.bindingId);
+    if (head && head !== rec) {
+      rec = head;
+      if (rec.killed) {
+        return { ok: false, message: "session interaction revoked during stop" };
+      }
+      if (sessionStatusOf(rec) !== "exited") {
+        screen = await this.observerPlane.attachScreen(rec.bindingId);
+      }
+    }
+
     const screenPayload = screen
       ? {
           bindingId: screen.bindingId,
@@ -1142,7 +1271,12 @@ export class LocalSessionHost extends EventEmitter {
       : undefined;
     // A live observer owns presentation. Journal is retained only for
     // pre-observer spawn/setup failures, never as an alternate live painter.
-    const journal = screenPayload ? ([] as const) : rec.journal.slice();
+    // Drop a screen snapshot that belongs to a different (dead) epoch.
+    const screenForRec =
+      screenPayload && screenPayload.epoch === rec.epoch
+        ? screenPayload
+        : undefined;
+    const journal = screenForRec ? ([] as const) : rec.journal.slice();
 
     if (input.mode === "control") {
       if (rec.controlLeaseId && !input.takeover) {
@@ -1159,7 +1293,7 @@ export class LocalSessionHost extends EventEmitter {
         },
         cols: rec.cols,
         rows: rec.rows,
-        ...(screenPayload ? { screen: screenPayload } : {}),
+        ...(screenForRec ? { screen: screenForRec } : {}),
         journal,
         status: sessionStatusOf(rec),
         pid: rec.pid,
@@ -1176,7 +1310,7 @@ export class LocalSessionHost extends EventEmitter {
       },
       cols: rec.cols,
       rows: rec.rows,
-      ...(screenPayload ? { screen: screenPayload } : {}),
+      ...(screenForRec ? { screen: screenForRec } : {}),
       journal,
       status: sessionStatusOf(rec),
       pid: rec.pid,
@@ -1751,6 +1885,17 @@ export class LocalSessionHost extends EventEmitter {
     rec.lease = undefined;
     rec.exitWitness = undefined;
     if (current !== rec) return;
+    appendTransportTrace({
+      plane: "term",
+      op: "host.exit",
+      ok: true,
+      bindingId: rec.bindingId,
+      status: "exited",
+      occupancy: "VacantSeat",
+      epoch: rec.epoch,
+      ...(code === undefined ? {} : { code }),
+      ...(signal === undefined ? {} : { signal }),
+    });
     rec.seq = rec.seq + 1n;
     this.pushJournal(rec, { seq: rec.seq, type: "exit", code, signal });
     this.safeEmitEvent({
@@ -1823,48 +1968,51 @@ export class LocalSessionHost extends EventEmitter {
         `\r\n[vellum] resume failed for prior session; starting fresh session ${freshId}\r\n`,
     });
 
-    // Defer so exit bookkeeping finishes before the replacement generation.
-    queueMicrotask(() => {
-      if (this.shuttingDown) return;
-      const live = this.sessions.get(rec.bindingId);
-      if (live && sessionStatusOf(live) !== "exited") return;
-      try {
-        this.open(
-          {
-            kind: "agent",
-            harness: seed.harness,
-            agentKey: seed.agentKey,
+    // Spawn the replacement on this turn — not on a microtask. Exit bookkeeping
+    // above is complete; deferring let createAgentSeat return the dead resume
+    // summary while the live pin was still "about to" start. The renderer then
+    // painted Agent stopped, and Reopen only re-attached to the generation that
+    // was already running. Keep fail-open on the create/exit stack so ensure
+    // and attach see the live generation immediately.
+    if (this.shuttingDown) return;
+    const live = this.sessions.get(rec.bindingId);
+    if (live && live !== rec && sessionStatusOf(live) !== "exited") return;
+    try {
+      this.open(
+        {
+          kind: "agent",
+          harness: seed.harness,
+          agentKey: seed.agentKey,
+          ...(freshLaunch ? { launch: freshLaunch } : {}),
+        },
+        {
+          bindingId: seed.bindingId,
+          ...(seed.hostId ? { hostId: seed.hostId } : {}),
+          ...(seed.cols !== undefined ? { cols: seed.cols } : {}),
+          ...(seed.rows !== undefined ? { rows: seed.rows } : {}),
+          ...(seed.canvasName ? { canvasName: seed.canvasName } : {}),
+          ...(seed.nodeId ? { nodeId: seed.nodeId } : {}),
+          ...(seed.label ? { label: seed.label } : {}),
+          ...(seed.title ? { title: seed.title } : {}),
+          ...(seed.firstTypedMessage
+            ? { firstTypedMessage: seed.firstTypedMessage }
+            : {}),
+        },
+        {
+          resumeAttempt: false,
+          failOpenSeed: {
+            ...seed,
             ...(freshLaunch ? { launch: freshLaunch } : {}),
           },
-          {
-            bindingId: seed.bindingId,
-            ...(seed.hostId ? { hostId: seed.hostId } : {}),
-            ...(seed.cols !== undefined ? { cols: seed.cols } : {}),
-            ...(seed.rows !== undefined ? { rows: seed.rows } : {}),
-            ...(seed.canvasName ? { canvasName: seed.canvasName } : {}),
-            ...(seed.nodeId ? { nodeId: seed.nodeId } : {}),
-            ...(seed.label ? { label: seed.label } : {}),
-            ...(seed.title ? { title: seed.title } : {}),
-            ...(seed.firstTypedMessage
-              ? { firstTypedMessage: seed.firstTypedMessage }
-              : {}),
-          },
-          {
-            resumeAttempt: false,
-            failOpenSeed: {
-              ...seed,
-              ...(freshLaunch ? { launch: freshLaunch } : {}),
-            },
-            failOpenUsed: true,
-          },
-        );
-      } catch (err) {
-        console.error(
-          `[term] fail-open respawn failed for ${rec.bindingId}:`,
-          err,
-        );
-      }
-    });
+          failOpenUsed: true,
+        },
+      );
+    } catch (err) {
+      console.error(
+        `[term] fail-open respawn failed for ${rec.bindingId}:`,
+        err,
+      );
+    }
   }
 
   private failBeforeOwnership(rec: SessionRec, error: unknown): void {
@@ -2128,6 +2276,8 @@ export class LocalSessionHost extends EventEmitter {
       backend: rec.backend,
       ...(rec.exitReason ? { exitReason: rec.exitReason } : {}),
       ...(rec.exitMessage ? { exitMessage: rec.exitMessage } : {}),
+      ...(rec.harness ? { harness: rec.harness } : {}),
+      ...(rec.agentKey ? { agentKey: rec.agentKey } : {}),
     };
   }
 

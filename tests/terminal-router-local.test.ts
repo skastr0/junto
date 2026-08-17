@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Effect, Scope } from "effect";
 import { LocalSessionHost } from "../src/main/vellum/term/local-host";
-import { TerminalRouter } from "../src/main/vellum/term/router";
+import { remapRemoteAttach, TerminalRouter } from "../src/main/vellum/term/router";
 import {
   makeProcessIdentityMap,
   setProcessIdentityMapForTests,
@@ -199,5 +199,48 @@ describe("TerminalRouter local path", () => {
       stragglers: [],
     });
     expect(router.runningCount()).toBe(0);
+  });
+});
+
+describe("remapRemoteAttach", () => {
+  it("keeps screen.serialized and the hop journal", () => {
+    const remapped = remapRemoteAttach(
+      {
+        ok: true,
+        lease: {
+          leaseId: "remote-lease",
+          bindingId: "seat-1",
+          epoch: "ep-9",
+          mode: "control",
+        },
+        cols: 120,
+        rows: 40,
+        journal: [{ seq: 3n, type: "output", data: "keep-me" }],
+        status: "running",
+        pid: 4242,
+        screen: {
+          bindingId: "seat-1",
+          epoch: "ep-9",
+          cols: 120,
+          rows: 40,
+          seq: 88n,
+          serialized: "vt-serialized-state",
+        },
+      },
+      "rm_local",
+    );
+
+    expect(remapped.ok).toBe(true);
+    expect(remapped.lease.leaseId).toBe("rm_local");
+    expect(remapped.lease.bindingId).toBe("seat-1");
+    expect(remapped.lease.epoch).toBe("ep-9");
+    expect(remapped.lease.mode).toBe("control");
+    expect(remapped.screen?.serialized).toBe("vt-serialized-state");
+    expect(remapped.screen?.seq).toBe(88n);
+    expect(remapped.journal).toEqual([{ seq: 3n, type: "output", data: "keep-me" }]);
+    expect(remapped.cols).toBe(120);
+    expect(remapped.rows).toBe(40);
+    expect(remapped.status).toBe("running");
+    expect(remapped.pid).toBe(4242);
   });
 });

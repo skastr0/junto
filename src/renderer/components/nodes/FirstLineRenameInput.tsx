@@ -41,6 +41,7 @@ export function FirstLineRenameInput({
   return (
     <input
       ref={inputRef}
+      data-focus-owner="canvas-draft"
       aria-label={ariaLabel}
       className="nodrag nopan nowheel min-w-0 w-full bg-transparent text-left font-mono text-[14px] font-semibold leading-snug outline-none"
       style={{ color: INK, width: "100%" }}

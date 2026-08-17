@@ -1,7 +1,11 @@
 import { state$ } from "./state";
 import type { LinuxHostCapabilityObservation } from "@shared/linux-host-capabilities";
-import type { StationProtocolObservation } from "@shared/station-status";
+import type {
+  StationProtocolObservation,
+  StationRemoteObservation,
+} from "@shared/station-status";
 import { FLEET_UI_ENABLED } from "@shared/features";
+import { isCommandCenterFleetUi } from "./canvas-boot";
 
 /** Per-host reachability probe state for the fleet overlay. */
 export interface FleetProbeState {
@@ -10,12 +14,17 @@ export interface FleetProbeState {
   readonly detail?: string;
   readonly protocol?: StationProtocolObservation;
   readonly linuxCapabilities?: LinuxHostCapabilityObservation;
+  readonly observation?: StationRemoteObservation;
 }
 
 /** Warm the lazy fleet chunk (three.js) before the operator clicks. */
 let fleetChunkPrefetch: Promise<unknown> | null = null;
+const fleetUiOpen = (): boolean =>
+  FLEET_UI_ENABLED &&
+  isCommandCenterFleetUi(state$.settings.station.role.peek());
+
 export const prefetchFleetChunk = (): void => {
-  if (!FLEET_UI_ENABLED) return;
+  if (!fleetUiOpen()) return;
   if (fleetChunkPrefetch) return;
   fleetChunkPrefetch = import("../components/fleet/FleetOverlay").catch(() => {
     fleetChunkPrefetch = null;
@@ -23,7 +32,7 @@ export const prefetchFleetChunk = (): void => {
 };
 
 export const openFleet = (): void => {
-  if (!FLEET_UI_ENABLED) return;
+  if (!fleetUiOpen()) return;
   prefetchFleetChunk();
   state$.fleetOpen.set(true);
   // Load the fleet, then probe every remote host so edges show live link
@@ -93,6 +102,9 @@ export const probeHost = async (id: string): Promise<void> => {
             ...(result.linuxCapabilities === undefined
               ? {}
               : { linuxCapabilities: result.linuxCapabilities }),
+            ...(result.observation === undefined
+              ? {}
+              : { observation: result.observation }),
           }
         : {
             status: "unreachable",
@@ -103,6 +115,9 @@ export const probeHost = async (id: string): Promise<void> => {
             ...(result.linuxCapabilities === undefined
               ? {}
               : { linuxCapabilities: result.linuxCapabilities }),
+            ...(result.observation === undefined
+              ? {}
+              : { observation: result.observation }),
           },
     );
   } catch (error) {

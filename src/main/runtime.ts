@@ -65,6 +65,7 @@ import { SnapshotsLive, SnapshotsService } from "./vellum/snapshots";
 import { UsageLive } from "./vellum/usage/live";
 import { UsageService } from "./vellum/usage/usage-service";
 import { HostsService, HostsServiceLive } from "./vellum/hosts";
+import { HostRuntimeLive } from "./vellum/hosts/host-runtime";
 import { SshTransportLive } from "./vellum/ssh";
 import {
   BoxCliLive,
@@ -227,8 +228,9 @@ const StationFleetServicesLive = Layer.provideMerge(
   ),
 );
 
+// HostRuntimeLive yields HostsService at acquire — provide, don't sibling-merge.
 const HostsWithSshLive = Layer.provideMerge(
-  HostsServiceLive,
+  Layer.provideMerge(HostRuntimeLive, HostsServiceLive),
   Layer.mergeAll(
     SshTransportLive,
     StateRepositoriesLive,

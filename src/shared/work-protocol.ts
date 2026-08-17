@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 import { ActorSeatId } from "./actor-seat";
 import { InstallationId } from "./installation-id";
+import { PadPatch } from "./pad";
 import {
   Artifact,
   BoardAuthor,
@@ -178,7 +179,8 @@ export const WorkOperation = Schema.Literals(["proposal.create", "proposal.appro
 "artifact.publish",
 "delivery.accepted",
 "board.topic.create",
-"board.post.append",]);
+"board.post.append",
+"pad.patch",]);
 export type WorkOperation = typeof WorkOperation.Type;
 
 export const ProposalCreateAction = Schema.Struct({
@@ -376,6 +378,15 @@ export const BoardPostAppendAction = Schema.Struct({
 });
 export type BoardPostAppendAction = typeof BoardPostAppendAction.Type;
 
+/** CC-homed pad mutation. applyPatch is the only IR change. */
+export const PadPatchAction = Schema.Struct({
+  operation: Schema.Literal("pad.patch"),
+  patchId: BoundedWorkId,
+  patches: Schema.Array(PadPatch).pipe(Schema.check(Schema.isMinLength(1))),
+  author: BoardAuthor,
+});
+export type PadPatchAction = typeof PadPatchAction.Type;
+
 export const WorkAction = Schema.Union([ProposalCreateAction,
 ProposalApproveAction,
 ProposalRejectAction,
@@ -389,7 +400,8 @@ MessageAppendAction,
 ArtifactPublishAction,
 DeliveryAcceptedAction,
 BoardTopicCreateAction,
-BoardPostAppendAction,]);
+BoardPostAppendAction,
+PadPatchAction,]);
 export type WorkAction = typeof WorkAction.Type;
 
 export const ProposalCreateResult = Schema.Struct({
@@ -510,6 +522,18 @@ export const BoardPostAppendResult = Schema.Struct({
 });
 export type BoardPostAppendResult = typeof BoardPostAppendResult.Type;
 
+export const PadPatchResult = Schema.Struct({
+  operation: Schema.Literal("pad.patch"),
+  patchId: BoundedWorkId,
+  patches: Schema.Array(PadPatch).pipe(Schema.check(Schema.isMinLength(1))),
+  author: BoardAuthor,
+  revision: Schema.Number.pipe(
+    Schema.check(Schema.isInt()),
+    Schema.check(Schema.isGreaterThanOrEqualTo(0)),
+  ),
+});
+export type PadPatchResult = typeof PadPatchResult.Type;
+
 export const WorkResult = Schema.Union([ProposalCreateResult,
 ProposalApproveResult,
 ProposalRejectResult,
@@ -521,7 +545,8 @@ MessageAppendResult,
 ArtifactPublishResult,
 DeliveryAcceptedResult,
 BoardTopicCreateResult,
-BoardPostAppendResult,]);
+BoardPostAppendResult,
+PadPatchResult,]);
 export type WorkResult = typeof WorkResult.Type;
 
 export const WorkRejectionReason = Schema.Literals(["authority-mismatch", "capability-denied",
@@ -626,6 +651,8 @@ const itemMatchesAction = (
       return item.kind === "topic" && item.itemId === action.topic.topicId;
     case "board.post.append":
       return item.kind === "post" && item.itemId === action.post.postId;
+    case "pad.patch":
+      return item.kind === "pad" && item.itemId === action.patchId;
   }
 };
 
@@ -665,6 +692,8 @@ const itemMatchesResult = (
       return item.kind === "topic" && item.itemId === result.topic.topicId;
     case "board.post.append":
       return item.kind === "post" && item.itemId === result.post.postId;
+    case "pad.patch":
+      return item.kind === "pad" && item.itemId === result.patchId;
   }
 };
 
@@ -677,7 +706,8 @@ const noPriorMaterialFact = (operation: WorkOperation): boolean =>
   operation === "artifact.publish" ||
   operation === "delivery.accepted" ||
   operation === "board.topic.create" ||
-  operation === "board.post.append";
+  operation === "board.post.append" ||
+  operation === "pad.patch";
 
 const recordByteLength = (record: unknown): number | undefined => {
   try {

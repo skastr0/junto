@@ -3,9 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createConnection } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { LocalSessionHost } from "../src/main/vellum/term/local-host";
+import {
+  LocalSessionHost,
+  type LocalHostEvent,
+} from "../src/main/vellum/term/local-host";
 import { startTermControlServer } from "../src/main/vellum/term/control-server";
 import { TermControlClient } from "../src/main/vellum/term/control-client";
+import { seatStateRuntime } from "../src/main/vellum/term/agent-state";
 import {
   makeProcessIdentityMap,
   setProcessIdentityMapForTests,
@@ -118,6 +122,35 @@ describe("term control UDS", () => {
     expect(after?.status === "exited" || after === undefined).toBe(true);
   });
 
+  it("create on an occupied seat returns the occupant and does not respawn", async () => {
+    setProcessIdentityMapForTests(makeProcessIdentityMap());
+    const home = mkdtempSync(join(tmpdir(), "vt-occ-"));
+    cleanups.push(() => rmSync(home, { recursive: true, force: true }));
+    const host = new LocalSessionHost(fakeAuthority());
+    cleanups.push(async () => {
+      await host.shutdownAll("test");
+    });
+    const server = await startTermControlServer(host, { home });
+    cleanups.push(() => server.close());
+    const client = await TermControlClient.connect({
+      socketPath: server.socketPath,
+      token: server.token,
+      timeoutMs: 5_000,
+    });
+    cleanups.push(() => client.close());
+
+    const first = await client.create({
+      bindingId: "bind_occ",
+      launch: { kind: "shell" },
+    });
+    const again = await client.create({
+      bindingId: "bind_occ",
+      launch: { kind: "shell" },
+    });
+    expect(again.epoch).toBe(first.epoch);
+    expect(host.runningCount()).toBe(1);
+  });
+
   it("rejects bad token", async () => {
     const home = mkdtempSync(join(tmpdir(), "vtb-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));
@@ -135,6 +168,26 @@ describe("term control UDS", () => {
         timeoutMs: 3_000,
       }),
     ).rejects.toThrow(/unauth|auth/i);
+  });
+
+  it("isLive is false after the socket closes", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vtl-"));
+    cleanups.push(() => rmSync(home, { recursive: true, force: true }));
+    const host = new LocalSessionHost(fakeAuthority());
+    cleanups.push(async () => {
+      await host.shutdownAll("test");
+    });
+    const server = await startTermControlServer(host, { home });
+    cleanups.push(() => server.close());
+    const client = await TermControlClient.connect({
+      socketPath: server.socketPath,
+      token: server.token,
+      timeoutMs: 5_000,
+    });
+    expect(client.isLive()).toBe(true);
+    client.close();
+    await client.whenClosed();
+    expect(client.isLive()).toBe(false);
   });
 
   it("caps accepted peers before frame admission and recovers after close", async () => {
@@ -207,5 +260,271 @@ describe("term control UDS", () => {
 
     await closing;
     expect(host.list()).toEqual([]);
+  });
+
+  it("connect then subscribe still sees the current working seat", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vtss-"));
+    cleanups.push(() => rmSync(home, { recursive: true, force: true }));
+    const host = new LocalSessionHost(fakeAuthority());
+    cleanups.push(async () => {
+      await host.shutdownAll("test");
+    });
+    seatStateRuntime.bindHarness("uds_auth_snap", "claude", "e-uds");
+    seatStateRuntime.machine.force(
+      "uds_auth_snap",
+      "working",
+      "rule:grid_thinking_working",
+      "high",
+    );
+    cleanups.push(() => {
+      seatStateRuntime.unbind("uds_auth_snap", "e-uds");
+    });
+
+    const server = await startTermControlServer(host, { home });
+    cleanups.push(() => server.close());
+    const client = await TermControlClient.connect({
+      socketPath: server.socketPath,
+      token: server.token,
+      timeoutMs: 5_000,
+    });
+    cleanups.push(() => client.close());
+
+    const seen = new Promise<LocalHostEvent>((resolve) => {
+      client.on("event", (ev: LocalHostEvent) => {
+        if (ev.type === "seat-state" && ev.event.bindingId === "uds_auth_snap") {
+          resolve(ev);
+        }
+      });
+    });
+    const ev = await Promise.race([
+      seen,
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("missing seat-state snapshot")), 1_000),
+      ),
+    ]);
+    expect(ev.type).toBe("seat-state");
+    if (ev.type !== "seat-state") return;
+    expect(ev.event.state).toBe("working");
+    expect(ev.event.reason).toBe("rule:grid_thinking_working");
+    expect(ev.event.epoch).toBe("e-uds");
+  });
+
+  it("create with harness occupies an actor seat the hop can snapshot", async () => {
+    setProcessIdentityMapForTests(makeProcessIdentityMap());
+    const home = mkdtempSync(join(tmpdir(), "vtas-"));
+    cleanups.push(() => rmSync(home, { recursive: true, force: true }));
+    const host = new LocalSessionHost(fakeAuthority());
+    cleanups.push(async () => {
+      await host.shutdownAll("test");
+    });
+    const server = await startTermControlServer(host, { home });
+    cleanups.push(() => server.close());
+    const client = await TermControlClient.connect({
+      socketPath: server.socketPath,
+      token: server.token,
+      timeoutMs: 5_000,
+    });
+    cleanups.push(() => client.close());
+
+    const created = await client.create({
+      bindingId: "uds_actor",
+      harness: "grok",
+      agentKey: "mini:grok",
+      launch: { kind: "harness", argv: ["grok"] },
+      cols: 80,
+      rows: 24,
+    });
+    expect(created.status).toBe("running");
+    expect(created.harness).toBe("grok");
+    expect(created.agentKey).toBe("mini:grok");
+    expect(
+      seatStateRuntime.currentEvents().some((event) => event.bindingId === "uds_actor"),
+    ).toBe(true);
+
+    const peek = await TermControlClient.connect({
+      socketPath: server.socketPath,
+      token: server.token,
+      timeoutMs: 5_000,
+    });
+    cleanups.push(() => peek.close());
+    const seen = new Promise<LocalHostEvent>((resolve) => {
+      peek.on("event", (ev: LocalHostEvent) => {
+        if (ev.type === "seat-state" && ev.event.bindingId === "uds_actor") {
+          resolve(ev);
+        }
+      });
+    });
+    const ev = await Promise.race([
+      seen,
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("actor create left auth snapshot empty")), 1_000),
+      ),
+    ]);
+    expect(ev.type).toBe("seat-state");
+  });
+
+  it("create with harness adopts a live geography generation", async () => {
+    setProcessIdentityMapForTests(makeProcessIdentityMap());
+    const home = mkdtempSync(join(tmpdir(), "vtad-"));
+    cleanups.push(() => rmSync(home, { recursive: true, force: true }));
+    const host = new LocalSessionHost(fakeAuthority());
+    cleanups.push(async () => {
+      await host.shutdownAll("test");
+    });
+    const server = await startTermControlServer(host, { home });
+    cleanups.push(() => server.close());
+    const client = await TermControlClient.connect({
+      socketPath: server.socketPath,
+      token: server.token,
+      timeoutMs: 5_000,
+    });
+    cleanups.push(() => client.close());
+
+    const geography = await client.create({
+      bindingId: "uds_adopt",
+      launch: { kind: "shell" },
+      cols: 80,
+      rows: 24,
+    });
+    expect(geography.harness).toBeUndefined();
+    expect(
+      seatStateRuntime.currentEvents().some((event) => event.bindingId === "uds_adopt"),
+    ).toBe(false);
+
+    const adopted = await client.create({
+      bindingId: "uds_adopt",
+      harness: "grok",
+      agentKey: "mini:grok",
+      launch: { kind: "harness", argv: ["grok"] },
+    });
+    expect(adopted.epoch).toBe(geography.epoch);
+    expect(adopted.harness).toBe("grok");
+    expect(adopted.agentKey).toBe("mini:grok");
+    expect(host.runningCount()).toBe(1);
+    expect(
+      seatStateRuntime.currentEvents().some((event) => event.bindingId === "uds_adopt"),
+    ).toBe(true);
+
+    const again = await client.create({
+      bindingId: "uds_adopt",
+      harness: "grok",
+      agentKey: "mini:grok",
+    });
+    expect(again.epoch).toBe(geography.epoch);
+    expect(again.harness).toBe("grok");
+
+    await expect(
+      client.create({
+        bindingId: "uds_adopt",
+        harness: "claude",
+        agentKey: "mini:claude",
+      }),
+    ).rejects.toThrow(/already bound to grok/);
+
+    await expect(
+      client.create({
+        bindingId: "uds_xor",
+        harness: "grok",
+      }),
+    ).rejects.toThrow(/harness and agentKey/);
+  });
+
+  it("createAgentSeat occupies an actor seat and adopts the same identity as a no-op", async () => {
+    setProcessIdentityMapForTests(makeProcessIdentityMap());
+    const home = mkdtempSync(join(tmpdir(), "vtcas-"));
+    cleanups.push(() => rmSync(home, { recursive: true, force: true }));
+    const host = new LocalSessionHost(fakeAuthority());
+    cleanups.push(async () => {
+      await host.shutdownAll("test");
+    });
+    const server = await startTermControlServer(host, { home });
+    cleanups.push(() => server.close());
+    const client = await TermControlClient.connect({
+      socketPath: server.socketPath,
+      token: server.token,
+      timeoutMs: 5_000,
+    });
+    cleanups.push(() => client.close());
+
+    const created = await client.createAgentSeat({
+      bindingId: "uds_cas",
+      harness: "grok",
+      agentKey: "mini:grok",
+      launch: { kind: "harness", argv: ["grok"] },
+      cols: 80,
+      rows: 24,
+    });
+    expect(created.status).toBe("running");
+    expect(created.harness).toBe("grok");
+    expect(created.agentKey).toBe("mini:grok");
+    expect(
+      seatStateRuntime.currentEvents().some((event) => event.bindingId === "uds_cas"),
+    ).toBe(true);
+
+    const again = await client.createAgentSeat({
+      bindingId: "uds_cas",
+      harness: "grok",
+      agentKey: "mini:grok",
+    });
+    expect(again.epoch).toBe(created.epoch);
+    expect(again.harness).toBe("grok");
+    expect(again.agentKey).toBe("mini:grok");
+    expect(host.runningCount()).toBe(1);
+  });
+
+  it("geography create still works and does not bind a harness", async () => {
+    setProcessIdentityMapForTests(makeProcessIdentityMap());
+    const home = mkdtempSync(join(tmpdir(), "vtgeo-"));
+    cleanups.push(() => rmSync(home, { recursive: true, force: true }));
+    const host = new LocalSessionHost(fakeAuthority());
+    cleanups.push(async () => {
+      await host.shutdownAll("test");
+    });
+    const server = await startTermControlServer(host, { home });
+    cleanups.push(() => server.close());
+    const client = await TermControlClient.connect({
+      socketPath: server.socketPath,
+      token: server.token,
+      timeoutMs: 5_000,
+    });
+    cleanups.push(() => client.close());
+
+    const created = await client.create({
+      bindingId: "uds_geo",
+      launch: { kind: "shell" },
+      cols: 80,
+      rows: 24,
+    });
+    expect(created.status).toBe("running");
+    expect(created.harness).toBeUndefined();
+    expect(created.agentKey).toBeUndefined();
+    expect(
+      seatStateRuntime.currentEvents().some((event) => event.bindingId === "uds_geo"),
+    ).toBe(false);
+  });
+
+  it("createAgentSeat with only harness fails", async () => {
+    setProcessIdentityMapForTests(makeProcessIdentityMap());
+    const home = mkdtempSync(join(tmpdir(), "vtcasx-"));
+    cleanups.push(() => rmSync(home, { recursive: true, force: true }));
+    const host = new LocalSessionHost(fakeAuthority());
+    cleanups.push(async () => {
+      await host.shutdownAll("test");
+    });
+    const server = await startTermControlServer(host, { home });
+    cleanups.push(() => server.close());
+    const client = await TermControlClient.connect({
+      socketPath: server.socketPath,
+      token: server.token,
+      timeoutMs: 5_000,
+    });
+    cleanups.push(() => client.close());
+
+    await expect(
+      client.createAgentSeat({
+        bindingId: "uds_cas_xor",
+        harness: "grok",
+      } as { bindingId: string; harness: string; agentKey: string }),
+    ).rejects.toThrow(/harness and agentKey/);
   });
 });

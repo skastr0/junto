@@ -5,6 +5,9 @@ import { join } from "node:path";
 import { Context, Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
+  isArtifactArchived,
+  workArtifactArchive,
+  workArtifactDelete,
   workArtifactPublish,
   workMessageAppend,
   workRequestCreate,
@@ -19,7 +22,7 @@ import {
   workTaskTransition,
   WorkError,
 } from "../src/shared/work";
-import type { Artifact, CanvasDoc, Message } from "../src/shared/canvas";
+import type { Artifact, CanvasDoc, CanvasNode, Message } from "../src/shared/canvas";
 import {
   canTransitionTaskState,
 } from "../src/shared/task";
@@ -692,6 +695,44 @@ describe("work pure transforms", () => {
     expect(raised.task.reason).toBe("signing is gated on the operator's key");
   });
 
+  it("rejects title-only request create (no reason and no metadata.details)", () => {
+    const doc: CanvasDoc = { nodes: [emptyRequestsNode()], edges: [] };
+    expect(() =>
+      workRequestCreate(
+        doc,
+        "c",
+        "req",
+        "title only is not enough",
+        { class: "review" },
+        ids,
+        actorRef("7", "actor-7", "c"),
+      ),
+    ).toThrow(/request body required/);
+    expect(() =>
+      workRequestCreate(
+        doc,
+        "c",
+        "req",
+        "title only is not enough",
+        undefined,
+        ids,
+        actorRef("7", "actor-7", "c"),
+      ),
+    ).toThrow(/request body required/);
+    expect(() =>
+      workRequestCreate(
+        doc,
+        "c",
+        "req",
+        "title only is not enough",
+        { details: "   " },
+        ids,
+        actorRef("7", "actor-7", "c"),
+        "   ",
+      ),
+    ).toThrow(/request body required/);
+  });
+
   it("task create records its reason first-class", () => {
     const doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
     const created = workTaskCreate(doc, "c", "tasks", "port the map", { details: "port the map" }, ids, "fleet epic");
@@ -737,7 +778,7 @@ describe("work pure transforms", () => {
       "c",
       "req",
       "need approval",
-      { class: "review" },
+      { class: "review", details: "ship checklist before release" },
       ids,
       actorRef("4", "actor-4", "c")
     );
@@ -884,6 +925,47 @@ describe("work pure transforms", () => {
         },
       })
     ).toThrow(/artifact canvas/);
+  });
+
+  it("artifact archive soft-hides and delete removes from the sink", () => {
+    const artifactNode: CanvasNode = {
+      id: "artifacts",
+      type: "text",
+      text: "artifacts",
+      x: 0,
+      y: 0,
+      width: 200,
+      height: 100,
+      ether: { entity: { kind: "artifacts" } },
+    };
+    let doc: CanvasDoc = { nodes: [artifactNode], edges: [] };
+    const published = workArtifactPublish(doc, "alpha", "artifacts", {
+      artifactId: "a1",
+      name: "proof.md",
+      parts: [{ kind: "text", text: "body" }],
+    });
+    doc = published.doc;
+    expect(isArtifactArchived(published.artifact)).toBe(false);
+
+    const archived = workArtifactArchive(doc, "artifacts", "a1", true);
+    doc = archived.doc;
+    expect(isArtifactArchived(archived.artifact)).toBe(true);
+    expect(
+      doc.nodes[0]?.ether?.artifacts?.items.find((a) => a.artifactId === "a1")
+        ?.metadata?.archived,
+    ).toBe(true);
+
+    const restored = workArtifactArchive(doc, "artifacts", "a1", false);
+    doc = restored.doc;
+    expect(isArtifactArchived(restored.artifact)).toBe(false);
+    expect(restored.artifact.metadata?.archived).toBeUndefined();
+
+    const deleted = workArtifactDelete(doc, "artifacts", "a1");
+    expect(deleted.artifactId).toBe("a1");
+    expect(deleted.doc.nodes[0]?.ether?.artifacts?.items).toEqual([]);
+    expect(() => workArtifactDelete(deleted.doc, "artifacts", "a1")).toThrow(
+      /not found/,
+    );
   });
 
   it("state machine: completed work only exits through the QA Queue path", () => {
@@ -1279,7 +1361,8 @@ describe("WorkService — concurrent ops", () => {
         "requests",
         "approve release",
         undefined,
-        actor
+        actor,
+        "cannot ship without sign-off"
       )
     );
     expect(request.ok).toBe(true);
@@ -1387,7 +1470,8 @@ describe("WorkService — concurrent ops", () => {
         "requests",
         "Thread request",
         undefined,
-        sender
+        sender,
+        "need operator thread context"
       )
     );
     if (!task.ok || !request.ok) {
@@ -1527,7 +1611,8 @@ describe("WorkService — concurrent ops", () => {
           "requests",
           "forged request",
           undefined,
-          remoteActor
+          remoteActor,
+          "forged body for locality test"
         )
       ),
       workRuntime.runPromise(
@@ -1766,7 +1851,8 @@ describe("WorkService — concurrent ops", () => {
           "requests",
           "need operator input",
           undefined,
-          sender
+          sender,
+          "blocked without operator decision"
         )
       );
       expect(request).toMatchObject({

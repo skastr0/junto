@@ -1016,7 +1016,13 @@ describe("WorkRepository v2 local authority", () => {
           repository.readSnapshot(artifacts.canvasName, artifacts.nodeId),
         )
       ).artifacts.items,
-    ).toEqual([artifact.value]);
+    ).toEqual([
+      // Projection-only publisher stamp (mirrors mailbox deliveredAt/readAt).
+      {
+        ...artifact.value,
+        metadata: { publishedBySeatId: actor.seatId },
+      },
+    ]);
   });
 
   it("lists artifacts newest first by publication timestamp", async () => {
@@ -1152,7 +1158,13 @@ describe("WorkRepository v2 local authority", () => {
           ),
         )
       ).artifacts.items,
-    ).toEqual([published.value]);
+    ).toEqual([
+      // Projection-only publisher stamp (mirrors mailbox deliveredAt/readAt).
+      {
+        ...published.value,
+        metadata: { publishedBySeatId: artifactPublisher.seatId },
+      },
+    ]);
     expect(
       await runtime.runPromise(
         state.read("test.read-artifact-task-reference", (reader) =>

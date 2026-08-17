@@ -100,7 +100,7 @@ test("multi-select: RTS multi command + multi-prompt", async ({ vellumCommand })
 
   const alpha = page.locator(".react-flow__node", { hasText: "alpha" }).first();
   const beta = page.locator(".react-flow__node", { hasText: "beta" }).first();
-  const tasks = page.locator(".react-flow__node", { hasText: "tasks" }).first();
+  const tasks = page.locator('.react-flow__node[data-id="tasks"]');
   await expect(alpha).toBeVisible({ timeout: 30_000 });
   await expect(beta).toBeVisible({ timeout: 30_000 });
   await expect(tasks).toBeVisible({ timeout: 30_000 });
@@ -123,9 +123,41 @@ test("multi-select: RTS multi command + multi-prompt", async ({ vellumCommand })
 
   const multiPrompt = page.getByTestId("rts-multi-prompt");
   await expect(multiPrompt).toBeVisible();
-  await expect(
-    multiPrompt.getByRole("textbox", { name: "Prompt all selected agents" }),
-  ).toBeVisible();
+  const promptInput = multiPrompt.getByRole("textbox", {
+    name: "Prompt all selected agents",
+  });
+  await expect(promptInput).toBeVisible();
+  await promptInput.fill("Keep this draft with the selected seats");
+  await expect(promptInput).toBeFocused();
+
+  // Work-plane writes emit a new canvas projection. That projection may
+  // rebuild the selected-node objects, but it must not blur or remount the
+  // interactive prompt when its canonical target set is unchanged.
+  await page.evaluate(async () => {
+    const api = window.vellumCommand!;
+    const canvas = (await api.listCanvases())[0];
+    if (!canvas) throw new Error("No canvas available for focus regression");
+    const result = await api.workTaskCreate(
+      canvas.name,
+      "tasks",
+      "Background multi-prompt projection update",
+      { details: "Background multi-prompt projection update" },
+    );
+    if (!result.ok) throw new Error(result.message);
+  });
+  await expect(tasks).toContainText("Background multi-prompt projection update");
+  await expect(promptInput).toBeFocused();
+  await expect(promptInput).toHaveValue("Keep this draft with the selected seats");
+
+  // Search is an explicit selection reset. The stale multi channel must not
+  // keep the prompt mounted after the single-node channel is cleared.
+  const search = page.locator(".station-search input");
+  await search.fill("a");
+  await expect(page.getByTestId("rts-multi-prompt")).toHaveCount(0);
+  await search.fill("");
+  await shiftClick(alpha);
+  await shiftClick(beta);
+  await expect(page.getByTestId("rts-multi-prompt")).toBeVisible();
 
   // Mixed selection drops kind multi-prompt, keeps generic multi command.
   await shiftClick(tasks);

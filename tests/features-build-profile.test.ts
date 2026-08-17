@@ -12,18 +12,26 @@ import {
 } from "../src/shared/feature-catalog";
 
 describe("compile-time feature profiles", () => {
-  it("uses the shipping baseline with Prime Agent enabled", () => {
+  it("keeps the approved SHIP feature set explicit", () => {
     const resolved = resolveBuildFeatures({});
     expect(resolved.profile).toBe("ship");
     expect(resolved.features).toEqual(SHIP_FEATURES);
-    expect(resolved.features.harnessPrimeAgent).toBe(true);
-    expect(resolved.features.harnessKimi).toBe(false);
-    expect(resolved.features.harnessMuse).toBe(false);
-    expect(
-      Object.entries(resolved.features)
-        .filter(([, enabled]) => enabled)
-        .map(([key]) => key),
-    ).toEqual(["harnessPrimeAgent"]);
+    expect(resolved.features).toEqual({
+      cron: false,
+      relay: false,
+      browser: true,
+      fleetUi: true,
+      usage: false,
+      helpMap: false,
+      audio: false,
+      hermesIntegration: false,
+      herdr: false,
+      devTools: false,
+      harnessKimi: false,
+      harnessMuse: false,
+      harnessPrimeAgent: true,
+      harnessSettings: false,
+    });
   });
 
   it("supports an explicit all-on regression profile", () => {

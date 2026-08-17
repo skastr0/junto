@@ -1,6 +1,6 @@
 {
   "name": "@skastr0/vellum",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "description": "Vellum Command \u2014 the deep-field station for multi-agent fleets.",
   "author": {
     "name": "Guilherme Castro",
@@ -44,6 +44,7 @@
     "test:sqlite:electron": "ELECTRON_RUN_AS_NODE=1 electron scripts/electron-sqlite-smoke.mjs",
     "doctor": "react-doctor --no-telemetry src/renderer",
     "test:e2e": "VELLUM_COMMAND_FEATURE_PROFILE=all-on electron-vite build && playwright test --config e2e/playwright.config.ts",
+    "pty:verify": "bun scripts/pty-verify.ts",
     "test:e2e:fast": "playwright test --config e2e/playwright.config.ts",
     "test:e2e:perf": "VELLUM_COMMAND_FEATURE_PROFILE=all-on electron-vite build && playwright test --config e2e/playwright.config.ts e2e/scenarios/canvas-interaction-perf.spec.ts",
     "test:browser:electron": "bun scripts/browser-electron-containment-probe.ts",
@@ -73,6 +74,8 @@
     "app:install:supervised": "bash scripts/install-app.sh --supervised",
     "app:open": "open \"/Applications/Vellum Command.app\"",
     "app:uninstall-agent": "bash scripts/install-launchd.sh --uninstall",
+    "host:ops": "bun scripts/host-ops.ts",
+    "logs:transport": "bun scripts/transport-logs.ts",
     "digest": "bun scripts/digest.ts",
     "canvas:ls": "bun scripts/canvas-ls.ts",
     "ref": "bun scripts/ref-cli.ts",

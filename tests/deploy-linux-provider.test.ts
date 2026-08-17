@@ -1,11 +1,20 @@
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Effect, Stream } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import type { RemoteHost } from "../src/shared/remote-hosts";
+import { classifyHostRuntimeBlocker } from "../src/shared/host-runtime";
 import {
+  activateLinuxRemoteRuntimeForTarget,
   buildLinuxRemoteDeployCommand,
   buildLinuxRemotePreflightScript,
+  decodeLinuxRemoteObserve,
   decodeLinuxRemotePreflight,
+  decodeLinuxRemoteRestart,
+  linuxObserveToHostPackage,
   makeLinuxRemoteDeploymentProvider,
   type LinuxRemoteArtifactAdmission,
   type LinuxRemoteArtifactCandidate,
@@ -16,11 +25,13 @@ import type {
 } from "../src/main/vellum/hosts/remote-deployment";
 import {
   parseSshEndpoint,
+  SshTimeoutError,
   type SshEndpoint,
 } from "../src/main/vellum/ssh/domain";
 import type { SshLease } from "../src/main/vellum/ssh/service";
 import {
   compileLinuxUserlandDeploySource,
+  compileLinuxUserlandObserveSource,
   compileLinuxUserlandPreflightSource,
 } from "../src/main/vellum/ssh/remote-plan";
 
@@ -180,6 +191,32 @@ describe("Linux userland remote deployment provider", () => {
         "LINUX_RELEASE_PREFLIGHT_V1 helper=1 bridge=1 passwordless_sudo=1\n",
       ),
     ).toEqual({ ok: false, reason: "malformed" });
+    expect(
+      decodeLinuxRemotePreflight(
+        "LINUX_USERLAND_PREFLIGHT_V1 ok=0 reason=disk\n",
+      ),
+    ).toEqual({ ok: false, reason: "disk" });
+    expect(
+      decodeLinuxRemotePreflight(
+        "LINUX_USERLAND_PREFLIGHT_V1 ok=0 reason=systemd-user\n",
+      ),
+    ).toEqual({ ok: false, reason: "systemd-user" });
+    expect(decodeLinuxRemoteRestart("LINUX_USERLAND_RESTART_V1 ok=1\n")).toEqual(
+      { ok: true },
+    );
+    expect(
+      decodeLinuxRemoteRestart("LINUX_USERLAND_RESTART_V1 ok=0 reason=restart\n"),
+    ).toEqual({ ok: false, reason: "restart" });
+    expect(decodeLinuxRemoteObserve("LINUX_USERLAND_OBSERVE_V1 present=1\n")).toEqual(
+      { ok: true, present: true },
+    );
+    expect(decodeLinuxRemoteObserve("LINUX_USERLAND_OBSERVE_V1 present=0\n")).toEqual(
+      { ok: true, present: false },
+    );
+    expect(decodeLinuxRemoteObserve("not a receipt\n")).toEqual({ ok: false });
+    expect(linuxObserveToHostPackage({ ok: true, present: true })).toBe("present");
+    expect(linuxObserveToHostPackage({ ok: true, present: false })).toBe("absent");
+    expect(linuxObserveToHostPackage({ ok: false })).toBe("unknown");
   });
 
   it("deploys a signed userland archive without elevation or package manager", async () => {
@@ -219,6 +256,34 @@ describe("Linux userland remote deployment provider", () => {
     );
   });
 
+  it("deploys a first install without claiming station applied", async () => {
+    const { ssh } = makeSsh();
+    const candidate = makeCandidate();
+    const provider = makeLinuxRemoteDeploymentProvider({
+      artifactAuthority: { resolve: async () => candidate },
+      liveWorkAuthority: {
+        acquire: () =>
+          Effect.succeed({
+            acquired: true,
+            evidence: {
+              activeTerminalSessions: 0,
+              observationId: "test",
+            },
+            release: Effect.void,
+          }),
+      } satisfies LinuxRemoteLiveWorkAuthority,
+    });
+    const input = providerInput(ssh);
+    const result = await Effect.runPromise(
+      provider.deploy({
+        ...input,
+        stationConfiguration: { state: "managed-externally" },
+      }),
+    );
+    expect(result.ok).toBe(true);
+    expect(result.disposition).toBe("ready");
+  });
+
   it("fails closed when preflight or deploy evidence is not userland-ready", async () => {
     const candidate = makeCandidate();
     const liveWorkAuthority: LinuxRemoteLiveWorkAuthority = {
@@ -245,7 +310,51 @@ describe("Linux userland remote deployment provider", () => {
     );
     expect(preflightResult.ok).toBe(false);
     expect(preflightResult.code).toBe("validation");
+    expect(preflightResult.detail).toContain(
+      "owner-local systemd user service is unavailable",
+    );
+    expect(classifyHostRuntimeBlocker(preflightResult.detail)?.kind).toBe(
+      "login-session",
+    );
     expect(candidate.authorize).not.toHaveBeenCalled();
+
+    const diskFail = makeSsh({
+      preflightStdout: "LINUX_USERLAND_PREFLIGHT_V1 ok=0 reason=disk\n",
+    });
+    const diskResult = await Effect.runPromise(
+      provider.deploy(providerInput(diskFail.ssh)),
+    );
+    expect(diskResult.ok).toBe(false);
+    expect(diskResult.detail).toContain("no space left on device");
+    expect(classifyHostRuntimeBlocker(diskResult.detail)?.kind).toBe("disk");
+
+    const malformedFail = makeSsh({ preflightStdout: "not a preflight banner\n" });
+    const malformedResult = await Effect.runPromise(
+      provider.deploy(providerInput(malformedFail.ssh)),
+    );
+    expect(malformedResult.ok).toBe(false);
+    expect(malformedResult.detail).toContain(
+      "userland runtime preflight failed",
+    );
+    expect(classifyHostRuntimeBlocker(malformedResult.detail)).toBeUndefined();
+
+    const sshFail = {
+      run: () =>
+        Effect.fail(
+          new SshTimeoutError({
+            endpoint: "studio-box",
+            operation: "preflight",
+            timeoutMs: 1_000,
+          }),
+        ),
+      transact: () => Effect.die("deploy must not run"),
+    };
+    const sshResult = await Effect.runPromise(
+      provider.deploy(providerInput(sshFail as never)),
+    );
+    expect(sshResult.ok).toBe(false);
+    expect(sshResult.detail).toContain("timed out");
+    expect(classifyHostRuntimeBlocker(sshResult.detail)).toBeUndefined();
 
     const deployFail = makeSsh({
       deployStdout: "LINUX_USERLAND_DEPLOY_V1 ok=0 state=hash\n",
@@ -255,6 +364,16 @@ describe("Linux userland remote deployment provider", () => {
     );
     expect(deployResult.ok).toBe(false);
     expect(deployResult.detail).toContain("candidate failed before activation");
+
+    const missingBanner = makeSsh({ deployStdout: "" });
+    const missingResult = await Effect.runPromise(
+      provider.deploy(providerInput(missingBanner.ssh)),
+    );
+    expect(missingResult.ok).toBe(false);
+    expect(missingResult.disposition).toBe("indeterminate");
+    expect(missingResult.detail).toContain(
+      "LINUX_USERLAND_DEPLOY_V1 ok=1",
+    );
   });
 
   it("rejects invalid artifact authority without opening a remote transaction", async () => {
@@ -281,5 +400,112 @@ describe("Linux userland remote deployment provider", () => {
     expect(result.code).toBe("validation");
     expect(result.detail).toContain("signed userland runtime archive is invalid");
     expect(writes).toEqual([]);
+  });
+
+  it("maps residual defects to a stable product line, not String(defect)", async () => {
+    const { ssh, writes } = makeSsh();
+    const provider = makeLinuxRemoteDeploymentProvider({
+      artifactAuthority: {
+        resolve: async () => ({
+          version: "1.2.3",
+          bytes: archive.byteLength,
+          sha256: archiveSha256,
+          authorize: () => {
+            throw { leak: "internal-defect-secret" };
+          },
+        }),
+      },
+      liveWorkAuthority: {
+        acquire: () =>
+          Effect.succeed({
+            acquired: true,
+            evidence: {
+              activeTerminalSessions: 0,
+              observationId: "test",
+            },
+          }),
+      },
+    });
+    const result = await Effect.runPromise(provider.deploy(providerInput(ssh)));
+    expect(result.ok).toBe(false);
+    expect(result.detail).toContain("userland runtime deploy failed unexpectedly");
+    expect(result.detail).not.toContain("internal-defect-secret");
+    expect(result.detail).not.toContain("[object Object]");
+    expect(writes).toEqual([]);
+  });
+
+  it("restarts the systemd user service as the HostRuntime restart act", async () => {
+    const { ssh } = makeSsh({
+      preflightStdout: "LINUX_USERLAND_RESTART_V1 ok=1\n",
+    });
+    const result = await Effect.runPromise(
+      activateLinuxRemoteRuntimeForTarget(ssh as never, providerInput(ssh).target),
+    );
+    expect(result.ok).toBe(true);
+    expect(result.detail).toContain("systemd user service restarted");
+  });
+
+  it("does not label a failed systemd restart as a missing login session", async () => {
+    const { ssh } = makeSsh({
+      preflightStdout: "LINUX_USERLAND_RESTART_V1 ok=0 reason=restart\n",
+    });
+    const result = await Effect.runPromise(
+      activateLinuxRemoteRuntimeForTarget(ssh as never, providerInput(ssh).target),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.detail).toContain("systemd user service restart failed");
+    expect(classifyHostRuntimeBlocker(result.detail)).toBeUndefined();
+  });
+});
+
+describe("Linux userland generation observe", () => {
+  it("reports present only when a canonical generation tree exists", () => {
+    const home = mkdtempSync(join(tmpdir(), "vellum-linux-observe-"));
+    const run = () =>
+      spawnSync(
+        "/bin/sh",
+        [
+          "-c",
+          compileLinuxUserlandObserveSource(),
+          "vellum-plan:linux-userland-observe",
+        ],
+        { encoding: "utf8", env: { ...process.env, HOME: home } },
+      );
+    try {
+      const empty = run();
+      expect(empty.status).toBe(0);
+      expect(
+        linuxObserveToHostPackage(decodeLinuxRemoteObserve(empty.stdout)),
+      ).toBe("absent");
+
+      const dest = join(
+        home,
+        ".vellum-command",
+        "runtime",
+        "releases",
+        `1.2.3-${"a".repeat(64)}`,
+      );
+      mkdirSync(join(dest, "resources", "bin"), { recursive: true });
+      mkdirSync(join(dest, "resources", "systemd"), { recursive: true });
+      const remote = join(dest, "resources", "bin", "vellum-command-remote");
+      const launch = join(
+        dest,
+        "resources",
+        "systemd",
+        "vellum-command-remote-launch",
+      );
+      writeFileSync(remote, "remote");
+      writeFileSync(launch, "launch");
+      chmodSync(remote, 0o755);
+      chmodSync(launch, 0o755);
+
+      const installed = run();
+      expect(installed.status).toBe(0);
+      expect(
+        linuxObserveToHostPackage(decodeLinuxRemoteObserve(installed.stdout)),
+      ).toBe("present");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });

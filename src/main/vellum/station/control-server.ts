@@ -25,8 +25,13 @@ import {
   STATION_CONTROL_REQUEST_TIMEOUT_MS,
   encodeStationControlFrame,
   stationControlDir,
-  stationControlSocketPath,
+  stationDoorSocketPath,
 } from "@shared/station-ssh-control";
+import {
+  enrollVerbAdmitted,
+  peerVerbAdmitted,
+  type StationDoor,
+} from "@shared/station-mode";
 import {
   CURRENT_STATION_PROTOCOL_SUPPORT,
   STATION_PROTOCOL_BASELINE,
@@ -96,6 +101,8 @@ export interface StationControlServerOptions {
    * exact accepted Unix socket; tests may inject a closed fixture.
    */
   readonly localHandoffAuthority: StationControlLocalHandoffAuthority;
+  /** One door per server instance. Never bind enroll and peer together. */
+  readonly door: StationDoor;
   readonly home?: string;
   readonly stationHome?: string;
   /** Tests may lower the product frame bound; callers cannot raise it. */
@@ -107,9 +114,9 @@ export interface StationControlServerOptions {
   readonly stateSchemaVersion?: StationStateSchemaVersion;
   /**
    * Optional operation admission for a deliberately reduced Station surface.
-   * The request is already strict-decoded. Omission preserves the full
-   * admitted transport contract; a false result or thrown error denies only
-   * that request and never reaches readiness probes or the domain service.
+   * The request is already strict-decoded. Omission defaults to the door
+   * verb set. A false result or thrown error denies only that request and
+   * never reaches readiness probes or the domain service.
    */
   readonly admitRequest?: StationControlRequestAdmission;
 }
@@ -144,6 +151,7 @@ export class StationControlReportError extends Error {
 }
 
 export interface StationControlServer {
+  readonly door: StationDoor;
   readonly socketPath: string;
   readonly stationHome: string;
   readonly ready: () => boolean;
@@ -293,7 +301,13 @@ export const startStationControlServer = async (
     support: CURRENT_STATION_PROTOCOL_SUPPORT,
   });
   prepareControlDirectory(stationHome);
-  const socketPath = stationControlSocketPath(stationHome);
+  const socketPath = stationDoorSocketPath(stationHome, options.door);
+  const admitRequest: StationControlRequestAdmission =
+    options.admitRequest ??
+    ((request) =>
+      options.door === "enroll"
+        ? enrollVerbAdmitted(request.op)
+        : peerVerbAdmitted(request.op));
   const listenerLease = await acquireControlListenerLease(socketPath);
   try {
     await removeObservedSocket(listenerLease);
@@ -526,12 +540,10 @@ export const startStationControlServer = async (
     requestFrame: StationSessionRequestFrameValue,
   ): Promise<void> => {
     let admitted = true;
-    if (options.admitRequest !== undefined) {
-      try {
-        admitted = options.admitRequest(requestFrame.request) === true;
-      } catch {
-        admitted = false;
-      }
+    try {
+      admitted = admitRequest(requestFrame.request) === true;
+    } catch {
+      admitted = false;
     }
     if (!admitted) {
       await respondToRequest(
@@ -1079,6 +1091,14 @@ export const startStationControlServer = async (
   const report = (
     input: ReportRequest,
   ): Promise<ReportResponse> => {
+    if (options.door === "enroll") {
+      return Promise.reject(
+        new StationControlReportError(
+          "invalid-local-request",
+          "station enroll door does not originate report",
+        ),
+      );
+    }
     const decoded = decodeReportRequest(input);
     if (Result.isFailure(decoded)) {
       return Promise.reject(
@@ -1238,6 +1258,7 @@ export const startStationControlServer = async (
   };
 
   return Object.freeze({
+    door: options.door,
     socketPath,
     stationHome,
     ready,

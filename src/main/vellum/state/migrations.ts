@@ -25,10 +25,13 @@ import {
 } from "../content/state-schema";
 import {
   WORK_BOARD_STATE_SCHEMA_SQL,
+  WORK_PAD_STATE_SCHEMA_SQL,
+  WORK_PAD_READ_CURSORS_SQL,
   WORK_PROPOSAL_EVENTS_REJECT_VOCAB_SQL,
   WORK_PROPOSAL_PLANNING_STATE_SCHEMA_SQL,
   WORK_PROPOSAL_STATE_SCHEMA_SQL,
   WORK_STATE_SCHEMA_BOARD_VOCAB_SQL,
+  WORK_STATE_SCHEMA_PAD_VOCAB_SQL,
   WORK_STATE_SCHEMA_TASK_ARCHIVED_SQL,
   WORK_TASK_DEPENDENCIES_STATE_SCHEMA_SQL,
   WORK_TASK_FINISH_STATE_SCHEMA_SQL,
@@ -184,7 +187,19 @@ export const STATE_SCHEMA_V16_IDENTITY = {
     "68c01a84360fe399ea98c2963aa763f86cfd0c2c5262ecea9996ee984a3cb3bb",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 16;
+/** Exact witness of schema version 17 (pad tables + pad.patch vocabulary). */
+export const STATE_SCHEMA_V17_IDENTITY = {
+  actualSchemaSha256:
+    "5f580bc42f6e3332256ca6bfadda1489f42889616c75acd1cf4a3af1259249bb",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+/** Exact witness of schema version 18 (pad pin read cursors). */
+export const STATE_SCHEMA_V18_IDENTITY = {
+  actualSchemaSha256:
+    "06411da7eb2843c89a7b170321ca0992e8c72b9da65e3fa702b2fce1197980e1",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 18;
 
 export const STATE_SCHEMA_MIGRATIONS =
   [
@@ -481,6 +496,45 @@ export const STATE_SCHEMA_MIGRATIONS =
           FROM work_board_posts__migrate_bak;
           DROP TABLE work_board_posts__migrate_bak;
         `);
+      },
+    },
+    {
+      fromVersion: 16,
+      toVersion: 17,
+      name: "add-work-pad",
+      safety: STATE_SCHEMA_MIGRATION_SAFETY,
+      fromIdentity: STATE_SCHEMA_V16_IDENTITY,
+      replacesTables: ["work_events", "work_pending_commands"],
+      migrate: (database) => {
+        database.exec(WORK_PAD_STATE_SCHEMA_SQL);
+        // Expand CHECK vocab for pad item kind + pad.patch.
+        // Same authorized rebuild as board-event-vocabulary (v9→v10).
+        database.exec(`
+          CREATE TABLE work_events__migrate_bak AS SELECT * FROM work_events;
+          CREATE TABLE work_pending_commands__migrate_bak AS
+            SELECT * FROM work_pending_commands;
+
+          DROP TABLE work_pending_commands;
+          DROP TABLE work_events;
+        `);
+        database.exec(WORK_STATE_SCHEMA_PAD_VOCAB_SQL);
+        database.exec(`
+          INSERT INTO work_events SELECT * FROM work_events__migrate_bak;
+          INSERT INTO work_pending_commands
+            SELECT * FROM work_pending_commands__migrate_bak;
+          DROP TABLE work_events__migrate_bak;
+          DROP TABLE work_pending_commands__migrate_bak;
+        `);
+      },
+    },
+    {
+      fromVersion: 17,
+      toVersion: 18,
+      name: "add-work-pad-read-cursors",
+      safety: STATE_SCHEMA_MIGRATION_SAFETY,
+      fromIdentity: STATE_SCHEMA_V17_IDENTITY,
+      migrate: (database) => {
+        database.exec(WORK_PAD_READ_CURSORS_SQL);
       },
     },
 

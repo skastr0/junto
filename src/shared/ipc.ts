@@ -45,6 +45,7 @@ import type { AgentSeatStateEvent } from "./agent-seat-state";
 import type { TerminalSessionSummary, TerminalLaunch } from "./terminal";
 import type { HostDirectorySnapshot } from "./host-directory";
 import type { ActorRef } from "./work-protocol";
+import type { WorkSeatRecentOpsFeed } from "./work-recent-ops";
 import type { LicenseApi } from "./license";
 import type {
   StateBackupId,
@@ -118,11 +119,16 @@ export const IPC_CHANNELS = {
   workTaskRespond: "vellum-command:work-task-respond",
   workTaskClaim: "vellum-command:work-task-claim",
   workRequestResolve: "vellum-command:work-request-resolve",
+  workArtifactArchive: "vellum-command:work-artifact-archive",
+  workArtifactDelete: "vellum-command:work-artifact-delete",
+  workSeatRecentOps: "vellum-command:work-seat-recent-ops",
   workBoardList: "vellum-command:work-board-list",
   workBoardCreateTopic: "vellum-command:work-board-create-topic",
   workBoardPost: "vellum-command:work-board-post",
   workBoardMarkRead: "vellum-command:work-board-mark-read",
   workBoardNotify: "vellum-command:work-board-notify",
+  workPadRead: "vellum-command:work-pad-read",
+  workPadPatch: "vellum-command:work-pad-patch",
   // herdr work surface
   herdrHosts: "vellum-command:herdr-hosts",
   herdrEnsureServer: "vellum-command:herdr-ensure-server",
@@ -703,6 +709,22 @@ export interface VellumCommandApi extends LicenseApi, UpdateApi {
     responseText: string,
     disposition: "completed" | "rejected",
   ) => Promise<WorkOpResult<Task>>;
+  readonly workArtifactArchive: (
+    canvas: string,
+    nodeId: string,
+    artifactId: string,
+    archived: boolean,
+  ) => Promise<WorkOpResult<import("./work-model").Artifact>>;
+  readonly workArtifactDelete: (
+    canvas: string,
+    nodeId: string,
+    artifactId: string,
+  ) => Promise<WorkOpResult<{ readonly artifactId: string }>>;
+  readonly workSeatRecentOps: (
+    canvas: string,
+    nodeId: string,
+    limit?: number,
+  ) => Promise<WorkOpResult<WorkSeatRecentOpsFeed>>;
   /** Full topics+posts from SQLite (operator detail). Glance stays titles-only. */
   readonly workBoardList: (
     canvas: string,
@@ -744,6 +766,30 @@ export interface VellumCommandApi extends LicenseApi, UpdateApi {
     nodeId: string,
     topicId?: string,
   ) => Promise<WorkOpResult<{ readonly wakeCount: number }>>;
+  readonly workPadRead: (
+    canvas: string,
+    nodeId: string,
+    pinId?: string,
+  ) => Promise<
+    WorkOpResult<{
+      readonly revision: number;
+      readonly pad: import("./pad").Pad;
+      readonly digest: string;
+      readonly svg: string;
+      readonly lookHere?: import("./pad-project").PadLookHere;
+    }>
+  >;
+  readonly workPadPatch: (
+    canvas: string,
+    nodeId: string,
+    patches: ReadonlyArray<import("./pad").PadPatch>,
+  ) => Promise<
+    WorkOpResult<{
+      readonly revision: number;
+      readonly pad: import("./pad").Pad;
+      readonly digest: string;
+    }>
+  >;
   readonly onNodeRefOpened: (
     listener: (event: NodeRefOpenedEvent) => void | Promise<void>,
   ) => () => void;
@@ -947,6 +993,8 @@ export interface HostsTestResult {
    * Present only when the remote probe returned a closed capability record.
    */
   readonly linuxCapabilities?: import("./linux-host-capabilities").LinuxHostCapabilityObservation;
+  /** Complete bounded Station observation used by Fleet detail and Doctor. */
+  readonly observation?: import("./station-status").StationRemoteObservation;
   readonly code?: string;
   readonly message?: string;
 }

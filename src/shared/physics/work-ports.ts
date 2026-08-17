@@ -29,6 +29,7 @@ export const PortForWorkOp = {
   // Read/reply reuse list/send edge ports — no new capability surface.
   "msg.read": "msg.list",
   "msg.reply": "msg.send",
+  "msg.react": "msg.list",
   "request.escalate": "request.escalate",
   "artifact.publish": "artifact.publish",
   "board.list": "board.list",
@@ -37,6 +38,8 @@ export const PortForWorkOp = {
   "board.mark_read": "board.mark_read",
   // Own tags is a board read — reuses list grant (no new capability surface).
   "board.tags": "board.list",
+  "pad.read": "pad.read",
+  "pad.patch": "pad.patch",
   "relay.trigger": "relay.trigger",
 } as const satisfies Record<TargetWorkOpName, Port>;
 
@@ -59,6 +62,7 @@ export const TARGET_WORK_OPS: ReadonlyArray<TargetWorkOpName> = [
   "msg.send",
   "msg.read",
   "msg.reply",
+  "msg.react",
   "request.escalate",
   "artifact.publish",
   "board.list",
@@ -66,6 +70,8 @@ export const TARGET_WORK_OPS: ReadonlyArray<TargetWorkOpName> = [
   "board.post",
   "board.mark_read",
   "board.tags",
+  "pad.read",
+  "pad.patch",
   "relay.trigger",
 ];
 
@@ -93,6 +99,7 @@ export const OPS_BY_SINK = {
     "msg.send",
     "msg.read",
     "msg.reply",
+    "msg.react",
   ],
   requests: [
     "request.escalate",
@@ -100,6 +107,7 @@ export const OPS_BY_SINK = {
     "msg.send",
     "msg.read",
     "msg.reply",
+    "msg.react",
   ],
   artifacts: ["artifact.publish"],
   board: [
@@ -109,6 +117,7 @@ export const OPS_BY_SINK = {
     "board.mark_read",
     "board.tags",
   ],
+  pad: ["pad.read", "pad.patch"],
   page: [],
   terminal: [],
 } as const satisfies Record<SinkKind, ReadonlyArray<TargetWorkOpName>>;

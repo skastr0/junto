@@ -156,6 +156,10 @@ describe("physics phase membership", () => {
     expect(WELL_KNOWN_ENTITY_KINDS).toContain("watcher");
     expect(WELL_KNOWN_ENTITY_KINDS).toContain("timer");
   });
+
+  it("canvas WELL_KNOWN_ENTITY_KINDS includes pad", () => {
+    expect(WELL_KNOWN_ENTITY_KINDS).toContain("pad");
+  });
 });
 
 describe("physics GrantLaw (actor↔actor mailbox defaults)", () => {
@@ -660,6 +664,13 @@ describe("physics KindSpecs offers match behavior-preserving work surface", () =
   it("page offers only browser.automate", () => {
     expect(Array.from(KindSpecs.page.offers).sort()).toEqual([
       "browser.automate",
+    ]);
+  });
+
+  it("pad offers only pad.read and pad.patch", () => {
+    expect(Array.from(KindSpecs.pad.offers).sort()).toEqual([
+      "pad.patch",
+      "pad.read",
     ]);
   });
 

@@ -36,7 +36,8 @@ export function nodeSurfaceKind(
     kind === "task" ||
     kind === "requests" ||
     kind === "artifacts" ||
-    kind === "board"
+    kind === "board" ||
+    kind === "pad"
   ) {
     return "work";
   }

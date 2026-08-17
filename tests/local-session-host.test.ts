@@ -929,10 +929,103 @@ describe("LocalSessionHost", () => {
     expect(host.runningCount()).toBe(1);
   });
 
-  it("under VELLUM_COMMAND_HOME replaces a live shared-resume pin generation on create", () => {
+  it("fail-open after an immediately-dead resume settles the binding on the live pin", async () => {
+    // Production path (no isolation) — resume argv is allowed.
     const priorHome = process.env.VELLUM_COMMAND_HOME;
-    // Spawn the poisoned generation as production would (no VELLUM_COMMAND_HOME), then
-    // re-ensure under isolation — the live "running" resume must not stick.
+    delete process.env.VELLUM_COMMAND_HOME;
+    try {
+      const fake = makeFakeTerminalProcessAuthority((_spec, index) => ({
+        pid: trackSyntheticPid(42_490 + index),
+        // First generation is already dead when open attaches exitWitness.
+        ...(index === 0 ? { exitImmediately: true as const } : {}),
+        exitOnSignal: false,
+      }));
+      const host = hostWith(fake);
+      const bindingId = "fail-open-create-returns-live";
+      const created = host.createAgentSeat({
+        bindingId,
+        harness: "claude",
+        agentKey: "local:claude",
+        launch: {
+          kind: "harness",
+          argv: ["claude", "--resume", "dead-session-aaaaaaaa"],
+        },
+        canvasName: "factory",
+        nodeId: "agent-node",
+      });
+      // exitWitness.then is a microtask even when already resolved — same
+      // flush the router awaits after local create so IPC never hands the
+      // renderer a stale resume row.
+      await Promise.resolve();
+
+      const live = host.get(bindingId);
+      expect(live?.status).toBe("running");
+      expect(fake.controllers.length).toBeGreaterThanOrEqual(2);
+      expect(live?.epoch).not.toBe(created.epoch);
+      // Replacement is a fresh pin, never another --resume.
+      expect(fake.controllers[1]?.spec.args).not.toContain("--resume");
+      expect(fake.controllers[1]?.spec.args).not.toContain("dead-session-aaaaaaaa");
+    } finally {
+      if (priorHome === undefined) delete process.env.VELLUM_COMMAND_HOME;
+      else process.env.VELLUM_COMMAND_HOME = priorHome;
+    }
+  });
+
+  it("fail-open after a late resume death replaces the binding with a live pin", async () => {
+    const priorHome = process.env.VELLUM_COMMAND_HOME;
+    delete process.env.VELLUM_COMMAND_HOME;
+    try {
+      const fake = makeFakeTerminalProcessAuthority((_spec, index) => ({
+        pid: trackSyntheticPid(42_495 + index),
+        exitOnSignal: false,
+      }));
+      const host = hostWith(fake);
+      const bindingId = "fail-open-late-resume-death";
+      const first = host.createAgentSeat({
+        bindingId,
+        harness: "claude",
+        agentKey: "local:claude",
+        launch: {
+          kind: "harness",
+          argv: ["claude", "--resume", "gone-session-bbbbbbbb"],
+        },
+      });
+      expect(first.status).toBe("running");
+
+      fake.controllers[0]?.emitData(
+        "Error: No conversation found with the provided resume id\n",
+      );
+      fake.controllers[0]?.exit(1);
+
+      await vi.waitFor(() => {
+        const live = host.get(bindingId);
+        expect(live?.status).toBe("running");
+        expect(live?.epoch).not.toBe(first.epoch);
+      });
+      expect(fake.controllers).toHaveLength(2);
+      expect(fake.controllers[1]?.spec.args).not.toContain("--resume");
+
+      // ensure / reopen path: create is idempotent on the live pin.
+      const again = host.createAgentSeat({
+        bindingId,
+        harness: "claude",
+        agentKey: "local:claude",
+        launch: {
+          kind: "harness",
+          argv: ["claude", "--resume", "gone-session-bbbbbbbb"],
+        },
+      });
+      expect(again.status).toBe("running");
+      expect(again.epoch).toBe(host.get(bindingId)?.epoch);
+      expect(fake.controllers).toHaveLength(2);
+    } finally {
+      if (priorHome === undefined) delete process.env.VELLUM_COMMAND_HOME;
+      else process.env.VELLUM_COMMAND_HOME = priorHome;
+    }
+  });
+
+  it("under VELLUM_COMMAND_HOME does not occupy an already occupied pin generation", () => {
+    const priorHome = process.env.VELLUM_COMMAND_HOME;
     delete process.env.VELLUM_COMMAND_HOME;
     try {
       const fake = makeFakeTerminalProcessAuthority((_spec, index) => ({
@@ -955,16 +1048,10 @@ describe("LocalSessionHost", () => {
       });
       expect(initial.status).toBe("running");
       expect(fake.controllers).toHaveLength(1);
-      expect(fake.controllers[0]?.spec.args).toEqual(
-        expect.arrayContaining(["--resume", shared]),
-      );
 
       process.env.VELLUM_COMMAND_HOME = "/tmp/vellum-dev-isolate-create-agent-seat";
-      // Re-ensure with a fresh pin plan (what launchForManagedSpawn emits under
-      // isolation). Must replace the poisoned shared-resume generation rather
-      // than idempotently reattach to a black TUI.
       const fresh = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
-      const replaced = host.createAgentSeat({
+      const again = host.createAgentSeat({
         bindingId,
         harness: "claude",
         agentKey: "local:claude",
@@ -975,13 +1062,9 @@ describe("LocalSessionHost", () => {
         canvasName: "factory",
         nodeId: "agent-node",
       });
-      expect(replaced.epoch).not.toBe(initial.epoch);
-      expect(fake.controllers).toHaveLength(2);
-      expect(fake.controllers[0]?.signals).toEqual(["SIGTERM"]);
-      expect(fake.controllers[1]?.spec.args).toEqual(
-        expect.arrayContaining(["--session-id", fresh]),
-      );
-      expect(fake.controllers[1]?.spec.args).not.toContain("--resume");
+      expect(again.epoch).toBe(initial.epoch);
+      expect(fake.controllers).toHaveLength(1);
+      expect(fake.controllers[0]?.signals).toEqual([]);
     } finally {
       if (priorHome === undefined) delete process.env.VELLUM_COMMAND_HOME;
       else process.env.VELLUM_COMMAND_HOME = priorHome;
@@ -1018,7 +1101,7 @@ describe("LocalSessionHost", () => {
     }
   });
 
-  it("lets explicit reopen replace a stopping actor generation immediately", () => {
+  it("refuses occupy while a generation is still stopping", () => {
     const fake = makeFakeTerminalProcessAuthority((_spec, index) => ({
       pid: trackSyntheticPid(42_450 + index),
       exitOnSignal: false,
@@ -1041,10 +1124,10 @@ describe("LocalSessionHost", () => {
       stopping: true,
     });
 
-    const replacement = host.createAgentSeat(input);
-    expect(replacement.epoch).not.toBe(initial.epoch);
-    expect(replacement.stopping).toBeUndefined();
-    expect(fake.controllers).toHaveLength(2);
+    const again = host.createAgentSeat(input);
+    expect(again.epoch).toBe(initial.epoch);
+    expect(again.stopping).toBe(true);
+    expect(fake.controllers).toHaveLength(1);
     expect(fake.controllers[0]?.signals).toEqual(["SIGTERM"]);
   });
 
@@ -1381,37 +1464,26 @@ describe("LocalSessionHost", () => {
     expect(host.writeManagedSeat("geography", "forbidden")).toBe(false);
   });
 
-  it("binds anchored terminal identity and never lets an old generation erase its replacement", async () => {
+  it("refuses to occupy an already occupied geography seat", async () => {
     const identities = makeProcessIdentityMap();
     setProcessIdentityMapForTests(identities);
     const fake = makeFakeTerminalProcessAuthority(() => ({
-      // One real pid lets ProcessIdentityMap bind; both opaque lease
-      // generations deliberately share it to exercise late-exit safety.
       pid: process.pid,
       exitOnSignal: false,
     }));
     const host = hostWith(fake, { killGraceMs: 2 });
 
-    const old = host.create({ bindingId: "replace", canvasName: "main", nodeId: "term" });
-    const replacement = host.create({
+    const first = host.create({ bindingId: "replace", canvasName: "main", nodeId: "term" });
+    const again = host.create({
       bindingId: "replace",
       canvasName: "main",
       nodeId: "term",
     });
-    expect(host.runningCount()).toBe(2);
+    expect(again.epoch).toBe(first.epoch);
+    expect(host.runningCount()).toBe(1);
+    expect(fake.controllers).toHaveLength(1);
+    expect(fake.controllers[0]?.signals).toEqual([]);
     expect(identities.resolve(process.pid)).toMatchObject({ bindingId: "replace" });
-
-    fake.controllers[0]?.exit();
-    await Promise.resolve();
-    expect(host.get("replace")).toMatchObject({
-      epoch: replacement.epoch,
-      status: "running",
-    });
-    expect(old.epoch).not.toBe(replacement.epoch);
-    expect(identities.resolve(process.pid)).toMatchObject({ bindingId: "replace" });
-    fake.controllers[1]?.exit();
-    await Promise.resolve();
-    expect(host.runningCount()).toBe(0);
   });
 
   it("closes create admission synchronously and coalesces concurrent shutdown callers", async () => {

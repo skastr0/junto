@@ -105,6 +105,7 @@ function RegionLabel({
       <input
         ref={inputRef}
         autoFocus
+        data-focus-owner="canvas-draft"
         aria-label="Edit region label"
         className="nodrag rounded-sm bg-inset px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] outline-none"
         style={{ color: INK, border: `1px solid ${withAlpha(HUE.amber, 0.4)}` }}

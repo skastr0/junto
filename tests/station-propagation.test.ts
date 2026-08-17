@@ -46,6 +46,7 @@ import {
 import {
   StationPropagation,
   StationPropagationLive,
+  summarizeStationProjectionTopology,
 } from "../src/main/vellum/station/propagation";
 import {
   StationRepository,
@@ -110,6 +111,7 @@ const canvases = (
       Effect.fail(new CanvasError({ message: "unused" })),
     start: () => undefined,
     subscribeChanges: () => () => undefined,
+    announceInstalledProjection: () => undefined,
     liveDocuments: () =>
       Effect.succeed(
         [...documents].map(([canvasName, doc]) => ({
@@ -332,6 +334,86 @@ const reportResponse = (hasMore = false) =>
   });
 
 describe("StationPropagation", () => {
+  it("summarizes the exact projected actor and sink routes per Remote", () => {
+    const node = (
+      id: string,
+      kind: string,
+      host: string,
+    ): CanvasDoc["nodes"][number] => ({
+      id,
+      type: "text",
+      text: id,
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 40,
+      ether: { entity: { kind }, host },
+    });
+    const document: CanvasDoc = {
+      nodes: [
+        node("cc-actor", "agent", "local"),
+        node("cc-sink", "task", "local"),
+        node("remote-actor", "agent", "remote-one"),
+        node("remote-sink", "requests", "remote-one"),
+        node("remote-cron", "cron", "remote-one"),
+        node("other-sink", "artifacts", "remote-two"),
+      ],
+      edges: [
+        {
+          id: "e1",
+          fromNode: "remote-actor",
+          toNode: "remote-sink",
+          ether: { ports: ["request.escalate"] },
+        },
+        {
+          id: "e2",
+          fromNode: "remote-actor",
+          toNode: "cc-sink",
+          ether: { ports: ["tasks.claim"] },
+        },
+        {
+          id: "e3",
+          fromNode: "cc-actor",
+          toNode: "remote-sink",
+          ether: { ports: ["request.escalate"] },
+        },
+        {
+          id: "e4",
+          fromNode: "remote-actor",
+          toNode: "other-sink",
+          ether: { ports: ["artifact.publish"] },
+        },
+        { id: "e5", fromNode: "missing", toNode: "remote-sink" },
+      ],
+    };
+
+    expect(
+      summarizeStationProjectionTopology(
+        new Map([["main", document]]),
+        "local",
+        "remote-one",
+      ),
+    ).toEqual({
+      canvasCount: 1,
+      nodeCount: 6,
+      edgeCount: 5,
+      actorCount: 2,
+      sinkCount: 3,
+      schedulerCount: 1,
+      targetNodeCount: 3,
+      targetActorCount: 1,
+      targetSinkCount: 1,
+      targetSchedulerCount: 1,
+      commandCenterNodeCount: 2,
+      otherStationNodeCount: 1,
+      targetInternalAccessEdgeCount: 1,
+      remoteActorToCommandCenterSinkEdgeCount: 1,
+      commandCenterActorToRemoteSinkEdgeCount: 1,
+      stationPeerEdgeCount: 1,
+      danglingEdgeCount: 1,
+    });
+  });
+
   it("runs status, projection, and report on the supplied persistent session", async () => {
     const operations: StationApiRequest["op"][] = [];
     let projected: ProjectRequest | undefined;

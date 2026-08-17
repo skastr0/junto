@@ -9,6 +9,7 @@ import {
   BoardPostArgs,
   BoardTagsListArgs,
   MsgListArgs,
+  MsgReactArgs,
   MsgReadArgs,
   MsgReplyArgs,
   MsgSendArgs,
@@ -148,18 +149,28 @@ export const preambleCommand = Command.make(
 
 // --- msg ---
 
+const optionalJsonInputArg = jsonInputArg.pipe(Argument.optional);
+
 const msgListCommand = Command.make(
   "list",
-  { input: jsonInputArg, timeout: timeoutOption },
+  { input: optionalJsonInputArg, timeout: timeoutOption },
   ({ input, timeout }) =>
     executeJsonCommand(
       "msg list",
       Effect.gen(function* () {
-        const item = yield* loadJsonInput(MsgListArgs, input);
+        const raw = Option.match(input, {
+          onNone: () => "{}",
+          onSome: (value) => (value.trim().length === 0 ? "{}" : value),
+        });
+        const item = yield* loadJsonInput(MsgListArgs, raw);
         return yield* callDomain("msg.list", item, toUndefined(timeout));
       }),
     ),
-).pipe(Command.withDescription("List messages on a connected node"));
+).pipe(
+  Command.withDescription(
+    "List this seat's inbox (marks listed mail read) or a connected peer's mailbox",
+  ),
+);
 
 const msgSendCommand = Command.make(
   "send",
@@ -214,6 +225,25 @@ const msgReplyCommand = Command.make(
   ),
 );
 
+const msgReactCommand = Command.make(
+  "react",
+  { input: jsonInputArg, concurrency: concurrencyOption, timeout: timeoutOption },
+  ({ input, concurrency, timeout }) =>
+    executeJsonCommand(
+      "msg react",
+      runMutationBatch({
+        input,
+        concurrency: toUndefined(concurrency) ?? DEFAULT_BATCH_CONCURRENCY,
+        itemSchema: MsgReactArgs,
+        run: (item) => callDomain("msg.react", item, toUndefined(timeout)),
+      }),
+    ),
+).pipe(
+  Command.withDescription(
+    "Acknowledge mailbox mail without a reply (own seat; batch-capable)",
+  ),
+);
+
 export const msgCommand = Command.make("msg").pipe(
   Command.withDescription("Message ops"),
   Command.withSubcommands([
@@ -221,6 +251,7 @@ export const msgCommand = Command.make("msg").pipe(
     msgSendCommand,
     msgReadCommand,
     msgReplyCommand,
+    msgReactCommand,
   ]),
 );
 

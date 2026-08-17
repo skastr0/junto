@@ -1,7 +1,8 @@
 import type { IpcMain, SaveDialogOptions } from "electron";
-import { app, BrowserWindow, dialog } from "electron";
+import { app, BrowserWindow, dialog, nativeTheme } from "electron";
 import { Effect, Result } from "effect";
 import { IPC_CHANNELS } from "@shared/ipc";
+import { refreshThemeFromSystem, setThemePreference } from "../theme-state";
 import {
   SettingsSectionKey,
   settingsOpFail,
@@ -40,6 +41,20 @@ export const registerSettingsIpc = (
   broadcast: (channel: string, payload: unknown) => void,
 ): void => {
   const startupProvider = createStartupProvider(app);
+  /**
+   * Feed main's theme state. Main owns the resolved theme for the whole app —
+   * every canvas, rendered or not, and every seat spawned with no surface — so
+   * the stored preference has to reach it whenever it loads or changes.
+   */
+  const publishThemePreference = (settings: unknown): void => {
+    setThemePreference(
+      (settings as { readonly appearance?: { readonly theme?: unknown } })?.appearance
+        ?.theme as string | undefined,
+    );
+  };
+  // Only matters while the preference is "system"; harmless otherwise.
+  nativeTheme.on("updated", () => refreshThemeFromSystem());
+
   const stateRecovery = createStateRecoveryIpcHandlers({
     listBackups: () => AppRuntime.runPromise(listStateBackups()),
     exportBackup: (id, destination) =>
@@ -50,7 +65,9 @@ export const registerSettingsIpc = (
       Effect.gen(function* () {
         const settings = yield* SettingsService;
         const result = yield* Effect.result(settings.get);
-        return toOpResult(result);
+        const op = toOpResult(result);
+        publishThemePreference((op as { readonly value?: unknown })?.value);
+        return op;
       }),
     ),
   );
@@ -65,7 +82,9 @@ export const registerSettingsIpc = (
           return settingsOpFail("validation", "settings patch must be a plain object");
         }
         const result = yield* Effect.result(settings.patch(patch));
-        return toOpResult(result);
+        const op = toOpResult(result);
+        publishThemePreference((op as { readonly value?: unknown })?.value);
+        return op;
       }),
     ),
   );
@@ -156,9 +175,15 @@ export const registerSettingsIpc = (
   void AppRuntime.runPromise(
     Effect.gen(function* () {
       const settings = yield* SettingsService;
-      settings.subscribe((next) => broadcast(IPC_CHANNELS.settingsChanged, next));
-      // Prime cache so first UI open is warm and doctor is honest.
-      yield* settings.get.pipe(Effect.catch(() => Effect.void));
+      settings.subscribe((next) => {
+        publishThemePreference(next);
+        broadcast(IPC_CHANNELS.settingsChanged, next);
+      });
+      // Prime cache so first UI open is warm and doctor is honest. This also
+      // gives main the theme before any renderer exists, so a seat woken early
+      // is not spawned against the pre-settings default.
+      const primed = yield* settings.get.pipe(Effect.result);
+      if (Result.isSuccess(primed)) publishThemePreference(primed.success);
     }),
   );
 };

@@ -55,10 +55,12 @@ export function HostDirectoryPicker({
   const suggestRange = useRef<readonly [number, number] | undefined>(undefined);
   const loadSeq = useRef(0);
   const syncKeyRef = useRef("");
+  const attemptedTarget = useRef<string>("");
 
   const load = useCallback(async (path: string) => {
     const requestSeq = ++loadSeq.current;
     const target = path.trim() || "~";
+    attemptedTarget.current = target;
     const api = getVellumCommandApi();
     if (!api?.hostDirectoryRead) {
       if (requestSeq === loadSeq.current) {
@@ -126,6 +128,9 @@ export function HostDirectoryPicker({
     if (!isAbsoluteish(dir)) return;
     const target = trimTrailingSlash(dir);
     if (snapshot && target === snapshot.root) return;
+    // Same target already attempted (seed load, success, or error). Do not
+    // re-issue every 180ms — that is the remote-picker blink.
+    if (attemptedTarget.current === target) return;
     const timer = setTimeout(() => void load(target), NAVIGATE_DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [dir, snapshot, load]);

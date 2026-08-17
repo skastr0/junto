@@ -41,6 +41,7 @@ const cleanCloseReceipt = Object.freeze({
 });
 
 type RemoteClientDouble = {
+  isLive: () => boolean;
   acquireMaintenance: ReturnType<typeof vi.fn>;
   beginShutdown: ReturnType<typeof vi.fn>;
   drainOnQuit: ReturnType<typeof vi.fn>;
@@ -62,6 +63,7 @@ const remoteClient = (
     },
   },
 ): RemoteClientDouble => ({
+  isLive: () => true,
   acquireMaintenance: vi.fn(async () => acquisition),
   beginShutdown: vi.fn(),
   drainOnQuit: vi.fn(async () => cleanCloseReceipt),
@@ -118,6 +120,38 @@ afterEach(async () => {
   for (const host of localHosts.splice(0)) await host.shutdownAll("test");
   setHostsSnapshot(initialHosts);
   vi.restoreAllMocks();
+});
+
+describe("TerminalRouter listAll occupancy", () => {
+  it("includes occupied remotes from every terminal host", async () => {
+    const router = makeRouter();
+    const client = remoteClient();
+    client.list.mockResolvedValue([
+      {
+        bindingId: "seat-1",
+        hostId: "local",
+        epoch: "remote-epoch",
+        status: "running",
+      },
+    ]);
+    installRemoteEntry(router, client);
+
+    const listed = await router.listAll();
+    expect(
+      listed.some((session) => session.bindingId === "seat-1" && session.hostId === "studio"),
+    ).toBe(true);
+  });
+
+  it("does not treat a remote list error as vacant occupancy", async () => {
+    const router = makeRouter();
+    const client = remoteClient();
+    client.list.mockRejectedValue(new Error("term control connect timeout"));
+    installRemoteEntry(router, client);
+
+    await expect(router.listAll()).rejects.toThrow(
+      /Vellum Command is not answering on studio/,
+    );
+  });
 });
 
 describe("TerminalRouter host maintenance", () => {

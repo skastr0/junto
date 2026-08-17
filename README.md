@@ -304,6 +304,8 @@ Role is **never inferred** — you pick it. `hostId` identifies this machine (de
 
 Advanced local, multi-host, and offline-island proof:
 [`docs/remote-station-checklist.md`](docs/remote-station-checklist.md).
+Fleet diagnostics and qualification evidence:
+[`docs/fleet-observability.md`](docs/fleet-observability.md).
 
 ---
 

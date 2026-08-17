@@ -20,7 +20,7 @@ import {
 } from "@shared/scheduler-effects";
 import { isLabelNode } from "./presentation";
 import { noteEdgeCreated } from "./edge-sparks";
-import { state$ } from "./state";
+import { removeEdgesFromSelection, selectEdge, state$ } from "./state";
 import { commitDoc, parseSide } from "./mutations";
 
 const roleOfNode = (node: CanvasNode | undefined) => {
@@ -61,7 +61,7 @@ export const deleteEdges = (ids: ReadonlyArray<string>): void => {
   if (existingEdges.length === 0) return;
   const label = existingEdges.length === 1 ? "this relation" : `${existingEdges.length} relations`;
   if (typeof window !== "undefined" && typeof window.confirm === "function" && !window.confirm(`Delete ${label}?`)) return;
-  if (removed.has(state$.selectedEdgeId.peek())) state$.selectedEdgeId.set("");
+  removeEdgesFromSelection(removed);
   commitDoc({ ...doc, edges: doc.edges.filter((edge) => !removed.has(edge.id)) });
 };
 
@@ -325,8 +325,7 @@ export const addEdge = (params: {
     ...(toSide ? { toSide } : {}),
     ...(ether ? { ether } : {}),
   };
-  state$.selectedNodeId.set("");
-  state$.selectedEdgeId.set(edge.id);
+  selectEdge(edge.id);
   state$.error.set("");
   commitDoc({ ...doc, edges: [...doc.edges, edge] });
   noteEdgeCreated(edge);
@@ -489,9 +488,7 @@ export const connectAllToTarget = (
   });
 
   if (!options?.keepSelection) {
-    state$.selectedNodeId.set("");
-    state$.selectedNodeIds.set([]);
-    state$.selectedEdgeId.set(newEdges[newEdges.length - 1]?.id ?? "");
+    selectEdge(newEdges[newEdges.length - 1]?.id ?? "");
   }
   state$.error.set("");
   commitDoc({ ...doc, edges: [...doc.edges, ...newEdges] });

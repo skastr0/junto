@@ -183,12 +183,33 @@ Ops go through WorkService (tasks/messages/requests/artifacts/board). That is th
 
 **Board residency:** board is a **Command Center-homed global sink** (same residency class as actor mailboxes). Sink definition is in the fleet projection; material topics/posts live only on CC. Remote agents enqueue `board.topic.create` / `board.post.append`; Remotes store applied dispositions/events and do **not** rematerialize board rows. List/read the full board on Command Center. `board.mark_read` is install-local. Operator megaphone / edge `wake` is CC UI only; agent posts never wake.
 
+**Pad (shared page):** a Command Center-homed work-plane sink (same class as board). Agents read a picture + IR and patch named boxes and pins. They never write the factory canvas. Ports are `pad.read` and `pad.patch` only. Agent ink or image upserts are refused. Mentions must be inbound actor node ids.
+
+- Contract: [`docs/pad-architecture.md`](docs/pad-architecture.md)
+- Operator and agent guide: [`docs/pad.md`](docs/pad.md)
+- CLI: `vellum-command pad read`, `patch`, `digest`, `svg`, `look-here`, `get`, `tagged`
+
 ### Station roles
 
 - **Command Center** — user-selected. Human authors the canvas; fleet management via host registry.
 - **Remote** — user-selected. Capability host for that machine; applies complete Command Center projections and executes host-local rows.
 - Role is never inferred from hardware or open windows.
 - Doctor service `station` reports role, installation identity, database/work/simulation readiness, projection, and logical cursor state.
+
+**Station process mode — hard law:**
+
+- Process mode is Unenrolled | Remote | Command Center. One mode.
+- Enroll door and peer door are mutually exclusive.
+- Unenrolled binds enroll only (`status` / `pair` / `configure`).
+- Remote binds peer only (`status` / `project` / `report`).
+- Command Center binds neither; it is the client.
+- Never both sockets. Re-enroll tears the peer door down first (mode
+  change). Not two live sessions. Not "pause peer."
+- Updating a Remote replaces the package and stays Remote. It does not
+  pass through Unenrolled.
+- The macOS Remote UI is a station face (stats), not the Command Center
+  canvas. No Fleet on Remote.
+- Code: `src/shared/station-mode.ts`.
 
 ## The document contract
 
@@ -280,6 +301,15 @@ local sessions and app quit stops local sessions only through the sealed
 process-signal capability plane (never bare `process.kill(pid)`); use a Remote
 station when work must survive Command Center quit. Herdr is an optional legacy
 bridge for existing panes and must not be required for local health.
+
+**Seat occupancy law** — occupancy is independent of process liveness.
+- A seat is vacant or occupied.
+- Occupying a vacant seat and activating an occupied seat are different command families. Create is occupy. Create on an occupied seat is a bug.
+- Stopping still occupies the seat. Exited / missing / unknown is vacant.
+- Resumable / crashed / stalled / paused belong to the occupant process, not the seat.
+- Local and remote share this contract. Placement (local | remote) selects the process Layer. It does not change occupancy.
+- Pin / unpin / remount must not occupy. They activate (or just keep the view).
+- Code: `src/shared/terminal-seat-occupancy.ts`, `src/main/vellum/term/seat-process.ts`.
 
 **Focus surfaces** — centered, measure-constrained overlays for single-subject work (one agent, one herdr pane, one page). Prefer these over full-bleed or stage-split when the interaction is deep and solitary. Shell: `FocusSurface` (`src/renderer/components/FocusSurface.tsx`); measures + math: `src/renderer/lib/focus-measure.ts`.
 

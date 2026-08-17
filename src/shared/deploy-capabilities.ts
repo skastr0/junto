@@ -52,10 +52,15 @@ export type DeployCapabilitiesInput = {
 const isCommandCenter = (role: StationRoleSetting): boolean =>
   role === "command-center";
 
-const releaseAllowsTargetPlatform = (
-  release: ReleaseCapabilities,
+export type ReleasePlatformAdmission =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly detail: string };
+
+/** Per-target freeze after uname. Unknown/omitted stays the global Fleet query. */
+export const releaseAllowsTargetPlatform = (
+  release: Pick<ReleaseCapabilities, "linuxRemoteDeploy" | "darwinRemoteDeploy">,
   platform: NodeJS.Platform | undefined,
-): { readonly ok: boolean; readonly detail?: string } => {
+): ReleasePlatformAdmission => {
   if (platform === "darwin") {
     return release.darwinRemoteDeploy
       ? { ok: true }

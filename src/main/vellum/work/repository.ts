@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 import { Context, Effect, Result, Layer, Schema } from "effect";
-import type { CanvasDoc, CanvasNode } from "@shared/canvas";
+import {
+  decodeCanvasDoc,
+  type CanvasDoc,
+  type CanvasNode,
+} from "@shared/canvas";
 import type { ActorSeatId } from "@shared/actor-seat";
 import { InstallationId } from "@shared/installation-id";
 import {
@@ -24,9 +28,31 @@ import {
   type BoardTopic as BoardTopicValue,
   type BoardPost as BoardPostValue,
   type BoardAuthor as BoardAuthorValue,
+  type EtherPad as EtherPadValue,
   BoardTopic,
   BoardPost,
 } from "@shared/work-model";
+import {
+  applyPatches,
+  decodePad,
+  emptyPad,
+  type Pad,
+  type PadEdge,
+  type PadImage,
+  type PadInk,
+  type PadPin,
+  type PadPost,
+  type PadShape,
+} from "@shared/pad";
+import {
+  WORK_SEAT_RECENT_OPS_COVERAGE,
+  WORK_SEAT_RECENT_OP_DEFAULT_LIMIT,
+  WORK_SEAT_RECENT_OP_MAX_LABEL_CHARS,
+  WORK_SEAT_RECENT_OP_MAX_LIMIT,
+  WorkSeatRecentOp,
+  type WorkSeatRecentOp as WorkSeatRecentOpValue,
+  type WorkSeatRecentOpsFeed,
+} from "@shared/work-recent-ops";
 import {
   ActorRef as ActorRefSchema,
   DisplayTimestamp,
@@ -67,6 +93,7 @@ import {
   canTransitionTaskState,
   mirrorArtifactsText,
   mirrorBoardText,
+  mirrorPadText,
   mirrorRequestsText,
   mirrorTasksText,
   taskWithTransitionState,
@@ -90,9 +117,15 @@ import {
   type StateRow,
   type StateWriter,
 } from "../state/service";
+import {
+  inboundActorNodeIds,
+  padAuthorRuleError,
+  stampPadPatchAuthors,
+} from "./pad-rules";
 import { manifestAvailability } from "../content/manifest";
 import {
   mailboxMessageDeliveryId,
+  mailboxMessageReactId,
   mailboxMessageReadId,
 } from "./mailbox-receipts";
 
@@ -388,6 +421,12 @@ export type AppendBoardPostInput = LocalWorkInput & {
   readonly createdBy: BoardAuthorValue;
 };
 
+export type ApplyPadPatchInput = LocalWorkInput & {
+  readonly patchId: string;
+  readonly patches: ReadonlyArray<import("@shared/pad").PadPatch>;
+  readonly author: BoardAuthorValue;
+};
+
 export type ReserveRemoteTaskClaimInput = WorkRepositoryInput & {
   readonly taskId: string;
   readonly actor: ActorRef;
@@ -550,6 +589,19 @@ type DispositionRow = StateRow & {
   readonly fact_sha256: string | null;
   readonly rejection_reason: WorkRejectionReason | null;
   readonly rejection_message: string | null;
+};
+
+type RecentSeatOpRow = StateRow & {
+  readonly operation: WorkSeatRecentOpValue["operation"];
+  readonly origin_at: string;
+  readonly applied_at: string;
+  readonly target_node_id: string;
+  readonly item_kind: WorkItemRef["kind"];
+  readonly item_id: string;
+  readonly summary_label: string | null;
+  readonly related_kind: WorkItemRef["kind"] | null;
+  readonly related_id: string | null;
+  readonly related_node_id: string | null;
 };
 
 type TaskRow = StateRow & {
@@ -747,6 +799,58 @@ const textNode = (node: CanvasNode): CanvasNode =>
  * durability; this function never converts projected work back into authorial
  * canvas input.
  */
+const emptyPadGlance = (): EtherPadValue => ({
+  revision: 0,
+  shapeCount: 0,
+  unreadPinCount: 0,
+});
+
+/** Factory-card glance is the operator's unread pins. */
+const PAD_GLANCE_PRINCIPAL_KEY = "operator";
+
+const inboundActorsForPad = (
+  reader: StateReader,
+  sink: SinkRefValue,
+): ReadonlySet<string> => {
+  const row = reader.get<StateRow & { readonly body: string }>(
+    `
+      SELECT document.body AS body
+      FROM canvas_head AS head
+      JOIN canvas_generation_documents AS document
+        ON document.generation = head.generation
+      WHERE head.singleton = 1
+        AND document.name = ?
+    `,
+    [sink.canvasName],
+  );
+  if (row === undefined) return new Set();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(row.body) as unknown;
+  } catch {
+    return new Set();
+  }
+  const decoded = decodeCanvasDoc(parsed);
+  if (Result.isFailure(decoded)) return new Set();
+  return inboundActorNodeIds(decoded.success, sink.nodeId);
+};
+
+const assertPadPatchRules = (
+  reader: StateReader,
+  sink: SinkRefValue,
+  author: BoardAuthorValue,
+  patches: ReadonlyArray<import("@shared/pad").PadPatch>,
+): void => {
+  const rule = padAuthorRuleError(
+    author,
+    patches,
+    inboundActorsForPad(reader, sink),
+  );
+  if (rule !== undefined) {
+    throw authorityError("invalid-transition", rule);
+  }
+};
+
 export const projectWorkSnapshots = (
   doc: CanvasDoc,
   snapshots: ReadonlyArray<WorkSnapshotValue>,
@@ -758,6 +862,25 @@ export const projectWorkSnapshots = (
     ...doc,
     nodes: doc.nodes.map((source) => {
       const snapshot = byNode.get(source.id);
+      const kind = source.ether?.entity?.kind;
+      if (kind === "pad") {
+        const glance = snapshot?.pad ?? emptyPadGlance();
+        const node = textNode(source);
+        const ether = { ...(node.ether ?? {}) };
+        delete ether.tasks;
+        delete ether.requests;
+        delete ether.messages;
+        delete ether.artifacts;
+        delete ether.board;
+        ether.pad = glance;
+        return {
+          ...node,
+          ...(source.type === "text"
+            ? { text: mirrorPadText(source.text, glance) }
+            : {}),
+          ether,
+        } as CanvasNode;
+      }
       if (snapshot === undefined) return source;
       const node = textNode(source);
       const ether = { ...(node.ether ?? {}) };
@@ -766,7 +889,7 @@ export const projectWorkSnapshots = (
       delete ether.messages;
       delete ether.artifacts;
       delete ether.board;
-      const kind = node.ether?.entity?.kind;
+      delete ether.pad;
       if (kind === "task") ether.tasks = snapshot.tasks;
       if (kind === "requests") ether.requests = snapshot.requests;
       if (kind === "artifacts") ether.artifacts = snapshot.artifacts;
@@ -998,6 +1121,25 @@ const loadTaskFinishMap = (
   return map;
 };
 
+/**
+ * Projection-only publisher stamp. Mirrors the mailbox receipt-fact pattern
+ * (loadInbox's deliveredAt/readAt spread): stamped after the strict decode of
+ * the durable row, never written back to work_artifacts.
+ */
+const stampPublishedBySeat = (
+  artifact: ArtifactValue,
+  actorSeatId: string | null,
+): ArtifactValue =>
+  actorSeatId === null || actorSeatId === ""
+    ? artifact
+    : {
+        ...artifact,
+        metadata: {
+          ...(artifact.metadata ?? {}),
+          publishedBySeatId: actorSeatId,
+        },
+      };
+
 /** All artifacts on a canvas, keyed by sink node id (for finish-criteria gate). */
 const loadAllArtifactsByNode = (
   reader: StateReader,
@@ -1007,6 +1149,7 @@ const loadAllArtifactsByNode = (
     StateRow & {
       readonly node_id: string;
       readonly artifact_id: string;
+      readonly actor_seat_id: string | null;
       readonly name: string | null;
       readonly parts_json: string;
       readonly task_canvas_name: string | null;
@@ -1019,6 +1162,7 @@ const loadAllArtifactsByNode = (
       SELECT
         node_id,
         artifact_id,
+        actor_seat_id,
         name,
         parts_json,
         task_canvas_name,
@@ -1033,7 +1177,7 @@ const loadAllArtifactsByNode = (
   );
   const map = new Map<string, ArtifactValue[]>();
   for (const row of rows) {
-    const artifact = Schema.decodeUnknownSync(Artifact, strictDecode)({
+    const decoded = Schema.decodeUnknownSync(Artifact, strictDecode)({
       artifactId: row.artifact_id,
       parts: parseJson(row.parts_json),
       ...(row.name === null ? {} : { name: row.name }),
@@ -1053,6 +1197,7 @@ const loadAllArtifactsByNode = (
         ? {}
         : { metadata: parseJson(row.metadata_json) }),
     });
+    const artifact = stampPublishedBySeat(decoded, row.actor_seat_id);
     const list = map.get(row.node_id);
     if (list === undefined) map.set(row.node_id, [artifact]);
     else list.push(artifact);
@@ -1193,6 +1338,11 @@ const loadLaneTasks = (
     lane === "task" ? loadTaskDependsOnMap(reader, sink) : undefined;
   const finishMap =
     lane === "task" ? loadTaskFinishMap(reader, sink) : undefined;
+  // Requests: newest first (operator triage). Tasks keep oldest-first claim order.
+  const orderBy =
+    lane === "request"
+      ? `ORDER BY created_at DESC, ${id} DESC`
+      : `ORDER BY created_at, ${id}`;
   return reader
     .all<TaskRow>(
       `
@@ -1213,7 +1363,7 @@ const loadLaneTasks = (
           created_at
         FROM ${table}
         WHERE canvas_name = ? AND node_id = ?
-        ORDER BY created_at, ${id}
+        ${orderBy}
       `,
       [sink.canvasName, sink.nodeId],
     )
@@ -1450,13 +1600,32 @@ const loadInbox = (
         sink,
         mailboxMessageReadId(sink.canvasName, sink.nodeId, row.message_id),
       );
-      if (deliveredAt === undefined && readAt === undefined) return message;
+      const ackAt = receiptAcceptedAtMs(
+        reader,
+        sink,
+        mailboxMessageReactId(
+          sink.canvasName,
+          sink.nodeId,
+          row.message_id,
+          "ack",
+        ),
+      );
+      if (
+        deliveredAt === undefined &&
+        readAt === undefined &&
+        ackAt === undefined
+      ) {
+        return message;
+      }
       return {
         ...message,
         metadata: {
           ...(message.metadata ?? {}),
           ...(deliveredAt !== undefined ? { deliveredAt } : {}),
           ...(readAt !== undefined ? { readAt } : {}),
+          ...(ackAt !== undefined
+            ? { reactions: [{ kind: "ack", at: ackAt }] }
+            : {}),
         },
       };
     });
@@ -1595,10 +1764,11 @@ const loadArtifacts = (
   sink: SinkRefValue,
 ): ReadonlyArray<ArtifactValue> =>
   reader
-    .all<ArtifactRow>(
+    .all<ArtifactRow & { readonly actor_seat_id: string | null }>(
       `
         SELECT
           artifact_id,
+          actor_seat_id,
           name,
           parts_json,
           task_canvas_name,
@@ -1613,27 +1783,509 @@ const loadArtifacts = (
       [sink.canvasName, sink.nodeId],
     )
     .map((row) =>
-      Schema.decodeUnknownSync(Artifact, strictDecode)({
-        artifactId: row.artifact_id,
-        ...(row.name === null ? {} : { name: row.name }),
-        parts: parseJson(row.parts_json),
-        ...(row.task_id === null
-          ? {}
-          : {
-              task: {
-                kind: "task",
-                itemId: row.task_id,
-                sink: {
-                  canvasName: row.task_canvas_name,
-                  nodeId: row.task_node_id,
+      stampPublishedBySeat(
+        Schema.decodeUnknownSync(Artifact, strictDecode)({
+          artifactId: row.artifact_id,
+          ...(row.name === null ? {} : { name: row.name }),
+          parts: parseJson(row.parts_json),
+          ...(row.task_id === null
+            ? {}
+            : {
+                task: {
+                  kind: "task",
+                  itemId: row.task_id,
+                  sink: {
+                    canvasName: row.task_canvas_name,
+                    nodeId: row.task_node_id,
+                  },
                 },
-              },
-            }),
-        ...(row.metadata_json === null
-          ? {}
-          : { metadata: parseJson(row.metadata_json) }),
-      }),
+              }),
+          ...(row.metadata_json === null
+            ? {}
+            : { metadata: parseJson(row.metadata_json) }),
+        }),
+        row.actor_seat_id,
+      ),
     );
+
+const optionalString = (value: string | null): string | undefined =>
+  value === null || value.length === 0 ? undefined : value;
+
+const loadPad = (reader: StateReader, sink: SinkRefValue): Pad => {
+  const meta = reader.get<StateRow & { readonly revision: number }>(
+    `
+      SELECT revision
+      FROM work_pad_meta
+      WHERE canvas_name = ? AND node_id = ?
+    `,
+    [sink.canvasName, sink.nodeId],
+  );
+  if (meta === undefined) return emptyPad();
+
+  const images = reader
+    .all<
+      StateRow & {
+        readonly element_id: string;
+        readonly x: number;
+        readonly y: number;
+        readonly w: number;
+        readonly h: number;
+        readonly z: number;
+        readonly ref_json: string;
+      }
+    >(
+      `
+        SELECT element_id, x, y, w, h, z, ref_json
+        FROM work_pad_images
+        WHERE canvas_name = ? AND node_id = ?
+        ORDER BY z, element_id
+      `,
+      [sink.canvasName, sink.nodeId],
+    )
+    .map((row): PadImage => ({
+      id: row.element_id as PadImage["id"],
+      x: row.x,
+      y: row.y,
+      w: row.w,
+      h: row.h,
+      z: row.z,
+      ref: parseJson(row.ref_json) as PadImage["ref"],
+    }));
+
+  const shapes = reader
+    .all<
+      StateRow & {
+        readonly element_id: string;
+        readonly type: PadShape["type"];
+        readonly x: number;
+        readonly y: number;
+        readonly w: number;
+        readonly h: number;
+        readonly z: number;
+        readonly fill: string | null;
+        readonly stroke: string | null;
+        readonly text: string | null;
+        readonly status: PadShape["status"] | null;
+      }
+    >(
+      `
+        SELECT element_id, type, x, y, w, h, z, fill, stroke, text, status
+        FROM work_pad_shapes
+        WHERE canvas_name = ? AND node_id = ?
+        ORDER BY z, element_id
+      `,
+      [sink.canvasName, sink.nodeId],
+    )
+    .map((row): PadShape => ({
+      id: row.element_id as PadShape["id"],
+      type: row.type,
+      x: row.x,
+      y: row.y,
+      w: row.w,
+      h: row.h,
+      z: row.z,
+      ...(optionalString(row.fill) === undefined
+        ? {}
+        : { fill: optionalString(row.fill) }),
+      ...(optionalString(row.stroke) === undefined
+        ? {}
+        : { stroke: optionalString(row.stroke) }),
+      ...(optionalString(row.text) === undefined
+        ? {}
+        : { text: optionalString(row.text) }),
+      ...(row.status === null ? {} : { status: row.status }),
+    }));
+
+  const edges = reader
+    .all<
+      StateRow & {
+        readonly element_id: string;
+        readonly from_id: string;
+        readonly to_id: string;
+        readonly from_side: PadEdge["fromSide"] | null;
+        readonly to_side: PadEdge["toSide"] | null;
+        readonly label: string | null;
+      }
+    >(
+      `
+        SELECT element_id, from_id, to_id, from_side, to_side, label
+        FROM work_pad_edges
+        WHERE canvas_name = ? AND node_id = ?
+        ORDER BY element_id
+      `,
+      [sink.canvasName, sink.nodeId],
+    )
+    .map((row): PadEdge => ({
+      id: row.element_id as PadEdge["id"],
+      from: row.from_id as PadEdge["from"],
+      to: row.to_id as PadEdge["to"],
+      ...(row.from_side === null ? {} : { fromSide: row.from_side }),
+      ...(row.to_side === null ? {} : { toSide: row.to_side }),
+      ...(optionalString(row.label) === undefined
+        ? {}
+        : { label: optionalString(row.label) }),
+    }));
+
+  const inks = reader
+    .all<
+      StateRow & {
+        readonly element_id: string;
+        readonly z: number;
+        readonly color: string;
+        readonly width: number;
+        readonly points_json: string;
+      }
+    >(
+      `
+        SELECT element_id, z, color, width, points_json
+        FROM work_pad_inks
+        WHERE canvas_name = ? AND node_id = ?
+        ORDER BY z, element_id
+      `,
+      [sink.canvasName, sink.nodeId],
+    )
+    .map((row): PadInk => ({
+      id: row.element_id as PadInk["id"],
+      z: row.z,
+      color: row.color,
+      width: row.width,
+      points: parseJson(row.points_json) as PadInk["points"],
+    }));
+
+  const pinRows = reader.all<
+    StateRow & {
+      readonly element_id: string;
+      readonly x: number;
+      readonly y: number;
+      readonly bounds_json: string | null;
+      readonly mentions_json: string;
+    }
+  >(
+    `
+      SELECT element_id, x, y, bounds_json, mentions_json
+      FROM work_pad_pins
+      WHERE canvas_name = ? AND node_id = ?
+      ORDER BY element_id
+    `,
+    [sink.canvasName, sink.nodeId],
+  );
+  const postRows = reader.all<
+    StateRow & {
+      readonly pin_id: string;
+      readonly post_id: string;
+      readonly position: number;
+      readonly author_kind: BoardAuthorValue["kind"];
+      readonly author_seat_id: string | null;
+      readonly author_node_id: string | null;
+      readonly author_label: string | null;
+      readonly parts_json: string;
+    }
+  >(
+    `
+      SELECT
+        pin_id, post_id, position, author_kind,
+        author_seat_id, author_node_id, author_label, parts_json
+      FROM work_pad_posts
+      WHERE canvas_name = ? AND node_id = ?
+      ORDER BY pin_id, position
+    `,
+    [sink.canvasName, sink.nodeId],
+  );
+  const postsByPin = new Map<string, PadPost[]>();
+  for (const row of postRows) {
+    const post: PadPost = {
+      postId: row.post_id as PadPost["postId"],
+      author: boardAuthorFromRow(row),
+      parts: parseJson(row.parts_json) as PadPost["parts"],
+    };
+    const list = postsByPin.get(row.pin_id) ?? [];
+    list.push(post);
+    postsByPin.set(row.pin_id, list);
+  }
+  const pins = pinRows.map((row): PadPin => ({
+    id: row.element_id as PadPin["id"],
+    x: row.x,
+    y: row.y,
+    ...(row.bounds_json === null
+      ? {}
+      : { bounds: parseJson(row.bounds_json) as PadPin["bounds"] }),
+    mentions: parseJson(row.mentions_json) as PadPin["mentions"],
+    posts: postsByPin.get(row.element_id) ?? [],
+  }));
+
+  const decoded = decodePad({
+    revision: meta.revision,
+    images,
+    shapes,
+    edges,
+    inks,
+    pins,
+  });
+  if (Result.isFailure(decoded)) {
+    throw new Error(`stored pad is invalid: ${decoded.failure.message}`);
+  }
+  return decoded.success;
+};
+
+const loadPadGlance = (
+  reader: StateReader,
+  sink: SinkRefValue,
+): EtherPadValue | undefined => {
+  const meta = reader.get<StateRow & { readonly revision: number }>(
+    `
+      SELECT revision
+      FROM work_pad_meta
+      WHERE canvas_name = ? AND node_id = ?
+    `,
+    [sink.canvasName, sink.nodeId],
+  );
+  if (meta === undefined) return undefined;
+  const shapeCount =
+    reader.get<StateRow & { readonly n: number }>(
+      `
+        SELECT count(*) AS n
+        FROM work_pad_shapes
+        WHERE canvas_name = ? AND node_id = ?
+      `,
+      [sink.canvasName, sink.nodeId],
+    )?.n ?? 0;
+  const unreadPinCount =
+    reader.get<StateRow & { readonly n: number }>(
+      `
+        SELECT count(DISTINCT posts.pin_id) AS n
+        FROM work_pad_posts AS posts
+        LEFT JOIN work_pad_read_cursors AS cursors
+          ON cursors.canvas_name = posts.canvas_name
+          AND cursors.node_id = posts.node_id
+          AND cursors.pin_id = posts.pin_id
+          AND cursors.principal_key = ?
+        WHERE posts.canvas_name = ? AND posts.node_id = ?
+          AND posts.position > COALESCE(cursors.last_read_position, -1)
+      `,
+      [PAD_GLANCE_PRINCIPAL_KEY, sink.canvasName, sink.nodeId],
+    )?.n ?? 0;
+  return {
+    revision: meta.revision,
+    shapeCount,
+    unreadPinCount,
+  };
+};
+
+const idsOf = (items: ReadonlyArray<{ readonly id: string }>): Set<string> =>
+  new Set(items.map((item) => item.id));
+
+const persistPad = (
+  writer: StateWriter,
+  sink: SinkRefValue,
+  next: Pad,
+  updatedAt: string,
+): void => {
+  writer.run(
+    `
+      INSERT INTO work_pad_meta(canvas_name, node_id, revision, updated_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(canvas_name, node_id) DO UPDATE SET
+        revision = excluded.revision,
+        updated_at = excluded.updated_at
+    `,
+    [sink.canvasName, sink.nodeId, next.revision, updatedAt],
+  );
+
+  const removeMissing = (table: string, keep: ReadonlySet<string>): void => {
+    const existing = writer.all<StateRow & { readonly element_id: string }>(
+      `SELECT element_id FROM ${table} WHERE canvas_name = ? AND node_id = ?`,
+      [sink.canvasName, sink.nodeId],
+    );
+    for (const row of existing) {
+      if (keep.has(row.element_id)) continue;
+      writer.run(
+        `DELETE FROM ${table} WHERE canvas_name = ? AND node_id = ? AND element_id = ?`,
+        [sink.canvasName, sink.nodeId, row.element_id],
+      );
+    }
+  };
+
+  const existingPosts = writer.all<
+    StateRow & { readonly pin_id: string; readonly post_id: string }
+  >(
+    `
+      SELECT pin_id, post_id
+      FROM work_pad_posts
+      WHERE canvas_name = ? AND node_id = ?
+    `,
+    [sink.canvasName, sink.nodeId],
+  );
+  const nextPosts = new Set(
+    next.pins.flatMap((pin) => pin.posts.map((post) => `${pin.id}\0${post.postId}`)),
+  );
+  for (const row of existingPosts) {
+    if (nextPosts.has(`${row.pin_id}\0${row.post_id}`)) continue;
+    writer.run(
+      `
+        DELETE FROM work_pad_posts
+        WHERE canvas_name = ? AND node_id = ? AND pin_id = ? AND post_id = ?
+      `,
+      [sink.canvasName, sink.nodeId, row.pin_id, row.post_id],
+    );
+  }
+
+  removeMissing("work_pad_images", idsOf(next.images));
+  removeMissing("work_pad_shapes", idsOf(next.shapes));
+  removeMissing("work_pad_edges", idsOf(next.edges));
+  removeMissing("work_pad_inks", idsOf(next.inks));
+  removeMissing("work_pad_pins", idsOf(next.pins));
+
+  for (const image of next.images) {
+    writer.run(
+      `
+        INSERT INTO work_pad_images(
+          canvas_name, node_id, element_id, x, y, w, h, z, ref_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(canvas_name, node_id, element_id) DO UPDATE SET
+          x = excluded.x, y = excluded.y, w = excluded.w, h = excluded.h,
+          z = excluded.z, ref_json = excluded.ref_json
+      `,
+      [
+        sink.canvasName,
+        sink.nodeId,
+        image.id,
+        image.x,
+        image.y,
+        image.w,
+        image.h,
+        image.z,
+        JSON.stringify(image.ref),
+      ],
+    );
+  }
+  for (const shape of next.shapes) {
+    writer.run(
+      `
+        INSERT INTO work_pad_shapes(
+          canvas_name, node_id, element_id, type, x, y, w, h, z,
+          fill, stroke, text, status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(canvas_name, node_id, element_id) DO UPDATE SET
+          type = excluded.type, x = excluded.x, y = excluded.y,
+          w = excluded.w, h = excluded.h, z = excluded.z,
+          fill = excluded.fill, stroke = excluded.stroke,
+          text = excluded.text, status = excluded.status
+      `,
+      [
+        sink.canvasName,
+        sink.nodeId,
+        shape.id,
+        shape.type,
+        shape.x,
+        shape.y,
+        shape.w,
+        shape.h,
+        shape.z,
+        shape.fill ?? null,
+        shape.stroke ?? null,
+        shape.text ?? null,
+        shape.status ?? null,
+      ],
+    );
+  }
+  for (const edge of next.edges) {
+    writer.run(
+      `
+        INSERT INTO work_pad_edges(
+          canvas_name, node_id, element_id, from_id, to_id,
+          from_side, to_side, label
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(canvas_name, node_id, element_id) DO UPDATE SET
+          from_id = excluded.from_id, to_id = excluded.to_id,
+          from_side = excluded.from_side, to_side = excluded.to_side,
+          label = excluded.label
+      `,
+      [
+        sink.canvasName,
+        sink.nodeId,
+        edge.id,
+        edge.from,
+        edge.to,
+        edge.fromSide ?? null,
+        edge.toSide ?? null,
+        edge.label ?? null,
+      ],
+    );
+  }
+  for (const ink of next.inks) {
+    writer.run(
+      `
+        INSERT INTO work_pad_inks(
+          canvas_name, node_id, element_id, z, color, width, points_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(canvas_name, node_id, element_id) DO UPDATE SET
+          z = excluded.z, color = excluded.color, width = excluded.width,
+          points_json = excluded.points_json
+      `,
+      [
+        sink.canvasName,
+        sink.nodeId,
+        ink.id,
+        ink.z,
+        ink.color,
+        ink.width,
+        JSON.stringify(ink.points),
+      ],
+    );
+  }
+  for (const pin of next.pins) {
+    writer.run(
+      `
+        INSERT INTO work_pad_pins(
+          canvas_name, node_id, element_id, x, y, bounds_json, mentions_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(canvas_name, node_id, element_id) DO UPDATE SET
+          x = excluded.x, y = excluded.y,
+          bounds_json = excluded.bounds_json,
+          mentions_json = excluded.mentions_json
+      `,
+      [
+        sink.canvasName,
+        sink.nodeId,
+        pin.id,
+        pin.x,
+        pin.y,
+        pin.bounds === undefined ? null : JSON.stringify(pin.bounds),
+        JSON.stringify(pin.mentions),
+      ],
+    );
+    pin.posts.forEach((post, position) => {
+      writer.run(
+        `
+          INSERT INTO work_pad_posts(
+            canvas_name, node_id, pin_id, post_id, position,
+            author_kind, author_seat_id, author_node_id, author_label,
+            parts_json
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(canvas_name, node_id, pin_id, post_id) DO UPDATE SET
+            position = excluded.position,
+            author_kind = excluded.author_kind,
+            author_seat_id = excluded.author_seat_id,
+            author_node_id = excluded.author_node_id,
+            author_label = excluded.author_label,
+            parts_json = excluded.parts_json
+        `,
+        [
+          sink.canvasName,
+          sink.nodeId,
+          pin.id,
+          post.postId,
+          position,
+          post.author.kind,
+          post.author.seatId ?? null,
+          post.author.nodeId ?? null,
+          post.author.label ?? null,
+          JSON.stringify(post.parts),
+        ],
+      );
+    });
+  }
+};
 
 const loadSnapshot = (
   reader: StateReader,
@@ -1653,6 +2305,10 @@ const loadSnapshot = (
     messages: { items: loadInbox(reader, sink) },
     artifacts: { items: loadArtifacts(reader, sink) },
     board: { topics: loadBoardTopics(reader, sink) },
+    ...((): { readonly pad?: EtherPadValue } => {
+      const pad = loadPadGlance(reader, sink);
+      return pad === undefined ? {} : { pad };
+    })(),
   });
 
 export type CanvasWorkProjection = {
@@ -1683,13 +2339,281 @@ const snapshotsForCanvas = (
       SELECT node_id FROM work_artifacts WHERE canvas_name = ?
       UNION
       SELECT node_id FROM work_board_topics WHERE canvas_name = ?
+      UNION
+      SELECT node_id FROM work_pad_meta WHERE canvas_name = ?
       ORDER BY node_id
     `,
-    [canvasName, canvasName, canvasName, canvasName, canvasName, canvasName],
+    [canvasName, canvasName, canvasName, canvasName, canvasName, canvasName, canvasName],
   );
   return nodes.map(({ node_id }) =>
     loadSnapshot(reader, { canvasName, nodeId: node_id }),
   );
+};
+
+const normalizeRecentOpsLimit = (limit: number | undefined): number => {
+  if (limit === undefined || !Number.isFinite(limit)) {
+    return WORK_SEAT_RECENT_OP_DEFAULT_LIMIT;
+  }
+  return Math.min(
+    WORK_SEAT_RECENT_OP_MAX_LIMIT,
+    Math.max(1, Math.trunc(limit)),
+  );
+};
+
+const boundedRecentOpLabel = (value: string | null): string | undefined => {
+  if (value === null || value.length === 0) return undefined;
+  const clipped = value.slice(0, WORK_SEAT_RECENT_OP_MAX_LABEL_CHARS);
+  const lastCodeUnit = clipped.charCodeAt(clipped.length - 1);
+  return lastCodeUnit >= 0xd800 && lastCodeUnit <= 0xdbff
+    ? clipped.slice(0, -1)
+    : clipped;
+};
+
+const recentOpSummary = (row: RecentSeatOpRow): WorkSeatRecentOpValue["summary"] => {
+  switch (row.operation) {
+    case "proposal.create":
+      return { kind: "proposal", proposalId: row.item_id };
+    case "task.claim":
+      return { kind: "task", taskId: row.item_id };
+    case "request.create":
+      return { kind: "request", requestId: row.item_id };
+    case "message.append":
+      return { kind: "message", messageId: row.item_id };
+    case "artifact.publish":
+      const artifactName = boundedRecentOpLabel(row.summary_label);
+      return {
+        kind: "artifact",
+        artifactId: row.item_id,
+        ...(artifactName === undefined ? {} : { name: artifactName }),
+        ...(row.related_id === null ? {} : { taskId: row.related_id }),
+      };
+    case "delivery.accepted":
+      if (
+        row.related_kind === null ||
+        row.related_id === null ||
+        row.related_node_id === null
+      ) {
+        throw new Error("delivery receipt summary is incomplete");
+      }
+      return {
+        kind: "delivery",
+        deliveryId: row.item_id,
+        delivered: {
+          kind: row.related_kind,
+          itemId: row.related_id,
+          targetNodeId: row.related_node_id,
+        },
+      };
+    case "board.topic.create":
+      const topicTitle = boundedRecentOpLabel(row.summary_label);
+      if (topicTitle === undefined) {
+        throw new Error("board topic summary is missing its title");
+      }
+      return {
+        kind: "topic",
+        topicId: row.item_id,
+        title: topicTitle,
+      };
+    case "board.post.append":
+      if (row.related_id === null) {
+        throw new Error("board post summary is missing its topic id");
+      }
+      return {
+        kind: "post",
+        postId: row.item_id,
+        topicId: row.related_id,
+      };
+  }
+};
+
+/**
+ * Actor attribution comes only from the successful fact's explicit actor
+ * field. A task claimant is deliberately not used for describe/transition:
+ * operator IPC may issue the same mutation against that actor's task.
+ */
+const recentOpsForSeat = (
+  reader: StateReader,
+  input: {
+    readonly canvasName: string;
+    readonly actorSeatId: ActorSeatId;
+    readonly limit?: number;
+  },
+): WorkSeatRecentOpsFeed => {
+  const rows = reader.all<RecentSeatOpRow>(
+    `
+      WITH fact_rows AS (
+        SELECT
+          fact_event.operation,
+          coalesce(command_event.origin_at, fact_event.origin_at) AS origin_at,
+          fact_event.origin_at AS applied_at,
+          fact_event.received_at AS observed_at,
+          fact_event.item_node_id AS target_node_id,
+          fact_event.item_kind AS item_kind,
+          fact_event.item_id AS item_id,
+          fact.result_json AS result_json,
+          fact_event.event_home,
+          fact_event.entity_home,
+          fact_event.seq
+        FROM work_events AS fact_event
+        JOIN work_facts AS fact
+          ON fact.event_home = fact_event.event_home
+          AND fact.entity_home = fact_event.entity_home
+          AND fact.seq = fact_event.seq
+        LEFT JOIN work_events AS command_event
+          ON fact.basis_kind = 'command'
+          AND command_event.record_type = 'command'
+          AND command_event.event_home = fact.basis_command_event_home
+          AND command_event.entity_home = fact.basis_command_entity_home
+          AND command_event.seq = fact.basis_command_seq
+        WHERE fact_event.record_type = 'fact'
+          AND fact_event.item_canvas_name = ?
+          AND fact_event.operation IN (
+            'task.claim',
+            'request.create',
+            'message.append',
+            'artifact.publish',
+            'delivery.accepted',
+            'board.topic.create',
+            'board.post.append'
+          )
+
+        UNION ALL
+
+        SELECT
+          fact_event.operation,
+          coalesce(command_event.origin_at, fact_event.origin_at) AS origin_at,
+          fact_event.origin_at AS applied_at,
+          fact_event.received_at AS observed_at,
+          fact_event.node_id AS target_node_id,
+          'proposal' AS item_kind,
+          fact_event.proposal_id AS item_id,
+          json_extract(fact_event.record_json, '$.body') AS result_json,
+          fact_event.event_home,
+          fact_event.entity_home,
+          fact_event.seq
+        FROM work_proposal_events AS fact_event
+        LEFT JOIN work_proposal_events AS command_event
+          ON json_extract(fact_event.record_json, '$.basis.kind') = 'command'
+          AND command_event.record_type = 'command'
+          AND command_event.event_home = json_extract(
+            fact_event.record_json,
+            '$.basis.command.route.eventHome'
+          )
+          AND command_event.entity_home = json_extract(
+            fact_event.record_json,
+            '$.basis.command.route.entityHome'
+          )
+          AND command_event.seq = json_extract(
+            fact_event.record_json,
+            '$.basis.command.seq'
+          )
+        WHERE fact_event.record_type = 'fact'
+          AND fact_event.operation = 'proposal.create'
+          AND fact_event.canvas_name = ?
+      ),
+      attributed AS (
+        SELECT
+          *,
+          CASE operation
+            WHEN 'proposal.create' THEN
+              json_extract(result_json, '$.proposal.proposedBy.seatId')
+            WHEN 'task.claim' THEN
+              json_extract(result_json, '$.claimedBy.seatId')
+            WHEN 'request.create' THEN
+              json_extract(result_json, '$.request.claimedBy')
+            WHEN 'message.append' THEN
+              json_extract(result_json, '$.sentBy.seatId')
+            WHEN 'artifact.publish' THEN
+              json_extract(result_json, '$.publishedBy.seatId')
+            WHEN 'delivery.accepted' THEN
+              json_extract(result_json, '$.receipt.actor.seatId')
+            WHEN 'board.topic.create' THEN
+              CASE
+                WHEN json_extract(result_json, '$.createdBy.kind') = 'actor'
+                  THEN json_extract(result_json, '$.createdBy.seatId')
+                ELSE NULL
+              END
+            WHEN 'board.post.append' THEN
+              CASE
+                WHEN json_extract(result_json, '$.createdBy.kind') = 'actor'
+                  THEN json_extract(result_json, '$.createdBy.seatId')
+                ELSE NULL
+              END
+            ELSE NULL
+          END AS actor_seat_id
+        FROM fact_rows
+      )
+      SELECT
+        operation,
+        origin_at,
+        applied_at,
+        target_node_id,
+        item_kind,
+        item_id,
+        CASE operation
+          WHEN 'artifact.publish' THEN substr(
+            json_extract(result_json, '$.artifact.name'),
+            1,
+            ${WORK_SEAT_RECENT_OP_MAX_LABEL_CHARS}
+          )
+          WHEN 'board.topic.create' THEN substr(
+            json_extract(result_json, '$.topic.title'),
+            1,
+            ${WORK_SEAT_RECENT_OP_MAX_LABEL_CHARS}
+          )
+          ELSE NULL
+        END AS summary_label,
+        CASE operation
+          WHEN 'delivery.accepted' THEN
+            json_extract(result_json, '$.receipt.deliveredItem.kind')
+          ELSE NULL
+        END AS related_kind,
+        CASE operation
+          WHEN 'artifact.publish' THEN
+            json_extract(result_json, '$.artifact.task.itemId')
+          WHEN 'delivery.accepted' THEN
+            json_extract(result_json, '$.receipt.deliveredItem.itemId')
+          WHEN 'board.post.append' THEN
+            json_extract(result_json, '$.post.topicId')
+          ELSE NULL
+        END AS related_id,
+        CASE operation
+          WHEN 'delivery.accepted' THEN
+            json_extract(result_json, '$.receipt.deliveredItem.sink.nodeId')
+          ELSE NULL
+        END AS related_node_id
+      FROM attributed
+      WHERE actor_seat_id = ?
+      ORDER BY
+        applied_at DESC,
+        observed_at DESC,
+        event_home DESC,
+        entity_home DESC,
+        length(seq) DESC,
+        seq DESC
+      LIMIT ?
+    `,
+    [
+      input.canvasName,
+      input.canvasName,
+      input.actorSeatId,
+      normalizeRecentOpsLimit(input.limit),
+    ],
+  );
+  const operations = rows.map((row) =>
+    Schema.decodeUnknownSync(WorkSeatRecentOp, strictDecode)({
+      operation: row.operation,
+      originAt: row.origin_at,
+      appliedAt: row.applied_at,
+      targetNodeId: row.target_node_id,
+      summary: recentOpSummary(row),
+    }),
+  );
+  return {
+    operations,
+    lastOpAt: operations[0]?.appliedAt ?? null,
+    coverage: WORK_SEAT_RECENT_OPS_COVERAGE,
+  };
 };
 
 /**
@@ -1715,6 +2639,10 @@ export const readCanvasWorkProjection = (
           SELECT canvas_name FROM work_board_posts
           UNION ALL
           SELECT canvas_name FROM work_board_read_cursors
+          UNION ALL
+          SELECT canvas_name FROM work_pad_meta
+          UNION ALL
+          SELECT canvas_name FROM work_pad_read_cursors
         )
         WHERE canvas_name = ?
       `,
@@ -2874,14 +3802,64 @@ const writeThreadMessage = (
   );
 };
 
+/**
+ * Mailbox admission gate for caller-supplied message metadata.
+ *
+ * `deliveredAt` / `readAt` / `reactions` are projection-only: loadInbox stamps
+ * them from durable delivery receipts after decode, and the delivery service
+ * plus the renderer ledger treat them as truth. A caller-supplied value is a
+ * forgery vector — a forged `deliveredAt` reads as "already delivered" and
+ * suppresses real delivery; a forged `readAt` or `reactions` lies about
+ * observe state — so admission drops those keys before the row is written.
+ * Ingest-only: existing rows are never rewritten.
+ *
+ * `fromSeat` is the sender node identity the renderer trusts (actor-ledger,
+ * edge-sparks). The durable sender is `sentBy` (the actor_seat_id column);
+ * when a caller supplies a `fromSeat` that disagrees with the durable
+ * sender's node, admission rebinds it to `sentBy.nodeId`. The msg.send /
+ * msg.reply control path already stamps `fromSeat = caller.nodeId`, which
+ * resolves to the same node as `sentBy` — the rebind is a no-op there.
+ */
+const admitMailboxMessage = (
+  message: MessageValue,
+  sentBy: ActorRef,
+): MessageValue => {
+  const metadata = message.metadata;
+  if (metadata === undefined) return message;
+  const hasReserved =
+    Object.prototype.hasOwnProperty.call(metadata, "deliveredAt") ||
+    Object.prototype.hasOwnProperty.call(metadata, "readAt") ||
+    Object.prototype.hasOwnProperty.call(metadata, "reactions");
+  const forgedFromSeat =
+    Object.prototype.hasOwnProperty.call(metadata, "fromSeat") &&
+    metadata.fromSeat !== sentBy.nodeId;
+  if (!hasReserved && !forgedFromSeat) return message;
+  const {
+    deliveredAt: _deliveredAt,
+    readAt: _readAt,
+    reactions: _reactions,
+    ...rest
+  } = metadata;
+  const admitted = {
+    ...rest,
+    ...(forgedFromSeat ? { fromSeat: sentBy.nodeId } : {}),
+  };
+  if (Object.keys(admitted).length === 0) {
+    const { metadata: _metadata, ...withoutMetadata } = message;
+    return withoutMetadata;
+  }
+  return { ...message, metadata: admitted };
+};
+
 const writeInboxMessage = (
   writer: StateWriter,
   sink: SinkRefValue,
-  message: MessageValue,
+  incoming: MessageValue,
   sentBy: ActorRef,
   fact: WorkFactValue,
   receivedAt: DisplayTimestampValue,
 ): void => {
+  const message = admitMailboxMessage(incoming, sentBy);
   const position = Number(
     writer.get<StateRow & { readonly next_position: number }>(
       `
@@ -3249,6 +4227,18 @@ const materializeFact = (
       }
       return;
     }
+    case "pad.patch": {
+      const current = loadPad(writer, fact.item.sink);
+      const applied = applyPatches(current, fact.body.patches);
+      if (Result.isFailure(applied)) {
+        throw authorityError(
+          "invalid-transition",
+          applied.failure.message,
+        );
+      }
+      persistPad(writer, fact.item.sink, applied.success, receivedAt);
+      return;
+    }
     case "board.post.append": {
       // Position authority is the fact body (assigned at apply/mint time).
       const post = fact.body.post;
@@ -3557,6 +4547,7 @@ const predecessorForAction = (
     case "delivery.accepted":
     case "board.topic.create":
     case "board.post.append":
+    case "pad.patch":
       return null;
     case "proposal.approve":
     case "proposal.reject": {
@@ -4102,6 +5093,24 @@ const resultForCommand = (
           operation: "board.post.append",
           post,
           createdBy: action.createdBy,
+        },
+      };
+    }
+    case "pad.patch": {
+      const patches = stampPadPatchAuthors(action.patches, action.author);
+      assertPadPatchRules(writer, command.item.sink, action.author, patches);
+      const current = loadPad(writer, command.item.sink);
+      const applied = applyPatches(current, patches);
+      if (Result.isFailure(applied)) {
+        throw authorityError("invalid-transition", applied.failure.message);
+      }
+      return {
+        body: {
+          operation: "pad.patch",
+          patchId: action.patchId,
+          patches: [...patches],
+          author: action.author,
+          revision: applied.success.revision,
         },
       };
     }
@@ -4802,6 +5811,20 @@ const assertCorrelatedCommandFact = (
         );
       }
       return;
+    case "pad.patch":
+      if (
+        fact.body.operation !== "pad.patch" ||
+        action.patchId !== fact.body.patchId ||
+        !sameBoardAuthor(action.author, fact.body.author) ||
+        canonicalJson(stampPadPatchAuthors(action.patches, action.author)) !==
+          canonicalJson(fact.body.patches)
+      ) {
+        throw authorityError(
+          "causal-conflict",
+          "pad patch fact differs from the exact pending command",
+        );
+      }
+      return;
   }
 };
 
@@ -5474,6 +6497,24 @@ const validateIncomingFact = (
       }
       return;
     }
+    case "pad.patch": {
+      const authority = canonicalLocalWorkAuthority(writer);
+      if (authority.role === "remote") {
+        if (correlatedCommand?.body.operation !== "pad.patch") {
+          throw authorityError(
+            "causal-conflict",
+            "Command Center pad patch fact has no exact local pending command",
+          );
+        }
+        return;
+      }
+      const current = loadPad(writer, fact.item.sink);
+      const applied = applyPatches(current, fact.body.patches);
+      if (Result.isFailure(applied)) {
+        throw authorityError("invalid-transition", applied.failure.message);
+      }
+      return;
+    }
   }
 };
 
@@ -5603,6 +6644,11 @@ export interface WorkRepositoryShape {
     readonly snapshotsForCanvas: (
       canvasName: string,
     ) => Effect.Effect<ReadonlyArray<WorkSnapshotValue>, WorkRepositoryError>;
+    readonly recentOpsForSeat: (input: {
+      readonly canvasName: string;
+      readonly actorSeatId: ActorSeatId;
+      readonly limit?: number;
+    }) => Effect.Effect<WorkSeatRecentOpsFeed, WorkRepositoryError>;
     readonly itemHome: (
       lane: "task" | "proposal" | "request",
       canvasName: string,
@@ -5673,6 +6719,20 @@ export interface WorkRepositoryShape {
     readonly appendBoardPost: (
       input: AppendBoardPostInput,
     ) => Effect.Effect<LocalFactResult<BoardPostValue>, RepositoryFailure>;
+    readonly readPad: (
+      canvasName: string,
+      nodeId: string,
+    ) => Effect.Effect<Pad, WorkRepositoryError>;
+    readonly applyPadPatch: (
+      input: ApplyPadPatchInput,
+    ) => Effect.Effect<LocalFactResult<Pad>, RepositoryFailure>;
+    readonly markPadRead: (input: {
+      readonly sink: SinkRefValue;
+      readonly pinId: string;
+      readonly principalKey: string;
+      readonly lastReadPosition: number;
+      readonly updatedAt?: string;
+    }) => Effect.Effect<void, RepositoryFailure>;
     readonly markBoardRead: (input: {
       readonly sink: SinkRefValue;
       readonly topicId: string;
@@ -5680,6 +6740,17 @@ export interface WorkRepositoryShape {
       readonly lastReadPosition: number;
       readonly updatedAt?: string;
     }) => Effect.Effect<void, RepositoryFailure>;
+    /** Operator soft-archive / restore via metadata.archived (no work fact). */
+    readonly setArtifactArchived: (input: {
+      readonly sink: SinkRefValue;
+      readonly artifactId: string;
+      readonly archived: boolean;
+    }) => Effect.Effect<ArtifactValue, RepositoryFailure>;
+    /** Operator hard-delete of an artifact row (content objects retained). */
+    readonly deleteArtifact: (input: {
+      readonly sink: SinkRefValue;
+      readonly artifactId: string;
+    }) => Effect.Effect<{ readonly artifactId: string }, RepositoryFailure>;
     readonly reserveRemoteTaskClaim: (
       input: ReserveRemoteTaskClaimInput,
     ) => Effect.Effect<WorkCommandValue, RepositoryFailure>;
@@ -5754,6 +6825,21 @@ export const WorkRepositoryLive = Layer.effect(
         .pipe(
           Effect.mapError((error) =>
             toRepositoryError("work.snapshotsForCanvas", error),
+          ),
+        );
+
+    const readRecentOpsForSeat = (input: {
+      readonly canvasName: string;
+      readonly actorSeatId: ActorSeatId;
+      readonly limit?: number;
+    }): Effect.Effect<WorkSeatRecentOpsFeed, WorkRepositoryError> =>
+      state
+        .read("work.recentOpsForSeat", (reader) =>
+          recentOpsForSeat(reader, input),
+        )
+        .pipe(
+          Effect.mapError((error) =>
+            toRepositoryError("work.recentOpsForSeat", error),
           ),
         );
 
@@ -6416,7 +7502,7 @@ export const WorkRepositoryLive = Layer.effect(
     ): Effect.Effect<LocalFactResult<MessageValue>, RepositoryFailure> => {
       const originAt = timestamp(input.originAt);
       const receivedAt = timestamp(input.receivedAt);
-      const message = Schema.decodeUnknownSync(
+      const decodedMessage = Schema.decodeUnknownSync(
         Message,
         strictDecode,
       )(input.message);
@@ -6428,6 +7514,14 @@ export const WorkRepositoryLive = Layer.effect(
         MessageAppendDestinationSchema,
         strictDecode,
       )(input.destination);
+      // Admit before the fact is minted so the durable fact body and the
+      // returned value (which drives the delivery nudge) never carry forged
+      // reserved keys. writeInboxMessage re-admits as the universal row gate
+      // for facts that arrive from other ingest paths.
+      const message =
+        destination.kind === "mailbox"
+          ? admitMailboxMessage(decodedMessage, sentBy)
+          : decodedMessage;
       return transaction("work.message.append", input.sink, (writer) => {
         const authority = canonicalLocalWorkAuthority(writer);
         const localInstallationId = authority.installationId;
@@ -6723,6 +7817,96 @@ export const WorkRepositoryLive = Layer.effect(
       });
     };
 
+    const readPad = (
+      canvasName: string,
+      nodeId: string,
+    ): Effect.Effect<Pad, WorkRepositoryError> =>
+      state
+        .read("work.pad.read", (reader) =>
+          loadPad(reader, { canvasName, nodeId }),
+        )
+        .pipe(
+          Effect.mapError((error) =>
+            toRepositoryError("work.pad.read", error),
+          ),
+        );
+
+    const applyPadPatch = (
+      input: ApplyPadPatchInput,
+    ): Effect.Effect<LocalFactResult<Pad>, RepositoryFailure> => {
+      const originAt = timestamp(input.originAt);
+      const receivedAt = timestamp(input.receivedAt);
+      return transaction("work.pad.patch", input.sink, (writer) => {
+        const authority = canonicalLocalWorkAuthority(writer);
+        if (authority.role !== "command-center") {
+          throw authorityError(
+            "authority-mismatch",
+            "pad rows are Command Center-homed",
+          );
+        }
+        const patches = stampPadPatchAuthors(input.patches, input.author);
+        assertPadPatchRules(writer, input.sink, input.author, patches);
+        const current = loadPad(writer, input.sink);
+        const applied = applyPatches(current, patches);
+        if (Result.isFailure(applied)) {
+          throw authorityError("invalid-transition", applied.failure.message);
+        }
+        return commitLocalFact(writer, {
+          localInstallationId: authority.installationId,
+          sink: input.sink,
+          basis: input.basis,
+          item: item("pad", input.patchId, input.sink),
+          operation: "pad.patch",
+          predecessor: null,
+          body: {
+            operation: "pad.patch",
+            patchId: input.patchId,
+            patches: [...patches],
+            author: input.author,
+            revision: applied.success.revision,
+          },
+          value: applied.success,
+          originAt,
+          receivedAt,
+        });
+      });
+    };
+
+    const markPadRead = (input: {
+      readonly sink: SinkRefValue;
+      readonly pinId: string;
+      readonly principalKey: string;
+      readonly lastReadPosition: number;
+      readonly updatedAt?: string;
+    }): Effect.Effect<void, RepositoryFailure> => {
+      const updatedAt = timestamp(input.updatedAt);
+      return transaction("work.pad.mark_read", input.sink, (writer) => {
+        writer.run(
+          `
+            INSERT INTO work_pad_read_cursors(
+              canvas_name, node_id, pin_id, principal_key,
+              last_read_position, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(canvas_name, node_id, pin_id, principal_key)
+            DO UPDATE SET
+              last_read_position = MAX(
+                work_pad_read_cursors.last_read_position,
+                excluded.last_read_position
+              ),
+              updated_at = excluded.updated_at
+          `,
+          [
+            input.sink.canvasName,
+            input.sink.nodeId,
+            input.pinId,
+            input.principalKey,
+            input.lastReadPosition,
+            updatedAt,
+          ],
+        );
+      });
+    };
+
     const markBoardRead = (input: {
       readonly sink: SinkRefValue;
       readonly topicId: string;
@@ -6757,6 +7941,108 @@ export const WorkRepositoryLive = Layer.effect(
         );
       });
     };
+
+    const setArtifactArchived = (input: {
+      readonly sink: SinkRefValue;
+      readonly artifactId: string;
+      readonly archived: boolean;
+    }): Effect.Effect<ArtifactValue, RepositoryFailure> =>
+      transaction("work.artifact.set_archived", input.sink, (writer) => {
+        const row = writer.get<ArtifactRow>(
+          `
+            SELECT
+              artifact_id,
+              name,
+              parts_json,
+              task_canvas_name,
+              task_node_id,
+              task_id,
+              task_entity_home,
+              metadata_json
+            FROM work_artifacts
+            WHERE canvas_name = ? AND node_id = ? AND artifact_id = ?
+          `,
+          [input.sink.canvasName, input.sink.nodeId, input.artifactId],
+        );
+        if (row === undefined) {
+          throw authorityError(
+            "missing-entity",
+            `artifact "${input.artifactId}" not found`,
+          );
+        }
+        const metadata =
+          row.metadata_json === null
+            ? ({} as Record<string, unknown>)
+            : (parseJson(row.metadata_json) as Record<string, unknown>);
+        if (input.archived) {
+          metadata.archived = true;
+        } else {
+          delete metadata.archived;
+        }
+        const metadataJson =
+          Object.keys(metadata).length === 0
+            ? null
+            : canonicalJson(metadata);
+        writer.run(
+          `
+            UPDATE work_artifacts
+            SET metadata_json = ?
+            WHERE canvas_name = ? AND node_id = ? AND artifact_id = ?
+          `,
+          [
+            metadataJson,
+            input.sink.canvasName,
+            input.sink.nodeId,
+            input.artifactId,
+          ],
+        );
+        return Schema.decodeUnknownSync(Artifact, strictDecode)({
+          artifactId: row.artifact_id,
+          ...(row.name === null ? {} : { name: row.name }),
+          parts: parseJson(row.parts_json),
+          ...(row.task_id === null
+            ? {}
+            : {
+                task: {
+                  kind: "task",
+                  itemId: row.task_id,
+                  sink: {
+                    canvasName: row.task_canvas_name,
+                    nodeId: row.task_node_id,
+                  },
+                },
+              }),
+          ...(metadataJson === null ? {} : { metadata }),
+        });
+      });
+
+    const deleteArtifact = (input: {
+      readonly sink: SinkRefValue;
+      readonly artifactId: string;
+    }): Effect.Effect<{ readonly artifactId: string }, RepositoryFailure> =>
+      transaction("work.artifact.delete", input.sink, (writer) => {
+        const row = writer.get<StateRow>(
+          `
+            SELECT 1 FROM work_artifacts
+            WHERE canvas_name = ? AND node_id = ? AND artifact_id = ?
+          `,
+          [input.sink.canvasName, input.sink.nodeId, input.artifactId],
+        );
+        if (row === undefined) {
+          throw authorityError(
+            "missing-entity",
+            `artifact "${input.artifactId}" not found`,
+          );
+        }
+        writer.run(
+          `
+            DELETE FROM work_artifacts
+            WHERE canvas_name = ? AND node_id = ? AND artifact_id = ?
+          `,
+          [input.sink.canvasName, input.sink.nodeId, input.artifactId],
+        );
+        return { artifactId: input.artifactId };
+      });
 
     const reserveRemoteTaskClaim = (
       input: ReserveRemoteTaskClaimInput,
@@ -7310,7 +8596,8 @@ export const WorkRepositoryLive = Layer.effect(
                   (
                     record.body.operation === "message.append" ||
                     record.body.operation === "board.topic.create" ||
-                    record.body.operation === "board.post.append"
+                    record.body.operation === "board.post.append" ||
+                    record.body.operation === "pad.patch"
                   )
                 );
                 if (materializesHere) {
@@ -7422,6 +8709,7 @@ export const WorkRepositoryLive = Layer.effect(
     return WorkRepository.of({
       readSnapshot,
       snapshotsForCanvas: readSnapshotsForCanvas,
+      recentOpsForSeat: readRecentOpsForSeat,
       itemHome,
       hasAcceptedDelivery,
       acceptedDeliveryAt,
@@ -7439,7 +8727,12 @@ export const WorkRepositoryLive = Layer.effect(
       acceptDelivery,
       createBoardTopic,
       appendBoardPost,
+      readPad,
+      applyPadPatch,
+      markPadRead,
       markBoardRead,
+      setArtifactArchived,
+      deleteArtifact,
       reserveRemoteTaskClaim,
       enqueueRemoteCommand,
       enqueueRemoteProposalApproval,

@@ -18,10 +18,16 @@ import {
   type TermControlRequest,
   type TermControlResponse,
 } from "@shared/term-control";
+import { isAgentSeatState } from "@shared/agent-seat-state";
 import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
 import { Schema } from "effect";
 import { HostDirectorySnapshot } from "@shared/host-directory";
+import { formatTransportFrame, seatTapeFromSummary } from "@shared/transport-trace";
 import type { ControlLease, JournalEntry, LocalHostEvent } from "./local-host";
+import {
+  appendTransportTrace,
+  recordTransportError,
+} from "../observability/transport-journal";
 
 type Pending = {
   resolve: (v: TermControlResponse) => void;
@@ -62,6 +68,18 @@ export type TermControlMaintenanceAcquireResult =
 export interface TermMaintenanceControlPort {
   acquireMaintenance(): Promise<TermControlMaintenanceAcquireResult>;
 }
+
+const SEAT_WIRE_OPS = new Set(["get", "create", "createAgentSeat"]);
+
+const summaryFromTermResponse = (
+  response?: TermControlResponse,
+): { readonly epoch?: string; readonly status?: string } | null => {
+  if (response === undefined || !response.ok || response.data == null) {
+    return null;
+  }
+  if (typeof response.data !== "object") return null;
+  return response.data as { readonly epoch?: string; readonly status?: string };
+};
 
 const CLIENT_SHUTDOWN_GRACE_MS = 100;
 const CLIENT_SHUTDOWN_DEADLINE_MS = 2_000;
@@ -164,7 +182,59 @@ const reviveHostEvent = (raw: unknown): LocalHostEvent | undefined => {
       pid: typeof rec.pid === "number" ? rec.pid : undefined,
     };
   }
+  if (rec.type === "seat-state" && rec.event && typeof rec.event === "object") {
+    const ev = rec.event as Record<string, unknown>;
+    if (
+      typeof ev.bindingId === "string" &&
+      typeof ev.epoch === "string" &&
+      isAgentSeatState(ev.state) &&
+      typeof ev.reason === "string" &&
+      (ev.confidence === "high" || ev.confidence === "low") &&
+      typeof ev.at === "number"
+    ) {
+      return {
+        type: "seat-state",
+        bindingId,
+        epoch,
+        event: {
+          bindingId: ev.bindingId,
+          epoch: ev.epoch,
+          state: ev.state,
+          reason: ev.reason,
+          confidence: ev.confidence,
+          at: ev.at,
+          ...(typeof ev.harness === "string" ? { harness: ev.harness } : {}),
+        },
+      };
+    }
+  }
   return undefined;
+};
+
+/** Test / decode helper — same shape the SSH hop delivers to the router. */
+export const reviveTermHostEvent = reviveHostEvent;
+
+/** Revive auth-ack `data.seatState` as hop-shaped LocalHostEvents. */
+export const reviveTermAuthSeatState = (data: unknown): LocalHostEvent[] => {
+  if (!data || typeof data !== "object") return [];
+  const list = (data as { seatState?: unknown }).seatState;
+  if (!Array.isArray(list)) return [];
+  const out: LocalHostEvent[] = [];
+  for (const item of list) {
+    if (!item || typeof item !== "object") continue;
+    const ev = item as Record<string, unknown>;
+    const bindingId = typeof ev.bindingId === "string" ? ev.bindingId : "";
+    const epoch = typeof ev.epoch === "string" ? ev.epoch : "";
+    if (!bindingId || !epoch) continue;
+    const revived = reviveHostEvent({
+      type: "seat-state",
+      bindingId,
+      epoch,
+      event: ev,
+    });
+    if (revived) out.push(revived);
+  }
+  return out;
 };
 
 export class TermControlClient extends EventEmitter implements TermMaintenanceControlPort {
@@ -180,12 +250,50 @@ export class TermControlClient extends EventEmitter implements TermMaintenanceCo
     this.resolveCloseObserved = resolve;
   });
   private drainFlight: Promise<TermControlClientShutdownReceipt> | undefined;
+  /** Held until the first `"event"` listener; connect() can beat that attach. */
+  private queuedEvents: LocalHostEvent[] | undefined = [];
+  private eventFlushScheduled = false;
 
   private constructor(
     private readonly socketPath: string,
     private readonly token: string,
   ) {
     super();
+    this.on("newListener", (name: string | symbol) => {
+      if (name !== "event") return;
+      this.scheduleEventFlush();
+    });
+  }
+
+  private deliverHostEvent(event: LocalHostEvent): void {
+    if (this.queuedEvents !== undefined) {
+      this.queuedEvents.push(event);
+      return;
+    }
+    this.emit("event", event);
+  }
+
+  private scheduleEventFlush(): void {
+    if (this.queuedEvents === undefined || this.eventFlushScheduled) return;
+    this.eventFlushScheduled = true;
+    queueMicrotask(() => {
+      const queued = this.queuedEvents;
+      this.queuedEvents = undefined;
+      this.eventFlushScheduled = false;
+      if (!queued) return;
+      for (const event of queued) this.emit("event", event);
+    });
+  }
+
+  /** False after the SSH forward or remote socket has already gone away. */
+  isLive(): boolean {
+    return (
+      this.authed &&
+      !this.quiescing &&
+      !this.closeObserved &&
+      this.socket !== undefined &&
+      !this.socket.destroyed
+    );
   }
 
   static async connect(input: {
@@ -217,16 +325,39 @@ export class TermControlClient extends EventEmitter implements TermMaintenanceCo
     this.diagnostics.push(message);
   }
 
+  private journalConnect(ok: boolean, cause?: unknown): void {
+    const event = {
+      plane: "term" as const,
+      op: "sock.connect",
+      socket: this.socketPath,
+    };
+    if (ok) appendTransportTrace({ ...event, ok: true });
+    else recordTransportError(event, cause);
+  }
+
   private open(timeoutMs: number): Promise<void> {
     return new Promise((resolve, reject) => {
       const sock = createConnection({ path: this.socketPath });
       this.socket = sock;
       let settled = false;
-      const timer = setTimeout(() => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const settleOk = (): void => {
         if (settled) return;
         settled = true;
+        if (timer !== undefined) clearTimeout(timer);
+        this.journalConnect(true);
+        resolve();
+      };
+      const settleErr = (cause: unknown): void => {
+        if (settled) return;
+        settled = true;
+        if (timer !== undefined) clearTimeout(timer);
+        this.journalConnect(false, cause);
+        reject(cause instanceof Error ? cause : new Error(String(cause)));
+      };
+      timer = setTimeout(() => {
         sock.destroy();
-        reject(new Error(`term control connect timeout: ${this.socketPath}`));
+        settleErr(new Error(`term control connect timeout: ${this.socketPath}`));
       }, timeoutMs);
 
       sock.setEncoding("utf8");
@@ -251,24 +382,19 @@ export class TermControlClient extends EventEmitter implements TermMaintenanceCo
           if (!this.authed) {
             if (rec.ok === true && rec.id === "auth") {
               this.authed = true;
-              if (!settled) {
-                settled = true;
-                clearTimeout(timer);
-                resolve();
+              for (const event of reviveTermAuthSeatState(rec.data)) {
+                this.deliverHostEvent(event);
               }
+              settleOk();
             } else if (rec.ok === false) {
-              if (!settled) {
-                settled = true;
-                clearTimeout(timer);
-                reject(new Error(String(rec.error ?? "auth failed")));
-              }
+              settleErr(new Error(String(rec.error ?? "auth failed")));
               sock.destroy();
             }
             continue;
           }
           if (rec.type === "event") {
             const event = reviveHostEvent(rec.payload);
-            if (event) this.emit("event", event);
+            if (event) this.deliverHostEvent(event);
             continue;
           }
           const id = typeof rec.id === "string" ? rec.id : "";
@@ -282,11 +408,7 @@ export class TermControlClient extends EventEmitter implements TermMaintenanceCo
       });
       sock.on("error", (err) => {
         this.recordDiagnostic(err);
-        if (!settled) {
-          settled = true;
-          clearTimeout(timer);
-          reject(err);
-        }
+        settleErr(err);
         this.failAll(err instanceof Error ? err : new Error(String(err)));
       });
       sock.on("close", () => {
@@ -310,18 +432,77 @@ export class TermControlClient extends EventEmitter implements TermMaintenanceCo
     if (this.quiescing || this.closeObserved || !this.socket || this.socket.destroyed) {
       return Promise.reject(new Error("term control client closed"));
     }
+    const started = Date.now();
+    const bindingId =
+      "bindingId" in body && typeof body.bindingId === "string"
+        ? body.bindingId
+        : undefined;
     return new Promise((resolve, reject) => {
+      const finish = (
+        error?: unknown,
+        ok = true,
+        response?: TermControlResponse,
+      ): void => {
+        const event = {
+          plane: "term" as const,
+          op: `sock.${body.op}`,
+          ...(bindingId === undefined ? {} : { bindingId }),
+          ms: Date.now() - started,
+          ...(ok
+            ? {}
+            : {
+                frame: formatTransportFrame({
+                  request: body,
+                  ...(response === undefined ? {} : { response }),
+                }),
+              }),
+        };
+        if (ok) {
+          if (SEAT_WIRE_OPS.has(body.op)) {
+            appendTransportTrace({
+              ...event,
+              ok: true,
+              ...seatTapeFromSummary(
+                bindingId ?? "",
+                summaryFromTermResponse(response),
+              ),
+            });
+          }
+          return;
+        }
+        recordTransportError(
+          event,
+          error ??
+            (response !== undefined && response.ok === false
+              ? new Error(response.error)
+              : new Error(`term control failed op=${body.op}`)),
+        );
+      };
       const timer = setTimeout(() => {
         this.pending.delete(body.id);
-        reject(new Error(`term control timeout op=${body.op}`));
+        const err = new Error(`term control timeout op=${body.op}`);
+        finish(err, false);
+        reject(err);
       }, timeoutMs);
-      this.pending.set(body.id, { resolve, reject, timer });
+      this.pending.set(body.id, {
+        resolve: (value) => {
+          finish(undefined, value.ok, value);
+          resolve(value);
+        },
+        reject: (err) => {
+          finish(err, false);
+          reject(err);
+        },
+        timer,
+      });
       try {
         this.socket!.write(`${JSON.stringify(body)}\n`);
       } catch (err) {
         this.pending.delete(body.id);
         clearTimeout(timer);
-        reject(err instanceof Error ? err : new Error(String(err)));
+        const error = err instanceof Error ? err : new Error(String(err));
+        finish(error, false);
+        reject(error);
       }
     });
   }
@@ -338,6 +519,8 @@ export class TermControlClient extends EventEmitter implements TermMaintenanceCo
     canvasName?: string;
     nodeId?: string;
     label?: string;
+    harness?: string;
+    agentKey?: string;
   }): Promise<TerminalSessionSummary> {
     const res = await this.call({
       v: 1,
@@ -350,6 +533,39 @@ export class TermControlClient extends EventEmitter implements TermMaintenanceCo
       canvasName: input.canvasName,
       nodeId: input.nodeId,
       label: input.label,
+      ...(input.harness ? { harness: input.harness } : {}),
+      ...(input.agentKey ? { agentKey: input.agentKey } : {}),
+    });
+    if (!res.ok) throw new Error(res.error);
+    return res.data as TerminalSessionSummary;
+  }
+
+  async createAgentSeat(input: {
+    bindingId: string;
+    harness: string;
+    agentKey: string;
+    launch?: TerminalLaunch;
+    cols?: number;
+    rows?: number;
+    canvasName?: string;
+    nodeId?: string;
+    label?: string;
+    firstTypedMessage?: string;
+  }): Promise<TerminalSessionSummary> {
+    const res = await this.call({
+      v: 1,
+      id: this.nextId(),
+      op: "createAgentSeat",
+      bindingId: input.bindingId,
+      harness: input.harness,
+      agentKey: input.agentKey,
+      launch: input.launch,
+      cols: input.cols,
+      rows: input.rows,
+      canvasName: input.canvasName,
+      nodeId: input.nodeId,
+      label: input.label,
+      ...(input.firstTypedMessage ? { firstTypedMessage: input.firstTypedMessage } : {}),
     });
     if (!res.ok) throw new Error(res.error);
     return res.data as TerminalSessionSummary;

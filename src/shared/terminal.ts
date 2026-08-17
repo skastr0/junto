@@ -248,4 +248,14 @@ export type TerminalSessionSummary = {
   readonly exitReason?: "cli-missing" | "spawn_failed";
   /** Operator-facing explanation when `exitReason` is set. */
   readonly exitMessage?: string;
+  /** Actor identity when this generation was occupied or adopted as a seat. */
+  readonly harness?: string;
+  readonly agentKey?: string;
 };
+
+/** True when a hop/get reply bound the actor we asked Mini to occupy. */
+export const sessionActorMatches = (
+  summary: Pick<TerminalSessionSummary, "harness" | "agentKey"> | undefined,
+  actor: { readonly harness: string; readonly agentKey: string },
+): boolean =>
+  summary?.harness === actor.harness && summary?.agentKey === actor.agentKey;

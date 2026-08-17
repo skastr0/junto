@@ -2,6 +2,7 @@ import { StrictMode, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import "@xyflow/react/dist/style.css";
 import { App } from "./App";
+import { RendererErrorBoundary } from "./components/RendererErrorBoundary";
 import { LicenseGate } from "./components/license";
 import { seedGateThemePreference, startThemeMode } from "./lib/theme-mode";
 import "./styles.css";
@@ -55,7 +56,9 @@ function LicensedRoot() {
 
   return (
     <LicenseGate api={api}>
-      <App />
+      <RendererErrorBoundary title="This window hit a render error">
+        <App />
+      </RendererErrorBoundary>
     </LicenseGate>
   );
 }

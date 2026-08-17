@@ -1,7 +1,7 @@
+import { readFileSync } from "node:fs";
 import { Context, Effect, Schema } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import type { RemoteHost } from "../src/shared/remote-hosts";
-import { RemoteHostsError } from "../src/shared/remote-hosts";
 import { InstallationId } from "../src/shared/station-api";
 import type { ConfigureRemoteOptions } from "../src/main/vellum/hosts/configure-remote";
 
@@ -22,13 +22,15 @@ vi.mock("@shared/release-capabilities", () => ({
   BOX_FLEET_DISABLED_DETAIL: "box fleet disabled (test mock)",
 }));
 
-import { makeHostsService } from "../src/main/vellum/hosts/service";
+import {
+  makeHostsService,
+  type HostsServiceShape,
+} from "../src/main/vellum/hosts/service";
+import { HostRuntime } from "../src/main/vellum/hosts/host-runtime";
 import type { HostsRegistry } from "../src/main/vellum/hosts/registry";
-import type {
-  ConfiguredRemoteDeployOptions,
-  ConfiguredRemoteDeployResult,
-} from "../src/main/vellum/hosts/deploy-configured-remote";
+import type { ConfiguredRemoteDeployResult } from "../src/main/vellum/hosts/deploy-configured-remote";
 import { StationFleetPropagation } from "../src/main/vellum/station/fleet-propagation";
+import { Layer } from "effect";
 
 const remote = (id: string, endpoint = "shared-box"): RemoteHost => ({
   id,
@@ -72,27 +74,32 @@ const unusedFleet = {} as Context.Service.Shape<
   typeof StationFleetPropagation
 >;
 
+const withRuntime = <A>(
+  serviceEffect: Effect.Effect<A, never, HostRuntime>,
+  reconcile: Context.Service.Shape<typeof HostRuntime>["reconcile"],
+): Promise<A> =>
+  Effect.runPromise(
+    serviceEffect.pipe(
+      Effect.provide(
+        Layer.succeed(
+          HostRuntime,
+          HostRuntime.of({
+            observe: () => Effect.die("observe unused"),
+            reconcile,
+          }),
+        ),
+      ),
+    ),
+  );
+
 describe("HostsService configured deploy admission", () => {
-  it("runs the durable admission barrier before package mutation", async () => {
+  it("forwards artifact source into HostRuntime.reconcile", async () => {
     const host = remote("studio");
-    let admitted = false;
-    let mutated = false;
-    // Service forwards onAdmitted into deployConfiguredRemoteHost; the real
-    // body admits after prepare. This mock mirrors that contract.
     const mutation = vi.fn(
-      (
-        _ssh: unknown,
-        target: RemoteHost,
-        received: ConfiguredRemoteDeployOptions,
-      ) =>
-        Effect.gen(function* () {
+      (_id: string, received: { readonly artifactSource?: string }) =>
+        Effect.sync(() => {
           expect(received.artifactSource).toBe("verified-cache");
-          if (received.onAdmitted) {
-            yield* received.onAdmitted(target);
-          }
-          expect(admitted).toBe(true);
-          mutated = true;
-          return failedResult(target);
+          return failedResult(host);
         }),
     );
     const service = makeHostsService(
@@ -101,77 +108,18 @@ describe("HostsService configured deploy admission", () => {
       unusedFleet,
       {
         configureRemoteHost: unused as never,
-        deployRemoteHost: unused as never,
-        deployConfiguredRemoteHost: mutation as never,
       },
     );
 
-    await Effect.runPromise(
+    await withRuntime(
       service.deployConfiguredRemote("studio", {
         ...configureOptions,
         artifactSource: "verified-cache",
-        onAdmitted: () =>
-          Effect.sync(() => {
-            admitted = true;
-          }),
       }),
+      mutation as never,
     );
 
     expect(mutation).toHaveBeenCalledOnce();
-    expect(mutated).toBe(true);
-  });
-
-  it("does not package-mutate when the durable admission receipt fails", async () => {
-    const host = remote("studio");
-    let mutated = false;
-    const mutation = vi.fn(
-      (
-        _ssh: unknown,
-        target: RemoteHost,
-        received: ConfiguredRemoteDeployOptions,
-      ) =>
-        Effect.gen(function* () {
-          if (received.onAdmitted) {
-            const admission = yield* received
-              .onAdmitted(target)
-              .pipe(Effect.result);
-            if (admission._tag === "Failure") {
-              return {
-                ...failedResult(target),
-                detail: admission.failure.message,
-                code: admission.failure.code,
-              } satisfies ConfiguredRemoteDeployResult;
-            }
-          }
-          mutated = true;
-          return failedResult(target);
-        }),
-    );
-    const service = makeHostsService(
-      registryFor([host]),
-      {} as never,
-      unusedFleet,
-      {
-        configureRemoteHost: unused as never,
-        deployRemoteHost: unused as never,
-        deployConfiguredRemoteHost: mutation as never,
-      },
-    );
-
-    const result = await Effect.runPromise(
-      service.deployConfiguredRemote("studio", {
-        ...configureOptions,
-        onAdmitted: () =>
-          Effect.fail(new RemoteHostsError("io", "disk unavailable")),
-      }),
-    );
-
-    expect(mutated).toBe(false);
-    expect(result).toMatchObject({
-      outcome: "failed",
-      disposition: "not-started",
-      packageState: "previous",
-    });
   });
 
   it("serializes aliases that resolve to the same remote endpoint", async () => {
@@ -186,14 +134,14 @@ describe("HostsService configured deploy admission", () => {
     const firstStarted = new Promise<void>((resolve) => {
       signalFirstStarted = resolve;
     });
-    const mutation = vi.fn((_ssh, target: RemoteHost) =>
+    const mutation = vi.fn((id: string) =>
       Effect.promise(async () => {
-        starts.push(target.id);
-        if (target.id === "first") {
+        starts.push(id);
+        if (id === "first") {
           signalFirstStarted?.();
           await firstReleased;
         }
-        return failedResult(target);
+        return failedResult(id === "first" ? first : second);
       }),
     );
     const service = makeHostsService(
@@ -202,17 +150,26 @@ describe("HostsService configured deploy admission", () => {
       unusedFleet,
       {
         configureRemoteHost: unused as never,
-        deployRemoteHost: unused as never,
-        deployConfiguredRemoteHost: mutation as never,
       },
+    );
+    const runtime = Layer.succeed(
+      HostRuntime,
+      HostRuntime.of({
+        observe: () => Effect.die("observe unused"),
+        reconcile: mutation as never,
+      }),
     );
 
     const firstRun = Effect.runPromise(
-      service.deployConfiguredRemote("first", configureOptions),
+      service.deployConfiguredRemote("first", configureOptions).pipe(
+        Effect.provide(runtime),
+      ),
     );
     await firstStarted;
     const secondRun = Effect.runPromise(
-      service.deployConfiguredRemote("second", configureOptions),
+      service.deployConfiguredRemote("second", configureOptions).pipe(
+        Effect.provide(runtime),
+      ),
     );
     await Promise.resolve();
     expect(starts).toEqual(["first"]);
@@ -240,50 +197,75 @@ describe("HostsService configured deploy admission", () => {
       unusedFleet,
       {
         configureRemoteHost: unused as never,
-        deployRemoteHost: unused as never,
-        deployConfiguredRemoteHost: ((
-          _ssh: unknown,
-          host: RemoteHost,
-          options: ConfiguredRemoteDeployOptions,
-        ) =>
-          Effect.gen(function* () {
-            if (options.onAdmitted) {
-              yield* options.onAdmitted(host);
-            }
-            return failedResult(host);
-          })) as never,
       },
+    );
+    const runtime = Layer.succeed(
+      HostRuntime,
+      HostRuntime.of({
+        observe: () => Effect.die("observe unused"),
+        reconcile: (_id, input) =>
+          Effect.gen(function* () {
+            const deployed = failedResult(
+              _id === "first" ? first : second,
+            );
+            if (input.onCompleted === undefined) return deployed;
+            const host = _id === "first" ? first : second;
+            const completion = yield* input.onCompleted(host, deployed).pipe(
+              Effect.result,
+            );
+            return completion._tag === "Success"
+              ? { ...deployed, statusRecorded: true }
+              : deployed;
+          }),
+      }),
     );
 
     const firstRun = Effect.runPromise(
       service.deployConfiguredRemote("first", {
         ...configureOptions,
-        onAdmitted: () => Effect.sync(() => events.push("admit-first")),
         onCompleted: () =>
           Effect.promise(async () => {
             events.push("finalize-first");
             signalFinalizing?.();
             await finalizationReleased;
           }),
-      }),
+      }).pipe(Effect.provide(runtime)),
     );
     await finalizing;
     const secondRun = Effect.runPromise(
       service.deployConfiguredRemote("second", {
         ...configureOptions,
-        onAdmitted: () => Effect.sync(() => events.push("admit-second")),
-      }),
+        onCompleted: () =>
+          Effect.sync(() => {
+            events.push("finalize-second");
+          }),
+      }).pipe(Effect.provide(runtime)),
     );
     await Promise.resolve();
-    expect(events).toEqual(["admit-first", "finalize-first"]);
+    expect(events).toEqual(["finalize-first"]);
 
     releaseFinalization?.();
     const [firstResult] = await Promise.all([firstRun, secondRun]);
     expect(firstResult.statusRecorded).toBe(true);
-    expect(events).toEqual([
-      "admit-first",
-      "finalize-first",
-      "admit-second",
-    ]);
+    expect(events).toEqual(["finalize-first", "finalize-second"]);
+  });
+
+  it("product Deploy is HostRuntime.reconcile, not leftover ceremony", () => {
+    const hostsServiceHasNoDeployRemote: "deployRemote" extends keyof HostsServiceShape
+      ? never
+      : true = true;
+    expect(hostsServiceHasNoDeployRemote).toBe(true);
+
+    const service = readFileSync(
+      new URL("../src/main/vellum/hosts/service.ts", import.meta.url),
+      "utf8",
+    );
+    expect(service).toContain("runtime.reconcile");
+    expect(service).not.toContain("deployConfiguredRemoteHost");
+    expect(service).not.toContain("deployRemoteHost");
+    expect(service).not.toMatch(/\bdeployRemote\s*:/u);
+    expect(service).not.toContain('"./deploy-remote"');
+    expect(service).not.toContain("darwinRemoteDeploymentProvider");
+    expect(service).not.toMatch(/darwinRemoteDeploymentProvider\s*\.\s*deploy/u);
   });
 });

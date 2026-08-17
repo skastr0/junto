@@ -13,12 +13,18 @@ import {
 } from "../src/shared/station-api";
 import { stationControlOk } from "../src/shared/station-api-envelope";
 import {
+  CURRENT_STATION_PROTOCOL_SUPPORT,
+  STATION_PROTOCOL_PREFACE,
+  StationProtocolAccept,
+} from "../src/shared/station-protocol";
+import {
   STATION_SESSION_PROTOCOL,
   StationSessionRequestId,
   StationSessionResponseFrame,
   type StationSessionFrame,
   type StationSessionRequestFrame,
 } from "../src/shared/station-session";
+import { CURRENT_STATE_SCHEMA_VERSION } from "../src/main/vellum/state/migrations";
 import { SshEndpoint } from "../src/main/vellum/ssh/domain";
 import { resolveRemotePackagedPlatform } from "../src/main/vellum/ssh/read-commands";
 import type {
@@ -73,6 +79,18 @@ const correlatedStatus = (
     envelope: stationControlOk(statusResponse),
   });
 
+const protocolAccept = StationProtocolAccept.make({
+  protocol: STATION_PROTOCOL_PREFACE,
+  frame: "accept",
+  appVersion: "vellum-command",
+  stateSchemaVersion: CURRENT_STATE_SCHEMA_VERSION,
+  support: CURRENT_STATION_PROTOCOL_SUPPORT,
+  selected: CURRENT_STATION_PROTOCOL_SUPPORT.preferred,
+});
+
+const encodedJson = (value: unknown): Uint8Array =>
+  encoder.encode(`${JSON.stringify(value)}\n`);
+
 type BootstrapReply = (
   request: StationSessionRequestFrame,
 ) => Effect.Effect<ReadonlyArray<Uint8Array>>;
@@ -106,28 +124,36 @@ const makeBootstrapSsh = (
     ) =>
       Effect.gen(function* () {
         events.push("open");
-        const output = yield* Deferred.make<ReadonlyArray<Uint8Array>>();
+        const acceptOut = yield* Deferred.make<Uint8Array>();
+        const statusOut = yield* Deferred.make<ReadonlyArray<Uint8Array>>();
         const lease: SshLease = {
           write: (bytes) =>
             Effect.gen(function* () {
               events.push("write");
-              const frame = JSON.parse(
-                decoder.decode(bytes).trim(),
-              ) as StationSessionFrame;
-              if (frame.frame !== "request") {
-                return yield* Effect.die(new Error(
-                  "bootstrap wrote a response frame",
-                ));
+              const frame = JSON.parse(decoder.decode(bytes).trim()) as {
+                readonly frame?: string;
+              };
+              if (frame.frame === "offer") {
+                yield* Deferred.succeed(acceptOut, encodedJson(protocolAccept));
+                return;
               }
-              const chunks = yield* reply(frame);
-              yield* Deferred.succeed(output, chunks);
+              if (frame.frame !== "request") {
+                return yield* Effect.die(
+                  new Error("bootstrap wrote an unexpected frame"),
+                );
+              }
+              const replies = yield* reply(frame as StationSessionRequestFrame);
+              yield* Deferred.succeed(statusOut, replies);
             }),
           writeSensitive: () => Effect.die(new Error("unexpected sensitive write")),
           closeInput: Effect.sync(() => {
             events.push("close-input");
           }),
-          stdout: Stream.fromEffect(Deferred.await(output)).pipe(
-            Stream.flatMap((chunks) => Stream.fromIterable(chunks)),
+          stdout: Stream.concat(
+            Stream.fromEffect(Deferred.await(acceptOut)),
+            Stream.fromEffect(Deferred.await(statusOut)).pipe(
+              Stream.flatMap((replies) => Stream.fromIterable(replies)),
+            ),
           ),
           stderr: Stream.empty,
           exitCode: Effect.succeed(exitCode),
@@ -183,6 +209,7 @@ describe("OpenSSH Station status bootstrap", () => {
       "home",
       "open",
       "write",
+      "write",
       "close-input",
       "close",
     ]);
@@ -205,7 +232,7 @@ describe("OpenSSH Station status bootstrap", () => {
         reason: "second-frame",
       });
     }
-    expect(fixture.events.filter((event) => event === "write")).toHaveLength(1);
+    expect(fixture.events.filter((event) => event === "write")).toHaveLength(2);
     expect(fixture.events.at(-1)).toBe("close");
   });
 

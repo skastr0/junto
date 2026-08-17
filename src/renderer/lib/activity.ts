@@ -231,6 +231,11 @@ export function terminalActivity(input: {
    * user@host:path titles do not count as active process work.
    */
   readonly processName?: string | null;
+  /**
+   * Managed harness seat. Missing/unknown state must stay seated/unknown —
+   * never a process-name green wave (grok/claude). Unmanaged npm stays a wave.
+   */
+  readonly managedSeat?: boolean;
 }): ActivitySpec {
   if (input.seatState === "attention") {
     const stalled =
@@ -266,8 +271,9 @@ export function terminalActivity(input: {
   }
   const processLabel = input.processName?.trim() || undefined;
   const activeProcess = isActiveProcessLabel(processLabel);
-  // Spawn in flight — brief green diagonal until the seat settles.
-  if (input.starting) {
+  // Spawn in flight — green diagonal for unmanaged only. Managed start is
+  // seated/unknown, never a grok/claude process-wave.
+  if (input.starting && !input.managedSeat) {
     return {
       mode: "wave",
       tone: "green",
@@ -278,10 +284,10 @@ export function terminalActivity(input: {
     };
   }
   // Real foreground work only — not shell/PTY liveness (zsh, user@host:cwd, …).
-  // Managed seats follow the seat grammar (idle → static steel); the green
-  // process wave is reserved for unmanaged terminals, which never receive
-  // seat events (seatState stays undefined/null there).
+  // Green process wave is unmanaged-only. A managed seat with no event yet
+  // still runs grok/claude as the process name; that is seated, not "working".
   if (
+    !input.managedSeat &&
     (input.seatState === undefined || input.seatState === null) &&
     input.running &&
     activeProcess &&
@@ -328,6 +334,14 @@ export function terminalActivity(input: {
   // Live PTY with no agent seat and no active command — seated, not "working".
   if (input.running) {
     return { mode: "static", tone: SEVERITY_TONE.idle, label: "seated" };
+  }
+  if (
+    input.managedSeat &&
+    (input.seatState === "unknown" ||
+      input.seatState === undefined ||
+      input.seatState === null)
+  ) {
+    return { mode: "static", tone: SEVERITY_TONE.idle, label: "unknown" };
   }
   return {
     mode: "static",

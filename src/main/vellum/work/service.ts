@@ -13,11 +13,26 @@ import type {
   TaskState,
   WorkMetadata,
 } from "@shared/canvas";
+import { type Pad, type PadPatch } from "@shared/pad";
+import { padLookHere, padToDigest, padToSvg } from "@shared/pad-project";
+import {
+  resolvePadInboundActors,
+  tagNotifyNodeIds,
+} from "@shared/board-actors";
+import { resolveBoardWakeSet } from "@shared/board-wake";
+import {
+  addedPadMentions,
+  inboundActorNodeIds,
+  padAuthorRuleError,
+  stampPadPatchAuthors,
+} from "./pad-rules";
+import { softBoardTagNotify } from "./board-delivery";
 import type {
   CompletionEvidence,
   FinishCriteria,
   TaskProposal,
 } from "@shared/work-model";
+import type { WorkSeatRecentOpsFeed } from "@shared/work-recent-ops";
 import type { ContentPart } from "@shared/content";
 import type {
   CanvasReadResult,
@@ -77,7 +92,10 @@ import { ContentService } from "../content/service";
 import type { ContentOwner } from "../content/manifest";
 import { admitWorkTarget } from "./authz";
 import { clearSeatBlockedByRequest } from "./blocked-seat";
-import { mailboxMessageReadId } from "./mailbox-receipts";
+import {
+  mailboxMessageReactId,
+  mailboxMessageReadId,
+} from "./mailbox-receipts";
 import { messageDelivery } from "./message-delivery";
 import {
   WorkAuthorityError,
@@ -355,6 +373,19 @@ export interface WorkServiceShape {
       messageId: string,
       reader: ActorRef,
     ) => Effect.Effect<WorkOpResult<{ readonly messageId: string; readonly readAt: string }>>;
+    readonly workMessageReact: (
+      canvas: string,
+      nodeId: string,
+      messageId: string,
+      reaction: "ack",
+      reactor: ActorRef,
+    ) => Effect.Effect<
+      WorkOpResult<{
+        readonly messageId: string;
+        readonly reaction: "ack";
+        readonly reactedAt: string;
+      }>
+    >;
     readonly workRequestCreate: (
       canvas: string,
       nodeId: string,
@@ -376,6 +407,24 @@ export interface WorkServiceShape {
       artifact: Artifact,
       publishedBy: ActorRef,
     ) => Effect.Effect<WorkOpResult<Artifact>>;
+    /** Operator soft-archive / restore (metadata.archived). */
+    readonly workArtifactArchive: (
+      canvas: string,
+      nodeId: string,
+      artifactId: string,
+      archived: boolean,
+    ) => Effect.Effect<WorkOpResult<Artifact>>;
+    /** Operator hard-delete from the artifacts sink. */
+    readonly workArtifactDelete: (
+      canvas: string,
+      nodeId: string,
+      artifactId: string,
+    ) => Effect.Effect<WorkOpResult<{ readonly artifactId: string }>>;
+    readonly workSeatRecentOps: (
+      canvas: string,
+      nodeId: string,
+      limit?: number,
+    ) => Effect.Effect<WorkOpResult<WorkSeatRecentOpsFeed>>;
     readonly workBoardList: (
       canvas: string,
       nodeId: string,
@@ -411,6 +460,37 @@ export interface WorkServiceShape {
       principalKey: string,
       upToPosition?: number,
     ) => Effect.Effect<WorkOpResult<{ readonly topicId: string }>>;
+    readonly workPadRead: (
+      canvas: string,
+      nodeId: string,
+      pinId?: string,
+    ) => Effect.Effect<
+      WorkOpResult<{
+        readonly revision: number;
+        readonly pad: Pad;
+        readonly digest: string;
+        readonly svg: string;
+        readonly lookHere?: import("@shared/pad-project").PadLookHere;
+      }>
+    >;
+    readonly workPadPatch: (
+      canvas: string,
+      nodeId: string,
+      patches: ReadonlyArray<PadPatch>,
+      author: import("@shared/work-model").BoardAuthor,
+    ) => Effect.Effect<
+      WorkOpResult<{
+        readonly revision: number;
+        readonly pad: Pad;
+        readonly digest: string;
+      }>
+    >;
+    readonly workPadMarkRead: (
+      canvas: string,
+      nodeId: string,
+      pinId: string,
+      principalKey: string,
+    ) => Effect.Effect<WorkOpResult<{ readonly pinId: string }>>;
     readonly commandStatus: Effect.Effect<
       WorkCommandStatus,
       WorkServiceError
@@ -546,6 +626,26 @@ export const WorkLive = Layer.effect(
       });
     };
 
+    const externalizePadPatches = (
+      patches: ReadonlyArray<PadPatch>,
+      canvas: string,
+      nodeId: string,
+    ): Effect.Effect<ReadonlyArray<PadPatch>, WorkServiceError> =>
+      Effect.forEach(patches, (patch) => {
+        if (patch.op !== "pin.reply") return Effect.succeed(patch);
+        return externalizeParts(patch.post.parts, {
+          kind: "other",
+          canvasName: canvas,
+          nodeId,
+          recordId: patch.post.postId,
+        }).pipe(
+          Effect.map((parts): PadPatch => ({
+            ...patch,
+            post: { ...patch.post, parts },
+          })),
+        );
+      });
+
     const externalizeMessage = (
       message: Message,
       owner?: ContentOwner,
@@ -606,6 +706,7 @@ export const WorkLive = Layer.effect(
         | "msg.send"
         | "msg.read"
         | "msg.reply"
+        | "msg.react"
         | "request.escalate"
         | "artifact.publish",
     ): Effect.Effect<CanvasNode, WorkServiceError> => {
@@ -625,7 +726,10 @@ export const WorkLive = Layer.effect(
       // Own-mailbox read is process-bind + seat ownership, not edge OptIn.
       // Actor↔actor grant law is OptIn; requiring msg.list on a self-loop would
       // make mark-read impossible without authoring a nonsense self-edge.
-      if (op === "msg.read" && actor.nodeId === targetNodeId) {
+      if (
+        (op === "msg.read" || op === "msg.react") &&
+        actor.nodeId === targetNodeId
+      ) {
         const actorNode = nodeById(read.doc, actor.nodeId);
         return actorNode === undefined
           ? Effect.fail(
@@ -702,6 +806,7 @@ export const WorkLive = Layer.effect(
         | "msg.send"
         | "msg.read"
         | "msg.reply"
+        | "msg.react"
         | "request.escalate"
         | "artifact.publish",
       context: StationContext,
@@ -1751,6 +1856,123 @@ export const WorkLive = Layer.effect(
           }),
         ),
 
+      workMessageReact: (canvas, nodeId, messageId, reaction, reactor) =>
+        asResult(
+          Effect.gen(function* () {
+            const [context, read] = yield* Effect.all([
+              stationContext,
+              readCanvas(canvas),
+            ]);
+            yield* requireLocalActor(
+              read,
+              reactor,
+              nodeId,
+              "msg.react",
+              context,
+            );
+            if (reactor.nodeId !== nodeId || reactor.canvasName !== canvas) {
+              return yield* Effect.fail(
+                new WorkServiceError({
+                  code: "invalid",
+                  message: "only the mailbox owner may react to a message",
+                }),
+              );
+            }
+            const trimmed = messageId.trim();
+            if (!trimmed) {
+              return yield* Effect.fail(
+                new WorkServiceError({
+                  code: "invalid",
+                  message: "messageId must be non-empty",
+                }),
+              );
+            }
+            const exists = (read.doc.nodes.find((n) => n.id === nodeId)?.ether
+              ?.messages?.items ?? []).some((m) => m.messageId === trimmed);
+            if (!exists) {
+              return yield* Effect.fail(
+                new WorkServiceError({
+                  code: "node_not_found",
+                  message: `message "${trimmed}" not found in mailbox`,
+                }),
+              );
+            }
+            const sink = sinkRef(canvas, nodeId);
+            const deliveryId = mailboxMessageReactId(
+              canvas,
+              nodeId,
+              trimmed,
+              reaction,
+            );
+            const existingAt = yield* repository
+              .acceptedDeliveryAt(sink, deliveryId)
+              .pipe(Effect.mapError(toWorkServiceError));
+            if (existingAt !== undefined) {
+              return yield* complete(canvas, {
+                disposition: "applied" as const,
+                value: { messageId: trimmed, reaction, reactedAt: existingAt },
+              });
+            }
+            const acceptedAt = new Date().toISOString();
+            const outcome = yield* repository
+              .acceptDelivery({
+                sink,
+                basis: intentBasis(context, read.intentWitness),
+                receipt: {
+                  deliveryId,
+                  deliveredItem: {
+                    kind: "message",
+                    itemId: trimmed,
+                    sink,
+                  },
+                  actor: reactor,
+                  acceptedAt,
+                },
+              })
+              .pipe(
+                Effect.map((result) => ({
+                  value: {
+                    messageId: trimmed,
+                    reaction,
+                    reactedAt: result.value.acceptedAt,
+                  },
+                })),
+                Effect.catchIf(
+                  (error): error is WorkAuthorityError =>
+                    error instanceof WorkAuthorityError &&
+                    error.reason === "identity-conflict",
+                  () =>
+                    repository.acceptedDeliveryAt(sink, deliveryId).pipe(
+                      Effect.mapError(toWorkServiceError),
+                      Effect.flatMap((at) =>
+                        at === undefined
+                          ? Effect.fail(
+                            new WorkServiceError({
+                              code: "invalid",
+                              message:
+                                `react receipt "${deliveryId}" conflicted but is missing`,
+                            }),
+                          )
+                          : Effect.succeed({
+                            value: {
+                              messageId: trimmed,
+                              reaction,
+                              reactedAt: at,
+                            },
+                          }),
+                      ),
+                    ),
+                ),
+                Effect.mapError(toWorkServiceError),
+                Effect.map(({ value }) => ({
+                  value,
+                  disposition: "applied" as const,
+                })),
+              );
+            return yield* complete(canvas, outcome);
+          }),
+        ),
+
       workRequestCreate: (
         canvas,
         nodeId,
@@ -1925,6 +2147,68 @@ export const WorkLive = Layer.effect(
                 publishedBy,
               }),
             );
+            return yield* complete(canvas, outcome);
+          }),
+        ),
+
+      workArtifactArchive: (canvas, nodeId, artifactId, archived) =>
+        asResult(
+          Effect.gen(function* () {
+            yield* stationContext;
+            const outcome = yield* local(
+              repository
+                .setArtifactArchived({
+                  sink: sinkRef(canvas, nodeId),
+                  artifactId,
+                  archived,
+                })
+                .pipe(Effect.map((artifact) => ({ value: artifact }))),
+            );
+            return yield* complete(canvas, outcome);
+          }),
+        ),
+
+      workArtifactDelete: (canvas, nodeId, artifactId) =>
+        asResult(
+          Effect.gen(function* () {
+            yield* stationContext;
+            const outcome = yield* local(
+              repository
+                .deleteArtifact({
+                  sink: sinkRef(canvas, nodeId),
+                  artifactId,
+                })
+                .pipe(Effect.map((value) => ({ value }))),
+            );
+            return yield* complete(canvas, outcome);
+          }),
+        ),
+
+      workSeatRecentOps: (canvas, nodeId, limit) =>
+        asResult(
+          Effect.gen(function* () {
+            const read = yield* readCanvas(canvas);
+            const actors = read.actorRefs.filter(
+              (actor) =>
+                actor.canvasName === canvas && actor.nodeId === nodeId,
+            );
+            if (actors.length !== 1) {
+              return yield* Effect.fail(
+                new WorkServiceError({
+                  code: "illegal_kind",
+                  message:
+                    `node "${nodeId}" does not identify exactly one compiled actor seat`,
+                }),
+              );
+            }
+            const feed = yield* repository
+              .recentOpsForSeat({
+                canvasName: canvas,
+                actorSeatId: actors[0]!.seatId,
+                ...(limit === undefined ? {} : { limit }),
+              })
+              .pipe(Effect.mapError(toWorkServiceError));
+            const outcome = yield* local(Effect.succeed({ value: feed }));
             return yield* complete(canvas, outcome);
           }),
         ),
@@ -2128,6 +2412,208 @@ export const WorkLive = Layer.effect(
                   lastReadPosition: maxPos,
                 })
                 .pipe(Effect.map(() => ({ value: { topicId } }))),
+            );
+            return yield* complete(canvas, outcome);
+          }),
+        ),
+
+      workPadRead: (canvas, nodeId, pinId) =>
+        asResult(
+          Effect.gen(function* () {
+            const read = yield* readCanvas(canvas);
+            const node = read.doc.nodes.find((n) => n.id === nodeId);
+            if (node?.ether?.entity?.kind !== "pad") {
+              return yield* Effect.fail(
+                new WorkServiceError({
+                  code: "illegal_kind",
+                  message: `node "${nodeId}" is not a pad sink`,
+                }),
+              );
+            }
+            const pad = yield* repository
+              .readPad(canvas, nodeId)
+              .pipe(Effect.mapError(toWorkServiceError));
+            const digest = padToDigest(pad);
+            const svg = padToSvg(pad, "dark");
+            let lookHere: import("@shared/pad-project").PadLookHere | undefined;
+            if (pinId !== undefined) {
+              const focused = padLookHere(pad, pinId);
+              if (Result.isFailure(focused)) {
+                return yield* Effect.fail(
+                  new WorkServiceError({
+                    code: "invalid",
+                    message: focused.failure.message,
+                  }),
+                );
+              }
+              lookHere = focused.success;
+            }
+            const outcome = yield* local(
+              Effect.succeed({
+                value: {
+                  revision: pad.revision,
+                  pad,
+                  digest,
+                  svg,
+                  ...(lookHere === undefined ? {} : { lookHere }),
+                },
+              }),
+            );
+            return yield* complete(canvas, outcome);
+          }),
+        ),
+
+      workPadPatch: (canvas, nodeId, patches, author) =>
+        asResult(
+          Effect.gen(function* () {
+            const [context, read] = yield* Effect.all([
+              stationContext,
+              readCanvas(canvas),
+            ]);
+            if (
+              read.doc.nodes.find((n) => n.id === nodeId)?.ether?.entity
+                ?.kind !== "pad"
+            ) {
+              return yield* Effect.fail(
+                new WorkServiceError({
+                  code: "illegal_kind",
+                  message: `node "${nodeId}" is not a pad sink`,
+                }),
+              );
+            }
+            const stamped = stampPadPatchAuthors(patches, author);
+            const rule = padAuthorRuleError(
+              author,
+              stamped,
+              inboundActorNodeIds(read.doc, nodeId),
+            );
+            if (rule !== undefined) {
+              return yield* Effect.fail(
+                new WorkServiceError({
+                  code: "invalid",
+                  message: rule,
+                }),
+              );
+            }
+            const materialized = yield* externalizePadPatches(
+              stamped,
+              canvas,
+              nodeId,
+            );
+            const home =
+              context.configuration.role === "command-center"
+                ? context.localInstallationId
+                : context.configuration.commandCenterInstallationId;
+            const patchId = ids.id();
+            const current = yield* repository
+              .readPad(canvas, nodeId)
+              .pipe(Effect.mapError(toWorkServiceError));
+            const addedMentions = addedPadMentions(current, materialized);
+            const outcome =
+              home === context.localInstallationId
+                ? yield* local(
+                  repository
+                    .applyPadPatch({
+                      sink: sinkRef(canvas, nodeId),
+                      basis: intentBasis(context, read.intentWitness),
+                      patchId,
+                      patches: materialized,
+                      author,
+                    })
+                    .pipe(
+                      Effect.map((result) => ({
+                        value: {
+                          revision: result.value.revision,
+                          pad: result.value,
+                          digest: padToDigest(result.value),
+                        },
+                      })),
+                    ),
+                )
+                : yield* enqueue(
+                  context,
+                  home,
+                  workItem("pad", patchId, canvas, nodeId),
+                  {
+                    operation: "pad.patch",
+                    patchId,
+                    patches: [...materialized],
+                    author,
+                  },
+                  {
+                    revision: current.revision,
+                    pad: current,
+                    digest: padToDigest(current),
+                  },
+                );
+            if (
+              home === context.localInstallationId &&
+              addedMentions.length > 0
+            ) {
+              const actors = resolvePadInboundActors(read.doc, nodeId);
+              const notifyIds = new Set(
+                tagNotifyNodeIds(
+                  addedMentions,
+                  actors,
+                  author.kind === "actor" ? author.nodeId : undefined,
+                ),
+              );
+              const seats = resolveBoardWakeSet(read.doc, nodeId).filter(
+                (seat) => notifyIds.has(seat.nodeId),
+              );
+              if (seats.length > 0) {
+                const reply = materialized.find((patch) => patch.op === "pin.reply");
+                const excerpt =
+                  reply?.op === "pin.reply"
+                    ? reply.post.parts
+                      .flatMap((part) =>
+                        part.kind === "text" ? [part.text] : [],
+                      )
+                      .join("\n")
+                    : "look here";
+                const pinId =
+                  materialized.find((patch) => patch.op === "pin.upsert")?.pin.id ??
+                  (reply?.op === "pin.reply" ? reply.pinId : "pin");
+                void softBoardTagNotify({
+                  canvas,
+                  boardNodeId: nodeId,
+                  seats,
+                  topicId: pinId,
+                  postId: pinId,
+                  excerpt,
+                  authorLabel:
+                    author.label ?? author.nodeId ?? "someone",
+                }).catch(() => undefined);
+              }
+            }
+            return yield* complete(canvas, outcome);
+          }),
+        ),
+
+      workPadMarkRead: (canvas, nodeId, pinId, principalKey) =>
+        asResult(
+          Effect.gen(function* () {
+            const pad = yield* repository
+              .readPad(canvas, nodeId)
+              .pipe(Effect.mapError(toWorkServiceError));
+            const pin = pad.pins.find((item) => item.id === pinId);
+            if (!pin) {
+              return yield* Effect.fail(
+                new WorkServiceError({
+                  code: "invalid",
+                  message: `pin "${pinId}" does not exist`,
+                }),
+              );
+            }
+            const outcome = yield* local(
+              repository
+                .markPadRead({
+                  sink: sinkRef(canvas, nodeId),
+                  pinId,
+                  principalKey,
+                  lastReadPosition: Math.max(-1, pin.posts.length - 1),
+                })
+                .pipe(Effect.map(() => ({ value: { pinId } }))),
             );
             return yield* complete(canvas, outcome);
           }),

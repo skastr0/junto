@@ -4,6 +4,30 @@ import { makeRemoteCommand, type RemoteCommand, SshInputError } from "./domain";
 
 const quote = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`;
 
+/**
+ * Remote-side work-control ping. A Unix connect that immediately closes is
+ * not Ready — the daemon must answer a well-formed NDJSON envelope.
+ */
+export const LINUX_WORK_CONTROL_HANDSHAKE_PYTHON = String.raw`import json,socket,sys
+sock, token_path = sys.argv[1], sys.argv[2]
+token = open(token_path, encoding="utf-8").read().strip()
+if not token:
+    raise SystemExit(1)
+s = socket.socket(socket.AF_UNIX)
+s.settimeout(2)
+s.connect(sock)
+s.sendall((json.dumps({"token": token, "op": "ping"}) + "\n").encode())
+buf = b""
+while b"\n" not in buf:
+    chunk = s.recv(4096)
+    if not chunk:
+        raise SystemExit(1)
+    buf += chunk
+s.close()
+resp = json.loads(buf.split(b"\n", 1)[0].decode())
+raise SystemExit(0 if isinstance(resp, dict) and "ok" in resp else 1)
+`;
+
 /** Owner-only, capability-independent preflight. */
 export const compileLinuxUserlandPreflightSource = (): string => String.raw`
 set -eu
@@ -63,11 +87,22 @@ prove_activation() {
   /usr/bin/systemctl --user daemon-reload >/dev/null 2>&1 || return 1
   /usr/bin/systemctl --user restart vellum-command-remote.service >/dev/null 2>&1 || return 1
   /usr/bin/systemctl --user is-active --quiet vellum-command-remote.service || return 1
-  [ -S "$HOME/.vellum-command/work/control.sock" ] && [ ! -L "$HOME/.vellum-command/work/control.sock" ] || return 1
-  [ -f "$HOME/.vellum-command/work/token" ] && [ ! -L "$HOME/.vellum-command/work/token" ] || return 1
-  [ "$(/usr/bin/stat -c '%a' "$HOME/.vellum-command/work/control.sock" 2>/dev/null || true)" = 600 ] || return 1
-  [ "$(/usr/bin/stat -c '%a' "$HOME/.vellum-command/work/token" 2>/dev/null || true)" = 600 ] || return 1
-  return 0
+  SOCK="$HOME/.vellum-command/work/control.sock"
+  TOKEN="$HOME/.vellum-command/work/token"
+  WAIT=0
+  while [ "$WAIT" -lt 30 ]; do
+    if [ -S "$SOCK" ] && [ ! -L "$SOCK" ] \
+      && [ -f "$TOKEN" ] && [ ! -L "$TOKEN" ] \
+      && [ "$(/usr/bin/stat -c '%a' "$SOCK" 2>/dev/null || true)" = 600 ] \
+      && [ "$(/usr/bin/stat -c '%a' "$TOKEN" 2>/dev/null || true)" = 600 ] \
+      && /usr/bin/python3 -c '${LINUX_WORK_CONTROL_HANDSHAKE_PYTHON}' "$SOCK" "$TOKEN"
+    then
+      return 0
+    fi
+    WAIT=$((WAIT + 1))
+    /bin/sleep 1
+  done
+  return 1
 }
 if [ -d "$DEST" ] && [ ! -L "$DEST" ] && [ -x "$REMOTE_BIN" ] && [ ! -L "$REMOTE_BIN" ] && [ -x "$LAUNCHER" ] && [ ! -L "$LAUNCHER" ]; then
   if unit_pins_generation; then
@@ -121,6 +156,51 @@ printf 'LINUX_USERLAND_DEPLOY_V1 ok=1 state=ready release=%s\n' "$VERSION-$SHA"
 export const compileLinuxUserlandDeploy = (): Effect.Effect<RemoteCommand, SshInputError> =>
   makeRemoteCommand("/bin/sh", ["-c", compileLinuxUserlandDeploySource(), "vellum-plan:linux-userland-deploy"]);
 
+export const compileLinuxUserlandRestartSource = (): string => String.raw`
+set -eu
+umask 077
+fail() { printf 'LINUX_USERLAND_RESTART_V1 ok=0 reason=%s\n' "$1"; exit 0; }
+/usr/bin/systemctl --user show-environment >/dev/null 2>&1 || fail systemd-user
+/usr/bin/systemctl --user daemon-reload >/dev/null 2>&1 || fail reload
+/usr/bin/systemctl --user restart vellum-command-remote.service >/dev/null 2>&1 || fail restart
+/usr/bin/systemctl --user is-active --quiet vellum-command-remote.service || fail inactive
+printf 'LINUX_USERLAND_RESTART_V1 ok=1\n'
+`.trim();
+
+export const compileLinuxUserlandRestart = (): Effect.Effect<RemoteCommand, SshInputError> =>
+  makeRemoteCommand("/bin/sh", ["-c", compileLinuxUserlandRestartSource(), "vellum-plan:linux-userland-restart"]);
+
+/**
+ * Read-only package plane: a canonical userland generation is present or
+ * absent. No `current` link. SSH failure stays unknown at the caller.
+ */
+export const compileLinuxUserlandObserveSource = (): string => String.raw`
+set -eu
+umask 077
+emit() { printf 'LINUX_USERLAND_OBSERVE_V1 present=%s\n' "$1"; exit 0; }
+[ -x /usr/bin/awk ] || exit 1
+[ -n "$HOME" ] || exit 1
+[ -d "$HOME" ] || emit 0
+ROOT="$HOME/.vellum-command/runtime/releases"
+[ -d "$ROOT" ] && [ ! -L "$ROOT" ] || emit 0
+present=0
+for dest in "$ROOT"/*; do
+  [ -d "$dest" ] && [ ! -L "$dest" ] || continue
+  name=$(/usr/bin/basename "$dest")
+  printf '%s\n' "$name" | /usr/bin/awk -F- 'NF == 2 && $1 ~ /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/ && $2 ~ /^[0-9a-f]{64}$/ { ok=1 } END { exit ok ? 0 : 1 }' || continue
+  remote="$dest/resources/bin/vellum-command-remote"
+  launch="$dest/resources/systemd/vellum-command-remote-launch"
+  if [ -x "$remote" ] && [ -x "$launch" ] && [ ! -L "$remote" ] && [ ! -L "$launch" ]; then
+    present=1
+    break
+  fi
+done
+emit "$present"
+`.trim();
+
+export const compileLinuxUserlandObserve = (): Effect.Effect<RemoteCommand, SshInputError> =>
+  makeRemoteCommand("/bin/sh", ["-c", compileLinuxUserlandObserveSource(), "vellum-plan:linux-userland-observe"]);
+
 export const HERDR_IMAGE_STAGE_DIR = "/tmp/vellum-command-herdr-images" as const;
 const HERDR_NAME = /^vellum-command-clip-[a-z0-9]{1,24}-[a-f0-9]{8}\.(png|jpg|gif|webp|bmp)$/u;
 export const confineHerdrStagePath = (name: string): Effect.Effect<string, SshInputError> =>
@@ -131,6 +211,18 @@ export const compileHerdrImageStage = (name: string): Effect.Effect<{ readonly c
   confineHerdrStagePath(name).pipe(Effect.flatMap((path) => makeRemoteCommand("/bin/sh", ["-c", `set -eu; umask 077; mkdir -p ${quote(HERDR_IMAGE_STAGE_DIR)}; cat > ${quote(path)}; chmod 600 ${quote(path)}`, "vellum-plan:herdr-image-stage"]).pipe(Effect.map((command) => ({ command, path })))));
 
 export const compileDarwinRemoteDeployScript = (script: string): Effect.Effect<RemoteCommand, SshInputError> =>
-  typeof script === "string" && script.includes("begin_candidate_activation()") && script.includes("STATION_READY")
+  typeof script === "string" &&
+    script.includes("begin_candidate_activation()") &&
+    script.includes("NEW_LAUNCHD_PID_NOT_PROVEN")
     ? makeRemoteCommand("/bin/bash", ["-lc", script])
     : Effect.fail(new SshInputError({ message: "darwin deploy script is not a product stream program" }));
+
+/** Compile the post-configure GUI-domain relaunch, kept separate from the
+ * artifact transaction so an enrollment script cannot be mistaken for a
+ * runtime activation command. */
+export const compileDarwinRemoteActivationScript = (script: string): Effect.Effect<RemoteCommand, SshInputError> =>
+  typeof script === "string" &&
+    script.includes("RUNTIME_LAUNCHD_PID_NOT_PROVEN") &&
+    script.includes("kickstart")
+    ? makeRemoteCommand("/bin/bash", ["-lc", script])
+    : Effect.fail(new SshInputError({ message: "darwin activation script is not a product runtime program" }));

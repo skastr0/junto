@@ -17,11 +17,13 @@ import { editText } from "../../lib/mutations";
 import { NoteMarkdown } from "../../lib/note-markdown";
 import { isLabelNode } from "../../lib/presentation";
 import { state$ } from "../../lib/state";
+import { timerActivity, watcherActivity } from "../../lib/activity";
+import { chatCoarse$ } from "../../lib/chat-state";
 import {
-  terminalActivity,
-  timerActivity,
-  watcherActivity,
-} from "../../lib/activity";
+  cardMark,
+  liveAttentionReasons,
+  seatFactsForNode,
+} from "../../lib/seat-projections";
 import { accentColor, HUE, INK, DIM } from "../../lib/theme";
 import { kernel$ } from "../../lib/kernel-view";
 import type { WatcherRuntimeState } from "../../lib/kernel-view";
@@ -55,6 +57,8 @@ import {
   TasksCard,
   TasksDetail,
 } from "../work/WorkSurfaces";
+import { PadCard } from "../pad/PadCard";
+import { PadDetail } from "../pad/PadDetail";
 import { TaskToolbarActions } from "../work/TaskToolbarActions";
 import { ClaimedTaskStrip } from "./ClaimedTaskStrip";
 
@@ -281,26 +285,21 @@ function EntityCard({
   const managed = managedHarness !== undefined && isHarnessId(managedHarness);
   const exitReason = session?.exitReason;
   const exitMessage = session?.exitMessage;
-  const activity = managed
-    ? terminalActivity({
-        seatState: seatEvent?.state,
-        needsLook: needsLook === true,
-        seatReason: seatEvent?.reason,
-        running: session?.status === "running",
-        starting: session?.status === "starting",
-        graphBlocked,
-        exitReason,
-        exitMessage,
-        processName: session?.processName ?? session?.title,
-      })
-    : graphBlocked
-      ? {
-          mode: "wave" as const,
-          tone: "crimson" as const,
-          pattern: "arrow-up" as const,
-          label: "blocked",
-        }
-      : { mode: "static" as const, tone: "steel" as const, label: "idle" };
+  const chatByAgent = use$(chatCoarse$) as
+    | Record<string, { readonly pendingPermissionId?: string } | undefined>
+    | undefined;
+  const activity = cardMark(
+    seatFactsForNode({
+      nodeId: node.id,
+      seatEvent,
+      session,
+      needsLook: needsLook === true,
+      graphBlocked,
+      flags: node.ether?.flags,
+      attentionReasons: liveAttentionReasons(node, chatByAgent),
+      managedSeat: managed,
+    }),
+  );
   // Host is deliberately absent: which machine a seat sits on is not what the
   // operator reads an agent node for, and it crowded out the claimed task.
   // Spawn failures surface as a context line so the mark + copy both land.
@@ -529,7 +528,8 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
     entityKind === "task" ||
     entityKind === "requests" ||
     entityKind === "artifacts" ||
-    entityKind === "board";
+    entityKind === "board" ||
+    entityKind === "pad";
   const isCron = entityKind === "cron" || entityKind === "timer";
 
   useEffect(() => {
@@ -667,6 +667,9 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
       {workDetail && entityKind === "board" ? (
         <BoardDetail node={node} onClose={() => setWorkDetail(false)} />
       ) : null}
+      {workDetail && entityKind === "pad" ? (
+        <PadDetail node={node} onClose={() => setWorkDetail(false)} />
+      ) : null}
       {workDetail && entityKind === "artifacts" ? (
         <ArtifactsDetail
           node={node}
@@ -681,6 +684,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
           <textarea
             ref={ref}
             autoFocus
+            data-focus-owner="canvas-draft"
             aria-label="Edit label"
             className="label-edit-inline nodrag nowheel h-full w-full resize-none bg-transparent font-display outline-none"
             style={{ color: labelHue, fontSize: "15px", fontWeight: 650, letterSpacing: "0.02em", lineHeight: 1.25 }}
@@ -740,6 +744,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
         <textarea
           ref={ref}
           autoFocus
+          data-focus-owner="canvas-draft"
           aria-label="Edit note"
           className="note-edit-inline nodrag nowheel h-full w-full resize-none bg-transparent font-mono outline-none"
           style={{ color: INK }}
@@ -821,6 +826,12 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
             />
           ) : entityKind === "board" ? (
             <BoardCard
+              node={node}
+              renaming={renaming}
+              onRenameDone={() => setRenaming(false)}
+            />
+          ) : entityKind === "pad" ? (
+            <PadCard
               node={node}
               renaming={renaming}
               onRenameDone={() => setRenaming(false)}

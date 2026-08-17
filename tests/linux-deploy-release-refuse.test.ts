@@ -1,15 +1,17 @@
-import { Effect } from "effect";
-import { describe, expect, it, vi } from "vitest";
-import { RELEASE_CAPABILITIES } from "../src/shared/release-capabilities";
-import {
-  loadRemoteDeploymentProvider,
-  makeRemoteDeploymentDispatcher,
-} from "../src/main/vellum/hosts/deploy-remote";
+import { readFileSync } from "node:fs";
+import { Effect, Layer } from "effect";
+import { describe, expect, it } from "vitest";
+import { LINUX_REMOTE_DEPLOY_DISABLED_DETAIL, RELEASE_CAPABILITIES } from "../src/shared/release-capabilities";
+import { admitHostRuntimeApply, applyHostRuntime } from "../src/main/vellum/hosts/host-runtime";
+import { HostOps, HostTarget } from "../src/main/vellum/hosts/host-ops";
+import { loadRemoteDeploymentProvider } from "../src/main/vellum/hosts/deploy-remote";
 import type { RemoteHost } from "../src/shared/remote-hosts";
+import { parseSshEndpoint } from "../src/main/vellum/ssh/domain";
+import { SshTransport } from "../src/main/vellum/ssh/service";
 
 /**
- * Unmocked production freeze: linux deploy path refuses with product copy and
- * never loads the linux provider body.
+ * Live production freeze: HostRuntime.admit after observe, then Linux
+ * HostOps.copy stays LINUX_REMOTE_DEPLOY_OFF.
  */
 const host: RemoteHost = {
   id: "studio",
@@ -19,41 +21,99 @@ const host: RemoteHost = {
   capabilities: ["terminal"],
 };
 
-const makeSsh = (stdout: string) => ({
-  warm: vi.fn(() => Effect.void),
-  run: vi.fn(() => Effect.succeed({ stdout, stderr: "" })),
-});
+const linuxObservation = {
+  hostId: "studio",
+  placement: "remote" as const,
+  platform: "linux" as const,
+  network: "up" as const,
+  package: "absent" as const,
+  process: "unknown" as const,
+  workAttach: "unknown" as const,
+  mode: "unenrolled" as const,
+};
 
-describe("production Linux deploy freeze (unmocked RELEASE_CAPABILITIES)", () => {
+describe("production Linux deploy freeze (live HostRuntime path)", () => {
   it("keeps linuxRemoteDeploy off in production defaults", () => {
     expect(RELEASE_CAPABILITIES.linuxRemoteDeploy).toBe(false);
     expect(RELEASE_CAPABILITIES.boxFleet).toBe(false);
   });
 
-  it("loadRemoteDeploymentProvider(linux) rejects with stable product detail", async () => {
+  it("HostRuntime admit refuses Linux apply under production after observe", () => {
+    const fromDarwinCc = admitHostRuntimeApply({
+      observation: linuxObservation,
+      hostLabel: "Studio",
+      commandCenterPlatform: "darwin",
+    });
+    const fromLinuxCc = admitHostRuntimeApply({
+      observation: linuxObservation,
+      hostLabel: "Studio",
+      commandCenterPlatform: "linux",
+    });
+    expect(fromDarwinCc.ok).toBe(false);
+    expect(fromLinuxCc.ok).toBe(false);
+    if (fromDarwinCc.ok || fromLinuxCc.ok) return;
+    expect(fromDarwinCc.detail).toBe(
+      `Studio: ${LINUX_REMOTE_DEPLOY_DISABLED_DETAIL}`,
+    );
+    expect(fromLinuxCc.detail).toBe(fromDarwinCc.detail);
+    expect(fromDarwinCc.code).toBe("validation");
+  });
+
+  it("Linux HostOps copy refuses before a provider body", async () => {
+    const target = Effect.runSync(parseSshEndpoint("studio-box"));
+    const ssh = {
+      warm: () => Effect.void,
+      run: () => Effect.die("copy must not run remote programs"),
+      forward: () => Effect.die("copy must not forward"),
+    };
+    const result = await Effect.runPromise(
+      applyHostRuntime({
+        host,
+        gap: "needInstall",
+      }).pipe(
+        Effect.provide(
+          HostOps.layerLinux.pipe(
+            Layer.provide(HostTarget.layer(target)),
+            Layer.provide(Layer.succeed(SshTransport, ssh as never)),
+          ),
+        ),
+      ),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.disposition).toBe("not-started");
+    expect(result.detail).toContain("LINUX_REMOTE_DEPLOY_OFF");
+    expect(result.detail).toMatch(/Linux Remote Deploy is not enabled/i);
+  });
+
+  it("release loader still refuses so apply cannot bypass the freeze", async () => {
     await expect(loadRemoteDeploymentProvider("linux")).rejects.toThrow(
       /Linux Remote managed deployment is not available/i,
     );
   });
 
-  it("prepare refuses Linux before provider evaluation", async () => {
-    const loadProvider = vi.fn(async () => {
-      throw new Error("provider body must not run");
-    });
-    const dispatcher = makeRemoteDeploymentDispatcher({
-      commandCenterPlatform: "darwin",
-      loadProvider,
-    });
-
-    const result = await Effect.runPromise(
-      dispatcher.deploy(makeSsh("Linux\n") as never, host, {
-        state: "managed-externally",
-      }),
+  it("coordinator deploy is HostRuntime.reconcile, not a platformless live freeze", () => {
+    const coordinator = readFileSync(
+      new URL("../src/main/vellum/hosts/operator-coordinator.ts", import.meta.url),
+      "utf8",
     );
-
-    expect(result.ok).toBe(false);
-    expect(result.disposition).toBe("not-started");
-    expect(result.detail).toMatch(/Linux Remote managed deployment is not available/i);
-    expect(loadProvider).not.toHaveBeenCalled();
+    const runtime = readFileSync(
+      new URL("../src/main/vellum/hosts/host-runtime.ts", import.meta.url),
+      "utf8",
+    );
+    const linuxOps = readFileSync(
+      new URL("../src/main/vellum/hosts/host-ops-linux.ts", import.meta.url),
+      "utf8",
+    );
+    expect(coordinator).toContain(".reconcile(");
+    expect(coordinator).not.toMatch(/hosts\s*\n?\s*\.deployConfiguredRemote/u);
+    expect(coordinator).not.toMatch(
+      /computeDeployCapabilities\(\{[\s\S]*?platform\s*:/u,
+    );
+    expect(runtime).toContain("admitHostRuntimeApply");
+    expect(runtime).toContain("releaseAllowsTargetPlatform");
+    expect(runtime).toContain("applyHostRuntime");
+    expect(linuxOps).toContain("LINUX_REMOTE_DEPLOY_OFF");
+    expect(linuxOps).not.toContain("linuxRemoteDeploymentProvider");
   });
 });

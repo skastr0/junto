@@ -250,8 +250,16 @@ export const planManagedSpawn = (input: SpawnPlanInput): ManagedLaunchPlan | und
     injection: {
       // A canvas seat is always seat-bound: base doctrine injects even with no
       // actionable edge; edge contracts compile in when edges connect.
-      seatBound: Boolean(input.doc && input.nodeId),
-      connected,
+      //
+      // NOT on resume. A resumed session already carries the doctrine in its
+      // own history from the spawn that created it, so re-injecting it adds
+      // several KB of duplicate system prompt on top of a fully restored
+      // context. On a long session that is enough to cross the harness's
+      // auto-compaction threshold the moment it reopens, silently destroying
+      // the context the operator reopened to keep. `onboard` remains the live
+      // path for anything that changed while the seat was down.
+      seatBound: Boolean(input.doc && input.nodeId) && !resume,
+      connected: connected && !resume,
       ...(input.nodeId
         ? { seatRef: input.nodeId }
         : {}),

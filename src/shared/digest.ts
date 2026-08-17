@@ -308,6 +308,12 @@ export const digestCanvas = (
         const items = node.ether?.artifacts?.items ?? [];
         entityLines.push(`  artifacts: ${items.length}`);
       }
+      if (entity.kind === "pad") {
+        const pad = node.ether?.pad;
+        entityLines.push(
+          `  pad: revision=${pad?.revision ?? 0} shapes=${pad?.shapeCount ?? 0} unread=${pad?.unreadPinCount ?? 0}`,
+        );
+      }
     }
     sections.push(entityLines);
   }

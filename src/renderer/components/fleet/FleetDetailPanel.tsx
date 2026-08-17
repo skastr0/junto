@@ -20,6 +20,7 @@ import {
   HERMES_INTEGRATION_ENABLED,
   productHostCapabilities,
 } from "@shared/features";
+import type { StationRemoteObservation } from "@shared/station-status";
 import type { RemoteHost } from "@shared/remote-hosts";
 import {
   deriveRemoteUpdateStatus,
@@ -29,7 +30,10 @@ import {
   shouldAutoWalkRemoteUpdate,
 } from "@shared/remote-update-status";
 import { useHostDeployJob } from "../../lib/deploy-job-state";
-import { deployRecoveryGuidance } from "../../lib/deploy-recovery";
+import {
+  deployRecoveryGuidance,
+  operatorDeployDetail,
+} from "../../lib/deploy-recovery";
 import { setFleetAppearance } from "../../lib/fleet-appearance";
 import { probeHost, refreshFleet, type FleetProbeState } from "../../lib/fleet-state";
 import { FLEET_COLORS, hostColor } from "../../lib/fleet-layout";
@@ -73,28 +77,35 @@ function reachabilityLine(probe?: FleetProbeState): {
     case "reachable":
       if (probe.protocol?.compatibility === "update-required") {
         return {
-          text: "Reachable, update required",
+          text: "On the network, update required",
           detail: probe.detail,
           color: HUE.amber,
         };
       }
       if (probe.protocol?.compatibility === "deprecated") {
         return {
-          text: `reachable - protocol ${probe.protocol.negotiatedProtocol} deprecated`,
+          text: `On the network — this Vellum Command build is old`,
+          detail: probe.detail,
+          color: HUE.amber,
+        };
+      }
+      if (probe.observation?.station === undefined) {
+        return {
+          text: "On the network — Vellum Command is not answering",
           detail: probe.detail,
           color: HUE.amber,
         };
       }
       return {
         text: probe.latencyMs !== undefined
-          ? `reachable - ${probe.latencyMs} ms`
-          : "reachable",
+          ? `On the network — ${probe.latencyMs} ms`
+          : "On the network",
         detail: probe.detail,
         color: GREEN,
       };
     case "unreachable":
       return {
-        text: "unreachable",
+        text: "Can't reach this machine",
         detail: probe.detail,
         color: HUE.crimson,
       };
@@ -120,6 +131,210 @@ function CommandCenterDetail({ hostId }: { readonly hostId: string }) {
         </p>
       </section>
     </div>
+  );
+}
+
+const diagnosticText = (value: string | number | boolean | undefined): string =>
+  value === undefined ? "unknown" : String(value);
+
+function StationDiagnostics({
+  observation,
+}: {
+  readonly observation?: StationRemoteObservation;
+}) {
+  const station = observation?.station;
+  const route = observation?.route;
+  const lease = observation?.lease;
+  const protocol = observation?.protocol;
+  const recovery = observation?.recovery;
+  return (
+    <section className="fleet-detail__section">
+      <div className="fleet-detail__section-label">Station diagnostics</div>
+      <div className="fleet-detail__kv">
+        <span>reachability</span>
+        <span>{diagnosticText(observation?.reachability)}</span>
+        <span>fact source</span>
+        <span>{diagnosticText(observation?.source)}</span>
+        <span>configured role / host</span>
+        <span>
+          {diagnosticText(station?.configuration?.role)} / {diagnosticText(station?.configuration?.hostId)}
+        </span>
+        <span>expected installation</span>
+        <span>{diagnosticText(observation?.expectedInstallationId)}</span>
+        <span>observed installation</span>
+        <span>{diagnosticText(station?.installationId)}</span>
+        <span>Command Center binding</span>
+        <span>
+          {diagnosticText(
+            station?.configuration?.role === "remote"
+              ? station.configuration.commandCenterInstallationId
+              : undefined,
+          )}
+        </span>
+        <span>observation timestamp</span>
+        <span>{diagnosticText(observation?.observedAt ?? station?.observedAt)}</span>
+        <span>route</span>
+        <span>
+          {diagnosticText(route?.phase)} / session {route === undefined ? "unknown" : route.sessionOpen ? "open" : "closed"}
+        </span>
+        <span>route attempt / updated</span>
+        <span>{diagnosticText(route?.attempt)} / {diagnosticText(route?.updatedAt)}</span>
+        <span>next retry</span>
+        <span>{diagnosticText(route?.nextRetryAt)}</span>
+        <span>protocol</span>
+        <span>
+          {protocol === undefined
+            ? "unknown"
+            : protocol.compatibility === "update-required"
+              ? "update-required"
+              : `${protocol.compatibility} / negotiated ${protocol.negotiatedProtocol}`}
+        </span>
+        <span>projection receipt</span>
+        <span>
+          {diagnosticText(station?.projection?.generation)} / {diagnosticText(station?.projection?.contentSha256)} / {diagnosticText(station?.projection?.receivedAt)}
+        </span>
+        <span>package / deploy receipt</span>
+        <span>
+          {diagnosticText(observation?.packageGeneration)} / {diagnosticText(observation?.deployReceiptAt)}
+        </span>
+        <span>received cursors</span>
+        <span>{diagnosticText(station?.receivedThrough.length)}</span>
+        <span>peer acknowledged cursors</span>
+        <span>{diagnosticText(station?.peerAcknowledgedThrough.length)}</span>
+        <span>readiness</span>
+        <span>
+          database {diagnosticText(station?.readiness.database)}, work {diagnosticText(station?.readiness.workControl)}, simulation {diagnosticText(station?.readiness.simulation)}, session {diagnosticText(station?.readiness.session)}, terminal {diagnosticText(observation?.readiness?.terminal)}, browser {diagnosticText(observation?.readiness?.browser)}
+        </span>
+        <span>last check-in</span>
+        <span>{diagnosticText(lease?.lastCheckInAt)}</span>
+        <span>lease</span>
+        <span>
+          {diagnosticText(lease?.state)} / expires {diagnosticText(lease?.expiresAt)} / {diagnosticText(lease?.source)}
+        </span>
+        <span>recovery</span>
+        <span>{diagnosticText(recovery?.kind)}</span>
+      </div>
+      {recovery ? (
+        <p className="fleet-detail__note">
+          Next safe action: {recovery.nextStep}
+        </p>
+      ) : null}
+      {observation?.observationError ? (
+        <details className="fleet-detail__diagnostic">
+          <summary>Observation detail</summary>
+          <p>{observation.observationError}</p>
+        </details>
+      ) : null}
+      {station &&
+      (station.receivedThrough.length > 0 ||
+        station.peerAcknowledgedThrough.length > 0) ? (
+        <details className="fleet-detail__diagnostic">
+          <summary>Logical cursor routes</summary>
+          <div className="fleet-detail__kv">
+            {station.receivedThrough.map((cursor) => (
+              <Fragment
+                key={`received:${cursor.eventHome}:${cursor.entityHome}`}
+              >
+                <span>received {cursor.eventHome} → {cursor.entityHome}</span>
+                <span>{cursor.through}</span>
+              </Fragment>
+            ))}
+            {station.peerAcknowledgedThrough.map((cursor) => (
+              <Fragment
+                key={`acknowledged:${cursor.eventHome}:${cursor.entityHome}`}
+              >
+                <span>peer acknowledged {cursor.eventHome} → {cursor.entityHome}</span>
+                <span>{cursor.through}</span>
+              </Fragment>
+            ))}
+          </div>
+        </details>
+      ) : null}
+    </section>
+  );
+}
+
+function StationSynchronization({
+  observation,
+}: {
+  readonly observation?: StationRemoteObservation;
+}) {
+  const synchronization = observation?.synchronization;
+  if (synchronization === undefined) return null;
+  return (
+    <section className="fleet-detail__section">
+      <div className="fleet-detail__section-label">Last synchronization</div>
+      <div className="fleet-detail__kv">
+        <span>result</span>
+        <span>{synchronization.converged ? "converged" : "incomplete"}</span>
+        <span>projection</span>
+        <span>
+          {synchronization.projectionDecision} / generation {synchronization.projectionGeneration}
+        </span>
+        <span>projection hash</span>
+        <span>{synchronization.projectionContentSha256}</span>
+        <span>report rounds</span>
+        <span>{synchronization.reportRounds}</span>
+        <span>outbound / inbound</span>
+        <span>{synchronization.outboundSent} / {synchronization.inboundReceived}</span>
+        <span>accepted / idempotent / rejected</span>
+        <span>
+          {synchronization.inboundAccepted} / {synchronization.inboundIdempotent} / {synchronization.inboundRejected}
+        </span>
+        <span>more outbound / inbound</span>
+        <span>
+          {String(synchronization.hasMoreOutbound)} / {String(synchronization.hasMoreInbound)}
+        </span>
+      </div>
+      <p className="fleet-detail__note">
+        This is the last bounded projection and work-report receipt. It is not
+        a promise that the route stayed connected afterward.
+      </p>
+    </section>
+  );
+}
+
+function StationTopology({
+  observation,
+}: {
+  readonly observation?: StationRemoteObservation;
+}) {
+  const topology = observation?.topology;
+  if (topology === undefined) return null;
+  return (
+    <section className="fleet-detail__section">
+      <div className="fleet-detail__section-label">Projected topology</div>
+      <div className="fleet-detail__kv">
+        <span>portfolio</span>
+        <span>
+          {topology.canvasCount} canvases / {topology.nodeCount} nodes / {topology.edgeCount} edges
+        </span>
+        <span>all actors / sinks / schedulers</span>
+        <span>{topology.actorCount} / {topology.sinkCount} / {topology.schedulerCount}</span>
+        <span>this Remote nodes</span>
+        <span>{topology.targetNodeCount}</span>
+        <span>this Remote actors / sinks / schedulers</span>
+        <span>
+          {topology.targetActorCount} / {topology.targetSinkCount} / {topology.targetSchedulerCount}
+        </span>
+        <span>Command Center / other Station nodes</span>
+        <span>{topology.commandCenterNodeCount} / {topology.otherStationNodeCount}</span>
+        <span>Remote-local actor ↔ sink edges</span>
+        <span>{topology.targetInternalAccessEdgeCount}</span>
+        <span>Remote actor → Command Center sink</span>
+        <span>{topology.remoteActorToCommandCenterSinkEdgeCount}</span>
+        <span>Command Center actor → Remote sink</span>
+        <span>{topology.commandCenterActorToRemoteSinkEdgeCount}</span>
+        <span>Station ↔ Station edges</span>
+        <span>{topology.stationPeerEdgeCount}</span>
+        <span>dangling edges</span>
+        <span>{topology.danglingEdgeCount}</span>
+      </div>
+      <p className="fleet-detail__note">
+        Counts come from the exact complete projection acknowledged by this
+        Remote. Runtime authority still follows installation-homed work rows.
+      </p>
+    </section>
   );
 }
 
@@ -197,10 +412,13 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
     host.id.startsWith("box-") ||
     (probe?.linuxCapabilities !== undefined &&
       probe.linuxCapabilities.facts.platform === "linux");
-  const linuxManagedOff = caps?.release.linuxRemoteDeploy === false;
+  const linuxManagedOff =
+    caps === null || caps.release.linuxRemoteDeploy === false;
   const linuxReleaseBlocked = knownLinuxHost && linuxManagedOff;
+  // Machine gate: Linux Remotes stay enrolled/read-only while the flag is off.
+  const machineMutateEnabled = !linuxReleaseBlocked;
   const deployEnabled =
-    caps?.effective.deployRemote === true && !linuxReleaseBlocked;
+    caps?.effective.deployRemote === true && machineMutateEnabled;
   const deployDetail = linuxReleaseBlocked
     ? LINUX_REMOTE_DEPLOY_DISABLED_DETAIL
     : caps?.detail.deployRemote;
@@ -220,7 +438,7 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
     if (!result.ok) {
       setActionLine(
         [
-          result.detail || result.message || "deploy failed",
+          operatorDeployDetail(result.detail || result.message || "deploy failed"),
           recovery,
           stages,
         ]
@@ -230,7 +448,7 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
       return;
     }
     setActionLine(
-      [result.detail || "Remote deployed and ready", recovery]
+      [operatorDeployDetail(result.detail || "Vellum Command is on this Mac"), recovery]
         .filter(Boolean)
         .join("\n"),
     );
@@ -240,6 +458,7 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
     const api = getVellumCommandApi();
     if (!api) return;
     if (kind === "deploy" && !deployEnabled) return;
+    if (kind === "configure" && !machineMutateEnabled) return;
     if (kind === "deploy" && deployJob?.status === "running") return;
     setActionBusy(kind);
     const jobBridge =
@@ -283,6 +502,13 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
         {deployJob ? <FleetDeployJobPanel job={deployJob} /> : null}
         <div className="fleet-detail__actions">
           <Button
+            size="sm"
+            disabled={probing}
+            {...activateOnPointerUp(() => void probeHost(host.id))}
+          >
+            {probing ? "probing…" : "Test Station link"}
+          </Button>
+          <Button
             variant="primary"
             size="xs"
             disabled={actionBusy !== "" || !deployEnabled || deployInFlight}
@@ -309,8 +535,9 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
           </p>
         ) : !deployJob ? (
           <p className="fleet-detail__note">
-            Package install, sealed adopt, and readiness run in the main
-            process. Progress and step log appear here while Deploy runs.
+            On the network is SSH. A finished Deploy is Installed. Folders
+            and terminals answer after a real connect. The step log records
+            each copy, restart, and wait.
           </p>
         ) : null}
       </section>
@@ -348,6 +575,13 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
           <span className="fleet-detail__reach" style={{ color: reach.color }}>
             {reach.text}
           </span>
+          <Button
+            size="sm"
+            disabled={probing}
+            {...activateOnPointerUp(() => void probeHost(host.id))}
+          >
+            {probing ? "probing…" : "Test Station link"}
+          </Button>
         </div>
         {reach.detail ? (
           <details className="fleet-detail__diagnostic">
@@ -388,16 +622,13 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
             </span>
           </div>
         ) : null}
-        <Button
-          size="xs"
-          disabled={probing}
-          {...activateOnPointerUp(() => void probeHost(host.id))}
-        >
-          {probing ? "probing…" : "Test link"}
-        </Button>
       </section>
 
-      {probe?.linuxCapabilities ? (
+      <StationDiagnostics observation={probe?.observation} />
+      <StationSynchronization observation={probe?.observation} />
+      <StationTopology observation={probe?.observation} />
+
+      {probe?.linuxCapabilities?.facts.platform === "linux" ? (
         <section className="fleet-detail__section">
           <div className="fleet-detail__section-label">
             Linux host
@@ -538,7 +769,12 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
         <div className="fleet-detail__actions">
           <Button
             size="xs"
-            disabled={actionBusy !== "" || deployInFlight}
+            disabled={actionBusy !== "" || deployInFlight || !machineMutateEnabled}
+            title={
+              linuxReleaseBlocked
+                ? LINUX_REMOTE_DEPLOY_DISABLED_DETAIL
+                : undefined
+            }
             {...activateOnPointerUp(() => void runAction("configure"))}
           >
             {actionBusy === "configure" ? "configuring…" : "Configure Remote"}

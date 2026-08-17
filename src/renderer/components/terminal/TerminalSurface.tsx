@@ -9,13 +9,12 @@ import { taskBrief } from "@shared/task";
 import { MONO_CELL } from "../../lib/focus-measure";
 import { use$ } from "@legendapp/state/react";
 import {
-  closeWorkbenchSurface,
+  closeFocusModalSurface,
   dock$,
   pinWorkbenchSurface,
   terminalSurfaceId,
   unpinWorkbenchSurface,
 } from "../../lib/dock-state";
-import { surfaceById } from "../../lib/surface-registry";
 import { getVellumCommandApi } from "../../lib/vellum-api";
 import {
   VELLUM_XTERM_FONT_FAMILY,
@@ -23,7 +22,14 @@ import {
 } from "../../lib/terminal-theme";
 import { attachXtermAppearance } from "../../lib/xterm-appearance";
 import { themeMode$ } from "../../lib/theme-mode";
-import { shouldNotifyPtyResize } from "../../lib/terminal-resize";
+import {
+  cellsForPane,
+  ptyNotifyDelayMs,
+  ptyNotifyShouldRetry,
+  shouldNotifyPtyResize,
+  shouldPaintView,
+  UNKNOWN_TERMINAL_GEOMETRY,
+} from "../../lib/terminal-resize";
 import {
   bookmarkFromBuffer,
   resolveViewportRestore,
@@ -51,9 +57,14 @@ import {
   type SessionLoadPhase,
 } from "../../lib/session-load";
 import { releaseTaskToQueue } from "../../lib/work-actions";
+import {
+  canClaimFocusAfterAsyncWork,
+  shouldClaimFocusOnSurfaceOpen,
+} from "../../lib/focus-ownership";
 import { ActivityMark } from "../ActivityMark";
 import { Button, Eyebrow, OverlayHeader } from "../ui";
 import { ActorEdgesGlance } from "./ActorEdgesGlance";
+import { ActorLedgerPane } from "./ActorLedgerPane";
 import { SessionLoadSpinner } from "./SessionLoadSpinner";
 
 type AttachResult = {
@@ -126,6 +137,28 @@ type XtermCore = {
   };
 };
 
+/**
+ * Terminal geometry diagnostic.
+ *
+ * xterm measures the character cell during `open()` and its docs require the
+ * parent to be visible with real dimensions at that moment. If it is not, the
+ * cell metrics are wrong and every later row paint inherits the error, which
+ * looks like scrambled/overlapping rows that only settle once something forces
+ * a full repaint. This records what the box and the cell actually were, so the
+ * question is answered from the real app instead of inferred.
+ *
+ * Renderer console is captured into the observability ring
+ * (installObservabilityConsoleHook -> recordRendererConsole), so these lines
+ * are queryable. Grep tag: vellum:term-geom
+ */
+const logTermGeom = (event: string, data: Record<string, unknown>): void => {
+  try {
+    console.warn(`[vellum:term-geom] ${event} ${JSON.stringify(data)}`);
+  } catch {
+    // diagnostics must never break the surface
+  }
+};
+
 const readCellSize = (term: Terminal): { cellW: number; cellH: number } => {
   const core = term as unknown as { _core?: XtermCore };
   const cell = core._core?._renderService?.dimensions?.css?.cell;
@@ -136,37 +169,33 @@ const readCellSize = (term: Terminal): { cellW: number; cellH: number } => {
 
 /**
  * Geometry authority: host box → cols×rows.
- * Never trust FitAddon alone — when the flex chain is content-sized to the
- * default 80×24 canvas, FitAddon and a clientWidth floor both freeze on that
- * island. getBoundingClientRect on a flex:1;height:0 host is the real pane.
+ * Never trust FitAddon or the live .xterm node — both size to the current
+ * grid and freeze pin/focus/dock growth. flex:1;height:0 host is the pane.
  */
 const measureHost = (
   host: HTMLElement,
   term: Terminal,
 ): { cols: number; rows: number; w: number; h: number } | null => {
-  // Prefer the live .xterm box (already inset by CSS). Fall back to host − pad
-  // before the first open.
-  const surface = (term.element ?? host) as HTMLElement;
-  const rect = surface.getBoundingClientRect();
-  let w = rect.width;
-  let h = rect.height;
-  if ((!term.element || w < 40 || h < 40) && surface !== host) {
-    const hostRect = host.getBoundingClientRect();
-    w = Math.max(0, hostRect.width - XTERM_PAD_X);
-    h = Math.max(0, hostRect.height - XTERM_PAD_Y);
-  } else if (!term.element) {
-    w = Math.max(0, w - XTERM_PAD_X);
-    h = Math.max(0, h - XTERM_PAD_Y);
-  }
-  if (w < 40 || h < 40) return null;
-
+  const hostRect = host.getBoundingClientRect();
   const { cellW, cellH } = readCellSize(term);
-  const cols = Math.max(20, Math.min(300, Math.floor(w / cellW)));
-  const rows = Math.max(5, Math.min(120, Math.floor(h / cellH)));
-  return { cols, rows, w, h };
+  return cellsForPane({
+    hostWidth: hostRect.width,
+    hostHeight: hostRect.height,
+    cellW,
+    cellH,
+    padX: XTERM_PAD_X,
+    padY: XTERM_PAD_Y,
+  });
 };
 
-export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
+export function TerminalSurface({
+  node,
+  visible = true,
+}: {
+  readonly node: CanvasNode;
+  /** False in parked keep-alive panes — children may pause cosmetic work. */
+  readonly visible?: boolean;
+}) {
   const rootRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -177,7 +206,14 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
   const leaseRef = useRef<string | undefined>(undefined);
   const epochRef = useRef<string | undefined>(undefined);
   const apiRef = useRef<VellumCommandTerminalApi | undefined>(undefined);
-  const lastGeom = useRef<{ cols: number; rows: number }>({ cols: 0, rows: 0 });
+  /** Last geometry the spawn-host child acked. View paint does not wait on this. */
+  const lastAcked = useRef({ ...UNKNOWN_TERMINAL_GEOMETRY });
+  const desiredGeom = useRef({ ...UNKNOWN_TERMINAL_GEOMETRY });
+  /** Failed/false child notifies for the current desired size. Reset on ack or new geom. */
+  const ptyNotifyFailCount = useRef(0);
+  const notifyInFlight = useRef(false);
+  /** Trailing timer that coalesces child SIGWINCH into one settled size. */
+  const ptyNotifyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [status, setStatus] = useState("attaching…");
   const [geomLabel, setGeomLabel] = useState("");
   const [releasePending, setReleasePending] = useState(false);
@@ -186,7 +222,16 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
   const [attachKey, setAttachKey] = useState(0);
   const [killPhase, setKillPhase] = useState<KillUxPhase>("idle");
   const [reopenPending, setReopenPending] = useState(false);
+  /** Why the last generation ended, read from the host when the seat is dead. */
+  const [deadInfo, setDeadInfo] = useState<{ reason?: string; message?: string }>({});
   const killArmTimer = useRef<number | null>(null);
+  /**
+   * An agent seat is LAZY. A dead seat is not a broken thing that needs a
+   * human to press a button — it is a cold seat, and looking at it is demand.
+   * Only an explicit operator Stop keeps it down; everything else wakes.
+   */
+  const operatorStopped = useRef(false);
+  const autoWakes = useRef(0);
   const canvasName = use$(state$.canvasName);
   const doc = use$(state$.doc);
   const actorRefs = use$(state$.actorRefs);
@@ -224,39 +269,140 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
     if (!term || !host) return;
 
     const measured = measureHost(host, term);
-    if (!measured) return;
+    if (!measured) {
+      logTermGeom("measure-rejected", {
+        hostW: Math.round(host.getBoundingClientRect().width),
+        hostH: Math.round(host.getBoundingClientRect().height),
+        termCols: term.cols,
+        termRows: term.rows,
+      });
+      return;
+    }
 
     const cols = Math.max(20, Math.min(300, measured.cols));
     const rows = Math.max(5, Math.min(120, measured.rows));
 
-    if (term.cols !== cols || term.rows !== rows) {
+    {
+      const { cellW, cellH } = readCellSize(term);
+      const screen = host.querySelector<HTMLElement>(".xterm-screen");
+      const screenW = screen ? Math.round(screen.getBoundingClientRect().width) : -1;
+      logTermGeom("resize", {
+        measuredW: Math.round(measured.w),
+        measuredH: Math.round(measured.h),
+        cellW: Number(cellW.toFixed(3)),
+        cellH: Number(cellH.toFixed(3)),
+        cellIsFallback:
+          Math.abs(cellW - FALLBACK_CELL_W) < 0.001 && Math.abs(cellH - FALLBACK_CELL_H) < 0.001,
+        cols,
+        rows,
+        termCols: term.cols,
+        termRows: term.rows,
+        // The painted screen vs the character grid it is supposed to be. CSS
+        // forces .xterm-screen to width:100%, so a gap here means backgrounds
+        // and rows are painted to a different width than the grid.
+        screenW,
+        gridW: Math.round(cols * cellW),
+        screenGridDeltaPx: screenW < 0 ? -1 : Math.round(screenW - cols * cellW),
+        // What the PTY was last TOLD. The child wraps at this width, xterm
+        // paints at termCols. If they diverge, the harness breaks its lines at
+        // a column the renderer is not painting — the reported symptom where a
+        // word splits mid-token onto the next row.
+        ptyCols: lastAcked.current.cols,
+        ptyRows: lastAcked.current.rows,
+        ptyDiverged: lastAcked.current.cols !== cols || lastAcked.current.rows !== rows,
+      });
+    }
+
+    // View geometry is the pane. Placement (local IPC vs Mini hop) only
+    // notifies the child. Waiting on that hop to paint is what froze Remote
+    // seats as cream while the label already showed the new grid.
+    const nextGeom = { cols, rows };
+    if (
+      desiredGeom.current.cols !== nextGeom.cols ||
+      desiredGeom.current.rows !== nextGeom.rows
+    ) {
+      ptyNotifyFailCount.current = 0;
+    }
+    desiredGeom.current = nextGeom;
+    if (shouldPaintView({ cols: term.cols, rows: term.rows }, nextGeom)) {
       try {
         term.resize(cols, rows);
       } catch {
         return;
       }
     }
-
-    // Re-sync canvas + scroll area even when cols×rows are stable (unpark /
-    // pin settle). Without this, wheel scroll and the PTY view go dead after
-    // zone moves or tab keep-alive at 1×1.
     try {
       term.refresh(0, Math.max(0, term.rows - 1));
     } catch {
       // ignore — older paint paths still usable
     }
-
     setGeomLabel(`${cols}×${rows}`);
 
-    const lease = leaseRef.current;
-    const api = apiRef.current;
-    if (!lease || !api) return;
+    const flushChildNotify = (): void => {
+      if (notifyInFlight.current) return;
+      const desired = desiredGeom.current;
+      const lease = leaseRef.current;
+      const api = apiRef.current;
+      if (!lease || !api) {
+        logTermGeom("pty-notify-skipped", {
+          cols: desired.cols,
+          rows: desired.rows,
+          hasLease: Boolean(lease),
+          hasApi: Boolean(api),
+        });
+        return;
+      }
+      if (!shouldNotifyPtyResize(lastAcked.current, desired)) return;
+      notifyInFlight.current = true;
+      void (async () => {
+        const send = desiredGeom.current;
+        try {
+          const ok =
+            (await api.terminalResize(lease, send.cols, send.rows)) !== false;
+          logTermGeom("pty-notify", {
+            cols: send.cols,
+            rows: send.rows,
+            lease: lease.slice(0, 8),
+            ok,
+          });
+          if (ok) {
+            lastAcked.current = send;
+            ptyNotifyFailCount.current = 0;
+          } else if (
+            send.cols === desiredGeom.current.cols &&
+            send.rows === desiredGeom.current.rows
+          ) {
+            ptyNotifyFailCount.current += 1;
+          }
+        } catch {
+          logTermGeom("pty-notify-failed", { cols: send.cols, rows: send.rows });
+          if (
+            send.cols === desiredGeom.current.cols &&
+            send.rows === desiredGeom.current.rows
+          ) {
+            ptyNotifyFailCount.current += 1;
+          }
+        } finally {
+          notifyInFlight.current = false;
+          if (
+            shouldNotifyPtyResize(lastAcked.current, desiredGeom.current) &&
+            ptyNotifyShouldRetry(ptyNotifyFailCount.current)
+          ) {
+            scheduleChildNotify();
+          }
+        }
+      })();
+    };
 
-    const nextGeom = { cols, rows };
-    if (!shouldNotifyPtyResize(lastGeom.current, nextGeom)) return;
+    const scheduleChildNotify = (): void => {
+      if (ptyNotifyTimer.current !== undefined) clearTimeout(ptyNotifyTimer.current);
+      ptyNotifyTimer.current = setTimeout(() => {
+        ptyNotifyTimer.current = undefined;
+        flushChildNotify();
+      }, ptyNotifyDelayMs(lastAcked.current, ptyNotifyFailCount.current));
+    };
 
-    lastGeom.current = nextGeom;
-    void api.terminalResize(lease, cols, rows);
+    if (shouldNotifyPtyResize(lastAcked.current, nextGeom)) scheduleChildNotify();
   };
 
   useLayoutEffect(() => {
@@ -277,7 +423,27 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
     const fit = new FitAddon();
     term.loadAddon(fit);
     host.replaceChildren();
+    // The measurement moment. xterm requires the parent to be visible with real
+    // dimensions here; a 0-size or not-yet-laid-out box poisons the cell metrics
+    // for the life of this terminal.
+    const openRect = host.getBoundingClientRect();
     term.open(host);
+    {
+      const { cellW, cellH } = readCellSize(term);
+      logTermGeom("open", {
+        hostW: Math.round(openRect.width),
+        hostH: Math.round(openRect.height),
+        hostVisible: openRect.width > 0 && openRect.height > 0,
+        connected: host.isConnected,
+        cellW: Number(cellW.toFixed(3)),
+        cellH: Number(cellH.toFixed(3)),
+        // true => xterm's own measurement was unavailable and a guess is in use
+        cellIsFallback:
+          Math.abs(cellW - FALLBACK_CELL_W) < 0.001 && Math.abs(cellH - FALLBACK_CELL_H) < 0.001,
+        termCols: term.cols,
+        termRows: term.rows,
+      });
+    }
     termRef.current = term;
     fitRef.current = fit;
 
@@ -398,6 +564,10 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
       window.removeEventListener("resize", onWindowResize);
       observer.disconnect();
       if (resizeTimer) clearTimeout(resizeTimer);
+      if (ptyNotifyTimer.current !== undefined) {
+        clearTimeout(ptyNotifyTimer.current);
+        ptyNotifyTimer.current = undefined;
+      }
       for (const t of settleTimers) clearTimeout(t);
       appearance.dispose();
       appearanceRef.current = null;
@@ -415,6 +585,34 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
       }),
     [],
   );
+
+  // Focus-zone open / unpark: put the xterm textarea under the keyboard so
+  // the operator can type immediately. Opening is the opt-in; later retries
+  // wait for slot adoption into the shell and stop if they have already
+  // chosen another control inside the modal.
+  useEffect(() => {
+    if (!visible) return;
+    const term = termRef.current;
+    if (!term) return;
+    const claim = (): boolean => {
+      const host = hostRef.current;
+      if (!host?.closest(".work-focus-shell")) return false;
+      if (!shouldClaimFocusOnSurfaceOpen(host)) return true;
+      term.focus();
+      return host.contains(document.activeElement);
+    };
+    if (claim()) return;
+    const raf = requestAnimationFrame(() => {
+      if (claim()) return;
+    });
+    const later = window.setTimeout(claim, 80);
+    const settle = window.setTimeout(claim, 200);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.clearTimeout(later);
+      window.clearTimeout(settle);
+    };
+  }, [visible, node.id]);
 
   useEffect(() => {
     const api = getVellumCommandApi() as VellumCommandTerminalApi | undefined;
@@ -483,6 +681,9 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
       if (event.epoch !== epochRef.current) return;
       if (event.type === "output" && event.data) term.write(event.data);
       if (event.type === "exit") {
+        // Lazy seat: a generation ending is not the seat ending. Unless the
+        // operator stopped it, re-attach (which re-ensures a live generation)
+        // rather than latching a dead card the operator has to dismiss.
         setStatus("exited");
         setKillPhase("stopped");
         setLoadPhase(null);
@@ -518,10 +719,14 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
           }
           leaseRef.current = result.lease.leaseId;
           epochRef.current = result.lease.epoch;
-          lastGeom.current = {
-            cols: result.screen?.cols ?? result.cols ?? 0,
-            rows: result.screen?.rows ?? result.rows ?? 0,
-          };
+          // The child's geometry is UNKNOWN until this surface has told it.
+          // Seeding from the session snapshot records what the child was at
+          // some earlier moment, and if the pane has since changed size the
+          // gate reads "no change" and the SIGWINCH is never sent — the child
+          // then positions output against a size nobody is painting. Starting
+          // at 0 makes the first measurement always notify.
+          lastAcked.current = { ...UNKNOWN_TERMINAL_GEOMETRY };
+          ptyNotifyFailCount.current = 0;
           let lastSeq: bigint | undefined;
           // Live sessions have exactly one attach representation: serialized VT
           // state. Journal is only for failures before an observer existed.
@@ -543,17 +748,87 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
               if (event.type === "exit") sawExit = true;
             }
             discardPending();
+            // An attach that lands on an EXITED generation is not a dead seat.
+            // ensureTerminalRunning ran just above, and createAgentSeat only
+            // reuses a record that is still alive — so re-running the attach
+            // spawns a fresh generation. That is precisely what the Reopen
+            // button does (it sets killPhase idle and bumps attachKey, nothing
+            // more), which is why Reopen always worked while the first open
+            // painted a dead card over a seat that was never broken.
+            //
+            // An agent seat is lazy: opening it IS the demand signal, so it
+            // recovers itself instead of asking for a click. Bounded so a seat
+            // that genuinely cannot start still settles into the stopped state.
+            // A failed resume is not a dead seat. When a resume generation dies
+            // with harness proof the session is gone, the host mints a fresh pin
+            // and respawns it (local-host maybeFailOpenAfterResumeFailure,
+            // deferred via queueMicrotask). The attach we just finished can land
+            // on that dying resume generation, so declaring the seat dead here
+            // races a replacement already on its way — which is exactly why
+            // Reopen looked instant: the new generation was ALREADY running, and
+            // the click only re-attached to it.
+            //
+            // Wait for a generation with a DIFFERENT epoch before giving up, and
+            // hold the loading state so nothing flashes in between.
+            if (sawExit && agentSeat && !operatorStopped.current) {
+              const deadEpoch = result.lease.epoch;
+              void (async () => {
+                const deadline = Date.now() + 8_000;
+                while (alive && Date.now() < deadline) {
+                  const live = await api
+                    .terminalGet?.(bindingId, hostId)
+                    .catch(() => undefined);
+                  const status = live?.status;
+                  const epoch = (live as { readonly epoch?: string } | undefined)?.epoch;
+                  if (
+                    (status === "running" || status === "starting") &&
+                    epoch !== undefined &&
+                    epoch !== deadEpoch
+                  ) {
+                    if (!alive) return;
+                    setKillPhase("idle");
+                    setAttachKey((key) => key + 1);
+                    return;
+                  }
+                  await new Promise((resolve) => setTimeout(resolve, 200));
+                }
+                if (!alive) return;
+                setStatus("exited");
+                setKillPhase("stopped");
+                setLoadPhase(null);
+              })();
+              return;
+            }
             // Retained exited generations may expose their final raw journal.
             // Never paint those as a live control lease.
             setStatus(sawExit ? "exited" : "control");
             setKillPhase(sawExit ? "stopped" : "idle");
+            // Correct local geometry to the real pane box BEFORE clearLoad()
+            // reveals the terminal. A factory-woken seat was hydrated above at
+            // the snapshot's own geometry (headless default, unless something
+            // already grew it) — without this, the first frame the operator
+            // ever sees is that stale size, and an alt-screen TUI (Grok) will
+            // not redraw itself until its own SIGWINCH round-trip lands, so
+            // the wrong-sized paint can sit visible for real time. A manual
+            // open never hits this: it creates the seat at the pane's size
+            // from birth, so there is nothing to attach-and-regrow. getBoundingClientRect
+            // forces layout, so this measurement is accurate even though the
+            // component just resumed from an async IPC round-trip; measureHost
+            // safely no-ops (see pushResize) if the host is not yet laid out,
+            // and the rAF/settle ladder below still covers that case.
+            pushResize();
             clearLoad();
             // Repaint through layout settle; only a real cols×rows transition is
             // forwarded to the child PTY.
             requestAnimationFrame(() => {
               if (!alive) return;
               pushResize();
-              if (!sawExit) term.focus();
+              if (
+                !sawExit &&
+                canClaimFocusAfterAsyncWork(hostRef.current)
+              ) {
+                term.focus();
+              }
             });
             for (const ms of SETTLE_FITS_MS) {
               settleTimers.push(
@@ -567,6 +842,27 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
             // Serialized xterm VT state restores cells, SGR/color, cursor,
             // normal/alternate buffers, and terminal modes in one representation.
             // Viewport restore must wait for write's parse callback.
+            // Size the grid to the SNAPSHOT before replaying it. Serialized VT
+            // carries hard-wrapped rows and absolute cursor positions recorded
+            // at the captured geometry; replaying it into a differently sized
+            // grid mangles those rows. This is a local-only resize — the child
+            // is not involved, so it does not go through the ack-then-paint
+            // path that user-driven resizes use.
+            const snapCols = result.screen?.cols;
+            const snapRows = result.screen?.rows;
+            if (
+              typeof snapCols === "number" &&
+              typeof snapRows === "number" &&
+              snapCols > 0 &&
+              snapRows > 0 &&
+              (term.cols !== snapCols || term.rows !== snapRows)
+            ) {
+              try {
+                term.resize(snapCols, snapRows);
+              } catch {
+                // fall through — replay into the current grid
+              }
+            }
             term.reset();
             if (result.screen?.seq !== undefined) lastSeq = result.screen.seq;
             term.write(serializedScreen, finishAttach);
@@ -596,8 +892,29 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
     // Actor seats: ensure generation first (spinner covers ensure + attach).
     // Geography shells only attach (ensure already ran in openTerminal).
     if (agentSeat) {
+      /**
+       * Wait for the host to actually hold a LIVE generation before attaching.
+       *
+       * ensureTerminalRunning resolves as soon as create returns, but the new
+       * generation is not necessarily the one a lookup by bindingId answers
+       * with yet — so attaching immediately can bind to the previous, exited
+       * generation and paint the seat dead. Retrying at full speed just hits
+       * the same instant three times; clicking Reopen "worked" only because a
+       * human takes a second, by which point the live generation is there.
+       *
+       * Polling the host removes the race instead of racing faster.
+       */
+      const awaitLiveGeneration = async (): Promise<void> => {
+        const deadline = Date.now() + 10_000;
+        while (alive && Date.now() < deadline) {
+          const live = await api.terminalGet?.(bindingId, hostId).catch(() => undefined);
+          const status = live?.status;
+          if (status === "running" || status === "starting") return;
+          await new Promise((resolve) => setTimeout(resolve, 150));
+        }
+      };
       void ensureTerminalRunning(nodeRef.current, { resume: true }).then(
-        (result) => {
+        async (result) => {
           if (!alive) return;
           if (!result.ok) {
             setStatus(result.message);
@@ -606,6 +923,8 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
             setKillPhase("stopped");
             return;
           }
+          await awaitLiveGeneration();
+          if (!alive) return;
           runAttach();
         },
       );
@@ -641,14 +960,16 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
       epochRef.current = undefined;
       if (lease) void api.terminalRelease(lease);
     };
-  }, [bindingId, hostId, attachKey, agentSeat, pinSessionId]);
+  }, [bindingId, hostId, attachKey, agentSeat]);
 
   const label = node.type === "text" ? node.text : "terminal";
   const surfaceId = terminalSurfaceId(node.id);
-  const registry = use$(dock$.registry);
-  const surface = surfaceById(registry, surfaceId);
-  const pinned = surface?.zone === "pinned";
-  const closeSurface = () => closeWorkbenchSurface(surfaceId);
+  const pinned = use$(() =>
+    dock$.registry.surfaces.get().find((surface) => surface.id === surfaceId)?.zone === "pinned",
+  );
+  // Modal semantics: dismisses the whole chrome-less focus stack (cycled
+  // mirror views park behind the front pane), one press. Views only.
+  const closeSurface = () => closeFocusModalSurface(surfaceId);
   const togglePin = () => {
     if (pinned) unpinWorkbenchSurface(surfaceId);
     else pinWorkbenchSurface(surfaceId);
@@ -675,6 +996,9 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
       window.clearTimeout(killArmTimer.current);
       killArmTimer.current = null;
     }
+    // The operator asked for this one to stay down. This is the only thing
+    // that suppresses the lazy wake below.
+    operatorStopped.current = true;
     setKillPhase("stopping");
     setStatus("stopping…");
     void getVellumCommandApi()
@@ -690,6 +1014,8 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
   };
   const reopenProcess = async (): Promise<void> => {
     if (reopenPending) return;
+    operatorStopped.current = false;
+    autoWakes.current = 0;
     setReopenPending(true);
     // Agent seats: attach effect owns ensure + load spinner. Geography shells
     // still ensure here so attach finds a live generation.
@@ -743,6 +1069,16 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
     agentSeat,
   });
   const deadCopy = deadStateCopy({ agentSeat });
+  /**
+   * The real reason this generation ended: the harness's exit message, the
+   * classified exit reason, or whatever the last status said. The generic
+   * headline alone gives the operator nothing to act on.
+   */
+  const deadReason = [deadInfo.reason, deadInfo.message, status !== "exited" ? status : ""]
+    .map((part) => (typeof part === "string" ? part.trim() : ""))
+    .filter((part) => part.length > 0)
+    .join(" — ")
+    .slice(0, 300);
   const releaseClaim = async (): Promise<void> => {
     if (!claimedTask || releasePending) return;
     setReleasePending(true);
@@ -772,11 +1108,47 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
   }, [attached]);
 
   useEffect(() => {
-    if (status === "exited") {
-      setKillPhase("stopped");
-      setLoadPhase(null);
+    if (status !== "exited" && killPhase !== "stopped") return;
+    if (!bindingId) return;
+    let alive = true;
+    void getVellumCommandApi()
+      ?.terminalGet?.(bindingId, hostId)
+      .then((live) => {
+        if (!alive || !live) return;
+        setDeadInfo({
+          ...(live.exitReason ? { reason: live.exitReason } : {}),
+          ...(live.exitMessage ? { message: live.exitMessage } : {}),
+        });
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [status, killPhase, bindingId, hostId]);
+
+  useEffect(() => {
+    if (status !== "exited") return;
+    // Lazy wake: the seat died with the app, crashed, or was never started in
+    // this process — it does not matter which. Opening it is the demand signal,
+    // so bring it back instead of painting a dead end. Bounded so a seat that
+    // cannot start (missing CLI, bad launch) still settles into the stopped
+    // state rather than spinning.
+    if (agentSeat && !operatorStopped.current && autoWakes.current < 2) {
+      autoWakes.current += 1;
+      setKillPhase("idle");
+      setLoadPhase(initialSessionLoadPhase({ agentSeat, sessionId: pinSessionId }));
+      setStatus(
+        sessionLoadPresentation({
+          phase: initialSessionLoadPhase({ agentSeat, sessionId: pinSessionId }),
+          sessionId: pinSessionId,
+        }).label,
+      );
+      setAttachKey((key) => key + 1);
+      return;
     }
-  }, [status]);
+    setKillPhase("stopped");
+    setLoadPhase(null);
+  }, [status, agentSeat, pinSessionId]);
 
   return (
     <div
@@ -874,8 +1246,10 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
           </Button>
         </div>
       ) : null}
-      {/* Body: xterm stage + edges side pane on the RIGHT (unified modal plate). */}
+      {/* Body: ledger pane LEFT (focus only), xterm stage, edges pane RIGHT —
+          one modal plate. The pinned dock keeps just the connections pane. */}
       <div className="native-terminal-surface__body">
+        {!pinned ? <ActorLedgerPane node={node} visible={visible} /> : null}
         <div className="native-terminal-surface__stage">
           <div
             ref={hostRef}
@@ -914,6 +1288,15 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
                     ? "Stopping the process…"
                     : deadCopy.detail}
                 </p>
+                {/* Why it ended. Without this the card says "Agent stopped" and
+                    hides the harness's own error behind the overlay, so a seat
+                    that cannot start looks identical to one that was stopped on
+                    purpose — and there is nothing to act on. */}
+                {!processStopping && deadReason ? (
+                  <p className="native-terminal-surface__dead-detail font-mono text-[11px] opacity-80">
+                    {deadReason}
+                  </p>
+                ) : null}
                 {!processStopping ? (
                   <div className="native-terminal-surface__dead-actions">
                     <Button
@@ -938,7 +1321,7 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
             </div>
           ) : null}
         </div>
-        <ActorEdgesGlance node={node} />
+        <ActorEdgesGlance node={node} zone={pinned ? "pinned" : "focus"} />
       </div>
     </div>
   );

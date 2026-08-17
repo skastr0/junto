@@ -64,6 +64,43 @@ export function terminalFocusWidthPx(
   return Math.round(cols * monoCellWidthPx(fontSizePx) + TERMINAL_FOCUS.chromeXPx);
 }
 
+/**
+ * Side rails inside an ACTOR terminal focus panel (ledger left, connections
+ * right). These sit inside the panel, so an actor terminal's panel must be
+ * budgeted wider or the xterm silently loses their width in columns
+ * (140 targeted, 76 measured before this budget existed).
+ *
+ * The budget tracks each rail's CURRENT width, collapsed or expanded. Budget
+ * both as expanded while they are collapsed and the panel keeps 408px it is
+ * not using — the stage flexes into it and the xterm runs ~190 columns. A rail
+ * grows the panel outwards; it never takes columns from the terminal, and
+ * collapsing it never hands columns to the terminal.
+ */
+export const TERMINAL_RAILS_PX = {
+  ledger: 248,
+  connections: 232,
+  /** Icon-only strip a collapsed rail keeps (.actor-ledger--collapsed). */
+  collapsed: 36,
+} as const;
+
+/** Expanded / collapsed state of the two actor rails. */
+export type ActorRailsOpen = {
+  readonly ledger: boolean;
+  readonly connections: boolean;
+};
+
+/** Rails default to expanded — the state the panes mount in. */
+export const DEFAULT_ACTOR_RAILS_OPEN: ActorRailsOpen = {
+  ledger: true,
+  connections: true,
+};
+
+export const actorTerminalRailsPx = (
+  open: ActorRailsOpen = DEFAULT_ACTOR_RAILS_OPEN,
+): number =>
+  (open.ledger ? TERMINAL_RAILS_PX.ledger : TERMINAL_RAILS_PX.collapsed) +
+  (open.connections ? TERMINAL_RAILS_PX.connections : TERMINAL_RAILS_PX.collapsed);
+
 /** Default CSS pixel widths for non-ch measures (document / workspace). */
 export const FOCUS_WIDTH_PX = {
   /** Session / signal / dispatch detail — existing vellum-modal. */
@@ -78,10 +115,14 @@ export const FOCUS_WIDTH_PX = {
 export const PROSE_MEASURE_CH = 65;
 
 /** Inline style vars consumers can set on a focus panel root. */
-export function focusMeasureCssVars(measure: FocusMeasure): CSSProperties {
+export function focusMeasureCssVars(
+  measure: FocusMeasure,
+  options?: { readonly terminalRailsPx?: number },
+): CSSProperties {
   const terminalW = terminalFocusWidthPx();
   return {
     ["--focus-terminal-width" as string]: `${terminalW}px`,
+    ["--focus-terminal-rails" as string]: `${options?.terminalRailsPx ?? 0}px`,
     ["--focus-document-width" as string]: `${FOCUS_WIDTH_PX.document}px`,
     ["--focus-workspace-width" as string]: `${FOCUS_WIDTH_PX.workspace}px`,
     ["--focus-form-width" as string]: `${FOCUS_WIDTH_PX.form}px`,

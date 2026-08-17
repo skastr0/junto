@@ -196,10 +196,11 @@ describe("work-control main authoring classification", () => {
       "content.path": "read",
       "content.stat": "read",
       "content.materialize": "read",
-      "msg.list": "read",
+      "msg.list": "authorial",
       "msg.send": "authorial",
       "msg.read": "authorial",
       "msg.reply": "authorial",
+      "msg.react": "authorial",
       "request.escalate": "authorial",
       "artifact.publish": "authorial",
       "board.list": "read",
@@ -207,6 +208,8 @@ describe("work-control main authoring classification", () => {
       "board.create_topic": "authorial",
       "board.post": "authorial",
       "board.mark_read": "authorial",
+      "pad.read": "read",
+      "pad.patch": "authorial",
       "relay.trigger": "authorial",
     } as const satisfies Record<
       WorkOpName,
@@ -223,7 +226,9 @@ describe("work-control main authoring classification", () => {
     expect(mainAuthoringLabelForWorkOperation("tasks.update")).toBe(
       "control.work.tasks-update",
     );
+    expect(mainAuthoringLabelForWorkOperation("msg.list")).toBe("control.work.msg-send");
     expect(mainAuthoringLabelForWorkOperation("msg.send")).toBe("control.work.msg-send");
+    expect(mainAuthoringLabelForWorkOperation("msg.read")).toBe("control.work.msg-send");
     expect(mainAuthoringLabelForWorkOperation("request.escalate")).toBe(
       "control.work.request-escalate",
     );

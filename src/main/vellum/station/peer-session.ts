@@ -39,6 +39,11 @@ import {
   type StationProtocolVersion,
   type StationStateSchemaVersion,
 } from "@shared/station-protocol";
+import { stationTapeFromExchange } from "@shared/transport-trace";
+import {
+  appendTransportTrace,
+  recordTransportError,
+} from "../observability/transport-journal";
 
 export const STATION_PEER_MAX_PENDING_REQUESTS = 64;
 export const STATION_PEER_MAX_INBOUND_REQUESTS = 16;
@@ -568,6 +573,23 @@ export const makeStationPeerSession = (
               "Station request handler failed",
               false,
             );
+        const inboundHop = {
+          plane: "station" as const,
+          op: `station.${frame.request.op}`,
+          hostId: options.peerInstallationId,
+        };
+        if (envelope.ok) {
+          appendTransportTrace({
+            ...inboundHop,
+            ok: true,
+            ...stationTapeFromExchange(frame.request, envelope.response),
+          });
+        } else {
+          recordTransportError(
+            inboundHop,
+            new Error(envelope.error.message),
+          );
+        }
         const response = StationSessionResponseFrame.make({
           protocol: STATION_SESSION_PROTOCOL,
           frame: "response",
@@ -757,8 +779,14 @@ export const makeStationPeerSession = (
 
     const request: StationPeerSession["request"] = <R extends StationApiRequest>(
       outbound: R,
-    ): Effect.Effect<StationApiResponseFor<R>, StationPeerRequestError> =>
-      Effect.gen(function* () {
+    ): Effect.Effect<StationApiResponseFor<R>, StationPeerRequestError> => {
+      const started = Date.now();
+      const hop = {
+        plane: "station" as const,
+        op: `station.${outbound.op}`,
+        hostId: options.peerInstallationId,
+      };
+      return Effect.gen(function* () {
         if (
           options.localRole === "remote" &&
           outbound.op !== "report"
@@ -872,7 +900,31 @@ export const makeStationPeerSession = (
           });
         }
         return envelope.response as StationApiResponseFor<R>;
-      });
+      }).pipe(
+        Effect.tap((response) =>
+          Effect.sync(() =>
+            appendTransportTrace({
+              ...hop,
+              ok: true,
+              ms: Date.now() - started,
+              ...stationTapeFromExchange(outbound, response),
+            }),
+          ),
+        ),
+        Effect.tapError((error) =>
+          Effect.sync(() =>
+            recordTransportError(
+              {
+                ...hop,
+                ms: Date.now() - started,
+                ...stationTapeFromExchange(outbound),
+              },
+              error,
+            ),
+          ),
+        ),
+      );
+    };
 
     return {
       localInstallationId: options.localInstallationId,

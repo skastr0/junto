@@ -373,6 +373,23 @@ export const EtherBoard = Schema.Struct({
 });
 export type EtherBoard = typeof EtherBoard.Type;
 
+/** Canvas glance strip — title lives on the text node; counts from SQLite. */
+export const EtherPad = Schema.Struct({
+  revision: Schema.Number.pipe(
+    Schema.check(Schema.isInt()),
+    Schema.check(Schema.isGreaterThanOrEqualTo(0)),
+  ),
+  shapeCount: Schema.Number.pipe(
+    Schema.check(Schema.isInt()),
+    Schema.check(Schema.isGreaterThanOrEqualTo(0)),
+  ),
+  unreadPinCount: Schema.Number.pipe(
+    Schema.check(Schema.isInt()),
+    Schema.check(Schema.isGreaterThanOrEqualTo(0)),
+  ),
+});
+export type EtherPad = typeof EtherPad.Type;
+
 /**
  * Canonical work-lane values exposed at the runtime projection boundary.
  * These names identify projected lane contents; they are not document
@@ -403,5 +420,6 @@ export const WorkSnapshot = Schema.Struct({
   messages: WorkMessages,
   artifacts: WorkArtifacts,
   board: WorkBoard,
+  pad: Schema.optionalKey(EtherPad),
 });
 export type WorkSnapshot = typeof WorkSnapshot.Type;

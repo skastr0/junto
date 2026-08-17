@@ -6,6 +6,7 @@ import {
   TasksUpdateArgs,
   ArtifactPublishCliArgs,
   PreambleArgs,
+  RequestEscalateArgs,
 } from "../src/shared/work-control";
 import { loadBatchJsonInput, loadJsonInput } from "../src/cli/core/json";
 import { runMutationBatch } from "../src/cli/core/batch";
@@ -20,6 +21,10 @@ import {
   allExamples,
   annotateCapabilityInvocations,
   commandCapabilities,
+  padLookHereSchema,
+  padPatchSchema,
+  padReadSchema,
+  padTaggedSchema,
   renderSchemaContract,
 } from "../src/cli/core/discovery";
 import { BROWSER_ENABLED } from "../src/shared/features";
@@ -156,6 +161,50 @@ describe("work CLI json input modes", () => {
         loadJsonInput(PreambleArgs, '{"text":"x","target":"agent"}'),
       ),
     ).rejects.toThrow(/target|unexpected/i);
+  });
+
+  it("request escalate rejects title-only and accepts reason or metadata.details", async () => {
+    await expect(
+      Effect.runPromise(
+        loadJsonInput(
+          RequestEscalateArgs,
+          '{"target":"requests","brief":"need a decision"}',
+        ),
+      ),
+    ).rejects.toThrow(/request body required|title-only/i);
+
+    await expect(
+      Effect.runPromise(
+        loadJsonInput(
+          RequestEscalateArgs,
+          '{"target":"requests","brief":"need a decision","reason":"   ","metadata":{"details":""}}',
+        ),
+      ),
+    ).rejects.toThrow(/request body required|title-only/i);
+
+    const viaReason = await Effect.runPromise(
+      loadJsonInput(
+        RequestEscalateArgs,
+        JSON.stringify({
+          target: "requests",
+          brief: "need a decision",
+          reason: "blocked without operator sign-off",
+        }),
+      ),
+    );
+    expect(viaReason.reason).toBe("blocked without operator sign-off");
+
+    const viaDetails = await Effect.runPromise(
+      loadJsonInput(
+        RequestEscalateArgs,
+        JSON.stringify({
+          target: "requests",
+          brief: "need a decision",
+          metadata: { details: "checklist items remain open" },
+        }),
+      ),
+    );
+    expect(viaDetails.metadata?.details).toBe("checklist items remain open");
   });
 });
 
@@ -305,6 +354,71 @@ describe("schema/examples from validating schemas", () => {
     expect(
       allExamples.some((example) => example.command_id === "preamble"),
     ).toBe(true);
+  });
+
+  it("discovers every pad CLI verb with schema, example, and grant copy", () => {
+    const verbs = [
+      "pad.read",
+      "pad.patch",
+      "pad.digest",
+      "pad.svg",
+      "pad.look-here",
+      "pad.get",
+      "pad.tagged",
+    ];
+    const schemaIds = allSchemas.map((contract) => contract.command_id);
+    const capabilityIds = commandCapabilities.map(
+      (capability) => capability.command_id,
+    );
+    const exampleIds = allExamples.map((example) => example.command_id);
+    expect(schemaIds).toEqual(expect.arrayContaining(verbs));
+    expect(capabilityIds).toEqual(expect.arrayContaining(verbs));
+    expect(exampleIds).toEqual(expect.arrayContaining(verbs));
+    for (const verb of verbs) {
+      const schema = allSchemas.find((contract) => contract.command_id === verb);
+      expect(schema?.schema_id).toBe(`${verb}.input/v1`);
+      expect(schema?.description).toMatch(/grant pad\.(read|patch)/);
+    }
+    expect(padReadSchema.description).toMatch(/never write the factory canvas/i);
+    expect(padPatchSchema.description).toMatch(/ink or image/i);
+    expect(padPatchSchema.description).toMatch(/inbound actor/i);
+    expect(padLookHereSchema.description).toMatch(/unwired/i);
+    expect(padTaggedSchema.description).toMatch(/mention/i);
+  });
+
+  it("annotates pad invocations when the live edge grants pad ports", () => {
+    const live = annotateCapabilityInvocations({
+      connected: [
+        { id: "pad-1", grants: ["pad.read", "pad.patch"] },
+        { id: "tasks", grants: ["tasks.list"] },
+      ],
+    });
+    expect(live.connected[0]).toMatchObject({
+      id: "pad-1",
+      invocations: expect.arrayContaining([
+        {
+          port: "pad.read",
+          command: "vellum-command pad read",
+          discover: "vellum-command schema show pad.read",
+        },
+        {
+          port: "pad.read",
+          command: "vellum-command pad look-here",
+          discover: "vellum-command schema show pad.look-here",
+        },
+        {
+          port: "pad.read",
+          command: "vellum-command pad tagged",
+          discover: "vellum-command schema show pad.tagged",
+        },
+        {
+          port: "pad.patch",
+          command: "vellum-command pad patch",
+          discover: "vellum-command schema show pad.patch",
+        },
+      ]),
+    });
+    expect(live.connected[1]).not.toHaveProperty("invocations");
   });
 });
 

@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { Effect, Result, Option, Schema } from "effect";
 import { ulid } from "ulid";
 import type { Artifact, CanvasDoc, Message, Part } from "@shared/canvas";
+import { sortMessagesNewestFirst } from "@shared/message-delivery";
 import type { BoardAuthor } from "@shared/work-model";
 import {
   normalizePreambleText,
@@ -26,6 +27,10 @@ import {
   makeAgentMessage,
   makeUserMessage,
 } from "@shared/task";
+import {
+  isOwnMailboxTarget,
+  resolveMailboxTarget,
+} from "@shared/mailbox-target";
 import { formatNodeRef } from "@shared/node-ref";
 import {
   artifactPublishAuthority,
@@ -39,11 +44,14 @@ import {
   BoardMarkReadArgs,
   BoardPostArgs,
   BoardTagsListArgs,
+  PadPatchArgs,
+  PadReadArgs,
   ContentMaterializeArgs,
   ContentPathArgs,
   ContentStatArgs,
   EmptyArgs,
   MsgListArgs,
+  MsgReactArgs,
   MsgReadArgs,
   MsgReplyArgs,
   MsgSendArgs,
@@ -97,14 +105,17 @@ const MUTATING_OPS: ReadonlySet<string> = new Set([
   "tasks.update",
   "content.materialize",
   "preamble",
+  "msg.list",
   "msg.send",
   "msg.read",
   "msg.reply",
+  "msg.react",
   "request.escalate",
   "artifact.publish",
   "board.create_topic",
   "board.post",
   "board.mark_read",
+  "pad.patch",
   "relay.trigger",
 ]);
 
@@ -126,10 +137,12 @@ const BLOCKED_ENFORCED_OPS: ReadonlySet<string> = new Set([
   "msg.send",
   "msg.read",
   "msg.reply",
+  "msg.react",
   "request.escalate",
   "artifact.publish",
   "board.create_topic",
   "board.post",
+  "pad.patch",
   "relay.trigger",
 ]);
 import {
@@ -900,11 +913,14 @@ const dispatchOp = (
     if (op === "msg.list") {
       const decoded = decodeArgs(MsgListArgs, args);
       if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
-      const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
-      if ("type" in gate) return yield* Effect.fail(gate);
-      const node = gate.node!;
-      const kind = nodeKind(node);
+      const targetId = resolveMailboxTarget(decoded.success.target, caller);
+      const own = isOwnMailboxTarget(targetId, caller.nodeId);
+
       if (decoded.success.taskId) {
+        const gate = requireTarget(board, caller.nodeId, targetId, op);
+        if ("type" in gate) return yield* Effect.fail(gate);
+        const node = gate.node!;
+        const kind = nodeKind(node);
         const list =
           kind === "task"
             ? node.ether?.tasks?.items ?? []
@@ -917,11 +933,70 @@ const dispatchOp = (
             details: { target: decoded.success.taskId, retryable: false },
           });
         }
-        return { target: decoded.success.target, taskId: task.id, items: task.history };
+        return { target: targetId, taskId: task.id, items: task.history };
       }
+
+      if (own) {
+        const ownNode = findNode(board, caller.nodeId);
+        if (!ownNode) {
+          return yield* Effect.fail({
+            type: "UnknownTarget" as const,
+            message: `target "${caller.nodeId}" not found`,
+            details: { target: caller.nodeId, retryable: false },
+          });
+        }
+        const reader = resolveProcessBoundActorRef(read.actorRefs, caller);
+        if (Result.isFailure(reader)) return yield* Effect.fail(reader.failure);
+        const items = ownNode.ether?.messages?.items ?? [];
+        const overlaid: Message[] = [];
+        for (const item of items) {
+          if (item.role !== "user") {
+            overlaid.push(item);
+            continue;
+          }
+          const existingReadAt = item.metadata?.readAt;
+          if (typeof existingReadAt === "number" && Number.isFinite(existingReadAt)) {
+            overlaid.push(item);
+            continue;
+          }
+          const marked = yield* work.workMessageMarkRead(
+            caller.canvasName,
+            caller.nodeId,
+            item.messageId,
+            reader.success,
+          );
+          const mapped = fromWorkResult(marked);
+          if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
+          const readAtMs = Date.parse(mapped.success.value.readAt);
+          overlaid.push({
+            ...item,
+            metadata: {
+              ...(item.metadata ?? {}),
+              ...(Number.isFinite(readAtMs) ? { readAt: readAtMs } : {}),
+            },
+          });
+        }
+        const sent: Array<Message & { readonly toNodeId: string }> = [];
+        for (const node of board.nodes) {
+          if (node.id === caller.nodeId) continue;
+          for (const message of node.ether?.messages?.items ?? []) {
+            if (message.metadata?.fromSeat !== caller.nodeId) continue;
+            sent.push({ ...message, toNodeId: node.id });
+          }
+        }
+        sent.sort((a, b) => b.messageId.localeCompare(a.messageId));
+        return {
+          target: caller.nodeId,
+          items: sortMessagesNewestFirst(overlaid),
+          sent,
+        };
+      }
+
+      const gate = requireTarget(board, caller.nodeId, targetId, op);
+      if ("type" in gate) return yield* Effect.fail(gate);
       return {
-        target: decoded.success.target,
-        items: node.ether?.messages?.items ?? [],
+        target: targetId,
+        items: sortMessagesNewestFirst(gate.node?.ether?.messages?.items ?? []),
       };
     }
 
@@ -969,16 +1044,15 @@ const dispatchOp = (
     if (op === "msg.read") {
       const decoded = decodeArgs(MsgReadArgs, args);
       if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
+      const targetId = resolveMailboxTarget(decoded.success.target, caller);
       // Own mailbox only — process-bind is the authority (not edge OptIn ports).
-      // Actor↔actor is OptIn; a seat reading its own inbox must not require a
-      // self-loop edge with msg.list.
-      if (decoded.success.target !== caller.nodeId) {
+      if (targetId !== caller.nodeId) {
         return yield* Effect.fail({
           type: "ScopeError" as const,
           message: "msg.read only applies to this seat's own mailbox",
           details: {
             caller: caller.nodeId,
-            target: decoded.success.target,
+            target: targetId,
             next_step: `retry with target "${caller.nodeId}" (your own node) and the same messageId`,
             retryable: false,
           },
@@ -996,9 +1070,47 @@ const dispatchOp = (
       if (Result.isFailure(reader)) return yield* Effect.fail(reader.failure);
       const result = yield* work.workMessageMarkRead(
         caller.canvasName,
-        decoded.success.target,
+        caller.nodeId,
         decoded.success.messageId.trim(),
         reader.success,
+      );
+      const mapped = fromWorkResult(result);
+      if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
+      return exposeWorkMutation(mapped.success);
+    }
+
+    if (op === "msg.react") {
+      const decoded = decodeArgs(MsgReactArgs, args);
+      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
+      const targetId = resolveMailboxTarget(decoded.success.target, caller);
+      if (targetId !== caller.nodeId) {
+        return yield* Effect.fail({
+          type: "ScopeError" as const,
+          message: "msg.react only applies to this seat's own mailbox",
+          details: {
+            caller: caller.nodeId,
+            target: targetId,
+            next_step: `retry with target "${caller.nodeId}" (your own node) and the same messageId`,
+            retryable: false,
+          },
+        });
+      }
+      const own = findNode(board, caller.nodeId);
+      if (!own) {
+        return yield* Effect.fail({
+          type: "UnknownTarget" as const,
+          message: `target "${caller.nodeId}" not found`,
+          details: { target: caller.nodeId, retryable: false },
+        });
+      }
+      const reactor = resolveProcessBoundActorRef(read.actorRefs, caller);
+      if (Result.isFailure(reactor)) return yield* Effect.fail(reactor.failure);
+      const result = yield* work.workMessageReact(
+        caller.canvasName,
+        caller.nodeId,
+        decoded.success.messageId.trim(),
+        decoded.success.reaction ?? "ack",
+        reactor.success,
       );
       const mapped = fromWorkResult(result);
       if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
@@ -1332,6 +1444,44 @@ const dispatchOp = (
         decoded.success.topicId,
         principalKey,
         decoded.success.upToPosition,
+      );
+      const mapped = fromWorkResult(result);
+      if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
+      return exposeWorkMutation(mapped.success);
+    }
+
+    if (op === "pad.read") {
+      const decoded = decodeArgs(PadReadArgs, args);
+      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
+      const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
+      if ("type" in gate) return yield* Effect.fail(gate);
+      const result = yield* work.workPadRead(
+        caller.canvasName,
+        decoded.success.target,
+        decoded.success.pinId,
+      );
+      const mapped = fromWorkResult(result);
+      if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
+      return mapped.success.value;
+    }
+
+    if (op === "pad.patch") {
+      const decoded = decodeArgs(PadPatchArgs, args);
+      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
+      const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
+      if ("type" in gate) return yield* Effect.fail(gate);
+      const bound = resolveProcessBoundActorRef(read.actorRefs, caller);
+      if (Result.isFailure(bound)) return yield* Effect.fail(bound.failure);
+      const author: BoardAuthor = {
+        kind: "actor",
+        seatId: bound.success.seatId,
+        nodeId: bound.success.nodeId,
+      };
+      const result = yield* work.workPadPatch(
+        caller.canvasName,
+        decoded.success.target,
+        decoded.success.patches,
+        author,
       );
       const mapped = fromWorkResult(result);
       if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);

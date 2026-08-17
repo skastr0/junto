@@ -6,7 +6,19 @@ import {
   type ExecutionGraphContext,
 } from "@shared/execution-graph";
 import type { ExecutionSnapshot } from "@shared/ipc";
-import { edgeMaskAllows } from "@shared/physics";
+import {
+  chipPortsFromOffers,
+  edgeMaskAllows,
+  familyFromSlot,
+  offerPortsForAccessWire,
+  offersOf,
+  resolveSpec,
+  roleOf,
+  wirePresentation,
+  wireRolePair,
+  type WireFamily,
+  type WirePresentation,
+} from "@shared/physics";
 import { AGENT_NODE_SIZE } from "./node-geometry";
 import { isLabelNode, nodeTitle, searchText } from "./presentation";
 
@@ -23,7 +35,87 @@ export type EdgeData = {
   detail: string;
   /** Focus selection member (stoppage cone or direct connection neighborhood). */
   impact?: "in";
+  /**
+   * Stable wire presentation facts computed once at convert time so EtherEdge
+   * never walks the document for endpoint kinds / roles.
+   */
+  readonly presentation?: WirePresentation;
+  readonly wireFamily?: WireFamily;
+  readonly fromKind?: string;
+  readonly toKind?: string;
+  readonly hasMessages?: boolean;
+  readonly offeredChipCount?: number;
+  readonly activeChipCount?: number | "full";
 };
+
+/** Derive paint presentation for one edge without React / store peeks. */
+export function edgePresentationFacts(
+  edge: CanvasEdge,
+  fromNode: CanvasNode | undefined,
+  toNode: CanvasNode | undefined,
+): Pick<
+  EdgeData,
+  | "presentation"
+  | "wireFamily"
+  | "fromKind"
+  | "toKind"
+  | "hasMessages"
+  | "offeredChipCount"
+  | "activeChipCount"
+> {
+  const fromKind = fromNode?.ether?.entity?.kind;
+  const toKind = toNode?.ether?.entity?.kind;
+  const fromSpec = resolveSpec({
+    isGroup: fromNode?.type === "group",
+    kind: fromKind,
+  });
+  const toSpec = resolveSpec({
+    isGroup: toNode?.type === "group",
+    kind: toKind,
+  });
+  const fromRole = roleOf(fromSpec);
+  const toRole = roleOf(toSpec);
+  const family =
+    familyFromSlot(edge.ether?.slot, wireRolePair(fromRole, toRole)) ??
+    (fromRole === "actor" || toRole === "actor" ? ("access" as const) : undefined);
+  if (!family) {
+    return { fromKind, toKind };
+  }
+  const offerSet = offerPortsForAccessWire(
+    fromRole,
+    toRole,
+    offersOf(fromSpec),
+    offersOf(toSpec),
+  );
+  const offeredChips = chipPortsFromOffers(offerSet);
+  const portsField = edge.ether?.ports;
+  const activeChipCount: number | "full" =
+    portsField === undefined
+      ? "full"
+      : offeredChips.filter((port) => edgeMaskAllows(edge, port)).length;
+  const hasMessages =
+    fromRole === "actor" &&
+    toRole === "actor" &&
+    edgeMaskAllows(edge, "msg.send");
+  const presentation = wirePresentation({
+    family,
+    ether: edge.ether,
+    fromKind,
+    toKind,
+    hasMessages,
+    offeredChipCount: offeredChips.length,
+    activeChipCount,
+  });
+  return {
+    presentation,
+    wireFamily: family,
+    fromKind,
+    toKind,
+    hasMessages,
+    offeredChipCount: offeredChips.length,
+    activeChipCount,
+  };
+}
 
 export type FlowNode = Node<NodeData>;
 export type FlowEdge = Edge<EdgeData>;
@@ -153,6 +245,10 @@ export const toFlow = (
     const phase = phaseOf(edge.id);
     const detail = detailOf(edge.id);
     const rippling = blockedEdgeIds.has(edge.id);
+    const fromNode = nodeById.get(edge.fromNode);
+    const toNode = nodeById.get(edge.toNode);
+    const fromKind = fromNode?.ether?.entity?.kind;
+    const toKind = toNode?.ether?.entity?.kind;
     const cached = cache?.edges.get(edge.id);
     // Hit on *source* doc edge ref + live phase inputs — never compare against
     // the projected edge (which always remints ether/label).
@@ -161,7 +257,9 @@ export const toFlow = (
       cached.source === edge &&
       cached.flow.data?.phase === phase &&
       cached.flow.data?.detail === detail &&
-      cached.flow.data?.rippling === rippling
+      cached.flow.data?.rippling === rippling &&
+      cached.flow.data?.fromKind === fromKind &&
+      cached.flow.data?.toKind === toKind
     ) {
       return cached.flow;
     }
@@ -171,6 +269,7 @@ export const toFlow = (
       // Face text is phase-driven in EtherEdge; never invent "relates"/phase as label.
       label: edge.label,
     };
+    const facts = edgePresentationFacts(projected, fromNode, toNode);
     const flowEdge: FlowEdge = {
       id: edge.id,
       source: edge.fromNode,
@@ -185,6 +284,7 @@ export const toFlow = (
         rippling,
         phase,
         detail,
+        ...facts,
       },
       // Below non-group nodes (z=2). Selected edges may elevate via React Flow.
       zIndex: 1,

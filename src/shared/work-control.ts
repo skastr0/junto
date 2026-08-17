@@ -7,6 +7,7 @@ import {
   RawPart,
 } from "./work-model";
 import { ContentRef } from "./content";
+import { PadPatch } from "./pad";
 
 // Work control-plane wire contract: NDJSON frames over a local Unix domain
 // socket at ~/.vellum-command/work/control.sock. Pure module — no Node imports — so
@@ -53,6 +54,7 @@ export const WorkOpName = Schema.Literals(["ping", "doctor",
 "msg.send",
 "msg.read",
 "msg.reply",
+"msg.react",
 "request.escalate",
 "artifact.publish",
 "board.list",
@@ -60,6 +62,8 @@ export const WorkOpName = Schema.Literals(["ping", "doctor",
 "board.post",
 "board.mark_read",
 "board.tags",
+"pad.read",
+"pad.patch",
 /** Agent → relay: fire the scheduler pipeline now (port relay.trigger). */
 "relay.trigger",]);
 export type WorkOpName = typeof WorkOpName.Type;
@@ -273,7 +277,8 @@ export const ContentMaterializeArgs = Schema.Struct({
 export type ContentMaterializeArgs = typeof ContentMaterializeArgs.Type;
 
 export const MsgListArgs = Schema.Struct({
-  target: Schema.String,
+  /** Own inbox when omitted, own node id, or `canvas:nodeId`. */
+  target: Schema.optionalKey(Schema.String),
   taskId: Schema.optionalKey(Schema.String),
 });
 export type MsgListArgs = typeof MsgListArgs.Type;
@@ -287,10 +292,18 @@ export type MsgSendArgs = typeof MsgSendArgs.Type;
 
 /** Mark a mailbox message read. Target must be the caller's own seat. */
 export const MsgReadArgs = Schema.Struct({
-  target: Schema.String,
+  target: Schema.optionalKey(Schema.String),
   messageId: Schema.String,
 });
 export type MsgReadArgs = typeof MsgReadArgs.Type;
+
+/** Lightweight mailbox reaction. Target must be the caller's own seat. */
+export const MsgReactArgs = Schema.Struct({
+  target: Schema.optionalKey(Schema.String),
+  messageId: Schema.String,
+  reaction: Schema.optionalKey(Schema.Literals(["ack"])),
+});
+export type MsgReactArgs = typeof MsgReactArgs.Type;
 
 /**
  * Reply to a factory-mail message: send text to target and mark inReplyTo
@@ -311,12 +324,35 @@ export const PreambleArgs = Schema.Struct({
 });
 export type PreambleArgs = typeof PreambleArgs.Type;
 
+/**
+ * Escalate to the operator. Brief is the title line; agents must also supply
+ * a body via `reason` and/or `metadata.details` — title-only escalations are
+ * rejected (same spirit as task `metadata.details` required).
+ */
 export const RequestEscalateArgs = Schema.Struct({
   target: Schema.String,
   brief: Schema.String,
-  /** Why the caller is raising this — lands first-class on the request. */
+  /** Why the caller is raising this — first-class body (preferred). */
   reason: Schema.optionalKey(Schema.String),
   metadata: Schema.optionalKey(Schema.Record(Schema.String, Schema.Unknown)),
+}).pipe(
+  Schema.check(
+    Schema.makeFilter((args) => {
+      const brief = args.brief.trim();
+      if (!brief) return "brief must be non-empty";
+      const reason =
+        typeof args.reason === "string" ? args.reason.trim() : "";
+      const detailsRaw = args.metadata?.details;
+      const details =
+        typeof detailsRaw === "string" ? detailsRaw.trim() : "";
+      if (!reason && !details) {
+        return "request body required: provide reason and/or metadata.details (not title-only)";
+      }
+      return true;
+    }),
+  ),
+).annotate({
+  parseOptions: { onExcessProperty: "error" },
 });
 export type RequestEscalateArgs = typeof RequestEscalateArgs.Type;
 
@@ -448,6 +484,46 @@ export const BoardMarkReadArgs = Schema.Struct({
   upToPosition: Schema.optionalKey(Schema.Number),
 });
 export type BoardMarkReadArgs = typeof BoardMarkReadArgs.Type;
+
+export const PadReadArgs = Schema.Struct({
+  target: Schema.String,
+  pinId: Schema.optionalKey(Schema.String),
+}).annotate({
+  parseOptions: { onExcessProperty: "error" },
+});
+export type PadReadArgs = typeof PadReadArgs.Type;
+
+export const PadPatchArgs = Schema.Struct({
+  target: Schema.String,
+  patches: Schema.Array(PadPatch).pipe(Schema.check(Schema.isMinLength(1))),
+}).annotate({
+  parseOptions: { onExcessProperty: "error" },
+});
+export type PadPatchArgs = typeof PadPatchArgs.Type;
+
+/** CLI projection verbs that only need the connected pad target. */
+export const PadTargetArgs = Schema.Struct({
+  target: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+}).annotate({
+  parseOptions: { onExcessProperty: "error" },
+});
+export type PadTargetArgs = typeof PadTargetArgs.Type;
+
+export const PadLookHereArgs = Schema.Struct({
+  target: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+  pinId: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+}).annotate({
+  parseOptions: { onExcessProperty: "error" },
+});
+export type PadLookHereArgs = typeof PadLookHereArgs.Type;
+
+export const PadGetArgs = Schema.Struct({
+  target: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+  id: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMinLength(1)))),
+}).annotate({
+  parseOptions: { onExcessProperty: "error" },
+});
+export type PadGetArgs = typeof PadGetArgs.Type;
 
 /** Agent fires a connected scheduler via the relay.trigger port. */
 export const RelayTriggerArgs = Schema.Struct({

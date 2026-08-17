@@ -17,6 +17,9 @@ implementation is migration evidence only and cannot close this checklist.
 
 ## Evidence source
 
+Field meanings, truth precedence, failure isolation, and the qualification
+record are defined in [Fleet observability and qualification](fleet-observability.md).
+
 Run `vellum-command doctor` from an attached Vellum Command agent/tooling process so
 process-bind admission is real. Fleet identity and synchronization truth come
 from the live Remote `status` response, not a file read.

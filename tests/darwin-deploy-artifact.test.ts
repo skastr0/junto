@@ -6,6 +6,7 @@ import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import {
   buildRemoteDeployScript,
+  compileExpectedPackageState,
   darwinLiveWorkRefusalResult,
   makeDarwinRemoteDeploymentProvider,
   type DarwinDeployArtifactAdmission,
@@ -38,6 +39,10 @@ const admittedArtifact = (): DarwinDeployArtifactAdmission => ({
 
 const deploymentInput = (
   run: (...args: ReadonlyArray<unknown>) => Effect.Effect<unknown, unknown>,
+  stationConfiguration: RemoteDeploymentProviderInput["stationConfiguration"] = {
+    state: "applied",
+    remoteHostId: "remote-a",
+  },
 ): RemoteDeploymentProviderInput => ({
   target: {
     host: {
@@ -53,7 +58,7 @@ const deploymentInput = (
     progress: ["endpoint ok", "ssh warm ok", "remote uname Darwin"],
   },
   ssh: { run } as never,
-  stationConfiguration: { state: "applied", remoteHostId: "remote-a" },
+  stationConfiguration,
   artifactSource: "stable-feed",
 });
 
@@ -61,7 +66,11 @@ const providerWith = (
   liveWorkAuthority: DarwinRemoteLiveWorkAuthority,
 ) => {
   const streamArtifact = vi.fn((..._args: readonly unknown[]) =>
-    Effect.succeed({ ok: true, detail: "first generation ready" }),
+    Effect.succeed({
+      ok: true as const,
+      phase: "enrollment" as const,
+      detail: "first generation ready",
+    }),
   );
   return {
     streamArtifact,
@@ -222,15 +231,63 @@ describe("Darwin deployment first-install boundary", () => {
       );
 
     const result = await Effect.runPromise(
-      provider.deploy(deploymentInput(run)),
+      provider.deploy(deploymentInput(run, { state: "managed-externally" })),
     );
 
     expect(result.ok).toBe(true);
-    expect(result.stages).toContain("remote package absent; first install admitted");
+    expect(result.stages).toContain(
+      "Vellum Command is not installed on this Mac yet",
+    );
     expect(acquire).not.toHaveBeenCalled();
     expect(streamArtifact).toHaveBeenCalledOnce();
     expect(streamArtifact.mock.calls[0]?.[2]).toMatchObject({
       expectedPackageState: "absent",
+    });
+  });
+
+  it("station applied compiles present even when the package is gone", () => {
+    expect(compileExpectedPackageState("absent", "present")).toBe("present");
+    expect(compileExpectedPackageState("absent")).toBe("absent");
+    expect(compileExpectedPackageState("unknown")).toBe("present");
+    const script = buildRemoteDeployScript("/Users/op", TEST_CDHASH, {
+      kind: "app-tar",
+      expectedPackageState: compileExpectedPackageState("absent", "present"),
+    });
+    expect(script).not.toContain("--vellum-headless");
+    expect(script).toContain("STATION_READY");
+    expect(script).not.toContain("ENROLLMENT_READY");
+  });
+
+  it("does not write enrollment headless on an already configured Remote", async () => {
+    const acquire = vi.fn(() =>
+      Effect.die(new Error("absent package on needRestart must not cut terminals")),
+    );
+    const { provider, streamArtifact } = providerWith({ acquire });
+    const run = vi
+      .fn()
+      .mockReturnValueOnce(
+        Effect.succeed({ stdout: "/Users/operator\n", stderr: "" }),
+      )
+      .mockReturnValueOnce(
+        Effect.fail(
+          new SshExitError({
+            endpoint: String(endpoint),
+            operation: "probe installed package",
+            code: 1,
+          }),
+        ),
+      );
+
+    const result = await Effect.runPromise(
+      provider.deploy(deploymentInput(run, {
+        state: "applied",
+        remoteHostId: "remote-a",
+      })),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(streamArtifact.mock.calls[0]?.[2]).toMatchObject({
+      expectedPackageState: "present",
     });
   });
 
@@ -248,6 +305,7 @@ describe("Darwin deployment first-install boundary", () => {
       .mockReturnValueOnce(
         Effect.succeed({ stdout: "/Users/operator\n", stderr: "" }),
       )
+      .mockReturnValueOnce(Effect.succeed({ stdout: "", stderr: "" }))
       .mockReturnValueOnce(Effect.succeed({ stdout: "", stderr: "" }));
 
     const result = await Effect.runPromise(
@@ -281,6 +339,7 @@ describe("Darwin deployment first-install boundary", () => {
       .mockReturnValueOnce(
         Effect.succeed({ stdout: "/Users/operator\n", stderr: "" }),
       )
+      .mockReturnValueOnce(Effect.succeed({ stdout: "", stderr: "" }))
       .mockReturnValueOnce(Effect.succeed({ stdout: "", stderr: "" }));
 
     const result = await Effect.runPromise(
@@ -294,6 +353,42 @@ describe("Darwin deployment first-install boundary", () => {
       expectedPackageState: "present",
     });
     expect(released).toHaveBeenCalledOnce();
+  });
+
+  it("replaces a published app with no terminal plane without a maintenance cut", async () => {
+    const acquire = vi.fn(() =>
+      Effect.die(new Error("absent terminal plane must not acquire maintenance")),
+    );
+    const { provider, streamArtifact } = providerWith({ acquire });
+    const run = vi
+      .fn()
+      .mockReturnValueOnce(
+        Effect.succeed({ stdout: "/Users/operator\n", stderr: "" }),
+      )
+      .mockReturnValueOnce(Effect.succeed({ stdout: "", stderr: "" }))
+      .mockReturnValueOnce(
+        Effect.fail(
+          new SshExitError({
+            endpoint: String(endpoint),
+            operation: "probe terminal plane",
+            code: 1,
+          }),
+        ),
+      );
+
+    const result = await Effect.runPromise(
+      provider.deploy(deploymentInput(run)),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.stages).toContain(
+      "Vellum Command is not answering on this Mac — no live terminal to pause",
+    );
+    expect(acquire).not.toHaveBeenCalled();
+    expect(streamArtifact).toHaveBeenCalledOnce();
+    expect(streamArtifact.mock.calls[0]?.[2]).toMatchObject({
+      expectedPackageState: "present",
+    });
   });
 
   it.each([

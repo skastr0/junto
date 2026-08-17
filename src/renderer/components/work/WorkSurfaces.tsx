@@ -307,7 +307,10 @@ export function RequestsCard({
 }: {
   readonly node: CanvasNode;
 } & SinkRenameProps) {
-  const items = node.ether?.requests?.items ?? [];
+  // Newest first (ULID birth order) — matches requests lane SQL + RequestInbox.
+  const items = [...(node.ether?.requests?.items ?? [])].sort((a, b) =>
+    b.id.localeCompare(a.id),
+  );
   const pending = items.filter((t) => t.state === "input-required").length;
   return (
     <div className="factory-glance factory-glance--requests flex h-full w-full flex-col overflow-hidden" data-testid="requests-card">
@@ -389,7 +392,9 @@ export function ArtifactsCard({
 }: {
   readonly node: CanvasNode;
 } & SinkRenameProps) {
-  const items = node.ether?.artifacts?.items ?? [];
+  const items = (node.ether?.artifacts?.items ?? []).filter(
+    (item) => item.metadata?.archived !== true,
+  );
   return (
     <div className="factory-glance factory-glance--artifacts flex h-full w-full flex-col overflow-hidden" data-testid="artifacts-card">
       <SinkGlanceHead

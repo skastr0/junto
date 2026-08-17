@@ -161,6 +161,11 @@ export class InjectionSupervisor {
     if (seat) seat.lastUserInputAt = at;
   }
 
+  /** Last operator keystroke time for a binding, if any (process-local sticky). */
+  lastUserInputAt(bindingId: string): number | undefined {
+    return this.userInputBindings.get(bindingId);
+  }
+
   /** Seat-state machine events (idle/working/attention/gone/...). */
   noteSeatState(event: AgentSeatStateEvent): void {
     const seat = this.ensure(event.bindingId, event.epoch);

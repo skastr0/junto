@@ -43,6 +43,7 @@ export const DARWIN_PACKAGED_APP_EXECUTABLE =
   "/Applications/Vellum Command.app/Contents/MacOS/Vellum Command";
 export { STATION_PROTOCOL_NEGOTIATION_ARG, STATION_STDIO_COMMAND, CONTENT_TRANSFER_COMMAND };
 
+/** negotiation is the enroll/preface helper; session is the peer helper. */
 const stationStdioArgs = (
   mode: "session" | "negotiation",
 ): ReadonlyArray<string> =>
@@ -131,6 +132,17 @@ export const bindLinuxRemoteUserland = (
   }) as RemoteLinuxUserland;
   remoteLinuxUserlands.set(userland, homeDirectory);
   return Effect.succeed(userland);
+};
+
+/** Name of a minted platform witness. Callers cannot invent the name. */
+export const inspectRemotePackagedPlatform = (
+  platform: RemotePackagedPlatform,
+): RemotePackagedPlatformName => {
+  const name = remotePackagedPlatforms.get(platform);
+  if (name === undefined) {
+    throw new TypeError("remote packaged platform was not minted by the probe");
+  }
+  return name;
 };
 
 const decodeRemotePackagedPlatform = (
@@ -249,12 +261,47 @@ export const remoteTestFileExists = (
     Effect.flatMap((safe) => makeRemoteCommand("/bin/test", ["-f", safe])),
   );
 
+/** Socket existence probe: `/bin/test -S <path>`. */
+export const remoteTestSocketExists = (
+  path: string,
+): Effect.Effect<RemoteCommand, SshInputError> =>
+  admitReadPath(path).pipe(
+    Effect.flatMap((safe) => makeRemoteCommand("/bin/test", ["-S", safe])),
+  );
+
 /** Fixed package-presence probe; callers cannot redirect it to a host path. */
 export const remoteDarwinPackageExists = (): Effect.Effect<
   RemoteCommand,
   SshInputError
 > =>
   makeRemoteCommand("/bin/test", ["-f", DARWIN_PACKAGED_APP_EXECUTABLE]);
+
+export const remoteDarwinDeployLockExists = (): Effect.Effect<
+  RemoteCommand,
+  SshInputError
+> =>
+  makeRemoteCommand("/bin/test", [
+    "-d",
+    "/Applications/.vellum-command-deploy.lock",
+  ]);
+
+export const remoteDarwinIncomingExists = (): Effect.Effect<
+  RemoteCommand,
+  SshInputError
+> =>
+  makeRemoteCommand("/bin/test", [
+    "-d",
+    "/Applications/Vellum Command.app.incoming",
+  ]);
+
+export const remoteDarwinLaunchAgentIncomingRemove = (
+  homeDirectory: string,
+): Effect.Effect<RemoteCommand, SshInputError> => {
+  const path = `${homeDirectory}/Library/LaunchAgents/skastr0.vellumcommand.plist.incoming`;
+  return admitReadPath(path).pipe(
+    Effect.flatMap((safe) => makeRemoteCommand("/bin/rm", ["-f", safe])),
+  );
+};
 
 /**
  * Product Hermes CLI on the remote PATH.

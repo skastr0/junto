@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Profiler, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Background,
   BackgroundVariant,
@@ -20,7 +20,13 @@ import { use$ } from "@legendapp/state/react";
 import type { CanvasDoc, EtherEdgeKind, EtherFlag } from "@shared/canvas";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
 import { Ban, Boxes, Expand, Link2, Plus, ScanLine, SquareDashed, Trash2, X } from "lucide-react";
-import { state$ } from "../lib/state";
+import {
+  clearSelection,
+  replaceSelection,
+  selectEdge,
+  selectNode,
+  state$,
+} from "../lib/state";
 import { kernel$ } from "../lib/kernel-view";
 import type { FlowEdge, FlowNode } from "../lib/convert";
 import { createFlowIdentityCache, searchText, toFlow } from "../lib/convert";
@@ -33,9 +39,17 @@ import {
   selectionImpact,
   type ImpactSelection,
 } from "../lib/impact-mode";
-import { markViewportBusy, releaseViewportBusy, viewportBusy$ } from "../lib/viewport-busy";
+import {
+  bindViewportBusyHost,
+  markViewportBusy,
+  releaseViewportBusy,
+  resetViewportBusy,
+  viewportBusy$,
+  withViewportBusy,
+} from "../lib/viewport-busy";
 import { isEditableEventTarget } from "../lib/multi-select-gesture";
 import { nodeTitle } from "../lib/presentation";
+import { isCommandCenterAuthoring } from "../lib/canvas-boot";
 import { AGENT_NODE_SIZE } from "../lib/node-geometry";
 import { addNode, deleteNodes, setFlagForNodes } from "../lib/mutations";
 import { addEdge, connectAllToTarget, deleteEdges } from "../lib/edge-mutations";
@@ -48,6 +62,7 @@ import {
   makeArtifactsNode,
   makeBoardNode,
   makeCronNode,
+  makePadNode,
   makeGroupNode,
   makeImageNode,
   makeLabelNode,
@@ -73,6 +88,7 @@ import { CanvasLoom } from "./edges/CanvasLoom";
 import { RtsBottomBar } from "./rts/RtsBottomBar";
 import { TerminalWizard, createTerminalAt } from "./terminal/TerminalWizard";
 import { CanvasMagnifier } from "./CanvasMagnifier";
+import { canvasPerformance } from "../lib/performance/canvas-performance";
 import { NodePaletteModeDeck, type ModeDeckActions } from "./node-palette/NodePaletteModeDeck";
 import { FocusSurface } from "./FocusSurface";
 import { IconButton, OverlayHeader } from "./ui";
@@ -93,7 +109,12 @@ const fitReadableField = (rf: CanvasFlow, duration = 320): void => {
     return Boolean(label) && !["n", "new region", "unnamed region"].includes(label);
   });
   const anchors = meaningfulRegions.length > 0 ? meaningfulRegions : regions.length > 0 ? regions : graphNodes.slice(0, 24);
-  void rf.fitView({ nodes: anchors, padding: 0.18, duration, maxZoom: regions.length > 0 ? 1.15 : 1.35 }).catch(() => undefined);
+  void withViewportBusy(() => rf.fitView({
+    nodes: anchors,
+    padding: 0.18,
+    duration,
+    maxZoom: regions.length > 0 ? 1.15 : 1.35,
+  })).catch(() => undefined);
 };
 
 /** Apply/clear in-cone impact token without reminting when unchanged. */
@@ -158,19 +179,39 @@ const projectRuntimeFlagOverrides = (
   }),
 });
 
+/**
+ * Legend mirrors React Flow's full selection separately from its single-node
+ * inspector subject. Resolve the live set once so structural rebuilds cannot
+ * collapse a multi-selection back to the single-node channel.
+ */
+const selectedNodeSet = (
+  selectedNodeId: string,
+  selectedNodeIds: ReadonlyArray<string>,
+): ReadonlySet<string> => {
+  const multiSelectionIsCurrent =
+    selectedNodeIds.length > 1 &&
+    (selectedNodeId === "" || selectedNodeIds.includes(selectedNodeId));
+  if (multiSelectionIsCurrent) return new Set(selectedNodeIds);
+  const single =
+    selectedNodeId || (selectedNodeIds.length === 1 ? selectedNodeIds[0] ?? "" : "");
+  return single ? new Set([single]) : new Set();
+};
+
 function stampImpactShell(
   nodes: FlowNode[],
   edges: FlowEdge[],
   selectedNodeId: string,
+  selectedNodeIds: ReadonlyArray<string>,
   selectedEdgeId: string,
 ): { nodes: FlowNode[]; edges: FlowEdge[]; impact: ImpactSelection } {
   const context = currentExecutionGraphContext();
   const impact = selectionForCanvas(selectedNodeId, context);
+  const selectedIds = selectedNodeSet(selectedNodeId, selectedNodeIds);
   if (impactModeActive$.peek() !== impact.active) impactModeActive$.set(impact.active);
   return {
     impact,
     nodes: nodes.map((node) => {
-      const selected = node.id === selectedNodeId;
+      const selected = selectedIds.has(node.id);
       const className = nodeImpactClass(impact.active, impact.cone, node.id);
       if (node.selected === selected && node.className === className) return node;
       return { ...node, selected, className };
@@ -215,6 +256,7 @@ function applyStructuralRebuild(
     flowCache,
   );
   const nodeId = state$.selectedNodeId.peek();
+  const nodeIds = state$.selectedNodeIds.peek();
   const edgeId = state$.selectedEdgeId.peek();
   const visibleNodes = flagFilter
     ? built.nodes.filter((node) => node.type === "group" || node.data?.node.ether?.flags?.includes(flagFilter))
@@ -227,7 +269,7 @@ function applyStructuralRebuild(
       (!edgeFilter || (edge.data?.phase ?? edge.data?.edge.ether?.kind ?? "relates") === edgeFilter),
   );
   // Selection + impact cone classes live on the RF shell (not Flow data).
-  const stamped = stampImpactShell(visibleNodes, filteredEdges, nodeId, edgeId);
+  const stamped = stampImpactShell(visibleNodes, filteredEdges, nodeId, nodeIds, edgeId);
   const query = searchQuery.trim().toLowerCase();
   const nextNodes = query
     ? stamped.nodes.filter((flowNode) => searchText(flowNode.data.node).includes(query))
@@ -335,24 +377,17 @@ function useCanvasDocument(
       }
       pendingSelection = false;
       const selectedNodeId = state$.selectedNodeId.peek();
+      const selectedNodeIds = state$.selectedNodeIds.peek();
       const selectedEdgeId = state$.selectedEdgeId.peek();
       const context = currentExecutionGraphContext();
       const impact: ImpactSelection = selectionForCanvas(selectedNodeId, context);
+      const selectedIds = selectedNodeSet(selectedNodeId, selectedNodeIds);
       if (impactModeActive$.peek() !== impact.active) impactModeActive$.set(impact.active);
 
       setNodes((nodes) => {
-        if (!selectedNodeId && nodes.filter((node) => node.selected).length > 1) {
-          let dirty = false;
-          const next = nodes.map((node) => {
-            if (!node.className) return node;
-            dirty = true;
-            return { ...node, className: undefined };
-          });
-          return dirty ? next : nodes;
-        }
         let dirty = false;
         const next = nodes.map((node) => {
-          const selected = node.id === selectedNodeId;
+          const selected = selectedIds.has(node.id);
           const className = nodeImpactClass(impact.active, impact.cone, node.id);
           if (node.selected === selected && node.className === className) return node;
           dirty = true;
@@ -388,6 +423,7 @@ function useCanvasDocument(
     syncSelection();
     const offs = [
       state$.selectedNodeId.onChange(syncSelection),
+      state$.selectedNodeIds.onChange(syncSelection),
       state$.selectedEdgeId.onChange(syncSelection),
       state$.connectionFocusNodeId.onChange(syncSelection),
       viewportBusy$.onChange(() => {
@@ -419,7 +455,11 @@ function useCanvasSearchViewport(searchQuery: string, nodeCount: number, rf: Can
     }
     if (nodeCount === 0) return;
     const frame = requestAnimationFrame(() => {
-      void rf.fitView({ padding: 0.25, duration: 260, maxZoom: 1.5 }).catch(() => undefined);
+      void withViewportBusy(() => rf.fitView({
+        padding: 0.25,
+        duration: 260,
+        maxZoom: 1.5,
+      })).catch(() => undefined);
     });
     return () => cancelAnimationFrame(frame);
   }, [searchQuery, nodeCount, rf, viewKey]);
@@ -442,13 +482,14 @@ function useCanvasFocus(rf: CanvasFlow) {
         }
         // React Flow emits an empty selection while the canvas mounts. Re-apply
         // the focus target only after it is present in the live graph.
-        state$.selectedNodeId.set(focusNodeId);
-        state$.selectedNodeIds.set([focusNodeId]);
-        state$.selectedEdgeId.set("");
-        void rf.fitView({ nodes: [node], padding: 0.35, maxZoom: 1.45, duration: 360 }).catch(() => undefined).finally(() => {
-          state$.selectedNodeId.set(focusNodeId);
-          state$.selectedNodeIds.set([focusNodeId]);
-          state$.selectedEdgeId.set("");
+        selectNode(focusNodeId);
+        void withViewportBusy(() => rf.fitView({
+          nodes: [node],
+          padding: 0.35,
+          maxZoom: 1.45,
+          duration: 360,
+        })).catch(() => undefined).finally(() => {
+          selectNode(focusNodeId);
           state$.focusNodeId.set("");
         });
       };
@@ -609,11 +650,7 @@ function useCanvasInteractions(
   const onEdgeDoubleClick: EdgeMouseHandler<FlowEdge> = useCallback((event, edge) => {
     event.preventDefault();
     event.stopPropagation();
-    state$.selectedNodeId.set("");
-    state$.selectedNodeIds.set([]);
-    state$.selectedEdgeId.set(edge.id);
-    state$.edgeSettingsRequestId.set(edge.id);
-    state$.connectionFocusNodeId.set("");
+    selectEdge(edge.id, { openSettings: true });
   }, []);
   const onSelectionChange = useCallback(({ nodes: selectedNodes, edges: selectedEdges }: { readonly nodes: ReadonlyArray<FlowNode>; readonly edges: ReadonlyArray<FlowEdge> }) => {
     // React Flow emits empty selections while the graph remounts. A pane
@@ -627,27 +664,26 @@ function useCanvasInteractions(
     ) {
       state$.connectionFocusNodeId.set("");
     }
-    // Mirror the full RF set for Ctrl+N / command card multi-actions.
-    state$.selectedNodeIds.set(selectedNodes.map((node) => node.id));
+    const nextSelectedNodeIds = selectedNodes.map((node) => node.id);
     // A rubber-band multi-selection has no single inspector subject; keep the
     // inspector closed and let React Flow own the selection set.
     if (selectedNodes.length > 1) {
-      state$.selectedNodeId.set("");
-      state$.selectedEdgeId.set("");
+      replaceSelection({ nodeIds: nextSelectedNodeIds });
       return;
     }
     const nextSelectedEdgeId = selectedNodes.length === 0 ? selectedEdges[0]?.id ?? "" : "";
     if (state$.edgeSettingsRequestId.peek() && state$.edgeSettingsRequestId.peek() !== nextSelectedEdgeId) {
       state$.edgeSettingsRequestId.set("");
     }
-    state$.selectedNodeId.set(nextSelectedNodeId);
-    state$.selectedEdgeId.set(nextSelectedEdgeId);
+    replaceSelection({
+      nodeId: nextSelectedNodeId,
+      nodeIds: nextSelectedNodeIds,
+      edgeId: nextSelectedEdgeId,
+    });
   }, []);
   const onPaneClick = useCallback((event: React.MouseEvent) => {
     if (event.detail === 1) {
-      state$.selectedNodeId.set("");
-      state$.selectedNodeIds.set([]);
-      state$.selectedEdgeId.set("");
+      clearSelection();
       state$.edgeSettingsRequestId.set("");
       state$.connectionFocusNodeId.set("");
       return;
@@ -743,6 +779,13 @@ const makeAddActions = (
   addBoard: () => {
     const position = positionFor({ width: 240, height: 120 });
     const node = makeBoardNode(position.x, position.y);
+    addNode(node, { edit: false });
+    state$.focusNodeId.set(node.id);
+    dismiss();
+  },
+  addPad: () => {
+    const position = positionFor({ width: 240, height: 120 });
+    const node = makePadNode(position.x, position.y);
     addNode(node, { edit: false });
     state$.focusNodeId.set(node.id);
     dismiss();
@@ -880,8 +923,11 @@ function CanvasFieldTools() {
     [open],
   );
 
+  const authoring = isCommandCenterAuthoring(use$(state$.settings.station.role));
+
   return (
     <div className="rts-field-tools" aria-label="Canvas field tools">
+      {authoring ? (
       <div className="node-deck-host node-deck-host--docked" data-canvas-menu-surface>
         <button
           type="button"
@@ -894,12 +940,19 @@ function CanvasFieldTools() {
         </button>
         {open ? <ModeDeckFocus actions={actions} agentPosition={agentPosition} onClose={dismiss} /> : null}
       </div>
+      ) : null}
       <button
         type="button"
         className="rts-field-tools__fit"
         aria-label="Fit all nodes"
         title="Fit all nodes"
-        onClick={() => void rf.fitView({ padding: 0.18, duration: 320, maxZoom: 1.35 })}
+        onClick={() => {
+          void withViewportBusy(() => rf.fitView({
+            padding: 0.18,
+            duration: 320,
+            maxZoom: 1.35,
+          })).catch(() => undefined);
+        }}
       >
         <Expand size={12} />fit all
       </button>
@@ -1055,18 +1108,22 @@ function RtsMinimapStack() {
     const zoom = rf.getZoom();
     if (isDouble) {
       const nextZoom = Math.min(Math.max(zoom * 1.55, 0.35), 1.6);
-      void rf.setCenter(position.x, position.y, { zoom: nextZoom, duration: 280 });
+      void withViewportBusy(() => rf.setCenter(position.x, position.y, {
+        zoom: nextZoom,
+        duration: 280,
+      })).catch(() => undefined);
       return;
     }
-    void rf.setCenter(position.x, position.y, { zoom, duration: 240 });
+    void withViewportBusy(() => rf.setCenter(position.x, position.y, {
+      zoom,
+      duration: 240,
+    })).catch(() => undefined);
   }, [rf]);
 
   const onMiniMapNodeClick = useCallback((event: React.MouseEvent, node: Node) => {
     // Prefer unit pick over empty-map click bubbling.
     event.stopPropagation();
-    state$.selectedNodeId.set(node.id);
-    state$.selectedNodeIds.set([node.id]);
-    state$.selectedEdgeId.set("");
+    selectNode(node.id);
     // Focus path = camera fit on the entity (same as command Focus / chip).
     state$.focusNodeId.set(node.id);
   }, []);
@@ -1191,8 +1248,23 @@ function ConnectPreviewChip() {
   );
 }
 
+function CanvasPerformanceBoundary({ children }: { readonly children: ReactNode }) {
+  if (!import.meta.env.DEV) return children;
+  return (
+    <Profiler
+      id="canvas"
+      onRender={(_id, _phase, actualDuration) => {
+        canvasPerformance.recordReactCommit("canvas", actualDuration);
+      }}
+    >
+      {children}
+    </Profiler>
+  );
+}
+
 function CanvasGraph() {
   const { nodes, edges, onNodesChange, onEdgesChange, interactions, rf } = useCanvasGraph();
+  const authoring = isCommandCenterAuthoring(use$(state$.settings.station.role));
   const fieldTheme = themeFor(use$(themeMode$));
   // While a connection drag is live, every card shows its dots so targets are
   // discoverable mid-gesture.
@@ -1248,6 +1320,7 @@ function CanvasGraph() {
   }, []);
   const onPaneContextMenu = useCallback((event: React.MouseEvent | MouseEvent) => {
     event.preventDefault();
+    if (!isCommandCenterAuthoring(state$.settings.station.role.peek())) return;
     openContextMenu({ x: event.clientX, y: event.clientY });
   }, [openContextMenu]);
   // Region → add menu (empty-space read). Multi-selection on a selected node →
@@ -1409,18 +1482,12 @@ function CanvasGraph() {
   const impactMode = use$(impactModeActive$);
   const connectionFocusNodeId = use$(state$.connectionFocusNodeId);
   // Viewport freeze without React: the busy class flips on the ReactFlow
-  // wrapper's classList directly, so a pan gesture costs zero renders. The
-  // sync runs on every busy change AND after every render, so a className
-  // prop rewrite can never strand the class. MiniMap/Background stay mounted.
+  // wrapper's classList directly, so a pan gesture costs zero renders. Re-bind
+  // after every render because React may rewrite className. MiniMap/Background
+  // stay mounted.
   const rfRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    const syncBusy = (): void => {
-      rfRef.current?.classList.toggle("is-viewport-busy", viewportBusy$.peek());
-    };
-    syncBusy();
-    const unsubscribe = viewportBusy$.onChange(syncBusy);
-    return unsubscribe;
-  });
+  useEffect(() => bindViewportBusyHost(rfRef.current));
+  useEffect(() => () => resetViewportBusy(), []);
   const onMoveStart = useCallback(() => {
     markViewportBusy();
     closeMenus();
@@ -1433,7 +1500,7 @@ function CanvasGraph() {
     releaseViewportBusy();
   }, []);
 
-  return <>
+  return <CanvasPerformanceBoundary><>
     {terminalAnchor ? <TerminalWizard anchor={terminalAnchor} onClose={() => setTerminalAnchor(null)} /> : null}
     <ReactFlow
       ref={rfRef}
@@ -1458,6 +1525,8 @@ function CanvasGraph() {
       onMoveStart={onMoveStart}
       onMove={onMove}
       onMoveEnd={onMoveEnd}
+      nodesDraggable={authoring}
+      nodesConnectable={authoring}
       connectionMode={ConnectionMode.Loose}
       connectionRadius={42}
       panOnScroll
@@ -1504,7 +1573,7 @@ function CanvasGraph() {
         onClose={() => setConnectMenu(null)}
       />
     ) : null}
-  </>;
+  </></CanvasPerformanceBoundary>;
 }
 
 export function Canvas() {

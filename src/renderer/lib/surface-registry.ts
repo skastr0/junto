@@ -197,6 +197,7 @@ export const focusSurface = (state: WorkbenchState, id: string): WorkbenchTransi
   const target = surfaceById(state, id);
   if (!target) return { state, evicted: [] };
   const key = mruKey(target.zone);
+  if (state[key][0] === id) return { state, evicted: [] };
   return {
     state: { ...state, [key]: prependMru(state[key], id) },
     evicted: [],
@@ -284,6 +285,17 @@ export const workFocusSizeKeyForSurfaces = (
   if (focusSurfaces.every((s) => s.kind === "chat")) return "chat";
   if (focusSurfaces.every((s) => s.kind === "task-create")) return "task-create";
   return "workspace";
+};
+
+/**
+ * Whether the focus zone renders the dock chrome (tab / split strip).
+ * Single source for close semantics: without this chrome, stacked focus
+ * surfaces are invisible — the zone presents as ONE modal, and Close must
+ * dismiss it whole rather than pop the hidden MRU one press at a time.
+ */
+export const focusDockChromeVisible = (state: WorkbenchState): boolean => {
+  const focus = state.surfaces.filter((s) => s.zone === "focus");
+  return focus.length > 1 && workFocusSizeKeyForSurfaces(focus) !== "terminal";
 };
 
 export const workbenchInteractiveSurface = (

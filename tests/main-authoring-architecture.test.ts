@@ -53,11 +53,15 @@ describe("main authoring architecture", () => {
       "ipc.canvas.delete",
       "ipc.canvas.portfolio",
       "ipc.canvas.write",
+      // Artifact library operator actions (archive / hard-delete).
+      "ipc.work.artifact-archive",
+      "ipc.work.artifact-delete",
       // Board sink: operator/renderer authoring over the work plane.
       "ipc.work.board-mark-read",
       "ipc.work.board-notify",
       "ipc.work.board-post",
       "ipc.work.board-topic-create",
+      "ipc.work.pad-patch",
       "ipc.work.request-resolve",
       "ipc.work.task-approve-proposal",
       "ipc.work.task-claim",
@@ -128,6 +132,11 @@ describe("main authoring architecture", () => {
       expect(preload).not.toContain(actorOperation);
       expect(contract).not.toContain(actorOperation);
     }
+    // Operator library actions (not process-bound actor publish).
+    expect(ipc).toContain("workArtifactArchive");
+    expect(ipc).toContain("workArtifactDelete");
+    expect(preload).toContain("workArtifactArchive");
+    expect(preload).toContain("workArtifactDelete");
     expect(control).toContain(
       "resolveProcessBoundActorRef(read.actorRefs, caller)",
     );

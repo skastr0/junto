@@ -5,7 +5,7 @@ import type { CanvasDoc } from "@shared/canvas";
 import { batch } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
 import { impactModeActive$ } from "./lib/impact-mode";
-import { state$ } from "./lib/state";
+import { clearSelection, selectNode, state$ } from "./lib/state";
 import {
   acceptCanvasRevision,
   canvasMutationsQuiesced,
@@ -30,6 +30,8 @@ import { startSettingsBridge, closeSettings } from "./lib/settings-state";
 import { startThemeMode } from "./lib/theme-mode";
 import { startUpdateBridge } from "./lib/update-state";
 import { subscribeAgentSeatState } from "./lib/agent-seat-state";
+import { installCompletedNotifyTestHook } from "./lib/completed-task-notify";
+import { installActorMirrorHotkeys } from "./lib/actor-mirrors";
 import { reconcileDockFromLiveSessions } from "./lib/dock-state";
 import { startSurfaceMotionGate } from "./lib/surface-motion";
 import { noteWorkDocChange } from "./lib/edge-sparks";
@@ -37,6 +39,8 @@ import { clearPreambles, showPreamble } from "./lib/preamble-state";
 import { Canvas } from "./components/Canvas";
 import { TopBar } from "./components/TopBar";
 import { CanvasChrome } from "./components/CanvasChrome";
+import { RemoteStationFace } from "./components/remote/RemoteStationFace";
+import { RendererErrorBoundary } from "./components/RendererErrorBoundary";
 
 import { SettingsPanel } from "./components/SettingsPanel";
 import { ObservabilityPanel } from "./components/ObservabilityPanel";
@@ -56,10 +60,14 @@ import { HerdrTerminalModal } from "./components/herdr/HerdrTerminalModal";
 import { HerdrToast } from "./components/herdr/HerdrToast";
 import { WorkSurfaceDock } from "./components/WorkSurfaceDock";
 import { WorkFocusShell } from "./components/workbench";
+import { PersistentTerminalHost } from "./components/terminal/PersistentTerminalHost";
+import { closeAllWorkbenchSurfaces } from "./lib/dock-state";
+import { closeAllTerminalSurfaces } from "./lib/terminal-state";
 import { TooltipLayer } from "./components/TooltipLayer";
 import { DemoCameraBridge } from "./demo/camera-bridge";
 import { DemoLayer } from "./demo/demo-layer";
 import { SEED_CANVAS_NAME } from "@shared/seed";
+import { isCommandCenterFleetUi, nextCanvasBootAction } from "./lib/canvas-boot";
 import {
   makeNavigationClock,
   makeNodeRefNavigationCoordinator,
@@ -91,9 +99,7 @@ const resetCanvasView = (): void => {
     state$.searchQuery.set("");
     state$.edgeFilter.set("");
     state$.flagFilter.set("");
-    state$.selectedNodeId.set("");
-    state$.selectedNodeIds.set([]);
-    state$.selectedEdgeId.set("");
+    clearSelection();
     state$.connectionFocusNodeId.set("");
     state$.focusNodeId.set("");
     state$.hotbarSlots.set(
@@ -165,8 +171,7 @@ const nodeRefNavigation = makeNodeRefNavigationCoordinator({
       replaceActiveActorRefs(result.actorRefs);
     });
     externalCanvasReload.accept(result);
-    state$.selectedNodeId.set(event.nodeId);
-    state$.selectedNodeIds.set([event.nodeId]);
+    selectNode(event.nodeId);
     state$.focusNodeId.set(event.nodeId);
     state$.canvasLoading.set(false);
     state$.error.set("");
@@ -194,7 +199,9 @@ const externalCanvasReload = makeCanvasExternalReloadCoordinator({
   apply: (result) =>
     batch(() => {
       const prevDoc = state$.doc.peek();
-      loadDoc(result.doc, result.revision, result.name);
+      loadDoc(result.doc, result.revision, result.name, {
+        preserveValidInteraction: true,
+      });
       replaceActiveActorRefs(result.actorRefs);
       // CLI / kernel work lands via canvasChanged → spark edges for the delta.
       noteWorkDocChange(prevDoc, result.doc, result.actorRefs);
@@ -282,6 +289,7 @@ export function App() {
   const booting = use$(state$.booting);
   const canvasName = use$(state$.canvasName);
   const fleetOpen = use$(state$.fleetOpen);
+  const stationRole = use$(state$.settings.station.role);
   const errorAction = retryActionForError(error);
 
   useEffect(() => {
@@ -328,14 +336,22 @@ export function App() {
 
     const boot = async () => {
       try {
+        const settingsResult = await vellum.settingsGet?.();
+        if (settingsResult?.ok && settingsResult.settings) {
+          state$.settings.set(settingsResult.settings);
+        }
         state$.snapshots.set(await vellum.getSnapshots());
         const list = await vellum.listCanvases();
         state$.canvases.set(list);
         if (!nodeRefNavigation.hasReceived()) {
-          if (list.length === 0) {
+          const action = nextCanvasBootAction(
+            state$.settings.station.role.peek(),
+            list.map((row) => row.name),
+          );
+          if (action.kind === "open") {
+            await openCanvas(action.name);
+          } else if (action.kind === "seed") {
             await createCanvas(SEED_CANVAS_NAME);
-          } else {
-            await openCanvas(list[0].name);
           }
         }
       } catch (error) {
@@ -361,14 +377,26 @@ export function App() {
     // Managed-agent seat state (attention/working) — subscribe early so canvas
     // node chrome paints before any TerminalCard mounts.
     const stopAgentSeat = subscribeAgentSeatState();
+    installCompletedNotifyTestHook();
     // Freeze continuous CSS when the page is hidden / reduced-motion so the
     // GPU helper can drop off the fan curve (fleet closed is not enough).
     const stopSurfaceMotion = startSurfaceMotionGate();
 
     const offSnapshots = vellum.onSnapshotsChanged((state) => state$.snapshots.set(state));
     const offCanvas = vellum.onCanvasChanged((name) => {
-      if (name !== state$.canvasName.peek()) return;
-      void externalCanvasReload.changed(name);
+      const current = state$.canvasName.peek();
+      if (name !== "" && name === current) {
+        void externalCanvasReload.changed(name);
+        return;
+      }
+      if (current !== "") return;
+      void (async () => {
+        await refreshList();
+        const list = state$.canvases.peek();
+        if (state$.canvasName.peek() !== "") return;
+        const first = list[0]?.name;
+        if (first) await openCanvas(first);
+      })();
     });
     const offPreamble = vellum.onPreamble?.((event) => {
       if (event.canvasName !== state$.canvasName.peek()) return;
@@ -408,6 +436,10 @@ export function App() {
     };
   }, []);
 
+  // Cmd+] / Cmd+[ swap the front terminal between connected actors. Capture
+  // phase (installed here, checked there) so the chord never reaches xterm.
+  useEffect(() => installActorMirrorHotkeys(), []);
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -420,9 +452,7 @@ export function App() {
         }
         if (state$.selectedNodeId.peek() || state$.selectedEdgeId.peek() || state$.selectedNodeIds.peek().length > 0) {
           event.preventDefault();
-          state$.selectedNodeId.set("");
-          state$.selectedNodeIds.set([]);
-          state$.selectedEdgeId.set("");
+          clearSelection();
           return;
         }
         return;
@@ -437,6 +467,10 @@ export function App() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
+
+  if (stationRole === "remote") {
+    return <RemoteStationFace />;
+  }
 
   return (
     <div className="vellum-app flex h-screen w-screen flex-col overflow-hidden" style={{ background: "var(--color-ground)" }}>
@@ -476,10 +510,20 @@ export function App() {
         <CanvasChrome />
         {/* Selection fields live on the RTS kind surface (FocusSurface forms). */}
 
+        <RendererErrorBoundary
+          title="This work surface hit a render error"
+          onReset={() => {
+            closeAllWorkbenchSurfaces();
+            closeAllTerminalSurfaces();
+          }}
+        >
+          <WorkFocusShell />
+          <PersistentTerminalHost />
+        </RendererErrorBoundary>
         <SettingsPanel />
         <ObservabilityPanel />
         {/* Mount fleet only while open — unmount destroys every WebGL machine. */}
-        {FLEET_UI_ENABLED && fleetOpen ? (
+        {FLEET_UI_ENABLED && isCommandCenterFleetUi(stationRole) && fleetOpen ? (
           <Suspense
             fallback={
               <div className="fleet-chunk-fallback" role="status" aria-live="polite">
@@ -498,7 +542,6 @@ export function App() {
             <HerdrToast />
           </>
         ) : null}
-        <WorkFocusShell />
         <DemoLayer />
         </div>
         <WorkSurfaceDock />

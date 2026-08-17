@@ -44,7 +44,12 @@ const ELECTRON_BINARY = join(
   REPO_ROOT,
   "node_modules/electron/dist/Electron.app/Contents/MacOS/Electron",
 );
-const MAIN_ENTRY = join(REPO_ROOT, "out/main/index.js");
+// Launch with the repo root as the app path (Electron resolves the app dir
+// from the main-script's package.json walk): the app must see itself at the
+// repo root so resources like scripts/unix-peer-pid.py resolve (process-bind
+// identity). Launching `out/main/index.js` directly makes Electron resolve
+// the app dir as out/main and every work-socket connection is refused.
+const MAIN_ENTRY = REPO_ROOT;
 const RENDERER_DIR = join(REPO_ROOT, "out/renderer");
 
 // e2e/fakes/bin/{herdr,ssh,hermes,codexbar} — stock-protocol emulators (see
@@ -66,6 +71,13 @@ export interface LaunchOptions {
   /** Enrolled fleet rows seeded into the sandbox's explicit SQLite database. */
   readonly seedHosts?: ReadonlyArray<RemoteHost>;
   readonly extraEnv?: Readonly<Record<string, string>>;
+  /**
+   * Extra Chromium switches. The operator runs on a scaled Retina display;
+   * the harness window defaults to device-pixel-ratio 1, so anything that only
+   * misbehaves at a fractional scale factor is invisible to every spec unless
+   * a spec asks for it (`--force-device-scale-factor=1.5`).
+   */
+  readonly electronArgs?: ReadonlyArray<string>;
 }
 
 export interface VellumWorld {
@@ -554,7 +566,11 @@ export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumH
     application = { kind: "launch-unobserved" };
     const app = await electron.launch({
       executablePath: ELECTRON_BINARY,
-      args: [MAIN_ENTRY, `--user-data-dir=${sandbox.userDataDir}`],
+      args: [
+        MAIN_ENTRY,
+        `--user-data-dir=${sandbox.userDataDir}`,
+        ...(options.electronArgs ?? []),
+      ],
       env,
       timeout: 60_000,
     });

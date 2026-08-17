@@ -65,6 +65,26 @@ const taskSinkDoc = (): CanvasDoc =>
     edges: [],
   });
 
+const padSinkDoc = (): CanvasDoc =>
+  applyMirrorLaw({
+    nodes: [
+      {
+        id: "sink",
+        type: "text",
+        text: "pad",
+        x: 0,
+        y: 0,
+        width: 240,
+        height: 120,
+        ether: {
+          entity: { kind: "pad" },
+          pad: { revision: 0, shapeCount: 0, unreadPinCount: 0 },
+        },
+      },
+    ],
+    edges: [],
+  });
+
 describe("CanvasesService SQLite authority", () => {
   let canvasesDir = "";
   let stateDir = "";
@@ -185,6 +205,11 @@ describe("CanvasesService SQLite authority", () => {
     [
       "document-backed work state",
       taskSinkDoc(),
+      "runtime work projection data",
+    ],
+    [
+      "document-backed pad projection",
+      padSinkDoc(),
       "runtime work projection data",
     ],
     [

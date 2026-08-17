@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { deployRecoveryGuidance } from "../src/renderer/lib/deploy-recovery";
+import {
+  deployRecoveryGuidance,
+  operatorDeployDetail,
+} from "../src/renderer/lib/deploy-recovery";
 
 describe("Remote deploy recovery guidance", () => {
   it("renders exact guidance for active terminal sessions", () => {
@@ -11,5 +14,29 @@ describe("Remote deploy recovery guidance", () => {
     ).toBe(
       "Close 1 active Vellum Command terminal session, then retry deployment.",
     );
+  });
+
+  it("tells the operator to quit a window opened outside LaunchAgent", () => {
+    expect(
+      operatorDeployDetail(
+        "remote-a: UNSUPERVISED_INCUMBENT_REQUIRES_LAUNCHAGENT exe_pids=333,",
+      ),
+    ).toBe(
+      "Quit the Vellum Command window you opened by hand, then Deploy again.",
+    );
+    expect(operatorDeployDetail("supervised Remote runtime ready")).toBe(
+      "supervised Remote runtime ready",
+    );
+    expect(operatorDeployDetail("SSH process I/O failed")).toContain(
+      "dropped while copying",
+    );
+    expect(
+      operatorDeployDetail(
+        "DEPLOY_ALREADY_IN_PROGRESS /Applications/.vellum-command-deploy.lock",
+      ),
+    ).toContain("already running");
+    expect(
+      operatorDeployDetail("Station API ready - installation station-1"),
+    ).toContain("Vellum Command ready");
   });
 });

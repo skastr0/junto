@@ -1,5 +1,10 @@
-import type { CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import type { HostDeployJobSnapshot } from "@shared/ipc";
+import {
+  copyProgressLabel,
+  isCopyStageLabel,
+} from "@shared/deploy-job";
+import { operatorDeployDetail } from "../../lib/deploy-recovery";
 import { GREEN, HUE } from "../../lib/theme";
 import { Chip, type ChipTone } from "../ui";
 
@@ -12,7 +17,7 @@ const STATUS_TONE: Record<HostDeployJobSnapshot["status"], ChipTone> = {
 
 const STATUS_LABEL: Record<HostDeployJobSnapshot["status"], string> = {
   running: "deploying",
-  succeeded: "ready",
+  succeeded: "Installed",
   failed: "failed",
   auth_required: "password needed",
 };
@@ -57,6 +62,24 @@ export function FleetDeployJobPanel({
   const percent = Math.max(0, Math.min(100, job.percent));
   const stages = job.stages;
   const latest = stages[stages.length - 1];
+  const copy = job.copy;
+  const showCopy =
+    job.status === "running" &&
+    copy !== undefined &&
+    isCopyStageLabel(latest);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (!showCopy) return;
+    const tick = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(tick);
+  }, [showCopy]);
+  const copyPercent =
+    copy !== undefined && copy.bytesTotal > 0
+      ? Math.max(
+          0,
+          Math.min(100, Math.round((copy.bytesSent / copy.bytesTotal) * 100)),
+        )
+      : 0;
 
   return (
     <section
@@ -81,7 +104,7 @@ export function FleetDeployJobPanel({
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={percent}
-        aria-valuetext={`${percent}% — ${job.detail}`}
+        aria-valuetext={`${percent}% — ${operatorDeployDetail(job.detail)}`}
       >
         <div
           className="fleet-deploy-job__bar-fill"
@@ -95,7 +118,37 @@ export function FleetDeployJobPanel({
         />
       </div>
 
-      <p className="fleet-deploy-job__detail">{job.detail}</p>
+      {showCopy && copy ? (
+        <div className="fleet-deploy-job__copy">
+          <div className="fleet-deploy-job__copy-head">
+            <span className="fleet-deploy-job__copy-title">Copy</span>
+            <span className="fleet-deploy-job__copy-label">
+              {copyProgressLabel(copy, nowMs)}
+            </span>
+          </div>
+          <div
+            className="fleet-deploy-job__bar fleet-deploy-job__bar--copy"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={copyPercent}
+            aria-valuetext={copyProgressLabel(copy, nowMs)}
+          >
+            <div
+              className="fleet-deploy-job__bar-fill"
+              style={
+                {
+                  width: `${copyPercent}%`,
+                  background: HUE.amber,
+                  opacity: 0.95,
+                } as CSSProperties
+              }
+            />
+          </div>
+        </div>
+      ) : null}
+
+      <p className="fleet-deploy-job__detail">{operatorDeployDetail(job.detail)}</p>
 
       {!compact && stages.length > 0 ? (
         <details
@@ -125,8 +178,8 @@ export function FleetDeployJobPanel({
 
       {job.status === "running" ? (
         <p className="fleet-deploy-job__note">
-          The deploy keeps running if you close this panel. Reopen this
-          machine to watch progress.
+          While this machine is on the network, Deploy keeps copying,
+          restarting, and waiting. Closing this panel does not stop it.
         </p>
       ) : null}
     </section>

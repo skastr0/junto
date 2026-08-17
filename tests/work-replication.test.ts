@@ -1861,7 +1861,11 @@ describe("WorkRepository v2 report reconciliation", () => {
           ),
         )
       ).artifacts.items[0],
-    ).toEqual(artifact.value);
+      // Projection-only publisher stamp (mirrors mailbox deliveredAt/readAt).
+    ).toEqual({
+      ...artifact.value,
+      metadata: { publishedBySeatId: artifactPublisher.seatId },
+    });
 
     if (artifact.record.body.operation !== "artifact.publish") {
       throw new Error("artifact fixture did not produce an artifact fact");

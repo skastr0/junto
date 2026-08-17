@@ -1,4 +1,5 @@
 import { STATION_API_MAX_PROJECTION_CHARS } from "./station-api";
+import type { StationDoor } from "./station-mode";
 
 /**
  * OpenSSH local-socket transport constants for the Station API.
@@ -20,8 +21,23 @@ export const STATION_CONTROL_MAX_FRAME_BYTES =
 export const stationControlDir = (home: string): string =>
   `${home}/.vellum-command/station`;
 
-export const stationControlSocketPath = (stationHome: string): string =>
+/** Enroll door. Filename stays `control.sock` for Darwin package-phase probes. */
+export const stationEnrollSocketPath = (stationHome: string): string =>
   `${stationHome}/control.sock`;
+
+export const stationPeerSocketPath = (stationHome: string): string =>
+  `${stationHome}/peer.sock`;
+
+/** Named alias of the enroll path. One-release Darwin compatibility. */
+export const stationControlSocketPath = stationEnrollSocketPath;
+
+export const stationDoorSocketPath = (
+  stationHome: string,
+  door: StationDoor,
+): string =>
+  door === "peer"
+    ? stationPeerSocketPath(stationHome)
+    : stationEnrollSocketPath(stationHome);
 
 export const encodeStationControlFrame = (value: unknown): string => {
   const encoded = `${JSON.stringify(value)}\n`;

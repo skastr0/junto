@@ -70,6 +70,7 @@ export const dragHoldMemberIds = (doc: CanvasDoc, regionNode: GroupNode): string
     .map((node) => node.id);
 
 export const syncPositions = (positions: ReadonlyMap<string, { x: number; y: number }>): void => {
+  if (state$.settings.station.role.peek() === "remote") return;
   const doc: CanvasDoc = state$.doc.peek();
   // Preserve CanvasNode identity when rounded coords are unchanged so the
   // FlowIdentityCache (convert.toFlow) keeps reminting only moved nodes.

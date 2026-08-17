@@ -6,6 +6,7 @@ import {
   type FocusLayer,
   type FocusMeasure,
 } from "../lib/focus-measure";
+import { scheduleFocusPrimaryControl } from "../lib/focus-ownership";
 
 /**
  * Focused single-subject overlay shell.
@@ -36,6 +37,7 @@ export function FocusSurface({
   closeOnBackdrop = true,
   label,
   panelClassName,
+  terminalRailsPx,
   aside,
   children,
 }: {
@@ -49,6 +51,11 @@ export function FocusSurface({
   readonly closeOnBackdrop?: boolean;
   readonly label: string;
   readonly panelClassName?: string;
+  /**
+   * Extra panel width budgeted for in-panel side rails (actor terminal
+   * ledger + connections). Zero for rail-less surfaces.
+   */
+  readonly terminalRailsPx?: number;
   /**
    * Optional rail outside the modal plate (sibling of the panel, still above
    * the dim backdrop). Used for actor edge inventory so it never covers the
@@ -84,6 +91,12 @@ export function FocusSurface({
     panelRef.current.style.height = `${stored.height}px`;
   }, [height, measure]);
 
+  // Opening the modal is the operator opt-in: put keyboard on the subject
+  // (xterm textarea, composer, first field) instead of leaving it on the canvas.
+  useEffect(() => {
+    return scheduleFocusPrimaryControl(() => panelRef.current);
+  }, []);
+
   useEffect(() => {
     if (height !== "resizable") return;
     const panel = panelRef.current;
@@ -102,6 +115,7 @@ export function FocusSurface({
     <div
       ref={rootRef}
       data-focus-surface="1"
+      data-focus-owner="interactive"
       className={[
         "focus-surface",
         `focus-surface--layer-${layer}`,
@@ -114,7 +128,7 @@ export function FocusSurface({
       role="dialog"
       aria-modal={contain === "viewport" ? "true" : undefined}
       aria-label={label}
-      style={focusMeasureCssVars(measure)}
+      style={focusMeasureCssVars(measure, { terminalRailsPx })}
     >
       <button
         type="button"

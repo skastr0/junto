@@ -10,7 +10,7 @@ import { executionGraphContextFromActorRefs } from "@shared/graph";
 import { deriveOccupancy, type OccupancySpectrumName } from "@shared/occupancy";
 import { HUE } from "../../lib/theme";
 import { nodeTitle } from "../../lib/presentation";
-import { state$ } from "../../lib/state";
+import { selectNode, state$ } from "../../lib/state";
 import { kernel$ } from "../../lib/kernel-view";
 import { executionGraphForImpact } from "../../lib/impact-mode";
 import { chatActivityFeed } from "../../lib/occupancy-feed";
@@ -20,9 +20,7 @@ const MAX_VISIBLE = 4;
 
 /** Focus + select seed so Canvas impact mode paints the cone. */
 const enterImpactOnSeed = (seedNodeId: string): void => {
-  state$.selectedNodeId.set(seedNodeId);
-  state$.selectedNodeIds.set([seedNodeId]);
-  state$.selectedEdgeId.set("");
+  selectNode(seedNodeId);
   state$.focusNodeId.set(seedNodeId);
 };
 

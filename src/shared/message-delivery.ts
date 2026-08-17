@@ -3,6 +3,7 @@
 // The runtime projection carries delivery state from normalized message rows:
 // delivered = metadata.deliveredAt stamped.
 
+import { decodeTime } from "ulid";
 import type { CanvasDoc, CanvasNode, Message } from "./canvas";
 import {
   actorDeliverySurfaceOf,
@@ -11,6 +12,35 @@ import {
 } from "./actor-surface";
 import { isGroup } from "./graph";
 import { resolveSpec, roleOf } from "./physics";
+
+const ULID_PATTERN = /^[0-9A-HJKMNP-TV-Z]{26}$/;
+
+/** Birth time from a ULID message id. Non-ULID ids have no time. */
+export const messageIdTimeMs = (id: string): number | undefined => {
+  if (!ULID_PATTERN.test(id)) return undefined;
+  try {
+    return decodeTime(id);
+  } catch {
+    return undefined;
+  }
+};
+
+/** Newest first. ULID ids order by birth; non-ULID ids sink. */
+export const compareMessageIdsNewestFirst = (a: string, b: string): number => {
+  const aMs = messageIdTimeMs(a);
+  const bMs = messageIdTimeMs(b);
+  if (aMs !== undefined && bMs !== undefined) return b.localeCompare(a);
+  if (aMs !== undefined) return -1;
+  if (bMs !== undefined) return 1;
+  return b.localeCompare(a);
+};
+
+export const sortMessagesNewestFirst = (
+  messages: ReadonlyArray<Message>,
+): Message[] =>
+  [...messages].sort((a, b) =>
+    compareMessageIdsNewestFirst(a.messageId, b.messageId),
+  );
 
 /**
  * Strip C0/C1 controls (and DEL) so a delivered line never carries CSI/ESC
@@ -22,15 +52,106 @@ export const sanitizeDeliveryLine = (text: string): string =>
     .replace(/\s+/g, " ")
     .trim();
 
-/** Pulse-style one-liner: `[message - <sender>] <brief>[ - task <id>]` */
+/**
+ * Max brief length that may ride the PTY as the full one-liner.
+ * Longer bodies (and every factoryMail) become a summary pointer instead —
+ * the PTY is a notify surface, not a dump truck for peer essays.
+ */
+export const MESSAGE_PTY_FULL_BODY_MAX = 160;
+
+/** Preview length inside a summary line (before the CLI pointer). */
+export const MESSAGE_PTY_SUMMARY_PREVIEW_MAX = 48;
+
+/** True when metadata.factoryMail is the boolean true (peer factory mail). */
+export const isFactoryMailMessage = (message: Message): boolean =>
+  message.metadata?.factoryMail === true;
+
+/**
+ * Full body may paste only when short AND not factory mail.
+ * Factory mail and long bodies always summarize.
+ */
+export const shouldSummarizeMessageForPty = (message: Message): boolean => {
+  if (isFactoryMailMessage(message)) return true;
+  return messageBriefText(message).length > MESSAGE_PTY_FULL_BODY_MAX;
+};
+
+const shortMessageId = (messageId: string): string =>
+  messageId.length > 12 ? messageId.slice(0, 12) : messageId;
+
+const factoryMailFromSeat = (message: Message): string | undefined => {
+  const raw = message.metadata?.fromSeat;
+  if (typeof raw !== "string") return undefined;
+  const trimmed = sanitizeDeliveryLine(raw);
+  return trimmed.length > 0 ? trimmed.slice(0, 32) : undefined;
+};
+
+/** Strip the `[factory mail from …]` envelope so the preview is useful. */
+const briefWithoutFactoryEnvelope = (message: Message): string =>
+  messageBriefText(message)
+    .replace(/^\[factory mail from [^\]]*\]\s*/i, "")
+    .trim();
+
+/**
+ * Pulse-style one-liner for a single message.
+ * Short ordinary mail: full brief. Factory mail / long body: summary + CLI pointer.
+ */
 export const composeMessageDeliveryPayload = (message: Message): string => {
-  const sender = messageSenderLabel(message);
-  const brief = messageBriefText(message);
-  const task =
-    typeof message.taskId === "string" && message.taskId.trim().length > 0
-      ? ` - task ${sanitizeDeliveryLine(message.taskId)}`
-      : "";
-  return sanitizeDeliveryLine(`[message - ${sender}] ${brief}${task}`);
+  if (!shouldSummarizeMessageForPty(message)) {
+    const sender = messageSenderLabel(message);
+    const brief = messageBriefText(message);
+    const task =
+      typeof message.taskId === "string" && message.taskId.trim().length > 0
+        ? ` - task ${sanitizeDeliveryLine(message.taskId)}`
+        : "";
+    return sanitizeDeliveryLine(`[message - ${sender}] ${brief}${task}`);
+  }
+  return composeMessageDeliverySummary([message]);
+};
+
+/**
+ * One PTY notify line for unread mail on the same seat.
+ * Cadence: N === 1 is the latest unread; N > 1 is one newest-first list.
+ * Never serial dumps. Bodies stay in the mailbox.
+ */
+export const composeMessageDeliverySummary = (
+  messages: ReadonlyArray<Message>,
+): string => {
+  const ordered = sortMessagesNewestFirst(messages);
+  if (ordered.length === 0) {
+    return sanitizeDeliveryLine("[message] (empty)");
+  }
+  if (ordered.length === 1) {
+    const message = ordered[0]!;
+    if (!shouldSummarizeMessageForPty(message)) {
+      return composeMessageDeliveryPayload(message);
+    }
+    const sender = messageSenderLabel(message);
+    const id = shortMessageId(message.messageId);
+    const from = factoryMailFromSeat(message);
+    const kind = isFactoryMailMessage(message) ? "factory mail" : "mail";
+    const fromBit = from ? ` from ${from}` : "";
+    const previewRaw = briefWithoutFactoryEnvelope(message);
+    const preview =
+      previewRaw.length > MESSAGE_PTY_SUMMARY_PREVIEW_MAX
+        ? `${previewRaw.slice(0, MESSAGE_PTY_SUMMARY_PREVIEW_MAX)}…`
+        : previewRaw;
+    const previewBit = preview.length > 0 ? ` — ${preview}` : "";
+    return sanitizeDeliveryLine(
+      `[message - ${sender}] ${kind}${fromBit} — ${id}${previewBit} — vellum-command msg list`,
+    );
+  }
+  const factoryCount = ordered.filter((m) => isFactoryMailMessage(m)).length;
+  const factoryBit =
+    factoryCount > 0 ? ` (${String(factoryCount)} factory mail)` : "";
+  const ids = ordered
+    .slice(0, 3)
+    .map((m) => shortMessageId(m.messageId))
+    .join(",");
+  const more =
+    ordered.length > 3 ? ` +${String(ordered.length - 3)}` : "";
+  return sanitizeDeliveryLine(
+    `[message - user] ${String(ordered.length)} unread${factoryBit} — ${ids}${more} — vellum-command msg list`,
+  );
 };
 
 /**
@@ -49,9 +170,69 @@ export const messageBriefText = (message: Message): string => {
   return chunks.join(" ") || "(empty)";
 };
 
-/** True when metadata.deliveredAt is a finite number (already delivered). */
+/**
+ * Screen residual only. Prefer {@link seatOperatorDraft} for the real
+ * draft gate — harness chrome fills extractPromptBoxText on every real
+ * startup-idle capture (claude/codex/grok/devin), so non-empty ≠ operator draft.
+ *
+ * Returns true only for a stuck product paste chip still occupying the box.
+ */
+export const composerBlocksMailInject = (promptBoxText: string): boolean => {
+  const text = promptBoxText.trim();
+  if (text.length === 0) return false;
+  if (/^\[message\b/i.test(text)) return false;
+  // Stuck product paste chip — do not pile another inject on top.
+  return text.includes("[Pasted");
+};
+
+/** Same window as observer `deriveUserSignal` "present". */
+export const OPERATOR_PRESENT_WINDOW_MS = 10_000;
+
+/**
+ * Operator typed into this generation if a keystroke was noted at/after spawn.
+ * A generation fact, not the mail-inject draft gate — a human-driven seat
+ * has keystrokes for its whole life; treating that as draft strands mail.
+ */
+export const operatorTypedThisGeneration = (input: {
+  readonly lastUserInputAtMs: number | undefined;
+  readonly generationStartedAtMs: number;
+}): boolean => {
+  if (input.lastUserInputAtMs === undefined) return false;
+  return input.lastUserInputAtMs >= input.generationStartedAtMs;
+};
+
+/** True while the operator is still at the keyboard (recency, not generation). */
+export const operatorPresentNow = (input: {
+  readonly lastUserInputAtMs: number | undefined;
+  readonly nowMs: number;
+  readonly windowMs?: number;
+}): boolean => {
+  if (input.lastUserInputAtMs === undefined) return false;
+  const windowMs = input.windowMs ?? OPERATOR_PRESENT_WINDOW_MS;
+  return input.nowMs - input.lastUserInputAtMs <= windowMs;
+};
+
+/**
+ * Mail-inject draft gate: recent keystrokes or a stuck paste chip.
+ * Generation-lifetime typing is not enough — that never clears on a
+ * human-driven seat, so queued mail would never drain after idle.
+ */
+export const seatOperatorDraft = (input: {
+  readonly lastUserInputAtMs: number | undefined;
+  readonly nowMs: number;
+  readonly residualChip: boolean;
+  readonly windowMs?: number;
+}): boolean => input.residualChip || operatorPresentNow(input);
+
+/** True when metadata.deliveredAt is a finite number (already nudged the PTY). */
 export const isMessageDelivered = (message: Message): boolean => {
   const at = message.metadata?.deliveredAt;
+  return typeof at === "number" && Number.isFinite(at);
+};
+
+/** True when metadata.readAt is a finite number (mailbox listed or marked read). */
+export const isMessageRead = (message: Message): boolean => {
+  const at = message.metadata?.readAt;
   return typeof at === "number" && Number.isFinite(at);
 };
 
@@ -61,9 +242,19 @@ export const isMessageDelivered = (message: Message): boolean => {
  */
 export const isForeignMessage = (message: Message): boolean => message.role !== "agent";
 
-/** Pending = foreign + not yet stamped. */
+/**
+ * Needs a PTY notify: foreign, still unread, and not yet nudged.
+ * Listed mail is read — do not inject it. deliveredAt is only the
+ * at-most-once notify receipt, not a product status.
+ */
 export const isPendingDelivery = (message: Message): boolean =>
-  isForeignMessage(message) && !isMessageDelivered(message);
+  isForeignMessage(message) && !isMessageRead(message) && !isMessageDelivered(message);
+
+/**
+ * PTY is a notify surface. Read is listing the mailbox.
+ * A paste never marks mail read — short or long, one or many.
+ */
+export const ptyInjectMarksRead = (_message: Message): boolean => false;
 
 /**
  * Resolve transport target from kind-discriminated actor surface.
@@ -144,8 +335,12 @@ export const listPendingDeliveries = (
     if (roleOf(spec) !== "actor") continue;
     const target = deliveryTargetOf(node);
     if (!target) continue;
-    for (const message of node.ether?.messages?.items ?? []) {
-      if (!isPendingDelivery(message)) continue;
+    const pending = sortMessagesNewestFirst(
+      (node.ether?.messages?.items ?? []).filter((message) =>
+        isPendingDelivery(message),
+      ),
+    );
+    for (const message of pending) {
       out.push({ nodeId: node.id, message, target });
     }
   }

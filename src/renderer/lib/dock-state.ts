@@ -18,6 +18,7 @@ import {
 } from "./herdr-state";
 import {
   closeSurface,
+  focusDockChromeVisible,
   focusSurface,
   initialWorkbenchState,
   openSurface,
@@ -117,6 +118,19 @@ const clearStoppedSurface = (ref: string, observedSessionId: string | undefined)
   dock$.registry.set(closeSurface(dock$.registry.peek(), ref).state);
   dock$.browserByRef[ref].delete();
   return true;
+};
+
+/**
+ * Drop residual renderer page UI for a ref when the browser plane cannot (or
+ * need not) stop a live session. Prefer `clearStoppedSurface` when an observed
+ * handle race-guards the clear; use this only for "no plane / nothing live".
+ */
+const forceClearStoppedSurface = (ref: string): void => {
+  const current = browserSessionIdForRef(ref);
+  clearBrowserSessionIfUnchanged(ref, current);
+  browser$.sessionByRef[ref].delete();
+  dock$.registry.set(closeSurface(dock$.registry.peek(), ref).state);
+  dock$.browserByRef[ref].delete();
 };
 
 /**
@@ -350,12 +364,21 @@ observe(() => {
     } else if (zone === "pinned" && existing.zone !== "pinned") {
       // Open-pinned from the toolbar: move an already-open focus surface over.
       registry = pinSurface(registry, id).state;
-    } else {
-      registry = focusSurface(registry, id).state;
     }
     if (preferred !== undefined) {
       terminal$.preferredZoneByNodeId[nodeId].delete();
     }
+  }
+  // Promote exactly the requested surface, ONCE — a one-shot consumed like
+  // preferredZone. Replaying it on every pass yanked the front back over a
+  // manual tab click whenever any terminal opened or closed elsewhere, and
+  // could fire mid-teardown of a batch close. Peeked (untracked), so the
+  // consume does not re-trigger this observe; openTerminalSurface sets it
+  // before openByNodeId so the run this set triggers sees the fresh value.
+  const lastOpened = terminal$.lastOpenNodeId.peek();
+  if (lastOpened !== null && openIds.has(lastOpened)) {
+    registry = focusSurface(registry, terminalSurfaceId(lastOpened)).state;
+    terminal$.lastOpenNodeId.set(null);
   }
   dock$.registry.set(registry);
 });
@@ -402,6 +425,17 @@ export const setWorkbenchFocusSize = (
   applyTransition(setFocusSize(dock$.registry.peek(), size));
 };
 
+/**
+ * Close one workbench surface (view only). Browser closes detach over IPC;
+ * herdr closes release that nodeId's stream; terminal closes drop the view
+ * while the PTY keeps running.
+ */
+/** Close every workbench surface so a crashed view remounts empty. */
+export const closeAllWorkbenchSurfaces = (): void => {
+  const ids = dock$.registry.peek().surfaces.map((surface) => surface.id);
+  for (const id of ids) closeWorkbenchSurface(id);
+};
+
 export const closeWorkbenchSurface = (id: string): void => {
   const surface = dock$.registry.peek().surfaces.find((s) => s.id === id);
   if (!surface) return;
@@ -415,21 +449,49 @@ export const closeWorkbenchSurface = (id: string): void => {
 };
 
 /**
+ * Close a focus surface with MODAL semantics. Without the dock chrome the
+ * focus zone presents as ONE modal — mirror cycling parks siblings invisibly
+ * behind the front pane, and the shell's backdrop click already dismisses
+ * them all — so a single Close must dismiss the whole stack, never pop the
+ * hidden MRU one press per cycled actor. With tab chrome visible, tabs are
+ * real affordances and close stays per-surface. Views only; processes,
+ * warm browser sessions, and PTYs keep running.
+ */
+export const closeFocusModalSurface = (id: string): void => {
+  const registry = dock$.registry.peek();
+  const surface = surfaceById(registry, id);
+  if (!surface || surface.zone !== "focus" || focusDockChromeVisible(registry)) {
+    closeWorkbenchSurface(id);
+    return;
+  }
+  for (const s of registry.surfaces) {
+    if (s.zone === "focus") closeWorkbenchSurface(s.id);
+  }
+};
+
+/**
  * Explicitly stop one page runtime by exact opaque handle. Surface remains
  * visible on failure; removed only after authoritative destruction.
+ *
+ * When the browser product surface is compile-time off (preload omits
+ * browserStop), no page runtime can exist under this app process. Clear any
+ * residual renderer furniture and succeed so page-node document delete is not
+ * blocked by historical nodes from a build that had the flag on.
  */
 export const stopDockBrowser = async (ref: string): Promise<boolean> => {
   dock$.stopErrorByRef[ref].delete();
   const a = api();
   if (!a?.browserStop) {
-    dock$.stopErrorByRef[ref].set("Stop Page is unavailable.");
-    return false;
+    forceClearStoppedSurface(ref);
+    return true;
   }
   let sessionId = browserSessionIdForRef(ref);
   if (!sessionId) {
     if (!a.browserSessionList) {
-      dock$.stopErrorByRef[ref].set("Could not verify whether this page is still running.");
-      return false;
+      // Stop API present but list missing and no cached handle: nothing to
+      // kill; clear residual UI and allow document delete.
+      forceClearStoppedSurface(ref);
+      return true;
     }
     try {
       const listed = await a.browserSessionList();
@@ -443,9 +505,10 @@ export const stopDockBrowser = async (ref: string): Promise<boolean> => {
       sessionId = live?.sessionId;
       if (live) cacheBrowserSessionIfUnchanged(live, undefined);
       if (!sessionId) {
-        if (clearStoppedSurface(ref, undefined)) return true;
-        dock$.stopErrorByRef[ref].set("Page runtime changed while stopping; retry Stop Page.");
-        return false;
+        // Authoritative absence — clear residual UI even if a stale handle
+        // was in the cache race window (observed undefined vs stale id).
+        forceClearStoppedSurface(ref);
+        return true;
       }
     } catch {
       dock$.stopErrorByRef[ref].set("Could not verify whether this page is still running.");

@@ -46,6 +46,7 @@ const harness = (options: {
     {
       isTrustedSender: () => true,
       ensureHostAvailable: options.ensureHostAvailable,
+      broadcast: () => {},
     },
   );
   const handler = (channel: string): Handler => {

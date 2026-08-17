@@ -42,6 +42,7 @@ import {
   mirrorBoardText,
   mirrorRequestsText,
   mirrorTasksText,
+  padTitleFromText,
 } from "@shared/task";
 import {
   removeCanvasProjectionSidecars,
@@ -142,6 +143,13 @@ export class CanvasesService extends Context.Service<CanvasesService,
     readonly subscribeChanges: (
       listener: (name: string, detail?: CanvasChangeDetail) => void,
     ) => () => void;
+    /**
+     * Tell renderer subscribers that Station projection membership changed.
+     * Remote has no authorial write, so install would otherwise stay silent.
+     */
+    readonly announceInstalledProjection: (
+      names: ReadonlyArray<string>,
+    ) => void;
     /** Snapshot of live authority docs for process-bind caller resolution. */
     readonly liveDocuments: () => Effect.Effect<
       ReadonlyArray<{ readonly canvasName: string; readonly doc: CanvasDoc }>,
@@ -642,7 +650,8 @@ const stripRuntimeWorkProjection = (doc: CanvasDoc): CanvasDoc => ({
         etherIn.requests === undefined &&
         etherIn.messages === undefined &&
         etherIn.artifacts === undefined &&
-        etherIn.board === undefined
+        etherIn.board === undefined &&
+        etherIn.pad === undefined
       )
     ) {
       return node;
@@ -654,6 +663,7 @@ const stripRuntimeWorkProjection = (doc: CanvasDoc): CanvasDoc => ({
       messages: _messages,
       artifacts: _artifacts,
       board: _board,
+      pad: _pad,
       ...ether
     } = etherIn;
     const kind = ether.entity?.kind;
@@ -668,7 +678,9 @@ const stripRuntimeWorkProjection = (doc: CanvasDoc): CanvasDoc => ({
               ? mirrorArtifactsText([])
               : kind === "board"
                 ? mirrorBoardText([])
-                : node.text;
+                : kind === "pad"
+                  ? padTitleFromText(node.text ?? "")
+                  : node.text;
 
     if (Object.keys(ether).length === 0) {
       const { ether: _removed, ...withoutEther } = node;
@@ -719,7 +731,7 @@ export const CanvasesLive = Layer.effect(
     let bootstrapPromise: Promise<void> | undefined;
 
   const notifyListeners = (
-    name: CanvasName,
+    name: CanvasName | string,
     detail?: CanvasChangeDetail,
   ): void => {
     for (const listener of listeners) {
@@ -1251,6 +1263,20 @@ export const CanvasesLive = Layer.effect(
         }),
       }),
     ),
+    announceInstalledProjection: (names) => {
+      if (names.length === 0) {
+        // Empty name is the bulk invalidation signal for projection installs.
+        notifyListeners("" as CanvasName);
+        return;
+      }
+      for (const name of names) {
+        try {
+          notifyListeners(canvasNameFrom(name));
+        } catch {
+          // Installed projection names are system-owned; skip corrupt rows.
+        }
+      }
+    },
     list,
     read,
     readWithIntentWitness,

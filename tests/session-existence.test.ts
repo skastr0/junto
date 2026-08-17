@@ -10,6 +10,8 @@ import {
   harnessSessionExists,
   isHarnessResumeFailureText,
   launchArgvUsesResume,
+  parseHarnessSessionArgv,
+  reclaimOrphanedHarnessArgv,
   shouldResumeHarnessSession,
 } from "../src/main/vellum/term/session-existence";
 import { launchForManagedSpawn } from "../src/main/vellum/term/managed-spawn-plan";
@@ -106,6 +108,41 @@ describe("harness session existence (external proof)", () => {
       ),
     ).toBe(true);
     expect(isHarnessResumeFailureText("hello idle composer")).toBe(false);
+  });
+
+  it("classifies grok pin-against-own-session as resume failure", () => {
+    expect(
+      isHarnessResumeFailureText(
+        "Error: Session ID 8fd57ce4-c2b9-48e0-affc-617513834c26 is already in use.",
+      ),
+    ).toBe(true);
+  });
+
+  it("reclaims a pin argv when this host already has the session", () => {
+    const home = tempHome();
+    const cwd = "/Users/developer/Projects/vellum";
+    const sid = "8fd57ce4-c2b9-48e0-affc-617513834c26";
+    const pin = ["grok", "--minimal", "--session-id", sid];
+    expect(parseHarnessSessionArgv(pin)).toEqual({
+      harness: "grok",
+      sessionId: sid,
+      mode: "pin",
+    });
+    expect(reclaimOrphanedHarnessArgv(pin, cwd)).toEqual(pin);
+
+    mkdirSync(join(home, ".grok", "sessions", encodeGrokSessionCwd(cwd), sid), {
+      recursive: true,
+    });
+    __setSessionExistenceHomeForTest(home);
+    expect(reclaimOrphanedHarnessArgv(pin, cwd)).toEqual([
+      "grok",
+      "--minimal",
+      "-r",
+      sid,
+    ]);
+    expect(
+      reclaimOrphanedHarnessArgv(["grok", "--minimal", "-r", sid], cwd),
+    ).toEqual(["grok", "--minimal", "-r", sid]);
   });
 
   it("detects resume argv shapes", () => {

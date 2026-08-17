@@ -1,6 +1,7 @@
 import { Context, Effect, Result, Layer, Schema } from "effect";
 import type { CanvasDoc, CanvasNode } from "@shared/canvas";
 import type { InstallationId as InstallationIdValue } from "@shared/installation-id";
+import { mayRenewRemoteLease } from "../license/remote-lease-renewal";
 import { remoteLeaseState } from "../license/remote-lease-state";
 import { StationContextTagIds } from "./context-services";
 import {
@@ -38,6 +39,10 @@ import {
   type WorkRoute,
 } from "@shared/work-protocol";
 import type { WorkOpName } from "@shared/work-control";
+import {
+  inboundActorNodeIds,
+  padAuthorRuleError,
+} from "../work/pad-rules";
 import {
   resolveNodeHostId,
   type StationRole,
@@ -279,6 +284,8 @@ const expectedSinkKind = (
     case "topic":
     case "post":
       return "board";
+    case "pad":
+      return "pad";
   }
 };
 
@@ -316,6 +323,7 @@ const operationForActor = (
     case "message.append":
     case "board.topic.create":
     case "board.post.append":
+    case "pad.patch":
       return undefined;
   }
 };
@@ -529,6 +537,7 @@ const actorFromFact = (
     case "message.append":
     case "board.topic.create":
     case "board.post.append":
+    case "pad.patch":
       return undefined;
   }
 };
@@ -633,6 +642,43 @@ export const makeStationWorkAdmission = (
             : "board.post",
         );
       }
+      if (command.body.operation === "pad.patch") {
+        const author = command.body.author;
+        if (
+          author.kind !== "actor" ||
+          author.seatId === undefined ||
+          author.nodeId === undefined
+        ) {
+          return rejected(
+            "authority-mismatch",
+            "remote pad writes require an actor author with seat and node",
+          );
+        }
+        const admittedPort = authorizeActor(
+          topology,
+          {
+            seatId: author.seatId,
+            canvasName: command.item.sink.canvasName,
+            nodeId: author.nodeId,
+          },
+          topology.peerInstallationId,
+          command.item.sink,
+          "pad.patch",
+        );
+        if (admittedPort._tag === "rejected") return admittedPort;
+        const canvas = topology.documents.get(command.item.sink.canvasName);
+        if (canvas !== undefined) {
+          const rule = padAuthorRuleError(
+            author,
+            command.body.patches,
+            inboundActorNodeIds(canvas, command.item.sink.nodeId),
+          );
+          if (rule !== undefined) {
+            return rejected("capability-denied", rule);
+          }
+        }
+        return admittedPort;
+      }
       return rejected(
         "authority-mismatch",
         `${command.body.operation} is Command Center intent and cannot be commanded by a Remote`,
@@ -693,6 +739,7 @@ export const makeStationWorkAdmission = (
       case "delivery.accepted":
       case "board.topic.create":
       case "board.post.append":
+      case "pad.patch":
         return rejected(
           "locality-mismatch",
           `${command.body.operation} must originate as a local actor fact or CC-homed command`,
@@ -1369,6 +1416,7 @@ const requireConfiguredPeer = (
 
 const handleProject = (
   repository: Context.Service.Shape<typeof StationRepository>,
+  canvases: Context.Service.Shape<typeof CanvasesService>,
   request: ProjectRequest,
 ): Effect.Effect<ProjectResponse, StationApiError> =>
   Effect.gen(function* () {
@@ -1389,8 +1437,12 @@ const handleProject = (
       );
     }
     const installed = yield* repository.installProjection(request);
+    const decoded = decodeStationPortfolioBody(request.projection.body);
+    canvases.announceInstalledProjection([...decoded.documents.keys()]);
     // Successful CC projection renews the Remote product lease (3-day TTL).
-    remoteLeaseState.stamp();
+    if (mayRenewRemoteLease("project", { paired: true })) {
+      remoteLeaseState.stamp();
+    }
     return installed;
   }).pipe(Effect.withSpan("station-api.project"));
 
@@ -1625,6 +1677,25 @@ export const StationApiLive = Layer.effect(
       },
     );
 
+    /**
+     * Advance the Remote check-in lease only after a successful, authorized
+     * Station completion. Failures and wrong-peer refusals never stamp.
+     * `status` renews only when durable pairing exists (not enrollment probe).
+     */
+    const stampRemoteLeaseIfEligible = (
+      op: "pair" | "configure" | "project" | "status",
+    ): Effect.Effect<void, StationRepositoryError> =>
+      Effect.gen(function* () {
+        const pairing = yield* repository.pairing;
+        if (
+          mayRenewRemoteLease(op, {
+            paired: pairing !== undefined,
+          })
+        ) {
+          remoteLeaseState.stamp();
+        }
+      });
+
     const handle = Effect.fn("StationApiService.handle")((
       request: StationApiRequest,
       readiness: StationReadiness,
@@ -1634,23 +1705,23 @@ export const StationApiLive = Layer.effect(
         case "pair":
           return requireRemoteInbound("pair", peer).pipe(
             Effect.flatMap(() => repository.pair(request)),
-            Effect.tap(() => Effect.sync(() => remoteLeaseState.stamp())),
+            Effect.tap(() => stampRemoteLeaseIfEligible("pair")),
           );
         case "configure":
           return requireRemoteInbound("configure", peer).pipe(
             Effect.flatMap(() => repository.configureRemote(request)),
-            Effect.tap(() => Effect.sync(() => remoteLeaseState.stamp())),
+            Effect.tap(() => stampRemoteLeaseIfEligible("configure")),
           );
         case "project":
           return requireRemoteInbound("project", peer).pipe(
-            Effect.flatMap(() => handleProject(repository, request)),
+            Effect.flatMap(() => handleProject(repository, canvases, request)),
           );
         case "report":
           return handleReport(request, peer);
         case "status":
           return requireRemoteInbound("status", peer).pipe(
             Effect.flatMap(() => handleStatus(repository, readiness)),
-            Effect.tap(() => Effect.sync(() => remoteLeaseState.stamp())),
+            Effect.tap(() => stampRemoteLeaseIfEligible("status")),
           );
       }
     });

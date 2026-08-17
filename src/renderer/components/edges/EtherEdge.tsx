@@ -1,31 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { EdgeProps, EdgeTypes } from "@xyflow/react";
 import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath } from "@xyflow/react";
 import { use$ } from "@legendapp/state/react";
 import type { FlowEdge } from "../../lib/convert";
 import { edgeSparks$ } from "../../lib/edge-sparks";
-import {
-  loomCorridors$,
-  loomObstacles$,
-  loomStrands$,
-} from "../../lib/loom-view";
-import { corridorsClearOf, LANE_GAP, stitchStrand } from "../../lib/wire-loom";
-import { state$ } from "../../lib/state";
+import { loomRoutes$, loomStrands$ } from "../../lib/loom-view";
+import { LANE_GAP, stitchStrand } from "../../lib/wire-loom";
+import { selectEdge } from "../../lib/state";
 import { accentColor, EDGE_COLOR, HUE } from "../../lib/theme";
-import { routeWire, type WireRect } from "../../lib/wire-route";
 import type { WireFamily } from "@shared/physics";
-import {
-  chipPortsFromOffers,
-  edgeMaskAllows,
-  familyColorToken,
-  familyFromSlot,
-  offerPortsForAccessWire,
-  offersOf,
-  resolveSpec,
-  roleOf,
-  wirePresentation,
-  wireRolePair,
-} from "@shared/physics";
+import { familyColorToken } from "@shared/physics";
 
 const FAMILY_HUE: Record<ReturnType<typeof familyColorToken>, string> = {
   steel: HUE.steel,
@@ -39,8 +23,6 @@ const familyHue = (family: WireFamily | undefined): string | undefined =>
 
 export function EtherEdge({
   id,
-  source,
-  target,
   sourceX,
   sourceY,
   targetX,
@@ -56,7 +38,12 @@ export function EtherEdge({
   const blocked = phase === "blocks" || rippling;
   const previousBlockedRef = useRef(blocked);
   const [blockArrival, setBlockArrival] = useState(false);
+
+  // PERF-P2: edge-local keys only — never full obstacle/corridor arrays.
   const spark = use$(edgeSparks$[id]);
+  const strand = use$(loomStrands$[id]);
+  const plannedRoute = use$(loomRoutes$[id]);
+
   useEffect(() => {
     const wasBlocked = previousBlockedRef.current;
     previousBlockedRef.current = blocked;
@@ -68,60 +55,16 @@ export function EtherEdge({
     const clear = window.setTimeout(() => setBlockArrival(false), 920);
     return () => window.clearTimeout(clear);
   }, [blocked]);
+
   // Prefer live phase palette; only honor non-mirror accents (not stuck "1").
   const authoredColor =
     data?.edge.color && data.edge.color !== "1"
       ? accentColor(data.edge.color)
       : undefined;
-  // Family presentation (color, dash, worded halo, disabled dim) — pure grammar.
-  const slot = data?.edge.ether?.slot;
-  const doc = state$.doc.peek();
-  const fromNode = doc.nodes.find((n) => n.id === source);
-  const toNode = doc.nodes.find((n) => n.id === target);
-  const fromKind = fromNode?.ether?.entity?.kind;
-  const toKind = toNode?.ether?.entity?.kind;
-  const fromSpec = resolveSpec({
-    isGroup: fromNode?.type === "group",
-    kind: fromKind,
-  });
-  const toSpec = resolveSpec({
-    isGroup: toNode?.type === "group",
-    kind: toKind,
-  });
-  const fromRole = roleOf(fromSpec);
-  const toRole = roleOf(toSpec);
-  const family =
-    familyFromSlot(slot, wireRolePair(fromRole, toRole)) ??
-    (fromRole === "actor" || toRole === "actor" ? ("access" as const) : undefined);
-  const offerSet = offerPortsForAccessWire(
-    fromRole,
-    toRole,
-    offersOf(fromSpec),
-    offersOf(toSpec),
-  );
-  const offeredChips = chipPortsFromOffers(offerSet);
-  const edgeDoc = data?.edge;
-  const portsField = edgeDoc?.ether?.ports;
-  // Absent ports = full. Explicit [] = zero allowed (not full).
-  const activeChipCount: number | "full" =
-    !edgeDoc || portsField === undefined
-      ? "full"
-      : offeredChips.filter((port) => edgeMaskAllows(edgeDoc, port)).length;
-  const hasMessages =
-    fromRole === "actor" &&
-    toRole === "actor" &&
-    Boolean(edgeDoc && edgeMaskAllows(edgeDoc, "msg.send"));
-  const presentation = family
-    ? wirePresentation({
-        family,
-        ether: edgeDoc?.ether,
-        fromKind,
-        toKind,
-        hasMessages,
-        offeredChipCount: offeredChips.length,
-        activeChipCount,
-      })
-    : undefined;
+
+  // Presentation stamped at convert — no document-wide node scan here.
+  const presentation = data?.presentation;
+  const family = presentation?.family ?? data?.wireFamily;
   const familyColor = familyHue(family);
   // Centerline may take phase crimson; word-bed stays family hue so config
   // glow never wears stoppage paint (artifact: family color on worded wires).
@@ -134,39 +77,10 @@ export function EtherEdge({
   // Selection impact mode — only "in" is stamped (CSS dims the rest).
   const impactIn = data?.impact === "in";
 
-  // Absolute node bounds for wire routing — collected once at canvas level
-  // (CanvasLoom) and sliced here. Own endpoints are never obstacles.
-  const allRects = use$(loomObstacles$);
-  const corridors = use$(loomCorridors$);
-  const obstacles = useMemo(
-    () => allRects.filter((rect) => rect.nodeId !== source && rect.nodeId !== target),
-    [allRects, source, target],
-  );
-
-  // Bundled fan member: lane geometry planned once, stitched here against the
-  // live endpoints so the few-px anchor delta never shows.
-  const strand = use$(loomStrands$[id]);
-  const stitched = useMemo(
-    () =>
-      strand
-        ? stitchStrand(strand, { sourceX, sourceY, targetX, targetY })
-        : null,
-    [strand, sourceX, sourceY, targetX, targetY],
-  );
-
-  // An ejected (stoppage) wire treats the cable corridors as furniture, so
-  // crimson crosses a cable rather than running parallel inside one. Its own
-  // fan's trunk starts at the handle it is leaving, so that corridor holds this
-  // wire's endpoint and is dropped — feeding it back would kink the route at
-  // the port instead of clearing it of the cable.
-  const routeObstacles = useMemo<WireRect[]>(() => {
-    if (!blocked || corridors.length === 0) return obstacles;
-    const clear = corridorsClearOf(corridors, [
-      { x: sourceX, y: sourceY },
-      { x: targetX, y: targetY },
-    ]);
-    return clear.length > 0 ? [...obstacles, ...clear] : obstacles;
-  }, [blocked, corridors, obstacles, sourceX, sourceY, targetX, targetY]);
+  // Bundled fan member: lane geometry planned once, stitched against live ends.
+  const stitched = strand
+    ? stitchStrand(strand, { sourceX, sourceY, targetX, targetY })
+    : null;
 
   const [fallbackPath, fallbackLabelX, fallbackLabelY] = getSmoothStepPath({
     sourceX,
@@ -178,25 +92,10 @@ export function EtherEdge({
     borderRadius: 8,
   });
 
-  const routed = useMemo(
-    () =>
-      stitched
-        ? null
-        : routeWire({
-            source: { x: sourceX, y: sourceY },
-            target: { x: targetX, y: targetY },
-            obstacles: routeObstacles,
-            padding: 14,
-            borderRadius: 8,
-            sourceDirection: sourcePosition,
-            targetDirection: targetPosition,
-          }),
-    [stitched, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, routeObstacles],
-  );
-
-  const path = stitched?.path ?? routed?.path ?? fallbackPath;
-  const labelX = stitched?.labelX ?? routed?.labelX ?? fallbackLabelX;
-  const labelY = stitched?.labelY ?? routed?.labelY ?? fallbackLabelY;
+  // Standalone route is planned once at CanvasLoom — no per-edge routeWire.
+  const path = stitched?.path ?? plannedRoute?.path ?? fallbackPath;
+  const labelX = stitched?.labelX ?? plannedRoute?.labelX ?? fallbackLabelX;
+  const labelY = stitched?.labelY ?? plannedRoute?.labelY ?? fallbackLabelY;
   // Twelve 8px halos at 3px lane spacing merge into an opaque slab, so the
   // trunk carries centerlines only and the worded paint lands on the tail.
   const overlayPath = stitched?.tailPath ?? path;
@@ -213,8 +112,10 @@ export function EtherEdge({
     blocked ? "vellum-edge--blocked" : "",
     rippling ? "vellum-edge-ripple" : "",
     impactIn ? "vellum-edge-impact-in" : "",
-    routed?.detoured ? "vellum-edge--routed" : "",
-  ].filter(Boolean).join(" ");
+    plannedRoute?.detoured && !stitched ? "vellum-edge--routed" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   // Word halo: every worded family (access with stops/wakes, watch, effect).
   // Trigger stays bare — isWorded is false. Disabled unmounts the bed.
@@ -295,7 +196,7 @@ export function EtherEdge({
             fill="none"
             stroke={wordBedColor}
             className={
-              spark.fromNodeId === target
+              spark.fromNodeId === data?.edge.toNode
                 ? "vellum-edge__spark-flare vellum-edge__spark-flare--rev"
                 : "vellum-edge__spark-flare"
             }
@@ -311,7 +212,9 @@ export function EtherEdge({
               dur="780ms"
               fill="freeze"
               path={path}
-              keyPoints={spark.fromNodeId === target ? "1;0" : "0;1"}
+              keyPoints={
+                spark.fromNodeId === data?.edge.toNode ? "1;0" : "0;1"
+              }
               keyTimes="0;1"
               calcMode="linear"
             />
@@ -330,8 +233,7 @@ export function EtherEdge({
           style={{ top: labelY, left: labelX, opacity: 0, width: 14, height: 14, padding: 0 }}
           onClick={(e) => {
             e.stopPropagation();
-            state$.selectedNodeId.set("");
-            state$.selectedEdgeId.set(id);
+            selectEdge(id);
           }}
         />
       </EdgeLabelRenderer>

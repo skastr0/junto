@@ -107,6 +107,17 @@ describe("compiled doctrine — base and slots", () => {
     expect(grouped.get("escalate")?.map((t) => t.id)).toEqual(["req-1"]);
     expect(grouped.get("msg")?.map((t) => t.id)).toEqual(["peer-2"]);
     expect(grouped.has("artifacts")).toBe(false);
+    expect(grouped.has("pad")).toBe(false);
+  });
+
+  it("compiles the pad edge contract when a pad is connected", () => {
+    const slots = compileEdgeSlots([{ id: "pad-1", kind: "pad" }]);
+    expect(slots.join("\n")).toContain("### Edge contract — pad");
+    expect(slots.join("\n")).toContain(`vellum-command pad read '{"target":"pad-1"}'`);
+    expect(slots.join("\n")).toContain("vellum-command pad look-here");
+    expect(slots.join("\n")).toContain("vellum-command pad tagged");
+    expect(slots.join("\n")).toContain("ink or image");
+    expect(slots.join("\n")).toContain("inbound actor");
   });
 
   it("compileEdgeSlots emits one section per present slot kind", () => {

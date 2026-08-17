@@ -39,12 +39,19 @@ export type AgentSeatStore = {
    * Mirrors herdr's Idle+!seen. Cleared by markAgentSeatSeen (open path).
    */
   readonly needsLookByBindingId: Record<string, boolean | undefined>;
+  /**
+   * Monotonic apply counter. Nested Legend writes on `byBindingId[id]` can
+   * keep the parent object identity, so React `use$(byBindingId)` effects miss
+   * in-place working→idle flips. Depend on `rev` instead.
+   */
+  readonly rev: number;
 };
 
 export const agentSeat$ = observable<AgentSeatStore>({
   byBindingId: {},
   bindingIdByNodeId: {},
   needsLookByBindingId: {},
+  rev: 0,
 });
 
 /** Product presentation: engine states plus derived ready/complete. */
@@ -206,6 +213,7 @@ export const applyAgentSeatStateEvent = (event: AgentSeatStateEvent): void => {
 
   agentSeat$.byBindingId[event.bindingId].set(event);
   agentSeat$.needsLookByBindingId[event.bindingId].set(needsLook);
+  agentSeat$.rev.set(agentSeat$.rev.peek() + 1);
   // Inventory join when the session is already cached with a canvas pin.
   const session = terminal$.sessionByBindingId[event.bindingId].peek();
   rememberNodeJoin(event.bindingId, session?.nodeId);
@@ -235,7 +243,11 @@ export const seatEventForBinding = (
 
 /**
  * Build terminalStatusByNodeId for client region rollups from live seat store
- * + document terminal bindings. Pure given inputs (testable).
+ * + document terminal bindings / inventory joins.
+ *
+ * Uses the same binding resolution as card chrome (`bindingIdForNode`): native
+ * `ether.terminal.bindingId` first, then inventory `bindingIdByNodeId`. That
+ * keeps hotbar / region chips in lockstep with the canvas seat wave.
  */
 export const terminalStatusByNodeIdFromSeats = (
   nodes: ReadonlyArray<Pick<CanvasNode, "id" | "ether">>,
@@ -244,11 +256,11 @@ export const terminalStatusByNodeIdFromSeats = (
 ): Map<string, WorkSurfaceActivity> => {
   const out = new Map<string, WorkSurfaceActivity>();
   for (const node of nodes) {
-    const native = resolveTerminalBinding(node as CanvasNode);
-    if (native?.kind !== "native") continue;
+    const bindingId = bindingIdForNode(node);
+    if (!bindingId) continue;
     const surface = workSurfaceFromSeat(
-      seats[native.bindingId],
-      needsLookByBindingId[native.bindingId] === true,
+      seats[bindingId],
+      needsLookByBindingId[bindingId] === true,
     );
     if (surface) out.set(node.id, surface);
   }
@@ -302,6 +314,7 @@ export const resetAgentSeatState = (): void => {
   agentSeat$.byBindingId.set({});
   agentSeat$.bindingIdByNodeId.set({});
   agentSeat$.needsLookByBindingId.set({});
+  agentSeat$.rev.set(0);
   if (activeUnsubscribe) {
     activeUnsubscribe();
     activeUnsubscribe = undefined;

@@ -42,7 +42,7 @@ describe("operator control main lifecycle", () => {
       "operatorControl = await startOperatorControlServer",
     );
     const bootstrapReturn = source.indexOf(
-      "stationConfiguration === undefined",
+      "if (app.isPackaged && headless)",
       operatorStart,
     );
     expect(coordinatorStart).toBeGreaterThanOrEqual(0);

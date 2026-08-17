@@ -1,6 +1,9 @@
 import { Context, Effect, Result, Layer, Schema, Semaphore } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
-import type { StationProtocolObservation } from "@shared/station-status";
+import type {
+  StationProtocolObservation,
+  StationRemoteObservation,
+} from "@shared/station-status";
 import {
   defaultRemoteHostsDocument,
   RemoteHost,
@@ -17,15 +20,11 @@ import {
   type ConfigureRemoteOptions,
   type ConfigureRemoteResult,
 } from "./configure-remote";
-import {
-  deployRemoteHost,
-  type DeployRemoteResult,
-} from "./deploy-remote";
-import {
-  deployConfiguredRemoteHost,
-  type ConfiguredRemoteDeployOptions,
-  type ConfiguredRemoteDeployResult,
+import type {
+  ConfiguredRemoteDeployOptions,
+  ConfiguredRemoteDeployResult,
 } from "./deploy-configured-remote";
+import { HostRuntime } from "./host-runtime";
 import {
   runRemoteHostsDoctor,
   runRemoteHostsDoctorSnapshot,
@@ -44,7 +43,7 @@ const decodeHost = Schema.decodeUnknownResult(RemoteHost, {
   onExcessProperty: "error",
 });
 
-export type { ConfigureRemoteResult, DeployRemoteResult };
+export type { ConfigureRemoteResult };
 
 /**
  * S4 (effect@3.21): single canonical Tag `@vellum/HostsService`.
@@ -78,6 +77,7 @@ export class HostsService extends Context.Service<HostsService,
         readonly reachability?: "reachable" | "unreachable" | "unknown";
         readonly protocol?: StationProtocolObservation;
         readonly linuxCapabilities?: import("@shared/linux-host-capabilities").LinuxHostCapabilityObservation;
+        readonly observation?: StationRemoteObservation;
       },
       RemoteHostsError
     >;
@@ -86,23 +86,17 @@ export class HostsService extends Context.Service<HostsService,
       id: string,
       options: ConfigureRemoteOptions,
     ) => Effect.Effect<ConfigureRemoteResult, RemoteHostsError>;
-    /** Command Center → install/update .app over SSH + start Remote station. */
-    readonly deployRemote: (id: string) => Effect.Effect<DeployRemoteResult>;
-    /** Configure + deploy under one per-host compensating transaction. */
+    /** Admit + serialize, then HostRuntime.reconcile. */
     readonly deployConfiguredRemote: (
       id: string,
       options: ConfiguredRemoteDeployOptions & {
-        /**
-         * Final receipt barrier; runs under the same endpoint semaphore.
-         * Platform admission (`onAdmitted`) runs inside deployConfiguredRemoteHost
-         * after prepare succeeds — never before release/platform refuse.
-         */
+        /** Final receipt barrier; runs under the same endpoint semaphore. */
         readonly onCompleted?: (
           host: RemoteHostT,
           result: ConfiguredRemoteDeployResult,
         ) => Effect.Effect<void, RemoteHostsError>;
       },
-    ) => Effect.Effect<ConfiguredRemoteDeployResult>;
+    ) => Effect.Effect<ConfiguredRemoteDeployResult, never, HostRuntime>;
   }>()("@vellum/HostsService") {}
 
 /** Canonical service shape for `HostsService` (one id, one shape). */
@@ -136,12 +130,8 @@ export const makeHostsService = (
   fleet: Context.Service.Shape<typeof StationFleetPropagation>,
   operations: {
     readonly configureRemoteHost: typeof configureRemoteHost;
-    readonly deployRemoteHost: typeof deployRemoteHost;
-    readonly deployConfiguredRemoteHost: typeof deployConfiguredRemoteHost;
   } = {
     configureRemoteHost,
-    deployRemoteHost,
-    deployConfiguredRemoteHost,
   },
 ): HostsServiceShape => {
   const mutationLocks = new Map<string, Semaphore.Semaphore>();
@@ -233,47 +223,6 @@ export const makeHostsService = (
           operations.configureRemoteHost(ssh, host, options),
         );
       }),
-    deployRemote: (id) =>
-      Effect.gen(function* () {
-        if (!RELEASE_CAPABILITIES.managedRemoteDeploy) {
-          return {
-            ok: false,
-            detail: MANAGED_REMOTE_DEPLOY_DISABLED_DETAIL,
-            code: "validation" as const,
-            stages: [],
-            disposition: "not-started" as const,
-          } satisfies DeployRemoteResult;
-        }
-        const hostResult = yield* Effect.result(
-          Effect.tryPromise({
-            try: () => registry.get(id),
-            catch: asRemoteHostsError,
-          }),
-        );
-        if (hostResult._tag === "Failure") {
-          return {
-            ok: false,
-            detail: hostResult.failure.message,
-            code: hostResult.failure.code,
-            stages: [],
-            disposition: "not-started" as const,
-          } satisfies DeployRemoteResult;
-        }
-        const host = hostResult.success;
-        if (!host) {
-          return {
-            ok: false,
-            detail: `unknown host: ${id}`,
-            code: "not_found" as const,
-            stages: [],
-            disposition: "not-started" as const,
-          } satisfies DeployRemoteResult;
-        }
-        return yield* serializeHostMutation(
-          host,
-          operations.deployRemoteHost(ssh, host),
-        );
-      }),
     deployConfiguredRemote: (id, options) =>
       Effect.gen(function* () {
         if (!RELEASE_CAPABILITIES.managedRemoteDeploy) {
@@ -332,35 +281,18 @@ export const makeHostsService = (
             configuration: { ok: false, detail },
           } satisfies ConfiguredRemoteDeployResult;
         }
+        const runtime = yield* HostRuntime;
         return yield* serializeHostMutation(
           host,
-          Effect.gen(function* () {
-            // onAdmitted runs inside deployConfiguredRemoteHost after prepare
-            // so unsupported platforms never mint a durable admission receipt.
-            const deployed = yield* operations.deployConfiguredRemoteHost(
-              ssh,
-              host,
-              options,
-            );
-            if (!options.onCompleted) return deployed;
-            const completion = yield* options
-              .onCompleted(host, deployed)
-              .pipe(Effect.result);
-            if (completion._tag === "Success") {
-              return {
-                ...deployed,
-                statusRecorded: true,
-              } satisfies ConfiguredRemoteDeployResult;
-            }
-            const persistenceDetail = `local deployment receipt could not be persisted: ${completion.failure.message}`;
-            return {
-              ...deployed,
-              detail: `${deployed.detail} - ${persistenceDetail}`,
-              message: deployed.message
-                ? `${deployed.message} - ${persistenceDetail}`
-                : `${deployed.detail} - ${persistenceDetail}`,
-              statusRecorded: false,
-            } satisfies ConfiguredRemoteDeployResult;
+          runtime.reconcile(id, {
+            intent: "deploy",
+            configure: options,
+            ...(options.artifactSource === undefined
+              ? {}
+              : { artifactSource: options.artifactSource }),
+            ...(options.onCompleted === undefined
+              ? {}
+              : { onCompleted: options.onCompleted }),
           }),
         );
       }),

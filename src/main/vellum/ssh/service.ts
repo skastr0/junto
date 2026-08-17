@@ -20,6 +20,7 @@ import {
   SshExitError,
   SshForwardError,
   SshIoError,
+  SshProcessError,
   SshOutputLimitError,
   SshSetupError,
   SshSpawnError,
@@ -31,6 +32,12 @@ import type {
   OneShotProgram,
   ScopedStreamProgram,
 } from "./program";
+import { classifySshStderr } from "./format";
+import {
+  appendTransportTrace,
+  recordTransportError,
+} from "../observability/transport-journal";
+import { rememberTransportStderr } from "@shared/transport-trace";
 import { createSshProgramCompiler } from "./program";
 import {
   ProcessFailure,
@@ -255,13 +262,33 @@ const collectBounded = (
   ).pipe(
     Effect.mapError((error) =>
       error instanceof ProcessFailure
-        ? new SshIoError({
+        ? new SshProcessError({
             endpoint,
             operation,
-            message: "SSH process I/O failed",
+            message: `SSH ${operation} closed before it finished`,
           })
         : error,
     ),
+  );
+
+/** Transfer treats child death as EOF so exit code and script tags survive. */
+const collectTransferOutput = (
+  stream: Stream.Stream<Uint8Array, ProcessFailure | SshError>,
+  endpoint: SshEndpoint,
+  streamName: "stdout" | "stderr",
+  limitBytes: number,
+): Effect.Effect<Collected, SshError> =>
+  collectBounded(
+    stream.pipe(
+      Stream.catchIf(
+        (error): error is SshProcessError => error instanceof SshProcessError,
+        () => Stream.empty,
+      ),
+    ),
+    endpoint,
+    "transfer",
+    streamName,
+    limitBytes,
   );
 
 export const SshTransportLayer = Layer.effect(
@@ -287,8 +314,14 @@ export const SshTransportLayer = Layer.effect(
     const ioError = (
       endpoint: SshEndpoint,
       operation: string,
-      message = "SSH process I/O failed",
+      message: string,
     ) => new SshIoError({ endpoint, operation, message });
+
+    const processClosed = (
+      endpoint: SshEndpoint,
+      operation: string,
+      message = `SSH ${operation} closed before it finished`,
+    ) => new SshProcessError({ endpoint, operation, message });
 
     const forwardError = (endpoint: SshEndpoint, message: string) =>
       new SshForwardError({ endpoint, message });
@@ -363,7 +396,7 @@ export const SshTransportLayer = Layer.effect(
                   ? Stream.empty
                   : Stream.make(Uint8Array.from(input)),
                 process.stdin,
-              ).pipe(Effect.mapError(() => ioError(endpoint, operation))),
+              ).pipe(Effect.mapError(() => processClosed(endpoint, operation))),
               stdout: collectBounded(
                 process.stdout,
                 endpoint,
@@ -379,7 +412,7 @@ export const SshTransportLayer = Layer.effect(
                 STDERR_LIMIT_BYTES,
               ),
               code: process.exitCode.pipe(
-                Effect.mapError(() => ioError(endpoint, operation)),
+                Effect.mapError(() => processClosed(endpoint, operation)),
               ),
             },
             { concurrency: "unbounded" },
@@ -402,11 +435,18 @@ export const SshTransportLayer = Layer.effect(
       input?: Uint8Array,
     ): Effect.Effect<SshCommandResult, SshError> =>
       runProcess(endpoint, operation, command, input).pipe(
-        Effect.flatMap(({ result, code }) =>
-          code === 0
-            ? Effect.succeed(result)
-            : Effect.fail(new SshExitError({ endpoint, operation, code })),
-        ),
+        Effect.flatMap(({ result, code }) => {
+          if (code === 0) return Effect.succeed(result);
+          const detail = classifySshStderr(result.stderr);
+          const error = new SshExitError({
+            endpoint,
+            operation,
+            code,
+            ...(detail === undefined ? {} : { detail }),
+          });
+          rememberTransportStderr(error, result.stderr);
+          return Effect.fail(error);
+        }),
         Effect.timeoutOrElse({
           duration: timeoutMs,
           orElse: () => Effect.fail(new SshTimeoutError({ endpoint, operation, timeoutMs })),}),
@@ -458,7 +498,7 @@ export const SshTransportLayer = Layer.effect(
           Stream.filterMap((chunk) => chunk),
         );
         const pump = Stream.run(mappedInput, process.stdin).pipe(
-          Effect.mapError(() => ioError(endpoint, operation)),
+          Effect.mapError(() => processClosed(endpoint, operation)),
           Effect.exit,
           Effect.flatMap((exit) =>
             Effect.uninterruptible(
@@ -485,7 +525,7 @@ export const SshTransportLayer = Layer.effect(
         ).pipe(
           Effect.flatMap(() =>
             Effect.fail(
-              ioError(
+              processClosed(
                 endpoint,
                 operation,
                 "SSH process input is already closed",
@@ -516,7 +556,7 @@ export const SshTransportLayer = Layer.effect(
               }
               if (!(yield* Ref.get(inputOpen))) {
                 return yield* Effect.fail(
-                  ioError(
+                  processClosed(
                     endpoint,
                     operation,
                     "SSH process input is already closed",
@@ -542,7 +582,7 @@ export const SshTransportLayer = Layer.effect(
               }
               if (!(yield* Ref.get(inputOpen))) {
                 return yield* Effect.fail(
-                  ioError(
+                  processClosed(
                     endpoint,
                     operation,
                     "SSH process input is already closed",
@@ -603,50 +643,62 @@ export const SshTransportLayer = Layer.effect(
           writeSensitive,
           closeInput,
           stdout: process.stdout.pipe(
-            Stream.mapError(() => ioError(endpoint, operation)),
+            Stream.mapError(() => processClosed(endpoint, operation)),
           ),
           stderr: process.stderr.pipe(
-            Stream.mapError(() => ioError(endpoint, operation)),
+            Stream.mapError(() => processClosed(endpoint, operation)),
           ),
           exitCode: process.exitCode.pipe(
-            Effect.mapError(() => ioError(endpoint, operation)),
+            Effect.mapError(() => processClosed(endpoint, operation)),
           ),
           isRunning: process.isRunning.pipe(
-            Effect.mapError(() => ioError(endpoint, operation)),
+            Effect.mapError(() => processClosed(endpoint, operation)),
           ),
           close: Scope.close(child, Exit.void).pipe(Effect.ignore),
           scope: child,
         };
       });
 
-    const run = (
-      program: OneShotProgram,
-    ): Effect.Effect<SshCommandResult, SshError> =>
-      Effect.try({
-        try: () => compiler.oneShot(program),
-        catch: () =>
-          new SshSetupError({
-            endpoint: "invalid-program",
-            message: "SSH operation was not created by the policy surface",
-          }),
-      }).pipe(
-        Effect.flatMap((compiled) =>
-          withDial(
-            compiled.endpoint,
-            ensureControlDir(compiled.endpoint).pipe(
-              Effect.andThen(
-                runChecked(
-                  compiled.endpoint,
-                  "one-shot",
-                  compiled.command,
-                  compiled.timeoutMs,
-                  compiled.input,
-                ),
+    const run: SshTransportShape["run"] = (program) =>
+      Effect.gen(function* () {
+        const started = Date.now();
+        const compiled = yield* Effect.try({
+          try: () => compiler.oneShot(program),
+          catch: () =>
+            new SshSetupError({
+              endpoint: "invalid-program",
+              message: "SSH operation was not created by the policy surface",
+            }),
+        });
+        return yield* withDial(
+          compiled.endpoint,
+          ensureControlDir(compiled.endpoint).pipe(
+            Effect.andThen(
+              runChecked(
+                compiled.endpoint,
+                "one-shot",
+                compiled.command,
+                compiled.timeoutMs,
+                compiled.input,
               ),
             ),
           ),
-        ),
-      );
+        ).pipe(
+          Effect.tapError((error) =>
+            Effect.sync(() =>
+              recordTransportError(
+                {
+                  plane: "ssh-transport",
+                  op: "run",
+                  endpoint: String(compiled.endpoint),
+                  ms: Date.now() - started,
+                },
+                error,
+              ),
+            ),
+          ),
+        );
+      });
 
     const connectWithPolicy = <A, E, R>(
       callbackOwnsExit: boolean,
@@ -772,28 +824,52 @@ export const SshTransportLayer = Layer.effect(
                 ),
                 Effect.flatMap((lease) => {
                 const writeInput = Stream.run(
-                  input,
+                  input.pipe(
+                    Stream.map((chunk) => {
+                      if (chunk.byteLength <= INPUT_CHUNK_LIMIT_BYTES) {
+                        return [chunk];
+                      }
+                      const parts: Uint8Array[] = [];
+                      for (
+                        let offset = 0;
+                        offset < chunk.byteLength;
+                        offset += INPUT_CHUNK_LIMIT_BYTES
+                      ) {
+                        parts.push(
+                          chunk.subarray(
+                            offset,
+                            offset + INPUT_CHUNK_LIMIT_BYTES,
+                          ),
+                        );
+                      }
+                      return parts;
+                    }),
+                    Stream.flattenIterable,
+                  ),
                   Sink.forEach(lease.write),
                 ).pipe(
                   Effect.andThen(lease.closeInput),
                   // If the remote command exits first, interrupt the local
                   // producer now but keep draining its bounded diagnostics.
                   Effect.raceFirst(lease.exitCode.pipe(Effect.asVoid)),
+                  Effect.catchIf(
+                    (error): error is SshProcessError =>
+                      error instanceof SshProcessError,
+                    () => Effect.void,
+                  ),
                   );
                   return Effect.all(
                     {
                       input: writeInput,
-                      stdout: collectBounded(
+                      stdout: collectTransferOutput(
                         lease.stdout,
                         compiled.endpoint,
-                        "transfer",
                         "stdout",
                         STDOUT_LIMIT_BYTES,
                       ),
-                      stderr: collectBounded(
+                      stderr: collectTransferOutput(
                         lease.stderr,
                         compiled.endpoint,
-                        "transfer",
                         "stderr",
                         STDERR_LIMIT_BYTES,
                       ),
@@ -1029,7 +1105,27 @@ export const SshTransportLayer = Layer.effect(
                   })),}),
               Effect.onError(() => master.close),
             );
-            yield* setup;
+            yield* setup.pipe(
+              Effect.tapError((error) =>
+                Effect.sync(() =>
+                  recordTransportError(
+                    {
+                      plane: "ssh-transport",
+                      op: "forward",
+                      endpoint: String(compiled.endpoint),
+                    },
+                    error,
+                  ),
+                ),
+              ),
+            );
+            appendTransportTrace({
+              plane: "ssh-transport",
+              op: "forward",
+              ok: true,
+              endpoint: String(compiled.endpoint),
+              socket: compiled.localSocket,
+            });
             return {
               localSocket: compiled.localSocket as LocalForwardSocket,
               close: master.close,

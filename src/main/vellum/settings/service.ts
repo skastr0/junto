@@ -89,11 +89,16 @@ export type SettingsServiceOptions = {
   /** Override supervisor probe in tests. */
   readonly probeSupervised?: SupervisedProbe;
   /**
-   * When false, skip v1 auto-Command-Center (tests that exercise blank-slate
-   * Remote pairing / configuration). Production always leaves this default.
+   * When false, skip v1 auto-Command-Center (tests and Remote/headless
+   * enrollment). GUI Command Center boots still default this on.
    */
   readonly ensureDefaultCommandCenter?: boolean;
 };
+
+/** Headless enrollment must not infer Command Center. Role is never inferred. */
+export const shouldEnsureDefaultCommandCenter = (
+  argv: readonly string[] = process.argv,
+): boolean => !argv.includes("--vellum-headless");
 
 type StateService = Context.Service.Shape<typeof StateEngine>;
 type SettingsRows = {
@@ -369,7 +374,10 @@ export const makeSettingsService = (
     const probeSupervised =
       options.probeSupervised ?? probeSupervisedRuntime;
     yield* initializeSettings(state);
-    if (options.ensureDefaultCommandCenter !== false) {
+    if (
+      options.ensureDefaultCommandCenter !== false &&
+      shouldEnsureDefaultCommandCenter()
+    ) {
       yield* ensureDefaultCommandCenter(state);
     }
 

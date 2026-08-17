@@ -46,6 +46,16 @@ describe("vellum docs catalog", () => {
     const agent = buildNodeKindDoc("agent")!;
     expect(agent).toContain("msg.list");
     expect(agent).toContain("process-bind");
+
+    const pad = buildNodeKindDoc("pad")!;
+    expect(pad).toContain("pad.read");
+    expect(pad).toContain("pad.patch");
+    expect(pad).toContain("vellum-command pad read");
+    expect(pad).toContain("vellum-command pad look-here");
+    expect(pad).toContain("vellum-command pad tagged");
+    expect(pad).toContain("ink or image");
+    expect(pad).toContain("inbound actor");
+    expect(pad).toContain("### Edge contract — pad");
   });
 
   it("unknown kinds return undefined", () => {
@@ -58,6 +68,7 @@ describe("vellum docs catalog", () => {
     expect(catalog).toContain("requests");
     expect(catalog).toContain("artifacts");
     expect(catalog).toContain("board");
+    expect(catalog).toContain("pad");
     expect(catalog).toContain("agent");
     expect(catalog).toContain("tasks.list");
   });

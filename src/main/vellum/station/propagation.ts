@@ -13,11 +13,17 @@ import {
   type StatusResponse,
   type StationProjectionReference,
 } from "@shared/station-api";
+import { resolveNodeHostId } from "@shared/station";
+import type { StationTopologyObservation } from "@shared/station-status";
+import { resolveSpec, roleOf } from "@shared/physics/kinds";
 import {
   CanvasesService,
   type CanvasAuthoritySnapshot,
   type CanvasError,
 } from "../canvases";
+import {
+  fleetPropagationHeldByLicense,
+} from "../license/admission";
 import {
   StationApiService,
   type StationApiError,
@@ -62,6 +68,7 @@ export class StationPropagationInvariantError extends Schema.TaggedErrorClass<St
     "remote-configuration-required",
     "station-host-mismatch",
     "command-center-mismatch",
+    "license-maintenance-hold",
     "database-unavailable",
     "work-control-unavailable",
     "simulation-unavailable",
@@ -88,6 +95,7 @@ export type StationPropagationError =
 export type StationProjectionSyncReceipt = {
   readonly decision: "unchanged" | "install" | "idempotent";
   readonly active: StationProjectionReference;
+  readonly topology: StationTopologyObservation;
 };
 
 export type StationReportSyncReceipt = {
@@ -118,6 +126,122 @@ type CompiledProjectionDraft = Omit<
   "generation" | "contentSha256"
 >;
 
+export const summarizeStationProjectionTopology = (
+  documents: CanvasAuthoritySnapshot["documents"],
+  commandCenterHostId: string,
+  targetHostId: string,
+): StationTopologyObservation => {
+  let nodeCount = 0;
+  let edgeCount = 0;
+  let actorCount = 0;
+  let sinkCount = 0;
+  let schedulerCount = 0;
+  let targetNodeCount = 0;
+  let targetActorCount = 0;
+  let targetSinkCount = 0;
+  let targetSchedulerCount = 0;
+  let commandCenterNodeCount = 0;
+  let otherStationNodeCount = 0;
+  let targetInternalAccessEdgeCount = 0;
+  let remoteActorToCommandCenterSinkEdgeCount = 0;
+  let commandCenterActorToRemoteSinkEdgeCount = 0;
+  let stationPeerEdgeCount = 0;
+  let danglingEdgeCount = 0;
+
+  for (const document of documents.values()) {
+    const nodes = new Map(document.nodes.map((node) => [node.id, node] as const));
+    nodeCount += document.nodes.length;
+    edgeCount += document.edges.length;
+
+    for (const node of document.nodes) {
+      const hostId = resolveNodeHostId(node);
+      const role = roleOf(resolveSpec({
+        isGroup: node.type === "group",
+        kind: node.ether?.entity?.kind,
+      }));
+      if (role === "actor") actorCount += 1;
+      if (role === "sink") sinkCount += 1;
+      if (role === "scheduler") schedulerCount += 1;
+      if (hostId === targetHostId) {
+        targetNodeCount += 1;
+        if (role === "actor") targetActorCount += 1;
+        if (role === "sink") targetSinkCount += 1;
+        if (role === "scheduler") targetSchedulerCount += 1;
+      } else if (hostId === commandCenterHostId) {
+        commandCenterNodeCount += 1;
+      } else {
+        otherStationNodeCount += 1;
+      }
+    }
+
+    for (const edge of document.edges) {
+      const from = nodes.get(edge.fromNode);
+      const to = nodes.get(edge.toNode);
+      if (from === undefined || to === undefined) {
+        danglingEdgeCount += 1;
+        continue;
+      }
+      const fromHost = resolveNodeHostId(from);
+      const toHost = resolveNodeHostId(to);
+      if (
+        fromHost !== toHost &&
+        fromHost !== commandCenterHostId &&
+        toHost !== commandCenterHostId
+      ) {
+        stationPeerEdgeCount += 1;
+      }
+      const fromRole = roleOf(resolveSpec({
+        isGroup: from.type === "group",
+        kind: from.ether?.entity?.kind,
+      }));
+      const toRole = roleOf(resolveSpec({
+        isGroup: to.type === "group",
+        kind: to.ether?.entity?.kind,
+      }));
+      const actor = fromRole === "actor" ? from : toRole === "actor" ? to : undefined;
+      const sink = fromRole === "sink" ? from : toRole === "sink" ? to : undefined;
+      if (
+        actor === undefined ||
+        sink === undefined ||
+        (edge.ether?.ports?.length ?? 0) === 0
+      ) continue;
+      const actorHost = resolveNodeHostId(actor);
+      const sinkHost = resolveNodeHostId(sink);
+      if (actorHost === targetHostId && sinkHost === targetHostId) {
+        targetInternalAccessEdgeCount += 1;
+      } else if (
+        actorHost === targetHostId && sinkHost === commandCenterHostId
+      ) {
+        remoteActorToCommandCenterSinkEdgeCount += 1;
+      } else if (
+        actorHost === commandCenterHostId && sinkHost === targetHostId
+      ) {
+        commandCenterActorToRemoteSinkEdgeCount += 1;
+      }
+    }
+  }
+
+  return {
+    canvasCount: documents.size,
+    nodeCount,
+    edgeCount,
+    actorCount,
+    sinkCount,
+    schedulerCount,
+    targetNodeCount,
+    targetActorCount,
+    targetSinkCount,
+    targetSchedulerCount,
+    commandCenterNodeCount,
+    otherStationNodeCount,
+    targetInternalAccessEdgeCount,
+    remoteActorToCommandCenterSinkEdgeCount,
+    commandCenterActorToRemoteSinkEdgeCount,
+    stationPeerEdgeCount,
+    danglingEdgeCount,
+  };
+};
+
 const invariant = (
   operation: string,
   reason: StationPropagationInvariantError["reason"],
@@ -135,8 +259,10 @@ const desiredProjection = (
     string,
     StationPropagationTarget["stationInstallationId"]
   >,
+  commandCenterHostId: string,
+  targetHostId: string,
 ): Effect.Effect<
-  CompiledProjectionDraft,
+  { readonly draft: CompiledProjectionDraft; readonly topology: StationTopologyObservation },
   StationPortfolioError | StationPropagationInvariantError
 > =>
   Effect.gen(function* () {
@@ -176,11 +302,18 @@ const desiredProjection = (
     });
     const now = yield* Clock.currentTimeMillis;
     return {
-      scope: "full",
-      sourceCanvasGeneration: generation.success,
-      sourceIntentSha256: intentSha256.success,
-      body,
-      createdAt: new Date(now).toISOString(),
+      draft: {
+        scope: "full",
+        sourceCanvasGeneration: generation.success,
+        sourceIntentSha256: intentSha256.success,
+        body,
+        createdAt: new Date(now).toISOString(),
+      },
+      topology: summarizeStationProjectionTopology(
+        snapshot.documents,
+        commandCenterHostId,
+        targetHostId,
+      ),
     };
   });
 
@@ -188,7 +321,7 @@ const ensureProjectionResult = (
   desired: DesiredProjection,
   response: ProjectResponse,
 ): Effect.Effect<
-  StationProjectionSyncReceipt,
+  Omit<StationProjectionSyncReceipt, "topology">,
   StationPropagationInvariantError
 > => {
   if (response.decision === "stale") {
@@ -232,6 +365,7 @@ const synchronizeProjection = (
   target: StationPropagationTarget,
   current: StationProjectionReference | undefined,
   desired: DesiredProjection,
+  topology: StationTopologyObservation,
 ): Effect.Effect<
   StationProjectionSyncReceipt,
   StationPeerRequestError | StationPropagationInvariantError
@@ -266,6 +400,7 @@ const synchronizeProjection = (
       return Effect.succeed({
         decision: "unchanged",
         active: current,
+        topology,
       });
     }
   }
@@ -283,6 +418,7 @@ const synchronizeProjection = (
     Effect.flatMap((response) =>
       ensureProjectionResult(desired, response)
     ),
+    Effect.map((receipt) => ({ ...receipt, topology })),
   );
 };
 
@@ -378,6 +514,15 @@ export const StationPropagationLive = Layer.effect(
             "synchronize",
             "command-center-role-required",
             "only a configured Command Center may propagate fleet state",
+          );
+        }
+        // CC maintenance must not open status/project that renew Remote leases.
+        // Hold is reversible when full access returns (no permanent admission cut).
+        if (fleetPropagationHeldByLicense()) {
+          return yield* invariant(
+            "synchronize",
+            "license-maintenance-hold",
+            "Command Center is in license maintenance; fleet propagation is held so Remote leases cannot be renewed",
           );
         }
         if (
@@ -479,13 +624,16 @@ export const StationPropagationLive = Layer.effect(
         const compiled = yield* desiredProjection(
           snapshot,
           installationByHostId,
+          localConfiguration.configuration.hostId,
+          target.hostId,
         );
-        const desired = yield* repository.archiveProjection(compiled);
+        const desired = yield* repository.archiveProjection(compiled.draft);
         const projection = yield* synchronizeProjection(
           session,
           target,
           status.projection,
           desired,
+          compiled.topology,
         );
         const report = yield* synchronizeReport(api, session, target);
         const finalStatus = yield* session.request(

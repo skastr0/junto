@@ -1,0 +1,221 @@
+{
+  "harness": "grok",
+  "displayName": "Grok",
+  "source": "P1-real-capture",
+  "capturedAt": "2026-08-11T19:08:04.175Z",
+  "pty": {
+    "cols": 120,
+    "rows": 32,
+    "term": "xterm-256color"
+  },
+  "sanitized": true,
+  "scrub": [
+    "<HOME>",
+    "<USER>",
+    "<HOST>",
+    "<CWD>",
+    "<CAPTURE>",
+    "<SESSION>",
+    "<EMAIL>",
+    "<TOKEN>"
+  ],
+  "scenarios": [
+    {
+      "harness": "grok",
+      "scenario": "startup-idle",
+      "status": "complete",
+      "observed": {
+        "title": "grok",
+        "osc9": "",
+        "glyphs": [
+          "…",
+          "─",
+          "│",
+          "╯",
+          "╰",
+          "◆",
+          "✓",
+          "❯",
+          "⠀",
+          "⠁",
+          "⠈",
+          "⠉",
+          "⠋",
+          "⠐",
+          "⠙",
+          "⠦",
+          "⠧",
+          "⠴",
+          "⠸",
+          "⠹",
+          "⠼"
+        ],
+        "modes": {
+          "set": [
+            1004,
+            2004,
+            2026,
+            25
+          ],
+          "reset": [
+            25,
+            2026
+          ],
+          "kittyPush": false,
+          "kittyPop": false
+        },
+        "promptGlyph": "❯",
+        "bytes": 5660,
+        "lines": 1,
+        "stableQuietMs": 1400
+      },
+      "expectedScreen": {
+        "title": "grok",
+        "osc9": "",
+        "promptGlyph": "❯",
+        "description": "idle composer of the bare TUI"
+      }
+    },
+    {
+      "harness": "grok",
+      "scenario": "type-echo",
+      "status": "complete",
+      "observed": {
+        "title": "grok",
+        "osc9": "",
+        "glyphs": [
+          "—",
+          "…",
+          "⇣",
+          "│",
+          "┃",
+          "◆",
+          "❯",
+          "⠋",
+          "⠙",
+          "⠦",
+          "⠧",
+          "⠸",
+          "⠹"
+        ],
+        "modes": {
+          "set": [
+            1004,
+            2004,
+            2026,
+            25
+          ],
+          "reset": [
+            25,
+            2026
+          ],
+          "kittyPush": false,
+          "kittyPop": false
+        },
+        "promptGlyph": "❯",
+        "lines": 1,
+        "idleReturned": true,
+        "exited": false
+      },
+      "expectedScreen": {
+        "title": "grok",
+        "osc9": "",
+        "promptGlyph": "❯",
+        "description": "typed 'hello' echoed in composer, CR submits, idle returns",
+        "echoText": "hello"
+      }
+    },
+    {
+      "harness": "grok",
+      "scenario": "paste-chip",
+      "status": "complete",
+      "observed": {
+        "chipText40ms": null,
+        "chipAfterCr40ms": false,
+        "submitted40ms": true,
+        "chipTextSlow": null,
+        "submittedSlow": true,
+        "clearedByCtrlC": false,
+        "ctrlCSent": false,
+        "osc9s": [],
+        "lines": 2,
+        "pasteLines": 40,
+        "settleMs": 40
+      },
+      "expectedScreen": {
+        "title": "grok",
+        "osc9": "",
+        "promptGlyph": "❯",
+        "description": "round1: paste+CR@40ms (vellum timing); round2: paste, chip render, CR; ONE Ctrl+C clear",
+        "pasteText": "PASTE_LINE_00\nPASTE_LINE_01\nPASTE_LINE_02\nPASTE_LINE_03\nPASTE_LINE_04\nPASTE_LINE_05\nPASTE_LINE_06\nPASTE_LINE_07\nPASTE_LINE_08\nPASTE_LINE_09\nPASTE_LINE_10\nPASTE_LINE_11\nPASTE_LINE_12\nPASTE_LINE_13\nPASTE_LINE_14\nPASTE_LINE_15\nPASTE_LINE_16\nPASTE_LINE_17\nPASTE_LINE_18\nPASTE_LINE_19\nPASTE_LINE_20\nPASTE_LINE_21\nPASTE_LINE_22\nPASTE_LINE_23\nPASTE_LINE_24\nPASTE_LINE_25\nPASTE_LINE_26\nPASTE_LINE_27\nPASTE_LINE_28\nPASTE_LINE_29\nPASTE_LINE_30\nPASTE_LINE_31\nPASTE_LINE_32\nPASTE_LINE_33\nPASTE_LINE_34\nPASTE_LINE_35\nPASTE_LINE_36\nPASTE_LINE_37\nPASTE_LINE_38\nPASTE_LINE_39",
+        "payloadVisible": true,
+        "chipObserved": false
+      }
+    },
+    {
+      "harness": "grok",
+      "scenario": "working-turn",
+      "status": "complete",
+      "observed": {
+        "workingSeen": true,
+        "interrupted": true,
+        "osc9s": [],
+        "titles": [],
+        "glyphs": [
+          "…",
+          "⇣",
+          "❯",
+          "⠙"
+        ],
+        "lines": 4,
+        "exited": false
+      },
+      "expectedScreen": {
+        "title": "grok",
+        "osc9": "",
+        "promptGlyph": "❯",
+        "description": "working turn: OSC title churn / spinner / progress frames then interrupt",
+        "prompt": "forty numbered VELLUM WORKING CAPTURE lines"
+      }
+    },
+    {
+      "harness": "grok",
+      "scenario": "osc9-empty-composer",
+      "status": "skip",
+      "reason": "real OSC 9;4;3 with an empty composer was not observed",
+      "observed": {
+        "osc9s": []
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "grok",
+      "scenario": "permission-returns-idle",
+      "status": "complete",
+      "observed": {
+        "permissionSeen": true,
+        "idleReturned": true,
+        "lines": 5
+      },
+      "expectedScreen": {
+        "title": "grok",
+        "osc9": "",
+        "promptGlyph": "❯",
+        "description": "permission dialog clears and the idle composer returns",
+        "permissionDialogCleared": true
+      }
+    }
+  ],
+  "sanitization": {
+    "method": "decoded-jsonl-scan",
+    "fixtures": 5,
+    "decodedBytes": 236761,
+    "checks": [
+      "home-path",
+      "username",
+      "hostname",
+      "email",
+      "token"
+    ]
+  }
+}

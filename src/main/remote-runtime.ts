@@ -42,10 +42,11 @@ import { WorkRepositoryLive } from "./vellum/work/repository";
 import { makeContentServiceLive } from "./vellum/content/service";
 import { InstallOpsLive } from "./vellum/install-ops/engine";
 import { RegionRollupLive } from "./vellum/region-rollup";
-import { SettingsLive } from "./vellum/settings/service";
+import { makeSettingsLive } from "./vellum/settings/service";
 import { SnapshotsLive } from "./vellum/snapshots";
 import { UsageLive } from "./vellum/usage/live";
 import { HostsServiceLive } from "./vellum/hosts";
+import { HostRuntimeLive } from "./vellum/hosts/host-runtime";
 import { SshTransportLive } from "./vellum/ssh";
 import { StationStatusLive } from "./vellum/station-status-store";
 import { StateEngineLive } from "./vellum/state/engine";
@@ -143,7 +144,7 @@ const StateRepositoriesLive = Layer.provideMerge(
     FactoryPauseRepositoryLive,
     WorkRepositoryLive,
     UsageLive,
-    SettingsLive,
+    makeSettingsLive({ ensureDefaultCommandCenter: false }),
     SchedulerRepositoryLive,
     StationStatusLive,
     StationRepositoryLive,
@@ -225,8 +226,9 @@ const StationFleetServicesLive = Layer.provideMerge(
   ),
 );
 
+// HostRuntimeLive yields HostsService at acquire — provide, don't sibling-merge.
 const HostsWithSshLive = Layer.provideMerge(
-  HostsServiceLive,
+  Layer.provideMerge(HostRuntimeLive, HostsServiceLive),
   Layer.mergeAll(
     SshTransportLive,
     StateRepositoriesLive,

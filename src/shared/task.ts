@@ -156,10 +156,11 @@ export const mirrorRequestsText = (items: ReadonlyArray<Task>): string => {
   return [header, ...items.map(taskBrief)].join("\n");
 };
 
-/** Artifacts node text mirror: names (or artifact ids). */
+/** Artifacts node text mirror: active names (or artifact ids); skips archived. */
 export const mirrorArtifactsText = (items: ReadonlyArray<Artifact>): string => {
-  if (items.length === 0) return "artifacts";
-  return items.map((item) => item.name?.trim() || item.artifactId).join("\n");
+  const live = items.filter((item) => item.metadata?.archived !== true);
+  if (live.length === 0) return "artifacts";
+  return live.map((item) => item.name?.trim() || item.artifactId).join("\n");
 };
 
 /**
@@ -176,6 +177,20 @@ export const mirrorBoardText = (
     .map((t) => `- ${t.title}`)
     .join("\n");
 };
+
+/** First line of pad node text is the authorial title. */
+export const padTitleFromText = (title: string): string =>
+  title.trim().split("\n")[0]?.trim() || "pad";
+
+/** Pad node text mirror: title + shape count + unread pin count. */
+export const mirrorPadText = (
+  title: string,
+  glance: {
+    readonly shapeCount: number;
+    readonly unreadPinCount: number;
+  },
+): string =>
+  `${padTitleFromText(title)}\n${glance.shapeCount} shapes, ${glance.unreadPinCount} unread`;
 
 export const countByTaskState = (
   items: ReadonlyArray<Task>,

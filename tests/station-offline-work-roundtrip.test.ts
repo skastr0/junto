@@ -1400,4 +1400,361 @@ describe("Station work authority survives Command Center downtime", () => {
       },
     });
   });
+
+  /**
+   * FLEET-P4 — two Remotes claim distinct CC-home tasks through live sessions.
+   * Proves exact claim selection (one actor per task) and failure isolation
+   * when Remote A disconnects while Remote B continues.
+   */
+  it("claims exact CC-home tasks on two Remotes without duplicate execution or cross-contamination", async () => {
+    const commandCenterId = installation("cc-two-remote-claim");
+    const remoteAId = installation("remote-a-two-remote-claim");
+    const remoteBId = installation("remote-b-two-remote-claim");
+    const remoteAHost = hostId("remote-a");
+    const remoteBHost = hostId("remote-b");
+    const remoteAStationHost = stationHostId(remoteAHost);
+    const remoteBStationHost = stationHostId(remoteBHost);
+    const commandCenter = await openInstallation(commandCenterId);
+    const remoteA = await openInstallation(remoteAId);
+    const remoteB = await openInstallation(remoteBId);
+
+    const document: CanvasDoc = {
+      nodes: [
+        {
+          id: "shared-tasks",
+          type: "text",
+          x: 0,
+          y: 0,
+          width: 240,
+          height: 100,
+          text: "Shared Command Center tasks",
+          ether: { entity: { kind: "task" }, host: "local" },
+        },
+        {
+          id: "worker-a",
+          type: "text",
+          x: 320,
+          y: 0,
+          width: 240,
+          height: 100,
+          text: "Remote A worker",
+          ether: {
+            entity: { kind: "agent", name: "remote-a:builder" },
+            host: remoteAHost,
+            terminal: {
+              bindingId: "binding-a",
+              harness: "codex",
+              launch: { kind: "harness", argv: ["codex"] },
+            },
+          },
+        },
+        {
+          id: "worker-b",
+          type: "text",
+          x: 320,
+          y: 160,
+          width: 240,
+          height: 100,
+          text: "Remote B worker",
+          ether: {
+            entity: { kind: "agent", name: "remote-b:builder" },
+            host: remoteBHost,
+            terminal: {
+              bindingId: "binding-b",
+              harness: "codex",
+              launch: { kind: "harness", argv: ["codex"] },
+            },
+          },
+        },
+      ],
+      edges: [
+        { id: "a-to-tasks", fromNode: "worker-a", toNode: "shared-tasks" },
+        { id: "b-to-tasks", fromNode: "worker-b", toNode: "shared-tasks" },
+      ],
+    };
+
+    await commandCenter.runtime.runPromise(
+      commandCenter.settings.setStationTopology({
+        role: "command-center",
+        hostId: "local",
+        supervisedPreferred: true,
+      }),
+    );
+    await commandCenter.runtime.runPromise(
+      commandCenter.fleetTargets.bind(
+        { hostId: remoteAHost, stationInstallationId: remoteAId },
+        now,
+      ),
+    );
+    await commandCenter.runtime.runPromise(
+      commandCenter.fleetTargets.bind(
+        { hostId: remoteBHost, stationInstallationId: remoteBId },
+        now,
+      ),
+    );
+    await commandCenter.runtime.runPromise(
+      commandCenter.canvases.write("factory", document),
+    );
+
+    const pairAndConfigure = async (
+      remote: InstallationHarness,
+      remoteId: InstallationIdValue,
+      remoteHost: HostIdValue,
+      remoteStationHost: ReturnType<typeof stationHostId>,
+      label: string,
+    ) => {
+      await remote.runtime.runPromise(
+        remote.api.handle(
+          PairRequest.make({
+            protocol: STATION_API_PROTOCOL,
+            op: "pair",
+            commandCenterInstallationId: commandCenterId,
+            stationInstallationId: remoteId,
+            stationLabel: label,
+            appVersion: "0.1.0",
+          }),
+          readiness,
+          { _tag: "command-center-route" },
+        ),
+      );
+      await remote.runtime.runPromise(
+        remote.api.handle(
+          ConfigureRequest.make({
+            protocol: STATION_API_PROTOCOL,
+            op: "configure",
+            installationId: remoteId,
+            configuration: {
+              role: "remote",
+              hostId: remoteStationHost,
+              agentHostId: remoteStationHost,
+              commandCenterInstallationId: commandCenterId,
+              supervisedPreferred: true,
+            },
+            host: {
+              id: remoteHost,
+              label,
+              kind: "remote",
+              capabilities: ["terminal"],
+            },
+          }),
+          readiness,
+          { _tag: "command-center-route" },
+        ),
+      );
+    };
+    await pairAndConfigure(
+      remoteA,
+      remoteAId,
+      remoteAHost,
+      remoteAStationHost,
+      "Remote A",
+    );
+    await pairAndConfigure(
+      remoteB,
+      remoteBId,
+      remoteBHost,
+      remoteBStationHost,
+      "Remote B",
+    );
+
+    const connectionA = await openProductSessionConnection(
+      commandCenter,
+      remoteA,
+      commandCenterId,
+      remoteAId,
+      remoteAHost,
+    );
+    const connectionB = await openProductSessionConnection(
+      commandCenter,
+      remoteB,
+      commandCenterId,
+      remoteBId,
+      remoteBHost,
+    );
+
+    // Independent complete projections — same authorial generation, two homes.
+    const projA = await commandCenter.runtime.runPromise(
+      commandCenter.propagation.synchronize(
+        {
+          stationInstallationId: remoteAId,
+          hostId: remoteAStationHost,
+        },
+        connectionA.commandCenterSession,
+      ),
+    );
+    const projB = await commandCenter.runtime.runPromise(
+      commandCenter.propagation.synchronize(
+        {
+          stationInstallationId: remoteBId,
+          hostId: remoteBStationHost,
+        },
+        connectionB.commandCenterSession,
+      ),
+    );
+    expect(projA.projection.decision).toBe("install");
+    expect(projB.projection.decision).toBe("install");
+
+    const createTask = async (brief: string) => {
+      const created = await commandCenter.runtime.runPromise(
+        commandCenter.workService.workTaskCreate(
+          "factory",
+          "shared-tasks",
+          brief,
+          { details: brief },
+        ),
+      );
+      expect(created).toMatchObject({ ok: true, disposition: "applied" });
+      if (!created.ok) throw new Error("task create failed");
+      return created.data.id as string;
+    };
+    const taskForA = await createTask("task for Remote A only");
+    const taskForB = await createTask("task for Remote B only");
+
+    const canvas = await commandCenter.runtime.runPromise(
+      commandCenter.canvases.read("factory"),
+    );
+    const actorA = canvas.actorRefs.find((a) => a.nodeId === "worker-a");
+    const actorB = canvas.actorRefs.find((a) => a.nodeId === "worker-b");
+    if (!actorA || !actorB) {
+      throw new Error("expected both Remote actors in the authorial canvas");
+    }
+
+    const claimA = await commandCenter.runtime.runPromise(
+      commandCenter.workService.workTaskClaim(
+        "factory",
+        "shared-tasks",
+        taskForA,
+        actorA,
+      ),
+    );
+    const claimB = await commandCenter.runtime.runPromise(
+      commandCenter.workService.workTaskClaim(
+        "factory",
+        "shared-tasks",
+        taskForB,
+        actorB,
+      ),
+    );
+    expect(claimA).toMatchObject({ ok: true });
+    expect(claimB).toMatchObject({ ok: true });
+
+    await commandCenter.runtime.runPromise(
+      commandCenter.propagation.synchronize(
+        {
+          stationInstallationId: remoteAId,
+          hostId: remoteAStationHost,
+        },
+        connectionA.commandCenterSession,
+      ),
+    );
+    await commandCenter.runtime.runPromise(
+      commandCenter.propagation.synchronize(
+        {
+          stationInstallationId: remoteBId,
+          hostId: remoteBStationHost,
+        },
+        connectionB.commandCenterSession,
+      ),
+    );
+
+    const snapA = await remoteA.runtime.runPromise(
+      remoteA.work.readSnapshot("factory", "shared-tasks"),
+    );
+    const snapB = await remoteB.runtime.runPromise(
+      remoteB.work.readSnapshot("factory", "shared-tasks"),
+    );
+    expect(snapA.tasks.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: taskForA,
+          state: "working",
+          claimedBy: actorA.seatId,
+        }),
+      ]),
+    );
+    expect(snapB.tasks.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: taskForB,
+          state: "working",
+          claimedBy: actorB.seatId,
+        }),
+      ]),
+    );
+    // Exact claim: A does not hold B's task as working under actorA.
+    expect(
+      snapA.tasks.items.find((t) => t.id === taskForB)?.claimedBy,
+    ).not.toBe(actorA.seatId);
+    expect(
+      snapB.tasks.items.find((t) => t.id === taskForA)?.claimedBy,
+    ).not.toBe(actorB.seatId);
+
+    // Failure isolation: drop Remote A; Remote B still completes its claim.
+    await closeProductSessionConnection(connectionA);
+    expect(
+      await commandCenter.runtime.runPromise(
+        commandCenter.livePeers.isLive(remoteAHost, remoteAId),
+      ),
+    ).toBe(false);
+    expect(
+      await commandCenter.runtime.runPromise(
+        commandCenter.livePeers.isLive(remoteBHost, remoteBId),
+      ),
+    ).toBe(true);
+
+    const completedB = await remoteB.runtime.runPromise(
+      remoteB.workService.workTaskTransition(
+        "factory",
+        "shared-tasks",
+        taskForB,
+        "completed",
+        "B finished while A was disconnected",
+      ),
+    );
+    expect(completedB).toMatchObject({
+      ok: true,
+      data: { id: taskForB, state: "completed", claimedBy: actorB.seatId },
+    });
+
+    const reconcileB = await commandCenter.runtime.runPromise(
+      commandCenter.propagation.synchronize(
+        {
+          stationInstallationId: remoteBId,
+          hostId: remoteBStationHost,
+        },
+        connectionB.commandCenterSession,
+      ),
+    );
+    expect(reconcileB.report.inboundRejected).toBe(0);
+
+    const ccSnap = await commandCenter.runtime.runPromise(
+      commandCenter.work.readSnapshot("factory", "shared-tasks"),
+    );
+    expect(ccSnap.tasks.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: taskForB,
+          state: "completed",
+          claimedBy: actorB.seatId,
+        }),
+        expect.objectContaining({
+          id: taskForA,
+          state: "working",
+          claimedBy: actorA.seatId,
+        }),
+      ]),
+    );
+
+    // Remotes never open sessions to each other — only CC↔Remote product paths.
+    expect(connectionA.commandCenterSession.localInstallationId).toBe(
+      commandCenterId,
+    );
+    expect(connectionA.commandCenterSession.peerInstallationId).toBe(remoteAId);
+    expect(connectionB.commandCenterSession.peerInstallationId).toBe(remoteBId);
+    expect(connectionA.remoteSession.peerInstallationId).toBe(commandCenterId);
+    expect(connectionB.remoteSession.peerInstallationId).toBe(commandCenterId);
+
+    await closeProductSessionConnection(connectionB);
+  });
 });
+

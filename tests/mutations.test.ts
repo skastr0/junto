@@ -133,8 +133,69 @@ describe("renderer graph mutations", () => {
     dock$.chatById.set({});
     dock$.stopErrorByRef.set({});
     state$.settings.station.hostId.set("local");
+    state$.settings.station.role.set("");
     clearGraphFilters();
     loadDoc({ nodes: [], edges: [] });
+  });
+
+  it("preserves still-valid interaction state across a same-canvas projection", () => {
+    loadDoc(doc, "r1", "mutation-test");
+    state$.selectedNodeId.set("");
+    state$.selectedNodeIds.set(["source", "target"]);
+    state$.focusNodeId.set("source");
+    state$.editNodeId.set("target");
+
+    loadDoc(
+      {
+        ...doc,
+        nodes: [
+          ...doc.nodes,
+          {
+            id: "background-task",
+            type: "text",
+            text: "background task",
+            x: 600,
+            y: 0,
+            width: 200,
+            height: 80,
+          },
+        ],
+      },
+      "r2",
+      "mutation-test",
+      { preserveValidInteraction: true },
+    );
+
+    expect(state$.selectedNodeId.peek()).toBe("");
+    expect(state$.selectedNodeIds.peek()).toEqual(["source", "target"]);
+    expect(state$.focusNodeId.peek()).toBe("source");
+    expect(state$.editNodeId.peek()).toBe("target");
+  });
+
+  it("drops interaction references removed by a same-canvas projection", () => {
+    const edgeDoc: CanvasDoc = {
+      ...doc,
+      edges: [{ id: "edge", fromNode: "source", toNode: "target" }],
+    };
+    loadDoc(edgeDoc, "r1", "mutation-test");
+    state$.selectedNodeId.set("source");
+    state$.selectedNodeIds.set(["source"]);
+    state$.selectedEdgeId.set("edge");
+    state$.focusNodeId.set("source");
+    state$.editNodeId.set("source");
+
+    loadDoc(
+      { nodes: [doc.nodes[1]!], edges: [] },
+      "r2",
+      "mutation-test",
+      { preserveValidInteraction: true },
+    );
+
+    expect(state$.selectedNodeId.peek()).toBe("");
+    expect(state$.selectedNodeIds.peek()).toEqual([]);
+    expect(state$.selectedEdgeId.peek()).toBe("");
+    expect(state$.focusNodeId.peek()).toBe("");
+    expect(state$.editNodeId.peek()).toBe("");
   });
 
   it("keeps a kill-session page node visible when Stop Page fails", async () => {
@@ -214,6 +275,58 @@ describe("renderer graph mutations", () => {
 
     await waitFor(() => expect(state$.doc.peek().nodes).toHaveLength(0));
     expect(browserStop).toHaveBeenCalledWith("page-session");
+  });
+
+  it("deletes a kill-session page when browserStop is feature-flagged off", async () => {
+    // Prod build with BROWSER_ENABLED=false strips browser IPC from preload.
+    // Historical page furniture must still be deletable.
+    const api = runtimeWindow.vellumCommand as unknown as {
+      browserStop?: typeof browserStop;
+      browserSessionList?: () => Promise<{ ok: true; data: [] }>;
+    };
+    const savedStop = api.browserStop;
+    const savedList = api.browserSessionList;
+    delete api.browserStop;
+    delete api.browserSessionList;
+
+    state$.canvasName.set("mutation-test");
+    const ref = formatNodeRef({ canvasName: "mutation-test", nodeId: "page" });
+    loadDoc({
+      nodes: [{
+        id: "page",
+        type: "link",
+        url: "https://example.com",
+        x: 0,
+        y: 0,
+        width: 320,
+        height: 180,
+        ether: {
+          entity: { kind: "page" },
+          browser: { profile: "personal", onDelete: "kill-session" },
+        },
+      }],
+      edges: [],
+    });
+    cacheBrowserSession({
+      sessionId: "ghost-session",
+      ref,
+      nodeId: "page",
+      url: "https://example.com",
+      hostId: "local",
+      profile: "personal",
+      state: "ready",
+      attached: false,
+    });
+
+    try {
+      deleteNode("page");
+      await waitFor(() => expect(state$.doc.peek().nodes).toHaveLength(0));
+      expect(state$.error.peek()).toBe("");
+      expect(browser$.sessionByRef[ref].peek()).toBeUndefined();
+    } finally {
+      if (savedStop) api.browserStop = savedStop;
+      if (savedList) api.browserSessionList = savedList;
+    }
   });
 
   it("keeps a kill-session node after failure and deletes it only when Stop Page retry succeeds", async () => {
@@ -420,11 +533,13 @@ describe("renderer graph mutations", () => {
   it("draws agent→task access", () => {
     state$.canvasName.set("mutation-test");
     loadDoc(doc);
+    state$.selectedNodeIds.set(["source", "target"]);
     addEdge({ source: "source", target: "target" });
 
     const edge = state$.doc.peek().edges[0];
     expect(edge).toMatchObject({ fromNode: "source", toNode: "target" });
     expect(state$.selectedNodeId.peek()).toBe("");
+    expect(state$.selectedNodeIds.peek()).toEqual([]);
     expect(state$.selectedEdgeId.peek()).toBe(edge?.id);
     expect(Object.hasOwn(edge ?? {}, "fromSide")).toBe(false);
     expect(Object.hasOwn(edge ?? {}, "toSide")).toBe(false);
@@ -839,6 +954,19 @@ describe("renderer graph mutations", () => {
     expect(state$.selectedNodeIds.peek()).toEqual(["a"]);
   });
 
+  it("removes deleted nodes from both selection channels", async () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc(doc);
+    state$.selectedNodeId.set("");
+    state$.selectedNodeIds.set(["source", "target"]);
+
+    deleteNode("target");
+
+    await waitFor(() => expect(state$.doc.peek().nodes.map((node) => node.id)).toEqual(["source"]));
+    expect(state$.selectedNodeId.peek()).toBe("source");
+    expect(state$.selectedNodeIds.peek()).toEqual(["source"]);
+  });
+
   it("requires confirmation before deleting signals and connected relations", () => {
     state$.canvasName.set("mutation-test");
     loadDoc({ ...doc, edges: [{ id: "edge-1", fromNode: "source", toNode: "target" }] });
@@ -932,6 +1060,25 @@ describe("renderer graph mutations", () => {
     redo();
     expect(state$.docEpoch.peek()).toBe(afterCommit + 2);
     expect(state$.doc.peek().nodes[0]).toMatchObject({ text: "EDITED" });
+  });
+
+  it("refuses authorial commits on a Remote station", () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc(doc);
+    const before = state$.doc.peek();
+    const epoch = state$.docEpoch.peek();
+    state$.settings.station.role.set("remote");
+    const source = before.nodes[0];
+    if (!source || source.type !== "text") {
+      throw new Error("expected text source node");
+    }
+    commitDoc({
+      ...before,
+      nodes: [{ ...source, text: "REMOTE MUST NOT WRITE" }, ...before.nodes.slice(1)],
+    });
+    syncPositions(new Map([["source", { x: 99, y: 99 }]]));
+    expect(state$.doc.peek()).toBe(before);
+    expect(state$.docEpoch.peek()).toBe(epoch);
   });
 
   it("persists region geometry changes without rebuilding the graph", () => {

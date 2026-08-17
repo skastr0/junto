@@ -1,23 +1,9 @@
-import { Effect } from "effect";
 import type { StationSettings } from "@shared/settings";
 import type { InstallationId } from "@shared/station-api";
 import { RemoteHostsError, type RemoteHost } from "@shared/remote-hosts";
-import type { SshTransportShape } from "../ssh";
-import {
-  configureRemoteHost,
-  type ConfigureRemoteOptions,
-  type ConfigureRemoteResult,
-} from "./configure-remote";
-import {
-  dispatchRemoteDeployment,
-  prepareRemoteDeployment,
-  type DeployRemoteResult,
-  type RemoteDeploymentPreparation,
-  type RemoteDeploymentTarget,
-} from "./deploy-remote";
+import type { ConfigureRemoteOptions, ConfigureRemoteResult } from "./configure-remote";
+import type { DeployRemoteResult } from "./remote-deployment";
 import type { LinuxReleaseCacheSource } from "./linux-release-feed";
-
-type Ssh = SshTransportShape;
 
 export type ConfiguredRemoteDeployOutcome =
   | "ready"
@@ -49,57 +35,9 @@ export type ConfiguredRemoteDeployResult = DeployRemoteResult & {
 export type ConfiguredRemoteDeployOptions = ConfigureRemoteOptions & {
   /** Defaults to the stable feed; qualification may explicitly use the cache. */
   readonly artifactSource?: LinuxReleaseCacheSource;
-  /**
-   * Durable admission after platform prepare succeeds and before package
-   * mutation. A failure prevents deployPrepared from running.
-   */
-  readonly onAdmitted?: (
-    host: RemoteHost,
-  ) => Effect.Effect<void, RemoteHostsError>;
 };
 
-export type ConfiguredRemoteDeployOperations = {
-  /** Admit the registered target and its one platform provider. */
-  readonly prepare: (
-    ssh: Ssh,
-    host: RemoteHost,
-  ) => Effect.Effect<RemoteDeploymentPreparation, never>;
-  /** Consume the admitted target exactly once. */
-  readonly deployPrepared: (
-    ssh: Ssh,
-    target: RemoteDeploymentTarget,
-    stationConfiguration: {
-      readonly state: "applied";
-      readonly remoteHostId: string;
-    },
-    artifactSource?: LinuxReleaseCacheSource,
-  ) => Effect.Effect<DeployRemoteResult, never>;
-  /** Configure durable station state through the app-owned Station API. */
-  readonly configure: (
-    ssh: Ssh,
-    host: RemoteHost,
-    options: ConfigureRemoteOptions,
-  ) => Effect.Effect<ConfigureRemoteResult, RemoteHostsError>;
-};
-
-const defaultOperations: ConfiguredRemoteDeployOperations = {
-  prepare: prepareRemoteDeployment,
-  deployPrepared: (
-    ssh,
-    target,
-    stationConfiguration,
-    artifactSource,
-  ) =>
-    dispatchRemoteDeployment(
-      target,
-      ssh,
-      stationConfiguration,
-      artifactSource,
-    ),
-  configure: configureRemoteHost,
-};
-
-const failedBeforeMutation = (
+export const failedBeforeMutation = (
   host: RemoteHost,
   detail: string,
   input: {
@@ -128,7 +66,7 @@ const failedBeforeMutation = (
     : { recoveryAction: input.recoveryAction }),
 });
 
-const failedPackageResult = (
+export const failedPackageResult = (
   host: RemoteHost,
   deployed: DeployRemoteResult,
 ): ConfiguredRemoteDeployResult => {
@@ -148,7 +86,7 @@ const failedPackageResult = (
   };
 };
 
-const configurationFailure = (
+export const configurationFailure = (
   host: RemoteHost,
   deployed: DeployRemoteResult,
   error: RemoteHostsError | ConfigureRemoteResult,
@@ -175,7 +113,7 @@ const configurationFailure = (
   };
 };
 
-const finishWithConfiguration = (
+export const finishWithConfiguration = (
   host: RemoteHost,
   deployed: DeployRemoteResult,
   configured: ConfigureRemoteResult,
@@ -205,74 +143,55 @@ const finishWithConfiguration = (
   };
 };
 
-/**
- * Install one Remote package, then pair/configure its app-owned database.
- *
- * A package provider may use the intended station fields as bounded admission
- * facts, but only the Station API commits durable configuration. There is no
- * settings snapshot, seal, file rollback, or alternate trust-provision lane.
- */
-export const deployConfiguredRemoteHost = (
-  ssh: Ssh,
+export const finishAlreadyConfiguredRemote = (
   host: RemoteHost,
-  options: ConfiguredRemoteDeployOptions,
-  operations: ConfiguredRemoteDeployOperations = defaultOperations,
-): Effect.Effect<ConfiguredRemoteDeployResult, never> =>
-  Effect.gen(function* () {
-    if (host.kind !== "remote" || !host.sshEndpoint) {
-      return failedBeforeMutation(
-        host,
-        `${host.label}: host is not a registered Remote endpoint`,
-        { code: "validation" },
-      );
-    }
+  deployed: DeployRemoteResult,
+  priorInstallationId: InstallationId,
+  activatedDetail: string,
+): ConfiguredRemoteDeployResult => {
+  const detail = `${deployed.detail} - already configured Remote; configure skipped - ${activatedDetail}`;
+  return {
+    ...deployed,
+    ok: true,
+    detail,
+    message: activatedDetail,
+    hostEndpoint: host.sshEndpoint,
+    disposition: "ready",
+    outcome: "ready",
+    packageState: "present",
+    role: "remote",
+    stationInstallationId: priorInstallationId,
+    configuration: {
+      ok: true,
+      detail: "already configured Remote; configure skipped",
+    },
+  };
+};
 
-    const preparation = yield* operations.prepare(ssh, host);
-    if (!preparation.ok) {
-      return failedBeforeMutation(host, preparation.result.detail, {
-        code: preparation.result.code,
-        stages: preparation.result.stages,
-        unsupportedTarget: preparation.result.unsupportedTarget,
-        recoveryAction: preparation.result.recoveryAction,
-      });
-    }
+export const alreadyConfiguredActivateFailure = (
+  host: RemoteHost,
+  deployed: DeployRemoteResult,
+  priorInstallationId: InstallationId,
+  activatedDetail: string,
+): ConfiguredRemoteDeployResult => ({
+  ...deployed,
+  ok: false,
+  detail: `${host.label}: already configured Remote; package is present, but supervised runtime activate failed — ${activatedDetail}`,
+  code: "io",
+  message: activatedDetail,
+  hostEndpoint: host.sshEndpoint,
+  disposition: "indeterminate",
+  outcome: "indeterminate",
+  packageState: "present",
+  role: "remote",
+  stationInstallationId: priorInstallationId,
+  configuration: {
+    ok: true,
+    detail: "already configured Remote; configure skipped",
+  },
+});
 
-    // Platform is known only after prepare. Admit durably only once the target
-    // is release-eligible so Linux freezes never leave a half-started receipt.
-    if (options.onAdmitted) {
-      const admission = yield* options.onAdmitted(host).pipe(Effect.result);
-      if (admission._tag === "Failure") {
-        const detail = `${host.label}: deployment did not start because its durable admission receipt could not be persisted — ${admission.failure.message}`;
-        return failedBeforeMutation(host, detail, {
-          code: admission.failure.code,
-          stages: preparation.target.progress,
-        });
-      }
-    }
-
-    let deployed = yield* operations.deployPrepared(
-      ssh,
-      preparation.target,
-      {
-        state: "applied",
-        remoteHostId: host.id,
-      },
-      options.artifactSource,
-    );
-
-    if (!deployed.ok || deployed.disposition !== "ready") {
-      return failedPackageResult(host, deployed);
-    }
-
-    const configured = yield* operations
-      .configure(ssh, host, options)
-      .pipe(Effect.result);
-    if (configured._tag === "Failure") {
-      return configurationFailure(host, deployed, configured.failure);
-    }
-    if (!configured.success.ok || configured.success.station === undefined) {
-      return configurationFailure(host, deployed, configured.success);
-    }
-
-    return finishWithConfiguration(host, deployed, configured.success);
-  }).pipe(Effect.withSpan("hosts.deploy-configured-remote"));
+export const packageAdmitted = (deployed: DeployRemoteResult): boolean =>
+  deployed.ok &&
+  (deployed.disposition === "ready" ||
+    deployed.disposition === "configuration-required");

@@ -49,6 +49,7 @@ const boardOffers = portSet(
   "board.post",
   "board.mark_read",
 );
+const padOffers = portSet("pad.read", "pad.patch");
 
 /**
  * The role a kind carries, decided by which literal group it was written into
@@ -82,6 +83,7 @@ export const KindSpecs = {
   requests: { kind: "requests", role: "sink", offers: requestsOffers },
   artifacts: { kind: "artifacts", role: "sink", offers: artifactsOffers },
   board: { kind: "board", role: "sink", offers: boardOffers },
+  pad: { kind: "pad", role: "sink", offers: padOffers },
   // Terminal sink: tmux-like resource. Ports TBD in v1 — access family only.
   terminal: { kind: "terminal", role: "sink", offers: emptyOffers },
   watcher: { kind: "watcher", role: "scheduler", offers: emptyOffers },

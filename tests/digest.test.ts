@@ -421,3 +421,29 @@ describe("digestCanvas — design (I13)", () => {
     expect(out).toMatch(/empty seats\n {2}worker :: empty/);
   });
 });
+
+describe("digestCanvas — pad block", () => {
+  it("emits one pad glance line under entities", () => {
+    const padDoc: CanvasDoc = {
+      nodes: [
+        {
+          id: "pad-1",
+          type: "text",
+          text: "sketch",
+          x: 0,
+          y: 0,
+          width: 240,
+          height: 120,
+          ether: {
+            entity: { kind: "pad" },
+            pad: { revision: 3, shapeCount: 4, unreadPinCount: 1 },
+          },
+        },
+      ],
+      edges: [],
+    };
+    const out = digestCanvas("pad-fixture", padDoc, { bundles: [] });
+    expect(out).toContain("sketch :: pad");
+    expect(out).toContain("  pad: revision=3 shapes=4 unread=1");
+  });
+});

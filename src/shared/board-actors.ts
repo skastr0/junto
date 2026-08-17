@@ -22,6 +22,29 @@ export type BoardConnectedActor = {
   readonly wake: boolean;
 };
 
+const actorFromNode = (
+  doc: CanvasDoc,
+  sinkNodeId: string,
+  node: CanvasNode,
+): BoardConnectedActor | undefined => {
+  const spec = resolveSpec({
+    isGroup: isGroup(node),
+    kind: node.ether?.entity?.kind,
+  });
+  if (roleOf(spec) !== "actor") return undefined;
+  const agentKey =
+    typeof node.ether?.entity?.name === "string" &&
+    node.ether.entity.name.trim().length > 0
+      ? node.ether.entity.name.trim()
+      : undefined;
+  return {
+    nodeId: node.id,
+    ...(agentKey ? { agentKey } : {}),
+    label: authorLabel(node),
+    wake: edgeNotifyOn(doc, sinkNodeId, node.id),
+  };
+};
+
 /** Actors with an undirected edge to the board sink (actor role only). */
 export const resolveBoardConnectedActors = (
   doc: CanvasDoc,
@@ -40,22 +63,33 @@ export const resolveBoardConnectedActors = (
   for (const nodeId of neighborIds) {
     const node = doc.nodes.find((n) => n.id === nodeId);
     if (!node) continue;
-    const spec = resolveSpec({
-      isGroup: isGroup(node),
-      kind: node.ether?.entity?.kind,
-    });
-    if (roleOf(spec) !== "actor") continue;
-    const agentKey =
-      typeof node.ether?.entity?.name === "string" &&
-      node.ether.entity.name.trim().length > 0
-        ? node.ether.entity.name.trim()
-        : undefined;
-    out.push({
-      nodeId,
-      ...(agentKey ? { agentKey } : {}),
-      label: authorLabel(node),
-      wake: edgeNotifyOn(doc, boardNodeId, nodeId),
-    });
+    const actor = actorFromNode(doc, boardNodeId, node);
+    if (actor) out.push(actor);
+  }
+  return out.sort((a, b) => a.nodeId.localeCompare(b.nodeId));
+};
+
+/**
+ * Pad mention universe: inbound actor edges only. `@` cannot name an
+ * unwired or outbound-only seat. Same BoardConnectedActor shape as board
+ * tags so tag-notify reuse stays one roster.
+ */
+export const resolvePadInboundActors = (
+  doc: CanvasDoc,
+  padNodeId: string,
+): ReadonlyArray<BoardConnectedActor> => {
+  if (!doc.nodes.some((node) => node.id === padNodeId)) return [];
+  const out: BoardConnectedActor[] = [];
+  const seen = new Set<string>();
+  for (const edge of doc.edges) {
+    if (edge.toNode !== padNodeId) continue;
+    if (seen.has(edge.fromNode)) continue;
+    const node = doc.nodes.find((candidate) => candidate.id === edge.fromNode);
+    if (!node) continue;
+    const actor = actorFromNode(doc, padNodeId, node);
+    if (!actor) continue;
+    seen.add(actor.nodeId);
+    out.push(actor);
   }
   return out.sort((a, b) => a.nodeId.localeCompare(b.nodeId));
 };

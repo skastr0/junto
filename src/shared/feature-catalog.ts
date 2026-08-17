@@ -80,12 +80,12 @@ export type FeatureKey = keyof typeof FEATURE_CATALOG;
 
 export type FeatureSet = Readonly<Record<FeatureKey, boolean>>;
 
-/** Public release baseline. Experimental surfaces stay off; shipped harnesses may be on. */
+/** Public release baseline. Fleet and its host-local Browser plane ship together; shipped harnesses may be on. */
 export const SHIP_FEATURES: FeatureSet = {
   cron: false,
   relay: false,
-  browser: false,
-  fleetUi: false,
+  browser: true,
+  fleetUi: true,
   usage: false,
   helpMap: false,
   audio: false,

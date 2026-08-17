@@ -105,6 +105,11 @@ const makeRuntime = (input: {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
+    announceInstalledProjection: (names) => {
+      for (const name of names) {
+        for (const listener of listeners) listener(name);
+      }
+    },
     liveDocuments: () =>
       Effect.sync(() =>
         [...documents].map(([canvasName, current]) => ({

@@ -28,6 +28,8 @@ export const MAIN_AUTHORING_LABELS = [
   "ipc.work.request-create",
   "ipc.work.request-resolve",
   "ipc.work.artifact-publish",
+  "ipc.work.artifact-archive",
+  "ipc.work.artifact-delete",
   "control.work.tasks-claim",
   "control.work.tasks-create",
   "control.work.tasks-update",
@@ -37,11 +39,13 @@ export const MAIN_AUTHORING_LABELS = [
   "control.work.board-create-topic",
   "control.work.board-post",
   "control.work.board-mark-read",
+  "control.work.pad-patch",
   "control.work.relay-trigger",
   "ipc.work.board-topic-create",
   "ipc.work.board-post",
   "ipc.work.board-mark-read",
   "ipc.work.board-notify",
+  "ipc.work.pad-patch",
   "delivery.message-stamp",
   "delivery.board-wake",
   "kernel.flag-mirror",
@@ -88,10 +92,11 @@ const WORK_OPERATION_CLASSIFICATION = {
   "content.path": "read",
   "content.stat": "read",
   "content.materialize": "read",
-  "msg.list": "read",
+  "msg.list": "authorial",
   "msg.send": "authorial",
   "msg.read": "authorial",
   "msg.reply": "authorial",
+  "msg.react": "authorial",
   "request.escalate": "authorial",
   "artifact.publish": "authorial",
   "board.list": "read",
@@ -99,6 +104,8 @@ const WORK_OPERATION_CLASSIFICATION = {
   "board.create_topic": "authorial",
   "board.post": "authorial",
   "board.mark_read": "authorial",
+  "pad.read": "read",
+  "pad.patch": "authorial",
   "relay.trigger": "authorial",
 } as const satisfies Record<WorkOpName, MainAuthoringWorkClassification>;
 
@@ -110,14 +117,17 @@ const WORK_AUTHORING_LABELS = {
   "tasks.create": "control.work.tasks-create",
   "tasks.claim": "control.work.tasks-claim",
   "tasks.update": "control.work.tasks-update",
+  "msg.list": "control.work.msg-send",
   "msg.send": "control.work.msg-send",
   "msg.read": "control.work.msg-send",
   "msg.reply": "control.work.msg-send",
+  "msg.react": "control.work.msg-send",
   "request.escalate": "control.work.request-escalate",
   "artifact.publish": "control.work.artifact-publish",
   "board.create_topic": "control.work.board-create-topic",
   "board.post": "control.work.board-post",
   "board.mark_read": "control.work.board-mark-read",
+  "pad.patch": "control.work.pad-patch",
   "relay.trigger": "control.work.relay-trigger",
 } as const satisfies Record<
   Extract<
@@ -125,14 +135,17 @@ const WORK_AUTHORING_LABELS = {
     | "tasks.create"
     | "tasks.claim"
     | "tasks.update"
+    | "msg.list"
     | "msg.send"
     | "msg.read"
     | "msg.reply"
+    | "msg.react"
     | "request.escalate"
     | "artifact.publish"
     | "board.create_topic"
     | "board.post"
     | "board.mark_read"
+    | "pad.patch"
     | "relay.trigger"
   >,
   MainAuthoringLabel

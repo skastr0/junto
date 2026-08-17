@@ -1,4 +1,5 @@
 import { use$, useObservable } from "@legendapp/state/react";
+import { batch } from "@legendapp/state";
 import { useEffect, useRef, useState } from "react";
 import { CircleHelp, Pause, Play, Plus, Radar, ScrollText, Search, Settings2, Trash2, X } from "lucide-react";
 import type { CanvasSummary } from "@shared/ipc";
@@ -9,7 +10,8 @@ import {
   HELP_MAP_ENABLED,
   USAGE_ENABLED,
 } from "@shared/features";
-import { state$ } from "../lib/state";
+import { isCommandCenterAuthoring } from "../lib/canvas-boot";
+import { clearSelection, state$ } from "../lib/state";
 import { retrySave } from "../lib/mutations";
 import { openSettings } from "../lib/settings-state";
 import { openFleet, prefetchFleetChunk } from "../lib/fleet-state";
@@ -24,6 +26,7 @@ function CanvasPicker({
   canvases,
   canvasName,
   busy,
+  authoring,
   onOpen,
   onCreate,
   onDelete,
@@ -31,6 +34,7 @@ function CanvasPicker({
   readonly canvases: ReadonlyArray<CanvasSummary>;
   readonly canvasName: string;
   readonly busy: boolean;
+  readonly authoring: boolean;
   readonly onOpen: (name: string) => void;
   readonly onCreate: (name: string) => void;
   readonly onDelete: (name: string) => void;
@@ -83,18 +87,22 @@ function CanvasPicker({
           title={busy ? "Opening canvas…" : "Switch canvas"}
           value={canvasName}
           uppercase
-          emptyLabel="no canvases"
+          emptyLabel={authoring ? "no canvases" : "no projected canvases"}
           placeholder="select canvas"
           options={canvases.map((canvas) => ({ value: canvas.name, label: canvas.name }))}
           onChange={onOpen}
         />
         {busy ? <span className="station-context__loading" role="status" aria-live="polite">opening</span> : null}
+        {authoring ? (
+          <>
         <button type="button" className="station-canvas__action" disabled={busy} title="New canvas" aria-label="New canvas" onClick={() => createOpen$.set(true)}>
           <Plus size={14} />
         </button>
         <button type="button" className="station-canvas__action station-canvas__action--danger" disabled={busy || !canvasName} title="Delete canvas" aria-label="Delete canvas" onClick={openDelete}>
           <Trash2 size={14} />
         </button>
+          </>
+        ) : null}
       </div>
       {createOpen ? (
         <div className="canvas-dialog-backdrop" role="presentation" onMouseDown={closeCreate}>
@@ -132,9 +140,10 @@ function SearchField({ canvasName }: { readonly canvasName: string }) {
   const value = use$(state$.searchQuery);
   const label = `Search ${canvasName || "canvas"}`;
   const setSearch = (next: string) => {
-    state$.searchQuery.set(next);
-    state$.selectedNodeId.set("");
-    state$.selectedEdgeId.set("");
+    batch(() => {
+      state$.searchQuery.set(next);
+      clearSelection();
+    });
   };
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -363,6 +372,7 @@ export function TopBar({
   const canvases = use$(state$.canvases);
   const canvasName = use$(state$.canvasName);
   const canvasLoading = use$(state$.canvasLoading);
+  const authoring = isCommandCenterAuthoring(use$(state$.settings.station.role));
   const logsExplorer = use$(state$.settings.advanced.logsExplorer);
   const observabilityOpen = use$(state$.observabilityOpen);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -385,7 +395,7 @@ export function TopBar({
   return (
     <header className="station-bar">
       {USAGE_ENABLED ? <UsageHud /> : null}
-      <CanvasPicker canvases={canvases} canvasName={canvasName} busy={canvasLoading} onOpen={onOpen} onCreate={onCreate} onDelete={onDelete} />
+      <CanvasPicker canvases={canvases} canvasName={canvasName} busy={canvasLoading} authoring={authoring} onOpen={onOpen} onCreate={onCreate} onDelete={onDelete} />
       <SearchField canvasName={canvasName} />
       <SaveStatus />
       <div className="station-actions relative ml-auto flex items-center gap-3">
@@ -413,7 +423,7 @@ export function TopBar({
             <ScrollText size={15} />
           </button>
         ) : null}
-        {FLEET_UI_ENABLED ? (
+        {FLEET_UI_ENABLED && authoring ? (
           <button type="button" className="station-icon-button" aria-label="Open fleet manager" title="Fleet"
             style={{ borderColor: "var(--color-stroke)", color: HUE.steel }}
             onPointerEnter={prefetchFleetChunk}

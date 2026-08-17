@@ -34,24 +34,40 @@ export function WorkbenchChrome({
   readonly tabs: ReadonlyArray<string>;
   readonly activeId: string | undefined;
 }) {
-  const registry = use$(dock$.registry);
-  const layout = zone === "focus" ? registry.focusLayout : registry.pinnedLayout;
-  const zoneSurfaces = registry.surfaces.filter((s) => s.zone === zone);
+  const layout = use$(() =>
+    zone === "focus"
+      ? dock$.registry.focusLayout.get()
+      : dock$.registry.pinnedLayout.get(),
+  );
+  const zoneSurfaceFingerprint = use$(() =>
+    JSON.stringify(
+      dock$.registry.surfaces
+        .get()
+        .filter((surface) => surface.zone === zone)
+        .map((surface) => [surface.id, surface.kind]),
+    ),
+  );
+  const registry = dock$.registry.peek();
+  const hasZoneSurfaces = zoneSurfaceFingerprint !== "[]";
 
   const cycleLayout = () => {
-    const i = LAYOUTS.findIndex((l) => l.mode === layout);
+    const current =
+      zone === "focus"
+        ? dock$.registry.focusLayout.peek()
+        : dock$.registry.pinnedLayout.peek();
+    const i = LAYOUTS.findIndex((l) => l.mode === current);
     const next = LAYOUTS[(i + 1) % LAYOUTS.length]!.mode;
     setWorkbenchLayout(zone, next);
   };
 
   const pinAll = () => {
-    for (const s of zoneSurfaces) {
+    for (const s of dock$.registry.surfaces.peek()) {
       if (s.zone === "focus") pinWorkbenchSurface(s.id);
     }
   };
 
   const unpinAll = () => {
-    for (const s of zoneSurfaces) {
+    for (const s of dock$.registry.surfaces.peek()) {
       if (s.zone === "pinned") unpinWorkbenchSurface(s.id);
     }
   };
@@ -126,7 +142,7 @@ export function WorkbenchChrome({
           ))}
         </button>
 
-        {zone === "focus" && zoneSurfaces.length > 0 ? (
+        {zone === "focus" && hasZoneSurfaces ? (
           <button
             type="button"
             className="workbench-chrome__btn"
@@ -136,7 +152,7 @@ export function WorkbenchChrome({
             Pin all
           </button>
         ) : null}
-        {zone === "pinned" && zoneSurfaces.length > 0 ? (
+        {zone === "pinned" && hasZoneSurfaces ? (
           <button
             type="button"
             className="workbench-chrome__btn"

@@ -25,6 +25,7 @@ export const claimedTaskForActorNode = (
 ): ClaimedTask | undefined => {
   const actor = actorRefs.find((candidate) => candidate.nodeId === nodeId);
   if (actor === undefined) return undefined;
+  if (!Array.isArray(doc?.nodes)) return undefined;
 
   for (const node of doc.nodes) {
     for (const task of node.ether?.tasks?.items ?? []) {

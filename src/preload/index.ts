@@ -493,6 +493,31 @@ const vellumApi: VellumCommandApi = {
       responseText,
       disposition,
     ),
+  workArtifactArchive: (canvas, nodeId, artifactId, archived) =>
+    invoke(
+      IPC_CHANNELS.workArtifactArchive,
+      IPC_TIMEOUT_MS,
+      canvas,
+      nodeId,
+      artifactId,
+      archived,
+    ),
+  workArtifactDelete: (canvas, nodeId, artifactId) =>
+    invoke(
+      IPC_CHANNELS.workArtifactDelete,
+      IPC_TIMEOUT_MS,
+      canvas,
+      nodeId,
+      artifactId,
+    ),
+  workSeatRecentOps: (canvas, nodeId, limit) =>
+    invoke(
+      IPC_CHANNELS.workSeatRecentOps,
+      IPC_TIMEOUT_MS,
+      canvas,
+      nodeId,
+      limit,
+    ),
   workBoardList: (canvas, nodeId, topicId) =>
     invoke(
       IPC_CHANNELS.workBoardList,
@@ -535,6 +560,22 @@ const vellumApi: VellumCommandApi = {
       canvas,
       nodeId,
       topicId,
+    ),
+  workPadRead: (canvas, nodeId, pinId) =>
+    invoke(
+      IPC_CHANNELS.workPadRead,
+      IPC_TIMEOUT_MS,
+      canvas,
+      nodeId,
+      pinId,
+    ),
+  workPadPatch: (canvas, nodeId, patches) =>
+    invoke(
+      IPC_CHANNELS.workPadPatch,
+      IPC_TIMEOUT_MS,
+      canvas,
+      nodeId,
+      patches,
     ),
   onNodeRefOpened,
   onCanvasFlushRequested,

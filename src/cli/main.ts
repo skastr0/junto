@@ -13,6 +13,7 @@ import {
   pingCommand,
   schemaCommand,
 } from "./commands/discovery";
+import { padCommand } from "./commands/pad";
 import {
   artifactCommand,
   boardCommand,
@@ -69,6 +70,7 @@ export const rootCommand = Command.make(CLI_NAME).pipe(
     contentCommand,
     docsCommand,
     boardCommand,
+    padCommand,
     stationOperatorCommand,
     fleetOperatorCommand,
     qualificationOperatorCommand,

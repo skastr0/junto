@@ -1951,3 +1951,180 @@ export const WORK_STATE_SCHEMA_V3_SQL = WORK_STATE_SCHEMA_SQL
     SELECT RAISE(ABORT, 'work task actor seat is immutable after first claim');
   END;`,
   );
+
+/**
+ * Pad element tables (expand-only). Command Center-homed global sink —
+ * mailbox residency: material rows only on CC; Remotes enqueue pad.patch
+ * and keep event/disposition only.
+ */
+export const WORK_PAD_STATE_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS work_pad_meta (
+    canvas_name TEXT NOT NULL CHECK (length(canvas_name) BETWEEN 1 AND 256),
+    node_id TEXT NOT NULL CHECK (length(node_id) BETWEEN 1 AND 256),
+    revision INTEGER NOT NULL CHECK (revision >= 0),
+    updated_at TEXT NOT NULL CHECK (length(updated_at) BETWEEN 1 AND 64),
+    PRIMARY KEY (canvas_name, node_id)
+  ) STRICT, WITHOUT ROWID;
+
+  CREATE TABLE IF NOT EXISTS work_pad_images (
+    canvas_name TEXT NOT NULL CHECK (length(canvas_name) BETWEEN 1 AND 256),
+    node_id TEXT NOT NULL CHECK (length(node_id) BETWEEN 1 AND 256),
+    element_id TEXT NOT NULL CHECK (length(element_id) BETWEEN 1 AND 256),
+    x REAL NOT NULL,
+    y REAL NOT NULL,
+    w REAL NOT NULL CHECK (w > 0),
+    h REAL NOT NULL CHECK (h > 0),
+    z INTEGER NOT NULL,
+    ref_json TEXT NOT NULL CHECK (json_valid(ref_json)),
+    PRIMARY KEY (canvas_name, node_id, element_id),
+    FOREIGN KEY (canvas_name, node_id)
+      REFERENCES work_pad_meta(canvas_name, node_id)
+      ON DELETE RESTRICT
+      ON UPDATE RESTRICT
+  ) STRICT, WITHOUT ROWID;
+
+  CREATE TABLE IF NOT EXISTS work_pad_shapes (
+    canvas_name TEXT NOT NULL CHECK (length(canvas_name) BETWEEN 1 AND 256),
+    node_id TEXT NOT NULL CHECK (length(node_id) BETWEEN 1 AND 256),
+    element_id TEXT NOT NULL CHECK (length(element_id) BETWEEN 1 AND 256),
+    type TEXT NOT NULL CHECK (type IN ('box', 'ellipse', 'triangle', 'label')),
+    x REAL NOT NULL,
+    y REAL NOT NULL,
+    w REAL NOT NULL CHECK (w > 0),
+    h REAL NOT NULL CHECK (h > 0),
+    z INTEGER NOT NULL,
+    fill TEXT CHECK (fill IS NULL OR length(fill) BETWEEN 1 AND 256),
+    stroke TEXT CHECK (stroke IS NULL OR length(stroke) BETWEEN 1 AND 256),
+    text TEXT CHECK (text IS NULL OR length(text) >= 1),
+    status TEXT CHECK (
+      status IS NULL OR status IN ('none', 'active', 'done', 'blocked')
+    ),
+    PRIMARY KEY (canvas_name, node_id, element_id),
+    FOREIGN KEY (canvas_name, node_id)
+      REFERENCES work_pad_meta(canvas_name, node_id)
+      ON DELETE RESTRICT
+      ON UPDATE RESTRICT
+  ) STRICT, WITHOUT ROWID;
+
+  CREATE TABLE IF NOT EXISTS work_pad_edges (
+    canvas_name TEXT NOT NULL CHECK (length(canvas_name) BETWEEN 1 AND 256),
+    node_id TEXT NOT NULL CHECK (length(node_id) BETWEEN 1 AND 256),
+    element_id TEXT NOT NULL CHECK (length(element_id) BETWEEN 1 AND 256),
+    from_id TEXT NOT NULL CHECK (length(from_id) BETWEEN 1 AND 256),
+    to_id TEXT NOT NULL CHECK (length(to_id) BETWEEN 1 AND 256),
+    from_side TEXT CHECK (
+      from_side IS NULL OR from_side IN ('top', 'right', 'bottom', 'left')
+    ),
+    to_side TEXT CHECK (
+      to_side IS NULL OR to_side IN ('top', 'right', 'bottom', 'left')
+    ),
+    label TEXT CHECK (label IS NULL OR length(label) >= 1),
+    PRIMARY KEY (canvas_name, node_id, element_id),
+    FOREIGN KEY (canvas_name, node_id)
+      REFERENCES work_pad_meta(canvas_name, node_id)
+      ON DELETE RESTRICT
+      ON UPDATE RESTRICT
+  ) STRICT, WITHOUT ROWID;
+
+  CREATE TABLE IF NOT EXISTS work_pad_inks (
+    canvas_name TEXT NOT NULL CHECK (length(canvas_name) BETWEEN 1 AND 256),
+    node_id TEXT NOT NULL CHECK (length(node_id) BETWEEN 1 AND 256),
+    element_id TEXT NOT NULL CHECK (length(element_id) BETWEEN 1 AND 256),
+    z INTEGER NOT NULL,
+    color TEXT NOT NULL CHECK (length(color) BETWEEN 1 AND 256),
+    width REAL NOT NULL CHECK (width > 0),
+    points_json TEXT NOT NULL CHECK (json_valid(points_json)),
+    PRIMARY KEY (canvas_name, node_id, element_id),
+    FOREIGN KEY (canvas_name, node_id)
+      REFERENCES work_pad_meta(canvas_name, node_id)
+      ON DELETE RESTRICT
+      ON UPDATE RESTRICT
+  ) STRICT, WITHOUT ROWID;
+
+  CREATE TABLE IF NOT EXISTS work_pad_pins (
+    canvas_name TEXT NOT NULL CHECK (length(canvas_name) BETWEEN 1 AND 256),
+    node_id TEXT NOT NULL CHECK (length(node_id) BETWEEN 1 AND 256),
+    element_id TEXT NOT NULL CHECK (length(element_id) BETWEEN 1 AND 256),
+    x REAL NOT NULL,
+    y REAL NOT NULL,
+    bounds_json TEXT CHECK (bounds_json IS NULL OR json_valid(bounds_json)),
+    mentions_json TEXT NOT NULL CHECK (json_valid(mentions_json)),
+    PRIMARY KEY (canvas_name, node_id, element_id),
+    FOREIGN KEY (canvas_name, node_id)
+      REFERENCES work_pad_meta(canvas_name, node_id)
+      ON DELETE RESTRICT
+      ON UPDATE RESTRICT
+  ) STRICT, WITHOUT ROWID;
+
+  CREATE TABLE IF NOT EXISTS work_pad_posts (
+    canvas_name TEXT NOT NULL CHECK (length(canvas_name) BETWEEN 1 AND 256),
+    node_id TEXT NOT NULL CHECK (length(node_id) BETWEEN 1 AND 256),
+    pin_id TEXT NOT NULL CHECK (length(pin_id) BETWEEN 1 AND 256),
+    post_id TEXT NOT NULL CHECK (length(post_id) BETWEEN 1 AND 256),
+    position INTEGER NOT NULL CHECK (position >= 0),
+    author_kind TEXT NOT NULL CHECK (author_kind IN ('operator', 'actor')),
+    author_seat_id TEXT
+      CHECK (
+        author_seat_id IS NULL
+        OR (
+          length(author_seat_id) = 69
+          AND substr(author_seat_id, 1, 5) = 'seat_'
+          AND substr(author_seat_id, 6) NOT GLOB '*[^a-f0-9]*'
+        )
+      ),
+    author_node_id TEXT
+      CHECK (author_node_id IS NULL OR length(author_node_id) BETWEEN 1 AND 256),
+    author_label TEXT
+      CHECK (author_label IS NULL OR length(author_label) BETWEEN 1 AND 256),
+    parts_json TEXT NOT NULL CHECK (json_valid(parts_json)),
+    PRIMARY KEY (canvas_name, node_id, pin_id, post_id),
+    UNIQUE (canvas_name, node_id, pin_id, position),
+    FOREIGN KEY (canvas_name, node_id, pin_id)
+      REFERENCES work_pad_pins(canvas_name, node_id, element_id)
+      ON DELETE RESTRICT
+      ON UPDATE RESTRICT
+  ) STRICT, WITHOUT ROWID;
+
+  CREATE INDEX IF NOT EXISTS work_pad_shapes_node
+    ON work_pad_shapes(canvas_name, node_id, z, element_id);
+  CREATE INDEX IF NOT EXISTS work_pad_posts_pin
+    ON work_pad_posts(canvas_name, node_id, pin_id, position);
+`;
+
+/**
+ * Operator-local pad pin read cursors (expand-only). Glance unread is pins
+ * with a post beyond this cursor — not COUNT(DISTINCT pin_id) of all posts.
+ * Applied as migration 17 → 18. Frozen WORK_PAD_STATE_SCHEMA_SQL stays the
+ * v17 pad-table witness.
+ */
+export const WORK_PAD_READ_CURSORS_SQL = `
+  CREATE TABLE IF NOT EXISTS work_pad_read_cursors (
+    canvas_name TEXT NOT NULL CHECK (length(canvas_name) BETWEEN 1 AND 256),
+    node_id TEXT NOT NULL CHECK (length(node_id) BETWEEN 1 AND 256),
+    pin_id TEXT NOT NULL CHECK (length(pin_id) BETWEEN 1 AND 256),
+    principal_key TEXT NOT NULL CHECK (length(principal_key) BETWEEN 1 AND 256),
+    last_read_position INTEGER NOT NULL CHECK (last_read_position >= -1),
+    updated_at TEXT NOT NULL CHECK (length(updated_at) BETWEEN 1 AND 64),
+    PRIMARY KEY (canvas_name, node_id, pin_id, principal_key)
+  ) STRICT, WITHOUT ROWID;
+`;
+
+/**
+ * V16 work events + pad.patch / item_kind pad. Frozen V5–V16 keep the
+ * pre-pad event vocabulary.
+ */
+export const WORK_STATE_SCHEMA_PAD_VOCAB_SQL =
+  WORK_STATE_SCHEMA_TASK_ARCHIVED_SQL
+    .replaceAll(
+      "item_kind IN ('task', 'request', 'message', 'artifact', 'delivery', 'topic', 'post')",
+      "item_kind IN ('task', 'request', 'message', 'artifact', 'delivery', 'topic', 'post', 'pad')",
+    )
+    .replaceAll(
+      `'board.topic.create',
+          'board.post.append'
+        )`,
+      `'board.topic.create',
+          'board.post.append',
+          'pad.patch'
+        )`,
+    );

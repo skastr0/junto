@@ -891,18 +891,28 @@ export const workRequestCreate = (
   requireSink(node, ["requests"]);
   const trimmed = brief.trim();
   if (!trimmed) throw new WorkError("invalid", "brief must be non-empty");
+  const why = reason?.trim() ?? "";
+  const detailsRaw = metadata?.details;
+  const details = typeof detailsRaw === "string" ? detailsRaw.trim() : "";
+  if (!why && !details) {
+    throw new WorkError(
+      "invalid",
+      "request body required: provide reason and/or metadata.details (not title-only)",
+    );
+  }
   rejectRetiredClaimMetadata(metadata);
   // A request is actor-originated and claimed by its raiser at birth. The
   // raiser is the worker waiting on the answer, so stoppage lands on it.
   const taskId = ids.id();
   const contextId = regionContextId(doc, nodeId, canvasName);
+  // Message body prefers details, then reason, then brief — never title alone.
+  const bodyText = details || why || trimmed;
   const briefMessage = makeUserMessage({
     messageId: ids.messageId(),
-    text: trimmed,
+    text: bodyText === trimmed ? trimmed : `${trimmed}\n\n${bodyText}`,
     contextId,
     taskId,
   });
-  const why = reason?.trim();
   const task: Task = {
     id: taskId,
     state: "input-required",
@@ -1006,4 +1016,72 @@ export const workArtifactPublish = (
   }
   const items = [...existing, artifact];
   return { doc: withArtifacts(doc, nodeId, items), artifact };
+};
+
+/** Soft-archive flag lives in metadata so decode admits history without schema migration. */
+export const isArtifactArchived = (artifact: Artifact): boolean =>
+  artifact.metadata?.archived === true;
+
+const withArtifactArchivedFlag = (
+  artifact: Artifact,
+  archived: boolean,
+): Artifact => {
+  const nextMeta: Record<string, unknown> = { ...(artifact.metadata ?? {}) };
+  if (archived) {
+    nextMeta.archived = true;
+  } else {
+    delete nextMeta.archived;
+  }
+  if (Object.keys(nextMeta).length === 0) {
+    const { metadata: _drop, ...rest } = artifact;
+    return rest;
+  }
+  return { ...artifact, metadata: nextMeta as WorkMetadata };
+};
+
+/** Operator soft-archive / restore. Does not delete parts or content refs. */
+export const workArtifactArchive = (
+  doc: CanvasDoc,
+  nodeId: string,
+  artifactId: string,
+  archived: boolean,
+): WorkArtifactResult => {
+  const node = requireNode(doc, nodeId);
+  requireSink(node, ["artifacts"]);
+  const id = artifactId.trim();
+  if (!id) throw new WorkError("invalid", "artifactId must be non-empty");
+  const items = node.ether?.artifacts?.items ?? [];
+  const index = items.findIndex((item) => item.artifactId === id);
+  if (index < 0) {
+    throw new WorkError("task_not_found", `artifact "${id}" not found`);
+  }
+  const current = items[index]!;
+  const artifact = withArtifactArchivedFlag(current, archived);
+  const next = [...items];
+  next[index] = artifact;
+  return { doc: withArtifacts(doc, nodeId, next), artifact };
+};
+
+/** Hard-remove an artifact from the sink (operator). Content objects are retained. */
+export const workArtifactDelete = (
+  doc: CanvasDoc,
+  nodeId: string,
+  artifactId: string,
+): { readonly doc: CanvasDoc; readonly artifactId: string } => {
+  const node = requireNode(doc, nodeId);
+  requireSink(node, ["artifacts"]);
+  const id = artifactId.trim();
+  if (!id) throw new WorkError("invalid", "artifactId must be non-empty");
+  const items = node.ether?.artifacts?.items ?? [];
+  if (!items.some((item) => item.artifactId === id)) {
+    throw new WorkError("task_not_found", `artifact "${id}" not found`);
+  }
+  return {
+    doc: withArtifacts(
+      doc,
+      nodeId,
+      items.filter((item) => item.artifactId !== id),
+    ),
+    artifactId: id,
+  };
 };

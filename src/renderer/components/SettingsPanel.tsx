@@ -17,6 +17,7 @@ import {
   type StateBackupId,
   type StateBackupInventoryEntry,
 } from "@shared/state-recovery";
+import { isCommandCenterFleetUi } from "../lib/canvas-boot";
 import { state$ } from "../lib/state";
 import {
   closeSettings,
@@ -1029,7 +1030,7 @@ function StationSection() {
   const station = use$(state$.settings.station);
   // Fleet UI: host identity + supervised preference. Remote enrollment stays
   // Command Center–driven, not a free-form Settings form.
-  if (!FLEET_UI_ENABLED) return null;
+  if (!FLEET_UI_ENABLED || !isCommandCenterFleetUi(station.role)) return null;
   return (
     <div className="settings-section" data-testid="settings-machine-section">
       <FieldRow
@@ -1112,12 +1113,18 @@ export function SettingsPanel() {
 
   if (!open) return null;
 
+  const stationRole = state$.settings.station.role.peek();
+  const sections = SECTIONS.filter(
+    (item) =>
+      item.key !== "station" || isCommandCenterFleetUi(stationRole),
+  );
+
   // Fleet-gated Machine may be absent — always render a nav-visible section.
-  const activeSection: PanelSection = SECTIONS.some((item) => item.key === section)
+  const activeSection: PanelSection = sections.some((item) => item.key === section)
     ? section
-    : DEFAULT_SETTINGS_SECTION;
+    : (sections[0]?.key ?? "appearance");
   const meta =
-    SECTIONS.find((item) => item.key === activeSection) ?? SECTIONS[0]!;
+    sections.find((item) => item.key === activeSection) ?? sections[0]!;
 
   return createPortal(
     <div className="settings-surface" role="dialog" aria-modal="true" aria-label="Settings">
@@ -1163,7 +1170,7 @@ export function SettingsPanel() {
 
         <div className="settings-panel__body">
           <nav className="settings-nav" aria-label="Settings sections">
-            {SECTIONS.map((item) => (
+            {sections.map((item) => (
               <button
                 key={item.key}
                 type="button"

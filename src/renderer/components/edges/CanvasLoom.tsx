@@ -1,26 +1,35 @@
 /**
  * Canvas loom writer — renders nothing.
  *
- * Mounted inside `<ReactFlow>` so it sits in the store provider. Holds the one
- * store subscription that used to live per-edge: it walks `nodeLookup` once per
- * geometry tick, publishes the obstacle field every edge routes against, and
- * (when the loom is on) plans the lane geometry for point-coincident fans.
+ * Mounted inside `<ReactFlow>` so it sits in the store provider. Owns the one
+ * geometry subscription and the one route plan: obstacles, corridors, fan
+ * strands, and standalone routes are published as value-equal / keyed
+ * observables. Edges subscribe only to their own keys.
  *
  * Paint and geometry only — edge semantics are read, never written.
  */
 import { useEffect, useMemo, useRef } from "react";
 import { useStore } from "@xyflow/react";
+import { batch } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
 import type { FlowEdge } from "../../lib/convert";
 import {
   loomCorridors$,
   loomObstacles$,
+  loomRoutes$,
   loomStrands$,
+  planStandaloneRoutes,
+  pruneKeyedLoomEntries,
+  publishKeyedRoutes,
+  sameStrand,
+  shouldPublishCorridors,
+  shouldPublishObstacles,
 } from "../../lib/loom-view";
 import { planLoom } from "../../lib/wire-loom";
 import type { LoomEdgeInput, LoomObstacle, LoomStrand } from "../../lib/wire-loom";
 import { viewportBusy$ } from "../../lib/viewport-busy";
-import { nodeBounds } from "../../lib/wire-route";
+import { canvasPerformance } from "../../lib/performance/canvas-performance";
+import { nodeBounds, routeWire } from "../../lib/wire-route";
 import type { WireDirection, WirePoint, WireRect } from "../../lib/wire-route";
 
 /** Minimal node fields needed for obstacle bounds (xyflow InternalNode shape). */
@@ -177,37 +186,120 @@ function anchorOn(bounds: LoomNode, side: WireDirection): WirePoint {
   }
 }
 
-function samePoints(a: ReadonlyArray<WirePoint>, b: ReadonlyArray<WirePoint>): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    if (a[i]!.x !== b[i]!.x || a[i]!.y !== b[i]!.y) return false;
+function buildInputs(
+  specs: ReadonlyArray<EdgeSpec>,
+  geometry: ReadonlyArray<LoomNode>,
+): LoomEdgeInput[] {
+  const byId = new Map(geometry.map((node) => [node.nodeId, node] as const));
+  const inputs: LoomEdgeInput[] = [];
+  for (const spec of specs) {
+    const from = byId.get(spec.sourceNodeId);
+    const to = byId.get(spec.targetNodeId);
+    if (!from || !to) continue;
+    inputs.push({
+      id: spec.id,
+      blocked: spec.blocked,
+      sourceNodeId: spec.sourceNodeId,
+      sourceSide: spec.sourceSide,
+      sourceAnchor: anchorOn(from, spec.sourceSide),
+      targetNodeId: spec.targetNodeId,
+      targetSide: spec.targetSide,
+      targetAnchor: anchorOn(to, spec.targetSide),
+    });
   }
-  return true;
+  return inputs;
 }
 
-function sameStrand(a: LoomStrand, b: LoomStrand): boolean {
-  return (
-    a.bundleKey === b.bundleKey &&
-    a.hubEnd === b.hubEnd &&
-    a.hubAxis === b.hubAxis &&
-    a.laneIndex === b.laneIndex &&
-    a.laneCount === b.laneCount &&
-    a.laneOffset === b.laneOffset &&
-    a.splayAt === b.splayAt &&
-    a.stationAt === b.stationAt &&
-    samePoints(a.lane, b.lane) &&
-    samePoints(a.comb, b.comb)
-  );
+function collectObstacles(geometry: ReadonlyArray<LoomNode>): LoomObstacle[] {
+  const obstacles: LoomObstacle[] = [];
+  for (const node of geometry) {
+    if (!node.obstacle) continue;
+    obstacles.push({
+      nodeId: node.nodeId,
+      ...nodeBounds({ x: node.x, y: node.y }, { width: node.width, height: node.height }),
+    });
+  }
+  return obstacles;
 }
 
-function sameRects(a: ReadonlyArray<WireRect>, b: ReadonlyArray<WireRect>): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    const x = a[i]!;
-    const y = b[i]!;
-    if (x.x !== y.x || x.y !== y.y || x.width !== y.width || x.height !== y.height) return false;
+function publishObstacles(obstacles: LoomObstacle[]): void {
+  const equal = !shouldPublishObstacles(loomObstacles$.peek(), obstacles);
+  canvasPerformance.recordObstaclePublication(equal);
+  // Equal geometry must not write — no subscriber fan-out on value-equal ticks.
+  if (!equal) {
+    loomObstacles$.set(obstacles);
   }
-  return true;
+}
+
+function publishCorridors(corridors: ReadonlyArray<WireRect>): void {
+  const equal = !shouldPublishCorridors(loomCorridors$.peek(), corridors);
+  canvasPerformance.recordCorridorPublication(equal);
+  if (!equal) {
+    loomCorridors$.set([...corridors]);
+  }
+}
+
+function publishStrands(planStrands: ReadonlyMap<string, LoomStrand>): void {
+  const held = loomStrands$.peek();
+  batch(() => {
+    for (const id of Object.keys(held)) {
+      if (!planStrands.has(id)) loomStrands$[id]!.delete();
+    }
+    for (const [id, strand] of planStrands) {
+      const prior = held[id];
+      // Identity preserved for an unchanged strand so its edge stays put.
+      if (prior && sameStrand(prior, strand)) continue;
+      loomStrands$[id]!.set(strand);
+    }
+  });
+}
+
+/**
+ * Route standalone edges and publish keyed results.
+ * - Full plan (`scopeIds` omitted): next map is complete; orphans deleted.
+ * - Scoped (drag): only those edge ids are written/deleted.
+ */
+function publishStandaloneRoutes(
+  inputs: ReadonlyArray<LoomEdgeInput>,
+  obstacles: ReadonlyArray<LoomObstacle>,
+  corridors: ReadonlyArray<WireRect>,
+  strandIds: ReadonlySet<string>,
+  scopeIds?: ReadonlySet<string>,
+): void {
+  const candidates = scopeIds
+    ? inputs.filter((edge) => scopeIds.has(edge.id))
+    : inputs;
+
+  const routes = planStandaloneRoutes({
+    edges: candidates,
+    obstacles,
+    corridors,
+    strandIds,
+    routeWire,
+    onRouteWire: (edgeId) => canvasPerformance.recordRouteWire(edgeId, "geometry"),
+  });
+
+  const held = loomRoutes$.peek();
+  if (scopeIds) {
+    // Delete routes for scoped edges that became strands or failed to route.
+    batch(() => {
+      for (const id of scopeIds) {
+        if (strandIds.has(id) || !routes.has(id)) {
+          if (held[id]) loomRoutes$[id]!.delete();
+        }
+      }
+    });
+    publishKeyedRoutes(loomRoutes$.peek(), routes, scopeIds);
+    return;
+  }
+
+  // Full replace-by-diff: next is the complete non-strand route set.
+  publishKeyedRoutes(held, routes);
+  batch(() => {
+    for (const id of strandIds) {
+      if (loomRoutes$.peek()[id]) loomRoutes$[id]!.delete();
+    }
+  });
 }
 
 /**
@@ -229,91 +321,86 @@ export function CanvasLoom({ edges }: { readonly edges: ReadonlyArray<FlowEdge> 
   const freezeRef = useRef<string | null>(null);
   // Geometry and topology the standing plan was built from. `viewportBusy` is a
   // dependency, so a pan or a zoom re-runs this effect on release; without this
-  // the loom would replan the whole canvas at the end of every gesture, on the
-  // main thread, with nothing having moved.
+  // the loom would replan the whole canvas at the end of every gesture.
   const plannedRef = useRef<{ geometry: LoomNode[]; specsKey: string } | null>(null);
-  // Subscribed, not peeked. A geometry tick that lands inside a pan freezes the
-  // plan, and nothing else would re-run this effect when the pan releases —
-  // the loom would stay stale (or never plan at all on a first-load pan) until
-  // some unrelated change happened to move a node.
+  // Subscribed, not peeked — a geometry tick inside a pan freezes the plan, and
+  // nothing else would re-run this effect when the pan releases.
   const viewportBusy = use$(viewportBusy$);
 
   useEffect(() => {
-    const obstacles: LoomObstacle[] = [];
-    for (const node of geometry) {
-      if (!node.obstacle) continue;
-      obstacles.push({
-        nodeId: node.nodeId,
-        ...nodeBounds({ x: node.x, y: node.y }, { width: node.width, height: node.height }),
-      });
-    }
-    // Published unconditionally: this is the per-edge router's field.
-    loomObstacles$.set(obstacles);
+    canvasPerformance.recordLoomEffect();
+    const obstacles = collectObstacles(geometry);
+    publishObstacles(obstacles);
 
     const specsNow = specsRef.current;
+    const activeIds = new Set(specsNow.map((spec) => spec.id));
+    // Drop keyed residue for edges that left the rendered set.
+    pruneKeyedLoomEntries(activeIds);
+
     const dragging = geometry.filter((node) => node.dragging).map((node) => node.nodeId);
-    if (dragging.length > 0 || viewportBusy) {
-      // Frozen: nothing reflows during a gesture. Edges incident to a dragged
-      // node drop to the per-edge router once, at the start of the freeze.
-      const signature = dragging.join(",");
-      if (freezeRef.current === signature) return;
-      freezeRef.current = signature;
-      if (dragging.length === 0) return;
-      const moving = new Set(dragging);
-      const held = loomStrands$.peek();
-      for (const spec of specsNow) {
-        if (!held[spec.id]) continue;
-        if (!moving.has(spec.sourceNodeId) && !moving.has(spec.targetNodeId)) continue;
-        loomStrands$[spec.id]!.delete();
-      }
-      // Those strands are gone from the standing plan, so it is no longer what
-      // this geometry says: the release has to replan.
-      plannedRef.current = null;
+
+    // Pan / zoom: canvas-space geometry is unchanged — never replan or re-route.
+    if (viewportBusy && dragging.length === 0) {
+      freezeRef.current = "__viewport__";
       return;
     }
-    // Drag stop lands here: the dragging flags clear, so this is the one
-    // recompute that closes the gesture.
+
+    if (dragging.length > 0) {
+      // Frozen fan plan during drag. Incident edges drop strands once, then
+      // receive scoped standalone routes every geometry tick so they stay
+      // attached without notifying unrelated edges.
+      const signature = dragging.join(",");
+      const moving = new Set(dragging);
+      if (freezeRef.current !== signature) {
+        freezeRef.current = signature;
+        const held = loomStrands$.peek();
+        batch(() => {
+          for (const spec of specsNow) {
+            if (!held[spec.id]) continue;
+            if (!moving.has(spec.sourceNodeId) && !moving.has(spec.targetNodeId)) continue;
+            loomStrands$[spec.id]!.delete();
+          }
+        });
+        plannedRef.current = null;
+      }
+      const incident = new Set(
+        specsNow
+          .filter(
+            (spec) => moving.has(spec.sourceNodeId) || moving.has(spec.targetNodeId),
+          )
+          .map((spec) => spec.id),
+      );
+      if (incident.size === 0) return;
+      const inputs = buildInputs(specsNow, geometry);
+      // Standing corridors from last full plan (or empty) — stoppage clearance.
+      const corridors = loomCorridors$.peek();
+      // During drag, no edge in incident set should keep a strand (deleted above
+      // or never had one). Route them all as standalone with live anchors.
+      publishStandaloneRoutes(inputs, obstacles, corridors, new Set(), incident);
+      return;
+    }
+
     freezeRef.current = null;
 
-    // A pan or a zoom moves nothing on the canvas. The standing plan is still
-    // the plan, and planning is the expensive half of a geometry tick.
+    // Settled geometry + topology already planned — zero planLoom / routeWire.
     const planned = plannedRef.current;
     if (planned && planned.specsKey === specsKey && sameGeometry(planned.geometry, geometry)) {
       return;
     }
 
-    const byId = new Map(geometry.map((node) => [node.nodeId, node] as const));
-    const inputs: LoomEdgeInput[] = [];
-    for (const spec of specsNow) {
-      const from = byId.get(spec.sourceNodeId);
-      const to = byId.get(spec.targetNodeId);
-      if (!from || !to) continue;
-      inputs.push({
-        id: spec.id,
-        blocked: spec.blocked,
-        sourceNodeId: spec.sourceNodeId,
-        sourceSide: spec.sourceSide,
-        sourceAnchor: anchorOn(from, spec.sourceSide),
-        targetNodeId: spec.targetNodeId,
-        targetSide: spec.targetSide,
-        targetAnchor: anchorOn(to, spec.targetSide),
-      });
-    }
-
+    const inputs = buildInputs(specsNow, geometry);
+    const planStartedAt = globalThis.performance?.now?.() ?? Date.now();
     const plan = planLoom({ edges: inputs, obstacles });
-    const held = loomStrands$.peek();
-    for (const id of Object.keys(held)) {
-      if (!plan.strands.has(id)) loomStrands$[id]!.delete();
-    }
-    for (const [id, strand] of plan.strands) {
-      const prior = held[id];
-      // Identity is preserved for an unchanged strand so its edge stays put.
-      if (prior && sameStrand(prior, strand)) continue;
-      loomStrands$[id]!.set(strand);
-    }
-    if (!sameRects(loomCorridors$.peek(), plan.corridors)) {
-      loomCorridors$.set([...plan.corridors]);
-    }
+    canvasPerformance.recordLoomPlan(
+      Math.max(0, (globalThis.performance?.now?.() ?? Date.now()) - planStartedAt),
+    );
+
+    publishStrands(plan.strands);
+    publishCorridors(plan.corridors);
+
+    const strandIds = new Set(plan.strands.keys());
+    publishStandaloneRoutes(inputs, obstacles, plan.corridors, strandIds);
+
     plannedRef.current = { geometry, specsKey };
   }, [geometry, specsKey, viewportBusy]);
 

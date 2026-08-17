@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ulid } from "ulid";
 import type { CanvasDoc, Message } from "../src/shared/canvas";
 import { isMessageDelivered } from "../src/shared/message-delivery";
 import {
@@ -56,10 +57,15 @@ const terminalDoc = (messages: ReadonlyArray<Message>): CanvasDoc => ({
 
 const makeStore = (
   initial: Record<string, CanvasDoc>,
-  options: { readonly acceptOk?: () => boolean; readonly now?: () => number } = {},
+  options: {
+    readonly acceptOk?: () => boolean;
+    readonly acceptReadOk?: () => boolean;
+    readonly now?: () => number;
+  } = {},
 ): MessageDeliveryStore => {
   const docs = new Map(Object.entries(initial).map(([k, v]) => [k, structuredClone(v)]));
   const accepted = new Set<string>();
+  const acceptedRead = new Set<string>();
   const keyOf = (canvas: string, nodeId: string, messageId: string) =>
     `${canvas}::${nodeId}::${messageId}`;
   return {
@@ -67,6 +73,8 @@ const makeStore = (
     readDoc: async (name) => docs.get(name),
     hasAcceptedMessageDelivery: async (canvas, nodeId, messageId) =>
       accepted.has(keyOf(canvas, nodeId, messageId)),
+    hasAcceptedMessageRead: async (canvas, nodeId, messageId) =>
+      acceptedRead.has(keyOf(canvas, nodeId, messageId)),
     acceptMessageDelivery: async (canvas, nodeId, messageId) => {
       if (options.acceptOk && !options.acceptOk()) return false;
       const k = keyOf(canvas, nodeId, messageId);
@@ -80,6 +88,30 @@ const makeStore = (
       const items = node.ether.messages.items.map((m) =>
         m.messageId === messageId
           ? { ...m, metadata: { ...(m.metadata ?? {}), deliveredAt } }
+          : m,
+      );
+      docs.set(canvas, {
+        ...doc,
+        nodes: doc.nodes.map((n) =>
+          n.id === nodeId
+            ? { ...n, ether: { ...(n.ether ?? {}), messages: { items } } }
+            : n,
+        ),
+      });
+      return true;
+    },
+    acceptMessageRead: async (canvas, nodeId, messageId) => {
+      if (options.acceptReadOk && !options.acceptReadOk()) return false;
+      const k = keyOf(canvas, nodeId, messageId);
+      acceptedRead.add(k);
+      const doc = docs.get(canvas);
+      if (!doc) return true;
+      const readAt = options.now?.() ?? Date.now();
+      const node = doc.nodes.find((n) => n.id === nodeId);
+      if (!node?.ether?.messages) return true;
+      const items = node.ether.messages.items.map((m) =>
+        m.messageId === messageId
+          ? { ...m, metadata: { ...(m.metadata ?? {}), readAt } }
           : m,
       );
       docs.set(canvas, {
@@ -494,13 +526,94 @@ describe("MessageDeliveryService", () => {
 
     service.notifyAppended("c", "agent", msg);
     await waitUntil(() => calls.length === 1);
-    expect(calls).toEqual([
-      {
-        bindingId: "bind-mira",
-        text: "[message - user] interrupt the turn",
-        interruptIfBusy: true,
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.bindingId).toBe("bind-mira");
+    expect(calls[0]?.interruptIfBusy).toBe(true);
+    // Factory mail always summarizes — full body never rides the PTY.
+    expect(calls[0]?.text).toContain("factory mail");
+    expect(calls[0]?.text).toContain("mail-steer");
+    expect(calls[0]?.text).toContain("vellum-command msg list");
+    expect(calls[0]?.text).not.toBe("[message - user] interrupt the turn");
+    await waitUntil(() =>
+      store.hasAcceptedMessageDelivery("c", "agent", msg.messageId),
+    );
+    const afterFactory = await store.readDoc("c");
+    const factoryLive = afterFactory?.nodes[0]?.ether?.messages?.items[0];
+    expect(factoryLive?.metadata?.readAt).toBeUndefined();
+  });
+
+  it("notifies unread mail once and leaves it unread", async () => {
+    const msg = userMsg("read-retry", "stamp later");
+    const store = makeStore({ c: agentDoc([msg]) }, { now: () => 7 });
+    let sendCount = 0;
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        sendManagedTerminalPrompt: async () => {
+          sendCount += 1;
+          return true;
+        },
       },
-    ]);
+      store,
+      now: () => 7,
+    });
+
+    service.notifyAppended("c", "agent", msg);
+    await waitUntil(() => store.hasAcceptedMessageDelivery("c", "agent", "read-retry"));
+    expect(sendCount).toBe(1);
+    const afterFirst = (await store.readDoc("c"))?.nodes[0]?.ether?.messages?.items[0];
+    expect(afterFirst?.metadata?.deliveredAt).toBe(7);
+    expect(afterFirst?.metadata?.readAt).toBeUndefined();
+
+    service.onManagedTerminalIdle("bind-mira");
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(sendCount).toBe(1);
+    expect(
+      (await store.readDoc("c"))?.nodes[0]?.ether?.messages?.items[0]?.metadata?.readAt,
+    ).toBeUndefined();
+  });
+
+  it("does not stamp read after a PTY notify", async () => {
+    const short = userMsg("short-1", "claim task");
+    const store = makeStore({ c: agentDoc([short]) }, { now: () => 99 });
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        sendManagedTerminalPrompt: async () => true,
+      },
+      store,
+      now: () => 99,
+    });
+    service.notifyAppended("c", "agent", short);
+    await waitUntil(() => store.hasAcceptedMessageDelivery("c", "agent", "short-1"));
+    const after = await store.readDoc("c");
+    expect(after?.nodes[0]?.ether?.messages?.items[0]?.metadata?.readAt).toBeUndefined();
+  });
+
+  it("does not inject mail the seat already listed", async () => {
+    const listed = userMsg("listed-1", "already seen", {
+      metadata: { readAt: 50 },
+    });
+    const store = makeStore({ c: agentDoc([listed]) }, { now: () => 99 });
+    let sends = 0;
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        sendManagedTerminalPrompt: async () => {
+          sends += 1;
+          return true;
+        },
+      },
+      store,
+      now: () => 99,
+    });
+    service.notifyAppended("c", "agent", listed);
+    service.onManagedTerminalIdle("bind-mira");
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(sends).toBe(0);
+    expect(await store.hasAcceptedMessageDelivery("c", "agent", "listed-1")).toBe(
+      false,
+    );
   });
 
   it("does not steer system mailbox notices", async () => {
@@ -667,5 +780,378 @@ describe("MessageDeliveryService", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     expect(sendCount).toBe(0);
+  });
+
+  it("a refused wake arms a deferred retry that delivers when the seat wakes", async () => {
+    const msg = userMsg("wake-retry", "hello again");
+    const store = makeStore({ c: agentDoc([msg]) });
+    const scheduled: Array<{ readonly fn: () => void; readonly ms: number }> = [];
+    let wakeSucceeds = false;
+    let sends = 0;
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        wakeManagedSeat: async () => wakeSucceeds,
+        sendManagedTerminalPrompt: async () => {
+          sends += 1;
+          return true;
+        },
+      },
+      store,
+      timers: {
+        set: (fn, ms) => {
+          scheduled.push({ fn, ms });
+          return scheduled.length - 1;
+        },
+        clear: () => undefined,
+      },
+    });
+
+    service.notifyAppended("c", "agent", msg);
+    await waitUntil(() => scheduled.length === 1);
+    expect(sends).toBe(0);
+
+    // Seat becomes wakeable; the deferred attempt delivers and stops the chain.
+    wakeSucceeds = true;
+    scheduled[0]!.fn();
+    await waitUntil(() => sends === 1);
+    await waitUntil(() =>
+      store.hasAcceptedMessageDelivery("c", "agent", msg.messageId),
+    );
+    expect(scheduled.length).toBe(1);
+  });
+
+  it("deferred wake retries are bounded and double their delay", async () => {
+    const msg = userMsg("wake-retry-cap", "still cold");
+    const store = makeStore({ c: agentDoc([msg]) });
+    const scheduled: Array<{ readonly fn: () => void; readonly ms: number }> = [];
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        wakeManagedSeat: async () => false,
+        sendManagedTerminalPrompt: async () => true,
+      },
+      store,
+      timers: {
+        set: (fn, ms) => {
+          scheduled.push({ fn, ms });
+          return scheduled.length - 1;
+        },
+        clear: () => undefined,
+      },
+    });
+
+    service.notifyAppended("c", "agent", msg);
+    await waitUntil(() => scheduled.length === 1);
+    // Drain the chain: each fired retry re-attempts, wake keeps refusing.
+    for (let i = 0; i < 8 && i < scheduled.length; i++) {
+      scheduled[i]!.fn();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(scheduled.length).toBe(5);
+    expect(scheduled.map((s) => s.ms)).toEqual([
+      45_000, 90_000, 180_000, 360_000, 720_000,
+    ]);
+  });
+
+  it("onBooted delivers the durable backlog with no other trigger", async () => {
+    const msg = userMsg("boot-backlog", "sent before restart");
+    const store = makeStore({ c: agentDoc([msg]) });
+    let sends = 0;
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        wakeManagedSeat: async () => true,
+        sendManagedTerminalPrompt: async () => {
+          sends += 1;
+          return true;
+        },
+      },
+      store,
+    });
+
+    service.onBooted();
+    await waitUntil(() => sends === 1);
+    await waitUntil(() =>
+      store.hasAcceptedMessageDelivery("c", "agent", msg.messageId),
+    );
+  });
+
+  it("batches multiple pending into one PTY notify on scan", async () => {
+    const msgs = [
+      userMsg("b1", "first"),
+      userMsg("b2", "second", { metadata: { factoryMail: true } }),
+      userMsg("b3", "third"),
+    ];
+    const store = makeStore({ c: agentDoc(msgs) });
+    const payloads: string[] = [];
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        wakeManagedSeat: async () => true,
+        sendManagedTerminalPrompt: async (_id, text) => {
+          payloads.push(text);
+          return true;
+        },
+      },
+      store,
+    });
+
+    service.onBooted();
+    await waitUntil(() => payloads.length === 1);
+    expect(payloads[0]).toContain("3 unread");
+    expect(payloads[0]).toContain("factory mail");
+    expect(payloads[0]).toContain("vellum-command msg list");
+    await waitUntil(async () =>
+      (await store.hasAcceptedMessageDelivery("c", "agent", "b1")) &&
+      (await store.hasAcceptedMessageDelivery("c", "agent", "b2")) &&
+      (await store.hasAcceptedMessageDelivery("c", "agent", "b3")),
+    );
+    const batched = (await store.readDoc("c"))?.nodes[0]?.ether?.messages?.items ?? [];
+    expect(batched.map((m) => m.metadata?.readAt)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+    ]);
+  });
+
+  it("pastes a burst list newest-first and a lone unread as that latest", async () => {
+    const t0 = 1_700_000_000_000;
+    const older = ulid(t0);
+    const newer = ulid(t0 + 2_000);
+    const newest = ulid(t0 + 4_000);
+    const store = makeStore({
+      c: agentDoc([
+        userMsg(older, "old ping"),
+        userMsg(newer, "mid ping"),
+        userMsg(newest, "new ping"),
+      ]),
+    });
+    const payloads: string[] = [];
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        wakeManagedSeat: async () => true,
+        sendManagedTerminalPrompt: async (_id, text) => {
+          payloads.push(text);
+          return true;
+        },
+      },
+      store,
+    });
+    service.onBooted();
+    await waitUntil(() => payloads.length === 1);
+    expect(payloads[0]).toContain("3 unread");
+    expect(payloads[0]!.indexOf(newest.slice(0, 12))).toBeLessThan(
+      payloads[0]!.indexOf(older.slice(0, 12)),
+    );
+
+    const lone = makeStore({
+      c: agentDoc([userMsg(newest, "solo latest")]),
+    });
+    const singles: string[] = [];
+    const one = new MessageDeliveryService();
+    one.configure({
+      transport: {
+        wakeManagedSeat: async () => true,
+        sendManagedTerminalPrompt: async (_id, text) => {
+          singles.push(text);
+          return true;
+        },
+      },
+      store: lone,
+    });
+    one.onBooted();
+    await waitUntil(() => singles.length === 1);
+    expect(singles[0]).toBe("[message - user] solo latest");
+  });
+
+  it("operator-draft gate holds mail without burning a transport attempt", async () => {
+    const msg = userMsg("draft-block", "should wait");
+    const store = makeStore({ c: agentDoc([msg]) });
+    let sends = 0;
+    let now = 1_000;
+    const service = new MessageDeliveryService();
+    let operatorDraft = false;
+    const scheduled: Array<{ readonly fn: () => void; readonly ms: number }> = [];
+    service.configure({
+      now: () => now,
+      timers: {
+        set: (fn, ms) => {
+          scheduled.push({ fn, ms });
+          return scheduled.length - 1;
+        },
+        clear: () => undefined,
+      },
+      transport: {
+        wakeManagedSeat: async () => true,
+        seatDeliverySnapshot: () => ({
+          idle: true,
+          generationKey: "ep1",
+          operatorDraft,
+        }),
+        sendManagedTerminalPrompt: async () => {
+          sends += 1;
+          return true;
+        },
+      },
+      store,
+    });
+
+    // First consult arms settle (not-settled) + timer.
+    service.notifyAppended("c", "agent", msg);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(sends).toBe(0);
+    expect(scheduled.length).toBe(1);
+
+    // Past settle, but operator is drafting — still no paste.
+    now = 1_000 + 2_000;
+    operatorDraft = true;
+    scheduled[0]!.fn();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(sends).toBe(0);
+    expect(await store.hasAcceptedMessageDelivery("c", "agent", "draft-block")).toBe(
+      false,
+    );
+    expect(scheduled.length).toBeGreaterThanOrEqual(2);
+
+    // Operator cleared the box — gate retry delivers without a fake idle event.
+    operatorDraft = false;
+    scheduled[scheduled.length - 1]!.fn();
+    await waitUntil(() => sends === 1);
+    await waitUntil(() =>
+      store.hasAcceptedMessageDelivery("c", "agent", "draft-block"),
+    );
+  });
+
+  it("not-settled gate retries via timer without a further idle event", async () => {
+    const msg = userMsg("settle", "after quiet");
+    const store = makeStore({ c: agentDoc([msg]) });
+    let sends = 0;
+    let now = 1000;
+    const scheduled: Array<{ readonly fn: () => void; readonly ms: number }> = [];
+    const service = new MessageDeliveryService();
+    service.configure({
+      now: () => now,
+      timers: {
+        set: (fn, ms) => {
+          scheduled.push({ fn, ms });
+          return scheduled.length - 1;
+        },
+        clear: () => undefined,
+      },
+      transport: {
+        wakeManagedSeat: async () => true,
+        seatDeliverySnapshot: () => ({
+          idle: true,
+          generationKey: "ep-settle",
+          operatorDraft: false,
+        }),
+        sendManagedTerminalPrompt: async () => {
+          sends += 1;
+          return true;
+        },
+      },
+      store,
+    });
+
+    service.notifyAppended("c", "agent", msg);
+    await new Promise((r) => setTimeout(r, 30));
+    // First consult sets idleSince and arms settle timer — no send yet.
+    expect(sends).toBe(0);
+    expect(scheduled.length).toBe(1);
+    expect(scheduled[0]!.ms).toBeGreaterThanOrEqual(1_500);
+
+    // Advance clock past settle and fire the timer (no second idle event).
+    now = 1000 + 1_600;
+    scheduled[0]!.fn();
+    await waitUntil(() => sends === 1);
+  });
+
+  it("batch receipt-stamp failure does not re-paste on later scans", async () => {
+    const msgs = [userMsg("b1", "first"), userMsg("b2", "second")];
+    let acceptOk = false;
+    const store = makeStore(
+      { c: agentDoc(msgs) },
+      { acceptOk: () => acceptOk },
+    );
+    let sends = 0;
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        wakeManagedSeat: async () => true,
+        sendManagedTerminalPrompt: async () => {
+          sends += 1;
+          return true;
+        },
+      },
+      store,
+    });
+
+    service.onBooted();
+    await waitUntil(() => sends === 1);
+    // Stamp fails — message stays pending.
+    expect(await store.hasAcceptedMessageDelivery("c", "agent", "b1")).toBe(false);
+
+    // Further scans must NOT re-paste (transportAccepted).
+    service.onBooted();
+    service.onManagedTerminalIdle("bind-mira");
+    await new Promise((r) => setTimeout(r, 40));
+    expect(sends).toBe(1);
+
+    acceptOk = true;
+    service.onManagedTerminalIdle("bind-mira");
+    await waitUntil(async () =>
+      (await store.hasAcceptedMessageDelivery("c", "agent", "b1")) &&
+      (await store.hasAcceptedMessageDelivery("c", "agent", "b2")),
+    );
+    expect(sends).toBe(1);
+  });
+
+  it("request-response respects the seat delivery gate", async () => {
+    const store = makeStore({ c: agentDoc([]) });
+    let sends = 0;
+    let operatorDraft = true;
+    let now = 5_000;
+    const scheduled: Array<{ readonly fn: () => void }> = [];
+    const service = new MessageDeliveryService();
+    service.configure({
+      now: () => now,
+      timers: {
+        set: (fn) => {
+          scheduled.push({ fn });
+          return scheduled.length - 1;
+        },
+        clear: () => undefined,
+      },
+      transport: {
+        wakeManagedSeat: async () => true,
+        seatDeliverySnapshot: () => ({
+          idle: true,
+          generationKey: "ep-req",
+          operatorDraft,
+        }),
+        sendManagedTerminalPrompt: async () => {
+          sends += 1;
+          return true;
+        },
+      },
+      store,
+    });
+
+    service.notifyRequestResolved({
+      canvas: "c",
+      actorNodeId: "agent",
+      requestId: "req-1",
+      response: "short ok",
+    });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(sends).toBe(0);
+
+    operatorDraft = false;
+    now += 3_000;
+    // Fire gate retry.
+    if (scheduled.length > 0) scheduled[scheduled.length - 1]!.fn();
+    await waitUntil(() => sends === 1);
   });
 });

@@ -69,6 +69,16 @@ export class SshIoError extends Schema.TaggedErrorClass<SshIoError>()("SshIoErro
   message: Schema.String,
 }) {}
 
+/** Process or pipe death. Not I/O — a closed SSH child is not a stream bound. */
+export class SshProcessError extends Schema.TaggedErrorClass<SshProcessError>()(
+  "SshProcessError",
+  {
+    endpoint: Schema.String,
+    operation: Schema.String,
+    message: Schema.String,
+  },
+) {}
+
 export class SshTimeoutError extends Schema.TaggedErrorClass<SshTimeoutError>()("SshTimeoutError", {
   endpoint: Schema.String,
   operation: Schema.String,
@@ -92,6 +102,7 @@ export class SshExitError extends Schema.TaggedErrorClass<SshExitError>()("SshEx
   endpoint: Schema.String,
   operation: Schema.String,
   code: Schema.Number,
+  detail: Schema.optionalKey(Schema.String),
 }) {}
 
 export class SshForwardError extends Schema.TaggedErrorClass<SshForwardError>()("SshForwardError", {
@@ -104,6 +115,7 @@ export type SshError =
   | SshSetupError
   | SshSpawnError
   | SshIoError
+  | SshProcessError
   | SshTimeoutError
   | SshOutputLimitError
   | SshExitError

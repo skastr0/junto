@@ -39,13 +39,16 @@ describe("Linux generation readiness contract", () => {
     const deploy = compileLinuxUserlandDeploySource();
     for (const source of [preflight, deploy]) {
       expect(source).not.toContain("station_ready_receipt");
-      expect(source).not.toContain("python3");
       expect(source).not.toContain("sudo");
       expect(source).not.toContain("dpkg");
       expect(source).not.toContain("/opt/");
       expect(source).not.toContain("vellum-release-bridge");
       expect(source).not.toContain("vellum-release-installer");
     }
+    expect(preflight).not.toContain("python3");
+    expect(deploy).toContain("/usr/bin/python3");
+    expect(deploy).toContain('"op": "ping"');
+    expect(deploy).not.toMatch(/s\.connect\([^)]+\);\s*s\.close\(\)/u);
     expect(preflight).toContain("systemctl --user");
     expect(deploy).toContain('ROOT="$HOME/.vellum-command/runtime"');
     expect(deploy).toContain("$ROOT/releases");

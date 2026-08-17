@@ -10,7 +10,13 @@ import {
 } from "@shared/features";
 import { observeLinuxHostCapabilityDoctor } from "@shared/linux-host-capability-doctor";
 import type { LinuxHostCapabilityObservation } from "@shared/linux-host-capabilities";
-import type { StationRemoteObservation } from "@shared/station-status";
+import {
+  type StationLeaseObservation,
+  type StationRemoteObservation,
+  type StationRouteObservation,
+  redactStationDiagnostic,
+  stationRecoveryForRemote,
+} from "@shared/station-status";
 import {
   hermesKeyFor,
   hostHasCapability,
@@ -26,15 +32,21 @@ import { oneShot } from "../ssh/program";
 import {
   remoteLinuxCapabilityDoctor,
   remoteProductVersion,
+  remoteUname,
 } from "../ssh/read-commands";
 import type { SshTransportShape } from "../ssh/service";
 import {
   StationFleetPropagation,
   type StationFleetPeerUnavailable,
+  type StationFleetPropagationResult,
 } from "../station/fleet-propagation";
+import { REMOTE_LEASE_TTL_MS, evaluateRemoteLease } from "../license/remote-lease";
 import type { HostsRegistry } from "./registry";
 
 const HOST_PROBE_TOTAL_TIMEOUT_MS = 20_000;
+
+const boundedDoctorDetail = (value: string, limit = 1_024): string =>
+  redactStationDiagnostic(value.replaceAll(/\s+/gu, " ").trim()).slice(0, limit);
 
 type Ssh = SshTransportShape;
 type Fleet = Context.Service.Shape<typeof StationFleetPropagation>;
@@ -54,6 +66,36 @@ type RemoteHostProbeResult = {
   readonly detail: string;
   readonly observation: StationRemoteObservation;
 };
+
+const liveLeaseObservation = (lastCheckInAt: string): StationLeaseObservation => {
+  const checkInMs = Date.parse(lastCheckInAt);
+  if (!Number.isFinite(checkInMs)) {
+    return { state: "unknown", source: "live", lastCheckInAt };
+  }
+  const decision = evaluateRemoteLease(
+    checkInMs,
+    { now: Date.now },
+    REMOTE_LEASE_TTL_MS,
+  );
+  return {
+    state: decision.ok ? "active" : "expired",
+    source: "live",
+    lastCheckInAt,
+    ...(decision.expiresAtMs === null
+      ? {}
+      : { expiresAt: new Date(decision.expiresAtMs).toISOString() }),
+  };
+};
+
+const routeObservation = (
+  status: NonNullable<StationFleetPropagationResult["status"]>,
+): StationRouteObservation => ({
+  phase: status.phase,
+  sessionOpen: status.sessionOpen,
+  attempt: status.attempt,
+  updatedAt: status.updatedAt,
+  ...(status.nextRetryAt === undefined ? {} : { nextRetryAt: status.nextRetryAt }),
+});
 
 const binaryVersionArgs = (
   binary: "herdr" | "hermes",
@@ -84,6 +126,9 @@ const classifySshFailure = (message: string): string => {
   if (/Connection refused/i.test(message)) {
     return "Connection refused — sshd not listening on the remote, or wrong port.";
   }
+  if (/too long for Unix domain socket|unix_listener/i.test(message)) {
+    return "SSH control socket path is too long for this OS.";
+  }
   return message;
 };
 
@@ -94,7 +139,9 @@ const describeSshError = (error: SshError): string => {
         `Connection timed out after ${error.timeoutMs}ms`,
       );
     case "SshExitError":
-      return classifySshFailure(`ssh exited with code ${error.code}`);
+      return classifySshFailure(
+        error.detail ?? `ssh exited with code ${error.code}`,
+      );
     case "SshInputError":
       return `Invalid endpoint: ${error.message}`;
     case "SshOutputLimitError":
@@ -108,8 +155,20 @@ const describeFleetFailure = (
   error: StationFleetPeerUnavailable,
 ): string =>
   error.reason === "not-enrolled"
-    ? "Station is not enrolled in the persistent fleet"
+    ? "This machine is not in the fleet yet"
     : error.message;
+
+/** SSH warm only. Station silence is not the machine going away. */
+const probeSshNetwork = (
+  ssh: Ssh,
+  host: RemoteHost,
+): Effect.Effect<"up" | "down"> =>
+  parseHostSshRoute(host).pipe(
+    Effect.flatMap((target) => ssh.warm(target)),
+    Effect.as("up" as const),
+    Effect.catch(() => Effect.succeed("down" as const)),
+    Effect.catchDefect(() => Effect.succeed("down" as const)),
+  );
 
 const localBinary = async (
   binary: "herdr" | "hermes",
@@ -165,8 +224,8 @@ const remoteBinary = (
   );
 
 /**
- * Closed zero-arg Linux capability Doctor over SSH. Best-effort: a probe,
- * transport, or parse failure never fails the host connection test.
+ * Linux capability Doctor over SSH. Darwin and unknown platforms never run
+ * it — a non-linux probe is not a host-health signal.
  */
 const probeLinuxHostCapabilities = (
   ssh: Ssh,
@@ -174,16 +233,30 @@ const probeLinuxHostCapabilities = (
 ): Effect.Effect<LinuxHostCapabilityObservation | undefined> =>
   parseHostSshRoute(host).pipe(
     Effect.flatMap((parsed) =>
-      remoteLinuxCapabilityDoctor().pipe(
-        Effect.flatMap((command) =>
-          ssh.run(oneShot(parsed, command, { budget: "status" })),
+      remoteUname().pipe(
+        Effect.flatMap((uname) =>
+          ssh.run(oneShot(parsed, uname, { budget: "short" })),
         ),
+        Effect.flatMap((unameResult) => {
+          if (unameResult.stdout !== "Linux\n") {
+            return Effect.succeed(undefined);
+          }
+          return remoteLinuxCapabilityDoctor().pipe(
+            Effect.flatMap((command) =>
+              ssh.run(oneShot(parsed, command, { budget: "status" })),
+            ),
+            Effect.map((result) => {
+              const observation = observeLinuxHostCapabilityDoctor(
+                result.stdout,
+              );
+              return observation?.facts.platform === "linux"
+                ? observation
+                : undefined;
+            }),
+          );
+        }),
       ),
     ),
-    Effect.map((result) => {
-      const observation = observeLinuxHostCapabilityDoctor(result.stdout);
-      return observation === null ? undefined : observation;
-    }),
     Effect.catch(() => Effect.succeed(undefined)),
     // Test doubles and transport defects must not surface through hostsTest.
     Effect.catchDefect(() => Effect.succeed(undefined)),
@@ -203,8 +276,16 @@ const probeSshHost = (
           hostId: host.id,
           endpoint: "",
           reachability: "unknown" as const,
+          source: "live" as const,
           reachabilityError: "remote host missing endpoint",
           observationError: "remote host missing endpoint",
+          recovery: stationRecoveryForRemote({
+            identityConflict: false,
+            unreachable: true,
+            stationAvailable: false,
+            readinessFailed: false,
+            stale: false,
+          }),
         },
       };
     }
@@ -213,29 +294,57 @@ const probeSshHost = (
     const result = synchronized[0];
     if (result === undefined || result.ok === false) {
       const detail = result === undefined
-        ? "Station is not enrolled in the persistent fleet"
+        ? "This machine is not in the fleet yet"
         : describeFleetFailure(result.error);
       const updateRequired =
         result?.ok === false &&
         result.error.reason === "update-required";
+      const route = result?.status === undefined
+        ? undefined
+        : routeObservation(result.status);
+      const protocol = result?.status?.protocol;
+      let reachability = updateRequired
+        ? "reachable" as const
+        : result?.ok === false && result.error.reason === "not-enrolled"
+          ? "unknown" as const
+          : "unreachable" as const;
+      let operatorDetail = `${host.label}: ${boundedDoctorDetail(detail)}`;
+      if (reachability === "unreachable") {
+        const network = yield* probeSshNetwork(ssh, host);
+        if (network === "up") {
+          reachability = "reachable";
+          operatorDetail = `${host.label}: On the network. Vellum Command is not answering.`;
+        }
+      }
+      const recovery = stationRecoveryForRemote({
+        identityConflict: false,
+        protocol,
+        unreachable: reachability === "unreachable",
+        stationAvailable: false,
+        readinessFailed: false,
+        stale: false,
+      });
       return {
         status: updateRequired ? "warning" as const : "error" as const,
-        detail: `${host.label}: ${detail}`,
+        detail: operatorDetail,
         observation: {
           hostId: host.id,
           endpoint: host.sshEndpoint,
-          reachability:
-            updateRequired
-              ? "reachable" as const
-              : result?.ok === false &&
-              result.error.reason === "not-enrolled"
-              ? "unknown" as const
-              : "unreachable" as const,
-          ...(updateRequired ? {} : { reachabilityError: detail }),
-          ...(result?.status?.protocol === undefined
+          reachability,
+          source: result?.status === undefined ? "live" as const : "last-acknowledged" as const,
+          ...(updateRequired ? {} : { reachabilityError: boundedDoctorDetail(detail) }),
+          ...(protocol === undefined
             ? {}
-            : { protocol: result.status.protocol }),
-          observationError: detail,
+            : { protocol }),
+          ...(result?.stationInstallationId === undefined
+            ? {}
+            : { expectedInstallationId: result.stationInstallationId }),
+          ...(route === undefined ? {} : { route }),
+          ...(result?.status?.updatedAt === undefined
+            ? {}
+            : { observedAt: result.status.updatedAt }),
+          ...(recovery === undefined ? {} : { recovery }),
+          observationError: boundedDoctorDetail(detail),
         },
       };
     }
@@ -243,10 +352,13 @@ const probeSshHost = (
     const station = result.receipt.remoteStatus;
     const configuration = station.configuration;
     const parts = [
-      `Station API ${station.state}`,
+      `Vellum Command ${station.state}`,
       `installation ${station.installationId}`,
     ];
     const protocol = result.status.protocol;
+    const observedAt = new Date().toISOString();
+    const lease = liveLeaseObservation(observedAt);
+    const route = routeObservation(result.status);
     let worst: "ok" | "warning" | "error" = "ok";
     const problems: string[] = [];
     const raise = (severity: "warning" | "error", problem: string) => {
@@ -298,6 +410,16 @@ const probeSshHost = (
     if (station.projection) {
       parts.push(`projection ${station.projection.generation}`);
     }
+    const reportIncomplete =
+      result.receipt.report.hasMoreOutbound ||
+      result.receipt.report.hasMoreInbound ||
+      result.receipt.report.inboundRejected > 0;
+    parts.push(
+      `report rounds=${result.receipt.report.rounds} sent=${result.receipt.report.outboundSent} received=${result.receipt.report.inboundReceived} rejected=${result.receipt.report.inboundRejected}`,
+    );
+    if (reportIncomplete) {
+      raise("warning", "last work report did not converge cleanly");
+    }
 
     if (hostHasCapability(host, "browser")) {
       parts.push("browser capability declared");
@@ -313,18 +435,70 @@ const probeSshHost = (
       if (!hermes.ok) raise("warning", hermes.detail);
     }
 
+    const recovery = reportIncomplete
+      ? {
+          kind: "retryable" as const,
+          nextStep:
+            "Inspect the rejected work route, correct its authority or causal predecessor, then retry the link test.",
+        }
+      : stationRecoveryForRemote({
+          identityConflict:
+            configuration?.role !== "remote" || configuration.hostId !== host.id,
+          protocol,
+          lease,
+          unreachable: false,
+          stationAvailable: true,
+          readinessFailed: ready.length > 0,
+          stale: false,
+        });
+
     return {
       status: worst,
-      detail: `${host.label} (${host.sshEndpoint}): ${parts.join(" - ")}`,
+      detail: boundedDoctorDetail(
+        `${host.label} (${host.sshEndpoint}): ${parts.join(" - ")}`,
+      ),
       observation: {
         hostId: host.id,
         endpoint: host.sshEndpoint,
         reachability: "reachable" as const,
+        source: "live" as const,
+        observedAt,
+        expectedInstallationId: result.stationInstallationId,
         ...(protocol === undefined ? {} : { protocol }),
+        route,
+        lease,
+        readiness: {
+          database: station.readiness.database,
+          workControl: station.readiness.workControl,
+          simulation: station.readiness.simulation,
+        },
+        topology: result.receipt.projection.topology,
+        synchronization: {
+          projectionDecision: result.receipt.projection.decision,
+          projectionGeneration: result.receipt.projection.active.generation,
+          projectionContentSha256:
+            result.receipt.projection.active.contentSha256,
+          reportRounds: result.receipt.report.rounds,
+          outboundSent: result.receipt.report.outboundSent,
+          inboundReceived: result.receipt.report.inboundReceived,
+          inboundAccepted: result.receipt.report.inboundAccepted,
+          inboundIdempotent: result.receipt.report.inboundIdempotent,
+          inboundRejected: result.receipt.report.inboundRejected,
+          hasMoreOutbound: result.receipt.report.hasMoreOutbound,
+          hasMoreInbound: result.receipt.report.hasMoreInbound,
+          converged:
+            !result.receipt.report.hasMoreOutbound &&
+            !result.receipt.report.hasMoreInbound &&
+            result.receipt.report.inboundRejected === 0,
+        },
+        ...(protocol?.peer?.appVersion === undefined
+          ? {}
+          : { packageGeneration: protocol.peer.appVersion }),
         station,
+        ...(recovery === undefined ? {} : { recovery }),
         ...(problems.length === 0
           ? {}
-          : { observationError: problems.join("; ").slice(0, 1_024) }),
+          : { observationError: boundedDoctorDetail(problems.join("; ")) }),
       },
     };
   }).pipe(
@@ -343,8 +517,16 @@ const probeSshHost = (
           hostId: host.id,
           endpoint: host.sshEndpoint ?? "",
           reachability: "unreachable" as const,
-          reachabilityError: detail,
-          observationError: detail,
+          source: "live" as const,
+          reachabilityError: boundedDoctorDetail(detail),
+          observationError: boundedDoctorDetail(detail),
+          recovery: stationRecoveryForRemote({
+            identityConflict: false,
+            unreachable: true,
+            stationAvailable: false,
+            readinessFailed: false,
+            stale: false,
+          }),
         },
       });
     }),
@@ -367,9 +549,17 @@ const boundedProbeSshHost = (
           hostId: host.id,
           endpoint: host.sshEndpoint ?? "",
           reachability: "unreachable" as const,
+          source: "live" as const,
           reachabilityError: `probe timed out after ${HOST_PROBE_TOTAL_TIMEOUT_MS}ms`,
           observationError:
             `probe timed out after ${HOST_PROBE_TOTAL_TIMEOUT_MS}ms`,
+          recovery: stationRecoveryForRemote({
+            identityConflict: false,
+            unreachable: true,
+            stationAvailable: false,
+            readinessFailed: false,
+            stale: false,
+          }),
         },
       }),
     ),
@@ -531,6 +721,7 @@ export const testHostConnection = (
   readonly reachability?: "reachable" | "unreachable" | "unknown";
   readonly protocol?: StationRemoteObservation["protocol"];
   readonly linuxCapabilities?: LinuxHostCapabilityObservation;
+  readonly observation?: StationRemoteObservation;
 }> =>
   host.kind === "local"
     ? Effect.gen(function* () {
@@ -562,21 +753,22 @@ export const testHostConnection = (
     : Effect.gen(function* () {
         const result = yield* probeSshHost(ssh, fleet, host);
         const linuxCapabilities = yield* probeLinuxHostCapabilities(ssh, host);
+        const linuxCore =
+          linuxCapabilities !== undefined &&
+          linuxCapabilities.facts.platform === "linux";
         const coreReady =
-          linuxCapabilities === undefined ||
-          linuxCapabilities.status === "ready";
+          !linuxCore || linuxCapabilities.status === "ready";
         return {
           ok: result.status === "ok" && coreReady,
           detail:
-            linuxCapabilities === undefined
-              ? result.detail
-              : `${result.detail} - host ${linuxCapabilities.status}: ${linuxCapabilities.summary}`,
+            !linuxCore
+              ? boundedDoctorDetail(result.detail)
+              : boundedDoctorDetail(`${result.detail} - host ${linuxCapabilities.status}: ${linuxCapabilities.summary}`),
           reachability: result.observation.reachability,
           ...(result.observation.protocol === undefined
             ? {}
             : { protocol: result.observation.protocol }),
-          ...(linuxCapabilities === undefined
-            ? {}
-            : { linuxCapabilities }),
+          observation: result.observation,
+          ...(linuxCore ? { linuxCapabilities } : {}),
         };
       });

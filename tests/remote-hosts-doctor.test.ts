@@ -122,6 +122,25 @@ const successfulResult = (
     projection: {
       decision: "unchanged" as const,
       active,
+      topology: {
+        canvasCount: 0,
+        nodeCount: 0,
+        edgeCount: 0,
+        actorCount: 0,
+        sinkCount: 0,
+        schedulerCount: 0,
+        targetNodeCount: 0,
+        targetActorCount: 0,
+        targetSinkCount: 0,
+        targetSchedulerCount: 0,
+        commandCenterNodeCount: 0,
+        otherStationNodeCount: 0,
+        targetInternalAccessEdgeCount: 0,
+        remoteActorToCommandCenterSinkEdgeCount: 0,
+        commandCenterActorToRemoteSinkEdgeCount: 0,
+        stationPeerEdgeCount: 0,
+        danglingEdgeCount: 0,
+      },
     },
     report: {
       rounds: 1,
@@ -336,7 +355,7 @@ describe("remote hosts doctor", () => {
 
     expect(maxActive).toBe(3);
     expect(report.status).toBe("ok");
-    expect(report.detail).toContain("Station API ready");
+    expect(report.detail).toContain("Vellum Command ready");
   });
 
   it("returns typed observations from Station API status", async () => {
@@ -366,12 +385,45 @@ describe("remote hosts doctor", () => {
 
     expect(snapshot.check.status).toBe("ok");
     expect(snapshot.observations).toEqual([
-      {
+      expect.objectContaining({
         hostId: "studio",
         endpoint: "studio-box",
         reachability: "reachable",
+        source: "live",
+        expectedInstallationId: "station-studio",
         station: stationStatus("studio"),
-      },
+        route: {
+          phase: "ready",
+          sessionOpen: true,
+          attempt: 1,
+          updatedAt: "2026-07-27T12:00:01.000Z",
+        },
+        readiness: {
+          database: true,
+          workControl: true,
+          simulation: true,
+        },
+        topology: expect.objectContaining({
+          canvasCount: 0,
+          targetActorCount: 0,
+          targetSinkCount: 0,
+        }),
+        synchronization: {
+          projectionDecision: "unchanged",
+          projectionGeneration: "1",
+          projectionContentSha256: "a".repeat(64),
+          reportRounds: 1,
+          outboundSent: 0,
+          inboundReceived: 0,
+          inboundAccepted: 0,
+          inboundIdempotent: 0,
+          inboundRejected: 0,
+          hasMoreOutbound: false,
+          hasMoreInbound: false,
+          converged: true,
+        },
+        lease: expect.objectContaining({ state: "active", source: "live" }),
+      }),
     ]);
     expect(snapshot.check.detail).toContain(
       "readiness database=true work=true simulation=true",
@@ -414,17 +466,70 @@ describe("remote hosts doctor", () => {
 
     expect(snapshot.check.status).toBe("error");
     expect(snapshot.observations).toEqual([
-      {
+      expect.objectContaining({
         hostId: "studio",
         endpoint: "studio-box",
         reachability: "unreachable",
+        source: "live",
+        expectedInstallationId: "station-studio",
         reachabilityError: "station runtime down",
         observationError: "station runtime down",
-      },
+      }),
     ]);
     expect(snapshot.observations[0]).not.toHaveProperty("station");
     expect(snapshot.observations[0]).not.toHaveProperty("settingsState");
     expect(snapshot.observations[0]).not.toHaveProperty("statusState");
+  });
+
+  it("keeps SSH-up Station-down as on the network, not machine-gone", async () => {
+    const fleet = fleetWithStatus(() =>
+      Effect.fail(
+        StationFleetPeerUnavailable.make({
+          hostId: hostId("studio"),
+          stationInstallationId: installationId("station-studio"),
+          reason: "connection-failed",
+          causeTag: "StationPeerSessionClosedError",
+          message: "station runtime down",
+        }),
+      ),
+    );
+    const registry = {
+      list: async () => [
+        {
+          id: "studio",
+          label: "Studio",
+          kind: "remote" as const,
+          sshEndpoint: "studio-box",
+          capabilities: [],
+        },
+      ],
+    } as unknown as HostsRegistry;
+    const ssh = {
+      warm: () => Effect.void,
+    } as unknown as Parameters<typeof testHostConnection>[0];
+
+    const snapshot = await Effect.runPromise(
+      runRemoteHostsDoctorSnapshot(
+        registry,
+        ssh,
+        fleet,
+        async () => ({ ok: true, stdout: "" }),
+      ),
+    );
+
+    expect(snapshot.check.status).toBe("error");
+    expect(snapshot.check.detail).toContain("On the network");
+    expect(snapshot.check.detail).toContain("not answering");
+    expect(snapshot.observations).toEqual([
+      expect.objectContaining({
+        hostId: "studio",
+        endpoint: "studio-box",
+        reachability: "reachable",
+        source: "live",
+        expectedInstallationId: "station-studio",
+      }),
+    ]);
+    expect(snapshot.observations[0]).not.toHaveProperty("station");
   });
 
   it("reports an incompatible but reachable Remote as update-required", async () => {
@@ -491,14 +596,22 @@ describe("remote hosts doctor", () => {
     expect(snapshot.check.status).toBe("warning");
     expect(snapshot.check.detail).toContain("running locally");
     expect(snapshot.observations).toEqual([
-      {
+      expect.objectContaining({
         hostId: "studio",
         endpoint: "studio-box",
         reachability: "reachable",
+        source: "last-acknowledged",
+        expectedInstallationId: "station-studio",
         protocol,
+        route: {
+          phase: "update-required",
+          sessionOpen: false,
+          attempt: 1,
+          updatedAt: "2026-07-27T12:00:01.000Z",
+        },
         observationError:
           "Remote is running locally — Station protocol update required",
-      },
+      }),
     ]);
   });
 
@@ -534,7 +647,7 @@ describe("remote hosts doctor", () => {
       reachability: "unknown",
     });
     expect(result.detail).toContain(
-      "not enrolled in the persistent fleet",
+      "This machine is not in the fleet yet",
     );
   });
 });

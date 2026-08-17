@@ -135,6 +135,100 @@ export const clearSelection = (): void => {
   });
 };
 
+type SelectionReplacement = {
+  readonly nodeId?: string;
+  readonly nodeIds?: ReadonlyArray<string>;
+  readonly edgeId?: string;
+};
+
+/**
+ * Low-level atomic replacement for the mirrored React Flow selection.
+ * Normal UI actions should prefer selectNode/selectNodes/selectEdge.
+ */
+export const replaceSelection = ({
+  nodeId: requestedNodeId = "",
+  nodeIds: requestedNodeIds = [],
+  edgeId: requestedEdgeId = "",
+}: SelectionReplacement): void => {
+  const nodeIds = requestedNodeIds.length === 0 && requestedNodeId
+    ? [requestedNodeId]
+    : requestedNodeIds;
+  const nodeId = nodeIds.length === 1
+    ? nodeIds[0] ?? ""
+    : requestedNodeId && nodeIds.includes(requestedNodeId)
+      ? requestedNodeId
+      : "";
+  const edgeId = nodeIds.length === 0 ? requestedEdgeId : "";
+
+  batch(() => {
+    state$.selectedNodeId.set(nodeId);
+    state$.selectedNodeIds.set(nodeIds);
+    state$.selectedEdgeId.set(edgeId);
+  });
+};
+
+/** Select one node and close any edge-settings request. */
+export const selectNode = (nodeId: string): void => {
+  batch(() => {
+    replaceSelection({ nodeId });
+    state$.edgeSettingsRequestId.set("");
+  });
+};
+
+/** Select a canonical node set and close any edge-settings request. */
+export const selectNodes = (nodeIds: ReadonlyArray<string>): void => {
+  const canonicalNodeIds = [...new Set(nodeIds.filter(Boolean))];
+  batch(() => {
+    replaceSelection({ nodeIds: canonicalNodeIds });
+    state$.edgeSettingsRequestId.set("");
+  });
+};
+
+/** Replace every node selection with one edge selection, atomically. */
+export const selectEdge = (
+  edgeId: string,
+  options?: { readonly openSettings?: boolean },
+): void => {
+  batch(() => {
+    replaceSelection({ edgeId });
+    state$.edgeSettingsRequestId.set(options?.openSettings ? edgeId : "");
+    state$.connectionFocusNodeId.set("");
+  });
+};
+
+/** Remove deleted nodes from both Legend selection channels. */
+export const removeNodesFromSelection = (
+  removedNodeIds: ReadonlySet<string>,
+): void => {
+  if (removedNodeIds.size === 0) return;
+  const currentNodeIds = state$.selectedNodeIds.peek();
+  const selectedNodeId = state$.selectedNodeId.peek();
+  const candidates = selectedNodeId && !currentNodeIds.includes(selectedNodeId)
+    ? [...currentNodeIds, selectedNodeId]
+    : currentNodeIds;
+  const nextNodeIds = candidates.filter((id) => !removedNodeIds.has(id));
+  if (nextNodeIds.length === candidates.length) return;
+
+  selectNodes(nextNodeIds);
+};
+
+/** Clear an edge selection only when that edge was removed. */
+export const removeEdgesFromSelection = (
+  removedEdgeIds: ReadonlySet<string>,
+): void => {
+  const selectedEdgeId = state$.selectedEdgeId.peek();
+  if (!selectedEdgeId || !removedEdgeIds.has(selectedEdgeId)) return;
+  batch(() => {
+    replaceSelection({
+      nodeId: state$.selectedNodeId.peek(),
+      nodeIds: state$.selectedNodeIds.peek(),
+    });
+    if (removedEdgeIds.has(state$.edgeSettingsRequestId.peek())) {
+      state$.edgeSettingsRequestId.set("");
+    }
+  });
+};
+
 /** Toggle the presentational focus cone for one node's direct connections. */
 export const toggleConnectionFocus = (nodeId: string): void => {
   state$.connectionFocusNodeId.set(

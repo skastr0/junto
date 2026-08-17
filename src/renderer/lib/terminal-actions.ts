@@ -3,7 +3,8 @@
  * Session start is automatic on open; no Start button on the card body.
  */
 import type { CanvasNode } from "@shared/canvas";
-import { resolveTerminalBinding } from "@shared/terminal";
+import { resolveTerminalBinding, sessionActorMatches } from "@shared/terminal";
+import { occupancyFromSummary } from "@shared/terminal-seat-occupancy";
 import { markAgentSeatSeen } from "./agent-seat-state";
 import { getVellumCommandApi } from "./vellum-api";
 import { state$ } from "./state";
@@ -22,28 +23,57 @@ export const ensureTerminalRunning = async (
   if (!api?.terminalCreate) {
     return { ok: false, message: "terminal API unavailable — restart Vellum Command" };
   }
-  // Always go through terminalCreate for harness seats. Create is the
-  // ensure boundary (idempotent for healthy lives) and is where isolated
-  // VELLUM_COMMAND_HOME can replace a shared-resume generation that is still
-  // "running" but paints a dead/black TUI beside production.
-  // Geography shells may short-circuit on a live generation — they never
-  // share pin/resume state with another Vellum Command process.
-  if (!binding.harness) {
-    try {
-      const live = await api.terminalGet?.(binding.bindingId, binding.hostId);
-      if (
-        !live?.stopping &&
-        (live?.status === "running" || live?.status === "starting")
-      ) {
-        terminal$.sessionByBindingId[binding.bindingId].set(live);
-        return { ok: true };
-      }
-    } catch {
-      // fall through to create
+  // Occupied seats activate; they are never occupied again. Stopping still
+  // occupies the seat. Vacant (exited / missing / unknown) is the only
+  // create path.
+  let live: Awaited<ReturnType<NonNullable<typeof api.terminalGet>>> | undefined;
+  try {
+    live = await api.terminalGet?.(binding.bindingId, binding.hostId);
+  } catch {
+    live = undefined;
+  }
+  const occupancy = occupancyFromSummary(binding.bindingId, live);
+  if (occupancy._tag === "OccupiedSeat" && live) {
+    const actor =
+      binding.harness && binding.agentKey
+        ? { harness: binding.harness, agentKey: binding.agentKey }
+        : undefined;
+    if (actor && sessionActorMatches(live, actor)) {
+      terminal$.sessionByBindingId[binding.bindingId].set(live);
+      return { ok: true };
     }
+    if (actor) {
+      try {
+        const adopted = await api.terminalCreate({
+          bindingId: binding.bindingId,
+          hostId: binding.hostId,
+          launch: binding.launch,
+          canvasName: state$.canvasName.peek(),
+          nodeId: node.id,
+          label: binding.label,
+          harness: actor.harness,
+          agentKey: actor.agentKey,
+        });
+        if (!sessionActorMatches(adopted, actor)) {
+          return {
+            ok: false,
+            message: "remote seat did not bind actor identity",
+          };
+        }
+        terminal$.sessionByBindingId[binding.bindingId].set(adopted);
+        return { ok: true };
+      } catch (err: unknown) {
+        return {
+          ok: false,
+          message: err instanceof Error ? err.message : String(err),
+        };
+      }
+    }
+    terminal$.sessionByBindingId[binding.bindingId].set(live);
+    return { ok: true };
   }
   try {
-    const next = await api.terminalCreate({
+    let next = await api.terminalCreate({
       bindingId: binding.bindingId,
       hostId: binding.hostId,
       launch: binding.launch,
@@ -56,6 +86,20 @@ export const ensureTerminalRunning = async (
         ? { resume: options?.resume ?? true }
         : {}),
     });
+    // A resume generation can die and be fail-open replaced before or just
+    // after create returns. Prefer the live binding head over a stale exited
+    // snapshot so the surface does not paint dead while a pin is already up.
+    if (next.status === "exited" && binding.harness) {
+      const deadline = Date.now() + 4_000;
+      while (Date.now() < deadline) {
+        const live = await api.terminalGet?.(binding.bindingId, binding.hostId);
+        if (live && (live.status === "running" || live.status === "starting")) {
+          next = live;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    }
     terminal$.sessionByBindingId[binding.bindingId].set(next);
     // Create is still allowed to open the surface for journal/error replay
     // when the generation dies before the first attach (bad cwd, missing
@@ -99,7 +143,7 @@ export const openTerminal = async (
 
   if (agentSeat) {
     // Surface owns ensure + attach (spinner covers the full path).
-    openTerminalSurface(node, zone);
+    openTerminalSurface(node, zone, state$.canvasName.peek());
     return;
   }
 
@@ -112,7 +156,7 @@ export const openTerminal = async (
     const session = terminal$.sessionByBindingId[binding.bindingId].peek();
     if (!session) return;
   }
-  openTerminalSurface(node, zone);
+  openTerminalSurface(node, zone, state$.canvasName.peek());
 };
 
 export const killTerminal = async (node: CanvasNode): Promise<void> => {

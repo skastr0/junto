@@ -3,8 +3,8 @@
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import { Effect, Layer } from "effect";
 import { resolveVellumCommandHome } from "@shared/vellum-home";
-import { join } from "node:path";
 import { resolvedSpawnEnv, resolvedSpawnEnvSync } from "../adapters/exec";
+import { sshMuxControlDir } from "./control-dir";
 import { ProcessSpawnerLive } from "./process-spawner";
 import { SshTransportConfig, SshTransportLayer } from "./service";
 
@@ -37,7 +37,7 @@ const SshConfigLive = Layer.effect(
   Effect.tryPromise(() => resolvedSpawnEnv()).pipe(
     Effect.orElseSucceed(() => resolvedSpawnEnvSync()),
     Effect.map((environment) => ({
-      controlDir: join(resolveVellumCommandHome(), ".vellum-command", "ssh"),
+      controlDir: sshMuxControlDir(resolveVellumCommandHome()),
       envExecutable: "/usr/bin/env",
       sshExecutable: OPENSSH_CLIENT_EXECUTABLE,
       environment: allowedSshEnvironment(environment),

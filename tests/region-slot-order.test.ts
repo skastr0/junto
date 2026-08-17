@@ -111,13 +111,43 @@ describe("fuseRegionRollups", () => {
     });
   });
 
-  it("still keeps worse live evidence for seats without a tombstone", () => {
+  it("prefers quiet client seat over lagging live attention/working", () => {
+    // Renderer seat plane is live; main rollup can lag after the seat goes idle.
+    // Keeping live attention here is what desynced notify/hotkeys from the seat.
     expect(
       fuseRegionRollups(
         [rollup("idle")],
-        [rollup("attention", "permission:pending")],
+        [rollup("attention", "activity:attention")],
       )[0]?.severity,
-    ).toBe("attention");
+    ).toBe("idle");
+  });
+
+  it("still keeps worse live blocked when client is only working", () => {
+    const client: RegionRollup = {
+      ...rollup("idle"),
+      severity: "working",
+      counts: { total: 1, blocked: 0, attention: 0, working: 1 },
+      members: [{
+        nodeId: "actor",
+        label: "Actor",
+        kind: "agent",
+        severity: "working",
+        reasons: ["activity:working"],
+      }],
+    };
+    const live: RegionRollup = {
+      ...rollup("idle"),
+      severity: "blocked",
+      counts: { total: 1, blocked: 1, attention: 0, working: 0 },
+      members: [{
+        nodeId: "actor",
+        label: "Actor",
+        kind: "agent",
+        severity: "blocked",
+        reasons: ["work:input-required"],
+      }],
+    };
+    expect(fuseRegionRollups([client], [live])[0]?.severity).toBe("blocked");
   });
 });
 

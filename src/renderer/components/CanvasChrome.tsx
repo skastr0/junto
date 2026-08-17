@@ -1,4 +1,5 @@
 import { use$ } from "@legendapp/state/react";
+import { isCommandCenterAuthoring } from "../lib/canvas-boot";
 import { searchText } from "../lib/presentation";
 import { clearGraphFilters, state$ } from "../lib/state";
 
@@ -8,7 +9,7 @@ import { clearGraphFilters, state$ } from "../lib/state";
 
 type EmptyReason = "search" | "flag" | "empty";
 
-function CanvasEmpty({ reason, searchQuery, filterLabel, hasNodes }: { readonly reason?: EmptyReason; readonly searchQuery: string; readonly filterLabel: string; readonly hasNodes: boolean }) {
+function CanvasEmpty({ reason, searchQuery, filterLabel, hasNodes, authoring }: { readonly reason?: EmptyReason; readonly searchQuery: string; readonly filterLabel: string; readonly hasNodes: boolean; readonly authoring: boolean }) {
   if (hasNodes && !reason) return null;
   const isSearch = reason === "search";
   const isFiltered = reason === "flag";
@@ -19,8 +20,8 @@ function CanvasEmpty({ reason, searchQuery, filterLabel, hasNodes }: { readonly 
       {isSearch || isFiltered ? (
         <div className="field-empty__eyebrow">{isSearch ? "no matching node" : "filter returned nothing"}</div>
       ) : null}
-      <div className="field-empty__title">{isEmpty ? "empty canvas" : "canvas quiet"}</div>
-      <div className="field-empty__copy">{isSearch ? <>No node matches<br /><strong>{searchQuery}</strong>.</> : isFiltered ? <>No nodes matched<br /><strong>{filterLabel}</strong>.</> : <>Right-click or click Add item<br />to create your first node.</>}</div>
+      <div className="field-empty__title">{isEmpty ? (authoring ? "empty canvas" : "no projected canvas") : "canvas quiet"}</div>
+      <div className="field-empty__copy">{isSearch ? <>No node matches<br /><strong>{searchQuery}</strong>.</> : isFiltered ? <>No nodes matched<br /><strong>{filterLabel}</strong>.</> : authoring ? <>Right-click or click Add item<br />to create your first node.</> : <>This Remote shows Command Center canvases only.<br />Wait for a projection, or author on Command Center.</>}</div>
       {isFiltered ? <button type="button" className="field-empty__clear pointer-events-auto" aria-label="Clear filters" onClick={clearGraphFilters}>clear filters</button> : null}
     </div>
   );
@@ -49,11 +50,12 @@ export function CanvasChrome() {
         ? "empty"
         : undefined;
   const filterLabel = emptyReason === "flag" ? flagFilter : "";
+  const authoring = isCommandCenterAuthoring(use$(state$.settings.station.role));
 
   return (
     <>
       <FilterTray />
-      <CanvasEmpty reason={emptyReason} searchQuery={searchQuery} filterLabel={filterLabel} hasNodes={nodes.length > 0} />
+      <CanvasEmpty reason={emptyReason} searchQuery={searchQuery} filterLabel={filterLabel} hasNodes={nodes.length > 0} authoring={authoring} />
     </>
   );
 }

@@ -18,7 +18,13 @@ import { formatNodeRef } from "@shared/node-ref";
 import { isValidStationHostId } from "@shared/station";
 import { noteWorkDocChange } from "./edge-sparks";
 import { licenseCustody } from "./license-custody";
-import { state$ } from "./state";
+import {
+  removeEdgesFromSelection,
+  removeNodesFromSelection,
+  replaceSelection,
+  selectNode,
+  state$,
+} from "./state";
 
 const past: CanvasDoc[] = [];
 const future: CanvasDoc[] = [];
@@ -140,9 +146,7 @@ const rebaseLocalOverDisk = async (failed: PendingCanvasSave): Promise<void> => 
     state$.doc.set(merged);
     state$.docVersion.set(state$.docVersion.peek() + 1);
     state$.docEpoch.set(state$.docEpoch.peek() + 1);
-    state$.selectedNodeId.set(selectedNodeId);
-    state$.selectedNodeIds.set(selectedNodeIds);
-    state$.selectedEdgeId.set(selectedEdgeId);
+    replaceSelection({ nodeId: selectedNodeId, nodeIds: selectedNodeIds, edgeId: selectedEdgeId });
     state$.focusNodeId.set(focusNodeId);
     state$.editNodeId.set(editNodeId);
     state$.actorRefs.set([...authority.actorRefs]);
@@ -384,9 +388,7 @@ export const applyWorkCanvasWrite = (
   state$.doc.set(merged);
   state$.docVersion.set(state$.docVersion.peek() + 1);
   state$.docEpoch.set(state$.docEpoch.peek() + 1);
-  state$.selectedNodeId.set(selectedNodeId);
-  state$.selectedNodeIds.set(selectedNodeIds);
-  state$.selectedEdgeId.set(selectedEdgeId);
+  replaceSelection({ nodeId: selectedNodeId, nodeIds: selectedNodeIds, edgeId: selectedEdgeId });
   state$.focusNodeId.set(focusNodeId);
   state$.editNodeId.set(editNodeId);
   state$.error.set("");
@@ -460,6 +462,9 @@ export const replaceActiveActorRefs = (
 // Commit a new document. `structural` bumps docVersion so React Flow rebuilds;
 // pass false for pure position writes RF already reflects (drag stop).
 export const commitDoc = (next: CanvasDoc, structural = true, recordHistory = structural): void => {
+  if (state$.settings.station.role.peek() === "remote") {
+    return;
+  }
   if (licenseCustody.isReadOnly()) {
     state$.error.set(
       "license maintenance — canvas is read-only until access is restored",
@@ -480,9 +485,22 @@ export const commitDoc = (next: CanvasDoc, structural = true, recordHistory = st
   scheduleSave();
 };
 
+export interface LoadDocOptions {
+  /**
+   * Same-canvas projections retain interaction state only while its referenced
+   * node or edge still exists. Canvas navigation keeps the reset default.
+   */
+  readonly preserveValidInteraction?: boolean;
+}
+
 // Replace the document from an authoritative source (open / external reload).
 // Always structural; never triggers a save (it mirrors what's already committed).
-export const loadDoc = (doc: CanvasDoc, revision?: string, name = state$.canvasName.peek()): void => {
+export const loadDoc = (
+  doc: CanvasDoc,
+  revision?: string,
+  name = state$.canvasName.peek(),
+  options: LoadDocOptions = {},
+): void => {
   if (!canvasMutationAdmissionOpen) return;
   if (pendingSave?.name === name) pendingSave = null;
   if (saveTimer && pendingSave === null) {
@@ -493,14 +511,40 @@ export const loadDoc = (doc: CanvasDoc, revision?: string, name = state$.canvasN
   else revisionsByName.set(name, revision);
   past.length = 0;
   future.length = 0;
-  state$.editNodeId.set("");
-  state$.selectedNodeId.set("");
-  state$.selectedNodeIds.set([]);
-  state$.selectedEdgeId.set("");
-  state$.focusNodeId.set("");
+  const nodeIds = options.preserveValidInteraction
+    ? new Set(doc.nodes.map((node) => node.id))
+    : undefined;
+  const edgeIds = options.preserveValidInteraction
+    ? new Set(doc.edges.map((edge) => edge.id))
+    : undefined;
+  const previousSelectedNodeIds = state$.selectedNodeIds.peek();
+  const retainedSelectedNodeIds = nodeIds
+    ? previousSelectedNodeIds.filter((id) => nodeIds.has(id))
+    : [];
+  const selectedNodeIds =
+    retainedSelectedNodeIds.length === previousSelectedNodeIds.length
+      ? previousSelectedNodeIds
+      : retainedSelectedNodeIds;
+  const previousSelectedNodeId = state$.selectedNodeId.peek();
+  const selectedNodeId = nodeIds?.has(previousSelectedNodeId)
+    ? previousSelectedNodeId
+    : selectedNodeIds.length === 1
+      ? selectedNodeIds[0] ?? ""
+      : "";
+  const previousSelectedEdgeId = state$.selectedEdgeId.peek();
+  const selectedEdgeId = edgeIds?.has(previousSelectedEdgeId)
+    ? previousSelectedEdgeId
+    : "";
+  const previousFocusNodeId = state$.focusNodeId.peek();
+  const focusNodeId = nodeIds?.has(previousFocusNodeId) ? previousFocusNodeId : "";
+  const previousEditNodeId = state$.editNodeId.peek();
+  const editNodeId = nodeIds?.has(previousEditNodeId) ? previousEditNodeId : "";
   syncHistoryState();
   state$.saveState.set("saved");
   state$.doc.set(doc);
+  state$.editNodeId.set(editNodeId);
+  replaceSelection({ nodeId: selectedNodeId, nodeIds: selectedNodeIds, edgeId: selectedEdgeId });
+  state$.focusNodeId.set(focusNodeId);
   // `loadDoc` without a corresponding CanvasReadResult must fail closed.
   // App installs the exact compiled refs in the same Legend batch.
   state$.actorRefs.set([]);
@@ -539,9 +583,7 @@ export const addNode = (
     state$.flagFilter.set("");
     // Keep the single/multi selection pair coherent so RTS flag keys target
     // this node only (stale selectedNodeIds would open multi bulk-flags).
-    state$.selectedNodeId.set(node.id);
-    state$.selectedNodeIds.set([node.id]);
-    state$.selectedEdgeId.set("");
+    selectNode(node.id);
   });
   const doc = state$.doc.peek();
   commitDoc({ ...doc, nodes: [...doc.nodes, node] });
@@ -883,6 +925,7 @@ const deleteNodesInternal = async (
   const nonHerdr = new Set(
     existingNodes.filter((n) => n.ether?.entity?.kind !== "herdr").map((n) => n.id),
   );
+  removeNodesFromSelection(new Set(existingNodes.map((node) => node.id)));
   if (nonHerdr.size === 0) {
     // Pure herdr delete — async path owns the doc mutation.
     if (herdrIds.some((id) => id === state$.selectedNodeId.peek())) state$.selectedNodeId.set("");
@@ -893,8 +936,11 @@ const deleteNodesInternal = async (
   // Re-read doc only if still on the same canvas epoch; filter from the
   // capture used for identity checks (same epoch ⇒ same doc generation).
   const liveDoc = state$.doc.peek();
-  if (nonHerdr.has(state$.selectedNodeId.peek())) state$.selectedNodeId.set("");
-  if (removed.has(state$.selectedEdgeId.peek())) state$.selectedEdgeId.set("");
+  removeEdgesFromSelection(new Set(
+    liveDoc.edges
+      .filter((edge) => nonHerdr.has(edge.fromNode) || nonHerdr.has(edge.toNode))
+      .map((edge) => edge.id),
+  ));
   commitDoc({
     nodes: liveDoc.nodes.filter((n) => !nonHerdr.has(n.id)),
     edges: liveDoc.edges.filter((e) => !nonHerdr.has(e.fromNode) && !nonHerdr.has(e.toNode)),

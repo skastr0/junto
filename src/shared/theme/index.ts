@@ -80,6 +80,26 @@ export const DARK_RUNTIME: Record<string, string> = themeRuntime("dark");
 export const TOKEN_NAMES: readonly string[] = Object.keys(SEMANTIC_DARK);
 
 /**
+ * The one rule that turns the operator's stored preference into the concrete
+ * theme everything paints from.
+ *
+ * `dark`/`bright` are the operator's explicit choice. `system` means exactly
+ * one thing — follow the OS — so the caller supplies that reading (main:
+ * Electron nativeTheme; renderer: prefers-color-scheme). Both call THIS
+ * function so the two can never drift, the same way `colorFgBgFor` is the one
+ * mapping for the spawn hint.
+ *
+ * Absent/unknown preference resolves the same as `system`.
+ */
+export const resolveThemeMode = (
+  preference: string | undefined,
+  systemPrefersDark: boolean,
+): ThemeMode => {
+  if (preference === "dark" || preference === "bright") return preference;
+  return systemPrefersDark ? "dark" : "bright";
+};
+
+/**
  * COLORFGBG spawn hint: classic `fg;bg` ANSI indices.
  * Dark (light ink on dark ground) → 15;0. Bright (dark ink on paper) → 0;15.
  * Main-process spawn and renderer share this — do not invent a second mapping.

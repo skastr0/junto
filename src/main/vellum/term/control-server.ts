@@ -36,6 +36,13 @@ import {
   type TermControlRequest,
   type TermControlResponse,
 } from "@shared/term-control";
+import { occupancyFromSummary, occupyVacantSeat } from "@shared/terminal-seat-occupancy";
+import { isHarnessId } from "@shared/managed-terminal-templates";
+import { sessionActorMatches } from "@shared/terminal";
+import { seatTapeFromSummary } from "@shared/transport-trace";
+import { appendTransportTrace } from "../observability/transport-journal";
+import { Result } from "effect";
+import { seatStateRuntime } from "./agent-state";
 import type {
   ControlLease,
   LocalHostEvent,
@@ -270,6 +277,8 @@ export const startTermControlServer = async (
   let listenerCloseFlight: Promise<void> | undefined;
   let drainFlight: Promise<TermControlServerShutdownReceipt> | undefined;
   const admittedClients = new Set<Socket>();
+  /** Seat-state hops only — admittedClients is the connection ceiling. */
+  const authedClients = new Set<Socket>();
 
   const recordDiagnostic = (label: string, error: unknown): void => {
     const message = error instanceof Error ? error.message : String(error);
@@ -345,7 +354,23 @@ export const startTermControlServer = async (
     }
   };
 
+  const writeEvent = (payload: LocalHostEvent, targets: Iterable<Socket>): void => {
+    const line = jsonLine({ v: TERM_CONTROL_PROTOCOL, type: "event", payload });
+    for (const sock of targets) {
+      if (sock.destroyed) continue;
+      try {
+        sock.write(line);
+      } catch {
+        dropSocket(sock);
+      }
+    }
+  };
+
   const onHostEvent = (payload: LocalHostEvent): void => {
+    if (payload.type === "seat-state") {
+      writeEvent(payload, authedClients);
+      return;
+    }
     const line = jsonLine({ v: TERM_CONTROL_PROTOCOL, type: "event", payload });
     for (const [leaseId, socks] of leaseSockets) {
       const lease = leaseById.get(leaseId);
@@ -375,15 +400,144 @@ export const startTermControlServer = async (
         case "ping":
           return { v: 1, id, ok: true, data: { pong: true } };
         case "create": {
-          const summary = host.create({
+          const existing = host.get(req.bindingId);
+          appendTransportTrace({
+            plane: "term",
+            op: "host.get",
+            ok: true,
             bindingId: req.bindingId,
+            ...seatTapeFromSummary(req.bindingId, existing),
+          });
+          const occupancy = occupancyFromSummary(req.bindingId, existing, "local");
+          const harnessField =
+            typeof req.harness === "string" ? req.harness.trim() : "";
+          const agentKeyField =
+            typeof req.agentKey === "string" ? req.agentKey.trim() : "";
+          if ((harnessField === "") !== (agentKeyField === "")) {
+            return {
+              v: 1,
+              id,
+              ok: false,
+              error: "create actor requires harness and agentKey",
+            };
+          }
+          if (harnessField !== "" && !isHarnessId(harnessField)) {
+            return {
+              v: 1,
+              id,
+              ok: false,
+              error: `unknown harness ${harnessField}`,
+            };
+          }
+          const actor =
+            harnessField !== "" && isHarnessId(harnessField)
+              ? { harness: harnessField, agentKey: agentKeyField }
+              : undefined;
+          if (Result.isFailure(occupyVacantSeat(occupancy)) && existing) {
+            if (actor) {
+              const adopted = host.adoptAgentSeat(req.bindingId, actor);
+              if (!sessionActorMatches(adopted, actor)) {
+                return {
+                  v: 1,
+                  id,
+                  ok: false,
+                  error: "remote seat did not bind actor identity",
+                };
+              }
+              return { v: 1, id, ok: true, data: adopted };
+            }
+            return { v: 1, id, ok: true, data: existing };
+          }
+          const summary = actor
+            ? host.createAgentSeat({
+                bindingId: req.bindingId,
+                harness: actor.harness,
+                agentKey: actor.agentKey,
+                launch: req.launch,
+                cols: req.cols,
+                rows: req.rows,
+                canvasName: req.canvasName,
+                nodeId: req.nodeId,
+                label: req.label,
+              })
+            : host.create({
+                bindingId: req.bindingId,
+                launch: req.launch,
+                cols: req.cols,
+                rows: req.rows,
+                canvasName: req.canvasName,
+                nodeId: req.nodeId,
+                label: req.label,
+              });
+          if (actor && !sessionActorMatches(summary, actor)) {
+            return {
+              v: 1,
+              id,
+              ok: false,
+              error: "remote seat did not bind actor identity",
+            };
+          }
+          return { v: 1, id, ok: true, data: summary };
+        }
+        case "createAgentSeat": {
+          const existing = host.get(req.bindingId);
+          appendTransportTrace({
+            plane: "term",
+            op: "host.get",
+            ok: true,
+            bindingId: req.bindingId,
+            ...seatTapeFromSummary(req.bindingId, existing),
+          });
+          const occupancy = occupancyFromSummary(req.bindingId, existing, "local");
+          const harnessField =
+            typeof req.harness === "string" ? req.harness.trim() : "";
+          const agentKeyField =
+            typeof req.agentKey === "string" ? req.agentKey.trim() : "";
+          if (!isHarnessId(harnessField) || agentKeyField === "") {
+            return {
+              v: 1,
+              id,
+              ok: false,
+              error: !isHarnessId(harnessField) && harnessField !== ""
+                ? `unknown harness ${harnessField}`
+                : "createAgentSeat requires harness and agentKey",
+            };
+          }
+          const actor = { harness: harnessField, agentKey: agentKeyField };
+          if (Result.isFailure(occupyVacantSeat(occupancy)) && existing) {
+            const adopted = host.adoptAgentSeat(req.bindingId, actor);
+            if (!sessionActorMatches(adopted, actor)) {
+              return {
+                v: 1,
+                id,
+                ok: false,
+                error: "remote seat did not bind actor identity",
+              };
+            }
+            return { v: 1, id, ok: true, data: adopted };
+          }
+          const summary = host.createAgentSeat({
+            bindingId: req.bindingId,
+            harness: actor.harness,
+            agentKey: actor.agentKey,
             launch: req.launch,
             cols: req.cols,
             rows: req.rows,
             canvasName: req.canvasName,
             nodeId: req.nodeId,
             label: req.label,
+            ...(typeof req.firstTypedMessage === "string"
+              ? { firstTypedMessage: req.firstTypedMessage }
+              : {}),
           });
+          if (!sessionActorMatches(summary, actor)) {
+            return {
+              v: 1,
+              id,
+              ok: false,
+              error: "remote seat did not bind actor identity",
+            };
+          }
           return { v: 1, id, ok: true, data: summary };
         }
         case "list":
@@ -395,8 +549,17 @@ export const startTermControlServer = async (
             ok: true,
             data: await readHostDirectory(req.path),
           };
-        case "get":
-          return { v: 1, id, ok: true, data: host.get(req.bindingId) ?? null };
+        case "get": {
+          const summary = host.get(req.bindingId) ?? null;
+          appendTransportTrace({
+            plane: "term",
+            op: "host.get",
+            ok: true,
+            bindingId: req.bindingId,
+            ...seatTapeFromSummary(req.bindingId, summary),
+          });
+          return { v: 1, id, ok: true, data: summary };
+        }
         case "kill":
           return { v: 1, id, ok: true, data: host.kill(req.bindingId) };
         case "bindCanvas":
@@ -607,11 +770,22 @@ export const startTermControlServer = async (
             return;
           }
           authed = true;
+          authedClients.add(socket);
+          const snapshot = seatStateRuntime.currentEvents();
           try {
-            socket.write(jsonLine({ v: 1, id: "auth", ok: true }));
+            socket.write(
+              jsonLine({
+                v: 1,
+                id: "auth",
+                ok: true,
+                data: { seatState: snapshot },
+              }),
+            );
           } catch {
             // ignore
           }
+          // Snapshot rides the auth ack only. A second writeEvent dump
+          // would double-deliver after the client flushes its queue.
           continue;
         }
         const req = msg as TermControlRequest;
@@ -640,6 +814,7 @@ export const startTermControlServer = async (
     });
     socket.on("close", () => {
       admittedClients.delete(socket);
+      authedClients.delete(socket);
       closed = true;
       sockets.delete(socketId);
       releaseMaintenanceForSocket(socket);
@@ -761,6 +936,7 @@ export const startTermControlServer = async (
 
   server.on("error", (error) => recordDiagnostic("listener", error));
 
+  let stopSeatState = (): void => {};
   const beginShutdown = (): void => {
     if (closing) return;
     // This assignment is the admission cut. Socket callbacks and each frame
@@ -769,6 +945,7 @@ export const startTermControlServer = async (
     // that can permanently refuse listener close. Path cleanup runs only after
     // Server.close (or identity-checked residual unlink once not listening).
     closing = true;
+    stopSeatState();
     host.off("event", onHostEvent);
     for (const flight of activeFlights.values()) shutdownJournal.set(flight.id, flight);
     ensureListenerClose();
@@ -943,6 +1120,17 @@ export const startTermControlServer = async (
   }
 
   host.on("event", onHostEvent);
+  stopSeatState = seatStateRuntime.subscribe((event) => {
+    writeEvent(
+      {
+        type: "seat-state",
+        bindingId: event.bindingId,
+        epoch: event.epoch,
+        event,
+      },
+      authedClients,
+    );
+  });
   return control;
 };
 

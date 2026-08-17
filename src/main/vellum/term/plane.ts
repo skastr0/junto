@@ -1,3 +1,4 @@
+import { seatStateRuntime } from "./agent-state";
 import { LocalSessionHost } from "./local-host";
 import { linuxReleaseFenceActive } from "./release-fence";
 import { TerminalRouter } from "./router";
@@ -184,6 +185,9 @@ export class TermPlane {
     if (this.licenseRevoked) {
       throw new Error("terminal plane admission closed after license revocation");
     }
+    // Evaluator lives on the spawn host. Command Center IPC also starts it;
+    // Remote has no renderer IPC, so the plane is the one start that both run.
+    seatStateRuntime.start();
     if (this.controlStartupFailure !== undefined) throw this.controlStartupFailure;
     if (this.control) return;
     if (this.starting) return this.starting;
@@ -254,6 +258,7 @@ export class TermPlane {
     if (this.shuttingDown) return;
     this.shuttingDown = true;
     this.shutdownReason = reason;
+    seatStateRuntime.stop();
     this.suspendProductAutomation();
     this.startLocalShutdown(reason);
     this.router.beginShutdown();

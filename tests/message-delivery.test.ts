@@ -1,14 +1,26 @@
 import { describe, expect, it } from "vitest";
+import { ulid } from "ulid";
 import type { CanvasDoc, Message } from "../src/shared/canvas";
 import {
   composeMessageDeliveryPayload,
+  composeMessageDeliverySummary,
+  composerBlocksMailInject,
   deliveryTargetOf,
+  isFactoryMailMessage,
   isForeignMessage,
   isMessageDelivered,
   isPendingDelivery,
   listPendingDeliveries,
   messageBriefText,
   messageSenderLabel,
+  MESSAGE_PTY_FULL_BODY_MAX,
+  OPERATOR_PRESENT_WINDOW_MS,
+  operatorPresentNow,
+  operatorTypedThisGeneration,
+  seatOperatorDraft,
+  ptyInjectMarksRead,
+  shouldSummarizeMessageForPty,
+  sortMessagesNewestFirst,
   stampMessageDelivered,
 } from "../src/shared/message-delivery";
 
@@ -72,6 +84,180 @@ describe("message-delivery pure helpers", () => {
     ).toBe("[message - user] ping the lane - task task-9");
   });
 
+  it("summarizes factory mail and long bodies; never dumps the essay", () => {
+    const long = "x".repeat(MESSAGE_PTY_FULL_BODY_MAX + 40);
+    expect(shouldSummarizeMessageForPty(userMsg({ parts: [{ kind: "text", text: long }] }))).toBe(
+      true,
+    );
+    const factory = userMsg({
+      messageId: "01KZSM4A84ASFRTZ77YAQ09CVH",
+      metadata: { factoryMail: true, fromSeat: "agent-01KZRZK09851NV4407M2499WJM" },
+      parts: [
+        {
+          kind: "text",
+          text:
+            "[factory mail from agent-01KZRZK09851NV4407M2499WJM] HARNESS-INTEGRATION ANALYSIS\n\n1. WHAT IS SHARED",
+        },
+      ],
+    });
+    expect(isFactoryMailMessage(factory)).toBe(true);
+    expect(shouldSummarizeMessageForPty(factory)).toBe(true);
+    const line = composeMessageDeliveryPayload(factory);
+    expect(line.startsWith("[message - user] factory mail from agent-01KZRZK09851NV4407M2499WJM")).toBe(
+      true,
+    );
+    expect(line).toContain("01KZSM4A84AS");
+    expect(line).toContain("vellum-command msg list");
+    // Essay body is not dumped — only a short preview + CLI pointer.
+    expect(line.includes("\n")).toBe(false);
+    expect(line.length).toBeLessThan(220);
+    expect(line).not.toContain("nothing run, nothing edited");
+    expect(ptyInjectMarksRead(factory)).toBe(false);
+    expect(ptyInjectMarksRead(userMsg())).toBe(false);
+  });
+
+  it("batches multiple unread into one newest-first list line", () => {
+    const t0 = 1_700_000_000_000;
+    const oldest = ulid(t0);
+    const middle = ulid(t0 + 1_000);
+    const newest = ulid(t0 + 2_000);
+    const extra1 = ulid(t0 + 3_000);
+    const extra2 = ulid(t0 + 4_000);
+    const batch = composeMessageDeliverySummary([
+      userMsg({ messageId: oldest, parts: [{ kind: "text", text: "one" }] }),
+      userMsg({
+        messageId: middle,
+        metadata: { factoryMail: true },
+        parts: [{ kind: "text", text: "two essay" }],
+      }),
+      userMsg({ messageId: newest, parts: [{ kind: "text", text: "three" }] }),
+    ]);
+    expect(batch).toContain("3 unread");
+    expect(batch).toContain("1 factory mail");
+    expect(batch).toContain("vellum-command msg list");
+    expect(batch.includes("\n")).toBe(false);
+    const newestIdx = batch.indexOf(newest.slice(0, 12));
+    const middleIdx = batch.indexOf(middle.slice(0, 12));
+    const oldestIdx = batch.indexOf(oldest.slice(0, 12));
+    expect(newestIdx).toBeGreaterThan(-1);
+    expect(middleIdx).toBeGreaterThan(newestIdx);
+    expect(oldestIdx).toBeGreaterThan(middleIdx);
+
+    const burst = composeMessageDeliverySummary([
+      userMsg({ messageId: oldest, parts: [{ kind: "text", text: "a" }] }),
+      userMsg({ messageId: middle, parts: [{ kind: "text", text: "b" }] }),
+      userMsg({ messageId: newest, parts: [{ kind: "text", text: "c" }] }),
+      userMsg({ messageId: extra1, parts: [{ kind: "text", text: "d" }] }),
+      userMsg({ messageId: extra2, parts: [{ kind: "text", text: "e" }] }),
+    ]);
+    expect(burst).toContain("5 unread");
+    expect(burst).toContain("+2");
+    expect(burst).toContain(extra2.slice(0, 12));
+    expect(burst).not.toContain(oldest.slice(0, 12));
+  });
+
+  it("sorts mail newest-first so a lone unread is the latest", () => {
+    const t0 = 1_700_000_000_000;
+    const older = userMsg({ messageId: ulid(t0), parts: [{ kind: "text", text: "old" }] });
+    const latest = userMsg({
+      messageId: ulid(t0 + 5_000),
+      parts: [{ kind: "text", text: "new ping" }],
+    });
+    expect(sortMessagesNewestFirst([older, latest]).map((m) => m.messageId)).toEqual([
+      latest.messageId,
+      older.messageId,
+    ]);
+    expect(composeMessageDeliverySummary([older, latest])).toContain("2 unread");
+    expect(composeMessageDeliveryPayload(latest)).toBe("[message - user] new ping");
+  });
+
+  it("composerBlocksMailInject: harness chrome is NOT draft; only paste chip blocks", () => {
+    expect(composerBlocksMailInject("")).toBe(false);
+    expect(composerBlocksMailInject("   ")).toBe(false);
+    expect(composerBlocksMailInject("[message - user] mail — 01abc — vellum-command msg list")).toBe(
+      false,
+    );
+    // Real startup-idle chrome must not kill mail (review BLOCK #1).
+    expect(composerBlocksMailInject('Try "fix typecheck errors"')).toBe(false);
+    expect(composerBlocksMailInject("Grok 4.5 (low) \u00b7 22K / 500K (4%) \u00b7 ctrl+o transcript")).toBe(
+      false,
+    );
+    expect(composerBlocksMailInject("gpt-5.4-mini low \u00b7 /tmp")).toBe(false);
+    expect(composerBlocksMailInject("please fix the seat brick")).toBe(false);
+    expect(composerBlocksMailInject("[Pasted text #3 +12 lines]")).toBe(true);
+  });
+
+  it("operatorTypedThisGeneration is a generation fact, not the draft gate", () => {
+    expect(
+      operatorTypedThisGeneration({
+        lastUserInputAtMs: undefined,
+        generationStartedAtMs: 1000,
+      }),
+    ).toBe(false);
+    expect(
+      operatorTypedThisGeneration({
+        lastUserInputAtMs: 999,
+        generationStartedAtMs: 1000,
+      }),
+    ).toBe(false);
+    expect(
+      operatorTypedThisGeneration({
+        lastUserInputAtMs: 1000,
+        generationStartedAtMs: 1000,
+      }),
+    ).toBe(true);
+    expect(
+      operatorTypedThisGeneration({
+        lastUserInputAtMs: 1500,
+        generationStartedAtMs: 1000,
+      }),
+    ).toBe(true);
+  });
+
+  it("seatOperatorDraft holds only while the operator is present or a chip remains", () => {
+    const spawn = 1_000;
+    const typedAt = 2_000;
+    expect(
+      operatorTypedThisGeneration({
+        lastUserInputAtMs: typedAt,
+        generationStartedAtMs: spawn,
+      }),
+    ).toBe(true);
+    expect(
+      operatorPresentNow({
+        lastUserInputAtMs: typedAt,
+        nowMs: typedAt + 2_000,
+      }),
+    ).toBe(true);
+    expect(
+      operatorPresentNow({
+        lastUserInputAtMs: typedAt,
+        nowMs: typedAt + OPERATOR_PRESENT_WINDOW_MS + 1,
+      }),
+    ).toBe(false);
+    expect(
+      seatOperatorDraft({
+        lastUserInputAtMs: typedAt,
+        nowMs: typedAt + OPERATOR_PRESENT_WINDOW_MS + 1,
+        residualChip: false,
+      }),
+    ).toBe(false);
+    expect(
+      seatOperatorDraft({
+        lastUserInputAtMs: typedAt,
+        nowMs: typedAt + OPERATOR_PRESENT_WINDOW_MS + 1,
+        residualChip: true,
+      }),
+    ).toBe(true);
+    expect(
+      seatOperatorDraft({
+        lastUserInputAtMs: typedAt,
+        nowMs: typedAt + 1_000,
+        residualChip: false,
+      }),
+    ).toBe(true);
+  });
+
   it("sender is role only; brief strips controls and collapses whitespace", () => {
     expect(messageSenderLabel(userMsg({ metadata: { sender: "operator" } }))).toBe("user");
     expect(
@@ -93,6 +279,9 @@ describe("message-delivery pure helpers", () => {
     expect(isPendingDelivery(userMsg({ role: "agent" }))).toBe(false);
     expect(
       isPendingDelivery(userMsg({ metadata: { deliveredAt: 1_700_000_000_000 } })),
+    ).toBe(false);
+    expect(
+      isPendingDelivery(userMsg({ metadata: { readAt: 1_700_000_000_000 } })),
     ).toBe(false);
   });
 
@@ -138,6 +327,7 @@ describe("message-delivery pure helpers", () => {
         agentNode([
           userMsg({ messageId: "p1" }),
           userMsg({ messageId: "done", metadata: { deliveredAt: 1 } }),
+          userMsg({ messageId: "listed", metadata: { readAt: 2 } }),
           userMsg({ messageId: "own", role: "agent", parts: [{ kind: "text", text: "echo" }] }),
         ]),
         herdrNode([userMsg({ messageId: "h1", parts: [{ kind: "text", text: "herdr ping" }] })]),
@@ -170,5 +360,24 @@ describe("message-delivery pure helpers", () => {
     expect(pending.find((p) => p.message.messageId === "p1")?.target).toEqual({
       bindingId: "bind-mira",
     });
+  });
+
+  it("lists pending on a seat newest-first", () => {
+    const t0 = 1_700_000_000_000;
+    const older = ulid(t0);
+    const newer = ulid(t0 + 10_000);
+    const doc: CanvasDoc = {
+      nodes: [
+        agentNode([
+          userMsg({ messageId: older, parts: [{ kind: "text", text: "old" }] }),
+          userMsg({ messageId: newer, parts: [{ kind: "text", text: "new" }] }),
+        ]),
+      ],
+      edges: [],
+    };
+    expect(listPendingDeliveries(doc).map((p) => p.message.messageId)).toEqual([
+      newer,
+      older,
+    ]);
   });
 });

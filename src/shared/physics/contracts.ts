@@ -183,6 +183,12 @@ export const NodeContracts: {
     ],
     inputs: [boardCreateTopicInput, boardPostInput, flagInput],
   },
+  pad: {
+    kind: "pad",
+    ports: portsOf("pad"),
+    events: [...flagEvents],
+    inputs: [flagInput],
+  },
   page: {
     kind: "page",
     ports: portsOf("page"),

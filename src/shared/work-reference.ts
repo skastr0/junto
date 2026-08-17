@@ -63,7 +63,8 @@ export const WorkItemKind = Schema.Literals(["task", "proposal",
 "artifact",
 "delivery",
 "topic",
-"post",]);
+"post",
+"pad",]);
 export type WorkItemKind = typeof WorkItemKind.Type;
 
 const WorkItemIdentityFields = {

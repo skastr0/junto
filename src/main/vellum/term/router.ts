@@ -10,7 +10,7 @@ import { EventEmitter } from "node:events";
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
-import { Context, Effect, Exit, Scope } from "effect";
+import { Context, Effect, Exit, Result, Scope } from "effect";
 import {
   findHostById,
   hostsWithCapability,
@@ -25,6 +25,14 @@ import {
   type TermMaintenanceQuiescenceEvidence,
 } from "@shared/term-control";
 import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
+import {
+  occupancyFromSummary,
+  occupyVacantSeat,
+} from "@shared/terminal-seat-occupancy";
+import {
+  isMissingRemoteHostError,
+  operatorRemoteWorkDetail,
+} from "@shared/operator-remote-copy";
 import type { HostDirectorySnapshot } from "@shared/host-directory";
 import {
   parseRemoteUnixSocketPath,
@@ -45,6 +53,11 @@ import type {
   TerminalOpenInput,
 } from "./local-host";
 import { TermControlClient } from "./control-client";
+import { makeActorSeatOccupy } from "./actor-seat-occupy";
+import {
+  appendTransportTrace,
+  recordTransportError,
+} from "../observability/transport-journal";
 import { readHostDirectory } from "./host-directory";
 import type { TermControlClientShutdownReceipt } from "./control-client";
 
@@ -209,17 +222,50 @@ const allSettledBefore = async (
   }
 };
 
-export type AttachResult =
-  | {
-      readonly ok: true;
-      readonly lease: ControlLease;
-      readonly cols: number;
-      readonly rows: number;
-      readonly journal: readonly JournalEntry[];
-      readonly status: string;
-      readonly pid?: number;
-    }
-  | { readonly ok: false; readonly message: string };
+export type AttachScreenSnapshot = {
+  readonly bindingId: string;
+  readonly epoch: string;
+  readonly cols: number;
+  readonly rows: number;
+  readonly seq: bigint;
+  readonly serialized: string;
+};
+
+export type AttachOk = {
+  readonly ok: true;
+  readonly lease: ControlLease;
+  readonly cols: number;
+  readonly rows: number;
+  readonly journal: readonly JournalEntry[];
+  readonly status: string;
+  readonly pid?: number;
+  readonly screen?: AttachScreenSnapshot;
+};
+
+export type AttachResult = AttachOk | { readonly ok: false; readonly message: string };
+
+/**
+ * Remap a Remote hop attach onto a local lease id. Journal and screen stay
+ * exactly as the hop sent them — the renderer restores VT from screen.
+ */
+export const remapRemoteAttach = (
+  result: AttachOk,
+  localLeaseId: string,
+): AttachOk => ({
+  ok: true,
+  lease: {
+    leaseId: localLeaseId,
+    bindingId: result.lease.bindingId,
+    epoch: result.lease.epoch,
+    mode: result.lease.mode,
+  },
+  cols: result.cols,
+  rows: result.rows,
+  journal: result.journal,
+  status: result.status,
+  pid: result.pid,
+  ...(result.screen ? { screen: result.screen } : {}),
+});
 
 export class TerminalRouter extends EventEmitter {
   private readonly remotes = new Map<string, RemoteEntry>();
@@ -315,7 +361,7 @@ export class TerminalRouter extends EventEmitter {
     return hostId;
   }
 
-  /** Open a geography terminal on its host. */
+  /** Open a geography terminal on its host. Occupied seats are not replaced. */
   async create(
     input: LocalHostCreateInput & { hostId?: string },
   ): Promise<TerminalSessionSummary> {
@@ -326,18 +372,58 @@ export class TerminalRouter extends EventEmitter {
   }
 
   /**
-   * Open the actor seat on its host. A station's terminal protocol carries no
-   * seat, so a station-hosted seat runs its planned argv as a plain terminal
-   * generation; station-aware seats are product work tracked in
-   * `managed-terminal-plan.md`.
+   * Open the actor seat on its host. Placement selects the Layer.
+   * Occupy is always createAgentSeat.
    */
   async createAgentSeat(
     input: LocalHostAgentSeatInput & { hostId?: string },
   ): Promise<TerminalSessionSummary> {
     const hostId = this.admitSessionHost(input);
-    return this.isLocalHostId(hostId)
-      ? this.local.createAgentSeat({ ...input, hostId: "local" })
-      : this.createRemote(hostId, input);
+    const seats = makeActorSeatOccupy({
+      local: this.local,
+      isLocalHostId: (id) => this.isLocalHostId(id),
+      clientFor: async (remoteHostId) => {
+        const client = await this.ensureRemoteClient(remoteHostId);
+        this.assertRouteAdmission(remoteHostId);
+        return {
+          get: (bindingId) => client.get(bindingId),
+          createAgentSeat: (spec) =>
+            client.createAgentSeat({
+              bindingId: spec.bindingId,
+              harness: spec.harness,
+              agentKey: spec.agentKey,
+              launch: spec.launch,
+              cols: spec.cols,
+              rows: spec.rows,
+              canvasName: spec.canvasName,
+              nodeId: spec.nodeId,
+              label: spec.label,
+              firstTypedMessage: spec.firstTypedMessage,
+            }),
+        };
+      },
+    });
+    const summary = await Effect.runPromise(
+      seats.occupy({
+        bindingId: input.bindingId,
+        harness: input.harness,
+        agentKey: input.agentKey,
+        hostId,
+        launch: input.launch,
+        cols: input.cols,
+        rows: input.rows,
+        canvasName: input.canvasName,
+        nodeId: input.nodeId,
+        label: input.label,
+        title: input.title,
+        firstTypedMessage: input.firstTypedMessage,
+      }),
+    );
+    if (this.isLocalHostId(hostId)) {
+      await Promise.resolve();
+      return this.local.get(input.bindingId.trim()) ?? summary;
+    }
+    return { ...summary, hostId };
   }
 
   private async createRemote(
@@ -346,6 +432,37 @@ export class TerminalRouter extends EventEmitter {
   ): Promise<TerminalSessionSummary> {
     const client = await this.ensureRemoteClient(hostId);
     this.assertRouteAdmission(hostId);
+    const existing = await client.get(input.bindingId);
+    const occupancy = occupancyFromSummary(
+      input.bindingId,
+      existing ? { ...existing, hostId } : undefined,
+      "remote",
+    );
+    if (Result.isFailure(occupyVacantSeat(occupancy)) && existing) {
+      appendTransportTrace({
+        plane: "term",
+        op: "router.createRemote",
+        ok: true,
+        hostId,
+        bindingId: input.bindingId,
+        status: existing.status,
+        occupancy: occupancy._tag,
+        decision: "activate",
+        epoch: existing.epoch,
+      });
+      return { ...existing, hostId };
+    }
+    appendTransportTrace({
+      plane: "term",
+      op: "router.createRemote",
+      ok: true,
+      hostId,
+      bindingId: input.bindingId,
+      status: existing?.status ?? "none",
+      occupancy: occupancy._tag,
+      decision: "occupy",
+      ...(existing?.epoch === undefined ? {} : { epoch: existing.epoch }),
+    });
     const summary = await client.create({
       bindingId: input.bindingId,
       launch: input.launch,
@@ -367,8 +484,9 @@ export class TerminalRouter extends EventEmitter {
       const c = await this.ensureRemoteClient(hostId);
       this.assertRouteAdmission(hostId);
       return (await c.list()).map((s) => ({ ...s, hostId }));
-    } catch {
-      return [];
+    } catch (error) {
+      if (isMissingRemoteHostError(error)) return [];
+      throw new Error(operatorRemoteWorkDetail(hostId, error));
     }
   }
 
@@ -382,11 +500,9 @@ export class TerminalRouter extends EventEmitter {
     for (const host of candidates) {
       if (isLocalHost(host) || seen.has(host.id)) continue;
       seen.add(host.id);
-      try {
-        out.push(...(await this.list(host.id)));
-      } catch {
-        // offline
-      }
+      // list() already returns [] for a missing host. A list error is not
+      // vacant — swallowing it makes occupied remotes look empty on * / all.
+      out.push(...(await this.list(host.id)));
     }
     return out;
   }
@@ -399,9 +515,13 @@ export class TerminalRouter extends EventEmitter {
     if (!normalizedHostId || this.isLocalHostId(normalizedHostId)) {
       return readHostDirectory(path);
     }
-    const client = await this.ensureRemoteClient(normalizedHostId);
-    this.assertRouteAdmission(normalizedHostId);
-    return client.readDirectory(path);
+    try {
+      const client = await this.ensureRemoteClient(normalizedHostId);
+      this.assertRouteAdmission(normalizedHostId);
+      return await client.readDirectory(path);
+    } catch (error) {
+      throw new Error(operatorRemoteWorkDetail(normalizedHostId, error));
+    }
   }
 
   async get(
@@ -410,6 +530,14 @@ export class TerminalRouter extends EventEmitter {
   ): Promise<TerminalSessionSummary | undefined> {
     const normalizedHostId = hostId?.trim();
     if (normalizedHostId && this.maintenanceCuts.has(normalizedHostId)) {
+      appendTransportTrace({
+        plane: "term",
+        op: "router.get",
+        ok: false,
+        hostId,
+        bindingId,
+        error: "maintenance cut",
+      });
       return undefined;
     }
     if (!hostId || this.isLocalHostId(hostId)) return this.local.get(bindingId);
@@ -418,8 +546,18 @@ export class TerminalRouter extends EventEmitter {
       this.assertRouteAdmission(hostId);
       const s = await c.get(bindingId);
       return s ? { ...s, hostId } : undefined;
-    } catch {
-      return undefined;
+    } catch (error) {
+      recordTransportError(
+        {
+          plane: "term",
+          op: "router.get",
+          hostId,
+          bindingId,
+        },
+        error,
+      );
+      if (isMissingRemoteHostError(error)) return undefined;
+      throw new Error(operatorRemoteWorkDetail(hostId, error));
     }
   }
 
@@ -499,20 +637,7 @@ export class TerminalRouter extends EventEmitter {
       const localLeaseId = `rm_${randomBytes(8).toString("hex")}`;
       entry.leaseMap.set(localLeaseId, result.lease.leaseId);
       entry.reverseLease.set(result.lease.leaseId, localLeaseId);
-      return {
-        ok: true,
-        lease: {
-          leaseId: localLeaseId,
-          bindingId: result.lease.bindingId,
-          epoch: result.lease.epoch,
-          mode: result.lease.mode,
-        },
-        cols: result.cols,
-        rows: result.rows,
-        journal: result.journal,
-        status: result.status,
-        pid: result.pid,
-      };
+      return remapRemoteAttach(result, localLeaseId);
     } catch (err) {
       return {
         ok: false,
@@ -908,7 +1033,11 @@ export class TerminalRouter extends EventEmitter {
     const endpoint = host.sshEndpoint;
     const existing = this.remotes.get(hostId);
     if (existing) {
-      if (existing.endpoint === endpoint && existing.generation === this.generation) {
+      if (
+        existing.endpoint === endpoint &&
+        existing.generation === this.generation &&
+        existing.client.isLive()
+      ) {
         this.assertRouteAdmission(hostId, maintenanceCut);
         return existing;
       }
@@ -1009,7 +1138,10 @@ export class TerminalRouter extends EventEmitter {
           if (!token) {
             return yield* Effect.fail(
               new Error(
-                `no term control on ${hostId} — Vellum Command is not running there (open app or Settings → Deploy Remote)`,
+                operatorRemoteWorkDetail(
+                  hostId,
+                  "no term control",
+                ),
               ),
             );
           }
@@ -1030,9 +1162,7 @@ export class TerminalRouter extends EventEmitter {
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        throw new Error(
-          `cannot reach term control on ${hostId} (${msg}). Ensure Vellum Command is running on that Mac and ~/.vellum-command/term/control.sock exists`,
-        );
+        throw new Error(operatorRemoteWorkDetail(hostId, msg));
       }
 
       const remoteEntry: RemoteEntry = {
@@ -1091,7 +1221,8 @@ export class TerminalRouter extends EventEmitter {
       host?.kind === "remote" &&
       host.sshEndpoint === entry.endpoint &&
       entry.generation === this.generation &&
-      !this.quiescing
+      !this.quiescing &&
+      entry.client.isLive()
     ) {
       return entry;
     }
