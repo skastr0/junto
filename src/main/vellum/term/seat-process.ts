@@ -193,9 +193,20 @@ export const makeLocalSeatProcess = (
     occupy: (command, spec) =>
       Effect.gen(function* () {
         const bindingId = command.seat.bindingId;
-        const current = localSummaryOccupancy(bindingId, host.get(bindingId));
-        const occupy = occupyVacantSeat(current);
+        const live = host.get(bindingId);
+        const occupy = occupyVacantSeat(localSummaryOccupancy(bindingId, live));
         if (Result.isFailure(occupy)) {
+          // Losing an occupy race to the exact same actor is convergence, not
+          // failure: both callers end on the one incumbent generation. Any
+          // other occupant is a typed identity conflict.
+          if (live !== undefined && actorActivationMatches(live, spec)) {
+            return yield* ensureActorIdentity(live, bindingId, spec);
+          }
+          if (live !== undefined) {
+            return yield* Effect.fail(
+              identityConflictError(bindingId, spec, live),
+            );
+          }
           return yield* occupy.failure;
         }
         const created = yield* Effect.try({
@@ -341,12 +352,52 @@ export const makeRemoteSeatProcess = (
           remoteSummaryOccupancy(bindingId, current),
         );
         if (Result.isFailure(occupy)) {
+          // Losing an occupy race to the exact same actor is convergence, not
+          // failure. Any other occupant is a typed identity conflict.
+          if (current !== undefined && actorActivationMatches(current, spec)) {
+            return yield* ensureActorIdentity(current, bindingId, spec);
+          }
+          if (current !== undefined) {
+            return yield* Effect.fail(
+              identityConflictError(bindingId, spec, current),
+            );
+          }
           return yield* occupy.failure;
         }
         const created = yield* Effect.tryPromise({
           try: () => client.createAgentSeat(remoteAgentInput(bindingId, spec)),
           catch: asClientError,
-        });
+        }).pipe(
+          Effect.catch((failure) =>
+            Effect.gen(function* () {
+              // The wire loses error typing, so the losing racer re-reads the
+              // authoritative seat: the exact requested identity converges on
+              // the winner's generation; any other occupant is a typed
+              // conflict; a vacant seat preserves the original failure.
+              const raced = yield* Effect.tryPromise({
+                try: () => client.get(bindingId),
+                catch: () => failure,
+              });
+              const incumbent = yield* checkedRemoteSummary(
+                hostId,
+                bindingId,
+                raced,
+              );
+              if (
+                incumbent !== undefined &&
+                actorActivationMatches(incumbent, spec)
+              ) {
+                return incumbent;
+              }
+              if (incumbent !== undefined) {
+                return yield* Effect.fail(
+                  identityConflictError(bindingId, spec, incumbent),
+                );
+              }
+              return yield* Effect.fail(failure);
+            }),
+          ),
+        );
         // A proven resume can die and fail-open on the host's promise queue.
         // Re-read so occupation returns that replacement head, not its dead seed.
         const head = yield* Effect.tryPromise({

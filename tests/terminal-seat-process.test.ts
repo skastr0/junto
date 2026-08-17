@@ -294,7 +294,7 @@ describe("local TerminalSeatProcess", () => {
 });
 
 describe("Remote TerminalSeatProcess", () => {
-  it("rejects an occupied lower-level occupy race and activates an exact actor", async () => {
+  it("converges an occupied same-actor occupy, conflicts a different actor, and activates exactly", async () => {
     const live = remoteSummary({
       bindingId: "seat-r",
       epoch: "epoch-1",
@@ -309,10 +309,22 @@ describe("Remote TerminalSeatProcess", () => {
     });
     const occupy = vacantCommand("seat-r", "remote");
 
-    const raced = await Effect.runPromiseExit(
+    const converged = await Effect.runPromise(
       seats.occupy(occupy, actorSpec("seat-r", "station-a")),
     );
-    expect(Exit.isFailure(raced)).toBe(true);
+    expect(converged).toMatchObject({ epoch: "epoch-1", hostId: "station-a" });
+    expect(createAgentSeat).not.toHaveBeenCalled();
+
+    const conflict = await Effect.runPromise(
+      Effect.flip(
+        seats.occupy(occupy, {
+          ...actorSpec("seat-r", "station-a"),
+          agentKey: "other:grok",
+        }),
+      ),
+    );
+    expect(conflict).toBeInstanceOf(SeatIdentityConflictError);
+    expect(createAgentSeat).not.toHaveBeenCalled();
 
     const occupancy = await Effect.runPromise(seats.occupancy("seat-r"));
     expect(occupancy).toMatchObject({
@@ -475,6 +487,65 @@ describe("Remote TerminalSeatProcess", () => {
     });
     expect(reads).toBe(2);
     expect(createAgentSeat).toHaveBeenCalledOnce();
+  });
+
+  it("converges a lost remote occupy race on the winner's exact generation", async () => {
+    const winner = remoteSummary({
+      bindingId: "seat-race",
+      epoch: "epoch-won",
+      status: "running",
+      harness: "grok",
+      agentKey: "local:grok",
+    });
+    let reads = 0;
+    const seats = makeRemoteSeatProcess("station-a", {
+      get: async () => (++reads === 1 ? undefined : winner),
+      createAgentSeat: async () => {
+        throw new Error("seat seat-race is already occupied");
+      },
+    });
+
+    const occupied = await Effect.runPromise(
+      seats.occupy(
+        vacantCommand("seat-race", "remote"),
+        actorSpec("seat-race", "station-a"),
+      ),
+    );
+
+    expect(occupied).toMatchObject({
+      epoch: "epoch-won",
+      hostId: "station-a",
+      harness: "grok",
+      agentKey: "local:grok",
+    });
+  });
+
+  it("surfaces a typed conflict when a lost occupy race reveals a different actor", async () => {
+    const winner = remoteSummary({
+      bindingId: "seat-race",
+      epoch: "epoch-won",
+      status: "running",
+      harness: "grok",
+      agentKey: "other:grok",
+    });
+    let reads = 0;
+    const seats = makeRemoteSeatProcess("station-a", {
+      get: async () => (++reads === 1 ? undefined : winner),
+      createAgentSeat: async () => {
+        throw new Error("seat seat-race is already occupied");
+      },
+    });
+
+    const conflict = await Effect.runPromise(
+      Effect.flip(
+        seats.occupy(
+          vacantCommand("seat-race", "remote"),
+          actorSpec("seat-race", "station-a"),
+        ),
+      ),
+    );
+
+    expect(conflict).toBeInstanceOf(SeatIdentityConflictError);
   });
 
   it.each([

@@ -282,6 +282,73 @@ describe("actor occupy protocol (in-process both ends)", () => {
     expect(createAgentSeat).not.toHaveBeenCalled();
   });
 
+  it("converges racing occupies for the same actor identity on one generation", async () => {
+    const { host, client, fake } = await startPair();
+    const when = makeActorSeatOccupy({
+      local: host,
+      localHostId: () => Effect.succeed("cc-self"),
+      clientForOccupy: async () => client,
+    });
+    const spec = {
+      bindingId: "proto_race_same",
+      harness: "grok",
+      agentKey: "station:grok",
+      hostId: "station-a",
+      canvasName: "factory",
+      nodeId: "actor-race",
+      spawnIntent: actorSpawnIntent(),
+    } as const;
+
+    const [first, second] = await Promise.all([
+      Effect.runPromise(when.occupy(spec)),
+      Effect.runPromise(when.occupy(spec)),
+    ]);
+
+    expect(first.epoch).toBe(second.epoch);
+    expect(first.pid).toBe(second.pid);
+    expect(first.agentKey).toBe("station:grok");
+    expect(fake.controllers).toHaveLength(1);
+    expect(host.runningCount()).toBe(1);
+  });
+
+  it("surfaces a typed conflict when a second occupy names a different actor", async () => {
+    const { host, client, fake } = await startPair();
+    const when = makeActorSeatOccupy({
+      local: host,
+      localHostId: () => Effect.succeed("cc-self"),
+      clientForOccupy: async () => client,
+    });
+    const spec = {
+      bindingId: "proto_race_diff",
+      harness: "grok",
+      agentKey: "station:grok",
+      hostId: "station-a",
+      canvasName: "factory",
+      nodeId: "actor-one",
+      spawnIntent: actorSpawnIntent(),
+    } as const;
+
+    const winner = await Effect.runPromise(when.occupy(spec));
+    const conflict = await Effect.runPromise(
+      Effect.flip(
+        when.occupy({
+          ...spec,
+          agentKey: "station:other",
+          nodeId: "actor-two",
+        }),
+      ),
+    );
+
+    expect(conflict).toBeInstanceOf(SeatIdentityConflictError);
+    expect(host.get("proto_race_diff")).toMatchObject({
+      epoch: winner.epoch,
+      agentKey: "station:grok",
+      nodeId: "actor-one",
+    });
+    expect(fake.controllers).toHaveLength(1);
+    expect(host.runningCount()).toBe(1);
+  });
+
   it("fuzz: garbage and partial frames do not occupy an actor", async () => {
     const { host, server } = await startPair();
     const createAgentSeat = vi.spyOn(host, "createAgentSeat");
