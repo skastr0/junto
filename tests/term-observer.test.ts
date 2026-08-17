@@ -278,16 +278,21 @@ describe("SessionObserver", () => {
       rows: 10,
     });
     try {
-      const seen: bigint[] = [];
+      const seen: Array<{ readonly seq: bigint; readonly text: string }> = [];
       obs.subscribe((snap) => {
-        seen.push(snap.seq);
+        seen.push({ seq: snap.seq, text: snap.text });
       });
       obs.feed("a", 1n);
       obs.feed("b", 2n);
       const final = await obs.snapshot();
       expect(final.seq).toBe(2n);
-      // Intermediate emits must not jump ahead of the applied write.
-      expect(seen).toEqual([1n, 2n]);
+      // A seq is only claimed once the grid holds the bytes it covers.
+      expect(seen.length).toBeGreaterThan(0);
+      for (const emit of seen) {
+        if (emit.seq >= 1n) expect(emit.text).toContain("a");
+        if (emit.seq >= 2n) expect(emit.text).toContain("ab");
+      }
+      expect(seen.map((e) => e.seq)).toEqual([...seen.map((e) => e.seq)].sort());
     } finally {
       obs.dispose();
     }
@@ -322,5 +327,76 @@ describe("TerminalObserverPlane", () => {
     });
     expect(seen).toEqual(["before-sub"]);
     plane.disposeAll();
+  });
+});
+
+describe("SessionObserver write cadence", () => {
+  const dense = (n: number): string[] =>
+    Array.from({ length: n }, (_, i) => `dense build log line ${i}\r\n`);
+
+  it("produces the same grid whether bytes arrive as one chunk or many", async () => {
+    const chunks = dense(2000);
+
+    const split = new SessionObserver({ bindingId: "split", epoch: "e", cols: 80, rows: 24 });
+    chunks.forEach((c, i) => split.feed(c, BigInt(i + 1)));
+    const splitSnap = await split.snapshot();
+
+    const whole = new SessionObserver({ bindingId: "whole", epoch: "e", cols: 80, rows: 24 });
+    whole.feed(chunks.join(""), BigInt(chunks.length));
+    const wholeSnap = await whole.snapshot();
+
+    expect(splitSnap.lines).toEqual(wholeSnap.lines);
+    expect(splitSnap.seq).toBe(BigInt(chunks.length));
+
+    split.dispose();
+    whole.dispose();
+  });
+
+  it("coalesces a burst into a handful of writes, not one per chunk", async () => {
+    const observer = new SessionObserver({ bindingId: "b", epoch: "e", cols: 80, rows: 24 });
+    let emissions = 0;
+    observer.subscribe(() => {
+      emissions += 1;
+    });
+
+    const chunks = dense(500);
+    chunks.forEach((c, i) => observer.feed(c, BigInt(i + 1)));
+    await observer.snapshot();
+
+    // Cost scales with how many writes are in flight, not with chunk count.
+    expect(emissions).toBeLessThanOrEqual(5);
+    expect(emissions).toBeLessThan(chunks.length);
+    observer.dispose();
+  });
+
+  it("writes a chunk straight through when no write is in flight", async () => {
+    const observer = new SessionObserver({ bindingId: "b", epoch: "e", cols: 80, rows: 24 });
+    let emissions = 0;
+    observer.subscribe(() => {
+      emissions += 1;
+    });
+
+    observer.feed("first\r\n", 1n);
+    await observer.snapshot();
+    observer.feed("second\r\n", 2n);
+    const snap = await observer.snapshot();
+
+    // A quiet seat pays no batching latency — each paint is its own write,
+    // so the state machine still sees every transition.
+    expect(emissions).toBe(2);
+    expect(snap.text).toContain("first");
+    expect(snap.text).toContain("second");
+    observer.dispose();
+  });
+
+  it("attach includes bytes still inside the flush window", async () => {
+    const observer = new SessionObserver({ bindingId: "b", epoch: "e", cols: 80, rows: 24 });
+    observer.feed("\x1b]0;live-title\x07buffered output\r\n", 7n);
+
+    const screen = await observer.attachScreen();
+
+    expect(screen.serialized).toContain("buffered output");
+    expect(screen.seq).toBe(7n);
+    observer.dispose();
   });
 });

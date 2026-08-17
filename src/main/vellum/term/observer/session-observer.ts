@@ -102,6 +102,11 @@ export class SessionObserver {
   private seq = 0n;
   private writeQueue: Promise<void> = Promise.resolve();
   private disposed = false;
+  /** Bytes received while a write was in flight, oldest first. */
+  private pending: string[] = [];
+  /** Journal seq of the newest buffered chunk — pinned when that write lands. */
+  private pendingSeq: bigint | undefined;
+  private writeInFlight = false;
 
   constructor(opts: SessionObserverOptions) {
     this.bindingId = opts.bindingId;
@@ -195,27 +200,75 @@ export class SessionObserver {
     return out;
   }
 
-  /** Feed PTY bytes. seq is the plane's journal sequence. */
+  /**
+   * Feed PTY bytes. seq is the plane's journal sequence.
+   *
+   * Writes are self-clocking: a chunk arriving with no write in flight goes
+   * straight through, and anything arriving behind an in-flight write is
+   * coalesced into a single follow-up write. node-pty hands over ~50k
+   * chunks/sec on dense output (build logs, test runs) with no read batching,
+   * while a write + snapshot per chunk drains at ~800/sec — so one second of
+   * that output took ~65s to absorb and pinned a main-process core long after
+   * the child went quiet. Coalescing makes the batch grow with the load
+   * instead, with no added latency on a quiet seat and no timer to tune.
+   *
+   * The same bytes are written in the same order, so the grid is
+   * byte-identical — only the number of write callbacks and snapshots
+   * changes. This observer exists to derive seat status (idle / working /
+   * attention), which no human reads faster than a few times a second, so
+   * per-chunk granularity bought nothing. Display is a separate path with
+   * its own coalescer; nothing here affects what the operator sees typed.
+   */
   feed(data: string, seq: bigint): void {
     if (this.disposed) return;
-    // Pin seq to the write that applied it — not the latest enqueued feed —
-    // so intermediate snapshots never claim a seq the grid has not absorbed.
+    this.pending.push(data);
+    this.pendingSeq = seq;
+    // Idle seat: write straight through, no added latency. Under load the
+    // in-flight write absorbs everything that arrives behind it.
+    if (!this.writeInFlight) this.flushPending();
+  }
+
+  /**
+   * Write buffered bytes to the grid as one write. Seq is pinned when that
+   * write lands — not at enqueue — so a snapshot never claims a seq the grid
+   * has not absorbed.
+   */
+  private flushPending(): void {
+    if (this.disposed || this.pending.length === 0) return;
+    const data = this.pending.join("");
+    const seq = this.pendingSeq;
+    this.pending = [];
+    this.pendingSeq = undefined;
+    this.writeInFlight = true;
     this.writeQueue = this.writeQueue
       .then(
         () =>
           new Promise<void>((resolve) => {
             if (this.disposed) {
+              this.writeInFlight = false;
               resolve();
               return;
             }
             this.term.write(data, () => {
-              this.seq = seq;
+              if (seq !== undefined) this.seq = seq;
+              this.writeInFlight = false;
               this.emitSnapshot();
+              // Everything that arrived during this write goes out as one
+              // follow-up write, so the batch grows with the load.
+              this.flushPending();
               resolve();
             });
           }),
       )
-      .catch(() => undefined);
+      .catch(() => {
+        this.writeInFlight = false;
+      });
+  }
+
+  /** Flush buffered bytes and wait for the grid to absorb them. */
+  private async settled(): Promise<void> {
+    this.flushPending();
+    await this.writeQueue;
   }
 
   /** Resize the headless grid to match the live PTY. */
@@ -223,6 +276,8 @@ export class SessionObserver {
     if (this.disposed) return;
     const c = Math.max(20, Math.min(300, cols));
     const r = Math.max(5, Math.min(120, rows));
+    // Buffered bytes belong to the pre-resize geometry — queue them first.
+    this.flushPending();
     this.term.resize(c, r);
     this.emitSnapshot();
   }
@@ -241,13 +296,17 @@ export class SessionObserver {
     };
   }
 
-  /** Synchronous read of the current grid (after any pending writes settle). */
+  /** Read of the current grid, after buffered bytes are absorbed. */
   async snapshot(): Promise<ObserverGridSnapshot> {
-    await this.writeQueue;
+    await this.settled();
     return this.buildSnapshot();
   }
 
-  /** Best-effort sync snapshot — may lag the last unflushed write by one tick. */
+  /**
+   * Best-effort sync snapshot — does not include bytes buffered behind an
+   * in-flight write. Callers that need the settled grid must await
+   * `snapshot()` / `attachScreen()`.
+   */
   snapshotNow(): ObserverGridSnapshot {
     return this.buildSnapshot();
   }
@@ -257,7 +316,9 @@ export class SessionObserver {
    * Prefer this over journal replay for long-lived sessions.
    */
   async attachScreen(): Promise<import("./types").AttachScreen> {
-    await this.writeQueue;
+    // Attach is the renderer's starting truth — it must never omit bytes
+    // still sitting in the flush window.
+    await this.settled();
     return this.buildAttachScreen();
   }
 
@@ -291,6 +352,8 @@ export class SessionObserver {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.pending = [];
+    this.pendingSeq = undefined;
     this.listeners.clear();
     for (const d of this.disposables.splice(0)) {
       try {
