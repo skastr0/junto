@@ -313,8 +313,8 @@ bridge for existing panes and must not be required for local health.
 
 **Named session resume law** — a seat resumes one explicit harness session id,
 or it starts fresh. There is no "continue whatever was last." Harness
-`--continue`, bare `--resume`, and latest-session pickers are not a Vellum
-Command feature and must never be emitted. Code:
+`--continue`, bare `--resume`, and latest-session pickers are not a
+Vellum Command feature and must never be emitted. Code:
 `src/shared/managed-terminal-launch.ts`.
 
 **Focus surfaces** — centered, measure-constrained overlays for single-subject work (one agent, one herdr pane, one page). Prefer these over full-bleed or stage-split when the interaction is deep and solitary. Shell: `FocusSurface` (`src/renderer/components/FocusSurface.tsx`); measures + math: `src/renderer/lib/focus-measure.ts`.
