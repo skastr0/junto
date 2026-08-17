@@ -1,8 +1,6 @@
-import type { Effect } from "effect";
 import type { HostsDeployRemoteRecoveryAction } from "@shared/ipc";
 import type { RemoteHost } from "@shared/remote-hosts";
-import type { SshEndpoint, SshTarget, SshTransportShape } from "../ssh";
-import type { LinuxReleaseCacheSource } from "./linux-release-feed";
+import type { SshEndpoint, SshTarget } from "../ssh";
 
 export type RemoteDeploymentProgress = readonly string[];
 
@@ -60,13 +58,6 @@ export type DeployRemoteResult = {
   readonly recoveryAction?: RemoteDeploymentRecoveryAction;
 };
 
-export type RemoteDeploymentStationConfiguration =
-  | { readonly state: "managed-externally" }
-  | {
-      readonly state: "applied";
-      readonly remoteHostId: string;
-    };
-
 export type DeployableRemoteHost = RemoteHost & {
   readonly kind: "remote";
   readonly sshEndpoint: string;
@@ -81,24 +72,3 @@ export type RemoteDeploymentTarget = {
   readonly progress: RemoteDeploymentProgress;
 };
 
-export type RemoteDeploymentPreparation =
-  | { readonly ok: true; readonly target: RemoteDeploymentTarget }
-  | { readonly ok: false; readonly result: DeployRemoteResult };
-
-
-export type RemoteDeploymentProviderInput = {
-  readonly ssh: SshTransportShape;
-  readonly target: RemoteDeploymentTarget;
-  readonly stationConfiguration: RemoteDeploymentStationConfiguration;
-  /** Exact release authority selected for this one Linux deployment attempt. */
-  readonly artifactSource: LinuxReleaseCacheSource;
-};
-
-export type RemoteDeploymentProvider = {
-  readonly platform: RemoteTargetPlatform;
-  /** Provider can produce the station-local Chromium composition/control plane. */
-  readonly supportsBrowser: boolean;
-  readonly deploy: (
-    input: RemoteDeploymentProviderInput,
-  ) => Effect.Effect<DeployRemoteResult, never>;
-};

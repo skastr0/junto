@@ -109,9 +109,6 @@ describe("operator deployment coordinator", () => {
             sshEndpoint: "remote-a",
             capabilities: [],
           }),
-        deployConfiguredRemote: () => {
-          throw new Error("coordinator must not call deployConfiguredRemote");
-        },
       }),
       Layer.succeed(StationStatusService, {
         ...stub(StationStatusService),

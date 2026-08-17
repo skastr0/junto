@@ -11,7 +11,6 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
-import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   buildRemoteDeployScript,
@@ -30,7 +29,6 @@ import {
   type RemoteDeployScriptTestRuntime,
   watchTarExit,
 } from "../src/main/vellum/hosts/deploy-darwin";
-import { deployRemoteHost } from "../src/main/vellum/hosts/deploy-remote";
 import { SshTransferExitError } from "../src/main/vellum/ssh/service";
 
 const TEST_CDHASH = "0123456789abcdef0123456789abcdef01234567";
@@ -42,19 +40,6 @@ describe("resolveLocalAppBundle", () => {
     expect(path === null || (typeof path === "string" && path.length > 0)).toBe(
       true,
     );
-  });
-
-  it("classifies every local preflight refusal as not started", async () => {
-    const result = await Effect.runPromise(
-      deployRemoteHost({} as never, {
-        id: "local",
-        label: "Local",
-        kind: "local",
-        capabilities: [],
-      }),
-    );
-    expect(result.ok).toBe(false);
-    expect(result.disposition).toBe("not-started");
   });
 });
 
@@ -298,15 +283,15 @@ describe("buildRemoteDeployScript", () => {
     );
     expect(script).toContain("INCOMING_SIGNATURE_VERIFY_FAILED");
     expect(script).toContain('"$LAUNCHCTL" enable "$JOB"');
-    const provider = readFileSync(
+    const copyOps = readFileSync(
       new URL(
-        "../src/main/vellum/hosts/deploy-darwin.ts",
+        "../src/main/vellum/hosts/host-ops-darwin.ts",
         import.meta.url,
       ),
       "utf8",
     );
-    expect(provider).toContain('command: "/usr/bin/tar"');
-    expect(provider).not.toContain('command: "tar"');
+    expect(copyOps).toContain('command: "/usr/bin/tar"');
+    expect(copyOps).not.toContain('command: "tar"');
   });
 
   it("proves the old job and exact executable gone before replacement", () => {
@@ -1452,13 +1437,5 @@ describe("deploy transfer lifecycle", () => {
     expect(classifyDeployTransferDisposition(new Error("transport"))).toBe(
       "indeterminate",
     );
-    const darwin = readFileSync(
-      new URL("../src/main/vellum/hosts/deploy-darwin.ts", import.meta.url),
-      "utf8",
-    );
-    expect(darwin).toContain(
-      "error.code === DARWIN_DEPLOY_READY_WITH_LOCK_WARNING_EXIT",
-    );
-    expect(darwin).toContain("Effect.catchIf");
   });
 });

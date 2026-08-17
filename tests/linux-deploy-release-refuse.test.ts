@@ -4,7 +4,6 @@ import { describe, expect, it } from "vitest";
 import { LINUX_REMOTE_DEPLOY_DISABLED_DETAIL, RELEASE_CAPABILITIES } from "../src/shared/release-capabilities";
 import { admitHostRuntimeApply, applyHostRuntime } from "../src/main/vellum/hosts/host-runtime";
 import { HostOps, HostTarget } from "../src/main/vellum/hosts/host-ops";
-import { loadRemoteDeploymentProvider } from "../src/main/vellum/hosts/deploy-remote";
 import type { RemoteHost } from "../src/shared/remote-hosts";
 import { parseSshEndpoint } from "../src/main/vellum/ssh/domain";
 import { SshTransport } from "../src/main/vellum/ssh/service";
@@ -84,12 +83,6 @@ describe("production Linux deploy freeze (live HostRuntime path)", () => {
     expect(result.disposition).toBe("not-started");
     expect(result.detail).toContain("LINUX_REMOTE_DEPLOY_OFF");
     expect(result.detail).toMatch(/Linux Remote Deploy is not enabled/i);
-  });
-
-  it("release loader still refuses so apply cannot bypass the freeze", async () => {
-    await expect(loadRemoteDeploymentProvider("linux")).rejects.toThrow(
-      /Linux Remote managed deployment is not available/i,
-    );
   });
 
   it("coordinator deploy is HostRuntime.reconcile, not a platformless live freeze", () => {

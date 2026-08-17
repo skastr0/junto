@@ -5,7 +5,7 @@
  * Observe loads HostOps.layerForTarget, calls inspect, then attach when
  * workAttach stayed unknown. Ready is that connect, not a sock and not SSH-up.
  * Apply is one loop: cleanup, copy, configure (first install), activate, attach.
- * The coordinator does not call deployConfiguredRemote.
+ * Reconcile is the only deployment path; HostsService has no deploy verb.
  */
 import { Context, Effect, Layer } from "effect";
 import { HOST_RUNTIME_REMEDY_STAGE } from "@shared/deploy-job";

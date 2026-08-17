@@ -12,7 +12,7 @@ import {
   finishWithConfiguration,
   packageAdmitted,
 } from "../src/main/vellum/hosts/deploy-configured-remote";
-import type { DeployRemoteResult } from "../src/main/vellum/hosts/deploy-remote";
+import type { DeployRemoteResult } from "../src/main/vellum/hosts/remote-deployment";
 
 const installationId = Schema.decodeUnknownSync(InstallationId);
 

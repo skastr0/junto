@@ -10,21 +10,12 @@ import {
   RemoteHostsError,
   type RemoteHost as RemoteHostT,
 } from "@shared/remote-hosts";
-import {
-  MANAGED_REMOTE_DEPLOY_DISABLED_DETAIL,
-  RELEASE_CAPABILITIES,
-} from "@shared/release-capabilities";
 import { SshTransport, type SshTransportShape } from "../ssh";
 import {
   configureRemoteHost,
   type ConfigureRemoteOptions,
   type ConfigureRemoteResult,
 } from "./configure-remote";
-import type {
-  ConfiguredRemoteDeployOptions,
-  ConfiguredRemoteDeployResult,
-} from "./deploy-configured-remote";
-import { HostRuntime } from "./host-runtime";
 import {
   runRemoteHostsDoctor,
   runRemoteHostsDoctorSnapshot,
@@ -86,17 +77,6 @@ export class HostsService extends Context.Service<HostsService,
       id: string,
       options: ConfigureRemoteOptions,
     ) => Effect.Effect<ConfigureRemoteResult, RemoteHostsError>;
-    /** Admit + serialize, then HostRuntime.reconcile. */
-    readonly deployConfiguredRemote: (
-      id: string,
-      options: ConfiguredRemoteDeployOptions & {
-        /** Final receipt barrier; runs under the same endpoint semaphore. */
-        readonly onCompleted?: (
-          host: RemoteHostT,
-          result: ConfiguredRemoteDeployResult,
-        ) => Effect.Effect<void, RemoteHostsError>;
-      },
-    ) => Effect.Effect<ConfiguredRemoteDeployResult, never, HostRuntime>;
   }>()("@vellum/HostsService") {}
 
 /** Canonical service shape for `HostsService` (one id, one shape). */
@@ -221,79 +201,6 @@ export const makeHostsService = (
         return yield* serializeHostMutation(
           host,
           operations.configureRemoteHost(ssh, host, options),
-        );
-      }),
-    deployConfiguredRemote: (id, options) =>
-      Effect.gen(function* () {
-        if (!RELEASE_CAPABILITIES.managedRemoteDeploy) {
-          return {
-            ok: false,
-            detail: MANAGED_REMOTE_DEPLOY_DISABLED_DETAIL,
-            code: "validation" as const,
-            message: MANAGED_REMOTE_DEPLOY_DISABLED_DETAIL,
-            hostResolved: false,
-            stages: [],
-            disposition: "not-started" as const,
-            outcome: "failed" as const,
-            packageState: "previous" as const,
-            role: "previous" as const,
-            configuration: {
-              ok: false,
-              detail: MANAGED_REMOTE_DEPLOY_DISABLED_DETAIL,
-            },
-          } satisfies ConfiguredRemoteDeployResult;
-        }
-        const hostResult = yield* Effect.result(
-          Effect.tryPromise({
-            try: () => registry.get(id),
-            catch: asRemoteHostsError,
-          }),
-        );
-        if (hostResult._tag === "Failure") {
-          return {
-            ok: false,
-            detail: hostResult.failure.message,
-            code: hostResult.failure.code,
-            message: hostResult.failure.message,
-            hostResolved: false,
-            stages: [],
-            disposition: "not-started" as const,
-            outcome: "failed" as const,
-            packageState: "previous" as const,
-            role: "previous" as const,
-            configuration: { ok: false, detail: hostResult.failure.message },
-          } satisfies ConfiguredRemoteDeployResult;
-        }
-        const host = hostResult.success;
-        if (!host) {
-          const detail = `unknown host: ${id}`;
-          return {
-            ok: false,
-            detail,
-            code: "not_found" as const,
-            message: detail,
-            hostResolved: false,
-            stages: [],
-            disposition: "not-started" as const,
-            outcome: "failed" as const,
-            packageState: "previous" as const,
-            role: "previous" as const,
-            configuration: { ok: false, detail },
-          } satisfies ConfiguredRemoteDeployResult;
-        }
-        const runtime = yield* HostRuntime;
-        return yield* serializeHostMutation(
-          host,
-          runtime.reconcile(id, {
-            intent: "deploy",
-            configure: options,
-            ...(options.artifactSource === undefined
-              ? {}
-              : { artifactSource: options.artifactSource }),
-            ...(options.onCompleted === undefined
-              ? {}
-              : { onCompleted: options.onCompleted }),
-          }),
         );
       }),
   };

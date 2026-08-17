@@ -900,9 +900,10 @@ describe("HostRuntime inversion", () => {
       new URL("../src/main/vellum/hosts/service.ts", import.meta.url),
       "utf8",
     );
-    expect(service).toContain("HostRuntime");
-    expect(service).toContain("runtime.reconcile");
-    expect(service).not.toContain("deployConfiguredRemoteHost");
+    // The service holds no deploy verb at all; the coordinator is the single
+    // caller of HostRuntime.reconcile.
+    expect(service).not.toContain("HostRuntime");
+    expect(service).not.toContain("deployConfiguredRemote");
     expect(service).not.toContain("deployRemoteHost");
     expect(service).not.toMatch(/\bdeployRemote\s*:/u);
     expect(service).not.toContain('"./deploy-remote"');
