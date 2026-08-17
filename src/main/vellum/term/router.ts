@@ -403,7 +403,7 @@ export class TerminalRouter extends EventEmitter {
         };
       },
     });
-    const summary = await Effect.runPromise(
+    const summary = await runScopePromise(
       seats.occupy({
         bindingId: input.bindingId,
         harness: input.harness,
