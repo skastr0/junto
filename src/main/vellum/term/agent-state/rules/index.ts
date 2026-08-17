@@ -1,5 +1,6 @@
 import type { HarnessId } from "../../../../../shared/managed-terminal-templates";
 import type { SeatRulePack } from "../types";
+import { agyRules } from "./agy";
 import { claudeRules } from "./claude";
 import { codexRules } from "./codex";
 import { cursorRules } from "./cursor";
@@ -11,6 +12,7 @@ import { museRules } from "./muse";
 import { piRules } from "./pi";
 import { primeAgentRules } from "./prime-agent";
 
+export { agyRules } from "./agy";
 export { claudeRules } from "./claude";
 export { codexRules } from "./codex";
 export { cursorRules } from "./cursor";
@@ -23,6 +25,7 @@ export { piRules } from "./pi";
 export { primeAgentRules } from "./prime-agent";
 
 const PACKS: Record<HarnessId, SeatRulePack> = {
+  agy: agyRules,
   claude: claudeRules,
   codex: codexRules,
   cursor: cursorRules,

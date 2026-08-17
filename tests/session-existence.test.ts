@@ -359,6 +359,26 @@ describe("harness session existence (external proof)", () => {
     ).toBe(true);
   });
 
+  it("proves agy session when ~/.gemini/antigravity-cli/brain/<id> exists with transcript.jsonl or entries", () => {
+    const home = tempHome();
+    const sid = "a139e6e1-8713-4e08-b3c4-da0b56eadd06";
+    expect(
+      harnessSessionExists({ harness: "agy", sessionId: sid, home }),
+    ).toBe(false);
+
+    const sessionDir = join(home, ".gemini", "antigravity-cli", "brain", sid);
+    const logsDir = join(sessionDir, ".system_generated", "logs");
+    mkdirSync(logsDir, { recursive: true });
+    writeFileSync(join(logsDir, "transcript.jsonl"), '{"step_index":0}\n');
+
+    expect(
+      harnessSessionExists({ harness: "agy", sessionId: sid, home }),
+    ).toBe(true);
+    expect(
+      harnessSessionExists({ harness: "agy", sessionId: "non-existent-id", home }),
+    ).toBe(false);
+  });
+
   it("honors the injectable test home override for the five probes", () => {
     const home = tempHome();
     __setSessionExistenceHomeForTest(home);

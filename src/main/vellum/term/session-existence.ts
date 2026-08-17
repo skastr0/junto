@@ -130,6 +130,8 @@ export const harnessSessionExists = (probe: SessionExistenceProbe): boolean => {
         return devinSessionExists(sessionId, home);
       case "cursor":
         return cursorSessionExists(sessionId, probe.cwd, cursorDataRoot(probe, home));
+      case "agy":
+        return agySessionExists(sessionId, home);
       default:
         return false;
     }
@@ -422,6 +424,25 @@ const cursorSessionExists = (
     if (isFile(join(chats, workspaceId, sessionId, "meta.json"))) return true;
   }
   return false;
+};
+
+/**
+ * Antigravity sessions: ~/.gemini/antigravity-cli/brain/<sessionId>/.
+ * Verified layout: directory exists and either contains
+ * .system_generated/logs/transcript.jsonl or is a directory with entries.
+ */
+const agySessionExists = (sessionId: string, home: string): boolean => {
+  const root = join(home, ".gemini", "antigravity-cli", "brain", sessionId);
+  if (!isDir(root)) return false;
+  if (isFile(join(root, ".system_generated", "logs", "transcript.jsonl"))) {
+    return true;
+  }
+  try {
+    const entries = readdirSync(root);
+    return entries.length > 0;
+  } catch {
+    return false;
+  }
 };
 
 /**
