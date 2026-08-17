@@ -127,7 +127,7 @@ export type RemoteUpdatePhase =
   | { readonly kind: "quiet" }
   | {
       readonly kind: "waiting-for-idle";
-      readonly activeTerminalSessions: number;
+      readonly activeTerminalSessions?: number;
     }
   | { readonly kind: "downloading" }
   | { readonly kind: "installing" }
@@ -136,20 +136,59 @@ export type RemoteUpdatePhase =
   | { readonly kind: "failed" };
 
 /**
- * Map terminal maintenance refusal → fleet update status.
- * Only active terminal sessions produce Waiting for idle; other cut failures
- * surface as Failed — Retry (operator/retry later, never force-close).
+ * Deploy-job facts consumed for phase projection. Structural on purpose:
+ * `HostDeployJobSnapshot` (shared/deploy-job) is assignable, and both main
+ * (fleet update executor) and the Fleet renderer project from the same job.
  */
-export const mapIdleGateToUpdateStatus = (
-  reason:
-    | "active-terminal-sessions"
-    | "maintenance-held"
-    | "shutting-down",
-): Extract<
-  RemoteUpdateStatusKind,
-  "waiting-for-idle" | "failed-retry"
-> =>
-  reason === "active-terminal-sessions" ? "waiting-for-idle" : "failed-retry";
+export type RemoteUpdateDeployJobFacts = {
+  readonly status: "running" | "succeeded" | "failed" | "auth_required";
+  readonly stages: readonly string[];
+  readonly version?: string;
+  readonly recoveryHint?: string;
+  readonly copy?: { readonly payloadComplete?: boolean };
+};
+
+/**
+ * Project the live per-host deploy job into a Remote update phase.
+ *
+ * This is the ONE production source of the mid-flight phases
+ * (downloading / installing / restarting / waiting-for-idle / updated /
+ * failed): they become visible only while a real deploy job exists in the
+ * main-process registry, which every managed update and manual Deploy
+ * flows through. No job, no phase — version comparison decides instead.
+ */
+export const remoteUpdatePhaseFromDeployJob = (input: {
+  readonly job: RemoteUpdateDeployJobFacts | null | undefined;
+  readonly availableVersion?: string;
+}): RemoteUpdatePhase | undefined => {
+  const job = input.job ?? undefined;
+  if (job === undefined) return undefined;
+  if (job.status === "running") {
+    if (job.copy !== undefined && job.copy.payloadComplete !== true) {
+      return { kind: "downloading" };
+    }
+    const lastStage = job.stages[job.stages.length - 1] ?? "";
+    if (/relaunch|restart/i.test(lastStage)) return { kind: "restarting" };
+    return { kind: "installing" };
+  }
+  // Finished jobs stay in the registry until replaced. They speak for the
+  // currently available release only while their recorded version does not
+  // contradict it — a success for an older release never masks a newer one.
+  const available = input.availableVersion?.trim() || undefined;
+  const jobVersion = job.version?.trim() || undefined;
+  if (
+    available !== undefined &&
+    jobVersion !== undefined &&
+    jobVersion !== available
+  ) {
+    return undefined;
+  }
+  if (job.status === "succeeded") return { kind: "updated" };
+  if (job.recoveryHint === "close-active-vellum-terminals") {
+    return { kind: "waiting-for-idle" };
+  }
+  return { kind: "failed" };
+};
 
 /**
  * Derive fleet status from installed/available versions and optional live phase.
@@ -158,7 +197,7 @@ export const mapIdleGateToUpdateStatus = (
 export const deriveRemoteUpdateStatus = (input: {
   readonly installedVersion?: string;
   readonly availableVersion?: string;
-  readonly phase?: RemoteUpdatePhase;
+  readonly phase?: RemoteUpdatePhase | undefined;
 }): RemoteUpdateStatus => {
   const installed = input.installedVersion?.trim() || undefined;
   const available = input.availableVersion?.trim() || undefined;
@@ -206,22 +245,3 @@ export const deriveRemoteUpdateStatus = (input: {
     updateStatus,
   };
 };
-
-/** Build the waiting-for-idle row used when maintenance refuses live work. */
-export const waitingForIdleUpdateStatus = (input: {
-  readonly installedVersion?: string;
-  readonly availableVersion?: string;
-  readonly activeTerminalSessions: number;
-}): RemoteUpdateStatus =>
-  deriveRemoteUpdateStatus({
-    ...(input.installedVersion !== undefined
-      ? { installedVersion: input.installedVersion }
-      : {}),
-    ...(input.availableVersion !== undefined
-      ? { availableVersion: input.availableVersion }
-      : {}),
-    phase: {
-      kind: "waiting-for-idle",
-      activeTerminalSessions: input.activeTerminalSessions,
-    },
-  });

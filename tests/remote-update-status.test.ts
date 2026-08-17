@@ -4,11 +4,10 @@ import {
   REMOTE_UPDATE_STATUS_LABEL,
   decodeRemoteUpdateStatus,
   deriveRemoteUpdateStatus,
-  mapIdleGateToUpdateStatus,
+  remoteUpdatePhaseFromDeployJob,
   remoteUpdateStatusLabel,
   resolveRemoteAvailableForStatus,
   shouldAutoWalkRemoteUpdate,
-  waitingForIdleUpdateStatus,
 } from "../src/shared/remote-update-status";
 
 describe("remote update status schema", () => {
@@ -140,15 +139,90 @@ describe("resolveRemoteAvailableForStatus", () => {
   });
 });
 
-describe("idle gate and phase derivation", () => {
-  it("maps active terminal sessions to waiting-for-idle only", () => {
-    expect(mapIdleGateToUpdateStatus("active-terminal-sessions")).toBe(
-      "waiting-for-idle",
-    );
-    expect(mapIdleGateToUpdateStatus("maintenance-held")).toBe("failed-retry");
-    expect(mapIdleGateToUpdateStatus("shutting-down")).toBe("failed-retry");
+describe("remoteUpdatePhaseFromDeployJob", () => {
+  it("returns no phase without a job", () => {
+    expect(
+      remoteUpdatePhaseFromDeployJob({ job: undefined, availableVersion: "0.1.1" }),
+    ).toBeUndefined();
+    expect(remoteUpdatePhaseFromDeployJob({ job: null })).toBeUndefined();
   });
 
+  it("projects a running job into downloading, restarting, or installing", () => {
+    expect(
+      remoteUpdatePhaseFromDeployJob({
+        job: {
+          status: "running",
+          stages: ["Copying Vellum Command"],
+          copy: { payloadComplete: false },
+        },
+      }),
+    ).toEqual({ kind: "downloading" });
+    expect(
+      remoteUpdatePhaseFromDeployJob({
+        job: {
+          status: "running",
+          stages: ["Remote runtime relaunch admitted for /home/x"],
+          copy: { payloadComplete: true },
+        },
+      }),
+    ).toEqual({ kind: "restarting" });
+    expect(
+      remoteUpdatePhaseFromDeployJob({
+        job: { status: "running", stages: ["configure remote"] },
+      }),
+    ).toEqual({ kind: "installing" });
+  });
+
+  it("maps the close-active-vellum-terminals refusal to waiting-for-idle", () => {
+    expect(
+      remoteUpdatePhaseFromDeployJob({
+        job: {
+          status: "failed",
+          stages: [],
+          recoveryHint: "close-active-vellum-terminals",
+        },
+        availableVersion: "0.1.1",
+      }),
+    ).toEqual({ kind: "waiting-for-idle" });
+  });
+
+  it("maps finished jobs to updated or failed", () => {
+    expect(
+      remoteUpdatePhaseFromDeployJob({
+        job: { status: "succeeded", stages: [], version: "0.1.1" },
+        availableVersion: "0.1.1",
+      }),
+    ).toEqual({ kind: "updated" });
+    expect(
+      remoteUpdatePhaseFromDeployJob({
+        job: { status: "failed", stages: [] },
+        availableVersion: "0.1.1",
+      }),
+    ).toEqual({ kind: "failed" });
+    expect(
+      remoteUpdatePhaseFromDeployJob({
+        job: { status: "auth_required", stages: [] },
+      }),
+    ).toEqual({ kind: "failed" });
+  });
+
+  it("never lets a stale finished job speak for a newer release", () => {
+    expect(
+      remoteUpdatePhaseFromDeployJob({
+        job: { status: "succeeded", stages: [], version: "0.1.0" },
+        availableVersion: "0.1.1",
+      }),
+    ).toBeUndefined();
+    expect(
+      remoteUpdatePhaseFromDeployJob({
+        job: { status: "failed", stages: [], version: "0.1.0" },
+        availableVersion: "0.1.1",
+      }),
+    ).toBeUndefined();
+  });
+});
+
+describe("phase derivation", () => {
   it("derives version comparison when phase is quiet", () => {
     expect(
       deriveRemoteUpdateStatus({
@@ -188,16 +262,31 @@ describe("idle gate and phase derivation", () => {
       }).updateStatus,
     ).toBe("installing");
     expect(
-      waitingForIdleUpdateStatus({
+      deriveRemoteUpdateStatus({
         installedVersion: "0.1.0",
         availableVersion: "0.1.1",
-        activeTerminalSessions: 2,
+        phase: { kind: "waiting-for-idle", activeTerminalSessions: 2 },
       }),
     ).toEqual({
       installedVersion: "0.1.0",
       availableVersion: "0.1.1",
       updateStatus: "waiting-for-idle",
     });
+    // The real deploy job pipeline reaches every phase state end to end.
+    expect(
+      deriveRemoteUpdateStatus({
+        installedVersion: "0.1.0",
+        availableVersion: "0.1.1",
+        phase: remoteUpdatePhaseFromDeployJob({
+          job: {
+            status: "failed",
+            stages: [],
+            recoveryHint: "close-active-vellum-terminals",
+          },
+          availableVersion: "0.1.1",
+        }),
+      }).updateStatus,
+    ).toBe("waiting-for-idle");
   });
 
   it("ships the product idle copy for busy remotes", () => {
