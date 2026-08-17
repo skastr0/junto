@@ -86,12 +86,15 @@ describe("harnessGlyphFor", () => {
     expect(harnessGlyphFor("Cursor")).toBe(GLYPHS.cursor);
     expect(harnessGlyphFor("windsurf")).toBe(GLYPHS.windsurf);
     // canonical provider ids pass through without aliases
-    for (const id of ["ollama", "zed", "antigravity", "warp", "deepseek", "mistral", "perplexity"]) {
+    for (const id of ["ollama", "zed", "warp", "deepseek", "mistral", "perplexity"]) {
       expect(harnessGlyphFor(id), id).toBe(GLYPHS[id]);
     }
   });
 
   it("resolves documented aliases", () => {
+    expect(harnessGlyphFor("agy")).toBe(GLYPHS.googlegemini);
+    expect(harnessGlyphFor("antigravity")).toBe(GLYPHS.googlegemini);
+    expect(harnessGlyphFor("antigravity-cli")).toBe(GLYPHS.googlegemini);
     expect(harnessGlyphFor("Claude Code")).toBe(GLYPHS.claude);
     expect(harnessGlyphFor("claude-code")).toBe(GLYPHS.claude);
     expect(harnessGlyphFor("gemini")).toBe(GLYPHS.googlegemini);

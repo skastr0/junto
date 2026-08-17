@@ -153,9 +153,12 @@ export const GLYPHS: Readonly<Record<string, HarnessGlyph>> = {
 
 // Common spoken/CLI spellings → canonical GLYPHS key. Compared after
 // trim + lowercase + whitespace collapse. Canonical provider ids (ollama,
-// zed, antigravity, warp, deepseek, mistral, perplexity, opencodego, …)
+// zed, warp, deepseek, mistral, perplexity, opencodego, …)
 // need no entry — they pass through to the generated table directly.
 const ALIASES: Readonly<Record<string, string>> = {
+  agy: "googlegemini",
+  antigravity: "googlegemini",
+  "antigravity-cli": "googlegemini",
   "claude code": "claude",
   "claude-code": "claude",
   gemini: "googlegemini",

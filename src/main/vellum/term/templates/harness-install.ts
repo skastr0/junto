@@ -44,6 +44,8 @@ const extraInstallCandidates = (
   home: string,
 ): readonly string[] => {
   switch (harness) {
+    case "agy":
+      return [join(home, ".local", "bin", binary)];
     case "kimi":
       return [join(home, ".kimi-code", "bin", binary)];
     case "muse":

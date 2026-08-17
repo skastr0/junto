@@ -15,6 +15,7 @@ import {
   managedHarnessEnabled,
 } from "@shared/features";
 import {
+  enumerateAgyModels,
   enumerateCodexModels,
   enumerateCursorModels,
   enumerateDevinModels,
@@ -154,6 +155,18 @@ export const enumerateManagedModels = async (
     if (harness === "cursor") {
       const result = await enumerateCursorModels(async () =>
         runCommand("agent", ["models"]),
+      );
+      return {
+        models: result.models,
+        source: result.source,
+        error: result.error,
+        efforts: templateEfforts as string[],
+      };
+    }
+    // agy — `agy models`; tab-separated `id\tlabel` rows.
+    if (harness === "agy") {
+      const result = await enumerateAgyModels(async () =>
+        runCommand("agy", ["models"]),
       );
       return {
         models: result.models,

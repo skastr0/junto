@@ -678,6 +678,76 @@ export const enumerateCursorModels = async (
   }
 };
 
+// ── Agy: `agy models` tab-separated list ───────────────────────────────────
+
+/**
+ * Parse `agy models` output:
+ *
+ *   Fetching available models...
+ *   gemini-2.5-flash	Gemini 2.5 Flash
+ *   gemini-3.7-flash-high	Gemini 3.7 Flash (High)
+ *
+ * Rows are tab-separated `id\tlabel`. Skips headers like "Fetching available models..."
+ * and blank lines. Fail-soft: never throw.
+ * ANSI is stripped; U+00B7 middots become commas (copy law).
+ */
+export const parseAgyModelsList = (
+  stdout: string,
+): { models: ModelOption[]; error?: string } => {
+  try {
+    const models: ModelOption[] = [];
+    const seen = new Set<string>();
+    for (const rawLine of stdout.split("\n")) {
+      const line = rawLine
+        .replace(ANSI_ESCAPE_RE, "")
+        .replace(MIDDOT_RE, ",")
+        .replace(/\r$/, "");
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      if (/^fetching\b/i.test(trimmed)) continue;
+      const tabIndex = trimmed.indexOf("\t");
+      const id = tabIndex >= 0 ? trimmed.slice(0, tabIndex).trim() : trimmed;
+      const label = tabIndex >= 0 ? trimmed.slice(tabIndex + 1).trim() : id;
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      models.push({ id, label: label || id });
+    }
+    return { models };
+  } catch (err) {
+    return {
+      models: [],
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+};
+
+export const enumerateAgyModels = async (
+  run: ModelsCommandRunner = async () => "",
+): Promise<ModelEnumerateResult> => {
+  try {
+    const stdout = await run();
+    if (!stdout.trim()) {
+      return {
+        models: [],
+        source: "empty",
+        error: "agy models produced no output (stub or unavailable)",
+      };
+    }
+    const parsed = parseAgyModelsList(stdout);
+    return {
+      models: parsed.models,
+      source: parsed.models.length > 0 ? "command" : "empty",
+      error: parsed.error,
+    };
+  } catch (err) {
+    return {
+      models: [],
+      source: "empty",
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+};
+
 // ── Dispatch ───────────────────────────────────────────────────────────────
 
 /**
