@@ -14,6 +14,7 @@ import type {
   WorkMetadata,
   Task,
   CanvasDoc,
+  CanvasNode,
   Part,
   TaskState,
   FinishCriteria,
@@ -42,7 +43,7 @@ import type {
 } from "./settings";
 import type { UsageState } from "./usage";
 import type { AgentSeatStateEvent } from "./agent-seat-state";
-import type { TerminalSessionSummary, TerminalLaunch } from "./terminal";
+import type { TerminalSessionSummary } from "./terminal";
 import type { HostDirectorySnapshot } from "./host-directory";
 import type { ActorRef } from "./work-protocol";
 import type { WorkSeatRecentOpsFeed } from "./work-recent-ops";
@@ -1371,32 +1372,21 @@ export interface VellumCommandHerdrApi {
   readonly onHerdrMirrorEvent: (listener: (event: HerdrMirrorEvent) => void) => () => void;
 }
 
+/**
+ * Open the terminal surface declared by this exact canvas node.
+ *
+ * The node kind is the command discriminant: `agent` occupies an actor seat,
+ * while `terminal` opens raw shell geography. Stable identity, placement,
+ * launch, harness, and label all come from the node rather than loose wire
+ * fields, so a freshly authored node can start before its debounced canvas
+ * save reaches Main without gaining a second source of authority.
+ */
 export interface TerminalCreateInput {
-  readonly bindingId: string;
-  readonly hostId?: string;
-  readonly launch?: TerminalLaunch;
+  readonly node: CanvasNode;
+  readonly canvasName?: string;
+  readonly resume?: boolean;
   readonly cols?: number;
   readonly rows?: number;
-  readonly canvasName?: string;
-  readonly nodeId?: string;
-  readonly label?: string;
-  readonly title?: string;
-  /**
-   * Managed-agent harness id. When set, binds the seat state machine and
-   * injects scrubbed PATH / work-control seat env at spawn.
-   */
-  readonly harness?: string;
-  /**
-   * Hermes / agent key for process-bind principal when this is an actor seat
-   * (`entity.kind === "agent"`). Absent → principal stays kind terminal.
-   */
-  readonly agentKey?: string;
-  /**
-   * Managed harness lifecycle intent. New authoring uses false so a reserved
-   * session id becomes a first-session pin; reopening/recovery uses true.
-   * Ignored for raw terminal geography.
-   */
-  readonly resume?: boolean;
 }
 
 /** Fail-soft model option for the harness picker (main enumeration). */

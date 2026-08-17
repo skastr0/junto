@@ -1,14 +1,19 @@
 import type { IpcMain, IpcMainInvokeEvent, WebContents } from "electron";
-import { IPC_CHANNELS, type TerminalAttachInput } from "@shared/ipc";
+import { actorDeliverySurfaceOf } from "@shared/actor-surface";
+import type { CanvasDoc } from "@shared/canvas";
+import { IPC_CHANNELS, type TerminalAttachInput, type TerminalCreateInput } from "@shared/ipc";
 import { isHarnessId } from "@shared/managed-terminal-templates";
 import { managedHarnessEnabled } from "@shared/features";
-import type { TerminalLaunch } from "@shared/terminal";
+import { resolveTerminalBinding, type TerminalLaunch } from "@shared/terminal";
 import { messageDelivery } from "../work/message-delivery";
 import type { ControlLease, LocalHostEvent } from "./local-host";
 import { TerminalStreamCoalescer, terminalBindingKey } from "./stream-coalescer";
 import type { TermPlane } from "./plane";
 import { injectionSupervisor } from "./injection-supervisor";
 import { rememberRemoteSeatState } from "./remote-seat-state";
+import { ActorSeatOccupy } from "./actor-seat-occupy";
+import { AppRuntime } from "../../runtime";
+import { Effect } from "effect";
 
 type LeaseOwner = {
   readonly lease: ControlLease;
@@ -156,87 +161,129 @@ export const registerTerminalIpc = (
     },
   );
 
-  ipcMain.handle(IPC_CHANNELS.terminalCreate, async (event, input) => {
-    assertTrusted(event);
-    await ensureHostAvailable(input?.hostId);
-    const harness =
-      typeof input?.harness === "string" ? input.harness.trim() : "";
-    // No harness on the wire ⇒ the node is geography; it opens a shell.
-    if (!harness) return router.create(input);
-
-    // Everything below is the actor seat. Its harness and key are required here
-    // rather than reconstructed at spawn, so an unnamed template errors on the
-    // node instead of quietly becoming a terminal.
-    if (!isHarnessId(harness)) {
-      return deny(`terminal ipc: unknown harness template ${harness}`);
-    }
-    if (!managedHarnessEnabled(harness)) {
-      return deny(`terminal ipc: harness ${harness} is disabled in this build`);
-    }
-    {
-      const { isManagedHarnessInstalled } = await import("./templates/harness-install");
-      if (!isManagedHarnessInstalled(harness)) {
-        return deny(
-          `terminal ipc: harness ${harness} CLI is not installed on this machine`,
-        );
+  ipcMain.handle(
+    IPC_CHANNELS.terminalCreate,
+    async (event, input: TerminalCreateInput) => {
+      assertTrusted(event);
+      const node = input?.node;
+      if (!node || typeof node !== "object") {
+        return deny("terminal ipc: canvas node required");
       }
-    }
-    const agentKey =
-      typeof input?.agentKey === "string" ? input.agentKey.trim() : "";
-    if (!agentKey) return deny("terminal ipc: agent seat requires an agent key");
 
-    // Edge-aware injection replan at spawn (document may be unconnected silence).
-    const canvasName =
-      typeof input?.canvasName === "string" ? input.canvasName.trim() : "";
-    const nodeId = typeof input?.nodeId === "string" ? input.nodeId.trim() : "";
-    let launch: TerminalLaunch | undefined = input?.launch;
-    let firstTypedMessage: string | undefined;
-    if (canvasName && nodeId) {
-      try {
-        const { CanvasesService } = await import("../canvases");
-        const { AppRuntime } = await import("../../runtime");
-        const { Effect } = await import("effect");
-        const { launchForManagedSpawn } = await import("./managed-spawn-plan");
-        const read = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const canvases = yield* CanvasesService;
-            return yield* canvases.read(canvasName).pipe(Effect.result);
-          }),
-        );
-        if (read._tag === "Success") {
+      const entityKind = node.ether?.entity?.kind;
+      const canvasName =
+        typeof input.canvasName === "string" ? input.canvasName.trim() : "";
+
+      if (entityKind === "agent") {
+        const surface = actorDeliverySurfaceOf(node);
+        if (!surface) {
+          return deny(
+            "terminal ipc: agent seat requires an agent name, terminal binding, and harness",
+          );
+        }
+        if (!isHarnessId(surface.harness)) {
+          return deny(`terminal ipc: unknown harness template ${surface.harness}`);
+        }
+        if (!managedHarnessEnabled(surface.harness)) {
+          return deny(
+            `terminal ipc: harness ${surface.harness} is disabled in this build`,
+          );
+        }
+        await ensureHostAvailable(surface.hostId);
+
+        // The supplied node is immediate authorial intent. Canvas persistence
+        // is debounced, so a read can enrich launch injection with live edges
+        // but can never be a prerequisite for occupying this actor seat.
+        let launch: TerminalLaunch | undefined = surface.launch;
+        let firstTypedMessage: string | undefined;
+        try {
+          const { launchForManagedSpawn } = await import("./managed-spawn-plan");
+          let docForPlan: CanvasDoc | undefined;
+          if (canvasName) {
+            const { CanvasesService } = await import("../canvases");
+            const read = await AppRuntime.runPromise(
+              Effect.gen(function* () {
+                const canvases = yield* CanvasesService;
+                return yield* canvases.read(canvasName).pipe(Effect.result);
+              }),
+            );
+            if (read._tag === "Success") {
+              const persisted = read.success.doc;
+              const found = persisted.nodes.some((candidate) => candidate.id === node.id);
+              docForPlan = {
+                ...persisted,
+                nodes: found
+                  ? persisted.nodes.map((candidate) =>
+                      candidate.id === node.id ? node : candidate,
+                    )
+                  : [...persisted.nodes, node],
+              };
+            }
+          }
           const planned = launchForManagedSpawn({
-            doc: read.success.doc,
-            nodeId,
-            harness,
-            documentLaunch: input.launch,
-            agentKey,
-            cwd: input.launch?.cwd,
+            ...(docForPlan ? { doc: docForPlan } : {}),
+            nodeId: node.id,
+            harness: surface.harness,
+            documentLaunch: surface.launch,
+            agentKey: surface.agentKey,
+            cwd: surface.launch?.cwd,
+            sessionId: node.ether?.terminal?.sessionId,
             resume: input.resume === true,
           });
           if (planned.launch) launch = planned.launch;
           firstTypedMessage = planned.plan?.firstTypedMessage;
+        } catch (err) {
+          console.error(
+            "[term] managed spawn replan failed; using supplied node launch:",
+            err,
+          );
         }
-      } catch (err) {
-        console.error("[term] managed spawn replan failed; using document launch:", err);
+
+        return AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const seats = yield* ActorSeatOccupy;
+            return yield* seats.occupy({
+              bindingId: surface.bindingId,
+              harness: surface.harness,
+              agentKey: surface.agentKey,
+              hostId: surface.hostId,
+              ...(launch ? { launch } : {}),
+              ...(typeof input.cols === "number" ? { cols: input.cols } : {}),
+              ...(typeof input.rows === "number" ? { rows: input.rows } : {}),
+              ...(canvasName ? { canvasName } : {}),
+              nodeId: node.id,
+              ...(node.ether?.terminal?.label
+                ? { label: node.ether.terminal.label }
+                : {}),
+              ...(firstTypedMessage ? { firstTypedMessage } : {}),
+            });
+          }),
+        );
       }
-    }
-    // Named field by field so the seat is built from the wire, never spread
-    // from it — an untyped echo is how a loose harness field got its authority.
-    return router.createAgentSeat({
-      harness,
-      agentKey,
-      bindingId: typeof input?.bindingId === "string" ? input.bindingId : "",
-      ...(typeof input?.hostId === "string" ? { hostId: input.hostId } : {}),
-      ...(typeof input?.cols === "number" ? { cols: input.cols } : {}),
-      ...(typeof input?.rows === "number" ? { rows: input.rows } : {}),
-      ...(canvasName ? { canvasName } : {}),
-      ...(nodeId ? { nodeId } : {}),
-      ...(typeof input?.label === "string" ? { label: input.label } : {}),
-      ...(typeof input?.title === "string" ? { title: input.title } : {}),
-      ...(launch ? { launch } : {}),
-      ...(firstTypedMessage ? { firstTypedMessage } : {}),
-    });
-  });
+
+      if (entityKind === "terminal") {
+        const binding = resolveTerminalBinding(node);
+        if (binding?.kind !== "native") {
+          return deny("terminal ipc: raw terminal requires a terminal binding");
+        }
+        await ensureHostAvailable(binding.hostId);
+        return router.create({
+          bindingId: binding.bindingId,
+          hostId: binding.hostId,
+          ...(binding.launch ? { launch: binding.launch } : {}),
+          ...(typeof input.cols === "number" ? { cols: input.cols } : {}),
+          ...(typeof input.rows === "number" ? { rows: input.rows } : {}),
+          ...(canvasName ? { canvasName } : {}),
+          nodeId: node.id,
+          ...(binding.label ? { label: binding.label } : {}),
+        });
+      }
+
+      return deny(
+        `terminal ipc: unsupported canvas node kind ${entityKind ?? "missing"}`,
+      );
+    },
+  );
 
   ipcMain.handle(
     IPC_CHANNELS.managedTerminalModels,

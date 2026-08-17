@@ -174,6 +174,13 @@ test("pad agent refusal: mock seat pad.patch ink and image are InputError", asyn
   await writeFile(mockBin, MOCK_CODEX, "utf8");
   await chmod(mockBin, 0o755);
 
+  const seatNode = agentTextNode({
+    id: SEAT_ID,
+    key: "local:pad-refuse",
+    label: "seat",
+    x: 40,
+    y: 40,
+  });
   const vellumCommand = await launchVellum({
     extraEnv: {
       PATH: e2ePath(mockDir),
@@ -182,16 +189,7 @@ test("pad agent refusal: mock seat pad.patch ink and image are InputError", asyn
     },
     seedCanvases: {
       [CANVAS]: canvasDoc(
-        [
-          agentTextNode({
-            id: SEAT_ID,
-            key: "local:pad-refuse",
-            label: "seat",
-            x: 40,
-            y: 40,
-          }),
-          padNode,
-        ],
+        [seatNode, padNode],
         [{ id: "e-seat-pad", fromNode: SEAT_ID, toNode: PAD_ID }],
       ),
     },
@@ -231,21 +229,14 @@ test("pad agent refusal: mock seat pad.patch ink and image are InputError", asyn
 
     const occupySeat = () =>
       page.evaluate(
-        async ([canvas, nodeId, bindingId]) => {
+        async ([canvas, node]) => {
           const api = window.vellumCommand!;
           if (typeof api.terminalCreate !== "function") {
             throw new Error("terminalCreate missing");
           }
-          await api.terminalCreate({
-            bindingId,
-            hostId: "local",
-            canvasName: canvas,
-            nodeId,
-            harness: "codex",
-            agentKey: bindingId,
-          });
+          await api.terminalCreate({ node, canvasName: canvas });
         },
-        [CANVAS, SEAT_ID, "local:pad-refuse"] as const,
+        [CANVAS, seatNode] as const,
       );
 
     await occupySeat().catch(() => undefined);

@@ -185,28 +185,46 @@ describe("terminal seat architecture", () => {
     expect(violations).toEqual([]);
   });
 
-  it("control-server create consults occupancy", () => {
+  it("control-server splits geography create from actor occupation", () => {
     const { path, source } = readSource(CONTROL_SERVER);
     const loc = display(path);
     const create = caseBody(source, "create");
+    const createAgentSeat = caseBody(source, "createAgentSeat");
     const violations: string[] = [];
 
     if (!create) {
       violations.push(`${loc} — case "create" missing`);
-    } else if (!consultsOccupancy(create)) {
-      violations.push(
-        `${loc} — case "create" exists but occupancy is not consulted`,
-      );
-    } else if (!occupancyBeforeSpawn(create)) {
-      violations.push(
-        `${loc} — case "create" occupancy is not before spawn`,
-      );
+    } else {
+      if (!/\bhost\.create\s*\(/u.test(create)) {
+        violations.push(`${loc} — geography create does not delegate to host.create`);
+      }
+      if (/\bhost\.createAgentSeat\s*\(/u.test(create)) {
+        violations.push(`${loc} — geography create can enter the actor path`);
+      }
+      if (!/does not accept harness or agentKey/u.test(create)) {
+        violations.push(`${loc} — geography create does not reject actor fields`);
+      }
+    }
+
+    if (!createAgentSeat) {
+      violations.push(`${loc} — case "createAgentSeat" missing`);
+    } else {
+      const occupancyAt = createAgentSeat.search(OCCUPANCY);
+      const spawnAt = createAgentSeat.search(/\bhost\.createAgentSeat\s*\(/u);
+      if (occupancyAt < 0) {
+        violations.push(`${loc} — actor occupation does not consult occupancy`);
+      } else if (spawnAt < 0 || occupancyAt > spawnAt) {
+        violations.push(`${loc} — actor occupancy is not before spawn`);
+      }
+      if (!/\bhost\.adoptAgentSeat\s*\(/u.test(createAgentSeat)) {
+        violations.push(`${loc} — occupied actor seat is not adopted`);
+      }
     }
 
     expect(violations).toEqual([]);
   });
 
-  it("ensureTerminalRunning consults occupancy so occupied seats do not create-as-replace", () => {
+  it("delegates actor WHEN to Main while geography still consults occupancy", () => {
     const { path, source } = readSource(TERMINAL_ACTIONS);
     const loc = display(path);
     const ensure = declarationBody(
@@ -217,14 +235,41 @@ describe("terminal seat architecture", () => {
 
     if (!ensure) {
       violations.push(`${loc} — ensureTerminalRunning missing`);
-    } else if (!consultsOccupancy(ensure)) {
-      violations.push(
-        `${loc} — ensureTerminalRunning exists but occupancy is not consulted`,
+    } else {
+      const actorStart = ensure.indexOf('if (entityKind === "agent") {');
+      const geographyStart = ensure.indexOf(
+        'if (entityKind !== "terminal") {',
+        actorStart,
       );
-    } else if (!occupancyBeforeSpawn(ensure)) {
-      violations.push(
-        `${loc} — ensureTerminalRunning occupancy is not before create`,
-      );
+      const actor =
+        actorStart >= 0 && geographyStart > actorStart
+          ? ensure.slice(actorStart, geographyStart)
+          : undefined;
+      const geography =
+        geographyStart >= 0 ? ensure.slice(geographyStart) : undefined;
+
+      if (!actor) {
+        violations.push(`${loc} — exact agent arm missing`);
+      } else {
+        const createAt = actor.search(/\bterminalCreate\s*\(/u);
+        const getAt = actor.search(/\bterminalGet\b/u);
+        if (createAt < 0) {
+          violations.push(`${loc} — agent arm does not delegate to terminalCreate`);
+        } else if (getAt >= 0 && getAt < createAt) {
+          violations.push(`${loc} — agent arm makes a renderer occupancy decision`);
+        }
+        if (consultsOccupancy(actor)) {
+          violations.push(`${loc} — actor WHEN must stay in Main ActorSeatOccupy`);
+        }
+      }
+
+      if (!geography) {
+        violations.push(`${loc} — exact terminal geography arm missing`);
+      } else if (!consultsOccupancy(geography)) {
+        violations.push(`${loc} — geography occupancy is not consulted`);
+      } else if (!occupancyBeforeSpawn(geography)) {
+        violations.push(`${loc} — geography occupancy is not before create`);
+      }
     }
 
     expect(violations).toEqual([]);

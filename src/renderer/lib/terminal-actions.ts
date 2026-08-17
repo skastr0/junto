@@ -2,6 +2,7 @@
  * Terminal open / create / kill — used by the node toolbar and card double-click.
  * Session start is automatic on open; no Start button on the card body.
  */
+import { actorDeliverySurfaceOf } from "@shared/actor-surface";
 import type { CanvasNode } from "@shared/canvas";
 import { resolveTerminalBinding, sessionActorMatches } from "@shared/terminal";
 import { occupancyFromSummary } from "@shared/terminal-seat-occupancy";
@@ -11,21 +12,87 @@ import { state$ } from "./state";
 import type { WorkZone } from "./surface-registry";
 import { openTerminalSurface, terminal$ } from "./terminal-state";
 
+const missingActorSurfaceMessage =
+  "agent seat is incomplete — add an agent name, terminal binding, and harness";
+
+type TerminalActionResult =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly message: string };
+
 export const ensureTerminalRunning = async (
   node: CanvasNode,
   options?: { readonly resume?: boolean },
-): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }> => {
+): Promise<TerminalActionResult> => {
+  const entityKind = node.ether?.entity?.kind;
+
+  if (entityKind === "agent") {
+    const surface = actorDeliverySurfaceOf(node);
+    if (!surface) {
+      return { ok: false, message: missingActorSurfaceMessage };
+    }
+    const api = getVellumCommandApi();
+    if (!api?.terminalCreate) {
+      return { ok: false, message: "terminal API unavailable — restart Vellum Command" };
+    }
+    try {
+      // Main owns ActorSeatOccupy, including occupied-vs-vacant WHEN. Always
+      // send the node-derived actor command; a cached renderer summary is not
+      // authority to skip occupation or reconstruct a geography shell.
+      let next = await api.terminalCreate({
+        node,
+        canvasName: state$.canvasName.peek(),
+        resume: options?.resume ?? true,
+      });
+      if (!sessionActorMatches(next, surface)) {
+        return {
+          ok: false,
+          message: "actor seat did not bind the requested identity",
+        };
+      }
+      // A resume generation can die and be fail-open replaced before or just
+      // after occupy returns. Prefer the live binding head over a stale exited
+      // snapshot so the surface does not paint dead while a pin is already up.
+      if (next.status === "exited") {
+        const deadline = Date.now() + 4_000;
+        while (Date.now() < deadline) {
+          const live = await api.terminalGet?.(surface.bindingId, surface.hostId);
+          if (live && (live.status === "running" || live.status === "starting")) {
+            next = live;
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+      }
+      terminal$.sessionByBindingId[surface.bindingId].set(next);
+      if (next.status === "exited") {
+        return {
+          ok: false,
+          message: next.exitMessage ?? "agent exited immediately after spawn",
+        };
+      }
+      return { ok: true };
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { ok: false, message: message || "start failed" };
+    }
+  }
+
+  // Raw native terminals are geography. Optional terminal fields can never
+  // promote another kind into this arm.
+  if (entityKind !== "terminal") {
+    return { ok: false, message: "unbound terminal" };
+  }
   const binding = resolveTerminalBinding(node);
   if (binding?.kind !== "native") {
-    return { ok: false, message: "unbound terminal" };
+    return { ok: false, message: "raw terminal is missing its binding" };
   }
   const api = getVellumCommandApi();
   if (!api?.terminalCreate) {
     return { ok: false, message: "terminal API unavailable — restart Vellum Command" };
   }
-  // Occupied seats activate; they are never occupied again. Stopping still
-  // occupies the seat. Vacant (exited / missing / unknown) is the only
-  // create path.
+
+  // Geography keeps its attach-or-create shortcut. Actor occupation above is
+  // deliberately unconditional and delegates WHEN to ActorSeatOccupy in Main.
   let live: Awaited<ReturnType<NonNullable<typeof api.terminalGet>>> | undefined;
   try {
     live = await api.terminalGet?.(binding.bindingId, binding.hostId);
@@ -34,72 +101,15 @@ export const ensureTerminalRunning = async (
   }
   const occupancy = occupancyFromSummary(binding.bindingId, live);
   if (occupancy._tag === "OccupiedSeat" && live) {
-    const actor =
-      binding.harness && binding.agentKey
-        ? { harness: binding.harness, agentKey: binding.agentKey }
-        : undefined;
-    if (actor && sessionActorMatches(live, actor)) {
-      terminal$.sessionByBindingId[binding.bindingId].set(live);
-      return { ok: true };
-    }
-    if (actor) {
-      try {
-        const adopted = await api.terminalCreate({
-          bindingId: binding.bindingId,
-          hostId: binding.hostId,
-          launch: binding.launch,
-          canvasName: state$.canvasName.peek(),
-          nodeId: node.id,
-          label: binding.label,
-          harness: actor.harness,
-          agentKey: actor.agentKey,
-        });
-        if (!sessionActorMatches(adopted, actor)) {
-          return {
-            ok: false,
-            message: "remote seat did not bind actor identity",
-          };
-        }
-        terminal$.sessionByBindingId[binding.bindingId].set(adopted);
-        return { ok: true };
-      } catch (err: unknown) {
-        return {
-          ok: false,
-          message: err instanceof Error ? err.message : String(err),
-        };
-      }
-    }
     terminal$.sessionByBindingId[binding.bindingId].set(live);
     return { ok: true };
   }
+
   try {
-    let next = await api.terminalCreate({
-      bindingId: binding.bindingId,
-      hostId: binding.hostId,
-      launch: binding.launch,
+    const next = await api.terminalCreate({
+      node,
       canvasName: state$.canvasName.peek(),
-      nodeId: node.id,
-      label: binding.label,
-      ...(binding.harness ? { harness: binding.harness } : {}),
-      ...(binding.agentKey ? { agentKey: binding.agentKey } : {}),
-      ...(binding.harness
-        ? { resume: options?.resume ?? true }
-        : {}),
     });
-    // A resume generation can die and be fail-open replaced before or just
-    // after create returns. Prefer the live binding head over a stale exited
-    // snapshot so the surface does not paint dead while a pin is already up.
-    if (next.status === "exited" && binding.harness) {
-      const deadline = Date.now() + 4_000;
-      while (Date.now() < deadline) {
-        const live = await api.terminalGet?.(binding.bindingId, binding.hostId);
-        if (live && (live.status === "running" || live.status === "starting")) {
-          next = live;
-          break;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 50));
-      }
-    }
     terminal$.sessionByBindingId[binding.bindingId].set(next);
     // Create is still allowed to open the surface for journal/error replay
     // when the generation dies before the first attach (bad cwd, missing
@@ -107,8 +117,7 @@ export const ensureTerminalRunning = async (
     if (next.status === "exited") {
       return {
         ok: false,
-        message:
-          next.exitMessage ?? "terminal exited immediately after spawn",
+        message: next.exitMessage ?? "terminal exited immediately after spawn",
       };
     }
     return { ok: true };
@@ -131,17 +140,23 @@ export const openTerminal = async (
   zone: WorkZone = "focus",
   options?: { readonly resume?: boolean },
 ): Promise<void> => {
+  const entityKind = node.ether?.entity?.kind;
+  if (entityKind === "agent" && !actorDeliverySurfaceOf(node)) {
+    // An authored actor never degrades into a shell. The global warning is a
+    // visible correction path even though an incomplete node has no terminal
+    // binding with which to mount the normal surface error chrome.
+    state$.error.set(`terminal / ${missingActorSurfaceMessage}`);
+    return;
+  }
+  if (entityKind !== "agent" && entityKind !== "terminal") return;
+
   const binding = resolveTerminalBinding(node);
   if (binding?.kind !== "native") return;
-
-  const agentSeat = Boolean(
-    binding.harness?.trim() || binding.agentKey?.trim(),
-  );
 
   // Opening is "looking" — clear ready/complete (idle+unseen → idle), herdr-style.
   markAgentSeatSeen(binding.bindingId);
 
-  if (agentSeat) {
+  if (entityKind === "agent") {
     // Surface owns ensure + attach (spinner covers the full path).
     openTerminalSurface(node, zone, state$.canvasName.peek());
     return;
@@ -150,6 +165,7 @@ export const openTerminal = async (
   const result = await ensureTerminalRunning(node, options);
   if (!result.ok) {
     console.error("[terminal] open failed", result.message);
+    state$.error.set(`terminal / ${result.message}`);
     // Still open the surface when a generation exists so the operator can
     // read the spawn journal (e.g. unexpanded cwd / missing shell). A total
     // unbound failure leaves the surface closed.
