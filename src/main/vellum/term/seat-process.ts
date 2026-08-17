@@ -220,7 +220,13 @@ export const makeLocalSeatProcess = (
           try: () => Promise.resolve(),
           catch: asClientError,
         });
-        return host.get(bindingId) ?? created;
+        // Symmetric with the Remote HOW: occupation only returns a generation
+        // that verifiably carries the requested actor identity.
+        return yield* ensureActorIdentity(
+          host.get(bindingId) ?? created,
+          bindingId,
+          spec,
+        );
       }),
     activate: (command, actor) =>
       Effect.gen(function* () {

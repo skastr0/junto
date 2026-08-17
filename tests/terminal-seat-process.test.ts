@@ -16,6 +16,7 @@ import {
   occupyVacantSeat,
   seatAdmission,
   SeatIdentityConflictError,
+  SeatOccupationFailedError,
 } from "../src/shared/terminal-seat-occupancy";
 import {
   makeProcessIdentityMap,
@@ -209,6 +210,36 @@ describe("local TerminalSeatProcess", () => {
     });
     expect(fake.controllers).toHaveLength(1);
     expect(fake.controllers[0]?.signals).toEqual([]);
+  });
+
+  it("rejects a local occupation whose identity bind fails and tears the process down", async () => {
+    const identities = makeProcessIdentityMap({
+      processAlive: () => true,
+      // No start key: the exact-generation identity bind cannot be established.
+      readProcessStartKey: () => undefined,
+    });
+    setProcessIdentityMapForTests(identities);
+    const fake = makeFakeTerminalProcessAuthority(() => ({
+      pid: 42_650,
+      exitOnSignal: "SIGTERM",
+    }));
+    const host = new LocalSessionHost(fake.authority);
+    hosts.push(host);
+    const seats = makeLocalSeatProcess(host);
+
+    const failure = await Effect.runPromise(
+      Effect.flip(
+        seats.occupy(
+          vacantCommand("seat-bind-fail", "local"),
+          actorSpec("seat-bind-fail"),
+        ),
+      ),
+    );
+
+    expect(failure).toBeInstanceOf(SeatOccupationFailedError);
+    expect(fake.controllers).toHaveLength(1);
+    expect(fake.controllers[0]?.signals).toEqual(["SIGTERM"]);
+    await vi.waitFor(() => expect(host.runningCount()).toBe(0));
   });
 
   it("replans a dead proven resume as a fresh injected generation", async () => {

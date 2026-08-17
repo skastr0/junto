@@ -1120,6 +1120,12 @@ export class LocalSessionHost extends EventEmitter {
     } catch (err) {
       this.recordPostSpawnFailure(rec, err);
       this.requestStop(rec, "terminal_setup_failed");
+      if (seat.kind === "agent") {
+        // Actor occupation is fail-closed: the process is torn down exactly as
+        // for geography, but the occupation itself rejects with a typed
+        // failure instead of converging on an exited summary.
+        throw seatOccupationFailedError(bindingId, epoch, err);
+      }
     }
 
     // Prefer the map head: fail-open may have swapped the binding mid-open.

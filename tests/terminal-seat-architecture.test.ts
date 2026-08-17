@@ -54,6 +54,17 @@ const matchingClose = (
   let i = openIndex;
   while (i < text.length) {
     const ch = text[i]!;
+    // Comments may hold apostrophes and unbalanced braces; skip them whole.
+    if (ch === "/" && text[i + 1] === "/") {
+      const eol = text.indexOf("\n", i);
+      i = eol < 0 ? text.length : eol + 1;
+      continue;
+    }
+    if (ch === "/" && text[i + 1] === "*") {
+      const end = text.indexOf("*/", i + 2);
+      i = end < 0 ? text.length : end + 2;
+      continue;
+    }
     if (ch === '"' || ch === "'" || ch === "`") {
       i = skipQuoted(text, i);
       continue;

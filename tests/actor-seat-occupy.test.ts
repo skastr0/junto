@@ -73,7 +73,12 @@ afterEach(async () => {
 
 describe("ActorSeatOccupy", () => {
   it("occupies then activates the same local actor generation", async () => {
-    setProcessIdentityMapForTests(makeProcessIdentityMap());
+    setProcessIdentityMapForTests(
+      makeProcessIdentityMap({
+        processAlive: () => true,
+        readProcessStartKey: (pid) => syntheticEpochs.get(pid),
+      }),
+    );
     syntheticEpochs.set(42_700, "synthetic-42700");
     const fake = makeFakeTerminalProcessAuthority(() => ({
       pid: 42_700,
@@ -117,7 +122,12 @@ describe("ActorSeatOccupy", () => {
   });
 
   it("selects local then Remote HOW per call on one service instance", async () => {
-    setProcessIdentityMapForTests(makeProcessIdentityMap());
+    setProcessIdentityMapForTests(
+      makeProcessIdentityMap({
+        processAlive: () => true,
+        readProcessStartKey: (pid) => syntheticEpochs.get(pid),
+      }),
+    );
     syntheticEpochs.set(42_701, "synthetic-42701");
     const fake = makeFakeTerminalProcessAuthority(() => ({
       pid: 42_701,

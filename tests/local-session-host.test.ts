@@ -31,6 +31,7 @@ import type {
   PrimeAgentDaemons,
 } from "../src/main/vellum/term/prime-agent-daemon";
 import { seatStateRuntime } from "../src/main/vellum/term/agent-state";
+import { SeatOccupationFailedError } from "../src/shared/terminal-seat-occupancy";
 import type { PrimeAgentReporterReport } from "../src/main/vellum/term/prime-agent-reporter";
 
 const hosts: LocalSessionHost[] = [];
@@ -870,23 +871,31 @@ describe("LocalSessionHost", () => {
       const host = hostWith(fake, { primeDaemons: daemons.manager });
       vi.spyOn(console, "error").mockImplementation(() => undefined);
 
-      const created = host.createAgentSeat({
+      const input = {
         bindingId: `prime-bind-fail-${failureAt}`,
         harness: "prime-agent",
         agentKey: `local:prime-bind-fail-${failureAt}`,
         launch: { kind: "harness", argv: ["prime-agent"] },
         canvasName: "factory",
         nodeId: `prime-bind-fail-${failureAt}-node`,
-      });
+      } as const;
 
       if (failureAt === "daemon") {
+        // Pre-ownership failure: no process was ever owned, so create settles
+        // on the exited generation for the node to render.
+        const created = host.createAgentSeat(input);
         expect(created.status).toBe("exited");
         expect(fake.controllers).toHaveLength(0);
       } else {
+        // Post-spawn failure: the actor occupation rejects fail-closed with a
+        // typed failure while the process is torn down exactly as before.
+        expect(() => host.createAgentSeat(input)).toThrow(
+          SeatOccupationFailedError,
+        );
         expect(fake.controllers).toHaveLength(1);
         expect(fake.controllers[0]?.signals).toEqual(["SIGTERM"]);
         await vi.waitFor(() =>
-          expect(host.get(created.bindingId)?.status).toBe("exited"),
+          expect(host.get(input.bindingId)?.status).toBe("exited"),
         );
       }
       expect(daemons.records[0]?.stopReasons.length).toBeGreaterThan(0);
