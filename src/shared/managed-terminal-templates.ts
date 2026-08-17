@@ -101,8 +101,9 @@ export type ArgvSpec = {
   /** Session pin when supported (`--session-id`). Absent ⇒ capture-only. */
   readonly sessionIdFlag?: string;
   /**
-   * Resume shape:
-   * - `flag` — `--resume <id>` / `-r <id>` / `-r <id>` after prefix
+   * Resume shape — always with an explicit session id. Never `--continue` / `-c`
+   * (id-less "latest session" is not a Vellum Command feature).
+   * - `flag` — `--resume <id>` / `-r <id>` / `-S <id>` / `--session <id>`
    * - `subcommand` — `codex resume <id>` (binary args become resume …)
    */
   readonly resumeMode?: "flag" | "subcommand";

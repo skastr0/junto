@@ -9,6 +9,7 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
+import { stripIdlessSessionContinue } from "@shared/managed-terminal-launch";
 import type { HarnessId } from "@shared/managed-terminal-templates";
 
 export type SessionExistenceProbe = {
@@ -434,7 +435,9 @@ export const reclaimOrphanedHarnessArgv = (
   cwd?: string,
 ): string[] => {
   const parsed = parseHarnessSessionArgv(argv);
-  if (!parsed || parsed.mode === "resume") return [...argv];
+  if (!parsed || parsed.mode === "resume") {
+    return stripIdlessSessionContinue(argv);
+  }
   if (
     !harnessSessionExists({
       harness: parsed.harness,
@@ -442,21 +445,21 @@ export const reclaimOrphanedHarnessArgv = (
       ...(cwd === undefined ? {} : { cwd }),
     })
   ) {
-    return [...argv];
+    return stripIdlessSessionContinue(argv);
   }
   const out = [...argv];
   const resumeFlag = resumeFlagFor(parsed.harness);
   for (let i = 1; i < out.length; i += 1) {
     if (out[i] === "--session-id" && out[i + 1] === parsed.sessionId) {
       out[i] = resumeFlag;
-      return out;
+      return stripIdlessSessionContinue(out);
     }
     if (out[i] === `--session-id=${parsed.sessionId}`) {
       out.splice(i, 1, resumeFlag, parsed.sessionId);
-      return out;
+      return stripIdlessSessionContinue(out);
     }
   }
-  return out;
+  return stripIdlessSessionContinue(out);
 };
 
 export const launchArgvUsesResume = (

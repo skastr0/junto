@@ -101,6 +101,33 @@ export const buildSpawnEnv = (
 
 // ── Argv construction ──────────────────────────────────────────────────────
 
+/**
+ * Id-less "continue last session" flags. Not a Vellum Command feature.
+ * `-c` is in this set only as a *resume* flag (Claude/Kimi/Devin continue).
+ * Codex still uses `-c` for config keys — that is not resume.
+ */
+const IDLESS_SESSION_CONTINUE_FLAGS: ReadonlySet<string> = new Set([
+  "--continue",
+  "-c",
+]);
+
+export const isIdlessSessionContinueFlag = (token: string): boolean =>
+  token === "--continue";
+
+/** Non-empty session id that is not another flag. */
+export const namedHarnessSessionId = (
+  value: string | undefined,
+): string | undefined => {
+  const id = value?.trim();
+  if (!id || id.startsWith("-")) return undefined;
+  return id;
+};
+
+/** Drop `--continue` so a hand-authored argv cannot mean "resume latest". */
+export const stripIdlessSessionContinue = (
+  argv: readonly string[],
+): string[] => argv.filter((token) => !isIdlessSessionContinueFlag(token));
+
 const pushFlag = (
   argv: string[],
   flag: string | undefined,
@@ -126,15 +153,22 @@ const buildArgv = (
 ): string[] => {
   const { argvSpec: spec } = template;
   const argv: string[] = [spec.binary];
+  const resumeId = namedHarnessSessionId(choices.resumeId);
+  const resumeFlag = spec.resumeFlag?.trim();
+  const namedResumeFlag =
+    resumeFlag && !IDLESS_SESSION_CONTINUE_FLAGS.has(resumeFlag)
+      ? resumeFlag
+      : undefined;
 
   // Codex resume is a subcommand: `codex resume <id> …flags… [prompt]`
   // Re-pass every flag — resume does not inherit spawn options.
-  if (choices.resumeId && spec.resumeMode === "subcommand") {
-    argv.push("resume", choices.resumeId);
+  // Named id only — never `--continue` / bare resume / "latest session".
+  if (resumeId && spec.resumeMode === "subcommand") {
+    argv.push("resume", resumeId);
   } else {
     argv.push(...spec.prefix);
-    if (choices.resumeId && spec.resumeMode === "flag" && spec.resumeFlag) {
-      argv.push(spec.resumeFlag, choices.resumeId);
+    if (resumeId && spec.resumeMode === "flag" && namedResumeFlag) {
+      argv.push(namedResumeFlag, resumeId);
     }
   }
 
@@ -197,7 +231,7 @@ const buildArgv = (
     }
   }
 
-  return argv;
+  return stripIdlessSessionContinue(argv);
 };
 
 // ── Public resolve ─────────────────────────────────────────────────────────
