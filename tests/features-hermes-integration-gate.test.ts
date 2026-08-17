@@ -87,7 +87,9 @@ describe("Hermes integration product gate", () => {
       expect(snapshots).toContain(
         "HERMES_INTEGRATION_ENABLED\n        ? plane.fetchBundle",
       );
-      expect(terminalIpc).toContain("if (!managedHarnessEnabled(harness))");
+      expect(terminalIpc).toContain(
+        "if (!managedHarnessEnabled(surface.harness))",
+      );
     },
   );
 
