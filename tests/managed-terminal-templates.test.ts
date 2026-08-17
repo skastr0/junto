@@ -39,7 +39,7 @@ import {
 } from "../src/shared/features";
 
 describe("managed-terminal templates (data)", () => {
-  const ALL_NINE = [
+  const ALL_HARNESSES = [
     "claude",
     "codex",
     "grok",
@@ -49,11 +49,12 @@ describe("managed-terminal templates (data)", () => {
     "kimi",
     "muse",
     "devin",
+    "cursor",
   ] as const;
 
-  it("exports exactly the nine managed harnesses", () => {
-    expect(HARNESS_IDS).toEqual([...ALL_NINE]);
-    const expected = ALL_NINE.filter((h) => managedHarnessEnabled(h));
+  it("exports exactly the managed harnesses", () => {
+    expect(HARNESS_IDS).toEqual([...ALL_HARNESSES]);
+    const expected = ALL_HARNESSES.filter((h) => managedHarnessEnabled(h));
     expect(allTemplates().map((template) => template.harness)).toEqual([
       ...expected,
     ]);
@@ -66,7 +67,7 @@ describe("managed-terminal templates (data)", () => {
     if (!HARNESS_PRIME_AGENT_ENABLED) {
       expect(expected).not.toContain("prime-agent");
     }
-    for (const id of HARNESS_IDS) {
+    for (const id of ALL_HARNESSES) {
       expect(isHarnessId(id)).toBe(true);
       expect(templateFor(id)).toBe(MANAGED_TERMINAL_TEMPLATES[id]);
       expect(MANAGED_TERMINAL_TEMPLATES[id].harness).toBe(id);
@@ -131,6 +132,9 @@ describe("managed-terminal templates (data)", () => {
       "CLAUDE_CODE_ENTRYPOINT",
       "NO_COLOR",
       "FORCE_COLOR",
+      "CURSOR_CONVERSATION_ID",
+      "CURSOR_AGENT_STORE_FILES_DIR",
+      "CURSOR_AGENT_STORE_SHARED_PATHS",
     ]);
     for (const t of allTemplates()) {
       expect(t.envSpec.scrub).toEqual(SPAWN_ENV_SCRUB);
@@ -575,6 +579,41 @@ describe("resolveManagedLaunch argv", () => {
     ]);
     const bare = resolveManagedLaunch("devin", {}, bareAmbient);
     expect(bare.argv).toEqual(["devin", "--permission-mode", "normal"]);
+  });
+
+  it("cursor: --trust prefix, positional prompt, --model, bare --yolo", () => {
+    const launch = resolveManagedLaunch(
+      "cursor",
+      { prompt: "fix tests", model: "auto", permissionMode: "yolo" },
+      bareAmbient,
+    );
+    expect(launch.argv).toEqual([
+      "agent",
+      "--trust",
+      "--model",
+      "auto",
+      "--yolo",
+      "fix tests",
+    ]);
+    const bare = resolveManagedLaunch("cursor", {}, bareAmbient);
+    expect(bare.argv).toEqual(["agent", "--trust"]);
+  });
+
+  it("cursor resume re-passes --model via --resume <id>", () => {
+    const launch = resolveManagedLaunch(
+      "cursor",
+      { resumeId: "chat-abc", model: "composer-2.5" },
+      bareAmbient,
+    );
+    expect(launch.argv).toEqual([
+      "agent",
+      "--trust",
+      "--resume",
+      "chat-abc",
+      "--model",
+      "composer-2.5",
+    ]);
+    expect(launch.argv).not.toContain("--continue");
   });
 
   it("devin resume re-passes --model and default permission via -r", () => {

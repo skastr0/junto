@@ -841,4 +841,45 @@ describe("evaluate — kimi / pi / prime-agent scrollback hygiene", () => {
     );
     expect(result.state).toBe("idle");
   });
+
+  it("cursor: approval form is attention", () => {
+    const result = evaluate(
+      snap({
+        lines: [
+          "Run this command?",
+          "ls -la",
+          "Run (once) (y)",
+          "Skip (esc or n)",
+        ],
+        title: "Cursor Agent",
+      }),
+      { harness: "cursor" },
+    );
+    expect(result.state).toBe("attention");
+    expect(result.visibleAttention).toBe(true);
+  });
+
+  it("cursor: ctrl+c to stop is working", () => {
+    const result = evaluate(
+      snap({
+        lines: ["generating a patch", "ctrl+c to stop"],
+        title: "Cursor Agent",
+      }),
+      { harness: "cursor" },
+    );
+    expect(result.state).toBe("working");
+    expect(result.ruleId).toBe("stop_hint_working");
+  });
+
+  it("cursor: welcome placeholder is idle", () => {
+    const result = evaluate(
+      snap({
+        lines: ["Plan, search, build anything"],
+        title: "Cursor Agent",
+      }),
+      { harness: "cursor" },
+    );
+    expect(result.state).toBe("idle");
+    expect(result.ruleId).toBe("welcome_idle");
+  });
 });

@@ -35,6 +35,7 @@ describe("HarnessId is closed at the document seam", () => {
       "kimi",
       "muse",
       "devin",
+      "cursor",
     ]);
     for (const harness of HARNESS_IDS) {
       const decoded = decodeCanvasDoc(agentDoc({ bindingId: "b1", harness }));

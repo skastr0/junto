@@ -17,7 +17,7 @@ import { managedHarnessEnabled } from "./features";
  * The managed-terminal harnesses. OpenClaw is out by construction.
  *
  * v1 (2026-07): claude, codex, grok, hermes. Extended 2026-08: pi,
- * prime-agent, kimi, muse, devin (agent-CLI sweep — docs/research/agent-cli-sweep/).
+ * prime-agent, kimi, muse, devin, cursor (agent-CLI sweep — docs/research/agent-cli-sweep/).
  *
  * Closed literal, and the *only* declaration of the set: a harness id names a
  * template in this file or it does not decode. Every document, IPC input, and
@@ -34,6 +34,7 @@ export const HarnessId = Schema.Literals([
   "kimi",
   "muse",
   "devin",
+  "cursor",
 ]);
 export type HarnessId = typeof HarnessId.Type;
 
@@ -131,6 +132,10 @@ export const SPAWN_ENV_SCRUB: readonly string[] = [
   // Ambient FORCE_COLOR defeats the NO_COLOR scrub on chalk-based TUIs
   // (pi, prime-agent, cursor, amp) — it must go with it.
   "FORCE_COLOR",
+  // Nested Cursor seats inherit conversation/store traps from a parent agent.
+  "CURSOR_CONVERSATION_ID",
+  "CURSOR_AGENT_STORE_FILES_DIR",
+  "CURSOR_AGENT_STORE_SHARED_PATHS",
 ] as const;
 
 export type EnvSpec = {
@@ -584,6 +589,46 @@ export const DEVIN_TEMPLATE: ManagedTerminalTemplate = {
   defaultPermissionMode: "normal",
 };
 
+/**
+ * Cursor Agent CLI (binary: `agent`) — Tier B, capture session, grid feed.
+ * Verified 2026.08.11: positional prompt; --model (effort is a model-id
+ * suffix, not a flag); --yolo/--force allow-all; --resume <id> named only;
+ * --trust skips the workspace-trust modal. No public system-prompt flag.
+ */
+export const CURSOR_TEMPLATE: ManagedTerminalTemplate = {
+  harness: "cursor",
+  displayName: "Cursor Agent",
+  probedVersion: "2026.08.11-e8db854",
+  argvSpec: {
+    binary: "agent",
+    prefix: ["--trust"],
+    promptMode: "positional",
+    modelFlag: "--model",
+    permissionModeFlag: "--yolo",
+    resumeMode: "flag",
+    resumeFlag: "--resume",
+  },
+  envSpec: SHARED_ENV_SPEC,
+  injectionSpec: {
+    tier: "B",
+    flags: [],
+    description:
+      "No public system-prompt flag — doctrine delivered as the first typed message",
+  },
+  capabilityBadges: {
+    instructionInjection: "B",
+    hooks: false,
+    effortAtSpawn: false,
+    sessionId: "capture",
+    remote: false,
+    requiresGitCwd: false,
+    stateFeed: "grid (alt buffer)",
+    attentionSource: "grid (approval forms)",
+    labels: ["injection B", "grid", "capture session"],
+  },
+  efforts: [],
+};
+
 export const MANAGED_TERMINAL_TEMPLATES: Readonly<
   Record<HarnessId, ManagedTerminalTemplate>
 > = {
@@ -596,6 +641,7 @@ export const MANAGED_TERMINAL_TEMPLATES: Readonly<
   kimi: KIMI_TEMPLATE,
   muse: MUSE_TEMPLATE,
   devin: DEVIN_TEMPLATE,
+  cursor: CURSOR_TEMPLATE,
 };
 
 export const templateFor = (harness: HarnessId): ManagedTerminalTemplate =>

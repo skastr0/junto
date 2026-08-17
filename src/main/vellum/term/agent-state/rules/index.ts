@@ -2,6 +2,7 @@ import type { HarnessId } from "../../../../../shared/managed-terminal-templates
 import type { SeatRulePack } from "../types";
 import { claudeRules } from "./claude";
 import { codexRules } from "./codex";
+import { cursorRules } from "./cursor";
 import { devinRules } from "./devin";
 import { grokRules } from "./grok";
 import { hermesRules } from "./hermes";
@@ -12,6 +13,7 @@ import { primeAgentRules } from "./prime-agent";
 
 export { claudeRules } from "./claude";
 export { codexRules } from "./codex";
+export { cursorRules } from "./cursor";
 export { devinRules } from "./devin";
 export { grokRules } from "./grok";
 export { hermesRules } from "./hermes";
@@ -23,6 +25,7 @@ export { primeAgentRules } from "./prime-agent";
 const PACKS: Record<HarnessId, SeatRulePack> = {
   claude: claudeRules,
   codex: codexRules,
+  cursor: cursorRules,
   devin: devinRules,
   grok: grokRules,
   hermes: hermesRules,

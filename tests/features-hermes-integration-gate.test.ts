@@ -29,6 +29,7 @@ describe("Hermes integration product gate", () => {
         "grok",
         "pi",
         "devin",
+        "cursor",
       ]);
       expect(managedHarnessEnabled("hermes")).toBe(false);
       expect(managedHarnessEnabled("kimi")).toBe(false);
