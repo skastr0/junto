@@ -256,6 +256,78 @@ describe("harness session existence (external proof)", () => {
     ).toBe(true);
   });
 
+  it("proves cursor session via transcript dir, jsonl, or chats meta", () => {
+    const home = tempHome();
+    const cwd = "/Users/foo/bar";
+    const sid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    expect(
+      harnessSessionExists({ harness: "cursor", sessionId: sid, cwd, home }),
+    ).toBe(false);
+
+    // Layout: ~/.cursor/projects/Users-foo-bar/agent-transcripts/<chatId>/
+    const transcripts = join(
+      home,
+      ".cursor",
+      "projects",
+      "Users-foo-bar",
+      "agent-transcripts",
+    );
+    mkdirSync(join(transcripts, sid), { recursive: true });
+    expect(
+      harnessSessionExists({ harness: "cursor", sessionId: sid, cwd, home }),
+    ).toBe(true);
+    // cwd omitted — one-level project scan still finds the transcript dir.
+    expect(
+      harnessSessionExists({ harness: "cursor", sessionId: sid, home }),
+    ).toBe(true);
+
+    const jsonlId = "bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee";
+    expect(
+      harnessSessionExists({ harness: "cursor", sessionId: jsonlId, cwd, home }),
+    ).toBe(false);
+    writeFileSync(join(transcripts, `${jsonlId}.jsonl`), "{}\n");
+    expect(
+      harnessSessionExists({ harness: "cursor", sessionId: jsonlId, cwd, home }),
+    ).toBe(true);
+
+    const chatId = "cccccccc-bbbb-cccc-dddd-eeeeeeeeeeee";
+    expect(
+      harnessSessionExists({ harness: "cursor", sessionId: chatId, home }),
+    ).toBe(false);
+    const chatDir = join(home, ".cursor", "chats", "ws-test", chatId);
+    mkdirSync(chatDir, { recursive: true });
+    writeFileSync(join(chatDir, "meta.json"), "{}");
+    expect(
+      harnessSessionExists({ harness: "cursor", sessionId: chatId, home }),
+    ).toBe(true);
+
+    expect(
+      harnessSessionExists({ harness: "cursor", sessionId: "no-such", cwd, home }),
+    ).toBe(false);
+  });
+
+  it("uses CURSOR_DATA_DIR as the data root when probe and test homes are unset", () => {
+    const data = tempHome();
+    const sid = "dddddddd-bbbb-cccc-dddd-eeeeeeeeeeee";
+    const prev = process.env.CURSOR_DATA_DIR;
+    process.env.CURSOR_DATA_DIR = data;
+    try {
+      expect(harnessSessionExists({ harness: "cursor", sessionId: sid })).toBe(false);
+      const chatDir = join(data, "chats", "ws-env", sid);
+      mkdirSync(chatDir, { recursive: true });
+      writeFileSync(join(chatDir, "meta.json"), "{}");
+      expect(harnessSessionExists({ harness: "cursor", sessionId: sid })).toBe(true);
+
+      const pinned = tempHome();
+      expect(
+        harnessSessionExists({ harness: "cursor", sessionId: sid, home: pinned }),
+      ).toBe(false);
+    } finally {
+      if (prev === undefined) delete process.env.CURSOR_DATA_DIR;
+      else process.env.CURSOR_DATA_DIR = prev;
+    }
+  });
+
   it("proves devin session via transcript or lock under ~/.local/share/devin/cli", () => {
     const home = tempHome();
     const sid = "sample-session";
@@ -294,11 +366,21 @@ describe("harness session existence (external proof)", () => {
     expect(
       harnessSessionExists({ harness: "prime-agent", sessionId: sid }),
     ).toBe(false);
+    expect(
+      harnessSessionExists({ harness: "cursor", sessionId: sid }),
+    ).toBe(false);
     const dir = join(home, ".prime", "agent", "sessions");
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, `${sid}.jsonl`), "");
     expect(
       harnessSessionExists({ harness: "prime-agent", sessionId: sid }),
+    ).toBe(true);
+    mkdirSync(
+      join(home, ".cursor", "projects", "Users-foo-bar", "agent-transcripts", sid),
+      { recursive: true },
+    );
+    expect(
+      harnessSessionExists({ harness: "cursor", sessionId: sid }),
     ).toBe(true);
   });
 });

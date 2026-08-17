@@ -54,6 +54,10 @@ export const encodeGrokSessionCwd = (cwd: string): string =>
 export const encodeClaudeProjectCwd = (cwd: string): string =>
   resolve(cwd).replace(/\//g, "-");
 
+/** Cursor project dir: /Users/foo/bar → Users-foo-bar (no leading dash). */
+export const encodeCursorProjectCwd = (cwd: string): string =>
+  resolve(cwd).replace(/^\//, "").replace(/\//g, "-");
+
 /**
  * Pi cwd encoding for the session dir: strip leading "/", map "/" and ":" to
  * "-", wrap in "--…--". /Users/me/proj → --Users-me-proj--
@@ -124,6 +128,8 @@ export const harnessSessionExists = (probe: SessionExistenceProbe): boolean => {
         return museSessionExists(sessionId, home);
       case "devin":
         return devinSessionExists(sessionId, home);
+      case "cursor":
+        return cursorSessionExists(sessionId, probe.cwd, cursorDataRoot(probe, home));
       default:
         return false;
     }
@@ -352,6 +358,69 @@ const devinSessionExists = (sessionId: string, home: string): boolean => {
   if (!isDir(root)) return false;
   if (isFile(join(root, "transcripts", `${sessionId}.json`))) return true;
   if (isFile(join(root, "session_locks", `${sessionId}.lock`))) return true;
+  return false;
+};
+
+/**
+ * Cursor data root. Default ~/.cursor. CURSOR_DATA_DIR replaces the root
+ * outright when the caller did not pin probe.home or the test home.
+ */
+const cursorDataRoot = (
+  probe: SessionExistenceProbe,
+  home: string,
+): string => {
+  if (probe.home === undefined && homeForTest === undefined) {
+    const env = process.env.CURSOR_DATA_DIR?.trim();
+    if (env) return env;
+  }
+  return join(home, ".cursor");
+};
+
+/**
+ * Cursor sessions: ~/.cursor/projects/<sanitized>/agent-transcripts/<id>/
+ * or <id>.jsonl, plus ~/.cursor/chats/<workspaceId>/<id>/meta.json.
+ * Sanitize is Claude-ish without the leading dash.
+ */
+const cursorSessionExists = (
+  sessionId: string,
+  cwd: string | undefined,
+  dataRoot: string,
+): boolean => {
+  const projects = join(dataRoot, "projects");
+  const matchInProject = (projectDir: string): boolean => {
+    const transcripts = join(projectDir, "agent-transcripts");
+    if (isDir(join(transcripts, sessionId))) return true;
+    if (isFile(join(transcripts, `${sessionId}.jsonl`))) return true;
+    return false;
+  };
+
+  if (cwd && cwd.trim()) {
+    if (matchInProject(join(projects, encodeCursorProjectCwd(cwd)))) return true;
+  }
+
+  if (isDir(projects)) {
+    let entries: string[];
+    try {
+      entries = readdirSync(projects);
+    } catch {
+      entries = [];
+    }
+    for (const enc of entries) {
+      if (matchInProject(join(projects, enc))) return true;
+    }
+  }
+
+  const chats = join(dataRoot, "chats");
+  if (!isDir(chats)) return false;
+  let workspaces: string[];
+  try {
+    workspaces = readdirSync(chats);
+  } catch {
+    return false;
+  }
+  for (const workspaceId of workspaces) {
+    if (isFile(join(chats, workspaceId, sessionId, "meta.json"))) return true;
+  }
   return false;
 };
 
