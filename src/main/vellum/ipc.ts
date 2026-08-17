@@ -40,6 +40,7 @@ import { PausePlane } from "./pause-plane";
 import { registerSettingsIpc } from "./settings/ipc";
 import { SettingsService } from "./settings/service";
 import { registerObservabilityIpc } from "./observability";
+import { startLiveFleetUpdateExecutor } from "./update/fleet-executor-live";
 import { registerUpdateIpc } from "./update/ipc";
 import { SnapshotsService } from "./snapshots";
 import { UsageService } from "./usage/usage-service";
@@ -1646,10 +1647,15 @@ export const registerVellumIpc = (): void => {
 
       if (stationForSeed.station.role === "command-center") {
         yield* fleetPropagation.start();
+        // Managed fleet updates walk only from Command Center. The executor
+        // re-reads the remoteManagedInstalls kill-switch on every pass, so
+        // turning the setting off disables it cleanly.
+        startLiveFleetUpdateExecutor();
       }
       settingsForSeed.subscribe((settings) => {
         if (settings.station.role === "command-center") {
           Effect.runFork(fleetPropagation.start());
+          startLiveFleetUpdateExecutor();
         }
       });
     }),
