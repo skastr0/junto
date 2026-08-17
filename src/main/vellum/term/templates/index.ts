@@ -28,6 +28,8 @@ export {
   enumeratePrimeAgentModels,
   parseDevinModelsList,
   enumerateDevinModels,
+  parseCursorModelsList,
+  enumerateCursorModels,
   effortsFor,
   type ModelOption,
   type ProfileOption,
