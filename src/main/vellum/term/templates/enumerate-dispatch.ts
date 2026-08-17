@@ -16,6 +16,7 @@ import {
 } from "@shared/features";
 import {
   enumerateCodexModels,
+  enumerateCursorModels,
   enumerateDevinModels,
   enumerateHermesProfiles,
   enumeratePiModels,
@@ -141,6 +142,18 @@ export const enumerateManagedModels = async (
     if (harness === "devin") {
       const result = await enumerateDevinModels(async () =>
         runCommand("devin", ["models", "list"]),
+      );
+      return {
+        models: result.models,
+        source: result.source,
+        error: result.error,
+        efforts: templateEfforts as string[],
+      };
+    }
+    // cursor — `agent models`; `id - Label` rows (ANSI/middot scrubbed).
+    if (harness === "cursor") {
+      const result = await enumerateCursorModels(async () =>
+        runCommand("agent", ["models"]),
       );
       return {
         models: result.models,

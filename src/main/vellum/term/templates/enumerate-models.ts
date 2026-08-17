@@ -606,6 +606,78 @@ export const enumerateDevinModels = async (
   }
 };
 
+// ── Cursor Agent: `agent models` / `agent --list-models` ───────────────────
+
+/**
+ * Parse `agent models` (or `agent --list-models`) text:
+ *
+ *   Available models
+ *
+ *   auto - Auto (default)
+ *   gpt-5.3-codex-low - Codex 5.3 Low
+ *   cursor-grok-4.6-high-fast - Cursor Grok 4.6 Fast
+ *
+ * Rows are `id - Label`. Skip the header and blanks. Fail-soft: never throw.
+ * ANSI is stripped; U+00B7 middots become commas (copy law).
+ */
+export const parseCursorModelsList = (
+  stdout: string,
+): { models: ModelOption[]; error?: string } => {
+  try {
+    const models: ModelOption[] = [];
+    const seen = new Set<string>();
+    for (const rawLine of stdout.split("\n")) {
+      const line = rawLine
+        .replace(ANSI_ESCAPE_RE, "")
+        .replace(MIDDOT_RE, ",")
+        .replace(/\r$/, "");
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      if (/^available models$/i.test(trimmed)) continue;
+      const sep = trimmed.indexOf(" - ");
+      if (sep < 0) continue;
+      const id = trimmed.slice(0, sep).trim();
+      const label = trimmed.slice(sep + 3).trim();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      models.push({ id, label: label || id });
+    }
+    return { models };
+  } catch (err) {
+    return {
+      models: [],
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+};
+
+export const enumerateCursorModels = async (
+  run: ModelsCommandRunner = async () => "",
+): Promise<ModelEnumerateResult> => {
+  try {
+    const stdout = await run();
+    if (!stdout.trim()) {
+      return {
+        models: [],
+        source: "empty",
+        error: "agent models produced no output (stub or unavailable)",
+      };
+    }
+    const parsed = parseCursorModelsList(stdout);
+    return {
+      models: parsed.models,
+      source: parsed.models.length > 0 ? "command" : "empty",
+      error: parsed.error,
+    };
+  } catch (err) {
+    return {
+      models: [],
+      source: "empty",
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+};
+
 // ── Dispatch ───────────────────────────────────────────────────────────────
 
 /**
