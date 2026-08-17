@@ -35,6 +35,10 @@ import { agentSeat$ } from "../../lib/agent-seat-state";
 import { HERDR_ENABLED } from "@shared/features";
 import { consumeWorkDetailOpen, workDetailOpen$ } from "../../lib/work-detail-open";
 import { onTerminalEvent } from "../../lib/terminal-events";
+import {
+  sessionChromeUnchanged,
+  shouldRefreshSessionFromTerminalEvent,
+} from "../../lib/terminal-session-refresh";
 import { terminal$ } from "../../lib/terminal-state";
 import { getVellumCommandApi } from "../../lib/vellum-api";
 import { HerdrCard } from "../herdr/HerdrCard";
@@ -271,14 +275,16 @@ function EntityCard({
       getVellumCommandApi()
         ?.terminalGet?.(bindingId, hostId)
         .then((next) => {
+          const prev = terminal$.sessionByBindingId[bindingId].peek();
+          if (sessionChromeUnchanged(prev, next)) return;
           terminal$.sessionByBindingId[bindingId].set(next);
         })
         .catch(() => undefined);
     void refresh();
     const off = onTerminalEvent((raw) => {
-      if ((raw as { bindingId?: string }).bindingId === bindingId) {
-        void refresh();
-      }
+      if ((raw as { bindingId?: string }).bindingId !== bindingId) return;
+      if (!shouldRefreshSessionFromTerminalEvent(raw)) return;
+      void refresh();
     });
     return off;
   }, [bindingId, hostId]);

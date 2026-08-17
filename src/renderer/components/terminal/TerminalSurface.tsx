@@ -262,19 +262,22 @@ export function TerminalSurface({
   // Attach effect must not re-run on every canvas node identity change.
   const nodeRef = useRef(node);
   nodeRef.current = node;
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
 
   /**
    * Host-box geometry is authority once getBoundingClientRect is real.
    * Do not max with FitAddon — that blocked focus→pin shrink when Fit still
    * reported the larger focus canvas. Island defense is CSS (flex:1;height:0).
    *
-   * Always `term.refresh` after a successful measure — pin remount, tab
-   * unpark (1×1 → real box with same cols×rows), and dock drag leave the
-   * scrollable viewport desynced if we skip paint when geom is unchanged.
-   * That renderer-only repaint must never signal the child PTY unless its
-   * measured cols×rows genuinely changed.
+   * `term.refresh` only on a real cols×rows change or an explicit force
+   * (unpark / size jump / attach settle). A stable ResizeObserver tick
+   * must not full-repaint the xterm canvas — that is a GPU wake on every
+   * layout flicker while a stream is already dirtying the same surface.
+   * Renderer-only repaint must never signal the child PTY unless measured
+   * cols×rows genuinely changed.
    */
-  const pushResize = (): void => {
+  const pushResize = (opts?: { readonly forcePaint?: boolean }): void => {
     const term = termRef.current;
     const host = hostRef.current;
     if (!term || !host) return;
@@ -293,7 +296,11 @@ export function TerminalSurface({
     const cols = Math.max(20, Math.min(300, measured.cols));
     const rows = Math.max(5, Math.min(120, measured.rows));
 
-    {
+    const geomChanged = shouldPaintView(
+      { cols: term.cols, rows: term.rows },
+      { cols, rows },
+    );
+    if (geomChanged || opts?.forcePaint) {
       const { cellW, cellH } = readCellSize(term);
       const screen = host.querySelector<HTMLElement>(".xterm-screen");
       const screenW = screen ? Math.round(screen.getBoundingClientRect().width) : -1;
@@ -321,6 +328,7 @@ export function TerminalSurface({
         ptyCols: lastAcked.current.cols,
         ptyRows: lastAcked.current.rows,
         ptyDiverged: lastAcked.current.cols !== cols || lastAcked.current.rows !== rows,
+        forcePaint: opts?.forcePaint === true,
       });
     }
 
@@ -335,19 +343,24 @@ export function TerminalSurface({
       ptyNotifyFailCount.current = 0;
     }
     desiredGeom.current = nextGeom;
-    if (shouldPaintView({ cols: term.cols, rows: term.rows }, nextGeom)) {
+    if (geomChanged) {
       try {
         term.resize(cols, rows);
       } catch {
         return;
       }
     }
-    try {
-      term.refresh(0, Math.max(0, term.rows - 1));
-    } catch {
-      // ignore — older paint paths still usable
+    if (geomChanged || opts?.forcePaint) {
+      try {
+        term.refresh(0, Math.max(0, term.rows - 1));
+      } catch {
+        // ignore — older paint paths still usable
+      }
     }
-    setGeomLabel(`${cols}×${rows}`);
+    setGeomLabel((prev) => {
+      const next = `${cols}×${rows}`;
+      return prev === next ? prev : next;
+    });
 
     const flushChildNotify = (): void => {
       if (notifyInFlight.current) return;
@@ -422,7 +435,7 @@ export function TerminalSurface({
     if (!host) return;
 
     const term = new Terminal({
-      cursorBlink: true,
+      cursorBlink: visibleRef.current,
       scrollback: 10_000,
       allowProposedApi: true,
       fontFamily: VELLUM_XTERM_FONT_FAMILY,
@@ -517,12 +530,12 @@ export function TerminalSurface({
     };
     const hardFitBurst = (): void => {
       for (const ms of SETTLE_FITS_MS) {
-        settleTimers.push(setTimeout(() => pushResize(), ms));
+        settleTimers.push(setTimeout(() => pushResize({ forcePaint: true }), ms));
       }
     };
 
     requestAnimationFrame(() => {
-      pushResize();
+      pushResize({ forcePaint: true });
       hardFitBurst();
     });
 
@@ -548,7 +561,6 @@ export function TerminalSurface({
       // signals the child if the measured terminal geometry actually changed.
       if (grewBack || sizeJump) {
         hardFitBurst();
-        scheduleResize();
         return;
       }
       scheduleResize();
@@ -602,8 +614,9 @@ export function TerminalSurface({
   // wait for slot adoption into the shell and stop if they have already
   // chosen another control inside the modal.
   useEffect(() => {
-    if (!visible) return;
     const term = termRef.current;
+    if (term) term.options.cursorBlink = visible;
+    if (!visible) return;
     if (!term) return;
     const claim = (): boolean => {
       const host = hostRef.current;
@@ -827,13 +840,13 @@ export function TerminalSurface({
             // component just resumed from an async IPC round-trip; measureHost
             // safely no-ops (see pushResize) if the host is not yet laid out,
             // and the rAF/settle ladder below still covers that case.
-            pushResize();
+            pushResize({ forcePaint: true });
             clearLoad();
             // Repaint through layout settle; only a real cols×rows transition is
             // forwarded to the child PTY.
             requestAnimationFrame(() => {
               if (!alive) return;
-              pushResize();
+              pushResize({ forcePaint: true });
               if (
                 !sawExit &&
                 canClaimFocusAfterAsyncWork(hostRef.current)
@@ -844,7 +857,7 @@ export function TerminalSurface({
             for (const ms of SETTLE_FITS_MS) {
               settleTimers.push(
                 setTimeout(() => {
-                  if (alive) pushResize();
+                  if (alive) pushResize({ forcePaint: true });
                 }, ms),
               );
             }

@@ -19,6 +19,10 @@ import {
 } from "../../lib/seat-projections";
 import { terminal$ } from "../../lib/terminal-state";
 import { onTerminalEvent } from "../../lib/terminal-events";
+import {
+  sessionChromeUnchanged,
+  shouldRefreshSessionFromTerminalEvent,
+} from "../../lib/terminal-session-refresh";
 import { getVellumCommandApi } from "../../lib/vellum-api";
 import { renameTerminalNode } from "../../lib/mutations";
 import { ClaimedTaskStrip } from "../nodes/ClaimedTaskStrip";
@@ -71,17 +75,25 @@ export function TerminalCard({
     | Record<string, { readonly pendingPermissionId?: string } | undefined>
     | undefined;
 
+  const applySession = (next: TerminalSessionSummary | undefined) => {
+    if (!native) return;
+    const prev = terminal$.sessionByBindingId[native.bindingId].peek();
+    if (sessionChromeUnchanged(prev, next)) {
+      setSession((current) => current ?? next);
+      return;
+    }
+    setSession(next);
+    terminal$.sessionByBindingId[native.bindingId].set(next);
+    if (next?.nodeId) {
+      agentSeat$.bindingIdByNodeId[next.nodeId].set(native.bindingId);
+    }
+  };
+
   const refresh = () =>
     native &&
     getVellumCommandApi()
       ?.terminalGet?.(native.bindingId, native.hostId)
-      .then((next) => {
-        setSession(next);
-        terminal$.sessionByBindingId[native.bindingId].set(next);
-        if (next?.nodeId) {
-          agentSeat$.bindingIdByNodeId[next.nodeId].set(native.bindingId);
-        }
-      })
+      .then(applySession)
       .catch(() => undefined);
 
   const running =
@@ -91,8 +103,9 @@ export function TerminalCard({
     subscribeAgentSeatState();
     void refresh();
     const off = onTerminalEvent((raw) => {
-      if ((raw as { bindingId?: string }).bindingId === native?.bindingId)
-        void refresh();
+      if ((raw as { bindingId?: string }).bindingId !== native?.bindingId) return;
+      if (!shouldRefreshSessionFromTerminalEvent(raw)) return;
+      void refresh();
     });
     // Poll only while running — lease-scoped events don't reach cards without
     // an open surface.
