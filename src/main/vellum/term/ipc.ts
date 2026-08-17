@@ -21,7 +21,10 @@ import type { TermPlane } from "./plane";
 import { injectionSupervisor } from "./injection-supervisor";
 import { TerminalNodeDeleteService } from "./node-delete";
 import { rememberRemoteSeatState } from "./remote-seat-state";
-import { ActorSeatOccupy } from "./actor-seat-occupy";
+import {
+  ActorSeatOccupy,
+  ActorSeatProjectionPending,
+} from "./actor-seat-occupy";
 import { AppRuntime } from "../../runtime";
 import { Effect } from "effect";
 
@@ -223,8 +226,11 @@ export const registerTerminalIpc = (
         await ensureHostAvailable(surface.hostId);
 
         // The supplied node is immediate authorial intent. Canvas persistence
-        // is debounced, so a read can enrich launch injection with live edges
-        // but can never be a prerequisite for occupying this actor seat.
+        // is debounced, so this read can enrich launch injection with live
+        // edges but is never a prerequisite for occupying a LOCAL actor seat.
+        // Remote placement is different: the renderer flushes its debounced
+        // save before invoking, and ActorSeatOccupy holds the seat behind the
+        // destination's projection acknowledgement of that committed state.
         let docForPlan: CanvasDoc | undefined;
         if (canvasName) {
           try {
@@ -285,7 +291,15 @@ export const registerTerminalIpc = (
               ...(node.ether?.terminal?.label
                 ? { label: node.ether.terminal.label }
                 : {}),
-            });
+            }).pipe(
+              // A pending projection acknowledgement is a truthful non-start,
+              // not a crash. Hand the renderer the product message alone.
+              Effect.catchIf(
+                (error): error is ActorSeatProjectionPending =>
+                  error instanceof ActorSeatProjectionPending,
+                (pending) => Effect.fail(new Error(pending.message)),
+              ),
+            );
           }),
         );
       }
