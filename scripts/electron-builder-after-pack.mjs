@@ -37,8 +37,8 @@ const LINUX_FIXED_MODE_DIRECTORIES = [
 ];
 const LINUX_FIXED_MODE_FILES = new Map([
   ["resources/bin/unix-peer-pid.py", 0o755],
-  ["resources/systemd/vellum-command-remote-launch-v1", 0o755],
-  ["resources/systemd/vellum-command-remote.service", 0o644],
+  ["resources/systemd/vellum-command-remote-launch", 0o755],
+  ["resources/systemd/vellum-command-remote.service.template", 0o644],
 ]);
 
 const libraryFuseNames = () =>
