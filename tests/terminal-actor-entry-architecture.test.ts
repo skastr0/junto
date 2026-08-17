@@ -88,6 +88,28 @@ describe("terminal actor entry", () => {
     );
   });
 
+  it("renderer commits the debounced canvas save before invoking actor occupy", () => {
+    const source = readSource(RENDERER_ENTRY);
+    const ensure = between(
+      source,
+      "export const ensureTerminalRunning = async (",
+      "\n\n/**\n * Open the workbench surface",
+    );
+    const actor = between(
+      ensure,
+      'if (entityKind === "agent") {',
+      "\n\n  // Raw native terminals are geography.",
+    );
+    const flushAt = actor.indexOf("flushPendingCanvasSave()");
+    const createAt = actor.indexOf("api.terminalCreate({");
+
+    expect(source).toContain(
+      'import { flushPendingCanvasSave } from "./mutations";',
+    );
+    expect(flushAt).toBeGreaterThanOrEqual(0);
+    expect(createAt).toBeGreaterThan(flushAt);
+  });
+
   it("TerminalSurface chooses occupy-before-attach from exact node kind", () => {
     const source = readSource(TERMINAL_SURFACE);
     const attachEffect = between(

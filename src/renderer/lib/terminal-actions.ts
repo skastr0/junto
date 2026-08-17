@@ -7,6 +7,7 @@ import type { CanvasNode } from "@shared/canvas";
 import { resolveTerminalBinding, sessionActorMatches } from "@shared/terminal";
 import { occupancyFromSummary } from "@shared/terminal-seat-occupancy";
 import { markAgentSeatSeen } from "./agent-seat-state";
+import { flushPendingCanvasSave } from "./mutations";
 import { getVellumCommandApi } from "./vellum-api";
 import { state$ } from "./state";
 import type { WorkZone } from "./surface-registry";
@@ -35,6 +36,12 @@ export const ensureTerminalRunning = async (
       return { ok: false, message: "terminal API unavailable — restart Vellum Command" };
     }
     try {
+      // Commit the debounced canvas write first: Remote seat admission in
+      // Main evaluates committed authorial state and holds occupation behind
+      // the destination's projection acknowledgement of exactly that state.
+      // A failed save still surfaces through the save-state chrome; the
+      // admission verdict below stays truthful about what was committed.
+      await flushPendingCanvasSave().catch(() => undefined);
       // Main owns ActorSeatOccupy, including occupied-vs-vacant WHEN. Always
       // send the node-derived actor command; a cached renderer summary is not
       // authority to skip occupation or reconstruct a geography shell.
