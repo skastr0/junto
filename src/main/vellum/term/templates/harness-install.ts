@@ -61,6 +61,8 @@ const extraInstallCandidates = (
       return [join(home, ".local", "bin", binary)];
     case "devin":
       return [join(home, ".local", "bin", binary)];
+    case "cursor":
+      return [join(home, ".local", "bin", binary)];
     case "hermes":
       return [join(home, ".local", "bin", binary)];
     default:

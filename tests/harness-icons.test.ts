@@ -108,6 +108,8 @@ describe("harnessGlyphFor", () => {
     expect(harnessGlyphFor("ampcode")).toBe(GLYPHS.amp);
     expect(harnessGlyphFor("devin")).toBe(GLYPHS.devin);
     expect(harnessGlyphFor("Cognition")).toBe(GLYPHS.devin);
+    expect(harnessGlyphFor("cursor-agent")).toBe(GLYPHS.cursor);
+    expect(harnessGlyphFor("cursor agent")).toBe(GLYPHS.cursor);
     expect(harnessGlyphFor("openai")).toBe(GLYPHS.openai);
     expect(harnessGlyphFor("open code")).toBe(GLYPHS.opencode);
     expect(harnessGlyphFor("open code go")).toBe(GLYPHS.opencodego);

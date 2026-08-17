@@ -67,4 +67,20 @@ describe("harnessBinaryInstalled", () => {
       }),
     ).toBe(true);
   });
+
+  it("checks cursor install home outside PATH", () => {
+    const home = makeScratch();
+    const cursorBinDir = join(home, ".local", "bin");
+    mkdirSync(cursorBinDir, { recursive: true });
+    const bin = join(cursorBinDir, "agent");
+    writeFileSync(bin, "#!/bin/sh\nexit 0\n");
+    chmodSync(bin, 0o755);
+    expect(
+      harnessBinaryInstalled("cursor", "agent", {
+        pathEnv: makeScratch(),
+        home,
+        pathSep: ":",
+      }),
+    ).toBe(true);
+  });
 });

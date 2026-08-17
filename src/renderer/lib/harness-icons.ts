@@ -170,6 +170,8 @@ const ALIASES: Readonly<Record<string, string>> = {
   ampcode: "amp",
   cognition: "devin",
   "devin cli": "devin",
+  "cursor agent": "cursor",
+  "cursor-agent": "cursor",
   "pi coding agent": "pi",
   "pi-coding-agent": "pi",
   "prime agent": "prime-agent",
