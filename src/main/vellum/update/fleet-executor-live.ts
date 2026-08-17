@@ -22,8 +22,8 @@ import { StationFleetPropagation } from "../station/fleet-propagation";
 import { StationStatusService } from "../station-status-store";
 import { UpdateService } from "./service";
 import {
+  executorRemotesOf,
   makeFleetUpdateExecutor,
-  type FleetExecutorRemote,
   type FleetUpdateExecutor,
 } from "./fleet-executor";
 
@@ -39,22 +39,7 @@ const listRemotesEffect = Effect.gen(function* () {
       versionByHost.set(String(status.hostId), appVersion);
     }
   }
-  return enrolled
-    .filter(
-      (host) => host.kind === "remote" && host.sshEndpoint !== undefined,
-    )
-    .map(
-      (host): FleetExecutorRemote => ({
-        hostId: host.id,
-        endpoint: host.sshEndpoint ?? "",
-        // Best-effort observation only: Box-enrolled machines are Linux;
-        // everything else is treated as macOS. HostRuntime re-verifies the
-        // real platform (uname) at apply admission and refuses safely, so a
-        // misclassified target never installs the wrong package.
-        platform: host.id.startsWith("box-") ? "linux" : "darwin",
-        installedVersion: versionByHost.get(host.id),
-      }),
-    );
+  return executorRemotesOf(enrolled, versionByHost);
 });
 
 export const makeLiveFleetUpdateExecutor = (): FleetUpdateExecutor =>

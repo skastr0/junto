@@ -41,6 +41,32 @@ export type FleetExecutorRemote = {
   readonly installedVersion: string | undefined;
 };
 
+/**
+ * Pure projection of enrolled hosts and observed peer versions into executor
+ * targets. Best-effort platform observation only: Box-enrolled machines are
+ * Linux, everything else is treated as macOS. HostRuntime re-verifies the
+ * real platform (uname) at apply admission and refuses safely, so a
+ * misclassified target never installs the wrong package.
+ */
+export const executorRemotesOf = (
+  enrolled: ReadonlyArray<{
+    readonly id: string;
+    readonly kind: string;
+    readonly sshEndpoint?: string;
+  }>,
+  observedVersions: ReadonlyMap<string, string>,
+): ReadonlyArray<FleetExecutorRemote> =>
+  enrolled
+    .filter(
+      (host) => host.kind === "remote" && host.sshEndpoint !== undefined,
+    )
+    .map((host) => ({
+      hostId: host.id,
+      endpoint: host.sshEndpoint ?? "",
+      platform: host.id.startsWith("box-") ? "linux" : "darwin",
+      installedVersion: observedVersions.get(host.id),
+    }));
+
 export type FleetUpdateHostDisposition =
   | "waiting-for-idle"
   | "retry-scheduled"

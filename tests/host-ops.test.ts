@@ -612,4 +612,20 @@ describe("host-ops layers", () => {
     expect(ops).toContain("activateDarwinRemoteRuntimeForTarget");
     expect(ops).toContain("activateLinuxRemoteRuntimeForTarget");
   });
+
+  it("keeps the host-ops script a read-only surface", () => {
+    const script = readFileSync(
+      new URL("../scripts/host-ops.ts", import.meta.url),
+      "utf8",
+    );
+    expect(script).toContain('const verbs = ["inspect", "attach"] as const');
+    for (const mutation of [
+      "ops.copy(",
+      "ops.cleanup(",
+      "ops.configure(",
+      "ops.activate(",
+    ]) {
+      expect(script).not.toContain(mutation);
+    }
+  });
 });

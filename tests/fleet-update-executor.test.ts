@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { HostsDeployRemoteResult } from "../src/shared/ipc";
 import {
+  executorRemotesOf,
   FLEET_UPDATE_MAX_ATTEMPTS,
   makeFleetUpdateExecutor,
   type FleetExecutorRemote,
@@ -276,5 +277,35 @@ describe("fleet update executor", () => {
     });
     const summary = await harness.executor.runPass();
     expect(summary.attempted).toEqual(["mac-a"]);
+  });
+});
+
+describe("executorRemotesOf", () => {
+  it("projects enrolled Remotes with the Box platform heuristic and observed versions", () => {
+    const remotes = executorRemotesOf(
+      [
+        { id: "mac-a", kind: "remote", sshEndpoint: "user@mac-a" },
+        { id: "box-1", kind: "remote", sshEndpoint: "user@box-1" },
+        // Filtered: not a Remote, and a Remote without an endpoint.
+        { id: "local", kind: "local" },
+        { id: "mac-b", kind: "remote" },
+      ],
+      new Map([["mac-a", "0.1.0"]]),
+    );
+
+    expect(remotes).toEqual([
+      {
+        hostId: "mac-a",
+        endpoint: "user@mac-a",
+        platform: "darwin",
+        installedVersion: "0.1.0",
+      },
+      {
+        hostId: "box-1",
+        endpoint: "user@box-1",
+        platform: "linux",
+        installedVersion: undefined,
+      },
+    ]);
   });
 });
