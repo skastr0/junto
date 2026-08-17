@@ -1,7 +1,8 @@
 /**
  * Resolve a managed-terminal template + picker choices into a TerminalLaunch
  * for LocalSessionHost. Pure argv/env construction — no process spawn, no
- * harness config writes.
+ * harness config writes. Prime Agent's per-binding daemon socket is main-runtime
+ * daemon state and is deliberately absent from this authorial resolver.
  *
  * Phase 6: optional `injection` context fills Tier-A system-prompt flags from
  * the shared doctrine builder. Tier-B first typed message is returned on the
@@ -17,6 +18,7 @@ import {
   type HarnessId,
   type ManagedTerminalTemplate,
   SPAWN_ENV_SCRUB,
+  SPAWN_ENV_SCRUB_PREFIXES,
   isHarnessId,
   templateFor,
 } from "./managed-terminal-templates";
@@ -78,17 +80,23 @@ export type ManagedLaunchChoices = {
   /** Working directory. Grok requires a git work tree. */
   readonly cwd?: string;
   /**
-   * Extra env (seat/socket/token/PATH prefix). Merged after scrub; never used
-   * to re-introduce scrubbed Claude child-session keys.
+   * Extra env (seat/socket/token/PATH prefix). Merged after scrub; exact and
+   * prefix-reserved harness markers cannot be reintroduced here.
    */
   readonly env?: Readonly<Record<string, string>>;
 };
 
 // ── Env scrub ──────────────────────────────────────────────────────────────
 
+const shouldScrubSpawnEnvKey = (key: string): boolean =>
+  (SPAWN_ENV_SCRUB as readonly string[]).includes(key) ||
+  SPAWN_ENV_SCRUB_PREFIXES.some((prefix) => key.startsWith(prefix));
+
 /**
- * Strip ambient Claude nested-session markers so a Vellum Command launched from inside
- * Claude does not disable the child's transcript / resume.
+ * Strip ambient nested-session and internal-role markers before a managed
+ * spawn. In particular, every PRIME_AGENT_INTERNAL_* key is reserved to the
+ * stock Prime Agent runtime; no current or future internal role may cross the
+ * Vellum Command launch boundary.
  */
 export const scrubSpawnEnv = (
   env: Readonly<Record<string, string | undefined>>,
@@ -96,7 +104,7 @@ export const scrubSpawnEnv = (
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(env)) {
     if (value === undefined) continue;
-    if ((SPAWN_ENV_SCRUB as readonly string[]).includes(key)) continue;
+    if (shouldScrubSpawnEnvKey(key)) continue;
     out[key] = value;
   }
   return out;
@@ -104,7 +112,7 @@ export const scrubSpawnEnv = (
 
 /**
  * Merge ambient + host inject, scrub nested-session traps, then re-apply
- * deliberate inject (inject still cannot reintroduce scrubbed keys).
+ * deliberate inject (inject still cannot reintroduce exact or prefix keys).
  */
 export const buildSpawnEnv = (
   ambient: Readonly<Record<string, string | undefined>>,

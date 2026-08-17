@@ -42,10 +42,10 @@ const node = (id: string, kind: string, extra: Record<string, unknown> = {}) => 
 // null for it by product law, not by preview gap.
 export const HerdrPane = () => (
   <Frame>
-    <Row label="herdr · bound">
+    <Row label="herdr — bound">
       <KindActions node={node("remote-a-1", "herdr", { herdr: { host: "remote-a", paneId: "pane-7" } }) as never} />
     </Row>
-    <Row label="herdr · no pane">
+    <Row label="herdr — no pane">
       <KindActions node={node("workshop-1", "herdr", { herdr: { host: "workshop-mini" } }) as never} />
     </Row>
   </Frame>

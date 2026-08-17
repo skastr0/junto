@@ -803,6 +803,19 @@ const terminalApi: VellumCommandTerminalApi = {
       hostId,
     ),
   terminalKill: (bindingId, hostId) => invoke(IPC_CHANNELS.terminalKill, IPC_TIMEOUT_MS, bindingId, hostId),
+  terminalBeginNodeDelete: (resources) =>
+    invoke(
+      IPC_CHANNELS.terminalBeginNodeDelete,
+      HOST_ACTIVATION_IPC_TIMEOUT_MS,
+      resources,
+    ),
+  terminalFinishNodeDelete: (leaseId, outcome) =>
+    invoke(
+      IPC_CHANNELS.terminalFinishNodeDelete,
+      IPC_TIMEOUT_MS,
+      leaseId,
+      outcome,
+    ),
   hostDirectoryRead: (hostId, path) =>
     invoke(
       IPC_CHANNELS.hostDirectoryRead,

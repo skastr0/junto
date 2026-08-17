@@ -518,6 +518,21 @@ export class TerminalRouter extends EventEmitter {
     }
   }
 
+  /**
+   * Exact node-delete teardown exists only where this runtime owns the PTY and
+   * daemon witnesses. Remote control currently returns stop admission only,
+   * so refuse rather than committing a node deletion on an unproven receipt.
+   */
+  async deleteBinding(bindingId: string, hostId?: string): Promise<boolean> {
+    if (this.quiescing) return false;
+    const normalizedHostId = hostId?.trim();
+    if (normalizedHostId && this.maintenanceCuts.has(normalizedHostId)) return false;
+    if (!hostId || this.isLocalHostId(hostId)) {
+      return this.local.deleteBinding(bindingId);
+    }
+    return false;
+  }
+
   async bindCanvas(
     bindingId: string,
     ref: { canvasName?: string; nodeId?: string } | null,

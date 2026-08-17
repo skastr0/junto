@@ -89,7 +89,10 @@ const vacantCommand = (bindingId: string, placement: "local" | "remote") => {
 
 describe("local TerminalSeatProcess", () => {
   it("occupies vacant seats, activates occupied ones, and rejects an occupy race", async () => {
-    setProcessIdentityMapForTests(makeProcessIdentityMap());
+    setProcessIdentityMapForTests(makeProcessIdentityMap({
+    processAlive: () => true,
+    readProcessStartKey: (pid) => `synthetic-${pid}`,
+  }));
     syntheticEpochs.set(42_600, "synthetic-42600");
     const fake = makeFakeTerminalProcessAuthority(() => ({
       pid: 42_600,
@@ -220,7 +223,10 @@ describe("local TerminalSeatProcess", () => {
     delete process.env.VELLUM_COMMAND_HOME;
     __setSessionExistenceHomeForTest(proofHome);
     try {
-      setProcessIdentityMapForTests(makeProcessIdentityMap());
+      setProcessIdentityMapForTests(makeProcessIdentityMap({
+    processAlive: () => true,
+    readProcessStartKey: (pid) => `synthetic-${pid}`,
+  }));
       const fake = makeFakeTerminalProcessAuthority((_spec, index) => {
         const pid = 42_610 + index;
         syntheticEpochs.set(pid, `synthetic-${pid}`);

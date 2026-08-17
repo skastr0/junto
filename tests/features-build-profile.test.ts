@@ -29,15 +29,26 @@ describe("compile-time feature profiles", () => {
       devTools: false,
       harnessKimi: false,
       harnessMuse: false,
-      harnessPrimeAgent: false,
+      harnessPrimeAgent: true,
       harnessSettings: false,
     });
   });
 
   it("supports an explicit all-on regression profile", () => {
-    expect(
-      resolveBuildFeatures({ VELLUM_COMMAND_FEATURE_PROFILE: "all-on" }).features,
-    ).toEqual(ALL_FEATURES);
+    const resolved = resolveBuildFeatures({
+      VELLUM_COMMAND_FEATURE_PROFILE: "all-on",
+    });
+    expect(resolved.features).toEqual(ALL_FEATURES);
+    expect(resolved.features.harnessPrimeAgent).toBe(true);
+  });
+
+  it("applies an explicit false override to the shipped Prime Agent gate", () => {
+    const resolved = resolveBuildFeatures({
+      VELLUM_COMMAND_HARNESS_PRIME_AGENT: "0",
+    });
+    expect(resolved.profile).toBe("ship");
+    expect(resolved.features.harnessPrimeAgent).toBe(false);
+    expect(resolved.overrides).toEqual(["harnessPrimeAgent"]);
   });
 
   it("applies typed per-feature overrides over the selected profile", () => {

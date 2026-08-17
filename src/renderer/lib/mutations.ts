@@ -747,15 +747,45 @@ const deleteNodesInternal = async (
   const agentKeys = agentNodes
     .map((n) => n.ether?.entity?.name)
     .filter((name): name is string => typeof name === "string" && name.length > 0);
-  let deleteLeaseId: string | undefined;
-  const finishDeleteLease = async (
+  // Managed terminal authority is the exact (host, binding) pair, never the
+  // agent key. Two cards may temporarily share an agent key while still owning
+  // distinct seats, and duplicate references to one seat must stop it once.
+  const managedTerminalBindings = new Map<
+    string,
+    { readonly bindingId: string; readonly hostId: string }
+  >();
+  for (const node of agentNodes) {
+    const bindingId = node.ether?.terminal?.bindingId?.trim();
+    if (!bindingId) continue;
+    const authoredHost =
+      typeof node.ether?.host === "string" ? node.ether.host.trim() : "";
+    const hostId = authoredHost || "local";
+    managedTerminalBindings.set(`${hostId}\0${bindingId}`, { bindingId, hostId });
+  }
+  let chatDeleteLeaseId: string | undefined;
+  let terminalDeleteLeaseId: string | undefined;
+  const finishDeleteLeases = async (
     outcome: "committed" | "aborted",
   ): Promise<void> => {
-    if (deleteLeaseId === undefined) return;
-    const leaseId = deleteLeaseId;
-    deleteLeaseId = undefined;
-    const { finishAgentNodeDelete } = await import("./chat-state");
-    await finishAgentNodeDelete(leaseId, outcome);
+    const chatLease = chatDeleteLeaseId;
+    const terminalLease = terminalDeleteLeaseId;
+    chatDeleteLeaseId = undefined;
+    terminalDeleteLeaseId = undefined;
+    const finishes: Array<Promise<unknown>> = [];
+    if (chatLease !== undefined) {
+      finishes.push(
+        import("./chat-state").then(({ finishAgentNodeDelete }) =>
+          finishAgentNodeDelete(chatLease, outcome)
+        ),
+      );
+    }
+    if (terminalLease !== undefined) {
+      const finish = window.vellumCommand?.terminalFinishNodeDelete;
+      if (typeof finish === "function") {
+        finishes.push(finish(terminalLease, outcome));
+      }
+    }
+    await Promise.all(finishes);
   };
 
   if (agentKeys.length > 0) {
@@ -770,13 +800,13 @@ const deleteNodesInternal = async (
       }
       return;
     }
-    deleteLeaseId = began.leaseId;
+    chatDeleteLeaseId = began.leaseId;
     if (!canvasMutationAdmissionOpen) {
-      await finishDeleteLease("aborted");
+      await finishDeleteLeases("aborted");
       return;
     }
-    if (!began.closeResults.every((result) => result.ok)) {
-      await finishDeleteLease("aborted");
+    if (!began.closeResults.every((result) => result.ok && result.clean)) {
+      await finishDeleteLeases("aborted");
       state$.error.set(
         "Agent session teardown failed or was unclean; the agent node was not deleted.",
       );
@@ -784,21 +814,91 @@ const deleteNodesInternal = async (
     }
   }
 
+  const canvasGenerationMatches = (): boolean =>
+    state$.canvasName.peek() === canvasName && state$.docEpoch.peek() === docEpoch;
+  const abortForCanvasChange = async (): Promise<void> => {
+    await finishDeleteLeases("aborted");
+    if (canvasMutationAdmissionOpen) {
+      state$.error.set(
+        "Canvas changed before deletion completed; no nodes were deleted.",
+      );
+    }
+  };
+
   // After any await (page stop / agent close), the operator may have switched
-  // canvases. Re-check identity before mutating — never write canvas A's
-  // filtered document over canvas B via commitDoc → scheduleSave.
-  if (
-    state$.canvasName.peek() !== canvasName ||
-    state$.docEpoch.peek() !== docEpoch
-  ) {
-    await finishDeleteLease("aborted");
-    state$.error.set(
-      "Canvas changed before deletion completed; no nodes were deleted.",
-    );
+  // canvases. Re-check identity before starting another destructive operation —
+  // never stop a binding captured from canvas A after canvas B became current.
+  if (!canvasGenerationMatches()) {
+    await abortForCanvasChange();
     return;
   }
   if (!canvasMutationAdmissionOpen) {
-    await finishDeleteLease("aborted");
+    await finishDeleteLeases("aborted");
+    return;
+  }
+
+  // A managed agent card owns a native terminal generation in addition to the
+  // ACP/chat delete fence. Main locks every exact host/binding before teardown,
+  // invalidates creates that were awaiting IPC work, and returns only after the
+  // owned PTY plus any Prime Agent daemon have a clean exact receipt.
+  if (managedTerminalBindings.size > 0) {
+    const beginTerminalDelete =
+      window.vellumCommand?.terminalBeginNodeDelete;
+    if (typeof beginTerminalDelete !== "function") {
+      await finishDeleteLeases("aborted");
+      if (canvasMutationAdmissionOpen) {
+        state$.error.set(
+          "Vellum Command could not fence the managed terminal; the agent node was not deleted.",
+        );
+      }
+      return;
+    }
+    let began;
+    try {
+      began = await beginTerminalDelete([
+        ...managedTerminalBindings.values(),
+      ]);
+    } catch {
+      await finishDeleteLeases("aborted");
+      if (canvasMutationAdmissionOpen) {
+        state$.error.set(
+          canvasGenerationMatches()
+            ? "Vellum Command could not stop the managed terminal cleanly; the agent node was not deleted."
+            : "Canvas changed before deletion completed; no nodes were deleted.",
+        );
+      }
+      return;
+    }
+    if (!began.ok) {
+      await finishDeleteLeases("aborted");
+      if (canvasMutationAdmissionOpen) {
+        state$.error.set(
+          canvasGenerationMatches()
+            ? "Vellum Command could not stop the managed terminal cleanly; the agent node was not deleted."
+            : "Canvas changed before deletion completed; no nodes were deleted.",
+        );
+      }
+      return;
+    }
+    terminalDeleteLeaseId = began.leaseId;
+    if (!canvasMutationAdmissionOpen) {
+      await finishDeleteLeases("aborted");
+      return;
+    }
+    if (!canvasGenerationMatches()) {
+      await abortForCanvasChange();
+      return;
+    }
+  }
+
+  // The awaited terminal stops are also generation boundaries. Keep the final
+  // commit fenced even when there were no managed bindings to stop.
+  if (!canvasGenerationMatches()) {
+    await abortForCanvasChange();
+    return;
+  }
+  if (!canvasMutationAdmissionOpen) {
+    await finishDeleteLeases("aborted");
     return;
   }
 
@@ -828,7 +928,7 @@ const deleteNodesInternal = async (
   removeNodesFromSelection(new Set(existingNodes.map((node) => node.id)));
   if (nonHerdr.size === 0) {
     // Pure herdr delete — async path owns the doc mutation.
-    await finishDeleteLease("aborted");
+    await finishDeleteLeases("aborted");
     await Promise.all(sideEffects);
     return;
   }
@@ -845,7 +945,7 @@ const deleteNodesInternal = async (
     edges: liveDoc.edges.filter((e) => !nonHerdr.has(e.fromNode) && !nonHerdr.has(e.toNode)),
   });
   // Release only after the document commit so reopen cannot race the card.
-  await finishDeleteLease("committed");
+  await finishDeleteLeases("committed");
   await Promise.all(sideEffects);
 };
 

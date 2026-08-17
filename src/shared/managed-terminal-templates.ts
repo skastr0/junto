@@ -116,21 +116,24 @@ export type ArgvSpec = {
 };
 
 /**
- * Env keys that must be stripped from the ambient process env before spawn.
- * Verified traps:
+ * Exact env keys that must be stripped from the ambient process env before
+ * every managed spawn. Verified traps:
  * - launching from inside a Claude session silently disables the child's
  *   transcript persistence and excludes it from `--resume`;
+ * - launching Vellum Command from inside a Prime Agent worker exports
+ *   PI_CODING_AGENT, which must not classify a new harness process as nested;
  * - agent/tooling parents commonly export NO_COLOR for their own logs, which
- *   disables the managed harness TUI even though Vellum Command provides a truecolor
- *   xterm PTY.
+ *   disables the managed harness TUI even though Vellum Command provides a
+ *   truecolor xterm PTY.
  */
 export const SPAWN_ENV_SCRUB: readonly string[] = [
   "CLAUDE_CODE_CHILD_SESSION",
   "CLAUDECODE",
   "CLAUDE_CODE_ENTRYPOINT",
+  "PI_CODING_AGENT",
   "NO_COLOR",
   // Ambient FORCE_COLOR defeats the NO_COLOR scrub on chalk-based TUIs
-  // (pi, prime-agent, cursor, amp) — it must go with it.
+  // (Pi, Prime Agent, Cursor, Amp) — it must go with it.
   "FORCE_COLOR",
   // Nested Cursor seats inherit conversation/store traps from a parent agent.
   "CURSOR_CONVERSATION_ID",
@@ -138,8 +141,17 @@ export const SPAWN_ENV_SCRUB: readonly string[] = [
   "CURSOR_AGENT_STORE_SHARED_PATHS",
 ] as const;
 
+/**
+ * Prefixes reserved for harness-internal process roles. Scrub the namespace,
+ * rather than today's known keys, so a future Prime Agent worker marker cannot
+ * make Vellum Command's app-owned foreground daemon masquerade as a worker.
+ */
+export const SPAWN_ENV_SCRUB_PREFIXES: readonly string[] = [
+  "PRIME_AGENT_INTERNAL_",
+] as const;
+
 export type EnvSpec = {
-  /** Always scrubbed from the merged spawn env (mandatory on every harness). */
+  /** Exact keys scrubbed on every harness; global prefix rules apply too. */
   readonly scrub: readonly string[];
   /**
    * Keys the host may inject (seat/socket/token/PATH). Values are filled at
@@ -197,7 +209,8 @@ export type ManagedTerminalTemplate = {
 
 const SHARED_ENV_SPEC: EnvSpec = {
   scrub: SPAWN_ENV_SCRUB,
-  // Seat/socket/token reach agent shell subprocesses on all four (verified).
+  // Seat/socket/token reach direct harness subprocesses; the Prime Agent
+  // runtime starts its isolated daemon from this resolved environment.
   // PATH inject so `dist/vellum-command` resolves for `vellum-command onboard`.
   injectKeys: [
     "PATH",
@@ -419,18 +432,19 @@ export const PI_TEMPLATE: ManagedTerminalTemplate = {
 };
 
 /**
- * Prime Agent (npm prime-agent, formerly pi) — Tier A, capture session,
- * built-in herdr socket reporter (idle/working/blocked + session id).
- * Verified 0.7.0: positional prompt; --thinking effort (7 levels); resume
- * `-r <path|id>` / `-c` (no pin flag — capture from JSONL header / list --json);
- * --append-system-prompt repeatable; no permission-mode flag (--autonomous
- * is unattended mode, not an approval enum); sessions persist via a per-user
- * daemon — app quit must `prime-agent stop`/`shutdown` the seat's sessions.
+ * Prime Agent (stock separately installed `prime-agent` CLI) — shipped Tier A,
+ * capture session, with a built-in reporter (idle/working/blocked + session id).
+ * Verified 0.7.1: positional prompt; --thinking effort (7 levels); resume
+ * `-r <path|id>` / `-c` (no pin flag — capture from reporter / list --json);
+ * --append-system-prompt repeatable; no permission-mode flag (--autonomous is
+ * unattended mode, not an approval enum). Vellum Command owns one isolated
+ * foreground daemon per live binding. Its unique --daemon-socket is runtime
+ * launch state and must never enter this authorial argv template.
  */
 export const PRIME_AGENT_TEMPLATE: ManagedTerminalTemplate = {
   harness: "prime-agent",
   displayName: "Prime Agent",
-  probedVersion: "0.7.0",
+  probedVersion: "0.7.1",
   argvSpec: {
     binary: "prime-agent",
     prefix: [],
@@ -449,14 +463,25 @@ export const PRIME_AGENT_TEMPLATE: ManagedTerminalTemplate = {
   },
   capabilityBadges: {
     instructionInjection: "A",
-    hooks: false,
+    // Stock built-in lifecycle hooks report per session with zero config writes.
+    hooks: true,
     effortAtSpawn: true,
     sessionId: "capture",
-    remote: false,
+    // A Remote runs the same plane: daemon plane, reporter, and daemon
+    // all live on the target host, so the seat is host-local there too.
+    remote: true,
     requiresGitCwd: false,
-    stateFeed: "socket (herdr reporter) → OSC9/133 + grid",
-    attentionSource: "socket blocked events → grid overlays",
-    labels: ["injection A", "socket feed", "effort", "capture session"],
+    stateFeed: "built-in reporter → OSC9/133 + grid",
+    attentionSource: "built-in blocked events → grid overlays",
+    labels: [
+      "injection A",
+      "built-in reporter",
+      "zero-write hooks",
+      "effort",
+      "capture session",
+      "no permission enum",
+      "remote",
+    ],
   },
   efforts: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
 };

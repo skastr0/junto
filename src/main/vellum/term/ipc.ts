@@ -1,8 +1,17 @@
 import type { IpcMain, IpcMainInvokeEvent, WebContents } from "electron";
 import { actorDeliverySurfaceOf } from "@shared/actor-surface";
 import type { CanvasDoc } from "@shared/canvas";
-import { IPC_CHANNELS, type TerminalAttachInput, type TerminalCreateInput } from "@shared/ipc";
-import { isHarnessId } from "@shared/managed-terminal-templates";
+import {
+  IPC_CHANNELS,
+  type TerminalAttachInput,
+  type TerminalCreateInput,
+  type TerminalFinishNodeDeleteOutcome,
+  type TerminalNodeDeleteResource,
+} from "@shared/ipc";
+import {
+  isHarnessId,
+  templateFor,
+} from "@shared/managed-terminal-templates";
 import { managedHarnessEnabled } from "@shared/features";
 import { resolveTerminalBinding } from "@shared/terminal";
 import { messageDelivery } from "../work/message-delivery";
@@ -10,6 +19,7 @@ import type { ControlLease, LocalHostEvent } from "./local-host";
 import { TerminalStreamCoalescer, terminalBindingKey } from "./stream-coalescer";
 import type { TermPlane } from "./plane";
 import { injectionSupervisor } from "./injection-supervisor";
+import { TerminalNodeDeleteService } from "./node-delete";
 import { rememberRemoteSeatState } from "./remote-seat-state";
 import { ActorSeatOccupy } from "./actor-seat-occupy";
 import { AppRuntime } from "../../runtime";
@@ -50,6 +60,7 @@ export const registerTerminalIpc = (
   const owners = new Map<string, LeaseOwner>();
   const controlByBinding = new Map<string, string>();
   const router = plane.router;
+  const nodeDelete = new TerminalNodeDeleteService(router);
 
   const assertTrusted = (event: IpcMainInvokeEvent): WebContents => {
     const sender = event.sender;
@@ -194,6 +205,21 @@ export const registerTerminalIpc = (
             `terminal ipc: harness ${surface.harness} is disabled in this build`,
           );
         }
+        if (
+          !templateFor(surface.harness).capabilityBadges.remote &&
+          !router.isLocalHostId(surface.hostId)
+        ) {
+          return deny(
+            `terminal ipc: harness ${surface.harness} is local-only and cannot use a Remote host`,
+          );
+        }
+        // Capture before the first await. Node deletion increments this exact
+        // host/binding revision synchronously and the final assertion prevents
+        // an older create from materializing after teardown.
+        const createAdmission = nodeDelete.admitCreate(
+          surface.bindingId,
+          surface.hostId,
+        );
         await ensureHostAvailable(surface.hostId);
 
         // The supplied node is immediate authorial intent. Canvas persistence
@@ -242,6 +268,7 @@ export const registerTerminalIpc = (
           resume: input.resume === true,
         });
 
+        nodeDelete.assertCreate(createAdmission);
         return AppRuntime.runPromise(
           Effect.gen(function* () {
             const seats = yield* ActorSeatOccupy;
@@ -268,7 +295,12 @@ export const registerTerminalIpc = (
         if (binding?.kind !== "native") {
           return deny("terminal ipc: raw terminal requires a terminal binding");
         }
+        const createAdmission = nodeDelete.admitCreate(
+          binding.bindingId,
+          binding.hostId,
+        );
         await ensureHostAvailable(binding.hostId);
+        nodeDelete.assertCreate(createAdmission);
         return router.create({
           bindingId: binding.bindingId,
           hostId: binding.hostId,
@@ -322,6 +354,29 @@ export const registerTerminalIpc = (
     async (event, bindingId: string, hostId?: string) => {
       assertTrusted(event);
       return router.kill(bindingId, hostId);
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.terminalBeginNodeDelete,
+    (
+      event,
+      resources: ReadonlyArray<TerminalNodeDeleteResource>,
+    ) => {
+      assertTrusted(event);
+      return nodeDelete.beginNodeDelete(resources);
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.terminalFinishNodeDelete,
+    (
+      event,
+      leaseId: string,
+      outcome: TerminalFinishNodeDeleteOutcome,
+    ) => {
+      assertTrusted(event);
+      return nodeDelete.finishNodeDelete(leaseId, outcome);
     },
   );
 

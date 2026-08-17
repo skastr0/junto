@@ -21,7 +21,7 @@ export const WithActions = () => (
     <OverlayHeader
       eyebrow="Station"
       title="remote-a — workshop"
-      status="ACP · live"
+      status="ACP — live"
       actions={
         <>
           <IconButton aria-label="Maximize" title="maximize">

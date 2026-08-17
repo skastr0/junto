@@ -1765,6 +1765,101 @@ const respond = (socket: Socket, envelope: WorkResponseEnvelope): void => {
   }
 };
 
+type WorkDispatchResult = Result.Result<unknown, WorkErrorBody>;
+
+/** Every main-minted principal anchor participates in generation identity. */
+const samePrincipalAnchors = (
+  left: ProcessPrincipal | undefined,
+  right: ProcessPrincipal,
+): boolean =>
+  left !== undefined &&
+  left.agentKey === right.agentKey &&
+  left.bindingId === right.bindingId &&
+  left.canvasName === right.canvasName &&
+  left.nodeId === right.nodeId;
+
+const revokedProcessIdentity = (): WorkErrorBody => ({
+  type: "AuthError",
+  message: "process identity became stale while the work operation was running",
+  details: {
+    retryable: false,
+    missing: "current process identity",
+    next_step:
+      "run the command again from the current Vellum Command agent session",
+  },
+});
+
+/**
+ * Effect v4 calls its interruptible async constructor `callback`. The listener
+ * re-resolves the kernel peer on every lifecycle notification: the retired PID
+ * may have a second, identical main-minted ancestor, while the notification's
+ * principal alone cannot prove whether this peer lost authority.
+ */
+const watchProcessIdentityRevocation = (
+  processMap: ProcessIdentityMap,
+  peerPid: number,
+  principal: ProcessPrincipal,
+): Effect.Effect<WorkDispatchResult> =>
+  Effect.callback<WorkDispatchResult>((resume) => {
+    let active = true;
+    let unsubscribe: (() => void) | undefined;
+
+    const stopListening = (): void => {
+      active = false;
+      const stop = unsubscribe;
+      unsubscribe = undefined;
+      try {
+        stop?.();
+      } catch {
+        // Revocation is fail-closed; a test/alternate map cannot keep a
+        // completed watcher subscribed by throwing from its cleanup hook.
+      }
+    };
+
+    const finishRevoked = (): void => {
+      if (!active) return;
+      stopListening();
+      resume(Effect.succeed(Result.fail(revokedProcessIdentity())));
+    };
+
+    const verifyCurrentIdentity = (): void => {
+      if (!active) return;
+      let current: ProcessPrincipal | undefined;
+      try {
+        current = processMap.resolveInTree(peerPid);
+      } catch {
+        finishRevoked();
+        return;
+      }
+      if (!samePrincipalAnchors(current, principal)) finishRevoked();
+    };
+
+    try {
+      const stop = processMap.subscribe(() => verifyCurrentIdentity());
+      if (active) {
+        unsubscribe = stop;
+      } else {
+        // A custom map may synchronously notify during subscribe.
+        try {
+          stop();
+        } catch {
+          // Already fail-closed above.
+        }
+      }
+    } catch {
+      finishRevoked();
+    }
+
+    // Close the synchronous admission-to-subscription window as well. This is
+    // deliberately after subscribe so any concurrent lifecycle change either
+    // notifies us or is visible in this resolve.
+    verifyCurrentIdentity();
+
+    // The race interrupts this watcher on operation success, failure, or outer
+    // interruption. A revocation winner unsubscribes before resuming above.
+    return Effect.sync(stopListening);
+  });
+
 export const startWorkControlServer = async (
   options: WorkControlServerOptions,
   runtime: WorkControlRuntime = {},
@@ -1967,70 +2062,92 @@ export const startWorkControlServer = async (
       }
 
       try {
-        // Live authority resolve + dispatch are one retained operation so a hung
-        // runtime (including liveDocuments) is visible to drainOnQuit as dispatch.
+        // Live authority resolve + dispatch are one Effect and one retained
+        // runtime fiber. Revocation wins the race and interrupts whichever
+        // service await is live, rather than merely checking identity again.
+        const liveAuthorityAndDispatch: Effect.Effect<
+          WorkDispatchResult,
+          never,
+          WorkService | CanvasesService | PausePlane
+        > = Effect.gen(function* () {
+          const liveDocsResult = yield* Effect.flatMap(
+            CanvasesService,
+            (canvases) => canvases.liveDocuments(),
+          ).pipe(Effect.result);
+          if (Result.isFailure(liveDocsResult)) {
+            return Result.fail({
+              type: "StaleNodeRef",
+              message: "live canvas authority is unavailable",
+              details: {
+                retryable: true,
+                next_step: "retry shortly; if this persists, ask the operator to check that Vellum Command is running with its canvases loaded",
+              },
+            });
+          }
+
+          const callerResolved = resolveCallerAcrossCanvases(
+            liveDocsResult.success,
+            admission.principal,
+          );
+          if (!callerResolved.ok) {
+            return Result.fail({
+              type:
+                callerResolved.code === "ambiguous"
+                  ? "ScopeError"
+                  : "StaleNodeRef",
+              message: callerResolved.message,
+              details: {
+                retryable: false,
+                next_step:
+                  "your process does not match exactly one agent node; ask the operator to check the canvas",
+              },
+            });
+          }
+
+          // Bootstrap proof: any work-plane call from the seat's own process is
+          // definitive evidence the agent knows the factory CLI.
+          yield* Effect.sync(() =>
+            injectionSupervisor.noteWorkPlaneCall(
+              admission.principal.bindingId,
+            ),
+          );
+          const occupant = occupantKeyForPrincipal(
+            admission.principal,
+            `pid:${admission.peerPid}`,
+          );
+          const caller: WorkCaller = {
+            canvasName: callerResolved.caller.canvasName,
+            nodeId: callerResolved.caller.nodeId,
+            workHome,
+            occupant,
+          };
+          return yield* dispatchOp(
+            req.op,
+            req.args,
+            caller,
+            options.version,
+          ).pipe(Effect.result);
+        });
+
+        const revocationWatcher = watchProcessIdentityRevocation(
+          processMap,
+          admission.peerPid,
+          admission.principal,
+        );
         const run = () =>
           retainOperation(
             "dispatch",
             `dispatch:${req.op}`,
-            async (): Promise<Result.Result<WorkErrorBody, unknown>> => {
-              let liveDocs: ReadonlyArray<{
-                readonly canvasName: string;
-                readonly doc: CanvasDoc;
-              }>;
-              try {
-                liveDocs = await options.run(
-                  Effect.flatMap(CanvasesService, (c) => c.liveDocuments()),
-                );
-              } catch {
-                return Result.fail({
-                  type: "StaleNodeRef",
-                  message: "live canvas authority is unavailable",
-                  details: {
-                    retryable: true,
-                    next_step: "retry shortly; if this persists, ask the operator to check that Vellum Command is running with its canvases loaded",
-                  },
-                });
-              }
-              const callerResolved = resolveCallerAcrossCanvases(
-                liveDocs,
-                admission.principal,
-              );
-              if (!callerResolved.ok) {
-                return Result.fail({
-                  type:
-                    callerResolved.code === "ambiguous"
-                      ? "ScopeError"
-                      : "StaleNodeRef",
-                  message: callerResolved.message,
-                  details: {
-                    retryable: false,
-                    next_step:
-                      "your process does not match exactly one agent node; ask the operator to check the canvas",
-                  },
-                });
-              }
-              // Bootstrap proof: any work-plane call from the seat's own
-              // process is definitive evidence the agent knows the factory
-              // CLI — the injection supervisor stops re-engaging on this.
-              injectionSupervisor.noteWorkPlaneCall(admission.principal.bindingId);
-              const occupant =
-                occupantKeyForPrincipal(
-                  admission.principal,
-                  `pid:${admission.peerPid}`,
-                );
-              const caller: WorkCaller = {
-                canvasName: callerResolved.caller.canvasName,
-                nodeId: callerResolved.caller.nodeId,
-                workHome,
-                occupant,
-              };
-              return options.run(
-                dispatchOp(req.op, req.args, caller, options.version).pipe(
-                  Effect.result,
+            () =>
+              // Watcher first is deliberate: Effect starts race contestants in
+              // argument order, so subscribe + initial resolve happen before
+              // liveDocuments can execute or suspend.
+              options.run(
+                Effect.raceFirst(
+                  revocationWatcher,
+                  liveAuthorityAndDispatch,
                 ),
-              ) as Promise<Result.Result<WorkErrorBody, unknown>>;
-            },
+              ),
           );
         const authoringLabel = mainAuthoringLabelForWorkOperation(req.op);
         // Both read and authorial operations retain their actual runtime
@@ -2042,7 +2159,7 @@ export const startWorkControlServer = async (
           : await authoringGate.run(authoringLabel, run);
 
         if (Result.isFailure(outcome)) {
-          const body = outcome.failure as WorkErrorBody;
+          const body = outcome.failure;
           respond(
             socket,
             workErr(body.type, body.message, body.details, req.op, req.id),

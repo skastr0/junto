@@ -1,7 +1,7 @@
 # Managed terminal — end-to-end plan to beta
 
-Status: plan of record. Authored 2026-07-26 after the ACP/terminal decision arc and a 63-item executed-probe verification pass.
-Evidence: [`managed-terminal-verification.md`](managed-terminal-verification.md) (per-harness verified facts + traps) - [`research/managed-terminal-probes/`](research/managed-terminal-probes/) (raw reports).
+Status: plan of record. Authored 2026-07-26 after the ACP/terminal decision arc and a 63-item executed-probe verification pass. Updated for the shipped stock Prime Agent 0.7.1 harness.
+Evidence: [`managed-terminal-verification.md`](managed-terminal-verification.md) (per-harness verified facts + traps) - [`research/managed-terminal-probes/`](research/managed-terminal-probes/) (raw reports) - [`process-bind-muse-prime-agent.md`](process-bind-muse-prime-agent.md) (Prime Agent process-bind resolution).
 Supersedes for v1: the retired ACP-first and remote-client proposal preserved at
 [`factory-harness-integration.md`](factory-harness-integration.md). The current
 factory model has one actor runtime and one work admission path: a
@@ -28,7 +28,7 @@ Verbatim from the operator; this is the test:
 7. Work **continues until the task is complete.**
 8. **Blocked states are visible** on the canvas.
 
-Nothing ships as beta until this loop runs on all four v1 harnesses (with per-harness state fidelity as specified in §9).
+Nothing ships as beta until this loop runs on all five covered harnesses, including the shipped Prime Agent extension (with per-harness state fidelity as specified in §9).
 
 ## 3 - Settled rulings (do not relitigate)
 
@@ -42,9 +42,9 @@ Nothing ships as beta until this loop runs on all four v1 harnesses (with per-ha
 | **Any harness prompt is a product state, not an engineering problem** | permission prompt, hook-trust modal, directory-trust modal, un-runnable CLI → all surface as *attention* on the node. One mechanism, all harnesses, all prompt types. Never allowlist around it — that silently loosens the user's security posture |
 | **Tool surface is the station CLI, not MCP** | bash is universal → no per-harness MCP parity hole; process-bind identity already law |
 | **ACP is hidden, not removed** | dormant code, revives with the embedded-Worker/native-chat timeline (§14) |
-| **v1 harnesses: Claude Code, Codex, Grok, Hermes. OpenClaw out.** | OpenClaw's agent runs in a Gateway daemon, not the PTY tree — process-bind, interrupt, and injection all break by construction |
+| **Covered harnesses: Claude Code, Codex, Grok, Hermes, Prime Agent. OpenClaw out.** | Prime Agent is the stock 0.7.1 CLI behind one app-owned daemon per binding. OpenClaw's agent runs in a shared Gateway daemon, so process-bind, interrupt, and injection still break by construction. |
 | **Herdr is a GEOGRAPHY node** (ruling 2026-07-26 — not "legacy", not deleted; just Herdr). Learn from, never fork/vendor. | it keeps its agent-state display for people who want panes without the factory. It holds no seat, no ports, no inbox, and no effort will be made to make it participate. Its detection design is portable; its config-writing installer is not |
-| **No tiers — a node is an ACTOR or it is GEOGRAPHY** (ruling 2026-07-26, supersedes Tier 1/2/3) | actor = a Vellum Command-spawned template terminal, the four harnesses, full stop. Everything else — raw terminals the user opens, herdr, pages, regions, notes — is geography. **Kind is fixed at node creation and never derived from what process happens to be running.** If answering "is this an actor?" would require runtime inspection, the design is wrong |
+| **No tiers — a node is an ACTOR or it is GEOGRAPHY** (ruling 2026-07-26, supersedes Tier 1/2/3) | actor = a Vellum Command-spawned template terminal, the covered harnesses, full stop. Everything else — raw terminals the user opens, herdr, pages, regions, notes — is geography. **Kind is fixed at node creation and never derived from what process happens to be running.** If answering "is this an actor?" would require runtime inspection, the design is wrong |
 | **A dead agent process never degrades to a clean shell** | an actor terminal whose harness exits goes to an explicit error/restart state. Otherwise an actor silently becomes geography — the exact ambiguity the no-tiers ruling removes. Process is mortal; kind is permanent |
 
 ## 4 - What already exists (verified by code read, 2026-07-26)
@@ -79,7 +79,7 @@ Each phase ends in a commit. Phases 1–2 are the bulk; 3–7 are wiring to surf
 - Add `@xterm/headless` (currently absent; only `xterm` + `addon-fit` are present).
 - New `src/main/vellum/term/observer/`: one headless terminal per live session, fed from `observeData:698` (the single insertion point — every byte already flows through it with a seq).
 - Register the handlers Vellum Command currently discards (zero OSC/CSI handlers exist in `src/` today):
-  - **OSC 0/2** title — the primary state feed on all four harnesses.
+  - **OSC 0/2** title — the primary fallback state feed across the covered harnesses.
   - **OSC 9** — Claude's `9;4;3`/`9;4;0` working flag, Codex's `]9;<msg>` turn-complete, Grok's `9;4` binary.
   - **CSI ?2004** bracketed-paste mode — protocol-level "a readline input box is live"; the truest typing gate.
   - **CSI ?2026** synchronized output — exact repaint boundaries, better than a debounce timer.
@@ -118,11 +118,11 @@ Each phase ends in a commit. Phases 1–2 are the bulk; 3–7 are wiring to surf
 - **Grok clipboard hazard:** pre-flight `osascript clipboard info` before any paste; if an image is on the clipboard, **abort and surface attention** — do not silently clear the operator's clipboard.
 - **Hermes readiness:** never gate on a byte-stream quiet-gap — the `Installing TUI dependencies…` window (~1–2s, ssh especially) swallows Ctrl+C and kills the session. Gate on a positive UI signal.
 
-**Acceptance:** loop steps 4 and 7. A typed message lands as one submitted prompt on all four harnesses, mid-turn messages queue and drain at the turn boundary, and an interrupt never exits a session.
+**Acceptance:** loop steps 4 and 7. A typed message lands as one submitted prompt on all five covered harnesses, mid-turn messages queue and drain at the turn boundary, and an interrupt never exits a session.
 
 ### Phase 5 — Templates (actor nodes) + the picker
 
-- A template is **data**: `{harness, argv-spec, env-spec, injection-spec, capability-badges}`. The four v1 templates.
+- A template is **data**: `{harness, argv-spec, env-spec, injection-spec, capability-badges}`. The five covered templates.
 - **The picker is the authoring act** — progressive specificity, click at any level to accept defaults below:
   `harness → [profile (hermes)] → model → effort`
   Click `Codex` → spawn with defaults. Hover → models → click `gpt-5.6-luna` → spawn with that + default effort. Hover the model → efforts → click → fully specified.
@@ -131,18 +131,20 @@ Each phase ends in a commit. Phases 1–2 are the bulk; 3–7 are wiring to surf
   - Codex: **`codex debug models`** (models + per-model effort lists).
   - Grok: `~/.grok/models_cache.json` (or ACP init); efforts = high/medium/low.
   - Hermes: `hermes profile list` (~1s, parseable, no `--json`) + `~/.hermes/profiles/*/config.yaml`; models from `provider_models_cache.json` — **validate, staleness is proven** (exit 0 with an HTTP 404 body); effort has no flag → typed `/reasoning` (verify session-scoped) or omitted in v1.
-- **Spawn env scrubbing (mandatory):** strip `CLAUDE_CODE_CHILD_SESSION`, `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT` — otherwise a Vellum Command launched from inside a Claude session silently disables the child's transcript persistence and excludes it from `--resume`.
-- Inject `PATH` so `dist/vellum-command` resolves, including its canonical `vellum-command browser` dispatcher; inject seat/socket/token env (verified to reach agent shell subprocesses on all four).
-- Session id: pin where possible (Claude `--session-id`, Grok `--session-id`), capture otherwise (Codex: SessionStart hook > `CODEX_THREAD_ID` > notify > rollout; Hermes: `HERMES_SESSION_ID` env). Store on the seat for cold wake.
-- Per-harness spawn traps: Grok **requires a git cwd** (else a modal swallows the prompt); Hermes needs **`chat --tui -q`** (`-z` is headless); Codex resume **does not inherit flags** — re-pass everything.
+  - Prime Agent: `prime-agent model list`; effort is `--thinking off|minimal|low|medium|high|xhigh|max`.
+- **Spawn env scrubbing (mandatory):** strip the exact shared traps (`CLAUDE_CODE_CHILD_SESSION`, `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`, `PI_CODING_AGENT`, `NO_COLOR`, `FORCE_COLOR`) and every `PRIME_AGENT_INTERNAL_*` key. Apply the same predicate after host injection, so an injected value cannot recreate a nested or internal process role.
+- Inject `PATH` so `dist/vellum-command` resolves, including its canonical `vellum-command browser` dispatcher; inject seat/socket/token env (verified to reach agent shell subprocesses on the original four; Prime Agent receives them through its isolated binding daemon).
+- Session id: pin where possible (Claude `--session-id`, Grok `--session-id`), capture otherwise (Codex: SessionStart hook > `CODEX_THREAD_ID` > notify > rollout; Hermes: `HERMES_SESSION_ID` env; Prime Agent: built-in reporter, with scoped `list --json` as lifecycle evidence). Persisting captured identity on the authoritative seat is required before cold wake; Prime Agent capture is currently process-local diagnostics and no spawn path consumes it.
+- **Prime Agent runtime isolation:** the authorial template remains plain stock argv (`--model`, `--thinking`, `--append-system-prompt`, positional prompt, `-r`). At live spawn only, Vellum Command registers its ready reporter route, owns one foreground wrapper generation per binding, requires the separately installed executable to report the exact complete version `0.7.1`, then `exec`s `prime-agent --mode daemon --daemon-socket <unique>` in that same generation, binds the exact daemon and PTY generations, and routes the TUI through that socket after bounded command-first `list --json --daemon-socket` probes. The daemon flags are help-visible stock 0.7.1 low-level mode; upstream still calls the daemon internal infrastructure, so Vellum Command invokes the process and imports no private module or removed command hierarchy. The socket is never persisted authorial config. Teardown revokes both identity generations before async cleanup, validates and stops only top-level roots through public exact-socket list/stop, proves the roster empty, then signals the exact owned daemon lease. Signaling the daemon first is unsafe because detached workers can recover a missing supervisor. A replacement is never bound or PID-signaled; uncertain crash cleanup is non-clean and retains its disposable directory.
+- Per-harness spawn traps: Grok **requires a git cwd** (else a modal swallows the prompt); Hermes needs **`chat --tui -q`** (`-z` is headless); Codex resume **does not inherit flags** — re-pass everything; Prime Agent must never fall back to the default shared daemon or global `shutdown`.
 
 **Acceptance:** loop steps 1, 3, 5. Also: template row + capability badges visible in the node UI so a harness with weaker state fidelity is honest about it.
 
 ### Phase 6 — Instruction injection + plugin disposition
 
-This is the piece the operator flagged as needing to be strong. **Two tiers, because two harnesses have no system-prompt flag.**
+This is the piece the operator flagged as needing to be strong. **Two tiers, because two covered harnesses have no system-prompt flag.**
 
-- **Tier A — system prompt at spawn** (verified): Claude `--append-system-prompt`; Grok `--rules` (appends) or `--agent <file>` (frontmatter + body appended, and `tools`/`disallowedTools` gating verified enforced).
+- **Tier A — system prompt at spawn** (verified): Claude `--append-system-prompt`; Grok `--rules` (appends) or `--agent <file>` (frontmatter + body appended, and `tools`/`disallowedTools` gating verified enforced); Prime Agent repeatable `--append-system-prompt`.
 - **Tier B — first typed message** (Codex, Hermes): the same text delivered as the session's first typed prompt. Costs a little context; gains full visibility in the transcript, which suits the legibility doctrine. (Candidate to check later: a codex `-c` instructions-file key — unverified, do not assume.)
 - **Injected payload** (the content the pruned global rule used to carry):
   1. Worker doctrine — factory seat, pull queue, claim-is-factory, requests block, artifacts never block, identity is process-bind, reach is edges.
@@ -164,7 +166,7 @@ The CLI exists; the deltas are:
 - **Ergonomics for a typing agent:** ops are typed by an LLM into a TUI, so error messages must be instructive and self-correcting, and `vellum-command schema`/`examples` must cover every op. Keep JSON-in/JSON-out (already batch-capable).
 - **Broadcast** — same mailbox, N seats, eventually-delivered per seat (a busy seat receives at its turn boundary). Shift-click → type → broadcast.
 
-**Acceptance:** escalate blocks and unblocks cleanly on all four; a blocked seat's tools are dark; broadcast lands on N seats.
+**Acceptance:** escalate blocks and unblocks cleanly on all five covered harnesses; a blocked seat's tools are dark; broadcast lands on N seats.
 
 ### Phase 8 — Usage rail (per station)
 
@@ -176,6 +178,7 @@ Replaces the Codex Bar dependency; per-station, cross-account, and Linux-viable.
 | Codex | OTLP export works (verified live sink, per-event token fields) | **not in OTLP** (verified absent) → `/status` grid scrape |
 | Grok | per-turn `updates.jsonl` (`costUsdTicks`, tokens); `signals.json` context | `/usage` TUI text scrape |
 | Hermes | `state.db` per session (tokens, `estimated_cost_usd`, billing mode); `hermes insights` | subscription-included; no separate limit surface |
+| Prime Agent | `/usage`; structured usage and model-cost fields in socket-scoped `list --json` | provider-dependent; no separate plan-limit claim |
 
 **Acceptance:** a per-station usage rail with tokens + cost per seat and weekly-limit state where available. Do not claim "Codex Bar replaced" until the two scrape paths are live and tested.
 
@@ -186,37 +189,39 @@ Replaces the Codex Bar dependency; per-station, cross-account, and Linux-viable.
 Every row below is backed by harness probes — see
 [`managed-terminal-verification.md`](managed-terminal-verification.md) for
 receipts. This is not a current Vellum Command implementation matrix. Release truth
-lives in `src/shared/managed-terminal-templates.ts`: hooks are currently off
-for all four harnesses, and Codex/Hermes cold wake is unavailable.
+lives in `src/shared/managed-terminal-templates.ts`: Prime Agent's built-in
+per-session reporter is the sole zero-write hook feed currently on; Codex/Hermes
+cold wake is unavailable.
 
-| | Claude Code | Codex | Grok | Hermes |
-|---|---|---|---|---|
-| TUI + auto-fired prompt | `claude "<p>"` | `codex "<p>"` | `grok "<p>"` (needs git cwd) | `hermes chat --tui -q "<p>"` |
-| instruction injection | **A** `--append-system-prompt` | **B** first typed msg | **A** `--rules` / `--agent` | **B** first typed msg |
-| hooks (per-session, zero-write) | ✅ `--settings` (30 events, deny works) | ❌ dropped (trust modal; bypass banned) | ✅ `.grok/hooks` + `events.jsonl` | ✅ project plugins + `HERMES_ENABLE_PROJECT_PLUGINS=1` (21 events) |
-| state feed rank | hooks → OSC → grid | **OSC → grid** (+`notify` turn-complete) | hooks/events.jsonl → OSC → grid | hooks → OSC (`--tui` only) → grid |
-| attention source | grid (OSC can't distinguish) | **OSC title `Action Required`** + grid for startup modals | events.jsonl `permission_requested` + footer | OSC title `⚠` |
-| permission mode at spawn | `--permission-mode` | `-a` (template property) | `--permission-mode`/`--allow` | `--yolo` |
-| session id | pin `--session-id` | capture (hook > `CODEX_THREAD_ID`) | pin `--session-id` | capture (`HERMES_SESSION_ID`) |
-| cold wake | `--resume <id>` (re-pass flags) | `codex resume <id>` (re-pass flags) | `grok -r <id>` | `chat --tui -r <id>` (re-pass `-m`) |
-| typing | paste + CR, 0ms ok | paste + **separate** CR | paste + CR, ≥1.5s after spawn | paste + CR |
-| `/compact` | ✅ + Pre/PostCompact hooks | ✅ | ✅ | via `/` commands |
-| effort at spawn | ✅ `--effort` | ✅ per-model list | ✅ high/med/low | ❌ typed `/reasoning` or omit |
-| remote (ssh) | — | — | — | ✅ verified end-to-end |
+| | Claude Code | Codex | Grok | Hermes | Prime Agent 0.7.1 |
+|---|---|---|---|---|---|
+| TUI + auto-fired prompt | `claude "<p>"` | `codex "<p>"` | `grok "<p>"` (needs git cwd) | `hermes chat --tui -q "<p>"` | socket-routed `prime-agent "<p>"` |
+| instruction injection | **A** `--append-system-prompt` | **B** first typed msg | **A** `--rules` / `--agent` | **B** first typed msg | **A** `--append-system-prompt` |
+| hooks (per-session, zero-write) | ✅ `--settings` (30 events, deny works) | ❌ dropped (trust modal; bypass banned) | ✅ `.grok/hooks` + `events.jsonl` | ✅ project plugins + `HERMES_ENABLE_PROJECT_PLUGINS=1` (21 events) | ✅ stock built-in lifecycle reporter; no config write |
+| state feed rank | hooks → OSC → grid | **OSC → grid** (+`notify` turn-complete) | hooks/events.jsonl → OSC → grid | hooks → OSC (`--tui` only) → grid | **built-in reporter → OSC9/133 → grid** |
+| attention source | grid (OSC can't distinguish) | **OSC title `Action Required`** + grid for startup modals | events.jsonl `permission_requested` + footer | OSC title `⚠` | built-in blocked events → grid overlays |
+| permission mode at spawn | `--permission-mode` | `-a` (template property) | `--permission-mode`/`--allow` | `--yolo` | none; `--autonomous` is not a permission enum |
+| session id | pin `--session-id` | capture (hook > `CODEX_THREAD_ID`) | pin `--session-id` | capture (`HERMES_SESSION_ID`) | capture (reporter > scoped `list --json`) |
+| cold wake | `--resume <id>` (re-pass flags) | `codex resume <id>` (re-pass flags) | `grok -r <id>` | `chat --tui -r <id>` (re-pass `-m`) | `-r <id>` (re-pass model/thinking) |
+| typing | paste + CR, 0ms ok | paste + **separate** CR | paste + CR, ≥1.5s after spawn | paste + CR | positional at spawn; paste + CR live drive not re-probed |
+| `/compact` | ✅ + Pre/PostCompact hooks | ✅ | ✅ | via `/` commands | available; live drive not re-probed |
+| effort at spawn | ✅ `--effort` | ✅ per-model list | ✅ high/med/low | ❌ typed `/reasoning` or omit | ✅ `--thinking` (7 levels) |
+| daemon ownership | n/a | n/a | n/a | n/a | one foreground daemon per binding; roots stop before exact daemon lease |
+| remote (ssh) | — | — | — | ✅ verified end-to-end | ✅ enabled (daemon plane is host-local on the Remote); ssh drive not re-probed |
 
 ## 10 - QA plan
 
-The consolidation's whole point: **QA scales with template rows, not with surfaces.** One drive path, four templates.
+The consolidation's whole point: **QA scales with template rows, not with surfaces.** One drive path, five covered templates.
 
 - **Per harness, per template row:** spawn → inject → onboard → claim → work → escalate → block → answer → resume → complete. Plus the trap list from §9 as explicit regressions.
 - **Replay tests** (cheap, deterministic, no model spend): recorded PTY captures per harness drive the state machine and the typing gate. This is the bulk of automated coverage.
 - **E2E stills** for every canvas state (idle/working/attention/blocked) — never describe the UI from a code read; capture it (`vellum-e2e-capture-recipe`).
 - **Live smoke** (costs plan usage, keep minimal): one full acceptance loop per harness before release.
-- **Version pinning:** several load-bearing behaviors are undocumented (Claude's `--settings`-as-hook-source; Hermes's hidden `--profile`). Pin probed versions in the template pack and re-smoke on harness updates.
+- **Version pinning:** several load-bearing behaviors are undocumented (Claude's `--settings`-as-hook-source; Hermes's hidden `--profile`). Prime Agent support is probed against stock 0.7.1, including foreground daemon mode, socket routing, built-in reporter, and public list/stop. Pin probed versions in the template pack and re-smoke on harness updates.
 
 ## 11 - Beta checklist
 
-1. Acceptance loop (§2) green on all four harnesses.
+1. Acceptance loop (§2) green on all five covered harnesses.
 2. Zero writes to user harness configs — audited, with a test that fails if a spawn touches `~/.claude`, `~/.codex`, `~/.grok`, `~/.hermes`.
 3. Attention/blocked surfaces correct for every prompt type per harness.
 4. Escalate → block → answer → resume, incl. cold wake after an app restart.
@@ -229,7 +234,7 @@ The consolidation's whole point: **QA scales with template rows, not with surfac
 
 ## 12 - Deferred (explicitly not v1)
 
-- **Embedded Worker (forked pi)** — tabled until the monotool exists. The dossier (MIT, white-label `piConfig`, `PI_CODING_AGENT_DIR` isolation, injectable credentials, per-message cost) stays valid; forking pi is *sanctioned* (unlike herdr).
+- **Embedded Worker (forked Pi)** — tabled until the monotool exists. The dossier (MIT, white-label `piConfig`, `PI_CODING_AGENT_DIR` isolation, injectable credentials, per-message cost) stays valid. This is unrelated to the shipped Prime Agent harness: Vellum Command uses stock stable Prime Agent only and will not fork it.
 - **Cloud workers** — the zero-harness answer; Vouch-shaped, keys server-side, no consumer-ToS exposure. Empty-state should point at it to measure demand.
 - **ACP revival + native chat UI** — arrives with the Worker, not before. Grok's leader lane (a second ACP client can `session/load` a *live TUI's* session and replay its updates) is a promising future observability path.
 - **TUI automation horizons** — dev-server node, log-watcher, exit-code→task state, terminal macros, OSC 133 semantic prompt marks (with nonce discipline: children can forge marks). Cheap once Phases 1–4 land. Two taste rulings deferred: shell-integration injection into plain terminals; command palettes typed into any terminal.

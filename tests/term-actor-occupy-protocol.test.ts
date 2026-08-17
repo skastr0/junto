@@ -60,7 +60,10 @@ afterEach(async () => {
 });
 
 const startPair = async () => {
-  setProcessIdentityMapForTests(makeProcessIdentityMap());
+  setProcessIdentityMapForTests(makeProcessIdentityMap({
+    processAlive: () => true,
+    readProcessStartKey: (pid) => `synthetic-${pid}`,
+  }));
   const home = mkdtempSync(join(tmpdir(), "vt-actor-"));
   cleanups.push(() => rmSync(home, { recursive: true, force: true }));
   const fake = makeFakeTerminalProcessAuthority(() => ({

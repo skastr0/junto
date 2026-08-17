@@ -41,12 +41,47 @@ describe("harnessBinaryInstalled", () => {
     ).toBe(true);
   });
 
+  it("finds the shipped stock Prime Agent binary on PATH", () => {
+    const dir = makeScratch();
+    const bin = join(dir, "prime-agent");
+    writeFileSync(bin, "#!/bin/sh\nexit 0\n");
+    chmodSync(bin, 0o755);
+    expect(
+      harnessBinaryInstalled("prime-agent", "prime-agent", {
+        pathEnv: dir,
+        home: makeScratch(),
+        pathSep: ":",
+      }),
+    ).toBe(true);
+  });
+
   it("returns false when binary is absent", () => {
     const empty = makeScratch();
     expect(
       harnessBinaryInstalled("claude", "definitely-missing-cli", {
         pathEnv: empty,
         home: empty,
+        pathSep: ":",
+      }),
+    ).toBe(false);
+    expect(
+      harnessBinaryInstalled("prime-agent", "prime-agent", {
+        pathEnv: empty,
+        home: empty,
+        pathSep: ":",
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects a non-executable Prime Agent file", () => {
+    const dir = makeScratch();
+    const bin = join(dir, "prime-agent");
+    writeFileSync(bin, "#!/bin/sh\nexit 0\n");
+    chmodSync(bin, 0o644);
+    expect(
+      harnessBinaryInstalled("prime-agent", bin, {
+        pathEnv: dir,
+        home: makeScratch(),
         pathSep: ":",
       }),
     ).toBe(false);

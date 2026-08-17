@@ -7,7 +7,9 @@ import {
   HERMES_TEMPLATE,
   HARNESS_IDS,
   MANAGED_TERMINAL_TEMPLATES,
+  PRIME_AGENT_TEMPLATE,
   SPAWN_ENV_SCRUB,
+  SPAWN_ENV_SCRUB_PREFIXES,
   allTemplates,
   isHarnessId,
   templateFor,
@@ -58,7 +60,7 @@ describe("managed-terminal templates (data)", () => {
     expect(allTemplates().map((template) => template.harness)).toEqual([
       ...expected,
     ]);
-    // Ship defaults: experimental seats off (unless profile/env override).
+    // Ship defaults: Kimi/Muse off, Prime Agent on (unless overridden).
     if (!HERMES_INTEGRATION_ENABLED) {
       expect(expected).not.toContain("hermes");
     }
@@ -125,17 +127,51 @@ describe("managed-terminal templates (data)", () => {
     );
   });
 
+  it("describes shipped Prime Agent 0.7.1 capabilities honestly", () => {
+    expect(PRIME_AGENT_TEMPLATE.probedVersion).toBe("0.7.1");
+    expect(PRIME_AGENT_TEMPLATE.displayName).toBe("Prime Agent");
+    expect(PRIME_AGENT_TEMPLATE.injectionSpec.tier).toBe("A");
+    expect(PRIME_AGENT_TEMPLATE.argvSpec).toMatchObject({
+      binary: "prime-agent",
+      prefix: [],
+      promptMode: "positional",
+      modelFlag: "--model",
+      effortFlag: "--thinking",
+      resumeMode: "flag",
+      resumeFlag: "-r",
+      systemPromptFlag: "--append-system-prompt",
+    });
+    expect(PRIME_AGENT_TEMPLATE.capabilityBadges).toMatchObject({
+      hooks: true,
+      effortAtSpawn: true,
+      sessionId: "capture",
+      remote: true,
+      stateFeed: "built-in reporter → OSC9/133 + grid",
+      attentionSource: "built-in blocked events → grid overlays",
+    });
+    expect(PRIME_AGENT_TEMPLATE.capabilityBadges.labels).toEqual(
+      expect.arrayContaining([
+        "built-in reporter",
+        "zero-write hooks",
+        "capture session",
+        "no permission enum",
+      ]),
+    );
+  });
+
   it("shares the mandatory spawn env scrub list", () => {
     expect(SPAWN_ENV_SCRUB).toEqual([
       "CLAUDE_CODE_CHILD_SESSION",
       "CLAUDECODE",
       "CLAUDE_CODE_ENTRYPOINT",
+      "PI_CODING_AGENT",
       "NO_COLOR",
       "FORCE_COLOR",
       "CURSOR_CONVERSATION_ID",
       "CURSOR_AGENT_STORE_FILES_DIR",
       "CURSOR_AGENT_STORE_SHARED_PATHS",
     ]);
+    expect(SPAWN_ENV_SCRUB_PREFIXES).toEqual(["PRIME_AGENT_INTERNAL_"]);
     for (const t of allTemplates()) {
       expect(t.envSpec.scrub).toEqual(SPAWN_ENV_SCRUB);
     }
@@ -149,12 +185,13 @@ describe("managed-terminal templates (data)", () => {
 });
 
 describe("scrubSpawnEnv + buildSpawnEnv", () => {
-  it("strips nested Claude session markers", () => {
+  it("strips exact nested-session markers", () => {
     const scrubbed = scrubSpawnEnv({
       PATH: "/usr/bin",
       CLAUDECODE: "1",
       CLAUDE_CODE_CHILD_SESSION: "yes",
       CLAUDE_CODE_ENTRYPOINT: "cli",
+      PI_CODING_AGENT: "true",
       NO_COLOR: "1",
       VELLUM_COMMAND_TOKEN: "tok",
       EMPTY: undefined,
@@ -165,21 +202,45 @@ describe("scrubSpawnEnv + buildSpawnEnv", () => {
     });
   });
 
-  it("merges inject after scrub and refuses to reintroduce scrubbed keys", () => {
+  it("strips every Prime Agent internal prefix, including unknown future keys", () => {
+    const scrubbed = scrubSpawnEnv({
+      PATH: "/usr/bin",
+      PRIME_AGENT_INTERNAL_DAEMON_WORKER: "1",
+      PRIME_AGENT_INTERNAL_DAEMON_WORKER_TOKEN: "secret",
+      PRIME_AGENT_INTERNAL_FUTURE_ROLE: "future",
+      PRIME_AGENT_INTERNAL: "near-miss",
+      PRIME_AGENT_PUBLIC_SETTING: "keep",
+    });
+    expect(scrubbed).toEqual({
+      PATH: "/usr/bin",
+      PRIME_AGENT_INTERNAL: "near-miss",
+      PRIME_AGENT_PUBLIC_SETTING: "keep",
+    });
+  });
+
+  it("merges inject after scrub and refuses to reintroduce exact or prefix keys", () => {
     const env = buildSpawnEnv(
       {
         PATH: "/usr/bin",
         CLAUDECODE: "1",
+        PI_CODING_AGENT: "true",
+        PRIME_AGENT_INTERNAL_DAEMON_WORKER: "1",
         HOME: "/home/op",
       },
       {
         VELLUM_COMMAND_SOCKET: "/tmp/work.sock",
         VELLUM_COMMAND_TOKEN: "t",
         CLAUDECODE: "evil",
+        PI_CODING_AGENT: "evil",
+        PRIME_AGENT_INTERNAL_DAEMON_WORKER: "evil",
+        PRIME_AGENT_INTERNAL_NEW_AUTHORITY: "evil",
         PATH: "/opt/vellum/bin:/usr/bin",
       },
     );
     expect(env.CLAUDECODE).toBeUndefined();
+    expect(env.PI_CODING_AGENT).toBeUndefined();
+    expect(env.PRIME_AGENT_INTERNAL_DAEMON_WORKER).toBeUndefined();
+    expect(env.PRIME_AGENT_INTERNAL_NEW_AUTHORITY).toBeUndefined();
     expect(env.NO_COLOR).toBeUndefined();
     expect(env.PATH).toBe("/opt/vellum/bin:/usr/bin");
     expect(env.VELLUM_COMMAND_SOCKET).toBe("/tmp/work.sock");
@@ -462,6 +523,8 @@ describe("resolveManagedLaunch argv", () => {
       "doctrine text",
       "proceed",
     ]);
+    // The per-binding daemon socket is runtime state, never authorial argv.
+    expect(launch.argv).not.toContain("--daemon-socket");
   });
 
   it("prime-agent resume re-passes flags via -r", () => {

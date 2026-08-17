@@ -449,7 +449,10 @@ describe("term control UDS", () => {
   });
 
   it("createAgentSeat occupies an actor seat and adopts the same identity as a no-op", async () => {
-    setProcessIdentityMapForTests(makeProcessIdentityMap());
+    setProcessIdentityMapForTests(makeProcessIdentityMap({
+      processAlive: () => true,
+      readProcessStartKey: (pid) => `synthetic-${pid}`,
+    }));
     const home = mkdtempSync(join(tmpdir(), "vtcas-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));
     const host = new LocalSessionHost(fakeAuthority());
@@ -561,7 +564,10 @@ describe("term control UDS", () => {
   });
 
   it("atomically guards actor admission and replaces only a vacant exited seat", async () => {
-    setProcessIdentityMapForTests(makeProcessIdentityMap());
+    setProcessIdentityMapForTests(makeProcessIdentityMap({
+      processAlive: () => true,
+      readProcessStartKey: (pid) => `synthetic-${pid}`,
+    }));
     const home = mkdtempSync(join(tmpdir(), "vta-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));
     const host = new LocalSessionHost(fakeAuthority());

@@ -41,7 +41,7 @@ export const Working = () => (
     <ExecutionCardHeader
       decal={<Decal letter="C" tone="#39C6D6" />}
       title="claude-code — build sweep"
-      subtitle="remote-a · workshop"
+      subtitle="remote-a — workshop"
       activity={{ mode: "wave", tone: "cyan", pattern: "snake", label: "working" }}
     />
   </Frame>

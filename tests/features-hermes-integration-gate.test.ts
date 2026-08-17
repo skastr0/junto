@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
+  HARNESS_PRIME_AGENT_ENABLED,
   HERMES_INTEGRATION_ENABLED,
   managedHarnessEnabled,
   productHostCapabilities,
@@ -21,20 +22,24 @@ describe("Hermes integration product gate", () => {
   it.runIf(!HERMES_INTEGRATION_ENABLED)(
     "removes Hermes integration while retaining the independent ACP chat plane",
     () => {
-      // Ship/default: experimental harnesses (kimi/muse/prime-agent) and Hermes
-      // are compile-time off. Durable HARNESS_IDS still include them for decode.
+      // Hermes is independent of the shipped stock Prime Agent CLI harness;
+      // an explicit Prime build override may still disable its authoring. Durable
+      // HARNESS_IDS retain every decode vocabulary entry in either profile.
       expect(allTemplates().map((template) => template.harness)).toEqual([
         "claude",
         "codex",
         "grok",
         "pi",
+        ...(HARNESS_PRIME_AGENT_ENABLED ? ["prime-agent" as const] : []),
         "devin",
         "cursor",
       ]);
       expect(managedHarnessEnabled("hermes")).toBe(false);
       expect(managedHarnessEnabled("kimi")).toBe(false);
       expect(managedHarnessEnabled("muse")).toBe(false);
-      expect(managedHarnessEnabled("prime-agent")).toBe(false);
+      expect(managedHarnessEnabled("prime-agent")).toBe(
+        HARNESS_PRIME_AGENT_ENABLED,
+      );
       expect(() =>
         makeManagedAgentNode(0, 0, {
           harness: "hermes",
