@@ -24,6 +24,7 @@ import type { StationRemoteObservation } from "@shared/station-status";
 import type { RemoteHost } from "@shared/remote-hosts";
 import {
   deriveRemoteUpdateStatus,
+  remoteUpdatePhaseFromDeployJob,
   remoteUpdateStatusLabel,
   resolveRemoteAvailableForStatus,
   REMOTE_UPDATE_IDLE_PRODUCT_COPY,
@@ -375,11 +376,18 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
     commandCenterVersion: ccVersion,
   });
   const installedRemoteVersion = probe?.protocol?.peer?.appVersion;
+  // Phase truth comes from the live main-owned deploy job — the same job
+  // every managed update and manual Deploy flows through. No job, no phase.
+  const remoteUpdatePhase = remoteUpdatePhaseFromDeployJob({
+    job: deployJob,
+    availableVersion: availableForStatus,
+  });
   const remoteUpdate = deriveRemoteUpdateStatus({
     ...(installedRemoteVersion !== undefined
       ? { installedVersion: installedRemoteVersion }
       : {}),
     availableVersion: availableForStatus,
+    ...(remoteUpdatePhase === undefined ? {} : { phase: remoteUpdatePhase }),
   });
   const autoWalkWouldRun = shouldAutoWalkRemoteUpdate({
     availableRemoteReleaseVersion,
@@ -422,6 +430,14 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
   const deployDetail = linuxReleaseBlocked
     ? LINUX_REMOTE_DEPLOY_DISABLED_DETAIL
     : caps?.detail.deployRemote;
+  // The auto-update promise renders only when the executor actually runs for
+  // this machine: Command Center role, kill-switch on, managed deploy open,
+  // and a macOS target (Linux Remotes stay observed, never auto-walked).
+  const autoWalkActive =
+    autoWalkWouldRun &&
+    stationRole === "command-center" &&
+    deployEnabled &&
+    !knownLinuxHost;
 
   const saveAppearance = (appearance: { color?: string; glyph?: string }) => {
     setActionLine("");
@@ -658,7 +674,8 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
           </span>
           <span>Update status</span>
           <span>
-            {remoteUpdate.installedVersion === undefined
+            {remoteUpdate.installedVersion === undefined &&
+            remoteUpdatePhase === undefined
               ? "unknown"
               : remoteUpdateStatusLabel(remoteUpdate.updateStatus)}
           </span>
@@ -666,10 +683,12 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
         {remoteUpdate.updateStatus === "update-available" ? (
           <p className="fleet-detail__note">
             {deployEnabled
-              ? autoWalkWouldRun
+              ? autoWalkActive
                 ? "Updates automatically when idle, one Remote at a time."
                 : remoteManagedInstalls
-                  ? "Update available. Command Center must match this release before Remotes auto-update."
+                  ? knownLinuxHost && autoWalkWouldRun
+                    ? "Update available. Linux Remotes stay observed and update through Deploy."
+                    : "Update available. Command Center must match this release before Remotes auto-update."
                   : "Update available. Enable “Allow remote managed installs” for fleet auto-update, or Deploy when ready."
               : deployDetail ??
                 "Managed Remote package deployment is disabled in this release."}
