@@ -214,18 +214,22 @@ const buildArgv = (
     }
   }
 
-  // Permission / approval. Hermes --yolo is bare when enabled.
+  // Permission / approval. Bare flags like --yolo or --dangerously-skip-permissions are emitted without value when enabled.
   const permission =
     choices.permissionMode ?? template.defaultPermissionMode;
   if (permission !== undefined) {
-    if (spec.permissionModeFlag === "--yolo") {
+    if (
+      spec.permissionModeFlag === "--yolo" ||
+      spec.permissionModeFlag === "--dangerously-skip-permissions"
+    ) {
       if (
         permission === "yolo" ||
         permission === "true" ||
         permission === "1" ||
+        permission === spec.permissionModeFlag ||
         permission === "--yolo"
       ) {
-        argv.push("--yolo");
+        argv.push(spec.permissionModeFlag);
       }
       // "off"/false/default → omit
     } else {
@@ -245,11 +249,13 @@ const buildArgv = (
   }
 
   // Prompt last (positional, with optional separator), as -q for Hermes TUI
-  // auto-submit, or not at all when the harness has no argv prompt slot
-  // (kimi — the drive delivers Tier-B first-typed messages instead).
+  // auto-submit, as -i for Antigravity auto-submit, or not at all when the harness
+  // has no argv prompt slot (kimi — the drive delivers Tier-B first-typed messages instead).
   if (choices.prompt) {
     if (spec.promptMode === "flag-q") {
       argv.push("-q", choices.prompt);
+    } else if (spec.promptMode === "flag-i") {
+      argv.push("-i", choices.prompt);
     } else if (spec.promptMode === "positional") {
       if (spec.promptSeparator) argv.push(spec.promptSeparator);
       argv.push(choices.prompt);
@@ -315,7 +321,7 @@ const applyInjectionChoices = (
     const body = plan.firstTypedMessage?.trim();
     if (
       body &&
-      (mode === "positional" || mode === "flag-q") &&
+      (mode === "positional" || mode === "flag-q" || mode === "flag-i") &&
       !choices.prompt?.trim()
     ) {
       return {

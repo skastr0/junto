@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  AGY_TEMPLATE,
   CLAUDE_MODEL_ALIASES,
   CLAUDE_TEMPLATE,
   CODEX_TEMPLATE,
@@ -23,6 +24,7 @@ import {
   effortsFor,
   enumerateCodexModels,
   enumerateHermesProfiles,
+  parseAgyModelsList,
   parseClaudeModelCache,
   parseCodexDebugModels,
   parseGrokModelsCache,
@@ -52,6 +54,7 @@ describe("managed-terminal templates (data)", () => {
     "muse",
     "devin",
     "cursor",
+    "agy",
   ] as const;
 
   it("exports exactly the managed harnesses", () => {
@@ -696,6 +699,51 @@ describe("resolveManagedLaunch argv", () => {
     ]);
   });
 
+  it("agy: model, effort, promptMode flag-i, permissionMode, agent", () => {
+    const launch = resolveManagedLaunch(
+      "agy",
+      {
+        model: "gemini-3.7-flash-high",
+        effort: "high",
+        prompt: "analyze code",
+        permissionMode: "yolo",
+      },
+      bareAmbient,
+    );
+    expect(launch.argv).toEqual([
+      "agy",
+      "--model",
+      "gemini-3.7-flash-high",
+      "--effort",
+      "high",
+      "--dangerously-skip-permissions",
+      "-i",
+      "analyze code",
+    ]);
+  });
+
+  it("agy resume re-passes flags via --conversation <id>", () => {
+    const launch = resolveManagedLaunch(
+      "agy",
+      {
+        resumeId: "a102d6df-ee76-4418-8983-5bc5fe261153",
+        model: "gemini-3.7-flash-high",
+        effort: "medium",
+      },
+      bareAmbient,
+    );
+    expect(launch.argv).toEqual([
+      "agy",
+      "--conversation",
+      "a102d6df-ee76-4418-8983-5bc5fe261153",
+      "--model",
+      "gemini-3.7-flash-high",
+      "--effort",
+      "medium",
+    ]);
+    expect(launch.argv).not.toContain("--continue");
+    expect(launch.argv).not.toContain("-c");
+  });
 
   it("defaults: click harness → argv with default permission only", () => {
     const launch = resolveManagedLaunch("claude", {}, bareAmbient);
@@ -889,4 +937,21 @@ describe("model enumeration (fail-soft)", () => {
       }),
     ).toEqual(["low", "ultra"]);
   });
+
+  it("parseAgyModelsList parses tab-separated agy models output", () => {
+    const stdout = [
+      "Fetching available models...",
+      "gemini-3.7-flash-high\tGemini 3.7 Flash (High)",
+      "gemini-3.1-pro-high\tGemini 3.1 Pro (High)",
+      "claude-sonnet-4-6\tClaude Sonnet 4.6 (Thinking)",
+    ].join("\n");
+    const { models, error } = parseAgyModelsList(stdout);
+    expect(error).toBeUndefined();
+    expect(models).toEqual([
+      { id: "gemini-3.7-flash-high", label: "Gemini 3.7 Flash (High)" },
+      { id: "gemini-3.1-pro-high", label: "Gemini 3.1 Pro (High)" },
+      { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6 (Thinking)" },
+    ]);
+  });
 });
+

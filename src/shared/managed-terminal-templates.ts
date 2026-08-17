@@ -35,6 +35,7 @@ export const HarnessId = Schema.Literals([
   "muse",
   "devin",
   "cursor",
+  "agy",
 ]);
 export type HarnessId = typeof HarnessId.Type;
 
@@ -77,10 +78,11 @@ export type ArgvSpec = {
    * How the optional initial prompt is attached:
    * - `positional` — last argv token (claude/codex/grok/pi/prime-agent/muse/devin)
    * - `flag-q` — `-q <prompt>` (hermes TUI auto-submit)
+   * - `flag-i` — `-i <prompt>` (agy auto-submit)
    * - `none` — no argv prompt slot (kimi TUI waits for typed input; the drive
    *   delivers Tier-B first-typed messages instead)
    */
-  readonly promptMode: "positional" | "flag-q" | "none";
+  readonly promptMode: "positional" | "flag-q" | "flag-i" | "none";
   /**
    * Separator pushed immediately before the positional prompt. Devin requires
    * `--` (`devin -- <prompt>`); everything else needs none.
@@ -654,6 +656,54 @@ export const CURSOR_TEMPLATE: ManagedTerminalTemplate = {
   efforts: [],
 };
 
+/**
+ * Antigravity CLI (Google Antigravity; binary: `agy`) — Tier B, capture session, grid feed.
+ * Verified 1.1.13: `-i <prompt>` auto-submit; `--model`; `--effort` (low|medium|high);
+ * `--dangerously-skip-permissions`; `--agent`; `--conversation <id>` resume.
+ */
+export const AGY_TEMPLATE: ManagedTerminalTemplate = {
+  harness: "agy",
+  displayName: "Antigravity",
+  probedVersion: "1.1.13",
+  argvSpec: {
+    binary: "agy",
+    prefix: [],
+    promptMode: "flag-i",
+    modelFlag: "--model",
+    effortFlag: "--effort",
+    permissionModeFlag: "--dangerously-skip-permissions",
+    agentFlag: "--agent",
+    resumeMode: "flag",
+    resumeFlag: "--conversation",
+  },
+  envSpec: SHARED_ENV_SPEC,
+  injectionSpec: {
+    tier: "B",
+    flags: [],
+    description:
+      "No system-prompt flag — doctrine delivered as the first typed message",
+  },
+  capabilityBadges: {
+    instructionInjection: "B",
+    hooks: false,
+    effortAtSpawn: true,
+    sessionId: "capture",
+    remote: false,
+    requiresGitCwd: false,
+    stateFeed: "grid (screen rules)",
+    attentionSource: "permission prompt ([y/n], do you want to proceed?)",
+    labels: [
+      "injection B",
+      "grid",
+      "effort",
+      "capture session",
+      "agents",
+    ],
+  },
+  efforts: ["low", "medium", "high"],
+  defaultPermissionMode: undefined,
+};
+
 export const MANAGED_TERMINAL_TEMPLATES: Readonly<
   Record<HarnessId, ManagedTerminalTemplate>
 > = {
@@ -667,6 +717,7 @@ export const MANAGED_TERMINAL_TEMPLATES: Readonly<
   muse: MUSE_TEMPLATE,
   devin: DEVIN_TEMPLATE,
   cursor: CURSOR_TEMPLATE,
+  agy: AGY_TEMPLATE,
 };
 
 export const templateFor = (harness: HarnessId): ManagedTerminalTemplate =>
