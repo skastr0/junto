@@ -1250,7 +1250,10 @@ export const StationFleetPropagationLive = Layer.effect(
  * peer failure surfaces, or the bounded deadline passes.
  */
 export const awaitFleetProjectionApplied = (
-  fleet: Context.Service.Shape<typeof StationFleetPropagation>,
+  fleet: Pick<
+    Context.Service.Shape<typeof StationFleetPropagation>,
+    "status" | "synchronize"
+  >,
   hostId: HostIdValue,
   desired: StationProjectionDesiredRef,
 ): Effect.Effect<
@@ -1262,8 +1265,10 @@ export const awaitFleetProjectionApplied = (
       (yield* Clock.currentTimeMillis) +
       STATION_FLEET_SYNCHRONIZE_TIMEOUT_MS;
     while (true) {
-      // Durable short-circuit: an already-acknowledged covering projection
-      // needs no new reconciliation round before activation.
+      // In-process short-circuit: an already-acknowledged covering projection
+      // needs no new reconciliation round before activation. The receipt lives
+      // in process memory only, so the first activation after a Command Center
+      // restart pays one full reconciliation round.
       const current = yield* fleet.status(hostId);
       if (
         current?.lastReceipt !== undefined &&

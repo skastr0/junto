@@ -160,10 +160,12 @@ export type ActorSeatOccupyDeps = {
     hostId: string,
   ) => Promise<RemoteSeatProcessClient>;
   /**
-   * Optional causal gate ahead of Remote occupation. Local seats never pass
-   * through it; when absent, Remote occupation behaves as before.
+   * Causal gate ahead of Remote occupation. Local seats never pass through
+   * it. Required so unplugging the barrier is a type error, never a silent
+   * fail-open; a caller with no projection semantics passes an explicit
+   * pass-through.
    */
-  readonly remoteProjectionAdmission?: RemoteProjectionAdmission;
+  readonly remoteProjectionAdmission: RemoteProjectionAdmission;
 };
 
 const asClientError = (cause: unknown): Error =>
@@ -255,7 +257,7 @@ export const makeActorSeatOccupy = (
           targetHostId === "local" || targetHostId === localHostId;
         // Remote placement admits through the projection barrier before any
         // process transport opens; local seats never touch the barrier.
-        if (!isLocal && deps.remoteProjectionAdmission !== undefined) {
+        if (!isLocal) {
           yield* deps.remoteProjectionAdmission({
             hostId: targetHostId,
             bindingId: spec.bindingId,

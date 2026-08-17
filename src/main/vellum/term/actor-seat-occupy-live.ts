@@ -5,7 +5,7 @@
  * station configuration for every operation so an Unenrolled process that is
  * configured in place immediately recognizes its durable host id.
  */
-import { Effect, Layer, Result, Schema } from "effect";
+import { Effect, Layer, Result, Schema, type Context } from "effect";
 import { HostId } from "@shared/remote-hosts";
 import {
   LogicalSequence,
@@ -26,6 +26,7 @@ import {
   makeRemoteProjectionAdmission,
   type ProjectionAdmissionOutcome,
   type ProjectionAdmissionRef,
+  type RemoteProjectionAdmissionPorts,
 } from "./actor-seat-occupy";
 import { termPlane } from "./plane";
 
@@ -80,6 +81,98 @@ export const projectionAdmissionOutcomeOf = (
   };
 };
 
+/**
+ * Narrow service surface the live projection-admission ports actually read.
+ * Structural so behavioral tests can execute the real port bodies against
+ * faked stores instead of substituting the ports themselves.
+ */
+export type LiveProjectionAdmissionServices = {
+  readonly station: Pick<
+    Context.Service.Shape<typeof StationRepository>,
+    "configuration" | "projectionByReference"
+  >;
+  readonly propagation: Pick<
+    Context.Service.Shape<typeof StationPropagation>,
+    "desiredProjectionForHost"
+  >;
+  readonly fleetPropagation: Pick<
+    Context.Service.Shape<typeof StationFleetPropagation>,
+    "status" | "synchronize"
+  >;
+  readonly fleetTargets: Pick<
+    Context.Service.Shape<typeof StationFleetTargetRepository>,
+    "get"
+  >;
+};
+
+/** The production port implementations behind the Remote admission barrier. */
+export const makeLiveProjectionAdmissionPorts = ({
+  station,
+  propagation,
+  fleetPropagation,
+  fleetTargets,
+}: LiveProjectionAdmissionServices): RemoteProjectionAdmissionPorts => ({
+  localRole: () =>
+    station.configuration.pipe(
+      Effect.map((record) => record?.configuration.role),
+      Effect.mapError(asError),
+    ),
+  isFleetTarget: (hostId) => {
+    const decoded = decodeHostId(hostId);
+    if (decoded === undefined) return Effect.succeed(false);
+    return fleetTargets.get(decoded).pipe(
+      Effect.map((target) => target !== undefined),
+      Effect.mapError(asError),
+    );
+  },
+  compileDesired: (hostId) =>
+    propagation.desiredProjectionForHost(hostId).pipe(
+      Effect.map((desired) => ({
+        generation: desired.generation,
+        contentSha256: desired.contentSha256,
+      })),
+      Effect.mapError(asError),
+    ),
+  awaitApplied: (hostId, desired) =>
+    Effect.suspend(() => {
+      const decodedHost = decodeHostId(hostId);
+      const decodedRef = decodeRef(desired);
+      if (decodedHost === undefined || decodedRef === undefined) {
+        return Effect.succeed<ProjectionAdmissionOutcome>({
+          ok: false,
+          reason: "not-acknowledged",
+          message:
+            `Remote host ${hostId} has no canonical projection reference to await`,
+        });
+      }
+      return awaitFleetProjectionApplied(
+        fleetPropagation,
+        decodedHost,
+        decodedRef,
+      ).pipe(
+        Effect.map(projectionAdmissionOutcomeOf),
+        Effect.mapError(asError),
+      );
+    }),
+  seatProjected: (acked, hostId, bindingId) =>
+    Effect.gen(function* () {
+      const decodedRef = decodeRef(acked);
+      if (decodedRef === undefined) return false;
+      const stored = yield* station
+        .projectionByReference(decodedRef)
+        .pipe(Effect.mapError(asError));
+      if (stored === undefined) return false;
+      const decoded = yield* Effect.try({
+        try: () => decodeStationPortfolioBody(stored.body),
+        catch: asError,
+      });
+      return decoded.actorSeats.some(
+        (seat) =>
+          seat.hostId === hostId && seat.bindingId === bindingId,
+      );
+    }),
+});
+
 export const ActorSeatOccupyLive = Layer.effect(
   ActorSeatOccupy,
   Effect.gen(function* () {
@@ -90,67 +183,14 @@ export const ActorSeatOccupyLive = Layer.effect(
     const fleetPropagation = yield* StationFleetPropagation;
     const fleetTargets = yield* StationFleetTargetRepository;
 
-    const remoteProjectionAdmission = makeRemoteProjectionAdmission({
-      localRole: () =>
-        station.configuration.pipe(
-          Effect.map((record) => record?.configuration.role),
-          Effect.mapError(asError),
-        ),
-      isFleetTarget: (hostId) => {
-        const decoded = decodeHostId(hostId);
-        if (decoded === undefined) return Effect.succeed(false);
-        return fleetTargets.get(decoded).pipe(
-          Effect.map((target) => target !== undefined),
-          Effect.mapError(asError),
-        );
-      },
-      compileDesired: (hostId) =>
-        propagation.desiredProjectionForHost(hostId).pipe(
-          Effect.map((desired) => ({
-            generation: desired.generation,
-            contentSha256: desired.contentSha256,
-          })),
-          Effect.mapError(asError),
-        ),
-      awaitApplied: (hostId, desired) =>
-        Effect.suspend(() => {
-          const decodedHost = decodeHostId(hostId);
-          const decodedRef = decodeRef(desired);
-          if (decodedHost === undefined || decodedRef === undefined) {
-            return Effect.succeed<ProjectionAdmissionOutcome>({
-              ok: false,
-              reason: "not-acknowledged",
-              message:
-                `Remote host ${hostId} has no canonical projection reference to await`,
-            });
-          }
-          return awaitFleetProjectionApplied(
-            fleetPropagation,
-            decodedHost,
-            decodedRef,
-          ).pipe(
-            Effect.map(projectionAdmissionOutcomeOf),
-            Effect.mapError(asError),
-          );
-        }),
-      seatProjected: (acked, hostId, bindingId) =>
-        Effect.gen(function* () {
-          const decodedRef = decodeRef(acked);
-          if (decodedRef === undefined) return false;
-          const stored = yield* station
-            .projectionByReference(decodedRef)
-            .pipe(Effect.mapError(asError));
-          if (stored === undefined) return false;
-          const decoded = yield* Effect.try({
-            try: () => decodeStationPortfolioBody(stored.body),
-            catch: asError,
-          });
-          return decoded.actorSeats.some(
-            (seat) =>
-              seat.hostId === hostId && seat.bindingId === bindingId,
-          );
-        }),
-    });
+    const remoteProjectionAdmission = makeRemoteProjectionAdmission(
+      makeLiveProjectionAdmissionPorts({
+        station,
+        propagation,
+        fleetPropagation,
+        fleetTargets,
+      }),
+    );
 
     return makeActorSeatOccupy({
       local: termPlane.host,

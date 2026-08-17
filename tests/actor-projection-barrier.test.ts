@@ -15,7 +15,22 @@ import {
   type RemoteProjectionAdmission,
   type RemoteProjectionAdmissionPorts,
 } from "../src/main/vellum/term/actor-seat-occupy";
-import { projectionAdmissionOutcomeOf } from "../src/main/vellum/term/actor-seat-occupy-live";
+import {
+  makeLiveProjectionAdmissionPorts,
+  projectionAdmissionOutcomeOf,
+  type LiveProjectionAdmissionServices,
+} from "../src/main/vellum/term/actor-seat-occupy-live";
+import { compileStationPortfolioBody } from "../src/main/vellum/station/portfolio";
+import type { StationFleetPeerStatus } from "../src/main/vellum/station/fleet-propagation";
+import type {
+  StationConfigurationRecord,
+  StationProjection,
+} from "../src/main/vellum/station/repository";
+import type { StationFleetTarget } from "../src/main/vellum/station/fleet-target-repository";
+import type { DesiredProjection } from "../src/main/vellum/station/propagation";
+import { Schema } from "effect";
+import { InstallationId } from "../src/shared/installation-id";
+import type { CanvasDoc } from "../src/shared/canvas";
 import { StationFleetPeerUnavailable } from "../src/main/vellum/station/fleet-propagation";
 import { LocalSessionHost } from "../src/main/vellum/term/local-host";
 import type {
@@ -341,5 +356,196 @@ describe("ActorSeatOccupy Remote projection barrier", () => {
 
     expect(summary.status).toBe("running");
     expect(admission).not.toHaveBeenCalled();
+  });
+});
+
+describe("makeLiveProjectionAdmissionPorts", () => {
+  const installation = Schema.decodeUnknownSync(InstallationId)(
+    "install-station",
+  );
+  const configured = (role: "command-center" | "remote") =>
+    ({ configuration: { role } }) as StationConfigurationRecord;
+
+  const actorDoc = (bindingId: string): CanvasDoc => ({
+    nodes: [
+      {
+        id: "agent-a",
+        type: "text",
+        x: 0,
+        y: 0,
+        width: 240,
+        height: 100,
+        text: "actor",
+        ether: {
+          entity: { kind: "agent", name: "station-a:codex" },
+          terminal: {
+            bindingId,
+            launch: { kind: "harness", argv: ["codex"] },
+            harness: "codex",
+          },
+          host: "station-a",
+        },
+      },
+    ],
+    edges: [],
+  });
+
+  const portfolioBody = compileStationPortfolioBody(
+    new Map([["factory", actorDoc("seat-1")]]),
+    new Map([["station-a", installation]]),
+  );
+
+  const coveringStatus = (generation: string): StationFleetPeerStatus =>
+    ({
+      hostId: "station-a",
+      stationInstallationId: installation,
+      lastReceipt: {
+        projection: {
+          active: { generation, contentSha256: SHA },
+        },
+      },
+    }) as unknown as StationFleetPeerStatus;
+
+  const services = (
+    over: {
+      readonly [K in keyof LiveProjectionAdmissionServices]?: Partial<
+        LiveProjectionAdmissionServices[K]
+      >;
+    } = {},
+  ): LiveProjectionAdmissionServices => ({
+    station: {
+      configuration: Effect.succeed(configured("command-center")),
+      projectionByReference: () =>
+        Effect.succeed({ body: portfolioBody } as StationProjection),
+      ...over.station,
+    },
+    propagation: {
+      desiredProjectionForHost: () =>
+        Effect.succeed({
+          generation: "7",
+          contentSha256: SHA,
+        } as DesiredProjection),
+      ...over.propagation,
+    },
+    fleetPropagation: {
+      status: () => Effect.succeed(coveringStatus("7")),
+      synchronize: () => Effect.succeed([]),
+      ...over.fleetPropagation,
+    },
+    fleetTargets: {
+      get: () => Effect.succeed({} as StationFleetTarget),
+      ...over.fleetTargets,
+    },
+  });
+
+  it("admits through the complete live port chain on an acknowledged projected seat", async () => {
+    const admission = makeRemoteProjectionAdmission(
+      makeLiveProjectionAdmissionPorts(services()),
+    );
+
+    const result = await admit(admission, "station-a", "seat-1");
+
+    expect(result._tag).toBe("Success");
+  });
+
+  it("refuses with seat-not-projected when the acknowledged portfolio lacks the seat", async () => {
+    const admission = makeRemoteProjectionAdmission(
+      makeLiveProjectionAdmissionPorts(services()),
+    );
+
+    const result = await admit(admission, "station-a", "seat-unprojected");
+
+    expect(result._tag).toBe("Failure");
+    if (result._tag === "Failure") {
+      expect(result.failure).toBeInstanceOf(ActorSeatProjectionPending);
+      expect(result.failure).toMatchObject({ reason: "seat-not-projected" });
+    }
+  });
+
+  it("refuses with seat-not-projected when the acknowledged generation is not stored", async () => {
+    const admission = makeRemoteProjectionAdmission(
+      makeLiveProjectionAdmissionPorts(
+        services({
+          station: {
+            projectionByReference: () => Effect.succeed(undefined),
+          },
+        }),
+      ),
+    );
+
+    const result = await admit(admission, "station-a", "seat-1");
+
+    expect(result._tag).toBe("Failure");
+    if (result._tag === "Failure") {
+      expect(result.failure).toMatchObject({ reason: "seat-not-projected" });
+    }
+  });
+
+  it("maps an uncovered acknowledgement to the typed not-acknowledged verdict", async () => {
+    // No receipt covers the desired generation and reconciliation returns
+    // nothing for the host: awaitFleetProjectionApplied times out through the
+    // real deadline mapping only in the live plane, so here the fake
+    // synchronize answers with a deadline failure result.
+    const admission = makeRemoteProjectionAdmission(
+      makeLiveProjectionAdmissionPorts(
+        services({
+          fleetPropagation: {
+            status: () => Effect.succeed(undefined),
+            synchronize: () =>
+              Effect.succeed([
+                {
+                  ok: false,
+                  hostId: "station-a",
+                  error: { reason: "deadline" },
+                } as never,
+              ]),
+          },
+        }),
+      ),
+    );
+
+    const result = await admit(admission, "station-a", "seat-1");
+
+    expect(result._tag).toBe("Failure");
+    if (result._tag === "Failure") {
+      expect(result.failure).toBeInstanceOf(ActorSeatProjectionPending);
+      expect(result.failure).toMatchObject({ reason: "not-acknowledged" });
+    }
+  });
+
+  it("treats an undecodable host id as off the fleet and passes through", async () => {
+    const get = vi.fn(() => Effect.succeed({} as StationFleetTarget));
+    const admission = makeRemoteProjectionAdmission(
+      makeLiveProjectionAdmissionPorts(
+        services({ fleetTargets: { get } }),
+      ),
+    );
+
+    const result = await admit(admission, "-not-a-host-id!", "seat-1");
+
+    expect(result._tag).toBe("Success");
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  it("passes through when the local role is not Command Center", async () => {
+    const desired = vi.fn(() =>
+      Effect.succeed({
+        generation: "7",
+        contentSha256: SHA,
+      } as DesiredProjection),
+    );
+    const admission = makeRemoteProjectionAdmission(
+      makeLiveProjectionAdmissionPorts(
+        services({
+          station: { configuration: Effect.succeed(configured("remote")) },
+          propagation: { desiredProjectionForHost: desired },
+        }),
+      ),
+    );
+
+    const result = await admit(admission, "station-a", "seat-1");
+
+    expect(result._tag).toBe("Success");
+    expect(desired).not.toHaveBeenCalled();
   });
 });

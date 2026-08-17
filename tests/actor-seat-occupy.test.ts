@@ -28,6 +28,9 @@ import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-proces
 const hosts: LocalSessionHost[] = [];
 const syntheticEpochs = new Map<number, string>();
 
+/** These tests exercise process selection, not the projection barrier. */
+const passThroughAdmission = () => Effect.void;
+
 const actorSpec = (bindingId: string, hostId?: string): ActorOccupySpec => ({
   bindingId,
   harness: "grok",
@@ -103,6 +106,7 @@ describe("ActorSeatOccupy", () => {
       local: host,
       localHostId,
       clientForOccupy,
+      remoteProjectionAdmission: passThroughAdmission,
     });
 
     const created = await Effect.runPromise(
@@ -168,6 +172,7 @@ describe("ActorSeatOccupy", () => {
       local: host,
       localHostId,
       clientForOccupy,
+      remoteProjectionAdmission: passThroughAdmission,
     });
 
     const local = await Effect.runPromise(
@@ -215,6 +220,7 @@ describe("ActorSeatOccupy", () => {
         get: async () => live,
         createAgentSeat,
       }),
+      remoteProjectionAdmission: passThroughAdmission,
     });
 
     const created = await Effect.runPromise(
@@ -251,6 +257,7 @@ describe("ActorSeatOccupy", () => {
         get: async () => live,
         createAgentSeat,
       }),
+      remoteProjectionAdmission: passThroughAdmission,
     });
 
     const conflict = await Effect.runPromise(

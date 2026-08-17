@@ -31,6 +31,9 @@ import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-proces
 
 const cleanups: Array<() => Promise<void> | void> = [];
 
+/** These tests exercise the wire protocol, not the projection barrier. */
+const passThroughAdmission = () => Effect.void;
+
 const actorSpawnIntent = () => ({
   documentLaunch: { kind: "harness", argv: ["grok"] },
   resumeRequested: false,
@@ -96,6 +99,7 @@ describe("actor occupy protocol (in-process both ends)", () => {
       local: host,
       localHostId: () => Effect.succeed("cc-self"),
       clientForOccupy: async () => client,
+      remoteProjectionAdmission: passThroughAdmission,
     });
 
     const created = await Effect.runPromise(
@@ -144,6 +148,7 @@ describe("actor occupy protocol (in-process both ends)", () => {
       local: host,
       localHostId: () => Effect.succeed("cc-self"),
       clientForOccupy: async () => client,
+      remoteProjectionAdmission: passThroughAdmission,
     });
     const spawnIntent = makeManagedSpawnIntent({
       harness: "kimi",
@@ -219,6 +224,7 @@ describe("actor occupy protocol (in-process both ends)", () => {
         local: host,
         localHostId: () => Effect.succeed("cc-self"),
         clientForOccupy: async () => client,
+        remoteProjectionAdmission: passThroughAdmission,
       });
 
       await Effect.runPromise(
@@ -256,6 +262,7 @@ describe("actor occupy protocol (in-process both ends)", () => {
       local: host,
       localHostId: () => Effect.succeed("cc-self"),
       clientForOccupy: async () => client,
+      remoteProjectionAdmission: passThroughAdmission,
     });
 
     const conflict = await Effect.runPromise(
@@ -288,6 +295,7 @@ describe("actor occupy protocol (in-process both ends)", () => {
       local: host,
       localHostId: () => Effect.succeed("cc-self"),
       clientForOccupy: async () => client,
+      remoteProjectionAdmission: passThroughAdmission,
     });
     const spec = {
       bindingId: "proto_race_same",
@@ -319,6 +327,7 @@ describe("actor occupy protocol (in-process both ends)", () => {
       local: host,
       localHostId: () => Effect.succeed("cc-self"),
       clientForOccupy: async () => client,
+      remoteProjectionAdmission: passThroughAdmission,
     });
     const spec = {
       bindingId: "proto_race_diff",
