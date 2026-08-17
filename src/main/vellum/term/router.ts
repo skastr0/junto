@@ -24,11 +24,7 @@ import {
   type TermMaintenanceEvidence,
   type TermMaintenanceQuiescenceEvidence,
 } from "@shared/term-control";
-import {
-  sessionActorMatches,
-  type TerminalLaunch,
-  type TerminalSessionSummary,
-} from "@shared/terminal";
+import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
 import {
   occupancyFromSummary,
   occupyVacantSeat,
@@ -57,6 +53,7 @@ import type {
   TerminalOpenInput,
 } from "./local-host";
 import { TermControlClient } from "./control-client";
+import { makeActorSeatOccupy } from "./actor-seat-occupy";
 import {
   appendTransportTrace,
   recordTransportError,
@@ -375,31 +372,63 @@ export class TerminalRouter extends EventEmitter {
   }
 
   /**
-   * Open the actor seat on its host. Remote hops carry harness + agentKey on
-   * the same create verb; the spawn host occupies via createAgentSeat.
+   * Open the actor seat on its host. Placement selects the Layer.
+   * Occupy is always createAgentSeat.
    */
   async createAgentSeat(
     input: LocalHostAgentSeatInput & { hostId?: string },
   ): Promise<TerminalSessionSummary> {
     const hostId = this.admitSessionHost(input);
-    if (!this.isLocalHostId(hostId)) {
-      return this.createRemote(hostId, input);
+    const seats = makeActorSeatOccupy({
+      local: this.local,
+      isLocalHostId: (id) => this.isLocalHostId(id),
+      clientFor: async (remoteHostId) => {
+        const client = await this.ensureRemoteClient(remoteHostId);
+        this.assertRouteAdmission(remoteHostId);
+        return {
+          get: (bindingId) => client.get(bindingId),
+          createAgentSeat: (spec) =>
+            client.createAgentSeat({
+              bindingId: spec.bindingId,
+              harness: spec.harness,
+              agentKey: spec.agentKey,
+              launch: spec.launch,
+              cols: spec.cols,
+              rows: spec.rows,
+              canvasName: spec.canvasName,
+              nodeId: spec.nodeId,
+              label: spec.label,
+              firstTypedMessage: spec.firstTypedMessage,
+            }),
+        };
+      },
+    });
+    const summary = await Effect.runPromise(
+      seats.occupy({
+        bindingId: input.bindingId,
+        harness: input.harness,
+        agentKey: input.agentKey,
+        hostId,
+        launch: input.launch,
+        cols: input.cols,
+        rows: input.rows,
+        canvasName: input.canvasName,
+        nodeId: input.nodeId,
+        label: input.label,
+        title: input.title,
+        firstTypedMessage: input.firstTypedMessage,
+      }),
+    );
+    if (this.isLocalHostId(hostId)) {
+      await Promise.resolve();
+      return this.local.get(input.bindingId.trim()) ?? summary;
     }
-    const summary = this.local.createAgentSeat({ ...input, hostId: "local" });
-    // exitWitness.then is always a microtask — even when the child already
-    // died during spawn. Flush one turn so resume fail-open can replace the
-    // binding before the renderer latches create's summary as final.
-    await Promise.resolve();
-    return this.local.get(input.bindingId.trim()) ?? summary;
+    return { ...summary, hostId };
   }
 
   private async createRemote(
     hostId: string,
-    input: TerminalOpenInput & {
-      launch?: TerminalLaunch;
-      harness?: string;
-      agentKey?: string;
-    },
+    input: TerminalOpenInput & { launch?: TerminalLaunch },
   ): Promise<TerminalSessionSummary> {
     const client = await this.ensureRemoteClient(hostId);
     this.assertRouteAdmission(hostId);
@@ -410,52 +439,6 @@ export class TerminalRouter extends EventEmitter {
       "remote",
     );
     if (Result.isFailure(occupyVacantSeat(occupancy)) && existing) {
-      const actor =
-        input.harness && input.agentKey
-          ? { harness: input.harness, agentKey: input.agentKey }
-          : undefined;
-      if (actor && sessionActorMatches(existing, actor)) {
-        appendTransportTrace({
-          plane: "term",
-          op: "router.createRemote",
-          ok: true,
-          hostId,
-          bindingId: input.bindingId,
-          status: existing.status,
-          occupancy: occupancy._tag,
-          decision: "activate",
-          epoch: existing.epoch,
-        });
-        return { ...existing, hostId };
-      }
-      if (actor) {
-        const summary = await client.create({
-          bindingId: input.bindingId,
-          launch: input.launch,
-          cols: input.cols,
-          rows: input.rows,
-          canvasName: input.canvasName,
-          nodeId: input.nodeId,
-          label: input.label,
-          harness: actor.harness,
-          agentKey: actor.agentKey,
-        });
-        if (!sessionActorMatches(summary, actor)) {
-          throw new Error("remote seat did not bind actor identity");
-        }
-        appendTransportTrace({
-          plane: "term",
-          op: "router.createRemote",
-          ok: true,
-          hostId,
-          bindingId: input.bindingId,
-          status: summary.status,
-          occupancy: occupancy._tag,
-          decision: "activate",
-          epoch: summary.epoch ?? existing.epoch,
-        });
-        return { ...summary, hostId };
-      }
       appendTransportTrace({
         plane: "term",
         op: "router.createRemote",
@@ -488,19 +471,7 @@ export class TerminalRouter extends EventEmitter {
       canvasName: input.canvasName,
       nodeId: input.nodeId,
       label: input.label,
-      ...(input.harness ? { harness: input.harness } : {}),
-      ...(input.agentKey ? { agentKey: input.agentKey } : {}),
     });
-    if (
-      input.harness &&
-      input.agentKey &&
-      !sessionActorMatches(summary, {
-        harness: input.harness,
-        agentKey: input.agentKey,
-      })
-    ) {
-      throw new Error("remote seat did not bind actor identity");
-    }
     // Remote station stamps its own hostId as "local"; rewrite for CC consumers.
     return { ...summary, hostId };
   }
