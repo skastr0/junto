@@ -4,6 +4,12 @@ import { IPC_CHANNELS } from "../src/shared/ipc";
 import { registerTerminalIpc } from "../src/main/vellum/term/ipc";
 import type { TermPlane } from "../src/main/vellum/term/plane";
 
+// The install probe reads the real machine; pin it so admission tests stay
+// machine-independent.
+vi.mock("../src/main/vellum/term/templates/harness-install", () => ({
+  isManagedHarnessInstalled: () => true,
+}));
+
 const sender = {
   isDestroyed: () => false,
   send: vi.fn(),
@@ -85,10 +91,38 @@ describe("terminal IPC node-delete admission", () => {
     expect(runtime.router.create).not.toHaveBeenCalled();
   });
 
-  it("refuses Prime Agent on a Remote before install probing or route activation", async () => {
+  it("routes Prime Agent to a Remote host; local-only harnesses stay refused", async () => {
     const ensureHostAvailable = vi.fn(async () => undefined);
     const runtime = harness({ ensureHostAvailable });
 
+    // Claude remains a local-only harness: the badge gate refuses before any
+    // host activation or install probing.
+    await expect(Promise.resolve(runtime.handler(IPC_CHANNELS.terminalCreate)(
+      event,
+      {
+        bindingId: "claude-remote",
+        hostId: "remote-a",
+        harness: "claude",
+        agentKey: "local:claude-remote",
+      },
+    ))).rejects.toThrow(/local-only.*Remote/u);
+    expect(ensureHostAvailable).not.toHaveBeenCalled();
+    expect(runtime.router.createAgentSeat).not.toHaveBeenCalled();
+
+    // Prime Agent is remote-capable: the create proceeds through host
+    // activation to the router.
+    const summary = {
+      bindingId: "prime-remote",
+      epoch: "prime-remote-epoch",
+      hostId: "remote-a",
+      status: "running",
+      cwd: "/tmp",
+      cols: 80,
+      rows: 24,
+      detached: true,
+      createdAt: 1,
+    };
+    runtime.router.createAgentSeat.mockResolvedValueOnce(summary);
     await expect(Promise.resolve(runtime.handler(IPC_CHANNELS.terminalCreate)(
       event,
       {
@@ -97,8 +131,14 @@ describe("terminal IPC node-delete admission", () => {
         harness: "prime-agent",
         agentKey: "local:prime-remote",
       },
-    ))).rejects.toThrow(/local-only.*Remote/u);
-    expect(ensureHostAvailable).not.toHaveBeenCalled();
-    expect(runtime.router.createAgentSeat).not.toHaveBeenCalled();
+    ))).resolves.toMatchObject({ bindingId: "prime-remote" });
+    expect(ensureHostAvailable).toHaveBeenCalledWith("remote-a");
+    expect(runtime.router.createAgentSeat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bindingId: "prime-remote",
+        harness: "prime-agent",
+        hostId: "remote-a",
+      }),
+    );
   });
 });
