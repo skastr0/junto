@@ -305,7 +305,9 @@ describe("actor occupy protocol (in-process both ends)", () => {
     ]);
 
     expect(first.epoch).toBe(second.epoch);
-    expect(first.pid).toBe(second.pid);
+    // The fake authority mints a constant pid, so a pid comparison carries no
+    // signal here; single-spawn convergence is proven by the controller count
+    // and the running count below.
     expect(first.agentKey).toBe("station:grok");
     expect(fake.controllers).toHaveLength(1);
     expect(host.runningCount()).toBe(1);

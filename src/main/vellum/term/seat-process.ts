@@ -128,6 +128,20 @@ const ensureCommandGeneration = (
         ),
       );
 
+/**
+ * Convergence may only settle on a generation that is actually alive. A
+ * stopping or exited incumbent is being torn down — a station-side occupation
+ * that failed fail-closed leaves exactly such a record indexed until its exit
+ * witness settles, and returning it would launder that failure into a
+ * successful occupation carrying a dying epoch.
+ */
+const isLiveIncumbent = (
+  summary: Pick<TerminalSessionSummary, "status" | "stopping">,
+): boolean =>
+  summary.stopping !== true &&
+  summary.status !== "exited" &&
+  summary.status !== "missing";
+
 const actorAnchorsMatch = (
   summary: TerminalSessionSummary,
   actor: ActorActivateSpec,
@@ -200,7 +214,12 @@ export const makeLocalSeatProcess = (
           // failure: both callers end on the one incumbent generation. Any
           // other occupant is a typed identity conflict.
           if (live !== undefined && actorActivationMatches(live, spec)) {
-            return yield* ensureActorIdentity(live, bindingId, spec);
+            if (isLiveIncumbent(live)) {
+              return yield* ensureActorIdentity(live, bindingId, spec);
+            }
+            // Same identity on a stopping generation: the incumbent failed
+            // fail-closed and has not vacated yet. Occupation stays refused.
+            return yield* occupy.failure;
           }
           if (live !== undefined) {
             return yield* Effect.fail(
@@ -361,7 +380,12 @@ export const makeRemoteSeatProcess = (
           // Losing an occupy race to the exact same actor is convergence, not
           // failure. Any other occupant is a typed identity conflict.
           if (current !== undefined && actorActivationMatches(current, spec)) {
-            return yield* ensureActorIdentity(current, bindingId, spec);
+            if (isLiveIncumbent(current)) {
+              return yield* ensureActorIdentity(current, bindingId, spec);
+            }
+            // Same identity on a stopping generation: refuse, never return a
+            // generation that is being torn down.
+            return yield* occupy.failure;
           }
           if (current !== undefined) {
             return yield* Effect.fail(
@@ -393,7 +417,13 @@ export const makeRemoteSeatProcess = (
                 incumbent !== undefined &&
                 actorActivationMatches(incumbent, spec)
               ) {
-                return incumbent;
+                if (isLiveIncumbent(incumbent)) {
+                  return incumbent;
+                }
+                // The station occupied this identity and then tore it down
+                // fail-closed; the still-indexed stopping record is not a
+                // winner to converge on. Preserve the original failure.
+                return yield* Effect.fail(failure);
               }
               if (incumbent !== undefined) {
                 return yield* Effect.fail(

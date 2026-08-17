@@ -5,12 +5,19 @@ import {
   type ActorOccupySpec,
 } from "../src/main/vellum/term/actor-seat-occupy";
 import { LocalSessionHost } from "../src/main/vellum/term/local-host";
-import type {
-  RemoteAgentSeatCommand,
-  RemoteSeatProcessClient,
+import {
+  makeLocalSeatProcess,
+  makeRemoteSeatProcess,
+  type RemoteAgentSeatCommand,
+  type RemoteSeatProcessClient,
 } from "../src/main/vellum/term/seat-process";
 import type { TerminalSessionSummary } from "../src/shared/terminal";
-import { SeatIdentityConflictError } from "../src/shared/terminal-seat-occupancy";
+import {
+  SeatAlreadyOccupiedError,
+  SeatIdentityConflictError,
+  vacantSeat,
+  type OccupyVacantSeat,
+} from "../src/shared/terminal-seat-occupancy";
 import {
   makeProcessIdentityMap,
   setProcessIdentityMapForTests,
@@ -252,5 +259,126 @@ describe("ActorSeatOccupy", () => {
 
     expect(conflict).toBeInstanceOf(SeatIdentityConflictError);
     expect(createAgentSeat).not.toHaveBeenCalled();
+  });
+});
+
+describe("occupy convergence liveness", () => {
+  const vacantCommand = (bindingId: string): OccupyVacantSeat => ({
+    _tag: "OccupyVacantSeat",
+    seat: vacantSeat(bindingId, "remote"),
+  });
+
+  const stoppingSummary = (bindingId: string): TerminalSessionSummary =>
+    remoteSummary({
+      bindingId,
+      epoch: "epoch-dying",
+      status: "running",
+      harness: "grok",
+      agentKey: "local:grok",
+      canvasName: "factory",
+      nodeId: `node-${bindingId}`,
+    });
+
+  it("preserves the station failure instead of converging on a stopping incumbent", async () => {
+    // Station-side occupation failed fail-closed: createAgentSeat rejects
+    // after requestStop, and the dying record stays indexed (stopping: true)
+    // until its exit witness settles. The losing re-read must not return it.
+    const dying = { ...stoppingSummary("seat-dying"), stopping: true as const };
+    let created = false;
+    const how = makeRemoteSeatProcess("station-a", {
+      get: async () => (created ? dying : undefined),
+      createAgentSeat: async () => {
+        created = true;
+        throw new Error("seat seat-dying occupation failed after spawn");
+      },
+    });
+
+    const failure = await Effect.runPromise(
+      Effect.flip(
+        how.occupy(vacantCommand("seat-dying"), actorSpec("seat-dying")),
+      ),
+    );
+
+    expect(failure).toBeInstanceOf(Error);
+    expect(String(failure)).toContain("occupation failed after spawn");
+  });
+
+  it("refuses pre-check convergence on a stopping same-identity incumbent", async () => {
+    const dying = { ...stoppingSummary("seat-stop"), stopping: true as const };
+    const createAgentSeat = vi.fn(async () => dying);
+    const how = makeRemoteSeatProcess("station-a", {
+      get: async () => dying,
+      createAgentSeat,
+    });
+
+    const failure = await Effect.runPromise(
+      Effect.flip(
+        how.occupy(vacantCommand("seat-stop"), actorSpec("seat-stop")),
+      ),
+    );
+
+    expect(failure).toBeInstanceOf(SeatAlreadyOccupiedError);
+    expect(createAgentSeat).not.toHaveBeenCalled();
+  });
+
+  it("still converges on a live same-identity incumbent", async () => {
+    const live = stoppingSummary("seat-live");
+    const createAgentSeat = vi.fn(async () => live);
+    const how = makeRemoteSeatProcess("station-a", {
+      get: async () => live,
+      createAgentSeat,
+    });
+
+    const converged = await Effect.runPromise(
+      how.occupy(vacantCommand("seat-live"), actorSpec("seat-live")),
+    );
+
+    expect(converged.epoch).toBe("epoch-dying");
+    expect(createAgentSeat).not.toHaveBeenCalled();
+  });
+
+  it("refuses local convergence on a killed generation that has not exited", async () => {
+    setProcessIdentityMapForTests(
+      makeProcessIdentityMap({
+        processAlive: () => true,
+        readProcessStartKey: (pid) => syntheticEpochs.get(pid),
+      }),
+    );
+    syntheticEpochs.set(42_710, "synthetic-42710");
+    const fake = makeFakeTerminalProcessAuthority(() => ({
+      pid: 42_710,
+      exitOnSignal: false,
+    }));
+    const host = new LocalSessionHost(fake.authority);
+    hosts.push(host);
+    const how = makeLocalSeatProcess(host);
+    const spec = actorSpec("seat-local-dying");
+
+    const created = await Effect.runPromise(
+      how.occupy(
+        {
+          _tag: "OccupyVacantSeat",
+          seat: vacantSeat("seat-local-dying", "local"),
+        },
+        spec,
+      ),
+    );
+    expect(created.status).toBe("running");
+    expect(host.kill("seat-local-dying")).toBe(true);
+    expect(host.get("seat-local-dying")?.stopping).toBe(true);
+
+    const failure = await Effect.runPromise(
+      Effect.flip(
+        how.occupy(
+          {
+            _tag: "OccupyVacantSeat",
+            seat: vacantSeat("seat-local-dying", "local"),
+          },
+          spec,
+        ),
+      ),
+    );
+
+    expect(failure).toBeInstanceOf(SeatAlreadyOccupiedError);
   });
 });

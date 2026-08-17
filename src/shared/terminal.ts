@@ -248,7 +248,7 @@ export type TerminalSessionSummary = {
   readonly exitReason?: "cli-missing" | "spawn_failed";
   /** Operator-facing explanation when `exitReason` is set. */
   readonly exitMessage?: string;
-  /** Actor identity when this generation was occupied or adopted as a seat. */
+  /** Actor identity stamped when this generation was occupied as a seat. */
   readonly harness?: string;
   readonly agentKey?: string;
 };
