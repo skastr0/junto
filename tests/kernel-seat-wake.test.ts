@@ -3,11 +3,60 @@ import { Effect } from "effect";
 
 import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
 import {
+  KERNEL_CYCLE_KEY,
+  KERNEL_SAFETY_KEY,
   kernelCycleNeededForSeatEvent,
-  makeCoalescedKernelCycleScheduler,
+  kernelResyncKey,
+  makeKernelLaneScheduler,
   subscribeKernelPauseWake,
   subscribeKernelSeatWake,
 } from "../src/main/vellum/kernel/service";
+import {
+  LANE_FLOOR_MS,
+  type TickTimerCancel,
+} from "../src/main/vellum/kernel/tick";
+
+/** Manual clock + timers: the floor is asserted exactly, never slept through. */
+const makeTestClock = () => {
+  let at = 1_000;
+  let nextId = 1;
+  const timers = new Map<number, { dueAt: number; run: () => void }>();
+  const step = (): boolean => {
+    let dueId: number | undefined;
+    let dueAt = Number.POSITIVE_INFINITY;
+    let run: (() => void) | undefined;
+    for (const [id, timer] of timers) {
+      if (timer.dueAt > at || timer.dueAt >= dueAt) continue;
+      dueId = id;
+      dueAt = timer.dueAt;
+      run = timer.run;
+    }
+    if (dueId === undefined || run === undefined) return false;
+    timers.delete(dueId);
+    run();
+    return true;
+  };
+  return {
+    now: () => at,
+    setTimer: (delayMs: number, run: () => void): TickTimerCancel => {
+      const id = nextId;
+      nextId += 1;
+      timers.set(id, { dueAt: at + delayMs, run });
+      return () => {
+        timers.delete(id);
+      };
+    },
+    step,
+    settle: (maxSteps = 100): number => {
+      let steps = 0;
+      while (steps < maxSteps && step()) steps += 1;
+      return steps;
+    },
+    advance: (ms: number): void => {
+      at += ms;
+    },
+  };
+};
 
 const seatEvent = (
   state: AgentSeatStateEvent["state"],
@@ -106,41 +155,123 @@ describe("Kernel managed-seat wake scheduling", () => {
     expect(wakes).toBe(2);
   });
 
-  it("coalesces any lifecycle burst during a cycle into one repair pass", async () => {
-    let releaseFirst!: () => void;
-    let reportSecondStarted!: () => void;
-    const firstCycle = new Promise<void>((resolve) => {
-      releaseFirst = resolve;
-    });
-    const secondCycleStarted = new Promise<void>((resolve) => {
-      reportSecondStarted = resolve;
-    });
-    let runs = 0;
+  /**
+   * The invariant the old boolean-pair coalescer held, re-pinned against the
+   * lane scheduler that replaced it: a burst of lifecycle events during a pass
+   * retains exactly ONE repair pass, never one retry per event.
+   *
+   * What the old scheduler did NOT hold, and this now does: the next pass
+   * waits out the simulation lane's floor instead of re-running the instant
+   * the previous one finished.
+   */
+  it("collapses a lifecycle burst into one repair pass, then paces it", async () => {
+    const clock = makeTestClock();
+    const forked: Array<Effect.Effect<unknown, unknown>> = [];
+    let cycles = 0;
 
-    // V4-PROGRAM: cycle is Effect; host fork is the only Promise bridge.
-    const schedule = makeCoalescedKernelCycleScheduler(
-      Effect.gen(function* () {
-        runs += 1;
-        if (runs === 1) yield* Effect.promise(() => firstCycle);
-        if (runs === 2) reportSecondStarted();
-      }),
-      (effect) => {
-        void Effect.runPromise(effect as Effect.Effect<unknown, unknown>);
+    const scheduler = makeKernelLaneScheduler(
+      {
+        runCycle: Effect.sync(() => {
+          cycles += 1;
+        }),
+        resyncCanvas: () => Effect.void,
+        fork: (effect) => {
+          forked.push(effect as Effect.Effect<unknown, unknown>);
+        },
       },
+      { now: clock.now, setTimer: clock.setTimer },
     );
 
-    schedule();
-    schedule();
-    schedule();
-    expect(runs).toBe(1);
+    const runForked = async (): Promise<void> => {
+      const effect = forked.shift();
+      if (effect !== undefined) await Effect.runPromise(effect);
+    };
 
-    releaseFirst();
-    await secondCycleStarted;
-    expect(runs).toBe(2);
+    scheduler.mark("simulation", KERNEL_CYCLE_KEY);
+    clock.step();
+    expect(forked).toHaveLength(1);
+    expect(cycles).toBe(0);
 
-    // The second pass consumed the single queued bit; it did not retain one
-    // retry per event in the burst.
-    await Promise.resolve();
-    expect(runs).toBe(2);
+    // Fifty wakes land while the pass is in flight.
+    for (let i = 0; i < 50; i += 1) scheduler.mark("simulation", KERNEL_CYCLE_KEY);
+    expect(scheduler.pending("simulation")).toEqual([KERNEL_CYCLE_KEY]);
+
+    await runForked();
+    expect(cycles).toBe(1);
+
+    // One queued key, not fifty — and it waits out the floor.
+    clock.step();
+    expect(forked).toHaveLength(0);
+    clock.advance(LANE_FLOOR_MS.simulation);
+    clock.step();
+    expect(forked).toHaveLength(1);
+
+    await runForked();
+    expect(cycles).toBe(2);
+
+    // The burst is spent: nothing re-arms on its own.
+    clock.advance(10_000);
+    clock.settle();
+    expect(forked).toHaveLength(0);
+  });
+
+  it("re-reads a canvas once for a burst of commits on it", async () => {
+    const clock = makeTestClock();
+    const forked: Array<Effect.Effect<unknown, unknown>> = [];
+    const resynced: Array<string> = [];
+
+    const scheduler = makeKernelLaneScheduler(
+      {
+        runCycle: Effect.void,
+        resyncCanvas: (canvasName) =>
+          Effect.sync(() => {
+            resynced.push(canvasName);
+          }),
+        fork: (effect) => {
+          forked.push(effect as Effect.Effect<unknown, unknown>);
+        },
+      },
+      { now: clock.now, setTimer: clock.setTimer },
+    );
+
+    for (let i = 0; i < 20; i += 1) {
+      scheduler.mark("immediate", kernelResyncKey("factory"));
+    }
+    scheduler.mark("immediate", kernelResyncKey("scratch"));
+    expect(scheduler.pending("immediate")).toEqual([
+      "canvas:factory",
+      "canvas:scratch",
+    ]);
+
+    clock.step();
+    await Effect.runPromise(forked.shift() as Effect.Effect<unknown, unknown>);
+    clock.step();
+    await Effect.runPromise(forked.shift() as Effect.Effect<unknown, unknown>);
+
+    expect(resynced).toEqual(["factory", "scratch"]);
+  });
+
+  it("routes the safety sweep through housekeeping into one cycle", () => {
+    const clock = makeTestClock();
+    const forked: Array<Effect.Effect<unknown, unknown>> = [];
+
+    const scheduler = makeKernelLaneScheduler(
+      {
+        runCycle: Effect.void,
+        resyncCanvas: () => Effect.void,
+        fork: (effect) => {
+          forked.push(effect as Effect.Effect<unknown, unknown>);
+        },
+      },
+      { now: clock.now, setTimer: clock.setTimer },
+    );
+
+    scheduler.mark("housekeeping", KERNEL_SAFETY_KEY);
+    clock.step();
+    expect(scheduler.pending("simulation")).toEqual([KERNEL_CYCLE_KEY]);
+    expect(forked).toHaveLength(0);
+
+    clock.step();
+    expect(forked).toHaveLength(1);
   });
 });

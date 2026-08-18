@@ -110,6 +110,16 @@ import {
   setPageLoadDeps,
 } from "./cycle";
 import { setSchedulerEffectDeps } from "./effects";
+import {
+  makeKernelTickScheduler,
+  type KernelTickScheduler,
+  type LaneFailure,
+  type LaneOutcome,
+  type LaneOverrun,
+  type LaneResume,
+  type TickTimerCancel,
+} from "./tick";
+import { noteSyncSpan } from "../observability/main-thread-budget";
 import type { EtherFlag } from "@shared/canvas";
 import { mainAuthoringGate } from "../main-authoring-gate";
 
@@ -233,50 +243,131 @@ export const retainSuccessfulClaimProjection = (
   return true;
 };
 
-/**
- * One evaluation may run at a time. Any number of overlapping triggers retain
- * exactly one repair pass, so lifecycle bursts cannot race shared kernel
- * memory or grow an unbounded retry backlog.
- *
- * V4-PROGRAM: the cycle is an Effect; the host forks it (AppRuntime.runFork).
- * Completion drains via Effect.ensuring — never Promise.then/finally on the
- * factory control path.
- */
-export const makeCoalescedKernelCycleScheduler = (
-  runCycle: Effect.Effect<void, unknown>,
-  fork: <A, E>(effect: Effect.Effect<A, E>) => void,
-  onError: (error: unknown) => void = (error) =>
-    console.error("[kernel] evaluation cycle failed:", error),
-): (() => void) => {
-  let cycleInFlight = false;
-  let cycleQueued = false;
+/** The simulation lane's single key: one repair pass over the whole world. */
+export const KERNEL_CYCLE_KEY = "cycle";
+/** The housekeeping lane's watchdog key. */
+export const KERNEL_SAFETY_KEY = "safety-sweep";
 
-  const scheduleCycle = (): void => {
-    if (cycleInFlight) {
-      cycleQueued = true;
-      return;
-    }
-    cycleInFlight = true;
-    fork(
-      runCycle.pipe(
+/** Immediate-lane key for one canvas whose authoritative document changed. */
+export const kernelResyncKey = (canvasName: string): string =>
+  `canvas:${canvasName}`;
+
+/** Inverse of `kernelResyncKey`. Undefined for any other immediate-lane key. */
+export const kernelResyncCanvasName = (key: string): string | undefined =>
+  key.startsWith("canvas:") ? key.slice("canvas:".length) : undefined;
+
+export type KernelLaneWork = {
+  /** One full evaluation pass. The simulation lane's only work. */
+  readonly runCycle: Effect.Effect<void, unknown>;
+  /** Re-read one canvas whose authority committed. The immediate lane's work. */
+  readonly resyncCanvas: (canvasName: string) => Effect.Effect<void, unknown>;
+  readonly fork: <A, E>(effect: Effect.Effect<A, E>) => void;
+  readonly onError?: (label: string, error: unknown) => void;
+};
+
+export type KernelLaneOptions = {
+  readonly now?: () => number;
+  readonly setTimer?: (delayMs: number, run: () => void) => TickTimerCancel;
+  readonly onFailure?: (failure: LaneFailure) => void;
+  readonly onOverrun?: (overrun: LaneOverrun) => void;
+};
+
+/**
+ * The kernel's three lanes.
+ *
+ * Replaces the old boolean-pair coalescer, which re-ran a full world pass the
+ * instant the previous one finished whenever any event had arrived during it
+ * — an unbounded loop with no floor and no bound on how long one pass blocks.
+ *
+ * | lane         | key(s)                | why it sits there                  |
+ * |--------------|-----------------------|------------------------------------|
+ * | immediate    | one per dirty canvas  | the operator's own commit; a burst  |
+ * |              |                       | on one canvas is now ONE re-read    |
+ * | simulation   | `cycle`               | claim selection, delivery, wake     |
+ * | housekeeping | `safety-sweep`        | the 30s repair watchdog             |
+ *
+ * The floor is spacing between two slices of the same lane, not latency added
+ * to a wake: a lane idle longer than its floor runs on the next turn of the
+ * loop, so an isolated event keeps today's latency and only a burst is paced.
+ *
+ * V4-PROGRAM: the cycle is an Effect; the host forks it (AppRuntime.runFork),
+ * and the lane is reopened from Effect.ensuring — never Promise.then/finally
+ * on the factory control path.
+ */
+export const makeKernelLaneScheduler = (
+  work: KernelLaneWork,
+  options: KernelLaneOptions = {},
+): KernelTickScheduler => {
+  const onError =
+    work.onError ??
+    ((label: string, error: unknown) => {
+      console.error(`[kernel] ${label} failed:`, error);
+    });
+
+  /**
+   * Hand an Effect to the host and let its completion reopen the lane. The
+   * cause is squashed and reported here rather than raised into the lane's
+   * requeue path: a failed pass is repaired by the next authoritative event or
+   * the safety sweep, exactly as it was before lanes existed. Quarantining the
+   * one key that drives the whole factory would be a far worse failure.
+   */
+  const forkLane = (
+    label: string,
+    effect: Effect.Effect<void, unknown>,
+    resume: LaneResume,
+  ): LaneOutcome => {
+    work.fork(
+      effect.pipe(
         Effect.catchCause((cause) => {
-          onError(Cause.squash(cause));
+          onError(label, Cause.squash(cause));
           return Effect.void;
         }),
-        Effect.ensuring(
-          Effect.sync(() => {
-            cycleInFlight = false;
-            if (cycleQueued) {
-              cycleQueued = false;
-              scheduleCycle();
-            }
-          }),
-        ),
+        Effect.ensuring(Effect.sync(() => resume())),
       ),
     );
+    return "suspended";
   };
 
-  return scheduleCycle;
+  const scheduler: KernelTickScheduler = makeKernelTickScheduler({
+    lanes: {
+      immediate: {
+        process: (key, resume) => {
+          const canvasName = kernelResyncCanvasName(key);
+          if (canvasName === undefined) return "done";
+          return forkLane(
+            `canvas resync ${canvasName}`,
+            work.resyncCanvas(canvasName),
+            resume,
+          );
+        },
+      },
+      simulation: {
+        process: (_key, resume) =>
+          forkLane("evaluation cycle", work.runCycle, resume),
+      },
+      housekeeping: {
+        // Repair/watchdog only. It marks the cycle rather than running one, so
+        // a sweep that lands while a pass is already in flight coalesces into
+        // that pass instead of queueing a second one.
+        process: () => {
+          scheduler.mark("simulation", KERNEL_CYCLE_KEY);
+          return "done";
+        },
+      },
+    },
+    ...(options.now === undefined ? {} : { now: options.now }),
+    ...(options.setTimer === undefined ? {} : { setTimer: options.setTimer }),
+    ...(options.onFailure === undefined
+      ? {}
+      : { onFailure: options.onFailure }),
+    onOverrun:
+      options.onOverrun ??
+      ((overrun) => {
+        noteSyncSpan(`kernel.tick.${overrun.lane}`, overrun.ms, overrun.key);
+      }),
+  });
+
+  return scheduler;
 };
 
 // Splits a `${canvasName}::${id}` module-memory key back into its parts.
@@ -567,6 +658,9 @@ const makeKernelService = (
     !suspended && generation === lifecycleGeneration;
   let lifecycleCleanups: Array<() => void> = [];
   let safetyInterval: ReturnType<typeof setInterval> | undefined;
+  // The three lanes. Built once below, beside the cycle they drive; stopped by
+  // clearLifecycleScheduling, which has no resume path.
+  let kernelTick: KernelTickScheduler | undefined;
   const reclaimCooldowns = new Map<
     string,
     {
@@ -622,6 +716,8 @@ const makeKernelService = (
       clearInterval(safetyInterval);
       safetyInterval = undefined;
     }
+    // Suspension is monotonic: no later slice may start, whatever is queued.
+    kernelTick?.stop();
     for (const cooldown of reclaimCooldowns.values()) {
       clearTimeout(cooldown.timer);
     }
@@ -1265,12 +1361,18 @@ const makeKernelService = (
     emitSnapshot();
   });
 
-  const scheduleCoalescedCycle = makeCoalescedKernelCycleScheduler(
+  // `resyncCanvas` is declared below and only ever CALLED from a lane slice,
+  // long after this closure is built.
+  kernelTick = makeKernelLaneScheduler({
     runCycle,
+    resyncCanvas: (canvasName) => resyncCanvas(canvasName),
     fork,
-  );
+  });
   const scheduleCycle = (): void => {
-    if (!suspended) scheduleCoalescedCycle();
+    if (!suspended) kernelTick?.mark("simulation", KERNEL_CYCLE_KEY);
+  };
+  const scheduleResync = (canvasName: string): void => {
+    if (!suspended) kernelTick?.mark("immediate", kernelResyncKey(canvasName));
   };
   wakeAfterReclaimGrace = scheduleCycle;
 
@@ -1442,8 +1544,10 @@ const makeKernelService = (
       fork(refreshWithIdentityHints());
 
       lifecycleCleanups = [
+        // Immediate lane, keyed by canvas: a burst of commits on one canvas
+        // now costs ONE re-read instead of one fork per notification.
         canvases.subscribeChanges((name) => {
-          fork(resyncCanvas(name));
+          scheduleResync(name);
         }),
         snapshots.subscribe(() => scheduleCycle()),
         livePeers.subscribe(() => scheduleCycle()),
@@ -1470,8 +1574,12 @@ const makeKernelService = (
       }
 
       // Repair/watchdog only. Ordinary document, snapshot, and seat
-      // lifecycle progress schedules a cycle at the authoritative event.
-      safetyInterval = setInterval(scheduleCycle, SAFETY_INTERVAL_MS);
+      // lifecycle progress schedules a cycle at the authoritative event. The
+      // sweep runs on the housekeeping lane, which the driver keeps served
+      // even while the immediate lane is hot.
+      safetyInterval = setInterval(() => {
+        if (!suspended) kernelTick?.mark("housekeeping", KERNEL_SAFETY_KEY);
+      }, SAFETY_INTERVAL_MS);
 
       scheduleCycle();
     });
