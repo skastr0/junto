@@ -20,7 +20,6 @@ import {
   Message,
   Task,
   TaskProposal,
-  WorkSnapshot,
   type Artifact as ArtifactValue,
   type Message as MessageValue,
   type Task as TaskValue,
