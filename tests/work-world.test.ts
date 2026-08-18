@@ -134,6 +134,17 @@ const seedInstallation = (installations: ReadonlyArray<InstallationIdValue>) =>
        ) VALUES ('1', ?, '{}', ?, ?)`,
       [CANVAS, "1".repeat(64), observedAt],
     );
+    // Twenty extra canvases so the residency-bound test has more canvases
+    // than the world may hold. Each needs a document row in the head
+    // generation: local work refuses a basis whose canvas is not in it.
+    for (let index = 0; index < 20; index += 1) {
+      writer.run(
+        `INSERT INTO canvas_generation_documents(
+           generation, name, body, sha256, modified_at
+         ) VALUES ('1', ?, '{}', ?, ?)`,
+        [`bound-${index}`, String(index).padStart(64, "0"), observedAt],
+      );
+    }
     writer.run(
       `INSERT INTO canvas_head(singleton, generation) VALUES (1, '1')`,
     );
@@ -538,5 +549,58 @@ describe("the in-memory factory world", () => {
     world.reset();
     const { memory, sqlite } = await readBoth();
     expect(memory.snapshots).toEqual(sqlite.snapshots);
+  });
+});
+
+describe("the world's residency bound", () => {
+  it("holds a bounded set of canvases and rebuilds an evicted one correctly", async () => {
+    const bounded = makeWorkWorld();
+    try {
+      // One task on each of many canvases, then read them all. The bound is
+      // 16; twenty canvases must not leave twenty resident.
+      const names = Array.from({ length: 20 }, (_, index) => `bound-${index}`);
+      for (const canvasName of names) {
+        await runtime.runPromise(
+          repository.createTask({
+            sink: { canvasName, nodeId: "tasks" },
+            basis,
+            task: {
+              id: `task-${canvasName}`,
+              state: "submitted",
+              history: [message(`brief-${canvasName}`, "user", "x", `task-${canvasName}`)],
+            },
+            originAt: observedAt,
+            receivedAt: observedAt,
+          }),
+        );
+        await runtime.runPromise(
+          state.read("test.bounded", (reader) => {
+            const workRevision = readCanvasWorkRevision(reader, canvasName);
+            const memory = bounded.projection(reader, canvasName, workRevision);
+            const sqlite = readCanvasWorkProjection(reader, canvasName);
+            expect(memory.snapshots).toEqual(sqlite.snapshots);
+            return undefined;
+          }),
+        );
+      }
+      const stats = bounded.stats();
+      expect(stats.canvases).toBeLessThanOrEqual(16);
+      expect(stats.evicted).toBeGreaterThan(0);
+
+      // The first canvas was evicted; reading it again must rebuild it from
+      // SQLite and still match, with no stale residency left behind.
+      const again = await runtime.runPromise(
+        state.read("test.bounded-again", (reader) => {
+          const workRevision = readCanvasWorkRevision(reader, names[0]);
+          return {
+            memory: bounded.projection(reader, names[0], workRevision),
+            sqlite: readCanvasWorkProjection(reader, names[0]),
+          };
+        }),
+      );
+      expect(again.memory.snapshots).toEqual(again.sqlite.snapshots);
+    } finally {
+      bounded.close();
+    }
   });
 });

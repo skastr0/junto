@@ -59,6 +59,21 @@ import type { WorkSnapshot as WorkSnapshotValue } from "@shared/work-model";
 export const workWorldEnabled: boolean =
   process.env.VELLUM_COMMAND_WORLD !== "0";
 
+/**
+ * How many canvases stay resident.
+ *
+ * The same bound, for the same reason, as the projection memo this replaces
+ * (`WORK_PROJECTION_CACHE_CANVASES` in `canvases.ts`): sized to hold a
+ * full-portfolio sweep — `box/activity-policy.ts` reads every canvas on
+ * reconcile — so a sweep cannot evict the canvas the operator is looking at.
+ *
+ * It is a bound and not an unbounded map because residency is the whole point
+ * of this module: without one, a large portfolio would retain every canvas's
+ * sinks for the life of the process, which is strictly more memory than the
+ * memo ever held. Evicting costs that canvas's next read one hydration.
+ */
+const WORLD_RESIDENT_CANVASES = 16;
+
 /** One canvas's resident read model. */
 type ResidentCanvas = {
   /**
@@ -97,6 +112,8 @@ export type WorkWorldStats = {
   readonly sinksReloaded: number;
   /** Announcements the seam could not attribute to a sink, cumulative. */
   readonly coarse: number;
+  /** Canvases dropped to stay inside the residency bound, cumulative. */
+  readonly evicted: number;
 };
 
 export type WorkWorld = {
@@ -170,6 +187,20 @@ export const makeWorkWorld = (): WorkWorld => {
   let incrementalReads = 0;
   let sinksReloaded = 0;
   let coarseAnnouncements = 0;
+  let evictions = 0;
+
+  /** Re-insert so Map iteration order is least-recently-read first. */
+  const retain = (canvasName: string, resident: ResidentCanvas): void => {
+    canvases.delete(canvasName);
+    canvases.set(canvasName, resident);
+    while (canvases.size > WORLD_RESIDENT_CANVASES) {
+      const oldest = canvases.keys().next();
+      if (oldest.done === true) break;
+      canvases.delete(oldest.value);
+      dirty.delete(oldest.value);
+      evictions += 1;
+    }
+  };
 
   const unsubscribe = onWorkMutation((canvasName, nodeId) => {
     if (canvasName === undefined || nodeId === undefined) {
@@ -198,7 +229,7 @@ export const makeWorkWorld = (): WorkWorld => {
       order: snapshots.map((snapshot) => snapshot.nodeId),
       ordered: snapshots,
     };
-    canvases.set(canvasName, resident);
+    retain(canvasName, resident);
     dirty.delete(canvasName);
     return resident;
   };
@@ -236,7 +267,7 @@ export const makeWorkWorld = (): WorkWorld => {
       // caller's projection and must never change under it.
       ordered: resolveOrder(order, resident.sinks),
     };
-    canvases.set(canvasName, next);
+    retain(canvasName, next);
     dirty.delete(canvasName);
     return next;
   };
@@ -259,6 +290,7 @@ export const makeWorkWorld = (): WorkWorld => {
       const pending = dirty.get(canvasName);
       if (pending === undefined || pending.size === 0) {
         residentReads += 1;
+        retain(canvasName, resident);
         return { workRevision, snapshots: resident.ordered };
       }
       // The counter did not move but a mutation was announced: a rolled-back
@@ -267,6 +299,7 @@ export const makeWorkWorld = (): WorkWorld => {
       // drop the marks rather than re-read for nothing.
       dirty.delete(canvasName);
       residentReads += 1;
+      retain(canvasName, resident);
       return { workRevision, snapshots: resident.ordered };
     }
     const pending = dirty.get(canvasName);
@@ -305,6 +338,7 @@ export const makeWorkWorld = (): WorkWorld => {
       incremental: incrementalReads,
       sinksReloaded,
       coarse: coarseAnnouncements,
+      evicted: evictions,
     }),
     close: () => {
       unsubscribe();
