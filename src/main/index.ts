@@ -37,6 +37,7 @@ import { appProcessPlane } from "./vellum/app-process-plane";
 import { beginBoxProcessShutdown } from "./vellum/box";
 import { AppRuntime } from "./runtime";
 import {
+  armMainThreadBudget,
   installObservabilityConsoleHook,
   recordRendererConsole,
   recordSystemLog,
@@ -1264,6 +1265,9 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     startTransportJournal();
     // VELLUM_PERF=1 only. Main-thread block monitor plus canvas read tape.
     startPerfProbe();
+    // The 4ms invariant, asserted at the source. Dev runs are armed; a
+    // packaged app stays silent unless VELLUM_COMMAND_BUDGET says otherwise.
+    armMainThreadBudget({ enabled: !app.isPackaged });
     recordSystemLog(
       `${PRODUCT_NAME} ready - ${app.isPackaged ? "packaged" : "dev"} - ${app.getVersion() || "0.0.0"}`,
     );

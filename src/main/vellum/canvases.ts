@@ -52,6 +52,7 @@ import {
   writeCanvasProjectionSidecar,
 } from "./canvas-control/sidecars";
 import { perfProbe, perfProbeEnabled } from "./observability/perf-probe";
+import { withinBudget } from "./observability/main-thread-budget";
 import {
   archiveAllCanvasEntities,
   syncCanvasEntities,
@@ -1183,39 +1184,44 @@ export const CanvasesLive = Layer.effect(
       });
       yield* ensureReady;
       return yield* state
-        .read("canvas.read", (reader) => {
-          // VELLUM_PERF=1 only. The probe brackets the synchronous body, so
-          // the recorded duration is the real main-thread block. Off, this is
-          // one constant boolean test per read.
-          const probe = perfProbeEnabled ? perfProbe?.beginRead(tag) : undefined;
-          const { identity, snapshot } = activePortfolio(reader);
-          const entry = snapshot.documents.get(canonicalName);
-          if (entry === undefined) {
-            throw new CanvasError({
-              message: `canvas "${canonicalName}" is not in the active portfolio`,
-            });
-          }
-          const projected = workProjections.projectedDoc(
-            reader,
-            canonicalName,
-            entry.doc,
-            identity,
-          );
-          const result = {
-            read: {
-              name: canonicalName,
-              doc: projected.doc,
-              actorRefs: snapshot.actorRefs.filter(
-                (actor) => actor.canvasName === canonicalName,
-              ),
-              revision: entry.revision,
-              workRevision: projected.workRevision,
-            },
-            intentWitness: intentWitnessFromSnapshot(snapshot),
-          };
-          if (probe !== undefined) perfProbe?.endRead(probe, result.read.doc);
-          return result;
-        })
+        .read("canvas.read", (reader) =>
+          // The whole body is one synchronous main-thread block, so it is
+          // also where the 4ms invariant is asserted. Armed in dev only;
+          // disarmed it calls straight through.
+          withinBudget("canvas.read", () => {
+            // VELLUM_PERF=1 only. The probe brackets the synchronous body, so
+            // the recorded duration is the real main-thread block. Off, this is
+            // one constant boolean test per read.
+            const probe = perfProbeEnabled ? perfProbe?.beginRead(tag) : undefined;
+            const { identity, snapshot } = activePortfolio(reader);
+            const entry = snapshot.documents.get(canonicalName);
+            if (entry === undefined) {
+              throw new CanvasError({
+                message: `canvas "${canonicalName}" is not in the active portfolio`,
+              });
+            }
+            const projected = workProjections.projectedDoc(
+              reader,
+              canonicalName,
+              entry.doc,
+              identity,
+            );
+            const result = {
+              read: {
+                name: canonicalName,
+                doc: projected.doc,
+                actorRefs: snapshot.actorRefs.filter(
+                  (actor) => actor.canvasName === canonicalName,
+                ),
+                revision: entry.revision,
+                workRevision: projected.workRevision,
+              },
+              intentWitness: intentWitnessFromSnapshot(snapshot),
+            };
+            if (probe !== undefined) perfProbe?.endRead(probe, result.read.doc);
+            return result;
+          }, tag),
+        )
         .pipe(Effect.mapError(toCanvasError));
     });
 
