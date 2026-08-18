@@ -45,6 +45,7 @@ import {
   makeStateEngineLive,
   StateEngine,
 } from "../src/main/vellum/state/engine";
+import { unjournaledWorkMutation } from "../src/main/vellum/work/mutation-seam";
 import { makeWorkWorld, type WorkWorld } from "../src/main/vellum/work/world";
 import { IntentFactBasis } from "../src/shared/work-protocol";
 
@@ -543,6 +544,74 @@ describe("the in-memory factory world", () => {
       sqlite.snapshots.map((snapshot) => snapshot.nodeId),
     );
     expect(memory.snapshots[0]?.nodeId).toBe("aaa-sink");
+  });
+
+  it("is unmoved by a transaction that rolls back", async () => {
+    const before = world.stats();
+    const beforeRead = await readBoth();
+    // A work row written and then abandoned. The revision trigger fired
+    // inside the transaction and was rolled back with it, so the counter is
+    // unchanged and the residency is still exact — the world must NOT
+    // re-read on the strength of an announcement that describes nothing.
+    await expect(
+      runtime.runPromise(
+        state.transaction("test.rolled-back", (writer) =>
+          unjournaledWorkMutation("test.fixture-seed", () => {
+            writer.run(
+              `INSERT INTO work_messages(
+                 canvas_name, node_id, message_id, position, entity_home,
+                 actor_seat_id, fact_event_home, fact_entity_home, fact_seq,
+                 role, parts_json, task_id, context_id,
+                 reference_task_ids_json, metadata_json, origin_at, received_at
+               ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?)`,
+              [
+                CANVAS,
+                INBOX,
+                "rolled-back-message",
+                9_000_000,
+                cc,
+                cc,
+                cc,
+                "999999",
+                "agent",
+                JSON.stringify([{ kind: "text", text: "never" }]),
+                observedAt,
+                observedAt,
+              ],
+            );
+            throw new Error("abandon this transaction");
+          }),
+        ),
+      ),
+    ).rejects.toThrow();
+    const afterRead = await readBoth();
+    expect(afterRead.workRevision).toBe(beforeRead.workRevision);
+    expect(afterRead.memory.snapshots).toEqual(afterRead.sqlite.snapshots);
+    const after = world.stats();
+    expect(after.sinksReloaded).toBe(before.sinksReloaded);
+    expect(after.hydrate).toBe(before.hydrate);
+  });
+
+  it("falls back to a full rebuild when a mutation names no sink", async () => {
+    const before = world.stats();
+    // A statement on a revision-trigger table whose sink cannot be read out
+    // of it. The seam must announce "somewhere, unknown" rather than stay
+    // silent, and the world must answer by rebuilding rather than trusting
+    // a residency it can no longer repair sink by sink.
+    await runtime.runPromise(
+      state.transaction("test.unattributable", (writer) =>
+        unjournaledWorkMutation("test.fixture-seed", () => {
+          writer.run(
+            `DELETE FROM work_messages WHERE message_id = 'no-such-message'`,
+          );
+        }),
+      ),
+    );
+    const after = world.stats();
+    expect(after.coarse - before.coarse).toBe(1);
+    const read = await readBoth();
+    expect(read.memory.snapshots).toEqual(read.sqlite.snapshots);
+    expect(world.stats().hydrate).toBe(before.hydrate + 1);
   });
 
   it("rebuilds from SQLite when it is reset mid-session", async () => {
