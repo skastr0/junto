@@ -697,10 +697,27 @@ describe("WorkRepository v2 local authority", () => {
         taskId: created.value.id,
         state: "completed",
         message: message("done-qa-rejection", "agent", "done", created.value.id),
+        completionEvidence: {
+          artifacts: [
+            { artifactId: "qa-rejection-artifact", nodeId: "qa-rejection-sink" },
+          ],
+        },
         originAt: observedAt,
         receivedAt: observedAt,
       }),
     );
+
+    // Durable evidence exists at this point — that is what the rejection below
+    // must clear, and what a merge-keep would silently resurrect.
+    const whileCompleted = await runtime.runPromise(
+      repository.readSnapshot(sink.canvasName, sink.nodeId),
+    );
+    expect(
+      whileCompleted.tasks.items.find((c) => c.id === created.value.id)
+        ?.completionEvidence,
+    ).toMatchObject({
+      artifacts: [{ artifactId: "qa-rejection-artifact" }],
+    });
 
     const missingComment = await runtime.runPromise(
       repository
@@ -744,6 +761,21 @@ describe("WorkRepository v2 local authority", () => {
     expect(rejected.value.history.at(-1)).toMatchObject({
       parts: [{ kind: "text", text: "The release receipt is missing." }],
     });
+
+    // The returned value is not the whole story. transitionTask strips evidence,
+    // but the durable row is written by writeTaskFinish, which cannot tell a
+    // deliberate clear from an omitted field. If it merge-keeps, taskFromRow
+    // re-attaches the stale evidence and the projection ships a task violating
+    // work-model.ts:218 (evidence only on completed tasks). The read path no
+    // longer strict-decodes, so that corruption would be silent.
+    const readBack = await runtime.runPromise(
+      repository.readSnapshot(sink.canvasName, sink.nodeId),
+    );
+    const projected = readBack.tasks.items.find(
+      (candidate) => candidate.id === created.value.id,
+    );
+    expect(projected?.state).toBe("submitted");
+    expect(projected?.completionEvidence).toBeUndefined();
   });
 
   it("roundtrips the exact immutable intent basis on an emitted fact", async () => {

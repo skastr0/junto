@@ -1278,23 +1278,33 @@ const writeTaskFinish = (
   sink: SinkRefValue,
   task: TaskValue,
 ): void => {
-  // undefined on both = snapshot omitted finish fields; keep durable row
-  // (mirrors dependsOn preserve semantics).
+  // State decides whether evidence may persist; the snapshot cannot override it.
+  // work-model.ts:218 holds that completionEvidence is only valid on completed
+  // tasks, and transitionTask STRIPS it on every non-completed transition — so a
+  // deliberate clear and an omitted field arrive here identically. Merge-keeping
+  // on a non-completed task resurrects stale evidence into a Task that violates
+  // the model filter (a QA rejection, completed -> submitted, is exactly this).
+  const evidenceAllowed = task.state === "completed";
+  const existing = loadTaskFinish(writer, sink, task.id);
   if (
     task.finishCriteria === undefined &&
-    task.completionEvidence === undefined
+    task.completionEvidence === undefined &&
+    // undefined on both = snapshot omitted finish fields; keep the durable row
+    // (mirrors dependsOn preserve semantics) — unless the durable row holds
+    // evidence this state forbids, which must be cleared rather than kept.
+    (evidenceAllowed || existing.completionEvidence === undefined)
   ) {
     return;
   }
   // When one field is present, merge: keep the other from existing row if
   // the snapshot omitted it.
-  const existing = loadTaskFinish(writer, sink, task.id);
   const criteria =
     task.finishCriteria !== undefined
       ? task.finishCriteria
       : existing.finishCriteria;
-  const evidence =
-    task.completionEvidence !== undefined
+  const evidence = !evidenceAllowed
+    ? undefined
+    : task.completionEvidence !== undefined
       ? task.completionEvidence
       : existing.completionEvidence;
   writer.run(
