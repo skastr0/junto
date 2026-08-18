@@ -5,7 +5,7 @@ import {
   migrateStateSchema,
   STATE_SCHEMA_V16_IDENTITY,
   STATE_SCHEMA_V17_IDENTITY,
-  STATE_SCHEMA_V19_IDENTITY,
+  STATE_SCHEMA_V20_IDENTITY,
 } from "../src/main/vellum/state/migrations";
 import {
   STATE_SCHEMA_SQL,
@@ -26,9 +26,9 @@ describe("pad schema migration 16 → 17", () => {
       STATE_SCHEMA_V17_IDENTITY,
     );
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(
-      STATE_SCHEMA_V19_IDENTITY,
+      STATE_SCHEMA_V20_IDENTITY,
     );
-    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(19);
+    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(20);
   });
 
   it("adds pad tables and pad.patch vocab without dropping work events", () => {
@@ -59,7 +59,7 @@ describe("pad schema migration 16 → 17", () => {
       expect(result.schemaVersion).toBe(CURRENT_STATE_SCHEMA_VERSION);
       expect(result.previousVersion).toBe(16);
       expect(result.actualSchemaSha256).toBe(
-        STATE_SCHEMA_V19_IDENTITY.actualSchemaSha256,
+        STATE_SCHEMA_V20_IDENTITY.actualSchemaSha256,
       );
 
       for (const table of [

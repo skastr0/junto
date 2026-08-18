@@ -1296,14 +1296,21 @@ const makeKernelService = (
         console.error(`[wake] refused ${canvasName}/${nodeId}: ${reason}`);
         return false;
       };
+      // Node-scoped: every question below this line is structural — the seat
+      // surface on one node, its compiled actor reference, its containing
+      // region's pause state, and the topology the spawn intent compiles from
+      // edges. None of them reads a Work lane, so none of them may pay for the
+      // whole factory's tasks, messages, requests, artifacts, board and pad.
       const read = yield* Effect.result(
-        canvases.read(canvasName, "kernel.wakeManagedSeat"),
+        canvases.readNodeStructure(canvasName, nodeId, "kernel.wakeManagedSeat"),
       );
       if (!generationIsActive(generation)) return false;
       if (read._tag === "Failure") return refuse("canvas read failed");
-      const doc = read.success.doc;
-      const node = doc.nodes.find((candidate) => candidate.id === nodeId);
-      if (node === undefined) return refuse("node is not on the canvas");
+      if (read.success === undefined) {
+        return refuse("node is not on the canvas");
+      }
+      const doc = read.success.structure;
+      const node = read.success.node;
 
       const scope = yield* refreshStationScope(stations, () =>
         generationIsActive(generation),

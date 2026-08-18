@@ -2766,21 +2766,37 @@ const recentOpsForSeat = (
 export const readCanvasWorkProjection = (
   reader: StateReader,
   canvasName: string,
-): CanvasWorkProjection => {
-  const workRevision =
-    reader.get<{ readonly work_revision: string }>(
-      `
-        SELECT CAST(revision AS TEXT) AS work_revision
-        FROM work_canvas_revisions
-        WHERE canvas_name = ?
-      `,
-      [canvasName],
-    )?.work_revision ?? "0";
-  return {
-    snapshots: snapshotsForCanvas(reader, canvasName),
-    workRevision,
-  };
-};
+): CanvasWorkProjection => ({
+  // Revision first, snapshots second, inside the caller's single read: the
+  // value witnesses the rows the snapshots are then built from, never a
+  // later state.
+  workRevision: readCanvasWorkRevision(reader, canvasName),
+  snapshots: snapshotsForCanvas(reader, canvasName),
+});
+
+/**
+ * The invalidation identity alone, without building any snapshot.
+ *
+ * One PRIMARY KEY point lookup on `work_canvas_revisions`. A projection cache
+ * probes with this on every read and only pays `readCanvasWorkProjection` when
+ * the value moved, so an unchanged world costs one statement instead of the
+ * whole factory.
+ *
+ * A canvas with no counter row reads "0": no projected Work row has ever
+ * existed for it, and the first one to appear bumps the row into existence.
+ */
+export const readCanvasWorkRevision = (
+  reader: StateReader,
+  canvasName: string,
+): string =>
+  reader.get<{ readonly work_revision: string }>(
+    `
+      SELECT CAST(revision AS TEXT) AS work_revision
+      FROM work_canvas_revisions
+      WHERE canvas_name = ?
+    `,
+    [canvasName],
+  )?.work_revision ?? "0";
 
 const currentIdentity = (
   row: Pick<

@@ -30,6 +30,7 @@ import {
   WORK_PAD_STATE_SCHEMA_SQL,
   WORK_PAD_READ_CURSORS_SQL,
   WORK_PROPOSAL_EVENTS_REJECT_VOCAB_SQL,
+  WORK_PROJECTION_REVISION_TRIGGERS_SQL,
   WORK_PROPOSAL_PLANNING_STATE_SCHEMA_SQL,
   WORK_PROPOSAL_STATE_SCHEMA_SQL,
   WORK_STATE_SCHEMA_BOARD_VOCAB_SQL,
@@ -210,7 +211,16 @@ export const STATE_SCHEMA_V19_IDENTITY = {
     "e203c32e409f105a110bfac9a3f98b3eefaba0885d60c0ec3c25d705ec4980ab",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 19;
+/**
+ * Exact witness of schema version 20 (revision triggers on every table the
+ * runtime Work projection reads).
+ */
+export const STATE_SCHEMA_V20_IDENTITY = {
+  actualSchemaSha256:
+    "b545aa0771810a631eeeea9f7b642467e6cca327ba74392298457aab1cec1955",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 20;
 
 export const STATE_SCHEMA_MIGRATIONS =
   [
@@ -560,6 +570,19 @@ export const STATE_SCHEMA_MIGRATIONS =
         // so an installed database's revision never goes backwards across the
         // upgrade. This is the only time that scan ever runs again.
         database.exec(WORK_CANVAS_REVISIONS_BACKFILL_SQL);
+      },
+    },
+    {
+      fromVersion: 19,
+      toVersion: 20,
+      name: "witness-every-projected-work-table",
+      safety: STATE_SCHEMA_MIGRATION_SAFETY,
+      fromIdentity: STATE_SCHEMA_V19_IDENTITY,
+      migrate: (database) => {
+        // Triggers only. No backfill: the counter is opaque and monotonic, and
+        // the new triggers can only raise it. Rows already on disk are exactly
+        // as projectable as before.
+        database.exec(WORK_PROJECTION_REVISION_TRIGGERS_SQL);
       },
     },
 

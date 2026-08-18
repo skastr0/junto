@@ -2338,3 +2338,357 @@ export const WORK_CANVAS_REVISIONS_BACKFILL_SQL = `
   ON CONFLICT(canvas_name) DO UPDATE
     SET revision = max(work_canvas_revisions.revision, excluded.revision);
 `;
+
+/**
+ * Complete the revision witness over the runtime Work projection.
+ *
+ * `WORK_CANVAS_REVISIONS_SQL` covers the seven tables the retired UNION ALL
+ * count scanned. That set is a complete witness for a *count*, but not for a
+ * projection CACHE: `readCanvasWorkProjection` reads twelve further tables,
+ * and their coverage rested on the inference "every write to a materialized
+ * Work table happens in the same transaction as a `work_events` insert".
+ *
+ * That inference is false. `work.artifact.setArchived` and
+ * `work.artifact.delete` (repository.ts) UPDATE and DELETE `work_artifacts`
+ * in their own transaction and mint no event, so the counter did not move
+ * while the projection changed. The content inline-media migration likewise
+ * rewrites `parts_json` on `work_messages`, `work_task_messages`,
+ * `work_artifacts` and `work_task_proposals` outside the event journal.
+ *
+ * A trigger on the table the projection reads removes the inference: the
+ * witness is local to the row, so no call path, present or future, can change
+ * a projected value without moving the revision. Extra bumps only cost a
+ * cache miss; a missed bump would serve a stale factory, so this fails toward
+ * the safe side by construction.
+ *
+ * Read-path tables NOT listed here are covered by a listed one in the same
+ * statement sequence and carry no independent writer:
+ * `work_pad_images`/`_edges`/`_inks`/`_pins` are not projected at all
+ * (`loadPadGlance` reads meta, shapes, posts and read cursors only).
+ */
+export const WORK_PROJECTION_REVISION_TRIGGERS_SQL = `
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_tasks_insert
+    AFTER INSERT ON work_tasks
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (NEW.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_tasks_update
+    AFTER UPDATE ON work_tasks
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (NEW.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_tasks_delete
+    AFTER DELETE ON work_tasks
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (OLD.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_requests_insert
+    AFTER INSERT ON work_requests
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (NEW.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_requests_update
+    AFTER UPDATE ON work_requests
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (NEW.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_requests_delete
+    AFTER DELETE ON work_requests
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (OLD.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_messages_insert
+    AFTER INSERT ON work_messages
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (NEW.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_messages_update
+    AFTER UPDATE ON work_messages
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (NEW.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_messages_delete
+    AFTER DELETE ON work_messages
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (OLD.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_task_messages_insert
+    AFTER INSERT ON work_task_messages
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (NEW.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_task_messages_update
+    AFTER UPDATE ON work_task_messages
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (NEW.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_task_messages_delete
+    AFTER DELETE ON work_task_messages
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (OLD.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_task_dependencies_insert
+    AFTER INSERT ON work_task_dependencies
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (NEW.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_task_dependencies_update
+    AFTER UPDATE ON work_task_dependencies
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (NEW.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_task_dependencies_delete
+    AFTER DELETE ON work_task_dependencies
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (OLD.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_task_finish_insert
+    AFTER INSERT ON work_task_finish
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (NEW.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_task_finish_update
+    AFTER UPDATE ON work_task_finish
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (NEW.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_task_finish_delete
+    AFTER DELETE ON work_task_finish
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (OLD.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_artifacts_insert
+    AFTER INSERT ON work_artifacts
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (NEW.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_artifacts_update
+    AFTER UPDATE ON work_artifacts
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (NEW.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_artifacts_delete
+    AFTER DELETE ON work_artifacts
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (OLD.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_delivery_receipts_insert
+    AFTER INSERT ON work_delivery_receipts
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (NEW.delivered_canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_delivery_receipts_update
+    AFTER UPDATE ON work_delivery_receipts
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (NEW.delivered_canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_delivery_receipts_delete
+    AFTER DELETE ON work_delivery_receipts
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (OLD.delivered_canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_task_proposals_insert
+    AFTER INSERT ON work_task_proposals
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (NEW.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_task_proposals_update
+    AFTER UPDATE ON work_task_proposals
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (NEW.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_task_proposals_delete
+    AFTER DELETE ON work_task_proposals
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (OLD.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_proposal_planning_insert
+    AFTER INSERT ON work_proposal_planning
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (NEW.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_proposal_planning_update
+    AFTER UPDATE ON work_proposal_planning
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (NEW.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_proposal_planning_delete
+    AFTER DELETE ON work_proposal_planning
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (OLD.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_pad_posts_insert
+    AFTER INSERT ON work_pad_posts
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (NEW.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_pad_posts_update
+    AFTER UPDATE ON work_pad_posts
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (NEW.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_pad_posts_delete
+    AFTER DELETE ON work_pad_posts
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (OLD.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_pad_shapes_insert
+    AFTER INSERT ON work_pad_shapes
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (NEW.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_pad_shapes_update
+    AFTER UPDATE ON work_pad_shapes
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (NEW.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_pad_shapes_delete
+    AFTER DELETE ON work_pad_shapes
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (OLD.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+`;

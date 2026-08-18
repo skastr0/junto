@@ -13,10 +13,12 @@ import {
   migrateStateSchema,
   STATE_SCHEMA_V18_IDENTITY,
   STATE_SCHEMA_V19_IDENTITY,
+  STATE_SCHEMA_V20_IDENTITY,
 } from "../src/main/vellum/state/migrations";
 import {
   STATE_SCHEMA_SQL,
   STATE_SCHEMA_V18_SQL,
+  STATE_SCHEMA_V19_SQL,
 } from "../src/main/vellum/state/schema";
 import {
   expectedStateSchemaIdentity,
@@ -44,14 +46,17 @@ const openV18 = (): DatabaseSync => {
 };
 
 describe("work canvas revision migration 18 -> 19", () => {
-  it("freezes v18 and current identities", () => {
+  it("freezes v18, v19 and current identities", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V18_SQL)).toEqual(
       STATE_SCHEMA_V18_IDENTITY,
     );
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_V19_SQL)).toEqual(
       STATE_SCHEMA_V19_IDENTITY,
     );
-    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(19);
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(
+      STATE_SCHEMA_V20_IDENTITY,
+    );
+    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(20);
   });
 
   it("seeds installed canvases at the retired count and keeps their rows", () => {
@@ -75,7 +80,7 @@ describe("work canvas revision migration 18 -> 19", () => {
       expect(result.schemaVersion).toBe(CURRENT_STATE_SCHEMA_VERSION);
       expect(result.previousVersion).toBe(18);
       expect(result.actualSchemaSha256).toBe(
-        STATE_SCHEMA_V19_IDENTITY.actualSchemaSha256,
+        STATE_SCHEMA_V20_IDENTITY.actualSchemaSha256,
       );
 
       // Rows the migration must not touch.
@@ -88,6 +93,7 @@ describe("work canvas revision migration 18 -> 19", () => {
 
       // Seeded at exactly the value the retired UNION ALL count returned:
       // one work_pad_meta row + one work_pad_read_cursors row on "factory".
+      // 19 -> 20 adds triggers only, so the seeded values are untouched.
       expect(revision(database, "factory")).toBe(2);
       expect(revision(database, "other")).toBe(1);
     } finally {

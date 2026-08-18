@@ -24,6 +24,8 @@ import {
   WorkRepository,
   projectWorkSnapshots,
   readCanvasWorkProjection,
+  readCanvasWorkRevision,
+  type CanvasWorkProjection,
 } from "./work/repository";
 import { decodeStationPortfolioBody } from "./station/portfolio";
 import { selectStationConfiguration } from "./station/configuration-state";
@@ -621,6 +623,207 @@ const readActivePortfolio = (
     ? readStationProjection(reader)
     : readCommandCenterPortfolio(reader);
 
+/**
+ * Field separator for the identity string. NUL cannot appear in a hash, a
+ * decimal generation, a timestamp or a canonical host/installation id, so no
+ * combination of field values can collide by re-parsing across a boundary.
+ */
+const SEPARATOR = "\u0000";
+
+/**
+ * Cheap, complete identity of everything `readActivePortfolio` derives from.
+ *
+ * Two-branch, exactly like the read it guards:
+ *
+ * - Command Center: local role, the authority head (generation, the intent
+ *   hash the head row records, its created_at and document_count) and the
+ *   placement topology the actor-seat compiler consumes. Documents are pinned
+ *   by generation because generation rows are append-only — `write`/`mutate`/
+ *   `create`/`remove`/`ensureSeed` all insert a NEW generation and move the
+ *   head; nothing rewrites the rows of a generation the head already points
+ *   at. The only DELETE against canvas_head/canvas_generations lives in the
+ *   Remote configure transaction (station/repository.ts), which sets the role
+ *   to "remote" in that same transaction, so the role field of this identity
+ *   moves with it and the reset can never read back as an unchanged key.
+ * - Remote: local role plus the projection head's generation, content hash and
+ *   received_at. The body is pinned by its own content hash.
+ *
+ * Cost is four small point lookups plus the fleet-target rows, which the
+ * uncached read pays anyway. A field that is absent from this string is a
+ * field that may be served stale, so nothing that reaches a CanvasReadResult
+ * may be left out of it.
+ */
+const readActivePortfolioIdentity = (reader: StateReader): string => {
+  const role = readLocalStationRole(reader);
+  if (role === "remote") {
+    const head = reader.get<{
+      readonly generation: string;
+      readonly content_sha256: string;
+      readonly received_at: string;
+    }>(
+      `SELECT version.generation AS generation,
+              version.content_sha256 AS content_sha256,
+              version.received_at AS received_at
+       FROM station_projection_head head
+       JOIN station_projection_versions version
+         ON version.generation = head.generation
+        AND version.content_sha256 = head.content_sha256
+       WHERE head.singleton = 1`,
+    );
+    return head === undefined
+      ? ["remote", "none"].join(SEPARATOR)
+      : [
+          "remote",
+          head.generation,
+          head.content_sha256,
+          head.received_at,
+        ].join(SEPARATOR);
+  }
+  const head = reader.get<{
+    readonly generation: string;
+    readonly created_at: string;
+    readonly intent_sha256: string;
+    readonly document_count: number;
+  }>(HEAD_SQL);
+  const topology = [...readCommandCenterTopology(reader)]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([hostId, installationId]) => `${hostId}${installationId}`)
+    .join("");
+  return [
+    role === "" ? "unconfigured" : role,
+    head?.generation ?? "none",
+    head?.intent_sha256 ?? "none",
+    head?.created_at ?? "none",
+    String(head?.document_count ?? 0),
+    topology,
+  ].join(SEPARATOR);
+};
+
+/**
+ * Memoize the active portfolio over that identity.
+ *
+ * Pure memo: a miss calls `readActivePortfolio` unchanged, so the rebuilt
+ * snapshot — including its document hash validation and document_count check —
+ * is byte-identical to the uncached read. A hit skips JSON.parse, schema
+ * decode and sha256 of every canvas body plus the actor-seat compile, which is
+ * the whole cost of a read once the Work projection is also memoized.
+ *
+ * One slot: the portfolio is installation-wide, so a second slot could only
+ * hold a superseded generation nobody may be served.
+ *
+ * The returned reader must never be handed a StateWriter. Inside a transaction
+ * the identity probe sees uncommitted rows, and a rolled-back transaction
+ * would leave the memo holding state that never existed. Write paths keep
+ * calling `readStoredAuthority`/`readActivePortfolio` directly.
+ */
+type IdentifiedPortfolio = {
+  readonly identity: string;
+  readonly snapshot: ActivePortfolioSnapshot;
+};
+
+const makeActivePortfolioReader = (): ((
+  reader: StateReader,
+) => IdentifiedPortfolio) => {
+  let cached: IdentifiedPortfolio | undefined;
+  return (reader) => {
+    const identity = readActivePortfolioIdentity(reader);
+    if (cached !== undefined && cached.identity === identity) return cached;
+    cached = { identity, snapshot: readActivePortfolio(reader) };
+    return cached;
+  };
+};
+
+/**
+ * How many canvases keep a hot Work projection.
+ *
+ * Sized to hold a full-portfolio sweep — `box/activity-policy.ts` reads every
+ * canvas on reconcile — so a sweep does not evict the canvas the operator is
+ * actually looking at. It costs little to hold: a memo entry's payload is the
+ * same lane objects `projectWorkSnapshots` hangs on the projected document,
+ * which the kernel's hydrated `docs` map already retains for every canvas. The
+ * bound is here for the long tail (a large portfolio, an idle canvas), and
+ * evicting only costs that canvas's next read a rebuild.
+ */
+const WORK_PROJECTION_CACHE_CANVASES = 16;
+
+/**
+ * Memoize one canvas's Work projection over `work_canvas_revisions`.
+ *
+ * Correctness rests entirely on that counter being a complete witness of every
+ * durable row a snapshot projects from. It is, structurally: schema 20 puts an
+ * AFTER INSERT/UPDATE/DELETE trigger on every table `readCanvasWorkProjection`
+ * reads, so the witness is local to the row rather than inferred from a call
+ * path. See WORK_PROJECTION_REVISION_TRIGGERS_SQL for the enumeration and for
+ * the two event-free artifact writers that disproved the earlier inference.
+ *
+ * Two values are memoized because they have different lifetimes: `snapshots`
+ * changes only when Work changes, while the projected document also changes
+ * when the authorial document does. They share their payload by reference —
+ * `projectWorkSnapshots` assigns `snapshot.tasks` and friends straight onto
+ * the node — so holding both costs one.
+ */
+type WorkProjectionCacheEntry = {
+  readonly workRevision: string;
+  readonly projection: CanvasWorkProjection;
+  projected?: {
+    readonly portfolioIdentity: string;
+    readonly doc: CanvasDoc;
+  };
+};
+
+const makeWorkProjectionCache = () => {
+  const entries = new Map<string, WorkProjectionCacheEntry>();
+
+  const touch = (name: string, entry: WorkProjectionCacheEntry): void => {
+    // Re-insert so Map iteration order is least-recent first.
+    entries.delete(name);
+    entries.set(name, entry);
+    while (entries.size > WORK_PROJECTION_CACHE_CANVASES) {
+      const oldest = entries.keys().next();
+      if (oldest.done === true) break;
+      entries.delete(oldest.value);
+    }
+  };
+
+  return {
+    /**
+     * The projected document for one canvas, built at most once per
+     * (authority identity, work revision) pair.
+     */
+    projectedDoc: (
+      reader: StateReader,
+      name: CanvasName,
+      authorialDoc: CanvasDoc,
+      portfolioIdentity: string,
+    ): { readonly doc: CanvasDoc; readonly workRevision: string } => {
+      const workRevision = readCanvasWorkRevision(reader, name);
+      const cached = entries.get(name);
+      let entry: WorkProjectionCacheEntry;
+      if (cached !== undefined && cached.workRevision === workRevision) {
+        entry = cached;
+      } else {
+        // The rebuilt projection carries its own reading of the counter, from
+        // this same reader; that is the value the snapshots belong to, so it
+        // is the one the memo keys on.
+        const projection = readCanvasWorkProjection(reader, name);
+        entry = { workRevision: projection.workRevision, projection };
+      }
+      if (entry.projected?.portfolioIdentity !== portfolioIdentity) {
+        entry.projected = {
+          portfolioIdentity,
+          doc: projectWorkSnapshots(authorialDoc, entry.projection.snapshots),
+        };
+      }
+      touch(name, entry);
+      return { doc: entry.projected.doc, workRevision: entry.workRevision };
+    },
+    /** Stop pinning a canvas's world once the canvas is gone. */
+    evict: (name: string): void => {
+      entries.delete(name);
+    },
+  };
+};
+
 const intentWitnessFromSnapshot = (
   snapshot: ActivePortfolioSnapshot,
 ): ActiveIntentWitness => {
@@ -808,6 +1011,10 @@ export const CanvasesLive = Layer.effect(
       (name: string, detail?: CanvasChangeDetail) => void
     >();
     let bootstrapPromise: Promise<void> | undefined;
+    // Per-installation, not module-level: a second StateEngine in the same
+    // process (tests, recovery) must never see another database's memo.
+    const activePortfolio = makeActivePortfolioReader();
+    const workProjections = makeWorkProjectionCache();
 
   const notifyListeners = (
     name: CanvasName | string,
@@ -913,9 +1120,9 @@ export const CanvasesLive = Layer.effect(
   ): Effect.Effect<ActivePortfolioSnapshot, CanvasError> =>
     ensureReady.pipe(
       Effect.flatMap(() =>
-        state.read(operation, readActivePortfolio).pipe(
-          Effect.mapError(toCanvasError),
-        ),
+        state
+          .read(operation, (reader) => activePortfolio(reader).snapshot)
+          .pipe(Effect.mapError(toCanvasError)),
       ),
     );
 
@@ -962,29 +1169,28 @@ export const CanvasesLive = Layer.effect(
           // the recorded duration is the real main-thread block. Off, this is
           // one constant boolean test per read.
           const probe = perfProbeEnabled ? perfProbe?.beginRead(tag) : undefined;
-          const snapshot = readActivePortfolio(reader);
+          const { identity, snapshot } = activePortfolio(reader);
           const entry = snapshot.documents.get(canonicalName);
           if (entry === undefined) {
             throw new CanvasError({
               message: `canvas "${canonicalName}" is not in the active portfolio`,
             });
           }
-          const projection = readCanvasWorkProjection(
+          const projected = workProjections.projectedDoc(
             reader,
             canonicalName,
+            entry.doc,
+            identity,
           );
           const result = {
             read: {
               name: canonicalName,
-              doc: projectWorkSnapshots(
-                entry.doc,
-                projection.snapshots,
-              ),
+              doc: projected.doc,
               actorRefs: snapshot.actorRefs.filter(
                 (actor) => actor.canvasName === canonicalName,
               ),
               revision: entry.revision,
-              workRevision: projection.workRevision,
+              workRevision: projected.workRevision,
             },
             intentWitness: intentWitnessFromSnapshot(snapshot),
           };
@@ -1021,7 +1227,7 @@ export const CanvasesLive = Layer.effect(
           // published — never a lagging renderer projection. What is skipped
           // is only `readCanvasWorkProjection` + `projectWorkSnapshots`, which
           // add work lanes and touch no structural field.
-          const snapshot = readActivePortfolio(reader);
+          const { snapshot } = activePortfolio(reader);
           const entry = snapshot.documents.get(canonicalName);
           if (entry === undefined) {
             throw new CanvasError({
@@ -1231,12 +1437,13 @@ export const CanvasesLive = Layer.effect(
           removeCanvasProjectionSidecars(canonicalName).catch(() => undefined),
         catch: toCanvasError,
       });
-      yield* Effect.sync(() =>
+      yield* Effect.sync(() => {
+        workProjections.evict(canonicalName);
         notifyListeners(canonicalName, {
           previous: previous.doc,
           next: undefined,
-        }),
-      );
+        });
+      });
       return { name: canonicalName };
     });
 

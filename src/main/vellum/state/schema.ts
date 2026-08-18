@@ -23,6 +23,7 @@ import {
   WORK_CANVAS_REVISIONS_SQL,
   WORK_PAD_STATE_SCHEMA_SQL,
   WORK_PAD_READ_CURSORS_SQL,
+  WORK_PROJECTION_REVISION_TRIGGERS_SQL,
   WORK_PROPOSAL_PLANNING_STATE_SCHEMA_SQL,
   WORK_STATE_SCHEMA_BOARD_VOCAB_SQL,
   WORK_STATE_SCHEMA_PAD_VOCAB_SQL,
@@ -275,14 +276,29 @@ export const STATE_SCHEMA_V18_FRAGMENTS = [
 export const STATE_SCHEMA_V18_SQL = STATE_SCHEMA_V18_FRAGMENTS.join("\n");
 
 /**
- * Current: v18 + the per-canvas Work revision counter that replaces the
- * O(world) UNION ALL count the runtime projection used to scan on every read.
- * It comes last because its triggers reference the Work event, board and pad
- * tables every earlier fragment declares.
+ * Schema at version 19: v18 + the per-canvas Work revision counter that
+ * replaces the O(world) UNION ALL count the runtime projection used to scan
+ * on every read. It comes last because its triggers reference the Work event,
+ * board and pad tables every earlier fragment declares.
+ * Frozen so 19 -> 20 can start from a known identity.
  */
-export const STATE_SCHEMA_FRAGMENTS = [
+export const STATE_SCHEMA_V19_FRAGMENTS = [
   ...STATE_SCHEMA_V18_FRAGMENTS,
   WORK_CANVAS_REVISIONS_SQL,
+];
+
+export const STATE_SCHEMA_V19_SQL = STATE_SCHEMA_V19_FRAGMENTS.join("\n");
+
+/**
+ * Current: v19 + revision triggers on every remaining table the runtime Work
+ * projection reads. Version 19 witnessed only the seven tables the retired
+ * count scanned, which left a projection cache able to serve a stale artifact
+ * lane after an event-free archive or delete; the witness is now local to
+ * every projected row.
+ */
+export const STATE_SCHEMA_FRAGMENTS = [
+  ...STATE_SCHEMA_V19_FRAGMENTS,
+  WORK_PROJECTION_REVISION_TRIGGERS_SQL,
 ];
 
 /**
