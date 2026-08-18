@@ -6,9 +6,11 @@
  * it, or because a declared journal-free reason says it deliberately does not.
  */
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
@@ -16,11 +18,14 @@ import {
   StateEngine,
 } from "../src/main/vellum/state/engine";
 import type { StateEngineShape } from "../src/main/vellum/state/service";
+import { STATE_SCHEMA_SQL } from "../src/main/vellum/state/schema";
 import {
+  CANVAS_REVISION_TABLES,
   UNJOURNALED_WORK_REASONS,
   beginWorkMutationScope,
   WORK_PLANE_TABLE_ROLES,
   classifyWorkStatement,
+  workStatementSinkParams,
   unjournaledWorkMutation,
   workMutationScopeForTest,
   type WorkPlaneTableRole,
@@ -376,5 +381,113 @@ describe("work mutation seam — scope lifecycle", () => {
     expect(workMutationScopeForTest()).toBeUndefined();
     // A leaked scope would make the very next transaction fail loudly.
     await succeeds("test.scope.after", () => undefined);
+  });
+});
+
+/**
+ * The sink attribution the in-memory world rests on.
+ *
+ * The world may serve a canvas's resident sinks only while
+ * `work_canvas_revisions` is unchanged, and when the counter DOES move it
+ * re-reads the sinks this seam announced. Two things therefore have to hold,
+ * and neither can be argued from the code — both are checked against the
+ * live schema and the live source:
+ *
+ * 1. the table list the seam scans is EXACTLY the set of tables whose triggers
+ *    move that counter, and
+ * 2. every mutation statement this repository can emit against one of those
+ *    tables is attributable to a sink. An unattributable one is not a
+ *    correctness bug — it degrades to a full rebuild — but it silently gives
+ *    back the whole point of the world, so it fails here instead.
+ */
+describe("work mutation sink attribution", () => {
+  it("scans exactly the tables whose triggers move the canvas revision", () => {
+    const database = new DatabaseSync(":memory:");
+    try {
+      database.exec(STATE_SCHEMA_SQL);
+      const triggers = database
+        .prepare(
+          `SELECT tbl_name, sql FROM sqlite_schema WHERE type = 'trigger'`,
+        )
+        .all() as unknown as ReadonlyArray<{
+        readonly tbl_name: string;
+        readonly sql: string;
+      }>;
+      const bumping = new Set(
+        triggers
+          .filter((trigger) => trigger.sql.includes("work_canvas_revisions"))
+          .map((trigger) => trigger.tbl_name),
+      );
+      expect([...CANVAS_REVISION_TABLES].sort()).toEqual([...bumping].sort());
+    } finally {
+      database.close();
+    }
+  });
+
+  it("reads the sink out of every mutation the work plane can emit", () => {
+    const sources = [
+      "src/main/vellum/work/repository.ts",
+      "src/main/vellum/work/journal.ts",
+      "src/main/vellum/content/inline-media-migration.ts",
+    ];
+    // The three statements whose target table is computed, and what each can
+    // resolve to. Kept in step with scripts/single-write-seam-register.json,
+    // which is the gate that refuses a computed target it does not declare.
+    const dynamic: ReadonlyArray<readonly [string, ReadonlyArray<string>]> = [
+      ["${table}", ["work_tasks", "work_requests"]],
+      [
+        "${pendingTable}",
+        ["work_pending_commands", "work_pending_proposal_commands"],
+      ],
+      [
+        "${table}",
+        [
+          "work_pad_images",
+          "work_pad_shapes",
+          "work_pad_edges",
+          "work_pad_inks",
+          "work_pad_pins",
+        ],
+      ],
+    ];
+
+    const statements: Array<string> = [];
+    for (const source of sources) {
+      const text = readFileSync(source, "utf8");
+      for (const match of text.matchAll(/`([^`]*)`/g)) {
+        const sql = match[1];
+        if (!/^\s*(?:INSERT|UPDATE|DELETE|REPLACE)\b/i.test(sql.trim())) {
+          continue;
+        }
+        if (sql.includes("${")) {
+          for (const [expression, tables] of dynamic) {
+            if (!sql.includes(expression)) continue;
+            for (const table of tables) {
+              statements.push(sql.split(expression).join(table));
+            }
+          }
+          continue;
+        }
+        statements.push(sql);
+      }
+    }
+    expect(statements.length).toBeGreaterThan(20);
+
+    const unattributed: Array<string> = [];
+    let attributed = 0;
+    for (const sql of statements) {
+      const statement = classifyWorkStatement(sql);
+      if (statement === null) continue;
+      if (!CANVAS_REVISION_TABLES.has(statement.table)) continue;
+      if (workStatementSinkParams(statement, sql) === null) {
+        unattributed.push(sql.replace(/\s+/g, " ").trim().slice(0, 100));
+        continue;
+      }
+      attributed += 1;
+    }
+    expect(unattributed).toEqual([]);
+    // Every table carrying a revision trigger that this source writes at all
+    // is covered; the count is a floor so the scan cannot silently find none.
+    expect(attributed).toBeGreaterThanOrEqual(15);
   });
 });

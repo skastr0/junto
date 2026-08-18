@@ -274,7 +274,10 @@ const statementHead = (sql: string): string =>
  * Admit one statement, or throw. Called by the state engine for every
  * statement it runs through a writer, before the statement executes.
  */
-export const admitWorkStatement = (sql: string): void => {
+export const admitWorkStatement = (
+  sql: string,
+  bindings?: WorkStatementBindings,
+): void => {
   const statement = classifyWorkStatement(sql);
   if (statement === null) return;
   if (statement.role === "derived") {
@@ -292,10 +295,17 @@ export const admitWorkStatement = (sql: string): void => {
   }
   if (statement.role === "journal") {
     scope.journaled = true;
+    announceWorkMutation(statement, sql, bindings);
     return;
   }
-  if (statement.role === "allocation" || statement.role === "cursor") return;
-  if (scope.journaled || scope.unjournaled !== undefined) return;
+  if (statement.role === "allocation" || statement.role === "cursor") {
+    announceWorkMutation(statement, sql, bindings);
+    return;
+  }
+  if (scope.journaled || scope.unjournaled !== undefined) {
+    announceWorkMutation(statement, sql, bindings);
+    return;
+  }
   throw new WorkMutationSeamError(
     `${statement.verb} on the work projection table "${statement.table}" in ` +
       `"${scope.operation}" is not explained by any journal record in this ` +
@@ -350,4 +360,314 @@ export const workMutationScopeForTest = (): {
       journaled: scope.journaled,
       unjournaled: scope.unjournaled,
     };
+};
+
+/* ------------------------------------------------------------------------ *
+ * WHICH SINK A MUTATION TOUCHED
+ *
+ * The in-memory world (`work/world.ts`) keeps every sink's read model resident
+ * and must know which ones a committed transaction disturbed. That question is
+ * answered HERE, at the same chokepoint the admission law runs, because this
+ * is the only place in the process that provably sees every work mutation: the
+ * static gate pins which file may emit the SQL, the admission law pins that a
+ * journal record explains it, and this pins which sink it lands on.
+ *
+ * Two properties make it safe rather than clever:
+ *
+ * 1. IT IS DERIVED FROM THE STATEMENT, NOT DECLARED BY THE CALLER. There is no
+ *    "remember to call markDirty" a write path can forget. A statement is
+ *    attributed by reading its own column list, so a new write path is
+ *    attributed the moment it runs.
+ * 2. UNATTRIBUTABLE MEANS COARSE, NEVER SILENT. If the sink cannot be read out
+ *    of the statement, observers are told `undefined` — "something changed,
+ *    I cannot say where" — which costs a full rebuild and is exactly the
+ *    behaviour the world has without any of this. The failure direction is
+ *    slow, never stale.
+ *
+ * The scan is bounded to {@link CANVAS_REVISION_TABLES}. Those are the tables
+ * whose triggers move `work_canvas_revisions`, which is the freshness witness
+ * every projection cache in this process already keys on. A write that cannot
+ * move that counter cannot change what a cached read returns, so it needs no
+ * announcement — the world inherits the memo's exact correctness envelope
+ * rather than inventing a second one.
+ * ------------------------------------------------------------------------ */
+
+/** Positional or named bindings, exactly as the state engine receives them. */
+export type WorkStatementBindings =
+  | ReadonlyArray<unknown>
+  | Readonly<Record<string, unknown>>;
+
+/**
+ * Every table carrying a `work_canvas_revisions` trigger.
+ *
+ * `tests/work-mutation-seam.test.ts` asserts this is EXACTLY the trigger set
+ * declared by `WORK_PROJECTION_REVISION_TRIGGERS_SQL`, so a table cannot join
+ * or leave the witness without this list moving with it.
+ */
+export const CANVAS_REVISION_TABLES: ReadonlySet<string> = new Set([
+  "work_artifacts",
+  "work_board_posts",
+  "work_board_read_cursors",
+  "work_board_topics",
+  "work_delivery_receipts",
+  "work_events",
+  "work_messages",
+  "work_pad_meta",
+  "work_pad_posts",
+  "work_pad_read_cursors",
+  "work_pad_shapes",
+  "work_proposal_events",
+  "work_proposal_planning",
+  "work_requests",
+  "work_task_dependencies",
+  "work_task_finish",
+  "work_task_messages",
+  "work_task_proposals",
+  "work_tasks",
+]);
+
+/**
+ * The (canvas, node) column pair naming the sink, per table.
+ *
+ * Most tables spell it `canvas_name` / `node_id`. The journal names the item's
+ * home, and a delivery receipt names the sink it was DELIVERED to — which is
+ * the sink whose inbox projection reads it back (`work/repository.ts`
+ * `receiptAcceptedAtMs` keys on `delivered_*`), not the actor that sent it.
+ */
+const SINK_COLUMNS: ReadonlyMap<
+  string,
+  readonly [canvas: string, node: string]
+> = new Map([
+  ["work_events", ["item_canvas_name", "item_node_id"] as const],
+  ["work_proposal_events", ["canvas_name", "node_id"] as const],
+  [
+    "work_delivery_receipts",
+    ["delivered_canvas_name", "delivered_node_id"] as const,
+  ],
+]);
+
+const DEFAULT_SINK_COLUMNS = ["canvas_name", "node_id"] as const;
+
+/** Which positional parameters carry the sink, for one exact statement. */
+type SinkParams = { readonly canvas: number; readonly node: number };
+
+/** Every `?` offset in `sql`, skipping single-quoted string literals. */
+const parameterOffsets = (sql: string): ReadonlyArray<number> => {
+  const offsets: Array<number> = [];
+  let inString = false;
+  for (let index = 0; index < sql.length; index += 1) {
+    const character = sql[index];
+    if (inString) {
+      if (character === "'") inString = false;
+      continue;
+    }
+    if (character === "'") {
+      inString = true;
+      continue;
+    }
+    if (character === "?") offsets.push(index);
+  }
+  return offsets;
+};
+
+/** The balanced `(...)` starting at `open`, exclusive of the parentheses. */
+const balancedGroup = (
+  sql: string,
+  open: number,
+): { readonly body: string; readonly end: number } | null => {
+  let depth = 0;
+  let inString = false;
+  for (let index = open; index < sql.length; index += 1) {
+    const character = sql[index];
+    if (inString) {
+      if (character === "'") inString = false;
+      continue;
+    }
+    if (character === "'") inString = true;
+    else if (character === "(") depth += 1;
+    else if (character === ")") {
+      depth -= 1;
+      if (depth === 0) {
+        return { body: sql.slice(open + 1, index), end: index };
+      }
+    }
+  }
+  return null;
+};
+
+/** Split on top-level commas, ignoring commas inside `(...)` or a string. */
+const splitTopLevel = (body: string): ReadonlyArray<string> => {
+  const parts: Array<string> = [];
+  let depth = 0;
+  let inString = false;
+  let start = 0;
+  for (let index = 0; index < body.length; index += 1) {
+    const character = body[index];
+    if (inString) {
+      if (character === "'") inString = false;
+      continue;
+    }
+    if (character === "'") inString = true;
+    else if (character === "(") depth += 1;
+    else if (character === ")") depth -= 1;
+    else if (character === "," && depth === 0) {
+      parts.push(body.slice(start, index));
+      start = index + 1;
+    }
+  }
+  parts.push(body.slice(start));
+  return parts;
+};
+
+const countParameters = (fragment: string): number =>
+  parameterOffsets(fragment).length;
+
+/**
+ * `INSERT INTO t(a, b, ...) VALUES (?, ?, 'literal', ...)`.
+ *
+ * Walks the VALUES tuple against the column list so a literal in the tuple
+ * (`work_task_messages` writes `'history'` inline) shifts the parameter
+ * indices exactly the way SQLite binds them. Anything after the tuple — an
+ * `ON CONFLICT ... DO UPDATE SET x = ?` tail — binds AFTER these, so it can
+ * never move an index this function returns.
+ */
+const insertSinkParams = (
+  sql: string,
+  columns: readonly [string, string],
+): SinkParams | null => {
+  const into = /\binto\b/i.exec(sql);
+  if (into === null) return null;
+  const columnOpen = sql.indexOf("(", into.index);
+  if (columnOpen < 0) return null;
+  const columnGroup = balancedGroup(sql, columnOpen);
+  if (columnGroup === null) return null;
+  const valuesKeyword = /\bvalues\b/i.exec(sql.slice(columnGroup.end));
+  if (valuesKeyword === undefined || valuesKeyword === null) return null;
+  const valuesOpen = sql.indexOf(
+    "(",
+    columnGroup.end + valuesKeyword.index,
+  );
+  if (valuesOpen < 0) return null;
+  const valuesGroup = balancedGroup(sql, valuesOpen);
+  if (valuesGroup === null) return null;
+
+  const names = splitTopLevel(columnGroup.body).map((name) =>
+    name.trim().replace(/^["`[]|["`\]]$/g, "").toLowerCase(),
+  );
+  const values = splitTopLevel(valuesGroup.body);
+  if (names.length !== values.length) return null;
+
+  const indexes = new Map<string, number>();
+  let parameter = 0;
+  for (let position = 0; position < values.length; position += 1) {
+    const value = values[position].trim();
+    if (value === "?") {
+      indexes.set(names[position], parameter);
+      parameter += 1;
+      continue;
+    }
+    parameter += countParameters(value);
+  }
+  const canvas = indexes.get(columns[0]);
+  const node = indexes.get(columns[1]);
+  if (canvas === undefined || node === undefined) return null;
+  return { canvas, node };
+};
+
+/**
+ * `UPDATE t SET ... WHERE canvas_name = ? AND node_id = ?` and the DELETE of
+ * the same shape. The ordinal of a `?` is how many `?` precede it, which is
+ * exactly how SQLite numbers positional parameters.
+ */
+const predicateSinkParams = (
+  sql: string,
+  columns: readonly [string, string],
+): SinkParams | null => {
+  const offsets = parameterOffsets(sql);
+  const ordinalOf = (column: string): number | undefined => {
+    const match = new RegExp(`\\b${column}\\s*=\\s*\\?`, "i").exec(sql);
+    if (match === null) return undefined;
+    const at = sql.indexOf("?", match.index);
+    const ordinal = offsets.indexOf(at);
+    return ordinal < 0 ? undefined : ordinal;
+  };
+  const canvas = ordinalOf(columns[0]);
+  const node = ordinalOf(columns[1]);
+  if (canvas === undefined || node === undefined) return null;
+  return { canvas, node };
+};
+
+/**
+ * Attribution cache, keyed by exact SQL text — the same key discipline as the
+ * classification cache above and as the engine's prepared-statement cache, so
+ * the key set is the set of SQL literals in the source.
+ */
+const sinkParameters = new Map<string, SinkParams | null>();
+
+/** Which positional parameters name the sink, or `null` if unreadable. */
+export const workStatementSinkParams = (
+  statement: { readonly verb: string; readonly table: string },
+  sql: string,
+): SinkParams | null => {
+  const cached = sinkParameters.get(sql);
+  if (cached !== undefined) return cached;
+  const columns = SINK_COLUMNS.get(statement.table) ?? DEFAULT_SINK_COLUMNS;
+  const parsed =
+    statement.verb === "INSERT" || statement.verb === "REPLACE"
+      ? insertSinkParams(sql, columns)
+      : predicateSinkParams(sql, columns);
+  sinkParameters.set(sql, parsed);
+  return parsed;
+};
+
+/**
+ * Told about every mutation that can move `work_canvas_revisions`.
+ *
+ * `canvasName === undefined` means the sink could not be read out of the
+ * statement: the listener must treat its whole world as stale.
+ */
+export type WorkMutationObserver = (
+  canvasName: string | undefined,
+  nodeId: string | undefined,
+) => void;
+
+const observers = new Set<WorkMutationObserver>();
+
+/**
+ * Subscribe to work mutations. Every observer hears EVERY mutation in the
+ * process, including ones from another state engine (a test database, a tool
+ * engine). That is deliberate: a cross-engine announcement costs the listener
+ * a needless reload, while routing announcements per engine and getting the
+ * routing wrong would cost it a stale read.
+ */
+export const onWorkMutation = (
+  observer: WorkMutationObserver,
+): (() => void) => {
+  observers.add(observer);
+  return () => {
+    observers.delete(observer);
+  };
+};
+
+const announceWorkMutation = (
+  statement: WorkStatement,
+  sql: string,
+  bindings: WorkStatementBindings | undefined,
+): void => {
+  if (observers.size === 0) return;
+  if (!CANVAS_REVISION_TABLES.has(statement.table)) return;
+  let canvasName: string | undefined;
+  let nodeId: string | undefined;
+  if (Array.isArray(bindings)) {
+    const params = workStatementSinkParams(statement, sql);
+    if (params !== null) {
+      const canvas = bindings[params.canvas];
+      const node = bindings[params.node];
+      if (typeof canvas === "string" && typeof node === "string") {
+        canvasName = canvas;
+        nodeId = node;
+      }
+    }
+  }
+  for (const observer of observers) observer(canvasName, nodeId);
 };

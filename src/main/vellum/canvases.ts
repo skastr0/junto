@@ -27,6 +27,7 @@ import {
   readCanvasWorkRevision,
   type CanvasWorkProjection,
 } from "./work/repository";
+import { makeWorkWorld, workWorldEnabled, type WorkWorld } from "./work/world";
 import { decodeStationPortfolioBody } from "./station/portfolio";
 import { selectStationConfiguration } from "./station/configuration-state";
 import {
@@ -771,7 +772,7 @@ type WorkProjectionCacheEntry = {
   };
 };
 
-const makeWorkProjectionCache = () => {
+const makeWorkProjectionCache = (world: WorkWorld | undefined) => {
   const entries = new Map<string, WorkProjectionCacheEntry>();
 
   const touch = (name: string, entry: WorkProjectionCacheEntry): void => {
@@ -805,7 +806,17 @@ const makeWorkProjectionCache = () => {
         // The rebuilt projection carries its own reading of the counter, from
         // this same reader; that is the value the snapshots belong to, so it
         // is the one the memo keys on.
-        const projection = readCanvasWorkProjection(reader, name);
+        //
+        // With the in-memory world this is where a full SQLite rebuild used
+        // to be unavoidable: the memo is whole-canvas, so ANY work fact drops
+        // it and every sink was re-read. The world holds the same snapshots
+        // resident and re-reads only the sinks the mutation seam announced,
+        // at the counter value this memo already read. `VELLUM_COMMAND_WORLD=0`
+        // takes the branch below and restores the pre-world read exactly.
+        const projection =
+          world === undefined
+            ? readCanvasWorkProjection(reader, name)
+            : world.projection(reader, name, workRevision);
         entry = { workRevision: projection.workRevision, projection };
       }
       if (entry.projected?.portfolioIdentity !== portfolioIdentity) {
@@ -820,6 +831,7 @@ const makeWorkProjectionCache = () => {
     /** Stop pinning a canvas's world once the canvas is gone. */
     evict: (name: string): void => {
       entries.delete(name);
+      world?.evict(name);
     },
   };
 };
@@ -1014,7 +1026,14 @@ export const CanvasesLive = Layer.effect(
     // Per-installation, not module-level: a second StateEngine in the same
     // process (tests, recovery) must never see another database's memo.
     const activePortfolio = makeActivePortfolioReader();
-    const workProjections = makeWorkProjectionCache();
+    // The in-memory factory world, per installation for the same reason the
+    // portfolio memo is: a second StateEngine in this process must never be
+    // served another database's sinks.
+    const world = workWorldEnabled ? makeWorkWorld() : undefined;
+    if (world !== undefined) {
+      yield* Effect.addFinalizer(() => Effect.sync(() => world.close()));
+    }
+    const workProjections = makeWorkProjectionCache(world);
 
   const notifyListeners = (
     name: CanvasName | string,

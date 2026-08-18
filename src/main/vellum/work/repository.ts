@@ -2452,33 +2452,80 @@ export type CanvasWorkProjection = {
   readonly workRevision: string;
 };
 
+/**
+ * Which tables make a node a SINK — a node the canvas projection carries a
+ * snapshot for.
+ *
+ * This list is the definition, and both membership queries below are built
+ * from it, so the whole-canvas sweep and the one-node probe can never disagree
+ * about what a sink is. Membership is deliberately "has a projected row",
+ * NOT "has a non-empty snapshot": an archived task leaves `tasks.items` empty
+ * while keeping the node a sink, and `projectWorkSnapshots` treats a present
+ * empty snapshot differently from an absent one (it strips the authorial
+ * lanes). Testing emptiness instead would silently change the document.
+ */
+export const WORK_SINK_MEMBERSHIP_TABLES: ReadonlyArray<string> = [
+  "work_tasks",
+  "work_task_proposals",
+  "work_requests",
+  "work_messages",
+  "work_artifacts",
+  "work_board_topics",
+  "work_pad_meta",
+];
+
+const SINK_MEMBERSHIP_SWEEP_SQL = `
+      ${WORK_SINK_MEMBERSHIP_TABLES.map(
+        (table) => `SELECT node_id FROM ${table} WHERE canvas_name = ?`,
+      ).join("\n      UNION\n      ")}
+      ORDER BY node_id
+    `;
+
+const SINK_MEMBERSHIP_PROBE_SQL = `
+      SELECT (${WORK_SINK_MEMBERSHIP_TABLES.map(
+        (table) =>
+          `EXISTS(SELECT 1 FROM ${table} WHERE canvas_name = ? AND node_id = ?)`,
+      ).join("\n        OR ")}) AS present
+    `;
+
+/**
+ * Is this node a sink of the canvas projection right now?
+ *
+ * Same definition as the sweep, one node at a time: seven PRIMARY KEY-prefix
+ * EXISTS probes in one statement. The in-memory world uses it to decide
+ * whether a node it just re-read still belongs in the projection, without
+ * paying the whole-canvas sweep.
+ */
+export const sinkIsProjected = (
+  reader: StateReader,
+  sink: SinkRefValue,
+): boolean =>
+  (reader.get<{ readonly present: number }>(
+    SINK_MEMBERSHIP_PROBE_SQL,
+    WORK_SINK_MEMBERSHIP_TABLES.flatMap(() => [sink.canvasName, sink.nodeId]),
+  )?.present ?? 0) === 1;
+
+/** One sink's read model, rebuilt from its own rows. */
+export const readSinkSnapshot = (
+  reader: StateReader,
+  sink: SinkRefValue,
+): WorkSnapshotValue => loadSnapshot(reader, sink);
+
 const snapshotsForCanvas = (
   reader: StateReader,
   canvasName: string,
 ): ReadonlyArray<WorkSnapshotValue> => {
   const nodes = reader.all<StateRow & { readonly node_id: string }>(
-    `
-      SELECT node_id FROM work_tasks WHERE canvas_name = ?
-      UNION
-      SELECT node_id FROM work_task_proposals WHERE canvas_name = ?
-      UNION
-      SELECT node_id FROM work_requests WHERE canvas_name = ?
-      UNION
-      SELECT node_id FROM work_messages WHERE canvas_name = ?
-      UNION
-      SELECT node_id FROM work_artifacts WHERE canvas_name = ?
-      UNION
-      SELECT node_id FROM work_board_topics WHERE canvas_name = ?
-      UNION
-      SELECT node_id FROM work_pad_meta WHERE canvas_name = ?
-      ORDER BY node_id
-    `,
-    [canvasName, canvasName, canvasName, canvasName, canvasName, canvasName, canvasName],
+    SINK_MEMBERSHIP_SWEEP_SQL,
+    WORK_SINK_MEMBERSHIP_TABLES.map(() => canvasName),
   );
   return nodes.map(({ node_id }) =>
     loadSnapshot(reader, { canvasName, nodeId: node_id }),
   );
 };
+
+/** The whole-canvas sweep, for the in-memory world's boot hydration. */
+export const readCanvasSinkSnapshots = snapshotsForCanvas;
 
 const normalizeRecentOpsLimit = (limit: number | undefined): number => {
   if (limit === undefined || !Number.isFinite(limit)) {

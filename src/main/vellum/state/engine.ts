@@ -229,7 +229,7 @@ const openStateEngine = (
         ) => {
           // The work plane's single mutation seam. Classification is cached by
           // exact SQL text, so a non-work statement costs one map hit.
-          admitWorkStatement(sql);
+          admitWorkStatement(sql, bindings);
           countStatement();
           return applyBindings(
             prepare(sql),
